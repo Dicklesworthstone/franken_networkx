@@ -4389,7 +4389,7 @@ from franken_networkx._fnx import (
     is_tree as _raw_is_tree,
     maximum_branching as _raw_maximum_branching,
     maximum_spanning_arborescence as _raw_maximum_spanning_arborescence,
-    number_of_spanning_trees,
+    number_of_spanning_trees as _raw_number_of_spanning_trees,
     minimum_spanning_edges as _raw_minimum_spanning_edges,
     minimum_branching as _raw_minimum_branching,
     minimum_spanning_arborescence as _raw_minimum_spanning_arborescence,
@@ -4397,6 +4397,15 @@ from franken_networkx._fnx import (
     partition_spanning_tree as _raw_partition_spanning_tree,
     random_spanning_tree as _raw_random_spanning_tree,
 )
+
+
+def number_of_spanning_trees(G, *, root=None, weight=None):
+    """Return the number of spanning trees in G (Kirchhoff/Tutte).
+
+    Thin wrapper over the Rust binding so the introspectable signature
+    matches nx's ``(G, *, root=None, weight=None)`` (br-r37-c1-cirha).
+    """
+    return _raw_number_of_spanning_trees(G, root=root, weight=weight)
 
 
 def minimum_spanning_edges(G, algorithm="kruskal", weight="weight", keys=True, data=True, ignore_nan=False):
@@ -4472,7 +4481,7 @@ def maximum_spanning_arborescence(G, attr="weight", default=1, preserve_attrs=Fa
     return _raw_maximum_spanning_arborescence(G, attr=attr, default=default, preserve_attrs=preserve_attrs, partition=partition)
 
 
-def random_spanning_tree(G, weight=None, multiplicative=True, seed=None):
+def random_spanning_tree(G, weight=None, *, multiplicative=True, seed=None):
     """br-isokw: ``G`` matches nx."""
     return _raw_random_spanning_tree(G, weight=weight, multiplicative=multiplicative, seed=seed)
 
@@ -4839,7 +4848,7 @@ def bfs_edges(G, source, reverse=False, depth_limit=None, sort_neighbors=None):
         raise NetworkXError(str(exc)) from exc
 
 
-def dfs_edges(G, source=None, depth_limit=None, sort_neighbors=None):
+def dfs_edges(G, source=None, depth_limit=None, *, sort_neighbors=None):
     """Iterate edges in DFS order from source."""
     try:
         if sort_neighbors is not None:
@@ -5126,7 +5135,7 @@ def bfs_tree(G, source, reverse=False, depth_limit=None, sort_neighbors=None):
     return _from_nx_graph(nx_result)
 
 
-def dfs_predecessors(G, source=None, depth_limit=None, sort_neighbors=None):
+def dfs_predecessors(G, source=None, depth_limit=None, *, sort_neighbors=None):
     """Return (node, predecessor) dict from DFS."""
     try:
         if sort_neighbors is not None:
@@ -5139,7 +5148,7 @@ def dfs_predecessors(G, source=None, depth_limit=None, sort_neighbors=None):
         raise NetworkXError(str(exc)) from exc
 
 
-def dfs_successors(G, source=None, depth_limit=None, sort_neighbors=None):
+def dfs_successors(G, source=None, depth_limit=None, *, sort_neighbors=None):
     """Return (node, [successors]) dict from DFS."""
     try:
         if sort_neighbors is not None:
@@ -5154,7 +5163,7 @@ def dfs_successors(G, source=None, depth_limit=None, sort_neighbors=None):
         raise NetworkXError(str(exc)) from exc
 
 
-def dfs_preorder_nodes(G, source=None, depth_limit=None, sort_neighbors=None):
+def dfs_preorder_nodes(G, source=None, depth_limit=None, *, sort_neighbors=None):
     """Yield nodes in DFS preorder from source."""
     try:
         if sort_neighbors is not None:
@@ -5170,7 +5179,7 @@ def dfs_preorder_nodes(G, source=None, depth_limit=None, sort_neighbors=None):
     yield from nodes
 
 
-def dfs_postorder_nodes(G, source=None, depth_limit=None, sort_neighbors=None):
+def dfs_postorder_nodes(G, source=None, depth_limit=None, *, sort_neighbors=None):
     """Yield nodes in DFS postorder from source."""
     try:
         if sort_neighbors is not None:
@@ -5186,7 +5195,7 @@ def dfs_postorder_nodes(G, source=None, depth_limit=None, sort_neighbors=None):
     yield from nodes
 
 
-def dfs_tree(G, source=None, depth_limit=None, sort_neighbors=None):
+def dfs_tree(G, source=None, depth_limit=None, *, sort_neighbors=None):
     """Return DFS tree rooted at source."""
     try:
         if sort_neighbors is not None:
@@ -13303,7 +13312,7 @@ def tutte_graph(create_using=None):
     )
 
 
-def generalized_petersen_graph(n, k, create_using=None):
+def generalized_petersen_graph(n, k, *, create_using=None):
     """Return the generalized Petersen graph G(n, k)."""
     if create_using is None:
         return _rust_generalized_petersen_graph(n, k)
@@ -13388,7 +13397,7 @@ def complete_multipartite_graph(*subset_sizes):
     return graph
 
 
-def gnm_random_graph(n, m, seed=None, directed=False, create_using=None):
+def gnm_random_graph(n, m, seed=None, directed=False, *, create_using=None):
     """Return a G(n,m) random graph with exactly *m* edges.
 
     Parameters
@@ -13690,7 +13699,7 @@ def attribute_mixing_matrix(G, attribute, nodes=None, mapping=None, normalized=T
 # ---------------------------------------------------------------------------
 
 
-def dense_gnm_random_graph(n, m, seed=None, create_using=None):
+def dense_gnm_random_graph(n, m, seed=None, *, create_using=None):
     """Return a dense G(n,m) random graph."""
     rng = _generator_random_state(seed)
     graph = _checked_create_using(
@@ -13724,7 +13733,7 @@ def dense_gnm_random_graph(n, m, seed=None, create_using=None):
             v = u + 1
 
 
-def random_labeled_tree(n, seed=None):
+def random_labeled_tree(n, *, seed=None):
     """Return a uniformly random labeled tree."""
     if n == 0:
         raise NetworkXPointlessConcept("the null graph is not a tree")
@@ -15242,6 +15251,7 @@ def identified_nodes(
     v,
     self_loops=True,
     copy=True,
+    *,
     store_contraction_as="contraction",
 ):
     """Return *G* with nodes *u* and *v* identified (contracted).
@@ -17346,7 +17356,7 @@ def double_edge_swap(G, nswap=1, max_tries=100, seed=None):
     return G
 
 
-def directed_edge_swap(G, nswap=1, max_tries=100, seed=None):
+def directed_edge_swap(G, *, nswap=1, max_tries=100, seed=None):
     """Swap two directed edges while preserving in/out degree sequences.
 
     Select edges (u→v) and (x→y), replace with (u→y) and (x→v).
@@ -19824,7 +19834,7 @@ def floyd_warshall_numpy(G, nodelist=None, weight="weight"):
     return dist
 
 
-def harmonic_diameter(G, sp=None, weight=None):
+def harmonic_diameter(G, sp=None, *, weight=None):
     """Harmonic diameter: n*(n-1) / sum(1/d(u,v)) for all connected pairs.
 
     ``weight`` is accepted for networkx signature parity. When set, the
@@ -25879,7 +25889,7 @@ def join_trees(rooted_trees, *, label_attribute=None, first_label=0):
     return R
 
 
-def random_unlabeled_tree(n, number_of_trees=None, seed=None):
+def random_unlabeled_tree(n, *, number_of_trees=None, seed=None):
     """Uniform random unlabeled tree (via Prüfer + canonical form).
 
     ``number_of_trees`` matches networkx's public signature. When set,
@@ -25895,7 +25905,7 @@ def random_unlabeled_tree(n, number_of_trees=None, seed=None):
     return out
 
 
-def random_unlabeled_rooted_tree(n, number_of_trees=None, seed=None):
+def random_unlabeled_rooted_tree(n, *, number_of_trees=None, seed=None):
     """Return one or more random unlabeled rooted trees."""
     if n == 0:
         raise NetworkXPointlessConcept("the null graph is not a tree")
@@ -25912,7 +25922,7 @@ def random_unlabeled_rooted_tree(n, number_of_trees=None, seed=None):
     return [build_tree() for _ in range(number_of_trees)]
 
 
-def random_unlabeled_rooted_forest(n, q=None, number_of_forests=None, seed=None):
+def random_unlabeled_rooted_forest(n, *, q=None, number_of_forests=None, seed=None):
     """Return one or more random unlabeled rooted forests."""
     rng = _generator_random_state(seed)
     q = n if q is None else q
@@ -26835,7 +26845,7 @@ def edge_subgraph(G, edges):
     )
 
 
-def subgraph_view(G, filter_node=None, filter_edge=None):
+def subgraph_view(G, *, filter_node=None, filter_edge=None):
     """Filtered live view of graph."""
     return _generic_filtered_graph_view(
         G,
@@ -27948,7 +27958,7 @@ def random_lobster(n, p1, p2, seed=None, *, create_using=None, backend=None, **b
     )
 
 
-def random_lobster_graph(n, p1, p2, seed=None, create_using=None, *, backend=None, backend_kwargs=None):
+def random_lobster_graph(n, p1, p2, seed=None, *, create_using=None, backend=None, backend_kwargs=None):
     """Return a random lobster graph."""
     del backend, backend_kwargs  # NetworkX backend dispatch compatibility
     graph = random_lobster(n, p1, p2, seed=seed)
@@ -28105,7 +28115,7 @@ def random_reference(G, niter=1, connectivity=True, seed=None):
     return H
 
 
-def random_labeled_rooted_tree(n, seed=None):
+def random_labeled_rooted_tree(n, *, seed=None):
     """Alias for random_tree."""
     return random_tree(n, seed=seed)
 
@@ -28167,7 +28177,7 @@ def partial_duplication_graph(N, n, p, q, seed=None, *, create_using=None):
     return G
 
 
-def duplication_divergence_graph(n, p, seed=None, create_using=None):
+def duplication_divergence_graph(n, p, seed=None, *, create_using=None):
     """Duplication-divergence graph.
 
     ``create_using`` is accepted for networkx signature parity; networkx
@@ -29936,6 +29946,7 @@ def from_numpy_array(
     parallel_edges=False,
     create_using=None,
     edge_attr="weight",
+    *,
     nodelist=None,
 ):
     """Return a graph from a 2-D NumPy adjacency matrix.
@@ -30793,7 +30804,7 @@ def scale_free_graph(
     )
 
 
-def random_powerlaw_tree(n, gamma=3, seed=None, tries=100, create_using=None, *, backend=None, **backend_kwargs):
+def random_powerlaw_tree(n, gamma=3, seed=None, tries=100, *, create_using=None, backend=None, **backend_kwargs):
     """Return a random tree with a power-law degree distribution."""
     if backend is not None and backend != "networkx":
         raise ImportError(f"'{backend}' backend is not installed.")
@@ -31477,7 +31488,7 @@ def newman_watts_strogatz_graph(n, k, p, seed=None, *, create_using=None, backen
     )
 
 
-def connected_watts_strogatz_graph(n, k, p, tries=100, seed=None, create_using=None):
+def connected_watts_strogatz_graph(n, k, p, tries=100, seed=None, *, create_using=None):
     """Return a connected Watts-Strogatz small-world graph."""
     graph = _rust_connected_watts_strogatz_graph(
         n,
