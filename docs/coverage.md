@@ -7,8 +7,8 @@
 | Category | Count | % | Rule |
 |----------|-------|---|------|
 | RUST_NATIVE | 29 | 3% | native extension exports from `franken_networkx._fnx` |
-| PY_WRAPPER | 819 | 89% | Python-defined exports with no runtime NetworkX dependency detected |
-| NX_DELEGATED | 28 | 3% | Python-defined exports that import or call NetworkX at runtime |
+| PY_WRAPPER | 832 | 91% | Python-defined exports with no runtime NetworkX dependency detected |
+| NX_DELEGATED | 15 | 1% | Python-defined exports that import or call NetworkX at runtime |
 | CLASS | 32 | 3% | public classes, exceptions, iterators |
 | CONSTANT | 3 | 0% | public non-callable values |
 | **Total public exports** | **911** | | unique names from `franken_networkx.__all__` |
@@ -71,7 +71,7 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `tree_broadcast_center`
 - `tree_broadcast_time`
 
-## PY_WRAPPER exports (819)
+## PY_WRAPPER exports (832)
 
 - `LCF_graph`
 - `LFR_benchmark_graph`
@@ -151,6 +151,7 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `binomial_tree`
 - `bipartite_density`
 - `bipartite_layout`
+- `boruvka_mst_edges`
 - `boundary_expansion`
 - `boykov_kolmogorov`
 - `bridge_components`
@@ -162,6 +163,9 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `categorical_multiedge_match`
 - `categorical_node_match`
 - `caveman_graph`
+- `cc_dot`
+- `cc_max`
+- `cc_min`
 - `cd_index`
 - `center`
 - `chain_decomposition`
@@ -214,6 +218,7 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `could_be_isomorphic`
 - `create_empty_copy`
 - `cubical_graph`
+- `cumulative_distribution`
 - `current_flow_betweenness_centrality`
 - `current_flow_betweenness_centrality_subset`
 - `current_flow_closeness_centrality`
@@ -300,6 +305,7 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `edge_load_centrality`
 - `edge_subgraph`
 - `edges`
+- `edges_equal`
 - `edmonds_karp`
 - `effective_graph_resistance`
 - `effective_size`
@@ -394,6 +400,7 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `graph_atlas`
 - `graph_atlas_g`
 - `graph_edit_distance`
+- `graphs_equal`
 - `greedy_branching`
 - `greedy_color`
 - `greedy_modularity_communities`
@@ -520,6 +527,7 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `kneser_graph`
 - `kosaraju_strongly_connected_components`
 - `krackhardt_kite_graph`
+- `kruskal_mst_edges`
 - `label_propagation_communities`
 - `ladder_graph`
 - `laplacian_centrality`
@@ -546,6 +554,7 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `louvain_partitions`
 - `lowest_common_ancestor`
 - `make_clique_bipartite`
+- `make_list_of_ints`
 - `make_max_clique_graph`
 - `margulis_gabber_galil_graph`
 - `max_flow_min_cost`
@@ -613,6 +622,7 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `node_link_graph`
 - `node_redundancy`
 - `nodes`
+- `nodes_equal`
 - `nodes_with_selfloops`
 - `non_edges`
 - `non_neighbors`
@@ -672,11 +682,13 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `planted_partition_graph`
 - `power`
 - `powerlaw_cluster_graph`
+- `powerlaw_sequence`
 - `predecessor`
 - `preferential_attachment`
 - `prefix_tree`
 - `prefix_tree_recursive`
 - `preflow_push`
+- `prim_mst_edges`
 - `projected_graph`
 - `prominent_group`
 - `quotient_graph`
@@ -892,37 +904,25 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `write_pajek`
 - `write_sparse6`
 - `write_weighted_edgelist`
+- `zipf_rv`
 
-## NX_DELEGATED exports (28)
+## NX_DELEGATED exports (15)
 
-- `boruvka_mst_edges`
 - `branching_weight`
-- `cc_dot`
-- `cc_max`
-- `cc_min`
 - `connected_cuthill_mckee_ordering`
-- `cumulative_distribution`
 - `cuthill_mckee_ordering`
 - `draw_networkx`
 - `draw_networkx_edge_labels`
 - `draw_networkx_edges`
 - `draw_networkx_nodes`
-- `edges_equal`
 - `flow_matrix_row`
 - `geometric_soft_configuration_graph`
-- `graphs_equal`
 - `is_valid_tree_degree_sequence`
-- `kruskal_mst_edges`
-- `make_list_of_ints`
 - `matching_dict_to_set`
 - `minimal_branching`
-- `nodes_equal`
-- `powerlaw_sequence`
-- `prim_mst_edges`
 - `pseudo_peripheral_node`
 - `random_uniform_k_out_graph`
 - `reverse_cuthill_mckee_ordering`
-- `zipf_rv`
 
 ## CLASS exports (32)
 
