@@ -4652,19 +4652,23 @@ def all_shortest_paths(G, source, target, weight=None, method="dijkstra"):
 def all_simple_paths(
     G, source, target, cutoff=None, *, backend=None, **backend_kwargs
 ):
-    """Return all simple paths from *source* to *target*.
+    """Yield all simple paths from *source* to *target*.
 
     ``target`` may be a single node OR an iterable of target nodes (list
     / set / etc.) - networkx yields paths whose endpoint is *any* node
     in the iterable, in DFS order over a single traversal. The Rust binding
     only handles a scalar target, so iterable-target inputs delegate to
     NetworkX to preserve the exact emission order.
+
+    Generator function so the returned object is a true generator
+    matching nx's contract (br-r37-c1-682kr).
     """
     _validate_backend_dispatch_keywords("all_simple_paths", backend, backend_kwargs)
     if G.is_multigraph():
-        return _call_networkx_for_parity(
+        yield from _call_networkx_for_parity(
             "all_simple_paths", G, source, target, cutoff=cutoff
         )
+        return
 
     if source not in G:
         raise NodeNotFound(f"source node {source} not in graph")
@@ -4680,15 +4684,17 @@ def all_simple_paths(
         except TypeError:
             pass
         else:
-            return _call_networkx_for_parity(
+            yield from _call_networkx_for_parity(
                 "all_simple_paths", G, source, target, cutoff=cutoff
             )
+            return
         raise NodeNotFound(f"target node {target} not in graph")
 
     # Scalar target — Rust fast path.
     if source == target:
-        return [[source]]
-    return _rust_all_simple_paths(G, source, target, cutoff=cutoff)
+        yield [source]
+        return
+    yield from _rust_all_simple_paths(G, source, target, cutoff=cutoff)
 
 
 # Algorithm functions — graph operators
@@ -4839,21 +4845,31 @@ def _py_dfs_edges(G, source=None, depth_limit=None, sort_neighbors=None):
 
 
 def bfs_edges(G, source, reverse=False, depth_limit=None, sort_neighbors=None):
-    """Iterate edges in BFS order from source."""
+    """Yield edges in BFS order from source.
+
+    Generator function so the returned object is a true generator
+    matching nx's contract (br-r37-c1-682kr).
+    """
     try:
         if sort_neighbors is not None:
-            return list(_py_bfs_edges(G, source, depth_limit, sort_neighbors, reverse=reverse))
-        return _bfs_edges_raw(G, source, reverse=reverse, depth_limit=depth_limit)
+            yield from _py_bfs_edges(G, source, depth_limit, sort_neighbors, reverse=reverse)
+            return
+        yield from _bfs_edges_raw(G, source, reverse=reverse, depth_limit=depth_limit)
     except NodeNotFound as exc:
         raise NetworkXError(str(exc)) from exc
 
 
 def dfs_edges(G, source=None, depth_limit=None, *, sort_neighbors=None):
-    """Iterate edges in DFS order from source."""
+    """Yield edges in DFS order from source.
+
+    Generator function so the returned object is a true generator
+    matching nx's contract (br-r37-c1-682kr).
+    """
     try:
         if sort_neighbors is not None:
-            return list(_py_dfs_edges(G, source, depth_limit, sort_neighbors))
-        return _dfs_edges_raw(G, source=source, depth_limit=depth_limit)
+            yield from _py_dfs_edges(G, source, depth_limit, sort_neighbors)
+            return
+        yield from _dfs_edges_raw(G, source=source, depth_limit=depth_limit)
     except NodeNotFound as exc:
         raise NetworkXError(str(exc)) from exc
 
@@ -5569,7 +5585,7 @@ from franken_networkx._fnx import (
     is_empty,
     non_neighbors,
     all_triangles as _rust_all_triangles,
-    enumerate_all_cliques,
+    enumerate_all_cliques as _raw_enumerate_all_cliques,
     find_cliques_recursive as _raw_find_cliques_recursive,
     chordal_graph_cliques as _raw_chordal_graph_cliques,
     chordal_graph_treewidth as _rust_chordal_graph_treewidth,
@@ -5683,15 +5699,20 @@ def chordal_graph_treewidth(G):
 
 
 def find_cliques(G, nodes=None):
-    """Return all maximal cliques in an undirected graph."""
+    """Yield all maximal cliques in an undirected graph.
+
+    Generator function so the returned object is a true generator
+    matching nx's contract (br-r37-c1-682kr).
+    """
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
 
     if nodes is None:
-        return _raw_find_cliques(G)
+        yield from _raw_find_cliques(G)
+        return
 
     if len(G) == 0:
-        return []
+        return
 
     adjacency = {u: {v for v in G[u] if v != u} for u in G}
     current_clique = nodes[:]
@@ -5702,10 +5723,9 @@ def find_cliques(G, nodes=None):
             raise ValueError(f"The given `nodes` {nodes} do not form a clique")
         candidates &= adjacency[node]
 
-    maximal_cliques = []
     if not candidates:
-        maximal_cliques.append(current_clique[:])
-        return maximal_cliques
+        yield current_clique[:]
+        return
 
     subgraph = candidates.copy()
     stack = []
@@ -5723,7 +5743,7 @@ def find_cliques(G, nodes=None):
                 selected_neighbors = adjacency[selected]
                 subgraph_selected = subgraph & selected_neighbors
                 if not subgraph_selected:
-                    maximal_cliques.append(current_clique[:])
+                    yield current_clique[:]
                 else:
                     candidates_selected = candidates & selected_neighbors
                     if candidates_selected:
@@ -5741,14 +5761,26 @@ def find_cliques(G, nodes=None):
     except IndexError:
         pass
 
-    return maximal_cliques
+
+def enumerate_all_cliques(G):
+    """Yield all cliques (not just maximal) in an undirected graph.
+
+    Generator function so the returned object is a true generator
+    matching nx's contract (br-r37-c1-682kr).
+    """
+    yield from _raw_enumerate_all_cliques(G)
 
 
 def find_cliques_recursive(G, nodes=None):
-    """Return all maximal cliques in an undirected graph."""
+    """Yield all maximal cliques in an undirected graph (recursive).
+
+    Generator function so the returned object is a true generator
+    matching nx's contract (br-r37-c1-682kr).
+    """
     if nodes is None:
-        return _raw_find_cliques_recursive(G)
-    return find_cliques(G, nodes=nodes)
+        yield from _raw_find_cliques_recursive(G)
+        return
+    yield from find_cliques(G, nodes=nodes)
 
 
 def number_of_cliques(G, nodes=None, cliques=None):
@@ -7645,13 +7677,19 @@ def astar_path_length(
 
 
 def shortest_simple_paths(G, source, target, weight=None):
+    """Yield simple paths from source to target in increasing length order.
+
+    Generator function so the returned object is a true generator
+    matching nx's contract (br-r37-c1-682kr).
+    """
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
     if callable(weight):
-        return _call_networkx_for_parity(
+        yield from _call_networkx_for_parity(
             "shortest_simple_paths", G, source, target, weight=weight
         )
-    return _raw_shortest_simple_paths(G, source, target, weight=weight)
+        return
+    yield from _raw_shortest_simple_paths(G, source, target, weight=weight)
 
 # Algorithm functions — approximation
 from franken_networkx._fnx import (
@@ -23708,7 +23746,11 @@ def weisfeiler_lehman_subgraph_hashes(
 
 
 def lexicographical_topological_sort(G, key=None):
-    """Topological sort with lexicographic tie-breaking."""
+    """Yield nodes in lexicographic-tie-broken topological order.
+
+    Generator function so the returned object is a true generator
+    matching nx's contract (br-r37-c1-682kr).
+    """
     import heapq
 
     if key is None:
@@ -23718,10 +23760,9 @@ def lexicographical_topological_sort(G, key=None):
         in_deg[v] = in_deg.get(v, 0) + 1
     heap = [(key(n), n) for n in G.nodes() if in_deg[n] == 0]
     heapq.heapify(heap)
-    result = []
     while heap:
         _, node = heapq.heappop(heap)
-        result.append(node)
+        yield node
         succs = (
             list(G.successors(node))
             if hasattr(G, "successors")
@@ -23731,7 +23772,6 @@ def lexicographical_topological_sort(G, key=None):
             in_deg[s] -= 1
             if in_deg[s] == 0:
                 heapq.heappush(heap, (key(s), s))
-    return result
 
 
 # Structural decomposition (br-3r3, br-6t7)
