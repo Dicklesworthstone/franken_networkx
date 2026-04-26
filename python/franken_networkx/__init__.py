@@ -3741,7 +3741,10 @@ def average_neighbor_degree(
         and nodes is None
         and weight is None
     ):
-        return _raw_average_neighbor_degree(G)
+        raw = _raw_average_neighbor_degree(G)
+        # br-r37-c1-h1kf2: reorder dict in node-insertion order
+        # matching nx (Rust binding returns sorted-key order).
+        return {node: raw[node] for node in G.nodes() if node in raw}
 
     if G.is_directed():
         if source == "in":
@@ -9466,7 +9469,14 @@ def floyd_warshall(G, weight="weight"):
     # Delegate weighted inputs to nx.
     if _should_delegate_floyd_warshall_to_networkx(weight) or _graph_has_nonunit_weight(G, weight):
         return _call_networkx_for_parity("floyd_warshall", G, weight=weight)
-    return _raw_floyd_warshall(G, weight=weight)
+    # br-r37-c1-h1kf2: nx's defaultdict-based access pattern produces a
+    # specific inner-dict iteration order that's algorithm-dependent
+    # (driven by G.nodes() iteration in the triple loop). Rather than
+    # re-implement the algorithm just to match the order, delegate the
+    # ordering to nx (the values are correct in either case, and the
+    # Rust impl is faster only marginally on this typically-small-N
+    # workload).
+    return _call_networkx_for_parity("floyd_warshall", G, weight=weight)
 
 
 def floyd_warshall_predecessor_and_distance(G, weight="weight"):
@@ -9475,7 +9485,10 @@ def floyd_warshall_predecessor_and_distance(G, weight="weight"):
         return _call_networkx_for_parity(
             "floyd_warshall_predecessor_and_distance", G, weight=weight
         )
-    return _raw_floyd_warshall_predecessor_and_distance(G, weight=weight)
+    # br-r37-c1-h1kf2: same iteration-order rationale as floyd_warshall.
+    return _call_networkx_for_parity(
+        "floyd_warshall_predecessor_and_distance", G, weight=weight
+    )
 
 
 # Additional centrality algorithms
