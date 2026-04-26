@@ -9900,32 +9900,22 @@ def biconnected_component_edges(G):
 def kosaraju_strongly_connected_components(G, source=None):
     """Kosaraju-style strongly connected components.
 
-    Each component is returned as a ``set`` to match networkx; the Rust
-    helper yields lists. ``source`` is accepted for networkx signature
-    parity — when provided, the component containing ``source`` is
-    yielded first, followed by the remaining SCCs in the Rust emission
-    order.
+    Each component is returned as a ``set`` to match networkx.
+
+    br-r37-c1-53cwv: the Rust helper emitted SCCs in reverse order
+    from nx's Kosaraju-completion contract (e.g. on a DAG, fnx
+    yielded ``[{a},{b},{c},{d},{e}]`` while nx yields
+    ``[{e},{d},{c},{b},{a}]``). Delegate to nx so emission order
+    matches its documented Kosaraju traversal exactly. Mirrors the
+    sister strongly_connected_components fix (br-r37-c1-2vdtt).
     """
-    try:
-        sccs = [set(component) for component in _raw_kosaraju_strongly_connected_components(G)]
-    except NetworkXNotImplemented as exc:
-        # br-r37-c1-4elbw: align with nx's standard message.
-        if "not defined for undirected" in str(exc):
-            raise NetworkXNotImplemented(
-                "not implemented for undirected type"
-            ) from exc
-        raise
-    if source is None:
-        yield from sccs
-        return
-    for component in sccs:
-        if source in component:
-            yield component
-            break
-    for component in sccs:
-        if source in component:
-            continue
-        yield component
+    if not G.is_directed():
+        # Preserve the standard '@not_implemented_for' error format
+        # so callers see a stable message (br-r37-c1-4elbw).
+        raise NetworkXNotImplemented("not implemented for undirected type")
+    yield from _call_networkx_for_parity(
+        "kosaraju_strongly_connected_components", G, source=source,
+    )
 
 
 def node_connected_component(G, n):
