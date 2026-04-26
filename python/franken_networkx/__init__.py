@@ -7152,7 +7152,14 @@ def all_pairs_dijkstra(G, cutoff=None, weight="weight"):
     raw = _raw_all_pairs_dijkstra(G, weight=weight)
     for node in G.nodes():
         if node in raw:
-            yield (node, tuple(raw[node]))
+            # raw[node] is (dists, paths). br-r37-c1-6rphu: reorder
+            # both dicts by (distance, BFS-from-source tiebreak)
+            # matching nx's per-source iteration contract.
+            dists, paths = raw[node]
+            order = _reorder_by_distance(dict(dists), G=G, source=node)
+            ordered_dists = {k: dists[k] for k in order if k in dists}
+            ordered_paths = {k: paths[k] for k in order if k in paths}
+            yield (node, (ordered_dists, ordered_paths))
 
 # Algorithm functions — strongly connected components
 from franken_networkx._fnx import (
@@ -9378,9 +9385,14 @@ def all_pairs_dijkstra_path(G, cutoff=None, weight="weight"):
     # ``for source, paths in all_pairs_dijkstra_path(G): ...`` matches
     # nx's iteration contract (Rust dict yields in arbitrary order).
     raw = _raw_all_pairs_dijkstra_path(G, weight=weight)
+    raw_lengths = _raw_all_pairs_dijkstra_path_length(G, weight=weight)
     for node in G.nodes():
         if node in raw:
-            yield (node, raw[node])
+            # br-r37-c1-6rphu: reorder inner dict by (distance, BFS).
+            inner = raw[node]
+            dists = dict(raw_lengths.get(node, {}))
+            order = _reorder_by_distance(dists, G=G, source=node)
+            yield (node, {k: inner[k] for k in order if k in inner})
 
 
 def all_pairs_dijkstra_path_length(G, cutoff=None, weight="weight"):
@@ -9404,7 +9416,10 @@ def all_pairs_dijkstra_path_length(G, cutoff=None, weight="weight"):
     raw = _raw_all_pairs_dijkstra_path_length(G, weight=weight)
     for node in G.nodes():
         if node in raw:
-            yield (node, raw[node])
+            # br-r37-c1-6rphu: reorder inner dict by (distance, BFS).
+            inner = dict(raw[node])
+            order = _reorder_by_distance(inner, G=G, source=node)
+            yield (node, {k: inner[k] for k in order})
 
 
 def all_pairs_bellman_ford_path(G, weight="weight"):
@@ -9417,9 +9432,14 @@ def all_pairs_bellman_ford_path(G, weight="weight"):
     # br-r37-c1-sk5be: iterate outer keys in node-insertion order
     # matching nx (Rust dict yields in arbitrary order).
     raw = _raw_all_pairs_bellman_ford_path(G, weight=weight)
+    raw_lengths = _raw_all_pairs_bellman_ford_path_length(G, weight=weight)
     for node in G.nodes():
         if node in raw:
-            yield (node, raw[node])
+            # br-r37-c1-6rphu: reorder inner dict by (distance, BFS).
+            inner = raw[node]
+            dists = dict(raw_lengths.get(node, {}))
+            order = _reorder_by_distance(dists, G=G, source=node)
+            yield (node, {k: inner[k] for k in order if k in inner})
 
 
 def all_pairs_bellman_ford_path_length(G, weight="weight"):
@@ -9434,7 +9454,10 @@ def all_pairs_bellman_ford_path_length(G, weight="weight"):
     raw = _raw_all_pairs_bellman_ford_path_length(G, weight=weight)
     for node in G.nodes():
         if node in raw:
-            yield (node, raw[node])
+            # br-r37-c1-6rphu: reorder inner dict by (distance, BFS).
+            inner = dict(raw[node])
+            order = _reorder_by_distance(inner, G=G, source=node)
+            yield (node, {k: inner[k] for k in order})
 
 
 def floyd_warshall(G, weight="weight"):
