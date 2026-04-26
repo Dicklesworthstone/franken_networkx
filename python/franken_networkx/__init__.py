@@ -21405,15 +21405,35 @@ def _private_aware_degree(raw_degree):
 
 
 def _private_aware_has_node(raw_has_node):
-    def has_node(self, node):
+    def has_node(self, n):
+        # Parameter named ``n`` to match networkx (br-r37-c1-classmethsig).
+        # Drop-in callers writing ``G.has_node(n=x)`` would have hit
+        # TypeError under fnx's earlier ``node`` name.
         if _private_override(self, _PRIVATE_NODE_OVERRIDE) is not _PRIVATE_MISSING:
-            return node in self
-        return raw_has_node(self, node)
+            return n in self
+        return raw_has_node(self, n)
 
     return has_node
 
 
-def _private_aware_has_edge(raw_has_edge):
+def _private_aware_has_edge_simple(raw_has_edge):
+    """has_edge wrapper for non-multigraph types — nx signature is (u, v)."""
+    def has_edge(self, u, v):
+        if not _has_networkx_private_storage(self):
+            return raw_has_edge(self, u, v)
+        if u not in self:
+            return False
+        try:
+            neighbors = self.adj[u]
+        except KeyError:
+            return False
+        return v in neighbors
+
+    return has_edge
+
+
+def _private_aware_has_edge_multi(raw_has_edge):
+    """has_edge wrapper for multigraph types — nx signature is (u, v, key=None)."""
     def has_edge(self, u, v, key=None):
         if not _has_networkx_private_storage(self):
             if key is None:
@@ -21427,11 +21447,18 @@ def _private_aware_has_edge(raw_has_edge):
             return False
         if v not in neighbors:
             return False
-        if self.is_multigraph() and key is not None:
+        if key is not None:
             return key in neighbors[v]
         return True
 
     return has_edge
+
+
+# Keep the legacy alias so any internal call sites still resolve.
+def _private_aware_has_edge(raw_has_edge):
+    """Legacy multi-style wrapper kept for backwards-compat in the Rust
+    binding tables. Prefer the simple/multi variants for class methods."""
+    return _private_aware_has_edge_multi(raw_has_edge)
 
 
 def _private_aware_get_edge_data(raw_get_edge_data):
@@ -21459,8 +21486,14 @@ def _private_aware_get_edge_data(raw_get_edge_data):
                 )
             if args:
                 default = args[0]
-        if not self.has_edge(u, v, key):
-            return default
+        # Graph/DiGraph has_edge takes (u, v) only; only multigraphs
+        # accept the key arg (br-r37-c1-classmethsig).
+        if self.is_multigraph():
+            if not self.has_edge(u, v, key):
+                return default
+        else:
+            if not self.has_edge(u, v):
+                return default
         edge_data = self.adj[u][v]
         if self.is_multigraph() and key is not None:
             return edge_data[key]
@@ -21496,13 +21529,14 @@ def _private_aware_number_of_edges(raw_number_of_edges):
 
 
 def _private_aware_neighbors(raw_neighbors, *, attr_name="adj"):
-    def neighbors(self, node):
+    def neighbors(self, n):
+        # Parameter named ``n`` to match networkx (br-r37-c1-classmethsig).
         if _has_networkx_private_storage(self):
             adjacency = getattr(self, attr_name)
-            if node not in self:
-                raise NetworkXError(f"The node {node} is not in the graph.")
-            return iter(adjacency[node])
-        return raw_neighbors(self, node)
+            if n not in self:
+                raise NetworkXError(f"The node {n} is not in the graph.")
+            return iter(adjacency[n])
+        return raw_neighbors(self, n)
 
     return neighbors
 
@@ -21537,10 +21571,10 @@ Graph.has_node = _private_aware_has_node(_GRAPH_PRIVATE_AWARE_HAS_NODE)
 DiGraph.has_node = _private_aware_has_node(_DIGRAPH_PRIVATE_AWARE_HAS_NODE)
 MultiGraph.has_node = _private_aware_has_node(_MULTIGRAPH_PRIVATE_AWARE_HAS_NODE)
 MultiDiGraph.has_node = _private_aware_has_node(_MULTIDIGRAPH_PRIVATE_AWARE_HAS_NODE)
-Graph.has_edge = _private_aware_has_edge(_GRAPH_PRIVATE_AWARE_HAS_EDGE)
-DiGraph.has_edge = _private_aware_has_edge(_DIGRAPH_PRIVATE_AWARE_HAS_EDGE)
-MultiGraph.has_edge = _private_aware_has_edge(_MULTIGRAPH_PRIVATE_AWARE_HAS_EDGE)
-MultiDiGraph.has_edge = _private_aware_has_edge(_MULTIDIGRAPH_PRIVATE_AWARE_HAS_EDGE)
+Graph.has_edge = _private_aware_has_edge_simple(_GRAPH_PRIVATE_AWARE_HAS_EDGE)
+DiGraph.has_edge = _private_aware_has_edge_simple(_DIGRAPH_PRIVATE_AWARE_HAS_EDGE)
+MultiGraph.has_edge = _private_aware_has_edge_multi(_MULTIGRAPH_PRIVATE_AWARE_HAS_EDGE)
+MultiDiGraph.has_edge = _private_aware_has_edge_multi(_MULTIDIGRAPH_PRIVATE_AWARE_HAS_EDGE)
 Graph.get_edge_data = _private_aware_get_edge_data(_GRAPH_PRIVATE_AWARE_GET_EDGE_DATA)
 DiGraph.get_edge_data = _private_aware_get_edge_data(_DIGRAPH_PRIVATE_AWARE_GET_EDGE_DATA)
 MultiGraph.get_edge_data = _private_aware_get_edge_data(_MULTIGRAPH_PRIVATE_AWARE_GET_EDGE_DATA)
@@ -26639,25 +26673,12 @@ def optimize_edit_paths(
     requires the iterative algorithm and is delegated to networkx.
     """
     if timeout is not None:
-        # Delegate the timeout path to nx so the cutoff actually fires.
-        yield from _call_networkx_for_parity(
-            "optimize_edit_paths",
-            G1,
-            G2,
-            node_match=node_match,
-            edge_match=edge_match,
-            node_subst_cost=node_subst_cost,
-            node_del_cost=node_del_cost,
-            node_ins_cost=node_ins_cost,
-            edge_subst_cost=edge_subst_cost,
-            edge_del_cost=edge_del_cost,
-            edge_ins_cost=edge_ins_cost,
-            upper_bound=upper_bound,
-            strictly_decreasing=strictly_decreasing,
-            roots=roots,
-            timeout=timeout,
+        # Same policy as graph_edit_distance: surface NotImplemented
+        # rather than fall back to nx (locked in
+        # test_graph_edit_directed_mismatch_and_unsupported_modes_do_not_fallback).
+        raise NetworkXNotImplemented(
+            "timeout is not supported by local optimize_edit_paths",
         )
-        return
     if roots is None:
         paths, cost = optimal_edit_paths(
             G1,
@@ -27198,23 +27219,13 @@ def graph_edit_distance(
         return cost
 
     if timeout is not None:
-        # The native exact-paths algorithm runs the full search; nx's
-        # timeout cutoff requires the iterative variant. Delegate.
-        return _call_networkx_for_parity(
-            "graph_edit_distance",
-            G1,
-            G2,
-            node_match=node_match,
-            edge_match=edge_match,
-            node_subst_cost=node_subst_cost,
-            node_del_cost=node_del_cost,
-            node_ins_cost=node_ins_cost,
-            edge_subst_cost=edge_subst_cost,
-            edge_del_cost=edge_del_cost,
-            edge_ins_cost=edge_ins_cost,
-            roots=roots,
-            upper_bound=upper_bound,
-            timeout=timeout,
+        # nx's timeout cutoff requires the iterative variant we don't
+        # ship; project policy is to surface NetworkXNotImplemented
+        # rather than fall back to the upstream Python implementation
+        # (test_graph_edit_directed_mismatch_and_unsupported_modes_do_not_fallback
+        # locks this contract).
+        raise NetworkXNotImplemented(
+            "timeout is not supported by local graph_edit_distance",
         )
     _, cost = _graph_edit_exact_paths_python(
         G1,

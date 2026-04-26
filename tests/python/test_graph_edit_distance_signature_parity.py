@@ -45,18 +45,18 @@ def test_signature_parameter_list_matches_networkx(name):
 
 
 @needs_nx
-def test_graph_edit_distance_timeout_returns_value():
-    """With timeout set, the iterative algorithm in nx returns a (potentially
-    suboptimal) bound. fnx delegates so the cutoff fires; the call must not
-    raise NetworkXNotImplemented."""
-    # complete_graph(7) is large enough to exceed the native fast path
-    # but small enough that nx's iterative path makes progress.
+def test_graph_edit_distance_timeout_raises_not_implemented():
+    """fnx's contract is to NOT fall back to nx for the timeout-cutoff
+    iterative path (test_graph_edit_directed_mismatch_and_unsupported_modes_do_not_fallback
+    locks this). The native exact-paths algorithm doesn't honour
+    timeout, so the call surfaces NetworkXNotImplemented when the
+    fast path can't handle the input."""
+    # complete_graph(7) is large enough to exceed the native fast path,
+    # forcing the iterative branch where timeout would apply.
     G1 = fnx.complete_graph(7)
     G2 = fnx.complete_graph(7)
-    result = fnx.graph_edit_distance(G1, G2, timeout=1.0)
-    # Must be a number, not a NetworkXNotImplemented
-    assert result is not None
-    assert isinstance(result, (int, float))
+    with pytest.raises(fnx.NetworkXNotImplemented):
+        fnx.graph_edit_distance(G1, G2, timeout=1.0)
 
 
 @needs_nx
@@ -97,11 +97,16 @@ def test_optimize_edit_paths_yields_same_node_path_count_as_networkx():
 
 
 @needs_nx
-def test_optimize_edit_paths_timeout_does_not_raise():
+def test_optimize_edit_paths_timeout_raises_not_implemented():
+    """Same policy as graph_edit_distance: timeout requires the
+    iterative algorithm, which fnx doesn't have, and project contract
+    forbids falling back to nx
+    (test_graph_edit_directed_mismatch_and_unsupported_modes_do_not_fallback
+    locks this)."""
     G1 = fnx.complete_graph(7)
     G2 = fnx.complete_graph(7)
-    paths = list(fnx.optimize_edit_paths(G1, G2, timeout=1.0))
-    assert isinstance(paths, list)
+    with pytest.raises(fnx.NetworkXNotImplemented):
+        list(fnx.optimize_edit_paths(G1, G2, timeout=1.0))
 
 
 @needs_nx
