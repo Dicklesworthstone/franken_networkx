@@ -8698,7 +8698,20 @@ def simple_cycles(G, length_bound=None):
 
 
 def find_cycle(G, source=None, orientation=None):
-    if G.is_multigraph() or source is not None or orientation is not None:
+    """Find a cycle reachable from a source node.
+
+    br-r37-c1-2hrfs: on an undirected graph the Rust binding emitted
+    edges in algorithm-canonical orientation, but nx emits edges in
+    DFS-traversal direction (which depends on adj-iteration order).
+    Delegate undirected cases to nx so the cycle's edge tuples and
+    traversal direction match.
+    """
+    if (
+        G.is_multigraph()
+        or source is not None
+        or orientation is not None
+        or not G.is_directed()
+    ):
         return _call_networkx_for_parity(
             "find_cycle",
             G,
