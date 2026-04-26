@@ -3219,6 +3219,13 @@ def bellman_ford_path(G, source, target, weight="weight"):
         raise NetworkXNoPath(
             f"Target {target} cannot be reached from given sources"
         ) from exc
+    except NetworkXUnbounded as exc:
+        # br-r37-c1-wtjho: the Rust impl says "Negative cost cycle
+        # detected."; nx uses "Negative cycle detected." (no "cost").
+        # Re-raise with nx's exact wording for drop-in error matching.
+        if "cost cycle" in str(exc):
+            raise NetworkXUnbounded("Negative cycle detected.") from exc
+        raise
 
 
 def shortest_path(G, source=None, target=None, weight=None, method="dijkstra"):
@@ -27946,7 +27953,9 @@ def goldberg_radzik(G, source, weight="weight"):
             if u in dist:
                 w = data.get(weight, 1)
                 if dist[u] + w < dist.get(v, float("inf")):
-                    raise NetworkXUnbounded("Negative cost cycle detected.")
+                    # br-r37-c1-wtjho: match nx's exact message text
+                    # ("Negative cycle detected.", no "cost").
+                    raise NetworkXUnbounded("Negative cycle detected.")
         return pred, dist
 
     dist = dict(single_source_bellman_ford_path_length(G, source, weight=weight))
