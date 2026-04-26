@@ -7068,9 +7068,23 @@ def strongly_connected_components(G):
 # Algorithm functions — weakly connected components
 from franken_networkx._fnx import (
     weakly_connected_components as _raw_weakly_connected_components,
-    number_weakly_connected_components,
+    number_weakly_connected_components as _raw_number_weakly_connected_components,
     is_weakly_connected as _raw_is_weakly_connected,
 )
+
+
+def number_weakly_connected_components(G):
+    """Number of weakly connected components in directed graph ``G``."""
+    try:
+        return _raw_number_weakly_connected_components(G)
+    except NetworkXNotImplemented as exc:
+        # br-r37-c1-1ewpw: align Rust binding's custom message with
+        # nx's standard '@not_implemented_for' format.
+        if "not defined for undirected" in str(exc):
+            raise NetworkXNotImplemented(
+                "not implemented for undirected type"
+            ) from exc
+        raise
 
 
 def is_weakly_connected(G):
@@ -7092,7 +7106,17 @@ def weakly_connected_components(G):
 
     Matches upstream's ``generator[set]`` contract (franken_networkx-v1nwd).
     """
-    for component in _raw_weakly_connected_components(G):
+    try:
+        components = list(_raw_weakly_connected_components(G))
+    except NetworkXNotImplemented as exc:
+        # br-r37-c1-1ewpw: align Rust binding's custom message with
+        # nx's standard '@not_implemented_for' format.
+        if "not defined for undirected" in str(exc):
+            raise NetworkXNotImplemented(
+                "not implemented for undirected type"
+            ) from exc
+        raise
+    for component in components:
         yield set(component)
 
 # Algorithm functions — link prediction
@@ -7708,6 +7732,17 @@ def topological_generations(G):
         raise NetworkXUnfeasible(
             "Graph contains a cycle or graph changed during iteration"
         ) from exc
+    except NetworkXError as exc:
+        # br-r37-c1-1ewpw: nx uses "Topological sort not defined on
+        # undirected graphs." for both topological_sort AND
+        # topological_generations. The Rust binding uses
+        # "Topological generations not defined ...". Translate so
+        # drop-in code matching the message text works.
+        if "Topological generations not defined" in str(exc):
+            raise NetworkXError(
+                "Topological sort not defined on undirected graphs."
+            ) from exc
+        raise
 
 
 def dag_longest_path(G, weight="weight", default_weight=1, topo_order=None):
@@ -16668,6 +16703,11 @@ def transitive_closure_dag(G, topo_order=None):
     -------
     DiGraph
     """
+    if not G.is_directed():
+        # br-r37-c1-1ewpw: nx's @not_implemented_for('undirected')
+        # raises NetworkXNotImplemented; fnx silently ran. Surface the
+        # standard message for drop-in parity.
+        raise NetworkXNotImplemented("not implemented for undirected type")
     if topo_order is None:
         topo_order = topological_sort(G)
 
