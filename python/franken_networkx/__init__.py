@@ -20721,27 +20721,31 @@ def dfs_labeled_edges(G, source=None, depth_limit=None, *, sort_neighbors=None):
 
 
 def generic_bfs_edges(G, source, neighbors=None, depth_limit=None):
-    """BFS with customizable neighbor function."""
-    if neighbors is not None:
-        if neighbors is None:
-            neighbors = G.neighbors
-        visited = {source}
-        queue = [(source, 0)]
-        while queue:
-            next_queue = []
-            for node, depth in queue:
-                if depth_limit is not None and depth >= depth_limit:
-                    continue
-                nbrs = list(neighbors(node))
-                for nbr in nbrs:
-                    if nbr not in visited:
-                        visited.add(nbr)
-                        yield (node, nbr)
-                        next_queue.append((nbr, depth + 1))
-            queue = next_queue
-        return
-    for edge in _fnx.generic_bfs_edges_rust(G, source, depth_limit):
-        yield edge
+    """BFS with customizable neighbor function.
+
+    br-r37-c1-lnqss: the Rust _fnx.generic_bfs_edges_rust default
+    path yielded edges with adj iteration in a different order than
+    nx (e.g. for adj[a]=[b,c], fnx returned (a,c),(a,b),... while
+    nx yields (a,b),(a,c),...). Route through the Python path
+    always, defaulting neighbors=G.neighbors when None — the
+    Python branch already matches nx exactly.
+    """
+    if neighbors is None:
+        neighbors = G.neighbors
+    visited = {source}
+    queue = [(source, 0)]
+    while queue:
+        next_queue = []
+        for node, depth in queue:
+            if depth_limit is not None and depth >= depth_limit:
+                continue
+            nbrs = list(neighbors(node))
+            for nbr in nbrs:
+                if nbr not in visited:
+                    visited.add(nbr)
+                    yield (node, nbr)
+                    next_queue.append((nbr, depth + 1))
+        queue = next_queue
 
 
 # ---------------------------------------------------------------------------
