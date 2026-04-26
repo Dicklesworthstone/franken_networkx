@@ -552,6 +552,12 @@ class AtlasView(Mapping):
     def __getitem__(self, node):
         return self._atlas()[node]
 
+    def __repr__(self):
+        # br-r37-c1-k147g: nx.AtlasView prints the underlying mapping
+        # (e.g. ``AtlasView({1: {}})``); without an explicit __repr__
+        # Python falls back to ``<franken_networkx.AtlasView object at 0x...>``.
+        return f"AtlasView({dict(self._atlas())!r})"
+
     def copy(self):
         """br-atlascp: nx.AtlasView has a dict-style copy(). nx internals
         like ``to_dict_of_dicts`` do ``nbrdict.copy()`` on the adj value,
@@ -583,6 +589,10 @@ class AdjacencyView(Mapping):
             raise KeyError(node) from exc
         return AtlasView(lambda: self._atlas()[node])
 
+    def __repr__(self):
+        # br-r37-c1-k147g: print the underlying mapping like nx does.
+        return f"AdjacencyView({self.copy()!r})"
+
     def copy(self):
         """br-adjcp: nx.to_dict_of_dicts does ``nbrdict.copy()`` on the
         adjacency value; AdjacencyView (used for MultiGraph inner) had
@@ -610,6 +620,10 @@ class MultiAdjacencyView(Mapping):
         except KeyError as exc:
             raise KeyError(node) from exc
         return AdjacencyView(lambda: self._atlas()[node])
+
+    def __repr__(self):
+        # br-r37-c1-k147g: print the underlying mapping like nx does.
+        return f"MultiAdjacencyView({self.copy()!r})"
 
     def copy(self):
         """br-adjcp: snapshot the multigraph adjacency as a plain
@@ -2158,6 +2172,63 @@ for _node_view_type in (
     _node_view_type.__getitem__ = _make_keystr_preserving_getitem(
         _node_view_type.__getitem__
     )
+
+
+# br-r37-c1-k147g: Rust-bound view classes had reprs that either
+# stringified node IDs (NodeView, DegreeView showed ('0', '1', ...)
+# instead of (0, 1, ...)) or showed an opaque count (EdgeView shows
+# "EdgeView(2 edges)"). Override __repr__ to match nx's contract:
+# repr lists the actual node/edge content with original types.
+def _node_view_repr(self):
+    return f"NodeView({tuple(self)!r})"
+
+
+def _edge_view_repr(self):
+    # Match nx's class-name conventions (br-r37-c1-k147g):
+    # Graph -> EdgeView, DiGraph -> OutEdgeView,
+    # MultiGraph -> MultiEdgeView, MultiDiGraph -> OutMultiEdgeView.
+    cls = type(self).__name__
+    if cls == "_MultiDiGraphEdgeView":
+        label = "OutMultiEdgeView"
+    elif cls == "_MultiGraphEdgeView":
+        label = "MultiEdgeView"
+    elif cls == "_DiGraphEdgeView":
+        label = "OutEdgeView"
+    else:
+        label = "EdgeView"
+    return f"{label}({list(self)!r})"
+
+
+def _degree_view_repr(self):
+    return f"DegreeView({dict(self)!r})"
+
+
+for _nv_cls in (
+    type(Graph().nodes),
+    type(DiGraph().nodes),
+    _MULTIGRAPH_NODE_VIEW_TYPE,
+    _MULTIDIGRAPH_NODE_VIEW_TYPE,
+):
+    _nv_cls.__repr__ = _node_view_repr
+del _nv_cls
+
+for _ev_cls in (
+    type(Graph().edges),
+    _DiGraphEdgeView,
+    _MultiGraphEdgeView,
+    _MultiDiGraphEdgeView,
+):
+    _ev_cls.__repr__ = _edge_view_repr
+del _ev_cls
+
+for _dv_cls in (
+    type(Graph().degree),
+    type(DiGraph().degree),
+    type(MultiGraph().degree),
+    type(MultiDiGraph().degree),
+):
+    _dv_cls.__repr__ = _degree_view_repr
+del _dv_cls
 
 
 # br-nvrsub: nx.NodeView inherits from collections.abc.Set so
