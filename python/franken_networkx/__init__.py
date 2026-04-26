@@ -4959,11 +4959,18 @@ def eulerian_circuit(G, source=None, keys=False):
     ------
     edge
         Edges in the Eulerian circuit.
+
+    Notes
+    -----
+    br-r37-c1-lim0x: Eulerian circuits are non-unique, but nx and the
+    Rust binding produced different traversal directions (e.g. fnx
+    returned (a,b),(b,c),... while nx returned (a,e),(e,d),...).
+    Delegate to nx so the produced edge sequence matches nx's
+    documented Hierholzer-traversal contract exactly.
     """
-    if keys:
-        yield from _call_networkx_for_parity("eulerian_circuit", G, source=source, keys=keys)
-        return
-    yield from _raw_eulerian_circuit(G, source=source)
+    yield from _call_networkx_for_parity(
+        "eulerian_circuit", G, source=source, keys=keys,
+    )
 
 
 def eulerian_path(G, source=None, keys=False):
