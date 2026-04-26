@@ -1341,36 +1341,61 @@ _MULTIDIGRAPH_INIT = MultiDiGraph.__init__
 
 
 def _decode_dict_of_dicts_into(self, data, is_multigraph):
-    """Populate ``self`` from an nx-style dict-of-dicts payload.
+    """Populate ``self`` from an nx-style dict-of-dicts (or dict-of-list)
+    payload.
 
-    Shape:
-    - simple graph: ``{u: {v: attrs_dict, ...}, ...}``
-    - multigraph:   ``{u: {v: {key: attrs_dict, ...}, ...}, ...}``
+    Shapes accepted (matching nx's ``to_networkx_graph``):
+    - simple graph:
+        - ``{u: {v: attrs_dict, ...}, ...}``       (dict-of-dict)
+        - ``{u: [v1, v2, ...], ...}``              (dict-of-list)
+    - multigraph:
+        - ``{u: {v: {key: attrs_dict, ...}, ...}, ...}``  (dict-of-dict-of-dict)
+        - ``{u: [v1, v2, ...], ...}``                     (dict-of-list)
 
     Mirrors ``nx.convert.from_dict_of_dicts`` semantics: a multigraph
     payload that has an empty inner ``{}`` does NOT add v as a node
     (add_edge is the only path that adds v); a simple-graph empty
     inner does add v (via add_edge).
+
+    br-r37-c1-9m2vs: dict-of-list input was previously skipped via
+    ``if not isinstance(nbrs, dict): continue``, silently dropping
+    every edge. Now we also accept any non-dict iterable of neighbour
+    nodes.
     """
     for u, nbrs in data.items():
         self.add_node(u)
-        if not isinstance(nbrs, dict):
+        if isinstance(nbrs, dict):
+            for v, inner in nbrs.items():
+                if is_multigraph:
+                    # Multigraph: inner is {key: attrs_dict}; only add v
+                    # (and the edge) when at least one key is present.
+                    if isinstance(inner, dict) and inner:
+                        for key, attrs in inner.items():
+                            self.add_edge(u, v, key=key)
+                            # Apply attrs without splatting (avoids 'key' collision).
+                            self[u][v][key].update(dict(attrs) if isinstance(attrs, dict) else {})
+                    # else: empty inner — do NOT add v (matches nx)
+                else:
+                    # Simple graph: inner is the edge-attr dict.
+                    self.add_edge(u, v)
+                    if isinstance(inner, dict):
+                        self[u][v].update(dict(inner))
             continue
-        for v, inner in nbrs.items():
+        # Non-dict value: treat as iterable of neighbour nodes
+        # (nx.from_dict_of_lists semantic). Strings/bytes are valid
+        # nodes themselves, so we don't iterate them character-by-
+        # character.
+        if isinstance(nbrs, (str, bytes)):
+            continue
+        try:
+            iterable = iter(nbrs)
+        except TypeError:
+            continue
+        for v in iterable:
             if is_multigraph:
-                # Multigraph: inner is {key: attrs_dict}; only add v
-                # (and the edge) when at least one key is present.
-                if isinstance(inner, dict) and inner:
-                    for key, attrs in inner.items():
-                        self.add_edge(u, v, key=key)
-                        # Apply attrs without splatting (avoids 'key' collision).
-                        self[u][v][key].update(dict(attrs) if isinstance(attrs, dict) else {})
-                # else: empty inner — do NOT add v (matches nx)
-            else:
-                # Simple graph: inner is the edge-attr dict.
                 self.add_edge(u, v)
-                if isinstance(inner, dict):
-                    self[u][v].update(dict(inner))
+            else:
+                self.add_edge(u, v)
 
 
 def _copy_constructor_graph_source(self, source, *, is_multigraph, attr):
