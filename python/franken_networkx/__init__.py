@@ -4754,8 +4754,18 @@ from franken_networkx._fnx import (
     bfs_predecessors as _bfs_predecessors_raw,
     bfs_successors as _bfs_successors_raw,
     bfs_tree as _bfs_tree_raw,
-    descendants_at_distance,
+    descendants_at_distance as _raw_descendants_at_distance,
 )
+
+
+def descendants_at_distance(G, source, distance):
+    """Return all nodes at given ``distance`` from ``source`` in ``G``.
+
+    Returns a mutable ``set`` matching nx's contract (br-r37-c1-ohxpp).
+    The Rust binding returned an immutable ``frozenset``, breaking
+    drop-in code that calls ``.add()`` / ``.remove()`` on the result.
+    """
+    return set(_raw_descendants_at_distance(G, source, distance))
 
 # Algorithm functions — traversal (DFS) — wrapped for sort_neighbors support
 from franken_networkx._fnx import (
@@ -7787,17 +7797,21 @@ def node_boundary(G, nbunch1, nbunch2=None):
 
 
 def edge_boundary(G, nbunch1, nbunch2=None, data=False, keys=False, default=None):
-    """Return edges with at least one endpoint in ``nbunch1``.
+    """Yield edges with at least one endpoint in ``nbunch1``.
 
     br-edgebounddata: nx.edge_boundary supports ``data``, ``keys``, and
     ``default`` kwargs to annotate each emitted edge with attribute
     data — fnx previously only accepted (nbunch1, nbunch2). Delegate
     to nx when any of the data/keys/default switches are non-default
     so the emitted tuples match exactly.
+
+    Generator function so the returned object is a true generator
+    matching nx's contract (br-r37-c1-ohxpp).
     """
     if data is False and not keys and default is None:
-        return _raw_edge_boundary(G, _coerce_nbunch(nbunch1), _coerce_nbunch(nbunch2))
-    return _call_networkx_for_parity(
+        yield from _raw_edge_boundary(G, _coerce_nbunch(nbunch1), _coerce_nbunch(nbunch2))
+        return
+    yield from _call_networkx_for_parity(
         "edge_boundary",
         G,
         nbunch1,

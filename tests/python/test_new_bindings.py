@@ -581,18 +581,19 @@ class TestIsolates:
 
 class TestBoundary:
     def test_edge_boundary(self, path4):
-        edges = fnx.edge_boundary(path4, [0, 1])
+        # edge_boundary returns a generator (br-r37-c1-ohxpp); materialise.
+        edges = list(fnx.edge_boundary(path4, [0, 1]))
         # Edges crossing from {0,1} to {2,3}: should be (1,2)
         assert len(edges) == 1
         assert set(edges[0]) == {1, 2}
 
     def test_edge_boundary_with_nbunch2(self, path4):
-        edges = fnx.edge_boundary(path4, [0, 1], [2])
+        edges = list(fnx.edge_boundary(path4, [0, 1], [2]))
         assert len(edges) == 1
         assert set(edges[0]) == {1, 2}
 
     def test_edge_boundary_empty(self, triangle):
-        edges = fnx.edge_boundary(triangle, [0, 1, 2])
+        edges = list(fnx.edge_boundary(triangle, [0, 1, 2]))
         assert len(edges) == 0
 
     def test_node_boundary(self, path4):
