@@ -27697,8 +27697,15 @@ def random_shell_graph(constructor, seed=None, *, create_using=None, backend=Non
     return graph
 
 
-def random_clustered_graph(joint_degree_sequence, seed=None, create_using=None):
-    """Random graph from joint degree sequence."""
+def random_clustered_graph(joint_degree_sequence, create_using=None, seed=None):
+    """Random graph from joint degree sequence.
+
+    Positional order matches networkx: ``(seq, create_using, seed)``.
+    Earlier fnx had ``(seq, seed, create_using)`` so a positional call
+    like ``random_clustered_graph(seq, MultiGraph, 42)`` swapped the
+    semantics of the second and third args (the seed was interpreted
+    as create_using and vice versa).
+    """
     joint_degree_sequence = list(joint_degree_sequence)
     graph = _checked_create_using(create_using, directed=False, default=MultiGraph)
     graph.add_nodes_from(range(len(joint_degree_sequence)))
