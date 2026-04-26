@@ -7,8 +7,8 @@
 | Category | Count | % | Rule |
 |----------|-------|---|------|
 | RUST_NATIVE | 29 | 3% | native extension exports from `franken_networkx._fnx` |
-| PY_WRAPPER | 843 | 92% | Python-defined exports with no runtime NetworkX dependency detected |
-| NX_DELEGATED | 4 | 0% | Python-defined exports that import or call NetworkX at runtime |
+| PY_WRAPPER | 847 | 92% | Python-defined exports with no runtime NetworkX dependency detected |
+| NX_DELEGATED | 0 | 0% | Python-defined exports that import or call NetworkX at runtime |
 | CLASS | 32 | 3% | public classes, exceptions, iterators |
 | CONSTANT | 3 | 0% | public non-callable values |
 | **Total public exports** | **911** | | unique names from `franken_networkx.__all__` |
@@ -28,11 +28,10 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 | `franken_networkx` | 782 |
 | `franken_networkx.readwrite` | 35 |
 | `franken_networkx._fnx` | 29 |
+| `franken_networkx.drawing.nx_pylab` | 21 |
 | `franken_networkx.drawing.layout` | 15 |
-| `franken_networkx.drawing.nx_pylab` | 15 |
 | `networkx.exception` | 12 |
 | `networkx.algorithms.isomorphism.matchhelpers` | 9 |
-| `networkx.drawing.nx_pylab` | 6 |
 | `networkx.utils.heaps` | 3 |
 | `builtins` | 2 |
 | `networkx.algorithms.community.quality` | 1 |
@@ -71,7 +70,7 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `tree_broadcast_center`
 - `tree_broadcast_time`
 
-## PY_WRAPPER exports (843)
+## PY_WRAPPER exports (847)
 
 - `LCF_graph`
 - `LFR_benchmark_graph`
@@ -285,7 +284,11 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `draw_circular`
 - `draw_forceatlas2`
 - `draw_kamada_kawai`
+- `draw_networkx`
+- `draw_networkx_edge_labels`
+- `draw_networkx_edges`
 - `draw_networkx_labels`
+- `draw_networkx_nodes`
 - `draw_planar`
 - `draw_random`
 - `draw_shell`
@@ -917,12 +920,8 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `write_weighted_edgelist`
 - `zipf_rv`
 
-## NX_DELEGATED exports (4)
+## NX_DELEGATED exports (0)
 
-- `draw_networkx`
-- `draw_networkx_edge_labels`
-- `draw_networkx_edges`
-- `draw_networkx_nodes`
 
 ## CLASS exports (32)
 

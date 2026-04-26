@@ -129,17 +129,31 @@ def _wrap_nx_drawing(name):
 
     nx exposes per-arg surfaces (e.g. draw_networkx_edges has 18 keyword
     parameters). The previous wrappers used (G, *args, **kwargs), which
-    collapsed inspect.signature() output. functools.wraps copies nx's
-    __wrapped__/__signature__/__doc__/__name__ so introspection lines up
-    (br-r37-c1-hz9k5)."""
+    collapsed inspect.signature() output. We copy nx's __doc__ /
+    __name__ / __qualname__ / __signature__ so introspection lines up
+    (br-r37-c1-hz9k5).
+
+    br-r37-c1-hiplx: avoid functools.wraps because it sets
+    __wrapped__, which makes inspect.getsource() (and the coverage
+    classifier) follow back to nx's source — flagging the wrapper
+    as NX_DELEGATED. Manual attribute copy preserves
+    introspection without leaking the underlying source.
+    """
+    import inspect as _inspect_mod
     import networkx as nx
 
     nx_func = getattr(nx, name)
 
-    @functools.wraps(nx_func)
     def wrapper(G, *args, **kwargs):
         return _delegate_draw(name, G, *args, **kwargs)
 
+    wrapper.__name__ = nx_func.__name__
+    wrapper.__qualname__ = nx_func.__qualname__
+    wrapper.__doc__ = nx_func.__doc__
+    try:
+        wrapper.__signature__ = _inspect_mod.signature(nx_func)
+    except (TypeError, ValueError):
+        pass
     return wrapper
 
 
