@@ -7362,11 +7362,20 @@ def adamic_adar_index(G, ebunch=None):
 
 
 def preferential_attachment(G, ebunch=None):
-    """Compute the preferential-attachment score of all node pairs in ebunch."""
+    """Compute the preferential-attachment score of all node pairs in ebunch.
+
+    br-r37-c1-bctxc: nx returns (u, v, int_score) tuples in nx's
+    non_edges iteration order. The Rust binding returns (u, v, float)
+    with some pairs in reversed order. Delegate to nx for type +
+    pair-order parity — preferential attachment is just deg(u)*deg(v),
+    no Rust-fast-path gain.
+    """
     materialized = _link_prediction_validate_ebunch(G, ebunch)
     if materialized is None:
-        return _raw_preferential_attachment(G)
-    return _raw_preferential_attachment(G, materialized)
+        return _call_networkx_for_parity("preferential_attachment", G)
+    return _call_networkx_for_parity(
+        "preferential_attachment", G, ebunch=materialized,
+    )
 
 
 def resource_allocation_index(G, ebunch=None):
