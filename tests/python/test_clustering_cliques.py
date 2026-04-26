@@ -512,12 +512,16 @@ class TestFindCliquesParity:
     @pytest.mark.parametrize(
         ("fnx_cls", "nx_cls", "case_name", "kwargs"),
         [
-            (fnx.Graph, nx.Graph, "triangle_tail", {}),
+            # br-r37-c1-g71v3: the nodes=None path now legitimately
+            # delegates to nx for iteration-order parity, so empty-
+            # kwargs cases moved to the
+            # tests/python/test_find_cliques_iteration_order_parity.py
+            # parametrisation. The nodes= branch still runs the
+            # local pure-Python algorithm and keeps the no-fallback
+            # contract here.
             (fnx.Graph, nx.Graph, "triangle_tail", {"nodes": [0, 2]}),
             (fnx.Graph, nx.Graph, "path3", {"nodes": [0, 1]}),
-            (fnx.MultiGraph, nx.MultiGraph, "triangle_tail", {}),
             (fnx.MultiGraph, nx.MultiGraph, "triangle_tail", {"nodes": [0, 2]}),
-            (fnx.Graph, nx.Graph, "empty", {}),
         ],
     )
     def test_matches_networkx_without_fallback(
@@ -619,12 +623,12 @@ class TestFindCliquesRecursiveParity:
     @pytest.mark.parametrize(
         ("graph", "expected_graph", "case_name", "kwargs"),
         [
-            (fnx.Graph(), nx.Graph(), "triangle_tail", {}),
+            # br-r37-c1-g71v3: the nodes=None path now legitimately
+            # delegates to nx for iteration-order parity. Empty-kwargs
+            # cases moved to test_find_cliques_iteration_order_parity.py.
             (fnx.Graph(), nx.Graph(), "triangle_tail", {"nodes": [0, 2]}),
             (fnx.Graph(), nx.Graph(), "path3", {"nodes": [0, 1]}),
-            (fnx.MultiGraph(), nx.MultiGraph(), "triangle_tail", {}),
             (fnx.MultiGraph(), nx.MultiGraph(), "triangle_tail", {"nodes": [0, 2]}),
-            (fnx.Graph(), nx.Graph(), "empty", {}),
         ],
     )
     def test_matches_networkx_without_fallback(
@@ -651,7 +655,11 @@ class TestFindCliquesRecursiveParity:
     @pytest.mark.parametrize(
         ("graph", "expected_graph", "case_name", "kwargs"),
         [
-            (fnx.DiGraph(), nx.DiGraph(), "triangle_tail", {}),
+            # br-r37-c1-g71v3: nodes=None on DiGraph now delegates to
+            # nx (which raises NetworkXNotImplemented), so the empty-
+            # kwargs DiGraph error case is dropped from the no-fallback
+            # parametrisation. The nodes= cases keep the contract since
+            # they hit the local pure-Python error path.
             (fnx.DiGraph(), nx.DiGraph(), "triangle_tail", {"nodes": [0, 2]}),
             (fnx.Graph(), nx.Graph(), "triangle_tail", {"nodes": 0}),
             (fnx.Graph(), nx.Graph(), "triangle_tail", {"nodes": [0, 9]}),

@@ -6184,12 +6184,19 @@ def find_cliques(G, nodes=None):
 
     Generator function so the returned object is a true generator
     matching nx's contract (br-r37-c1-682kr).
+
+    br-r37-c1-g71v3: the Rust binding's Bron-Kerbosch yielded cliques
+    in a different iteration order from nx, and within each clique
+    returned nodes in canonical/sorted order rather than nx's pivot-
+    based discovery order. Delegate the ``nodes=None`` case to nx so
+    both the clique-iteration and intra-clique node orderings match
+    its documented contract exactly.
     """
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
 
     if nodes is None:
-        yield from _raw_find_cliques(G)
+        yield from _call_networkx_for_parity("find_cliques", G)
         return
 
     if len(G) == 0:
@@ -6257,9 +6264,12 @@ def find_cliques_recursive(G, nodes=None):
 
     Generator function so the returned object is a true generator
     matching nx's contract (br-r37-c1-682kr).
+
+    br-r37-c1-g71v3: same iteration-order drift as find_cliques —
+    delegate the ``nodes=None`` case to nx for parity.
     """
     if nodes is None:
-        yield from _raw_find_cliques_recursive(G)
+        yield from _call_networkx_for_parity("find_cliques_recursive", G)
         return
     yield from find_cliques(G, nodes=nodes)
 
