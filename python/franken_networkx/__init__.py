@@ -28275,9 +28275,17 @@ def is_regular_expander(G, *, epsilon=0):
     return bool(abs(lambda2) < 2 * np.sqrt(degree - 1) + epsilon)
 
 
-def maybe_regular_expander(n, d, seed=None):
-    """Attempt to build a d-regular expander."""
-    return maybe_regular_expander_graph(n, d, seed=seed)
+def maybe_regular_expander(n, d, *, create_using=None, max_tries=100, seed=None):
+    """Attempt to build a d-regular expander.
+
+    Matches networkx's signature exactly:
+    ``maybe_regular_expander(n, d, *, create_using=None, max_tries=100,
+    seed=None)``. Earlier fnx had only ``(n, d, seed=None)``, breaking
+    drop-in callers passing ``create_using=`` or ``max_tries=``.
+    """
+    return maybe_regular_expander_graph(
+        n, d, create_using=create_using, max_tries=max_tries, seed=seed,
+    )
 
 
 def maybe_regular_expander_graph(n, d, *, create_using=None, max_tries=100, seed=None):
