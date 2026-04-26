@@ -6959,6 +6959,12 @@ def difference(G, H):
     # present, silently diverging on any real-world misuse.
     if set(G.nodes()) != set(H.nodes()):
         raise NetworkXError("Node sets of graphs not equal")
+    if G.is_multigraph():
+        # br-r37-c1-6sgls: the Rust _raw_difference collapses parallel
+        # edges to a simple-graph difference. nx's MultiGraph contract
+        # treats each (u, v, key) as distinct. Delegate to nx so
+        # parallel edges are preserved across the difference.
+        return _multigraph_diff_via_parity("difference", G, H)
     cls = _operator_output_class(G, H)
     raw = _raw_difference(G, H)
     return _rebuild_operator_output(raw, cls)
@@ -6969,9 +6975,27 @@ def symmetric_difference(G, H):
     # br-diffnodes: same precondition as ``difference``.
     if set(G.nodes()) != set(H.nodes()):
         raise NetworkXError("Node sets of graphs not equal")
+    if G.is_multigraph():
+        # br-r37-c1-6sgls: same as difference — delegate MultiGraph
+        # case to nx so parallel edges aren't collapsed.
+        return _multigraph_diff_via_parity("symmetric_difference", G, H)
     cls = _operator_output_class(G, H)
     raw = _raw_symmetric_difference(G, H)
     return _rebuild_operator_output(raw, cls)
+
+
+def _multigraph_diff_via_parity(name, G, H):
+    """Delegate the MultiGraph variant of difference /
+    symmetric_difference to nx (br-r37-c1-6sgls)."""
+    import networkx as _nx_mod
+    from franken_networkx.readwrite import _from_nx_graph
+    nx_op = getattr(_nx_mod, name)
+    nx_result = nx_op(
+        _networkx_graph_for_parity(G),
+        _networkx_graph_for_parity(H),
+    )
+    cls = _operator_output_class(G, H)
+    return _from_nx_graph(nx_result, create_using=cls())
 
 
 def _union_with_rename_via_parity(G, H, rename):
