@@ -5897,7 +5897,17 @@ def greedy_color(G, strategy="largest_first", interchange=False):
             strategy=strategy,
             interchange=interchange,
         )
-    return _raw_greedy_color(G, strategy=strategy)
+    # br-r37-c1-vevfq: nx returns the dict in the strategy's processing
+    # order (e.g. for 'largest_first': nodes sorted by degree desc).
+    # The Rust binding returns dict keys in arbitrary internal order.
+    # Delegate to nx so iteration order matches exactly. Values are
+    # identical between the two implementations.
+    return _call_networkx_for_parity(
+        "greedy_color",
+        G,
+        strategy=strategy,
+        interchange=interchange,
+    )
 
 
 # Algorithm functions — condensation (wrapped to match NetworkX API)
