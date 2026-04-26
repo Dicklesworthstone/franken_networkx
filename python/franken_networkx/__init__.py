@@ -20491,9 +20491,16 @@ def trophic_levels(G, weight="weight"):
 
     Default ``weight='weight'`` matches nx (br-r37-c1-rygbm). Earlier
     fnx default ``weight=None`` silently dropped edge weights.
+
+    br-r37-c1-jk4ym: nx raises NetworkXError("no basal nodes") on
+    an empty DiGraph; fnx returns {} for that edge case (no levels
+    to compute). This is the project-wide convention for vacuous
+    inputs.
     """
     if not G.is_directed():
         raise NetworkXNotImplemented("not implemented for undirected type")
+    if G.number_of_nodes() == 0:
+        return {}
     return _call_networkx_for_parity("trophic_levels", G, weight=weight)
 
 
