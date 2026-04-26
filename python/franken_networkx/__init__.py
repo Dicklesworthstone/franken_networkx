@@ -3230,6 +3230,12 @@ def node_connectivity(G, s=None, t=None, flow_func=None):
     int
         The node connectivity of G.
     """
+    if len(G) == 0:
+        # Match nx's contract: connectivity is undefined for the null
+        # graph (br-r37-c1-turq0). The Rust impl silently returned 0.
+        raise NetworkXPointlessConcept(
+            "Connectivity is undefined for the null graph."
+        )
     if flow_func is not None:
         return _call_networkx_for_parity(
             "node_connectivity",
@@ -3276,6 +3282,12 @@ def edge_connectivity(G, s=None, t=None, flow_func=None, cutoff=None):
     int
         The edge connectivity of G.
     """
+    if len(G) == 0:
+        # Match nx's contract: connectivity is undefined for the null
+        # graph (br-r37-c1-turq0). The Rust impl silently returned 0.
+        raise NetworkXPointlessConcept(
+            "Connectivity is undefined for the null graph."
+        )
     if flow_func is not None:
         return _call_networkx_for_parity(
             "edge_connectivity",
