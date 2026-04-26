@@ -24394,32 +24394,68 @@ def random_geometric_graph(n, radius, dim=2, pos=None, p=2, seed=None, *, pos_na
     return G
 
 
-def soft_random_geometric_graph(n, radius, dim=2, pos=None, p_dist=None, seed=None):
-    """Soft random geometric graph: edge probability decreases with distance."""
+def _minkowski_distance(p1, p2, p):
+    """Minkowski p-norm distance between two coordinate tuples."""
+    if p == float("inf"):
+        return max(abs(a - b) for a, b in zip(p1, p2))
+    if p == 2:
+        # Common case — keep a fast/clear codepath.
+        return math.sqrt(sum((a - b) ** 2 for a, b in zip(p1, p2)))
+    return sum(abs(a - b) ** p for a, b in zip(p1, p2)) ** (1.0 / p)
+
+
+def soft_random_geometric_graph(
+    n,
+    radius,
+    dim=2,
+    pos=None,
+    p=2,
+    p_dist=None,
+    seed=None,
+    *,
+    pos_name="pos",
+):
+    """Soft random geometric graph: edge probability decreases with distance.
+
+    Matches networkx signature including ``p`` (Minkowski exponent) and
+    keyword-only ``pos_name`` (br-r37-c1-geomgenkw).
+    """
     import random as _random
-    import math
 
     rng = _random.Random(seed)
     G = Graph()
     positions = {}
+    if pos is None:
+        pos = {i: tuple(rng.random() for _ in range(dim)) for i in range(n)}
     for i in range(n):
-        positions[i] = tuple(rng.random() for _ in range(dim))
-        G.add_node(i, pos=positions[i])
+        positions[i] = tuple(pos[i])
+        G.add_node(i, **{pos_name: positions[i]})
     for i in range(n):
         for j in range(i + 1, n):
-            d = math.sqrt(
-                sum((positions[i][k] - positions[j][k]) ** 2 for k in range(dim))
-            )
+            d = _minkowski_distance(positions[i], positions[j], p)
             prob = max(0, 1 - d / radius) if p_dist is None else p_dist(d)
             if rng.random() < prob:
                 G.add_edge(i, j)
     return G
 
 
-def waxman_graph(n, beta=0.4, alpha=0.1, L=None, domain=(0, 0, 1, 1), seed=None):
-    """Waxman random graph: P(edge) = beta * exp(-d / (alpha * L))."""
+def waxman_graph(
+    n,
+    beta=0.4,
+    alpha=0.1,
+    L=None,
+    domain=(0, 0, 1, 1),
+    metric=None,
+    seed=None,
+    *,
+    pos_name="pos",
+):
+    """Waxman random graph: P(edge) = beta * exp(-d / (alpha * L)).
+
+    Matches networkx signature including ``metric`` (custom distance
+    callable) and keyword-only ``pos_name`` (br-r37-c1-geomgenkw).
+    """
     import random as _random
-    import math
 
     rng = _random.Random(seed)
     G = Graph()
@@ -24427,61 +24463,118 @@ def waxman_graph(n, beta=0.4, alpha=0.1, L=None, domain=(0, 0, 1, 1), seed=None)
     x0, y0, x1, y1 = domain
     for i in range(n):
         positions[i] = (rng.uniform(x0, x1), rng.uniform(y0, y1))
-        G.add_node(i, pos=positions[i])
+        G.add_node(i, **{pos_name: positions[i]})
     if L is None:
         L = math.sqrt((x1 - x0) ** 2 + (y1 - y0) ** 2)
+
+    def distance(a, b):
+        return metric(a, b) if metric is not None else _minkowski_distance(a, b, 2)
+
     for i in range(n):
         for j in range(i + 1, n):
-            d = math.sqrt(
-                sum((positions[i][k] - positions[j][k]) ** 2 for k in range(2))
-            )
+            d = distance(positions[i], positions[j])
             prob = beta * math.exp(-d / (alpha * L))
             if rng.random() < prob:
                 G.add_edge(i, j)
     return G
 
 
-def geographical_threshold_graph(n, theta, dim=2, pos=None, weight=None, seed=None):
-    """Geographical threshold graph: edge if weight product / dist > theta."""
+def geographical_threshold_graph(
+    n,
+    theta,
+    dim=2,
+    pos=None,
+    weight=None,
+    metric=None,
+    p_dist=None,
+    seed=None,
+    *,
+    pos_name="pos",
+    weight_name="weight",
+):
+    """Geographical threshold graph.
+
+    Edge between u and v iff
+    ``(weight[u] + weight[v]) * p_dist(d) >= theta`` (with p_dist defaulting
+    to 1/d when None — matching nx). Includes ``metric``, ``p_dist``,
+    ``pos_name``, ``weight_name`` from nx's signature
+    (br-r37-c1-geomgenkw).
+    """
     import random as _random
-    import math
 
     rng = _random.Random(seed)
     G = Graph()
     positions = {}
     weights = {}
+    if pos is None:
+        pos = {i: tuple(rng.random() for _ in range(dim)) for i in range(n)}
     for i in range(n):
-        positions[i] = tuple(rng.random() for _ in range(dim))
-        weights[i] = rng.random() if weight is None else weight
-        G.add_node(i, pos=positions[i])
+        positions[i] = tuple(pos[i])
+        weights[i] = rng.expovariate(1.0) if weight is None else weight
+        G.add_node(
+            i, **{pos_name: positions[i], weight_name: weights[i]}
+        )
+
+    def distance(a, b):
+        return metric(a, b) if metric is not None else _minkowski_distance(a, b, 2)
+
     for i in range(n):
         for j in range(i + 1, n):
-            d = math.sqrt(
-                sum((positions[i][k] - positions[j][k]) ** 2 for k in range(dim))
-            )
-            if d > 0 and (weights[i] + weights[j]) / d > theta:
+            d = distance(positions[i], positions[j])
+            if p_dist is not None:
+                rhs = (weights[i] + weights[j]) * p_dist(d)
+            elif d > 0:
+                rhs = (weights[i] + weights[j]) / d
+            else:
+                rhs = float("inf")
+            if rhs >= theta:
                 G.add_edge(i, j)
     return G
 
 
-def thresholded_random_geometric_graph(n, radius, theta, dim=2, pos=None, seed=None):
-    """Thresholded random geometric graph."""
+def thresholded_random_geometric_graph(
+    n,
+    radius,
+    theta,
+    dim=2,
+    pos=None,
+    weight=None,
+    p=2,
+    seed=None,
+    *,
+    pos_name="pos",
+    weight_name="weight",
+):
+    """Thresholded random geometric graph.
+
+    Adds nx's ``weight`` (callable / dict / scalar), ``p`` (Minkowski
+    exponent), keyword-only ``pos_name`` and ``weight_name``
+    (br-r37-c1-geomgenkw).
+    """
     import random as _random
-    import math
 
     rng = _random.Random(seed)
     G = Graph()
     positions = {}
     ws = {}
+    if pos is None:
+        pos = {i: tuple(rng.random() for _ in range(dim)) for i in range(n)}
     for i in range(n):
-        positions[i] = tuple(rng.random() for _ in range(dim))
-        ws[i] = rng.random()
-        G.add_node(i, pos=positions[i])
+        positions[i] = tuple(pos[i])
+        if weight is None:
+            ws[i] = rng.expovariate(1.0)
+        elif callable(weight):
+            ws[i] = weight()
+        elif isinstance(weight, dict):
+            ws[i] = weight[i]
+        else:
+            ws[i] = weight
+        G.add_node(
+            i, **{pos_name: positions[i], weight_name: ws[i]}
+        )
     for i in range(n):
         for j in range(i + 1, n):
-            d = math.sqrt(
-                sum((positions[i][k] - positions[j][k]) ** 2 for k in range(dim))
-            )
+            d = _minkowski_distance(positions[i], positions[j], p)
             if d <= radius and ws[i] + ws[j] >= theta:
                 G.add_edge(i, j)
     return G
