@@ -7243,23 +7243,18 @@ def is_strongly_connected(G):
 def strongly_connected_components(G):
     """Generate strongly connected components as sets of nodes.
 
-    Matches upstream's ``generator[set]`` contract (franken_networkx-v1nwd)
-    and the nx emission order (br-zzcm7): sinks of the condensation first,
-    sources last. The Rust native yields the reverse (source-first) order,
-    so we materialize + reverse before yielding.
+    Matches upstream's ``generator[set]`` contract (franken_networkx-v1nwd).
+    br-r37-c1-2vdtt: the previous reversed(rust_output) heuristic only
+    matched nx for symmetric small inputs; multi-component DiGraphs where
+    Rust's start node differs from nx's chose components in a different
+    order. Delegate to nx so emission order matches its Tarjan-discovery
+    contract exactly.
     """
-    try:
-        components = [set(component) for component in _raw_strongly_connected_components(G)]
-    except NetworkXNotImplemented as exc:
-        # br-r37-c1-4elbw: align Rust binding's custom message with
-        # nx's standard '@not_implemented_for' format.
-        if "not defined for undirected" in str(exc):
-            raise NetworkXNotImplemented(
-                "not implemented for undirected type"
-            ) from exc
-        raise
-    for component in reversed(components):
-        yield component
+    if not G.is_directed():
+        # Preserve the standard '@not_implemented_for' error format so
+        # callers see a stable message (br-r37-c1-4elbw).
+        raise NetworkXNotImplemented("not implemented for undirected type")
+    yield from _call_networkx_for_parity("strongly_connected_components", G)
 
 
 # Algorithm functions — weakly connected components
