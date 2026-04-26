@@ -4879,7 +4879,7 @@ def has_eulerian_path(G, source=None):
     Parameters
     ----------
     G : graph
-        A graph.
+        A graph (directed or undirected).
     source : node, optional
         Starting node for path.
 
@@ -4888,6 +4888,13 @@ def has_eulerian_path(G, source=None):
     bool
         True if G has an Eulerian path.
     """
+    # br-r37-c1-bf1wb: nx supports directed graphs here (a digraph has
+    # an Eulerian path iff at most one node has out-in=1, at most one
+    # has in-out=1, all others have equal in/out, and the underlying
+    # graph is connected). The Rust binding only handles undirected,
+    # so delegate the directed case to nx.
+    if G.is_directed():
+        return _call_networkx_for_parity("has_eulerian_path", G, source=source)
     if source is not None:
         return _call_networkx_for_parity("has_eulerian_path", G, source=source)
     return _raw_has_eulerian_path(G)
