@@ -25531,10 +25531,19 @@ def could_be_isomorphic(G1, G2, *, properties="dtc"):
 
 def _matcher_factory(nx_matcher_cls):
     class _Matcher(nx_matcher_cls):
-        def __init__(self, G1, G2):
+        def __init__(self, G1, G2, node_match=None, edge_match=None):
+            # Match nx's full constructor signature (br-r37-c1-matchersig).
+            # Earlier this factory only accepted (G1, G2), shadowing the
+            # node_match/edge_match callbacks nx exposes — drop-in code
+            # passing them got TypeError.
             G1_nx = _networkx_graph_for_parity(G1)
             G2_nx = _networkx_graph_for_parity(G2)
-            super().__init__(G1_nx, G2_nx)
+            super().__init__(
+                G1_nx,
+                G2_nx,
+                node_match=node_match,
+                edge_match=edge_match,
+            )
 
     _Matcher.__name__ = nx_matcher_cls.__name__
     _Matcher.__qualname__ = nx_matcher_cls.__name__
