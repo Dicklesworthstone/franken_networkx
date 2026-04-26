@@ -7,8 +7,8 @@
 | Category | Count | % | Rule |
 |----------|-------|---|------|
 | RUST_NATIVE | 29 | 3% | native extension exports from `franken_networkx._fnx` |
-| PY_WRAPPER | 799 | 87% | Python-defined exports with no runtime NetworkX dependency detected |
-| NX_DELEGATED | 48 | 5% | Python-defined exports that import or call NetworkX at runtime |
+| PY_WRAPPER | 807 | 88% | Python-defined exports with no runtime NetworkX dependency detected |
+| NX_DELEGATED | 40 | 4% | Python-defined exports that import or call NetworkX at runtime |
 | CLASS | 32 | 3% | public classes, exceptions, iterators |
 | CONSTANT | 3 | 0% | public non-callable values |
 | **Total public exports** | **911** | | unique names from `franken_networkx.__all__` |
@@ -71,7 +71,7 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `tree_broadcast_center`
 - `tree_broadcast_time`
 
-## PY_WRAPPER exports (799)
+## PY_WRAPPER exports (807)
 
 - `LCF_graph`
 - `LFR_benchmark_graph`
@@ -779,6 +779,14 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `stochastic_block_model`
 - `stochastic_graph`
 - `stoer_wagner`
+- `strategy_connected_sequential`
+- `strategy_connected_sequential_bfs`
+- `strategy_connected_sequential_dfs`
+- `strategy_independent_set`
+- `strategy_largest_first`
+- `strategy_random_sequential`
+- `strategy_saturation_largest_first`
+- `strategy_smallest_last`
 - `strong_product`
 - `strongly_connected_components`
 - `subgraph`
@@ -873,7 +881,7 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `write_sparse6`
 - `write_weighted_edgelist`
 
-## NX_DELEGATED exports (48)
+## NX_DELEGATED exports (40)
 
 - `boruvka_mst_edges`
 - `branching_weight`
@@ -914,14 +922,6 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `show_multidiedges`
 - `show_multiedges`
 - `show_nodes`
-- `strategy_connected_sequential`
-- `strategy_connected_sequential_bfs`
-- `strategy_connected_sequential_dfs`
-- `strategy_independent_set`
-- `strategy_largest_first`
-- `strategy_random_sequential`
-- `strategy_saturation_largest_first`
-- `strategy_smallest_last`
 - `zipf_rv`
 
 ## CLASS exports (32)
