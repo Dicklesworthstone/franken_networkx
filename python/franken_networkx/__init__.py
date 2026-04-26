@@ -13898,9 +13898,16 @@ def _add_json_multiedge(graph, source, target, edge_key, edge_attrs):
     graph[source][target][actual_key].update(edge_attrs)
 
 
-def adjacency_data(G, attrs=None):
-    """Return adjacency-data format suitable for JSON serialization."""
-    attrs = {"id": "id", "key": "key"} if attrs is None else attrs
+def adjacency_data(G, attrs={"id": "id", "key": "key"}):  # noqa: B006
+    """Return adjacency-data format suitable for JSON serialization.
+
+    The ``attrs`` default is the same dict literal nx uses so that
+    ``inspect.signature`` introspection matches upstream — even though
+    a mutable default is normally a smell, networkx ships it that way
+    and drop-in callers rely on the introspectable default.
+    """
+    if attrs is None:
+        attrs = {"id": "id", "key": "key"}
     multigraph = G.is_multigraph()
     id_ = attrs["id"]
     key = None if not multigraph else attrs["key"]
@@ -13977,9 +13984,20 @@ def node_link_data(
     return payload
 
 
-def adjacency_graph(data, directed=False, multigraph=True, attrs=None):
-    """Return a graph from adjacency-data format."""
-    attrs = {"id": "id", "key": "key"} if attrs is None else attrs
+def adjacency_graph(
+    data,
+    directed=False,
+    multigraph=True,
+    attrs={"id": "id", "key": "key"},  # noqa: B006
+):
+    """Return a graph from adjacency-data format.
+
+    The ``attrs`` default mirrors nx's mutable-dict default so the
+    introspected signature matches upstream. ``None`` is also accepted
+    for backwards compatibility with earlier fnx callers.
+    """
+    if attrs is None:
+        attrs = {"id": "id", "key": "key"}
     multigraph = data.get("multigraph", multigraph)
     directed = data.get("directed", directed)
     graph = _json_graph_from_flags(directed=directed, multigraph=multigraph)
@@ -14766,7 +14784,20 @@ def _voronoi_cells_impl(G, center_nodes, *, weight):
     )
 
 
-def stoer_wagner(G, weight="weight", heap=None):
+def _default_binary_heap():
+    """Return ``networkx.utils.heaps.BinaryHeap`` lazily.
+
+    Used as the default sentinel for ``heap=`` arguments so the
+    ``inspect.signature`` introspection matches networkx exactly.
+    """
+    from networkx.utils.heaps import BinaryHeap
+    return BinaryHeap
+
+
+_BINARY_HEAP_DEFAULT = _default_binary_heap()
+
+
+def stoer_wagner(G, weight="weight", heap=_BINARY_HEAP_DEFAULT):
     """Return the Stoer-Wagner global minimum cut value and partition.
 
     Parameters
@@ -14776,7 +14807,11 @@ def stoer_wagner(G, weight="weight", heap=None):
     weight : str, optional
         Edge attribute name for weights (default ``"weight"``).
     heap : class, optional
-        Ignored (kept for API compatibility with NetworkX).
+        Heap class for the priority queue. Default
+        ``networkx.utils.heaps.BinaryHeap`` (matches nx's default
+        sentinel for signature introspection). The fnx implementation
+        uses an internal heap and ignores this argument; the kwarg is
+        accepted for API drop-in compatibility with networkx.
 
     Returns
     -------
@@ -16962,7 +16997,11 @@ def max_flow_min_cost(G, s, t, capacity="capacity", weight="weight"):
 
 
 def capacity_scaling(
-    G, demand="demand", capacity="capacity", weight="weight", heap=None
+    G,
+    demand="demand",
+    capacity="capacity",
+    weight="weight",
+    heap=_BINARY_HEAP_DEFAULT,
 ):
     """Find minimum cost flow using capacity scaling.
 
@@ -16974,7 +17013,10 @@ def capacity_scaling(
     G : DiGraph
     demand, capacity, weight : str, optional
     heap : class, optional
-        Ignored. Present for API compatibility.
+        Heap class. Default ``networkx.utils.heaps.BinaryHeap`` so the
+        introspectable signature matches nx exactly. The fnx
+        implementation manages its own heap; the kwarg is accepted
+        for API drop-in compatibility.
 
     Returns
     -------
@@ -19168,7 +19210,7 @@ def communicability_betweenness_centrality(G, *, backend=None, **backend_kwargs)
     return _fnx.communicability_betweenness_centrality_rust(G, True)
 
 
-def trophic_levels(G, weight=None):
+def trophic_levels(G, weight="weight"):
     """Compute trophic levels in a directed graph (food web).
 
     br-trophdir: nx.trophic_levels / trophic_differences /
@@ -19176,26 +19218,31 @@ def trophic_levels(G, weight=None):
     fnx silently computed garbage (all-nodes at ~4.8e16) on Graph input.
     Reject undirected input with nx's exact exception type + message so
     the contract matches upstream.
+
+    Default ``weight='weight'`` matches nx (br-r37-c1-rygbm). Earlier
+    fnx default ``weight=None`` silently dropped edge weights.
     """
     if not G.is_directed():
         raise NetworkXNotImplemented("not implemented for undirected type")
     return _call_networkx_for_parity("trophic_levels", G, weight=weight)
 
 
-def trophic_differences(G, weight=None):
+def trophic_differences(G, weight="weight"):
     """Compute trophic differences across edges.
 
     br-trophdir: see trophic_levels; reject undirected input.
+    Default ``weight='weight'`` matches nx (br-r37-c1-rygbm).
     """
     if not G.is_directed():
         raise NetworkXNotImplemented("not implemented for undirected type")
     return _call_networkx_for_parity("trophic_differences", G, weight=weight)
 
 
-def trophic_incoherence_parameter(G, weight=None, cannibalism=False):
+def trophic_incoherence_parameter(G, weight="weight", cannibalism=False):
     """Compute the trophic incoherence parameter (std of trophic differences).
 
     br-trophdir: see trophic_levels; reject undirected input.
+    Default ``weight='weight'`` matches nx (br-r37-c1-rygbm).
     """
     if not G.is_directed():
         raise NetworkXNotImplemented("not implemented for undirected type")
