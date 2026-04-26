@@ -16368,12 +16368,12 @@ def generate_random_paths(
     sample_size,
     path_length=5,
     index_map=None,
-    weight=None,
+    weight="weight",
     seed=None,
     *,
     source=None,
 ):
-    """Generate random paths by random walks.
+    """Generate random paths by weighted random walks.
 
     Parameters
     ----------
@@ -16382,11 +16382,17 @@ def generate_random_paths(
         Number of paths to generate.
     path_length : int, optional
         Maximum length of each path. Default 5.
+    weight : str or None, optional
+        Edge attribute used as the transition weight. Default
+        ``"weight"`` to match networkx (br-r37-c1-rygbm follow-up:
+        the previous fnx default of ``None`` silently dropped edge
+        weights and produced a uniform random walk where nx produces
+        a weighted one). Pass ``weight=None`` for the legacy uniform
+        behaviour.
     seed : int or None, optional
     source : node or None, optional (keyword-only)
         Fixed starting node for every sampled walk. When ``None``
-        (default), each walk starts from a uniformly random node, which
-        is the behaviour fnx shipped before this kwarg was added.
+        (default), each walk starts from a uniformly random node.
 
     Yields
     ------
@@ -16402,16 +16408,50 @@ def generate_random_paths(
     if source is not None and source not in G:
         raise NodeNotFound(f"Source {source} is not in G")
 
+    is_multi = G.is_multigraph()
+
+    def _weighted_choice(current):
+        # Mirror nx.generate_random_paths' transition step: build a
+        # weight vector over the current node's neighbours and sample
+        # by that distribution.
+        if is_multi:
+            nbrs = []
+            weights = []
+            for nbr, keydict in G[current].items():
+                # Multigraph: total weight across parallel edges.
+                w = 0.0
+                for _, attrs in keydict.items():
+                    if weight is None:
+                        w += 1.0
+                    else:
+                        w += float(attrs.get(weight, 1.0))
+                if w > 0:
+                    nbrs.append(nbr)
+                    weights.append(w)
+        else:
+            nbrs = []
+            weights = []
+            for nbr, attrs in G[current].items():
+                w = 1.0 if weight is None else float(attrs.get(weight, 1.0))
+                if w > 0:
+                    nbrs.append(nbr)
+                    weights.append(w)
+        if not nbrs:
+            return None
+        if weight is None:
+            return rng.choice(nbrs)
+        return rng.choices(nbrs, weights=weights, k=1)[0]
+
     for _ in range(sample_size):
         start = source if source is not None else rng.choice(nodes)
         path = [start]
         current = start
-        for _ in range(path_length - 1):
-            nbrs = list(G.neighbors(current))
-            if not nbrs:
+        for _ in range(path_length):
+            nxt = _weighted_choice(current)
+            if nxt is None:
                 break
-            current = rng.choice(nbrs)
-            path.append(current)
+            path.append(nxt)
+            current = nxt
         yield path
 
 
