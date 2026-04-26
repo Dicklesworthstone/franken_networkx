@@ -144,7 +144,8 @@ class TestBiconnectedComponents:
 
 class TestBiconnectedComponentEdges:
     def test_triangle(self, triangle):
-        comps = fnx.biconnected_component_edges(triangle)
+        # biconnected_component_edges returns a generator (br-r37-c1-24wk3).
+        comps = list(fnx.biconnected_component_edges(triangle))
         assert len(comps) == 1
         assert len(comps[0]) == 3  # 3 edges in triangle
 
@@ -153,7 +154,7 @@ class TestBiconnectedComponentEdges:
         g = fnx.Graph()
         g.add_edge("a", "b")
         g.add_edge("b", "c")
-        comps = fnx.biconnected_component_edges(g)
+        comps = list(fnx.biconnected_component_edges(g))
         assert len(comps) == 2
         for comp in comps:
             assert len(comp) == 1

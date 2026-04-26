@@ -9016,13 +9016,27 @@ from franken_networkx._fnx import (
     node_connected_component as _raw_node_connected_component,
     is_biconnected as _raw_is_biconnected,
     biconnected_components as _raw_biconnected_components,
-    biconnected_component_edges,
+    biconnected_component_edges as _raw_biconnected_component_edges,
     is_semiconnected as _raw_is_semiconnected,
     kosaraju_strongly_connected_components as _raw_kosaraju_strongly_connected_components,
     attracting_components as _raw_attracting_components,
     number_attracting_components as _raw_number_attracting_components,
     is_attracting_component as _raw_is_attracting_component,
 )
+
+
+def biconnected_component_edges(G):
+    """Yield edges within each biconnected component of an undirected graph.
+
+    Generator function so the returned object is a true generator
+    matching nx's contract (br-r37-c1-24wk3). The Rust binding returns
+    a materialized list; wrapping with ``yield from`` makes the returned
+    object a true ``generator`` so ``isinstance(result,
+    types.GeneratorType)`` matches and short-circuit callers like
+    ``next(biconnected_component_edges(huge_graph))`` don't pay for
+    full materialisation.
+    """
+    yield from _raw_biconnected_component_edges(G)
 
 
 def kosaraju_strongly_connected_components(G, source=None):
