@@ -12875,6 +12875,13 @@ def algebraic_connectivity(G, weight="weight", normalized=False, tol=1e-8, metho
 
     del tol, method, seed  # accepted for nx parity but not used
 
+    # br-r37-c1-d8qdy: nx is @not_implemented_for('directed') — fnx
+    # would otherwise compute a meaningless Fiedler value on the
+    # directed Laplacian. Add the type guard up front so drop-in
+    # code that does ``except NetworkXNotImplemented`` triggers.
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
+
     # br-r37-c1-pb97z: nx raises NetworkXError on null/single-node
     # graphs; fnx silently returned 0.0. Match the documented contract.
     if len(G) < 2:
