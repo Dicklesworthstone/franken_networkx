@@ -9257,6 +9257,14 @@ def astar_path_length(
             weight=weight,
             cutoff=cutoff,
         )
+    # br-r37-c1-tm1tq: nx pre-checks ``source not in G or target not in G``
+    # and raises a single combined-message NodeNotFound rather than
+    # the per-side message that ``astar_path``'s translator returns
+    # ('Target ... is not in G').  Mirror nx's exact wording so users
+    # who match on the message string are not broken.
+    if source not in G or target not in G:
+        msg = f"Either source {source} or target {target} is not in G"
+        raise NodeNotFound(msg)
     try:
         return _raw_astar_path_length(
             G, source, target, heuristic=heuristic, weight=weight
@@ -19982,6 +19990,16 @@ def resistance_distance(G, nodeA=None, nodeB=None, weight=None, invert_weight=Tr
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
 
+    # br-r37-c1-tm1tq: nx pre-checks ``nodeA in G`` / ``nodeB in G``
+    # (silent-False on unhashable, then NetworkXError) BEFORE the
+    # algorithm runs.  fnx had been hitting ``idx[nodeA]`` which
+    # raises TypeError on unhashable — too strict — and KeyError on
+    # missing.  Pre-check both up front to match nx's contract.
+    if nodeA is not None and nodeA not in G:
+        raise NetworkXError("Node A is not in graph G.")
+    if nodeB is not None and nodeB not in G:
+        raise NetworkXError("Node B is not in graph G.")
+
     nodelist = list(G.nodes())
     n = len(nodelist)
     if n == 0:
@@ -21157,9 +21175,21 @@ def betweenness_centrality_subset(
         backend_kwargs,
     )
 
+    # br-r37-c1-tm1tq: nx hashes each source/target into a dict /
+    # tuple-iter — raises ``TypeError: unhashable type`` on the
+    # first unhashable element.  fnx's Rust binding silently
+    # ignored unhashable members.  Materialize and hash-validate
+    # both lists to match nx's contract.
+    sources = list(sources)
+    targets = list(targets)
+    for s in sources:
+        hash(s)
+    for t in targets:
+        hash(t)
+
     if weight is None and not G.is_multigraph():
         scores = _betweenness_centrality_subset_rust(
-            G, list(sources), list(targets), normalized
+            G, sources, targets, normalized
         )
         return {node: scores.get(node, 0.0) for node in G}
     betweenness = dict.fromkeys(G, 0.0)
