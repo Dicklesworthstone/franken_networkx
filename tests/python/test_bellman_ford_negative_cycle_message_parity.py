@@ -41,6 +41,30 @@ def test_bellman_ford_path_negative_cycle_message_matches_networkx():
 
 
 @needs_nx
+def test_bellman_ford_path_length_negative_cycle_message_matches_networkx():
+    """br-r37-c1-iss4p: bellman_ford_path_length had the same defect as
+    bellman_ford_path — the Rust _raw_bellman_ford_path_length raises
+    'Negative cost cycle detected.' but the Python wrapper missed the
+    re-raise. nx says 'Negative cycle detected.'.
+    """
+    # Use a 3-cycle so the negative cycle is reachable from source 1
+    # without colliding with the 2-cycle pattern used elsewhere; the
+    # bellman_ford_path_length wrapper exits via the Rust path.
+    G = fnx.DiGraph()
+    GX = nx.DiGraph()
+    for u, v, w in [(1, 2, 1), (2, 3, -3), (3, 1, -1)]:
+        G.add_edge(u, v, weight=w)
+        GX.add_edge(u, v, weight=w)
+    with pytest.raises(fnx.NetworkXUnbounded) as fnx_exc:
+        fnx.bellman_ford_path_length(G, 1, 3, weight="weight")
+    with pytest.raises(nx.NetworkXUnbounded) as nx_exc:
+        nx.bellman_ford_path_length(GX, 1, 3, weight="weight")
+    assert str(fnx_exc.value) == str(nx_exc.value) == "Negative cycle detected."
+    # Drop-in: pytest.raises(..., match='Negative cycle') must match.
+    assert "cost cycle" not in str(fnx_exc.value)
+
+
+@needs_nx
 def test_bellman_ford_predecessor_message_matches_networkx():
     G = _make_negative_cycle_graph(fnx)
     GX = _make_negative_cycle_graph(nx)

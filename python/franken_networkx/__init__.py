@@ -9889,6 +9889,14 @@ def bellman_ford_path_length(G, source, target, weight="weight"):
         _raw_bellman_ford_path_length(G, source, target, weight=weight)
     except NetworkXNoPath as exc:
         raise NetworkXNoPath(f"node {target} not reachable from {source}") from exc
+    except NetworkXUnbounded as exc:
+        # br-r37-c1-iss4p: the Rust impl says "Negative cost cycle
+        # detected."; nx uses "Negative cycle detected." (no "cost").
+        # Mirror the normalization already in bellman_ford_path
+        # (br-r37-c1-wtjho) for drop-in error matching.
+        if "cost cycle" in str(exc):
+            raise NetworkXUnbounded("Negative cycle detected.") from exc
+        raise
     path = bellman_ford_path(G, source, target, weight=weight)
     return _path_length_preserving_weight_type(G, path, weight)
 
