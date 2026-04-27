@@ -4339,10 +4339,29 @@ from franken_networkx._fnx import (
 # Algorithm functions — matching
 from franken_networkx._fnx import (
     max_weight_matching as _raw_max_weight_matching,
-    maximal_matching,
+    maximal_matching as _raw_maximal_matching,
     min_edge_cover as _raw_min_edge_cover,
     min_weight_matching as _raw_min_weight_matching,
 )
+
+
+def maximal_matching(G):
+    """Find a maximal matching in the graph.
+
+    A matching is maximal if there is no edge that can be added that
+    won't conflict with existing edges in the matching.
+
+    br-r37-c1-2dwen: nx is decorated with
+    ``@not_implemented_for('multigraph')`` outer and
+    ``@not_implemented_for('directed')`` inner — the inner runs
+    first, so MultiDiGraph yields the 'directed' message. Mirror
+    that ordering: directed check fires first.
+    """
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
+    if G.is_multigraph():
+        raise NetworkXNotImplemented("not implemented for multigraph type")
+    return _raw_maximal_matching(G)
 
 
 def min_weight_matching(G, weight="weight"):
@@ -5600,9 +5619,40 @@ def local_efficiency(G):
 
 # Algorithm functions — broadcasting
 from franken_networkx._fnx import (
-    tree_broadcast_center,
-    tree_broadcast_time,
+    tree_broadcast_center as _raw_tree_broadcast_center,
+    tree_broadcast_time as _raw_tree_broadcast_time,
 )
+
+
+def tree_broadcast_center(G):
+    """Return the broadcast center of a tree.
+
+    br-r37-c1-2dwen: nx is decorated with
+    ``@not_implemented_for('directed')`` outer and
+    ``@not_implemented_for('multigraph')`` inner. nx raises
+    'multigraph' first for MultiDiGraph (inner decorator fires
+    first) — mirror that ordering.
+    """
+    if G.is_multigraph():
+        raise NetworkXNotImplemented("not implemented for multigraph type")
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
+    return _raw_tree_broadcast_center(G)
+
+
+def tree_broadcast_time(G, node=None):
+    """Return the minimum broadcast time of a (node in a) tree.
+
+    br-r37-c1-2dwen: same multigraph/directed type-guard ordering
+    as tree_broadcast_center.
+    """
+    if G.is_multigraph():
+        raise NetworkXNotImplemented("not implemented for multigraph type")
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
+    if node is None:
+        return _raw_tree_broadcast_time(G)
+    return _raw_tree_broadcast_time(G, node)
 
 # Algorithm functions — traversal (BFS) — wrapped for sort_neighbors support
 from franken_networkx._fnx import (

@@ -196,8 +196,14 @@ class TestMultiGraphMatching:
         assert len(m) == 2  # path of 4 nodes -> 2 edges in matching
 
     def test_maximal_matching(self, mg_triangle):
-        m = fnx.maximal_matching(mg_triangle)
-        assert len(m) >= 1
+        # br-r37-c1-2dwen: fnx now matches nx's
+        # @not_implemented_for('multigraph') decorator and raises
+        # NetworkXNotImplemented on MultiGraph input. Previously the
+        # Rust-direct re-export silently accepted MultiGraph and
+        # returned a matching from the simple-graph projection.
+        import pytest as _pytest
+        with _pytest.raises(fnx.NetworkXNotImplemented):
+            fnx.maximal_matching(mg_triangle)
 
     @needs_nx
     def test_max_weight_matching_maxcardinality_matches_networkx(self):

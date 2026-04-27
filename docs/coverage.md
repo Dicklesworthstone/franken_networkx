@@ -6,8 +6,8 @@
 
 | Category | Count | % | Rule |
 |----------|-------|---|------|
-| RUST_NATIVE | 29 | 3% | native extension exports from `franken_networkx._fnx` |
-| PY_WRAPPER | 847 | 92% | Python-defined exports with no runtime NetworkX dependency detected |
+| RUST_NATIVE | 26 | 2% | native extension exports from `franken_networkx._fnx` |
+| PY_WRAPPER | 850 | 93% | Python-defined exports with no runtime NetworkX dependency detected |
 | NX_DELEGATED | 0 | 0% | Python-defined exports that import or call NetworkX at runtime |
 | CLASS | 32 | 3% | public classes, exceptions, iterators |
 | CONSTANT | 3 | 0% | public non-callable values |
@@ -25,9 +25,9 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 
 | Module | Count |
 |--------|-------|
-| `franken_networkx` | 782 |
+| `franken_networkx` | 785 |
 | `franken_networkx.readwrite` | 35 |
-| `franken_networkx._fnx` | 29 |
+| `franken_networkx._fnx` | 26 |
 | `franken_networkx.drawing.nx_pylab` | 21 |
 | `franken_networkx.drawing.layout` | 15 |
 | `networkx.exception` | 12 |
@@ -38,7 +38,7 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 | `networkx.algorithms.tree.coding` | 1 |
 | `networkx.utils.configs` | 1 |
 
-## RUST_NATIVE exports (29)
+## RUST_NATIVE exports (26)
 
 - `bfs_layers`
 - `bidirectional_shortest_path`
@@ -61,16 +61,13 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `large_clique_size`
 - `max_clique`
 - `maximal_independent_set`
-- `maximal_matching`
 - `maximum_independent_set`
 - `min_weighted_vertex_cover`
 - `number_connected_components`
 - `number_of_isolates`
 - `number_of_spanning_arborescences`
-- `tree_broadcast_center`
-- `tree_broadcast_time`
 
-## PY_WRAPPER exports (847)
+## PY_WRAPPER exports (850)
 
 - `LCF_graph`
 - `LFR_benchmark_graph`
@@ -570,6 +567,7 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `max_flow_min_cost`
 - `max_weight_clique`
 - `max_weight_matching`
+- `maximal_matching`
 - `maximum_branching`
 - `maximum_flow`
 - `maximum_flow_value`
@@ -864,6 +862,8 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `transitivity`
 - `traveling_salesman_problem`
 - `tree_all_pairs_lowest_common_ancestor`
+- `tree_broadcast_center`
+- `tree_broadcast_time`
 - `tree_data`
 - `tree_graph`
 - `tree_isomorphism`
