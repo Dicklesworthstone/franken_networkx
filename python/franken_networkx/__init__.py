@@ -8860,11 +8860,23 @@ def is_chordal(G):
     'multigraph') and raises NetworkXNotImplemented; the Rust binding
     accepted MultiGraph input and returned False. Gate on type
     upfront so the contract matches.
+
+    br-r37-c1-i8qr5: nx's _is_complete_graph internal helper raises
+    NetworkXError('Self loop found in _is_complete_graph()') when
+    is_chordal reaches a candidate complete subgraph that contains a
+    self-loop (e.g. K4 + self-loop). The Rust _raw_is_chordal silently
+    returns True for the same input. Delegate any self-loop input to
+    nx so the exact raise pattern is preserved (nx only raises for
+    the specific algorithm-reaches-_is_complete_graph case, not for
+    every self-loop graph — the delegation reproduces that exact
+    selectivity).
     """
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
+    if any(u == v for u, v in G.edges()):
+        return _call_networkx_for_parity("is_chordal", G)
     return _raw_is_chordal(G)
 
 
@@ -27838,7 +27850,14 @@ def complete_to_chordal_graph(G):
     Blair, Heggernes, Peyton (2004) to produce a chordal supergraph H and an
     elimination ordering alpha. For inputs that are already chordal, returns
     H equal to G and alpha mapping every node to 0.
+
+    br-r37-c1-i8qr5: nx's _is_complete_graph helper raises
+    NetworkXError on self-loop input when is_chordal (called below)
+    reaches that branch; mirror that selective raise pattern by
+    delegating any self-loop input to nx.
     """
+    if any(u == v for u, v in G.edges()):
+        return _call_networkx_for_parity("complete_to_chordal_graph", G)
     H = G.copy()
     # Use the original graph's node order — on franken_networkx, Graph.copy()
     # does not preserve insertion order, which shifts tie-breaking in MCS-M
