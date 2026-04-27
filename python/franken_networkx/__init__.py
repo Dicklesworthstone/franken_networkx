@@ -12914,6 +12914,18 @@ def fiedler_vector(
 
     import numpy as np
 
+    # br-r37-c1-s22qo: nx raises NetworkXError on disconnected graphs
+    # ('graph is not connected.'); fnx's dense eigh solver silently
+    # produced a numerically-meaningless eigenvector for the
+    # second-smallest eigenvalue (which equals 0 for disconnected
+    # inputs and yields a degenerate basis). Match nx's contract.
+    # Sister functions algebraic_connectivity and spectral_ordering
+    # already raise correctly — fiedler_vector was the outlier.
+    if len(G) < 2:
+        raise NetworkXError("graph has less than two nodes.")
+    if not is_connected(G):
+        raise NetworkXError("graph is not connected.")
+
     if normalized:
         L = normalized_laplacian_matrix(G, weight=weight).toarray()
     else:
