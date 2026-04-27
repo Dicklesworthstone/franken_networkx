@@ -5390,6 +5390,17 @@ def eulerian_path(G, source=None, keys=False):
     if keys:
         yield from _call_networkx_for_parity("eulerian_path", G, source=source, keys=keys)
         return
+    # br-r37-c1-dg2dn: the Rust _raw_eulerian_path mishandles
+    # self-loops the same way the boolean predicates did
+    # (br-r37-c1-792dv) — it raises "Graph has no Eulerian paths"
+    # on graphs that ARE Eulerian, e.g. K3 + self-loop. Delegate
+    # any graph with at least one self-loop to nx so eulerian_path
+    # is consistent with has_eulerian_path / is_eulerian.
+    if any(u == v for u, v in G.edges()):
+        yield from _call_networkx_for_parity(
+            "eulerian_path", G, source=source, keys=keys,
+        )
+        return
     yield from _raw_eulerian_path(G, source=source)
 
 
@@ -12445,9 +12456,21 @@ def core_number(G):
     'directed_multigraph') and raises NetworkXNotImplemented for any
     multigraph input (and has a self-loop guard). The Rust Rust
     core_number accepted MultiGraph input silently. Gate upfront.
+
+    br-r37-c1-dg2dn: nx also raises NetworkXNotImplemented when the
+    graph has any self-loop ("Input graph has self loops which is
+    not permitted; Consider using G.remove_edges_from(nx.selfloop_edges(G)).").
+    The Rust path silently included self-loops in the degree count
+    and returned a value dict — propagating into k_core / k_shell /
+    k_crust / k_corona, which all consume core_number.
     """
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
+    if any(u == v for u, v in G.edges()):
+        raise NetworkXNotImplemented(
+            "Input graph has self loops which is not permitted; "
+            "Consider using G.remove_edges_from(nx.selfloop_edges(G))."
+        )
     raw = _raw_core_number(G)
     # br-r37-c1-9fa26: the Rust binding returns the dict with keys
     # sorted; nx iterates in node-insertion order. Reorder so
@@ -12455,13 +12478,27 @@ def core_number(G):
     return {node: raw[node] for node in G.nodes() if node in raw}
 
 
+def _self_loop_guard_for_core_family():
+    """br-r37-c1-dg2dn: shared self-loop guard message used by
+    core_number / k_core / k_shell / k_crust / k_corona to match nx's
+    NetworkXNotImplemented wording exactly.
+    """
+    return (
+        "Input graph has self loops which is not permitted; "
+        "Consider using G.remove_edges_from(nx.selfloop_edges(G))."
+    )
+
+
 def k_core(G, k=None, core_number=None):
     """Return the k-core of *G* (maximal subgraph with minimum degree >= k).
 
     br-coremg: same MG-rejection as core_number.
+    br-r37-c1-dg2dn: also reject self-loop inputs (nx contract).
     """
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
+    if any(u == v for u, v in G.edges()):
+        raise NetworkXNotImplemented(_self_loop_guard_for_core_family())
     if core_number is None:
         core_number = _raw_core_number(G)
     if k is None:
@@ -12471,9 +12508,14 @@ def k_core(G, k=None, core_number=None):
 
 
 def k_shell(G, k=None, core_number=None):
-    """Return the k-shell of *G* (nodes with core number exactly k)."""
+    """Return the k-shell of *G* (nodes with core number exactly k).
+
+    br-r37-c1-dg2dn: reject self-loop inputs (nx contract).
+    """
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
+    if any(u == v for u, v in G.edges()):
+        raise NetworkXNotImplemented(_self_loop_guard_for_core_family())
     if core_number is None:
         core_number = _raw_core_number(G)
     if k is None:
@@ -12483,9 +12525,14 @@ def k_shell(G, k=None, core_number=None):
 
 
 def k_crust(G, k=None, core_number=None):
-    """Return the k-crust of *G* (nodes with core number <= k)."""
+    """Return the k-crust of *G* (nodes with core number <= k).
+
+    br-r37-c1-dg2dn: reject self-loop inputs (nx contract).
+    """
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
+    if any(u == v for u, v in G.edges()):
+        raise NetworkXNotImplemented(_self_loop_guard_for_core_family())
     if core_number is None:
         core_number = _raw_core_number(G)
     if k is None:
@@ -12495,9 +12542,14 @@ def k_crust(G, k=None, core_number=None):
 
 
 def k_corona(G, k, core_number=None):
-    """Return the k-corona of *G* (k-core nodes with exactly k neighbors in k-core)."""
+    """Return the k-corona of *G* (k-core nodes with exactly k neighbors in k-core).
+
+    br-r37-c1-dg2dn: reject self-loop inputs (nx contract).
+    """
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
+    if any(u == v for u, v in G.edges()):
+        raise NetworkXNotImplemented(_self_loop_guard_for_core_family())
     if core_number is None:
         core_number = _raw_core_number(G)
     core_nodes = {n for n, c in core_number.items() if c >= k}
