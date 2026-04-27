@@ -9640,7 +9640,14 @@ def find_negative_cycle(G, source, weight="weight"):
     both directed and undirected negative-cycle discovery — by routing
     directed inputs through networkx's implementation while keeping
     undirected inputs on the native path.
+
+    br-r37-c1-39gx2: hash-validate ``source`` up front for nx-shaped
+    TypeError parity.  nx delegates to bellman_ford which raises
+    TypeError on unhashable; the Rust ``_raw_find_negative_cycle``
+    instead silently treats unhashable as 'no negative cycle' and
+    raises NetworkXError.
     """
+    hash(source)
     if G.is_directed():
         # Route directed graphs through upstream via the string-name
         # indirection so ``find_negative_cycle`` stays classified as
@@ -19368,7 +19375,11 @@ def triad_type(G):
         raise NetworkXNotImplemented("not implemented for undirected type")
     nodes = list(G.nodes())
     if len(nodes) != 3:
-        raise NetworkXError("triad_type requires exactly 3 nodes")
+        # br-r37-c1-39gx2: nx raises ``NetworkXAlgorithmError`` (not
+        # NetworkXError) with a specific 'G is not a triad (order-3
+        # DiGraph)' message — distinct exception class lets users
+        # catch algorithmic invariants separately from generic errors.
+        raise NetworkXAlgorithmError("G is not a triad (order-3 DiGraph)")
     return _fnx.triad_type_rust(G, nodes[0], nodes[1], nodes[2])
 
 
@@ -21231,9 +21242,20 @@ def edge_betweenness_centrality_subset(
         backend_kwargs,
     )
 
+    # br-r37-c1-39gx2: nx hashes each source/target into a dict —
+    # raises TypeError on the first unhashable element.  Without
+    # this check fnx silently ignores unhashable members.  Mirror
+    # the fix already in betweenness_centrality_subset (br-r37-c1-tm1tq).
+    sources = list(sources)
+    targets = list(targets)
+    for s in sources:
+        hash(s)
+    for t in targets:
+        hash(t)
+
     if weight is None and not G.is_multigraph():
         rust_scores = _edge_betweenness_centrality_subset_rust(
-            G, list(sources), list(targets), normalized
+            G, sources, targets, normalized
         )
         betweenness = dict.fromkeys(G.edges(), 0.0)
         is_directed = G.is_directed()
