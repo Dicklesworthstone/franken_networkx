@@ -195,6 +195,12 @@ def _remove_edge_with_networkx_missing_edge_error(
 
 def _remove_node_with_networkx_missing_node_error(remove_node_impl, *, graph_kind="graph"):
     def remove_node(self, n):
+        # br-r37-c1-g438p: nx raises TypeError('unhashable type: ...')
+        # before the membership check. fnx's ``n not in self`` ran the
+        # __contains__ path which silently returned False on unhashable
+        # nodes, causing remove_node to raise NetworkXError("not in
+        # graph") instead. hash() up front for nx parity.
+        hash(n)
         if n not in self:
             raise NetworkXError(f"The node {n} is not in the {graph_kind}.")
         return remove_node_impl(self, n)
@@ -1746,6 +1752,45 @@ def _init_absorbing_dict_of_dicts(raw_init, is_multigraph):
         # attribute. Non-multigraph classes also accept it for nx
         # signature parity but ignore the value.
         raw_init(self)
+        # br-r37-c1-g438p: the Rust __new__ silently absorbs
+        # unhashable nodes (storing them by Python id) when the
+        # input is an iterable of edge tuples whose endpoints are
+        # unhashable types (list, set, dict). nx raises
+        # ``NetworkXError("Input is not a valid edge list")`` on
+        # those inputs. Validate that the just-absorbed nodes are
+        # hashable, but ONLY for the passthrough path — the
+        # dict / numpy / pandas / Graph special cases below clear
+        # and rebuild the graph from scratch, so any bad
+        # absorption from those is overwritten and doesn't need
+        # to be flagged at this point.
+        is_special_input = (
+            incoming_graph_data is None
+            or isinstance(incoming_graph_data, dict)
+            or (
+                type(incoming_graph_data).__module__.startswith("numpy")
+                and hasattr(incoming_graph_data, "shape")
+                and hasattr(incoming_graph_data, "ndim")
+            )
+            or (
+                type(incoming_graph_data).__module__.startswith("pandas")
+                and hasattr(incoming_graph_data, "iloc")
+                and hasattr(incoming_graph_data, "values")
+            )
+            or (
+                hasattr(incoming_graph_data, "nodes")
+                and hasattr(incoming_graph_data, "edges")
+                and callable(getattr(incoming_graph_data, "is_multigraph", None))
+            )
+        )
+        if not is_special_input:
+            try:
+                for node in list(self.nodes()):
+                    hash(node)
+            except TypeError as exc:
+                self.clear()
+                raise NetworkXError(
+                    "Input is not a valid edge list"
+                ) from exc
         if attr:
             self.graph.update(attr)
         if incoming_graph_data is None:
@@ -2055,10 +2100,20 @@ def _add_weighted_edges_from_with_attr(cls):
         to the weight. The fnx Rust method only takes (ebunch, weight),
         so fall back to per-edge add_edge when any trailing attrs are
         present. Parameter name matches nx (br-r37-c1-wcdm3).
+
+        br-r37-c1-g438p: hash-validate endpoints up front so unhashable
+        types (list, set, dict) raise nx-shaped TypeError instead of
+        being silently absorbed by the Rust binding (which keys nodes
+        by Python id when the value isn't hashable).
         """
+        materialized = list(ebunch_to_add)
+        for edge in materialized:
+            if isinstance(edge, tuple) and len(edge) >= 2:
+                hash(edge[0])
+                hash(edge[1])
         if not attr:
-            return raw(self, ebunch_to_add, weight=weight)
-        for edge in ebunch_to_add:
+            return raw(self, materialized, weight=weight)
+        for edge in materialized:
             if len(edge) == 3:
                 u, v, w = edge
                 self.add_edge(u, v, **{weight: w}, **attr)
