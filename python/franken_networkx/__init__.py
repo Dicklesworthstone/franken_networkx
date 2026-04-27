@@ -3822,6 +3822,15 @@ def node_connectivity(G, s=None, t=None, flow_func=None):
             t=t,
             flow_func=flow_func,
         )
+    # br-r37-c1-792dv: the Rust _raw_node_connectivity ignores the
+    # +2 degree contribution that self-loops make in nx's
+    # min-degree-bound calculation. On a single-node graph with a
+    # self-loop nx returns 2 vs fnx's 0; on a 2-node graph with two
+    # self-loops + a bridge nx returns 3 (min_degree=3) vs fnx's 2.
+    # Delegate any graph with at least one self-loop to nx so both
+    # libraries agree on the self-loop weighting.
+    if any(u == v for u, v in G.edges()):
+        return _call_networkx_for_parity("node_connectivity", G, s=s, t=t)
     # Multigraphs with parallel edges bump the min-degree bound above
     # the simple-graph κ = n−1 ceiling (a node with k parallel edges to a
     # neighbour contributes k to its degree). networkx uses that bound
@@ -3874,6 +3883,17 @@ def edge_connectivity(G, s=None, t=None, flow_func=None, cutoff=None):
             t=t,
             flow_func=flow_func,
             cutoff=cutoff,
+        )
+    # br-r37-c1-792dv: the Rust _raw_edge_connectivity ignores the
+    # +2 degree contribution that self-loops make in nx's
+    # min-degree-bound calculation. nx's value on graphs with any
+    # self-loop is generally larger than fnx's (e.g. single-node
+    # self-loop: nx=2 vs fnx=0; two-node + two self-loops + bridge:
+    # nx=3 vs fnx=1). Delegate any self-loop graph to nx so both
+    # libraries agree on the weighting.
+    if any(u == v for u, v in G.edges()):
+        return _call_networkx_for_parity(
+            "edge_connectivity", G, s=s, t=t, cutoff=cutoff
         )
     # Multigraphs: the Rust implementation collapses parallel edges and
     # returns the simple-graph edge-connectivity (and as a float), whereas
@@ -5302,6 +5322,13 @@ def is_eulerian(G):
             if deg % 2 != 0:
                 return False
         return True
+    # br-r37-c1-792dv: the Rust _raw_is_eulerian also mishandles
+    # self-loops on multi-node graphs (e.g. K3 + self-loop on one
+    # vertex remains Eulerian per nx but the Rust path returns
+    # False). Delegate to nx whenever any self-loop is present so
+    # both predicates carry the same self-loop semantics.
+    if any(u == v for u, v in G.edges()):
+        return _call_networkx_for_parity("is_eulerian", G)
     return _raw_is_eulerian(G)
 
 
@@ -5389,6 +5416,14 @@ def has_eulerian_path(G, source=None):
     if G.is_directed():
         return _call_networkx_for_parity("has_eulerian_path", G, source=source)
     if source is not None:
+        return _call_networkx_for_parity("has_eulerian_path", G, source=source)
+    # br-r37-c1-792dv: the Rust _raw_has_eulerian_path mishandles
+    # self-loops (each self-loop adds 2 to degree, keeping parity
+    # even). On graphs with self-loops the Rust path returns False
+    # where nx returns True (e.g. K3 + self-loop, single-node
+    # self-loop, self-loop attached to a chain). Delegate any
+    # graph with at least one self-loop to nx.
+    if any(u == v for u, v in G.edges()):
         return _call_networkx_for_parity("has_eulerian_path", G, source=source)
     return _raw_has_eulerian_path(G)
 
