@@ -10262,6 +10262,8 @@ def _reorder_by_distance(dists, *, G=None, source=None):
 
 
 def single_source_dijkstra(G, source, target=None, cutoff=None, weight="weight"):
+    # br-r37-c1-ybw1s: nx-shaped TypeError on unhashable source.
+    hash(source)
     # br-dijkignoreweight: the Rust single_source_dijkstra silently
     # returns hop-count distances on any weighted input (it ignores
     # the weight attribute). Delegate to nx when any edge carries a
@@ -10294,6 +10296,8 @@ def single_source_dijkstra(G, source, target=None, cutoff=None, weight="weight")
 
 
 def single_source_dijkstra_path(G, source, cutoff=None, weight="weight"):
+    # br-r37-c1-ybw1s: nx-shaped TypeError on unhashable source.
+    hash(source)
     # br-dijkignoreweight: same as single_source_dijkstra.
     if _should_delegate_dijkstra_to_networkx(G, weight) or _graph_has_nonunit_weight(G, weight):
         return _call_networkx_for_parity(
@@ -10304,6 +10308,8 @@ def single_source_dijkstra_path(G, source, cutoff=None, weight="weight"):
 
 
 def single_source_dijkstra_path_length(G, source, cutoff=None, weight="weight"):
+    # br-r37-c1-ybw1s: nx-shaped TypeError on unhashable source.
+    hash(source)
     # br-dijkignoreweight: delegate weighted inputs to nx.
     if _should_delegate_dijkstra_to_networkx(G, weight) or _graph_has_nonunit_weight(G, weight):
         return _call_networkx_for_parity(
@@ -10318,6 +10324,8 @@ def single_source_dijkstra_path_length(G, source, cutoff=None, weight="weight"):
 
 
 def single_source_bellman_ford(G, source, target=None, weight="weight"):
+    # br-r37-c1-ybw1s: nx-shaped TypeError on unhashable source.
+    hash(source)
     # br-bfignoreweight: same weight-ignoring bug as dijkstra — the
     # Rust Bellman-Ford returns hop-count distances on weighted input.
     # Delegate any weighted graph to nx.
@@ -10342,6 +10350,8 @@ def single_source_bellman_ford(G, source, target=None, weight="weight"):
 
 
 def single_source_bellman_ford_path(G, source, weight="weight"):
+    # br-r37-c1-ybw1s: nx-shaped TypeError on unhashable source.
+    hash(source)
     # br-bfignoreweight: delegate weighted inputs.
     if _should_delegate_bellman_ford_to_networkx(weight) or _graph_has_nonunit_weight(G, weight):
         return _call_networkx_for_parity(
@@ -10356,6 +10366,8 @@ def single_source_bellman_ford_path(G, source, weight="weight"):
 
 
 def single_source_bellman_ford_path_length(G, source, weight="weight"):
+    # br-r37-c1-ybw1s: nx-shaped TypeError on unhashable source.
+    hash(source)
     # br-bfignoreweight: delegate weighted inputs.
     if _should_delegate_bellman_ford_to_networkx(weight) or _graph_has_nonunit_weight(G, weight):
         return _call_networkx_for_parity(
@@ -15518,6 +15530,18 @@ def bidirectional_dijkstra(G, source, target, weight="weight"):
         return _call_networkx_for_parity(
             "bidirectional_dijkstra", G, source, target, weight=weight
         )
+    # br-r37-c1-ybw1s: nx's bidirectional_dijkstra checks
+    # ``source not in G`` (which silently returns False on
+    # unhashable, no hash op) and raises NodeNotFound — *not*
+    # TypeError. fnx's local fallback delegates to dijkstra_path
+    # which now hash-validates (br-r37-c1-c4agn) and raises
+    # TypeError. Mirror nx's contract: pre-membership-check
+    # source / target with the (silent-False-on-unhashable) ``in``
+    # operator and raise NodeNotFound for any non-member input.
+    if source not in G:
+        raise NodeNotFound(f"Source {source} is not in G")
+    if target not in G:
+        raise NodeNotFound(f"Target {target} is not in G")
     path = dijkstra_path(G, source, target, weight=weight)
     length = dijkstra_path_length(G, source, target, weight=weight)
     return (length, path)
