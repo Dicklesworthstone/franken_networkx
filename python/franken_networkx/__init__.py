@@ -491,11 +491,18 @@ def _node_view_call_with_attr_support(node_view_call):
             data = False
         if default is _unset:
             default = None
-        # data=False with no kwargs returns the live Rust NodeView
-        # directly so the common ``for n in G.nodes:`` path stays fast
-        # and the class name remains 'NodeView' (matches nx).
+        # br-r37-c1-f8gi1: data=False with no kwargs must return a LIVE
+        # node view — i.e. ``self`` — so subsequent graph mutations are
+        # visible when the captured view is iterated again. Matches nx's
+        # NodeView.__call__() returning self. The Rust-side
+        # MultiGraphNodeView / MultiDiGraphNodeView ``__call__`` returns
+        # a frozen list when invoked through the FFI; bypass it here.
+        # Graph and DiGraph were already correct because their Rust
+        # ``__call__`` returns self for default args, but uniformly
+        # returning ``self`` keeps the contract consistent across all
+        # four classes and avoids future drift.
         if data is False:
-            return node_view_call(self, False, default)
+            return self
         # data=True or data='attr' return a NodeDataView wrapper
         # (br-r37-c1-j2vof).
         return NodeDataView(

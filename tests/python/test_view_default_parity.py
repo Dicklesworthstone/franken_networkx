@@ -193,3 +193,72 @@ class TestEdgesCallReturnsLiveView:
         assert (2, 1) not in v  # directed
         G.add_edge(2, 1)
         assert (2, 1) in v
+
+
+# ---------------------------------------------------------------------------
+# br-r37-c1-f8gi1: Multi*.nodes() must return a LIVE NodeView (matches nx),
+# not a frozen list. Same class of defect as br-r37-c1-msf5j (edges()) but
+# for the Multi* node side. Rust-side MultiGraphNodeView.__call__ /
+# MultiDiGraphNodeView.__call__ returned list; the Python wrapper now
+# returns ``self`` (the live NodeView) for default args.
+# ---------------------------------------------------------------------------
+
+
+class TestNodesCallReturnsLiveView:
+    @pytest.mark.parametrize("cls_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+    def test_nodes_view_reflects_subsequent_add_node(self, cls_name):
+        fnx_cls = getattr(fnx, cls_name)
+        nx_cls = getattr(nx, cls_name)
+        G = fnx_cls([(1, 2), (2, 3)])
+        Gn = nx_cls([(1, 2), (2, 3)])
+
+        fview = G.nodes()
+        nview = Gn.nodes()
+
+        G.add_node(99)
+        Gn.add_node(99)
+
+        fnx_after = list(fview)
+        nx_after = list(nview)
+        assert fnx_after == nx_after, (
+            f"{cls_name}: nodes() live-view divergence — "
+            f"fnx={fnx_after} nx={nx_after}"
+        )
+        assert 99 in fnx_after
+
+    @pytest.mark.parametrize("cls_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+    def test_nodes_view_reflects_remove_node(self, cls_name):
+        fnx_cls = getattr(fnx, cls_name)
+        nx_cls = getattr(nx, cls_name)
+        G = fnx_cls([(1, 2), (2, 3), (3, 4)])
+        Gn = nx_cls([(1, 2), (2, 3), (3, 4)])
+
+        fview = G.nodes()
+        nview = Gn.nodes()
+
+        G.remove_node(3)
+        Gn.remove_node(3)
+
+        assert list(fview) == list(nview)
+        assert 3 not in fview
+
+    @pytest.mark.parametrize("cls_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+    def test_nodes_view_len_updates_after_mutation(self, cls_name):
+        G = getattr(fnx, cls_name)([(1, 2)])
+        v = G.nodes()
+        assert len(v) == 2
+        G.add_node(3)
+        assert len(v) == 3
+        G.remove_node(2)
+        assert len(v) == 2
+
+    @pytest.mark.parametrize("cls_name", ["MultiGraph", "MultiDiGraph"])
+    def test_multi_nodes_call_returns_live_view_type(self, cls_name):
+        """The Rust-side return type for the multi node views was list
+        pre-fix. After fix the call returns the live NodeView (same
+        type as ``G.nodes`` without parens)."""
+        G = getattr(fnx, cls_name)([(1, 2)])
+        assert type(G.nodes()) is type(G.nodes), (
+            f"{cls_name}.nodes() should return same type as G.nodes "
+            f"(live view), got {type(G.nodes())} vs {type(G.nodes)}"
+        )
