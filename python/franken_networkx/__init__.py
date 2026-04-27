@@ -21412,21 +21412,35 @@ def cn_soundarajan_hopcroft(G, ebunch=None, community="community"):
     community as None and silently computed a plain common-neighbor
     count without the bonus — a correctness trap for callers that
     assumed nx contract. Now raises the same error.
+
+    br-r37-c1-fa5tf: nx is @not_implemented_for('directed',
+    'multigraph'). Pre-fix fnx fell through to the per-node
+    community-attr check and raised NetworkXAlgorithmError instead
+    of NetworkXNotImplemented. Raise the type error eagerly (on
+    function call, matching nx's argmap behavior) so iteration
+    never reaches the community check on multi/directed inputs.
     """
-    if ebunch is None:
-        ebunch = non_edges(G)
-    for u, v in ebunch:
-        u_comm = _lp_community_of(G, u, community)
-        v_comm = _lp_community_of(G, v, community)
-        u_nbrs = set(G.neighbors(u))
-        v_nbrs = set(G.neighbors(v))
-        common = u_nbrs & v_nbrs
-        score = len(common)
-        if u_comm == v_comm:
-            for w in common:
-                if _lp_community_of(G, w, community) == u_comm:
-                    score += 1
-        yield (u, v, score)
+    if G.is_multigraph():
+        raise NetworkXNotImplemented("not implemented for multigraph type")
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
+
+    def _gen():
+        eb = non_edges(G) if ebunch is None else ebunch
+        for u, v in eb:
+            u_comm = _lp_community_of(G, u, community)
+            v_comm = _lp_community_of(G, v, community)
+            u_nbrs = set(G.neighbors(u))
+            v_nbrs = set(G.neighbors(v))
+            common = u_nbrs & v_nbrs
+            score = len(common)
+            if u_comm == v_comm:
+                for w in common:
+                    if _lp_community_of(G, w, community) == u_comm:
+                        score += 1
+            yield (u, v, score)
+
+    return _gen()
 
 
 def ra_index_soundarajan_hopcroft(G, ebunch=None, community="community"):
@@ -21437,28 +21451,38 @@ def ra_index_soundarajan_hopcroft(G, ebunch=None, community="community"):
     neighbors w whose community == Cu, when Cu==Cv; else 0. fnx's
     previous formula added a per-w bonus term that was never part of
     the nx definition, producing systematically larger scores.
+
+    br-r37-c1-fa5tf: same multigraph/directed eager-raise pattern as
+    cn_soundarajan_hopcroft. See that function for details.
     """
-    if ebunch is None:
-        ebunch = non_edges(G)
-    for u, v in ebunch:
-        u_comm = _lp_community_of(G, u, community)
-        v_comm = _lp_community_of(G, v, community)
-        if u_comm != v_comm:
-            # br-shratype: nx returns int 0 here (no division on early
-            # return); match exactly so type-sensitive callers don't
-            # diverge.
-            yield (u, v, 0)
-            continue
-        u_nbrs = set(G.neighbors(u))
-        v_nbrs = set(G.neighbors(v))
-        common = u_nbrs & v_nbrs
-        score = 0
-        for w in common:
-            if _lp_community_of(G, w, community) == u_comm:
-                deg_w = G.degree(w)
-                if deg_w > 0:
-                    score = score + 1 / deg_w
-        yield (u, v, score)
+    if G.is_multigraph():
+        raise NetworkXNotImplemented("not implemented for multigraph type")
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
+
+    def _gen():
+        eb = non_edges(G) if ebunch is None else ebunch
+        for u, v in eb:
+            u_comm = _lp_community_of(G, u, community)
+            v_comm = _lp_community_of(G, v, community)
+            if u_comm != v_comm:
+                # br-shratype: nx returns int 0 here (no division on early
+                # return); match exactly so type-sensitive callers don't
+                # diverge.
+                yield (u, v, 0)
+                continue
+            u_nbrs = set(G.neighbors(u))
+            v_nbrs = set(G.neighbors(v))
+            common = u_nbrs & v_nbrs
+            score = 0
+            for w in common:
+                if _lp_community_of(G, w, community) == u_comm:
+                    deg_w = G.degree(w)
+                    if deg_w > 0:
+                        score = score + 1 / deg_w
+            yield (u, v, score)
+
+    return _gen()
 
 
 def node_attribute_xy(G, attribute, nodes=None):
@@ -32494,9 +32518,20 @@ def within_inter_cluster(G, ebunch=None, delta=0.001, community="community"):
     If u and v are in different communities, score is 0.
     Otherwise, score = |within| / (|inter| + delta) where within are common
     neighbors in the same community as u/v, and inter are those in different.
+
+    br-r37-c1-fa5tf: nx is @not_implemented_for('directed',
+    'multigraph'). Type guard fires eagerly (on call) so iteration
+    never reaches the per-node community-attr check on multi/
+    directed inputs.
     """
+    if G.is_multigraph():
+        raise NetworkXNotImplemented("not implemented for multigraph type")
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
     if delta <= 0:
-        raise NetworkXError("Delta must be greater than zero")
+        # br-r37-c1-fa5tf: nx raises NetworkXAlgorithmError (not
+        # NetworkXError) for this precondition; match exactly.
+        raise NetworkXAlgorithmError("Delta must be greater than zero")
 
     if ebunch is None:
         # Default: all non-existing edges.
