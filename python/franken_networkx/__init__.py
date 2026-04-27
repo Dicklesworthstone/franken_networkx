@@ -17818,9 +17818,19 @@ def dag_to_branching(G):
     subclass of NetworkXNotImplemented — drop-in code that does
     ``except NetworkXNotImplemented`` would not catch fnx's
     HasACycle. Add the type guard up front to match nx.
+
+    br-r37-c1-06ubx: nx is also decorated with
+    ``@not_implemented_for('multigraph')``. fnx silently accepted
+    MultiDiGraph input. Add the same guard. Order matters: nx
+    raises 'undirected' on MultiGraph (the inner decorator fires
+    first); fnx mirrors that ordering — undirected check comes
+    first so a MultiGraph (undirected + multigraph) gets the same
+    'not implemented for undirected type' message.
     """
     if not G.is_directed():
         raise NetworkXNotImplemented("not implemented for undirected type")
+    if G.is_multigraph():
+        raise NetworkXNotImplemented("not implemented for multigraph type")
     if not is_directed_acyclic_graph(G):
         raise HasACycle("dag_to_branching is only defined for acyclic graphs")
 

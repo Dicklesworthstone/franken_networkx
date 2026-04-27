@@ -134,3 +134,49 @@ def test_dag_to_branching_dag_unchanged():
     f = sorted(fnx.dag_to_branching(G).edges())
     n = sorted(nx.dag_to_branching(GX).edges())
     assert f == n
+
+
+# ---------------------------------------------------------------------------
+# br-r37-c1-06ubx: dag_to_branching also rejects multigraph input
+# ---------------------------------------------------------------------------
+
+@needs_nx
+def test_dag_to_branching_rejects_multidigraph():
+    """nx is decorated with @not_implemented_for('multigraph') in
+    addition to @not_implemented_for('undirected'). MultiDiGraph
+    (directed + multigraph) must raise 'not implemented for
+    multigraph type' on both libraries."""
+    G = fnx.MultiDiGraph([(1, 2), (2, 3)])
+    GX = nx.MultiDiGraph([(1, 2), (2, 3)])
+    with pytest.raises(
+        fnx.NetworkXNotImplemented,
+        match=r"not implemented for multigraph type",
+    ):
+        fnx.dag_to_branching(G)
+    with pytest.raises(
+        nx.NetworkXNotImplemented,
+        match=r"not implemented for multigraph type",
+    ):
+        nx.dag_to_branching(GX)
+
+
+@needs_nx
+def test_dag_to_branching_multigraph_undirected_undirected_message_wins():
+    """For MultiGraph (both undirected AND multigraph), nx's
+    decorator stack runs the inner @not_implemented_for('undirected')
+    check first, so 'undirected' wins. fnx must match that exact
+    ordering — drop-in code that does
+    ``pytest.raises(..., match='undirected')`` on MultiGraph would
+    otherwise fail."""
+    G = fnx.MultiGraph([(1, 2)])
+    GX = nx.MultiGraph([(1, 2)])
+    with pytest.raises(
+        fnx.NetworkXNotImplemented,
+        match=r"^not implemented for undirected type$",
+    ):
+        fnx.dag_to_branching(G)
+    with pytest.raises(
+        nx.NetworkXNotImplemented,
+        match=r"^not implemented for undirected type$",
+    ):
+        nx.dag_to_branching(GX)
