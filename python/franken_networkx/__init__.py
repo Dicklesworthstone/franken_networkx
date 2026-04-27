@@ -5619,6 +5619,10 @@ def cycle_basis(G, root=None):
 def all_shortest_paths(G, source, target, weight=None, method="dijkstra"):
     if weight is not None and method not in {"dijkstra", "bellman-ford"}:
         raise ValueError(f"method not supported: {method}")
+    # br-r37-c1-omjmu: nx raises TypeError on unhashable target inside
+    # its predecessor traversal; without this guard fnx falls through
+    # to a NodeNotFound("Target ... is not in G").
+    hash(target)
     if weight is not None and method == "dijkstra" and _should_delegate_dijkstra_to_networkx(G, weight):
         kwargs = {"weight": weight}
         if method is not None:
@@ -5774,12 +5778,42 @@ def tree_broadcast_time(G, node=None):
 # Algorithm functions — traversal (BFS) — wrapped for sort_neighbors support
 from franken_networkx._fnx import (
     bfs_edges as _bfs_edges_raw,
-    bfs_layers,
+    bfs_layers as _bfs_layers_raw,
     bfs_predecessors as _bfs_predecessors_raw,
     bfs_successors as _bfs_successors_raw,
     bfs_tree as _bfs_tree_raw,
     descendants_at_distance as _raw_descendants_at_distance,
 )
+
+
+def bfs_layers(G, sources):
+    """Yield BFS layers starting from ``sources``.
+
+    br-r37-c1-omjmu: nx raises ``TypeError`` when any of the given
+    sources is unhashable (the inner loop builds a dict keyed on
+    sources).  fnx's Rust binding silently treats unhashable
+    sources as non-members and yields nothing — eagerly hash-check
+    each source so the contract matches nx exactly.
+    """
+    # nx accepts a single source OR an iterable.  Mirror its
+    # ``if sources in G`` test which silently returns False on
+    # unhashable: when the bare ``sources`` is hashable and a node,
+    # treat as single-source; otherwise iterate.
+    try:
+        single_node = sources in G
+    except TypeError:
+        single_node = False
+    if single_node:
+        hash(sources)
+    else:
+        try:
+            iterator = iter(sources)
+        except TypeError:
+            return _bfs_layers_raw(G, sources)
+        sources = list(iterator)
+        for s in sources:
+            hash(s)
+    return _bfs_layers_raw(G, sources)
 
 
 def descendants_at_distance(G, source, distance):
@@ -10197,6 +10231,11 @@ def dijkstra_path_length(G, source, target, weight="weight"):
         )
     if source not in G:
         raise NodeNotFound(f"Node {source} not found in graph")
+    # br-r37-c1-omjmu: nx's _dijkstra raises TypeError on unhashable
+    # target during the inner loop. Without this hash-check fnx would
+    # silently fall through to ``target not in G`` (silent-False) and
+    # raise NetworkXNoPath instead.
+    hash(target)
     if target not in G:
         raise NetworkXNoPath(f"Node {target} not reachable from {source}")
     try:
@@ -10217,6 +10256,10 @@ def bellman_ford_path_length(G, source, target, weight="weight"):
     hash(source)
     if source not in G:
         raise NodeNotFound(f"Source {source} not in G")
+    # br-r37-c1-omjmu: hash-validate target — nx raises TypeError
+    # on unhashable target inside its inner loop; without this guard
+    # fnx falls through to NetworkXNoPath.
+    hash(target)
     if target not in G:
         raise NetworkXNoPath(f"node {target} not reachable from {source}")
     try:
