@@ -9370,6 +9370,14 @@ def shortest_simple_paths(G, source, target, weight=None):
     """
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
+    # br-r37-c1-hpeix: pre-validate so we get nx's exact lowercase
+    # 'source/target node X not in graph' wording.  The Rust
+    # binding was emitting the title-cased 'Source X is not in G'
+    # variant.
+    if source not in G:
+        raise NodeNotFound(f"source node {source} not in graph")
+    if target not in G:
+        raise NodeNotFound(f"target node {target} not in graph")
     if callable(weight):
         yield from _call_networkx_for_parity(
             "shortest_simple_paths", G, source, target, weight=weight
