@@ -827,6 +827,55 @@ class TestSpectral:
         L = fnx.laplacian_matrix(G)
         assert L.shape == (4, 4)
 
+    # br-r37-c1-vqodq: laplacian_matrix dtype must match nx — int64 for
+    # unweighted graphs, float64 for weighted. Pre-fix the implementation
+    # forced ``dtype=float`` in scipy.sparse.diags_array, producing
+    # float64 even on int64 adjacency matrices.
+    def test_laplacian_matrix_dtype_unweighted_matches_nx(self):
+        import networkx as nx
+
+        for edges in (
+            [(1, 2), (2, 3)],
+            [(1, 2), (3, 4), (5, 6)],
+            list(zip(range(10), range(1, 11))),
+        ):
+            G = fnx.Graph(edges)
+            Gn = nx.Graph(edges)
+            L_f = fnx.laplacian_matrix(G).toarray()
+            L_n = nx.laplacian_matrix(Gn).toarray()
+            assert L_f.dtype == L_n.dtype, (
+                f"unweighted laplacian dtype divergence: "
+                f"fnx={L_f.dtype} nx={L_n.dtype}"
+            )
+            assert np.array_equal(L_f, L_n)
+
+    def test_laplacian_matrix_dtype_weighted_matches_nx(self):
+        import networkx as nx
+
+        # Float weights → float64 on both sides.
+        edges_float = [(1, 2, {"weight": 1.5}), (2, 3, {"weight": 2.0})]
+        L_f = fnx.laplacian_matrix(fnx.Graph(edges_float)).toarray()
+        L_n = nx.laplacian_matrix(nx.Graph(edges_float)).toarray()
+        assert L_f.dtype == L_n.dtype == np.float64
+        assert np.allclose(L_f, L_n)
+
+        # Integer weights → int64 on both sides (weight attr is int).
+        edges_int = [(1, 2, {"weight": 2}), (2, 3, {"weight": 3})]
+        L_f = fnx.laplacian_matrix(fnx.Graph(edges_int)).toarray()
+        L_n = nx.laplacian_matrix(nx.Graph(edges_int)).toarray()
+        assert L_f.dtype == L_n.dtype == np.int64
+        assert np.array_equal(L_f, L_n)
+
+    def test_laplacian_matrix_directed_unweighted_dtype(self):
+        import networkx as nx
+
+        D = fnx.DiGraph([(1, 2), (2, 3), (3, 1)])
+        Dn = nx.DiGraph([(1, 2), (2, 3), (3, 1)])
+        L_f = fnx.laplacian_matrix(D).toarray()
+        L_n = nx.laplacian_matrix(Dn).toarray()
+        assert L_f.dtype == L_n.dtype == np.int64
+        assert np.array_equal(L_f, L_n)
+
     def test_laplacian_spectrum(self):
         G = fnx.path_graph(4)
         spec = fnx.laplacian_spectrum(G)

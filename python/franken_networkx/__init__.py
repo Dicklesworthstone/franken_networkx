@@ -12669,12 +12669,14 @@ def laplacian_matrix(G, nodelist=None, weight="weight"):
     import scipy.sparse
 
     A = to_scipy_sparse_array(G, nodelist=nodelist, weight=weight)
-    # Use sparse *arrays* so the result preserves nx's csr_array return
-    # type; diags_array avoids the csr_matrix/csr_array legacy split.
-    D = scipy.sparse.diags_array(
-        np.asarray(A.sum(axis=1)).flatten(), dtype=float
-    )
-    return (D - A).tocsr()
+    # br-r37-c1-vqodq: mirror nx.laplacian_matrix exactly — use
+    # dia_array with the row-sum vector so D inherits A's dtype.
+    # The previous diags_array(... dtype=float) call forced float64
+    # even on unweighted (int64) adjacency, which diverged from nx
+    # and emitted a FutureWarning under recent scipy.
+    n = A.shape[0]
+    D = scipy.sparse.dia_array((A.sum(axis=1), 0), shape=(n, n)).tocsr()
+    return D - A
 
 
 def normalized_laplacian_matrix(G, nodelist=None, weight="weight"):
