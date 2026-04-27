@@ -20791,9 +20791,23 @@ def second_order_centrality(G, weight="weight", *, backend=None, **backend_kwarg
     """Second-order centrality based on random walk standard deviation."""
     _validate_backend_dispatch_keywords("second_order_centrality", backend, backend_kwargs)
 
+    # br-r37-c1-u7ry8: the Rust fast path silently returned a value
+    # dict on empty / disconnected graphs (zeros, NaNs, or {}). nx
+    # raises NetworkXException with specific wording — mirror that
+    # contract before any Rust dispatch so drop-in code that does
+    # ``pytest.raises(NetworkXException, match='Non connected graph')``
+    # triggers the same way under fnx. Single-isolated-node case is
+    # the documented exception (returns {n: 0.0} on both libraries).
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
+    n_nodes = len(G)
+    if n_nodes == 0:
+        raise NetworkXException("Empty graph.")
+    if n_nodes > 1 and not is_connected(G):
+        raise NetworkXException("Non connected graph.")
+
     if (
-        not G.is_directed()
-        and weight == "weight"
+        weight == "weight"
         and not _graph_has_edge_attribute(G, "weight")
     ):
         raw = _fnx.second_order_centrality_rust(G)
@@ -20803,20 +20817,13 @@ def second_order_centrality(G, weight="weight", *, backend=None, **backend_kwarg
         # matches nx's contract.
         return {node: raw[node] for node in G.nodes() if node in raw}
 
-    if G.is_directed():
-        raise NetworkXNotImplemented("not implemented for directed type")
-
     import numpy as np
 
     nodelist = list(G.nodes())
     n = len(nodelist)
 
-    if n == 0:
-        raise NetworkXError("Empty graph.")
     if n == 1:
         return {nodelist[0]: 0.0}
-    if not is_connected(G):
-        raise NetworkXError("Non connected graph.")
     if any(data.get(weight, 0) < 0 for _, _, data in G.edges(data=True)):
         raise NetworkXError("Graph has negative edge weights.")
 
