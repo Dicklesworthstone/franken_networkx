@@ -10356,6 +10356,13 @@ def in_degree_centrality(G, *, backend=None, **backend_kwargs):
     already counts multi-edges correctly) for multigraphs to match nx.
     """
     _validate_backend_dispatch_keywords("in_degree_centrality", backend, backend_kwargs)
+    # br-r37-c1-n7rgh: nx is @not_implemented_for('undirected'). The
+    # MultiGraph (undirected + multi) branch fell through to
+    # G.in_degree() which doesn't exist on undirected and raised
+    # AttributeError. Add the type guard so MG and Graph alike raise
+    # NetworkXNotImplemented matching nx.
+    if not G.is_directed():
+        raise NetworkXNotImplemented("not implemented for undirected type")
     if G.is_multigraph():
         n = len(G)
         if n <= 1:
@@ -10378,6 +10385,9 @@ def out_degree_centrality(G, *, backend=None, **backend_kwargs):
     Rust path undercounted parallel edges on MultiDiGraph.
     """
     _validate_backend_dispatch_keywords("out_degree_centrality", backend, backend_kwargs)
+    # br-r37-c1-n7rgh: same undirected guard as in_degree_centrality.
+    if not G.is_directed():
+        raise NetworkXNotImplemented("not implemented for undirected type")
     if G.is_multigraph():
         n = len(G)
         if n <= 1:
@@ -19010,8 +19020,12 @@ def triadic_census(G, nodelist=None):
     dict
         ``{triad_type: count}`` for all 16 types.
     """
+    # br-r37-c1-n7rgh: nx is @not_implemented_for('undirected') and
+    # raises NetworkXNotImplemented; previously fnx raised
+    # NetworkXError which is the parent class but not catchable as
+    # NetworkXNotImplemented.
     if not G.is_directed():
-        raise NetworkXError("triadic_census requires a directed graph")
+        raise NetworkXNotImplemented("not implemented for undirected type")
     if nodelist is None:
         raw = _fnx.triadic_census_rust(G)
         # br-r37-c1-v9m7b: nx returns the 16 triad types in canonical
@@ -19059,7 +19073,14 @@ def triad_type(G):
     -------
     str
         One of the 16 MAN triad type codes.
+
+    br-r37-c1-n7rgh: nx is @not_implemented_for('undirected'); add
+    the type guard before the 3-node check so undirected inputs
+    raise NetworkXNotImplemented (matching nx) instead of the
+    Rust binding's NetworkXError.
     """
+    if not G.is_directed():
+        raise NetworkXNotImplemented("not implemented for undirected type")
     nodes = list(G.nodes())
     if len(nodes) != 3:
         raise NetworkXError("triad_type requires exactly 3 nodes")
@@ -19175,8 +19196,16 @@ def directed_edge_swap(G, *, nswap=1, max_tries=100, seed=None):
 
     rng = _random.Random(seed)
 
+    # br-r37-c1-n7rgh: nx is @not_implemented_for('undirected') and
+    # raises NetworkXNotImplemented (catchable via that subclass);
+    # previously fnx raised the parent NetworkXError class.
     if not G.is_directed():
-        raise NetworkXError("directed_edge_swap requires a directed graph")
+        raise NetworkXNotImplemented("not implemented for undirected type")
+    # nx contract: at least 4 nodes and 3 edges, else NetworkXError.
+    if len(G) < 4:
+        raise NetworkXError("DiGraph has fewer than four nodes.")
+    if G.number_of_edges() < 3:
+        raise NetworkXError("DiGraph has fewer than 3 edges")
     if G.number_of_edges() < 2:
         return G
 
@@ -21821,8 +21850,15 @@ def moral_graph(G):
 
     For each node, connect all pairs of its predecessors (marry co-parents),
     then return the undirected version.
+
+    br-r37-c1-n7rgh: nx is @not_implemented_for('undirected'); pre-fix
+    fnx fell through to G.predecessors() which raises AttributeError
+    on undirected. Add the explicit type guard.
     """
     from itertools import combinations
+
+    if not G.is_directed():
+        raise NetworkXNotImplemented("not implemented for undirected type")
 
     H = Graph()
     for node in G.nodes():
@@ -28936,7 +28972,15 @@ def restricted_view(G, nodes, edges):
 
 
 def reverse_view(G):
-    """View with reversed edges."""
+    """View with reversed edges.
+
+    br-r37-c1-n7rgh: nx is @not_implemented_for('undirected'); the
+    underlying reverse() raises NetworkXError for undirected
+    inputs, but nx raises NetworkXNotImplemented before reaching
+    that code.
+    """
+    if not G.is_directed():
+        raise NetworkXNotImplemented("not implemented for undirected type")
     return reverse(G, copy=False)
 
 

@@ -78,8 +78,21 @@ def test_triadic_census_with_nodelist_kwarg():
 
 
 @needs_nx
-def test_undirected_input_raises_networkxerror():
-    """Regression: the directed-only guard must not regress."""
+def test_undirected_input_raises_not_implemented():
+    """Regression: the directed-only guard must not regress.
+
+    br-r37-c1-n7rgh: triadic_census now raises
+    NetworkXNotImplemented (matching nx's
+    @not_implemented_for('undirected') decorator) instead of the
+    parent NetworkXError. NetworkXNotImplemented is a subclass of
+    NetworkXException, NOT of NetworkXError, so the previous
+    test would have to be updated when the guard's exception
+    class was tightened.
+    """
     G = fnx.path_graph(3)
-    with pytest.raises(fnx.NetworkXError):
+    with pytest.raises(fnx.NetworkXNotImplemented):
         fnx.triadic_census(G)
+    # Also verify nx's behavior matches.
+    import networkx as nx
+    with pytest.raises(nx.NetworkXNotImplemented):
+        nx.triadic_census(nx.path_graph(3))
