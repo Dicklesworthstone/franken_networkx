@@ -19664,8 +19664,17 @@ def resistance_distance(G, nodeA=None, nodeB=None, weight=None, invert_weight=Tr
     Returns
     -------
     float or dict of dicts
+
+    br-r37-c1-b7huh: nx is @not_implemented_for('directed').
+    Resistance distance is defined for undirected (electrical
+    network) graphs; applying it to a digraph yields a meaningless
+    asymmetric matrix. fnx silently computed that on DiGraph /
+    MultiDiGraph; raise NetworkXNotImplemented to match nx.
     """
     import numpy as np
+
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
 
     nodelist = list(G.nodes())
     n = len(nodelist)
