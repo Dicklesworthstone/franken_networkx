@@ -1174,11 +1174,7 @@ impl PyMultiGraph {
         // Copy edges in the original insertion order (br-copyedgeord).
         // See PyGraph::copy above for the rationale.
         for snapshot in self.inner.edges_ordered() {
-            let (u, v, key) = (
-                snapshot.left.clone(),
-                snapshot.right.clone(),
-                snapshot.key,
-            );
+            let (u, v, key) = (snapshot.left.clone(), snapshot.right.clone(), snapshot.key);
             let attrs_entry = self
                 .edge_py_attrs
                 .get(&(u.clone(), v.clone(), key))
@@ -1188,12 +1184,10 @@ impl PyMultiGraph {
                 None => PyDict::new(py).unbind(),
             };
             let rust_attrs = py_dict_to_attr_map(py_attrs.bind(py))?;
-            let _ = new_graph.inner.add_edge_with_key_and_attrs(
-                u.clone(),
-                v.clone(),
-                key,
-                rust_attrs,
-            );
+            let _ =
+                new_graph
+                    .inner
+                    .add_edge_with_key_and_attrs(u.clone(), v.clone(), key, rust_attrs);
             new_graph
                 .edge_py_attrs
                 .insert((u.clone(), v.clone(), key), py_attrs);

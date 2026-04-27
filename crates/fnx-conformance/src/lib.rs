@@ -2279,8 +2279,9 @@ fn run_fixture(
                 communities,
                 weight_attr,
             } => {
-                let result = fnx_algorithms::modularity(&context.graph, &communities, 1.0, &weight_attr)
-                    .expect("conformance modularity fixtures must provide valid partitions");
+                let result =
+                    fnx_algorithms::modularity(&context.graph, &communities, 1.0, &weight_attr)
+                        .expect("conformance modularity fixtures must provide valid partitions");
                 context.modularity_result = Some(result);
             }
             Operation::LabelPropagationCommunitiesQuery => {

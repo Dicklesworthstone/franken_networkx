@@ -681,8 +681,7 @@ impl GraphGenerator {
                     let _ = graph.add_node(label.clone());
                 }
                 for (u, v) in &edge_pairs {
-                    let _ =
-                        graph.add_edge(node_labels[*u].clone(), node_labels[*v].clone());
+                    let _ = graph.add_edge(node_labels[*u].clone(), node_labels[*v].clone());
                 }
                 self.record(
                     "random_regular_graph",

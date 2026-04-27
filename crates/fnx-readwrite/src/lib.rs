@@ -1705,23 +1705,35 @@ impl EdgeListEngine {
                         }
                     }
                 }
-                Ok(Event::Text(ref e)) if current_key_default_key.is_some() => match decode_graphml_text_content(e) {
-                    Ok(text) => current_key_default_text.push_str(&text),
-                    Err(err) => {
-                        let warning = format!("graphml default text unescape error: {err}");
-                        if self.mode == CompatibilityMode::Strict {
-                            self.record("read_graphml", DecisionAction::FailClosed, &warning, 1.0);
-                            return Err(ReadWriteError::FailClosed {
-                                operation: "read_graphml",
-                                reason: warning,
-                            });
+                Ok(Event::Text(ref e)) if current_key_default_key.is_some() => {
+                    match decode_graphml_text_content(e) {
+                        Ok(text) => current_key_default_text.push_str(&text),
+                        Err(err) => {
+                            let warning = format!("graphml default text unescape error: {err}");
+                            if self.mode == CompatibilityMode::Strict {
+                                self.record(
+                                    "read_graphml",
+                                    DecisionAction::FailClosed,
+                                    &warning,
+                                    1.0,
+                                );
+                                return Err(ReadWriteError::FailClosed {
+                                    operation: "read_graphml",
+                                    reason: warning,
+                                });
+                            }
+                            warnings.push(warning.clone());
+                            self.record(
+                                "read_graphml",
+                                DecisionAction::FullValidate,
+                                &warning,
+                                0.8,
+                            );
+                            current_key_default_text.clear();
+                            current_key_default_key = None;
                         }
-                        warnings.push(warning.clone());
-                        self.record("read_graphml", DecisionAction::FullValidate, &warning, 0.8);
-                        current_key_default_text.clear();
-                        current_key_default_key = None;
                     }
-                },
+                }
                 Ok(Event::GeneralRef(ref e)) if current_key_default_key.is_some() => {
                     match decode_graphml_entity_ref(e) {
                         Ok(text) => current_key_default_text.push_str(&text),
