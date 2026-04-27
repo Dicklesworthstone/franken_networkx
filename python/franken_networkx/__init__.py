@@ -1201,11 +1201,20 @@ def _make_none_rejecting_add_edge(raw_add_edge, is_multigraph=False):
         def add_edge(self, u_for_edge, v_for_edge, key=None, **attr):
             if u_for_edge is None or v_for_edge is None:
                 raise ValueError("None cannot be a node")
+            # br-r37-c1-m0io3: validate hashability so fnx surfaces the
+            # nx-shaped TypeError ('unhashable type: <type>') for
+            # list/set/dict endpoints instead of silently absorbing
+            # the unhashable as a Python-id-keyed node.
+            hash(u_for_edge)
+            hash(v_for_edge)
             return raw_add_edge(self, u_for_edge, v_for_edge, key=key, **attr)
     else:
         def add_edge(self, u_of_edge, v_of_edge, **attr):
             if u_of_edge is None or v_of_edge is None:
                 raise ValueError("None cannot be a node")
+            # br-r37-c1-m0io3: validate hashability (see above).
+            hash(u_of_edge)
+            hash(v_of_edge)
             return raw_add_edge(self, u_of_edge, v_of_edge, **attr)
 
     return add_edge
@@ -1230,18 +1239,26 @@ _MULTIDIGRAPH_ADD_NODE_RAW = MultiDiGraph.add_node
 
 
 def _make_none_rejecting_add_node(raw_add_node):
-    """Wrap ``add_node`` to reject ``None`` matching nx's contract.
+    """Wrap ``add_node`` to reject ``None`` and unhashable types
+    matching nx's contract.
 
     br-nonenode: nx.Graph.add_node(None) raises
     ``ValueError("None cannot be a node")``. fnx's Rust binding
     silently accepted None (and also had confused has_node(None)
     vs has_node('None') behavior). Guarding at the Python edge
     preserves drop-in semantics.
+
+    br-r37-c1-m0io3: nx also raises ``TypeError: unhashable type:
+    '<type>'`` when given an unhashable node (list, set, dict).
+    fnx's Rust binding silently absorbed the unhashable as a
+    Python-id-keyed entry. Guard via ``hash(node)`` here so the
+    exact TypeError surfaces before the Rust dispatch.
     """
 
     def add_node(self, node_for_adding, **attr):
         if node_for_adding is None:
             raise ValueError("None cannot be a node")
+        hash(node_for_adding)
         return raw_add_node(self, node_for_adding, **attr)
 
     return add_node
@@ -1441,6 +1458,14 @@ _MULTIDIGRAPH_RAW_REMOVE_NODES_FROM = MultiDiGraph.remove_nodes_from
 def _add_edges_from_materialized(raw):
     def add_edges_from(self, ebunch_to_add, **attr):
         materialized = list(ebunch_to_add)
+        # br-r37-c1-m0io3: validate hashability of each endpoint so
+        # fnx raises TypeError('unhashable type: <type>') matching
+        # nx, instead of silently absorbing list/set/dict-typed
+        # endpoints as Python-id-keyed nodes.
+        for edge in materialized:
+            if isinstance(edge, tuple) and len(edge) >= 2:
+                hash(edge[0])
+                hash(edge[1])
         return raw(self, materialized, **attr)
 
     return add_edges_from
