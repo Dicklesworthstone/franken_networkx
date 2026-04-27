@@ -149,6 +149,11 @@ def _number_of_edges_with_endpoints(number_of_edges_impl):
 
 def _neighbors_with_networkx_missing_node_error(neighbors_impl, *, graph_kind="graph"):
     def neighbors(self, node):
+        # br-r37-c1-i9whv: nx raises TypeError on unhashable nodes
+        # (the underlying ``adj[n]`` dict access calls hash(n) first).
+        # fnx fell through to ``not in self`` membership which silently
+        # returned False on unhashable, then raised NetworkXError.
+        hash(node)
         try:
             result = neighbors_impl(self, node)
         except NodeNotFound as exc:
@@ -176,6 +181,9 @@ def _remove_edge_with_networkx_missing_edge_error(
     if supports_key:
 
         def remove_edge(self, u, v, key=None):
+            # br-r37-c1-i9whv: hash check before membership for nx parity.
+            hash(u)
+            hash(v)
             if key is None:
                 if not self.has_edge(u, v):
                     raise NetworkXError(missing_edge_message.format(u=u, v=v))
@@ -186,6 +194,9 @@ def _remove_edge_with_networkx_missing_edge_error(
     else:
 
         def remove_edge(self, u, v):
+            # br-r37-c1-i9whv: hash check before membership for nx parity.
+            hash(u)
+            hash(v)
             if not self.has_edge(u, v):
                 raise NetworkXError(missing_edge_message.format(u=u, v=v))
             return remove_edge_impl(self, u, v)
@@ -656,6 +667,9 @@ class AdjacencyView(Mapping):
         return iter(self._atlas())
 
     def __getitem__(self, node):
+        # br-r37-c1-i9whv: hash-check for nx-shaped TypeError on
+        # unhashable nodes (instead of falling through to KeyError).
+        hash(node)
         try:
             self._atlas()[node]
         except KeyError as exc:
@@ -694,6 +708,8 @@ class MultiAdjacencyView(Mapping):
         return iter(self._atlas())
 
     def __getitem__(self, node):
+        # br-r37-c1-i9whv: hash-check for nx-shaped TypeError parity.
+        hash(node)
         try:
             self._atlas()[node]
         except KeyError as exc:
@@ -1495,9 +1511,17 @@ def _remove_edges_from_materialized(raw):
 
 def _remove_nodes_from_materialized(raw):
     """Same materialisation guard as remove_edges_from, parameter name
-    aligned to nx's ``nodes`` (br-r37-c1-wcdm3)."""
+    aligned to nx's ``nodes`` (br-r37-c1-wcdm3).
+
+    br-r37-c1-i9whv: nx raises TypeError on unhashable items (its
+    ``del self._node[n]`` raises before the missing-node KeyError).
+    fnx silently iterated past unhashable nodes. Hash-check up
+    front so unhashable inputs raise TypeError matching nx.
+    """
     def remove_nodes_from(self, nodes):
         materialized = list(nodes)
+        for n in materialized:
+            hash(n)
         return raw(self, materialized)
 
     return remove_nodes_from
@@ -2588,9 +2612,16 @@ _SIMPLE_DIGRAPH_NODE_VIEW_TYPE.__call__ = _node_view_call_with_attr_support(
 def _make_keystr_preserving_getitem(raw):
     """br-keystr: wrap a NodeView ``__getitem__`` so KeyError retains
     the original Python key object instead of the Rust side's str repr.
+
+    br-r37-c1-i9whv: nx's nodes[n] / adj[n] dict access raises
+    TypeError on unhashable nodes. fnx's wrapper caught KeyError
+    and re-raised KeyError, but unhashable inputs reached the
+    catch path with a different exception type that got swallowed.
+    Hash-check up front for nx parity.
     """
 
     def __getitem__(self, node):
+        hash(node)
         try:
             return raw(self, node)
         except KeyError as exc:
@@ -8620,7 +8651,11 @@ def ancestors(G, source):
     set (excluding ``source`` itself). Raises NetworkXError if source
     isn't in G (message distinguishes graph vs digraph). Returns a
     plain ``set`` (not ``frozenset``).
+
+    br-r37-c1-i9whv: hash check up front for nx parity on unhashable
+    inputs (TypeError, not NetworkXError).
     """
+    hash(source)
     if source not in G:
         raise NetworkXError(_ancestors_descendants_missing_node_msg(G, source))
     if G.is_directed():
@@ -8644,7 +8679,10 @@ def descendants(G, source):
     Matches nx (br-7f0fn): on undirected / multigraph, returns the
     reachable node set (symmetric with ``ancestors``). Returns a
     plain ``set``.
+
+    br-r37-c1-i9whv: hash check up front for nx parity.
     """
+    hash(source)
     if source not in G:
         raise NetworkXError(_ancestors_descendants_missing_node_msg(G, source))
     if G.is_directed():
