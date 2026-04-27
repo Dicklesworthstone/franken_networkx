@@ -4151,6 +4151,12 @@ def eigenvector_centrality(
     """
     _validate_backend_dispatch_keywords("eigenvector_centrality", backend, backend_kwargs)
 
+    # br-r37-c1-tqimg: nx is decorated with @not_implemented_for('multigraph');
+    # fnx silently accepted MultiGraph and raised
+    # PowerIterationFailedConvergence on MultiDiGraph. Match nx's contract.
+    if G.is_multigraph():
+        raise NetworkXNotImplemented("not implemented for multigraph type")
+
     # br-r37-c1-zvfcu: nx raises NetworkXPointlessConcept on the empty
     # graph; the Rust fast path silently returned {}. Drop-in code that
     # does ``pytest.raises(NetworkXPointlessConcept)`` failed under fnx.
@@ -9334,8 +9340,13 @@ def girth(G):
     Matches nx contract (br-girthinf): acyclic graphs return
     ``math.inf`` (float), not ``None``, so ``girth(G) < k`` works
     without TypeError.
+
+    br-r37-c1-tqimg: nx is @not_implemented_for('multigraph').
     """
     import math
+
+    if G.is_multigraph():
+        raise NetworkXNotImplemented("not implemented for multigraph type")
 
     value = _raw_girth(G)
     if value is None:
@@ -12284,6 +12295,11 @@ def katz_centrality(
     """
     _validate_backend_dispatch_keywords("katz_centrality", backend, backend_kwargs)
 
+    # br-r37-c1-tqimg: nx is decorated with
+    # @not_implemented_for('multigraph'); fnx silently accepted MG.
+    if G.is_multigraph():
+        raise NetworkXNotImplemented("not implemented for multigraph type")
+
     # Delegate to NetworkX when non-default parameters are used
     if (
         alpha != 0.1
@@ -13636,6 +13652,12 @@ def communicability(G):
         ``result[u][v]`` is the communicability between u and v.
     """
     import numpy as np
+
+    # br-r37-c1-tqimg: nx is @not_implemented_for('multigraph').
+    if G.is_multigraph():
+        raise NetworkXNotImplemented("not implemented for multigraph type")
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
 
     nodelist = list(G.nodes())
     A = to_numpy_array(G, nodelist=nodelist, weight=None)
@@ -16507,6 +16529,15 @@ def stoer_wagner(G, weight="weight", heap=_BINARY_HEAP_DEFAULT):
     """
     from franken_networkx._fnx import stoer_wagner as _rust_stoer_wagner
 
+    # br-r37-c1-tqimg: nx is @not_implemented_for('multigraph') and
+    # @not_implemented_for('directed') (multigraph is the inner /
+    # first-fired decorator). Reject before the < 2 / connectivity
+    # guards so the contract matches nx exactly.
+    if G.is_multigraph():
+        raise NetworkXNotImplemented("not implemented for multigraph type")
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
+
     # br-swmsg: match nx's three distinct error-message wordings for the
     # preconditions (fewer-than-two-nodes vs disconnected) so drop-in
     # code with regex pytest.raises(..., match=...) against upstream
@@ -18227,9 +18258,17 @@ def bethe_hessian_matrix(G, r=None, nodelist=None):
     whenever the default was requested — on path(5) fnx's r was
     ~1.265 (giving diag entry 2.6) vs nx's r=0.75 (giving diag 1.5625).
     Match nx's formula exactly.
+
+    br-r37-c1-tqimg: nx is @not_implemented_for('directed',
+    'multigraph') — reject MG/DiGraph inputs.
     """
     import numpy as np
     import scipy.sparse
+
+    if G.is_multigraph():
+        raise NetworkXNotImplemented("not implemented for multigraph type")
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
 
     # nx's bethe_hessian_matrix mixes weighted and unweighted quantities:
     # A and D come from the weighted adjacency (weight='weight'), but the
@@ -19227,7 +19266,14 @@ def is_at_free(G):
 
     An asteroidal triple is three nodes where between each pair there
     exists a path avoiding the neighborhood of the third.
+
+    br-r37-c1-tqimg: nx is @not_implemented_for('directed',
+    'multigraph').
     """
+    if G.is_multigraph():
+        raise NetworkXNotImplemented("not implemented for multigraph type")
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
     return _fnx.is_at_free_rust(G)
 
 
@@ -19539,7 +19585,14 @@ def hyper_wiener_index(G, weight=None):
     ``weight`` is accepted for networkx signature parity. When set, the
     calculation delegates to networkx so edge weights are honoured; the
     native Rust path assumes unit-distance edges.
+
+    br-r37-c1-tqimg: nx is @not_implemented_for('directed',
+    'multigraph').
     """
+    if G.is_multigraph():
+        raise NetworkXNotImplemented("not implemented for multigraph type")
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
     if weight is not None:
         return _call_networkx_for_parity("hyper_wiener_index", G, weight=weight)
     return _fnx.hyper_wiener_index_rust(G)
@@ -21022,10 +21075,19 @@ def subgraph_centrality_exp(
 
 
 def communicability_betweenness_centrality(G, *, backend=None, **backend_kwargs):
-    """Betweenness centrality based on communicability."""
+    """Betweenness centrality based on communicability.
+
+    br-r37-c1-tqimg: nx is @not_implemented_for('directed',
+    'multigraph').
+    """
     _validate_backend_dispatch_keywords(
         "communicability_betweenness_centrality", backend, backend_kwargs
     )
+
+    if G.is_multigraph():
+        raise NetworkXNotImplemented("not implemented for multigraph type")
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
 
     raw = _fnx.communicability_betweenness_centrality_rust(G, True)
     # br-r37-c1-pm78h: the Rust binding returns the dict in arbitrary
@@ -21602,7 +21664,15 @@ def global_parameters(b, c):
 
 
 def intersection_array(G):
-    """Return the intersection array of a distance-regular graph."""
+    """Return the intersection array of a distance-regular graph.
+
+    br-r37-c1-tqimg: nx is @not_implemented_for('directed',
+    'multigraph').
+    """
+    if G.is_multigraph():
+        raise NetworkXNotImplemented("not implemented for multigraph type")
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
     params = _global_parameters_from_graph(G)
     if params is None:
         raise NetworkXError("Graph is not distance regular.")
@@ -25218,8 +25288,16 @@ def directed_modularity_matrix(G, nodelist=None, weight=None):
     br-matsig: nx accepts ``weight=None`` (default) or a string attribute
     name; fnx was missing the ``weight`` parameter entirely so
     ``directed_modularity_matrix(G, weight='weight')`` raised TypeError.
+
+    br-r37-c1-tqimg: nx is @not_implemented_for('undirected',
+    'multigraph').
     """
     import numpy as np
+
+    if G.is_multigraph():
+        raise NetworkXNotImplemented("not implemented for multigraph type")
+    if not G.is_directed():
+        raise NetworkXNotImplemented("not implemented for undirected type")
 
     if nodelist is None:
         nodelist = list(G.nodes())
@@ -29609,7 +29687,14 @@ def mycielskian(G, iterations=1):
     Each application increases the chromatic number by 1. ``iterations``
     matches networkx's public signature; default 1 preserves the
     single-step behaviour fnx shipped previously.
+
+    br-r37-c1-tqimg: nx is @not_implemented_for('directed',
+    'multigraph').
     """
+    if G.is_multigraph():
+        raise NetworkXNotImplemented("not implemented for multigraph type")
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
     if iterations < 0:
         raise ValueError("iterations must be non-negative")
     M = G
@@ -29982,7 +30067,15 @@ def random_internet_as_graph(n, seed=None):
 
 
 def random_reference(G, niter=1, connectivity=True, seed=None):
-    """Random reference graph preserving degree sequence."""
+    """Random reference graph preserving degree sequence.
+
+    br-r37-c1-tqimg: nx is @not_implemented_for('directed',
+    'multigraph').
+    """
+    if G.is_multigraph():
+        raise NetworkXNotImplemented("not implemented for multigraph type")
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
     H = G.copy()
     double_edge_swap(H, nswap=niter * G.number_of_edges(), seed=seed)
     return H
@@ -30403,8 +30496,16 @@ def find_asteroidal_triple(G):
     br-astertype: nx returns a list [u, v, w]; fnx's Rust binding
     returned a tuple. Coerce to list so isinstance / equality checks
     against nx's contract pass.
+
+    br-r37-c1-tqimg: nx is @not_implemented_for('directed',
+    'multigraph').
     """
     from franken_networkx import _fnx
+
+    if G.is_multigraph():
+        raise NetworkXNotImplemented("not implemented for multigraph type")
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
 
     result = _fnx.find_asteroidal_triple_rust(G)
     if result is None:
@@ -30422,7 +30523,15 @@ def is_perfect_graph(G):
     Searches for chordless odd cycles via DFS rooted at each node. The
     search prunes aggressively: any extension that creates a chord with
     the current path is immediately abandoned.
+
+    br-r37-c1-tqimg: nx is @not_implemented_for('directed',
+    'multigraph').
     """
+    if G.is_multigraph():
+        raise NetworkXNotImplemented("not implemented for multigraph type")
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
+
     def _has_odd_hole(graph):
         """Search for an induced odd cycle of length >= 5 in graph."""
         adj = {v: set(graph.neighbors(v)) for v in graph.nodes()}
