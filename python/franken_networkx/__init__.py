@@ -5690,6 +5690,17 @@ def all_shortest_paths(G, source, target, weight=None, method="dijkstra"):
     # its predecessor traversal; without this guard fnx falls through
     # to a NodeNotFound("Target ... is not in G").
     hash(target)
+    # br-r37-c1-jxvsu: nx pre-validates source / target with distinct
+    # exception classes — missing source raises ``NodeNotFound("Source
+    # X not in G")`` and missing target raises ``NetworkXNoPath("Target
+    # X cannot be reached from given sources")``.  fnx had been
+    # emitting ``NodeNotFound("Source node X is not in G")`` (extra
+    # 'node' word) and ``NodeNotFound("Target node X is not in G")``
+    # (wrong class entirely) from the Rust binding's combined check.
+    if source not in G:
+        raise NodeNotFound(f"Source {source} not in G")
+    if target not in G:
+        raise NetworkXNoPath(f"Target {target} cannot be reached from given sources")
     if weight is not None and method == "dijkstra" and _should_delegate_dijkstra_to_networkx(G, weight):
         kwargs = {"weight": weight}
         if method is not None:
@@ -5872,14 +5883,22 @@ def bfs_layers(G, sources):
         single_node = False
     if single_node:
         hash(sources)
+        sources_list = [sources]
     else:
         try:
             iterator = iter(sources)
         except TypeError:
             return _bfs_layers_raw(G, sources)
-        sources = list(iterator)
-        for s in sources:
+        sources_list = list(iterator)
+        for s in sources_list:
             hash(s)
+        sources = sources_list
+    # br-r37-c1-jxvsu: nx raises ``NetworkXError("The node X is not
+    # in the graph.")`` when any source is missing; fnx's Rust
+    # binding silently yielded nothing for missing sources.
+    for s in sources_list:
+        if s not in G:
+            raise NetworkXError(f"The node {s} is not in the graph.")
     return _bfs_layers_raw(G, sources)
 
 
@@ -10542,6 +10561,11 @@ def single_source_bellman_ford_path(G, source, weight="weight"):
         return _call_networkx_for_parity(
             "single_source_bellman_ford_path", G, source, weight=weight
         )
+    # br-r37-c1-jxvsu: pre-check for nx's exact 'Source X not in G'
+    # wording — Rust binding emits a quoted-repr 'Source \'X\' is
+    # not in G' variant.
+    if source not in G:
+        raise NodeNotFound(f"Source {source} not in G")
     paths = _raw_single_source_bellman_ford_path(G, source, weight=weight)
     # br-r37-c1-62jy2: order by distance via the length variant
     # (single Rust call, much cheaper than re-running BF in Python).
@@ -10558,6 +10582,11 @@ def single_source_bellman_ford_path_length(G, source, weight="weight"):
         return _call_networkx_for_parity(
             "single_source_bellman_ford_path_length", G, source, weight=weight
         )
+    # br-r37-c1-jxvsu: same exact wording fix as
+    # single_source_bellman_ford_path — Rust binding emits a
+    # quoted-repr variant.
+    if source not in G:
+        raise NodeNotFound(f"Source {source} not in G")
     result = _raw_single_source_bellman_ford_path_length(G, source, weight=weight)
     # br-ssintfloat: preserve int distances when all edge weights are int.
     if _sp_edge_weights_all_int(G, weight):

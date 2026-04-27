@@ -326,7 +326,10 @@ class TestAllShortestPaths:
             list(fnx.all_shortest_paths(G, 0, 1))
 
     def test_node_not_found_raises(self, diamond):
-        with pytest.raises(fnx.NodeNotFound):
+        # br-r37-c1-jxvsu: nx raises NetworkXNoPath (not NodeNotFound)
+        # for a missing/unreachable target — see test_missing_node_msg_
+        # class_parity.py for the parity assertion against nx.
+        with pytest.raises(fnx.NetworkXNoPath):
             list(fnx.all_shortest_paths(diamond, 0, 99))
 
     def test_directed_diamond(self, dag):
