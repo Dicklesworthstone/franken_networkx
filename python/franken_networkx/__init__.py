@@ -3382,6 +3382,15 @@ def _has_negative_edge_weight_for_dijkstra(G, weight):
 def _should_delegate_dijkstra_to_networkx(G, weight):
     if callable(weight):
         return True
+    # br-r37-c1-blu7u: nx accepts any hashable (or None) as ``weight``
+    # (it's used as an attribute key on edge-data dicts; non-string
+    # keys and ``None`` silently fall back to the unweighted-default
+    # of 1).  The Rust binding's PyO3 signature is ``weight: str``,
+    # so int / float / bytes / tuple / None values raise a TypeError
+    # before the algorithm runs.  Delegate any non-string, non-callable
+    # weight (including ``None``) to nx to preserve drop-in parity.
+    if not isinstance(weight, str):
+        return True
     return _has_negative_edge_weight_for_dijkstra(G, weight)
 
 
@@ -3409,15 +3418,28 @@ def _graph_has_nonunit_weight(G, weight):
 
 
 def _should_delegate_bellman_ford_to_networkx(weight):
-    return callable(weight)
+    if callable(weight):
+        return True
+    # br-r37-c1-blu7u: route any non-string weight (including
+    # ``None`` and ints / floats / bytes / tuples) to nx — the
+    # PyO3 binding's ``weight: str`` signature type-rejects.
+    return not isinstance(weight, str)
 
 
 def _should_delegate_floyd_warshall_to_networkx(weight):
-    return callable(weight)
+    if callable(weight):
+        return True
+    # br-r37-c1-blu7u: same — non-string weights would TypeError on
+    # the Rust side; nx silently uses default-1 weights.
+    return not isinstance(weight, str)
 
 
 def _should_delegate_astar_to_networkx(weight, cutoff=None):
-    return callable(weight) or cutoff is not None
+    if callable(weight) or cutoff is not None:
+        return True
+    # br-r37-c1-blu7u: PyO3 binding rejects non-string weights
+    # (including ``None``).
+    return not isinstance(weight, str)
 
 
 def _should_delegate_negative_edge_cycle_to_networkx(G, weight, heuristic):
@@ -5182,6 +5204,15 @@ def eccentricity(G, v=None, sp=None, weight=None):
     """Returns the eccentricity of nodes in G."""
     if len(G) == 0:
         return {}
+
+    # br-r37-c1-blu7u: nx accepts any hashable as ``weight``; the
+    # Rust ``_raw_eccentricity`` binding has ``weight: str`` and
+    # type-rejects.  Delegate non-string weights to nx (which falls
+    # back to default-1 since no edge has that key).
+    if weight is not None and not isinstance(weight, str) and not callable(weight):
+        return _call_networkx_for_parity("eccentricity", G, v=v, sp=sp, weight=weight)
+    if callable(weight):
+        return _call_networkx_for_parity("eccentricity", G, v=v, sp=sp, weight=weight)
 
     if v is None:
         nodes = list(G)
