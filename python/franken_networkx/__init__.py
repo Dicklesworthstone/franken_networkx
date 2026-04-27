@@ -35401,8 +35401,6 @@ __all__ = [
     "antichains",
     "immediate_dominators",
     "dominance_frontiers",
-    # Exception
-    "NetworkXNoCycle",
     # Algorithms — additional shortest path
     "dijkstra_path_length",
     "bellman_ford_path_length",

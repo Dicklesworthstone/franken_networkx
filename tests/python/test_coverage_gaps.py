@@ -4,6 +4,7 @@ Covers graph operators, community detection, dominating sets,
 planarity, transitive operations, and remaining shortest path variants.
 """
 
+from collections import Counter
 from datetime import datetime, timedelta
 import inspect
 import math
@@ -53,6 +54,14 @@ def test_generated_coverage_matrix_document_is_current():
     coverage_path = _repo_root() / "docs" / "coverage.md"
 
     assert coverage_path.read_text(encoding="utf-8") == rendered
+
+
+def test_public_all_has_no_duplicate_entries():
+    duplicates = sorted(
+        name for name, count in Counter(fnx.__all__).items() if count > 1
+    )
+
+    assert duplicates == []
 
 
 # ---------------------------------------------------------------------------

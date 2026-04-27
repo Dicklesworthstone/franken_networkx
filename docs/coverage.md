@@ -15,12 +15,6 @@
 
 All declared public exports are classified. `--check` fails if this generated report drifts from the live module surface.
 
-## Duplicate `__all__` Entries
-
-The live module currently declares 1 duplicate name(s) in `__all__`. The matrix deduplicates them before counting the public surface.
-
-- `NetworkXNoCycle`
-
 ## Module Breakdown
 
 | Module | Count |
