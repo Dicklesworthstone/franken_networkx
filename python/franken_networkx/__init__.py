@@ -239,7 +239,28 @@ class EdgeDataView:
         self._data = data
         self._default = default
         self._nbunch_list = nbunch_list
-        self._nbset = set(nbunch_list) if nbunch_list is not None else None
+        # br-r37-c1-w5sa7: nx raises ``NetworkXError("Node X in
+        # sequence nbunch is not a valid node.")`` when nbunch
+        # contains an unhashable element; previously fnx leaked a
+        # bare ``TypeError("unhashable type: 'list'")`` from
+        # ``set(nbunch_list)``.  Build the set element-by-element so
+        # we can translate the failure into nx's exact wording.
+        if nbunch_list is None:
+            self._nbset = None
+        else:
+            try:
+                self._nbset = set(nbunch_list)
+            except TypeError:
+                for item in nbunch_list:
+                    try:
+                        hash(item)
+                    except TypeError:
+                        raise NetworkXError(
+                            f"Node {item} in sequence nbunch is not a valid node."
+                        )
+                # Should be unreachable — set() failed but every
+                # element hashes individually; re-raise the original.
+                raise
         # br-r37-c1-dc14n: graph reference (when known) lets the
         # adj-walk path compute edges in nx-matching adj order. Look
         # up via the global EdgeView->Graph map populated by the
