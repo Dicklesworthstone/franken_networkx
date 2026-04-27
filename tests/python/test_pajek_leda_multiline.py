@@ -265,3 +265,124 @@ def test_multiline_adjlist_round_trip(tmp_path: Path):
     assert from_file.number_of_nodes() == 3
     assert from_file.number_of_edges() == 1
     assert "solo" in from_file
+
+
+# ---------------------------------------------------------------------------
+# br-r37-c1-y8m6q: write_/read_ multiline_adjlist and weighted_edgelist must
+# accept file-like objects (BytesIO/StringIO), not just file paths. nx
+# supports this via @open_file. Pre-fix fnx unconditionally called
+# open(path, ...), so these accepted only paths and raised TypeError for
+# in-memory buffers — a common pattern in tests, network handlers, and
+# pipelines.
+# ---------------------------------------------------------------------------
+
+
+def test_write_multiline_adjlist_accepts_bytesio():
+    import io
+
+    graph = fnx.Graph()
+    graph.add_edge(1, 2, weight=1.5)
+    graph.add_edge(2, 3, weight=2.5)
+
+    buf = io.BytesIO()
+    fnx.write_multiline_adjlist(graph, buf)
+    # Must not raise. The data lines (excluding nx's header comments)
+    # are present.
+    payload = buf.getvalue()
+    assert b"1 1\n" in payload
+    assert b"2 1\n" in payload  # node 2 has 1 neighbour (3); node 3 has 0
+
+
+def test_write_multiline_adjlist_accepts_stringio():
+    import io
+
+    graph = fnx.Graph()
+    graph.add_edge(1, 2, weight=1.5)
+
+    buf = io.StringIO()
+    fnx.write_multiline_adjlist(graph, buf)
+    text = buf.getvalue()
+    assert "1 1\n" in text
+
+
+def test_read_multiline_adjlist_accepts_bytesio():
+    import io
+
+    graph = fnx.Graph()
+    graph.add_edge(1, 2, weight=1.5)
+    graph.add_edge(2, 3, weight=2.5)
+
+    buf = io.BytesIO()
+    fnx.write_multiline_adjlist(graph, buf)
+    buf.seek(0)
+    parsed = fnx.read_multiline_adjlist(buf, nodetype=int, edgetype=float)
+    assert sorted(parsed.nodes()) == [1, 2, 3]
+    assert sorted(parsed.edges()) == [(1, 2), (2, 3)]
+
+
+def test_write_weighted_edgelist_accepts_bytesio_and_stringio():
+    import io
+
+    graph = fnx.Graph()
+    graph.add_edge(1, 2, weight=1.5)
+    graph.add_edge(2, 3, weight=2.5)
+
+    # BytesIO matches nx exactly.
+    buf_b = io.BytesIO()
+    fnx.write_weighted_edgelist(graph, buf_b)
+    nx_buf = io.BytesIO()
+    nx.write_weighted_edgelist(nx.Graph(graph), nx_buf)
+    assert buf_b.getvalue() == nx_buf.getvalue()
+
+    # StringIO: fnx writes text. Lines should match the bytes-decoded form.
+    buf_s = io.StringIO()
+    fnx.write_weighted_edgelist(graph, buf_s)
+    assert buf_s.getvalue() == buf_b.getvalue().decode("utf-8")
+
+
+def test_read_weighted_edgelist_accepts_bytesio():
+    import io
+
+    graph = fnx.Graph()
+    graph.add_edge(1, 2, weight=1.5)
+    graph.add_edge(2, 3, weight=2.5)
+
+    buf = io.BytesIO()
+    fnx.write_weighted_edgelist(graph, buf)
+    buf.seek(0)
+    parsed = fnx.read_weighted_edgelist(buf, nodetype=int)
+    assert sorted(parsed.edges(data=True)) == [
+        (1, 2, {"weight": 1.5}),
+        (2, 3, {"weight": 2.5}),
+    ]
+
+
+def test_read_weighted_edgelist_accepts_stringio():
+    import io
+
+    graph = fnx.Graph()
+    graph.add_edge(1, 2, weight=1.5)
+
+    buf = io.StringIO()
+    fnx.write_weighted_edgelist(graph, buf)
+    buf.seek(0)
+    parsed = fnx.read_weighted_edgelist(buf, nodetype=int)
+    assert (1, 2, {"weight": 1.5}) in list(parsed.edges(data=True))
+
+
+def test_cross_compat_nx_writes_multiline_fnx_reads():
+    """Drop-in: a buffer written by nx must be readable by fnx and
+    vice versa, both via BytesIO."""
+    import io
+
+    g_fnx = fnx.Graph()
+    g_fnx.add_edge(1, 2, weight=1.5)
+    g_fnx.add_edge(2, 3, weight=2.5)
+    g_nx = nx.Graph(g_fnx)
+
+    nx_buf = io.BytesIO()
+    nx.write_multiline_adjlist(g_nx, nx_buf)
+    nx_buf.seek(0)
+    parsed = fnx.read_multiline_adjlist(nx_buf, nodetype=int, edgetype=float)
+    assert sorted(parsed.nodes()) == [1, 2, 3]
+    assert sorted(parsed.edges()) == [(1, 2), (2, 3)]

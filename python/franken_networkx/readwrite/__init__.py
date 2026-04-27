@@ -982,9 +982,20 @@ def read_multiline_adjlist(
     edgetype=None,
     encoding="utf-8",
 ):
-    """Read a multiline adjacency list file into a FrankenNetworkX graph."""
-    with open(path, encoding=encoding) as fh:
-        lines = fh.readlines()
+    """Read a multiline adjacency list file into a FrankenNetworkX graph.
+
+    br-r37-c1-y8m6q: ``path`` may be either a filesystem path-like
+    object or an already-opened file-like object (binary or text
+    mode). Mirrors nx's ``@open_file`` decorator semantics.
+    """
+    if hasattr(path, "read"):
+        data = path.read()
+        if isinstance(data, bytes):
+            data = data.decode(encoding)
+        lines = data.splitlines(keepends=True)
+    else:
+        with open(path, encoding=encoding) as fh:
+            lines = fh.readlines()
     return parse_multiline_adjlist(
         lines,
         comments=comments,
@@ -996,10 +1007,25 @@ def read_multiline_adjlist(
 
 
 def write_multiline_adjlist(G, path, delimiter=" ", comments="#", encoding="utf-8"):
-    """Write a multiline adjacency list to *path*."""
+    """Write a multiline adjacency list to *path*.
+
+    br-r37-c1-y8m6q: ``path`` may be either a filesystem path-like
+    object or an already-opened file-like object (in binary or text
+    mode). Mirrors nx's ``@open_file`` decorator semantics so
+    BytesIO/StringIO destinations work the same as nx.
+    """
+    text = "".join(line + "\n" for line in generate_multiline_adjlist(G, delimiter=delimiter))
+    data = text.encode(encoding)
+    if hasattr(path, "write"):
+        try:
+            path.write(data)
+        except TypeError:
+            # Caller passed a text-mode file-like object.
+            path.write(data.decode(encoding))
+        return None
     with open(path, "w", encoding=encoding) as fh:
-        for line in generate_multiline_adjlist(G, delimiter=delimiter):
-            fh.write(line + "\n")
+        fh.write(text)
+    return None
 
 
 def parse_multiline_adjlist(
@@ -1083,9 +1109,19 @@ def read_weighted_edgelist(
     """Read a weighted edge list file into a FrankenNetworkX graph.
 
     Each line has the format: ``u v weight``.
+
+    br-r37-c1-y8m6q: ``path`` may be either a filesystem path-like
+    object or an already-opened file-like object (binary or text
+    mode). Mirrors nx's ``@open_file`` decorator semantics.
     """
-    with open(path, encoding=encoding) as fh:
-        lines = fh.readlines()
+    if hasattr(path, "read"):
+        data = path.read()
+        if isinstance(data, bytes):
+            data = data.decode(encoding)
+        lines = data.splitlines(keepends=True)
+    else:
+        with open(path, encoding=encoding) as fh:
+            lines = fh.readlines()
     return parse_edgelist(
         lines,
         comments=comments,
@@ -1100,11 +1136,26 @@ def write_weighted_edgelist(G, path, comments="#", delimiter=" ", encoding="utf-
     """Write a weighted edge list to *path*.
 
     Each line has the format ``u<delimiter>v<delimiter>weight``.
+
+    br-r37-c1-y8m6q: ``path`` may be either a filesystem path-like
+    object or an already-opened file-like object (binary or text
+    mode). Mirrors nx's ``@open_file`` decorator semantics so
+    BytesIO/StringIO destinations work the same as nx.
     """
+    text = "".join(
+        delimiter.join([str(u), str(v), str(d.get("weight", 1.0))]) + "\n"
+        for u, v, d in G.edges(data=True)
+    )
+    data = text.encode(encoding)
+    if hasattr(path, "write"):
+        try:
+            path.write(data)
+        except TypeError:
+            path.write(data.decode(encoding))
+        return None
     with open(path, "w", encoding=encoding) as fh:
-        for u, v, d in G.edges(data=True):
-            w = d.get("weight", 1.0)
-            fh.write(delimiter.join([str(u), str(v), str(w)]) + "\n")
+        fh.write(text)
+    return None
 
 
 def generate_multiline_adjlist(G, delimiter=" "):
