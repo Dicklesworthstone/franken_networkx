@@ -106,3 +106,90 @@ class TestEdgeViewDefault:
         result = sorted(D.edges(data="capacity", default=0))
         nresult = sorted(nD.edges(data="capacity", default=0))
         assert result == nresult
+
+
+# ---------------------------------------------------------------------------
+# br-r37-c1-msf5j: G.edges() must return a LIVE view (matches nx) for all
+# graph classes, not a frozen list snapshot. Subsequent edge mutations
+# should be visible when the captured view is iterated again.
+# ---------------------------------------------------------------------------
+
+
+class TestEdgesCallReturnsLiveView:
+    @pytest.mark.parametrize("cls_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+    def test_edges_view_reflects_subsequent_add_edge(self, cls_name):
+        fnx_cls = getattr(fnx, cls_name)
+        nx_cls = getattr(nx, cls_name)
+        G = fnx_cls([(1, 2), (2, 3)])
+        Gn = nx_cls([(1, 2), (2, 3)])
+
+        fview = G.edges()
+        nview = Gn.edges()
+
+        # Before mutation: same content
+        assert sorted(fview) == sorted(nview)
+
+        # Mutate
+        G.add_edge(3, 4)
+        Gn.add_edge(3, 4)
+
+        # The captured view must see the new edge in BOTH fnx and nx.
+        fnx_after = sorted(fview)
+        nx_after = sorted(nview)
+        assert fnx_after == nx_after, (
+            f"{cls_name}: live-view divergence — fnx={fnx_after} nx={nx_after}"
+        )
+        # Sanity: the new edge is visible.
+        if cls_name in ("Graph", "DiGraph"):
+            assert (3, 4) in fnx_after
+        else:
+            # Multi*: list contains 2-tuples (no key), so (3, 4) appears.
+            assert (3, 4) in fnx_after
+
+    @pytest.mark.parametrize("cls_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+    def test_edges_view_reflects_remove_edge(self, cls_name):
+        fnx_cls = getattr(fnx, cls_name)
+        nx_cls = getattr(nx, cls_name)
+        G = fnx_cls([(1, 2), (2, 3), (3, 4)])
+        Gn = nx_cls([(1, 2), (2, 3), (3, 4)])
+
+        fview = G.edges()
+        nview = Gn.edges()
+
+        G.remove_edge(2, 3)
+        Gn.remove_edge(2, 3)
+
+        assert sorted(fview) == sorted(nview)
+        # The removed edge is no longer visible in either fnx or nx.
+        for v in fview:
+            assert v[:2] != (2, 3)
+
+    @pytest.mark.parametrize("cls_name", ["MultiGraph", "MultiDiGraph"])
+    def test_multi_edges_call_yields_2tuples(self, cls_name):
+        """G.edges() (no args) on a multigraph yields 2-tuples,
+        matching nx's MultiEdgeDataView default. The MG.edges (no
+        parens) view continues to yield 3-tuples (with keys)."""
+        fnx_cls = getattr(fnx, cls_name)
+        nx_cls = getattr(nx, cls_name)
+        G = fnx_cls([(1, 2), (1, 2), (2, 3)])
+        Gn = nx_cls([(1, 2), (1, 2), (2, 3)])
+
+        # No-parens: yields 3-tuples
+        assert list(G.edges) == list(Gn.edges)
+        # With-parens: yields 2-tuples
+        assert list(G.edges()) == list(Gn.edges())
+
+    def test_digraph_edges_view_len_matches(self):
+        G = fnx.DiGraph([(1, 2), (2, 3)])
+        v = G.edges()
+        assert len(v) == 2
+        G.add_edge(3, 4)
+        assert len(v) == 3
+
+    def test_multidigraph_edges_view_contains(self):
+        G = fnx.MultiDiGraph([(1, 2), (2, 3)])
+        v = G.edges()
+        assert (1, 2) in v
+        assert (2, 1) not in v  # directed
+        G.add_edge(2, 1)
+        assert (2, 1) in v

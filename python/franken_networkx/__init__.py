@@ -786,8 +786,18 @@ class _DiGraphEdgeView:
     def __init__(self, graph):
         self._graph = graph
 
+    def _materialize(self):
+        result = []
+        for source in self._graph:
+            for target in self._graph.succ[source]:
+                result.append((source, target))
+        return result
+
     def __iter__(self):
-        return iter(self())
+        # br-r37-c1-msf5j: walk adj directly so __call__ can return
+        # self (a live view) without causing __iter__ → __call__
+        # recursion when called with default args.
+        return iter(self._materialize())
 
     def __len__(self):
         return self._graph.number_of_edges()
@@ -806,6 +816,18 @@ class _DiGraphEdgeView:
         return self._graph.succ[u][v]
 
     def __call__(self, nbunch=None, data=False, default=None):
+        # br-r37-c1-msf5j: when called with default args, return self
+        # so the resulting "view" stays live with respect to subsequent
+        # graph mutations — matches nx's OutEdgeView.__call__ contract:
+        #
+        #   v = G.edges(); G.add_edge(...); list(v)  # sees the new edge
+        #
+        # The data/nbunch-filtered paths still snapshot to a list (a
+        # full EdgeDataView would be needed for live data views; out of
+        # scope here, and nx's EdgeDataView is also itself snapshot-ish
+        # in practice for many of its consumers).
+        if nbunch is None and data is False:
+            return self
         result = []
         for source in self._graph.nbunch_iter(nbunch):
             for target, attrs in self._graph.succ[source].items():
@@ -818,16 +840,16 @@ class _DiGraphEdgeView:
         return result
 
     def __or__(self, other):
-        return set(self()) | set(other)
+        return set(self) | set(other)
 
     def __and__(self, other):
-        return set(self()) & set(other)
+        return set(self) & set(other)
 
     def __sub__(self, other):
-        return set(self()) - set(other)
+        return set(self) - set(other)
 
     def __xor__(self, other):
-        return set(self()) ^ set(other)
+        return set(self) ^ set(other)
 
 
 def _digraph_edges(self):
@@ -853,6 +875,77 @@ def _multi_edge_get(self, key, default=None):
         return self[key]
     except KeyError:
         return default
+
+
+class _LiveMultiEdgeCallView:
+    """br-r37-c1-msf5j: result of ``MG.edges()`` (no args) on a (Multi)
+    graph. Mirrors nx's ``MultiEdgeDataView`` for the default-args
+    case: yields 2-tuples on iteration, stays live with respect to
+    subsequent graph mutations (re-walks ``adj`` / ``succ`` on every
+    iter), and supports ``len`` / ``in``. The ``MG.edges`` (no parens)
+    direct view continues to yield 3-tuples via ``_MultiGraphEdgeView``.
+    """
+
+    __slots__ = ("_graph", "_directed")
+
+    def __init__(self, graph, *, directed):
+        self._graph = graph
+        self._directed = directed
+
+    def _walk(self):
+        graph = self._graph
+        if self._directed:
+            for source in graph:
+                for target, keyed_attrs in graph.succ[source].items():
+                    for _key in keyed_attrs:
+                        yield (source, target)
+        else:
+            seen = set()
+            for source in graph:
+                for target, keyed_attrs in graph.adj[source].items():
+                    for _key in keyed_attrs:
+                        marker = (frozenset((source, target)), _key)
+                        if marker in seen:
+                            continue
+                        seen.add(marker)
+                        yield (source, target)
+
+    def __iter__(self):
+        return self._walk()
+
+    def __len__(self):
+        return self._graph.number_of_edges()
+
+    def __contains__(self, edge):
+        if not isinstance(edge, tuple) or len(edge) < 2:
+            return False
+        u, v = edge[0], edge[1]
+        graph = self._graph
+        if self._directed:
+            return u in graph.succ and v in graph.succ[u]
+        adj = graph.adj
+        return (u in adj and v in adj[u]) or (v in adj and u in adj[v])
+
+    def __repr__(self):
+        return f"MultiEdgeDataView({list(self)!r})"
+
+    def __eq__(self, other):
+        if isinstance(other, (set, frozenset)):
+            return set(self) == other
+        if isinstance(other, _LiveMultiEdgeCallView):
+            return list(self) == list(other)
+        try:
+            return list(self) == list(other)
+        except TypeError:
+            return NotImplemented
+
+    def __ne__(self, other):
+        eq = self.__eq__(other)
+        if eq is NotImplemented:
+            return NotImplemented
+        return not eq
+
+    __hash__ = None
 
 
 class _MultiGraphEdgeView:
@@ -913,6 +1006,13 @@ class _MultiGraphEdgeView:
         return False
 
     def __call__(self, nbunch=None, data=False, keys=False, default=None):
+        # br-r37-c1-msf5j: when called with all-default args, return a
+        # live wrapper that yields 2-tuples on iter and re-walks the
+        # graph each time so subsequent edge mutations are visible.
+        # Matches nx's MultiEdgeView.__call__() returning a live
+        # MultiEdgeDataView.
+        if nbunch is None and data is False and keys is False:
+            return _LiveMultiEdgeCallView(self._graph, directed=False)
         result = _EdgeListWithSetAlgebra()
         seen = set()
         for source in self._graph.nbunch_iter(nbunch):
@@ -1027,6 +1127,10 @@ class _MultiDiGraphEdgeView:
         raise KeyError(edge)
 
     def __call__(self, nbunch=None, data=False, keys=False, default=None):
+        # br-r37-c1-msf5j: live wrapper for default args (see
+        # _MultiGraphEdgeView.__call__).
+        if nbunch is None and data is False and keys is False:
+            return _LiveMultiEdgeCallView(self._graph, directed=True)
         result = _EdgeListWithSetAlgebra()
         for source in self._graph.nbunch_iter(nbunch):
             for target, keyed_attrs in self._graph.succ[source].items():
