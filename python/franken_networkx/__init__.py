@@ -17802,7 +17802,18 @@ def prefix_tree(paths):
 
 
 def dag_to_branching(G):
-    """Return a branching (forest of arborescences) from a DAG."""
+    """Return a branching (forest of arborescences) from a DAG.
+
+    br-r37-c1-6nhsw: nx is decorated with
+    ``@not_implemented_for('undirected')`` so undirected inputs raise
+    NetworkXNotImplemented BEFORE the cycle check. fnx fell through
+    to the acyclic check and raised HasACycle, which is not a
+    subclass of NetworkXNotImplemented — drop-in code that does
+    ``except NetworkXNotImplemented`` would not catch fnx's
+    HasACycle. Add the type guard up front to match nx.
+    """
+    if not G.is_directed():
+        raise NetworkXNotImplemented("not implemented for undirected type")
     if not is_directed_acyclic_graph(G):
         raise HasACycle("dag_to_branching is only defined for acyclic graphs")
 
@@ -25476,8 +25487,19 @@ def lexicographical_topological_sort(G, key=None):
     Raises ``NetworkXUnfeasible`` when ``G`` contains a cycle, matching
     nx's contract (br-r37-c1-kw1ke). Previously fnx silently yielded a
     partial order — the prefix of nodes that drain into the cycle.
+
+    br-r37-c1-6nhsw: nx raises NetworkXError on undirected inputs
+    ('Topological sort not defined on undirected graphs.'). The
+    plain topological_sort wrapper already checks; the lex variant
+    silently ran the algorithm on an undirected graph (yielding the
+    nodes in some heap-key order). Match nx's contract.
     """
     import heapq
+
+    if not G.is_directed():
+        raise NetworkXError(
+            "Topological sort not defined on undirected graphs."
+        )
 
     if key is None:
         key = str
