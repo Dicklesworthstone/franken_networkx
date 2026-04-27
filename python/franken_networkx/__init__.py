@@ -9677,8 +9677,15 @@ def find_negative_cycle(G, source, weight="weight"):
     TypeError on unhashable; the Rust ``_raw_find_negative_cycle``
     instead silently treats unhashable as 'no negative cycle' and
     raises NetworkXError.
+
+    br-r37-c1-gxu9x: also pre-check membership.  nx raises
+    ``NodeNotFound("Source <s> not in G")`` for hashable-but-missing
+    sources; the undirected Rust path silently runs and returns
+    ``NetworkXError("No negative cycle found.")`` instead.
     """
     hash(source)
+    if source not in G:
+        raise NodeNotFound(f"Source {source} not in G")
     if G.is_directed():
         # Route directed graphs through upstream via the string-name
         # indirection so ``find_negative_cycle`` stays classified as

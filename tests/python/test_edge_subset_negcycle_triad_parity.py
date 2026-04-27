@@ -148,6 +148,33 @@ def test_edge_betweenness_subset_hashable_unchanged():
 
 
 @needs_nx
+def test_find_negative_cycle_missing_source_undirected_raises_node_not_found():
+    """br-r37-c1-gxu9x: hashable-but-missing source on undirected
+    graph used to silently raise NetworkXError('No negative cycle
+    found.'); now matches nx's NodeNotFound."""
+    G = fnx.Graph()
+    G.add_weighted_edges_from([(0, 1, -1), (1, 2, -1)])
+    GX = nx.Graph()
+    GX.add_weighted_edges_from([(0, 1, -1), (1, 2, -1)])
+    with pytest.raises(fnx.NodeNotFound, match=r"Source 99 not in G"):
+        fnx.find_negative_cycle(G, 99)
+    with pytest.raises(nx.NodeNotFound, match=r"Source 99 not in G"):
+        nx.find_negative_cycle(GX, 99)
+
+
+@needs_nx
+def test_find_negative_cycle_missing_source_directed_raises_node_not_found():
+    DG = fnx.DiGraph()
+    DG.add_weighted_edges_from([(0, 1, -1), (1, 0, -1)])
+    DGX = nx.DiGraph()
+    DGX.add_weighted_edges_from([(0, 1, -1), (1, 0, -1)])
+    with pytest.raises(fnx.NodeNotFound, match=r"Source 99 not in G"):
+        fnx.find_negative_cycle(DG, 99)
+    with pytest.raises(nx.NodeNotFound, match=r"Source 99 not in G"):
+        nx.find_negative_cycle(DGX, 99)
+
+
+@needs_nx
 def test_find_negative_cycle_hashable_unchanged():
     """Find a real negative cycle on a hashable directed graph."""
     G = fnx.DiGraph()
