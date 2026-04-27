@@ -4131,6 +4131,14 @@ def eigenvector_centrality(
     """
     _validate_backend_dispatch_keywords("eigenvector_centrality", backend, backend_kwargs)
 
+    # br-r37-c1-zvfcu: nx raises NetworkXPointlessConcept on the empty
+    # graph; the Rust fast path silently returned {}. Drop-in code that
+    # does ``pytest.raises(NetworkXPointlessConcept)`` failed under fnx.
+    if len(G) == 0:
+        raise NetworkXPointlessConcept(
+            "cannot compute centrality for the null graph"
+        )
+
     # br-eignstart: the Rust _raw_eigenvector_centrality raised
     # ``TypeError('franken_networkx currently only supports
     # nstart=None and weight=None...')`` when either kwarg was
@@ -25987,7 +25995,11 @@ def eigenvector_centrality_numpy(
     nodelist = list(G.nodes())
     n = len(nodelist)
     if n == 0:
-        return {}
+        # br-r37-c1-zvfcu: match nx's eigenvector_centrality_numpy
+        # which raises NetworkXPointlessConcept on the empty graph.
+        raise NetworkXPointlessConcept(
+            "cannot compute centrality for the null graph"
+        )
     A = to_numpy_array(G, nodelist=nodelist, weight=weight)
     vals, vecs = np.linalg.eig(A)
     idx = np.argmax(np.real(vals))
