@@ -3443,9 +3443,14 @@ def _should_delegate_astar_to_networkx(weight, cutoff=None):
 
 
 def _should_delegate_negative_edge_cycle_to_networkx(G, weight, heuristic):
+    # br-r37-c1-f0i2s: route any non-string weight to nx (PyO3
+    # binding's ``weight: str`` signature type-rejects ``None`` / ints
+    # / floats / bytes / tuples).  Mirrors br-r37-c1-blu7u's central-
+    # gate fix for dijkstra / bellman_ford / floyd_warshall / astar.
     return (
         G.is_directed()
         or callable(weight)
+        or not isinstance(weight, str)
         or not isinstance(heuristic, bool)
         or not heuristic
     )
