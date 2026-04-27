@@ -3563,6 +3563,9 @@ def average_shortest_path_length(G, weight=None, method=None):
 
 
 def dijkstra_path(G, source, target, weight="weight"):
+    # br-r37-c1-c4agn: hash-check for nx-shaped TypeError parity.
+    hash(source)
+    hash(target)
     if _should_delegate_dijkstra_to_networkx(G, weight):
         return _call_networkx_for_parity(
             "dijkstra_path", G, source, target, weight=weight
@@ -3593,6 +3596,9 @@ def _path_length_preserving_weight_type(G, path, weight):
 
 
 def bellman_ford_path(G, source, target, weight="weight"):
+    # br-r37-c1-c4agn: hash-check for nx-shaped TypeError parity.
+    hash(source)
+    hash(target)
     if _should_delegate_bellman_ford_to_networkx(weight):
         return _call_networkx_for_parity(
             "bellman_ford_path", G, source, target, weight=weight
@@ -5782,8 +5788,25 @@ def descendants_at_distance(G, source, distance):
     Returns a mutable ``set`` matching nx's contract (br-r37-c1-ohxpp).
     The Rust binding returned an immutable ``frozenset``, breaking
     drop-in code that calls ``.add()`` / ``.remove()`` on the result.
+
+    br-r37-c1-c4agn: nx raises NetworkXError (not NodeNotFound) on
+    missing/unhashable source. The Rust binding raised NodeNotFound.
+    Translate the missing-node error to NetworkXError to match nx,
+    and hash-check up front so unhashable inputs also raise
+    NetworkXError (matching nx's pre-hash validation).
     """
-    return set(_raw_descendants_at_distance(G, source, distance))
+    try:
+        hash(source)
+    except TypeError as exc:
+        raise NetworkXError(
+            f"The node {source} is not in the graph."
+        ) from exc
+    try:
+        return set(_raw_descendants_at_distance(G, source, distance))
+    except NodeNotFound as exc:
+        raise NetworkXError(
+            f"The node {source} is not in the graph."
+        ) from exc
 
 # Algorithm functions — traversal (DFS) — wrapped for sort_neighbors support
 from franken_networkx._fnx import (
@@ -5877,14 +5900,23 @@ def bfs_edges(G, source, reverse=False, depth_limit=None, sort_neighbors=None):
 
     Generator function so the returned object is a true generator
     matching nx's contract (br-r37-c1-682kr).
+
+    br-r37-c1-c4agn: hash-check on source eagerly so unhashable
+    inputs raise TypeError on call (matching nx's argmap), not
+    NetworkXError after iteration starts.
     """
-    try:
-        if sort_neighbors is not None:
-            yield from _py_bfs_edges(G, source, depth_limit, sort_neighbors, reverse=reverse)
-            return
-        yield from _bfs_edges_raw(G, source, reverse=reverse, depth_limit=depth_limit)
-    except NodeNotFound as exc:
-        raise NetworkXError(str(exc)) from exc
+    hash(source)
+
+    def _gen():
+        try:
+            if sort_neighbors is not None:
+                yield from _py_bfs_edges(G, source, depth_limit, sort_neighbors, reverse=reverse)
+                return
+            yield from _bfs_edges_raw(G, source, reverse=reverse, depth_limit=depth_limit)
+        except NodeNotFound as exc:
+            raise NetworkXError(str(exc)) from exc
+
+    return _gen()
 
 
 def dfs_edges(G, source=None, depth_limit=None, *, sort_neighbors=None):
@@ -5892,14 +5924,22 @@ def dfs_edges(G, source=None, depth_limit=None, *, sort_neighbors=None):
 
     Generator function so the returned object is a true generator
     matching nx's contract (br-r37-c1-682kr).
+
+    br-r37-c1-c4agn: hash-check on source eagerly (when supplied).
     """
-    try:
-        if sort_neighbors is not None:
-            yield from _py_dfs_edges(G, source, depth_limit, sort_neighbors)
-            return
-        yield from _dfs_edges_raw(G, source=source, depth_limit=depth_limit)
-    except NodeNotFound as exc:
-        raise NetworkXError(str(exc)) from exc
+    if source is not None:
+        hash(source)
+
+    def _gen():
+        try:
+            if sort_neighbors is not None:
+                yield from _py_dfs_edges(G, source, depth_limit, sort_neighbors)
+                return
+            yield from _dfs_edges_raw(G, source=source, depth_limit=depth_limit)
+        except NodeNotFound as exc:
+            raise NetworkXError(str(exc)) from exc
+
+    return _gen()
 
 
 _EDGE_TRAVERSAL_FORWARD = "forward"
@@ -6248,7 +6288,13 @@ def dfs_postorder_nodes(G, source=None, depth_limit=None, *, sort_neighbors=None
 
 
 def dfs_tree(G, source=None, depth_limit=None, *, sort_neighbors=None):
-    """Return DFS tree rooted at source."""
+    """Return DFS tree rooted at source.
+
+    br-r37-c1-c4agn: hash-check on source for nx-shaped TypeError
+    parity on unhashable inputs.
+    """
+    if source is not None:
+        hash(source)
     try:
         if sort_neighbors is not None:
             T = DiGraph()
@@ -10704,7 +10750,10 @@ def node_connected_component(G, n):
     binding returned a list. Callers doing set ops on the result
     (issubset / intersection / ``x in result`` on large outputs)
     silently saw wrong performance/types. Coerce to set.
+
+    br-r37-c1-c4agn: hash-check for nx-shaped TypeError parity.
     """
+    hash(n)
     result = _raw_node_connected_component(G, n)
     return set(result) if not isinstance(result, set) else result
 
