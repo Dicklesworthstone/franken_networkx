@@ -8458,19 +8458,67 @@ def dag_longest_path(G, weight="weight", default_weight=1, topo_order=None):
     -------
     list
         The longest path as a list of nodes.
+
+    br-r37-c1-sn6tm: nx's algorithm is tie-break-sensitive — it picks
+    the FIRST predecessor by iteration order when two paths have equal
+    length (``max(us, key=lambda x: x[0])`` returns the first max).
+    Previously we delegated to nx via ``_call_networkx_for_parity``
+    which converts through ``_fnx_to_nx``; that conversion emits edges
+    in per-node adj iteration order (``_topo_emit_edges_by_adj``),
+    which does NOT preserve the ``pred[v]`` insertion order users
+    actually built. nx then saw a different tie-break and returned a
+    different (but equally valid) longest path. Implementing the
+    algorithm directly on fnx's native ``G.pred[v]`` view sidesteps the
+    conversion loss and reproduces nx semantics exactly.
     """
-    # NetworkX's DAG longest-path contract is tie-break sensitive even
-    # for unweighted connected DAGs. The Rust fast path can choose a
-    # later equal-length branch and also raises the wrong exception on
-    # cyclic/empty graphs, so keep this surface on the oracle path until
-    # the native implementation carries the same ordering policy.
-    return _call_networkx_for_parity(
-        "dag_longest_path",
-        G,
-        weight=weight,
-        default_weight=default_weight,
-        topo_order=topo_order,
-    )
+    if not G.is_directed():
+        raise NetworkXNotImplemented(
+            "not implemented for undirected type"
+        )
+    if len(G) == 0:
+        return []
+
+    if topo_order is None:
+        topo_order = topological_sort(G)
+
+    is_multi = G.is_multigraph()
+    dist = {}  # {v: (length, u)}
+    for v in topo_order:
+        us = []
+        pred_items = G.pred[v].items()
+        for u, data in pred_items:
+            if is_multi:
+                # Pick the heaviest parallel edge between u and v.
+                edge_weight = max(
+                    (
+                        attrs.get(weight, default_weight)
+                        if isinstance(attrs, dict)
+                        else default_weight
+                        for attrs in data.values()
+                    ),
+                    default=default_weight,
+                )
+            else:
+                edge_weight = (
+                    data.get(weight, default_weight)
+                    if isinstance(data, dict)
+                    else default_weight
+                )
+            us.append((dist[u][0] + edge_weight, u))
+        # nx's tie-break: max with key=x[0] returns the FIRST element
+        # with the max first component (Python's max stability).
+        maxu = max(us, key=lambda x: x[0]) if us else (0, v)
+        dist[v] = maxu if maxu[0] >= 0 else (0, v)
+
+    u = None
+    v = max(dist, key=lambda x: dist[x][0])
+    path = []
+    while u != v:
+        path.append(v)
+        u = v
+        v = dist[v][1]
+    path.reverse()
+    return path
 
 
 def _dag_has_weight_edge_attr(G, weight):

@@ -72,6 +72,79 @@ class TestDagLongestPath:
         path = fnx.dag_longest_path(D)
         assert path == [0, 1]
 
+    # br-r37-c1-sn6tm: nx's tie-breaking returns the FIRST predecessor in
+    # G.pred[v] iteration order when two paths have equal length. Pre-fix
+    # fnx delegated to nx via _fnx_to_nx, but the conversion emits edges in
+    # source-node-iteration (adj) order — which scrambles G.pred[v] order
+    # in the converted graph. nx then chose the wrong tie-break and fnx
+    # returned a different (but equally-valid) longest path. Implementing
+    # the algorithm natively on fnx.G.pred restores exact parity.
+    def test_tie_break_matches_nx_with_reordered_node_set(self):
+        import networkx as nx
+
+        # Construct so adj-order would scramble pred[4]:
+        # nodes added [5,1,3,2,4,6] → adj-iteration of source 3 comes
+        # before source 2, but pred[4] insertion order is 2 then 3 (because
+        # add_edge(2,4) happens before add_edge(3,4)).
+        edges = [(1, 2), (1, 3), (2, 4), (3, 4), (4, 5), (4, 6)]
+        node_order = [5, 1, 3, 2, 4, 6]
+
+        D = fnx.DiGraph()
+        D.add_nodes_from(node_order)
+        for u, v in edges:
+            D.add_edge(u, v)
+
+        Dn = nx.DiGraph()
+        Dn.add_nodes_from(node_order)
+        for u, v in edges:
+            Dn.add_edge(u, v)
+
+        # Both must agree on tie-break — first predecessor inserted wins.
+        assert fnx.dag_longest_path(D) == nx.dag_longest_path(Dn) == [1, 2, 4, 5]
+
+    def test_weighted_tie_break_matches_nx(self):
+        import networkx as nx
+
+        D = fnx.DiGraph()
+        Dn = nx.DiGraph()
+        for u, v, w in [(0, 1, 1), (1, 2, 1), (0, 2, 42), (2, 3, 1)]:
+            D.add_edge(u, v, cost=w)
+            Dn.add_edge(u, v, cost=w)
+        assert fnx.dag_longest_path(D, weight="cost") == nx.dag_longest_path(
+            Dn, weight="cost"
+        ) == [0, 2, 3]
+
+    def test_topo_order_param_changes_tie_break(self):
+        import networkx as nx
+
+        D = fnx.DiGraph([(0, 1), (0, 2)])
+        Dn = nx.DiGraph([(0, 1), (0, 2)])
+        # With explicit topo_order, nx picks the second-in-order child.
+        assert fnx.dag_longest_path(D, topo_order=[0, 1, 2]) == nx.dag_longest_path(
+            Dn, topo_order=[0, 1, 2]
+        )
+        assert fnx.dag_longest_path(D, topo_order=[0, 2, 1]) == nx.dag_longest_path(
+            Dn, topo_order=[0, 2, 1]
+        )
+
+    def test_empty_graph_returns_empty_list(self):
+        assert fnx.dag_longest_path(fnx.DiGraph()) == []
+
+    def test_undirected_raises_not_implemented(self):
+        import pytest
+
+        with pytest.raises(fnx.NetworkXNotImplemented):
+            fnx.dag_longest_path(fnx.Graph([(1, 2)]))
+
+    def test_cyclic_raises_unfeasible(self):
+        import pytest
+
+        D = fnx.DiGraph()
+        D.add_edge(1, 2)
+        D.add_edge(2, 1)
+        with pytest.raises(fnx.NetworkXUnfeasible):
+            fnx.dag_longest_path(D)
+
 
 # ---------------------------------------------------------------------------
 # dag_longest_path_length
