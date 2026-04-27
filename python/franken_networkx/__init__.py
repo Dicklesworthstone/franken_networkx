@@ -34003,13 +34003,19 @@ def fast_gnp_random_graph(n, p, seed=None, directed=False, *, create_using=None,
     if n < 0:
         raise NetworkXError(f"Negative number of nodes not valid: {n}")
 
-    if create_using is None:
+    # br-r37-c1-lsdek: out-of-range p is silent in nx (p<=0 -> empty,
+    # p>=1 -> complete). The Rust fast path raises FailClosed for those,
+    # so route to the boundary-aware gnp_random_graph wrapper.
+    if create_using is None and 0 < p < 1:
         return _rust_fast_gnp(
             n,
             p,
             seed=_native_random_seed(seed),
             directed=directed,
         )
+
+    if create_using is None and not (0 < p < 1):
+        return gnp_random_graph(n, p, seed=seed, directed=directed)
 
     rng = _generator_random_state(seed)
     default = DiGraph if directed else Graph
