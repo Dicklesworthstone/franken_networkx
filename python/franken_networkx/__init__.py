@@ -14505,7 +14505,14 @@ def gnp_random_graph(n, p, seed=None, directed=False, *, create_using=None, back
     # n crashes with a Python type-conversion error).
     if n < 0:
         raise NetworkXError(f"Negative number of nodes not valid: {n}")
-    if not directed and create_using is None and (seed is None or isinstance(seed, int)):
+    # br-r37-c1-lsdek: nx silently accepts ``p`` outside [0, 1] —
+    # ``p >= 1`` produces the complete graph, ``p <= 0`` produces
+    # the empty graph (the Python fallback below handles both
+    # cases).  fnx's Rust ``_rust_gnp_random_graph`` validates p
+    # strictly and raises ``ValueError("FailClosed { ... p=... is
+    # outside [0.0, 1.0] }")`` (Rust internals leak too).  Route
+    # out-of-range p through the Python path for parity.
+    if not directed and create_using is None and 0.0 <= p <= 1.0 and (seed is None or isinstance(seed, int)):
         return _rust_gnp_random_graph(n, p, seed=_native_random_seed(seed))
 
     rng = _generator_random_state(seed)
