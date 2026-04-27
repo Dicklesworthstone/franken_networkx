@@ -6256,35 +6256,57 @@ def dfs_successors(G, source=None, depth_limit=None, *, sort_neighbors=None):
 
 
 def dfs_preorder_nodes(G, source=None, depth_limit=None, *, sort_neighbors=None):
-    """Yield nodes in DFS preorder from source."""
-    try:
-        if sort_neighbors is not None:
-            for _, v, label in _py_dfs_labeled_edges(
-                G, source=source, depth_limit=depth_limit, sort_neighbors=sort_neighbors
-            ):
-                if label == "forward":
-                    yield v
-            return
-        nodes = _dfs_preorder_nodes_raw(G, source=source, depth_limit=depth_limit)
-    except NodeNotFound as exc:
-        raise NetworkXError(str(exc)) from exc
-    yield from nodes
+    """Yield nodes in DFS preorder from source.
+
+    br-r37-c1-mz7g4: hash-validate source eagerly (nx-shaped TypeError)
+    on unhashable inputs. Restructured as outer fn returning inner
+    generator so the hash check fires at call time, not first ``next()``.
+    """
+    if source is not None:
+        hash(source)
+
+    def _gen():
+        try:
+            if sort_neighbors is not None:
+                for _, v, label in _py_dfs_labeled_edges(
+                    G, source=source, depth_limit=depth_limit, sort_neighbors=sort_neighbors
+                ):
+                    if label == "forward":
+                        yield v
+                return
+            nodes = _dfs_preorder_nodes_raw(G, source=source, depth_limit=depth_limit)
+        except NodeNotFound as exc:
+            raise NetworkXError(str(exc)) from exc
+        yield from nodes
+
+    return _gen()
 
 
 def dfs_postorder_nodes(G, source=None, depth_limit=None, *, sort_neighbors=None):
-    """Yield nodes in DFS postorder from source."""
-    try:
-        if sort_neighbors is not None:
-            for _, v, label in _py_dfs_labeled_edges(
-                G, source=source, depth_limit=depth_limit, sort_neighbors=sort_neighbors
-            ):
-                if label == "reverse":
-                    yield v
-            return
-        nodes = _dfs_postorder_nodes_raw(G, source=source, depth_limit=depth_limit)
-    except NodeNotFound as exc:
-        raise NetworkXError(str(exc)) from exc
-    yield from nodes
+    """Yield nodes in DFS postorder from source.
+
+    br-r37-c1-mz7g4: hash-validate source eagerly (nx-shaped TypeError)
+    on unhashable inputs. Restructured as outer fn returning inner
+    generator so the hash check fires at call time, not first ``next()``.
+    """
+    if source is not None:
+        hash(source)
+
+    def _gen():
+        try:
+            if sort_neighbors is not None:
+                for _, v, label in _py_dfs_labeled_edges(
+                    G, source=source, depth_limit=depth_limit, sort_neighbors=sort_neighbors
+                ):
+                    if label == "reverse":
+                        yield v
+                return
+            nodes = _dfs_postorder_nodes_raw(G, source=source, depth_limit=depth_limit)
+        except NodeNotFound as exc:
+            raise NetworkXError(str(exc)) from exc
+        yield from nodes
+
+    return _gen()
 
 
 def dfs_tree(G, source=None, depth_limit=None, *, sort_neighbors=None):
@@ -9956,7 +9978,7 @@ from franken_networkx._fnx import (
     is_aperiodic as _raw_is_aperiodic,
     antichains as _raw_antichains,
     immediate_dominators as _raw_immediate_dominators,
-    dominance_frontiers,
+    dominance_frontiers as _raw_dominance_frontiers,
 )
 
 
@@ -9966,6 +9988,12 @@ def immediate_dominators(G, start):
     Matches upstream ``nx.immediate_dominators`` contract: the returned
     dict does **not** include ``start`` itself (franken_networkx-y87ra).
     """
+    # br-r37-c1-mz7g4: nx pre-validates ``start in G`` (silently
+    # returns False on unhashable, then raises NetworkXError);
+    # without this guard fnx silently computes whatever the Rust impl
+    # returns. Match nx's exact contract.
+    if start not in G:
+        raise NetworkXError("start is not in G")
     try:
         idom = _raw_immediate_dominators(G, start)
     except NetworkXNotImplemented as exc:
@@ -9980,6 +10008,18 @@ def immediate_dominators(G, start):
     # self-dominator entry to match nx's documented shape.
     idom.pop(start, None)
     return idom
+
+
+def dominance_frontiers(G, start):
+    """Dominance frontiers for every node reachable from ``start``.
+
+    br-r37-c1-mz7g4: nx pre-validates ``start in G`` (silently returns
+    False on unhashable, then raises NetworkXError); without this
+    guard fnx silently computes. Match nx's exact contract.
+    """
+    if start not in G:
+        raise NetworkXError("start is not in G")
+    return _raw_dominance_frontiers(G, start)
 
 
 def antichains(G, topo_order=None):
@@ -10172,6 +10212,9 @@ def bellman_ford_path_length(G, source, target, weight="weight"):
         return _call_networkx_for_parity(
             "bellman_ford_path_length", G, source, target, weight=weight
         )
+    # br-r37-c1-mz7g4: hash-validate source for nx-shaped TypeError
+    # parity on unhashable inputs (sibling fix to bellman_ford_path).
+    hash(source)
     if source not in G:
         raise NodeNotFound(f"Source {source} not in G")
     if target not in G:
