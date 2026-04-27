@@ -23242,25 +23242,38 @@ def _copy_preserving_insertion_order(self, as_view=False):
     constructor/copy paths. Upstream NetworkX preserves the public edge
     orientation from insertion order, so rebuild via the Python edge
     view.
+
+    br-r37-c1-3tlkj: nx.Graph.copy() is a *shallow* copy — the
+    documented contract reads "if an attribute is a container, that
+    container is shared by the original and the copy." Previously
+    we used ``deepcopy`` for graph/node/edge attrs, which produced
+    independent containers (a stronger invariant than nx). Code
+    relying on shared mutation of nested attrs (a documented and
+    sometimes-load-bearing nx behavior) silently broke. Mirror nx's
+    ``dict(...)`` / ``self.graph.update(self.graph)`` semantics.
+    Note: copy.deepcopy(G) — the Python built-in — still routes
+    through ``__deepcopy__`` and remains a true deep copy.
     """
     if as_view is True:
         return _generic_filtered_graph_view(self)
 
     result = type(self)()
-    result.graph.update(deepcopy(self.graph))
+    # Shallow: result.graph is a new dict but its values are shared
+    # with self.graph (same as nx's G.graph.update(self.graph)).
+    result.graph.update(self.graph)
     result.add_nodes_from(
-        (node, deepcopy(attrs)) for node, attrs in self.nodes(data=True)
+        (node, dict(attrs)) for node, attrs in self.nodes(data=True)
     )
     if self.is_multigraph():
         # Use 4-tuples so an edge attribute literally named "key" doesn't
         # collide with add_edge's positional key parameter.
         result.add_edges_from(
-            (u, v, key, deepcopy(attrs))
+            (u, v, key, dict(attrs))
             for u, v, key, attrs in self.edges(keys=True, data=True)
         )
     else:
         result.add_edges_from(
-            (u, v, deepcopy(attrs)) for u, v, attrs in self.edges(data=True)
+            (u, v, dict(attrs)) for u, v, attrs in self.edges(data=True)
         )
     return result
 

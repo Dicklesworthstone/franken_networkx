@@ -707,6 +707,126 @@ class TestDeepCopyIsolation:
 
 
 # ---------------------------------------------------------------------------
+# Regression: br-r37-c1-3tlkj — G.copy() must be SHALLOW (matches nx)
+# ---------------------------------------------------------------------------
+
+
+class TestGraphCopyIsShallow:
+    """nx.Graph.copy() docstring: 'an independent shallow copy of the
+    graph and attributes. That is, if an attribute is a container,
+    that container is shared by the original and the copy.' Pre-fix
+    fnx.G.copy() did a deep copy, which produced independent inner
+    containers — code that intentionally relied on shared mutation
+    of nested attrs (e.g. caching layers) silently broke. This test
+    cross-checks identity against nx so any future regression is
+    caught immediately.
+
+    Note: copy.deepcopy(G) — the Python builtin — must STILL deep-copy.
+    See TestDeepCopyIsolation above for that contract.
+    """
+
+    @pytest.mark.parametrize("cls_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+    def test_node_attr_inner_container_is_shared(self, cls_name):
+        import networkx as nx
+
+        G = getattr(fnx, cls_name)()
+        Gn = getattr(nx, cls_name)()
+        G.add_node(1, payload={"list": [1, 2, 3]})
+        Gn.add_node(1, payload={"list": [1, 2, 3]})
+
+        H = G.copy()
+        Hn = Gn.copy()
+
+        assert (H.nodes[1]["payload"] is G.nodes[1]["payload"]) == (
+            Hn.nodes[1]["payload"] is Gn.nodes[1]["payload"]
+        ), "node-attr container identity must match nx"
+        # And nx's contract is sharing — so both sides are True.
+        assert H.nodes[1]["payload"] is G.nodes[1]["payload"]
+
+    @pytest.mark.parametrize("cls_name", ["Graph", "DiGraph"])
+    def test_edge_attr_inner_container_is_shared(self, cls_name):
+        import networkx as nx
+
+        G = getattr(fnx, cls_name)()
+        Gn = getattr(nx, cls_name)()
+        G.add_edge(2, 3, payload={"list": [4, 5]})
+        Gn.add_edge(2, 3, payload={"list": [4, 5]})
+
+        H = G.copy()
+        Hn = Gn.copy()
+
+        assert (H[2][3]["payload"] is G[2][3]["payload"]) == (
+            Hn[2][3]["payload"] is Gn[2][3]["payload"]
+        )
+        assert H[2][3]["payload"] is G[2][3]["payload"]
+
+    def test_multigraph_edge_attr_inner_container_is_shared(self):
+        import networkx as nx
+
+        G = fnx.MultiGraph()
+        Gn = nx.MultiGraph()
+        G.add_edge(2, 3, key="a", payload={"list": [4, 5]})
+        Gn.add_edge(2, 3, key="a", payload={"list": [4, 5]})
+
+        H = G.copy()
+        Hn = Gn.copy()
+
+        assert (H[2][3]["a"]["payload"] is G[2][3]["a"]["payload"]) == (
+            Hn[2][3]["a"]["payload"] is Gn[2][3]["a"]["payload"]
+        )
+        assert H[2][3]["a"]["payload"] is G[2][3]["a"]["payload"]
+
+    @pytest.mark.parametrize("cls_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+    def test_graph_attr_inner_container_is_shared(self, cls_name):
+        import networkx as nx
+
+        G = getattr(fnx, cls_name)()
+        Gn = getattr(nx, cls_name)()
+        G.graph["names"] = ["a", "b"]
+        Gn.graph["names"] = ["a", "b"]
+
+        H = G.copy()
+        Hn = Gn.copy()
+
+        assert (H.graph["names"] is G.graph["names"]) == (
+            Hn.graph["names"] is Gn.graph["names"]
+        )
+        assert H.graph["names"] is G.graph["names"]
+
+    @pytest.mark.parametrize("cls_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+    def test_top_level_attr_dict_is_independent(self, cls_name):
+        """The OUTER attrs dict is a fresh copy — adding a new key
+        on H.nodes[n] must not appear on G.nodes[n]. Verifies the
+        copy isn't a view."""
+        G = getattr(fnx, cls_name)()
+        G.add_node(1, color="red")
+
+        H = G.copy()
+        H.nodes[1]["new_key"] = "added"
+
+        assert "new_key" not in G.nodes[1]
+        assert H.nodes[1]["new_key"] == "added"
+
+    @pytest.mark.parametrize("cls_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+    def test_inner_container_mutation_visible_to_original(self, cls_name):
+        """The behavioral expression of the shallow-copy contract:
+        appending to the inner list of a copied node attr propagates
+        to the original. This is what existing nx user code relies
+        on."""
+        import networkx as nx
+
+        G = getattr(fnx, cls_name)()
+        Gn = getattr(nx, cls_name)()
+        G.add_node(1, payload=[1, 2])
+        Gn.add_node(1, payload=[1, 2])
+
+        G.copy().nodes[1]["payload"].append(99)
+        Gn.copy().nodes[1]["payload"].append(99)
+
+        assert G.nodes[1]["payload"] == Gn.nodes[1]["payload"] == [1, 2, 99]
+
+
+# ---------------------------------------------------------------------------
 # Regression: franken_networkx-degnbn — G.degree(nbunch) skips missing nodes
 # ---------------------------------------------------------------------------
 
