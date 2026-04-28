@@ -27074,24 +27074,32 @@ def soft_random_geometric_graph(
 ):
     """Soft random geometric graph: edge probability decreases with distance.
 
-    Matches networkx signature including ``p`` (Minkowski exponent) and
-    keyword-only ``pos_name`` (br-r37-c1-geomgenkw).
+    Matches NetworkX exactly: only candidate edges within ``radius`` are
+    drawn against ``p_dist`` (default ``exp(-d)``), so ``rng.random()`` is
+    consumed in NetworkX's order. Auto-generated positions are lists,
+    user-supplied ``pos`` dicts are stored by reference.
     """
     import random as _random
 
     rng = _random.Random(seed)
     G = Graph()
-    positions = {}
+    G.add_nodes_from(range(n))
     if pos is None:
-        pos = {i: [rng.random() for _ in range(dim)] for i in range(n)}
-    for i in range(n):
-        positions[i] = pos[i]
-        G.add_node(i, **{pos_name: positions[i]})
+        pos = {v: [rng.random() for _ in range(dim)] for v in G}
+    set_node_attributes(G, pos, pos_name)
+
+    if p_dist is None:
+        def p_dist(d):
+            return math.exp(-d)
+
+    radius_p = radius ** p
     for i in range(n):
         for j in range(i + 1, n):
-            d = _minkowski_distance(positions[i], positions[j], p)
-            prob = max(0, 1 - d / radius) if p_dist is None else p_dist(d)
-            if rng.random() < prob:
+            d_p = sum(abs(a - b) ** p for a, b in zip(pos[i], pos[j]))
+            if d_p > radius_p:
+                continue
+            d = d_p ** (1.0 / p)
+            if rng.random() < p_dist(d):
                 G.add_edge(i, j)
     return G
 

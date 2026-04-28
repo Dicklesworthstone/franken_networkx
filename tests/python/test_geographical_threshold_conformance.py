@@ -1,4 +1,5 @@
-"""NetworkX parity for geographical_threshold_graph and thresholded_random_geometric_graph.
+"""NetworkX parity for geographical_threshold_graph,
+thresholded_random_geometric_graph, and soft_random_geometric_graph.
 
 Covers three parity points that the position-attribute fix in
 72e4acb addressed for ``random_geometric_graph`` /
@@ -22,7 +23,15 @@ import franken_networkx as fnx
 GENERATORS = [
     ("geographical_threshold_graph", (5, 0.001)),
     ("thresholded_random_geometric_graph", (5, 0.5, 0.0001)),
+    ("soft_random_geometric_graph", (8, 0.5)),
 ]
+
+# Subset that takes a ``weight`` parameter — used for the
+# user-supplied-pos identity test which holds weights constant.
+WEIGHTED = {
+    "geographical_threshold_graph",
+    "thresholded_random_geometric_graph",
+}
 
 
 @pytest.mark.parametrize("name,args", GENERATORS)
@@ -36,11 +45,13 @@ def test_generated_positions_are_lists_matching_networkx(name, args):
 
 @pytest.mark.parametrize("name,args", GENERATORS)
 def test_supplied_positions_are_preserved_by_identity(name, args):
-    pos = {0: [0.0, 0.0], 1: [1.0, 0.0], 2: [0.0, 1.0], 3: [1.0, 1.0], 4: [0.5, 0.5]}
-    weight = {i: 1.0 for i in range(5)}
+    pos = {i: [0.1 * i, 0.2 * i] for i in range(args[0])}
+    kwargs = {"pos": pos, "seed": 7}
+    if name in WEIGHTED:
+        kwargs["weight"] = {i: 1.0 for i in range(args[0])}
 
-    actual = getattr(fnx, name)(*args, pos=pos, weight=weight, seed=7)
-    expected = getattr(nx, name)(*args, pos=pos, weight=weight, seed=7)
+    actual = getattr(fnx, name)(*args, **kwargs)
+    expected = getattr(nx, name)(*args, **kwargs)
 
     assert actual.nodes[0]["pos"] is pos[0]
     assert expected.nodes[0]["pos"] is pos[0]
