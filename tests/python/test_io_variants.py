@@ -18,6 +18,35 @@ def test_parse_and_generate_adjlist_round_trip():
     assert parsed.number_of_edges() == graph.number_of_edges()
 
 
+@pytest.mark.parametrize(
+    ("lines", "kwargs"),
+    [
+        (["bad 2"], {"nodetype": int}),
+        (["1 bad"], {"nodetype": int}),
+        (["1\t2\t"], {"delimiter": "\t", "nodetype": int}),
+    ],
+)
+def test_parse_adjlist_nodetype_errors_match_networkx(lines, kwargs):
+    with pytest.raises(TypeError) as nx_error:
+        nx.parse_adjlist(lines, **kwargs)
+
+    with pytest.raises(TypeError) as fnx_error:
+        fnx.parse_adjlist(lines, **kwargs)
+
+    assert str(fnx_error.value) == str(nx_error.value)
+
+
+def test_parse_adjlist_preserves_trailing_empty_neighbor_like_networkx():
+    lines = ["1\t2\t"]
+    kwargs = {"delimiter": "\t", "nodetype": str}
+
+    expected = nx.parse_adjlist(lines, **kwargs)
+    actual = fnx.parse_adjlist(lines, **kwargs)
+
+    assert sorted(actual.nodes()) == sorted(expected.nodes())
+    assert sorted(actual.edges()) == sorted(expected.edges())
+
+
 def test_parse_and_generate_edgelist_round_trip_with_attrs():
     graph = fnx.Graph()
     graph.add_edge("a", "b", weight=2.5)

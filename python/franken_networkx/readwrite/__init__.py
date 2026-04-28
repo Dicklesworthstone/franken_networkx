@@ -410,18 +410,29 @@ def parse_adjlist(
     """Parse an adjacency-list line stream into a FrankenNetworkX graph."""
     G = _new_graph(create_using)
     for line in _normalize_lines(lines):
-        line = _strip_comment(line, comments)
-        if not line:
+        idx = line.find(comments)
+        if idx >= 0:
+            line = line[:idx]
+        if not len(line):
             continue
-        vlist = line.strip().split(delimiter)
+        vlist = line.rstrip("\n").split(delimiter)
         u = vlist.pop(0)
         if nodetype is not None:
-            u = nodetype(u)
+            try:
+                u = nodetype(u)
+            except Exception as err:
+                raise TypeError(
+                    f"Failed to convert node ({u}) to type {nodetype}"
+                ) from err
         G.add_node(u)
-        for v in vlist:
-            if nodetype is not None:
-                v = nodetype(v)
-            G.add_edge(u, v)
+        if nodetype is not None:
+            try:
+                vlist = list(map(nodetype, vlist))
+            except Exception as err:
+                raise TypeError(
+                    f"Failed to convert nodes ({','.join(vlist)}) to type {nodetype}"
+                ) from err
+        G.add_edges_from((u, v) for v in vlist)
     return G
 
 
