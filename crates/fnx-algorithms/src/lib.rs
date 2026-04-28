@@ -14155,6 +14155,86 @@ pub fn all_shortest_paths_weighted(
     build_all_paths_from_preds(&preds, source, target)
 }
 
+/// Return all shortest directed paths from source to target in a weighted graph.
+///
+/// Uses modified Dijkstra with multi-predecessor tracking.
+/// Matches `networkx.all_shortest_paths(G, source, target, weight=...)`
+/// for directed graphs with non-negative weights.
+#[must_use]
+pub fn all_shortest_paths_weighted_directed(
+    digraph: &DiGraph,
+    source: &str,
+    target: &str,
+    weight_attr: &str,
+) -> Vec<Vec<String>> {
+    if !digraph.has_node(source) || !digraph.has_node(target) {
+        return Vec::new();
+    }
+
+    if source == target {
+        return vec![vec![source.to_owned()]];
+    }
+
+    let mut dist: HashMap<&str, f64> = HashMap::new();
+    let mut preds: HashMap<&str, Vec<&str>> = HashMap::new();
+    let mut pq = BinaryHeap::new();
+    let mut seq_counter: u64 = 0;
+
+    dist.insert(source, 0.0);
+    seq_counter += 1;
+    pq.push(DijkstraState {
+        dist: 0.0,
+        seq: seq_counter,
+        node: source,
+    });
+
+    let mut target_dist = f64::INFINITY;
+
+    while let Some(DijkstraState {
+        dist: d, node: u, ..
+    }) = pq.pop()
+    {
+        if d > target_dist + DISTANCE_COMPARISON_EPSILON {
+            break;
+        }
+
+        if d > *dist.get(u).unwrap_or(&f64::INFINITY) + DISTANCE_COMPARISON_EPSILON {
+            continue;
+        }
+
+        if u == target {
+            target_dist = d;
+        }
+
+        if let Some(successors) = digraph.successors_iter(u) {
+            for v in successors {
+                let weight = digraph_edge_weight_or_default(digraph, u, v, weight_attr);
+                let next_dist = d + weight;
+                let current_dist_v = *dist.get(v).unwrap_or(&f64::INFINITY);
+
+                if next_dist < current_dist_v - DISTANCE_COMPARISON_EPSILON {
+                    dist.insert(v, next_dist);
+                    preds.insert(v, vec![u]);
+                    seq_counter += 1;
+                    pq.push(DijkstraState {
+                        dist: next_dist,
+                        seq: seq_counter,
+                        node: v,
+                    });
+                } else if (next_dist - current_dist_v).abs() < DISTANCE_COMPARISON_EPSILON {
+                    preds.entry(v).or_default().push(u);
+                }
+            }
+        }
+    }
+
+    if !dist.contains_key(target) {
+        return Vec::new();
+    }
+
+    build_all_paths_from_preds(&preds, source, target)
+}
+
 /// Reconstruct all paths from a multi-predecessor map by DFS backtracking.
 fn build_all_paths_from_preds(
     preds: &HashMap<&str, Vec<&str>>,
@@ -32186,6 +32266,7 @@ mod tests {
         all_shortest_paths,
         all_shortest_paths_directed,
         all_shortest_paths_weighted,
+        all_shortest_paths_weighted_directed,
         all_simple_paths,
         all_topological_sorts,
         // DAG algorithms — additional
@@ -37734,6 +37815,46 @@ mod tests {
         g.add_node("1");
         let paths = all_shortest_paths_weighted(&g, "0", "1", "weight");
         assert!(paths.is_empty());
+    }
+
+    #[test]
+    fn all_shortest_paths_weighted_directed_preserves_successor_order() {
+        let mut dg = DiGraph::strict();
+        let mut w1 = BTreeMap::new();
+        w1.insert("weight".to_owned(), "1.0".into());
+        let mut w2 = BTreeMap::new();
+        w2.insert("weight".to_owned(), "2.0".into());
+        let mut w3 = BTreeMap::new();
+        w3.insert("weight".to_owned(), "3.0".into());
+
+        dg.add_edge_with_attrs("a", "b", w1.clone()).unwrap();
+        dg.add_edge_with_attrs("a", "c", w1.clone()).unwrap();
+        dg.add_edge_with_attrs("b", "e", w2).unwrap();
+        dg.add_edge_with_attrs("b", "d", w1.clone()).unwrap();
+        dg.add_edge_with_attrs("c", "d", w1.clone()).unwrap();
+        dg.add_edge_with_attrs("d", "e", w1).unwrap();
+        dg.add_edge_with_attrs("a", "e", w3).unwrap();
+
+        let paths = all_shortest_paths_weighted_directed(&dg, "a", "e", "weight");
+        assert_eq!(
+            paths,
+            vec![
+                vec!["a".to_owned(), "e".to_owned()],
+                vec!["a".to_owned(), "b".to_owned(), "e".to_owned()],
+                vec![
+                    "a".to_owned(),
+                    "b".to_owned(),
+                    "d".to_owned(),
+                    "e".to_owned(),
+                ],
+                vec![
+                    "a".to_owned(),
+                    "c".to_owned(),
+                    "d".to_owned(),
+                    "e".to_owned(),
+                ],
+            ]
+        );
     }
 
     // ===== complement tests =====

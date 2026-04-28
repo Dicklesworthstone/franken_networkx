@@ -173,3 +173,31 @@ def test_weighted_diamond_preserves_path_emission_order_matching_networkx():
         nx.all_shortest_paths(ng, "a", "e", weight="weight", method="dijkstra")
     )
     assert fnx_paths_dj == nx_paths_dj
+
+
+def test_directed_weighted_dijkstra_uses_rust_path_without_networkx_fallback(monkeypatch):
+    edges = [
+        ("a", "b", 1),
+        ("a", "c", 1),
+        ("b", "e", 2),
+        ("b", "d", 1),
+        ("c", "d", 1),
+        ("d", "e", 1),
+        ("a", "e", 3),
+    ]
+    fg = fnx.DiGraph()
+    ng = nx.DiGraph()
+    for u, v, w in edges:
+        fg.add_edge(u, v, weight=w)
+        ng.add_edge(u, v, weight=w)
+
+    expected = list(nx.all_shortest_paths(ng, "a", "e", weight="weight"))
+    monkeypatch.setattr(
+        nx,
+        "all_shortest_paths",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("NetworkX all_shortest_paths fallback used")
+        ),
+    )
+
+    assert list(fnx.all_shortest_paths(fg, "a", "e", weight="weight")) == expected

@@ -5728,10 +5728,14 @@ def all_shortest_paths(G, source, target, weight=None, method="dijkstra"):
     if target not in G:
         raise NetworkXNoPath(f"Target {target} cannot be reached from given sources")
     if weight is not None and G.is_directed():
-        kwargs = {"weight": weight}
-        if method is not None:
-            kwargs["method"] = method
-        return _call_networkx_for_parity("all_shortest_paths", G, source, target, **kwargs)
+        # Delegate bellman-ford or callable weights to NetworkX
+        if method == "bellman-ford" or _should_delegate_dijkstra_to_networkx(G, weight):
+            kwargs = {"weight": weight}
+            if method is not None:
+                kwargs["method"] = method
+            return _call_networkx_for_parity(
+                "all_shortest_paths", G, source, target, **kwargs
+            )
     if weight is not None and method == "dijkstra" and _should_delegate_dijkstra_to_networkx(G, weight):
         kwargs = {"weight": weight}
         if method is not None:

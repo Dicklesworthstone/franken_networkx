@@ -6379,10 +6379,27 @@ pub fn all_shortest_paths(
                     "bellman-ford all_shortest_paths is not yet supported for DiGraph",
                 ));
             }
-            (Some(_), _) => {
-                return Err(pyo3::exceptions::PyNotImplementedError::new_err(
-                    "weighted all_shortest_paths is not yet supported for DiGraph",
-                ));
+            (Some(w), "dijkstra") => {
+                let dg_ref = gr.digraph().expect("is_directed checked above");
+                py.allow_threads(|| {
+                    fnx_algorithms::all_shortest_paths_weighted_directed(
+                        dg_ref,
+                        &source_key,
+                        &target_key,
+                        w,
+                    )
+                })
+            }
+            (Some(w), _) => {
+                let dg_ref = gr.digraph().expect("is_directed checked above");
+                py.allow_threads(|| {
+                    fnx_algorithms::all_shortest_paths_weighted_directed(
+                        dg_ref,
+                        &source_key,
+                        &target_key,
+                        w,
+                    )
+                })
             }
             (None, _) => {
                 let dg_ref = gr.digraph().expect("is_directed checked above");
