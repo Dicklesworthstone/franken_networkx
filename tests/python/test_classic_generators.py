@@ -758,6 +758,32 @@ class TestRandomKernelGraphDifferentialConformance:
                 probe.random_kernel_graph(5, kernel_integral=bad_integral, seed=42)
 
 
+class TestRandomKOutGraphParity:
+    def test_alpha_is_required_matching_networkx(self):
+        import networkx as nx
+
+        with pytest.raises(TypeError) as expected_exc:
+            nx.random_k_out_graph(3, 1, seed=1)
+
+        with pytest.raises(TypeError) as actual_exc:
+            fnx.random_k_out_graph(3, 1, seed=1)
+
+        assert str(actual_exc.value) == str(expected_exc.value)
+
+    def test_seeded_output_matches_networkx_multidigraph_contract(self):
+        import networkx as nx
+
+        actual = fnx.random_k_out_graph(5, 2, 1, seed=42)
+        expected = nx.random_k_out_graph(5, 2, 1, seed=42)
+
+        assert actual.is_directed() == expected.is_directed()
+        assert actual.is_multigraph() == expected.is_multigraph()
+        assert sorted(actual.nodes(data=True)) == sorted(expected.nodes(data=True))
+        assert sorted(actual.edges(keys=True, data=True)) == sorted(
+            expected.edges(keys=True, data=True)
+        )
+
+
 # ---------------------------------------------------------------------------
 # Signature conformance audit (franken_networkx-vrx8)
 # ---------------------------------------------------------------------------

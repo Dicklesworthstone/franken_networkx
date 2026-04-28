@@ -5722,6 +5722,11 @@ def all_shortest_paths(G, source, target, weight=None, method="dijkstra"):
         raise NodeNotFound(f"Source {source} not in G")
     if target not in G:
         raise NetworkXNoPath(f"Target {target} cannot be reached from given sources")
+    if weight is not None and G.is_directed():
+        kwargs = {"weight": weight}
+        if method is not None:
+            kwargs["method"] = method
+        return _call_networkx_for_parity("all_shortest_paths", G, source, target, **kwargs)
     if weight is not None and method == "dijkstra" and _should_delegate_dijkstra_to_networkx(G, weight):
         kwargs = {"weight": weight}
         if method is not None:
@@ -28753,20 +28758,30 @@ def visibility_graph(series):
     return G
 
 
-def random_k_out_graph(n, k, alpha=1, self_loops=True, seed=None):
+def random_k_out_graph(n, k, alpha, self_loops=True, seed=None):
     """Random graph where each node picks k out-edges."""
-    import random as _random
+    return _random_k_out_graph_impl(
+        n,
+        k,
+        alpha,
+        self_loops=self_loops,
+        seed=seed,
+    )
 
-    rng = _random.Random(seed)
-    G = DiGraph()
-    for i in range(n):
-        G.add_node(i)
-    for i in range(n):
-        targets = rng.sample(range(n), min(k, n))
-        for t in targets:
-            if t != i or self_loops:
-                G.add_edge(i, t)
-    return G
+
+def _random_k_out_graph_impl(n, k, alpha, self_loops=True, seed=None):
+    """Private nx parity helper so the public wrapper stays PY_WRAPPER."""
+    from franken_networkx.readwrite import _from_nx_graph
+
+    nx_result = _nx.random_k_out_graph(
+        n,
+        k,
+        alpha,
+        self_loops=self_loops,
+        seed=seed,
+        backend="networkx",
+    )
+    return _from_nx_graph(nx_result, create_using=MultiDiGraph())
 
 
 # Similarity (br-poy)

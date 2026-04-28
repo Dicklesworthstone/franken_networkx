@@ -1595,6 +1595,31 @@ class TestShortestPath:
             ),
         )
 
+    @pytest.mark.parametrize(
+        "kwargs",
+        [
+            {"weight": "weight"},
+            {"weight": "weight", "method": "dijkstra"},
+            {"weight": "weight", "method": "bellman-ford"},
+        ],
+    )
+    def test_directed_weighted_all_shortest_paths_matches_networkx(
+        self, fnx, nx, kwargs
+    ):
+        G_fnx = fnx.DiGraph()
+        G_nx = nx.DiGraph()
+        for graph in (G_fnx, G_nx):
+            graph.add_edge("a", "b", weight=1)
+            graph.add_edge("a", "c", weight=1)
+            graph.add_edge("b", "d", weight=1)
+            graph.add_edge("c", "d", weight=1)
+            graph.add_edge("a", "d", weight=3)
+
+        _assert_same_result_or_exception(
+            lambda: list(fnx.all_shortest_paths(G_fnx, "a", "d", **kwargs)),
+            lambda: list(nx.all_shortest_paths(G_nx, "a", "d", **kwargs)),
+        )
+
     @pytest.mark.parametrize("kwargs", [{"weight": "weight"}, {"weight": "weight", "method": "dijkstra"}])
     def test_weighted_all_shortest_paths_preserves_networkx_path_order(
         self, fnx, nx, monkeypatch, kwargs
