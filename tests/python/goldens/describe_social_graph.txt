@@ -1,0 +1,9 @@
+Name of Graph                  : Golden Social
+Number of nodes                : 4
+Number of edges                : 3
+Directed                       : False
+Multigraph                     : False
+Tree                           : False
+Bipartite                      : False
+Average degree (min, max)      : 1.50 (0, 2)
+Number of connected components : 2
