@@ -77,6 +77,24 @@ def test_parse_edgelist_typed_data_rejects_arity_mismatch_like_networkx():
     assert str(fnx_error.value) == str(nx_error.value)
 
 
+@pytest.mark.parametrize(
+    ("lines", "kwargs"),
+    [
+        (["1 2 3"], {"nodetype": int, "data": True}),
+        (["1 2 [1,2]"], {"nodetype": int, "data": True}),
+        (["1 2 x"], {"nodetype": int, "data": [("weight", float)]}),
+    ],
+)
+def test_parse_edgelist_invalid_edge_data_errors_match_networkx(lines, kwargs):
+    with pytest.raises((TypeError, IndexError)) as nx_error:
+        nx.parse_edgelist(lines, **kwargs)
+
+    with pytest.raises(type(nx_error.value)) as fnx_error:
+        fnx.parse_edgelist(lines, **kwargs)
+
+    assert str(fnx_error.value) == str(nx_error.value)
+
+
 def test_parse_and_generate_gml_round_trip():
     graph = fnx.Graph()
     graph.add_node("a", label="A")

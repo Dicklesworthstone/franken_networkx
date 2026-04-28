@@ -436,50 +436,59 @@ def parse_edgelist(
     """Parse an edge-list line stream into a FrankenNetworkX graph."""
     G = _new_graph(create_using)
     for line in _normalize_lines(lines):
-        if comments:
+        if comments is not None:
             idx = line.find(comments)
             if idx >= 0:
                 line = line[:idx]
+            if not line:
+                continue
         if not line.strip():
             continue
-        split_line = line.rstrip("\n")
-        # Split the line into tokens
-        if isinstance(data, bool) and data:
-            # Format: u v {key:val, ...}  -- data is a Python dict literal
-            # Find the dict portion if present
-            brace = split_line.find("{")
-            if brace >= 0:
-                head = split_line[:brace].strip()
-                tail = split_line[brace:]
-                tokens = head.split(delimiter)
-                edgedata = dict(ast.literal_eval(tail))
-            else:
-                tokens = split_line.split(delimiter)
-                edgedata = {}
-        elif isinstance(data, bool) and not data:
-            tokens = split_line.split(delimiter)
+
+        tokens = line.rstrip("\n").split(delimiter)
+        if len(tokens) < 2:
+            continue
+
+        u = tokens.pop(0)
+        v = tokens.pop(0)
+        edge_tokens = tokens
+        if nodetype is not None:
+            try:
+                u = nodetype(u)
+                v = nodetype(v)
+            except Exception as err:
+                raise TypeError(
+                    f"Failed to convert nodes {u},{v} to type {nodetype}."
+                ) from err
+
+        if not edge_tokens or (isinstance(data, bool) and not data):
             edgedata = {}
+        elif isinstance(data, bool) and data:
+            try:
+                if delimiter == ",":
+                    edge_data = ",".join(edge_tokens)
+                else:
+                    edge_data = " ".join(edge_tokens)
+                edgedata = dict(ast.literal_eval(edge_data.strip()))
+            except Exception as err:
+                raise TypeError(
+                    f"Failed to convert edge data ({edge_tokens}) to dictionary."
+                ) from err
         else:
             # data is a list of (name, type) tuples
-            tokens = split_line.split(delimiter)
-            edge_tokens = tokens[2:]
-            tokens = tokens[:2]
-            edgedata = {}
-            if edge_tokens and len(edge_tokens) != len(data):
+            if len(edge_tokens) != len(data):
                 raise IndexError(
                     f"Edge data {edge_tokens} and data_keys {data} are not the same "
                     "length"
                 )
+            edgedata = {}
             for (name, tp), val in zip(data, edge_tokens):
-                edgedata[name] = tp(val)
-
-        if len(tokens) < 2:
-            continue
-        u = tokens[0]
-        v = tokens[1]
-        if nodetype is not None:
-            u = nodetype(u)
-            v = nodetype(v)
+                try:
+                    edgedata[name] = tp(val)
+                except Exception as err:
+                    raise TypeError(
+                        f"Failed to convert {name} data {val} to type {tp}."
+                    ) from err
         G.add_edge(u, v, **edgedata)
     return G
 
