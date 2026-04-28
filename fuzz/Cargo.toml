@@ -135,3 +135,8 @@ doc = false
 name = "fuzz_cycles"
 path = "fuzz_targets/fuzz_cycles.rs"
 doc = false
+
+[[bin]]
+name = "fuzz_isomorphism"
+path = "fuzz_targets/fuzz_isomorphism.rs"
+doc = false
