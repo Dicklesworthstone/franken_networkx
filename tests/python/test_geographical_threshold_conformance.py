@@ -72,3 +72,14 @@ def test_seeded_edge_set_matches_networkx(name, args):
     expected = getattr(nx, name)(*args, seed=7)
 
     assert sorted(actual.edges()) == sorted(expected.edges())
+
+
+@pytest.mark.parametrize("p", [1, 2, 3, float("inf")])
+def test_soft_random_geometric_graph_seeded_edges_match_for_each_p(p):
+    """soft_random_geometric_graph must match NetworkX for every Minkowski
+    ``p`` — including ``float('inf')`` (Chebyshev), which NetworkX routes
+    through scipy's KDTree when scipy is available."""
+    actual = fnx.soft_random_geometric_graph(40, 0.3, p=p, seed=11)
+    expected = nx.soft_random_geometric_graph(40, 0.3, p=p, seed=11)
+
+    assert sorted(actual.edges()) == sorted(expected.edges())

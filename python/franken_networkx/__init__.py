@@ -27092,15 +27092,28 @@ def soft_random_geometric_graph(
         def p_dist(d):
             return math.exp(-d)
 
-    radius_p = radius ** p
-    for i in range(n):
-        for j in range(i + 1, n):
-            d_p = sum(abs(a - b) ** p for a, b in zip(pos[i], pos[j]))
-            if d_p > radius_p:
-                continue
-            d = d_p ** (1.0 / p)
-            if rng.random() < p_dist(d):
-                G.add_edge(i, j)
+    if p == float("inf"):
+        # Chebyshev: filter on max(|a-b|) ≤ radius. NX computes the dist
+        # value for ``p_dist`` via ``sum(|a-b|**p) ** (1/p)`` even when
+        # ``p`` is infinite — for points in [0, 1], every term collapses
+        # to 0 and ``0 ** 0`` evaluates to 1.0, so NX's ``p_dist`` always
+        # sees ``1.0``. Mirror that quirk for bit-for-bit parity.
+        for i in range(n):
+            for j in range(i + 1, n):
+                if max(abs(a - b) for a, b in zip(pos[i], pos[j])) > radius:
+                    continue
+                if rng.random() < p_dist(1.0):
+                    G.add_edge(i, j)
+    else:
+        radius_p = radius ** p
+        for i in range(n):
+            for j in range(i + 1, n):
+                d_p = sum(abs(a - b) ** p for a, b in zip(pos[i], pos[j]))
+                if d_p > radius_p:
+                    continue
+                d = d_p ** (1.0 / p)
+                if rng.random() < p_dist(d):
+                    G.add_edge(i, j)
     return G
 
 
