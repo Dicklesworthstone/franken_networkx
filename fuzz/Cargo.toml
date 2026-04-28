@@ -36,6 +36,11 @@ path = "fuzz_targets/fuzz_graphml.rs"
 doc = false
 
 [[bin]]
+name = "fuzz_gexf"
+path = "fuzz_targets/fuzz_gexf.rs"
+doc = false
+
+[[bin]]
 name = "fuzz_gml"
 path = "fuzz_targets/fuzz_gml.rs"
 doc = false
