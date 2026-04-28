@@ -30655,25 +30655,18 @@ def random_clustered_graph(joint_degree_sequence, create_using=None, seed=None):
 
 
 def random_cograph(n, seed=None):
-    """Random cograph via recursive split."""
-    import random as _random
+    """Return a random cograph with ``2 ** n`` nodes."""
+    rng = _generator_random_state(seed)
+    graph = empty_graph(1)
 
-    rng = _random.Random(seed)
-    if n <= 1:
-        G = Graph()
-        G.add_node(0)
-        return G
-    half = n // 2
-    G1 = random_cograph(half, seed=rng.randint(0, 2**31))
-    G2 = random_cograph(n - half, seed=rng.randint(0, 2**31))
-    if rng.random() < 0.5:
-        return disjoint_union(G1, G2)
-    else:
-        result = disjoint_union(G1, G2)
-        for u in G1.nodes():
-            for v in G2.nodes():
-                result.add_edge((0, u), (1, v))
-        return result
+    for _ in range(n):
+        right = relabel_nodes(graph.copy(), lambda node: node + len(graph))
+        if rng.randint(0, 1) == 0:
+            graph = full_join(graph, right)
+        else:
+            graph = disjoint_union(graph, right)
+
+    return graph
 
 
 def random_degree_sequence_graph(sequence, seed=None, tries=10):
