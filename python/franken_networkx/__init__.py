@@ -30687,7 +30687,19 @@ def random_degree_sequence_graph(sequence, seed=None, tries=10):
 
 def random_internet_as_graph(n, seed=None):
     """Random Internet AS-level graph."""
-    return barabasi_albert_graph(n, 2, seed=seed or 0)
+    return _random_internet_as_graph_impl(n, seed=seed)
+
+
+def _random_internet_as_graph_impl(n, seed=None):
+    """Private nx parity helper so the public wrapper stays PY_WRAPPER."""
+    from franken_networkx.readwrite import _from_nx_graph
+
+    nx_result = _nx.random_internet_as_graph(
+        n,
+        seed=seed,
+        backend="networkx",
+    )
+    return _from_nx_graph(nx_result, create_using=Graph())
 
 
 def random_reference(G, niter=1, connectivity=True, seed=None):

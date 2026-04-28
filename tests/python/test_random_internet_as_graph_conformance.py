@@ -28,8 +28,14 @@ def test_random_internet_as_graph_seeded_output_matches_networkx():
 
 def test_random_internet_as_graph_preserves_as_attributes():
     graph = fnx.random_internet_as_graph(10, seed=4)
+    node_attrs = Counter(
+        tuple(sorted(attrs.items())) for _, attrs in graph.nodes(data=True)
+    )
+    edge_attrs = Counter(
+        tuple(sorted(dict(attrs).items())) for _, _, attrs in graph.edges(data=True)
+    )
 
-    assert Counter(tuple(sorted(attrs.items())) for _, attrs in graph.nodes(data=True)) == Counter(
+    assert node_attrs == Counter(
         [
             (("type", "T"),),
             (("type", "T"),),
@@ -43,9 +49,7 @@ def test_random_internet_as_graph_preserves_as_attributes():
             (("peers", 0), ("type", "C")),
         ]
     )
-    assert Counter(
-        tuple(sorted(dict(attrs).items())) for _, _, attrs in graph.edges(data=True)
-    ) == Counter(
+    assert edge_attrs == Counter(
         [
             (("customer", "none"), ("type", "peer")),
             (("customer", "none"), ("type", "peer")),
