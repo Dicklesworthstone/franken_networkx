@@ -2292,7 +2292,12 @@ class _WeightAwareDegreeView:
                 # filtered result in a small proxy that preserves both
                 # behaviours without touching the Rust binding.
                 return _FilteredDegreeView(self._raw, filtered)
-            return self._raw(nbunch) if callable(self._raw) else self._raw[nbunch]
+            # br-degexc: nx raises NetworkXError for single non-existent
+            # node, but Rust layer raises NodeNotFound. Convert to match nx.
+            try:
+                return self._raw(nbunch) if callable(self._raw) else self._raw[nbunch]
+            except NodeNotFound:
+                raise NetworkXError(f"Node {nbunch} is not in the graph.")
         # Weighted path
         if nbunch is None:
             return ((n, self._weighted_value(n, weight)) for n in self._graph)
