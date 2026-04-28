@@ -64,6 +64,19 @@ def test_parse_edgelist_explicit_delimiter_preserves_trailing_empty_field_withou
     assert actual == expected
 
 
+def test_parse_edgelist_typed_data_rejects_arity_mismatch_like_networkx():
+    lines = ["1 2 3 4"]
+    data = [("weight", float)]
+
+    with pytest.raises(IndexError) as nx_error:
+        nx.parse_edgelist(lines, nodetype=int, data=data)
+
+    with pytest.raises(IndexError) as fnx_error:
+        fnx.parse_edgelist(lines, nodetype=int, data=data)
+
+    assert str(fnx_error.value) == str(nx_error.value)
+
+
 def test_parse_and_generate_gml_round_trip():
     graph = fnx.Graph()
     graph.add_node("a", label="A")

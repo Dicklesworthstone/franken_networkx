@@ -465,6 +465,11 @@ def parse_edgelist(
             edge_tokens = tokens[2:]
             tokens = tokens[:2]
             edgedata = {}
+            if edge_tokens and len(edge_tokens) != len(data):
+                raise IndexError(
+                    f"Edge data {edge_tokens} and data_keys {data} are not the same "
+                    "length"
+                )
             for (name, tp), val in zip(data, edge_tokens):
                 edgedata[name] = tp(val)
 
