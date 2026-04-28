@@ -5144,7 +5144,7 @@ impl EdgeListEngine {
 mod tests {
     use super::{EdgeListEngine, ReadWriteError};
     use fnx_classes::digraph::DiGraph;
-    use fnx_classes::{Graph, GraphSnapshot};
+    use fnx_classes::{EdgeSnapshot, Graph, GraphSnapshot};
     use fnx_runtime::{
         CgseValue, CompatibilityMode, DecisionAction, ForensicsBundleIndex, StructuredTestLog,
         TestKind, TestStatus, canonical_environment_fingerprint,
@@ -8174,7 +8174,14 @@ mod tests {
             let parsed = engine.read_edgelist(&text).expect("edgelist read should succeed");
 
             prop_assert!(parsed.warnings.is_empty(), "strict edgelist round-trip should have no warnings");
-            // Edgelist format doesn't preserve node order - compare as sets
+            // Edgelist format doesn't preserve node order - compare as sets.
+            // For undirected graphs, the edge endpoint orientation is also
+            // not preserved: `edges_ordered` emits (u, v) in node-insertion
+            // order, and the parsed graph's node-insertion order is driven
+            // by the order each node first appears in the edgelist text,
+            // which can differ from the original. Canonicalise each edge
+            // to (min, max) before sorting so we test "same multiset of
+            // undirected edges + attrs" rather than orientation per edge.
             let orig = graph.snapshot();
             let parsed_snap = parsed.graph.snapshot();
             prop_assert_eq!(orig.mode, parsed_snap.mode, "modes should match");
@@ -8183,8 +8190,16 @@ mod tests {
             orig_nodes.sort();
             parsed_nodes.sort();
             prop_assert_eq!(orig_nodes, parsed_nodes, "node sets should match");
-            let mut orig_edges = orig.edges.clone();
-            let mut parsed_edges = parsed_snap.edges.clone();
+            let canonicalise = |mut e: EdgeSnapshot| {
+                if e.left > e.right {
+                    std::mem::swap(&mut e.left, &mut e.right);
+                }
+                e
+            };
+            let mut orig_edges: Vec<_> =
+                orig.edges.iter().cloned().map(canonicalise).collect();
+            let mut parsed_edges: Vec<_> =
+                parsed_snap.edges.iter().cloned().map(canonicalise).collect();
             orig_edges.sort_by(|a, b| (&a.left, &a.right).cmp(&(&b.left, &b.right)));
             parsed_edges.sort_by(|a, b| (&a.left, &a.right).cmp(&(&b.left, &b.right)));
             prop_assert_eq!(orig_edges, parsed_edges, "edge sets should match");
