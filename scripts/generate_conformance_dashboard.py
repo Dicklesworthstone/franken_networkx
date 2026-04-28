@@ -12,6 +12,7 @@ Outputs: artifacts/conformance/latest/conformance_dashboard_v1.json
 
 import json
 from datetime import datetime, timezone
+from hashlib import sha256
 from pathlib import Path
 
 
@@ -22,6 +23,34 @@ def load_json(path: Path) -> dict | None:
         return None
 
 
+def stable_generated_at_utc(reliability: dict, structured_log_report: dict) -> str:
+    """Return a deterministic generation timestamp derived from input artifacts."""
+    generated_at = reliability.get("generated_at_utc")
+    if isinstance(generated_at, str) and generated_at:
+        return generated_at
+
+    generated_at_unix_ms = structured_log_report.get("generated_at_unix_ms")
+    if isinstance(generated_at_unix_ms, (int, float)):
+        return datetime.fromtimestamp(
+            generated_at_unix_ms / 1000,
+            timezone.utc,
+        ).isoformat()
+
+    return "1970-01-01T00:00:00+00:00"
+
+
+def stable_run_id(inputs: dict[str, dict]) -> str:
+    """Build a stable run identifier from dashboard input content."""
+    digest = sha256(
+        json.dumps(
+            inputs,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
+    return f"conformance-dashboard-{digest[:16]}"
+
+
 def generate_dashboard() -> dict:
     artifacts_root = Path("artifacts/conformance/latest")
 
@@ -29,6 +58,12 @@ def generate_dashboard() -> dict:
     taxonomy = load_json(artifacts_root / "mismatch_taxonomy_report.json") or {}
     reliability = load_json(artifacts_root / "reliability_budget_report_v1.json") or {}
     structured_log_report = load_json(artifacts_root / "structured_log_emitter_normalization_report.json") or {}
+    input_artifacts = {
+        "smoke_report": smoke,
+        "taxonomy_report": taxonomy,
+        "reliability_report": reliability,
+        "structured_log_report": structured_log_report,
+    }
 
     # Extract fixture reports from smoke report
     fixture_reports = smoke.get("fixture_reports", [])
@@ -74,8 +109,8 @@ def generate_dashboard() -> dict:
     # Build dashboard
     dashboard = {
         "report_id": "conformance-dashboard-v1",
-        "generated_at_utc": datetime.now(timezone.utc).isoformat(),
-        "run_id": f"conformance-dashboard-{int(datetime.now().timestamp())}",
+        "generated_at_utc": stable_generated_at_utc(reliability, structured_log_report),
+        "run_id": stable_run_id(input_artifacts),
         "status": "pass" if smoke.get("mismatch_count", 0) == 0 else "fail",
 
         "summary": {

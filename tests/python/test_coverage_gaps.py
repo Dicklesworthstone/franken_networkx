@@ -35,6 +35,11 @@ def _load_coverage_matrix_script():
     return run_path(str(script_path))
 
 
+def _load_conformance_dashboard_script():
+    script_path = _repo_root() / "scripts" / "generate_conformance_dashboard.py"
+    return run_path(str(script_path))
+
+
 def test_public_coverage_has_no_networkx_delegated_exports():
     coverage_matrix = _load_coverage_matrix_script()
     exports, _duplicates = coverage_matrix["load_public_exports"]()
@@ -62,6 +67,17 @@ def test_public_all_has_no_duplicate_entries():
     )
 
     assert duplicates == []
+
+
+def test_conformance_dashboard_generation_is_deterministic():
+    dashboard_script = _load_conformance_dashboard_script()
+
+    first = dashboard_script["generate_dashboard"]()
+    second = dashboard_script["generate_dashboard"]()
+
+    assert first == second
+    assert first["deterministic"]
+    assert first["run_id"].startswith("conformance-dashboard-")
 
 
 # ---------------------------------------------------------------------------
