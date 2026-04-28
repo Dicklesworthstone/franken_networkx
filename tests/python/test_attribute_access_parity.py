@@ -872,6 +872,20 @@ class TestDegreeNbunchFilter:
         with pytest.raises(fnx.NetworkXError):
             G.degree(99)
 
+    def test_degree_single_node_missing_with_weight_raises_networkxerror(self):
+        """The ``weight=...`` path went through a different branch and was
+        raising ``TypeError("'int' object is not iterable")`` instead of
+        ``NetworkXError`` for a single missing node."""
+        G_fnx = fnx.path_graph(3)
+        G_nx = nx.path_graph(3)
+
+        with pytest.raises(nx.NetworkXError) as nx_exc:
+            G_nx.degree(99, weight="weight")
+        with pytest.raises(fnx.NetworkXError) as fnx_exc:
+            G_fnx.degree(99, weight="weight")
+
+        assert str(fnx_exc.value) == str(nx_exc.value)
+
 
 # ---------------------------------------------------------------------------
 # Regression: franken_networkx-edgekey — EdgeView.__getitem__ preserves key type

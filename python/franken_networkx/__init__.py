@@ -2303,11 +2303,15 @@ class _WeightAwareDegreeView:
             return ((n, self._weighted_value(n, weight)) for n in self._graph)
         if nbunch in self._graph:
             return self._weighted_value(nbunch, weight)
-        return _FilteredDegreeView(
-            self,
-            [n for n in nbunch if n in self._graph],
-            weight=weight,
-        )
+        # br-degexc: a single hashable nbunch that isn't in the graph
+        # must raise NetworkXError, matching NX. Falling through to
+        # ``[n for n in nbunch ...]`` would TypeError on non-iterables
+        # (e.g. ints) instead.
+        try:
+            filtered = [n for n in nbunch if n in self._graph]
+        except TypeError:
+            raise NetworkXError(f"Node {nbunch} is not in the graph.")
+        return _FilteredDegreeView(self, filtered, weight=weight)
 
 
 class _FilteredDegreeView:
