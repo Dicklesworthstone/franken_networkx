@@ -26769,25 +26769,46 @@ def planted_partition_graph(l, k, p_in, p_out, seed=None, directed=False):
     )
 
 
-def gaussian_random_partition_graph(n, s, v, p_in, p_out, directed=False, seed=None):
+def gaussian_random_partition_graph(
+    n,
+    s,
+    v,
+    p_in,
+    p_out,
+    directed=False,
+    seed=None,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
     """Gaussian random partition graph.
 
     Argument order matches networkx: ``(n, s, v, p_in, p_out, directed, seed)``.
     """
-    import random as _random
+    if backend is not None and backend != "networkx":
+        raise ImportError(f"'{backend}' backend is not installed.")
+    del backend_kwargs
 
-    rng = _random.Random(seed)
+    if s > n:
+        raise NetworkXError("s must be <= n")
+
+    rng = _generator_random_state(seed)
     sizes = []
-    rem = n
-    while rem > 0:
-        sz = max(1, min(int(rng.gauss(s, v)), rem))
-        sizes.append(sz)
-        rem -= sz
+    assigned = 0
+    while True:
+        size = int(rng.gauss(s, s / v + 0.5))
+        if size < 1:
+            continue
+        if assigned + size >= n:
+            sizes.append(n - assigned)
+            break
+        assigned += size
+        sizes.append(size)
     l = len(sizes)
     return stochastic_block_model(
         sizes,
         [[p_in if i == j else p_out for j in range(l)] for i in range(l)],
-        seed=seed,
+        seed=rng,
         directed=directed,
     )
 
