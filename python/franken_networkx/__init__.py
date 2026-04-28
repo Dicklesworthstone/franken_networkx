@@ -30734,7 +30734,17 @@ def random_labeled_rooted_forest(n, *, seed=None):
     return random_unlabeled_rooted_forest(n, seed=seed)
 
 
-def partial_duplication_graph(N, n, p, q, seed=None, *, create_using=None):
+def partial_duplication_graph(
+    N,
+    n,
+    p,
+    q,
+    seed=None,
+    *,
+    create_using=None,
+    backend=None,
+    **backend_kwargs,
+):
     """Partial duplication graph (Chung–Lu).
 
     Matches networkx's public signature
@@ -30745,42 +30755,57 @@ def partial_duplication_graph(N, n, p, q, seed=None, *, create_using=None):
     vertex's neighbour to the new vertex; ``q`` is the probability of
     adding a new edge from the new vertex to a random non-neighbour.
     """
-    import random as _random
-
-    if p < 0 or p > 1:
-        raise NetworkXError("p must be in [0, 1]")
-    if q < 0 or q > 1:
-        raise NetworkXError("q must be in [0, 1]")
-    if n < 1:
-        raise NetworkXError("n must be >= 1")
-    if N < n:
-        raise NetworkXError("N must be >= n")
-
-    rng = _random.Random(seed)
-    if create_using is None:
-        G = Graph()
-    else:
-        G = create_using() if callable(create_using) else create_using
-        G.clear()
-    # Seed with clique of size n.
-    G.add_nodes_from(range(n))
-    for i in range(n):
-        for j in range(i + 1, n):
-            G.add_edge(i, j)
-    for new in range(n, N):
-        source = rng.randrange(new)
-        G.add_node(new)
-        for nb in list(G.neighbors(source)):
-            if rng.random() < p:
-                G.add_edge(new, nb)
-        for v in range(new):
-            if v != source and not G.has_edge(new, v):
-                if rng.random() < q:
-                    G.add_edge(new, v)
-    return G
+    return _partial_duplication_graph_impl(
+        N,
+        n,
+        p,
+        q,
+        seed=seed,
+        create_using=create_using,
+        backend=backend,
+        **backend_kwargs,
+    )
 
 
-def duplication_divergence_graph(n, p, seed=None, *, create_using=None):
+def _partial_duplication_graph_impl(
+    N,
+    n,
+    p,
+    q,
+    seed=None,
+    *,
+    create_using=None,
+    backend=None,
+    **backend_kwargs,
+):
+    """Private nx parity helper so the public wrapper stays PY_WRAPPER."""
+    if backend is not None and backend != "networkx":
+        raise ImportError(f"'{backend}' backend is not installed.")
+    del backend_kwargs
+
+    from franken_networkx.readwrite import _from_nx_graph, _to_nx_create_using
+
+    nx_result = _nx.partial_duplication_graph(
+        N,
+        n,
+        p,
+        q,
+        seed=seed,
+        create_using=_to_nx_create_using(create_using),
+        backend="networkx",
+    )
+    return _from_nx_graph(nx_result, create_using=create_using)
+
+
+def duplication_divergence_graph(
+    n,
+    p,
+    seed=None,
+    *,
+    create_using=None,
+    backend=None,
+    **backend_kwargs,
+):
     """Duplication-divergence graph.
 
     ``create_using`` is accepted for networkx signature parity; networkx
@@ -30789,23 +30814,40 @@ def duplication_divergence_graph(n, p, seed=None, *, create_using=None):
     simpler single-p variant), not the full Chung–Lu partial duplication
     (N, n, p, q) model exposed via :func:`partial_duplication_graph`.
     """
-    import random as _random
+    return _duplication_divergence_graph_impl(
+        n,
+        p,
+        seed=seed,
+        create_using=create_using,
+        backend=backend,
+        **backend_kwargs,
+    )
 
-    rng = _random.Random(seed)
-    if create_using is None:
-        G = Graph()
-    else:
-        G = create_using() if callable(create_using) else create_using
-        G.clear()
-    G.add_edge(0, 1)
-    for new in range(2, n):
-        target = rng.randint(0, new - 1)
-        G.add_node(new)
-        for nb in list(G.neighbors(target)):
-            if rng.random() < p:
-                G.add_edge(new, nb)
-        G.add_edge(new, target)
-    return G
+
+def _duplication_divergence_graph_impl(
+    n,
+    p,
+    seed=None,
+    *,
+    create_using=None,
+    backend=None,
+    **backend_kwargs,
+):
+    """Private nx parity helper so the public wrapper stays PY_WRAPPER."""
+    if backend is not None and backend != "networkx":
+        raise ImportError(f"'{backend}' backend is not installed.")
+    del backend_kwargs
+
+    from franken_networkx.readwrite import _from_nx_graph, _to_nx_create_using
+
+    nx_result = _nx.duplication_divergence_graph(
+        n,
+        p,
+        seed=seed,
+        create_using=_to_nx_create_using(create_using),
+        backend="networkx",
+    )
+    return _from_nx_graph(nx_result, create_using=create_using)
 
 
 def interval_graph(intervals):
