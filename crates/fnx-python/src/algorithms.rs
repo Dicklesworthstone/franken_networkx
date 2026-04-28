@@ -10972,10 +10972,17 @@ pub fn is_regular(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<bool> {
 pub fn is_k_regular(py: Python<'_>, g: &Bound<'_, PyAny>, k: i64) -> PyResult<bool> {
     let gr = extract_graph(g)?;
     require_undirected(&gr, "is_k_regular")?;
-    if k < 0 {
-        return Ok(false);
-    }
     let inner = gr.undirected();
+    if k < 0 {
+        // NetworkX implements `is_k_regular` as ``all(d == k for n, d in
+        // degrees())``. On an empty graph the iterator is empty, so
+        // ``all()`` returns True regardless of ``k``. For graphs with
+        // nodes, every degree is non-negative, so no degree can equal a
+        // negative ``k`` and the answer is False. Mirror that exactly
+        // — the previous `return Ok(false)` shortcut diverged on the
+        // empty-graph case.
+        return Ok(inner.node_count() == 0);
+    }
     Ok(py.allow_threads(|| fnx_algorithms::is_k_regular(inner, k as usize)))
 }
 

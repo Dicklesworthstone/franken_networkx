@@ -154,6 +154,16 @@ class TestIsKRegularConformance:
             with pytest.raises((ValueError, fnx.NetworkXError)):
                 fnx.is_k_regular(fnx_g, -1)
 
+    @pytest.mark.parametrize("k", [-100, -1, 0, 1, 5])
+    def test_empty_graph_is_vacuously_k_regular_for_any_k(self, k):
+        """NetworkX implements ``is_k_regular`` as ``all(d == k for n, d
+        in degrees())`` — on an empty graph the iterator is empty so
+        ``all()`` returns True regardless of ``k``, including negative
+        ``k``. The ``k < 0`` shortcut introduced in b38bcea diverged on
+        that empty-graph edge case; this lock-in test guards parity."""
+        assert nx.is_k_regular(nx.Graph(), k) == fnx.is_k_regular(fnx.Graph(), k)
+        assert fnx.is_k_regular(fnx.Graph(), k) is True
+
     def test_k_larger_than_nodes_returns_false(self):
         """k larger than n-1 should return False."""
         nx_g = nx.complete_graph(5)
