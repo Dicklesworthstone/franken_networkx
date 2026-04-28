@@ -9803,23 +9803,21 @@ from franken_networkx._fnx import (
     is_weighted,
     is_negatively_weighted,
     is_distance_regular as _raw_is_distance_regular,
-    simple_cycles as _raw_simple_cycles,
 )
 
 
 def simple_cycles(G, length_bound=None):
     """Yield simple cycles as lists of nodes.
 
-    For directed graphs without length_bound, uses Rust implementation.
-    Falls back to NetworkX for undirected graphs or when length_bound is set.
+    Matches upstream's generator contract (franken_networkx-v1nwd) — the
+    Rust impl returns cycles in different iteration order than nx.
     """
     if length_bound is not None or not G.is_directed():
         yield from _call_networkx_for_parity(
             "simple_cycles", G, length_bound=length_bound
         )
         return
-    # Directed graph without length_bound: use Rust path
-    yield from _raw_simple_cycles(G)
+    yield from _call_networkx_for_parity("simple_cycles", G)
 
 
 def find_cycle(G, source=None, orientation=None):

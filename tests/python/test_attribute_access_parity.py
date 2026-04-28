@@ -865,9 +865,11 @@ class TestDegreeNbunchFilter:
     def test_degree_single_node_still_raises_on_missing(self):
         """Single-node lookup (non-iterable) should still error — only
         iterable nbunches get the skip treatment.
+
+        br-degexc: now raises NetworkXError to match NetworkX behavior.
         """
         G = fnx.path_graph(3)
-        with pytest.raises((fnx.NodeNotFound, KeyError)):
+        with pytest.raises(fnx.NetworkXError):
             G.degree(99)
 
 
