@@ -30901,28 +30901,96 @@ def k_random_intersection_graph(n, m, k, seed=None):
     return G
 
 
-def uniform_random_intersection_graph(n, m, p, seed=None):
+def uniform_random_intersection_graph(
+    n,
+    m,
+    p,
+    seed=None,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
     """Uniform random intersection graph."""
-    import random as _random
-
-    rng = _random.Random(seed)
-    G = Graph()
-    attrs = {}
-    for i in range(n):
-        G.add_node(i)
-        attrs[i] = {j for j in range(m) if rng.random() < p}
-    for i in range(n):
-        for j in range(i + 1, n):
-            if attrs[i] & attrs[j]:
-                G.add_edge(i, j)
-    return G
-
-
-def general_random_intersection_graph(n, m, p, seed=None):
-    """General random intersection graph."""
-    return uniform_random_intersection_graph(
-        n, m, p[0] if isinstance(p, list) else p, seed=seed
+    return _uniform_random_intersection_graph_impl(
+        n,
+        m,
+        p,
+        seed=seed,
+        backend=backend,
+        **backend_kwargs,
     )
+
+
+def _uniform_random_intersection_graph_impl(
+    n,
+    m,
+    p,
+    seed=None,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    """Private nx parity helper so the public wrapper stays PY_WRAPPER."""
+    if backend is not None and backend != "networkx":
+        raise ImportError(f"'{backend}' backend is not installed.")
+    del backend_kwargs
+
+    from franken_networkx.readwrite import _from_nx_graph
+
+    nx_result = _nx.uniform_random_intersection_graph(
+        n,
+        m,
+        p,
+        seed=seed,
+        backend="networkx",
+    )
+    return _from_nx_graph(nx_result, create_using=Graph())
+
+
+def general_random_intersection_graph(
+    n,
+    m,
+    p,
+    seed=None,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    """General random intersection graph."""
+    return _general_random_intersection_graph_impl(
+        n,
+        m,
+        p,
+        seed=seed,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def _general_random_intersection_graph_impl(
+    n,
+    m,
+    p,
+    seed=None,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    """Private nx parity helper so the public wrapper stays PY_WRAPPER."""
+    if backend is not None and backend != "networkx":
+        raise ImportError(f"'{backend}' backend is not installed.")
+    del backend_kwargs
+
+    from franken_networkx.readwrite import _from_nx_graph
+
+    nx_result = _nx.general_random_intersection_graph(
+        n,
+        m,
+        p,
+        seed=seed,
+        backend="networkx",
+    )
+    return _from_nx_graph(nx_result, create_using=Graph())
 
 
 def geometric_soft_configuration_graph(
