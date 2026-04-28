@@ -27027,10 +27027,10 @@ def random_geometric_graph(n, radius, dim=2, pos=None, p=2, seed=None, *, pos_na
     G = Graph()
     positions: dict = {}
     for i in range(n):
-        if pos is not None and i in pos:
-            positions[i] = tuple(pos[i])
+        if pos is not None:
+            positions[i] = pos[i]
         else:
-            positions[i] = tuple(rng.random() for _ in range(dim))
+            positions[i] = [rng.random() for _ in range(dim)]
         G.add_node(i, **{pos_name: positions[i]})
 
     if p == float("inf"):
@@ -27083,9 +27083,9 @@ def soft_random_geometric_graph(
     G = Graph()
     positions = {}
     if pos is None:
-        pos = {i: tuple(rng.random() for _ in range(dim)) for i in range(n)}
+        pos = {i: [rng.random() for _ in range(dim)] for i in range(n)}
     for i in range(n):
-        positions[i] = tuple(pos[i])
+        positions[i] = pos[i]
         G.add_node(i, **{pos_name: positions[i]})
     for i in range(n):
         for j in range(i + 1, n):
