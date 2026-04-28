@@ -10952,11 +10952,14 @@ pub fn is_regular(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<bool> {
 
 #[pyfunction]
 #[pyo3(signature = (g, k))]
-pub fn is_k_regular(py: Python<'_>, g: &Bound<'_, PyAny>, k: usize) -> PyResult<bool> {
+pub fn is_k_regular(py: Python<'_>, g: &Bound<'_, PyAny>, k: i64) -> PyResult<bool> {
     let gr = extract_graph(g)?;
     require_undirected(&gr, "is_k_regular")?;
+    if k < 0 {
+        return Ok(false);
+    }
     let inner = gr.undirected();
-    Ok(py.allow_threads(|| fnx_algorithms::is_k_regular(inner, k)))
+    Ok(py.allow_threads(|| fnx_algorithms::is_k_regular(inner, k as usize)))
 }
 
 #[pyfunction]
