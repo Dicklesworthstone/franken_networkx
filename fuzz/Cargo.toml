@@ -130,3 +130,8 @@ doc = false
 name = "fuzz_random_generators"
 path = "fuzz_targets/fuzz_random_generators.rs"
 doc = false
+
+[[bin]]
+name = "fuzz_cycles"
+path = "fuzz_targets/fuzz_cycles.rs"
+doc = false
