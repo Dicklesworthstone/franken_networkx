@@ -27151,39 +27151,48 @@ def geographical_threshold_graph(
 ):
     """Geographical threshold graph.
 
-    Edge between u and v iff
-    ``(weight[u] + weight[v]) * p_dist(d) >= theta`` (with p_dist defaulting
-    to 1/d when None — matching nx). Includes ``metric``, ``p_dist``,
-    ``pos_name``, ``weight_name`` from nx's signature
-    (br-r37-c1-geomgenkw).
+    NX-matching RNG ordering — weights drawn first (from
+    ``rng.expovariate(1)`` per node when not supplied), then positions
+    (lists of ``rng.random()`` draws when not supplied). Default
+    ``p_dist`` is ``r ** -2``. Supplied ``pos`` / ``weight`` dicts are
+    stored by reference. The fnx extensions (``weight`` as callable /
+    scalar, ``d == 0`` treated as infinitely close under default
+    ``p_dist``) are preserved.
     """
     import random as _random
 
     rng = _random.Random(seed)
     G = Graph()
-    positions = {}
-    weights = {}
-    if pos is None:
-        pos = {i: tuple(rng.random() for _ in range(dim)) for i in range(n)}
-    for i in range(n):
-        positions[i] = tuple(pos[i])
-        weights[i] = rng.expovariate(1.0) if weight is None else weight
-        G.add_node(
-            i, **{pos_name: positions[i], weight_name: weights[i]}
-        )
+    G.add_nodes_from(range(n))
 
-    def distance(a, b):
-        return metric(a, b) if metric is not None else _minkowski_distance(a, b, 2)
+    if weight is None:
+        weight = {v: rng.expovariate(1) for v in G}
+    elif callable(weight):
+        weight = {v: weight() for v in G}
+    elif not isinstance(weight, Mapping):
+        weight = {v: weight for v in G}
+
+    if pos is None:
+        pos = {v: [rng.random() for _ in range(dim)] for v in G}
+
+    set_node_attributes(G, weight, weight_name)
+    set_node_attributes(G, pos, pos_name)
+
+    if metric is None:
+        def metric(a, b):
+            return _minkowski_distance(a, b, 2)
+    use_default_p_dist = p_dist is None
+    if use_default_p_dist:
+        def p_dist(r):
+            return r ** -2
 
     for i in range(n):
         for j in range(i + 1, n):
-            d = distance(positions[i], positions[j])
-            if p_dist is not None:
-                rhs = (weights[i] + weights[j]) * p_dist(d)
-            elif d > 0:
-                rhs = (weights[i] + weights[j]) / d
-            else:
+            d = metric(pos[i], pos[j])
+            if use_default_p_dist and d == 0:
                 rhs = float("inf")
+            else:
+                rhs = (weight[i] + weight[j]) * p_dist(d)
             if rhs >= theta:
                 G.add_edge(i, j)
     return G
@@ -27204,35 +27213,35 @@ def thresholded_random_geometric_graph(
 ):
     """Thresholded random geometric graph.
 
-    Adds nx's ``weight`` (callable / dict / scalar), ``p`` (Minkowski
-    exponent), keyword-only ``pos_name`` and ``weight_name``
-    (br-r37-c1-geomgenkw).
+    NX-matching RNG ordering — weights drawn first (from
+    ``rng.expovariate(1)`` per node when not supplied), then positions
+    (lists of ``rng.random()`` draws when not supplied). Supplied
+    ``pos`` / ``weight`` dicts are stored by reference. fnx extensions
+    (``weight`` as callable / scalar) are preserved.
     """
     import random as _random
 
     rng = _random.Random(seed)
     G = Graph()
-    positions = {}
-    ws = {}
+    G.add_nodes_from(range(n))
+
+    if weight is None:
+        weight = {v: rng.expovariate(1) for v in G}
+    elif callable(weight):
+        weight = {v: weight() for v in G}
+    elif not isinstance(weight, Mapping):
+        weight = {v: weight for v in G}
+
     if pos is None:
-        pos = {i: tuple(rng.random() for _ in range(dim)) for i in range(n)}
-    for i in range(n):
-        positions[i] = tuple(pos[i])
-        if weight is None:
-            ws[i] = rng.expovariate(1.0)
-        elif callable(weight):
-            ws[i] = weight()
-        elif isinstance(weight, dict):
-            ws[i] = weight[i]
-        else:
-            ws[i] = weight
-        G.add_node(
-            i, **{pos_name: positions[i], weight_name: ws[i]}
-        )
+        pos = {v: [rng.random() for _ in range(dim)] for v in G}
+
+    set_node_attributes(G, weight, weight_name)
+    set_node_attributes(G, pos, pos_name)
+
     for i in range(n):
         for j in range(i + 1, n):
-            d = _minkowski_distance(positions[i], positions[j], p)
-            if d <= radius and ws[i] + ws[j] >= theta:
+            d = _minkowski_distance(pos[i], pos[j], p)
+            if d <= radius and weight[i] + weight[j] >= theta:
                 G.add_edge(i, j)
     return G
 
