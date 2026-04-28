@@ -13,10 +13,10 @@
     "graph": {
       "nodes": ["hub", "a", "b", "c", "d"],
       "edges": [
-        {"left": "a", "right": "hub", "attrs": {}},
-        {"left": "b", "right": "hub", "attrs": {}},
-        {"left": "c", "right": "hub", "attrs": {}},
-        {"left": "d", "right": "hub", "attrs": {}},
+        {"left": "hub", "right": "a", "attrs": {}},
+        {"left": "hub", "right": "b", "attrs": {}},
+        {"left": "hub", "right": "c", "attrs": {}},
+        {"left": "hub", "right": "d", "attrs": {}},
         {"left": "a", "right": "b", "attrs": {}}
       ]
     },

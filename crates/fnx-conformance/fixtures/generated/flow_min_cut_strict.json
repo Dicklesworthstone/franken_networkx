@@ -58,15 +58,15 @@
       ],
       "edges": [
         {
-          "left": "a",
-          "right": "s",
+          "left": "s",
+          "right": "a",
           "attrs": {
             "capacity": "3"
           }
         },
         {
-          "left": "b",
-          "right": "s",
+          "left": "s",
+          "right": "b",
           "attrs": {
             "capacity": "2"
           }

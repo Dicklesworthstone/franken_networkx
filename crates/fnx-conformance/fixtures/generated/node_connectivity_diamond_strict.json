@@ -12,8 +12,8 @@
     "graph": {
       "nodes": ["s", "a", "b", "t"],
       "edges": [
-        {"left": "a", "right": "s", "attrs": {}},
-        {"left": "b", "right": "s", "attrs": {}},
+        {"left": "s", "right": "a", "attrs": {}},
+        {"left": "s", "right": "b", "attrs": {}},
         {"left": "a", "right": "t", "attrs": {}},
         {"left": "b", "right": "t", "attrs": {}}
       ]

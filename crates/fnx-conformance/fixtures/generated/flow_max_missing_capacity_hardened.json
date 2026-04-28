@@ -46,8 +46,8 @@
       ],
       "edges": [
         {
-          "left": "a",
-          "right": "s",
+          "left": "s",
+          "right": "a",
           "attrs": {
             "capacity": "5"
           }

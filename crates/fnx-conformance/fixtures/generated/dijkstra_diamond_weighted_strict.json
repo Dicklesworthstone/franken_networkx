@@ -13,8 +13,8 @@
     "graph": {
       "nodes": ["s", "a", "b", "t"],
       "edges": [
-        {"left": "a", "right": "s", "attrs": {"weight": 2.0}},
-        {"left": "b", "right": "s", "attrs": {"weight": 5.0}},
+        {"left": "s", "right": "a", "attrs": {"weight": 2.0}},
+        {"left": "s", "right": "b", "attrs": {"weight": 5.0}},
         {"left": "a", "right": "b", "attrs": {"weight": 1.0}},
         {"left": "a", "right": "t", "attrs": {"weight": 6.0}},
         {"left": "b", "right": "t", "attrs": {"weight": 1.0}}

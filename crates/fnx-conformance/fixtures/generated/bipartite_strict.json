@@ -85,8 +85,8 @@
           "attrs": {}
         },
         {
-          "left": "c",
-          "right": "d",
+          "left": "d",
+          "right": "c",
           "attrs": {}
         }
       ]
