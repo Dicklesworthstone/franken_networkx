@@ -4431,6 +4431,40 @@ pub fn is_eulerian(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<bool> {
             "Connectivity is undefined for the null graph.",
         ));
     }
+    if gr.is_directed() {
+        // NetworkX directed contract: every node has in-degree equal to
+        // out-degree AND the graph is strongly connected. The previous
+        // implementation collapsed to undirected and checked degree
+        // parity, which silently accepted directed acyclic tournaments
+        // like 0->1, 1->2, 0->2 (each undirected degree is 2 → even,
+        // so the undirected K3 check passed) even though those are not
+        // Eulerian.
+        if gr.is_multigraph() {
+            // For MultiDiGraph, parallel edges affect in/out-degree; ask
+            // Python's degree views so parallel-edge counting matches NX.
+            let nodes_method = g.call_method0("nodes")?;
+            let nodes: Vec<Bound<'_, PyAny>> =
+                nodes_method.try_iter()?.collect::<PyResult<Vec<_>>>()?;
+            let in_deg_view = g.getattr("in_degree")?;
+            let out_deg_view = g.getattr("out_degree")?;
+            for node in &nodes {
+                let in_d: usize = in_deg_view.get_item(node)?.extract()?;
+                let out_d: usize = out_deg_view.get_item(node)?.extract()?;
+                if in_d != out_d {
+                    return Ok(false);
+                }
+            }
+        } else {
+            let dg = gr.digraph().expect("is_directed checked above");
+            for node in dg.nodes_ordered() {
+                if dg.in_degree(node) != dg.out_degree(node) {
+                    return Ok(false);
+                }
+            }
+        }
+        let dg = gr.digraph().expect("is_directed checked above");
+        return Ok(py.allow_threads(|| fnx_algorithms::is_strongly_connected(dg)));
+    }
     let inner = gr.undirected();
     if inner.node_count() > 1 && inner.nodes_ordered().iter().any(|n| inner.degree(n) == 0) {
         return Ok(false);
