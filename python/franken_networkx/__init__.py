@@ -5294,7 +5294,14 @@ def eccentricity(G, v=None, sp=None, weight=None):
         except TypeError:
             nodes = _global_nbunch_nodes(G, v)
 
-    if v is None and sp is None and weight is None:
+    # br-eccdir: ``_raw_eccentricity`` collapses directed graphs to
+    # undirected — it walks ``gr.undirected()`` so a directed C_n is
+    # treated as undirected C_n and every node ends up with
+    # eccentricity ⌊n/2⌋ instead of NX's correct n-1. The companion
+    # functions diameter/radius/center/periphery already delegate the
+    # directed case to NX; mirror that here so the family stays
+    # internally consistent and matches NX.
+    if v is None and sp is None and weight is None and not G.is_directed():
         return _raw_eccentricity(G)
 
     order = G.order()
@@ -9315,6 +9322,14 @@ def barycenter(G, weight=None, attr=None, sp=None):
     fnx's Rust binding only accepted (G). Delegate to nx when any
     non-default kwarg is supplied; fast-path kept for the plain
     (G,) form.
+
+    br-baryattr: when ``attr`` is supplied, NX mutates the input graph
+    in place by writing the barycentricity score to ``G.nodes[v][attr]``.
+    The delegation goes through ``_networkx_graph_for_parity`` which
+    builds a fresh nx Graph copy, so NX wrote the attribute on that
+    copy — not on the user's fnx graph. Pull the attr back from the
+    nx copy onto the original fnx graph so the side effect is visible
+    where the user expects it.
     """
     if len(G) == 0:
         # Match nx (br-r37-c1-pb97z): the Rust impl silently returned
@@ -9322,7 +9337,40 @@ def barycenter(G, weight=None, attr=None, sp=None):
         raise NetworkXPointlessConcept("G has no nodes.")
     if weight is None and attr is None and sp is None:
         return _raw_barycenter(G)
-    return _call_networkx_for_parity("barycenter", G, weight=weight, attr=attr, sp=sp)
+    if attr is None:
+        return _call_networkx_for_parity(
+            "barycenter", G, weight=weight, attr=attr, sp=sp,
+        )
+
+    # br-baryattr: replicate NX's in-place attr write on the user's
+    # fnx graph by computing barycentricity ourselves rather than
+    # losing it to the delegation copy.
+    if sp is None:
+        if weight is not None:
+            sp_iter = shortest_path_length(G, weight=weight)
+        else:
+            sp_iter = shortest_path_length(G)
+    else:
+        if weight is not None:
+            raise ValueError("Cannot use both sp, weight arguments together")
+        sp_iter = sp.items()
+    smallest = float("inf")
+    barycenter_vertices: list = []
+    n = len(G)
+    for v, dists in sp_iter:
+        if len(dists) < n:
+            raise NetworkXNoPath(
+                f"Input graph {G} is disconnected, so every induced subgraph "
+                "has infinite barycentricity."
+            )
+        barycentricity = sum(dists.values())
+        G.nodes[v][attr] = barycentricity
+        if barycentricity < smallest:
+            smallest = barycentricity
+            barycenter_vertices = [v]
+        elif barycentricity == smallest:
+            barycenter_vertices.append(v)
+    return barycenter_vertices
 
 # Algorithm functions — A* shortest path
 from franken_networkx._fnx import (
