@@ -17,11 +17,9 @@ Covered functions:
   arbitrary tie-breaks so we don't require exact equality, but the
   result must be a valid connected dominating set).
 - ``min_edge_cover(G)`` — exact parity for matching-based covers.
-- ``min_edge_dominating_set(G)`` — validity (NX exposes only at
-  submodule path; fnx re-exports at top level).
 - ``is_edge_cover(G, cover)`` — predicate, exact bit parity.
-- ``min_weighted_vertex_cover(G, weight=...)`` — exact parity
-  (fnx re-exports the NX approximation at top level).
+- ``min_weighted_vertex_cover(G, weight=...)`` — validity; fnx and NX
+  may return different approximation covers.
 
 The ``start_with`` parameter is the cleanest way to make
 ``dominating_set`` deterministic for parity testing — both libraries
@@ -337,14 +335,17 @@ def test_dominating_set_empty_graph_returns_empty_set():
 
 
 def test_dominating_set_single_node_returns_singleton():
-    fg = fnx.Graph(); fg.add_node(0)
-    ng = nx.Graph(); ng.add_node(0)
+    fg = fnx.Graph()
+    fg.add_node(0)
+    ng = nx.Graph()
+    ng.add_node(0)
     assert fnx.dominating_set(fg) == nx.dominating_set(ng) == {0}
 
 
 def test_is_dominating_set_empty_candidate_on_non_empty_graph_is_false():
     fg, ng = _pair([(0, 1), (1, 2)], list(range(3)))
-    assert fnx.is_dominating_set(fg, set()) == nx.is_dominating_set(ng, set()) is False
+    assert not fnx.is_dominating_set(fg, set())
+    assert not nx.is_dominating_set(ng, set())
 
 
 def test_min_edge_cover_isolated_nodes_raises_matching_networkx():
@@ -353,8 +354,10 @@ def test_min_edge_cover_isolated_nodes_raises_matching_networkx():
     ``NetworkXError`` (a subclass of ``NetworkXException``) — both
     catchable by ``except NetworkXException``. Lock in the message
     parity since callers do match on it."""
-    fg = fnx.Graph(); fg.add_nodes_from([0, 1])  # no edges
-    ng = nx.Graph(); ng.add_nodes_from([0, 1])
+    fg = fnx.Graph()
+    fg.add_nodes_from([0, 1])  # no edges
+    ng = nx.Graph()
+    ng.add_nodes_from([0, 1])
     with pytest.raises(nx.NetworkXException) as nx_exc:
         nx.min_edge_cover(ng)
     with pytest.raises(fnx.NetworkXException) as fnx_exc:
