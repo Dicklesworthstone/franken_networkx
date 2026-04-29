@@ -1709,3 +1709,40 @@ def relabel_gexf_graph(G):
         attrs["id"] = original
         attrs.pop("label", None)
     return relabeled
+
+
+# br-r37-c1-j54tp follow-up: nx.readwrite exposes 38 names that this
+# fnx-implemented module didn't surface — the nested format submodules
+# (``json_graph``, ``adjlist``, ``edgelist``, ``graph6``, ``gml``,
+# ``graphml``, ``gexf``, ``leda``, ``multiline_adjlist``, ``node_link``,
+# ``pajek``, ``sparse6``, ``text``, ``tree``, ``cytoscape``,
+# ``adjacency``) plus a handful of nx-only classes / data converters
+# (``GraphMLReader``, ``GraphMLWriter``, ``adjacency_data``,
+# ``adjacency_graph``, ``cytoscape_data``, ``cytoscape_graph``,
+# ``generate_graphml``, ``generate_network_text``, ``node_link_data``,
+# ``node_link_graph``, ``parse_graphml``, ``read_*``, ``write_*``,
+# ``tree_data``, ``tree_graph``, ``write_network_text``).
+#
+# fnx implements its own pure-Python read/write helpers above, so we
+# can't blindly star-import from nx (would shadow them and lose the
+# fnx-specific error contracts). Instead, fall through to
+# ``networkx.readwrite`` for any name not defined in this module.
+# Submodules (``fnx.readwrite.json_graph`` etc.) and nx-only converters
+# resolve transparently; the fnx-implemented names take precedence.
+def __getattr__(name):
+    """Fallback to ``networkx.readwrite`` for any name not implemented
+    by fnx's own readwrite layer."""
+    import networkx.readwrite as _src
+
+    try:
+        return getattr(_src, name)
+    except AttributeError as exc:
+        raise AttributeError(
+            f"module {__name__!r} has no attribute {name!r}"
+        ) from exc
+
+
+def __dir__():
+    import networkx.readwrite as _src
+
+    return sorted(set(globals()) | set(dir(_src)))
