@@ -314,6 +314,25 @@ def test_source_equals_target_raises_or_zero(algorithm):
     assert str(fnx_exc.value) == str(nx_exc.value)
 
 
+@pytest.mark.parametrize("graph_cls", [nx.MultiGraph, nx.MultiDiGraph])
+@pytest.mark.parametrize(
+    "function",
+    [nx.maximum_flow, nx.maximum_flow_value, nx.minimum_cut, nx.minimum_cut_value],
+)
+def test_high_level_flow_rejects_multigraphs_like_networkx(graph_cls, function):
+    fnx_graph_cls = getattr(fnx, graph_cls.__name__)
+    fg = fnx_graph_cls()
+    ng = graph_cls()
+    fg.add_edge("s", "t", capacity=1)
+    ng.add_edge("s", "t", capacity=1)
+
+    with pytest.raises(nx.NetworkXError) as nx_exc:
+        function(ng, "s", "t")
+    with pytest.raises(fnx.NetworkXError) as fnx_exc:
+        getattr(fnx, function.__name__)(fg, "s", "t")
+    assert str(fnx_exc.value) == str(nx_exc.value)
+
+
 # ---------------------------------------------------------------------------
 # minimum_cut_value — high-level entry point
 # ---------------------------------------------------------------------------

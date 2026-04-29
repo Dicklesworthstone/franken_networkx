@@ -4783,6 +4783,11 @@ def _flow_has_infinite_capacity(flowG, capacity):
     return False
 
 
+def _reject_multigraph_flow(flowG):
+    if flowG.is_multigraph():
+        raise NetworkXError("MultiGraph and MultiDiGraph not supported (yet).")
+
+
 def maximum_flow(flowG, _s, _t, capacity="capacity", flow_func=None, **kwargs):
     """Compute the maximum flow and flow dict between ``_s`` and ``_t``.
 
@@ -4790,6 +4795,7 @@ def maximum_flow(flowG, _s, _t, capacity="capacity", flow_func=None, **kwargs):
     native always returns float. Coerce back to int when inputs are
     integer-typed so `isinstance(flow_value, int)` matches nx.
     """
+    _reject_multigraph_flow(flowG)
     if flow_func is not None or kwargs or _flow_has_infinite_capacity(flowG, capacity):
         return _call_networkx_for_parity(
             "maximum_flow", flowG, _s, _t, capacity=capacity,
@@ -4802,6 +4808,7 @@ def maximum_flow(flowG, _s, _t, capacity="capacity", flow_func=None, **kwargs):
 
 def maximum_flow_value(flowG, _s, _t, capacity="capacity", flow_func=None, **kwargs):
     """Return just the max-flow value. nx-int parity when all caps int."""
+    _reject_multigraph_flow(flowG)
     if flow_func is not None or kwargs or _flow_has_infinite_capacity(flowG, capacity):
         return _call_networkx_for_parity(
             "maximum_flow_value", flowG, _s, _t, capacity=capacity,
@@ -5096,6 +5103,7 @@ def minimum_cut(flowG, _s, _t, capacity="capacity", flow_func=None, **kwargs):
     message instead of ``TypeError: unexpected keyword argument``.
     """
     _validate_flow_func_selector(flow_func)
+    _reject_multigraph_flow(flowG)
     if kwargs and flow_func is None:
         raise NetworkXError(
             "You have to explicitly set a flow_func if you need to pass "
@@ -5124,6 +5132,7 @@ def minimum_cut_value(flowG, _s, _t, capacity="capacity", flow_func=None, **kwar
     ``flow_func`` (and raising when none is supplied).
     """
     _validate_flow_func_selector(flow_func)
+    _reject_multigraph_flow(flowG)
     if kwargs and flow_func is None:
         raise NetworkXError(
             "You have to explicitly set a flow_func if you need to pass "
