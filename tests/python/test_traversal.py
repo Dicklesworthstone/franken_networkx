@@ -360,6 +360,48 @@ class TestAllShortestPaths:
         assert len(paths) == 1
         assert paths[0] == [0, 1, 2]
 
+    # br-r37-c1-xsi7c: bellman-ford method coverage for the all_shortest_paths
+    # entry point. For non-negative weights bellman-ford and dijkstra must
+    # enumerate the same set of shortest paths (metamorphic equivalence).
+
+    def test_bellman_ford_undirected_diamond_matches_dijkstra(self):
+        G = fnx.Graph()
+        G.add_edge(0, 1, weight=1.0)
+        G.add_edge(0, 2, weight=1.0)
+        G.add_edge(1, 3, weight=1.0)
+        G.add_edge(2, 3, weight=1.0)
+        bf = sorted(fnx.all_shortest_paths(G, 0, 3, weight="weight", method="bellman-ford"))
+        dj = sorted(fnx.all_shortest_paths(G, 0, 3, weight="weight", method="dijkstra"))
+        assert bf == dj
+        assert len(bf) == 2
+
+    def test_bellman_ford_directed_diamond_matches_dijkstra(self):
+        G = fnx.DiGraph()
+        G.add_edge(0, 1, weight=1.0)
+        G.add_edge(0, 2, weight=1.0)
+        G.add_edge(1, 3, weight=1.0)
+        G.add_edge(2, 3, weight=1.0)
+        bf = sorted(fnx.all_shortest_paths(G, 0, 3, weight="weight", method="bellman-ford"))
+        dj = sorted(fnx.all_shortest_paths(G, 0, 3, weight="weight", method="dijkstra"))
+        assert bf == dj
+        assert len(bf) == 2
+
+    def test_bellman_ford_directed_negative_cycle_raises_unbounded(self):
+        G = fnx.DiGraph()
+        G.add_edge("a", "b", weight=1.0)
+        G.add_edge("b", "a", weight=-2.0)
+        with pytest.raises(fnx.NetworkXUnbounded):
+            list(fnx.all_shortest_paths(G, "a", "b", weight="weight", method="bellman-ford"))
+
+    def test_bellman_ford_undirected_negative_edge_raises_unbounded(self):
+        # An undirected negative-weight edge constitutes an implicit negative
+        # cycle (u-v-u has weight 2w<0); nx raises NetworkXUnbounded and so
+        # do we.
+        G = fnx.Graph()
+        G.add_edge("a", "b", weight=-1.0)
+        with pytest.raises(fnx.NetworkXUnbounded):
+            list(fnx.all_shortest_paths(G, "a", "b", weight="weight", method="bellman-ford"))
+
 
 # ---------------------------------------------------------------------------
 # complement tests
