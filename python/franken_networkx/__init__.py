@@ -12492,6 +12492,10 @@ def local_bridges(G, with_span=True, weight=None):
         raise NetworkXNotImplemented("not implemented for directed type")
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
+    if callable(weight):
+        return _call_networkx_for_parity(
+            "local_bridges", G, with_span=with_span, weight=weight
+        )
     if not with_span and weight is None:
         from franken_networkx._fnx import local_bridges_rust
 

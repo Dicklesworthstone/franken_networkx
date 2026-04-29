@@ -234,6 +234,30 @@ def test_local_bridges_matches_networkx(name, edges, nodes):
     assert fr == nr, f"{name}: fnx={fr} nx={nr}"
 
 
+def test_local_bridges_callable_weight_matches_networkx():
+    fg, ng = _pair(
+        [
+            (0, 1),
+            (1, 2),
+            (2, 3),
+            (0, 3),
+        ],
+        list(range(4)),
+    )
+    for graph in (fg, ng):
+        graph[0][1]["weight"] = 10
+        graph[1][2]["weight"] = 1
+        graph[2][3]["weight"] = 1
+        graph[0][3]["weight"] = 1
+
+    def double_weight(_u, _v, attrs):
+        return attrs.get("weight", 1) * 2
+
+    assert list(fnx.local_bridges(fg, weight=double_weight)) == list(
+        nx.local_bridges(ng, weight=double_weight)
+    )
+
+
 # ---------------------------------------------------------------------------
 # Cross-relation invariants
 # ---------------------------------------------------------------------------
