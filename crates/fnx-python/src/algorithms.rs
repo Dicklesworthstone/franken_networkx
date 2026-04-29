@@ -9795,6 +9795,32 @@ fn extract_matching_edges(
     py: Python<'_>,
     matching: &Bound<'_, PyAny>,
 ) -> PyResult<Vec<(String, String)>> {
+    use pyo3::types::PyDict;
+    // br-matchingdict: nx accepts both ``set`` of (u,v) edges and
+    // ``dict``-form matchings ({u: v, v: u, ...}). For the dict form,
+    // iterating yields keys only, so the per-element ``get_item(0)``
+    // path fails. Detect dict-shape input and read both u and the
+    // mate via ``__getitem__`` instead.
+    if let Ok(dict) = matching.downcast::<PyDict>() {
+        let mut edges = Vec::with_capacity(dict.len());
+        let mut seen = std::collections::HashSet::<(String, String)>::new();
+        for (k, v) in dict.iter() {
+            let u_s = node_key_to_string(py, &k)?;
+            let v_s = node_key_to_string(py, &v)?;
+            // Each unordered pair appears twice (u→v and v→u); skip
+            // the duplicate so the validator sees a clean edge list.
+            let canon = if u_s <= v_s {
+                (u_s.clone(), v_s.clone())
+            } else {
+                (v_s.clone(), u_s.clone())
+            };
+            if seen.insert(canon) {
+                edges.push((u_s, v_s));
+            }
+        }
+        return Ok(edges);
+    }
+
     let mut edges = Vec::new();
     for item in matching.try_iter()? {
         let pair = item?;
@@ -9803,6 +9829,29 @@ fn extract_matching_edges(
         edges.push((node_key_to_string(py, &u)?, node_key_to_string(py, &v)?));
     }
     Ok(edges)
+}
+
+/// Validate that every endpoint in ``edges`` is a node of ``inner``;
+/// raise a NetworkXError matching nx's wording if not. nx's
+/// ``is_matching`` raises (rather than returning False) when an
+/// edge references a node missing from G.
+fn ensure_matching_nodes_in_graph(
+    inner: &fnx_classes::Graph,
+    edges: &[(String, String)],
+) -> PyResult<()> {
+    for (u, v) in edges {
+        if !inner.has_node(u) {
+            return Err(NetworkXError::new_err(format!(
+                "matching contains edge ({u}, {v}) with node not in G"
+            )));
+        }
+        if !inner.has_node(v) {
+            return Err(NetworkXError::new_err(format!(
+                "matching contains edge ({u}, {v}) with node not in G"
+            )));
+        }
+    }
+    Ok(())
 }
 
 /// Return True if `matching` is a valid matching of `G`.
@@ -9817,6 +9866,7 @@ fn is_matching(
     require_undirected(&gr, "is_matching")?;
     let inner = gr.undirected();
     let edges = extract_matching_edges(py, matching)?;
+    ensure_matching_nodes_in_graph(inner, &edges)?;
     Ok(py.allow_threads(|| fnx_algorithms::is_matching(inner, &edges)))
 }
 
@@ -9832,6 +9882,7 @@ fn is_maximal_matching(
     require_undirected(&gr, "is_maximal_matching")?;
     let inner = gr.undirected();
     let edges = extract_matching_edges(py, matching)?;
+    ensure_matching_nodes_in_graph(inner, &edges)?;
     Ok(py.allow_threads(|| fnx_algorithms::is_maximal_matching(inner, &edges)))
 }
 
@@ -9847,6 +9898,7 @@ fn is_perfect_matching(
     require_undirected(&gr, "is_perfect_matching")?;
     let inner = gr.undirected();
     let edges = extract_matching_edges(py, matching)?;
+    ensure_matching_nodes_in_graph(inner, &edges)?;
     Ok(py.allow_threads(|| fnx_algorithms::is_perfect_matching(inner, &edges)))
 }
 

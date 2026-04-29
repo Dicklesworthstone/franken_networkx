@@ -9858,18 +9858,37 @@ def is_simple_path(G, nodes):
 
 
 def is_matching(G, matching):
-    """Return True if ``matching`` is a valid matching of ``G``."""
-    return _call_networkx_for_parity("is_matching", G, matching)
+    """Return True if ``matching`` is a valid matching of ``G``.
+
+    br-matchingport: routes through the native Rust validator
+    ``franken_networkx._fnx.is_matching`` which checks the matching
+    contract directly (every entry is an edge of G, no shared
+    endpoints) instead of bridging through nx via the parity
+    helper.
+    """
+    if G.is_directed() or G.is_multigraph():
+        return _call_networkx_for_parity("is_matching", G, matching)
+    return _fnx.is_matching(G, matching)
 
 
 def is_maximal_matching(G, matching):
-    """Return True if ``matching`` is a maximal matching of ``G``."""
-    return _call_networkx_for_parity("is_maximal_matching", G, matching)
+    """Return True if ``matching`` is a maximal matching of ``G``.
+
+    See :func:`is_matching`.
+    """
+    if G.is_directed() or G.is_multigraph():
+        return _call_networkx_for_parity("is_maximal_matching", G, matching)
+    return _fnx.is_maximal_matching(G, matching)
 
 
 def is_perfect_matching(G, matching):
-    """Return True if ``matching`` is a perfect matching of ``G``."""
-    return _call_networkx_for_parity("is_perfect_matching", G, matching)
+    """Return True if ``matching`` is a perfect matching of ``G``.
+
+    See :func:`is_matching`.
+    """
+    if G.is_directed() or G.is_multigraph():
+        return _call_networkx_for_parity("is_perfect_matching", G, matching)
+    return _fnx.is_perfect_matching(G, matching)
 
 
 class _MinDegreeHeuristic:
