@@ -110,6 +110,15 @@ def test_is_bipartite_node_set_matches_networkx(name, top, edges):
     assert fnx_bp.is_bipartite_node_set(fg, top) == nx_bp.is_bipartite_node_set(ng, top)
 
 
+def test_top_level_is_bipartite_node_set_duplicate_raises_like_networkx():
+    fg, ng, _, _ = _make_bp_pair({0, 1}, [(0, 2), (1, 3)])
+
+    with pytest.raises(nx.AmbiguousSolution):
+        nx_bp.is_bipartite_node_set(ng, [0, 0])
+    with pytest.raises(fnx.AmbiguousSolution):
+        fnx.is_bipartite_node_set(fg, [0, 0])
+
+
 @pytest.mark.parametrize(
     "name,top,edges",
     [fx for fx in BIPARTITE_FIXTURES if fx[0] != "disconnected_bp"],
@@ -247,6 +256,35 @@ def test_projected_graph_matches_networkx(name, top, edges):
     fr_e = sorted(tuple(sorted([u, v])) for u, v in fr.edges())
     nr_e = sorted(tuple(sorted([u, v])) for u, v in nr.edges())
     assert fr_e == nr_e
+
+
+def test_top_level_projected_graph_preserves_directed_output_parity():
+    fg = fnx.DiGraph()
+    ng = nx.DiGraph()
+    edges = [(0, 2), (2, 1)]
+    fg.add_edges_from(edges)
+    ng.add_edges_from(edges)
+
+    fr = fnx.projected_graph(fg, [0, 1])
+    nr = nx_bp.projected_graph(ng, [0, 1])
+
+    assert fr.is_directed() == nr.is_directed()
+    assert sorted(fr.edges()) == sorted(nr.edges())
+
+
+def test_top_level_projected_graph_multigraph_preserves_directed_output_parity():
+    fg = fnx.DiGraph()
+    ng = nx.DiGraph()
+    edges = [(0, 2), (0, 3), (2, 1), (3, 1)]
+    fg.add_edges_from(edges)
+    ng.add_edges_from(edges)
+
+    fr = fnx.projected_graph(fg, [0, 1], multigraph=True)
+    nr = nx_bp.projected_graph(ng, [0, 1], multigraph=True)
+
+    assert fr.is_directed() == nr.is_directed()
+    assert fr.is_multigraph() == nr.is_multigraph()
+    assert sorted(fr.edges(keys=True)) == sorted(nr.edges(keys=True))
 
 
 @pytest.mark.parametrize("name,top,edges", BIPARTITE_FIXTURES,

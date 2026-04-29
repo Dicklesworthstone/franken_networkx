@@ -11574,9 +11574,15 @@ def is_bipartite_node_set(G, nodes):
     bool
         True if *nodes* forms one part of a bipartition.
     """
+    node_set = set(nodes)
+    if len(node_set) < len(nodes):
+        raise _nx.AmbiguousSolution(
+            "The input node set contains duplicates.\n"
+            "This may lead to incorrect results when using it in bipartite algorithms.\n"
+            "Consider using set(nodes) as the input"
+        )
     if not is_bipartite(G):
         return False
-    node_set = set(nodes)
     top, bottom = bipartite_sets(G)
     return node_set == set(top) or node_set == set(bottom)
 
@@ -11727,30 +11733,35 @@ def projected_graph(B, nodes, multigraph=False):
     in the original bipartite graph. If multigraph=True, one edge is
     added per shared neighbor (returns MultiGraph).
     """
-    nodes_set = set(nodes)
+    if B.is_multigraph():
+        raise NetworkXError("not defined for multigraphs")
+
+    nodes = list(nodes)
 
     if multigraph:
-        G = MultiGraph()
-        for node in nodes_set:
+        G = MultiDiGraph() if B.is_directed() else MultiGraph()
+        G.graph.update(B.graph)
+        for node in nodes:
             G.add_node(node, **dict(B.nodes[node]))
-        for u in nodes_set:
-            for nbr in B.neighbors(u):
-                if nbr in nodes_set:
-                    continue
-                for v in B.neighbors(nbr):
-                    if v in nodes_set and v != u:
-                        G.add_edge(u, v, key=nbr)
+        for u in nodes:
+            nbrs2 = {v for nbr in B[u] for v in B[nbr] if v != u}
+            for v in nbrs2:
+                if B.is_directed():
+                    links = set(B[u]) & set(B.pred[v])
+                else:
+                    links = set(B[u]) & set(B[v])
+                for link in links:
+                    if not G.has_edge(u, v, link):
+                        G.add_edge(u, v, key=link)
     else:
-        G = Graph()
-        for node in nodes_set:
+        G = DiGraph() if B.is_directed() else Graph()
+        G.graph.update(B.graph)
+        for node in nodes:
             G.add_node(node, **dict(B.nodes[node]))
-        for u in nodes_set:
-            for nbr in B.neighbors(u):
-                if nbr in nodes_set:
-                    continue
-                for v in B.neighbors(nbr):
-                    if v in nodes_set and v != u and not G.has_edge(u, v):
-                        G.add_edge(u, v)
+        for u in nodes:
+            nbrs2 = {v for nbr in B[u] for v in B[nbr] if v != u}
+            for v in nbrs2:
+                G.add_edge(u, v)
 
     return G
 
