@@ -459,11 +459,15 @@ def test_floyd_warshall_symmetric_for_undirected():
 
 def test_is_d_separator_x_disjoint_from_z_required():
     """``is_d_separator`` requires ``X`` and ``Z`` to be disjoint."""
-    g = fnx.DiGraph()
-    g.add_edges_from(COLLIDER_DAG_EDGES)
-    # An overlap — nx raises ValueError; fnx should match.
-    with pytest.raises(Exception):
-        fnx.is_d_separator(g, {0, 2}, {1}, {2})
+    fg = fnx.DiGraph()
+    ng = nx.DiGraph()
+    fg.add_edges_from(COLLIDER_DAG_EDGES)
+    ng.add_edges_from(COLLIDER_DAG_EDGES)
+
+    with pytest.raises(nx.NetworkXError, match="not disjoint") as nx_exc:
+        nx.is_d_separator(ng, {0, 2}, {1}, {2})
+    with pytest.raises(type(nx_exc.value), match="not disjoint"):
+        fnx.is_d_separator(fg, {0, 2}, {1}, {2})
 
 
 def test_is_at_free_path_is_at_free():
