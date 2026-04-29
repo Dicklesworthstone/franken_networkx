@@ -19629,6 +19629,8 @@ def flow_hierarchy(G, weight=None):
         # raised "flow_hierarchy requires a DiGraph", which broke
         # drop-in code matching nx's wording.
         raise NetworkXError("G must be a digraph in flow_hierarchy")
+    if weight is not None:
+        return _call_networkx_for_parity("flow_hierarchy", G, weight=weight)
     return _fnx.flow_hierarchy_rust(G)
 
 

@@ -167,6 +167,19 @@ def test_flow_hierarchy_cyclic_is_zero():
     assert _equiv(fnx.flow_hierarchy(fg), 0.0)
 
 
+def test_flow_hierarchy_weighted_matches_networkx():
+    fg = fnx.DiGraph()
+    ng = nx.DiGraph()
+    weighted_edges = [(0, 1, 10), (1, 0, 10), (1, 2, 1)]
+    for u, v, weight in weighted_edges:
+        fg.add_edge(u, v, weight=weight)
+        ng.add_edge(u, v, weight=weight)
+
+    fr = fnx.flow_hierarchy(fg, weight="weight")
+    nr = nx.flow_hierarchy(ng, weight="weight")
+    assert _equiv(fr, nr), f"weighted flow_hierarchy: fnx={fr} nx={nr}"
+
+
 # ---------------------------------------------------------------------------
 # reciprocity / overall_reciprocity
 # ---------------------------------------------------------------------------
