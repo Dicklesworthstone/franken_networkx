@@ -11,8 +11,11 @@ use arbitrary::Arbitrary;
 use arbitrary_graph::{ArbitraryDiGraph, ArbitraryGraph};
 use libfuzzer_sys::fuzz_target;
 
-/// A small directed graph for cycle enumeration (can be exponential).
-/// Limited to 12 nodes to avoid combinatorial explosion.
+/// A small directed graph for eager cycle enumeration.
+///
+/// `simple_cycles` returns a fully materialized `Vec`, so the fuzzer must bound
+/// the generated graph before calling it rather than trying to stop iteration
+/// after the call has already enumerated every cycle.
 #[derive(Debug, Clone)]
 pub struct ArbitrarySmallDiGraph {
     pub graph: fnx_classes::digraph::DiGraph,
@@ -30,7 +33,7 @@ impl<'a> Arbitrary<'a> for ArbitrarySmallDiGraph {
         };
 
         let mut graph = fnx_classes::digraph::DiGraph::new(mode);
-        let node_count: usize = u.int_in_range(0..=12)?;
+        let node_count: usize = u.int_in_range(0..=8)?;
         let mut nodes = Vec::with_capacity(node_count);
 
         for i in 0..node_count {
@@ -42,7 +45,7 @@ impl<'a> Arbitrary<'a> for ArbitrarySmallDiGraph {
         // Generate edges - allow self-loops for cycle detection
         if node_count > 0 {
             let edge_density: u8 = u.arbitrary()?;
-            let target_edges = (node_count * (edge_density as usize % 8)) / 2;
+            let target_edges = ((node_count * (edge_density as usize % 5)) / 2).min(16);
 
             for _ in 0..target_edges {
                 if u.is_empty() {
@@ -79,13 +82,7 @@ enum CycleInput {
 fuzz_target!(|input: CycleInput| {
     match input {
         CycleInput::SimpleCycles(ag) => {
-            // Limit iteration to avoid combinatorial explosion
-            let cycles = fnx_algorithms::simple_cycles(&ag.graph);
-            for (i, _cycle) in cycles.into_iter().enumerate() {
-                if i >= 1000 {
-                    break;
-                }
-            }
+            let _ = fnx_algorithms::simple_cycles(&ag.graph);
         }
         CycleInput::FindCycleDirected(ag) => {
             let _ = fnx_algorithms::find_cycle_directed(&ag.graph);
