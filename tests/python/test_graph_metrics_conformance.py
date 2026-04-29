@@ -293,6 +293,44 @@ def test_cut_volume_weighted_matches_networkx():
     )
 
 
+def test_multigraph_cut_metrics_count_parallel_edges_like_networkx():
+    fg = fnx.MultiGraph()
+    ng = nx.MultiGraph()
+    weighted_edges = [
+        ("a", "b", 2),
+        ("a", "b", 3),
+        ("b", "c", 5),
+    ]
+    for u, v, weight in weighted_edges:
+        fg.add_edge(u, v, weight=weight)
+        ng.add_edge(u, v, weight=weight)
+
+    S = {"a"}
+    T = {"b", "c"}
+
+    assert list(fnx.edge_boundary(fg, S, T)) == list(nx.edge_boundary(ng, S, T))
+    assert _equiv(
+        fnx.cut_size(fg, S, T, weight="weight"),
+        nx.cut_size(ng, S, T, weight="weight"),
+    )
+    assert _equiv(
+        fnx.normalized_cut_size(fg, S, T, weight="weight"),
+        nx.normalized_cut_size(ng, S, T, weight="weight"),
+    )
+    assert _equiv(
+        fnx.conductance(fg, S, T, weight="weight"),
+        nx.conductance(ng, S, T, weight="weight"),
+    )
+    assert _equiv(
+        fnx.edge_expansion(fg, S, T, weight="weight"),
+        nx.edge_expansion(ng, S, T, weight="weight"),
+    )
+    assert _equiv(
+        fnx.mixing_expansion(fg, S, T, weight="weight"),
+        nx.mixing_expansion(ng, S, T, weight="weight"),
+    )
+
+
 # ---------------------------------------------------------------------------
 # isolate
 # ---------------------------------------------------------------------------

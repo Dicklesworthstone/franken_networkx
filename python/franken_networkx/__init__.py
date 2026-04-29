@@ -9642,6 +9642,11 @@ def cut_size(G, S, T=None, weight=None):
     binding always returns float. Coerce to int when input weights
     permit so isinstance(cut_size(G, S), int) checks match nx.
     """
+    if G.is_multigraph():
+        return _call_networkx_for_parity(
+            "cut_size", G, S, T=T, weight=weight,
+        )
+
     raw = _raw_cut_size(G, _coerce_nbunch(S), _coerce_nbunch(T), weight=weight)
     if weight is None or _sp_edge_weights_all_int(G, weight):
         # Result is necessarily an integer (edge count or sum of int
@@ -9653,6 +9658,10 @@ def cut_size(G, S, T=None, weight=None):
 
 def normalized_cut_size(G, S, T=None, weight=None):
     """br-boundkw: ``G, S, T`` match nx."""
+    if G.is_multigraph():
+        return _call_networkx_for_parity(
+            "normalized_cut_size", G, S, T=T, weight=weight,
+        )
     return _raw_normalized_cut_size(G, _coerce_nbunch(S), _coerce_nbunch(T), weight=weight)
 
 
@@ -9680,7 +9689,7 @@ def edge_boundary(G, nbunch1, nbunch2=None, data=False, keys=False, default=None
     Generator function so the returned object is a true generator
     matching nx's contract (br-r37-c1-ohxpp).
     """
-    if data is False and not keys and default is None:
+    if data is False and not keys and default is None and not G.is_multigraph():
         yield from _raw_edge_boundary(G, _coerce_nbunch(nbunch1), _coerce_nbunch(nbunch2))
         return
     yield from _call_networkx_for_parity(
