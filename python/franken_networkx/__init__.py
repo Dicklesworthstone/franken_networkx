@@ -3919,13 +3919,23 @@ def is_tree(G, *, backend=None, **backend_kwargs):
     MultiGraph, parallel edges create cycles, so br-zzcm9 requires we
     count parallels rather than relying on the simple-projection native
     path (which overcounts nodes-without-parallels as trees).
+
+    br-treedir: NetworkX's directed contract counts directed edges
+    against ``|V| - 1`` and uses weak connectivity. The Rust binding
+    collapses ``0->1, 1->0`` to a single undirected edge {0,1} and
+    accepts that as a tree (n=2, m=1 → True), even though NX returns
+    False (n=2, directed m=2). Handle the directed branch explicitly.
     """
     _validate_backend_dispatch_keywords("is_tree", backend, backend_kwargs)
+    n = G.number_of_nodes()
+    if n == 0:
+        raise NetworkXPointlessConcept("G has no nodes.")
+    if G.is_directed():
+        # Multigraphs count parallels naturally via number_of_edges.
+        m = G.number_of_edges()
+        return m == n - 1 and is_weakly_connected(G)
     if G.is_multigraph():
-        n = G.number_of_nodes()
         m = G.number_of_edges()  # multigraph counts parallels
-        if n == 0:
-            raise NetworkXPointlessConcept("G has no nodes.")
         return m == n - 1 and is_connected(G)
     return _raw_is_tree(G)
 
@@ -3935,11 +3945,22 @@ def is_forest(G, *, backend=None, **backend_kwargs):
 
     MultiGraph parallels create cycles (br-zzcm9); verify each
     connected component is a tree counting parallels.
+
+    br-treedir: same directed-edge-collapse defect as ``is_tree`` —
+    the Rust binding sees ``0->1, 1->0`` as a single undirected edge
+    and reports a forest. NX requires each weakly-connected component
+    to have ``|E| == |V| - 1`` counting directed edges.
     """
     _validate_backend_dispatch_keywords("is_forest", backend, backend_kwargs)
+    if G.number_of_nodes() == 0:
+        raise NetworkXPointlessConcept("G has no nodes.")
+    if G.is_directed():
+        for component in weakly_connected_components(G):
+            sub = G.subgraph(component)
+            if sub.number_of_edges() != sub.number_of_nodes() - 1:
+                return False
+        return True
     if G.is_multigraph():
-        if G.number_of_nodes() == 0:
-            raise NetworkXPointlessConcept("G has no nodes.")
         for component in connected_components(G):
             sub = G.subgraph(component)
             # |E| = |V| - 1 and connected → tree
