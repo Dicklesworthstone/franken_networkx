@@ -224,6 +224,17 @@ def test_configuration_model_returns_multigraph(name, seq):
     assert fg.is_multigraph() == ng.is_multigraph() is True
 
 
+@pytest.mark.parametrize("create_using", [nx.DiGraph, nx.MultiDiGraph])
+def test_configuration_model_directed_create_using_error_matches_networkx(
+    create_using,
+):
+    with pytest.raises(nx.NetworkXNotImplemented) as nx_exc:
+        nx.configuration_model([1, 1], create_using=create_using, seed=1)
+    with pytest.raises(fnx.NetworkXNotImplemented) as fnx_exc:
+        fnx.configuration_model([1, 1], create_using=create_using, seed=1)
+    assert str(fnx_exc.value) == str(nx_exc.value)
+
+
 # ---------------------------------------------------------------------------
 # expected_degree_graph (Chung-Lu) — bit-for-bit parity (uses seeded RNG)
 # ---------------------------------------------------------------------------

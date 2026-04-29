@@ -18170,7 +18170,9 @@ def configuration_model(deg_sequence, create_using=None, seed=None):
     if sum(deg_sequence) % 2 != 0:
         raise NetworkXError("Invalid degree sequence: sum of degrees must be even, not odd")
 
-    graph = _checked_create_using(create_using, directed=False, default=MultiGraph)
+    graph = _checked_create_using(create_using, default=MultiGraph)
+    if graph.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed graphs")
     return _configuration_model_local(deg_sequence, graph, seed=seed)
 
 
