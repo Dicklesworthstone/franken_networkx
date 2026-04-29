@@ -196,6 +196,23 @@ def _write_gml_via_nx(G, path, *, stringizer=None):
     return nx.write_gml(_to_nx(G), path, stringizer=stringizer)
 
 
+def _read_gml_via_nx(path, *, label="label", destringizer=None):
+    """Private helper (br-rgmlnx): parse GML via nx so typed scalar
+    attributes, ``label``, and ``destringizer`` match upstream semantics.
+    """
+    import networkx as nx
+
+    if hasattr(path, "read"):
+        data = path.read()
+        if isinstance(data, str):
+            path = BytesIO(data.encode("ascii"))
+        else:
+            path = BytesIO(bytes(data))
+
+    nx_graph = nx.read_gml(path, label=label, destringizer=destringizer)
+    return _from_nx_graph(nx_graph)
+
+
 def _strip_comment(line, comments):
     """Strip inline comments and return the cleaned line (empty string if comment-only)."""
     if comments:
@@ -507,6 +524,7 @@ def parse_edgelist(
 def parse_gml(lines, label="label", destringizer=None):
     """Parse GML text or lines into a FrankenNetworkX graph."""
     import franken_networkx as fnx
+    from franken_networkx import _fnx
 
     if label != "label" or destringizer is not None:
         # The local Rust reader implements the default NetworkX label handling.
@@ -520,7 +538,7 @@ def parse_gml(lines, label="label", destringizer=None):
         line.decode("utf-8") if isinstance(line, bytes) else str(line)
         for line in _normalize_lines(lines)
     )
-    return fnx.read_gml(StringIO(text))
+    return _fnx.read_gml(StringIO(text))
 
 
 def from_graph6_bytes(bytes_in):

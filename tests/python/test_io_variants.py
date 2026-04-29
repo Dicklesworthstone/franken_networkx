@@ -244,6 +244,53 @@ def test_rust_read_gml_preserves_graph_attrs(tmp_path: Path):
     assert dict(graph.graph) == {"label": "demo", "owner": "qa"}
 
 
+def test_read_gml_preserves_networkx_typed_scalars(tmp_path: Path):
+    import networkx as nx
+
+    path = tmp_path / "typed.gml"
+    path.write_text(
+        'graph [\n'
+        '  directed 0\n'
+        '  count 3\n'
+        '  ratio 1.5\n'
+        '  node [ id 0 label "a" weight 7 score 2.25 quoted "01" ]\n'
+        '  node [ id 1 label "b" ]\n'
+        '  edge [ source 0 target 1 weight 4 ]\n'
+        ']\n',
+        encoding="utf-8",
+    )
+
+    actual = fnx.read_gml(path)
+    expected = nx.read_gml(path)
+
+    assert dict(actual.graph) == dict(expected.graph)
+    assert dict(actual.nodes["a"]) == dict(expected.nodes["a"])
+    assert dict(actual["a"]["b"]) == dict(expected["a"]["b"])
+
+
+def test_read_gml_honors_label_and_destringizer_kwargs(tmp_path: Path):
+    import networkx as nx
+
+    path = tmp_path / "ids.gml"
+    path.write_text(
+        'graph [\n'
+        '  directed 0\n'
+        '  node [ id 0 label "10" ]\n'
+        '  node [ id 1 label "20" ]\n'
+        '  edge [ source 0 target 1 ]\n'
+        ']\n',
+        encoding="utf-8",
+    )
+
+    actual_by_id = fnx.read_gml(path, label=None)
+    expected_by_id = nx.read_gml(path, label=None)
+    assert list(actual_by_id.nodes()) == list(expected_by_id.nodes()) == [0, 1]
+
+    actual_destringized = fnx.read_gml(path, destringizer=int)
+    expected_destringized = nx.read_gml(path, destringizer=int)
+    assert list(actual_destringized.nodes()) == list(expected_destringized.nodes()) == [10, 20]
+
+
 def test_rust_read_graphml_preserves_graph_attrs(tmp_path: Path):
     path = tmp_path / "graph.graphml"
     path.write_text(

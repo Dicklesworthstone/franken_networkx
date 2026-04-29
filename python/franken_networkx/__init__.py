@@ -11290,6 +11290,7 @@ from franken_networkx.readwrite import (
     _write_graphml_via_nx as _write_graphml_via_nx,
     _read_graphml_via_nx as _read_graphml_via_nx,
     _write_gml_via_nx as _write_gml_via_nx,
+    _read_gml_via_nx as _read_gml_via_nx,
 )
 
 
@@ -11444,11 +11445,11 @@ def write_gml(G, path, stringizer=None):
 def read_gml(path, label="label", destringizer=None):
     """Read a graph in GML format.
 
-    Thin wrapper around the Rust native reader; kept as a public Python
-    symbol so the module doesn't fall through to ``networkx.read_gml``
-    via ``__getattr__`` (which would bypass the Rust parser).
+    Delegates to NetworkX's parser (br-rgmlnx) so typed scalar
+    attributes, ``label``, and ``destringizer`` preserve upstream
+    semantics. The raw Rust parser remains available as ``_fnx.read_gml``.
     """
-    return _rust_read_gml(path, label=label, destringizer=destringizer)
+    return _read_gml_via_nx(path, label=label, destringizer=destringizer)
 
 
 def is_semiconnected(G):
