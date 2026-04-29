@@ -302,6 +302,18 @@ def test_shortest_simple_paths_unweighted_matches_networkx(
     assert [len(p) for p in nr] == sorted(len(p) for p in nr)
 
 
+def test_shortest_simple_paths_dense_graph_matches_uncapped_networkx():
+    fg, ng = _pair_undirected(
+        list(itertools.combinations(range(8), 2)),
+        list(range(8)),
+    )
+    fr = list(fnx.shortest_simple_paths(fg, 0, 7))
+    nr = list(nx.shortest_simple_paths(ng, 0, 7))
+
+    assert len(nr) > 1000
+    assert fr == nr
+
+
 # ---------------------------------------------------------------------------
 # has_path
 # ---------------------------------------------------------------------------

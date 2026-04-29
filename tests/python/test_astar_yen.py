@@ -314,11 +314,16 @@ class TestShortestSimplePaths:
         assert paths[1] == [0, 2, 3]
 
     def test_no_path(self):
-        G = fnx.Graph()
-        G.add_node(0)
-        G.add_node(1)
-        paths = list(fnx.shortest_simple_paths(G, 0, 1))
-        assert paths == []
+        G_fnx = fnx.Graph()
+        G_nx = nx.Graph()
+        for graph in (G_fnx, G_nx):
+            graph.add_node(0)
+            graph.add_node(1)
+
+        with pytest.raises(nx.NetworkXNoPath) as expected:
+            list(nx.shortest_simple_paths(G_nx, 0, 1))
+        with pytest.raises(fnx.NetworkXNoPath, match=re.escape(str(expected.value))):
+            list(fnx.shortest_simple_paths(G_fnx, 0, 1))
 
     def test_same_node(self):
         G = fnx.Graph()
