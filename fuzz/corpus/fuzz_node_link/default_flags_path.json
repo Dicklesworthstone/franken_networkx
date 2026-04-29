@@ -1,0 +1,1 @@
+{"graph_attrs":{"case":"default_flags_path"},"nodes":["a","b","c"],"edges":[{"left":"a","right":"b","attrs":{}},{"left":"b","right":"c","attrs":{"weight":2}}]}

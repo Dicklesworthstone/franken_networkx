@@ -1,0 +1,1 @@
+{"directed":true,"multigraph":false,"graph_attrs":{"case":"self_loop"},"nodes":["solo"],"edges":[{"left":"solo","right":"solo","attrs":{"loop":true}}]}

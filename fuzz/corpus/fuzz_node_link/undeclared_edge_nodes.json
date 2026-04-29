@@ -1,0 +1,1 @@
+{"directed":false,"multigraph":false,"graph_attrs":{"case":"implicit_nodes"},"nodes":["declared"],"edges":[{"left":"declared","right":"implicit","attrs":{"source":"edge"}},{"left":"orphan_left","right":"declared","attrs":{}}]}

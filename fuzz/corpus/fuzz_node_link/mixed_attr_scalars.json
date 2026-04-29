@@ -1,0 +1,1 @@
+{"directed":false,"multigraph":false,"graph_attrs":{"none":null,"int":7,"float":2.25,"bool":true,"text":"value"},"nodes":["a","b"],"edges":[{"left":"a","right":"b","attrs":{"none":null,"int":-3,"float":0.125,"bool":false,"text":"edge"}}]}

@@ -1,0 +1,1 @@
+{"directed":false,"multigraph":false,"graph_attrs":{},"nodes":["a","b"],"edges":[{"left":"a","attrs":{"broken":true}},{"right":"b","attrs":{"broken":true}}]}

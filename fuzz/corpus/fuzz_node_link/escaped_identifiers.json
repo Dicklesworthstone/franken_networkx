@@ -1,0 +1,1 @@
+{"directed":false,"multigraph":false,"graph_attrs":{"title":"quote \" slash \\ newline\n tab\t"},"nodes":["a b","x/y","unicode_like_00e9"],"edges":[{"left":"a b","right":"x/y","attrs":{"note":"edge with spaces"}},{"left":"unicode_like_00e9","right":"a b","attrs":{"count":1}}]}
