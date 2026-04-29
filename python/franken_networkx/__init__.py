@@ -5839,8 +5839,14 @@ def all_shortest_paths(G, source, target, weight=None, method="dijkstra"):
     if target not in G:
         raise NetworkXNoPath(f"Target {target} cannot be reached from given sources")
     if weight is not None and G.is_directed():
-        # Delegate bellman-ford or callable weights to NetworkX
-        if method == "bellman-ford" or _should_delegate_dijkstra_to_networkx(G, weight):
+        # Delegate non-string / callable weights to NetworkX (the PyO3
+        # binding's ``weight: str`` signature type-rejects, and callables
+        # have no Rust analogue). bellman-ford is now native (br-r37-c1-
+        # xsi7c), so it stays in the Rust path unless the weight type
+        # forces a fallback.
+        if _should_delegate_dijkstra_to_networkx(G, weight) or (
+            method == "bellman-ford" and _should_delegate_bellman_ford_to_networkx(weight)
+        ):
             kwargs = {"weight": weight}
             if method is not None:
                 kwargs["method"] = method
@@ -5852,14 +5858,13 @@ def all_shortest_paths(G, source, target, weight=None, method="dijkstra"):
         if method is not None:
             kwargs["method"] = method
         return _call_networkx_for_parity("all_shortest_paths", G, source, target, **kwargs)
-    if weight is not None and method == "bellman-ford":
-        if not G.is_directed() or _should_delegate_bellman_ford_to_networkx(weight):
-            kwargs = {"weight": weight}
-            if method is not None:
-                kwargs["method"] = method
-            return _call_networkx_for_parity(
-                "all_shortest_paths", G, source, target, **kwargs
-            )
+    if weight is not None and method == "bellman-ford" and _should_delegate_bellman_ford_to_networkx(weight):
+        kwargs = {"weight": weight}
+        if method is not None:
+            kwargs["method"] = method
+        return _call_networkx_for_parity(
+            "all_shortest_paths", G, source, target, **kwargs
+        )
     return _raw_all_shortest_paths(G, source, target, weight=weight, method=method)
 
 
