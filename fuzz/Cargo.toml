@@ -150,3 +150,8 @@ doc = false
 name = "fuzz_scc_paths"
 path = "fuzz_targets/fuzz_scc_paths.rs"
 doc = false
+
+[[bin]]
+name = "fuzz_planarity_coloring"
+path = "fuzz_targets/fuzz_planarity_coloring.rs"
+doc = false
