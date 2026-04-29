@@ -141,6 +141,10 @@ def _l1_normalize_abs(d):
     return {k: abs(v) / s for k, v in d.items()}
 
 
+def _zero_support(d, *, tol=1e-12):
+    return {node for node, value in d.items() if abs(float(value)) <= tol}
+
+
 @pytest.mark.parametrize(
     "name,builder",
     [
@@ -179,6 +183,8 @@ def test_hits_returns_well_formed_dicts(name, builder):
     # Both should be finite-valued.
     assert all(math.isfinite(v) for v in f_h.values())
     assert all(math.isfinite(v) for v in f_a.values())
+    assert _zero_support(f_h) == _zero_support(n_h), f"{name}: zero hub support"
+    assert _zero_support(f_a) == _zero_support(n_a), f"{name}: zero authority support"
 
 
 # ---------------------------------------------------------------------------
