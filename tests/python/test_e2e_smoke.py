@@ -478,6 +478,19 @@ def test_shortest_path(fnx, G):
     check("bellman_ford_path returns list", isinstance(bf, list))
     check("bellman_ford matches dijkstra", bf == dp)
 
+    # br-r37-c1-xsi7c: cover the bellman-ford branch of all_shortest_paths
+    # end-to-end so the dispatch fix in 1978fe13 can't regress silently.
+    asp_dij = sorted(
+        list(fnx.all_shortest_paths(G, "a", "c", weight="weight", method="dijkstra"))
+    )
+    asp_bf = sorted(
+        list(fnx.all_shortest_paths(G, "a", "c", weight="weight", method="bellman-ford"))
+    )
+    check("all_shortest_paths dijkstra returns the via-b path",
+          asp_dij == [["a", "b", "c"]])
+    check("all_shortest_paths bellman-ford agrees with dijkstra",
+          asp_bf == asp_dij)
+
     avg = fnx.average_shortest_path_length(G)
     check("avg_shortest_path is float", isinstance(avg, float))
     check("avg_shortest_path > 0", avg > 0)
