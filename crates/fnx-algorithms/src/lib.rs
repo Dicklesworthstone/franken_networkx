@@ -14502,6 +14502,79 @@ pub fn wiener_index_directed(digraph: &DiGraph) -> f64 {
     total
 }
 
+/// Weighted Wiener index for undirected graphs: sum of shortest-path
+/// distances over all unordered pairs, summed via Dijkstra.
+///
+/// Iterates each source through ``multi_source_dijkstra``. For each pair
+/// ``(s, v)`` with ``v > s`` (in canonical node order), the resulting
+/// distance is added to the running total. If any pair is disconnected,
+/// returns ``f64::INFINITY``.
+///
+/// Mirrors ``networkx.wiener_index(G, weight="weight")``: the Python
+/// implementation sums distances per source and divides by 2 for the
+/// undirected case; this returns the divided-once total directly by
+/// only summing the strict-upper-triangle pairs.
+#[must_use]
+pub fn wiener_index_weighted(graph: &Graph, weight_attr: &str) -> f64 {
+    let nodes = graph.nodes_ordered();
+    let n = nodes.len();
+    if n <= 1 {
+        return 0.0;
+    }
+
+    let mut total: f64 = 0.0;
+
+    for s in 0..n {
+        let result = multi_source_dijkstra(graph, &[nodes[s]], weight_attr);
+        let mut by_node: HashMap<&str, f64> = HashMap::with_capacity(result.distances.len());
+        for entry in &result.distances {
+            by_node.insert(entry.node.as_str(), entry.distance);
+        }
+        for v in (s + 1)..n {
+            match by_node.get(nodes[v]) {
+                Some(d) if d.is_finite() => total += *d,
+                _ => return f64::INFINITY,
+            }
+        }
+    }
+
+    total
+}
+
+/// Weighted Wiener index for directed graphs: sum of shortest-path
+/// distances over all ordered pairs ``(u, v)`` with ``u != v``, summed
+/// via Dijkstra. Returns ``f64::INFINITY`` if the digraph is not
+/// strongly connected (some pair is unreachable).
+///
+/// Mirrors ``networkx.wiener_index(G, weight="weight")`` on a directed
+/// graph: nx returns the un-halved total because every ordered pair is
+/// counted once.
+#[must_use]
+pub fn wiener_index_weighted_directed(digraph: &DiGraph, weight_attr: &str) -> f64 {
+    let nodes = digraph.nodes_ordered();
+    let n = nodes.len();
+    if n <= 1 {
+        return 0.0;
+    }
+
+    let mut total: f64 = 0.0;
+
+    for s in 0..n {
+        let dists = single_source_dijkstra_directed(digraph, nodes[s], weight_attr);
+        for v in 0..n {
+            if v == s {
+                continue;
+            }
+            match dists.get(nodes[v]) {
+                Some(d) if d.is_finite() => total += *d,
+                _ => return f64::INFINITY,
+            }
+        }
+    }
+
+    total
+}
+
 // ===========================================================================
 // Closeness Vitality
 // ===========================================================================

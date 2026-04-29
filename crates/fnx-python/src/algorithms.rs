@@ -7632,16 +7632,36 @@ pub fn reciprocity(
 
 /// Compute the Wiener index of a connected graph.
 ///
-/// Matches `networkx.wiener_index(G)`.
+/// Matches `networkx.wiener_index(G, weight=weight)`. Supports both
+/// directed and undirected graphs, weighted via the named edge
+/// attribute (defaults to unweighted hop-count BFS) and unweighted.
+/// Returns ``f64::INFINITY`` for disconnected (or for digraphs, not
+/// strongly connected) inputs to preserve nx's behavior.
 #[pyfunction]
-pub fn wiener_index(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<f64> {
+#[pyo3(signature = (g, weight=None))]
+pub fn wiener_index(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    weight: Option<&str>,
+) -> PyResult<f64> {
     let gr = extract_graph(g)?;
-    require_undirected(&gr, "wiener_index")?;
-    let inner = gr.undirected();
-    let w = py.allow_threads(|| fnx_algorithms::wiener_index(inner));
-    if w.is_infinite() {
-        Err(NetworkXError::new_err("Graph is not connected."))
+    // Resolve the graph view *before* releasing the GIL — `gr` is bound to
+    // the GIL via PyAny lifetimes, but the inner Graph/DiGraph references
+    // are plain Rust borrows and Ungil-safe.
+    if gr.is_directed() {
+        let dg: &fnx_classes::digraph::DiGraph =
+            gr.digraph().expect("is_directed implies digraph");
+        let w = py.allow_threads(|| match weight {
+            None => fnx_algorithms::wiener_index_directed(dg),
+            Some(weight_attr) => fnx_algorithms::wiener_index_weighted_directed(dg, weight_attr),
+        });
+        Ok(w)
     } else {
+        let inner: &fnx_classes::Graph = gr.undirected();
+        let w = py.allow_threads(|| match weight {
+            None => fnx_algorithms::wiener_index(inner),
+            Some(weight_attr) => fnx_algorithms::wiener_index_weighted(inner, weight_attr),
+        });
         Ok(w)
     }
 }

@@ -6669,8 +6669,39 @@ def reciprocity(G, nodes=None, *, backend=None, **backend_kwargs):
 
 # Algorithm functions — Wiener index
 def wiener_index(G, weight=None, *, backend=None, **backend_kwargs):
-    """Returns the Wiener index of the given graph."""
+    """Returns the Wiener index of the given graph.
+
+    Delegates to the Rust implementation
+    (``franken_networkx._fnx.wiener_index``) which dispatches across
+    four cases — undirected/directed × unweighted/weighted —
+    matching ``networkx.wiener_index(G, weight=weight)`` exactly.
+    Multigraph inputs fall back to the Python BFS/Dijkstra path
+    below because the Rust binding sees only the simple-graph view
+    of a multigraph (parallel edges' min-weight semantics differ).
+    """
     _validate_backend_dispatch_keywords("wiener_index", backend, backend_kwargs)
+
+    # br-wienerport: route the unweighted case (the most common one)
+    # through the native Rust port, which dispatches on directedness.
+    # For weighted graphs we stay in Python: ``g[u][v]["weight"] = ...``
+    # mutations don't propagate to the Rust adjacency storage, so the
+    # Rust dijkstra would silently use the original (often default-1)
+    # weight. Multigraphs also stay in Python because the Rust binding
+    # sees only the simple-graph collapse and would lose the
+    # min-weight-across-parallel-edges semantics nx implements.
+    if weight is None and not G.is_multigraph():
+        # Empty graphs: nx raises NetworkXPointlessConcept via is_connected.
+        # Trigger that contract BEFORE falling into the Rust path so the
+        # parity is preserved.
+        if G.number_of_nodes() == 0:
+            raise NetworkXPointlessConcept(
+                "Connectivity is undefined for the null graph."
+            )
+        value = _fnx.wiener_index(G, weight=None)
+        if math.isinf(value):
+            return float("inf")
+        return value
+
     connected = is_strongly_connected(G) if G.is_directed() else is_connected(G)
     if not connected:
         return float("inf")
