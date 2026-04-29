@@ -18187,10 +18187,13 @@ def configuration_model(deg_sequence, create_using=None, seed=None):
 
 def havel_hakimi_graph(deg_sequence, create_using=None):
     """Return a simple graph with the given degree sequence."""
-    if not _is_graphical_degree_sequence(deg_sequence):
+    # NetworkX requires a sized sequence here; preserve its TypeError
+    # for iterators before list() would silently consume them.
+    len(deg_sequence)
+    degree_sequence = list(deg_sequence)
+    if not _is_graphical_degree_sequence(degree_sequence):
         raise NetworkXError("Invalid degree sequence")
 
-    degree_sequence = list(deg_sequence)
     p = len(degree_sequence)
     graph = _checked_create_using(create_using, directed=False, default=Graph)
     graph.add_nodes_from(range(p))

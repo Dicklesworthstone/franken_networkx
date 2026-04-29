@@ -139,6 +139,22 @@ def test_havel_hakimi_graph_invalid_sequence_raises_matching_networkx():
     assert str(fnx_exc.value) == str(nx_exc.value)
 
 
+@pytest.mark.parametrize(
+    "factory",
+    [
+        lambda: iter([1, 1]),
+        lambda: (value for value in [1, 1]),
+    ],
+    ids=["list_iterator", "generator"],
+)
+def test_havel_hakimi_graph_rejects_non_sized_iterables_like_networkx(factory):
+    with pytest.raises(TypeError) as nx_exc:
+        nx.havel_hakimi_graph(factory())
+    with pytest.raises(TypeError) as fnx_exc:
+        fnx.havel_hakimi_graph(factory())
+    assert str(fnx_exc.value) == str(nx_exc.value)
+
+
 # ---------------------------------------------------------------------------
 # directed_havel_hakimi_graph
 # ---------------------------------------------------------------------------
