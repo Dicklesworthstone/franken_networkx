@@ -19736,13 +19736,13 @@ def triad_type(G):
     """
     if not G.is_directed():
         raise NetworkXNotImplemented("not implemented for undirected type")
-    nodes = list(G.nodes())
-    if len(nodes) != 3:
+    if not is_triad(G):
         # br-r37-c1-39gx2: nx raises ``NetworkXAlgorithmError`` (not
         # NetworkXError) with a specific 'G is not a triad (order-3
         # DiGraph)' message — distinct exception class lets users
         # catch algorithmic invariants separately from generic errors.
         raise NetworkXAlgorithmError("G is not a triad (order-3 DiGraph)")
+    nodes = list(G.nodes())
     return _fnx.triad_type_rust(G, nodes[0], nodes[1], nodes[2])
 
 

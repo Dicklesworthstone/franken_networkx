@@ -192,6 +192,16 @@ def test_triad_type_matches_networkx_and_expected(name, edges, expected):
     )
 
 
+def test_triad_type_rejects_self_loop_like_networkx():
+    fg = fnx.DiGraph(); fg.add_nodes_from([0, 1, 2]); fg.add_edge(0, 0)
+    ng = nx.DiGraph(); ng.add_nodes_from([0, 1, 2]); ng.add_edge(0, 0)
+
+    with pytest.raises(nx.NetworkXAlgorithmError):
+        nx.triad_type(ng)
+    with pytest.raises(fnx.NetworkXAlgorithmError):
+        fnx.triad_type(fg)
+
+
 # ---------------------------------------------------------------------------
 # is_triad
 # ---------------------------------------------------------------------------
