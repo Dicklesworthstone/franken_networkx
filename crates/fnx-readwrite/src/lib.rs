@@ -1069,13 +1069,9 @@ impl EdgeListEngine {
             key_elem.push_attribute(("for", "node"));
             key_elem.push_attribute(("attr.name", attr_name.as_str()));
             key_elem.push_attribute(("attr.type", attr_type.as_str()));
-            let default_value = node_defaults.get(attr_name).and_then(|value| {
-                if GraphmlValueType::from_value(value) == *attr_type {
-                    Some(value)
-                } else {
-                    None
-                }
-            });
+            let default_value = node_defaults
+                .get(attr_name)
+                .filter(|&value| GraphmlValueType::from_value(value) == *attr_type);
             if let Some(default_value) = default_value {
                 writer
                     .write_event(Event::Start(key_elem))
@@ -1112,13 +1108,9 @@ impl EdgeListEngine {
             key_elem.push_attribute(("for", "edge"));
             key_elem.push_attribute(("attr.name", attr_name.as_str()));
             key_elem.push_attribute(("attr.type", attr_type.as_str()));
-            let default_value = edge_defaults.get(attr_name).and_then(|value| {
-                if GraphmlValueType::from_value(value) == *attr_type {
-                    Some(value)
-                } else {
-                    None
-                }
-            });
+            let default_value = edge_defaults
+                .get(attr_name)
+                .filter(|&value| GraphmlValueType::from_value(value) == *attr_type);
             if let Some(default_value) = default_value {
                 writer
                     .write_event(Event::Start(key_elem))
@@ -3603,6 +3595,31 @@ impl EdgeListEngine {
         let tokens = gml_tokenize(input);
         let mut pos = 0;
 
+        // br-gmlextra: any unmatched ']' before the "graph [" header is a
+        // syntax error — nx raises NetworkXError("expected EOF, found ']'").
+        // Strict mode rejects; hardened mode warns and continues for
+        // recovery on malformed inputs.
+        let mut prologue = 0usize;
+        while prologue < tokens.len() {
+            let t = tokens[prologue].as_str();
+            if t == "graph" && prologue + 1 < tokens.len() && tokens[prologue + 1] == "[" {
+                break;
+            }
+            if t == "]" {
+                let warning = "expected EOF, found ']' in GML prologue".to_owned();
+                if self.mode == CompatibilityMode::Strict {
+                    self.record("read_gml", DecisionAction::FailClosed, &warning, 1.0);
+                    return Err(ReadWriteError::FailClosed {
+                        operation: "read_gml",
+                        reason: warning,
+                    });
+                }
+                warnings.push(warning.clone());
+                self.record("read_gml", DecisionAction::FullValidate, &warning, 0.7);
+            }
+            prologue += 1;
+        }
+
         // Skip to "graph ["
         while pos < tokens.len() {
             if tokens[pos] == "graph" && pos + 1 < tokens.len() && tokens[pos + 1] == "[" {
@@ -3611,6 +3628,7 @@ impl EdgeListEngine {
             }
             pos += 1;
         }
+        let mut graph_block_open = pos > 0;
 
         while pos < tokens.len() {
             let tok = &tokens[pos];
@@ -3644,7 +3662,7 @@ impl EdgeListEngine {
                     let (node, new_pos) = self.parse_gml_node(&tokens, pos, warnings)?;
                     if let Some((id, label, attrs)) = node {
                         if id_to_label.contains_key(&id) {
-                            let warning = format!("gml node duplicate id {id}");
+                            let warning = format!("node id {id} is duplicated");
                             if self.mode == CompatibilityMode::Strict {
                                 self.record("read_gml", DecisionAction::FailClosed, &warning, 1.0);
                                 return Err(ReadWriteError::FailClosed {
@@ -3800,7 +3818,11 @@ impl EdgeListEngine {
                     }
                     pos = new_pos;
                 }
-                "]" => break,
+                "]" => {
+                    graph_block_open = false;
+                    pos += 1;
+                    break;
+                }
                 key if pos + 1 < tokens.len()
                     && tokens[pos + 1] != "["
                     && tokens[pos + 1] != "]" =>
@@ -3815,6 +3837,37 @@ impl EdgeListEngine {
                     pos += 1;
                 }
             }
+        }
+
+        // br-gmlbal: nx raises NetworkXError("expected ']', found EOF") when
+        // the outer "graph [" block is unclosed; mirror that contract here
+        // in strict mode, while preserving hardened-mode recovery.
+        if graph_block_open {
+            let warning = "expected ']', found EOF in GML stream".to_owned();
+            if self.mode == CompatibilityMode::Strict {
+                self.record("read_gml", DecisionAction::FailClosed, &warning, 1.0);
+                return Err(ReadWriteError::FailClosed {
+                    operation: "read_gml",
+                    reason: warning,
+                });
+            }
+            warnings.push(warning.clone());
+            self.record("read_gml", DecisionAction::FullValidate, &warning, 0.7);
+        }
+        while pos < tokens.len() {
+            if tokens[pos] == "]" {
+                let warning = "expected EOF, found ']' after GML graph block".to_owned();
+                if self.mode == CompatibilityMode::Strict {
+                    self.record("read_gml", DecisionAction::FailClosed, &warning, 1.0);
+                    return Err(ReadWriteError::FailClosed {
+                        operation: "read_gml",
+                        reason: warning,
+                    });
+                }
+                warnings.push(warning.clone());
+                self.record("read_gml", DecisionAction::FullValidate, &warning, 0.7);
+            }
+            pos += 1;
         }
 
         // Apply node attributes

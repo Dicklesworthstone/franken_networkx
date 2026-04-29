@@ -18,13 +18,41 @@ def _normalize_lines(lines):
 
 
 def _new_graph(create_using=None):
-    """Return an empty FrankenNetworkX graph from *create_using*."""
+    """Return an empty FrankenNetworkX graph from *create_using*.
+
+    br-cuvalid: nx parsers raise TypeError with a specific wording when
+    *create_using* is neither a Graph type nor a Graph instance. Without
+    this check, fnx leaked an internal ``AttributeError: 'int' object
+    has no attribute 'clear'`` (etc.) for invalid arguments.
+    """
     import franken_networkx as fnx
 
     if create_using is None:
         return fnx.Graph()
     if isinstance(create_using, type):
-        return create_using()
+        try:
+            instance = create_using()
+        except TypeError:
+            raise TypeError(
+                "create_using is not a valid NetworkX graph type or instance"
+            )
+        if not (
+            hasattr(instance, "add_node")
+            and hasattr(instance, "add_edge")
+            and hasattr(instance, "clear")
+        ):
+            raise TypeError(
+                "create_using is not a valid NetworkX graph type or instance"
+            )
+        return instance
+    if not (
+        hasattr(create_using, "add_node")
+        and hasattr(create_using, "add_edge")
+        and hasattr(create_using, "clear")
+    ):
+        raise TypeError(
+            "create_using is not a valid NetworkX graph type or instance"
+        )
     create_using.clear()
     return create_using
 
@@ -538,7 +566,19 @@ def parse_gml(lines, label="label", destringizer=None):
         line.decode("utf-8") if isinstance(line, bytes) else str(line)
         for line in _normalize_lines(lines)
     )
-    return _fnx.read_gml(StringIO(text))
+    # br-readgml-strict: the Rust reader runs in strict mode at the Python
+    # boundary so structural errors (duplicate node id, unbalanced brackets,
+    # stray ']' tokens) surface as a fail-closed I/O error. nx surfaces
+    # those as NetworkXError, so re-raise the concrete subset here for
+    # drop-in parity.
+    try:
+        return _fnx.read_gml(StringIO(text))
+    except OSError as exc:
+        message = str(exc)
+        prefix = "readwrite `read_gml` failed closed: "
+        if message.startswith(prefix):
+            message = message[len(prefix):]
+        raise fnx.NetworkXError(message) from exc
 
 
 def from_graph6_bytes(bytes_in):

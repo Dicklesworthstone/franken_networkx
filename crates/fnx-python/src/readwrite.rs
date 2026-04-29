@@ -625,7 +625,13 @@ fn read_gml(
         ));
     }
     let input = read_input(py, path)?;
-    let mut engine = EdgeListEngine::hardened();
+    // br-readgml-strict: nx raises NetworkXError on duplicate node ids,
+    // unclosed brackets, and stray ']' tokens. Hardened mode silently
+    // recovers from those, which diverges from nx parity for drop-in
+    // users. Use strict mode at the Python boundary so the contract
+    // matches nx; the underlying hardened-mode behavior remains
+    // available to direct Rust callers.
+    let mut engine = EdgeListEngine::strict();
 
     if py
         .allow_threads(|| engine.gml_declares_directed(&input))

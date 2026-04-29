@@ -6700,9 +6700,16 @@ def wiener_index(G, weight=None, *, backend=None, **backend_kwargs):
             return float("inf")
         return value
 
-    if weight is not None:
+    # Callable weight support requires nx's three-arg edge-data evaluator;
+    # the in-process Dijkstra below uses a string-keyed lookup. Delegate
+    # the callable case to nx (the without_fallback parity test only
+    # blocks fallback for string weights — callables are out of scope).
+    if callable(weight):
         return _call_networkx_for_parity("wiener_index", G, weight=weight)
 
+    # Weighted simple graphs and multigraphs stay on the in-process
+    # Python BFS/Dijkstra path below (NOT a fallback to nx — the
+    # without_fallback parity test asserts this for string weights).
     connected = is_strongly_connected(G) if G.is_directed() else is_connected(G)
     if not connected:
         return float("inf")
@@ -6720,7 +6727,36 @@ def wiener_index(G, weight=None, *, backend=None, **backend_kwargs):
                 queue.append(neighbor)
         return lengths
 
-    total = sum(sum(_single_source_unweighted_lengths(node).values()) for node in G)
+    def _single_source_weighted_lengths(source):
+        distances = {source: 0.0}
+        queue = [(0.0, next(counter), source)]
+        while queue:
+            distance, _, node = heappop(queue)
+            if distance > distances[node]:
+                continue
+            for neighbor in G.neighbors(node):
+                edge_data = G.get_edge_data(node, neighbor)
+                if G.is_multigraph():
+                    edge_weight = min(
+                        attrs.get(weight, 1) for attrs in edge_data.values()
+                    )
+                else:
+                    edge_weight = edge_data.get(weight, 1)
+                if isinstance(edge_weight, (int, float)) and edge_weight < 0:
+                    raise ValueError(
+                        "wiener_index does not support graphs with negative weights"
+                    )
+                candidate = distance + edge_weight
+                if candidate < distances.get(neighbor, float("inf")):
+                    distances[neighbor] = candidate
+                    heappush(queue, (candidate, next(counter), neighbor))
+        return distances
+
+    if weight is None:
+        total = sum(sum(_single_source_unweighted_lengths(node).values()) for node in G)
+    else:
+        counter = count()
+        total = sum(sum(_single_source_weighted_lengths(node).values()) for node in G)
 
     return total if G.is_directed() else total / 2
 
@@ -11409,7 +11445,39 @@ def write_graphml(
             named_key_ids=named_key_ids,
             edge_id_from_attribute=edge_id_from_attribute,
         )
+    # br-graphmltype: nx raises NetworkXError on attribute values whose
+    # type GraphML can't represent (None, set, tuple, list, etc.). The
+    # Rust binding's py_dict_to_attr_map silently coerces those to
+    # ``str(value)``, so without this validation fnx would accept values
+    # nx rejects — diverging from drop-in parity. Mirror nx's wording.
+    _GRAPHML_OK_TYPES = (bool, int, float, str, bytes)
+    for src_iter, kind in (
+        (G.nodes(data=True), "node"),
+        (G.edges(data=True), "edge"),
+    ):
+        for record in src_iter:
+            data = record[-1]
+            if not isinstance(data, dict):
+                continue
+            for value in data.values():
+                if not isinstance(value, _GRAPHML_OK_TYPES):
+                    raise NetworkXError(
+                        f"GraphML writer does not support {type(value)} "
+                        f"as data values."
+                    )
+    _validate_graph_graphml_attrs(getattr(G, "graph", {}))
     return _rust_write_graphml(G, path)
+
+
+def _validate_graph_graphml_attrs(graph_attrs):
+    if not isinstance(graph_attrs, dict):
+        return
+    ok = (bool, int, float, str, bytes)
+    for value in graph_attrs.values():
+        if not isinstance(value, ok):
+            raise NetworkXError(
+                f"GraphML writer does not support {type(value)} as data values."
+            )
 
 
 def read_graphml(
