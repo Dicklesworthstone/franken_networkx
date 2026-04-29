@@ -5101,6 +5101,16 @@ def minimum_cut(flowG, _s, _t, capacity="capacity", flow_func=None, **kwargs):
             "You have to explicitly set a flow_func if you need to pass "
             "parameters via kwargs."
         )
+    if flow_func is not None or kwargs or _flow_has_infinite_capacity(flowG, capacity):
+        return _call_networkx_for_parity(
+            "minimum_cut",
+            flowG,
+            _s,
+            _t,
+            capacity=capacity,
+            flow_func=flow_func,
+            **kwargs,
+        )
     value, partition = _minimum_cut_raw(flowG, _s, _t, capacity=capacity)
     all_int = _all_flow_caps_integral(flowG, capacity)
     return _coerce_flow_value(value, all_int), partition
@@ -5118,6 +5128,16 @@ def minimum_cut_value(flowG, _s, _t, capacity="capacity", flow_func=None, **kwar
         raise NetworkXError(
             "You have to explicitly set a flow_func if you need to pass "
             "parameters via kwargs."
+        )
+    if flow_func is not None or kwargs or _flow_has_infinite_capacity(flowG, capacity):
+        return _call_networkx_for_parity(
+            "minimum_cut_value",
+            flowG,
+            _s,
+            _t,
+            capacity=capacity,
+            flow_func=flow_func,
+            **kwargs,
         )
     return _coerce_flow_value(
         _minimum_cut_value_raw(flowG, _s, _t, capacity=capacity),

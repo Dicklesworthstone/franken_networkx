@@ -354,3 +354,51 @@ def test_custom_capacity_attribute_name(algorithm):
     nr = nx.maximum_flow_value(ng, "s", "t", capacity="weight",
                                 flow_func=nx_fn)
     assert fr == nr
+
+
+def test_minimum_cut_uses_custom_flow_func_and_forwards_kwargs():
+    fg, ng = _pair_directed([("s", "a", 3), ("a", "t", 3)])
+    calls = []
+
+    def sentinel(G, s, t, capacity="capacity", residual=None, value_only=False, **kwargs):
+        calls.append((s, t, capacity, kwargs.get("marker")))
+        return nx_flow.edmonds_karp(
+            G,
+            s,
+            t,
+            capacity=capacity,
+            residual=residual,
+            value_only=value_only,
+        )
+
+    fr = fnx.minimum_cut(fg, "s", "t", flow_func=sentinel, marker="fnx")
+    assert calls == [("s", "t", "capacity", "fnx")]
+
+    calls.clear()
+    nr = nx.minimum_cut(ng, "s", "t", flow_func=sentinel, marker="nx")
+    assert calls == [("s", "t", "capacity", "nx")]
+    assert fr == nr
+
+
+def test_minimum_cut_value_uses_custom_flow_func_and_forwards_kwargs():
+    fg, ng = _pair_directed([("s", "a", 3), ("a", "t", 3)])
+    calls = []
+
+    def sentinel(G, s, t, capacity="capacity", residual=None, value_only=False, **kwargs):
+        calls.append((s, t, capacity, kwargs.get("marker")))
+        return nx_flow.edmonds_karp(
+            G,
+            s,
+            t,
+            capacity=capacity,
+            residual=residual,
+            value_only=value_only,
+        )
+
+    fr = fnx.minimum_cut_value(fg, "s", "t", flow_func=sentinel, marker="fnx")
+    assert calls == [("s", "t", "capacity", "fnx")]
+
+    calls.clear()
+    nr = nx.minimum_cut_value(ng, "s", "t", flow_func=sentinel, marker="nx")
+    assert calls == [("s", "t", "capacity", "nx")]
+    assert fr == nr
