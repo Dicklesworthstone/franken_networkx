@@ -18187,11 +18187,15 @@ def havel_hakimi_graph(deg_sequence, create_using=None):
     degree_buckets = [[] for _ in range(p)]
     dmax = 0
     active = 0
-    for node, degree in enumerate(degree_sequence):
+    # NetworkX labels the nonzero-degree entries densely from 0 and leaves
+    # zero-degree entries as the trailing isolates already present in graph.
+    node = 0
+    for degree in degree_sequence:
         if degree > 0:
             degree_buckets[degree].append(node)
             dmax = max(dmax, degree)
             active += 1
+            node += 1
     if active == 0:
         return graph
 

@@ -102,6 +102,7 @@ HAVEL_HAKIMI_FIXTURES = [
     ("star_S_4_seq", [4, 1, 1, 1, 1]),
     ("cycle_C_4_seq", [2, 2, 2, 2]),
     ("path_P_5_seq", [2, 2, 2, 1, 1]),
+    ("leading_isolate_plus_K2", [0, 1, 1]),
     ("K_5_seq", [4, 4, 4, 4, 4]),
     ("uneven_seq", [3, 2, 2, 2, 1]),
     ("regular_3_seq_n6", [3, 3, 3, 3, 3, 3]),
