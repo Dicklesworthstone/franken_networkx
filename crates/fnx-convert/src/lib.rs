@@ -1,7 +1,7 @@
 #![forbid(unsafe_code)]
 
-use fnx_classes::digraph::{DiGraph, MultiDiGraph};
-use fnx_classes::{AttrMap, Graph, GraphError, GraphSnapshot, MultiGraph};
+use fnx_classes::digraph::{DiGraph, DiGraphSnapshot, MultiDiGraph, MultiDiGraphSnapshot};
+use fnx_classes::{AttrMap, Graph, GraphError, GraphSnapshot, MultiGraph, MultiGraphSnapshot};
 use fnx_dispatch::{BackendRegistry, BackendSpec, DispatchError, DispatchRequest};
 use fnx_runtime::{CompatibilityMode, DecisionAction, EvidenceLedger, EvidenceTerm, RuntimePolicy};
 use serde::{Deserialize, Serialize};
@@ -20,8 +20,14 @@ pub struct EdgeRecord {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EdgeListPayload {
+    /// br-payloaddefault: ``#[serde(default)]`` on both fields so an
+    /// empty payload ``{}`` deserializes as a 0-node 0-edge graph
+    /// (instead of failing with "missing field"). Either field alone
+    /// is also a valid payload — e.g. ``{"nodes": ["a"]}`` for an
+    /// isolated-node graph.
     #[serde(default)]
     pub nodes: Vec<String>,
+    #[serde(default)]
     pub edges: Vec<EdgeRecord>,
 }
 
@@ -36,6 +42,9 @@ pub struct AdjacencyEntry {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AdjacencyPayload {
+    /// See ``EdgeListPayload`` — empty ``{}`` deserializes to an
+    /// empty graph instead of failing with "missing field".
+    #[serde(default)]
     pub adjacency: BTreeMap<String, Vec<AdjacencyEntry>>,
 }
 
@@ -157,13 +166,17 @@ impl GraphConverter {
         payload: &EdgeListPayload,
     ) -> Result<ConvertReport, ConvertError> {
         let feature = "convert_edge_list";
-        self.dispatch.resolve(&DispatchRequest {
+        let resolve = self.dispatch.resolve(&DispatchRequest {
             operation: "convert_edge_list".to_owned(),
             requested_backend: None,
             required_features: set([feature]),
             risk_probability: 0.05,
             unknown_incompatible_feature: false,
-        })?;
+        });
+        if let Err(err) = &resolve {
+            self.record_dispatch_failure("convert_edge_list", err);
+        }
+        resolve?;
 
         let mut graph = Graph::new(self.mode);
         let mut warnings = Vec::new();
@@ -191,13 +204,17 @@ impl GraphConverter {
         payload: &EdgeListPayload,
     ) -> Result<DiConvertReport, ConvertError> {
         let feature = "convert_edge_list";
-        self.dispatch.resolve(&DispatchRequest {
+        let resolve = self.dispatch.resolve(&DispatchRequest {
             operation: "convert_edge_list".to_owned(),
             requested_backend: None,
             required_features: set([feature]),
             risk_probability: 0.05,
             unknown_incompatible_feature: false,
-        })?;
+        });
+        if let Err(err) = &resolve {
+            self.record_dispatch_failure("convert_edge_list", err);
+        }
+        resolve?;
 
         let mut graph = DiGraph::new(self.mode);
         let mut warnings = Vec::new();
@@ -225,13 +242,17 @@ impl GraphConverter {
         payload: &EdgeListPayload,
     ) -> Result<MultiConvertReport, ConvertError> {
         let feature = "convert_edge_list";
-        self.dispatch.resolve(&DispatchRequest {
+        let resolve = self.dispatch.resolve(&DispatchRequest {
             operation: "convert_edge_list".to_owned(),
             requested_backend: None,
             required_features: set([feature]),
             risk_probability: 0.05,
             unknown_incompatible_feature: false,
-        })?;
+        });
+        if let Err(err) = &resolve {
+            self.record_dispatch_failure("convert_edge_list", err);
+        }
+        resolve?;
 
         let mut graph = MultiGraph::new(self.mode);
         let mut warnings = Vec::new();
@@ -259,13 +280,17 @@ impl GraphConverter {
         payload: &EdgeListPayload,
     ) -> Result<MultiDiConvertReport, ConvertError> {
         let feature = "convert_edge_list";
-        self.dispatch.resolve(&DispatchRequest {
+        let resolve = self.dispatch.resolve(&DispatchRequest {
             operation: "convert_edge_list".to_owned(),
             requested_backend: None,
             required_features: set([feature]),
             risk_probability: 0.05,
             unknown_incompatible_feature: false,
-        })?;
+        });
+        if let Err(err) = &resolve {
+            self.record_dispatch_failure("convert_edge_list", err);
+        }
+        resolve?;
 
         let mut graph = MultiDiGraph::new(self.mode);
         let mut warnings = Vec::new();
@@ -393,13 +418,17 @@ impl GraphConverter {
         payload: &AdjacencyPayload,
     ) -> Result<ConvertReport, ConvertError> {
         let feature = "convert_adjacency";
-        self.dispatch.resolve(&DispatchRequest {
+        let resolve = self.dispatch.resolve(&DispatchRequest {
             operation: "convert_adjacency".to_owned(),
             requested_backend: None,
             required_features: set([feature]),
             risk_probability: 0.08,
             unknown_incompatible_feature: false,
-        })?;
+        });
+        if let Err(err) = &resolve {
+            self.record_dispatch_failure("convert_adjacency", err);
+        }
+        resolve?;
 
         let mut graph = Graph::new(self.mode);
         let mut warnings = Vec::new();
@@ -427,13 +456,17 @@ impl GraphConverter {
         payload: &AdjacencyPayload,
     ) -> Result<DiConvertReport, ConvertError> {
         let feature = "convert_adjacency";
-        self.dispatch.resolve(&DispatchRequest {
+        let resolve = self.dispatch.resolve(&DispatchRequest {
             operation: "convert_adjacency".to_owned(),
             requested_backend: None,
             required_features: set([feature]),
             risk_probability: 0.08,
             unknown_incompatible_feature: false,
-        })?;
+        });
+        if let Err(err) = &resolve {
+            self.record_dispatch_failure("convert_adjacency", err);
+        }
+        resolve?;
 
         let mut graph = DiGraph::new(self.mode);
         let mut warnings = Vec::new();
@@ -461,13 +494,17 @@ impl GraphConverter {
         payload: &AdjacencyPayload,
     ) -> Result<MultiConvertReport, ConvertError> {
         let feature = "convert_adjacency";
-        self.dispatch.resolve(&DispatchRequest {
+        let resolve = self.dispatch.resolve(&DispatchRequest {
             operation: "convert_adjacency".to_owned(),
             requested_backend: None,
             required_features: set([feature]),
             risk_probability: 0.08,
             unknown_incompatible_feature: false,
-        })?;
+        });
+        if let Err(err) = &resolve {
+            self.record_dispatch_failure("convert_adjacency", err);
+        }
+        resolve?;
 
         let mut graph = MultiGraph::new(self.mode);
         let mut warnings = Vec::new();
@@ -495,13 +532,17 @@ impl GraphConverter {
         payload: &AdjacencyPayload,
     ) -> Result<MultiDiConvertReport, ConvertError> {
         let feature = "convert_adjacency";
-        self.dispatch.resolve(&DispatchRequest {
+        let resolve = self.dispatch.resolve(&DispatchRequest {
             operation: "convert_adjacency".to_owned(),
             requested_backend: None,
             required_features: set([feature]),
             risk_probability: 0.08,
             unknown_incompatible_feature: false,
-        })?;
+        });
+        if let Err(err) = &resolve {
+            self.record_dispatch_failure("convert_adjacency", err);
+        }
+        resolve?;
 
         let mut graph = MultiDiGraph::new(self.mode);
         let mut warnings = Vec::new();
@@ -730,11 +771,46 @@ pub fn to_normalized_payload(graph: &Graph) -> GraphSnapshot {
     graph.snapshot()
 }
 
+/// br-convertapi: ``to_normalized_payload`` previously only handled
+/// the undirected ``Graph`` case, leaving ``DiGraph`` / ``MultiGraph``
+/// / ``MultiDiGraph`` callers to do their own ``.snapshot()`` call.
+/// Add the parallel variants so the API is symmetric across all four
+/// graph types.
+#[must_use]
+pub fn digraph_to_normalized_payload(graph: &DiGraph) -> DiGraphSnapshot {
+    graph.snapshot()
+}
+
+#[must_use]
+pub fn multigraph_to_normalized_payload(graph: &MultiGraph) -> MultiGraphSnapshot {
+    graph.snapshot()
+}
+
+#[must_use]
+pub fn multidigraph_to_normalized_payload(
+    graph: &MultiDiGraph,
+) -> MultiDiGraphSnapshot {
+    graph.snapshot()
+}
+
 fn set<const N: usize>(values: [&str; N]) -> BTreeSet<String> {
     values.into_iter().map(str::to_owned).collect()
 }
 
 impl GraphConverter {
+    /// br-dispatchaudit: when the dispatcher rejects a request the
+    /// converter previously returned the error directly without
+    /// leaving an audit-trail entry. Add a fail-closed decision so
+    /// ``evidence_ledger()`` reflects the rejection.
+    fn record_dispatch_failure(
+        &mut self,
+        operation: &'static str,
+        err: &DispatchError,
+    ) {
+        let message = format!("dispatch rejected: {err}");
+        self.record(operation, DecisionAction::FailClosed, &message, 1.0);
+    }
+
     fn record(
         &mut self,
         operation: &'static str,
@@ -1031,5 +1107,82 @@ mod tests {
 
         assert_eq!(report.graph.runtime_policy(), converter.runtime_policy());
         assert_eq!(&report.ledger, report.graph.evidence_ledger());
+    }
+
+    #[test]
+    fn empty_payload_deserializes_via_serde_default() {
+        // br-payloaddefault: serde defaults on EdgeListPayload.{nodes,edges}
+        // mean an empty JSON object decodes to an empty graph instead of
+        // failing with "missing field". Same for AdjacencyPayload.
+        let edge_list: EdgeListPayload = serde_json::from_str("{}").expect("empty edge list");
+        assert!(edge_list.nodes.is_empty() && edge_list.edges.is_empty());
+        let adj: AdjacencyPayload = serde_json::from_str("{}").expect("empty adjacency");
+        assert!(adj.adjacency.is_empty());
+        // Mixed: nodes only, no edges field (and vice versa).
+        let nodes_only: EdgeListPayload =
+            serde_json::from_str(r#"{"nodes":["a","b"]}"#).expect("nodes only");
+        assert_eq!(nodes_only.nodes.len(), 2);
+        assert!(nodes_only.edges.is_empty());
+        let edges_only: EdgeListPayload = serde_json::from_str(
+            r#"{"edges":[{"left":"a","right":"b"}]}"#,
+        )
+        .expect("edges only");
+        assert!(edges_only.nodes.is_empty());
+        assert_eq!(edges_only.edges.len(), 1);
+    }
+
+    #[test]
+    fn to_normalized_payload_variants_match_underlying_snapshot() {
+        // br-convertapi: digraph_to_normalized_payload, multigraph_*,
+        // multidigraph_* all defer to the underlying graph.snapshot().
+        // The audit added them for API symmetry; this test pins the
+        // contract that they don't drift from snapshot().
+        use fnx_classes::digraph::{DiGraph, MultiDiGraph};
+        use fnx_classes::{Graph, MultiGraph};
+
+        let mut g = Graph::new(CompatibilityMode::Strict);
+        let _ = g.add_edge_with_attrs("a", "b", AttrMap::new());
+        assert_eq!(super::to_normalized_payload(&g), g.snapshot());
+
+        let mut dg = DiGraph::new(CompatibilityMode::Strict);
+        let _ = dg.add_edge_with_attrs("a", "b", AttrMap::new());
+        assert_eq!(super::digraph_to_normalized_payload(&dg), dg.snapshot());
+
+        let mut mg = MultiGraph::new(CompatibilityMode::Strict);
+        let _ = mg.add_edge_with_attrs("a", "b", AttrMap::new());
+        assert_eq!(super::multigraph_to_normalized_payload(&mg), mg.snapshot());
+
+        let mut mdg = MultiDiGraph::new(CompatibilityMode::Strict);
+        let _ = mdg.add_edge_with_attrs("a", "b", AttrMap::new());
+        assert_eq!(
+            super::multidigraph_to_normalized_payload(&mdg),
+            mdg.snapshot()
+        );
+    }
+
+    #[test]
+    fn successful_conversion_records_decision_in_ledger() {
+        // br-dispatchaudit: even on the success path, the converter
+        // records its decision (operation completion) so the ledger
+        // is never empty after a real conversion. The new
+        // record_dispatch_failure helper is exercised in the
+        // negative path during integration testing.
+        let mut converter = GraphConverter::strict();
+        let payload = EdgeListPayload {
+            nodes: vec!["a".to_owned(), "b".to_owned()],
+            edges: vec![EdgeRecord {
+                left: "a".to_owned(),
+                right: "b".to_owned(),
+                key: None,
+                attrs: AttrMap::new(),
+            }],
+        };
+        let _ = converter
+            .from_edge_list(&payload)
+            .expect("conversion should succeed");
+        assert!(
+            !converter.evidence_ledger().is_empty(),
+            "successful conversion must log at least one decision"
+        );
     }
 }
