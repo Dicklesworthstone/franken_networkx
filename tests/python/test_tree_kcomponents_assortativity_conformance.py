@@ -185,21 +185,21 @@ def test_minimum_spanning_arborescence_total_weight_matches_networkx():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.skip(
-    reason="fnx.junction_tree produces a different structure than nx — "
-    "fnx returns clique-index nodes (0, 1, ...) while nx returns frozensets "
-    "of the underlying cliques. Out-of-scope for this conformance harness; "
-    "tracked separately."
-)
-def test_junction_tree_runs_on_chordal_graph():
+def test_junction_tree_matches_networkx_on_chordal_graph():
+    """br-r37-c1-7hq76: parity restored via delegation to nx so node
+    identifiers and sepset nodes match (was previously clique-index
+    integers without sepset nodes)."""
     fg = fnx.Graph()
     fg.add_edges_from([(0, 1), (1, 2), (2, 3), (3, 0), (0, 2)])
     ng = nx.Graph()
     ng.add_edges_from([(0, 1), (1, 2), (2, 3), (3, 0), (0, 2)])
     fr = fnx.junction_tree(fg)
     nr = nx.junction_tree(ng)
-    assert fr.number_of_nodes() == nr.number_of_nodes()
-    assert fr.number_of_edges() == nr.number_of_edges()
+    assert sorted(fr.nodes()) == sorted(nr.nodes())
+    assert sorted(fr.edges()) == sorted(nr.edges())
+    fr_types = sorted((n, d.get("type")) for n, d in fr.nodes(data=True))
+    nr_types = sorted((n, d.get("type")) for n, d in nr.nodes(data=True))
+    assert fr_types == nr_types
 
 
 def test_join_trees_matches_networkx():

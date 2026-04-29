@@ -28812,22 +28812,19 @@ sys.modules[f"{__name__}.isomorphism"] = isomorphism
 
 # Tree/Forest Utilities (br-xkr)
 def junction_tree(G):
-    """Junction tree of a chordal graph."""
-    if not is_chordal(G):
-        raise NetworkXError("Graph must be chordal for junction tree")
-    cliques = list(find_cliques(G))
-    JT = Graph()
-    for i, c in enumerate(cliques):
-        JT.add_node(i, clique=frozenset(c))
-    for i in range(len(cliques)):
-        for j in range(i + 1, len(cliques)):
-            overlap = len(set(cliques[i]) & set(cliques[j]))
-            if overlap > 0:
-                JT.add_edge(i, j, weight=-overlap)
-    if JT.number_of_edges() > 0:
-        mst = minimum_spanning_tree(JT)
-        return mst
-    return JT
+    """Junction tree of a graph.
+
+    br-r37-c1-7hq76: nx.junction_tree uses the sorted-tuple cliques
+    themselves as node identifiers and inserts intermediate sepset
+    nodes between connected cliques (so the tree is bipartite over
+    cliques and sepsets). It also moralizes directed inputs and
+    triangulates non-chordal graphs via complete_to_chordal_graph,
+    rather than rejecting them. The previous fnx implementation used
+    integer node IDs with a ``clique=frozenset(...)`` attribute and
+    omitted sepset nodes, breaking drop-in parity. Delegate to nx so
+    the returned tree's node/edge structure matches.
+    """
+    return _call_networkx_for_parity("junction_tree", G)
 
 
 def join_trees(rooted_trees, *, label_attribute=None, first_label=0):
