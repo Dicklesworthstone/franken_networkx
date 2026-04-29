@@ -6671,18 +6671,16 @@ def reciprocity(G, nodes=None, *, backend=None, **backend_kwargs):
 def wiener_index(G, weight=None, *, backend=None, **backend_kwargs):
     """Returns the Wiener index of the given graph.
 
-    Delegates to the Rust implementation
-    (``franken_networkx._fnx.wiener_index``) which dispatches across
-    four cases — undirected/directed × unweighted/weighted —
-    matching ``networkx.wiener_index(G, weight=weight)`` exactly.
-    Multigraph inputs fall back to the Python BFS/Dijkstra path
-    below because the Rust binding sees only the simple-graph view
-    of a multigraph (parallel edges' min-weight semantics differ).
+    Delegates the simple unweighted case to the Rust implementation
+    (``franken_networkx._fnx.wiener_index``). Weighted inputs use the
+    NetworkX parity bridge so callable weights, negative-weight errors,
+    and multigraph parallel-edge semantics follow NetworkX exactly.
     """
     _validate_backend_dispatch_keywords("wiener_index", backend, backend_kwargs)
 
-    # br-wienerport: route the unweighted case (the most common one)
-    # through the native Rust port, which dispatches on directedness.
+    # br-wienerport: route the unweighted simple-graph case (the most
+    # common one) through the native Rust port, which dispatches on
+    # directedness.
     # For weighted graphs we stay in Python: ``g[u][v]["weight"] = ...``
     # mutations don't propagate to the Rust adjacency storage, so the
     # Rust dijkstra would silently use the original (often default-1)
@@ -6702,6 +6700,9 @@ def wiener_index(G, weight=None, *, backend=None, **backend_kwargs):
             return float("inf")
         return value
 
+    if weight is not None:
+        return _call_networkx_for_parity("wiener_index", G, weight=weight)
+
     connected = is_strongly_connected(G) if G.is_directed() else is_connected(G)
     if not connected:
         return float("inf")
@@ -6719,36 +6720,7 @@ def wiener_index(G, weight=None, *, backend=None, **backend_kwargs):
                 queue.append(neighbor)
         return lengths
 
-    def _single_source_weighted_lengths(source):
-        distances = {source: 0.0}
-        queue = [(0.0, next(counter), source)]
-
-        while queue:
-            distance, _, node = heappop(queue)
-            if distance > distances[node]:
-                continue
-
-            for neighbor in G.neighbors(node):
-                edge_data = G.get_edge_data(node, neighbor)
-                if G.is_multigraph():
-                    edge_weight = min(
-                        attrs.get(weight, 1) for attrs in edge_data.values()
-                    )
-                else:
-                    edge_weight = edge_data.get(weight, 1)
-
-                candidate = distance + edge_weight
-                if candidate < distances.get(neighbor, float("inf")):
-                    distances[neighbor] = candidate
-                    heappush(queue, (candidate, next(counter), neighbor))
-
-        return distances
-
-    if weight is None:
-        total = sum(sum(_single_source_unweighted_lengths(node).values()) for node in G)
-    else:
-        counter = count()
-        total = sum(sum(_single_source_weighted_lengths(node).values()) for node in G)
+    total = sum(sum(_single_source_unweighted_lengths(node).values()) for node in G)
 
     return total if G.is_directed() else total / 2
 

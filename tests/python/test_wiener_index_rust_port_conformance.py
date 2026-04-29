@@ -237,6 +237,41 @@ def test_directed_weighted_matches_networkx(name, builder):
     assert _close(fr, nr, tol=1e-9), f"{name}: fnx={fr} nx={nr}"
 
 
+@pytest.mark.parametrize(
+    "directed",
+    [False, True],
+    ids=["undirected", "directed"],
+)
+def test_callable_weight_matches_networkx(directed):
+    fg = fnx.DiGraph() if directed else fnx.Graph()
+    ng = nx.DiGraph() if directed else nx.Graph()
+    edges = [(0, 1, {"w": 2}), (1, 2, {"w": 3})]
+    if directed:
+        edges.append((2, 0, {"w": 4}))
+    fg.add_edges_from(edges)
+    ng.add_edges_from(edges)
+
+    def double_weight(_u, _v, attrs):
+        return attrs.get("w", 1) * 2
+
+    fr = fnx.wiener_index(fg, weight=double_weight)
+    nr = nx.wiener_index(ng, weight=double_weight)
+    assert _close(fr, nr, tol=1e-9), f"fnx={fr} nx={nr}"
+
+
+def test_undirected_negative_weight_raises_like_networkx():
+    fg = fnx.Graph()
+    ng = nx.Graph()
+    edges = [(0, 1, -1), (1, 2, 2), (0, 2, 4)]
+    fg.add_weighted_edges_from(edges)
+    ng.add_weighted_edges_from(edges)
+
+    with pytest.raises(ValueError, match="negative weights"):
+        nx.wiener_index(ng, weight="weight")
+    with pytest.raises(ValueError, match="negative weights"):
+        fnx.wiener_index(fg, weight="weight")
+
+
 # ---------------------------------------------------------------------------
 # 5. Disconnected and corner cases — both libs must report inf
 # ---------------------------------------------------------------------------
