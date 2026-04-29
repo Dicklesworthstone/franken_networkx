@@ -32,6 +32,10 @@ enum ShortestPathInput {
     SingleSource(ArbitraryGraph),
     /// Multi-source dijkstra.
     MultiSource(ArbitraryWeightedGraph),
+    /// All shortest paths via Bellman-Ford on undirected graph.
+    AllShortestPathsBellmanFordUndirected(ArbitraryWeightedGraph),
+    /// All shortest paths via Bellman-Ford on directed graph.
+    AllShortestPathsBellmanFordDirected(ArbitraryWeightedDiGraph),
 }
 
 fn bfs_distance_graph(graph: &Graph, source: &str, target: &str) -> Option<usize> {
@@ -381,5 +385,165 @@ fuzz_target!(|input: ShortestPathInput| {
                 let _ = fnx_algorithms::multi_source_dijkstra(&ag.graph, &sources, &ag.weight_attr);
             }
         }
+        ShortestPathInput::AllShortestPathsBellmanFordUndirected(ag) => {
+            if ag.nodes.len() >= 2 {
+                let src = &ag.nodes[0];
+                let dst = &ag.nodes[ag.nodes.len() - 1];
+                let result = fnx_algorithms::all_shortest_paths_weighted_bellman_ford(
+                    &ag.graph,
+                    src,
+                    dst,
+                    &ag.weight_attr,
+                );
+                assert_all_shortest_paths_bellman_ford_graph(
+                    &ag.graph,
+                    src,
+                    dst,
+                    &ag.weight_attr,
+                    &result,
+                );
+            }
+        }
+        ShortestPathInput::AllShortestPathsBellmanFordDirected(ag) => {
+            if ag.nodes.len() >= 2 {
+                let src = &ag.nodes[0];
+                let dst = &ag.nodes[ag.nodes.len() - 1];
+                let result = fnx_algorithms::all_shortest_paths_weighted_directed_bellman_ford(
+                    &ag.graph,
+                    src,
+                    dst,
+                    &ag.weight_attr,
+                );
+                assert_all_shortest_paths_bellman_ford_digraph(
+                    &ag.graph,
+                    src,
+                    dst,
+                    &ag.weight_attr,
+                    &result,
+                );
+            }
+        }
     }
 });
+
+fn assert_all_shortest_paths_bellman_ford_graph(
+    graph: &Graph,
+    source: &str,
+    target: &str,
+    weight_attr: &str,
+    result: &Result<Vec<Vec<String>>, ()>,
+) {
+    let paths = match result {
+        // Negative cycle detected — caller wraps as NetworkXUnbounded.
+        // Implementation invariant: only reachable when at least one
+        // edge has a finite negative weight (or weights make 0-cost
+        // unbounded loops).
+        Err(()) => return,
+        Ok(paths) => paths,
+    };
+    if !graph.has_node(source) || !graph.has_node(target) {
+        assert!(paths.is_empty());
+        return;
+    }
+    if source == target {
+        assert_eq!(paths, &vec![vec![source.to_owned()]]);
+        return;
+    }
+    let brute = brute_weighted_distance_graph(graph, source, target, weight_attr);
+    if paths.is_empty() {
+        // Either target unreachable, or all paths have non-finite cost.
+        assert!(brute.is_none() || !brute.unwrap().is_finite());
+        return;
+    }
+    if !graph_has_only_nonnegative_weights(graph, weight_attr) {
+        // brute_weighted_distance_graph relaxes both directions and
+        // would diverge on negative-weight undirected edges; skip the
+        // distance comparison but still validate path structure.
+        validate_paths_structure_graph(graph, source, target, paths);
+        return;
+    }
+    let expected = brute.expect("path exists, so brute should produce a finite distance");
+    for path in paths {
+        assert_eq!(path.first().map(String::as_str), Some(source));
+        assert_eq!(path.last().map(String::as_str), Some(target));
+        let actual = graph_path_weight(graph, path, weight_attr);
+        assert!(
+            (actual - expected).abs() <= EPSILON,
+            "all_shortest_paths_bellman_ford undirected weight mismatch: \
+             actual={actual} expected={expected} path={path:?}"
+        );
+    }
+    validate_paths_structure_graph(graph, source, target, paths);
+}
+
+fn assert_all_shortest_paths_bellman_ford_digraph(
+    digraph: &DiGraph,
+    source: &str,
+    target: &str,
+    weight_attr: &str,
+    result: &Result<Vec<Vec<String>>, ()>,
+) {
+    let paths = match result {
+        Err(()) => return,
+        Ok(paths) => paths,
+    };
+    if !digraph.has_node(source) || !digraph.has_node(target) {
+        assert!(paths.is_empty());
+        return;
+    }
+    if source == target {
+        assert_eq!(paths, &vec![vec![source.to_owned()]]);
+        return;
+    }
+    let brute = brute_weighted_distance_digraph(digraph, source, target, weight_attr);
+    if paths.is_empty() {
+        assert!(brute.is_none() || !brute.unwrap().is_finite());
+        return;
+    }
+    if !digraph_has_only_nonnegative_weights(digraph, weight_attr) {
+        validate_paths_structure_digraph(digraph, source, target, paths);
+        return;
+    }
+    let expected = brute.expect("path exists, so brute should produce a finite distance");
+    for path in paths {
+        assert_eq!(path.first().map(String::as_str), Some(source));
+        assert_eq!(path.last().map(String::as_str), Some(target));
+        let actual = digraph_path_weight(digraph, path, weight_attr);
+        assert!(
+            (actual - expected).abs() <= EPSILON,
+            "all_shortest_paths_bellman_ford directed weight mismatch: \
+             actual={actual} expected={expected} path={path:?}"
+        );
+    }
+    validate_paths_structure_digraph(digraph, source, target, paths);
+}
+
+fn validate_paths_structure_graph(
+    graph: &Graph,
+    source: &str,
+    target: &str,
+    paths: &[Vec<String>],
+) {
+    for path in paths {
+        assert_eq!(path.first().map(String::as_str), Some(source));
+        assert_eq!(path.last().map(String::as_str), Some(target));
+        for edge in path.windows(2) {
+            assert!(graph.has_edge(&edge[0], &edge[1]));
+        }
+    }
+}
+
+fn validate_paths_structure_digraph(
+    digraph: &DiGraph,
+    source: &str,
+    target: &str,
+    paths: &[Vec<String>],
+) {
+    for path in paths {
+        assert_eq!(path.first().map(String::as_str), Some(source));
+        assert_eq!(path.last().map(String::as_str), Some(target));
+        for edge in path.windows(2) {
+            assert!(digraph.has_edge(&edge[0], &edge[1]));
+        }
+    }
+}
