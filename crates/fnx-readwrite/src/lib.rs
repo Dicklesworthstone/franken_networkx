@@ -3392,7 +3392,7 @@ impl EdgeListEngine {
         out.push_str("graph [\n");
         out.push_str(&format!("  directed {}\n", if directed { 1 } else { 0 }));
         for (key, value) in graph_attrs {
-            out.push_str(&format!("  {} {}\n", key, gml_value_str(value)));
+            push_gml_attr(&mut out, 2, key, value);
         }
 
         // Build node-name → id map (use integer label if parseable, otherwise assign sequentially)
@@ -3427,7 +3427,7 @@ impl EdgeListEngine {
             out.push_str(&format!("    label \"{}\"\n", gml_escape(node_name)));
             if let Some(attrs) = graph.node_attrs(node_name) {
                 for (key, value) in attrs {
-                    out.push_str(&format!("    {} {}\n", key, gml_value_str(value)));
+                    push_gml_attr(&mut out, 4, key, value);
                 }
             }
             out.push_str("  ]\n");
@@ -3458,7 +3458,7 @@ impl EdgeListEngine {
             out.push_str(&format!("    source {src_id}\n"));
             out.push_str(&format!("    target {tgt_id}\n"));
             for (key, value) in &edge.attrs {
-                out.push_str(&format!("    {} {}\n", key, gml_value_str(value)));
+                push_gml_attr(&mut out, 4, key, value);
             }
             out.push_str("  ]\n");
         }
@@ -4184,6 +4184,33 @@ fn parse_gml_nested_attr(tokens: &[String], mut pos: usize) -> (AttrMap, usize, 
     }
 
     (map, pos, false)
+}
+
+fn push_gml_attr(out: &mut String, indent: usize, key: &str, value: &CgseValue) {
+    push_gml_indent(out, indent);
+    match value {
+        CgseValue::Map(map) => {
+            out.push_str(key);
+            out.push_str(" [\n");
+            for (nested_key, nested_value) in map {
+                push_gml_attr(out, indent + 2, nested_key, nested_value);
+            }
+            push_gml_indent(out, indent);
+            out.push_str("]\n");
+        }
+        _ => {
+            out.push_str(key);
+            out.push(' ');
+            out.push_str(&gml_value_str(value));
+            out.push('\n');
+        }
+    }
+}
+
+fn push_gml_indent(out: &mut String, indent: usize) {
+    for _ in 0..indent {
+        out.push(' ');
+    }
 }
 
 /// Escape a string for GML output (wrap in quotes).
@@ -6430,6 +6457,99 @@ mod tests {
         );
 
         let edge_attrs = parsed.graph.edge_attrs("a", "b").expect("edge attrs");
+        let edge_graphics = match edge_attrs.get("graphics") {
+            Some(CgseValue::Map(map)) => map,
+            other => {
+                assert!(matches!(other, Some(CgseValue::Map(_))));
+                return;
+            }
+        };
+        assert_eq!(
+            edge_graphics.get("width"),
+            Some(&CgseValue::String("2".to_owned()))
+        );
+    }
+
+    #[test]
+    fn gml_nested_attrs_round_trip_as_nested_blocks() {
+        let input = r#"graph [
+  directed 0
+  metadata [
+    owner "qa"
+    nested [
+      level "inner"
+    ]
+  ]
+  node [
+    id 0
+    label "a"
+    graphics [
+      fill "red"
+    ]
+  ]
+  node [
+    id 1
+    label "b"
+  ]
+  edge [
+    source 0
+    target 1
+    graphics [
+      width "2"
+    ]
+  ]
+]"#;
+
+        let mut engine = EdgeListEngine::strict();
+        let parsed = engine.read_gml(input).expect("gml read should succeed");
+        let written = engine
+            .write_gml_with_graph_attrs(&parsed.graph, &parsed.graph_attrs)
+            .expect("gml write should succeed");
+
+        assert!(written.contains("  metadata [\n"));
+        assert!(written.contains("    nested [\n"));
+        assert!(written.contains("    graphics [\n"));
+
+        let reparsed = engine
+            .read_gml(&written)
+            .expect("rewritten gml should parse");
+        let metadata = match reparsed.graph_attrs.get("metadata") {
+            Some(CgseValue::Map(map)) => map,
+            other => {
+                assert!(matches!(other, Some(CgseValue::Map(_))));
+                return;
+            }
+        };
+        assert_eq!(
+            metadata.get("owner"),
+            Some(&CgseValue::String("qa".to_owned()))
+        );
+        let nested = match metadata.get("nested") {
+            Some(CgseValue::Map(map)) => map,
+            other => {
+                assert!(matches!(other, Some(CgseValue::Map(_))));
+                return;
+            }
+        };
+        assert_eq!(
+            nested.get("level"),
+            Some(&CgseValue::String("inner".to_owned()))
+        );
+
+        let node_attrs = reparsed.graph.node_attrs("a").expect("node attrs");
+        let node_graphics = match node_attrs.get("graphics") {
+            Some(CgseValue::Map(map)) => map,
+            other => {
+                assert!(matches!(other, Some(CgseValue::Map(_))));
+                return;
+            }
+        };
+        assert_eq!(
+            node_graphics.get("fill"),
+            Some(&CgseValue::String("red".to_owned()))
+        );
+
+        let edge_attrs = reparsed.graph.edge_attrs("a", "b").expect("edge attrs");
         let edge_graphics = match edge_attrs.get("graphics") {
             Some(CgseValue::Map(map)) => map,
             other => {
