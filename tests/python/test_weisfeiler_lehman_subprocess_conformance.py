@@ -125,16 +125,33 @@ _WORKER = textwrap.dedent(
     """,
 )
 
+_WORKER_TIMEOUT_SECONDS = 60
+
+
+def _stream_text(value):
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return value
+
 
 def _run_worker(module_name, cases):
-    proc = subprocess.run(  # nosec B603 - argv is static and shell=False.
-        [sys.executable, "-c", _WORKER],
-        input=json.dumps({"module": module_name, "cases": cases}),
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        check=True,
-    )
+    try:
+        proc = subprocess.run(  # nosec B603 - argv is static and shell=False.
+            [sys.executable, "-c", _WORKER],
+            input=json.dumps({"module": module_name, "cases": cases}),
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
+            timeout=_WORKER_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise AssertionError(
+            f"{module_name} worker timed out after {exc.timeout}s:\n"
+            f"stdout={_stream_text(exc.stdout)!r}\nstderr={_stream_text(exc.stderr)!r}",
+        ) from exc
     decoder = json.JSONDecoder()
     try:
         return decoder.decode(proc.stdout)
