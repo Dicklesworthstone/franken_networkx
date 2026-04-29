@@ -1,10 +1,10 @@
 """NetworkX conformance for the graph coloring algorithm family.
 
 Covers ``greedy_color`` across all 7 strategies, ``equitable_color``,
-and the supporting strategy callables ``strategy_largest_first``,
-``strategy_smallest_last``, ``strategy_independent_set``,
-``strategy_connected_sequential_bfs``, ``strategy_connected_sequential_dfs``,
-``strategy_random_sequential``, ``strategy_saturation_largest_first``.
+and the stateless supporting strategy callables
+``strategy_largest_first``, ``strategy_smallest_last``,
+``strategy_independent_set``, ``strategy_connected_sequential_bfs``,
+and ``strategy_connected_sequential_dfs``.
 
 Each test asserts:
 
@@ -16,8 +16,8 @@ Each test asserts:
    path that interchanges colors when beneficial).
 4. ``equitable_color`` parity (constraint: color-class sizes differ
    by at most 1).
-5. Strategy-callables called directly produce identical permutation
-   orderings.
+5. Stateless strategy-callables called directly produce identical
+   permutation orderings.
 
 Existing ``test_greedy_color_order_parity.py`` only checked dict
 iteration order on a single 5-node fixture; this suite exercises
@@ -49,11 +49,6 @@ DETERMINISTIC_STRATEGIES = [
     "connected_sequential_dfs",
     "saturation_largest_first",
 ]
-
-
-# ``random_sequential`` shuffles the node list so without a seeded
-# callable it's non-deterministic. Tested separately via callable.
-ALL_STRATEGIES = DETERMINISTIC_STRATEGIES + ["random_sequential"]
 
 
 # Strategies that NX rejects with NetworkXPointlessConcept when paired
@@ -321,8 +316,10 @@ def test_greedy_color_empty_graph_returns_empty_dict():
 
 
 def test_greedy_color_single_node_returns_zero():
-    fg = fnx.Graph(); fg.add_node(0)
-    ng = nx.Graph(); ng.add_node(0)
+    fg = fnx.Graph()
+    fg.add_node(0)
+    ng = nx.Graph()
+    ng.add_node(0)
     assert fnx.greedy_color(fg) == nx.greedy_color(ng)
 
 
