@@ -226,6 +226,16 @@ def test_algorithm_residual_flow_value_matches_maximum_flow_value(
     )
 
 
+@pytest.mark.parametrize("capacity", [None, "bad"])
+def test_edmonds_karp_malformed_capacity_raises_like_networkx(capacity):
+    fg, ng = _pair_directed([("s", "t", capacity)])
+    with pytest.raises(Exception) as nx_exc:
+        nx_flow.edmonds_karp(ng, "s", "t")
+    with pytest.raises(type(nx_exc.value)) as fnx_exc:
+        fnx.edmonds_karp(fg, "s", "t")
+    assert str(fnx_exc.value) == str(nx_exc.value)
+
+
 # ---------------------------------------------------------------------------
 # Min-cut partition validity
 # ---------------------------------------------------------------------------

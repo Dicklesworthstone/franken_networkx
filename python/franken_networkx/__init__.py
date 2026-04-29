@@ -4964,8 +4964,6 @@ def edmonds_karp(
     cutoff=None,
 ):
     """Find a maximum single-commodity flow using the Edmonds-Karp algorithm."""
-    del value_only
-
     if source not in G:
         raise NetworkXError(f"node {source} not in graph")
     if sink not in G:
@@ -4974,6 +4972,17 @@ def edmonds_karp(
         raise NetworkXError("source and sink are the same node")
 
     if residual is None:
+        if _flow_has_infinite_capacity(G, capacity):
+            return _call_networkx_flow_for_parity(
+                "edmonds_karp",
+                G,
+                source,
+                sink,
+                capacity=capacity,
+                residual=residual,
+                value_only=value_only,
+                cutoff=cutoff,
+            )
         residual = _build_flow_residual_network(G, capacity)
 
     for node in residual:
