@@ -192,10 +192,14 @@ def test_predictor_with_ebunch_matches_networkx(name, edges, nodes, ebunch, fn_n
         warnings.simplefilter("ignore")
         fr = list(getattr(fnx, fn_name)(fg, ebunch=ebunch))
         nr = list(getattr(nx, fn_name)(ng, ebunch=ebunch))
-    assert fr == nr or all(
-        (f[0], f[1]) == (n[0], n[1]) and _equiv(f[2], n[2])
-        for f, n in zip(fr, nr)
-    ), f"{name} {fn_name}: fnx={fr} nx={nr}"
+    assert len(fr) == len(nr), f"{name} {fn_name}: lens differ"
+    for f, n in zip(fr, nr):
+        assert (f[0], f[1]) == (n[0], n[1]), (
+            f"{name} {fn_name}: pair order diverged at {f} vs {n}"
+        )
+        assert _equiv(f[2], n[2]), (
+            f"{name} {fn_name}: score for ({f[0]},{f[1]}) fnx={f[2]} nx={n[2]}"
+        )
 
 
 # ---------------------------------------------------------------------------
