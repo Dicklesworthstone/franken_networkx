@@ -36,6 +36,10 @@ def _close(a, b, *, tol=1e-9):
         af, bf = float(a), float(b)
         if math.isnan(af) and math.isnan(bf):
             return True
+        if math.isinf(af) and math.isinf(bf):
+            return (af > 0) == (bf > 0)
+        if math.isinf(af) or math.isinf(bf):
+            return False
         return abs(af - bf) <= tol * max(1.0, abs(af), abs(bf))
     return a == b
 
@@ -206,6 +210,72 @@ def test_default_weight_used_for_unset_attributes_matches_networkx():
         fr = fnx.dag_longest_path_length(fg, weight="weight", default_weight=default)
         nr = nx.dag_longest_path_length(ng, weight="weight", default_weight=default)
         assert _close(fr, nr), f"default_weight={default}: fnx={fr} nx={nr}"
+
+
+@pytest.mark.parametrize(
+    "bad_weight",
+    ["bad", None],
+    ids=["string", "none"],
+)
+def test_non_numeric_weight_value_errors_like_networkx(bad_weight):
+    fg = fnx.DiGraph()
+    ng = nx.DiGraph()
+    fg.add_edge(0, 1, weight=bad_weight)
+    fg.add_edge(1, 2, weight=2)
+    ng.add_edge(0, 1, weight=bad_weight)
+    ng.add_edge(1, 2, weight=2)
+
+    with pytest.raises(TypeError):
+        nx.dag_longest_path_length(ng, weight="weight")
+    with pytest.raises(TypeError):
+        fnx.dag_longest_path_length(fg, weight="weight")
+
+
+@pytest.mark.parametrize(
+    "special_weight",
+    [float("inf"), float("nan")],
+    ids=["inf", "nan"],
+)
+def test_non_finite_weight_value_matches_networkx(special_weight):
+    fg = fnx.DiGraph()
+    ng = nx.DiGraph()
+    fg.add_edge(0, 1, weight=special_weight)
+    fg.add_edge(1, 2, weight=2)
+    ng.add_edge(0, 1, weight=special_weight)
+    ng.add_edge(1, 2, weight=2)
+
+    fr = fnx.dag_longest_path_length(fg, weight="weight")
+    nr = nx.dag_longest_path_length(ng, weight="weight")
+    assert _close(fr, nr), f"fnx={fr} nx={nr}"
+
+
+def test_none_weight_key_matches_networkx():
+    fg = fnx.DiGraph()
+    ng = nx.DiGraph()
+    fg.add_edge(0, 1)
+    fg.add_edge(1, 2)
+    ng.add_edge(0, 1)
+    ng.add_edge(1, 2)
+    fg[0][1][None] = 10
+    ng[0][1][None] = 10
+
+    fr = fnx.dag_longest_path_length(fg, weight=None, default_weight=1)
+    nr = nx.dag_longest_path_length(ng, weight=None, default_weight=1)
+    assert fr == nr
+
+
+def test_large_integer_weight_preserves_networkx_exactness():
+    huge = 2**53 + 1
+    fg = fnx.DiGraph()
+    ng = nx.DiGraph()
+    fg.add_edge(0, 1, weight=huge)
+    fg.add_edge(1, 2, weight=1)
+    ng.add_edge(0, 1, weight=huge)
+    ng.add_edge(1, 2, weight=1)
+
+    fr = fnx.dag_longest_path_length(fg, weight="weight")
+    nr = nx.dag_longest_path_length(ng, weight="weight")
+    assert fr == nr
 
 
 # ---------------------------------------------------------------------------

@@ -9232,18 +9232,37 @@ def dag_longest_path(G, weight="weight", default_weight=1, topo_order=None):
     return path
 
 
-def _dag_has_weight_edge_attr(G, weight):
-    """Return True if any edge in ``G`` has the ``weight`` attribute
-    set — used by dag_longest_path / dag_longest_path_length to decide
-    whether to delegate to nx for correct weighted-path selection
-    (the Rust fast path ignores edge weights).
+def _dag_length_rust_weight_attrs_safe(G, weight):
+    """Return True when edge weights are safe for the Rust length fast path.
+
+    NetworkX reads edge values directly with ``data.get(weight,
+    default_weight)``. The Rust storage only exposes finite numeric
+    CGSE values to the native algorithm, so non-numeric values,
+    non-finite floats, oversized integers, and ``None`` as an actual
+    edge-attribute key must stay on the parity bridge.
     """
+    if weight is None:
+        for _, _, attrs in G.edges(data=True):
+            if isinstance(attrs, dict) and None in attrs:
+                return False
+        return True
     if not isinstance(weight, str):
         return False
     for _, _, attrs in G.edges(data=True):
         if isinstance(attrs, dict) and weight in attrs:
-            return True
-    return False
+            value = attrs[weight]
+            if isinstance(value, bool):
+                continue
+            if type(value) is int:
+                if abs(value) > 2**53:
+                    return False
+                continue
+            if type(value) is float:
+                if not math.isfinite(value):
+                    return False
+                continue
+            return False
+    return True
 
 
 def dag_longest_path_length(G, weight="weight", default_weight=1):
@@ -9282,6 +9301,7 @@ def dag_longest_path_length(G, weight="weight", default_weight=1):
         not G.is_multigraph()
         and (weight is None or isinstance(weight, str))
         and isinstance(default_weight, (int, float))
+        and _dag_length_rust_weight_attrs_safe(G, weight)
     ):
         # br-daglencycle: nx surfaces a cyclic-graph error via
         # topological_sort, which raises NetworkXUnfeasible with the
