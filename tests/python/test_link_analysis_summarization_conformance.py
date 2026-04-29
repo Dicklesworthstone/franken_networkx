@@ -165,7 +165,17 @@ def test_hits_returns_well_formed_dicts(name, builder):
     - Both fnx.hits and nx.hits return a 2-tuple of dicts.
     - Both dicts have exactly the graph node set as keys.
     - Both libraries agree on which nodes are zero-weight (the same
-      isolates / sinks / sources).
+      isolates / sinks / sources) — except on graphs whose link
+      structure has eigenvalue degeneracy, where power iteration
+      legitimately leaves *different* nodes at zero across runs.
+
+    br-r37-c1-x40ng: the directed C_4 fixture is one such degenerate
+    graph — its link matrix has four eigenvalues of equal magnitude
+    (the fourth roots of unity), so HITS power-iteration outcomes are
+    initial-vector-sensitive. Both nx and fnx return numerical noise
+    of the same magnitude but different zero-support across runs. The
+    zero-support assertion below is therefore skipped for that
+    fixture.
     """
     fg = builder(fnx)
     ng = builder(nx)
@@ -183,8 +193,9 @@ def test_hits_returns_well_formed_dicts(name, builder):
     # Both should be finite-valued.
     assert all(math.isfinite(v) for v in f_h.values())
     assert all(math.isfinite(v) for v in f_a.values())
-    assert _zero_support(f_h) == _zero_support(n_h), f"{name}: zero hub support"
-    assert _zero_support(f_a) == _zero_support(n_a), f"{name}: zero authority support"
+    if name != "dir_cycle_4":
+        assert _zero_support(f_h) == _zero_support(n_h), f"{name}: zero hub support"
+        assert _zero_support(f_a) == _zero_support(n_a), f"{name}: zero authority support"
 
 
 # ---------------------------------------------------------------------------
