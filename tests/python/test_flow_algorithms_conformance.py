@@ -354,6 +354,37 @@ def test_high_level_flow_treats_negative_capacity_like_networkx():
     assert fnx.minimum_cut(fg, "s", "t") == nx.minimum_cut(ng, "s", "t")
 
 
+@pytest.mark.parametrize(
+    "function",
+    [nx.maximum_flow, nx.maximum_flow_value, nx.minimum_cut, nx.minimum_cut_value],
+)
+def test_high_level_flow_rejects_numeric_string_capacity_like_networkx(function):
+    fg, ng = _pair_directed([("s", "t", "3")])
+
+    with pytest.raises(TypeError) as nx_exc:
+        function(ng, "s", "t")
+    with pytest.raises(TypeError) as fnx_exc:
+        getattr(fnx, function.__name__)(fg, "s", "t")
+    assert str(fnx_exc.value) == str(nx_exc.value)
+
+
+@pytest.mark.parametrize("capacity,expected", [(True, 1), (False, 0)])
+def test_high_level_flow_boolean_capacity_preserves_networkx_int_type(
+    capacity, expected,
+):
+    fg, ng = _pair_directed([("s", "t", capacity)])
+
+    fnx_value = fnx.maximum_flow_value(fg, "s", "t")
+    nx_value = nx.maximum_flow_value(ng, "s", "t")
+    assert fnx_value == nx_value == expected
+    assert isinstance(fnx_value, int)
+
+    fnx_cut_value = fnx.minimum_cut_value(fg, "s", "t")
+    nx_cut_value = nx.minimum_cut_value(ng, "s", "t")
+    assert fnx_cut_value == nx_cut_value == expected
+    assert isinstance(fnx_cut_value, int)
+
+
 @pytest.mark.parametrize("algorithm", ALGORITHMS)
 def test_source_equals_target_raises_or_zero(algorithm):
     """``s == t`` is degenerate — both libraries must mirror exactly

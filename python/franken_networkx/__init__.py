@@ -4738,9 +4738,10 @@ def _all_flow_caps_integral(G, capacity):
     flow result can be coerced back to int for nx-type parity
     (br-flowt).
     """
+    import numbers as _numbers
     for _, _, data in G.edges(data=True):
         val = data.get(capacity, 1) if isinstance(data, dict) else 1
-        if isinstance(val, bool) or not isinstance(val, int):
+        if not isinstance(val, _numbers.Integral):
             return False
     return True
 
@@ -4785,14 +4786,14 @@ def _flow_has_infinite_capacity(flowG, capacity):
     edges.
     """
     import math as _math
+    import numbers as _numbers
     for _, _, attrs in flowG.edges(data=True):
         cap = attrs.get(capacity, float("inf"))
         if cap is None:
             return True
-        try:
-            cap_f = float(cap)
-        except (TypeError, ValueError):
+        if not isinstance(cap, _numbers.Real):
             return True
+        cap_f = float(cap)
         if _math.isinf(cap_f) or _math.isnan(cap_f) or cap_f < 0:
             return True
     return False
