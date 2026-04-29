@@ -22347,8 +22347,26 @@ def harmonic_diameter(G, sp=None, *, weight=None):
     ``weight`` is accepted for networkx signature parity. When set, the
     calculation delegates to networkx so edge weights are honoured; the
     native Rust path assumes unit-distance edges.
+
+    br-harmdir: NetworkX considers ordered pairs ``(u, v)`` for
+    directed input — six pairs for ``DiGraph`` C_3 with mixed
+    distances {1, 2, 2, 1, 1, 2} → harmonic_diameter = 6 / 4.5 ≈ 1.333.
+    The Rust ``harmonic_diameter_rust`` calls ``gr.undirected()`` and
+    folds antiparallel directions, computing 1.0 instead. Same shape as
+    the eccentricity / is_eulerian / is_tree / core_number directed-
+    collapse defects fixed earlier (07303b1, 73f199a, 6c4a1e6, e7cd197).
+    Delegate to NX whenever the input is directed.
     """
-    if weight is not None:
+    if (
+        weight is not None
+        or sp is not None
+        or G.is_directed()
+        or G.number_of_nodes() < 2
+    ):
+        # br-harmtrivial: NX's harmonic_diameter returns NaN on graphs
+        # with fewer than 2 nodes (the formula divides by 0). The Rust
+        # path returns 0.0. Delegate trivial cases so the contract
+        # matches.
         return _call_networkx_for_parity(
             "harmonic_diameter", G, sp=sp, weight=weight
         )
