@@ -1049,6 +1049,32 @@ class TestGeneratorErrorPathParity:
         ):
             fnx.connected_watts_strogatz_graph(5, 10, 0.5, tries=10, seed=1)
 
+    def test_connected_watts_strogatz_null_graph_uses_nx_exception(self):
+        with pytest.raises(
+            fnx.NetworkXPointlessConcept,
+            match=r"Connectivity is undefined for the null graph\.",
+        ):
+            fnx.connected_watts_strogatz_graph(0, 0, 0.5, tries=10, seed=1)
+
+    def test_connected_watts_strogatz_small_single_node_matches_nx(self):
+        import networkx as nx
+
+        for k in (-2, -1, 0):
+            fg = fnx.connected_watts_strogatz_graph(1, k, 0.5, tries=10, seed=1)
+            ng = nx.connected_watts_strogatz_graph(1, k, 0.5, tries=10, seed=1)
+            assert fg.number_of_nodes() == ng.number_of_nodes() == 1
+            assert fg.number_of_edges() == ng.number_of_edges() == 0
+
+    def test_connected_watts_strogatz_small_k_uses_nx_tries_error(self):
+        for n in (2, 5):
+            for k in (-1, 0, 1):
+                with pytest.raises(
+                    fnx.NetworkXError, match=r"Maximum number of tries exceeded"
+                ):
+                    fnx.connected_watts_strogatz_graph(
+                        n, k, 0.5, tries=3, seed=1
+                    )
+
     def test_connected_watts_strogatz_k_equal_n_returns_complete_graph(self):
         import networkx as nx
 

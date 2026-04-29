@@ -34584,8 +34584,14 @@ def connected_watts_strogatz_graph(n, k, p, tries=100, seed=None, *, create_usin
     # tries-exceeded path.
     if k > n:
         raise NetworkXError("k>n, choose smaller k or larger n")
+    if n == 0:
+        raise NetworkXPointlessConcept("Connectivity is undefined for the null graph.")
+    if n == 1 and k < 1:
+        return empty_graph(n, create_using=create_using)
     if k == n:
         return complete_graph(n, create_using=create_using)
+    if k < 2:
+        raise NetworkXError("Maximum number of tries exceeded")
     graph = _rust_connected_watts_strogatz_graph(
         n,
         k,
