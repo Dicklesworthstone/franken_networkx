@@ -6842,22 +6842,17 @@ def condensation(G, scc=None):
         cond_dg = DiGraph()
         mapping = {}
         members = {}
-        components = [set(component) for component in scc]
 
-        for idx, component in enumerate(components):
+        cond_dg.graph["mapping"] = mapping
+        if len(G) == 0:
+            return cond_dg
+
+        for idx, component in enumerate(scc):
             members[idx] = component
             for node in component:
                 mapping[node] = idx
 
-        missing = set(G.nodes()) - set(mapping)
-        if missing:
-            raise NetworkXError(
-                f"condensation scc is missing graph nodes: {sorted(missing)!r}"
-            )
-
-        cond_dg.add_nodes_from(range(len(components)))
-        for idx, member_set in members.items():
-            cond_dg.nodes[idx]["members"] = member_set
+        cond_dg.add_nodes_from(range(idx + 1))
 
         for u, v in G.edges():
             cu = mapping[u]
@@ -6865,7 +6860,8 @@ def condensation(G, scc=None):
             if cu != cv:
                 cond_dg.add_edge(cu, cv)
 
-        cond_dg.graph["mapping"] = mapping
+        for idx, member_set in members.items():
+            cond_dg.nodes[idx]["members"] = member_set
         return cond_dg
 
     # Match NetworkX's labeling: number SCCs in the order returned by

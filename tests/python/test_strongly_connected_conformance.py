@@ -248,6 +248,42 @@ def test_condensation_matches_networkx(name, edges, nodes):
     )
 
 
+def test_condensation_with_provided_scc_preserves_members_contract():
+    fg, ng = _pair([(0, 1), (1, 0), (1, 2)], [0, 1, 2])
+    scc = [[0, 1], [2]]
+
+    fr = fnx.condensation(fg, scc=scc)
+    nr = nx.condensation(ng, scc=scc)
+
+    assert sorted(fr.nodes(data=True)) == sorted(nr.nodes(data=True))
+    assert sorted(fr.edges()) == sorted(nr.edges())
+    assert fr.graph["mapping"] == nr.graph["mapping"]
+
+
+def test_condensation_with_provided_scc_ignores_missing_isolates_like_networkx():
+    fg, ng = _pair([(0, 1)], [0, 1, 2])
+    scc = [[0], [1]]
+
+    fr = fnx.condensation(fg, scc=scc)
+    nr = nx.condensation(ng, scc=scc)
+
+    assert sorted(fr.nodes(data=True)) == sorted(nr.nodes(data=True))
+    assert sorted(fr.edges()) == sorted(nr.edges())
+    assert fr.graph["mapping"] == nr.graph["mapping"] == {0: 0, 1: 1}
+
+
+def test_condensation_with_provided_scc_unmapped_edge_raises_keyerror():
+    fg, ng = _pair([(0, 1), (1, 2)], [0, 1, 2])
+    scc = [[0], [1]]
+
+    with pytest.raises(KeyError) as nx_exc:
+        nx.condensation(ng, scc=scc)
+    with pytest.raises(KeyError) as fnx_exc:
+        fnx.condensation(fg, scc=scc)
+
+    assert fnx_exc.value.args == nx_exc.value.args
+
+
 # ---------------------------------------------------------------------------
 # Cross-relation invariants
 # ---------------------------------------------------------------------------
