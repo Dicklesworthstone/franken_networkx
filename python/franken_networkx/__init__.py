@@ -4762,6 +4762,18 @@ def _coerce_flow_dict(flow_dict, all_int):
     return out
 
 
+def _coerce_integral_flow_residual(residual):
+    residual.graph["inf"] = _coerce_flow_value(residual.graph["inf"], True)
+    residual.graph["flow_value"] = _coerce_flow_value(
+        residual.graph["flow_value"], True,
+    )
+    for node in residual:
+        for attrs in residual[node].values():
+            attrs["capacity"] = _coerce_flow_value(attrs["capacity"], True)
+            attrs["flow"] = _coerce_flow_value(attrs["flow"], True)
+    return residual
+
+
 def _flow_has_infinite_capacity(flowG, capacity):
     """br-flowinf: the Rust max-flow residual-network builder treated
     missing / +inf edge capacities as effectively 1 (or 0), so any
@@ -4974,6 +4986,7 @@ def edmonds_karp(
     if source == sink:
         raise NetworkXError("source and sink are the same node")
 
+    all_int = residual is None and _all_flow_caps_integral(G, capacity)
     if residual is None:
         if _flow_has_infinite_capacity(G, capacity):
             return _call_networkx_flow_for_parity(
@@ -4997,6 +5010,8 @@ def edmonds_karp(
 
     residual.graph["flow_value"] = _edmonds_karp_core(residual, source, sink, cutoff)
     residual.graph["algorithm"] = "edmonds_karp"
+    if all_int:
+        _coerce_integral_flow_residual(residual)
     return residual
 
 
