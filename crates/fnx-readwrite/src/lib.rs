@@ -3781,6 +3781,25 @@ impl EdgeListEngine {
                     }
                     pos = new_pos;
                 }
+                key if pos + 1 < tokens.len() && tokens[pos + 1] == "[" => {
+                    let (map, new_pos, closed) = parse_gml_nested_attr(&tokens, pos + 1);
+                    if !closed {
+                        let warning =
+                            format!("gml graph attribute '{key}' missing closing bracket");
+                        if self.mode == CompatibilityMode::Strict {
+                            self.record("read_gml", DecisionAction::FailClosed, &warning, 1.0);
+                            return Err(ReadWriteError::FailClosed {
+                                operation: "read_gml",
+                                reason: warning,
+                            });
+                        }
+                        warnings.push(warning.clone());
+                        self.record("read_gml", DecisionAction::FullValidate, &warning, 0.7);
+                    } else {
+                        graph_attrs.insert(key.to_owned(), CgseValue::Map(map));
+                    }
+                    pos = new_pos;
+                }
                 "]" => break,
                 key if pos + 1 < tokens.len()
                     && tokens[pos + 1] != "["
@@ -3871,6 +3890,24 @@ impl EdgeListEngine {
                 "label" if pos + 1 < tokens.len() => {
                     label = Some(gml_unescape(&tokens[pos + 1]));
                     pos += 2;
+                }
+                key if pos + 1 < tokens.len() && tokens[pos + 1] == "[" => {
+                    let (map, new_pos, closed) = parse_gml_nested_attr(tokens, pos + 1);
+                    if !closed {
+                        let warning = format!("gml node attribute '{key}' missing closing bracket");
+                        if self.mode == CompatibilityMode::Strict {
+                            self.record("read_gml", DecisionAction::FailClosed, &warning, 1.0);
+                            return Err(ReadWriteError::FailClosed {
+                                operation: "read_gml",
+                                reason: warning,
+                            });
+                        }
+                        warnings.push(warning.clone());
+                        self.record("read_gml", DecisionAction::FullValidate, &warning, 0.7);
+                        return Ok((None, new_pos));
+                    }
+                    attrs.insert(key.to_owned(), CgseValue::Map(map));
+                    pos = new_pos;
                 }
                 key => {
                     if pos + 1 < tokens.len() && tokens[pos + 1] != "[" && tokens[pos + 1] != "]" {
@@ -3978,6 +4015,24 @@ impl EdgeListEngine {
                         }
                     }
                     pos += 2;
+                }
+                key if pos + 1 < tokens.len() && tokens[pos + 1] == "[" => {
+                    let (map, new_pos, closed) = parse_gml_nested_attr(tokens, pos + 1);
+                    if !closed {
+                        let warning = format!("gml edge attribute '{key}' missing closing bracket");
+                        if self.mode == CompatibilityMode::Strict {
+                            self.record("read_gml", DecisionAction::FailClosed, &warning, 1.0);
+                            return Err(ReadWriteError::FailClosed {
+                                operation: "read_gml",
+                                reason: warning,
+                            });
+                        }
+                        warnings.push(warning.clone());
+                        self.record("read_gml", DecisionAction::FullValidate, &warning, 0.7);
+                        return Ok((None, new_pos));
+                    }
+                    attrs.insert(key.to_owned(), CgseValue::Map(map));
+                    pos = new_pos;
                 }
                 key => {
                     if pos + 1 < tokens.len() && tokens[pos + 1] != "[" && tokens[pos + 1] != "]" {
@@ -4094,6 +4149,41 @@ fn gml_tokenize(input: &str) -> Vec<String> {
     }
 
     tokens
+}
+
+fn parse_gml_nested_attr(tokens: &[String], mut pos: usize) -> (AttrMap, usize, bool) {
+    let mut map = AttrMap::new();
+    if tokens.get(pos).map(String::as_str) != Some("[") {
+        return (map, pos, false);
+    }
+    pos += 1;
+
+    while pos < tokens.len() {
+        if tokens[pos] == "]" {
+            return (map, pos + 1, true);
+        }
+
+        let key = tokens[pos].clone();
+        if pos + 1 >= tokens.len() {
+            return (map, pos + 1, false);
+        }
+
+        if tokens[pos + 1] == "[" {
+            let (nested, new_pos, closed) = parse_gml_nested_attr(tokens, pos + 1);
+            if !closed {
+                return (map, new_pos, false);
+            }
+            map.insert(key, CgseValue::Map(nested));
+            pos = new_pos;
+        } else if tokens[pos + 1] == "]" {
+            pos += 1;
+        } else {
+            map.insert(key, CgseValue::String(gml_unescape(&tokens[pos + 1])));
+            pos += 2;
+        }
+    }
+
+    (map, pos, false)
 }
 
 /// Escape a string for GML output (wrap in quotes).
@@ -6264,6 +6354,92 @@ mod tests {
         assert_eq!(
             parsed.graph_attrs.get("owner"),
             Some(&CgseValue::String("qa".to_owned()))
+        );
+    }
+
+    #[test]
+    fn read_gml_nested_attrs_do_not_truncate_graph() {
+        let input = r#"graph [
+  directed 0
+  metadata [
+    owner "qa"
+    nested [
+      level "inner"
+    ]
+  ]
+  node [
+    id 0
+    label "a"
+    graphics [
+      fill "red"
+    ]
+  ]
+  node [
+    id 1
+    label "b"
+  ]
+  edge [
+    source 0
+    target 1
+    graphics [
+      width "2"
+    ]
+  ]
+]"#;
+
+        let mut engine = EdgeListEngine::strict();
+        let parsed = engine.read_gml(input).expect("gml read should succeed");
+
+        assert_eq!(parsed.graph.node_count(), 2);
+        assert_eq!(parsed.graph.edge_count(), 1);
+
+        let metadata = match parsed.graph_attrs.get("metadata") {
+            Some(CgseValue::Map(map)) => map,
+            other => {
+                assert!(matches!(other, Some(CgseValue::Map(_))));
+                return;
+            }
+        };
+        assert_eq!(
+            metadata.get("owner"),
+            Some(&CgseValue::String("qa".to_owned()))
+        );
+        let nested = match metadata.get("nested") {
+            Some(CgseValue::Map(map)) => map,
+            other => {
+                assert!(matches!(other, Some(CgseValue::Map(_))));
+                return;
+            }
+        };
+        assert_eq!(
+            nested.get("level"),
+            Some(&CgseValue::String("inner".to_owned()))
+        );
+
+        let node_attrs = parsed.graph.node_attrs("a").expect("node attrs");
+        let graphics = match node_attrs.get("graphics") {
+            Some(CgseValue::Map(map)) => map,
+            other => {
+                assert!(matches!(other, Some(CgseValue::Map(_))));
+                return;
+            }
+        };
+        assert_eq!(
+            graphics.get("fill"),
+            Some(&CgseValue::String("red".to_owned()))
+        );
+
+        let edge_attrs = parsed.graph.edge_attrs("a", "b").expect("edge attrs");
+        let edge_graphics = match edge_attrs.get("graphics") {
+            Some(CgseValue::Map(map)) => map,
+            other => {
+                assert!(matches!(other, Some(CgseValue::Map(_))));
+                return;
+            }
+        };
+        assert_eq!(
+            edge_graphics.get("width"),
+            Some(&CgseValue::String("2".to_owned()))
         );
     }
 
