@@ -13059,6 +13059,14 @@ def core_number(G):
     The Rust path silently included self-loops in the degree count
     and returned a value dict — propagating into k_core / k_shell /
     k_crust / k_corona, which all consume core_number.
+
+    br-coredir: NetworkX's directed contract (per the docstring:
+    "For directed graphs the node degree is defined to be the
+    in-degree + out-degree") counts both arcs of an antiparallel
+    pair separately. The Rust ``_raw_core_number`` calls
+    ``gr.undirected()`` and folds antiparallel edges together,
+    producing core numbers half the size. Delegate the directed
+    case to NX so the in+out degree count matches.
     """
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
@@ -13067,6 +13075,8 @@ def core_number(G):
             "Input graph has self loops which is not permitted; "
             "Consider using G.remove_edges_from(nx.selfloop_edges(G))."
         )
+    if G.is_directed():
+        return _call_networkx_for_parity("core_number", G)
     raw = _raw_core_number(G)
     # br-r37-c1-9fa26: the Rust binding returns the dict with keys
     # sorted; nx iterates in node-insertion order. Reorder so
@@ -13096,7 +13106,10 @@ def k_core(G, k=None, core_number=None):
     if any(u == v for u, v in G.edges()):
         raise NetworkXNotImplemented(_self_loop_guard_for_core_family())
     if core_number is None:
-        core_number = _raw_core_number(G)
+        # br-coredir: route through the public wrapper so directed
+        # graphs use NX's in+out degree count instead of the Rust
+        # binding's undirected collapse.
+        core_number = globals()["core_number"](G)
     if k is None:
         k = max(core_number.values()) if core_number else 0
     nodes = [n for n, c in core_number.items() if c >= k]
@@ -13113,7 +13126,10 @@ def k_shell(G, k=None, core_number=None):
     if any(u == v for u, v in G.edges()):
         raise NetworkXNotImplemented(_self_loop_guard_for_core_family())
     if core_number is None:
-        core_number = _raw_core_number(G)
+        # br-coredir: route through the public wrapper so directed
+        # graphs use NX's in+out degree count instead of the Rust
+        # binding's undirected collapse.
+        core_number = globals()["core_number"](G)
     if k is None:
         k = max(core_number.values()) if core_number else 0
     nodes = [n for n, c in core_number.items() if c == k]
@@ -13130,7 +13146,10 @@ def k_crust(G, k=None, core_number=None):
     if any(u == v for u, v in G.edges()):
         raise NetworkXNotImplemented(_self_loop_guard_for_core_family())
     if core_number is None:
-        core_number = _raw_core_number(G)
+        # br-coredir: route through the public wrapper so directed
+        # graphs use NX's in+out degree count instead of the Rust
+        # binding's undirected collapse.
+        core_number = globals()["core_number"](G)
     if k is None:
         k = max(core_number.values()) if core_number else 0
     nodes = [n for n, c in core_number.items() if c <= k]
@@ -13147,7 +13166,10 @@ def k_corona(G, k, core_number=None):
     if any(u == v for u, v in G.edges()):
         raise NetworkXNotImplemented(_self_loop_guard_for_core_family())
     if core_number is None:
-        core_number = _raw_core_number(G)
+        # br-coredir: route through the public wrapper so directed
+        # graphs use NX's in+out degree count instead of the Rust
+        # binding's undirected collapse.
+        core_number = globals()["core_number"](G)
     core_nodes = {n for n, c in core_number.items() if c >= k}
     corona_nodes = []
     for n in core_nodes:
