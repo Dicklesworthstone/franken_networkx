@@ -145,3 +145,8 @@ doc = false
 name = "fuzz_distance_measures"
 path = "fuzz_targets/fuzz_distance_measures.rs"
 doc = false
+
+[[bin]]
+name = "fuzz_scc_paths"
+path = "fuzz_targets/fuzz_scc_paths.rs"
+doc = false
