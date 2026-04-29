@@ -155,3 +155,8 @@ doc = false
 name = "fuzz_planarity_coloring"
 path = "fuzz_targets/fuzz_planarity_coloring.rs"
 doc = false
+
+[[bin]]
+name = "fuzz_traversal_dominance"
+path = "fuzz_targets/fuzz_traversal_dominance.rs"
+doc = false
