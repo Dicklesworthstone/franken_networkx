@@ -1285,13 +1285,15 @@ impl PyMultiDiGraph {
         let iter = PyIterator::from_object(ebunch_to_add)?;
         for item in iter {
             let item = item?;
-            let tuple = item
-                .downcast::<PyTuple>()
-                .map_err(|_| PyTypeError::new_err("each edge must be a (u, v, w) tuple"))?;
+            let tuple = item.downcast::<PyTuple>().map_err(|_| {
+                PyValueError::new_err("not enough values to unpack (expected 3, got 0)")
+            })?;
+            // br-addwedges: match nx wording for unpack failures.
             if tuple.len() < 3 {
-                return Err(PyValueError::new_err(
-                    "each edge must have at least 3 elements (u, v, weight)",
-                ));
+                return Err(PyValueError::new_err(format!(
+                    "not enough values to unpack (expected 3, got {})",
+                    tuple.len()
+                )));
             }
             let u = &tuple.get_item(0)?;
             let v = &tuple.get_item(1)?;
@@ -2340,8 +2342,16 @@ impl PyDiGraph {
             }
             if len == 3 {
                 let d = tuple.get_item(2)?;
-                if let Ok(d) = d.downcast::<PyDict>() {
-                    merged.update(d.as_mapping())?;
+                // br-edges3rd: match nx — non-dict third element triggers
+                // a TypeError via dict.update's iteration (e.g.
+                // ``'float' object is not iterable``). Previously fnx
+                // silently dropped non-dict thirds.
+                if let Ok(dict_arg) = d.downcast::<PyDict>() {
+                    merged.update(dict_arg.as_mapping())?;
+                } else {
+                    let throwaway = PyDict::new(py);
+                    throwaway.call_method1("update", (d,))?;
+                    merged.update(throwaway.as_mapping())?;
                 }
             }
             self.add_edge(py, &u, &v, Some(&merged))?;
@@ -2359,11 +2369,15 @@ impl PyDiGraph {
         let iter = PyIterator::from_object(ebunch_to_add)?;
         for item in iter {
             let item = item?;
-            let tuple = item
-                .downcast::<PyTuple>()
-                .map_err(|_| PyTypeError::new_err("each element must be a (u, v, w) tuple"))?;
+            let tuple = item.downcast::<PyTuple>().map_err(|_| {
+                PyValueError::new_err("not enough values to unpack (expected 3, got 0)")
+            })?;
+            // br-addwedges: match nx wording for unpack failures.
             if tuple.len() != 3 {
-                return Err(PyValueError::new_err("expected (u, v, w) tuples"));
+                return Err(PyValueError::new_err(format!(
+                    "not enough values to unpack (expected 3, got {})",
+                    tuple.len()
+                )));
             }
             let u = tuple.get_item(0)?;
             let v = tuple.get_item(1)?;

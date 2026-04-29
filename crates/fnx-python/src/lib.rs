@@ -1446,13 +1446,15 @@ impl PyMultiGraph {
         let iter = PyIterator::from_object(ebunch_to_add)?;
         for item in iter {
             let item = item?;
-            let tuple = item
-                .downcast::<PyTuple>()
-                .map_err(|_| PyTypeError::new_err("each edge must be a (u, v, w) tuple"))?;
+            let tuple = item.downcast::<PyTuple>().map_err(|_| {
+                PyValueError::new_err("not enough values to unpack (expected 3, got 0)")
+            })?;
+            // br-addwedges: match nx wording for unpack failures.
             if tuple.len() < 3 {
-                return Err(PyValueError::new_err(
-                    "each edge must have at least 3 elements (u, v, weight)",
-                ));
+                return Err(PyValueError::new_err(format!(
+                    "not enough values to unpack (expected 3, got {})",
+                    tuple.len()
+                )));
             }
             let u = &tuple.get_item(0)?;
             let v = &tuple.get_item(1)?;
@@ -2409,8 +2411,27 @@ impl PyGraph {
                 }
                 if len == 3 {
                     let d = tuple.get_item(2)?;
-                    if let Ok(d) = d.downcast::<PyDict>() {
-                        merged.update(d.as_mapping())?;
+                    // br-edges3rd: nx raises TypeError when the third
+                    // element isn't a dict-or-iterable-of-pairs, e.g.
+                    // ``add_edges_from([(0, 1, 1.5)])`` — the float gets
+                    // passed to ``dict.update()`` which fails with
+                    // ``'float' object is not iterable``. Previously
+                    // fnx silently dropped non-dict third elements,
+                    // diverging from nx parity.
+                    if let Ok(dict_arg) = d.downcast::<PyDict>() {
+                        merged.update(dict_arg.as_mapping())?;
+                    } else {
+                        // Try treating it as a mapping-iterable (list of
+                        // (key, value) pairs); on failure raise the same
+                        // TypeError shape nx surfaces. We cast through
+                        // ``PyDict.update`` to get nx-compatible wording.
+                        let throwaway = PyDict::new(py);
+                        match throwaway.call_method1("update", (d,)) {
+                            Ok(_) => {
+                                merged.update(throwaway.as_mapping())?;
+                            }
+                            Err(err) => return Err(err),
+                        }
                     }
                 }
                 self.add_edge(py, &u, &v, Some(&merged))?;
@@ -2473,11 +2494,18 @@ impl PyGraph {
         let iter = PyIterator::from_object(ebunch_to_add)?;
         for item in iter {
             let item = item?;
-            let tuple = item
-                .downcast::<PyTuple>()
-                .map_err(|_| PyTypeError::new_err("each element must be a (u, v, w) tuple"))?;
+            let tuple = item.downcast::<PyTuple>().map_err(|_| {
+                PyValueError::new_err("not enough values to unpack (expected 3, got 0)")
+            })?;
+            // br-addwedges: nx surfaces ValueError("not enough values to
+            // unpack (expected 3, got N)") when the tuple has the wrong
+            // arity. Mirror that wording so drop-in code catching the
+            // unpacking error keeps working.
             if tuple.len() != 3 {
-                return Err(PyValueError::new_err("expected (u, v, w) tuples"));
+                return Err(PyValueError::new_err(format!(
+                    "not enough values to unpack (expected 3, got {})",
+                    tuple.len()
+                )));
             }
             let u = tuple.get_item(0)?;
             let v = tuple.get_item(1)?;

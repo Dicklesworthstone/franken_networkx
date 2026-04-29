@@ -91,6 +91,13 @@ pub struct EdgeSnapshot {
 pub struct GraphSnapshot {
     pub mode: CompatibilityMode,
     pub nodes: Vec<String>,
+    /// br-snapnodeattrs: node attributes keyed by node name. Preserved
+    /// across the ``snapshot`` round-trip so a graph with
+    /// ``add_node(n, attrs)`` doesn't lose those attrs when replayed.
+    /// Defaults to empty for snapshots produced by old code paths;
+    /// consumers that don't care can ignore it.
+    #[serde(default)]
+    pub node_attrs: BTreeMap<String, AttrMap>,
     pub edges: Vec<EdgeSnapshot>,
 }
 
@@ -106,6 +113,9 @@ pub struct MultiEdgeSnapshot {
 pub struct MultiGraphSnapshot {
     pub mode: CompatibilityMode,
     pub nodes: Vec<String>,
+    /// See ``GraphSnapshot::node_attrs``.
+    #[serde(default)]
+    pub node_attrs: BTreeMap<String, AttrMap>,
     pub edges: Vec<MultiEdgeSnapshot>,
 }
 
@@ -599,9 +609,19 @@ impl Graph {
 
     #[must_use]
     pub fn snapshot(&self) -> GraphSnapshot {
+        // br-snapnodeattrs: preserve per-node attributes alongside the
+        // bare node name list so callers replaying a snapshot don't lose
+        // ``add_node(n, attrs)`` data.
+        let node_attrs: BTreeMap<String, AttrMap> = self
+            .nodes
+            .iter()
+            .filter(|(_, attrs)| !attrs.is_empty())
+            .map(|(name, attrs)| (name.clone(), attrs.clone()))
+            .collect();
         GraphSnapshot {
             mode: self.mode,
             nodes: self.nodes.keys().cloned().collect(),
+            node_attrs,
             edges: self.edges_ordered(),
         }
     }
@@ -1123,9 +1143,17 @@ impl MultiGraph {
 
     #[must_use]
     pub fn snapshot(&self) -> MultiGraphSnapshot {
+        // br-snapnodeattrs: see Graph::snapshot — same fix for MultiGraph.
+        let node_attrs: BTreeMap<String, AttrMap> = self
+            .nodes
+            .iter()
+            .filter(|(_, attrs)| !attrs.is_empty())
+            .map(|(name, attrs)| (name.clone(), attrs.clone()))
+            .collect();
         MultiGraphSnapshot {
             mode: self.mode,
             nodes: self.nodes.keys().cloned().collect(),
+            node_attrs,
             edges: self.edges_ordered(),
         }
     }

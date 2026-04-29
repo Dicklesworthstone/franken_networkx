@@ -55,6 +55,10 @@ impl<'a> indexmap::Equivalent<DirectedEdgeKey> for DirectedEdgeKeyRef<'a> {
 pub struct DiGraphSnapshot {
     pub mode: CompatibilityMode,
     pub nodes: Vec<String>,
+    /// br-snapnodeattrs: per-node attributes preserved across snapshot
+    /// round-trip. Defaults to empty for backward compatibility.
+    #[serde(default)]
+    pub node_attrs: std::collections::BTreeMap<String, AttrMap>,
     /// Edges in source→target order. `left` = source, `right` = target.
     pub edges: Vec<EdgeSnapshot>,
 }
@@ -71,6 +75,9 @@ pub struct MultiDiEdgeSnapshot {
 pub struct MultiDiGraphSnapshot {
     pub mode: CompatibilityMode,
     pub nodes: Vec<String>,
+    /// See DiGraphSnapshot::node_attrs.
+    #[serde(default)]
+    pub node_attrs: std::collections::BTreeMap<String, AttrMap>,
     pub edges: Vec<MultiDiEdgeSnapshot>,
 }
 
@@ -646,9 +653,16 @@ impl DiGraph {
 
     #[must_use]
     pub fn snapshot(&self) -> DiGraphSnapshot {
+        let node_attrs: std::collections::BTreeMap<String, AttrMap> = self
+            .nodes
+            .iter()
+            .filter(|(_, attrs)| !attrs.is_empty())
+            .map(|(name, attrs)| (name.clone(), attrs.clone()))
+            .collect();
         DiGraphSnapshot {
             mode: self.mode,
             nodes: self.nodes.keys().cloned().collect(),
+            node_attrs,
             edges: self.edges_ordered(),
         }
     }
@@ -1189,9 +1203,16 @@ impl MultiDiGraph {
 
     #[must_use]
     pub fn snapshot(&self) -> MultiDiGraphSnapshot {
+        let node_attrs: std::collections::BTreeMap<String, AttrMap> = self
+            .nodes
+            .iter()
+            .filter(|(_, attrs)| !attrs.is_empty())
+            .map(|(name, attrs)| (name.clone(), attrs.clone()))
+            .collect();
         MultiDiGraphSnapshot {
             mode: self.mode,
             nodes: self.nodes.keys().cloned().collect(),
+            node_attrs,
             edges: self.edges_ordered(),
         }
     }
