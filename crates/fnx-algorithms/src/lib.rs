@@ -14331,6 +14331,176 @@ pub fn all_shortest_paths_weighted_directed(
     build_all_paths_from_preds(&preds, source, target)
 }
 
+/// Return all shortest paths from source to target using Bellman-Ford
+/// (undirected). Returns `Err(())` if a negative cycle is reachable.
+///
+/// Matches `networkx.all_shortest_paths(G, source, target, weight=...,
+/// method='bellman-ford')` for undirected graphs.
+///
+/// Bellman-Ford supports negative edge weights, but on an undirected graph
+/// any negative weight `w` constitutes an implicit negative cycle (`u-v-u`
+/// has weight `2w < 0`); NetworkX raises `NetworkXUnbounded` in that case
+/// and so do we via the `Err` return.
+#[must_use]
+pub fn all_shortest_paths_weighted_bellman_ford(
+    graph: &Graph,
+    source: &str,
+    target: &str,
+    weight_attr: &str,
+) -> Result<Vec<Vec<String>>, ()> {
+    if !graph.has_node(source) || !graph.has_node(target) {
+        return Ok(Vec::new());
+    }
+    if source == target {
+        return Ok(vec![vec![source.to_owned()]]);
+    }
+
+    let ordered_nodes = graph.nodes_ordered();
+    let ordered_edges = undirected_edges_in_iteration_order(graph);
+    let mut distances = HashMap::<String, f64>::new();
+    let mut single_pred = HashMap::<String, Option<String>>::new();
+    distances.insert(source.to_owned(), 0.0);
+    single_pred.insert(source.to_owned(), None);
+    let mut nodes_touched = 1usize;
+
+    for _ in 0..ordered_nodes.len().saturating_sub(1) {
+        let mut changed = false;
+        for (left, right) in &ordered_edges {
+            let edge_weight = signed_edge_weight_or_default(graph, left, right, weight_attr);
+            if relax_weighted_edge(
+                left,
+                right,
+                edge_weight,
+                &mut distances,
+                &mut single_pred,
+                &mut nodes_touched,
+            ) {
+                changed = true;
+            }
+            if relax_weighted_edge(
+                right,
+                left,
+                edge_weight,
+                &mut distances,
+                &mut single_pred,
+                &mut nodes_touched,
+            ) {
+                changed = true;
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
+
+    for (left, right) in &ordered_edges {
+        let edge_weight = signed_edge_weight_or_default(graph, left, right, weight_attr);
+        if can_relax_weighted_edge(left, right, edge_weight, &distances)
+            || can_relax_weighted_edge(right, left, edge_weight, &distances)
+        {
+            return Err(());
+        }
+    }
+
+    if !distances.contains_key(target) {
+        return Ok(Vec::new());
+    }
+
+    let mut preds: HashMap<&str, Vec<&str>> = HashMap::new();
+    for (left, right) in &ordered_edges {
+        let edge_weight = signed_edge_weight_or_default(graph, left, right, weight_attr);
+        if let (Some(&du), Some(&dv)) = (
+            distances.get(left.as_str()),
+            distances.get(right.as_str()),
+        ) {
+            if (du + edge_weight - dv).abs() < DISTANCE_COMPARISON_EPSILON {
+                preds.entry(right.as_str()).or_default().push(left.as_str());
+            }
+            if (dv + edge_weight - du).abs() < DISTANCE_COMPARISON_EPSILON {
+                preds.entry(left.as_str()).or_default().push(right.as_str());
+            }
+        }
+    }
+
+    Ok(build_all_paths_from_preds(&preds, source, target))
+}
+
+/// Return all shortest directed paths from source to target using
+/// Bellman-Ford. Returns `Err(())` if a negative cycle is reachable from
+/// source.
+///
+/// Matches `networkx.all_shortest_paths(G, source, target, weight=...,
+/// method='bellman-ford')` for directed graphs.
+#[must_use]
+pub fn all_shortest_paths_weighted_directed_bellman_ford(
+    digraph: &DiGraph,
+    source: &str,
+    target: &str,
+    weight_attr: &str,
+) -> Result<Vec<Vec<String>>, ()> {
+    if !digraph.has_node(source) || !digraph.has_node(target) {
+        return Ok(Vec::new());
+    }
+    if source == target {
+        return Ok(vec![vec![source.to_owned()]]);
+    }
+
+    let ordered_nodes = digraph.nodes_ordered();
+    let ordered_edges = directed_edges_in_iteration_order(digraph);
+    let mut distances = HashMap::<String, f64>::new();
+    let mut single_pred = HashMap::<String, Option<String>>::new();
+    distances.insert(source.to_owned(), 0.0);
+    single_pred.insert(source.to_owned(), None);
+    let mut nodes_touched = 1usize;
+
+    for _ in 0..ordered_nodes.len().saturating_sub(1) {
+        let mut changed = false;
+        for (left, right) in &ordered_edges {
+            let edge_weight =
+                signed_digraph_edge_weight_or_default(digraph, left, right, weight_attr);
+            if relax_weighted_edge(
+                left,
+                right,
+                edge_weight,
+                &mut distances,
+                &mut single_pred,
+                &mut nodes_touched,
+            ) {
+                changed = true;
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
+
+    for (left, right) in &ordered_edges {
+        let edge_weight = signed_digraph_edge_weight_or_default(digraph, left, right, weight_attr);
+        if can_relax_weighted_edge(left, right, edge_weight, &distances) {
+            return Err(());
+        }
+    }
+
+    if !distances.contains_key(target) {
+        return Ok(Vec::new());
+    }
+
+    let mut preds: HashMap<&str, Vec<&str>> = HashMap::new();
+    for (left, right) in &ordered_edges {
+        let edge_weight = signed_digraph_edge_weight_or_default(digraph, left, right, weight_attr);
+        if let (Some(&du), Some(&dv)) = (
+            distances.get(left.as_str()),
+            distances.get(right.as_str()),
+        ) {
+            if (du + edge_weight - dv).abs() < DISTANCE_COMPARISON_EPSILON {
+                preds.entry(right.as_str()).or_default().push(left.as_str());
+            }
+        }
+    }
+
+    Ok(build_all_paths_from_preds(&preds, source, target))
+}
+
 /// Reconstruct all paths from a multi-predecessor map by DFS backtracking.
 fn build_all_paths_from_preds(
     preds: &HashMap<&str, Vec<&str>>,
@@ -32442,7 +32612,9 @@ mod tests {
         all_shortest_paths,
         all_shortest_paths_directed,
         all_shortest_paths_weighted,
+        all_shortest_paths_weighted_bellman_ford,
         all_shortest_paths_weighted_directed,
+        all_shortest_paths_weighted_directed_bellman_ford,
         all_simple_paths,
         all_topological_sorts,
         // DAG algorithms — additional
@@ -38030,6 +38202,80 @@ mod tests {
                     "e".to_owned(),
                 ],
             ]
+        );
+    }
+
+    // br-r37-c1-xsi7c: bellman-ford-based all_shortest_paths.
+
+    #[test]
+    fn all_shortest_paths_weighted_directed_bellman_ford_diamond() {
+        let mut dg = DiGraph::strict();
+        let mut w1 = BTreeMap::new();
+        w1.insert("weight".to_owned(), "1.0".into());
+        dg.add_edge_with_attrs("0", "1", w1.clone()).unwrap();
+        dg.add_edge_with_attrs("0", "2", w1.clone()).unwrap();
+        dg.add_edge_with_attrs("1", "3", w1.clone()).unwrap();
+        dg.add_edge_with_attrs("2", "3", w1).unwrap();
+
+        let paths = all_shortest_paths_weighted_directed_bellman_ford(&dg, "0", "3", "weight")
+            .expect("no negative cycle");
+        assert_eq!(paths.len(), 2);
+        assert!(paths.contains(&vec!["0".to_owned(), "1".to_owned(), "3".to_owned()]));
+        assert!(paths.contains(&vec!["0".to_owned(), "2".to_owned(), "3".to_owned()]));
+    }
+
+    #[test]
+    fn all_shortest_paths_weighted_directed_bellman_ford_negative_cycle() {
+        let mut dg = DiGraph::strict();
+        let mut wpos = BTreeMap::new();
+        wpos.insert("weight".to_owned(), "1.0".into());
+        let mut wneg = BTreeMap::new();
+        wneg.insert("weight".to_owned(), "-2.0".into());
+        dg.add_edge_with_attrs("a", "b", wpos).unwrap();
+        dg.add_edge_with_attrs("b", "a", wneg).unwrap();
+
+        let result = all_shortest_paths_weighted_directed_bellman_ford(&dg, "a", "b", "weight");
+        assert!(result.is_err(), "expected negative cycle, got {:?}", result);
+    }
+
+    #[test]
+    fn all_shortest_paths_weighted_directed_bellman_ford_unreachable() {
+        let mut dg = DiGraph::strict();
+        dg.add_node("a");
+        dg.add_node("b");
+        let paths = all_shortest_paths_weighted_directed_bellman_ford(&dg, "a", "b", "weight")
+            .expect("no edges, no cycle");
+        assert!(paths.is_empty());
+    }
+
+    #[test]
+    fn all_shortest_paths_weighted_undirected_bellman_ford_diamond() {
+        let mut g = Graph::strict();
+        let mut w1 = BTreeMap::new();
+        w1.insert("weight".to_owned(), "1.0".into());
+        g.add_edge_with_attrs("0", "1", w1.clone()).unwrap();
+        g.add_edge_with_attrs("0", "2", w1.clone()).unwrap();
+        g.add_edge_with_attrs("1", "3", w1.clone()).unwrap();
+        g.add_edge_with_attrs("2", "3", w1).unwrap();
+
+        let paths = all_shortest_paths_weighted_bellman_ford(&g, "0", "3", "weight")
+            .expect("no negative weights");
+        assert_eq!(paths.len(), 2);
+        assert!(paths.contains(&vec!["0".to_owned(), "1".to_owned(), "3".to_owned()]));
+        assert!(paths.contains(&vec!["0".to_owned(), "2".to_owned(), "3".to_owned()]));
+    }
+
+    #[test]
+    fn all_shortest_paths_weighted_undirected_bellman_ford_negative_edge_is_negative_cycle() {
+        let mut g = Graph::strict();
+        let mut wneg = BTreeMap::new();
+        wneg.insert("weight".to_owned(), "-1.0".into());
+        g.add_edge_with_attrs("a", "b", wneg).unwrap();
+
+        let result = all_shortest_paths_weighted_bellman_ford(&g, "a", "b", "weight");
+        assert!(
+            result.is_err(),
+            "negative weight on undirected edge implies negative cycle"
         );
     }
 

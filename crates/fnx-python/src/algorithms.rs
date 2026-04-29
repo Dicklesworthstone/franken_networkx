@@ -6436,10 +6436,22 @@ pub fn all_shortest_paths(
 
     let paths = if gr.is_directed() {
         match (weight, effective_method) {
-            (Some(_), "bellman-ford") => {
-                return Err(pyo3::exceptions::PyNotImplementedError::new_err(
-                    "bellman-ford all_shortest_paths is not yet supported for DiGraph",
-                ));
+            (Some(w), "bellman-ford") => {
+                let dg_ref = gr.digraph().expect("is_directed checked above");
+                let result = py.allow_threads(|| {
+                    fnx_algorithms::all_shortest_paths_weighted_directed_bellman_ford(
+                        dg_ref,
+                        &source_key,
+                        &target_key,
+                        w,
+                    )
+                });
+                match result {
+                    Ok(paths) => paths,
+                    Err(()) => {
+                        return Err(crate::NetworkXUnbounded::new_err("Negative cycle detected."));
+                    }
+                }
             }
             (Some(w), "dijkstra") => {
                 let dg_ref = gr.digraph().expect("is_directed checked above");
@@ -6473,10 +6485,21 @@ pub fn all_shortest_paths(
     } else {
         let inner = gr.undirected();
         match (weight, effective_method) {
-            (Some(_), "bellman-ford") => {
-                return Err(pyo3::exceptions::PyNotImplementedError::new_err(
-                    "bellman-ford method for all_shortest_paths on undirected graphs is not supported (negative weights create implicit negative cycles)",
-                ));
+            (Some(w), "bellman-ford") => {
+                let result = py.allow_threads(|| {
+                    fnx_algorithms::all_shortest_paths_weighted_bellman_ford(
+                        inner,
+                        &source_key,
+                        &target_key,
+                        w,
+                    )
+                });
+                match result {
+                    Ok(paths) => paths,
+                    Err(()) => {
+                        return Err(crate::NetworkXUnbounded::new_err("Negative cycle detected."));
+                    }
+                }
             }
             (Some(w), _) => py.allow_threads(|| {
                 fnx_algorithms::all_shortest_paths_weighted(inner, &source_key, &target_key, w)
