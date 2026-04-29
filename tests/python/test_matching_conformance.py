@@ -27,6 +27,7 @@ relation correctness.
 from __future__ import annotations
 
 import itertools
+import re
 import warnings
 
 import pytest
@@ -245,6 +246,37 @@ def test_min_weight_matching_matches_networkx(name, edges_with_w):
 def test_is_matching_matches_networkx(name, edges, nodes, candidate, expected):
     fg, ng = _pair(edges, nodes)
     assert fnx.is_matching(fg, candidate) == nx.is_matching(ng, candidate)
+
+
+@pytest.mark.parametrize(
+    "predicate_name",
+    ["is_matching", "is_maximal_matching", "is_perfect_matching"],
+)
+def test_matching_predicates_raise_on_candidate_nodes_outside_graph(
+    predicate_name,
+):
+    fg, ng = _pair([(0, 1)], [0, 1, 2])
+    candidate = [(0, 1), (2, 3)]
+    nx_predicate = getattr(nx, predicate_name)
+    fnx_predicate = getattr(fnx, predicate_name)
+
+    with pytest.raises(nx.NetworkXError) as expected:
+        nx_predicate(ng, candidate)
+    with pytest.raises(fnx.NetworkXError, match=re.escape(str(expected.value))):
+        fnx_predicate(fg, candidate)
+
+
+@pytest.mark.parametrize(
+    "predicate_name",
+    ["is_matching", "is_maximal_matching", "is_perfect_matching"],
+)
+def test_matching_predicates_accept_dict_matching_like_networkx(predicate_name):
+    fg, ng = _pair([(0, 1), (2, 3)], list(range(4)))
+    candidate = {0: 1, 2: 3}
+
+    assert getattr(fnx, predicate_name)(fg, candidate) == getattr(
+        nx, predicate_name
+    )(ng, candidate)
 
 
 @pytest.mark.parametrize(
