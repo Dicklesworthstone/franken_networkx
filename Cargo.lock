@@ -598,6 +598,7 @@ dependencies = [
  "fnx-runtime",
  "proptest",
  "serde",
+ "serde_json",
 ]
 
 [[package]]
