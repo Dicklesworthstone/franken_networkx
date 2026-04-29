@@ -160,3 +160,8 @@ doc = false
 name = "fuzz_traversal_dominance"
 path = "fuzz_targets/fuzz_traversal_dominance.rs"
 doc = false
+
+[[bin]]
+name = "fuzz_polynomial_metrics"
+path = "fuzz_targets/fuzz_polynomial_metrics.rs"
+doc = false
