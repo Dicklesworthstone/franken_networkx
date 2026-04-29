@@ -1,0 +1,10 @@
+% leading comments and blanks
+
+*Vertices 2
+1 "commented"
+
+2 "blank"
+% edge comment
+*Edges
+
+1 2 1
