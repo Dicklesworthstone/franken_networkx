@@ -5602,7 +5602,13 @@ def maximum_spanning_arborescence(G, attr="weight", default=1, preserve_attrs=Fa
 
 
 def random_spanning_tree(G, weight=None, *, multiplicative=True, seed=None):
-    """br-isokw: ``G`` matches nx."""
+    """br-isokw: ``G`` matches nx.
+
+    nx.random_spanning_tree drops the graph/node/edge attributes of the
+    input on the floor — the result holds only the chosen edge structure.
+    Re-attach them from G so callers see the same labels (graph["name"],
+    node tags, edge colors, weight values, etc.) on the returned tree.
+    """
     nx_result = _call_networkx_for_parity(
         "random_spanning_tree",
         G,
@@ -5611,7 +5617,18 @@ def random_spanning_tree(G, weight=None, *, multiplicative=True, seed=None):
         seed=seed,
     )
     from franken_networkx.readwrite import _from_nx_graph
-    return _from_nx_graph(nx_result, create_using=type(G)())
+    tree = _from_nx_graph(nx_result, create_using=type(G)())
+    tree.graph.update(G.graph)
+    for node in tree.nodes:
+        if node in G.nodes:
+            tree.nodes[node].update(G.nodes[node])
+    for u, v in tree.edges:
+        src_attrs = None
+        if G.has_edge(u, v):
+            src_attrs = G.edges[u, v]
+        if src_attrs is not None:
+            tree.edges[u, v].update(src_attrs)
+    return tree
 
 
 def partition_spanning_tree(G, minimum=True, weight="weight", partition="partition", ignore_nan=False):
