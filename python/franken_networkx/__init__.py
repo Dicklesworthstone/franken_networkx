@@ -5834,6 +5834,8 @@ def all_simple_paths(
         raise NodeNotFound(f"target node {target} not in graph")
 
     # Scalar target — Rust fast path.
+    if cutoff is not None and cutoff < 0:
+        return
     if source == target:
         yield [source]
         return

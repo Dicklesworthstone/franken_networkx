@@ -372,6 +372,22 @@ def test_all_simple_paths_source_equals_target_yields_singleton():
     ) == [[0]]
 
 
+def test_all_simple_paths_source_equals_target_negative_cutoff_yields_nothing():
+    fg, ng = _pair_undirected(list(itertools.combinations(range(4), 2)),
+                               list(range(4)))
+    assert list(fnx.all_simple_paths(fg, 0, 0, cutoff=-1)) == list(
+        nx.all_simple_paths(ng, 0, 0, cutoff=-1)
+    ) == []
+
+
+def test_all_simple_edge_paths_source_equals_target_negative_cutoff_yields_nothing():
+    fg, ng = _pair_undirected(list(itertools.combinations(range(4), 2)),
+                               list(range(4)))
+    assert list(fnx.all_simple_edge_paths(fg, 0, 0, cutoff=-1)) == list(
+        nx.all_simple_edge_paths(ng, 0, 0, cutoff=-1)
+    ) == []
+
+
 def test_all_simple_paths_missing_source_raises_matching_networkx():
     fg, ng = _pair_undirected([(0, 1), (1, 2)], list(range(3)))
     with pytest.raises(nx.NodeNotFound) as nx_exc:
