@@ -14025,6 +14025,12 @@ def random_tree(n, seed=None):
 def constraint(G, nodes=None, weight=None, *, backend=None, **backend_kwargs):
     """Return Burt's constraint for nodes in *G*."""
     _validate_backend_dispatch_keywords("constraint", backend, backend_kwargs)
+    if weight is not None:
+        return _call_networkx_submodule_for_parity(
+            "algorithms.structuralholes", "constraint", G,
+            nodes=nodes, weight=weight,
+        )
+
     from franken_networkx._fnx import constraint_rust as _rust_constraint
 
     if len(G) == 0:
@@ -14066,6 +14072,12 @@ def effective_size(G, nodes=None, weight=None, *, backend=None, **backend_kwargs
         ``{node: effective_size}``
     """
     _validate_backend_dispatch_keywords("effective_size", backend, backend_kwargs)
+    if weight is not None:
+        return _call_networkx_submodule_for_parity(
+            "algorithms.structuralholes", "effective_size", G,
+            nodes=nodes, weight=weight,
+        )
+
     if len(G) == 0:
         raise NetworkXError("Graph has no nodes or edges")
 

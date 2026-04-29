@@ -166,6 +166,25 @@ def test_constraint_matches_networkx(name, builder):
     assert _equiv_dict(fr, nr)
 
 
+def test_constraint_weighted_matches_networkx():
+    g_fnx = fnx.Graph()
+    g_nx = nx.Graph()
+    weighted_edges = [
+        (0, 1, 1.0),
+        (1, 2, 5.0),
+        (2, 0, 2.0),
+        (2, 3, 7.0),
+        (3, 4, 3.0),
+    ]
+    for u, v, weight in weighted_edges:
+        g_fnx.add_edge(u, v, weight=weight)
+        g_nx.add_edge(u, v, weight=weight)
+
+    fr = fnx.constraint(g_fnx, weight="weight")
+    nr = nx.constraint(g_nx, weight="weight")
+    assert _equiv_dict(fr, nr)
+
+
 @pytest.mark.parametrize(
     "name,builder",
     [
@@ -181,6 +200,25 @@ def test_effective_size_matches_networkx(name, builder):
     g_fnx.add_edges_from(g_nx.edges())
     fr = fnx.effective_size(g_fnx)
     nr = nx.effective_size(g_nx)
+    assert _equiv_dict(fr, nr)
+
+
+def test_effective_size_weighted_matches_networkx():
+    g_fnx = fnx.Graph()
+    g_nx = nx.Graph()
+    weighted_edges = [
+        (0, 1, 1.0),
+        (1, 2, 5.0),
+        (2, 0, 2.0),
+        (2, 3, 7.0),
+        (3, 4, 3.0),
+    ]
+    for u, v, weight in weighted_edges:
+        g_fnx.add_edge(u, v, weight=weight)
+        g_nx.add_edge(u, v, weight=weight)
+
+    fr = fnx.effective_size(g_fnx, weight="weight")
+    nr = nx.effective_size(g_nx, weight="weight")
     assert _equiv_dict(fr, nr)
 
 
