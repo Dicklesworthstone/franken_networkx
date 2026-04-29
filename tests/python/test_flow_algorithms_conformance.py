@@ -307,6 +307,19 @@ def test_infinite_capacity_path_raises_unbounded(algorithm):
         fnx.maximum_flow_value(fg, "s", "t", flow_func=fnx_fn)
 
 
+def test_high_level_flow_treats_negative_capacity_like_networkx():
+    fg, ng = _pair_directed([("s", "t", -1)])
+
+    assert fnx.maximum_flow_value(fg, "s", "t") == nx.maximum_flow_value(
+        ng, "s", "t"
+    )
+    assert fnx.maximum_flow(fg, "s", "t") == nx.maximum_flow(ng, "s", "t")
+    assert fnx.minimum_cut_value(fg, "s", "t") == nx.minimum_cut_value(
+        ng, "s", "t"
+    )
+    assert fnx.minimum_cut(fg, "s", "t") == nx.minimum_cut(ng, "s", "t")
+
+
 @pytest.mark.parametrize("algorithm", ALGORITHMS)
 def test_source_equals_target_raises_or_zero(algorithm):
     """``s == t`` is degenerate — both libraries must mirror exactly

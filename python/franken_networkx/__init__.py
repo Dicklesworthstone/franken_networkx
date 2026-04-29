@@ -4767,7 +4767,10 @@ def _flow_has_infinite_capacity(flowG, capacity):
     missing / +inf edge capacities as effectively 1 (or 0), so any
     graph with an uncapacitated edge had its max-flow value silently
     undervalued (e.g. s->a(cap=5)->t(no cap) returned 1 instead of 5).
-    Detect that case up-front and route to nx for correctness.
+    Detect that case up-front and route to nx for correctness. Negative
+    capacities also need the nx path because the native high-level flow
+    wrappers treat them as augmentable unit edges instead of zero-capacity
+    edges.
     """
     import math as _math
     for _, _, attrs in flowG.edges(data=True):
@@ -4778,7 +4781,7 @@ def _flow_has_infinite_capacity(flowG, capacity):
             cap_f = float(cap)
         except (TypeError, ValueError):
             return True
-        if _math.isinf(cap_f) or _math.isnan(cap_f):
+        if _math.isinf(cap_f) or _math.isnan(cap_f) or cap_f < 0:
             return True
     return False
 
