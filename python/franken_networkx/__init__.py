@@ -29430,7 +29430,7 @@ def _graph_edit_exact_paths_python(
             right_v = mapping.get(left_v)
             if right_u is not None and right_v is not None and G2.has_edge(right_u, right_v):
                 right_edge = (right_u, right_v)
-                cost += _graph_edit_edge_subst_cost(
+                subst_cost = _graph_edit_edge_subst_cost(
                     G1,
                     G2,
                     left_edge,
@@ -29438,6 +29438,12 @@ def _graph_edit_exact_paths_python(
                     edge_match,
                     edge_subst_cost,
                 )
+                edit_as_delete_insert = _graph_edit_edge_del_cost(
+                    G1,
+                    left_edge,
+                    edge_del_cost,
+                ) + _graph_edit_edge_ins_cost(G2, right_edge, edge_ins_cost)
+                cost += min(subst_cost, edit_as_delete_insert)
                 matched_right_edges.add(_graph_edit_distance_edge_key(G2, right_edge))
             else:
                 cost += _graph_edit_edge_del_cost(G1, left_edge, edge_del_cost)
