@@ -32407,6 +32407,13 @@ pub fn remove_node_attributes(graph: &Graph, name: &str) -> Graph {
     result
 }
 
+// br-r37-c1-btmc5: ``test_dijkstra.rs`` was a scratch file containing a
+// debug print + ``assert!(false)``; it had never been wired into the
+// module tree so the bad assert never ran. Re-purposed as a real
+// regression test and wired in here so it executes.
+#[cfg(test)]
+mod test_dijkstra;
+
 #[cfg(test)]
 mod tests {
     use super::{
