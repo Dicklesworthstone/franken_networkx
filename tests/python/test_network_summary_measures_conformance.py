@@ -167,6 +167,20 @@ def test_flow_hierarchy_cyclic_is_zero():
     assert _equiv(fnx.flow_hierarchy(fg), 0.0)
 
 
+@pytest.mark.parametrize(
+    "graph_pair",
+    [(fnx.Graph, nx.Graph), (fnx.DiGraph, nx.DiGraph)],
+)
+def test_flow_hierarchy_empty_graph_raises_matching_networkx(graph_pair):
+    fnx_factory, nx_factory = graph_pair
+    fg = fnx_factory()
+    ng = nx_factory()
+    with pytest.raises(nx.NetworkXError, match="not applicable to empty graphs"):
+        nx.flow_hierarchy(ng)
+    with pytest.raises(fnx.NetworkXError, match="not applicable to empty graphs"):
+        fnx.flow_hierarchy(fg)
+
+
 def test_flow_hierarchy_weighted_matches_networkx():
     fg = fnx.DiGraph()
     ng = nx.DiGraph()

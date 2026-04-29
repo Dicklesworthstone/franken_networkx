@@ -19647,6 +19647,8 @@ def flow_hierarchy(G, weight=None):
     float
         Value in [0, 1]. 1 means no edges are in cycles (DAG).
     """
+    if G.number_of_edges() == 0:
+        raise NetworkXError("flow_hierarchy not applicable to empty graphs")
     if not G.is_directed():
         # br-r37-c1-4elbw: nx raises NetworkXError with the exact text
         # "G must be a digraph in flow_hierarchy". The Rust binding
