@@ -109,6 +109,33 @@ def test_graph_edit_distance_matches_networkx(name, build_a, build_b):
     assert _equiv(fr, nr), f"{name}: fnx={fr} nx={nr}"
 
 
+def test_graph_edit_distance_edge_subst_cost_can_exceed_delete_insert_cost():
+    fg_a = fnx.Graph()
+    fg_b = fnx.Graph()
+    ng_a = nx.Graph()
+    ng_b = nx.Graph()
+    for graph in (fg_a, ng_a):
+        graph.add_edge(0, 1, kind="left")
+    for graph in (fg_b, ng_b):
+        graph.add_edge(0, 1, kind="right")
+
+    def edge_subst_cost(left_attrs, right_attrs):
+        return 0 if left_attrs.get("kind") == right_attrs.get("kind") else 5
+
+    fr = fnx.graph_edit_distance(
+        fg_a,
+        fg_b,
+        edge_subst_cost=edge_subst_cost,
+    )
+    nr = nx.graph_edit_distance(
+        ng_a,
+        ng_b,
+        edge_subst_cost=edge_subst_cost,
+    )
+    assert _equiv(fr, nr)
+    assert _equiv(fr, 2.0)
+
+
 @pytest.mark.parametrize("name,build_a,build_b", GED_FIXTURES,
                          ids=[fx[0] for fx in GED_FIXTURES])
 def test_graph_edit_distance_is_symmetric(name, build_a, build_b):
