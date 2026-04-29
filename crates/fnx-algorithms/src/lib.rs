@@ -18480,9 +18480,16 @@ pub fn is_planar(graph: &Graph) -> bool {
         return false;
     }
 
-    // For small graphs, do a complete check via Left-Right Planarity Test (Boyer-Myrvold)
-    // Simplified: use edge density heuristic + K5/K3,3 minor checks for medium graphs
-    // For graphs satisfying the edge bound, use DFS-based LR planarity
+    // KNOWN GAP (br-isplanarbroken / TODO: real LR planarity): the call
+    // below only checks Euler's edge bound `|E| <= 3|V| - 6` globally and
+    // per biconnected component. That is necessary but NOT sufficient —
+    // K3,3 (n=6, m=9) and the Petersen graph (n=10, m=15) both pass the
+    // bound yet are non-planar. The Python wrapper
+    // `franken_networkx.is_planar` works around this by routing through
+    // `check_planarity`, which delegates to NetworkX's reference LR
+    // planarity test. Until a real Boyer-Myrvold / Hopcroft-Tarjan
+    // implementation lands here, callers must not trust this function in
+    // isolation.
 
     // Build adjacency for the planarity algorithm
     let idx: HashMap<&str, usize> = nodes.iter().enumerate().map(|(i, &n)| (n, i)).collect();
@@ -18494,12 +18501,15 @@ pub fn is_planar(graph: &Graph) -> bool {
         adj[j].push(i);
     }
 
-    // Left-Right Planarity Test (simplified Boyer-Myrvold)
-    lr_planarity_test(n, &adj)
+    planar_edge_bound_with_bcc(n, &adj)
 }
 
-/// Left-Right Planarity Test implementation.
-fn lr_planarity_test(n: usize, adj: &[Vec<usize>]) -> bool {
+/// Necessary-but-not-sufficient planarity check: returns false only when
+/// the graph (or one of its biconnected components) violates the Euler
+/// bound `|E| <= 3|V| - 6`. Returns true for every graph that satisfies
+/// the bound, including non-planar K3,3 and Petersen — see the comment on
+/// [`is_planar`] for context.
+fn planar_edge_bound_with_bcc(n: usize, adj: &[Vec<usize>]) -> bool {
     if n <= 4 {
         return true;
     }
