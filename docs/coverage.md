@@ -6,8 +6,8 @@
 
 | Category | Count | % | Rule |
 |----------|-------|---|------|
-| RUST_NATIVE | 24 | 2% | native extension exports from `franken_networkx._fnx` |
-| PY_WRAPPER | 852 | 93% | Python-defined exports with no runtime NetworkX dependency detected |
+| RUST_NATIVE | 21 | 2% | native extension exports from `franken_networkx._fnx` |
+| PY_WRAPPER | 855 | 93% | Python-defined exports with no runtime NetworkX dependency detected |
 | NX_DELEGATED | 0 | 0% | Python-defined exports that import or call NetworkX at runtime |
 | CLASS | 32 | 3% | public classes, exceptions, iterators |
 | CONSTANT | 3 | 0% | public non-callable values |
@@ -19,9 +19,9 @@ All declared public exports are classified. `--check` fails if this generated re
 
 | Module | Count |
 |--------|-------|
-| `franken_networkx` | 787 |
+| `franken_networkx` | 790 |
 | `franken_networkx.readwrite` | 35 |
-| `franken_networkx._fnx` | 24 |
+| `franken_networkx._fnx` | 21 |
 | `franken_networkx.drawing.nx_pylab` | 21 |
 | `franken_networkx.drawing.layout` | 15 |
 | `networkx.exception` | 12 |
@@ -32,7 +32,7 @@ All declared public exports are classified. `--check` fails if this generated re
 | `networkx.algorithms.tree.coding` | 1 |
 | `networkx.utils.configs` | 1 |
 
-## RUST_NATIVE exports (24)
+## RUST_NATIVE exports (21)
 
 - `bidirectional_shortest_path`
 - `bipartite_sets`
@@ -46,9 +46,6 @@ All declared public exports are classified. `--check` fails if this generated re
 - `is_dominating_set`
 - `is_empty`
 - `is_k_regular`
-- `is_matching`
-- `is_maximal_matching`
-- `is_perfect_matching`
 - `is_semieulerian`
 - `large_clique_size`
 - `max_clique`
@@ -59,7 +56,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `number_of_isolates`
 - `number_of_spanning_arborescences`
 
-## PY_WRAPPER exports (852)
+## PY_WRAPPER exports (855)
 
 - `LCF_graph`
 - `LFR_benchmark_graph`
@@ -474,12 +471,15 @@ All declared public exports are classified. `--check` fails if this generated re
 - `is_k_edge_connected`
 - `is_kl_connected`
 - `is_locally_k_edge_connected`
+- `is_matching`
+- `is_maximal_matching`
 - `is_minimal_d_separator`
 - `is_multigraphical`
 - `is_negatively_weighted`
 - `is_partition`
 - `is_path`
 - `is_perfect_graph`
+- `is_perfect_matching`
 - `is_planar`
 - `is_pseudographical`
 - `is_reachable`
