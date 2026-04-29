@@ -37,7 +37,7 @@ fn json_string(data: &[u8]) -> String {
 }
 
 fn flag_literal(selector: u8, key: &str) -> String {
-    match (selector + key.len() as u8) % 6 {
+    match selector.wrapping_add(key.len() as u8) % 6 {
         0 => "true".to_owned(),
         1 => "false".to_owned(),
         2 => "1".to_owned(),
