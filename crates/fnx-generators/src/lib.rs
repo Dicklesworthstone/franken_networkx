@@ -1492,13 +1492,32 @@ fn graph_is_connected(graph: &Graph) -> bool {
     visited.len() == nodes.len()
 }
 
+/// Sample `count` distinct elements from `seq` with replacement-by-set,
+/// matching the inner loop of nx's `_random_subset`.
+///
+/// Caller must ensure `seq` contains at least `count` *distinct* values —
+/// otherwise the loop cannot terminate. We guard against that here by
+/// bailing out if `seq` is empty (no candidates) or if its distinct-value
+/// count is below `count` (impossible to fill the set), returning a
+/// truncated result rather than spinning forever.
 fn random_subset_python(
     seq: &[usize],
     count: usize,
     rng: &mut PythonRandom,
 ) -> std::collections::BTreeSet<usize> {
     let mut targets = std::collections::BTreeSet::new();
-    while targets.len() < count {
+    if seq.is_empty() || count == 0 {
+        return targets;
+    }
+    let unique_cap = {
+        let mut tmp: std::collections::BTreeSet<usize> = std::collections::BTreeSet::new();
+        for &v in seq {
+            tmp.insert(v);
+        }
+        tmp.len()
+    };
+    let target_count = count.min(unique_cap);
+    while targets.len() < target_count {
         let choice = seq[rng.choice_index(seq.len())];
         targets.insert(choice);
     }
@@ -1506,6 +1525,13 @@ fn random_subset_python(
 }
 
 fn weighted_choice_python(weights: &[f64], rng: &mut PythonRandom) -> usize {
+    if weights.is_empty() {
+        // Degenerate input — no candidate to pick. Return 0 by convention so
+        // upstream call sites that index into a sibling vector see an
+        // out-of-bounds error rather than the silent infinite loop that
+        // ``rng.choice_index(0)`` would produce.
+        return 0;
+    }
     let total: f64 = weights.iter().sum();
     if total <= 0.0 {
         return rng.choice_index(weights.len());

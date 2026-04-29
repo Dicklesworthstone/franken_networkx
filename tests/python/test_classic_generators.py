@@ -974,3 +974,84 @@ class TestPowerlawClusterInvalidArgs:
             match=r"NetworkXError p must be in \[0,1\], p=-0.1",
         ):
             fnx.powerlaw_cluster_graph(3, 1, -0.1, seed=0)
+
+
+# br-genauditpass: regression tests for fnx-generators audit fixes —
+# error-path parity divergences uncovered while sweeping the public API.
+class TestGeneratorErrorPathParity:
+    def test_powerlaw_cluster_m_equal_n_returns_n_node_no_edge_graph(self):
+        """nx accepts m == n (returns n nodes, 0 edges). fnx used to reject
+        with an m>=n check that disagreed with nx."""
+        import networkx as nx
+
+        ng = nx.powerlaw_cluster_graph(5, 5, 0.5, seed=1)
+        fg = fnx.powerlaw_cluster_graph(5, 5, 0.5, seed=1)
+        assert fg.number_of_nodes() == ng.number_of_nodes() == 5
+        assert fg.number_of_edges() == ng.number_of_edges() == 0
+
+    def test_random_regular_3_3_surfaces_n_times_d_message(self):
+        """For (d=3, n=3) both checks fail; nx raises the n*d-even message
+        because that check runs first. fnx used to surface 0<=d<n instead."""
+        with pytest.raises(fnx.NetworkXError, match=r"n \* d must be even"):
+            fnx.random_regular_graph(3, 3, seed=0)
+
+    def test_scale_free_alpha_zero_uses_nx_wording(self):
+        with pytest.raises(ValueError, match=r"^alpha must be > 0\.$"):
+            fnx.scale_free_graph(5, alpha=0.0, beta=0.5, gamma=0.5, seed=1)
+
+    def test_scale_free_beta_zero_uses_nx_wording(self):
+        with pytest.raises(ValueError, match=r"^beta must be > 0\.$"):
+            fnx.scale_free_graph(5, alpha=0.5, beta=0.0, gamma=0.5, seed=1)
+
+    def test_scale_free_gamma_zero_uses_nx_wording(self):
+        with pytest.raises(ValueError, match=r"^gamma must be > 0\.$"):
+            fnx.scale_free_graph(5, alpha=0.5, beta=0.5, gamma=0.0, seed=1)
+
+    def test_scale_free_sum_not_one_uses_nx_wording(self):
+        with pytest.raises(
+            ValueError, match=r"^alpha\+beta\+gamma must equal 1\.$"
+        ):
+            fnx.scale_free_graph(5, alpha=0.3, beta=0.3, gamma=0.3, seed=1)
+
+    def test_scale_free_negative_delta_in_uses_nx_wording(self):
+        with pytest.raises(ValueError, match=r"^delta_in must be >= 0\.$"):
+            fnx.scale_free_graph(
+                5, alpha=0.5, beta=0.4, gamma=0.1, delta_in=-0.1, seed=1
+            )
+
+    def test_scale_free_negative_delta_out_uses_nx_wording(self):
+        with pytest.raises(ValueError, match=r"^delta_out must be >= 0\.$"):
+            fnx.scale_free_graph(
+                5, alpha=0.5, beta=0.4, gamma=0.1, delta_out=-0.1, seed=1
+            )
+
+    def test_newman_watts_strogatz_k_gt_n_uses_nx_wording(self):
+        """nx raises NetworkXError; fnx used to leak a Rust ValueError."""
+        with pytest.raises(
+            fnx.NetworkXError, match=r"k>=n, choose smaller k or larger n"
+        ):
+            fnx.newman_watts_strogatz_graph(5, 10, 0.5, seed=1)
+
+    def test_newman_watts_strogatz_k_lt_2_returns_empty_n_node_graph(self):
+        """nx accepts k=0 and k=1 (k//2=0 ⇒ no edges). fnx used to reject
+        with 'requires k >= 2' from the Rust binding."""
+        import networkx as nx
+
+        for k in (0, 1):
+            fg = fnx.newman_watts_strogatz_graph(5, k, 0.5, seed=1)
+            ng = nx.newman_watts_strogatz_graph(5, k, 0.5, seed=1)
+            assert fg.number_of_nodes() == ng.number_of_nodes() == 5
+            assert fg.number_of_edges() == ng.number_of_edges() == 0
+
+    def test_connected_watts_strogatz_k_gt_n_uses_nx_wording(self):
+        with pytest.raises(
+            fnx.NetworkXError, match=r"k>n, choose smaller k or larger n"
+        ):
+            fnx.connected_watts_strogatz_graph(5, 10, 0.5, tries=10, seed=1)
+
+    def test_connected_watts_strogatz_k_equal_n_returns_complete_graph(self):
+        import networkx as nx
+
+        fg = fnx.connected_watts_strogatz_graph(5, 5, 0.5, tries=10, seed=1)
+        ng = nx.connected_watts_strogatz_graph(5, 5, 0.5, tries=10, seed=1)
+        assert fg.number_of_edges() == ng.number_of_edges() == 10  # K_5

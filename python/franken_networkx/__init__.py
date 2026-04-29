@@ -33836,6 +33836,24 @@ def scale_free_graph(
     initial_graph=None,
 ):
     """Return a directed scale-free MultiDiGraph."""
+    # br-sfgval: validate with nx-shaped ValueError messages before the Rust
+    # branch; without this, invalid params leak the Rust
+    # `ValueError("FailClosed { ... }")` text instead of nx's terse wording.
+    # Validation order and wording match networkx exactly so regex-matched
+    # tests on the drop-in surface keep working.
+    if alpha <= 0:
+        raise ValueError("alpha must be > 0.")
+    if beta <= 0:
+        raise ValueError("beta must be > 0.")
+    if gamma <= 0:
+        raise ValueError("gamma must be > 0.")
+    if abs(alpha + beta + gamma - 1.0) >= 1e-9:
+        raise ValueError("alpha+beta+gamma must equal 1.")
+    if delta_in < 0:
+        raise ValueError("delta_in must be >= 0.")
+    if delta_out < 0:
+        raise ValueError("delta_out must be >= 0.")
+
     # Convert initial_graph to MultiDiGraph if needed for the Rust binding.
     if initial_graph is not None and not isinstance(initial_graph, MultiDiGraph):
         converted = MultiDiGraph()
@@ -34532,6 +34550,17 @@ def newman_watts_strogatz_graph(n, k, p, seed=None, *, create_using=None, backen
     if backend is not None and backend != "networkx":
         raise ImportError(f"'{backend}' backend is not installed.")
     del backend_kwargs  # in-tree implementation ignores backend kwargs
+    # br-nwsval: validate with nx-shaped NetworkXError at the Python edge so
+    # that the Rust ValueError(FailClosed{...}) doesn't leak. nx accepts
+    # k=0 and k=1 (returns the empty graph on n nodes — the ring with
+    # k//2=0 has no edges); the Rust binding rejects k<2 so we short-circuit
+    # those cases here.
+    if k > n:
+        raise NetworkXError("k>=n, choose smaller k or larger n")
+    if k == n:
+        return complete_graph(n, create_using=create_using)
+    if k < 2:
+        return empty_graph(n, create_using=create_using)
     graph = _rust_newman_watts_strogatz_graph(
         n, k, p, seed=_native_random_seed(seed)
     )
@@ -34550,6 +34579,13 @@ def newman_watts_strogatz_graph(n, k, p, seed=None, *, create_using=None, backen
 
 def connected_watts_strogatz_graph(n, k, p, tries=100, seed=None, *, create_using=None):
     """Return a connected Watts-Strogatz small-world graph."""
+    # br-cwsval: validate at the Python edge so the Rust ValueError(FailClosed)
+    # surface doesn't leak — nx raises NetworkXError for both k>n and the
+    # tries-exceeded path.
+    if k > n:
+        raise NetworkXError("k>n, choose smaller k or larger n")
+    if k == n:
+        return complete_graph(n, create_using=create_using)
     graph = _rust_connected_watts_strogatz_graph(
         n,
         k,
@@ -34584,10 +34620,12 @@ def random_regular_graph(d, n, seed=None, *, create_using=None, backend=None, **
     # br-rrgval: validate with nx-shaped NetworkXError *before* the Rust
     # branch; without this, invalid (d, n) leak the Rust
     # `ValueError("FailClosed { ... }")` instead of nx's NetworkXError.
-    if not 0 <= d < n:
-        raise NetworkXError("the 0 <= d < n inequality must be satisfied")
+    # Order matches nx (n*d parity check first, then d<n) so that inputs
+    # failing both — e.g. (d=3, n=3) — surface the same message nx does.
     if (n * d) % 2 != 0:
         raise NetworkXError("n * d must be even")
+    if not 0 <= d < n:
+        raise NetworkXError("the 0 <= d < n inequality must be satisfied")
 
     if create_using is None:
         return _rust_random_regular_graph(d, n, seed=_native_random_seed(seed))
@@ -34659,8 +34697,9 @@ def powerlaw_cluster_graph(n, m, p, seed=None, *, create_using=None, backend=Non
     # br-powerlawexc: nx raises NetworkXError with its own wording; fnx used
     # to surface the Rust 'ValueError(FailClosed{...})' on the default path.
     # Normalize to nx's exact message so regex-matched pytest.raises keeps
-    # working on the drop-in surface.
-    if m < 1 or m >= n:
+    # working on the drop-in surface. nx accepts m == n (returns n nodes
+    # with 0 edges) — only m > n is rejected.
+    if m < 1 or m > n:
         raise NetworkXError(
             f"NetworkXError must have m>1 and m<n, m={m},n={n}"
         )
