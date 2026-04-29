@@ -6207,41 +6207,69 @@ pub fn topological_generations(
 
 /// Return the longest path in a DAG.
 ///
-/// Matches `networkx.dag_longest_path(G)`.
+/// Matches `networkx.dag_longest_path(G, weight=, default_weight=)`.
+/// When ``weight`` is None, falls back to the unweighted hop-count
+/// path. When provided, edges are summed via ``edge_attrs[weight]``
+/// with ``default_weight`` filling in for missing attribute values.
 #[pyfunction]
-pub fn dag_longest_path(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Vec<PyObject>> {
+#[pyo3(signature = (g, weight=None, default_weight=1.0))]
+pub fn dag_longest_path(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    weight: Option<&str>,
+    default_weight: f64,
+) -> PyResult<Vec<PyObject>> {
     let gr = extract_graph(g)?;
     if !gr.is_directed() {
         return Err(NetworkXError::new_err(
             "dag_longest_path not defined on undirected graphs.",
         ));
     }
-    {
-        let dg_ref = gr.digraph().expect("is_directed checked above");
-        match py.allow_threads(|| fnx_algorithms::dag_longest_path(dg_ref)) {
-            Some(path) => Ok(path.iter().map(|n| gr.py_node_key(py, n)).collect()),
-            None => Err(crate::HasACycle::new_err("Graph contains a cycle.")),
-        }
+    let dg_ref = gr.digraph().expect("is_directed checked above");
+    let result = match weight {
+        None => py.allow_threads(|| fnx_algorithms::dag_longest_path(dg_ref)),
+        Some(w) => py.allow_threads(|| {
+            fnx_algorithms::dag_longest_path_weighted(dg_ref, w, default_weight)
+        }),
+    };
+    match result {
+        Some(path) => Ok(path.iter().map(|n| gr.py_node_key(py, n)).collect()),
+        None => Err(crate::HasACycle::new_err("Graph contains a cycle.")),
     }
 }
 
 /// Return the length of the longest path in a DAG.
 ///
-/// Matches `networkx.dag_longest_path_length(G)`.
+/// Matches `networkx.dag_longest_path_length(G, weight=, default_weight=)`.
+/// When ``weight`` is None the result is an unweighted hop-count
+/// (returned as a Python int). When provided the result is the
+/// weighted sum (Python float).
 #[pyfunction]
-pub fn dag_longest_path_length(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<usize> {
+#[pyo3(signature = (g, weight=None, default_weight=1.0))]
+pub fn dag_longest_path_length(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    weight: Option<&str>,
+    default_weight: f64,
+) -> PyResult<PyObject> {
     let gr = extract_graph(g)?;
     if !gr.is_directed() {
         return Err(NetworkXError::new_err(
             "dag_longest_path_length not defined on undirected graphs.",
         ));
     }
-    {
-        let dg_ref = gr.digraph().expect("is_directed checked above");
-        match py.allow_threads(|| fnx_algorithms::dag_longest_path_length(dg_ref)) {
-            Some(length) => Ok(length),
+    let dg_ref = gr.digraph().expect("is_directed checked above");
+    match weight {
+        None => match py.allow_threads(|| fnx_algorithms::dag_longest_path_length(dg_ref)) {
+            Some(length) => Ok(length.into_pyobject(py)?.into_any().unbind()),
             None => Err(crate::HasACycle::new_err("Graph contains a cycle.")),
-        }
+        },
+        Some(w) => match py.allow_threads(|| {
+            fnx_algorithms::dag_longest_path_length_weighted(dg_ref, w, default_weight)
+        }) {
+            Some(length) => Ok(length.into_pyobject(py)?.into_any().unbind()),
+            None => Err(crate::HasACycle::new_err("Graph contains a cycle.")),
+        },
     }
 }
 

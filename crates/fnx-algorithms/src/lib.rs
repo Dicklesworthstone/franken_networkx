@@ -13746,6 +13746,102 @@ pub fn dag_longest_path_length(digraph: &DiGraph) -> Option<usize> {
     dag_longest_path(digraph).map(|path| if path.is_empty() { 0 } else { path.len() - 1 })
 }
 
+/// Return the longest path in a DAG using weighted edges.
+///
+/// Each edge contributes ``edge_attrs[weight_attr]`` (cast to f64) or
+/// ``default_weight`` if the attribute is missing or non-numeric.
+/// Path length is the running sum of edge weights along the path.
+///
+/// Returns ``None`` if the input graph has a cycle. Returns an empty
+/// path for graphs with no nodes.
+///
+/// Matches ``networkx.dag_longest_path(G, weight=, default_weight=)``.
+#[must_use]
+pub fn dag_longest_path_weighted(
+    digraph: &DiGraph,
+    weight_attr: &str,
+    default_weight: f64,
+) -> Option<Vec<String>> {
+    let topo = topological_sort(digraph)?;
+    let order = &topo.order;
+    if order.is_empty() {
+        return Some(Vec::new());
+    }
+
+    let mut dist: HashMap<&str, f64> = HashMap::with_capacity(order.len());
+    let mut pred: HashMap<&str, Option<&str>> = HashMap::with_capacity(order.len());
+
+    for node in order {
+        dist.insert(node.as_str(), 0.0);
+        pred.insert(node.as_str(), None);
+    }
+
+    for u in order {
+        if let Some(succs) = digraph.successors(u) {
+            for v in succs {
+                let edge_w = directed_edge_weight_with_default(
+                    digraph,
+                    u.as_str(),
+                    v,
+                    weight_attr,
+                    default_weight,
+                );
+                let new_dist = dist[u.as_str()] + edge_w;
+                if new_dist > dist[v] {
+                    dist.insert(v, new_dist);
+                    pred.insert(v, Some(u.as_str()));
+                }
+            }
+        }
+    }
+
+    let mut best_node = order[0].as_str();
+    let mut best_dist = dist[best_node];
+    for node in order {
+        let d = dist[node.as_str()];
+        if d > best_dist {
+            best_dist = d;
+            best_node = node.as_str();
+        }
+    }
+
+    let mut path = vec![best_node.to_owned()];
+    let mut current = best_node;
+    while let Some(Some(p)) = pred.get(current) {
+        path.push(p.to_string());
+        current = p;
+    }
+    path.reverse();
+    Some(path)
+}
+
+/// Return the (weighted) length of the longest path in a DAG.
+///
+/// Matches ``networkx.dag_longest_path_length(G, weight=, default_weight=)``.
+#[must_use]
+pub fn dag_longest_path_length_weighted(
+    digraph: &DiGraph,
+    weight_attr: &str,
+    default_weight: f64,
+) -> Option<f64> {
+    let path = dag_longest_path_weighted(digraph, weight_attr, default_weight)?;
+    if path.len() <= 1 {
+        return Some(0.0);
+    }
+    let mut total = 0.0_f64;
+    for window in path.windows(2) {
+        let (u, v) = (window[0].as_str(), window[1].as_str());
+        total += directed_edge_weight_with_default(
+            digraph,
+            u,
+            v,
+            weight_attr,
+            default_weight,
+        );
+    }
+    Some(total)
+}
+
 /// Return a topological ordering of nodes, breaking ties lexicographically.
 ///
 /// Uses a BinaryHeap (min-heap via Reverse) to always pick the lexicographically

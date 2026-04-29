@@ -9268,9 +9268,36 @@ def dag_longest_path_length(G, weight="weight", default_weight=1):
     The Rust binding raised NetworkXError with a different message —
     callers catching NetworkXNotImplemented would miss the signal.
     Gate on G.is_directed() so the exception class matches.
+
+    br-daglenport: with the weighted Rust port in place, the simple
+    cases (string weight, scalar default_weight, no multigraph) go
+    straight to ``franken_networkx._fnx.dag_longest_path_length``.
+    Multigraphs and non-string weight kwargs still bridge to nx so
+    parallel-edge "max weight" semantics and callable-weight forms
+    keep their nx contracts.
     """
     if not G.is_directed():
         raise NetworkXNotImplemented("not implemented for undirected type")
+    if (
+        not G.is_multigraph()
+        and (weight is None or isinstance(weight, str))
+        and isinstance(default_weight, (int, float))
+    ):
+        # br-daglencycle: nx surfaces a cyclic-graph error via
+        # topological_sort, which raises NetworkXUnfeasible with the
+        # wording "Graph contains a cycle or graph changed during
+        # iteration". The Rust binding raises HasACycle with a
+        # shorter message; catch and translate so callers using
+        # ``except nx.NetworkXUnfeasible:`` keep working AND the
+        # error message matches nx exactly.
+        try:
+            return _fnx.dag_longest_path_length(
+                G, weight=weight, default_weight=float(default_weight)
+            )
+        except HasACycle as exc:
+            raise NetworkXUnfeasible(
+                "Graph contains a cycle or graph changed during iteration"
+            ) from exc
     return _call_networkx_for_parity(
         "dag_longest_path_length",
         G,
