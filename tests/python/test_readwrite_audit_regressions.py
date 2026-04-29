@@ -55,6 +55,12 @@ class TestGmlStructuralErrorParity:
         with pytest.raises(fnx.NetworkXError):
             fnx.parse_gml("] graph [ ]")
 
+    def test_empty_gml_raises_networkx_error_matching_nx(self):
+        with pytest.raises(fnx.NetworkXError, match=r"input contains no graph"):
+            fnx.parse_gml("")
+        with pytest.raises(nx.NetworkXError, match=r"input contains no graph"):
+            nx.parse_gml("")
+
     def test_valid_gml_round_trip_still_works(self):
         text = (
             'graph [ node [ id 0 label "a" ]'
@@ -120,6 +126,7 @@ class TestGraphmlWriterTypeValidation:
     @pytest.mark.parametrize(
         "value,kind_pattern",
         [
+            (b"bytes", r"bytes"),
             (None, r"NoneType"),
             ({"a", "b"}, r"set"),
             ((1.0, 2.0), r"tuple"),
@@ -139,6 +146,7 @@ class TestGraphmlWriterTypeValidation:
     @pytest.mark.parametrize(
         "value,kind_pattern",
         [
+            (b"bytes", r"bytes"),
             (None, r"NoneType"),
             ({"a"}, r"set"),
         ],
@@ -150,6 +158,16 @@ class TestGraphmlWriterTypeValidation:
         with pytest.raises(
             fnx.NetworkXError,
             match=r"GraphML writer does not support .*" + kind_pattern,
+        ):
+            fnx.write_graphml(g, buf)
+
+    def test_unsupported_graph_attr_type_raises(self):
+        g = fnx.Graph()
+        g.graph["payload"] = b"bytes"
+        buf = io.BytesIO()
+        with pytest.raises(
+            fnx.NetworkXError,
+            match=r"GraphML writer does not support .*bytes",
         ):
             fnx.write_graphml(g, buf)
 

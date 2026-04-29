@@ -566,6 +566,8 @@ def parse_gml(lines, label="label", destringizer=None):
         line.decode("utf-8") if isinstance(line, bytes) else str(line)
         for line in _normalize_lines(lines)
     )
+    if not text.strip():
+        raise fnx.NetworkXError("input contains no graph")
     # br-readgml-strict: the Rust reader runs in strict mode at the Python
     # boundary so structural errors (duplicate node id, unbalanced brackets,
     # stray ']' tokens) surface as a fail-closed I/O error. nx surfaces

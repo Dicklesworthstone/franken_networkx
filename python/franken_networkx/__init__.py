@@ -11497,7 +11497,7 @@ def write_graphml(
     # Rust binding's py_dict_to_attr_map silently coerces those to
     # ``str(value)``, so without this validation fnx would accept values
     # nx rejects — diverging from drop-in parity. Mirror nx's wording.
-    _GRAPHML_OK_TYPES = (bool, int, float, str, bytes)
+    _GRAPHML_OK_TYPES = (bool, int, float, str)
     for src_iter, kind in (
         (G.nodes(data=True), "node"),
         (G.edges(data=True), "edge"),
@@ -11519,7 +11519,7 @@ def write_graphml(
 def _validate_graph_graphml_attrs(graph_attrs):
     if not isinstance(graph_attrs, dict):
         return
-    ok = (bool, int, float, str, bytes)
+    ok = (bool, int, float, str)
     for value in graph_attrs.values():
         if not isinstance(value, ok):
             raise NetworkXError(
