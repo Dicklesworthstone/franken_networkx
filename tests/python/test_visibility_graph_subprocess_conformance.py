@@ -11,6 +11,8 @@ import subprocess  # nosec B404 - test harness runs a fixed local interpreter.
 import sys
 import textwrap
 
+import pytest
+
 
 def _visibility_cases():
     cases = []
@@ -37,29 +39,45 @@ _WORKER = textwrap.dedent(
     else:
         raise AssertionError(payload["module"])
 
+    def _json_value(value):
+        return value.item() if hasattr(value, "item") else value
+
+    def _describe_visibility_graph(series):
+        graph = graphlib.visibility_graph(series)
+        return {
+            "nodes": list(graph.nodes()),
+            "edges": sorted(sorted(edge) for edge in graph.edges()),
+            "values": [
+                [node, _json_value(graph.nodes[node].get("value", "<missing>"))]
+                for node in graph.nodes()
+            ],
+        }
+
     results = []
     for series in payload["cases"]:
-        graph = graphlib.visibility_graph(series)
-        results.append(
-            {
-                "nodes": list(graph.nodes()),
-                "edges": sorted(sorted(edge) for edge in graph.edges()),
-                "values": [
-                    [node, graph.nodes[node].get("value", "<missing>")]
-                    for node in graph.nodes()
-                ],
-            }
-        )
+        results.append(_describe_visibility_graph(series))
+
+    for pandas_case in payload.get("pandas_cases", []):
+        import pandas as pd
+
+        series = pd.Series(pandas_case["values"], index=pandas_case["index"])
+        results.append(_describe_visibility_graph(series))
 
     print(json.dumps(results, sort_keys=True))
     """,
 )
 
 
-def _run_worker(module_name, cases):
+def _run_worker(module_name, cases, pandas_cases=None):
     proc = subprocess.run(  # nosec B603 - argv is static and shell=False.
         [sys.executable, "-c", _WORKER],
-        input=json.dumps({"module": module_name, "cases": cases}),
+        input=json.dumps(
+            {
+                "module": module_name,
+                "cases": cases,
+                "pandas_cases": pandas_cases or [],
+            }
+        ),
         text=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -74,5 +92,18 @@ def test_visibility_graph_matches_networkx_in_subprocesses():
 
     actual = _run_worker("franken_networkx", cases)
     expected = _run_worker("networkx", cases)
+
+    assert actual == expected
+
+
+def test_visibility_graph_pandas_integer_index_matches_networkx_in_subprocesses():
+    pytest.importorskip("pandas")
+    pandas_cases = [
+        {"values": [3, 1, 4, 1], "index": [10, 11, 12, 13]},
+        {"values": [0.5, -2.0, 7.25, 1.5], "index": [100, 101, 102, 103]},
+    ]
+
+    actual = _run_worker("franken_networkx", [], pandas_cases=pandas_cases)
+    expected = _run_worker("networkx", [], pandas_cases=pandas_cases)
 
     assert actual == expected

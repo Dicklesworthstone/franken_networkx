@@ -28853,13 +28853,14 @@ def visibility_graph(series):
     """
     G = Graph()
     n = len(series)
-    for i in range(n):
-        G.add_node(i, value=series[i])
+    values = list(series)
+    for i, value in enumerate(values):
+        G.add_node(i, value=value)
     for i in range(n):
         for j in range(i + 1, n):
             visible = True
             for k in range(i + 1, j):
-                if series[k] >= series[i] + (series[j] - series[i]) * (
+                if values[k] >= values[i] + (values[j] - values[i]) * (
                     k - i
                 ) / (j - i):
                     visible = False
