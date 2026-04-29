@@ -316,6 +316,55 @@ def test_number_of_spanning_trees_matches_networkx(name, edges):
 
 
 # ---------------------------------------------------------------------------
+# random_spanning_tree
+# ---------------------------------------------------------------------------
+
+
+def _random_tree_signature(graph):
+    return {
+        "nodes": list(graph.nodes(data=True)),
+        "edges": list(graph.edges(data=True)),
+    }
+
+
+def test_random_spanning_tree_seeded_unweighted_matches_networkx():
+    edges = [
+        (0, 1, 1.0),
+        (1, 2, 2.0),
+        (2, 3, 3.0),
+        (0, 3, 4.0),
+        (0, 2, 5.0),
+    ]
+    fg, ng = _pair_weighted(edges)
+    fr = fnx.random_spanning_tree(fg, seed=1)
+    nr = nx.random_spanning_tree(ng, seed=1)
+    assert _random_tree_signature(fr) == _random_tree_signature(nr)
+
+
+def test_random_spanning_tree_seeded_weighted_matches_networkx():
+    edges = [
+        (0, 1, 1.0),
+        (1, 2, 2.0),
+        (2, 3, 3.0),
+        (0, 3, 4.0),
+        (0, 2, 5.0),
+    ]
+    fg, ng = _pair_weighted(edges)
+    fr = fnx.random_spanning_tree(fg, weight="weight", seed=1)
+    nr = nx.random_spanning_tree(ng, weight="weight", seed=1)
+    assert _random_tree_signature(fr) == _random_tree_signature(nr)
+
+
+def test_random_spanning_tree_multiplicative_false_weight_none_raises_networkx_typeerror():
+    fg, ng = _pair_weighted([(0, 1, 1.0), (1, 2, 2.0), (0, 2, 3.0)])
+    with pytest.raises(TypeError) as nx_exc:
+        nx.random_spanning_tree(ng, multiplicative=False, seed=1)
+    with pytest.raises(TypeError) as fnx_exc:
+        fnx.random_spanning_tree(fg, multiplicative=False, seed=1)
+    assert str(fnx_exc.value) == str(nx_exc.value)
+
+
+# ---------------------------------------------------------------------------
 # Empty / single-node / two-node dispatch
 # ---------------------------------------------------------------------------
 

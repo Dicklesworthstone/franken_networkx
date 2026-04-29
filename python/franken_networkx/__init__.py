@@ -5546,7 +5546,15 @@ def maximum_spanning_arborescence(G, attr="weight", default=1, preserve_attrs=Fa
 
 def random_spanning_tree(G, weight=None, *, multiplicative=True, seed=None):
     """br-isokw: ``G`` matches nx."""
-    return _raw_random_spanning_tree(G, weight=weight, multiplicative=multiplicative, seed=seed)
+    nx_result = _call_networkx_for_parity(
+        "random_spanning_tree",
+        G,
+        weight=weight,
+        multiplicative=multiplicative,
+        seed=seed,
+    )
+    from franken_networkx.readwrite import _from_nx_graph
+    return _from_nx_graph(nx_result, create_using=type(G)())
 
 
 def partition_spanning_tree(G, minimum=True, weight="weight", partition="partition", ignore_nan=False):
