@@ -11123,9 +11123,20 @@ def biconnected_components(G):
     """Generate biconnected components as sets of nodes.
 
     Matches upstream's ``generator[set]`` contract (franken_networkx-v1nwd).
+
+    br-bccbowtie: the Rust ``_raw_biconnected_components`` failed to
+    split at articulation points on graphs like the "bowtie" (two
+    triangles sharing a single vertex), returning one merged
+    component instead of NX's two. The companion
+    ``biconnected_component_edges`` already delegates to NX
+    (br-r37-c1-9kyjl) — mirror that delegation here so the
+    node-component decomposition matches NX's articulation-point
+    splitting on every fixture.
     """
-    for component in _raw_biconnected_components(G):
-        yield set(component)
+    yield from (
+        set(component)
+        for component in _call_networkx_for_parity("biconnected_components", G)
+    )
 
 
 # Graph generators — classic
