@@ -17983,11 +17983,11 @@ def is_directed(G):
 
 
 def _degree_sequence_stublist(degree_sequence):
-    return [
-        node
-        for node, degree in enumerate(degree_sequence)
-        for _ in range(int(degree))
-    ]
+    return list(
+        itertools.chain.from_iterable(
+            [node] * degree for node, degree in enumerate(degree_sequence)
+        )
+    )
 
 
 def _configuration_model_local(

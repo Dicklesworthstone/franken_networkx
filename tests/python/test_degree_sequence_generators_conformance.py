@@ -251,6 +251,25 @@ def test_configuration_model_directed_create_using_error_matches_networkx(
     assert str(fnx_exc.value) == str(nx_exc.value)
 
 
+def test_configuration_model_float_sequence_error_matches_networkx():
+    seq = [1.5, 0.5]
+    with pytest.raises(TypeError) as nx_exc:
+        nx.configuration_model(seq, seed=1)
+    with pytest.raises(TypeError) as fnx_exc:
+        fnx.configuration_model(seq, seed=1)
+    assert str(fnx_exc.value) == str(nx_exc.value)
+
+
+def test_directed_configuration_model_float_sequence_error_matches_networkx():
+    in_seq = [1.5, 0.5]
+    out_seq = [0.5, 1.5]
+    with pytest.raises(TypeError) as nx_exc:
+        nx.directed_configuration_model(in_seq, out_seq, seed=1)
+    with pytest.raises(TypeError) as fnx_exc:
+        fnx.directed_configuration_model(in_seq, out_seq, seed=1)
+    assert str(fnx_exc.value) == str(nx_exc.value)
+
+
 # ---------------------------------------------------------------------------
 # expected_degree_graph (Chung-Lu) — bit-for-bit parity (uses seeded RNG)
 # ---------------------------------------------------------------------------
