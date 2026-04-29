@@ -28854,7 +28854,7 @@ def visibility_graph(series):
     G = Graph()
     n = len(series)
     for i in range(n):
-        G.add_node(i)
+        G.add_node(i, value=series[i])
     for i in range(n):
         for j in range(i + 1, n):
             visible = True
