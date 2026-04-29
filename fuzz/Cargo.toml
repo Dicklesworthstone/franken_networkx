@@ -165,3 +165,8 @@ doc = false
 name = "fuzz_polynomial_metrics"
 path = "fuzz_targets/fuzz_polynomial_metrics.rs"
 doc = false
+
+[[bin]]
+name = "fuzz_snapshot_roundtrip"
+path = "fuzz_targets/fuzz_snapshot_roundtrip.rs"
+doc = false
