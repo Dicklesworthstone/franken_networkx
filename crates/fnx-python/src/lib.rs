@@ -101,6 +101,42 @@ pub(crate) fn edge_key_lookup_string(_py: Python<'_>, key: &Bound<'_, PyAny>) ->
     Ok(format!("{ty}:{repr}"))
 }
 
+pub(crate) fn weighted_edge_triplet<'py>(
+    item: &Bound<'py, PyAny>,
+) -> PyResult<(Bound<'py, PyAny>, Bound<'py, PyAny>, Bound<'py, PyAny>)> {
+    let unpack_error = || {
+        let ty = item
+            .get_type()
+            .name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_else(|_| "object".to_owned());
+        PyTypeError::new_err(format!("cannot unpack non-iterable {ty} object"))
+    };
+    let mut iter = PyIterator::from_object(item).map_err(|_| unpack_error())?;
+    let Some(u) = iter.next() else {
+        return Err(PyValueError::new_err(
+            "not enough values to unpack (expected 3, got 0)",
+        ));
+    };
+    let Some(v) = iter.next() else {
+        return Err(PyValueError::new_err(
+            "not enough values to unpack (expected 3, got 1)",
+        ));
+    };
+    let Some(w) = iter.next() else {
+        return Err(PyValueError::new_err(
+            "not enough values to unpack (expected 3, got 2)",
+        ));
+    };
+    if let Some(extra) = iter.next() {
+        let _ = extra?;
+        return Err(PyValueError::new_err(
+            "too many values to unpack (expected 3)",
+        ));
+    }
+    Ok((u?, v?, w?))
+}
+
 pub(crate) fn py_dict_to_attr_map(attrs: &Bound<'_, PyDict>) -> PyResult<AttrMap> {
     let mut rust_attrs = AttrMap::new();
     for (k, v) in attrs.iter() {
@@ -1446,22 +1482,10 @@ impl PyMultiGraph {
         let iter = PyIterator::from_object(ebunch_to_add)?;
         for item in iter {
             let item = item?;
-            let tuple = item.downcast::<PyTuple>().map_err(|_| {
-                PyValueError::new_err("not enough values to unpack (expected 3, got 0)")
-            })?;
-            // br-addwedges: match nx wording for unpack failures.
-            if tuple.len() < 3 {
-                return Err(PyValueError::new_err(format!(
-                    "not enough values to unpack (expected 3, got {})",
-                    tuple.len()
-                )));
-            }
-            let u = &tuple.get_item(0)?;
-            let v = &tuple.get_item(1)?;
-            let w = &tuple.get_item(2)?;
+            let (u, v, w) = weighted_edge_triplet(&item)?;
             let d = PyDict::new(py);
-            d.set_item(weight, w)?;
-            self.add_edge(py, u, v, None, Some(&d))?;
+            d.set_item(weight, &w)?;
+            self.add_edge(py, &u, &v, None, Some(&d))?;
         }
         Ok(())
     }
@@ -2494,24 +2518,9 @@ impl PyGraph {
         let iter = PyIterator::from_object(ebunch_to_add)?;
         for item in iter {
             let item = item?;
-            let tuple = item.downcast::<PyTuple>().map_err(|_| {
-                PyValueError::new_err("not enough values to unpack (expected 3, got 0)")
-            })?;
-            // br-addwedges: nx surfaces ValueError("not enough values to
-            // unpack (expected 3, got N)") when the tuple has the wrong
-            // arity. Mirror that wording so drop-in code catching the
-            // unpacking error keeps working.
-            if tuple.len() != 3 {
-                return Err(PyValueError::new_err(format!(
-                    "not enough values to unpack (expected 3, got {})",
-                    tuple.len()
-                )));
-            }
-            let u = tuple.get_item(0)?;
-            let v = tuple.get_item(1)?;
-            let w = tuple.get_item(2)?;
+            let (u, v, w) = weighted_edge_triplet(&item)?;
             let d = PyDict::new(py);
-            d.set_item(weight, w)?;
+            d.set_item(weight, &w)?;
             self.add_edge(py, &u, &v, Some(&d))?;
         }
         Ok(())

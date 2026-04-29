@@ -25,6 +25,11 @@ import pytest
 import franken_networkx as fnx
 
 
+class _WeightedEdge:
+    def __iter__(self):
+        return iter((0, 1, 2.5))
+
+
 # ---------------------------------------------------------------------------
 # Pass 1 / 2 — add_edges_from non-dict third element
 # ---------------------------------------------------------------------------
@@ -93,6 +98,51 @@ class TestAddWeightedEdgesFromArity:
         g.add_weighted_edges_from([(0, 1, 2.5)])
         assert g.get_edge_data(0, 1)["weight"] == 2.5
 
+    @pytest.mark.parametrize("graph_cls", [fnx.Graph, fnx.DiGraph,
+                                            fnx.MultiGraph, fnx.MultiDiGraph])
+    def test_list_triple_matches_networkx(self, graph_cls):
+        """nx accepts any 3-element sequence (list, tuple, etc.) — the
+        helper unpacks through iteration so lists work alongside tuples."""
+        g = graph_cls()
+        g.add_weighted_edges_from([[0, 1, 2.5]])
+        edge_data = g.get_edge_data(0, 1)
+        # MultiGraph nests under integer keys; simple graphs return flat.
+        if g.is_multigraph():
+            assert edge_data[0]["weight"] == 2.5
+        else:
+            assert edge_data["weight"] == 2.5
+
+    @pytest.mark.parametrize("edge_item", [
+        {"a": 0, "b": 1, "weight": 2.5},
+        _WeightedEdge(),
+    ])
+    @pytest.mark.parametrize("graph_cls", [fnx.Graph, fnx.DiGraph,
+                                            fnx.MultiGraph, fnx.MultiDiGraph])
+    def test_non_tuple_iterable_triple_matches_networkx(self, graph_cls, edge_item):
+        g = graph_cls()
+        g.add_weighted_edges_from([edge_item])
+        assert g.number_of_edges() == 1
+
+    @pytest.mark.parametrize("graph_cls", [fnx.Graph, fnx.DiGraph,
+                                            fnx.MultiGraph, fnx.MultiDiGraph])
+    def test_too_many_values_message_matches_networkx(self, graph_cls):
+        g = graph_cls()
+        with pytest.raises(
+            ValueError,
+            match=r"too many values to unpack \(expected 3\)",
+        ):
+            g.add_weighted_edges_from([(0, 1, 2.5, "extra")])
+
+    @pytest.mark.parametrize("graph_cls", [fnx.Graph, fnx.DiGraph,
+                                            fnx.MultiGraph, fnx.MultiDiGraph])
+    def test_non_iterable_edge_message_matches_networkx(self, graph_cls):
+        g = graph_cls()
+        with pytest.raises(
+            TypeError,
+            match=r"cannot unpack non-iterable int object",
+        ):
+            g.add_weighted_edges_from([5])
+
     @pytest.mark.parametrize("graph_cls", [fnx.Graph, fnx.DiGraph])
     def test_message_matches_networkx(self, graph_cls):
         """Exercise both libraries' add_weighted_edges_from with the
@@ -114,3 +164,24 @@ class TestAddWeightedEdgesFromArity:
         except ValueError as exc:
             fnx_msg = str(exc)
         assert fnx_msg == nx_msg, f"fnx={fnx_msg!r} nx={nx_msg!r}"
+
+    @pytest.mark.parametrize("graph_cls,nx_cls", [
+        (fnx.Graph, nx.Graph),
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiGraph, nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ])
+    @pytest.mark.parametrize("bad_edges", [
+        [(0, 1, 2.5, "extra")],
+        [5],
+    ])
+    def test_error_messages_match_networkx_for_other_unpack_paths(
+        self, graph_cls, nx_cls, bad_edges
+    ):
+        fg = graph_cls()
+        ng = nx_cls()
+        with pytest.raises(Exception) as nx_exc:
+            ng.add_weighted_edges_from(bad_edges)
+        with pytest.raises(type(nx_exc.value)) as fnx_exc:
+            fg.add_weighted_edges_from(bad_edges)
+        assert str(fnx_exc.value) == str(nx_exc.value)

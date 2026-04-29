@@ -8,7 +8,7 @@
 use crate::{
     NetworkXError, NodeNotFound, PyGraph, PyObject, compatibility_mode_from_py,
     compatibility_mode_name, edge_key_lookup_string, node_key_to_string, py_dict_to_attr_map,
-    runtime_policy_from_state, runtime_policy_json, unwrap_infallible,
+    runtime_policy_from_state, runtime_policy_json, unwrap_infallible, weighted_edge_triplet,
 };
 use fnx_classes::AttrMap;
 use fnx_classes::digraph::{DiGraph, MultiDiGraph};
@@ -1285,22 +1285,10 @@ impl PyMultiDiGraph {
         let iter = PyIterator::from_object(ebunch_to_add)?;
         for item in iter {
             let item = item?;
-            let tuple = item.downcast::<PyTuple>().map_err(|_| {
-                PyValueError::new_err("not enough values to unpack (expected 3, got 0)")
-            })?;
-            // br-addwedges: match nx wording for unpack failures.
-            if tuple.len() < 3 {
-                return Err(PyValueError::new_err(format!(
-                    "not enough values to unpack (expected 3, got {})",
-                    tuple.len()
-                )));
-            }
-            let u = &tuple.get_item(0)?;
-            let v = &tuple.get_item(1)?;
-            let w = &tuple.get_item(2)?;
+            let (u, v, w) = weighted_edge_triplet(&item)?;
             let d = PyDict::new(py);
-            d.set_item(weight, w)?;
-            self.add_edge(py, u, v, None, Some(&d))?;
+            d.set_item(weight, &w)?;
+            self.add_edge(py, &u, &v, None, Some(&d))?;
         }
         Ok(())
     }
@@ -2369,21 +2357,9 @@ impl PyDiGraph {
         let iter = PyIterator::from_object(ebunch_to_add)?;
         for item in iter {
             let item = item?;
-            let tuple = item.downcast::<PyTuple>().map_err(|_| {
-                PyValueError::new_err("not enough values to unpack (expected 3, got 0)")
-            })?;
-            // br-addwedges: match nx wording for unpack failures.
-            if tuple.len() != 3 {
-                return Err(PyValueError::new_err(format!(
-                    "not enough values to unpack (expected 3, got {})",
-                    tuple.len()
-                )));
-            }
-            let u = tuple.get_item(0)?;
-            let v = tuple.get_item(1)?;
-            let w = tuple.get_item(2)?;
+            let (u, v, w) = weighted_edge_triplet(&item)?;
             let d = PyDict::new(py);
-            d.set_item(weight, w)?;
+            d.set_item(weight, &w)?;
             self.add_edge(py, &u, &v, Some(&d))?;
         }
         Ok(())

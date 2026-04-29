@@ -97,7 +97,11 @@ fn synthesize_gml(data: &[u8]) -> String {
                 let _ = writeln!(input, "  node [ label \"{label}\" ]");
             }
             _ => {
-                let _ = writeln!(input, "  node [ id {idx} value {} ]", scalar_value(selector));
+                let _ = writeln!(
+                    input,
+                    "  node [ id {idx} value {} ]",
+                    scalar_value(selector)
+                );
             }
         }
     }
@@ -131,7 +135,11 @@ fn synthesize_gml(data: &[u8]) -> String {
                 let _ = writeln!(input, "  edge [ source {source} ]");
             }
             4 => {
-                let _ = writeln!(input, "  edge [ source {source} target {} ]", node_count + 3);
+                let _ = writeln!(
+                    input,
+                    "  edge [ source {source} target {} ]",
+                    node_count + 3
+                );
             }
             _ => {
                 let _ = writeln!(input, "  edge [ source {source} target {target}");
