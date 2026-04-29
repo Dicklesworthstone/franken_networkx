@@ -4231,9 +4231,17 @@ def degree_assortativity_coefficient(G, x="out", y="in", weight=None, nodes=None
     # br-mgdegassort: the Rust fast path returned nan for MultiGraph
     # inputs (it did not sum parallel-edge contributions). Route
     # multigraphs through nx for a correct non-nan value.
+    #
+    # br-dirassort: nx's directed contract considers ONLY the (out_src,
+    # in_tgt) pair per directed edge. The Rust fast path computed the
+    # coefficient over the undirected projection's degrees, so on a
+    # directed P_3 every edge collapses to (deg_src, deg_tgt) = (1, 2)
+    # / (2, 1) and Pearson reports -1.0 — but nx sees (out, in) =
+    # (1, 1) / (1, 1) on both edges, zero variance, NaN. Delegate the
+    # directed case so the (out, in) pair extraction matches.
     if (
         x == "out" and y == "in" and weight is None and nodes is None
-        and not G.is_multigraph()
+        and not G.is_multigraph() and not G.is_directed()
     ):
         return _raw_degree_assortativity_coefficient(G)
     return _call_networkx_for_parity(
