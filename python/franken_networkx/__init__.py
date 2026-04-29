@@ -5837,6 +5837,13 @@ def all_simple_paths(
     if source == target:
         yield [source]
         return
+    # br-allsimplecut0: NX defines cutoff as "Depth to stop the search.
+    # Only paths of length <= cutoff are returned" (length = number of
+    # edges). cutoff < 1 with source != target means no path is short
+    # enough — yield nothing. The Rust binding ignored cutoff=0 and
+    # surfaced the direct edge instead, diverging from NX.
+    if cutoff is not None and cutoff < 1:
+        return
     yield from _rust_all_simple_paths(G, source, target, cutoff=cutoff)
 
 
