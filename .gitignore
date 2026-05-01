@@ -129,8 +129,9 @@ crates/*/target/
 # Beads history snapshots
 .beads/.br_history/
 
-# Claude local settings
-.claude/settings.local.json
+# Claude local settings + agent scratch dir (scheduled_tasks.lock,
+# settings.local.json, etc. are machine-local Claude Code state)
+.claude/
 
 # ACFS ephemeral patterns (auto-generated agent artifacts)
 .ntm/
