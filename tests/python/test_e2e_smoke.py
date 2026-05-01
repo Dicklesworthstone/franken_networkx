@@ -792,6 +792,28 @@ def test_exceptions(fnx):
     check("NodeNotFound is subclass of NetworkXError",
           issubclass(fnx.NodeNotFound, fnx.NetworkXError))
 
+    # br-r37-c1-md9br: drop-in code that imports through the .exception
+    # submodule path must work (was previously empty — see fix in
+    # 32eac739). Smoke that the path resolves and aliases the same
+    # class objects as nx.exception.
+    import franken_networkx.exception as fnx_exc
+    import networkx.exception as nx_exc
+    check("fnx.exception.NetworkXError aliases nx",
+          fnx_exc.NetworkXError is nx_exc.NetworkXError)
+    check("fnx.exception.NodeNotFound aliases nx",
+          fnx_exc.NodeNotFound is nx_exc.NodeNotFound)
+    check("fnx.exception.NetworkXNoPath aliases nx",
+          fnx_exc.NetworkXNoPath is nx_exc.NetworkXNoPath)
+    # Catch via the submodule path to confirm except blocks work.
+    G2 = fnx.Graph()
+    G2.add_node("a")
+    G2.add_node("b")
+    try:
+        fnx.shortest_path(G2, "a", "b")
+        check("fnx.exception.NetworkXNoPath catches via submodule path", False)
+    except fnx_exc.NetworkXNoPath:
+        check("fnx.exception.NetworkXNoPath catches via submodule path", True)
+
 
 # ===========================================================================
 # Test: Pickle round-trip
