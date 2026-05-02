@@ -179,13 +179,51 @@ fuzz_target!(|input: SccPathInput| {
             attracting_components_subset(&ag.graph);
         }
         SccPathInput::BiconnectedComponents(ag) => {
-            let _ = fnx_algorithms::biconnected_components(&ag.graph);
+            let bccs = fnx_algorithms::biconnected_components(&ag.graph);
+            // Each BCC is non-empty and every node within is in G.
+            for bcc in &bccs {
+                assert!(
+                    !bcc.is_empty(),
+                    "biconnected_components emitted empty BCC"
+                );
+                for n in bcc {
+                    assert!(
+                        ag.graph.has_node(n),
+                        "biconnected_components contains foreign node {}",
+                        n
+                    );
+                }
+            }
         }
         SccPathInput::BiconnectedComponentEdges(ag) => {
-            let _ = fnx_algorithms::biconnected_component_edges(&ag.graph);
+            let bccs = fnx_algorithms::biconnected_component_edges(&ag.graph);
+            // Each BCC's edges are real edges of G.
+            for bcc in &bccs {
+                for (u, v) in bcc {
+                    assert!(
+                        ag.graph.has_edge(u, v),
+                        "biconnected_component_edges emitted non-edge ({}, {})",
+                        u, v
+                    );
+                }
+            }
         }
         SccPathInput::ArticulationAndBridges(ag) => {
-            let _ = fnx_algorithms::articulation_points(&ag.graph);
+            let aps = fnx_algorithms::articulation_points(&ag.graph);
+            // Every articulation point is a node of G with no duplicates.
+            let mut seen: HashSet<&str> = HashSet::new();
+            for n in &aps.nodes {
+                assert!(
+                    ag.graph.has_node(n),
+                    "articulation_points contains foreign node {}",
+                    n
+                );
+                assert!(
+                    seen.insert(n.as_str()),
+                    "articulation_points emitted duplicate node {}",
+                    n
+                );
+            }
             articulation_and_bridges_invariant(&ag.graph);
         }
         SccPathInput::AllSimplePathsUndirected(ag, k) => {
@@ -194,12 +232,37 @@ fuzz_target!(|input: SccPathInput| {
                 let src = nodes[0];
                 let tgt = nodes[nodes.len() - 1];
                 let cutoff = (k as usize) % 6;
-                let _ = fnx_algorithms::all_simple_paths(
+                let result = fnx_algorithms::all_simple_paths(
                     &ag.graph,
                     src,
                     tgt,
                     Some(cutoff),
                 );
+                // Every yielded path is a valid simple path source→target.
+                for path in &result.paths {
+                    if path.is_empty() {
+                        continue;
+                    }
+                    assert_eq!(path.first().map(|s| s.as_str()), Some(src),
+                        "all_simple_paths path doesn't start at source");
+                    assert_eq!(path.last().map(|s| s.as_str()), Some(tgt),
+                        "all_simple_paths path doesn't end at target");
+                    let mut seen: HashSet<&str> = HashSet::new();
+                    for n in path {
+                        assert!(
+                            seen.insert(n.as_str()),
+                            "all_simple_paths emitted non-simple path (repeats {})",
+                            n
+                        );
+                    }
+                    for w in path.windows(2) {
+                        assert!(
+                            ag.graph.has_edge(&w[0], &w[1]),
+                            "all_simple_paths emitted non-edge ({}, {})",
+                            w[0], w[1]
+                        );
+                    }
+                }
             }
         }
         SccPathInput::AllSimplePathsDirected(ag, k) => {
@@ -208,12 +271,36 @@ fuzz_target!(|input: SccPathInput| {
                 let src = nodes[0];
                 let tgt = nodes[nodes.len() - 1];
                 let cutoff = (k as usize) % 6;
-                let _ = fnx_algorithms::all_simple_paths_directed(
+                let result = fnx_algorithms::all_simple_paths_directed(
                     &ag.graph,
                     src,
                     tgt,
                     Some(cutoff),
                 );
+                for path in &result.paths {
+                    if path.is_empty() {
+                        continue;
+                    }
+                    assert_eq!(path.first().map(|s| s.as_str()), Some(src),
+                        "all_simple_paths_directed path doesn't start at source");
+                    assert_eq!(path.last().map(|s| s.as_str()), Some(tgt),
+                        "all_simple_paths_directed path doesn't end at target");
+                    let mut seen: HashSet<&str> = HashSet::new();
+                    for n in path {
+                        assert!(
+                            seen.insert(n.as_str()),
+                            "all_simple_paths_directed emitted non-simple path (repeats {})",
+                            n
+                        );
+                    }
+                    for w in path.windows(2) {
+                        assert!(
+                            ag.graph.has_edge(&w[0], &w[1]),
+                            "all_simple_paths_directed emitted non-edge {} -> {}",
+                            w[0], w[1]
+                        );
+                    }
+                }
             }
         }
         SccPathInput::ShortestSimplePaths(ag) => {
