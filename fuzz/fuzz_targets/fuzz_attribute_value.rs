@@ -135,9 +135,24 @@ fuzz_target!(|data: &[u8]| {
 
     let edgelist = format!("a b {key}={edgelist_value}");
     let mut edgelist_strict = EdgeListEngine::strict();
-    let _ = edgelist_strict.read_edgelist(&edgelist);
+    if let Ok(report) = edgelist_strict.read_edgelist(&edgelist) {
+        // Synthesized payload has 2 nodes + 1 edge.
+        assert!(report.graph.node_count() <= 2,
+            "edgelist parse produced {} nodes (expected ≤ 2)",
+            report.graph.node_count());
+        assert!(report.graph.edge_count() <= 1,
+            "edgelist parse produced {} edges (expected ≤ 1)",
+            report.graph.edge_count());
+    }
     let mut edgelist_hardened = EdgeListEngine::hardened();
-    let _ = edgelist_hardened.read_edgelist(&edgelist);
+    if let Ok(report) = edgelist_hardened.read_edgelist(&edgelist) {
+        assert!(report.graph.node_count() <= 2,
+            "edgelist (hardened) parse produced {} nodes",
+            report.graph.node_count());
+        assert!(report.graph.edge_count() <= 1,
+            "edgelist (hardened) parse produced {} edges",
+            report.graph.edge_count());
+    }
 
     let graphml = format!(
         concat!(
@@ -154,9 +169,23 @@ fuzz_target!(|data: &[u8]| {
         value = xml_escape(&raw),
     );
     let mut graphml_strict = EdgeListEngine::strict();
-    let _ = graphml_strict.read_graphml(&graphml);
+    if let Ok(report) = graphml_strict.read_graphml(&graphml) {
+        assert!(report.graph.node_count() <= 2,
+            "graphml parse produced {} nodes (expected ≤ 2)",
+            report.graph.node_count());
+        assert!(report.graph.edge_count() <= 1,
+            "graphml parse produced {} edges (expected ≤ 1)",
+            report.graph.edge_count());
+    }
     let mut graphml_hardened = EdgeListEngine::hardened();
-    let _ = graphml_hardened.read_graphml(&graphml);
+    if let Ok(report) = graphml_hardened.read_graphml(&graphml) {
+        assert!(report.graph.node_count() <= 2,
+            "graphml (hardened) parse produced {} nodes",
+            report.graph.node_count());
+        assert!(report.graph.edge_count() <= 1,
+            "graphml (hardened) parse produced {} edges",
+            report.graph.edge_count());
+    }
 
     let gml = format!(
         concat!(
@@ -169,9 +198,23 @@ fuzz_target!(|data: &[u8]| {
         value = gml_literal(&raw, data.get(1).copied().unwrap_or(0)),
     );
     let mut gml_strict = EdgeListEngine::strict();
-    let _ = gml_strict.read_gml(&gml);
+    if let Ok(report) = gml_strict.read_gml(&gml) {
+        assert!(report.graph.node_count() <= 2,
+            "gml parse produced {} nodes (expected ≤ 2)",
+            report.graph.node_count());
+        assert!(report.graph.edge_count() <= 1,
+            "gml parse produced {} edges (expected ≤ 1)",
+            report.graph.edge_count());
+    }
     let mut gml_hardened = EdgeListEngine::hardened();
-    let _ = gml_hardened.read_gml(&gml);
+    if let Ok(report) = gml_hardened.read_gml(&gml) {
+        assert!(report.graph.node_count() <= 2,
+            "gml (hardened) parse produced {} nodes",
+            report.graph.node_count());
+        assert!(report.graph.edge_count() <= 1,
+            "gml (hardened) parse produced {} edges",
+            report.graph.edge_count());
+    }
 
     let attr_json = format!(
         "{{\"{key}\":{value}}}",
@@ -191,7 +234,21 @@ fuzz_target!(|data: &[u8]| {
         attrs = attr_json,
     );
     let mut json_strict = EdgeListEngine::strict();
-    let _ = json_strict.read_json_graph(&json_payload);
+    if let Ok(report) = json_strict.read_json_graph(&json_payload) {
+        assert!(report.graph.node_count() <= 2,
+            "json parse produced {} nodes (expected ≤ 2)",
+            report.graph.node_count());
+        assert!(report.graph.edge_count() <= 1,
+            "json parse produced {} edges (expected ≤ 1)",
+            report.graph.edge_count());
+    }
     let mut json_hardened = EdgeListEngine::hardened();
-    let _ = json_hardened.read_json_graph(&json_payload);
+    if let Ok(report) = json_hardened.read_json_graph(&json_payload) {
+        assert!(report.graph.node_count() <= 2,
+            "json (hardened) parse produced {} nodes",
+            report.graph.node_count());
+        assert!(report.graph.edge_count() <= 1,
+            "json (hardened) parse produced {} edges",
+            report.graph.edge_count());
+    }
 });
