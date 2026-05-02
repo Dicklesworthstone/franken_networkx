@@ -1,6 +1,6 @@
 #![no_main]
 
-use fnx_python::parse_raw_node_link_json;
+use fnx_python::{parse_raw_node_link_json, RawNodeLinkReport};
 use libfuzzer_sys::fuzz_target;
 
 fn sanitized_identifier(data: &[u8], fallback: &str) -> String {
@@ -52,6 +52,8 @@ fuzz_target!(|data: &[u8]| {
         return;
     };
 
+    // Free-form payload: just exercise the parser; corrupted input is
+    // expected to fail closed.
     let _ = parse_raw_node_link_json(raw_input);
 
     let split = (data.len() / 4).max(1);
@@ -85,5 +87,36 @@ fuzz_target!(|data: &[u8]| {
         node_b = node_b,
     );
 
-    let _ = parse_raw_node_link_json(&payload);
+    // Synthesized payload: when parsing succeeds, the resulting graph
+    // must have exactly the 2 nodes we provided ({node_a, node_b} —
+    // they may collapse to 1 if both sanitize to the same identifier)
+    // and the |E| ≤ 1 we requested. Catches any drift in the parser
+    // that silently drops or duplicates the structural envelope.
+    if let Ok(report) = parse_raw_node_link_json(&payload) {
+        let (nodes, edges) = match report {
+            RawNodeLinkReport::Undirected(r) => {
+                (r.graph.node_count(), r.graph.edge_count())
+            }
+            RawNodeLinkReport::Directed(r) => {
+                (r.graph.node_count(), r.graph.edge_count())
+            }
+        };
+        // node_a and node_b might sanitize to the same identifier
+        // (e.g. both reduce to "a" / "b" defaults or both empty). The
+        // parser dedupes equal node names, so the result has either 1
+        // or 2 nodes.
+        assert!(
+            nodes <= 2,
+            "synthesized 2-node payload produced {} nodes",
+            nodes
+        );
+        // Likewise the edge list is one entry; if the endpoints
+        // collapse to the same node it becomes a self-loop, otherwise
+        // a real edge — never more than one.
+        assert!(
+            edges <= 1,
+            "synthesized 1-edge payload produced {} edges",
+            edges
+        );
+    }
 });
