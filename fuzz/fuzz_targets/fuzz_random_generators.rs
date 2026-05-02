@@ -174,19 +174,96 @@ fn check_multidigraph_report(
 fn exercise(mut generator: GraphGenerator, input: &GeneratorInput) {
     match *input {
         GeneratorInput::Empty { n } => {
-            check_graph_report(generator.empty_graph(usize::from(n)));
+            let n = usize::from(n);
+            if let Ok(report) = generator.empty_graph(n) {
+                assert_valid_graph(&report.graph);
+                // empty_graph(n) has exactly n nodes and 0 edges.
+                assert_eq!(
+                    report.graph.node_count(), n,
+                    "empty_graph({}) reports {} nodes, expected {}",
+                    n, report.graph.node_count(), n
+                );
+                assert_eq!(
+                    report.graph.edge_count(), 0,
+                    "empty_graph({}) has {} edges, expected 0",
+                    n, report.graph.edge_count()
+                );
+            }
         }
         GeneratorInput::Path { n } => {
-            check_graph_report(generator.path_graph(usize::from(n)));
+            let n = usize::from(n);
+            if let Ok(report) = generator.path_graph(n) {
+                assert_valid_graph(&report.graph);
+                // path_graph(n) has n nodes and max(0, n-1) edges.
+                assert_eq!(
+                    report.graph.node_count(), n,
+                    "path_graph({}) reports {} nodes, expected {}",
+                    n, report.graph.node_count(), n
+                );
+                let expected_edges = n.saturating_sub(1);
+                assert_eq!(
+                    report.graph.edge_count(), expected_edges,
+                    "path_graph({}) has {} edges, expected {}",
+                    n, report.graph.edge_count(), expected_edges
+                );
+            }
         }
         GeneratorInput::Star { spokes } => {
-            check_graph_report(generator.star_graph(usize::from(spokes)));
+            let spokes = usize::from(spokes);
+            if let Ok(report) = generator.star_graph(spokes) {
+                assert_valid_graph(&report.graph);
+                // star_graph(spokes) has spokes+1 nodes and spokes
+                // edges (one center + ``spokes`` rim nodes connected
+                // to the center).
+                let expected_nodes = spokes.saturating_add(1);
+                assert_eq!(
+                    report.graph.node_count(), expected_nodes,
+                    "star_graph({}) reports {} nodes, expected {}",
+                    spokes, report.graph.node_count(), expected_nodes
+                );
+                assert_eq!(
+                    report.graph.edge_count(), spokes,
+                    "star_graph({}) has {} edges, expected {}",
+                    spokes, report.graph.edge_count(), spokes
+                );
+            }
         }
         GeneratorInput::Cycle { n } => {
-            check_graph_report(generator.cycle_graph(usize::from(n)));
+            let n = usize::from(n);
+            if let Ok(report) = generator.cycle_graph(n) {
+                assert_valid_graph(&report.graph);
+                // cycle_graph(n): n nodes; n edges for n ≥ 3, n-1 for
+                // n=2 (single edge), 0 for n ≤ 1.
+                assert_eq!(
+                    report.graph.node_count(), n,
+                    "cycle_graph({}) reports {} nodes, expected {}",
+                    n, report.graph.node_count(), n
+                );
+                let expected_edges = if n >= 3 { n } else { n.saturating_sub(1) };
+                assert_eq!(
+                    report.graph.edge_count(), expected_edges,
+                    "cycle_graph({}) has {} edges, expected {}",
+                    n, report.graph.edge_count(), expected_edges
+                );
+            }
         }
         GeneratorInput::Complete { n } => {
-            check_graph_report(generator.complete_graph(usize::from(n)));
+            let n = usize::from(n);
+            if let Ok(report) = generator.complete_graph(n) {
+                assert_valid_graph(&report.graph);
+                // complete_graph(n) has n nodes and n*(n-1)/2 edges.
+                assert_eq!(
+                    report.graph.node_count(), n,
+                    "complete_graph({}) reports {} nodes, expected {}",
+                    n, report.graph.node_count(), n
+                );
+                let expected_edges = n.saturating_mul(n.saturating_sub(1)) / 2;
+                assert_eq!(
+                    report.graph.edge_count(), expected_edges,
+                    "complete_graph({}) has {} edges, expected {}",
+                    n, report.graph.edge_count(), expected_edges
+                );
+            }
         }
         GeneratorInput::Gnp { n, p, seed } => {
             check_graph_report(generator.gnp_random_graph(usize::from(n), p.to_f64(), seed));
