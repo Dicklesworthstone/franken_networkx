@@ -57,7 +57,32 @@ fuzz_target!(|input: IsomorphismInput| {
                     fast,
                     "is_isomorphic=true but fast_could_be_isomorphic=false"
                 );
+                // Hard structural necessary conditions: |V| and |E|
+                // must match for any isomorphism.
+                assert_eq!(
+                    a.graph.node_count(),
+                    b.graph.node_count(),
+                    "is_isomorphic=true but |V| differs ({} vs {})",
+                    a.graph.node_count(),
+                    b.graph.node_count()
+                );
+                assert_eq!(
+                    a.graph.edge_count(),
+                    b.graph.edge_count(),
+                    "is_isomorphic=true but |E| differs ({} vs {})",
+                    a.graph.edge_count(),
+                    b.graph.edge_count()
+                );
             }
+            // Symmetry: is_isomorphic is an equivalence relation, so
+            // the result must be the same when the arguments are
+            // swapped.
+            let iso_swapped = fnx_algorithms::is_isomorphic(&b.graph, &a.graph);
+            assert_eq!(
+                iso, iso_swapped,
+                "is_isomorphic asymmetric: (a,b)={} vs (b,a)={}",
+                iso, iso_swapped
+            );
         }
         IsomorphismInput::IsIsomorphicDirected(a, b) => {
             let iso = fnx_algorithms::is_isomorphic_directed(&a.graph, &b.graph);
@@ -69,7 +94,28 @@ fuzz_target!(|input: IsomorphismInput| {
                     "is_isomorphic_directed=true but \
                      faster_could_be_isomorphic_directed=false"
                 );
+                assert_eq!(
+                    a.graph.node_count(),
+                    b.graph.node_count(),
+                    "is_isomorphic_directed=true but |V| differs ({} vs {})",
+                    a.graph.node_count(),
+                    b.graph.node_count()
+                );
+                assert_eq!(
+                    a.graph.edge_count(),
+                    b.graph.edge_count(),
+                    "is_isomorphic_directed=true but |E| differs ({} vs {})",
+                    a.graph.edge_count(),
+                    b.graph.edge_count()
+                );
             }
+            // Symmetry of the directed predicate too.
+            let iso_swapped = fnx_algorithms::is_isomorphic_directed(&b.graph, &a.graph);
+            assert_eq!(
+                iso, iso_swapped,
+                "is_isomorphic_directed asymmetric: (a,b)={} vs (b,a)={}",
+                iso, iso_swapped
+            );
         }
         IsomorphismInput::CouldBeIsomorphic(a, b) => {
             let _ = fnx_algorithms::could_be_isomorphic(&a.graph, &b.graph);
