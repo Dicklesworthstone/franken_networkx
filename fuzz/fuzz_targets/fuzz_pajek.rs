@@ -9,20 +9,76 @@ use libfuzzer_sys::fuzz_target;
 use std::fmt::Write;
 
 fn parse_all(input: &str) {
-    // Strict mode: must return Err, never panic.
+    // Strict mode: must return Err on corruption, Ok on valid input.
     let mut strict = fnx_readwrite::EdgeListEngine::strict();
-    let _ = strict.read_pajek(input);
+    if let Ok(report) = strict.read_pajek(input) {
+        // Structural soundness: every edge endpoint must be a node
+        // of the parsed graph. Catches any drift where the parser
+        // emits edges referring to nodes missing from the node
+        // table.
+        for edge in report.graph.edges_ordered() {
+            assert!(
+                report.graph.has_node(&edge.left),
+                "pajek (strict): edge endpoint {} not in node set",
+                edge.left
+            );
+            assert!(
+                report.graph.has_node(&edge.right),
+                "pajek (strict): edge endpoint {} not in node set",
+                edge.right
+            );
+        }
+    }
 
     // Hardened mode: must return Ok with warnings or Ok empty, never panic.
     let mut hardened = fnx_readwrite::EdgeListEngine::hardened();
-    let _ = hardened.read_pajek(input);
+    if let Ok(report) = hardened.read_pajek(input) {
+        for edge in report.graph.edges_ordered() {
+            assert!(
+                report.graph.has_node(&edge.left),
+                "pajek (hardened): edge endpoint {} not in node set",
+                edge.left
+            );
+            assert!(
+                report.graph.has_node(&edge.right),
+                "pajek (hardened): edge endpoint {} not in node set",
+                edge.right
+            );
+        }
+    }
 
-    // DiGraph variants.
+    // DiGraph variants — same soundness check.
     let mut strict_di = fnx_readwrite::EdgeListEngine::strict();
-    let _ = strict_di.read_digraph_pajek(input);
+    if let Ok(report) = strict_di.read_digraph_pajek(input) {
+        for edge in report.graph.edges_ordered() {
+            assert!(
+                report.graph.has_node(&edge.left),
+                "pajek digraph (strict): edge endpoint {} not in node set",
+                edge.left
+            );
+            assert!(
+                report.graph.has_node(&edge.right),
+                "pajek digraph (strict): edge endpoint {} not in node set",
+                edge.right
+            );
+        }
+    }
 
     let mut hardened_di = fnx_readwrite::EdgeListEngine::hardened();
-    let _ = hardened_di.read_digraph_pajek(input);
+    if let Ok(report) = hardened_di.read_digraph_pajek(input) {
+        for edge in report.graph.edges_ordered() {
+            assert!(
+                report.graph.has_node(&edge.left),
+                "pajek digraph (hardened): edge endpoint {} not in node set",
+                edge.left
+            );
+            assert!(
+                report.graph.has_node(&edge.right),
+                "pajek digraph (hardened): edge endpoint {} not in node set",
+                edge.right
+            );
+        }
+    }
 }
 
 fn sanitized_label(data: &[u8], fallback: &str) -> String {
