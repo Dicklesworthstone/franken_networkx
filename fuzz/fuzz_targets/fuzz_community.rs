@@ -13,7 +13,43 @@ mod arbitrary_graph;
 
 use arbitrary::Arbitrary;
 use arbitrary_graph::ArbitraryGraph;
+use fnx_classes::Graph;
 use libfuzzer_sys::fuzz_target;
+use std::collections::HashSet;
+
+/// A community detection result must be a valid partition of G:
+/// every node in G appears in exactly one community, and every
+/// reported node belongs to G.
+fn assert_valid_community_partition(
+    graph: &Graph,
+    communities: &[Vec<String>],
+    label: &str,
+) {
+    let expected: HashSet<&str> =
+        graph.nodes_ordered().into_iter().collect();
+    let mut seen: HashSet<&str> = HashSet::new();
+    for comm in communities {
+        for node in comm {
+            assert!(
+                graph.has_node(node),
+                "{}: community contains foreign node {}",
+                label,
+                node
+            );
+            assert!(
+                seen.insert(node.as_str()),
+                "{}: node {} appears in two communities",
+                label,
+                node
+            );
+        }
+    }
+    assert_eq!(
+        seen, expected,
+        "{}: community partition does not cover the graph's node set",
+        label
+    );
+}
 
 /// Small graph (<= 16 nodes) — some community algorithms are superlinear,
 /// so limit size to keep fuzzer throughput high.
@@ -114,7 +150,7 @@ fuzz_target!(|input: CommunityInput| {
             // doesn't drive louvain into NaN territory.
             let resolution = (resolution as f64).clamp(1e-3, 8.0);
             let threshold = (threshold as f64).clamp(1e-9, 1.0);
-            let _ = fnx_algorithms::louvain_communities(
+            let communities = fnx_algorithms::louvain_communities(
                 &ag.graph,
                 resolution,
                 "weight",
@@ -122,9 +158,29 @@ fuzz_target!(|input: CommunityInput| {
                 None,
                 seed,
             );
+            assert_valid_community_partition(
+                &ag.graph,
+                &communities,
+                "louvain_communities",
+            );
+            // Cross-check: the fnx public ``community_partition_is_valid``
+            // predicate must accept the constructor's own output.
+            assert!(
+                fnx_algorithms::community_partition_is_valid(&ag.graph, &communities),
+                "louvain output failed community_partition_is_valid"
+            );
         }
         CommunityInput::LabelPropagation(ag) => {
-            let _ = fnx_algorithms::label_propagation_communities(&ag.graph);
+            let communities = fnx_algorithms::label_propagation_communities(&ag.graph);
+            assert_valid_community_partition(
+                &ag.graph,
+                &communities,
+                "label_propagation_communities",
+            );
+            assert!(
+                fnx_algorithms::community_partition_is_valid(&ag.graph, &communities),
+                "label_propagation output failed community_partition_is_valid"
+            );
         }
         CommunityInput::Modularity {
             graph: ag,
@@ -134,13 +190,26 @@ fuzz_target!(|input: CommunityInput| {
             let resolution = (resolution as f64).clamp(1e-3, 8.0);
             let node_count = ag.nodes.len();
             let partition = arbitrary_partition_ids(node_count, partition_seed);
-            // modularity may return Err on an invalid partition; we only
-            // care that it doesn't panic.
-            let _ = fnx_algorithms::modularity(&ag.graph, &partition, resolution, "weight");
+            // modularity may return Err on an invalid partition or a
+            // disconnected graph; if it returns Ok, the value must be
+            // finite.
+            if let Ok(q) = fnx_algorithms::modularity(&ag.graph, &partition, resolution, "weight")
+            {
+                assert!(
+                    q.is_finite(),
+                    "modularity returned non-finite value {}",
+                    q
+                );
+            }
         }
         CommunityInput::LouvainLarge(ag) => {
-            let _ = fnx_algorithms::louvain_communities(
+            let communities = fnx_algorithms::louvain_communities(
                 &ag.graph, 1.0, "weight", 1e-7, None, Some(42),
+            );
+            assert_valid_community_partition(
+                &ag.graph,
+                &communities,
+                "louvain_communities (large)",
             );
         }
     }
