@@ -201,42 +201,192 @@ fuzz_target!(|input: DagInput| {
         DagInput::Ancestors(dag) => {
             if !dag.nodes.is_empty() {
                 let node = &dag.nodes[dag.nodes.len() / 2];
-                let _ = fnx_algorithms::ancestors(&dag.graph, node);
+                let result = fnx_algorithms::ancestors(&dag.graph, node);
+                // Every ancestor must be in G and must NOT be the node
+                // itself (nx contract: ancestors(v) excludes v).
+                for a in &result {
+                    assert!(
+                        dag.graph.has_node(a),
+                        "ancestors result contains foreign node {}",
+                        a
+                    );
+                    assert_ne!(
+                        a.as_str(),
+                        node.as_str(),
+                        "ancestors of {} should exclude self",
+                        node
+                    );
+                }
             }
         }
         DagInput::Descendants(dag) => {
             if !dag.nodes.is_empty() {
                 let node = &dag.nodes[0];
-                let _ = fnx_algorithms::descendants(&dag.graph, node);
+                let result = fnx_algorithms::descendants(&dag.graph, node);
+                for d in &result {
+                    assert!(
+                        dag.graph.has_node(d),
+                        "descendants result contains foreign node {}",
+                        d
+                    );
+                    assert_ne!(
+                        d.as_str(),
+                        node.as_str(),
+                        "descendants of {} should exclude self",
+                        node
+                    );
+                }
+                // Symmetric invariant: u ∈ descendants(v) iff v ∈
+                // ancestors(u). Cross-check on a sample (cap iterations
+                // so the fuzzer stays fast on dense DAGs).
+                for (i, d) in result.iter().enumerate() {
+                    if i >= 8 {
+                        break;
+                    }
+                    let anc = fnx_algorithms::ancestors(&dag.graph, d);
+                    assert!(
+                        anc.contains(node.as_str()),
+                        "asymmetry: {} in descendants({}) but {} not in ancestors({})",
+                        d, node, node, d
+                    );
+                }
             }
         }
         DagInput::DescendantsAtDistance(dag) => {
             if !dag.nodes.is_empty() {
                 let node = &dag.nodes[0];
-                let _ =
-                    fnx_algorithms::descendants_at_distance_directed(&dag.graph, node.as_str(), 2);
+                let result = fnx_algorithms::descendants_at_distance_directed(
+                    &dag.graph,
+                    node.as_str(),
+                    2,
+                );
+                for d in &result {
+                    assert!(
+                        dag.graph.has_node(d),
+                        "descendants_at_distance result contains foreign node {}",
+                        d
+                    );
+                }
+                // Subset relation: descendants_at_distance(v, k) ⊆
+                // descendants(v) ∪ {v}.
+                let all_desc = fnx_algorithms::descendants(&dag.graph, node);
+                for d in &result {
+                    assert!(
+                        all_desc.contains(d) || d.as_str() == node.as_str(),
+                        "node {} at distance 2 from {} is not in descendants set",
+                        d, node
+                    );
+                }
             }
         }
         DagInput::DagLongestPath(dag) => {
-            let _ = fnx_algorithms::dag_longest_path(&dag.graph);
+            if let Some(path) = fnx_algorithms::dag_longest_path(&dag.graph) {
+                // Each consecutive pair must be an edge of G.
+                for window in path.windows(2) {
+                    assert!(
+                        dag.graph.has_edge(&window[0], &window[1]),
+                        "dag_longest_path emitted edge {} -> {} not in graph",
+                        window[0], window[1]
+                    );
+                }
+                // No node appears twice (DAG path is simple by
+                // construction).
+                let mut seen: HashSet<&str> = HashSet::new();
+                for n in &path {
+                    assert!(
+                        seen.insert(n.as_str()),
+                        "dag_longest_path repeated node {}",
+                        n
+                    );
+                }
+                // Cross-check: dag_longest_path_length must equal
+                // |path| - 1.
+                let length = fnx_algorithms::dag_longest_path_length(&dag.graph);
+                let expected = path.len().saturating_sub(1);
+                assert_eq!(
+                    length,
+                    Some(expected),
+                    "dag_longest_path_length ({:?}) != |dag_longest_path|-1 ({})",
+                    length,
+                    expected
+                );
+            }
         }
         DagInput::DagLongestPathLength(dag) => {
-            let _ = fnx_algorithms::dag_longest_path_length(&dag.graph);
+            let length = fnx_algorithms::dag_longest_path_length(&dag.graph);
+            // Length is bounded: |path| ≤ n, so length ≤ n - 1.
+            if let Some(len) = length {
+                let upper = dag.graph.node_count().saturating_sub(1);
+                assert!(
+                    len <= upper,
+                    "dag_longest_path_length {} exceeds n-1 = {}",
+                    len,
+                    upper
+                );
+            }
         }
         DagInput::Antichains(dag) => {
-            // Limit iteration to avoid combinatorial explosion
+            // Sample the first few antichains and verify nodes are in
+            // G. Pairwise-incomparability is more expensive to check
+            // (would need a full reachability oracle), so we settle for
+            // node-set membership here.
             let antichains = fnx_algorithms::antichains(&dag.graph);
-            for (i, _antichain) in antichains.into_iter().enumerate() {
+            for (i, antichain) in antichains.into_iter().enumerate() {
                 if i >= 100 {
                     break;
+                }
+                for n in &antichain {
+                    assert!(
+                        dag.graph.has_node(n),
+                        "antichain contains foreign node {}",
+                        n
+                    );
                 }
             }
         }
         DagInput::TransitiveClosure(dag) => {
-            let _ = fnx_algorithms::transitive_closure(&dag.graph, None);
+            let tc = fnx_algorithms::transitive_closure(&dag.graph, None);
+            // Closure has the same node set.
+            assert_eq!(
+                tc.node_count(),
+                dag.graph.node_count(),
+                "transitive_closure node count diverged from input"
+            );
+            for n in dag.graph.nodes_ordered() {
+                assert!(
+                    tc.has_node(n),
+                    "transitive_closure missing node {}",
+                    n
+                );
+            }
+            // Closure is a superset of G's edges.
+            for edge in dag.graph.edges_ordered() {
+                assert!(
+                    tc.has_edge(&edge.left, &edge.right),
+                    "transitive_closure missing original edge {} -> {}",
+                    edge.left,
+                    edge.right
+                );
+            }
         }
         DagInput::TransitiveReduction(dag) => {
-            let _ = fnx_algorithms::transitive_reduction(&dag.graph);
+            if let Some(tr) = fnx_algorithms::transitive_reduction(&dag.graph) {
+                assert_eq!(
+                    tr.node_count(),
+                    dag.graph.node_count(),
+                    "transitive_reduction node count diverged from input"
+                );
+                // Every reduction edge must be an actual edge of G
+                // (the reduction is a subgraph of G when G is a DAG).
+                for edge in tr.edges_ordered() {
+                    assert!(
+                        dag.graph.has_edge(&edge.left, &edge.right),
+                        "transitive_reduction emitted edge {} -> {} not in original DAG",
+                        edge.left,
+                        edge.right
+                    );
+                }
+            }
         }
     }
 });
