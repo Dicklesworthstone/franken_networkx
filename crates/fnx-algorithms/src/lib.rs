@@ -433,6 +433,7 @@ pub struct HitsCentralityResult {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PageRankResult {
     pub scores: Vec<CentralityScore>,
+    pub converged: bool,
     pub witness: ComplexityWitness,
 }
 
@@ -2690,7 +2691,13 @@ pub fn pagerank_with_weight_checked<G: GraphView>(
             }
         }
     }
-    Ok(pagerank_with_weight(graph, alpha, max_iter, tol, weight_attr))
+    Ok(pagerank_with_weight(
+        graph,
+        alpha,
+        max_iter,
+        tol,
+        weight_attr,
+    ))
 }
 
 pub fn pagerank_with_weight<G: GraphView>(
@@ -2705,6 +2712,7 @@ pub fn pagerank_with_weight<G: GraphView>(
     if n == 0 {
         return PageRankResult {
             scores: Vec::new(),
+            converged: true,
             witness: ComplexityWitness {
                 algorithm: "pagerank_power_iteration".to_owned(),
                 complexity_claim: "O(k * (|V| + |E|))".to_owned(),
@@ -2714,22 +2722,6 @@ pub fn pagerank_with_weight<G: GraphView>(
             },
         };
     }
-    if n == 1 {
-        return PageRankResult {
-            scores: vec![CentralityScore {
-                node: nodes[0].to_owned(),
-                score: 1.0,
-            }],
-            witness: ComplexityWitness {
-                algorithm: "pagerank_power_iteration".to_owned(),
-                complexity_claim: "O(k * (|V| + |E|))".to_owned(),
-                nodes_touched: 1,
-                edges_scanned: 0,
-                queue_peak: 0,
-            },
-        };
-    }
-
     let mut canonical_nodes = nodes.clone();
     canonical_nodes.sort_unstable();
     let index_by_node = canonical_nodes
@@ -2778,6 +2770,7 @@ pub fn pagerank_with_weight<G: GraphView>(
     let mut next_ranks = vec![0.0_f64; n];
     let mut iterations = 0usize;
     let mut edges_scanned = 0usize;
+    let mut converged = false;
 
     for _ in 0..max_iter {
         iterations += 1;
@@ -2808,6 +2801,7 @@ pub fn pagerank_with_weight<G: GraphView>(
             .sum::<f64>();
         ranks.copy_from_slice(&next_ranks);
         if delta < n_f64 * tol {
+            converged = true;
             break;
         }
     }
@@ -2824,6 +2818,7 @@ pub fn pagerank_with_weight<G: GraphView>(
 
     PageRankResult {
         scores,
+        converged,
         witness: ComplexityWitness {
             algorithm: "pagerank_power_iteration".to_owned(),
             complexity_claim: "O(k * (|V| + |E|))".to_owned(),
@@ -13868,13 +13863,7 @@ pub fn dag_longest_path_length_weighted(
     let mut total = 0.0_f64;
     for window in path.windows(2) {
         let (u, v) = (window[0].as_str(), window[1].as_str());
-        total += directed_edge_weight_with_default(
-            digraph,
-            u,
-            v,
-            weight_attr,
-            default_weight,
-        );
+        total += directed_edge_weight_with_default(digraph, u, v, weight_attr, default_weight);
     }
     Some(total)
 }
@@ -14446,10 +14435,9 @@ pub fn all_shortest_paths_weighted_bellman_ford(
     let mut preds: HashMap<&str, Vec<&str>> = HashMap::new();
     for (left, right) in &ordered_edges {
         let edge_weight = signed_edge_weight_or_default(graph, left, right, weight_attr);
-        if let (Some(&du), Some(&dv)) = (
-            distances.get(left.as_str()),
-            distances.get(right.as_str()),
-        ) {
+        if let (Some(&du), Some(&dv)) =
+            (distances.get(left.as_str()), distances.get(right.as_str()))
+        {
             if (du + edge_weight - dv).abs() < DISTANCE_COMPARISON_EPSILON {
                 preds.entry(right.as_str()).or_default().push(left.as_str());
             }
@@ -14525,10 +14513,9 @@ pub fn all_shortest_paths_weighted_directed_bellman_ford(
     let mut preds: HashMap<&str, Vec<&str>> = HashMap::new();
     for (left, right) in &ordered_edges {
         let edge_weight = signed_digraph_edge_weight_or_default(digraph, left, right, weight_attr);
-        if let (Some(&du), Some(&dv)) = (
-            distances.get(left.as_str()),
-            distances.get(right.as_str()),
-        ) {
+        if let (Some(&du), Some(&dv)) =
+            (distances.get(left.as_str()), distances.get(right.as_str()))
+        {
             if (du + edge_weight - dv).abs() < DISTANCE_COMPARISON_EPSILON {
                 preds.entry(right.as_str()).or_default().push(left.as_str());
             }
@@ -35261,6 +35248,7 @@ mod tests {
 
         let result = pagerank(&graph);
         assert_eq!(result.scores.len(), 4);
+        assert!(result.converged);
         for score in result.scores {
             assert!((score.score - 0.25_f64).abs() <= TEST_TOLERANCE);
         }
@@ -35306,6 +35294,7 @@ mod tests {
         graph.add_edge("c", "d").expect("edge add should succeed");
 
         let result = pagerank(&graph);
+        assert!(result.converged);
         let expected = [
             ("a", 0.175_438_397_722_515_35_f64),
             ("b", 0.324_561_602_277_484_65_f64),
@@ -35323,13 +35312,35 @@ mod tests {
         let empty = Graph::strict();
         let empty_result = pagerank(&empty);
         assert!(empty_result.scores.is_empty());
+        assert!(empty_result.converged);
 
         let mut singleton = Graph::strict();
         let _ = singleton.add_node("solo");
         let singleton_result = pagerank(&singleton);
         assert_eq!(singleton_result.scores.len(), 1);
         assert_eq!(singleton_result.scores[0].node, "solo");
+        assert!(singleton_result.converged);
         assert!((singleton_result.scores[0].score - 1.0).abs() <= TEST_TOLERANCE);
+
+        let singleton_max_iter_zero = super::pagerank_with_params(
+            &singleton,
+            super::PAGERANK_DEFAULT_ALPHA,
+            0,
+            super::PAGERANK_DEFAULT_TOLERANCE,
+        );
+        assert!(!singleton_max_iter_zero.converged);
+    }
+
+    #[test]
+    fn pagerank_reports_unconverged_when_iteration_budget_exhausts() {
+        let mut graph = DiGraph::strict();
+        graph.add_edge("a", "b").expect("edge add should succeed");
+        graph.add_edge("b", "c").expect("edge add should succeed");
+        graph.add_edge("c", "a").expect("edge add should succeed");
+        graph.add_edge("c", "d").expect("edge add should succeed");
+
+        let result = super::pagerank_with_params(&graph, super::PAGERANK_DEFAULT_ALPHA, 1, 1.0e-20);
+        assert!(!result.converged);
     }
 
     #[test]

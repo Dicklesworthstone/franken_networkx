@@ -2959,6 +2959,9 @@ pub fn pagerank(
             "franken_networkx pagerank fast-path requires non-negative edge weights",
         )
     })?;
+    if !result.converged {
+        return Err(PowerIterationFailedConvergence::new_err(max_iter));
+    }
     centrality_to_dict(py, &gr, &result.scores)
 }
 
@@ -6229,9 +6232,8 @@ pub fn dag_longest_path(
     let dg_ref = gr.digraph().expect("is_directed checked above");
     let result = match weight {
         None => py.allow_threads(|| fnx_algorithms::dag_longest_path(dg_ref)),
-        Some(w) => py.allow_threads(|| {
-            fnx_algorithms::dag_longest_path_weighted(dg_ref, w, default_weight)
-        }),
+        Some(w) => py
+            .allow_threads(|| fnx_algorithms::dag_longest_path_weighted(dg_ref, w, default_weight)),
     };
     match result {
         Some(path) => Ok(path.iter().map(|n| gr.py_node_key(py, n)).collect()),
@@ -6450,7 +6452,9 @@ pub fn all_shortest_paths(
                 match result {
                     Ok(paths) => paths,
                     Err(()) => {
-                        return Err(crate::NetworkXUnbounded::new_err("Negative cycle detected."));
+                        return Err(crate::NetworkXUnbounded::new_err(
+                            "Negative cycle detected.",
+                        ));
                     }
                 }
             }
@@ -6498,7 +6502,9 @@ pub fn all_shortest_paths(
                 match result {
                     Ok(paths) => paths,
                     Err(()) => {
-                        return Err(crate::NetworkXUnbounded::new_err("Negative cycle detected."));
+                        return Err(crate::NetworkXUnbounded::new_err(
+                            "Negative cycle detected.",
+                        ));
                     }
                 }
             }
@@ -7691,18 +7697,13 @@ pub fn reciprocity(
 /// strongly connected) inputs to preserve nx's behavior.
 #[pyfunction]
 #[pyo3(signature = (g, weight=None))]
-pub fn wiener_index(
-    py: Python<'_>,
-    g: &Bound<'_, PyAny>,
-    weight: Option<&str>,
-) -> PyResult<f64> {
+pub fn wiener_index(py: Python<'_>, g: &Bound<'_, PyAny>, weight: Option<&str>) -> PyResult<f64> {
     let gr = extract_graph(g)?;
     // Resolve the graph view *before* releasing the GIL — `gr` is bound to
     // the GIL via PyAny lifetimes, but the inner Graph/DiGraph references
     // are plain Rust borrows and Ungil-safe.
     if gr.is_directed() {
-        let dg: &fnx_classes::digraph::DiGraph =
-            gr.digraph().expect("is_directed implies digraph");
+        let dg: &fnx_classes::digraph::DiGraph = gr.digraph().expect("is_directed implies digraph");
         let w = py.allow_threads(|| match weight {
             None => fnx_algorithms::wiener_index_directed(dg),
             Some(weight_attr) => fnx_algorithms::wiener_index_weighted_directed(dg, weight_attr),

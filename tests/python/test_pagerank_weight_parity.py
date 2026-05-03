@@ -96,6 +96,33 @@ def test_pagerank_weight_none_matches_networkx():
 
 
 @needs_nx
+@pytest.mark.parametrize("max_iter", [0, 1])
+def test_pagerank_non_convergence_matches_networkx(max_iter):
+    nx_graph = nx.DiGraph()
+    nx_graph.add_edges_from([(0, 1), (1, 2), (2, 0), (2, 3)])
+    f_graph = fnx.DiGraph()
+    f_graph.add_edges_from(nx_graph.edges())
+
+    with pytest.raises(nx.PowerIterationFailedConvergence):
+        nx.pagerank(nx_graph, max_iter=max_iter, tol=1e-20)
+    with pytest.raises(fnx.PowerIterationFailedConvergence):
+        fnx.pagerank(f_graph, max_iter=max_iter, tol=1e-20)
+
+
+@needs_nx
+def test_pagerank_singleton_max_iter_zero_matches_networkx():
+    nx_graph = nx.Graph()
+    nx_graph.add_node(0)
+    f_graph = fnx.Graph()
+    f_graph.add_node(0)
+
+    with pytest.raises(nx.PowerIterationFailedConvergence):
+        nx.pagerank(nx_graph, max_iter=0)
+    with pytest.raises(fnx.PowerIterationFailedConvergence):
+        fnx.pagerank(f_graph, max_iter=0)
+
+
+@needs_nx
 def test_pagerank_non_string_weight_key_matches_networkx():
     """NetworkX accepts any hashable edge-attribute key for ``weight``.
     The Rust binding only accepts str/None, so integer keys must stay on
