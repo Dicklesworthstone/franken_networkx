@@ -131,8 +131,36 @@ needed), others are real perf gaps (see bench below).
 | `gen.watts_strogatz_graph` | 0.30 | 0.086 | 0.29× | filed |
 | `io.write_gml` | 7.16 | 1.40 | 0.19× | filed |
 
-22 V_SLOW results → 22 P2 feature beads filed (one per algorithm; format
-`[reality-check] add nx.X.Y`).
+22 V_SLOW results → **19** P2 feature beads filed
+(`[reality-check] add nx.X.Y`). The clustering family
+(`clustering.clustering`, `clustering.transitivity`,
+`clustering.average_clustering`, `clustering.generalized_degree` — all
+share the same triangle-iteration core) is bundled into a single bead
+(`br-r37-c1-wh0x0`).
+
+Filed today (2026-05-03):
+
+| bead id | title |
+|---|---|
+| `br-r37-c1-d4cb5` | `[reality-check] add nx.connectivity.edge_connectivity` |
+| `br-r37-c1-brzgi` | `[reality-check] add nx.strongly_connected_components` |
+| `br-r37-c1-fki5h` | `[reality-check] add nx.coloring.greedy_color` |
+| `br-r37-c1-rf7lr` | `[reality-check] add nx.connectivity.articulation_points` |
+| `br-r37-c1-p00pt` | `[reality-check] add nx.paths.all_pairs_shortest_path_length` |
+| `br-r37-c1-bix7h` | `[reality-check] add nx.cycle.cycle_basis` |
+| `br-r37-c1-unovw` | `[reality-check] add nx.io.write_adjlist` |
+| `br-r37-c1-jwpdr` | `[reality-check] add nx.io.write_edgelist` |
+| `br-r37-c1-tvf43` | `[reality-check] add nx.clique.find_cliques` |
+| `br-r37-c1-4jd8m` | `[reality-check] add nx.op.complement` |
+| `br-r37-c1-0c6wz` | `[reality-check] add nx.op.reverse` |
+| `br-r37-c1-wh0x0` | `[reality-check] add nx.clustering.clustering` (bundles transitivity / average_clustering / generalized_degree) |
+| `br-r37-c1-3wzcj` | `[reality-check] add nx.centrality.load_centrality` |
+| `br-r37-c1-rq36c` | `[reality-check] add nx.community.label_propagation_communities` |
+| `br-r37-c1-644fx` | `[reality-check] add nx.paths.dijkstra_path` |
+| `br-r37-c1-bzio2` | `[reality-check] add nx.paths.astar_path` |
+| `br-r37-c1-ypf9k` | `[reality-check] add nx.gen.complete_graph` |
+| `br-r37-c1-5dmza` | `[reality-check] add nx.gen.watts_strogatz_graph` |
+| `br-r37-c1-tawfw` | `[reality-check] add nx.io.write_gml` |
 
 ### Errors during bench
 
