@@ -12877,6 +12877,23 @@ def _pagerank_outgoing_weights(G, node, weight):
     }
 
 
+def _pagerank_needs_networkx_weight_parity(G, weight):
+    if weight is None:
+        return False
+    edges = G.edges(keys=True, data=True) if G.is_multigraph() else G.edges(data=True)
+    for edge in edges:
+        attrs = edge[-1]
+        if weight not in attrs:
+            continue
+        try:
+            value = float(attrs[weight])
+        except (TypeError, ValueError, OverflowError):
+            return True
+        if not math.isfinite(value):
+            return True
+    return False
+
+
 def pagerank(
     G,
     alpha=0.85,
@@ -12898,12 +12915,27 @@ def pagerank(
     # the unsupported kwargs (personalization / nstart / dangling) are
     # absent; the Rust impl raises NetworkXNotImplemented if it detects
     # negative edge weights (numerically unstable for power iteration),
-    # and we fall through to the pure-Python path in that case.
+    # and we fall through to the pure-Python path in that case. Non-string
+    # hashable weight keys also stay on the Python path because the PyO3
+    # binding accepts only str/None.
     if (
         personalization is None
         and nstart is None
         and dangling is None
+        and (weight is None or isinstance(weight, str))
     ):
+        if _pagerank_needs_networkx_weight_parity(G, weight):
+            return _call_networkx_for_parity(
+                "pagerank",
+                G,
+                alpha=alpha,
+                personalization=None,
+                max_iter=max_iter,
+                tol=tol,
+                nstart=None,
+                weight=weight,
+                dangling=None,
+            )
         try:
             return _raw_pagerank(
                 G,

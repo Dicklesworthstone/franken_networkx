@@ -96,6 +96,20 @@ def test_pagerank_weight_none_matches_networkx():
 
 
 @needs_nx
+def test_pagerank_non_string_weight_key_matches_networkx():
+    """NetworkX accepts any hashable edge-attribute key for ``weight``.
+    The Rust binding only accepts str/None, so integer keys must stay on
+    the Python parity path instead of surfacing a PyO3 TypeError.
+    """
+    nx_graph = nx.path_graph(3)
+    f_graph = fnx.path_graph(3)
+
+    r_fnx = fnx.pagerank(f_graph, weight=1)
+    r_nx = nx.pagerank(nx_graph, weight=1)
+    assert _max_pagerank_diff(r_fnx, r_nx) < 1e-9
+
+
+@needs_nx
 def test_pagerank_all_edges_weighted_match_networkx():
     """Sanity check: when every edge carries ``weight`` the weighted
     PageRank matches nx exactly."""
@@ -146,8 +160,38 @@ def test_pagerank_partial_differs_from_unweighted():
     g.add_edge(0, 2, weight=1.0)
     g.add_edge(1, 2)  # missing -> default 1
     g.add_edge(2, 0)
-    fG = fnx.DiGraph(); fG.add_edges_from(g.edges(data=True))
+    fG = fnx.DiGraph()
+    fG.add_edges_from(g.edges(data=True))
 
     weighted = fnx.pagerank(fG, weight="weight")
     unweighted = fnx.pagerank(fG, weight=None)
     assert any(abs(weighted[k] - unweighted[k]) > 1e-3 for k in weighted)
+
+
+@needs_nx
+def test_pagerank_nonnumeric_present_weight_matches_networkx_error():
+    nx_graph = nx.DiGraph()
+    nx_graph.add_edge("a", "b", weight="heavy")
+    nx_graph.add_edge("b", "a", weight=1.0)
+    f_graph = fnx.DiGraph()
+    f_graph.add_edges_from(nx_graph.edges(data=True))
+
+    with pytest.raises(ValueError, match="could not convert string to float"):
+        nx.pagerank(nx_graph, weight="weight", max_iter=1000)
+    with pytest.raises(ValueError, match="could not convert string to float"):
+        fnx.pagerank(f_graph, weight="weight", max_iter=1000)
+
+
+@needs_nx
+def test_pagerank_infinite_present_weight_matches_networkx():
+    nx_graph = nx.DiGraph()
+    nx_graph.add_edge("a", "b", weight=float("inf"))
+    nx_graph.add_edge("b", "a", weight=1.0)
+    nx_graph.add_edge("a", "c", weight=2.0)
+    nx_graph.add_edge("c", "a", weight=1.0)
+    f_graph = fnx.DiGraph()
+    f_graph.add_edges_from(nx_graph.edges(data=True))
+
+    r_fnx = fnx.pagerank(f_graph, weight="weight", max_iter=1000)
+    r_nx = nx.pagerank(nx_graph, weight="weight", max_iter=1000)
+    assert _max_pagerank_diff(r_fnx, r_nx) < 1e-9
