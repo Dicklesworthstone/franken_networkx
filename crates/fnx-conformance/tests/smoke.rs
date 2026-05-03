@@ -2412,10 +2412,10 @@ fn packet_006_differential_metamorphic_and_adversarial_taxonomy_is_deterministic
       "nodes": ["b", "c", "a"],
       "edges": [
         { "left": "b", "right": "c", "attrs": { "weight": 2 } },
-        { "left": "a", "right": "b", "attrs": { "weight": 1 } }
+        { "left": "b", "right": "a", "attrs": { "weight": 1 } }
       ]
     },
-    "serialized_edgelist": "b c weight=2\na b weight=1"
+    "serialized_edgelist": "b c weight=2\nb a weight=1"
   }
 }"#,
     );
