@@ -462,3 +462,48 @@ def test_algorithm_family_conformance_matrix(case: AlgorithmCase, fixture_name: 
         case.comparator,
         case.expected_divergence,
     )
+
+
+# ---------------------------------------------------------------------------
+# Raw-vs-public algorithm consistency audit
+# ---------------------------------------------------------------------------
+
+
+def test_raw_is_planar_k33_is_unsafe_to_expose() -> None:
+    """The raw kernel still misclassifies K3,3; public wrappers must hide it."""
+    fnx_graph = fnx.complete_bipartite_graph(3, 3)
+    nx_graph = nx.complete_bipartite_graph(3, 3)
+
+    assert fnx._raw_is_planar(fnx_graph)
+    assert not nx.is_planar(nx_graph)
+    assert not fnx.is_planar(fnx_graph)
+    assert not fnx.check_planarity(fnx_graph)[0]
+
+
+def test_weighted_single_source_dijkstra_public_hides_raw_order_contract() -> None:
+    """Non-unit weights delegate so public mapping order and int type match nx."""
+    fnx_graph = fnx.Graph()
+    nx_graph = nx.Graph()
+    weighted_edges = [
+        ("a", "b", 10),
+        ("a", "c", 1),
+        ("c", "b", 1),
+    ]
+    fnx_graph.add_weighted_edges_from(weighted_edges)
+    nx_graph.add_weighted_edges_from(weighted_edges)
+
+    raw_dists, raw_paths = fnx._raw_single_source_dijkstra(
+        fnx_graph, "a", weight="weight"
+    )
+    public_dists, public_paths = fnx.single_source_dijkstra(
+        fnx_graph, "a", weight="weight"
+    )
+    nx_dists, nx_paths = nx.single_source_dijkstra(
+        nx_graph, "a", weight="weight"
+    )
+
+    assert (public_dists, public_paths) == (nx_dists, nx_paths)
+    assert list(raw_paths.items()) != list(nx_paths.items())
+    assert type(raw_dists["a"]).__name__ == "float"
+    assert type(nx_dists["a"]).__name__ == "int"
+    assert type(public_dists["a"]).__name__ == "int"
