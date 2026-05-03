@@ -11,9 +11,9 @@ Repro:
   nx  -> [['e','d'],     ['c','b','a'], ['c','d']]
 
 Drop-in code that iterated cliques in nx's order (or treated the
-first node of each clique as the pivot) broke. Fix delegates the
-``nodes=None`` branch of both find_cliques and
-find_cliques_recursive to nx.
+first node of each clique as the pivot) broke. ``find_cliques`` now
+keeps the nx-order local path for ``nodes=None`` instead of falling
+back to NetworkX.
 """
 
 from __future__ import annotations
@@ -38,49 +38,71 @@ def _make_graph(lib, edges):
     return g
 
 
+def _forbid_networkx_find_cliques(monkeypatch):
+    monkeypatch.setattr(
+        nx,
+        "find_cliques",
+        lambda *call_args, **call_kwargs: (_ for _ in ()).throw(
+            AssertionError("NetworkX find_cliques fallback should not be used")
+        ),
+    )
+
+
 @needs_nx
-def test_repro_two_triangles_with_chord_matches_nx():
+def test_repro_two_triangles_with_chord_matches_nx(monkeypatch):
     edges = [("c", "d"), ("a", "b"), ("b", "c"), ("d", "e"), ("a", "c")]
     g = _make_graph(fnx, edges)
     gx = _make_graph(nx, edges)
-    assert list(fnx.find_cliques(g)) == list(nx.find_cliques(gx))
+    expected = list(nx.find_cliques(gx))
+    _forbid_networkx_find_cliques(monkeypatch)
+    assert list(fnx.find_cliques(g)) == expected
 
 
 @needs_nx
-def test_two_triangles_int_nodes_match_nx():
+def test_two_triangles_int_nodes_match_nx(monkeypatch):
     edges = [(0, 1), (1, 2), (2, 0), (2, 3), (3, 4), (4, 2)]
     g = _make_graph(fnx, edges)
     gx = _make_graph(nx, edges)
-    assert list(fnx.find_cliques(g)) == list(nx.find_cliques(gx))
+    expected = list(nx.find_cliques(gx))
+    _forbid_networkx_find_cliques(monkeypatch)
+    assert list(fnx.find_cliques(g)) == expected
 
 
 @needs_nx
-def test_k4_with_chords_matches_nx():
+def test_k4_with_chords_matches_nx(monkeypatch):
     edges = [("a", "b"), ("b", "c"), ("c", "d"), ("d", "a"), ("a", "c"), ("b", "d")]
     g = _make_graph(fnx, edges)
     gx = _make_graph(nx, edges)
-    assert list(fnx.find_cliques(g)) == list(nx.find_cliques(gx))
+    expected = list(nx.find_cliques(gx))
+    _forbid_networkx_find_cliques(monkeypatch)
+    assert list(fnx.find_cliques(g)) == expected
 
 
 @needs_nx
-def test_complete_graph_k4_matches_nx():
+def test_complete_graph_k4_matches_nx(monkeypatch):
     g = fnx.complete_graph(4)
     gx = nx.complete_graph(4)
-    assert list(fnx.find_cliques(g)) == list(nx.find_cliques(gx))
+    expected = list(nx.find_cliques(gx))
+    _forbid_networkx_find_cliques(monkeypatch)
+    assert list(fnx.find_cliques(g)) == expected
 
 
 @needs_nx
-def test_path_graph_matches_nx():
+def test_path_graph_matches_nx(monkeypatch):
     g = fnx.path_graph(5)
     gx = nx.path_graph(5)
-    assert list(fnx.find_cliques(g)) == list(nx.find_cliques(gx))
+    expected = list(nx.find_cliques(gx))
+    _forbid_networkx_find_cliques(monkeypatch)
+    assert list(fnx.find_cliques(g)) == expected
 
 
 @needs_nx
-def test_empty_graph_yields_nothing():
+def test_empty_graph_yields_nothing(monkeypatch):
     g = fnx.Graph()
     gx = nx.Graph()
-    assert list(fnx.find_cliques(g)) == list(nx.find_cliques(gx)) == []
+    expected = list(nx.find_cliques(gx))
+    _forbid_networkx_find_cliques(monkeypatch)
+    assert list(fnx.find_cliques(g)) == expected == []
 
 
 @needs_nx
