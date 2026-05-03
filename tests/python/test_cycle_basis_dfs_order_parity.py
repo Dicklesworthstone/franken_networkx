@@ -49,6 +49,22 @@ def test_triangle_matches_nx():
 
 
 @needs_nx
+def test_cycle_basis_native_avoids_networkx(monkeypatch):
+    edges = [("a", "b"), ("b", "c"), ("c", "a"), ("c", "d")]
+    g = _make_graph(fnx, edges)
+    gx = _make_graph(nx, edges)
+    expected = nx.cycle_basis(gx)
+
+    monkeypatch.setattr(
+        nx,
+        "cycle_basis",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("delegated")),
+    )
+
+    assert fnx.cycle_basis(g) == expected
+
+
+@needs_nx
 def test_int_node_triangle_with_pendant_matches_nx():
     edges = [(0, 1), (1, 2), (2, 0), (2, 3)]
     g = _make_graph(fnx, edges)

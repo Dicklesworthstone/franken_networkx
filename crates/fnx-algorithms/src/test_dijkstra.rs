@@ -24,7 +24,7 @@ fn multi_source_dijkstra_directed_returns_zero_for_source_and_one_for_successor(
     assert_eq!(by_node.get("b").copied(), Some(0.0));
     assert_eq!(by_node.get("c").copied(), Some(1.0));
     assert!(
-        by_node.get("a").is_none(),
+        !by_node.contains_key("a"),
         "node 'a' should not be reachable from 'b' in the directed chain a->b->c, \
          got distance {:?}",
         by_node.get("a"),
