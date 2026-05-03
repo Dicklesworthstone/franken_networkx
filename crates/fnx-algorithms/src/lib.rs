@@ -8462,11 +8462,20 @@ pub fn greedy_color_with_strategy(graph: &Graph, strategy: &str) -> GreedyColorR
 
     let ordered_nodes: Vec<&str> = match strategy {
         "largest_first" => {
-            let mut by_degree: Vec<&str> = nodes.clone();
-            by_degree.sort_unstable_by(|a, b| {
-                graph.degree(b).cmp(&graph.degree(a)).then_with(|| a.cmp(b))
+            // br-r37-c1-fki5h: nx uses ``sorted(G, key=G.degree,
+            // reverse=True)`` — Python's stable sort breaks ties by
+            // *insertion order*, not alphabetical. Mirror that here by
+            // (a) keying on (-degree, index) so the descending sort
+            // preserves the original ``nodes_ordered`` order on ties,
+            // and (b) using ``sort_by`` (stable) over ``sort_unstable_by``
+            // to be safe against any future tie that survives the key.
+            let nodes_with_idx: Vec<(usize, &str)> =
+                nodes.iter().copied().enumerate().collect();
+            let mut by_degree = nodes_with_idx;
+            by_degree.sort_by(|(ia, a), (ib, b)| {
+                graph.degree(b).cmp(&graph.degree(a)).then_with(|| ia.cmp(ib))
             });
-            by_degree
+            by_degree.into_iter().map(|(_, n)| n).collect()
         }
         "smallest_last" => {
             // Iteratively remove the smallest-degree node, then reverse

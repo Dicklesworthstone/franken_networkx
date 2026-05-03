@@ -6942,11 +6942,24 @@ def greedy_color(G, strategy="largest_first", interchange=False):
             strategy=strategy,
             interchange=interchange,
         )
-    # br-r37-c1-vevfq: nx returns the dict in the strategy's processing
-    # order (e.g. for 'largest_first': nodes sorted by degree desc).
-    # The Rust binding returns dict keys in arbitrary internal order.
-    # Delegate to nx so iteration order matches exactly. Values are
-    # identical between the two implementations.
+    # br-r37-c1-fki5h: the Rust greedy_color now mirrors nx's
+    # ``sorted(G, key=G.degree, reverse=True)`` tie-breaking (stable
+    # sort, insertion-order ties) for the default ``"largest_first"``
+    # strategy. Verified key-order + color-value parity vs nx on BA
+    # fixtures up to 100 nodes. Other strategies (smallest_last,
+    # random_sequential, DSATUR, connected_sequential_*) still
+    # diverge from nx tie-breaking and stay on the delegation path.
+    if (
+        strategy == "largest_first"
+        and not G.is_multigraph()
+        and not G.is_directed()
+    ):
+        try:
+            return _raw_greedy_color(G, "largest_first")
+        except Exception:
+            pass
+    # br-r37-c1-vevfq: other strategies still delegate (Rust ordering
+    # diverges from nx).
     return _call_networkx_for_parity(
         "greedy_color",
         G,
