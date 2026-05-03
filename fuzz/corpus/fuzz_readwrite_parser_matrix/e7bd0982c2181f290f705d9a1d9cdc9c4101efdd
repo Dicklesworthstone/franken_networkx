@@ -1,0 +1,5 @@
+Z<?xml version="1.0" encoding="UTF-8"?>
+<gexf version="1.2" xmlns="http://www.gexf.net/1.2draft">
+  <graph defaultedged="0" source="a" target="b"/></edges>
+  </graph>
+</gexf>

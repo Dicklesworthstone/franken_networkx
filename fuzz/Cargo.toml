@@ -41,6 +41,16 @@ path = "fuzz_targets/fuzz_gexf.rs"
 doc = false
 
 [[bin]]
+name = "fuzz_readwrite_roundtrip_builders"
+path = "fuzz_targets/fuzz_readwrite_roundtrip_builders.rs"
+doc = false
+
+[[bin]]
+name = "fuzz_readwrite_parser_matrix"
+path = "fuzz_targets/fuzz_readwrite_parser_matrix.rs"
+doc = false
+
+[[bin]]
 name = "fuzz_gml"
 path = "fuzz_targets/fuzz_gml.rs"
 doc = false
