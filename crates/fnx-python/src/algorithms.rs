@@ -6628,25 +6628,37 @@ pub fn all_shortest_paths(
 #[pyfunction]
 pub fn complement(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<PyObject> {
     if let Ok(pg) = g.extract::<PyRef<'_, PyGraph>>() {
-        let result = {
+        // br-r37-c1-4jd8m: skip the intermediate result Graph that the
+        // legacy ``fnx_algorithms::complement`` materialized — its
+        // per-edge ``Graph::add_edge`` chain (with runtime_policy
+        // record_decision allocations) doubled the wall time of
+        // ``fnx.complement`` because the binding then re-inserted
+        // every edge into the PyGraph. The new ``complement_edges``
+        // pre-computes the canonical (u, v) pairs once; the binding
+        // does the single PyGraph insertion pass.
+        let nodes_owned: Vec<String> = pg
+            .inner
+            .nodes_ordered()
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+        let edges = {
             let __pg_inner = &pg.inner;
-            py.allow_threads(|| fnx_algorithms::complement(__pg_inner))
+            py.allow_threads(|| fnx_algorithms::complement_edges(__pg_inner))
         };
 
         let mut py_graph = PyGraph::new_empty_with_policy(py, pg.inner.runtime_policy().clone())?;
-        // Add nodes
-        for node in result.nodes_ordered() {
+        for node in &nodes_owned {
             let py_key = pg.py_node_key(py, node);
-            py_graph.node_key_map.insert(node.to_owned(), py_key);
+            py_graph.node_key_map.insert(node.clone(), py_key);
             py_graph
                 .node_py_attrs
-                .insert(node.to_owned(), pyo3::types::PyDict::new(py).unbind());
+                .insert(node.clone(), pyo3::types::PyDict::new(py).unbind());
             py_graph.inner.add_node(node);
         }
-        // Add edges from the complement result
-        for edge in result.edges_ordered() {
-            let _ = py_graph.inner.add_edge(&edge.left, &edge.right);
-            let ek = PyGraph::edge_key(&edge.left, &edge.right);
+        for (left, right) in &edges {
+            let _ = py_graph.inner.add_edge(left, right);
+            let ek = PyGraph::edge_key(left, right);
             py_graph
                 .edge_py_attrs
                 .insert(ek, pyo3::types::PyDict::new(py).unbind());
@@ -6654,26 +6666,32 @@ pub fn complement(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<PyObject> {
 
         Ok(py_graph.into_pyobject(py)?.into_any().unbind())
     } else if let Ok(dg) = g.extract::<PyRef<'_, PyDiGraph>>() {
-        let result = {
+        // br-r37-c1-4jd8m: same one-pass insertion as the Graph branch.
+        let nodes_owned: Vec<String> = dg
+            .inner
+            .nodes_ordered()
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+        let edges = {
             let __dg_inner = &dg.inner;
-            py.allow_threads(|| fnx_algorithms::complement_directed(__dg_inner))
+            py.allow_threads(|| fnx_algorithms::complement_edges_directed(__dg_inner))
         };
 
         let mut py_dg = PyDiGraph::new_empty_with_policy(py, dg.inner.runtime_policy().clone())?;
-        for node in result.nodes_ordered() {
+        for node in &nodes_owned {
             let py_key = dg.py_node_key(py, node);
-            py_dg.node_key_map.insert(node.to_owned(), py_key);
+            py_dg.node_key_map.insert(node.clone(), py_key);
             py_dg
                 .node_py_attrs
-                .insert(node.to_owned(), pyo3::types::PyDict::new(py).unbind());
+                .insert(node.clone(), pyo3::types::PyDict::new(py).unbind());
             py_dg.inner.add_node(node);
         }
-        for edge in result.edges_ordered() {
-            let _ = py_dg.inner.add_edge(&edge.left, &edge.right);
-            py_dg.edge_py_attrs.insert(
-                (edge.left, edge.right),
-                pyo3::types::PyDict::new(py).unbind(),
-            );
+        for (left, right) in edges {
+            let _ = py_dg.inner.add_edge(&left, &right);
+            py_dg
+                .edge_py_attrs
+                .insert((left, right), pyo3::types::PyDict::new(py).unbind());
         }
 
         Ok(py_dg.into_pyobject(py)?.into_any().unbind())

@@ -14839,6 +14839,52 @@ pub fn complement(graph: &Graph) -> Graph {
     result
 }
 
+/// Like [`complement`] but returns just the list of new (u, v) edge
+/// pairs (in canonical insertion order) without materializing a
+/// fresh `Graph`. Lets the PyO3 binding skip a duplicate insertion
+/// pass: previously the binding called this fn, walked the result
+/// graph's edges, and re-inserted each into a `PyGraph` — twice the
+/// per-edge `runtime_policy.record` overhead, which dominates for
+/// dense complements (BA500: 130 ms in nx, ~860 ms in fnx).
+#[must_use]
+pub fn complement_edges(graph: &Graph) -> Vec<(String, String)> {
+    let nodes: Vec<&str> = graph.nodes_ordered();
+    let n = nodes.len();
+    if n < 2 {
+        return Vec::new();
+    }
+    let mut edges: Vec<(String, String)> = Vec::new();
+    for (i, &u) in nodes.iter().enumerate() {
+        for &v in &nodes[i + 1..] {
+            if !graph.has_edge(u, v) {
+                edges.push((u.to_owned(), v.to_owned()));
+            }
+        }
+    }
+    edges
+}
+
+/// `DiGraph` counterpart to [`complement_edges`]. Yields every
+/// directed (u, v) pair (u ≠ v) such that the input has no edge
+/// from u to v.
+#[must_use]
+pub fn complement_edges_directed(digraph: &DiGraph) -> Vec<(String, String)> {
+    let nodes: Vec<&str> = digraph.nodes_ordered();
+    let n = nodes.len();
+    if n < 2 {
+        return Vec::new();
+    }
+    let mut edges: Vec<(String, String)> = Vec::new();
+    for &u in &nodes {
+        for &v in &nodes {
+            if u != v && !digraph.has_edge(u, v) {
+                edges.push((u.to_owned(), v.to_owned()));
+            }
+        }
+    }
+    edges
+}
+
 /// Return the complement of a directed graph.
 #[must_use]
 pub fn complement_directed(digraph: &DiGraph) -> DiGraph {
