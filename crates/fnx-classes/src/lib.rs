@@ -412,6 +412,75 @@ impl Graph {
         self.add_edge_with_attrs(left, right, AttrMap::new())
     }
 
+    /// Bulk-add a sequence of attribute-free edges. Bypasses the
+    /// per-edge `runtime_policy.record_decision` call that
+    /// [`add_edge_with_attrs`] makes. Instead, emit one summary record
+    /// for the whole batch.
+    ///
+    /// Intended for fnx-internal callers that build a fresh graph
+    /// from a known-good edge list (e.g., `complement`,
+    /// `transitive_closure`, etc.) where the per-edge
+    /// incompatibility-probability accounting would just add
+    /// constant-factor overhead and is uninteresting for the policy
+    /// log.
+    ///
+    /// Nodes referenced by edges are auto-created if absent
+    /// (matching `add_edge` semantics). br-r37-c1-4jd8m.
+    #[must_use]
+    pub fn extend_edges_unrecorded<I, L, R>(&mut self, edges: I) -> usize
+    where
+        I: IntoIterator<Item = (L, R)>,
+        L: Into<String>,
+        R: Into<String>,
+    {
+        let mut inserted = 0usize;
+        for (left, right) in edges {
+            let left = left.into();
+            let right = right.into();
+            if !self.nodes.contains_key(&left) {
+                self.nodes.insert(left.clone(), AttrMap::new());
+                self.adjacency.entry(left.clone()).or_default();
+            }
+            if left != right && !self.nodes.contains_key(&right) {
+                self.nodes.insert(right.clone(), AttrMap::new());
+                self.adjacency.entry(right.clone()).or_default();
+            }
+            let edge_key = EdgeKey::new(&left, &right);
+            if self.edges.contains_key(&edge_key) {
+                continue;
+            }
+            self.edges.insert(edge_key, AttrMap::new());
+            self.adjacency
+                .entry(left.clone())
+                .or_default()
+                .insert(right.clone());
+            self.adjacency
+                .entry(right.clone())
+                .or_default()
+                .insert(left);
+            inserted += 1;
+        }
+        if inserted > 0 {
+            self.revision = self
+                .revision
+                .saturating_add(u64::try_from(inserted).unwrap_or(u64::MAX));
+            // One summary record covers the whole batch and keeps the
+            // policy ledger non-empty so existing diagnostics still
+            // see the operation.
+            self.record_decision(
+                "extend_edges_unrecorded",
+                0.0,
+                false,
+                vec![EvidenceTerm {
+                    signal: "batch_edge_count".to_owned(),
+                    observed_value: inserted.to_string(),
+                    log_likelihood_ratio: -1.0,
+                }],
+            );
+        }
+        inserted
+    }
+
     pub fn add_edge_with_attrs(
         &mut self,
         left: impl Into<String>,
@@ -1414,6 +1483,27 @@ mod tests {
         assert_eq!(graph.edge_count(), 2);
         assert_eq!(graph.nodes_ordered(), vec!["a", "b", "c"]);
         assert_eq!(graph.neighbors("a"), Some(vec!["b", "c"]));
+    }
+
+    #[test]
+    fn extend_edges_unrecorded_preserves_adjacency_and_records_once() {
+        let mut graph = Graph::strict();
+        graph.add_node("a");
+        graph.add_node("b");
+        graph.add_node("c");
+        let before = graph.evidence_ledger().records().len();
+
+        let inserted = graph.extend_edges_unrecorded([("a", "b"), ("a", "c"), ("b", "a")]);
+
+        assert_eq!(inserted, 2);
+        assert_eq!(graph.edge_count(), 2);
+        assert_eq!(graph.neighbors("a"), Some(vec!["b", "c"]));
+        let records = graph.evidence_ledger().records();
+        assert_eq!(records.len(), before + 1);
+        assert_eq!(
+            records.last().map(|record| record.operation.as_str()),
+            Some("extend_edges_unrecorded")
+        );
     }
 
     #[test]

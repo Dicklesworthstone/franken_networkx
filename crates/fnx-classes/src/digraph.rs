@@ -514,6 +514,73 @@ impl DiGraph {
         Ok(())
     }
 
+    /// Bulk-add a sequence of attribute-free directed edges. Bypasses
+    /// the per-edge `runtime_policy.record_decision` call that
+    /// [`add_edge_with_attrs`] makes. Instead, emit one summary record
+    /// for the whole batch.
+    ///
+    /// Intended for fnx-internal callers that build a fresh graph
+    /// from a known-good edge list where per-edge compatibility
+    /// accounting would add constant-factor overhead without adding
+    /// useful policy evidence. Nodes referenced by edges are
+    /// auto-created if absent, matching `add_edge` semantics.
+    #[must_use]
+    pub fn extend_edges_unrecorded<I, S, T>(&mut self, edges: I) -> usize
+    where
+        I: IntoIterator<Item = (S, T)>,
+        S: Into<String>,
+        T: Into<String>,
+    {
+        let mut inserted = 0usize;
+        for (source, target) in edges {
+            let source = source.into();
+            let target = target.into();
+            if !self.nodes.contains_key(&source) {
+                self.nodes.insert(source.clone(), AttrMap::new());
+                self.successors.entry(source.clone()).or_default();
+                self.predecessors.entry(source.clone()).or_default();
+            }
+            if source != target && !self.nodes.contains_key(&target) {
+                self.nodes.insert(target.clone(), AttrMap::new());
+                self.successors.entry(target.clone()).or_default();
+                self.predecessors.entry(target.clone()).or_default();
+            }
+            let edge_key = DirectedEdgeKey::new(&source, &target);
+            if self.edges.contains_key(&edge_key) {
+                continue;
+            }
+
+            self.edges.insert(edge_key, AttrMap::new());
+            self.successors
+                .entry(source.clone())
+                .or_default()
+                .insert(target.clone());
+            self.predecessors
+                .entry(target)
+                .or_default()
+                .insert(source);
+            inserted += 1;
+        }
+
+        if inserted > 0 {
+            self.revision = self
+                .revision
+                .saturating_add(u64::try_from(inserted).unwrap_or(u64::MAX));
+            self.record_decision(
+                "extend_edges_unrecorded",
+                0.0,
+                false,
+                vec![EvidenceTerm {
+                    signal: "batch_edge_count".to_owned(),
+                    observed_value: inserted.to_string(),
+                    log_likelihood_ratio: -1.0,
+                }],
+            );
+        }
+
+        inserted
+    }
+
     pub fn apply_edge_defaults(&mut self, defaults: &AttrMap) -> bool {
         if defaults.is_empty() {
             return false;

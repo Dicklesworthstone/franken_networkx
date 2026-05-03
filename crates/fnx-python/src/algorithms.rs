@@ -6666,8 +6666,15 @@ pub fn complement(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<PyObject> {
                 .insert(node.clone(), pyo3::types::PyDict::new(py).unbind());
             py_graph.inner.add_node(node);
         }
+        // br-r37-c1-4jd8m: bulk insertion via extend_edges_unrecorded
+        // skips per-edge runtime_policy.record_decision overhead. For
+        // BA1000 complement this avoids hundreds of thousands of hot
+        // path policy-log records; one summary record covers the batch.
+        let inserted = py_graph
+            .inner
+            .extend_edges_unrecorded(edges.iter().map(|(l, r)| (l.as_str(), r.as_str())));
+        debug_assert_eq!(inserted, edges.len());
         for (left, right) in &edges {
-            let _ = py_graph.inner.add_edge(left, right);
             let ek = PyGraph::edge_key(left, right);
             py_graph
                 .edge_py_attrs
@@ -6697,8 +6704,11 @@ pub fn complement(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<PyObject> {
                 .insert(node.clone(), pyo3::types::PyDict::new(py).unbind());
             py_dg.inner.add_node(node);
         }
+        let inserted = py_dg
+            .inner
+            .extend_edges_unrecorded(edges.iter().map(|(l, r)| (l.as_str(), r.as_str())));
+        debug_assert_eq!(inserted, edges.len());
         for (left, right) in edges {
-            let _ = py_dg.inner.add_edge(&left, &right);
             py_dg
                 .edge_py_attrs
                 .insert((left, right), pyo3::types::PyDict::new(py).unbind());
