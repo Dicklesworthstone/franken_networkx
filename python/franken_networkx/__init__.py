@@ -5817,23 +5817,19 @@ except ImportError:
 
 
 def cycle_basis(G, root=None):
-    """Return a minimum cycle basis of the graph.
+    """Return a cycle basis of the graph.
 
     Matches upstream NetworkX: raises NetworkXNotImplemented on
     multigraph inputs before the basis computation runs, rather than
     silently returning ``[]``.
-
-    br-r37-c1-j5swc: nx emits cycle node lists in DFS-discovery order
-    through the chord-completion path (e.g. ['b','a','c']), but the
-    Rust binding returns cycles in canonical-node order
-    (e.g. ['a','b','c']). Delegate to nx so cycle node ordering matches
-    its algorithmic contract exactly.
     """
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
     if root is not None:
-        return _call_networkx_for_parity("cycle_basis", G, root=root)
-    return _call_networkx_for_parity("cycle_basis", G)
+        if root not in G:
+            raise KeyError(root)
+        return _raw_cycle_basis(G, root=root)
+    return _raw_cycle_basis(G)
 
 
 def all_shortest_paths(G, source, target, weight=None, method="dijkstra"):
@@ -7212,18 +7208,15 @@ def find_cliques(G, nodes=None):
     Generator function so the returned object is a true generator
     matching nx's contract (br-r37-c1-682kr).
 
-    br-r37-c1-g71v3: the Rust binding's Bron-Kerbosch yielded cliques
-    in a different iteration order from nx, and within each clique
-    returned nodes in canonical/sorted order rather than nx's pivot-
-    based discovery order. Delegate the ``nodes=None`` case to nx so
-    both the clique-iteration and intra-clique node orderings match
-    its documented contract exactly.
+    br-r37-c1-tvf43: the Rust binding now runs the nx-order iterative
+    Bron-Kerbosch path directly against the Rust graph, avoiding the
+    previous conversion-heavy NetworkX delegation for ``nodes=None``.
     """
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
 
     if nodes is None:
-        yield from _call_networkx_for_parity("find_cliques", G)
+        yield from _raw_find_cliques(G)
         return
 
     if len(G) == 0:
@@ -32541,6 +32534,7 @@ def _random_kernel_graph_via_parity(
 
 # Drawing — thin delegation to NetworkX/matplotlib (lazy import)
 from franken_networkx import bipartite as bipartite  # noqa: F401 — native overrides
+from franken_networkx import community as community  # noqa: F401 — native overrides (br-r37-c1-rq36c)
 from franken_networkx.drawing import (
     arf_layout,
     bfs_layout,
