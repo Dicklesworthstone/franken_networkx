@@ -12912,9 +12912,33 @@ def _pagerank_outgoing_weights(G, node, weight):
     }
 
 
+try:
+    from franken_networkx._fnx import (
+        graph_has_nonfinite_edge_weight as _native_has_nonfinite_edge_weight,
+    )
+except ImportError:  # pragma: no cover — defensive for partial builds
+    _native_has_nonfinite_edge_weight = None
+
+
 def _pagerank_needs_networkx_weight_parity(G, weight):
     if weight is None:
         return False
+
+    # br-r37-c1-s0tno: route the scan through a native O(|E|) Rust
+    # helper for simple Graph/DiGraph. The previous Python iteration
+    # over G.edges() cost ~40 ms on BA5000 — it was the entire fnx
+    # vs nx pagerank-wrapper gap (the Rust algorithm is already at
+    # parity with nx). Native helper returns None for multigraphs;
+    # fall back to the Python scan there so per-key parallel-edge
+    # attrs are inspected correctly.
+    if _native_has_nonfinite_edge_weight is not None and not G.is_multigraph():
+        try:
+            native = _native_has_nonfinite_edge_weight(G, weight)
+        except Exception:
+            native = None
+        if native is not None:
+            return bool(native)
+
     edges = G.edges(keys=True, data=True) if G.is_multigraph() else G.edges(data=True)
     for edge in edges:
         attrs = edge[-1]

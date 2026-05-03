@@ -5285,6 +5285,46 @@ pub fn digraph_has_negative_edge_weight(digraph: &DiGraph, weight_attr: &str) ->
     false
 }
 
+/// Return ``true`` if any edge in ``graph`` carries a value at
+/// ``weight_attr`` that is non-numeric (can't be converted to f64) or
+/// non-finite (NaN / ±∞). Used by the Python ``pagerank`` dispatcher
+/// (br-r37-c1-s0tno) to decide whether to delegate to nx — pagerank
+/// power iteration over signed/non-finite transition matrices is
+/// numerically unstable, so the dispatcher needs a fast O(|E|) Rust
+/// scan instead of the previous Python edge iteration.
+///
+/// Edges *missing* the attribute don't count (defaults to 1.0 on
+/// both sides). The check only fires if the attribute is present
+/// AND the value can't be losslessly cast to a finite f64.
+#[must_use]
+pub fn graph_has_nonfinite_edge_weight(graph: &Graph, weight_attr: &str) -> bool {
+    for (left, right, attrs) in graph.edges_ordered_borrowed() {
+        let _ = (left, right);
+        if let Some(raw) = attrs.get(weight_attr) {
+            match raw.as_f64() {
+                Some(v) if v.is_finite() => continue,
+                _ => return true,
+            }
+        }
+    }
+    false
+}
+
+/// `DiGraph` counterpart to [`graph_has_nonfinite_edge_weight`].
+#[must_use]
+pub fn digraph_has_nonfinite_edge_weight(digraph: &DiGraph, weight_attr: &str) -> bool {
+    for (source, target, attrs) in digraph.edges_ordered_borrowed() {
+        let _ = (source, target);
+        if let Some(raw) = attrs.get(weight_attr) {
+            match raw.as_f64() {
+                Some(v) if v.is_finite() => continue,
+                _ => return true,
+            }
+        }
+    }
+    false
+}
+
 fn matching_edge_weight_or_default(
     graph: &Graph,
     left: &str,
