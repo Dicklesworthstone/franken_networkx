@@ -1937,9 +1937,37 @@ pub fn single_source_shortest_path_length_directed(
 
 #[must_use]
 pub fn connected_components(graph: &Graph) -> ComponentsResult {
+    let (components, nodes_touched, edges_scanned, queue_peak) =
+        connected_components_borrowed(graph);
+    let owned: Vec<Vec<String>> = components
+        .into_iter()
+        .map(|comp| comp.into_iter().map(str::to_owned).collect())
+        .collect();
+
+    ComponentsResult {
+        components: owned,
+        witness: ComplexityWitness {
+            algorithm: "bfs_connected_components".to_owned(),
+            complexity_claim: "O(|V| + |E|)".to_owned(),
+            nodes_touched,
+            edges_scanned,
+            queue_peak,
+        },
+    }
+}
+
+/// BFS that returns components as `Vec<&str>` borrowed from the
+/// input graph — skips the final `String::to_owned` pass that the
+/// public `connected_components` API performs to wrap the result in
+/// owned `String`s. Useful when the consumer only needs to read the
+/// names (e.g., emit them across the PyO3 boundary) and would
+/// otherwise pay an unnecessary ~|V| allocation pass per call.
+///
+/// Returns `(components, nodes_touched, edges_scanned, queue_peak)`.
+pub fn connected_components_borrowed(graph: &Graph) -> (Vec<Vec<&str>>, usize, usize, usize) {
     let mut cgse_sink = cgse_begin(CgseReferenceAlgorithm::ConnectedComponents);
     let mut visited: HashSet<&str> = HashSet::new();
-    let mut components = Vec::new();
+    let mut components: Vec<Vec<&str>> = Vec::new();
     let mut nodes_touched = 0usize;
     let mut edges_scanned = 0usize;
     let mut queue_peak = 0usize;
@@ -1950,7 +1978,7 @@ pub fn connected_components(graph: &Graph) -> ComponentsResult {
         }
 
         let mut queue: VecDeque<&str> = VecDeque::new();
-        let mut component = Vec::new();
+        let mut component: Vec<&str> = Vec::new();
         queue.push_back(node);
         visited.insert(node);
         component.push(node);
@@ -1982,7 +2010,7 @@ pub fn connected_components(graph: &Graph) -> ComponentsResult {
         // call). The Python wrapper ``yield set(component)`` produces
         // the documented ``generator[set]`` shape and the set
         // construction itself is membership-order-independent.
-        components.push(component.into_iter().map(str::to_owned).collect());
+        components.push(component);
     }
 
     cgse_publish(
@@ -1992,16 +2020,7 @@ pub fn connected_components(graph: &Graph) -> ComponentsResult {
         cgse_sink,
     );
 
-    ComponentsResult {
-        components,
-        witness: ComplexityWitness {
-            algorithm: "bfs_connected_components".to_owned(),
-            complexity_claim: "O(|V| + |E|)".to_owned(),
-            nodes_touched,
-            edges_scanned,
-            queue_peak,
-        },
-    }
+    (components, nodes_touched, edges_scanned, queue_peak)
 }
 
 #[must_use]

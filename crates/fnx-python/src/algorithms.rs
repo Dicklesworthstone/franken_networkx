@@ -2265,13 +2265,18 @@ pub fn connected_components(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Ve
     require_undirected(&gr, "connected_components")?;
     let inner = gr.undirected();
     log::info!(target: "franken_networkx", "connected_components: nodes={} edges={}", inner.node_count(), inner.edge_count());
-    let result = py.allow_threads(|| fnx_algorithms::connected_components(inner));
-    result
-        .components
+    // br-r37-c1-anace: route through the borrowed BFS variant — skips
+    // the ~|V| String::to_owned allocations the public
+    // ``connected_components`` API performs to wrap the result in
+    // ``Vec<Vec<String>>``. We materialize PyString objects from &str
+    // directly via gr.py_node_key.
+    let (components, _, _, _) =
+        py.allow_threads(|| fnx_algorithms::connected_components_borrowed(inner));
+    components
         .iter()
         .map(|comp| {
-            let py_set: Vec<PyObject> = comp.iter().map(|n| gr.py_node_key(py, n)).collect();
-            py_set.into_pyobject(py).map(|obj| obj.into_any().unbind())
+            let py_list: Vec<PyObject> = comp.iter().map(|n| gr.py_node_key(py, n)).collect();
+            py_list.into_pyobject(py).map(|obj| obj.into_any().unbind())
         })
         .collect()
 }
