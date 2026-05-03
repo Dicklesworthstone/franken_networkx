@@ -111,6 +111,54 @@ class TestEdgelistIO:
         assert H.number_of_nodes() == 3
         assert H.number_of_edges() == 3
 
+    def test_write_edgelist_default_uses_rust_fast_path(self, monkeypatch, triangle):
+        import networkx as nx
+
+        def fail_delegate(*args, **kwargs):
+            raise AssertionError("default write_edgelist should use Rust fast path")
+
+        monkeypatch.setattr(fnx, "_write_edgelist_via_nx", fail_delegate)
+        buffer = io.BytesIO()
+        fnx.write_edgelist(triangle, buffer)
+
+        nx_graph = nx.read_edgelist(io.BytesIO(buffer.getvalue()))
+        assert sorted(map(tuple, map(sorted, nx_graph.edges()))) == [
+            ("0", "1"),
+            ("0", "2"),
+            ("1", "2"),
+        ]
+
+    def test_write_edgelist_non_default_kwargs_stay_delegated(
+        self, monkeypatch, triangle
+    ):
+        observed = {}
+
+        def fake_delegate(
+            G, path, *, comments="#", delimiter=" ", data=True, encoding="utf-8"
+        ):
+            observed.update(
+                {
+                    "graph": G,
+                    "comments": comments,
+                    "delimiter": delimiter,
+                    "data": data,
+                    "encoding": encoding,
+                }
+            )
+            path.write(b"delegated\n")
+
+        monkeypatch.setattr(fnx, "_write_edgelist_via_nx", fake_delegate)
+        buffer = io.BytesIO()
+        fnx.write_edgelist(triangle, buffer, delimiter="|")
+        assert buffer.getvalue() == b"delegated\n"
+        assert observed == {
+            "graph": triangle,
+            "comments": "#",
+            "delimiter": "|",
+            "data": True,
+            "encoding": "utf-8",
+        }
+
 
 # ---------------------------------------------------------------------------
 # read/write_adjlist
@@ -315,8 +363,9 @@ class TestEdgelistNxCrossCompat:
     """The Rust-native write_edgelist emitted `u v -` for empty attrs and
     `u v key=val` for attr edges, neither of which round-tripped through
     networkx.read_edgelist. read_edgelist silently dropped most of the
-    nx kwargs (nodetype, create_using, data, delimiter, ...). Both paths
-    now go through Python wrappers that delegate the format to nx.
+    nx kwargs (nodetype, create_using, data, delimiter, ...). The default
+    writer now uses a NetworkX-compatible native format, while parser and
+    non-default writer surfaces still delegate for exact public semantics.
     """
 
     def test_empty_attr_round_trips_through_networkx(self):

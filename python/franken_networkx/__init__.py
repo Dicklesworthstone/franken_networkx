@@ -11403,11 +11403,19 @@ from franken_networkx.readwrite import (
 def write_edgelist(G, path, comments="#", delimiter=" ", data=True, encoding="utf-8"):
     """Write a graph as a list of edges.
 
-    Delegates under the covers to NetworkX's formatter (br-wredge) because
-    the Rust-native ``write_edgelist`` emits ``u v -`` / ``u v key=val``
-    that can't be round-tripped by ``nx.read_edgelist``. This wrapper
-    matches nx's Python-dict-repr line format and honours all nx kwargs.
+    The default simple-graph surface uses the Rust-native writer, which emits
+    NetworkX-compatible Python-dict-repr edge data. Multigraphs and non-default
+    formatting kwargs delegate to NetworkX so their public semantics remain
+    exact.
     """
+    if (
+        comments == "#"
+        and delimiter == " "
+        and data is True
+        and encoding == "utf-8"
+        and not G.is_multigraph()
+    ):
+        return _rust_write_edgelist(G, path)
     return _write_edgelist_via_nx(
         G, path, comments=comments, delimiter=delimiter, data=data, encoding=encoding
     )

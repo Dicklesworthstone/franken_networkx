@@ -2,11 +2,14 @@
 //!
 //! Each read function accepts a file path (str or os.PathLike) or file-like object.
 //! Each write function accepts a Graph or DiGraph and a file path or file-like object.
-//! Internally delegates to `fnx_readwrite::EdgeListEngine`.
+//! Internally delegates to `fnx_readwrite::EdgeListEngine` where the native
+//! engine format matches the public NetworkX surface.
 
 use crate::algorithms::{GraphRef, extract_graph};
 use crate::digraph::PyDiGraph;
-use crate::{PyGraph, PyObject, PythonAllowThreadsExt, py_dict_to_attr_map};
+use crate::{
+    PyGraph, PyObject, PythonAllowThreadsExt, cgse_value_to_py, py_dict_to_attr_map,
+};
 use fnx_readwrite::{DiReadWriteReport, EdgeListEngine, ReadWriteError, ReadWriteReport};
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
@@ -249,6 +252,47 @@ fn reject_multigraph_write(gr: &GraphRef<'_>, operation: &str) -> PyResult<()> {
     }
 }
 
+fn edge_attr_dict_repr(py: Python<'_>, attrs: &fnx_classes::AttrMap) -> PyResult<String> {
+    if attrs.is_empty() {
+        return Ok("{}".to_owned());
+    }
+
+    let dict = PyDict::new(py);
+    for (key, value) in attrs {
+        dict.set_item(key, cgse_value_to_py(py, value)?)?;
+    }
+    dict.repr()?.extract()
+}
+
+fn graph_networkx_edgelist(py: Python<'_>, graph: &fnx_classes::Graph) -> PyResult<String> {
+    let mut content = String::new();
+    for (left, right, attrs) in graph.edges_ordered_borrowed() {
+        content.push_str(left);
+        content.push(' ');
+        content.push_str(right);
+        content.push(' ');
+        content.push_str(&edge_attr_dict_repr(py, attrs)?);
+        content.push('\n');
+    }
+    Ok(content)
+}
+
+fn digraph_networkx_edgelist(
+    py: Python<'_>,
+    graph: &fnx_classes::digraph::DiGraph,
+) -> PyResult<String> {
+    let mut content = String::new();
+    for (source, target, attrs) in graph.edges_ordered_borrowed() {
+        content.push_str(source);
+        content.push(' ');
+        content.push_str(target);
+        content.push(' ');
+        content.push_str(&edge_attr_dict_repr(py, attrs)?);
+        content.push('\n');
+    }
+    Ok(content)
+}
+
 // ---------------------------------------------------------------------------
 // Edge list
 // ---------------------------------------------------------------------------
@@ -269,18 +313,9 @@ fn read_edgelist(py: Python<'_>, path: &Bound<'_, PyAny>) -> PyResult<PyGraph> {
 fn write_edgelist(py: Python<'_>, g: &Bound<'_, PyAny>, path: &Bound<'_, PyAny>) -> PyResult<()> {
     let gr = extract_graph(g)?;
     reject_multigraph_write(&gr, "write_edgelist")?;
-    let mut engine = EdgeListEngine::hardened();
     let content = match &gr {
-        GraphRef::Undirected(pg) => {
-            let inner = &pg.inner;
-            py.allow_threads(|| engine.write_edgelist(inner))
-                .map_err(rw_error_to_py)?
-        }
-        GraphRef::Directed { dg, .. } => {
-            let inner = &dg.inner;
-            py.allow_threads(|| engine.write_digraph_edgelist(inner))
-                .map_err(rw_error_to_py)?
-        }
+        GraphRef::Undirected(pg) => graph_networkx_edgelist(py, &pg.inner)?,
+        GraphRef::Directed { dg, .. } => digraph_networkx_edgelist(py, &dg.inner)?,
         _ => {
             if gr.is_directed() {
                 let inner = gr.digraph().ok_or_else(|| {
@@ -288,12 +323,10 @@ fn write_edgelist(py: Python<'_>, g: &Bound<'_, PyAny>, path: &Bound<'_, PyAny>)
                         "expected directed graph backend for directed graph value",
                     )
                 })?;
-                py.allow_threads(|| engine.write_digraph_edgelist(inner))
-                    .map_err(rw_error_to_py)?
+                digraph_networkx_edgelist(py, inner)?
             } else {
                 let inner = gr.undirected();
-                py.allow_threads(|| engine.write_edgelist(inner))
-                    .map_err(rw_error_to_py)?
+                graph_networkx_edgelist(py, inner)?
             }
         }
     };
