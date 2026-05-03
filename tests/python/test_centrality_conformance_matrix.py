@@ -93,6 +93,10 @@ def _assert_centrality_close(actual, expected, rel=1e-6, abs_=1e-9):
         ), f"{key}: fnx={actual[key]} nx={expected[key]}"
 
 
+def _deterministic_nstart(graph):
+    return {node: float(index + 1) for index, node in enumerate(graph)}
+
+
 # ---------------------------------------------------------------------------
 # Core centrality family: value parity across graph families
 # ---------------------------------------------------------------------------
@@ -256,21 +260,23 @@ def test_katz_centrality_matches_networkx(make, n):
 
 @pytest.mark.parametrize("make, n", UNDIRECTED_FAMILIES)
 def test_hits_structural_invariants(make, n):
-    """HITS baseline: produce two dicts keyed by the same node set and
-    normalized to sum to 1 on both sides. Exact value parity between
-    fnx and nx on undirected graphs is a known gap (fnx's solver
-    does not currently enforce hubs == authorities symmetry the way
-    upstream's does); this gate locks the structural contract and leaves
-    value-level parity to a follow-up.
-    """
+    """HITS exact parity with an explicit start vector."""
     fg, ng = make(n)
-    f_hubs, f_auth = fnx.hits(fg, max_iter=500, tol=1e-8)
-    n_hubs, n_auth = nx.hits(ng, max_iter=500, tol=1e-8)
+    f_hubs, f_auth = fnx.hits(
+        fg,
+        max_iter=500,
+        tol=1e-8,
+        nstart=_deterministic_nstart(fg),
+    )
+    n_hubs, n_auth = nx.hits(
+        ng,
+        max_iter=500,
+        tol=1e-8,
+        nstart=_deterministic_nstart(ng),
+    )
     assert f_hubs.keys() == f_auth.keys() == n_hubs.keys() == n_auth.keys()
-    assert math.isclose(sum(f_hubs.values()), 1.0, abs_tol=1e-6)
-    assert math.isclose(sum(f_auth.values()), 1.0, abs_tol=1e-6)
-    assert math.isclose(sum(n_hubs.values()), 1.0, abs_tol=1e-6)
-    assert math.isclose(sum(n_auth.values()), 1.0, abs_tol=1e-6)
+    _assert_centrality_close(f_hubs, n_hubs, rel=1e-5, abs_=1e-7)
+    _assert_centrality_close(f_auth, n_auth, rel=1e-5, abs_=1e-7)
 
 
 # ---------------------------------------------------------------------------

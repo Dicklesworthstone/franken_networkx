@@ -20,9 +20,6 @@ import pytest
 import franken_networkx as fnx
 
 
-HITS_PARITY_BEAD = "br-r37-c1-hitsx"
-
-
 @dataclass(frozen=True)
 class GraphCase:
     name: str
@@ -326,9 +323,14 @@ def _centrality_cases() -> list[AlgorithmCase]:
             "centrality",
             "hits",
             ("path", "cycle"),
-            lambda module, graph: module.hits(graph, max_iter=1000, tol=1e-8, normalized=True),
+            lambda module, graph: module.hits(
+                graph,
+                max_iter=1000,
+                tol=1e-8,
+                nstart=_nstart(graph),
+                normalized=True,
+            ),
             _loose_numeric_comparator,
-            expected_divergence=f"{HITS_PARITY_BEAD}: exact HITS vectors diverge from NetworkX",
         ),
     ]
 
