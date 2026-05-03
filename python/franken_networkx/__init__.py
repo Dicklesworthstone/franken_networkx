@@ -8326,17 +8326,15 @@ def strongly_connected_components(G):
     """Generate strongly connected components as sets of nodes.
 
     Matches upstream's ``generator[set]`` contract (franken_networkx-v1nwd).
-    br-r37-c1-2vdtt: the previous reversed(rust_output) heuristic only
-    matched nx for symmetric small inputs; multi-component DiGraphs where
-    Rust's start node differs from nx's chose components in a different
-    order. Delegate to nx so emission order matches its Tarjan-discovery
-    contract exactly.
+    br-r37-c1-brzgi: the Rust binding emits components in nx's
+    Tarjan/Nuutila discovery order, avoiding the previous NetworkX
+    delegation on the public path.
     """
     if not G.is_directed():
         # Preserve the standard '@not_implemented_for' error format so
         # callers see a stable message (br-r37-c1-4elbw).
         raise NetworkXNotImplemented("not implemented for undirected type")
-    yield from _call_networkx_for_parity("strongly_connected_components", G)
+    yield from _raw_strongly_connected_components(G)
 
 
 # Algorithm functions — weakly connected components

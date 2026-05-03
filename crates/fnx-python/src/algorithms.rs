@@ -7502,14 +7502,137 @@ pub fn strongly_connected_components(
         ));
     }
     let dg_ref = gr.digraph().expect("is_directed checked above");
-    let result = py.allow_threads(|| fnx_algorithms::strongly_connected_components(dg_ref));
+    let result = py.allow_threads(|| strongly_connected_components_nx_ordered(dg_ref));
     result
         .iter()
         .map(|comp| {
-            let py_set: Vec<PyObject> = comp.iter().map(|n| gr.py_node_key(py, n)).collect();
-            py_set.into_pyobject(py).map(|obj| obj.into_any().unbind())
+            let py_nodes: Vec<PyObject> =
+                comp.iter().map(|node| gr.py_node_key(py, node)).collect();
+            pyo3::types::PySet::new(py, py_nodes).map(|set| set.into_any().unbind())
         })
         .collect()
+}
+
+fn strongly_connected_components_nx_ordered(
+    digraph: &fnx_classes::digraph::DiGraph,
+) -> Vec<Vec<String>> {
+    let nodes = digraph.nodes_ordered();
+    let node_indices: HashMap<&str, usize> = nodes
+        .iter()
+        .copied()
+        .enumerate()
+        .map(|(index, node)| (node, index))
+        .collect();
+    let mut predecessors = vec![Vec::<usize>::new(); nodes.len()];
+    let successors: Vec<Vec<usize>> = nodes
+        .iter()
+        .enumerate()
+        .map(|(index, &node)| {
+            digraph.successors_iter(node).map_or_else(Vec::new, |iter| {
+                iter.filter_map(|succ| {
+                    let succ_index = node_indices.get(succ).copied()?;
+                    predecessors[succ_index].push(index);
+                    Some(succ_index)
+                })
+                .collect()
+            })
+        })
+        .collect();
+
+    if nodes.is_empty() {
+        return Vec::new();
+    }
+    if reaches_every_node(0, &successors) && reaches_every_node(0, &predecessors) {
+        return vec![nodes.into_iter().map(str::to_owned).collect()];
+    }
+
+    let mut preorder = vec![0usize; nodes.len()];
+    let mut lowlink = vec![0usize; nodes.len()];
+    let mut scc_found = vec![false; nodes.len()];
+    let mut scc_queue = Vec::<usize>::new();
+    let mut neighbor_pos = vec![0usize; nodes.len()];
+    let mut preorder_counter = 0usize;
+    let mut result = Vec::new();
+
+    for source in 0..nodes.len() {
+        if scc_found[source] {
+            continue;
+        }
+        let mut queue = vec![source];
+        while let Some(&v) = queue.last() {
+            if preorder[v] == 0 {
+                preorder_counter += 1;
+                preorder[v] = preorder_counter;
+            }
+
+            let mut done = true;
+            while neighbor_pos[v] < successors[v].len() {
+                let w = successors[v][neighbor_pos[v]];
+                neighbor_pos[v] += 1;
+                if preorder[w] == 0 {
+                    queue.push(w);
+                    done = false;
+                    break;
+                }
+            }
+
+            if done {
+                lowlink[v] = preorder[v];
+                for &w in &successors[v] {
+                    if !scc_found[w] {
+                        if preorder[w] > preorder[v] {
+                            lowlink[v] = lowlink[v].min(lowlink[w]);
+                        } else {
+                            lowlink[v] = lowlink[v].min(preorder[w]);
+                        }
+                    }
+                }
+                queue.pop();
+                if lowlink[v] == preorder[v] {
+                    let mut component_indices = vec![v];
+                    while scc_queue
+                        .last()
+                        .is_some_and(|&queued| preorder[queued] > preorder[v])
+                    {
+                        if let Some(queued) = scc_queue.pop() {
+                            component_indices.push(queued);
+                        }
+                    }
+                    for &idx in &component_indices {
+                        scc_found[idx] = true;
+                    }
+                    let component = component_indices
+                        .into_iter()
+                        .map(|idx| nodes[idx].to_owned())
+                        .collect();
+                    result.push(component);
+                } else {
+                    scc_queue.push(v);
+                }
+            }
+        }
+    }
+
+    result
+}
+
+fn reaches_every_node(source: usize, adjacency: &[Vec<usize>]) -> bool {
+    let mut visited = vec![false; adjacency.len()];
+    let mut stack = vec![source];
+    visited[source] = true;
+    let mut seen = 1usize;
+
+    while let Some(node) = stack.pop() {
+        for &neighbor in &adjacency[node] {
+            if !visited[neighbor] {
+                visited[neighbor] = true;
+                seen += 1;
+                stack.push(neighbor);
+            }
+        }
+    }
+
+    seen == adjacency.len()
 }
 
 /// Return the number of strongly connected components.
