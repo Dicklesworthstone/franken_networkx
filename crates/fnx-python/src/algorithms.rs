@@ -2903,7 +2903,7 @@ pub fn pagerank(
     g: &Bound<'_, PyAny>,
     alpha: f64,
     personalization: Option<Bound<'_, PyAny>>,
-    max_iter: usize,
+    max_iter: isize,
     tol: f64,
     nstart: Option<Bound<'_, PyAny>>,
     weight: Option<&str>,
@@ -2914,19 +2914,33 @@ pub fn pagerank(
             "franken_networkx pagerank does not yet support personalization, nstart, or dangling",
         ));
     }
+    let max_iter_usize = usize::try_from(max_iter)
+        .map_err(|_| PowerIterationFailedConvergence::new_err(max_iter))?;
     let gr = extract_graph(g)?;
     log::info!(target: "franken_networkx", "pagerank: nodes={}", gr.undirected().node_count());
     let result = match &gr {
         GraphRef::Undirected(pg) => {
             let inner = &pg.inner;
             py.allow_threads(|| {
-                fnx_algorithms::pagerank_with_weight_checked(inner, alpha, max_iter, tol, weight)
+                fnx_algorithms::pagerank_with_weight_checked(
+                    inner,
+                    alpha,
+                    max_iter_usize,
+                    tol,
+                    weight,
+                )
             })
         }
         GraphRef::Directed { dg, .. } => {
             let inner = &dg.inner;
             py.allow_threads(|| {
-                fnx_algorithms::pagerank_with_weight_checked(inner, alpha, max_iter, tol, weight)
+                fnx_algorithms::pagerank_with_weight_checked(
+                    inner,
+                    alpha,
+                    max_iter_usize,
+                    tol,
+                    weight,
+                )
             })
         }
         GraphRef::MultiUndirected { mg, .. } => {
@@ -2935,7 +2949,7 @@ pub fn pagerank(
                 fnx_algorithms::pagerank_with_weight_checked(
                     &graph,
                     alpha,
-                    max_iter,
+                    max_iter_usize,
                     tol,
                     Some(PAGERANK_WEIGHT_ATTR),
                 )
@@ -2947,7 +2961,7 @@ pub fn pagerank(
                 fnx_algorithms::pagerank_with_weight_checked(
                     &graph,
                     alpha,
-                    max_iter,
+                    max_iter_usize,
                     tol,
                     Some(PAGERANK_WEIGHT_ATTR),
                 )

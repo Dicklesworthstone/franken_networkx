@@ -96,30 +96,37 @@ def test_pagerank_weight_none_matches_networkx():
 
 
 @needs_nx
-@pytest.mark.parametrize("max_iter", [0, 1])
-def test_pagerank_non_convergence_matches_networkx(max_iter):
+@pytest.mark.parametrize(
+    ("max_iter", "tol"),
+    [(0, 1e-20), (1, 1e-20), (-1, 1e-20)],
+)
+def test_pagerank_non_convergence_matches_networkx(max_iter, tol):
     nx_graph = nx.DiGraph()
     nx_graph.add_edges_from([(0, 1), (1, 2), (2, 0), (2, 3)])
     f_graph = fnx.DiGraph()
     f_graph.add_edges_from(nx_graph.edges())
 
     with pytest.raises(nx.PowerIterationFailedConvergence):
-        nx.pagerank(nx_graph, max_iter=max_iter, tol=1e-20)
+        nx.pagerank(nx_graph, max_iter=max_iter, tol=tol)
     with pytest.raises(fnx.PowerIterationFailedConvergence):
-        fnx.pagerank(f_graph, max_iter=max_iter, tol=1e-20)
+        fnx.pagerank(f_graph, max_iter=max_iter, tol=tol)
 
 
 @needs_nx
-def test_pagerank_singleton_max_iter_zero_matches_networkx():
+@pytest.mark.parametrize(
+    ("max_iter", "tol"),
+    [(0, 1e-6), (1, 0.0), (100, float("nan"))],
+)
+def test_pagerank_singleton_non_convergence_matches_networkx(max_iter, tol):
     nx_graph = nx.Graph()
     nx_graph.add_node(0)
     f_graph = fnx.Graph()
     f_graph.add_node(0)
 
     with pytest.raises(nx.PowerIterationFailedConvergence):
-        nx.pagerank(nx_graph, max_iter=0)
+        nx.pagerank(nx_graph, max_iter=max_iter, tol=tol)
     with pytest.raises(fnx.PowerIterationFailedConvergence):
-        fnx.pagerank(f_graph, max_iter=0)
+        fnx.pagerank(f_graph, max_iter=max_iter, tol=tol)
 
 
 @needs_nx

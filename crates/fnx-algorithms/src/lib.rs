@@ -14367,7 +14367,7 @@ pub fn all_shortest_paths_weighted_directed(
 /// any negative weight `w` constitutes an implicit negative cycle (`u-v-u`
 /// has weight `2w < 0`); NetworkX raises `NetworkXUnbounded` in that case
 /// and so do we via the `Err` return.
-#[must_use]
+#[allow(clippy::result_unit_err)]
 pub fn all_shortest_paths_weighted_bellman_ford(
     graph: &Graph,
     source: &str,
@@ -14456,7 +14456,7 @@ pub fn all_shortest_paths_weighted_bellman_ford(
 ///
 /// Matches `networkx.all_shortest_paths(G, source, target, weight=...,
 /// method='bellman-ford')` for directed graphs.
-#[must_use]
+#[allow(clippy::result_unit_err)]
 pub fn all_shortest_paths_weighted_directed_bellman_ford(
     digraph: &DiGraph,
     source: &str,
@@ -14515,10 +14515,9 @@ pub fn all_shortest_paths_weighted_directed_bellman_ford(
         let edge_weight = signed_digraph_edge_weight_or_default(digraph, left, right, weight_attr);
         if let (Some(&du), Some(&dv)) =
             (distances.get(left.as_str()), distances.get(right.as_str()))
+            && (du + edge_weight - dv).abs() < DISTANCE_COMPARISON_EPSILON
         {
-            if (du + edge_weight - dv).abs() < DISTANCE_COMPARISON_EPSILON {
-                preds.entry(right.as_str()).or_default().push(left.as_str());
-            }
+            preds.entry(right.as_str()).or_default().push(left.as_str());
         }
     }
 

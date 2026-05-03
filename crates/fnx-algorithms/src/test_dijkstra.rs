@@ -15,8 +15,11 @@ fn multi_source_dijkstra_directed_returns_zero_for_source_and_one_for_successor(
     // From source "b", distances are: b=0 (self), c=1 (via b->c).
     // "a" is unreachable from "b" in the directed graph, so it should
     // not appear in the distances map.
-    let by_node: std::collections::HashMap<&str, f64> =
-        res.distances.iter().map(|e| (e.node.as_str(), e.distance)).collect();
+    let by_node: std::collections::HashMap<&str, f64> = res
+        .distances
+        .iter()
+        .map(|e| (e.node.as_str(), e.distance))
+        .collect();
 
     assert_eq!(by_node.get("b").copied(), Some(0.0));
     assert_eq!(by_node.get("c").copied(), Some(1.0));
