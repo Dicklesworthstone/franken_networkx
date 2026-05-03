@@ -6708,22 +6708,146 @@ pub fn all_pairs_shortest_path_length(
     cutoff: Option<usize>,
 ) -> PyResult<PyObject> {
     let gr = extract_graph(g)?;
-    let result = if gr.is_directed() {
+    let (nodes, result) = if gr.is_directed() {
         let inner = gr.digraph().expect("is_directed checked above");
-        py.allow_threads(|| fnx_algorithms::all_pairs_shortest_path_length_directed(inner, cutoff))
+        let nodes = inner.nodes_ordered();
+        let result = py.allow_threads(|| {
+            all_pairs_shortest_path_length_directed_ordered(inner, &nodes, cutoff)
+        });
+        (nodes, result)
     } else {
         let inner = gr.undirected();
-        py.allow_threads(|| fnx_algorithms::all_pairs_shortest_path_length(inner, cutoff))
+        let nodes = inner.nodes_ordered();
+        let result =
+            py.allow_threads(|| all_pairs_shortest_path_length_ordered(inner, &nodes, cutoff));
+        (nodes, result)
     };
     let outer_dict = pyo3::types::PyDict::new(py);
-    for (source, targets) in &result {
+    for (source, targets) in result {
         let inner_dict = pyo3::types::PyDict::new(py);
         for (target, length) in targets {
-            inner_dict.set_item(gr.py_node_key(py, target), *length)?;
+            inner_dict.set_item(gr.py_node_key(py, nodes[target]), length)?;
         }
-        outer_dict.set_item(gr.py_node_key(py, source), inner_dict)?;
+        outer_dict.set_item(gr.py_node_key(py, nodes[source]), inner_dict)?;
     }
     Ok(outer_dict.into_any().unbind())
+}
+
+fn all_pairs_shortest_path_length_ordered(
+    graph: &fnx_classes::Graph,
+    nodes: &[&str],
+    cutoff: Option<usize>,
+) -> Vec<(usize, Vec<(usize, usize)>)> {
+    let adjacency = graph_shortest_path_adjacency_indices(graph, nodes);
+    all_pairs_shortest_path_length_from_adjacency(&adjacency, cutoff)
+}
+
+fn graph_shortest_path_adjacency_indices(
+    graph: &fnx_classes::Graph,
+    nodes: &[&str],
+) -> Vec<Vec<usize>> {
+    let node_indices: HashMap<&str, usize> = nodes
+        .iter()
+        .copied()
+        .enumerate()
+        .map(|(index, node)| (node, index))
+        .collect();
+    nodes
+        .iter()
+        .map(|&node| {
+            graph
+                .neighbors_iter(node)
+                .map_or_else(Vec::new, |neighbors| {
+                    neighbors
+                        .filter_map(|neighbor| node_indices.get(neighbor).copied())
+                        .collect()
+                })
+        })
+        .collect()
+}
+
+fn all_pairs_shortest_path_length_directed_ordered(
+    digraph: &fnx_classes::digraph::DiGraph,
+    nodes: &[&str],
+    cutoff: Option<usize>,
+) -> Vec<(usize, Vec<(usize, usize)>)> {
+    let adjacency = digraph_shortest_path_adjacency_indices(digraph, nodes);
+    all_pairs_shortest_path_length_from_adjacency(&adjacency, cutoff)
+}
+
+fn digraph_shortest_path_adjacency_indices(
+    digraph: &fnx_classes::digraph::DiGraph,
+    nodes: &[&str],
+) -> Vec<Vec<usize>> {
+    let node_indices: HashMap<&str, usize> = nodes
+        .iter()
+        .copied()
+        .enumerate()
+        .map(|(index, node)| (node, index))
+        .collect();
+    nodes
+        .iter()
+        .map(|&node| {
+            digraph
+                .successors_iter(node)
+                .map_or_else(Vec::new, |successors| {
+                    successors
+                        .filter_map(|successor| node_indices.get(successor).copied())
+                        .collect()
+                })
+        })
+        .collect()
+}
+
+fn all_pairs_shortest_path_length_from_adjacency(
+    adjacency: &[Vec<usize>],
+    cutoff: Option<usize>,
+) -> Vec<(usize, Vec<(usize, usize)>)> {
+    let node_count = adjacency.len();
+    let mut result = Vec::with_capacity(node_count);
+    let mut seen_epoch = vec![0usize; node_count];
+    let mut frontier = Vec::with_capacity(node_count);
+    let mut next_frontier = Vec::with_capacity(node_count);
+    let mut epoch = 1usize;
+
+    for source in 0..node_count {
+        let mut lengths = Vec::with_capacity(node_count);
+        frontier.clear();
+        next_frontier.clear();
+        seen_epoch[source] = epoch;
+        frontier.push(source);
+        lengths.push((source, 0));
+
+        let mut level = 0usize;
+        while !frontier.is_empty() {
+            if let Some(c) = cutoff
+                && level >= c
+            {
+                break;
+            }
+            next_frontier.clear();
+            for &node in &frontier {
+                for &neighbor in &adjacency[node] {
+                    if seen_epoch[neighbor] != epoch {
+                        seen_epoch[neighbor] = epoch;
+                        lengths.push((neighbor, level + 1));
+                        next_frontier.push(neighbor);
+                    }
+                }
+            }
+            std::mem::swap(&mut frontier, &mut next_frontier);
+            level += 1;
+        }
+
+        result.push((source, lengths));
+        epoch = epoch.saturating_add(1);
+        if epoch == usize::MAX {
+            seen_epoch.fill(0);
+            epoch = 1;
+        }
+    }
+
+    result
 }
 
 // ===========================================================================
