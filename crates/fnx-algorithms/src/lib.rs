@@ -2662,7 +2662,6 @@ pub fn pagerank_with_params<G: GraphView>(
     pagerank_with_weight(graph, alpha, max_iter, tol, None)
 }
 
-/// PageRank with explicit parameters and optional edge-weight attribute.
 /// Error returned by [`pagerank_with_weight_checked`] when the input
 /// graph carries a negative edge weight. Power iteration over signed
 /// transition matrices is numerically unstable (the per-row weight
