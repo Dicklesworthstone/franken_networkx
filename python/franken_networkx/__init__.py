@@ -9600,9 +9600,16 @@ def _translate_astar_no_path(exc, source, target):
 
 
 def astar_path(G, source, target, heuristic=None, weight="weight", *, cutoff=None):
-    # br-astarignoreweight: the Rust _raw_astar_path uses hop-counts,
-    # not weighted distances. Delegate weighted inputs to nx.
-    if _should_delegate_astar_to_networkx(weight, cutoff) or _graph_has_nonunit_weight(G, weight):
+    # br-r37-c1-bzio2: the Rust _raw_astar_path honours edge weights via
+    # edge_weight_or_default (verified parity vs nx on weighted graphs);
+    # the previous unconditional ``_graph_has_nonunit_weight`` gate was
+    # overly defensive and forced a ~50 ms Python edge scan per call on
+    # BA5000. Now we only delegate for the cases the Rust impl genuinely
+    # can't handle: callable/non-string ``weight``, ``cutoff``, or any
+    # edge with a finite negative weight (A* requires non-negative
+    # weights to remain optimal). The negative-weight scan reuses the
+    # native O(|E|) helper landed in br-r37-c1-644fx.
+    if _should_delegate_astar_to_networkx(weight, cutoff) or _has_negative_edge_weight_for_dijkstra(G, weight):
         return _call_networkx_for_parity(
             "astar_path",
             G,
@@ -9626,8 +9633,8 @@ def astar_path(G, source, target, heuristic=None, weight="weight", *, cutoff=Non
 def astar_path_length(
     G, source, target, heuristic=None, weight="weight", *, cutoff=None
 ):
-    # br-astarignoreweight: delegate weighted inputs.
-    if _should_delegate_astar_to_networkx(weight, cutoff) or _graph_has_nonunit_weight(G, weight):
+    # br-r37-c1-bzio2: same gate update as astar_path.
+    if _should_delegate_astar_to_networkx(weight, cutoff) or _has_negative_edge_weight_for_dijkstra(G, weight):
         return _call_networkx_for_parity(
             "astar_path_length",
             G,
@@ -11609,10 +11616,11 @@ def write_gml(G, path, stringizer=None):
     """Write a graph in GML format.
 
     Delegates to NetworkX's writer (br-wgmldr) when ``stringizer`` is
-    supplied or the graph is a multigraph. Falls back to the Rust fast path
-    for the common simple-graph / no-stringizer case.
+    supplied, the graph is a multigraph, or the graph is not a native fnx
+    graph. Falls back to the Rust fast path for the common native
+    simple-graph / no-stringizer case.
     """
-    if stringizer is not None or G.is_multigraph():
+    if stringizer is not None or not isinstance(G, (Graph, DiGraph)) or G.is_multigraph():
         return _write_gml_via_nx(G, path, stringizer=stringizer)
     return _rust_write_gml(G, path)
 
