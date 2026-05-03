@@ -3865,11 +3865,9 @@ def connected_components(G):
     """Generate connected components.
 
     Yields sets of nodes, one set per component. Matches the upstream
-    ``networkx.connected_components`` contract (generator of sets), not
-    the Rust-native list-of-list shape (franken_networkx-v1nwd).
+    ``networkx.connected_components`` contract (generator of sets).
     """
-    for component in _raw_connected_components(G):
-        yield set(component)
+    yield from _raw_connected_components(G)
 
 
 def articulation_points(G):

@@ -1963,38 +1963,63 @@ pub fn connected_components(graph: &Graph) -> ComponentsResult {
 /// names (e.g., emit them across the PyO3 boundary) and would
 /// otherwise pay an unnecessary ~|V| allocation pass per call.
 ///
+/// Internal traversal uses node *indices* (`Vec<bool>` visited bitmap
+/// instead of `HashSet<&str>`) to avoid per-step string hashing; this
+/// matters on dense graphs where the BFS itself dominates.
+///
 /// Returns `(components, nodes_touched, edges_scanned, queue_peak)`.
 pub fn connected_components_borrowed(graph: &Graph) -> (Vec<Vec<&str>>, usize, usize, usize) {
     let mut cgse_sink = cgse_begin(CgseReferenceAlgorithm::ConnectedComponents);
-    let mut visited: HashSet<&str> = HashSet::new();
+    let nodes: Vec<&str> = graph.nodes_ordered();
+    let n = nodes.len();
+    if n == 0 {
+        cgse_publish(
+            CgseReferenceAlgorithm::ConnectedComponents,
+            graph.node_count(),
+            graph.edge_count(),
+            cgse_sink,
+        );
+        return (Vec::new(), 0, 0, 0);
+    }
+    let mut visited = vec![false; n];
     let mut components: Vec<Vec<&str>> = Vec::new();
     let mut nodes_touched = 0usize;
     let mut edges_scanned = 0usize;
     let mut queue_peak = 0usize;
+    let mut queue: VecDeque<usize> = VecDeque::new();
 
-    for node in graph.nodes_ordered() {
-        if visited.contains(node) {
+    for start_idx in 0..n {
+        if visited[start_idx] {
             continue;
         }
 
-        let mut queue: VecDeque<&str> = VecDeque::new();
+        queue.clear();
         let mut component: Vec<&str> = Vec::new();
-        queue.push_back(node);
-        visited.insert(node);
-        component.push(node);
-        cgse_record_decision(&mut cgse_sink, node, "component_root");
+        queue.push_back(start_idx);
+        visited[start_idx] = true;
+        component.push(nodes[start_idx]);
+        cgse_record_decision(&mut cgse_sink, nodes[start_idx], "component_root");
         nodes_touched += 1;
         queue_peak = queue_peak.max(queue.len());
 
-        while let Some(current) = queue.pop_front() {
+        while let Some(current_idx) = queue.pop_front() {
+            let current = nodes[current_idx];
             let Some(neighbors) = graph.neighbors_iter(current) else {
                 continue;
             };
 
             for neighbor in neighbors {
                 edges_scanned += 1;
-                if visited.insert(neighbor) {
-                    queue.push_back(neighbor);
+                // Reuse the graph's existing IndexMap-backed
+                // ``get_node_index`` lookup instead of building a
+                // parallel ``HashMap<&str, usize>`` per call.
+                let nbr_idx = match graph.get_node_index(neighbor) {
+                    Some(i) => i,
+                    None => continue,
+                };
+                if !visited[nbr_idx] {
+                    visited[nbr_idx] = true;
+                    queue.push_back(nbr_idx);
                     component.push(neighbor);
                     cgse_record_decision(&mut cgse_sink, neighbor, current);
                     nodes_touched += 1;
@@ -2025,15 +2050,18 @@ pub fn connected_components_borrowed(graph: &Graph) -> (Vec<Vec<&str>>, usize, u
 
 #[must_use]
 pub fn number_connected_components(graph: &Graph) -> NumberConnectedComponentsResult {
-    let components = connected_components(graph);
+    // br-r37-c1-anace: take the borrowed-component path so we never
+    // materialize Vec<Vec<String>> just to count its outer length.
+    let (components, nodes_touched, edges_scanned, queue_peak) =
+        connected_components_borrowed(graph);
     NumberConnectedComponentsResult {
-        count: components.components.len(),
+        count: components.len(),
         witness: ComplexityWitness {
             algorithm: "bfs_number_connected_components".to_owned(),
-            complexity_claim: components.witness.complexity_claim,
-            nodes_touched: components.witness.nodes_touched,
-            edges_scanned: components.witness.edges_scanned,
-            queue_peak: components.witness.queue_peak,
+            complexity_claim: "O(|V| + |E|)".to_owned(),
+            nodes_touched,
+            edges_scanned,
+            queue_peak,
         },
     }
 }
@@ -3632,7 +3660,10 @@ pub fn load_centrality_normalized(graph: &Graph, normalized: bool) -> LoadCentra
 
 /// Compute directed load centrality with optional normalization.
 #[must_use]
-pub fn load_centrality_directed_normalized(graph: &DiGraph, normalized: bool) -> LoadCentralityResult {
+pub fn load_centrality_directed_normalized(
+    graph: &DiGraph,
+    normalized: bool,
+) -> LoadCentralityResult {
     load_centrality_generic(graph, normalized)
 }
 

@@ -2251,8 +2251,8 @@ pub fn density(_py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<f64> {
 ///
 /// Returns
 /// -------
-/// comp : list of lists
-///     A list of lists, one per connected component, each containing
+/// comp : list of sets
+///     A list of sets, one per connected component, each containing
 ///     the nodes in the component.
 ///
 /// Raises
@@ -2265,18 +2265,24 @@ pub fn connected_components(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Ve
     require_undirected(&gr, "connected_components")?;
     let inner = gr.undirected();
     log::info!(target: "franken_networkx", "connected_components: nodes={} edges={}", inner.node_count(), inner.edge_count());
-    // br-r37-c1-anace: route through the borrowed BFS variant — skips
+    // br-r37-c1-anace: route through the borrowed BFS variant -- skips
     // the ~|V| String::to_owned allocations the public
     // ``connected_components`` API performs to wrap the result in
-    // ``Vec<Vec<String>>``. We materialize PyString objects from &str
-    // directly via gr.py_node_key.
+    // ``Vec<Vec<String>>``. Emit Python sets directly so the public
+    // generator does not build a temporary list only to copy it into
+    // a set on every component.
     let (components, _, _, _) =
         py.allow_threads(|| fnx_algorithms::connected_components_borrowed(inner));
     components
         .iter()
         .map(|comp| {
-            let py_list: Vec<PyObject> = comp.iter().map(|n| gr.py_node_key(py, n)).collect();
-            py_list.into_pyobject(py).map(|obj| obj.into_any().unbind())
+            pyo3::types::PySet::new(
+                py,
+                comp.iter()
+                    .map(|node| gr.py_node_key(py, node))
+                    .collect::<Vec<_>>(),
+            )
+            .map(|set| set.into_any().unbind())
         })
         .collect()
 }
@@ -2834,12 +2840,16 @@ pub fn load_centrality(
         }
         GraphRef::Directed { dg, .. } => {
             let inner = &dg.inner;
-            py.allow_threads(|| fnx_algorithms::load_centrality_directed_normalized(inner, normalized))
+            py.allow_threads(|| {
+                fnx_algorithms::load_centrality_directed_normalized(inner, normalized)
+            })
         }
         _ => {
             if gr.is_directed() {
                 let inner = gr.digraph().expect("is_directed checked above");
-                py.allow_threads(|| fnx_algorithms::load_centrality_directed_normalized(inner, normalized))
+                py.allow_threads(|| {
+                    fnx_algorithms::load_centrality_directed_normalized(inner, normalized)
+                })
             } else {
                 let inner = gr.undirected();
                 py.allow_threads(|| fnx_algorithms::load_centrality_normalized(inner, normalized))
