@@ -4230,6 +4230,7 @@ from franken_networkx._fnx import (
     harmonic_centrality as _raw_harmonic_centrality,
     hits,
     katz_centrality as _raw_katz_centrality,
+    load_centrality as _raw_load_centrality,
     pagerank as _raw_pagerank,
     voterank as _raw_voterank,
 )
@@ -7208,16 +7209,15 @@ def find_cliques(G, nodes=None):
     Generator function so the returned object is a true generator
     matching nx's contract (br-r37-c1-682kr).
 
-    br-r37-c1-tvf43: the Rust binding now runs the nx-order iterative
-    Bron-Kerbosch path directly against the Rust graph, avoiding the
-    previous conversion-heavy NetworkX delegation for ``nodes=None``.
+    br-r37-c1-tvf43: run the nx-order iterative Bron-Kerbosch path
+    locally for ``nodes=None`` instead of delegating to NetworkX or
+    using the Rust binding's canonical clique ordering.
     """
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
 
     if nodes is None:
-        yield from _raw_find_cliques(G)
-        return
+        nodes = []
 
     if len(G) == 0:
         return
@@ -17118,15 +17118,22 @@ def load_centrality(
         "newman_betweenness_centrality", backend, backend_kwargs
     )
 
-    # br-loadcent: the previous fast-path simply returned
-    # betweenness_centrality(G) for the (cutoff=None, weight=None) case.
-    # But Newman's load algorithm (``nx._node_betweenness``) counts path
-    # fractions differently from betweenness when there are multiple
-    # shortest paths through the same intermediate node — on karate
-    # that drift was ~1-5% on 18/34 nodes. The existing
-    # _load_centrality_from_source_local helper already mirrors nx's
-    # _node_betweenness exactly, so route every case through it rather
-    # than falling back to betweenness_centrality.
+    # br-r37-c1-3wzcj: the Rust ``load_centrality`` now implements
+    # Newman's actual load algorithm (split-equally-among-predecessors)
+    # rather than Brandes' betweenness — bit-exact parity with nx
+    # verified on karate / path / star / K5 / cycle (max_diff = 0.0).
+    # Use the Rust fast path for the all-nodes / unweighted /
+    # cutoff=None case.
+    if (
+        v is None
+        and cutoff is None
+        and weight is None
+        and not G.is_multigraph()
+    ):
+        try:
+            return _raw_load_centrality(G, normalized=normalized)
+        except Exception:
+            pass
 
     if v is not None:
         betweenness = 0.0

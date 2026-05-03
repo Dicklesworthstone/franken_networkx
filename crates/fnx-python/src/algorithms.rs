@@ -2820,9 +2820,9 @@ pub fn load_centrality(
     normalized: bool,
     weight: Option<&str>,
 ) -> PyResult<Py<PyDict>> {
-    if v.is_some() || cutoff.is_some() || !normalized || weight.is_some() {
+    if v.is_some() || cutoff.is_some() || weight.is_some() {
         return Err(crate::NetworkXNotImplemented::new_err(
-            "franken_networkx currently only supports default parameters for load_centrality",
+            "franken_networkx currently only supports default parameters for load_centrality (v, cutoff, weight unsupported)",
         ));
     }
     let gr = extract_graph(g)?;
@@ -2830,19 +2830,19 @@ pub fn load_centrality(
     let result = match &gr {
         GraphRef::Undirected(pg) => {
             let inner = &pg.inner;
-            py.allow_threads(|| fnx_algorithms::load_centrality(inner))
+            py.allow_threads(|| fnx_algorithms::load_centrality_normalized(inner, normalized))
         }
         GraphRef::Directed { dg, .. } => {
             let inner = &dg.inner;
-            py.allow_threads(|| fnx_algorithms::load_centrality_directed(inner))
+            py.allow_threads(|| fnx_algorithms::load_centrality_directed_normalized(inner, normalized))
         }
         _ => {
             if gr.is_directed() {
                 let inner = gr.digraph().expect("is_directed checked above");
-                py.allow_threads(|| fnx_algorithms::load_centrality_directed(inner))
+                py.allow_threads(|| fnx_algorithms::load_centrality_directed_normalized(inner, normalized))
             } else {
                 let inner = gr.undirected();
-                py.allow_threads(|| fnx_algorithms::load_centrality(inner))
+                py.allow_threads(|| fnx_algorithms::load_centrality_normalized(inner, normalized))
             }
         }
     };

@@ -3630,7 +3630,22 @@ pub fn load_centrality_normalized(graph: &Graph, normalized: bool) -> LoadCentra
     load_centrality_generic(graph, normalized)
 }
 
+/// Compute directed load centrality with optional normalization.
+#[must_use]
+pub fn load_centrality_directed_normalized(graph: &DiGraph, normalized: bool) -> LoadCentralityResult {
+    load_centrality_generic(graph, normalized)
+}
+
 fn load_centrality_generic<G: GraphView>(graph: &G, normalized: bool) -> LoadCentralityResult {
+    // br-r37-c1-3wzcj: native Newman load centrality (matches
+    // ``networkx.algorithms.centrality.load._node_betweenness``). The
+    // previous Rust impl computed Brandes' BETWEENNESS via the
+    // sigma/delta recurrence — semantically wrong: load propagates
+    // each node's accumulated weight EQUALLY among its predecessors
+    // (split by ``len(pred[v])``), while Brandes weighs predecessors
+    // by ``sigma[v]/sigma[w]``. The two coincide only on graphs with
+    // unique shortest paths between every pair; on graphs with
+    // multiple shortest paths through a node the values diverge.
     let nodes = graph.nodes_ordered();
     let n = nodes.len();
 
@@ -3647,7 +3662,6 @@ fn load_centrality_generic<G: GraphView>(graph: &G, normalized: bool) -> LoadCen
         };
     }
 
-    // Node index mapping
     let node_idx: HashMap<&str, usize> = nodes.iter().enumerate().map(|(i, n)| (*n, i)).collect();
 
     let mut load = vec![0.0_f64; n];
@@ -3655,21 +3669,21 @@ fn load_centrality_generic<G: GraphView>(graph: &G, normalized: bool) -> LoadCen
     let mut edges_scanned = 0usize;
     let mut queue_peak = 0usize;
 
-    // For each source node, compute single-source shortest paths
-    // and accumulate load through intermediate nodes
     for s in 0..n {
-        // BFS to find shortest path distances and count paths
+        // BFS from s; track pred[v] = list of immediate predecessors on
+        // shortest paths from s, and dist[v] = shortest-path distance.
         let mut distance = vec![usize::MAX; n];
-        let mut sigma = vec![0.0_f64; n]; // number of shortest paths from s to each node
         let mut predecessors: Vec<Vec<usize>> = vec![Vec::new(); n];
 
         distance[s] = 0;
-        sigma[s] = 1.0;
 
         let mut queue = VecDeque::<usize>::new();
         queue.push_back(s);
         queue_peak = queue_peak.max(queue.len());
 
+        // Track BFS-discovery order so we can iterate by descending
+        // distance later (popping the stack gives farthest-first
+        // — same as nx ``onodes.sort()`` on (length, vert)).
         let mut stack = Vec::<usize>::with_capacity(n);
 
         while let Some(v) = queue.pop_front() {
@@ -3681,16 +3695,12 @@ fn load_centrality_generic<G: GraphView>(graph: &G, normalized: bool) -> LoadCen
                     edges_scanned += 1;
                     let w = *node_idx.get(w_name).unwrap();
 
-                    // First visit to w
                     if distance[w] == usize::MAX {
                         distance[w] = dist_v + 1;
                         queue.push_back(w);
                         queue_peak = queue_peak.max(queue.len());
                     }
-
-                    // w is on a shortest path from s
                     if distance[w] == dist_v + 1 {
-                        sigma[w] += sigma[v];
                         predecessors[w].push(v);
                     }
                 }
@@ -3699,19 +3709,41 @@ fn load_centrality_generic<G: GraphView>(graph: &G, normalized: bool) -> LoadCen
 
         total_nodes_touched += stack.len();
 
-        // Back-propagate load
-        // delta[w] = sum over successors t of (sigma[w]/sigma[t]) * (1 + delta[t])
-        let mut delta = vec![0.0_f64; n];
+        // Newman's load: between[v] starts at 1 for every reached node.
+        // Iterate from farthest-first; each node distributes its
+        // accumulated weight EQUALLY across its predecessors
+        // (between[x] += between[v] / len(pred[v])). At the end,
+        // subtract 1 from each between[v] (the initial seed).
+        let mut between = vec![0.0_f64; n];
+        for &v in &stack {
+            between[v] = 1.0;
+        }
 
-        while let Some(w) = stack.pop() {
-            if sigma[w] > 0.0 {
-                let coeff = (1.0 + delta[w]) / sigma[w];
-                for &v in &predecessors[w] {
-                    delta[v] += sigma[v] * coeff;
-                }
+        while let Some(v) = stack.pop() {
+            if predecessors[v].is_empty() {
+                continue;
             }
-            if w != s {
-                load[w] += delta[w];
+            let num_paths = predecessors[v].len() as f64;
+            let share = between[v] / num_paths;
+            for &x in &predecessors[v] {
+                if x == s {
+                    // nx ``if x == source: break`` — all remaining
+                    // predecessors at this level are also the source on
+                    // distance-1 nodes, so terminate the inner loop.
+                    break;
+                }
+                between[x] += share;
+            }
+        }
+
+        for v in 0..n {
+            if distance[v] != usize::MAX {
+                between[v] -= 1.0;
+            }
+        }
+        for v in 0..n {
+            if v != s {
+                load[v] += between[v];
             }
         }
     }
@@ -8488,11 +8520,13 @@ pub fn greedy_color_with_strategy(graph: &Graph, strategy: &str) -> GreedyColorR
             // preserves the original ``nodes_ordered`` order on ties,
             // and (b) using ``sort_by`` (stable) over ``sort_unstable_by``
             // to be safe against any future tie that survives the key.
-            let nodes_with_idx: Vec<(usize, &str)> =
-                nodes.iter().copied().enumerate().collect();
+            let nodes_with_idx: Vec<(usize, &str)> = nodes.iter().copied().enumerate().collect();
             let mut by_degree = nodes_with_idx;
             by_degree.sort_by(|(ia, a), (ib, b)| {
-                graph.degree(b).cmp(&graph.degree(a)).then_with(|| ia.cmp(ib))
+                graph
+                    .degree(b)
+                    .cmp(&graph.degree(a))
+                    .then_with(|| ia.cmp(ib))
             });
             by_degree.into_iter().map(|(_, n)| n).collect()
         }
@@ -11692,7 +11726,7 @@ pub fn cycle_basis(graph: &Graph, root: Option<&str>) -> CycleBasisResult {
         };
     }
 
-    let mut gnodes: HashSet<&str> = all_nodes.iter().copied().collect();
+    let mut gnodes = all_nodes;
     let mut cycles: Vec<Vec<String>> = Vec::new();
     let mut nodes_touched = 0usize;
     let mut edges_scanned = 0usize;
@@ -11701,17 +11735,12 @@ pub fn cycle_basis(graph: &Graph, root: Option<&str>) -> CycleBasisResult {
     let mut current_root: Option<&str> = root;
 
     while !gnodes.is_empty() {
-        // Pick root: use provided root first time, then smallest remaining node
+        // Match NetworkX's dict-backed ``gnodes.popitem()``: with no explicit
+        // root, each new component starts from the last remaining inserted node.
         let r = if let Some(r) = current_root.take() {
-            gnodes.remove(r);
             r
         } else {
-            // Pick lexicographically smallest remaining node for determinism
-            let mut remaining: Vec<&str> = gnodes.iter().copied().collect();
-            remaining.sort_unstable();
-            let r = remaining[0];
-            gnodes.remove(r);
-            r
+            gnodes.pop().expect("gnodes is non-empty")
         };
 
         let mut stack: Vec<&str> = vec![r];
@@ -11725,12 +11754,10 @@ pub fn cycle_basis(graph: &Graph, root: Option<&str>) -> CycleBasisResult {
             stack_peak = stack_peak.max(stack.len() + 1);
             let z_used = used[z].clone();
 
-            // Get sorted neighbors for deterministic traversal
-            let mut nbrs: Vec<&str> = graph
+            let nbrs: Vec<&str> = graph
                 .neighbors_iter(z)
                 .map(|iter| iter.collect())
                 .unwrap_or_default();
-            nbrs.sort_unstable();
 
             for nbr in nbrs {
                 edges_scanned += 1;
@@ -11761,24 +11788,8 @@ pub fn cycle_basis(graph: &Graph, root: Option<&str>) -> CycleBasisResult {
         }
 
         // Remove all visited nodes from gnodes
-        for &node in pred.keys() {
-            gnodes.remove(node);
-        }
+        gnodes.retain(|node| !pred.contains_key(*node));
     }
-
-    // Sort cycles for deterministic output: sort each cycle internally, then sort outer list
-    for cycle in &mut cycles {
-        // Rotate so smallest element is first, matching NetworkX convention
-        if let Some(min_pos) = cycle
-            .iter()
-            .enumerate()
-            .min_by(|a, b| a.1.cmp(b.1))
-            .map(|(i, _)| i)
-        {
-            cycle.rotate_left(min_pos);
-        }
-    }
-    cycles.sort();
 
     CycleBasisResult {
         cycles,
@@ -22378,10 +22389,7 @@ pub fn find_cliques_recursive(graph: &Graph) -> Vec<Vec<String>> {
 pub fn chordal_graph_cliques(graph: &Graph) -> Vec<Vec<String>> {
     let mut result = Vec::new();
 
-    for mut component in connected_components(graph)
-        .components
-        .into_iter()
-    {
+    for mut component in connected_components(graph).components.into_iter() {
         if component.is_empty() {
             continue;
         }
@@ -34367,7 +34375,13 @@ mod tests {
         let canon = |edges: &[(String, String)]| -> std::collections::HashSet<(String, String)> {
             edges
                 .iter()
-                .map(|(a, b)| if a <= b { (a.clone(), b.clone()) } else { (b.clone(), a.clone()) })
+                .map(|(a, b)| {
+                    if a <= b {
+                        (a.clone(), b.clone())
+                    } else {
+                        (b.clone(), a.clone())
+                    }
+                })
                 .collect()
         };
         assert_eq!(canon(&left.edges), canon(&right.edges));
@@ -37263,6 +37277,7 @@ mod tests {
             1,
             "triangle should have exactly one cycle in basis"
         );
+        assert_eq!(result.cycles, vec![vec!["b", "a", "c"]]);
     }
 
     #[test]
@@ -37313,6 +37328,22 @@ mod tests {
             2,
             "two disconnected triangles should have 2 cycles"
         );
+        assert_eq!(
+            result.cycles,
+            vec![vec!["y", "x", "z"], vec!["b", "a", "c"]]
+        );
+    }
+
+    #[test]
+    fn cycle_basis_matches_networkx_dfs_chord_order() {
+        let mut graph = Graph::strict();
+        graph.add_edge("c", "d").expect("edge add");
+        graph.add_edge("a", "b").expect("edge add");
+        graph.add_edge("b", "c").expect("edge add");
+        graph.add_edge("d", "e").expect("edge add");
+        graph.add_edge("a", "c").expect("edge add");
+        let result = cycle_basis(&graph, None);
+        assert_eq!(result.cycles, vec![vec!["b", "a", "c"]]);
     }
 
     fn sorted_index_cycles(mut cycles: Vec<Vec<usize>>) -> Vec<Vec<usize>> {
