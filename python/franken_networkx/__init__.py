@@ -11415,6 +11415,9 @@ def read_edgelist(
     data=True,
     edgetype=None,
     encoding="utf-8",
+    *,
+    backend=None,
+    **backend_kwargs,
 ):
     """Read a graph from a list of edges.
 
@@ -11422,6 +11425,7 @@ def read_edgelist(
     and all nx kwargs (``nodetype``, ``create_using``, ``data``, ...) are
     honoured. The Rust-native ``read_edgelist`` only accepts ``(path,)``.
     """
+    _validate_backend_dispatch_keywords("read_edgelist", backend, backend_kwargs)
     return _read_edgelist_via_nx(
         path,
         comments=comments,
@@ -33014,6 +33018,9 @@ def from_pandas_edgelist(
     edge_attr=None,
     create_using=None,
     edge_key=None,
+    *,
+    backend=None,
+    **backend_kwargs,
 ):
     """Return a graph from a Pandas DataFrame of edges.
 
@@ -33035,6 +33042,7 @@ def from_pandas_edgelist(
     -------
     G : Graph or DiGraph
     """
+    _validate_backend_dispatch_keywords("from_pandas_edgelist", backend, backend_kwargs)
     graph = _empty_graph_from_create_using(create_using)
 
     if edge_attr is None:

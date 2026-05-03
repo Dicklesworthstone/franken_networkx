@@ -2,6 +2,7 @@
 to/from_dict_of_dicts, to/from_dict_of_lists, to/from_edgelist,
 to/from_numpy_array, to/from_scipy_sparse_array, to/from_pandas_edgelist."""
 
+import inspect
 from collections.abc import Mapping
 
 import networkx as nx
@@ -609,6 +610,42 @@ class TestPandasEdgelist:
 
         H = fnx.from_pandas_edgelist(df, source="src", target="dst")
         assert H.has_edge(0, 1)
+
+    def test_from_pandas_edgelist_signature_matches_networkx_backend_surface(self):
+        assert str(inspect.signature(fnx.from_pandas_edgelist)) == str(
+            inspect.signature(nx.from_pandas_edgelist)
+        )
+
+    @pytest.mark.parametrize("backend", [None, "networkx"])
+    def test_from_pandas_edgelist_accepts_supported_backend_keyword(self, backend):
+        import pandas as pd
+
+        df = pd.DataFrame([{"source": "a", "target": "b"}])
+        G = fnx.from_pandas_edgelist(df, backend=backend)
+        assert sorted(G.edges()) == [("a", "b")]
+
+    def test_from_pandas_edgelist_backend_error_wording_matches_networkx(self):
+        import pandas as pd
+
+        df = pd.DataFrame([{"source": "a", "target": "b"}])
+
+        with pytest.raises(ImportError) as actual_backend:
+            fnx.from_pandas_edgelist(df, backend="missing")
+        with pytest.raises(ImportError) as expected_backend:
+            nx.from_pandas_edgelist(df, backend="missing")
+        assert str(actual_backend.value) == str(expected_backend.value)
+
+        with pytest.raises(TypeError) as actual_literal:
+            fnx.from_pandas_edgelist(df, backend_kwargs={"x": 1})
+        with pytest.raises(TypeError) as expected_literal:
+            nx.from_pandas_edgelist(df, backend_kwargs={"x": 1})
+        assert str(actual_literal.value) == str(expected_literal.value)
+
+        with pytest.raises(TypeError) as actual_unknown:
+            fnx.from_pandas_edgelist(df, bogus=1)
+        with pytest.raises(TypeError) as expected_unknown:
+            nx.from_pandas_edgelist(df, bogus=1)
+        assert str(actual_unknown.value) == str(expected_unknown.value)
 
 
 class TestCrossClassConstructor:

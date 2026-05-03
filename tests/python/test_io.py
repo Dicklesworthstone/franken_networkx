@@ -327,6 +327,40 @@ class TestEdgelistNxCrossCompat:
         assert G.is_directed()
         assert sorted(G.edges()) == [("0", "1"), ("1", "2")]
 
+    def test_read_edgelist_signature_matches_networkx_backend_surface(self):
+        import inspect
+        import networkx as nx
+
+        assert str(inspect.signature(fnx.read_edgelist)) == str(
+            inspect.signature(nx.read_edgelist)
+        )
+
+    @pytest.mark.parametrize("backend", [None, "networkx"])
+    def test_read_edgelist_accepts_supported_backend_keyword(self, backend):
+        G = fnx.read_edgelist(io.BytesIO(b"0 1\n"), backend=backend)
+        assert sorted(G.edges()) == [("0", "1")]
+
+    def test_read_edgelist_backend_error_wording_matches_networkx(self):
+        import networkx as nx
+
+        with pytest.raises(ImportError) as actual_backend:
+            fnx.read_edgelist(io.BytesIO(b"0 1\n"), backend="missing")
+        with pytest.raises(ImportError) as expected_backend:
+            nx.read_edgelist(io.BytesIO(b"0 1\n"), backend="missing")
+        assert str(actual_backend.value) == str(expected_backend.value)
+
+        with pytest.raises(TypeError) as actual_literal:
+            fnx.read_edgelist(io.BytesIO(b"0 1\n"), backend_kwargs={"x": 1})
+        with pytest.raises(TypeError) as expected_literal:
+            nx.read_edgelist(io.BytesIO(b"0 1\n"), backend_kwargs={"x": 1})
+        assert str(actual_literal.value) == str(expected_literal.value)
+
+        with pytest.raises(TypeError) as actual_unknown:
+            fnx.read_edgelist(io.BytesIO(b"0 1\n"), bogus=1)
+        with pytest.raises(TypeError) as expected_unknown:
+            nx.read_edgelist(io.BytesIO(b"0 1\n"), bogus=1)
+        assert str(actual_unknown.value) == str(expected_unknown.value)
+
     def test_read_adjlist_honours_nodetype(self):
         G = fnx.read_adjlist(io.BytesIO(b"0 1\n1 2\n"), nodetype=int)
         assert sorted(G.nodes()) == [0, 1, 2]
