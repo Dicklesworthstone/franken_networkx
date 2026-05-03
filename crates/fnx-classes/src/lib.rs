@@ -161,6 +161,57 @@ impl Graph {
     }
 
     #[must_use]
+    pub fn complete_graph(mode: CompatibilityMode, n: usize) -> Self {
+        let edge_capacity = n.saturating_mul(n.saturating_sub(1)) / 2;
+        let revision = u64::try_from(n)
+            .unwrap_or(u64::MAX)
+            .saturating_add(u64::try_from(edge_capacity).unwrap_or(u64::MAX));
+        let node_labels = (0..n).map(|node| node.to_string()).collect::<Vec<_>>();
+        let mut graph = Self {
+            mode,
+            revision,
+            nodes: IndexMap::with_capacity(n),
+            adjacency: IndexMap::with_capacity(n),
+            edges: IndexMap::with_capacity(edge_capacity),
+            runtime_policy: RuntimePolicy::new(mode),
+        };
+
+        for node in &node_labels {
+            graph.nodes.insert(node.clone(), AttrMap::new());
+            graph
+                .adjacency
+                .insert(node.clone(), IndexSet::with_capacity(n.saturating_sub(1)));
+        }
+
+        for left_index in 0..n {
+            let left = &node_labels[left_index];
+            for right in node_labels.iter().skip(left_index + 1) {
+                if let Some(left_neighbors) = graph.adjacency.get_mut(left) {
+                    left_neighbors.insert(right.clone());
+                }
+                if let Some(right_neighbors) = graph.adjacency.get_mut(right) {
+                    right_neighbors.insert(left.clone());
+                }
+                graph
+                    .edges
+                    .insert(EdgeKey::new(left, right), AttrMap::new());
+            }
+        }
+
+        graph.record_decision(
+            "complete_graph_bulk",
+            0.0,
+            false,
+            vec![EvidenceTerm {
+                signal: "nodes".to_owned(),
+                observed_value: n.to_string(),
+                log_likelihood_ratio: 0.0,
+            }],
+        );
+        graph
+    }
+
+    #[must_use]
     pub fn hardened() -> Self {
         Self::new(CompatibilityMode::Hardened)
     }
@@ -1407,6 +1458,50 @@ mod tests {
             Some(&CgseValue::String("blue".to_owned()))
         );
         assert_eq!(graph.edge_count(), 1);
+    }
+
+    #[test]
+    fn complete_graph_bulk_constructor_preserves_ordered_contract() {
+        let graph = Graph::complete_graph(CompatibilityMode::Strict, 5);
+
+        assert_eq!(graph.node_count(), 5);
+        assert_eq!(graph.edge_count(), 10);
+        assert_eq!(graph.nodes_ordered(), vec!["0", "1", "2", "3", "4"]);
+        assert_eq!(
+            graph.neighbors("0").expect("node 0 should exist"),
+            vec!["1", "2", "3", "4"]
+        );
+        assert_eq!(
+            graph.neighbors("4").expect("node 4 should exist"),
+            vec!["0", "1", "2", "3"]
+        );
+        assert_eq!(
+            graph
+                .edges_ordered()
+                .into_iter()
+                .map(|edge| (edge.left, edge.right))
+                .collect::<Vec<_>>(),
+            vec![
+                ("0".to_owned(), "1".to_owned()),
+                ("0".to_owned(), "2".to_owned()),
+                ("0".to_owned(), "3".to_owned()),
+                ("0".to_owned(), "4".to_owned()),
+                ("1".to_owned(), "2".to_owned()),
+                ("1".to_owned(), "3".to_owned()),
+                ("1".to_owned(), "4".to_owned()),
+                ("2".to_owned(), "3".to_owned()),
+                ("2".to_owned(), "4".to_owned()),
+                ("3".to_owned(), "4".to_owned()),
+            ]
+        );
+
+        let operations = graph
+            .evidence_ledger()
+            .records()
+            .iter()
+            .map(|record| record.operation.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(operations, vec!["complete_graph_bulk"]);
     }
 
     #[test]

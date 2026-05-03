@@ -238,18 +238,7 @@ impl GraphGenerator {
 
     pub fn complete_graph(&mut self, n: usize) -> Result<GenerationReport, GenerationError> {
         let (n, warnings) = self.validate_n("complete_graph", n, MAX_N_COMPLETE)?;
-        let (mut graph, node_labels) = graph_with_n_nodes(self.mode, n);
-
-        for left in 0..n {
-            for right in (left + 1)..n {
-                graph
-                    .add_edge(node_labels[left].clone(), node_labels[right].clone())
-                    .map_err(|err| GenerationError::FailClosed {
-                        operation: "complete_graph",
-                        reason: err.to_string(),
-                    })?;
-            }
-        }
+        let graph = Graph::complete_graph(self.mode, n);
 
         self.record(
             "complete_graph",
