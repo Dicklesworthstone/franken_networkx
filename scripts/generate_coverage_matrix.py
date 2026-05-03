@@ -26,7 +26,35 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 OUT_PATH = ROOT / "docs/coverage.md"
 CATEGORY_ORDER = ("RUST_NATIVE", "PY_WRAPPER", "NX_DELEGATED", "CLASS", "CONSTANT")
+RUNTIME_ROUTE_ORDER = (
+    "RUST_NATIVE",
+    "PY_WRAPPER",
+    "NETWORKX_HELPER",
+    "DIRECT_NETWORKX",
+    "CLASS",
+    "CONSTANT",
+)
 NETWORKX_NAMES = {"networkx", "nx", "_nx"}
+PARITY_HELPER_NAMES = {
+    "_call_networkx_for_parity",
+    "_call_networkx_submodule_for_parity",
+}
+PERFORMANCE_ROUTE_PROBES = (
+    {
+        "metric_id": "shortest_path",
+        "export": "shortest_path",
+        "shape": "unweighted source-target grid graph",
+        "expected_route": "RUST_NATIVE",
+        "evidence": "artifacts/perf/slo_thresholds.json",
+    },
+    {
+        "metric_id": "shortest_path_weighted_delegated",
+        "export": "shortest_path",
+        "shape": "path graph with non-unit `weight` edge attributes",
+        "expected_route": "NETWORKX_HELPER",
+        "evidence": "artifacts/perf/slo_thresholds.json",
+    },
+)
 
 
 def load_public_exports():
@@ -56,19 +84,27 @@ def load_public_exports():
     return exports, sorted(set(duplicates))
 
 
-def uses_networkx_runtime(obj) -> bool:
-    """Return True when the function source imports or references NetworkX."""
+def _literal_string(node) -> str:
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    return "<dynamic>"
+
+
+def inspect_runtime_use(obj) -> dict:
+    """Return source-level runtime-routing evidence for a public callable."""
     try:
         source = inspect.getsource(obj)
     except (OSError, TypeError):
-        return False
+        return {"direct_networkx": False, "helper_calls": []}
 
     try:
         tree = ast.parse(textwrap.dedent(source))
     except SyntaxError:
-        return False
+        return {"direct_networkx": False, "helper_calls": []}
 
     aliases = set()
+    direct_networkx = False
+    helper_calls = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
@@ -79,13 +115,31 @@ def uses_networkx_runtime(obj) -> bool:
                 aliases.add("networkx")
                 for alias in node.names:
                     aliases.add(alias.asname or alias.name)
+        elif isinstance(node, ast.Call):
+            if isinstance(node.func, ast.Name) and node.func.id in PARITY_HELPER_NAMES:
+                target_arg_index = (
+                    1 if node.func.id == "_call_networkx_submodule_for_parity" else 0
+                )
+                helper_calls.append(
+                    {
+                        "helper": node.func.id,
+                        "target": _literal_string(node.args[target_arg_index])
+                        if len(node.args) > target_arg_index
+                        else "<dynamic>",
+                    }
+                )
         elif isinstance(node, ast.Attribute):
             if isinstance(node.value, ast.Name) and node.value.id in (NETWORKX_NAMES | aliases):
-                return True
+                direct_networkx = True
         elif isinstance(node, ast.Name):
             if node.id in aliases:
-                return True
-    return False
+                direct_networkx = True
+    return {"direct_networkx": direct_networkx, "helper_calls": helper_calls}
+
+
+def uses_networkx_runtime(obj) -> bool:
+    """Return True when the function source directly imports or references NetworkX."""
+    return bool(inspect_runtime_use(obj)["direct_networkx"])
 
 
 def classify_export(obj) -> str:
@@ -102,17 +156,51 @@ def classify_export(obj) -> str:
     return "PY_WRAPPER"
 
 
+def analyze_export(name, obj) -> dict:
+    category = classify_export(obj)
+    module_name = getattr(obj, "__module__", type(obj).__module__)
+    if inspect.isfunction(obj):
+        runtime_use = inspect_runtime_use(obj)
+    else:
+        runtime_use = {
+            "direct_networkx": False,
+            "helper_calls": [],
+        }
+
+    if category == "RUST_NATIVE":
+        runtime_route = "RUST_NATIVE"
+    elif category in {"CLASS", "CONSTANT"}:
+        runtime_route = category
+    elif runtime_use["helper_calls"]:
+        runtime_route = "NETWORKX_HELPER"
+    elif runtime_use["direct_networkx"]:
+        runtime_route = "DIRECT_NETWORKX"
+    else:
+        runtime_route = "PY_WRAPPER"
+
+    return {
+        "name": name,
+        "category": category,
+        "runtime_route": runtime_route,
+        "module": module_name,
+        "helper_calls": runtime_use["helper_calls"],
+        "direct_networkx": runtime_use["direct_networkx"],
+    }
+
+
 def render_markdown(exports, duplicates) -> str:
     categorized = defaultdict(list)
+    runtime_routes = defaultdict(list)
     module_counts = Counter()
+    analyses = [analyze_export(name, obj) for name, obj in exports]
 
-    for name, obj in exports:
-        category = classify_export(obj)
-        categorized[category].append(name)
-        module_name = getattr(obj, "__module__", type(obj).__module__)
-        module_counts[module_name] += 1
+    for analysis in analyses:
+        categorized[analysis["category"]].append(analysis["name"])
+        runtime_routes[analysis["runtime_route"]].append(analysis)
+        module_counts[analysis["module"]] += 1
 
     total = len(exports)
+    helper_call_count = sum(len(row["helper_calls"]) for row in analyses)
     lines = [
         "# FrankenNetworkX Coverage Matrix",
         "",
@@ -131,7 +219,66 @@ def render_markdown(exports, duplicates) -> str:
         "",
         "All declared public exports are classified. `--check` fails if this generated report drifts from the live module surface.",
         "",
+        "## Runtime Route Ledger",
+        "",
+        "This ledger separates the broad public-export category from source-visible runtime routing. A public Python wrapper can stay `PY_WRAPPER` while still containing argument-shape branches that call NetworkX through parity helpers.",
+        "",
+        "| Runtime route | Exports | Helper call sites | Rule |",
+        "|---------------|---------|-------------------|------|",
     ]
+    route_rules = {
+        "RUST_NATIVE": "native extension export from `franken_networkx._fnx`",
+        "PY_WRAPPER": "Python-defined export with no visible NetworkX route",
+        "NETWORKX_HELPER": "Python-defined export with `_call_networkx_*_for_parity(...)` branches",
+        "DIRECT_NETWORKX": "Python-defined export that directly imports or calls NetworkX",
+        "CLASS": "public classes, exceptions, iterators",
+        "CONSTANT": "public non-callable values",
+    }
+    for route in RUNTIME_ROUTE_ORDER:
+        helper_sites = (
+            sum(len(row["helper_calls"]) for row in runtime_routes[route])
+            if route == "NETWORKX_HELPER"
+            else 0
+        )
+        lines.append(
+            f"| {route} | {len(runtime_routes[route])} | {helper_sites} | {route_rules[route]} |"
+        )
+    lines.extend(
+        [
+            "",
+            f"`NETWORKX_HELPER` currently covers {len(runtime_routes['NETWORKX_HELPER'])} public export(s) and {helper_call_count} parity-helper call site(s).",
+            "",
+            "## Performance Route Probes",
+            "",
+            "| Metric / probe | Public function | Representative argument shape | Expected route | Gate evidence |",
+            "|----------------|-----------------|-------------------------------|----------------|---------------|",
+        ]
+    )
+    for probe in PERFORMANCE_ROUTE_PROBES:
+        lines.append(
+            "| `{metric_id}` | `{export}` | {shape} | {expected_route} | `{evidence}` |".format(
+                **probe
+            )
+        )
+    lines.extend(
+        [
+            "",
+            "## NetworkX Helper Delegations",
+            "",
+            "| Export | Helper call sites | NetworkX target(s) |",
+            "|--------|-------------------|--------------------|",
+        ]
+    )
+    for analysis in sorted(
+        runtime_routes["NETWORKX_HELPER"],
+        key=lambda row: row["name"],
+    ):
+        targets = sorted({call["target"] for call in analysis["helper_calls"]})
+        rendered_targets = ", ".join(f"`{target}`" for target in targets)
+        lines.append(
+            f"| `{analysis['name']}` | {len(analysis['helper_calls'])} | {rendered_targets} |"
+        )
+    lines.append("")
 
     if duplicates:
         lines.extend(

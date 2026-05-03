@@ -7,6 +7,8 @@
     {
       "metric_id": "shortest_path",
       "family": "shortest_path",
+      "route": "RUST_NATIVE",
+      "representative_shape": "unweighted source-target grid graph",
       "primary_metric": "path_nodes",
       "primary_unit": "path_nodes",
       "runs": 5,
@@ -15,6 +17,21 @@
       "params": {
         "width": 90,
         "height": 90
+      }
+    },
+    {
+      "metric_id": "shortest_path_weighted_delegated",
+      "family": "shortest_path",
+      "route": "NETWORKX_HELPER",
+      "representative_shape": "path graph with non-unit `weight` edge attributes",
+      "primary_metric": "path_nodes",
+      "primary_unit": "path_nodes",
+      "runs": 3,
+      "warmup_runs": 1,
+      "max_p95_ms": 420.0,
+      "params": {
+        "nodes": 400,
+        "nonunit_weight": 2.0
       }
     },
     {

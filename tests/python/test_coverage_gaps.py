@@ -7,6 +7,7 @@ planarity, transitive operations, and remaining shortest path variants.
 from collections import Counter
 from datetime import datetime, timedelta
 import inspect
+import json
 import math
 from pathlib import Path
 from runpy import run_path
@@ -40,6 +41,11 @@ def _load_conformance_dashboard_script():
     return run_path(str(script_path))
 
 
+def _load_perf_slo_gate_script():
+    script_path = _repo_root() / "scripts" / "run_perf_slo_gate.py"
+    return run_path(str(script_path))
+
+
 def test_public_coverage_has_no_networkx_delegated_exports():
     coverage_matrix = _load_coverage_matrix_script()
     exports, _duplicates = coverage_matrix["load_public_exports"]()
@@ -59,6 +65,40 @@ def test_generated_coverage_matrix_document_is_current():
     coverage_path = _repo_root() / "docs" / "coverage.md"
 
     assert coverage_path.read_text(encoding="utf-8") == rendered
+
+
+def test_coverage_matrix_tracks_networkx_helper_routes():
+    coverage_matrix = _load_coverage_matrix_script()
+    analysis = coverage_matrix["analyze_export"]("shortest_path", fnx.shortest_path)
+    exports, duplicates = coverage_matrix["load_public_exports"]()
+    rendered = coverage_matrix["render_markdown"](exports, duplicates)
+
+    assert analysis["runtime_route"] == "NETWORKX_HELPER"
+    assert "shortest_path" in {call["target"] for call in analysis["helper_calls"]}
+    assert "| NETWORKX_HELPER |" in rendered
+    assert "`shortest_path_weighted_delegated`" in rendered
+
+
+@needs_nx
+def test_slo_gate_has_weighted_delegated_shortest_path_probe():
+    thresholds = json.loads(
+        (_repo_root() / "artifacts" / "perf" / "slo_thresholds.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    workloads = {row["metric_id"]: row for row in thresholds["workloads"]}
+    spec = {
+        **workloads["shortest_path_weighted_delegated"],
+        "runs": 1,
+        "warmup_runs": 0,
+        "params": {"nodes": 5, "nonunit_weight": 2.0},
+    }
+    result = _load_perf_slo_gate_script()["run_worker"](spec)
+
+    assert spec["route"] == "NETWORKX_HELPER"
+    assert result["metric_id"] == "shortest_path_weighted_delegated"
+    assert result["primary_unit"] == "path_nodes"
+    assert result["primary_value"] == 5.0
 
 
 def test_public_all_has_no_duplicate_entries():

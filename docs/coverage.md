@@ -15,6 +15,183 @@
 
 All declared public exports are classified. `--check` fails if this generated report drifts from the live module surface.
 
+## Runtime Route Ledger
+
+This ledger separates the broad public-export category from source-visible runtime routing. A public Python wrapper can stay `PY_WRAPPER` while still containing argument-shape branches that call NetworkX through parity helpers.
+
+| Runtime route | Exports | Helper call sites | Rule |
+|---------------|---------|-------------------|------|
+| RUST_NATIVE | 21 | 0 | native extension export from `franken_networkx._fnx` |
+| PY_WRAPPER | 705 | 0 | Python-defined export with no visible NetworkX route |
+| NETWORKX_HELPER | 150 | 178 | Python-defined export with `_call_networkx_*_for_parity(...)` branches |
+| DIRECT_NETWORKX | 0 | 0 | Python-defined export that directly imports or calls NetworkX |
+| CLASS | 32 | 0 | public classes, exceptions, iterators |
+| CONSTANT | 3 | 0 | public non-callable values |
+
+`NETWORKX_HELPER` currently covers 150 public export(s) and 178 parity-helper call site(s).
+
+## Performance Route Probes
+
+| Metric / probe | Public function | Representative argument shape | Expected route | Gate evidence |
+|----------------|-----------------|-------------------------------|----------------|---------------|
+| `shortest_path` | `shortest_path` | unweighted source-target grid graph | RUST_NATIVE | `artifacts/perf/slo_thresholds.json` |
+| `shortest_path_weighted_delegated` | `shortest_path` | path graph with non-unit `weight` edge attributes | NETWORKX_HELPER | `artifacts/perf/slo_thresholds.json` |
+
+## NetworkX Helper Delegations
+
+| Export | Helper call sites | NetworkX target(s) |
+|--------|-------------------|--------------------|
+| `adamic_adar_index` | 2 | `adamic_adar_index` |
+| `all_pairs_all_shortest_paths` | 1 | `all_pairs_all_shortest_paths` |
+| `all_pairs_bellman_ford_path` | 1 | `all_pairs_bellman_ford_path` |
+| `all_pairs_bellman_ford_path_length` | 1 | `all_pairs_bellman_ford_path_length` |
+| `all_pairs_dijkstra` | 1 | `all_pairs_dijkstra` |
+| `all_pairs_dijkstra_path` | 1 | `all_pairs_dijkstra_path` |
+| `all_pairs_dijkstra_path_length` | 1 | `all_pairs_dijkstra_path_length` |
+| `all_pairs_node_connectivity` | 1 | `all_pairs_node_connectivity` |
+| `all_shortest_paths` | 3 | `all_shortest_paths` |
+| `all_simple_edge_paths` | 2 | `all_simple_edge_paths` |
+| `all_simple_paths` | 2 | `all_simple_paths` |
+| `all_topological_sorts` | 1 | `all_topological_sorts` |
+| `antichains` | 1 | `antichains` |
+| `approximate_current_flow_betweenness_centrality` | 1 | `approximate_current_flow_betweenness_centrality` |
+| `articulation_points` | 1 | `articulation_points` |
+| `astar_path` | 1 | `astar_path` |
+| `astar_path_length` | 1 | `astar_path_length` |
+| `average_node_connectivity` | 1 | `average_node_connectivity` |
+| `average_shortest_path_length` | 1 | `average_shortest_path_length` |
+| `barycenter` | 1 | `barycenter` |
+| `bellman_ford_path` | 1 | `bellman_ford_path` |
+| `bellman_ford_path_length` | 1 | `bellman_ford_path_length` |
+| `betweenness_centrality` | 1 | `betweenness_centrality` |
+| `bfs_labeled_edges` | 1 | `bfs_labeled_edges` |
+| `bfs_tree` | 1 | `bfs_tree` |
+| `biconnected_component_edges` | 1 | `biconnected_component_edges` |
+| `biconnected_components` | 1 | `biconnected_components` |
+| `bidirectional_dijkstra` | 1 | `bidirectional_dijkstra` |
+| `bridges` | 2 | `bridges` |
+| `center` | 1 | `center` |
+| `chain_decomposition` | 2 | `chain_decomposition` |
+| `chordal_graph_cliques` | 1 | `chordal_graph_cliques` |
+| `closeness_centrality` | 1 | `closeness_centrality` |
+| `colliders` | 1 | `colliders` |
+| `complete_to_chordal_graph` | 1 | `complete_to_chordal_graph` |
+| `constraint` | 1 | `constraint` |
+| `core_number` | 1 | `core_number` |
+| `current_flow_betweenness_centrality_subset` | 1 | `current_flow_betweenness_centrality_subset` |
+| `cut_size` | 1 | `cut_size` |
+| `cycle_basis` | 2 | `cycle_basis` |
+| `dag_longest_path_length` | 1 | `dag_longest_path_length` |
+| `degree_assortativity_coefficient` | 1 | `degree_assortativity_coefficient` |
+| `dfs_labeled_edges` | 1 | `dfs_labeled_edges` |
+| `diameter` | 1 | `diameter` |
+| `dijkstra_path` | 1 | `dijkstra_path` |
+| `dijkstra_path_length` | 1 | `dijkstra_path_length` |
+| `dijkstra_predecessor_and_distance` | 1 | `dijkstra_predecessor_and_distance` |
+| `directed_combinatorial_laplacian_matrix` | 1 | `directed_combinatorial_laplacian_matrix` |
+| `directed_laplacian_matrix` | 1 | `directed_laplacian_matrix` |
+| `dominating_set` | 1 | `dominating_set` |
+| `eccentricity` | 2 | `eccentricity` |
+| `edge_betweenness_centrality` | 1 | `edge_betweenness_centrality` |
+| `edge_boundary` | 1 | `edge_boundary` |
+| `edge_connectivity` | 3 | `edge_connectivity` |
+| `edge_current_flow_betweenness_centrality_subset` | 1 | `edge_current_flow_betweenness_centrality_subset` |
+| `effective_size` | 1 | `effective_size` |
+| `eigenvector_centrality` | 1 | `eigenvector_centrality` |
+| `eulerian_circuit` | 1 | `eulerian_circuit` |
+| `eulerian_path` | 3 | `eulerian_path` |
+| `find_cliques` | 1 | `find_cliques` |
+| `find_cliques_recursive` | 1 | `find_cliques_recursive` |
+| `find_cycle` | 1 | `find_cycle` |
+| `find_minimal_d_separator` | 1 | `find_minimal_d_separator` |
+| `find_negative_cycle` | 1 | `find_negative_cycle` |
+| `flow_hierarchy` | 1 | `flow_hierarchy` |
+| `floyd_warshall` | 2 | `floyd_warshall` |
+| `floyd_warshall_predecessor_and_distance` | 2 | `floyd_warshall_predecessor_and_distance` |
+| `gnm_random_graph` | 1 | `gnm_random_graph` |
+| `goldberg_radzik` | 1 | `goldberg_radzik` |
+| `greedy_color` | 2 | `greedy_color` |
+| `greedy_modularity_communities` | 1 | `greedy_modularity_communities` |
+| `hamiltonian_path` | 1 | `hamiltonian_path` |
+| `harmonic_centrality` | 1 | `harmonic_centrality` |
+| `harmonic_diameter` | 1 | `harmonic_diameter` |
+| `harmonic_function` | 1 | `harmonic_function` |
+| `has_cycle` | 1 | `has_cycle` |
+| `has_eulerian_path` | 3 | `has_eulerian_path` |
+| `has_path` | 1 | `has_path` |
+| `hyper_wiener_index` | 1 | `hyper_wiener_index` |
+| `incremental_closeness_centrality` | 1 | `incremental_closeness_centrality` |
+| `is_chordal` | 1 | `is_chordal` |
+| `is_eulerian` | 1 | `is_eulerian` |
+| `is_matching` | 1 | `is_matching` |
+| `is_maximal_matching` | 1 | `is_maximal_matching` |
+| `is_minimal_d_separator` | 1 | `is_minimal_d_separator` |
+| `is_perfect_matching` | 1 | `is_perfect_matching` |
+| `is_reachable` | 1 | `is_reachable` |
+| `jaccard_coefficient` | 2 | `jaccard_coefficient` |
+| `johnson` | 1 | `johnson` |
+| `junction_tree` | 1 | `junction_tree` |
+| `k_clique_communities` | 1 | `k_clique_communities` |
+| `k_components` | 1 | `k_components` |
+| `katz_centrality` | 1 | `katz_centrality` |
+| `kosaraju_strongly_connected_components` | 1 | `kosaraju_strongly_connected_components` |
+| `laplacian_centrality` | 1 | `laplacian_centrality` |
+| `local_and_global_consistency` | 1 | `local_and_global_consistency` |
+| `local_bridges` | 1 | `local_bridges` |
+| `louvain_partitions` | 1 | `louvain_partitions` |
+| `max_weight_clique` | 1 | `max_weight_clique` |
+| `max_weight_matching` | 1 | `max_weight_matching` |
+| `maximum_branching` | 1 | `maximum_branching` |
+| `maximum_flow` | 1 | `maximum_flow` |
+| `maximum_flow_value` | 1 | `maximum_flow_value` |
+| `maximum_spanning_edges` | 1 | `maximum_spanning_edges` |
+| `min_weight_matching` | 1 | `min_weight_matching` |
+| `minimum_branching` | 1 | `minimum_branching` |
+| `minimum_cut` | 1 | `minimum_cut` |
+| `minimum_cut_value` | 1 | `minimum_cut_value` |
+| `minimum_edge_cut` | 1 | `minimum_edge_cut` |
+| `minimum_node_cut` | 1 | `minimum_node_cut` |
+| `minimum_spanning_edges` | 1 | `minimum_spanning_edges` |
+| `multi_source_dijkstra` | 1 | `multi_source_dijkstra` |
+| `mutual_weight` | 1 | `mutual_weight` |
+| `negative_edge_cycle` | 1 | `negative_edge_cycle` |
+| `node_connectivity` | 3 | `node_connectivity` |
+| `normalized_cut_size` | 1 | `normalized_cut_size` |
+| `normalized_mutual_weight` | 1 | `normalized_mutual_weight` |
+| `omega` | 1 | `omega` |
+| `pagerank` | 1 | `pagerank` |
+| `periphery` | 1 | `periphery` |
+| `preferential_attachment` | 2 | `preferential_attachment` |
+| `radius` | 1 | `radius` |
+| `random_spanning_tree` | 1 | `random_spanning_tree` |
+| `resource_allocation_index` | 2 | `resource_allocation_index` |
+| `shortest_path` | 3 | `shortest_path` |
+| `shortest_path_length` | 3 | `shortest_path_length` |
+| `shortest_simple_paths` | 1 | `shortest_simple_paths` |
+| `sigma` | 1 | `sigma` |
+| `simple_cycles` | 2 | `simple_cycles` |
+| `single_source_all_shortest_paths` | 1 | `single_source_all_shortest_paths` |
+| `single_source_bellman_ford` | 1 | `single_source_bellman_ford` |
+| `single_source_bellman_ford_path` | 1 | `single_source_bellman_ford_path` |
+| `single_source_bellman_ford_path_length` | 1 | `single_source_bellman_ford_path_length` |
+| `single_source_dijkstra` | 1 | `single_source_dijkstra` |
+| `single_source_dijkstra_path` | 1 | `single_source_dijkstra_path` |
+| `single_source_dijkstra_path_length` | 1 | `single_source_dijkstra_path_length` |
+| `spectral_ordering` | 1 | `spectral_ordering` |
+| `stoer_wagner` | 1 | `stoer_wagner` |
+| `strongly_connected_components` | 1 | `strongly_connected_components` |
+| `tournament_matrix` | 1 | `tournament_matrix` |
+| `transitive_closure` | 1 | `transitive_closure` |
+| `triadic_census` | 1 | `triadic_census` |
+| `trophic_differences` | 1 | `trophic_differences` |
+| `trophic_incoherence_parameter` | 1 | `trophic_incoherence_parameter` |
+| `trophic_levels` | 1 | `trophic_levels` |
+| `tutte_polynomial` | 1 | `tutte_polynomial` |
+| `v_structures` | 1 | `v_structures` |
+| `weisfeiler_lehman_graph_hash` | 1 | `weisfeiler_lehman_graph_hash` |
+| `weisfeiler_lehman_subgraph_hashes` | 1 | `weisfeiler_lehman_subgraph_hashes` |
+| `wiener_index` | 1 | `wiener_index` |
+
 ## Module Breakdown
 
 | Module | Count |

@@ -97,6 +97,22 @@ def run_worker(spec: dict) -> dict:
             raise RuntimeError("unexpected shortest path length")
         primary_value = float(len(path))
         primary_unit = "path_nodes"
+    elif metric_id == "shortest_path_weighted_delegated":
+        node_count = int(params["nodes"])
+        nonunit_weight = float(params["nonunit_weight"])
+        graph = fnx.Graph()
+        for node in range(node_count - 1):
+            graph.add_edge(str(node), str(node + 1), weight=nonunit_weight)
+        path = fnx.shortest_path(
+            graph,
+            "0",
+            str(node_count - 1),
+            weight="weight",
+        )
+        if len(path) != node_count:
+            raise RuntimeError("unexpected delegated weighted shortest path length")
+        primary_value = float(len(path))
+        primary_unit = "path_nodes"
     elif metric_id == "components":
         graph = build_components_graph(
             fnx,
