@@ -28,7 +28,7 @@ use quick_xml::events::attributes::Attribute;
 use quick_xml::events::{BytesDecl, BytesEnd, BytesRef, BytesStart, BytesText, Event};
 use quick_xml::{Reader, Writer};
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt;
 use std::io::Cursor;
 
@@ -3380,43 +3380,58 @@ impl EdgeListEngine {
         graph_attrs: &AttrMap,
         directed: bool,
     ) -> Result<String, ReadWriteError> {
-        let mut out = String::new();
+        let nodes = graph.nodes_ordered();
+        let edges = graph.gml_edges_borrowed();
+        let mut out = String::with_capacity(16 + nodes.len() * 48 + edges.len() * 64);
         out.push_str("graph [\n");
-        out.push_str(&format!("  directed {}\n", if directed { 1 } else { 0 }));
+        if directed {
+            out.push_str("  directed 1\n");
+        }
         for (key, value) in graph_attrs {
             push_gml_attr(&mut out, 2, key, value);
         }
 
         // Build node-name → id map (use integer label if parseable, otherwise assign sequentially)
-        let mut label_to_id: BTreeMap<String, i64> = BTreeMap::new();
+        let mut label_to_id: HashMap<&str, i64> = HashMap::with_capacity(nodes.len());
         let mut used_ids = std::collections::HashSet::new();
 
         // First pass: reserve parsed integer IDs
-        for node_name in graph.nodes_ordered() {
+        for &node_name in &nodes {
             if let Ok(id) = node_name.parse::<i64>() {
-                label_to_id.insert(node_name.to_owned(), id);
+                label_to_id.insert(node_name, id);
                 used_ids.insert(id);
             }
         }
 
         // Second pass: assign remaining nodes to unused sequential IDs
         let mut next_id: i64 = 0;
-        for node_name in graph.nodes_ordered() {
+        for &node_name in &nodes {
             if !label_to_id.contains_key(node_name) {
                 while used_ids.contains(&next_id) {
                     next_id += 1;
                 }
-                label_to_id.insert(node_name.to_owned(), next_id);
+                label_to_id.insert(node_name, next_id);
                 used_ids.insert(next_id);
                 next_id += 1;
             }
         }
 
-        for node_name in graph.nodes_ordered() {
+        for &node_name in &nodes {
             out.push_str("  node [\n");
-            let id = label_to_id[node_name];
-            out.push_str(&format!("    id {id}\n"));
-            out.push_str(&format!("    label \"{}\"\n", gml_escape(node_name)));
+            let id =
+                label_to_id
+                    .get(node_name)
+                    .copied()
+                    .ok_or_else(|| ReadWriteError::FailClosed {
+                        operation: "write_gml",
+                        reason: format!("node '{node_name}' missing from node mapping"),
+                    })?;
+            out.push_str("    id ");
+            out.push_str(&id.to_string());
+            out.push('\n');
+            out.push_str("    label \"");
+            out.push_str(&gml_escape(node_name));
+            out.push_str("\"\n");
             if let Some(attrs) = graph.node_attrs(node_name) {
                 for (key, value) in attrs {
                     push_gml_attr(&mut out, 4, key, value);
@@ -3425,31 +3440,31 @@ impl EdgeListEngine {
             out.push_str("  ]\n");
         }
 
-        for edge in graph.edges_ordered() {
+        for (left, right, attrs) in edges {
             out.push_str("  edge [\n");
             let src_id =
                 label_to_id
-                    .get(&edge.left)
+                    .get(left)
                     .copied()
                     .ok_or_else(|| ReadWriteError::FailClosed {
                         operation: "write_gml",
-                        reason: format!(
-                            "edge source node '{}' missing from node mapping",
-                            edge.left
-                        ),
+                        reason: format!("edge source node '{}' missing from node mapping", left),
                     })?;
-            let tgt_id = label_to_id.get(&edge.right).copied().ok_or_else(|| {
-                ReadWriteError::FailClosed {
-                    operation: "write_gml",
-                    reason: format!(
-                        "edge target node '{}' missing from node mapping",
-                        edge.right
-                    ),
-                }
-            })?;
-            out.push_str(&format!("    source {src_id}\n"));
-            out.push_str(&format!("    target {tgt_id}\n"));
-            for (key, value) in &edge.attrs {
+            let tgt_id =
+                label_to_id
+                    .get(right)
+                    .copied()
+                    .ok_or_else(|| ReadWriteError::FailClosed {
+                        operation: "write_gml",
+                        reason: format!("edge target node '{}' missing from node mapping", right),
+                    })?;
+            out.push_str("    source ");
+            out.push_str(&src_id.to_string());
+            out.push('\n');
+            out.push_str("    target ");
+            out.push_str(&tgt_id.to_string());
+            out.push('\n');
+            for (key, value) in attrs {
                 push_gml_attr(&mut out, 4, key, value);
             }
             out.push_str("  ]\n");
@@ -4535,6 +4550,7 @@ trait GraphLikeRead {
     fn nodes_ordered(&self) -> Vec<&str>;
     fn node_attrs(&self, node: &str) -> Option<&AttrMap>;
     fn edges_ordered(&self) -> Vec<fnx_classes::EdgeSnapshot>;
+    fn gml_edges_borrowed(&self) -> Vec<(&str, &str, &AttrMap)>;
 }
 
 impl GraphLikeRead for Graph {
@@ -4547,6 +4563,9 @@ impl GraphLikeRead for Graph {
     fn edges_ordered(&self) -> Vec<fnx_classes::EdgeSnapshot> {
         self.edges_ordered()
     }
+    fn gml_edges_borrowed(&self) -> Vec<(&str, &str, &AttrMap)> {
+        self.edges_storage_order_borrowed()
+    }
 }
 
 impl GraphLikeRead for DiGraph {
@@ -4558,6 +4577,9 @@ impl GraphLikeRead for DiGraph {
     }
     fn edges_ordered(&self) -> Vec<fnx_classes::EdgeSnapshot> {
         self.edges_ordered()
+    }
+    fn gml_edges_borrowed(&self) -> Vec<(&str, &str, &AttrMap)> {
+        self.edges_ordered_borrowed()
     }
 }
 

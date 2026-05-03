@@ -5260,10 +5260,11 @@ pub fn graph_has_negative_edge_weight(graph: &Graph, weight_attr: &str) -> bool 
         // edges_ordered_borrowed yields each undirected edge once;
         // checking the attrs map directly avoids a second hash lookup.
         let _ = (left, right);
-        if let Some(value) = attrs.get(weight_attr).and_then(|v| v.as_f64()) {
-            if value.is_finite() && value < 0.0 {
-                return true;
-            }
+        if let Some(value) = attrs.get(weight_attr).and_then(|v| v.as_f64())
+            && value.is_finite()
+            && value < 0.0
+        {
+            return true;
         }
     }
     false
@@ -5274,10 +5275,11 @@ pub fn graph_has_negative_edge_weight(graph: &Graph, weight_attr: &str) -> bool 
 pub fn digraph_has_negative_edge_weight(digraph: &DiGraph, weight_attr: &str) -> bool {
     for (source, target, attrs) in digraph.edges_ordered_borrowed() {
         let _ = (source, target);
-        if let Some(value) = attrs.get(weight_attr).and_then(|v| v.as_f64()) {
-            if value.is_finite() && value < 0.0 {
-                return true;
-            }
+        if let Some(value) = attrs.get(weight_attr).and_then(|v| v.as_f64())
+            && value.is_finite()
+            && value < 0.0
+        {
+            return true;
         }
     }
     false

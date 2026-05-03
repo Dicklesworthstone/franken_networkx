@@ -7,9 +7,7 @@
 
 use crate::algorithms::{GraphRef, extract_graph};
 use crate::digraph::PyDiGraph;
-use crate::{
-    PyGraph, PyObject, PythonAllowThreadsExt, cgse_value_to_py, py_dict_to_attr_map,
-};
+use crate::{PyGraph, PyObject, PythonAllowThreadsExt, cgse_value_to_py, py_dict_to_attr_map};
 use fnx_readwrite::{DiReadWriteReport, EdgeListEngine, ReadWriteError, ReadWriteReport};
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
@@ -63,6 +61,26 @@ fn write_output(py: Python<'_>, dest: &Bound<'_, PyAny>, content: &str) -> PyRes
     let path_cls = pathlib.getattr("Path")?;
     let path = path_cls.call1((dest,))?;
     path.call_method1("write_text", (content, "utf-8"))?;
+    Ok(())
+}
+
+/// Write UTF-8 content to a binary-oriented Python destination.
+fn write_output_bytes(py: Python<'_>, dest: &Bound<'_, PyAny>, content: &str) -> PyResult<()> {
+    let bytes = PyBytes::new(py, content.as_bytes());
+    if let Ok(write_method) = dest.getattr("write") {
+        match write_method.call1((bytes,)) {
+            Ok(_) => return Ok(()),
+            Err(err) if err.is_instance_of::<pyo3::exceptions::PyTypeError>(py) => {
+                write_method.call1((content,))?;
+                return Ok(());
+            }
+            Err(err) => return Err(err),
+        }
+    }
+    let pathlib = py.import("pathlib")?;
+    let path_cls = pathlib.getattr("Path")?;
+    let path = path_cls.call1((dest,))?;
+    path.call_method1("write_bytes", (bytes,))?;
     Ok(())
 }
 
@@ -330,7 +348,7 @@ fn write_edgelist(py: Python<'_>, g: &Bound<'_, PyAny>, path: &Bound<'_, PyAny>)
             }
         }
     };
-    write_output(py, path, &content)
+    write_output_bytes(py, path, &content)
 }
 
 // ---------------------------------------------------------------------------
@@ -720,7 +738,7 @@ fn write_gml(py: Python<'_>, g: &Bound<'_, PyAny>, path: &Bound<'_, PyAny>) -> P
             }
         }
     };
-    write_output(py, path, &content)
+    write_output_bytes(py, path, &content)
 }
 
 // ---------------------------------------------------------------------------

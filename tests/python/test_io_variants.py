@@ -329,6 +329,59 @@ def test_rust_write_gml_preserves_graph_attrs(tmp_path: Path):
     assert 'owner "qa"' in content
 
 
+def test_write_gml_default_uses_rust_fast_path(monkeypatch, tmp_path: Path):
+    def fail_delegate(*args, **kwargs):
+        raise AssertionError("default write_gml should use Rust fast path")
+
+    graph = fnx.path_graph(4)
+    monkeypatch.setattr(fnx, "_write_gml_via_nx", fail_delegate)
+    path = tmp_path / "graph.gml"
+
+    fnx.write_gml(graph, path)
+
+    content = path.read_text(encoding="utf-8")
+    assert "directed 0" not in content
+    parsed = nx.read_gml(path)
+    assert sorted(parsed.edges()) == [("0", "1"), ("1", "2"), ("2", "3")]
+
+
+def test_write_gml_stringizer_stays_delegated(monkeypatch, tmp_path: Path):
+    observed = {}
+
+    def fake_delegate(G, path, *, stringizer=None):
+        observed.update({"graph": G, "stringizer": stringizer})
+        path.write_text("delegated\n", encoding="utf-8")
+
+    def stringizer(value):
+        return str(value)
+
+    graph = fnx.path_graph(2)
+    monkeypatch.setattr(fnx, "_write_gml_via_nx", fake_delegate)
+    path = tmp_path / "graph.gml"
+
+    fnx.write_gml(graph, path, stringizer=stringizer)
+
+    assert path.read_text(encoding="utf-8") == "delegated\n"
+    assert observed == {"graph": graph, "stringizer": stringizer}
+
+
+def test_write_gml_networkx_graph_stays_delegated(monkeypatch, tmp_path: Path):
+    observed = {}
+
+    def fake_delegate(G, path, *, stringizer=None):
+        observed.update({"graph": G, "stringizer": stringizer})
+        path.write_text("delegated\n", encoding="utf-8")
+
+    graph = nx.path_graph(2)
+    monkeypatch.setattr(fnx, "_write_gml_via_nx", fake_delegate)
+    path = tmp_path / "graph.gml"
+
+    fnx.write_gml(graph, path)
+
+    assert path.read_text(encoding="utf-8") == "delegated\n"
+    assert observed == {"graph": graph, "stringizer": None}
+
+
 def test_rust_write_graphml_preserves_graph_attrs(tmp_path: Path):
     graph = fnx.Graph()
     graph.add_edge("a", "b")

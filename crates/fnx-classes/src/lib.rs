@@ -659,6 +659,14 @@ impl Graph {
     }
 
     #[must_use]
+    pub fn edges_storage_order_borrowed(&self) -> Vec<(&str, &str, &AttrMap)> {
+        self.edges
+            .iter()
+            .map(|(key, attrs)| (key.left.as_str(), key.right.as_str(), attrs))
+            .collect()
+    }
+
+    #[must_use]
     pub fn snapshot(&self) -> GraphSnapshot {
         // br-snapnodeattrs: preserve per-node attributes alongside the
         // bare node name list so callers replaying a snapshot don't lose

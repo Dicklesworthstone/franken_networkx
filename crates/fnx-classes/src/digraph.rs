@@ -1202,6 +1202,26 @@ impl MultiDiGraph {
     }
 
     #[must_use]
+    pub fn edges_ordered_borrowed(&self) -> Vec<(&str, &str, usize, &AttrMap)> {
+        let mut ordered = Vec::with_capacity(self.edge_count());
+
+        for node in self.nodes.keys() {
+            if let Some(neighbors) = self.successors.get(node) {
+                for target in neighbors.keys() {
+                    let pair = DirectedEdgeKeyRef::new(node, target);
+                    if let Some(edge_bucket) = self.edges.get(&pair) {
+                        for (key, attrs) in edge_bucket {
+                            ordered.push((node.as_str(), target.as_str(), *key, attrs));
+                        }
+                    }
+                }
+            }
+        }
+
+        ordered
+    }
+
+    #[must_use]
     pub fn snapshot(&self) -> MultiDiGraphSnapshot {
         let node_attrs: std::collections::BTreeMap<String, AttrMap> = self
             .nodes
