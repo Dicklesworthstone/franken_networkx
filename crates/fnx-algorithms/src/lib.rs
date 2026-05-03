@@ -2373,43 +2373,92 @@ fn harmonic_centrality_generic<G: GraphView>(graph: &G) -> HarmonicCentralityRes
 
 #[must_use]
 pub fn katz_centrality(graph: &Graph) -> KatzCentralityResult {
-    katz_centrality_generic(graph)
+    let (result, _converged) = katz_centrality_generic(graph);
+    result
 }
 
 #[must_use]
 pub fn katz_centrality_directed(graph: &DiGraph) -> KatzCentralityResult {
-    katz_centrality_generic(graph)
+    let (result, _converged) = katz_centrality_generic(graph);
+    result
 }
 
-fn katz_centrality_generic<G: GraphView>(graph: &G) -> KatzCentralityResult {
+/// Returned by [`katz_centrality_checked`] when power iteration
+/// fails to converge within [`KATZ_DEFAULT_MAX_ITERATIONS`]. Mirrors
+/// nx's ``PowerIterationFailedConvergence`` contract — the Rust
+/// scaffolding previously discarded the convergence flag, so callers
+/// got a normalized-but-un-converged vector instead of an error
+/// (br-r37-c1-ua4i8).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct KatzNotConverged {
+    pub iterations: usize,
+}
+
+/// Like [`katz_centrality`] but returns ``Err(KatzNotConverged)`` if
+/// the power iteration runs out of budget without satisfying the
+/// convergence tolerance.
+pub fn katz_centrality_checked(
+    graph: &Graph,
+) -> Result<KatzCentralityResult, KatzNotConverged> {
+    let (result, converged) = katz_centrality_generic(graph);
+    if converged {
+        Ok(result)
+    } else {
+        Err(KatzNotConverged {
+            iterations: KATZ_DEFAULT_MAX_ITERATIONS,
+        })
+    }
+}
+
+/// `DiGraph` counterpart to [`katz_centrality_checked`].
+pub fn katz_centrality_directed_checked(
+    graph: &DiGraph,
+) -> Result<KatzCentralityResult, KatzNotConverged> {
+    let (result, converged) = katz_centrality_generic(graph);
+    if converged {
+        Ok(result)
+    } else {
+        Err(KatzNotConverged {
+            iterations: KATZ_DEFAULT_MAX_ITERATIONS,
+        })
+    }
+}
+
+fn katz_centrality_generic<G: GraphView>(graph: &G) -> (KatzCentralityResult, bool) {
     let nodes = graph.nodes_ordered();
     let n = nodes.len();
     if n == 0 {
-        return KatzCentralityResult {
-            scores: Vec::new(),
-            witness: ComplexityWitness {
-                algorithm: "katz_centrality_power_iteration".to_owned(),
-                complexity_claim: "O(k * (|V| + |E|))".to_owned(),
-                nodes_touched: 0,
-                edges_scanned: 0,
-                queue_peak: 0,
+        return (
+            KatzCentralityResult {
+                scores: Vec::new(),
+                witness: ComplexityWitness {
+                    algorithm: "katz_centrality_power_iteration".to_owned(),
+                    complexity_claim: "O(k * (|V| + |E|))".to_owned(),
+                    nodes_touched: 0,
+                    edges_scanned: 0,
+                    queue_peak: 0,
+                },
             },
-        };
+            true,
+        );
     }
     if n == 1 {
-        return KatzCentralityResult {
-            scores: vec![CentralityScore {
-                node: nodes[0].to_owned(),
-                score: 1.0,
-            }],
-            witness: ComplexityWitness {
-                algorithm: "katz_centrality_power_iteration".to_owned(),
-                complexity_claim: "O(k * (|V| + |E|))".to_owned(),
-                nodes_touched: 1,
-                edges_scanned: 0,
-                queue_peak: 0,
+        return (
+            KatzCentralityResult {
+                scores: vec![CentralityScore {
+                    node: nodes[0].to_owned(),
+                    score: 1.0,
+                }],
+                witness: ComplexityWitness {
+                    algorithm: "katz_centrality_power_iteration".to_owned(),
+                    complexity_claim: "O(k * (|V| + |E|))".to_owned(),
+                    nodes_touched: 1,
+                    edges_scanned: 0,
+                    queue_peak: 0,
+                },
             },
-        };
+            true,
+        );
     }
 
     let mut canonical_nodes = nodes.clone();
@@ -2438,6 +2487,7 @@ fn katz_centrality_generic<G: GraphView>(graph: &G) -> KatzCentralityResult {
     let mut iterations = 0usize;
     let mut edges_scanned = 0usize;
     let tolerance = n as f64 * KATZ_DEFAULT_TOLERANCE;
+    let mut converged = false;
 
     for _ in 0..KATZ_DEFAULT_MAX_ITERATIONS {
         iterations += 1;
@@ -2468,6 +2518,7 @@ fn katz_centrality_generic<G: GraphView>(graph: &G) -> KatzCentralityResult {
             .sum::<f64>();
         scores.copy_from_slice(&next_scores);
         if delta < tolerance {
+            converged = true;
             break;
         }
     }
@@ -2488,16 +2539,19 @@ fn katz_centrality_generic<G: GraphView>(graph: &G) -> KatzCentralityResult {
         })
         .collect::<Vec<CentralityScore>>();
 
-    KatzCentralityResult {
-        scores: ordered_scores,
-        witness: ComplexityWitness {
-            algorithm: "katz_centrality_power_iteration".to_owned(),
-            complexity_claim: "O(k * (|V| + |E|))".to_owned(),
-            nodes_touched: n.saturating_mul(iterations),
-            edges_scanned,
-            queue_peak: 0,
+    (
+        KatzCentralityResult {
+            scores: ordered_scores,
+            witness: ComplexityWitness {
+                algorithm: "katz_centrality_power_iteration".to_owned(),
+                complexity_claim: "O(k * (|V| + |E|))".to_owned(),
+                nodes_touched: n.saturating_mul(iterations),
+                edges_scanned,
+                queue_peak: 0,
+            },
         },
-    }
+        converged,
+    )
 }
 
 #[must_use]

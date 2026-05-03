@@ -2565,25 +2565,35 @@ pub fn harmonic_centrality(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Py<
 #[pyfunction]
 pub fn katz_centrality(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>> {
     let gr = extract_graph(g)?;
+    // br-r37-c1-ua4i8: use the checked variant so non-convergence
+    // raises ``PowerIterationFailedConvergence`` matching nx instead
+    // of silently returning the un-converged (and possibly wrong)
+    // normalized vector.
     let result = match &gr {
         GraphRef::Undirected(pg) => {
             let inner = &pg.inner;
-            py.allow_threads(|| fnx_algorithms::katz_centrality(inner))
+            py.allow_threads(|| fnx_algorithms::katz_centrality_checked(inner))
         }
         GraphRef::Directed { dg, .. } => {
             let inner = &dg.inner;
-            py.allow_threads(|| fnx_algorithms::katz_centrality_directed(inner))
+            py.allow_threads(|| fnx_algorithms::katz_centrality_directed_checked(inner))
         }
         _ => {
             if gr.is_directed() {
                 let inner = gr.digraph().expect("is_directed checked above");
-                py.allow_threads(|| fnx_algorithms::katz_centrality_directed(inner))
+                py.allow_threads(|| fnx_algorithms::katz_centrality_directed_checked(inner))
             } else {
                 let inner = gr.undirected();
-                py.allow_threads(|| fnx_algorithms::katz_centrality(inner))
+                py.allow_threads(|| fnx_algorithms::katz_centrality_checked(inner))
             }
         }
     };
+    let result = result.map_err(|err| {
+        crate::PowerIterationFailedConvergence::new_err(format!(
+            "power iteration failed to converge within {} iterations",
+            err.iterations
+        ))
+    })?;
     centrality_to_dict(py, &gr, &result.scores)
 }
 
