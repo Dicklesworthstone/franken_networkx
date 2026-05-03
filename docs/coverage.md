@@ -30,6 +30,26 @@ This ledger separates the broad public-export category from source-visible runti
 
 `NETWORKX_HELPER` currently covers 150 public export(s) and 178 parity-helper call site(s).
 
+## Upstream Divergence Ledger
+
+This ledger makes divergence ownership explicit. Rows come from AST-visible public-export/runtime-route analysis plus bead/test/code annotations for known lower-level gaps.
+
+| Divergence state | Rows | Rule |
+|------------------|------|------|
+| native-parity | 21 | public Rust-native export; no Python fallback route detected |
+| wrapper-patched | 1 | public wrapper records a compatibility repair over a lower-level gap |
+| intentionally-delegated | 150 | AST-visible parity helper or direct NetworkX route |
+| raw-known-gap | 1 | lower-level raw/native implementation has a documented parity gap |
+| owner-acknowledged-limitation | 1 | documented limitation is intentionally owned until native repair |
+
+## Upstream Divergence Annotations
+
+| State | Export / surface | Route | Source | Evidence | Note |
+|-------|------------------|-------|--------|----------|------|
+| wrapper-patched | `is_planar` | PY_WRAPPER | bead:br-isplanarbroken | `python/franken_networkx/__init__.py:br-isplanarbroken` | public wrapper routes through check_planarity so K3,3/Petersen match NetworkX |
+| raw-known-gap | `_raw_is_planar` | RUST_NATIVE | code:KNOWN GAP | `crates/fnx-algorithms/src/lib.rs:KNOWN GAP` | raw kernel still uses necessary edge-count bounds, not a complete LR planarity test |
+| owner-acknowledged-limitation | `_raw_is_planar` | RUST_NATIVE | code:KNOWN GAP | `crates/fnx-algorithms/src/lib.rs:KNOWN GAP` | callers are directed to the public wrapper until Boyer-Myrvold/Hopcroft-Tarjan lands |
+
 ## Performance Route Probes
 
 | Metric / probe | Public function | Representative argument shape | Expected route | Gate evidence |

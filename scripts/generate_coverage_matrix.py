@@ -55,6 +55,46 @@ PERFORMANCE_ROUTE_PROBES = (
         "evidence": "artifacts/perf/slo_thresholds.json",
     },
 )
+DIVERGENCE_CATEGORY_ORDER = (
+    "native-parity",
+    "wrapper-patched",
+    "intentionally-delegated",
+    "raw-known-gap",
+    "owner-acknowledged-limitation",
+)
+DIVERGENCE_CATEGORY_RULES = {
+    "native-parity": "public Rust-native export; no Python fallback route detected",
+    "wrapper-patched": "public wrapper records a compatibility repair over a lower-level gap",
+    "intentionally-delegated": "AST-visible parity helper or direct NetworkX route",
+    "raw-known-gap": "lower-level raw/native implementation has a documented parity gap",
+    "owner-acknowledged-limitation": "documented limitation is intentionally owned until native repair",
+}
+DIVERGENCE_ANNOTATIONS = (
+    {
+        "category": "wrapper-patched",
+        "export": "is_planar",
+        "route": "PY_WRAPPER",
+        "source": "bead:br-isplanarbroken",
+        "evidence": "python/franken_networkx/__init__.py:br-isplanarbroken",
+        "note": "public wrapper routes through check_planarity so K3,3/Petersen match NetworkX",
+    },
+    {
+        "category": "raw-known-gap",
+        "export": "_raw_is_planar",
+        "route": "RUST_NATIVE",
+        "source": "code:KNOWN GAP",
+        "evidence": "crates/fnx-algorithms/src/lib.rs:KNOWN GAP",
+        "note": "raw kernel still uses necessary edge-count bounds, not a complete LR planarity test",
+    },
+    {
+        "category": "owner-acknowledged-limitation",
+        "export": "_raw_is_planar",
+        "route": "RUST_NATIVE",
+        "source": "code:KNOWN GAP",
+        "evidence": "crates/fnx-algorithms/src/lib.rs:KNOWN GAP",
+        "note": "callers are directed to the public wrapper until Boyer-Myrvold/Hopcroft-Tarjan lands",
+    },
+)
 
 
 def load_public_exports():
@@ -188,11 +228,53 @@ def analyze_export(name, obj) -> dict:
     }
 
 
+def build_upstream_divergence_ledger(analyses) -> list[dict]:
+    """Build review-facing upstream divergence rows from AST plus annotations."""
+    ledger = []
+    for analysis in analyses:
+        if analysis["category"] == "RUST_NATIVE":
+            ledger.append(
+                {
+                    "category": "native-parity",
+                    "export": analysis["name"],
+                    "route": analysis["runtime_route"],
+                    "source": "ast:public-export",
+                    "evidence": analysis["module"],
+                    "note": "native extension export counted as parity-owned unless annotated otherwise",
+                }
+            )
+        elif analysis["runtime_route"] in {"NETWORKX_HELPER", "DIRECT_NETWORKX"}:
+            targets = sorted({call["target"] for call in analysis["helper_calls"]})
+            evidence = ", ".join(targets) if targets else "direct networkx reference"
+            ledger.append(
+                {
+                    "category": "intentionally-delegated",
+                    "export": analysis["name"],
+                    "route": analysis["runtime_route"],
+                    "source": "ast:runtime-route",
+                    "evidence": evidence,
+                    "note": "public wrapper keeps NetworkX behavior for this argument surface",
+                }
+            )
+
+    ledger.extend(dict(row) for row in DIVERGENCE_ANNOTATIONS)
+    return sorted(
+        ledger,
+        key=lambda row: (
+            DIVERGENCE_CATEGORY_ORDER.index(row["category"]),
+            row["export"],
+            row["source"],
+        ),
+    )
+
+
 def render_markdown(exports, duplicates) -> str:
     categorized = defaultdict(list)
     runtime_routes = defaultdict(list)
     module_counts = Counter()
     analyses = [analyze_export(name, obj) for name, obj in exports]
+    divergence_ledger = build_upstream_divergence_ledger(analyses)
+    divergence_counts = Counter(row["category"] for row in divergence_ledger)
 
     for analysis in analyses:
         categorized[analysis["category"]].append(analysis["name"])
@@ -247,6 +329,36 @@ def render_markdown(exports, duplicates) -> str:
         [
             "",
             f"`NETWORKX_HELPER` currently covers {len(runtime_routes['NETWORKX_HELPER'])} public export(s) and {helper_call_count} parity-helper call site(s).",
+            "",
+            "## Upstream Divergence Ledger",
+            "",
+            "This ledger makes divergence ownership explicit. Rows come from AST-visible public-export/runtime-route analysis plus bead/test/code annotations for known lower-level gaps.",
+            "",
+            "| Divergence state | Rows | Rule |",
+            "|------------------|------|------|",
+        ]
+    )
+    for category in DIVERGENCE_CATEGORY_ORDER:
+        lines.append(
+            f"| {category} | {divergence_counts[category]} | {DIVERGENCE_CATEGORY_RULES[category]} |"
+        )
+    lines.extend(
+        [
+            "",
+            "## Upstream Divergence Annotations",
+            "",
+            "| State | Export / surface | Route | Source | Evidence | Note |",
+            "|-------|------------------|-------|--------|----------|------|",
+        ]
+    )
+    for row in DIVERGENCE_ANNOTATIONS:
+        lines.append(
+            "| {category} | `{export}` | {route} | {source} | `{evidence}` | {note} |".format(
+                **row
+            )
+        )
+    lines.extend(
+        [
             "",
             "## Performance Route Probes",
             "",

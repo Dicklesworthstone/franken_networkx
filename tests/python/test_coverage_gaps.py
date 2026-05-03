@@ -79,6 +79,38 @@ def test_coverage_matrix_tracks_networkx_helper_routes():
     assert "`shortest_path_weighted_delegated`" in rendered
 
 
+def test_coverage_matrix_tracks_upstream_divergence_ledger():
+    coverage_matrix = _load_coverage_matrix_script()
+    exports, duplicates = coverage_matrix["load_public_exports"]()
+    analyses = [
+        coverage_matrix["analyze_export"](name, obj)
+        for name, obj in exports
+    ]
+    ledger = coverage_matrix["build_upstream_divergence_ledger"](analyses)
+    rendered = coverage_matrix["render_markdown"](exports, duplicates)
+    categories = {row["category"] for row in ledger}
+
+    assert set(coverage_matrix["DIVERGENCE_CATEGORY_ORDER"]).issubset(categories)
+    assert any(
+        row["category"] == "intentionally-delegated"
+        and row["export"] == "shortest_path"
+        for row in ledger
+    )
+    assert any(
+        row["category"] == "wrapper-patched"
+        and row["export"] == "is_planar"
+        for row in ledger
+    )
+    assert any(
+        row["category"] == "raw-known-gap"
+        and row["export"] == "_raw_is_planar"
+        for row in ledger
+    )
+    assert "## Upstream Divergence Ledger" in rendered
+    assert "| raw-known-gap |" in rendered
+    assert "br-isplanarbroken" in rendered
+
+
 @needs_nx
 def test_slo_gate_has_weighted_delegated_shortest_path_probe():
     thresholds = json.loads(
