@@ -555,10 +555,7 @@ impl DiGraph {
                 .entry(source.clone())
                 .or_default()
                 .insert(target.clone());
-            self.predecessors
-                .entry(target)
-                .or_default()
-                .insert(source);
+            self.predecessors.entry(target).or_default().insert(source);
             inserted += 1;
         }
 
@@ -1631,6 +1628,29 @@ mod tests {
             Some(&CgseValue::String("5".to_owned()))
         );
         assert!(g.edge_attrs("b", "a").is_none()); // reverse has no attrs
+    }
+
+    #[test]
+    fn extend_edges_unrecorded_preserves_direction_and_records_once() {
+        let mut g = DiGraph::strict();
+        g.add_node("a");
+        g.add_node("b");
+        g.add_node("c");
+        let before = g.evidence_ledger().records().len();
+
+        let inserted = g.extend_edges_unrecorded([("a", "b"), ("b", "a"), ("a", "b")]);
+
+        assert_eq!(inserted, 2);
+        assert_eq!(g.edge_count(), 2);
+        assert!(g.has_edge("a", "b"));
+        assert!(g.has_edge("b", "a"));
+        assert!(!g.has_edge("a", "c"));
+        let records = g.evidence_ledger().records();
+        assert_eq!(records.len(), before + 1);
+        assert_eq!(
+            records.last().map(|record| record.operation.as_str()),
+            Some("extend_edges_unrecorded")
+        );
     }
 
     #[test]
