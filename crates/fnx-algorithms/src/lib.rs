@@ -1975,7 +1975,13 @@ pub fn connected_components(graph: &Graph) -> ComponentsResult {
             }
         }
 
-        fnx_cgse::TieBreakPolicy::LexMin.sort_candidates(&mut component);
+        // Components are emitted in BFS-discovery order. NetworkX wraps
+        // each in ``set()`` (br-r37-c1-anace), so any internal lexsort
+        // is wasted work that previously dominated wall-time on large
+        // single-component graphs (BA5000: ~50 k string comparisons per
+        // call). The Python wrapper ``yield set(component)`` produces
+        // the documented ``generator[set]`` shape and the set
+        // construction itself is membership-order-independent.
         components.push(component.into_iter().map(str::to_owned).collect());
     }
 
@@ -22219,7 +22225,10 @@ pub fn find_cliques_recursive(graph: &Graph) -> Vec<Vec<String>> {
 pub fn chordal_graph_cliques(graph: &Graph) -> Vec<Vec<String>> {
     let mut result = Vec::new();
 
-    for component in connected_components(graph).components {
+    for mut component in connected_components(graph)
+        .components
+        .into_iter()
+    {
         if component.is_empty() {
             continue;
         }
@@ -22228,6 +22237,12 @@ pub fn chordal_graph_cliques(graph: &Graph) -> Vec<Vec<String>> {
             continue;
         }
 
+        // chordal_graph_cliques' MCS rank is sensitive to intra-component
+        // ordering — it picks ``component[0]`` as the MCS start and uses
+        // each node's index for tie-breaking. connected_components no
+        // longer sorts (see br-r37-c1-anace), so sort here to keep the
+        // historical chordal-clique decomposition shape stable.
+        component.sort_unstable();
         let rank: HashMap<&str, usize> = component
             .iter()
             .enumerate()
@@ -34837,13 +34852,20 @@ mod tests {
         graph.add_edge("c", "d").expect("edge add should succeed");
 
         let result = connected_components(&graph);
-        assert_eq!(
-            result.components,
-            vec![
-                vec!["a".to_owned(), "b".to_owned()],
-                vec!["c".to_owned(), "d".to_owned(), "e".to_owned()]
-            ]
-        );
+        // br-r37-c1-anace: components are emitted in BFS-discovery
+        // order (no internal sort). Compare as sets-of-sets so the
+        // intra-component ordering doesn't pin the BFS traversal
+        // shape.
+        let as_sets: Vec<std::collections::BTreeSet<String>> = result
+            .components
+            .iter()
+            .map(|c| c.iter().cloned().collect())
+            .collect();
+        let expected: Vec<std::collections::BTreeSet<String>> = vec![
+            ["a", "b"].into_iter().map(String::from).collect(),
+            ["c", "d", "e"].into_iter().map(String::from).collect(),
+        ];
+        assert_eq!(as_sets, expected);
         assert_eq!(result.witness.algorithm, "bfs_connected_components");
     }
 
