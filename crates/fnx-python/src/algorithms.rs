@@ -2909,13 +2909,9 @@ pub fn pagerank(
     weight: Option<&str>,
     dangling: Option<Bound<'_, PyAny>>,
 ) -> PyResult<Py<PyDict>> {
-    if personalization.is_some()
-        || nstart.is_some()
-        || dangling.is_some()
-        || weight.is_some_and(|w| w != "weight")
-    {
+    if personalization.is_some() || nstart.is_some() || dangling.is_some() {
         return Err(crate::NetworkXNotImplemented::new_err(
-            "franken_networkx currently only supports default parameters for pagerank",
+            "franken_networkx pagerank does not yet support personalization, nstart, or dangling",
         ));
     }
     let gr = extract_graph(g)?;
@@ -2924,19 +2920,19 @@ pub fn pagerank(
         GraphRef::Undirected(pg) => {
             let inner = &pg.inner;
             py.allow_threads(|| {
-                fnx_algorithms::pagerank_with_weight(inner, alpha, max_iter, tol, weight)
+                fnx_algorithms::pagerank_with_weight_checked(inner, alpha, max_iter, tol, weight)
             })
         }
         GraphRef::Directed { dg, .. } => {
             let inner = &dg.inner;
             py.allow_threads(|| {
-                fnx_algorithms::pagerank_with_weight(inner, alpha, max_iter, tol, weight)
+                fnx_algorithms::pagerank_with_weight_checked(inner, alpha, max_iter, tol, weight)
             })
         }
         GraphRef::MultiUndirected { mg, .. } => {
             let graph = multigraph_to_pagerank_simple_graph(&mg.inner, weight);
             py.allow_threads(|| {
-                fnx_algorithms::pagerank_with_weight(
+                fnx_algorithms::pagerank_with_weight_checked(
                     &graph,
                     alpha,
                     max_iter,
@@ -2948,7 +2944,7 @@ pub fn pagerank(
         GraphRef::MultiDirected { mdg, .. } => {
             let graph = multidigraph_to_pagerank_simple_digraph(&mdg.inner, weight);
             py.allow_threads(|| {
-                fnx_algorithms::pagerank_with_weight(
+                fnx_algorithms::pagerank_with_weight_checked(
                     &graph,
                     alpha,
                     max_iter,
@@ -2958,6 +2954,11 @@ pub fn pagerank(
             })
         }
     };
+    let result = result.map_err(|_| {
+        crate::NetworkXNotImplemented::new_err(
+            "franken_networkx pagerank fast-path requires non-negative edge weights",
+        )
+    })?;
     centrality_to_dict(py, &gr, &result.scores)
 }
 

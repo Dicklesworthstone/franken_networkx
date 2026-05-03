@@ -2663,6 +2663,37 @@ pub fn pagerank_with_params<G: GraphView>(
 }
 
 /// PageRank with explicit parameters and optional edge-weight attribute.
+/// Error returned by [`pagerank_with_weight_checked`] when the input
+/// graph carries a negative edge weight. Power iteration over signed
+/// transition matrices is numerically unstable (the per-row weight
+/// shares become signed and the rank vector drifts away from sum=1),
+/// so callers should fall back to a pure-Python NetworkX path that
+/// uses sparse-matrix arithmetic.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PageRankNegativeWeight;
+
+/// Like [`pagerank_with_weight`] but rejects negative edge weights.
+pub fn pagerank_with_weight_checked<G: GraphView>(
+    graph: &G,
+    alpha: f64,
+    max_iter: usize,
+    tol: f64,
+    weight_attr: Option<&str>,
+) -> Result<PageRankResult, PageRankNegativeWeight> {
+    if let Some(attr) = weight_attr {
+        for u in graph.nodes_ordered() {
+            if let Some(iter) = graph.neighbors_iter(u) {
+                for v in iter {
+                    if graph.edge_weight(u, v, Some(attr)) < 0.0 {
+                        return Err(PageRankNegativeWeight);
+                    }
+                }
+            }
+        }
+    }
+    Ok(pagerank_with_weight(graph, alpha, max_iter, tol, weight_attr))
+}
+
 pub fn pagerank_with_weight<G: GraphView>(
     graph: &G,
     alpha: f64,
@@ -2708,28 +2739,39 @@ pub fn pagerank_with_weight<G: GraphView>(
         .map(|(idx, node)| (*node, idx))
         .collect::<HashMap<&str, usize>>();
 
-    let canonical_out_neighbors = canonical_nodes
-        .iter()
-        .map(|&u| {
-            let mut nbrs: Vec<&str> = graph
-                .neighbors_iter(u)
-                .map(|iter| iter.collect())
-                .unwrap_or_default();
-            nbrs.sort_unstable();
-            nbrs
-        })
-        .collect::<Vec<Vec<&str>>>();
-
-    let out_weight = canonical_nodes
-        .iter()
-        .zip(canonical_out_neighbors.iter())
-        .map(|(&node, neighbors)| {
-            neighbors
-                .iter()
-                .map(|&neighbor| graph.edge_weight(node, neighbor, weight_attr))
-                .sum::<f64>()
-        })
-        .collect::<Vec<f64>>();
+    // Precompute outgoing-edge tables once: each entry is a Vec of
+    // (target_index, weight / out_weight_sum) so the inner power-iteration
+    // loop becomes a flat numeric multiply/add — no per-edge HashMap
+    // lookups for either edge_weight() or index_by_node.get().
+    let mut canonical_out_edges: Vec<Vec<(usize, f64)>> = Vec::with_capacity(n);
+    let mut out_weight: Vec<f64> = Vec::with_capacity(n);
+    let mut total_edges_per_iter: usize = 0;
+    for &u in &canonical_nodes {
+        let mut nbrs: Vec<&str> = graph
+            .neighbors_iter(u)
+            .map(|iter| iter.collect())
+            .unwrap_or_default();
+        nbrs.sort_unstable();
+        let mut entries: Vec<(usize, f64)> = Vec::with_capacity(nbrs.len());
+        let mut weight_sum = 0.0_f64;
+        for &v in &nbrs {
+            if let Some(&v_idx) = index_by_node.get(v) {
+                let w = graph.edge_weight(u, v, weight_attr);
+                entries.push((v_idx, w));
+                weight_sum += w;
+            }
+        }
+        // Bake the division into the precomputed weight so the inner
+        // loop only multiplies by ranks[u_idx] and accumulates.
+        if weight_sum > 0.0 {
+            for entry in &mut entries {
+                entry.1 /= weight_sum;
+            }
+        }
+        total_edges_per_iter += entries.len();
+        canonical_out_edges.push(entries);
+        out_weight.push(weight_sum);
+    }
 
     let n_f64 = n as f64;
     let base = (1.0 - alpha) / n_f64;
@@ -2748,21 +2790,17 @@ pub fn pagerank_with_weight<G: GraphView>(
         let dangling_term = alpha * dangling_mass / n_f64;
 
         next_ranks.fill(base + dangling_term);
-        for (u_idx, &u) in canonical_nodes.iter().enumerate() {
-            let weight_sum = out_weight[u_idx];
-            if weight_sum == 0.0 {
+        for u_idx in 0..n {
+            let entries = &canonical_out_edges[u_idx];
+            if entries.is_empty() {
                 continue;
             }
-            let out_neighbors = &canonical_out_neighbors[u_idx];
-            edges_scanned += out_neighbors.len();
-
-            for &v in out_neighbors {
-                if let Some(&v_idx) = index_by_node.get(v) {
-                    let weight = graph.edge_weight(u, v, weight_attr);
-                    next_ranks[v_idx] += alpha * ranks[u_idx] * (weight / weight_sum);
-                }
+            let push = alpha * ranks[u_idx];
+            for &(v_idx, weight_share) in entries {
+                next_ranks[v_idx] += push * weight_share;
             }
         }
+        edges_scanned += total_edges_per_iter;
 
         let delta = next_ranks
             .iter()
