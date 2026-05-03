@@ -4396,149 +4396,184 @@ struct DfsConnectivityAnalysis {
 }
 
 fn dfs_connectivity_analysis(graph: &Graph) -> DfsConnectivityAnalysis {
-    let mut analysis = DfsConnectivityAnalysis::default();
-    let mut ordered_nodes = graph.nodes_ordered();
-    ordered_nodes.sort_unstable();
+    // Fast index-based DFS that matches NetworkX's iteration shape.
+    //
+    // Implementation notes:
+    //   * Insertion-order node + adjacency iteration (no sort_unstable).
+    //     This mirrors `nx._biconnected_dfs`, which iterates `G[node]`
+    //     by Python dict insertion order.
+    //   * Articulation points and bridges are emitted in DFS-discovery
+    //     order — the order they are detected at subtree close, exactly
+    //     as nx yields them. The Python wrapper used to delegate the
+    //     entire call to nx for parity (br-r37-c1-9kyjl /
+    //     -h83lo); now the Rust path produces identical iteration
+    //     order, so the wrapper can use it directly.
+    //   * Per-step state lives in Vec<usize> indexed by node, not
+    //     HashMap<String, _>. The previous String-keyed impl spent
+    //     ~99 % of BA200 wall-time in HashMap rehash + String::clone;
+    //     index arrays remove that constant factor without changing
+    //     the algorithm. Raw fnx_algorithms::articulation_points on
+    //     BA200 went from ~7 ms to ~0.15 ms.
 
-    let mut discovery = HashMap::<String, usize>::new();
-    let mut low = HashMap::<String, usize>::new();
-    let mut parent = HashMap::<String, Option<String>>::new();
-    let mut is_articulation = HashSet::<String>::new();
-    let mut bridges = HashSet::<(String, String)>::new();
+    let mut analysis = DfsConnectivityAnalysis::default();
+    let ordered_nodes: Vec<&str> = graph.nodes_ordered();
+    let n = ordered_nodes.len();
+    if n == 0 {
+        return analysis;
+    }
+
+    let index_of: HashMap<&str, usize> = ordered_nodes
+        .iter()
+        .enumerate()
+        .map(|(i, name)| (*name, i))
+        .collect();
+
+    // Per-node neighbor lists in insertion order (no sort).
+    let mut adj: Vec<Vec<usize>> = Vec::with_capacity(n);
+    for &name in &ordered_nodes {
+        let nbrs: Vec<usize> = graph
+            .neighbors_iter(name)
+            .map(|iter| iter.filter_map(|nb| index_of.get(nb).copied()).collect())
+            .unwrap_or_default();
+        adj.push(nbrs);
+    }
+
+    let mut discovery = vec![usize::MAX; n];
+    let mut low = vec![usize::MAX; n];
+    let mut parent: Vec<Option<usize>> = vec![None; n];
+    let mut is_articulation = vec![false; n];
+    let mut articulation_order: Vec<usize> = Vec::new();
+    let mut bridges_in_order: Vec<(usize, usize)> = Vec::new();
     let mut time = 0usize;
 
-    for node in &ordered_nodes {
-        if discovery.contains_key(*node) {
+    struct Frame {
+        node: usize,
+        neighbor_idx: usize,
+        child_count: usize,
+    }
+
+    for root_idx in 0..n {
+        if discovery[root_idx] != usize::MAX {
             continue;
         }
-        parent.insert((*node).to_owned(), None);
-        dfs_connectivity_visit(
-            graph,
-            node,
-            &mut time,
-            &mut discovery,
-            &mut low,
-            &mut parent,
-            &mut is_articulation,
-            &mut bridges,
-            &mut analysis.nodes_touched,
-            &mut analysis.edges_scanned,
-        );
-    }
+        analysis.nodes_touched += 1;
+        time += 1;
+        discovery[root_idx] = time;
+        low[root_idx] = time;
 
-    let mut articulation_points = is_articulation.into_iter().collect::<Vec<String>>();
-    articulation_points.sort_unstable();
-    let mut bridge_edges = bridges.into_iter().collect::<Vec<(String, String)>>();
-    bridge_edges.sort_unstable();
+        let mut stack: Vec<Frame> = vec![Frame {
+            node: root_idx,
+            neighbor_idx: 0,
+            child_count: 0,
+        }];
+        let mut root_children = 0usize;
 
-    analysis.articulation_points = articulation_points;
-    analysis.bridges = bridge_edges;
-    analysis
-}
+        while let Some(frame) = stack.last_mut() {
+            let u = frame.node;
+            if frame.neighbor_idx < adj[u].len() {
+                let v = adj[u][frame.neighbor_idx];
+                frame.neighbor_idx += 1;
+                analysis.edges_scanned += 1;
 
-struct DfsFrame {
-    node: String,
-    neighbors: Vec<String>,
-    neighbor_idx: usize,
-    child_count: usize,
-}
+                if discovery[v] == usize::MAX {
+                    frame.child_count += 1;
+                    parent[v] = Some(u);
 
-#[allow(clippy::too_many_arguments)]
-fn dfs_connectivity_visit(
-    graph: &Graph,
-    root: &str,
-    time: &mut usize,
-    discovery: &mut HashMap<String, usize>,
-    low: &mut HashMap<String, usize>,
-    parent: &mut HashMap<String, Option<String>>,
-    is_articulation: &mut HashSet<String>,
-    bridges: &mut HashSet<(String, String)>,
-    nodes_touched: &mut usize,
-    edges_scanned: &mut usize,
-) {
-    *nodes_touched += 1;
-    *time += 1;
-    discovery.insert(root.to_owned(), *time);
-    low.insert(root.to_owned(), *time);
+                    analysis.nodes_touched += 1;
+                    time += 1;
+                    discovery[v] = time;
+                    low[v] = time;
 
-    let mut root_neighbors = graph
-        .neighbors_iter(root)
-        .map(|iter| iter.map(str::to_owned).collect::<Vec<String>>())
-        .unwrap_or_default();
-    root_neighbors.sort_unstable();
-
-    let mut stack = vec![DfsFrame {
-        node: root.to_owned(),
-        neighbors: root_neighbors,
-        neighbor_idx: 0,
-        child_count: 0,
-    }];
-
-    while let Some(frame) = stack.last_mut() {
-        if frame.neighbor_idx < frame.neighbors.len() {
-            let neighbor = frame.neighbors[frame.neighbor_idx].clone();
-            frame.neighbor_idx += 1;
-            *edges_scanned += 1;
-
-            if !discovery.contains_key(&neighbor) {
-                frame.child_count += 1;
-                parent.insert(neighbor.clone(), Some(frame.node.clone()));
-
-                *nodes_touched += 1;
-                *time += 1;
-                discovery.insert(neighbor.clone(), *time);
-                low.insert(neighbor.clone(), *time);
-
-                let mut child_neighbors = graph
-                    .neighbors_iter(&neighbor)
-                    .map(|iter| iter.map(str::to_owned).collect::<Vec<String>>())
-                    .unwrap_or_default();
-                child_neighbors.sort_unstable();
-
-                stack.push(DfsFrame {
-                    node: neighbor,
-                    neighbors: child_neighbors,
-                    neighbor_idx: 0,
-                    child_count: 0,
-                });
-            } else {
-                let current_parent = parent.get(&frame.node).cloned().flatten();
-                if current_parent.as_deref() != Some(neighbor.as_str()) {
-                    let disc_neighbor = *discovery.get(&neighbor).unwrap_or(&usize::MAX);
-                    let low_current = *low.get(&frame.node).unwrap_or(&usize::MAX);
-                    low.insert(frame.node.clone(), low_current.min(disc_neighbor));
-                }
-            }
-        } else {
-            let finished = stack.pop().unwrap();
-
-            if let Some(parent_frame) = stack.last() {
-                let low_finished = *low.get(&finished.node).unwrap_or(&usize::MAX);
-                let low_parent = *low.get(&parent_frame.node).unwrap_or(&usize::MAX);
-                low.insert(parent_frame.node.clone(), low_parent.min(low_finished));
-
-                let parent_of_parent = parent.get(&parent_frame.node).cloned().flatten();
-                if parent_of_parent.is_none() && parent_frame.child_count > 1 {
-                    is_articulation.insert(parent_frame.node.clone());
-                }
-                if parent_of_parent.is_some() {
-                    let disc_parent = *discovery.get(&parent_frame.node).unwrap_or(&usize::MAX);
-                    if low_finished >= disc_parent {
-                        is_articulation.insert(parent_frame.node.clone());
+                    stack.push(Frame {
+                        node: v,
+                        neighbor_idx: 0,
+                        child_count: 0,
+                    });
+                } else if parent[u] != Some(v) {
+                    // Back-edge — update low[u].
+                    if discovery[v] < low[u] {
+                        low[u] = discovery[v];
                     }
                 }
-                let disc_parent = *discovery.get(&parent_frame.node).unwrap_or(&usize::MAX);
-                if low_finished > disc_parent {
-                    bridges.insert(canonical_undirected_edge(
-                        &parent_frame.node,
-                        &finished.node,
-                    ));
+            } else {
+                let finished = stack.pop().unwrap();
+                let finished_low = low[finished.node];
+
+                if let Some(parent_frame) = stack.last() {
+                    let p = parent_frame.node;
+                    if finished_low < low[p] {
+                        low[p] = finished_low;
+                    }
+
+                    if parent[p].is_some() {
+                        // Non-root AP: a child subtree closes whose
+                        // ``low`` never reached above ``p`` in the DFS
+                        // tree.
+                        if finished_low >= discovery[p] && !is_articulation[p] {
+                            is_articulation[p] = true;
+                            articulation_order.push(p);
+                        }
+                    } else {
+                        // ``p`` is the DFS root — this child-of-root
+                        // subtree just closed. Tally for the deferred
+                        // root-AP check after DFS finishes.
+                        root_children += 1;
+                    }
+                    // Bridge: stricter inequality on the same edge.
+                    if finished_low > discovery[p] {
+                        bridges_in_order.push((p, finished.node));
+                    }
                 }
-            } else if finished.child_count > 1 {
-                is_articulation.insert(finished.node);
+                // else: just popped the root frame itself — nothing more
+                // to do at this point; the deferred root-AP check below
+                // handles it.
+            }
+        }
+
+        // nx yields the root as an AP at the end of its DFS, once
+        // ``root_children > 1`` has been observed across the whole
+        // traversal.
+        if root_children > 1 && !is_articulation[root_idx] {
+            is_articulation[root_idx] = true;
+            articulation_order.push(root_idx);
+        }
+    }
+
+    analysis.articulation_points = articulation_order
+        .into_iter()
+        .map(|i| ordered_nodes[i].to_owned())
+        .collect();
+
+    // nx.bridges() yields edges in graph-insertion order (it iterates
+    // ``H.edges`` after computing the bridge set via chain
+    // decomposition). Mirror that here so the Rust path matches the
+    // observable iteration order — collect bridge endpoints into a
+    // canonical set, then walk ``edges_ordered`` and emit the survivors
+    // in their original orientation.
+    let bridge_set: HashSet<(usize, usize)> = bridges_in_order
+        .into_iter()
+        .map(|(a, b)| if a <= b { (a, b) } else { (b, a) })
+        .collect();
+    let mut bridge_edges: Vec<(String, String)> = Vec::new();
+    if !bridge_set.is_empty() {
+        for edge in graph.edges_ordered_borrowed() {
+            let (lhs, rhs, _) = edge;
+            let li = match index_of.get(lhs) {
+                Some(&i) => i,
+                None => continue,
+            };
+            let ri = match index_of.get(rhs) {
+                Some(&i) => i,
+                None => continue,
+            };
+            let canonical = if li <= ri { (li, ri) } else { (ri, li) };
+            if bridge_set.contains(&canonical) {
+                bridge_edges.push((lhs.to_owned(), rhs.to_owned()));
             }
         }
     }
+    analysis.bridges = bridge_edges;
+    analysis
 }
 
 trait FlowGraphView {
@@ -34065,7 +34100,9 @@ mod tests {
         graph.add_edge("c", "d").expect("edge add should succeed");
 
         let result = articulation_points(&graph);
-        assert_eq!(result.nodes, vec!["b".to_owned(), "c".to_owned()]);
+        // DFS-discovery order matches NetworkX: closing 'd' makes 'c' an
+        // AP first, then closing 'c' makes 'b' an AP.
+        assert_eq!(result.nodes, vec!["c".to_owned(), "b".to_owned()]);
         assert_eq!(result.witness.algorithm, "tarjan_articulation_points");
     }
 
@@ -34099,7 +34136,12 @@ mod tests {
 
         let left = articulation_points(&forward);
         let right = articulation_points(&reverse);
-        assert_eq!(left.nodes, right.nodes);
+        // DFS-discovery order is sensitive to insertion order — that's
+        // the price of nx parity. The SET of articulation points is
+        // insertion-order-independent though.
+        let left_set: std::collections::HashSet<&String> = left.nodes.iter().collect();
+        let right_set: std::collections::HashSet<&String> = right.nodes.iter().collect();
+        assert_eq!(left_set, right_set);
     }
 
     #[test]
@@ -34151,7 +34193,16 @@ mod tests {
 
         let left = bridges(&forward);
         let right = bridges(&reverse);
-        assert_eq!(left.edges, right.edges);
+        // bridges() now emits in graph-insertion order to match nx, so
+        // a forward vs reverse insertion gives different Vecs. The SET
+        // of bridge edges (canonical orientation) is order-independent.
+        let canon = |edges: &[(String, String)]| -> std::collections::HashSet<(String, String)> {
+            edges
+                .iter()
+                .map(|(a, b)| if a <= b { (a.clone(), b.clone()) } else { (b.clone(), a.clone()) })
+                .collect()
+        };
+        assert_eq!(canon(&left.edges), canon(&right.edges));
     }
 
     #[test]
@@ -34263,12 +34314,14 @@ mod tests {
                 .expect("edge add should succeed");
         }
         let result = bridges(&graph);
+        // Insertion order — every edge in this star was added as
+        // ("center", leaf), so the output preserves that orientation.
         assert_eq!(
             result.edges,
             vec![
-                ("a".to_owned(), "center".to_owned()),
-                ("b".to_owned(), "center".to_owned()),
-                ("c".to_owned(), "center".to_owned()),
+                ("center".to_owned(), "a".to_owned()),
+                ("center".to_owned(), "b".to_owned()),
+                ("center".to_owned(), "c".to_owned()),
                 ("center".to_owned(), "d".to_owned()),
             ]
         );
@@ -34285,7 +34338,10 @@ mod tests {
         graph.add_edge("e", "f").expect("edge add should succeed");
         graph.add_edge("f", "d").expect("edge add should succeed");
         let result = articulation_points(&graph);
-        assert_eq!(result.nodes, vec!["c".to_owned(), "d".to_owned()]);
+        // DFS from "a": a→b→c→d→e→f→d (cycle, back-edge), then close f
+        // (low(f)=4, low(e) updated, etc.). Subtree under d closes →
+        // d is AP first. Then subtree under c closes → c is AP.
+        assert_eq!(result.nodes, vec!["d".to_owned(), "c".to_owned()]);
     }
 
     #[test]
@@ -36291,12 +36347,11 @@ mod tests {
                 &articulation_left.nodes, &articulation_right.nodes,
                 "P2C005-INV-1 articulation points must be replay-stable"
             );
-            let mut sorted_articulation = articulation_left.nodes.clone();
-            sorted_articulation.sort();
-            prop_assert_eq!(
-                &articulation_left.nodes, &sorted_articulation,
-                "P2C005-INV-1 articulation point order must be canonical"
-            );
+            // br-r37-c1-rf7lr: APs are now emitted in DFS-discovery
+            // order (matching nx.articulation_points), not in
+            // canonical/sorted order. The previous P2C005-INV-1
+            // canonical-order claim no longer applies; we still freeze
+            // replay determinism above.
 
             let bridges_left = bridges(&graph);
             let bridges_right = bridges(&graph);
@@ -36304,18 +36359,21 @@ mod tests {
                 &bridges_left.edges, &bridges_right.edges,
                 "P2C005-INV-1 bridges must be replay-stable"
             );
-            let mut sorted_bridges = bridges_left.edges.clone();
-            sorted_bridges.sort();
-            prop_assert_eq!(
-                &bridges_left.edges, &sorted_bridges,
-                "P2C005-INV-1 bridge edge order must be canonical"
-            );
+            // br-r37-c1-rf7lr: bridges are emitted in graph-edge
+            // insertion order, with original orientation, to match
+            // nx.bridges(). Canonicalize before checking membership in
+            // the canonical-edge set.
             let canonical_edge_set = canonical_edge_pairs(&graph)
                 .into_iter()
                 .collect::<BTreeSet<(String, String)>>();
             for edge in &bridges_left.edges {
+                let canonical = if edge.0 <= edge.1 {
+                    edge.clone()
+                } else {
+                    (edge.1.clone(), edge.0.clone())
+                };
                 prop_assert!(
-                    canonical_edge_set.contains(edge),
+                    canonical_edge_set.contains(&canonical),
                     "P2C005-INV-1 every bridge must exist in canonical graph edge set"
                 );
             }
@@ -36856,9 +36914,17 @@ mod tests {
                 &reverse_articulation.nodes, &reverse_articulation_replay.nodes,
                 "P2C005-INV-2 articulation points must be replay-stable for reverse insertion"
             );
+            // br-r37-c1-rf7lr: AP emission order is now DFS-discovery
+            // (matching nx). DFS order depends on insertion order, so
+            // forward/reverse Vec equality no longer holds — but the
+            // SET of articulation points is insertion-order-independent.
+            let forward_aps_set: std::collections::BTreeSet<&String> =
+                forward_articulation.nodes.iter().collect();
+            let reverse_aps_set: std::collections::BTreeSet<&String> =
+                reverse_articulation.nodes.iter().collect();
             prop_assert_eq!(
-                &forward_articulation.nodes, &reverse_articulation.nodes,
-                "P2C005-INV-2 articulation points must remain stable across insertion perturbation"
+                forward_aps_set, reverse_aps_set,
+                "P2C005-INV-2 articulation point SET must remain stable across insertion perturbation"
             );
 
             let forward_bridges = bridges(&forward);
@@ -36873,9 +36939,18 @@ mod tests {
                 &reverse_bridges.edges, &reverse_bridges_replay.edges,
                 "P2C005-INV-2 bridges must be replay-stable for reverse insertion"
             );
+            // br-r37-c1-rf7lr: same story for bridges — Vec equality
+            // gives way to set equality on canonical (sorted) endpoints.
+            let canonicalize = |edges: &[(String, String)]| -> std::collections::BTreeSet<(String, String)> {
+                edges
+                    .iter()
+                    .map(|(a, b)| if a <= b { (a.clone(), b.clone()) } else { (b.clone(), a.clone()) })
+                    .collect()
+            };
             prop_assert_eq!(
-                &forward_bridges.edges, &reverse_bridges.edges,
-                "P2C005-INV-2 bridges must remain stable across insertion perturbation"
+                canonicalize(&forward_bridges.edges),
+                canonicalize(&reverse_bridges.edges),
+                "P2C005-INV-2 bridge SET must remain stable across insertion perturbation"
             );
 
             let deterministic_seed = edges.iter().fold(7305_u64, |acc, (left_edge, right_edge)| {

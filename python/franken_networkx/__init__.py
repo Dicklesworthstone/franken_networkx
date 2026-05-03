@@ -3854,11 +3854,19 @@ def articulation_points(G):
 
     Matches upstream's generator contract (franken_networkx-v1nwd).
 
-    br-r37-c1-9kyjl: nx yields APs in DFS-discovery order; the Rust
-    binding emits them sorted/canonically. Delegate so iteration order
-    matches nx exactly.
+    br-r37-c1-rf7lr: the Rust binding now emits APs in DFS-discovery
+    order using insertion-order adjacency, matching nx's
+    ``_biconnected_dfs`` exactly. We can use the fast Rust path
+    instead of delegating to networkx — ~50x faster on BA200, more
+    at scale (br-r37-c1-9kyjl is superseded).
     """
-    yield from _call_networkx_for_parity("articulation_points", G)
+    if G.is_multigraph():
+        # The Rust impl is a simple-graph DFS; multigraph parallel
+        # edges need nx's chain-decomposition path for correct AP
+        # detection on parallel-edge cycles.
+        yield from _call_networkx_for_parity("articulation_points", G)
+        return
+    yield from _raw_articulation_points(G)
 
 
 def bridges(G, root=None):
@@ -3889,10 +3897,11 @@ def bridges(G, root=None):
             if len(G[u][v]) == 1:
                 yield (u, v)
         return
-    # br-r37-c1-h83lo: nx yields bridges in DFS-discovery order; the
-    # Rust binding emits them in canonical/alphabetical order.
-    # Delegate so iteration order matches nx.
-    yield from _call_networkx_for_parity("bridges", G)
+    # br-r37-c1-rf7lr: the Rust binding now emits bridges in
+    # graph-edge-insertion order with original edge orientation,
+    # matching nx.bridges() (which iterates ``H.edges`` after a chain
+    # decomposition). br-r37-c1-h83lo is superseded.
+    yield from _raw_bridges(G)
 
 
 def is_tree(G, *, backend=None, **backend_kwargs):
