@@ -139,16 +139,23 @@ def test_topological_generations_partition_nodes(name, builder):
 def test_all_topological_sorts_validity(name, builder):
     g = builder()
     sorts = fnx.all_topological_sorts(g)
+    seen_any = False
     # Bound iteration to keep tests fast on graphs with many sorts.
     for i, order in enumerate(sorts):
+        seen_any = True
         if i >= 50:
             break
         position = {n: idx for idx, n in enumerate(order)}
+        assert set(position) == set(g.nodes()), (
+            f"{name}: all_topological_sorts emitted order {order} "
+            f"that does not cover every node"
+        )
         for u, v in g.edges():
             assert position[u] < position[v], (
                 f"{name}: all_topological_sorts emitted order {order} "
                 f"that violates edge {u} → {v}"
             )
+    assert seen_any, f"{name}: all_topological_sorts emitted no orders"
 
 
 # -----------------------------------------------------------------------------

@@ -140,14 +140,20 @@ def test_bipartite_2coloring_is_proper(name, builder, top_nodes):
     if not fnx.is_bipartite(g):
         return
     coloring = bp.color(g)
+    assert set(coloring) == set(g.nodes()), (
+        f"{name}: bipartite color omitted nodes "
+        f"{set(g.nodes()) - set(coloring)}"
+    )
+    assert set(coloring.values()) <= {0, 1}, (
+        f"{name}: bipartite color returned non-0/1 colors "
+        f"{set(coloring.values())}"
+    )
     # Adjacent nodes must have different colors.
     for u, v in g.edges():
         if u == v:
             continue
         cu = coloring.get(u)
         cv = coloring.get(v)
-        if cu is None or cv is None:
-            continue
         assert cu != cv, (
             f"{name}: bipartite color assigned {cu} to both adjacent "
             f"nodes {u} and {v}"
