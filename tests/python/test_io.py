@@ -167,6 +167,43 @@ class TestAdjlistIO:
         assert H.number_of_nodes() == 3
         assert H.number_of_edges() == 3
 
+    def test_write_adjlist_default_uses_rust_fast_path(self, monkeypatch, triangle):
+        def fail_delegate(*args, **kwargs):
+            raise AssertionError("default write_adjlist should use Rust fast path")
+
+        monkeypatch.setattr(fnx, "_write_adjlist_via_nx", fail_delegate)
+        buffer = io.BytesIO()
+        fnx.write_adjlist(triangle, buffer)
+        buffer.seek(0)
+        H = fnx.read_adjlist(buffer)
+        assert H.number_of_nodes() == 3
+        assert H.number_of_edges() == 3
+
+    def test_write_adjlist_non_default_kwargs_stay_delegated(self, monkeypatch, triangle):
+        observed = {}
+
+        def fake_delegate(G, path, *, comments="#", delimiter=" ", encoding="utf-8"):
+            observed.update(
+                {
+                    "graph": G,
+                    "comments": comments,
+                    "delimiter": delimiter,
+                    "encoding": encoding,
+                }
+            )
+            path.write(b"delegated\n")
+
+        monkeypatch.setattr(fnx, "_write_adjlist_via_nx", fake_delegate)
+        buffer = io.BytesIO()
+        fnx.write_adjlist(triangle, buffer, delimiter="|")
+        assert buffer.getvalue() == b"delegated\n"
+        assert observed == {
+            "graph": triangle,
+            "comments": "#",
+            "delimiter": "|",
+            "encoding": "utf-8",
+        }
+
 
 # ---------------------------------------------------------------------------
 # read/write_graphml

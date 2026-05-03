@@ -7028,10 +7028,8 @@ def all_pairs_shortest_path_length(G, cutoff=None, *, backend=None, **backend_kw
     lengths = _raw_all_pairs_shortest_path_length(G, cutoff)
     for source in G:
         if source in lengths:
-            inner = lengths[source]
-            # br-r37-c1-5ur50: BFS-visit-from-source order matching nx.
-            ordered = {n: inner[n] for n in _bfs_visit_order(G, source) if n in inner}
-            yield source, ordered
+            # The Rust binding inserts each inner dict in BFS-visit order.
+            yield source, lengths[source]
 
 # Algorithm functions — graph predicates & utilities
 from franken_networkx._fnx import (
@@ -11465,11 +11463,16 @@ def read_adjlist(
 def write_adjlist(G, path, comments="#", delimiter=" ", encoding="utf-8"):
     """Write a graph as an adjacency list.
 
-    Delegates to NetworkX's writer (br-wadjlk) so non-default kwargs
-    are honoured. The Rust-native writer raised
-    NetworkXNotImplemented on any non-default value despite advertising
-    those kwargs in its signature.
+    Uses the Rust-native writer for the default simple-graph surface and
+    delegates to NetworkX for multigraphs or non-default formatting kwargs.
     """
+    if (
+        comments == "#"
+        and delimiter == " "
+        and encoding == "utf-8"
+        and not G.is_multigraph()
+    ):
+        return _rust_write_adjlist(G, path)
     return _write_adjlist_via_nx(
         G, path, comments=comments, delimiter=delimiter, encoding=encoding
     )
