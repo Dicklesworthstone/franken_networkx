@@ -4037,19 +4037,70 @@ pub fn edge_connectivity_edmonds_karp_directed(
     })
 }
 
+fn minimum_undirected_degree(graph: &Graph) -> f64 {
+    graph
+        .nodes_ordered()
+        .into_iter()
+        .map(|node| {
+            graph
+                .neighbors_iter(node)
+                .map(|neighbors| neighbors.filter(|neighbor| *neighbor != node).count())
+                .unwrap_or(0)
+        })
+        .min()
+        .unwrap_or(0) as f64
+}
+
+fn edge_connectivity_dominating_set(graph: &Graph, start: &str) -> Vec<String> {
+    let mut dominating = Vec::<String>::new();
+    let mut dominating_set = HashSet::<String>::new();
+    let mut remaining = BTreeSet::<String>::new();
+
+    for node in graph.nodes_ordered() {
+        remaining.insert(node.to_owned());
+    }
+
+    dominating.push(start.to_owned());
+    dominating_set.insert(start.to_owned());
+    remaining.remove(start);
+
+    if let Some(neighbors) = graph.neighbors_iter(start) {
+        for neighbor in neighbors {
+            remaining.remove(neighbor);
+        }
+    }
+
+    while let Some(node) = remaining.pop_first() {
+        dominating.push(node.clone());
+        dominating_set.insert(node.clone());
+
+        let Some(neighbors) = graph.neighbors_iter(&node) else {
+            continue;
+        };
+        let undominated_neighbors = neighbors
+            .filter(|neighbor| !dominating_set.contains(*neighbor))
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+        for neighbor in undominated_neighbors {
+            remaining.remove(&neighbor);
+        }
+    }
+
+    dominating
+}
+
 #[must_use]
 pub fn global_edge_connectivity_edmonds_karp(
     graph: &Graph,
     capacity_attr: &str,
 ) -> EdgeConnectivityResult {
-    let mut nodes = graph.nodes_ordered();
-    nodes.sort_unstable();
+    let nodes = graph.nodes_ordered();
     if nodes.len() < 2 {
         return EdgeConnectivityResult {
             value: 0.0,
             witness: ComplexityWitness {
                 algorithm: "edmonds_karp_global_edge_connectivity".to_owned(),
-                complexity_claim: "O(|V|^3 * |E|^2)".to_owned(),
+                complexity_claim: "O(|D| * |V| * |E|^2)".to_owned(),
                 nodes_touched: graph.node_count(),
                 edges_scanned: 0,
                 queue_peak: 0,
@@ -4057,23 +4108,68 @@ pub fn global_edge_connectivity_edmonds_karp(
         };
     }
 
-    let mut best_value = f64::INFINITY;
-    let mut nodes_touched = 0usize;
-    let mut edges_scanned = 0usize;
-    let mut queue_peak = 0usize;
+    let connected = is_connected(graph);
+    let mut nodes_touched = connected.witness.nodes_touched;
+    let mut edges_scanned = connected.witness.edges_scanned;
+    let mut queue_peak = connected.witness.queue_peak;
+    if !connected.is_connected {
+        return EdgeConnectivityResult {
+            value: 0.0,
+            witness: ComplexityWitness {
+                algorithm: "edmonds_karp_global_edge_connectivity".to_owned(),
+                complexity_claim: "O(|D| * |V| * |E|^2)".to_owned(),
+                nodes_touched,
+                edges_scanned,
+                queue_peak,
+            },
+        };
+    }
 
-    'pairs: for (left_index, left) in nodes.iter().enumerate() {
-        for right in nodes.iter().skip(left_index + 1) {
-            // These nodes come from the graph itself, so they MUST exist.
-            let cut = minimum_cut_edmonds_karp(graph, left, right, capacity_attr)
-                .expect("nodes should exist in graph");
-            best_value = best_value.min(cut.value);
-            nodes_touched += cut.witness.nodes_touched;
-            edges_scanned += cut.witness.edges_scanned;
-            queue_peak = queue_peak.max(cut.witness.queue_peak);
-            if best_value <= 0.0 {
-                break 'pairs;
-            }
+    let mut best_value = minimum_undirected_degree(graph);
+    let mut dominating = Vec::<String>::new();
+    for node in &nodes {
+        dominating = edge_connectivity_dominating_set(graph, node);
+        if dominating.len() > 1 {
+            break;
+        }
+    }
+
+    let Some(source) = dominating.pop() else {
+        return EdgeConnectivityResult {
+            value: best_value,
+            witness: ComplexityWitness {
+                algorithm: "edmonds_karp_global_edge_connectivity".to_owned(),
+                complexity_claim: "O(|D| * |V| * |E|^2)".to_owned(),
+                nodes_touched,
+                edges_scanned,
+                queue_peak,
+            },
+        };
+    };
+
+    if dominating.is_empty() {
+        return EdgeConnectivityResult {
+            value: best_value,
+            witness: ComplexityWitness {
+                algorithm: "edmonds_karp_global_edge_connectivity".to_owned(),
+                complexity_claim: "O(|D| * |V| * |E|^2)".to_owned(),
+                nodes_touched,
+                edges_scanned,
+                queue_peak,
+            },
+        };
+    }
+
+    for target in dominating {
+        // These nodes come from the graph itself, so they MUST exist.
+        let cut = minimum_cut_edmonds_karp(graph, &source, &target, capacity_attr)
+            .expect("nodes should exist in graph");
+        best_value = best_value.min(cut.value);
+        nodes_touched += cut.witness.nodes_touched;
+        edges_scanned += cut.witness.edges_scanned;
+        queue_peak = queue_peak.max(cut.witness.queue_peak);
+        if best_value <= 0.0 {
+            break;
         }
     }
 
@@ -4085,7 +4181,7 @@ pub fn global_edge_connectivity_edmonds_karp(
         },
         witness: ComplexityWitness {
             algorithm: "edmonds_karp_global_edge_connectivity".to_owned(),
-            complexity_claim: "O(|V|^3 * |E|^2)".to_owned(),
+            complexity_claim: "O(|D| * |V| * |E|^2)".to_owned(),
             nodes_touched,
             edges_scanned,
             queue_peak,
@@ -33865,6 +33961,25 @@ mod tests {
 
         let result = global_edge_connectivity_edmonds_karp(&graph, "capacity");
         assert!((result.value - 2.0).abs() <= TEST_TOLERANCE);
+    }
+
+    #[test]
+    fn global_edge_connectivity_edmonds_karp_complete_graph_returns_min_degree_without_pair_sweep()
+    {
+        let mut graph = Graph::strict();
+        let nodes = ["0", "1", "2", "3", "4", "5", "6", "7"];
+        for (left_index, left) in nodes.iter().enumerate() {
+            for right in nodes.iter().skip(left_index + 1) {
+                graph
+                    .add_edge(*left, *right)
+                    .expect("edge add should succeed");
+            }
+        }
+
+        let result = global_edge_connectivity_edmonds_karp(&graph, "capacity");
+        assert!((result.value - 7.0).abs() <= TEST_TOLERANCE);
+        assert_eq!(result.witness.complexity_claim, "O(|D| * |V| * |E|^2)");
+        assert_eq!(result.witness.edges_scanned, 56);
     }
 
     #[test]
