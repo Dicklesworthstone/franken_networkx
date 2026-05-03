@@ -261,6 +261,23 @@ def test_small_world_generators_match_networkx_for_seeded_random_cases():
     )
 
 
+def test_seeded_watts_strogatz_uses_native_fast_path(monkeypatch):
+    calls = []
+    raw_watts_strogatz_graph = fnx._rust_watts_strogatz_graph
+
+    def spy(n, k, p, seed):
+        calls.append((n, k, p, seed))
+        return raw_watts_strogatz_graph(n, k, p, seed)
+
+    monkeypatch.setattr(fnx, "_rust_watts_strogatz_graph", spy)
+
+    graph = fnx.watts_strogatz_graph(12, 4, 0.2, seed=42)
+
+    assert calls == [(12, 4, 0.2, 42)]
+    expected = nx.watts_strogatz_graph(12, 4, 0.2, seed=42)
+    assert _graph_signature(graph) == _graph_signature(expected)
+
+
 def test_small_world_generators_reject_incompatible_create_using():
     factories = (
         lambda create_using: fnx.watts_strogatz_graph(12, 4, 0.2, seed=42, create_using=create_using),

@@ -14967,11 +14967,37 @@ def erdos_renyi_graph(n, p, seed=None, directed=False, *, create_using=None, bac
     )
 
 
+def _seeded_watts_strogatz_rust_args(n, k, p, seed, create_using):
+    if (
+        create_using is None
+        and seed is not None
+        and isinstance(seed, numbers.Integral)
+        and not isinstance(seed, bool)
+        and isinstance(n, numbers.Integral)
+        and not isinstance(n, bool)
+        and isinstance(k, numbers.Integral)
+        and not isinstance(k, bool)
+    ):
+        try:
+            n_int = int(n)
+            k_int = int(k)
+            p_float = float(p)
+        except (TypeError, ValueError):
+            return None
+        if n_int >= 0 and 2 <= k_int < n_int and 0.0 <= p_float <= 1.0:
+            return n_int, k_int, p_float, int(seed)
+    return None
+
+
 def watts_strogatz_graph(n, k, p, seed=None, *, create_using=None, backend=None, **backend_kwargs):
     """Return a Watts-Strogatz small-world graph."""
     if backend is not None and backend != "networkx":
         raise ImportError(f"'{backend}' backend is not installed.")
     del backend_kwargs  # in-tree implementation ignores backend kwargs
+    rust_args = _seeded_watts_strogatz_rust_args(n, k, p, seed, create_using)
+    if rust_args is not None:
+        return _rust_watts_strogatz_graph(*rust_args)
+
     graph = _checked_create_using(
         create_using,
         directed=False,
