@@ -2186,29 +2186,12 @@ def _directed_reverse_with_copy_kwarg(cls):
         edges are flipped. copy=False returns a frozen live reverse_view
         (matches upstream nx).
 
-        br-r37-c1-3lqi6: the Rust binding's reverse() copy traversed
-        internal adjacency in a different order than nx, producing a
-        graph whose ``edges()`` and per-node ``adj`` iteration drifted.
-        nx's reverse(copy=True) iterates source nodes in node-insertion
-        order and inserts (v, u, data) edges in that traversal — so the
-        reversed graph's adj[v] gets u's appended in original edge-
-        insertion order. Mirror that behaviour by walking the source's
-        nodes/edges directly.
+        br-r37-c1-0c6wz: the raw Rust reverse path now preserves nx's
+        node and edge iteration contract, so copy=True can stay on the
+        native O(V+E) path instead of rebuilding through Python add_edge.
         """
         if copy:
-            H = self.__class__()
-            H.add_nodes_from(self.nodes(data=True))
-            if self.is_multigraph():
-                H.add_edges_from(
-                    (v, u, k, dict(data))
-                    for u, v, k, data in self.edges(keys=True, data=True)
-                )
-            else:
-                H.add_edges_from(
-                    (v, u, dict(data)) for u, v, data in self.edges(data=True)
-                )
-            H.graph.update(self.graph)
-            return H
+            return raw(self)
         # Live reversed view — matches nx.DiGraph.reverse(copy=False).
         return reverse_view(self)
 

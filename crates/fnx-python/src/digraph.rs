@@ -1236,7 +1236,7 @@ impl PyMultiDiGraph {
             edge_py_keys: HashMap::new(),
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
         };
-        for (canonical, py_key) in &self.node_key_map {
+        for canonical in self.inner.nodes_ordered() {
             let rust_attrs = self
                 .node_py_attrs
                 .get(canonical)
@@ -1245,28 +1245,41 @@ impl PyMultiDiGraph {
                 .unwrap_or_default();
             new_graph
                 .inner
-                .add_node_with_attrs(canonical.clone(), rust_attrs);
+                .add_node_with_attrs(canonical.to_owned(), rust_attrs);
             new_graph
                 .node_key_map
-                .insert(canonical.clone(), py_key.clone_ref(py));
+                .insert(canonical.to_owned(), self.py_node_key(py, canonical));
             if let Some(attrs) = self.node_py_attrs.get(canonical) {
                 new_graph
                     .node_py_attrs
-                    .insert(canonical.clone(), attrs.bind(py).copy()?.unbind());
+                    .insert(canonical.to_owned(), attrs.bind(py).copy()?.unbind());
             }
         }
-        // Reverse all edges
-        for ((u, v, key), attrs) in &self.edge_py_attrs {
-            let rust_attrs = crate::py_dict_to_attr_map(attrs.bind(py))?;
-            let _ =
-                new_graph
-                    .inner
-                    .add_edge_with_key_and_attrs(v.clone(), u.clone(), *key, rust_attrs);
-            new_graph.edge_py_attrs.insert(
-                (v.clone(), u.clone(), *key),
-                attrs.bind(py).copy()?.unbind(),
-            );
-            new_graph.remember_edge_key_object(py, v, u, *key, &self.py_edge_key(py, u, v, *key));
+        // Reverse in source graph edge-iteration order to match NetworkX.
+        for edge in self.inner.edges_ordered() {
+            let u = &edge.source;
+            let v = &edge.target;
+            let key = edge.key;
+            let edge_key = Self::edge_key(u, v, key);
+            let rust_attrs = if let Some(attrs) = self.edge_py_attrs.get(&edge_key) {
+                crate::py_dict_to_attr_map(attrs.bind(py))?
+            } else {
+                edge.attrs.clone()
+            };
+            let new_key = new_graph
+                .inner
+                .add_edge_with_key_and_attrs(v.clone(), u.clone(), key, rust_attrs)
+                .map_err(|e| NetworkXError::new_err(e.to_string()))?;
+            let copied_attrs = if let Some(attrs) = self.edge_py_attrs.get(&edge_key) {
+                attrs.bind(py).copy()?.unbind()
+            } else {
+                PyDict::new(py).unbind()
+            };
+            new_graph
+                .edge_py_attrs
+                .insert((v.clone(), u.clone(), new_key), copied_attrs);
+            let py_key = self.py_edge_key(py, u, v, key);
+            new_graph.remember_edge_key_object(py, v, u, new_key, &py_key);
         }
         Ok(new_graph)
     }
@@ -2501,30 +2514,43 @@ impl PyDiGraph {
             edge_py_attrs: HashMap::new(),
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
         };
-        // Copy nodes.
-        for (canonical, py_key) in &self.node_key_map {
+        // Copy nodes in graph insertion order to preserve NetworkX iteration.
+        for canonical in self.inner.nodes_ordered() {
             let rust_attrs = self
                 .node_py_attrs
                 .get(canonical)
                 .map(|attrs| py_dict_to_attr_map(attrs.bind(py)))
                 .transpose()?
                 .unwrap_or_default();
-            rev.inner.add_node_with_attrs(canonical.clone(), rust_attrs);
+            rev.inner
+                .add_node_with_attrs(canonical.to_owned(), rust_attrs);
             rev.node_key_map
-                .insert(canonical.clone(), py_key.clone_ref(py));
+                .insert(canonical.to_owned(), self.py_node_key(py, canonical));
             if let Some(attrs) = self.node_py_attrs.get(canonical) {
                 rev.node_py_attrs
-                    .insert(canonical.clone(), attrs.bind(py).copy()?.unbind());
+                    .insert(canonical.to_owned(), attrs.bind(py).copy()?.unbind());
             }
         }
-        // Reverse edges: (u, v) -> (v, u).
-        for ((u, v), attrs) in &self.edge_py_attrs {
-            let rust_attrs = py_dict_to_attr_map(attrs.bind(py))?;
+        // Reverse edges in source graph edge-iteration order.
+        for edge in self.inner.edges_ordered() {
+            let u = &edge.left;
+            let v = &edge.right;
+            let edge_key = Self::edge_key(u, v);
+            let rust_attrs = if let Some(attrs) = self.edge_py_attrs.get(&edge_key) {
+                py_dict_to_attr_map(attrs.bind(py))?
+            } else {
+                edge.attrs.clone()
+            };
             let _ = rev
                 .inner
                 .add_edge_with_attrs(v.clone(), u.clone(), rust_attrs);
+            let copied_attrs = if let Some(attrs) = self.edge_py_attrs.get(&edge_key) {
+                attrs.bind(py).copy()?.unbind()
+            } else {
+                PyDict::new(py).unbind()
+            };
             rev.edge_py_attrs
-                .insert((v.clone(), u.clone()), attrs.bind(py).copy()?.unbind());
+                .insert((v.clone(), u.clone()), copied_attrs);
         }
         Ok(rev)
     }
@@ -4056,6 +4082,78 @@ mod tests {
             let reversed = graph.reverse(py).expect("reverse should succeed");
 
             assert_eq!(reversed.inner.runtime_policy(), &expected_policy);
+        });
+    }
+
+    #[test]
+    fn digraph_reverse_preserves_networkx_edge_iteration_order() {
+        ensure_python();
+        Python::attach(|py| {
+            let mut graph = PyDiGraph::new_empty_with_policy(py, RuntimePolicy::default())
+                .expect("digraph should initialize");
+            for (left, right) in [("c", "d"), ("a", "b"), ("b", "c"), ("d", "a"), ("c", "a")] {
+                graph
+                    .inner
+                    .add_edge(left.to_owned(), right.to_owned())
+                    .expect("edge add should succeed");
+            }
+
+            let reversed = graph.reverse(py).expect("reverse should succeed");
+            let edges = reversed
+                .inner
+                .edges_ordered()
+                .into_iter()
+                .map(|edge| (edge.left, edge.right))
+                .collect::<Vec<_>>();
+
+            assert_eq!(
+                edges,
+                vec![
+                    ("c".to_owned(), "b".to_owned()),
+                    ("d".to_owned(), "c".to_owned()),
+                    ("a".to_owned(), "c".to_owned()),
+                    ("a".to_owned(), "d".to_owned()),
+                    ("b".to_owned(), "a".to_owned()),
+                ]
+            );
+        });
+    }
+
+    #[test]
+    fn multidigraph_reverse_preserves_networkx_edge_key_order() {
+        ensure_python();
+        Python::attach(|py| {
+            let mut graph = PyMultiDiGraph::new_empty_with_policy(py, RuntimePolicy::default())
+                .expect("multidigraph should initialize");
+            graph
+                .inner
+                .add_edge("a".to_owned(), "b".to_owned())
+                .expect("edge add should succeed");
+            graph
+                .inner
+                .add_edge("a".to_owned(), "b".to_owned())
+                .expect("edge add should succeed");
+            graph
+                .inner
+                .add_edge("b".to_owned(), "c".to_owned())
+                .expect("edge add should succeed");
+
+            let reversed = graph.reverse(py).expect("reverse should succeed");
+            let edges = reversed
+                .inner
+                .edges_ordered()
+                .into_iter()
+                .map(|edge| (edge.source, edge.target, edge.key))
+                .collect::<Vec<_>>();
+
+            assert_eq!(
+                edges,
+                vec![
+                    ("b".to_owned(), "a".to_owned(), 0),
+                    ("b".to_owned(), "a".to_owned(), 1),
+                    ("c".to_owned(), "b".to_owned(), 0),
+                ]
+            );
         });
     }
 

@@ -1,6 +1,6 @@
 """Parity for ``reverse`` / ``DiGraph.reverse`` edge + adj iteration.
 
-Bead br-r37-c1-3lqi6. The Rust binding's reverse() copy traversed
+Bead br-r37-c1-3lqi6 / br-r37-c1-0c6wz. The Rust binding's reverse() copy traversed
 internal adjacency in a different order than nx, producing a graph
 whose ``edges()`` and per-node ``adj`` iteration drifted from nx.
 
