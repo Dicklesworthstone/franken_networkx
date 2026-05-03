@@ -146,6 +146,10 @@ def test_all_topological_sorts_validity(name, builder):
         if i >= 50:
             break
         position = {n: idx for idx, n in enumerate(order)}
+        assert len(order) == g.number_of_nodes(), (
+            f"{name}: all_topological_sorts emitted order {order} "
+            f"with length {len(order)} != |V| = {g.number_of_nodes()}"
+        )
         assert set(position) == set(g.nodes()), (
             f"{name}: all_topological_sorts emitted order {order} "
             f"that does not cover every node"
