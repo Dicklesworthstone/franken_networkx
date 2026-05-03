@@ -3374,9 +3374,32 @@ def _path_query_has_missing_nodes(G, source=None, target=None):
     )
 
 
+try:
+    from franken_networkx._fnx import (
+        graph_has_negative_edge_weight as _native_has_negative_edge_weight,
+    )
+except ImportError:  # pragma: no cover — defensive for partial builds
+    _native_has_negative_edge_weight = None
+
+
 def _has_negative_edge_weight_for_dijkstra(G, weight):
     if not isinstance(weight, str):
         return False
+
+    # br-r37-c1-644fx: route the scan through a native O(|E|) Rust
+    # helper for simple Graph/DiGraph (the common dispatcher hot path).
+    # The previous Python iteration over G.edges() cost ~50 ms on
+    # BA5000 — it dominated dijkstra_path wall time even though the
+    # Rust algorithm itself is faster than nx. The native helper
+    # returns None for multigraphs; fall back to the Python scan in
+    # that case so multi-edge attrs are inspected correctly.
+    if _native_has_negative_edge_weight is not None and not G.is_multigraph():
+        try:
+            native = _native_has_negative_edge_weight(G, weight)
+        except Exception:
+            native = None
+        if native is not None:
+            return bool(native)
 
     if G.is_multigraph():
         edge_iter = G.edges(keys=True, data=True)
@@ -11586,11 +11609,10 @@ def write_gml(G, path, stringizer=None):
     """Write a graph in GML format.
 
     Delegates to NetworkX's writer (br-wgmldr) when ``stringizer`` is
-    supplied or when the graph is undirected (so we don't emit a
-    spurious 'directed 0' field). Falls back to the Rust fast path for
-    the common directed-graph / no-stringizer case.
+    supplied or the graph is a multigraph. Falls back to the Rust fast path
+    for the common simple-graph / no-stringizer case.
     """
-    if stringizer is not None or not G.is_directed():
+    if stringizer is not None or G.is_multigraph():
         return _write_gml_via_nx(G, path, stringizer=stringizer)
     return _rust_write_gml(G, path)
 

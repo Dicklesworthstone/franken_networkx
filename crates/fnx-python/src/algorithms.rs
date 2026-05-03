@@ -1924,8 +1924,42 @@ pub fn average_shortest_path_length(
 }
 
 // ---------------------------------------------------------------------------
-// dijkstra_path
+// dijkstra_path / negative-weight pre-check
 // ---------------------------------------------------------------------------
+
+/// Native O(|E|) scan for any negative finite edge weight under
+/// ``weight_attr``. Used by the Python ``dijkstra_path`` /
+/// ``bellman_ford`` dispatcher (br-r37-c1-644fx) to avoid a slow
+/// per-edge Python iteration when deciding whether to delegate to nx
+/// for the negative-weight case.
+///
+/// Returns ``Ok(None)`` for multigraph inputs — the caller falls back
+/// to the Python path for those.
+#[pyfunction]
+#[pyo3(signature = (g, weight_attr))]
+pub fn graph_has_negative_edge_weight(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    weight_attr: &str,
+) -> PyResult<Option<bool>> {
+    let gr = extract_graph(g)?;
+    let result = match &gr {
+        GraphRef::Undirected(pg) => {
+            let inner = &pg.inner;
+            Some(py.allow_threads(|| {
+                fnx_algorithms::graph_has_negative_edge_weight(inner, weight_attr)
+            }))
+        }
+        GraphRef::Directed { dg, .. } => {
+            let inner = &dg.inner;
+            Some(py.allow_threads(|| {
+                fnx_algorithms::digraph_has_negative_edge_weight(inner, weight_attr)
+            }))
+        }
+        GraphRef::MultiUndirected { .. } | GraphRef::MultiDirected { .. } => None,
+    };
+    Ok(result)
+}
 
 #[pyfunction]
 #[pyo3(signature = (g, source, target, weight="weight"))]
@@ -13739,6 +13773,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(has_path, m)?)?;
     m.add_function(wrap_pyfunction!(average_shortest_path_length, m)?)?;
     m.add_function(wrap_pyfunction!(dijkstra_path, m)?)?;
+    m.add_function(wrap_pyfunction!(graph_has_negative_edge_weight, m)?)?;
     m.add_function(wrap_pyfunction!(bellman_ford_path, m)?)?;
     m.add_function(wrap_pyfunction!(multi_source_dijkstra, m)?)?;
     // Connectivity

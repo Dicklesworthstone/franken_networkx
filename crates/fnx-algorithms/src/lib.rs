@@ -5246,6 +5246,43 @@ fn signed_edge_weight_or_default(graph: &Graph, left: &str, right: &str, weight_
         .unwrap_or(1.0)
 }
 
+/// Return ``true`` if any edge in ``graph`` carries a finite negative
+/// value at ``weight_attr``. Missing or non-finite values are skipped
+/// (treated as the unweighted default).
+///
+/// Wraps a fast O(|E|) Rust scan so the Python dijkstra dispatcher
+/// (br-r37-c1-644fx) can decide whether to delegate to the nx
+/// pure-Python path without paying ~50 ms of Python edge-iteration
+/// overhead on BA5000.
+#[must_use]
+pub fn graph_has_negative_edge_weight(graph: &Graph, weight_attr: &str) -> bool {
+    for (left, right, attrs) in graph.edges_ordered_borrowed() {
+        // edges_ordered_borrowed yields each undirected edge once;
+        // checking the attrs map directly avoids a second hash lookup.
+        let _ = (left, right);
+        if let Some(value) = attrs.get(weight_attr).and_then(|v| v.as_f64()) {
+            if value.is_finite() && value < 0.0 {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// Like [`graph_has_negative_edge_weight`] but for `DiGraph`.
+#[must_use]
+pub fn digraph_has_negative_edge_weight(digraph: &DiGraph, weight_attr: &str) -> bool {
+    for (source, target, attrs) in digraph.edges_ordered_borrowed() {
+        let _ = (source, target);
+        if let Some(value) = attrs.get(weight_attr).and_then(|v| v.as_f64()) {
+            if value.is_finite() && value < 0.0 {
+                return true;
+            }
+        }
+    }
+    false
+}
+
 fn matching_edge_weight_or_default(
     graph: &Graph,
     left: &str,
