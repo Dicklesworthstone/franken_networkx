@@ -13277,8 +13277,18 @@ def katz_centrality(
             normalized=normalized,
             weight=weight,
         )
-    # Use fast Rust implementation for standard case
-    return _raw_katz_centrality(G)
+    # Use fast Rust implementation for standard case.
+    # br-r37-c1-hc209: the binary install can lag behind the source change in
+    # crates/fnx-python/src/algorithms.rs that passes ``err.iterations`` (int)
+    # into ``PowerIterationFailedConvergence::new_err``. Older binaries
+    # passed a pre-formatted message string, which nx's exception class then
+    # double-formats. Catch and re-raise with the canonical helper so str(exc)
+    # / args parity holds regardless of binary state.
+    try:
+        return _raw_katz_centrality(G)
+    except PowerIterationFailedConvergence as exc:
+        # Rust's max_iter is the same default as the Python wrapper.
+        raise _make_power_iteration_failed_convergence(max_iter) from exc.__cause__
 
 
 def _make_power_iteration_failed_convergence(max_iter):
