@@ -141,6 +141,25 @@ def test_clustering_emits_int_zero_for_triangle_free_nodes(builder):
 
 
 @pytest.mark.parametrize(
+    "edges",
+    [
+        [("c", "d"), ("a", "b"), ("b", "c"), ("d", "e"), ("a", "c")],
+        [(0, 1), (1, 2), (2, 0), (2, 3), (3, 4), (4, 2)],
+    ],
+    ids=["insertion_ordered", "two_triangles"],
+)
+def test_average_clustering_exact_float_matches_nx_summation(edges):
+    """average_clustering must use nx's public summation order exactly."""
+    G_nx = nx.Graph()
+    G_fnx = fnx.Graph()
+    G_nx.add_edges_from(edges)
+    G_fnx.add_edges_from(edges)
+
+    assert fnx.clustering(G_fnx) == nx.clustering(G_nx)
+    assert fnx.average_clustering(G_fnx) == nx.average_clustering(G_nx)
+
+
+@pytest.mark.parametrize(
     "nx_cls,fnx_cls",
     [
         (nx.Graph, fnx.Graph),
