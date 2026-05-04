@@ -26,6 +26,18 @@ GOLDEN_PATH = GOLDEN_DIR / "review_mode_algorithms.json"
 NUMERIC_FORMAT = ".15g"
 
 
+def _directed_cycle5():
+    G = fnx.DiGraph()
+    G.add_edges_from([(i, (i + 1) % 5) for i in range(5)])
+    return G
+
+
+def _directed_cycle5_with_chord():
+    G = fnx.DiGraph()
+    G.add_edges_from([(i, (i + 1) % 5) for i in range(5)] + [(0, 2)])
+    return G
+
+
 GRAPH_FACTORIES = (
     ("karate", "karate_club_graph", fnx.karate_club_graph),
     ("florentine", "florentine_families_graph", fnx.florentine_families_graph),
@@ -33,6 +45,10 @@ GRAPH_FACTORIES = (
     ("cycle6", "cycle_graph(6)", lambda: fnx.cycle_graph(6)),
     ("k4", "complete_graph(4)", lambda: fnx.complete_graph(4)),
     ("k33", "complete_bipartite_graph(3,3)", lambda: fnx.complete_bipartite_graph(3, 3)),
+    # br-r37-c1-{89n9d,wojl3,e04a1}: lock the directed distance-metric
+    # fix surface against future regressions.
+    ("dicycle5", "DiGraph cycle5", _directed_cycle5),
+    ("dicycle5+chord", "DiGraph cycle5+(0,2) chord", _directed_cycle5_with_chord),
 )
 
 
@@ -95,6 +111,7 @@ def _norm_find_cliques(cliques):
 def _algorithms_for(graph):
     """Return canonicalized outputs for each REVIEW MODE-touched algo
     on the given graph."""
+    is_directed = graph.is_directed()
     payload = {
         "transitivity": _norm_number(fnx.transitivity(graph)),
         "wiener_index": _norm_number(fnx.wiener_index(graph)),
@@ -102,13 +119,24 @@ def _algorithms_for(graph):
         "harmonic_centrality": _norm_dict_centrality(fnx.harmonic_centrality(graph)),
         "degree_centrality": _norm_dict_centrality(fnx.degree_centrality(graph)),
         "clustering": _norm_dict_centrality(fnx.clustering(graph)),
-        "triangles": _norm_dict_centrality(fnx.triangles(graph)),
-        "connected_components": _norm_components(fnx.connected_components(graph)),
-        "cycle_basis": _norm_cycle_basis(fnx.cycle_basis(graph)),
-        "find_cliques": _norm_find_cliques(fnx.find_cliques(graph)),
+        "triangles": _norm_dict_centrality(fnx.triangles(graph)) if not is_directed else None,
+        # br-r37-c1-89n9d, br-r37-c1-wojl3, br-r37-c1-e04a1: lock the
+        # directed-distance-metric surface fix into the golden so a
+        # future regression that reroutes via the buggy raw _fnx
+        # produces a visible diff.
+        "eccentricity": _norm_dict_centrality(fnx.eccentricity(graph)),
+        "diameter": _norm_number(fnx.diameter(graph)),
+        "radius": _norm_number(fnx.radius(graph)),
+        "center": sorted([_norm_node(n) for n in fnx.center(graph)], key=str),
+        "periphery": sorted([_norm_node(n) for n in fnx.periphery(graph)], key=str),
+        "find_cliques": _norm_find_cliques(fnx.find_cliques(graph)) if not is_directed else None,
         "complement_edges": _norm_edges(fnx.complement(graph).edges()),
-        # barycenter only valid for connected graphs; protect with a try.
+        # cycle_basis / connected_components are undirected-only;
+        # keep them in the snapshot for non-directed fixtures.
     }
+    if not is_directed:
+        payload["connected_components"] = _norm_components(fnx.connected_components(graph))
+        payload["cycle_basis"] = _norm_cycle_basis(fnx.cycle_basis(graph))
     try:
         payload["barycenter"] = sorted([_norm_node(n) for n in fnx.barycenter(graph)], key=str)
     except Exception as exc:  # pragma: no cover — record reason if it fails
