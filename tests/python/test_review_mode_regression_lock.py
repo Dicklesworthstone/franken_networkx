@@ -97,6 +97,18 @@ def test_katz_centrality_non_convergent_raises_power_iteration_failed():
         fnx.katz_centrality(G_fnx, alpha=0.5, max_iter=1, tol=1e-12)
 
 
+def test_katz_centrality_default_nonconvergence_message_matches_networkx():
+    G_nx = nx.complete_graph(20)
+    G_fnx = fnx.complete_graph(20)
+    with pytest.raises(nx.PowerIterationFailedConvergence) as nx_error:
+        nx.katz_centrality(G_nx)
+    with pytest.raises(nx.PowerIterationFailedConvergence) as fnx_error:
+        fnx.katz_centrality(G_fnx)
+
+    assert str(fnx_error.value) == str(nx_error.value)
+    assert fnx_error.value.args[1] == nx_error.value.args[1]
+
+
 # --- all_shortest_paths (br-r37-c1-6atv8) ---------------------------
 
 def test_all_shortest_paths_returns_real_generator():

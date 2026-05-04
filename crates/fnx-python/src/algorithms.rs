@@ -2588,12 +2588,8 @@ pub fn katz_centrality(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Py<PyDi
             }
         }
     };
-    let result = result.map_err(|err| {
-        crate::PowerIterationFailedConvergence::new_err(format!(
-            "power iteration failed to converge within {} iterations",
-            err.iterations
-        ))
-    })?;
+    let result =
+        result.map_err(|err| crate::PowerIterationFailedConvergence::new_err(err.iterations))?;
     centrality_to_dict(py, &gr, &result.scores)
 }
 
