@@ -6,12 +6,12 @@
 
 | Category | Count | % | Rule |
 |----------|-------|---|------|
-| RUST_NATIVE | 21 | 2% | native extension exports from `franken_networkx._fnx` |
+| RUST_NATIVE | 20 | 2% | native extension exports from `franken_networkx._fnx` |
 | PY_WRAPPER | 855 | 93% | Python-defined exports with no runtime NetworkX dependency detected |
 | NX_DELEGATED | 0 | 0% | Python-defined exports that import or call NetworkX at runtime |
 | CLASS | 32 | 3% | public classes, exceptions, iterators |
 | CONSTANT | 3 | 0% | public non-callable values |
-| **Total public exports** | **911** | | unique names from `franken_networkx.__all__` |
+| **Total public exports** | **910** | | unique names from `franken_networkx.__all__` |
 
 All declared public exports are classified. `--check` fails if this generated report drifts from the live module surface.
 
@@ -21,7 +21,7 @@ This ledger separates the broad public-export category from source-visible runti
 
 | Runtime route | Exports | Helper call sites | Rule |
 |---------------|---------|-------------------|------|
-| RUST_NATIVE | 21 | 0 | native extension export from `franken_networkx._fnx` |
+| RUST_NATIVE | 20 | 0 | native extension export from `franken_networkx._fnx` |
 | PY_WRAPPER | 708 | 0 | Python-defined export with no visible NetworkX route |
 | NETWORKX_HELPER | 147 | 173 | Python-defined export with `_call_networkx_*_for_parity(...)` branches |
 | DIRECT_NETWORKX | 0 | 0 | Python-defined export that directly imports or calls NetworkX |
@@ -36,7 +36,7 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 
 | Divergence state | Rows | Rule |
 |------------------|------|------|
-| native-parity | 21 | public Rust-native export; no Python fallback route detected |
+| native-parity | 20 | public Rust-native export; no Python fallback route detected |
 | wrapper-patched | 1 | public wrapper records a compatibility repair over a lower-level gap |
 | intentionally-delegated | 147 | AST-visible parity helper or direct NetworkX route |
 | raw-known-gap | 1 | lower-level raw/native implementation has a documented parity gap |
@@ -215,8 +215,8 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 |--------|-------|
 | `franken_networkx` | 790 |
 | `franken_networkx.readwrite` | 35 |
-| `franken_networkx._fnx` | 21 |
 | `franken_networkx.drawing.nx_pylab` | 21 |
+| `franken_networkx._fnx` | 20 |
 | `franken_networkx.drawing.layout` | 15 |
 | `networkx.exception` | 12 |
 | `networkx.algorithms.isomorphism.matchhelpers` | 9 |
@@ -226,13 +226,12 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 | `networkx.algorithms.tree.coding` | 1 |
 | `networkx.utils.configs` | 1 |
 
-## RUST_NATIVE exports (21)
+## RUST_NATIVE exports (20)
 
 - `bidirectional_shortest_path`
 - `bipartite_sets`
 - `clique_removal`
 - `global_node_connectivity`
-- `graph_clique_number`
 - `is_arborescence`
 - `is_bipartite`
 - `is_branching`

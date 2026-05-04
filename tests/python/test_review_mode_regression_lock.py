@@ -14,7 +14,6 @@ test would also need a deliberate bead-close decision.
 from __future__ import annotations
 
 import inspect
-import warnings
 
 import networkx as nx
 import pytest
@@ -112,15 +111,35 @@ def test_all_shortest_paths_returns_real_generator():
         next(g_fnx)
 
 
-def test_all_shortest_paths_validates_args_eagerly():
-    """nx raises at call time, not at first next() — fnx must too."""
+def test_all_shortest_paths_validates_source_and_method_eagerly():
+    """nx raises bad method and missing-source errors at call time."""
     G = fnx.complete_graph(4)
     with pytest.raises(nx.NodeNotFound):
         fnx.all_shortest_paths(G, 99, 0)
-    with pytest.raises(nx.NetworkXNoPath):
-        fnx.all_shortest_paths(G, 0, 99)
     with pytest.raises(ValueError):
         fnx.all_shortest_paths(G, 0, 3, weight="weight", method="floyd-warshall")
+
+
+@pytest.mark.parametrize(
+    "source,target,exc",
+    [
+        (0, 99, nx.NetworkXNoPath),
+        (0, [], TypeError),
+    ],
+    ids=["missing-target", "unhashable-target"],
+)
+def test_all_shortest_paths_defers_target_errors_until_iteration(source, target, exc):
+    """Target-dependent errors live inside nx's generator body."""
+    G_nx = nx.path_graph(3)
+    G_fnx = fnx.path_graph(3)
+    g_nx = nx.all_shortest_paths(G_nx, source, target)
+    g_fnx = fnx.all_shortest_paths(G_fnx, source, target)
+    assert inspect.isgenerator(g_nx)
+    assert inspect.isgenerator(g_fnx)
+    with pytest.raises(exc):
+        next(g_nx)
+    with pytest.raises(exc):
+        next(g_fnx)
 
 
 def test_all_shortest_paths_accepts_backend_keyword_contract():
@@ -135,29 +154,13 @@ def test_all_shortest_paths_accepts_backend_keyword_contract():
         list(fnx.all_shortest_paths(G_fnx, 0, 2, backend_kwargs={"x": 1}))
 
 
-# --- graph_clique_number (br-r37-c1-k9mhc) --------------------------
+# --- graph_clique_number (br-r37-c1-h964b) --------------------------
 
-def test_graph_clique_number_emits_deprecation_warning():
-    """Removed from nx 3.6; fnx keeps it as a back-compat shim with warning."""
-    G = fnx.complete_graph(4)
-    with warnings.catch_warnings(record=True) as captured:
-        warnings.simplefilter("always")
-        result = fnx.graph_clique_number(G)
-    assert result == 4
-    assert any(
-        issubclass(w.category, DeprecationWarning)
-        and "graph_clique_number" in str(w.message)
-        for w in captured
-    ), f"expected DeprecationWarning; got {[w.category.__name__ for w in captured]}"
-
-
-def test_graph_clique_number_accepts_legacy_cliques_kwarg():
-    """nx's pre-removal signature accepted a precomputed cliques iterable."""
-    G = fnx.complete_graph(4)
-    cliques = list(fnx.find_cliques(G))
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", DeprecationWarning)
-        assert fnx.graph_clique_number(G, cliques=cliques) == 4
+def test_graph_clique_number_absent_like_networkx_36():
+    """Removed upstream in NetworkX 3.6; fnx should not expose it."""
+    assert not hasattr(nx, "graph_clique_number")
+    assert not hasattr(fnx, "graph_clique_number")
+    assert "graph_clique_number" not in fnx.__all__
 
 
 # --- connected_components (br-r37-c1-anace) -------------------------

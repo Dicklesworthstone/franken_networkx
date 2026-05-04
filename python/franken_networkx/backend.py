@@ -62,7 +62,6 @@ _SUPPORTED_ALGORITHMS = {
     "square_clustering": fnx.square_clustering,
     # Cliques
     "find_cliques": fnx.find_cliques,
-    "graph_clique_number": fnx.graph_clique_number,
     # Matching
     "maximal_matching": fnx.maximal_matching,
     "max_weight_matching": fnx.max_weight_matching,

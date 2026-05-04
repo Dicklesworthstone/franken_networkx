@@ -4579,36 +4579,10 @@ from franken_networkx._fnx import (
     average_clustering as _raw_average_clustering,
     clustering as _raw_clustering,
     find_cliques as _raw_find_cliques,
-    graph_clique_number as _raw_graph_clique_number,
     square_clustering,
     transitivity as _raw_transitivity,
     triangles as _raw_triangles,
 )
-
-
-def graph_clique_number(G, cliques=None):
-    """Return the clique number (size of the largest clique) of ``G``.
-
-    .. deprecated:: 3.6
-        ``graph_clique_number`` was removed from upstream NetworkX in
-        version 3.6. Use ``max(len(c) for c in nx.find_cliques(G))``
-        directly instead. This wrapper is kept for backwards
-        compatibility (br-r37-c1-k9mhc); it will be removed in a
-        future fnx release once the deprecation window closes.
-    """
-    import warnings as _warnings
-
-    _warnings.warn(
-        "graph_clique_number was removed from NetworkX 3.6. Use "
-        "``max(len(c) for c in nx.find_cliques(G))`` directly. The "
-        "franken_networkx wrapper will be removed in a future release.",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-    if cliques is not None:
-        # nx's old signature accepted a precomputed cliques iterable.
-        return max((len(c) for c in cliques), default=0)
-    return _raw_graph_clique_number(G)
 
 # Algorithm functions — matching
 from franken_networkx._fnx import (
@@ -5859,31 +5833,23 @@ def cycle_basis(G, root=None):
 def all_shortest_paths(
     G, source, target, weight=None, method="dijkstra", *, backend=None, **backend_kwargs
 ):
-    # br-r37-c1-6atv8: validation runs eagerly (matching nx, which raises
-    # ValueError/NodeNotFound at call time, not at first next()) but the
-    # returned object must be a true generator so that .send / .throw /
-    # .close behave as on nx's output. We delegate body to an inner
-    # generator function and return its call.
+    # br-r37-c1-6atv8 / br-r37-c1-emxwl: invalid method and missing
+    # source raise eagerly, but target-dependent errors happen when
+    # the true generator is advanced, matching nx's generator body.
     _validate_backend_dispatch_keywords("all_shortest_paths", backend, backend_kwargs)
     if weight is not None and method not in {"dijkstra", "bellman-ford"}:
         raise ValueError(f"method not supported: {method}")
-    # br-r37-c1-omjmu: nx raises TypeError on unhashable target inside
-    # its predecessor traversal; without this guard fnx falls through
-    # to a NodeNotFound("Target ... is not in G").
-    hash(target)
-    # br-r37-c1-jxvsu: nx pre-validates source / target with distinct
-    # exception classes — missing source raises ``NodeNotFound("Source
-    # X not in G")`` and missing target raises ``NetworkXNoPath("Target
-    # X cannot be reached from given sources")``.  fnx had been
-    # emitting ``NodeNotFound("Source node X is not in G")`` (extra
-    # 'node' word) and ``NodeNotFound("Target node X is not in G")``
-    # (wrong class entirely) from the Rust binding's combined check.
+    # br-r37-c1-jxvsu: missing source raises eagerly with nx wording.
     if source not in G:
         raise NodeNotFound(f"Source {source} not in G")
-    if target not in G:
-        raise NetworkXNoPath(f"Target {target} cannot be reached from given sources")
 
     def _gen():
+        # br-r37-c1-omjmu / br-r37-c1-emxwl: nx raises TypeError on
+        # unhashable target and NetworkXNoPath on missing target only
+        # when the generator is advanced.
+        hash(target)
+        if target not in G:
+            raise NetworkXNoPath(f"Target {target} cannot be reached from given sources")
         if weight is not None and G.is_directed():
             # Delegate non-string / callable weights to NetworkX (the PyO3
             # binding's ``weight: str`` signature type-rejects, and callables
@@ -35532,7 +35498,6 @@ __all__ = [
     "average_clustering",
     "clustering",
     "find_cliques",
-    "graph_clique_number",
     "square_clustering",
     "transitivity",
     "triangles",
