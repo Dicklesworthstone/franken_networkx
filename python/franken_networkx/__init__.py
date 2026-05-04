@@ -6720,6 +6720,18 @@ def wiener_index(G, weight=None, *, backend=None, **backend_kwargs):
         value = _fnx.wiener_index(G, weight=None)
         if math.isinf(value):
             return float("inf")
+        # br-r37-c1-t26b4: nx returns int when the graph is directed
+        # because nx returns ``total`` un-divided in that branch, and
+        # int sums are integral. For undirected graphs nx applies
+        # ``total / 2`` which always yields float (Python 3 division),
+        # so we keep the Rust f64 result as-is. Coerce the directed
+        # case back to int to match (directed_cycle: fnx 9.0 → nx 9).
+        if (
+            G.is_directed()
+            and isinstance(value, float)
+            and value.is_integer()
+        ):
+            return int(value)
         return value
 
     # Callable weight support requires nx's three-arg edge-data evaluator;
