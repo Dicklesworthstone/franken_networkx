@@ -35,9 +35,11 @@ def _random_graph(seed: int) -> fnx.Graph:
         for j in range(i + 1, n):
             if rng.random() < p:
                 G.add_edge(i, j)
-    if n >= 2 and rng.random() < 0.15:
-        # 15% chance of a self-loop on a random node
-        G.add_edge(rng.randrange(n), rng.randrange(n))
+    if n >= 1 and (seed % 10 == 0 or rng.random() < 0.15):
+        # Deterministically keep self-loops in the seed grid so the
+        # complement contract is genuinely exercised every run.
+        node = rng.randrange(n)
+        G.add_edge(node, node)
     return G
 
 
@@ -58,6 +60,13 @@ def _random_digraph(seed: int) -> fnx.DiGraph:
 
 
 # ---- panic / exception-class fuzzing -------------------------------
+
+def test_fuzz_seed_grid_includes_self_loops():
+    assert any(
+        any(u == v for u, v in _random_graph(seed).edges())
+        for seed in _FUZZ_SEEDS
+    )
+
 
 @pytest.mark.parametrize("seed", _FUZZ_SEEDS)
 def test_fuzz_transitivity_no_crash_and_in_unit_interval(seed):
