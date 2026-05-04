@@ -4579,11 +4579,36 @@ from franken_networkx._fnx import (
     average_clustering as _raw_average_clustering,
     clustering as _raw_clustering,
     find_cliques as _raw_find_cliques,
-    graph_clique_number,
+    graph_clique_number as _raw_graph_clique_number,
     square_clustering,
     transitivity as _raw_transitivity,
     triangles as _raw_triangles,
 )
+
+
+def graph_clique_number(G, cliques=None):
+    """Return the clique number (size of the largest clique) of ``G``.
+
+    .. deprecated:: 3.6
+        ``graph_clique_number`` was removed from upstream NetworkX in
+        version 3.6. Use ``max(len(c) for c in nx.find_cliques(G))``
+        directly instead. This wrapper is kept for backwards
+        compatibility (br-r37-c1-k9mhc); it will be removed in a
+        future fnx release once the deprecation window closes.
+    """
+    import warnings as _warnings
+
+    _warnings.warn(
+        "graph_clique_number was removed from NetworkX 3.6. Use "
+        "``max(len(c) for c in nx.find_cliques(G))`` directly. The "
+        "franken_networkx wrapper will be removed in a future release.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    if cliques is not None:
+        # nx's old signature accepted a precomputed cliques iterable.
+        return max((len(c) for c in cliques), default=0)
+    return _raw_graph_clique_number(G)
 
 # Algorithm functions — matching
 from franken_networkx._fnx import (
