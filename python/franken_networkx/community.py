@@ -15,6 +15,7 @@ but routes the algorithms with fnx fast paths through them.
 
 from __future__ import annotations
 
+import networkx.algorithms.community as _nx_community
 from networkx.algorithms.community import *  # noqa: F401,F403
 
 import franken_networkx as _fnx
@@ -31,17 +32,17 @@ def label_propagation_communities(G):
     return _fnx.label_propagation_communities(G)
 
 
-__all__ = sorted(
-    set(globals())
-    | set(dir(__import__("networkx.algorithms.community", fromlist=["*"])))
+_UPSTREAM_PUBLIC = getattr(
+    _nx_community,
+    "__all__",
+    tuple(name for name in dir(_nx_community) if not name.startswith("_")),
 )
+__all__ = sorted(set(_UPSTREAM_PUBLIC) | {"label_propagation_communities"})
 
 
 def __getattr__(name):  # pragma: no cover — defensive passthrough
-    import networkx.algorithms.community as _src
-
     try:
-        return getattr(_src, name)
+        return getattr(_nx_community, name)
     except AttributeError as exc:
         raise AttributeError(
             f"module 'franken_networkx.community' has no attribute {name!r}"
@@ -49,6 +50,4 @@ def __getattr__(name):  # pragma: no cover — defensive passthrough
 
 
 def __dir__():
-    import networkx.algorithms.community as _src
-
-    return sorted(set(globals()) | set(dir(_src)))
+    return sorted(set(__all__) | set(name for name in globals() if not name.startswith("_")))

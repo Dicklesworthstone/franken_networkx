@@ -5856,12 +5856,15 @@ def cycle_basis(G, root=None):
     return _raw_cycle_basis(G)
 
 
-def all_shortest_paths(G, source, target, weight=None, method="dijkstra"):
+def all_shortest_paths(
+    G, source, target, weight=None, method="dijkstra", *, backend=None, **backend_kwargs
+):
     # br-r37-c1-6atv8: validation runs eagerly (matching nx, which raises
     # ValueError/NodeNotFound at call time, not at first next()) but the
     # returned object must be a true generator so that .send / .throw /
     # .close behave as on nx's output. We delegate body to an inner
     # generator function and return its call.
+    _validate_backend_dispatch_keywords("all_shortest_paths", backend, backend_kwargs)
     if weight is not None and method not in {"dijkstra", "bellman-ford"}:
         raise ValueError(f"method not supported: {method}")
     # br-r37-c1-omjmu: nx raises TypeError on unhashable target inside
@@ -9574,7 +9577,7 @@ def is_planar(G, *, backend=None, **backend_kwargs):
 from franken_networkx._fnx import barycenter as _raw_barycenter
 
 
-def barycenter(G, weight=None, attr=None, sp=None):
+def barycenter(G, weight=None, attr=None, sp=None, *, backend=None, **backend_kwargs):
     """Return the barycenter of the graph or its node set.
 
     br-barymissing: nx.barycenter accepts ``weight`` (edge-attr name
@@ -9592,6 +9595,7 @@ def barycenter(G, weight=None, attr=None, sp=None):
     nx copy onto the original fnx graph so the side effect is visible
     where the user expects it.
     """
+    _validate_backend_dispatch_keywords("barycenter", backend, backend_kwargs)
     if len(G) == 0:
         # Match nx (br-r37-c1-pb97z): the Rust impl silently returned
         # []; nx raises NetworkXPointlessConcept('G has no nodes.').
@@ -17183,16 +17187,8 @@ def load_centrality(
     # verified on karate / path / star / K5 / cycle (max_diff = 0.0).
     # Use the Rust fast path for the all-nodes / unweighted /
     # cutoff=None case.
-    if (
-        v is None
-        and cutoff is None
-        and weight is None
-        and not G.is_multigraph()
-    ):
-        try:
-            return _raw_load_centrality(G, normalized=normalized)
-        except Exception:
-            pass
+    if v is None and cutoff is None and weight is None and not G.is_multigraph():
+        return _raw_load_centrality(G, normalized=normalized)
 
     if v is not None:
         betweenness = 0.0
