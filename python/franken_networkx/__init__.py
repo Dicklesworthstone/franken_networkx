@@ -5316,13 +5316,7 @@ def center(G, e=None, usebounds=False, weight=None):
         List of nodes in the center.
     """
     # Delegate cases where the native path does not yet preserve nx contracts.
-    if (
-        e is not None
-        or usebounds
-        or weight is not None
-        or len(G) == 0
-        or G.is_directed()
-    ):
+    if e is not None or usebounds or weight is not None or len(G) == 0:
         return _call_networkx_for_parity(
             "center", G, e=e, usebounds=usebounds, weight=weight
         )
@@ -5330,6 +5324,11 @@ def center(G, e=None, usebounds=False, weight=None):
     # insertion order) and filters by min eccentricity. The Rust
     # _raw_center returned nodes in a different order. Filter
     # explicitly so nodes appear in G.nodes() insertion order.
+    #
+    # br-r37-c1-bnzab: directed-graph case used to delegate to nx for
+    # safety; fnx.eccentricity now handles directed inputs natively
+    # (verified on cycle3 and 5-cycle+chord against nx 3.6.1) so we
+    # can drop the delegate and stay on the native path.
     ecc = eccentricity(G)
     if not ecc:
         return []
@@ -5357,13 +5356,7 @@ def periphery(G, e=None, usebounds=False, weight=None):
         List of nodes in the periphery.
     """
     # Delegate cases where the native path does not yet preserve nx contracts.
-    if (
-        e is not None
-        or usebounds
-        or weight is not None
-        or len(G) == 0
-        or G.is_directed()
-    ):
+    if e is not None or usebounds or weight is not None or len(G) == 0:
         return _call_networkx_for_parity(
             "periphery", G, e=e, usebounds=usebounds, weight=weight
         )
@@ -5371,6 +5364,10 @@ def periphery(G, e=None, usebounds=False, weight=None):
     # insertion order) and filters by max eccentricity. The Rust
     # _raw_periphery returned nodes in a different order. Filter
     # explicitly so nodes appear in G.nodes() insertion order.
+    #
+    # br-r37-c1-bnzab: directed-graph case used to delegate to nx for
+    # safety; fnx.eccentricity now handles directed inputs natively
+    # so we can drop the delegate and stay on the native path.
     ecc = eccentricity(G)
     if not ecc:
         return []
