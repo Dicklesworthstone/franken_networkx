@@ -4471,7 +4471,14 @@ def harmonic_centrality(
         return _call_networkx_for_parity(
             "harmonic_centrality", G, nbunch=nbunch, distance=distance, sources=sources
         )
-    return _raw_harmonic_centrality(G)
+    raw = _raw_harmonic_centrality(G)
+    # br-r37-c1-rsom6: nx initializes ``{u: 0 for u in set(G.nbunch_iter())}``,
+    # so output dict iteration order is set(G.nodes) order — for small int
+    # nodes this is sorted-like (CPython hash(int) == int), for str/etc it's
+    # hash-randomized. The Rust path emits in insertion order. Re-key
+    # through ``set(G.nodes)`` so drop-in code that does e.g.
+    # ``next(iter(harmonic_centrality(G)))`` matches nx exactly.
+    return {u: raw[u] for u in set(G.nodes)}
 
 
 def degree_centrality(G, *, backend=None, **backend_kwargs):
@@ -26094,27 +26101,10 @@ def clustering(G, nodes=None, weight=None):
 
 def average_clustering(G, nodes=None, weight=None, count_zeros=True):
     """Compute the average clustering coefficient for the graph."""
-    # br-r37-c1-wh0x0: Rust ``_raw_average_clustering`` matches nx
-    # bit-exactly for the common (whole-graph, no weight, count_zeros)
-    # case and runs ~6x faster. Fall through to the Python path on
-    # any kwarg the Rust binding doesn't accept.
-    if (
-        not G.is_multigraph()
-        and not G.is_directed()
-        and weight is None
-        and nodes is None
-        and count_zeros
-        # nx.average_clustering raises ZeroDivisionError on empty
-        # graphs; the Rust path silently returns 0.0. Stay on the
-        # Python path for the empty-graph case so the parity contract
-        # holds.
-        and len(G) > 0
-    ):
-        try:
-            return _raw_average_clustering(G)
-        except Exception:
-            pass
-
+    # br-r37-c1-2q49i: keep nx's public aggregation contract exactly.
+    # ``_raw_average_clustering`` computes the same mathematical value,
+    # but its summation order can change the final float bit. Reuse the
+    # public ``clustering`` output and Python's insertion-order sum.
     clustering_values = clustering(G, nodes, weight=weight).values()
     if not count_zeros:
         clustering_values = [value for value in clustering_values if abs(value) > 0]

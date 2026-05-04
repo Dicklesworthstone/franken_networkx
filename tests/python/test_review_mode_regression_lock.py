@@ -93,6 +93,28 @@ def test_barycenter_directed_disconnected_raises_no_path():
 
 # --- degree_centrality (br-r37-c1-pu5q7) ----------------------------
 
+# --- harmonic_centrality (br-r37-c1-rsom6) -------------------------
+
+def test_harmonic_centrality_dict_order_matches_nx():
+    """nx initializes via ``{u: 0 for u in set(G.nbunch_iter())}`` so
+    output dict iteration order is set(G.nodes) order. fnx's Rust path
+    emitted insertion order, breaking drop-in code that did
+    ``next(iter(harmonic_centrality(G)))``."""
+    def build(m):
+        G = m.Graph()
+        for n in [3, 1, 4, 1, 5, 9, 2, 6]:
+            G.add_node(n)
+        G.add_edges_from([(3, 1), (1, 4), (4, 5), (5, 9), (9, 2), (2, 6)])
+        return G
+    nv = nx.harmonic_centrality(build(nx))
+    fv = fnx.harmonic_centrality(build(fnx))
+    assert list(nv.keys()) == list(fv.keys())
+    # Values match within 1 ULP (different summation order is inherent
+    # to the Rust vs Python implementations).
+    for k in nv:
+        assert nv[k] == pytest.approx(fv[k], abs=1e-12)
+
+
 # --- clustering (br-r37-c1-9ccqe) -----------------------------------
 
 @pytest.mark.parametrize(
