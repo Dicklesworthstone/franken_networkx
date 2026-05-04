@@ -9560,6 +9560,18 @@ def barycenter(G, weight=None, attr=None, sp=None):
         # []; nx raises NetworkXPointlessConcept('G has no nodes.').
         raise NetworkXPointlessConcept("G has no nodes.")
     if weight is None and attr is None and sp is None:
+        # br-r37-c1-pooue: the Rust _raw_barycenter does not check
+        # reachability before computing, so it silently returns a
+        # result on a non-strongly-connected DiGraph (e.g.,
+        # DiGraph([(0,1),(1,2),(2,3)]) → [1, 2]). nx raises
+        # NetworkXNoPath in that case. Route directed inputs through
+        # the Python path below when the graph is not strongly
+        # connected so the parity error surfaces correctly.
+        if G.is_directed() and not is_strongly_connected(G):
+            raise NetworkXNoPath(
+                f"Input graph {G} is disconnected, so every induced subgraph "
+                "has infinite barycentricity."
+            )
         return _raw_barycenter(G)
     if attr is None:
         return _call_networkx_for_parity(
