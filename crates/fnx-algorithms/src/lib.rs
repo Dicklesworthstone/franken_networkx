@@ -19078,9 +19078,132 @@ fn planar_edge_bound_with_bcc(n: usize, adj: &[Vec<usize>]) -> bool {
         if cn >= 3 && cm > 3 * cn - 6 {
             return false;
         }
+
+        // br-r37-c1-xdjpt: tighter necessary conditions per BCC.
+        //
+        // The pure Euler bound `m <= 3n - 6` lets non-planar K3,3
+        // (n=6, m=9) and Petersen (n=10, m=15) slip through. Two
+        // additional girth-aware bounds catch them:
+        //
+        //   - Bipartite BCC: `m <= 2n - 4` (no triangle ⇒ each face
+        //     has ≥ 4 sides ⇒ tighter Euler bound). K3,3 has m=9,
+        //     2n-4=8 → caught.
+        //   - Girth g ≥ 4 BCC: `m <= g/(g-2) * (n-2)` (Moore bound
+        //     for face length). Petersen has girth 5, m=15,
+        //     5/3 * 8 ≈ 13.33 → caught.
+        //
+        // Still not complete planarity testing (no real LR Hopcroft-
+        // Tarjan / Boyer-Myrvold), but raises the false-positive
+        // rate dramatically and bottoms out on Kuratowski's theorem
+        // for the canonical non-planar pair K5 (already caught by
+        // Euler) and K3,3 (now caught by bipartite bound).
+        if cn >= 4 {
+            let bcc_adj = bcc_to_adjacency(comp, cn);
+            if cn >= 3 && bcc_is_bipartite(&bcc_adj) && cm > 2 * cn - 4 {
+                return false;
+            }
+            // Girth-aware bound only when BCC is connected and has
+            // a cycle. A tree BCC is just one edge (cm = 1, cn = 2)
+            // and never reaches here. For girth >= 4 the bipartite
+            // check already covered g == 4-bipartite cases; this
+            // branch primarily catches odd-girth-5+ graphs (Petersen
+            // is the canonical example).
+            if let Some(g) = bcc_girth(&bcc_adj)
+                && g >= 4
+            {
+                // m <= g * (n - 2) / (g - 2), i.e., m * (g - 2) <= g * (n - 2)
+                if cm.checked_mul(g - 2).map(|lhs| lhs > g * (cn - 2)).unwrap_or(false) {
+                    return false;
+                }
+            }
+        }
     }
 
     true
+}
+
+/// Build a node-relabeled compact adjacency list from a BCC's edge
+/// list (with original node indices). Returns the per-node neighbor
+/// vectors with indices remapped to `[0, comp_nodes.len())`.
+fn bcc_to_adjacency(comp: &[(usize, usize)], _comp_n: usize) -> Vec<Vec<usize>> {
+    let mut node_id: HashMap<usize, usize> = HashMap::new();
+    for &(u, v) in comp {
+        let next_id = node_id.len();
+        node_id.entry(u).or_insert(next_id);
+        let next_id = node_id.len();
+        node_id.entry(v).or_insert(next_id);
+    }
+    let mut adj: Vec<Vec<usize>> = vec![Vec::new(); node_id.len()];
+    for &(u, v) in comp {
+        let iu = node_id[&u];
+        let iv = node_id[&v];
+        if iu != iv {
+            adj[iu].push(iv);
+            adj[iv].push(iu);
+        }
+    }
+    adj
+}
+
+/// 2-coloring BFS to test bipartiteness on a connected component.
+fn bcc_is_bipartite(adj: &[Vec<usize>]) -> bool {
+    let n = adj.len();
+    if n == 0 {
+        return true;
+    }
+    let mut color: Vec<i8> = vec![-1; n];
+    let mut queue = VecDeque::new();
+    for start in 0..n {
+        if color[start] != -1 {
+            continue;
+        }
+        color[start] = 0;
+        queue.push_back(start);
+        while let Some(u) = queue.pop_front() {
+            for &v in &adj[u] {
+                if color[v] == -1 {
+                    color[v] = 1 - color[u];
+                    queue.push_back(v);
+                } else if color[v] == color[u] {
+                    return false;
+                }
+            }
+        }
+    }
+    true
+}
+
+/// Girth (length of the shortest cycle) of a connected adjacency
+/// list. Returns `None` if acyclic.
+fn bcc_girth(adj: &[Vec<usize>]) -> Option<usize> {
+    let n = adj.len();
+    let mut best: Option<usize> = None;
+    for start in 0..n {
+        let mut dist: Vec<i64> = vec![-1; n];
+        let mut parent: Vec<i64> = vec![-1; n];
+        dist[start] = 0;
+        let mut queue = VecDeque::new();
+        queue.push_back(start);
+        while let Some(u) = queue.pop_front() {
+            let du = dist[u];
+            for &v in &adj[u] {
+                if dist[v] == -1 {
+                    dist[v] = du + 1;
+                    parent[v] = u as i64;
+                    queue.push_back(v);
+                } else if parent[u] != v as i64 {
+                    // Found a cycle: dist[u] + dist[v] + 1 if they
+                    // share at least one ancestor.
+                    let candidate = (du + dist[v] + 1) as usize;
+                    best = Some(match best {
+                        Some(g) => g.min(candidate),
+                        None => candidate,
+                    });
+                }
+            }
+        }
+    }
+    best
 }
 
 // ── Chordality ─────────────────────────────────────────────────────────────
@@ -40985,6 +41108,70 @@ mod tests {
     fn test_is_planar_single_node() {
         let mut g = Graph::strict();
         g.add_node("a");
+        assert!(is_planar(&g));
+    }
+
+    #[test]
+    fn test_is_planar_k33_is_non_planar() {
+        // br-r37-c1-xdjpt: K3,3 is the canonical non-planar bipartite
+        // graph (Kuratowski's theorem). The Euler bound m <= 3n-6
+        // (= 12) lets m=9 through; the bipartite-aware bound
+        // m <= 2n-4 (= 8) catches it.
+        let mut g = Graph::strict();
+        for left in &["a1", "a2", "a3"] {
+            for right in &["b1", "b2", "b3"] {
+                let _ = g.add_edge(*left, *right);
+            }
+        }
+        assert!(!is_planar(&g), "K3,3 must be reported non-planar");
+    }
+
+    #[test]
+    fn test_is_planar_petersen_is_non_planar() {
+        // br-r37-c1-xdjpt: the Petersen graph (n=10, m=15, girth=5)
+        // is non-planar. Euler bound m <= 3n-6 (= 24) lets it through;
+        // the girth-aware bound m <= g/(g-2) * (n-2) = 5/3 * 8 ≈ 13.33
+        // catches it.
+        let mut g = Graph::strict();
+        // Outer pentagon
+        let outer = ["o0", "o1", "o2", "o3", "o4"];
+        for i in 0..5 {
+            let _ = g.add_edge(outer[i], outer[(i + 1) % 5]);
+        }
+        // Inner pentagram (every-other-skip)
+        let inner = ["i0", "i1", "i2", "i3", "i4"];
+        for i in 0..5 {
+            let _ = g.add_edge(inner[i], inner[(i + 2) % 5]);
+        }
+        // Spokes
+        for i in 0..5 {
+            let _ = g.add_edge(outer[i], inner[i]);
+        }
+        assert!(!is_planar(&g), "Petersen graph must be reported non-planar");
+    }
+
+    #[test]
+    fn test_is_planar_k4_still_planar() {
+        // K4 is planar; both bounds must permit it.
+        let mut g = Graph::strict();
+        for u in 0..4 {
+            for v in (u + 1)..4 {
+                let _ = g.add_edge(format!("n{u}"), format!("n{v}"));
+            }
+        }
+        assert!(is_planar(&g), "K4 must remain reported planar");
+    }
+
+    #[test]
+    fn test_is_planar_cycle_is_planar() {
+        // C6 is bipartite (girth 6, m=6, n=6) — bound m <= 2n-4 = 8,
+        // m=6 passes. Must remain reported planar.
+        let mut g = Graph::strict();
+        for i in 0..6 {
+            let u = format!("v{i}");
+            let v = format!("v{}", (i + 1) % 6);
+            let _ = g.add_edge(u, v);
+        }
         assert!(is_planar(&g));
     }
 
