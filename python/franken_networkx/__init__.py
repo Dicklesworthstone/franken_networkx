@@ -4484,10 +4484,15 @@ def degree_centrality(G, *, backend=None, **backend_kwargs):
     nodes.
     """
     _validate_backend_dispatch_keywords("degree_centrality", backend, backend_kwargs)
+    # br-r37-c1-pu5q7: nx special-cases ``len(G) <= 1`` and returns
+    # ``{n: 1 for n in G}`` (int 1, not 1.0 or NaN) before any
+    # ``1 / (n - 1)`` would divide by zero. Mirror that for both the
+    # multigraph branch (was returning NaN on singletons) and the
+    # simple-graph branch (Rust path returns float 1.0 — type drift).
+    if G.number_of_nodes() <= 1:
+        return {v: 1 for v in G}
     if G.is_multigraph():
         n = G.number_of_nodes()
-        if n <= 1:
-            return {v: float("nan") for v in G} if n == 1 else {}
         s = 1.0 / (n - 1)
         return {v: d * s for v, d in G.degree()}
     return _raw_degree_centrality(G)
@@ -5837,7 +5842,7 @@ def all_shortest_paths(
     # source raise eagerly, but target-dependent errors happen when
     # the true generator is advanced, matching nx's generator body.
     _validate_backend_dispatch_keywords("all_shortest_paths", backend, backend_kwargs)
-    if weight is not None and method not in {"dijkstra", "bellman-ford"}:
+    if weight is not None and method not in {"dijkstra", "bellman-ford", "unweighted"}:
         raise ValueError(f"method not supported: {method}")
     # br-r37-c1-jxvsu: missing source raises eagerly with nx wording.
     if source not in G:
@@ -5850,6 +5855,11 @@ def all_shortest_paths(
         hash(target)
         if target not in G:
             raise NetworkXNoPath(f"Target {target} cannot be reached from given sources")
+        if method == "unweighted":
+            # nx accepts method='unweighted' even when weight is supplied;
+            # the method selection wins and edge weights are ignored.
+            yield from _raw_all_shortest_paths(G, source, target, weight=None, method=method)
+            return
         if weight is not None and G.is_directed():
             # Delegate non-string / callable weights to NetworkX (the PyO3
             # binding's ``weight: str`` signature type-rejects, and callables

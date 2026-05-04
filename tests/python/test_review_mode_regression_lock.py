@@ -91,6 +91,30 @@ def test_barycenter_directed_disconnected_raises_no_path():
         fnx.barycenter(G_fnx)
 
 
+# --- degree_centrality (br-r37-c1-pu5q7) ----------------------------
+
+@pytest.mark.parametrize(
+    "nx_cls,fnx_cls",
+    [
+        (nx.Graph, fnx.Graph),
+        (nx.DiGraph, fnx.DiGraph),
+        (nx.MultiGraph, fnx.MultiGraph),
+        (nx.MultiDiGraph, fnx.MultiDiGraph),
+    ],
+    ids=["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"],
+)
+def test_degree_centrality_singleton_returns_int_one(nx_cls, fnx_cls):
+    """nx special-cases ``len(G) <= 1`` and returns {n: 1} (int).
+    Previously fnx returned NaN for multigraph singletons and 1.0
+    (float) for simple-graph singletons — both diverged from nx."""
+    G_nx = nx_cls(); G_nx.add_node(0)
+    G_fnx = fnx_cls(); G_fnx.add_node(0)
+    nv = nx.degree_centrality(G_nx)
+    fv = fnx.degree_centrality(G_fnx)
+    assert nv == fv == {0: 1}
+    assert type(fv[0]) is int
+
+
 def test_barycenter_directed_strongly_connected_returns_list():
     G_nx = nx.DiGraph([(0, 1), (1, 2), (2, 0)])
     G_fnx = fnx.DiGraph([(0, 1), (1, 2), (2, 0)])
@@ -183,6 +207,20 @@ def test_all_shortest_paths_accepts_backend_keyword_contract():
         list(nx.all_shortest_paths(G_nx, 0, 2, backend_kwargs={"x": 1}))
     with pytest.raises(TypeError, match="unexpected keyword argument 'backend_kwargs'"):
         list(fnx.all_shortest_paths(G_fnx, 0, 2, backend_kwargs={"x": 1}))
+
+
+def test_all_shortest_paths_unweighted_method_ignores_weight_argument():
+    """method='unweighted' is accepted with weight=... and ignores weights."""
+    G_nx = nx.Graph()
+    G_fnx = fnx.Graph()
+    for G in (G_nx, G_fnx):
+        G.add_edge(0, 1, weight=1)
+        G.add_edge(1, 2, weight=1)
+        G.add_edge(0, 2, weight=100)
+
+    expected = list(nx.all_shortest_paths(G_nx, 0, 2, weight="weight", method="unweighted"))
+    actual = list(fnx.all_shortest_paths(G_fnx, 0, 2, weight="weight", method="unweighted"))
+    assert actual == expected == [[0, 2]]
 
 
 # --- graph_clique_number (br-r37-c1-h964b) --------------------------
