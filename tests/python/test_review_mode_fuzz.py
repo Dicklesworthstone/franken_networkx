@@ -346,3 +346,62 @@ def test_fuzz_clustering_oracle_parity_with_nx(seed):
             f"seed={seed} node {k}: type drift "
             f"nx={type(nv[k]).__name__} fnx={type(fv[k]).__name__}"
         )
+
+
+# ---- directed distance-metrics oracle fuzz (br-r37-c1-89n9d /
+#      br-r37-c1-wojl3 regression lock) -------------------------------
+
+def _random_strongly_connected_digraph(seed: int):
+    """Generate a random directed graph and return (nx, fnx) versions
+    that are guaranteed strongly connected (so diameter/radius/center
+    are well-defined). Returns ``None`` if the seed produces nothing
+    suitable."""
+    rng = random.Random(seed)
+    n = rng.randint(4, 12)
+    p = rng.uniform(0.25, 0.55)
+    G_nx = nx.DiGraph()
+    G_fnx = fnx.DiGraph()
+    for i in range(n):
+        G_nx.add_node(i)
+        G_fnx.add_node(i)
+    edges = []
+    for i in range(n):
+        for j in range(n):
+            if i != j and rng.random() < p:
+                edges.append((i, j))
+    # Add a Hamiltonian cycle to guarantee strong connectivity.
+    for i in range(n):
+        edges.append((i, (i + 1) % n))
+    G_nx.add_edges_from(edges)
+    G_fnx.add_edges_from(edges)
+    if not nx.is_strongly_connected(G_nx):
+        return None
+    return G_nx, G_fnx
+
+
+@pytest.mark.parametrize("seed", _FUZZ_SEEDS[:25])
+def test_fuzz_directed_diameter_radius_center_periphery_oracle_match_nx(seed):
+    """Locks the br-r37-c1-89n9d (center/periphery) and br-r37-c1-wojl3
+    (diameter/radius) directed-graph fixes against arbitrary
+    strongly-connected DiGraphs. The underlying Rust _fnx.diameter etc.
+    have a directed-collapse defect (call gr.undirected() before
+    computing) — these tests verify the Python wrapper masks that by
+    routing directed inputs through fnx.eccentricity natively."""
+    pair = _random_strongly_connected_digraph(seed)
+    if pair is None:
+        return
+    G_nx, G_fnx = pair
+    assert fnx.diameter(G_fnx) == nx.diameter(G_nx), (
+        f"seed={seed}: directed diameter divergence"
+    )
+    assert fnx.radius(G_fnx) == nx.radius(G_nx), (
+        f"seed={seed}: directed radius divergence"
+    )
+    # center / periphery: order-equal (both built from
+    # ``[n for n in G.nodes() if ecc[n] == r]``).
+    assert fnx.center(G_fnx) == nx.center(G_nx), (
+        f"seed={seed}: directed center divergence"
+    )
+    assert fnx.periphery(G_fnx) == nx.periphery(G_nx), (
+        f"seed={seed}: directed periphery divergence"
+    )
