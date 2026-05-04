@@ -76,7 +76,7 @@ nx.shortest_path(G, 0, 99)
 | Dominating | `dominating_set`, `is_dominating_set` |
 | Isolates | `isolates`, `is_isolate`, `number_of_isolates` |
 | Boundary | `edge_boundary`, `node_boundary` |
-| Other | `core_number`, `voterank`, `find_cliques`, `graph_clique_number`, `number_of_cliques`, `degree_assortativity_coefficient`, `average_neighbor_degree`, `wiener_index`, `non_neighbors`, `is_empty`, `relabel_nodes`, `degree_histogram` |
+| Other | `core_number`, `voterank`, `find_cliques`, `number_of_cliques`, `degree_assortativity_coefficient`, `average_neighbor_degree`, `wiener_index`, `non_neighbors`, `is_empty`, `relabel_nodes`, `degree_histogram` |
 | Generators | `path_graph`, `cycle_graph`, `star_graph`, `complete_graph`, `empty_graph`, `gnp_random_graph`, `watts_strogatz_graph`, `barabasi_albert_graph` |
 | I/O | `read_edgelist`, `write_edgelist`, `read_adjlist`, `write_adjlist`, `read_graphml`, `write_graphml`, `node_link_data`, `node_link_graph` |
 | NumPy/SciPy | `to_numpy_array`, `from_numpy_array`, `to_scipy_sparse_array`, `from_scipy_sparse_array` |
