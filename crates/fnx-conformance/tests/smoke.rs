@@ -2868,7 +2868,7 @@ fn packet_007_differential_metamorphic_and_adversarial_taxonomy_is_deterministic
     { "op": "connected_components_query" }
   ],
   "expected": {
-    "connected_components": [["0", "1", "2", "4", "3"]]
+    "connected_components": [["0", "1"], ["2", "3", "4"]]
   }
 }"#,
     );
@@ -2887,7 +2887,7 @@ fn packet_007_differential_metamorphic_and_adversarial_taxonomy_is_deterministic
     { "op": "connected_components_query" }
   ],
   "expected": {
-    "connected_components": [["0", "1", "2", "4", "3"]]
+    "connected_components": [["0", "1"], ["2", "3", "4"]]
   }
 }"#,
     );
