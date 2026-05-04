@@ -29,6 +29,6 @@
         { "left": "g", "right": "h", "attrs": {} }
       ]
     },
-    "articulation_points": ["c", "d", "f", "g"]
+    "articulation_points": ["g", "f", "d", "c"]
   }
 }

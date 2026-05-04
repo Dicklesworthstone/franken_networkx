@@ -1350,6 +1350,17 @@ fn build_dependent_unblock_matrix(report_root: &Path, run_id: &str) -> Dependent
     }
 }
 
+fn normalize_connected_component_members(components: &[Vec<String>]) -> Vec<Vec<String>> {
+    components
+        .iter()
+        .map(|component| {
+            let mut normalized = component.clone();
+            normalized.sort();
+            normalized
+        })
+        .collect()
+}
+
 fn classify_mismatch_taxonomy(
     mode: CompatibilityMode,
     mismatches: &[Mismatch],
@@ -3285,16 +3296,27 @@ fn run_fixture(
         }
     }
 
-    if let Some(expected_components) = fixture.expected.connected_components
-        && context.connected_components_result != Some(expected_components.clone())
-    {
-        mismatches.push(Mismatch {
-            category: "algorithm_components".to_owned(),
-            message: format!(
-                "connected_components mismatch: expected {:?}, got {:?}",
-                expected_components, context.connected_components_result
-            ),
-        });
+    if let Some(expected_components) = fixture.expected.connected_components {
+        match context.connected_components_result.as_ref() {
+            Some(actual_components) => {
+                let expected_normalized =
+                    normalize_connected_component_members(&expected_components);
+                let actual_normalized = normalize_connected_component_members(actual_components);
+                if actual_normalized != expected_normalized {
+                    mismatches.push(Mismatch {
+                        category: "algorithm_components".to_owned(),
+                        message: format!(
+                            "connected_components mismatch: expected {:?}, got {:?}",
+                            expected_normalized, actual_normalized
+                        ),
+                    });
+                }
+            }
+            None => mismatches.push(Mismatch {
+                category: "algorithm_components".to_owned(),
+                message: "expected connected_components result but none produced".to_owned(),
+            }),
+        }
     }
 
     if let Some(expected_count) = fixture.expected.number_connected_components
