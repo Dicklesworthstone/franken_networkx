@@ -5250,16 +5250,19 @@ def diameter(G, e=None, usebounds=False, weight=None):
         Diameter of the graph.
     """
     # Delegate cases where the native path does not yet preserve nx contracts.
-    if (
-        e is not None
-        or usebounds
-        or weight is not None
-        or len(G) == 0
-        or G.is_directed()
-    ):
+    if e is not None or usebounds or weight is not None or len(G) == 0:
         return _call_networkx_for_parity(
             "diameter", G, e=e, usebounds=usebounds, weight=weight
         )
+    # br-r37-c1-tcyne: the Rust _raw_diameter calls gr.undirected()
+    # before computing — collapses antiparallel directions (returns
+    # 2 on directed cycle5 instead of nx's 4). Stay on _raw_diameter
+    # for the fast undirected path; for directed inputs, reuse the
+    # fnx.eccentricity native path (already directed-aware) and take
+    # the max — matches nx exactly without the fnx_to_nx round-trip.
+    if G.is_directed():
+        ecc = eccentricity(G)
+        return max(ecc.values())
     return _raw_diameter(G)
 
 
@@ -5283,16 +5286,16 @@ def radius(G, e=None, usebounds=False, weight=None):
         Radius of the graph.
     """
     # Delegate cases where the native path does not yet preserve nx contracts.
-    if (
-        e is not None
-        or usebounds
-        or weight is not None
-        or len(G) == 0
-        or G.is_directed()
-    ):
+    if e is not None or usebounds or weight is not None or len(G) == 0:
         return _call_networkx_for_parity(
             "radius", G, e=e, usebounds=usebounds, weight=weight
         )
+    # br-r37-c1-tcyne: same directed-collapse defect as _raw_diameter —
+    # _raw_radius runs on gr.undirected(). Use fnx.eccentricity for the
+    # directed path (correct, no fnx_to_nx round-trip).
+    if G.is_directed():
+        ecc = eccentricity(G)
+        return min(ecc.values())
     return _raw_radius(G)
 
 
