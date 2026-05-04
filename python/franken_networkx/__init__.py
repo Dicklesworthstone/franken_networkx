@@ -26045,9 +26045,18 @@ def clustering(G, nodes=None, weight=None):
         and nodes is None
     ):
         try:
-            return _raw_clustering(G)
+            raw = _raw_clustering(G)
         except Exception:
-            pass
+            raw = None
+        if raw is not None:
+            # br-r37-c1-9ccqe: nx emits int 0 for triangle-free nodes
+            # (its formula's ``return 0`` early branch yields the int
+            # literal). The Rust path emits float 0.0 uniformly. Same
+            # type-drift family as br-r37-c1-4jnwn (transitivity) and
+            # br-r37-c1-pu5q7 (degree_centrality singleton). Coerce
+            # zero values to int so isinstance(v, int) drop-in checks
+            # match nx exactly.
+            return {n: (0 if v == 0.0 else v) for n, v in raw.items()}
 
     selected_nodes, single_node = _triangle_selection(G, nodes)
 

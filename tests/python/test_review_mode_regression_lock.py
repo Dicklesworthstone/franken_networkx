@@ -93,6 +93,31 @@ def test_barycenter_directed_disconnected_raises_no_path():
 
 # --- degree_centrality (br-r37-c1-pu5q7) ----------------------------
 
+# --- clustering (br-r37-c1-9ccqe) -----------------------------------
+
+@pytest.mark.parametrize(
+    "builder",
+    [
+        lambda m: m.Graph([(0, 1)]),
+        lambda m: m.path_graph(5),
+        lambda m: m.Graph([(0, 1), (0, 2), (1, 2), (2, 3), (3, 4)]),
+    ],
+    ids=["K2", "P5", "mixed"],
+)
+def test_clustering_emits_int_zero_for_triangle_free_nodes(builder):
+    """nx returns int 0 (not 0.0) for triangle-free nodes. Same
+    type-drift family as transitivity and degree_centrality."""
+    G_nx = builder(nx)
+    G_fnx = builder(fnx)
+    nv = nx.clustering(G_nx)
+    fv = fnx.clustering(G_fnx)
+    assert nv == fv
+    for k in nv:
+        assert type(fv[k]) is type(nv[k]), (
+            f"node {k}: nx={type(nv[k]).__name__} fnx={type(fv[k]).__name__}"
+        )
+
+
 @pytest.mark.parametrize(
     "nx_cls,fnx_cls",
     [
