@@ -59,6 +59,35 @@ def _random_digraph(seed: int) -> fnx.DiGraph:
     return G
 
 
+def _random_multigraph(module, seed: int, *, directed: bool = False):
+    rng = random.Random(seed + 5000)
+    n = rng.randint(0, 16)
+    p = rng.uniform(0.0, 0.45)
+    graph_cls = module.MultiDiGraph if directed else module.MultiGraph
+    G = graph_cls()
+    for i in range(n):
+        G.add_node(i)
+    for i in range(n):
+        targets = range(n) if directed else range(i + 1, n)
+        for j in targets:
+            if i == j:
+                continue
+            if rng.random() < p:
+                for _ in range(1 + rng.randrange(3)):
+                    G.add_edge(i, j)
+    if n >= 1 and seed % 9 == 0:
+        node = rng.randrange(n)
+        G.add_edge(node, node)
+        G.add_edge(node, node)
+    return G
+
+
+def _norm_edges_for_compare(graph):
+    if graph.is_directed():
+        return sorted((u, v) for u, v in graph.edges())
+    return sorted(tuple(sorted((u, v))) for u, v in graph.edges())
+
+
 # ---- panic / exception-class fuzzing -------------------------------
 
 def test_fuzz_seed_grid_includes_self_loops():
@@ -219,6 +248,27 @@ def test_fuzz_strongly_connected_components_partition(seed):
 
 # ---- multi/parallel-edge surface (the recently-added perf paths
 # bypass per-edge runtime_policy; fuzzing checks graph stays consistent)
+
+def test_fuzz_multigraph_seed_grid_includes_parallel_edges_and_self_loops():
+    graphs = [_random_multigraph(fnx, seed) for seed in _FUZZ_SEEDS]
+    assert any(len(list(G.edges())) > len(set(_norm_edges_for_compare(G))) for G in graphs)
+    assert any(any(u == v for u, v in G.edges()) for G in graphs)
+
+
+@pytest.mark.parametrize("seed", _FUZZ_SEEDS[:20])
+@pytest.mark.parametrize("directed", [False, True], ids=["multigraph", "multidigraph"])
+def test_fuzz_multigraph_complement_matches_networkx(seed, directed):
+    G_fnx = _random_multigraph(fnx, seed, directed=directed)
+    G_nx = _random_multigraph(nx, seed, directed=directed)
+
+    C_fnx = fnx.complement(G_fnx)
+    C_nx = nx.complement(G_nx)
+
+    assert C_fnx.is_multigraph() == C_nx.is_multigraph()
+    assert C_fnx.is_directed() == C_nx.is_directed()
+    assert set(C_fnx.nodes()) == set(C_nx.nodes())
+    assert _norm_edges_for_compare(C_fnx) == _norm_edges_for_compare(C_nx)
+
 
 @pytest.mark.parametrize("seed", _FUZZ_SEEDS[:20])
 def test_fuzz_complement_undirected_no_self_loops(seed):
