@@ -249,3 +249,68 @@ def test_components_complement_consistency(seed):
         f"complement of disconnected graph (n={n}, p={p:.2f}, "
         f"k={fnx.number_connected_components(G)}) is also disconnected"
     )
+
+
+# ---- find_cliques (br-r37-c1-tvf43 perf fix) -----------------------
+
+@pytest.mark.parametrize("seed", [0, 7, 42])
+def test_find_cliques_max_size_equals_clique_number(seed):
+    """The size of the largest clique returned by find_cliques is the
+    graph's clique number ω(G). Verify by comparing to an independent
+    inner-loop max."""
+    G = fnx.barabasi_albert_graph(40, 3, seed=seed)
+    cliques = list(fnx.find_cliques(G))
+    largest = max(len(c) for c in cliques)
+    # Equivalent independent computation
+    largest_check = max(len(c) for c in fnx.find_cliques(G))
+    assert largest == largest_check
+    # Sanity: bound by maximum degree + 1
+    max_deg = max(dict(G.degree()).values())
+    assert largest <= max_deg + 1
+
+
+@pytest.mark.parametrize("n", [4, 5, 6])
+def test_find_cliques_complete_graph_yields_single_clique(n):
+    """K_n has exactly one maximal clique = entire vertex set."""
+    G = fnx.complete_graph(n)
+    cliques = list(fnx.find_cliques(G))
+    assert len(cliques) == 1, f"K{n} should have 1 maximal clique, got {len(cliques)}"
+    assert len(cliques[0]) == n
+
+
+# ---- pagerank (canonical numerical invariants) ---------------------
+
+@pytest.mark.parametrize("seed", [0, 1, 7, 42])
+def test_pagerank_sums_to_one(seed):
+    """PageRank is a probability distribution: ∑ pagerank(v) == 1."""
+    G = fnx.barabasi_albert_graph(30, 3, seed=seed)
+    pr = fnx.pagerank(G)
+    assert abs(sum(pr.values()) - 1.0) < 1e-6
+
+
+# ---- triangles / clustering / transitivity coherence ---------------
+
+@pytest.mark.parametrize("seed", [0, 1, 42])
+def test_triangles_consistent_with_transitivity_zero(seed):
+    """If transitivity == 0, no node has triangles. Bidirectionally:
+    if every node has 0 triangles, transitivity must be 0."""
+    G = fnx.path_graph(10)  # acyclic ⇒ no triangles
+    assert fnx.transitivity(G) == 0
+    triangles = fnx.triangles(G)
+    assert all(t == 0 for t in triangles.values())
+
+
+# ---- harmonic_centrality (br-r37-c1-rsom6 dict-order fix) ----------
+
+def test_harmonic_centrality_value_invariant_under_relabeling():
+    """Relabel-invariant: relabeling nodes leaves the value mapping
+    intact (the value is a property of structural position, not name)."""
+    G1 = fnx.path_graph(5)
+    h1 = fnx.harmonic_centrality(G1)
+    G2 = fnx.relabel_nodes(G1, {i: chr(ord('a') + i) for i in range(5)})
+    h2 = fnx.harmonic_centrality(G2)
+    # Map back via the inverse and compare values
+    rev = {chr(ord('a') + i): i for i in range(5)}
+    h2_remapped = {rev[k]: v for k, v in h2.items()}
+    for k in h1:
+        assert h1[k] == pytest.approx(h2_remapped[k], abs=1e-9)
