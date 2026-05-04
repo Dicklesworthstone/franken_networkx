@@ -300,6 +300,73 @@ def test_triangles_consistent_with_transitivity_zero(seed):
     assert all(t == 0 for t in triangles.values())
 
 
+# ---- directed distance-metrics metamorphic (br-r37-c1-kitjs) -------
+
+def _scc_digraph(seed):
+    """Random directed graph with a Hamiltonian cycle injected (so the
+    result is always strongly connected, distance metrics defined)."""
+    rng = random.Random(seed)
+    n = rng.randint(5, 12)
+    p = rng.uniform(0.2, 0.5)
+    G = fnx.DiGraph()
+    for i in range(n):
+        G.add_node(i)
+    edges = []
+    for i in range(n):
+        for j in range(n):
+            if i != j and rng.random() < p:
+                edges.append((i, j))
+    for i in range(n):
+        edges.append((i, (i + 1) % n))
+    G.add_edges_from(edges)
+    return G
+
+
+@pytest.mark.parametrize("seed", [0, 1, 7, 11, 42])
+def test_directed_diameter_invariant_under_reverse(seed):
+    """For a strongly-connected DiGraph, ``diameter(reverse(G)) ==
+    diameter(G)``: reversing every edge maps the shortest path from
+    u to v in G to the shortest path from v to u in reverse(G), so
+    the maximum over all (u, v) pairs is preserved."""
+    G = _scc_digraph(seed)
+    Gr = G.reverse()
+    assert fnx.diameter(G) == fnx.diameter(Gr)
+
+
+@pytest.mark.parametrize("seed", [0, 1, 7, 11, 42])
+def test_directed_radius_diameter_ordering(seed):
+    """Radius ≤ diameter is a fundamental graph-distance inequality.
+    For finite strongly-connected DiGraphs both are well-defined and
+    finite."""
+    G = _scc_digraph(seed)
+    assert fnx.radius(G) <= fnx.diameter(G)
+
+
+@pytest.mark.parametrize("seed", [0, 1, 7, 11, 42])
+def test_directed_center_is_subset_of_eccentricity_minimizers(seed):
+    """The center is exactly the set of nodes attaining the minimum
+    eccentricity. Verify against an independent computation of the
+    minimum-eccentricity set from fnx.eccentricity."""
+    G = _scc_digraph(seed)
+    ecc = fnx.eccentricity(G)
+    r = fnx.radius(G)
+    expected_center = sorted(n for n, e in ecc.items() if e == r)
+    actual_center = sorted(fnx.center(G))
+    assert actual_center == expected_center
+
+
+@pytest.mark.parametrize("seed", [0, 1, 7, 11, 42])
+def test_directed_periphery_is_max_eccentricity_set(seed):
+    """The periphery is exactly the set of nodes attaining the
+    maximum eccentricity (i.e., diameter)."""
+    G = _scc_digraph(seed)
+    ecc = fnx.eccentricity(G)
+    d = fnx.diameter(G)
+    expected_periphery = sorted(n for n, e in ecc.items() if e == d)
+    actual_periphery = sorted(fnx.periphery(G))
+    assert actual_periphery == expected_periphery
+
+
 # ---- harmonic_centrality (br-r37-c1-rsom6 dict-order fix) ----------
 
 def test_harmonic_centrality_value_invariant_under_relabeling():
