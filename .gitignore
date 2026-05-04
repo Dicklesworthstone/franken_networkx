@@ -109,6 +109,9 @@ ci-artifacts/
 proptest-regressions/
 test_meminfo
 
+# Per-test E2E pipeline log artifacts (regenerated each run)
+tests/python/test_e2e_pipeline_logs/
+
 # Agent session ephemeral files
 SESSION_TODO.md
 SESSION_REPORT.md
