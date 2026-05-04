@@ -26078,9 +26078,16 @@ def transitivity(G):
     # nx bit-exactly.
     if not G.is_directed():
         try:
-            return _raw_transitivity(G)
+            value = _raw_transitivity(G)
         except Exception:
-            pass
+            value = None
+        if value is not None:
+            # br-r37-c1-4jnwn: nx returns the literal int 0 when there
+            # are no triangles (``return 0 if triangles == 0 else
+            # triangles / contributions``). The Rust binding emits f64
+            # for both branches, so coerce a zero result back to int
+            # to preserve the type contract.
+            return 0 if value == 0.0 else value
 
     triangles_contributions = [
         (triangle_count, degree * (degree - 1))
