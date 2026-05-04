@@ -9563,8 +9563,10 @@ def barycenter(G, weight=None, attr=None, sp=None, *, backend=None, **backend_kw
     """
     _validate_backend_dispatch_keywords("barycenter", backend, backend_kwargs)
     if len(G) == 0:
-        # Match nx (br-r37-c1-pb97z): the Rust impl silently returned
-        # []; nx raises NetworkXPointlessConcept('G has no nodes.').
+        # Match nx's split empty-graph behavior: undirected graph
+        # classes raise, while directed graph classes return [].
+        if G.is_directed():
+            return []
         raise NetworkXPointlessConcept("G has no nodes.")
     if weight is None and attr is None and sp is None:
         # br-r37-c1-pooue: the Rust _raw_barycenter does not check

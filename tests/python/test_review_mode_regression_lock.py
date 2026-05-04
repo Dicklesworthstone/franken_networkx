@@ -30,7 +30,7 @@ def test_transitivity_returns_int_zero_on_triangle_free():
     G_fnx = fnx.path_graph(5)
     nv, fv = nx.transitivity(G_nx), fnx.transitivity(G_fnx)
     assert nv == fv == 0
-    assert type(fv) is type(nv)  # both int, not float
+    assert fv.__class__ is nv.__class__  # both int, not float
 
 
 def test_transitivity_returns_float_on_graph_with_triangles():
@@ -38,7 +38,7 @@ def test_transitivity_returns_float_on_graph_with_triangles():
     G_fnx = fnx.complete_graph(4)
     nv, fv = nx.transitivity(G_nx), fnx.transitivity(G_fnx)
     assert nv == fv == 1.0
-    assert type(fv) is type(nv)  # both float
+    assert fv.__class__ is nv.__class__  # both float
 
 
 # --- wiener_index (br-r37-c1-t26b4) ---------------------------------
@@ -49,7 +49,7 @@ def test_wiener_index_directed_returns_int():
     G_fnx = fnx.DiGraph([(0, 1), (1, 2), (2, 0)])
     nv, fv = nx.wiener_index(G_nx), fnx.wiener_index(G_fnx)
     assert nv == fv
-    assert type(fv) is type(nv) is int
+    assert fv.__class__ is nv.__class__ is int
 
 
 def test_wiener_index_undirected_returns_float():
@@ -58,10 +58,28 @@ def test_wiener_index_undirected_returns_float():
     G_fnx = fnx.path_graph(5)
     nv, fv = nx.wiener_index(G_nx), fnx.wiener_index(G_fnx)
     assert nv == fv
-    assert type(fv) is type(nv) is float
+    assert fv.__class__ is nv.__class__ is float
 
 
 # --- barycenter (br-r37-c1-pooue) -----------------------------------
+
+def test_barycenter_empty_graph_contract_depends_on_directedness():
+    """nx returns [] for empty directed classes, but raises for undirected."""
+    for nx_cls, fnx_cls in [
+        (nx.DiGraph, fnx.DiGraph),
+        (nx.MultiDiGraph, fnx.MultiDiGraph),
+    ]:
+        assert nx.barycenter(nx_cls()) == fnx.barycenter(fnx_cls()) == []
+
+    for nx_cls, fnx_cls in [
+        (nx.Graph, fnx.Graph),
+        (nx.MultiGraph, fnx.MultiGraph),
+    ]:
+        with pytest.raises(nx.NetworkXPointlessConcept):
+            nx.barycenter(nx_cls())
+        with pytest.raises(nx.NetworkXPointlessConcept):
+            fnx.barycenter(fnx_cls())
+
 
 def test_barycenter_directed_disconnected_raises_no_path():
     """Non-strongly-connected DiGraph: NetworkXNoPath in both libs."""
