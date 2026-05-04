@@ -93,6 +93,38 @@ def test_barycenter_directed_disconnected_raises_no_path():
 
 # --- degree_centrality (br-r37-c1-pu5q7) ----------------------------
 
+# --- is_planar Kuratowski-pair lock (br-r37-c1-s2jfv) ----------------
+
+@pytest.mark.parametrize(
+    "name,builder",
+    [
+        ("K33", nx.complete_bipartite_graph),
+        ("petersen", lambda: nx.petersen_graph()),
+        ("K5", lambda: nx.complete_graph(5)),
+    ],
+    ids=["K33", "petersen", "K5"],
+)
+def test_is_planar_rejects_kuratowski_pair_at_public_api(name, builder):
+    """fnx.is_planar (the Python wrapper, which delegates to
+    nx.check_planarity) MUST return False for K3,3, Petersen, and K5
+    regardless of the underlying Rust binary state. Locks the
+    public-API contract independently of br-r37-c1-xdjpt's Rust-level
+    fix, so a future regression that re-routes through the (binary-
+    lagging) ``_fnx.is_planar`` directly trips this test immediately.
+    """
+    if name == "K33":
+        G_nx = nx.complete_bipartite_graph(3, 3)
+        G_fnx = fnx.complete_bipartite_graph(3, 3)
+    elif name == "petersen":
+        G_nx = nx.petersen_graph()
+        G_fnx = fnx.petersen_graph()
+    else:
+        G_nx = nx.complete_graph(5)
+        G_fnx = fnx.complete_graph(5)
+    assert nx.is_planar(G_nx) is False
+    assert fnx.is_planar(G_fnx) is False
+
+
 # --- predicate-family parity (chordal / planar / eulerian / bipartite / tree) ---
 
 @pytest.mark.parametrize(
