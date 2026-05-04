@@ -5857,6 +5857,11 @@ def cycle_basis(G, root=None):
 
 
 def all_shortest_paths(G, source, target, weight=None, method="dijkstra"):
+    # br-r37-c1-6atv8: validation runs eagerly (matching nx, which raises
+    # ValueError/NodeNotFound at call time, not at first next()) but the
+    # returned object must be a true generator so that .send / .throw /
+    # .close behave as on nx's output. We delegate body to an inner
+    # generator function and return its call.
     if weight is not None and method not in {"dijkstra", "bellman-ford"}:
         raise ValueError(f"method not supported: {method}")
     # br-r37-c1-omjmu: nx raises TypeError on unhashable target inside
@@ -5874,34 +5879,41 @@ def all_shortest_paths(G, source, target, weight=None, method="dijkstra"):
         raise NodeNotFound(f"Source {source} not in G")
     if target not in G:
         raise NetworkXNoPath(f"Target {target} cannot be reached from given sources")
-    if weight is not None and G.is_directed():
-        # Delegate non-string / callable weights to NetworkX (the PyO3
-        # binding's ``weight: str`` signature type-rejects, and callables
-        # have no Rust analogue). bellman-ford is now native (br-r37-c1-
-        # xsi7c), so it stays in the Rust path unless the weight type
-        # forces a fallback.
-        if _should_delegate_dijkstra_to_networkx(G, weight) or (
-            method == "bellman-ford" and _should_delegate_bellman_ford_to_networkx(weight)
-        ):
+
+    def _gen():
+        if weight is not None and G.is_directed():
+            # Delegate non-string / callable weights to NetworkX (the PyO3
+            # binding's ``weight: str`` signature type-rejects, and callables
+            # have no Rust analogue). bellman-ford is now native (br-r37-c1-
+            # xsi7c), so it stays in the Rust path unless the weight type
+            # forces a fallback.
+            if _should_delegate_dijkstra_to_networkx(G, weight) or (
+                method == "bellman-ford" and _should_delegate_bellman_ford_to_networkx(weight)
+            ):
+                kwargs = {"weight": weight}
+                if method is not None:
+                    kwargs["method"] = method
+                yield from _call_networkx_for_parity(
+                    "all_shortest_paths", G, source, target, **kwargs
+                )
+                return
+        if weight is not None and method == "dijkstra" and _should_delegate_dijkstra_to_networkx(G, weight):
             kwargs = {"weight": weight}
             if method is not None:
                 kwargs["method"] = method
-            return _call_networkx_for_parity(
+            yield from _call_networkx_for_parity("all_shortest_paths", G, source, target, **kwargs)
+            return
+        if weight is not None and method == "bellman-ford" and _should_delegate_bellman_ford_to_networkx(weight):
+            kwargs = {"weight": weight}
+            if method is not None:
+                kwargs["method"] = method
+            yield from _call_networkx_for_parity(
                 "all_shortest_paths", G, source, target, **kwargs
             )
-    if weight is not None and method == "dijkstra" and _should_delegate_dijkstra_to_networkx(G, weight):
-        kwargs = {"weight": weight}
-        if method is not None:
-            kwargs["method"] = method
-        return _call_networkx_for_parity("all_shortest_paths", G, source, target, **kwargs)
-    if weight is not None and method == "bellman-ford" and _should_delegate_bellman_ford_to_networkx(weight):
-        kwargs = {"weight": weight}
-        if method is not None:
-            kwargs["method"] = method
-        return _call_networkx_for_parity(
-            "all_shortest_paths", G, source, target, **kwargs
-        )
-    return _raw_all_shortest_paths(G, source, target, weight=weight, method=method)
+            return
+        yield from _raw_all_shortest_paths(G, source, target, weight=weight, method=method)
+
+    return _gen()
 
 
 def all_simple_paths(
