@@ -278,3 +278,71 @@ def test_fuzz_complement_undirected_no_self_loops(seed):
     Gc = fnx.complement(G)
     for u, v in Gc.edges():
         assert u != v, f"complement contains self-loop ({u}, {v})"
+
+
+# ---- nx-oracle differential fuzz (parity vs reference impl) --------
+
+@pytest.mark.parametrize("seed", _FUZZ_SEEDS[:25])
+def test_fuzz_find_cliques_oracle_parity_with_nx(seed):
+    """For every random graph in the seed grid: fnx.find_cliques(G)
+    must produce the EXACT same clique sequence as nx.find_cliques(G).
+    Stress-tests the br-r37-c1-tvf43 perf fix (G.neighbors-based
+    adjacency build) against arbitrary inputs."""
+    G_fnx = _random_graph(seed)
+    if any(u == v for u, v in G_fnx.edges()):
+        # find_cliques is not defined on graphs with self-loops in nx
+        return
+    G_nx = nx.Graph()
+    G_nx.add_nodes_from(G_fnx.nodes())
+    G_nx.add_edges_from(G_fnx.edges())
+    nx_cliques = list(nx.find_cliques(G_nx))
+    fnx_cliques = list(fnx.find_cliques(G_fnx))
+    assert nx_cliques == fnx_cliques, (
+        f"seed={seed}: nx and fnx clique sequences diverge\n"
+        f"  nx[:3]:  {nx_cliques[:3]}\n"
+        f"  fnx[:3]: {fnx_cliques[:3]}"
+    )
+
+
+@pytest.mark.parametrize("seed", _FUZZ_SEEDS[:25])
+def test_fuzz_pagerank_oracle_value_match_with_nx(seed):
+    """fnx.pagerank values must match nx within numerical tolerance
+    on every random fixture (skip self-loop fixtures since the two
+    libraries' default self-loop treatment can introduce mode-level
+    convergence differences)."""
+    G_fnx = _random_graph(seed)
+    if G_fnx.number_of_nodes() == 0:
+        return
+    if any(u == v for u, v in G_fnx.edges()):
+        return
+    G_nx = nx.Graph()
+    G_nx.add_nodes_from(G_fnx.nodes())
+    G_nx.add_edges_from(G_fnx.edges())
+    nv = nx.pagerank(G_nx)
+    fv = fnx.pagerank(G_fnx)
+    assert set(nv) == set(fv)
+    for k in nv:
+        assert nv[k] == pytest.approx(fv[k], abs=1e-6), (
+            f"seed={seed}, node {k}: nx={nv[k]} fnx={fv[k]}"
+        )
+
+
+@pytest.mark.parametrize("seed", _FUZZ_SEEDS[:25])
+def test_fuzz_clustering_oracle_parity_with_nx(seed):
+    """fnx.clustering must match nx exactly (values AND types) on every
+    random fixture. Stress-tests the br-r37-c1-9ccqe int-0 fix against
+    arbitrary inputs."""
+    G_fnx = _random_graph(seed)
+    if any(u == v for u, v in G_fnx.edges()):
+        return
+    G_nx = nx.Graph()
+    G_nx.add_nodes_from(G_fnx.nodes())
+    G_nx.add_edges_from(G_fnx.edges())
+    nv = nx.clustering(G_nx)
+    fv = fnx.clustering(G_fnx)
+    assert nv == fv, f"seed={seed}: clustering values diverge"
+    for k in nv:
+        assert type(fv[k]) is type(nv[k]), (
+            f"seed={seed} node {k}: type drift "
+            f"nx={type(nv[k]).__name__} fnx={type(fv[k]).__name__}"
+        )
