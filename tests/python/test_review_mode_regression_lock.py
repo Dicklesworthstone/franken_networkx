@@ -93,6 +93,44 @@ def test_barycenter_directed_disconnected_raises_no_path():
 
 # --- degree_centrality (br-r37-c1-pu5q7) ----------------------------
 
+# --- predicate-family parity (chordal / planar / eulerian / bipartite / tree) ---
+
+@pytest.mark.parametrize(
+    "predicate",
+    [
+        "is_chordal",
+        "is_eulerian",
+        "is_semieulerian",
+        "is_planar",
+        "is_bipartite",
+        "is_tree",
+        "is_forest",
+        "is_connected",
+    ],
+)
+@pytest.mark.parametrize(
+    "builder",
+    [
+        lambda m: m.complete_graph(3),
+        lambda m: m.complete_graph(4),
+        lambda m: m.complete_graph(5),
+        lambda m: m.complete_bipartite_graph(3, 3),
+        lambda m: m.path_graph(5),
+        lambda m: m.cycle_graph(6),
+        lambda m: m.petersen_graph(),
+    ],
+    ids=["K3", "K4", "K5", "K33", "P5", "C6", "petersen"],
+)
+def test_graph_predicate_parity_with_nx(predicate, builder):
+    """Lock bit-exact parity for boolean graph predicates across a
+    fixture spread that includes K_n, complete bipartite, paths,
+    cycles, and Petersen (planar test edge case). Surfaced from a
+    /reality-check probe — parity holds today; this test pins it."""
+    G_nx = builder(nx)
+    G_fnx = builder(fnx)
+    assert getattr(nx, predicate)(G_nx) == getattr(fnx, predicate)(G_fnx)
+
+
 # --- harmonic_centrality (br-r37-c1-rsom6) -------------------------
 
 def test_harmonic_centrality_dict_order_matches_nx():
