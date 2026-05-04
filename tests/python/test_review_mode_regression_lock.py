@@ -14,6 +14,7 @@ test would also need a deliberate bead-close decision.
 from __future__ import annotations
 
 import inspect
+from pathlib import Path
 
 import networkx as nx
 import pytest
@@ -173,6 +174,15 @@ def test_graph_clique_number_absent_like_networkx_36():
     assert not hasattr(nx, "graph_clique_number")
     assert not hasattr(fnx, "graph_clique_number")
     assert "graph_clique_number" not in fnx.__all__
+
+
+def test_private_fnx_stub_tracks_graph_clique_number_runtime_export():
+    """The private native module still exports graph_clique_number."""
+    from franken_networkx import _fnx
+
+    stub = Path(fnx.__file__).with_name("_fnx.pyi").read_text()
+    assert hasattr(_fnx, "graph_clique_number")
+    assert "def graph_clique_number(g: Graph) -> int: ..." in stub
 
 
 # --- connected_components (br-r37-c1-anace) -------------------------
