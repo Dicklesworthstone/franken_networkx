@@ -93,6 +93,68 @@ def test_barycenter_directed_disconnected_raises_no_path():
 
 # --- degree_centrality (br-r37-c1-pu5q7) ----------------------------
 
+# --- _raw_neighbors_dispatch helper lock (br-r37-c1-4ar9q) -----------
+
+def test_raw_neighbors_dispatch_plain_graph_returns_graph_neighbors():
+    """Plain ``fnx.Graph`` with no private storage → fast Rust binding."""
+    from franken_networkx import _raw_neighbors_dispatch, _GRAPH_NEIGHBORS
+
+    G = fnx.complete_graph(5)
+    raw = _raw_neighbors_dispatch(G)
+    assert raw is _GRAPH_NEIGHBORS
+    assert callable(raw)
+    nbrs = raw(G, 0)
+    # K5: node 0 has 4 neighbors {1, 2, 3, 4}
+    assert sorted(nbrs) == [1, 2, 3, 4]
+
+
+def test_raw_neighbors_dispatch_plain_digraph_returns_digraph_neighbors():
+    """Plain ``fnx.DiGraph`` with no private storage → fast Rust binding."""
+    from franken_networkx import _raw_neighbors_dispatch, _DIGRAPH_NEIGHBORS
+
+    G = fnx.DiGraph([(0, 1), (0, 2), (1, 2)])
+    raw = _raw_neighbors_dispatch(G)
+    assert raw is _DIGRAPH_NEIGHBORS
+    # successors of 0 (DiGraph.neighbors == successors)
+    assert sorted(raw(G, 0)) == [1, 2]
+
+
+@pytest.mark.parametrize(
+    "graph_factory",
+    [
+        lambda: fnx.MultiGraph([(0, 1), (0, 1), (1, 2)]),
+        lambda: fnx.MultiDiGraph([(0, 1), (0, 1)]),
+    ],
+    ids=["MultiGraph", "MultiDiGraph"],
+)
+def test_raw_neighbors_dispatch_rejects_multigraph_via_isinstance(graph_factory):
+    """MultiGraph and MultiDiGraph have independent MROs (NOT
+    Graph/DiGraph subclasses); the isinstance dispatch returns None
+    for both, so the bypass is correctly skipped (br-r37-c1-ni9va)."""
+    from franken_networkx import _raw_neighbors_dispatch
+
+    G = graph_factory()
+    assert _raw_neighbors_dispatch(G) is None
+
+
+def test_raw_neighbors_dispatch_rejects_private_storage_override():
+    """When nx-compatibility private storage is set on a Graph, the
+    helper returns None — falls back to the slow path so the override
+    is honored. Critical for nx test-suite compatibility."""
+    from franken_networkx import (
+        _raw_neighbors_dispatch,
+        _PRIVATE_ADJ_OVERRIDE,
+    )
+
+    G = fnx.complete_graph(3)
+    # Before override: dispatch returns the fast binding.
+    assert _raw_neighbors_dispatch(G) is not None
+    # Set nx-private adjacency override (simulates nx test code that
+    # monkey-patches G._adj). After: dispatch falls back to None.
+    setattr(G, _PRIVATE_ADJ_OVERRIDE, {"a": {}, "b": {}})
+    assert _raw_neighbors_dispatch(G) is None
+
+
 # --- selfloop_edges/number_of_selfloops fast-path lock (br-r37-c1-61okz) ---
 
 @pytest.mark.parametrize(
