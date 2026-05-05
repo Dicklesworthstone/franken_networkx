@@ -152,19 +152,35 @@ def _algorithms_for(graph):
         except Exception as exc:  # pragma: no cover
             payload["core_number"] = f"<{type(exc).__name__}>"
         payload["square_clustering"] = _norm_dict_centrality(fnx.square_clustering(graph))
-        # br-r37-c1-8e60l: lock the link-prediction family's emission
-        # order + score precision into the golden. The lazy-delegate
-        # fix could silently regress generator iteration semantics
-        # (e.g. a future change to non_edges ordering) and pass diff
-        # tests but visibly drift here.
-        payload["jaccard_coefficient"] = [
-            [_norm_node(u), _norm_node(v), _norm_number(s)]
-            for u, v, s in sorted(fnx.jaccard_coefficient(graph), key=lambda t: (str(t[0]), str(t[1])))
-        ]
-        payload["preferential_attachment"] = [
-            [_norm_node(u), _norm_node(v), _norm_number(s)]
-            for u, v, s in sorted(fnx.preferential_attachment(graph), key=lambda t: (str(t[0]), str(t[1])))
-        ]
+        # br-r37-c1-8e60l: lock the link-prediction family's score
+        # outputs into the golden. The lazy-delegate fix could silently
+        # regress score precision and pass diff tests but visibly
+        # drift here.
+        #
+        # Keying on the (u, v) tuple is unstable across runs because
+        # nx.non_edges iteration depends on PYTHONHASHSEED for string
+        # nodes. So instead we snapshot the AGGREGATED scores: sorted
+        # by score (descending), then by canonical str-tuple to break
+        # ties. The aggregate is deterministic because the score
+        # multiset is invariant under iteration order.
+        def _norm_link_pred_aggregate(triples):
+            # nx.non_edges emits each unordered pair once but the
+            # (u, v) ORIENTATION depends on PYTHONHASHSEED for string
+            # nodes. For undirected scores the value is symmetric, so
+            # canonicalize to (min, max) by string then dedupe.
+            seen = {}
+            for u, v, s in triples:
+                a, b = sorted([_norm_node(u), _norm_node(v)], key=str)
+                seen[(a, b)] = _norm_number(s)
+            scored = [(a, b, s) for (a, b), s in seen.items()]
+            scored.sort(key=lambda t: (str(t[2]), str(t[0]), str(t[1])))
+            return [list(t) for t in scored]
+        payload["jaccard_coefficient"] = _norm_link_pred_aggregate(
+            fnx.jaccard_coefficient(graph)
+        )
+        payload["preferential_attachment"] = _norm_link_pred_aggregate(
+            fnx.preferential_attachment(graph)
+        )
     try:
         payload["barycenter"] = sorted([_norm_node(n) for n in fnx.barycenter(graph)], key=str)
     except Exception as exc:  # pragma: no cover — record reason if it fails
