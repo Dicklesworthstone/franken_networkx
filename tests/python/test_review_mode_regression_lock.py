@@ -770,6 +770,27 @@ def test_community_all_excludes_private_implementation_names():
             lambda m, G: m.is_strongly_connected(G),
             nx.NetworkXNotImplemented,
         ),
+        # br-r37-c1-qmzy2: connected_double_edge_swap silently returned
+        # 0 on disconnected/<4-node/empty inputs; nx raises. Lock all
+        # three precondition cases against future regression.
+        (
+            "connected_double_edge_swap_disconnected",
+            lambda m: m.Graph([(0, 1), (2, 3), (4, 5), (6, 7)]),
+            lambda m, G: m.connected_double_edge_swap(G, nswap=1, seed=42),
+            nx.NetworkXError,
+        ),
+        (
+            "connected_double_edge_swap_too_small",
+            lambda m: m.complete_graph(3),
+            lambda m, G: m.connected_double_edge_swap(G, nswap=1, seed=42),
+            nx.NetworkXError,
+        ),
+        (
+            "connected_double_edge_swap_empty",
+            lambda m: m.Graph(),
+            lambda m, G: m.connected_double_edge_swap(G, nswap=1, seed=42),
+            nx.NetworkXPointlessConcept,
+        ),
     ],
     ids=lambda x: x if isinstance(x, str) else None,
 )

@@ -21726,6 +21726,19 @@ def connected_double_edge_swap(G, nswap=1, _window_threshold=3, seed=None):
     """Swap edges maintaining connectivity and degree sequence."""
     import random as _random
 
+    # br-r37-c1-cdes-validate: nx raises early on inputs where the
+    # algorithm has no defined behavior (empty graph, fewer than four
+    # nodes, disconnected graph). Previously fnx silently spun the
+    # nswap*100-iteration sampling loop and returned 0 — which masked
+    # input bugs and broke callers that branch on the exception type.
+    if len(G) == 0:
+        raise NetworkXPointlessConcept(
+            "Connectivity is undefined for the null graph."
+        )
+    if len(G) < 4:
+        raise NetworkXError("Graph has fewer than four nodes.")
+    if not is_connected(G):
+        raise NetworkXError("Graph not connected")
     rng = _random.Random(seed)
     if G.number_of_edges() < 2:
         return 0
