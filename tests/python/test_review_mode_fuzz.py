@@ -379,6 +379,48 @@ def _random_strongly_connected_digraph(seed: int):
     return G_nx, G_fnx
 
 
+# ---- is_planar Kuratowski-bound fast-path lock (br-r37-c1-gttlp) ----
+
+def _random_planarity_test_graph(seed: int):
+    """Random graph that's likely to exercise EITHER the Kuratowski-
+    bound short-circuit OR the LR fallback path. Mixes:
+      - dense graphs (Euler-bound caught) — m close to or above 3n-6
+      - bipartite dense (bipartite-bound caught) — m close to 2n-4
+      - sparse sparse-non-bipartite (LR fallback)
+    """
+    rng = random.Random(seed)
+    case = rng.randint(0, 2)
+    if case == 0:
+        # Dense general — likely violates Euler bound for n >= 5.
+        n = rng.randint(5, 12)
+        p = rng.uniform(0.6, 0.95)
+        return fnx.erdos_renyi_graph(n, p, seed=seed)
+    if case == 1:
+        # Dense bipartite — exercises the bipartite short-circuit.
+        m, k = rng.randint(3, 6), rng.randint(3, 6)
+        return fnx.complete_bipartite_graph(m, k)
+    # Sparse — falls through to LR.
+    n = rng.randint(5, 15)
+    return fnx.barabasi_albert_graph(n, 2, seed=seed)
+
+
+@pytest.mark.parametrize("seed", _FUZZ_SEEDS[:30])
+def test_fuzz_is_planar_oracle_matches_nx_across_bound_paths(seed):
+    """Locks the br-r37-c1-gttlp Kuratowski-bound fast path: regardless
+    of which short-circuit (Euler / bipartite / LR-fallback) any
+    given fixture lands in, fnx.is_planar must match nx.is_planar
+    bit-exactly. A typo in the bound (e.g. ``>`` vs ``<``) would
+    silently regress correctness on graphs that hit only that path."""
+    G_fnx = _random_planarity_test_graph(seed)
+    G_nx = nx.Graph()
+    G_nx.add_nodes_from(G_fnx.nodes())
+    G_nx.add_edges_from(G_fnx.edges())
+    assert fnx.is_planar(G_fnx) == nx.is_planar(G_nx), (
+        f"seed={seed}: divergence on |V|={G_fnx.number_of_nodes()} "
+        f"|E|={G_fnx.number_of_edges()}"
+    )
+
+
 @pytest.mark.parametrize("seed", _FUZZ_SEEDS[:25])
 def test_fuzz_directed_diameter_radius_center_periphery_oracle_match_nx(seed):
     """Locks the br-r37-c1-89n9d (center/periphery) and br-r37-c1-wojl3
