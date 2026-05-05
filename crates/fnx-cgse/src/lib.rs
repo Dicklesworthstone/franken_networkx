@@ -265,6 +265,12 @@ thread_local! {
 /// instrumentation, not a correctness primitive — nested calls
 /// become a no-op rather than panicking with `BorrowMutError`
 /// (br-r37-c1-g80ih).
+///
+/// br-r37-c1-03n2x: marked `#[must_use]` so silent discard of the
+/// Option without explicit ``let _ = …`` triggers an unused_must_use
+/// warning. Fire-and-forget callers must opt in explicitly to make
+/// "we don't care if this no-ops" visible at the call site.
+#[must_use = "with_ledger returns None on reentrant calls; ignore explicitly with `let _ = with_ledger(...)`"]
 pub fn with_ledger<F, R>(f: F) -> Option<R>
 where
     F: FnOnce(&mut WitnessLedger) -> R,
@@ -327,7 +333,9 @@ where
     });
 
     if !was_active {
-        with_ledger(WitnessLedger::clear);
+        // br-r37-c1-03n2x: explicit fire-and-forget — if a reentrant
+        // call returns None, the no-op is intentional.
+        let _ = with_ledger(WitnessLedger::clear);
     }
 
     let _guard = WitnessGuard { was_active };
@@ -886,12 +894,12 @@ mod tests {
 
     #[test]
     fn test_thread_local_ledger() {
-        with_ledger(|l| l.clear());
+        let _ = with_ledger(|l| l.clear());
 
         let mut sink = WitnessSink::new(TieBreakPolicy::BfsLevelLex);
         sink.record_decision("1", "2");
         let w = sink.finalize(5, 4, "n_plus_m", None);
-        with_ledger(|l| l.append(w));
+        let _ = with_ledger(|l| l.append(w));
 
         let drained = drain_witnesses();
         assert_eq!(drained.len(), 1);

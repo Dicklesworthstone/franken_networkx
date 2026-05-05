@@ -351,7 +351,10 @@ fn cgse_publish(
             reference.dominant_complexity(),
             None,
         );
-        with_cgse_ledger(|ledger| ledger.append(witness));
+        // br-r37-c1-03n2x: explicit fire-and-forget; reentrant calls
+        // return None and that's intentionally a no-op for witness
+        // collection (best-effort instrumentation).
+        let _ = with_cgse_ledger(|ledger| ledger.append(witness));
     }
 }
 
