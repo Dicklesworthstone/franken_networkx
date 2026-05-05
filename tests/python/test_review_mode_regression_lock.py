@@ -154,6 +154,34 @@ def test_volume_fast_path_known_results(graph_factory, subset_factory, expected)
     assert fnx.volume(G, S) == expected
 
 
+@pytest.mark.parametrize(
+    "nx_graph,fnx_graph,kwargs,expected",
+    [
+        (nx.path_graph(2), fnx.path_graph(2), {}, 1),
+        (
+            nx.Graph([(0, 1, {"weight": 2})]),
+            fnx.Graph([(0, 1, {"weight": 2})]),
+            {"weight": "weight"},
+            2,
+        ),
+        (nx.DiGraph([(0, 1)]), fnx.DiGraph([(0, 1)]), {}, 1),
+        (nx.MultiGraph([(0, 1)]), fnx.MultiGraph([(0, 1)]), {}, 1),
+    ],
+    ids=[
+        "simple_fast_path",
+        "weighted_slow_path",
+        "directed_slow_path",
+        "multi_slow_path",
+    ],
+)
+def test_volume_ignores_missing_nodes_like_networkx(nx_graph, fnx_graph, kwargs, expected):
+    """NetworkX treats missing nodes in S as degree zero."""
+    assert nx.volume(nx_graph, [0, 99], **kwargs) == expected
+    assert fnx.volume(fnx_graph, [0, 99], **kwargs) == expected
+    assert nx.volume(nx_graph, [99], **kwargs) == 0
+    assert fnx.volume(fnx_graph, [99], **kwargs) == 0
+
+
 # --- distance-metric Rust guard lock (br-r37-c1-0xhhq) ---------------
 
 @pytest.mark.parametrize(

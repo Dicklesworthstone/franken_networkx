@@ -10030,7 +10030,7 @@ def volume(G, S, weight=None):
         # |S| < |V|/2 because the per-call wrapper overhead
         # dominates the per-node lookup cost.
         deg = dict(G.degree())
-        return sum(deg[v] for v in S)
+        return sum(deg.get(v, 0) for v in S)
     return sum(
         _adc_weighted_degree(
             G,
@@ -10040,6 +10040,7 @@ def volume(G, S, weight=None):
             weight=weight,
         )
         for node in S
+        if node in G
     )
 
 
