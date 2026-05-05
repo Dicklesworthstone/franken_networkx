@@ -152,6 +152,19 @@ def _algorithms_for(graph):
         except Exception as exc:  # pragma: no cover
             payload["core_number"] = f"<{type(exc).__name__}>"
         payload["square_clustering"] = _norm_dict_centrality(fnx.square_clustering(graph))
+        # br-r37-c1-8e60l: lock the link-prediction family's emission
+        # order + score precision into the golden. The lazy-delegate
+        # fix could silently regress generator iteration semantics
+        # (e.g. a future change to non_edges ordering) and pass diff
+        # tests but visibly drift here.
+        payload["jaccard_coefficient"] = [
+            [_norm_node(u), _norm_node(v), _norm_number(s)]
+            for u, v, s in sorted(fnx.jaccard_coefficient(graph), key=lambda t: (str(t[0]), str(t[1])))
+        ]
+        payload["preferential_attachment"] = [
+            [_norm_node(u), _norm_node(v), _norm_number(s)]
+            for u, v, s in sorted(fnx.preferential_attachment(graph), key=lambda t: (str(t[0]), str(t[1])))
+        ]
     try:
         payload["barycenter"] = sorted([_norm_node(n) for n in fnx.barycenter(graph)], key=str)
     except Exception as exc:  # pragma: no cover — record reason if it fails
