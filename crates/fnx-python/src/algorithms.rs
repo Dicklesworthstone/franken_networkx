@@ -3704,6 +3704,13 @@ pub fn eccentricity(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>
 #[pyfunction]
 pub fn diameter(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<usize> {
     let gr = extract_graph(g)?;
+    // br-r37-c1-0xhhq: previously gr.undirected() collapsed antiparallel
+    // edges and returned a wrong value on directed input. Sister
+    // functions (transitivity, triangles, clustering, square_clustering)
+    // already guard with require_undirected; mirror that contract here.
+    // Public-API users are routed through the directed-aware
+    // fnx.eccentricity path in the Python wrapper (br-r37-c1-wojl3).
+    require_undirected(&gr, "diameter")?;
     let inner = gr.undirected();
     if inner.node_count() == 0 {
         return Err(crate::NetworkXPointlessConcept::new_err("G has no nodes."));
@@ -3725,6 +3732,8 @@ pub fn diameter(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<usize> {
 #[pyfunction]
 pub fn radius(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<usize> {
     let gr = extract_graph(g)?;
+    // br-r37-c1-0xhhq: same directed-collapse defect as diameter.
+    require_undirected(&gr, "radius")?;
     let inner = gr.undirected();
     if inner.node_count() == 0 {
         return Err(crate::NetworkXPointlessConcept::new_err("G has no nodes."));
@@ -3746,6 +3755,8 @@ pub fn radius(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<usize> {
 #[pyfunction]
 pub fn center(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Vec<PyObject>> {
     let gr = extract_graph(g)?;
+    // br-r37-c1-0xhhq: same directed-collapse defect.
+    require_undirected(&gr, "center")?;
     let inner = gr.undirected();
     if inner.node_count() == 0 {
         return Err(crate::NetworkXPointlessConcept::new_err("G has no nodes."));
@@ -3771,6 +3782,8 @@ pub fn center(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Vec<PyObject>> {
 #[pyfunction]
 pub fn periphery(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Vec<PyObject>> {
     let gr = extract_graph(g)?;
+    // br-r37-c1-0xhhq: same directed-collapse defect.
+    require_undirected(&gr, "periphery")?;
     let inner = gr.undirected();
     if inner.node_count() == 0 {
         return Err(crate::NetworkXPointlessConcept::new_err("G has no nodes."));
@@ -9725,6 +9738,11 @@ fn is_chordal(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<bool> {
 #[pyo3(signature = (g,))]
 fn barycenter(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Vec<PyObject>> {
     let gr = extract_graph(g)?;
+    // br-r37-c1-0xhhq: same directed-collapse defect as the rest of
+    // the distance-metric family. Public-API users go through
+    // fnx.barycenter which handles directed via shortest_path_length
+    // (br-r37-c1-ecqmz).
+    require_undirected(&gr, "barycenter")?;
     let inner = gr.undirected();
     if inner.node_count() > 0 {
         let connected = py.allow_threads(|| fnx_algorithms::is_connected(inner).is_connected);
