@@ -3262,6 +3262,33 @@ pub fn find_cliques(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Vec<Vec<Py
         .collect())
 }
 
+/// Return `{node: set(neighbors)}` for the simple Graph `find_cliques` fast path.
+#[pyfunction]
+pub fn find_cliques_adjacency_sets(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>> {
+    let gr = extract_graph(g)?;
+    let GraphRef::Undirected(pg) = gr else {
+        return Err(NetworkXNotImplemented::new_err(
+            "not implemented for directed type",
+        ));
+    };
+
+    let adjacency = PyDict::new(py);
+    for node in pg.inner.nodes_ordered() {
+        let py_node = pg.py_node_key(py, node);
+        let py_neighbors: Vec<PyObject> = pg
+            .inner
+            .neighbors(node)
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|neighbor| *neighbor != node)
+            .map(|neighbor| pg.py_node_key(py, neighbor))
+            .collect();
+        let neighbor_set = pyo3::types::PySet::new(py, py_neighbors.iter())?;
+        adjacency.set_item(py_node, neighbor_set)?;
+    }
+    Ok(adjacency.unbind())
+}
+
 /// Return the size of the largest maximal clique.
 #[pyfunction]
 pub fn graph_clique_number(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<usize> {
@@ -13925,6 +13952,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(triangles, m)?)?;
     m.add_function(wrap_pyfunction!(square_clustering, m)?)?;
     m.add_function(wrap_pyfunction!(find_cliques, m)?)?;
+    m.add_function(wrap_pyfunction!(find_cliques_adjacency_sets, m)?)?;
     m.add_function(wrap_pyfunction!(graph_clique_number, m)?)?;
     // Matching
     m.add_function(wrap_pyfunction!(maximal_matching, m)?)?;
