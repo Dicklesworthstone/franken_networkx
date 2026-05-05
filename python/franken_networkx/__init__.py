@@ -26190,13 +26190,36 @@ def square_clustering(G, nodes=None):
         node_iter = _global_nbunch_nodes(G, nodes)
 
     square_coefficients = {}
-    graph_adj = G.adj
+    # br-r37-c1-7t95c: bypass G.adj[node] (AtlasView with per-element
+    # PyO3 attribute-dict materialization, same wrapper overhead
+    # identified in br-r37-c1-lgyq8 for find_cliques) by calling the
+    # raw Rust neighbors binding directly when the graph has no
+    # nx-compatibility private storage. Multigraph fallback retains
+    # G.adj because parallel-edge collapsing matters for the squares
+    # iteration. cProfile on BA500 showed CachedNeighborSets.__missing__
+    # was ~80% of total time before this change.
+    if (
+        not _has_networkx_private_storage(G)
+        and not G.is_multigraph()
+    ):
+        if isinstance(G, DiGraph):
+            _raw_neighbors = _DIGRAPH_NEIGHBORS
+        else:
+            _raw_neighbors = _GRAPH_NEIGHBORS
 
-    class CachedNeighborSets(dict):
-        def __missing__(self, node):
-            neighbors = self[node] = set(graph_adj[node])
-            neighbors.discard(node)
-            return neighbors
+        class CachedNeighborSets(dict):
+            def __missing__(self, node):
+                neighbors = self[node] = set(_raw_neighbors(G, node))
+                neighbors.discard(node)
+                return neighbors
+    else:
+        graph_adj = G.adj
+
+        class CachedNeighborSets(dict):
+            def __missing__(self, node):
+                neighbors = self[node] = set(graph_adj[node])
+                neighbors.discard(node)
+                return neighbors
 
     neighbor_sets = CachedNeighborSets()
 
