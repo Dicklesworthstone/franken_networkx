@@ -296,6 +296,18 @@ class TestPlanarity:
         G = fnx.complete_graph(5)
         assert not fnx.is_planar(G)
 
+    @needs_nx
+    def test_is_planar_canonical_nonplanar_graphs_match_networkx(
+        self,
+    ):
+        cases = [
+            (fnx.complete_bipartite_graph(3, 3), nx.complete_bipartite_graph(3, 3)),
+            (fnx.petersen_graph(), nx.petersen_graph()),
+        ]
+        for actual_graph, expected_graph in cases:
+            assert not fnx.is_planar(actual_graph)
+            assert fnx.is_planar(actual_graph) == nx.is_planar(expected_graph)
+
     def test_is_planar_accepts_G_kwarg(self):
         """Regression guard for franken_networkx-sl3mn — the parameter
         must be named ``G`` (matching upstream nx) so callers can use
