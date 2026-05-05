@@ -379,6 +379,67 @@ def _random_strongly_connected_digraph(seed: int):
     return G_nx, G_fnx
 
 
+# ---- node_attribute_xy bypass lock (br-r37-c1-bjrgc, br82u) ---------
+
+@pytest.mark.parametrize("seed", _FUZZ_SEEDS[:25])
+def test_fuzz_node_attribute_xy_oracle_match_nx(seed):
+    """Locks br-r37-c1-{bjrgc, br82u} (cached node-attr dict +
+    G.adjacency bypass) against random ER graphs. Set node attribute
+    to its own integer ID and assert the (x, y) pair multiset matches
+    nx exactly."""
+    G_fnx = _random_graph(seed)
+    if G_fnx.number_of_edges() == 0:
+        return
+    if any(u == v for u, v in G_fnx.edges()):
+        return
+    # Set 'x' attribute on each node to its own ID.
+    for n in G_fnx.nodes():
+        G_fnx.nodes[n]["x"] = n
+    G_nx = nx.Graph()
+    G_nx.add_nodes_from(G_fnx.nodes())
+    G_nx.add_edges_from(G_fnx.edges())
+    for n in G_nx.nodes():
+        G_nx.nodes[n]["x"] = n
+    nv = sorted(nx.node_attribute_xy(G_nx, "x"))
+    fv = sorted(fnx.node_attribute_xy(G_fnx, "x"))
+    assert nv == fv, f"seed={seed}: pair multiset diverges"
+
+
+# ---- _reciprocity_value_for_node bypass lock (br-r37-c1-o4f52) ------
+
+@pytest.mark.parametrize("seed", _FUZZ_SEEDS[:25])
+def test_fuzz_per_node_reciprocity_oracle_match_nx(seed):
+    """Locks br-r37-c1-o4f52 (predecessors/successors bypass) on
+    random DiGraphs."""
+    rng = random.Random(seed)
+    n = rng.randint(4, 12)
+    p = rng.uniform(0.2, 0.6)
+    G_fnx = fnx.DiGraph()
+    G_nx = nx.DiGraph()
+    for i in range(n):
+        G_fnx.add_node(i)
+        G_nx.add_node(i)
+    has_edges = False
+    for i in range(n):
+        for j in range(n):
+            if i != j and rng.random() < p:
+                G_fnx.add_edge(i, j)
+                G_nx.add_edge(i, j)
+                has_edges = True
+    if not has_edges:
+        return
+    for v in G_fnx.nodes():
+        try:
+            nv = nx.reciprocity(G_nx, v)
+        except nx.NetworkXError:
+            # Isolated node — both libs raise.
+            with pytest.raises(nx.NetworkXError):
+                fnx.reciprocity(G_fnx, v)
+            continue
+        fv = fnx.reciprocity(G_fnx, v)
+        assert nv == pytest.approx(fv, abs=1e-12), f"seed={seed} node {v}: nx={nv} fnx={fv}"
+
+
 # ---- average_degree_connectivity fast-path lock (br-r37-c1-jmjs7) ---
 
 @pytest.mark.parametrize("seed", _FUZZ_SEEDS[:25])
