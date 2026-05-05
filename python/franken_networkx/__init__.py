@@ -6682,8 +6682,20 @@ def overall_reciprocity(G, *, backend=None, **backend_kwargs):
 
 
 def _reciprocity_value_for_node(G, node):
-    pred = set(G.predecessors(node))
-    succ = set(G.successors(node))
+    # br-r37-c1-o4f52: bypass _private_aware_neighbors wrapper for the
+    # common case (plain DiGraph, no private storage). Raw bindings
+    # _DIGRAPH_PREDECESSORS / _DIGRAPH_SUCCESSORS were captured at
+    # module load before any wrapper attached. Same wrapper-bypass
+    # family as find_cliques (lgyq8) and common_neighbors (qkq2h).
+    if (
+        isinstance(G, DiGraph)
+        and not _has_networkx_private_storage(G)
+    ):
+        pred = set(_DIGRAPH_PREDECESSORS(G, node))
+        succ = set(_DIGRAPH_SUCCESSORS(G, node))
+    else:
+        pred = set(G.predecessors(node))
+        succ = set(G.successors(node))
     overlap = pred & succ
     n_total = len(pred) + len(succ)
     if n_total == 0:
