@@ -12533,6 +12533,12 @@ def create_empty_copy(G, with_data=True):
 
 def number_of_selfloops(G):
     """Return the number of self-loop edges in *G*."""
+    # br-r37-c1-61okz: O(|V|) via has_edge probe when bypass is safe.
+    # Was 300x slower than nx because it materialized selfloop_edges
+    # tuples just to count them, and selfloop_edges itself walked the
+    # AdjacencyView for every node.
+    if _raw_neighbors_dispatch(G) is not None and not G.is_multigraph():
+        return sum(1 for u in G if G.has_edge(u, u))
     return sum(1 for _ in selfloop_edges(G))
 
 
@@ -12556,11 +12562,25 @@ def selfloop_edges(G, data=False, keys=False, default=None):
     iterator
         Iterator over self-loop edges.
     """
+    # br-r37-c1-61okz: bypass AdjacencyView for the common case —
+    # direct ``has_edge(u, u)`` probe per node skips the AtlasView
+    # materialization that the original ``G.adj[node]`` walk did
+    # (300-420x slower than nx). Bench on BA500: has_edge-per-node
+    # is ~3x faster than raw_nbrs-per-node and ~4x faster than the
+    # original AdjacencyView walk.
+    _raw_nbrs = _raw_neighbors_dispatch(G)
+
     def adjacency_entries():
         for node in G.adj:
             nbrs = G.adj[node]
             if node in nbrs:
                 yield node, nbrs
+
+    # br-r37-c1-61okz: simplest case (data=False, keys=False,
+    # non-multigraph) — yield ``(n, n)`` tuples via direct has_edge
+    # probe. Skips the AtlasView materialization entirely.
+    if data is False and keys is False and _raw_nbrs is not None and not G.is_multigraph():
+        return ((n, n) for n in G if G.has_edge(n, n))
 
     if data is True:
         if G.is_multigraph():
