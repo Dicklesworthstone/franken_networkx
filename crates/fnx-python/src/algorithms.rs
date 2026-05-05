@@ -3210,6 +3210,18 @@ pub fn average_clustering(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<f64>
 #[pyfunction]
 pub fn transitivity(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<f64> {
     let gr = extract_graph(g)?;
+    // br-r37-c1-p7p7l: previously this called gr.undirected() unconditionally
+    // on directed input, silently returning the undirected-projection
+    // transitivity (e.g. 1.0 on cycle3 when nx.transitivity returns 0). nx
+    // computes directed transitivity by counting u→v→w→u patterns; the
+    // Rust impl here only knows undirected triangles. Sister functions
+    // (triangles, clustering, square_clustering) already guard with
+    // require_undirected; mirror that contract here so direct _fnx callers
+    // get a clear NetworkXNotImplemented instead of a silently wrong value.
+    // The Python wrapper at python/franken_networkx/__init__.py:26142
+    // already routes directed inputs through a native triangle-iter path,
+    // so end users of fnx.transitivity are unaffected.
+    require_undirected(&gr, "transitivity")?;
     let inner = gr.undirected();
     Ok(py.allow_threads(|| fnx_algorithms::clustering_coefficient(inner).transitivity))
 }
