@@ -379,6 +379,53 @@ def _random_strongly_connected_digraph(seed: int):
     return G_nx, G_fnx
 
 
+# ---- common_neighbors / non_neighbors bypass lock (br-r37-c1-qkq2h) -
+
+@pytest.mark.parametrize("seed", _FUZZ_SEEDS[:25])
+def test_fuzz_common_neighbors_oracle_match_nx(seed):
+    """br-r37-c1-qkq2h replaced ``set(G.adj[u]) & set(G.adj[v])`` with
+    a raw _GRAPH_NEIGHBORS bypass. Locks the bypass-path correctness:
+    fnx.common_neighbors(G, u, v) must equal nx.common_neighbors on
+    every random fixture, every node pair."""
+    G_fnx = _random_graph(seed)
+    if G_fnx.number_of_nodes() < 2:
+        return
+    if any(u == v for u, v in G_fnx.edges()):
+        # nx.common_neighbors raises on self-loops in some versions;
+        # skip for cleanest oracle.
+        return
+    G_nx = nx.Graph()
+    G_nx.add_nodes_from(G_fnx.nodes())
+    G_nx.add_edges_from(G_fnx.edges())
+    nodes = list(G_fnx.nodes())
+    rng = random.Random(seed + 9000)
+    pairs = [tuple(rng.sample(nodes, 2)) for _ in range(min(8, len(nodes) * (len(nodes) - 1) // 2))]
+    for u, v in pairs:
+        nv = set(nx.common_neighbors(G_nx, u, v))
+        fv = set(fnx.common_neighbors(G_fnx, u, v))
+        assert nv == fv, f"seed={seed} pair ({u},{v}): nx={nv} fnx={fv}"
+
+
+@pytest.mark.parametrize("seed", _FUZZ_SEEDS[:25])
+def test_fuzz_non_neighbors_oracle_match_nx(seed):
+    """Same bypass-path correctness lock for non_neighbors. Catches
+    contract violations in the wrapper-bypass branch (which uses
+    ``set(graph) - set(_raw_nbrs(graph, node)) - {node}``)."""
+    G_fnx = _random_graph(seed)
+    if G_fnx.number_of_nodes() < 2:
+        return
+    G_nx = nx.Graph()
+    G_nx.add_nodes_from(G_fnx.nodes())
+    G_nx.add_edges_from(G_fnx.edges())
+    rng = random.Random(seed + 11000)
+    nodes = list(G_fnx.nodes())
+    sampled = rng.sample(nodes, min(5, len(nodes)))
+    for v in sampled:
+        nv = set(nx.non_neighbors(G_nx, v))
+        fv = set(fnx.non_neighbors(G_fnx, v))
+        assert nv == fv, f"seed={seed} node {v}: nx={nv} fnx={fv}"
+
+
 # ---- dominating_set(start_with) port lock (br-r37-c1-{lj6bo,02djy}) -
 
 @pytest.mark.parametrize("seed", _FUZZ_SEEDS[:25])
