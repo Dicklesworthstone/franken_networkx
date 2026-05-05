@@ -93,6 +93,38 @@ def test_barycenter_directed_disconnected_raises_no_path():
 
 # --- degree_centrality (br-r37-c1-pu5q7) ----------------------------
 
+# --- volume fast-path lock (br-r37-c1-ay2no) -------------------------
+
+@pytest.mark.parametrize(
+    "graph_factory,subset_factory,expected",
+    [
+        # K_n: every pair is connected; sum of degrees on a subset of size k
+        # is k * (n - 1) since every node has degree n-1.
+        (lambda: fnx.complete_graph(5), lambda G: [0, 1, 2], 12),       # 3 * 4
+        (lambda: fnx.complete_graph(6), lambda G: list(G.nodes())[:4], 20),  # 4 * 5
+        # P_n: linear path; endpoints have degree 1, middle have degree 2.
+        (lambda: fnx.path_graph(5), lambda G: [0, 4], 2),               # 1 + 1
+        (lambda: fnx.path_graph(5), lambda G: [1, 2, 3], 6),            # 2 + 2 + 2
+        # Self-loop case: degree counts self-loop twice.
+        (lambda: fnx.Graph([(0, 0), (0, 1), (1, 2)]), lambda G: [0], 3),  # self-loop=2 + edge=1
+        # All-nodes volume = 2|E| for undirected.
+        (lambda: fnx.barabasi_albert_graph(20, 3, seed=7), lambda G: list(G.nodes()),
+         2 * fnx.barabasi_albert_graph(20, 3, seed=7).number_of_edges()),
+    ],
+    ids=["K5_first3", "K6_first4", "P5_endpoints", "P5_middle", "self_loop_node",
+         "BA20_all_nodes_eq_2m"],
+)
+def test_volume_fast_path_known_results(graph_factory, subset_factory, expected):
+    """Locks the br-r37-c1-ay2no fast-path correctness (volume on
+    undirected simple graphs == sum(deg(v) for v in S)) against
+    hand-derived expected values. Independent of nx — catches a future
+    regression that reroutes through the slow _adc_weighted_degree
+    path or breaks the self-loop *2 semantic."""
+    G = graph_factory()
+    S = subset_factory(G)
+    assert fnx.volume(G, S) == expected
+
+
 # --- distance-metric Rust guard lock (br-r37-c1-0xhhq) ---------------
 
 @pytest.mark.parametrize(
