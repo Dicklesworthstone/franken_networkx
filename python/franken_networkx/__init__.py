@@ -7270,8 +7270,8 @@ def find_cliques(G, nodes=None):
     # ~30% of the total find_cliques time even though the slow path
     # never executes for normal graphs. Single ``_has_networkx_private
     # _storage`` check at function entry replaces |V| per-call checks.
-    if isinstance(G, Graph) and not _has_networkx_private_storage(G):
-        _raw = _GRAPH_NEIGHBORS
+    _raw = _raw_neighbors_dispatch(G)
+    if _raw is not None:
         adjacency = {u: {v for v in _raw(G, u) if v != u} for u in G}
     else:
         adjacency = {u: {v for v in G.neighbors(u) if v != u} for u in G}
@@ -7538,14 +7538,8 @@ def dominating_set(G, start_with=None):
     if start_with is not None:
         if start_with not in G:
             raise NetworkXError(f"node {start_with} is not in G")
-        if (
-            not _has_networkx_private_storage(G)
-            and not G.is_multigraph()
-        ):
-            if isinstance(G, DiGraph):
-                _raw_nbrs = _DIGRAPH_NEIGHBORS
-            else:
-                _raw_nbrs = _GRAPH_NEIGHBORS
+        _raw_nbrs = _raw_neighbors_dispatch(G)
+        if _raw_nbrs is not None:
             all_nodes = set(G)
             dominating: set = {start_with}
             dominated = set(_raw_nbrs(G, start_with))
@@ -24183,6 +24177,34 @@ def _has_networkx_private_storage(self):
     )
 
 
+def _raw_neighbors_dispatch(G):
+    """Return the raw Rust neighbors binding for ``G`` if it's safe to
+    bypass AdjacencyView wrappers, else ``None``.
+
+    br-r37-c1-jy2ea: centralizes the wrapper-bypass safety check used
+    by find_cliques (lgyq8), square_clustering (7t95c), dominating_set
+    (02djy), common_neighbors / non_neighbors (qkq2h), volume (ay2no
+    via degree). Returns one of:
+
+      - ``_GRAPH_NEIGHBORS``  for a plain ``Graph`` with no nx-
+        compatibility private storage and not multigraph
+      - ``_DIGRAPH_NEIGHBORS`` for the directed equivalent
+      - ``None`` if any safety guard fails — caller should use the
+        slow AdjacencyView path
+
+    Single source of truth for "is wrapper-bypass safe on this graph".
+    A future regression that introduces a new private-storage flag
+    only needs to update this helper, not every callsite.
+    """
+    if G.is_multigraph() or _has_networkx_private_storage(G):
+        return None
+    if isinstance(G, DiGraph):
+        return _DIGRAPH_NEIGHBORS
+    if isinstance(G, Graph):
+        return _GRAPH_NEIGHBORS
+    return None
+
+
 def _private_node_mapping(self):
     override = _private_override(self, _PRIVATE_NODE_OVERRIDE)
     if override is not _PRIVATE_MISSING:
@@ -26282,14 +26304,8 @@ def square_clustering(G, nodes=None):
     # G.adj because parallel-edge collapsing matters for the squares
     # iteration. cProfile on BA500 showed CachedNeighborSets.__missing__
     # was ~80% of total time before this change.
-    if (
-        not _has_networkx_private_storage(G)
-        and not G.is_multigraph()
-    ):
-        if isinstance(G, DiGraph):
-            _raw_neighbors = _DIGRAPH_NEIGHBORS
-        else:
-            _raw_neighbors = _GRAPH_NEIGHBORS
+    _raw_neighbors = _raw_neighbors_dispatch(G)
+    if _raw_neighbors is not None:
 
         class CachedNeighborSets(dict):
             def __missing__(self, node):
@@ -30325,14 +30341,8 @@ def non_neighbors(graph, node):
     # path was 6-10x slower than nx's direct dict access; same
     # wrapper-bypass family as find_cliques (lgyq8), square_clustering
     # (7t95c), dominating_set (02djy).
-    if (
-        not _has_networkx_private_storage(graph)
-        and not graph.is_multigraph()
-    ):
-        if isinstance(graph, DiGraph):
-            _raw_nbrs = _DIGRAPH_NEIGHBORS
-        else:
-            _raw_nbrs = _GRAPH_NEIGHBORS
+    _raw_nbrs = _raw_neighbors_dispatch(graph)
+    if _raw_nbrs is not None:
         return set(graph) - set(_raw_nbrs(graph, node)) - {node}
     return set(graph.adj) - set(graph.adj[node]) - {node}
 
@@ -30365,11 +30375,9 @@ def common_neighbors(G, u, v):
     # — direct dict access; fnx had to go through AtlasView's per-
     # element PyO3 fetch. Same wrapper-bypass pattern as the rest of
     # the family.
-    if (
-        not _has_networkx_private_storage(G)
-        and not G.is_multigraph()
-    ):
-        return set(_GRAPH_NEIGHBORS(G, u)) & set(_GRAPH_NEIGHBORS(G, v)) - {u, v}
+    _raw_nbrs = _raw_neighbors_dispatch(G)
+    if _raw_nbrs is not None:
+        return set(_raw_nbrs(G, u)) & set(_raw_nbrs(G, v)) - {u, v}
     return set(G.adj[u]) & set(G.adj[v]) - {u, v}
 
 
