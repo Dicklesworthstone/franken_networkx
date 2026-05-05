@@ -33844,6 +33844,13 @@ def to_scipy_sparse_array(G, nodelist=None, dtype=None, weight="weight", format=
         nodelist = list(G)
     else:
         nodelist = list(nodelist)
+        # br-r37-c1-tssa-nlist0: empty user-supplied nodelist on a
+        # non-empty graph silently returned a 0×0 sparse matrix;
+        # nx raises NetworkXError("nodelist has no nodes"). Order
+        # the check BEFORE the duplicate / missing checks so the
+        # message matches nx exactly when nlen == 0.
+        if len(nodelist) == 0:
+            raise NetworkXError("nodelist has no nodes")
         if len(set(nodelist)) != len(nodelist):
             raise NetworkXError("nodelist contains duplicates.")
         missing = set(nodelist) - set(G)

@@ -874,6 +874,35 @@ def test_community_all_excludes_private_implementation_names():
             lambda m, G: m.normalized_laplacian_spectrum(G),
             nx.NetworkXError,
         ),
+        # br-r37-c1-tssa-nlist0: empty user-supplied nodelist on a
+        # non-empty graph silently returned a 0×0 sparse matrix; nx
+        # raises NetworkXError("nodelist has no nodes"). Lock the
+        # raise at the to_scipy_sparse_array boundary AND through
+        # the three matrix-builder cascade layers.
+        (
+            "to_scipy_sparse_array_empty_nodelist",
+            lambda m: m.path_graph(3),
+            lambda m, G: m.to_scipy_sparse_array(G, nodelist=[]),
+            nx.NetworkXError,
+        ),
+        (
+            "adjacency_matrix_empty_nodelist",
+            lambda m: m.path_graph(3),
+            lambda m, G: m.adjacency_matrix(G, nodelist=[]),
+            nx.NetworkXError,
+        ),
+        (
+            "laplacian_matrix_empty_nodelist",
+            lambda m: m.path_graph(3),
+            lambda m, G: m.laplacian_matrix(G, nodelist=[]),
+            nx.NetworkXError,
+        ),
+        (
+            "normalized_laplacian_matrix_empty_nodelist",
+            lambda m: m.path_graph(3),
+            lambda m, G: m.normalized_laplacian_matrix(G, nodelist=[]),
+            nx.NetworkXError,
+        ),
     ],
     ids=lambda x: x if isinstance(x, str) else None,
 )
