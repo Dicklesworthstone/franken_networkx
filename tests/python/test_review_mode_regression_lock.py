@@ -93,6 +93,42 @@ def test_barycenter_directed_disconnected_raises_no_path():
 
 # --- degree_centrality (br-r37-c1-pu5q7) ----------------------------
 
+# --- _link_prediction_lazy_delegate generator-protocol lock (br-r37-c1-sybdh) ---
+
+@pytest.mark.parametrize(
+    "fn",
+    [
+        fnx.jaccard_coefficient,
+        fnx.adamic_adar_index,
+        fnx.preferential_attachment,
+        fnx.resource_allocation_index,
+    ],
+    ids=["jaccard", "adamic_adar", "preferential", "resource_allocation"],
+)
+def test_link_prediction_lazy_generator_protocol(fn):
+    """The lazy-delegate generator (br-r37-c1-8e60l) must implement
+    the Python generator protocol cleanly: isinstance is generator,
+    next() yields a 3-tuple, close() exhausts the generator (next
+    raises StopIteration). A regression that wraps the inner call in
+    something catching GeneratorExit would silently leak the inner
+    generator across the link-prediction surface."""
+    import types
+
+    G = fnx.barabasi_albert_graph(8, 2, seed=3)
+    gen = fn(G)
+    assert isinstance(gen, types.GeneratorType), (
+        f"{fn.__name__} should return a real generator (GeneratorType)"
+    )
+    # Consume one element — should be a 3-tuple (u, v, score)
+    first = next(gen)
+    assert isinstance(first, tuple) and len(first) == 3
+    # Close the generator mid-iteration; subsequent next() must raise
+    # StopIteration.
+    gen.close()
+    with pytest.raises(StopIteration):
+        next(gen)
+
+
 # --- _raw_neighbors_dispatch helper lock (br-r37-c1-4ar9q) -----------
 
 def test_raw_neighbors_dispatch_plain_graph_returns_graph_neighbors():
