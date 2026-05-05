@@ -7530,13 +7530,36 @@ def dominating_set(G, start_with=None):
     # br-r37-c1-lj6bo: native start_with port — small greedy dominating-
     # set algorithm (algorithm 7 in nx's reference). Avoid the
     # fnx_to_nx graph-conversion round-trip the prior delegate paid.
-    # The G[u] iteration uses fnx's fast AdjacencyView; verified
-    # bit-exact against nx on K4 / P5 / BA20.
+    # br-r37-c1-02djy: bypass G[u] AtlasView via raw _GRAPH_NEIGHBORS /
+    # _DIGRAPH_NEIGHBORS binding when the graph has no nx-private
+    # storage and isn't a multigraph — same wrapper-bypass pattern as
+    # find_cliques (lgyq8) and square_clustering (7t95c). Profiling
+    # showed ~50% of pre-bypass time was AtlasView dispatch.
     if start_with is not None:
         if start_with not in G:
             raise NetworkXError(f"node {start_with} is not in G")
+        if (
+            not _has_networkx_private_storage(G)
+            and not G.is_multigraph()
+        ):
+            if isinstance(G, DiGraph):
+                _raw_nbrs = _DIGRAPH_NEIGHBORS
+            else:
+                _raw_nbrs = _GRAPH_NEIGHBORS
+            all_nodes = set(G)
+            dominating: set = {start_with}
+            dominated = set(_raw_nbrs(G, start_with))
+            remaining = all_nodes - dominated - dominating
+            while remaining:
+                v = remaining.pop()
+                undom_nbrs = set(_raw_nbrs(G, v)) - dominating
+                dominating.add(v)
+                dominated |= undom_nbrs
+                remaining -= undom_nbrs
+            return dominating
+        # Multigraph / private-storage path: stay on G[u].
         all_nodes = set(G)
-        dominating: set = {start_with}
+        dominating = {start_with}
         dominated = set(G[start_with])
         remaining = all_nodes - dominated - dominating
         while remaining:
