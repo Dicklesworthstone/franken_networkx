@@ -155,6 +155,39 @@ def test_raw_neighbors_dispatch_rejects_private_storage_override():
     assert _raw_neighbors_dispatch(G) is None
 
 
+# --- _reciprocity_value_for_node fast-path lock (br-r37-c1-o4f52) ----
+
+@pytest.mark.parametrize(
+    "edges,node,expected",
+    [
+        # cycle3 directed: each node has 1 in + 1 out, 0 reciprocal → 0/2 = 0
+        ([(0, 1), (1, 2), (2, 0)], 0, 0.0),
+        # symmetric cycle3 (each pair reciprocal): each node has 2 in + 2 out,
+        # 2 mutual neighbors → 2*2/4 = 1.0
+        ([(0, 1), (1, 0), (1, 2), (2, 1), (2, 0), (0, 2)], 0, 1.0),
+        # mixed: node 0 has out=[1,2], in=[3]; mutual={} → 0/3 = 0
+        ([(0, 1), (0, 2), (3, 0), (1, 4), (2, 4)], 0, 0.0),
+        # node with 1 mutual edge: out=[1], in=[1,3] → mutual={1}, 2*1/3
+        ([(0, 1), (1, 0), (3, 0)], 0, pytest.approx(2 / 3)),
+    ],
+    ids=[
+        "cycle3_no_reciprocal",
+        "K3_directed_full_reciprocal",
+        "mixed_no_mutual",
+        "one_mutual_two_thirds",
+    ],
+)
+def test_per_node_reciprocity_fast_path_known_results(edges, node, expected):
+    """Locks br-r37-c1-o4f52's bypass of predecessors/successors
+    wrappers. Hand-derived expected values from the formula
+    ``2 * |pred ∩ succ| / (|pred| + |succ|)``. Independent of nx —
+    catches regressions that swap pred/succ, miscompute overlap,
+    or break the multigraph fallback."""
+    G = fnx.DiGraph()
+    G.add_edges_from(edges)
+    assert fnx.reciprocity(G, node) == expected
+
+
 # --- selfloop_edges/number_of_selfloops fast-path lock (br-r37-c1-61okz) ---
 
 @pytest.mark.parametrize(
