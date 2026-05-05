@@ -300,6 +300,78 @@ def test_triangles_consistent_with_transitivity_zero(seed):
     assert all(t == 0 for t in triangles.values())
 
 
+# ---- is_planar monotonicity / structural metamorphic (br-r37-c1-gttlp) ---
+
+@pytest.mark.parametrize("seed", [0, 1, 7, 42, 99])
+def test_planarity_invariant_under_relabeling(seed):
+    """Planarity is a structural property; relabeling nodes leaves
+    is_planar unchanged. Catches branch-condition typos that would
+    accidentally key off node-name properties."""
+    rng = random.Random(seed)
+    n = rng.randint(5, 12)
+    p = rng.uniform(0.3, 0.7)
+    G = fnx.erdos_renyi_graph(n, p, seed=seed)
+    is_p_before = fnx.is_planar(G)
+    relabel = {old: f"renamed_{old}" for old in G.nodes()}
+    G2 = fnx.relabel_nodes(G, relabel)
+    assert fnx.is_planar(G2) == is_p_before
+
+
+@pytest.mark.parametrize("seed", [0, 1, 7, 42])
+def test_planarity_monotone_under_edge_removal(seed):
+    """Edge-removal monotonicity: if G is planar, every subgraph
+    obtained by removing an edge stays planar (planarity is closed
+    under taking subgraphs / minors)."""
+    rng = random.Random(seed)
+    n = rng.randint(6, 12)
+    G = fnx.barabasi_albert_graph(n, 2, seed=seed)
+    if not fnx.is_planar(G):
+        pytest.skip("Random fixture is non-planar; theorem is vacuous")
+    edges = list(G.edges())
+    if not edges:
+        pytest.skip("No edges to remove")
+    u, v = rng.choice(edges)
+    H = G.copy()
+    H.remove_edge(u, v)
+    assert fnx.is_planar(H), f"removing edge ({u},{v}) made a planar graph non-planar"
+
+
+@pytest.mark.parametrize("n,m,expected_planar", [
+    (3, 3, False),  # K3,3
+    (4, 4, False),  # K4,4
+    (5, 5, False),  # K5,5
+    (2, 3, True),   # K2,3 is planar (book graph)
+    (1, 5, True),   # star
+])
+def test_planarity_complete_bipartite_known_results(n, m, expected_planar):
+    """Known result: K_{m,n} is planar iff min(m, n) ≤ 2.
+    Tests the bipartite-bound short-circuit branch (br-r37-c1-gttlp)
+    against canonical fixtures."""
+    G = fnx.complete_bipartite_graph(n, m)
+    assert fnx.is_planar(G) is expected_planar
+
+
+# ---- core_number monotonicity (br-r37-c1-fbons) --------------------
+
+@pytest.mark.parametrize("seed", [0, 7, 42])
+def test_core_number_bounded_by_max_degree(seed):
+    """For any v: core_number[v] ≤ degree(v). The k-core algorithm
+    can only assign v to a core of size at most v's neighbor count."""
+    G = fnx.barabasi_albert_graph(20, 3, seed=seed)
+    cn = fnx.core_number(G)
+    deg = dict(G.degree())
+    for v, k in cn.items():
+        assert k <= deg[v], f"core_number[{v}]={k} > degree[{v}]={deg[v]}"
+
+
+def test_core_number_complete_graph_uniform():
+    """K_n is vertex-transitive; every node has the same core number =
+    n − 1 (since K_n is its own (n-1)-core)."""
+    for n in [4, 5, 6, 7]:
+        cn = fnx.core_number(fnx.complete_graph(n))
+        assert all(c == n - 1 for c in cn.values())
+
+
 # ---- directed distance-metrics metamorphic (br-r37-c1-kitjs) -------
 
 def _scc_digraph(seed):
