@@ -26871,6 +26871,18 @@ def directed_modularity_matrix(G, nodelist=None, weight=None):
         raise NetworkXNotImplemented("not implemented for multigraph type")
     if not G.is_directed():
         raise NetworkXNotImplemented("not implemented for undirected type")
+    # br-r37-c1-dmm-empty: nx routes through to_scipy_sparse_array which
+    # raises NetworkXError("Graph has no nodes or edges") on empty input.
+    # Previously fnx routed through to_numpy_array (which legitimately
+    # returns an empty 2-D array) and then short-circuited with `if m == 0:
+    # return A`, so callers got an empty 0×0 numpy array instead of an
+    # exception. Match nx's empty-graph raise here. Note: nx also emits
+    # a NaN-filled matrix when nodes>0 but edges==0 (m=0 divide); fnx
+    # keeps the existing `if m == 0: return A` short-circuit below for
+    # the no-edges case (returns zeros instead of NaN — same shape, more
+    # sane numerics).
+    if G.number_of_nodes() == 0:
+        raise NetworkXError("Graph has no nodes or edges")
 
     if nodelist is None:
         nodelist = list(G.nodes())

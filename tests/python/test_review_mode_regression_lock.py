@@ -903,6 +903,18 @@ def test_community_all_excludes_private_implementation_names():
             lambda m, G: m.normalized_laplacian_matrix(G, nodelist=[]),
             nx.NetworkXError,
         ),
+        # br-r37-c1-dmm-empty: directed_modularity_matrix routed through
+        # to_numpy_array (no empty-G raise) instead of to_scipy_sparse_array
+        # like nx; with `if m == 0: return A` short-circuit, callers got
+        # an empty 0×0 numpy array on empty DiGraph instead of an
+        # exception. The undirected sibling already has the equivalent
+        # check at the same boundary.
+        (
+            "directed_modularity_matrix_empty",
+            lambda m: m.DiGraph(),
+            lambda m, G: m.directed_modularity_matrix(G),
+            nx.NetworkXError,
+        ),
     ],
     ids=lambda x: x if isinstance(x, str) else None,
 )
