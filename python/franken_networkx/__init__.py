@@ -24659,10 +24659,17 @@ def _private_aware_edges(raw_edges):
     return property(edges)
 
 
-# id(EdgeView) -> owning Graph (weak via plain dict; entries are
-# refreshed on every property access so stale ids self-flush). Used
-# by EdgeDataView._materialize_via_adj_walk for br-r37-c1-dc14n.
-_EDGE_VIEW_GRAPH_OWNER = {}
+# id(EdgeView) -> owning Graph. br-r37-c1-cxglk: WeakValueDictionary
+# so the entry auto-prunes when the Graph is garbage-collected,
+# preventing both (a) unbounded memory growth (every G.edges access
+# previously appended-or-overwrote a permanent entry) and (b) silent
+# id-collision correctness bugs where a recycled id() returned a
+# stale Graph from a long-dead EdgeView. Used by
+# EdgeDataView._materialize_via_adj_walk (br-r37-c1-dc14n).
+import weakref as _weakref
+_EDGE_VIEW_GRAPH_OWNER: "_weakref.WeakValueDictionary[int, object]" = (
+    _weakref.WeakValueDictionary()
+)
 
 
 def _private_aware_degree(raw_degree):
