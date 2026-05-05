@@ -379,6 +379,46 @@ def _random_strongly_connected_digraph(seed: int):
     return G_nx, G_fnx
 
 
+# ---- dominating_set(start_with) port lock (br-r37-c1-{lj6bo,02djy}) -
+
+@pytest.mark.parametrize("seed", _FUZZ_SEEDS[:25])
+def test_fuzz_dominating_set_with_start_oracle_dominates_every_node(seed):
+    """The native port br-r37-c1-lj6bo / wrapper-bypass br-r37-c1-02djy
+    replaced an nx delegate with an inline greedy algorithm. Greedy
+    dominating-set choices aren't unique (different node-iteration
+    orders yield different valid dominating sets), so we can't compare
+    fnx output bit-equal to nx. Instead we verify the fundamental
+    contract: every node in G is either in the returned set or has a
+    neighbor in it. Run on 25 random ER graphs spanning sparse and
+    dense, with a deterministic start_with."""
+    G_fnx = _random_graph(seed)
+    if G_fnx.number_of_nodes() < 2:
+        return
+    if any(u == v for u, v in G_fnx.edges()):
+        # Self-loops aren't excluded by nx but make the contract fuzzy
+        # (a self-looped node 'dominates' itself trivially); skip for
+        # cleanest oracle.
+        return
+    rng = random.Random(seed + 5000)
+    nodes = list(G_fnx.nodes())
+    start = rng.choice(nodes)
+    ds = fnx.dominating_set(G_fnx, start_with=start)
+
+    # Contract 1: result is a set
+    assert isinstance(ds, set), f"seed={seed}: got {type(ds).__name__}, want set"
+    # Contract 2: start_with ∈ ds (the greedy seeds with start_with)
+    assert start in ds, f"seed={seed}: start_with={start} not in returned set"
+    # Contract 3: every node is dominated (in ds OR has a neighbor in ds)
+    for v in nodes:
+        if v in ds:
+            continue
+        nbrs = set(G_fnx[v])
+        assert nbrs & ds, (
+            f"seed={seed}: node {v} not dominated "
+            f"(ds={ds}, nbrs(v)={nbrs})"
+        )
+
+
 # ---- is_planar Kuratowski-bound fast-path lock (br-r37-c1-gttlp) ----
 
 def _random_planarity_test_graph(seed: int):
