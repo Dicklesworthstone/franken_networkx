@@ -196,6 +196,18 @@ def _algorithms_for(graph):
                 [_norm_node(n) for n in fnx.non_neighbors(graph, u)],
                 key=str,
             )
+        # br-r37-c1-{61okz, 5gfx7 (directed-only), jmjs7}: lock the
+        # recent perf-fix surface for selfloop, reciprocity, and
+        # avg_degree_connectivity.
+        payload["number_of_selfloops"] = int(fnx.number_of_selfloops(graph))
+        payload["selfloop_edges"] = sorted(
+            [[_norm_node(u), _norm_node(v)] for u, v in fnx.selfloop_edges(graph)],
+            key=lambda e: (str(e[0]), str(e[1])),
+        )
+        payload["average_degree_connectivity"] = [
+            [int(k), _norm_number(v)]
+            for k, v in sorted(fnx.average_degree_connectivity(graph).items())
+        ]
     try:
         payload["barycenter"] = sorted([_norm_node(n) for n in fnx.barycenter(graph)], key=str)
     except Exception as exc:  # pragma: no cover — record reason if it fails
