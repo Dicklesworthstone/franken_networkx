@@ -181,6 +181,21 @@ def _algorithms_for(graph):
         payload["preferential_attachment"] = _norm_link_pred_aggregate(
             fnx.preferential_attachment(graph)
         )
+        # br-r37-c1-{qkq2h, jy2ea, ni9va}: lock common_neighbors and
+        # non_neighbors on the wrapper-bypass family. Pick the
+        # lexicographically-smallest two nodes by str() to keep the
+        # probe-pair stable across runs (PYTHONHASHSEED-safe).
+        nodes_sorted = sorted(graph.nodes(), key=str)
+        if len(nodes_sorted) >= 2:
+            u, v = nodes_sorted[0], nodes_sorted[1]
+            payload["common_neighbors_first_pair"] = sorted(
+                [_norm_node(n) for n in fnx.common_neighbors(graph, u, v)],
+                key=str,
+            )
+            payload["non_neighbors_first_node"] = sorted(
+                [_norm_node(n) for n in fnx.non_neighbors(graph, u)],
+                key=str,
+            )
     try:
         payload["barycenter"] = sorted([_norm_node(n) for n in fnx.barycenter(graph)], key=str)
     except Exception as exc:  # pragma: no cover — record reason if it fails

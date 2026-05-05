@@ -8359,6 +8359,34 @@
             9
           ]
         ],
+        "common_neighbors_first_pair": [
+          13,
+          17,
+          19,
+          2,
+          21,
+          3,
+          7
+        ],
+        "non_neighbors_first_node": [
+          14,
+          15,
+          16,
+          18,
+          20,
+          22,
+          23,
+          24,
+          25,
+          26,
+          27,
+          28,
+          29,
+          30,
+          32,
+          33,
+          9
+        ],
         "barycenter": [
           0
         ]
@@ -10201,6 +10229,24 @@
             9
           ]
         ],
+        "common_neighbors_first_pair": [
+          "Medici"
+        ],
+        "non_neighbors_first_node": [
+          "Albizzi",
+          "Barbadori",
+          "Bischeri",
+          "Castellani",
+          "Ginori",
+          "Guadagni",
+          "Lamberteschi",
+          "Pazzi",
+          "Peruzzi",
+          "Ridolfi",
+          "Salviati",
+          "Strozzi",
+          "Tornabuoni"
+        ],
         "barycenter": [
           "Medici"
         ]
@@ -10717,6 +10763,14 @@
             4
           ]
         ],
+        "common_neighbors_first_pair": [],
+        "non_neighbors_first_node": [
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
         "barycenter": [
           3
         ]
@@ -11134,6 +11188,12 @@
             4
           ]
         ],
+        "common_neighbors_first_pair": [],
+        "non_neighbors_first_node": [
+          2,
+          3,
+          4
+        ],
         "barycenter": [
           0,
           1,
@@ -11346,6 +11406,11 @@
         ],
         "jaccard_coefficient": [],
         "preferential_attachment": [],
+        "common_neighbors_first_pair": [
+          2,
+          3
+        ],
+        "non_neighbors_first_node": [],
         "barycenter": [
           0,
           1,
@@ -11751,6 +11816,15 @@
             5,
             9
           ]
+        ],
+        "common_neighbors_first_pair": [
+          3,
+          4,
+          5
+        ],
+        "non_neighbors_first_node": [
+          1,
+          2
         ],
         "barycenter": [
           0,
@@ -13079,6 +13153,15 @@
             9
           ]
         ],
+        "common_neighbors_first_pair": [],
+        "non_neighbors_first_node": [
+          2,
+          3,
+          6,
+          7,
+          8,
+          9
+        ],
         "barycenter": [
           0,
           1,
@@ -13346,6 +13429,12 @@
         ],
         "jaccard_coefficient": [],
         "preferential_attachment": [],
+        "common_neighbors_first_pair": [
+          2,
+          3,
+          4
+        ],
+        "non_neighbors_first_node": [],
         "barycenter": [
           0,
           1,
