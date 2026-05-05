@@ -259,18 +259,31 @@ thread_local! {
 }
 
 /// Execute a closure with access to the thread-local witness ledger.
-pub fn with_ledger<F, R>(f: F) -> R
+///
+/// Returns `Some(R)` on success, or `None` if the ledger is already
+/// borrowed (reentrant call). Witness collection is best-effort
+/// instrumentation, not a correctness primitive — nested calls
+/// become a no-op rather than panicking with `BorrowMutError`
+/// (br-r37-c1-g80ih).
+pub fn with_ledger<F, R>(f: F) -> Option<R>
 where
     F: FnOnce(&mut WitnessLedger) -> R,
 {
-    THREAD_LEDGER.with(|cell| f(&mut cell.borrow_mut()))
+    THREAD_LEDGER.with(|cell| match cell.try_borrow_mut() {
+        Ok(mut guard) => Some(f(&mut guard)),
+        Err(_) => None,
+    })
 }
 
 /// Drain and return all witnesses from the thread-local ledger.
+///
+/// Returns an empty vector if the ledger is already borrowed
+/// (reentrant call) — see [`with_ledger`] for the same defensive
+/// behaviour (br-r37-c1-g80ih).
 pub fn drain_witnesses() -> Vec<ComplexityWitness> {
-    THREAD_LEDGER.with(|cell| {
-        let mut ledger = cell.borrow_mut();
-        std::mem::take(&mut ledger.entries)
+    THREAD_LEDGER.with(|cell| match cell.try_borrow_mut() {
+        Ok(mut ledger) => std::mem::take(&mut ledger.entries),
+        Err(_) => Vec::new(),
     })
 }
 
