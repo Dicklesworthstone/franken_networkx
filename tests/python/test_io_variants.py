@@ -47,6 +47,36 @@ def test_parse_adjlist_preserves_trailing_empty_neighbor_like_networkx():
     assert sorted(actual.edges()) == sorted(expected.edges())
 
 
+def test_parse_multiline_adjlist_typed_edge_data_matches_networkx():
+    lines = ["1 1", "2 3.5"]
+    kwargs = {"nodetype": int, "edgetype": float}
+
+    expected = nx.parse_multiline_adjlist(iter(lines), **kwargs)
+    actual = fnx.parse_multiline_adjlist(iter(lines), **kwargs)
+
+    assert sorted(actual.nodes()) == sorted(expected.nodes())
+    assert sorted(actual.edges(data="weight")) == sorted(
+        expected.edges(data="weight")
+    )
+
+
+@pytest.mark.parametrize(
+    ("lines", "kwargs"),
+    [
+        (["1 1", "2"], {"nodetype": int, "edgetype": float}),
+        (["1 1", "2 {}"], {"comments": None, "nodetype": int}),
+    ],
+)
+def test_parse_multiline_adjlist_error_paths_match_networkx(lines, kwargs):
+    with pytest.raises(TypeError) as nx_error:
+        nx.parse_multiline_adjlist(iter(lines), **kwargs)
+
+    with pytest.raises(TypeError) as fnx_error:
+        fnx.parse_multiline_adjlist(iter(lines), **kwargs)
+
+    assert str(fnx_error.value) == str(nx_error.value)
+
+
 def test_parse_and_generate_edgelist_round_trip_with_attrs():
     graph = fnx.Graph()
     graph.add_edge("a", "b", weight=2.5)

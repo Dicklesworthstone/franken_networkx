@@ -1124,61 +1124,61 @@ def parse_multiline_adjlist(
     """Parse multiline adjacency-list text or lines into a FrankenNetworkX graph."""
     G = _new_graph(create_using)
     it = iter(_normalize_lines(lines))
-    while True:
-        # Read the next non-comment, non-blank line (node header)
-        try:
-            header = next(it)
-        except StopIteration:
-            break
-        header = _strip_comment(header, comments)
-        if not header:
+    import ast as _ast
+    for line in it:
+        p = line.find(comments)
+        if p >= 0:
+            line = line[:p]
+        if not line:
             continue
-        parts = header.split(delimiter)
-        node = parts[0]
+        try:
+            node, degree = line.rstrip("\n").split(delimiter)
+            degree = int(degree)
+        except BaseException as err:
+            raise TypeError(f"Failed to read node and degree on line ({line})") from err
         if nodetype is not None:
-            node = nodetype(node)
-        n_nbrs = int(parts[1]) if len(parts) > 1 else 0
+            try:
+                node = nodetype(node)
+            except BaseException as err:
+                raise TypeError(
+                    f"Failed to convert node ({node}) to type {nodetype}"
+                ) from err
         G.add_node(node)
-        # Read the neighbor lines
-        # br-mladjreadattrs: the old parser split on whitespace and
-        # kept only parts[0] as the neighbor, silently dropping the
-        # edge attribute dict written on the same line (format:
-        # ``<nbr> {...}``). Parse the remainder of each neighbor line
-        # as a Python literal attr dict when present.
-        import ast as _ast
-        for _ in range(n_nbrs):
-            nbr_line = next(it)
-            nbr_line = _strip_comment(nbr_line, comments)
-            if not nbr_line:
+        for _ in range(degree):
+            while True:
+                try:
+                    nbr_line = next(it)
+                except StopIteration as err:
+                    raise TypeError(f"Failed to find neighbor for node ({node})") from err
+                p = nbr_line.find(comments)
+                if p >= 0:
+                    nbr_line = nbr_line[:p]
+                if nbr_line:
+                    break
+            vlist = nbr_line.rstrip("\n").split(delimiter)
+            if len(vlist) < 1:
                 continue
-            # Split into (nbr_token, rest). rest holds the attr dict text.
-            nbr_parts = nbr_line.split(delimiter, 1) if delimiter is not None else nbr_line.split(None, 1)
-            nbr = nbr_parts[0]
-            attrs = {}
-            if len(nbr_parts) > 1:
-                rest = nbr_parts[1].strip()
-                if rest:
-                    if edgetype is not None and not rest.startswith("{"):
-                        # Legacy bare-value form: "<nbr> <edge_value>"
-                        try:
-                            attrs = {"weight": edgetype(rest)}
-                        except Exception:
-                            attrs = {}
-                    else:
-                        try:
-                            parsed = _ast.literal_eval(rest)
-                        except (ValueError, SyntaxError):
-                            parsed = None
-                        if isinstance(parsed, dict):
-                            attrs = parsed
-                        elif parsed is not None and edgetype is not None:
-                            attrs = {"weight": edgetype(parsed)}
-            if edgetype is not None and not attrs:
-                # Preserve prior edgetype-coerced-neighbor behaviour when
-                # the file has no attr payload at all.
-                nbr = edgetype(nbr)
-            elif nodetype is not None:
-                nbr = nodetype(nbr)
+            nbr = vlist.pop(0)
+            data = "".join(vlist)
+            if nodetype is not None:
+                try:
+                    nbr = nodetype(nbr)
+                except BaseException as err:
+                    raise TypeError(
+                        f"Failed to convert node ({nbr}) to type {nodetype}"
+                    ) from err
+            if edgetype is not None:
+                try:
+                    attrs = {"weight": edgetype(data)}
+                except BaseException as err:
+                    raise TypeError(
+                        f"Failed to convert edge data ({data}) to type {edgetype}"
+                    ) from err
+            else:
+                try:
+                    attrs = _ast.literal_eval(data)
+                except BaseException:
+                    attrs = {}
             G.add_edge(node, nbr, **attrs)
     return G
 
