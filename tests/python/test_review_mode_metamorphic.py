@@ -300,6 +300,44 @@ def test_triangles_consistent_with_transitivity_zero(seed):
     assert all(t == 0 for t in triangles.values())
 
 
+# ---- link-prediction metamorphic (br-r37-c1-8e60l) ------------------
+
+@pytest.mark.parametrize("seed", [0, 1, 7, 42, 99])
+def test_jaccard_coefficient_symmetric(seed):
+    """jaccard(u, v) == jaccard(v, u) — Jaccard set similarity is
+    symmetric by definition (|N(u) ∩ N(v)| / |N(u) ∪ N(v)|)."""
+    G = fnx.barabasi_albert_graph(15, 3, seed=seed)
+    nodes = list(G.nodes())
+    rng = random.Random(seed + 7000)
+    pairs = [tuple(rng.sample(nodes, 2)) for _ in range(8)]
+    fwd = {(u, v): score for u, v, score in fnx.jaccard_coefficient(G, ebunch=pairs)}
+    rev = {(u, v): score for u, v, score in fnx.jaccard_coefficient(G, ebunch=[(v, u) for u, v in pairs])}
+    for u, v in pairs:
+        assert fwd[(u, v)] == pytest.approx(rev[(v, u)], abs=1e-12), (
+            f"jaccard({u},{v}) != jaccard({v},{u})"
+        )
+
+
+@pytest.mark.parametrize("seed", [0, 7, 42])
+def test_jaccard_coefficient_in_unit_interval(seed):
+    """Jaccard ∈ [0, 1] for every pair (it's a normalized set ratio)."""
+    G = fnx.barabasi_albert_graph(20, 3, seed=seed)
+    for u, v, score in fnx.jaccard_coefficient(G):
+        assert 0.0 <= score <= 1.0, f"jaccard({u},{v}) = {score} out of [0,1]"
+
+
+@pytest.mark.parametrize("seed", [0, 1, 7, 42])
+def test_preferential_attachment_equals_degree_product(seed):
+    """pa(u, v) == degree(u) * degree(v) by definition. Since fnx
+    delegates to nx, this verifies the delegation contract end-to-end."""
+    G = fnx.barabasi_albert_graph(15, 3, seed=seed)
+    deg = dict(G.degree())
+    for u, v, score in fnx.preferential_attachment(G):
+        assert score == deg[u] * deg[v], (
+            f"pa({u},{v}) = {score} but deg({u})*deg({v}) = {deg[u] * deg[v]}"
+        )
+
+
 # ---- is_planar monotonicity / structural metamorphic (br-r37-c1-gttlp) ---
 
 @pytest.mark.parametrize("seed", [0, 1, 7, 42, 99])
