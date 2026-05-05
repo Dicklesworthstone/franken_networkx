@@ -333,6 +333,23 @@ class TestDictOfDicts:
 
     @pytest.mark.parametrize(
         ("fnx_cls", "nx_cls"),
+        [(fnx.MultiGraph, nx.MultiGraph), (fnx.MultiDiGraph, nx.MultiDiGraph)],
+    )
+    def test_multigraph_edge_key_mapping_is_plain_dict(self, fnx_cls, nx_cls):
+        graph = fnx_cls()
+        expected = nx_cls()
+        graph.add_edge("a", "b", key="k0", weight=3)
+        expected.add_edge("a", "b", key="k0", weight=3)
+
+        result = fnx.to_dict_of_dicts(graph)
+        expected_result = nx.to_dict_of_dicts(expected)
+
+        assert result == expected_result
+        assert isinstance(result["a"]["b"], dict)
+        assert result["a"]["b"].copy() == expected_result["a"]["b"]
+
+    @pytest.mark.parametrize(
+        ("fnx_cls", "nx_cls"),
         [
             (fnx.Graph, nx.Graph),
             (fnx.DiGraph, nx.DiGraph),

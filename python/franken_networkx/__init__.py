@@ -33166,8 +33166,9 @@ def _empty_graph_from_create_using(create_using, default=Graph):
     return G
 
 
-class _LiveMultiEdgeDataView(Mapping):
+class _LiveMultiEdgeDataView(dict):
     def __init__(self, graph, u, v):
+        super().__init__()
         self._graph = graph
         self._u = u
         self._v = v
@@ -33181,8 +33182,32 @@ class _LiveMultiEdgeDataView(Mapping):
     def __len__(self):
         return len(self._current())
 
+    def __contains__(self, key):
+        return key in self._current()
+
     def __getitem__(self, key):
         return self._current()[key]
+
+    def items(self):
+        return self._current().items()
+
+    def keys(self):
+        return self._current().keys()
+
+    def values(self):
+        return self._current().values()
+
+    def get(self, key, default=None):
+        return self._current().get(key, default)
+
+    def copy(self):
+        return dict(self._current())
+
+    def __eq__(self, other):
+        return dict(self.items()) == other
+
+    def __repr__(self):
+        return repr(dict(self.items()))
 
 
 def _checked_create_using(create_using=None, *, directed=None, multigraph=None, default=Graph):
@@ -34063,17 +34088,17 @@ def to_dict_of_dicts(G, nodelist=None, edge_data=None):
     nodeset = set(nodelist)
 
     d = {}
+    is_multigraph = G.is_multigraph()
     for u in nodelist:
         d[u] = {}
         for v, data in G[u].items():
             if v in nodeset:
                 if edge_data is not None:
                     d[u][v] = edge_data
+                elif is_multigraph:
+                    d[u][v] = _LiveMultiEdgeDataView(G, u, v)
                 else:
-                    if G.is_multigraph():
-                        d[u][v] = _LiveMultiEdgeDataView(G, u, v)
-                    else:
-                        d[u][v] = data
+                    d[u][v] = data
     return d
 
 
