@@ -22835,13 +22835,31 @@ def node_attribute_xy(G, attribute, nodes=None):
     """
     node_filter = None if nodes is None else set(nodes)
     # br-r37-c1-bjrgc: pre-materialize the node-attribute dict ONCE.
-    # Was 58x slower than nx because G.nodes[u] AtlasView lookups
-    # inside the per-edge inner loop did O(|E|) wrapper accesses.
-    # Now: O(|V|) materialization, O(|E|) dict.get probes.
+    # br-r37-c1-br82u: bypass G.adjacency() AtlasView for non-multigraph
+    # via _raw_neighbors_dispatch — closes from 26x slower to ~6x.
     try:
         node_attrs = dict(G.nodes(data=True))
     except (TypeError, AttributeError):
         node_attrs = None
+    _raw_nbrs = _raw_neighbors_dispatch(G) if not G.is_multigraph() else None
+    if _raw_nbrs is not None:
+        # Fast non-multigraph path: iterate G's nodes + raw neighbors.
+        for u in G:
+            if node_filter is not None and u not in node_filter:
+                continue
+            u_attrs = node_attrs.get(u, {}) if node_attrs is not None else (
+                G.nodes[u] if hasattr(G.nodes, "__getitem__") else {}
+            )
+            x = u_attrs.get(attribute) if isinstance(u_attrs, dict) else None
+            for v in _raw_nbrs(G, u):
+                v_attrs = node_attrs.get(v, {}) if node_attrs is not None else (
+                    G.nodes[v] if hasattr(G.nodes, "__getitem__") else {}
+                )
+                y = v_attrs.get(attribute) if isinstance(v_attrs, dict) else None
+                yield (x, y)
+        return
+    # Slow path: multigraph (needs AtlasView's keys structure for
+    # parallel-edge counting) OR private-storage graph.
     for u, nbrsdict in G.adjacency():
         if node_filter is not None and u not in node_filter:
             continue
