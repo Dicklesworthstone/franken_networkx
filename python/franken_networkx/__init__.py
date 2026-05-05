@@ -6659,6 +6659,24 @@ def overall_reciprocity(G, *, backend=None, **backend_kwargs):
     if n_all_edge == 0:
         raise NetworkXError("Not defined for empty graphs")
 
+    # br-r37-c1-5gfx7: directed fast path. The original
+    # ``G.to_undirected().number_of_edges()`` clones the whole graph
+    # — fnx materializes a fresh undirected graph (O(|V|+|E|) copy)
+    # vs nx's thin view. For directed inputs we can count reciprocal
+    # pairs directly: iterate edges once, check if (v, u) is also
+    # in the edge set. The math:
+    #   n_overlap_edge = 2 * |{(u, v) ∈ E : (v, u) ∈ E, u ≠ v}|
+    # which equals (n_all_edge - n_undirected_edges) * 2 since each
+    # reciprocal directed pair collapses to one undirected edge.
+    if G.is_directed() and not G.is_multigraph():
+        edge_set = {(u, v) for u, v in G.edges() if u != v}
+        reciprocal_pairs = sum(1 for u, v in edge_set if (v, u) in edge_set)
+        # Each reciprocal pair contributes 2 directed edges to the
+        # overlap (since the count is symmetric: (u,v) and (v,u) both
+        # match). The sum above counts each pair twice (once as (u,v),
+        # once as (v,u)), so reciprocal_pairs IS already n_overlap_edge.
+        return reciprocal_pairs / n_all_edge
+
     n_overlap_edge = (n_all_edge - G.to_undirected().number_of_edges()) * 2
     return n_overlap_edge / n_all_edge
 
