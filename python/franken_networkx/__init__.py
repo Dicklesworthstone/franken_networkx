@@ -14067,7 +14067,11 @@ def adjacency_spectrum(G, weight="weight"):
     """
     import numpy as np
 
-    A = to_numpy_array(G, weight=weight)
+    # br-r37-c1-tssa-empty: route through adjacency_matrix so the
+    # nx-matching `Graph has no nodes or edges` raise on empty G is
+    # visible here too (the previous to_numpy_array path silently
+    # returned an empty 0-d array).
+    A = adjacency_matrix(G, weight=weight).toarray()
     return np.sort(np.linalg.eigvalsh(A))
 
 
@@ -33826,6 +33830,15 @@ def to_scipy_sparse_array(G, nodelist=None, dtype=None, weight="weight", format=
         Adjacency matrix in the requested sparse format.
     """
     import scipy.sparse
+
+    # br-r37-c1-tssa-empty: nx.to_scipy_sparse_array raises NetworkXError
+    # on len(G)==0 BEFORE consulting nodelist. Previously fnx returned
+    # an empty 0×0 sparse array, which then cascaded into adjacency_matrix,
+    # laplacian_matrix, normalized_laplacian_matrix, and the three
+    # *_spectrum wrappers all silently returning [] on empty graphs
+    # (nx raises on every one of those entry points).
+    if len(G) == 0:
+        raise NetworkXError("Graph has no nodes or edges")
 
     if nodelist is None:
         nodelist = list(G)

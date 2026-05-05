@@ -826,6 +826,54 @@ def test_community_all_excludes_private_implementation_names():
             lambda m, G: m.double_edge_swap(G, nswap=1, max_tries=5, seed=42),
             nx.NetworkXAlgorithmError,
         ),
+        # br-r37-c1-tssa-empty: spectrum / matrix builders silently
+        # returned 0×0 / [] on empty graphs; nx raises. The check is
+        # at the to_scipy_sparse_array boundary so all six callers
+        # (adjacency_matrix, laplacian_matrix, normalized_laplacian_matrix,
+        # adjacency_spectrum, laplacian_spectrum, normalized_laplacian_spectrum)
+        # inherit the parity. Lock all six.
+        (
+            "to_scipy_sparse_array_empty",
+            lambda m: m.Graph(),
+            lambda m, G: m.to_scipy_sparse_array(G),
+            nx.NetworkXError,
+        ),
+        (
+            "adjacency_matrix_empty",
+            lambda m: m.Graph(),
+            lambda m, G: m.adjacency_matrix(G),
+            nx.NetworkXError,
+        ),
+        (
+            "laplacian_matrix_empty",
+            lambda m: m.Graph(),
+            lambda m, G: m.laplacian_matrix(G),
+            nx.NetworkXError,
+        ),
+        (
+            "normalized_laplacian_matrix_empty",
+            lambda m: m.Graph(),
+            lambda m, G: m.normalized_laplacian_matrix(G),
+            nx.NetworkXError,
+        ),
+        (
+            "adjacency_spectrum_empty",
+            lambda m: m.Graph(),
+            lambda m, G: m.adjacency_spectrum(G),
+            nx.NetworkXError,
+        ),
+        (
+            "laplacian_spectrum_empty",
+            lambda m: m.Graph(),
+            lambda m, G: m.laplacian_spectrum(G),
+            nx.NetworkXError,
+        ),
+        (
+            "normalized_laplacian_spectrum_empty",
+            lambda m: m.Graph(),
+            lambda m, G: m.normalized_laplacian_spectrum(G),
+            nx.NetworkXError,
+        ),
     ],
     ids=lambda x: x if isinstance(x, str) else None,
 )
