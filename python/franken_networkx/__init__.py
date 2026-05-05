@@ -20375,16 +20375,36 @@ def double_edge_swap(G, nswap=1, max_tries=100, seed=None):
     """
     import random as _random
 
-    rng = _random.Random(seed)
-
+    # br-r37-c1-des-validate: nx raises on five precondition / runtime
+    # cases; previously fnx silently returned G unchanged for all
+    # five, which masked invalid input AND hid the
+    # max_tries-exhausted state from callers (a real algorithm
+    # signal — the graph topology refused the requested degree-
+    # preserving rearrangement).
+    if G.is_directed():
+        raise NetworkXError(
+            "double_edge_swap() not defined for directed graphs. "
+            "Use directed_edge_swap instead."
+        )
+    if nswap > max_tries:
+        raise NetworkXError("Number of swaps > number of tries allowed.")
+    if len(G) < 4:
+        raise NetworkXError("Graph has fewer than four nodes.")
     if G.number_of_edges() < 2:
-        return G
+        raise NetworkXError("Graph has fewer than 2 edges")
 
+    rng = _random.Random(seed)
     edges = list(G.edges())
     swaps_done = 0
     tries = 0
+    max_attempts = nswap * max_tries
 
-    while swaps_done < nswap and tries < nswap * max_tries:
+    while swaps_done < nswap:
+        if tries >= max_attempts:
+            raise NetworkXAlgorithmError(
+                f"Maximum number of swap attempts ({tries}) exceeded "
+                f"before desired swaps achieved ({nswap})."
+            )
         tries += 1
         e1 = edges[rng.randint(0, len(edges) - 1)]
         e2 = edges[rng.randint(0, len(edges) - 1)]

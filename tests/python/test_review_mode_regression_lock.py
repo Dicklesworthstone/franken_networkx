@@ -791,6 +791,41 @@ def test_community_all_excludes_private_implementation_names():
             lambda m, G: m.connected_double_edge_swap(G, nswap=1, seed=42),
             nx.NetworkXPointlessConcept,
         ),
+        # br-r37-c1-des-validate: double_edge_swap silently returned G
+        # unchanged on five precondition violations that nx raises on.
+        # Lock all five: directed input, nswap>max_tries, <4 nodes,
+        # <2 edges, max_tries exhausted.
+        (
+            "double_edge_swap_directed",
+            lambda m: m.DiGraph([(0, 1), (1, 2), (2, 3)]),
+            lambda m, G: m.double_edge_swap(G),
+            nx.NetworkXError,
+        ),
+        (
+            "double_edge_swap_nswap_gt_max_tries",
+            lambda m: m.complete_graph(5),
+            lambda m, G: m.double_edge_swap(G, nswap=200, max_tries=10, seed=42),
+            nx.NetworkXError,
+        ),
+        (
+            "double_edge_swap_too_small",
+            lambda m: m.complete_graph(3),
+            lambda m, G: m.double_edge_swap(G, seed=42),
+            nx.NetworkXError,
+        ),
+        (
+            "double_edge_swap_too_few_edges",
+            lambda m: (lambda H: (H.add_edges_from([(0, 1)]),
+                                  H.add_nodes_from([2, 3]), H)[-1])(m.Graph()),
+            lambda m, G: m.double_edge_swap(G, seed=42),
+            nx.NetworkXError,
+        ),
+        (
+            "double_edge_swap_max_tries_exhausted",
+            lambda m: m.complete_graph(4),
+            lambda m, G: m.double_edge_swap(G, nswap=1, max_tries=5, seed=42),
+            nx.NetworkXAlgorithmError,
+        ),
     ],
     ids=lambda x: x if isinstance(x, str) else None,
 )

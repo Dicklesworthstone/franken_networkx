@@ -1408,7 +1408,12 @@ class TestWLHash:
 
 class TestEdgeSwapping:
     def test_degree_preservation(self):
-        G = fnx.complete_graph(6)
+        # br-r37-c1-des-validate: K6 has every possible edge so every
+        # swap creates a parallel — nx raises NetworkXAlgorithmError on
+        # the same input, and fnx now matches. Use a sparse-enough
+        # graph that swaps can actually succeed.
+        G = fnx.cycle_graph(8)
+        G.add_edges_from([(0, 4), (2, 6)])  # two chords for swap room
         orig = sorted(d for _, d in G.degree)
         fnx.double_edge_swap(G, nswap=5, seed=42)
         assert sorted(d for _, d in G.degree) == orig
