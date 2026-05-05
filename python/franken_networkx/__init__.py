@@ -4596,6 +4596,13 @@ from franken_networkx._fnx import (
     triangles as _raw_triangles,
 )
 
+try:
+    from franken_networkx._fnx import (
+        find_cliques_adjacency_sets as _raw_find_cliques_adjacency_sets,
+    )
+except ImportError:
+    _raw_find_cliques_adjacency_sets = None
+
 # Algorithm functions — matching
 from franken_networkx._fnx import (
     max_weight_matching as _raw_max_weight_matching,
@@ -7301,7 +7308,9 @@ def find_cliques(G, nodes=None):
     # never executes for normal graphs. Single ``_has_networkx_private
     # _storage`` check at function entry replaces |V| per-call checks.
     _raw = _raw_neighbors_dispatch(G)
-    if _raw is not None:
+    if _raw is not None and _raw_find_cliques_adjacency_sets is not None:
+        adjacency = _raw_find_cliques_adjacency_sets(G)
+    elif _raw is not None:
         adjacency = {u: {v for v in _raw(G, u) if v != u} for u in G}
     else:
         adjacency = {u: {v for v in G.neighbors(u) if v != u} for u in G}
