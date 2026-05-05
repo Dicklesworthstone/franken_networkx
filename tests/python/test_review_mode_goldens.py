@@ -49,6 +49,10 @@ GRAPH_FACTORIES = (
     # fix surface against future regressions.
     ("dicycle5", "DiGraph cycle5", _directed_cycle5),
     ("dicycle5+chord", "DiGraph cycle5+(0,2) chord", _directed_cycle5_with_chord),
+    # br-r37-c1-{gttlp, fbons, 7t95c}: lock is_planar, core_number,
+    # square_clustering on canonical Kuratowski-pair fixtures.
+    ("petersen", "petersen_graph", lambda: fnx.petersen_graph()),
+    ("k5", "complete_graph(5)", lambda: fnx.complete_graph(5)),
 )
 
 
@@ -137,6 +141,17 @@ def _algorithms_for(graph):
     if not is_directed:
         payload["connected_components"] = _norm_components(fnx.connected_components(graph))
         payload["cycle_basis"] = _norm_cycle_basis(fnx.cycle_basis(graph))
+        # br-r37-c1-{gttlp, fbons, 7t95c}: snapshot the recently-fixed
+        # is_planar fast path, core_number perf surface, and
+        # square_clustering wrapper-bypass output. Undirected-only
+        # because is_planar / core_number raise on directed in fnx
+        # (matching nx's contract).
+        payload["is_planar"] = bool(fnx.is_planar(graph))
+        try:
+            payload["core_number"] = _norm_dict_centrality(fnx.core_number(graph))
+        except Exception as exc:  # pragma: no cover
+            payload["core_number"] = f"<{type(exc).__name__}>"
+        payload["square_clustering"] = _norm_dict_centrality(fnx.square_clustering(graph))
     try:
         payload["barycenter"] = sorted([_norm_node(n) for n in fnx.barycenter(graph)], key=str)
     except Exception as exc:  # pragma: no cover — record reason if it fails
