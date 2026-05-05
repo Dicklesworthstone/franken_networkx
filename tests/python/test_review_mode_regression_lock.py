@@ -93,6 +93,35 @@ def test_barycenter_directed_disconnected_raises_no_path():
 
 # --- degree_centrality (br-r37-c1-pu5q7) ----------------------------
 
+# --- selfloop_edges/number_of_selfloops fast-path lock (br-r37-c1-61okz) ---
+
+@pytest.mark.parametrize(
+    "graph_factory,expected_count,expected_edges",
+    [
+        (lambda: fnx.complete_graph(5), 0, []),
+        (lambda: fnx.path_graph(5), 0, []),
+        (lambda: fnx.Graph([(0, 0), (0, 1), (2, 2)]), 2, [(0, 0), (2, 2)]),
+        (lambda: fnx.Graph([(0, 0)]), 1, [(0, 0)]),
+        (lambda: fnx.DiGraph([(0, 0), (0, 1), (1, 1)]), 2, [(0, 0), (1, 1)]),
+        # Multigraph fallback path (parallel self-loops counted)
+        (lambda: fnx.MultiGraph([(0, 0), (0, 0), (0, 1)]), 2, [(0, 0), (0, 0)]),
+    ],
+    ids=["K5_no_selfloops", "P5_no_selfloops", "two_selfloops",
+         "single_selfloop", "directed_two_selfloops", "multigraph_parallel_selfloops"],
+)
+def test_selfloop_fast_path_known_results(graph_factory, expected_count, expected_edges):
+    """Locks br-r37-c1-61okz's has_edge-based fast path AND the
+    multigraph fallback. Hand-derived expected values catch:
+      - off-by-one in the iteration
+      - wrong type returned (must be tuples, not other shapes)
+      - multigraph parallel-edge counting drift
+    Independent of nx — based on graph structure."""
+    G = graph_factory()
+    assert fnx.number_of_selfloops(G) == expected_count
+    actual_edges = sorted(fnx.selfloop_edges(G))
+    assert actual_edges == sorted(expected_edges)
+
+
 # --- volume fast-path lock (br-r37-c1-ay2no) -------------------------
 
 @pytest.mark.parametrize(
