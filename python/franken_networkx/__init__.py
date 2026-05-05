@@ -8545,6 +8545,22 @@ def _link_prediction_validate_ebunch(G, ebunch):
     return materialized
 
 
+def _link_prediction_lazy_delegate(name, G, materialized):
+    """br-r37-c1-8e60l: defer the fnx_to_nx graph conversion in
+    _call_networkx_for_parity until the user begins iterating the
+    returned generator. Profiling on BA200 showed the eager-conversion
+    variant was 1000+x slower than nx on the call alone (3.5 ms vs
+    3 µs to construct nx's generator); deferring matches nx's
+    O(1)-construction contract.
+    """
+    def _gen():
+        if materialized is None:
+            yield from _call_networkx_for_parity(name, G)
+        else:
+            yield from _call_networkx_for_parity(name, G, ebunch=materialized)
+    return _gen()
+
+
 def jaccard_coefficient(G, ebunch=None):
     """Compute the Jaccard coefficient of all node pairs in ebunch.
 
@@ -8555,11 +8571,7 @@ def jaccard_coefficient(G, ebunch=None):
     non_edges iteration order.
     """
     materialized = _link_prediction_validate_ebunch(G, ebunch)
-    if materialized is None:
-        return _call_networkx_for_parity("jaccard_coefficient", G)
-    return _call_networkx_for_parity(
-        "jaccard_coefficient", G, ebunch=materialized,
-    )
+    return _link_prediction_lazy_delegate("jaccard_coefficient", G, materialized)
 
 
 def adamic_adar_index(G, ebunch=None):
@@ -8570,11 +8582,7 @@ def adamic_adar_index(G, ebunch=None):
     float -0.0.
     """
     materialized = _link_prediction_validate_ebunch(G, ebunch)
-    if materialized is None:
-        return _call_networkx_for_parity("adamic_adar_index", G)
-    return _call_networkx_for_parity(
-        "adamic_adar_index", G, ebunch=materialized,
-    )
+    return _link_prediction_lazy_delegate("adamic_adar_index", G, materialized)
 
 
 def preferential_attachment(G, ebunch=None):
@@ -8587,11 +8595,7 @@ def preferential_attachment(G, ebunch=None):
     no Rust-fast-path gain.
     """
     materialized = _link_prediction_validate_ebunch(G, ebunch)
-    if materialized is None:
-        return _call_networkx_for_parity("preferential_attachment", G)
-    return _call_networkx_for_parity(
-        "preferential_attachment", G, ebunch=materialized,
-    )
+    return _link_prediction_lazy_delegate("preferential_attachment", G, materialized)
 
 
 def resource_allocation_index(G, ebunch=None):
@@ -8602,11 +8606,7 @@ def resource_allocation_index(G, ebunch=None):
     float -0.0.
     """
     materialized = _link_prediction_validate_ebunch(G, ebunch)
-    if materialized is None:
-        return _call_networkx_for_parity("resource_allocation_index", G)
-    return _call_networkx_for_parity(
-        "resource_allocation_index", G, ebunch=materialized,
-    )
+    return _link_prediction_lazy_delegate("resource_allocation_index", G, materialized)
 
 # Algorithm functions — DAG
 from franken_networkx._fnx import (
