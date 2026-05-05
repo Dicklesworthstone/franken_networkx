@@ -9968,6 +9968,20 @@ def edge_boundary(G, nbunch1, nbunch2=None, data=False, keys=False, default=None
 
 def volume(G, S, weight=None):
     """Return the volume of a set of nodes."""
+    # br-r37-c1-ay2no: fast path for the common case — undirected,
+    # unweighted, no multigraph. ``volume(G, S) == sum(deg(v) for v in S)``
+    # holds for any undirected simple graph including those with
+    # self-loops (G.degree counts each self-loop twice, matching
+    # the volume definition's nbr == node *2 contribution).
+    # Profiling on BA200 showed the slow per-node AtlasView walk was
+    # 207x slower than nx; G.degree is O(1) per node via the Rust
+    # binding.
+    if (
+        weight is None
+        and not G.is_multigraph()
+        and not G.is_directed()
+    ):
+        return sum(G.degree(v) for v in S)
     return sum(
         _adc_weighted_degree(
             G,
