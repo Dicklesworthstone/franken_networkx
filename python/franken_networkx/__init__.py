@@ -8109,6 +8109,36 @@ def average_degree_connectivity(
     _validate_backend_dispatch_keywords(
         "average_degree_connectivity", backend, backend_kwargs
     )
+    # br-r37-c1-jmjs7: simple-case fast path. Was 680x slower than nx
+    # because the slow per-node _adc_weighted_degree walked AtlasView
+    # for every neighbor of every source node — O(|V| · avg_deg²)
+    # AtlasView accesses. For undirected, unweighted, nodes=None
+    # (the most common call), the algorithm reduces to:
+    #
+    #   for u: degree_key = deg[u]
+    #          dnorm[degree_key] += deg[u]
+    #          dsum[degree_key]  += sum(deg[v] for v in neighbors(u))
+    #
+    # which is O(|E|) using a materialized degree dict.
+    if (
+        not G.is_directed()
+        and weight is None
+        and nodes is None
+        and source == "in+out"
+        and target == "in+out"
+        and _raw_neighbors_dispatch(G) is not None
+    ):
+        _raw_nbrs = _raw_neighbors_dispatch(G)
+        deg = dict(G.degree())
+        dsum: dict[int, int] = defaultdict(int)
+        dnorm: dict[int, int] = defaultdict(int)
+        for u, du in deg.items():
+            dnorm[du] += du
+            dsum[du] += sum(deg[v] for v in _raw_nbrs(G, u))
+        return {
+            k: avg if dnorm[k] == 0 else avg / dnorm[k]
+            for k, avg in dsum.items()
+        }
     if G.is_directed():
         if source not in ("in", "out", "in+out"):
             raise NetworkXError('source must be one of "in", "out", or "in+out"')
