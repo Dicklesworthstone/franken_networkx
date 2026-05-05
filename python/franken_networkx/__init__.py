@@ -24187,21 +24187,31 @@ def _raw_neighbors_dispatch(G):
     via degree). Returns one of:
 
       - ``_GRAPH_NEIGHBORS``  for a plain ``Graph`` with no nx-
-        compatibility private storage and not multigraph
+        compatibility private storage
       - ``_DIGRAPH_NEIGHBORS`` for the directed equivalent
       - ``None`` if any safety guard fails — caller should use the
         slow AdjacencyView path
+
+    br-r37-c1-ni9va: ``isinstance(G, Graph)`` and ``isinstance(G,
+    DiGraph)`` already exclude ``MultiGraph`` and ``MultiDiGraph``
+    (they have independent MROs, NOT subclasses of Graph/DiGraph),
+    so we don't need a separate ``G.is_multigraph()`` guard. Saves
+    ~400 ns per dispatch (G.is_multigraph() ≈ 521 ns vs isinstance
+    ≈ 121 ns).
 
     Single source of truth for "is wrapper-bypass safe on this graph".
     A future regression that introduces a new private-storage flag
     only needs to update this helper, not every callsite.
     """
-    if G.is_multigraph() or _has_networkx_private_storage(G):
-        return None
     if isinstance(G, DiGraph):
+        if _has_networkx_private_storage(G):
+            return None
         return _DIGRAPH_NEIGHBORS
     if isinstance(G, Graph):
+        if _has_networkx_private_storage(G):
+            return None
         return _GRAPH_NEIGHBORS
+    # Multigraph / unknown subclass / etc.: fall through.
     return None
 
 
