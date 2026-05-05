@@ -93,6 +93,37 @@ def test_barycenter_directed_disconnected_raises_no_path():
 
 # --- degree_centrality (br-r37-c1-pu5q7) ----------------------------
 
+# --- distance-metric Rust guard lock (br-r37-c1-0xhhq) ---------------
+
+@pytest.mark.parametrize(
+    "fn_name,expected",
+    [
+        ("diameter", 2),       # directed cycle3 has diameter 2
+        ("radius", 2),         # same
+        ("center", [0, 1, 2]),
+        ("periphery", [0, 1, 2]),
+        ("barycenter", [0, 1, 2]),  # cycle3 is vertex-transitive
+    ],
+)
+def test_public_fnx_wrappers_handle_directed_via_native_paths(fn_name, expected):
+    """The Python wrappers fnx.{diameter, radius, center, periphery,
+    barycenter} must handle directed input correctly via native
+    fnx.eccentricity / fnx.shortest_path_length paths (br-r37-c1-{
+    89n9d, wojl3, ecqmz}). The underlying _fnx.* Rust bindings now
+    reject directed input via require_undirected (br-r37-c1-0xhhq /
+    p7p7l) — this lock catches a wrapper regression that accidentally
+    reroutes through the rejecting raw path or the silent-wrong-
+    answer raw path (depending on .so build state)."""
+    G = fnx.DiGraph()
+    G.add_edges_from([(0, 1), (1, 2), (2, 0)])  # strongly connected cycle3
+    func = getattr(fnx, fn_name)
+    result = func(G)
+    if isinstance(expected, list):
+        assert sorted(result) == expected
+    else:
+        assert result == expected
+
+
 # --- transitivity directed-collapse wrapper lock (br-r37-c1-b4zwt) ---
 
 @pytest.mark.parametrize(
