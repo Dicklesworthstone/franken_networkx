@@ -300,6 +300,67 @@ def test_triangles_consistent_with_transitivity_zero(seed):
     assert all(t == 0 for t in triangles.values())
 
 
+# ---- common_neighbors / non_neighbors metamorphic (br-r37-c1-qkq2h) -
+
+@pytest.mark.parametrize("seed", [0, 1, 7, 42, 99])
+def test_common_neighbors_symmetric(seed):
+    """common_neighbors(G, u, v) == common_neighbors(G, v, u) — set
+    intersection is symmetric, and u/v are excluded from both sides."""
+    G = fnx.barabasi_albert_graph(15, 3, seed=seed)
+    nodes = list(G.nodes())
+    rng = random.Random(seed + 13000)
+    pairs = [tuple(rng.sample(nodes, 2)) for _ in range(8)]
+    for u, v in pairs:
+        assert set(fnx.common_neighbors(G, u, v)) == set(fnx.common_neighbors(G, v, u))
+
+
+@pytest.mark.parametrize("seed", [0, 1, 7, 42, 99])
+def test_common_neighbors_excludes_endpoints(seed):
+    """common_neighbors(G, u, v) ∩ {u, v} = ∅ by definition."""
+    G = fnx.barabasi_albert_graph(15, 3, seed=seed)
+    nodes = list(G.nodes())
+    rng = random.Random(seed + 14000)
+    for _ in range(8):
+        u, v = rng.sample(nodes, 2)
+        cn = set(fnx.common_neighbors(G, u, v))
+        assert u not in cn
+        assert v not in cn
+
+
+@pytest.mark.parametrize("seed", [0, 7, 42])
+def test_common_neighbors_subset_of_each_neighborhood(seed):
+    """common_neighbors(G, u, v) ⊆ N(u) AND ⊆ N(v). The result is the
+    intersection of the two neighborhoods minus the endpoints."""
+    G = fnx.barabasi_albert_graph(15, 3, seed=seed)
+    nodes = list(G.nodes())
+    rng = random.Random(seed + 15000)
+    for _ in range(6):
+        u, v = rng.sample(nodes, 2)
+        cn = set(fnx.common_neighbors(G, u, v))
+        nbrs_u = set(G[u])
+        nbrs_v = set(G[v])
+        assert cn.issubset(nbrs_u), f"({u},{v}): cn={cn} not subset of N({u})={nbrs_u}"
+        assert cn.issubset(nbrs_v), f"({u},{v}): cn={cn} not subset of N({v})={nbrs_v}"
+
+
+@pytest.mark.parametrize("seed", [0, 1, 7, 42, 99])
+def test_non_neighbors_partition_complement(seed):
+    """non_neighbors(G, v) ∪ neighbors(G, v) ∪ {v} == V(G), and the
+    three sets are pairwise disjoint (it's a partition of V)."""
+    G = fnx.barabasi_albert_graph(15, 3, seed=seed)
+    nodes = list(G.nodes())
+    rng = random.Random(seed + 16000)
+    for v in rng.sample(nodes, min(5, len(nodes))):
+        non = set(fnx.non_neighbors(G, v))
+        nbrs = set(G[v]) - {v}  # exclude self-loop if present
+        partition = non | nbrs | {v}
+        assert partition == set(nodes)
+        # Pairwise disjoint
+        assert non.isdisjoint(nbrs)
+        assert v not in non
+        assert v not in nbrs
+
+
 # ---- link-prediction metamorphic (br-r37-c1-8e60l) ------------------
 
 @pytest.mark.parametrize("seed", [0, 1, 7, 42, 99])
