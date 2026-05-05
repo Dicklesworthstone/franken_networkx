@@ -22834,20 +22834,37 @@ def node_attribute_xy(G, attribute, nodes=None):
     signature ``node_attribute_xy(G, attribute, nodes=None)``.
     """
     node_filter = None if nodes is None else set(nodes)
+    # br-r37-c1-bjrgc: pre-materialize the node-attribute dict ONCE.
+    # Was 58x slower than nx because G.nodes[u] AtlasView lookups
+    # inside the per-edge inner loop did O(|E|) wrapper accesses.
+    # Now: O(|V|) materialization, O(|E|) dict.get probes.
+    try:
+        node_attrs = dict(G.nodes(data=True))
+    except (TypeError, AttributeError):
+        node_attrs = None
     for u, nbrsdict in G.adjacency():
         if node_filter is not None and u not in node_filter:
             continue
-        u_attrs = G.nodes[u] if hasattr(G.nodes, "__getitem__") else {}
+        if node_attrs is not None:
+            u_attrs = node_attrs.get(u, {})
+        else:
+            u_attrs = G.nodes[u] if hasattr(G.nodes, "__getitem__") else {}
         x = u_attrs.get(attribute) if isinstance(u_attrs, dict) else None
         if G.is_multigraph():
             for v, keys in nbrsdict.items():
-                v_attrs = G.nodes[v] if hasattr(G.nodes, "__getitem__") else {}
+                if node_attrs is not None:
+                    v_attrs = node_attrs.get(v, {})
+                else:
+                    v_attrs = G.nodes[v] if hasattr(G.nodes, "__getitem__") else {}
                 y = v_attrs.get(attribute) if isinstance(v_attrs, dict) else None
                 for _ in keys:
                     yield (x, y)
         else:
             for v in nbrsdict:
-                v_attrs = G.nodes[v] if hasattr(G.nodes, "__getitem__") else {}
+                if node_attrs is not None:
+                    v_attrs = node_attrs.get(v, {})
+                else:
+                    v_attrs = G.nodes[v] if hasattr(G.nodes, "__getitem__") else {}
                 y = v_attrs.get(attribute) if isinstance(v_attrs, dict) else None
                 yield (x, y)
 
