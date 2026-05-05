@@ -379,6 +379,56 @@ def _random_strongly_connected_digraph(seed: int):
     return G_nx, G_fnx
 
 
+# ---- average_degree_connectivity fast-path lock (br-r37-c1-jmjs7) ---
+
+@pytest.mark.parametrize("seed", _FUZZ_SEEDS[:25])
+def test_fuzz_average_degree_connectivity_oracle_match_nx(seed):
+    """Locks the br-r37-c1-jmjs7 fast path (degree-dict + raw nbrs)
+    against random ER graphs. The fast path is undirected unweighted
+    nodes=None — fuzzes the common case."""
+    G_fnx = _random_graph(seed)
+    if G_fnx.number_of_nodes() < 2 or G_fnx.number_of_edges() == 0:
+        return
+    if any(u == v for u, v in G_fnx.edges()):
+        # Self-loops complicate degree accounting; skip for cleanest oracle.
+        return
+    G_nx = nx.Graph()
+    G_nx.add_nodes_from(G_fnx.nodes())
+    G_nx.add_edges_from(G_fnx.edges())
+    nv = nx.average_degree_connectivity(G_nx)
+    fv = fnx.average_degree_connectivity(G_fnx)
+    assert set(nv) == set(fv), f"seed={seed}: degree keys differ"
+    for k in nv:
+        assert nv[k] == pytest.approx(fv[k], abs=1e-9)
+
+
+# ---- overall_reciprocity fast-path lock (br-r37-c1-5gfx7) -----------
+
+@pytest.mark.parametrize("seed", _FUZZ_SEEDS[:25])
+def test_fuzz_overall_reciprocity_oracle_match_nx(seed):
+    """Locks br-r37-c1-5gfx7 (edge-set probe instead of to_undirected)
+    against random directed graphs. The fast path is non-multigraph
+    DiGraph — fuzzes that case end-to-end."""
+    rng = random.Random(seed)
+    n = rng.randint(4, 12)
+    p = rng.uniform(0.2, 0.6)
+    G_fnx = fnx.DiGraph()
+    G_nx = nx.DiGraph()
+    for i in range(n):
+        G_fnx.add_node(i)
+        G_nx.add_node(i)
+    for i in range(n):
+        for j in range(n):
+            if i != j and rng.random() < p:
+                G_fnx.add_edge(i, j)
+                G_nx.add_edge(i, j)
+    if G_nx.number_of_edges() == 0:
+        return
+    nv = nx.overall_reciprocity(G_nx)
+    fv = fnx.overall_reciprocity(G_fnx)
+    assert nv == pytest.approx(fv, abs=1e-12)
+
+
 # ---- common_neighbors / non_neighbors bypass lock (br-r37-c1-qkq2h) -
 
 @pytest.mark.parametrize("seed", _FUZZ_SEEDS[:25])
