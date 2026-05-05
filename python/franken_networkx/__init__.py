@@ -9612,11 +9612,27 @@ def barycenter(G, weight=None, attr=None, sp=None, *, backend=None, **backend_kw
         # NetworkXNoPath in that case. Route directed inputs through
         # the Python path below when the graph is not strongly
         # connected so the parity error surfaces correctly.
-        if G.is_directed() and not is_strongly_connected(G):
-            raise NetworkXNoPath(
-                f"Input graph {G} is disconnected, so every induced subgraph "
-                "has infinite barycentricity."
-            )
+        if G.is_directed():
+            if not is_strongly_connected(G):
+                raise NetworkXNoPath(
+                    f"Input graph {G} is disconnected, so every induced subgraph "
+                    "has infinite barycentricity."
+                )
+            # br-r37-c1-ecqmz: _raw_barycenter has the directed-collapse
+            # defect (gr.undirected() before computing) — returns wrong
+            # barycenter on directed cycle5+chord (gives [0, 2] instead
+            # of nx's [0]). Compute natively via shortest_path_length
+            # which IS directed-aware.
+            smallest = float("inf")
+            result: list = []
+            for v, dists in shortest_path_length(G):
+                bc = sum(dists.values())
+                if bc < smallest:
+                    smallest = bc
+                    result = [v]
+                elif bc == smallest:
+                    result.append(v)
+            return result
         return _raw_barycenter(G)
     if attr is None:
         return _call_networkx_for_parity(
