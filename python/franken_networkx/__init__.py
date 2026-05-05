@@ -7527,8 +7527,25 @@ def dominating_set(G, start_with=None):
     set
         A dominating set of G.
     """
+    # br-r37-c1-lj6bo: native start_with port — small greedy dominating-
+    # set algorithm (algorithm 7 in nx's reference). Avoid the
+    # fnx_to_nx graph-conversion round-trip the prior delegate paid.
+    # The G[u] iteration uses fnx's fast AdjacencyView; verified
+    # bit-exact against nx on K4 / P5 / BA20.
     if start_with is not None:
-        return _call_networkx_for_parity("dominating_set", G, start_with=start_with)
+        if start_with not in G:
+            raise NetworkXError(f"node {start_with} is not in G")
+        all_nodes = set(G)
+        dominating: set = {start_with}
+        dominated = set(G[start_with])
+        remaining = all_nodes - dominated - dominating
+        while remaining:
+            v = remaining.pop()
+            undom_nbrs = set(G[v]) - dominating
+            dominating.add(v)
+            dominated |= undom_nbrs
+            remaining -= undom_nbrs
+        return dominating
     # br-domtype: nx.dominating_set returns a set; the Rust binding
     # returned a list. The docstring already claims set, so users
     # relying on set operations (union/intersection/issubset) silently
