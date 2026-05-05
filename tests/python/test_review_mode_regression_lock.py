@@ -93,6 +93,31 @@ def test_barycenter_directed_disconnected_raises_no_path():
 
 # --- degree_centrality (br-r37-c1-pu5q7) ----------------------------
 
+# --- transitivity directed-collapse wrapper lock (br-r37-c1-b4zwt) ---
+
+@pytest.mark.parametrize(
+    "edges,expected_nx_value",
+    [
+        ([(0, 1), (1, 2), (2, 0)], 0),  # cycle3 — no directed triangle
+        ([(i, (i + 1) % 5) for i in range(5)] + [(0, 2)], 0.5),
+        ([(u, v) for u in range(4) for v in range(4) if u != v], 1.0),
+    ],
+    ids=["cycle3_no_directed_triangle", "cycle5_chord", "directed_K4"],
+)
+def test_transitivity_directed_wrapper_matches_nx(edges, expected_nx_value):
+    """fnx.transitivity (the Python wrapper at line 26142) routes
+    directed inputs through the Python triangle-iter path because the
+    underlying _fnx.transitivity has a gr.undirected() directed-
+    collapse defect (returns 1.0 on cycle3 vs nx's 0). Locks the
+    wrapper-level contract so a future refactor that re-routes
+    through _fnx directly trips immediately."""
+    G_nx = nx.DiGraph(edges)
+    G_fnx = fnx.DiGraph(edges)
+    nv = nx.transitivity(G_nx)
+    fv = fnx.transitivity(G_fnx)
+    assert nv == fv == expected_nx_value
+
+
 # --- is_planar Kuratowski-pair lock (br-r37-c1-s2jfv) ----------------
 
 @pytest.mark.parametrize(
