@@ -9572,6 +9572,24 @@ def is_planar(G, *, backend=None, **backend_kwargs):
     implementation).
     """
     _validate_backend_dispatch_keywords("is_planar", backend, backend_kwargs)
+    # br-r37-c1-gttlp: cheap necessary-condition short-circuits before
+    # the nx-graph round-trip + full LR embedding that check_planarity
+    # builds. Same Kuratowski-style bounds proven correct in the Rust
+    # crate via br-r37-c1-xdjpt; lifted to the Python wrapper here so
+    # the speedup is independent of binary state.
+    n = G.number_of_nodes()
+    if n <= 4:
+        # Every graph with ≤ 4 nodes is planar.
+        return True
+    m = G.number_of_edges()
+    if m > 3 * n - 6:
+        # Euler bound: any planar graph with ≥ 3 nodes has |E| ≤ 3|V|-6.
+        return False
+    # Bipartite-tightened bound (Kuratowski): bipartite planar graphs
+    # have |E| ≤ 2|V|-4. The 2-coloring BFS is O(|V|+|E|) — same order
+    # as the nx-graph copy it avoids when triggered.
+    if m > 2 * n - 4 and is_bipartite(G):
+        return False
     is_p, _ = check_planarity(G)
     return is_p
 
