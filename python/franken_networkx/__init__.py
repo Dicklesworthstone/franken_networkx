@@ -30319,6 +30319,21 @@ def non_neighbors(graph, node):
     hash(node)
     if node not in graph:
         raise KeyError(node)
+    # br-r37-c1-qkq2h: bypass AdjacencyView/AtlasView via raw Rust
+    # neighbors binding when the graph has no nx-private storage and
+    # isn't a multigraph. Profiling on BA200 showed the AdjacencyView
+    # path was 6-10x slower than nx's direct dict access; same
+    # wrapper-bypass family as find_cliques (lgyq8), square_clustering
+    # (7t95c), dominating_set (02djy).
+    if (
+        not _has_networkx_private_storage(graph)
+        and not graph.is_multigraph()
+    ):
+        if isinstance(graph, DiGraph):
+            _raw_nbrs = _DIGRAPH_NEIGHBORS
+        else:
+            _raw_nbrs = _GRAPH_NEIGHBORS
+        return set(graph) - set(_raw_nbrs(graph, node)) - {node}
     return set(graph.adj) - set(graph.adj[node]) - {node}
 
 
@@ -30345,6 +30360,16 @@ def common_neighbors(G, u, v):
         raise NetworkXError("u is not in the graph.")
     if v not in G:
         raise NetworkXError("v is not in the graph.")
+    # br-r37-c1-qkq2h: bypass AtlasView via raw _GRAPH_NEIGHBORS for
+    # the common case. nx uses ``G._adj[u].keys() & G._adj[v].keys()``
+    # — direct dict access; fnx had to go through AtlasView's per-
+    # element PyO3 fetch. Same wrapper-bypass pattern as the rest of
+    # the family.
+    if (
+        not _has_networkx_private_storage(G)
+        and not G.is_multigraph()
+    ):
+        return set(_GRAPH_NEIGHBORS(G, u)) & set(_GRAPH_NEIGHBORS(G, v)) - {u, v}
     return set(G.adj[u]) & set(G.adj[v]) - {u, v}
 
 
