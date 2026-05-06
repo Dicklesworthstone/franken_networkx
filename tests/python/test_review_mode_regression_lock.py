@@ -962,6 +962,37 @@ def test_exception_type_parity(name, builder, call, exc):
         call(fnx, G_fnx)
 
 
+def test_full_rary_tree_negative_args_match_nx():
+    """br-r37-c1-frt-neg: same defect family as br-r37-c1-{w1smc,
+    udsdu, nxj7k, f34fw}. The Rust full_rary_tree binding declared
+    both `r` and `n` as unsigned int and raised OverflowError
+    uniformly. nx has domain-specific contracts:
+      - n < 0 → NetworkXError("Negative number of nodes not valid")
+      - r < 0 → empty graph with n isolated nodes (no children)
+      - r == 0 → empty graph with n isolated nodes
+
+    Lock parity on all three negative-arg paths."""
+    # n < 0 raises NetworkXError
+    with pytest.raises(nx.NetworkXError, match="Negative number of nodes"):
+        fnx.full_rary_tree(2, -1)
+
+    # r < 0 returns n isolated nodes
+    G_f = fnx.full_rary_tree(-1, 5)
+    G_n = nx.full_rary_tree(-1, 5)
+    assert G_f.number_of_nodes() == G_n.number_of_nodes() == 5
+    assert G_f.number_of_edges() == G_n.number_of_edges() == 0
+
+    # r == 0 (also no children → isolated)
+    G_f = fnx.full_rary_tree(0, 5)
+    G_n = nx.full_rary_tree(0, 5)
+    assert G_f.number_of_edges() == G_n.number_of_edges() == 0
+
+    # Positive values still work.
+    G_f = fnx.full_rary_tree(2, 7)
+    G_n = nx.full_rary_tree(2, 7)
+    assert G_f.number_of_edges() == G_n.number_of_edges()
+
+
 def test_eigenvector_centrality_negative_max_iter_raises_convergence_failure():
     """br-r37-c1-eigvec-maxiter: nx raises
     PowerIterationFailedConvergence on max_iter <= 0 (the power

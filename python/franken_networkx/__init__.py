@@ -16135,7 +16135,20 @@ def balanced_tree(r, h, create_using=None):
 
 
 def full_rary_tree(r, n, create_using=None):
-    """Return a full r-ary tree with n nodes."""
+    """Return a full r-ary tree with n nodes.
+
+    br-r37-c1-frt-neg: nx accepts negative ``r`` (returns ``n``
+    isolated nodes — no children = no edges) and raises
+    ``NetworkXError`` on negative ``n``. The Rust binding declared
+    both as unsigned int and raised OverflowError uniformly.
+    Match nx's domain-specific contracts:
+      * n < 0 → NetworkXError("Negative number of nodes not valid: {n}")
+      * r < 0 → empty_graph(n) (n isolated nodes)
+    """
+    if isinstance(n, int) and n < 0:
+        raise NetworkXError(f"Negative number of nodes not valid: {n}")
+    if isinstance(r, int) and r < 0:
+        return empty_graph(n, create_using)
     if create_using is None:
         return _rust_full_rary_tree(r, n)
 
