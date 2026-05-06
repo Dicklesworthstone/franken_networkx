@@ -962,6 +962,25 @@ class _DiGraphEdgeView:
     def __hash__(self):
         return id(self._graph)
 
+    # br-r37-c1-iev-setops: see _DiEdgeMethodView. Set comparison
+    # operators (`<=`, `<`, `>=`, `>`, isdisjoint) — the existing
+    # __or__/__and__/__sub__/__xor__ already exist; this just adds
+    # the comparison + isdisjoint set.
+    def __le__(self, other):
+        return set(self) <= set(other) if hasattr(other, "__iter__") else NotImplemented
+
+    def __lt__(self, other):
+        return set(self) < set(other) if hasattr(other, "__iter__") else NotImplemented
+
+    def __ge__(self, other):
+        return set(self) >= set(other) if hasattr(other, "__iter__") else NotImplemented
+
+    def __gt__(self, other):
+        return set(self) > set(other) if hasattr(other, "__iter__") else NotImplemented
+
+    def isdisjoint(self, other):
+        return set(self).isdisjoint(other)
+
 
 def _digraph_edges(self):
     return _DiGraphEdgeView(self)
@@ -1167,6 +1186,36 @@ class _MultiGraphEdgeView:
     def __hash__(self):
         return id(self._graph)
 
+    # br-r37-c1-iev-setops: see _DiEdgeMethodView. Set comparison +
+    # algebra operators for nx parity (Set inheritance on
+    # MultiEdgeView).
+    def __le__(self, other):
+        return set(self) <= set(other) if hasattr(other, "__iter__") else NotImplemented
+
+    def __lt__(self, other):
+        return set(self) < set(other) if hasattr(other, "__iter__") else NotImplemented
+
+    def __ge__(self, other):
+        return set(self) >= set(other) if hasattr(other, "__iter__") else NotImplemented
+
+    def __gt__(self, other):
+        return set(self) > set(other) if hasattr(other, "__iter__") else NotImplemented
+
+    def isdisjoint(self, other):
+        return set(self).isdisjoint(other)
+
+    def __and__(self, other):
+        return set(self) & set(other)
+
+    def __or__(self, other):
+        return set(self) | set(other)
+
+    def __sub__(self, other):
+        return set(self) - set(other)
+
+    def __xor__(self, other):
+        return set(self) ^ set(other)
+
 
 class _EdgeListWithSetAlgebra(list):
     """List subclass that supports set-algebra operators.
@@ -1302,6 +1351,35 @@ class _MultiDiGraphEdgeView:
 
     def __hash__(self):
         return id(self._graph)
+
+    # br-r37-c1-iev-setops: see _DiEdgeMethodView. Set comparison +
+    # algebra operators for nx parity.
+    def __le__(self, other):
+        return set(self) <= set(other) if hasattr(other, "__iter__") else NotImplemented
+
+    def __lt__(self, other):
+        return set(self) < set(other) if hasattr(other, "__iter__") else NotImplemented
+
+    def __ge__(self, other):
+        return set(self) >= set(other) if hasattr(other, "__iter__") else NotImplemented
+
+    def __gt__(self, other):
+        return set(self) > set(other) if hasattr(other, "__iter__") else NotImplemented
+
+    def isdisjoint(self, other):
+        return set(self).isdisjoint(other)
+
+    def __and__(self, other):
+        return set(self) & set(other)
+
+    def __or__(self, other):
+        return set(self) | set(other)
+
+    def __sub__(self, other):
+        return set(self) - set(other)
+
+    def __xor__(self, other):
+        return set(self) ^ set(other)
 
 
 def _multidigraph_edges(self):
@@ -3475,6 +3553,59 @@ class _DiEdgeMethodView:
             data=data,
             default=default,
         )
+
+    # br-r37-c1-iev-setops: nx.InEdgeView inherits from Set so all set
+    # comparison + algebra operators work (`<=`, `<`, `>=`, `>`,
+    # `isdisjoint`, `&`, `|`, `-`, `^`). The wrapper had iter/contains/
+    # len + custom __eq__ but no comparison-or-algebra operators —
+    # `H.in_edges <= G.in_edges` raised TypeError, breaking the
+    # documented subset/superset idiom.
+    def __le__(self, other):
+        if isinstance(other, _DiEdgeMethodView):
+            return set(self) <= set(other)
+        from collections.abc import Set as _Set
+        if isinstance(other, _Set):
+            return set(self) <= set(other)
+        return NotImplemented
+
+    def __lt__(self, other):
+        if isinstance(other, _DiEdgeMethodView):
+            return set(self) < set(other)
+        from collections.abc import Set as _Set
+        if isinstance(other, _Set):
+            return set(self) < set(other)
+        return NotImplemented
+
+    def __ge__(self, other):
+        if isinstance(other, _DiEdgeMethodView):
+            return set(self) >= set(other)
+        from collections.abc import Set as _Set
+        if isinstance(other, _Set):
+            return set(self) >= set(other)
+        return NotImplemented
+
+    def __gt__(self, other):
+        if isinstance(other, _DiEdgeMethodView):
+            return set(self) > set(other)
+        from collections.abc import Set as _Set
+        if isinstance(other, _Set):
+            return set(self) > set(other)
+        return NotImplemented
+
+    def isdisjoint(self, other):
+        return set(self).isdisjoint(other)
+
+    def __and__(self, other):
+        return set(self) & set(other)
+
+    def __or__(self, other):
+        return set(self) | set(other)
+
+    def __sub__(self, other):
+        return set(self) - set(other)
+
+    def __xor__(self, other):
+        return set(self) ^ set(other)
 
 
 def _make_edge_method_view_property(method):

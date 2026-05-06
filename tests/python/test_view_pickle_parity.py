@@ -592,6 +592,93 @@ def test_multidigraph_in_edges_iter_yields_keys_by_default():
     assert all(len(e) == 2 for e in DG.in_edges)
 
 
+_SET_OP_PROBES = [
+    ("le", lambda a, b: a <= b),
+    ("ge", lambda a, b: a >= b),
+    ("lt", lambda a, b: a < b),
+    ("gt", lambda a, b: a > b),
+    ("and", lambda a, b: a & b),
+    ("or", lambda a, b: a | b),
+    ("sub", lambda a, b: a - b),
+    ("xor", lambda a, b: a ^ b),
+    ("isdisjoint", lambda a, b: a.isdisjoint(b)),
+]
+
+
+_EDGE_VIEW_BUILDERS_FOR_SETOPS = [
+    ("Graph.edges", lambda: (
+        fnx.Graph([(0, 1), (1, 2)]),
+        fnx.Graph([(0, 1)]),
+        nx.Graph([(0, 1), (1, 2)]),
+        nx.Graph([(0, 1)]),
+        "edges",
+    )),
+    ("DiGraph.edges", lambda: (
+        fnx.DiGraph([(0, 1), (1, 2)]),
+        fnx.DiGraph([(0, 1)]),
+        nx.DiGraph([(0, 1), (1, 2)]),
+        nx.DiGraph([(0, 1)]),
+        "edges",
+    )),
+    ("MultiGraph.edges", lambda: (
+        fnx.MultiGraph([(0, 1), (0, 1), (1, 2)]),
+        fnx.MultiGraph([(0, 1)]),
+        nx.MultiGraph([(0, 1), (0, 1), (1, 2)]),
+        nx.MultiGraph([(0, 1)]),
+        "edges",
+    )),
+    ("DiGraph.in_edges", lambda: (
+        fnx.DiGraph([(0, 1), (1, 2), (2, 0)]),
+        fnx.DiGraph([(0, 1)]),
+        nx.DiGraph([(0, 1), (1, 2), (2, 0)]),
+        nx.DiGraph([(0, 1)]),
+        "in_edges",
+    )),
+    ("DiGraph.out_edges", lambda: (
+        fnx.DiGraph([(0, 1), (1, 2), (2, 0)]),
+        fnx.DiGraph([(0, 1)]),
+        nx.DiGraph([(0, 1), (1, 2), (2, 0)]),
+        nx.DiGraph([(0, 1)]),
+        "out_edges",
+    )),
+]
+
+
+@pytest.mark.parametrize(
+    "label,view_setup",
+    _EDGE_VIEW_BUILDERS_FOR_SETOPS,
+    ids=[b[0] for b in _EDGE_VIEW_BUILDERS_FOR_SETOPS],
+)
+@pytest.mark.parametrize(
+    "op_name,op",
+    _SET_OP_PROBES,
+    ids=[op[0] for op in _SET_OP_PROBES],
+)
+def test_edge_view_set_operations_match_nx(label, view_setup, op_name, op):
+    """br-r37-c1-iev-setops: nx.OutEdgeView/InEdgeView/MultiEdgeView/etc.
+    inherit from collections.abc.Set, so all set comparison + algebra
+    operators work (`<=`, `<`, `>=`, `>`, `isdisjoint`, `&`, `|`,
+    `-`, `^`). The fnx Python wrappers had partial coverage:
+      - _DiGraphEdgeView had | & - ^ but no <= < >= > isdisjoint
+      - _MultiGraphEdgeView / _MultiDiGraphEdgeView had nothing
+      - _DiEdgeMethodView (in_edges/out_edges) had nothing
+    `H.edges <= G.edges` raised TypeError, breaking the documented
+    subset/superset idiom."""
+    G_f, H_f, G_n, H_n, attr = view_setup()
+    f_view_a = getattr(H_f, attr)
+    f_view_b = getattr(G_f, attr)
+    n_view_a = getattr(H_n, attr)
+    n_view_b = getattr(G_n, attr)
+
+    f_result = op(f_view_a, f_view_b)
+    n_result = op(n_view_a, n_view_b)
+    # All results should be the same value (or types convertible to same value).
+    if isinstance(f_result, (set, frozenset)) or isinstance(n_result, (set, frozenset)):
+        assert set(f_result) == set(n_result)
+    else:
+        assert f_result == n_result
+
+
 @pytest.mark.parametrize("name,builder", GRAPH_BUILDERS, ids=[b[0] for b in GRAPH_BUILDERS])
 def test_degree_view_equality_via_dict(name, builder):
     """br-r37-c1-dv-eq: nx's DegreeView/DiDegreeView/MultiDegreeView/
