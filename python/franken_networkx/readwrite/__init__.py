@@ -1098,8 +1098,28 @@ def write_multiline_adjlist(G, path, delimiter=" ", comments="#", encoding="utf-
     object or an already-opened file-like object (in binary or text
     mode). Mirrors nx's ``@open_file`` decorator semantics so
     BytesIO/StringIO destinations work the same as nx.
+
+    br-r37-c1-wmadj-header: nx prepends a 3-line timestamped comment
+    header (``# <argv>``, ``# GMT <timestamp>``, ``# <G.name>``)
+    before the adjacency body. fnx previously omitted the header,
+    so byte-level snapshot diffs against nx's output failed (same
+    defect class as br-r37-c1-{eeawk, nlkkm} on write_adjlist /
+    write_graphml). Match nx's header format so the output is
+    byte-identical when comments are stripped.
     """
-    text = "".join(line + "\n" for line in generate_multiline_adjlist(G, delimiter=delimiter))
+    import sys
+    import time as _time
+
+    pargs = comments + " ".join(sys.argv)
+    header = (
+        f"{pargs}\n"
+        + comments
+        + f" GMT {_time.asctime(_time.gmtime())}\n"
+        + comments
+        + f" {G.name}\n"
+    )
+    body = "".join(line + "\n" for line in generate_multiline_adjlist(G, delimiter=delimiter))
+    text = header + body
     data = text.encode(encoding)
     if hasattr(path, "write"):
         try:

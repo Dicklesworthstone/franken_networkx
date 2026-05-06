@@ -962,6 +962,33 @@ def test_exception_type_parity(name, builder, call, exc):
         call(fnx, G_fnx)
 
 
+def test_write_multiline_adjlist_byte_parity_with_nx():
+    """br-r37-c1-wmadj-header: nx prepends a 3-line timestamped
+    comment header to the multiline-adjlist body; fnx previously
+    omitted it. Byte-level snapshot diffs across libraries failed.
+    Lock the comment-stripped equality + header-presence."""
+    import io
+    G_f = fnx.path_graph(3)
+    G_n = nx.path_graph(3)
+
+    buf_f = io.BytesIO()
+    buf_n = io.BytesIO()
+    fnx.write_multiline_adjlist(G_f, buf_f)
+    nx.write_multiline_adjlist(G_n, buf_n)
+
+    def strip_comments(b):
+        return b"".join(
+            line for line in b.splitlines(keepends=True) if not line.startswith(b"#")
+        )
+
+    assert strip_comments(buf_f.getvalue()) == strip_comments(buf_n.getvalue())
+    # Timestamped header present (3 comment lines)
+    header_lines = [
+        line for line in buf_f.getvalue().splitlines() if line.startswith(b"#")
+    ]
+    assert len(header_lines) == 3
+
+
 def test_write_graphml_byte_parity_with_nx():
     """br-r37-c1-wgml-parity: the prior Rust-native write_graphml fast
     path diverged byte-wise from nx in three observable places:
