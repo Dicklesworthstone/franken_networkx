@@ -36131,6 +36131,17 @@ def grid_graph(dim, periodic=False):
     for axis in dimensions:
         periods.append(bool(next(periodic_flags)))
         if isinstance(axis, numbers.Integral):
+            # br-r37-c1-grid-neg: nx routes grid_graph through
+            # cartesian_product of path_graph(d) for each d; a
+            # negative ``d`` raises NetworkXError("Negative number
+            # of nodes not valid: {d}") on the first negative
+            # encountered.  fnx previously silently produced an
+            # empty graph (range(-3) yielded nothing).  Same
+            # defect family as br-r37-c1-{rgg-neg, ...}.
+            if axis < 0:
+                raise NetworkXError(
+                    f"Negative number of nodes not valid: {axis}"
+                )
             axes.append(list(range(axis)))
         else:
             axes.append(list(axis))

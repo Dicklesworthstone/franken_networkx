@@ -962,6 +962,31 @@ def test_exception_type_parity(name, builder, call, exc):
         call(fnx, G_fnx)
 
 
+def test_grid_graph_negative_dim_match_nx():
+    """br-r37-c1-grid-neg: same defect family as br-r37-c1-{rgg-neg,
+    pjf7g, srgg-neg, trgg-neg, 60f9n, waxman-neg, gtg-neg, hszkp,
+    48hex, xm9lx, vdaws}.  ``grid_graph`` silently returned an
+    empty graph for any negative integral dim element (range(-3)
+    yielded nothing → axis empty → early return).  nx routes
+    through cartesian_product of path_graph(d), so the first
+    negative d raises NetworkXError(``Negative number of nodes
+    not valid: {d}``).  Lock parity on first-negative semantics."""
+    bad = [
+        ([-3, 3], -3), ([3, -3], -3), ([-3, -3], -3),
+        ([0, -3], -3), ([-3], -3), ([-1], -1),
+    ]
+    for dim, neg in bad:
+        match = f"Negative number of nodes not valid: {neg}"
+        with pytest.raises(nx.NetworkXError, match=match):
+            fnx.grid_graph(dim)
+    # Positive / zero / empty dims still work
+    for dim in ([3], [3, 3], [0, 0], []):
+        Gf = fnx.grid_graph(dim)
+        Gn = nx.grid_graph(dim)
+        assert Gf.number_of_nodes() == Gn.number_of_nodes()
+        assert Gf.number_of_edges() == Gn.number_of_edges()
+
+
 def test_from_prufer_sequence_panic_on_oob_value_match_nx():
     """br-r37-c1-prufer-oob: from_prufer_sequence panicked the Rust
     backend with ``index out of bounds`` when any value in the
