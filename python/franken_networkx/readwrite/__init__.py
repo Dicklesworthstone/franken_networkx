@@ -377,9 +377,18 @@ def _graph6_n_to_data(n):
 
 
 def _graph6_values(data):
-    """Convert ASCII graph6/sparse6 payload bytes into 6-bit values."""
+    """Convert ASCII graph6/sparse6 payload bytes into 6-bit values.
+
+    br-r37-c1-g6-low-byte: nx only rejects high bytes (> 126); it
+    silently accepts low bytes (< 63), letting them flow through as
+    negative values which downstream produce either a 0-node graph
+    (sparse6) or the canonical "Expected N bits but got 0 in graph6"
+    error (graph6).  fnx previously rejected low bytes upfront with
+    a leaky ValueError, diverging from nx for inputs like
+    ``b'\\x00'`` and ``b':\\x00'``.  Match nx's high-byte-only check.
+    """
     values = [byte - 63 for byte in data]
-    if any(value < 0 or value > 63 for value in values):
+    if any(value > 63 for value in values):
         raise ValueError("each input character must be in range(63, 127)")
     return values
 

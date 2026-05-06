@@ -962,6 +962,44 @@ def test_exception_type_parity(name, builder, call, exc):
         call(fnx, G_fnx)
 
 
+def test_graph6_sparse6_low_byte_input_match_nx():
+    """br-r37-c1-g6-low-byte: nx only rejects high bytes (> 126)
+    in graph6/sparse6 input — low bytes (< 63) flow through as
+    negative values which downstream produce either a 0-node
+    graph (sparse6) or the canonical ``Expected N bits but got 0
+    in graph6`` error. fnx previously rejected low bytes upfront
+    with a leaky ValueError, diverging from nx for inputs like
+    ``b'\\x00'`` and ``b':\\x00'``.  Lock parity for the four
+    documented cases."""
+    # graph6 low-byte: nx raises NetworkXError "Expected N bits"
+    Gf = None
+    try:
+        Gf = fnx.from_graph6_bytes(b"\x00")
+    except nx.NetworkXError as e:
+        assert "Expected" in str(e) and "bits but got" in str(e)
+    else:
+        pytest.fail(f"expected NetworkXError, got {Gf!r}")
+    try:
+        Gf = fnx.from_graph6_bytes(b"\x00\x00")
+    except nx.NetworkXError as e:
+        assert "Expected" in str(e) and "bits but got" in str(e)
+    else:
+        pytest.fail(f"expected NetworkXError, got {Gf!r}")
+    # sparse6 low-byte: nx silently returns 0-node graph
+    for data in (b":\x00", b":\x00\x00"):
+        Gf = fnx.from_sparse6_bytes(data)
+        Gn = nx.from_sparse6_bytes(data)
+        assert Gf.number_of_nodes() == Gn.number_of_nodes() == 0
+    # High-byte still rejected (regression check)
+    with pytest.raises(ValueError, match="must be in range"):
+        fnx.from_graph6_bytes(b"\xFF")
+    # Valid input regression
+    Gf = fnx.from_graph6_bytes(b"A_")
+    Gn = nx.from_graph6_bytes(b"A_")
+    assert Gf.number_of_nodes() == Gn.number_of_nodes() == 2
+    assert Gf.number_of_edges() == Gn.number_of_edges() == 1
+
+
 def test_grid_graph_negative_dim_match_nx():
     """br-r37-c1-grid-neg: same defect family as br-r37-c1-{rgg-neg,
     pjf7g, srgg-neg, trgg-neg, 60f9n, waxman-neg, gtg-neg, hszkp,
