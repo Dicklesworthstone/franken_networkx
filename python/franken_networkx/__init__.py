@@ -1717,6 +1717,18 @@ def _add_edges_from_materialized(raw):
             if isinstance(edge, tuple) and len(edge) >= 2:
                 hash(edge[0])
                 hash(edge[1])
+        # br-r37-c1-aef-tupshape: nx raises NetworkXError("Edge tuple
+        # (X, Y) must be a 2-tuple or 3-tuple.") on bad-arity tuples;
+        # the Rust raw path raises ValueError("edge tuple must have
+        # 2 or 3 elements") instead. Code that catches
+        # nx.NetworkXError to detect malformed edge inputs missed
+        # fnx's ValueError. Pre-validate tuple arity with nx-shaped
+        # error before delegating to Rust.
+        for edge in materialized:
+            if isinstance(edge, tuple) and not (2 <= len(edge) <= 3):
+                raise NetworkXError(
+                    f"Edge tuple {edge} must be a 2-tuple or 3-tuple.",
+                )
         return raw(self, materialized, **attr)
 
     return add_edges_from

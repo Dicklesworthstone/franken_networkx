@@ -924,6 +924,29 @@ def test_community_all_excludes_private_implementation_names():
             lambda m, G: m.union(G, m.path_graph(3)),
             nx.NetworkXError,
         ),
+        # br-r37-c1-aef-tupshape: add_edges_from raised ValueError
+        # on bad-arity tuples; nx raises NetworkXError. Code that
+        # catches `nx.NetworkXError` to detect malformed edge inputs
+        # missed fnx's ValueError. Lock NetworkXError on (Graph,
+        # DiGraph) for 1-tuple and 5-tuple inputs.
+        (
+            "add_edges_from_1tuple_graph",
+            lambda m: m.Graph(),
+            lambda m, G: G.add_edges_from([(1,)]),
+            nx.NetworkXError,
+        ),
+        (
+            "add_edges_from_empty_tuple_digraph",
+            lambda m: m.DiGraph(),
+            lambda m, G: G.add_edges_from([()]),
+            nx.NetworkXError,
+        ),
+        (
+            "add_edges_from_5tuple_graph",
+            lambda m: m.Graph(),
+            lambda m, G: G.add_edges_from([(1, 2, 3, 4, 5)]),
+            nx.NetworkXError,
+        ),
     ],
     ids=lambda x: x if isinstance(x, str) else None,
 )
