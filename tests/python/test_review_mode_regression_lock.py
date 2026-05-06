@@ -962,6 +962,27 @@ def test_exception_type_parity(name, builder, call, exc):
         call(fnx, G_fnx)
 
 
+def test_random_powerlaw_tree_sequence_nonpositive_n_match_nx():
+    """br-r37-c1-rpts-neg: same defect family as br-r37-c1-{rgg-neg,
+    pjf7g, srgg-neg, trgg-neg, 60f9n, waxman-neg, gtg-neg, hszkp,
+    48hex}. random_powerlaw_tree_sequence silently returned ``[]`` for
+    n <= 0 (range(n) yielded nothing and the empty-sequence early
+    return was reached); nx raises ValueError leaked from internal
+    rng.randint/randrange.  Lock parity on the structural-error
+    contract."""
+    for n in (-5, -1, 0):
+        with pytest.raises(ValueError, match=r"empty range in randrange"):
+            fnx.random_powerlaw_tree_sequence(n, seed=42)
+    # Positive args still work.
+    fseq = fnx.random_powerlaw_tree_sequence(5, seed=42)
+    nseq = nx.random_powerlaw_tree_sequence(5, seed=42)
+    assert fseq == nseq
+    # n=1 still raises NetworkXError (existing convergence-failure
+    # contract — single-node tree is degenerate).
+    with pytest.raises(nx.NetworkXError, match="Exceeded max"):
+        fnx.random_powerlaw_tree_sequence(1, seed=42)
+
+
 def test_gnm_random_graph_negative_n_match_nx():
     """br-r37-c1-gnm-neg: same defect family as br-r37-c1-{rgg-neg,
     pjf7g, srgg-neg, trgg-neg, 60f9n, waxman-neg, gtg-neg, hszkp}.

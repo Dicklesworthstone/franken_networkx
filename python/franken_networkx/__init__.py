@@ -35697,6 +35697,15 @@ def random_powerlaw_tree(n, gamma=3, seed=None, tries=100, *, create_using=None,
 
 def random_powerlaw_tree_sequence(n, gamma=3, seed=None, tries=100):
     """Return a degree sequence suitable for a random power-law tree."""
+    # br-r37-c1-rpts-neg: nx raises ValueError("empty range in
+    # randrange(0, n)") leaked from internal rng.randint/randrange
+    # for n <= 0; fnx previously silently returned ``[]`` (range(n)
+    # yielded nothing and is_valid_tree_degree_sequence([]) returns
+    # True).  Match nx's structural-error contract — same defect
+    # family as br-r37-c1-{rgg-neg, pjf7g, srgg-neg, trgg-neg, 60f9n,
+    # waxman-neg, gtg-neg, hszkp, 48hex}.
+    if isinstance(n, int) and n <= 0:
+        raise ValueError(f"empty range in randrange(0, {n})")
     rng = _generator_random_state(seed)
     zseq = [min(n, max(round(rng.paretovariate(gamma - 1)), 0)) for _ in range(n)]
     swap = [min(n, max(round(rng.paretovariate(gamma - 1)), 0)) for _ in range(tries)]
