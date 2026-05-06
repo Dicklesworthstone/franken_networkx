@@ -37863,6 +37863,80 @@ def _bulk_promote_to_generator():
 _bulk_promote_to_generator()
 
 
+def _bulk_add_backend_dispatch_kwargs():
+    """br-r37-c1-spbk-bulk: nx's ``@_dispatchable`` decorator adds
+    ``*, backend=None, **backend_kwargs`` to every dispatchable
+    function's signature. fnx's wrappers had this surface on ~40
+    functions but ~20 high-traffic ones were missed
+    (br-r37-c1-0z6fh fixed 4 of them; this bulk pass covers the
+    rest). Drop-in code that uses ``fn(G, ..., backend='networkx')``
+    crashed on the missed ones with `TypeError: got an unexpected
+    keyword argument 'backend'`.
+
+    Wrap each missed function so its signature reflects
+    ``backend`` and ``backend_kwargs``, validates them via
+    ``_validate_backend_dispatch_keywords`` (raises ImportError
+    for unknown backends, TypeError for unexpected kwargs), and
+    forwards the rest to the original implementation.
+    """
+    import functools as _ft
+    import inspect as _inspect
+
+    targets = (
+        "find_cycle", "simple_cycles", "diameter", "radius", "eccentricity",
+        "average_shortest_path_length", "cycle_basis", "topological_sort",
+        "descendants", "ancestors", "single_source_shortest_path",
+        "has_path", "is_directed_acyclic_graph", "is_simple_path",
+        "minimum_spanning_tree", "maximum_spanning_tree",
+        "is_strongly_connected", "strongly_connected_components",
+        "weakly_connected_components", "is_weakly_connected",
+    )
+
+    ns = globals()
+
+    for name in targets:
+        raw = ns.get(name)
+        if raw is None:
+            continue
+        try:
+            orig_sig = _inspect.signature(raw)
+        except (TypeError, ValueError):
+            continue
+        if "backend" in orig_sig.parameters:
+            continue  # Already has the surface — leave alone.
+
+        def _make_wrapper(raw_fn, fn_name, base_sig):
+            orig_param_names = set(base_sig.parameters)
+
+            @_ft.wraps(raw_fn)
+            def wrapper(*args, backend=None, **kwargs):
+                bk = {k: kwargs.pop(k) for k in list(kwargs) if k not in orig_param_names}
+                _validate_backend_dispatch_keywords(fn_name, backend, bk)
+                return raw_fn(*args, **kwargs)
+
+            # Synthesize a signature with backend / backend_kwargs added
+            # so inspect.signature parity matches nx exactly.
+            new_params = list(base_sig.parameters.values())
+            new_params.append(_inspect.Parameter(
+                "backend", kind=_inspect.Parameter.KEYWORD_ONLY, default=None,
+            ))
+            new_params.append(_inspect.Parameter(
+                "backend_kwargs", kind=_inspect.Parameter.VAR_KEYWORD,
+            ))
+            try:
+                wrapper.__signature__ = base_sig.replace(parameters=new_params)
+            except (TypeError, ValueError):
+                # If signature reconstruction fails (e.g. duplicate VAR_*),
+                # fall back to no-signature; the kwargs still work.
+                pass
+            return wrapper
+
+        ns[name] = _make_wrapper(raw, name, orig_sig)
+
+
+_bulk_add_backend_dispatch_kwargs()
+
+
 def _install_mutation_detection_on_node_views():
     """br-mutiter: nx detects mutation during ``for n in G.nodes(): ...``
     and raises ``RuntimeError('dictionary changed size during iteration')``.

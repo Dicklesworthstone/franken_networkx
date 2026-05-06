@@ -962,6 +962,42 @@ def test_exception_type_parity(name, builder, call, exc):
         call(fnx, G_fnx)
 
 
+def test_backend_kwarg_accepted_on_bulk_dispatchable_functions():
+    """br-r37-c1-spbk-bulk: br-r37-c1-0z6fh fixed 4 functions
+    missing the `backend=None, **backend_kwargs` dispatch surface;
+    a sweep identified ~20 more (the same defect class). The bulk
+    `_bulk_add_backend_dispatch_kwargs` retrofit at module-load
+    time wraps each with the standard validator. Lock that all 20
+    accept `backend='networkx'` AND that their `inspect.signature`
+    includes `backend` + `backend_kwargs` parameters."""
+    import inspect
+
+    target_fns = (
+        "find_cycle", "simple_cycles", "diameter", "radius",
+        "eccentricity", "average_shortest_path_length", "cycle_basis",
+        "topological_sort", "descendants", "ancestors",
+        "single_source_shortest_path", "has_path",
+        "is_directed_acyclic_graph", "is_simple_path",
+        "minimum_spanning_tree", "maximum_spanning_tree",
+        "is_strongly_connected", "strongly_connected_components",
+        "weakly_connected_components", "is_weakly_connected",
+    )
+    for name in target_fns:
+        f_sig = inspect.signature(getattr(fnx, name))
+        params = set(f_sig.parameters)
+        assert "backend" in params, f"{name} missing backend kwarg"
+        # var-keyword present (inspect represents **kwargs as a single param)
+        has_var_kw = any(
+            p.kind == inspect.Parameter.VAR_KEYWORD
+            for p in f_sig.parameters.values()
+        )
+        assert has_var_kw, f"{name} missing **backend_kwargs"
+    # Garbage kwargs still raise (not silently accepted).
+    G = fnx.path_graph(3)
+    with pytest.raises(TypeError, match="unexpected keyword argument"):
+        fnx.diameter(G, totally_made_up_kwarg=42)
+
+
 def test_backend_kwarg_accepted_on_dispatchable_functions():
     """br-r37-c1-spbk: nx adds `backend=None, **backend_kwargs` to
     all dispatchable functions via the @_dispatchable decorator.
