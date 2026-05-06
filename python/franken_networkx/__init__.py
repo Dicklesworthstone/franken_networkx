@@ -6716,8 +6716,25 @@ def descendants_at_distance(G, source, distance):
         raise NetworkXError(
             f"The node {source} is not in the graph."
         ) from exc
+    # br-r37-c1-dad-distance: nx returns set() for any non-positive
+    # int distance (the BFS trivially yields nothing) AND for
+    # non-int distances (its range/while loop gracefully degenerates).
+    # The Rust binding raised OverflowError on negative ints (can't
+    # convert to unsigned) and TypeError on non-ints. Match nx's
+    # silently-empty-result contract — but still raise NetworkXError
+    # if the source isn't in the graph (preserved below).
     try:
-        return set(_raw_descendants_at_distance(G, source, distance))
+        distance_int = int(distance)
+        if distance_int < 0:
+            distance_int = -1  # sentinel: signal "no result"
+    except (TypeError, ValueError):
+        distance_int = -1  # sentinel: nx-shaped degenerate-empty result
+    if source not in G:
+        raise NetworkXError(f"The node {source} is not in the graph.")
+    if distance_int < 0:
+        return set()
+    try:
+        return set(_raw_descendants_at_distance(G, source, distance_int))
     except NodeNotFound as exc:
         raise NetworkXError(
             f"The node {source} is not in the graph."

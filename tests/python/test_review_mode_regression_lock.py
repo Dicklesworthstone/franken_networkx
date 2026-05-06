@@ -962,6 +962,40 @@ def test_exception_type_parity(name, builder, call, exc):
         call(fnx, G_fnx)
 
 
+def test_descendants_at_distance_degenerate_distance_returns_empty():
+    """br-r37-c1-dad-distance: nx returns set() for any non-positive
+    int distance AND for non-int distances (its BFS / range loop
+    degenerates trivially). The Rust binding raised OverflowError
+    on negative ints (Rust can't convert negative to unsigned) and
+    TypeError on non-int distances. Defensive code that treats
+    'no nodes at distance' as a valid empty result silently broke
+    on fnx.
+
+    Lock nx-shape parity:
+      - distance < 0       → set()   (was OverflowError)
+      - distance non-int   → set()   (was TypeError)
+      - missing source     → NetworkXError  (preserved)
+      - unhashable source  → NetworkXError  (preserved)
+    """
+    G = fnx.path_graph(5)
+    G_n = nx.path_graph(5)
+
+    # Negative distance — both libs return empty set.
+    assert fnx.descendants_at_distance(G, 0, -1) == set()
+    assert fnx.descendants_at_distance(G, 0, -10) == nx.descendants_at_distance(G_n, 0, -10)
+
+    # Non-int distance — both libs return empty set.
+    assert fnx.descendants_at_distance(G, 0, "foo") == set()
+    assert fnx.descendants_at_distance(G, 0, "foo") == nx.descendants_at_distance(G_n, 0, "foo")
+
+    # Valid positive distance still works.
+    assert fnx.descendants_at_distance(G, 0, 2) == {2}
+
+    # Missing source still raises NetworkXError.
+    with pytest.raises(nx.NetworkXError):
+        fnx.descendants_at_distance(G, 99, 1)
+
+
 def test_backend_kwarg_accepted_on_bulk_dispatchable_functions():
     """br-r37-c1-spbk-bulk: br-r37-c1-0z6fh fixed 4 functions
     missing the `backend=None, **backend_kwargs` dispatch surface;
