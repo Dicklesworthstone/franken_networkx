@@ -2657,6 +2657,35 @@ _SIMPLE_DIGRAPH_NODE_VIEW_TYPE.__call__ = _node_view_call_with_attr_support(
 )
 
 
+def _reconstruct_node_view_as_dict(snapshot):
+    """Module-level pickle reconstructor for the four Rust-bound
+    NodeView types (Graph.nodes, DiGraph.nodes, MultiGraph.nodes,
+    MultiDiGraph.nodes). After pickle the value is a plain dict
+    `{node: attrs}` — the Rust-bound view type can't be reconstructed
+    without a graph backing it, but a dict supports the same iteration,
+    indexing, len, and `in`-test protocol as the live NodeView.
+    """
+    return snapshot
+
+
+def _node_view_reduce(self):
+    """br-r37-c1-nv-pkl: the Rust-bound NodeView types crashed
+    pickle with TypeError("cannot pickle 'franken_networkx.NodeView'
+    object"). nx pickles G.nodes successfully and restores as a
+    NodeView wrapping the snapshotted node dict. fnx's NodeView is
+    Rust-bound and can't be reconstructed without a Graph reference,
+    so snapshot to a plain dict — preserves data and read protocol
+    (iteration, indexing, len, `in`)."""
+    snapshot = {node: dict(attrs) for node, attrs in self(data=True)}
+    return (_reconstruct_node_view_as_dict, (snapshot,))
+
+
+_SIMPLE_GRAPH_NODE_VIEW_TYPE.__reduce__ = _node_view_reduce
+_SIMPLE_DIGRAPH_NODE_VIEW_TYPE.__reduce__ = _node_view_reduce
+_MULTIGRAPH_NODE_VIEW_TYPE.__reduce__ = _node_view_reduce
+_MULTIDIGRAPH_NODE_VIEW_TYPE.__reduce__ = _node_view_reduce
+
+
 def _make_keystr_preserving_getitem(raw):
     """br-keystr: wrap a NodeView ``__getitem__`` so KeyError retains
     the original Python key object instead of the Rust side's str repr.

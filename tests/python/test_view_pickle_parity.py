@@ -326,6 +326,55 @@ def test_conversion_view_pickle_matches_nx():
     assert sorted(f_restored.edges()) == sorted(n_restored.edges())
 
 
+# ---------------------------------------------------------------------------
+# G.nodes pickle parity (br-r37-c1-nv-pkl)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("name,builder", GRAPH_BUILDERS, ids=[b[0] for b in GRAPH_BUILDERS])
+def test_node_view_pickle_roundtrips(name, builder):
+    """The four Rust-bound NodeView types (Graph.nodes, DiGraph.nodes,
+    MultiGraph.nodes, MultiDiGraph.nodes) crashed pickle with
+    `TypeError("cannot pickle 'franken_networkx.NodeView' object")`.
+    nx pickles G.nodes successfully on every graph class.
+
+    Lock that fnx pickle now succeeds and that the restored value
+    preserves the read protocol (iteration order, indexing, len,
+    `in`-test) — even though it materializes as a plain dict on the
+    restored side instead of a NodeView (the Rust-bound type can't
+    be reconstructed without a Graph reference)."""
+    G = builder(fnx)
+    G.add_node(99, color="red")
+    restored = pickle.loads(pickle.dumps(G.nodes))
+    assert list(restored) == list(G.nodes)
+    assert restored[99] == {"color": "red"}
+    assert len(restored) == len(G.nodes)
+    assert 99 in restored
+    assert -1 not in restored
+
+
+@pytest.mark.parametrize("name,builder", GRAPH_BUILDERS, ids=[b[0] for b in GRAPH_BUILDERS])
+def test_node_view_pickle_loses_live_tracking(name, builder):
+    """Restored NodeView is a snapshot — mutations to the parent graph
+    after pickle do NOT propagate to the restored value (matches
+    nx's snapshot semantics on the restored NodeView)."""
+    G = builder(fnx)
+    restored = pickle.loads(pickle.dumps(G.nodes))
+    initial_keys = set(restored)
+    G.add_node(99)
+    assert 99 not in restored
+    assert set(restored) == initial_keys
+
+
+@pytest.mark.parametrize("name,builder", GRAPH_BUILDERS, ids=[b[0] for b in GRAPH_BUILDERS])
+def test_node_view_deepcopy_roundtrips(name, builder):
+    """copy.deepcopy uses the same protocol surface as pickle."""
+    G = builder(fnx)
+    G.add_node(99, color="red")
+    deepc = copy.deepcopy(G.nodes)
+    assert dict(deepc) == {n: dict(G.nodes[n]) for n in G.nodes}
+
+
 def test_subgraph_view_loses_live_filtering_after_pickle():
     """The live subgraph view tracks filter changes against its parent
     graph. After pickle, the restored object is independent (matches
