@@ -109,3 +109,82 @@ def test_adj_view_repickle_roundtrips():
     once = pickle.loads(pickle.dumps(av))
     twice = pickle.loads(pickle.dumps(once))
     assert dict(twice) == dict(once)
+
+
+# ---------------------------------------------------------------------------
+# Subgraph view pickle parity (br-r37-c1-fgv-pkl)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("name,builder", GRAPH_BUILDERS, ids=[b[0] for b in GRAPH_BUILDERS])
+def test_subgraph_view_pickle_roundtrips(name, builder):
+    """``G.subgraph(nbunch)`` returns a `_FilteredGraphView` whose
+    `__class__` is a synthetic subclass of `_FilteredGraphView` named
+    'Graph'/'DiGraph'/etc. — same `__qualname__` as the public class
+    but a DIFFERENT class object, so pickle's qualname-lookup found
+    the canonical class and crashed with `PicklingError("not the same
+    object as franken_networkx.Graph")`. The fix snapshots the view
+    as a real (non-view) graph copy at pickle time."""
+    G = builder(fnx)
+    sg = G.subgraph([0, 1, 2])
+    restored = pickle.loads(pickle.dumps(sg))
+    # After pickle, the restored object is the canonical class.
+    canonical = getattr(fnx, name)
+    assert isinstance(restored, canonical)
+    assert type(restored) is canonical
+    # Node / edge content matches.
+    assert sorted(restored.nodes()) == sorted(sg.nodes())
+    if G.is_multigraph():
+        assert sorted(restored.edges(keys=True)) == sorted(sg.edges(keys=True))
+    else:
+        assert sorted(restored.edges()) == sorted(sg.edges())
+
+
+@pytest.mark.parametrize("name,builder", GRAPH_BUILDERS, ids=[b[0] for b in GRAPH_BUILDERS])
+def test_subgraph_view_deepcopy_roundtrips(name, builder):
+    """copy.deepcopy uses the same protocol surface as pickle."""
+    G = builder(fnx)
+    sg = G.subgraph([0, 1, 2])
+    deepc = copy.deepcopy(sg)
+    canonical = getattr(fnx, name)
+    assert isinstance(deepc, canonical)
+    assert sorted(deepc.nodes()) == sorted(sg.nodes())
+
+
+def test_subgraph_view_repickle_roundtrips():
+    """A restored subgraph copy must re-pickle (it's a canonical
+    Graph/DiGraph at that point, so this is a smoke test that the
+    reconstructor doesn't accidentally produce something
+    pickle-incompatible)."""
+    G = fnx.path_graph(5)
+    sg = G.subgraph([0, 1, 2])
+    once = pickle.loads(pickle.dumps(sg))
+    twice = pickle.loads(pickle.dumps(once))
+    assert sorted(twice.nodes()) == [0, 1, 2]
+    assert isinstance(twice, fnx.Graph)
+
+
+def test_subgraph_view_loses_live_filtering_after_pickle():
+    """The live subgraph view tracks filter changes against its parent
+    graph. After pickle, the restored object is independent (matches
+    nx) — mutations to the parent are NOT reflected."""
+    G = fnx.path_graph(5)
+    sg = G.subgraph([0, 1, 2])
+    restored = pickle.loads(pickle.dumps(sg))
+    G.add_edge(0, 99)  # parent mutated; sg sees the new node still filtered out
+    assert sorted(restored.nodes()) == [0, 1, 2]
+    assert 99 not in restored.nodes()
+
+
+def test_subgraph_view_pickle_matches_nx_undirected():
+    """The fnx-vs-nx parity check on undirected graphs (where nx's
+    subgraph_view DOES pickle successfully). nx's directed
+    `subgraph_view` pickle is broken upstream by a closure-over-lambda
+    in `reverse_edge`; we don't lock parity for the directed case
+    because nx's behavior there is itself a known limitation."""
+    G = fnx.path_graph(5)
+    G_n = nx.path_graph(5)
+    f_restored = pickle.loads(pickle.dumps(G.subgraph([0, 1, 2])))
+    n_restored = pickle.loads(pickle.dumps(G_n.subgraph([0, 1, 2])))
+    assert sorted(f_restored.nodes()) == sorted(n_restored.nodes())
+    assert sorted(f_restored.edges()) == sorted(n_restored.edges())
