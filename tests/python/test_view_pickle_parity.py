@@ -214,6 +214,43 @@ def test_subgraph_view_is_frozen(name, builder, op_name, op):
         op(sg)
 
 
+# ---------------------------------------------------------------------------
+# Reverse view frozen-mutator parity (br-r37-c1-rvfrz)
+# ---------------------------------------------------------------------------
+
+
+_REVERSE_VIEW_BUILDERS = [
+    ("DiGraph",
+     lambda: fnx.DiGraph([(0, 1), (1, 2), (2, 0)]).reverse(copy=False)),
+    ("MultiDiGraph",
+     lambda: fnx.MultiDiGraph(
+         [(0, 1), (0, 1), (1, 2)]).reverse(copy=False)),
+]
+
+
+@pytest.mark.parametrize("name,view_builder", _REVERSE_VIEW_BUILDERS,
+                         ids=[b[0] for b in _REVERSE_VIEW_BUILDERS])
+@pytest.mark.parametrize(
+    "op_name,op",
+    _FILTERED_VIEW_MUTATORS_FOR_TEST,
+    ids=[op[0] for op in _FILTERED_VIEW_MUTATORS_FOR_TEST],
+)
+def test_reverse_view_is_frozen(name, view_builder, op_name, op):
+    """br-r37-c1-rvfrz: same MRO mutability hole as br-r37-c1-fgvfrz,
+    on a different view class. `_ReverseDirectedView` and
+    `_ReverseMultiDirectedView` inherit from
+    (`_ReverseDirectedViewBase`, DiGraph) / (..., MultiDiGraph) —
+    canonical class mutators reachable in MRO before
+    `_ReverseDirectedViewBase.__getattr__` ever fires. Mutating a
+    reversed view became a silent no-op instead of raising
+    NetworkXError("Frozen graph can't be modified").
+
+    Lock all 12 nx-defined mutators on both reverse view classes."""
+    rv = view_builder()
+    with pytest.raises(nx.NetworkXError, match="Frozen graph"):
+        op(rv)
+
+
 def test_subgraph_view_loses_live_filtering_after_pickle():
     """The live subgraph view tracks filter changes against its parent
     graph. After pickle, the restored object is independent (matches

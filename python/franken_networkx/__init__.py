@@ -23741,6 +23741,30 @@ class _ReverseDirectedViewBase:
             return _frozen
         raise AttributeError(name)
 
+    # br-r37-c1-rvfrz: same MRO mutability hole as br-r37-c1-6qm6r —
+    # _ReverseDirectedView inherits from (_ReverseDirectedViewBase,
+    # DiGraph) and _ReverseMultiDirectedView from (_ReverseDirectedViewBase,
+    # MultiDiGraph). The canonical class's mutators (add_node,
+    # add_edge, ...) are reachable via MRO BEFORE __getattr__ ever
+    # gets consulted, so mutating a reversed view became a silent
+    # no-op (Graph.add_node targets unset Rust state on the synthetic
+    # instance) instead of raising NetworkXError("Frozen graph can't
+    # be modified") as nx does. Shadow each of the 12 nx-defined
+    # mutators here so they're found in MRO before the inherited
+    # canonical method.
+    add_node = _frozen
+    add_nodes_from = _frozen
+    remove_node = _frozen
+    remove_nodes_from = _frozen
+    add_edge = _frozen
+    add_edges_from = _frozen
+    add_weighted_edges_from = _frozen
+    remove_edge = _frozen
+    remove_edges_from = _frozen
+    clear = _frozen
+    clear_edges = _frozen
+    update = _frozen
+
 
 class _ReverseDirectedView(_ReverseDirectedViewBase, DiGraph):
     pass
