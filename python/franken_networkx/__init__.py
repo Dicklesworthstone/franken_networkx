@@ -24290,6 +24290,22 @@ class _FilteredGraphView:
             )
         return result
 
+    def __reduce__(self):
+        # br-r37-c1-fgv-pkl: the synthetic _FILTERED_GRAPH_VIEW_TYPES
+        # subclasses are dynamically created at import time with names
+        # that SHADOW the public Graph/DiGraph/etc. classes (same
+        # __qualname__, same __module__) — pickle's qualname-based
+        # lookup finds the public class, sees `lookup is not type(self)`
+        # because the synthetic is a different class object, and
+        # crashes with PicklingError("not the same object as
+        # franken_networkx.Graph"). Snapshot the filtered view as a
+        # real (non-view) graph copy at pickle time; restoration
+        # reconstructs through the canonical class so the result is
+        # independent of the original (matching nx, where
+        # `pickle.loads(pickle.dumps(G.subgraph(...)))` returns a
+        # plain Graph).
+        return (_reconstruct_filtered_view_as_copy, (self.copy(),))
+
 
 _PRIVATE_NODE_OVERRIDE = "_fnx_private_node_override"
 _PRIVATE_ADJ_OVERRIDE = "_fnx_private_adj_override"
@@ -25093,6 +25109,17 @@ Graph.__copy__ = _graph_shallowcopy
 DiGraph.__copy__ = _graph_shallowcopy
 MultiGraph.__copy__ = _graph_shallowcopy
 MultiDiGraph.__copy__ = _graph_shallowcopy
+
+
+def _reconstruct_filtered_view_as_copy(graph_copy):
+    """Module-level pickle reconstructor for _FilteredGraphView.
+
+    `__reduce__` snapshots the filtered view as a real Graph/DiGraph/
+    MultiGraph/MultiDiGraph copy at pickle time; this reconstructor
+    just returns that copy. Matches nx's behavior, where pickling a
+    `G.subgraph(...)` view yields a plain (canonical-class) graph.
+    """
+    return graph_copy
 
 
 _FILTERED_GRAPH_VIEW_TYPES = {
