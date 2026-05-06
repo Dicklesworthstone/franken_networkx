@@ -24117,6 +24117,31 @@ class _FilteredGraphView:
             return _frozen
         return getattr(self.copy(), name)
 
+    # br-r37-c1-fgvfrz: peer commit 9b9f47f2 (br-r37-c1-rcd0e) added
+    # Graph/DiGraph/MultiGraph/MultiDiGraph as a SECOND base class for
+    # the _FILTERED_GRAPH_VIEW_TYPES synthetics, so isinstance(sg,
+    # fnx.Graph) is True. But that change moved the canonical class's
+    # mutation methods (add_node, add_edge, ...) into the synthetic
+    # MRO BEFORE __getattr__ ever gets consulted — so mutating a
+    # subgraph view became a silent no-op (the call goes to
+    # Graph.add_node which targets unset Rust state on the synthetic
+    # instance), violating the documented frozen-graph contract that
+    # nx enforces by raising NetworkXError("Frozen graph can't be
+    # modified"). Explicitly shadow each mutator on _FilteredGraphView
+    # so it's found in MRO before the inherited canonical method.
+    add_node = _frozen
+    add_nodes_from = _frozen
+    remove_node = _frozen
+    remove_nodes_from = _frozen
+    add_edge = _frozen
+    add_edges_from = _frozen
+    add_weighted_edges_from = _frozen
+    remove_edge = _frozen
+    remove_edges_from = _frozen
+    clear = _frozen
+    clear_edges = _frozen
+    update = _frozen
+
     def is_directed(self):
         return self._graph.is_directed()
 

@@ -172,6 +172,48 @@ def test_subgraph_view_repickle_roundtrips():
     assert isinstance(twice, fnx.Graph)
 
 
+_FILTERED_VIEW_MUTATORS_FOR_TEST = [
+    ("add_node", lambda sg: sg.add_node(99)),
+    ("add_nodes_from", lambda sg: sg.add_nodes_from([99, 100])),
+    ("remove_node", lambda sg: sg.remove_node(0)),
+    ("remove_nodes_from", lambda sg: sg.remove_nodes_from([0])),
+    ("add_edge", lambda sg: sg.add_edge(99, 100)),
+    ("add_edges_from", lambda sg: sg.add_edges_from([(99, 100)])),
+    ("add_weighted_edges_from",
+     lambda sg: sg.add_weighted_edges_from([(99, 100, 5)])),
+    ("remove_edge", lambda sg: sg.remove_edge(0, 1)),
+    ("remove_edges_from", lambda sg: sg.remove_edges_from([(0, 1)])),
+    ("clear", lambda sg: sg.clear()),
+    ("clear_edges", lambda sg: sg.clear_edges()),
+    ("update", lambda sg: sg.update(edges=[(99, 100)])),
+]
+
+
+@pytest.mark.parametrize("name,builder", GRAPH_BUILDERS, ids=[b[0] for b in GRAPH_BUILDERS])
+@pytest.mark.parametrize(
+    "op_name,op",
+    _FILTERED_VIEW_MUTATORS_FOR_TEST,
+    ids=[op[0] for op in _FILTERED_VIEW_MUTATORS_FOR_TEST],
+)
+def test_subgraph_view_is_frozen(name, builder, op_name, op):
+    """br-r37-c1-fgvfrz: peer commit 9b9f47f2 (br-r37-c1-rcd0e) added
+    Graph/DiGraph/MultiGraph/MultiDiGraph as a SECOND base class for
+    the synthetic _FILTERED_GRAPH_VIEW_TYPES so isinstance passes —
+    but moved the canonical class's mutation methods into the
+    synthetic MRO BEFORE _FilteredGraphView's __getattr__ ever gets
+    consulted. Mutation became a silent no-op (Graph.add_node hits
+    unset Rust state on the synthetic instance), violating nx's
+    documented frozen-graph contract.
+
+    Lock that all 12 nx-defined mutators raise NetworkXError("Frozen
+    graph can't be modified") on subgraph views across all 4 graph
+    classes."""
+    G = builder(fnx)
+    sg = G.subgraph([0, 1, 2])
+    with pytest.raises(nx.NetworkXError, match="Frozen graph"):
+        op(sg)
+
+
 def test_subgraph_view_loses_live_filtering_after_pickle():
     """The live subgraph view tracks filter changes against its parent
     graph. After pickle, the restored object is independent (matches
