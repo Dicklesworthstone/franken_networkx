@@ -20604,6 +20604,20 @@ def min_cost_flow(G, demand="demand", capacity="capacity", weight="weight"):
     if n == 0:
         return {}
 
+    # br-r37-c1-mcf-negcap: the SSP solver below silently treats
+    # negative capacities as 0, masking nx's NetworkXUnfeasible
+    # contract.  network_simplex (sibling) already validates via
+    # _validate_network_simplex_inputs and matches nx exactly; the
+    # SSP path was the gap, which propagated through min_cost_flow_
+    # cost and max_flow_min_cost (both route here).
+    for u, v, edge_attrs in G.edges(data=True):
+        if isinstance(edge_attrs, dict):
+            edge_capacity = float(edge_attrs.get(capacity, float("inf")))
+            if edge_capacity < 0:
+                raise NetworkXUnfeasible(
+                    f"edge {(u, v)!r} has negative capacity"
+                )
+
     # Extract demands
     node_demand = {}
     for node in nodes:

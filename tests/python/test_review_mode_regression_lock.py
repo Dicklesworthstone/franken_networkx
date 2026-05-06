@@ -962,6 +962,49 @@ def test_exception_type_parity(name, builder, call, exc):
         call(fnx, G_fnx)
 
 
+def test_min_cost_flow_negative_capacity_match_nx():
+    """br-r37-c1-mcf-negcap: min_cost_flow / min_cost_flow_cost /
+    max_flow_min_cost silently treated negative-capacity edges as
+    0, masking nx's NetworkXUnfeasible(``edge (u, v)!r has
+    negative capacity``) contract.  network_simplex (sibling)
+    already validated correctly via _validate_network_simplex_
+    inputs; the SSP path was the gap, propagating through the two
+    derivative APIs.  Lock parity for all three entry points."""
+
+    def make_neg(lib):
+        D = lib.DiGraph()
+        D.add_node(0, demand=-5)
+        D.add_node(3, demand=5)
+        D.add_edge(0, 1, weight=1, capacity=10)
+        D.add_edge(1, 2, weight=1, capacity=-3)
+        D.add_edge(2, 3, weight=1, capacity=10)
+        return D
+
+    match = r"edge \(1, 2\) has negative capacity"
+    with pytest.raises(nx.NetworkXUnfeasible, match=match):
+        fnx.min_cost_flow(make_neg(fnx))
+    with pytest.raises(nx.NetworkXUnfeasible, match=match):
+        fnx.min_cost_flow_cost(make_neg(fnx))
+    with pytest.raises(nx.NetworkXUnfeasible, match=match):
+        fnx.max_flow_min_cost(make_neg(fnx), 0, 3)
+    with pytest.raises(nx.NetworkXUnfeasible, match=match):
+        fnx.network_simplex(make_neg(fnx))
+
+    # Positive-capacity regression: parity with nx
+    def make_good(lib):
+        D = lib.DiGraph()
+        D.add_node(0, demand=-5)
+        D.add_node(3, demand=5)
+        D.add_edge(0, 1, weight=1, capacity=10)
+        D.add_edge(1, 2, weight=2, capacity=10)
+        D.add_edge(2, 3, weight=1, capacity=10)
+        return D
+
+    assert fnx.min_cost_flow_cost(make_good(fnx)) == nx.min_cost_flow_cost(
+        make_good(nx)
+    )
+
+
 def test_graph6_sparse6_low_byte_input_match_nx():
     """br-r37-c1-g6-low-byte: nx only rejects high bytes (> 126)
     in graph6/sparse6 input — low bytes (< 63) flow through as
