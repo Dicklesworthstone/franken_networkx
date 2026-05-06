@@ -739,6 +739,49 @@ _CONVERSION_EDGE_BUILDERS = [
 ]
 
 
+@pytest.mark.parametrize("name,builder", GRAPH_BUILDERS, ids=[b[0] for b in GRAPH_BUILDERS])
+def test_node_data_view_pickle_roundtrips(name, builder):
+    """br-r37-c1-ndv-pkl: `G.nodes(data=True)` returns NodeDataView,
+    which holds a wrapper_descriptor on the Rust NodeView type.
+    Pickle's qualname lookup for that descriptor found the Python-
+    side `fnx.NodeView` class (different from the Rust type that
+    actually owns the descriptor) and crashed with
+    PicklingError("not the same object as franken_networkx.NodeView").
+
+    Same class-shadowing defect family as br-r37-c1-{cip5m, k66wf,
+    neb6c}. Lock pickle round-trip via __reduce__ snapshot."""
+    G = builder(fnx)
+    G.add_node(99, color="red")
+    ndv = G.nodes(data=True)
+    restored = pickle.loads(pickle.dumps(ndv))
+    # Materialized snapshot: list of (node, attrs) tuples.
+    assert isinstance(restored, list)
+    # Restored entries match original iteration.
+    assert sorted(restored) == sorted(list(ndv))
+
+
+@pytest.mark.parametrize("name,builder", GRAPH_BUILDERS, ids=[b[0] for b in GRAPH_BUILDERS])
+def test_node_data_view_data_attr_pickle(name, builder):
+    """`G.nodes(data='attr')` (data-projection variant) also goes
+    through NodeDataView. Lock pickle there too."""
+    G = builder(fnx)
+    G.add_node(99, color="red")
+    ndv = G.nodes(data="color")
+    restored = pickle.loads(pickle.dumps(ndv))
+    assert isinstance(restored, list)
+    assert sorted(restored) == sorted(list(ndv))
+
+
+@pytest.mark.parametrize("name,builder", GRAPH_BUILDERS, ids=[b[0] for b in GRAPH_BUILDERS])
+def test_node_data_view_deepcopy_roundtrips(name, builder):
+    G = builder(fnx)
+    G.add_node(99, color="red")
+    ndv = G.nodes(data=True)
+    deepc = copy.deepcopy(ndv)
+    assert isinstance(deepc, list)
+    assert sorted(deepc) == sorted(list(ndv))
+
+
 _REVERSE_EDGE_BUILDERS = [
     ("DiGraph", lambda: fnx.DiGraph([(0, 1), (1, 2), (2, 0)]),
      lambda: nx.DiGraph([(0, 1), (1, 2), (2, 0)])),

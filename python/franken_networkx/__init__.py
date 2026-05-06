@@ -501,6 +501,22 @@ class NodeDataView:
 
     __hash__ = None
 
+    def __reduce__(self):
+        # br-r37-c1-ndv-pkl: NodeDataView holds `self._call`, a
+        # wrapper_descriptor on the Rust NodeView type
+        # (`<slot wrapper '__call__' of 'franken_networkx.NodeView'
+        # objects>`). Pickle's qualname lookup for that descriptor
+        # finds `fnx.NodeView` (the Python-side Mapping subclass at
+        # line 23932), sees it's a different class object than
+        # `_SIMPLE_GRAPH_NODE_VIEW_TYPE` (the Rust type that owns
+        # the descriptor), and crashes with PicklingError("not the
+        # same object as franken_networkx.NodeView"). Same
+        # class-shadowing pattern as br-r37-c1-{cip5m, k66wf, neb6c}.
+        # Snapshot the materialized list at pickle time — restore
+        # as a plain list (matches nx's snapshot semantics on
+        # restored NodeDataView).
+        return (list, (list(self._materialize()),))
+
 
 def _node_view_call_with_attr_support(node_view_call):
     _unset = object()
