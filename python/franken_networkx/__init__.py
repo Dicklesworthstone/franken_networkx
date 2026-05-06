@@ -364,6 +364,21 @@ class EdgeDataView:
 
     __hash__ = None
 
+    def __reduce__(self):
+        # br-r37-c1-edv-pkl: EdgeDataView holds `self._call`, a
+        # wrapper_descriptor on the Rust EdgeView type
+        # (`<slot wrapper '__call__' of 'franken_networkx.EdgeView'
+        # objects>`). Pickle's qualname lookup for that descriptor
+        # found the Python-side `class EdgeView` (different from the
+        # Rust type that owns the descriptor) and crashed with
+        # PicklingError("not the same object as
+        # franken_networkx.EdgeView"). Same class-shadowing pattern
+        # as br-r37-c1-{cip5m, k66wf, neb6c, 2vxhk, ld4oo, 8crof}.
+        # Snapshot the materialized list at pickle time — restore as
+        # a plain list (matches nx's snapshot semantics on the
+        # restored EdgeDataView).
+        return (list, (list(self._materialize()),))
+
 
 def _edge_view_call_with_nbunch_first(edge_view_call):
     _unset = object()

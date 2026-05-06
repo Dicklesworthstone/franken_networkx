@@ -740,6 +740,42 @@ _CONVERSION_EDGE_BUILDERS = [
 
 
 @pytest.mark.parametrize("name,builder", GRAPH_BUILDERS, ids=[b[0] for b in GRAPH_BUILDERS])
+def test_edge_data_view_pickle_roundtrips(name, builder):
+    """br-r37-c1-edv-pkl: `EdgeDataView` (returned by `G.edges.data()`
+    on Graph) holds a wrapper_descriptor on the Rust EdgeView type.
+    Pickle's qualname lookup for that descriptor crashed with
+    PicklingError("not the same object as franken_networkx.EdgeView")
+    on Graph. The other 3 graph classes already returned list /
+    `_EdgeListWithSetAlgebra` which pickled fine.
+
+    Same class-shadowing pattern as br-r37-c1-{cip5m, k66wf, neb6c,
+    8crof}. Lock pickle round-trip via __reduce__ snapshot."""
+    G = builder(fnx)
+    edv = G.edges.data()
+    restored = pickle.loads(pickle.dumps(edv))
+    # Restored value preserves edge-data content.
+    assert sorted(list(restored), key=str) == sorted(list(edv), key=str)
+
+
+@pytest.mark.parametrize("name,builder", GRAPH_BUILDERS, ids=[b[0] for b in GRAPH_BUILDERS])
+def test_edge_data_view_data_attr_pickle(name, builder):
+    """`G.edges.data('w')` (data-projection variant) also goes
+    through EdgeDataView for Graph. Lock pickle there too."""
+    G = builder(fnx)
+    edv = G.edges.data("w")
+    restored = pickle.loads(pickle.dumps(edv))
+    assert sorted(list(restored), key=str) == sorted(list(edv), key=str)
+
+
+@pytest.mark.parametrize("name,builder", GRAPH_BUILDERS, ids=[b[0] for b in GRAPH_BUILDERS])
+def test_edge_data_view_deepcopy_roundtrips(name, builder):
+    G = builder(fnx)
+    edv = G.edges.data()
+    d = copy.deepcopy(edv)
+    assert sorted(list(d), key=str) == sorted(list(edv), key=str)
+
+
+@pytest.mark.parametrize("name,builder", GRAPH_BUILDERS, ids=[b[0] for b in GRAPH_BUILDERS])
 def test_node_data_view_pickle_roundtrips(name, builder):
     """br-r37-c1-ndv-pkl: `G.nodes(data=True)` returns NodeDataView,
     which holds a wrapper_descriptor on the Rust NodeView type.
