@@ -936,6 +936,32 @@ class _DiGraphEdgeView:
     def __xor__(self, other):
         return set(self) ^ set(other)
 
+    def __eq__(self, other):
+        # br-r37-c1-eveq: nx's OutEdgeView inherits from Set, so
+        # `DG.edges == DG.edges` is True (content-based) and
+        # `DG.edges == set_of_edges` works. fnx's _DiGraphEdgeView
+        # had set-algebra operators (|/&/-/^) but no __eq__, falling
+        # through to default object.__eq__ (identity) — two accesses
+        # to `DG.edges` returned False, breaking dedup / set-equality
+        # logic. Match nx's Set semantics: equal to another view of
+        # the same edges OR any collections.abc.Set with matching
+        # contents. NOT equal to lists/tuples (parity with nx).
+        from collections.abc import Set as _Set
+        if isinstance(other, _DiGraphEdgeView):
+            return set(self) == set(other)
+        if isinstance(other, _Set):
+            return set(self) == set(other)
+        return NotImplemented
+
+    def __ne__(self, other):
+        eq = self.__eq__(other)
+        if eq is NotImplemented:
+            return NotImplemented
+        return not eq
+
+    def __hash__(self):
+        return id(self._graph)
+
 
 def _digraph_edges(self):
     return _DiGraphEdgeView(self)
@@ -1121,6 +1147,26 @@ class _MultiGraphEdgeView:
                         result.append((source, target, attrs.get(data, default)))
         return result
 
+    def __eq__(self, other):
+        # br-r37-c1-eveq: see _DiGraphEdgeView.__eq__. nx's
+        # MultiEdgeView inherits from Set; lock content-based
+        # equality matching nx exactly.
+        from collections.abc import Set as _Set
+        if isinstance(other, _MultiGraphEdgeView):
+            return set(self) == set(other)
+        if isinstance(other, _Set):
+            return set(self) == set(other)
+        return NotImplemented
+
+    def __ne__(self, other):
+        eq = self.__eq__(other)
+        if eq is NotImplemented:
+            return NotImplemented
+        return not eq
+
+    def __hash__(self):
+        return id(self._graph)
+
 
 class _EdgeListWithSetAlgebra(list):
     """List subclass that supports set-algebra operators.
@@ -1238,6 +1284,24 @@ class _MultiDiGraphEdgeView:
     items = _multi_edge_items
     values = _multi_edge_values
     get = _multi_edge_get
+
+    def __eq__(self, other):
+        # br-r37-c1-eveq: see _DiGraphEdgeView.__eq__.
+        from collections.abc import Set as _Set
+        if isinstance(other, _MultiDiGraphEdgeView):
+            return set(self) == set(other)
+        if isinstance(other, _Set):
+            return set(self) == set(other)
+        return NotImplemented
+
+    def __ne__(self, other):
+        eq = self.__eq__(other)
+        if eq is NotImplemented:
+            return NotImplemented
+        return not eq
+
+    def __hash__(self):
+        return id(self._graph)
 
 
 def _multidigraph_edges(self):

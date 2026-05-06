@@ -592,6 +592,30 @@ def test_multidigraph_in_edges_iter_yields_keys_by_default():
     assert all(len(e) == 2 for e in DG.in_edges)
 
 
+@pytest.mark.parametrize("name,builder", GRAPH_BUILDERS, ids=[b[0] for b in GRAPH_BUILDERS])
+def test_edges_view_equality_is_set_like(name, builder):
+    """br-r37-c1-eveq: nx's OutEdgeView/MultiEdgeView/etc. inherit
+    from collections.abc.Set, so `G.edges == G.edges` is True
+    (content-based) and `G.edges == set(G.edges)` works. The
+    Python-side EdgeView wrappers (`_DiGraphEdgeView`,
+    `_MultiGraphEdgeView`, `_MultiDiGraphEdgeView`) had set-algebra
+    operators (|/&/-/^) but no __eq__, so two view accesses returned
+    False — breaks dedup logic. Lock set-like equality across all
+    four graph classes."""
+    G = builder(fnx)
+    G_n = builder(nx)
+    # Self-equality
+    assert G.edges == G.edges
+    assert G_n.edges == G_n.edges
+    # vs set: True for both
+    edges_set = set(G.edges)
+    assert G.edges == edges_set
+    # vs different content: False
+    H = builder(fnx)
+    H.add_edge(99, 100)
+    assert (G.edges == H.edges) is False
+
+
 def test_in_edges_data_method():
     """nx.InEdgeView exposes a .data() method that yields (u, v,
     attrs) triples, optionally with attr-name + default. The
