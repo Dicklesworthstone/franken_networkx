@@ -15137,7 +15137,17 @@ def caveman_graph(l, k):
     Returns
     -------
     Graph
+
+    br-r37-c1-cave-neg: nx raises ``NetworkXError("Negative number
+    of nodes not valid: -X")`` when ``l*k`` is negative (i.e. either
+    ``l`` or ``k`` is negative). Previously fnx silently returned
+    an empty graph, breaking drop-in parity with nx's
+    structural-error contract.
     """
+    if isinstance(l, int) and isinstance(k, int):
+        total = l * k
+        if total < 0:
+            raise NetworkXError(f"Negative number of nodes not valid: {total}")
     G = Graph()
     # Always materialise every node, even when a clique has size 1 and
     # thus contributes no edges. Previously the k=1 case collapsed to an
@@ -28927,10 +28937,16 @@ def random_geometric_graph(n, radius, dim=2, pos=None, p=2, seed=None, *, pos_na
     Euclidean, ``float('inf')`` Chebyshev). ``pos_name`` names the node
     attribute that stores each position. Matches
     ``networkx.random_geometric_graph``.
+
+    br-r37-c1-rgg-neg: nx raises NetworkXError on negative ``n``;
+    fnx previously silently returned an empty graph. Match nx's
+    structural-error contract.
     """
     import math
     import random as _random
 
+    if isinstance(n, int) and n < 0:
+        raise NetworkXError(f"Negative number of nodes not valid: {n}")
     rng = _random.Random(seed)
     G = Graph()
     positions: dict = {}

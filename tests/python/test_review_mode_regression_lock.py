@@ -962,6 +962,32 @@ def test_exception_type_parity(name, builder, call, exc):
         call(fnx, G_fnx)
 
 
+def test_caveman_random_geometric_negative_args_match_nx():
+    """br-r37-c1-cave-neg + br-r37-c1-rgg-neg: caveman_graph,
+    connected_caveman_graph, and random_geometric_graph silently
+    accepted negative size arguments (returning empty graphs);
+    nx raises NetworkXError("Negative number of nodes not valid:
+    -X"). Lock parity on all three generators across both arg
+    positions."""
+    # caveman_graph: l < 0
+    with pytest.raises(nx.NetworkXError, match="Negative number of nodes"):
+        fnx.caveman_graph(-1, 5)
+    # caveman_graph: k < 0
+    with pytest.raises(nx.NetworkXError, match="Negative number of nodes"):
+        fnx.caveman_graph(3, -1)
+    # connected_caveman_graph inherits the fix via underlying caveman_graph.
+    with pytest.raises(nx.NetworkXError, match="Negative number of nodes"):
+        fnx.connected_caveman_graph(-1, 5)
+    # random_geometric_graph: n < 0
+    with pytest.raises(nx.NetworkXError, match="Negative number of nodes"):
+        fnx.random_geometric_graph(-5, 0.5)
+
+    # Positive args still work.
+    G_f = fnx.caveman_graph(3, 4)
+    G_n = nx.caveman_graph(3, 4)
+    assert G_f.number_of_nodes() == G_n.number_of_nodes() == 12
+
+
 def test_full_rary_tree_negative_args_match_nx():
     """br-r37-c1-frt-neg: same defect family as br-r37-c1-{w1smc,
     udsdu, nxj7k, f34fw}. The Rust full_rary_tree binding declared
