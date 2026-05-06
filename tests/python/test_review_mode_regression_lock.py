@@ -962,6 +962,42 @@ def test_exception_type_parity(name, builder, call, exc):
         call(fnx, G_fnx)
 
 
+def test_betweenness_centrality_subset_bad_source_match_nx():
+    """br-r37-c1-bcs-bad-src: betweenness_centrality_subset and
+    edge_betweenness_centrality_subset silently treated unknown
+    sources as no-op contributions and returned all-zero dicts.
+    nx's SSSP raises KeyError when called with a source not in G
+    (it tries to index ``predecessors[s]`` before the source is
+    initialized).  Lock parity for both unweighted and weighted
+    paths.
+
+    Targets are intentionally NOT validated — nx does not raise
+    on bad targets (their absence just yields zeros for those
+    paths).  Mirror that asymmetry."""
+    P5_f = fnx.path_graph(5)
+    P5_n = nx.path_graph(5)
+
+    # Bad source: KeyError
+    for sources in ([99], [99, 100], [0, 99]):
+        with pytest.raises(KeyError):
+            fnx.betweenness_centrality_subset(P5_f, sources, [2])
+        with pytest.raises(KeyError):
+            fnx.edge_betweenness_centrality_subset(P5_f, sources, [2])
+        # Weighted path also raises
+        with pytest.raises(KeyError):
+            fnx.betweenness_centrality_subset(
+                P5_f, sources, [2], weight="weight"
+            )
+    # Bad target: zeros (parity, no raise)
+    rf = fnx.betweenness_centrality_subset(P5_f, [0], [99])
+    rn = nx.betweenness_centrality_subset(P5_n, [0], [99])
+    assert rf == rn
+    # Good case: parity
+    rf = fnx.betweenness_centrality_subset(P5_f, [0], [4])
+    rn = nx.betweenness_centrality_subset(P5_n, [0], [4])
+    assert rf == rn
+
+
 def test_min_cost_flow_negative_capacity_match_nx():
     """br-r37-c1-mcf-negcap: min_cost_flow / min_cost_flow_cost /
     max_flow_min_cost silently treated negative-capacity edges as

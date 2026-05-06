@@ -22908,6 +22908,16 @@ def betweenness_centrality_subset(
         hash(s)
     for t in targets:
         hash(t)
+    # br-r37-c1-bcs-bad-src: nx's SSSP raises KeyError when called
+    # with a source not in G (it tries to index ``predecessors[s]``
+    # before the source is initialized).  fnx's Rust binding
+    # silently treated unknown sources as no-op contributions and
+    # returned an all-zero dict, masking the contract.  Targets are
+    # not validated by nx (absence just yields zeros for those
+    # paths) — match that asymmetry.
+    for s in sources:
+        if s not in G:
+            raise KeyError(s)
 
     if weight is None and not G.is_multigraph():
         scores = _betweenness_centrality_subset_rust(
@@ -22963,6 +22973,11 @@ def edge_betweenness_centrality_subset(
         hash(s)
     for t in targets:
         hash(t)
+    # br-r37-c1-bcs-bad-src: nx's SSSP raises KeyError on sources
+    # not in G; mirror the betweenness_centrality_subset fix.
+    for s in sources:
+        if s not in G:
+            raise KeyError(s)
 
     if weight is None and not G.is_multigraph():
         rust_scores = _edge_betweenness_centrality_subset_rust(
