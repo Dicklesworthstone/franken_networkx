@@ -4241,7 +4241,16 @@ def bellman_ford_path(G, source, target, weight="weight"):
         raise
 
 
-def shortest_path(G, source=None, target=None, weight=None, method="dijkstra"):
+def shortest_path(
+    G, source=None, target=None, weight=None, method="dijkstra",
+    *, backend=None, **backend_kwargs,
+):
+    # br-r37-c1-spbk: nx adds `backend=None, **backend_kwargs` to all
+    # dispatchable functions via the @_dispatchable decorator. Drop-in
+    # code that does `nx.shortest_path(G, ..., backend='networkx')`
+    # crashed on fnx with `TypeError: shortest_path() got an unexpected
+    # keyword argument 'backend'`. Match the dispatch surface.
+    _validate_backend_dispatch_keywords("shortest_path", backend, backend_kwargs)
     if method not in ("dijkstra", "bellman-ford"):
         raise ValueError(f"method not supported: {method}")
     if _path_query_has_missing_nodes(G, source=source, target=target):
@@ -4389,11 +4398,33 @@ from franken_networkx._fnx import (
     bridges as _raw_bridges,
     connected_components as _raw_connected_components,
     edge_connectivity as _raw_edge_connectivity,
-    is_connected,
+    is_connected as _raw_is_connected,
     minimum_node_cut as _raw_minimum_node_cut,
     node_connectivity as _raw_node_connectivity,
-    number_connected_components,
+    number_connected_components as _raw_number_connected_components,
 )
+
+
+def is_connected(G, *, backend=None, **backend_kwargs):
+    """Return True if the graph is connected.
+
+    br-r37-c1-spbk: accept nx's ``backend=None, **backend_kwargs``
+    dispatch surface so drop-in code that passes ``backend='networkx'``
+    works on fnx.
+    """
+    _validate_backend_dispatch_keywords("is_connected", backend, backend_kwargs)
+    return _raw_is_connected(G)
+
+
+def number_connected_components(G, *, backend=None, **backend_kwargs):
+    """Return the number of connected components.
+
+    br-r37-c1-spbk: see is_connected.
+    """
+    _validate_backend_dispatch_keywords(
+        "number_connected_components", backend, backend_kwargs,
+    )
+    return _raw_number_connected_components(G)
 
 
 def minimum_node_cut(
@@ -4417,12 +4448,19 @@ def minimum_node_cut(
     )
 
 
-def connected_components(G):
+def connected_components(G, *, backend=None, **backend_kwargs):
     """Generate connected components.
 
     Yields sets of nodes, one set per component. Matches the upstream
     ``networkx.connected_components`` contract (generator of sets).
+
+    br-r37-c1-spbk: accept nx's ``backend=None, **backend_kwargs``
+    dispatch surface so drop-in code that passes ``backend='networkx'``
+    works on fnx.
     """
+    _validate_backend_dispatch_keywords(
+        "connected_components", backend, backend_kwargs,
+    )
     yield from _raw_connected_components(G)
 
 
