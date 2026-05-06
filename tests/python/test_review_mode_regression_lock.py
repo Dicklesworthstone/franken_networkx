@@ -962,6 +962,22 @@ def test_exception_type_parity(name, builder, call, exc):
         call(fnx, G_fnx)
 
 
+def test_soft_thresholded_random_geometric_negative_n_match_nx():
+    """br-r37-c1-{srgg-neg, trgg-neg}: same defect family as
+    br-r37-c1-{rgg-neg, pjf7g}. soft_random_geometric_graph and
+    thresholded_random_geometric_graph silently accepted negative
+    `n` (returning empty graph); nx raises NetworkXError. Lock
+    parity on the structural-error contract."""
+    with pytest.raises(nx.NetworkXError, match="Negative number of nodes"):
+        fnx.soft_random_geometric_graph(-5, 0.5, seed=42)
+    with pytest.raises(nx.NetworkXError, match="Negative number of nodes"):
+        fnx.thresholded_random_geometric_graph(-5, 0.5, 0.1, seed=42)
+    # Positive n still works.
+    G_f = fnx.soft_random_geometric_graph(10, 0.5, seed=42)
+    G_n = nx.soft_random_geometric_graph(10, 0.5, seed=42)
+    assert G_f.number_of_nodes() == G_n.number_of_nodes() == 10
+
+
 def test_caveman_random_geometric_negative_args_match_nx():
     """br-r37-c1-cave-neg + br-r37-c1-rgg-neg: caveman_graph,
     connected_caveman_graph, and random_geometric_graph silently

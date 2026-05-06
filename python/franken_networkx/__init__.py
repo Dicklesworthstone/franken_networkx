@@ -29002,9 +29002,16 @@ def soft_random_geometric_graph(
     drawn against ``p_dist`` (default ``exp(-d)``), so ``rng.random()`` is
     consumed in NetworkX's order. Auto-generated positions are lists,
     user-supplied ``pos`` dicts are stored by reference.
+
+    br-r37-c1-srgg-neg: nx raises NetworkXError on negative ``n``;
+    fnx previously silently returned an empty graph (range(n) yields
+    nothing). Match nx's structural-error contract — same fix shape
+    as br-r37-c1-{rgg-neg, pjf7g}.
     """
     import random as _random
 
+    if isinstance(n, int) and n < 0:
+        raise NetworkXError(f"Negative number of nodes not valid: {n}")
     rng = _random.Random(seed)
     G = Graph()
     G.add_nodes_from(range(n))
@@ -29163,9 +29170,16 @@ def thresholded_random_geometric_graph(
     (lists of ``rng.random()`` draws when not supplied). Supplied
     ``pos`` / ``weight`` dicts are stored by reference. fnx extensions
     (``weight`` as callable / scalar) are preserved.
+
+    br-r37-c1-trgg-neg: nx raises NetworkXError on negative ``n``;
+    fnx previously silently returned an empty graph. Match nx's
+    structural-error contract — same fix shape as br-r37-c1-
+    {rgg-neg, pjf7g, srgg-neg}.
     """
     import random as _random
 
+    if isinstance(n, int) and n < 0:
+        raise NetworkXError(f"Negative number of nodes not valid: {n}")
     rng = _random.Random(seed)
     G = Graph()
     G.add_nodes_from(range(n))
