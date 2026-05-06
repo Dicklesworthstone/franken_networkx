@@ -8419,6 +8419,20 @@ def union(G, H, rename=()):
     """
     if rename:
         return _union_with_rename_via_parity(G, H, rename)
+    # br-r37-c1-union-disjoint: nx raises NetworkXError("The node
+    # sets of the graphs are not disjoint.") on overlapping inputs
+    # before any merging happens. Previously fnx silently merged,
+    # which matches `compose` behavior but breaks the documented
+    # `union` contract — the docstring above already says "names of
+    # nodes must be unique" (in nx's docstring; fnx's was missing
+    # the same warning). Match nx's raise so callers don't silently
+    # lose attribute data when nodes collide.
+    if not set(G).isdisjoint(H):
+        raise NetworkXError(
+            "The node sets of the graphs are not disjoint.\n"
+            "Use `rename` to specify prefixes for the graphs or use\n"
+            "disjoint_union(G1, G2, ..., GN).",
+        )
     cls = _operator_output_class(G, H)
     raw = _raw_union(G, H)
     rebuilt = _rebuild_operator_output(raw, cls)

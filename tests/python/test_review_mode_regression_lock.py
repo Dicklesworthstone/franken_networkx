@@ -915,6 +915,15 @@ def test_community_all_excludes_private_implementation_names():
             lambda m, G: m.directed_modularity_matrix(G),
             nx.NetworkXError,
         ),
+        # br-r37-c1-union-disjoint: union(G, H) silently merged
+        # overlapping nodes; nx raises with a hint about rename /
+        # disjoint_union.
+        (
+            "union_overlapping_nodes",
+            lambda m: m.path_graph(3),
+            lambda m, G: m.union(G, m.path_graph(3)),
+            nx.NetworkXError,
+        ),
     ],
     ids=lambda x: x if isinstance(x, str) else None,
 )
