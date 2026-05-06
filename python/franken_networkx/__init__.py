@@ -3203,12 +3203,61 @@ MultiDiGraph.adjacency = _multigraph_adjacency
 
 DiGraph.has_successor = _directed_graph_has_successor
 DiGraph.has_predecessor = _directed_graph_has_predecessor
-DiGraph.out_edges = _digraph_out_edges
-DiGraph.in_edges = _digraph_in_edges
 MultiDiGraph.has_successor = _directed_graph_has_successor
 MultiDiGraph.has_predecessor = _directed_graph_has_predecessor
-MultiDiGraph.out_edges = _multidigraph_out_edges
-MultiDiGraph.in_edges = _multidigraph_in_edges
+
+
+# br-r37-c1-iev-pkl: in_edges / out_edges were bound as plain methods
+# instead of view objects. nx exposes them as `InEdgeView` /
+# `OutEdgeView` (callable + iterable + len-able + pickle-able).
+# `for u, v in G.in_edges:` is the documented idiom and worked on nx
+# but raised `TypeError: 'method' object is not iterable` on fnx.
+# Pickle of the bound method also failed with `AttributeError: ...
+# has no attribute '_digraph_in_edges'`. Wrap each as a callable
+# view that delegates to the underlying method.
+class _DiEdgeMethodView:
+    """Callable+iterable+len-able view backed by a graph + edge-method.
+
+    Iterating yields the no-args call result; `__call__` delegates to
+    the bound method with user-supplied args. Pickle snapshots to a
+    plain list of edge tuples (matches nx's snapshot semantics on
+    restored InEdgeView/OutEdgeView)."""
+
+    __slots__ = ("_graph", "_method")
+
+    def __init__(self, graph, method):
+        self._graph = graph
+        self._method = method
+
+    def __iter__(self):
+        return iter(self._method(self._graph))
+
+    def __len__(self):
+        return len(self._method(self._graph))
+
+    def __contains__(self, item):
+        return item in self._method(self._graph)
+
+    def __call__(self, *args, **kwargs):
+        return self._method(self._graph, *args, **kwargs)
+
+    def __reduce__(self):
+        return (list, (list(self),))
+
+    def __repr__(self):
+        return repr(self._method(self._graph))
+
+
+def _make_edge_method_view_property(method):
+    def getter(self):
+        return _DiEdgeMethodView(self, method)
+    return property(getter)
+
+
+DiGraph.out_edges = _make_edge_method_view_property(_digraph_out_edges)
+DiGraph.in_edges = _make_edge_method_view_property(_digraph_in_edges)
+MultiDiGraph.out_edges = _make_edge_method_view_property(_multidigraph_out_edges)
+MultiDiGraph.in_edges = _make_edge_method_view_property(_multidigraph_in_edges)
 
 
 def _nan_filtered_graph(G, weight, ignore_nan):

@@ -448,6 +448,85 @@ def test_degree_view_deepcopy_roundtrips(name, builder):
     assert sorted(list(deepc)) == sorted(list(G.degree))
 
 
+# ---------------------------------------------------------------------------
+# DiGraph.in_edges / out_edges as views (br-r37-c1-iev-pkl)
+# ---------------------------------------------------------------------------
+
+
+_DI_EDGE_BUILDERS = [
+    ("DiGraph", lambda: fnx.DiGraph([(0, 1), (1, 2), (2, 0)])),
+    ("MultiDiGraph",
+     lambda: fnx.MultiDiGraph([(0, 1), (0, 1), (1, 2)])),
+]
+
+
+@pytest.mark.parametrize("name,builder", _DI_EDGE_BUILDERS,
+                         ids=[b[0] for b in _DI_EDGE_BUILDERS])
+def test_in_edges_is_iterable_view(name, builder):
+    """`for u, v in G.in_edges:` is the documented nx idiom but raised
+    `TypeError: 'method' object is not iterable` on fnx because
+    DiGraph.in_edges was a plain method, not a view object. nx
+    exposes it as InEdgeView (callable + iterable + len-able)."""
+    G = builder()
+    edges = list(G.in_edges)
+    assert isinstance(edges, list)
+    assert len(edges) == G.number_of_edges()
+    # In-edges iteration matches manual edge enumeration.
+    expected = sorted(G.edges()) if not G.is_multigraph() else sorted(G.edges())
+    assert sorted(edges) == sorted(expected) or len(edges) == len(expected)
+
+
+@pytest.mark.parametrize("name,builder", _DI_EDGE_BUILDERS,
+                         ids=[b[0] for b in _DI_EDGE_BUILDERS])
+def test_out_edges_is_iterable_view(name, builder):
+    G = builder()
+    edges = list(G.out_edges)
+    assert isinstance(edges, list)
+    assert len(edges) == G.number_of_edges()
+
+
+@pytest.mark.parametrize("name,builder", _DI_EDGE_BUILDERS,
+                         ids=[b[0] for b in _DI_EDGE_BUILDERS])
+def test_in_edges_remains_callable(name, builder):
+    """Backward compat: existing callers do `G.in_edges(node)` —
+    must still work after the property + view rewrap."""
+    G = builder()
+    assert list(G.in_edges(0)) == list(G.in_edges(0))  # idempotent
+    if G.is_multigraph():
+        keyed = G.in_edges(keys=True)
+    else:
+        keyed = G.in_edges(data=True)
+    # The callable forms still produce something iterable.
+    assert sum(1 for _ in keyed) == G.number_of_edges()
+
+
+@pytest.mark.parametrize("name,builder", _DI_EDGE_BUILDERS,
+                         ids=[b[0] for b in _DI_EDGE_BUILDERS])
+def test_in_edges_pickle_roundtrips(name, builder):
+    """Bound-method pickling of `G.in_edges` failed with
+    `AttributeError: ... has no attribute '_digraph_in_edges'`.
+    The _DiEdgeMethodView wrapper snapshots to a list."""
+    G = builder()
+    restored = pickle.loads(pickle.dumps(G.in_edges))
+    assert sorted(list(restored)) == sorted(list(G.in_edges))
+
+
+@pytest.mark.parametrize("name,builder", _DI_EDGE_BUILDERS,
+                         ids=[b[0] for b in _DI_EDGE_BUILDERS])
+def test_out_edges_pickle_roundtrips(name, builder):
+    G = builder()
+    restored = pickle.loads(pickle.dumps(G.out_edges))
+    assert sorted(list(restored)) == sorted(list(G.out_edges))
+
+
+@pytest.mark.parametrize("name,builder", _DI_EDGE_BUILDERS,
+                         ids=[b[0] for b in _DI_EDGE_BUILDERS])
+def test_in_edges_len_works(name, builder):
+    G = builder()
+    assert len(G.in_edges) == G.number_of_edges()
+    assert len(G.out_edges) == G.number_of_edges()
+
+
 def test_subgraph_view_loses_live_filtering_after_pickle():
     """The live subgraph view tracks filter changes against its parent
     graph. After pickle, the restored object is independent (matches
