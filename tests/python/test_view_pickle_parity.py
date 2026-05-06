@@ -723,6 +723,61 @@ _MULTI_BUILDERS_FOR_FILTER = [
 ]
 
 
+_CONVERSION_EDGE_BUILDERS = [
+    ("Graph_to_directed",
+     lambda: fnx.path_graph(5).to_directed(as_view=True),
+     lambda: nx.path_graph(5).to_directed(as_view=True)),
+    ("DiGraph_to_undirected",
+     lambda: fnx.DiGraph([(0, 1), (1, 2)]).to_undirected(as_view=True),
+     lambda: nx.DiGraph([(0, 1), (1, 2)]).to_undirected(as_view=True)),
+    ("MultiGraph_to_directed",
+     lambda: fnx.MultiGraph([(0, 1), (0, 1), (1, 2)]).to_directed(as_view=True),
+     lambda: nx.MultiGraph([(0, 1), (0, 1), (1, 2)]).to_directed(as_view=True)),
+    ("MultiDiGraph_to_undirected",
+     lambda: fnx.MultiDiGraph([(0, 1), (0, 1), (1, 2)]).to_undirected(as_view=True),
+     lambda: nx.MultiDiGraph([(0, 1), (0, 1), (1, 2)]).to_undirected(as_view=True)),
+]
+
+
+@pytest.mark.parametrize("name,fnx_builder,nx_builder", _CONVERSION_EDGE_BUILDERS,
+                         ids=[b[0] for b in _CONVERSION_EDGE_BUILDERS])
+def test_conversion_view_edges_set_protocol(name, fnx_builder, nx_builder):
+    """br-r37-c1-cev-{eq,setops,mditer}: conversion view's edges
+    (`_ConversionEdgeView`) had partial Set coverage: |/&/-/^ via
+    `__rand__/__ror__/__rsub__/__rxor__`, but missing:
+      - __eq__ (returned identity → False on `view == view`)
+      - __le__/__lt__/__ge__/__gt__ (TypeError)
+      - isdisjoint (AttributeError)
+      - asymmetric multigraph iter default (yielded 2-tuples)
+
+    Lock the full Set protocol + multigraph iter shape across all 4
+    conversion view types."""
+    G_f = fnx_builder()
+    G_n = nx_builder()
+
+    e_f = G_f.edges
+    e_n = G_n.edges
+
+    # Iter parity (multigraph yields 3-tuples, simple yields 2-tuples)
+    assert sorted(list(e_f)) == sorted(list(e_n))
+
+    # Equality
+    assert e_f == e_f
+    assert e_n == e_n
+
+    # Subset/superset
+    assert (e_f <= set(e_f)) is True
+    assert (e_f <= e_f) is True
+    assert (e_f >= e_f) is True
+
+    # isdisjoint
+    assert e_f.isdisjoint({("__notreal__",)}) is True
+    assert e_f.isdisjoint(e_f) is False  # self-overlap
+
+    # Algebra still works
+    assert isinstance(e_f & set(e_f), set)
+
+
 @pytest.mark.parametrize("name,builder", _MULTI_BUILDERS_FOR_FILTER,
                          ids=[b[0] for b in _MULTI_BUILDERS_FOR_FILTER])
 def test_subgraph_view_multigraph_edges_iter_yields_keys(name, builder):
