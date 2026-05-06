@@ -673,6 +673,14 @@ class AtlasView(Mapping):
         """
         return {k: dict(v) if hasattr(v, "items") else v for k, v in self._atlas().items()}
 
+    def __reduce__(self):
+        # br-r37-c1-viewpkl: the `_atlas_getter` is a closure over a
+        # graph descriptor, which pickle cannot serialize (lambdas /
+        # local functions). nx's matching views pickle as snapshots of
+        # the underlying dict; match that contract by reconstructing
+        # via a module-level factory that wraps the snapshot.
+        return (_reconstruct_atlas_view, (self.copy(),))
+
 
 class AdjacencyView(Mapping):
     def __init__(self, atlas_getter):
@@ -713,6 +721,10 @@ class AdjacencyView(Mapping):
         no copy() method. Return a plain dict-of-dicts snapshot.
         """
         return {k: dict(v) if hasattr(v, "items") else v for k, v in self._atlas().items()}
+
+    def __reduce__(self):
+        # br-r37-c1-viewpkl: see AtlasView.__reduce__.
+        return (_reconstruct_adjacency_view, (self.copy(),))
 
 
 class MultiAdjacencyView(Mapping):
@@ -757,6 +769,29 @@ class MultiAdjacencyView(Mapping):
                 inner[v] = dict(keyed) if hasattr(keyed, "items") else keyed
             out[u] = inner
         return out
+
+    def __reduce__(self):
+        # br-r37-c1-viewpkl: see AtlasView.__reduce__.
+        return (_reconstruct_multi_adjacency_view, (self.copy(),))
+
+
+def _reconstruct_atlas_view(snapshot):
+    """Module-level pickle reconstructor for AtlasView. Wraps the
+    snapshot dict in a fresh AtlasView so the type is preserved across
+    pickle roundtrips (matching nx's behavior). Live-tracking is lost
+    by design — the original graph descriptor reference can't survive
+    pickling."""
+    return AtlasView(lambda: snapshot)
+
+
+def _reconstruct_adjacency_view(snapshot):
+    """Module-level pickle reconstructor for AdjacencyView."""
+    return AdjacencyView(lambda: snapshot)
+
+
+def _reconstruct_multi_adjacency_view(snapshot):
+    """Module-level pickle reconstructor for MultiAdjacencyView."""
+    return MultiAdjacencyView(lambda: snapshot)
 
 
 def _multigraph_adj_view(self):
