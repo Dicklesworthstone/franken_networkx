@@ -6836,8 +6836,26 @@ def bfs_edges(G, source, reverse=False, depth_limit=None, sort_neighbors=None):
     br-r37-c1-c4agn: hash-check on source eagerly so unhashable
     inputs raise TypeError on call (matching nx's argmap), not
     NetworkXError after iteration starts.
+
+    br-r37-c1-bfs-depth: nx's BFS implementation walks `range
+    (depth_limit)` (or while-loop) which trivially yields nothing
+    on negative depth — returning empty. The Rust binding declared
+    `depth_limit` as unsigned int and raised OverflowError on
+    negative values. Match nx by short-circuiting to empty on
+    negative depth_limit.
     """
     hash(source)
+    if depth_limit is not None:
+        try:
+            depth_int = int(depth_limit)
+            if depth_int < 0:
+                # Empty iteration matches nx contract.
+                def _empty():
+                    if False:
+                        yield
+                return _empty()
+        except (TypeError, ValueError):
+            pass  # Let the original code path surface the error.
 
     def _gen():
         try:
@@ -7246,9 +7264,21 @@ def dfs_tree(G, source=None, depth_limit=None, *, sort_neighbors=None):
 
     br-r37-c1-c4agn: hash-check on source for nx-shaped TypeError
     parity on unhashable inputs.
+
+    br-r37-c1-bfs-depth: nx returns a tree containing just the
+    source node when depth_limit is negative (no descent allowed).
+    The Rust binding raised OverflowError. Coerce negative
+    depth_limit to 0 so the Rust path sees a valid unsigned and
+    produces the matching single-node tree.
     """
     if source is not None:
         hash(source)
+    if depth_limit is not None:
+        try:
+            if int(depth_limit) < 0:
+                depth_limit = 0
+        except (TypeError, ValueError):
+            pass
     try:
         if sort_neighbors is not None:
             T = DiGraph()
@@ -8135,9 +8165,21 @@ def single_source_shortest_path(G, source, cutoff=None):
     """Return a dict of shortest paths from ``source`` to every reachable
     node. Matches NetworkX: raises NodeNotFound('Source {src} not in G')
     when the source isn't in the graph, instead of returning ``{}``.
+
+    br-r37-c1-bfs-depth: nx returns ``{source: [source]}`` when
+    cutoff is negative (no edges traversed but the source is always
+    reachable from itself at distance 0). The Rust binding declared
+    cutoff as unsigned int and raised OverflowError on negatives.
+    Coerce negative cutoff to 0 to match nx exactly.
     """
     if source not in G:
         raise NodeNotFound(f"Source {source} not in G")
+    if cutoff is not None:
+        try:
+            if int(cutoff) < 0:
+                cutoff = 0
+        except (TypeError, ValueError):
+            pass
     raw = _raw_single_source_shortest_path(G, source, cutoff)
     # br-r37-c1-tlrdu: reorder in BFS-visit-from-source order matching nx.
     return {node: raw[node] for node in _bfs_visit_order(G, source) if node in raw}

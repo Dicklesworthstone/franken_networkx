@@ -962,6 +962,34 @@ def test_exception_type_parity(name, builder, call, exc):
         call(fnx, G_fnx)
 
 
+def test_traversal_negative_depth_or_cutoff_matches_nx():
+    """br-r37-c1-bfs-depth: same defect class as br-r37-c1-w1smc.
+    The Rust BFS/DFS bindings declared `depth_limit` / `cutoff` as
+    unsigned int — negative values raised OverflowError. nx walks
+    `range(depth)` / while-loop which trivially yields nothing on
+    negatives. Affected `bfs_edges`, `dfs_tree`,
+    `single_source_shortest_path`. Lock parity on negative
+    depth/cutoff inputs."""
+    G = fnx.path_graph(5)
+    G_n = nx.path_graph(5)
+
+    # bfs_edges with depth=-1 → empty iteration (matches nx).
+    assert list(fnx.bfs_edges(G, 0, depth_limit=-1)) == []
+    assert list(fnx.bfs_edges(G, 0, depth_limit=-1)) == list(
+        nx.bfs_edges(G_n, 0, depth_limit=-1)
+    )
+
+    # dfs_tree with depth=-1 → matches nx (which produces a 2-node tree).
+    f_tree = fnx.dfs_tree(G, 0, depth_limit=-1)
+    n_tree = nx.dfs_tree(G_n, 0, depth_limit=-1)
+    assert sorted(f_tree.nodes()) == sorted(n_tree.nodes())
+
+    # single_source_shortest_path with cutoff=-1 → just {source: [source]}.
+    assert fnx.single_source_shortest_path(G, 0, cutoff=-1) == {0: [0]}
+    assert fnx.single_source_shortest_path(G, 0, cutoff=-1) == \
+        nx.single_source_shortest_path(G_n, 0, cutoff=-1)
+
+
 def test_descendants_at_distance_degenerate_distance_returns_empty():
     """br-r37-c1-dad-distance: nx returns set() for any non-positive
     int distance AND for non-int distances (its BFS / range loop
