@@ -2955,10 +2955,25 @@ _ALL_NODE_VIEW_TYPES = (
     _MULTIGRAPH_NODE_VIEW_TYPE,
     _MULTIDIGRAPH_NODE_VIEW_TYPE,
 )
+
+
+def _node_view_isdisjoint(self, other):
+    """br-r37-c1-nv-isdisjoint: nx's NodeView inherits from
+    `collections.abc.Set` which provides `.isdisjoint(other)`. The
+    Rust-bound NodeView types don't have it, so
+    `G.nodes.isdisjoint(H.nodes)` raised AttributeError on fnx
+    while nx returned True/False. The Set comparison/algebra
+    OPERATORS already work on NodeView (because Python's `<=`,
+    `&`, etc. bridge Mapping-keys-iter to set semantics), but
+    `isdisjoint` is a method-name and needs explicit binding."""
+    return set(self).isdisjoint(other)
+
+
 for _nv_type in _ALL_NODE_VIEW_TYPES:
     _nv_type.__eq__ = _node_view_eq
     _nv_type.__ne__ = _node_view_ne
     _nv_type.__hash__ = _node_view_hash
+    _nv_type.isdisjoint = _node_view_isdisjoint
 
 
 def _edge_view_reduce(self):

@@ -712,6 +712,42 @@ def test_degree_view_equality_via_dict(name, builder):
 
 
 @pytest.mark.parametrize("name,builder", GRAPH_BUILDERS, ids=[b[0] for b in GRAPH_BUILDERS])
+def test_node_view_isdisjoint(name, builder):
+    """br-r37-c1-nv-isdisjoint: nx's NodeView inherits from
+    `collections.abc.Set` which provides `.isdisjoint()`. The
+    Rust-bound NodeView types didn't expose it, so
+    `G.nodes.isdisjoint(H.nodes)` raised AttributeError on fnx
+    while nx returned True/False. The Set comparison/algebra
+    operators (<=, <, &, |, ...) on NodeView already worked because
+    Python bridges Mapping-keys-iter to set semantics; `isdisjoint`
+    is a named method that needs explicit binding."""
+    G = builder(fnx)
+    G_n = builder(nx)
+
+    # Disjoint sets: True
+    H = builder(fnx)
+    H.add_node(99)
+    H_n = builder(nx)
+    H_n.add_node(99)
+    # Remove the existing edges from H so its nodes are {99} only
+    # (build a fresh graph instead).
+    fnx_other = type(G)([(99, 100)])
+    nx_other = type(G_n)([(99, 100)])
+    assert G.nodes.isdisjoint(fnx_other.nodes) is True
+    assert G_n.nodes.isdisjoint(nx_other.nodes) is True
+
+    # Overlapping sets: False
+    overlap_f = type(G)([(0, 99)])  # node 0 overlaps with G
+    overlap_n = type(G_n)([(0, 99)])
+    assert G.nodes.isdisjoint(overlap_f.nodes) is False
+    assert G_n.nodes.isdisjoint(overlap_n.nodes) is False
+
+    # vs set
+    assert G.nodes.isdisjoint({99, 100}) is True
+    assert G_n.nodes.isdisjoint({99, 100}) is True
+
+
+@pytest.mark.parametrize("name,builder", GRAPH_BUILDERS, ids=[b[0] for b in GRAPH_BUILDERS])
 def test_node_view_equality_is_mapping_like(name, builder):
     """br-r37-c1-nv-eq: nx's NodeView inherits from Mapping and Set
     via multiple inheritance, but __eq__ is Mapping's — content
