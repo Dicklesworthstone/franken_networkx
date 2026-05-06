@@ -215,13 +215,26 @@ class TestAdjlistIO:
         assert H.number_of_nodes() == 3
         assert H.number_of_edges() == 3
 
-    def test_write_adjlist_default_uses_rust_fast_path(self, monkeypatch, triangle):
-        def fail_delegate(*args, **kwargs):
-            raise AssertionError("default write_adjlist should use Rust fast path")
+    def test_write_adjlist_default_delegates_for_byte_parity(self, monkeypatch, triangle):
+        """br-r37-c1-wadj-parity: the prior Rust-native fast path
+        omitted nx's timestamped comment header AND the trailing
+        newline. Tooling that snapshot-diffs adjlist output across
+        libraries (a common cross-validation pattern) saw spurious
+        differences. The public `write_adjlist` now ALWAYS delegates
+        to nx for byte-exact output. Confirm the delegate IS invoked
+        on the default path."""
+        called = {"count": 0}
 
-        monkeypatch.setattr(fnx, "_write_adjlist_via_nx", fail_delegate)
+        original = fnx._write_adjlist_via_nx
+
+        def counting_delegate(*args, **kwargs):
+            called["count"] += 1
+            return original(*args, **kwargs)
+
+        monkeypatch.setattr(fnx, "_write_adjlist_via_nx", counting_delegate)
         buffer = io.BytesIO()
         fnx.write_adjlist(triangle, buffer)
+        assert called["count"] == 1, "default write_adjlist should delegate to nx for byte parity"
         buffer.seek(0)
         H = fnx.read_adjlist(buffer)
         assert H.number_of_nodes() == 3

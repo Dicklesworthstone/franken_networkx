@@ -952,11 +952,39 @@ def test_community_all_excludes_private_implementation_names():
 )
 def test_exception_type_parity(name, builder, call, exc):
     """Drop-in code that catches specific nx.NetworkX* subclasses
-    must catch the same class on fnx. ValueError-vs-NetworkXError is
-    a real divergence."""
+    must catch the same class on fnx. ValueError-vs-NetworkXError
+    is a real divergence."""
     G_nx = builder(nx)
     G_fnx = builder(fnx)
     with pytest.raises(exc):
         call(nx, G_nx)
     with pytest.raises(exc):
         call(fnx, G_fnx)
+
+
+def test_write_adjlist_byte_parity_with_nx():
+    """br-r37-c1-wadj-parity: the Rust-native write_adjlist fast
+    path omitted the timestamped comment header and the trailing
+    newline that nx writes. Tooling that snapshot-diffs adjlist
+    output across libraries saw spurious differences. The public
+    `write_adjlist` now delegates to nx unconditionally for
+    byte-exact output."""
+    import io
+    G_f = fnx.path_graph(5)
+    G_n = nx.path_graph(5)
+
+    buf_f = io.BytesIO()
+    buf_n = io.BytesIO()
+    fnx.write_adjlist(G_f, buf_f)
+    nx.write_adjlist(G_n, buf_n)
+
+    # Strip timestamp comments — they include date/time which won't
+    # be exactly equal to the millisecond.
+    def strip_comments(b):
+        return b"".join(
+            line for line in b.splitlines(keepends=True) if not line.startswith(b"#")
+        )
+
+    assert strip_comments(buf_f.getvalue()) == strip_comments(buf_n.getvalue())
+    # Trailing newline preserved (was missing in the prior Rust path)
+    assert buf_f.getvalue().endswith(b"\n")

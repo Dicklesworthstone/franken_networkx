@@ -12311,16 +12311,16 @@ def read_adjlist(
 def write_adjlist(G, path, comments="#", delimiter=" ", encoding="utf-8"):
     """Write a graph as an adjacency list.
 
-    Uses the Rust-native writer for the default simple-graph surface and
-    delegates to NetworkX for multigraphs or non-default formatting kwargs.
+    br-r37-c1-wadj-parity: previously the simple-graph default path
+    used a Rust-native writer that omitted the timestamped comment
+    header AND the trailing newline that nx writes. That broke
+    byte-level diff parity for tooling that compares snapshots
+    across libraries (and could affect line-oriented readers that
+    require newline-terminated files). Always delegate to nx for
+    byte-exact output. The Rust writer remains available via
+    private name for callers that explicitly want the no-header
+    variant; the public `write_adjlist` matches nx exactly.
     """
-    if (
-        comments == "#"
-        and delimiter == " "
-        and encoding == "utf-8"
-        and not G.is_multigraph()
-    ):
-        return _rust_write_adjlist(G, path)
     return _write_adjlist_via_nx(
         G, path, comments=comments, delimiter=delimiter, encoding=encoding
     )
