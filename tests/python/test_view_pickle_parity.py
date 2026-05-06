@@ -593,6 +593,45 @@ def test_multidigraph_in_edges_iter_yields_keys_by_default():
 
 
 @pytest.mark.parametrize("name,builder", GRAPH_BUILDERS, ids=[b[0] for b in GRAPH_BUILDERS])
+def test_node_view_equality_is_mapping_like(name, builder):
+    """br-r37-c1-nv-eq: nx's NodeView inherits from Mapping and Set
+    via multiple inheritance, but __eq__ is Mapping's — content
+    matches the dict representation `{node: attrs}` (same keys AND
+    same per-node attribute dicts). The Rust-bound NodeView types
+    fell through to default object.__eq__ (identity), so
+    `G.nodes == G.nodes` returned False — broke dedup logic and
+    `assert G.nodes == frozenset({...})` patterns.
+
+    Lock Mapping-style equality across all 4 graph classes:
+      - self_eq: True (dict reprs match)
+      - vs_dict: True (matches Mapping with same keys+values)
+      - vs_set:  False (Mapping vs Set — matches nx)
+      - vs_list: False
+      - different attrs: False (attr divergence detected)
+    """
+    G = builder(fnx)
+    G_n = builder(nx)
+
+    # Self-equality: Mapping-style content match.
+    assert G.nodes == G.nodes
+    # Cross-check: equal to nx's NodeView with same content.
+    assert G.nodes == G_n.nodes
+    # Equal to dict representation.
+    assert G.nodes == dict(G.nodes)
+    # NOT equal to a set / list (Mapping vs Set/Sequence).
+    assert (G.nodes == set(G.nodes)) is False
+    assert (G.nodes == list(G.nodes)) is False
+    # Different attrs: not equal even when node sets overlap.
+    H = builder(fnx)
+    if not H.is_multigraph():
+        H.nodes[0]["color"] = "red"
+    else:
+        # Multigraph node attr write
+        H.add_node(0, color="red")
+    assert (G.nodes == H.nodes) is False
+
+
+@pytest.mark.parametrize("name,builder", GRAPH_BUILDERS, ids=[b[0] for b in GRAPH_BUILDERS])
 def test_edges_view_equality_is_set_like(name, builder):
     """br-r37-c1-eveq: nx's OutEdgeView/MultiEdgeView/etc. inherit
     from collections.abc.Set, so `G.edges == G.edges` is True

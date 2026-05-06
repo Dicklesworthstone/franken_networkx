@@ -2761,6 +2761,51 @@ _MULTIGRAPH_NODE_VIEW_TYPE.__reduce__ = _node_view_reduce
 _MULTIDIGRAPH_NODE_VIEW_TYPE.__reduce__ = _node_view_reduce
 
 
+def _node_view_eq(self, other):
+    """br-r37-c1-nv-eq: nx's NodeView inherits from BOTH Mapping AND
+    Set (via multiple inheritance), but `__eq__` comes from Mapping —
+    so `G.nodes == G.nodes` is True only when the dict representation
+    `{node: attrs}` matches on both sides (same keys AND same
+    per-node attribute dicts). `G.nodes == G2.nodes` is False if the
+    nodes overlap but attrs differ. `G.nodes == set([0,1])` is False
+    because a set has no Mapping interface.
+
+    The Rust-bound NodeView types fell through to default
+    `object.__eq__` (identity), so two view accesses returned False
+    even when the node-attr content matched. Match nx's Mapping
+    semantics exactly via dict equality."""
+    from collections.abc import Mapping as _Mapping
+    if type(other) in _ALL_NODE_VIEW_TYPES:
+        return dict(self) == dict(other)
+    if isinstance(other, _Mapping):
+        return dict(self) == dict(other)
+    return NotImplemented
+
+
+def _node_view_ne(self, other):
+    eq = _node_view_eq(self, other)
+    if eq is NotImplemented:
+        return NotImplemented
+    return not eq
+
+
+def _node_view_hash(self):
+    # Identity-keyed hash so Set protocol stays consistent.
+    return id(self)
+
+
+_ALL_NODE_VIEW_TYPES = (
+    _SIMPLE_GRAPH_NODE_VIEW_TYPE,
+    _SIMPLE_DIGRAPH_NODE_VIEW_TYPE,
+    _MULTIGRAPH_NODE_VIEW_TYPE,
+    _MULTIDIGRAPH_NODE_VIEW_TYPE,
+)
+for _nv_type in _ALL_NODE_VIEW_TYPES:
+    _nv_type.__eq__ = _node_view_eq
+    _nv_type.__ne__ = _node_view_ne
+    _nv_type.__hash__ = _node_view_hash
+
+
 def _edge_view_reduce(self):
     """br-r37-c1-ev-pkl: the Rust-bound Graph.edges EdgeView crashes
     pickle with TypeError("cannot pickle 'franken_networkx.EdgeView'
