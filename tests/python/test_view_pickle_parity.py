@@ -593,6 +593,38 @@ def test_multidigraph_in_edges_iter_yields_keys_by_default():
 
 
 @pytest.mark.parametrize("name,builder", GRAPH_BUILDERS, ids=[b[0] for b in GRAPH_BUILDERS])
+def test_degree_view_equality_via_dict(name, builder):
+    """br-r37-c1-dv-eq: nx's DegreeView/DiDegreeView/MultiDegreeView/
+    DiMultiDegreeView compare equal when their (node, degree)
+    sequences match. fnx's _WeightAwareDegreeView /
+    MultiGraphDegreeView / MultiDiGraphDegreeView / _DirectedDegreeView
+    used default object.__eq__ (identity), so `G.degree == G.degree`
+    returned False since each access returns a fresh wrapper instance.
+
+    Lock dict-based equality (matches nx's degree-sequence semantics)
+    across all 4 graph classes for .degree, plus .in_degree and
+    .out_degree on the directed variants."""
+    G = builder(fnx)
+    G_n = builder(nx)
+
+    # Self-equality on .degree
+    assert G.degree == G.degree
+    assert G_n.degree == G_n.degree
+
+    # Different content: not equal
+    H = builder(fnx)
+    H.add_edge(99, 100)
+    assert (G.degree == H.degree) is False
+
+    if G.is_directed():
+        # Self-equality on .in_degree / .out_degree
+        assert G.in_degree == G.in_degree
+        assert G.out_degree == G.out_degree
+        # in_degree != out_degree (different adjacency direction)
+        assert (G.in_degree == G.out_degree) is False
+
+
+@pytest.mark.parametrize("name,builder", GRAPH_BUILDERS, ids=[b[0] for b in GRAPH_BUILDERS])
 def test_node_view_equality_is_mapping_like(name, builder):
     """br-r37-c1-nv-eq: nx's NodeView inherits from Mapping and Set
     via multiple inheritance, but __eq__ is Mapping's — content

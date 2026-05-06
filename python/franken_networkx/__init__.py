@@ -2115,6 +2115,22 @@ class MultiGraphDegreeView:
         nodes = list(self._graph.nbunch_iter(nbunch))
         return type(self)(self._graph, nodes=nodes, weight=weight)
 
+    def __eq__(self, other):
+        # br-r37-c1-dv-eq: see _WeightAwareDegreeView.__eq__.
+        if isinstance(other, (MultiGraphDegreeView, MultiDiGraphDegreeView,
+                              _WeightAwareDegreeView)):
+            return dict(self) == dict(other)
+        return NotImplemented
+
+    def __ne__(self, other):
+        eq = self.__eq__(other)
+        if eq is NotImplemented:
+            return NotImplemented
+        return not eq
+
+    def __hash__(self):
+        return id(self._graph)
+
 
 class MultiDiGraphDegreeView:
     def __init__(self, graph, *, nodes=None, weight=None):
@@ -2163,6 +2179,22 @@ class MultiDiGraphDegreeView:
             pass
         nodes = list(self._graph.nbunch_iter(nbunch))
         return type(self)(self._graph, nodes=nodes, weight=weight)
+
+    def __eq__(self, other):
+        # br-r37-c1-dv-eq: see _WeightAwareDegreeView.__eq__.
+        if isinstance(other, (MultiGraphDegreeView, MultiDiGraphDegreeView,
+                              _WeightAwareDegreeView)):
+            return dict(self) == dict(other)
+        return NotImplemented
+
+    def __ne__(self, other):
+        eq = self.__eq__(other)
+        if eq is NotImplemented:
+            return NotImplemented
+        return not eq
+
+    def __hash__(self):
+        return id(self._graph)
 
 
 class _DirectedDegreeView:
@@ -2225,6 +2257,27 @@ class _DirectedDegreeView:
             pass
         nodes = list(self._graph.nbunch_iter(nbunch))
         return type(self)(self._graph, self._adjacency_attr, nodes=nodes, weight=weight)
+
+    def __eq__(self, other):
+        # br-r37-c1-dv-eq: see _WeightAwareDegreeView.__eq__.
+        # _DirectedDegreeView is the in_degree/out_degree view for
+        # DiGraph and MultiDiGraph; nx.InDegreeView/OutDegreeView
+        # compare via dict equality of (node, degree).
+        if isinstance(other, _DirectedDegreeView):
+            return (
+                self._adjacency_attr == other._adjacency_attr
+                and dict(self) == dict(other)
+            )
+        return NotImplemented
+
+    def __ne__(self, other):
+        eq = self.__eq__(other)
+        if eq is NotImplemented:
+            return NotImplemented
+        return not eq
+
+    def __hash__(self):
+        return id(self._graph) ^ hash(self._adjacency_attr)
 
 
 Graph.nbunch_iter = _graph_nbunch_iter
@@ -2337,6 +2390,30 @@ class _WeightAwareDegreeView:
         # is lost by design (matches nx — the underlying graph
         # reference can't survive pickling).
         return (list, (list(self),))
+
+    def __eq__(self, other):
+        # br-r37-c1-dv-eq: nx's DegreeView/DiDegreeView compare
+        # equal when their (node, degree) sequences match. The
+        # _WeightAwareDegreeView wrapper used default object.__eq__
+        # (identity) — `G.degree == G.degree` returned False since
+        # each access returns a fresh wrapper instance. Compare via
+        # dict-of-(node→degree) so attribute-driven differences are
+        # detected (matches nx — same shape as comparing degree
+        # sequences).
+        if isinstance(other, _WeightAwareDegreeView):
+            return dict(self) == dict(other)
+        if isinstance(other, (MultiGraphDegreeView, MultiDiGraphDegreeView)):
+            return dict(self) == dict(other)
+        return NotImplemented
+
+    def __ne__(self, other):
+        eq = self.__eq__(other)
+        if eq is NotImplemented:
+            return NotImplemented
+        return not eq
+
+    def __hash__(self):
+        return id(self._graph) ^ hash(self._direction or "")
 
     def _weighted_value(self, node, weight):
         total = 0
