@@ -29063,9 +29063,16 @@ def waxman_graph(
 
     Matches networkx signature including ``metric`` (custom distance
     callable) and keyword-only ``pos_name`` (br-r37-c1-geomgenkw).
+
+    br-r37-c1-waxman-neg: nx raises NetworkXError on negative ``n``;
+    fnx previously silently returned an empty graph. Match nx's
+    structural-error contract — same fix shape as br-r37-c1-
+    {rgg-neg, pjf7g, srgg-neg, trgg-neg, 60f9n}.
     """
     import random as _random
 
+    if isinstance(n, int) and n < 0:
+        raise NetworkXError(f"Negative number of nodes not valid: {n}")
     rng = _random.Random(seed)
     G = Graph()
     positions = {}
@@ -29110,9 +29117,16 @@ def geographical_threshold_graph(
     stored by reference. The fnx extensions (``weight`` as callable /
     scalar, ``d == 0`` treated as infinitely close under default
     ``p_dist``) are preserved.
+
+    br-r37-c1-gtg-neg: nx raises NetworkXError on negative ``n``;
+    fnx previously silently returned an empty graph. Match nx's
+    structural-error contract — same fix shape as br-r37-c1-
+    {rgg-neg, pjf7g, srgg-neg, trgg-neg, 60f9n, waxman-neg}.
     """
     import random as _random
 
+    if isinstance(n, int) and n < 0:
+        raise NetworkXError(f"Negative number of nodes not valid: {n}")
     rng = _random.Random(seed)
     G = Graph()
     G.add_nodes_from(range(n))

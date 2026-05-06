@@ -962,6 +962,21 @@ def test_exception_type_parity(name, builder, call, exc):
         call(fnx, G_fnx)
 
 
+def test_waxman_geographical_threshold_negative_n_match_nx():
+    """br-r37-c1-{waxman-neg, gtg-neg}: same defect family as
+    br-r37-c1-{rgg-neg, pjf7g, srgg-neg, trgg-neg, 60f9n}.
+    waxman_graph and geographical_threshold_graph silently accepted
+    negative `n`; nx raises NetworkXError. Lock parity."""
+    with pytest.raises(nx.NetworkXError, match="Negative number of nodes"):
+        fnx.waxman_graph(-5, seed=42)
+    with pytest.raises(nx.NetworkXError, match="Negative number of nodes"):
+        fnx.geographical_threshold_graph(-5, 0.5, seed=42)
+    # Positive n still works.
+    G_f = fnx.waxman_graph(10, seed=42)
+    G_n = nx.waxman_graph(10, seed=42)
+    assert G_f.number_of_nodes() == G_n.number_of_nodes() == 10
+
+
 def test_soft_thresholded_random_geometric_negative_n_match_nx():
     """br-r37-c1-{srgg-neg, trgg-neg}: same defect family as
     br-r37-c1-{rgg-neg, pjf7g}. soft_random_geometric_graph and
