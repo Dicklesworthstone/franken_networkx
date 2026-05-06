@@ -3230,6 +3230,14 @@ class _DiEdgeMethodView:
         self._method = method
 
     def __iter__(self):
+        # br-r37-c1-iev-mditer: nx's MultiInEdgeView/MultiOutEdgeView
+        # default `keys=True` for __iter__ but `keys=False` for
+        # __call__. Asymmetric. Match that exactly so
+        # `for u, v, k in MDG.in_edges:` works (the documented idiom)
+        # while `MDG.in_edges()` still yields 2-tuples (callable
+        # backward compat from before this change).
+        if self._graph.is_multigraph():
+            return iter(self._method(self._graph, keys=True))
         return iter(self._method(self._graph))
 
     def __len__(self):

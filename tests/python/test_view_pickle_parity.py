@@ -549,6 +549,49 @@ def test_in_edges_view_equality_is_set_like(name, builder):
     assert (G.in_edges == list(G.in_edges)) is False
 
 
+def test_multidigraph_in_edges_iter_yields_keys_by_default():
+    """br-r37-c1-iev-mditer: nx.MultiInEdgeView/MultiOutEdgeView
+    asymmetrically default `keys=True` for __iter__ but `keys=False`
+    for __call__:
+
+      for u, v, k in MDG.in_edges:    # 3-tuples (the docs idiom)
+      MDG.in_edges()                  # 2-tuples (legacy callable)
+
+    The initial _DiEdgeMethodView routed __iter__ through the method
+    with no args, so iteration yielded 2-tuples on multigraphs and
+    `for u, v, k in MDG.in_edges:` was a ValueError. Lock the
+    multigraph asymmetric default."""
+    MDG = fnx.MultiDiGraph([(0, 1), (0, 1), (1, 2)])
+    MDG_n = nx.MultiDiGraph([(0, 1), (0, 1), (1, 2)])
+
+    # Iteration: 3-tuples
+    f_iter = sorted(list(MDG.in_edges))
+    n_iter = sorted(list(MDG_n.in_edges))
+    assert f_iter == n_iter
+    assert all(len(e) == 3 for e in f_iter)
+
+    # Callable with no args: 2-tuples (back-compat)
+    f_call = sorted(list(MDG.in_edges()))
+    n_call = sorted(list(MDG_n.in_edges()))
+    assert f_call == n_call
+    assert all(len(e) == 2 for e in f_call)
+
+    # Documented idiom unpacks
+    unpacked = []
+    for u, v, k in MDG.in_edges:
+        unpacked.append((u, v, k))
+    assert sorted(unpacked) == n_iter
+
+    # out_edges parallel
+    assert sorted(list(MDG.out_edges)) == sorted(list(MDG_n.out_edges))
+
+    # Plain DiGraph still 2-tuples (no keys to expose)
+    DG = fnx.DiGraph([(0, 1), (1, 2)])
+    DG_n = nx.DiGraph([(0, 1), (1, 2)])
+    assert sorted(list(DG.in_edges)) == sorted(list(DG_n.in_edges))
+    assert all(len(e) == 2 for e in DG.in_edges)
+
+
 def test_in_edges_data_method():
     """nx.InEdgeView exposes a .data() method that yields (u, v,
     attrs) triples, optionally with attr-name + default. The
