@@ -5007,6 +5007,16 @@ def eigenvector_centrality(
             "cannot compute centrality for the null graph"
         )
 
+    # br-r37-c1-eigvec-maxiter: nx raises
+    # PowerIterationFailedConvergence on max_iter <= 0 (the loop
+    # exits immediately without converging). The Rust binding
+    # declared max_iter as unsigned int and raised OverflowError on
+    # negatives. Match nx's domain-specific failure mode by
+    # delegating to the converging path with max_iter clamped to 0,
+    # which produces the same PowerIterationFailedConvergence.
+    if isinstance(max_iter, int) and max_iter <= 0:
+        raise PowerIterationFailedConvergence(max(max_iter, 0))
+
     # br-eignstart: the Rust _raw_eigenvector_centrality raised
     # ``TypeError('franken_networkx currently only supports
     # nstart=None and weight=None...')`` when either kwarg was

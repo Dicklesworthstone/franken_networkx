@@ -962,6 +962,23 @@ def test_exception_type_parity(name, builder, call, exc):
         call(fnx, G_fnx)
 
 
+def test_eigenvector_centrality_negative_max_iter_raises_convergence_failure():
+    """br-r37-c1-eigvec-maxiter: nx raises
+    PowerIterationFailedConvergence on max_iter <= 0 (the power
+    iteration exits immediately without converging). The Rust
+    binding declared max_iter as unsigned int and raised
+    OverflowError on negatives. Code that catches
+    PowerIterationFailedConvergence to detect non-convergence
+    silently broke on fnx — got the wrong exception class.
+
+    Lock nx's domain-specific exception across negative,
+    zero, and small-positive max_iter inputs."""
+    G = fnx.path_graph(5)
+    for mi in (-1, 0, 1, -5):
+        with pytest.raises(nx.PowerIterationFailedConvergence):
+            fnx.eigenvector_centrality(G, max_iter=mi)
+
+
 _NEGATIVE_DEPTH_OR_CUTOFF_FUNCS = [
     ("dfs_edges", "depth_limit", lambda fn, m, G: list(fn(G, 0, depth_limit=-1))),
     ("dfs_predecessors", "depth_limit", lambda fn, m, G: dict(fn(G, 0, depth_limit=-1))),
