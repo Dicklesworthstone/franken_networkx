@@ -12337,51 +12337,62 @@ def write_graphml(
 ):
     """Write a graph in GraphML format.
 
-    Delegates to NetworkX's writer (br-grphml) for MultiGraph inputs
-    (the Rust-native writer rejects Multi* with
-    'write_graphml does not support MultiGraph or MultiDiGraph') and
-    for any non-default kwarg. Falls back to the Rust fast path when
-    the graph is simple and all kwargs are at their nx defaults.
+    br-r37-c1-wgml-parity: previously the simple-graph default path
+    used a Rust-native writer whose XML output diverged byte-wise
+    from nx's lxml-based writer:
+
+      * XML declaration quoting: fnx wrote `"1.0" encoding="UTF-8"`
+        (double quotes, uppercase encoding name); nx writes
+        `'1.0' encoding='utf-8'` (single quotes, lowercase).
+      * `<graph>` element: fnx added `id="G"`; nx omits the id.
+      * Self-closing tags: fnx wrote `<node id="0"/>` (no space
+        before slash); nx writes `<node id="0" />` (with space).
+
+    All three are observable byte-level differences. Tooling that
+    snapshot-diffs GraphML output across libraries OR strict XML
+    canonicalization saw spurious differences. Always delegate to
+    nx for byte-exact output. Same fix shape as br-r37-c1-eeawk
+    on `write_adjlist`.
+
+    The pre-flight type validation (br-graphmltype) is preserved
+    because the Rust path's silent str() coercion is a separate
+    correctness issue — running it before the nx delegate keeps
+    the strict-attribute-type contract that nx itself enforces
+    (and that fnx's prior code added explicitly because of the
+    Rust path's lax coercion).
     """
-    if (
-        G.is_multigraph()
-        or encoding != "utf-8"
-        or not prettyprint
-        or infer_numeric_types
-        or named_key_ids
-        or edge_id_from_attribute is not None
-    ):
-        return _write_graphml_via_nx(
-            G,
-            path,
-            encoding=encoding,
-            prettyprint=prettyprint,
-            infer_numeric_types=infer_numeric_types,
-            named_key_ids=named_key_ids,
-            edge_id_from_attribute=edge_id_from_attribute,
-        )
-    # br-graphmltype: nx raises NetworkXError on attribute values whose
-    # type GraphML can't represent (None, set, tuple, list, etc.). The
-    # Rust binding's py_dict_to_attr_map silently coerces those to
-    # ``str(value)``, so without this validation fnx would accept values
-    # nx rejects — diverging from drop-in parity. Mirror nx's wording.
+    # br-graphmltype: nx raises NetworkXError on attribute values
+    # whose type GraphML can't represent (None, set, tuple, list,
+    # etc.). nx's own check happens internally; the explicit
+    # pre-validation here was added when fnx's Rust path silently
+    # coerced via str(), so without it fnx would accept values nx
+    # rejects. Now that we delegate, nx would catch most cases on
+    # its own — but kept as belt-and-suspenders for predictable
+    # error wording (nx's error messages on bad types vary by
+    # backend codepath).
     _GRAPHML_OK_TYPES = (bool, int, float, str)
-    for src_iter, kind in (
-        (G.nodes(data=True), "node"),
-        (G.edges(data=True), "edge"),
-    ):
-        for record in src_iter:
-            data = record[-1]
-            if not isinstance(data, dict):
-                continue
-            for value in data.values():
-                if not isinstance(value, _GRAPHML_OK_TYPES):
-                    raise NetworkXError(
-                        f"GraphML writer does not support {type(value)} "
-                        f"as data values."
-                    )
-    _validate_graph_graphml_attrs(getattr(G, "graph", {}))
-    return _rust_write_graphml(G, path)
+    if not G.is_multigraph():
+        for src_iter in (G.nodes(data=True), G.edges(data=True)):
+            for record in src_iter:
+                data = record[-1]
+                if not isinstance(data, dict):
+                    continue
+                for value in data.values():
+                    if not isinstance(value, _GRAPHML_OK_TYPES):
+                        raise NetworkXError(
+                            f"GraphML writer does not support {type(value)} "
+                            f"as data values."
+                        )
+        _validate_graph_graphml_attrs(getattr(G, "graph", {}))
+    return _write_graphml_via_nx(
+        G,
+        path,
+        encoding=encoding,
+        prettyprint=prettyprint,
+        infer_numeric_types=infer_numeric_types,
+        named_key_ids=named_key_ids,
+        edge_id_from_attribute=edge_id_from_attribute,
+    )
 
 
 def _validate_graph_graphml_attrs(graph_attrs):

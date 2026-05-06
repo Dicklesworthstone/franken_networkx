@@ -962,6 +962,25 @@ def test_exception_type_parity(name, builder, call, exc):
         call(fnx, G_fnx)
 
 
+def test_write_graphml_byte_parity_with_nx():
+    """br-r37-c1-wgml-parity: the prior Rust-native write_graphml fast
+    path diverged byte-wise from nx in three observable places:
+    XML decl quoting (`"1.0"` vs `'1.0'`), `<graph id="G">` (extra
+    attribute), and self-closing tags (`<node id="0"/>` vs
+    `<node id="0" />`). The public `write_graphml` now delegates
+    to nx unconditionally for byte-exact output."""
+    import io
+    G_f = fnx.path_graph(3)
+    G_n = nx.path_graph(3)
+
+    buf_f = io.BytesIO()
+    buf_n = io.BytesIO()
+    fnx.write_graphml(G_f, buf_f)
+    nx.write_graphml(G_n, buf_n)
+
+    assert buf_f.getvalue() == buf_n.getvalue()
+
+
 def test_write_adjlist_byte_parity_with_nx():
     """br-r37-c1-wadj-parity: the Rust-native write_adjlist fast
     path omitted the timestamped comment header and the trailing

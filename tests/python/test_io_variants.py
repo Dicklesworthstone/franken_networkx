@@ -412,7 +412,14 @@ def test_write_gml_networkx_graph_stays_delegated(monkeypatch, tmp_path: Path):
     assert observed == {"graph": graph, "stringizer": None}
 
 
-def test_rust_write_graphml_preserves_graph_attrs(tmp_path: Path):
+def test_write_graphml_preserves_graph_attrs(tmp_path: Path):
+    """br-r37-c1-wgml-parity: previously fnx's `write_graphml` used a
+    Rust fast path whose XML output diverged byte-wise from nx's
+    writer (XML decl quoting, `<graph id="G">`, self-closing-tag
+    spacing). Now `write_graphml` always delegates to nx for
+    byte-exact parity. This test confirms graph-level attrs survive
+    the delegation; type tags match nx's wording (e.g. `long` for
+    int rather than the prior Rust path's `int`)."""
     graph = fnx.Graph()
     graph.add_edge("a", "b")
     graph.graph["name"] = "demo"
@@ -423,12 +430,14 @@ def test_rust_write_graphml_preserves_graph_attrs(tmp_path: Path):
     fnx.write_graphml(graph, path)
 
     content = path.read_text(encoding="utf-8")
+    # Attribute names + types are preserved (nx wording).
     assert 'for="graph" attr.name="name" attr.type="string"' in content
-    assert 'for="graph" attr.name="version" attr.type="int"' in content
+    assert 'for="graph" attr.name="version" attr.type="long"' in content
     assert 'for="graph" attr.name="public" attr.type="boolean"' in content
-    assert '<data key="g0">demo</data>' in content
-    assert '<data key="g1">true</data>' in content
-    assert '<data key="g2">3</data>' in content
+    # Data values present (key prefix may differ; check value text).
+    assert ">demo</data>" in content
+    assert ">3</data>" in content
+    assert ">True</data>" in content
 
 
 def test_raw_write_graphml_string_preserves_graph_attrs_and_compact_mode():
