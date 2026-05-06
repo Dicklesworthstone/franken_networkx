@@ -33232,6 +33232,16 @@ class _LiveMultiEdgeDataView(dict):
     update = _readonly
     __ior__ = _readonly
 
+    def __reduce__(self):
+        # br-r37-c1-lmev-pickle: dict-subclass pickle protocol calls
+        # __setitem__ on the new instance to repopulate it. The
+        # _readonly mutation guards (br-r37-c1-vuauj) made every read
+        # path raise during unpickling, so pickle.loads on any
+        # to_dict_of_dicts(MultiGraph) output crashed. Snapshot to a
+        # plain dict at pickle time — the view's liveness depends on
+        # the graph reference, which can't survive pickling anyway.
+        return (dict, (dict(self.items()),))
+
 
 def _checked_create_using(create_using=None, *, directed=None, multigraph=None, default=Graph):
     """Validate and clear ``create_using`` using NetworkX's contract."""

@@ -418,6 +418,36 @@ class TestDictOfDicts:
         with pytest.raises(TypeError, match="does not support item assignment"):
             op(view)
 
+    def test_multigraph_view_pickles_as_plain_dict(self):
+        """br-r37-c1-lmev-pickle: the mutation guards from
+        br-r37-c1-vuauj broke pickle.loads, since pickle's default
+        dict-subclass reconstruction protocol calls __setitem__ on the
+        new instance to repopulate it. Snapshot via __reduce__ so that
+        round-tripping `to_dict_of_dicts(MG) → pickle.dumps → pickle.loads`
+        no longer crashes; the restored value is a plain dict (the
+        live graph reference can't survive pickling anyway)."""
+        import pickle
+        M = fnx.MultiGraph([(0, 1, {"w": 1}), (0, 1, {"w": 2})])
+        out = fnx.to_dict_of_dicts(M, nodelist=[0, 1])
+        restored = pickle.loads(pickle.dumps(out))
+        assert restored[0][1] == {0: {"w": 1}, 1: {"w": 2}}
+        assert isinstance(restored[0][1], dict)
+        # Standalone view also round-trips.
+        view = out[0][1]
+        restored_view = pickle.loads(pickle.dumps(view))
+        assert restored_view == {0: {"w": 1}, 1: {"w": 2}}
+
+    def test_multigraph_view_deepcopies_as_plain_dict(self):
+        """deepcopy uses the same protocol surface as pickle; lock that
+        contract so a future change to __reduce__ doesn't accidentally
+        break copy.deepcopy on dict-of-dicts output."""
+        import copy
+        M = fnx.MultiGraph([(0, 1, {"w": 1}), (0, 1, {"w": 2})])
+        out = fnx.to_dict_of_dicts(M, nodelist=[0, 1])
+        deepc = copy.deepcopy(out)
+        assert deepc[0][1] == {0: {"w": 1}, 1: {"w": 2}}
+        assert isinstance(deepc[0][1], dict)
+
     def test_preserves_isolated_nodes(self):
         # Node 5 has no neighbors but should still be in the graph.
         d = {0: {1: {"weight": 1.0}}, 1: {0: {"weight": 1.0}}, 5: {}}
