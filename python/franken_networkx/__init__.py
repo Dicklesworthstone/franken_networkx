@@ -24306,6 +24306,11 @@ class _FilteredGraphView:
         # plain Graph).
         return (_reconstruct_filtered_view_as_copy, (self.copy(),))
 
+    def __deepcopy__(self, memo):
+        copied = deepcopy(self.copy(), memo)
+        memo[id(self)] = copied
+        return copied
+
 
 _PRIVATE_NODE_OVERRIDE = "_fnx_private_node_override"
 _PRIVATE_ADJ_OVERRIDE = "_fnx_private_adj_override"
@@ -25125,7 +25130,7 @@ def _reconstruct_filtered_view_as_copy(graph_copy):
 _FILTERED_GRAPH_VIEW_TYPES = {
     (False, False): type(
         "Graph",
-        (_FilteredGraphView,),
+        (_FilteredGraphView, Graph),
         {
             "adjlist_inner_dict_factory": dict,
             "adjlist_outer_dict_factory": dict,
@@ -25139,7 +25144,7 @@ _FILTERED_GRAPH_VIEW_TYPES = {
     ),
     (True, False): type(
         "DiGraph",
-        (_FilteredGraphView,),
+        (_FilteredGraphView, DiGraph),
         {
             "adjlist_inner_dict_factory": dict,
             "adjlist_outer_dict_factory": dict,
@@ -25153,7 +25158,7 @@ _FILTERED_GRAPH_VIEW_TYPES = {
     ),
     (False, True): type(
         "MultiGraph",
-        (_FilteredGraphView,),
+        (_FilteredGraphView, MultiGraph),
         {
             "adjlist_inner_dict_factory": dict,
             "adjlist_outer_dict_factory": dict,
@@ -25169,7 +25174,7 @@ _FILTERED_GRAPH_VIEW_TYPES = {
     ),
     (True, True): type(
         "MultiDiGraph",
-        (_FilteredGraphView,),
+        (_FilteredGraphView, MultiDiGraph),
         {
             "adjlist_inner_dict_factory": dict,
             "adjlist_outer_dict_factory": dict,

@@ -117,6 +117,14 @@ def test_adj_view_repickle_roundtrips():
 
 
 @pytest.mark.parametrize("name,builder", GRAPH_BUILDERS, ids=[b[0] for b in GRAPH_BUILDERS])
+def test_subgraph_view_isinstance_matches_graph_class(name, builder):
+    """Filtered subgraph views must remain public graph-class instances."""
+    G = builder(fnx)
+    sg = G.subgraph([0, 1, 2])
+    assert isinstance(sg, getattr(fnx, name))
+
+
+@pytest.mark.parametrize("name,builder", GRAPH_BUILDERS, ids=[b[0] for b in GRAPH_BUILDERS])
 def test_subgraph_view_pickle_roundtrips(name, builder):
     """``G.subgraph(nbunch)`` returns a `_FilteredGraphView` whose
     `__class__` is a synthetic subclass of `_FilteredGraphView` named
