@@ -37996,6 +37996,81 @@ def _bulk_add_backend_dispatch_kwargs():
 _bulk_add_backend_dispatch_kwargs()
 
 
+def _bulk_coerce_negative_depth_to_zero():
+    """br-r37-c1-trav-depth-bulk: same defect family as br-r37-c1-
+    {w1smc, udsdu}. The Rust traversal bindings declare
+    `depth_limit` / `cutoff` as unsigned int — negative values
+    raise OverflowError. nx walks `range(depth)` / while-loop
+    which trivially yields nothing on negatives, returning empty
+    or source-only results.
+
+    Wrap each affected function so a negative `depth_limit` /
+    `cutoff` is coerced to 0 (nx-equivalent degenerate result)
+    before the Rust binding sees it. Other arg shapes pass
+    through unchanged.
+    """
+    import functools as _ft
+    import inspect as _inspect
+
+    # Map: function name -> kwarg name to coerce
+    targets = {
+        "dfs_edges": "depth_limit",
+        "dfs_predecessors": "depth_limit",
+        "dfs_successors": "depth_limit",
+        "dfs_postorder_nodes": "depth_limit",
+        "dfs_preorder_nodes": "depth_limit",
+        "single_source_shortest_path_length": "cutoff",
+        "single_target_shortest_path": "cutoff",
+        "single_target_shortest_path_length": "cutoff",
+        "all_pairs_shortest_path": "cutoff",
+        "all_pairs_shortest_path_length": "cutoff",
+    }
+
+    ns = globals()
+
+    for fn_name, kwarg_name in targets.items():
+        raw = ns.get(fn_name)
+        if raw is None:
+            continue
+        try:
+            sig = _inspect.signature(raw)
+        except (TypeError, ValueError):
+            continue
+        if kwarg_name not in sig.parameters:
+            continue
+        # Find the positional index of the kwarg (for *args support).
+        param_names = list(sig.parameters)
+        kwarg_idx = param_names.index(kwarg_name)
+
+        def _make_wrapper(raw_fn, idx, name):
+            @_ft.wraps(raw_fn)
+            def wrapper(*args, **kwargs):
+                # Try keyword first, then positional.
+                if name in kwargs:
+                    val = kwargs[name]
+                    if val is not None:
+                        try:
+                            if int(val) < 0:
+                                kwargs[name] = 0
+                        except (TypeError, ValueError):
+                            pass
+                elif idx < len(args):
+                    val = args[idx]
+                    if val is not None:
+                        try:
+                            if int(val) < 0:
+                                args = args[:idx] + (0,) + args[idx + 1:]
+                        except (TypeError, ValueError):
+                            pass
+                return raw_fn(*args, **kwargs)
+            return wrapper
+
+        ns[fn_name] = _make_wrapper(raw, kwarg_idx, kwarg_name)
+
+
+_bulk_coerce_negative_depth_to_zero()
+
+
 def _install_mutation_detection_on_node_views():
     """br-mutiter: nx detects mutation during ``for n in G.nodes(): ...``
     and raises ``RuntimeError('dictionary changed size during iteration')``.

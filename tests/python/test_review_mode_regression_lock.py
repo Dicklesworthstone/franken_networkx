@@ -962,6 +962,45 @@ def test_exception_type_parity(name, builder, call, exc):
         call(fnx, G_fnx)
 
 
+_NEGATIVE_DEPTH_OR_CUTOFF_FUNCS = [
+    ("dfs_edges", "depth_limit", lambda fn, m, G: list(fn(G, 0, depth_limit=-1))),
+    ("dfs_predecessors", "depth_limit", lambda fn, m, G: dict(fn(G, 0, depth_limit=-1))),
+    ("dfs_successors", "depth_limit", lambda fn, m, G: dict(fn(G, 0, depth_limit=-1))),
+    ("dfs_postorder_nodes", "depth_limit", lambda fn, m, G: list(fn(G, 0, depth_limit=-1))),
+    ("dfs_preorder_nodes", "depth_limit", lambda fn, m, G: list(fn(G, 0, depth_limit=-1))),
+    ("single_source_shortest_path_length", "cutoff",
+     lambda fn, m, G: dict(fn(G, 0, cutoff=-1))),
+    ("all_pairs_shortest_path", "cutoff",
+     lambda fn, m, G: dict(fn(G, cutoff=-1))),
+    ("all_pairs_shortest_path_length", "cutoff",
+     lambda fn, m, G: dict(fn(G, cutoff=-1))),
+]
+
+
+@pytest.mark.parametrize(
+    "name,kwarg,op",
+    _NEGATIVE_DEPTH_OR_CUTOFF_FUNCS,
+    ids=[t[0] for t in _NEGATIVE_DEPTH_OR_CUTOFF_FUNCS],
+)
+def test_traversal_negative_depth_bulk_matches_nx(name, kwarg, op):
+    """br-r37-c1-trav-depth-bulk: same defect family as br-r37-c1-
+    {w1smc, udsdu}. The Rust traversal bindings declare
+    depth_limit/cutoff as unsigned int — negative values raised
+    OverflowError. nx walks `range(depth)` / while-loop, which
+    trivially yields nothing on negatives. The bulk retrofit
+    `_bulk_coerce_negative_depth_to_zero` wraps each affected
+    function so negative depth/cutoff is coerced to 0
+    (nx-equivalent degenerate result) before the Rust binding
+    sees it. Lock parity on all 8 sibling functions."""
+    G_f = fnx.path_graph(5)
+    G_n = nx.path_graph(5)
+    f_fn = getattr(fnx, name)
+    n_fn = getattr(nx, name)
+    f_result = op(f_fn, fnx, G_f)
+    n_result = op(n_fn, nx, G_n)
+    assert f_result == n_result
+
+
 def test_traversal_negative_depth_or_cutoff_matches_nx():
     """br-r37-c1-bfs-depth: same defect class as br-r37-c1-w1smc.
     The Rust BFS/DFS bindings declared `depth_limit` / `cutoff` as
