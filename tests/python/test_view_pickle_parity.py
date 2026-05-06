@@ -739,6 +739,56 @@ _CONVERSION_EDGE_BUILDERS = [
 ]
 
 
+_REVERSE_EDGE_BUILDERS = [
+    ("DiGraph", lambda: fnx.DiGraph([(0, 1), (1, 2), (2, 0)]),
+     lambda: nx.DiGraph([(0, 1), (1, 2), (2, 0)])),
+    ("MultiDiGraph",
+     lambda: fnx.MultiDiGraph([(0, 1), (0, 1), (1, 2)]),
+     lambda: nx.MultiDiGraph([(0, 1), (0, 1), (1, 2)])),
+]
+
+
+@pytest.mark.parametrize("name,fnx_builder,nx_builder", _REVERSE_EDGE_BUILDERS,
+                         ids=[b[0] for b in _REVERSE_EDGE_BUILDERS])
+def test_reverse_view_edges_set_protocol(name, fnx_builder, nx_builder):
+    """br-r37-c1-rev-{eq,setops,mditer}: `_ReverseEdgeView`
+    (DG.reverse(copy=False).edges) had no Set protocol at all —
+    no __eq__, no __le__/__lt__/__ge__/__gt__, no isdisjoint,
+    no | & - ^. nx's reverse view edges inherit from Set; iterating
+    multigraph reverse views yielded 2-tuples instead of 3-tuples
+    (asymmetric default).
+
+    Lock the full Set protocol + multigraph iter shape on reverse
+    views."""
+    G_f = fnx_builder()
+    G_n = nx_builder()
+    rv_f = G_f.reverse(copy=False)
+    rv_n = G_n.reverse(copy=False)
+
+    e_f = rv_f.edges
+    e_n = rv_n.edges
+
+    # Iter parity (multigraph yields 3-tuples)
+    assert sorted(list(e_f)) == sorted(list(e_n))
+
+    # Equality
+    assert e_f == e_f
+    assert e_n == e_n
+
+    # Subset/superset
+    assert (e_f <= set(e_f)) is True
+    assert (e_f >= e_f) is True
+
+    # isdisjoint
+    assert e_f.isdisjoint({("__notreal__", "__notreal2__")}) is True
+    assert e_f.isdisjoint(e_f) is False
+
+    # Algebra
+    assert isinstance(e_f & set(e_f), set)
+    assert isinstance(e_f | set(e_f), set)
+    assert isinstance(e_f - set(e_f), set)
+
+
 @pytest.mark.parametrize("name,fnx_builder,nx_builder", _CONVERSION_EDGE_BUILDERS,
                          ids=[b[0] for b in _CONVERSION_EDGE_BUILDERS])
 def test_conversion_view_edges_set_protocol(name, fnx_builder, nx_builder):

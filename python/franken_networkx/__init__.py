@@ -24305,6 +24305,11 @@ class _ReverseEdgeView:
         return self._view._edges(nbunch=nbunch, data=data, keys=keys, default=default)
 
     def __iter__(self):
+        # br-r37-c1-rev-mditer: nx's MultiEdgeView/InMultiEdgeView
+        # default keys=True for __iter__ but keys=False for __call__
+        # (asymmetric). Match across reverse views too.
+        if self._view._graph.is_multigraph():
+            return iter(self(keys=True))
         return iter(self())
 
     def __len__(self):
@@ -24334,6 +24339,53 @@ class _ReverseEdgeView:
         return self._view._edges(
             nbunch=nbunch, data=data, keys=keys, default=default
         )
+
+    # br-r37-c1-rev-setops: nx's reverse view edges inherit from Set;
+    # the wrapper had no Set protocol at all. Same defect family as
+    # br-r37-c1-{fbtk0, s89yr, ovudh}; identical fix shape on a
+    # different wrapper class.
+    def __eq__(self, other):
+        from collections.abc import Set as _Set
+        if isinstance(other, _ReverseEdgeView):
+            return set(self) == set(other)
+        if isinstance(other, _Set):
+            return set(self) == set(other)
+        return NotImplemented
+
+    def __ne__(self, other):
+        eq = self.__eq__(other)
+        if eq is NotImplemented:
+            return NotImplemented
+        return not eq
+
+    def __le__(self, other):
+        return set(self) <= set(other) if hasattr(other, "__iter__") else NotImplemented
+
+    def __lt__(self, other):
+        return set(self) < set(other) if hasattr(other, "__iter__") else NotImplemented
+
+    def __ge__(self, other):
+        return set(self) >= set(other) if hasattr(other, "__iter__") else NotImplemented
+
+    def __gt__(self, other):
+        return set(self) > set(other) if hasattr(other, "__iter__") else NotImplemented
+
+    def isdisjoint(self, other):
+        return set(self).isdisjoint(other)
+
+    def __and__(self, other):
+        return set(self) & set(other)
+
+    def __or__(self, other):
+        return set(self) | set(other)
+
+    def __sub__(self, other):
+        return set(self) - set(other)
+
+    def __xor__(self, other):
+        return set(self) ^ set(other)
+
+    __hash__ = None
 
     get = _adjacency_view_get
     keys = _adjacency_view_keys
