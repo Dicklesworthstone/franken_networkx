@@ -27695,8 +27695,23 @@ def to_pandas_adjacency(
 
 def from_prufer_sequence(sequence):
     """Reconstruct labeled tree from Prüfer sequence."""
-    edges = _fnx.from_prufer_sequence_rust(list(sequence))
-    n = len(sequence) + 2
+    # br-r37-c1-prufer-oob: the Rust binding panicked with
+    # "index out of bounds" when any value in the sequence was
+    # >= n (where n = len(sequence) + 2), and raised
+    # OverflowError on negative values.  nx validates up front
+    # and raises NetworkXError("Invalid Prufer sequence: Values
+    # must be between 0 and {n-1}, got {bad}").  Validate at the
+    # wrapper to avoid leaking a Rust panic / typeless OverflowError
+    # into Python — same defect family as br-r37-c1-{rgg-neg, ...}
+    # but with a CRITICAL panic-on-input dimension.
+    seq = list(sequence)
+    n = len(seq) + 2
+    for value in seq:
+        if not isinstance(value, int) or value < 0 or value >= n:
+            raise NetworkXError(
+                f"Invalid Prufer sequence: Values must be between 0 and {n - 1}, got {value}"
+            )
+    edges = _fnx.from_prufer_sequence_rust(seq)
     G = Graph()
     for i in range(n):
         G.add_node(i)

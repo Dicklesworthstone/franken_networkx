@@ -962,6 +962,38 @@ def test_exception_type_parity(name, builder, call, exc):
         call(fnx, G_fnx)
 
 
+def test_from_prufer_sequence_panic_on_oob_value_match_nx():
+    """br-r37-c1-prufer-oob: from_prufer_sequence panicked the Rust
+    backend with ``index out of bounds`` when any value in the
+    sequence was >= n (where n = len(sequence) + 2), and raised
+    OverflowError on negative values.  nx validates and raises
+    NetworkXError(``Invalid Prufer sequence: Values must be between
+    0 and {n-1}, got {bad}``).  Lock parity + no-panic guarantee.
+
+    [CRITICAL]: a PyO3 PanicException leaking from a public API on
+    valid Python input (a list of ints) is far worse than a typed
+    error — it's UB-flavored, not handle-able with normal
+    try/except contracts."""
+    n_seq = 4  # any sequence of length 2 → n=4, valid range [0, 3]
+    bad_cases = [([0, 1, -1], 4, -1),    # negative value
+                 ([5, 5], 3, 5),          # value > n-1
+                 ([4, 4], 3, 4),          # value == n
+                 ([0, 99], 3, 99)]        # large value
+    for seq, hi, bad in bad_cases:
+        match = f"between 0 and {hi}, got {bad}"
+        with pytest.raises(nx.NetworkXError, match=match):
+            fnx.from_prufer_sequence(seq)
+    # Valid sequences still work and produce nx-equivalent trees
+    for seq in ([], [0], [3, 3], [0, 0], [0, 1], [1, 2, 3], [0, 1, 2, 3, 4, 5]):
+        Gf = fnx.from_prufer_sequence(seq)
+        Gn = nx.from_prufer_sequence(seq)
+        assert Gf.number_of_nodes() == Gn.number_of_nodes()
+        assert Gf.number_of_edges() == Gn.number_of_edges()
+        assert sorted(map(tuple, map(sorted, Gf.edges()))) == sorted(
+            map(tuple, map(sorted, Gn.edges()))
+        )
+
+
 def test_balanced_tree_negative_r_match_nx_geometric_formula():
     """br-r37-c1-bt-neg-r: balanced_tree(r, h) for negative r used to
     short-circuit blanket-return ``empty_graph(0)``.  nx instead
