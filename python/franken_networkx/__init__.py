@@ -3247,6 +3247,41 @@ class _DiEdgeMethodView:
     def __repr__(self):
         return repr(self._method(self._graph))
 
+    # br-r37-c1-iev-eq-data: CROSS-REVIEW gaps in br-r37-c1-7gej0.
+    # nx.InEdgeView is set-like (inherits from Set), so two view
+    # accesses on the same graph compare equal. fnx's wrapper used
+    # default `object.__eq__` (identity), so `G.in_edges == G.in_edges`
+    # was False — a real parity break for any code that compares
+    # views.
+    def __eq__(self, other):
+        # Match nx's Set-inheritance semantics exactly: equal only to
+        # another set-like view of the same edges. Lists / tuples are
+        # NOT equal to a view (nx's `view == [...]` returns False).
+        from collections.abc import Set as _Set
+        if isinstance(other, _DiEdgeMethodView):
+            return set(self) == set(other)
+        if isinstance(other, _Set):
+            return set(self) == set(other)
+        return NotImplemented
+
+    def __hash__(self):
+        return id(self._graph) ^ id(self._method)
+
+    # nx.InEdgeView/OutEdgeView expose a `.data()` method returning an
+    # EdgeDataView. Used by `for u, v, attrs in G.in_edges.data():`
+    # and `G.in_edges.data('weight', default=0)`. Delegate to the
+    # underlying method with the appropriate kwargs.
+    def data(self, data=True, default=None, nbunch=None):
+        # `data` parameter: True -> yield (u, v, attrs); a string ->
+        # yield (u, v, attr_value_or_default); False -> yield (u, v).
+        # Match nx's signature exactly.
+        return self._method(
+            self._graph,
+            nbunch=nbunch,
+            data=data,
+            default=default,
+        )
+
 
 def _make_edge_method_view_property(method):
     def getter(self):

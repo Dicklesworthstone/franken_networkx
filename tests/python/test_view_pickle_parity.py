@@ -527,6 +527,46 @@ def test_in_edges_len_works(name, builder):
     assert len(G.out_edges) == G.number_of_edges()
 
 
+# ---------------------------------------------------------------------------
+# DiGraph.in_edges/out_edges: equality + .data() (br-r37-c1-iev-eq-data)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("name,builder", _DI_EDGE_BUILDERS,
+                         ids=[b[0] for b in _DI_EDGE_BUILDERS])
+def test_in_edges_view_equality_is_set_like(name, builder):
+    """nx.InEdgeView inherits from Set so two view accesses on the
+    same graph compare equal (not by identity, by content). The
+    initial _DiEdgeMethodView used default object.__eq__ — accessed
+    twice it returned False. Lock set-like equality semantics."""
+    G = builder()
+    assert G.in_edges == G.in_edges
+    assert G.out_edges == G.out_edges
+    # vs set-of-edges: True (both set-like)
+    edges_set = set(G.in_edges)
+    assert G.in_edges == edges_set
+    # vs list: False — matches nx (Set != list)
+    assert (G.in_edges == list(G.in_edges)) is False
+
+
+def test_in_edges_data_method():
+    """nx.InEdgeView exposes a .data() method that yields (u, v,
+    attrs) triples, optionally with attr-name + default. The
+    initial fix exposed only __iter__ + __call__; this locks the
+    .data(), .data(attr), .data(attr, default=...) signatures."""
+    DG = fnx.DiGraph([(0, 1, {"w": 5}), (1, 2, {"w": 3})])
+    DG_n = nx.DiGraph([(0, 1, {"w": 5}), (1, 2, {"w": 3})])
+
+    assert sorted(DG.in_edges.data()) == sorted(DG_n.in_edges.data())
+    assert sorted(DG.in_edges.data("w")) == sorted(DG_n.in_edges.data("w"))
+    assert sorted(DG.in_edges.data("missing", default=0)) == sorted(
+        DG_n.in_edges.data("missing", default=0)
+    )
+
+    # out_edges too
+    assert sorted(DG.out_edges.data()) == sorted(DG_n.out_edges.data())
+
+
 def test_subgraph_view_loses_live_filtering_after_pickle():
     """The live subgraph view tracks filter changes against its parent
     graph. After pickle, the restored object is independent (matches
