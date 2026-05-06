@@ -16128,15 +16128,24 @@ def barabasi_albert_graph(
 def balanced_tree(r, h, create_using=None):
     """Return the perfectly balanced r-ary tree of height h.
 
-    br-btneg: nx.balanced_tree(-1, 3) returns an empty Graph; fnx's
-    Rust binding raised OverflowError on negative r. Short-circuit to
-    an empty graph (matching nx's behavior) before the Rust call.
+    br-r37-c1-bt-neg-r: nx routes balanced_tree through
+    full_rary_tree using n = (1 - r**(h+1)) // (1 - r) (or h+1 for
+    r==1).  Negative r yields varied n (positive when h+1 is even
+    — geometric sum is positive — negative when h+1 is odd, since
+    the alternating series flips sign).  fnx previously short-
+    circuited all r<0 to empty_graph(0), masking nx's NetworkXError
+    on negative n and producing 0-node graphs where nx returns 1+
+    isolated nodes.  Match nx's formula exactly and let
+    full_rary_tree handle the n<0 contract (br-r37-c1-frt-neg).
     """
-    if r < 0 or h < 0:
-        return empty_graph(0, create_using=create_using)
-    if create_using is None:
+    if (
+        create_using is None
+        and isinstance(r, int)
+        and isinstance(h, int)
+        and r >= 0
+        and h >= 0
+    ):
         return _rust_balanced_tree(r, h)
-
     if r == 1:
         n = h + 1
     else:

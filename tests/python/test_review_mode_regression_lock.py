@@ -962,6 +962,34 @@ def test_exception_type_parity(name, builder, call, exc):
         call(fnx, G_fnx)
 
 
+def test_balanced_tree_negative_r_match_nx_geometric_formula():
+    """br-r37-c1-bt-neg-r: balanced_tree(r, h) for negative r used to
+    short-circuit blanket-return ``empty_graph(0)``.  nx instead
+    routes through the geometric-series formula
+    ``n = (1 - r**(h+1)) // (1 - r)`` and dispatches to
+    full_rary_tree, yielding either positive-n graphs (when h+1 is
+    even) or NetworkXError (when h+1 is odd and yields negative n).
+    Lock parity across sign×parity combinations."""
+    # h+1 even (n positive): isolated-nodes graph
+    for r, h, expected_n in [(-1, 0, 1), (-1, 2, 1), (-2, 0, 1),
+                              (-2, 2, 3), (-3, 0, 1), (-3, 2, 7)]:
+        Gf = fnx.balanced_tree(r, h)
+        Gn = nx.balanced_tree(r, h)
+        assert Gf.number_of_nodes() == Gn.number_of_nodes() == expected_n
+        assert Gf.number_of_edges() == Gn.number_of_edges() == 0
+    # h+1 odd, negative r: nx raises NetworkXError on computed n<0
+    for r, h, neg_n in [(-2, 1, -1), (-2, 3, -5), (-3, 1, -2),
+                         (-3, 3, -20)]:
+        match = f"Negative number of nodes not valid: {neg_n}"
+        with pytest.raises(nx.NetworkXError, match=match):
+            fnx.balanced_tree(r, h)
+    # Positive args still go through Rust fast-path with parity
+    Gf = fnx.balanced_tree(3, 2)
+    Gn = nx.balanced_tree(3, 2)
+    assert Gf.number_of_nodes() == Gn.number_of_nodes() == 13
+    assert Gf.number_of_edges() == Gn.number_of_edges() == 12
+
+
 def test_random_powerlaw_tree_sequence_nonpositive_n_match_nx():
     """br-r37-c1-rpts-neg: same defect family as br-r37-c1-{rgg-neg,
     pjf7g, srgg-neg, trgg-neg, 60f9n, waxman-neg, gtg-neg, hszkp,
