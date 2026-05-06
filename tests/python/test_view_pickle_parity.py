@@ -711,6 +711,49 @@ def test_degree_view_equality_via_dict(name, builder):
         assert (G.in_degree == G.out_degree) is False
 
 
+_SIMPLE_GRAPH_BUILDERS = [
+    ("Graph", lambda m: m.Graph([(0, 1, {"w": 1}), (1, 2, {"w": 2})])),
+    ("DiGraph", lambda m: m.DiGraph([(0, 1, {"w": 1}), (1, 2, {"w": 2})])),
+]
+
+
+@pytest.mark.parametrize("name,builder", _SIMPLE_GRAPH_BUILDERS,
+                         ids=[b[0] for b in _SIMPLE_GRAPH_BUILDERS])
+def test_subgraph_view_edges_set_protocol(name, builder):
+    """br-r37-c1-fev-{eq,setops}: subgraph view's edges
+    (`_FilteredEdgeView`) had partial Set protocol coverage —
+    `__or__/__and__/__sub__/__xor__` worked, but:
+      - `__eq__` only handled set/frozenset, returned NotImplemented
+        for another _FilteredEdgeView. `sg.edges == sg.edges` was
+        False.
+      - `__le__/__lt__/__ge__/__gt__` were missing entirely —
+        `sg.edges <= G.edges` raised TypeError.
+      - `isdisjoint` was missing — AttributeError.
+
+    Lock the full Set protocol on subgraph view edges for simple
+    graphs. (MultiGraph / MultiDiGraph subgraph view has a separate
+    iter-shape defect — `sg.edges` yields 2-tuples instead of
+    3-tuples — to be addressed in a follow-up cycle.)"""
+    G = builder(fnx)
+    G_n = builder(nx)
+    sg_f = G.subgraph([n for n in list(G.nodes())[:3]])
+    sg_n = G_n.subgraph([n for n in list(G_n.nodes())[:3]])
+
+    # Equality: True (was False)
+    assert sg_f.edges == sg_f.edges
+    # Subset
+    assert sg_f.edges <= G.edges
+    # Superset
+    assert G.edges >= sg_f.edges
+    # isdisjoint with disjoint set
+    assert sg_f.edges.isdisjoint({("__notreal__", "__notreal2__")}) is True
+    # Set algebra still works
+    assert isinstance(sg_f.edges & set(sg_f.edges), set)
+    # nx parity check
+    assert sg_n.edges == sg_n.edges
+    assert sg_n.edges <= G_n.edges
+
+
 @pytest.mark.parametrize("name,builder", GRAPH_BUILDERS, ids=[b[0] for b in GRAPH_BUILDERS])
 def test_node_view_isdisjoint(name, builder):
     """br-r37-c1-nv-isdisjoint: nx's NodeView inherits from

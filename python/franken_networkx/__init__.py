@@ -24573,9 +24573,45 @@ class _FilteredEdgeView:
         return set(other) ^ set(self)
 
     def __eq__(self, other):
-        if isinstance(other, (set, frozenset)):
-            return set(self) == other
+        # br-r37-c1-fev-eq: subgraph view's edges crashed `view==view`
+        # because each `sg.edges` access creates a fresh
+        # _FilteredEdgeView instance. The previous __eq__ only
+        # handled set/frozenset, falling through to NotImplemented
+        # for another _FilteredEdgeView — Python then used default
+        # identity comparison which returned False. nx's
+        # filtered EdgeView is set-like; match its content-based
+        # equality across all set-like types.
+        from collections.abc import Set as _Set
+        if isinstance(other, _FilteredEdgeView):
+            return set(self) == set(other)
+        if isinstance(other, _Set):
+            return set(self) == set(other)
         return NotImplemented
+
+    def __ne__(self, other):
+        eq = self.__eq__(other)
+        if eq is NotImplemented:
+            return NotImplemented
+        return not eq
+
+    # br-r37-c1-fev-setops: nx's filtered EdgeView inherits from Set
+    # so all comparison + isdisjoint work. The previous fnx wrapper
+    # had partial coverage (-, |, &, ^) but missing <=, <, >=, >,
+    # and isdisjoint.
+    def __le__(self, other):
+        return set(self) <= set(other) if hasattr(other, "__iter__") else NotImplemented
+
+    def __lt__(self, other):
+        return set(self) < set(other) if hasattr(other, "__iter__") else NotImplemented
+
+    def __ge__(self, other):
+        return set(self) >= set(other) if hasattr(other, "__iter__") else NotImplemented
+
+    def __gt__(self, other):
+        return set(self) > set(other) if hasattr(other, "__iter__") else NotImplemented
+
+    def isdisjoint(self, other):
+        return set(self).isdisjoint(other)
 
     __hash__ = None
 
