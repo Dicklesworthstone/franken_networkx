@@ -962,6 +962,29 @@ def test_exception_type_parity(name, builder, call, exc):
         call(fnx, G_fnx)
 
 
+def test_backend_kwarg_accepted_on_dispatchable_functions():
+    """br-r37-c1-spbk: nx adds `backend=None, **backend_kwargs` to
+    all dispatchable functions via the @_dispatchable decorator.
+    Drop-in code that does `fn(G, ..., backend='networkx')` crashed
+    on fnx with `TypeError: got an unexpected keyword argument
+    'backend'`. Lock the dispatch surface on a sample of frequently-
+    used functions: shortest_path, is_connected, connected_components,
+    number_connected_components."""
+    G = fnx.path_graph(5)
+    # All four accept backend=...
+    fnx.shortest_path(G, 0, 4, backend="networkx")
+    fnx.is_connected(G, backend="networkx")
+    list(fnx.connected_components(G, backend="networkx"))
+    fnx.number_connected_components(G, backend="networkx")
+    # Match nx's signature exactly via inspect
+    import inspect
+    for name in ("shortest_path", "is_connected", "connected_components",
+                 "number_connected_components"):
+        f_params = set(inspect.signature(getattr(fnx, name)).parameters)
+        n_params = set(inspect.signature(getattr(nx, name)).parameters)
+        assert f_params == n_params, f"{name} signature diverges: fnx={f_params}, nx={n_params}"
+
+
 def test_write_gexf_byte_parity_with_nx():
     """br-r37-c1-wgexf-parity: the prior Rust-native write_gexf
     fast path's XML declaration diverged from nx's lxml-based
