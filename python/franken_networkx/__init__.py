@@ -17059,6 +17059,13 @@ def gnm_random_graph(n, m, seed=None, directed=False, *, create_using=None):
         return _call_networkx_for_parity(
             "gnm_random_graph", n, m, seed=seed, directed=directed, create_using=create_using
         )
+    # br-r37-c1-gnm-neg: nx raises NetworkXError on negative ``n``;
+    # fnx previously silently returned an empty graph (range(n)
+    # yielded nothing). Match nx's structural-error contract — same
+    # fix shape as br-r37-c1-{rgg-neg, pjf7g, srgg-neg, trgg-neg,
+    # 60f9n, waxman-neg, gtg-neg, hszkp}.
+    if isinstance(n, int) and n < 0:
+        raise NetworkXError(f"Negative number of nodes not valid: {n}")
     import random as _random
 
     rng = _random.Random(seed)
