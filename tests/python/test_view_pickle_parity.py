@@ -251,6 +251,81 @@ def test_reverse_view_is_frozen(name, view_builder, op_name, op):
         op(rv)
 
 
+# ---------------------------------------------------------------------------
+# Conversion view pickle parity (br-r37-c1-cgv-pkl)
+# ---------------------------------------------------------------------------
+
+
+_CONVERSION_VIEW_BUILDERS = [
+    ("Graph_to_directed", lambda: fnx.path_graph(5).to_directed(as_view=True),
+     "DiGraph"),
+    ("DiGraph_to_undirected",
+     lambda: fnx.DiGraph([(0, 1), (1, 2)]).to_undirected(as_view=True),
+     "Graph"),
+    ("MultiGraph_to_directed",
+     lambda: fnx.MultiGraph(
+         [(0, 1), (0, 1), (1, 2)]).to_directed(as_view=True),
+     "MultiDiGraph"),
+    ("MultiDiGraph_to_undirected",
+     lambda: fnx.MultiDiGraph(
+         [(0, 1), (0, 1), (1, 2)]).to_undirected(as_view=True),
+     "MultiGraph"),
+]
+
+
+@pytest.mark.parametrize(
+    "name,view_builder,canonical_name", _CONVERSION_VIEW_BUILDERS,
+    ids=[b[0] for b in _CONVERSION_VIEW_BUILDERS],
+)
+def test_conversion_view_pickle_roundtrips(name, view_builder, canonical_name):
+    """br-r37-c1-cgv-pkl: same defect class as br-r37-c1-{neb6c, fgv-pkl}.
+    `_DIRECTED_CONVERSION_VIEW_TYPES` and
+    `_UNDIRECTED_CONVERSION_VIEW_TYPES` create synthetic classes
+    named "DiGraph"/"MultiDiGraph"/"Graph"/"MultiGraph" that share
+    `__qualname__` and `__module__` with the canonical classes but
+    are distinct class objects. Pickle's qualname-based class lookup
+    finds the canonical class, sees `lookup is not type(self)`, and
+    crashes with PicklingError.
+
+    Snapshot the conversion view as a real (canonical-class) graph
+    copy at pickle time."""
+    view = view_builder()
+    restored = pickle.loads(pickle.dumps(view))
+    canonical = getattr(fnx, canonical_name)
+    assert isinstance(restored, canonical)
+    assert type(restored) is canonical
+    # Edges and nodes preserved.
+    assert sorted(restored.nodes()) == sorted(view.nodes())
+    if view.is_multigraph():
+        assert sorted(restored.edges(keys=True)) == sorted(view.edges(keys=True))
+    else:
+        assert sorted(restored.edges()) == sorted(view.edges())
+
+
+@pytest.mark.parametrize(
+    "name,view_builder,canonical_name", _CONVERSION_VIEW_BUILDERS,
+    ids=[b[0] for b in _CONVERSION_VIEW_BUILDERS],
+)
+def test_conversion_view_deepcopy_roundtrips(name, view_builder, canonical_name):
+    """copy.deepcopy uses the same protocol surface as pickle."""
+    view = view_builder()
+    deepc = copy.deepcopy(view)
+    canonical = getattr(fnx, canonical_name)
+    assert isinstance(deepc, canonical)
+    assert sorted(deepc.nodes()) == sorted(view.nodes())
+
+
+def test_conversion_view_pickle_matches_nx():
+    """Edge-content parity check on the simple-graph conversion case
+    where nx's pickle also succeeds."""
+    G = fnx.path_graph(5)
+    G_n = nx.path_graph(5)
+    f_restored = pickle.loads(pickle.dumps(G.to_directed(as_view=True)))
+    n_restored = pickle.loads(pickle.dumps(G_n.to_directed(as_view=True)))
+    assert sorted(f_restored.nodes()) == sorted(n_restored.nodes())
+    assert sorted(f_restored.edges()) == sorted(n_restored.edges())
+
+
 def test_subgraph_view_loses_live_filtering_after_pickle():
     """The live subgraph view tracks filter changes against its parent
     graph. After pickle, the restored object is independent (matches
