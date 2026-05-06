@@ -2263,6 +2263,17 @@ class _WeightAwareDegreeView:
     def __repr__(self):
         return repr(self._raw)
 
+    def __reduce__(self):
+        # br-r37-c1-dv-pkl: pickle the raw Rust DegreeView (Graph) /
+        # DiDegreeView (DiGraph) crashes with TypeError("cannot pickle
+        # ... object") because PyO3 types lack default pickle support.
+        # Snapshot to a list of (node, degree) 2-tuples — matches the
+        # iteration shape of both fnx's and nx's DegreeView (which
+        # restores as DegreeView with the same sequence). Live-tracking
+        # is lost by design (matches nx — the underlying graph
+        # reference can't survive pickling).
+        return (list, (list(self),))
+
     def _weighted_value(self, node, weight):
         total = 0
         if self._direction == "in":
@@ -2684,6 +2695,20 @@ _SIMPLE_GRAPH_NODE_VIEW_TYPE.__reduce__ = _node_view_reduce
 _SIMPLE_DIGRAPH_NODE_VIEW_TYPE.__reduce__ = _node_view_reduce
 _MULTIGRAPH_NODE_VIEW_TYPE.__reduce__ = _node_view_reduce
 _MULTIDIGRAPH_NODE_VIEW_TYPE.__reduce__ = _node_view_reduce
+
+
+def _edge_view_reduce(self):
+    """br-r37-c1-ev-pkl: the Rust-bound Graph.edges EdgeView crashes
+    pickle with TypeError("cannot pickle 'franken_networkx.EdgeView'
+    object"). nx pickles G.edges successfully and restores as an
+    EdgeView with the same edge sequence. fnx's Rust EdgeView can't
+    be reconstructed without a Graph reference, so snapshot to a
+    plain list of (u, v) 2-tuples — preserves data and the iteration
+    protocol expected by `for u, v in G.edges:` style usage."""
+    return (list, (list(self),))
+
+
+_EDGE_VIEW_TYPE.__reduce__ = _edge_view_reduce
 
 
 def _make_keystr_preserving_getitem(raw):

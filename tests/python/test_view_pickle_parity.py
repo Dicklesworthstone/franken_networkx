@@ -375,6 +375,79 @@ def test_node_view_deepcopy_roundtrips(name, builder):
     assert dict(deepc) == {n: dict(G.nodes[n]) for n in G.nodes}
 
 
+# ---------------------------------------------------------------------------
+# G.edges + G.degree pickle parity (br-r37-c1-{ev-pkl, dv-pkl})
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("name,builder", GRAPH_BUILDERS, ids=[b[0] for b in GRAPH_BUILDERS])
+def test_edges_view_pickle_roundtrips(name, builder):
+    """`Graph.edges` is a Rust-bound EdgeView that crashed pickle.
+    DiGraph/MultiGraph/MultiDiGraph already worked via Python wrappers.
+    Lock that all four classes round-trip pickle and produce the same
+    edge sequence as nx after restore."""
+    G = builder(fnx)
+    G_n = builder(nx)
+    restored_f = pickle.loads(pickle.dumps(G.edges))
+    restored_n = pickle.loads(pickle.dumps(G_n.edges))
+    if G.is_multigraph():
+        # Multigraph yields (u, v, key); compare sorted
+        assert sorted(list(restored_f)) == sorted(list(restored_n))
+    else:
+        assert sorted(restored_f) == sorted(restored_n)
+
+
+@pytest.mark.parametrize("name,builder", GRAPH_BUILDERS, ids=[b[0] for b in GRAPH_BUILDERS])
+def test_degree_view_pickle_roundtrips(name, builder):
+    """`Graph.degree` and `DiGraph.degree` (via _WeightAwareDegreeView
+    wrapping the Rust DegreeView/DiDegreeView) crashed pickle.
+    MultiGraph/MultiDiGraph already worked. Lock that all four
+    round-trip and yield the same (node, degree) sequence as nx."""
+    G = builder(fnx)
+    G_n = builder(nx)
+    restored_f = pickle.loads(pickle.dumps(G.degree))
+    restored_n = pickle.loads(pickle.dumps(G_n.degree))
+    assert sorted(list(restored_f)) == sorted(list(restored_n))
+
+
+def test_edges_pickle_loses_live_tracking():
+    """Restored G.edges value is a snapshot — graph mutations after
+    pickle don't propagate to the restored sequence (matches nx's
+    snapshot semantics)."""
+    G = fnx.Graph([(0, 1)])
+    restored = pickle.loads(pickle.dumps(G.edges))
+    G.add_edge(2, 3)
+    assert (2, 3) not in list(restored)
+    assert (0, 1) in list(restored)
+
+
+def test_degree_pickle_loses_live_tracking():
+    """Same snapshot semantics for G.degree."""
+    G = fnx.Graph([(0, 1)])
+    restored = pickle.loads(pickle.dumps(G.degree))
+    G.add_edge(0, 99)  # increases degree of 0
+    # Restored value still has the original degrees
+    restored_dict = dict(restored)
+    assert restored_dict[0] == 1
+
+
+@pytest.mark.parametrize("name,builder", GRAPH_BUILDERS, ids=[b[0] for b in GRAPH_BUILDERS])
+def test_edges_view_deepcopy_roundtrips(name, builder):
+    G = builder(fnx)
+    deepc = copy.deepcopy(G.edges)
+    if G.is_multigraph():
+        assert sorted(list(deepc)) == sorted(list(G.edges))
+    else:
+        assert sorted(deepc) == sorted(G.edges)
+
+
+@pytest.mark.parametrize("name,builder", GRAPH_BUILDERS, ids=[b[0] for b in GRAPH_BUILDERS])
+def test_degree_view_deepcopy_roundtrips(name, builder):
+    G = builder(fnx)
+    deepc = copy.deepcopy(G.degree)
+    assert sorted(list(deepc)) == sorted(list(G.degree))
+
+
 def test_subgraph_view_loses_live_filtering_after_pickle():
     """The live subgraph view tracks filter changes against its parent
     graph. After pickle, the restored object is independent (matches
