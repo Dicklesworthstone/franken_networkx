@@ -962,6 +962,31 @@ def test_exception_type_parity(name, builder, call, exc):
         call(fnx, G_fnx)
 
 
+def test_write_gexf_byte_parity_with_nx():
+    """br-r37-c1-wgexf-parity: the prior Rust-native write_gexf
+    fast path's XML declaration diverged from nx's lxml-based
+    output: fnx wrote `"1.0" encoding="UTF-8"` (double quotes,
+    uppercase), nx writes `'1.0' encoding='utf-8'` (single quotes,
+    lowercase). Now `write_gexf` always delegates to nx for
+    byte-exact output. Lock byte parity (timestamps stripped since
+    nx's <meta lastmodifieddate=...> includes the current date)."""
+    import io, re
+    G_f = fnx.path_graph(3)
+    G_n = nx.path_graph(3)
+
+    buf_f = io.BytesIO()
+    buf_n = io.BytesIO()
+    fnx.write_gexf(G_f, buf_f)
+    nx.write_gexf(G_n, buf_n)
+
+    def strip_timestamps(b):
+        return re.sub(rb'lastmodifieddate="[^"]*"', b'lastmodifieddate=""', b)
+
+    assert strip_timestamps(buf_f.getvalue()) == strip_timestamps(buf_n.getvalue())
+    # XML decl uses single quotes + lowercase encoding (matches nx)
+    assert buf_f.getvalue().startswith(b"<?xml version='1.0' encoding='utf-8'?>")
+
+
 def test_write_multiline_adjlist_byte_parity_with_nx():
     """br-r37-c1-wmadj-header: nx prepends a 3-line timestamped
     comment header to the multiline-adjlist body; fnx previously

@@ -1570,19 +1570,34 @@ def read_gexf(path, node_type=None, relabel=False, version="1.2draft"):
 def write_gexf(G, path, encoding="utf-8", prettyprint=True, version="1.2draft"):
     """Write GEXF to ``path``.
 
-    Multigraph inputs route through ``nx.write_gexf`` (matches upstream
-    nx's full parallel-edge semantics, franken_networkx-rrh32). Simple
-    graphs keep the native Rust writer path.
+    br-r37-c1-wgexf-parity: previously the simple-graph default path
+    used a Rust-native writer whose XML declaration diverged from
+    nx's lxml-based output: fnx wrote
+    ``<?xml version="1.0" encoding="UTF-8"?>`` (double quotes,
+    uppercase encoding) while nx writes
+    ``<?xml version='1.0' encoding='utf-8'?>`` (single quotes,
+    lowercase). Same defect family as br-r37-c1-{eeawk, nlkkm,
+    nhgtp} (write_adjlist / write_graphml / write_multiline_adjlist
+    byte-parity gaps). Always delegate to nx for byte-exact output.
     """
-    from franken_networkx import _fnx
-
     _validate_gexf_version(version)
     if G.is_multigraph():
         _write_gexf_via_nx(
             G, path, encoding=encoding, prettyprint=prettyprint, version=version
         )
         return
-    return _fnx.write_gexf(G, path)
+    # Simple graph path: convert to nx Graph/DiGraph and delegate
+    # to nx.write_gexf for byte-exact XML declaration parity.
+    from networkx.readwrite.gexf import write_gexf as _upstream_write_gexf
+
+    _upstream_write_gexf(
+        _simple_to_nx(G),
+        path,
+        encoding=encoding,
+        prettyprint=prettyprint,
+        version=version,
+    )
+    return
 
 
 def generate_gexf(G, encoding="utf-8", prettyprint=True, version="1.2draft"):
@@ -1711,6 +1726,23 @@ def _multigraph_to_nx(G):
         out.add_node(node, **dict(attrs))
     for u, v, key, attrs in G.edges(keys=True, data=True):
         out.add_edge(u, v, key=key, **dict(attrs))
+    return out
+
+
+def _simple_to_nx(G):
+    """Convert an fnx Graph/DiGraph to the matching nx class for
+    delegation to nx writers. Used by write_gexf
+    (br-r37-c1-wgexf-parity) to route simple graphs through nx
+    for byte-exact XML output."""
+    import networkx as _nx_mod
+
+    cls = _nx_mod.DiGraph if G.is_directed() else _nx_mod.Graph
+    out = cls()
+    out.graph.update(dict(G.graph))
+    for node, attrs in G.nodes(data=True):
+        out.add_node(node, **dict(attrs))
+    for u, v, attrs in G.edges(data=True):
+        out.add_edge(u, v, **dict(attrs))
     return out
 
 
