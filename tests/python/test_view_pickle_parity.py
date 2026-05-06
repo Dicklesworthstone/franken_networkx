@@ -717,6 +717,47 @@ _SIMPLE_GRAPH_BUILDERS = [
 ]
 
 
+_MULTI_BUILDERS_FOR_FILTER = [
+    ("MultiGraph", lambda m: m.MultiGraph([(0, 1), (0, 1), (1, 2)])),
+    ("MultiDiGraph", lambda m: m.MultiDiGraph([(0, 1), (0, 1), (1, 2)])),
+]
+
+
+@pytest.mark.parametrize("name,builder", _MULTI_BUILDERS_FOR_FILTER,
+                         ids=[b[0] for b in _MULTI_BUILDERS_FOR_FILTER])
+def test_subgraph_view_multigraph_edges_iter_yields_keys(name, builder):
+    """br-r37-c1-fev-mditer: nx's filtered MultiEdgeView/InMultiEdgeView
+    use asymmetric defaults — `__iter__` defaults `keys=True`
+    (yields 3-tuples), `__call__` defaults `keys=False` (yields
+    2-tuples). Same shape as the canonical-class fix
+    br-r37-c1-bnydo on _DiEdgeMethodView, but on _FilteredEdgeView.
+
+    fnx's `_FilteredEdgeView.__iter__` previously did
+    `iter(self())` — inheriting `keys=False`, so iteration yielded
+    2-tuples on multigraph subgraphs. `for u, v, k in sg.edges:`
+    raised ValueError. Lock the asymmetric default."""
+    G = builder(fnx)
+    G_n = builder(nx)
+    sg_f = G.subgraph([0, 1, 2])
+    sg_n = G_n.subgraph([0, 1, 2])
+
+    # Iter yields 3-tuples (matches nx)
+    f_iter = sorted(list(sg_f.edges))
+    n_iter = sorted(list(sg_n.edges))
+    assert f_iter == n_iter
+    assert all(len(e) == 3 for e in f_iter)
+
+    # Callable with no args yields 2-tuples (back-compat)
+    f_call = sorted(list(sg_f.edges()))
+    n_call = sorted(list(sg_n.edges()))
+    assert f_call == n_call
+    assert all(len(e) == 2 for e in f_call)
+
+    # Documented idiom unpacks
+    unpacked = [(u, v, k) for u, v, k in sg_f.edges]
+    assert sorted(unpacked) == n_iter
+
+
 @pytest.mark.parametrize("name,builder", _SIMPLE_GRAPH_BUILDERS,
                          ids=[b[0] for b in _SIMPLE_GRAPH_BUILDERS])
 def test_subgraph_view_edges_set_protocol(name, builder):

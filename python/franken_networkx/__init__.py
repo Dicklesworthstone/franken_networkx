@@ -24516,6 +24516,14 @@ class _FilteredEdgeView:
         return self._view._edges(nbunch=nbunch, data=data, keys=keys)
 
     def __iter__(self):
+        # br-r37-c1-fev-mditer: nx's MultiEdgeView/InMultiEdgeView/etc.
+        # default `keys=True` for __iter__ but `keys=False` for
+        # __call__ (asymmetric). Match that exactly so
+        # `for u, v, k in sg.edges:` works on MultiGraph/MultiDiGraph
+        # subgraph views — parity with the canonical-class fix
+        # br-r37-c1-bnydo on _DiEdgeMethodView.
+        if self._view.is_multigraph():
+            return iter(self(keys=True))
         return iter(self())
 
     def __len__(self):
