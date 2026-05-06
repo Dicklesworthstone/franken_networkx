@@ -392,6 +392,32 @@ class TestDictOfDicts:
         G = fnx.from_dict_of_dicts({})
         assert G.number_of_nodes() == 0
 
+    @pytest.mark.parametrize(
+        "op_name,op",
+        [
+            ("setitem", lambda v: v.__setitem__("k", "foo")),
+            ("delitem", lambda v: v.__delitem__(0)),
+            ("clear", lambda v: v.clear()),
+            ("pop", lambda v: v.pop(0, None)),
+            ("popitem", lambda v: v.popitem()),
+            ("setdefault", lambda v: v.setdefault("k", "v")),
+            ("update", lambda v: v.update({"k": "v"})),
+            ("ior", lambda v: v.__ior__({"k": "v"})),
+        ],
+    )
+    def test_multigraph_view_mutation_raises_typeerror(self, op_name, op):
+        """br-r37-c1-lmev-mutate: the dict-subclass `_LiveMultiEdgeDataView`
+        from br-r37-c1-etbv4 inherited dict.__setitem__/clear/etc., which
+        silently mutated the always-empty inherited storage instead of
+        either propagating to the graph or raising. The view's read
+        methods never saw the assignment, and the underlying graph was
+        never updated — silent data loss. nx's AtlasView raises
+        TypeError on the same operations; lock that contract."""
+        M = fnx.MultiGraph([(0, 1, {"w": 1})])
+        view = fnx.to_dict_of_dicts(M, nodelist=[0, 1])[0][1]
+        with pytest.raises(TypeError, match="does not support item assignment"):
+            op(view)
+
     def test_preserves_isolated_nodes(self):
         # Node 5 has no neighbors but should still be in the graph.
         d = {0: {1: {"weight": 1.0}}, 1: {0: {"weight": 1.0}}, 5: {}}

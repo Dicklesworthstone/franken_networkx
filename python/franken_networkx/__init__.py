@@ -33209,6 +33209,29 @@ class _LiveMultiEdgeDataView(dict):
     def __repr__(self):
         return repr(dict(self.items()))
 
+    # br-r37-c1-lmev-mutate: dict-subclass inheritance from br-r37-c1-etbv4
+    # made `isinstance(view, dict)` True (good — restores nx parity for
+    # type-checks), but inherited dict.__setitem__/clear/update etc.
+    # silently mutated the inherited (always-empty) dict storage rather
+    # than the live graph or the user-visible view. Net effect: the
+    # assignment vanished — `view['k'] = v` returned without error,
+    # then iterating the view didn't show 'k', and the underlying graph
+    # was never updated. nx's AtlasView raises TypeError on the same
+    # operations; match that contract so silent data-loss can't happen.
+    def _readonly(self, *args, **kwargs):
+        raise TypeError(
+            f"'{type(self).__name__}' object does not support item assignment"
+        )
+
+    __setitem__ = _readonly
+    __delitem__ = _readonly
+    clear = _readonly
+    pop = _readonly
+    popitem = _readonly
+    setdefault = _readonly
+    update = _readonly
+    __ior__ = _readonly
+
 
 def _checked_create_using(create_using=None, *, directed=None, multigraph=None, default=Graph):
     """Validate and clear ``create_using`` using NetworkX's contract."""
