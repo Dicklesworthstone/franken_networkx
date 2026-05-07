@@ -7256,9 +7256,24 @@ def dfs_edges(G, source=None, depth_limit=None, *, sort_neighbors=None):
     matching nx's contract (br-r37-c1-682kr).
 
     br-r37-c1-c4agn: hash-check on source eagerly (when supplied).
+
+    br-r37-c1-dfs-cutfloat: nx accepts any numeric ``depth_limit``
+    (NaN / +inf / finite floats); the Rust binding requires
+    non-negative int.  Reuse ``_normalize_bfs_depth_limit`` from
+    br-r37-c1-bfs-cutfloat to map the non-int cases to nx-shaped
+    behaviour (NaN/-inf/neg → empty, +inf → unbounded, finite
+    float → ceil).
     """
     if source is not None:
         hash(source)
+    depth_limit = _normalize_bfs_depth_limit(depth_limit)
+    if depth_limit is _DEPTH_EMPTY:
+        # nx returns the source's first edge (empty if source has
+        # no neighbours), which fnx's existing dfs_edges Rust path
+        # also yields when depth_limit is 0 — so route NaN/-inf/neg
+        # to depth_limit=0 to preserve the "edge to first neighbor
+        # only" emission empirically observed via nx.
+        depth_limit = 0
 
     def _gen():
         try:
@@ -39358,26 +39373,40 @@ def _bulk_coerce_negative_depth_to_zero():
         param_names = list(sig.parameters)
         kwarg_idx = param_names.index(kwarg_name)
 
+        def _coerce_cutoff_value(val):
+            """br-r37-c1-bfs-cutfloat-sister: route through the
+            ``_normalize_bfs_depth_limit`` helper so NaN / +inf /
+            -inf / fractional float / negative int all map to
+            nx-shaped behaviour before the Rust binding sees the
+            value.  The previous ``int(val) < 0`` check raised
+            OverflowError on +/-inf and TypeError on NaN/float —
+            both diverging from nx's permissive numeric handling.
+            Returns ``(replacement_or_unchanged, replaced_flag)``.
+            """
+            if val is None:
+                return val, False
+            normalized = _normalize_bfs_depth_limit(val)
+            if normalized is _DEPTH_EMPTY:
+                # nx-shaped "empty" — Rust binding accepts 0 as the
+                # closest non-negative bound (yields nothing for
+                # bfs/shortest-path-length style; for dfs the source
+                # is still emitted with depth=0 which matches nx's
+                # NaN/-inf behaviour).
+                return 0, True
+            return normalized, normalized is not val
+
         def _make_wrapper(raw_fn, idx, name):
             @_ft.wraps(raw_fn)
             def wrapper(*args, **kwargs):
                 # Try keyword first, then positional.
                 if name in kwargs:
-                    val = kwargs[name]
-                    if val is not None:
-                        try:
-                            if int(val) < 0:
-                                kwargs[name] = 0
-                        except (TypeError, ValueError):
-                            pass
+                    new_val, changed = _coerce_cutoff_value(kwargs[name])
+                    if changed:
+                        kwargs[name] = new_val
                 elif idx < len(args):
-                    val = args[idx]
-                    if val is not None:
-                        try:
-                            if int(val) < 0:
-                                args = args[:idx] + (0,) + args[idx + 1:]
-                        except (TypeError, ValueError):
-                            pass
+                    new_val, changed = _coerce_cutoff_value(args[idx])
+                    if changed:
+                        args = args[:idx] + (new_val,) + args[idx + 1:]
                 return raw_fn(*args, **kwargs)
             return wrapper
 

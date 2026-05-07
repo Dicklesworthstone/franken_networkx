@@ -5063,3 +5063,57 @@ def test_bfs_edges_handles_nan_inf_float_depth_limit_match_nx():
         f_edges = list(fnx.bfs_edges(P, 0, depth_limit=dl))
         n_edges = list(nx.bfs_edges(P_nx, 0, depth_limit=dl))
         assert f_edges == n_edges, f"depth_limit={dl}: fnx={f_edges} != nx={n_edges}"
+
+
+def test_cutoff_depth_limit_family_normalized_match_nx():
+    """br-r37-c1-bfs-cutfloat-sister: extends br-r37-c1-bfs-
+    cutfloat (cycle 137) to the broader cutoff/depth_limit
+    family wrapped by the existing negative-int-coercion
+    decorator (dfs_edges, dfs_predecessors, dfs_successors,
+    dfs_postorder_nodes, dfs_preorder_nodes,
+    single_source_shortest_path_length, single_target_shortest_
+    path / _length, all_pairs_shortest_path / _length).
+
+    The existing wrapper used ``int(val) < 0`` which raised
+    OverflowError on ±inf and TypeError on NaN/float — same
+    underlying defect as br-r37-c1-asp-nan / -bfs-cutfloat.
+    Re-routed through ``_normalize_bfs_depth_limit`` so all
+    these functions handle NaN/±inf/float consistently.
+
+    Lock: each family member yields nx-matching output for the
+    boundary cases (NaN / ±inf / fractional float)."""
+    import math
+
+    P = fnx.path_graph(5)
+    P_nx = nx.path_graph(5)
+
+    # dfs_edges: NaN/-inf treated as 0 → first edge only
+    for dl in (float("nan"), -float("inf"), -1):
+        f = list(fnx.dfs_edges(P, 0, depth_limit=dl))
+        n = list(nx.dfs_edges(P_nx, 0, depth_limit=dl))
+        assert f == n, f"dfs_edges depth={dl}: fnx={f} != nx={n}"
+
+    # +inf and finite floats — full traversal
+    for dl in (float("inf"), 3.5, 4.0):
+        f = list(fnx.dfs_edges(P, 0, depth_limit=dl))
+        n = list(nx.dfs_edges(P_nx, 0, depth_limit=dl))
+        assert f == n
+
+    # Sister wrappers handled by the same decorator
+    for fn_name in ("dfs_predecessors", "dfs_successors",
+                    "dfs_postorder_nodes", "dfs_preorder_nodes"):
+        for dl in (float("inf"), 3.5):
+            f = list(getattr(fnx, fn_name)(P, 0, depth_limit=dl))
+            n = list(getattr(nx, fn_name)(P_nx, 0, depth_limit=dl))
+            assert f == n, f"{fn_name} depth={dl}: fnx={f} != nx={n}"
+
+    # shortest-path-length variants with cutoff=+inf / float
+    for dl in (float("inf"), 3.5):
+        f = dict(fnx.single_source_shortest_path_length(P, 0, cutoff=dl))
+        n = dict(nx.single_source_shortest_path_length(P_nx, 0, cutoff=dl))
+        assert f == n
+
+    for dl in (float("inf"), float("nan")):
+        f = dict(fnx.all_pairs_shortest_path_length(P, cutoff=dl))
+        n = dict(nx.all_pairs_shortest_path_length(P_nx, cutoff=dl))
+        assert f == n
