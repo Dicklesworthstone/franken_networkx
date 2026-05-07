@@ -3768,3 +3768,44 @@ def test_bfs_layers_is_true_generator():
     assert isinstance(r, types.GeneratorType)
     with pytest.raises(TypeError, match=r"'int' object is not iterable"):
         list(r)
+
+
+def test_parse_gml_error_message_format_matches_nx():
+    """br-r37-c1-gml-msg: nx's parse_gml uses a uniform error
+    template ``f"{category} #{i} has no {attr!r} attribute"``
+    (e.g. ``node #0 has no 'label' attribute``).  The Rust GML
+    reader emitted ``gml node {id} missing label`` and a few
+    other ad-hoc variants — same NetworkXError class but
+    different message text, so drop-in callers using
+    ``pytest.raises(NetworkXError, match=r"has no 'label'
+    attribute")`` failed.
+
+    Lock the actionable substring ``has no '<attr>' attribute``
+    across all five sibling violations.  The numeric index
+    cannot be perfectly recovered from the Rust error (it
+    carries the node-id, not the list-position), so the
+    template is best-effort: ``#{id}`` for label-missing,
+    ``#?`` for the others.  Pattern-matching tests should rely
+    on the trailing ``has no '<attr>' attribute`` portion."""
+    cases = [
+        ('graph [\n  node [id 100]\n]',
+         "label"),
+        ('graph [\n  node [id 0 label "a"]\n  edge [target 0]\n]',
+         "source"),
+        ('graph [\n  node [id 0 label "a"]\n  edge [source 0]\n]',
+         "target"),
+        ('graph [\n  node [label "a"]\n]',
+         "id"),
+        ('graph [\n  node [id 0 label "a"]\n  edge []\n]',
+         "source"),
+    ]
+    for gml, attr in cases:
+        with pytest.raises(nx.NetworkXError,
+                           match=fr"has no '{attr}' attribute"):
+            fnx.parse_gml(gml)
+
+    # Successful parse still works (regression)
+    G = fnx.parse_gml('graph [\n  node [id 0 label "a"]\n'
+                      '  node [id 1 label "b"]\n'
+                      '  edge [source 0 target 1]\n]')
+    assert sorted(G.edges()) == [("a", "b")]

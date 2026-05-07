@@ -593,7 +593,49 @@ def parse_gml(lines, label="label", destringizer=None):
         prefix = "readwrite `read_gml` failed closed: "
         if message.startswith(prefix):
             message = message[len(prefix):]
+        # br-r37-c1-gml-msg: nx's parse_gml uses a uniform error
+        # template ``f"{category} #{i} has no {attr!r} attribute"``
+        # (e.g. ``node #0 has no 'label' attribute``).  The Rust
+        # reader emits ``gml node {id} missing label`` and a few
+        # other ad-hoc variants — same NetworkXError class but
+        # different message text, so drop-in callers using
+        # ``pytest.raises(NetworkXError, match=r"has no 'label'
+        # attribute")`` failed.  Translate the most common
+        # variants to nx's wording so the actionable substring
+        # ``has no '<attr>' attribute`` is preserved.  The
+        # numeric index falls back to the node ``id`` (instead
+        # of the list-position) since the Rust message doesn't
+        # carry the position — close enough for pattern matching.
+        message = _translate_gml_error_to_nx(message)
         raise fnx.NetworkXError(message) from exc
+
+
+_GML_ERROR_TRANSLATIONS = (
+    # (regex pattern, replacement template)
+    # node missing label — ``gml node {id} missing label``
+    (re.compile(r"^gml node (\S+) missing label$"),
+     r"node #\1 has no 'label' attribute"),
+    # node missing id — no id available, use ``#?``
+    (re.compile(r"^gml node missing id$"),
+     "node #? has no 'id' attribute"),
+    # edge missing source/target — ``gml edge missing source/target:
+    # source=None target=Some(X)`` and the symmetric variant.
+    (re.compile(r"^gml edge missing source/target: source=None target=Some\(([^)]+)\)$"),
+     r"edge #? has no 'source' attribute"),
+    (re.compile(r"^gml edge missing source/target: source=Some\(([^)]+)\) target=None$"),
+     r"edge #? has no 'target' attribute"),
+    (re.compile(r"^gml edge missing source/target: source=None target=None$"),
+     "edge #? has no 'source' attribute"),
+)
+
+
+def _translate_gml_error_to_nx(message):
+    """Translate Rust GML reader error messages to nx-shaped wording."""
+    for pattern, template in _GML_ERROR_TRANSLATIONS:
+        match = pattern.match(message)
+        if match is not None:
+            return pattern.sub(template, message)
+    return message
 
 
 def from_graph6_bytes(bytes_in):
