@@ -10787,7 +10787,14 @@ def is_isolate(G, n):
     Second parameter renamed from the Rust binding's ``node`` to match
     networkx's public signature ``is_isolate(G, n)``.
     """
-    return _raw_is_isolate(G, n)
+    # br-r37-c1-isol-exc: nx implements ``is_isolate`` as
+    # ``G.degree(n) == 0`` so a missing node bubbles up
+    # ``NetworkXError("Node {n} is not in the graph.")`` from the
+    # degree view.  fnx's Rust binding raised ``NodeNotFound``
+    # (sibling-of NetworkXError, NOT a subclass), breaking
+    # ``except NetworkXError:`` callers that follow nx's contract.
+    # Mirror nx's one-liner so the typed-error contract aligns.
+    return G.degree(n) == 0
 
 # Algorithm functions — boundary
 from franken_networkx._fnx import (

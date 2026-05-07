@@ -568,9 +568,15 @@ class TestIsolates:
         assert fnx.number_of_isolates(D) == 1
 
     def test_is_isolate_nonexistent_raises(self):
+        # br-r37-c1-isol-exc: nx implements is_isolate as
+        # ``G.degree(n) == 0`` so missing-node errors flow from
+        # the degree view as NetworkXError, not NodeNotFound.
+        # NodeNotFound is a sibling of NetworkXError under
+        # NetworkXException — NOT a subclass — so the previous
+        # contract broke ``except NetworkXError:`` callers.
         G = fnx.Graph()
         G.add_node(0)
-        with pytest.raises(fnx.NodeNotFound):
+        with pytest.raises(fnx.NetworkXError, match=r"Node 99 is not in the graph"):
             fnx.is_isolate(G, 99)
 
 

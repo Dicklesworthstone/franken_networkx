@@ -3405,3 +3405,38 @@ def test_predecessor_directed_match_nx():
         fnx.predecessor(fnx.path_graph(3), 99)
     with pytest.raises(nx.NodeNotFound, match=r"Source 99 not in G"):
         fnx.predecessor(DG, 99)
+
+
+def test_is_isolate_bad_node_match_nx():
+    """br-r37-c1-isol-exc: ``is_isolate`` raised ``NodeNotFound``
+    on a missing node because the Rust binding _raw_is_isolate
+    used the wrong typed-error class.  ``NodeNotFound`` is a
+    sibling of ``NetworkXError`` (both descend from
+    ``NetworkXException``) — NOT a subclass — so callers
+    following nx's contract with ``except NetworkXError:`` did
+    not catch it.
+
+    nx implements ``is_isolate(G, n)`` as ``G.degree(n) == 0``,
+    so missing-node errors flow from the degree view as
+    ``NetworkXError("Node {n} is not in the graph.")``.  fnx now
+    mirrors that one-liner."""
+    P = fnx.path_graph(3)
+    DG = fnx.DiGraph([(0, 1)])
+    MG = fnx.MultiGraph([(0, 1)])
+
+    for G in (P, DG, MG):
+        with pytest.raises(nx.NetworkXError, match=r"Node 99 is not in the graph"):
+            fnx.is_isolate(G, 99)
+
+    # Valid regressions
+    iso = fnx.path_graph(3)
+    iso.add_node(7)
+    assert fnx.is_isolate(iso, 7) is True
+    assert fnx.is_isolate(iso, 1) is False
+
+    # DiGraph: isolated node has neither in nor out neighbors
+    DG2 = fnx.DiGraph([(0, 1)])
+    DG2.add_node(8)
+    assert fnx.is_isolate(DG2, 8) is True
+    assert fnx.is_isolate(DG2, 0) is False
+    assert fnx.is_isolate(DG2, 1) is False
