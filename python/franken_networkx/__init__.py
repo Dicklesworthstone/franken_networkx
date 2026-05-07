@@ -6835,8 +6835,37 @@ from franken_networkx._fnx import (
 
 
 def efficiency(G, u, v):
-    """br-isokw: ``G`` matches nx; Rust binding used ``g``."""
-    return _raw_efficiency(G, u, v)
+    """br-isokw: ``G`` matches nx; Rust binding used ``g``.
+
+    br-r37-c1-eff-int0: nx's reference implementation returns
+    literal ``int(0)`` on the disconnected case
+    (``except NetworkXNoPath: eff = 0``); the Rust raw binding
+    returns ``float(0.0)``.  Drop-in callers asserting
+    ``isinstance(result, int)`` on disconnected pairs (or
+    chaining ``efficiency`` results into other int-only paths)
+    saw a type mismatch.  Mirror nx's exact branching so the
+    no-path case matches.
+
+    br-r37-c1-eff-msg: also align the bad-source error message
+    — nx raises ``NodeNotFound("Source {u} is not in G")`` from
+    its underlying single_source_shortest_path call; the Rust
+    binding emitted ``Node {u} is not in G``.  Re-raising with
+    nx's exact wording keeps regex-matching tests intact.
+    """
+    try:
+        path_length = shortest_path_length(G, u, v)
+    except NetworkXNoPath:
+        return 0
+    except NodeNotFound as exc:
+        # Normalise the message to nx's exact wording.  nx
+        # raises ``Source {u}`` when the source is missing
+        # (single_source_shortest_path's first check) and
+        # ``Target {v}`` when only the target is missing
+        # (the inner shortest-path machinery).
+        if u not in G:
+            raise NodeNotFound(f"Source {u} is not in G") from exc
+        raise NodeNotFound(f"Target {v} is not in G") from exc
+    return 1 / path_length
 
 
 def global_efficiency(G):

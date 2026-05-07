@@ -4249,3 +4249,53 @@ def test_multiedgeview_subscript_specific_keyerror_match_nx():
     # underlying edge as (0, 1, 0)
     MG = fnx.MultiGraph([(0, 1)])
     assert MG.edges[(1, 0, 0)] == {}
+
+
+def test_efficiency_int_zero_on_disconnected_and_message_match_nx():
+    """br-r37-c1-eff-int0 / br-r37-c1-eff-msg: ``efficiency``
+    diverged from nx in two ways:
+
+    (1) Disconnected pair returned ``float(0.0)`` from the Rust
+        binding; nx's reference does ``except NetworkXNoPath:
+        eff = 0`` (literal int).
+
+    (2) Bad-node error message used ``Node {n} is not in G``
+        from the Rust path; nx says ``Source {u} is not in G``
+        (when source missing) or ``Target {v} is not in G``
+        (when only target missing).
+
+    Same int/float family as br-r37-c1-3ejen / 4jnwn /
+    transitivity.
+
+    Lock: disconnected → int(0); connected → float; u==v →
+    ZeroDivisionError; bad-source → 'Source {u} is not in G';
+    bad-target-only → 'Target {v} is not in G'."""
+    # Disconnected pair → int 0
+    G = fnx.Graph([(0, 1), (2, 3)])
+    val = fnx.efficiency(G, 0, 3)
+    assert val == 0
+    assert type(val) is int
+    assert val == nx.efficiency(nx.Graph([(0, 1), (2, 3)]), 0, 3)
+    assert type(val) is type(nx.efficiency(nx.Graph([(0, 1), (2, 3)]), 0, 3))
+
+    # Connected pair → float
+    P = fnx.path_graph(5)
+    val = fnx.efficiency(P, 0, 4)
+    assert val == 0.25
+    assert isinstance(val, float)
+
+    # u==v → ZeroDivisionError (matches nx; 1/0)
+    with pytest.raises(ZeroDivisionError):
+        fnx.efficiency(P, 1, 1)
+
+    # Bad source — nx exact wording
+    with pytest.raises(nx.NodeNotFound, match=r"Source 99 is not in G"):
+        fnx.efficiency(P, 99, 0)
+
+    # Bad target only (source valid) — nx says Target
+    with pytest.raises(nx.NodeNotFound, match=r"Target 99 is not in G"):
+        fnx.efficiency(P, 0, 99)
+
+    # Both bad → Source first (matches nx ordering)
+    with pytest.raises(nx.NodeNotFound, match=r"Source 99 is not in G"):
+        fnx.efficiency(P, 99, 100)
