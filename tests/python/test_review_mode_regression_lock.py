@@ -4417,3 +4417,49 @@ def test_filtered_view_has_node_tracks_parent_removals():
         sub2 = g.subgraph(["b", "c"])
         assert "a" not in sub2
         assert sub2.has_node("a") is False
+
+
+def test_filtered_view_size_with_weight_honors_filter():
+    """br-r37-c1-fgv-size: ``_FilteredGraphView.size(weight=w)``
+    inherited from the canonical Graph base class delegated to
+    the Rust raw size which read the parent's full Rust state
+    without honoring the view's filters.  Result:
+    ``view.size(weight="w")`` summed the parent's full edge
+    weight (including filtered-out edges) rather than the
+    visible subset.
+
+    Last of the three view-tracking sister fixes
+    (br-r37-c1-95ws4 graph-dict-identity, br-r37-c1-g8pso
+    has_node).  Closes the final pre-existing failure in
+    test_graph_utilities.py."""
+    for cls in (fnx.Graph, fnx.DiGraph, fnx.MultiGraph, fnx.MultiDiGraph):
+        g = cls()
+        for n in "abcd":
+            g.add_node(n)
+        for u, v, w in [("a", "b", 1), ("b", "c", 3), ("c", "d", 4)]:
+            g.add_edge(u, v, weight=w)
+
+        # subgraph_view filtering out 'd'
+        sub = fnx.subgraph_view(g, filter_node=lambda n: n != "d")
+
+        # Visible edges: a-b (w=1), b-c (w=3) → size weighted = 4
+        assert sub.size() == 2
+        assert sub.size(weight="weight") == 4.0
+        assert isinstance(sub.size(weight="weight"), float)
+
+        # Empty filter → 0 unweighted, 0.0 weighted
+        sub_empty = fnx.subgraph_view(g, filter_node=lambda n: False)
+        assert sub_empty.size() == 0
+        assert sub_empty.size(weight="weight") == 0.0
+
+        # No filter → full graph size
+        sub_all = fnx.subgraph_view(g, filter_node=lambda n: True)
+        assert sub_all.size() == 3
+        assert sub_all.size(weight="weight") == 8.0
+
+    # Subgraph (not subgraph_view) also honors the filter
+    g = fnx.Graph([("a", "b", {"weight": 1}),
+                   ("b", "c", {"weight": 3}),
+                   ("c", "d", {"weight": 4})])
+    sub = g.subgraph(["a", "b", "c"])
+    assert sub.size(weight="weight") == 4.0
