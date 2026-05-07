@@ -5019,3 +5019,47 @@ def test_all_simple_paths_handles_nan_inf_float_cutoff_match_nx():
         f_paths = list(fnx.all_simple_paths(P, 0, 4, cutoff=cv))
         n_paths = list(nx.all_simple_paths(P_nx, 0, 4, cutoff=cv))
         assert f_paths == n_paths, f"cutoff={cv}: fnx={f_paths} != nx={n_paths}"
+
+
+def test_bfs_edges_handles_nan_inf_float_depth_limit_match_nx():
+    """br-r37-c1-bfs-cutfloat: ``bfs_edges`` with non-integer
+    ``depth_limit`` (NaN / +inf / finite floats) raised
+    ``TypeError`` / ``OverflowError`` on fnx because the Rust
+    binding's PyO3 signature requires non-negative int.  nx
+    accepts any numeric depth_limit.
+
+    Sister of br-r37-c1-asp-nan (all_simple_paths cutoff).
+    Same family of "Rust binding rejects non-int but nx
+    accepts" defects across cutoff/depth_limit-accepting
+    functions.
+
+    Lock: NaN / -inf / negative → empty; +inf → unbounded;
+    finite float → ceil; None → unbounded; non-negative int
+    → bounded."""
+    P = fnx.path_graph(5)
+    full_path_edges = [(0, 1), (1, 2), (2, 3), (3, 4)]
+
+    # Empty cases
+    import math
+    for dl in (float("nan"), -float("inf"), -1, 0):
+        assert list(fnx.bfs_edges(P, 0, depth_limit=dl)) == []
+
+    # Bounded cases
+    assert list(fnx.bfs_edges(P, 0, depth_limit=1)) == [(0, 1)]
+
+    # Unbounded / full-path cases
+    for dl in (float("inf"), 4, None):
+        assert list(fnx.bfs_edges(P, 0, depth_limit=dl)) == full_path_edges
+
+    # Fractional float — ceil
+    for dl in (3.5, 3.7, 4.0, 4.5):
+        assert list(fnx.bfs_edges(P, 0, depth_limit=dl)) == full_path_edges
+
+    # Direct nx-output cross-check on the boundary cases that
+    # broke the Rust fast path before the wrapper normalised
+    P_nx = nx.path_graph(5)
+    for dl in (float("nan"), float("inf"), -float("inf"),
+               2.5, 3.5, 3.7, 4.0):
+        f_edges = list(fnx.bfs_edges(P, 0, depth_limit=dl))
+        n_edges = list(nx.bfs_edges(P_nx, 0, depth_limit=dl))
+        assert f_edges == n_edges, f"depth_limit={dl}: fnx={f_edges} != nx={n_edges}"

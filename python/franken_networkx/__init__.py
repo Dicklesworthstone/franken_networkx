@@ -7187,17 +7187,20 @@ def bfs_edges(G, source, reverse=False, depth_limit=None, sort_neighbors=None):
     negative depth_limit.
     """
     hash(source)
-    if depth_limit is not None:
-        try:
-            depth_int = int(depth_limit)
-            if depth_int < 0:
-                # Empty iteration matches nx contract.
-                def _empty():
-                    if False:
-                        yield
-                return _empty()
-        except (TypeError, ValueError):
-            pass  # Let the original code path surface the error.
+    # br-r37-c1-bfs-cutfloat: nx accepts any numeric ``depth_limit``
+    # (NaN / +inf / negative / float).  fnx's Rust binding's PyO3
+    # signature requires a non-negative int and raises TypeError /
+    # OverflowError on the floats.  Same family as br-r37-c1-asp-nan
+    # (all_simple_paths cutoff).  Normalise to None / int / -1 (for
+    # short-circuit-empty) before delegating.
+    depth_limit = _normalize_bfs_depth_limit(depth_limit)
+    if depth_limit is _DEPTH_EMPTY:
+        # Empty iteration matches nx contract on NaN, -inf, or
+        # negative int depth_limit.
+        def _empty():
+            if False:
+                yield
+        return _empty()
 
     def _gen():
         try:
@@ -7209,6 +7212,41 @@ def bfs_edges(G, source, reverse=False, depth_limit=None, sort_neighbors=None):
             raise NetworkXError(str(exc)) from exc
 
     return _gen()
+
+
+_DEPTH_EMPTY = object()  # sentinel for "no traversal" (NaN/-inf/neg)
+
+
+def _normalize_bfs_depth_limit(depth_limit):
+    """Map ``depth_limit`` to a value the Rust BFS binding accepts.
+
+    nx accepts any numeric (or None) and treats NaN / negative as
+    "no traversal" empty, +inf as unbounded.  The Rust binding
+    only accepts ``None`` or non-negative int.
+
+    Returns:
+      * None — unbounded (matches nx None or +inf)
+      * non-negative int — bounded (matches nx finite cutoff
+        rounded up via ceil)
+      * ``_DEPTH_EMPTY`` sentinel — empty iteration (matches nx
+        on NaN / -inf / negative int)
+    """
+    if depth_limit is None:
+        return None
+    # Numeric — coerce
+    try:
+        if isinstance(depth_limit, float):
+            if math.isnan(depth_limit):
+                return _DEPTH_EMPTY
+            if math.isinf(depth_limit):
+                return None if depth_limit > 0 else _DEPTH_EMPTY
+            depth_limit = math.ceil(depth_limit)
+        depth_int = int(depth_limit)
+    except (TypeError, ValueError):
+        return depth_limit  # let downstream surface the error
+    if depth_int < 0:
+        return _DEPTH_EMPTY
+    return depth_int
 
 
 def dfs_edges(G, source=None, depth_limit=None, *, sort_neighbors=None):
