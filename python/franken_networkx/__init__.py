@@ -21865,6 +21865,17 @@ def resistance_distance(G, nodeA=None, nodeB=None, weight=None, invert_weight=Tr
     if n == 0:
         return {} if nodeA is None else 0.0
 
+    # br-r37-c1-resd-disc: resistance distance is defined only on
+    # connected graphs (Laplacian pseudo-inverse on a disconnected
+    # graph yields meaningless cross-component values).  nx raises
+    # NetworkXError("Graph G must be strongly connected.") via
+    # @not_implemented_for('multigraph') / connectivity precheck.
+    # fnx silently computed numeric values on the pinv, masking the
+    # contract.  Same defect family as br-r37-c1-{rgg-neg, ...} but
+    # on a structural-precondition axis.
+    if not is_connected(G):
+        raise NetworkXError("Graph G must be strongly connected.")
+
     L = laplacian_matrix(G, nodelist=nodelist, weight=weight or "weight").toarray()
     # Pseudo-inverse of Laplacian
     L_pinv = np.linalg.pinv(L)

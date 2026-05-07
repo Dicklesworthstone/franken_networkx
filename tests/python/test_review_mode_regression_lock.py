@@ -2248,3 +2248,37 @@ def test_astar_path_length_preserves_int_type_match_nx():
     nr = nx.astar_path_length(make(nx, [(0, 1, 5), (1, 2, 3.5)]),
                               0, 2)
     assert type(fr) is type(nr) is float
+
+
+def test_resistance_distance_disconnected_raises_match_nx():
+    """br-r37-c1-resd-disc: resistance_distance silently returned
+    Laplacian-pseudo-inverse-derived numeric values on disconnected
+    graphs (cross-component values are meaningless), masking nx's
+    NetworkXError("Graph G must be strongly connected.").  Lock
+    parity for 4 disconnected configurations + connected
+    regression."""
+
+    def disc_two_comps():
+        return fnx.Graph([(0, 1), (2, 3)])
+
+    def disc_bigger():
+        return fnx.Graph([(0, 1), (1, 2), (3, 4), (4, 5)])
+
+    # Same-component nodes still raise (graph as a whole disconnected)
+    with pytest.raises(nx.NetworkXError, match="strongly connected"):
+        fnx.resistance_distance(disc_two_comps(), 0, 1)
+    # Cross-component
+    with pytest.raises(nx.NetworkXError, match="strongly connected"):
+        fnx.resistance_distance(disc_two_comps(), 0, 2)
+    # Larger disconnected
+    with pytest.raises(nx.NetworkXError, match="strongly connected"):
+        fnx.resistance_distance(disc_bigger(), 0, 4)
+    # Self-distance with disconnected graph
+    with pytest.raises(nx.NetworkXError, match="strongly connected"):
+        fnx.resistance_distance(disc_two_comps(), 0, 0)
+    # No-node-args dict form on disconnected
+    with pytest.raises(nx.NetworkXError, match="strongly connected"):
+        fnx.resistance_distance(disc_two_comps())
+    # Connected regression
+    assert abs(fnx.resistance_distance(fnx.complete_graph(4), 0, 2) - 0.5) < 1e-9
+    assert abs(fnx.resistance_distance(fnx.path_graph(5), 0, 4) - 4.0) < 1e-9
