@@ -3127,3 +3127,29 @@ def test_geometric_generators_dim_le_zero_raise_match_nx():
     # Valid dim still works (regression)
     assert fnx.random_geometric_graph(5, 0.5, dim=2, seed=42).number_of_nodes() == 5
     assert fnx.geographical_threshold_graph(5, 0.3, dim=2, seed=42).number_of_nodes() == 5
+
+
+def test_connected_watts_strogatz_bad_tries_match_nx():
+    """br-r37-c1-cws-tries: connected_watts_strogatz_graph leaked
+    Rust internal error formats on bad ``tries`` values:
+      * tries=0: ``ValueError(FailClosed { operation: ..., reason:
+        ... })`` — the Rust FailClosed wrapper format
+      * tries<0: ``OverflowError("can't convert negative int to
+        unsigned")`` — from the unsigned PyO3 signature
+
+    nx raises ``NetworkXError("Maximum number of tries exceeded")``
+    for both.  Lock parity."""
+    msg = "Maximum number of tries exceeded"
+
+    with pytest.raises(nx.NetworkXError, match=msg):
+        fnx.connected_watts_strogatz_graph(5, 2, 0.1, tries=0, seed=42)
+    with pytest.raises(nx.NetworkXError, match=msg):
+        fnx.connected_watts_strogatz_graph(5, 2, 0.1, tries=-1, seed=42)
+    with pytest.raises(nx.NetworkXError, match=msg):
+        fnx.connected_watts_strogatz_graph(5, 2, 0.1, tries=-100, seed=42)
+
+    # Valid tries still work
+    G = fnx.connected_watts_strogatz_graph(5, 2, 0.1, tries=100, seed=42)
+    assert G.number_of_nodes() == 5
+    G = fnx.connected_watts_strogatz_graph(5, 2, 0.1, tries=1, seed=42)
+    assert G.number_of_nodes() == 5

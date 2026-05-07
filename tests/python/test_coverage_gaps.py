@@ -1089,7 +1089,10 @@ class TestGenerators:
         assert nx.is_connected(nx_graph)
 
     def test_connected_watts_strogatz_zero_tries_raises(self):
-        with pytest.raises(ValueError, match="Maximum number of tries exceeded"):
+        # br-r37-c1-cws-tries: nx raises NetworkXError, not ValueError.
+        # Updated to match the nx-aligned contract.
+        import networkx as nx
+        with pytest.raises(nx.NetworkXError, match="Maximum number of tries exceeded"):
             fnx.connected_watts_strogatz_graph(12, 4, 0.2, tries=0, seed=42)
 
     def test_random_generators_support_create_using_via_networkx_fallback(self):

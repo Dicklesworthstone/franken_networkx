@@ -36830,6 +36830,14 @@ def connected_watts_strogatz_graph(n, k, p, tries=100, seed=None, *, create_usin
         return complete_graph(n, create_using=create_using)
     if k < 2:
         raise NetworkXError("Maximum number of tries exceeded")
+    # br-r37-c1-cws-tries: nx raises NetworkXError("Maximum number
+    # of tries exceeded") for tries <= 0; fnx's Rust binding leaked
+    # ``ValueError(FailClosed { ... })`` for tries=0 and
+    # ``OverflowError("can't convert negative int to unsigned")``
+    # for tries<0 (the unsigned Rust signature).  Validate at the
+    # wrapper to match nx's contract.
+    if isinstance(tries, int) and tries <= 0:
+        raise NetworkXError("Maximum number of tries exceeded")
     graph = _rust_connected_watts_strogatz_graph(
         n,
         k,
