@@ -90,6 +90,16 @@ def test_sparse6_direct_bytes_keep_trailing_newline_payload():
     assert list(graph.edges()) == list(expected.edges()) == [(0, 0)]
 
 
+def test_sparse6_direct_bytes_do_not_reject_high_byte_upfront():
+    with pytest.raises(IndexError, match="list index out of range"):
+        fnx.from_sparse6_bytes(b":\x7f")
+    with pytest.raises(IndexError, match="list index out of range"):
+        nx.from_sparse6_bytes(b":\x7f")
+
+    with pytest.raises(ValueError, match="must be in range"):
+        fnx.from_graph6_bytes(b"\x7f")
+
+
 def test_graph6_and_sparse6_read_multiple_graphs_from_binary_stream():
     graph6_graphs = fnx.read_graph6(BytesIO(b"A_\nC~\n\n"))
     sparse6_graphs = fnx.read_sparse6(BytesIO(b":An\n:CcKI\n\n"))

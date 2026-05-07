@@ -376,7 +376,7 @@ def _graph6_n_to_data(n):
     ]
 
 
-def _graph6_values(data):
+def _graph6_values(data, *, reject_high=True):
     """Convert ASCII graph6/sparse6 payload bytes into 6-bit values.
 
     br-r37-c1-g6-low-byte: nx only rejects high bytes (> 126); it
@@ -385,10 +385,14 @@ def _graph6_values(data):
     (sparse6) or the canonical "Expected N bits but got 0 in graph6"
     error (graph6).  fnx previously rejected low bytes upfront with
     a leaky ValueError, diverging from nx for inputs like
-    ``b'\\x00'`` and ``b':\\x00'``.  Match nx's high-byte-only check.
+    ``b'\\x00'`` and ``b':\\x00'``.
+
+    sparse6 is more permissive than graph6 in NetworkX: it does not
+    apply the high-byte guard before decoding the size prefix.  Keep
+    that behavior available for sparse6 direct-byte parity.
     """
     values = [byte - 63 for byte in data]
-    if any(value > 63 for value in values):
+    if reject_high and any(value > 63 for value in values):
         raise ValueError("each input character must be in range(63, 127)")
     return values
 
@@ -681,7 +685,7 @@ def from_sparse6_bytes(string):
     if not data.startswith(b":"):
         raise fnx.NetworkXError("Expected leading colon in sparse6")
 
-    values = _graph6_values(data[1:])
+    values = _graph6_values(data[1:], reject_high=False)
     n, values = _graph6_data_to_n(values)
     k = 1
     while 1 << k < n:
