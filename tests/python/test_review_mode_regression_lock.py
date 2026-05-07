@@ -4299,3 +4299,39 @@ def test_efficiency_int_zero_on_disconnected_and_message_match_nx():
     # Both bad → Source first (matches nx ordering)
     with pytest.raises(nx.NodeNotFound, match=r"Source 99 is not in G"):
         fnx.efficiency(P, 99, 100)
+
+
+def test_average_node_connectivity_int_zero_on_lt2_nodes():
+    """br-r37-c1-anc-int0: ``average_node_connectivity`` on a
+    graph with fewer than 2 nodes returned ``float(0.0)`` from
+    the Rust binding; nx returns literal ``int(0)`` from its
+    ``if den == 0: return 0`` branch (the (u, v) pair iterator
+    is empty, so num/den are never computed).
+
+    Same int/float family as br-r37-c1-eff-int0 (efficiency) /
+    3ejen (estrada_index) / 4jnwn (transitivity).
+
+    Lock: empty / single-node graphs return int 0; two
+    isolated-only nodes return float 0.0 (the divide branch
+    runs since den becomes 1); non-trivial inputs continue to
+    return float."""
+    # Empty / single-node — int 0
+    for build in (
+        lambda: fnx.Graph(),
+        lambda: (lambda g: (g.add_node(0), g)[1])(fnx.Graph()),
+    ):
+        v = fnx.average_node_connectivity(build())
+        assert v == 0
+        assert type(v) is int
+
+    # Two isolated nodes — float 0.0 (matches nx — divide ran)
+    G = fnx.Graph()
+    G.add_nodes_from([0, 1])
+    v = fnx.average_node_connectivity(G)
+    assert v == 0.0
+    assert isinstance(v, float)
+
+    # Non-trivial — float (regression)
+    assert isinstance(fnx.average_node_connectivity(fnx.complete_graph(2)), float)
+    assert isinstance(fnx.average_node_connectivity(fnx.path_graph(5)), float)
+    assert fnx.average_node_connectivity(fnx.complete_graph(5)) == 4.0
