@@ -2848,3 +2848,34 @@ def test_reconstruct_path_bad_node_raises_keyerror_match_nx():
     # Valid: regression
     path = fnx.reconstruct_path(0, 2, preds)
     assert path == [0, 2]
+
+
+def test_average_shortest_path_length_floyd_warshall_methods_match_nx():
+    """br-r37-c1-aspl-fw: average_shortest_path_length rejected
+    ``method='floyd-warshall'`` and ``method='floyd-warshall-numpy'``
+    with ValueError; nx accepts both via its standard dispatch.
+    Lock acceptance + value parity for both new methods + the
+    existing methods + bogus rejection."""
+    P = fnx.path_graph(5)
+    nP = nx.path_graph(5)
+
+    # Floyd-Warshall variants now match nx
+    for method in ("floyd-warshall", "floyd-warshall-numpy"):
+        assert fnx.average_shortest_path_length(P, method=method) == \
+               nx.average_shortest_path_length(nP, method=method)
+
+    # Weighted FW path
+    Gf = fnx.Graph([(0, 1, {"w": 5}), (1, 2, {"w": 3})])
+    Gn = nx.Graph([(0, 1, {"w": 5}), (1, 2, {"w": 3})])
+    for method in ("floyd-warshall", "floyd-warshall-numpy"):
+        f_val = fnx.average_shortest_path_length(Gf, weight="w", method=method)
+        n_val = nx.average_shortest_path_length(Gn, weight="w", method=method)
+        assert abs(f_val - n_val) < 1e-9
+
+    # Other methods still work (regression)
+    for method in (None, "unweighted", "dijkstra", "bellman-ford"):
+        assert fnx.average_shortest_path_length(P, method=method) == 2.0
+
+    # Bogus method still rejected
+    with pytest.raises(ValueError, match=r"method not supported: bogus"):
+        fnx.average_shortest_path_length(P, method="bogus")

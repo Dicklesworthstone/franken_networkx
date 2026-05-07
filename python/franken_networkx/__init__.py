@@ -4204,7 +4204,15 @@ def average_shortest_path_length(G, weight=None, method=None):
 
     Matches ``networkx.average_shortest_path_length`` signature.
     """
-    if method not in (None, "unweighted", "dijkstra", "bellman-ford"):
+    # br-r37-c1-aspl-fw: nx accepts ``method='floyd-warshall'`` and
+    # ``method='floyd-warshall-numpy'``; fnx previously rejected
+    # both with ``ValueError("method not supported: ...")``.
+    # Delegate those two paths to nx for parity.
+    _SUPPORTED_METHODS = (
+        None, "unweighted", "dijkstra", "bellman-ford",
+        "floyd-warshall", "floyd-warshall-numpy",
+    )
+    if method not in _SUPPORTED_METHODS:
         raise ValueError(f"method not supported: {method}")
     # br-asplint: nx returns literal int 0 for the single-node graph
     # (no divisions happen on that code path); fnx's Rust-native path
@@ -4212,6 +4220,15 @@ def average_shortest_path_length(G, weight=None, method=None):
     # checks downstream don't diverge.
     if G.number_of_nodes() == 1:
         return 0
+    # Floyd-Warshall variants don't have a fnx-native fast path; bridge
+    # to nx so the value parity is preserved.
+    if method in ("floyd-warshall", "floyd-warshall-numpy"):
+        kwargs = {"method": method}
+        if weight is not None:
+            kwargs["weight"] = weight
+        return _call_networkx_for_parity(
+            "average_shortest_path_length", G, **kwargs
+        )
     if weight is not None and method in (None, "dijkstra") and _should_delegate_dijkstra_to_networkx(G, weight):
         kwargs = {"weight": weight}
         if method is not None:
