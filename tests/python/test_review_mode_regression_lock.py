@@ -2165,3 +2165,38 @@ def test_dijkstra_bellman_ford_nonnumeric_weight_typeerror_match_nx():
             fnx.shortest_path(
                 Gf, 0, 2, weight="weight", method="bellman-ford"
             )
+
+
+def test_astar_path_nonnumeric_weight_typeerror_match_nx():
+    """br-r37-c1-astar-strw: astar_path / astar_path_length silently
+    returned a path when ``weight`` referenced edge values of
+    non-numeric type (str / list / dict).  Same defect family as
+    br-r37-c1-vi0zo (dijkstra/bellman_ford); the astar gate predates
+    the _has_nonnumeric_edge_weight helper.
+
+    Lock TypeError parity with nx for both functions across str /
+    list / dict, plus None-routes-to-NetworkXNoPath, plus numeric
+    regression."""
+    def make(lib, val):
+        G = lib.Graph()
+        G.add_edge(0, 1, weight=val)
+        G.add_edge(1, 2, weight=val)
+        return G
+
+    for fn_name in ("astar_path", "astar_path_length"):
+        f = getattr(fnx, fn_name)
+        for bad in ("abc", "5", [1, 2], {"x": 1}):
+            with pytest.raises(TypeError):
+                f(make(fnx, bad), 0, 2)
+        # None weight: nx returns NetworkXNoPath (Node 2 not reachable)
+        with pytest.raises(nx.NetworkXNoPath):
+            f(make(fnx, None), 0, 2)
+        # Numeric regression
+        G = fnx.Graph()
+        G.add_edge(0, 1, weight=5)
+        G.add_edge(1, 2, weight=3)
+        result = f(G, 0, 2)
+        if fn_name == "astar_path":
+            assert result == [0, 1, 2]
+        else:
+            assert result == 8 or result == 8.0  # type can vary

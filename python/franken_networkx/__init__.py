@@ -10581,7 +10581,16 @@ def astar_path(G, source, target, heuristic=None, weight="weight", *, cutoff=Non
     # edge with a finite negative weight (A* requires non-negative
     # weights to remain optimal). The negative-weight scan reuses the
     # native O(|E|) helper landed in br-r37-c1-644fx.
-    if _should_delegate_astar_to_networkx(weight, cutoff) or _has_negative_edge_weight_for_dijkstra(G, weight):
+    # br-r37-c1-astar-strw: also delegate when edge values at
+    # ``weight`` key are non-numeric (str / list / dict) — Rust
+    # silently treats them as 1.0; nx propagates a TypeError on the
+    # natural ``+`` accumulation.  Same defect family as
+    # br-r37-c1-vi0zo on dijkstra/bellman_ford.
+    if (
+        _should_delegate_astar_to_networkx(weight, cutoff)
+        or _has_negative_edge_weight_for_dijkstra(G, weight)
+        or _has_nonnumeric_edge_weight(G, weight)
+    ):
         return _call_networkx_for_parity(
             "astar_path",
             G,
@@ -10606,7 +10615,12 @@ def astar_path_length(
     G, source, target, heuristic=None, weight="weight", *, cutoff=None
 ):
     # br-r37-c1-bzio2: same gate update as astar_path.
-    if _should_delegate_astar_to_networkx(weight, cutoff) or _has_negative_edge_weight_for_dijkstra(G, weight):
+    # br-r37-c1-astar-strw: non-numeric weight delegation (sibling).
+    if (
+        _should_delegate_astar_to_networkx(weight, cutoff)
+        or _has_negative_edge_weight_for_dijkstra(G, weight)
+        or _has_nonnumeric_edge_weight(G, weight)
+    ):
         return _call_networkx_for_parity(
             "astar_path_length",
             G,
