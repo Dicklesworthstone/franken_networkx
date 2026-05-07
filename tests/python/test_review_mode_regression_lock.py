@@ -4128,3 +4128,64 @@ def test_degree_view_subscript_raises_keyerror_typeerror_match_nx():
         # Good subscript still returns degree (regression)
         assert G.degree[0] == 1
         assert G.degree[1] == 1
+
+
+def test_edges_subscript_message_and_typeerror_match_nx():
+    """br-r37-c1-eg-msg: ``G.edges[(u, v)]`` for missing edges
+    must raise ``KeyError(f"The edge {e} is not in the graph.")``
+    matching nx's exact message; unhashable endpoints must
+    raise ``TypeError`` (not silent KeyError on the tuple).
+
+    Previously fnx's ``_make_edge_view_getitem_preserving_key``
+    re-raised any KeyError with the raw edge tuple as the
+    KeyError arg, breaking ``pytest.raises(KeyError, match=
+    r"is not in the graph")`` callers.  The Rust raw binding
+    also rejected non-tuple subscripts (e.g. strings), where
+    nx accepts any 2-element iterable.
+
+    Lock: missing edges → KeyError with nx's wording;
+    unhashable endpoints → TypeError; non-iterable subscript →
+    TypeError("cannot unpack non-iterable …"); good edges
+    return data dict; string subscripts work as 2-iterables."""
+    P = fnx.path_graph(3)
+    DG = fnx.DiGraph([(0, 1), (1, 2)])
+
+    # Missing edge — exact nx message format
+    for G in (P, DG):
+        with pytest.raises(KeyError, match=r"The edge \(99, 0\) is not in the graph"):
+            G.edges[(99, 0)]
+        with pytest.raises(KeyError, match=r"The edge \(0, 99\) is not in the graph"):
+            G.edges[(0, 99)]
+
+    # Unhashable endpoints → TypeError
+    for G in (P, DG):
+        with pytest.raises(TypeError, match=r"unhashable type"):
+            G.edges[([1, 2], 0)]
+        with pytest.raises(TypeError, match=r"unhashable type"):
+            G.edges[(0, [1, 2])]
+
+    # Non-iterable subscript → unpack TypeError
+    with pytest.raises(TypeError, match=r"cannot unpack non-iterable"):
+        P.edges[123]
+    with pytest.raises(TypeError, match=r"cannot unpack non-iterable"):
+        P.edges[None]
+
+    # Mis-sized iterable → ValueError from unpack
+    with pytest.raises(ValueError, match=r"not enough values to unpack"):
+        P.edges[(1,)]
+    with pytest.raises(ValueError, match=r"too many values to unpack"):
+        P.edges[(1, 2, 3)]
+
+    # String subscript: nx accepts as 2-iterable; missing edge
+    # gets the standard nx message ("The edge xy is not …").
+    with pytest.raises(KeyError, match=r"The edge xy is not in the graph"):
+        P.edges["xy"]
+
+    # Good edges — returns data dict
+    assert P.edges[(0, 1)] == {}
+    assert DG.edges[(0, 1)] == {}
+
+    # Good string-named edge
+    G_s = fnx.Graph()
+    G_s.add_edge("x", "y")
+    assert G_s.edges["xy"] == {}

@@ -893,25 +893,29 @@ class TestDegreeNbunchFilter:
 
 
 class TestEdgeViewKeyErrorPreserved:
-    """G.edges[u, v] / G.edges[u, v, k] on a missing edge previously
-    raised KeyError with a stringified repr of the tuple. The Python
-    override preserves the original tuple.
+    """G.edges[u, v] on a missing edge raises KeyError with nx's
+    exact message ``"The edge {e} is not in the graph."``
+    (br-r37-c1-eg-msg superseded the earlier tuple-preserving
+    contract — pattern-matching tests against nx's wording were
+    breaking the previous fnx-only tuple form).
     """
 
-    def test_graph_edges_missing_preserves_tuple(self):
+    def test_graph_edges_missing_message_matches_nx(self):
         G = fnx.path_graph(3)
-        with pytest.raises(KeyError) as exc_info:
+        with pytest.raises(KeyError, match=r"The edge \(5, 6\) is not in the graph"):
             G.edges[5, 6]
-        assert exc_info.value.args[0] == (5, 6)
-        assert isinstance(exc_info.value.args[0], tuple)
 
-    def test_digraph_edges_missing_preserves_tuple(self):
+    def test_digraph_edges_missing_message_matches_nx(self):
         D = fnx.DiGraph([(0, 1)])
-        with pytest.raises(KeyError) as exc_info:
+        with pytest.raises(KeyError, match=r"The edge \(5, 6\) is not in the graph"):
             D.edges[5, 6]
-        assert exc_info.value.args[0] == (5, 6)
 
     def test_multigraph_edges_missing_triple_preserves_tuple(self):
+        # Multi* EdgeView still emits the raw tuple — the
+        # nx-message rewrite (br-r37-c1-eg-msg) covers only the
+        # simple Graph/DiGraph EdgeView; multi-edge subscripts
+        # have a different message shape in nx (KeyError on the
+        # missing key alone, not the full tuple).
         MG = fnx.MultiGraph([(0, 1)])
         with pytest.raises(KeyError) as exc_info:
             MG.edges[0, 1, "missing"]

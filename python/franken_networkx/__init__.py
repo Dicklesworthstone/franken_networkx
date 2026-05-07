@@ -971,9 +971,14 @@ class _DiGraphEdgeView:
         return self._graph.has_edge(u, v)
 
     def __getitem__(self, edge):
+        # br-r37-c1-eg-msg: match nx's exact error message shape
+        # ``KeyError(f"The edge {e} is not in the graph.")``.
+        # has_edge already raises TypeError on unhashable u/v
+        # (br-r37-c1-cvtv6) so unpack into has_edge handles both
+        # the missing and unhashable cases correctly.
         u, v = edge
         if not self._graph.has_edge(u, v):
-            raise KeyError(edge)
+            raise KeyError(f"The edge {edge} is not in the graph.")
         return self._graph.succ[u][v]
 
     def __call__(self, nbunch=None, data=False, default=None):
@@ -2862,13 +2867,44 @@ _MultiDiGraphEdgeView.data = _multi_edge_view_data
 def _make_edge_view_getitem_preserving_key(raw):
     """br-edgekey: wrap EdgeView.__getitem__ so KeyError carries the
     original edge tuple/key object rather than the Rust side's str repr.
+
+    br-r37-c1-eg-msg: nx's EdgeView.__getitem__ uses ``KeyError(
+    f"The edge {e} is not in the graph.")`` for missing edges and
+    propagates ``TypeError`` for unhashable endpoints from the
+    underlying ``self._adjdict[u]`` dict lookup.  fnx previously
+    wrapped any KeyError with the raw ``edge`` tuple, masking the
+    exception-message contract and silently catching TypeError on
+    unhashable endpoints.  Mirror nx's exact wording.
     """
 
     def __getitem__(self, edge):
+        # nx unpacks via ``u, v = e`` so non-iterable subscripts
+        # raise ``TypeError: cannot unpack non-iterable …`` and
+        # mis-sized iterables raise ValueError naturally — match
+        # the same unpack form for parity.  Hash-check after the
+        # unpack so unhashable u or v surfaces as nx's TypeError
+        # from the underlying ``self._adjdict[u]`` lookup.  String
+        # subscripts (``G.edges["xy"]``) are valid in nx — they
+        # unpack as 2-char tuples — but the Rust raw binding
+        # rejects non-tuple inputs, so look up via the adjacency
+        # mapping directly to keep parity.
+        u, v = edge
+        hash(u)
+        hash(v)
+        owner = _EDGE_VIEW_GRAPH_OWNER.get(id(self))
+        if owner is None:
+            try:
+                return raw(self, edge)
+            except KeyError as exc:
+                raise KeyError(
+                    f"The edge {edge} is not in the graph."
+                ) from exc
         try:
-            return raw(self, edge)
+            return owner.adj[u][v]
         except KeyError as exc:
-            raise KeyError(edge) from exc
+            raise KeyError(
+                f"The edge {edge} is not in the graph."
+            ) from exc
 
     return __getitem__
 
