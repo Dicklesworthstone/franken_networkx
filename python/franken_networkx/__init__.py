@@ -10722,7 +10722,28 @@ from franken_networkx._fnx import (
 
 
 def spanner(G, stretch, weight=None, seed=None):
-    """br-isokw: ``G`` matches nx; Rust binding used ``g``."""
+    """br-isokw: ``G`` matches nx; Rust binding used ``g``.
+
+    br-r37-c1-spnr-validate: nx raises NetworkXNotImplemented on
+    multigraph and ValueError("math domain error") on empty graph
+    (from internal ``log(0)``).  fnx's Rust binding silently
+    produced a regular Graph for both cases.  Pre-validate to
+    match nx's contracts.
+
+    Validation order matches nx:
+      1. stretch < 1 → ValueError("stretch must be at least 1")
+         (delegated to Rust binding for valid graphs)
+      2. multigraph → NetworkXNotImplemented
+      3. empty graph + valid stretch → ValueError("math domain
+         error") from log(0) leak
+    """
+    # nx checks stretch FIRST regardless of graph contents.
+    if not isinstance(stretch, (int, float)) or stretch < 1:
+        raise ValueError("stretch must be at least 1")
+    if G.is_multigraph():
+        raise NetworkXNotImplemented("not implemented for multigraph type")
+    if G.number_of_nodes() == 0:
+        raise ValueError("math domain error")
     return _raw_spanner(G, stretch, weight=weight, seed=seed)
 
 

@@ -3287,3 +3287,34 @@ def test_random_tree_n_zero_raises_pointless_match_nx():
     assert fnx.random_unlabeled_tree(5, seed=42).number_of_nodes() == 5
     assert fnx.random_labeled_rooted_tree(5, seed=42).number_of_nodes() == 5
     assert len(fnx.random_unlabeled_tree(5, number_of_trees=3, seed=42)) == 3
+
+
+def test_spanner_input_validation_match_nx():
+    """br-r37-c1-spnr-validate: spanner had two silent-no-op
+    failure modes:
+      * empty graph: silently returned empty Graph; nx raises
+        ValueError("math domain error") from internal log(0)
+      * multigraph: silently produced a regular Graph; nx raises
+        NetworkXNotImplemented
+
+    nx validates stretch FIRST regardless of graph contents
+    (returns "stretch must be at least 1" even on empty graph
+    with stretch=0).  Lock validation order + parity."""
+    # Stretch validation fires first
+    with pytest.raises(ValueError, match=r"stretch must be at least 1"):
+        fnx.spanner(fnx.Graph(), 0)
+    with pytest.raises(ValueError, match=r"stretch must be at least 1"):
+        fnx.spanner(fnx.path_graph(5), -1)
+
+    # Multigraph rejected with nx-matching error
+    with pytest.raises(nx.NetworkXNotImplemented,
+                       match=r"not implemented for multigraph type"):
+        fnx.spanner(fnx.MultiGraph([(0, 1), (0, 1)]), 2)
+
+    # Empty graph + valid stretch → math domain error
+    with pytest.raises(ValueError, match=r"math domain error"):
+        fnx.spanner(fnx.Graph(), 2)
+
+    # Valid: regression
+    G = fnx.spanner(fnx.path_graph(5), 2)
+    assert G.number_of_edges() == 4
