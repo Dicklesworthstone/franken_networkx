@@ -3179,3 +3179,29 @@ def test_newman_watts_strogatz_pathological_p_match_nx():
     # Valid in-range still works
     G = fnx.newman_watts_strogatz_graph(5, 2, 0.5, seed=42)
     assert G.number_of_edges() == 8
+
+
+def test_fast_gnp_random_graph_nan_p_raises_match_nx():
+    """br-r37-c1-fgnp-pnan: fast_gnp_random_graph silently returned
+    0 edges on p=NaN; nx leaks
+    ``ValueError("cannot convert float NaN to integer")`` from its
+    internal ``int(log(1-p)/...)`` computation.
+
+    Note: the asymmetry with gnp_random_graph is intentional —
+    gnp's slower Erdős-Rényi path accepts NaN silently
+    (random.random() < NaN evaluates False → no edges).  Only the
+    fast O(n+m) Batagelj-Brandes path's int conversion raises."""
+    msg = "cannot convert float NaN to integer"
+    with pytest.raises(ValueError, match=msg):
+        fnx.fast_gnp_random_graph(5, float("nan"), seed=42)
+    with pytest.raises(ValueError, match=msg):
+        fnx.fast_gnp_random_graph(5, float("nan"), seed=42, directed=True)
+
+    # Other pathological p values still pass through to silent
+    # extremes (matching nx)
+    assert fnx.fast_gnp_random_graph(5, float("inf"), seed=42).number_of_edges() == 10
+    assert fnx.fast_gnp_random_graph(5, -1.0, seed=42).number_of_edges() == 0
+    assert fnx.fast_gnp_random_graph(5, 2.0, seed=42).number_of_edges() == 10
+
+    # Valid: regression
+    assert fnx.fast_gnp_random_graph(5, 0.5, seed=42).number_of_edges() == 6

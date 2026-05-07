@@ -36724,6 +36724,17 @@ def fast_gnp_random_graph(n, p, seed=None, directed=False, *, create_using=None,
     if n < 0:
         raise NetworkXError(f"Negative number of nodes not valid: {n}")
 
+    # br-r37-c1-fgnp-pnan: nx leaks ValueError("cannot convert
+    # float NaN to integer") from its internal ``int(log(1-p)/...)``
+    # computation.  fnx silently routed NaN through the gnp
+    # fallback (which silently returns 0).  Match nx's leaky-but-
+    # stable contract.  Note: gnp_random_graph (the slower Erdős-
+    # Rényi path) intentionally accepts NaN silently — only
+    # fast_gnp's int-conversion path raises.
+    import math as _math
+    if isinstance(p, float) and _math.isnan(p):
+        raise ValueError("cannot convert float NaN to integer")
+
     # br-r37-c1-lsdek: out-of-range p is silent in nx (p<=0 -> empty,
     # p>=1 -> complete). The Rust fast path raises FailClosed for those,
     # so route to the boundary-aware gnp_random_graph wrapper.
