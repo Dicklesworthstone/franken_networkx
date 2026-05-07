@@ -3342,3 +3342,33 @@ def test_lfr_benchmark_graph_raises_exceeded_max_iterations_match_nx():
     # Valid-config regression
     G = fnx.LFR_benchmark_graph(50, 3.0, 1.5, 0.1, average_degree=5, seed=42)
     assert G.number_of_nodes() == 50
+
+
+def test_eulerian_path_bad_source_match_nx():
+    """br-r37-c1-eulpath-src-bad: eulerian_path raised
+    ``NodeNotFound`` (subclass of NetworkXException, NOT
+    NetworkXError) on a missing source; nx raises plain
+    ``NetworkXError("Node {n} is not in the graph.")``.
+    Sibling eulerian_circuit already used NetworkXError
+    correctly — eulerian_path was the gap.
+
+    Lock the typed-error contract for the Eulerian-graph case
+    (cycle_graph(3)).  Note: non-Eulerian graphs (e.g.
+    path_graph(3)) trigger a different internal path in nx that
+    leaks ``KeyError`` — fnx's wrapper validation now raises a
+    cleaner ``NetworkXError`` regardless, which is more
+    consistent than nx's contract here."""
+    cycle = fnx.cycle_graph(3)
+
+    # Bad source on Eulerian graph → NetworkXError matching nx
+    with pytest.raises(nx.NetworkXError, match=r"Node 99 is not in the graph"):
+        list(fnx.eulerian_path(cycle, source=99))
+
+    # Bad source on directed Eulerian graph also matches
+    DG = fnx.DiGraph([(0, 1), (1, 2), (2, 0)])
+    with pytest.raises(nx.NetworkXError, match=r"Node 99 is not in the graph"):
+        list(fnx.eulerian_path(DG, source=99))
+
+    # Valid source still works (regression)
+    assert list(fnx.eulerian_path(cycle, source=0)) == [(0, 1), (1, 2), (2, 0)]
+    assert list(fnx.eulerian_path(cycle)) == [(0, 1), (1, 2), (2, 0)]

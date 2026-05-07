@@ -6419,6 +6419,13 @@ def eulerian_path(G, source=None, keys=False):
     edge
         Edges in the Eulerian path.
     """
+    # br-r37-c1-eulpath-src-bad: nx raises NetworkXError("Node {n}
+    # is not in the graph.") on missing source; fnx's Rust binding
+    # raises NodeNotFound (subclass of NetworkXException, NOT
+    # NetworkXError).  Pre-validate at the wrapper to match the
+    # sibling eulerian_circuit's exception class.
+    if source is not None and source not in G:
+        raise NetworkXError(f"Node {source} is not in the graph.")
     # br-r37-c1-z4i7f: nx supports directed graphs; the Rust binding
     # only handles undirected. Delegate the directed case to nx.
     if G.is_directed():
