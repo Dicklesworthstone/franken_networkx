@@ -26122,6 +26122,13 @@ def _private_aware_has_node(raw_has_node):
 def _private_aware_has_edge_simple(raw_has_edge):
     """has_edge wrapper for non-multigraph types — nx signature is (u, v)."""
     def has_edge(self, u, v):
+        # br-r37-c1-hashed-he: nx's has_edge propagates ``TypeError:
+        # unhashable type: 'X'`` on unhashable u or v (the underlying
+        # ``self._adj[u]`` dict lookup raises).  fnx's Rust binding
+        # silently caught the error and returned False, masking
+        # caller bugs.  Hash-check eagerly to restore nx's contract.
+        hash(u)
+        hash(v)
         if not _has_networkx_private_storage(self):
             return raw_has_edge(self, u, v)
         if u not in self:
@@ -26138,6 +26145,12 @@ def _private_aware_has_edge_simple(raw_has_edge):
 def _private_aware_has_edge_multi(raw_has_edge):
     """has_edge wrapper for multigraph types — nx signature is (u, v, key=None)."""
     def has_edge(self, u, v, key=None):
+        # br-r37-c1-hashed-he: same as the simple variant — nx
+        # raises TypeError on unhashable u/v; fnx silently
+        # returned False.  Hash-check first.  ``key`` itself can
+        # be any hashable; we let downstream raise if it isn't.
+        hash(u)
+        hash(v)
         if not _has_networkx_private_storage(self):
             if key is None:
                 return raw_has_edge(self, u, v)

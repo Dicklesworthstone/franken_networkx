@@ -3809,3 +3809,45 @@ def test_parse_gml_error_message_format_matches_nx():
                       '  node [id 1 label "b"]\n'
                       '  edge [source 0 target 1]\n]')
     assert sorted(G.edges()) == [("a", "b")]
+
+
+def test_has_edge_unhashable_raises_typeerror_match_nx():
+    """br-r37-c1-hashed-he: nx's ``has_edge`` propagates
+    ``TypeError: unhashable type: 'X'`` on unhashable u or v —
+    the underlying ``self._adj[u]`` dict lookup raises.  fnx's
+    Rust binding silently caught the error and returned False,
+    masking caller bugs (e.g. accidentally passing a list as a
+    node identifier).
+
+    Lock: unhashable args must raise TypeError on every graph
+    type (Graph, DiGraph, MultiGraph, MultiDiGraph).  Hashable-
+    but-missing args still return False (nx contract preserved).
+    """
+    P = fnx.path_graph(3)
+    DG = fnx.DiGraph([(0, 1)])
+    MG = fnx.MultiGraph([(0, 1)])
+    MDG = fnx.MultiDiGraph([(0, 1)])
+
+    # Unhashable u
+    for G in (P, DG, MG, MDG):
+        with pytest.raises(TypeError, match=r"unhashable type"):
+            G.has_edge([1, 2], 0)
+        with pytest.raises(TypeError, match=r"unhashable type"):
+            G.has_edge(0, [1, 2])
+        with pytest.raises(TypeError, match=r"unhashable type"):
+            G.has_edge({1: 2}, 0)
+
+    # Multigraph with key=
+    for MG2 in (MG, MDG):
+        with pytest.raises(TypeError, match=r"unhashable type"):
+            MG2.has_edge([1, 2], 0, key=0)
+
+    # Hashable but missing — still returns False (regression)
+    assert P.has_edge(0, 99) is False
+    assert P.has_edge(99, 0) is False
+    assert DG.has_edge(99, 0) is False
+
+    # Good edges still True (regression)
+    assert P.has_edge(0, 1) is True
+    assert MG.has_edge(0, 1) is True
+    assert MG.has_edge(0, 1, key=0) is True
