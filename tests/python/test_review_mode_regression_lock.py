@@ -1867,3 +1867,29 @@ def test_htvy8_write_gexf_byte_parity_with_nx():
     def strip_dates(b):
         return re.sub(rb'lastmodifieddate="[^"]*"', b'lastmodifieddate=""', b)
     assert strip_dates(buf_f.getvalue()) == strip_dates(buf_n.getvalue())
+
+
+def test_disjoint_union_all_intersection_all_empty_message_match_nx():
+    """br-r37-c1-{djuall-msg, iall-msg}: empty-list error messages
+    diverged from nx's exact text.
+
+    * disjoint_union_all([]) — nx delegates the empty-list check
+      to union_all and leaks "cannot apply union_all to an empty
+      list"; fnx previously said "cannot apply disjoint_union_all
+      to an empty list" (more accurate but breaks string-match
+      callers).
+    * intersection_all([]) — fnx previously said "empty sequence"
+      where nx says "empty list".
+
+    Lock both for byte-identical message parity."""
+    with pytest.raises(ValueError,
+                       match=r"^cannot apply union_all to an empty list$"):
+        fnx.disjoint_union_all([])
+    with pytest.raises(ValueError,
+                       match=r"^cannot apply intersection_all to an empty list$"):
+        fnx.intersection_all([])
+    # Regression: non-empty calls still work
+    G = fnx.path_graph(2)
+    H = fnx.path_graph(2)
+    assert fnx.disjoint_union_all([G, H]).number_of_nodes() == 4
+    assert fnx.intersection_all([G, H]).number_of_nodes() == 2

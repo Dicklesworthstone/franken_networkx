@@ -15786,7 +15786,10 @@ def intersection_all(graphs):
     """
     graphs = list(graphs)
     if not graphs:
-        raise ValueError("cannot apply intersection_all to an empty sequence")
+        # br-r37-c1-iall-msg: nx phrases this as "empty list", not
+        # "empty sequence" — match exactly so caller-side string
+        # checks (and parity tests) align.
+        raise ValueError("cannot apply intersection_all to an empty list")
     _validate_same_graph_family(graphs)
 
     R = graphs[0].__class__()
@@ -15809,7 +15812,13 @@ def disjoint_union_all(graphs):
     """Return the disjoint union of all graphs in the iterable."""
     graphs = list(graphs)
     if not graphs:
-        raise ValueError("cannot apply disjoint_union_all to an empty list")
+        # br-r37-c1-djuall-msg: nx delegates the empty-list check to
+        # ``union_all`` and lets that error message bubble up — so
+        # the user-visible string says "union_all" rather than
+        # "disjoint_union_all".  Match the exact text so caller-side
+        # string checks align (the function-name nuance is a known
+        # nx leak, not a fnx improvement worth diverging on).
+        raise ValueError("cannot apply union_all to an empty list")
 
     _validate_same_graph_family(graphs)
 
