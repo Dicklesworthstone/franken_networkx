@@ -3257,3 +3257,33 @@ def test_powerlaw_cluster_graph_nan_p_match_nx():
 
     # Valid p regression
     assert fnx.powerlaw_cluster_graph(5, 2, 0.5, seed=42).number_of_edges() == 6
+
+
+def test_random_tree_n_zero_raises_pointless_match_nx():
+    """br-r37-c1-rut-zero: random_unlabeled_tree(n=0) and
+    random_labeled_rooted_tree(n=0) silently returned an empty
+    Graph by delegating to random_tree's defensive ``n <= 0:
+    return Graph()`` short-circuit.  nx raises
+    ``NetworkXPointlessConcept("the null graph is not a tree")``.
+
+    Lock parity for both functions; preserve the existing
+    correct behavior of random_labeled_tree (which already
+    validates n=0) and random_unlabeled_rooted_tree."""
+    msg = "the null graph is not a tree"
+
+    # Now-fixed functions
+    with pytest.raises(nx.NetworkXPointlessConcept, match=msg):
+        fnx.random_unlabeled_tree(0, seed=42)
+    with pytest.raises(nx.NetworkXPointlessConcept, match=msg):
+        fnx.random_labeled_rooted_tree(0, seed=42)
+
+    # Already-correct (regression check)
+    with pytest.raises(nx.NetworkXPointlessConcept, match=msg):
+        fnx.random_labeled_tree(0, seed=42)
+    with pytest.raises(nx.NetworkXPointlessConcept, match=msg):
+        fnx.random_unlabeled_rooted_tree(0, seed=42)
+
+    # Valid n still produces correct trees
+    assert fnx.random_unlabeled_tree(5, seed=42).number_of_nodes() == 5
+    assert fnx.random_labeled_rooted_tree(5, seed=42).number_of_nodes() == 5
+    assert len(fnx.random_unlabeled_tree(5, number_of_trees=3, seed=42)) == 3

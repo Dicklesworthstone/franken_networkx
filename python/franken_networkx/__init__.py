@@ -30877,7 +30877,13 @@ def random_unlabeled_tree(n, *, number_of_trees=None, seed=None):
 
     ``number_of_trees`` matches networkx's public signature. When set,
     returns a list of independently-sampled trees of size *n*.
+
+    br-r37-c1-rut-zero: nx raises ``NetworkXPointlessConcept("the
+    null graph is not a tree")`` for n=0; fnx silently returned an
+    empty Graph via the random_tree fallback.  Mirror nx's contract.
     """
+    if n == 0:
+        raise NetworkXPointlessConcept("the null graph is not a tree")
     if number_of_trees is None:
         return random_tree(n, seed=seed)
     rng = _generator_random_state(seed)
@@ -33188,7 +33194,12 @@ def random_reference(G, niter=1, connectivity=True, seed=None):
 
 
 def random_labeled_rooted_tree(n, *, seed=None):
-    """Alias for random_tree."""
+    """Alias for random_tree.
+
+    br-r37-c1-rut-zero: nx raises NetworkXPointlessConcept on n=0.
+    """
+    if n == 0:
+        raise NetworkXPointlessConcept("the null graph is not a tree")
     return random_tree(n, seed=seed)
 
 
