@@ -4108,8 +4108,24 @@ def _has_negative_edge_weight_for_dijkstra(G, weight):
             native = _native_has_negative_edge_weight(G, weight)
         except Exception:
             native = None
-        if native is not None:
-            return bool(native)
+        if native is True:
+            return True
+        # br-r37-c1-djk-neginf: the native helper only counts FINITE
+        # negative weights (it filters with isfinite for SIMD-friendly
+        # comparison).  ``-inf`` slips through both the native scan
+        # and the prior Python ``isfinite(value) and value < 0``
+        # check, so dijkstra ran on a -inf-weighted graph and
+        # silently returned a -inf-cost path.  nx detects the
+        # contradiction during relaxation and raises
+        # ``ValueError: Contradictory paths found: negative
+        # weights?``.  Fall through to the Python scan below
+        # specifically for the -inf case so we delegate to nx.
+        if native is False:
+            for _, _, attrs in G.edges(data=True):
+                value = attrs.get(weight, 1)
+                if isinstance(value, numbers.Real) and value == -math.inf:
+                    return True
+            return False
 
     if G.is_multigraph():
         edge_iter = G.edges(keys=True, data=True)
@@ -4120,7 +4136,10 @@ def _has_negative_edge_weight_for_dijkstra(G, weight):
 
     for attrs in attrs_iter:
         value = attrs.get(weight, 1)
-        if isinstance(value, numbers.Real) and math.isfinite(value) and value < 0:
+        # br-r37-c1-djk-neginf: also catches ``-inf`` (drop the
+        # isfinite filter — ``-inf < 0`` is True, NaN comparisons
+        # all yield False so neither broken case re-enters here).
+        if isinstance(value, numbers.Real) and not math.isnan(value) and value < 0:
             return True
     return False
 

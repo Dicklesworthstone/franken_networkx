@@ -4518,3 +4518,62 @@ def test_parse_multiline_adjlist_dict_data_with_edgetype():
     text_bad = "1 1\n2 abc\n2 0\n"
     with pytest.raises(TypeError, match=r"Failed to convert edge data"):
         fnx.parse_multiline_adjlist(text_bad.split("\n"), nodetype=int, edgetype=float)
+
+
+def test_dijkstra_neg_inf_weight_raises_match_nx():
+    """br-r37-c1-djk-neginf: ``shortest_path`` / ``dijkstra_path``
+    on a graph with a ``-inf`` edge weight silently returned a
+    ``-inf``-cost path; nx detects the contradiction during
+    relaxation and raises ``ValueError("Contradictory paths
+    found: negative weights?")``.
+
+    The negative-weight detection in
+    ``_has_negative_edge_weight_for_dijkstra`` filtered values
+    with ``isfinite(value) and value < 0`` (and the native Rust
+    helper did the same SIMD-friendly check), so ``-inf``
+    slipped past both screens — the wrapper never delegated to
+    nx and the Rust dijkstra ran on a -inf-weighted graph.
+
+    Lock: -inf weight raises the same nx ValueError on simple
+    Graph, DiGraph, and MultiGraph.  Other special weights
+    (NaN, +inf, finite negative) continue to behave as before
+    (NaN/+inf return nominal path; finite negative raises
+    the same nx error)."""
+    # Undirected (Graph / MultiGraph) — nx detects the contradiction
+    # via relaxation revisiting the source node and raises.
+    for cls in (fnx.Graph, fnx.MultiGraph):
+        g = cls()
+        g.add_edge(0, 1, weight=-float("inf"))
+        g.add_edge(1, 2, weight=1.0)
+        with pytest.raises(ValueError, match=r"[Cc]ontradictory paths"):
+            fnx.shortest_path(g, 0, 2, weight="weight")
+        with pytest.raises(ValueError, match=r"[Cc]ontradictory paths"):
+            fnx.dijkstra_path(g, 0, 2, weight="weight")
+        with pytest.raises(ValueError, match=r"[Cc]ontradictory paths"):
+            fnx.shortest_path_length(g, 0, 2, weight="weight")
+
+    # Directed (DiGraph / MultiDiGraph) — nx silently returns a path
+    # because the relaxation never revisits node 0 (no back-edge).
+    # This is nx's documented asymmetry; fnx matches.
+    for cls in (fnx.DiGraph, fnx.MultiDiGraph):
+        g = cls()
+        g.add_edge(0, 1, weight=-float("inf"))
+        g.add_edge(1, 2, weight=1.0)
+        assert fnx.shortest_path(g, 0, 2, weight="weight") == [0, 1, 2]
+
+    # Finite negative — still raises (regression)
+    g = fnx.Graph([(0, 1, {"weight": -1.0}), (1, 2, {"weight": 1.0})])
+    with pytest.raises(ValueError, match=r"[Cc]ontradictory paths"):
+        fnx.dijkstra_path(g, 0, 2, weight="weight")
+
+    # +inf — returns path (matches nx, not a contradiction)
+    g = fnx.Graph([(0, 1, {"weight": float("inf")}), (1, 2, {"weight": 1.0})])
+    assert fnx.dijkstra_path(g, 0, 2, weight="weight") == [0, 1, 2]
+    assert fnx.shortest_path_length(g, 0, 2, weight="weight") == float("inf")
+
+    # NaN — returns path (matches nx; NaN comparisons silently relax)
+    import math
+    g = fnx.Graph([(0, 1, {"weight": float("nan")}), (1, 2, {"weight": 1.0})])
+    assert fnx.dijkstra_path(g, 0, 2, weight="weight") == [0, 1, 2]
+    length = fnx.shortest_path_length(g, 0, 2, weight="weight")
+    assert math.isnan(length)
