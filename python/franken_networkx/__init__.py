@@ -20414,7 +20414,11 @@ def generate_random_paths(
     rng = _random.Random(seed)
     nodes = list(G.nodes())
     if not nodes:
-        return
+        # br-r37-c1-grp-empty: nx's transition-matrix construction
+        # leaks a ValueError on empty G (``randint(0, -1)`` → "high
+        # <= 0").  fnx previously short-circuited silently.  Match
+        # nx's leaky-but-stable contract.
+        raise ValueError("high <= 0")
     if source is not None and source not in G:
         raise NodeNotFound(f"Source {source} is not in G")
 

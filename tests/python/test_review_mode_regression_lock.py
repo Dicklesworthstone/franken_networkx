@@ -3019,3 +3019,18 @@ def test_full_dispatch_surface_parity_with_nx():
         f"{len(mismatches)} functions still missing backend kwarg: "
         f"{mismatches[:10]}"
     )
+
+
+def test_generate_random_paths_empty_graph_raises_match_nx():
+    """br-r37-c1-grp-empty: generate_random_paths on an empty graph
+    silently returned ``[]`` instead of raising nx's
+    ValueError("high <= 0") which leaks from the internal
+    ``randint(0, len(nodes)-1)`` call.
+
+    Lock the leaky-but-stable nx contract."""
+    with pytest.raises(ValueError, match="high <= 0"):
+        list(fnx.generate_random_paths(fnx.Graph(), 5, seed=42))
+
+    # Regression: non-empty graphs work
+    result = list(fnx.generate_random_paths(fnx.path_graph(5), 3, 3, seed=42))
+    assert len(result) == 3

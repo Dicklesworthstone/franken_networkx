@@ -102,10 +102,13 @@ def test_generate_random_paths_missing_source_raises():
 
 
 @needs_nx
-def test_generate_random_paths_empty_graph_yields_nothing():
+def test_generate_random_paths_empty_graph_raises_match_nx():
+    # br-r37-c1-grp-empty: nx's transition-matrix construction
+    # leaks ValueError("high <= 0") on empty G (``randint(0, -1)``).
+    # fnx previously short-circuited silently — updated to match nx.
     G = fnx.Graph()
-    paths = list(fnx.generate_random_paths(G, 5))
-    assert paths == []
+    with pytest.raises(ValueError, match="high <= 0"):
+        list(fnx.generate_random_paths(G, 5))
 
 
 @needs_nx
