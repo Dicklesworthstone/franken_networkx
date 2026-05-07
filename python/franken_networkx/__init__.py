@@ -37005,6 +37005,16 @@ def powerlaw_cluster_graph(n, m, p, seed=None, *, create_using=None, backend=Non
         )
     if p > 1 or p < 0:
         raise NetworkXError(f"NetworkXError p must be in [0,1], p={p}")
+    # br-r37-c1-pcg-pnan: nx accepts p=NaN silently — its weighted
+    # ``random.random() < p`` flip evaluates False (NaN comparison
+    # always False), so triangle-closure never fires and the base
+    # preferential-attachment graph is returned.  fnx's Rust binding
+    # rejected NaN with the leaky ``FailClosed`` format.  Coerce
+    # NaN → 0.0 to match nx's silent contract.  Same defect family
+    # as br-r37-c1-r3ct1 (newman_watts_strogatz NaN).
+    import math as _math
+    if isinstance(p, float) and _math.isnan(p):
+        p = 0.0
     graph = _rust_powerlaw_cluster_graph(n, m, p, seed=_native_random_seed(seed))
     if create_using is None:
         return graph

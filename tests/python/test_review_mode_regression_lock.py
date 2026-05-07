@@ -3236,3 +3236,24 @@ def test_random_planted_partition_p_validation_match_nx():
     assert G.number_of_nodes() == 5
     G = fnx.planted_partition_graph(2, 3, 0.5, 0.1, seed=42)
     assert G.number_of_nodes() == 6
+
+
+def test_powerlaw_cluster_graph_nan_p_match_nx():
+    """br-r37-c1-pcg-pnan: powerlaw_cluster_graph leaked Rust
+    ``ValueError(FailClosed { ..., reason: "p is NaN" })`` for
+    p=NaN.  nx accepts NaN silently — its weighted flip
+    ``random.random() < p`` evaluates False, so triangle-closure
+    never fires and the base preferential-attachment graph is
+    returned.  Same defect family as br-r37-c1-r3ct1
+    (newman_watts_strogatz NaN).  Lock parity."""
+    G = fnx.powerlaw_cluster_graph(5, 2, float("nan"), seed=42)
+    nG = nx.powerlaw_cluster_graph(5, 2, float("nan"), seed=42)
+    assert G.number_of_edges() == nG.number_of_edges() == 6
+
+    # Out-of-range p still raises with nx's exact message
+    for bad_p in (float("inf"), -1.0, 2.0):
+        with pytest.raises(nx.NetworkXError, match=r"p must be in \[0,1\]"):
+            fnx.powerlaw_cluster_graph(5, 2, bad_p, seed=42)
+
+    # Valid p regression
+    assert fnx.powerlaw_cluster_graph(5, 2, 0.5, seed=42).number_of_edges() == 6
