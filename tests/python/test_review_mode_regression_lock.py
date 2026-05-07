@@ -4743,3 +4743,37 @@ def test_isomorphism_match_helpers_only_at_algorithms_isomorphism():
         assert callable(f)
         assert callable(n)
         assert f is n  # fnx.algorithms.isomorphism is nx's module
+
+
+def test_branching_weight_minimal_branching_only_at_branchings_namespace():
+    """br-r37-c1-bw-removed: ``branching_weight`` and
+    ``minimal_branching`` live only at
+    ``nx.algorithms.tree.branchings.X`` in nx; top-level
+    access raises AttributeError.
+
+    fnx had top-level pure-delegate Python wrappers (which
+    just routed to ``_nx.algorithms.tree.branchings.X``) that
+    masked nx's AttributeError contract for drop-in callers.
+
+    Continues the namespace-parity family: br-r37-c1-pmi1f
+    (random_tree), bia-removed (biadjacency_matrix), bipx-
+    removed (bipartite_sets/density), ofkcv (iso matchers).
+
+    Lock: top-level access raises; the namespaced versions
+    still work and produce numerical results."""
+    for name in ("branching_weight", "minimal_branching"):
+        with pytest.raises(AttributeError, match=fr"has no attribute '{name}'"):
+            getattr(fnx, name)
+        with pytest.raises(AttributeError, match=fr"has no attribute '{name}'"):
+            getattr(nx, name)
+
+    # Namespaced version still works (must build via nx so the
+    # backend dispatch on the mutation-side function accepts the
+    # input)
+    G = nx.DiGraph()
+    G.add_edge(0, 1, weight=5)
+    G.add_edge(1, 2, weight=3)
+    assert fnx.algorithms.tree.branchings.branching_weight(G) == 8
+    # minimal_branching mutates input — just verify it runs
+    out = fnx.algorithms.tree.branchings.minimal_branching(G, attr="weight")
+    assert out is not None

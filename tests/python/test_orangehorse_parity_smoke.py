@@ -46,7 +46,8 @@ ALL_NEW_SYMBOLS = [
     "powerlaw_sequence", "zipf_rv", "cumulative_distribution",
     "is_valid_tree_degree_sequence",
     # tree (br-wjv9o)
-    "branching_weight", "minimal_branching",
+    # br-r37-c1-bw-removed: branching_weight / minimal_branching are
+    # only at fnx.algorithms.tree.branchings (matches nx).
     "boruvka_mst_edges", "kruskal_mst_edges", "prim_mst_edges",
     # classes.filters (br-uuo38)
     "hide_nodes", "hide_edges", "hide_diedges", "hide_multiedges",
@@ -194,11 +195,17 @@ def test_random_sequence():
 
 
 def test_tree_primitives():
-    G = fnx.DiGraph()
-    G.add_edge(0, 1, weight=5)
-    G.add_edge(1, 2, weight=3)
-    fnx.branching_weight(G)
-    fnx.minimal_branching(G, attr="weight")
+    # br-r37-c1-bw-removed: branching_weight / minimal_branching are
+    # nx-namespaced (live at fnx.algorithms.tree.branchings which IS
+    # nx's module).  nx's backend dispatch system requires nx-typed
+    # input for mutation-on-input contracts (see backend.py raise on
+    # foreign backend), so build via nx for these two calls.
+    import networkx as nx_mod
+    G_nx = nx_mod.DiGraph()
+    G_nx.add_edge(0, 1, weight=5)
+    G_nx.add_edge(1, 2, weight=3)
+    fnx.algorithms.tree.branchings.branching_weight(G_nx)
+    fnx.algorithms.tree.branchings.minimal_branching(G_nx, attr="weight")
     K = _weighted_undirected_k4()
     list(fnx.boruvka_mst_edges(K))
     list(fnx.kruskal_mst_edges(K, minimum=True, keys=False))

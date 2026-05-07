@@ -128,7 +128,7 @@ def _weighted_arborescence(L):
 def test_branching_weight_matches_networkx():
     fg = _weighted_arborescence(fnx)
     ng = _weighted_arborescence(nx)
-    assert fnx.branching_weight(fg) == nx.algorithms.tree.branching_weight(ng)
+    assert fnx.algorithms.tree.branchings.branching_weight(fg) == nx.algorithms.tree.branching_weight(ng)
 
 
 @pytest.mark.parametrize(

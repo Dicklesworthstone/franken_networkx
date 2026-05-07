@@ -9909,38 +9909,12 @@ def _is_valid_tree_degree_sequence_via_nx(degree_sequence):
     return _nx.utils.is_valid_tree_degree_sequence(degree_sequence)
 
 
-def branching_weight(G, attr="weight", default=1):
-    """Return the total weight of a branching (sum of edge attrs)."""
-    return _branching_weight_via_nx(G, attr, default)
-
-
-def _branching_weight_via_nx(G, attr, default):
-    return _nx.algorithms.tree.branchings.branching_weight(
-        _networkx_graph_for_parity(G), attr=attr, default=default,
-    )
-
-
-def minimal_branching(
-    G,
-    /,
-    *,
-    attr="weight",
-    default=1,
-    preserve_attrs=False,
-    partition=None,
-):
-    """Return a minimal branching of G (Edmonds' algorithm, minimization variant)."""
-    return _minimal_branching_via_nx(G, attr, default, preserve_attrs, partition)
-
-
-def _minimal_branching_via_nx(G, attr, default, preserve_attrs, partition):
-    return _nx.algorithms.tree.branchings.minimal_branching(
-        _networkx_graph_for_parity(G),
-        attr=attr,
-        default=default,
-        preserve_attrs=preserve_attrs,
-        partition=partition,
-    )
+# br-r37-c1-bw-removed: ``branching_weight`` and ``minimal_branching``
+# live only at ``nx.algorithms.tree.branchings.X`` in nx; nx top-level
+# raises AttributeError.  fnx had top-level pure-delegate Python
+# wrappers that masked the contract.  Available exclusively at
+# ``fnx.algorithms.tree.branchings.X`` (which IS nx's submodule).
+# Module ``__getattr__`` traps top-level access.
 
 
 def boruvka_mst_edges(
@@ -38430,8 +38404,6 @@ __all__ = [
     "zipf_rv",
     "cumulative_distribution",
     "is_valid_tree_degree_sequence",
-    "branching_weight",
-    "minimal_branching",
     "boruvka_mst_edges",
     "kruskal_mst_edges",
     "prim_mst_edges",
@@ -39421,6 +39393,12 @@ def __getattr__(name):
         "generic_node_match", "generic_edge_match",
         "generic_multiedge_match",
     ):
+        raise AttributeError(
+            f"module 'networkx' has no attribute '{name}'"
+        )
+    # br-r37-c1-bw-removed: branching_weight / minimal_branching live
+    # only at nx.algorithms.tree.branchings; nx top-level raises.
+    if name in ("branching_weight", "minimal_branching"):
         raise AttributeError(
             f"module 'networkx' has no attribute '{name}'"
         )
