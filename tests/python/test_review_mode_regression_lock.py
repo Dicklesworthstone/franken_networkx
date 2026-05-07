@@ -2879,3 +2879,26 @@ def test_average_shortest_path_length_floyd_warshall_methods_match_nx():
     # Bogus method still rejected
     with pytest.raises(ValueError, match=r"method not supported: bogus"):
         fnx.average_shortest_path_length(P, method="bogus")
+
+
+def test_residual_graph_edit_distance_and_reverse_backend_kwarg():
+    """br-r37-c1-bk-residue: 2 dispatchable APIs slipped past the
+    bulk2/bulk3/bulk4 audits.  Lock signature parity + runtime
+    acceptance for the residual cleanup."""
+    import inspect
+
+    # graph_edit_distance — has its own internal kwargs but missed
+    # the explicit backend / backend_kwargs surface.
+    sig = inspect.signature(fnx.graph_edit_distance)
+    assert "backend" in sig.parameters
+    fnx.graph_edit_distance(fnx.path_graph(3), fnx.path_graph(3), backend=None)
+
+    # reverse — DiGraph reverse operation.
+    sig = inspect.signature(fnx.reverse)
+    assert "backend" in sig.parameters
+    fnx.reverse(fnx.DiGraph([(0, 1)]), backend=None)
+
+    # Bogus backend rejected
+    with pytest.raises(ImportError):
+        fnx.graph_edit_distance(fnx.path_graph(3), fnx.path_graph(3),
+                                backend="bogus_backend")

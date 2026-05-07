@@ -38480,6 +38480,9 @@ def _bulk_add_backend_dispatch_kwargs():
         "find_induced_nodes", "complete_to_chordal_graph",
         # Regularity
         "is_strongly_regular", "is_distance_regular",
+        # br-r37-c1-bk-residue: 2 dispatchable APIs slipped past
+        # bulk2/bulk3/bulk4 audits.
+        "graph_edit_distance", "reverse",
         # br-r37-c1-bulk4-bk: 64 more high-traffic dispatchable
         # APIs missing the backend surface — third / final sweep
         # covering communicability, assortativity, cuts, isolates,
