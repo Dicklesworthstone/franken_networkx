@@ -7249,6 +7249,53 @@ def _normalize_bfs_depth_limit(depth_limit):
     return depth_int
 
 
+def _normalize_predecessor_cutoff(cutoff):
+    """Normalize ``cutoff`` for predecessor / dijkstra-style functions.
+
+    nx's predecessor loop is roughly::
+
+        while nextlevel:
+            level += 1
+            ...process this level...
+            if cutoff and cutoff <= level: break
+
+    The check is *truthy-aware* — distinct from the BFS-shape
+    semantic in ``_normalize_bfs_depth_limit``.  And ``level``
+    increments BEFORE the break check, so a positive cutoff N
+    admits exactly level N before stopping.  Mapping:
+
+      * None / 0 / NaN / +inf → None (unbounded — falsy or
+        comparison never breaks)
+      * -inf / negative finite → 1 (truthy + always <= level → break
+        after level 1, matching nx empirical behaviour:
+        ``predecessor(P5, 0, cutoff=-1) == {0:[], 1:[0]}``)
+      * finite float → ceil
+      * positive int → unchanged
+
+    The Rust binding requires int and raises TypeError /
+    OverflowError on the floats — this helper converts to one
+    of the accepted forms while preserving nx's behaviour.
+    """
+    if cutoff is None:
+        return None
+    try:
+        if isinstance(cutoff, float):
+            if math.isnan(cutoff):
+                return None  # NaN comparisons False → unbounded
+            if math.isinf(cutoff):
+                return None if cutoff > 0 else 1
+            cutoff = math.ceil(cutoff)
+        cutoff_int = int(cutoff)
+    except (TypeError, ValueError):
+        return cutoff
+    # nx's ``if cutoff and ...`` makes 0 falsy → unbounded
+    if cutoff_int == 0:
+        return None
+    if cutoff_int < 0:
+        return 1
+    return cutoff_int
+
+
 def dfs_edges(G, source=None, depth_limit=None, *, sort_neighbors=None):
     """Yield edges in DFS order from source.
 
@@ -12067,6 +12114,16 @@ def predecessor(G, source, target=None, cutoff=None, return_seen=None):
         # {source} not in G")`` (no quoting around the node repr);
         # the Rust binding emits ``Source '99' is not in G``.
         raise NodeNotFound(f"Source {source} not in G")
+    # br-r37-c1-pred-cutfloat: nx's predecessor uses
+    # ``if cutoff and cutoff <= level: break`` (truthy-aware).
+    # For NaN / +inf, comparison returns False so the search runs
+    # to completion — both treated as unbounded.  For -inf and
+    # negative finite, comparison is True at level 0 → breaks
+    # immediately (returns just source).  Finite floats round up
+    # via ceil (last level admitted is ceil(cutoff)).  The Rust
+    # binding requires int and raises TypeError/OverflowError on
+    # the floats — normalise here.
+    cutoff = _normalize_predecessor_cutoff(cutoff)
     predecessor_map = _raw_predecessor(G, source, cutoff=cutoff)
     ordered_nodes, seen_levels = _ordered_predecessor_nodes_and_levels(
         G, source, predecessor_map

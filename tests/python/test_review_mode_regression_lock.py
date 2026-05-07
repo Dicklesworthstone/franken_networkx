@@ -5155,3 +5155,38 @@ def test_dfs_tree_single_source_shortest_path_normalize_nan_inf_match_nx():
         f = list(fnx.dfs_tree(P, 0, depth_limit=dl).edges())
         n = list(nx.dfs_tree(P_nx, 0, depth_limit=dl).edges())
         assert f == n
+
+
+def test_predecessor_handles_nan_inf_float_cutoff_match_nx():
+    """br-r37-c1-pred-cutfloat: ``predecessor`` raised
+    TypeError on non-int cutoff (NaN / +inf / fractional float)
+    because the Rust binding requires int.  nx's loop is
+    ``while nextlevel: level += 1; ...; if cutoff and
+    cutoff <= level: break`` — truthy-aware, distinct from
+    BFS-shape semantics.
+
+    Mapping (per ``_normalize_predecessor_cutoff``):
+      * None / 0 / NaN / +inf → unbounded (None)
+      * -inf / negative finite → 1 (nx breaks after level 1)
+      * finite float → ceil
+      * positive int → unchanged
+
+    Lock: 10 boundary cases + target= and return_seen=
+    regressions."""
+    P = fnx.path_graph(5)
+    P_nx = nx.path_graph(5)
+
+    for c in (float("inf"), float("nan"), -float("inf"), -1, 0, 1, 2,
+              3.5, 4.0, None):
+        f = dict(fnx.predecessor(P, 0, cutoff=c))
+        n = dict(nx.predecessor(P_nx, 0, cutoff=c))
+        assert f == n, f"predecessor cutoff={c}: fnx={f} != nx={n}"
+
+    # target= path-list form still works
+    assert fnx.predecessor(P, 0, target=2, cutoff=3) == [1]
+    assert fnx.predecessor(P, 0, target=4) == [3]
+
+    # return_seen= variant still works
+    pred, seen = fnx.predecessor(P, 0, cutoff=2, return_seen=True)
+    assert pred == {0: [], 1: [0], 2: [1]}
+    assert seen == {0: 0, 1: 1, 2: 2}
