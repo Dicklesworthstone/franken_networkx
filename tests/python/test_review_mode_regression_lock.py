@@ -1986,3 +1986,41 @@ def test_k_edge_augmentation_nonpositive_k_raises_match_nx():
     assert list(fnx.k_edge_augmentation(G, 1)) == []
     aug = list(fnx.k_edge_augmentation(G, 2))
     assert aug == [(0, 4)]
+
+
+def test_operator_type_mismatch_message_match_nx():
+    """br-r37-c1-opmsg: union / compose / intersection /
+    disjoint_union / etc. previously emitted a single
+    "operator works only on graphs of the same type" message
+    on type mismatch.  nx splits the message along two axes:
+
+      * directedness mismatch → "All graphs must be directed
+        or undirected."
+      * multigraphness mismatch → "All graphs must be graphs
+        or multigraphs."
+
+    Lock both messages exactly so caller-side string checks
+    align."""
+    import re
+    DIRECTED_MSG = re.escape("All graphs must be directed or undirected.")
+    MULTI_MSG = re.escape("All graphs must be graphs or multigraphs.")
+
+    # Directedness mismatch on union + compose
+    with pytest.raises(nx.NetworkXError, match=DIRECTED_MSG):
+        fnx.union(fnx.Graph([(0, 1)]), fnx.DiGraph([(2, 3)]))
+    with pytest.raises(nx.NetworkXError, match=DIRECTED_MSG):
+        fnx.union(fnx.DiGraph([(0, 1)]), fnx.Graph([(2, 3)]))
+    with pytest.raises(nx.NetworkXError, match=DIRECTED_MSG):
+        fnx.compose(fnx.Graph([(0, 1)]), fnx.DiGraph([(2, 3)]))
+
+    # Multigraph mismatch
+    with pytest.raises(nx.NetworkXError, match=MULTI_MSG):
+        fnx.union(fnx.Graph([(0, 1)]), fnx.MultiGraph([(2, 3)]))
+    with pytest.raises(nx.NetworkXError, match=MULTI_MSG):
+        fnx.compose(fnx.MultiGraph([(0, 1)]), fnx.Graph([(2, 3)]))
+
+    # Same-type regression: still works
+    assert fnx.union(fnx.Graph([(0, 1)]),
+                     fnx.Graph([(2, 3)])).number_of_nodes() == 4
+    assert fnx.compose(fnx.Graph([(0, 1)]),
+                       fnx.Graph([(1, 2)])).number_of_nodes() == 3

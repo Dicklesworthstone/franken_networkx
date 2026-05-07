@@ -8433,14 +8433,20 @@ from franken_networkx._fnx import (
 def _operator_output_class(G, H=None):
     """Pick the fnx output class for a binary/unary graph operator.
 
-    Upstream nx raises on type mismatch; we mirror that by requiring
-    ``type(G) == type(H)`` for binary operators.
+    br-r37-c1-opmsg: nx splits the type-mismatch error message
+    along two axes — directedness and multigraphness — rather
+    than emitting one combined "same type" message.  Match
+    exactly so caller-side string checks align.
     """
-    if H is not None and type(G) is not type(H):
-        raise NetworkXError(
-            "operator works only on graphs of the same type: "
-            f"{type(G).__name__} vs {type(H).__name__}"
-        )
+    if H is not None:
+        if G.is_directed() != H.is_directed():
+            raise NetworkXError(
+                "All graphs must be directed or undirected."
+            )
+        if G.is_multigraph() != H.is_multigraph():
+            raise NetworkXError(
+                "All graphs must be graphs or multigraphs."
+            )
     return type(G)
 
 
