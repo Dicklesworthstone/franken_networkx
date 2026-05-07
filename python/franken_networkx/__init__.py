@@ -13832,7 +13832,7 @@ def stochastic_graph(G, copy=True, weight="weight"):
     return graph
 
 
-def _normalize_pagerank_vector(vector, nodes):
+def _normalize_pagerank_vector(vector, nodes, *, zero_sum="raise"):
     # br-r37-c1-prnk-perso: nx filters personalization /
     # nstart / dangling vectors to graph-intersection keys
     # before normalizing, so:
@@ -13848,6 +13848,9 @@ def _normalize_pagerank_vector(vector, nodes):
     nodeset = set(nodes)
     filtered = {key: value for key, value in vector.items() if key in nodeset}
     total = math.fsum(filtered.values())
+    if total == 0 and zero_sum == "nan":
+        nan = float("nan")
+        return dict.fromkeys(nodes, nan)
     return {node: filtered.get(node, 0) / total for node in nodes}
 
 
@@ -13974,7 +13977,7 @@ def pagerank(
     if nstart is None:
         current = dict.fromkeys(nodes, 1.0 / node_count)
     else:
-        current = _normalize_pagerank_vector(nstart, nodes)
+        current = _normalize_pagerank_vector(nstart, nodes, zero_sum="nan")
 
     if personalization is None:
         personalization_vector = dict.fromkeys(nodes, 1.0 / node_count)
@@ -13984,7 +13987,7 @@ def pagerank(
     if dangling is None:
         dangling_weights = personalization_vector
     else:
-        dangling_weights = _normalize_pagerank_vector(dangling, nodes)
+        dangling_weights = _normalize_pagerank_vector(dangling, nodes, zero_sum="nan")
 
     transition_weights = {}
     dangling_nodes = []
@@ -28631,8 +28634,12 @@ def k_edge_augmentation(G, k, avail=None, weight=None, partial=False):
     candidate edges between node pairs that are not yet locally
     k-edge-connected, then prune redundant additions deterministically.
     """
-    if k <= 0:
-        return []
+    # br-r37-c1-keaug-k0: nx raises ValueError("k must be a
+    # positive integer, not {k}") for k <= 0; fnx previously
+    # silently returned an empty list, masking caller bugs
+    # (typo'd k, off-by-one, etc.) that should fail loudly.
+    if isinstance(k, int) and k <= 0:
+        raise ValueError(f"k must be a positive integer, not {k}")
 
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")

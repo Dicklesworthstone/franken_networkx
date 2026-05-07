@@ -1954,3 +1954,35 @@ def test_pagerank_personalization_filters_to_graph_keys():
     rf2 = fnx.pagerank(P, personalization={0: 1.0})
     for node in rf:
         assert abs(rf[node] - rf2[node]) < 1e-9
+
+
+def test_pagerank_bad_nstart_dangling_nonconverge_like_nx():
+    """br-r37-c1-w3jlh: ``personalization`` raises
+    ZeroDivisionError when it has no graph keys, but nx does not
+    apply that typed error to ``nstart`` or ``dangling``.  Those
+    vectors normalize to NaN and fail the power iteration instead."""
+    P_fnx = fnx.path_graph(3)
+    P_nx = nx.path_graph(3)
+
+    for kwargs in ({"nstart": {99: 1.0}}, {"dangling": {99: 1.0}}):
+        with pytest.raises(nx.PowerIterationFailedConvergence):
+            nx.pagerank(P_nx, max_iter=3, **kwargs)
+        with pytest.raises(nx.PowerIterationFailedConvergence):
+            fnx.pagerank(P_fnx, max_iter=3, **kwargs)
+
+
+def test_k_edge_augmentation_nonpositive_k_raises_match_nx():
+    """br-r37-c1-keaug-k0: k_edge_augmentation silently returned
+    ``[]`` for k <= 0, masking caller bugs (typo'd k, off-by-one).
+    nx raises ValueError("k must be a positive integer, not {k}").
+    Lock parity for k in {0, -1, -5} plus regression checks for
+    valid k=1, 2."""
+    G = fnx.path_graph(5)
+    for k in (0, -1, -5):
+        with pytest.raises(ValueError,
+                           match=f"k must be a positive integer, not {k}"):
+            list(fnx.k_edge_augmentation(G, k))
+    # Regression: valid k still works
+    assert list(fnx.k_edge_augmentation(G, 1)) == []
+    aug = list(fnx.k_edge_augmentation(G, 2))
+    assert aug == [(0, 4)]

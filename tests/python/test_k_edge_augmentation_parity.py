@@ -8,10 +8,15 @@ import networkx as nx
 class TestKEdgeAugmentation:
     """Verify k_edge_augmentation matches NetworkX behavior."""
 
-    def test_k0_returns_empty(self):
+    def test_k0_raises_value_error(self):
+        # br-r37-c1-keaug-k0: nx raises ValueError("k must be a
+        # positive integer, not 0"); fnx previously returned [].
+        # Updated to match nx contract.
+        import pytest
         G = fnx.Graph()
         G.add_edges_from([(0, 1), (2, 3)])
-        assert fnx.k_edge_augmentation(G, 0) == []
+        with pytest.raises(ValueError, match=r"k must be a positive integer, not 0"):
+            fnx.k_edge_augmentation(G, 0)
 
     def test_k1_already_connected(self):
         G = fnx.complete_graph(4)
