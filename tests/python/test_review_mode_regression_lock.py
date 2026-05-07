@@ -3964,3 +3964,44 @@ def test_multigraph_has_edge_unhashable_key_raises_typeerror():
         # No key arg means "any edge between u and v"
         assert G.has_edge(0, 1) is True
         assert G.has_edge(0, 1, key=None) is True
+
+
+def test_multigraph_get_edge_data_unhashable_key_raises_typeerror():
+    """br-r37-c1-mged-keyhash: ``MultiGraph.get_edge_data`` /
+    ``MultiDiGraph.get_edge_data`` with an unhashable ``key=``
+    arg silently returned ``default`` (or None).  nx propagates
+    ``TypeError: unhashable type: '<X>'`` from the inner key
+    lookup.
+
+    Sister of br-r37-c1-exavo (has_edge key in cycle 111),
+    br-r37-c1-cl78j (add_edge key in cycle 110), and
+    br-r37-c1-kgpaj (u/v ged in cycle 109).  Closes the
+    read-side variant for the multigraph key arg.
+
+    Lock: unhashable key= raises TypeError; missing key still
+    returns default (nx contract preserved); good key returns
+    edge data."""
+    for cls in (fnx.MultiGraph, fnx.MultiDiGraph):
+        G = cls([(0, 1)])
+
+        # Unhashable key
+        with pytest.raises(TypeError, match=r"unhashable type"):
+            G.get_edge_data(0, 1, key=[1, 2])
+        with pytest.raises(TypeError, match=r"unhashable type"):
+            G.get_edge_data(0, 1, key={1: 2})
+        with pytest.raises(TypeError, match=r"unhashable type"):
+            G.get_edge_data(0, 1, key={1, 2})
+
+        # default= must NOT swallow the TypeError
+        with pytest.raises(TypeError, match=r"unhashable type"):
+            G.get_edge_data(0, 1, key=[1, 2], default="X")
+
+        # Hashable but missing — still returns None / default
+        assert G.get_edge_data(0, 1, key=99) is None
+        assert G.get_edge_data(0, 1, key=99, default="X") == "X"
+        assert G.get_edge_data(0, 1, key="x") is None
+
+        # Good key returns edge data dict
+        assert G.get_edge_data(0, 1, key=0) == {}
+        # No key — returns mapping of all keys to data
+        assert G.get_edge_data(0, 1) == {0: {}}

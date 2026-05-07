@@ -26223,6 +26223,16 @@ def _private_aware_get_edge_data_multi(raw_get_edge_data):
         # br-r37-c1-ged-hash: see simple variant above.
         hash(u)
         hash(v)
+        # br-r37-c1-mged-keyhash: extend the hash-check to the
+        # multigraph ``key`` arg.  nx propagates ``TypeError:
+        # unhashable type: '<X>'`` from the inner ``key in
+        # neighbors[v]`` dict lookup; fnx's Rust binding caught
+        # the error and silently returned ``default`` (or None),
+        # masking caller bugs.  Sister of br-r37-c1-exavo
+        # (has_edge key fix in cycle 111) and br-r37-c1-cl78j
+        # (add_edge mutation fix in cycle 110).
+        if key is not None:
+            hash(key)
         if not _has_networkx_private_storage(self):
             if key is None:
                 return raw_get_edge_data(self, u, v, default=default)
