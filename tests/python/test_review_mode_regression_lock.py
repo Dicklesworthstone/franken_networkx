@@ -2938,3 +2938,48 @@ def test_matrix_family_backend_kwarg_match_nx():
     # Bogus backend rejected
     with pytest.raises(ImportError):
         fnx.adjacency_matrix(P, backend="bogus_backend")
+
+
+def test_algo_variant_family_backend_kwarg_match_nx():
+    """br-r37-c1-bk-algo: 128 algorithm-variant functions missing
+    the backend dispatch surface — batch 2/5 of the
+    br-r37-c1-xc9no epic.  Lock signature parity for a
+    representative sample."""
+    import inspect
+    sample = [
+        "all_triangles", "bidirectional_dijkstra", "chain_decomposition",
+        "contracted_nodes", "contracted_edge", "convert_node_labels_to_integers",
+        "dfs_edges", "dfs_predecessors", "dijkstra_predecessor_and_distance",
+        "find_cliques", "find_negative_cycle",
+        "floyd_warshall_numpy", "floyd_warshall_predecessor_and_distance",
+        "from_prufer_sequence", "get_edge_attributes", "get_node_attributes",
+        "is_bipartite", "is_empty", "is_k_edge_connected", "is_weighted",
+        "k_edge_augmentation", "k_components",
+        "max_weight_clique", "maximal_independent_set", "min_edge_cover",
+        "node_clique_number", "node_disjoint_paths",
+        "number_of_selfloops", "number_strongly_connected_components",
+        "optimal_edit_paths", "predecessor", "reconstruct_path",
+        "relabel_nodes", "set_edge_attributes", "set_node_attributes",
+        "single_source_shortest_path_length",
+        "to_prufer_sequence", "triadic_census",
+        "vf2pp_is_isomorphic", "weisfeiler_lehman_subgraph_hashes",
+    ]
+    for name in sample:
+        sig = inspect.signature(getattr(fnx, name))
+        assert "backend" in sig.parameters, f"fnx.{name} missing backend"
+
+    # Functional spot-check
+    P = fnx.path_graph(5)
+    K3 = fnx.complete_graph(3)
+    fnx.bidirectional_dijkstra(P, 0, 4, backend=None)
+    list(fnx.dfs_edges(P, 0, backend=None))
+    fnx.is_bipartite(P, backend=None)
+    fnx.is_weighted(P, backend=None)
+    list(fnx.find_cliques(P, backend=None))
+    fnx.contracted_nodes(P, 0, 1, backend=None)
+    fnx.relabel_nodes(P, {0: 99}, backend=None)
+    fnx.vf2pp_is_isomorphic(K3, K3, backend=None)
+
+    # Bogus backend rejected
+    with pytest.raises(ImportError):
+        fnx.is_bipartite(P, backend="bogus_backend")
