@@ -4619,3 +4619,49 @@ def test_random_tree_removed_matches_nx_attribute_error():
     # Internal callers still work (regression)
     assert fnx.random_unlabeled_tree(5, seed=42).number_of_nodes() == 5
     assert fnx.random_labeled_rooted_tree(5, seed=42).number_of_nodes() == 5
+
+
+def test_biadjacency_matrix_only_at_bipartite_namespace():
+    """br-r37-c1-bia-removed: ``biadjacency_matrix`` and
+    ``from_biadjacency_matrix`` are only on ``nx.bipartite``,
+    not at nx top-level.  fnx had top-level Python re-
+    implementations that masked the AttributeError nx raises
+    for drop-in callers writing ``nx.biadjacency_matrix``.
+
+    Sister of br-r37-c1-pmi1f (random_tree removed in nx 3.4).
+    Same root pattern: fnx exposed a public symbol nx doesn't
+    expose, breaking the 'access raises AttributeError' contract
+    that drop-in code relies on.
+
+    Lock: top-level access raises nx's exact AttributeError;
+    the bipartite-namespaced versions still work and match nx
+    output."""
+    # Top-level access — raises matching nx
+    with pytest.raises(AttributeError, match=r"has no attribute 'biadjacency_matrix'"):
+        fnx.biadjacency_matrix
+    with pytest.raises(AttributeError, match=r"has no attribute 'from_biadjacency_matrix'"):
+        fnx.from_biadjacency_matrix
+    # nx behaves identically
+    with pytest.raises(AttributeError, match=r"has no attribute 'biadjacency_matrix'"):
+        nx.biadjacency_matrix
+    with pytest.raises(AttributeError, match=r"has no attribute 'from_biadjacency_matrix'"):
+        nx.from_biadjacency_matrix
+
+    # bipartite-namespaced versions still work and match nx
+    B_f = fnx.Graph()
+    B_f.add_nodes_from([0, 1, 2], bipartite=0)
+    B_f.add_nodes_from(["a", "b"], bipartite=1)
+    B_f.add_edges_from([(0, "a"), (1, "b")])
+
+    B_n = nx.Graph()
+    B_n.add_nodes_from([0, 1, 2], bipartite=0)
+    B_n.add_nodes_from(["a", "b"], bipartite=1)
+    B_n.add_edges_from([(0, "a"), (1, "b")])
+
+    m_f = fnx.bipartite.biadjacency_matrix(B_f, [0, 1, 2], ["a", "b"])
+    m_n = nx.bipartite.biadjacency_matrix(B_n, [0, 1, 2], ["a", "b"])
+    assert m_f.toarray().tolist() == m_n.toarray().tolist()
+
+    # Round-trip via from_biadjacency_matrix at the namespaced location
+    H = fnx.bipartite.from_biadjacency_matrix(m_f)
+    assert H.number_of_edges() == 2

@@ -105,7 +105,7 @@ class TestBiadjacencyMatrix:
         rows = [0, 1, 2, 3]
         cols = ["a", "b", "c"]
         expected = nx_bip.biadjacency_matrix(Gn, rows, cols, format=fmt).toarray()
-        actual = fnx.biadjacency_matrix(Gf, rows, cols, format=fmt).toarray()
+        actual = fnx.bipartite.biadjacency_matrix(Gf, rows, cols, format=fmt).toarray()
         assert np.allclose(expected, actual)
 
     def test_biadjacency_weight_none(self, fnx, nx):
@@ -117,12 +117,12 @@ class TestBiadjacencyMatrix:
         rows = [0, 1, 2, 3]
         cols = ["a", "b", "c"]
         expected = nx_bip.biadjacency_matrix(Gn, rows, cols, weight=None).toarray()
-        actual = fnx.biadjacency_matrix(Gf, rows, cols, weight=None).toarray()
+        actual = fnx.bipartite.biadjacency_matrix(Gf, rows, cols, weight=None).toarray()
         assert np.allclose(expected, actual)
 
     def test_biadjacency_row_only_infers_columns(self, fnx):
         Gf = self._build(fnx)
-        actual = fnx.biadjacency_matrix(Gf, [0, 1, 2, 3])
+        actual = fnx.bipartite.biadjacency_matrix(Gf, [0, 1, 2, 3])
         assert actual.shape == (4, 3)
         assert actual.nnz == 5
 
@@ -135,28 +135,28 @@ class TestBiadjacencyMatrix:
         rows = [0, 1, 2, 3]
         cols = ["a", "b", "c"]
         expected = nx_bip.biadjacency_matrix(Gn, rows, cols).toarray()
-        actual = fnx.biadjacency_matrix(Gf, rows, cols).toarray()
+        actual = fnx.bipartite.biadjacency_matrix(Gf, rows, cols).toarray()
         assert np.allclose(expected, actual)
 
     def test_biadjacency_rejects_empty_row_order(self, fnx):
         Gf = self._build(fnx)
         with pytest.raises(fnx.NetworkXError):
-            fnx.biadjacency_matrix(Gf, [])
+            fnx.bipartite.biadjacency_matrix(Gf, [])
 
     def test_biadjacency_rejects_duplicate_row_order(self, fnx):
         Gf = self._build(fnx)
         with pytest.raises(fnx.NetworkXError):
-            fnx.biadjacency_matrix(Gf, [0, 0, 1, 2], ["a", "b", "c"])
+            fnx.bipartite.biadjacency_matrix(Gf, [0, 0, 1, 2], ["a", "b", "c"])
 
     def test_biadjacency_rejects_duplicate_column_order(self, fnx):
         Gf = self._build(fnx)
         with pytest.raises(fnx.NetworkXError):
-            fnx.biadjacency_matrix(Gf, [0, 1, 2, 3], ["a", "a", "b"])
+            fnx.bipartite.biadjacency_matrix(Gf, [0, 1, 2, 3], ["a", "a", "b"])
 
     def test_biadjacency_rejects_unknown_format(self, fnx):
         Gf = self._build(fnx)
         with pytest.raises(fnx.NetworkXError):
-            fnx.biadjacency_matrix(
+            fnx.bipartite.biadjacency_matrix(
                 Gf, [0, 1, 2, 3], ["a", "b", "c"], format="not-a-format"
             )
 
@@ -164,8 +164,8 @@ class TestBiadjacencyMatrix:
         Gf = self._build(fnx)
         rows = [0, 1, 2, 3]
         cols = ["a", "b", "c"]
-        matrix = fnx.biadjacency_matrix(Gf, rows, cols)
-        H = fnx.from_biadjacency_matrix(matrix, row_order=rows, column_order=cols)
+        matrix = fnx.bipartite.biadjacency_matrix(Gf, rows, cols)
+        H = fnx.bipartite.from_biadjacency_matrix(matrix, row_order=rows, column_order=cols)
         assert set(H.nodes()) == set(rows) | set(cols)
         original = sorted(tuple(sorted((u, v), key=str)) for u, v in Gf.edges())
         roundtrip = sorted(tuple(sorted((u, v), key=str)) for u, v in H.edges())
@@ -176,14 +176,14 @@ class TestBiadjacencyMatrix:
 
         matrix = sp.sparse.csr_array([[1, 0], [0, 1]])
         with pytest.raises(ValueError):
-            fnx.from_biadjacency_matrix(matrix, row_order=["only-one-row"])
+            fnx.bipartite.from_biadjacency_matrix(matrix, row_order=["only-one-row"])
 
     def test_from_biadjacency_integer_multigraph_expands_parallel_edges(self, fnx):
         import numpy as np
         import scipy as sp
 
         matrix = sp.sparse.csr_array(np.array([[2, 0], [0, 3]], dtype=int))
-        H = fnx.from_biadjacency_matrix(matrix, create_using=fnx.MultiGraph())
+        H = fnx.bipartite.from_biadjacency_matrix(matrix, create_using=fnx.MultiGraph())
         edges = sorted(H.edges())
         assert edges == [(0, 2), (0, 2), (1, 3), (1, 3), (1, 3)]
 

@@ -13197,106 +13197,15 @@ def _bipartite_color_via_parity(G):
         raise NetworkXError(str(e)) from None
 
 
-def biadjacency_matrix(
-    G, row_order, column_order=None, dtype=None, weight="weight", format="csr"
-):
-    """Return the biadjacency matrix of the bipartite graph G.
-
-    Given a bipartite graph with row nodes ``row_order`` and column nodes
-    ``column_order``, builds a ``len(row_order) x len(column_order)`` SciPy
-    sparse matrix whose (i, j) entry is the ``weight`` attribute of the edge
-    between ``row_order[i]`` and ``column_order[j]`` (or 1 if the edge exists
-    but has no such attribute, or ``weight`` is None).
-
-    Mirrors ``networkx.algorithms.bipartite.biadjacency_matrix``.
-    """
-    import scipy as _sp
-
-    row_order = list(row_order)
-    nlen = len(row_order)
-    if nlen == 0:
-        raise NetworkXError("row_order is empty list")
-    if len(row_order) != len(set(row_order)):
-        raise NetworkXError("Ambiguous ordering: `row_order` contained duplicates.")
-    if column_order is None:
-        column_order = list(set(G) - set(row_order))
-    else:
-        column_order = list(column_order)
-    mlen = len(column_order)
-    if len(column_order) != len(set(column_order)):
-        raise NetworkXError(
-            "Ambiguous ordering: `column_order` contained duplicates."
-        )
-
-    row_index = dict(zip(row_order, itertools.count()))
-    col_index = dict(zip(column_order, itertools.count()))
-
-    rows: list[int] = []
-    cols: list[int] = []
-    data: list = []
-    for u in row_order:
-        for v, d in G[u].items():
-            if v in col_index:
-                rows.append(row_index[u])
-                cols.append(col_index[v])
-                data.append(d.get(weight, 1) if weight is not None else 1)
-
-    matrix = _sp.sparse.coo_array(
-        (data, (rows, cols)), shape=(nlen, mlen), dtype=dtype
-    )
-    try:
-        return matrix.asformat(format)
-    except ValueError as err:
-        raise NetworkXError(f"Unknown sparse array format: {format}") from err
-
-
-def from_biadjacency_matrix(
-    A, create_using=None, edge_attribute="weight", *, row_order=None, column_order=None
-):
-    """Create a bipartite graph from a biadjacency SciPy sparse matrix.
-
-    Mirrors ``networkx.algorithms.bipartite.from_biadjacency_matrix``. Row
-    nodes get ``bipartite=0`` and column nodes ``bipartite=1``.  When
-    ``row_order`` or ``column_order`` is given, nodes are relabeled in place.
-    Multi-graph targets with integer matrix entries expand parallel edges.
-    """
-    G = empty_graph(0, create_using)
-    n, m = A.shape
-    if row_order is not None and len(row_order) != n:
-        raise ValueError(
-            f"Length of row_order does not match number of rows in A ({n})"
-        )
-    if column_order is not None and len(column_order) != m:
-        raise ValueError(
-            f"Length of column_order does not match number of columns in A ({m})"
-        )
-    row_order = list(row_order) if row_order is not None else []
-    column_order = list(column_order) if column_order is not None else []
-
-    G.add_nodes_from(range(n), bipartite=0)
-    G.add_nodes_from(range(n, n + m), bipartite=1)
-
-    coo = A.tocoo()
-    triples = [(int(u), int(v) + n, w) for u, v, w in zip(coo.row, coo.col, coo.data)]
-    is_integer_entries = A.dtype.kind in ("i", "u")
-
-    if is_integer_entries and G.is_multigraph():
-        expanded = []
-        for u, v, w in triples:
-            for _ in range(int(w)):
-                expanded.append((u, v, 1))
-        triples = expanded
-
-    G.add_weighted_edges_from(triples, weight=edge_attribute)
-
-    if row_order or column_order:
-        mapping = {}
-        if row_order:
-            mapping.update(dict(zip(range(n), row_order)))
-        if column_order:
-            mapping.update(dict(zip(range(n, n + m), column_order)))
-        relabel_nodes(G, mapping, copy=False)
-    return G
+# br-r37-c1-bia-removed: ``biadjacency_matrix`` and
+# ``from_biadjacency_matrix`` were never exposed at nx top level
+# (only via ``nx.bipartite``).  fnx exported them at top level as
+# redundant Python re-implementations, masking the AttributeError
+# nx raises for drop-in callers writing ``nx.biadjacency_matrix``.
+# The functions live exclusively at ``fnx.bipartite.biadjacency_
+# matrix`` (which delegates to nx) per nx 3.x layout.  Module
+# ``__getattr__`` traps top-level access to the same AttributeError
+# nx emits.
 
 
 def projected_graph(B, nodes, multigraph=False):
@@ -37931,8 +37840,9 @@ __all__ = [
     "radius",
     # Algorithms — tree, forest, bipartite, coloring, core
     "bipartite_sets",
-    "biadjacency_matrix",
-    "from_biadjacency_matrix",
+    # br-r37-c1-bia-removed: biadjacency_matrix /
+    # from_biadjacency_matrix are only at nx.bipartite, not nx
+    # top-level; not exported.
     "is_bipartite_node_set",
     "projected_graph",
     "bipartite_density",
@@ -39496,6 +39406,16 @@ def __getattr__(name):
             "nx.random_tree was removed in version 3.4. Use "
             "`nx.random_labeled_tree` instead.\n"
             "See: https://networkx.org/documentation/latest/release/release_3.4.html"
+        )
+    # br-r37-c1-bia-removed: biadjacency_matrix /
+    # from_biadjacency_matrix are nx.bipartite-only; nx never
+    # exposed them at top level.  fnx had top-level Python
+    # re-implementations (now removed) that masked nx's
+    # AttributeError — emit nx's exact wording so drop-in
+    # callers branching on the exception see identical behaviour.
+    if name in ("biadjacency_matrix", "from_biadjacency_matrix"):
+        raise AttributeError(
+            f"module 'networkx' has no attribute '{name}'"
         )
     import networkx as nx
 
