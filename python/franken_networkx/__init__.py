@@ -3971,6 +3971,34 @@ def _has_negative_edge_weight_for_dijkstra(G, weight):
     return False
 
 
+def _has_nonnumeric_edge_weight(G, weight):
+    """Detect non-numeric edge weight values (str, list, dict, None, etc.).
+
+    br-r37-c1-djk-strw: when ``weight`` is a string but the actual
+    value at that key on any edge is non-numeric, nx propagates a
+    TypeError from the natural ``+`` operation in its accumulation
+    loop.  The Rust dijkstra silently treats the value as 1.0,
+    masking the type error.  Callers that pass garbage weights
+    deserve to fail loudly.
+    """
+    if not isinstance(weight, str):
+        return False
+    if G.is_multigraph():
+        attrs_iter = (attrs for _, _, _, attrs in G.edges(keys=True, data=True))
+    else:
+        attrs_iter = (attrs for _, _, attrs in G.edges(data=True))
+    for attrs in attrs_iter:
+        if not isinstance(attrs, dict) or weight not in attrs:
+            continue
+        value = attrs[weight]
+        if isinstance(value, bool):
+            # bools are ints; leave to the numeric path
+            continue
+        if not isinstance(value, numbers.Real):
+            return True
+    return False
+
+
 def _should_delegate_dijkstra_to_networkx(G, weight):
     if callable(weight):
         return True
@@ -3983,7 +4011,12 @@ def _should_delegate_dijkstra_to_networkx(G, weight):
     # weight (including ``None``) to nx to preserve drop-in parity.
     if not isinstance(weight, str):
         return True
-    return _has_negative_edge_weight_for_dijkstra(G, weight)
+    if _has_negative_edge_weight_for_dijkstra(G, weight):
+        return True
+    # br-r37-c1-djk-strw: also delegate when edge values at
+    # ``weight`` key are non-numeric — Rust silently treats them
+    # as 1.0; nx raises TypeError.
+    return _has_nonnumeric_edge_weight(G, weight)
 
 
 def _graph_has_nonunit_weight(G, weight):
@@ -4009,13 +4042,19 @@ def _graph_has_nonunit_weight(G, weight):
     return False
 
 
-def _should_delegate_bellman_ford_to_networkx(weight):
+def _should_delegate_bellman_ford_to_networkx(weight, G=None):
     if callable(weight):
         return True
     # br-r37-c1-blu7u: route any non-string weight (including
     # ``None`` and ints / floats / bytes / tuples) to nx — the
     # PyO3 binding's ``weight: str`` signature type-rejects.
-    return not isinstance(weight, str)
+    if not isinstance(weight, str):
+        return True
+    # br-r37-c1-djk-strw (sibling): route non-numeric edge values
+    # to nx so its TypeError contract on ``+`` propagates.
+    if G is not None and _has_nonnumeric_edge_weight(G, weight):
+        return True
+    return False
 
 
 def _should_delegate_floyd_warshall_to_networkx(weight):
@@ -4218,7 +4257,7 @@ def bellman_ford_path(G, source, target, weight="weight"):
     # br-r37-c1-c4agn: hash-check for nx-shaped TypeError parity.
     hash(source)
     hash(target)
-    if _should_delegate_bellman_ford_to_networkx(weight):
+    if _should_delegate_bellman_ford_to_networkx(weight, G):
         return _call_networkx_for_parity(
             "bellman_ford_path", G, source, target, weight=weight
         )
@@ -10180,7 +10219,7 @@ def dag_longest_path_length(G, weight="weight", default_weight=1):
         raise NetworkXNotImplemented("not implemented for undirected type")
     if (
         not G.is_multigraph()
-        and (weight is None or isinstance(weight, str))
+        and isinstance(weight, str)
         and isinstance(default_weight, (int, float))
         and _dag_length_rust_weight_attrs_safe(G, weight)
     ):

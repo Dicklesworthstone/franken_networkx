@@ -2102,3 +2102,34 @@ def test_dag_longest_path_length_preserves_int_type_match_nx():
     fr = fnx.dag_longest_path_length(DG_f, default_weight=1.0)
     nr = nx.dag_longest_path_length(DG_n, default_weight=1.0)
     assert type(fr) is type(nr) is float
+
+
+def test_dijkstra_bellman_ford_nonnumeric_weight_typeerror_match_nx():
+    """br-r37-c1-djk-strw: dijkstra_path / bellman_ford_path with a
+    string ``weight`` kwarg silently returned a path when edge values
+    at that key were non-numeric (str, list, dict).  The Rust binding
+    treated the value as the default 1.0, masking nx's TypeError on
+    the natural ``+`` accumulation.
+
+    Lock TypeError parity for dijkstra_path and bellman_ford_path
+    across str / list / dict weight values, plus regression checks
+    for valid numeric weights and missing-attr default."""
+    def make(lib, val):
+        G = lib.Graph()
+        G.add_edge(0, 1, weight=val)
+        G.add_edge(1, 2, weight=val)
+        return G
+
+    for fn_name in ("dijkstra_path", "bellman_ford_path"):
+        f = getattr(fnx, fn_name)
+        # Non-numeric values now propagate TypeError
+        for bad in ("abc", "5", [1, 2], {"x": 1}):
+            with pytest.raises(TypeError):
+                f(make(fnx, bad), 0, 2)
+        # Numeric values still work
+        G = fnx.Graph()
+        G.add_edge(0, 1, weight=5)
+        G.add_edge(1, 2, weight=3)
+        assert f(G, 0, 2) == [0, 1, 2]
+        # Missing weight attr → default unweighted path
+        assert f(fnx.path_graph(3), 0, 2) == [0, 1, 2]
