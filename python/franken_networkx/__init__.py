@@ -29314,6 +29314,14 @@ def random_geometric_graph(n, radius, dim=2, pos=None, p=2, seed=None, *, pos_na
 
     if isinstance(n, int) and n < 0:
         raise NetworkXError(f"Negative number of nodes not valid: {n}")
+    # br-r37-c1-rgg-dim0: nx leaks IndexError("Out of bounds on
+    # buffer access (axis 0)") from internal numpy slicing when
+    # ``dim <= 0`` (positions are sampled into a ``dim``-element
+    # buffer; zero/negative-length sampling fails downstream).
+    # fnx silently produced a complete graph.  Match nx's leaky-
+    # but-stable contract.
+    if isinstance(dim, int) and dim <= 0:
+        raise IndexError("Out of bounds on buffer access (axis 0)")
     rng = _random.Random(seed)
     G = Graph()
     positions: dict = {}
@@ -29379,6 +29387,9 @@ def soft_random_geometric_graph(
 
     if isinstance(n, int) and n < 0:
         raise NetworkXError(f"Negative number of nodes not valid: {n}")
+    # br-r37-c1-rgg-dim0: see random_geometric_graph for rationale.
+    if isinstance(dim, int) and dim <= 0:
+        raise IndexError("Out of bounds on buffer access (axis 0)")
     rng = _random.Random(seed)
     G = Graph()
     G.add_nodes_from(range(n))
@@ -29494,6 +29505,13 @@ def geographical_threshold_graph(
 
     if isinstance(n, int) and n < 0:
         raise NetworkXError(f"Negative number of nodes not valid: {n}")
+    # br-r37-c1-rgg-dim0: nx leaks ZeroDivisionError from the
+    # ``r ** -2`` default p_dist when dim <= 0 produces
+    # zero-distance pairs.  Match nx's leaky-but-stable contract.
+    if isinstance(dim, int) and dim <= 0:
+        raise ZeroDivisionError(
+            "0.0 cannot be raised to a negative power"
+        )
     rng = _random.Random(seed)
     G = Graph()
     G.add_nodes_from(range(n))
@@ -29561,6 +29579,9 @@ def thresholded_random_geometric_graph(
 
     if isinstance(n, int) and n < 0:
         raise NetworkXError(f"Negative number of nodes not valid: {n}")
+    # br-r37-c1-rgg-dim0: see random_geometric_graph for rationale.
+    if isinstance(dim, int) and dim <= 0:
+        raise IndexError("Out of bounds on buffer access (axis 0)")
     rng = _random.Random(seed)
     G = Graph()
     G.add_nodes_from(range(n))

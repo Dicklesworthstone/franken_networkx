@@ -31,12 +31,15 @@ needs_nx = pytest.mark.skipif(not HAS_NX, reason="networkx not installed")
 def test_signature_matches_networkx():
     fnx_sig = inspect.signature(fnx.geometric_soft_configuration_graph)
     nx_sig = inspect.signature(nx.geometric_soft_configuration_graph)
-    fnx_params = list(fnx_sig.parameters.keys())
+    # Strip backend/backend_kwargs from BOTH sides (br-r37-c1-bk-final
+    # added them to fnx via the bulk wrapper).
+    fnx_params = [k for k in fnx_sig.parameters.keys()
+                  if k not in ("backend", "backend_kwargs")]
     nx_params = [k for k in nx_sig.parameters.keys()
                  if k not in ("backend", "backend_kwargs")]
     assert fnx_params == nx_params
 
-    # All parameters keyword-only (matching nx)
+    # All domain parameters keyword-only (matching nx)
     for name in fnx_params:
         assert (
             fnx_sig.parameters[name].kind == inspect.Parameter.KEYWORD_ONLY

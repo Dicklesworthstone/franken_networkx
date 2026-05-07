@@ -3096,3 +3096,34 @@ def test_gomory_hu_tree_unbounded_paths_raise_match_nx():
     # Empty / 1-node still raise their own typed errors
     with pytest.raises(nx.NetworkXError, match="Empty Graph"):
         fnx.gomory_hu_tree(fnx.Graph())
+
+
+def test_geometric_generators_dim_le_zero_raise_match_nx():
+    """br-r37-c1-rgg-dim0: 4 geometric generators silently produced
+    complete (n*(n-1)/2-edge) graphs when ``dim <= 0`` because the
+    position-sampling loop ran zero iterations and all pairs ended
+    up at distance 0.  nx leaks IndexError (3 generators) or
+    ZeroDivisionError (geographical_threshold_graph) from internal
+    numpy / power operations.
+
+    Lock the leaky-but-stable nx contract for all 4 generators."""
+    # IndexError-leaking generators
+    for fn_factory, args in [
+        (lambda dim: fnx.random_geometric_graph(5, 0.5, dim=dim, seed=42), None),
+        (lambda dim: fnx.soft_random_geometric_graph(5, 0.5, dim=dim, seed=42), None),
+        (lambda dim: fnx.thresholded_random_geometric_graph(5, 0.5, 0.3, dim=dim, seed=42), None),
+    ]:
+        with pytest.raises(IndexError, match="Out of bounds"):
+            fn_factory(0)
+        with pytest.raises(IndexError, match="Out of bounds"):
+            fn_factory(-1)
+
+    # ZeroDivisionError-leaking generator
+    with pytest.raises(ZeroDivisionError):
+        fnx.geographical_threshold_graph(5, 0.3, dim=0, seed=42)
+    with pytest.raises(ZeroDivisionError):
+        fnx.geographical_threshold_graph(5, 0.3, dim=-1, seed=42)
+
+    # Valid dim still works (regression)
+    assert fnx.random_geometric_graph(5, 0.5, dim=2, seed=42).number_of_nodes() == 5
+    assert fnx.geographical_threshold_graph(5, 0.3, dim=2, seed=42).number_of_nodes() == 5
