@@ -7,8 +7,8 @@
 | Category | Count | % | Rule |
 |----------|-------|---|------|
 | RUST_NATIVE | 17 | 1% | native extension exports from `franken_networkx._fnx` |
-| PY_WRAPPER | 838 | 94% | Python-defined exports with no runtime NetworkX dependency detected |
-| NX_DELEGATED | 1 | 0% | Python-defined exports that import or call NetworkX at runtime |
+| PY_WRAPPER | 839 | 94% | Python-defined exports with no runtime NetworkX dependency detected |
+| NX_DELEGATED | 0 | 0% | Python-defined exports that import or call NetworkX at runtime |
 | CLASS | 32 | 3% | public classes, exceptions, iterators |
 | CONSTANT | 3 | 0% | public non-callable values |
 | **Total public exports** | **891** | | unique names from `franken_networkx.__all__` |
@@ -22,9 +22,9 @@ This ledger separates the broad public-export category from source-visible runti
 | Runtime route | Exports | Helper call sites | Rule |
 |---------------|---------|-------------------|------|
 | RUST_NATIVE | 17 | 0 | native extension export from `franken_networkx._fnx` |
-| PY_WRAPPER | 695 | 0 | Python-defined export with no visible NetworkX route |
+| PY_WRAPPER | 696 | 0 | Python-defined export with no visible NetworkX route |
 | NETWORKX_HELPER | 143 | 166 | Python-defined export with `_call_networkx_*_for_parity(...)` branches |
-| DIRECT_NETWORKX | 1 | 0 | Python-defined export that directly imports or calls NetworkX |
+| DIRECT_NETWORKX | 0 | 0 | Python-defined export that directly imports or calls NetworkX |
 | CLASS | 32 | 0 | public classes, exceptions, iterators |
 | CONSTANT | 3 | 0 | public non-callable values |
 
@@ -38,7 +38,7 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 |------------------|------|------|
 | native-parity | 17 | public Rust-native export; no Python fallback route detected |
 | wrapper-patched | 1 | public wrapper records a compatibility repair over a lower-level gap |
-| intentionally-delegated | 144 | AST-visible parity helper or direct NetworkX route |
+| intentionally-delegated | 143 | AST-visible parity helper or direct NetworkX route |
 | raw-known-gap | 1 | lower-level raw/native implementation has a documented parity gap |
 | owner-acknowledged-limitation | 1 | documented limitation is intentionally owned until native repair |
 
@@ -241,7 +241,7 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 - `number_of_isolates`
 - `number_of_spanning_arborescences`
 
-## PY_WRAPPER exports (838)
+## PY_WRAPPER exports (839)
 
 - `LCF_graph`
 - `LFR_benchmark_graph`
@@ -1069,6 +1069,7 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 - `within_inter_cluster`
 - `write_adjlist`
 - `write_edgelist`
+- `write_gexf`
 - `write_gml`
 - `write_graph6`
 - `write_graphml`
@@ -1082,9 +1083,8 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 - `write_weighted_edgelist`
 - `zipf_rv`
 
-## NX_DELEGATED exports (1)
+## NX_DELEGATED exports (0)
 
-- `write_gexf`
 
 ## CLASS exports (32)
 

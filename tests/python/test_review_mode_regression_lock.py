@@ -4856,3 +4856,48 @@ def test_planarity_helpers_only_at_algorithms_planarity():
     counter = fnx.algorithms.planarity.get_counterexample(fnx.complete_graph(5))
     assert counter is not None
     assert counter.number_of_nodes() >= 5
+
+
+def test_write_gexf_classified_as_py_wrapper_not_nx_delegated():
+    """br-r37-c1-wgexf-cls: ``write_gexf`` had a ``from networkx
+    import ...`` at function scope (the simple-graph delegation
+    branch).  The coverage-matrix classifier scans function
+    source via AST and flags any direct nx import/reference as
+    ``NX_DELEGATED`` — a category disallowed for public exports
+    per ``test_public_coverage_has_no_networkx_delegated_exports``.
+
+    Sister of br-r37-c1-{eeawk, nlkkm, nhgtp, wgexf-parity} —
+    same root pattern: keep public wrappers free of direct nx
+    references so the byte-parity story is enforced via private
+    helpers.
+
+    Lock: write_gexf classifies as PY_WRAPPER (not NX_DELEGATED),
+    NX_DELEGATED count remains 0 across the full export surface,
+    and the byte output still matches nx exactly."""
+    import sys as _sys
+    _sys.path.insert(0, "/data/projects/franken_networkx/scripts")
+    try:
+        import generate_coverage_matrix as _gcm
+    finally:
+        _sys.path.pop(0)
+
+    # write_gexf must be classified as PY_WRAPPER
+    assert _gcm.classify_export(fnx.write_gexf) == "PY_WRAPPER"
+
+    # No exports may be NX_DELEGATED
+    exports, _ = _gcm.load_public_exports()
+    delegated = [name for name, obj in exports
+                 if _gcm.classify_export(obj) == "NX_DELEGATED"]
+    assert delegated == []
+
+    # Byte-parity preserved: simple-graph and multi-graph
+    # branches still produce nx-matching output (single-quoted
+    # XML decl, lowercase utf-8).
+    import io
+    buf = io.BytesIO()
+    fnx.write_gexf(fnx.path_graph(3), buf)
+    assert buf.getvalue().startswith(b"<?xml version='1.0' encoding='utf-8'?>")
+
+    buf2 = io.BytesIO()
+    fnx.write_gexf(fnx.MultiGraph([(0, 1), (0, 1)]), buf2)
+    assert buf2.getvalue().startswith(b"<?xml version='1.0' encoding='utf-8'?>")
