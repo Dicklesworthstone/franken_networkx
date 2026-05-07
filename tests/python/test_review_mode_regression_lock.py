@@ -3205,3 +3205,34 @@ def test_fast_gnp_random_graph_nan_p_raises_match_nx():
 
     # Valid: regression
     assert fnx.fast_gnp_random_graph(5, 0.5, seed=42).number_of_edges() == 6
+
+
+def test_random_planted_partition_p_validation_match_nx():
+    """br-r37-c1-rpg-validate: random_partition_graph and
+    planted_partition_graph routed straight to stochastic_block_
+    model whose matrix-level validation produced a generic
+    "Entries of 'p' not in [0,1]." message.  AND silently accepted
+    NaN by short-circuiting on the matrix construction.
+
+    nx validates p_in / p_out separately with axis-specific
+    messages ("p_in must be in [0,1]" / "p_out must be in [0,1]")
+    BEFORE building the matrix.  Lock the per-axis validation."""
+    bad_p_cases = [
+        (float("nan"), 0.1, "p_in"),
+        (0.5, float("nan"), "p_out"),
+        (-1, 0.1, "p_in"),
+        (0.5, 2.0, "p_out"),
+        (2.0, 0.1, "p_in"),
+    ]
+    for p_in, p_out, axis in bad_p_cases:
+        match = f"{axis} must be in"
+        with pytest.raises(nx.NetworkXError, match=match):
+            fnx.random_partition_graph([3, 2], p_in, p_out, seed=42)
+        with pytest.raises(nx.NetworkXError, match=match):
+            fnx.planted_partition_graph(2, 3, p_in, p_out, seed=42)
+
+    # Valid: regression
+    G = fnx.random_partition_graph([3, 2], 0.5, 0.1, seed=42)
+    assert G.number_of_nodes() == 5
+    G = fnx.planted_partition_graph(2, 3, 0.5, 0.1, seed=42)
+    assert G.number_of_nodes() == 6

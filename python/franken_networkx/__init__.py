@@ -29048,6 +29048,15 @@ def _sbm_impl(sizes, p, nodelist, seed, directed, selfloops, sparse):
 
 def planted_partition_graph(l, k, p_in, p_out, seed=None, directed=False):
     """Planted partition graph (l groups of k nodes)."""
+    # br-r37-c1-rpg-validate: same nx-aligned validation as
+    # random_partition_graph (planted is a special case where all
+    # groups have size k).
+    import math as _math
+    for label, p in (("p_in", p_in), ("p_out", p_out)):
+        if (
+            isinstance(p, float) and _math.isnan(p)
+        ) or not (0 <= p <= 1):
+            raise NetworkXError(f"{label} must be in [0,1]")
     return stochastic_block_model(
         [k] * l,
         [[p_in if i == j else p_out for j in range(l)] for i in range(l)],
@@ -29102,6 +29111,19 @@ def gaussian_random_partition_graph(
 
 def random_partition_graph(sizes, p_in, p_out, seed=None, directed=False):
     """Random partition graph."""
+    # br-r37-c1-rpg-validate: nx validates ``p_in`` and ``p_out``
+    # separately with axis-specific error messages BEFORE building
+    # the probability matrix.  fnx routed straight to
+    # stochastic_block_model whose matrix-level check produced a
+    # generic "Entries of 'p' not in [0,1]." message, AND silently
+    # accepted NaN by short-circuiting on the matrix construction.
+    # Pre-validate to match nx's contract.
+    import math as _math
+    for label, p in (("p_in", p_in), ("p_out", p_out)):
+        if (
+            isinstance(p, float) and _math.isnan(p)
+        ) or not (0 <= p <= 1):
+            raise NetworkXError(f"{label} must be in [0,1]")
     l = len(sizes)
     return stochastic_block_model(
         sizes,
