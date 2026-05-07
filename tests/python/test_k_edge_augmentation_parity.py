@@ -3,6 +3,7 @@ from unittest import mock
 
 import franken_networkx as fnx
 import networkx as nx
+import pytest
 
 
 class TestKEdgeAugmentation:
@@ -30,13 +31,31 @@ class TestKEdgeAugmentation:
             )
 
     def test_nonpositive_float_k_error_message_matches_nx(self):
-        import pytest
         G = fnx.path_graph(5)
         with pytest.raises(
             ValueError,
             match=r"k must be a positive integer, not 0\.0",
         ):
             fnx.k_edge_augmentation(G, 0.0)
+
+    def test_avail_endpoint_not_in_graph_raises_keyerror_like_nx(self):
+        """NetworkX validates candidate endpoints even when the graph
+        already satisfies k=1.  fnx previously returned [] on the
+        fast path or leaked NodeNotFound from local connectivity.
+        """
+        cases = [
+            (1, [(0, 3)], False),
+            (2, [(0, 3), (1, 2)], False),
+            (2, {(0, 3): 1, (1, 2): 2}, True),
+        ]
+        for k, avail, partial in cases:
+            G = fnx.path_graph(3)
+            nG = nx.path_graph(3)
+            with pytest.raises(KeyError) as fnx_exc:
+                fnx.k_edge_augmentation(G, k, avail=avail, partial=partial)
+            with pytest.raises(KeyError) as nx_exc:
+                list(nx.k_edge_augmentation(nG, k, avail=avail, partial=partial))
+            assert fnx_exc.value.args == nx_exc.value.args == (3,)
 
     def test_k1_already_connected(self):
         G = fnx.complete_graph(4)

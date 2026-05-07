@@ -28459,6 +28459,16 @@ def _k_edge_unpack_available_edges(avail, weight=None, G=None):
     return filtered_edges, filtered_weights
 
 
+def _k_edge_validate_available_endpoints(avail, G):
+    edges = avail.keys() if isinstance(avail, Mapping) else avail
+    for edge in edges:
+        u, v = edge[:2]
+        if u not in G:
+            raise KeyError(u)
+        if v not in G:
+            raise KeyError(v)
+
+
 def _k_edge_is_locally_connected(G, source, target, k):
     if source == target:
         return True
@@ -28676,6 +28686,8 @@ def k_edge_augmentation(G, k, avail=None, weight=None, partial=False):
                 return []
             raise NetworkXUnfeasible("no available edges")
         return []
+    if avail is not None:
+        _k_edge_validate_available_endpoints(avail, G)
 
     # Fast native path for k=1 (connect components)
     if k == 1 and avail is None and weight is None:
