@@ -2512,3 +2512,65 @@ def test_traversal_backend_kwarg_surface_match_nx():
     # Bad backend → ImportError (matching nx's contract)
     with pytest.raises(ImportError):
         list(fnx.bfs_layers(P, [0], backend="bogus_backend"))
+
+
+def test_bulk2_backend_kwarg_surface_match_nx():
+    """br-r37-c1-bulk2-bk: 50 high-traffic dispatchable APIs across
+    distance/path, connectivity, DAG, cycles, coloring, clustering,
+    matching, and operators families missed the backend dispatch
+    surface that nx's @_dispatchable adds.  Drop-in code that used
+    ``fn(G, ..., backend='networkx')`` crashed with TypeError.
+
+    Same defect family as br-r37-c1-{spbk-bulk, qk425, 0z6fh, 4gxxz}
+    (which fixed earlier batches).  Lock the full surface."""
+    import inspect
+    targets = [
+        # Distance / path
+        "shortest_path_length", "dijkstra_path", "dijkstra_path_length",
+        "all_pairs_dijkstra", "floyd_warshall", "johnson",
+        # Connectivity
+        "biconnected_components", "is_biconnected", "bridges",
+        "has_bridges", "local_bridges", "articulation_points",
+        "node_connectivity", "edge_connectivity", "minimum_edge_cut",
+        "all_node_cuts",
+        # DAG
+        "condensation", "transitive_closure", "transitive_closure_dag",
+        "transitive_reduction", "antichains", "dag_to_branching",
+        "dag_longest_path", "dag_longest_path_length",
+        # Cycles / trees
+        "recursive_simple_cycles", "minimum_cycle_basis",
+        "is_arborescence", "is_branching",
+        # Coloring
+        "greedy_color", "equitable_color",
+        # Clustering
+        "clustering", "average_clustering", "transitivity",
+        "triangles", "square_clustering",
+        # Matching
+        "max_weight_matching", "min_weight_matching", "is_matching",
+        "is_perfect_matching", "is_maximal_matching",
+        # Operators
+        "union", "compose", "intersection", "difference",
+        "symmetric_difference", "disjoint_union",
+        "cartesian_product", "tensor_product", "lexicographic_product",
+        "strong_product",
+    ]
+    for name in targets:
+        f_sig = inspect.signature(getattr(fnx, name))
+        assert "backend" in f_sig.parameters, (
+            f"fnx.{name} missing backend kwarg"
+        )
+
+    # Functional spot-check: a handful accept backend=None
+    P = fnx.path_graph(5)
+    K3 = fnx.complete_graph(3)
+    fnx.shortest_path_length(P, 0, 4, backend=None)
+    fnx.dijkstra_path(P, 0, 4, backend=None)
+    fnx.clustering(P, backend=None)
+    fnx.transitivity(P, backend=None)
+    fnx.greedy_color(P, backend=None)
+    fnx.node_connectivity(P, backend=None)
+    fnx.triangles(K3, backend=None)
+    fnx.max_weight_matching(K3, backend=None)
+    fnx.is_matching(K3, set(), backend=None)
+    fnx.dag_longest_path(fnx.DiGraph([(0, 1)]), backend=None)
+    fnx.transitive_closure(fnx.DiGraph([(0, 1)]), backend=None)

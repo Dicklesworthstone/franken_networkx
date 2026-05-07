@@ -38347,6 +38347,38 @@ def _bulk_add_backend_dispatch_kwargs():
         "descendants_at_distance", "bfs_predecessors", "bfs_successors",
         "bfs_tree", "dfs_tree", "topological_generations",
         "all_topological_sorts", "lexicographical_topological_sort",
+        # br-r37-c1-bulk2-bk: 50-function audit found another batch
+        # of high-traffic dispatchable APIs missing the backend
+        # surface.  Same root cause + same fix shape as the prior
+        # bulk pass.
+        # Distance / path
+        "shortest_path_length", "dijkstra_path", "dijkstra_path_length",
+        "all_pairs_dijkstra", "floyd_warshall", "johnson",
+        # Connectivity
+        "biconnected_components", "is_biconnected", "bridges",
+        "has_bridges", "local_bridges", "articulation_points",
+        "node_connectivity", "edge_connectivity", "minimum_edge_cut",
+        "all_node_cuts",
+        # DAG
+        "condensation", "transitive_closure", "transitive_closure_dag",
+        "transitive_reduction", "antichains", "dag_to_branching",
+        "dag_longest_path", "dag_longest_path_length",
+        # Cycles / trees
+        "recursive_simple_cycles", "minimum_cycle_basis",
+        "is_arborescence", "is_branching",
+        # Coloring
+        "greedy_color", "equitable_color",
+        # Clustering
+        "clustering", "average_clustering", "transitivity",
+        "triangles", "square_clustering",
+        # Matching
+        "max_weight_matching", "min_weight_matching", "is_matching",
+        "is_perfect_matching", "is_maximal_matching",
+        # Operators
+        "union", "compose", "intersection", "difference",
+        "symmetric_difference", "disjoint_union",
+        "cartesian_product", "tensor_product", "lexicographic_product",
+        "strong_product",
     )
 
     ns = globals()
