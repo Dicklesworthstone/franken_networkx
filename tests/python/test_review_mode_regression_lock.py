@@ -4036,3 +4036,53 @@ def test_estrada_index_returns_int_zero_on_empty_graph():
         assert isinstance(fv, float)
         assert isinstance(nv, float)
         assert abs(fv - nv) < 1e-9
+
+
+def test_nodeview_contains_unhashable_raises_typeerror():
+    """br-r37-c1-nv-hash: ``NodeView.__contains__`` (the
+    ``in G.nodes`` operator) silently returned False on
+    unhashable items.  nx propagates ``TypeError: unhashable
+    type: '<X>'`` from the underlying ``item in self._nodes``
+    dict lookup.
+
+    Affects all four graph-class NodeView types (NodeView,
+    DiNodeView, MultiGraphNodeView, MultiDiGraphNodeView).
+    Sister of br-r37-c1-cvtv6 / br-r37-c1-kgpaj /
+    br-r37-c1-cl78j / br-r37-c1-exavo / br-r37-c1-9ll82 — same
+    root pattern (Rust binding silently catches TypeError).
+
+    Lock: ``[unhashable] in G.nodes`` raises TypeError on
+    every graph type.  Hashable-but-missing returns False (nx
+    contract preserved); good nodes return True.
+
+    Note: ``NodeDataView`` (the result of ``nodes(data=True)``)
+    intentionally swallows TypeError on both nx and fnx — its
+    ``__contains__`` accepts arbitrary 2-tuples, not just node
+    keys, so type-checking the first element is too strict for
+    nx's contract.  This test covers only the bare
+    ``G.nodes`` view."""
+    for cls in (fnx.Graph, fnx.DiGraph, fnx.MultiGraph, fnx.MultiDiGraph):
+        G = cls()
+        G.add_node(0)
+        G.add_node(1)
+
+        # Unhashable items
+        with pytest.raises(TypeError, match=r"unhashable type"):
+            [1, 2] in G.nodes
+        with pytest.raises(TypeError, match=r"unhashable type"):
+            {1: 2} in G.nodes
+        with pytest.raises(TypeError, match=r"unhashable type"):
+            {1, 2} in G.nodes
+
+        # Hashable but missing — returns False
+        assert (99 in G.nodes) is False
+        assert ("x" in G.nodes) is False
+
+        # Good nodes — returns True
+        assert (0 in G.nodes) is True
+        assert (1 in G.nodes) is True
+
+    # NodeDataView regression: still silently False (nx contract)
+    P = fnx.path_graph(3)
+    assert ([1, 2] in P.nodes(data=True)) is False
+    assert (1 in P.nodes(data=True)) is True

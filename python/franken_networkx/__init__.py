@@ -511,11 +511,28 @@ class NodeDataView:
         return len(self._materialize())
 
     def __contains__(self, item):
-        # Match nx: a bare node is considered in the view (data
-        # variant strips the data when checking containment).
-        if not isinstance(item, tuple):
-            return item in self._view
-        return item in self._materialize()
+        # br-r37-c1-nv-hash: mirror nx.NodeDataView.__contains__ —
+        # try the bare-node lookup first; if that raises (e.g.
+        # unhashable), unpack ``item`` as a (node, data) 2-tuple
+        # and check both halves.  This silently handles list-as-
+        # 2-tuple-of-(node, data) without false TypeErrors that
+        # would otherwise leak from the NodeView hash-check
+        # introduced by the same bead.
+        try:
+            node_in = item in self._view
+        except TypeError:
+            try:
+                n, d = item
+            except (TypeError, ValueError):
+                return False
+            return n in self._view and self[n] == d
+        if node_in is True:
+            return True
+        try:
+            n, d = item
+        except (TypeError, ValueError):
+            return False
+        return n in self._view and self[n] == d
 
     def __getitem__(self, key):
         # nx NodeDataView supports view[node] -> attrs / value.
@@ -26334,6 +26351,32 @@ Graph.has_edge = _private_aware_has_edge_simple(_GRAPH_PRIVATE_AWARE_HAS_EDGE)
 DiGraph.has_edge = _private_aware_has_edge_simple(_DIGRAPH_PRIVATE_AWARE_HAS_EDGE)
 MultiGraph.has_edge = _private_aware_has_edge_multi(_MULTIGRAPH_PRIVATE_AWARE_HAS_EDGE)
 MultiDiGraph.has_edge = _private_aware_has_edge_multi(_MULTIDIGRAPH_PRIVATE_AWARE_HAS_EDGE)
+
+
+# br-r37-c1-nv-hash: NodeView.__contains__ silently returned False
+# on unhashable items; nx propagates ``TypeError: unhashable type:
+# 'X'`` from the underlying ``item in self._nodes`` dict lookup.
+# Sister of br-r37-c1-cvtv6 / br-r37-c1-kgpaj / br-r37-c1-cl78j /
+# br-r37-c1-exavo / br-r37-c1-9ll82 — same root pattern: the Rust
+# binding swallows the TypeError, masking caller bugs (e.g. ``if
+# [some_list_id] in G.nodes:`` returning False).  Patch the four
+# Rust-bound NodeView classes (one per graph type) to hash-check.
+def _make_hashed_node_view_contains(raw_contains):
+    def __contains__(self, item):
+        hash(item)
+        return raw_contains(self, item)
+    return __contains__
+
+
+for _NodeViewCls in (
+    _fnx.NodeView,
+    _fnx.DiNodeView,
+    _fnx.MultiGraphNodeView,
+    _fnx.MultiDiGraphNodeView,
+):
+    _NodeViewCls.__contains__ = _make_hashed_node_view_contains(
+        _NodeViewCls.__contains__
+    )
 Graph.get_edge_data = _private_aware_get_edge_data_simple(_GRAPH_PRIVATE_AWARE_GET_EDGE_DATA)
 DiGraph.get_edge_data = _private_aware_get_edge_data_simple(_DIGRAPH_PRIVATE_AWARE_GET_EDGE_DATA)
 MultiGraph.get_edge_data = _private_aware_get_edge_data_multi(_MULTIGRAPH_PRIVATE_AWARE_GET_EDGE_DATA)
