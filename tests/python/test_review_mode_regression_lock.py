@@ -4702,3 +4702,44 @@ def test_bipartite_sets_density_only_at_bipartite_namespace():
     d_f = fnx.bipartite.density(B_f, [0, 1])
     d_n = nx.bipartite.density(B_n, [0, 1])
     assert d_f == d_n
+
+
+def test_isomorphism_match_helpers_only_at_algorithms_isomorphism():
+    """br-r37-c1-iso-removed: nine isomorphism matcher
+    constructors (categorical/numerical/generic ×
+    node/edge/multiedge) are exposed by nx only at
+    ``nx.algorithms.isomorphism.X``; top-level access
+    (``nx.categorical_node_match``) raises AttributeError.
+
+    fnx had module-level aliases at top level that masked the
+    AttributeError nx raises for drop-in callers.
+
+    Same family as br-r37-c1-pmi1f (random_tree),
+    br-r37-c1-bia-removed (biadjacency_matrix), and
+    br-r37-c1-bipx-removed (bipartite_sets/density).  Cycle
+    129's batch closes the iso-matcher cluster.
+
+    Lock: top-level access raises nx's exact AttributeError
+    for all 9 matchers; the algorithms.isomorphism-namespaced
+    versions still work and are callable factories."""
+    matchers = [
+        "categorical_node_match", "categorical_edge_match",
+        "categorical_multiedge_match",
+        "numerical_node_match", "numerical_edge_match",
+        "numerical_multiedge_match",
+        "generic_node_match", "generic_edge_match",
+        "generic_multiedge_match",
+    ]
+    for name in matchers:
+        with pytest.raises(AttributeError, match=fr"has no attribute '{name}'"):
+            getattr(fnx, name)
+        with pytest.raises(AttributeError, match=fr"has no attribute '{name}'"):
+            getattr(nx, name)
+
+    # Namespaced versions still callable factories
+    for name in matchers:
+        f = getattr(fnx.algorithms.isomorphism, name)
+        n = getattr(nx.algorithms.isomorphism, name)
+        assert callable(f)
+        assert callable(n)
+        assert f is n  # fnx.algorithms.isomorphism is nx's module

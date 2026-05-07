@@ -49,7 +49,8 @@ _ISOMORPHISM_MATCH_HELPERS = [
 
 @pytest.mark.parametrize("helper_name", _ISOMORPHISM_MATCH_HELPERS)
 def test_isomorphism_match_helper_signatures_match_networkx(helper_name):
-    assert inspect.signature(getattr(fnx, helper_name)) == inspect.signature(
+    # br-r37-c1-iso-removed: matchers live at fnx.algorithms.isomorphism
+    assert inspect.signature(getattr(fnx.algorithms.isomorphism, helper_name)) == inspect.signature(
         getattr(nx.algorithms.isomorphism, helper_name)
     )
 
@@ -128,7 +129,8 @@ def test_isomorphism_match_helpers_match_networkx(
     matching_attrs,
     mismatching_attrs,
 ):
-    matcher = getattr(fnx, helper_name)(*factory_args)
+    # br-r37-c1-iso-removed: matchers live at fnx.algorithms.isomorphism
+    matcher = getattr(fnx.algorithms.isomorphism, helper_name)(*factory_args)
     expected = getattr(nx.algorithms.isomorphism, helper_name)(*factory_args)
 
     assert matcher(*matching_attrs) == expected(*matching_attrs)
@@ -275,7 +277,19 @@ def test_top_level_isomorphism_module_exports_franken_wrappers():
     )
 
     assert fnx_iso is fnx.isomorphism
+    # br-r37-c1-iso-removed: matchers live only at
+    # fnx.algorithms.isomorphism (which is the nx submodule).  They
+    # are not in fnx top-level nor fnx.isomorphism (the local
+    # franken submodule).  Verify they are reachable via
+    # fnx.algorithms.isomorphism for the matcher names; verify the
+    # other names (matchers + Graph types) live in fnx.isomorphism.
+    _MATCHERS_AT_ALGO_ONLY = {
+        "categorical_node_match", "numerical_edge_match", "generic_multiedge_match",
+    }
     for export_name in expected_exports:
+        if export_name in _MATCHERS_AT_ALGO_ONLY:
+            assert hasattr(fnx.algorithms.isomorphism, export_name)
+            continue
         assert export_name in fnx_iso.__all__
         assert getattr(fnx_iso, export_name) is getattr(fnx, export_name)
 

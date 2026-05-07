@@ -10567,15 +10567,15 @@ from franken_networkx._fnx import (
 )
 from networkx.algorithms import isomorphism as _nx_isomorphism
 
-categorical_node_match = _nx_isomorphism.categorical_node_match
-categorical_edge_match = _nx_isomorphism.categorical_edge_match
-categorical_multiedge_match = _nx_isomorphism.categorical_multiedge_match
-numerical_node_match = _nx_isomorphism.numerical_node_match
-numerical_edge_match = _nx_isomorphism.numerical_edge_match
-numerical_multiedge_match = _nx_isomorphism.numerical_multiedge_match
-generic_node_match = _nx_isomorphism.generic_node_match
-generic_edge_match = _nx_isomorphism.generic_edge_match
-generic_multiedge_match = _nx_isomorphism.generic_multiedge_match
+# br-r37-c1-iso-removed: nine isomorphism matcher constructors
+# (categorical/numerical/generic × node/edge/multiedge) live only at
+# ``nx.algorithms.isomorphism.X`` in nx; nx top-level access raises
+# AttributeError.  fnx exposed them as top-level convenience aliases
+# that masked the contract — drop-in callers writing
+# ``nx.categorical_node_match(...)`` got a working function on fnx
+# while nx raises.  Available exclusively at
+# ``fnx.algorithms.isomorphism.X`` (which delegates to nx).  Module
+# ``__getattr__`` traps top-level access.
 
 
 class GraphMatcher(_nx_isomorphism.GraphMatcher):
@@ -31113,15 +31113,6 @@ _ISOMORPHISM_MODULE_EXPORTS = (
     "ISMAGS",
     "TimeRespectingGraphMatcher",
     "TimeRespectingDiGraphMatcher",
-    "categorical_node_match",
-    "categorical_edge_match",
-    "categorical_multiedge_match",
-    "numerical_node_match",
-    "numerical_edge_match",
-    "numerical_multiedge_match",
-    "generic_node_match",
-    "generic_edge_match",
-    "generic_multiedge_match",
     "is_isomorphic",
     "could_be_isomorphic",
     "fast_could_be_isomorphic",
@@ -38271,15 +38262,6 @@ __all__ = [
     "TimeRespectingGraphMatcher",
     "TimeRespectingDiGraphMatcher",
     "isomorphism",
-    "categorical_node_match",
-    "categorical_edge_match",
-    "categorical_multiedge_match",
-    "numerical_node_match",
-    "numerical_edge_match",
-    "numerical_multiedge_match",
-    "generic_node_match",
-    "generic_edge_match",
-    "generic_multiedge_match",
     "vf2pp_is_isomorphic",
     "vf2pp_isomorphism",
     "vf2pp_all_isomorphisms",
@@ -39423,6 +39405,22 @@ def __getattr__(name):
     # in callers writing nx.bipartite_sets get AttributeError on nx;
     # mirror that contract.
     if name in ("bipartite_sets", "bipartite_density"):
+        raise AttributeError(
+            f"module 'networkx' has no attribute '{name}'"
+        )
+    # br-r37-c1-iso-removed: nine isomorphism matcher constructors
+    # (categorical/numerical/generic × node/edge/multiedge) live
+    # only at ``nx.algorithms.isomorphism`` in nx.  fnx had top-
+    # level aliases that masked the AttributeError nx raises for
+    # drop-in callers.  Mirror nx's exact wording.
+    if name in (
+        "categorical_node_match", "categorical_edge_match",
+        "categorical_multiedge_match",
+        "numerical_node_match", "numerical_edge_match",
+        "numerical_multiedge_match",
+        "generic_node_match", "generic_edge_match",
+        "generic_multiedge_match",
+    ):
         raise AttributeError(
             f"module 'networkx' has no attribute '{name}'"
         )
