@@ -4086,3 +4086,45 @@ def test_nodeview_contains_unhashable_raises_typeerror():
     P = fnx.path_graph(3)
     assert ([1, 2] in P.nodes(data=True)) is False
     assert (1 in P.nodes(data=True)) is True
+
+
+def test_degree_view_subscript_raises_keyerror_typeerror_match_nx():
+    """br-r37-c1-dv-subscript: ``G.degree[node]`` must raise
+    ``KeyError`` on a missing node and ``TypeError`` on an
+    unhashable node — matching nx's underlying dict-lookup
+    semantics.
+
+    Previously fnx's ``_WeightAwareDegreeView`` (used by
+    Graph/DiGraph) raised ``NodeNotFound`` for both cases —
+    NodeNotFound is a subclass of NetworkXException, NOT a
+    sibling of KeyError, so ``except KeyError:`` callers
+    missed the exception.  The Multi* DegreeViews leaked
+    KeyError on unhashable inputs (wrong class — nx raises
+    TypeError there).
+
+    Sister of the broader unhashable-arg family
+    (br-r37-c1-cvtv6 / kgpaj / cl78j / exavo / 9ll82 /
+    9av1g)."""
+    for cls in (fnx.Graph, fnx.DiGraph, fnx.MultiGraph, fnx.MultiDiGraph):
+        G = cls()
+        G.add_edge(0, 1)
+
+        # Missing node — KeyError matching nx
+        with pytest.raises(KeyError):
+            G.degree[99]
+        with pytest.raises(KeyError):
+            G.degree[None]
+        with pytest.raises(KeyError):
+            G.degree["x"]
+
+        # Unhashable subscript — TypeError matching nx
+        with pytest.raises(TypeError, match=r"unhashable type"):
+            G.degree[[1, 2]]
+        with pytest.raises(TypeError, match=r"unhashable type"):
+            G.degree[{1: 2}]
+        with pytest.raises(TypeError, match=r"unhashable type"):
+            G.degree[{1, 2}]
+
+        # Good subscript still returns degree (regression)
+        assert G.degree[0] == 1
+        assert G.degree[1] == 1

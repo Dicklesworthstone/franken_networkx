@@ -2268,6 +2268,12 @@ class MultiGraphDegreeView:
             yield (node, self[node])
 
     def __getitem__(self, node):
+        # br-r37-c1-dv-subscript: nx raises ``TypeError`` on
+        # unhashable subscript via the underlying dict lookup.
+        # Hash-check eagerly so the nx-shaped TypeError surfaces
+        # rather than the Rust raw multi DegreeView's leaked
+        # KeyError.
+        hash(node)
         if self._weight is None:
             return self._base_view()[node]
         return degree(self._graph, node, weight=self._weight)
@@ -2333,6 +2339,12 @@ class MultiDiGraphDegreeView:
             yield (node, self[node])
 
     def __getitem__(self, node):
+        # br-r37-c1-dv-subscript: nx raises ``TypeError`` on
+        # unhashable subscript via the underlying dict lookup.
+        # Hash-check eagerly so the nx-shaped TypeError surfaces
+        # rather than the Rust raw multi DegreeView's leaked
+        # KeyError.
+        hash(node)
         if self._weight is None:
             return self._base_view()[node]
         return degree(self._graph, node, weight=self._weight)
@@ -2552,7 +2564,19 @@ class _WeightAwareDegreeView:
         return len(self._raw)
 
     def __getitem__(self, node):
-        return self._raw[node]
+        # br-r37-c1-dv-subscript: nx's DegreeView raises ``KeyError``
+        # on a missing node and ``TypeError`` on an unhashable node
+        # (the underlying ``self._succ[node]`` dict lookup).  fnx's
+        # Rust raw DegreeView translated both to ``NodeNotFound``,
+        # masking caller bugs and breaking ``except KeyError:``
+        # callers (NodeNotFound is a subclass of NetworkXException,
+        # NOT a sibling/subclass of KeyError).  Hash-check + map
+        # NodeNotFound→KeyError for nx-shaped contract.
+        hash(node)
+        try:
+            return self._raw[node]
+        except NodeNotFound as exc:
+            raise KeyError(node) from exc
 
     def __repr__(self):
         return repr(self._raw)
