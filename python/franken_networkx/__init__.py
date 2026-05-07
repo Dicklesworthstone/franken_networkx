@@ -10185,6 +10185,18 @@ def _dag_length_rust_weight_attrs_safe(G, weight):
     return True
 
 
+def _dag_longest_path_uses_integer_weights(G, path, weight, default_weight):
+    """Return True when nx would accumulate the selected path as an int."""
+    if not isinstance(default_weight, int):
+        return False
+    for u, v in zip(path, path[1:]):
+        edge_data = G.get_edge_data(u, v, default={})
+        value = edge_data.get(weight, default_weight)
+        if not isinstance(value, int):
+            return False
+    return True
+
+
 def dag_longest_path_length(G, weight="weight", default_weight=1):
     """Return the length of the longest path in a DAG.
 
@@ -10244,20 +10256,11 @@ def dag_longest_path_length(G, weight="weight", default_weight=1):
         # result is always float.  Restore int return type when all
         # contributing weights are int (matching nx's natural-type
         # behavior used by callers comparing to int literals).
-        if (
-            isinstance(default_weight, int)
-            and not isinstance(default_weight, bool)
-            and result.is_integer()
-        ):
-            all_int = True
-            if isinstance(weight, str):
-                for _, _, attrs in G.edges(data=True):
-                    if isinstance(attrs, dict) and weight in attrs:
-                        value = attrs[weight]
-                        if isinstance(value, bool) or type(value) is not int:
-                            all_int = False
-                            break
-            if all_int:
+        if isinstance(default_weight, int) and result.is_integer():
+            path = dag_longest_path(G, weight=weight, default_weight=default_weight)
+            if _dag_longest_path_uses_integer_weights(
+                G, path, weight, default_weight
+            ):
                 return int(result)
         return result
     return _call_networkx_for_parity(

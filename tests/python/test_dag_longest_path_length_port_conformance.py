@@ -264,6 +264,23 @@ def test_none_weight_key_matches_networkx():
     assert fr == nr
 
 
+@pytest.mark.parametrize("default_weight", [False, 1.0, 2, 2.0])
+def test_weight_none_default_weight_semantics_match_networkx(default_weight):
+    fg = fnx.DiGraph()
+    ng = nx.DiGraph()
+    fg.add_edges_from([(0, 1), (1, 2)])
+    ng.add_edges_from([(0, 1), (1, 2)])
+
+    fr = fnx.dag_longest_path_length(
+        fg, weight=None, default_weight=default_weight
+    )
+    nr = nx.dag_longest_path_length(
+        ng, weight=None, default_weight=default_weight
+    )
+    assert fr == nr
+    assert type(fr) is type(nr)
+
+
 def test_large_integer_weight_preserves_networkx_exactness():
     huge = 2**53 + 1
     fg = fnx.DiGraph()

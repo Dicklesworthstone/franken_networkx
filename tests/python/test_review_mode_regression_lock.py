@@ -2098,6 +2098,26 @@ def test_dag_longest_path_length_preserves_int_type_match_nx():
     assert type(fr) is type(nr) is float
     assert fr == nr == 8.5
 
+    # br-r37-c1-12wfm: unused float edges must not demote an
+    # integer-valued longest path to float.  nx's type follows the
+    # selected path arithmetic, not every edge in the graph.
+    fr = fnx.dag_longest_path_length(
+        make(fnx, [(0, 1, 5), (1, 2, 3), (0, 2, 1.5)]),
+        weight="weight",
+    )
+    nr = nx.dag_longest_path_length(
+        make(nx, [(0, 1, 5), (1, 2, 3), (0, 2, 1.5)]),
+        weight="weight",
+    )
+    assert type(fr) is type(nr) is int
+    assert fr == nr == 8
+
+    # bool edge/default values also accumulate to Python int in nx.
+    fr = fnx.dag_longest_path_length(make(fnx, [(0, 1, True), (1, 2, 1)]))
+    nr = nx.dag_longest_path_length(make(nx, [(0, 1, True), (1, 2, 1)]))
+    assert type(fr) is type(nr) is int
+    assert fr == nr == 2
+
     # Float default_weight → float result even with int edge weights
     fr = fnx.dag_longest_path_length(DG_f, default_weight=1.0)
     nr = nx.dag_longest_path_length(DG_n, default_weight=1.0)
