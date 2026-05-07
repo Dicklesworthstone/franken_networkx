@@ -2316,3 +2316,32 @@ def test_graph_edit_distance_with_roots_returns_float_match_nx():
             f"G1={G1.number_of_nodes()}n, G2={G2.number_of_nodes()}n, roots={roots}"
         )
         assert result == expected
+
+
+def test_adjacency_spectrum_returns_complex_match_nx():
+    """br-r37-c1-aspec-cmplx: adjacency_spectrum previously returned
+    a sorted ``float64`` ndarray (using np.linalg.eigvalsh + np.sort).
+    nx uses the general non-Hermitian ``scipy.linalg.eigvals`` so its
+    dtype is ``complex128`` and the return is unsorted.  Lock dtype
+    parity (callers using ``.dtype`` or general numpy expectations
+    break otherwise)."""
+    import numpy as np
+    cases = [
+        fnx.complete_graph(4),
+        fnx.path_graph(5),
+        fnx.cycle_graph(3),
+        fnx.DiGraph([(0, 1), (1, 2), (2, 0)]),
+    ]
+    nx_cases = [
+        nx.complete_graph(4),
+        nx.path_graph(5),
+        nx.cycle_graph(3),
+        nx.DiGraph([(0, 1), (1, 2), (2, 0)]),
+    ]
+    for G_f, G_n in zip(cases, nx_cases):
+        fr = fnx.adjacency_spectrum(G_f)
+        nr = nx.adjacency_spectrum(G_n)
+        # dtype parity (THE central regression)
+        assert fr.dtype == nr.dtype == np.complex128
+        # value parity (sort both since solver order is unstable)
+        assert np.allclose(np.sort_complex(fr), np.sort_complex(nr))

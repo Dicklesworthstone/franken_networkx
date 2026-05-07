@@ -14889,20 +14889,30 @@ def laplacian_spectrum(G, weight="weight"):
 
 
 def adjacency_spectrum(G, weight="weight"):
-    """Return the eigenvalues of the adjacency matrix of *G*, sorted.
+    """Return the eigenvalues of the adjacency matrix of *G*.
 
     Returns
     -------
     numpy.ndarray
+        Complex eigenvalues, dtype ``complex128``, in solver-defined
+        (unsorted) order — matching ``networkx.adjacency_spectrum``
+        which uses ``scipy.linalg.eigvals``.
+
+    br-r37-c1-aspec-cmplx: previously used ``np.linalg.eigvalsh``
+    + ``np.sort`` which returned ``float64`` and pre-sorted.  nx
+    uses the general (non-Hermitian) ``scipy.linalg.eigvals`` so
+    its dtype is ``complex128`` and the return is unsorted.  Match
+    exactly — the sort + real-coercion was a performance/elegance
+    "improvement" but broke parity for callers using ``.dtype`` or
+    expecting nx's ordering.
     """
-    import numpy as np
+    import scipy as sp
 
     # br-r37-c1-tssa-empty: route through adjacency_matrix so the
     # nx-matching `Graph has no nodes or edges` raise on empty G is
     # visible here too (the previous to_numpy_array path silently
     # returned an empty 0-d array).
-    A = adjacency_matrix(G, weight=weight).toarray()
-    return np.sort(np.linalg.eigvalsh(A))
+    return sp.linalg.eigvals(adjacency_matrix(G, weight=weight).todense())
 
 
 def algebraic_connectivity(G, weight="weight", normalized=False, tol=1e-8, method="tracemin_pcg", seed=None):
