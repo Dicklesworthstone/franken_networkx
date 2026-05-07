@@ -2818,3 +2818,33 @@ def test_quotient_graph_partition_validation_match_nx():
     H = fnx.quotient_graph(P, [{0, 1}, {2}, {3, 4}], relabel=False)
     assert H.number_of_nodes() == 3
     assert H.number_of_edges() == 2
+
+
+def test_reconstruct_path_bad_node_raises_keyerror_match_nx():
+    """br-r37-c1-recon-keyerr: reconstruct_path with floyd-warshall-
+    style predecessors leaked weird errors on bad source/target:
+
+      * bad source: ``TypeError: unhashable type: 'dict'`` because
+        the dijkstra fallback walked through the floyd-warshall
+        sub-dicts and used a dict as a key in get()
+      * bad target: silently returned ``[]`` instead of raising
+
+    nx raises ``KeyError(node)`` for both cases.  Lock the typed-
+    error contract."""
+    G = fnx.complete_graph(4)
+    preds, _ = fnx.floyd_warshall_predecessor_and_distance(G)
+
+    # Bad source/target → KeyError matching nx
+    with pytest.raises(KeyError):
+        fnx.reconstruct_path(99, 0, preds)
+    with pytest.raises(KeyError):
+        fnx.reconstruct_path(0, 99, preds)
+    with pytest.raises(KeyError):
+        fnx.reconstruct_path(99, 100, preds)
+
+    # Same node still returns empty list (no path needed)
+    assert fnx.reconstruct_path(0, 0, preds) == []
+
+    # Valid: regression
+    path = fnx.reconstruct_path(0, 2, preds)
+    assert path == [0, 2]

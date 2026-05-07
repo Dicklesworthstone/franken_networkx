@@ -20313,17 +20313,26 @@ def reconstruct_path(source, target, predecessors):
     (``predecessors[src][tgt] -> predecessor``) or a flat dict of
     ``{node: predecessor_list}`` (dijkstra-style output).
     """
-    # Float-warshall style: predecessors is {src: {tgt: pred}}
-    if (
+    # br-r37-c1-recon-keyerr: nx raises KeyError(node) when the
+    # source / target is not present in the predecessor dict.  fnx
+    # previously fell through to a dijkstra-style fallback that
+    # walked through dict-typed inner predecessor maps, raising
+    # ``TypeError: unhashable type: 'dict'`` on bad-source or
+    # silently returning ``[]`` on bad-target.
+
+    # Floyd-Warshall style: predecessors is {src: {tgt: pred}}
+    is_floyd = (
         isinstance(predecessors, dict)
-        and source in predecessors
-        and isinstance(predecessors.get(source), dict)
-    ):
+        and any(isinstance(v, dict) for v in predecessors.values())
+    )
+    if is_floyd:
+        if source not in predecessors:
+            raise KeyError(source)
         table = predecessors[source]
         if source == target:
             return []
         if target not in table:
-            return []
+            raise KeyError(target)
         path = [target]
         current = target
         while current != source:
