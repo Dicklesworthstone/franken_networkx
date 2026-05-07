@@ -4937,3 +4937,43 @@ def test_display_accepts_canvas_kwarg_match_nx():
     # Without canvas kwarg (positional)
     out2 = fnx.display(G)
     assert out == out2
+
+
+def test_spectral_graph_forge_alpha_required_match_nx():
+    """br-r37-c1-sgf-alpha: nx requires ``alpha`` as a
+    positional argument (no default).  fnx provided
+    ``alpha=0.8``, silently making ``fnx.spectral_graph_forge(G)``
+    succeed while nx raises ``TypeError``.
+
+    Drop-in callers writing the nx form (without alpha) saw a
+    working result on fnx — silent semantic drift across
+    libraries.  Same family pattern as the recent silent-
+    extension fixes (br-r37-c1-mwm-mg, br-r37-c1-pmi1f,
+    br-r37-c1-bia-removed, etc).
+
+    Lock: signature matches nx exactly (alpha positional, no
+    default); explicit alpha (positional or kwarg) works."""
+    import inspect
+
+    f_sig = inspect.signature(fnx.spectral_graph_forge)
+    n_sig = inspect.signature(nx.spectral_graph_forge)
+    f_alpha = f_sig.parameters["alpha"]
+    n_alpha = n_sig.parameters["alpha"]
+    assert f_alpha.default == n_alpha.default == inspect.Parameter.empty
+
+    G = fnx.karate_club_graph()
+    # Without alpha — must raise (parity)
+    with pytest.raises(TypeError, match=r"missing 1 required positional argument: 'alpha'"):
+        fnx.spectral_graph_forge(G, seed=42)
+
+    # nx behaves identically
+    with pytest.raises(TypeError, match=r"missing 1 required positional argument: 'alpha'"):
+        nx.spectral_graph_forge(nx.karate_club_graph(), seed=42)
+
+    # With explicit alpha — works (positional)
+    out = fnx.spectral_graph_forge(G, 0.8, seed=42)
+    assert out.number_of_nodes() == 34
+
+    # With explicit alpha — works (kwarg)
+    out2 = fnx.spectral_graph_forge(G, alpha=0.5, seed=42)
+    assert out2.number_of_nodes() == 34

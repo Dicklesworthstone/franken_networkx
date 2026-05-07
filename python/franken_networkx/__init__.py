@@ -34357,13 +34357,22 @@ def k_factor(G, k, matching_weight="weight"):
     return H
 
 
-def spectral_graph_forge(G, alpha=0.8, transformation="identity", seed=None):
+def spectral_graph_forge(G, alpha, transformation="identity", seed=None):
     """Graph with prescribed spectral properties.
 
     Creates a random graph that preserves the top eigenvalues of G's
     adjacency (``transformation='identity'``) or modularity matrix
     (``transformation='modularity'``), blended with random noise
     controlled by alpha. Matches networkx's public signature.
+
+    br-r37-c1-sgf-alpha: nx requires ``alpha`` as a positional
+    argument (no default).  fnx previously provided ``alpha=0.8``,
+    silently making the call ``fnx.spectral_graph_forge(G)`` succeed
+    while ``nx.spectral_graph_forge(G)`` raised
+    ``TypeError: missing 1 required positional argument: 'alpha'``.
+    Drop-in callers writing the nx form expecting the TypeError saw
+    a working result on fnx — silent semantic drift.  Mirror nx's
+    contract by removing the default.
     """
     import numpy as np
 
