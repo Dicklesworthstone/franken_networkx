@@ -4907,6 +4907,16 @@ def degree_assortativity_coefficient(G, x="out", y="in", weight=None, nodes=None
         x == "out" and y == "in" and weight is None and nodes is None
         and not G.is_multigraph() and not G.is_directed()
     ):
+        # br-r37-c1-asrt-edgeless: the Rust fast path returned
+        # 0.0 on graphs with no edges (empty graph, isolated
+        # nodes only).  nx's reference computes a Pearson
+        # correlation over the per-edge degree pairs and yields
+        # ``nan`` when the input is degenerate (0/0 division on
+        # an empty mixing matrix).  ``0.0`` is a *meaningful*
+        # statistic ("no correlation") and silently coercing
+        # nan→0.0 erases the "input is undefined" signal.
+        if G.number_of_edges() == 0:
+            return float("nan")
         return _raw_degree_assortativity_coefficient(G)
     return _call_networkx_for_parity(
         "degree_assortativity_coefficient",

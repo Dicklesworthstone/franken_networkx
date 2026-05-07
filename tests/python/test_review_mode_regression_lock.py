@@ -3552,3 +3552,40 @@ def test_union_type_mismatch_check_precedes_disjoint_check():
     G_b = fnx.Graph([(10, 11), (11, 12)])
     out = fnx.union(G_a, G_b)
     assert sorted(out.edges()) == [(0, 1), (1, 2), (10, 11), (11, 12)]
+
+
+def test_degree_assortativity_coefficient_edgeless_returns_nan():
+    """br-r37-c1-asrt-edgeless: the Rust fast path returned
+    ``0.0`` on graphs with no edges; nx returns ``nan``.
+
+    ``0.0`` is a *meaningful* statistic ("no correlation") and
+    silently coercing nan→0.0 erases the "input is undefined"
+    signal.  nx's Pearson computation hits 0/0 on an empty
+    mixing matrix and propagates ``nan``.
+
+    Lock: edgeless graphs (empty / isolated-only) must return
+    nan; non-degenerate graphs continue to return finite values.
+    """
+    import math
+
+    # Empty graph
+    f = fnx.degree_assortativity_coefficient(fnx.Graph())
+    assert isinstance(f, float) and math.isnan(f)
+
+    # Single isolated node
+    G1 = fnx.Graph()
+    G1.add_node(0)
+    f = fnx.degree_assortativity_coefficient(G1)
+    assert isinstance(f, float) and math.isnan(f)
+
+    # Two isolated nodes, no edges
+    G2 = fnx.Graph()
+    G2.add_nodes_from([0, 1])
+    f = fnx.degree_assortativity_coefficient(G2)
+    assert isinstance(f, float) and math.isnan(f)
+
+    # Non-degenerate regressions — finite values preserved
+    P3 = fnx.path_graph(3)
+    assert fnx.degree_assortativity_coefficient(P3) == -1.0
+    star = fnx.star_graph(5)
+    assert fnx.degree_assortativity_coefficient(star) == -1.0
