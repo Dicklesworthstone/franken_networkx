@@ -1662,3 +1662,95 @@ def test_k1xn4_edge_views_eq_across_graph_types():
         G.add_edges_from([(0, 1), (1, 2)])
         # Self-equality on freshly-fetched view objects
         assert G.edges == G.edges, f"edges == edges failed for {cls.__name__}"
+
+
+def test_bnydo_multidigraph_in_out_edges_yield_3_tuples():
+    """br-r37-c1-bnydo: MultiDiGraph.in_edges / out_edges previously
+    iterated 2-tuples, diverging from nx where these views default
+    to ``keys=True`` (3-tuples).  Asymmetric defaults silently
+    broke unpacking-loops in caller code."""
+    MDG = fnx.MultiDiGraph()
+    MDG.add_edges_from([(0, 1), (1, 2), (2, 3)])
+    in_pairs = list(MDG.in_edges)
+    out_pairs = list(MDG.out_edges)
+    # Each tuple is (u, v, key) — 3 elements, not 2
+    for tup in in_pairs + out_pairs:
+        assert len(tup) == 3, f"expected 3-tuple, got {tup!r}"
+    # Parity with nx for the same construction
+    nMDG = nx.MultiDiGraph()
+    nMDG.add_edges_from([(0, 1), (1, 2), (2, 3)])
+    assert sorted(in_pairs) == sorted(nMDG.in_edges)
+    assert sorted(out_pairs) == sorted(nMDG.out_edges)
+
+
+def test_7krwv_node_view_eq_across_all_four_graph_classes():
+    """br-r37-c1-7krwv: G.nodes used object.__eq__ (identity) so
+    ``view == view`` returned False on freshly-fetched view objects.
+    nx's NodeView is Mapping-equal.  Lock across all 4 classes."""
+    for cls in (fnx.Graph, fnx.DiGraph, fnx.MultiGraph, fnx.MultiDiGraph):
+        G = cls()
+        G.add_edges_from([(0, 1), (1, 2)])
+        assert G.nodes == G.nodes, f"NodeView __eq__ broken on {cls.__name__}"
+        # Also: equal to the nx-style dict view of itself
+        assert dict(G.nodes) == dict(G.nodes)
+
+
+def test_86151_degree_view_family_eq_across_classes():
+    """br-r37-c1-86151: G.degree, G.in_degree, G.out_degree views
+    all used object.__eq__.  Lock Set/Mapping equality on every
+    DegreeView variant."""
+    for cls in (fnx.Graph, fnx.DiGraph, fnx.MultiGraph, fnx.MultiDiGraph):
+        G = cls()
+        G.add_edges_from([(0, 1), (1, 2)])
+        assert G.degree == G.degree, f"degree __eq__ broken on {cls.__name__}"
+    for cls in (fnx.DiGraph, fnx.MultiDiGraph):
+        G = cls()
+        G.add_edges_from([(0, 1)])
+        assert G.in_degree == G.in_degree, f"in_degree __eq__ broken on {cls.__name__}"
+        assert G.out_degree == G.out_degree, f"out_degree __eq__ broken on {cls.__name__}"
+
+
+def test_fbtk0_edge_view_set_protocol_complete():
+    """br-r37-c1-fbtk0: edge views previously implemented only
+    __eq__ — missed Set comparison (<=, <, >=, >, isdisjoint) and
+    Set algebra (&, |, -, ^).  Lock the full Set protocol."""
+    G = fnx.Graph()
+    G.add_edges_from([(0, 1), (1, 2), (2, 3)])
+    G2 = fnx.Graph()
+    G2.add_edges_from([(1, 2)])
+    # Set comparison
+    assert G2.edges <= G.edges
+    assert G2.edges < G.edges
+    assert G.edges >= G2.edges
+    assert G.edges > G2.edges
+    assert G.edges.isdisjoint(set())
+    assert not G.edges.isdisjoint({(1, 2)})
+    # Set algebra returns a real set with edge tuples
+    inter = G.edges & G2.edges
+    assert sorted(map(tuple, map(sorted, inter))) == [(1, 2)]
+    diff = G.edges - G2.edges
+    assert len(diff) == 2
+    union = G.edges | {(99, 100)}
+    assert (99, 100) in union or (100, 99) in union
+    sym = G.edges ^ G2.edges
+    assert (1, 2) not in sym and (0, 1) in {tuple(sorted(e)) for e in sym}
+
+
+def test_s89yr_subgraph_filtered_edge_view_set_protocol():
+    """br-r37-c1-s89yr: subgraph views' edges (_FilteredEdgeView)
+    missed __eq__ for self-equality plus the Set comparison
+    operators.  Lock both for the filtered-view code path."""
+    G = fnx.Graph()
+    G.add_edges_from([(0, 1), (1, 2), (2, 3), (0, 3)])
+    sg = G.subgraph([0, 1, 2])
+    # Self-equality (object identity wasn't enough for view objects
+    # constructed afresh on each property access)
+    assert sg.edges == sg.edges
+    # Subset comparison: filtered view's edges <= parent view's edges
+    assert sg.edges <= G.edges
+    assert sg.edges < G.edges
+    # Intersection and difference behave as set algebra
+    inter = sg.edges & G.edges
+    assert len(inter) == len(list(sg.edges))
+    diff = G.edges - sg.edges
+    assert (0, 3) in diff or (3, 0) in diff
