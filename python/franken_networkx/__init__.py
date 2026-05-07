@@ -420,16 +420,44 @@ def _edge_view_call_with_nbunch_first(edge_view_call):
         # TypeError: 'int' object is not iterable. Detect single-node
         # nbunch by trying to iterate it; fall back to `[nbunch]`.
         nbunch_list = None
+        single_node_nbunch = False
         if nbunch is not None:
             try:
                 iter(nbunch)
                 if isinstance(nbunch, (str, bytes)):
+                    # br-edgesnb (legacy): fnx wraps strings as
+                    # single-node nbunch for ergonomics — nx
+                    # iterates string chars instead.  Preserve
+                    # the silent-skip behaviour for missing
+                    # string nodes (do NOT mark as single_node)
+                    # to stay drop-in compatible with both nx's
+                    # silent-iteration AND fnx's existing
+                    # string-node handling.
                     nbunch = [nbunch]
             except TypeError:
+                # True single non-iterable (int, etc) — nx raises
+                # NetworkXError on missing node; see
+                # br-r37-c1-edges-snnb below.
                 nbunch = [nbunch]
+                single_node_nbunch = True
             # Materialize nbunch so we can both pass it to Rust and use
             # it to reorder the returned edge tuples below.
             nbunch_list = [n for n in nbunch]
+            # br-r37-c1-edges-snnb: nx's EdgeView with a SINGLE
+            # non-iterable hashable nbunch raises ``NetworkXError(f"Node
+            # {n} is not in the graph.")`` when the node is missing —
+            # distinct from the silent-skip contract for an iterable
+            # nbunch (``G.edges([99])`` returns []).  fnx previously
+            # wrapped single-node nbunch into ``[nbunch]`` and lost the
+            # distinction, silently returning ``[]``.  Validate against
+            # the owning graph for the single-node case to restore
+            # nx's typed-error contract.
+            if single_node_nbunch and nbunch_list:
+                owner = _EDGE_VIEW_GRAPH_OWNER.get(id(self))
+                if owner is not None and nbunch_list[0] not in owner:
+                    raise NetworkXError(
+                        f"Node {nbunch_list[0]} is not in the graph."
+                    )
         # When data is non-False or nbunch is given, return a live
         # EdgeDataView wrapper (br-r37-c1-sf1ku) instead of a list
         # snapshot. The wrapper re-invokes edge_view_call on each access.

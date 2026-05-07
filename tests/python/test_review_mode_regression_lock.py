@@ -3632,3 +3632,51 @@ def test_min_edge_cover_isolated_with_edges_match_nx():
     assert fnx.min_edge_cover(fnx.Graph()) == set()
     cover = fnx.min_edge_cover(fnx.path_graph(5))
     assert sorted(map(sorted, cover)) == [[0, 1], [1, 2], [3, 4]]
+
+
+def test_graph_edges_single_bad_node_raises_match_nx():
+    """br-r37-c1-edges-snnb: ``Graph.edges(nbunch=<single
+    non-iterable hashable>)`` must raise NetworkXError when the
+    node is not in the graph — distinct from the silent-skip
+    contract for an iterable nbunch (e.g. ``edges([99])``
+    returns ``[]``).  Sibling DiGraph and MultiGraph already
+    raised correctly; only undirected Graph.edges silently
+    returned ``[]``.
+
+    The bug was that the wrapper unconditionally wrapped
+    non-iterables into ``[nbunch]`` before iteration, losing
+    the "this was a single specified node" signal that nx uses
+    to decide whether to raise."""
+    P = fnx.path_graph(3)
+
+    # Single non-iterable bad node → NetworkXError (matches nx)
+    with pytest.raises(nx.NetworkXError, match=r"Node 99 is not in the graph"):
+        list(P.edges(nbunch=99))
+
+    # Iterable with bad node still silently skips
+    assert list(P.edges(nbunch=[99])) == []
+    assert list(P.edges(nbunch=(99,))) == []
+    assert list(P.edges(nbunch={99})) == []
+
+    # Single good non-iterable still works
+    assert list(P.edges(nbunch=1)) == [(1, 0), (1, 2)]
+
+    # Mixed list — silently skips bad, includes good
+    assert sorted(P.edges(nbunch=[0, 99, 2])) == [(0, 1), (2, 1)]
+
+    # data=True / data="attr" must still raise on single bad node
+    G_attr = fnx.Graph([(0, 1, {"w": 5})])
+    with pytest.raises(nx.NetworkXError, match=r"Node 99 is not in the graph"):
+        list(G_attr.edges(nbunch=99, data=True))
+    with pytest.raises(nx.NetworkXError, match=r"Node 99 is not in the graph"):
+        list(G_attr.edges(nbunch=99, data="w"))
+
+    # String nbunch — fnx ergonomic enhancement preserves the
+    # "treat string as a single node name" handling.  When the
+    # string IS a node, return its edges.  When it ISN'T, both
+    # nx (which iterates chars and finds none) and fnx (which
+    # falls through silent-skip) return [] — match preserved.
+    G_str = fnx.Graph()
+    G_str.add_edge("foo", "bar")
+    assert list(G_str.edges("foo")) == [("foo", "bar")]
+    assert list(P.edges("missing")) == []
