@@ -13833,8 +13833,22 @@ def stochastic_graph(G, copy=True, weight="weight"):
 
 
 def _normalize_pagerank_vector(vector, nodes):
-    total = math.fsum(vector.values())
-    return {node: vector.get(node, 0) / total for node in nodes}
+    # br-r37-c1-prnk-perso: nx filters personalization /
+    # nstart / dangling vectors to graph-intersection keys
+    # before normalizing, so:
+    #   * a vector with NO graph-key entries (e.g. {99: 1.0}
+    #     on a 3-node graph) raises ZeroDivisionError on the
+    #     ``/ total`` step
+    #   * a partially-bad vector (e.g. {0: 0.5, 99: 0.5})
+    #     normalizes the in-graph weight to sum 1 — node 0
+    #     gets 1.0, not 0.5
+    # fnx previously summed over ALL keys (including
+    # bad ones), silently distributing implicit weight to
+    # dropped keys.  Filter first to match nx semantics.
+    nodeset = set(nodes)
+    filtered = {key: value for key, value in vector.items() if key in nodeset}
+    total = math.fsum(filtered.values())
+    return {node: filtered.get(node, 0) / total for node in nodes}
 
 
 def _pagerank_outgoing_weights(G, node, weight):

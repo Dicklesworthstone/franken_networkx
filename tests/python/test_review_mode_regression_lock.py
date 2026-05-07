@@ -1893,3 +1893,40 @@ def test_disjoint_union_all_intersection_all_empty_message_match_nx():
     H = fnx.path_graph(2)
     assert fnx.disjoint_union_all([G, H]).number_of_nodes() == 4
     assert fnx.intersection_all([G, H]).number_of_nodes() == 2
+
+
+def test_pagerank_personalization_filters_to_graph_keys():
+    """br-r37-c1-prnk-perso: pagerank ``personalization`` (and
+    ``nstart`` / ``dangling``) vectors with keys not in G silently
+    distributed implicit weight to dropped keys, producing scores
+    that diverged from nx by a factor proportional to the bad-key
+    weight share.
+
+    nx filters these vectors to graph-intersection keys BEFORE
+    normalizing.  As a side effect, a vector with NO graph keys
+    (e.g. ``{99: 1.0}`` on a 3-node graph) raises ZeroDivisionError
+    on the normalization step.
+
+    Lock both the silent-rescaling fix and the
+    ZeroDivisionError contract."""
+    P = fnx.path_graph(3)
+
+    # Mixed-bad: only key 0 is in G; nx rescales to 1.0 weight on
+    # node 0.  fnx previously kept node 0 at 0.5 weight (using
+    # full sum 1.0 as denominator), producing scores ~half of
+    # nx.  Verify numeric parity now.
+    rf = fnx.pagerank(P, personalization={0: 0.5, 99: 0.5})
+    rn = nx.pagerank(nx.path_graph(3), personalization={0: 0.5, 99: 0.5})
+    for node in rf:
+        assert abs(rf[node] - rn[node]) < 1e-9, f"node {node}: {rf[node]} vs {rn[node]}"
+
+    # Only-bad: ZeroDivisionError matches nx
+    with pytest.raises(ZeroDivisionError):
+        fnx.pagerank(P, personalization={99: 1.0})
+
+    # Sanity: partial-good (key 0 only — nx fills others as 0)
+    # produces same scores as mixed-bad above (since 99 is dropped
+    # to leave only {0: 0.5} → normalized to {0: 1.0})
+    rf2 = fnx.pagerank(P, personalization={0: 1.0})
+    for node in rf:
+        assert abs(rf[node] - rf2[node]) < 1e-9
