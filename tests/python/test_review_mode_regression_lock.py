@@ -3318,3 +3318,27 @@ def test_spanner_input_validation_match_nx():
     # Valid: regression
     G = fnx.spanner(fnx.path_graph(5), 2)
     assert G.number_of_edges() == 4
+
+
+def test_lfr_benchmark_graph_raises_exceeded_max_iterations_match_nx():
+    """br-r37-c1-lfr-emi: LFR_benchmark_graph raised
+    ``NetworkXError`` on convergence failure; nx raises
+    ``ExceededMaxIterations`` (a sibling of NetworkXError under
+    NetworkXException, NOT a subclass).  Callers using
+    ``except ExceededMaxIterations:`` to specifically catch
+    convergence failures couldn't catch fnx's NetworkXError.
+
+    Lock the typed-error contract."""
+    # ExceededMaxIterations is NOT a subclass of NetworkXError
+    assert not issubclass(nx.ExceededMaxIterations, nx.NetworkXError)
+    assert issubclass(nx.ExceededMaxIterations, nx.NetworkXException)
+
+    # Hard-convergence config (n=20 small + average_degree=5 forces
+    # the community-assignment loop to fail)
+    with pytest.raises(nx.ExceededMaxIterations,
+                       match=r"Could not assign communities"):
+        fnx.LFR_benchmark_graph(20, 3.0, 1.5, 0.1, average_degree=5, seed=42)
+
+    # Valid-config regression
+    G = fnx.LFR_benchmark_graph(50, 3.0, 1.5, 0.1, average_degree=5, seed=42)
+    assert G.number_of_nodes() == 50

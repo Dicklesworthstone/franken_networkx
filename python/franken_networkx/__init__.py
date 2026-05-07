@@ -36347,7 +36347,15 @@ def _lfr_generate_communities(degree_sequence, community_sizes, mu, max_iters, r
             free.append(result[community_index].pop())
         if not free:
             return result
-    raise NetworkXError("Could not assign communities; try increasing min_community")
+    # br-r37-c1-lfr-emi: nx raises ExceededMaxIterations (subclass
+    # of NetworkXException, NOT NetworkXError) when the community
+    # assignment fails to converge.  Match nx's exact exception
+    # class so callers using ``except nx.ExceededMaxIterations:``
+    # catch the right error.
+    from networkx import ExceededMaxIterations as _EMI
+    raise _EMI(
+        "Could not assign communities; try increasing min_community"
+    )
 
 
 def LFR_benchmark_graph(
