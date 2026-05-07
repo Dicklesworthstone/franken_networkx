@@ -1158,6 +1158,30 @@ def test_from_prufer_sequence_rust_no_panic_on_oob_value():
     assert len(edges) == 3  # n - 1 = 3 edges for n=4 nodes
 
 
+def test_to_prufer_sequence_sparse_labels_no_rust_panic_match_nx():
+    """br-r37-c1-wsz3q: the public wrapper rejected sparse labels,
+    but direct calls to the Rust binding could still panic or return
+    a silently wrong empty sequence.  Lock typed KeyError behavior on
+    both surfaces."""
+    bad_edges = [[(0, 2)], [(1, 2)], [(0, 1), (1, 3)]]
+    rust_fn = fnx._fnx.to_prufer_sequence_rust
+    for edges in bad_edges:
+        Gf = fnx.Graph()
+        Gf.add_edges_from(edges)
+        Gn = nx.Graph()
+        Gn.add_edges_from(edges)
+        match = r"tree must have node labels \{0, \.\.\., n - 1\}"
+        with pytest.raises(KeyError, match=match):
+            fnx.to_prufer_sequence(Gf)
+        with pytest.raises(KeyError, match=match):
+            nx.to_prufer_sequence(Gn)
+        with pytest.raises(KeyError, match=match):
+            rust_fn(Gf)
+
+    G = fnx.path_graph(4)
+    assert rust_fn(G) == fnx.to_prufer_sequence(G) == nx.to_prufer_sequence(nx.path_graph(4))
+
+
 def test_balanced_tree_negative_r_match_nx_geometric_formula():
     """br-r37-c1-bt-neg-r: balanced_tree(r, h) for negative r used to
     short-circuit blanket-return ``empty_graph(0)``.  nx instead

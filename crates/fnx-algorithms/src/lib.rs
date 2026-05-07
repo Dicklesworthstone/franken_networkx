@@ -2400,9 +2400,7 @@ pub struct KatzNotConverged {
 /// Like [`katz_centrality`] but returns ``Err(KatzNotConverged)`` if
 /// the power iteration runs out of budget without satisfying the
 /// convergence tolerance.
-pub fn katz_centrality_checked(
-    graph: &Graph,
-) -> Result<KatzCentralityResult, KatzNotConverged> {
+pub fn katz_centrality_checked(graph: &Graph) -> Result<KatzCentralityResult, KatzNotConverged> {
     let (result, converged) = katz_centrality_generic(graph);
     if converged {
         Ok(result)
@@ -9547,20 +9545,43 @@ pub fn from_prufer_sequence(sequence: &[usize]) -> Result<PruferResult, String> 
 /// nodes remain.
 ///
 /// Matches `networkx.to_prufer_sequence`.
-#[must_use]
-pub fn to_prufer_sequence(graph: &Graph) -> Vec<usize> {
+pub fn to_prufer_sequence(graph: &Graph) -> Result<Vec<usize>, String> {
     let n = graph.node_count();
+    let invalid_labels = "tree must have node labels {0, ..., n - 1}";
+    let mut seen = vec![false; n];
+    for node in graph.nodes_ordered() {
+        let idx = node
+            .parse::<usize>()
+            .map_err(|_| invalid_labels.to_owned())?;
+        if idx >= n || seen[idx] {
+            return Err(invalid_labels.to_owned());
+        }
+        seen[idx] = true;
+    }
+    if seen.iter().any(|seen| !seen) {
+        return Err(invalid_labels.to_owned());
+    }
+
     if n <= 2 {
-        return Vec::new();
+        return Ok(Vec::new());
     }
 
     // Build mutable adjacency for integer-labeled tree
     let mut adj: Vec<HashSet<usize>> = vec![HashSet::new(); n];
     for edge in graph.edges_ordered() {
-        if let (Ok(u), Ok(v)) = (edge.left.parse::<usize>(), edge.right.parse::<usize>()) {
-            adj[u].insert(v);
-            adj[v].insert(u);
+        let u = edge
+            .left
+            .parse::<usize>()
+            .map_err(|_| invalid_labels.to_owned())?;
+        let v = edge
+            .right
+            .parse::<usize>()
+            .map_err(|_| invalid_labels.to_owned())?;
+        if u >= n || v >= n {
+            return Err(invalid_labels.to_owned());
         }
+        adj[u].insert(v);
+        adj[v].insert(u);
     }
 
     let mut seq: Vec<usize> = Vec::with_capacity(n - 2);
@@ -9581,7 +9602,7 @@ pub fn to_prufer_sequence(graph: &Graph) -> Vec<usize> {
         alive[leaf] = false;
     }
 
-    seq
+    Ok(seq)
 }
 
 /// Computes the average neighbor degree for each node.
@@ -19129,7 +19150,11 @@ fn planar_edge_bound_with_bcc(n: usize, adj: &[Vec<usize>]) -> bool {
                 && g >= 4
             {
                 // m <= g * (n - 2) / (g - 2), i.e., m * (g - 2) <= g * (n - 2)
-                if cm.checked_mul(g - 2).map(|lhs| lhs > g * (cn - 2)).unwrap_or(false) {
+                if cm
+                    .checked_mul(g - 2)
+                    .map(|lhs| lhs > g * (cn - 2))
+                    .unwrap_or(false)
+                {
                     return false;
                 }
             }
@@ -33541,6 +33566,7 @@ mod tests {
         tetrahedral_graph,
         to_dict_of_lists,
         to_edgelist,
+        to_prufer_sequence,
         topological_generations,
         topological_sort,
         transitive_closure,
@@ -46110,5 +46136,15 @@ mod tests {
 
         let result = k_corona(&graph, 0);
         assert_eq!(result.nodes, vec!["isolated".to_owned()]);
+    }
+
+    #[test]
+    fn to_prufer_sequence_rejects_sparse_labels_without_panicking() {
+        let mut graph = Graph::strict();
+        graph.add_edge("0", "1").unwrap();
+        graph.add_edge("1", "3").unwrap();
+
+        let err = to_prufer_sequence(&graph).unwrap_err();
+        assert_eq!(err, "tree must have node labels {0, ..., n - 1}");
     }
 }

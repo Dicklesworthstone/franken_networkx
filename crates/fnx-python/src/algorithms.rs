@@ -11,7 +11,7 @@ use crate::{
     PythonAllowThreadsExt, node_key_to_string,
 };
 use fnx_classes::AttrMap;
-use pyo3::exceptions::{PyIndexError, PyValueError, PyZeroDivisionError};
+use pyo3::exceptions::{PyIndexError, PyKeyError, PyValueError, PyZeroDivisionError};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList, PyTuple};
 use std::cell::OnceCell;
@@ -4066,7 +4066,8 @@ pub fn from_prufer_sequence_rust(py: Python<'_>, sequence: Vec<usize>) -> PyResu
 pub fn to_prufer_sequence_rust(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Vec<usize>> {
     let gr = extract_graph(g)?;
     let inner = gr.undirected();
-    Ok(py.allow_threads(|| fnx_algorithms::to_prufer_sequence(inner)))
+    py.allow_threads(|| fnx_algorithms::to_prufer_sequence(inner))
+        .map_err(PyKeyError::new_err)
 }
 
 /// Onion layer decomposition (generalized k-core peeling).

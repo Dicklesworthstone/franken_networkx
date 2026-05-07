@@ -27796,7 +27796,7 @@ def to_prufer_sequence(T):
     # The Rust helper indexes by integer position [0, n); validate labels
     # like nx does before falling through — else we get a KeyError anyway.
     if set(T.nodes()) != set(range(n)):
-        raise KeyError("Nodes must be labelled 0 to n-1")
+        raise KeyError("tree must have node labels {0, ..., n - 1}")
     return _fnx.to_prufer_sequence_rust(T)
 
 
