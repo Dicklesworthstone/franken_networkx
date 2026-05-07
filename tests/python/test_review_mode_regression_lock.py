@@ -4376,3 +4376,44 @@ def test_subgraph_view_shares_parent_graph_dict_identity():
         g.graph["new_key"] = 42
         assert sub.graph["new_key"] == 42
         assert cv.graph["new_key"] == 42
+
+
+def test_filtered_view_has_node_tracks_parent_removals():
+    """br-r37-c1-fgv-has-node: ``_FilteredGraphView.__contains__``
+    correctly delegated to ``_node_visible`` (re-checks parent's
+    current node set + the filter), but ``has_node`` was
+    inherited from the canonical Graph base class (added as a
+    second base for isinstance parity, br-r37-c1-rcd0e) and went
+    through the Rust-native node lookup against the synthetic
+    view's uninitialised Rust state.  Result:
+    ``parent.remove_node(n)`` left ``view.has_node(n)``
+    returning True forever — a stale-view defect breaking
+    nx's "view tracks parent mutations" contract.
+
+    Sister of br-r37-c1-95ws4 (graph-dict-identity fix in cycle
+    121).  Closes the remaining 4 of the 5 deferred view-
+    tracking failures."""
+    for cls in (fnx.Graph, fnx.DiGraph, fnx.MultiGraph, fnx.MultiDiGraph):
+        g = cls([("a", "b"), ("b", "c"), ("c", "d")])
+        sub = g.subgraph(["a", "b", "c", "d"])
+
+        # Initial state: 'a' is in the view
+        assert "a" in sub
+        assert sub.has_node("a")
+
+        # Remove 'a' from parent
+        g.remove_node("a")
+
+        # Both __contains__ and has_node must agree the node is gone
+        assert "a" not in sub
+        assert sub.has_node("a") is False
+
+        # Re-add 'a' to parent (still in subgraph filter set)
+        g.add_node("a")
+        assert "a" in sub
+        assert sub.has_node("a") is True
+
+        # Filter-excluded node never visible regardless of parent state
+        sub2 = g.subgraph(["b", "c"])
+        assert "a" not in sub2
+        assert sub2.has_node("a") is False

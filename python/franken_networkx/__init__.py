@@ -25550,6 +25550,21 @@ class _FilteredGraphView:
     def __contains__(self, node):
         return self._node_visible(node)
 
+    def has_node(self, n):
+        # br-r37-c1-fgv-has-node: ``__contains__`` correctly
+        # delegates to ``_node_visible`` (which re-checks the
+        # parent's current node set + the filter), but
+        # ``has_node`` was inherited from the canonical Graph
+        # base class (added as a second base for isinstance
+        # parity, br-r37-c1-rcd0e) and went through the Rust-
+        # native node lookup against the synthetic view's
+        # uninitialised Rust state.  Result: ``parent.remove_
+        # node(n)`` left ``view.has_node(n)`` returning True
+        # forever — a stale-view defect breaking nx's "view
+        # tracks parent mutations" contract.  Mirror nx by
+        # routing through ``_node_visible``.
+        return self._node_visible(n)
+
     def __getitem__(self, node):
         return self.adj[node]
 
