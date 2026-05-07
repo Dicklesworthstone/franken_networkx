@@ -3726,3 +3726,45 @@ def test_minimum_maximum_spanning_edges_are_true_generators():
     assert list(fnx.minimum_spanning_edges(P, data=False)) == [
         (0, 1), (1, 2), (2, 3), (3, 4)
     ]
+
+
+def test_bfs_layers_is_true_generator():
+    """br-r37-c1-bfsl-gen: ``bfs_layers`` returned a
+    ``list_iterator`` from the Rust raw binding while nx returns
+    a true ``generator``.  Same family as br-r37-c1-i4d5n
+    (spanning_edges) and br-r37-c1-lby4x (isolates) — Rust
+    bindings eagerly materialise lists; the Python wrapper must
+    ``yield from`` to expose the generator-protocol contract.
+
+    Lock both: isinstance(GeneratorType) must hold and nx's
+    lazy-validation timing (raise on iteration, not on call) is
+    preserved."""
+    import types
+    import inspect
+
+    P = fnx.path_graph(5)
+
+    # Single-source good
+    r = fnx.bfs_layers(P, 0)
+    assert isinstance(r, types.GeneratorType)
+    assert inspect.isgenerator(r)
+    assert list(r) == [[0], [1], [2], [3], [4]]
+
+    # List-source good
+    r = fnx.bfs_layers(P, [0, 2])
+    assert isinstance(r, types.GeneratorType)
+    assert list(r) == [[0, 2], [1, 3], [4]]
+
+    # Bad list source — generator returned on call, raises on
+    # iteration (matches nx)
+    r = fnx.bfs_layers(P, [99])
+    assert isinstance(r, types.GeneratorType)
+    with pytest.raises(nx.NetworkXError, match=r"The node 99 is not in the graph"):
+        list(r)
+
+    # Single bad non-iterable — generator returned, raises on
+    # iteration with TypeError (nx contract)
+    r = fnx.bfs_layers(P, 99)
+    assert isinstance(r, types.GeneratorType)
+    with pytest.raises(TypeError, match=r"'int' object is not iterable"):
+        list(r)

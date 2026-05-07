@@ -6832,7 +6832,13 @@ def bfs_layers(G, sources):
     for s in sources_list:
         if s not in G:
             raise NetworkXError(f"The node {s} is not in the graph.")
-    return _bfs_layers_raw(G, sources)
+    # br-r37-c1-bfsl-gen: ``yield from`` so the wrapper is a true
+    # generator function (matches nx's ``isinstance(result,
+    # types.GeneratorType)`` contract).  The Rust raw binding
+    # returns a ``list_iterator`` (eagerly materialised); without
+    # the wrapping yield-from, drop-in callers using
+    # ``inspect.isgenerator`` saw a False where nx returned True.
+    yield from _bfs_layers_raw(G, sources)
 
 
 def descendants_at_distance(G, source, distance):
