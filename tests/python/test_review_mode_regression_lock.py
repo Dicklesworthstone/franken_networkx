@@ -2775,3 +2775,46 @@ def test_contracted_nodes_v_not_in_graph_raises_match_nx():
     # Valid: regression
     H = fnx.contracted_nodes(P, 0, 2)
     assert H.number_of_nodes() == 2
+
+
+def test_quotient_graph_partition_validation_match_nx():
+    """br-r37-c1-quot-validate: quotient_graph silently accepted
+    invalid partitions:
+      * parts containing nodes not in G — silently created
+        quotient nodes from foreign labels
+      * overlapping parts (a node-of-G in two blocks) — silently
+        merged the parts
+      * duplicate parts (same singleton listed twice) — silently
+        merged
+
+    nx raises ``NetworkXException("each node must be in exactly
+    one part of \`partition\`")`` for all three cases.
+
+    Lock the validation contract while preserving the documented
+    asymmetry (missing nodes — in G but not in partition — are
+    silently excluded from the quotient)."""
+    P = fnx.path_graph(5)
+    msg = r"each node must be in exactly one part of"
+
+    # Bad cases: foreign nodes / overlap / duplicate
+    bad_cases = [
+        [{99}],                    # bad-only
+        [{0, 99}],                 # bad-mixed
+        [{0, 1}, {1, 2}],          # overlap
+        [{0}, {0}],                # duplicate
+    ]
+    for partition in bad_cases:
+        with pytest.raises(nx.NetworkXException, match=msg):
+            fnx.quotient_graph(P, partition, relabel=False)
+
+    # OK cases: missing nodes (silently excluded), empty parts
+    H = fnx.quotient_graph(P, [{0, 1}, {2}], relabel=False)
+    assert H.number_of_nodes() == 2  # nodes 3, 4 silently excluded
+
+    H = fnx.quotient_graph(P, [{0, 1, 2}, set(), {3, 4}], relabel=False)
+    assert H.number_of_nodes() == 3  # empty part allowed
+
+    # Valid: regression
+    H = fnx.quotient_graph(P, [{0, 1}, {2}, {3, 4}], relabel=False)
+    assert H.number_of_nodes() == 3
+    assert H.number_of_edges() == 2

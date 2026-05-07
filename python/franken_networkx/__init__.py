@@ -18882,6 +18882,24 @@ def quotient_graph(
     else:
         partition = [frozenset(b) for b in partition]
 
+    # br-r37-c1-quot-validate: nx validates that the partition is a
+    # valid partition over G's node set:
+    #   * every node listed in any part must be in G
+    #   * every node-of-G appearing in partition must appear in
+    #     exactly one part (no overlap)
+    # nx surfaces both as ``NetworkXException("each node must be in
+    # exactly one part of `partition`")``.  fnx silently merged
+    # overlapping parts and silently included foreign nodes,
+    # producing nonsense quotient graphs.
+    seen_nodes = set()
+    for block in partition:
+        for node in block:
+            if node not in G or node in seen_nodes:
+                raise NetworkXException(
+                    "each node must be in exactly one part of `partition`"
+                )
+            seen_nodes.add(node)
+
     # Default edge relation: any edge between blocks
     if edge_relation is None:
 
