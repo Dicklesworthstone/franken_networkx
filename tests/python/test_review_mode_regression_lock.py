@@ -4815,3 +4815,44 @@ def test_max_weight_matching_rejects_multigraph_match_nx():
     # Graph — works (regression)
     fg2 = fnx.Graph([(0, 1)])
     assert fnx.max_weight_matching(fg2) == {(1, 0)}
+
+
+def test_planarity_helpers_only_at_algorithms_planarity():
+    """br-r37-c1-plr-removed: ``check_planarity_recursive``,
+    ``get_counterexample``, and ``get_counterexample_recursive``
+    are exposed by nx only at ``nx.algorithms.planarity.X``;
+    nx top-level access raises AttributeError.
+
+    fnx had module-level Python wrappers that masked nx's
+    contract.  Drop-in callers writing
+    ``nx.check_planarity_recursive(G)`` got a working result
+    on fnx but AttributeError on nx.
+
+    Continues the namespace-parity family.
+
+    Lock: top-level access raises; the
+    fnx.algorithms.planarity-namespaced versions still work
+    and produce sensible output (K5 not planar)."""
+    for name in (
+        "check_planarity_recursive",
+        "get_counterexample",
+        "get_counterexample_recursive",
+    ):
+        with pytest.raises(AttributeError, match=fr"has no attribute '{name}'"):
+            getattr(fnx, name)
+        with pytest.raises(AttributeError, match=fr"has no attribute '{name}'"):
+            getattr(nx, name)
+
+    # Top-level non-recursive variants still work (nx exposes them)
+    is_p, _ = fnx.check_planarity(fnx.complete_graph(5))
+    assert is_p is False  # K5 not planar
+    assert fnx.is_planar(fnx.complete_graph(5)) is False
+
+    # Namespaced recursive variant works
+    is_p_r, _ = fnx.algorithms.planarity.check_planarity_recursive(fnx.complete_graph(5))
+    assert is_p_r is False
+
+    # Counterexample at namespaced location returns Kuratowski subgraph
+    counter = fnx.algorithms.planarity.get_counterexample(fnx.complete_graph(5))
+    assert counter is not None
+    assert counter.number_of_nodes() >= 5

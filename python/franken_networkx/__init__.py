@@ -17548,20 +17548,31 @@ def check_planarity(G, counterexample=False, *, backend=None, **backend_kwargs):
     return _check_planarity_certificate(G, counterexample=counterexample)
 
 
-def check_planarity_recursive(G, counterexample=False, *, backend=None, **backend_kwargs):
-    """Check if *G* is planar using NetworkX's recursive planarity routine."""
+# br-r37-c1-plr-removed: ``check_planarity_recursive``,
+# ``get_counterexample``, and ``get_counterexample_recursive`` are
+# exposed by nx only at ``nx.algorithms.planarity.X``; nx top-level
+# raises AttributeError.  fnx had module-level Python wrappers that
+# masked the contract — drop-in callers writing
+# ``nx.check_planarity_recursive(G)`` got a working result on fnx.
+# Available exclusively at ``fnx.algorithms.planarity.X`` (nx's
+# submodule, accessible via the algorithm namespace).  Module
+# ``__getattr__`` traps top-level access.
+
+# Internal aliases retained for use by the planarity submodule
+# wrappers that other fnx code exercises (so the submodule continues
+# to forward to a working implementation).
+
+def _check_planarity_recursive_internal(G, counterexample=False, *,
+                                        backend=None, **backend_kwargs):
     _validate_backend_dispatch_keywords(
         "check_planarity_recursive", backend, backend_kwargs
     )
     return _check_planarity_certificate(
-        G,
-        counterexample=counterexample,
-        recursive=True,
+        G, counterexample=counterexample, recursive=True,
     )
 
 
-def get_counterexample(G, *, backend=None, **backend_kwargs):
-    """Return a Kuratowski subgraph certifying that *G* is not planar."""
+def _get_counterexample_internal(G, *, backend=None, **backend_kwargs):
     _validate_backend_dispatch_keywords("get_counterexample", backend, backend_kwargs)
     is_p, certificate = check_planarity(G, counterexample=True)
     if is_p:
@@ -17569,12 +17580,11 @@ def get_counterexample(G, *, backend=None, **backend_kwargs):
     return certificate
 
 
-def get_counterexample_recursive(G, *, backend=None, **backend_kwargs):
-    """Return a Kuratowski subgraph using the recursive LR planarity routine."""
+def _get_counterexample_recursive_internal(G, *, backend=None, **backend_kwargs):
     _validate_backend_dispatch_keywords(
         "get_counterexample_recursive", backend, backend_kwargs
     )
-    is_p, certificate = check_planarity_recursive(G, counterexample=True)
+    is_p, certificate = _check_planarity_recursive_internal(G, counterexample=True)
     if is_p:
         raise NetworkXException("G is planar - no counter example.")
     return certificate
@@ -38027,9 +38037,6 @@ __all__ = [
     "binomial_graph",
     "gnm_random_graph",
     "check_planarity",
-    "check_planarity_recursive",
-    "get_counterexample",
-    "get_counterexample_recursive",
     "all_simple_edge_paths",
     "chain_decomposition",
     "bidirectional_dijkstra",
@@ -39398,6 +39405,15 @@ def __getattr__(name):
     # br-r37-c1-bw-removed: branching_weight / minimal_branching live
     # only at nx.algorithms.tree.branchings; nx top-level raises.
     if name in ("branching_weight", "minimal_branching"):
+        raise AttributeError(
+            f"module 'networkx' has no attribute '{name}'"
+        )
+    # br-r37-c1-plr-removed: planarity helpers live only at
+    # nx.algorithms.planarity; nx top-level raises.
+    if name in (
+        "check_planarity_recursive", "get_counterexample",
+        "get_counterexample_recursive",
+    ):
         raise AttributeError(
             f"module 'networkx' has no attribute '{name}'"
         )

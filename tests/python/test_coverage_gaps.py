@@ -406,7 +406,7 @@ class TestPlanarity:
             nx.cycle_graph(4)
         )
 
-        actual_planar, embedding = fnx.check_planarity_recursive(graph)
+        actual_planar, embedding = fnx.algorithms.planarity.check_planarity_recursive(graph)
 
         assert actual_planar == expected_planar
         assert actual_planar
@@ -421,8 +421,8 @@ class TestPlanarity:
             counterexample=True,
         )
 
-        actual_planar, certificate = fnx.check_planarity_recursive(graph)
-        actual_counter_planar, counterexample = fnx.check_planarity_recursive(
+        actual_planar, certificate = fnx.algorithms.planarity.check_planarity_recursive(graph)
+        actual_counter_planar, counterexample = fnx.algorithms.planarity.check_planarity_recursive(
             graph,
             counterexample=True,
         )
@@ -440,13 +440,13 @@ class TestPlanarity:
         assert str(inspect.signature(fnx.check_planarity)) == str(
             inspect.signature(nx.check_planarity)
         )
-        assert str(inspect.signature(fnx.check_planarity_recursive)) == str(
+        assert str(inspect.signature(fnx.algorithms.planarity.check_planarity_recursive)) == str(
             inspect.signature(nx.algorithms.planarity.check_planarity_recursive)
         )
 
     @pytest.mark.parametrize(
         "actual_func",
-        [fnx.check_planarity, fnx.check_planarity_recursive],
+        [fnx.check_planarity, fnx.algorithms.planarity.check_planarity_recursive],
     )
     def test_check_planarity_backend_keyword_contract(self, actual_func):
         is_planar, certificate = actual_func(fnx.cycle_graph(4), backend="networkx")
@@ -459,19 +459,19 @@ class TestPlanarity:
             actual_func(fnx.cycle_graph(4), unexpected=True)
 
     def test_get_counterexample_signature_matches_networkx(self):
-        assert str(inspect.signature(fnx.get_counterexample)) == str(
+        assert str(inspect.signature(fnx.algorithms.planarity.get_counterexample)) == str(
             inspect.signature(nx.algorithms.planarity.get_counterexample)
         )
-        assert str(inspect.signature(fnx.get_counterexample_recursive)) == str(
+        assert str(inspect.signature(fnx.algorithms.planarity.get_counterexample_recursive)) == str(
             inspect.signature(nx.algorithms.planarity.get_counterexample_recursive)
         )
 
     @pytest.mark.parametrize(
         ("actual_func", "expected_func"),
         [
-            (fnx.get_counterexample, nx.algorithms.planarity.get_counterexample),
+            (fnx.algorithms.planarity.get_counterexample, nx.algorithms.planarity.get_counterexample),
             (
-                fnx.get_counterexample_recursive,
+                fnx.algorithms.planarity.get_counterexample_recursive,
                 nx.algorithms.planarity.get_counterexample_recursive,
             ),
         ],
@@ -492,9 +492,9 @@ class TestPlanarity:
     @pytest.mark.parametrize(
         ("actual_func", "expected_func"),
         [
-            (fnx.get_counterexample, nx.algorithms.planarity.get_counterexample),
+            (fnx.algorithms.planarity.get_counterexample, nx.algorithms.planarity.get_counterexample),
             (
-                fnx.get_counterexample_recursive,
+                fnx.algorithms.planarity.get_counterexample_recursive,
                 nx.algorithms.planarity.get_counterexample_recursive,
             ),
         ],
@@ -516,16 +516,16 @@ class TestPlanarity:
 
     def test_get_counterexample_backend_keyword_contract(self):
         expected = nx.algorithms.planarity.get_counterexample(nx.complete_graph(5))
-        actual = fnx.get_counterexample(fnx.complete_graph(5), backend="networkx")
+        actual = fnx.algorithms.planarity.get_counterexample(fnx.complete_graph(5), backend="networkx")
 
         assert set(actual.nodes()) == set(expected.nodes())
         assert {frozenset(edge) for edge in actual.edges()} == {
             frozenset(edge) for edge in expected.edges()
         }
         with pytest.raises(ImportError):
-            fnx.get_counterexample(fnx.complete_graph(5), backend="missing")
+            fnx.algorithms.planarity.get_counterexample(fnx.complete_graph(5), backend="missing")
         with pytest.raises(TypeError):
-            fnx.get_counterexample(fnx.complete_graph(5), unexpected=True)
+            fnx.algorithms.planarity.get_counterexample(fnx.complete_graph(5), unexpected=True)
 
     @pytest.mark.parametrize(
         ("actual_graph", "expected_graph"),

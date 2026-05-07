@@ -172,7 +172,7 @@ def test_check_planarity_boolean_matches_networkx(name, edges, nodes):
                          ids=[fx[0] for fx in ALL_FIXTURES])
 def test_check_planarity_recursive_matches_networkx(name, edges, nodes):
     fg, ng = _pair(edges, nodes)
-    fr_planar, _ = fnx.check_planarity_recursive(fg)
+    fr_planar, _ = fnx.algorithms.planarity.check_planarity_recursive(fg)
     nr_planar, _ = _nx_check_planarity_recursive(ng)
     assert fr_planar == nr_planar
 
