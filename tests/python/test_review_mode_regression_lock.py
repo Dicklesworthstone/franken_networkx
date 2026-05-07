@@ -3062,3 +3062,37 @@ def test_edge_node_disjoint_paths_input_validation_match_nx():
         list(fnx.node_disjoint_paths(P, 0, 99))
     # Valid: regression
     assert list(fnx.node_disjoint_paths(P, 0, 4)) == [[0, 1, 2, 3, 4]]
+
+
+def test_gomory_hu_tree_unbounded_paths_raise_match_nx():
+    """br-r37-c1-ght-disc: gomory_hu_tree silently produced
+    meaningless trees when:
+      * the graph was disconnected (cross-component min-cut is
+        mathematically infinite)
+      * any edge had infinite (default-missing) capacity (any
+        flow path becomes unbounded)
+
+    nx raises ``NetworkXUnbounded("Infinite capacity path, flow
+    unbounded above.")`` for both cases.  fnx called the Rust
+    min-cut binding directly, which didn't propagate the
+    unbounded error.  Lock both contracts."""
+    msg = "Infinite capacity path"
+
+    # Disconnected
+    with pytest.raises(nx.NetworkXUnbounded, match=msg):
+        fnx.gomory_hu_tree(fnx.Graph([(0, 1), (2, 3)]))
+
+    # Connected but no capacity attr (default is infinite)
+    with pytest.raises(nx.NetworkXUnbounded, match=msg):
+        fnx.gomory_hu_tree(fnx.complete_graph(4))
+
+    # Valid: regression with finite capacities
+    G = fnx.Graph([(0, 1, {"capacity": 5}),
+                   (1, 2, {"capacity": 3}),
+                   (0, 2, {"capacity": 4})])
+    T = fnx.gomory_hu_tree(G)
+    assert T.number_of_edges() == 2
+
+    # Empty / 1-node still raise their own typed errors
+    with pytest.raises(nx.NetworkXError, match="Empty Graph"):
+        fnx.gomory_hu_tree(fnx.Graph())

@@ -31095,6 +31095,18 @@ def gomory_hu_tree(G, capacity="capacity", flow_func=None):
     if len(G) == 0:
         raise NetworkXError("Empty Graph does not have a Gomory-Hu tree representation")
 
+    # br-r37-c1-ght-disc: nx raises NetworkXUnbounded("Infinite
+    # capacity path, flow unbounded above.") on disconnected graphs
+    # AND on graphs with infinite (default-missing) capacity edges.
+    # fnx's tree-construction loop called the Rust min-cut binding
+    # directly, which doesn't propagate the unbounded error —
+    # producing a meaningless tree.  Match nx's contract by
+    # short-circuiting both cases here.
+    if not is_connected(G) or _flow_has_infinite_capacity(G, capacity):
+        raise NetworkXUnbounded(
+            "Infinite capacity path, flow unbounded above."
+        )
+
     tree = {}
     labels = {}
     iter_nodes = iter(G)
