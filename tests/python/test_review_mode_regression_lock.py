@@ -3886,3 +3886,47 @@ def test_get_edge_data_unhashable_raises_typeerror_match_nx():
     # Good edges still return data dict
     assert P.get_edge_data(0, 1) == {}
     assert MG.get_edge_data(0, 1) == {0: {}}
+
+
+def test_multigraph_add_edge_unhashable_key_raises_typeerror():
+    """br-r37-c1-mae-keyhash: ``MultiGraph.add_edge`` /
+    ``MultiDiGraph.add_edge`` with an unhashable ``key=`` arg
+    silently stored the unhashable as a Python-id-keyed entry,
+    corrupting the graph state.  Every subsequent operation
+    that walked the adjacency map then crashed with an opaque
+    ``TypeError: unhashable type: 'list'`` from a call site
+    completely unrelated to the original add_edge.
+
+    Worse than the read-side has_edge / get_edge_data
+    silent-False bugs (br-r37-c1-cvtv6 / br-r37-c1-kgpaj):
+    add_edge here mutates state.  The error is now raised
+    eagerly at the add_edge call site, matching nx's contract
+    (``self._adj[u][v][key] = data`` raises on unhashable
+    key).
+
+    Lock: unhashable key= raises TypeError; hashable keys
+    (int / str / tuple / None / etc) all still work."""
+    for cls in (fnx.MultiGraph, fnx.MultiDiGraph):
+        # Unhashable key — TypeError matching nx
+        for bad_key in ([1, 2], {1: 2}, {1, 2}):
+            G = cls()
+            with pytest.raises(TypeError, match=r"unhashable type"):
+                G.add_edge(0, 1, key=bad_key)
+            # Graph state must remain empty (failed-write)
+            assert G.number_of_edges() == 0
+
+        # Hashable keys still work — regression
+        for good_key in (99, "x", (1, 2), None):
+            G = cls()
+            r = G.add_edge(0, 1, key=good_key)
+            assert r == (0 if good_key is None else good_key)
+
+        # Mix: explicit key + auto key
+        G = cls()
+        G.add_edge(0, 1)             # auto key 0
+        G.add_edge(0, 1)             # auto key 1
+        G.add_edge(0, 1, key="custom")
+        edges = list(G.edges(keys=True))
+        assert (0, 1, "custom") in edges
+        assert (0, 1, 0) in edges
+        assert (0, 1, 1) in edges

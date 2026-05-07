@@ -1486,6 +1486,17 @@ def _make_none_rejecting_add_edge(raw_add_edge, is_multigraph=False):
             # the unhashable as a Python-id-keyed node.
             hash(u_for_edge)
             hash(v_for_edge)
+            # br-r37-c1-mae-keyhash: nx raises TypeError when the
+            # multigraph ``key`` arg is unhashable (the underlying
+            # ``self._adj[u][v][key] = data`` dict assignment
+            # raises).  Without this guard the Rust binding stored
+            # the unhashable list/dict as a Python-id-keyed entry,
+            # corrupting graph state — every subsequent operation
+            # that iterated the adjacency map then crashed with an
+            # opaque ``TypeError: unhashable type: 'list'`` from a
+            # call site unrelated to the original add_edge.
+            if key is not None:
+                hash(key)
             return raw_add_edge(self, u_for_edge, v_for_edge, key=key, **attr)
     else:
         def add_edge(self, u_of_edge, v_of_edge, **attr):
