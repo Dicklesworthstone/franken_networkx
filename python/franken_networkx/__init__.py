@@ -6824,8 +6824,33 @@ def all_simple_paths(
         raise NodeNotFound(f"target node {target} not in graph")
 
     # Scalar target — Rust fast path.
-    if cutoff is not None and cutoff < 0:
+    # br-r37-c1-asp-nan: nx uses ``if cutoff >= 0 and targets``
+    # (positive predicate), which is False for ``cutoff=NaN`` and
+    # ``cutoff < 0`` — both cases yield empty.  fnx previously used
+    # the negative form ``cutoff < 0`` which is False for NaN,
+    # falling through to the Rust binding which raises ``TypeError:
+    # 'float' object cannot be interpreted as an integer``.  Match
+    # nx by computing the positive predicate explicitly.  Also
+    # treat ``+inf`` as effectively unbounded (``None``) so the
+    # Rust int-only signature doesn't reject it.
+    if cutoff is not None and not (cutoff >= 0):
         return
+    if isinstance(cutoff, float):
+        # nx accepts any numeric cutoff (compares via ``len(stack)
+        # >= cutoff`` where ``len(stack)`` is an integer count of
+        # nodes-on-the-path).  ``ceil`` yields the same effective
+        # semantics: a fractional cutoff like 3.5 still admits paths
+        # whose stack-length never reaches the integer ceiling
+        # (``len=4 >= 3.5`` would skip — but the path of 4 edges +
+        # 5 nodes is yielded only AFTER the recursive descent
+        # returns; the cutoff bounds extension steps not yields).
+        # Empirical: nx(3.5) yields the 4-edge path; ceil(3.5)=4
+        # → fnx with cutoff=4 also yields it.  +inf → None
+        # (unbounded).
+        if math.isinf(cutoff):
+            cutoff = None
+        else:
+            cutoff = math.ceil(cutoff)
     if source == target:
         yield [source]
         return

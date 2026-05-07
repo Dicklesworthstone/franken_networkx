@@ -4977,3 +4977,45 @@ def test_spectral_graph_forge_alpha_required_match_nx():
     # With explicit alpha — works (kwarg)
     out2 = fnx.spectral_graph_forge(G, alpha=0.5, seed=42)
     assert out2.number_of_nodes() == 34
+
+
+def test_all_simple_paths_handles_nan_inf_float_cutoff_match_nx():
+    """br-r37-c1-asp-nan: ``all_simple_paths`` with non-integer
+    ``cutoff`` (NaN / +inf / finite floats) raised TypeError on
+    fnx because the Rust binding's PyO3 signature requires int.
+    nx accepts any numeric cutoff via its ``len(stack) >= cutoff``
+    comparison.
+
+    Three normalisations restore parity with nx:
+      * NaN / -inf / negative int → empty (positive predicate
+        ``cutoff >= 0`` is False)
+      * +inf → None (treated as unbounded)
+      * finite float → ceil (matches nx's effective semantics
+        empirically: nx(3.5) yields the 4-edge path, ceil(3.5)=4
+        also yields it)
+
+    Lock all 15 cases including the non-integer / non-finite
+    edges that broke the Rust fast path before the wrapper
+    normalised cutoff."""
+    import math
+
+    P = fnx.path_graph(5)
+    expected_path = [0, 1, 2, 3, 4]
+
+    # Empty cases
+    for cv in (float("nan"), -float("inf"), -1, 0, 1, 2, 3):
+        assert list(fnx.all_simple_paths(P, 0, 4, cutoff=cv)) == []
+
+    # Cases where the path is yielded
+    for cv in (4, None, float("inf"), 3.5, 3.7, 4.0, 4.5):
+        result = list(fnx.all_simple_paths(P, 0, 4, cutoff=cv))
+        assert result == [expected_path], f"cutoff={cv}: got {result}"
+
+    # Cross-check against nx exactly for the boundary fractional
+    # cases — must match without TypeError
+    P_nx = nx.path_graph(5)
+    for cv in (float("nan"), float("inf"), -float("inf"),
+               2.5, 3.5, 3.7, 4.0, 4.5):
+        f_paths = list(fnx.all_simple_paths(P, 0, 4, cutoff=cv))
+        n_paths = list(nx.all_simple_paths(P_nx, 0, 4, cutoff=cv))
+        assert f_paths == n_paths, f"cutoff={cv}: fnx={f_paths} != nx={n_paths}"
