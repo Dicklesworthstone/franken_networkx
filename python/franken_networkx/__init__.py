@@ -19136,9 +19136,18 @@ def identified_nodes(
     -------
     Graph or DiGraph
     """
+    # br-r37-c1-cnodes-vbad: nx raises NetworkXError when ``v`` is
+    # not in G (its ``H.nodes[v]`` access surfaces a typed error).
+    # fnx previously guarded with ``if v in G else {}``, silently
+    # returning the unmodified graph and masking the contract.
+    # ``u not in G`` is *intentionally* permitted by nx (the bad u
+    # becomes a real node implicitly via add_edge during the
+    # remap), so leave that path alone.
+    if v not in G:
+        raise NetworkXError(f"Node {v} is not in the graph.")
     # Build a new graph preserving node order from G (skip v)
     H = G.__class__()
-    v_data = dict(G.nodes[v]) if v in G else {}
+    v_data = dict(G.nodes[v])
 
     def add_node_with_deferred_contraction(graph, node, attrs):
         attrs = dict(attrs)

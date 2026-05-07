@@ -2740,3 +2740,38 @@ def test_submodule_backend_kwarg_surface_match_nx():
             result = fn(*args, backend="bogus_backend")
             if path == "community":
                 list(result)
+
+
+def test_contracted_nodes_v_not_in_graph_raises_match_nx():
+    """br-r37-c1-cnodes-vbad: contracted_nodes / identified_nodes
+    silently returned the unmodified graph when ``v`` was not in G,
+    masking nx's NetworkXError contract.  nx accesses ``H.nodes[v]``
+    explicitly and raises ``NetworkXError("Node {v} is not in the
+    graph.")``.
+
+    fnx had a defensive ``if v in G else {}`` guard that silently
+    used an empty dict when v was missing, then proceeded to skip
+    the contraction entirely.
+
+    nx intentionally permits ``u not in G`` (the bad u becomes a
+    real node implicitly via ``add_edge`` during remap).  Lock
+    the v-bad raise + valid args regression."""
+    P = fnx.path_graph(3)
+
+    # v-bad → NetworkXError matching nx
+    with pytest.raises(nx.NetworkXError, match=r"Node 99 is not in the graph"):
+        fnx.contracted_nodes(P, 0, 99)
+    with pytest.raises(nx.NetworkXError, match=r"Node 100 is not in the graph"):
+        fnx.contracted_nodes(P, 99, 100)
+    with pytest.raises(nx.NetworkXError, match=r"Node 99 is not in the graph"):
+        fnx.identified_nodes(P, 0, 99)
+
+    # u-bad with v-good is permitted (the bad u becomes a node
+    # implicitly during the remap)
+    H = fnx.contracted_nodes(P, 99, 1)
+    assert H.number_of_nodes() == 3
+    assert 99 in H.nodes()  # bad u became a real node
+
+    # Valid: regression
+    H = fnx.contracted_nodes(P, 0, 2)
+    assert H.number_of_nodes() == 2
