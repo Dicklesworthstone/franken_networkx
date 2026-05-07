@@ -10192,13 +10192,35 @@ def dag_longest_path_length(G, weight="weight", default_weight=1):
         # ``except nx.NetworkXUnfeasible:`` keep working AND the
         # error message matches nx exactly.
         try:
-            return _fnx.dag_longest_path_length(
+            result = _fnx.dag_longest_path_length(
                 G, weight=weight, default_weight=float(default_weight)
             )
         except HasACycle as exc:
             raise NetworkXUnfeasible(
                 "Graph contains a cycle or graph changed during iteration"
             ) from exc
+        # br-r37-c1-daglen-int: nx returns int when all edge weights
+        # (and ``default_weight``) are int — sum-of-ints stays int.
+        # The Rust binding coerces ``default_weight`` to float, so the
+        # result is always float.  Restore int return type when all
+        # contributing weights are int (matching nx's natural-type
+        # behavior used by callers comparing to int literals).
+        if (
+            isinstance(default_weight, int)
+            and not isinstance(default_weight, bool)
+            and result.is_integer()
+        ):
+            all_int = True
+            if isinstance(weight, str):
+                for _, _, attrs in G.edges(data=True):
+                    if isinstance(attrs, dict) and weight in attrs:
+                        value = attrs[weight]
+                        if isinstance(value, bool) or type(value) is not int:
+                            all_int = False
+                            break
+            if all_int:
+                return int(result)
+        return result
     return _call_networkx_for_parity(
         "dag_longest_path_length",
         G,
@@ -27812,7 +27834,7 @@ def to_prufer_sequence(T):
     n = T.number_of_nodes()
     if n < 2:
         raise NetworkXPointlessConcept(
-            "Prüfer sequence undefined for trees with fewer than two nodes."
+            "Prüfer sequence undefined for trees with fewer than two nodes"
         )
     if not is_tree(T):
         raise NotATree("provided graph is not a tree")

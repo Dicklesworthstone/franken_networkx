@@ -1182,6 +1182,32 @@ def test_to_prufer_sequence_sparse_labels_no_rust_panic_match_nx():
     assert rust_fn(G) == fnx.to_prufer_sequence(G) == nx.to_prufer_sequence(nx.path_graph(4))
 
 
+def test_to_prufer_sequence_rust_non_tree_no_panic_match_nx():
+    """br-r37-c1-bs952: direct Rust-binding callers bypassed the
+    public wrapper's tree check, so cyclic integer-labelled graphs
+    leaked a PyO3 PanicException from the Rust leaf invariant.  Lock
+    typed errors on both public and direct surfaces."""
+    rust_fn = fnx._fnx.to_prufer_sequence_rust
+    for factory in (fnx.Graph, nx.Graph):
+        G = factory()
+        with pytest.raises(nx.NetworkXPointlessConcept,
+                           match="fewer than two nodes"):
+            (fnx.to_prufer_sequence if factory is fnx.Graph else nx.to_prufer_sequence)(G)
+    empty = fnx.Graph()
+    with pytest.raises(nx.NetworkXPointlessConcept,
+                       match="fewer than two nodes"):
+        rust_fn(empty)
+
+    Gf = fnx.cycle_graph(3)
+    Gn = nx.cycle_graph(3)
+    with pytest.raises(nx.NotATree, match="provided graph is not a tree"):
+        fnx.to_prufer_sequence(Gf)
+    with pytest.raises(nx.NotATree, match="provided graph is not a tree"):
+        nx.to_prufer_sequence(Gn)
+    with pytest.raises(nx.NotATree, match="provided graph is not a tree"):
+        rust_fn(Gf)
+
+
 def test_balanced_tree_negative_r_match_nx_geometric_formula():
     """br-r37-c1-bt-neg-r: balanced_tree(r, h) for negative r used to
     short-circuit blanket-return ``empty_graph(0)``.  nx instead
@@ -2024,3 +2050,55 @@ def test_operator_type_mismatch_message_match_nx():
                      fnx.Graph([(2, 3)])).number_of_nodes() == 4
     assert fnx.compose(fnx.Graph([(0, 1)]),
                        fnx.Graph([(1, 2)])).number_of_nodes() == 3
+
+
+def test_dag_longest_path_length_preserves_int_type_match_nx():
+    """br-r37-c1-daglen-int: dag_longest_path_length always returned
+    float because the Rust binding coerces ``default_weight`` to
+    float internally.  nx returns int when all contributing weights
+    (edge values + default_weight) are int — sum-of-ints stays int.
+    Lock the type-preservation contract for callers comparing
+    against int literals (``assert dag_longest_path_length(G) == 3``
+    pattern)."""
+
+    def make(lib, edges):
+        D = lib.DiGraph()
+        D.add_weighted_edges_from(edges)
+        return D
+
+    # All-int weights → int result
+    fr = fnx.dag_longest_path_length(make(fnx, [(0, 1, 5), (1, 2, 3)]),
+                                     weight="weight")
+    nr = nx.dag_longest_path_length(make(nx, [(0, 1, 5), (1, 2, 3)]),
+                                    weight="weight")
+    assert type(fr) is type(nr) is int
+    assert fr == nr == 8
+
+    # Default weight (no explicit weight attr) → int result
+    DG_f = fnx.DiGraph(); DG_f.add_edges_from([(0, 1), (1, 2)])
+    DG_n = nx.DiGraph(); DG_n.add_edges_from([(0, 1), (1, 2)])
+    fr = fnx.dag_longest_path_length(DG_f)
+    nr = nx.dag_longest_path_length(DG_n)
+    assert type(fr) is type(nr) is int
+    assert fr == nr == 2
+
+    # Float weights → float result
+    fr = fnx.dag_longest_path_length(make(fnx, [(0, 1, 5.0), (1, 2, 3.5)]),
+                                     weight="weight")
+    nr = nx.dag_longest_path_length(make(nx, [(0, 1, 5.0), (1, 2, 3.5)]),
+                                    weight="weight")
+    assert type(fr) is type(nr) is float
+    assert fr == nr == 8.5
+
+    # Mixed int + float → float result (any float promotes)
+    fr = fnx.dag_longest_path_length(make(fnx, [(0, 1, 5), (1, 2, 3.5)]),
+                                     weight="weight")
+    nr = nx.dag_longest_path_length(make(nx, [(0, 1, 5), (1, 2, 3.5)]),
+                                    weight="weight")
+    assert type(fr) is type(nr) is float
+    assert fr == nr == 8.5
+
+    # Float default_weight → float result even with int edge weights
+    fr = fnx.dag_longest_path_length(DG_f, default_weight=1.0)
+    nr = nx.dag_longest_path_length(DG_n, default_weight=1.0)
+    assert type(fr) is type(nr) is float
