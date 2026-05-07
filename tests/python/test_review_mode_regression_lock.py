@@ -3372,3 +3372,36 @@ def test_eulerian_path_bad_source_match_nx():
     # Valid source still works (regression)
     assert list(fnx.eulerian_path(cycle, source=0)) == [(0, 1), (1, 2), (2, 0)]
     assert list(fnx.eulerian_path(cycle)) == [(0, 1), (1, 2), (2, 0)]
+
+
+def test_predecessor_directed_match_nx():
+    """br-r37-c1-pred-dir: ``predecessor`` (shortest-path BFS
+    predecessor map) raised ``NetworkXNotImplemented`` on directed
+    graphs because the Rust binding rejected directed inputs.  nx
+    supports directed graphs and returns the BFS predecessor map
+    on outgoing edges.  The wrapper now routes directed graphs to
+    nx for parity and also normalizes the bad-source error to
+    ``Source {source} not in G`` (the Rust binding emitted
+    ``Source '99' is not in G`` with quoted repr)."""
+    DG = fnx.DiGraph([(0, 1), (1, 2)])
+    assert fnx.predecessor(DG, 0) == {0: [], 1: [0], 2: [1]}
+    # cycle digraph — BFS only follows outgoing edges from source
+    DGc = fnx.DiGraph([(0, 1), (1, 0)])
+    assert fnx.predecessor(DGc, 0) == {0: [], 1: [0]}
+    # target= path-list form
+    assert fnx.predecessor(DG, 0, target=2) == [1]
+    # cutoff truncates
+    DG3 = fnx.DiGraph([(0, 1), (1, 2), (2, 3)])
+    assert fnx.predecessor(DG3, 0, cutoff=1) == {0: [], 1: [0]}
+    # return_seen=True
+    pmap, seen = fnx.predecessor(DG, 0, return_seen=True)
+    assert pmap == {0: [], 1: [0], 2: [1]}
+    assert seen == {0: 0, 1: 1, 2: 2}
+    # bad target with return_seen → ([], -1) sentinel
+    assert fnx.predecessor(DG, 0, target=99, return_seen=True) == ([], -1)
+    # Bad source raises NodeNotFound with nx-shaped message on
+    # both directed and undirected
+    with pytest.raises(nx.NodeNotFound, match=r"Source 99 not in G"):
+        fnx.predecessor(fnx.path_graph(3), 99)
+    with pytest.raises(nx.NodeNotFound, match=r"Source 99 not in G"):
+        fnx.predecessor(DG, 99)

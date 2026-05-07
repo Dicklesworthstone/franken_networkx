@@ -11736,6 +11736,20 @@ def _ordered_predecessor_nodes_and_levels(G, source, predecessor_map):
 
 
 def predecessor(G, source, target=None, cutoff=None, return_seen=None):
+    # br-r37-c1-pred-dir: nx's ``predecessor`` (shortest-path BFS
+    # predecessor map) supports directed graphs; fnx's Rust binding
+    # rejects them with NetworkXNotImplemented("not implemented for
+    # directed type").  Route directed graphs to nx for parity.
+    if G.is_directed():
+        return _call_networkx_for_parity(
+            "predecessor", G, source,
+            target=target, cutoff=cutoff, return_seen=return_seen,
+        )
+    if source not in G:
+        # br-r37-c1-pred-dir: nx raises ``NodeNotFound(f"Source
+        # {source} not in G")`` (no quoting around the node repr);
+        # the Rust binding emits ``Source '99' is not in G``.
+        raise NodeNotFound(f"Source {source} not in G")
     predecessor_map = _raw_predecessor(G, source, cutoff=cutoff)
     ordered_nodes, seen_levels = _ordered_predecessor_nodes_and_levels(
         G, source, predecessor_map
