@@ -3508,3 +3508,47 @@ def test_k_crust_default_k_is_max_minus_one_match_nx():
 
     # Explicit k still works (regression — these passed before)
     assert sorted(fnx.k_crust(K, k=2).nodes()) == sorted(nx.k_crust(Kx, k=2).nodes())
+
+
+def test_union_type_mismatch_check_precedes_disjoint_check():
+    """br-r37-c1-union-order: ``union(G, H)`` must check
+    type-mismatch (directed-vs-undirected, graph-vs-multigraph)
+    BEFORE the disjoint-nodes check.  Previously fnx checked
+    disjoint-nodes first, so a Graph + DiGraph with overlapping
+    node sets reported "node sets not disjoint" instead of the
+    more fundamental "must be directed or undirected" — the
+    disjoint check is meaningless when the graphs aren't even
+    the same kind.
+
+    Lock the order: type-mismatch errors must dominate
+    disjoint-set errors when both apply."""
+    G = fnx.path_graph(3)        # nodes 0,1,2
+    DG = fnx.DiGraph([(0, 1)])   # nodes 0,1 — overlap with G
+    MG = fnx.MultiGraph([(0, 1)])  # nodes 0,1 — overlap with G
+
+    # Overlapping nodes + directed mismatch → directed message
+    with pytest.raises(nx.NetworkXError,
+                       match=r"All graphs must be directed or undirected"):
+        fnx.union(G, DG)
+
+    # Overlapping nodes + multigraph mismatch → multigraph message
+    with pytest.raises(nx.NetworkXError,
+                       match=r"All graphs must be graphs or multigraphs"):
+        fnx.union(G, MG)
+
+    # Disjoint nodes + type mismatch → type-mismatch still wins
+    G_far = fnx.DiGraph([(10, 11)])  # disjoint from G
+    with pytest.raises(nx.NetworkXError,
+                       match=r"All graphs must be directed or undirected"):
+        fnx.union(G, G_far)
+
+    # Same type + overlap → disjoint-set error (regression)
+    with pytest.raises(nx.NetworkXError,
+                       match=r"node sets of the graphs are not disjoint"):
+        fnx.union(G, fnx.path_graph(3))
+
+    # Valid union of disjoint same-type still works
+    G_a = fnx.path_graph(3)
+    G_b = fnx.Graph([(10, 11), (11, 12)])
+    out = fnx.union(G_a, G_b)
+    assert sorted(out.edges()) == [(0, 1), (1, 2), (10, 11), (11, 12)]

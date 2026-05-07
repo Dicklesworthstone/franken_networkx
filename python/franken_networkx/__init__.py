@@ -8610,6 +8610,15 @@ def union(G, H, rename=()):
     """
     if rename:
         return _union_with_rename_via_parity(G, H, rename)
+    # br-r37-c1-union-order: nx checks the type-mismatch
+    # (directed-vs-undirected, graph-vs-multigraph) BEFORE the
+    # disjoint-nodes check.  Previously fnx checked
+    # disjoint-nodes first, so a Graph + DiGraph with overlapping
+    # node sets reported "node sets not disjoint" instead of the
+    # more fundamental "must be directed or undirected" — the
+    # disjoint check is meaningless when the graphs aren't even
+    # the same kind.  Run the type check first.
+    cls = _operator_output_class(G, H)
     # br-r37-c1-union-disjoint: nx raises NetworkXError("The node
     # sets of the graphs are not disjoint.") on overlapping inputs
     # before any merging happens. Previously fnx silently merged,
@@ -8624,7 +8633,6 @@ def union(G, H, rename=()):
             "Use `rename` to specify prefixes for the graphs or use\n"
             "disjoint_union(G1, G2, ..., GN).",
         )
-    cls = _operator_output_class(G, H)
     raw = _raw_union(G, H)
     rebuilt = _rebuild_operator_output(raw, cls)
     # Raw Rust union drops node/edge attrs; copy them back from inputs.
