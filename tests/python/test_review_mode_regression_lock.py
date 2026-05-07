@@ -1754,3 +1754,116 @@ def test_s89yr_subgraph_filtered_edge_view_set_protocol():
     assert len(inter) == len(list(sg.edges))
     diff = G.edges - sg.edges
     assert (0, 3) in diff or (3, 0) in diff
+
+
+def test_ld4oo_reverse_view_edges_set_protocol():
+    """br-r37-c1-ld4oo: G.reverse().edges (_ReverseEdgeView) used to
+    miss the entire Set protocol — only __iter__/__contains__ — and
+    iter shape diverged on multigraphs.  Lock Set comparison + algebra
+    on the reversed-view path."""
+    DG = fnx.DiGraph()
+    DG.add_edges_from([(0, 1), (1, 2), (2, 3)])
+    R = DG.reverse()
+    # Self-equality
+    assert R.edges == R.edges
+    # Set comparison vs sets of pairs
+    rset = {tuple(sorted(e)) for e in R.edges}
+    assert R.edges <= R.edges
+    # Set algebra
+    inter = R.edges & R.edges
+    assert {tuple(sorted(e)) for e in inter} == rset
+
+
+def test_8crof_node_data_view_pickles():
+    """br-r37-c1-8crof: G.nodes(data=True) NodeDataView crashed
+    pickle.  Snapshot to list semantics matches nx round-trip."""
+    G = fnx.Graph()
+    G.add_nodes_from([(0, {"x": 1}), (1, {"y": 2})])
+    r = pickle.loads(pickle.dumps(G.nodes(data=True)))
+    assert sorted(r) == [(0, {"x": 1}), (1, {"y": 2})]
+
+
+def test_w97ow_edge_data_view_pickles():
+    """br-r37-c1-w97ow: G.edges.data() EdgeDataView crashed pickle
+    on Graph (wrapper_descriptor class shadowing).  Lock round-trip."""
+    G = fnx.Graph()
+    G.add_edges_from([(0, 1, {"w": 5}), (1, 2, {"w": 7})])
+    r = pickle.loads(pickle.dumps(G.edges.data()))
+    by_uv = {tuple(sorted((u, v))): d for u, v, d in r}
+    assert by_uv == {(0, 1): {"w": 5}, (1, 2): {"w": 7}}
+
+
+def test_qh17m_union_raises_on_overlapping_nodes():
+    """br-r37-c1-qh17m: fnx.union(G, H) used to silently merge
+    overlapping nodes; nx raises NetworkXError("The node sets of
+    the graphs are not disjoint...").  Lock the raise."""
+    G = fnx.Graph(); G.add_edges_from([(0, 1), (1, 2)])
+    H = fnx.Graph(); H.add_edges_from([(2, 3), (3, 4)])
+    with pytest.raises(nx.NetworkXError, match="not disjoint"):
+        fnx.union(G, H)
+    # Disjoint case still works
+    H2 = fnx.Graph(); H2.add_edges_from([(10, 11)])
+    U = fnx.union(G, H2)
+    assert U.number_of_nodes() == 5
+
+
+def test_ea7eh_add_edges_from_raises_networkx_error_on_bad_arity():
+    """br-r37-c1-ea7eh: G.add_edges_from raised ValueError on
+    bad-arity tuples; nx raises NetworkXError.  Lock the type."""
+    G = fnx.Graph()
+    with pytest.raises(nx.NetworkXError):
+        G.add_edges_from([(0, 1, 2, 3)])  # 4-tuple too many
+    with pytest.raises(nx.NetworkXError):
+        G.add_edges_from([(0,)])  # 1-tuple too few
+
+
+def test_eeawk_write_adjlist_byte_parity_with_nx():
+    """br-r37-c1-eeawk: write_adjlist Rust fast path previously
+    omitted the 3-line ``# / # GMT ... / #`` header and trailing
+    newline.  Lock byte-equality with nx (timestamp line excluded)."""
+    import io
+    buf_f = io.BytesIO(); fnx.write_adjlist(fnx.path_graph(3), buf_f)
+    buf_n = io.BytesIO(); nx.write_adjlist(nx.path_graph(3), buf_n)
+    def strip_ts(b):
+        return b'\n'.join(l for l in b.split(b'\n') if not l.startswith(b'# GMT'))
+    assert strip_ts(buf_f.getvalue()) == strip_ts(buf_n.getvalue())
+    # Header starts with '#' (first line is sys.argv[0] commented)
+    assert buf_f.getvalue().startswith(b"#")
+    assert buf_f.getvalue().endswith(b"\n")
+
+
+def test_nlkkm_write_graphml_byte_parity_with_nx():
+    """br-r37-c1-nlkkm: write_graphml Rust fast path previously
+    diverged in XML decl quoting + graph id + self-closing tag
+    spacing.  Lock byte-equality with nx."""
+    import io
+    buf_f = io.BytesIO(); fnx.write_graphml(fnx.path_graph(3), buf_f)
+    buf_n = io.BytesIO(); nx.write_graphml(nx.path_graph(3), buf_n)
+    assert buf_f.getvalue() == buf_n.getvalue()
+
+
+def test_nhgtp_write_multiline_adjlist_byte_parity_with_nx():
+    """br-r37-c1-nhgtp: write_multiline_adjlist previously omitted
+    the 3-line timestamped header.  Lock byte-equality with nx
+    (timestamp line excluded)."""
+    import io
+    buf_f = io.BytesIO(); fnx.write_multiline_adjlist(fnx.path_graph(3), buf_f)
+    buf_n = io.BytesIO(); nx.write_multiline_adjlist(nx.path_graph(3), buf_n)
+    def strip_ts(b):
+        return b'\n'.join(l for l in b.split(b'\n') if not l.startswith(b'# GMT'))
+    assert strip_ts(buf_f.getvalue()) == strip_ts(buf_n.getvalue())
+    assert buf_f.getvalue().startswith(b"#")
+
+
+def test_htvy8_write_gexf_byte_parity_with_nx():
+    """br-r37-c1-htvy8: write_gexf Rust fast path previously
+    diverged in XML declaration quoting/encoding case.  The fix
+    delegates to nx for byte-exact output.  Lock byte-equality."""
+    import io
+    buf_f = io.BytesIO(); fnx.write_gexf(fnx.path_graph(3), buf_f)
+    buf_n = io.BytesIO(); nx.write_gexf(nx.path_graph(3), buf_n)
+    # gexf embeds timestamps; strip lastmodifieddate attribute
+    import re
+    def strip_dates(b):
+        return re.sub(rb'lastmodifieddate="[^"]*"', b'lastmodifieddate=""', b)
+    assert strip_dates(buf_f.getvalue()) == strip_dates(buf_n.getvalue())
