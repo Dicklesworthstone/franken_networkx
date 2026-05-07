@@ -675,7 +675,7 @@ def from_sparse6_bytes(string):
     """
     import franken_networkx as fnx
 
-    data = bytes(string).rstrip(b"\n")
+    data = bytes(string)
     if data.startswith(b">>sparse6<<"):
         data = data[11:]
     if not data.startswith(b":"):

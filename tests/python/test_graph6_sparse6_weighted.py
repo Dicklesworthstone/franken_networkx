@@ -4,6 +4,7 @@ import builtins
 from io import BytesIO
 from pathlib import Path
 
+import networkx as nx
 import pytest
 
 import franken_networkx as fnx
@@ -80,6 +81,15 @@ def test_sparse6_duplicate_edges_return_multigraph():
     assert list(graph.edges()) == [(0, 1), (0, 1), (0, 1)]
 
 
+def test_sparse6_direct_bytes_keep_trailing_newline_payload():
+    graph = fnx.from_sparse6_bytes(b":@\n")
+    expected = nx.from_sparse6_bytes(b":@\n")
+
+    assert graph.number_of_nodes() == expected.number_of_nodes() == 1
+    assert graph.number_of_edges() == expected.number_of_edges() == 1
+    assert list(graph.edges()) == list(expected.edges()) == [(0, 0)]
+
+
 def test_graph6_and_sparse6_read_multiple_graphs_from_binary_stream():
     graph6_graphs = fnx.read_graph6(BytesIO(b"A_\nC~\n\n"))
     sparse6_graphs = fnx.read_sparse6(BytesIO(b":An\n:CcKI\n\n"))
@@ -100,7 +110,7 @@ def test_graph6_sparse6_do_not_import_networkx(monkeypatch):
 
     graph = fnx.path_graph(3)
     assert fnx.from_graph6_bytes(fnx.to_graph6_bytes(graph)).number_of_edges() == 2
-    assert fnx.from_sparse6_bytes(fnx.to_sparse6_bytes(graph)).number_of_edges() == 2
+    assert fnx.read_sparse6(BytesIO(fnx.to_sparse6_bytes(graph))).number_of_edges() == 2
 
 
 def test_graph6_rejects_directed_and_multigraph_writes():
