@@ -4311,7 +4311,7 @@ def shortest_path(
                 weight=weight,
                 method=method,
             )
-        if method == "bellman-ford" and _should_delegate_bellman_ford_to_networkx(weight):
+        if method == "bellman-ford" and _should_delegate_bellman_ford_to_networkx(weight, G):
             return _call_networkx_for_parity(
                 "shortest_path",
                 G,

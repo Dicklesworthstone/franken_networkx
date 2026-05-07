@@ -2153,3 +2153,15 @@ def test_dijkstra_bellman_ford_nonnumeric_weight_typeerror_match_nx():
         assert f(G, 0, 2) == [0, 1, 2]
         # Missing weight attr → default unweighted path
         assert f(fnx.path_graph(3), 0, 2) == [0, 1, 2]
+
+    for bad in ("abc", [1, 2]):
+        Gf = make(fnx, bad)
+        Gn = make(nx, bad)
+        with pytest.raises(TypeError):
+            nx.shortest_path(
+                Gn, 0, 2, weight="weight", method="bellman-ford"
+            )
+        with pytest.raises(TypeError):
+            fnx.shortest_path(
+                Gf, 0, 2, weight="weight", method="bellman-ford"
+            )
