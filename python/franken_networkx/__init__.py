@@ -26181,6 +26181,13 @@ def _private_aware_get_edge_data_simple(raw_get_edge_data):
     """get_edge_data wrapper for non-multigraph types — nx signature is
     (u, v, default=None) (br-r37-c1-gyn8z)."""
     def get_edge_data(self, u, v, default=None):
+        # br-r37-c1-ged-hash: nx propagates ``TypeError: unhashable
+        # type: 'X'`` from the underlying ``self._adj[u]`` lookup;
+        # fnx's Rust binding silently returned ``default`` on
+        # unhashable u/v, masking caller bugs (sister of the
+        # has_edge fix br-r37-c1-cvtv6).  Hash-check eagerly.
+        hash(u)
+        hash(v)
         if not _has_networkx_private_storage(self):
             return raw_get_edge_data(self, u, v, default)
         if not self.has_edge(u, v):
@@ -26194,6 +26201,9 @@ def _private_aware_get_edge_data_multi(raw_get_edge_data):
     """get_edge_data wrapper for multigraph types — nx signature is
     (u, v, key=None, default=None) (br-r37-c1-gyn8z)."""
     def get_edge_data(self, u, v, key=None, default=None):
+        # br-r37-c1-ged-hash: see simple variant above.
+        hash(u)
+        hash(v)
         if not _has_networkx_private_storage(self):
             if key is None:
                 return raw_get_edge_data(self, u, v, default=default)

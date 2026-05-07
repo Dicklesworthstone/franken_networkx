@@ -3851,3 +3851,38 @@ def test_has_edge_unhashable_raises_typeerror_match_nx():
     assert P.has_edge(0, 1) is True
     assert MG.has_edge(0, 1) is True
     assert MG.has_edge(0, 1, key=0) is True
+
+
+def test_get_edge_data_unhashable_raises_typeerror_match_nx():
+    """br-r37-c1-ged-hash: nx propagates ``TypeError: unhashable
+    type: 'X'`` from the underlying ``self._adj[u]`` lookup;
+    fnx's Rust binding silently returned ``default`` (or None)
+    on unhashable u/v, masking caller bugs.
+
+    Sister of br-r37-c1-cvtv6 (has_edge fix in cycle 108).
+    Lock: unhashable u or v raises TypeError on every graph
+    type.  Hashable-but-missing args still return None /
+    default (nx contract preserved)."""
+    P = fnx.path_graph(3)
+    DG = fnx.DiGraph([(0, 1)])
+    MG = fnx.MultiGraph([(0, 1)])
+    MDG = fnx.MultiDiGraph([(0, 1)])
+
+    for G in (P, DG, MG, MDG):
+        with pytest.raises(TypeError, match=r"unhashable type"):
+            G.get_edge_data([1, 2], 0)
+        with pytest.raises(TypeError, match=r"unhashable type"):
+            G.get_edge_data(0, [1, 2])
+        with pytest.raises(TypeError, match=r"unhashable type"):
+            G.get_edge_data({1: 2}, 0)
+        # default= must NOT swallow the TypeError
+        with pytest.raises(TypeError, match=r"unhashable type"):
+            G.get_edge_data([1, 2], 0, default="X")
+
+    # Hashable-but-missing — still returns None / default
+    assert P.get_edge_data(0, 99) is None
+    assert P.get_edge_data(0, 99, default="X") == "X"
+
+    # Good edges still return data dict
+    assert P.get_edge_data(0, 1) == {}
+    assert MG.get_edge_data(0, 1) == {0: {}}
