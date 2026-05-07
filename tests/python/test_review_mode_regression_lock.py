@@ -2369,3 +2369,33 @@ def test_dispersion_bad_node_raises_keyerror_match_nx():
     assert fnx.dispersion(K4, 0, 1) == nx.dispersion(nx.complete_graph(4), 0, 1)
     assert isinstance(fnx.dispersion(K4), dict)
     assert isinstance(fnx.dispersion(K4, 0), dict)
+
+
+def test_to_nested_tuple_typed_errors_match_nx():
+    """br-r37-c1-tnt-typed-errs: to_nested_tuple raised generic
+    NetworkXError on missing root and a Python RecursionError on
+    non-tree (cyclic) input.  nx raises typed NodeNotFound / NotATree
+    respectively.  RecursionError leaking is particularly bad — it's
+    a programmer-error category that callers don't catch with normal
+    domain-error handlers.
+
+    Lock typed-error parity for both precondition violations plus
+    valid-tree regression."""
+    T = fnx.balanced_tree(2, 2)
+    C = fnx.cycle_graph(3)
+
+    # Bad root
+    with pytest.raises(nx.NodeNotFound,
+                       match=r"contains no node 99"):
+        fnx.to_nested_tuple(T, 99)
+
+    # Non-tree (cyclic)
+    with pytest.raises(nx.NotATree,
+                       match=r"provided graph is not a tree"):
+        fnx.to_nested_tuple(C, 0)
+
+    # Valid: regression
+    assert fnx.to_nested_tuple(T, 0) == nx.to_nested_tuple(nx.balanced_tree(2, 2), 0)
+    assert fnx.to_nested_tuple(T, 0, canonical_form=True) == nx.to_nested_tuple(
+        nx.balanced_tree(2, 2), 0, canonical_form=True
+    )

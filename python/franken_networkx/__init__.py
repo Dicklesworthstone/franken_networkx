@@ -27988,7 +27988,23 @@ def from_nested_tuple(sequence, sensible_relabeling=False):
 
 
 def to_nested_tuple(T, root, canonical_form=False):
-    """Convert rooted tree to nested tuple."""
+    """Convert rooted tree to nested tuple.
+
+    br-r37-c1-tnt-typed-errs: nx raises typed exceptions for the two
+    structural-precondition violations:
+      * ``root`` not in T → NodeNotFound (with the standard
+        "Graph {G!s} contains no node {root}" message)
+      * ``T`` not a tree (e.g. cyclic) → NotATree
+    fnx previously surfaced a bare NetworkXError for missing root
+    (via ``T.neighbors(root)`` raising) and a RecursionError for
+    cycles (the recursive descent looped through the cycle until
+    Python's stack ran out).  Pre-check both up front.
+    """
+    if root not in T:
+        raise NodeNotFound(f"Graph {T!s} contains no node {root}")
+    if not is_tree(T):
+        raise NotATree("provided graph is not a tree")
+
     def _recurse(node, parent):
         children = [n for n in T.neighbors(node) if n != parent]
         if not children:
