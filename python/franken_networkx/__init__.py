@@ -31368,7 +31368,13 @@ def _graph_edit_exact_paths_python(
 
     def evaluate(mapping):
         matched_right_nodes = set(mapping.values())
-        cost = 0
+        # br-r37-c1-ged-flt: nx's graph_edit_distance always returns
+        # ``float`` (the recursive minimization in nx uses ``min`` over
+        # float costs so int-zero never bubbles up).  fnx's local
+        # accumulator started at int 0 and stayed int when all costs
+        # were zero (identical graphs with ``roots=`` set).  Initialize
+        # at ``0.0`` so the type matches nx.
+        cost = 0.0
         for left, right in mapping.items():
             cost += _graph_edit_node_subst_cost(
                 G1,

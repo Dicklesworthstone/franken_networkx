@@ -2282,3 +2282,37 @@ def test_resistance_distance_disconnected_raises_match_nx():
     # Connected regression
     assert abs(fnx.resistance_distance(fnx.complete_graph(4), 0, 2) - 0.5) < 1e-9
     assert abs(fnx.resistance_distance(fnx.path_graph(5), 0, 4) - 4.0) < 1e-9
+
+
+def test_graph_edit_distance_with_roots_returns_float_match_nx():
+    """br-r37-c1-ged-flt: graph_edit_distance with ``roots=`` set
+    returned int 0 for identical graphs because the local Python
+    fallback initialized its cost accumulator to int 0.  nx
+    consistently returns float.  Same defect family as the
+    int-vs-float type-preservation series (br-r37-c1-{oqspv,
+    ihfqv}) but inverted — nx returns float, fnx returned int.
+
+    Lock float return type for graph_edit_distance across
+    roots / no-roots / identical / different configurations."""
+    P3_f = fnx.path_graph(3)
+    P3_n = nx.path_graph(3)
+    P4_f = fnx.path_graph(4)
+    P4_n = nx.path_graph(4)
+
+    cases = [
+        # (G1, G2, roots, expected_value)
+        (P3_f, P3_f, None, 0.0),
+        (P3_f, P3_f, (0, 0), 0.0),
+        (P3_f, P3_f, (1, 1), 0.0),
+        (P3_f, P4_f, None, 2.0),
+        (P3_f, P4_f, (0, 0), 2.0),
+        (fnx.complete_graph(3), fnx.complete_graph(3), (0, 0), 0.0),
+    ]
+    for G1, G2, roots, expected in cases:
+        kwargs = {} if roots is None else {"roots": roots}
+        result = fnx.graph_edit_distance(G1, G2, **kwargs)
+        assert type(result) is float, (
+            f"expected float, got {type(result).__name__}: "
+            f"G1={G1.number_of_nodes()}n, G2={G2.number_of_nodes()}n, roots={roots}"
+        )
+        assert result == expected
