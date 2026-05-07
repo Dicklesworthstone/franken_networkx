@@ -3034,3 +3034,31 @@ def test_generate_random_paths_empty_graph_raises_match_nx():
     # Regression: non-empty graphs work
     result = list(fnx.generate_random_paths(fnx.path_graph(5), 3, 3, seed=42))
     assert len(result) == 3
+
+
+def test_edge_node_disjoint_paths_input_validation_match_nx():
+    """br-r37-c1-edp-validate: edge_disjoint_paths and
+    node_disjoint_paths silently yielded an empty generator on bad
+    inputs (missing source/target node, or same source-sink for
+    edge variant).  nx raises typed NetworkXError.  Lock the
+    contract for both functions."""
+    P = fnx.path_graph(5)
+
+    # edge_disjoint_paths — full validation
+    with pytest.raises(nx.NetworkXError, match=r"source and sink are the same node"):
+        list(fnx.edge_disjoint_paths(P, 0, 0))
+    with pytest.raises(nx.NetworkXError, match=r"node 99 not in graph"):
+        list(fnx.edge_disjoint_paths(P, 99, 0))
+    with pytest.raises(nx.NetworkXError, match=r"node 99 not in graph"):
+        list(fnx.edge_disjoint_paths(P, 0, 99))
+    # Valid: regression
+    assert list(fnx.edge_disjoint_paths(P, 0, 4)) == [[0, 1, 2, 3, 4]]
+
+    # node_disjoint_paths — node validation only (same s=t leaves
+    # to the underlying flow, which yields a degenerate path)
+    with pytest.raises(nx.NetworkXError, match=r"node 99 not in graph"):
+        list(fnx.node_disjoint_paths(P, 99, 0))
+    with pytest.raises(nx.NetworkXError, match=r"node 99 not in graph"):
+        list(fnx.node_disjoint_paths(P, 0, 99))
+    # Valid: regression
+    assert list(fnx.node_disjoint_paths(P, 0, 4)) == [[0, 1, 2, 3, 4]]

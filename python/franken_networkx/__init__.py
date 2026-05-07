@@ -22448,7 +22448,17 @@ def edge_disjoint_paths(
     doesn't TypeError. The Rust path still computes the decomposition
     without reusing a pre-built residual network; a future native
     improvement can thread these through.
+
+    br-r37-c1-edp-validate: nx raises NetworkXError on bad inputs;
+    fnx's Rust binding silently yielded an empty generator.  Match
+    nx's typed-error contract for missing-node + same-source-sink.
     """
+    if s == t:
+        raise NetworkXError("source and sink are the same node")
+    if s not in G:
+        raise NetworkXError(f"node {s} not in graph")
+    if t not in G:
+        raise NetworkXError(f"node {t} not in graph")
     paths = _fnx.edge_disjoint_paths_rust(G, s, t)
     for path in paths:
         yield path
@@ -22461,7 +22471,16 @@ def node_disjoint_paths(
 
     br-disjointkw: see ``edge_disjoint_paths`` — parity kwargs added at
     the public surface.
+
+    br-r37-c1-edp-validate: same input validation as
+    ``edge_disjoint_paths`` for missing nodes.  nx accepts the
+    same-source-sink case and yields a degenerate path, so leave
+    that path through — only validate node membership.
     """
+    if s not in G:
+        raise NetworkXError(f"node {s} not in graph")
+    if t not in G:
+        raise NetworkXError(f"node {t} not in graph")
     paths = _fnx.node_disjoint_paths_rust(G, s, t)
     for path in paths:
         yield path
