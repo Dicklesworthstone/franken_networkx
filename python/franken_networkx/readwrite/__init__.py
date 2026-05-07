@@ -1242,7 +1242,25 @@ def parse_multiline_adjlist(
                     raise TypeError(
                         f"Failed to convert node ({nbr}) to type {nodetype}"
                     ) from err
-            if edgetype is not None:
+            # br-r37-c1-mla-dict: nx's parse_multiline_adjlist
+            # rejects dict-serialized edge data when ``edgetype``
+            # is supplied — but ``write_multiline_adjlist`` writes
+            # data as ``{'weight': v}`` dict literals when edges
+            # have any attributes.  So the natural round-trip
+            # ``write`` → ``read(edgetype=float)`` raises in nx
+            # too.  fnx is more lenient: if data looks like a
+            # dict literal, parse it via ``literal_eval``
+            # regardless of ``edgetype``.  This restores the
+            # documented round-trip use case (write weighted →
+            # read with edgetype hint) without breaking nx-parity
+            # for the scalar-data path.
+            data_stripped = data.lstrip() if data else data
+            if data_stripped.startswith("{"):
+                try:
+                    attrs = _ast.literal_eval(data)
+                except BaseException:
+                    attrs = {}
+            elif edgetype is not None:
                 try:
                     attrs = {"weight": edgetype(data)}
                 except BaseException as err:

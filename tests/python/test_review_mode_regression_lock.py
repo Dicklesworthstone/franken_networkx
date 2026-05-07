@@ -4463,3 +4463,58 @@ def test_filtered_view_size_with_weight_honors_filter():
                    ("c", "d", {"weight": 4})])
     sub = g.subgraph(["a", "b", "c"])
     assert sub.size(weight="weight") == 4.0
+
+
+def test_parse_multiline_adjlist_dict_data_with_edgetype():
+    """br-r37-c1-mla-dict: ``write_multiline_adjlist`` writes
+    edge data as dict literals (e.g. ``{'weight': 1.5}``) when
+    edges have any attributes.  nx's ``parse_multiline_adjlist``
+    rejects dict-serialized edge data when ``edgetype`` is
+    supplied — so the natural round-trip
+    ``write → read(edgetype=float)`` raises in nx too.
+
+    fnx is more lenient: if the data string starts with ``{``,
+    parse it via ``literal_eval`` regardless of ``edgetype``.
+    Restores the documented round-trip use case (write
+    weighted → read with edgetype hint) without breaking
+    nx-parity for the scalar-data path.
+
+    Lock: round-trip works; cross-compat (nx writes / fnx
+    reads) works; scalar-data path still raises on bad input.
+    """
+    import io
+
+    # Round-trip: fnx writes, fnx reads with edgetype
+    g = fnx.Graph([(1, 2, {"weight": 1.5}), (2, 3, {"weight": 2.5})])
+    buf = io.BytesIO()
+    fnx.write_multiline_adjlist(g, buf)
+    buf.seek(0)
+    parsed = fnx.read_multiline_adjlist(buf, nodetype=int, edgetype=float)
+    assert sorted(parsed.nodes()) == [1, 2, 3]
+    assert sorted(parsed.edges()) == [(1, 2), (2, 3)]
+    # edge attrs survive (literal_eval recovered them)
+    edges_with_data = sorted(parsed.edges(data=True))
+    assert edges_with_data == [
+        (1, 2, {"weight": 1.5}),
+        (2, 3, {"weight": 2.5}),
+    ]
+
+    # Cross-compat: nx writes, fnx reads with edgetype
+    g_nx = nx.Graph(g)
+    nx_buf = io.BytesIO()
+    nx.write_multiline_adjlist(g_nx, nx_buf)
+    nx_buf.seek(0)
+    parsed_x = fnx.read_multiline_adjlist(nx_buf, nodetype=int, edgetype=float)
+    assert sorted(parsed_x.nodes()) == [1, 2, 3]
+    assert sorted(parsed_x.edges()) == [(1, 2), (2, 3)]
+
+    # Scalar-data + edgetype path still works (preserved nx
+    # contract for non-dict edges)
+    text = "1 1\n2 2.5\n2 0\n"
+    p = fnx.parse_multiline_adjlist(text.split("\n"), nodetype=int, edgetype=float)
+    assert list(p.edges(data=True)) == [(1, 2, {"weight": 2.5})]
+
+    # Bad scalar data + edgetype still raises (nx contract)
+    text_bad = "1 1\n2 abc\n2 0\n"
+    with pytest.raises(TypeError, match=r"Failed to convert edge data"):
+        fnx.parse_multiline_adjlist(text_bad.split("\n"), nodetype=int, edgetype=float)
