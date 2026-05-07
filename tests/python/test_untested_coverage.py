@@ -414,6 +414,10 @@ class TestMiscCoverage:
         assert fnx.is_d_separator(D, {0}, {2}, {1}) is True
 
     def test_random_tree(self):
-        T = fnx.random_tree(10, seed=42)
+        # br-r37-c1-rt-removed: ``random_tree`` was removed from nx
+        # in 3.4 (replaced by ``random_labeled_tree``).  fnx now
+        # raises the same AttributeError on attribute access; use
+        # the replacement directly.
+        T = fnx.random_labeled_tree(10, seed=42)
         assert T.number_of_nodes() == 10
         assert fnx.is_tree(T)

@@ -15685,18 +15685,11 @@ def connected_caveman_graph(l, k):
     return G
 
 
-def random_tree(n, seed=None):
-    """Return a uniformly random labeled tree on *n* nodes via Prüfer sequence.
-
-    Parameters
-    ----------
-    n : int
-        Number of nodes.
-    seed : int or None, optional
-
-    Returns
-    -------
-    Graph
+def _random_tree_internal(n, seed=None):
+    """Internal Prüfer-sequence tree generator retained for backward
+    compatibility — kept private after nx 3.4 removed the public
+    ``nx.random_tree`` symbol (replaced by ``random_labeled_tree``).
+    Use ``random_labeled_tree`` going forward.
     """
     import random as _random
 
@@ -17930,7 +17923,7 @@ def random_labeled_tree(n, *, seed=None):
     """Return a uniformly random labeled tree."""
     if n == 0:
         raise NetworkXPointlessConcept("the null graph is not a tree")
-    return random_tree(n, seed=seed)
+    return _random_tree_internal(n, seed=seed)
 
 
 def _generator_random_state(seed):
@@ -31334,12 +31327,12 @@ def random_unlabeled_tree(n, *, number_of_trees=None, seed=None):
     if n == 0:
         raise NetworkXPointlessConcept("the null graph is not a tree")
     if number_of_trees is None:
-        return random_tree(n, seed=seed)
+        return _random_tree_internal(n, seed=seed)
     rng = _generator_random_state(seed)
     out = []
     for _ in range(number_of_trees):
         sub_seed = rng.randint(0, 2**31 - 1)
-        out.append(random_tree(n, seed=sub_seed))
+        out.append(_random_tree_internal(n, seed=sub_seed))
     return out
 
 
@@ -33649,7 +33642,7 @@ def random_labeled_rooted_tree(n, *, seed=None):
     """
     if n == 0:
         raise NetworkXPointlessConcept("the null graph is not a tree")
-    return random_tree(n, seed=seed)
+    return _random_tree_internal(n, seed=seed)
 
 
 def random_labeled_rooted_forest(n, *, seed=None):
@@ -38137,7 +38130,8 @@ __all__ = [
     "florentine_families_graph",
     "caveman_graph",
     "connected_caveman_graph",
-    "random_tree",
+    # br-r37-c1-rt-removed: ``random_tree`` was removed from nx in
+    # 3.4 (replaced by ``random_labeled_tree``); not exported.
     "constraint",
     "effective_size",
     "dispersion",
@@ -39491,6 +39485,18 @@ _install_mutation_detection_on_node_views()
 
 def __getattr__(name):
     """Fallback to the NetworkX top-level namespace for missing public attrs."""
+    # br-r37-c1-rt-removed: nx 3.4 removed ``random_tree`` and now
+    # raises a deprecation AttributeError on attribute access pointing
+    # callers at ``random_labeled_tree``.  fnx had a public
+    # ``random_tree`` Python function that silently kept working,
+    # masking the deprecation for drop-in callers.  Mirror nx's exact
+    # error before the generic nx-fallback below.
+    if name == "random_tree":
+        raise AttributeError(
+            "nx.random_tree was removed in version 3.4. Use "
+            "`nx.random_labeled_tree` instead.\n"
+            "See: https://networkx.org/documentation/latest/release/release_3.4.html"
+        )
     import networkx as nx
 
     try:

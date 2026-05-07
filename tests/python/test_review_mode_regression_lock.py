@@ -4577,3 +4577,45 @@ def test_dijkstra_neg_inf_weight_raises_match_nx():
     assert fnx.dijkstra_path(g, 0, 2, weight="weight") == [0, 1, 2]
     length = fnx.shortest_path_length(g, 0, 2, weight="weight")
     assert math.isnan(length)
+
+
+def test_random_tree_removed_matches_nx_attribute_error():
+    """br-r37-c1-rt-removed: nx 3.4 removed ``random_tree`` and
+    its module ``__getattr__`` raises an AttributeError on
+    access pointing callers at ``random_labeled_tree``.
+
+    fnx had a public ``random_tree`` Python function that
+    silently kept working — a drop-in regression: callers that
+    catch the deprecation AttributeError to switch APIs saw fnx
+    happily proceeding, masking the breakage and producing
+    silent semantic drift across libraries.
+
+    Lock: fnx.random_tree access raises the same nx
+    AttributeError; the replacement ``random_labeled_tree``
+    works and matches nx output.  Internal callers that
+    previously used random_tree (random_labeled_tree,
+    random_unlabeled_tree, random_labeled_rooted_tree) now
+    delegate to the renamed private ``_random_tree_internal``."""
+    # Access — raises AttributeError matching nx
+    with pytest.raises(AttributeError,
+                       match=r"nx\.random_tree was removed in version 3\.4"):
+        fnx.random_tree
+
+    with pytest.raises(AttributeError,
+                       match=r"nx\.random_tree was removed in version 3\.4"):
+        # Call form too
+        fnx.random_tree(5)
+
+    # nx behaves identically
+    with pytest.raises(AttributeError,
+                       match=r"nx\.random_tree was removed in version 3\.4"):
+        nx.random_tree(5)
+
+    # Replacement works and matches nx output for same seed
+    f = list(fnx.random_labeled_tree(5, seed=42).edges())
+    n = list(nx.random_labeled_tree(5, seed=42).edges())
+    assert f == n
+
+    # Internal callers still work (regression)
+    assert fnx.random_unlabeled_tree(5, seed=42).number_of_nodes() == 5
+    assert fnx.random_labeled_rooted_tree(5, seed=42).number_of_nodes() == 5
