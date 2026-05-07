@@ -9547,6 +9547,13 @@ pub fn from_prufer_sequence(sequence: &[usize]) -> Result<PruferResult, String> 
 /// Matches `networkx.to_prufer_sequence`.
 pub fn to_prufer_sequence(graph: &Graph) -> Result<Vec<usize>, String> {
     let n = graph.node_count();
+    if n < 2 {
+        return Err("Prüfer sequence undefined for trees with fewer than two nodes".to_owned());
+    }
+    if !is_tree(graph).is_tree {
+        return Err("provided graph is not a tree".to_owned());
+    }
+
     let invalid_labels = "tree must have node labels {0, ..., n - 1}";
     let mut seen = vec![false; n];
     for node in graph.nodes_ordered() {
@@ -9562,7 +9569,7 @@ pub fn to_prufer_sequence(graph: &Graph) -> Result<Vec<usize>, String> {
         return Err(invalid_labels.to_owned());
     }
 
-    if n <= 2 {
+    if n == 2 {
         return Ok(Vec::new());
     }
 
@@ -30426,15 +30433,15 @@ pub fn snap_aggregation(graph: &Graph, node_attributes: &[String]) -> Graph {
             nbr_groups.dedup();
 
             let sig = (group_of[i], nbr_groups);
-            let new_gid = *new_group_key.entry(sig).or_insert_with(|| {
+            let new_group_id = *new_group_key.entry(sig).or_insert_with(|| {
                 let id = new_next;
                 new_next += 1;
                 id
             });
-            if new_gid != group_of[i] {
+            if new_group_id != group_of[i] {
                 changed = true;
             }
-            new_group_of[i] = new_gid;
+            new_group_of[i] = new_group_id;
         }
 
         if changed {
@@ -46146,5 +46153,23 @@ mod tests {
 
         let err = to_prufer_sequence(&graph).unwrap_err();
         assert_eq!(err, "tree must have node labels {0, ..., n - 1}");
+    }
+
+    #[test]
+    fn to_prufer_sequence_rejects_non_trees_without_panicking() {
+        let mut cycle = Graph::strict();
+        cycle.add_edge("0", "1").unwrap();
+        cycle.add_edge("1", "2").unwrap();
+        cycle.add_edge("2", "0").unwrap();
+
+        let err = to_prufer_sequence(&cycle).unwrap_err();
+        assert_eq!(err, "provided graph is not a tree");
+
+        let empty = Graph::strict();
+        let err = to_prufer_sequence(&empty).unwrap_err();
+        assert_eq!(
+            err,
+            "Prüfer sequence undefined for trees with fewer than two nodes"
+        );
     }
 }

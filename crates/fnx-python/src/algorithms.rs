@@ -4066,6 +4066,14 @@ pub fn from_prufer_sequence_rust(py: Python<'_>, sequence: Vec<usize>) -> PyResu
 pub fn to_prufer_sequence_rust(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Vec<usize>> {
     let gr = extract_graph(g)?;
     let inner = gr.undirected();
+    if inner.node_count() < 2 {
+        return Err(crate::NetworkXPointlessConcept::new_err(
+            "Prüfer sequence undefined for trees with fewer than two nodes",
+        ));
+    }
+    if !py.allow_threads(|| fnx_algorithms::is_tree(inner).is_tree) {
+        return Err(crate::NotATree::new_err("provided graph is not a tree"));
+    }
     py.allow_threads(|| fnx_algorithms::to_prufer_sequence(inner))
         .map_err(PyKeyError::new_err)
 }
