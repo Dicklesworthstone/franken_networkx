@@ -2465,3 +2465,50 @@ def test_vf2pp_empty_graph_returns_falsy_match_nx():
     assert fnx.vf2pp_is_isomorphic(K3, K3) is True
     assert fnx.vf2pp_is_isomorphic(K3, fnx.path_graph(3)) is False
     assert fnx.vf2pp_isomorphism(K3, K3) is not None
+
+
+def test_traversal_backend_kwarg_surface_match_nx():
+    """br-r37-c1-trav-bk: 11 BFS/DFS/topology entry points missed
+    the ``*, backend=None, **backend_kwargs`` dispatch surface that
+    nx's ``@_dispatchable`` decorator adds.  Drop-in code that used
+    ``fn(G, ..., backend='networkx')`` crashed with TypeError on
+    these functions while passing on the rest of the dispatch
+    family.
+
+    Same defect family as br-r37-c1-{spbk-bulk, qk425, 0z6fh}.
+
+    Lock both signature parity (``backend`` parameter present) and
+    runtime acceptance of ``backend=None`` for all 11 functions."""
+    import inspect
+    targets = (
+        "bfs_labeled_edges", "dfs_labeled_edges", "bfs_layers",
+        "descendants_at_distance", "bfs_predecessors", "bfs_successors",
+        "bfs_tree", "dfs_tree", "topological_generations",
+        "all_topological_sorts", "lexicographical_topological_sort",
+    )
+    for name in targets:
+        f_sig = inspect.signature(getattr(fnx, name))
+        assert "backend" in f_sig.parameters, (
+            f"fnx.{name} missing backend kwarg"
+        )
+
+    # Runtime check: backend=None passes through; bogus raises
+    P = fnx.path_graph(5)
+    DG = fnx.DiGraph([(0, 1), (1, 2), (2, 3)])
+
+    # bfs_layers and a few siblings — confirm they accept backend=None
+    list(fnx.bfs_layers(P, [0], backend=None))
+    list(fnx.bfs_labeled_edges(P, 0, backend=None))
+    list(fnx.dfs_labeled_edges(P, 0, backend=None))
+    list(fnx.bfs_predecessors(P, 0, backend=None))
+    list(fnx.bfs_successors(P, 0, backend=None))
+    fnx.bfs_tree(P, 0, backend=None)
+    fnx.dfs_tree(P, 0, backend=None)
+    list(fnx.topological_generations(DG, backend=None))
+    list(fnx.all_topological_sorts(DG, backend=None))
+    list(fnx.lexicographical_topological_sort(DG, backend=None))
+    fnx.descendants_at_distance(P, 0, 1, backend=None)
+
+    # Bad backend → ImportError (matching nx's contract)
+    with pytest.raises(ImportError):
+        list(fnx.bfs_layers(P, [0], backend="bogus_backend"))

@@ -38339,6 +38339,14 @@ def _bulk_add_backend_dispatch_kwargs():
         "minimum_spanning_tree", "maximum_spanning_tree",
         "is_strongly_connected", "strongly_connected_components",
         "weakly_connected_components", "is_weakly_connected",
+        # br-r37-c1-trav-bk: 11 BFS/DFS/topology traversal entry
+        # points missed the backend dispatch surface — same family
+        # as the prior pass.  Drop-in code that uses
+        # ``fn(G, ..., backend='networkx')`` crashed.
+        "bfs_labeled_edges", "dfs_labeled_edges", "bfs_layers",
+        "descendants_at_distance", "bfs_predecessors", "bfs_successors",
+        "bfs_tree", "dfs_tree", "topological_generations",
+        "all_topological_sorts", "lexicographical_topological_sort",
     )
 
     ns = globals()
