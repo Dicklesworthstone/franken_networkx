@@ -296,11 +296,21 @@ class TestIsKEdgeConnected:
         assert fnx.is_k_edge_connected(path5, 1)
 
     def test_k2_path_false(self, path5):
-        # Path graph is 1-edge-connected, not 2
+        # Path graph has edge connectivity 1, not 2.
         assert not fnx.is_k_edge_connected(path5, 2)
 
+    @needs_nx
+    def test_positive_float_k_matches_nx(self):
+        """br-r37-c1-nyh42: nx accepts comparison-compatible
+        positive float ``k`` values; fnx previously sent them into
+        the PyO3 integer binding and raised TypeError."""
+        G = fnx.path_graph(5)
+        H = nx.path_graph(5)
+        for k in (1.0, 2.0, 2.5):
+            assert fnx.is_k_edge_connected(G, k) == nx.is_k_edge_connected(H, k)
+
     def test_k3_complete(self, k4):
-        # K4 is 3-edge-connected
+        # K4 has edge connectivity 3.
         assert fnx.is_k_edge_connected(k4, 3)
 
     def test_k4_complete_false(self, k4):
@@ -317,6 +327,15 @@ class TestIsKEdgeConnected:
         D.add_edge(0, 1)
         with pytest.raises(fnx.NetworkXNotImplemented):
             fnx.is_k_edge_connected(D, 1)
+
+    def test_multigraph_raises_like_nx(self):
+        """br-r37-c1-nyh42: nx rejects multigraph inputs; the raw
+        fnx binding collapsed the parallel-edge surface and returned
+        a boolean."""
+        G = fnx.MultiGraph()
+        G.add_edge(0, 1)
+        with pytest.raises(fnx.NetworkXNotImplemented):
+            fnx.is_k_edge_connected(G, 1)
 
 
 # ---------------------------------------------------------------------------

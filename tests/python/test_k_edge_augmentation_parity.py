@@ -18,6 +18,26 @@ class TestKEdgeAugmentation:
         with pytest.raises(ValueError, match=r"k must be a positive integer, not 0"):
             fnx.k_edge_augmentation(G, 0)
 
+    def test_float_k_matches_nx(self):
+        """br-r37-c1-nyh42: nx compares positive float ``k`` values
+        directly; fnx previously routed them through integer-only
+        native connectivity checks and raised TypeError."""
+        G = fnx.path_graph(5)
+        nG = nx.path_graph(5)
+        for k in (2.0, 2.5, 3.0):
+            assert sorted(fnx.k_edge_augmentation(G, k)) == sorted(
+                nx.k_edge_augmentation(nG, k)
+            )
+
+    def test_nonpositive_float_k_error_message_matches_nx(self):
+        import pytest
+        G = fnx.path_graph(5)
+        with pytest.raises(
+            ValueError,
+            match=r"k must be a positive integer, not 0\.0",
+        ):
+            fnx.k_edge_augmentation(G, 0.0)
+
     def test_k1_already_connected(self):
         G = fnx.complete_graph(4)
         assert fnx.k_edge_augmentation(G, 1) == []

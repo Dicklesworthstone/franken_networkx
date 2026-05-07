@@ -9087,8 +9087,22 @@ def is_k_edge_connected(G, k):
     Rust binding accepted k=0 and returned True (vacuously). Match
     nx's validation.
     """
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
+    if G.is_multigraph():
+        raise NetworkXNotImplemented("not implemented for multigraph type")
     if k < 1:
         raise ValueError(f"k must be positive, not {k}")
+    if not isinstance(k, int):
+        if G.number_of_nodes() < k + 1:
+            return False
+        if any(degree < k for _, degree in G.degree()):
+            return False
+        if k == 1:
+            return is_connected(G)
+        if k == 2:
+            return is_connected(G) and not has_bridges(G)
+        return edge_connectivity(G) >= k
     return _raw_is_k_edge_connected(G, k)
 
 
@@ -28638,7 +28652,7 @@ def k_edge_augmentation(G, k, avail=None, weight=None, partial=False):
     # positive integer, not {k}") for k <= 0; fnx previously
     # silently returned an empty list, masking caller bugs
     # (typo'd k, off-by-one, etc.) that should fail loudly.
-    if isinstance(k, int) and k <= 0:
+    if k <= 0:
         raise ValueError(f"k must be a positive integer, not {k}")
 
     if G.is_directed():
