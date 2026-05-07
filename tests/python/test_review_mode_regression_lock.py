@@ -2433,3 +2433,35 @@ def test_bfs_layers_nonmember_int_source_typeerror_match_nx():
 
     # Empty source list → empty layers
     assert list(fnx.bfs_layers(P5, sources=[])) == []
+
+
+def test_vf2pp_empty_graph_returns_falsy_match_nx():
+    """br-r37-c1-vf2pp-empty: vf2pp_is_isomorphic / vf2pp_isomorphism /
+    vf2pp_all_isomorphisms all silently treated empty/empty as
+    trivially isomorphic (returning True / {} / [{}] respectively).
+    nx's vf2pp implementation treats empty graphs as a degenerate
+    case and returns False / None / [].
+
+    Lock parity for the empty-graph short-circuit across all three
+    entry points + valid-graph regression."""
+    empty = fnx.Graph()
+    one = fnx.Graph(); one.add_node(0)
+
+    # All-empty: False / None / []
+    assert fnx.vf2pp_is_isomorphic(empty, empty) is False
+    assert fnx.vf2pp_isomorphism(empty, empty) is None
+    assert list(fnx.vf2pp_all_isomorphisms(empty, empty)) == []
+
+    # Mixed empty: also False / None / []
+    assert fnx.vf2pp_is_isomorphic(empty, one) is False
+    assert fnx.vf2pp_is_isomorphic(one, empty) is False
+    assert fnx.vf2pp_isomorphism(empty, one) is None
+    assert fnx.vf2pp_isomorphism(one, empty) is None
+    assert list(fnx.vf2pp_all_isomorphisms(empty, one)) == []
+
+    # Regression: non-empty graphs still work normally
+    assert fnx.vf2pp_is_isomorphic(one, one) is True
+    K3 = fnx.complete_graph(3)
+    assert fnx.vf2pp_is_isomorphic(K3, K3) is True
+    assert fnx.vf2pp_is_isomorphic(K3, fnx.path_graph(3)) is False
+    assert fnx.vf2pp_isomorphism(K3, K3) is not None

@@ -30504,6 +30504,13 @@ def is_isomorphic(G1, G2, node_match=None, edge_match=None):
 
 def vf2pp_is_isomorphic(G1, G2, node_label=None, default_label=None):
     """Test isomorphism using VF2++."""
+    # br-r37-c1-vf2pp-empty: nx's vf2pp treats empty graphs as a
+    # degenerate case and returns False / None / [] for the
+    # is/get/all forms respectively.  The Rust binding instead
+    # treated empty/empty as trivially isomorphic (True / {} / [{}]).
+    # Match nx's contract by short-circuiting at the wrapper.
+    if G1.number_of_nodes() == 0 or G2.number_of_nodes() == 0:
+        return False
     # Fast path: when no label matching needed, use Rust is_isomorphic
     if node_label is None:
         return _is_isomorphic_rust(G1, G2)
@@ -30520,6 +30527,10 @@ def vf2pp_is_isomorphic(G1, G2, node_label=None, default_label=None):
 
 def vf2pp_isomorphism(G1, G2, node_label=None, default_label=None):
     """Find one isomorphism mapping using VF2++."""
+    # br-r37-c1-vf2pp-empty: empty-graph short-circuit (see
+    # vf2pp_is_isomorphic).
+    if G1.number_of_nodes() == 0 or G2.number_of_nodes() == 0:
+        return None
     if node_label is None:
         return _vf2pp_isomorphism_rust(G1, G2)
 
@@ -30534,6 +30545,10 @@ def vf2pp_isomorphism(G1, G2, node_label=None, default_label=None):
 
 def vf2pp_all_isomorphisms(G1, G2, node_label=None, default_label=None):
     """Generate all isomorphism mappings using VF2++."""
+    # br-r37-c1-vf2pp-empty: empty-graph short-circuit (see
+    # vf2pp_is_isomorphic).
+    if G1.number_of_nodes() == 0 or G2.number_of_nodes() == 0:
+        return
     if node_label is None:
         yield from _vf2pp_all_isomorphisms_rust(G1, G2)
         return
