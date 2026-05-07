@@ -39344,12 +39344,26 @@ def _bulk_coerce_negative_depth_to_zero():
     import inspect as _inspect
 
     # Map: function name -> kwarg name to coerce
+    # br-r37-c1-cut-extend: extended in cycle 140 to cover two
+    # more cutoff/depth_limit functions still raising
+    # TypeError/OverflowError on NaN/+inf/float (same family as
+    # br-r37-c1-bfs-cutfloat / -s86fd):
+    #   * single_source_shortest_path
+    #   * dfs_tree
+    # ``predecessor`` is intentionally excluded — its cutoff
+    # semantic ``if cutoff and cutoff <= level: break`` is
+    # truthy-aware (``cutoff=-1`` IS truthy and breaks at level 0,
+    # ``cutoff=0`` is falsy and acts as unbounded) so the
+    # _DEPTH_EMPTY → 0 mapping the wrapper performs would change
+    # behaviour.
     targets = {
         "dfs_edges": "depth_limit",
         "dfs_predecessors": "depth_limit",
         "dfs_successors": "depth_limit",
         "dfs_postorder_nodes": "depth_limit",
         "dfs_preorder_nodes": "depth_limit",
+        "dfs_tree": "depth_limit",
+        "single_source_shortest_path": "cutoff",
         "single_source_shortest_path_length": "cutoff",
         "single_target_shortest_path": "cutoff",
         "single_target_shortest_path_length": "cutoff",

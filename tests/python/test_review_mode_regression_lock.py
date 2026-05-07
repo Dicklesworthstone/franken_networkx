@@ -5117,3 +5117,41 @@ def test_cutoff_depth_limit_family_normalized_match_nx():
         f = dict(fnx.all_pairs_shortest_path_length(P, cutoff=dl))
         n = dict(nx.all_pairs_shortest_path_length(P_nx, cutoff=dl))
         assert f == n
+
+
+def test_dfs_tree_single_source_shortest_path_normalize_nan_inf_match_nx():
+    """br-r37-c1-cut-extend: extends br-r37-c1-s86fd (cycle 138)
+    to two more cutoff/depth_limit functions still raising
+    TypeError/OverflowError on NaN/+inf/float:
+
+      * ``single_source_shortest_path``
+      * ``dfs_tree``
+
+    Lock: NaN / -inf / negative → empty / source-only;
+    +inf → unbounded (full); finite float → ceil; None → unbounded."""
+    import math
+
+    P = fnx.path_graph(5)
+    P_nx = nx.path_graph(5)
+
+    # single_source_shortest_path
+    for c in (float("nan"), -float("inf"), -1):
+        f = dict(fnx.single_source_shortest_path(P, 0, cutoff=c))
+        n = dict(nx.single_source_shortest_path(P_nx, 0, cutoff=c))
+        assert f == n, f"sssp cutoff={c}: fnx={f} != nx={n}"
+
+    for c in (float("inf"), 3.5, 4.0, None):
+        f = dict(fnx.single_source_shortest_path(P, 0, cutoff=c))
+        n = dict(nx.single_source_shortest_path(P_nx, 0, cutoff=c))
+        assert f == n
+
+    # dfs_tree
+    for dl in (float("nan"), -float("inf"), -1):
+        f = list(fnx.dfs_tree(P, 0, depth_limit=dl).edges())
+        n = list(nx.dfs_tree(P_nx, 0, depth_limit=dl).edges())
+        assert f == n, f"dfs_tree depth={dl}: fnx={f} != nx={n}"
+
+    for dl in (float("inf"), 3.5, 4.0, None):
+        f = list(fnx.dfs_tree(P, 0, depth_limit=dl).edges())
+        n = list(nx.dfs_tree(P_nx, 0, depth_limit=dl).edges())
+        assert f == n
