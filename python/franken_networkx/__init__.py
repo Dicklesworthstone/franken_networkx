@@ -14685,12 +14685,14 @@ def k_crust(G, k=None, core_number=None):
         # binding's undirected collapse.
         core_number = globals()["core_number"](G)
     if k is None:
-        # br-r37-c1-kcore-empty: nx's _core_subgraph does
-        # ``k = max(core.values())`` with no fallback — empty
-        # graph raises ``ValueError("max() iterable argument is
-        # empty")``.  fnx previously silently coerced to k=0,
-        # masking the empty-input case.  Match nx's contract.
-        k = max(core_number.values())
+        # br-r37-c1-qzdbg: nx's k_crust uses ``max(core.values())
+        # - 1`` (one less than _core_subgraph's default), per the
+        # explicit comment in nx source: "Default for k is one
+        # less than in _core_subgraph, so just inline."  fnx
+        # previously used the unmodified max, returning the full
+        # graph as the "main crust" — wrong for every
+        # non-trivial input.
+        k = max(core_number.values()) - 1
     nodes = [n for n, c in core_number.items() if c <= k]
     return G.subgraph(nodes)
 

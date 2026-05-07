@@ -3473,3 +3473,38 @@ def test_kcore_kshell_kcrust_empty_graph_raise_match_nx():
     K = fnx.karate_club_graph()
     Kx = nx.karate_club_graph()
     assert sorted(fnx.k_core(K).nodes()) == sorted(nx.k_core(Kx).nodes())
+
+
+def test_k_crust_default_k_is_max_minus_one_match_nx():
+    """br-r37-c1-qzdbg: ``k_crust`` with ``k=None`` is documented
+    in nx as one less than _core_subgraph's default — explicit
+    nx comment: "Default for k is one less than in
+    _core_subgraph, so just inline."  fnx previously used
+    ``max(core_number.values())`` (no -1), which returned the
+    full graph as the "main crust" — wrong for every
+    non-trivial input.
+
+    Lock against re-introduction of the off-by-one."""
+    # Karate-club golden: nx returns nodes with core_number<=3
+    # (max=4), so the highest-core nodes (e.g. 0, 1, 2, 3, 7, 8,
+    # 13, 30, 32, 33) are excluded.
+    K = fnx.karate_club_graph()
+    Kx = nx.karate_club_graph()
+    fnx_crust = sorted(fnx.k_crust(K).nodes())
+    nx_crust = sorted(nx.k_crust(Kx).nodes())
+    assert fnx_crust == nx_crust
+    # Sanity: not every node — some are excluded
+    assert len(fnx_crust) < K.number_of_nodes()
+
+    # Havel-Hakimi degree-sequence example from nx docstring
+    H = fnx.havel_hakimi_graph([0, 1, 2, 2, 2, 2, 3])
+    Hx = nx.havel_hakimi_graph([0, 1, 2, 2, 2, 2, 3])
+    assert sorted(fnx.k_crust(H).nodes()) == sorted(nx.k_crust(Hx).nodes()) == [0, 4, 6]
+
+    # Path/cycle: max core is 1 → main crust uses k=0 → empty
+    assert list(fnx.k_crust(fnx.path_graph(5)).nodes()) == []
+    assert list(fnx.k_crust(fnx.Graph([(0, 1)])).nodes()) == []
+    assert list(fnx.k_crust(fnx.DiGraph([(0, 1), (1, 2), (2, 0)])).nodes()) == []
+
+    # Explicit k still works (regression — these passed before)
+    assert sorted(fnx.k_crust(K, k=2).nodes()) == sorted(nx.k_crust(Kx, k=2).nodes())
