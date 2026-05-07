@@ -3589,3 +3589,46 @@ def test_degree_assortativity_coefficient_edgeless_returns_nan():
     assert fnx.degree_assortativity_coefficient(P3) == -1.0
     star = fnx.star_graph(5)
     assert fnx.degree_assortativity_coefficient(star) == -1.0
+
+
+def test_min_edge_cover_isolated_with_edges_match_nx():
+    """br-r37-c1-mec-iso: ``min_edge_cover`` on a graph with
+    BOTH edges and ≥1 isolated node leaked an uncaught
+    ``StopIteration`` from ``next(iter(G.neighbors(v)))`` inside
+    the post-matching uncovered-loop.  nx raises
+    ``NetworkXException`` (not NetworkXError) the moment any
+    node has degree 0, covering both this case and the pure
+    "no edges with isolated nodes" case.
+
+    Two contracts locked:
+    1. The combined edges+isolated case must raise
+       NetworkXException (not StopIteration).
+    2. The pure no-edges case must also raise NetworkXException
+       (previously fnx raised the narrower NetworkXError —
+       mismatch with nx's documented class)."""
+    # Edges-with-isolated: this leaked StopIteration before
+    G = fnx.Graph([(1, 2)])
+    G.add_node(0)
+    with pytest.raises(nx.NetworkXException,
+                       match=r"Graph has a node with no edge incident on it"):
+        fnx.min_edge_cover(G)
+
+    # Pure isolated: was raising NetworkXError (narrower)
+    iso = fnx.Graph()
+    iso.add_node("a")
+    with pytest.raises(nx.NetworkXException,
+                       match=r"Graph has a node with no edge incident on it"):
+        fnx.min_edge_cover(iso)
+
+    # Two isolated nodes
+    iso2 = fnx.Graph()
+    iso2.add_nodes_from([0, 1])
+    with pytest.raises(nx.NetworkXException,
+                       match=r"Graph has a node with no edge incident on it"):
+        fnx.min_edge_cover(iso2)
+
+    # Valid regressions: empty graph returns set(); fully-
+    # covered graphs return correct cover.
+    assert fnx.min_edge_cover(fnx.Graph()) == set()
+    cover = fnx.min_edge_cover(fnx.path_graph(5))
+    assert sorted(map(sorted, cover)) == [[0, 1], [1, 2], [3, 4]]

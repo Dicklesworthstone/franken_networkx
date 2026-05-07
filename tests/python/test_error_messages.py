@@ -174,10 +174,15 @@ class TestNetworkXError:
             fnx.bipartite_sets(G)
 
     def test_min_edge_cover_isolated_node(self):
+        # br-r37-c1-mec-iso: nx raises NetworkXException (not
+        # NetworkXError) here.  NetworkXError is a subclass of
+        # NetworkXException, so the previous assertion was
+        # narrower than nx's contract — fnx now matches the
+        # exact typed-error class.
         G = fnx.Graph()
         G.add_node("a")
         with pytest.raises(
-            fnx.NetworkXError,
+            fnx.NetworkXException,
             match=r"Graph has a node with no edge incident on it",
         ):
             fnx.min_edge_cover(G)

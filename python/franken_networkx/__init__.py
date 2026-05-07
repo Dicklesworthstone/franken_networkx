@@ -5396,8 +5396,18 @@ def min_edge_cover(G, matching_algorithm=None):
         raise NetworkXNotImplemented("not implemented for directed type")
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
-    if not G.edges() and G.number_of_nodes() > 0:
-        raise NetworkXError(
+    # br-r37-c1-mec-iso: nx raises ``NetworkXException`` (not
+    # NetworkXError) the moment any node has degree 0 — covering
+    # both "no edges with isolated nodes" and "some edges but at
+    # least one isolated node."  fnx's previous guard only caught
+    # the former and used the wrong typed error class; the latter
+    # leaked an uncaught ``StopIteration`` from ``next(nbrs)``
+    # inside the uncovered loop below, which is doubly bad —
+    # generic Python exception, no message, callers using
+    # ``except NetworkXException:`` (the documented contract)
+    # silently fail to catch it.
+    if any(d == 0 for _, d in G.degree()):
+        raise NetworkXException(
             "Graph has a node with no edge incident on it, "
             "so no edge cover exists."
         )
