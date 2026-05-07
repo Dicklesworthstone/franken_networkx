@@ -26158,10 +26158,18 @@ def _private_aware_has_edge_multi(raw_has_edge):
     def has_edge(self, u, v, key=None):
         # br-r37-c1-hashed-he: same as the simple variant — nx
         # raises TypeError on unhashable u/v; fnx silently
-        # returned False.  Hash-check first.  ``key`` itself can
-        # be any hashable; we let downstream raise if it isn't.
+        # returned False.  Hash-check first.
         hash(u)
         hash(v)
+        # br-r37-c1-mhe-keyhash: extend the hash-check to the
+        # multigraph ``key`` arg.  nx propagates ``TypeError:
+        # unhashable type: '<X>'`` from the inner ``key in
+        # neighbors[v]`` dict lookup; fnx's Rust binding caught
+        # the error and silently returned False, masking caller
+        # bugs (sister of br-r37-c1-cl78j add_edge fix that
+        # closed the corresponding mutation-side variant).
+        if key is not None:
+            hash(key)
         if not _has_networkx_private_storage(self):
             if key is None:
                 return raw_has_edge(self, u, v)

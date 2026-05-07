@@ -3930,3 +3930,37 @@ def test_multigraph_add_edge_unhashable_key_raises_typeerror():
         assert (0, 1, "custom") in edges
         assert (0, 1, 0) in edges
         assert (0, 1, 1) in edges
+
+
+def test_multigraph_has_edge_unhashable_key_raises_typeerror():
+    """br-r37-c1-mhe-keyhash: ``MultiGraph.has_edge`` /
+    ``MultiDiGraph.has_edge`` with an unhashable ``key=`` arg
+    silently returned False.  nx propagates ``TypeError:
+    unhashable type: '<X>'`` from the inner ``key in
+    neighbors[v]`` dict lookup.
+
+    Sister of br-r37-c1-cl78j (mutation-side add_edge fix in
+    cycle 110) and the same family as br-r37-c1-cvtv6 (u/v
+    hashing in has_edge).  Lock: unhashable key= raises
+    TypeError; hashable keys (int / str / None / etc) still
+    work — missing keys still return False (nx contract
+    preserved)."""
+    for cls in (fnx.MultiGraph, fnx.MultiDiGraph):
+        G = cls([(0, 1)])
+
+        # Unhashable key — TypeError matching nx
+        with pytest.raises(TypeError, match=r"unhashable type"):
+            G.has_edge(0, 1, key=[1, 2])
+        with pytest.raises(TypeError, match=r"unhashable type"):
+            G.has_edge(0, 1, key={1: 2})
+        with pytest.raises(TypeError, match=r"unhashable type"):
+            G.has_edge(0, 1, key={1, 2})
+
+        # Hashable but missing — still returns False (regression)
+        assert G.has_edge(0, 1, key=99) is False
+        assert G.has_edge(0, 1, key="x") is False
+        # Good key still True (regression)
+        assert G.has_edge(0, 1, key=0) is True
+        # No key arg means "any edge between u and v"
+        assert G.has_edge(0, 1) is True
+        assert G.has_edge(0, 1, key=None) is True
