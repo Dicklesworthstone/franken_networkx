@@ -192,8 +192,14 @@ class TestMultiGraphClustering:
 
 class TestMultiGraphMatching:
     def test_max_weight_matching(self, mg_path):
-        m = fnx.max_weight_matching(mg_path)
-        assert len(m) == 2  # path of 4 nodes -> 2 edges in matching
+        # br-r37-c1-mwm-mg: fnx now matches nx's
+        # @not_implemented_for('multigraph') decorator and raises
+        # NetworkXNotImplemented on MultiGraph input.  Previously
+        # fnx silently projected parallel edges and returned a
+        # matching — masking nx's documented contract.
+        import pytest as _pytest
+        with _pytest.raises(fnx.NetworkXNotImplemented):
+            fnx.max_weight_matching(mg_path)
 
     def test_maximal_matching(self, mg_triangle):
         # br-r37-c1-2dwen: fnx now matches nx's

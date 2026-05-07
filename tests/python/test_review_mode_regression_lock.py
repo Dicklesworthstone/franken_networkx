@@ -4777,3 +4777,41 @@ def test_branching_weight_minimal_branching_only_at_branchings_namespace():
     # minimal_branching mutates input — just verify it runs
     out = fnx.algorithms.tree.branchings.minimal_branching(G, attr="weight")
     assert out is not None
+
+
+def test_max_weight_matching_rejects_multigraph_match_nx():
+    """br-r37-c1-mwm-mg: ``max_weight_matching`` on a MultiGraph
+    silently projected parallel edges to a simple Graph (taking
+    the max weight per pair) and returned a matching, masking
+    nx's ``@not_implemented_for("multigraph")`` decorator
+    contract.  Drop-in callers expecting nx's
+    ``NetworkXNotImplemented`` saw a working result on fnx.
+
+    fnx now mirrors nx's eager rejection.  Sister of the
+    namespace-parity family — this is a behavioural-parity
+    fix in the same family of "fnx silently extends nx"
+    bugs.
+
+    Lock: MG / MDG / DG all raise NetworkXNotImplemented;
+    Graph still returns the matching."""
+    # MultiGraph — raises on multigraph
+    fg = fnx.MultiGraph([(0, 1), (1, 2)])
+    with pytest.raises(nx.NetworkXNotImplemented,
+                       match=r"not implemented for multigraph type"):
+        fnx.max_weight_matching(fg)
+
+    # MultiDiGraph — raises on directed (decorator order)
+    fmdg = fnx.MultiDiGraph([(0, 1)])
+    with pytest.raises(nx.NetworkXNotImplemented,
+                       match=r"not implemented for directed type"):
+        fnx.max_weight_matching(fmdg)
+
+    # DiGraph — raises on directed (regression)
+    fdg = fnx.DiGraph([(0, 1)])
+    with pytest.raises(nx.NetworkXNotImplemented,
+                       match=r"not implemented for directed type"):
+        fnx.max_weight_matching(fdg)
+
+    # Graph — works (regression)
+    fg2 = fnx.Graph([(0, 1)])
+    assert fnx.max_weight_matching(fg2) == {(1, 0)}

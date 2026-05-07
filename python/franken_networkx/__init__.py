@@ -5520,27 +5520,26 @@ def max_weight_matching(G, maxcardinality=False, weight="weight"):
     of (u, v) pairs broke. Delegate to nx so the chosen matching and
     the per-pair tuple direction match nx's contract exactly.
 
-    nx's max_weight_matching is ``@not_implemented_for("multigraph")``,
-    but the previous Rust binding accepted MultiGraph by collapsing
-    parallel edges. Preserve that capability by projecting the
-    MultiGraph to a simple Graph (taking the max ``weight`` per edge)
-    before delegating.
+    br-r37-c1-mwm-mg: nx's ``max_weight_matching`` carries
+    ``@not_implemented_for("multigraph")`` and raises
+    ``NetworkXNotImplemented`` on MultiGraph input.  Previously
+    fnx silently collapsed parallel edges (taking the max
+    weight per pair) and returned a matching — a fnx-only
+    "convenience" that masked nx's documented contract.
+    Drop-in callers expecting nx's NetworkXNotImplemented saw
+    a working result on fnx.  Sister of the recent namespace-
+    parity family — this is a behavioural-parity sister.
+    Mirror nx's eager rejection.
     """
+    # Check directed first (matches nx's @not_implemented_for
+    # decorator ordering: ``directed`` decorator was applied last,
+    # so it fires first when both directed AND multigraph apply).
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
     if G.is_multigraph():
-        projected = (DiGraph if G.is_directed() else Graph)()
-        projected.add_nodes_from(G.nodes(data=True))
-        for u, v, data in G.edges(data=True):
-            edge_weight = data.get(weight, 1)
-            if projected.has_edge(u, v):
-                if edge_weight > projected[u][v].get(weight, 1):
-                    projected[u][v][weight] = edge_weight
-            else:
-                projected.add_edge(u, v, **{weight: edge_weight})
-        target = projected
-    else:
-        target = G
+        raise NetworkXNotImplemented("not implemented for multigraph type")
     return _call_networkx_for_parity(
-        "max_weight_matching", target,
+        "max_weight_matching", G,
         maxcardinality=maxcardinality, weight=weight,
     )
 

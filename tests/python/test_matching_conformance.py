@@ -414,23 +414,23 @@ def test_maximal_matching_rejects_multigraph_matching_networkx():
         fnx.maximal_matching(fg)
 
 
-def test_max_weight_matching_multigraph_extension():
-    """fnx INTENTIONALLY extends NX by accepting MultiGraph input —
-    parallel edges are projected to a simple Graph (taking the max
-    weight per pair) before running the blossom algorithm. NX rejects
-    multigraphs with NetworkXNotImplemented; lock both behaviors in.
-
-    Per the wrapper docstring: "the previous Rust binding accepted
-    MultiGraph by collapsing parallel edges. Preserve that capability."
+def test_max_weight_matching_multigraph_rejects_match_nx():
+    """br-r37-c1-mwm-mg: fnx previously extended nx by accepting
+    MultiGraph input (silently projecting parallel edges to a
+    simple Graph).  This masked nx's documented
+    @not_implemented_for("multigraph") contract — drop-in
+    callers expecting nx's NetworkXNotImplemented saw a
+    working result on fnx.  fnx now rejects MultiGraph input
+    matching nx exactly.
     """
     fg = fnx.MultiGraph(); fg.add_edges_from([(0, 1), (1, 2)])
     ng = nx.MultiGraph(); ng.add_edges_from([(0, 1), (1, 2)])
-    # NX rejects.
-    with pytest.raises(nx.NetworkXNotImplemented):
+    with pytest.raises(nx.NetworkXNotImplemented,
+                       match=r"not implemented for multigraph type"):
+        fnx.max_weight_matching(fg)
+    with pytest.raises(nx.NetworkXNotImplemented,
+                       match=r"not implemented for multigraph type"):
         nx.max_weight_matching(ng)
-    # fnx accepts and returns a valid matching of the projected graph.
-    m = fnx.max_weight_matching(fg)
-    assert isinstance(m, set) and len(m) >= 1
 
 
 # ---------------------------------------------------------------------------
