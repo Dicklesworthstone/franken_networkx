@@ -1589,3 +1589,76 @@ def test_write_adjlist_byte_parity_with_nx():
     assert strip_comments(buf_f.getvalue()) == strip_comments(buf_n.getvalue())
     # Trailing newline preserved (was missing in the prior Rust path)
     assert buf_f.getvalue().endswith(b"\n")
+
+
+# --- View pickle / iter / equality regression locks
+# (br-r37-c1-{z42ez, 7gej0, oww5k, k1xn4}) -----------------------------
+import pickle
+
+
+def test_z42ez_edge_and_degree_views_pickle():
+    """br-r37-c1-z42ez: G.edges and G.degree on Graph/DiGraph
+    crashed pickle because the underlying Rust EdgeView /
+    DegreeView / DiDegreeView lacked __reduce__.  Snapshot semantics
+    (restore as ``list``) match nx's pickle round-trip behavior."""
+    G = fnx.Graph()
+    G.add_edges_from([(0, 1), (1, 2), (2, 3)])
+    DG = fnx.DiGraph()
+    DG.add_edges_from([(0, 1), (1, 2), (2, 3)])
+
+    # Each of these used to raise TypeError("cannot pickle ...")
+    for view in (G.edges, G.degree, DG.degree, DG.edges):
+        b = pickle.dumps(view)
+        r = pickle.loads(b)
+        # Round-trip preserves the materialized contents
+        assert sorted(map(tuple, map(sorted, r))) == sorted(
+            map(tuple, map(sorted, view))
+        )
+
+
+def test_7gej0_digraph_in_out_edges_iterable():
+    """br-r37-c1-7gej0: DG.in_edges / DG.out_edges on DiGraph were
+    bound methods rather than iterable views.  ``for u, v in
+    G.in_edges:`` used to raise TypeError on the `for`.  Lock that
+    both attributes are usable as iterables (matching nx's
+    InEdgeView / OutEdgeView contract)."""
+    DG = fnx.DiGraph()
+    DG.add_edges_from([(0, 1), (1, 2), (2, 3)])
+    in_pairs = sorted(tuple(uv) for uv in DG.in_edges)
+    out_pairs = sorted(tuple(uv) for uv in DG.out_edges)
+    assert in_pairs == [(0, 1), (1, 2), (2, 3)]
+    assert out_pairs == [(0, 1), (1, 2), (2, 3)]
+    # len() works
+    assert len(DG.in_edges) == 3
+    assert len(DG.out_edges) == 3
+
+
+def test_oww5k_di_edge_method_view_eq_and_data():
+    """br-r37-c1-oww5k: _DiEdgeMethodView (returned from
+    DG.in_edges / DG.out_edges per the br-r37-c1-7gej0 fix)
+    initially missed __eq__ + .data() — partial nx.InEdgeView
+    contract.  Lock both."""
+    DG = fnx.DiGraph()
+    DG.add_edges_from([(0, 1, {"w": 5}), (1, 2, {"w": 7})])
+    # __eq__ (Set-like)
+    assert DG.in_edges == DG.in_edges
+    assert DG.out_edges == DG.out_edges
+    # .data() returns 3-tuples (u, v, data_dict)
+    in_data = list(DG.in_edges.data())
+    assert all(len(t) == 3 for t in in_data)
+    assert {tuple((u, v, frozenset(d.items()))) for u, v, d in in_data} == {
+        (0, 1, frozenset({("w", 5)})),
+        (1, 2, frozenset({("w", 7)})),
+    }
+
+
+def test_k1xn4_edge_views_eq_across_graph_types():
+    """br-r37-c1-k1xn4: G.edges on DiGraph / MultiGraph /
+    MultiDiGraph used object.__eq__ — view == view returned False
+    for distinct view objects pointing at the same graph.  Lock
+    Set-like __eq__ semantics across all three classes."""
+    for cls in (fnx.DiGraph, fnx.MultiGraph, fnx.MultiDiGraph):
+        G = cls()
+        G.add_edges_from([(0, 1), (1, 2)])
+        # Self-equality on freshly-fetched view objects
+        assert G.edges == G.edges, f"edges == edges failed for {cls.__name__}"
