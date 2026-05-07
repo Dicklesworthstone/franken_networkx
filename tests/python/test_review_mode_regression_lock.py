@@ -4005,3 +4005,34 @@ def test_multigraph_get_edge_data_unhashable_key_raises_typeerror():
         assert G.get_edge_data(0, 1, key=0) == {}
         # No key — returns mapping of all keys to data
         assert G.get_edge_data(0, 1) == {0: {}}
+
+
+def test_estrada_index_returns_int_zero_on_empty_graph():
+    """br-r37-c1-est-empty: nx returns plain
+    ``sum(subgraph_centrality(G).values())`` (no float() wrap),
+    so an empty graph yields ``int(0)`` not ``float(0.0)``.
+    fnx unconditionally cast to float, breaking drop-in callers
+    asserting ``isinstance(result, int)`` on the empty-graph
+    case.
+
+    Same family as the transitivity int/float fix
+    (br-r37-c1-4jnwn).  Lock: empty graph returns int(0); non-
+    empty inputs still return float (subgraph_centrality
+    returns floats internally)."""
+    nv = nx.estrada_index(nx.Graph())
+    fv = fnx.estrada_index(fnx.Graph())
+    assert nv == fv == 0
+    assert type(fv) is type(nv) is int
+
+    # Non-empty inputs return float (regression)
+    for build in (
+        lambda l: (lambda g: (g.add_node(0), g)[1])(l.Graph()),
+        lambda l: l.complete_graph(2),
+        lambda l: l.path_graph(5),
+        lambda l: l.karate_club_graph(),
+    ):
+        fv = fnx.estrada_index(build(fnx))
+        nv = nx.estrada_index(build(nx))
+        assert isinstance(fv, float)
+        assert isinstance(nv, float)
+        assert abs(fv - nv) < 1e-9

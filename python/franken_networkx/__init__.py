@@ -21958,8 +21958,17 @@ def estrada_index(G):
     has weight attrs) this diverged massively: fnx=2.65e9 vs nx=1041.
     Match nx's formulation by summing subgraph_centrality, which
     mathematically equals sum(exp(eigenvalues of unweighted A)).
+
+    br-r37-c1-est-empty: nx returns plain ``sum(...)`` (no
+    ``float()`` wrap), so an empty graph yields ``int(0)`` not
+    ``float(0.0)``.  fnx unconditionally cast to float, breaking
+    drop-in callers asserting ``isinstance(result, int)`` on the
+    empty-graph case (same family as the transitivity int/float
+    fix br-r37-c1-4jnwn).  Drop the cast so the empty case
+    matches nx exactly; non-empty inputs still return float
+    naturally because ``subgraph_centrality`` returns floats.
     """
-    return float(sum(subgraph_centrality(G).values()))
+    return sum(subgraph_centrality(G).values())
 
 
 def _simple_graph_weighted_shortest_path_lengths(G, source, weight):
