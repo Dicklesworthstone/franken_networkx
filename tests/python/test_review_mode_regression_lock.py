@@ -4901,3 +4901,39 @@ def test_write_gexf_classified_as_py_wrapper_not_nx_delegated():
     buf2 = io.BytesIO()
     fnx.write_gexf(fnx.MultiGraph([(0, 1), (0, 1)]), buf2)
     assert buf2.getvalue().startswith(b"<?xml version='1.0' encoding='utf-8'?>")
+
+
+def test_display_accepts_canvas_kwarg_match_nx():
+    """br-r37-c1-disp-canvas: nx.display accepts a positional
+    ``canvas`` (matplotlib Axes) argument used as the drawing
+    target.  fnx's signature was ``(G, **kwds)`` so drop-in
+    code calling ``nx.display(G, canvas=ax)`` raised
+    ``TypeError: write_network_text() got an unexpected
+    keyword argument 'canvas'``.
+
+    Lock: signature includes ``canvas=None`` matching nx;
+    canvas=None still works (text fallback path);
+    explicit canvas is routed as ``ax`` to draw when
+    matplotlib is available."""
+    import inspect
+
+    # Signature parity (excluding the **kwargs name diff which
+    # is cosmetic — both libs accept arbitrary kwargs)
+    f_sig = inspect.signature(fnx.display)
+    n_sig = inspect.signature(nx.display)
+    f_params = [(p.name, p.default) for p in f_sig.parameters.values()
+                if p.kind != p.VAR_KEYWORD]
+    n_params = [(p.name, p.default) for p in n_sig.parameters.values()
+                if p.kind != p.VAR_KEYWORD]
+    assert f_params == n_params == [("G", inspect.Parameter.empty),
+                                     ("canvas", None)]
+
+    # Functional: text-fallback path with canvas=None
+    G = fnx.path_graph(3)
+    out = fnx.display(G, canvas=None)
+    assert isinstance(out, str)
+    assert "0" in out  # node label appears in text repr
+
+    # Without canvas kwarg (positional)
+    out2 = fnx.display(G)
+    assert out == out2

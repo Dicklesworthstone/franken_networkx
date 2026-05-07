@@ -794,8 +794,19 @@ def write_network_text(
     return None
 
 
-def display(G, **kwds):
-    """Display a graph in notebooks when possible, otherwise return text output."""
+def display(G, canvas=None, **kwds):
+    """Display a graph in notebooks when possible, otherwise return text output.
+
+    br-r37-c1-disp-canvas: nx's ``display`` accepts a positional
+    ``canvas`` (matplotlib Axes) argument which it uses as the
+    drawing target.  The previous fnx signature was ``(G, **kwds)``
+    so drop-in code calling ``nx.display(G, canvas=ax)`` raised
+    ``TypeError: write_network_text() got an unexpected keyword
+    argument 'canvas'``.  Accept ``canvas`` and route it as ``ax``
+    to ``draw`` when matplotlib is available; ignore in the
+    text-fallback branch (``write_network_text`` has no canvas
+    concept).
+    """
     try:
         from IPython import get_ipython
     except Exception:
@@ -806,7 +817,11 @@ def display(G, **kwds):
         try:
             import matplotlib.pyplot as plt
 
-            fig, ax = plt.subplots()
+            if canvas is None:
+                fig, ax = plt.subplots()
+            else:
+                ax = canvas
+                fig = ax.figure
             draw(G, ax=ax, **kwds)
             return fig
         except Exception:
