@@ -38483,6 +38483,17 @@ def _bulk_add_backend_dispatch_kwargs():
         # br-r37-c1-bk-residue: 2 dispatchable APIs slipped past
         # bulk2/bulk3/bulk4 audits.
         "graph_edit_distance", "reverse",
+        # br-r37-c1-bk-matrix: 17 matrix / spectrum functions —
+        # first batch of the multi-tick br-r37-c1-xc9no epic.
+        "adjacency_matrix", "adjacency_spectrum",
+        "attr_matrix", "attr_sparse_matrix",
+        "bethe_hessian_matrix", "bethe_hessian_spectrum",
+        "directed_combinatorial_laplacian_matrix",
+        "directed_laplacian_matrix", "directed_modularity_matrix",
+        "google_matrix", "incidence_matrix",
+        "laplacian_matrix", "laplacian_spectrum",
+        "modularity_matrix", "modularity_spectrum",
+        "normalized_laplacian_matrix", "normalized_laplacian_spectrum",
         # br-r37-c1-bulk4-bk: 64 more high-traffic dispatchable
         # APIs missing the backend surface — third / final sweep
         # covering communicability, assortativity, cuts, isolates,

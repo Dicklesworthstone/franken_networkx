@@ -6,9 +6,9 @@
 
 | Category | Count | % | Rule |
 |----------|-------|---|------|
-| RUST_NATIVE | 20 | 2% | native extension exports from `franken_networkx._fnx` |
-| PY_WRAPPER | 855 | 93% | Python-defined exports with no runtime NetworkX dependency detected |
-| NX_DELEGATED | 0 | 0% | Python-defined exports that import or call NetworkX at runtime |
+| RUST_NATIVE | 18 | 1% | native extension exports from `franken_networkx._fnx` |
+| PY_WRAPPER | 856 | 94% | Python-defined exports with no runtime NetworkX dependency detected |
+| NX_DELEGATED | 1 | 0% | Python-defined exports that import or call NetworkX at runtime |
 | CLASS | 32 | 3% | public classes, exceptions, iterators |
 | CONSTANT | 3 | 0% | public non-callable values |
 | **Total public exports** | **910** | | unique names from `franken_networkx.__all__` |
@@ -21,14 +21,14 @@ This ledger separates the broad public-export category from source-visible runti
 
 | Runtime route | Exports | Helper call sites | Rule |
 |---------------|---------|-------------------|------|
-| RUST_NATIVE | 20 | 0 | native extension export from `franken_networkx._fnx` |
-| PY_WRAPPER | 708 | 0 | Python-defined export with no visible NetworkX route |
-| NETWORKX_HELPER | 147 | 173 | Python-defined export with `_call_networkx_*_for_parity(...)` branches |
-| DIRECT_NETWORKX | 0 | 0 | Python-defined export that directly imports or calls NetworkX |
+| RUST_NATIVE | 18 | 0 | native extension export from `franken_networkx._fnx` |
+| PY_WRAPPER | 714 | 0 | Python-defined export with no visible NetworkX route |
+| NETWORKX_HELPER | 142 | 165 | Python-defined export with `_call_networkx_*_for_parity(...)` branches |
+| DIRECT_NETWORKX | 1 | 0 | Python-defined export that directly imports or calls NetworkX |
 | CLASS | 32 | 0 | public classes, exceptions, iterators |
 | CONSTANT | 3 | 0 | public non-callable values |
 
-`NETWORKX_HELPER` currently covers 147 public export(s) and 173 parity-helper call site(s).
+`NETWORKX_HELPER` currently covers 142 public export(s) and 165 parity-helper call site(s).
 
 ## Upstream Divergence Ledger
 
@@ -36,9 +36,9 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 
 | Divergence state | Rows | Rule |
 |------------------|------|------|
-| native-parity | 20 | public Rust-native export; no Python fallback route detected |
+| native-parity | 18 | public Rust-native export; no Python fallback route detected |
 | wrapper-patched | 1 | public wrapper records a compatibility repair over a lower-level gap |
-| intentionally-delegated | 147 | AST-visible parity helper or direct NetworkX route |
+| intentionally-delegated | 143 | AST-visible parity helper or direct NetworkX route |
 | raw-known-gap | 1 | lower-level raw/native implementation has a documented parity gap |
 | owner-acknowledged-limitation | 1 | documented limitation is intentionally owned until native repair |
 
@@ -61,7 +61,6 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 
 | Export | Helper call sites | NetworkX target(s) |
 |--------|-------------------|--------------------|
-| `adamic_adar_index` | 2 | `adamic_adar_index` |
 | `all_pairs_all_shortest_paths` | 1 | `all_pairs_all_shortest_paths` |
 | `all_pairs_bellman_ford_path` | 1 | `all_pairs_bellman_ford_path` |
 | `all_pairs_bellman_ford_path_length` | 1 | `all_pairs_bellman_ford_path_length` |
@@ -79,7 +78,7 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 | `astar_path` | 1 | `astar_path` |
 | `astar_path_length` | 1 | `astar_path_length` |
 | `average_node_connectivity` | 1 | `average_node_connectivity` |
-| `average_shortest_path_length` | 1 | `average_shortest_path_length` |
+| `average_shortest_path_length` | 2 | `average_shortest_path_length` |
 | `barycenter` | 1 | `barycenter` |
 | `bellman_ford_path` | 1 | `bellman_ford_path` |
 | `bellman_ford_path_length` | 1 | `bellman_ford_path_length` |
@@ -109,7 +108,6 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 | `dijkstra_predecessor_and_distance` | 1 | `dijkstra_predecessor_and_distance` |
 | `directed_combinatorial_laplacian_matrix` | 1 | `directed_combinatorial_laplacian_matrix` |
 | `directed_laplacian_matrix` | 1 | `directed_laplacian_matrix` |
-| `dominating_set` | 1 | `dominating_set` |
 | `eccentricity` | 2 | `eccentricity` |
 | `edge_betweenness_centrality` | 1 | `edge_betweenness_centrality` |
 | `edge_boundary` | 1 | `edge_boundary` |
@@ -146,7 +144,6 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 | `is_minimal_d_separator` | 1 | `is_minimal_d_separator` |
 | `is_perfect_matching` | 1 | `is_perfect_matching` |
 | `is_reachable` | 1 | `is_reachable` |
-| `jaccard_coefficient` | 2 | `jaccard_coefficient` |
 | `johnson` | 1 | `johnson` |
 | `junction_tree` | 1 | `junction_tree` |
 | `k_clique_communities` | 1 | `k_clique_communities` |
@@ -179,10 +176,8 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 | `omega` | 1 | `omega` |
 | `pagerank` | 1 | `pagerank` |
 | `periphery` | 1 | `periphery` |
-| `preferential_attachment` | 2 | `preferential_attachment` |
 | `radius` | 1 | `radius` |
 | `random_spanning_tree` | 1 | `random_spanning_tree` |
-| `resource_allocation_index` | 2 | `resource_allocation_index` |
 | `shortest_path` | 3 | `shortest_path` |
 | `shortest_path_length` | 3 | `shortest_path_length` |
 | `shortest_simple_paths` | 1 | `shortest_simple_paths` |
@@ -213,10 +208,10 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 
 | Module | Count |
 |--------|-------|
-| `franken_networkx` | 790 |
+| `franken_networkx` | 792 |
 | `franken_networkx.readwrite` | 35 |
 | `franken_networkx.drawing.nx_pylab` | 21 |
-| `franken_networkx._fnx` | 20 |
+| `franken_networkx._fnx` | 18 |
 | `franken_networkx.drawing.layout` | 15 |
 | `networkx.exception` | 12 |
 | `networkx.algorithms.isomorphism.matchhelpers` | 9 |
@@ -226,7 +221,7 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 | `networkx.algorithms.tree.coding` | 1 |
 | `networkx.utils.configs` | 1 |
 
-## RUST_NATIVE exports (20)
+## RUST_NATIVE exports (18)
 
 - `bidirectional_shortest_path`
 - `bipartite_sets`
@@ -235,7 +230,6 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 - `is_arborescence`
 - `is_bipartite`
 - `is_branching`
-- `is_connected`
 - `is_dominating_set`
 - `is_empty`
 - `is_k_regular`
@@ -245,11 +239,10 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 - `maximal_independent_set`
 - `maximum_independent_set`
 - `min_weighted_vertex_cover`
-- `number_connected_components`
 - `number_of_isolates`
 - `number_of_spanning_arborescences`
 
-## PY_WRAPPER exports (855)
+## PY_WRAPPER exports (856)
 
 - `LCF_graph`
 - `LFR_benchmark_graph`
@@ -648,6 +641,7 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 - `is_biconnected`
 - `is_bipartite_node_set`
 - `is_chordal`
+- `is_connected`
 - `is_connected_dominating_set`
 - `is_d_separator`
 - `is_digraphical`
@@ -830,6 +824,7 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 - `normalized_mutual_weight`
 - `null_graph`
 - `number_attracting_components`
+- `number_connected_components`
 - `number_of_cliques`
 - `number_of_edges`
 - `number_of_nodes`
@@ -1093,7 +1088,6 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 - `within_inter_cluster`
 - `write_adjlist`
 - `write_edgelist`
-- `write_gexf`
 - `write_gml`
 - `write_graph6`
 - `write_graphml`
@@ -1107,8 +1101,9 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 - `write_weighted_edgelist`
 - `zipf_rv`
 
-## NX_DELEGATED exports (0)
+## NX_DELEGATED exports (1)
 
+- `write_gexf`
 
 ## CLASS exports (32)
 

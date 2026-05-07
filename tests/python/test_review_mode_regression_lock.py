@@ -2902,3 +2902,39 @@ def test_residual_graph_edit_distance_and_reverse_backend_kwarg():
     with pytest.raises(ImportError):
         fnx.graph_edit_distance(fnx.path_graph(3), fnx.path_graph(3),
                                 backend="bogus_backend")
+
+
+def test_matrix_family_backend_kwarg_match_nx():
+    """br-r37-c1-bk-matrix: 17 matrix / spectrum functions missed
+    the backend dispatch surface — first batch of the multi-tick
+    br-r37-c1-xc9no epic.  Lock signature parity for all 17."""
+    import inspect
+    targets = [
+        "adjacency_matrix", "adjacency_spectrum",
+        "attr_matrix", "attr_sparse_matrix",
+        "bethe_hessian_matrix", "bethe_hessian_spectrum",
+        "directed_combinatorial_laplacian_matrix",
+        "directed_laplacian_matrix", "directed_modularity_matrix",
+        "google_matrix", "incidence_matrix",
+        "laplacian_matrix", "laplacian_spectrum",
+        "modularity_matrix", "modularity_spectrum",
+        "normalized_laplacian_matrix", "normalized_laplacian_spectrum",
+    ]
+    for name in targets:
+        sig = inspect.signature(getattr(fnx, name))
+        assert "backend" in sig.parameters, f"fnx.{name} missing backend"
+
+    # Functional spot-check on a sample
+    P = fnx.path_graph(4)
+    fnx.adjacency_matrix(P, backend=None)
+    fnx.adjacency_spectrum(P, backend=None)
+    fnx.laplacian_matrix(P, backend=None)
+    fnx.laplacian_spectrum(P, backend=None)
+    fnx.modularity_matrix(P, backend=None)
+    fnx.google_matrix(P, backend=None)
+    fnx.incidence_matrix(P, backend=None)
+    fnx.attr_matrix(P, backend=None)
+
+    # Bogus backend rejected
+    with pytest.raises(ImportError):
+        fnx.adjacency_matrix(P, backend="bogus_backend")
