@@ -2983,3 +2983,39 @@ def test_algo_variant_family_backend_kwarg_match_nx():
     # Bogus backend rejected
     with pytest.raises(ImportError):
         fnx.is_bipartite(P, backend="bogus_backend")
+
+
+def test_full_dispatch_surface_parity_with_nx():
+    """br-r37-c1-bk-final: closes the multi-tick br-r37-c1-xc9no
+    epic by adding backend dispatch surface to the remaining 176
+    functions across generators, IO, conversions, and predicates.
+
+    Lock that ZERO top-level fnx-vs-nx function signatures diverge
+    on the backend kwarg axis.  Any future addition that drops this
+    parity will trip this lock."""
+    import inspect
+    import types
+
+    mismatches = []
+    for name in dir(nx):
+        if name.startswith("_"):
+            continue
+        n_obj = getattr(nx, name, None)
+        f_obj = getattr(fnx, name, None)
+        if n_obj is None or f_obj is None:
+            continue
+        if not (inspect.isfunction(n_obj)
+                or isinstance(n_obj, types.BuiltinFunctionType)):
+            continue
+        try:
+            sn = inspect.signature(n_obj)
+            sf = inspect.signature(f_obj)
+        except (TypeError, ValueError):
+            continue
+        if "backend" in sn.parameters and "backend" not in sf.parameters:
+            mismatches.append(name)
+
+    assert mismatches == [], (
+        f"{len(mismatches)} functions still missing backend kwarg: "
+        f"{mismatches[:10]}"
+    )

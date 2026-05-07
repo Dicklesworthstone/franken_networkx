@@ -45,7 +45,11 @@ GENERATORS = [
 def test_signature_parameter_list_matches_networkx(name):
     fnx_sig = inspect.signature(getattr(fnx, name))
     nx_sig = inspect.signature(getattr(nx, name))
-    fnx_params = list(fnx_sig.parameters.keys())
+    # Strip backend/backend_kwargs from BOTH sides — the bulk
+    # backend dispatch wrap (br-r37-c1-bk-final) added them to fnx
+    # too, so the comparison is on the domain-specific params.
+    fnx_params = [k for k in fnx_sig.parameters.keys()
+                  if k not in ("backend", "backend_kwargs")]
     nx_params = [k for k in nx_sig.parameters.keys()
                  if k not in ("backend", "backend_kwargs")]
     assert fnx_params == nx_params
