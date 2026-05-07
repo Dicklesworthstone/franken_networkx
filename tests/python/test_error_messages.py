@@ -171,7 +171,7 @@ class TestNetworkXError:
     def test_bipartite_sets_non_bipartite(self):
         G = _make_triangle()
         with pytest.raises(fnx.NetworkXError, match=r"Graph is not bipartite"):
-            fnx.bipartite_sets(G)
+            fnx.bipartite.sets(G)
 
     def test_min_edge_cover_isolated_node(self):
         # br-r37-c1-mec-iso: nx raises NetworkXException (not

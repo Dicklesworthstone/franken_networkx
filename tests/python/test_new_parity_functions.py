@@ -101,7 +101,7 @@ class TestBipartiteHelpers:
     def test_is_bipartite_node_set_valid(self):
         B = fnx.Graph()
         B.add_edges_from([(1, "a"), (1, "b"), (2, "b"), (2, "c")])
-        top, _ = fnx.bipartite_sets(B)
+        top, _ = fnx.bipartite.sets(B)
         assert fnx.is_bipartite_node_set(B, top)
 
     def test_is_bipartite_node_set_invalid(self):
@@ -121,14 +121,14 @@ class TestBipartiteHelpers:
 
     def test_bipartite_density(self):
         B = fnx.complete_bipartite_graph(3, 3)
-        top, _ = fnx.bipartite_sets(B)
-        d = fnx.bipartite_density(B, top)
+        top, _ = fnx.bipartite.sets(B)
+        d = fnx.bipartite.density(B, top)
         assert d == pytest.approx(1.0)
 
     def test_bipartite_density_sparse(self):
         B = fnx.Graph()
         B.add_edge(0, "a")
-        d = fnx.bipartite_density(B, [0])
+        d = fnx.bipartite.density(B, [0])
         assert d == pytest.approx(1.0)
 
     def test_hopcroft_karp_matching(self):

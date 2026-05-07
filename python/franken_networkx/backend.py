@@ -83,7 +83,10 @@ _SUPPORTED_ALGORITHMS = {
     "is_tree": fnx.is_tree,
     "is_forest": fnx.is_forest,
     "is_bipartite": fnx.is_bipartite,
-    "bipartite_sets": fnx.bipartite_sets,
+    # br-r37-c1-bipx-removed: bipartite_sets is at fnx.bipartite.sets
+    # in nx, not at top level.  Backend dispatch uses the underlying
+    # nx-style namespaced function.
+    "bipartite_sets": fnx.bipartite.sets,
     "greedy_color": fnx.greedy_color,
     "core_number": fnx.core_number,
     "number_of_spanning_trees": fnx.number_of_spanning_trees,

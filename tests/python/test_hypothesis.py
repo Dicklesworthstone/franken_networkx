@@ -581,7 +581,7 @@ class TestBipartiteInvariants:
         if not fnx.is_bipartite(G_fnx):
             return  # Skip non-bipartite graphs
 
-        set_a, set_b = fnx.bipartite_sets(G_fnx)
+        set_a, set_b = fnx.bipartite.sets(G_fnx)
         all_nodes = set(set_a) | set(set_b)
         assert len(all_nodes) == n, "Bipartite sets don't cover all nodes"
         assert not (set(set_a) & set(set_b)), "Bipartite sets overlap"

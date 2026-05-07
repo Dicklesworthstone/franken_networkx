@@ -834,8 +834,10 @@ def draw_bipartite(G, top_nodes=None, **kwargs):
     top_nodes = kwargs.pop("top_nodes", top_nodes)
     if pos is None:
         if top_nodes is None:
-            from franken_networkx import bipartite_sets
+            # br-r37-c1-bipx-removed: top-level fnx.bipartite_sets
+            # was removed in favour of nx-namespaced fnx.bipartite.sets.
+            from franken_networkx import bipartite as _bp
 
-            top_nodes, _ = bipartite_sets(G)
+            top_nodes, _ = _bp.sets(G)
         pos = bipartite_layout(G, top_nodes)
     return draw(G, pos=pos, **kwargs)

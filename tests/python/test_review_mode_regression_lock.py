@@ -4665,3 +4665,40 @@ def test_biadjacency_matrix_only_at_bipartite_namespace():
     # Round-trip via from_biadjacency_matrix at the namespaced location
     H = fnx.bipartite.from_biadjacency_matrix(m_f)
     assert H.number_of_edges() == 2
+
+
+def test_bipartite_sets_density_only_at_bipartite_namespace():
+    """br-r37-c1-bipx-removed: ``bipartite_sets`` and
+    ``bipartite_density`` are exposed by nx only at
+    ``nx.bipartite.sets`` / ``nx.bipartite.density``; top-
+    level ``nx.bipartite_sets`` raises AttributeError.
+
+    fnx had top-level convenience aliases (a Rust binding for
+    bipartite_sets and a Python re-implementation for
+    bipartite_density) that masked the AttributeError nx raises
+    for drop-in callers writing ``nx.bipartite_sets``.
+
+    Same family as br-r37-c1-bia-removed (biadjacency_matrix)
+    and br-r37-c1-pmi1f (random_tree).  Closes another nx-
+    namespace parity gap.
+
+    Lock: top-level access raises nx's exact AttributeError;
+    the bipartite-namespaced versions still work and match nx
+    output."""
+    for name in ("bipartite_sets", "bipartite_density"):
+        with pytest.raises(AttributeError, match=fr"has no attribute '{name}'"):
+            getattr(fnx, name)
+        with pytest.raises(AttributeError, match=fr"has no attribute '{name}'"):
+            getattr(nx, name)
+
+    # bipartite-namespaced versions still work and match nx
+    B_f = fnx.Graph([(0, "a"), (0, "b"), (1, "a")])
+    B_n = nx.Graph([(0, "a"), (0, "b"), (1, "a")])
+
+    sets_f = tuple(map(sorted, fnx.bipartite.sets(B_f)))
+    sets_n = tuple(map(sorted, nx.bipartite.sets(B_n)))
+    assert sets_f == sets_n
+
+    d_f = fnx.bipartite.density(B_f, [0, 1])
+    d_n = nx.bipartite.density(B_n, [0, 1])
+    assert d_f == d_n

@@ -46,7 +46,7 @@ class TestBipartite:
 
     def test_bipartite_sets(self, fnx, nx, path_graph):
         G_fnx, G_nx = path_graph
-        fnx_a, fnx_b = fnx.bipartite_sets(G_fnx)
+        fnx_a, fnx_b = fnx.bipartite.sets(G_fnx)
         # nx.bipartite_sets moved to nx.bipartite.sets in NetworkX 3.6
         from networkx.algorithms import bipartite as nx_bip
         nx_a, nx_b = nx_bip.sets(G_nx)
@@ -58,7 +58,7 @@ class TestBipartite:
     def test_non_bipartite_raises(self, fnx, triangle_graph):
         G_fnx, _ = triangle_graph
         with pytest.raises(fnx.NetworkXError):
-            fnx.bipartite_sets(G_fnx)
+            fnx.bipartite.sets(G_fnx)
 
     def test_bipartite_color_path(self, fnx, nx, path_graph):
         """bipartite.color should return a valid 2-coloring for a path graph."""

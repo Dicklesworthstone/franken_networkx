@@ -6307,7 +6307,7 @@ def eccentricity(G, v=None, sp=None, weight=None):
 
 # Algorithm functions — tree, forest, bipartite, coloring, core
 from franken_networkx._fnx import (
-    bipartite_sets,
+    bipartite_sets as _bipartite_sets,
     core_number as _raw_core_number,
     greedy_color as _raw_greedy_color,
     is_bipartite,
@@ -13156,7 +13156,7 @@ def is_bipartite_node_set(G, nodes):
         )
     if not is_bipartite(G):
         return False
-    top, bottom = bipartite_sets(G)
+    top, bottom = _bipartite_sets(G)
     return node_set == set(top) or node_set == set(bottom)
 
 
@@ -13248,7 +13248,7 @@ def projected_graph(B, nodes, multigraph=False):
     return G
 
 
-def bipartite_density(B, nodes):
+def _bipartite_density(B, nodes):
     """Return the bipartite density of a bipartite graph *B*.
 
     The bipartite density is ``|E| / (|top| * |bottom|)`` for undirected graphs,
@@ -13294,7 +13294,7 @@ def hopcroft_karp_matching(G, top_nodes=None):
         A mapping from each matched node to its partner.
     """
     if top_nodes is None:
-        top, _ = bipartite_sets(G)
+        top, _ = _bipartite_sets(G)
         top_nodes = top
 
     # Use the existing max-weight matching (with unit weights = max cardinality)
@@ -37839,13 +37839,13 @@ __all__ = [
     "periphery",
     "radius",
     # Algorithms — tree, forest, bipartite, coloring, core
-    "bipartite_sets",
+    # br-r37-c1-bipx-removed: bipartite_sets / bipartite_density
+    # are only at nx.bipartite, not nx top-level; not exported.
     # br-r37-c1-bia-removed: biadjacency_matrix /
     # from_biadjacency_matrix are only at nx.bipartite, not nx
     # top-level; not exported.
     "is_bipartite_node_set",
     "projected_graph",
-    "bipartite_density",
     "hopcroft_karp_matching",
     "cc_dot",
     "cc_max",
@@ -39414,6 +39414,15 @@ def __getattr__(name):
     # AttributeError — emit nx's exact wording so drop-in
     # callers branching on the exception see identical behaviour.
     if name in ("biadjacency_matrix", "from_biadjacency_matrix"):
+        raise AttributeError(
+            f"module 'networkx' has no attribute '{name}'"
+        )
+    # br-r37-c1-bipx-removed: bipartite_sets and bipartite_density
+    # were exposed at fnx top-level as fnx-only convenience aliases.
+    # nx exposes them only at nx.bipartite (sets / density).  Drop-
+    # in callers writing nx.bipartite_sets get AttributeError on nx;
+    # mirror that contract.
+    if name in ("bipartite_sets", "bipartite_density"):
         raise AttributeError(
             f"module 'networkx' has no attribute '{name}'"
         )

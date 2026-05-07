@@ -674,7 +674,7 @@ def test_tree_bipartite(fnx):
     check("tree_broadcast_center returns set", isinstance(broadcast_center, set))
     check("tree_broadcast_time is int", isinstance(fnx.tree_broadcast_time(T), int))
 
-    sets = fnx.bipartite_sets(T)
+    sets = fnx.bipartite.sets(T)
     check("bipartite_sets returns tuple of 2", len(sets) == 2)
     check("bipartite sets cover all nodes", len(sets[0]) + len(sets[1]) == T.number_of_nodes())
 
