@@ -3440,3 +3440,36 @@ def test_is_isolate_bad_node_match_nx():
     assert fnx.is_isolate(DG2, 8) is True
     assert fnx.is_isolate(DG2, 0) is False
     assert fnx.is_isolate(DG2, 1) is False
+
+
+def test_kcore_kshell_kcrust_empty_graph_raise_match_nx():
+    """br-r37-c1-kcore-empty: ``k_core``, ``k_shell``, ``k_crust``
+    on an empty graph with ``k=None`` previously silently coerced
+    ``k`` to 0 and returned an empty subgraph view, masking the
+    empty-input case.  nx's ``_core_subgraph`` does
+    ``k = max(core.values())`` with no fallback, so empty input
+    leaks ``ValueError("max() iterable argument is empty")``.
+
+    fnx now matches: empty graph + k=None → ValueError. Empty
+    graph + explicit k still returns the empty subgraph (both
+    fnx and nx — that path doesn't compute max)."""
+    for fn_name in ("k_core", "k_shell", "k_crust"):
+        fn = getattr(fnx, fn_name)
+        nx_fn = getattr(nx, fn_name)
+
+        # Empty graph + k=None → ValueError (matches nx)
+        with pytest.raises(ValueError, match=r"max\(\) iterable argument is empty"):
+            fn(fnx.Graph())
+        with pytest.raises(ValueError, match=r"max\(\) iterable argument is empty"):
+            nx_fn(nx.Graph())
+
+        # Empty graph + explicit k → empty subgraph (both libs)
+        assert list(fn(fnx.Graph(), k=2).nodes()) == []
+        assert list(nx_fn(nx.Graph(), k=2).nodes()) == []
+
+    # Non-empty regressions
+    P = fnx.path_graph(5)
+    assert sorted(fnx.k_core(P).edges()) == [(0, 1), (1, 2), (2, 3), (3, 4)]
+    K = fnx.karate_club_graph()
+    Kx = nx.karate_club_graph()
+    assert sorted(fnx.k_core(K).nodes()) == sorted(nx.k_core(Kx).nodes())

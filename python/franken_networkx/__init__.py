@@ -14635,7 +14635,12 @@ def k_core(G, k=None, core_number=None):
         # binding's undirected collapse.
         core_number = globals()["core_number"](G)
     if k is None:
-        k = max(core_number.values()) if core_number else 0
+        # br-r37-c1-kcore-empty: nx's _core_subgraph does
+        # ``k = max(core.values())`` with no fallback — empty
+        # graph raises ``ValueError("max() iterable argument is
+        # empty")``.  fnx previously silently coerced to k=0,
+        # masking the empty-input case.  Match nx's contract.
+        k = max(core_number.values())
     nodes = [n for n, c in core_number.items() if c >= k]
     return G.subgraph(nodes)
 
@@ -14655,7 +14660,12 @@ def k_shell(G, k=None, core_number=None):
         # binding's undirected collapse.
         core_number = globals()["core_number"](G)
     if k is None:
-        k = max(core_number.values()) if core_number else 0
+        # br-r37-c1-kcore-empty: nx's _core_subgraph does
+        # ``k = max(core.values())`` with no fallback — empty
+        # graph raises ``ValueError("max() iterable argument is
+        # empty")``.  fnx previously silently coerced to k=0,
+        # masking the empty-input case.  Match nx's contract.
+        k = max(core_number.values())
     nodes = [n for n, c in core_number.items() if c == k]
     return G.subgraph(nodes)
 
@@ -14675,7 +14685,12 @@ def k_crust(G, k=None, core_number=None):
         # binding's undirected collapse.
         core_number = globals()["core_number"](G)
     if k is None:
-        k = max(core_number.values()) if core_number else 0
+        # br-r37-c1-kcore-empty: nx's _core_subgraph does
+        # ``k = max(core.values())`` with no fallback — empty
+        # graph raises ``ValueError("max() iterable argument is
+        # empty")``.  fnx previously silently coerced to k=0,
+        # masking the empty-input case.  Match nx's contract.
+        k = max(core_number.values())
     nodes = [n for n, c in core_number.items() if c <= k]
     return G.subgraph(nodes)
 
