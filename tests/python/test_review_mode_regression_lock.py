@@ -3153,3 +3153,29 @@ def test_connected_watts_strogatz_bad_tries_match_nx():
     assert G.number_of_nodes() == 5
     G = fnx.connected_watts_strogatz_graph(5, 2, 0.1, tries=1, seed=42)
     assert G.number_of_nodes() == 5
+
+
+def test_newman_watts_strogatz_pathological_p_match_nx():
+    """br-r37-c1-nws-pnan: newman_watts_strogatz_graph leaked Rust
+    ``ValueError(FailClosed { ... })`` for p values nx silently
+    accepts: NaN, inf, p<0, p>1.  nx's natural ``random() < p``
+    flip handles all of these as graceful extremes (NaN → no
+    rewiring, inf → full rewiring, etc.).  Lock parity for the
+    pathological-p edge cases."""
+    cases = [
+        (float("nan"), 5),    # NaN → no rewiring (5 edges from base ring)
+        (float("inf"), 10),   # inf → full rewiring (all edges added)
+        (-1.0, 5),            # p<0 → no rewiring
+        (2.0, 10),            # p>1 → full rewiring
+        (0.0, 5),              # p=0 → no rewiring
+        (1.0, 10),             # p=1 → full rewiring
+    ]
+    for p, expected_edges in cases:
+        G = fnx.newman_watts_strogatz_graph(5, 2, p, seed=42)
+        assert G.number_of_edges() == expected_edges, (
+            f"p={p}: expected {expected_edges} edges, got {G.number_of_edges()}"
+        )
+
+    # Valid in-range still works
+    G = fnx.newman_watts_strogatz_graph(5, 2, 0.5, seed=42)
+    assert G.number_of_edges() == 8

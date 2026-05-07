@@ -36799,6 +36799,21 @@ def newman_watts_strogatz_graph(n, k, p, seed=None, *, create_using=None, backen
         return complete_graph(n, create_using=create_using)
     if k < 2:
         return empty_graph(n, create_using=create_using)
+    # br-r37-c1-nws-pnan: nx accepts NaN / inf / out-of-range p
+    # silently — its weighted-flip ``random.random() < p`` evaluates
+    # naturally (NaN → False / no rewiring; inf → True / full
+    # rewiring; p<0 / p>1 → comparable extremes).  fnx's Rust
+    # binding rejected these with leaky ``FailClosed`` formats.
+    # Clamp / route to match nx's silent contract.
+    import math as _math
+    if isinstance(p, float) and _math.isnan(p):
+        # NaN: nx's < comparison returns False → no rewiring →
+        # equivalent to p=0
+        p = 0.0
+    elif isinstance(p, (int, float)) and p > 1:
+        p = 1.0  # full rewiring
+    elif isinstance(p, (int, float)) and p < 0:
+        p = 0.0  # no rewiring
     graph = _rust_newman_watts_strogatz_graph(
         n, k, p, seed=_native_random_seed(seed)
     )
