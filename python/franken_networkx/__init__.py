@@ -10639,7 +10639,7 @@ def astar_path_length(
         msg = f"Either source {source} or target {target} is not in G"
         raise NodeNotFound(msg)
     try:
-        return _raw_astar_path_length(
+        result = _raw_astar_path_length(
             G, source, target, heuristic=heuristic, weight=weight
         )
     except ValueError as exc:
@@ -10647,6 +10647,33 @@ def astar_path_length(
         if translated is not None:
             raise translated from exc
         raise
+    # br-r37-c1-astarlen-int: nx returns int when all contributing
+    # edge weights are int — sum-of-ints stays int.  The Rust
+    # binding always returns float.  Mirror the dag_longest_path_
+    # length type-preservation fix (br-r37-c1-oqspv).  Walks the
+    # actual chosen path (which is what nx's accumulator uses) so
+    # parallel non-int edges that aren't on the path don't demote
+    # the result to float.  Uses ``isinstance(v, int)`` so bool
+    # weights count as int (bool is an int subclass and nx
+    # accumulates True + True as 2).
+    if isinstance(weight, str) and isinstance(result, float) and result.is_integer():
+        try:
+            path = _raw_astar_path(
+                G, source, target, heuristic=heuristic, weight=weight
+            )
+        except Exception:
+            path = None
+        if path is not None:
+            all_int = True
+            for u, v in zip(path, path[1:]):
+                attrs = G.get_edge_data(u, v, default={}) or {}
+                value = attrs.get(weight, 1)
+                if not isinstance(value, int):
+                    all_int = False
+                    break
+            if all_int:
+                return int(result)
+    return result
 
 
 def shortest_simple_paths(G, source, target, weight=None):

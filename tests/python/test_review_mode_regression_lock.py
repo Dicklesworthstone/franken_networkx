@@ -2200,3 +2200,51 @@ def test_astar_path_nonnumeric_weight_typeerror_match_nx():
             assert result == [0, 1, 2]
         else:
             assert result == 8 or result == 8.0  # type can vary
+
+
+def test_astar_path_length_preserves_int_type_match_nx():
+    """br-r37-c1-astarlen-int: astar_path_length always returned
+    float because the Rust binding uses f64 internally.  nx returns
+    int when all weights along the chosen path are int (bool counts
+    as int — bool is an int subclass and nx accumulates True+True=2).
+    Same defect family as br-r37-c1-oqspv on dag_longest_path_length.
+
+    Lock type-preservation across all-int, default-no-weight, bool,
+    all-float, and mixed configurations."""
+    def make(lib, edges):
+        G = lib.Graph()
+        G.add_weighted_edges_from(edges)
+        return G
+
+    # All-int weights → int result
+    fr = fnx.astar_path_length(make(fnx, [(0, 1, 5), (1, 2, 3)]), 0, 2)
+    nr = nx.astar_path_length(make(nx, [(0, 1, 5), (1, 2, 3)]), 0, 2)
+    assert type(fr) is type(nr) is int
+    assert fr == nr == 8
+
+    # Default (no weight attr) → int result
+    fr = fnx.astar_path_length(fnx.path_graph(3), 0, 2)
+    nr = nx.astar_path_length(nx.path_graph(3), 0, 2)
+    assert type(fr) is type(nr) is int
+    assert fr == nr == 2
+
+    # Bool weights → int result (bool subclass of int)
+    fr = fnx.astar_path_length(make(fnx, [(0, 1, True), (1, 2, True)]),
+                               0, 2)
+    nr = nx.astar_path_length(make(nx, [(0, 1, True), (1, 2, True)]),
+                              0, 2)
+    assert type(fr) is type(nr) is int
+
+    # Float weights → float result
+    fr = fnx.astar_path_length(make(fnx, [(0, 1, 5.0), (1, 2, 3.5)]),
+                               0, 2)
+    nr = nx.astar_path_length(make(nx, [(0, 1, 5.0), (1, 2, 3.5)]),
+                              0, 2)
+    assert type(fr) is type(nr) is float
+
+    # Mixed → float (any float promotes)
+    fr = fnx.astar_path_length(make(fnx, [(0, 1, 5), (1, 2, 3.5)]),
+                               0, 2)
+    nr = nx.astar_path_length(make(nx, [(0, 1, 5), (1, 2, 3.5)]),
+                              0, 2)
+    assert type(fr) is type(nr) is float
