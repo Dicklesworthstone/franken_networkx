@@ -38418,6 +38418,56 @@ def _bulk_add_backend_dispatch_kwargs():
         "find_induced_nodes", "complete_to_chordal_graph",
         # Regularity
         "is_strongly_regular", "is_distance_regular",
+        # br-r37-c1-bulk4-bk: 64 more high-traffic dispatchable
+        # APIs missing the backend surface — third / final sweep
+        # covering communicability, assortativity, cuts, isolates,
+        # link prediction, isomorphism, polynomials, flows, and
+        # boundary measures.
+        # Communicability
+        "communicability", "communicability_exp",
+        # Isolates / aperiodic
+        "is_aperiodic", "is_isolate", "number_of_isolates", "isolates",
+        # Voronoi / sequence-driven
+        "voronoi_cells", "expected_degree_graph",
+        # Assortativity
+        "degree_assortativity_coefficient",
+        "degree_pearson_correlation_coefficient",
+        "attribute_assortativity_coefficient",
+        "numeric_assortativity_coefficient",
+        "attribute_mixing_dict", "attribute_mixing_matrix",
+        "degree_mixing_dict", "degree_mixing_matrix",
+        # Cuts / expansion
+        "mixing_expansion", "cut_size", "normalized_cut_size",
+        "volume", "boundary_expansion", "edge_expansion", "conductance",
+        # Edge traversals
+        "edge_dfs", "edge_bfs",
+        # *_all operators
+        "compose_all", "union_all", "intersection_all", "disjoint_union_all",
+        # Link prediction
+        "jaccard_coefficient", "adamic_adar_index",
+        "preferential_attachment", "cn_soundarajan_hopcroft",
+        "ra_index_soundarajan_hopcroft", "within_inter_cluster",
+        "resource_allocation_index",
+        # Isomorphism (top-level)
+        "is_isomorphic", "could_be_isomorphic",
+        "fast_could_be_isomorphic", "faster_could_be_isomorphic",
+        # Similarity
+        "simrank_similarity", "panther_similarity",
+        # Edge cover
+        "is_edge_cover",
+        # Conversions
+        "to_dict_of_lists", "to_edgelist", "from_dict_of_dicts",
+        # Boundaries
+        "edge_boundary", "node_boundary",
+        # Dominance
+        "immediate_dominators", "dominance_frontiers",
+        # Polynomials
+        "chromatic_polynomial", "tutte_polynomial",
+        # Flows
+        "minimum_cut_value", "maximum_flow_value", "maximum_flow",
+        "minimum_cut", "min_cost_flow", "min_cost_flow_cost",
+        "max_flow_min_cost", "cost_of_flow", "gomory_hu_tree",
+        "capacity_scaling", "network_simplex",
     )
 
     ns = globals()
@@ -38435,22 +38485,65 @@ def _bulk_add_backend_dispatch_kwargs():
 
         def _make_wrapper(raw_fn, fn_name, base_sig):
             orig_param_names = set(base_sig.parameters)
+            # br-r37-c1-bulk4-bk: when the original already has
+            # ``**kwargs`` it is *intended* to forward unknown kwargs
+            # downstream (e.g. flow_func dispatch on minimum_cut_value).
+            # Don't strip-and-validate in that case — just pass through.
+            has_var_keyword = any(
+                p.kind == _inspect.Parameter.VAR_KEYWORD
+                for p in base_sig.parameters.values()
+            )
 
             @_ft.wraps(raw_fn)
             def wrapper(*args, backend=None, **kwargs):
+                if has_var_keyword:
+                    # The original consumes **kwargs; only validate
+                    # ``backend`` and forward the rest unchanged.
+                    _validate_backend_dispatch_keywords(fn_name, backend, {})
+                    return raw_fn(*args, **kwargs)
                 bk = {k: kwargs.pop(k) for k in list(kwargs) if k not in orig_param_names}
                 _validate_backend_dispatch_keywords(fn_name, backend, bk)
                 return raw_fn(*args, **kwargs)
 
             # Synthesize a signature with backend / backend_kwargs added
             # so inspect.signature parity matches nx exactly.
-            new_params = list(base_sig.parameters.values())
-            new_params.append(_inspect.Parameter(
-                "backend", kind=_inspect.Parameter.KEYWORD_ONLY, default=None,
-            ))
-            new_params.append(_inspect.Parameter(
-                "backend_kwargs", kind=_inspect.Parameter.VAR_KEYWORD,
-            ))
+            # br-r37-c1-bulk4-bk: when the original signature already
+            # had a VAR_KEYWORD param (``**kwargs``), inserting another
+            # one was rejected with ValueError and the synthesis was
+            # skipped — leaving ``inspect.signature(wrapper)`` showing
+            # the original (no ``backend``).  Fix: insert ``backend``
+            # *before* the existing var-keyword and reuse the existing
+            # var-keyword (rather than adding a duplicate).
+            base_params = list(base_sig.parameters.values())
+            existing_var_keyword = next(
+                (p for p in base_params
+                 if p.kind == _inspect.Parameter.VAR_KEYWORD),
+                None,
+            )
+            if existing_var_keyword is None:
+                new_params = base_params + [
+                    _inspect.Parameter(
+                        "backend",
+                        kind=_inspect.Parameter.KEYWORD_ONLY,
+                        default=None,
+                    ),
+                    _inspect.Parameter(
+                        "backend_kwargs",
+                        kind=_inspect.Parameter.VAR_KEYWORD,
+                    ),
+                ]
+            else:
+                # Insert ``backend`` keyword-only just before the
+                # existing **kwargs.  Reuse the existing var-keyword
+                # name (matching nx's pattern of ``**kwargs`` rather
+                # than ``**backend_kwargs`` for these flow APIs).
+                new_params = [p for p in base_params if p is not existing_var_keyword]
+                new_params.append(_inspect.Parameter(
+                    "backend",
+                    kind=_inspect.Parameter.KEYWORD_ONLY,
+                    default=None,
+                ))
+                new_params.append(existing_var_keyword)
             try:
                 wrapper.__signature__ = base_sig.replace(parameters=new_params)
             except (TypeError, ValueError):
@@ -38463,6 +38556,23 @@ def _bulk_add_backend_dispatch_kwargs():
 
 
 _bulk_add_backend_dispatch_kwargs()
+
+
+def _resync_isomorphism_module_exports():
+    """br-r37-c1-bulk4-bk: the isomorphism submodule is built earlier
+    by snapshotting globals().  When the later bulk backend-dispatch
+    wrap replaces the wrapped names in globals(), the submodule's
+    references go stale.  Re-sync after the wrap so
+    ``fnx.isomorphism.is_isomorphic is fnx.is_isomorphic``."""
+    if "isomorphism" not in globals():
+        return
+    iso_mod = globals()["isomorphism"]
+    for export_name in _ISOMORPHISM_MODULE_EXPORTS:
+        if export_name in globals():
+            setattr(iso_mod, export_name, globals()[export_name])
+
+
+_resync_isomorphism_module_exports()
 
 
 def _bulk_coerce_negative_depth_to_zero():

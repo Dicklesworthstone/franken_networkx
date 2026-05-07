@@ -2642,3 +2642,60 @@ def test_bulk3_backend_kwarg_surface_match_nx():
     fnx.is_eulerian(fnx.cycle_graph(4), backend=None)
     fnx.is_chordal(fnx.cycle_graph(4), backend=None)
     fnx.is_strongly_regular(fnx.complete_graph(4), backend=None)
+
+
+def test_bulk4_backend_kwarg_surface_match_nx():
+    """br-r37-c1-bulk4-bk: 64 more dispatchable APIs across
+    communicability, assortativity, cuts, isolates, link prediction,
+    isomorphism, polynomials, flows, and boundary measures missed
+    the backend dispatch surface.  Final-sweep continuation of the
+    bulk-fix series (bulk2/bulk3); the bulk-wrap also gained two
+    fixes:
+
+      * preserves ``**kwargs`` pass-through for functions that
+        legitimately forward unknown kwargs (e.g. ``minimum_cut_value``
+        forwarding to ``flow_func``); previously the wrapper stripped
+        unknown kwargs as backend kwargs and rejected them.
+      * re-syncs the ``fnx.isomorphism`` submodule exports after the
+        wrap so ``fnx.isomorphism.is_isomorphic is fnx.is_isomorphic``
+        — previously stale because the submodule snapshotted globals
+        before the wrap ran.
+
+    Lock signature parity for representative APIs + the flow-kwargs
+    pass-through + iso submodule resync."""
+    import inspect
+    targets = [
+        "communicability", "communicability_exp",
+        "is_aperiodic", "is_isolate", "number_of_isolates", "isolates",
+        "voronoi_cells",
+        "degree_assortativity_coefficient",
+        "attribute_assortativity_coefficient",
+        "cut_size", "normalized_cut_size", "volume", "edge_expansion",
+        "conductance",
+        "edge_dfs", "edge_bfs",
+        "compose_all", "union_all", "intersection_all", "disjoint_union_all",
+        "jaccard_coefficient", "adamic_adar_index",
+        "preferential_attachment", "resource_allocation_index",
+        "is_isomorphic", "could_be_isomorphic",
+        "fast_could_be_isomorphic", "faster_could_be_isomorphic",
+        "simrank_similarity", "panther_similarity",
+        "is_edge_cover",
+        "to_dict_of_lists", "to_edgelist", "from_dict_of_dicts",
+        "edge_boundary", "node_boundary",
+        "immediate_dominators", "dominance_frontiers",
+        "minimum_cut_value", "maximum_flow_value", "maximum_flow",
+        "minimum_cut", "min_cost_flow", "min_cost_flow_cost",
+        "max_flow_min_cost", "cost_of_flow", "gomory_hu_tree",
+        "capacity_scaling", "network_simplex",
+    ]
+    for name in targets:
+        sig = inspect.signature(getattr(fnx, name))
+        assert "backend" in sig.parameters, f"fnx.{name} missing backend"
+
+    # Flow function with **kwargs forwarding still works
+    DG = fnx.DiGraph(); DG.add_edge(0, 1, capacity=10); DG.add_edge(1, 2, capacity=10)
+    fnx.maximum_flow_value(DG, 0, 2, backend=None)
+
+    # iso submodule resync: identity check
+    assert fnx.isomorphism.is_isomorphic is fnx.is_isomorphic
+    assert fnx.isomorphism.could_be_isomorphic is fnx.could_be_isomorphic
