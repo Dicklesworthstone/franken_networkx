@@ -4335,3 +4335,44 @@ def test_average_node_connectivity_int_zero_on_lt2_nodes():
     assert isinstance(fnx.average_node_connectivity(fnx.complete_graph(2)), float)
     assert isinstance(fnx.average_node_connectivity(fnx.path_graph(5)), float)
     assert fnx.average_node_connectivity(fnx.complete_graph(5)) == 4.0
+
+
+def test_subgraph_view_shares_parent_graph_dict_identity():
+    """br-r37-c1-fgv-graph-id: nx's subgraph_view and copy(
+    as_view=True) share the parent's ``graph`` attribute dict
+    by reference — ``view.graph is parent.graph`` must hold so
+    mutations to the parent's graph attrs are visible through
+    the view.
+
+    fnx's _FilteredGraphView.__init__ did ``self.graph =
+    graph.graph``, but the _GraphAttrsDescriptor.__set__ on
+    the canonical Graph base class intercepted the assignment
+    and clear+update'd the existing Rust-native dict instead
+    of storing the reference — losing identity.
+
+    Fix bypasses the descriptor by writing to the override
+    slot directly via ``vars(self)[_GRAPH_ATTR_OVERRIDE]``.
+
+    Lock: identity preservation across all four graph types ×
+    {subgraph_view, copy(as_view=True)} + post-construction
+    parent mutation visibility."""
+    for cls in (fnx.Graph, fnx.DiGraph, fnx.MultiGraph, fnx.MultiDiGraph):
+        # subgraph view
+        g = cls([("a", "b"), ("b", "c")])
+        g.graph["mode"] = "orig"
+        sub = g.subgraph(["a", "b", "c"])
+        assert sub.graph is g.graph, f"{cls.__name__}: subgraph identity broken"
+
+        # copy(as_view=True)
+        cv = g.copy(as_view=True)
+        assert cv.graph is g.graph, f"{cls.__name__}: copy(as_view=True) identity broken"
+
+        # Mutation visibility through both view types
+        g.graph["mode"] = "updated"
+        assert sub.graph["mode"] == "updated"
+        assert cv.graph["mode"] == "updated"
+
+        # New keys also propagate
+        g.graph["new_key"] = 42
+        assert sub.graph["new_key"] == 42
+        assert cv.graph["new_key"] == 42

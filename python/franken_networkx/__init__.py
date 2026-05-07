@@ -25519,7 +25519,17 @@ class _FilteredGraphView:
 
     def __init__(self, graph, *, filter_node=None, filter_edge=None):
         self._graph = graph
-        self.graph = graph.graph
+        # br-r37-c1-fgv-graph-id: nx's subgraph_view / copy(as_view=
+        # True) shares the parent's ``graph`` dict by reference —
+        # ``view.graph is parent.graph`` must hold so subsequent
+        # mutations to the parent's graph attrs are visible through
+        # the view.  ``self.graph = graph.graph`` looks like an
+        # assignment, but the _GraphAttrsDescriptor.__set__ on the
+        # canonical Graph base class intercepts the assignment and
+        # clears+updates the existing Rust-native dict instead of
+        # storing the ref — losing identity.  Bypass the descriptor
+        # by writing directly to the override slot in vars(self).
+        vars(self)[_GRAPH_ATTR_OVERRIDE] = graph.graph
         self._filter_node = filter_node or (lambda node: True)
         self._filter_edge = filter_edge or (lambda *args: True)
         self.frozen = True
