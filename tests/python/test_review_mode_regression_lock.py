@@ -2345,3 +2345,27 @@ def test_adjacency_spectrum_returns_complex_match_nx():
         assert fr.dtype == nr.dtype == np.complex128
         # value parity (sort both since solver order is unstable)
         assert np.allclose(np.sort_complex(fr), np.sort_complex(nr))
+
+
+def test_dispersion_bad_node_raises_keyerror_match_nx():
+    """br-r37-c1-disp-keyerr: dispersion raised NetworkXError when
+    given a node not in G (because it called ``G.neighbors(u)``
+    internally, which has nx's NetworkXError contract).  nx
+    accesses ``G[u]`` directly and leaks a raw KeyError.  Lock
+    KeyError parity for callers using ``except KeyError:`` to
+    detect missing-node-pair cases."""
+    K4 = fnx.complete_graph(4)
+
+    # Pair form: bad u, bad v, both bad
+    for u, v in [(99, 1), (0, 99), (99, 100)]:
+        with pytest.raises(KeyError):
+            fnx.dispersion(K4, u, v)
+
+    # Dict form with bad u (v=None)
+    with pytest.raises(KeyError):
+        fnx.dispersion(K4, 99)
+
+    # Regression: valid args still return float / dict
+    assert fnx.dispersion(K4, 0, 1) == nx.dispersion(nx.complete_graph(4), 0, 1)
+    assert isinstance(fnx.dispersion(K4), dict)
+    assert isinstance(fnx.dispersion(K4, 0), dict)

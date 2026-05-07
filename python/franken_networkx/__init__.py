@@ -15508,6 +15508,11 @@ def dispersion(
     if u is not None and v is not None:
         return _dispersion_pair(G, u, v, normalized, alpha, b, c)
 
+    # br-r37-c1-disp-keyerr: same KeyError contract on the dict-form
+    # path (``dispersion(G, u=99)``).  nx accesses ``G[u]`` which
+    # raises KeyError; fnx's ``G.neighbors(u)`` raised NetworkXError.
+    if u is not None and u not in G:
+        raise KeyError(u)
     nodes = [u] if u is not None else list(G.nodes())
     result = {}
     for node in nodes:
@@ -15525,6 +15530,16 @@ def _dispersion_pair(G, u, v, normalized, alpha, b, c):
     # the shared neighbour to ``common``; nx only requires it be in u's
     # neighbourhood, and (b) the normalisation raised ``alpha`` on the
     # denominator rather than the numerator.
+    # br-r37-c1-disp-keyerr: nx accesses ``G[u]`` / ``G[v]`` directly,
+    # which raises ``KeyError`` when a node is missing.  fnx used
+    # ``G.neighbors(...)`` which raises NetworkXError.  Pre-check
+    # membership and raise KeyError to match nx's leaky-but-stable
+    # contract (callers using ``except KeyError:`` to detect missing
+    # node-pairs were broken otherwise).
+    if u not in G:
+        raise KeyError(u)
+    if v not in G:
+        raise KeyError(v)
     u_nbrs = set(G.neighbors(u))
     common = {n for n in G.neighbors(v) if n in u_nbrs}
     set_uv = {u, v}
