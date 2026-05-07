@@ -4189,3 +4189,63 @@ def test_edges_subscript_message_and_typeerror_match_nx():
     G_s = fnx.Graph()
     G_s.add_edge("x", "y")
     assert G_s.edges["xy"] == {}
+
+
+def test_multiedgeview_subscript_specific_keyerror_match_nx():
+    """br-r37-c1-meg-msg: ``MultiGraph.edges[(u, v, k)]`` and
+    ``MultiDiGraph.edges[(u, v, k)]`` must raise ``KeyError`` on
+    the *specific* missing element from the chained lookup —
+    not on the raw 3-tuple.  nx does ``u, v, k = e; return
+    self._adjdict[u][v][k]`` so missing u → KeyError(u),
+    missing v → KeyError(v), missing key → KeyError(k).
+
+    Same family as br-r37-c1-ltri7 (cycle 116 simple EdgeView
+    fix).  Closes the multigraph corner of the EdgeView
+    subscript exception-class family.
+
+    Lock: missing-element KeyError carries that exact element;
+    unhashable u/v/k raises TypeError; mis-sized tuples raise
+    ValueError from the unpack; reverse-orientation lookup on
+    undirected MG still resolves; good edges return data dict.
+    """
+    for cls in (fnx.MultiGraph, fnx.MultiDiGraph):
+        G = cls([(0, 1)])
+
+        # Missing key (last element of the 3-tuple)
+        with pytest.raises(KeyError) as ei:
+            G.edges[(0, 1, 99)]
+        assert ei.value.args[0] == 99
+
+        # Missing u (first element)
+        with pytest.raises(KeyError) as ei:
+            G.edges[(99, 1, 0)]
+        assert ei.value.args[0] == 99
+
+        # Missing v (middle element)
+        with pytest.raises(KeyError) as ei:
+            G.edges[(0, 99, 0)]
+        assert ei.value.args[0] == 99
+
+        # Unhashable elements → TypeError
+        with pytest.raises(TypeError, match=r"unhashable type"):
+            G.edges[([1, 2], 1, 0)]
+        with pytest.raises(TypeError, match=r"unhashable type"):
+            G.edges[(0, [1, 2], 0)]
+        with pytest.raises(TypeError, match=r"unhashable type"):
+            G.edges[(0, 1, [1, 2])]
+
+        # Mis-sized 2-tuple → unpack ValueError
+        with pytest.raises(ValueError, match=r"not enough values to unpack"):
+            G.edges[(0, 1)]
+        # 4-tuple → unpack ValueError
+        with pytest.raises(ValueError, match=r"too many values to unpack"):
+            G.edges[(0, 1, 2, 3)]
+
+        # Good edge — returns data dict
+        assert G.edges[(0, 1, 0)] == {}
+
+    # Reverse-orientation undirected fallback (br-multiedgeview-rev
+    # behaviour preserved): MG.edges[(1, 0, 0)] resolves the same
+    # underlying edge as (0, 1, 0)
+    MG = fnx.MultiGraph([(0, 1)])
+    assert MG.edges[(1, 0, 0)] == {}

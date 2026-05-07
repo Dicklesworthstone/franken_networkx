@@ -910,16 +910,15 @@ class TestEdgeViewKeyErrorPreserved:
         with pytest.raises(KeyError, match=r"The edge \(5, 6\) is not in the graph"):
             D.edges[5, 6]
 
-    def test_multigraph_edges_missing_triple_preserves_tuple(self):
-        # Multi* EdgeView still emits the raw tuple — the
-        # nx-message rewrite (br-r37-c1-eg-msg) covers only the
-        # simple Graph/DiGraph EdgeView; multi-edge subscripts
-        # have a different message shape in nx (KeyError on the
-        # missing key alone, not the full tuple).
+    def test_multigraph_edges_missing_triple_emits_specific_key(self):
+        # br-r37-c1-meg-msg: nx's MultiEdgeView raises a
+        # KeyError on the *specific* missing element from the
+        # chained ``adj[u][v][key]`` lookup — not the raw
+        # 3-tuple.  Lock parity: missing key → KeyError(key).
         MG = fnx.MultiGraph([(0, 1)])
         with pytest.raises(KeyError) as exc_info:
             MG.edges[0, 1, "missing"]
-        assert exc_info.value.args[0] == (0, 1, "missing")
+        assert exc_info.value.args[0] == "missing"
 
 
 # ---------------------------------------------------------------------------

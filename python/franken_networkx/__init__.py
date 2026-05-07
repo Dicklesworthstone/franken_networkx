@@ -1177,17 +1177,45 @@ class _MultiGraphEdgeView:
         return self._graph.number_of_edges()
 
     def __getitem__(self, edge):
-        # Accept (u, v, k) 3-tuples like upstream MultiEdgeView.
-        if not isinstance(edge, tuple) or len(edge) != 3:
-            raise KeyError(edge)
+        # br-r37-c1-meg-msg: nx's MultiEdgeView does
+        # ``u, v, k = e; return self._adjdict[u][v][k]`` so:
+        #   * 2-tuple → ValueError unpack
+        #   * unhashable u/v/k → TypeError
+        #   * missing u → KeyError(u)
+        #   * missing v → KeyError(v)
+        #   * missing key → KeyError(k)
+        # fnx previously rejected non-3-tuple subscripts with a
+        # type-check and emitted ``KeyError(edge_tuple)`` on every
+        # missing case, masking which element was missing and
+        # silently swallowing TypeError on unhashable.  Mirror nx
+        # exactly via the unpack + chained dict lookup.
         u, v, key = edge
+        hash(u)
+        hash(v)
+        hash(key)
         adj = self._graph.adj
-        if u in adj and v in adj[u] and key in adj[u][v]:
+        try:
             return adj[u][v][key]
-        # Undirected fallback: accept reversed orientation.
-        if v in adj and u in adj[v] and key in adj[v][u]:
+        except KeyError:
+            pass
+        # Undirected fallback (br-multiedgeview-rev): if the edge
+        # was supplied in reverse orientation it should still
+        # resolve.  Fire the second lookup only on KeyError so
+        # the original missing-element KeyError is preserved
+        # otherwise.
+        try:
             return adj[v][u][key]
-        raise KeyError(edge)
+        except KeyError:
+            # Re-emit nx's most specific missing element.  nx
+            # surfaces the first KeyError from the chained lookup
+            # at adj[u][v][k]; recompute to figure out which
+            # element is the first one missing in the original
+            # u→v→key direction.
+            if u not in adj:
+                raise KeyError(u)
+            if v not in adj[u]:
+                raise KeyError(v)
+            raise KeyError(key)
 
     keys = _multi_edge_keys
     items = _multi_edge_items
@@ -1379,13 +1407,23 @@ class _MultiDiGraphEdgeView:
         return key in succ[u][v]
 
     def __getitem__(self, edge):
-        if not isinstance(edge, tuple) or len(edge) != 3:
-            raise KeyError(edge)
+        # br-r37-c1-meg-msg: see _MultiGraphEdgeView.__getitem__.
+        # nx unpacks via ``u, v, k = e`` and chains
+        # ``self._adjdict[u][v][k]``; mirror that contract for
+        # nx-shape KeyError on missing element + TypeError on
+        # unhashable.  Directed: no undirected fallback.
         u, v, key = edge
+        hash(u)
+        hash(v)
+        hash(key)
         succ = self._graph.succ
-        if u in succ and v in succ[u] and key in succ[u][v]:
-            return succ[u][v][key]
-        raise KeyError(edge)
+        if u not in succ:
+            raise KeyError(u)
+        if v not in succ[u]:
+            raise KeyError(v)
+        if key not in succ[u][v]:
+            raise KeyError(key)
+        return succ[u][v][key]
 
     def __call__(self, nbunch=None, data=False, keys=False, default=None):
         # br-r37-c1-msf5j: live wrapper for default args (see
