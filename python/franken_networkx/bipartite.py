@@ -18,7 +18,7 @@ from networkx.algorithms.bipartite import *  # noqa: F401,F403
 import franken_networkx as _fnx
 
 
-def collaboration_weighted_projected_graph(B, nodes):
+def collaboration_weighted_projected_graph(B, nodes, *, backend=None, **backend_kwargs):
     r"""Native port of Newman's collaboration-weighted bipartite projection.
 
     Produces the same graph as
@@ -29,7 +29,12 @@ def collaboration_weighted_projected_graph(B, nodes):
     Edge weight between ``u`` and ``v`` is the sum over shared neighbors
     ``k`` of ``1 / (deg_B(k) - 1)``, where ``deg_B(k)`` is the degree of
     ``k`` in the bipartite graph ``B``.
+
+    br-r37-c1-bk-submod: backend dispatch surface match nx.
     """
+    _fnx._validate_backend_dispatch_keywords(
+        "collaboration_weighted_projected_graph", backend, backend_kwargs
+    )
     if B.is_multigraph():
         raise _fnx.NetworkXNotImplemented("not implemented for multigraph type")
 

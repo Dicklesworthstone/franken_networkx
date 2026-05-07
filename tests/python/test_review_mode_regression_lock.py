@@ -2699,3 +2699,44 @@ def test_bulk4_backend_kwarg_surface_match_nx():
     # iso submodule resync: identity check
     assert fnx.isomorphism.is_isomorphic is fnx.is_isomorphic
     assert fnx.isomorphism.could_be_isomorphic is fnx.could_be_isomorphic
+
+
+def test_submodule_backend_kwarg_surface_match_nx():
+    """br-r37-c1-bk-submod: 3 fnx-native submodule overrides
+    (approximation.treewidth_min_degree, bipartite.collaboration_
+    weighted_projected_graph, community.label_propagation_
+    communities) had bare signatures without ``*, backend=None,
+    **backend_kwargs``.  These weren't reachable by the bulk
+    wrapper because they live in submodule namespaces, not the
+    main fnx globals.
+
+    Lock signature parity + runtime backend handling for all 3."""
+    import inspect
+
+    P = fnx.path_graph(5)
+    B = fnx.complete_bipartite_graph(2, 3)
+
+    cases = [
+        ("approximation", "treewidth_min_degree", (P,)),
+        ("bipartite", "collaboration_weighted_projected_graph",
+         (B, [0, 1])),
+        ("community", "label_propagation_communities", (P,)),
+    ]
+
+    for path, name, args in cases:
+        fn = getattr(getattr(fnx, path), name)
+        sig = inspect.signature(fn)
+        assert "backend" in sig.parameters, (
+            f"fnx.{path}.{name} missing backend kwarg"
+        )
+
+        # backend=None passes through
+        result = fn(*args, backend=None)
+        if path == "community":
+            list(result)  # consume generator
+
+        # bogus backend → ImportError
+        with pytest.raises(ImportError):
+            result = fn(*args, backend="bogus_backend")
+            if path == "community":
+                list(result)

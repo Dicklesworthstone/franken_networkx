@@ -11039,7 +11039,12 @@ def _treewidth_min_degree(G):
 
 
 class _ApproximationNamespace:
-    def treewidth_min_degree(self, G):
+    def treewidth_min_degree(self, G, *, backend=None, **backend_kwargs):
+        # br-r37-c1-bk-submod: nx's @_dispatchable adds the backend
+        # surface; the fnx native re-export had bare ``(G)``.
+        _validate_backend_dispatch_keywords(
+            "treewidth_min_degree", backend, backend_kwargs
+        )
         return _treewidth_min_degree(G)
 
     def __getattr__(self, name):
@@ -22209,8 +22214,12 @@ def asyn_fluidc(G, k, max_iter=100, seed=None):
     return iter(grouped.values())
 
 
-def label_propagation_communities(G):
+def label_propagation_communities(G, *, backend=None, **backend_kwargs):
     """Generates community sets determined by label propagation."""
+    # br-r37-c1-bk-submod: backend dispatch surface match nx.
+    _validate_backend_dispatch_keywords(
+        "label_propagation_communities", backend, backend_kwargs
+    )
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
 

@@ -21,14 +21,19 @@ from networkx.algorithms.community import *  # noqa: F401,F403
 import franken_networkx as _fnx
 
 
-def label_propagation_communities(G):
+def label_propagation_communities(G, *, backend=None, **backend_kwargs):
     """Yield community sets determined by asynchronous label propagation.
 
     Native fnx implementation: dispatches to the same Rust binding that
     ``franken_networkx.label_propagation_communities`` uses, returning
     a generator-of-sets matching ``networkx.algorithms.community``'s
     documented contract.
+
+    br-r37-c1-bk-submod: backend dispatch surface match nx.
     """
+    _fnx._validate_backend_dispatch_keywords(
+        "label_propagation_communities", backend, backend_kwargs
+    )
     return _fnx.label_propagation_communities(G)
 
 
