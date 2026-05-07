@@ -38379,6 +38379,45 @@ def _bulk_add_backend_dispatch_kwargs():
         "symmetric_difference", "disjoint_union",
         "cartesian_product", "tensor_product", "lexicographic_product",
         "strong_product",
+        # br-r37-c1-bulk3-bk: 59 more high-traffic dispatchable APIs
+        # missing the backend surface — second sweep finished after
+        # br-r37-c1-bulk2-bk (50 functions).
+        # Path / SSSP / multi-source variants
+        "estrada_index",
+        "all_pairs_dijkstra_path", "all_pairs_dijkstra_path_length",
+        "all_pairs_bellman_ford_path", "all_pairs_bellman_ford_path_length",
+        "single_source_dijkstra", "single_source_dijkstra_path",
+        "single_source_dijkstra_path_length",
+        "single_source_bellman_ford", "single_source_bellman_ford_path",
+        "single_source_bellman_ford_path_length",
+        "multi_source_dijkstra", "multi_source_dijkstra_path",
+        "multi_source_dijkstra_path_length",
+        "bellman_ford_path", "bellman_ford_path_length",
+        "bellman_ford_predecessor_and_distance",
+        "astar_path", "astar_path_length",
+        "shortest_simple_paths",
+        # Components / branching
+        "attracting_components", "kosaraju_strongly_connected_components",
+        "minimum_spanning_edges", "maximum_spanning_edges",
+        "maximum_branching", "minimum_branching",
+        "maximum_spanning_arborescence", "minimum_spanning_arborescence",
+        # Distance measures
+        "periphery", "center", "resistance_distance",
+        "effective_graph_resistance",
+        # Misc
+        "flow_hierarchy", "global_efficiency", "local_efficiency",
+        "algebraic_connectivity", "fiedler_vector", "spectral_ordering",
+        # Eulerian
+        "is_eulerian", "has_eulerian_path", "is_semieulerian",
+        "eulerian_path", "eulerian_circuit", "eulerize",
+        # Domination / k-core
+        "is_dominating_set", "dominating_set",
+        "core_number", "k_core", "k_shell", "k_crust", "k_corona", "k_truss",
+        # Chordal
+        "is_chordal", "chordal_graph_cliques", "chordal_graph_treewidth",
+        "find_induced_nodes", "complete_to_chordal_graph",
+        # Regularity
+        "is_strongly_regular", "is_distance_regular",
     )
 
     ns = globals()

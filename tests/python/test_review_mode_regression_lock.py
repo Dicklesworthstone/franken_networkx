@@ -2574,3 +2574,71 @@ def test_bulk2_backend_kwarg_surface_match_nx():
     fnx.is_matching(K3, set(), backend=None)
     fnx.dag_longest_path(fnx.DiGraph([(0, 1)]), backend=None)
     fnx.transitive_closure(fnx.DiGraph([(0, 1)]), backend=None)
+
+
+def test_bulk3_backend_kwarg_surface_match_nx():
+    """br-r37-c1-bulk3-bk: 59 more dispatchable APIs across SSSP /
+    multi-source variants, branching/MST, Eulerian, k-core,
+    chordal, regularity families missed the backend dispatch
+    surface.  Continuation of br-r37-c1-{4gxxz, pvapc} sweep —
+    the second / final pass reaching ~100% backend kwarg parity.
+
+    Lock signature parity for all 59 functions + functional
+    spot-check on representative samples."""
+    import inspect
+    targets = [
+        # Path / SSSP / multi-source variants
+        "estrada_index",
+        "all_pairs_dijkstra_path", "all_pairs_dijkstra_path_length",
+        "all_pairs_bellman_ford_path", "all_pairs_bellman_ford_path_length",
+        "single_source_dijkstra", "single_source_dijkstra_path",
+        "single_source_dijkstra_path_length",
+        "single_source_bellman_ford", "single_source_bellman_ford_path",
+        "single_source_bellman_ford_path_length",
+        "multi_source_dijkstra", "multi_source_dijkstra_path",
+        "multi_source_dijkstra_path_length",
+        "bellman_ford_path", "bellman_ford_path_length",
+        "bellman_ford_predecessor_and_distance",
+        "astar_path", "astar_path_length",
+        "shortest_simple_paths",
+        # Components / branching
+        "attracting_components", "kosaraju_strongly_connected_components",
+        "minimum_spanning_edges", "maximum_spanning_edges",
+        "maximum_branching", "minimum_branching",
+        "maximum_spanning_arborescence", "minimum_spanning_arborescence",
+        # Distance measures
+        "periphery", "center", "resistance_distance",
+        "effective_graph_resistance",
+        # Misc
+        "flow_hierarchy", "global_efficiency", "local_efficiency",
+        "algebraic_connectivity", "fiedler_vector", "spectral_ordering",
+        # Eulerian
+        "is_eulerian", "has_eulerian_path", "is_semieulerian",
+        "eulerian_path", "eulerian_circuit", "eulerize",
+        # Domination / k-core
+        "is_dominating_set", "dominating_set",
+        "core_number", "k_core", "k_shell", "k_crust", "k_corona", "k_truss",
+        # Chordal
+        "is_chordal", "chordal_graph_cliques", "chordal_graph_treewidth",
+        "find_induced_nodes", "complete_to_chordal_graph",
+        # Regularity
+        "is_strongly_regular", "is_distance_regular",
+    ]
+    for name in targets:
+        f_sig = inspect.signature(getattr(fnx, name))
+        assert "backend" in f_sig.parameters, (
+            f"fnx.{name} missing backend kwarg"
+        )
+
+    # Functional spot-check (representative samples)
+    P = fnx.path_graph(5)
+    fnx.astar_path(P, 0, 4, backend=None)
+    fnx.bellman_ford_path(P, 0, 4, backend=None)
+    fnx.center(P, backend=None)
+    fnx.periphery(P, backend=None)
+    fnx.k_core(P, backend=None)
+    list(fnx.eulerian_circuit(fnx.cycle_graph(4), backend=None))
+    fnx.global_efficiency(P, backend=None)
+    fnx.is_eulerian(fnx.cycle_graph(4), backend=None)
+    fnx.is_chordal(fnx.cycle_graph(4), backend=None)
+    fnx.is_strongly_regular(fnx.complete_graph(4), backend=None)
