@@ -2399,3 +2399,37 @@ def test_to_nested_tuple_typed_errors_match_nx():
     assert fnx.to_nested_tuple(T, 0, canonical_form=True) == nx.to_nested_tuple(
         nx.balanced_tree(2, 2), 0, canonical_form=True
     )
+
+
+def test_bfs_layers_nonmember_int_source_typeerror_match_nx():
+    """br-r37-c1-bfsl-typeerr: bfs_layers with sources= as a single
+    int that's NOT in G raised NodeNotFound where nx raises
+    TypeError.  fnx's wrapper had a try/except TypeError fallback
+    that routed to the Rust raw binding, which pre-checked
+    membership.  Too helpful — masked nx's leaky-but-documented
+    contract.
+
+    Lock TypeError parity for non-member single int + None +
+    valid sources regression."""
+    P5 = fnx.path_graph(5)
+
+    # Non-member single int → TypeError (matching nx's set(sources) raise)
+    with pytest.raises(TypeError, match=r"'int' object is not iterable"):
+        list(fnx.bfs_layers(P5, sources=99))
+
+    # None → TypeError (NoneType not iterable)
+    with pytest.raises(TypeError, match=r"'NoneType' object is not iterable"):
+        list(fnx.bfs_layers(P5, sources=None))
+
+    # Member single int → works (wrapped to [n])
+    assert list(fnx.bfs_layers(P5, sources=0)) == [[0], [1], [2], [3], [4]]
+
+    # List of bad members → NetworkXError on the bad node
+    with pytest.raises(nx.NetworkXError, match=r"The node 99 is not in"):
+        list(fnx.bfs_layers(P5, sources=[99]))
+
+    # Valid list source → works
+    assert list(fnx.bfs_layers(P5, sources=[0, 1])) == [[0, 1], [2], [3], [4]]
+
+    # Empty source list → empty layers
+    assert list(fnx.bfs_layers(P5, sources=[])) == []

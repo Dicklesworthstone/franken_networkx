@@ -6729,11 +6729,14 @@ def bfs_layers(G, sources):
         hash(sources)
         sources_list = [sources]
     else:
-        try:
-            iterator = iter(sources)
-        except TypeError:
-            return _bfs_layers_raw(G, sources)
-        sources_list = list(iterator)
+        # br-r37-c1-bfsl-typeerr: nx raises TypeError when sources
+        # is non-iterable AND not in G — its ``set(sources)`` call
+        # propagates ``TypeError: 'int' object is not iterable``.
+        # fnx previously caught the TypeError here and routed to the
+        # Rust raw binding (which then raised NodeNotFound) — too
+        # helpful, masked nx's documented contract.  Let the natural
+        # TypeError surface.
+        sources_list = list(sources)
         for s in sources_list:
             hash(s)
         sources = sources_list
