@@ -6197,6 +6197,14 @@ def minimum_spanning_edges(G, algorithm="kruskal", weight="weight", keys=True, d
     ``kruskal`` and raised ``ValueError`` on the other two — a real
     contract gap when users explicitly request a non-default
     algorithm. Delegate the non-kruskal cases to nx.
+
+    br-r37-c1-mse-gen: this is a generator function (``yield from``)
+    so ``isinstance(result, types.GeneratorType)`` matches nx's
+    contract.  The Rust kruskal fast path returns a ``list_iterator``
+    (eagerly materialised); the delegate paths return a true
+    generator.  Wrapping both in ``yield from`` normalises the
+    return type for callers that introspect generator-ness (e.g.
+    Cython interop, ``inspect.isgenerator``).
     """
     # br-mstcallable / br-mstweightwrong: same suboptimal-MST issue
     # as the tree functions; delegate anything weighted to nx.
@@ -6205,8 +6213,9 @@ def minimum_spanning_edges(G, algorithm="kruskal", weight="weight", keys=True, d
         and isinstance(weight, str)
         and not _mst_has_weight_edge_attr(G, weight)
     ):
-        return _raw_minimum_spanning_edges(G, algorithm=algorithm, weight=weight, keys=keys, data=data, ignore_nan=ignore_nan)
-    return _call_networkx_for_parity(
+        yield from _raw_minimum_spanning_edges(G, algorithm=algorithm, weight=weight, keys=keys, data=data, ignore_nan=ignore_nan)
+        return
+    yield from _call_networkx_for_parity(
         "minimum_spanning_edges",
         G,
         algorithm=algorithm,
@@ -6222,6 +6231,10 @@ def maximum_spanning_edges(G, algorithm="kruskal", weight="weight", keys=True, d
 
     br-spanalgos: see minimum_spanning_edges — delegate non-kruskal
     algorithms to nx.
+
+    br-r37-c1-mse-gen: generator function (``yield from``) so the
+    Rust fast path's ``list_iterator`` is normalised to a true
+    generator matching nx's contract.
     """
     from franken_networkx._fnx import maximum_spanning_edges as _raw_mse
     # br-mstcallable / br-mstweightwrong: see minimum_spanning_edges.
@@ -6230,8 +6243,9 @@ def maximum_spanning_edges(G, algorithm="kruskal", weight="weight", keys=True, d
         and isinstance(weight, str)
         and not _mst_has_weight_edge_attr(G, weight)
     ):
-        return _raw_mse(G, algorithm=algorithm, weight=weight, keys=keys, data=data, ignore_nan=ignore_nan)
-    return _call_networkx_for_parity(
+        yield from _raw_mse(G, algorithm=algorithm, weight=weight, keys=keys, data=data, ignore_nan=ignore_nan)
+        return
+    yield from _call_networkx_for_parity(
         "maximum_spanning_edges",
         G,
         algorithm=algorithm,

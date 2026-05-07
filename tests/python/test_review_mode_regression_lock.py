@@ -3680,3 +3680,49 @@ def test_graph_edges_single_bad_node_raises_match_nx():
     G_str.add_edge("foo", "bar")
     assert list(G_str.edges("foo")) == [("foo", "bar")]
     assert list(P.edges("missing")) == []
+
+
+def test_minimum_maximum_spanning_edges_are_true_generators():
+    """br-r37-c1-mse-gen: ``minimum_spanning_edges`` and
+    ``maximum_spanning_edges`` returned a ``list_iterator`` from
+    the Rust kruskal fast path while nx returns a true
+    ``generator``.  Callers introspecting the return type
+    (``isinstance(result, types.GeneratorType)``,
+    ``inspect.isgenerator``) saw drop-in failures.
+
+    Both wrappers are now generator functions (yield from)
+    so the return type is normalised to ``generator`` across
+    every code path (Rust kruskal default, weighted delegate,
+    prim, boruvka)."""
+    import types
+    import inspect
+
+    P = fnx.path_graph(5)
+    W = fnx.Graph([(0, 1, {"weight": 2}),
+                   (1, 2, {"weight": 3}),
+                   (2, 3, {"weight": 1})])
+
+    for fn in (fnx.minimum_spanning_edges, fnx.maximum_spanning_edges):
+        # Rust kruskal default
+        r = fn(P)
+        assert isinstance(r, types.GeneratorType), \
+            f"{fn.__name__} default kruskal not a generator: {type(r).__name__}"
+        assert inspect.isgenerator(r)
+
+        # Weighted delegate path
+        r = fn(W, weight="weight")
+        assert isinstance(r, types.GeneratorType)
+
+        # Prim / Boruvka delegate paths
+        for algo in ("prim", "boruvka"):
+            r = fn(P, algorithm=algo)
+            assert isinstance(r, types.GeneratorType)
+
+    # Content regression: weighted MST edges still correct
+    edges = sorted((u, v) for u, v, d in fnx.minimum_spanning_edges(W, data=True))
+    assert edges == [(0, 1), (1, 2), (2, 3)]
+
+    # Empty data pass-through
+    assert list(fnx.minimum_spanning_edges(P, data=False)) == [
+        (0, 1), (1, 2), (2, 3), (3, 4)
+    ]
