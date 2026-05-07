@@ -4033,7 +4033,13 @@ pub fn k_corona_rust(py: Python<'_>, g: &Bound<'_, PyAny>, k: usize) -> PyResult
 /// Reconstruct labeled tree from Prüfer sequence.
 #[pyfunction]
 pub fn from_prufer_sequence_rust(py: Python<'_>, sequence: Vec<usize>) -> PyResult<PyObject> {
-    let result = py.allow_threads(|| fnx_algorithms::from_prufer_sequence(&sequence));
+    // br-r37-c1-zs68s defense-in-depth: the Python wrapper validates
+    // upstream, but if the Rust function is called with an out-of-range
+    // value, return a typed NetworkXError rather than letting a Rust
+    // panic leak through PyO3 as a PanicException.
+    let result = py
+        .allow_threads(|| fnx_algorithms::from_prufer_sequence(&sequence))
+        .map_err(NetworkXError::new_err)?;
     let edges = PyList::new(
         py,
         result.edges.iter().map(|(u, v)| {

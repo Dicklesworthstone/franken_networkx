@@ -9500,10 +9500,24 @@ pub fn k_truss(graph: &Graph, k: usize) -> KTrussResult {
 /// Given a sequence of `n - 2` integers in `[0, n)`, returns the `n - 1`
 /// edges of the corresponding labeled tree on `n` nodes.
 ///
+/// Returns `Err` with an `nx`-matching error string when any value in the
+/// sequence is out of range `[0, n)` (br-r37-c1-zs68s defense-in-depth:
+/// the Python wrapper validates upstream, but the Rust function must not
+/// panic on its own — out-of-range indexing on `degree[i]` previously
+/// triggered a PyO3 PanicException rather than a typed error).
+///
 /// Matches `networkx.from_prufer_sequence`.
-#[must_use]
-pub fn from_prufer_sequence(sequence: &[usize]) -> PruferResult {
+pub fn from_prufer_sequence(sequence: &[usize]) -> Result<PruferResult, String> {
     let n = sequence.len() + 2;
+    for &i in sequence {
+        if i >= n {
+            return Err(format!(
+                "Invalid Prufer sequence: Values must be between 0 and {}, got {}",
+                n - 1,
+                i
+            ));
+        }
+    }
     let mut degree = vec![1_usize; n];
     for &i in sequence {
         degree[i] += 1;
@@ -9523,7 +9537,7 @@ pub fn from_prufer_sequence(sequence: &[usize]) -> PruferResult {
     if last.len() == 2 {
         edges.push((last[0].min(last[1]), last[0].max(last[1])));
     }
-    PruferResult { edges }
+    Ok(PruferResult { edges })
 }
 
 /// Extract the Prüfer sequence from a labeled tree.

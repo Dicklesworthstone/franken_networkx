@@ -1136,6 +1136,28 @@ def test_from_prufer_sequence_panic_on_oob_value_match_nx():
         )
 
 
+def test_from_prufer_sequence_rust_no_panic_on_oob_value():
+    """br-r37-c1-zs68s defense-in-depth: even if a future caller
+    bypasses the Python wrapper validation and invokes the Rust
+    binding directly, ``_fnx.from_prufer_sequence_rust`` must NOT
+    panic.  The previous Rust impl indexed ``degree[i]`` where
+    ``i >= n`` triggers a Rust panic that leaks through PyO3 as
+    PanicException.  The hardened Rust now returns a typed
+    NetworkXError on the same input."""
+    import franken_networkx as _fnx_mod
+    rust_fn = _fnx_mod._fnx.from_prufer_sequence_rust
+    # Out-of-range values previously panicked; should now raise
+    # NetworkXError with nx-matching message.
+    for seq, n_minus_1, bad in [([5, 5], 3, 5), ([99], 2, 99),
+                                  ([0, 0, 10], 4, 10)]:
+        with pytest.raises(nx.NetworkXError,
+                           match=f"between 0 and {n_minus_1}, got {bad}"):
+            rust_fn(seq)
+    # Valid sequences still produce edge lists.
+    edges = rust_fn([0, 1])
+    assert len(edges) == 3  # n - 1 = 3 edges for n=4 nodes
+
+
 def test_balanced_tree_negative_r_match_nx_geometric_formula():
     """br-r37-c1-bt-neg-r: balanced_tree(r, h) for negative r used to
     short-circuit blanket-return ``empty_graph(0)``.  nx instead
