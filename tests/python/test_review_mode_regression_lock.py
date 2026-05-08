@@ -8902,3 +8902,47 @@ def test_random_regular_graph_seeded_output_matches_nx():
     G_explicit = fnx.random_regular_graph(3, 6, seed=42, create_using=fnx.Graph())
     G_implicit = fnx.random_regular_graph(3, 6, seed=42)
     assert sorted(G_explicit.edges()) == sorted(G_implicit.edges())
+
+
+def test_relaxed_caveman_graph_seeded_output_matches_nx():
+    """br-r37-c1-rcgseed: ``relaxed_caveman_graph(l, k, p, seed=N)``
+    must produce the exact same graph as nx for drop-in seeded
+    reproducibility.
+
+    Pre-fix fnx used a different rewiring algorithm:
+      - removed the edge first, then LOOPED ``rng.randint`` until
+        finding a non-conflicting target
+      - different RNG state progression AND different edge-set
+        outcome from nx
+
+    nx's algorithm:
+      - one ``seed.choice(nodes)`` to pick a target
+      - skip the rewire if target already shares an edge with u
+        (no looping retries)
+      - remove the original edge only if rewire goes through
+
+    Drop-in callers using ``seed=N`` for reproducibility silently
+    got different graphs.
+
+    Fix: match nx's algorithm exactly (single ``rng.choice`` +
+    skip-on-conflict).
+    """
+    import networkx as nx
+
+    for seed in (42, 0, 99, 7, 123):
+        for l, k, p in ((3, 4, 0.3), (2, 5, 0.5), (4, 3, 0.1), (5, 2, 0.7)):
+            f_edges = sorted(fnx.relaxed_caveman_graph(l, k, p, seed=seed).edges())
+            n_edges = sorted(nx.relaxed_caveman_graph(l, k, p, seed=seed).edges())
+            assert f_edges == n_edges, (
+                f"relaxed_caveman_graph(l={l}, k={k}, p={p}, seed={seed}):\n"
+                f"  fnx={f_edges}\n  nx ={n_edges}"
+            )
+
+    # NaN seed surfaces nx-shape ValueError
+    import math
+    try:
+        fnx.relaxed_caveman_graph(3, 4, 0.3, seed=float("nan"))
+    except ValueError as e:
+        assert "nan cannot be used" in str(e)
+    else:
+        raise AssertionError("NaN seed should raise ValueError")

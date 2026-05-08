@@ -31261,16 +31261,21 @@ def relaxed_caveman_graph(l, k, p, seed=None):
         )
     rng = _random.Random(seed)
     G = caveman_graph(l, k)
-    for u, v in list(G.edges()):
-        if rng.random() < p:
+    # br-r37-c1-rcgseed: nx's algorithm uses ``seed.choice(nodes)`` to
+    # pick a single rewire target, and SKIPS the rewire if that target
+    # already shares an edge with u (no looping retries).  fnx's old
+    # algorithm removed the edge first then looped ``rng.randint``
+    # until finding a non-conflicting target — different RNG state
+    # progression AND different edge-set outcome.  Match nx's
+    # algorithm exactly so seeded output is reproducible drop-in.
+    nodes = list(G)
+    for u, v in G.edges():
+        if rng.random() < p:  # rewire the edge
+            x = rng.choice(nodes)
+            if G.has_edge(u, x):
+                continue
             G.remove_edge(u, v)
-            nv = rng.randint(0, l * k - 1)
-            att = 0
-            while (nv == u or G.has_edge(u, nv)) and att < l * k:
-                nv = rng.randint(0, l * k - 1)
-                att += 1
-            if att < l * k:
-                G.add_edge(u, nv)
+            G.add_edge(u, x)
     return G
 
 
