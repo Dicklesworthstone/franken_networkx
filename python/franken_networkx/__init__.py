@@ -26467,6 +26467,16 @@ class NodeView(Mapping):
     def data(self, data=True, default=None):
         return self(data=data, default=default)
 
+    def __repr__(self):
+        # br-r37-c1-snvrepr: nx's subgraph-view NodeView repr is
+        # ``NodeView((node1, node2, ...))`` — same format as the
+        # graph-level NodeView. fnx's subgraph NodeView is a
+        # different class (``franken_networkx.NodeView`` defined
+        # alongside _FilteredEdgeView; not the Rust-backed NodeView
+        # used on plain Graph) and had no ``__repr__``, falling
+        # through to default ``<...object at 0x...>``.
+        return f"NodeView({tuple(self)!r})"
+
 
 class _FilteredEdgeView:
     def __init__(self, view):
@@ -27384,6 +27394,38 @@ class _AssignedPrivateDegreeView:
         nodes = [node for node in nbunch if node in self._graph]
         return type(self)(self._graph, nodes=nodes, weight=weight)
 
+    def __repr__(self):
+        # br-r37-c1-snvrepr: nx's subgraph DegreeView /
+        # DiDegreeView / MultiDegreeView / DiMultiDegreeView repr
+        # as ``<ClassName>({node: degree, ...})``. fnx had no
+        # __repr__ here, falling through to default
+        # ``<...object at 0x...>``. Use ``type(self).__name__`` so
+        # the subclasses below pick up the right canonical name.
+        return f"{type(self).__name__}({dict(self)!r})"
+
+
+# br-r37-c1-snvrepr: 4 trivial subclasses with canonical nx
+# ``__name__`` so subgraph .degree dispatch (above) picks the
+# right per-class name.
+class _AssignedDegreeView(_AssignedPrivateDegreeView):
+    pass
+_AssignedDegreeView.__name__ = "DegreeView"
+
+
+class _AssignedDiDegreeView(_AssignedPrivateDegreeView):
+    pass
+_AssignedDiDegreeView.__name__ = "DiDegreeView"
+
+
+class _AssignedMultiDegreeView(_AssignedPrivateDegreeView):
+    pass
+_AssignedMultiDegreeView.__name__ = "MultiDegreeView"
+
+
+class _AssignedDiMultiDegreeView(_AssignedPrivateDegreeView):
+    pass
+_AssignedDiMultiDegreeView.__name__ = "DiMultiDegreeView"
+
 
 def _private_aware_iter(raw_iter):
     def __iter__(self):
@@ -27464,7 +27506,21 @@ _EDGE_VIEW_GRAPH_OWNER: "_weakref.WeakValueDictionary[int, object]" = (
 def _private_aware_degree(raw_degree):
     def degree(self):
         if _has_networkx_private_storage(self):
-            return _AssignedPrivateDegreeView(self)
+            # br-r37-c1-snvrepr: dispatch to canonical-named subclass
+            # so ``type(view).__name__`` matches nx's per-graph-class
+            # form (DegreeView/DiDegreeView/MultiDegreeView/
+            # DiMultiDegreeView).
+            directed = self.is_directed()
+            multi = self.is_multigraph()
+            if multi and directed:
+                cls = _AssignedDiMultiDegreeView
+            elif multi:
+                cls = _AssignedMultiDegreeView
+            elif directed:
+                cls = _AssignedDiDegreeView
+            else:
+                cls = _AssignedDegreeView
+            return cls(self)
         return raw_degree.__get__(self, type(self))
 
     return property(degree)

@@ -8200,3 +8200,83 @@ def test_subgraph_view_edges_class_names_match_nx():
     assert len(S.edges) == 2
     # Set algebra still works
     assert S.edges & {(1, 2)} == {(1, 2)}
+
+
+def test_subgraph_view_nodes_and_degree_class_names_and_repr():
+    """br-r37-c1-snvrepr: subgraph-view ``.nodes`` and ``.degree``
+    diverged from nx on both class name (degree only) and repr
+    formatting (both):
+
+      class             S.nodes repr           S.degree class           S.degree repr
+      -----             ------------           ----------------         -------------
+      Graph             NodeView((1,2,3))      DegreeView               DegreeView({...})
+      DiGraph           NodeView((1,2,3))      DiDegreeView             DiDegreeView({...})
+      MultiGraph        NodeView((1,2,3))      MultiDegreeView          MultiDegreeView({...})
+      MultiDiGraph      NodeView((1,2,3))      DiMultiDegreeView        DiMultiDegreeView({...})
+
+    Pre-fix:
+      - Subgraph ``NodeView`` (defined alongside _FilteredEdgeView,
+        not the Rust-bound one used on plain Graph) had no
+        ``__repr__`` — fell through to default
+        ``<franken_networkx.NodeView object at 0x...>``.
+      - All four ``S.degree`` views were instances of the private
+        ``_AssignedPrivateDegreeView`` regardless of underlying
+        graph class — wrong ``type(view).__name__`` and default
+        ``<...object at 0x...>`` repr.
+
+    Drop-in code that introspects ``type(view).__name__`` to detect
+    direction / multi-ness from a degree view, parses
+    ``repr(view).startswith('DiDegreeView(')``, or logs/displays
+    subgraphs silently misbehaved.
+
+    Fix:
+      1. NodeView (subgraph variant): add ``__repr__`` returning
+         ``f"NodeView({tuple(self)!r})"``.
+      2. Define 4 trivial ``_AssignedPrivateDegreeView`` subclasses
+         (``_AssignedDegreeView`` / ``_AssignedDiDegreeView`` /
+         ``_AssignedMultiDegreeView`` / ``_AssignedDiMultiDegreeView``)
+         with canonical nx ``__name__``.
+      3. Dispatch in ``_private_aware_degree`` based on
+         ``self.is_directed()`` / ``self.is_multigraph()``.
+      4. Add base-class ``__repr__`` using ``type(self).__name__``.
+    """
+    import networkx as nx
+
+    cases = [
+        (fnx.Graph,        nx.Graph,        "DegreeView"),
+        (fnx.DiGraph,      nx.DiGraph,      "DiDegreeView"),
+        (fnx.MultiGraph,   nx.MultiGraph,   "MultiDegreeView"),
+        (fnx.MultiDiGraph, nx.MultiDiGraph, "DiMultiDegreeView"),
+    ]
+    for f_cls, n_cls, expected_degree_name in cases:
+        Gf = f_cls([(1, 2), (2, 3), (3, 4)])
+        Gn = n_cls([(1, 2), (2, 3), (3, 4)])
+        Sf = Gf.subgraph([1, 2, 3])
+        Sn = Gn.subgraph([1, 2, 3])
+
+        # NodeView repr parity
+        assert repr(Sf.nodes) == repr(Sn.nodes), (
+            f"{f_cls.__name__}.subgraph().nodes repr: "
+            f"fnx={repr(Sf.nodes)!r} nx={repr(Sn.nodes)!r}"
+        )
+        assert repr(Sf.nodes).startswith("NodeView("), (
+            f"{f_cls.__name__}.subgraph().nodes repr should start "
+            f"with 'NodeView(', got: {repr(Sf.nodes)}"
+        )
+
+        # DegreeView class-name + repr parity
+        assert type(Sf.degree).__name__ == expected_degree_name, (
+            f"{f_cls.__name__}.subgraph().degree class: "
+            f"fnx={type(Sf.degree).__name__} expected={expected_degree_name}"
+        )
+        assert repr(Sf.degree) == repr(Sn.degree), (
+            f"{f_cls.__name__}.subgraph().degree repr: "
+            f"fnx={repr(Sf.degree)} nx={repr(Sn.degree)}"
+        )
+
+    # Functional smoke
+    G = fnx.path_graph(5)
+    S = G.subgraph([1, 2, 3])
+    assert list(S.nodes) == [1, 2, 3]
+    assert dict(S.degree) == {1: 1, 2: 2, 3: 1}
+    assert S.degree[2] == 2
