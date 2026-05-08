@@ -6788,3 +6788,58 @@ def test_resistance_distance_empty_raises_match_nx():
     assert round(fnx.resistance_distance(G_f, 0, 2), 4) == round(
         nx_mod.resistance_distance(G_n, 0, 2), 4
     )
+
+
+def test_find_negative_cycle_no_cycle_message_match_nx():
+    """br-r37-c1-fnegmsg: ``find_negative_cycle`` must raise the
+    nx-shaped ``NetworkXError("No negative cycles detected.")`` when
+    no negative cycle exists.
+
+    Pre-fix the Rust ``_raw_find_negative_cycle`` raised
+    ``NetworkXError("No negative cycle found.")`` (singular, 'found').
+    nx's wording is ``"No negative cycles detected."`` (plural,
+    'detected').  Drop-in callers regex-matching nx's exact message
+    string failed under fnx.
+
+    Fix: wrap the Rust raw call and translate the message to nx's
+    exact wording when the no-cycle case fires.
+    """
+    import franken_networkx as fnx
+    import networkx as nx_mod
+
+    # Undirected (Rust path): no negative cycle on a positive-weight
+    # path -> NetworkXError with nx's wording
+    with pytest.raises(
+        nx_mod.NetworkXError, match=r"No negative cycles detected\."
+    ):
+        fnx.find_negative_cycle(fnx.path_graph(3), 0)
+    with pytest.raises(
+        nx_mod.NetworkXError, match=r"No negative cycles detected\."
+    ):
+        nx_mod.find_negative_cycle(nx_mod.path_graph(3), 0)
+
+    # Directed (delegates to nx): same wording
+    DG_f = fnx.DiGraph([(0, 1), (1, 2)])
+    DG_n = nx_mod.DiGraph([(0, 1), (1, 2)])
+    with pytest.raises(
+        nx_mod.NetworkXError, match=r"No negative cycles detected\."
+    ):
+        fnx.find_negative_cycle(DG_f, 0)
+    with pytest.raises(
+        nx_mod.NetworkXError, match=r"No negative cycles detected\."
+    ):
+        nx_mod.find_negative_cycle(DG_n, 0)
+
+    # Sanity: actual negative cycle still found correctly
+    DG_f = fnx.DiGraph()
+    DG_n = nx_mod.DiGraph()
+    for u, v, w in [(0, 1, 5), (1, 2, -10), (2, 0, 1)]:
+        DG_f.add_edge(u, v, weight=w)
+        DG_n.add_edge(u, v, weight=w)
+    assert fnx.find_negative_cycle(DG_f, 0) == nx_mod.find_negative_cycle(DG_n, 0)
+
+    # Sanity: missing source still raises NodeNotFound
+    with pytest.raises(nx_mod.NodeNotFound):
+        fnx.find_negative_cycle(DG_f, 99)
+    with pytest.raises(nx_mod.NodeNotFound):
+        nx_mod.find_negative_cycle(DG_n, 99)

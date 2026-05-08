@@ -12014,7 +12014,16 @@ def find_negative_cycle(G, source, weight="weight"):
         return _call_networkx_for_parity(
             "find_negative_cycle", G, source, weight=weight
         )
-    return _raw_find_negative_cycle(G, source, weight)
+    try:
+        return _raw_find_negative_cycle(G, source, weight)
+    except NetworkXError as exc:
+        # br-r37-c1-fnegmsg: nx says "No negative cycles detected."
+        # (plural, "detected").  fnx's Rust path says "No negative
+        # cycle found." (singular, "found").  Re-raise with nx's
+        # exact wording for drop-in error-message matching.
+        if "No negative cycle found" in str(exc):
+            raise NetworkXError("No negative cycles detected.") from exc
+        raise
 
 # Algorithm functions — graph predicates
 from franken_networkx._fnx import (
