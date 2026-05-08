@@ -8809,3 +8809,52 @@ def test_adjacency_generator_yields_dict_inner():
             assert isinstance(keyed_attrs, dict)
             for key, attrs in keyed_attrs.items():
                 assert isinstance(attrs, dict)
+
+
+def test_nodes_call_unexpected_kwarg_error_qualifies_class_name():
+    """br-r37-c1-callerrqual: nx qualifies the
+    ``__call__() got an unexpected keyword argument`` TypeError
+    with the view class name (e.g. ``NodeView.__call__() got an
+    unexpected keyword argument 'badarg'``).  fnx's two view-call
+    wrappers (``_node_view_call_with_attr_support`` and
+    ``_edge_view_call_with_nbunch_first``) raised the bare
+    ``__call__()`` error without class qualification — drop-in code
+    parsing the error message for class hints silently misbehaved.
+
+    Fix: prepend ``f"{type(self).__name__}.__call__()"`` to both
+    error formats.
+
+    Affects:
+      G.nodes(badarg=1)         (all 4 graph classes)
+
+    Note: the ``EdgeView`` family on DiGraph/MultiGraph/MultiDiGraph
+    raises a similar error from Python's default mechanism (uses
+    ``tp_name`` rather than the wrapper) — that's a separate
+    architectural fix and remains out of scope for this cycle.
+    Graph.edges and the NodeView family go through the wrapped
+    path and DO benefit from the qualification.
+    """
+    import networkx as nx
+
+    for cls_name in ("Graph", "DiGraph", "MultiGraph", "MultiDiGraph"):
+        Gf = getattr(fnx, cls_name)()
+        Gn = getattr(nx, cls_name)()
+        # nodes(badarg=1)
+        try:
+            Gf.nodes(badarg=1)
+        except TypeError as e:
+            f_msg = str(e)
+        else:
+            raise AssertionError(f"{cls_name}.nodes(badarg=1) did not raise")
+        try:
+            Gn.nodes(badarg=1)
+        except TypeError as e:
+            n_msg = str(e)
+        assert f_msg == n_msg, (
+            f"{cls_name}.nodes(badarg=1): fnx={f_msg!r} nx={n_msg!r}"
+        )
+        # Both should start with "NodeView." (the canonical class name).
+        assert f_msg.startswith("NodeView."), (
+            f"{cls_name}.nodes(badarg=1) error message should start with "
+            f"'NodeView.', got {f_msg!r}"
+        )

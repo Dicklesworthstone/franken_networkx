@@ -440,7 +440,13 @@ def _edge_view_call_with_nbunch_first(edge_view_call):
         default = kwargs.pop("default", _unset)
         if kwargs:
             unexpected = next(iter(kwargs))
-            raise TypeError(f"__call__() got an unexpected keyword argument '{unexpected}'")
+            # br-r37-c1-callerrqual: nx qualifies this error with the
+            # view's class name — e.g. ``OutEdgeView.__call__() got
+            # an unexpected keyword argument 'badarg'``.
+            raise TypeError(
+                f"{type(self).__name__}.__call__() got an unexpected "
+                f"keyword argument '{unexpected}'"
+            )
 
         if len(args) > 3:
             raise TypeError(
@@ -637,7 +643,13 @@ def _node_view_call_with_attr_support(node_view_call):
         default = kwargs.pop("default", _unset)
         if kwargs:
             unexpected = next(iter(kwargs))
-            raise TypeError(f"__call__() got an unexpected keyword argument '{unexpected}'")
+            # br-r37-c1-callerrqual: nx qualifies this error with
+            # the view's class name — e.g. ``NodeView.__call__() got
+            # an unexpected keyword argument 'badarg'``.
+            raise TypeError(
+                f"{type(self).__name__}.__call__() got an unexpected "
+                f"keyword argument '{unexpected}'"
+            )
 
         if len(args) > 2:
             raise TypeError(
