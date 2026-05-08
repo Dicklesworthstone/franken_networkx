@@ -7921,3 +7921,68 @@ def test_signature_parity_with_backend_dispatch_for_dispatchable_wrappers():
     G = fnx.cycle_graph(4)
     cycles = fnx.minimum_cycle_basis(G, backend="networkx")
     assert len(cycles) == 1
+
+
+def test_undirected_and_multi_degree_view_class_names_match_nx():
+    """br-r37-c1-mdvname: completes the cycle-188 directed in/out
+    degree view-name fix by aligning the four undirected-/multi-/
+    self-direction degree views with nx's canonical class names:
+
+      Graph.degree            → DegreeView
+      DiGraph.degree          → DiDegreeView
+      MultiGraph.degree       → MultiDegreeView
+      MultiDiGraph.degree     → DiMultiDegreeView
+
+    Pre-fix:
+      Graph.degree class name was ``_WeightAwareDegreeView``
+      DiGraph.degree class name was ``_WeightAwareDegreeView``
+      MultiGraph.degree class name was ``MultiGraphDegreeView``
+      MultiDiGraph.degree class name was ``MultiDiGraphDegreeView``
+      MultiGraph.degree had no __repr__ (default object.__repr__)
+      MultiDiGraph.degree had no __repr__ (default object.__repr__)
+
+    Pre-fix the shared module-level _degree_view_repr hardcoded
+    ``DegreeView`` as the label, masking the class-name divergence in
+    the displayed repr but still wrong on ``type(view).__name__``.
+
+    Fix:
+      - Two trivial subclasses of _WeightAwareDegreeView
+        (_GraphDegreeView named "DegreeView", _DiGraphDegreeView
+        named "DiDegreeView") + bind to _graph_degree / _digraph_degree.
+      - __name__ assignments on MultiGraphDegreeView ("MultiDegreeView")
+        and MultiDiGraphDegreeView ("DiMultiDegreeView").
+      - __repr__ added on the two Multi* classes.
+      - module-level _degree_view_repr now uses
+        type(self).__name__ instead of hardcoded "DegreeView".
+    """
+    import networkx as nx
+
+    cases = [
+        (fnx.Graph,        nx.Graph,        "DegreeView"),
+        (fnx.DiGraph,      nx.DiGraph,      "DiDegreeView"),
+        (fnx.MultiGraph,   nx.MultiGraph,   "MultiDegreeView"),
+        (fnx.MultiDiGraph, nx.MultiDiGraph, "DiMultiDegreeView"),
+    ]
+    for f_cls, n_cls, expected_name in cases:
+        Gf = f_cls([(1, 2), (2, 3)])
+        Gn = n_cls([(1, 2), (2, 3)])
+        assert type(Gf.degree).__name__ == expected_name, (
+            f"{f_cls.__name__}.degree __name__ should be "
+            f"{expected_name!r}, got {type(Gf.degree).__name__!r}"
+        )
+        assert repr(Gf.degree).startswith(f"{expected_name}("), (
+            f"{f_cls.__name__}.degree repr should start with "
+            f"{expected_name!r}(, got: {repr(Gf.degree)}"
+        )
+        assert repr(Gf.degree) == repr(Gn.degree), (
+            f"{f_cls.__name__}.degree repr should match nx: "
+            f"fnx={repr(Gf.degree)} nx={repr(Gn.degree)}"
+        )
+
+    # Behavior smoke tests post-fix
+    G = fnx.path_graph(5)
+    assert G.degree[2] == 2
+    assert dict(G.degree) == {0: 1, 1: 2, 2: 2, 3: 2, 4: 1}
+    DG = fnx.DiGraph([(1, 2), (2, 3)])
+    assert DG.degree[2] == 2
+    assert dict(DG.degree) == {1: 1, 2: 2, 3: 1}

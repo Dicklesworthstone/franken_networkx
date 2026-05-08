@@ -2529,6 +2529,11 @@ _MULTIDIGRAPH_NODE_VIEW_CALL = _MULTIDIGRAPH_NODE_VIEW_TYPE.__call__
 
 
 class MultiGraphDegreeView:
+    # br-r37-c1-mdvname: nx exposes MultiGraph.degree as
+    # ``MultiDegreeView``. Rename the fnx wrapper class to match.
+    def __repr__(self):
+        return f"{type(self).__name__}({dict(self)!r})"
+
     def __init__(self, graph, *, nodes=None, weight=None):
         self._graph = graph
         self._nodes = nodes
@@ -2599,7 +2604,18 @@ class MultiGraphDegreeView:
         return id(self._graph)
 
 
+# br-r37-c1-mdvname: ``type(MG.degree).__name__`` should return
+# nx's canonical ``MultiDegreeView``.  Set ``__name__`` so
+# introspection matches.
+MultiGraphDegreeView.__name__ = "MultiDegreeView"
+
+
 class MultiDiGraphDegreeView:
+    # br-r37-c1-mdvname: nx exposes MultiDiGraph.degree as
+    # ``DiMultiDegreeView``. Rename the fnx wrapper class to match.
+    def __repr__(self):
+        return f"{type(self).__name__}({dict(self)!r})"
+
     def __init__(self, graph, *, nodes=None, weight=None):
         self._graph = graph
         self._nodes = nodes
@@ -2668,6 +2684,12 @@ class MultiDiGraphDegreeView:
 
     def __hash__(self):
         return id(self._graph)
+
+
+# br-r37-c1-mdvname: ``type(MDG.degree).__name__`` should return
+# nx's canonical ``DiMultiDegreeView`` (not the fnx-internal class
+# name).  Set ``__name__`` on the class so introspection matches.
+MultiDiGraphDegreeView.__name__ = "DiMultiDegreeView"
 
 
 class _DirectedDegreeView:
@@ -2898,7 +2920,13 @@ class _WeightAwareDegreeView:
             raise KeyError(node) from exc
 
     def __repr__(self):
-        return repr(self._raw)
+        # br-r37-c1-mdvname: previously delegated to ``repr(self._raw)``
+        # which always produces ``DegreeView(...)`` (the underlying
+        # Rust raw view's repr). After splitting into ``_GraphDegreeView``
+        # (DegreeView) and ``_DiGraphDegreeView`` (DiDegreeView)
+        # subclasses, format using ``type(self).__name__`` so DiGraph's
+        # repr correctly shows ``DiDegreeView({...})``.
+        return f"{type(self).__name__}({dict(self)!r})"
 
     def __reduce__(self):
         # br-r37-c1-dv-pkl: pickle the raw Rust DegreeView (Graph) /
@@ -3097,6 +3125,22 @@ except (AttributeError, TypeError):
     pass
 
 
+# br-r37-c1-mdvname: ``type(G.degree).__name__`` should return
+# nx's canonical ``DegreeView`` (Graph) or ``DiDegreeView``
+# (DiGraph). Define two trivial subclasses with the right
+# ``__name__`` so introspection matches nx.  ``_WeightAwareDegreeView
+# .__repr__`` already returned ``repr(self._raw)`` with the right
+# text — these subclasses inherit that behaviour.
+class _GraphDegreeView(_WeightAwareDegreeView):
+    pass
+_GraphDegreeView.__name__ = "DegreeView"
+
+
+class _DiGraphDegreeView(_WeightAwareDegreeView):
+    pass
+_DiGraphDegreeView.__name__ = "DiDegreeView"
+
+
 # Capture the raw Rust descriptors before overriding so our wrapper can
 # delegate to them.
 _GRAPH_RAW_DEGREE = Graph.degree
@@ -3104,11 +3148,11 @@ _DIGRAPH_RAW_DEGREE = DiGraph.degree
 
 
 def _graph_degree(self):
-    return _WeightAwareDegreeView(self, _GRAPH_RAW_DEGREE.__get__(self, type(self)))
+    return _GraphDegreeView(self, _GRAPH_RAW_DEGREE.__get__(self, type(self)))
 
 
 def _digraph_degree(self):
-    return _WeightAwareDegreeView(self, _DIGRAPH_RAW_DEGREE.__get__(self, type(self)))
+    return _DiGraphDegreeView(self, _DIGRAPH_RAW_DEGREE.__get__(self, type(self)))
 
 
 Graph.degree = property(_graph_degree)
@@ -3634,7 +3678,13 @@ def _edge_view_repr(self):
 
 
 def _degree_view_repr(self):
-    return f"DegreeView({dict(self)!r})"
+    # br-r37-c1-mdvname: previously hardcoded ``DegreeView`` as the
+    # repr label, but nx exposes per-class names — ``DegreeView``
+    # (Graph), ``DiDegreeView`` (DiGraph), ``MultiDegreeView``
+    # (MultiGraph), ``DiMultiDegreeView`` (MultiDiGraph). Use
+    # ``type(self).__name__`` so each picks up its canonical name
+    # (the wrapper classes have ``__name__`` set above).
+    return f"{type(self).__name__}({dict(self)!r})"
 
 
 for _nv_cls in (
