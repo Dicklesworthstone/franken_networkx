@@ -3856,7 +3856,49 @@ class _DiEdgeMethodView:
         return len(self._method(self._graph))
 
     def __contains__(self, item):
-        return item in self._method(self._graph)
+        # br-r37-c1-iemvcontains: nx.InEdgeView / OutEdgeView /
+        # InMultiEdgeView / OutMultiEdgeView all use the bare
+        # ``u, v = e`` unpack pattern matching the parent OutEdgeView.
+        # fnx previously delegated to ``item in self._method(...)``
+        # which materialized the result as a list and used
+        # element-equality, so:
+        #   - ``[0, 1] in DG.in_edges`` returned False (list != tuple)
+        #   - ``"foo" in DG.in_edges`` returned False
+        #   - ``123 in DG.in_edges`` returned False
+        # nx accepts list (length 2) as an edge spec and propagates
+        # ValueError on length mismatch + TypeError on non-iterable.
+        # For multigraphs nx's MultiEdgeView dispatches on len(e):
+        # length 2 -> match any key; length 3 -> match specific key.
+        if self._graph.is_multigraph():
+            try:
+                N = len(item)
+            except TypeError:
+                raise
+            if N == 3:
+                u, v, key = item[0], item[1], item[2]
+            elif N == 2:
+                u, v = item[0], item[1]
+                key = None
+            else:
+                raise ValueError("MultiEdge must have length 2 or 3")
+        else:
+            u, v = item
+            key = None
+        try:
+            iterable = self._method(self._graph)
+        except Exception:
+            return False
+        if self._graph.is_multigraph():
+            for entry in iterable:
+                if len(entry) == 3:
+                    eu, ev, ek = entry
+                else:
+                    eu, ev = entry
+                    ek = 0
+                if u == eu and v == ev and (key is None or key == ek):
+                    return True
+            return False
+        return any(eu == u and ev == v for (eu, ev) in iterable)
 
     def __call__(self, *args, **kwargs):
         return self._method(self._graph, *args, **kwargs)

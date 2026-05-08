@@ -6094,3 +6094,59 @@ def test_view_class_names_match_nx():
     M.add_edges_from([(0, 1), (0, 1)])
     for view in (G.edges, G.degree, DG.edges, DG.degree, M.edges):
         pickle.dumps(view)
+
+
+def test_in_out_edges_contains_match_nx():
+    """br-r37-c1-iemvcontains: ``e in DG.in_edges`` / ``e in DG.out_edges``
+    (and the multidigraph variants) must match nx's
+    InEdgeView.__contains__ / OutEdgeView.__contains__ pattern.
+
+    Pre-fix the shared ``_DiEdgeMethodView.__contains__`` did
+    ``item in self._method(self._graph)`` which materialized the result
+    as a list and used element-equality.  That meant:
+      - ``[0, 1] in DG.in_edges`` returned False (list != tuple)
+      - ``"foo" in DG.in_edges`` returned False
+      - ``123 in DG.in_edges`` returned False
+    nx accepts list-as-edge-spec (length-2 iterable) and propagates
+    ValueError on length mismatch / TypeError on non-iterable; for
+    multigraphs it dispatches on len(e).
+
+    Same defect family as cycle 156's br-r37-c1-edgeviewcontains
+    fix on the *forward* edge views; this is the in/out-method-view
+    sister.  Fix mirrors the forward-view nx semantics.
+    """
+    import franken_networkx as fnx
+    import networkx as nx_mod
+
+    DG_f = fnx.DiGraph([(0, 1), (1, 2), (2, 3)])
+    DG_n = nx_mod.DiGraph([(0, 1), (1, 2), (2, 3)])
+
+    # Tuples — present and absent
+    assert ((0, 1) in DG_f.in_edges) == ((0, 1) in DG_n.in_edges) == True
+    assert ((1, 0) in DG_f.in_edges) == ((1, 0) in DG_n.in_edges) == False
+    assert ((99, 100) in DG_f.in_edges) == ((99, 100) in DG_n.in_edges) == False
+
+    # Lists — accepted as length-2 iterable
+    assert ([0, 1] in DG_f.in_edges) == ([0, 1] in DG_n.in_edges) == True
+    assert ([0, 1] in DG_f.out_edges) == ([0, 1] in DG_n.out_edges) == True
+
+    # Bad shapes propagate ValueError / TypeError matching nx
+    with pytest.raises(ValueError):
+        "foo" in DG_f.in_edges
+    with pytest.raises(ValueError):
+        "foo" in DG_n.in_edges
+    with pytest.raises(TypeError, match="cannot unpack"):
+        123 in DG_f.in_edges
+    with pytest.raises(TypeError, match="cannot unpack"):
+        123 in DG_n.in_edges
+
+    # MultiDiGraph: len-dispatch
+    MD_f = fnx.MultiDiGraph([(0, 1), (0, 1), (1, 2)])
+    MD_n = nx_mod.MultiDiGraph([(0, 1), (0, 1), (1, 2)])
+    assert ([0, 1] in MD_f.in_edges) == ([0, 1] in MD_n.in_edges) == True
+    assert ((0, 1, 0) in MD_f.in_edges) == ((0, 1, 0) in MD_n.in_edges) == True
+    assert ((0, 1, 99) in MD_f.in_edges) == ((0, 1, 99) in MD_n.in_edges) == False
+    with pytest.raises(TypeError, match="has no len"):
+        123 in MD_f.in_edges
+    with pytest.raises(TypeError, match="has no len"):
+        123 in MD_n.in_edges
