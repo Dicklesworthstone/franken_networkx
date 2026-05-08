@@ -8946,3 +8946,48 @@ def test_relaxed_caveman_graph_seeded_output_matches_nx():
         assert "nan cannot be used" in str(e)
     else:
         raise AssertionError("NaN seed should raise ValueError")
+
+
+def test_fnx_community_louvain_communities_uses_fnx_wrapper():
+    """br-r37-c1-louvainsubmod: ``fnx.community.louvain_communities``
+    previously re-exported nx's function directly via the
+    ``from networkx.algorithms.community import *`` line in the
+    submodule.  Calling ``nx.community.louvain_communities`` on an
+    fnx Graph (no conversion to a real nx Graph) produced WRONG
+    partitions — nx's multi-level Louvain returned a trivial
+    2-cluster partition on Karate (modularity ~0.40) instead of the
+    canonical 4-cluster answer (modularity ~0.44).
+
+    The top-level ``fnx.louvain_communities`` correctly converted
+    via ``_louvain_impl`` → ``_call_networkx_submodule_for_parity``
+    → ``_fnx_to_nx`` and returned 4 communities.  But drop-in code
+    using the canonical submodule path
+    (``fnx.community.louvain_communities``) silently got the wrong
+    answer.
+
+    Fix: route ``fnx.community.louvain_communities`` through the
+    top-level ``fnx.louvain_communities`` wrapper.
+    """
+    import networkx as nx
+
+    G_f = fnx.karate_club_graph()
+    G_n = nx.karate_club_graph()
+
+    for seed in (0, 7, 42, 99):
+        f_communities = sorted(
+            sorted(c) for c in fnx.community.louvain_communities(G_f, seed=seed)
+        )
+        n_communities = sorted(
+            sorted(c) for c in nx.community.louvain_communities(G_n, seed=seed)
+        )
+        assert f_communities == n_communities, (
+            f"louvain_communities seed={seed}:\n"
+            f"  fnx={f_communities}\n  nx ={n_communities}"
+        )
+
+    # The top-level fnx.louvain_communities also yields 4 communities
+    # (sanity check the submodule routes through it).
+    top = fnx.louvain_communities(G_f, seed=42)
+    sub = fnx.community.louvain_communities(G_f, seed=42)
+    assert sorted(sorted(c) for c in top) == sorted(sorted(c) for c in sub)
+    assert len(sub) == 4  # Canonical Karate 4-community answer
