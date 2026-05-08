@@ -20580,9 +20580,42 @@ def multi_source_dijkstra(G, sources, target=None, cutoff=None, weight="weight")
         if s not in G:
             raise NodeNotFound(f"Node {s} not found in graph")
     dists, paths = _raw_multi_source_dijkstra(G, sources, weight=weight)
+    # br-r37-c1-msd-cutnan: nx Dijkstra's cutoff check is
+    # ``if d > cutoff: continue`` so ``cutoff=NaN`` and
+    # ``cutoff=+inf`` both behave as unbounded (comparison
+    # always False → never skips).  fnx's inverse predicate
+    # ``distance <= cutoff`` is ALSO always False for NaN →
+    # filters out everything (sister of the single-source fix
+    # br-r37-c1-djk-cutnan).  Short-circuit before the filter.
     if cutoff is not None:
-        dists = {node: distance for node, distance in dists.items() if distance <= cutoff}
-        paths = {node: path for node, path in paths.items() if node in dists}
+        if not (isinstance(cutoff, float) and (math.isnan(cutoff) or cutoff == math.inf)):
+            # nx always retains the source nodes even when
+            # ``cutoff < 0`` (sources have d=0 and the filter
+            # ``d <= cutoff`` would drop them; nx's loop adds
+            # them before applying the cutoff via the priority
+            # queue's pop order).
+            source_set = set(sources)
+            dists = {
+                node: distance for node, distance in dists.items()
+                if distance <= cutoff or node in source_set
+            }
+            paths = {node: path for node, path in paths.items() if node in dists}
+    # br-r37-c1-msd-intfloat: nx preserves int distances when
+    # every edge weight is int (path graph default = unit
+    # weight).  fnx's Rust binding casts to f64.  Mirror nx's
+    # int/float parity (sister of br-ssintfloat for single-
+    # source).
+    if _sp_edge_weights_all_int(G, weight):
+        dists = _sp_coerce_dist_to_int(dists)
+    # br-r37-c1-msd-order: nx's Dijkstra emits nodes in pop
+    # order from the priority queue → ascending distance.  fnx's
+    # Rust binding returns a dict in adjacency-walk order.
+    # Reorder by distance to match nx's iteration contract
+    # (dict order is observable in py3.7+).  Sister of the
+    # br-r37-c1-62jy2 single-source reorder.
+    order = _reorder_by_distance(dists)
+    dists = {k: dists[k] for k in order}
+    paths = {k: paths[k] for k in order if k in paths}
     if target is not None:
         if target not in dists:
             raise NetworkXNoPath(f"No path to {target}.")

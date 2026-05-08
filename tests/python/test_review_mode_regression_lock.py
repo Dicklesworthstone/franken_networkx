@@ -5235,3 +5235,61 @@ def test_dijkstra_cutoff_nan_inf_match_nx():
         f = dict((k, dict(v)) for k, v in fnx.all_pairs_dijkstra_path_length(P, cutoff=c))
         n = dict((k, dict(v)) for k, v in nx.all_pairs_dijkstra_path_length(P_nx, cutoff=c))
         assert f == n
+
+
+def test_multi_source_dijkstra_cutoff_intfloat_order_match_nx():
+    """br-r37-c1-msd-cutnan / -intfloat / -order: three sister
+    fixes to ``multi_source_dijkstra``:
+
+    1. Cutoff filter ``distance <= cutoff`` was always False for
+       NaN → returned empty.  nx uses ``d > cutoff: continue``
+       which is also always False for NaN → unbounded.  Same
+       symmetric inversion as br-r37-c1-djk-cutnan
+       (single-source, cycle 142).
+
+    2. The Rust multi_source binding casts distances to f64;
+       nx preserves int when every edge weight is int.  Sister
+       of br-ssintfloat (single_source).
+
+    3. The Rust binding returns dict in adjacency-walk order;
+       nx emits in priority-queue pop order (ascending
+       distance).  Sister of br-r37-c1-62jy2 (single_source).
+
+    Lock: 9 boundary cases for single-source-set + 3 multi-
+    source-set cases — values, types, AND iteration order
+    must all match nx exactly."""
+    P = fnx.path_graph(5)
+    P_nx = nx.path_graph(5)
+
+    # Single source — values + int dtype + content
+    cases = [
+        (float("inf"), {0: 0, 1: 1, 2: 2, 3: 3, 4: 4}),
+        (float("nan"), {0: 0, 1: 1, 2: 2, 3: 3, 4: 4}),
+        (-float("inf"), {0: 0}),
+        (-1, {0: 0}),
+        (0, {0: 0}),
+        (1, {0: 0, 1: 1}),
+        (3.5, {0: 0, 1: 1, 2: 2, 3: 3}),
+        (None, {0: 0, 1: 1, 2: 2, 3: 3, 4: 4}),
+    ]
+    for c, expected in cases:
+        f = dict(fnx.multi_source_dijkstra_path_length(P, {0}, cutoff=c))
+        n = dict(nx.multi_source_dijkstra_path_length(P_nx, {0}, cutoff=c))
+        assert f == n == expected, f"cutoff={c}: fnx={f}"
+        # int dtype preserved (path graph default = unit weights)
+        for v in f.values():
+            assert type(v) is int, f"cutoff={c}: dist {v} is {type(v).__name__}"
+
+    # Multi-source — iteration order must match (pop-order =
+    # ascending distance).  nx returns sources first (d=0)
+    # then expands outward.
+    f = dict(fnx.multi_source_dijkstra_path_length(P, {0, 4}))
+    n = dict(nx.multi_source_dijkstra_path_length(P_nx, {0, 4}))
+    assert list(f.items()) == list(n.items()) == [
+        (0, 0), (4, 0), (1, 1), (3, 1), (2, 2)
+    ]
+
+    # 3 sources case
+    f = dict(fnx.multi_source_dijkstra_path_length(P, {0, 4, 2}))
+    n = dict(nx.multi_source_dijkstra_path_length(P_nx, {0, 4, 2}))
+    assert list(f.items()) == list(n.items())
