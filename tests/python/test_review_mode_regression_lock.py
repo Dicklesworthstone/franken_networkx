@@ -6476,3 +6476,73 @@ def test_add_edges_from_accepts_list_edges_match_nx():
         fnx.Graph().add_edges_from([(0,)])
     with pytest.raises(nx_mod.NetworkXError, match="must be a 2-tuple or 3-tuple"):
         nx_mod.Graph().add_edges_from([(0,)])
+
+
+def test_remove_edges_from_accepts_list_edges_match_nx():
+    """br-r37-c1-reflist: ``G.remove_edges_from([[0, 1], ...])`` must
+    accept list-as-edge-spec like nx does.
+
+    Pre-fix the Rust raw path raised
+    ``TypeError("each element must be a (u, v) tuple")`` on Graph /
+    DiGraph and ``TypeError("each edge must be a tuple")`` on
+    MultiGraph / MultiDiGraph.  nx's loop unpacks via ``u, v = e[:2]``
+    which accepts any 2- or 3-element iterable.
+
+    Direct sister of cycle 163's br-r37-c1-aeflist (which fixed
+    add_edges_from); this is the inverse remove operation.
+
+    Fix: in the _remove_edges_from_materialized wrapper (applied to
+    all 4 graph types), convert non-tuple sized iterables of length
+    2/3 to tuples before delegating to the Rust raw path.  Preserves
+    the 3-element key form for MultiGraph removal.
+    """
+    import franken_networkx as fnx
+    import networkx as nx_mod
+
+    # All 4 graph types
+    cases = [
+        ("Graph", fnx.Graph, nx_mod.Graph, [(0, 1), (1, 2), (2, 3)]),
+        ("DiGraph", fnx.DiGraph, nx_mod.DiGraph, [(0, 1), (1, 2), (2, 3)]),
+        ("MultiGraph", fnx.MultiGraph, nx_mod.MultiGraph,
+         [(0, 1), (0, 1), (1, 2)]),
+        ("MultiDiGraph", fnx.MultiDiGraph, nx_mod.MultiDiGraph,
+         [(0, 1), (0, 1), (1, 2)]),
+    ]
+    for name, ctor_f, ctor_n, init in cases:
+        G_f = ctor_f(init)
+        G_n = ctor_n(init)
+        G_f.remove_edges_from([[0, 1]])
+        G_n.remove_edges_from([[0, 1]])
+        assert sorted(G_f.edges()) == sorted(G_n.edges()), name
+
+        # Multiple list-edges
+        G_f = ctor_f(init)
+        G_n = ctor_n(init)
+        G_f.remove_edges_from([[0, 1], [1, 2]])
+        G_n.remove_edges_from([[0, 1], [1, 2]])
+        assert sorted(G_f.edges()) == sorted(G_n.edges()), name
+
+    # 3-element list form for MultiGraph (key removal)
+    M_f = fnx.MultiGraph()
+    M_f.add_edge(0, 1, key="a")
+    M_f.add_edge(0, 1, key="b")
+    M_n = nx_mod.MultiGraph()
+    M_n.add_edge(0, 1, key="a")
+    M_n.add_edge(0, 1, key="b")
+    M_f.remove_edges_from([[0, 1, "a"]])
+    M_n.remove_edges_from([[0, 1, "a"]])
+    assert list(M_f.edges(keys=True)) == list(M_n.edges(keys=True))
+
+    # Mixed tuple/list
+    G_f = fnx.Graph([(0, 1), (1, 2), (2, 3)])
+    G_n = nx_mod.Graph([(0, 1), (1, 2), (2, 3)])
+    G_f.remove_edges_from([(0, 1), [1, 2]])
+    G_n.remove_edges_from([(0, 1), [1, 2]])
+    assert sorted(G_f.edges()) == sorted(G_n.edges())
+
+    # Sanity: pure tuples still work
+    G_f = fnx.Graph([(0, 1), (1, 2)])
+    G_n = nx_mod.Graph([(0, 1), (1, 2)])
+    G_f.remove_edges_from([(0, 1)])
+    G_n.remove_edges_from([(0, 1)])
+    assert sorted(G_f.edges()) == sorted(G_n.edges())

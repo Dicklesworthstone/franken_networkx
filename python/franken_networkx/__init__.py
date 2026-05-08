@@ -1902,9 +1902,24 @@ def _remove_edges_from_materialized(raw):
     before the Rust call.
 
     Parameter name matches nx (br-r37-c1-wcdm3): ``ebunch``.
+
+    br-r37-c1-reflist: nx.Graph.remove_edges_from accepts each edge
+    as ANY 2- or 3-element iterable (tuple OR list); the Rust raw
+    path raises ``TypeError("each element must be a (u, v) tuple")``
+    on lists.  Convert non-tuple sized iterables to tuples before
+    the raw call — preserves the canonical nx idiom
+    ``G.remove_edges_from([[u, v], ...])``.
     """
     def remove_edges_from(self, ebunch):
         materialized = list(ebunch)
+        for i, edge in enumerate(materialized):
+            if (
+                not isinstance(edge, tuple)
+                and not isinstance(edge, (str, bytes))
+                and hasattr(edge, "__len__")
+                and 2 <= len(edge) <= 3
+            ):
+                materialized[i] = tuple(edge)
         return raw(self, materialized)
 
     return remove_edges_from
