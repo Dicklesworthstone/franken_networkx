@@ -810,12 +810,24 @@ def test_node_data_view_data_attr_pickle(name, builder):
 
 @pytest.mark.parametrize("name,builder", GRAPH_BUILDERS, ids=[b[0] for b in GRAPH_BUILDERS])
 def test_node_data_view_deepcopy_roundtrips(name, builder):
+    """br-r37-c1-vcopy (cycle 212): nx's ``copy.deepcopy(G.nodes
+    (data=True))`` returns a ``NodeDataView`` (snapshot) rather
+    than a plain list.  The pre-cycle-212 fnx behaviour fell
+    through to ``__reduce__``-driven snapshot to dict/list — type
+    divergence vs nx.  Cycle 212 added ``__copy__``/``__deepcopy__``
+    that preserves NodeDataView type AND snapshot semantics.
+
+    This test was previously ``assert isinstance(deepc, list)``,
+    locking in the OLD (wrong) behaviour.  Updated to assert the
+    new (correct) NodeDataView type — matching nx exactly.
+    """
     G = builder(fnx)
     G.add_node(99, color="red")
     ndv = G.nodes(data=True)
     deepc = copy.deepcopy(ndv)
-    assert isinstance(deepc, list)
-    assert sorted(deepc) == sorted(list(ndv))
+    # br-r37-c1-vcopy (cycle 212): now returns NodeDataView matching nx
+    assert type(deepc).__name__ == "NodeDataView"
+    assert sorted(list(deepc)) == sorted(list(ndv))
 
 
 _REVERSE_EDGE_BUILDERS = [

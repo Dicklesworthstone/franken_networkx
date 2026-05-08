@@ -430,6 +430,36 @@ class EdgeDataView:
         # restored EdgeDataView).
         return (list, (list(self._materialize()),))
 
+    def __copy__(self):
+        # br-r37-c1-vcopy (cycle 212): copy.copy(G.edges.data())
+        # returns EdgeDataView in nx (live wrapper).  fnx previously
+        # fell through to ``__reduce__``-driven snapshot → plain
+        # list.  Live wrapper matches nx.
+        return self
+
+    def __deepcopy__(self, memo):
+        # SNAPSHOT semantics — independent of subsequent G mutations.
+        # Materialise edges + attrs into a new fnx Graph, return its
+        # EdgeView.data() so type EdgeDataView is preserved AND
+        # mutations don't leak.
+        snapshot = self._materialize()
+        G_new = Graph()
+        if isinstance(self._data, bool) and self._data:
+            # snapshot is [(u, v, attrs), ...]
+            G_new.add_edges_from(snapshot)
+        elif isinstance(self._data, bool):
+            # data=False: snapshot is [(u, v), ...]
+            G_new.add_edges_from(snapshot)
+        else:
+            # data='attr': snapshot is [(u, v, value_or_default), ...]
+            # Reconstruct attrs dict.
+            for u, v, value in snapshot:
+                G_new.add_edge(u, v, **{self._data: value})
+        return G_new.edges.data(
+            data=self._data,
+            default=self._default,
+        )
+
 
 def _edge_view_call_with_nbunch_first(edge_view_call):
     _unset = object()
@@ -617,6 +647,28 @@ class NodeDataView:
         return NotImplemented
 
     __hash__ = None
+
+    def __copy__(self):
+        # br-r37-c1-vcopy (cycle 212): copy.copy(G.nodes.data())
+        # returns NodeDataView in nx (live wrapper). fnx previously
+        # fell through to default snapshot → plain list.  Live
+        # wrapper matches nx.
+        return self
+
+    def __deepcopy__(self, memo):
+        # SNAPSHOT semantics — independent of subsequent G mutations.
+        # Materialise the underlying view into a new fnx Graph and
+        # return ITS NodeDataView so type is preserved AND snapshot
+        # is independent.
+        snapshot = [(node, dict(self._view[node])) for node in self._view]
+        G_new = Graph()
+        G_new.add_nodes_from(snapshot)
+        return type(self)(
+            type(G_new.nodes).__call__,
+            G_new.nodes,
+            data=self._data,
+            default=self._default,
+        )
 
     def __reduce__(self):
         # br-r37-c1-ndv-pkl: NodeDataView holds `self._call`, a

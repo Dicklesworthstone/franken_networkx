@@ -9253,3 +9253,54 @@ def test_subgraph_view_subview_deepcopy_is_snapshot_and_no_attribute_error():
     assert list(nv) == [1, 2, 3]
     assert 2 in nv
     assert len(nv) == 3
+
+
+def test_node_data_view_and_edge_data_view_deepcopy_preserves_type():
+    """br-r37-c1-vcopy (cycle 212): ``copy.deepcopy(G.nodes.data())``
+    and ``copy.deepcopy(G.edges.data())`` previously returned a
+    plain ``list`` (via the ``__reduce__`` snapshot path).  nx
+    returns a ``NodeDataView`` / ``EdgeDataView`` — preserving
+    type while staying snapshot-independent of subsequent G
+    mutations.
+
+    Affects all 4 graph classes for NodeDataView, plus Graph for
+    EdgeDataView (Multi*Graph EdgeDataView already matched).
+
+    Fix: define ``__copy__`` (returns self — live wrapper, matches
+    nx) and ``__deepcopy__`` (materialises into a new fnx Graph and
+    returns its ``.nodes.data()`` / ``.edges.data()``) on
+    ``NodeDataView`` and ``EdgeDataView``.  Type preservation +
+    snapshot semantics — matches nx exactly.
+    """
+    import copy
+
+    # NodeDataView across all 4 graph classes
+    for cls_name in ("Graph", "DiGraph", "MultiGraph", "MultiDiGraph"):
+        G = getattr(fnx, cls_name)([(1, 2), (2, 3)])
+        G.add_node(1, color="red")
+        ndv = G.nodes.data()
+        dc = copy.deepcopy(ndv)
+        assert type(dc).__name__ == "NodeDataView", (
+            f"{cls_name}.nodes.data() deepcopy: "
+            f"got {type(dc).__name__}, expected NodeDataView"
+        )
+        # Snapshot — independent of subsequent G mutation
+        G.add_node(99)
+        assert (99, {}) not in list(dc), (
+            f"{cls_name}.nodes.data() deepcopy should be snapshot"
+        )
+
+    # EdgeDataView on Graph
+    G = fnx.Graph([(1, 2, {"w": 3.0})])
+    edv = G.edges.data()
+    dc = copy.deepcopy(edv)
+    assert type(dc).__name__ == "EdgeDataView"
+    G.add_edge(99, 100)
+    assert not any(99 in t[:2] for t in list(dc))
+
+    # data='attr' projection variant works too
+    G = fnx.Graph([(1, 2, {"w": 5.0})])
+    edv_attr = G.edges.data("w")
+    dc_attr = copy.deepcopy(edv_attr)
+    assert type(dc_attr).__name__ == "EdgeDataView"
+    assert list(dc_attr) == [(1, 2, 5.0)]
