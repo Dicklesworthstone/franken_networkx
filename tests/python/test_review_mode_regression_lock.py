@@ -9058,3 +9058,66 @@ def test_view_deepcopy_is_snapshot_independent_of_subsequent_mutations():
     G3 = fnx.path_graph(3)
     r = pickle.loads(pickle.dumps(G3.nodes))
     assert isinstance(r, dict)
+
+
+def test_degree_and_in_out_edge_view_deepcopy_is_snapshot():
+    """br-r37-c1-vcopydc (cycle 199 dual): same ``__deepcopy__ =
+    self`` defect cycle 208 fixed for NodeView/EdgeView also
+    affected ``_WeightAwareDegreeView`` (Graph.degree, DiGraph.degree)
+    and ``_DiEdgeMethodView`` (DiGraph/MultiDiGraph in_edges,
+    out_edges).  All returned self → live wrappers seeing
+    subsequent G mutations.
+
+      Pre-fix divergence:
+        deg_dc = copy.deepcopy(G.degree); G.add_edge(99, 100)
+        nx:  99 not in dict(deg_dc)  (snapshot)
+        fnx: 99 in dict(deg_dc)      (live wrapper — wrong)
+
+    Fix: ``__deepcopy__`` deep-copies the underlying graph
+    (``self._graph``) and returns the matching view from the
+    deep-copied graph (``new_graph.degree`` / ``new_graph.in_edges``
+    / ``new_graph.out_edges``).  Type preservation maintained via
+    the cycle-188/190 subclass __name__ dispatch.
+    """
+    import copy
+
+    # Graph and DiGraph degree
+    for cls_name, expected_type in (
+        ("Graph", "DegreeView"),
+        ("DiGraph", "DiDegreeView"),
+    ):
+        G = getattr(fnx, cls_name)([(1, 2), (2, 3)])
+        dc = copy.deepcopy(G.degree)
+        G.add_edge(99, 100)
+        assert 99 not in dict(dc), (
+            f"{cls_name}.degree deepcopy should be snapshot; "
+            f"99 leaked: {dict(dc)}"
+        )
+        assert type(dc).__name__ == expected_type
+
+    # DiGraph and MultiDiGraph in/out_edges
+    for cls_name, expected_in, expected_out in (
+        ("DiGraph", "InEdgeView", "OutEdgeView"),
+        ("MultiDiGraph", "InMultiEdgeView", "OutMultiEdgeView"),
+    ):
+        DG = getattr(fnx, cls_name)([(1, 2), (2, 3)])
+        ie_dc = copy.deepcopy(DG.in_edges)
+        oe_dc = copy.deepcopy(DG.out_edges)
+        DG.add_edge(99, 100)
+        assert not any(99 in t for t in list(ie_dc)), (
+            f"{cls_name}.in_edges deepcopy should be snapshot; "
+            f"99 leaked: {list(ie_dc)}"
+        )
+        assert not any(99 in t for t in list(oe_dc)), (
+            f"{cls_name}.out_edges deepcopy should be snapshot; "
+            f"99 leaked: {list(oe_dc)}"
+        )
+        assert type(ie_dc).__name__ == expected_in
+        assert type(oe_dc).__name__ == expected_out
+
+    # copy.copy still LIVE (matches nx — only deepcopy is snapshot)
+    G = fnx.Graph([(1, 2)])
+    deg_c = copy.copy(G.degree)
+    G.add_edge(99, 100)
+    # copy.copy returned self; mutation visible via the live wrapper
+    assert 99 in dict(deg_c)

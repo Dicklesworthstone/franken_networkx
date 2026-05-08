@@ -2982,7 +2982,13 @@ class _WeightAwareDegreeView:
         return self
 
     def __deepcopy__(self, memo):
-        return self
+        # br-r37-c1-vcopydc: deepcopy must be a SNAPSHOT independent
+        # of subsequent G mutations (matches nx).  Deep-copy the
+        # underlying graph and return its .degree view — preserves
+        # type (DegreeView/DiDegreeView via the cycle-190 subclasses)
+        # AND snapshot semantics.
+        new_graph = deepcopy(self._graph, memo)
+        return new_graph.degree
 
     def __eq__(self, other):
         # br-r37-c1-dv-eq: nx's DegreeView/DiDegreeView compare
@@ -4489,14 +4495,21 @@ class _DiEdgeMethodView:
 
     # br-r37-c1-vcopy: nx's InEdgeView / OutEdgeView / InMultiEdgeView
     # / OutMultiEdgeView preserve type through copy.copy /
-    # copy.deepcopy.  Define __copy__ / __deepcopy__ returning self
-    # so type(c) is preserved (the __reduce__ snapshot is for pickle
-    # only).
+    # copy.deepcopy.  __copy__ returns self (live wrapper).
+    # br-r37-c1-vcopydc: __deepcopy__ must be a SNAPSHOT independent
+    # of subsequent G mutations (matches nx).  Deep-copy the
+    # underlying graph and return its in_edges or out_edges
+    # property based on the cycle-188 subclass name.
     def __copy__(self):
         return self
 
     def __deepcopy__(self, memo):
-        return self
+        new_graph = deepcopy(self._graph, memo)
+        cls_name = type(self).__name__
+        if cls_name in ("InEdgeView", "InMultiEdgeView"):
+            return new_graph.in_edges
+        # OutEdgeView / OutMultiEdgeView (and any other subclasses)
+        return new_graph.out_edges
 
     def __repr__(self):
         # br-r37-c1-emvname: nx's InEdgeView / OutEdgeView /
