@@ -463,7 +463,8 @@ def _sparse6_edges(G, mapping):
 
 
 def parse_adjlist(
-    lines, comments="#", delimiter=None, create_using=None, nodetype=None
+    lines, comments="#", delimiter=None, create_using=None, nodetype=None,
+    *, backend=None, **backend_kwargs,
 ):
     """Parse an adjacency-list line stream into a FrankenNetworkX graph."""
     G = _new_graph(create_using)
@@ -501,6 +502,9 @@ def parse_edgelist(
     create_using=None,
     nodetype=None,
     data=True,
+    *,
+    backend=None,
+    **backend_kwargs,
 ):
     """Parse an edge-list line stream into a FrankenNetworkX graph."""
     G = _new_graph(create_using)
@@ -562,7 +566,7 @@ def parse_edgelist(
     return G
 
 
-def parse_gml(lines, label="label", destringizer=None):
+def parse_gml(lines, label="label", destringizer=None, *, backend=None, **backend_kwargs):
     """Parse GML text or lines into a FrankenNetworkX graph."""
     import franken_networkx as fnx
     from franken_networkx import _fnx
@@ -638,7 +642,7 @@ def _translate_gml_error_to_nx(message):
     return message
 
 
-def from_graph6_bytes(bytes_in):
+def from_graph6_bytes(bytes_in, *, backend=None, **backend_kwargs):
     """Parse graph6 bytes into a FrankenNetworkX graph."""
     import franken_networkx as fnx
 
@@ -687,7 +691,7 @@ def to_graph6_bytes(G, nodes=None, header=True):
     return bytes(output)
 
 
-def read_graph6(path):
+def read_graph6(path, *, backend=None, **backend_kwargs):
     """Read graph6 data from a path or file-like object."""
     graphs = []
     for line in _read_bytes(path).splitlines():
@@ -711,7 +715,7 @@ def parse_graph6(string):
     return from_graph6_bytes(data)
 
 
-def from_sparse6_bytes(string):
+def from_sparse6_bytes(string, *, backend=None, **backend_kwargs):
     """Parse sparse6 bytes into a FrankenNetworkX graph.
 
     br-sp6kw: nx uses parameter name ``string`` for from_sparse6_bytes
@@ -838,7 +842,7 @@ def to_sparse6_bytes(G, nodes=None, header=True):
     return bytes(output)
 
 
-def read_sparse6(path):
+def read_sparse6(path, *, backend=None, **backend_kwargs):
     """Read sparse6 data from a path or file-like object."""
     graphs = []
     for line in _read_bytes(path).splitlines():
@@ -862,7 +866,7 @@ def parse_sparse6(string):
     return from_sparse6_bytes(data)
 
 
-def read_pajek(path, encoding="UTF-8"):
+def read_pajek(path, encoding="UTF-8", *, backend=None, **backend_kwargs):
     """Read Pajek text without NetworkX delegation."""
     if hasattr(path, "read"):
         data = path.read()
@@ -902,7 +906,7 @@ def write_pajek(G, path, encoding="UTF-8"):
     return None
 
 
-def parse_pajek(lines):
+def parse_pajek(lines, *, backend=None, **backend_kwargs):
     """Parse Pajek text or lines into a FrankenNetworkX graph."""
     import franken_networkx as fnx
 
@@ -1055,7 +1059,7 @@ def generate_pajek(G):
         yield line
 
 
-def read_leda(path, encoding="UTF-8"):
+def read_leda(path, encoding="UTF-8", *, backend=None, **backend_kwargs):
     """Read LEDA text without NetworkX delegation."""
     if hasattr(path, "read"):
         data = path.read()
@@ -1073,7 +1077,7 @@ def read_leda(path, encoding="UTF-8"):
     return parse_leda(input_path.read_text(encoding=encoding))
 
 
-def parse_leda(lines):
+def parse_leda(lines, *, backend=None, **backend_kwargs):
     """Parse LEDA text or lines into a FrankenNetworkX graph."""
     import franken_networkx as fnx
 
@@ -1121,6 +1125,9 @@ def read_multiline_adjlist(
     nodetype=None,
     edgetype=None,
     encoding="utf-8",
+    *,
+    backend=None,
+    **backend_kwargs,
 ):
     """Read a multiline adjacency list file into a FrankenNetworkX graph.
 
@@ -1195,6 +1202,9 @@ def parse_multiline_adjlist(
     create_using=None,
     nodetype=None,
     edgetype=None,
+    *,
+    backend=None,
+    **backend_kwargs,
 ):
     """Parse multiline adjacency-list text or lines into a FrankenNetworkX graph."""
     G = _new_graph(create_using)
@@ -1283,6 +1293,9 @@ def read_weighted_edgelist(
     create_using=None,
     nodetype=None,
     encoding="utf-8",
+    *,
+    backend=None,
+    **backend_kwargs,
 ):
     """Read a weighted edge list file into a FrankenNetworkX graph.
 
@@ -1608,7 +1621,7 @@ def _apply_gexf_node_type(graph, node_type):
     return fnx.relabel_nodes(graph, mapping, copy=True)
 
 
-def read_gexf(path, node_type=None, relabel=False, version="1.2draft"):
+def read_gexf(path, node_type=None, relabel=False, version="1.2draft", *, backend=None, **backend_kwargs):
     """Read GEXF into an fnx graph.
 
     Simple-graph inputs go through the native Rust parser. Multigraph

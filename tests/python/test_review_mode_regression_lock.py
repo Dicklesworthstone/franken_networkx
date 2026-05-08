@@ -7127,3 +7127,51 @@ def test_display_signature_match_nx():
     # Specifically: variadic should be **kwargs not **kwds
     assert "**kwargs" in f_sig
     assert "**kwds" not in f_sig
+
+
+def test_readwrite_signatures_have_backend_kwargs_match_nx():
+    """br-r37-c1-rwbackendkw: 15 readwrite functions had signatures
+    missing the canonical ``*, backend=None, **backend_kwargs``
+    suffix that nx adds via ``@_dispatchable``:
+
+      parse_adjlist, parse_edgelist, parse_gml, parse_pajek,
+      parse_leda, parse_multiline_adjlist,
+      from_graph6_bytes, from_sparse6_bytes,
+      read_gexf, read_graph6, read_leda, read_multiline_adjlist,
+      read_pajek, read_sparse6, read_weighted_edgelist
+
+    Drop-in callers using ``nx.parse_edgelist(..., backend='networkx')``
+    crashed under fnx with TypeError(unexpected keyword 'backend').
+
+    Fix: add ``*, backend=None, **backend_kwargs`` to each signature.
+    Behavior unchanged for default invocations; backend dispatch
+    args are silently consumed (matches the canonical fnx wrapper
+    pattern at random_lobster_graph etc.).
+    """
+    import franken_networkx as fnx
+    import networkx as nx_mod
+    import inspect
+
+    targets = (
+        "parse_adjlist", "parse_edgelist", "parse_gml", "parse_pajek",
+        "parse_leda", "parse_multiline_adjlist",
+        "from_graph6_bytes", "from_sparse6_bytes",
+        "read_gexf", "read_graph6", "read_leda", "read_multiline_adjlist",
+        "read_pajek", "read_sparse6", "read_weighted_edgelist",
+    )
+    for name in targets:
+        f_attr = getattr(fnx, name, None)
+        n_attr = getattr(nx_mod, name, None)
+        if f_attr is None or n_attr is None:
+            continue
+        f_sig = str(inspect.signature(f_attr))
+        n_sig = str(inspect.signature(n_attr))
+        assert f_sig == n_sig, (
+            f"{name} signature mismatch:\n  fnx={f_sig}\n  nx ={n_sig}"
+        )
+
+    # Sanity: backend=networkx kwarg accepted (no TypeError)
+    G = fnx.parse_edgelist(["a b"], backend="networkx")
+    assert sorted(G.edges()) == [("a", "b")]
+    fnx.parse_pajek([], backend="networkx")
+    fnx.from_graph6_bytes(b"@", backend="networkx")
