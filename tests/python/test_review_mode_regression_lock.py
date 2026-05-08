@@ -7742,3 +7742,52 @@ def test_view_keys_values_items_return_proper_view_types():
     assert list(G.nodes.items()) == [(1, {"color": "red"}), (2, {"color": "blue"})]
     assert len(G.nodes.keys()) == 2
     assert 1 in G.nodes.keys()
+
+
+def test_edge_view_repr_class_name_matches_networkx():
+    """br-r37-c1-evrname: the EdgeView ``__repr__`` was dispatching
+    on the private ``_DiGraphEdgeView`` / ``_MultiGraphEdgeView`` /
+    ``_MultiDiGraphEdgeView`` qualnames, but elsewhere these classes
+    already had their ``__name__`` renamed to the canonical nx
+    forms (``OutEdgeView`` / ``MultiEdgeView`` / ``OutMultiEdgeView``).
+    The private-name branches never matched, falling through to the
+    default ``EdgeView`` label — so ``repr(DG.edges)`` showed
+    ``EdgeView([...])`` instead of nx's ``OutEdgeView([...])``.
+
+    Affects three classes:
+      DiGraph.edges:      "EdgeView"  →  should be "OutEdgeView"
+      MultiGraph.edges:   "EdgeView"  →  should be "MultiEdgeView"
+      MultiDiGraph.edges: "EdgeView"  →  should be "OutMultiEdgeView"
+
+    Drop-in code that does ``repr(G.edges).startswith("OutEdgeView(")``
+    to detect a directed graph's edge view (or similar string-prefix
+    parsing) silently mis-detected.
+
+    Fix: dispatch on ``type(self).__name__`` directly, which is
+    already the canonical nx form by the time repr runs.
+
+    Closes the three pre-existing failing tests in
+    test_view_repr_parity.py:
+      test_digraph_edge_view_uses_out_edge_view_prefix
+      test_multigraph_edge_view_uses_multi_edge_view_prefix
+      test_multidigraph_edge_view_uses_out_multi_edge_view_prefix
+    """
+    import networkx as nx
+
+    cases = [
+        (fnx.DiGraph,      nx.DiGraph,      "OutEdgeView"),
+        (fnx.MultiGraph,   nx.MultiGraph,   "MultiEdgeView"),
+        (fnx.MultiDiGraph, nx.MultiDiGraph, "OutMultiEdgeView"),
+        (fnx.Graph,        nx.Graph,        "EdgeView"),
+    ]
+    for f_cls, n_cls, expected_prefix in cases:
+        Gf = f_cls([(0, 1), (1, 2)])
+        Gn = n_cls([(0, 1), (1, 2)])
+        assert repr(Gf.edges).startswith(f"{expected_prefix}("), (
+            f"{f_cls.__name__}.edges repr should start with "
+            f"{expected_prefix!r}, got: {repr(Gf.edges)}"
+        )
+        assert repr(Gf.edges) == repr(Gn.edges), (
+            f"{f_cls.__name__}.edges repr should match nx exactly: "
+            f"fnx={repr(Gf.edges)!r} nx={repr(Gn.edges)!r}"
+        )

@@ -3586,16 +3586,16 @@ def _edge_view_repr(self):
     # Match nx's class-name conventions (br-r37-c1-k147g):
     # Graph -> EdgeView, DiGraph -> OutEdgeView,
     # MultiGraph -> MultiEdgeView, MultiDiGraph -> OutMultiEdgeView.
-    cls = type(self).__name__
-    if cls == "_MultiDiGraphEdgeView":
-        label = "OutMultiEdgeView"
-    elif cls == "_MultiGraphEdgeView":
-        label = "MultiEdgeView"
-    elif cls == "_DiGraphEdgeView":
-        label = "OutEdgeView"
-    else:
-        label = "EdgeView"
-    return f"{label}({list(self)!r})"
+    #
+    # br-r37-c1-evrname: previously this dispatched on the private
+    # ``_DiGraphEdgeView`` / ``_MultiGraphEdgeView`` /
+    # ``_MultiDiGraphEdgeView`` qualnames — but elsewhere we already
+    # rename ``__name__`` to the canonical nx form, so by the time
+    # repr() runs ``type(self).__name__`` is e.g. ``"OutEdgeView"``
+    # and the private-name branches never matched, falling through
+    # to the default ``EdgeView`` label.  Use ``__name__`` directly
+    # since it's already the canonical nx form.
+    return f"{type(self).__name__}({list(self)!r})"
 
 
 def _degree_view_repr(self):
