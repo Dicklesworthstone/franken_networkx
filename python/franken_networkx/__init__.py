@@ -2208,18 +2208,37 @@ def _init_absorbing_dict_of_dicts(raw_init, is_multigraph):
                 (list, tuple, set, frozenset, range, str, bytes),
             )
         ):
+            # br-r37-c1-ctorlistedges: nx.from_edgelist accepts each
+            # edge as ANY 2- or 3-element iterable (tuple OR list);
+            # the Rust __new__ accepts only tuples and stores list
+            # items as unhashable nodes-by-id.  Pre-walk the items,
+            # validate they're sized-2-or-3, and remember whether
+            # any list-typed elements need conversion to tuples.
+            needs_tuple_conversion = False
             for item in incoming_graph_data:
-                # str/bytes ELEMENTS (chars / int) are scalars without
-                # a sized-iterable shape; non-iterable scalars (int,
-                # float, char-as-str-of-len-1) all fail the 2/3-len
-                # contract.  We treat any non-sized or wrong-length
-                # element as the "not a valid edge list" case.
+                # str/bytes elements (chars / int) are scalars without
+                # a sized-iterable shape; non-iterable scalars all
+                # fail the 2/3-len contract.
                 if isinstance(item, (str, bytes)) or not hasattr(item, "__len__"):
                     self.clear()
                     raise NetworkXError("Input is not a valid edge list")
                 if len(item) not in (2, 3):
                     self.clear()
                     raise NetworkXError("Input is not a valid edge list")
+                if not isinstance(item, tuple):
+                    needs_tuple_conversion = True
+            if needs_tuple_conversion:
+                # Rust __new__ already absorbed list items as
+                # unhashable nodes-by-id.  Reset and rebuild from a
+                # tuple-converted edge list — preserves nx's
+                # ``Graph([[0, 1], [1, 2]])`` contract.
+                raw_init(self)
+                self.clear()
+                converted_edges = [tuple(item) for item in incoming_graph_data]
+                if attr:
+                    self.graph.update(attr)
+                self.add_edges_from(converted_edges)
+                return
         raw_init(self)
         # br-r37-c1-g438p: the Rust __new__ silently absorbs
         # unhashable nodes (storing them by Python id) when the

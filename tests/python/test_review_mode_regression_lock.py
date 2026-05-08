@@ -6335,3 +6335,72 @@ def test_graph_constructor_rejects_non_edge_iterables_match_nx():
     fnx.Graph([])
     fnx.Graph(())
     fnx.Graph(set())
+
+
+def test_graph_constructor_accepts_list_of_list_edges_match_nx():
+    """br-r37-c1-ctorlistedges: ``Graph([[0, 1], [1, 2]])`` and other
+    list-of-list edge specs must construct correctly.  nx.from_edgelist
+    accepts each edge as ANY 2- or 3-element iterable (tuple OR list);
+    the Rust ``__new__`` accepts only tuples and stored list items as
+    unhashable nodes-by-id, then the existing hashable-check raised
+    ``NetworkXError("Input is not a valid edge list")``.
+
+    Pre-fix the canonical nx idiom ``Graph([[u, v], ...])`` crashed
+    under fnx — drop-in code that builds edge lists as lists (rather
+    than tuples) was broken.
+
+    Sister of cycle 161's br-r37-c1-ctoredgelist (which rejected
+    non-edge iterables); this is the inverse — accept edges that
+    happen to be lists.
+
+    Fix: in the iterable pre-validation walk, also detect whether
+    any element is a non-tuple (list) of length 2/3.  If so, after
+    raw_init reset and rebuild via add_edges_from with each item
+    converted to a tuple — preserving the per-edge attr dict in
+    3-element specs.
+    """
+    import franken_networkx as fnx
+    import networkx as nx_mod
+
+    # Pure list-of-list across all 4 graph types
+    cases = [
+        ("Graph", fnx.Graph, nx_mod.Graph),
+        ("DiGraph", fnx.DiGraph, nx_mod.DiGraph),
+        ("MultiGraph", fnx.MultiGraph, nx_mod.MultiGraph),
+        ("MultiDiGraph", fnx.MultiDiGraph, nx_mod.MultiDiGraph),
+    ]
+    for name, ctor_f, ctor_n in cases:
+        G_f = ctor_f([[0, 1], [1, 2]])
+        G_n = ctor_n([[0, 1], [1, 2]])
+        assert sorted(G_f.edges()) == sorted(G_n.edges()), name
+
+    # 3-element list with attr dict
+    G_f = fnx.Graph([[0, 1, {"w": 5}], [1, 2]])
+    G_n = nx_mod.Graph([[0, 1, {"w": 5}], [1, 2]])
+    assert sorted(G_f.edges(data=True)) == sorted(G_n.edges(data=True))
+
+    # Mixed tuple/list elements
+    G_f = fnx.Graph([(0, 1), [1, 2]])
+    G_n = nx_mod.Graph([(0, 1), [1, 2]])
+    assert sorted(G_f.edges()) == sorted(G_n.edges())
+
+    # Tuple-of-list (outer is tuple, inner is list)
+    G_f = fnx.Graph(([0, 1], [1, 2]))
+    G_n = nx_mod.Graph(([0, 1], [1, 2]))
+    assert sorted(G_f.edges()) == sorted(G_n.edges())
+
+    # graph kwargs preserved
+    G_f = fnx.Graph([[0, 1]], name="X")
+    G_n = nx_mod.Graph([[0, 1]], name="X")
+    assert dict(G_f.graph) == dict(G_n.graph)
+
+    # Sanity: pure tuple list still works (no regression from cycle 161)
+    G_f = fnx.Graph([(0, 1), (1, 2)])
+    G_n = nx_mod.Graph([(0, 1), (1, 2)])
+    assert sorted(G_f.edges()) == sorted(G_n.edges())
+
+    # Sanity: invalid iterables still rejected (no regression)
+    with pytest.raises(nx_mod.NetworkXError):
+        fnx.Graph([1, 2, 3])
+    with pytest.raises(nx_mod.NetworkXError):
+        fnx.Graph([(0,)])
