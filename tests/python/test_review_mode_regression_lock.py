@@ -6993,3 +6993,57 @@ def test_graph_method_qualnames_no_private_leak():
     with pytest.raises(TypeError, match=r"Graph\.add_edge\(\)") as exc:
         G_f.add_edge(0, 1, u_of_edge=99)
     assert "<locals>" not in str(exc.value)
+
+
+def test_random_lobster_graph_signature_match_nx():
+    """br-r37-c1-rlgsig: ``random_lobster_graph`` signature must use
+    ``**backend_kwargs`` (variadic) like nx, not ``backend_kwargs=None``
+    (single named kwarg).
+
+    Pre-fix ``inspect.signature(fnx.random_lobster_graph)`` reported
+    ``(n, p1, p2, seed=None, *, create_using=None, backend=None,
+    backend_kwargs=None)`` while nx reports the canonical
+    ``**backend_kwargs`` variadic.  Signature-parity-introspecting
+    code (test fixtures, drop-in libs) saw a structural difference.
+
+    Plus a behavioral consequence: nx's @_dispatchable validates
+    that no unknown kwargs leaked through, raising
+    ``TypeError: random_lobster_graph() got an unexpected keyword
+    argument 'foo'``.  fnx's ``del backend, backend_kwargs``
+    silently dropped them.
+
+    Fix: change ``backend_kwargs=None`` to ``**backend_kwargs`` and
+    route through ``_validate_backend_dispatch_keywords`` for the
+    unknown-kwarg rejection.
+    """
+    import franken_networkx as fnx
+    import networkx as nx_mod
+    import inspect
+
+    # Signature parity
+    f_sig = str(inspect.signature(fnx.random_lobster_graph))
+    n_sig = str(inspect.signature(nx_mod.random_lobster_graph))
+    assert f_sig == n_sig, (
+        f"signature mismatch:\n  fnx={f_sig}\n  nx ={n_sig}"
+    )
+
+    # Default still works
+    G_f = fnx.random_lobster_graph(5, 0.5, 0.5, seed=42)
+    G_n = nx_mod.random_lobster_graph(5, 0.5, 0.5, seed=42)
+    assert type(G_f).__name__ == type(G_n).__name__
+
+    # Backend dispatch
+    G_f = fnx.random_lobster_graph(5, 0.5, 0.5, seed=42, backend="networkx")
+    assert isinstance(G_f, fnx.Graph)
+
+    # Unknown kwarg rejected with nx-shaped message
+    with pytest.raises(TypeError, match="unexpected keyword argument 'foo'"):
+        fnx.random_lobster_graph(5, 0.5, 0.5, seed=42, foo="bar")
+    with pytest.raises(TypeError, match="unexpected keyword argument 'foo'"):
+        nx_mod.random_lobster_graph(5, 0.5, 0.5, seed=42, foo="bar")
+
+    # Invalid backend rejected with nx-shaped message
+    with pytest.raises(ImportError, match="'invalid' backend is not installed"):
+        fnx.random_lobster_graph(5, 0.5, 0.5, seed=42, backend="invalid")
+    with pytest.raises(ImportError, match="'invalid' backend is not installed"):
+        nx_mod.random_lobster_graph(5, 0.5, 0.5, seed=42, backend="invalid")

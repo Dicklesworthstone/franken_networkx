@@ -34283,9 +34283,21 @@ def random_lobster(n, p1, p2, seed=None, *, create_using=None, backend=None, **b
     )
 
 
-def random_lobster_graph(n, p1, p2, seed=None, *, create_using=None, backend=None, backend_kwargs=None):
-    """Return a random lobster graph."""
-    del backend, backend_kwargs  # NetworkX backend dispatch compatibility
+def random_lobster_graph(n, p1, p2, seed=None, *, create_using=None, backend=None, **backend_kwargs):
+    """Return a random lobster graph.
+
+    br-r37-c1-rlgsig: nx exposes ``**backend_kwargs`` as a variadic
+    catch-all on every @_dispatchable function.  fnx had previously
+    declared ``backend_kwargs=None`` as a single named kwarg, so
+    ``inspect.signature(fnx.random_lobster_graph)`` reported
+    ``backend_kwargs=None`` instead of ``**backend_kwargs`` —
+    breaking signature-parity-introspecting code.  Match nx's exact
+    variadic shape and reject unknown kwargs with the nx-shaped
+    ``TypeError`` from ``_validate_backend_dispatch_keywords``.
+    """
+    _validate_backend_dispatch_keywords(
+        "random_lobster_graph", backend, backend_kwargs
+    )
     graph = random_lobster(n, p1, p2, seed=seed)
     if create_using is None:
         return graph
