@@ -2752,6 +2752,41 @@ class _DirectedDegreeView:
     def __hash__(self):
         return id(self._graph) ^ hash(self._adjacency_attr)
 
+    def __repr__(self):
+        # br-r37-c1-degviewname: nx's InDegreeView / OutDegreeView /
+        # InMultiDegreeView / OutMultiDegreeView all repr as
+        # ``<ClassName>({node: degree, ...})``. fnx previously used
+        # the default object.__repr__ (``<franken_networkx.
+        # _DirectedDegreeView object at 0x...>``) — opaque and
+        # diverging from nx's documented format.  Use
+        # ``type(self).__name__`` so the four subclasses below pick
+        # up the right canonical name.
+        return f"{type(self).__name__}({dict(self)!r})"
+
+
+# br-r37-c1-degviewname: instantiate concrete subclasses per direction
+# × multi so ``type(view).__name__`` matches nx's
+# ``InDegreeView`` / ``OutDegreeView`` / ``InMultiDegreeView`` /
+# ``OutMultiDegreeView``.
+class _InDegreeView(_DirectedDegreeView):
+    pass
+_InDegreeView.__name__ = "InDegreeView"
+
+
+class _OutDegreeView(_DirectedDegreeView):
+    pass
+_OutDegreeView.__name__ = "OutDegreeView"
+
+
+class _InMultiDegreeView(_DirectedDegreeView):
+    pass
+_InMultiDegreeView.__name__ = "InMultiDegreeView"
+
+
+class _OutMultiDegreeView(_DirectedDegreeView):
+    pass
+_OutMultiDegreeView.__name__ = "OutMultiDegreeView"
+
 
 Graph.nbunch_iter = _graph_nbunch_iter
 DiGraph.nbunch_iter = _graph_nbunch_iter
@@ -3850,8 +3885,8 @@ MultiGraph.edges = property(_multigraph_edges)
 MultiDiGraph.edges = property(_multidigraph_edges)
 MultiGraph.degree = property(MultiGraphDegreeView)
 DiGraph.edges = property(_digraph_edges)
-DiGraph.in_degree = property(lambda self: _DirectedDegreeView(self, "pred"))
-DiGraph.out_degree = property(lambda self: _DirectedDegreeView(self, "succ"))
+DiGraph.in_degree = property(lambda self: _InDegreeView(self, "pred"))
+DiGraph.out_degree = property(lambda self: _OutDegreeView(self, "succ"))
 MultiDiGraph.adjlist_inner_dict_factory = dict
 MultiDiGraph.adjlist_outer_dict_factory = dict
 MultiDiGraph.edge_attr_dict_factory = dict
@@ -3866,8 +3901,8 @@ MultiDiGraph.pred = property(_multidigraph_pred_view)
 MultiDiGraph.adj = property(_multidigraph_adj_view)
 MultiDiGraph.__getitem__ = _graph_getitem_from_adj
 MultiDiGraph.degree = property(MultiDiGraphDegreeView)
-MultiDiGraph.in_degree = property(lambda self: _DirectedDegreeView(self, "pred"))
-MultiDiGraph.out_degree = property(lambda self: _DirectedDegreeView(self, "succ"))
+MultiDiGraph.in_degree = property(lambda self: _InMultiDegreeView(self, "pred"))
+MultiDiGraph.out_degree = property(lambda self: _OutMultiDegreeView(self, "succ"))
 
 # br-privadj: many nx internals reach into the private `G._adj`, `G._node`,
 # `G._succ`, `G._pred` dict storage (e.g. connected_components._plain_bfs,
@@ -4190,7 +4225,14 @@ class _DiEdgeMethodView:
         return (list, (list(self),))
 
     def __repr__(self):
-        return repr(self._method(self._graph))
+        # br-r37-c1-emvname: nx's InEdgeView / OutEdgeView /
+        # InMultiEdgeView / OutMultiEdgeView each repr as
+        # ``<ClassName>([(u, v), ...])``. fnx previously returned
+        # bare ``[(u, v), ...]`` (no class wrapper) — diverging on
+        # any drop-in code that parses the repr as a class hint.
+        # Use ``type(self).__name__`` so the four subclasses below
+        # pick up the canonical nx name.
+        return f"{type(self).__name__}({list(self)!r})"
 
     # br-r37-c1-iev-eq-data: CROSS-REVIEW gaps in br-r37-c1-7gej0.
     # nx.InEdgeView is set-like (inherits from Set), so two view
@@ -4281,16 +4323,39 @@ class _DiEdgeMethodView:
         return set(self) ^ set(other)
 
 
-def _make_edge_method_view_property(method):
+# br-r37-c1-emvname: instantiate concrete subclasses per direction ×
+# multi so ``type(view).__name__`` matches nx's ``InEdgeView`` /
+# ``OutEdgeView`` / ``InMultiEdgeView`` / ``OutMultiEdgeView``.
+class _OutEdgeView(_DiEdgeMethodView):
+    pass
+_OutEdgeView.__name__ = "OutEdgeView"
+
+
+class _InEdgeView(_DiEdgeMethodView):
+    pass
+_InEdgeView.__name__ = "InEdgeView"
+
+
+class _OutMultiEdgeView(_DiEdgeMethodView):
+    pass
+_OutMultiEdgeView.__name__ = "OutMultiEdgeView"
+
+
+class _InMultiEdgeView(_DiEdgeMethodView):
+    pass
+_InMultiEdgeView.__name__ = "InMultiEdgeView"
+
+
+def _make_edge_method_view_property(method, view_cls):
     def getter(self):
-        return _DiEdgeMethodView(self, method)
+        return view_cls(self, method)
     return property(getter)
 
 
-DiGraph.out_edges = _make_edge_method_view_property(_digraph_out_edges)
-DiGraph.in_edges = _make_edge_method_view_property(_digraph_in_edges)
-MultiDiGraph.out_edges = _make_edge_method_view_property(_multidigraph_out_edges)
-MultiDiGraph.in_edges = _make_edge_method_view_property(_multidigraph_in_edges)
+DiGraph.out_edges = _make_edge_method_view_property(_digraph_out_edges, _OutEdgeView)
+DiGraph.in_edges = _make_edge_method_view_property(_digraph_in_edges, _InEdgeView)
+MultiDiGraph.out_edges = _make_edge_method_view_property(_multidigraph_out_edges, _OutMultiEdgeView)
+MultiDiGraph.in_edges = _make_edge_method_view_property(_multidigraph_in_edges, _InMultiEdgeView)
 
 
 def _nan_filtered_graph(G, weight, ignore_nan):

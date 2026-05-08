@@ -7791,3 +7791,84 @@ def test_edge_view_repr_class_name_matches_networkx():
             f"{f_cls.__name__}.edges repr should match nx exactly: "
             f"fnx={repr(Gf.edges)!r} nx={repr(Gn.edges)!r}"
         )
+
+
+def test_directed_in_out_edge_and_degree_view_class_names_match_nx():
+    """br-r37-c1-emvname / br-r37-c1-degviewname: nx exposes per-direction-
+    × multi class names for DiGraph/MultiDiGraph in/out edges and
+    degree views:
+
+      DiGraph.in_edges            → InEdgeView
+      DiGraph.out_edges           → OutEdgeView
+      DiGraph.in_degree           → InDegreeView
+      DiGraph.out_degree          → OutDegreeView
+      MultiDiGraph.in_edges       → InMultiEdgeView
+      MultiDiGraph.out_edges      → OutMultiEdgeView
+      MultiDiGraph.in_degree      → InMultiDegreeView
+      MultiDiGraph.out_degree     → OutMultiDegreeView
+
+    Pre-fix fnx used a single ``_DiEdgeMethodView`` for all four edge
+    properties and ``_DirectedDegreeView`` for all four degree
+    properties — so ``type(view).__name__`` was always the private
+    ``_DiEdgeMethodView`` / ``_DirectedDegreeView`` regardless of
+    direction or multi-ness. Repr was correspondingly broken:
+
+      DG.in_edges          repr: [(1, 2), (2, 3)]
+                           (no class wrapper — nx shows InEdgeView([...]))
+
+      DG.in_degree         repr: <franken_networkx.
+                                   _DirectedDegreeView object at 0x...>
+                           (default object repr — nx shows
+                            InDegreeView({1: 0, 2: 1, ...}))
+
+    Drop-in code that introspects ``type(view).__name__`` or parses
+    ``repr(view).startswith("InEdgeView(")`` (a documented nx idiom)
+    silently mis-detected.
+
+    Fix: define four trivial subclasses of each base
+    (``_InEdgeView``, ``_OutEdgeView``, ``_InMultiEdgeView``,
+    ``_OutMultiEdgeView`` and ``_InDegreeView`` / ``_OutDegreeView``
+    / ``_InMultiDegreeView`` / ``_OutMultiDegreeView``), each with
+    the canonical nx ``__name__`` set, and route the four properties
+    on each class to the right subclass. Add a base-class
+    ``__repr__`` that uses ``type(self).__name__`` so each subclass
+    formats correctly.
+    """
+    import networkx as nx
+
+    cases = [
+        (fnx.DiGraph,      nx.DiGraph,      "in_edges",   "InEdgeView"),
+        (fnx.DiGraph,      nx.DiGraph,      "out_edges",  "OutEdgeView"),
+        (fnx.DiGraph,      nx.DiGraph,      "in_degree",  "InDegreeView"),
+        (fnx.DiGraph,      nx.DiGraph,      "out_degree", "OutDegreeView"),
+        (fnx.MultiDiGraph, nx.MultiDiGraph, "in_edges",   "InMultiEdgeView"),
+        (fnx.MultiDiGraph, nx.MultiDiGraph, "out_edges",  "OutMultiEdgeView"),
+        (fnx.MultiDiGraph, nx.MultiDiGraph, "in_degree",  "InMultiDegreeView"),
+        (fnx.MultiDiGraph, nx.MultiDiGraph, "out_degree", "OutMultiDegreeView"),
+    ]
+    for f_cls, n_cls, view_name, expected_name in cases:
+        Gf = f_cls([(1, 2), (2, 3)])
+        Gn = n_cls([(1, 2), (2, 3)])
+        view_f = getattr(Gf, view_name)
+        view_n = getattr(Gn, view_name)
+        assert type(view_f).__name__ == expected_name, (
+            f"{f_cls.__name__}.{view_name} class __name__ should be "
+            f"{expected_name!r}, got {type(view_f).__name__!r}"
+        )
+        assert repr(view_f).startswith(f"{expected_name}("), (
+            f"{f_cls.__name__}.{view_name} repr should start with "
+            f"{expected_name!r}(, got: {repr(view_f)}"
+        )
+        assert repr(view_f) == repr(view_n), (
+            f"{f_cls.__name__}.{view_name} repr should match nx: "
+            f"fnx={repr(view_f)} nx={repr(view_n)}"
+        )
+
+    # Behavior of the views still works
+    DG = fnx.DiGraph([(1, 2)])
+    assert list(DG.in_edges) == [(1, 2)]
+    assert (1, 2) in DG.in_edges
+    assert DG.in_degree[1] == 0
+    assert DG.in_degree[2] == 1
+    assert list(DG.in_degree) == [(1, 0), (2, 1)]
+    assert len(DG.in_edges) == 1
