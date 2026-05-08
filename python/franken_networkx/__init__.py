@@ -22860,6 +22860,13 @@ def edge_disjoint_paths(
     br-r37-c1-edp-validate: nx raises NetworkXError on bad inputs;
     fnx's Rust binding silently yielded an empty generator.  Match
     nx's typed-error contract for missing-node + same-source-sink.
+
+    br-r37-c1-edp-cutoff: nx honours ``cutoff`` (max number of
+    augmenting paths) and raises ``NetworkXNoPath`` for cutoff
+    values below 1 (NaN / -inf / negative / 0).  fnx's Rust path
+    silently ignored cutoff.  Delegate any advanced-kwarg case
+    (cutoff / flow_func / auxiliary / residual) to nx so the
+    documented contract holds.
     """
     if s == t:
         raise NetworkXError("source and sink are the same node")
@@ -22867,6 +22874,14 @@ def edge_disjoint_paths(
         raise NetworkXError(f"node {s} not in graph")
     if t not in G:
         raise NetworkXError(f"node {t} not in graph")
+    if (cutoff is not None or flow_func is not None
+            or auxiliary is not None or residual is not None):
+        yield from _call_networkx_for_parity(
+            "edge_disjoint_paths", G, s, t,
+            flow_func=flow_func, cutoff=cutoff,
+            auxiliary=auxiliary, residual=residual,
+        )
+        return
     paths = _fnx.edge_disjoint_paths_rust(G, s, t)
     for path in paths:
         yield path
@@ -22884,11 +22899,23 @@ def node_disjoint_paths(
     ``edge_disjoint_paths`` for missing nodes.  nx accepts the
     same-source-sink case and yields a degenerate path, so leave
     that path through — only validate node membership.
+
+    br-r37-c1-edp-cutoff: same delegation pattern as
+    ``edge_disjoint_paths`` — nx honours cutoff but the Rust path
+    ignores it.
     """
     if s not in G:
         raise NetworkXError(f"node {s} not in graph")
     if t not in G:
         raise NetworkXError(f"node {t} not in graph")
+    if (cutoff is not None or flow_func is not None
+            or auxiliary is not None or residual is not None):
+        yield from _call_networkx_for_parity(
+            "node_disjoint_paths", G, s, t,
+            flow_func=flow_func, cutoff=cutoff,
+            auxiliary=auxiliary, residual=residual,
+        )
+        return
     paths = _fnx.node_disjoint_paths_rust(G, s, t)
     for path in paths:
         yield path

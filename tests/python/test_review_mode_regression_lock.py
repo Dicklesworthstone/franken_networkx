@@ -5337,3 +5337,45 @@ def test_edge_connectivity_cutoff_match_nx():
     # No-cutoff regression
     assert fnx.edge_connectivity(P) == nx.edge_connectivity(P_nx) == 1
     assert fnx.edge_connectivity(K) == nx.edge_connectivity(K_nx) == 4
+
+
+def test_disjoint_paths_cutoff_match_nx():
+    """br-r37-c1-edp-cutoff: ``edge_disjoint_paths`` and
+    ``node_disjoint_paths`` ignored ``cutoff`` (and other
+    advanced kwargs flow_func / auxiliary / residual) on the
+    Rust fast path.  nx honours cutoff (max augmenting paths)
+    and raises ``NetworkXNoPath`` for cutoff < 1
+    (NaN / -inf / negative / 0).
+
+    Lock: 9 boundary cutoff values × both functions match nx
+    exactly (NaN / -inf / -1 / 0 raise NetworkXNoPath; 1 / 2 /
+    3.5 / +inf / None return paths).  Default no-cutoff
+    regression preserved on P5 and K5."""
+    P = fnx.path_graph(5)
+    P_nx = nx.path_graph(5)
+    K = fnx.complete_graph(5)
+    K_nx = nx.complete_graph(5)
+
+    for fn_name in ("edge_disjoint_paths", "node_disjoint_paths"):
+        f_fn = getattr(fnx, fn_name)
+        n_fn = getattr(nx, fn_name)
+
+        # Cutoff < 1 → NetworkXNoPath
+        for c in (float("nan"), -float("inf"), -1, 0):
+            with pytest.raises(nx.NetworkXNoPath):
+                list(f_fn(P, 0, 4, cutoff=c))
+
+        # Cutoff >= 1 / unbounded → returns the path
+        for c in (1, 2, 3.5, float("inf"), None):
+            f = list(f_fn(P, 0, 4, cutoff=c))
+            n = list(n_fn(P_nx, 0, 4, cutoff=c))
+            assert f == n == [[0, 1, 2, 3, 4]]
+
+        # No-args regression
+        assert list(f_fn(P, 0, 4)) == list(n_fn(P_nx, 0, 4))
+
+        # K5 multi-path regression — both libs find 4 disjoint paths
+        f_paths = sorted([sorted(p) for p in f_fn(K, 0, 4)])
+        n_paths = sorted([sorted(p) for p in n_fn(K_nx, 0, 4)])
+        assert f_paths == n_paths
+        assert len(f_paths) == 4
