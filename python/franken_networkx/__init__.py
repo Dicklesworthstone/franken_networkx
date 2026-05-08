@@ -1618,14 +1618,37 @@ def _simple_graph_adjacency(self):
     # iterator, not a materialised list. User code calling
     # ``next(G.adjacency())`` TypeErrored on fnx previously. Yield
     # lazily so the contract matches.
+    #
+    # br-r37-c1-adjdict: nx yields ``(node, inner_dict)`` where the
+    # inner is a real ``dict`` (the underlying _adj[node] storage —
+    # mutating it adds edges).  fnx's ``self.adj[node]`` returns an
+    # ``AtlasView`` (a read-only Mapping wrapper), so
+    # ``isinstance(adj, dict)`` returned False on fnx.  The
+    # AtlasView's underlying storage is Rust-bound and not directly
+    # exposable as a Python ``dict`` reference, so we materialise a
+    # snapshot ``dict(adj_view)`` for type parity.  Drop-in callers
+    # expecting LIVE-mutation semantics (rare; uncommon in real
+    # usage) should use ``G.adj[node]`` directly — that path still
+    # returns the AtlasView for set-attribute mutation through the
+    # Rust storage.
     if isinstance(self, _FilteredGraphView):
         return ((node, FilterAtlas(self, node)) for node in self)
-    return ((node, self.adj[node]) for node in self)
+    return ((node, dict(self.adj[node])) for node in self)
 
 
 def _multigraph_adjacency(self):
-    """br-adjiter: return a generator matching nx.MultiGraph.adjacency."""
-    return ((node, self.adj[node]) for node in self)
+    """br-adjiter: return a generator matching nx.MultiGraph.adjacency.
+
+    br-r37-c1-adjdict: nx yields ``(node, inner_dict)`` where
+    ``inner_dict`` is a real ``dict`` mapping neighbour → keyed-attrs.
+    fnx's ``self.adj[node]`` returned an ``AdjacencyView``,
+    breaking ``isinstance(adj, dict)`` in drop-in code.  Materialise
+    a snapshot dict for type parity (recursive: each neighbour's
+    keyed-attrs map is also unwrapped from AtlasView to dict).
+    """
+    def _unwrap(view):
+        return {nbr: dict(keys) for nbr, keys in view.items()}
+    return ((node, _unwrap(self.adj[node])) for node in self)
 
 
 _GRAPH_COPY = Graph.copy

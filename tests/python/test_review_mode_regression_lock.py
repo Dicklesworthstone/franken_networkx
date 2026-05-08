@@ -8750,3 +8750,62 @@ def test_subgraph_view_and_reverse_view_top_level_copy_match_nx():
             assert fnx.is_frozen(cf) == nx.is_frozen(cn) == True
             # Content has reversed edges
             assert sorted(cf.edges()) == sorted(cn.edges())
+
+
+def test_adjacency_generator_yields_dict_inner():
+    """br-r37-c1-adjdict: ``G.adjacency()`` yields ``(node,
+    inner_dict)`` tuples where ``inner_dict`` is a real ``dict`` in
+    nx.  Pre-fix fnx yielded ``(node, AtlasView)`` (or
+    ``AdjacencyView`` for Multi*Graph), so
+    ``isinstance(adj, dict)`` returned False and drop-in code that
+    type-dispatches on the inner adjacency map silently misbehaved.
+
+    Affects all 4 graph classes (Graph, DiGraph, MultiGraph,
+    MultiDiGraph).
+
+    Fix: materialise the inner mapping as a ``dict`` at yield time
+    in ``_simple_graph_adjacency`` (Graph/DiGraph) and
+    ``_multigraph_adjacency`` (Multi*Graph, with recursive unwrap of
+    the per-key attrs sub-dict).  Drop-in callers expecting LIVE
+    mutation (uncommon — typically use ``G.adj[node]`` directly)
+    keep that path unchanged.
+    """
+    for cls_name in ("Graph", "DiGraph", "MultiGraph", "MultiDiGraph"):
+        Gf = getattr(fnx, cls_name)([(1, 2), (2, 3)])
+        Gn = getattr(nx, cls_name)([(1, 2), (2, 3)])
+
+        f_adj = list(Gf.adjacency())
+        n_adj = list(Gn.adjacency())
+
+        # Inner type matches nx
+        assert type(f_adj[0][1]) is dict, (
+            f"{cls_name}.adjacency() inner type: "
+            f"fnx={type(f_adj[0][1]).__name__} expected=dict"
+        )
+        assert type(n_adj[0][1]) is dict, (
+            f"sanity: {cls_name}.adjacency() inner type in nx: "
+            f"{type(n_adj[0][1]).__name__}"
+        )
+
+        # Content matches
+        f_dict = {k: v for k, v in f_adj}
+        n_dict = {k: v for k, v in n_adj}
+        assert f_dict == n_dict, (
+            f"{cls_name}.adjacency() content: fnx={f_dict} nx={n_dict}"
+        )
+
+        # isinstance check works
+        for node, adj in Gf.adjacency():
+            assert isinstance(adj, dict)
+
+    # MultiGraph deeper structure: inner dict nests the per-key
+    # attrs as plain dicts too (recursive unwrap).
+    MG = fnx.MultiGraph()
+    MG.add_edge(1, 2, key="a", weight=10)
+    MG.add_edge(1, 2, key="b", weight=20)
+    for node, adj in MG.adjacency():
+        assert isinstance(adj, dict)
+        for nbr, keyed_attrs in adj.items():
+            assert isinstance(keyed_attrs, dict)
+            for key, attrs in keyed_attrs.items():
+                assert isinstance(attrs, dict)
