@@ -5892,3 +5892,64 @@ def test_graph_size_callable_weight_match_nx():
         # arbitrary-key weight (missing on every edge -> default 1)
         assert G_f.size(weight=5) == G_n.size(weight=5)
         assert G_f.size(weight=("w",)) == G_n.size(weight=("w",))
+
+
+def test_attr_matrix_missing_attr_raises_keyerror_match_nx():
+    """br-r37-c1-attrmtx: ``attr_matrix`` must raise ``KeyError`` when
+    ``edge_attr`` or ``node_attr`` names an attribute that doesn't
+    exist on every edge / node — except for the special case
+    ``edge_attr=='weight'`` which nx defaults to 1.
+
+    Pre-fix fnx used ``data.get(attr, 1)`` / ``G.nodes[n].get(attr, n)``
+    everywhere, silently swallowing missing attributes and returning a
+    default-1 / node-as-label matrix.  This masked caller bugs.
+
+    Fix: mirror nx's ``_edge_value`` / ``_node_value`` helpers (direct
+    subscript that raises KeyError, plus the ``edge_attr=='weight'``
+    default and the callable-resolver branches).
+    """
+    import franken_networkx as fnx
+    import networkx as nx_mod
+
+    G_f = fnx.cycle_graph(4)
+    G_n = nx_mod.cycle_graph(4)
+    G_f[0][1]["weight"] = 5
+    G_n[0][1]["weight"] = 5
+    for u, c in [(0, "red"), (1, "blue"), (2, "red"), (3, "blue")]:
+        G_f.nodes[u]["color"] = c
+        G_n.nodes[u]["color"] = c
+
+    # Missing edge_attr -> KeyError (was silent default-1)
+    with pytest.raises(KeyError):
+        fnx.attr_matrix(G_f, edge_attr="nope")
+    with pytest.raises(KeyError):
+        nx_mod.attr_matrix(G_n, edge_attr="nope")
+
+    # Missing node_attr -> KeyError (was silent node-as-label)
+    with pytest.raises(KeyError):
+        fnx.attr_matrix(G_f, node_attr="missing")
+    with pytest.raises(KeyError):
+        nx_mod.attr_matrix(G_n, node_attr="missing")
+
+    # Special case: edge_attr="weight" with partial coverage uses default 1
+    f_M, _ = fnx.attr_matrix(G_f, edge_attr="weight")
+    n_M, _ = nx_mod.attr_matrix(G_n, edge_attr="weight")
+    assert f_M.tolist() == n_M.tolist()
+
+    # Callable edge_attr / node_attr work
+    f_M, _ = fnx.attr_matrix(G_f, edge_attr=lambda u, v: 99)
+    n_M, _ = nx_mod.attr_matrix(G_n, edge_attr=lambda u, v: 99)
+    assert f_M.tolist() == n_M.tolist()
+
+    f_M, _ = fnx.attr_matrix(G_f, node_attr=lambda u: u % 2)
+    n_M, _ = nx_mod.attr_matrix(G_n, node_attr=lambda u: u % 2)
+    assert f_M.tolist() == n_M.tolist()
+
+    # MultiGraph: sum-over-keys of named attribute
+    M_f = fnx.MultiGraph()
+    M_f.add_edges_from([(0, 1, {"w": 2}), (0, 1, {"w": 3}), (1, 2, {"w": 5})])
+    M_n = nx_mod.MultiGraph()
+    M_n.add_edges_from([(0, 1, {"w": 2}), (0, 1, {"w": 3}), (1, 2, {"w": 5})])
+    f_M, _ = fnx.attr_matrix(M_f, edge_attr="w")
+    n_M, _ = nx_mod.attr_matrix(M_n, edge_attr="w")
+    assert f_M.tolist() == n_M.tolist()

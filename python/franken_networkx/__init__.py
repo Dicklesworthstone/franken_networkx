@@ -21266,59 +21266,87 @@ def attr_matrix(
     matrix has size ``len(unique_attr_values)`` with entries summed over
     nodes sharing the same attribute.  *rc_order* then specifies the
     ordering of attribute values, not nodes.
+
+    br-r37-c1-attrmtx: nx requires the named ``edge_attr`` / ``node_attr``
+    to be present on every edge / node and raises ``KeyError`` when
+    missing.  fnx previously used ``.get(attr, default)`` which silently
+    swallowed missing attrs and returned a default-1 / node-as-label
+    matrix — masking caller bugs.  Mirror nx's exact subscript pattern
+    (``data[edge_attr]`` / ``G.nodes[u][node_attr]``) and support
+    callable values too.
     """
     import numpy as np
 
-    if node_attr is not None:
-        # Group nodes by their node_attr value
-        node_attrs = {n: G.nodes[n].get(node_attr, n) for n in G.nodes()}
-        if rc_order is not None:
-            labels = list(rc_order)
+    # br-r37-c1-attrmtx: build edge / node value resolvers matching nx.
+    # ``None`` -> default semantics; ``callable`` -> user-supplied;
+    # ``str`` -> direct subscript that raises KeyError on missing.
+    # nx special-cases ``edge_attr == "weight"`` with a default of 1
+    # (so unweighted graphs still work when the canonical "weight"
+    # name is asked for); other named attrs MUST exist on every edge.
+    if edge_attr is None:
+        if G.is_multigraph():
+            def edge_value(u, v):
+                return len(G[u][v])
         else:
-            labels = sorted(set(node_attrs.values()), key=str)
-        label_idx = {lab: i for i, lab in enumerate(labels)}
-        n = len(labels)
-        M = np.zeros((n, n), dtype=dtype or np.float64, order=order or "C")
-        for u, v, data in G.edges(data=True):
-            lu, lv = node_attrs.get(u), node_attrs.get(v)
-            if lu in label_idx and lv in label_idx:
-                val = (
-                    data.get(edge_attr, 1)
-                    if edge_attr and isinstance(data, dict)
-                    else 1
-                )
-                M[label_idx[lu], label_idx[lv]] += val
-                if not G.is_directed():
-                    M[label_idx[lv], label_idx[lu]] += val
-        if normalized:
-            rs = M.sum(axis=1)
-            rs[rs == 0] = 1
-            M = M / rs[:, np.newaxis]
-        if rc_order is None:
-            return M, labels
-        return M
+            def edge_value(u, v):
+                return 1
+    elif callable(edge_attr):
+        edge_value = edge_attr
+    elif edge_attr == "weight":
+        if G.is_multigraph():
+            def edge_value(u, v):
+                return sum(d.get("weight", 1) for d in G[u][v].values())
+        else:
+            def edge_value(u, v):
+                return G[u][v].get("weight", 1)
     else:
-        nodelist = list(rc_order) if rc_order is not None else list(G.nodes())
-        n = len(nodelist)
-        idx = {node: i for i, node in enumerate(nodelist)}
-        M = np.zeros((n, n), dtype=dtype or np.float64, order=order or "C")
-        for u, v, data in G.edges(data=True):
-            if u in idx and v in idx:
-                val = (
-                    data.get(edge_attr, 1)
-                    if edge_attr and isinstance(data, dict)
-                    else 1
-                )
-                M[idx[u], idx[v]] = val
-                if not G.is_directed():
-                    M[idx[v], idx[u]] = val
-        if normalized:
-            rs = M.sum(axis=1)
-            rs[rs == 0] = 1
-            M = M / rs[:, np.newaxis]
-        if rc_order is None:
-            return M, nodelist
-        return M
+        if G.is_multigraph():
+            def edge_value(u, v):
+                return sum(d[edge_attr] for d in G[u][v].values())
+        else:
+            def edge_value(u, v):
+                return G[u][v][edge_attr]
+
+    if node_attr is None:
+        def node_value(u):
+            return u
+    elif callable(node_attr):
+        node_value = node_attr
+    else:
+        def node_value(u):
+            return G.nodes[u][node_attr]
+
+    if rc_order is None:
+        ordering = list({node_value(n) for n in G.nodes()})
+    else:
+        ordering = list(rc_order)
+    N = len(ordering)
+    undirected = not G.is_directed()
+    index = dict(zip(ordering, range(N)))
+    M = np.zeros((N, N), dtype=dtype, order=order)
+
+    seen = set()
+    for u, nbrdict in G.adjacency():
+        for v in nbrdict:
+            try:
+                i, j = index[node_value(u)], index[node_value(v)]
+            except KeyError:
+                continue
+            if v not in seen:
+                M[i, j] += edge_value(u, v)
+                if undirected:
+                    M[j, i] = M[i, j]
+        if undirected:
+            seen.add(u)
+
+    if normalized:
+        rs = M.sum(axis=1)
+        rs[rs == 0] = 1
+        M = M / rs[:, np.newaxis]
+
+    if rc_order is None:
+        return M, ordering
+    return M
 
 
 # ---------------------------------------------------------------------------
