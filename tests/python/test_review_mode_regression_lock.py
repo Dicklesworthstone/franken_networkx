@@ -9989,3 +9989,87 @@ def test_clear_empties_graph_attr_factory_override_in_place():
     assert dict(g.graph) == {}
     assert sorted(g.nodes()) == []
     assert sorted(g.edges()) == []
+
+
+def test_g_name_reads_through_graph_attr_factory_override():
+    """br-r37-c1-namovr (cycle 222): cycle 220's
+    ``graph_attr_dict_factory`` fix stores the live attrs dict as a
+    Python-side override and clears the Rust-side dict to avoid
+    double-tracking.  The Rust-bound ``name`` getter read from the
+    (now-empty) Rust dict, so for subclasses with a custom factory:
+
+      class S(Graph):
+          graph_attr_dict_factory = CustomDict
+      g = S()
+      g.name = 'foo'
+      # nx:  g.name == 'foo'
+      # fnx: g.name == ''             *** DIFF — getter bypassed
+                                       # the override
+
+    Sister of cycles 220/221 — completes the factory-override
+    contract for the documented ``name`` property.
+
+    Fix: replace the Rust-bound ``name`` getset_descriptor with a
+    Python ``property`` that round-trips through ``self.graph``
+    (which already handles the override via the descriptor).
+    Mirrors nx's implementation.
+
+    Both default and override paths must work, all 4 graph classes.
+    """
+    import networkx as nx
+
+    # Default path (no factory override)
+    for fcls, ncls in [
+        (fnx.Graph,        nx.Graph),
+        (fnx.DiGraph,      nx.DiGraph),
+        (fnx.MultiGraph,   nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ]:
+        # Default empty
+        assert fcls().name == ncls().name == ""
+
+        # Constructor kwarg
+        assert fcls(name="foo").name == ncls(name="foo").name == "foo"
+
+        # Setter
+        fg = fcls()
+        ng = ncls()
+        fg.name = "set_via_attr"
+        ng.name = "set_via_attr"
+        assert fg.name == ng.name == "set_via_attr"
+        assert fg.graph["name"] == ng.graph["name"] == "set_via_attr"
+
+    # Override path (subclass with custom graph_attr_dict_factory)
+    class CustomDict(dict):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.setdefault("_marker", "custom")
+
+    for fcls, ncls in [
+        (fnx.Graph,        nx.Graph),
+        (fnx.DiGraph,      nx.DiGraph),
+        (fnx.MultiGraph,   nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ]:
+        class FS(fcls):
+            graph_attr_dict_factory = CustomDict
+
+        class NS(ncls):
+            graph_attr_dict_factory = CustomDict
+
+        fs = FS()
+        ns = NS()
+        fs.name = "factory_path"
+        ns.name = "factory_path"
+
+        # Read through the override
+        assert fs.name == "factory_path", f"{fcls.__name__}: fs.name={fs.name!r}"
+        assert ns.name == "factory_path"
+
+        # The override dict has the value too
+        assert fs.graph["name"] == "factory_path"
+        assert ns.graph["name"] == "factory_path"
+
+        # Custom factory type preserved
+        assert isinstance(fs.graph, CustomDict)
+        assert isinstance(ns.graph, CustomDict)

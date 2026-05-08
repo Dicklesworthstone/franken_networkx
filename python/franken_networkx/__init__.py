@@ -4581,6 +4581,33 @@ for _cls in (Graph, DiGraph, MultiGraph, MultiDiGraph):
     _cls.clear = _make_clear_with_attr_override(_cls.clear)
 
 
+# br-r37-c1-namovr (cycle 222): cycle 220's ``graph_attr_dict_factory``
+# fix stores the live attrs in ``vars(obj)[_GRAPH_ATTR_OVERRIDE]`` and
+# clears the Rust-side dict to avoid double-tracking.  The Rust-bound
+# ``name`` getter reads from the (now-empty) Rust dict, so for
+# subclasses with a custom factory:
+#
+#     class S(Graph): graph_attr_dict_factory = CustomDict
+#     g = S(); g.name = 'foo'
+#     # nx:  g.name == 'foo'
+#     # fnx: g.name == ''       *** DIFF — getter bypassed override
+#
+# nx defines ``name`` as a property that round-trips through
+# ``self.graph['name']``.  Mirror that here so both default and
+# override paths share one source of truth: the descriptor's
+# ``__get__`` (which already handles the override).
+def _graph_name_get(self):
+    return self.graph.get("name", "")
+
+
+def _graph_name_set(self, value):
+    self.graph["name"] = value
+
+
+for _cls in (Graph, DiGraph, MultiGraph, MultiDiGraph):
+    _cls.name = property(_graph_name_get, _graph_name_set)
+
+
 def _graph_deepcopy(self, memo=None):
     """br-dcpy: the Rust __deepcopy__ didn't traverse nested attribute
     values, so deepcopy(G).nodes[n]['x'].append(...) mutated the
