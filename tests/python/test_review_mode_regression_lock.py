@@ -6404,3 +6404,75 @@ def test_graph_constructor_accepts_list_of_list_edges_match_nx():
         fnx.Graph([1, 2, 3])
     with pytest.raises(nx_mod.NetworkXError):
         fnx.Graph([(0,)])
+
+
+def test_add_edges_from_accepts_list_edges_match_nx():
+    """br-r37-c1-aeflist: ``G.add_edges_from([[0, 1], ...])`` must
+    accept list-as-edge-spec like nx does.
+
+    Pre-fix the Rust raw add_edges_from raised
+    ``TypeError("each edge must be a tuple (u, v) or (u, v, attr_dict)")``
+    on lists; nx's loop unpacks via ``u, v = e[:2]`` which accepts any
+    2- or 3-element iterable.
+
+    Direct sister of cycle 162's br-r37-c1-ctorlistedges (which fixed
+    the constructor); this is the post-construction add_edges_from
+    method form.
+
+    Fix: in the materialization wrapper, convert non-tuple sized
+    iterables of length 2/3 to tuples before delegating to the Rust
+    raw path.
+    """
+    import franken_networkx as fnx
+    import networkx as nx_mod
+
+    # Graph + DiGraph use the materialized wrapper
+    for cls_f, cls_n in [
+        (fnx.Graph, nx_mod.Graph),
+        (fnx.DiGraph, nx_mod.DiGraph),
+    ]:
+        G_f = cls_f()
+        G_n = cls_n()
+        G_f.add_edges_from([[0, 1], [1, 2]])
+        G_n.add_edges_from([[0, 1], [1, 2]])
+        assert sorted(G_f.edges()) == sorted(G_n.edges())
+
+        # 3-element list with attrs
+        G_f = cls_f()
+        G_n = cls_n()
+        G_f.add_edges_from([[0, 1, {"w": 5}]])
+        G_n.add_edges_from([[0, 1, {"w": 5}]])
+        assert list(G_f.edges(data=True)) == list(G_n.edges(data=True))
+
+        # Mixed tuple/list
+        G_f = cls_f()
+        G_n = cls_n()
+        G_f.add_edges_from([(0, 1), [1, 2]])
+        G_n.add_edges_from([(0, 1), [1, 2]])
+        assert sorted(G_f.edges()) == sorted(G_n.edges())
+
+        # Generator yielding lists
+        G_f = cls_f()
+        G_n = cls_n()
+        G_f.add_edges_from((e for e in [[0, 1], [1, 2]]))
+        G_n.add_edges_from((e for e in [[0, 1], [1, 2]]))
+        assert sorted(G_f.edges()) == sorted(G_n.edges())
+
+    # Sanity: pure tuple list still works on all 4 graph types
+    for cls_f, cls_n in [
+        (fnx.Graph, nx_mod.Graph),
+        (fnx.DiGraph, nx_mod.DiGraph),
+        (fnx.MultiGraph, nx_mod.MultiGraph),
+        (fnx.MultiDiGraph, nx_mod.MultiDiGraph),
+    ]:
+        G_f = cls_f()
+        G_n = cls_n()
+        G_f.add_edges_from([(0, 1), (1, 2)])
+        G_n.add_edges_from([(0, 1), (1, 2)])
+        assert sorted(G_f.edges()) == sorted(G_n.edges())
+
+    # Sanity: bad-arity tuples still rejected with nx-shaped error
+    with pytest.raises(nx_mod.NetworkXError, match="must be a 2-tuple or 3-tuple"):
+        fnx.Graph().add_edges_from([(0,)])
+    with pytest.raises(nx_mod.NetworkXError, match="must be a 2-tuple or 3-tuple"):
+        nx_mod.Graph().add_edges_from([(0,)])

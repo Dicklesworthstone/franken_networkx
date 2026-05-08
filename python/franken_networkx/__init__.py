@@ -1853,6 +1853,22 @@ _MULTIDIGRAPH_RAW_REMOVE_NODES_FROM = MultiDiGraph.remove_nodes_from
 def _add_edges_from_materialized(raw):
     def add_edges_from(self, ebunch_to_add, **attr):
         materialized = list(ebunch_to_add)
+        # br-r37-c1-aeflist: nx.Graph.add_edges_from accepts each edge
+        # as ANY 2- or 3-element iterable (tuple OR list), via the
+        # bare ``u, v = e[:2]`` unpack inside the loop.  The Rust raw
+        # path only accepts tuples and raises
+        # ``TypeError('each edge must be a tuple (u, v) or
+        # (u, v, attr_dict)')`` on lists.  Convert non-tuple sized
+        # iterables to tuples before delegating — preserves the
+        # canonical nx idiom ``G.add_edges_from([[u, v], ...])``.
+        for i, edge in enumerate(materialized):
+            if (
+                not isinstance(edge, tuple)
+                and not isinstance(edge, (str, bytes))
+                and hasattr(edge, "__len__")
+                and 2 <= len(edge) <= 3
+            ):
+                materialized[i] = tuple(edge)
         # br-r37-c1-m0io3: validate hashability of each endpoint so
         # fnx raises TypeError('unhashable type: <type>') matching
         # nx, instead of silently absorbing list/set/dict-typed
