@@ -8991,3 +8991,70 @@ def test_fnx_community_louvain_communities_uses_fnx_wrapper():
     sub = fnx.community.louvain_communities(G_f, seed=42)
     assert sorted(sorted(c) for c in top) == sorted(sorted(c) for c in sub)
     assert len(sub) == 4  # Canonical Karate 4-community answer
+
+
+def test_view_deepcopy_is_snapshot_independent_of_subsequent_mutations():
+    """br-r37-c1-vcopydc: cycle 198 fixed ``copy.copy(G.nodes)``
+    type preservation, but the ``__deepcopy__`` override returned
+    self too — making ``copy.deepcopy(G.nodes)`` a LIVE wrapper
+    that saw subsequent G mutations.  nx's deepcopy contract is
+    SNAPSHOT semantics: deep-copy the underlying graph, return a
+    NodeView pointing to that snapshot — independent of any later
+    mutation to the original G.
+
+      Pre-fix divergence:
+        nv_dc = copy.deepcopy(G.nodes); G.add_node(99)
+        nx:  99 in nv_dc → False  (snapshot — nx is correct)
+        fnx: 99 in nv_dc → True   (live wrapper — fnx is wrong)
+
+    Drop-in code that uses deepcopy to FREEZE a view's state for
+    later comparison silently saw G's mutations leak into the
+    "snapshot".
+
+    Fix: ``__deepcopy__`` materialises the current view content
+    into a NEW fnx Graph (of the matching type) and returns its
+    .nodes/.edges view.  Type preservation (NodeView/EdgeView) is
+    maintained AND subsequent G mutations don't bleed in.
+    """
+    import copy
+
+    # NodeView deepcopy is independent across all 4 graph classes
+    for cls_name in ("Graph", "DiGraph", "MultiGraph", "MultiDiGraph"):
+        G = getattr(fnx, cls_name)([(1, 2), (2, 3)])
+        nv_dc = copy.deepcopy(G.nodes)
+        # Snapshot taken — mutations to G must NOT show up in nv_dc.
+        G.add_node(999)
+        assert 999 not in nv_dc, (
+            f"{cls_name}.nodes deepcopy should be snapshot — but 999 "
+            f"leaked in after G.add_node(999): list(nv_dc)={list(nv_dc)}"
+        )
+        # Type preservation
+        assert type(nv_dc).__name__ == "NodeView"
+        # isinstance Mapping (cycle 185 ABC parity)
+        from collections.abc import Mapping
+        assert isinstance(nv_dc, Mapping)
+
+    # EdgeView deepcopy is independent (Graph only — _EDGE_VIEW_TYPE
+    # is shared with cycle-188 OutEdgeView et al., but those go
+    # through _DiEdgeMethodView which is fixed elsewhere).
+    G = fnx.Graph([(1, 2), (2, 3)])
+    ev_dc = copy.deepcopy(G.edges)
+    G.add_edge(99, 100)
+    assert (99, 100) not in ev_dc, (
+        f"Graph.edges deepcopy should be snapshot — but (99, 100) "
+        f"leaked in after G.add_edge: list(ev_dc)={list(ev_dc)}"
+    )
+    assert type(ev_dc).__name__ == "EdgeView"
+
+    # Behavior preservation: copy.copy is still LIVE (matches nx).
+    G2 = fnx.path_graph(3)
+    nv_c = copy.copy(G2.nodes)
+    G2.add_node(99)
+    assert 99 in nv_c  # live wrapper sees mutation
+
+    # Pickle round-trip behaviour unchanged (still snapshot dict
+    # because Rust graphs can't pickle by reference).
+    import pickle
+    G3 = fnx.path_graph(3)
+    r = pickle.loads(pickle.dumps(G3.nodes))
+    assert isinstance(r, dict)

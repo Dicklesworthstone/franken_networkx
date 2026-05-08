@@ -3658,24 +3658,44 @@ _MULTIDIGRAPH_NODE_VIEW_TYPE.__reduce__ = _node_view_reduce
 # copy.copy / deepcopy return a plain ``dict`` (the snapshot
 # product), so ``isinstance(copy.copy(G.nodes), NodeView)`` was
 # False.  Rust-bound NodeView types don't allow direct
-# instantiation (``NodeView(G)`` raises TypeError), so the simplest
-# parity-preserving ``__copy__`` returns self — semantically
-# equivalent for a read-only view (content / iteration / __contains__
-# / __getitem__ all unchanged), and `isinstance(c, NodeView)`
-# returns True.  ``__reduce__`` (used by pickle) keeps the snapshot
-# behaviour because Rust graphs can't pickle by reference.
+# instantiation, so:
+#   - ``__copy__`` returns self (live wrapper — matches nx's
+#     ``copy.copy`` semantic where mutations to G are visible
+#     through the copied view).
+#   - ``__deepcopy__`` builds a NEW graph populated from the
+#     current snapshot and returns its NodeView (matches nx's
+#     ``copy.deepcopy`` snapshot semantic — independent of
+#     subsequent G mutations).
 def _node_view_copy(self):
     return self
 
 
-for _nv_type in (
-    _SIMPLE_GRAPH_NODE_VIEW_TYPE,
-    _SIMPLE_DIGRAPH_NODE_VIEW_TYPE,
-    _MULTIGRAPH_NODE_VIEW_TYPE,
-    _MULTIDIGRAPH_NODE_VIEW_TYPE,
+_NODE_VIEW_TYPE_TO_GRAPH_CLASS = {}
+
+
+def _node_view_deepcopy(self, memo):
+    # br-r37-c1-vcopydc: nx's deepcopy of NodeView is a SNAPSHOT
+    # — independent of subsequent G mutations.  Materialise via
+    # the existing __reduce__ snapshot pattern, but build a new
+    # fnx Graph (of the matching class) and return ITS NodeView so
+    # ``isinstance(c, NodeView)`` still holds AND mutations to the
+    # original G aren't visible through c.
+    snapshot = [(node, dict(attrs)) for node, attrs in self(data=True)]
+    GraphCls = _NODE_VIEW_TYPE_TO_GRAPH_CLASS.get(type(self), Graph)
+    G_new = GraphCls()
+    G_new.add_nodes_from((n, a) for n, a in snapshot)
+    return G_new.nodes
+
+
+for _nv_type, _g_cls in (
+    (_SIMPLE_GRAPH_NODE_VIEW_TYPE, Graph),
+    (_SIMPLE_DIGRAPH_NODE_VIEW_TYPE, DiGraph),
+    (_MULTIGRAPH_NODE_VIEW_TYPE, MultiGraph),
+    (_MULTIDIGRAPH_NODE_VIEW_TYPE, MultiDiGraph),
 ):
     _nv_type.__copy__ = _node_view_copy
-    _nv_type.__deepcopy__ = lambda self, memo, _nv=_node_view_copy: _nv(self)
+    _nv_type.__deepcopy__ = _node_view_deepcopy
+    _NODE_VIEW_TYPE_TO_GRAPH_CLASS[_nv_type] = _g_cls
 
 
 def _node_view_eq(self, other):
@@ -3760,12 +3780,24 @@ _EDGE_VIEW_TYPE.__reduce__ = _edge_view_reduce
 
 # br-r37-c1-vcopy: same reasoning as _node_view_copy above —
 # preserve EdgeView type through copy.copy / copy.deepcopy.
+# br-r37-c1-vcopydc: __deepcopy__ must produce a SNAPSHOT
+# independent of subsequent G mutations (matches nx).
 def _edge_view_copy(self):
     return self
 
 
+def _edge_view_deepcopy(self, memo):
+    # Materialise the edges into a new Graph and return its EdgeView.
+    snapshot = [(u, v, dict(attrs)) for u, v, attrs in self(data=True)]
+    G_new = Graph()
+    # Add all source-graph nodes too so EdgeView reflects same
+    # universe (some edge-set operations care about isolated nodes).
+    G_new.add_edges_from(snapshot)
+    return G_new.edges
+
+
 _EDGE_VIEW_TYPE.__copy__ = _edge_view_copy
-_EDGE_VIEW_TYPE.__deepcopy__ = lambda self, memo: self
+_EDGE_VIEW_TYPE.__deepcopy__ = _edge_view_deepcopy
 
 
 def _make_keystr_preserving_getitem(raw):
