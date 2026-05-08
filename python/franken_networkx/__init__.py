@@ -2175,6 +2175,51 @@ def _init_absorbing_dict_of_dicts(raw_init, is_multigraph):
             raise NetworkXError(
                 "Input is not a known data type for conversion."
             )
+        # br-r37-c1-ctoredgelist: nx.from_edgelist iterates the input
+        # and unpacks each item as a 2- or 3-element edge spec; if any
+        # item isn't sized-2-or-3, nx surfaces ``NetworkXError("Input
+        # is not a valid edge list")`` from ``to_networkx_graph``'s
+        # final Collection branch.  fnx's Rust __new__ silently
+        # absorbed lists/tuples/sets/ranges/strs/bytes of non-edge
+        # items as node iterables (one node per element), producing
+        # ``Graph(nodes=N, edges=0)`` instead of the expected error.
+        # Pre-validate by spot-checking the items.  Skip dict /
+        # Graph-instance / numpy / pandas / generator / iterator
+        # (those have their own decoders); only walk concrete
+        # sized containers where we can iterate non-destructively.
+        if (
+            incoming_graph_data is not None
+            and not isinstance(incoming_graph_data, dict)
+            and not (
+                type(incoming_graph_data).__module__.startswith("numpy")
+                and hasattr(incoming_graph_data, "shape")
+            )
+            and not (
+                type(incoming_graph_data).__module__.startswith("pandas")
+                and hasattr(incoming_graph_data, "iloc")
+            )
+            and not (
+                hasattr(incoming_graph_data, "nodes")
+                and hasattr(incoming_graph_data, "edges")
+                and callable(getattr(incoming_graph_data, "is_multigraph", None))
+            )
+            and isinstance(
+                incoming_graph_data,
+                (list, tuple, set, frozenset, range, str, bytes),
+            )
+        ):
+            for item in incoming_graph_data:
+                # str/bytes ELEMENTS (chars / int) are scalars without
+                # a sized-iterable shape; non-iterable scalars (int,
+                # float, char-as-str-of-len-1) all fail the 2/3-len
+                # contract.  We treat any non-sized or wrong-length
+                # element as the "not a valid edge list" case.
+                if isinstance(item, (str, bytes)) or not hasattr(item, "__len__"):
+                    self.clear()
+                    raise NetworkXError("Input is not a valid edge list")
+                if len(item) not in (2, 3):
+                    self.clear()
+                    raise NetworkXError("Input is not a valid edge list")
         raw_init(self)
         # br-r37-c1-g438p: the Rust __new__ silently absorbs
         # unhashable nodes (storing them by Python id) when the

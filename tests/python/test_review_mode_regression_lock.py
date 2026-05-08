@@ -6268,3 +6268,70 @@ def test_graph_constructor_rejects_scalar_match_nx():
 
     fnx.Graph(None)  # explicit None still allowed
     fnx.Graph()  # default arg still allowed
+
+
+def test_graph_constructor_rejects_non_edge_iterables_match_nx():
+    """br-r37-c1-ctoredgelist: ``Graph([1, 2, 3])`` and other non-edge
+    iterables (sets/tuples/ranges/strs/bytes of non-2-or-3-tuple
+    items) must raise ``NetworkXError("Input is not a valid edge
+    list")`` matching nx's terminal Collection branch in
+    ``to_networkx_graph``.
+
+    Pre-fix the Rust ``__new__`` silently absorbed each scalar element
+    of these iterables as a graph node, returning ``Graph(N, 0)``
+    instead of raising.
+
+    Affected: list / tuple / set / frozenset / range / str / bytes of
+    items that aren't sized-2-or-3 (i.e. not valid edge specs).
+
+    Sister of cycle 160's br-r37-c1-ctorscalar fix on the bare-scalar
+    case; this is the iterable-of-non-edges case.
+
+    Fix: pre-validate concrete sized containers — walk the items and
+    raise on any item that isn't a sized iterable of length 2 or 3.
+    Special-cases str / bytes elements as scalars (they're sized but
+    aren't edge specs).
+    """
+    import franken_networkx as fnx
+    import networkx as nx_mod
+
+    # All these should raise NetworkXError via either the
+    # 'Input is not a valid edge list' path or (for str) the
+    # 'Input is not a correct scipy sparse array type' path.  We
+    # only assert NetworkXError class — message wording diverges
+    # across the str/bytes/list branches in nx itself.
+    bad_inputs = [
+        [1, 2, 3],
+        [(0, 1), 2],
+        [(0,)],
+        [(0, 1, 2, 3)],
+        (1, 2, 3),
+        {1, 2, 3},
+        "abc",
+        b"abc",
+        range(3),
+        ["a", "b", "c"],
+    ]
+    for cls_name in ("Graph", "DiGraph", "MultiGraph", "MultiDiGraph"):
+        cls_f = getattr(fnx, cls_name)
+        cls_n = getattr(nx_mod, cls_name)
+        for bad in bad_inputs:
+            with pytest.raises(nx_mod.NetworkXError):
+                cls_f(bad)
+            with pytest.raises(nx_mod.NetworkXError):
+                cls_n(bad)
+
+    # Sanity: still accept canonical edge-list forms
+    G_f = fnx.Graph([(0, 1), (1, 2)])
+    G_n = nx_mod.Graph([(0, 1), (1, 2)])
+    assert sorted(G_f.edges()) == sorted(G_n.edges())
+
+    # Tuples, sets, iterators of tuples still work
+    fnx.Graph((0, 1) for _ in range(1))
+    fnx.Graph({(0, 1), (1, 2)})
+    fnx.Graph(iter([(0, 1)]))
+
+    # Empty iterables still work
+    fnx.Graph([])
+    fnx.Graph(())
+    fnx.Graph(set())
