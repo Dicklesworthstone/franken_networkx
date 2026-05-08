@@ -38,10 +38,21 @@ needs_nx = pytest.mark.skipif(not HAS_NX, reason="networkx not installed")
 def test_signature_parameter_list_matches_networkx(name):
     fnx_sig = inspect.signature(getattr(fnx, name))
     nx_sig = inspect.signature(getattr(nx, name))
-    fnx_params = list(fnx_sig.parameters.keys())
-    nx_params = [k for k in nx_sig.parameters.keys()
-                 if k not in ("backend", "backend_kwargs")]
-    assert fnx_params == nx_params
+    # br-r37-c1-gedsig-update: cycle 178 (and earlier signature-parity
+    # work) added the canonical ``*, backend=None, **backend_kwargs``
+    # dispatch surface to fnx wrappers so the canonical
+    # ``nx.<fn>(..., backend='networkx')`` idiom works on fnx.
+    # Compare core user-facing params after stripping the dispatch-
+    # surface kwargs from BOTH sides — fnx and nx must agree on
+    # both core and dispatch params.
+    def _strip_dispatch(params):
+        return [k for k in params if k not in ("backend", "backend_kwargs")]
+
+    fnx_core = _strip_dispatch(fnx_sig.parameters)
+    nx_core = _strip_dispatch(nx_sig.parameters)
+    assert fnx_core == nx_core
+    # Also lock the full signature parity (including dispatch surface)
+    assert str(fnx_sig) == str(nx_sig)
 
 
 @needs_nx

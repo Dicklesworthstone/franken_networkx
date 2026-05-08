@@ -121,10 +121,23 @@ def test_minimum_cycle_basis_signature_inventory_matches_networkx():
     nx_signature = inspect.signature(nx.minimum_cycle_basis)
     fnx_signature = inspect.signature(fnx.minimum_cycle_basis)
 
-    assert list(fnx_signature.parameters) == ["G", "weight"]
+    # br-r37-c1-mcbsig-update: cycle 178 (and earlier signature-parity
+    # work) added the canonical ``*, backend=None, **backend_kwargs``
+    # dispatch surface to fnx wrappers so ``nx.minimum_cycle_basis(G,
+    # backend='networkx')`` works on fnx.  Compare the core
+    # user-facing params after stripping the dispatch-surface kwargs
+    # — fnx and nx must agree on both core and dispatch params.
+    def _strip_dispatch(params):
+        return [k for k in params if k not in ("backend", "backend_kwargs")]
+
+    fnx_core = _strip_dispatch(fnx_signature.parameters)
+    nx_core = _strip_dispatch(nx_signature.parameters)
+    assert fnx_core == nx_core == ["G", "weight"]
     assert fnx_signature.parameters["weight"].default is None
     assert nx_signature.parameters["G"].kind is inspect.Parameter.POSITIONAL_OR_KEYWORD
     assert nx_signature.parameters["weight"].default is None
+    # Also assert the full signature including dispatch surface matches nx
+    assert str(fnx_signature) == str(nx_signature)
 
 
 def test_chordless_cycles_returns_iterator_and_matches_networkx():

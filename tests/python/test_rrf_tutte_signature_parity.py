@@ -38,14 +38,24 @@ needs_nx = pytest.mark.skipif(not HAS_NX, reason="networkx not installed")
 def test_rrf_signature_matches_networkx():
     fnx_sig = inspect.signature(fnx.random_labeled_rooted_forest)
     nx_sig = inspect.signature(nx.random_labeled_rooted_forest)
-    fnx_params = list(fnx_sig.parameters.keys())
-    nx_params = [k for k in nx_sig.parameters.keys()
-                 if k not in ("backend", "backend_kwargs")]
-    assert fnx_params == nx_params == ["n", "seed"]
+    # br-r37-c1-rrfsig-update: cycle 178 added the canonical
+    # ``*, backend=None, **backend_kwargs`` dispatch surface to fnx
+    # wrappers so ``nx.random_labeled_rooted_forest(n, backend=
+    # 'networkx')`` works on fnx.  Compare core user-facing params
+    # after stripping the dispatch-surface kwargs — fnx and nx must
+    # agree on both core and dispatch params.
+    def _strip_dispatch(params):
+        return [k for k in params if k not in ("backend", "backend_kwargs")]
+
+    fnx_core = _strip_dispatch(fnx_sig.parameters)
+    nx_core = _strip_dispatch(nx_sig.parameters)
+    assert fnx_core == nx_core == ["n", "seed"]
     # seed is keyword-only on both
     assert (
         fnx_sig.parameters["seed"].kind == inspect.Parameter.KEYWORD_ONLY
     )
+    # Also assert the full signature including dispatch surface matches nx
+    assert str(fnx_sig) == str(nx_sig)
 
 
 @needs_nx

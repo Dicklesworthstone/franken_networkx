@@ -7872,3 +7872,52 @@ def test_directed_in_out_edge_and_degree_view_class_names_match_nx():
     assert DG.in_degree[2] == 1
     assert list(DG.in_degree) == [(1, 0), (2, 1)]
     assert len(DG.in_edges) == 1
+
+
+def test_signature_parity_with_backend_dispatch_for_dispatchable_wrappers():
+    """br-r37-c1-sigsig: lock the cycle-178 architectural decision —
+    fnx wrappers around @_dispatchable nx functions must mirror nx's
+    full signature INCLUDING ``*, backend=None, **backend_kwargs``,
+    so the canonical drop-in idiom
+
+      result = nx.<fn>(..., backend='networkx')
+
+    works on fnx without TypeError.
+
+    A handful of older signature-parity tests had been written
+    against the pre-cycle-178 reality where fnx wrappers exposed
+    only the core public params; they stripped backend/backend_kwargs
+    from nx's params and compared the stripped form to fnx's full
+    params, which broke once cycle 178 made fnx mirror the full
+    signature.
+
+    This regression locks the new ground truth: ``str(fnx_sig) ==
+    str(nx_sig)`` for the dispatchable wrappers that previously had
+    stale tests, plus a sample of others to confirm the contract.
+    """
+    import networkx as nx
+    import inspect
+
+    targets = (
+        "minimum_cycle_basis",
+        "random_labeled_rooted_forest",
+        "graph_edit_distance",
+        "optimize_graph_edit_distance",
+        "optimize_edit_paths",
+        "join_trees",
+    )
+    for name in targets:
+        f = getattr(fnx, name, None)
+        n = getattr(nx, name, None)
+        if f is None or n is None:
+            continue
+        f_sig = str(inspect.signature(f))
+        n_sig = str(inspect.signature(n))
+        assert f_sig == n_sig, (
+            f"{name} signature mismatch:\n  fnx={f_sig}\n  nx ={n_sig}"
+        )
+
+    # Sanity: the canonical drop-in idiom works
+    G = fnx.cycle_graph(4)
+    cycles = fnx.minimum_cycle_basis(G, backend="networkx")
+    assert len(cycles) == 1
