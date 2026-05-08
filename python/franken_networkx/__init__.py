@@ -3743,6 +3743,56 @@ for _node_view_type in (
     Mapping.register(_node_view_type)
 
 
+# br-r37-c1-vkeysview: nx's NodeView (Graph/DiGraph/MultiGraph/
+# MultiDiGraph) and MultiEdgeView types return ``KeysView`` /
+# ``ValuesView`` / ``ItemsView`` instances from ``.keys()`` /
+# ``.values()`` / ``.items()`` (via Mapping inheritance) — so
+# ``G.nodes.keys() & {0, 1, 99}`` returns the set intersection.
+# fnx's Rust-bound NodeView ``.keys()`` etc. returned plain
+# ``list`` (or generators on Multi*Graph.edges), breaking Set
+# algebra on the result:
+#
+#   G.nodes.keys() & {0, 1}  →  TypeError(unsupported operand)
+#
+# Now that the views are registered as Mapping virtual subclasses
+# (above + the EdgeView block), wrap each ``.keys`` / ``.values``
+# / ``.items`` to return the proper ``cabc.KeysView`` / ``cabc
+# .ValuesView`` / ``cabc.ItemsView`` so set algebra works.
+from collections.abc import (
+    KeysView as _MapKeysView,
+    ValuesView as _MapValuesView,
+    ItemsView as _MapItemsView,
+)
+
+
+def _mapping_keys_view(self):
+    return _MapKeysView(self)
+
+
+def _mapping_values_view(self):
+    return _MapValuesView(self)
+
+
+def _mapping_items_view(self):
+    return _MapItemsView(self)
+
+
+for _nv_type in _ALL_NODE_VIEW_TYPES:
+    _nv_type.keys = _mapping_keys_view
+    _nv_type.values = _mapping_values_view
+    _nv_type.items = _mapping_items_view
+
+# Multi*Graph.edges return generators / list_iterator from keys/items/
+# values — also wrap to KeysView / ValuesView / ItemsView so set
+# algebra works (matching nx's MultiEdgeView Mapping inheritance).
+_MultiGraphEdgeView.keys = _mapping_keys_view
+_MultiGraphEdgeView.values = _mapping_values_view
+_MultiGraphEdgeView.items = _mapping_items_view
+_MultiDiGraphEdgeView.keys = _mapping_keys_view
+_MultiDiGraphEdgeView.values = _mapping_values_view
+_MultiDiGraphEdgeView.items = _mapping_items_view
+
+
 # NodeView update support lives on _PrivateNodeFacade (below) rather
 # than the view types, since NodeView has no parent-graph attribute.
 _DIGRAPH_ADJACENCY_VIEW_TYPE.get = _adjacency_view_get

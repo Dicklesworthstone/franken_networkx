@@ -7661,3 +7661,84 @@ def test_node_and_edge_views_register_as_mapping_abc():
     assert G.nodes.get(1) == {"color": "red"}
     assert G.nodes.get(99) is None
     assert dict(G.nodes.items()) == {1: {"color": "red"}}
+
+
+def test_view_keys_values_items_return_proper_view_types():
+    """br-r37-c1-vkeysview: nx's NodeView and Multi*EdgeView return
+    ``KeysView`` / ``ValuesView`` / ``ItemsView`` from
+    ``.keys()`` / ``.values()`` / ``.items()`` (via Mapping
+    inheritance), supporting Set algebra:
+
+      G.nodes.keys() & {0, 1, 99}     # returns set intersection
+      G.nodes.items() | other_items   # set union
+
+    Pre-fix fnx returned plain ``list`` (or ``generator`` /
+    ``list_iterator`` on Multi*Graph.edges), breaking these
+    operations:
+
+      G.nodes.keys() & {0, 1}
+      → TypeError: unsupported operand type(s) for &: 'list' and 'set'
+
+    Affected 18 method × view × class combinations:
+      keys/values/items × {Graph, DiGraph, MultiGraph, MultiDiGraph}
+      .nodes  (12 combos)
+      keys/values/items × {MultiGraph, MultiDiGraph}.edges (6 combos)
+
+    Graph.edges and DiGraph.edges already returned proper view types
+    via the existing _adjacency_view_keys/items/values helpers.
+
+    Fix: now that views register as Mapping (cycle 185), wrap each
+    NodeView and Multi*EdgeView's keys/values/items to return
+    ``cabc.KeysView(self)`` / ``cabc.ValuesView(self)`` /
+    ``cabc.ItemsView(self)`` — the canonical Mapping-derived view
+    types that nx returns.
+    """
+    from collections.abc import KeysView, ValuesView, ItemsView
+
+    for cls_name in ("Graph", "DiGraph", "MultiGraph", "MultiDiGraph"):
+        cls = getattr(fnx, cls_name)
+        G = cls()
+        G.add_edge(1, 2)
+        for view_name in ("nodes", "edges"):
+            view = getattr(G, view_name)
+            assert isinstance(view.keys(), KeysView), (
+                f"{cls_name}.{view_name}.keys() should return KeysView, "
+                f"got {type(view.keys()).__name__}"
+            )
+            assert isinstance(view.values(), ValuesView), (
+                f"{cls_name}.{view_name}.values() should return ValuesView, "
+                f"got {type(view.values()).__name__}"
+            )
+            assert isinstance(view.items(), ItemsView), (
+                f"{cls_name}.{view_name}.items() should return ItemsView, "
+                f"got {type(view.items()).__name__}"
+            )
+
+    # Set algebra on keys() works
+    G = fnx.path_graph(5)
+    assert G.nodes.keys() & {0, 1, 99} == {0, 1}
+    assert G.nodes.keys() | {99} == {0, 1, 2, 3, 4, 99}
+    assert G.nodes.keys() - {0, 1} == {2, 3, 4}
+
+    # Re-iterability (a regression that the underlying generator
+    # impl had on Multi*Graph.edges)
+    MG = fnx.MultiGraph()
+    MG.add_edge('a', 'b', key=0)
+    MG.add_edge('a', 'b', key='x')
+    items = MG.edges.items()
+    pass1 = list(items)
+    pass2 = list(items)
+    assert pass1 == pass2 == [(('a', 'b', 0), {}), (('a', 'b', 'x'), {})], (
+        f"Multi*Graph.edges.items() must be re-iterable; "
+        f"pass1={pass1} pass2={pass2}"
+    )
+
+    # Functional values match
+    G = fnx.Graph()
+    G.add_node(1, color="red")
+    G.add_node(2, color="blue")
+    assert list(G.nodes.keys()) == [1, 2]
+    assert list(G.nodes.values()) == [{"color": "red"}, {"color": "blue"}]
+    assert list(G.nodes.items()) == [(1, {"color": "red"}), (2, {"color": "blue"})]
+    assert len(G.nodes.keys()) == 2
+    assert 1 in G.nodes.keys()
