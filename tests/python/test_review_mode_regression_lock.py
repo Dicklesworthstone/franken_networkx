@@ -6698,3 +6698,44 @@ def test_ego_graph_missing_source_and_nan_radius_match_nx():
     n_eg = nx_mod.ego_graph(G_n, 2, radius=0)
     assert sorted(f_eg.nodes()) == sorted(n_eg.nodes()) == [2]
     assert list(f_eg.edges()) == list(n_eg.edges()) == []
+
+
+def test_min_cost_flow_empty_raises_match_nx():
+    """br-r37-c1-mcfempty: ``min_cost_flow`` and its sister
+    ``min_cost_flow_cost`` must raise ``NetworkXError("graph has no
+    nodes")`` on an empty DiGraph — matching nx's
+    ``_validate_network_simplex_inputs`` contract.
+
+    Pre-fix the SSP path returned an empty ``{}`` dict for empty
+    input, silently swallowing the error and propagating to
+    ``min_cost_flow_cost`` and ``max_flow_min_cost`` which both
+    route through this code path.
+
+    Fix: explicit ``if n == 0: raise NetworkXError("graph has no
+    nodes")`` at the top of the SSP solver, before the validation
+    block.
+    """
+    import franken_networkx as fnx
+    import networkx as nx_mod
+
+    with pytest.raises(nx_mod.NetworkXError, match="graph has no nodes"):
+        fnx.min_cost_flow(fnx.DiGraph())
+    with pytest.raises(nx_mod.NetworkXError, match="graph has no nodes"):
+        nx_mod.min_cost_flow(nx_mod.DiGraph())
+
+    with pytest.raises(nx_mod.NetworkXError, match="graph has no nodes"):
+        fnx.min_cost_flow_cost(fnx.DiGraph())
+    with pytest.raises(nx_mod.NetworkXError, match="graph has no nodes"):
+        nx_mod.min_cost_flow_cost(nx_mod.DiGraph())
+
+    # Sanity: non-empty still works
+    DG_f = fnx.DiGraph()
+    DG_n = nx_mod.DiGraph()
+    for u, v, c in [(0, 1, 5), (0, 2, 5), (1, 3, 5), (2, 3, 5)]:
+        DG_f.add_edge(u, v, capacity=c, weight=1)
+        DG_n.add_edge(u, v, capacity=c, weight=1)
+    DG_f.nodes[0]["demand"] = -10
+    DG_f.nodes[3]["demand"] = 10
+    DG_n.nodes[0]["demand"] = -10
+    DG_n.nodes[3]["demand"] = 10
+    assert fnx.min_cost_flow_cost(DG_f) == nx_mod.min_cost_flow_cost(DG_n)

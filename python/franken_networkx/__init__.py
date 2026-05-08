@@ -21812,7 +21812,13 @@ def min_cost_flow(G, demand="demand", capacity="capacity", weight="weight"):
     nodes = list(G.nodes())
     n = len(nodes)
     if n == 0:
-        return {}
+        # br-r37-c1-mcfempty: nx's network_simplex raises
+        # NetworkXError("graph has no nodes") on empty input via the
+        # validation block in _validate_network_simplex_inputs; fnx's
+        # SSP path silently returned {}.  Match nx's contract.  The
+        # downstream min_cost_flow_cost / max_flow_min_cost both
+        # route here so the empty-graph contract propagates.
+        raise NetworkXError("graph has no nodes")
 
     # br-r37-c1-mcf-negcap: the SSP solver below silently treats
     # negative capacities as 0, masking nx's NetworkXUnfeasible
