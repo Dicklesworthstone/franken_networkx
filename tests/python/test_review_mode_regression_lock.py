@@ -6217,3 +6217,54 @@ def test_in_out_edges_call_returns_live_view_match_nx():
     DG_f = fnx.DiGraph([(0, 1), (1, 2), (2, 0)])
     DG_n = nx_mod.DiGraph([(0, 1), (1, 2), (2, 0)])
     assert sorted(DG_f.in_edges([0])) == sorted(DG_n.in_edges([0]))
+
+
+def test_graph_constructor_rejects_scalar_match_nx():
+    """br-r37-c1-ctorscalar: ``Graph(5)``, ``Graph(1.5)``, ``Graph(True)``,
+    ``Graph(complex(1, 2))`` etc. must raise ``NetworkXError("Input is
+    not a known data type for conversion.")`` matching nx's
+    ``to_networkx_graph`` terminal branch.
+
+    Pre-fix the Rust ``__new__`` silently absorbed scalars as no-edge
+    inputs, returning an empty graph.  Drop-in callers expecting nx's
+    explicit-validation contract were silently getting a wrong (empty)
+    graph instead of an error.
+
+    Affects all 4 graph classes (Graph, DiGraph, MultiGraph,
+    MultiDiGraph) — they share a single ``__init__`` wrapper.
+
+    Fix: early ``isinstance(data, (int, float, complex))`` guard at
+    the wrapper top, raising the nx-shaped NetworkXError before
+    reaching the Rust __new__.  ``bool`` is captured by ``int``
+    (subclass).  Strings / bytes are *iterable* and take a different
+    nx code path that produces "Input is not a valid edge list" — out
+    of scope for this fix.
+    """
+    import franken_networkx as fnx
+    import networkx as nx_mod
+
+    bad_inputs = [5, 0, 1.5, complex(1, 2), True, False]
+    for cls_name in ("Graph", "DiGraph", "MultiGraph", "MultiDiGraph"):
+        cls_f = getattr(fnx, cls_name)
+        cls_n = getattr(nx_mod, cls_name)
+        for bad in bad_inputs:
+            with pytest.raises(
+                nx_mod.NetworkXError, match="Input is not a known data type"
+            ):
+                cls_f(bad)
+            with pytest.raises(
+                nx_mod.NetworkXError, match="Input is not a known data type"
+            ):
+                cls_n(bad)
+
+    # Sanity: valid inputs still construct successfully
+    G_f = fnx.Graph([(0, 1), (1, 2)])
+    G_n = nx_mod.Graph([(0, 1), (1, 2)])
+    assert sorted(G_f.edges()) == sorted(G_n.edges())
+
+    H_f = fnx.Graph(fnx.path_graph(3))
+    H_n = nx_mod.Graph(nx_mod.path_graph(3))
+    assert sorted(H_f.edges()) == sorted(H_n.edges())
+
+    fnx.Graph(None)  # explicit None still allowed
+    fnx.Graph()  # default arg still allowed

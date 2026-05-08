@@ -2160,6 +2160,21 @@ def _init_absorbing_dict_of_dicts(raw_init, is_multigraph):
         # reaches the dict decoder instead of being treated as a graph
         # attribute. Non-multigraph classes also accept it for nx
         # signature parity but ignore the value.
+        # br-r37-c1-ctorscalar: reject scalar non-data inputs the way
+        # nx.convert.to_networkx_graph does.  ``Graph(5)``,
+        # ``Graph(1.5)``, ``Graph(True)``, ``Graph(complex(1, 2))``
+        # all hit nx's terminal ``raise NetworkXError("Input is not a
+        # known data type for conversion.")``.  fnx's Rust __new__
+        # silently absorbed them as no-edge inputs, returning an
+        # empty graph.  ``bool`` is captured by ``int`` (subclass).
+        # str / bytes are iterable so they take a different code path
+        # in nx itself; leave those for the existing edge-list
+        # validation to surface ``"Input is not a valid edge list"``.
+        if isinstance(incoming_graph_data, (int, float, complex)):
+            self.clear()
+            raise NetworkXError(
+                "Input is not a known data type for conversion."
+            )
         raw_init(self)
         # br-r37-c1-g438p: the Rust __new__ silently absorbs
         # unhashable nodes (storing them by Python id) when the
