@@ -9814,3 +9814,87 @@ def test_adjacency_view_iter_returns_dict_keyiterator():
     assert sorted(fG.adj.keys()) == sorted(nG.adj.keys())
     assert sorted([(k, sorted(v)) for k, v in fG.adj.items()]) == \
            sorted([(k, sorted(v)) for k, v in nG.adj.items()])
+
+
+def test_subclass_graph_attr_dict_factory_is_honored():
+    """br-r37-c1-gattfact (cycle 220): nx's documented subclass
+    extension point ``graph_attr_dict_factory`` allows callers to
+    define a custom graph-attribute container type:
+
+        class MyGraph(nx.Graph):
+            graph_attr_dict_factory = MyDictType
+
+    nx invokes the factory in ``__init__`` (``self.graph =
+    self.graph_attr_dict_factory()``).  fnx ignored the factory and
+    exposed the Rust-native plain ``dict`` directly, so
+    ``MyGraph().graph`` was always a plain ``dict`` — drop-in
+    subclasses with a custom factory silently lost both their
+    custom container type and any default contents.
+
+      Drop-in pattern (nx):
+        class GraphWithDefaults(nx.Graph):
+            graph_attr_dict_factory = SomeCustomDict   # populates
+                                                       # default keys
+
+        g = GraphWithDefaults()
+        assert isinstance(g.graph, SomeCustomDict)
+        assert g.graph == {...default keys from SomeCustomDict()...}
+
+    fnx (pre-fix) silently returned ``{}`` (plain dict).
+
+    Fix: in ``_GraphAttrsDescriptor.__get__``, when the subclass
+    overrides ``graph_attr_dict_factory`` (i.e. it's not the default
+    ``dict``), lazily materialise via the factory on first access
+    and store as the attribute override.  Pre-existing Rust-side
+    contents are preserved (merged into the new dict and the Rust
+    dict is cleared).  The default ``dict`` path still uses the
+    Rust-native fast path.
+
+    All four graph classes (Graph/DiGraph/MultiGraph/MultiDiGraph)
+    must honour the override.
+    """
+    import networkx as nx
+
+    class CustomDict(dict):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.setdefault("_factory_marker", "custom")
+
+    for fcls, ncls in [
+        (fnx.Graph,        nx.Graph),
+        (fnx.DiGraph,      nx.DiGraph),
+        (fnx.MultiGraph,   nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ]:
+        class FS(fcls):
+            graph_attr_dict_factory = CustomDict
+
+        class NS(ncls):
+            graph_attr_dict_factory = CustomDict
+
+        fs = FS()
+        ns = NS()
+
+        # Type matches nx.
+        assert isinstance(fs.graph, CustomDict), \
+            f"{fcls.__name__}: type(fs.graph)={type(fs.graph).__name__}"
+        assert isinstance(ns.graph, CustomDict)
+
+        # Default contents from the factory are present.
+        assert fs.graph["_factory_marker"] == "custom"
+        assert ns.graph["_factory_marker"] == "custom"
+
+        # Subsequent mutation propagates.
+        fs.graph["user_attr"] = 42
+        assert fs.graph["user_attr"] == 42
+        assert isinstance(fs.graph, CustomDict)
+
+        # Re-access returns the SAME object (identity preserved).
+        assert fs.graph is fs.graph
+
+    # The default path (no factory override) still works and uses
+    # the Rust-native dict.
+    g = fnx.Graph()
+    g.graph["x"] = 1
+    assert g.graph == {"x": 1}
+    assert type(g.graph) is dict

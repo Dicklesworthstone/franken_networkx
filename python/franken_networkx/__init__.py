@@ -4507,6 +4507,34 @@ class _GraphAttrsDescriptor:
         override = vars(obj).get(_GRAPH_ATTR_OVERRIDE, _GRAPH_ATTR_MISSING)
         if override is not _GRAPH_ATTR_MISSING:
             return override
+        # br-r37-c1-gattfact (cycle 220): nx's documented subclass
+        # extension point ``graph_attr_dict_factory`` allows callers
+        # to define a custom graph-attribute container type:
+        #
+        #     class MyGraph(nx.Graph):
+        #         graph_attr_dict_factory = MyDictType
+        #
+        # nx invokes the factory in ``__init__`` (``self.graph =
+        # self.graph_attr_dict_factory()``).  fnx ignored the factory
+        # and exposed the Rust-native attr-dict directly, so
+        # ``MyGraph().graph`` was always a plain ``dict`` — drop-in
+        # subclasses with a custom factory silently lost their
+        # custom container type and any default contents.
+        #
+        # Lazily materialize through the factory on first access
+        # (only when the subclass overrode it; the default ``dict``
+        # path still uses the Rust-native fast path).
+        factory = getattr(objtype, "graph_attr_dict_factory", dict)
+        if factory is not dict:
+            existing = self._raw.__get__(obj, objtype)
+            new_attrs = factory()
+            if existing:
+                new_attrs.update(existing)
+                # Clear the Rust-side dict so we don't double-track.
+                if hasattr(existing, "clear"):
+                    existing.clear()
+            setattr(obj, _GRAPH_ATTR_OVERRIDE, new_attrs)
+            return new_attrs
         return self._raw.__get__(obj, objtype)
 
     def __set__(self, obj, value):
