@@ -29901,6 +29901,13 @@ def relaxed_caveman_graph(l, k, p, seed=None):
     """Relaxed caveman graph."""
     import random as _random
 
+    # br-r37-c1-rustseed (sister): NaN seed must surface nx's
+    # ``ValueError("nan cannot be used to generate a random.Random
+    # instance")`` rather than silent random.Random(NaN) acceptance.
+    if isinstance(seed, float) and math.isnan(seed):
+        raise ValueError(
+            "nan cannot be used to generate a random.Random instance"
+        )
     rng = _random.Random(seed)
     G = caveman_graph(l, k)
     for u, v in list(G.edges()):
@@ -36715,6 +36722,14 @@ def dual_barabasi_albert_graph(
     if p < 0 or p > 1:
         raise NetworkXError(
             f"Dual Barabási–Albert network must have 0 <= p <= 1, p = {p}"
+        )
+
+    # br-r37-c1-rustseed (sister): NaN seed must surface nx's
+    # ``ValueError("nan cannot be used to generate a random.Random
+    # instance")`` rather than silently fall through ``random.Random(NaN)``.
+    if isinstance(seed, float) and math.isnan(seed):
+        raise ValueError(
+            "nan cannot be used to generate a random.Random instance"
         )
 
     if p == 1:

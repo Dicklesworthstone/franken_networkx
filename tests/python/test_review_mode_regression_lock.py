@@ -5807,3 +5807,38 @@ def test_random_generators_seed_handling_match_nx():
             getattr(fnx, fn_name)(*args, seed=float("nan"))
         with pytest.raises(ValueError, match="nan cannot be used"):
             getattr(nx_mod, fn_name)(*args, seed=float("nan"))
+
+
+def test_dual_ba_and_relaxed_caveman_nan_seed_match_nx():
+    """br-r37-c1-rustseed (sister): two more pure-Python wrappers that
+    silently accepted NaN seed via ``random.Random(NaN)`` while nx
+    raises ``ValueError("nan cannot be used to generate a
+    random.Random instance")``:
+
+      - ``dual_barabasi_albert_graph``
+      - ``relaxed_caveman_graph``
+
+    Same fix shape as the gnm_random_graph / random_geometric_graph
+    NaN guards in cycle 152 — these two wrappers also bypass
+    ``_native_random_seed`` because they call ``random.Random(seed)``
+    directly.  Add explicit NaN guards.
+    """
+    import franken_networkx as fnx
+    import networkx as nx_mod
+
+    # NaN -> ValueError with nx's exact wording
+    with pytest.raises(ValueError, match="nan cannot be used"):
+        fnx.dual_barabasi_albert_graph(10, 2, 3, 0.5, seed=float("nan"))
+    with pytest.raises(ValueError, match="nan cannot be used"):
+        nx_mod.dual_barabasi_albert_graph(10, 2, 3, 0.5, seed=float("nan"))
+
+    with pytest.raises(ValueError, match="nan cannot be used"):
+        fnx.relaxed_caveman_graph(3, 4, 0.1, seed=float("nan"))
+    with pytest.raises(ValueError, match="nan cannot be used"):
+        nx_mod.relaxed_caveman_graph(3, 4, 0.1, seed=float("nan"))
+
+    # Sanity: valid seeds still work
+    fnx.dual_barabasi_albert_graph(10, 2, 3, 0.5, seed=42)
+    fnx.dual_barabasi_albert_graph(10, 2, 3, 0.5, seed=-1)
+    fnx.relaxed_caveman_graph(3, 4, 0.1, seed=42)
+    fnx.relaxed_caveman_graph(3, 4, 0.1, seed=-1)
