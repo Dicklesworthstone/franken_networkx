@@ -5613,3 +5613,71 @@ def test_bellman_ford_nan_inf_edge_weight_match_nx():
     G_n2.add_weighted_edges_from([(0, 1, 2.0), (1, 2, 3.0)])
     assert fnx.bellman_ford_path_length(G_f2, 0, 2, weight="weight") == 5.0
     assert nx_mod.bellman_ford_path_length(G_n2, 0, 2, weight="weight") == 5.0
+
+
+def test_is_d_separator_scalar_args_match_nx():
+    """br-r37-c1-dsepscalar / dsepudt: ``is_d_separator`` and
+    ``is_minimal_d_separator`` must accept scalar node arguments
+    (``is_d_separator(G, 0, 2, 1)``) and raise NetworkXNotImplemented
+    on undirected input — both matching nx's contract.
+
+    Pre-fix:
+      - ``is_d_separator(G, 0, 2, 1)`` raised
+        ``TypeError: 'int' object is not iterable``
+        from a bare ``set(0)`` call; nx normalizes via
+        ``{x} if x in G else x`` and returned ``False``.
+      - On undirected G, fnx raised plain
+        ``NetworkXError('is_d_separator requires a DiGraph')``;
+        nx is decorated with ``@not_implemented_for('undirected')``
+        and raises ``NetworkXNotImplemented``.
+      - ``is_minimal_d_separator`` reused the same broken
+        normalization through its delegate to ``is_d_separator``
+        and via its own ``z = set(z)`` line.
+
+    Fix mirrors nx's exact normalize+disjoint+set_v block (with
+    the same try/except TypeError -> NodeNotFound translation) and
+    adds an explicit ``G.is_directed()`` guard.
+    """
+    import franken_networkx as fnx
+    import networkx as nx_mod
+
+    DG_f = fnx.DiGraph([(0, 1), (1, 2), (0, 2)])
+    DG_n = nx_mod.DiGraph([(0, 1), (1, 2), (0, 2)])
+
+    # Scalar args: was TypeError, now matches nx
+    assert fnx.is_d_separator(DG_f, 0, 2, 1) is False
+    assert nx_mod.is_d_separator(DG_n, 0, 2, 1) is False
+    assert fnx.is_minimal_d_separator(DG_f, 0, 2, 1) is False
+    assert nx_mod.is_minimal_d_separator(DG_n, 0, 2, 1) is False
+
+    # Mixed scalar + set
+    assert fnx.is_d_separator(DG_f, 0, 2, {1}) is False
+    assert nx_mod.is_d_separator(DG_n, 0, 2, {1}) is False
+
+    # Empty z
+    assert fnx.is_d_separator(DG_f, 0, 2, set()) is False
+    assert nx_mod.is_d_separator(DG_n, 0, 2, set()) is False
+
+    # Frozenset
+    assert fnx.is_d_separator(DG_f, {0}, {2}, frozenset({1})) is False
+    assert nx_mod.is_d_separator(DG_n, {0}, {2}, frozenset({1})) is False
+
+    # Node not in graph -> NodeNotFound (matches nx's translated TypeError)
+    with pytest.raises(nx_mod.NodeNotFound):
+        fnx.is_d_separator(DG_f, 99, 0, set())
+    with pytest.raises(nx_mod.NodeNotFound):
+        nx_mod.is_d_separator(DG_n, 99, 0, set())
+
+    # Overlapping sets -> NetworkXError
+    with pytest.raises(nx_mod.NetworkXError, match="not disjoint"):
+        fnx.is_d_separator(DG_f, 0, 0, 1)
+    with pytest.raises(nx_mod.NetworkXError, match="not disjoint"):
+        nx_mod.is_d_separator(DG_n, 0, 0, 1)
+
+    # Undirected -> NetworkXNotImplemented (was NetworkXError pre-fix)
+    G_f_und = fnx.Graph([(0, 1)])
+    G_n_und = nx_mod.Graph([(0, 1)])
+    with pytest.raises(nx_mod.NetworkXNotImplemented):
+        fnx.is_d_separator(G_f_und, {0}, {1}, set())
+    with pytest.raises(nx_mod.NetworkXNotImplemented):
+        nx_mod.is_d_separator(G_n_und, {0}, {1}, set())

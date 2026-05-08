@@ -22080,10 +22080,41 @@ def is_d_separator(G, x, y, z):
     """Check if node set *z* d-separates *x* from *y* in a DAG (Rust)."""
     from franken_networkx._fnx import is_d_separator_rust as _rust_dsep
 
-    x, y, z = set(x), set(y), set(z)
-    intersection = x.intersection(y) | x.intersection(z) | y.intersection(z)
-    if intersection:
-        raise NetworkXError(f"The sets are not disjoint, with intersection {intersection}")
+    # br-r37-c1-dsepscalar: nx accepts scalar nodes for x/y/z
+    # (``is_d_separator(G, 0, 2, 1)``) and normalizes via
+    # ``{x} if x in G else x``.  fnx's bare ``set(x)`` raised
+    # ``TypeError: 'int' object is not iterable`` on scalar args.
+    # nx also wraps the whole normalize+disjoint block in a
+    # try/except TypeError that raises NodeNotFound — mirror that
+    # so unhashable / non-iterable inputs get the right exception
+    # type.  Follow nx's exact ordering so passing a list like
+    # ``[1]`` for z surfaces NodeNotFound via the ``set & list``
+    # TypeError (matches nx's strictness).
+    try:
+        x = {x} if x in G else x
+        y = {y} if y in G else y
+        z = {z} if z in G else z
+        intersection = x & y or x & z or y & z
+        if intersection:
+            raise NetworkXError(
+                f"The sets are not disjoint, with intersection {intersection}"
+            )
+        set_v = x | y | z
+        if set_v - set(G.nodes):
+            raise NodeNotFound(
+                f"The node(s) {set_v - set(G.nodes)} are not found in G"
+            )
+    except TypeError:
+        raise NodeNotFound(
+            "One of x, y, or z is not a node or a set of nodes in G"
+        )
+    # br-r37-c1-dsepudt: nx is decorated with
+    # ``@not_implemented_for('undirected')`` so undirected input
+    # raises NetworkXNotImplemented.  fnx's Rust binding raised a
+    # plain NetworkXError ('is_d_separator requires a DiGraph')
+    # which broke drop-in callers catching the upstream class.
+    if not G.is_directed():
+        raise NetworkXNotImplemented("not implemented for undirected type")
     return _rust_dsep(G, list(x), list(y), list(z))
 
 
@@ -22113,6 +22144,9 @@ def is_minimal_d_separator(G, x, y, z, *, included=None, restricted=None):
         )
     if not is_d_separator(G, x, y, z):
         return False
+    # br-r37-c1-dsepscalar: normalize z the same way is_d_separator
+    # does so the standalone reducer accepts scalar args.
+    z = {z} if z in G else z
     z = set(z)
     for node in list(z):
         reduced = z - {node}
