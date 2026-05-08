@@ -5953,3 +5953,81 @@ def test_attr_matrix_missing_attr_raises_keyerror_match_nx():
     f_M, _ = fnx.attr_matrix(M_f, edge_attr="w")
     n_M, _ = nx_mod.attr_matrix(M_n, edge_attr="w")
     assert f_M.tolist() == n_M.tolist()
+
+
+def test_edgeview_contains_match_nx_semantics():
+    """br-r37-c1-edgeviewcontains: ``e in G.edges`` must match nx's
+    permissive containment semantics across all four graph types.
+
+    Pre-fix divergences:
+      - ``Graph.edges`` (Rust EdgeView): raised
+        ``TypeError("edge must be a (u, v) tuple")`` on str / list /
+        non-tuple input — nx returns False for str, True for matching
+        list, and propagates ``'X' object is not subscriptable``
+        TypeError for non-subscriptable values.
+      - ``DiGraph.edges``: too lenient — caught both TypeError and
+        ValueError on bad shapes, returning False.  nx propagates
+        ValueError ('too many values to unpack' / 'not enough') and
+        TypeError ('cannot unpack non-iterable').
+      - ``MultiGraph.edges`` / ``MultiDiGraph.edges``: rejected
+        ``[0, 1]`` (list) via ``isinstance(tuple)`` guard — nx accepts.
+
+    Fix:
+      - Wrap the Rust ``EdgeView.__contains__`` to fall back through
+        ``e[:2]`` when the bare lookup raises TypeError (matches nx's
+        Graph EdgeView pattern).
+      - Tighten ``_DiGraphEdgeView.__contains__`` to use ``u, v = e``
+        and only catch KeyError / TypeError (matches nx OutEdgeView).
+      - Replace ``isinstance(tuple)`` guards in
+        ``_MultiGraphEdgeView`` / ``_MultiDiGraphEdgeView`` with
+        ``len(e)``-dispatch (matches nx MultiEdgeView).
+    """
+    import franken_networkx as fnx
+    import networkx as nx_mod
+
+    # Graph: permissive — non-edge str/list returns False, non-
+    # subscriptable raises TypeError.
+    G_f = fnx.path_graph(3)
+    G_n = nx_mod.path_graph(3)
+    assert ("foo" in G_f.edges) == ("foo" in G_n.edges) == False
+    assert ([0, 1] in G_f.edges) == ([0, 1] in G_n.edges) == True
+    assert ((0, 1) in G_f.edges) == ((0, 1) in G_n.edges) == True
+    with pytest.raises(TypeError, match="not subscriptable"):
+        123 in G_f.edges
+    with pytest.raises(TypeError, match="not subscriptable"):
+        123 in G_n.edges
+
+    # DiGraph: stricter — bad shapes propagate.
+    DG_f = fnx.DiGraph([(0, 1), (1, 2)])
+    DG_n = nx_mod.DiGraph([(0, 1), (1, 2)])
+    assert ((0, 1) in DG_f.edges) == ((0, 1) in DG_n.edges) == True
+    assert ([0, 1] in DG_f.edges) == ([0, 1] in DG_n.edges) == True
+    with pytest.raises(ValueError):
+        "foo" in DG_f.edges
+    with pytest.raises(ValueError):
+        "foo" in DG_n.edges
+    with pytest.raises(TypeError, match="cannot unpack"):
+        123 in DG_f.edges
+    with pytest.raises(TypeError, match="cannot unpack"):
+        123 in DG_n.edges
+
+    # MultiGraph: len-dispatch.
+    M_f = fnx.MultiGraph([(0, 1), (0, 1)])
+    M_n = nx_mod.MultiGraph([(0, 1), (0, 1)])
+    assert ((0, 1) in M_f.edges) == ((0, 1) in M_n.edges) == True
+    assert ([0, 1] in M_f.edges) == ([0, 1] in M_n.edges) == True
+    assert ((0, 1, 0) in M_f.edges) == ((0, 1, 0) in M_n.edges) == True
+    with pytest.raises(ValueError, match="length 2 or 3"):
+        (0,) in M_f.edges
+    with pytest.raises(ValueError, match="length 2 or 3"):
+        (0,) in M_n.edges
+    with pytest.raises(TypeError, match="has no len"):
+        123 in M_f.edges
+    with pytest.raises(TypeError, match="has no len"):
+        123 in M_n.edges
+
+    # MultiDiGraph: same len-dispatch.
+    MD_f = fnx.MultiDiGraph([(0, 1), (0, 1)])
+    MD_n = nx_mod.MultiDiGraph([(0, 1), (0, 1)])
+    assert ([0, 1] in MD_f.edges) == ([0, 1] in MD_n.edges) == True
+    assert ((0, 1, 0) in MD_f.edges) == ((0, 1, 0) in MD_n.edges) == True

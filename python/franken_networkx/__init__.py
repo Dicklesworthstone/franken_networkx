@@ -979,11 +979,16 @@ class _DiGraphEdgeView:
         return self._graph.number_of_edges()
 
     def __contains__(self, edge):
+        # br-r37-c1-edgeviewcontains: nx.OutEdgeView.__contains__ does
+        # ``u, v = e`` (no slice) and only catches KeyError, so non-2-
+        # element iterables raise ValueError and non-iterables raise
+        # TypeError.  fnx previously used ``e[:2]`` and caught both
+        # TypeError and ValueError, returning False — too lenient.
+        u, v = edge
         try:
-            u, v = edge[:2]
-        except (TypeError, ValueError):
+            return self._graph.has_edge(u, v)
+        except (KeyError, TypeError):
             return False
-        return self._graph.has_edge(u, v)
 
     def __getitem__(self, edge):
         # br-r37-c1-eg-msg: match nx's exact error message shape
@@ -1238,25 +1243,37 @@ class _MultiGraphEdgeView:
     get = _multi_edge_get
 
     def __contains__(self, edge):
-        if not isinstance(edge, tuple) or len(edge) < 2:
-            return False
-        u, v = edge[0], edge[1]
-        # Undirected: check both orientations
+        # br-r37-c1-edgeviewcontains: nx's MultiEdgeView.__contains__
+        # uses ``len(e)`` then unpacks via ``u, v = e`` / ``u, v, k = e``,
+        # accepting any 2- or 3-element iterable (tuple, list, etc.).
+        # The previous ``isinstance(edge, tuple)`` guard rejected lists,
+        # so ``[0, 1] in M.edges`` returned False where nx returns True.
+        # Lengths other than 2 or 3 raise ValueError; non-sized values
+        # propagate TypeError from len(); KeyError on missing nodes
+        # is caught and surfaces as False.
+        try:
+            N = len(edge)
+        except TypeError:
+            raise
+        if N == 3:
+            u, v, key = edge[0], edge[1], edge[2]
+        elif N == 2:
+            u, v = edge[0], edge[1]
+            key = None
+        else:
+            raise ValueError("MultiEdge must have length 2 or 3")
         adj = self._graph.adj
-        if u not in adj and v not in adj:
+        try:
+            if u in adj and v in adj[u]:
+                if key is None:
+                    return True
+                return key in adj[u][v]
+            if v in adj and u in adj[v]:
+                if key is None:
+                    return True
+                return key in adj[v][u]
+        except (KeyError, TypeError):
             return False
-        # Check u->v or v->u
-        has_edge = (u in adj and v in adj[u]) or (v in adj and u in adj[v])
-        if not has_edge:
-            return False
-        if len(edge) == 2:
-            return True
-        # 3-tuple: check specific key
-        key = edge[2]
-        if u in adj and v in adj[u] and key in adj[u][v]:
-            return True
-        if v in adj and u in adj[v] and key in adj[v][u]:
-            return True
         return False
 
     def __call__(self, nbunch=None, data=False, keys=False, default=None):
@@ -1410,16 +1427,29 @@ class _MultiDiGraphEdgeView:
         return self._graph.number_of_edges()
 
     def __contains__(self, edge):
-        if not isinstance(edge, tuple) or len(edge) < 2:
-            return False
-        u, v = edge[0], edge[1]
+        # br-r37-c1-edgeviewcontains: see _MultiGraphEdgeView.__contains__.
+        # nx's OutMultiEdgeView accepts any 2- or 3-element iterable; the
+        # previous ``isinstance(edge, tuple)`` guard rejected lists.
+        try:
+            N = len(edge)
+        except TypeError:
+            raise
+        if N == 3:
+            u, v, key = edge[0], edge[1], edge[2]
+        elif N == 2:
+            u, v = edge[0], edge[1]
+            key = None
+        else:
+            raise ValueError("MultiEdge must have length 2 or 3")
         succ = self._graph.succ
-        if u not in succ or v not in succ[u]:
+        try:
+            if u not in succ or v not in succ[u]:
+                return False
+            if key is None:
+                return True
+            return key in succ[u][v]
+        except (KeyError, TypeError):
             return False
-        if len(edge) == 2:
-            return True
-        key = edge[2]
-        return key in succ[u][v]
 
     def __getitem__(self, edge):
         # br-r37-c1-meg-msg: see _MultiGraphEdgeView.__getitem__.
@@ -2829,6 +2859,69 @@ Graph.size = _size_with_unweighted_int(Graph.size)
 DiGraph.size = _size_with_unweighted_int(DiGraph.size)
 MultiGraph.size = _size_with_unweighted_int(MultiGraph.size)
 MultiDiGraph.size = _size_with_unweighted_int(MultiDiGraph.size)
+
+
+def _edgeview_contains_with_nx_semantics(orig_contains):
+    """Wrap ``EdgeView.__contains__`` to match nx's permissive semantics.
+
+    br-r37-c1-edgeviewcontains: nx's ``EdgeView.__contains__``::
+
+        try:
+            u, v = e[:2]
+            return v in self._adjdict[u] or u in self._adjdict[v]
+        except (KeyError, ValueError):
+            return False
+
+    accepts any subscriptable 2+-element value as an edge spec — strings
+    of length >= 2 (returns False), 2-element lists (returns membership),
+    longer tuples (uses first two), etc.  fnx's Rust ``EdgeView`` was
+    too strict, raising ``TypeError("edge must be a (u, v) tuple")`` on
+    str / list / non-tuple inputs.  Drop-in code like
+    ``if "x" in G.edges:`` (always-False guard) crashed under fnx.
+
+    Wrap the Rust ``__contains__`` so:
+      * tuples (the fast path) keep their Rust speed,
+      * non-tuple subscriptables go through ``e[:2]`` -> retry path,
+      * non-subscriptable values surface a TypeError matching nx's
+        ``e[:2]`` error wording (``object is not subscriptable``).
+    """
+
+    def __contains__(self, e):
+        try:
+            return orig_contains(self, e)
+        except TypeError:
+            pass
+        # nx-style: ``e[:2]`` raises TypeError on non-subscriptable
+        # (int, None, etc.) — let it propagate with nx's wording;
+        # ValueError on length mismatch -> False.
+        try:
+            slice_ = e[:2]
+        except TypeError:
+            raise
+        try:
+            u, v = slice_
+        except (TypeError, ValueError):
+            return False
+        try:
+            return orig_contains(self, (u, v))
+        except TypeError:
+            return False
+
+    return __contains__
+
+
+_fnx.EdgeView.__contains__ = _edgeview_contains_with_nx_semantics(
+    _fnx.EdgeView.__contains__
+)
+_fnx.DiEdgeView.__contains__ = _edgeview_contains_with_nx_semantics(
+    _fnx.DiEdgeView.__contains__
+)
+_fnx.MultiGraphEdgeView.__contains__ = _edgeview_contains_with_nx_semantics(
+    _fnx.MultiGraphEdgeView.__contains__
+)
+_fnx.MultiDiGraphEdgeView.__contains__ = _edgeview_contains_with_nx_semantics(
+    _fnx.MultiDiGraphEdgeView.__contains__
+)
 Graph.remove_node = _remove_node_with_networkx_missing_node_error(
     _GRAPH_REMOVE_NODE, graph_kind="graph"
 )
