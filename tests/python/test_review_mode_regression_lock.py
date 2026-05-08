@@ -5748,3 +5748,62 @@ def test_maximal_independent_set_seed_and_message_match_nx():
     with pytest.raises(nx_mod.NetworkXUnfeasible) as n_exc:
         nx_mod.maximal_independent_set(G_n4, [0, 1], seed=42)
     assert str(f_exc.value) == str(n_exc.value)
+
+
+def test_random_generators_seed_handling_match_nx():
+    """br-r37-c1-rustseed: random graph generators must accept any int
+    (including negatives and ints exceeding u64) for ``seed`` and
+    raise nx's ``ValueError("nan cannot be used to generate a
+    random.Random instance")`` on NaN.
+
+    Pre-fix the Rust bindings declared ``seed: u64`` and raised:
+      - ``OverflowError("can't convert negative int to unsigned")`` on
+        negative seeds (erdos_renyi_graph, watts_strogatz_graph,
+        random_regular_graph, newman_watts_strogatz_graph,
+        connected_watts_strogatz_graph)
+      - ``TypeError("argument 'seed': 'float' object cannot be
+        interpreted as an integer")`` (PyO3 prefix) on NaN
+
+    Two pure-Python wrappers (``gnm_random_graph``,
+    ``random_geometric_graph``) silently accepted NaN via
+    ``random.Random(NaN)``; nx surfaces ValueError from the numpy
+    seeding path.
+
+    Fix: the centralized ``_native_random_seed`` helper now hashes
+    negative / oversized ints to u64 range and raises nx-shaped
+    ValueError on NaN.  The two pure-Python wrappers add an explicit
+    NaN guard.
+    """
+    import franken_networkx as fnx
+    import networkx as nx_mod
+
+    # Negative/large seeds must succeed (output may differ between
+    # libs because RNG implementations differ; we only verify
+    # acceptance, not exact-output parity).
+    for fn_name, args in [
+        ("erdos_renyi_graph", (5, 0.5)),
+        ("watts_strogatz_graph", (10, 4, 0.1)),
+        ("random_regular_graph", (3, 6)),
+        ("newman_watts_strogatz_graph", (10, 4, 0.1)),
+        ("connected_watts_strogatz_graph", (10, 4, 0.1)),
+        ("gnm_random_graph", (5, 3)),
+        ("random_geometric_graph", (10, 0.5)),
+    ]:
+        for bad_seed in (-1, -100, -(2**63), 2**128):
+            getattr(fnx, fn_name)(*args, seed=bad_seed)
+            getattr(nx_mod, fn_name)(*args, seed=bad_seed)
+
+    # NaN -> matching ValueError across the affected family
+    for fn_name, args in [
+        ("erdos_renyi_graph", (5, 0.5)),
+        ("watts_strogatz_graph", (10, 4, 0.1)),
+        ("random_regular_graph", (3, 6)),
+        ("newman_watts_strogatz_graph", (10, 4, 0.1)),
+        ("connected_watts_strogatz_graph", (10, 4, 0.1)),
+        ("gnm_random_graph", (5, 3)),
+        ("random_geometric_graph", (10, 0.5)),
+    ]:
+        with pytest.raises(ValueError, match="nan cannot be used"):
+            getattr(fnx, fn_name)(*args, seed=float("nan"))
+        with pytest.raises(ValueError, match="nan cannot be used"):
+            getattr(nx_mod, fn_name)(*args, seed=float("nan"))

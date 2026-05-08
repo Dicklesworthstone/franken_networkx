@@ -16631,13 +16631,39 @@ def info(G, n=None):
 
 
 def _native_random_seed(seed):
-    """Return a Rust-compatible u64 seed, preserving random None semantics."""
-    if seed is not None:
+    """Return a Rust-compatible u64 seed, preserving random None semantics.
+
+    br-r37-c1-rustseed: bridge two parity points with networkx for any
+    Rust-bound generator that consumes a u64 seed.
+
+    1. Negative ints (``seed=-1``, ``-100``, ``-2**63``): nx accepts
+       any int via random.Random.seed.  The Rust bindings declared
+       seed as u64 and raised
+       ``OverflowError("can't convert negative int to unsigned")``.
+       Hash to the u64 range so the binding accepts and the seed
+       remains deterministic.
+
+    2. NaN seed: nx (and numpy / random.Random down the line) raises
+       ``ValueError("nan cannot be used to generate a random.Random
+       instance")``.  fnx's Rust path raised the PyO3-prefixed
+       ``TypeError("argument 'seed': 'float' object cannot be
+       interpreted as an integer")``.  Surface nx's exact wording.
+    """
+    if seed is None:
+        import random as _random
+
+        return _random.randrange(1 << 64)
+    if isinstance(seed, float):
+        if math.isnan(seed):
+            raise ValueError(
+                "nan cannot be used to generate a random.Random instance"
+            )
+        # +/-inf and other floats fall through to the Rust binding,
+        # which will surface its existing TypeError on non-int.
         return seed
-
-    import random as _random
-
-    return _random.randrange(1 << 64)
+    if isinstance(seed, int) and not isinstance(seed, bool):
+        return seed & 0xFFFF_FFFF_FFFF_FFFF
+    return seed
 
 
 def _validate_backend_dispatch_keywords(function_name, backend, backend_kwargs):
@@ -16733,7 +16759,9 @@ def _seeded_watts_strogatz_rust_args(n, k, p, seed, create_using):
         except (TypeError, ValueError):
             return None
         if n_int >= 0 and 2 <= k_int < n_int and 0.0 <= p_float <= 1.0:
-            return n_int, k_int, p_float, int(seed)
+            # br-r37-c1-rustseed: hash negative / oversized ints to
+            # u64 range so the Rust binding accepts them.
+            return n_int, k_int, p_float, _native_random_seed(int(seed))
     return None
 
 
@@ -17777,6 +17805,13 @@ def gnm_random_graph(n, m, seed=None, directed=False, *, create_using=None):
     # 60f9n, waxman-neg, gtg-neg, hszkp}.
     if isinstance(n, int) and n < 0:
         raise NetworkXError(f"Negative number of nodes not valid: {n}")
+    # br-r37-c1-rustseed: NaN seed must surface nx's exact
+    # ``ValueError("nan cannot be used to generate a random.Random
+    # instance")`` rather than silent random.Random(NaN) acceptance.
+    if isinstance(seed, float) and math.isnan(seed):
+        raise ValueError(
+            "nan cannot be used to generate a random.Random instance"
+        )
     import random as _random
 
     rng = _random.Random(seed)
@@ -30095,6 +30130,13 @@ def random_geometric_graph(n, radius, dim=2, pos=None, p=2, seed=None, *, pos_na
     # but-stable contract.
     if isinstance(dim, int) and dim <= 0:
         raise IndexError("Out of bounds on buffer access (axis 0)")
+    # br-r37-c1-rustseed: NaN seed must surface nx's
+    # ``ValueError("nan cannot be used to generate a random.Random
+    # instance")`` rather than be silently accepted by random.Random.
+    if isinstance(seed, float) and math.isnan(seed):
+        raise ValueError(
+            "nan cannot be used to generate a random.Random instance"
+        )
     rng = _random.Random(seed)
     G = Graph()
     positions: dict = {}
