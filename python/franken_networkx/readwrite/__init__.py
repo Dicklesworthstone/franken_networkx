@@ -1792,9 +1792,20 @@ def _gexf_document_is_multigraph(raw_bytes):
 
 
 def parse_gexf(string, node_type=None, relabel=False, version="1.2draft"):
-    """Parse a GEXF string into a FrankenNetworkX graph."""
+    """Parse a GEXF string into a FrankenNetworkX graph.
+
+    Accepts either ``str`` or ``bytes`` input — ``bytes`` are passed
+    through unchanged; ``str`` is utf-8 encoded.  Pre-fix bytes input
+    crashed with ``AttributeError("'bytes' object has no attribute
+    'encode'")`` because the ``string.encode(...)`` call always
+    assumed str (br-r37-c1-gexfbytes).
+    """
+    if isinstance(string, (bytes, bytearray)):
+        buffer = BytesIO(bytes(string))
+    else:
+        buffer = BytesIO(string.encode("utf-8"))
     return read_gexf(
-        BytesIO(string.encode("utf-8")),
+        buffer,
         node_type=node_type,
         relabel=relabel,
         version=version,

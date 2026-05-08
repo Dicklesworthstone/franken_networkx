@@ -6843,3 +6843,45 @@ def test_find_negative_cycle_no_cycle_message_match_nx():
         fnx.find_negative_cycle(DG_f, 99)
     with pytest.raises(nx_mod.NodeNotFound):
         nx_mod.find_negative_cycle(DG_n, 99)
+
+
+def test_parse_gexf_accepts_bytes_input():
+    """br-r37-c1-gexfbytes: ``parse_gexf`` must accept either ``str``
+    or ``bytes`` input.
+
+    Pre-fix the wrapper unconditionally called ``string.encode(...)``
+    on the input, so bytes input crashed with
+    ``AttributeError("'bytes' object has no attribute 'encode'")``.
+
+    A natural drop-in pattern is to pipe the output of ``write_gexf``
+    (which writes to a BytesIO) directly into ``parse_gexf`` for
+    a round-trip — that pattern was broken by the encode-on-bytes
+    assumption.
+
+    Fix: branch on ``isinstance(string, (bytes, bytearray))`` and
+    pass the bytes through unchanged; only utf-8-encode str.
+    """
+    import franken_networkx as fnx
+    import io
+
+    # Empty bytes / str / bytearray
+    for empty in (b"", "", bytearray()):
+        G = fnx.parse_gexf(empty)
+        assert G.number_of_nodes() == 0
+        assert G.number_of_edges() == 0
+
+    # Round-trip bytes via write_gexf -> parse_gexf
+    G_orig = fnx.path_graph(3)
+    G_orig.nodes[0]["x"] = 5
+    buf = io.BytesIO()
+    fnx.write_gexf(G_orig, buf)
+    gexf_bytes = buf.getvalue()
+
+    # bytes input
+    G_parsed_bytes = fnx.parse_gexf(gexf_bytes)
+    assert G_parsed_bytes.number_of_nodes() == G_orig.number_of_nodes()
+    assert G_parsed_bytes.number_of_edges() == G_orig.number_of_edges()
+
+    # str input (already worked pre-fix)
+    G_parsed_str = fnx.parse_gexf(gexf_bytes.decode("utf-8"))
+    assert G_parsed_str.number_of_nodes() == G_orig.number_of_nodes()
