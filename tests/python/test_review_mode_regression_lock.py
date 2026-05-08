@@ -10073,3 +10073,86 @@ def test_g_name_reads_through_graph_attr_factory_override():
         # Custom factory type preserved
         assert isinstance(fs.graph, CustomDict)
         assert isinstance(ns.graph, CustomDict)
+
+
+def test_g_graph_inplace_or_operator_merges_correctly():
+    """br-r37-c1-iorgrf (cycle 223): Python's in-place dict-union
+    operator (``g.graph |= {...}``, PEP 584 / Python 3.9+) desugars
+    to ``g.graph = dict.__ior__(g.graph, other)``.  ``dict.__ior__``
+    mutates the dict in-place and returns ``self``, so the assigned
+    value IS the same object as the current graph dict.
+
+    The cycle-XYZ ``br-grattrident`` ``__set__`` did
+    ``current.clear(); current.update(value)``.  When
+    ``current is value``, the ``current.clear()`` call cleared the
+    very dict whose merged-in contents we wanted to keep — so
+    ``g.graph |= {x: 1}`` silently produced ``{}`` instead of
+    ``{x: 1}``.
+
+      Drop-in pattern (nx):
+        g.graph |= {'k': 1}
+        # nx:  g.graph == {'k': 1}
+        # fnx (pre-fix): g.graph == {}        *** DIFF — silent loss
+
+    Affects all 4 graph classes for both default and override paths.
+
+    Sister of cycles 220-222 — completes the factory-override and
+    Python-dict-protocol contract.
+
+    Fix: detect ``current is value`` in ``_GraphAttrsDescriptor.__set__``
+    and short-circuit (the in-place operator already mutated the
+    dict; no clear-and-update is needed and would be destructive).
+    """
+    import networkx as nx
+
+    # Default path: in-place |= works
+    for fcls, ncls in [
+        (fnx.Graph,        nx.Graph),
+        (fnx.DiGraph,      nx.DiGraph),
+        (fnx.MultiGraph,   nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ]:
+        fg = fcls()
+        ng = ncls()
+        fg.graph |= {"x": 1, "y": 2}
+        ng.graph |= {"x": 1, "y": 2}
+        assert dict(fg.graph) == dict(ng.graph) == {"x": 1, "y": 2}, fcls.__name__
+
+    # Override path (subclass with custom factory)
+    class CustomDict(dict):
+        pass
+
+    for fcls, ncls in [
+        (fnx.Graph,        nx.Graph),
+        (fnx.DiGraph,      nx.DiGraph),
+        (fnx.MultiGraph,   nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ]:
+        class FS(fcls):
+            graph_attr_dict_factory = CustomDict
+
+        class NS(ncls):
+            graph_attr_dict_factory = CustomDict
+
+        fs = FS()
+        ns = NS()
+        fs.graph |= {"a": 1}
+        ns.graph |= {"a": 1}
+        assert dict(fs.graph) == dict(ns.graph) == {"a": 1}, fcls.__name__
+        assert isinstance(fs.graph, CustomDict)
+        assert isinstance(ns.graph, CustomDict)
+
+    # Chained |= compounds correctly
+    g = fnx.Graph()
+    g.graph["a"] = 1
+    g.graph |= {"b": 2}
+    g.graph |= {"c": 3}
+    assert dict(g.graph) == {"a": 1, "b": 2, "c": 3}
+
+    # Identity preservation contract (br-grattrident) still holds for
+    # ``g.graph = NEW_DICT`` (different object).
+    g = fnx.Graph()
+    before = g.graph
+    g.graph = {"x": 1}
+    assert before is g.graph
+    assert dict(g.graph) == {"x": 1}

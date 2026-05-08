@@ -4545,6 +4545,17 @@ class _GraphAttrsDescriptor:
         # previously-stored override) instead, so external references
         # continue to see the updated contents.
         current = self.__get__(obj, type(obj))
+        # br-r37-c1-iorgrf (cycle 223): Python's in-place dict
+        # operators (``g.graph |= other``, ``g.graph |= {...}``)
+        # desugar to ``g.graph = dict.__ior__(g.graph, other)``.
+        # ``dict.__ior__`` mutates the dict in-place and returns
+        # ``self`` — so ``value is current``.  The
+        # ``current.clear()`` line below would then clear the very
+        # dict whose merged-in contents we want to keep.  Detect
+        # this and short-circuit.
+        if current is value:
+            setattr(obj, _GRAPH_ATTR_OVERRIDE, current)
+            return
         if isinstance(current, dict) and isinstance(value, dict):
             current.clear()
             current.update(value)
