@@ -2838,6 +2838,34 @@ _FilteredDegreeView.__name__ = "DegreeView"
 _FilteredDegreeView.__qualname__ = "DegreeView"
 
 
+# br-r37-c1-viewnames: align ``type(view).__name__`` with nx so
+# introspecting code (test fixtures, debug repr, drop-in libraries
+# that branch on the view class name) sees the same identifiers
+# under fnx as under nx.  Only ``__name__`` is renamed; ``__qualname__``
+# stays at the original private name so pickle's class-lookup path
+# (``module.qualname``) still finds the class — the existing
+# ``__reduce__`` snapshot path on these views matches nx's pickle
+# semantic so the qualname mismatch is harmless.
+_DiGraphEdgeView.__name__ = "OutEdgeView"
+_MultiGraphEdgeView.__name__ = "MultiEdgeView"
+_MultiDiGraphEdgeView.__name__ = "OutMultiEdgeView"
+
+# Rust-bound NodeView variants — nx exposes a single ``NodeView`` class
+# regardless of graph type.
+try:
+    _fnx.DiNodeView.__name__ = "NodeView"
+except (AttributeError, TypeError):
+    pass
+try:
+    _fnx.MultiGraphNodeView.__name__ = "NodeView"
+except (AttributeError, TypeError):
+    pass
+try:
+    _fnx.MultiDiGraphNodeView.__name__ = "NodeView"
+except (AttributeError, TypeError):
+    pass
+
+
 # Capture the raw Rust descriptors before overriding so our wrapper can
 # delegate to them.
 _GRAPH_RAW_DEGREE = Graph.degree

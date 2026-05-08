@@ -6031,3 +6031,66 @@ def test_edgeview_contains_match_nx_semantics():
     MD_n = nx_mod.MultiDiGraph([(0, 1), (0, 1)])
     assert ([0, 1] in MD_f.edges) == ([0, 1] in MD_n.edges) == True
     assert ((0, 1, 0) in MD_f.edges) == ((0, 1, 0) in MD_n.edges) == True
+
+
+def test_view_class_names_match_nx():
+    """br-r37-c1-viewnames: ``type(G.edges).__name__`` and
+    ``type(G.nodes).__name__`` must match nx exactly across all four
+    graph types so introspecting code (test fixtures, debug repr,
+    drop-in libraries that branch on view class names) works.
+
+    Pre-fix mismatches:
+      - DiGraph.edges:    '_DiGraphEdgeView'      vs nx 'OutEdgeView'
+      - MultiGraph.edges: '_MultiGraphEdgeView'   vs nx 'MultiEdgeView'
+      - MultiDiGraph.edges: '_MultiDiGraphEdgeView' vs nx 'OutMultiEdgeView'
+      - DiGraph.nodes:    'DiNodeView'            vs nx 'NodeView'
+      - MultiGraph.nodes: 'MultiGraphNodeView'    vs nx 'NodeView'
+      - MultiDiGraph.nodes: 'MultiDiGraphNodeView' vs nx 'NodeView'
+
+    Fix: rename ``__name__`` only (keep ``__qualname__`` so pickle's
+    ``module.qualname`` lookup still finds the class).  The existing
+    ``__reduce__`` snapshot semantic on these views handles pickle
+    independent of the rename.
+    """
+    import franken_networkx as fnx
+    import networkx as nx_mod
+
+    cases = [
+        ("Graph", fnx.Graph, nx_mod.Graph, [(0, 1)]),
+        ("DiGraph", fnx.DiGraph, nx_mod.DiGraph, [(0, 1)]),
+        ("MultiGraph", fnx.MultiGraph, nx_mod.MultiGraph, [(0, 1)]),
+        ("MultiDiGraph", fnx.MultiDiGraph, nx_mod.MultiDiGraph, [(0, 1)]),
+    ]
+    for name, ctor_f, ctor_n, edges in cases:
+        G_f = ctor_f()
+        G_n = ctor_n()
+        for u, v in edges:
+            G_f.add_edge(u, v)
+            G_n.add_edge(u, v)
+        assert (
+            type(G_f.edges).__name__ == type(G_n.edges).__name__
+        ), (
+            f"{name}.edges class name mismatch: "
+            f"fnx={type(G_f.edges).__name__!r} vs "
+            f"nx={type(G_n.edges).__name__!r}"
+        )
+        assert (
+            type(G_f.nodes).__name__ == type(G_n.nodes).__name__
+        ), (
+            f"{name}.nodes class name mismatch: "
+            f"fnx={type(G_f.nodes).__name__!r} vs "
+            f"nx={type(G_n.nodes).__name__!r}"
+        )
+
+    # Sanity: pickle round-trip still works (the rename only touches
+    # __name__, not __qualname__, so pickle's class-lookup path is
+    # unchanged).
+    import pickle
+    G = fnx.Graph()
+    G.add_edges_from([(0, 1), (1, 2)])
+    DG = fnx.DiGraph()
+    DG.add_edges_from([(0, 1), (1, 2)])
+    M = fnx.MultiGraph()
+    M.add_edges_from([(0, 1), (0, 1)])
+    for view in (G.edges, G.degree, DG.edges, DG.degree, M.edges):
+        pickle.dumps(view)
