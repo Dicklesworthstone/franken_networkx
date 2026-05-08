@@ -3901,6 +3901,18 @@ class _DiEdgeMethodView:
         return any(eu == u and ev == v for (eu, ev) in iterable)
 
     def __call__(self, *args, **kwargs):
+        # br-r37-c1-iemvcall: for non-multigraph DiGraph, nx's
+        # InEdgeView / OutEdgeView implement ``__call__`` such that
+        # no-args returns ``self`` (so ``DG.in_edges() is DG.in_edges``
+        # holds in nx).  fnx's __call__ materialized to a Python list
+        # even when no filtering args were passed, so:
+        #   - ``[0,1] in DG.in_edges()`` returned False (plain list ==)
+        #   - ``DG.in_edges()`` was a stale snapshot, not a live view
+        # For MultiDiGraph nx's call form returns a *different* class
+        # (InMultiEdgeDataView) with stricter ``e == self._report(...)``
+        # tuple-equality semantics — keep the snapshot list there.
+        if not args and not kwargs and not self._graph.is_multigraph():
+            return self
         return self._method(self._graph, *args, **kwargs)
 
     def __reduce__(self):

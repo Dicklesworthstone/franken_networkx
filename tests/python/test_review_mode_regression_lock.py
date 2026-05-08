@@ -6150,3 +6150,70 @@ def test_in_out_edges_contains_match_nx():
         123 in MD_f.in_edges
     with pytest.raises(TypeError, match="has no len"):
         123 in MD_n.in_edges
+
+
+def test_in_out_edges_call_returns_live_view_match_nx():
+    """br-r37-c1-iemvcall: ``DG.in_edges()`` (no args) must return the
+    live view, not a stale snapshot list.
+
+    Pre-fix ``DG.in_edges()`` materialized a Python list via the Rust
+    method:
+      - ``[0,1] in DG.in_edges()`` returned False (plain list ==)
+      - ``"foo" in DG.in_edges()`` returned False (no error)
+      - mutating the graph did NOT update the previously-returned list
+    nx's call form returns the same InEdgeView object as the property
+    (``DG.in_edges() is DG.in_edges`` holds).
+
+    Fix: ``_DiEdgeMethodView.__call__`` short-circuits to return
+    ``self`` when invoked with no args, so the call form has the same
+    live-view + nx-shaped __contains__ semantics as the attribute
+    form.  Filtered calls (``in_edges([0])`` / ``data=True`` / etc.)
+    still return the snapshot list — that's a separate parity gap.
+    """
+    import franken_networkx as fnx
+    import networkx as nx_mod
+
+    DG_f = fnx.DiGraph([(0, 1), (1, 2)])
+    DG_n = nx_mod.DiGraph([(0, 1), (1, 2)])
+
+    # Containment via the call form must now match nx
+    assert ((0, 1) in DG_f.in_edges()) == ((0, 1) in DG_n.in_edges()) == True
+    assert ([0, 1] in DG_f.in_edges()) == ([0, 1] in DG_n.in_edges()) == True
+    with pytest.raises(ValueError):
+        "foo" in DG_f.in_edges()
+    with pytest.raises(ValueError):
+        "foo" in DG_n.in_edges()
+    with pytest.raises(TypeError, match="cannot unpack"):
+        123 in DG_f.in_edges()
+    with pytest.raises(TypeError, match="cannot unpack"):
+        123 in DG_n.in_edges()
+
+    # Live-view semantics: a previously-returned in_edges() reflects
+    # later graph modifications.
+    DG_f = fnx.DiGraph([(0, 1)])
+    DG_n = nx_mod.DiGraph([(0, 1)])
+    ie_f = DG_f.in_edges()
+    ie_n = DG_n.in_edges()
+    DG_f.add_edge(99, 100)
+    DG_n.add_edge(99, 100)
+    assert ((99, 100) in ie_f) == ((99, 100) in ie_n) == True
+    assert len(ie_f) == len(ie_n) == 2
+
+    # out_edges sister
+    DG_f = fnx.DiGraph([(0, 1)])
+    DG_n = nx_mod.DiGraph([(0, 1)])
+    assert ([0, 1] in DG_f.out_edges()) == ([0, 1] in DG_n.out_edges()) == True
+
+    # MultiDiGraph: nx's call form returns InMultiEdgeDataView (a
+    # *different* class from the InMultiEdgeView property) with
+    # stricter tuple-equality contains semantics, so we don't
+    # short-circuit there — only verify the call-form survives.
+    MD_f = fnx.MultiDiGraph([(0, 1), (0, 1)])
+    MD_n = nx_mod.MultiDiGraph([(0, 1), (0, 1)])
+    assert sorted(MD_f.in_edges()) == sorted(MD_n.in_edges())
+
+    # Filtered call still works (returns a list / data view that
+    # iterates correctly — sanity check, not a parity claim).
+    DG_f = fnx.DiGraph([(0, 1), (1, 2), (2, 0)])
+    DG_n = nx_mod.DiGraph([(0, 1), (1, 2), (2, 0)])
+    assert sorted(DG_f.in_edges([0])) == sorted(DG_n.in_edges([0]))
