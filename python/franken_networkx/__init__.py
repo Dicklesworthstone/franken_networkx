@@ -4561,6 +4561,26 @@ for _cls in (Graph, DiGraph, MultiGraph, MultiDiGraph):
     _cls.graph = _GraphAttrsDescriptor(_cls.__dict__["graph"])
 
 
+# br-r37-c1-clrovr (cycle 221): the cycle-220 ``graph_attr_dict_factory``
+# override stores the live attrs dict in ``vars(obj)[_GRAPH_ATTR_OVERRIDE]``.
+# The Rust-bound ``clear()`` clears the Rust-side attrs but doesn't know
+# about the override, so subclasses with a custom factory saw stale
+# attrs after ``g.clear()``.  nx's ``Graph.clear`` does ``self.graph.clear()``
+# in-place — the dict identity is preserved, contents emptied.  Wrap
+# ``clear`` here to mirror that contract for the override.
+def _make_clear_with_attr_override(raw_clear):
+    def clear(self):
+        raw_clear(self)
+        override = vars(self).get(_GRAPH_ATTR_OVERRIDE, _GRAPH_ATTR_MISSING)
+        if override is not _GRAPH_ATTR_MISSING and hasattr(override, "clear"):
+            override.clear()
+    return clear
+
+
+for _cls in (Graph, DiGraph, MultiGraph, MultiDiGraph):
+    _cls.clear = _make_clear_with_attr_override(_cls.clear)
+
+
 def _graph_deepcopy(self, memo=None):
     """br-dcpy: the Rust __deepcopy__ didn't traverse nested attribute
     values, so deepcopy(G).nodes[n]['x'].append(...) mutated the

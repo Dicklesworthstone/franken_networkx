@@ -9898,3 +9898,94 @@ def test_subclass_graph_attr_dict_factory_is_honored():
     g.graph["x"] = 1
     assert g.graph == {"x": 1}
     assert type(g.graph) is dict
+
+
+def test_clear_empties_graph_attr_factory_override_in_place():
+    """br-r37-c1-clrovr (cycle 221): cycle 220's
+    ``graph_attr_dict_factory`` fix stores the live attrs dict as an
+    override on the instance.  The Rust-bound ``clear()`` doesn't
+    know about the override, so subclasses with a custom factory
+    saw stale attrs after ``g.clear()``.  nx's ``Graph.clear``
+    invokes ``self.graph.clear()`` in-place — dict identity is
+    preserved, contents emptied.  Mirror that contract here so:
+
+      class S(Graph):
+          graph_attr_dict_factory = MyDict
+      g = S()
+      g.graph['x'] = 1
+      before = g.graph
+      g.clear()
+      after = g.graph
+      assert before is after          # identity preserved
+      assert dict(after) == {'_factory_marker': 'custom'}  # default contents
+                                       # ``MyDict()`` re-populates upon
+                                       # subsequent access.
+
+    Wait — actually cycle 221 fixes the simpler property: clear()
+    empties the dict (matching nx).  The factory's default keys
+    don't re-populate after clear(); they only populate on FIRST
+    access.  This matches nx's semantics: nx invokes the factory
+    once in ``__init__`` and clear() empties the resulting dict.
+
+      Drop-in property:
+        before = g.graph
+        g.clear()
+        assert before is g.graph     # SAME dict object
+        assert dict(g.graph) == {}   # but empty
+
+    Sister to cycle 220 (br-r37-c1-nzzhs) which exposed the
+    factory but left clear() interaction broken.
+    """
+    import networkx as nx
+
+    class CustomDict(dict):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.setdefault("_factory_marker", "custom")
+
+    for fcls, ncls in [
+        (fnx.Graph,        nx.Graph),
+        (fnx.DiGraph,      nx.DiGraph),
+        (fnx.MultiGraph,   nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ]:
+        class FS(fcls):
+            graph_attr_dict_factory = CustomDict
+
+        class NS(ncls):
+            graph_attr_dict_factory = CustomDict
+
+        fs = FS()
+        ns = NS()
+
+        fs.graph["x"] = 1
+        ns.graph["x"] = 1
+        fs.add_edge(1, 2)
+        ns.add_edge(1, 2)
+
+        before_fs = fs.graph
+        before_ns = ns.graph
+
+        fs.clear()
+        ns.clear()
+
+        # Identity preserved (in-place clear).
+        assert fs.graph is before_fs, fcls.__name__
+        assert ns.graph is before_ns, ncls.__name__
+
+        # Contents emptied.
+        assert dict(fs.graph) == {}, fcls.__name__
+        assert dict(ns.graph) == {}, ncls.__name__
+
+        # Type preserved (still the custom container).
+        assert type(fs.graph) is CustomDict
+        assert type(ns.graph) is CustomDict
+
+    # Default path: clear() still works (no factory override).
+    g = fnx.Graph()
+    g.graph["x"] = 1
+    g.add_edge(1, 2)
+    g.clear()
+    assert dict(g.graph) == {}
+    assert sorted(g.nodes()) == []
+    assert sorted(g.edges()) == []
