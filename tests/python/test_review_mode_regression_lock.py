@@ -5190,3 +5190,48 @@ def test_predecessor_handles_nan_inf_float_cutoff_match_nx():
     pred, seen = fnx.predecessor(P, 0, cutoff=2, return_seen=True)
     assert pred == {0: [], 1: [0], 2: [1]}
     assert seen == {0: 0, 1: 1, 2: 2}
+
+
+def test_dijkstra_cutoff_nan_inf_match_nx():
+    """br-r37-c1-djk-cutnan: nx Dijkstra's cutoff check is
+    ``if d > cutoff: continue`` — for cutoff=NaN, ``d > NaN``
+    is always False so the check NEVER skips → unbounded
+    result.
+
+    fnx used the inverse form ``if distance <= cutoff`` in
+    ``_single_source_dijkstra_cutoff_view`` which is ALSO
+    always False for NaN → filters out everything.  Symmetric
+    inversion turned nx's "NaN means unbounded" into fnx's
+    "NaN means empty".  Symptomatic across:
+      * single_source_dijkstra / _path / _path_length
+      * all_pairs_dijkstra_path_length (uses single_source
+        internally)
+
+    Fix routes NaN and +inf through the unbounded-cutoff
+    short-circuit before the filter loop.
+
+    Lock: all 8 boundary cases × 4 dijkstra functions match
+    nx exactly."""
+    P = fnx.path_graph(5)
+    P_nx = nx.path_graph(5)
+
+    cases = [
+        (float("inf"), {0: 0, 1: 1, 2: 2, 3: 3, 4: 4}),
+        (float("nan"), {0: 0, 1: 1, 2: 2, 3: 3, 4: 4}),
+        (-float("inf"), {0: 0}),
+        (-1, {0: 0}),
+        (0, {0: 0}),
+        (1, {0: 0, 1: 1}),
+        (3.5, {0: 0, 1: 1, 2: 2, 3: 3}),
+        (None, {0: 0, 1: 1, 2: 2, 3: 3, 4: 4}),
+    ]
+    for c, expected_lengths in cases:
+        f = dict(fnx.single_source_dijkstra_path_length(P, 0, cutoff=c))
+        n = dict(nx.single_source_dijkstra_path_length(P_nx, 0, cutoff=c))
+        assert f == n == expected_lengths, f"sssd_pl cutoff={c}: fnx={f} expected={expected_lengths}"
+
+    # all_pairs_dijkstra_path_length matches too (uses single_source)
+    for c in (float("nan"), float("inf"), 3.5):
+        f = dict((k, dict(v)) for k, v in fnx.all_pairs_dijkstra_path_length(P, cutoff=c))
+        n = dict((k, dict(v)) for k, v in nx.all_pairs_dijkstra_path_length(P_nx, cutoff=c))
+        assert f == n

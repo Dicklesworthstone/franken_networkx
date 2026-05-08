@@ -12204,7 +12204,18 @@ def negative_edge_cycle(G, weight="weight", heuristic=True):
 
 
 def _single_source_dijkstra_cutoff_view(source, dists, paths, cutoff):
+    # br-r37-c1-djk-cutnan: nx Dijkstra's cutoff check is
+    # ``if d > cutoff: continue`` (skip nodes with d > cutoff).
+    # For cutoff=NaN, ``d > NaN`` is always False so the check
+    # NEVER skips → unbounded result.  fnx used the inverse form
+    # ``if distance <= cutoff`` which is ALSO always False for
+    # NaN → filters out everything.  Symmetric inversion turned
+    # nx's "NaN means unbounded" into fnx's "NaN means empty".
+    # Fix: treat NaN (and +inf — same outcome) as ``None``
+    # before the filter loop.
     if cutoff is None:
+        return dists, paths
+    if isinstance(cutoff, float) and (math.isnan(cutoff) or cutoff == math.inf):
         return dists, paths
 
     filtered_dists = {}
