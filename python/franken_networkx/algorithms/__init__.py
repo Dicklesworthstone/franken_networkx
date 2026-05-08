@@ -8,9 +8,49 @@ they're all reachable via this submodule path.
 Top-level functions (``franken_networkx.foo``) remain backed by the
 fnx-native Rust ports / Python wrappers; this module is the nx-mirror
 path for code that imports through ``franken_networkx.algorithms.X``.
+
+br-r37-c1-algsubmod: register every nx.algorithms submodule (and
+subpackage) in ``sys.modules`` so drop-in callers using the
+import-from-submodule form ``from franken_networkx.algorithms.flow
+import maximum_flow`` resolve to the same module as nx.  Without this,
+attribute access (``fnx.algorithms.flow``) worked but the import path
+raised ``ModuleNotFoundError``.
 """
 
+import sys as _sys
+import importlib as _importlib
+import pkgutil as _pkgutil
+
 from networkx.algorithms import *  # noqa: F401, F403
+
+
+def _alias_nx_submodules(nx_pkg, fnx_prefix):
+    """Recursively alias nx submodules into ``sys.modules`` under fnx_prefix.
+
+    Skips ``tests`` packages (pytest-fixture-bound) and private modules
+    starting with ``_`` so we don't expose nx's internal test helpers as
+    fnx public API.
+    """
+    if not hasattr(nx_pkg, "__path__"):
+        return
+    for info in _pkgutil.iter_modules(nx_pkg.__path__):
+        name = info.name
+        if name == "tests" or name.startswith("_"):
+            continue
+        nx_dotted = f"{nx_pkg.__name__}.{name}"
+        fnx_dotted = f"{fnx_prefix}.{name}"
+        if fnx_dotted in _sys.modules:
+            continue
+        try:
+            sub = _importlib.import_module(nx_dotted)
+        except Exception:
+            continue
+        _sys.modules[fnx_dotted] = sub
+        if info.ispkg:
+            _alias_nx_submodules(sub, fnx_dotted)
+
+
+_alias_nx_submodules(_importlib.import_module("networkx.algorithms"), __name__)
 
 
 def __getattr__(name):

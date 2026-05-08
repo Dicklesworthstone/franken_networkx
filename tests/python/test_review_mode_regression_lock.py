@@ -5469,3 +5469,76 @@ def test_eigenvector_centrality_numpy_max_iter_validation_match_nx():
     fnx.eigenvector_centrality_numpy(P, max_iter=50)
     fnx.eigenvector_centrality_numpy(P, max_iter=1.5)  # nx accepts via int()
     fnx.eigenvector_centrality_numpy(P, max_iter=None)
+
+
+def test_algorithms_submodule_import_paths_match_nx():
+    """br-r37-c1-algsubmod: ``from franken_networkx.algorithms.X import Y``
+    must work for every nx.algorithms submodule.
+
+    Pre-fix only attribute access (``fnx.algorithms.flow``) worked; the
+    import-from-submodule form raised ModuleNotFoundError because nx's
+    submodules were not registered in ``sys.modules`` under the
+    franken_networkx prefix.  Drop-in code that does
+    ``from networkx.algorithms.flow import maximum_flow`` and naively
+    text-substitutes ``networkx`` -> ``franken_networkx`` was broken.
+
+    Fix: walk ``networkx.algorithms`` recursively and alias each
+    submodule into ``sys.modules`` under the ``franken_networkx``
+    prefix.  Verifies a representative sample of 1- and 2-deep paths.
+    """
+    import importlib
+    import networkx as nx_mod
+
+    # 1-deep paths — sample of high-traffic submodules
+    for sub in (
+        "approximation",
+        "assortativity",
+        "bipartite",
+        "centrality",
+        "community",
+        "components",
+        "connectivity",
+        "flow",
+        "isomorphism",
+        "link_prediction",
+        "matching",
+        "operators",
+        "shortest_paths",
+        "similarity",
+        "tree",
+        "traversal",
+    ):
+        fnx_path = f"franken_networkx.algorithms.{sub}"
+        nx_path = f"networkx.algorithms.{sub}"
+        fnx_mod = importlib.import_module(fnx_path)
+        nx_sub = importlib.import_module(nx_path)
+        assert fnx_mod is nx_sub, (
+            f"{fnx_path} should alias {nx_path} but got distinct objects"
+        )
+
+    # 2-deep paths — subpackages of subpackages
+    for path in (
+        "tree.branchings",
+        "tree.mst",
+        "shortest_paths.weighted",
+        "shortest_paths.unweighted",
+        "shortest_paths.generic",
+        "flow.maxflow",
+    ):
+        fnx_mod = importlib.import_module(f"franken_networkx.algorithms.{path}")
+        nx_sub = importlib.import_module(f"networkx.algorithms.{path}")
+        assert fnx_mod is nx_sub
+
+    # The from-import form — naive text-substitution drop-in
+    from franken_networkx.algorithms.flow import maximum_flow
+    from franken_networkx.algorithms.approximation import min_weighted_vertex_cover
+    from franken_networkx.algorithms.tree.branchings import branching_weight
+
+    assert maximum_flow is nx_mod.algorithms.flow.maximum_flow
+    assert (
+        min_weighted_vertex_cover
+        is nx_mod.algorithms.approximation.min_weighted_vertex_cover
+    )
+    assert (
+        branching_weight is nx_mod.algorithms.tree.branchings.branching_weight
+    )
