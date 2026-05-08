@@ -7609,3 +7609,55 @@ def test_node_and_edge_views_are_unhashable():
         pass
     else:
         raise AssertionError("{DiGraph.edges: 1} should raise TypeError")
+
+
+def test_node_and_edge_views_register_as_mapping_abc():
+    """br-r37-c1-vmapabc: nx's NodeView, OutEdgeView, MultiEdgeView,
+    OutMultiEdgeView all inherit from ``collections.abc.Mapping`` —
+    so ``isinstance(G.nodes, Mapping)`` and ``isinstance(G.edges,
+    Mapping)`` return True. Drop-in code that uses the Mapping ABC
+    for type dispatch (e.g.  ``if isinstance(x, Mapping): for k, v
+    in x.items(): ...``) handles views uniformly with plain dicts.
+
+    Pre-fix the Rust-bound + Python-wrapped fnx view types were
+    registered as ``Set`` virtual subclasses but NOT as ``Mapping``,
+    so the isinstance check returned False — breaking type-dispatch
+    paths across all 8 view × graph-class combinations:
+
+      Graph.nodes / .edges                 Mapping check returned False
+      DiGraph.nodes / .edges                Mapping check returned False
+      MultiGraph.nodes / .edges             Mapping check returned False
+      MultiDiGraph.nodes / .edges           Mapping check returned False
+
+    The full Mapping protocol is already implemented (``__getitem__``
+    / ``__len__`` / ``__iter__`` / ``__contains__`` / ``keys`` /
+    ``values`` / ``items`` / ``get``), so virtual registration via
+    ``Mapping.register(view_type)`` is safe.
+    """
+    from collections.abc import Mapping
+
+    for cls_name in ("Graph", "DiGraph", "MultiGraph", "MultiDiGraph"):
+        cls = getattr(fnx, cls_name)
+        G = cls()
+        G.add_edge(1, 2)
+        for view_name in ("nodes", "edges"):
+            view = getattr(G, view_name)
+            assert isinstance(view, Mapping), (
+                f"{cls_name}.{view_name} should be isinstance(_, Mapping); "
+                f"type={type(view).__module__}.{type(view).__qualname__}"
+            )
+
+    # Set protocol still works (registration as Mapping doesn't break Set ops)
+    G1 = fnx.path_graph(5)
+    G2 = fnx.path_graph(7)
+    assert G1.nodes & G2.nodes == {0, 1, 2, 3, 4}
+    assert G1.nodes <= G2.nodes
+    assert G1.nodes.isdisjoint({99})
+
+    # Mapping protocol works post-registration
+    G = fnx.Graph()
+    G.add_node(1, color="red")
+    assert G.nodes[1] == {"color": "red"}
+    assert G.nodes.get(1) == {"color": "red"}
+    assert G.nodes.get(99) is None
+    assert dict(G.nodes.items()) == {1: {"color": "red"}}

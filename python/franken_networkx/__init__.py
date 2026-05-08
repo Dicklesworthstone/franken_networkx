@@ -3393,6 +3393,16 @@ for _ev_type in (
     _ev_type.__lt__ = _ev_set_lt
     _ev_type.__gt__ = _ev_set_gt
     Set.register(_ev_type)
+    # br-r37-c1-vmapabc: nx's EdgeView / OutEdgeView / MultiEdgeView /
+    # OutMultiEdgeView all inherit from ``collections.abc.Mapping``,
+    # so ``isinstance(G.edges, Mapping)`` returns True. fnx's
+    # Rust-bound + Python-wrapped EdgeView types implement the full
+    # Mapping protocol (``__getitem__`` / ``__len__`` / ``__iter__`` /
+    # ``__contains__`` / ``keys`` / ``values`` / ``items`` / ``get``)
+    # but were not registered as Mapping virtual subclasses, so the
+    # isinstance check returned False — diverging on type-dispatch
+    # paths in drop-in code.  Register here to fix.
+    Mapping.register(_ev_type)
 _MULTIGRAPH_NODE_VIEW_TYPE.__call__ = _node_view_call_with_attr_support(
     _MULTIGRAPH_NODE_VIEW_CALL
 )
@@ -3722,6 +3732,15 @@ for _node_view_type in (
     _node_view_type.__lt__ = _nv_set_lt
     _node_view_type.__gt__ = _nv_set_gt
     Set.register(_node_view_type)
+    # br-r37-c1-vmapabc: nx's NodeView inherits from
+    # ``collections.abc.Mapping`` and ``Set``. fnx already registers
+    # the Rust-bound NodeView types as Set virtual subclasses (above),
+    # but missed Mapping — so ``isinstance(G.nodes, Mapping)``
+    # returned False, diverging on type-dispatch paths in drop-in
+    # code.  The full Mapping protocol is already implemented
+    # (__getitem__ / __len__ / __iter__ / __contains__ / keys /
+    # values / items / get), so virtual registration is safe.
+    Mapping.register(_node_view_type)
 
 
 # NodeView update support lives on _PrivateNodeFacade (below) rather
