@@ -9193,3 +9193,63 @@ def test_reverse_view_subview_deepcopy_is_snapshot():
             f"reverse().{attr} deepcopy type: got "
             f"{type(dc).__name__}, expected {expected}"
         )
+
+
+def test_subgraph_view_subview_deepcopy_is_snapshot_and_no_attribute_error():
+    """br-r37-c1-vcopydc (cycle 211): default deepcopy of a
+    subgraph view's NodeView / EdgeView recursively copied
+    ``self._view`` (the subgraph view), which materialises to a
+    plain frozen Graph via ``_FilteredGraphView.__deepcopy__`` —
+    that Graph lacks the filter machinery (``_node_visible``,
+    ``_edges``), so subsequent attribute access through the
+    deep-copied NodeView/EdgeView raised AttributeError:
+
+      G = fnx.path_graph(5); S = G.subgraph([1,2,3])
+      copy.deepcopy(S.nodes)
+      → AttributeError: 'franken_networkx.Graph' object has no
+        attribute '_node_visible'
+
+      copy.deepcopy(S.edges)
+      → AttributeError: 'franken_networkx.Graph' object has no
+        attribute '_edges'
+
+    Drop-in code that snapshots a subgraph's view via deepcopy
+    silently CRASHED.
+
+    Fix: add ``__deepcopy__`` to the subgraph NodeView and
+    _FilteredEdgeView base classes that materialises via
+    ``deepcopy(self._view)`` (which yields a frozen Graph with
+    the snapshot content) and returns its ``.nodes`` / ``.edges``
+    (Rust-bound view, ``__name__`` matches nx).
+    """
+    import copy
+
+    for cls_name in ("Graph", "DiGraph", "MultiGraph", "MultiDiGraph"):
+        G = getattr(fnx, cls_name)([(1, 2), (2, 3), (3, 4)])
+        S = G.subgraph([1, 2, 3])
+
+        # All four sub-views must deepcopy without crashing.
+        nv_dc = copy.deepcopy(S.nodes)
+        ev_dc = copy.deepcopy(S.edges)
+        adj_dc = copy.deepcopy(S.adj)
+        deg_dc = copy.deepcopy(S.degree)
+
+        # Snapshot independence: subsequent G mutation doesn't leak.
+        G.add_node(99)
+        G.add_edge(99, 100)
+        assert 99 not in nv_dc
+        assert 99 not in adj_dc
+        assert 99 not in dict(deg_dc)
+        assert (99, 100) not in list(ev_dc)
+        assert (100, 99) not in list(ev_dc)
+
+        # Type names match nx (cycle 188/190+ canonical forms).
+        assert type(nv_dc).__name__ == "NodeView"
+
+    # Functional smoke
+    G = fnx.path_graph(5)
+    S = G.subgraph([1, 2, 3])
+    nv = copy.deepcopy(S.nodes)
+    assert list(nv) == [1, 2, 3]
+    assert 2 in nv
+    assert len(nv) == 3

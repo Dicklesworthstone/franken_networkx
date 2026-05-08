@@ -26905,6 +26905,22 @@ class NodeView(Mapping):
         # through to default ``<...object at 0x...>``.
         return f"NodeView({tuple(self)!r})"
 
+    def __copy__(self):
+        # Live wrapper — matches nx's copy.copy semantics.
+        return self
+
+    def __deepcopy__(self, memo):
+        # br-r37-c1-vcopydc (cycle 201 follow-up): default deepcopy
+        # recursively copied ``self._view`` (the subgraph view),
+        # which materialises to a plain frozen Graph via
+        # _FilteredGraphView.__deepcopy__ — that Graph lacks
+        # ``_node_visible``, so subsequent NodeView attribute access
+        # raised AttributeError.  Snapshot via the deep-copied
+        # subgraph and return its ``.nodes`` (Rust-bound NodeView,
+        # ``__name__ == "NodeView"`` matching nx).
+        new_graph = deepcopy(self._view, memo)
+        return new_graph.nodes
+
 
 class _FilteredEdgeView:
     def __init__(self, view):
@@ -27047,6 +27063,21 @@ class _FilteredEdgeView:
         if self._view.is_multigraph():
             return f"{type(self).__name__}({list(self(keys=True))!r})"
         return f"{type(self).__name__}({list(self())!r})"
+
+    def __copy__(self):
+        # Live wrapper — matches nx's copy.copy semantics.
+        return self
+
+    def __deepcopy__(self, memo):
+        # br-r37-c1-vcopydc (cycle 211): default deepcopy recursively
+        # copied ``self._view`` (the subgraph view), which materialises
+        # to a plain frozen Graph via _FilteredGraphView.__deepcopy__
+        # — that Graph lacks ``_edges`` (the filter machinery), so
+        # subsequent .edges attribute access raised AttributeError.
+        # Snapshot via the deep-copied subgraph and return its
+        # ``.edges`` (Rust-bound EdgeView, ``__name__`` matches nx).
+        new_graph = deepcopy(self._view, memo)
+        return new_graph.edges
 
 
 # br-r37-c1-fevname: per-direction × multi subclasses with canonical
