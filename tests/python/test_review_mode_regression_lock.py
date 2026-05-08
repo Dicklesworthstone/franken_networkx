@@ -9603,3 +9603,85 @@ def test_add_edges_from_generator_partial_progress_persists():
     g = fnx.Graph()
     g.add_edges_from([(1, 2), (2, 3)])
     assert sorted(g.edges()) == [(1, 2), (2, 3)]
+
+
+def test_remove_edges_nodes_from_generator_partial_progress_persists():
+    """br-r37-c1-refitexc / br-r37-c1-rnfitexc (cycle 217): sister
+    of cycle 216's ``add_edges_from`` partial-progress fix.  When
+    ``remove_edges_from`` or ``remove_nodes_from`` receive a
+    generator (or any iterator) that raises mid-stream, items
+    yielded BEFORE the exception must already have been removed
+    from the graph (matching nx's iterate-and-remove-inline
+    semantics).
+
+      Pattern (nx-canonical):
+        g = Graph([(1,2),(2,3),(3,4)])
+        def gen():
+            yield (1, 2)
+            yield (2, 3)
+            raise RuntimeError('boom')
+        try: g.remove_edges_from(gen())
+        except RuntimeError: pass
+
+      nx:  g.edges() == [(3, 4)]   (1,2) and (2,3) removed
+      fnx (pre-fix): g.edges() == [(1,2),(2,3),(3,4)] *** DIFF
+                                    nothing removed; yielded items lost
+
+    Same defect applied to ``remove_nodes_from``.
+
+    Fix: dispatch on input type in both materializer wrappers.
+    Lists/tuples take the existing batch path; generators/iterators
+    are iterated manually with try/except, capturing the iteration
+    exception and re-raising AFTER the (partial) raw call.
+    """
+    def gen_rm_edges():
+        yield (1, 2)
+        yield (2, 3)
+        raise RuntimeError("rm-edge-boom")
+
+    def gen_rm_nodes():
+        yield 1
+        yield 2
+        raise RuntimeError("rm-node-boom")
+
+    classes = [fnx.Graph, fnx.DiGraph, fnx.MultiGraph, fnx.MultiDiGraph]
+
+    # remove_edges_from: yielded edges are removed; later edges remain.
+    for cls in classes:
+        g = cls([(1, 2), (2, 3), (3, 4)])
+        with pytest.raises(RuntimeError, match="rm-edge-boom"):
+            g.remove_edges_from(gen_rm_edges())
+        # (1,2) and (2,3) yielded before exception -> gone.
+        # (3,4) never yielded -> still present.
+        edges = sorted(set((u, v) for u, v in (e[:2] for e in g.edges())))
+        assert (1, 2) not in edges, f"{cls.__name__}: (1,2) not removed"
+        assert (2, 3) not in edges, f"{cls.__name__}: (2,3) not removed"
+        assert (3, 4) in edges, f"{cls.__name__}: (3,4) lost"
+
+    # remove_nodes_from: yielded nodes are removed; later nodes remain.
+    for cls in classes:
+        g = cls()
+        for n in [1, 2, 3, 4]:
+            g.add_node(n)
+        with pytest.raises(RuntimeError, match="rm-node-boom"):
+            g.remove_nodes_from(gen_rm_nodes())
+        assert sorted(g.nodes()) == [3, 4], f"{cls.__name__}"
+
+    # Successful generator (no exception): unchanged behaviour.
+    def good_gen_edges():
+        yield (1, 2)
+
+    g = fnx.Graph([(1, 2), (2, 3)])
+    g.remove_edges_from(good_gen_edges())
+    assert sorted(g.edges()) == [(2, 3)]
+
+    # List input still works (the batch path).
+    g = fnx.Graph([(1, 2), (2, 3), (3, 4)])
+    g.remove_edges_from([(1, 2), (2, 3)])
+    assert sorted(g.edges()) == [(3, 4)]
+
+    g = fnx.Graph()
+    for n in [1, 2, 3]:
+        g.add_node(n)
+    g.remove_nodes_from([1, 2])
+    assert sorted(g.nodes()) == [3]

@@ -2133,7 +2133,24 @@ def _remove_edges_from_materialized(raw):
     ``G.remove_edges_from([[u, v], ...])``.
     """
     def remove_edges_from(self, ebunch):
-        materialized = list(ebunch)
+        # br-r37-c1-refitexc (cycle 217): nx's remove_edges_from
+        # iterates and removes each edge inline.  When the input is
+        # a generator that raises mid-stream, edges yielded BEFORE
+        # the exception are removed.  fnx previously called
+        # ``list(ebunch)`` atomically, so any iteration exception
+        # discarded all yielded removals.  Sister of cycle 216
+        # (br-r37-c1-aefitexc) for ``add_edges_from``.
+        if isinstance(ebunch, (list, tuple)):
+            materialized = list(ebunch)
+            iteration_exc = None
+        else:
+            materialized = []
+            iteration_exc = None
+            try:
+                for _e in ebunch:
+                    materialized.append(_e)
+            except BaseException as _exc:
+                iteration_exc = _exc
         for i, edge in enumerate(materialized):
             if (
                 not isinstance(edge, tuple)
@@ -2142,7 +2159,10 @@ def _remove_edges_from_materialized(raw):
                 and 2 <= len(edge) <= 3
             ):
                 materialized[i] = tuple(edge)
-        return raw(self, materialized)
+        result = raw(self, materialized)
+        if iteration_exc is not None:
+            raise iteration_exc
+        return result
 
     return remove_edges_from
 
@@ -2157,10 +2177,28 @@ def _remove_nodes_from_materialized(raw):
     front so unhashable inputs raise TypeError matching nx.
     """
     def remove_nodes_from(self, nodes):
-        materialized = list(nodes)
+        # br-r37-c1-rnfitexc (cycle 217): generator-partial-progress
+        # parity with nx (sister of cycle 216 br-r37-c1-aefitexc and
+        # cycle 217 br-r37-c1-refitexc).  ``list(nodes)`` atomically
+        # discarded yielded removals on iteration exception; nx
+        # iterates and removes inline.
+        if isinstance(nodes, (list, tuple)):
+            materialized = list(nodes)
+            iteration_exc = None
+        else:
+            materialized = []
+            iteration_exc = None
+            try:
+                for _n in nodes:
+                    materialized.append(_n)
+            except BaseException as _exc:
+                iteration_exc = _exc
         for n in materialized:
             hash(n)
-        return raw(self, materialized)
+        result = raw(self, materialized)
+        if iteration_exc is not None:
+            raise iteration_exc
+        return result
 
     return remove_nodes_from
 
