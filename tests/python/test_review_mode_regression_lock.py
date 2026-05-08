@@ -9516,3 +9516,90 @@ def test_di_in_out_edges_call_returns_canonical_view_classes():
         ]:
             assert (q in getattr(fM, attr)(keys=True)) == want, (attr, q, "fnx")
             assert (q in getattr(nM, attr)(keys=True)) == want, (attr, q, "nx")
+
+
+def test_add_edges_from_generator_partial_progress_persists():
+    """br-r37-c1-aefitexc (cycle 216): nx's ``add_edges_from``
+    iterates the ebunch and adds each edge inline.  When the
+    iterable is a generator (or any iterator) that raises
+    mid-stream, edges yielded BEFORE the exception are persisted
+    on the graph.  fnx previously called ``list(ebunch_to_add)``
+    atomically in ``_add_edges_from_materialized``, so any
+    exception during iteration discarded ALL previously yielded
+    edges.
+
+      Pattern (nx-canonical):
+        try:
+            g.add_edges_from(my_generator())
+        except SomeError:
+            ...  # g now has edges yielded BEFORE the error
+
+      nx (Graph): yielded edges are present.
+      fnx (pre-fix): yielded edges are LOST.
+
+    Drop-in code that catches generator exceptions and inspects
+    the graph silently saw different state on fnx vs nx.
+
+    Multi*Graph wasn't affected (its ``_multi_add_edges_from``
+    already iterates and adds inline), but the regression check
+    locks the behaviour for all four graph classes.
+
+    Fix: in ``_add_edges_from_materialized``, when the input is
+    NOT already a list/tuple, iterate manually inside a try/except,
+    capture any exception, then add the (partial) edges before
+    re-raising the captured exception.
+    """
+    def gen_two_then_raise():
+        yield (10, 20)
+        yield (20, 30)
+        raise RuntimeError("kaboom")
+
+    classes = [fnx.Graph, fnx.DiGraph, fnx.MultiGraph, fnx.MultiDiGraph]
+    for cls in classes:
+        g = cls([(1, 2)])
+        with pytest.raises(RuntimeError, match="kaboom"):
+            g.add_edges_from(gen_two_then_raise())
+        # The two edges yielded before the exception must be
+        # present on the graph.
+        edges = sorted(set((u, v) for u, v in (e[:2] for e in g.edges())))
+        assert (1, 2) in edges, f"{cls.__name__}: original edge lost"
+        assert (10, 20) in edges, f"{cls.__name__}: yielded edge missing"
+        assert (20, 30) in edges, f"{cls.__name__}: yielded edge missing"
+
+    # Custom iterator (not a generator function) raising
+    # mid-iteration: same partial-progress contract.
+    class RaisingIter:
+        def __init__(self, items):
+            self._items = list(items)
+            self._i = 0
+
+        def __iter__(self):
+            return self
+
+        def __next__(self):
+            if self._i >= len(self._items):
+                raise StopIteration
+            v = self._items[self._i]
+            if v == "BAD":
+                raise RuntimeError("iter boom")
+            self._i += 1
+            return v
+
+    for cls in (fnx.Graph, fnx.DiGraph):
+        g = cls()
+        with pytest.raises(RuntimeError, match="iter boom"):
+            g.add_edges_from(RaisingIter([(1, 2), (2, 3), "BAD", (3, 4)]))
+        assert sorted(g.edges()) == [(1, 2), (2, 3)], f"{cls.__name__}"
+
+    # Successful generator (no exception): unchanged behaviour.
+    def good_gen():
+        yield (5, 6)
+        yield (6, 7)
+    g = fnx.Graph()
+    g.add_edges_from(good_gen())
+    assert sorted(g.edges()) == [(5, 6), (6, 7)]
+
+    # List/tuple input still works (the batch path).
+    g = fnx.Graph()
+    g.add_edges_from([(1, 2), (2, 3)])
+    assert sorted(g.edges()) == [(1, 2), (2, 3)]

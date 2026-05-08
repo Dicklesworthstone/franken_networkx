@@ -2034,7 +2034,29 @@ _MULTIDIGRAPH_RAW_REMOVE_NODES_FROM = MultiDiGraph.remove_nodes_from
 
 def _add_edges_from_materialized(raw):
     def add_edges_from(self, ebunch_to_add, **attr):
-        materialized = list(ebunch_to_add)
+        # br-r37-c1-aefitexc (cycle 216): nx's add_edges_from iterates
+        # the ebunch and adds each edge inline.  When the input is a
+        # generator (or any iterator) that raises mid-stream, edges
+        # yielded BEFORE the exception are persisted on the graph.
+        # fnx previously ran ``list(ebunch_to_add)`` atomically, so
+        # any exception during iteration discarded all previously
+        # yielded edges.  Drop-in code using
+        # ``try: g.add_edges_from(gen()) except: ...`` (a common
+        # pattern) saw the graph in a different state on fnx vs nx.
+        # Preserve partial progress by iterating manually for
+        # non-list/tuple inputs and capturing the iteration exception
+        # to re-raise after the (possibly partial) edges are added.
+        if isinstance(ebunch_to_add, (list, tuple)):
+            materialized = list(ebunch_to_add)
+            iteration_exc = None
+        else:
+            materialized = []
+            iteration_exc = None
+            try:
+                for _e in ebunch_to_add:
+                    materialized.append(_e)
+            except BaseException as _exc:
+                iteration_exc = _exc
         # br-r37-c1-aeflist: nx.Graph.add_edges_from accepts each edge
         # as ANY 2- or 3-element iterable (tuple OR list), via the
         # bare ``u, v = e[:2]`` unpack inside the loop.  The Rust raw
@@ -2086,7 +2108,10 @@ def _add_edges_from_materialized(raw):
                 raise NetworkXError(
                     f"Edge tuple {edge} must be a 2-tuple or 3-tuple.",
                 )
-        return raw(self, materialized, **attr)
+        result = raw(self, materialized, **attr)
+        if iteration_exc is not None:
+            raise iteration_exc
+        return result
 
     return add_edges_from
 
