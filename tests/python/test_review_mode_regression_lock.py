@@ -7986,3 +7986,72 @@ def test_undirected_and_multi_degree_view_class_names_match_nx():
     DG = fnx.DiGraph([(1, 2), (2, 3)])
     assert DG.degree[2] == 2
     assert dict(DG.degree) == {1: 1, 2: 2, 3: 1}
+
+
+def test_nodes_data_returns_node_data_view_matching_nx():
+    """br-r37-c1-nvdata: nx's NodeView.data() returns a
+    ``NodeDataView`` instance — a Set-typed view supporting indexing
+    as a Mapping (``dv[node]`` → attrs) AND tuple-membership semantics
+    (``(node, attrs) in dv`` → bool).
+
+    Pre-fix the Rust-bound NodeView's ``data`` method returned the
+    underlying NodeView itself, so:
+
+      type(G.nodes.data()).__name__   →  "NodeView" (nx: "NodeDataView")
+      (1, {"color": "red"}) in G.nodes.data()
+                                      →  TypeError: unhashable
+                                         type: 'dict'
+                                         (nx: True)
+      isinstance(G.nodes.data(), Set) →  False (nx: True)
+
+    The ``__call__(data=True)`` path was already correctly wrapped
+    via ``_node_view_call_with_attr_support`` to return NodeDataView,
+    but the ``.data()`` shortcut bypassed that wrapper. This fix
+    routes ``.data()`` through the same NodeDataView wrapper.
+
+    Affects all 4 graph classes (Graph, DiGraph, MultiGraph,
+    MultiDiGraph) since the bound ``.data()`` method comes from the
+    Rust-bound NodeView types in each.
+    """
+    import networkx as nx
+    import collections.abc as cabc
+
+    for cls_name in ("Graph", "DiGraph", "MultiGraph", "MultiDiGraph"):
+        Gf = getattr(fnx, cls_name)([(1, 2), (2, 3)])
+        Gn = getattr(nx, cls_name)([(1, 2), (2, 3)])
+        Gf.add_node(1, color="red")
+        Gn.add_node(1, color="red")
+
+        f_dv = Gf.nodes.data()
+        n_dv = Gn.nodes.data()
+        # Class-name parity
+        assert type(f_dv).__name__ == type(n_dv).__name__ == "NodeDataView", (
+            f"{cls_name}.nodes.data() class: fnx={type(f_dv).__name__} "
+            f"nx={type(n_dv).__name__}"
+        )
+        # repr parity
+        assert repr(f_dv) == repr(n_dv), (
+            f"{cls_name}.nodes.data() repr: fnx={repr(f_dv)} nx={repr(n_dv)}"
+        )
+        # Indexing as Mapping: dv[node] → attrs
+        assert f_dv[1] == n_dv[1] == {"color": "red"}
+        # Set protocol: tuple-membership doesn't TypeError
+        # (matches nx's NodeDataView.__contains__ semantics)
+        assert (1, {"color": "red"}) in f_dv
+        assert (1, {"color": "red"}) in n_dv
+        # Set ABC registration
+        assert isinstance(f_dv, cabc.Set), (
+            f"{cls_name}.nodes.data() should be isinstance(_, Set)"
+        )
+
+    # data='attr' projection still works
+    G = fnx.Graph()
+    G.add_node(1, color="red")
+    G.add_node(2)
+    assert list(G.nodes.data("color")) == [(1, "red"), (2, None)]
+    assert list(G.nodes.data("color", default="X")) == [(1, "red"), (2, "X")]
+
+    # data=False returns the underlying NodeView (live)
+    nv = G.nodes
+    assert type(nv.data(False)).__name__ == "NodeView"
+    assert nv.data(False) == nv

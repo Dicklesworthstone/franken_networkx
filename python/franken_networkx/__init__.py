@@ -3862,10 +3862,37 @@ def _mapping_items_view(self):
     return _MapItemsView(self)
 
 
+# br-r37-c1-nvdata: nx's NodeView.data() returns a ``NodeDataView``
+# instance (set-like, supports indexing as Mapping AND tuple-membership
+# semantics). The Rust-bound NodeView's ``data`` method returned the
+# underlying NodeView directly, so ``type(G.nodes.data()).__name__``
+# was ``NodeView`` instead of ``NodeDataView`` and tuple-form
+# membership checks ``(node, attrs) in G.nodes.data()`` raised
+# TypeError(unhashable) instead of returning a boolean.  The
+# ``__call__(data=True)`` path was already wrapped via
+# ``_node_view_call_with_attr_support`` to return NodeDataView; do
+# the same for the ``.data()`` method here.
+def _node_view_data_method(self, data=True, default=None):
+    if data is False:
+        return self
+    return NodeDataView(
+        type(self).__call__, self, data=data, default=default
+    )
+
+
+# nx's NodeDataView inherits from collections.abc.Set so
+# ``isinstance(view, Set)`` returns True. Register the fnx wrapper
+# as a Set virtual subclass to match.  NodeDataView already
+# implements __contains__/__iter__/__len__ so the registration is
+# safe (no abstract-method gap).
+Set.register(NodeDataView)
+
+
 for _nv_type in _ALL_NODE_VIEW_TYPES:
     _nv_type.keys = _mapping_keys_view
     _nv_type.values = _mapping_values_view
     _nv_type.items = _mapping_items_view
+    _nv_type.data = _node_view_data_method
 
 # Multi*Graph.edges return generators / list_iterator from keys/items/
 # values — also wrap to KeysView / ValuesView / ItemsView so set
