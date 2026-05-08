@@ -9121,3 +9121,75 @@ def test_degree_and_in_out_edge_view_deepcopy_is_snapshot():
     G.add_edge(99, 100)
     # copy.copy returned self; mutation visible via the live wrapper
     assert 99 in dict(deg_c)
+
+
+def test_reverse_view_subview_deepcopy_is_snapshot():
+    """br-r37-c1-vcopydc (cycle 200 dual): closes the deepcopy-
+    snapshot family on reverse-view sub-views.  Cycles 198-200
+    introduced ``__deepcopy__ = self`` on multiple view classes;
+    cycles 208 and 209 fixed the non-reverse paths.  This cycle
+    closes the reverse-view sub-view paths (cycle 200's classes).
+
+    Pre-fix divergence (DiGraph + MultiDiGraph reverse views):
+
+      R = DG.reverse(copy=False)
+      e_dc = copy.deepcopy(R.edges); DG.add_edge(99, 100)
+      nx:  no (99,100) in e_dc  (snapshot)
+      fnx: (99,100) in e_dc     (live wrapper — wrong)
+
+    Same defect on R.adj/succ/pred, R.degree, R.in_edges,
+    R.out_edges.
+
+    Fix: ``__deepcopy__`` deep-copies the underlying directed
+    graph (via the ``self._owner._graph`` or ``self._view._graph``
+    attribute), builds a new reverse view from it, and returns the
+    matching sub-view.  Type preservation maintained AND snapshot
+    semantics restored.
+    """
+    import copy
+
+    for cls_name in ("DiGraph", "MultiDiGraph"):
+        DG = getattr(fnx, cls_name)([(1, 2), (2, 3)])
+        R = DG.reverse(copy=False)
+
+        for attr in ("edges", "adj", "degree", "in_edges",
+                     "out_edges", "succ", "pred"):
+            v = getattr(R, attr)
+            dc = copy.deepcopy(v)
+            DG.add_edge(99, 100)
+
+            if attr == "degree":
+                sees_mutation = 99 in dict(dc)
+            elif attr in ("edges", "in_edges", "out_edges"):
+                sees_mutation = any(99 in t for t in list(dc))
+            else:  # adj, succ, pred
+                sees_mutation = 99 in dict(dc)
+
+            assert not sees_mutation, (
+                f"{cls_name}.reverse().{attr} deepcopy should be "
+                f"snapshot — but mutation leaked: dc has node 99"
+            )
+
+            # Cleanup for next iteration
+            DG.remove_edge(99, 100)
+            DG.remove_node(99)
+            DG.remove_node(100)
+
+    # Type preservation through deepcopy on each sub-view
+    DG = fnx.DiGraph([(1, 2), (2, 3)])
+    R = DG.reverse(copy=False)
+    expected_types = {
+        "edges": "OutEdgeView",
+        "adj": "AdjacencyView",
+        "degree": "DiDegreeView",
+        "in_edges": "InEdgeView",
+        "out_edges": "OutEdgeView",
+        "succ": "AdjacencyView",
+        "pred": "AdjacencyView",
+    }
+    for attr, expected in expected_types.items():
+        dc = copy.deepcopy(getattr(R, attr))
+        assert type(dc).__name__ == expected, (
+            f"reverse().{attr} deepcopy type: got "
+            f"{type(dc).__name__}, expected {expected}"
+        )

@@ -26422,7 +26422,17 @@ class _RevEdgeMethodViewBase:
         return self
 
     def __deepcopy__(self, memo):
-        return self
+        # br-r37-c1-vcopydc (cycle 200 dual): nx's deepcopy is a
+        # SNAPSHOT independent of subsequent G mutations.  Deep-
+        # copy the underlying directed graph, build its reverse,
+        # and return the matching view based on the cycle-188-style
+        # subclass name.
+        new_graph = deepcopy(self._owner._graph, memo)
+        new_reverse = new_graph.reverse(copy=False)
+        cls_name = type(self).__name__
+        if cls_name in ("InEdgeView", "InMultiEdgeView"):
+            return new_reverse.in_edges
+        return new_reverse.out_edges
 
 
 class _RevOutEdgeViewProxy(_RevEdgeMethodViewBase):
@@ -26476,14 +26486,17 @@ class _RevDegreeViewBase:
 
     # br-r37-c1-revvcopy: copy.deepcopy(R.degree) recursed into the
     # parent graph and tripped _graph_deepcopy's no-arg ``cls()``
-    # (reverse view requires a graph arg).  Read-only view — return
-    # self for both copy.copy and copy.deepcopy, matching nx parity
-    # (DiDegreeView preserved through copy round-trip).
+    # (reverse view requires a graph arg).  __copy__ returns self
+    # (live wrapper, matching nx).  __deepcopy__ snapshots via
+    # deep-copy of underlying graph + reverse + .degree (cycle 200
+    # dual; matches nx's snapshot semantic for deepcopy).
     def __copy__(self):
         return self
 
     def __deepcopy__(self, memo):
-        return self
+        new_graph = deepcopy(self._owner._graph, memo)
+        new_reverse = new_graph.reverse(copy=False)
+        return new_reverse.degree
 
 
 class _RevDiDegreeViewProxy(_RevDegreeViewBase):
@@ -26564,15 +26577,23 @@ class _ReverseAdjacencyView(Mapping):
             return v
         return f"{type(self).__name__}({_unwrap(self)!r})"
 
-    # br-r37-c1-revvcopy: read-only view → return self for both
-    # copy.copy and copy.deepcopy (the deepcopy path otherwise
-    # recurses into the parent reverse-view graph and tripped
-    # _graph_deepcopy's no-arg ``cls()``).
+    # br-r37-c1-revvcopy: __copy__ returns self (live wrapper —
+    # matches nx).  __deepcopy__ snapshots via deep-copy of the
+    # underlying directed graph + reverse + .succ/.pred based on
+    # the ``self._reverse`` direction flag (cycle 200 dual).
     def __copy__(self):
         return self
 
     def __deepcopy__(self, memo):
-        return self
+        new_graph = deepcopy(self._view._graph, memo)
+        new_reverse = new_graph.reverse(copy=False)
+        # self._reverse=True means we're the .pred view (reversed
+        # from .succ); False means we're the .succ view.  Reverse
+        # view's .succ is the original graph's predecessors and
+        # vice versa.
+        if self._reverse:
+            return new_reverse.pred
+        return new_reverse.succ
 
 
 # br-r37-c1-revadjname: 2 trivial subclasses with canonical nx
@@ -26685,12 +26706,17 @@ class _ReverseEdgeView:
         # Subclasses below set ``__name__`` to the canonical form.
         return f"{type(self).__name__}({list(self)!r})"
 
-    # br-r37-c1-revvcopy: same fix as _ReverseAdjacencyView above.
+    # br-r37-c1-revvcopy: __copy__ returns self (live wrapper —
+    # matches nx).  __deepcopy__ snapshots via deep-copy of the
+    # underlying directed graph + reverse + .edges (cycle 200 dual;
+    # snapshot semantics for deepcopy).
     def __copy__(self):
         return self
 
     def __deepcopy__(self, memo):
-        return self
+        new_graph = deepcopy(self._view._graph, memo)
+        new_reverse = new_graph.reverse(copy=False)
+        return new_reverse.edges
 
     get = _adjacency_view_get
     keys = _adjacency_view_keys
