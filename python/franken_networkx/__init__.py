@@ -1429,6 +1429,11 @@ class _MultiGraphEdgeView:
                         result.append((source, target, attrs.get(data, default)))
         if data is not False:
             return _wrap_edge_data_view(result, _MultiEdgeDataView)
+        # br-r37-c1-mekvc (cycle 214): keys=True (data=False) wraps
+        # in canonical ``MultiEdgeView`` so both
+        # ``type(view).__name__`` and ``(u, v) in view`` match nx.
+        if keys:
+            return _wrap_edge_data_view(result, _MultiEdgeView)
         return result
 
     def __eq__(self, other):
@@ -1626,6 +1631,11 @@ class _MultiDiGraphEdgeView:
         # ``type(MDG.edges(data=True)).__name__`` matches nx.
         if data is not False:
             return _wrap_edge_data_view(result, _OutMultiEdgeDataView)
+        # br-r37-c1-mekvc (cycle 214): keys=True (data=False) wraps
+        # in canonical ``OutMultiEdgeView`` so both
+        # ``type(view).__name__`` and ``(u, v) in view`` match nx.
+        if keys:
+            return _wrap_edge_data_view(result, _OutMultiEdgesKeysView)
         return result
 
     keys = _multi_edge_keys
@@ -3446,6 +3456,60 @@ _OutMultiEdgeDataView.__name__ = "OutMultiEdgeDataView"
 class _InMultiEdgeDataView(_EdgeListWithSetAlgebra):
     pass
 _InMultiEdgeDataView.__name__ = "InMultiEdgeDataView"
+
+
+# br-r37-c1-mekvc (cycle 214): nx's ``MultiGraph.edges(keys=True)``
+# returns a ``MultiEdgeView`` whose ``__contains__`` matches BOTH
+# 3-tuple ``(u, v, k)`` (exact-key) and 2-tuple ``(u, v)`` (any-key)
+# queries.  fnx previously returned a generic
+# ``_EdgeListWithSetAlgebra`` (a ``list`` subclass), and
+# ``list.__contains__`` rejected ``(u, v) in MG.edges(keys=True)``
+# even when (u, v) was an edge — drop-in code that asks
+# ``if (u, v) in MG.edges(keys=True): ...`` silently misbehaved.
+#
+# Sister to the cycle-192/213 wrapping pattern: define dedicated
+# subclasses so ``type(view).__name__`` matches nx and override
+# ``__contains__`` for the multi-edge any-key semantics.
+
+class _MultiEdgeView(_EdgeListWithSetAlgebra):
+    """Returned by ``MultiGraph.edges(keys=True)``.  Items are
+    3-tuples ``(u, v, key)``.  ``__contains__`` accepts:
+
+      * 3-tuple ``(u, v, k)`` — exact-key match (parent ``list``)
+      * 2-tuple ``(u, v)``   — True if ANY key exists for ``(u, v)``
+
+    Mirrors nx's ``MultiEdgeView.__contains__``.
+    """
+    def __contains__(self, edge):
+        try:
+            n = len(edge)
+        except TypeError:
+            return list.__contains__(self, edge)
+        if n == 3:
+            return list.__contains__(self, tuple(edge))
+        if n == 2:
+            u, v = edge[0], edge[1]
+            for e in self:
+                if len(e) >= 2 and e[0] == u and e[1] == v:
+                    return True
+            return False
+        return False
+_MultiEdgeView.__name__ = "MultiEdgeView"
+
+
+class _OutMultiEdgesKeysView(_MultiEdgeView):
+    """Returned by ``MultiDiGraph.edges(keys=True)``.  Inherits the
+    multi-edge any-key ``__contains__`` from ``_MultiEdgeView``.
+
+    Distinct from cycle-188's ``_OutMultiEdgeView`` (the
+    ``_DiEdgeMethodView`` subclass for ``MDG.out_edges``) — both
+    expose the same ``__name__`` (``"OutMultiEdgeView"``) since
+    nx considers the two surfaces equivalent for directed graphs,
+    but the underlying machinery differs (method-view vs
+    materialised list-of-3-tuples).
+    """
+    pass
+_OutMultiEdgesKeysView.__name__ = "OutMultiEdgeView"
 
 
 def _wrap_edge_data_view(result, view_cls):

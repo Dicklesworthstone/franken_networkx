@@ -9358,3 +9358,72 @@ def test_multigraph_edges_call_with_data_returns_canonical_data_view():
 
         # Functional smoke: contents match
         assert list(Gf.edges(data=True)) == list(Gn.edges(data=True))
+
+
+def test_multigraph_edges_keys_view_supports_2tuple_contains():
+    """br-r37-c1-mekvc (cycle 214): nx's ``MG.edges(keys=True)``
+    returns a ``MultiEdgeView`` whose ``__contains__`` matches both
+    3-tuple ``(u, v, k)`` AND 2-tuple ``(u, v)`` (any-key) queries.
+
+    Pre-fix fnx returned a generic ``_EdgeListWithSetAlgebra`` (a
+    plain ``list`` subclass), and ``list.__contains__`` rejected
+    ``(u, v) in MG.edges(keys=True)`` because the items are
+    3-tuples ``(u, v, k)``:
+
+      Query                              nx     fnx (pre-fix)
+      -----                              ---    -------------
+      (1, 2)    in MG.edges(keys=True)   True   False  *** DIFF
+      (1, 2, 0) in MG.edges(keys=True)   True   True   OK
+      (3, 4)    in MG.edges(keys=True)   False  False  OK
+
+    Drop-in code that asks ``if (u, v) in MG.edges(keys=True): ...``
+    silently misbehaved, treating present edges as absent.
+
+    Same defect on MultiDiGraph: ``MDG.edges(keys=True)`` exposed
+    the same ``_EdgeListWithSetAlgebra`` and the same broken
+    2-tuple containment.
+
+    Fix: define ``_MultiEdgeView`` (an ``_EdgeListWithSetAlgebra``
+    subclass) overriding ``__contains__`` to accept both 2- and
+    3-element queries, and ``_OutMultiEdgesKeysView`` for the
+    directed case.  In each ``__call__``, when ``data is False``
+    and ``keys`` is truthy, wrap the result list in the canonical
+    class via ``_wrap_edge_data_view``.
+
+    Type parity also locked: ``type(MG.edges(keys=True)).__name__``
+    is ``"MultiEdgeView"`` (was ``"_EdgeListWithSetAlgebra"``);
+    ``type(MDG.edges(keys=True)).__name__`` is ``"OutMultiEdgeView"``.
+    """
+    import networkx as nx
+
+    cases = [
+        (fnx.MultiGraph,   nx.MultiGraph,   "MultiEdgeView"),
+        (fnx.MultiDiGraph, nx.MultiDiGraph, "OutMultiEdgeView"),
+    ]
+    for f_cls, n_cls, expected in cases:
+        Gf = f_cls()
+        Gf.add_edges_from([(1, 2), (1, 2), (2, 3)])
+        Gn = n_cls()
+        Gn.add_edges_from([(1, 2), (1, 2), (2, 3)])
+
+        # type parity
+        assert type(Gf.edges(keys=True)).__name__ == expected
+        assert type(Gn.edges(keys=True)).__name__ == expected
+
+        # 2-tuple any-key contains: present edges True, absent False
+        for q, want in [((1, 2), True), ((2, 3), True),
+                        ((3, 4), False), ((99, 100), False)]:
+            assert (q in Gf.edges(keys=True)) == want, (q, "fnx")
+            assert (q in Gn.edges(keys=True)) == want, (q, "nx")
+
+        # 3-tuple exact-key contains
+        for q, want in [((1, 2, 0), True), ((1, 2, 1), True),
+                        ((1, 2, 99), False), ((3, 4, 0), False)]:
+            assert (q in Gf.edges(keys=True)) == want, (q, "fnx")
+            assert (q in Gn.edges(keys=True)) == want, (q, "nx")
+
+        # Set-algebra still works (was the original reason for
+        # _EdgeListWithSetAlgebra; subclass must preserve it).
+        edges_set = set(Gf.edges(keys=True))
+        assert (1, 2, 0) in edges_set
+        assert sorted(Gf.edges(keys=True)) == sorted(Gn.edges(keys=True))
