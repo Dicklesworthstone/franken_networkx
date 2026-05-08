@@ -3607,6 +3607,32 @@ _MULTIGRAPH_NODE_VIEW_TYPE.__reduce__ = _node_view_reduce
 _MULTIDIGRAPH_NODE_VIEW_TYPE.__reduce__ = _node_view_reduce
 
 
+# br-r37-c1-vcopy: nx's NodeView preserves type through
+# ``copy.copy(G.nodes)`` / ``copy.deepcopy(G.nodes)`` — both return
+# a NodeView instance.  fnx's ``__reduce__`` snapshot path made
+# copy.copy / deepcopy return a plain ``dict`` (the snapshot
+# product), so ``isinstance(copy.copy(G.nodes), NodeView)`` was
+# False.  Rust-bound NodeView types don't allow direct
+# instantiation (``NodeView(G)`` raises TypeError), so the simplest
+# parity-preserving ``__copy__`` returns self — semantically
+# equivalent for a read-only view (content / iteration / __contains__
+# / __getitem__ all unchanged), and `isinstance(c, NodeView)`
+# returns True.  ``__reduce__`` (used by pickle) keeps the snapshot
+# behaviour because Rust graphs can't pickle by reference.
+def _node_view_copy(self):
+    return self
+
+
+for _nv_type in (
+    _SIMPLE_GRAPH_NODE_VIEW_TYPE,
+    _SIMPLE_DIGRAPH_NODE_VIEW_TYPE,
+    _MULTIGRAPH_NODE_VIEW_TYPE,
+    _MULTIDIGRAPH_NODE_VIEW_TYPE,
+):
+    _nv_type.__copy__ = _node_view_copy
+    _nv_type.__deepcopy__ = lambda self, memo, _nv=_node_view_copy: _nv(self)
+
+
 def _node_view_eq(self, other):
     """br-r37-c1-nv-eq: nx's NodeView inherits from BOTH Mapping AND
     Set (via multiple inheritance), but `__eq__` comes from Mapping —
@@ -3685,6 +3711,16 @@ def _edge_view_reduce(self):
 
 
 _EDGE_VIEW_TYPE.__reduce__ = _edge_view_reduce
+
+
+# br-r37-c1-vcopy: same reasoning as _node_view_copy above —
+# preserve EdgeView type through copy.copy / copy.deepcopy.
+def _edge_view_copy(self):
+    return self
+
+
+_EDGE_VIEW_TYPE.__copy__ = _edge_view_copy
+_EDGE_VIEW_TYPE.__deepcopy__ = lambda self, memo: self
 
 
 def _make_keystr_preserving_getitem(raw):

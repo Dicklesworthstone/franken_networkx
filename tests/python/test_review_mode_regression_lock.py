@@ -8497,3 +8497,74 @@ def test_subgraph_preserves_user_subclass():
     # Idempotence preserved
     S2 = S.subgraph([1, 2])
     assert type(S2).__name__ == "Graph"
+
+
+def test_view_copy_and_deepcopy_preserve_view_type():
+    """br-r37-c1-vcopy: nx's NodeView and EdgeView preserve type
+    through ``copy.copy`` and ``copy.deepcopy`` — both return a
+    NodeView / EdgeView instance.
+
+    Pre-fix the Rust-bound view types' ``__reduce__`` (used as the
+    fallback by ``copy.copy`` and ``copy.deepcopy``) snapshotted to
+    plain ``dict`` (NodeView) / ``list`` (EdgeView):
+
+      copy.copy(G.nodes).__class__         dict      (nx: NodeView)
+      copy.deepcopy(G.nodes).__class__     dict      (nx: NodeView)
+      copy.copy(G.edges).__class__         list      (nx: EdgeView)
+      copy.deepcopy(G.edges).__class__     list      (nx: EdgeView)
+
+    isinstance(c, NodeView) returned False — breaking type-dispatch
+    drop-in code that assumes view-type preservation.
+
+    Fix: define ``__copy__`` / ``__deepcopy__`` on the Rust-bound
+    view types that return self (semantically equivalent for
+    read-only views; ``isinstance(c, NodeView)`` returns True).
+    ``__reduce__`` keeps the snapshot behaviour for pickle (Rust
+    graphs can't pickle by reference).
+    """
+    import copy
+    import pickle
+
+    for cls_name in ("Graph", "DiGraph", "MultiGraph", "MultiDiGraph"):
+        G = getattr(fnx, cls_name)([(1, 2), (2, 3)])
+        nv = G.nodes
+        ev = G.edges
+
+        # copy.copy preserves view type
+        cnv = copy.copy(nv)
+        cev = copy.copy(ev)
+        assert type(cnv) is type(nv), (
+            f"{cls_name}: copy.copy(G.nodes) class={type(cnv).__name__}"
+        )
+        assert type(cev) is type(ev), (
+            f"{cls_name}: copy.copy(G.edges) class={type(cev).__name__}"
+        )
+
+        # copy.deepcopy preserves view type too
+        dnv = copy.deepcopy(nv)
+        dev = copy.deepcopy(ev)
+        assert type(dnv) is type(nv), (
+            f"{cls_name}: copy.deepcopy(G.nodes) class={type(dnv).__name__}"
+        )
+        assert type(dev) is type(ev), (
+            f"{cls_name}: copy.deepcopy(G.edges) class={type(dev).__name__}"
+        )
+
+        # Behavior preserved
+        assert list(cnv) == list(nv)
+        assert list(cev) == list(ev)
+        assert len(cnv) == len(nv)
+        assert 1 in cnv
+        # isinstance check works
+        from collections.abc import Mapping
+        assert isinstance(cnv, Mapping)
+
+    # Pickle still snapshots (Rust graphs aren't picklable by
+    # reference) — confirm pickle behaviour unchanged.
+    G = fnx.path_graph(3)
+    p = pickle.dumps(G.nodes)
+    r = pickle.loads(p)
+    # Restored as a snapshot dict (this is the existing pickle
+    # contract — see _node_view_reduce docstring).
+    assert isinstance(r, dict)
+    assert dict(r) == {0: {}, 1: {}, 2: {}}
