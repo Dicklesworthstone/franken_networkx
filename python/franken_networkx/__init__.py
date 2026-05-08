@@ -29,6 +29,7 @@ import itertools
 from itertools import combinations, count
 import math
 import numbers
+import operator
 import sys
 import types as _types
 
@@ -5242,6 +5243,13 @@ def eigenvector_centrality(
     """
     _validate_backend_dispatch_keywords("eigenvector_centrality", backend, backend_kwargs)
 
+    # br-r37-c1-pyo3prefix: see ``pagerank`` for the rationale.  The
+    # Rust binding declares ``max_iter`` as unsigned int and prefixes
+    # the TypeError with ``argument 'max_iter':``; nx raises the bare
+    # ``'float' object cannot be interpreted as an integer`` from
+    # ``range(max_iter)``.  Pre-validate to strip the PyO3 prefix.
+    max_iter = _coerce_index_arg(max_iter, "max_iter")
+
     # br-r37-c1-tqimg: nx is decorated with @not_implemented_for('multigraph');
     # fnx silently accepted MultiGraph and raised
     # PowerIterationFailedConvergence on MultiDiGraph. Match nx's contract.
@@ -7257,6 +7265,31 @@ def _normalize_bfs_depth_limit(depth_limit):
     if depth_int < 0:
         return _DEPTH_EMPTY
     return depth_int
+
+
+def _coerce_index_arg(value, arg_name):
+    """Coerce an integer-typed argument the way nx does, with nx-shaped errors.
+
+    Several PyO3-bound power-iteration entry points (e.g. ``pagerank``,
+    ``eigenvector_centrality``) receive ``max_iter`` in Rust as an
+    unsigned int and reject floats with ``TypeError: argument
+    'max_iter': 'float' object cannot be interpreted as an integer``.
+    nx's pure-Python implementations call ``range(max_iter)`` (which
+    invokes ``__index__``) and raise the same TypeError but *without*
+    the ``argument 'max_iter':`` prefix.  Drop-in callers that
+    regex-match nx's exact wording fail on fnx.
+
+    Use ``operator.index`` to reproduce nx's TypeError wording exactly
+    while still accepting bool/int/numpy-int values.
+    """
+    if value is None:
+        return value
+    try:
+        return operator.index(value)
+    except TypeError:
+        # operator.index already raises with the nx-shaped message;
+        # let it surface unchanged (no PyO3 prefix).
+        raise
 
 
 def _normalize_predecessor_cutoff(cutoff):
@@ -14422,6 +14455,14 @@ def pagerank(
 ):
     """Return the PageRank of the nodes in graph ``G``."""
     _validate_backend_dispatch_keywords("pagerank", backend, backend_kwargs)
+
+    # br-r37-c1-pyo3prefix: the Rust binding declares ``max_iter`` as
+    # an unsigned int and rejects floats with ``TypeError: argument
+    # 'max_iter': 'float' object cannot be interpreted as an
+    # integer``.  nx raises the same TypeError via ``range(max_iter)``
+    # but *without* the ``argument 'max_iter':`` prefix.  Pre-validate
+    # in Python so drop-in callers regex-matching nx's wording match.
+    max_iter = _coerce_index_arg(max_iter, "max_iter")
 
     # The Rust pagerank honours the ``weight`` attribute and matches nx
     # within 1e-16 on non-negative weights. Try the fast-path whenever

@@ -5379,3 +5379,45 @@ def test_disjoint_paths_cutoff_match_nx():
         n_paths = sorted([sorted(p) for p in n_fn(K_nx, 0, 4)])
         assert f_paths == n_paths
         assert len(f_paths) == 4
+
+
+def test_pagerank_eigenvector_max_iter_typeerror_no_pyo3_prefix_match_nx():
+    """br-r37-c1-pyo3prefix: ``pagerank`` and ``eigenvector_centrality`` must
+    raise nx-shaped ``TypeError: 'float' object cannot be interpreted as an
+    integer`` (no ``argument 'max_iter':`` PyO3 prefix) for non-integral
+    ``max_iter`` values such as NaN, 1.5, or 100.0.
+
+    Pre-fix the Rust binding's unsigned-int signature surfaced
+    ``TypeError: argument 'max_iter': 'float' object cannot be interpreted
+    as an integer`` — drop-in callers that regex-match nx's exact wording
+    failed.  The wrapper now coerces via ``operator.index`` to reproduce
+    nx's ``range(max_iter)`` error shape.
+    """
+    import franken_networkx as fnx
+    import networkx as nx_mod
+
+    P = fnx.path_graph(5)
+    P_nx = nx_mod.path_graph(5)
+
+    expected = "'float' object cannot be interpreted as an integer"
+
+    for fn_name in ("pagerank", "eigenvector_centrality"):
+        f_fn = getattr(fnx, fn_name)
+        n_fn = getattr(nx_mod, fn_name)
+        for bad in (float("nan"), 1.5, 100.0):
+            with pytest.raises(TypeError) as f_exc:
+                f_fn(P, max_iter=bad)
+            with pytest.raises(TypeError) as n_exc:
+                n_fn(P_nx, max_iter=bad)
+            # Both raise the bare nx-shaped message — no PyO3 prefix.
+            assert str(f_exc.value) == expected, (
+                f"{fn_name}(max_iter={bad!r}): fnx still has PyO3 prefix: "
+                f"{f_exc.value!r}"
+            )
+            assert str(n_exc.value) == expected
+        # Sanity: integer max_iter still passes through normally.
+        # Use 1000 to ensure convergence on undirected path_graph for both
+        # pagerank (which converges quickly) and eigenvector_centrality
+        # (which needs more iterations on bipartite-like structure).
+        f_fn(P, max_iter=1000)
+        n_fn(P_nx, max_iter=1000)
