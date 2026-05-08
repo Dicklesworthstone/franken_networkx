@@ -707,6 +707,11 @@ def _adjacency_view_keys(self):
         def __len__(self):
             return len(self._snapshot)
 
+    # br-r37-c1-adjviewname: nx returns bare collections.abc.KeysView
+    # objects from ``G.adj[u].keys()`` (etc).  Rename our subclass so
+    # ``type(view).__name__`` matches nx — drop-in code that branches
+    # on the class name doesn't see the private fnx wrapper name.
+    _AdjKeysView.__name__ = "KeysView"
     return _AdjKeysView(list(self))
 
 
@@ -737,6 +742,8 @@ def _adjacency_view_items(self):
         def __len__(self):
             return len(view)
 
+    # br-r37-c1-adjviewname: see _AdjKeysView.
+    _AdjItemsView.__name__ = "ItemsView"
     return _AdjItemsView()
 
 
@@ -762,6 +769,8 @@ def _adjacency_view_values(self):
         def __len__(self):
             return len(view)
 
+    # br-r37-c1-adjviewname: see _AdjKeysView.
+    _AdjValuesView.__name__ = "ValuesView"
     return _AdjValuesView()
 
 

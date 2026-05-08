@@ -6606,3 +6606,44 @@ def test_edges_data_arbitrary_key_match_nx():
     assert list(M_f.edges(data=lambda u, v: 0, keys=True)) == list(
         M_n.edges(data=lambda u, v: 0, keys=True)
     )
+
+
+def test_adj_subview_class_names_match_nx():
+    """br-r37-c1-adjviewname: ``G.adj[u].keys()``, ``.values()``,
+    ``.items()`` (and the parent G.adj variants) must return objects
+    whose ``type(view).__name__`` matches nx — bare ``KeysView`` /
+    ``ValuesView`` / ``ItemsView``.
+
+    Pre-fix mismatches:
+      - G.adj[0].keys():   fnx '_AdjKeysView'   vs nx 'KeysView'
+      - G.adj[0].values(): fnx '_AdjValuesView' vs nx 'ValuesView'
+      - G.adj[0].items():  fnx '_AdjItemsView'  vs nx 'ItemsView'
+
+    Sister of cycle 157's br-r37-c1-viewnames (which fixed
+    EdgeView/NodeView class names); this is the AdjView sub-view
+    family.
+
+    Fix: rename ``__name__`` on the local subclasses inside
+    _adjacency_view_keys/_items/_values to the bare collections.abc
+    names (matching nx, which returns the bare ABC types).
+    """
+    import franken_networkx as fnx
+    import networkx as nx_mod
+
+    G_f = fnx.path_graph(3)
+    G_n = nx_mod.path_graph(3)
+
+    # Per-node sub-views
+    assert type(G_f.adj[0].keys()).__name__ == type(G_n.adj[0].keys()).__name__
+    assert type(G_f.adj[0].values()).__name__ == type(G_n.adj[0].values()).__name__
+    assert type(G_f.adj[0].items()).__name__ == type(G_n.adj[0].items()).__name__
+
+    # G.adj wrappers
+    assert type(G_f.adj.keys()).__name__ == type(G_n.adj.keys()).__name__
+    assert type(G_f.adj.values()).__name__ == type(G_n.adj.values()).__name__
+    assert type(G_f.adj.items()).__name__ == type(G_n.adj.items()).__name__
+
+    # Sanity: views still iterate / index correctly
+    assert sorted(G_f.adj[0].keys()) == sorted(G_n.adj[0].keys())
+    assert dict(G_f.adj[0].items()) == dict(G_n.adj[0].items())
+    assert len(G_f.adj[0].values()) == len(G_n.adj[0].values())
