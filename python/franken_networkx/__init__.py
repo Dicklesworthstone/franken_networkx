@@ -15265,6 +15265,24 @@ def ego_graph(G, n, radius=1, center=True, undirected=False, distance=None):
     ``fnx.path_graph(5)``), diverging from nx which preserves the
     input graph's edge orientation.
     """
+    # br-r37-c1-egonotfound: nx delegates to
+    # single_source_shortest_path_length / single_source_dijkstra,
+    # both of which raise NodeNotFound("Source %s is not in G") on
+    # missing source — not the NetworkXError that fnx surfaced via
+    # G.neighbors(n).  Mirror nx's exception class and message.
+    if n not in G:
+        raise NodeNotFound(f"Source {n} is not in G")
+    # br-r37-c1-egonan: NaN / +inf radius — nx routes through
+    # single_source_shortest_path_length which short-circuits NaN
+    # cutoff to source-only (matches the cycle 142 fix on the
+    # Dijkstra cutoff family).  fnx's BFS uses ``depth >= radius``
+    # which is False for NaN, so iteration never terminates the
+    # depth check and yields the full reachable component.  Coerce
+    # NaN to ``-1`` (so the immediate first ``depth >= radius``
+    # check at depth 0 succeeds and only the source node is kept).
+    import math as _math
+    if isinstance(radius, float) and _math.isnan(radius):
+        radius = -1
     # br-r37-c1-fauol: track BFS visit order (insertion order in
     # ``seen``) so the resulting ego graph's node order matches nx's
     # BFS-from-source ordering. Previously we collapsed to a set and

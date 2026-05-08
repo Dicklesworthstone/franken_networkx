@@ -6647,3 +6647,54 @@ def test_adj_subview_class_names_match_nx():
     assert sorted(G_f.adj[0].keys()) == sorted(G_n.adj[0].keys())
     assert dict(G_f.adj[0].items()) == dict(G_n.adj[0].items())
     assert len(G_f.adj[0].values()) == len(G_n.adj[0].values())
+
+
+def test_ego_graph_missing_source_and_nan_radius_match_nx():
+    """br-r37-c1-egonotfound + br-r37-c1-egonan: ``ego_graph`` must:
+
+    1. Raise ``NodeNotFound("Source <n> is not in G")`` (NOT
+       ``NetworkXError``) when ``n`` isn't in the graph — matching
+       nx, which delegates to ``single_source_shortest_path_length``.
+       fnx surfaced the NetworkXError from ``G.neighbors(n)`` instead.
+       NodeNotFound is a SIBLING of NetworkXError (both subclass
+       NetworkXException), not a subclass — drop-in code that does
+       ``except nx.NodeNotFound`` was missing fnx's NetworkXError.
+
+    2. Treat ``radius=NaN`` as source-only (single node, no edges)
+       — matching nx via the cycle 142 cutoff-NaN short-circuit on
+       single_source_shortest_path_length.  fnx's BFS used
+       ``depth >= radius`` which returns False for NaN, so the loop
+       never depth-bounded and yielded the full reachable component.
+
+    Fix: explicit ``if n not in G: raise NodeNotFound(...)`` guard +
+    ``isinstance(radius, float) and isnan(radius) -> radius = -1`` at
+    the top of ego_graph.
+    """
+    import franken_networkx as fnx
+    import networkx as nx_mod
+
+    G_f = fnx.path_graph(5)
+    G_n = nx_mod.path_graph(5)
+
+    # Source-missing -> NodeNotFound (was NetworkXError pre-fix)
+    with pytest.raises(nx_mod.NodeNotFound, match="Source 99 is not in G"):
+        fnx.ego_graph(G_f, 99)
+    with pytest.raises(nx_mod.NodeNotFound, match="Source 99 is not in G"):
+        nx_mod.ego_graph(G_n, 99)
+
+    # radius=NaN -> source-only (no edges)
+    f_eg = fnx.ego_graph(G_f, 2, radius=float("nan"))
+    n_eg = nx_mod.ego_graph(G_n, 2, radius=float("nan"))
+    assert sorted(f_eg.nodes()) == sorted(n_eg.nodes()) == [2]
+    assert list(f_eg.edges()) == list(n_eg.edges()) == []
+
+    # Sanity: ordinary radius still works
+    f_eg = fnx.ego_graph(G_f, 2, radius=2)
+    n_eg = nx_mod.ego_graph(G_n, 2, radius=2)
+    assert sorted(f_eg.edges()) == sorted(n_eg.edges())
+
+    # Sanity: radius=0 (source-only)
+    f_eg = fnx.ego_graph(G_f, 2, radius=0)
+    n_eg = nx_mod.ego_graph(G_n, 2, radius=0)
+    assert sorted(f_eg.nodes()) == sorted(n_eg.nodes()) == [2]
+    assert list(f_eg.edges()) == list(n_eg.edges()) == []
