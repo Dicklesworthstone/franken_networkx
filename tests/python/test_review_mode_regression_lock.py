@@ -5842,3 +5842,53 @@ def test_dual_ba_and_relaxed_caveman_nan_seed_match_nx():
     fnx.dual_barabasi_albert_graph(10, 2, 3, 0.5, seed=-1)
     fnx.relaxed_caveman_graph(3, 4, 0.1, seed=42)
     fnx.relaxed_caveman_graph(3, 4, 0.1, seed=-1)
+
+
+def test_graph_size_callable_weight_match_nx():
+    """br-r37-c1-sizeweight: ``Graph.size(weight=...)`` must accept
+    callable or arbitrary-key (non-string) ``weight`` like nx does.
+
+    Pre-fix the Rust binding's ``weight: str`` PyO3 signature raised
+    ``TypeError: argument 'weight': 'function' object is not an
+    instance of 'str'`` (and similar for int / tuple) on any
+    non-string weight.  nx's ``size`` dispatches through
+    ``self.degree(weight=...)`` which natively handles callable +
+    arbitrary-key + string forms via the canonical
+    ``sum(d for _, d in self.degree(weight=...)) / 2`` formula.
+
+    The fix routes non-string weights through the same formula in
+    Python, only delegating to the Rust binding for the str case.
+    Verifies parity across Graph / DiGraph / MultiGraph / MultiDiGraph.
+    """
+    import franken_networkx as fnx
+    import networkx as nx_mod
+
+    cases = [
+        ("Graph", fnx.Graph, nx_mod.Graph, [(0, 1), (1, 2), (2, 0)]),
+        ("DiGraph", fnx.DiGraph, nx_mod.DiGraph, [(0, 1), (1, 2)]),
+        ("MultiGraph", fnx.MultiGraph, nx_mod.MultiGraph, [(0, 1), (0, 1), (1, 2)]),
+        ("MultiDiGraph", fnx.MultiDiGraph, nx_mod.MultiDiGraph, [(0, 1), (0, 1), (1, 2)]),
+    ]
+
+    for name, ctor_f, ctor_n, edges in cases:
+        G_f = ctor_f()
+        G_n = ctor_n()
+        for u, v in edges:
+            G_f.add_edge(u, v, weight=10)
+            G_n.add_edge(u, v, weight=10)
+
+        # weight=None (int)
+        assert G_f.size() == G_n.size()
+
+        # weight="weight" (string-based weighted sum, fast path)
+        assert G_f.size(weight="weight") == G_n.size(weight="weight")
+
+        # callable weight — nx's degree treats it as a key-lookup
+        # default-1 (the callable is never invoked), giving edge count.
+        assert G_f.size(weight=lambda u, v, d: 2) == G_n.size(
+            weight=lambda u, v, d: 2
+        )
+
+        # arbitrary-key weight (missing on every edge -> default 1)
+        assert G_f.size(weight=5) == G_n.size(weight=5)
+        assert G_f.size(weight=("w",)) == G_n.size(weight=("w",))

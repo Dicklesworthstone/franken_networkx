@@ -128,7 +128,21 @@ def _size_with_unweighted_int(size_impl):
     def size(self, weight=None):
         if weight is None:
             return self.number_of_edges()
-        return size_impl(self, weight)
+        if isinstance(weight, str):
+            return size_impl(self, weight)
+        # br-r37-c1-sizeweight: nx.Graph.size accepts callable or
+        # arbitrary-key ``weight`` (it dispatches via
+        # ``self.degree(weight=...)`` which already handles callable
+        # vs str vs key-lookup).  The Rust binding's PyO3 signature
+        # is ``weight: str``, raising ``TypeError: argument 'weight':
+        # 'function' object is not an instance of 'str'`` on
+        # callable / non-string inputs.  Reproduce nx's exact formula
+        # ``sum(d for _, d in self.degree(weight=...)) / 2`` which
+        # works for Graph / DiGraph / MultiGraph / MultiDiGraph
+        # (degree counts each edge once per endpoint, so /2 still
+        # gives the per-edge weight sum on directed graphs).
+        s = sum(d for _, d in self.degree(weight=weight))
+        return s / 2
 
     return size
 
