@@ -119,16 +119,39 @@ pub(crate) fn missing_key_error(key: &Bound<'_, PyAny>) -> PyErr {
 }
 
 pub(crate) fn edge_key_lookup_string(_py: Python<'_>, key: &Bound<'_, PyAny>) -> PyResult<String> {
+    // br-r37-c1-edgekeyint: MultiGraph/MultiDiGraph edge keys must
+    // honour Python's dict semantics — ``hash(0) == hash(0.0) ==
+    // hash(False)``, so an edge added with ``key=0`` is the SAME
+    // edge that lookup with ``key=0.0`` should find. nx uses dicts
+    // for edge-key storage; fnx canonicalises here.  Pre-fix, three
+    // hash-equivalent inputs produced three distinct canonicals
+    // (``"int:0"`` / ``"bool:false"`` / ``"float:0.0"``), splitting
+    // a single logical edge across multiple Rust-side slots and
+    // breaking ``has_edge(key=0.0)`` and ``add_edge(key=0.0)``
+    // dedup after a prior ``add_edge(key=0)``.
+    //
+    // Fix mirrors ``node_key_to_string``: collapse bool/int into a
+    // single canonical, and route integral floats (finite, in i64
+    // range, zero fractional part — including ``-0.0``) through the
+    // same form. Non-integral / out-of-range / non-finite floats
+    // keep the float canonical so NaN, Inf, 1.5, 1e20 stay distinct.
     if let Ok(s) = key.extract::<String>() {
         return Ok(format!("str:{s}"));
     }
-    if let Ok(b) = key.extract::<bool>() {
-        return Ok(format!("bool:{b}"));
-    }
+    // bool is a subclass of int — extract::<i64>() handles both,
+    // mapping True → "int:1" and False → "int:0" so bool/int keys
+    // collide with their numerically-equal counterparts.
     if let Ok(i) = key.extract::<i64>() {
         return Ok(format!("int:{i}"));
     }
     if let Ok(f) = key.extract::<f64>() {
+        if f.is_finite()
+            && f.fract() == 0.0
+            && f >= i64::MIN as f64
+            && f <= i64::MAX as f64
+        {
+            return Ok(format!("int:{}", f as i64));
+        }
         return Ok(format!("float:{f:?}"));
     }
     let ty = key.get_type().name()?.to_string_lossy().into_owned();

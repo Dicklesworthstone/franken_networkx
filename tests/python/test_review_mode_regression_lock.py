@@ -7377,3 +7377,82 @@ def test_node_first_add_wins_for_displayed_py_object():
         G.add_node(0.0)
         assert list(G.nodes())[0] == 0
         assert type(list(G.nodes())[0]).__name__ == "int"
+
+
+def test_multigraph_edge_key_int_float_collide_like_python_dict():
+    """br-r37-c1-edgekeyint: MultiGraph/MultiDiGraph edge keys use
+    Python dict semantics — ``hash(0) == hash(0.0) == hash(False)``,
+    so an edge added with ``key=0`` is the SAME edge that ``key=0.0``
+    or ``key=False`` should look up.
+
+    Pre-fix the Rust ``edge_key_lookup_string`` at
+    crates/fnx-python/src/lib.rs:121 produced three distinct
+    canonicals for hash-equivalent inputs:
+
+      Input           canonical (pre-fix)
+      -----           -------------------
+      key=0           "int:0"
+      key=0.0         "float:0.0"
+      key=False       "bool:false"
+
+    Splitting one logical edge across multiple Rust-side slots,
+    breaking:
+
+      MG.has_edge('a', 'b', key=0.0)         (returned False)
+      MG.add_edge('a', 'b', key=0.0)         (created duplicate)
+      MG.add_edge('a', 'b', key=False)       (created duplicate)
+
+    Direct sister of the cycle-180 node-key int/float fix; same
+    canonicalisation pattern applied to edge keys.
+
+    Fix: collapse bool/int (via i64 extraction since bool is a subclass
+    of int) AND integral floats (finite, in i64 range, zero fractional
+    part) into a single ``"int:N"`` canonical; non-integral / out-of-
+    range / non-finite floats keep ``"float:..."`` so NaN, Inf, 1.5,
+    1e20 remain distinct edge keys.
+    """
+    for cls in (fnx.MultiGraph, fnx.MultiDiGraph):
+        G = cls()
+        G.add_edge('a', 'b', key=0)
+
+        # has_edge with hash-equivalent keys
+        for q in (0, 0.0, -0.0, False):
+            assert G.has_edge('a', 'b', key=q), (
+                f"{cls.__name__}.has_edge('a','b',key={q!r}) should be True "
+                f"after add_edge(key=0)"
+            )
+
+        # has_edge with non-equivalent key returns False
+        for q in (1, 1.0, True, 0.5, float('nan'), float('inf')):
+            assert not G.has_edge('a', 'b', key=q), (
+                f"{cls.__name__}.has_edge('a','b',key={q!r}) should be False"
+            )
+
+        # add_edge with hash-equivalent keys must dedup, not duplicate
+        G2 = cls()
+        G2.add_edge('a', 'b', key=0)
+        G2.add_edge('a', 'b', key=0.0)
+        G2.add_edge('a', 'b', key=False)
+        G2.add_edge('a', 'b', key=-0.0)
+        assert G2.number_of_edges() == 1, (
+            f"{cls.__name__}: 0/0.0/False/-0.0 should coalesce to 1 edge, "
+            f"got {G2.number_of_edges()}: {list(G2.edges(keys=True))}"
+        )
+
+        # Distinct: NaN, Inf, non-integral, out-of-i64-range floats
+        # remain separate edges.
+        G3 = cls()
+        for k in (0, 0.5, float('nan'), float('inf'), 1e20):
+            G3.add_edge('a', 'b', key=k)
+        assert G3.number_of_edges() == 5, (
+            f"{cls.__name__}: non-integral / out-of-range / non-finite "
+            f"float keys should remain distinct edges, got "
+            f"{G3.number_of_edges()}: {list(G3.edges(keys=True))}"
+        )
+
+        # Auto-assigned key collides with explicit float
+        G4 = cls()
+        k = G4.add_edge('a', 'b')  # auto-assigns 0
+        assert k == 0
+        G4.add_edge('a', 'b', key=0.0)  # should hit the same edge
+        assert G4.number_of_edges() == 1
