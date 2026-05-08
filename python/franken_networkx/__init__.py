@@ -27825,6 +27825,57 @@ MultiDiGraph.to_undirected = _directed_to_undirected_with_view(
 )
 
 
+# br-r37-c1-methodqualname: align ``method.__qualname__`` (and
+# ``__name__``) on the wrapped Graph methods with nx's canonical
+# ``Graph.method`` form so:
+# (a) ``inspect.signature(method)`` and ``method.__qualname__``
+#     introspection looks the same as nx (debug repr, test fixtures,
+#     drop-in libraries that branch on qualname)
+# (b) Python's auto-generated TypeError on duplicate kwargs uses the
+#     nx wording ``Graph.method() got multiple values for ...``
+#     instead of leaking the fnx-private wrapper closure name.
+#
+# Same shape as cycle 173 br-r37-c1-updatename on Graph.update and
+# the DegreeView / EdgeView class-name renames in cycles 157 / 166.
+def _rename_method(method, name, qualname):
+    try:
+        method.__name__ = name
+        method.__qualname__ = qualname
+    except (AttributeError, TypeError):
+        pass
+
+
+# For each (class, method) combination, rename the directly-defined
+# method to ``ClassName.method``.  Iteration order Graph -> DiGraph
+# -> MultiGraph -> MultiDiGraph means shared function objects (eg.
+# ``copy`` is shared across all 4 classes) get the qualname of the
+# FIRST class that uses them — matching nx's "Graph.copy"
+# convention for the inherited case.  fnx splits most other methods
+# (add_edge, remove_edge, has_node, size, etc.) into per-class
+# functions, so each class gets its own ``Class.method`` qualname
+# matching nx exactly.
+_METHOD_NAMES = (
+    "add_edge", "remove_edge", "add_edges_from", "remove_edges_from",
+    "add_node", "add_nodes_from", "remove_node", "remove_nodes_from",
+    "has_node", "has_edge", "number_of_edges", "size", "copy",
+    "edge_subgraph", "predecessors", "successors", "reverse",
+)
+_rename_seen = set()
+for _cls in (Graph, DiGraph, MultiGraph, MultiDiGraph):
+    for _meth_name in _METHOD_NAMES:
+        # Only consider methods directly defined on this class
+        # (not inherited via MRO).  Methods inherited from a base
+        # already had their qualname set when the base was processed.
+        _meth = vars(_cls).get(_meth_name)
+        if _meth is None or id(_meth) in _rename_seen:
+            continue
+        _rename_seen.add(id(_meth))
+        _rename_method(
+            _meth, _meth_name, f"{_cls.__name__}.{_meth_name}",
+        )
+del _cls, _meth_name, _meth, _rename_seen, _METHOD_NAMES
+
+
 class _ConversionNodeView(Mapping):
     def __init__(self, view):
         self._view = view

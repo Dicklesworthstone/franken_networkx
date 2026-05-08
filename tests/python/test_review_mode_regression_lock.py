@@ -6936,3 +6936,60 @@ def test_graph_update_dup_kwarg_error_message_match_nx():
         fnx.Graph().update()
     with pytest.raises(nx_mod.NetworkXError, match="update needs"):
         nx_mod.Graph().update()
+
+
+def test_graph_method_qualnames_no_private_leak():
+    """br-r37-c1-methodqualname: ``method.__qualname__`` on the wrapped
+    Graph methods must NOT leak the fnx-private closure name (e.g.
+    ``_make_none_rejecting_add_edge.<locals>.add_edge``).  Each method
+    should have a ``Class.method`` qualname so:
+
+    1. ``inspect.signature`` introspection looks like nx (debug repr,
+       test fixtures, drop-in libraries that branch on qualname).
+    2. Python's auto-generated TypeError on duplicate kwargs uses
+       ``Class.method() got multiple values for ...`` instead of
+       leaking the wrapper closure.
+
+    Sister of cycle 173 br-r37-c1-updatename (Graph.update) and the
+    DegreeView / EdgeView class-name renames in cycles 157 / 166.
+
+    Note: fnx shares some wrappers across classes (eg. ``copy`` is one
+    function for all 4 graph types) where nx splits them.  We don't
+    fork those wrappers — accept that ``fnx.MultiGraph.copy`` will
+    have qualname ``Graph.copy`` (the first class to use it) rather
+    than nx's ``MultiGraph.copy``.  The important contract is that
+    NO method's qualname leaks the private closure name.
+    """
+    import franken_networkx as fnx
+
+    bad_substrings = ("<locals>", "_make_", "_private_", "_size_with_")
+    methods = (
+        "add_edge", "remove_edge", "add_edges_from", "remove_edges_from",
+        "add_node", "add_nodes_from", "remove_node", "remove_nodes_from",
+        "has_node", "has_edge", "number_of_edges", "size", "copy",
+        "edge_subgraph", "predecessors", "successors", "reverse",
+        "update",
+    )
+    for cls_name in ("Graph", "DiGraph", "MultiGraph", "MultiDiGraph"):
+        cls = getattr(fnx, cls_name)
+        for meth in methods:
+            method = getattr(cls, meth, None)
+            if method is None:
+                continue
+            qualname = getattr(method, "__qualname__", "")
+            for bad in bad_substrings:
+                assert bad not in qualname, (
+                    f"{cls_name}.{meth}.__qualname__ leaks private name: "
+                    f"{qualname!r}"
+                )
+            # Should be of the form "<SomeClass>.<method>"
+            assert "." in qualname, (
+                f"{cls_name}.{meth}.__qualname__ should be Class.method "
+                f"form, got {qualname!r}"
+            )
+
+    # Specific check: TypeError on duplicate kwarg uses canonical name
+    G_f = fnx.Graph([(0, 1)])
+    with pytest.raises(TypeError, match=r"Graph\.add_edge\(\)") as exc:
+        G_f.add_edge(0, 1, u_of_edge=99)
+    assert "<locals>" not in str(exc.value)
