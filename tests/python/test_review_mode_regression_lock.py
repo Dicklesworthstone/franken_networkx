@@ -9427,3 +9427,92 @@ def test_multigraph_edges_keys_view_supports_2tuple_contains():
         edges_set = set(Gf.edges(keys=True))
         assert (1, 2, 0) in edges_set
         assert sorted(Gf.edges(keys=True)) == sorted(Gn.edges(keys=True))
+
+
+def test_di_in_out_edges_call_returns_canonical_view_classes():
+    """br-r37-c1-iemvcw (cycle 215): nx's ``DG.in_edges(...)``,
+    ``DG.out_edges(...)``, ``MDG.in_edges(...)``, ``MDG.out_edges(...)``
+    each return one of the canonical view classes
+    (InEdgeDataView / OutEdgeDataView / InMultiEdgeDataView /
+    OutMultiEdgeDataView / InMultiEdgeView / OutMultiEdgeView).
+    fnx returned a plain ``list`` for every args case:
+
+      Call                                       nx                    fnx (pre)
+      ----                                       ---                   ---------
+      DG.in_edges(data=True)                     InEdgeDataView         list
+      DG.out_edges(data='w')                     OutEdgeDataView        list
+      MDG.in_edges()                             InMultiEdgeDataView    list
+      MDG.in_edges(keys=True)                    InMultiEdgeView        list
+      MDG.in_edges(data=True)                    InMultiEdgeDataView    list
+      MDG.in_edges(data=True, keys=True)         InMultiEdgeDataView    list
+      MDG.out_edges()                            OutMultiEdgeDataView   list
+      MDG.out_edges(keys=True)                   OutMultiEdgeView       list
+      ... (and equivalent rows for out_edges)
+
+    Drop-in code that does
+    ``isinstance(MDG.in_edges(keys=True), MultiEdgeView)`` silently
+    misbehaved.  Worse, ``(u, v) in MDG.{in,out}_edges(keys=True)``
+    returned False even when the edge existed (sister of cycle 214's
+    ``MG.edges(keys=True)`` containment defect).
+
+    Sister of cycle 213 (``MG.edges(data=...)``) and cycle 214
+    (``MG.edges(keys=True)``) — same wrap pattern, different surface
+    (``DG``/``MDG`` ``in_edges``/``out_edges`` instead of ``edges``).
+
+    Fix: in ``_DiEdgeMethodView.__call__``, after delegating to the
+    bound method, dispatch on (cls_name, is_multi, data, keys) and
+    wrap the result in the canonical class via
+    ``_wrap_edge_data_view``.  Defines ``_InMultiEdgesKeysView``
+    (analog of cycle-214's ``_OutMultiEdgesKeysView``) so
+    ``MDG.in_edges(keys=True)`` exposes ``__name__ ==
+    'InMultiEdgeView'`` with multi-edge any-key ``__contains__``.
+    """
+    import networkx as nx
+
+    # DiGraph: data=... cases (no keys for non-multi).
+    fG = fnx.DiGraph([(1, 2, {"weight": 5}), (2, 3, {"weight": 6})])
+    nG = nx.DiGraph([(1, 2, {"weight": 5}), (2, 3, {"weight": 6})])
+    for attr, attr_data, attr_proj in [
+        ("in_edges",  "InEdgeDataView",  "InEdgeDataView"),
+        ("out_edges", "OutEdgeDataView", "OutEdgeDataView"),
+    ]:
+        # data=True
+        assert type(getattr(fG, attr)(data=True)).__name__ == attr_data
+        assert type(getattr(nG, attr)(data=True)).__name__ == attr_data
+        # data='w' projection
+        assert type(getattr(fG, attr)(data="weight")).__name__ == attr_proj
+        assert type(getattr(nG, attr)(data="weight")).__name__ == attr_proj
+        # Contents match
+        assert sorted(getattr(fG, attr)(data=True)) == sorted(getattr(nG, attr)(data=True))
+
+    # MultiDiGraph: full data/keys matrix.
+    fM = fnx.MultiDiGraph([(1, 2), (1, 2), (2, 3), (3, 4)])
+    nM = nx.MultiDiGraph([(1, 2), (1, 2), (2, 3), (3, 4)])
+    matrix = [
+        # (kwargs,                expected for in_edges,    expected for out_edges)
+        ({},                       "InMultiEdgeDataView",   "OutMultiEdgeDataView"),
+        ({"data": True},           "InMultiEdgeDataView",   "OutMultiEdgeDataView"),
+        ({"keys": True},           "InMultiEdgeView",       "OutMultiEdgeView"),
+        ({"data": True, "keys": True}, "InMultiEdgeDataView", "OutMultiEdgeDataView"),
+        ({"data": "weight"},       "InMultiEdgeDataView",   "OutMultiEdgeDataView"),
+    ]
+    for kwargs, want_in, want_out in matrix:
+        assert type(fM.in_edges(**kwargs)).__name__ == want_in, (kwargs, "fnx in")
+        assert type(nM.in_edges(**kwargs)).__name__ == want_in, (kwargs, "nx in")
+        assert type(fM.out_edges(**kwargs)).__name__ == want_out, (kwargs, "fnx out")
+        assert type(nM.out_edges(**kwargs)).__name__ == want_out, (kwargs, "nx out")
+
+    # 2-tuple any-key contains parity (sister to cycle 214 fix
+    # — applies to MDG.{in,out}_edges(keys=True) just like to
+    # MG.edges(keys=True)).
+    for attr in ("in_edges", "out_edges"):
+        for q, want in [
+            ((1, 2),       True),   # 2-tuple any-key
+            ((1, 2, 0),    True),   # exact-key 0
+            ((1, 2, 1),    True),   # exact-key 1
+            ((1, 2, 99),   False),  # nonexistent key
+            ((3, 4),       True),
+            ((99, 100),    False),
+        ]:
+            assert (q in getattr(fM, attr)(keys=True)) == want, (attr, q, "fnx")
+            assert (q in getattr(nM, attr)(keys=True)) == want, (attr, q, "nx")

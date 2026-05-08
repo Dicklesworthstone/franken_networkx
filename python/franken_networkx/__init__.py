@@ -3498,18 +3498,31 @@ _MultiEdgeView.__name__ = "MultiEdgeView"
 
 
 class _OutMultiEdgesKeysView(_MultiEdgeView):
-    """Returned by ``MultiDiGraph.edges(keys=True)``.  Inherits the
-    multi-edge any-key ``__contains__`` from ``_MultiEdgeView``.
+    """Returned by ``MultiDiGraph.edges(keys=True)`` and
+    ``MultiDiGraph.out_edges(keys=True)``.  Inherits the multi-edge
+    any-key ``__contains__`` from ``_MultiEdgeView``.
 
     Distinct from cycle-188's ``_OutMultiEdgeView`` (the
-    ``_DiEdgeMethodView`` subclass for ``MDG.out_edges``) — both
-    expose the same ``__name__`` (``"OutMultiEdgeView"``) since
-    nx considers the two surfaces equivalent for directed graphs,
-    but the underlying machinery differs (method-view vs
-    materialised list-of-3-tuples).
+    ``_DiEdgeMethodView`` subclass for the ``MDG.out_edges``
+    property) — both expose the same ``__name__``
+    (``"OutMultiEdgeView"``) since nx considers the two surfaces
+    equivalent, but the underlying machinery differs (method-view
+    vs materialised list-of-3-tuples).
     """
     pass
 _OutMultiEdgesKeysView.__name__ = "OutMultiEdgeView"
+
+
+# br-r37-c1-iemvcw (cycle 215): same pattern for ``MDG.in_edges(keys=True)``.
+class _InMultiEdgesKeysView(_MultiEdgeView):
+    """Returned by ``MultiDiGraph.in_edges(keys=True)``.  Inherits
+    multi-edge any-key ``__contains__`` from ``_MultiEdgeView``.
+
+    Distinct from cycle-188's ``_InMultiEdgeView`` for the same
+    name-collision reasons described in ``_OutMultiEdgesKeysView``.
+    """
+    pass
+_InMultiEdgesKeysView.__name__ = "InMultiEdgeView"
 
 
 def _wrap_edge_data_view(result, view_cls):
@@ -4618,7 +4631,48 @@ class _DiEdgeMethodView:
         # tuple-equality semantics — keep the snapshot list there.
         if not args and not kwargs and not self._graph.is_multigraph():
             return self
-        return self._method(self._graph, *args, **kwargs)
+        result = self._method(self._graph, *args, **kwargs)
+        # br-r37-c1-iemvcw (cycle 215): nx's
+        # ``DG.in_edges(data=...)`` / ``DG.out_edges(data=...)`` and
+        # the entire ``MDG.in_edges(...)`` / ``MDG.out_edges(...)``
+        # call surface return canonical view classes
+        # (InEdgeDataView / OutEdgeDataView / InMultiEdgeDataView /
+        # OutMultiEdgeDataView / InMultiEdgeView / OutMultiEdgeView).
+        # fnx returned a plain ``list`` for every args case,
+        # diverging on ``type(view).__name__`` AND breaking
+        # ``(u, v) in MDG.{in,out}_edges(keys=True)`` 2-tuple
+        # containment (sister of cycle 214 ``MG.edges(keys=True)``).
+        # Sister of cycle 213 ``MG.edges(data=...)`` wrap.
+        cls_name = type(self).__name__
+        is_multi = self._graph.is_multigraph()
+        data = kwargs.get("data", False)
+        if len(args) >= 2:
+            data = args[1]
+        keys = kwargs.get("keys", False)
+        if is_multi and len(args) >= 3:
+            keys = args[2]
+        if is_multi:
+            if data is not False:
+                wrap = (_InMultiEdgeDataView if cls_name == "InMultiEdgeView"
+                        else _OutMultiEdgeDataView)
+            elif keys:
+                wrap = (_InMultiEdgesKeysView if cls_name == "InMultiEdgeView"
+                        else _OutMultiEdgesKeysView)
+            else:
+                # no-args / nbunch-only: nx returns the canonical
+                # ``In/OutMultiEdgeDataView`` class.
+                wrap = (_InMultiEdgeDataView if cls_name == "InMultiEdgeView"
+                        else _OutMultiEdgeDataView)
+        else:
+            if data is False:
+                # Should not reach here in practice — no-args + no
+                # multi means we returned ``self`` above; nbunch-only
+                # case keeps the bare list to avoid masquerading as a
+                # data view.  Preserve current behaviour.
+                return result
+            wrap = (_InEdgeDataView if cls_name == "InEdgeView"
+                    else _OutEdgeDataView)
+        return _wrap_edge_data_view(result, wrap)
 
     def __reduce__(self):
         return (list, (list(self),))
