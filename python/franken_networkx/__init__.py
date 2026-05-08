@@ -28162,8 +28162,67 @@ _FILTERED_GRAPH_VIEW_TYPES = {
 }
 
 
+_FILTERED_SUBCLASS_VIEW_CACHE: dict = {}
+
+# Set of canonical graph types — instances of these go through the
+# precomputed fast path; subclasses go through the subclass-preserving
+# dynamic-class path (br-r37-c1-subgraphsub).
+_FILTERED_GRAPH_VIEW_TYPES_SOURCE_TYPES = frozenset((
+    Graph, DiGraph, MultiGraph, MultiDiGraph,
+))
+
+
 def _generic_filtered_graph_view(graph, *, filter_node=None, filter_edge=None):
-    view_type = _FILTERED_GRAPH_VIEW_TYPES[(graph.is_directed(), graph.is_multigraph())]
+    # br-r37-c1-subgraphsub: nx's ``G.subgraph(...)`` /
+    # ``G.edge_subgraph(...)`` / ``nx.subgraph_view(G, ...)`` preserves
+    # the source graph's subclass — e.g. ``MyG(nx.Graph).subgraph([1])``
+    # returns a ``MyG`` instance.  fnx hardcoded the view type via
+    # ``_FILTERED_GRAPH_VIEW_TYPES`` keyed only on (directed, multi),
+    # so user subclasses got cast to the canonical Graph/DiGraph etc.
+    # — drop-in code that uses subclassing for behavior augmentation
+    # silently lost the subclass.
+    #
+    # Fast path: the four canonical types use the precomputed view
+    # types (cycle 188 et al rely on these for class-name parity).
+    # Subclass path: dynamically build a filtered view class that
+    # combines _FilteredGraphView with the user subclass; cache the
+    # resulting class by the user type to avoid re-creating each call.
+    g_type = type(graph)
+    # If g_type is itself a synthetic subclass-preserving filtered view
+    # (from a previous subgraph call on a user subclass), reuse it
+    # directly so nested subgraphs preserve the user's subclass through
+    # MyG.subgraph().subgraph() etc.
+    if getattr(g_type, "_fnx_subclass_filtered_view", False):
+        view_type = g_type
+    elif g_type in _FILTERED_GRAPH_VIEW_TYPES_SOURCE_TYPES or issubclass(
+        g_type, _FilteredGraphView
+    ):
+        # Fast path: canonical graph types or already-filtered canonical
+        # views (no user subclass) use the precomputed view type.
+        view_type = _FILTERED_GRAPH_VIEW_TYPES[
+            (graph.is_directed(), graph.is_multigraph())
+        ]
+    else:
+        view_type = _FILTERED_SUBCLASS_VIEW_CACHE.get(g_type)
+        if view_type is None:
+            view_type = type(
+                g_type.__name__,
+                (_FilteredGraphView, g_type),
+                {
+                    "adjlist_inner_dict_factory": dict,
+                    "adjlist_outer_dict_factory": dict,
+                    "edge_attr_dict_factory": dict,
+                    "graph_attr_dict_factory": dict,
+                    "node_attr_dict_factory": dict,
+                    "node_dict_factory": dict,
+                    "to_directed_class": _to_directed_class,
+                    "to_undirected_class": _to_undirected_class,
+                    # Marker so nested subgraph calls reuse this class
+                    # instead of trying to re-wrap (which would MRO-fail).
+                    "_fnx_subclass_filtered_view": True,
+                },
+            )
+            _FILTERED_SUBCLASS_VIEW_CACHE[g_type] = view_type
     return view_type(graph, filter_node=filter_node, filter_edge=filter_edge)
 
 

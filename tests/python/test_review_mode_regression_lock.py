@@ -8419,3 +8419,81 @@ def test_reverse_view_outer_class_name_and_view_class_names():
         # isinstance still works for drop-in code that detects
         # directed/multi via isinstance instead of type-name string.
         assert isinstance(Rf, f_cls)
+
+
+def test_subgraph_preserves_user_subclass():
+    """br-r37-c1-subgraphsub: ``MyG(fnx.Graph).subgraph([1])`` must
+    return a ``MyG`` instance — preserving the user subclass — to
+    match nx's documented behaviour.
+
+    Pre-fix fnx hardcoded the filtered-view type via
+    ``_FILTERED_GRAPH_VIEW_TYPES`` keyed only on
+    ``(directed, multi)``, casting any user subclass to the
+    canonical Graph/DiGraph/MultiGraph/MultiDiGraph.
+
+    nx parity:
+      MyN.subgraph([1, 2])      → MyN
+      MyN.edge_subgraph(...)    → MyN
+      nx.subgraph_view(MyN, ..) → MyN
+
+    Fix: in ``_generic_filtered_graph_view``, when the source graph
+    is a user subclass (not one of the four canonical types AND
+    not already a filtered-view), dynamically build a synthetic
+    class combining ``_FilteredGraphView`` with the user subclass
+    and cache it. Mark synthetic classes with
+    ``_fnx_subclass_filtered_view = True`` so nested subgraph
+    calls reuse the same synthetic class (preserving the user
+    subclass through ``MyG.subgraph().subgraph()``).
+
+    Standard graphs still use the canonical fast path
+    (preserving cycle 188+ class-name parity).
+    """
+    class MyG(fnx.Graph):
+        pass
+
+    class MyDG(fnx.DiGraph):
+        pass
+
+    class MyMG(fnx.MultiGraph):
+        pass
+
+    class MyMDG(fnx.MultiDiGraph):
+        pass
+
+    # subgraph preserves user subclass
+    g = MyG([(1, 2), (2, 3)])
+    s = g.subgraph([1, 2])
+    assert type(s).__name__ == "MyG"
+    assert list(s.nodes) == [1, 2]
+    assert fnx.is_frozen(s)
+
+    # nested subgraph also preserves
+    s2 = s.subgraph([1, 2])
+    assert type(s2).__name__ == "MyG"
+    assert list(s2.nodes) == [1, 2]
+
+    # edge_subgraph preserves
+    es = g.edge_subgraph([(1, 2)])
+    assert type(es).__name__ == "MyG"
+
+    # subgraph_view preserves
+    sv = fnx.subgraph_view(g, filter_node=lambda n: n in (1, 2))
+    assert type(sv).__name__ == "MyG"
+
+    # All 4 canonical-class subclasses preserved
+    for sub_cls, expected_name in [
+        (MyDG, "MyDG"),
+        (MyMG, "MyMG"),
+        (MyMDG, "MyMDG"),
+    ]:
+        gg = sub_cls([(1, 2), (2, 3)])
+        ss = gg.subgraph([1, 2])
+        assert type(ss).__name__ == expected_name
+
+    # Standard graph still uses canonical fast path
+    G = fnx.path_graph(5)
+    S = G.subgraph([1, 2, 3])
+    assert type(S).__name__ == "Graph"
+    # Idempotence preserved
+    S2 = S.subgraph([1, 2])
+    assert type(S2).__name__ == "Graph"
