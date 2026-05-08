@@ -708,8 +708,17 @@ impl PyMultiGraph {
         attr: Option<&Bound<'_, PyDict>>,
     ) -> PyResult<()> {
         let canonical = node_key_to_string(py, n)?;
+        // br-r37-c1-firstwins: nx uses dicts for node storage, so the
+        // FIRST Python object added under a given canonical key wins
+        // (subsequent ``add_node`` calls with hash-equivalent keys are
+        // no-ops at the storage level — the original Py object is
+        // preserved for ``list(G.nodes())`` and friends). Use
+        // ``entry().or_insert_with`` here so re-adding ``0.0`` after
+        // ``0`` doesn't overwrite the displayed Py form. ``add_edge``
+        // already uses this pattern at the call site below.
         self.node_key_map
-            .insert(canonical.clone(), n.clone().unbind());
+            .entry(canonical.clone())
+            .or_insert_with(|| n.clone().unbind());
 
         let mut rust_attrs = AttrMap::new();
         let py_dict = self
@@ -2287,8 +2296,17 @@ impl PyGraph {
         attr: Option<&Bound<'_, PyDict>>,
     ) -> PyResult<()> {
         let canonical = node_key_to_string(py, n)?;
+        // br-r37-c1-firstwins: nx uses dicts for node storage, so the
+        // FIRST Python object added under a given canonical key wins
+        // (subsequent ``add_node`` calls with hash-equivalent keys are
+        // no-ops at the storage level — the original Py object is
+        // preserved for ``list(G.nodes())`` and friends). Use
+        // ``entry().or_insert_with`` here so re-adding ``0.0`` after
+        // ``0`` doesn't overwrite the displayed Py form. ``add_edge``
+        // already uses this pattern at the call site below.
         self.node_key_map
-            .insert(canonical.clone(), n.clone().unbind());
+            .entry(canonical.clone())
+            .or_insert_with(|| n.clone().unbind());
 
         // Build Rust AttrMap from Python kwargs for the inner graph.
         let mut rust_attrs = AttrMap::new();

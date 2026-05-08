@@ -7312,3 +7312,68 @@ def test_int_float_node_identity_matches_python_dict():
         f"non-integral / out-of-range / non-finite floats should "
         f"remain distinct, got nodes={list(G.nodes())}"
     )
+
+
+def test_node_first_add_wins_for_displayed_py_object():
+    """br-r37-c1-firstwins: nx uses dicts for node storage, so the
+    FIRST Python object added under a given canonical key (e.g.
+    ``hash(0) == hash(0.0) == hash(False)``) is what
+    ``list(G.nodes())`` returns. Subsequent ``add_node`` calls with
+    a hash-equivalent key are no-ops at the storage level — the
+    original Py object is preserved.
+
+    Pre-fix the Rust ``add_node`` paths in lib.rs and digraph.rs used
+    unconditional ``HashMap::insert`` for ``node_key_map``, so the
+    LAST Py form overwrote the canonical display:
+
+      Operation             nx              fnx (pre-fix)
+      ---------             ---             -------------
+      add 0,0.0,False       [0]             [False]
+      add 0.0,0,False       [0.0]           [False]
+      add False,0,0.0       [False]         [0.0]
+      add 1.0,1,True        [1.0]           [True]
+
+    Affects iteration ordering / type introspection on every drop-in
+    caller that round-trips int node ids through float.
+    ``add_edge`` was already correct (uses ``entry().or_insert_with``);
+    this aligns the four ``add_node`` sites with that pattern.
+    """
+    cases = [
+        ([0, 0.0, False],   [0],     "int"),
+        ([0.0, 0, False],   [0.0],   "float"),
+        ([False, 0, 0.0],   [False], "bool"),
+        ([1.0, 1, True],    [1.0],   "float"),
+        ([True, 1, 1.0],    [True],  "bool"),
+    ]
+
+    for cls in (fnx.Graph, fnx.DiGraph, fnx.MultiGraph, fnx.MultiDiGraph):
+        for ops, expected_nodes, expected_type in cases:
+            G = cls()
+            for x in ops:
+                G.add_node(x)
+            actual = list(G.nodes())
+            assert actual == expected_nodes, (
+                f"{cls.__name__}.add_node sequence {ops}: "
+                f"expected {expected_nodes}, got {actual}"
+            )
+            assert type(actual[0]).__name__ == expected_type, (
+                f"{cls.__name__}.add_node sequence {ops}: "
+                f"expected first node type {expected_type}, got "
+                f"{type(actual[0]).__name__}"
+            )
+
+    # add_node before add_edge keeps the explicit-add Py form
+    for cls in (fnx.Graph, fnx.DiGraph):
+        G = cls()
+        G.add_node(0.0)
+        G.add_edge(0, 1)
+        assert list(G.nodes())[0] == 0.0
+        assert type(list(G.nodes())[0]).__name__ == "float"
+
+    # add_edge before add_node keeps the edge-add Py form
+    for cls in (fnx.Graph, fnx.DiGraph):
+        G = cls()
+        G.add_edge(0, 1)
+        G.add_node(0.0)
+        assert list(G.nodes())[0] == 0
+        assert type(list(G.nodes())[0]).__name__ == "int"
