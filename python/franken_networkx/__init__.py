@@ -22958,6 +22958,16 @@ def resistance_distance(G, nodeA=None, nodeB=None, weight=None, invert_weight=Tr
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
 
+    # br-r37-c1-resdempty: nx's resistance_distance pre-validates
+    # the empty-graph case BEFORE checking nodeA/nodeB membership,
+    # so an empty graph with explicit nodes still surfaces the
+    # "Graph G must contain at least one node." error rather than
+    # the sibling "Node A is not in graph G." check.
+    nodelist = list(G.nodes())
+    n = len(nodelist)
+    if n == 0:
+        raise NetworkXError("Graph G must contain at least one node.")
+
     # br-r37-c1-tm1tq: nx pre-checks ``nodeA in G`` / ``nodeB in G``
     # (silent-False on unhashable, then NetworkXError) BEFORE the
     # algorithm runs.  fnx had been hitting ``idx[nodeA]`` which
@@ -22967,11 +22977,6 @@ def resistance_distance(G, nodeA=None, nodeB=None, weight=None, invert_weight=Tr
         raise NetworkXError("Node A is not in graph G.")
     if nodeB is not None and nodeB not in G:
         raise NetworkXError("Node B is not in graph G.")
-
-    nodelist = list(G.nodes())
-    n = len(nodelist)
-    if n == 0:
-        return {} if nodeA is None else 0.0
 
     # br-r37-c1-resd-disc: resistance distance is defined only on
     # connected graphs (Laplacian pseudo-inverse on a disconnected

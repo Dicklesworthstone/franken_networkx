@@ -6739,3 +6739,52 @@ def test_min_cost_flow_empty_raises_match_nx():
     DG_n.nodes[0]["demand"] = -10
     DG_n.nodes[3]["demand"] = 10
     assert fnx.min_cost_flow_cost(DG_f) == nx_mod.min_cost_flow_cost(DG_n)
+
+
+def test_resistance_distance_empty_raises_match_nx():
+    """br-r37-c1-resdempty: ``resistance_distance`` on an empty graph
+    must raise ``NetworkXError("Graph G must contain at least one
+    node.")`` matching nx — sister of cycle 168's br-r37-c1-mcfempty
+    on min_cost_flow.
+
+    Pre-fix the empty-graph branch silently returned ``{}`` (or
+    ``0.0`` when explicit nodeA/nodeB were given), masking the
+    contract.  The same NetworkXError is raised by nx's
+    effective_graph_resistance and kemeny_constant siblings.
+
+    Fix: replace the early ``return {}`` with the nx-shaped
+    NetworkXError, and reorder so the empty-graph check fires
+    BEFORE the nodeA/nodeB membership checks (nx surfaces 'Graph G
+    must contain at least one node.' even when explicit nodes are
+    passed to an empty graph, not 'Node A is not in graph G.').
+    """
+    import franken_networkx as fnx
+    import networkx as nx_mod
+
+    # Empty + various arg combinations
+    for kwargs in [
+        {},
+        {"nodeA": 0},
+        {"nodeA": 0, "nodeB": 1},
+    ]:
+        with pytest.raises(
+            nx_mod.NetworkXError, match="must contain at least one node"
+        ):
+            fnx.resistance_distance(fnx.Graph(), **kwargs)
+        with pytest.raises(
+            nx_mod.NetworkXError, match="must contain at least one node"
+        ):
+            nx_mod.resistance_distance(nx_mod.Graph(), **kwargs)
+
+    # Sanity: non-empty + missing node still raises 'Node A is not in graph G'
+    G_f = fnx.path_graph(3)
+    G_n = nx_mod.path_graph(3)
+    with pytest.raises(nx_mod.NetworkXError, match="Node A is not in graph G"):
+        fnx.resistance_distance(G_f, nodeA=99)
+    with pytest.raises(nx_mod.NetworkXError, match="Node A is not in graph G"):
+        nx_mod.resistance_distance(G_n, nodeA=99)
+
+    # Sanity: non-empty + valid nodes still computes
+    assert round(fnx.resistance_distance(G_f, 0, 2), 4) == round(
+        nx_mod.resistance_distance(G_n, 0, 2), 4
+    )
