@@ -8634,3 +8634,53 @@ def test_degree_and_in_out_edge_view_copy_preserves_view_type():
                 f"fnx={type(cf).__name__} expected={expected}"
             )
             assert list(cf) == list(cn) == list(getattr(Gn, attr))
+
+
+def test_reverse_view_views_copy_and_deepcopy_preserve_type():
+    """br-r37-c1-revvcopy: extends the view-copy fix to all reverse-
+    view sub-views.  Pre-fix ``copy.deepcopy(R.degree)`` (and
+    .edges, .adj, .succ, .pred, .in_edges, .out_edges) raised
+    TypeError because deepcopy recursed into the parent reverse-
+    view graph and tripped ``_graph_deepcopy``'s no-arg
+    ``cls()`` constructor (reverse-view bases require a graph
+    argument).
+
+    nx parity: each reverse sub-view preserves its canonical type
+    through both copy.copy and copy.deepcopy.
+
+    Fix: define ``__copy__`` / ``__deepcopy__`` returning self on
+    the four reverse-view base classes:
+      - _RevDegreeViewBase (R.degree)
+      - _RevEdgeMethodViewBase (R.in_edges, R.out_edges)
+      - _ReverseAdjacencyView (R.adj, R.succ, R.pred)
+      - _ReverseEdgeView (R.edges)
+    """
+    import copy
+
+    for cls_name in ("DiGraph", "MultiDiGraph"):
+        DGf = getattr(fnx, cls_name)([(1, 2), (2, 3)])
+        DGn = getattr(nx, cls_name)([(1, 2), (2, 3)])
+        Rf = DGf.reverse(copy=False)
+        Rn = DGn.reverse(copy=False)
+        for view_attr in (
+            "nodes", "edges", "adj", "degree",
+            "in_edges", "out_edges", "succ", "pred",
+        ):
+            vf = getattr(Rf, view_attr)
+            vn = getattr(Rn, view_attr)
+            for op in (copy.copy, copy.deepcopy):
+                cf = op(vf)
+                cn = op(vn)
+                assert type(cf).__name__ == type(cn).__name__, (
+                    f"{cls_name}.reverse().{view_attr} {op.__name__}: "
+                    f"fnx={type(cf).__name__} nx={type(cn).__name__}"
+                )
+
+    # Functional smoke
+    DG = fnx.DiGraph([(1, 2), (2, 3)])
+    R = DG.reverse(copy=False)
+    cd = copy.copy(R.degree)
+    assert type(cd).__name__ == "DiDegreeView"
+    assert dict(cd) == {1: 1, 2: 2, 3: 1}
+    cd2 = copy.deepcopy(R.degree)
+    assert type(cd2).__name__ == "DiDegreeView"

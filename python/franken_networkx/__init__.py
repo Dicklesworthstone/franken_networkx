@@ -26309,6 +26309,14 @@ class _RevEdgeMethodViewBase:
         # ``.data()`` method that returns an EdgeDataView. Match.
         return self._compute(nbunch=nbunch, data=data)
 
+    # br-r37-c1-revvcopy: see _RevDegreeViewBase above — same fix
+    # for in_edges / out_edges proxies.
+    def __copy__(self):
+        return self
+
+    def __deepcopy__(self, memo):
+        return self
+
 
 class _RevOutEdgeViewProxy(_RevEdgeMethodViewBase):
     def _compute(self, *args, **kwargs):
@@ -26358,6 +26366,17 @@ class _RevDegreeViewBase:
 
     def __repr__(self):
         return f"{type(self).__name__}({dict(self)!r})"
+
+    # br-r37-c1-revvcopy: copy.deepcopy(R.degree) recursed into the
+    # parent graph and tripped _graph_deepcopy's no-arg ``cls()``
+    # (reverse view requires a graph arg).  Read-only view — return
+    # self for both copy.copy and copy.deepcopy, matching nx parity
+    # (DiDegreeView preserved through copy round-trip).
+    def __copy__(self):
+        return self
+
+    def __deepcopy__(self, memo):
+        return self
 
 
 class _RevDiDegreeViewProxy(_RevDegreeViewBase):
@@ -26437,6 +26456,16 @@ class _ReverseAdjacencyView(Mapping):
                 return {k2: _unwrap(v2) for k2, v2 in v.items()}
             return v
         return f"{type(self).__name__}({_unwrap(self)!r})"
+
+    # br-r37-c1-revvcopy: read-only view → return self for both
+    # copy.copy and copy.deepcopy (the deepcopy path otherwise
+    # recurses into the parent reverse-view graph and tripped
+    # _graph_deepcopy's no-arg ``cls()``).
+    def __copy__(self):
+        return self
+
+    def __deepcopy__(self, memo):
+        return self
 
 
 # br-r37-c1-revadjname: 2 trivial subclasses with canonical nx
@@ -26548,6 +26577,13 @@ class _ReverseEdgeView:
         # ``OutEdgeView([...])`` / ``OutMultiEdgeView([...])``.
         # Subclasses below set ``__name__`` to the canonical form.
         return f"{type(self).__name__}({list(self)!r})"
+
+    # br-r37-c1-revvcopy: same fix as _ReverseAdjacencyView above.
+    def __copy__(self):
+        return self
+
+    def __deepcopy__(self, memo):
+        return self
 
     get = _adjacency_view_get
     keys = _adjacency_view_keys
