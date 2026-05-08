@@ -409,8 +409,19 @@ impl PyMultiGraph {
             || unwrap_infallible(key.into_pyobject(py)).into_any().unbind(),
             |value| value.clone().unbind(),
         );
+        // br-r37-c1-edgekeyfirstwins: nx uses dicts for per-edge-pair
+        // key storage, so the FIRST Py-form added under a given
+        // canonical key (e.g. ``hash(0) == hash(0.0) == hash(False)``)
+        // wins for ``list(G.edges(keys=True))`` display. Subsequent
+        // ``add_edge`` calls with hash-equivalent keys are dedup at
+        // the storage level (post-cycle-182 edge_key_lookup_string
+        // fix) but echo back the user-provided Py-form as the return
+        // value (matching nx's add_edge contract). Use
+        // ``entry().or_insert_with`` here so re-adding ``key=0.0``
+        // after ``key=0`` doesn't overwrite the displayed Py-form.
         self.edge_py_keys
-            .insert(Self::edge_key(u, v, key), py_key.clone_ref(py));
+            .entry(Self::edge_key(u, v, key))
+            .or_insert_with(|| py_key.clone_ref(py));
         py_key
     }
 
@@ -422,8 +433,10 @@ impl PyMultiGraph {
         key: usize,
         external_key: &PyObject,
     ) {
+        // First-wins: see remember_edge_key above for the rationale.
         self.edge_py_keys
-            .insert(Self::edge_key(u, v, key), external_key.clone_ref(py));
+            .entry(Self::edge_key(u, v, key))
+            .or_insert_with(|| external_key.clone_ref(py));
     }
 
     fn resolve_internal_edge_key(

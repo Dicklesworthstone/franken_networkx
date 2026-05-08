@@ -87,8 +87,13 @@ impl PyMultiDiGraph {
             || unwrap_infallible(key.into_pyobject(py)).into_any().unbind(),
             |value| value.clone().unbind(),
         );
+        // br-r37-c1-edgekeyfirstwins: see lib.rs::remember_edge_key
+        // for the rationale — nx dict-based edge-key storage means
+        // first-Py-form-added wins for display, while add_edge
+        // returns the user-provided Py-form for echo.
         self.edge_py_keys
-            .insert(Self::edge_key(u, v, key), py_key.clone_ref(py));
+            .entry(Self::edge_key(u, v, key))
+            .or_insert_with(|| py_key.clone_ref(py));
         py_key
     }
 
@@ -100,8 +105,10 @@ impl PyMultiDiGraph {
         key: usize,
         external_key: &PyObject,
     ) {
+        // First-wins: see remember_edge_key above.
         self.edge_py_keys
-            .insert(Self::edge_key(u, v, key), external_key.clone_ref(py));
+            .entry(Self::edge_key(u, v, key))
+            .or_insert_with(|| external_key.clone_ref(py));
     }
 
     fn resolve_internal_edge_key(

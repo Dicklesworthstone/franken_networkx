@@ -7456,3 +7456,83 @@ def test_multigraph_edge_key_int_float_collide_like_python_dict():
         assert k == 0
         G4.add_edge('a', 'b', key=0.0)  # should hit the same edge
         assert G4.number_of_edges() == 1
+
+
+def test_multigraph_edge_key_first_add_wins_for_displayed_py_object():
+    """br-r37-c1-edgekeyfirstwins: cosmetic sister of cycle 182's
+    edge-key int/float canonicalisation fix and cycle 181's add_node
+    first-wins fix.  After cycle 182, hash-equivalent edge keys
+    (e.g. ``0`` / ``0.0`` / ``False``) coalesce to a single edge —
+    but ``remember_edge_key`` / ``remember_edge_key_object`` in
+    Rust used unconditional ``HashMap::insert`` for the
+    ``edge_py_keys`` map, so the LAST Py-form overwrote the
+    canonical display:
+
+      Sequence              nx                       fnx (pre-fix)
+      --------              ---                      -------------
+      add(0),add(0.0),add(False)  [('a','b',0)]      [('a','b',False)]
+      add(0.0),add(0),add(False)  [('a','b',0.0)]    [('a','b',False)]
+      add(False),add(0),add(0.0)  [('a','b',False)]  [('a','b',0.0)]
+      add(1.0),add(1),add(True)   [('a','b',1.0)]    [('a','b',True)]
+
+    Affected ``list(G.edges(keys=True))``, edge-iteration ordering,
+    and any caller introspecting edge-key types via
+    ``type(triple[2])``. The numeric value comparison was correct
+    (since ``0 == 0.0 == False``), but the displayed Py-form was
+    last-wins instead of nx's first-wins.
+
+    Critically: ``add_edge`` STILL echoes back the user-provided
+    Py-form as its return value (matching nx's contract).  Only
+    the stored display form is first-wins.
+
+    Fix: align the four edge_py_keys mutation sites
+    (``remember_edge_key`` × 2 + ``remember_edge_key_object`` × 2,
+    in lib.rs and digraph.rs) with the entry().or_insert_with
+    pattern, mirroring cycle 181's ``add_node`` fix.
+    """
+    cases = [
+        ([0, 0.0, False],   [('a', 'b', 0)],     "int"),
+        ([0.0, 0, False],   [('a', 'b', 0.0)],   "float"),
+        ([False, 0, 0.0],   [('a', 'b', False)], "bool"),
+        ([1.0, 1, True],    [('a', 'b', 1.0)],   "float"),
+        ([True, 1, 1.0],    [('a', 'b', True)],  "bool"),
+    ]
+
+    for cls in (fnx.MultiGraph, fnx.MultiDiGraph):
+        for ops, expected_edges, expected_type in cases:
+            G = cls()
+            for k in ops:
+                G.add_edge('a', 'b', key=k)
+            actual = list(G.edges(keys=True))
+            assert actual == expected_edges, (
+                f"{cls.__name__}.add_edge keys {ops}: "
+                f"expected {expected_edges}, got {actual}"
+            )
+            assert type(actual[0][2]).__name__ == expected_type, (
+                f"{cls.__name__}.add_edge keys {ops}: "
+                f"expected first edge-key type {expected_type}, got "
+                f"{type(actual[0][2]).__name__}"
+            )
+
+    # add_edge STILL echoes the user-provided Py-form (matching nx)
+    for cls in (fnx.MultiGraph, fnx.MultiDiGraph):
+        G = cls()
+        k1 = G.add_edge('a', 'b', key=0)
+        k2 = G.add_edge('a', 'b', key=0.0)
+        k3 = G.add_edge('a', 'b', key=False)
+        assert k1 == 0 and type(k1).__name__ == "int"
+        assert k2 == 0.0 and type(k2).__name__ == "float"
+        assert k3 is False and type(k3).__name__ == "bool"
+        # But the displayed stored form is the first-added (int 0)
+        edges = list(G.edges(keys=True))
+        assert len(edges) == 1
+        assert type(edges[0][2]).__name__ == "int"
+
+    # Auto-assigned key (0) followed by explicit float key — still first-wins
+    for cls in (fnx.MultiGraph, fnx.MultiDiGraph):
+        G = cls()
+        G.add_edge('a', 'b')
+        G.add_edge('a', 'b', key=0.0)
+        edges = list(G.edges(keys=True))
+        assert edges == [('a', 'b', 0)]
+        assert type(edges[0][2]).__name__ == "int"
