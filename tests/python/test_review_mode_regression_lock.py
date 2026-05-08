@@ -7229,3 +7229,86 @@ def test_add_edges_from_malformed_edge_error_contract():
         assert (3, 4) in G.edges()
         assert (5, 6) in G.edges()
         assert G.get_edge_data(5, 6) == {"w": 1}
+
+
+def test_int_float_node_identity_matches_python_dict():
+    """br-r37-c1-intfloatnode: nx uses dicts for node storage, so
+    Python's hash/eq semantics conflate numerically-equal int/bool/
+    float as the SAME node (``hash(0) == hash(0.0) == hash(False)``).
+
+    Pre-fix, fnx canonicalised node keys via ``node_key_to_string``
+    that produced ``"0"`` for int 0 but ``"0.0"`` for float 0.0,
+    splitting what should be a single node across two distinct
+    Rust-side keys.  This broke any drop-in caller that round-trips
+    int node ids through float (NumPy/JSON loaders, scientific
+    pipelines, etc.):
+
+      - ``0.0 in G`` returned False when node 0 was added
+      - ``G.has_node(0.0)`` returned False
+      - ``G[0.0]`` raised KeyError
+      - ``G.degree[0.0]`` raised KeyError
+      - ``G.has_edge(0.0, 1.0)`` returned False on edge (0, 1)
+      - ``G.add_node(0.0)`` after ``add_node(0)`` created a duplicate
+      - ``G.remove_node(0.0)`` raised NetworkXError on int-keyed node
+
+    Fix: route integral floats (finite, in i64 range, zero
+    fractional part — including ``-0.0``) through the int canonical
+    form. Non-integral / out-of-range / non-finite floats remain
+    distinct (preserving NaN, Inf, 1.5, 1e20 as separate nodes).
+    """
+    for cls in (fnx.Graph, fnx.DiGraph, fnx.MultiGraph, fnx.MultiDiGraph):
+        # Membership for numerically-equal int/float/bool
+        G = cls()
+        G.add_node(0)
+        G.add_edge(1, 2)
+        for q in (0, 0.0, -0.0, False, 1, 1.0, True, 2, 2.0):
+            assert q in G, f"{cls.__name__}: {q!r} not in G after add_node(0)+add_edge(1,2)"
+            assert q in G.nodes, f"{cls.__name__}: {q!r} not in G.nodes"
+            assert G.has_node(q), f"{cls.__name__}: has_node({q!r})"
+
+        # Adjacency lookup with float key resolves to int-keyed neighbour
+        G2 = cls()
+        G2.add_edge(0, 1)
+        assert dict(G2[0.0]) == dict(G2[0])
+        assert G2.has_edge(0.0, 1.0)
+        assert G2.has_edge(False, True)
+        assert G2.degree[0.0] == G2.degree[0] == 1
+
+        # Add deduplication
+        G3 = cls()
+        G3.add_node(0)
+        G3.add_node(0.0)
+        G3.add_node(False)
+        assert G3.number_of_nodes() == 1, (
+            f"{cls.__name__}: 0/0.0/False should coalesce to 1 node, "
+            f"got {G3.number_of_nodes()}: {list(G3.nodes())}"
+        )
+
+        # Edge add via float endpoint must not create duplicate node
+        G4 = cls()
+        G4.add_edge(0, 1)
+        G4.add_edge(0.0, 2)
+        assert G4.number_of_nodes() == 3
+        assert (0, 1) in G4.edges() or (1, 0) in G4.edges()
+        assert (0, 2) in G4.edges() or (2, 0) in G4.edges()
+
+        # remove_node by float on int-keyed node
+        G5 = cls()
+        G5.add_node(0)
+        G5.add_node(1)
+        G5.remove_node(0.0)
+        assert 0 not in G5
+        assert list(G5.nodes()) == [1]
+
+    # Distinct: NaN, Inf, non-integral, out-of-i64-range floats remain separate
+    G = fnx.Graph()
+    G.add_node(0)
+    G.add_node(0.5)
+    G.add_node(float("nan"))
+    G.add_node(float("inf"))
+    G.add_node(float("-inf"))
+    G.add_node(1e20)
+    assert G.number_of_nodes() == 6, (
+        f"non-integral / out-of-range / non-finite floats should "
+        f"remain distinct, got nodes={list(G.nodes())}"
+    )

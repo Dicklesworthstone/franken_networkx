@@ -67,12 +67,47 @@ pyo3::import_exception!(networkx.exception, PowerIterationFailedConvergence);
 // ---------------------------------------------------------------------------
 
 /// Convert a Python node key to a canonical string for the Rust Graph.
+///
+/// br-r37-c1-intfloatnode: Python's dict treats numerically-equal
+/// `int`/`bool`/`float` as the SAME key (because their hashes collide:
+/// `hash(0) == hash(0.0) == hash(False)`). nx uses dicts for node
+/// storage, so `G.has_node(0.0)` returns `True` when node `0` was
+/// added. fnx canonicalises node keys to strings here, and previously
+/// produced `"0"` for int `0` but `"0.0"` for float `0.0`, splitting
+/// what should be a single node across two distinct keys. This broke
+/// `__contains__`, `has_node`, `has_edge`, `__getitem__`, `degree`,
+/// `remove_node`, and `add_node`/`add_edge` deduplication for any
+/// drop-in caller that round-trips int node ids through float (e.g.
+/// loading from NumPy/JSON, which promotes ints to floats).
+///
+/// Fix: route integral floats (finite, in `i64` range, zero
+/// fractional part — including `-0.0`) through the int canonical
+/// form so `0.0`, `0`, and `False` all canonicalise to `"0"`. Non-
+/// integral / out-of-range / non-finite floats keep their `repr`-
+/// based canonical so distinct hashes (NaN, Inf, 1.5, 1e20) remain
+/// distinct nodes.
 fn node_key_to_string(_py: Python<'_>, key: &Bound<'_, PyAny>) -> PyResult<String> {
     if let Ok(s) = key.extract::<String>() {
         return Ok(s);
     }
+    // bool is a subclass of int, so extract::<i64>() handles both —
+    // True → "1", False → "0", aligning with hash(True)==hash(1),
+    // hash(False)==hash(0).
     if let Ok(i) = key.extract::<i64>() {
         return Ok(i.to_string());
+    }
+    // Floats that exactly represent an integer in i64 range collide
+    // (by hash + ==) with their int counterpart in Python dicts.
+    if let Ok(f) = key.extract::<f64>() {
+        if f.is_finite()
+            && f.fract() == 0.0
+            && f >= i64::MIN as f64
+            && f <= i64::MAX as f64
+        {
+            return Ok((f as i64).to_string());
+        }
+        let repr = key.repr()?;
+        return Ok(repr.to_string());
     }
     // For other hashable types, use repr as the canonical key.
     let repr = key.repr()?;
