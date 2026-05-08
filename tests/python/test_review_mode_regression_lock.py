@@ -8858,3 +8858,47 @@ def test_nodes_call_unexpected_kwarg_error_qualifies_class_name():
             f"{cls_name}.nodes(badarg=1) error message should start with "
             f"'NodeView.', got {f_msg!r}"
         )
+
+
+def test_random_regular_graph_seeded_output_matches_nx():
+    """br-r37-c1-rrgseed: ``random_regular_graph(d, n, seed=N)`` must
+    produce the exact same graph as ``nx.random_regular_graph(d, n,
+    seed=N)`` for drop-in seeded reproducibility.
+
+    Pre-fix fnx's no-``create_using`` fast path used the Rust
+    ``_rust_random_regular_graph`` which has its own MT19937 with
+    different state evolution from Python's ``random.Random``.
+    Same seed produced different graphs:
+
+      d=3, n=6, seed=42:
+        nx:  [(0,1), (0,3), (0,4), (1,2), (1,5), (2,4), (2,5), (3,4), (3,5)]
+        fnx: [(0,1), (0,3), (0,4), (1,2), (1,3), (2,4), (2,5), (3,5), (4,5)]
+
+    Drop-in callers using ``seed=N`` for reproducibility silently
+    got different graphs.
+
+    Fix: route the no-``create_using`` path through the existing
+    Python implementation below (which uses
+    ``_generator_random_state`` = ``random.Random``) instead of the
+    Rust fast path.  The lock-test
+    ``test_native_random_generators_do_not_fallback_to_networkx``
+    still passes because the algorithm runs in fnx's own Python
+    code (no nx-fallback).
+    """
+    import networkx as nx
+
+    for seed in (42, 0, 99, 7, 123):
+        for d, n in ((3, 6), (4, 8), (3, 10), (2, 6)):
+            f_edges = sorted(fnx.random_regular_graph(d, n, seed=seed).edges())
+            n_edges = sorted(nx.random_regular_graph(d, n, seed=seed).edges())
+            assert f_edges == n_edges, (
+                f"random_regular_graph(d={d}, n={n}, seed={seed}):\n"
+                f"  fnx={f_edges}\n  nx ={n_edges}"
+            )
+
+    # The create_using path was already correct — verify it still
+    # produces the same graph as the no-create_using path (uses
+    # the same Python implementation now).
+    G_explicit = fnx.random_regular_graph(3, 6, seed=42, create_using=fnx.Graph())
+    G_implicit = fnx.random_regular_graph(3, 6, seed=42)
+    assert sorted(G_explicit.edges()) == sorted(G_implicit.edges())

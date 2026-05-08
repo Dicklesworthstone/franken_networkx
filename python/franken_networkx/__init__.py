@@ -39128,8 +39128,24 @@ def random_regular_graph(d, n, seed=None, *, create_using=None, backend=None, **
     if not 0 <= d < n:
         raise NetworkXError("the 0 <= d < n inequality must be satisfied")
 
+    # br-r37-c1-rrgseed: nx.random_regular_graph(d, n, seed=) uses
+    # ``random.Random(seed)`` (Python's MT19937 with Python-side
+    # state).  fnx's no-``create_using`` fast path used the Rust
+    # ``_rust_random_regular_graph`` which has its own MT19937 with
+    # different state evolution — same seed produced different
+    # graphs (a documented divergence labeled br-codrgen).  Drop-in
+    # callers using ``seed=N`` for reproducibility hit silent graph
+    # divergence.
+    #
+    # Fix: route the no-``create_using`` path through the Python
+    # implementation below (which uses ``_generator_random_state``
+    # = ``random.Random``) — same RNG semantics as nx — so seeded
+    # output matches nx exactly.  No nx-fallback is used (the
+    # ``test_native_random_generators_do_not_fallback_to_networkx``
+    # lock-test still passes); the algorithm is fnx's own Python
+    # implementation.
     if create_using is None:
-        return _rust_random_regular_graph(d, n, seed=_native_random_seed(seed))
+        create_using = Graph
 
     rng = _generator_random_state(seed)
     graph = _checked_create_using(
