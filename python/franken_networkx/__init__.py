@@ -1399,6 +1399,13 @@ class _MultiGraphEdgeView:
         # MultiEdgeDataView.
         if nbunch is None and data is False and keys is False:
             return _LiveMultiEdgeCallView(self._graph, directed=False)
+        # br-r37-c1-mgcall (cycle 213): when ``data`` is anything
+        # other than False, nx returns ``MultiEdgeDataView``
+        # (canonical class).  fnx previously returned a generic
+        # ``_EdgeListWithSetAlgebra`` regardless of args, so
+        # ``type(MG.edges(data=True)).__name__`` was wrong.  Wrap
+        # in ``_MultiEdgeDataView`` (cycle-192's subclass with
+        # canonical name) when data is requested.
         result = _EdgeListWithSetAlgebra()
         seen = set()
         for source in self._graph.nbunch_iter(nbunch):
@@ -1420,6 +1427,8 @@ class _MultiGraphEdgeView:
                         result.append((source, target, key, attrs.get(data, default)))
                     else:
                         result.append((source, target, attrs.get(data, default)))
+        if data is not False:
+            return _wrap_edge_data_view(result, _MultiEdgeDataView)
         return result
 
     def __eq__(self, other):
@@ -1612,6 +1621,11 @@ class _MultiDiGraphEdgeView:
                         result.append((source, target, key, attrs.get(data, default)))
                     else:
                         result.append((source, target, attrs.get(data, default)))
+        # br-r37-c1-mgcall (cycle 213): see _MultiGraphEdgeView.__call__
+        # — wrap in OutMultiEdgeDataView when data is requested so
+        # ``type(MDG.edges(data=True)).__name__`` matches nx.
+        if data is not False:
+            return _wrap_edge_data_view(result, _OutMultiEdgeDataView)
         return result
 
     keys = _multi_edge_keys

@@ -9304,3 +9304,57 @@ def test_node_data_view_and_edge_data_view_deepcopy_preserves_type():
     dc_attr = copy.deepcopy(edv_attr)
     assert type(dc_attr).__name__ == "EdgeDataView"
     assert list(dc_attr) == [(1, 2, 5.0)]
+
+
+def test_multigraph_edges_call_with_data_returns_canonical_data_view():
+    """br-r37-c1-mgcall (cycle 213): nx's MultiGraph.edges(...) /
+    MultiDiGraph.edges(...) returns ``MultiEdgeDataView`` /
+    ``OutMultiEdgeDataView`` whenever ``data`` is anything other
+    than False.  fnx's ``__call__`` previously returned the
+    private ``_EdgeListWithSetAlgebra`` regardless of args:
+
+      Operation                                  nx                   fnx (pre-fix)
+      ---------                                  ---                  -------------
+      MG.edges(data=True)                        MultiEdgeDataView    _EdgeListWithSetAlgebra
+      MG.edges(keys=True, data=True)             MultiEdgeDataView    _EdgeListWithSetAlgebra
+      MG.edges(data="weight", default=99)        MultiEdgeDataView    _EdgeListWithSetAlgebra
+      MDG.edges(data=True)                       OutMultiEdgeDataView _EdgeListWithSetAlgebra
+
+    Drop-in code that does ``isinstance(MG.edges(data=True), MultiEdgeDataView)``
+    silently misbehaved on fnx.
+
+    Fix: in both ``_MultiGraphEdgeView.__call__`` and
+    ``_MultiDiGraphEdgeView.__call__``, when ``data is not False``,
+    wrap the result list in the canonical view class
+    (``_MultiEdgeDataView`` / ``_OutMultiEdgeDataView`` from cycle
+    192's subclass split) via ``_wrap_edge_data_view``.
+
+    Note: the bare ``MG.edges()`` (no args) and ``MG.edges(keys=True)``
+    (no data) cases use different result types (``_LiveMultiEdgeCallView``
+    and ``_EdgeListWithSetAlgebra`` respectively); those remain
+    out of scope for this fix.
+    """
+    import networkx as nx
+
+    cases = [
+        (fnx.MultiGraph,   nx.MultiGraph,   "MultiEdgeDataView"),
+        (fnx.MultiDiGraph, nx.MultiDiGraph, "OutMultiEdgeDataView"),
+    ]
+    for f_cls, n_cls, expected in cases:
+        Gf = f_cls([(1, 2), (2, 3)])
+        Gn = n_cls([(1, 2), (2, 3)])
+
+        # data=True
+        assert type(Gf.edges(data=True)).__name__ == expected
+        assert type(Gn.edges(data=True)).__name__ == expected
+
+        # data=True, keys=True
+        assert type(Gf.edges(keys=True, data=True)).__name__ == expected
+        assert type(Gn.edges(keys=True, data=True)).__name__ == expected
+
+        # data='attr' projection
+        assert type(Gf.edges(data="w", default=99)).__name__ == expected
+        assert type(Gn.edges(data="w", default=99)).__name__ == expected
+
+        # Functional smoke: contents match
+        assert list(Gf.edges(data=True)) == list(Gn.edges(data=True))
