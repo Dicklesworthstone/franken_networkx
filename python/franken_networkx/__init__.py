@@ -33136,8 +33136,19 @@ def edge_subgraph(G, edges):
     )
 
 
-def subgraph_view(G, *, filter_node=None, filter_edge=None):
-    """Filtered live view of graph."""
+def subgraph_view(G, *, filter_node=no_filter, filter_edge=no_filter):
+    """Filtered live view of graph.
+
+    br-r37-c1-svfilter: nx's signature uses ``no_filter`` (a callable
+    that always returns True) as the default for both ``filter_node``
+    and ``filter_edge``.  fnx had used ``None`` as the default, so
+    ``inspect.signature(fnx.subgraph_view)`` reported
+    ``filter_node=None`` instead of ``filter_node=<no_filter>`` —
+    breaking signature-parity-introspecting code.  Match nx's default
+    callable.  Behavior unchanged: ``_generic_filtered_graph_view``
+    treats ``no_filter`` (which always returns True) and ``None``
+    (interpreted as no filter) identically.
+    """
     return _generic_filtered_graph_view(
         G,
         filter_node=filter_node,

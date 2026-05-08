@@ -7047,3 +7047,56 @@ def test_random_lobster_graph_signature_match_nx():
         fnx.random_lobster_graph(5, 0.5, 0.5, seed=42, backend="invalid")
     with pytest.raises(ImportError, match="'invalid' backend is not installed"):
         nx_mod.random_lobster_graph(5, 0.5, 0.5, seed=42, backend="invalid")
+
+
+def test_subgraph_view_default_filters_match_nx():
+    """br-r37-c1-svfilter: ``subgraph_view`` defaults for
+    ``filter_node`` and ``filter_edge`` must be a callable
+    (``no_filter``), matching nx's signature.
+
+    Pre-fix fnx used ``filter_node=None`` / ``filter_edge=None`` —
+    behavior was equivalent (None treated as no filter) but
+    ``inspect.signature(fnx.subgraph_view)`` reported
+    ``filter_node=None`` while nx reports
+    ``filter_node=<function no_filter at ...>``.
+
+    Drop-in code performing signature parity (test fixtures, library
+    compatibility checks) saw the structural difference.
+
+    Fix: change defaults from ``None`` to ``no_filter`` (the existing
+    fnx callable) — the underlying ``_generic_filtered_graph_view``
+    treats both equivalently so behavior is unchanged.
+    """
+    import franken_networkx as fnx
+    import networkx as nx_mod
+    import inspect
+
+    sig_f = inspect.signature(fnx.subgraph_view)
+    sig_n = inspect.signature(nx_mod.subgraph_view)
+
+    # Both filter_node and filter_edge defaults must be callable
+    for param in ("filter_node", "filter_edge"):
+        f_default = sig_f.parameters[param].default
+        n_default = sig_n.parameters[param].default
+        assert callable(f_default), (
+            f"fnx.subgraph_view {param} default not callable: {f_default!r}"
+        )
+        assert callable(n_default)
+        # The default's name should be no_filter (exact pointer equality
+        # would require sharing the function object, but the logical
+        # contract is that the default is a no-op filter).
+        assert f_default.__name__ == "no_filter" == n_default.__name__
+
+    # Sanity: behavior unchanged
+    G_f = fnx.path_graph(5)
+    G_n = nx_mod.path_graph(5)
+    assert sorted(fnx.subgraph_view(G_f).edges()) == sorted(
+        nx_mod.subgraph_view(G_n).edges()
+    )
+
+    # With explicit filter
+    assert sorted(
+        fnx.subgraph_view(G_f, filter_node=lambda n: n != 2).edges()
+    ) == sorted(
+        nx_mod.subgraph_view(G_n, filter_node=lambda n: n != 2).edges()
+    )
