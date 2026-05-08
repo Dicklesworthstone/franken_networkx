@@ -3287,15 +3287,81 @@ _DiGraphEdgeView.items = _adjacency_view_items
 _DiGraphEdgeView.values = _adjacency_view_values
 
 
+# br-r37-c1-edvname: nx exposes per-direction × multi class names
+# for ``.edges.data()`` / ``.in_edges.data()`` / ``.out_edges.data()``:
+#
+#   Graph.edges.data()              EdgeDataView
+#   DiGraph.edges.data()            OutEdgeDataView
+#   DiGraph.in_edges.data()         InEdgeDataView
+#   DiGraph.out_edges.data()        OutEdgeDataView
+#   MultiGraph.edges.data()         MultiEdgeDataView
+#   MultiDiGraph.edges.data()       OutMultiEdgeDataView
+#   MultiDiGraph.in_edges.data()    InMultiEdgeDataView
+#   MultiDiGraph.out_edges.data()   OutMultiEdgeDataView
+#
+# Pre-fix fnx returned a plain ``list`` (DiGraph, in/out_edges) or
+# ``_EdgeListWithSetAlgebra`` (MultiGraph, MultiDiGraph) — diverging
+# on ``type(view).__name__`` for 7 of the 8 combos.  Define
+# 5 trivial list subclasses with canonical ``__name__`` and route
+# each ``.data()`` method to the right one. Set-algebra inherits
+# from _EdgeListWithSetAlgebra so set-typed expressions still work.
+
+class _OutEdgeDataView(_EdgeListWithSetAlgebra):
+    pass
+_OutEdgeDataView.__name__ = "OutEdgeDataView"
+
+
+class _InEdgeDataView(_EdgeListWithSetAlgebra):
+    pass
+_InEdgeDataView.__name__ = "InEdgeDataView"
+
+
+class _MultiEdgeDataView(_EdgeListWithSetAlgebra):
+    pass
+_MultiEdgeDataView.__name__ = "MultiEdgeDataView"
+
+
+class _OutMultiEdgeDataView(_EdgeListWithSetAlgebra):
+    pass
+_OutMultiEdgeDataView.__name__ = "OutMultiEdgeDataView"
+
+
+class _InMultiEdgeDataView(_EdgeListWithSetAlgebra):
+    pass
+_InMultiEdgeDataView.__name__ = "InMultiEdgeDataView"
+
+
+def _wrap_edge_data_view(result, view_cls):
+    """Wrap a list-of-edges result in the canonical nx-named class
+    so ``type(view).__name__`` matches.  If the result is already
+    an instance of view_cls (or a subclass), return as-is."""
+    if isinstance(result, view_cls):
+        return result
+    wrapped = view_cls(result)
+    return wrapped
+
+
 def _edge_view_data(self, data=True, default=None, nbunch=None):
     """Return an iterable of edges with data, matching upstream
     EdgeView.data(). Delegates to the view's __call__(data=...) path
     which already handles `data=True` (attrs dict), `data='attr'`
     (single attribute with default), and `nbunch` filtering.
+
+    For Graph.edges (returns the proper EdgeDataView via __call__),
+    the result needs no rewrapping.  For DiGraph.edges (which
+    returns a plain list), wrap in ``_OutEdgeDataView``.
     """
     if nbunch is None:
-        return self(data=data, default=default)
-    return self(nbunch=nbunch, data=data, default=default)
+        result = self(data=data, default=default)
+    else:
+        result = self(nbunch=nbunch, data=data, default=default)
+    # Graph.edges.data() already returns EdgeDataView via __call__
+    # — leave untouched to preserve the EdgeDataView semantics that
+    # cycle 191's NodeDataView fix mirrors. Only DiGraph.edges.data()
+    # falls through here returning a plain list.
+    if type(self).__name__ == "OutEdgeView":
+        return _wrap_edge_data_view(result, _OutEdgeDataView)
+    return result
 
 
 def _multi_edge_view_data(self, data=True, default=None, keys=False, nbunch=None):
@@ -3303,8 +3369,15 @@ def _multi_edge_view_data(self, data=True, default=None, keys=False, nbunch=None
     `keys` kwarg, matching upstream's MultiEdgeView.data().
     """
     if nbunch is None:
-        return self(data=data, default=default, keys=keys)
-    return self(nbunch=nbunch, data=data, default=default, keys=keys)
+        result = self(data=data, default=default, keys=keys)
+    else:
+        result = self(nbunch=nbunch, data=data, default=default, keys=keys)
+    cls_name = type(self).__name__
+    if cls_name == "OutMultiEdgeView":
+        return _wrap_edge_data_view(result, _OutMultiEdgeDataView)
+    if cls_name == "MultiEdgeView":
+        return _wrap_edge_data_view(result, _MultiEdgeDataView)
+    return result
 
 
 _EDGE_VIEW_TYPE.data = _edge_view_data
@@ -4339,12 +4412,28 @@ class _DiEdgeMethodView:
         # `data` parameter: True -> yield (u, v, attrs); a string ->
         # yield (u, v, attr_value_or_default); False -> yield (u, v).
         # Match nx's signature exactly.
-        return self._method(
+        result = self._method(
             self._graph,
             nbunch=nbunch,
             data=data,
             default=default,
         )
+        # br-r37-c1-edvname: wrap in canonical-named DataView class so
+        # ``type(DG.in_edges.data()).__name__`` matches nx's
+        # ``InEdgeDataView`` / ``OutEdgeDataView`` /
+        # ``InMultiEdgeDataView`` / ``OutMultiEdgeDataView`` based on
+        # this view's class name (set per-direction × multi by the
+        # cycle-188 subclass split).
+        cls_name = type(self).__name__
+        if cls_name == "InEdgeView":
+            return _wrap_edge_data_view(result, _InEdgeDataView)
+        if cls_name == "OutEdgeView":
+            return _wrap_edge_data_view(result, _OutEdgeDataView)
+        if cls_name == "InMultiEdgeView":
+            return _wrap_edge_data_view(result, _InMultiEdgeDataView)
+        if cls_name == "OutMultiEdgeView":
+            return _wrap_edge_data_view(result, _OutMultiEdgeDataView)
+        return result
 
     # br-r37-c1-iev-setops: nx.InEdgeView inherits from Set so all set
     # comparison + algebra operators work (`<=`, `<`, `>=`, `>`,

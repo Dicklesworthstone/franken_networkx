@@ -8055,3 +8055,82 @@ def test_nodes_data_returns_node_data_view_matching_nx():
     nv = G.nodes
     assert type(nv.data(False)).__name__ == "NodeView"
     assert nv.data(False) == nv
+
+
+def test_edges_data_returns_canonical_edge_data_view_class():
+    """br-r37-c1-edvname: nx exposes per-direction × multi class
+    names for ``.edges.data()`` and ``.in_edges.data()`` /
+    ``.out_edges.data()``:
+
+      Graph.edges.data()              EdgeDataView
+      DiGraph.edges.data()            OutEdgeDataView
+      DiGraph.in_edges.data()         InEdgeDataView
+      DiGraph.out_edges.data()        OutEdgeDataView
+      MultiGraph.edges.data()         MultiEdgeDataView
+      MultiDiGraph.edges.data()       OutMultiEdgeDataView
+      MultiDiGraph.in_edges.data()    InMultiEdgeDataView
+      MultiDiGraph.out_edges.data()   OutMultiEdgeDataView
+
+    Pre-fix (post-cycle 188 view-class split, but pre this fix):
+
+      Graph.edges.data()                    EdgeDataView   (already correct)
+      DiGraph.edges.data()                  list           (wrong)
+      DiGraph.in_edges.data()               list           (wrong)
+      DiGraph.out_edges.data()              list           (wrong)
+      MultiGraph.edges.data()               _EdgeListWithSetAlgebra (wrong)
+      MultiDiGraph.edges.data()             _EdgeListWithSetAlgebra (wrong)
+      MultiDiGraph.in_edges.data()          list           (wrong)
+      MultiDiGraph.out_edges.data()         list           (wrong)
+
+    7 of 8 combinations diverged on ``type(view).__name__``.
+
+    Drop-in code that introspects ``type(view).__name__`` to detect
+    direction / multi-ness, parses ``repr(view).startswith(
+    'OutEdgeDataView(')``, or branches on the class hint silently
+    misbehaved.
+
+    Fix: define five trivial ``_EdgeListWithSetAlgebra`` subclasses
+    (``_OutEdgeDataView``, ``_InEdgeDataView``, ``_MultiEdgeDataView``,
+    ``_OutMultiEdgeDataView``, ``_InMultiEdgeDataView``) with
+    canonical nx ``__name__`` set, and route each ``.data()``
+    method to wrap the result in the appropriate one.  Set-algebra
+    inherits from _EdgeListWithSetAlgebra so set-typed expressions
+    still work.
+    """
+    import networkx as nx
+
+    cases = [
+        (fnx.Graph,        nx.Graph,        "edges",     "EdgeDataView"),
+        (fnx.DiGraph,      nx.DiGraph,      "edges",     "OutEdgeDataView"),
+        (fnx.DiGraph,      nx.DiGraph,      "in_edges",  "InEdgeDataView"),
+        (fnx.DiGraph,      nx.DiGraph,      "out_edges", "OutEdgeDataView"),
+        (fnx.MultiGraph,   nx.MultiGraph,   "edges",     "MultiEdgeDataView"),
+        (fnx.MultiDiGraph, nx.MultiDiGraph, "edges",     "OutMultiEdgeDataView"),
+        (fnx.MultiDiGraph, nx.MultiDiGraph, "in_edges",  "InMultiEdgeDataView"),
+        (fnx.MultiDiGraph, nx.MultiDiGraph, "out_edges", "OutMultiEdgeDataView"),
+    ]
+    for f_cls, n_cls, view_name, expected_name in cases:
+        Gf = f_cls([(1, 2), (2, 3)])
+        Gn = n_cls([(1, 2), (2, 3)])
+        view_f = getattr(Gf, view_name)
+        view_n = getattr(Gn, view_name)
+        f_dv = view_f.data()
+        n_dv = view_n.data()
+        assert type(f_dv).__name__ == expected_name, (
+            f"{f_cls.__name__}.{view_name}.data() class: "
+            f"fnx={type(f_dv).__name__} expected={expected_name}"
+        )
+        assert type(n_dv).__name__ == expected_name, (
+            f"sanity: nx {n_cls.__name__}.{view_name}.data() should be "
+            f"{expected_name}, got {type(n_dv).__name__}"
+        )
+
+    # Functional smoke
+    G = fnx.Graph([(1, 2, {"weight": 3.0})])
+    assert list(G.edges.data()) == [(1, 2, {"weight": 3.0})]
+    assert list(G.edges.data("weight")) == [(1, 2, 3.0)]
+    DG = fnx.DiGraph([(1, 2)])
+    assert list(DG.in_edges.data()) == [(1, 2, {})]
+    assert list(DG.out_edges.data()) == [(1, 2, {})]
+    MG = fnx.MultiGraph([(1, 2)])
+    assert list(MG.edges.data(keys=True)) == [(1, 2, 0, {})]
