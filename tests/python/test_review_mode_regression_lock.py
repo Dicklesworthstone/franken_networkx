@@ -9752,3 +9752,65 @@ def test_neighbors_successors_predecessors_return_dict_keyiterator():
     remaining = list(it)
     full = list(fG.neighbors(2))
     assert len(remaining) == len(full) - 1
+
+
+def test_adjacency_view_iter_returns_dict_keyiterator():
+    """br-r37-c1-adjitype (cycle 219): nx's
+    ``AdjacencyView.__iter__`` is ``return iter(self._atlas)`` where
+    ``_atlas`` is a Python dict, yielding a ``dict_keyiterator``.
+    fnx's ``_atlas()`` returns a Rust-bound view whose ``__iter__``
+    returns ``NodeIterator``, diverging on
+    ``type(iter(G.adj)).__name__``.
+
+      Method                           nx                 fnx (pre-fix)
+      ------                           ---                -------------
+      type(iter(G.adj))                dict_keyiterator   NodeIterator
+      type(iter(DG.adj))               dict_keyiterator   NodeIterator
+      type(iter(DG.pred))              dict_keyiterator   NodeIterator
+      type(iter(DG.succ))              dict_keyiterator   NodeIterator
+      type(iter(MG.adj))               dict_keyiterator   NodeIterator
+      type(iter(MDG.{adj,pred,succ}))  dict_keyiterator   NodeIterator
+
+    Sister of cycle 218 (br-r37-c1-nbritype) for
+    ``neighbors``/``successors``/``predecessors``.
+
+    Drop-in code that does
+    ``isinstance(it, type({}.__iter__()))`` saw the wrong runtime
+    type.
+
+    Fix: in both ``AdjacencyView.__iter__`` and
+    ``MultiAdjacencyView.__iter__``, materialise via
+    ``iter(dict.fromkeys(self._atlas()))`` so the iterator runtime
+    type is ``dict_keyiterator``.  Content semantics are unchanged
+    (the underlying view is already keyed by unique node ids).
+    """
+    dict_keyiterator = type({}.__iter__())
+
+    fG = fnx.Graph([(1, 2), (2, 3), (3, 4)])
+    nG = nx.Graph([(1, 2), (2, 3), (3, 4)])
+    assert isinstance(iter(fG.adj), dict_keyiterator)
+    assert isinstance(iter(nG.adj), dict_keyiterator)
+    assert sorted(fG.adj) == sorted(nG.adj)
+
+    fD = fnx.DiGraph([(1, 2), (2, 3), (3, 1)])
+    nD = nx.DiGraph([(1, 2), (2, 3), (3, 1)])
+    for attr in ("adj", "pred", "succ"):
+        assert isinstance(iter(getattr(fD, attr)), dict_keyiterator), attr
+        assert isinstance(iter(getattr(nD, attr)), dict_keyiterator), attr
+        assert sorted(getattr(fD, attr)) == sorted(getattr(nD, attr))
+
+    fM = fnx.MultiGraph([(1, 2), (1, 2), (2, 3)])
+    nM = nx.MultiGraph([(1, 2), (1, 2), (2, 3)])
+    assert isinstance(iter(fM.adj), dict_keyiterator)
+    assert isinstance(iter(nM.adj), dict_keyiterator)
+
+    fMD = fnx.MultiDiGraph([(1, 2), (2, 3), (3, 1)])
+    nMD = nx.MultiDiGraph([(1, 2), (2, 3), (3, 1)])
+    for attr in ("adj", "pred", "succ"):
+        assert isinstance(iter(getattr(fMD, attr)), dict_keyiterator), attr
+        assert isinstance(iter(getattr(nMD, attr)), dict_keyiterator), attr
+
+    # Mapping-protocol soundness: keys/items/values still work.
+    assert sorted(fG.adj.keys()) == sorted(nG.adj.keys())
+    assert sorted([(k, sorted(v)) for k, v in fG.adj.items()]) == \
+           sorted([(k, sorted(v)) for k, v in nG.adj.items()])

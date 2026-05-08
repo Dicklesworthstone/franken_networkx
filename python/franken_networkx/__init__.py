@@ -901,7 +901,16 @@ class AdjacencyView(Mapping):
         return len(self._atlas())
 
     def __iter__(self):
-        return iter(self._atlas())
+        # br-r37-c1-adjitype (cycle 219): nx's ``AdjacencyView.__iter__``
+        # returns ``iter(self._atlas)`` where ``_atlas`` is a Python
+        # dict, yielding a ``dict_keyiterator``.  fnx's ``_atlas()``
+        # returns a Rust-bound view whose ``__iter__`` returns
+        # ``NodeIterator`` — diverging on ``type(iter(G.adj)).__name__``.
+        # Sister of cycle 218 (br-r37-c1-nbritype) for
+        # ``neighbors``/``successors``/``predecessors``.  Materialise
+        # via ``dict.fromkeys`` so the iterator runtime type is
+        # ``dict_keyiterator``.
+        return iter(dict.fromkeys(self._atlas()))
 
     def __getitem__(self, node):
         # br-r37-c1-i9whv: hash-check for nx-shaped TypeError on
@@ -946,7 +955,8 @@ class MultiAdjacencyView(Mapping):
         return len(self._atlas())
 
     def __iter__(self):
-        return iter(self._atlas())
+        # br-r37-c1-adjitype (cycle 219): see AdjacencyView.__iter__.
+        return iter(dict.fromkeys(self._atlas()))
 
     def __getitem__(self, node):
         # br-r37-c1-i9whv: hash-check for nx-shaped TypeError parity.
