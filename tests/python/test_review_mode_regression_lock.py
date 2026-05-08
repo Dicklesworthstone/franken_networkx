@@ -5293,3 +5293,47 @@ def test_multi_source_dijkstra_cutoff_intfloat_order_match_nx():
     f = dict(fnx.multi_source_dijkstra_path_length(P, {0, 4, 2}))
     n = dict(nx.multi_source_dijkstra_path_length(P_nx, {0, 4, 2}))
     assert list(f.items()) == list(n.items())
+
+
+def test_edge_connectivity_cutoff_match_nx():
+    """br-r37-c1-ec-cutoff: ``edge_connectivity`` with any
+    ``cutoff`` value raised ``NetworkXNotImplemented("does
+    not support the cutoff parameter")`` from the Rust
+    binding.  nx supports cutoff and short-circuits when
+    connectivity ≥ cutoff.
+
+    Drop-in callers writing ``nx.edge_connectivity(G, s, t,
+    cutoff=N)`` got an error on fnx but a valid number on
+    nx.
+
+    Lock: 8 boundary cases × 2 graph types — all return the
+    same value as nx; no-cutoff regression preserved."""
+    P = fnx.path_graph(5)
+    P_nx = nx.path_graph(5)
+    K = fnx.complete_graph(5)
+    K_nx = nx.complete_graph(5)
+
+    # P5 s=0 t=4 (path graph, edge_connectivity = 1)
+    for c, expected in [
+        (float("nan"), 0),
+        (float("inf"), 1),
+        (3.5, 1),
+        (-1, 0),
+        (0, 0),
+        (1, 1),
+        (2, 1),
+        (None, 1),
+    ]:
+        f = fnx.edge_connectivity(P, 0, 4, cutoff=c)
+        n = nx.edge_connectivity(P_nx, 0, 4, cutoff=c)
+        assert f == n == expected, f"P5 cutoff={c}: fnx={f} expected={expected}"
+
+    # K5 s=0 t=4 (complete graph, edge_connectivity = 4)
+    for c, expected in [(1, 1), (3, 3), (99, 4), (float("inf"), 4)]:
+        f = fnx.edge_connectivity(K, 0, 4, cutoff=c)
+        n = nx.edge_connectivity(K_nx, 0, 4, cutoff=c)
+        assert f == n == expected
+
+    # No-cutoff regression
+    assert fnx.edge_connectivity(P) == nx.edge_connectivity(P_nx) == 1
+    assert fnx.edge_connectivity(K) == nx.edge_connectivity(K_nx) == 4

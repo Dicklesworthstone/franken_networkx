@@ -4915,6 +4915,16 @@ def edge_connectivity(G, s=None, t=None, flow_func=None, cutoff=None):
             flow_func=flow_func,
             cutoff=cutoff,
         )
+    # br-r37-c1-ec-cutoff: the Rust _raw_edge_connectivity raises
+    # NetworkXNotImplemented("does not support the cutoff
+    # parameter") on any non-None cutoff value, masking nx's
+    # documented contract that ``cutoff`` short-circuits when
+    # connectivity is found to be at least cutoff.  Delegate any
+    # cutoff-bearing call to nx instead.
+    if cutoff is not None:
+        return _call_networkx_for_parity(
+            "edge_connectivity", G, s=s, t=t, cutoff=cutoff
+        )
     # br-r37-c1-792dv: the Rust _raw_edge_connectivity ignores the
     # +2 degree contribution that self-loops make in nx's
     # min-degree-bound calculation. nx's value on graphs with any
