@@ -7175,3 +7175,57 @@ def test_readwrite_signatures_have_backend_kwargs_match_nx():
     assert sorted(G.edges()) == [("a", "b")]
     fnx.parse_pajek([], backend="networkx")
     fnx.from_graph6_bytes(b"@", backend="networkx")
+
+
+def test_add_edges_from_malformed_edge_error_contract():
+    """br-r37-c1-aefnone: Graph/DiGraph.add_edges_from must replicate
+    nx's ``ne = len(e)`` first-pass gate so error CLASS + message
+    match networkx exactly:
+
+    - ``[[1]]``, ``[(1,)]``, ``[()]``, ``[(1,2,3,4)]``,
+      ``[[1,2,3,4]]`` raise
+      ``NetworkXError(f"Edge tuple {e} must be a 2-tuple or 3-tuple.")``
+      (nx's exception CLASS — not a generic TypeError).
+    - ``[None]``, ``[1]`` (no-len inputs) raise
+      ``TypeError("object of type X has no len()")`` exactly.
+
+    Pre-fix the Rust raw path raised ``TypeError("each edge must be a
+    tuple (u, v) or (u, v, attr_dict)")`` for all of these — an
+    exception CLASS divergence (TypeError vs NetworkXError) for the
+    list/tuple-arity case, which broke drop-in callers using
+    ``except nx.NetworkXError:`` to detect malformed edge inputs.
+    """
+    cases = [
+        ([[1]],         fnx.NetworkXError, "Edge tuple [1] must be a 2-tuple or 3-tuple."),
+        ([(1,)],        fnx.NetworkXError, "Edge tuple (1,) must be a 2-tuple or 3-tuple."),
+        ([()],          fnx.NetworkXError, "Edge tuple () must be a 2-tuple or 3-tuple."),
+        ([(1, 2, 3, 4)], fnx.NetworkXError, "Edge tuple (1, 2, 3, 4) must be a 2-tuple or 3-tuple."),
+        ([[1, 2, 3, 4]], fnx.NetworkXError, "Edge tuple [1, 2, 3, 4] must be a 2-tuple or 3-tuple."),
+        ([None],        TypeError, "object of type 'NoneType' has no len()"),
+        ([1],           TypeError, "object of type 'int' has no len()"),
+    ]
+
+    for cls in (fnx.Graph, fnx.DiGraph):
+        for ebunch, exc_type, msg in cases:
+            G = cls()
+            try:
+                G.add_edges_from(ebunch)
+            except exc_type as e:
+                assert str(e) == msg, (
+                    f"{cls.__name__}.add_edges_from({ebunch!r}): "
+                    f"expected {exc_type.__name__}({msg!r}), got "
+                    f"{type(e).__name__}({str(e)!r})"
+                )
+            else:
+                raise AssertionError(
+                    f"{cls.__name__}.add_edges_from({ebunch!r}) did not raise"
+                )
+
+    # Positive controls: well-formed inputs still succeed unchanged.
+    for cls in (fnx.Graph, fnx.DiGraph):
+        G = cls()
+        G.add_edges_from([(1, 2), [3, 4], (5, 6, {"w": 1})])
+        assert (1, 2) in G.edges()
+        assert (3, 4) in G.edges()
+        assert (5, 6) in G.edges()
+        assert G.get_edge_data(5, 6) == {"w": 1}

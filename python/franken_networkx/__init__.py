@@ -1914,14 +1914,29 @@ def _add_edges_from_materialized(raw):
         # (u, v, attr_dict)')`` on lists.  Convert non-tuple sized
         # iterables to tuples before delegating — preserves the
         # canonical nx idiom ``G.add_edges_from([[u, v], ...])``.
+        #
+        # br-r37-c1-aefnone: nx's reference implementation gates each
+        # edge with ``ne = len(e)`` and raises NetworkXError(f"Edge
+        # tuple {e} must be a 2-tuple or 3-tuple.") on bad arity, or
+        # propagates the canonical TypeError("object of type X has no
+        # len()") for ``len()``-less inputs (None, int, ...). The
+        # Rust raw path instead emitted a generic
+        # ``TypeError("each edge must be a tuple (u, v) or (u, v,
+        # attr_dict)")`` for both shapes — diverging on exception
+        # CLASS for the list-arity case (NetworkXError vs TypeError),
+        # which broke drop-in callers using ``except
+        # nx.NetworkXError`` to detect malformed edge inputs.
+        # Replicate the len-based gate here so both error contracts
+        # match nx exactly before delegating.
         for i, edge in enumerate(materialized):
-            if (
-                not isinstance(edge, tuple)
-                and not isinstance(edge, (str, bytes))
-                and hasattr(edge, "__len__")
-                and 2 <= len(edge) <= 3
-            ):
-                materialized[i] = tuple(edge)
+            if isinstance(edge, (tuple, str, bytes)):
+                continue
+            ne = len(edge)
+            if ne not in (2, 3):
+                raise NetworkXError(
+                    f"Edge tuple {edge} must be a 2-tuple or 3-tuple.",
+                )
+            materialized[i] = tuple(edge)
         # br-r37-c1-m0io3: validate hashability of each endpoint so
         # fnx raises TypeError('unhashable type: <type>') matching
         # nx, instead of silently absorbing list/set/dict-typed
