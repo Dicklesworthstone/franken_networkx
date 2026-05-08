@@ -6885,3 +6885,54 @@ def test_parse_gexf_accepts_bytes_input():
     # str input (already worked pre-fix)
     G_parsed_str = fnx.parse_gexf(gexf_bytes.decode("utf-8"))
     assert G_parsed_str.number_of_nodes() == G_orig.number_of_nodes()
+
+
+def test_graph_update_dup_kwarg_error_message_match_nx():
+    """br-r37-c1-updatename: ``G.update(H, edges=...)`` (a programmer
+    error — passing both a positional graph-like and the ``edges``
+    kwarg explicitly) must surface Python's auto-generated TypeError
+    with the canonical nx wording ``Graph.update() got multiple
+    values for argument 'edges'`` rather than fnx's private
+    ``_graph_update()`` name.
+
+    Pre-fix the function was named ``_graph_update`` and Python's
+    duplicate-kwarg TypeError exposed that private name in the
+    error message — leaking implementation detail to drop-in code
+    that error-message-matches.
+
+    Sister of cycles 157 / 166's view-class-name renames; this is
+    the function-name analogue.
+
+    Fix: set ``__name__`` and ``__qualname__`` on the wrapper so
+    Python's error machinery picks up nx's canonical ``Graph.update``
+    name.
+    """
+    import franken_networkx as fnx
+    import networkx as nx_mod
+
+    for cls_name in ("Graph", "DiGraph", "MultiGraph", "MultiDiGraph"):
+        cls_f = getattr(fnx, cls_name)
+        cls_n = getattr(nx_mod, cls_name)
+        G_f = cls_f([(0, 1)])
+        G_n = cls_n([(0, 1)])
+        with pytest.raises(TypeError) as f_exc:
+            G_f.update(cls_f([(2, 3)]), edges=[(4, 5)])
+        with pytest.raises(TypeError) as n_exc:
+            G_n.update(cls_n([(2, 3)]), edges=[(4, 5)])
+        assert str(f_exc.value) == str(n_exc.value), (
+            f"{cls_name}: fnx={f_exc.value!r} vs nx={n_exc.value!r}"
+        )
+        # nx's wording explicitly names "Graph.update" even on
+        # DiGraph etc. (inherited method); verify both libs match.
+        assert "Graph.update()" in str(f_exc.value)
+
+    # Sanity: legitimate update calls still work
+    G_f = fnx.Graph()
+    G_f.update(fnx.path_graph(3))
+    assert sorted(G_f.edges()) == [(0, 1), (1, 2)]
+
+    # Sanity: no-args error wording unchanged
+    with pytest.raises(nx_mod.NetworkXError, match="update needs"):
+        fnx.Graph().update()
+    with pytest.raises(nx_mod.NetworkXError, match="update needs"):
+        nx_mod.Graph().update()

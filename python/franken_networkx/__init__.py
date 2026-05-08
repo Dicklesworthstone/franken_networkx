@@ -1777,6 +1777,14 @@ def _graph_update(self, edges=None, nodes=None):
         raise NetworkXError("update needs nodes or edges input")
 
 
+# br-r37-c1-updatename: rename so Python's auto-generated TypeError on
+# ``G.update(H, edges=...)`` (duplicate values for the same keyword)
+# uses the canonical nx wording ``Graph.update()`` rather than fnx's
+# private ``_graph_update()``.  Same shape as the DegreeView / EdgeView
+# / AdjView name-only renames in cycles 157 / 166.
+_graph_update.__name__ = "update"
+_graph_update.__qualname__ = "Graph.update"
+
 Graph.update = _graph_update
 DiGraph.update = _graph_update
 MultiGraph.update = _graph_update
