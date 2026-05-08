@@ -2939,6 +2939,16 @@ class _WeightAwareDegreeView:
         # reference can't survive pickling).
         return (list, (list(self),))
 
+    # br-r37-c1-vcopy: nx's DegreeView/DiDegreeView preserve type
+    # through copy.copy / copy.deepcopy.  The __reduce__ snapshot
+    # path made copy return a plain list — define __copy__ /
+    # __deepcopy__ returning self so type(c) is preserved.
+    def __copy__(self):
+        return self
+
+    def __deepcopy__(self, memo):
+        return self
+
     def __eq__(self, other):
         # br-r37-c1-dv-eq: nx's DegreeView/DiDegreeView compare
         # equal when their (node, degree) sequences match. The
@@ -4409,6 +4419,17 @@ class _DiEdgeMethodView:
 
     def __reduce__(self):
         return (list, (list(self),))
+
+    # br-r37-c1-vcopy: nx's InEdgeView / OutEdgeView / InMultiEdgeView
+    # / OutMultiEdgeView preserve type through copy.copy /
+    # copy.deepcopy.  Define __copy__ / __deepcopy__ returning self
+    # so type(c) is preserved (the __reduce__ snapshot is for pickle
+    # only).
+    def __copy__(self):
+        return self
+
+    def __deepcopy__(self, memo):
+        return self
 
     def __repr__(self):
         # br-r37-c1-emvname: nx's InEdgeView / OutEdgeView /

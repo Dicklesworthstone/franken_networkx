@@ -8568,3 +8568,69 @@ def test_view_copy_and_deepcopy_preserve_view_type():
     # contract — see _node_view_reduce docstring).
     assert isinstance(r, dict)
     assert dict(r) == {0: {}, 1: {}, 2: {}}
+
+
+def test_degree_and_in_out_edge_view_copy_preserves_view_type():
+    """br-r37-c1-vcopy: extends cycle 198's NodeView/EdgeView copy
+    fix to the remaining view types whose ``__reduce__`` snapshotted
+    to ``list``:
+
+      view                                   nx                  fnx (pre-fix)
+      ----                                   ---                 -------------
+      copy.copy(G.degree)                    DegreeView          list
+      copy.deepcopy(G.degree)                DegreeView          list
+      copy.copy(DG.degree)                   DiDegreeView        list
+      copy.deepcopy(DG.degree)               DiDegreeView        list
+      copy.copy(DG.in_edges)                 InEdgeView          list
+      copy.deepcopy(DG.in_edges)             InEdgeView          list
+      copy.copy(DG.out_edges)                OutEdgeView         list
+      copy.copy(MDG.in_edges)                InMultiEdgeView     list
+      copy.copy(MDG.out_edges)               OutMultiEdgeView    list
+
+    Drop-in code that does ``isinstance(c, DegreeView)`` after a
+    copy round-trip silently misbehaved.
+
+    Fix: define ``__copy__`` / ``__deepcopy__`` returning self on
+    the two relevant base classes (``_WeightAwareDegreeView`` for
+    Graph/DiGraph degree views, ``_DiEdgeMethodView`` for in_edges/
+    out_edges across DiGraph/MultiDiGraph). ``__reduce__`` keeps
+    the snapshot for pickle as before.
+    """
+    import copy
+
+    # Graph and DiGraph: degree views
+    cases_degree = [
+        (fnx.Graph,        nx.Graph,        "DegreeView"),
+        (fnx.DiGraph,      nx.DiGraph,      "DiDegreeView"),
+    ]
+    for f_cls, n_cls, expected in cases_degree:
+        Gf = f_cls([(1, 2), (2, 3)])
+        Gn = n_cls([(1, 2), (2, 3)])
+        for op in (copy.copy, copy.deepcopy):
+            cf = op(Gf.degree)
+            cn = op(Gn.degree)
+            assert type(cf).__name__ == expected, (
+                f"{f_cls.__name__}.degree {op.__name__}: "
+                f"fnx={type(cf).__name__} expected={expected}"
+            )
+            # Behavior preserved
+            assert dict(cf) == dict(cn) == dict(Gn.degree)
+
+    # DiGraph and MultiDiGraph: in_edges / out_edges
+    cases_edges = [
+        (fnx.DiGraph,      nx.DiGraph,      "in_edges",  "InEdgeView"),
+        (fnx.DiGraph,      nx.DiGraph,      "out_edges", "OutEdgeView"),
+        (fnx.MultiDiGraph, nx.MultiDiGraph, "in_edges",  "InMultiEdgeView"),
+        (fnx.MultiDiGraph, nx.MultiDiGraph, "out_edges", "OutMultiEdgeView"),
+    ]
+    for f_cls, n_cls, attr, expected in cases_edges:
+        Gf = f_cls([(1, 2), (2, 3)])
+        Gn = n_cls([(1, 2), (2, 3)])
+        for op in (copy.copy, copy.deepcopy):
+            cf = op(getattr(Gf, attr))
+            cn = op(getattr(Gn, attr))
+            assert type(cf).__name__ == expected, (
+                f"{f_cls.__name__}.{attr} {op.__name__}: "
+                f"fnx={type(cf).__name__} expected={expected}"
+            )
+            assert list(cf) == list(cn) == list(getattr(Gn, attr))
