@@ -25943,7 +25943,7 @@ class _ReverseDirectedViewBase:
     def edges(self):
         return _ReverseEdgeView(self)
 
-    def out_edges(self, nbunch=None, data=False, keys=False):
+    def _out_edges_compute(self, nbunch=None, data=False, keys=False):
         nodes = self._nbunch(nbunch)
         result = []
         adjacency = self.succ
@@ -25968,7 +25968,7 @@ class _ReverseDirectedViewBase:
                         result.append((source, target))
         return result
 
-    def in_edges(self, nbunch=None, data=False, keys=False):
+    def _in_edges_compute(self, nbunch=None, data=False, keys=False):
         nodes = self._nbunch(nbunch)
         result = []
         adjacency = self.pred
@@ -25993,7 +25993,26 @@ class _ReverseDirectedViewBase:
                         result.append((source, target))
         return result
 
-    def degree(self, nbunch=None, weight=None):
+    # br-r37-c1-revview: nx exposes these on a reverse view as
+    # @property returning a view object that supports __iter__,
+    # __getitem__, __call__, __len__ etc.  fnx had them as plain
+    # methods, so ``R.in_edges`` returned a bound method (not a
+    # view) — ``list(R.in_edges)`` and ``R.degree[node]`` raised
+    # TypeError.  Wrap each via a small Proxy class with the
+    # canonical nx ``__name__``.
+    @property
+    def out_edges(self):
+        if self._graph.is_multigraph():
+            return _RevOutMultiEdgeViewProxy(self)
+        return _RevOutEdgeViewProxy(self)
+
+    @property
+    def in_edges(self):
+        if self._graph.is_multigraph():
+            return _RevInMultiEdgeViewProxy(self)
+        return _RevInEdgeViewProxy(self)
+
+    def _degree_compute(self, nbunch=None, weight=None):
         def edge_weight(attrs):
             return attrs.get(weight, 1)
 
@@ -26034,6 +26053,15 @@ class _ReverseDirectedViewBase:
 
         nodes = self._nbunch(nbunch)
         return ((node, node_degree(node)) for node in nodes)
+
+    @property
+    def degree(self):
+        # br-r37-c1-revview: see out_edges/in_edges above. Wrap the
+        # _degree_compute method so list(R.degree) and R.degree[node]
+        # work as nx exposes them.
+        if self._graph.is_multigraph():
+            return _RevDiMultiDegreeViewProxy(self)
+        return _RevDiDegreeViewProxy(self)
 
     def subgraph(self, nodes):
         visible_nodes = set(self._nbunch(nodes))
@@ -26166,6 +26194,112 @@ class _ReverseDirectedViewBase:
     clear = _frozen
     clear_edges = _frozen
     update = _frozen
+
+
+# br-r37-c1-revview: small proxy classes that wrap a reverse-view
+# method so the result behaves like a view object (callable +
+# iterable + indexable + sized) AND has the canonical nx
+# ``__name__`` for type introspection.
+class _RevEdgeMethodViewBase:
+    """Base proxy: wraps an edge-computing method on the reverse
+    view. ``self()`` (no args) → list of edges. Iterable / sized.
+    Calling with kwargs forwards to the underlying compute method.
+    """
+
+    __slots__ = ("_owner",)
+
+    def __init__(self, owner):
+        self._owner = owner
+
+    def _compute(self, *args, **kwargs):
+        raise NotImplementedError
+
+    def __call__(self, *args, **kwargs):
+        return self._compute(*args, **kwargs)
+
+    def __iter__(self):
+        # Multi*Graph reverse views default to keys=True for __iter__
+        # but keys=False for __call__ — match the nx asymmetry.
+        if self._owner._graph.is_multigraph():
+            return iter(self._compute(keys=True))
+        return iter(self._compute())
+
+    def __len__(self):
+        return len(self._compute())
+
+    def __contains__(self, item):
+        try:
+            return item in set(self._compute())
+        except TypeError:
+            return False
+
+    def __repr__(self):
+        return f"{type(self).__name__}({list(self)!r})"
+
+    def data(self, data=True, default=None, nbunch=None):
+        # br-r37-c1-revview-data: nx's reverse-view edges have a
+        # ``.data()`` method that returns an EdgeDataView. Match.
+        return self._compute(nbunch=nbunch, data=data)
+
+
+class _RevOutEdgeViewProxy(_RevEdgeMethodViewBase):
+    def _compute(self, *args, **kwargs):
+        return self._owner._out_edges_compute(*args, **kwargs)
+_RevOutEdgeViewProxy.__name__ = "OutEdgeView"
+
+
+class _RevInEdgeViewProxy(_RevEdgeMethodViewBase):
+    def _compute(self, *args, **kwargs):
+        return self._owner._in_edges_compute(*args, **kwargs)
+_RevInEdgeViewProxy.__name__ = "InEdgeView"
+
+
+class _RevOutMultiEdgeViewProxy(_RevEdgeMethodViewBase):
+    def _compute(self, *args, **kwargs):
+        return self._owner._out_edges_compute(*args, **kwargs)
+_RevOutMultiEdgeViewProxy.__name__ = "OutMultiEdgeView"
+
+
+class _RevInMultiEdgeViewProxy(_RevEdgeMethodViewBase):
+    def _compute(self, *args, **kwargs):
+        return self._owner._in_edges_compute(*args, **kwargs)
+_RevInMultiEdgeViewProxy.__name__ = "InMultiEdgeView"
+
+
+class _RevDegreeViewBase:
+    """Proxy for a reverse-view degree. Supports ``view[node]`` →
+    int, ``list(view)`` → [(node, deg), ...], and ``view(weight=)``
+    forwarding to the underlying compute method."""
+
+    __slots__ = ("_owner",)
+
+    def __init__(self, owner):
+        self._owner = owner
+
+    def __call__(self, nbunch=None, weight=None):
+        return self._owner._degree_compute(nbunch=nbunch, weight=weight)
+
+    def __iter__(self):
+        return iter(self._owner._degree_compute())
+
+    def __getitem__(self, node):
+        return self._owner._degree_compute(node)
+
+    def __len__(self):
+        return len(self._owner._graph)
+
+    def __repr__(self):
+        return f"{type(self).__name__}({dict(self)!r})"
+
+
+class _RevDiDegreeViewProxy(_RevDegreeViewBase):
+    pass
+_RevDiDegreeViewProxy.__name__ = "DiDegreeView"
+
+
+class _RevDiMultiDegreeViewProxy(_RevDegreeViewBase):
+    pass
+_RevDiMultiDegreeViewProxy.__name__ = "DiMultiDegreeView"
 
 
 class _ReverseDirectedView(_ReverseDirectedViewBase, DiGraph):

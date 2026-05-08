@@ -8280,3 +8280,70 @@ def test_subgraph_view_nodes_and_degree_class_names_and_repr():
     assert list(S.nodes) == [1, 2, 3]
     assert dict(S.degree) == {1: 1, 2: 2, 3: 1}
     assert S.degree[2] == 2
+
+
+def test_reverse_view_in_out_edges_and_degree_are_views_not_methods():
+    """br-r37-c1-revview: ``DG.reverse(copy=False).in_edges /
+    out_edges / degree`` must expose view-objects (callable +
+    iterable + sized + indexable for degree) — matching nx's
+    ``InEdgeView`` / ``OutEdgeView`` / ``DiDegreeView`` (and the
+    Multi* variants).
+
+    Pre-fix fnx exposed these as plain methods on
+    ``_ReverseDirectedViewBase``, so ``R.in_edges`` returned a
+    ``<bound method ...>`` and:
+
+      list(R.in_edges)    →  TypeError: 'method' object is not iterable
+      R.degree[node]       →  TypeError: 'method' object is not subscriptable
+
+    nx exposes the equivalents as @property returning view objects,
+    so ``list(R.in_edges)`` and ``R.degree[node]`` work directly.
+
+    Fix: rename the existing computation methods to
+    ``_in_edges_compute`` / ``_out_edges_compute`` / ``_degree_compute``
+    and add ``@property`` getters returning small Proxy classes
+    (``_RevInEdgeViewProxy`` etc.) with canonical nx ``__name__``
+    that wrap the compute method as a callable + iterable + indexable
+    view.
+
+    Affects DiGraph and MultiDiGraph (the only classes with reverse
+    views).
+    """
+    import networkx as nx
+
+    cases = [
+        (fnx.DiGraph,      nx.DiGraph,
+            "InEdgeView", "OutEdgeView", "DiDegreeView"),
+        (fnx.MultiDiGraph, nx.MultiDiGraph,
+            "InMultiEdgeView", "OutMultiEdgeView", "DiMultiDegreeView"),
+    ]
+    for f_cls, n_cls, in_name, out_name, deg_name in cases:
+        DGf = f_cls([(1, 2), (2, 3)])
+        DGn = n_cls([(1, 2), (2, 3)])
+        Rf = DGf.reverse(copy=False)
+        Rn = DGn.reverse(copy=False)
+
+        # In-edges: view, not bound method
+        assert type(Rf.in_edges).__name__ == in_name
+        assert list(Rf.in_edges) == list(Rn.in_edges)
+        assert len(Rf.in_edges) == len(Rn.in_edges)
+
+        # Out-edges
+        assert type(Rf.out_edges).__name__ == out_name
+        assert list(Rf.out_edges) == list(Rn.out_edges)
+
+        # Degree: indexable + iterable
+        assert type(Rf.degree).__name__ == deg_name
+        assert Rf.degree[2] == Rn.degree[2]
+        assert list(Rf.degree) == list(Rn.degree)
+        # Calling forwards to the underlying compute method
+        assert list(Rf.degree([2])) == list(Rn.degree([2]))
+
+    # Smoke: complex case with weights
+    DG = fnx.DiGraph()
+    DG.add_edge(1, 2, weight=3.0)
+    DG.add_edge(2, 3, weight=4.0)
+    R = DG.reverse(copy=False)
+    assert R.degree(1, weight="weight") == 3.0
+    assert R.degree(2, weight="weight") == 7.0
+    assert R.degree[2] == 2  # unweighted
