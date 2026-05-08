@@ -7536,3 +7536,76 @@ def test_multigraph_edge_key_first_add_wins_for_displayed_py_object():
         edges = list(G.edges(keys=True))
         assert edges == [('a', 'b', 0)]
         assert type(edges[0][2]).__name__ == "int"
+
+
+def test_node_and_edge_views_are_unhashable():
+    """br-r37-c1-viewhash: nx's NodeView, OutEdgeView, MultiEdgeView,
+    OutMultiEdgeView, AtlasView, AdjacencyView all inherit from
+    ``collections.abc.Mapping`` which sets ``__hash__ = None`` —
+    making ``hash(view)`` raise ``TypeError: unhashable type: ...``
+    and forbidding views as dict keys / set elements.
+
+    Pre-fix fnx assigned an id-based ``__hash__`` to all four
+    NodeView types (``_node_view_hash`` returning ``id(self)``)
+    and to the three EdgeView classes for DiGraph/MultiGraph/
+    MultiDiGraph (``id(self._graph)``).  This silently accepted
+    views in hash contexts, diverging on a contract that drop-in
+    callers rely on:
+
+      ``set([G.nodes])``      — nx raises TypeError, fnx silently accepted
+      ``{G.edges: 1}``        — nx raises, fnx (for DiGraph/MultiGraph/MDG) silently accepted
+      ``hash(G.nodes)``       — nx raises, fnx returned an int
+
+    Note ``Graph.edges`` (the first-defined EdgeView) was already
+    correctly unhashable; the divergence affected NodeView for all
+    four classes plus EdgeView for the three non-Graph classes.
+
+    Fix: set ``__hash__ = None`` on the relevant view types.  Set
+    protocol operators (``&``, ``|``, ``<=``, ``isdisjoint``)
+    still work because they iterate the view contents rather than
+    hashing the view itself.
+    """
+    for cls_name in ("Graph", "DiGraph", "MultiGraph", "MultiDiGraph"):
+        cls = getattr(fnx, cls_name)
+        G = cls()
+        G.add_edge(1, 2)
+
+        for view_name in ("nodes", "edges", "adj"):
+            view = getattr(G, view_name)
+            try:
+                hash(view)
+            except TypeError:
+                pass
+            else:
+                raise AssertionError(
+                    f"{cls_name}.{view_name} should be unhashable, but hash() succeeded "
+                    f"(type={type(view).__module__}.{type(view).__qualname__})"
+                )
+
+    # Set protocol operators still work (iterate, not hash)
+    for cls_name in ("Graph", "DiGraph"):
+        cls = getattr(fnx, cls_name)
+        G1 = cls(); G1.add_nodes_from([1, 2, 3])
+        G2 = cls(); G2.add_nodes_from([2, 3, 4])
+        assert G1.nodes & G2.nodes == {2, 3}
+        assert G1.nodes <= G1.nodes
+        assert G1.nodes.isdisjoint({99})
+        assert set(G1.nodes) == {1, 2, 3}
+        assert G1.nodes == G1.nodes  # __eq__ still works
+
+    # View-in-hash-context raises TypeError (matches nx)
+    G = fnx.Graph()
+    try:
+        set([G.nodes])
+    except TypeError:
+        pass
+    else:
+        raise AssertionError("set([G.nodes]) should raise TypeError")
+
+    G = fnx.DiGraph()
+    try:
+        {G.edges: 1}
+    except TypeError:
+        pass
+    else:
+        raise AssertionError("{DiGraph.edges: 1} should raise TypeError")

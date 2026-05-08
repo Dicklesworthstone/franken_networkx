@@ -1105,8 +1105,14 @@ class _DiGraphEdgeView:
             return NotImplemented
         return not eq
 
-    def __hash__(self):
-        return id(self._graph)
+    # br-r37-c1-viewhash: nx's OutEdgeView / MultiEdgeView /
+    # OutMultiEdgeView all inherit from ``collections.abc.Mapping``
+    # (``__hash__ = None``), so ``hash(G.edges)`` raises TypeError.
+    # fnx previously returned ``id(self._graph)`` here, silently
+    # accepting the view as hashable — diverging on a contract that
+    # drop-in callers rely on (``except TypeError: ...`` around
+    # accidental view-in-set patterns).
+    __hash__ = None
 
     # br-r37-c1-iev-setops: see _DiEdgeMethodView. Set comparison
     # operators (`<=`, `<`, `>=`, `>`, isdisjoint) — the existing
@@ -1369,8 +1375,14 @@ class _MultiGraphEdgeView:
             return NotImplemented
         return not eq
 
-    def __hash__(self):
-        return id(self._graph)
+    # br-r37-c1-viewhash: nx's OutEdgeView / MultiEdgeView /
+    # OutMultiEdgeView all inherit from ``collections.abc.Mapping``
+    # (``__hash__ = None``), so ``hash(G.edges)`` raises TypeError.
+    # fnx previously returned ``id(self._graph)`` here, silently
+    # accepting the view as hashable — diverging on a contract that
+    # drop-in callers rely on (``except TypeError: ...`` around
+    # accidental view-in-set patterns).
+    __hash__ = None
 
     # br-r37-c1-iev-setops: see _DiEdgeMethodView. Set comparison +
     # algebra operators for nx parity (Set inheritance on
@@ -1558,8 +1570,14 @@ class _MultiDiGraphEdgeView:
             return NotImplemented
         return not eq
 
-    def __hash__(self):
-        return id(self._graph)
+    # br-r37-c1-viewhash: nx's OutEdgeView / MultiEdgeView /
+    # OutMultiEdgeView all inherit from ``collections.abc.Mapping``
+    # (``__hash__ = None``), so ``hash(G.edges)`` raises TypeError.
+    # fnx previously returned ``id(self._graph)`` here, silently
+    # accepting the view as hashable — diverging on a contract that
+    # drop-in callers rely on (``except TypeError: ...`` around
+    # accidental view-in-set patterns).
+    __hash__ = None
 
     # br-r37-c1-iev-setops: see _DiEdgeMethodView. Set comparison +
     # algebra operators for nx parity.
@@ -3455,11 +3473,6 @@ def _node_view_ne(self, other):
     return not eq
 
 
-def _node_view_hash(self):
-    # Identity-keyed hash so Set protocol stays consistent.
-    return id(self)
-
-
 _ALL_NODE_VIEW_TYPES = (
     _SIMPLE_GRAPH_NODE_VIEW_TYPE,
     _SIMPLE_DIGRAPH_NODE_VIEW_TYPE,
@@ -3483,7 +3496,18 @@ def _node_view_isdisjoint(self, other):
 for _nv_type in _ALL_NODE_VIEW_TYPES:
     _nv_type.__eq__ = _node_view_eq
     _nv_type.__ne__ = _node_view_ne
-    _nv_type.__hash__ = _node_view_hash
+    # br-r37-c1-viewhash: nx's NodeView inherits from
+    # ``collections.abc.Mapping``, which sets ``__hash__ = None``.
+    # That makes ``hash(G.nodes)`` raise ``TypeError: unhashable
+    # type: 'NodeView'`` and forbids using a NodeView as a dict
+    # key or set element. fnx previously assigned an id-based
+    # ``__hash__`` here, silently accepting the view as hashable
+    # — diverging on a contract that drop-in callers rely on
+    # (``except TypeError: ...`` around accidental view-in-set
+    # patterns).  Set ``__hash__ = None`` so fnx matches nx.
+    # Set protocol operators (``&``, ``|``, ``<=``, ``isdisjoint``)
+    # still work because they iterate the view, not hash it.
+    _nv_type.__hash__ = None
     _nv_type.isdisjoint = _node_view_isdisjoint
 
 
