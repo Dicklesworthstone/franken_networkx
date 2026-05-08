@@ -7100,3 +7100,30 @@ def test_subgraph_view_default_filters_match_nx():
     ) == sorted(
         nx_mod.subgraph_view(G_n, filter_node=lambda n: n != 2).edges()
     )
+
+
+def test_display_signature_match_nx():
+    """br-r37-c1-dispkwds: ``fnx.display`` variadic kwarg name must
+    match nx's ``**kwargs`` (was ``**kwds``).
+
+    Pre-fix ``inspect.signature(fnx.display)`` reported
+    ``(G, canvas=None, **kwds)`` while nx reports
+    ``(G, canvas=None, **kwargs)`` — a one-character cosmetic
+    divergence that breaks signature-parity introspection but has
+    no behavioral effect (kwarg names are caller-invisible).
+
+    Fix: rename ``**kwds`` -> ``**kwargs`` in the function
+    definition and the two internal forwards.
+    """
+    import franken_networkx as fnx
+    import networkx as nx_mod
+    import inspect
+
+    f_sig = str(inspect.signature(fnx.display))
+    n_sig = str(inspect.signature(nx_mod.display))
+    assert f_sig == n_sig, (
+        f"display signature mismatch:\n  fnx={f_sig}\n  nx ={n_sig}"
+    )
+    # Specifically: variadic should be **kwargs not **kwds
+    assert "**kwargs" in f_sig
+    assert "**kwds" not in f_sig

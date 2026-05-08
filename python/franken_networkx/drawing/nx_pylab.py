@@ -794,7 +794,7 @@ def write_network_text(
     return None
 
 
-def display(G, canvas=None, **kwds):
+def display(G, canvas=None, **kwargs):
     """Display a graph in notebooks when possible, otherwise return text output.
 
     br-r37-c1-disp-canvas: nx's ``display`` accepts a positional
@@ -806,6 +806,11 @@ def display(G, canvas=None, **kwds):
     to ``draw`` when matplotlib is available; ignore in the
     text-fallback branch (``write_network_text`` has no canvas
     concept).
+
+    br-r37-c1-dispkwds: variadic kwarg renamed from ``**kwds`` to
+    ``**kwargs`` so ``inspect.signature(fnx.display)`` matches nx's
+    canonical ``(G, canvas=None, **kwargs)`` shape — pure
+    introspection-parity fix; behavior unchanged.
     """
     try:
         from IPython import get_ipython
@@ -822,13 +827,13 @@ def display(G, canvas=None, **kwds):
             else:
                 ax = canvas
                 fig = ax.figure
-            draw(G, ax=ax, **kwds)
+            draw(G, ax=ax, **kwargs)
             return fig
         except Exception:
             pass
 
     buffer = StringIO()
-    write_network_text(G, path=buffer, **kwds)
+    write_network_text(G, path=buffer, **kwargs)
     return buffer.getvalue()
 
 
