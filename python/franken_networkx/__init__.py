@@ -292,6 +292,17 @@ class EdgeDataView:
         default = self._default
         data_is_none = data is None
         rust_data = False if data_is_none else data
+        # br-r37-c1-edgesdatakey: nx.EdgeView.__call__ accepts ANY
+        # value for ``data`` and uses it as a dict-key into each edge
+        # attrs via ``attrs.get(data, default)`` — so callables /
+        # ints / tuples / etc. all return the default since they
+        # aren't typical attr keys.  fnx's Rust binding declared
+        # ``data: bool | str`` and raised
+        # ``TypeError("data must be True, False, or a string
+        # attribute name")`` on any other type.  Compute in Python
+        # for parity when ``data`` is a non-string non-bool key.
+        if not data_is_none and not isinstance(data, (bool, str)):
+            return self._materialize_data_as_key(data, default)
         if self._nbunch_list is not None and self._graph is not None:
             # br-r37-c1-dc14n: nx's edges(nbunch) iterates nbunch in
             # user-given order and for each node yields edges (u, v)
@@ -312,6 +323,31 @@ class EdgeDataView:
         if data_is_none:
             result = [edge + (default,) for edge in result]
         return list(result)
+
+    def _materialize_data_as_key(self, data, default):
+        """nx-shape ``edges(data=arbitrary_key)`` — yield (u, v, attrs.get(key, default))."""
+        # Reuse the bool=True path to get edges-with-attr-dict, then
+        # project each (u, v, attrs) -> (u, v, attrs.get(data, default)).
+        result = self._call(
+            self._view,
+            data=True,
+            nbunch=self._nbunch_list,
+            default=default,
+        )
+        projected = []
+        for entry in result:
+            if len(entry) == 3:
+                u, v, attrs = entry
+                val = attrs.get(data, default) if isinstance(attrs, dict) else default
+                projected.append((u, v, val))
+            elif len(entry) == 4:
+                # MultiGraph: (u, v, key, attrs)
+                u, v, k, attrs = entry
+                val = attrs.get(data, default) if isinstance(attrs, dict) else default
+                projected.append((u, v, k, val))
+            else:
+                projected.append(entry)
+        return projected
 
     def _materialize_via_adj_walk(self, data, default, data_is_none):
         """Mirror nx's UndirectedEdgeView.__call__ when nbunch is set:

@@ -6546,3 +6546,63 @@ def test_remove_edges_from_accepts_list_edges_match_nx():
     G_f.remove_edges_from([(0, 1)])
     G_n.remove_edges_from([(0, 1)])
     assert sorted(G_f.edges()) == sorted(G_n.edges())
+
+
+def test_edges_data_arbitrary_key_match_nx():
+    """br-r37-c1-edgesdatakey: ``G.edges(data=arbitrary_key)`` must
+    accept any value for ``data`` and treat it as a dict-key into
+    each edge's attrs (returning ``default`` for missing keys).
+
+    Pre-fix the Rust binding declared ``data: bool | str`` and
+    raised ``TypeError("data must be True, False, or a string
+    attribute name")`` on callables, ints, tuples, etc.  nx's
+    ``EdgeView.__call__`` uses ``attrs.get(data, default)`` which
+    accepts any hashable as a key.
+
+    Fix: in ``_EdgeDataView._materialize``, when ``data`` is not
+    None / bool / str, route through a Python-side projection that
+    looks up ``data`` in each edge's attrs dict.
+    """
+    import franken_networkx as fnx
+    import networkx as nx_mod
+
+    G_f = fnx.path_graph(3)
+    G_n = nx_mod.path_graph(3)
+    G_f[0][1]["weight"] = 5
+    G_n[0][1]["weight"] = 5
+
+    # Callable / int / tuple all return None (default) since they
+    # aren't valid attr keys on these edges.
+    for data_val in (lambda u, v: u + v, 5, ("w",)):
+        assert list(G_f.edges(data=data_val)) == list(G_n.edges(data=data_val))
+
+    # With explicit default: the default propagates.
+    for data_val in (lambda u, v: u + v, 5):
+        assert list(G_f.edges(data=data_val, default="X")) == list(
+            G_n.edges(data=data_val, default="X")
+        )
+
+    # Sanity: bool/str/None still work
+    assert list(G_f.edges(data=True)) == list(G_n.edges(data=True))
+    assert list(G_f.edges(data="weight")) == list(G_n.edges(data="weight"))
+    assert list(G_f.edges(data="missing")) == list(G_n.edges(data="missing"))
+    assert list(G_f.edges()) == list(G_n.edges())
+
+    # nbunch + non-string data
+    assert sorted(G_f.edges([0], data=lambda u, v: u + v)) == sorted(
+        G_n.edges([0], data=lambda u, v: u + v)
+    )
+
+    # MultiGraph variant — preserves keys=True 4-tuple form
+    M_f = fnx.MultiGraph()
+    M_f.add_edge(0, 1, weight=5)
+    M_f.add_edge(0, 1, weight=10)
+    M_n = nx_mod.MultiGraph()
+    M_n.add_edge(0, 1, weight=5)
+    M_n.add_edge(0, 1, weight=10)
+    assert list(M_f.edges(data=lambda u, v: 0)) == list(
+        M_n.edges(data=lambda u, v: 0)
+    )
+    assert list(M_f.edges(data=lambda u, v: 0, keys=True)) == list(
+        M_n.edges(data=lambda u, v: 0, keys=True)
+    )
