@@ -9685,3 +9685,70 @@ def test_remove_edges_nodes_from_generator_partial_progress_persists():
         g.add_node(n)
     g.remove_nodes_from([1, 2])
     assert sorted(g.nodes()) == [3]
+
+
+def test_neighbors_successors_predecessors_return_dict_keyiterator():
+    """br-r37-c1-nbritype (cycle 218): nx's
+    ``Graph.neighbors(u)`` / ``DiGraph.successors(u)`` /
+    ``DiGraph.predecessors(u)`` (and Multi-graph equivalents)
+    return ``iter(self._adj[n])`` whose runtime type is
+    ``dict_keyiterator``.  fnx previously returned
+    ``list_iterator`` (via ``iter(list)``), diverging on
+    ``type(G.neighbors(u)).__name__``:
+
+      Method                                nx                  fnx (pre-fix)
+      ------                                ---                 -------------
+      type(G.neighbors(u))                  dict_keyiterator    list_iterator
+      type(DG.successors(u))                dict_keyiterator    list_iterator
+      type(DG.predecessors(u))              dict_keyiterator    list_iterator
+      type(MG.neighbors(u))                 dict_keyiterator    list_iterator
+
+    Drop-in code that does
+    ``isinstance(it, type({}.__iter__()))`` (the standard way
+    to detect a ``dict_keyiterator`` since the type isn't in
+    ``types``) silently saw the wrong runtime type.
+
+    Fix: in ``_neighbors_with_networkx_missing_node_error``,
+    when the Rust impl returned a list, route through
+    ``iter(dict.fromkeys(result))`` so the runtime iterator
+    type is ``dict_keyiterator``.  Content semantics are
+    unchanged (the list already had unique entries since nx
+    deduplicates by adjacency-dict keys).
+    """
+    dict_keyiterator = type({}.__iter__())
+
+    fG = fnx.Graph([(1, 2), (2, 3), (3, 4)])
+    nG = nx.Graph([(1, 2), (2, 3), (3, 4)])
+    assert isinstance(fG.neighbors(2), dict_keyiterator)
+    assert isinstance(nG.neighbors(2), dict_keyiterator)
+    assert sorted(fG.neighbors(2)) == sorted(nG.neighbors(2))
+
+    fD = fnx.DiGraph([(1, 2), (2, 3), (3, 1)])
+    nD = nx.DiGraph([(1, 2), (2, 3), (3, 1)])
+    assert isinstance(fD.successors(1), dict_keyiterator)
+    assert isinstance(nD.successors(1), dict_keyiterator)
+    assert isinstance(fD.predecessors(1), dict_keyiterator)
+    assert isinstance(nD.predecessors(1), dict_keyiterator)
+    assert isinstance(fD.neighbors(1), dict_keyiterator)
+    assert isinstance(nD.neighbors(1), dict_keyiterator)
+
+    fM = fnx.MultiGraph([(1, 2), (1, 2), (2, 3)])
+    nM = nx.MultiGraph([(1, 2), (1, 2), (2, 3)])
+    assert isinstance(fM.neighbors(1), dict_keyiterator)
+    assert isinstance(nM.neighbors(1), dict_keyiterator)
+    assert sorted(fM.neighbors(1)) == sorted(nM.neighbors(1))
+
+    fMD = fnx.MultiDiGraph([(1, 2), (1, 2), (2, 3), (3, 1)])
+    nMD = nx.MultiDiGraph([(1, 2), (1, 2), (2, 3), (3, 1)])
+    assert isinstance(fMD.successors(1), dict_keyiterator)
+    assert isinstance(nMD.successors(1), dict_keyiterator)
+    assert isinstance(fMD.predecessors(1), dict_keyiterator)
+    assert isinstance(nMD.predecessors(1), dict_keyiterator)
+
+    # Iteration is stateful (the original cycle-XYZ br-nbriter
+    # property must be preserved by the new wrapper).
+    it = fG.neighbors(2)
+    next(it)
+    remaining = list(it)
+    full = list(fG.neighbors(2))
+    assert len(remaining) == len(full) - 1

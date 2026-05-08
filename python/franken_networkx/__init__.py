@@ -183,8 +183,16 @@ def _neighbors_with_networkx_missing_node_error(neighbors_impl, *, graph_kind="g
         # beginning after break, producing spurious nontree edges.
         # Always return a proper iterator so algorithms that rely on
         # iterator state work.
+        # br-r37-c1-nbritype (cycle 218): nx returns ``iter(self._adj[n])``,
+        # whose runtime type is ``dict_keyiterator``.  fnx previously
+        # returned ``list_iterator`` (from ``iter(list)``), diverging
+        # on ``type(G.neighbors(u)).__name__``.  Drop-in code that
+        # does ``isinstance(it, type({}.__iter__()))`` saw the wrong
+        # type.  Emit a proper ``dict_keyiterator`` by going through
+        # ``dict.fromkeys`` (the result is unique-keyed anyway in nx,
+        # so no semantic loss).
         if isinstance(result, list):
-            return iter(result)
+            return iter(dict.fromkeys(result))
         return result
 
     return neighbors
