@@ -8347,3 +8347,75 @@ def test_reverse_view_in_out_edges_and_degree_are_views_not_methods():
     assert R.degree(1, weight="weight") == 3.0
     assert R.degree(2, weight="weight") == 7.0
     assert R.degree[2] == 2  # unweighted
+
+
+def test_reverse_view_outer_class_name_and_view_class_names():
+    """br-r37-c1-revouter / br-r37-c1-revadjname:
+    ``DG.reverse(copy=False)`` returns a view object whose:
+
+    - top-level class name should be ``DiGraph`` /
+      ``MultiDiGraph`` (matching nx via @property over the
+      underlying directed Graph type).  Pre-fix: private
+      ``_ReverseDirectedView`` / ``_ReverseMultiDirectedView``.
+
+    - ``.edges`` should be ``OutEdgeView`` /
+      ``OutMultiEdgeView``.  Pre-fix: private ``_ReverseEdgeView``
+      regardless of multi-ness; default-object repr.
+
+    - ``.adj`` / ``.succ`` / ``.pred`` should be ``AdjacencyView``
+      / ``MultiAdjacencyView``. Pre-fix: private
+      ``_ReverseAdjacencyView``; default-object repr.
+
+    Drop-in code that introspects ``type(view).__name__`` to
+    detect direction / multi-ness or parses ``repr(view)
+    .startswith('OutEdgeView(')`` silently misbehaved.
+
+    Fix:
+      1. Set ``__name__`` directly on _ReverseDirectedView /
+         _ReverseMultiDirectedView to "DiGraph" / "MultiDiGraph".
+      2. Add 2 _ReverseEdgeView subclasses (_ReverseOutEdgeView /
+         _ReverseOutMultiEdgeView) with canonical names; dispatch
+         in ``edges`` property based on multi-ness.
+      3. Add 2 _ReverseAdjacencyView subclasses
+         (_ReverseGraphAdjacencyView / _ReverseMultiAdjacencyView)
+         with canonical names; dispatch at __init__ time based on
+         multi-ness.
+      4. Add base-class ``__repr__`` to both base view classes
+         using ``type(self).__name__`` and a recursive Mapping-
+         unwrap so the inner repr matches nx's plain-dict form.
+    """
+    import networkx as nx
+
+    cases = [
+        (fnx.DiGraph,      nx.DiGraph,
+            "DiGraph", "OutEdgeView", "AdjacencyView"),
+        (fnx.MultiDiGraph, nx.MultiDiGraph,
+            "MultiDiGraph", "OutMultiEdgeView", "MultiAdjacencyView"),
+    ]
+    for f_cls, n_cls, outer_name, edge_name, adj_name in cases:
+        DGf = f_cls([(1, 2), (2, 3)])
+        DGn = n_cls([(1, 2), (2, 3)])
+        Rf = DGf.reverse(copy=False)
+        Rn = DGn.reverse(copy=False)
+
+        assert type(Rf).__name__ == outer_name, (
+            f"{f_cls.__name__}.reverse(copy=False) outer class: "
+            f"fnx={type(Rf).__name__} expected={outer_name}"
+        )
+        assert type(Rf.edges).__name__ == edge_name, (
+            f"R.edges class: fnx={type(Rf.edges).__name__} expected={edge_name}"
+        )
+        for attr in ("adj", "succ", "pred"):
+            v_f = getattr(Rf, attr)
+            assert type(v_f).__name__ == adj_name, (
+                f"R.{attr} class: fnx={type(v_f).__name__} expected={adj_name}"
+            )
+            # Repr matches nx exactly
+            assert repr(v_f) == repr(getattr(Rn, attr)), (
+                f"R.{attr} repr: fnx={repr(v_f)} nx={repr(getattr(Rn, attr))}"
+            )
+        assert repr(Rf.edges) == repr(Rn.edges)
+
+        # isinstance still works for drop-in code that detects
+        # directed/multi via isinstance instead of type-name string.
+        assert isinstance(Rf, f_cls)

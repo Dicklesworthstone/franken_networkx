@@ -25802,8 +25802,15 @@ class _ReverseDirectedViewBase:
         self._graph = graph
         self.graph = graph.graph
         self.frozen = True
-        self.succ = _ReverseAdjacencyView(self)
-        self.pred = _ReverseAdjacencyView(self, reverse=True)
+        # br-r37-c1-revadjname: pick canonical AdjacencyView /
+        # MultiAdjacencyView per multi-ness so type(R.adj).__name__
+        # matches nx.
+        adj_cls = (
+            _ReverseMultiAdjacencyView if graph.is_multigraph()
+            else _ReverseGraphAdjacencyView
+        )
+        self.succ = adj_cls(self)
+        self.pred = adj_cls(self, reverse=True)
         self.adj = self.succ
 
     def __iter__(self):
@@ -25941,7 +25948,11 @@ class _ReverseDirectedViewBase:
 
     @property
     def edges(self):
-        return _ReverseEdgeView(self)
+        # br-r37-c1-revadjname: pick canonical OutEdgeView /
+        # OutMultiEdgeView per multi-ness.
+        if self._graph.is_multigraph():
+            return _ReverseOutMultiEdgeView(self)
+        return _ReverseOutEdgeView(self)
 
     def _out_edges_compute(self, nbunch=None, data=False, keys=False):
         nodes = self._nbunch(nbunch)
@@ -26354,6 +26365,36 @@ class _ReverseAdjacencyView(Mapping):
             raise KeyError(f"Key {node} not found")
         return _ReverseNeighborMap(self._view, node, reverse=self._reverse)
 
+    def __repr__(self):
+        # br-r37-c1-revadjname: nx's reverse-view succ/pred/adj repr
+        # as ``AdjacencyView({...})`` / ``MultiAdjacencyView({...})``.
+        # fnx had no __repr__ here, falling through to default
+        # ``<...object at 0x...>``. Use ``type(self).__name__`` so
+        # the two subclasses below pick up the right canonical name.
+        # Recursively unwrap inner mapping values (per-key dicts on
+        # MultiGraph wrap as AtlasView) so the repr matches nx's
+        # plain-dict format.
+        from collections.abc import Mapping as _Mapping
+        def _unwrap(v):
+            if isinstance(v, _Mapping):
+                return {k2: _unwrap(v2) for k2, v2 in v.items()}
+            return v
+        return f"{type(self).__name__}({_unwrap(self)!r})"
+
+
+# br-r37-c1-revadjname: 2 trivial subclasses with canonical nx
+# ``__name__`` so ``type(R.adj).__name__`` matches nx for reverse
+# views.  The factory in _ReverseDirectedViewBase.__init__
+# dispatches based on ``graph.is_multigraph()``.
+class _ReverseGraphAdjacencyView(_ReverseAdjacencyView):
+    pass
+_ReverseGraphAdjacencyView.__name__ = "AdjacencyView"
+
+
+class _ReverseMultiAdjacencyView(_ReverseAdjacencyView):
+    pass
+_ReverseMultiAdjacencyView.__name__ = "MultiAdjacencyView"
+
 
 class _ReverseEdgeView:
     def __init__(self, view):
@@ -26445,6 +26486,12 @@ class _ReverseEdgeView:
 
     __hash__ = None
 
+    def __repr__(self):
+        # br-r37-c1-revadjname: nx's reverse-view edges repr as
+        # ``OutEdgeView([...])`` / ``OutMultiEdgeView([...])``.
+        # Subclasses below set ``__name__`` to the canonical form.
+        return f"{type(self).__name__}({list(self)!r})"
+
     get = _adjacency_view_get
     keys = _adjacency_view_keys
     items = _adjacency_view_items
@@ -26465,6 +26512,27 @@ _FILTERED_VIEW_MUTATORS = (
     "clear_edges",
     "update",
 )
+
+
+# br-r37-c1-revadjname: 2 trivial _ReverseEdgeView subclasses with
+# canonical nx ``__name__`` so ``type(R.edges).__name__`` matches
+# nx's ``OutEdgeView`` / ``OutMultiEdgeView``.  Factory in
+# _ReverseDirectedViewBase.edges dispatches based on multi-ness.
+class _ReverseOutEdgeView(_ReverseEdgeView):
+    pass
+_ReverseOutEdgeView.__name__ = "OutEdgeView"
+
+
+class _ReverseOutMultiEdgeView(_ReverseEdgeView):
+    pass
+_ReverseOutMultiEdgeView.__name__ = "OutMultiEdgeView"
+
+
+# br-r37-c1-revouter: outer class name parity for reverse-view —
+# nx returns ``DiGraph`` / ``MultiDiGraph`` from
+# ``DG.reverse(copy=False)``. fnx's wrappers had private names.
+_ReverseDirectedView.__name__ = "DiGraph"
+_ReverseMultiDirectedView.__name__ = "MultiDiGraph"
 
 
 class _FilteredNeighborMap(Mapping):
