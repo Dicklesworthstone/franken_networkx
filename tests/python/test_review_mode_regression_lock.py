@@ -5542,3 +5542,74 @@ def test_algorithms_submodule_import_paths_match_nx():
     assert (
         branching_weight is nx_mod.algorithms.tree.branchings.branching_weight
     )
+
+
+def test_bellman_ford_nan_inf_edge_weight_match_nx():
+    """br-r37-c1-bfnannumeric: ``bellman_ford_path``,
+    ``bellman_ford_path_length``, and
+    ``bellman_ford_predecessor_and_distance`` must treat NaN / +/-inf
+    edge weights the way nx does.
+
+    nx's relaxation uses ``candidate < current`` where ``current``
+    starts at ``inf``.  ``NaN < inf`` is False (NaN comparisons),
+    ``inf < inf`` is False, so neither relaxes — the target stays
+    out of the distance map and the function raises NetworkXNoPath.
+    For ``-inf`` edges nx detects a negative cycle and raises
+    NetworkXUnbounded.
+
+    Pre-fix the fnx Rust path wrote NaN through to the distance map
+    (because the only short-circuit was ``current is None`` first
+    visit), and returned ``inf`` / ``-inf`` paths instead of the
+    NetworkXNoPath / NetworkXUnbounded contracts.  Worse: when a
+    NaN edge sat alongside a valid alternate path, fnx's algorithm
+    *preferred* the NaN edge and returned ``nan`` instead of using
+    the alternate.  The fix detects NaN/inf weights via
+    ``_has_nan_or_inf_edge_weight`` and routes to nx.
+    """
+    import franken_networkx as fnx
+    import networkx as nx_mod
+
+    def _setup(w, lib):
+        P = lib.path_graph(3)
+        P[0][1]["weight"] = w
+        return P
+
+    # NaN: NetworkXNoPath
+    for fn_name in (
+        "bellman_ford_path",
+        "bellman_ford_path_length",
+    ):
+        for w_label, w_val, exc_type in [
+            ("NaN", float("nan"), nx_mod.NetworkXNoPath),
+            ("+inf", float("inf"), nx_mod.NetworkXNoPath),
+            ("-inf", float("-inf"), nx_mod.NetworkXUnbounded),
+        ]:
+            P_f, P_n = _setup(w_val, fnx), _setup(w_val, nx_mod)
+            with pytest.raises(exc_type):
+                getattr(fnx, fn_name)(P_f, 0, 2, weight="weight")
+            with pytest.raises(exc_type):
+                getattr(nx_mod, fn_name)(P_n, 0, 2, weight="weight")
+
+    # bellman_ford_predecessor_and_distance with NaN: only source-self in dist
+    P_f = _setup(float("nan"), fnx)
+    P_n = _setup(float("nan"), nx_mod)
+    f_pred, f_dist = fnx.bellman_ford_predecessor_and_distance(P_f, 0, weight="weight")
+    n_pred, n_dist = nx_mod.bellman_ford_predecessor_and_distance(P_n, 0, weight="weight")
+    assert f_dist == n_dist == {0: 0}
+    assert f_pred == n_pred == {0: []}
+
+    # NaN-on-alternate-edge: fnx must use the valid path, not the NaN edge
+    G_f = fnx.Graph()
+    G_f.add_weighted_edges_from([(0, 1, 1.0), (1, 2, 1.0), (0, 2, float("nan"))])
+    G_n = nx_mod.Graph()
+    G_n.add_weighted_edges_from([(0, 1, 1.0), (1, 2, 1.0), (0, 2, float("nan"))])
+    assert fnx.bellman_ford_path_length(G_f, 0, 2, weight="weight") == 2.0
+    assert nx_mod.bellman_ford_path_length(G_n, 0, 2, weight="weight") == 2.0
+
+    # Sanity: ordinary positive weights still take the fast path
+    G_f2 = fnx.Graph()
+    G_f2.add_weighted_edges_from([(0, 1, 2.0), (1, 2, 3.0)])
+    G_n2 = nx_mod.Graph()
+    G_n2.add_weighted_edges_from([(0, 1, 2.0), (1, 2, 3.0)])
+    assert fnx.bellman_ford_path_length(G_f2, 0, 2, weight="weight") == 5.0
+    assert nx_mod.bellman_ford_path_length(G_n2, 0, 2, weight="weight") == 5.0

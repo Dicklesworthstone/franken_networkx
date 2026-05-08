@@ -4216,6 +4216,35 @@ def _graph_has_nonunit_weight(G, weight):
     return False
 
 
+def _has_nan_or_inf_edge_weight(G, weight):
+    """Detect NaN or +/-inf numeric edge weights at ``weight`` key.
+
+    br-r37-c1-bfnannumeric: nx's bellman-ford uses ``candidate < current``
+    on every relaxation step, and ``candidate < inf`` is False for NaN
+    (so NaN edges never relax → unreachable) and False for ``inf``
+    (likewise).  fnx's Rust impl writes NaN through to the distance
+    map as a first-visit value (because ``current is None`` was the
+    only short-circuit), and returned ``inf`` / ``-inf`` paths instead
+    of treating them as unreachable / negative-cycle.  Delegating to
+    nx when any edge carries NaN / inf restores parity in one shot.
+    """
+    if not isinstance(weight, str):
+        return False
+    if G.is_multigraph():
+        attrs_iter = (attrs for _, _, _, attrs in G.edges(keys=True, data=True))
+    else:
+        attrs_iter = (attrs for _, _, attrs in G.edges(data=True))
+    for attrs in attrs_iter:
+        if not isinstance(attrs, dict) or weight not in attrs:
+            continue
+        value = attrs[weight]
+        if isinstance(value, bool):
+            continue
+        if isinstance(value, float) and (math.isnan(value) or math.isinf(value)):
+            return True
+    return False
+
+
 def _should_delegate_bellman_ford_to_networkx(weight, G=None):
     if callable(weight):
         return True
@@ -4227,6 +4256,11 @@ def _should_delegate_bellman_ford_to_networkx(weight, G=None):
     # br-r37-c1-djk-strw (sibling): route non-numeric edge values
     # to nx so its TypeError contract on ``+`` propagates.
     if G is not None and _has_nonnumeric_edge_weight(G, weight):
+        return True
+    # br-r37-c1-bfnannumeric: route NaN / +/-inf edge weights to nx —
+    # fnx's Rust path writes them through as distance values (instead
+    # of treating them as unreachable / negative-cycle as nx does).
+    if G is not None and _has_nan_or_inf_edge_weight(G, weight):
         return True
     return False
 
@@ -12207,7 +12241,7 @@ def dijkstra_path_length(G, source, target, weight="weight"):
 
 
 def bellman_ford_path_length(G, source, target, weight="weight"):
-    if _should_delegate_bellman_ford_to_networkx(weight):
+    if _should_delegate_bellman_ford_to_networkx(weight, G):
         return _call_networkx_for_parity(
             "bellman_ford_path_length", G, source, target, weight=weight
         )
@@ -16098,6 +16132,17 @@ def bellman_ford_predecessor_and_distance(
 
     if source not in G:
         raise NodeNotFound(f"Node {source} is not found in the graph")
+
+    # br-r37-c1-bfnannumeric: if any edge weight is NaN / +/-inf, the
+    # pure-Python relaxation loop below misuses NaN — ``current is None``
+    # short-circuits to ``dist[v] = NaN`` on first visit, leaking NaN
+    # into the distance map.  nx skips these via ``candidate < current``
+    # (NaN comparisons return False).  Delegate when we detect them.
+    if _has_nan_or_inf_edge_weight(G, weight):
+        nx_pred, nx_dist = _call_networkx_for_parity(
+            "bellman_ford_predecessor_and_distance", G, source, weight=weight
+        )
+        return nx_pred, nx_dist
 
     weight_fn = _bellman_ford_weight_function(G, weight)
     if G.is_multigraph():
