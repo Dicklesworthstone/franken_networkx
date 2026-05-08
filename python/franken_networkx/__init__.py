@@ -29762,6 +29762,28 @@ def eigenvector_centrality_numpy(
         backend_kwargs,
     )
 
+    # br-r37-c1-evnumiter: nx delegates to ``scipy.sparse.linalg.eigs``
+    # which validates ``max_iter`` via ``int(maxiter)`` and ``maxiter <= 0``,
+    # surfacing ``ValueError: cannot convert float NaN to integer`` on NaN,
+    # ``OverflowError: cannot convert float infinity to integer`` on +/-inf,
+    # and ``ValueError: maxiter must be positive, maxiter=...`` on 0 / negatives.
+    # The fnx implementation uses ``numpy.linalg.eig`` (dense full
+    # decomposition) and silently ignored ``max_iter`` entirely.  Reproduce
+    # nx's validation shape so drop-in callers see the same exceptions.
+    if max_iter is not None:
+        # scipy ordering: comparison-against-zero first (so -inf surfaces
+        # as ``maxiter must be positive`` rather than the OverflowError
+        # from ``int(-inf)``).  NaN comparisons return False so NaN falls
+        # through to ``int(max_iter)`` which raises the expected
+        # ``ValueError: cannot convert float NaN to integer``.
+        try:
+            nonpositive = max_iter <= 0
+        except TypeError:
+            nonpositive = False
+        if nonpositive:
+            raise ValueError(f"maxiter must be positive, maxiter={max_iter}")
+        int(max_iter)  # ValueError on NaN, OverflowError on +inf
+
     nodelist = list(G.nodes())
     n = len(nodelist)
     if n == 0:

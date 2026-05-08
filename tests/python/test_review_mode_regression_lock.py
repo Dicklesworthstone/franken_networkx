@@ -5421,3 +5421,51 @@ def test_pagerank_eigenvector_max_iter_typeerror_no_pyo3_prefix_match_nx():
         # (which needs more iterations on bipartite-like structure).
         f_fn(P, max_iter=1000)
         n_fn(P_nx, max_iter=1000)
+
+
+def test_eigenvector_centrality_numpy_max_iter_validation_match_nx():
+    """br-r37-c1-evnumiter: ``eigenvector_centrality_numpy`` must validate
+    ``max_iter`` the same way nx does — nx delegates to
+    ``scipy.sparse.linalg.eigs`` whose input validator does ``int(maxiter)``
+    and ``maxiter <= 0``, surfacing distinct exception types and messages
+    for NaN / +inf / -inf / 0 / negatives.
+
+    Pre-fix the fnx implementation used ``numpy.linalg.eig`` (dense full
+    eigendecomposition) and silently ignored ``max_iter`` entirely — bad
+    inputs that nx rejects were accepted, masking caller bugs.
+    """
+    import franken_networkx as fnx
+    import networkx as nx_mod
+
+    P = fnx.path_graph(5)
+    P_nx = nx_mod.path_graph(5)
+
+    # NaN: ValueError (from int(NaN))
+    with pytest.raises(ValueError, match="cannot convert float NaN"):
+        fnx.eigenvector_centrality_numpy(P, max_iter=float("nan"))
+    with pytest.raises(ValueError, match="cannot convert float NaN"):
+        nx_mod.eigenvector_centrality_numpy(P_nx, max_iter=float("nan"))
+
+    # +inf: OverflowError (from int(+inf))
+    with pytest.raises(OverflowError, match="cannot convert float infinity"):
+        fnx.eigenvector_centrality_numpy(P, max_iter=float("inf"))
+    with pytest.raises(OverflowError, match="cannot convert float infinity"):
+        nx_mod.eigenvector_centrality_numpy(P_nx, max_iter=float("inf"))
+
+    # -inf: ValueError (positivity check fires before int())
+    with pytest.raises(ValueError, match="maxiter must be positive"):
+        fnx.eigenvector_centrality_numpy(P, max_iter=float("-inf"))
+    with pytest.raises(ValueError, match="maxiter must be positive"):
+        nx_mod.eigenvector_centrality_numpy(P_nx, max_iter=float("-inf"))
+
+    # Zero / negative: ValueError with same message
+    for bad in (0, -1):
+        with pytest.raises(ValueError, match="maxiter must be positive"):
+            fnx.eigenvector_centrality_numpy(P, max_iter=bad)
+        with pytest.raises(ValueError, match="maxiter must be positive"):
+            nx_mod.eigenvector_centrality_numpy(P_nx, max_iter=bad)
+
+    # Sanity: integral floats and ints still pass
+    fnx.eigenvector_centrality_numpy(P, max_iter=50)
+    fnx.eigenvector_centrality_numpy(P, max_iter=1.5)  # nx accepts via int()
+    fnx.eigenvector_centrality_numpy(P, max_iter=None)
