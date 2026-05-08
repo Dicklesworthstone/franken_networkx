@@ -26173,6 +26173,33 @@ class _ReverseDirectedViewBase:
     def adjacency(self):
         return ((node, _ReverseNeighborMap(self, node)) for node in self._graph)
 
+    def __copy__(self):
+        # br-r37-c1-revvcopy-outer: nx's ``copy.copy(DG.reverse(copy=
+        # False))`` returns a frozen DiGraph with the reversed edges.
+        # fnx inherited Graph.__copy__ (= ``_graph_shallowcopy``)
+        # which does ``type(self)()`` — fails for the
+        # ``_ReverseDirectedView``/``_ReverseMultiDirectedView``
+        # bases that require a graph argument.  Materialise via the
+        # existing ``copy()`` method (canonical DiGraph with reversed
+        # edges) and freeze for nx parity.
+        result = self.copy()
+        try:
+            from networkx import freeze as _nx_freeze
+            return _nx_freeze(result)
+        except Exception:
+            return result
+
+    def __deepcopy__(self, memo):
+        # br-r37-c1-revvcopy-outer: see __copy__ above. Freeze the
+        # deep-copied result for nx parity.
+        copied = deepcopy(self.copy(), memo)
+        memo[id(self)] = copied
+        try:
+            from networkx import freeze as _nx_freeze
+            return _nx_freeze(copied)
+        except Exception:
+            return copied
+
     def number_of_edges(self):
         return self._graph.number_of_edges()
 
@@ -27257,10 +27284,30 @@ class _FilteredGraphView:
         # plain Graph).
         return (_reconstruct_filtered_view_as_copy, (self.copy(),))
 
+    def __copy__(self):
+        # br-r37-c1-fgvcopy: nx's ``copy.copy(G.subgraph(...))``
+        # returns a frozen Graph with the same content. fnx
+        # inherited ``Graph.__copy__`` (= ``_graph_shallowcopy``)
+        # which does ``type(self)()`` — fails for filtered-view
+        # synthetics that require a graph argument.  Materialise via
+        # ``self.copy()`` (canonical Graph) and freeze for nx parity.
+        result = self.copy()
+        try:
+            from networkx import freeze as _nx_freeze
+            return _nx_freeze(result)
+        except Exception:
+            return result
+
     def __deepcopy__(self, memo):
+        # br-r37-c1-fgvcopy: nx's ``copy.deepcopy`` of a subgraph
+        # also returns a frozen graph.  Freeze the deep-copied result.
         copied = deepcopy(self.copy(), memo)
         memo[id(self)] = copied
-        return copied
+        try:
+            from networkx import freeze as _nx_freeze
+            return _nx_freeze(copied)
+        except Exception:
+            return copied
 
 
 _PRIVATE_NODE_OVERRIDE = "_fnx_private_node_override"

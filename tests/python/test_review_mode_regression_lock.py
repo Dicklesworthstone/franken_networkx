@@ -8684,3 +8684,69 @@ def test_reverse_view_views_copy_and_deepcopy_preserve_type():
     assert dict(cd) == {1: 1, 2: 2, 3: 1}
     cd2 = copy.deepcopy(R.degree)
     assert type(cd2).__name__ == "DiDegreeView"
+
+
+def test_subgraph_view_and_reverse_view_top_level_copy_match_nx():
+    """br-r37-c1-fgvcopy / br-r37-c1-revvcopy-outer:
+    ``copy.copy(G.subgraph(...))`` and ``copy.copy(DG.reverse(copy=
+    False))`` must return a frozen canonical-class graph with the
+    same content — matching nx's documented behaviour for copying a
+    view.
+
+    Pre-fix fnx inherited Graph's ``__copy__`` (= ``_graph_shallowcopy``)
+    which does ``type(self)()``.  This fails for ``_FilteredGraphView``
+    and ``_ReverseDirectedViewBase`` subclasses because their
+    ``__init__`` requires a ``graph`` argument:
+
+      copy.copy(G.subgraph(...))
+        → TypeError: _FilteredGraphView.__init__() missing 1 required
+          positional argument: 'graph'
+
+      copy.copy(DG.reverse(copy=False))
+        → TypeError: _ReverseDirectedViewBase.__init__() missing 1
+          required positional argument: 'graph'
+
+    nx returns a frozen Graph/DiGraph/MultiGraph/MultiDiGraph with
+    the same content (subgraph: filtered nodes/edges; reverse: edges
+    flipped).
+
+    Fix: define ``__copy__`` / ``__deepcopy__`` on both base classes
+    that materialise via the existing ``copy()`` method (canonical
+    class with same content) and freeze for nx parity.
+    """
+    import copy
+
+    # Subgraph copy/deepcopy
+    for cls_name in ("Graph", "DiGraph", "MultiGraph", "MultiDiGraph"):
+        Gf = getattr(fnx, cls_name)([(1, 2), (2, 3), (3, 4)])
+        Gn = getattr(nx, cls_name)([(1, 2), (2, 3), (3, 4)])
+        Sf = Gf.subgraph([1, 2, 3])
+        Sn = Gn.subgraph([1, 2, 3])
+
+        for op in (copy.copy, copy.deepcopy):
+            cf = op(Sf)
+            cn = op(Sn)
+            assert type(cf).__name__ == type(cn).__name__ == cls_name, (
+                f"{cls_name}.subgraph() {op.__name__}: "
+                f"fnx={type(cf).__name__} nx={type(cn).__name__}"
+            )
+            assert fnx.is_frozen(cf) == nx.is_frozen(cn) == True, (
+                f"{cls_name}.subgraph() {op.__name__}: "
+                f"frozen mismatch fnx={fnx.is_frozen(cf)} nx={nx.is_frozen(cn)}"
+            )
+            # Content matches (filtered to [1, 2, 3])
+            assert sorted(cf.nodes()) == sorted(cn.nodes()) == [1, 2, 3]
+
+    # Reverse view copy/deepcopy
+    for cls_name in ("DiGraph", "MultiDiGraph"):
+        DGf = getattr(fnx, cls_name)([(1, 2), (2, 3)])
+        DGn = getattr(nx, cls_name)([(1, 2), (2, 3)])
+        Rf = DGf.reverse(copy=False)
+        Rn = DGn.reverse(copy=False)
+        for op in (copy.copy, copy.deepcopy):
+            cf = op(Rf)
+            cn = op(Rn)
+            assert type(cf).__name__ == type(cn).__name__ == cls_name
+            assert fnx.is_frozen(cf) == nx.is_frozen(cn) == True
+            # Content has reversed edges
+            assert sorted(cf.edges()) == sorted(cn.edges())
