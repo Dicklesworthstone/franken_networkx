@@ -5681,3 +5681,70 @@ def test_is_d_separator_scalar_args_match_nx():
         fnx.is_d_separator(G_f_und, {0}, {1}, set())
     with pytest.raises(nx_mod.NetworkXNotImplemented):
         nx_mod.is_d_separator(G_n_und, {0}, {1}, set())
+
+
+def test_maximal_independent_set_seed_and_message_match_nx():
+    """br-r37-c1-misseed: ``maximal_independent_set`` must accept any
+    int (or None) for ``seed`` like nx does — including negative ints
+    and ints exceeding u64 — and reject NaN with the same
+    ``ValueError("nan cannot be used to generate a random.Random
+    instance")`` wording.
+
+    Pre-fix the Rust binding declared ``seed: u64`` and raised
+    ``OverflowError("can't convert negative int to unsigned")`` on
+    negative seeds and the PyO3-prefixed ``TypeError("argument
+    'seed': 'float' object cannot be interpreted as an integer")``
+    on NaN.
+
+    Also: nx's ``NetworkXUnfeasible`` messages format the offending
+    nodes as a set repr (``{99}``); fnx's Rust path used a quoted
+    string-list (``["99"]``).  Verify the wrapper re-raises with
+    nx's wording.
+    """
+    import franken_networkx as fnx
+    import networkx as nx_mod
+
+    # Negative seeds: must succeed (any maximal independent set is fine)
+    G_f = fnx.cycle_graph(5)
+    G_n = nx_mod.cycle_graph(5)
+    for bad_seed in (-1, -100, -(2**63)):
+        result_f = fnx.maximal_independent_set(G_f, seed=bad_seed)
+        result_n = nx_mod.maximal_independent_set(G_n, seed=bad_seed)
+        # Both must succeed and return a maximal independent set
+        assert isinstance(result_f, list)
+        assert isinstance(result_n, list)
+        # Independence check
+        for u in result_f:
+            for v in result_f:
+                if u != v:
+                    assert v not in G_f[u]
+
+    # Very large positive seeds also work
+    fnx.maximal_independent_set(G_f, seed=2**128)
+    nx_mod.maximal_independent_set(G_n, seed=2**128)
+
+    # NaN seed -> matching ValueError
+    with pytest.raises(ValueError, match="nan cannot be used"):
+        fnx.maximal_independent_set(G_f, seed=float("nan"))
+    with pytest.raises(ValueError, match="nan cannot be used"):
+        nx_mod.maximal_independent_set(G_n, seed=float("nan"))
+
+    # NetworkXUnfeasible message format: set-repr matches nx
+    G_f4 = fnx.path_graph(5)
+    G_n4 = nx_mod.path_graph(5)
+    for bad_nodes in ([99], [0, 99]):
+        with pytest.raises(nx_mod.NetworkXUnfeasible) as f_exc:
+            fnx.maximal_independent_set(G_f4, bad_nodes, seed=42)
+        with pytest.raises(nx_mod.NetworkXUnfeasible) as n_exc:
+            nx_mod.maximal_independent_set(G_n4, bad_nodes, seed=42)
+        assert str(f_exc.value) == str(n_exc.value), (
+            f"message mismatch for bad_nodes={bad_nodes}: "
+            f"fnx={f_exc.value!r} vs nx={n_exc.value!r}"
+        )
+
+    # Adjacent nodes -> "is not an independent set of G"
+    with pytest.raises(nx_mod.NetworkXUnfeasible) as f_exc:
+        fnx.maximal_independent_set(G_f4, [0, 1], seed=42)
+    with pytest.raises(nx_mod.NetworkXUnfeasible) as n_exc:
+        nx_mod.maximal_independent_set(G_n4, [0, 1], seed=42)
+    assert str(f_exc.value) == str(n_exc.value)

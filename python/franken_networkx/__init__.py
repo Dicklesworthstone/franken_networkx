@@ -11153,13 +11153,72 @@ def shortest_simple_paths(G, source, target, weight=None):
 # Algorithm functions — approximation
 from franken_networkx._fnx import (
     clique_removal,
-    maximal_independent_set,
+    maximal_independent_set as _raw_maximal_independent_set,
     large_clique_size,
     max_clique,
     maximum_independent_set,
     min_weighted_vertex_cover,
     spanner as _raw_spanner,
 )
+
+
+def maximal_independent_set(G, nodes=None, seed=None, *, backend=None, **backend_kwargs):
+    """Return a maximal independent set of nodes in G.
+
+    Thin Python wrapper around the Rust binding to bridge two parity
+    points with networkx (br-r37-c1-misseed):
+
+    1. ``seed`` accepts negative ints and large positive ints in nx
+       (any value valid for ``random.Random.seed``).  The Rust binding
+       declared seed as ``u64`` and raised
+       ``OverflowError("can't convert negative int to unsigned")`` on
+       negative seeds and the PyO3-prefixed
+       ``TypeError("argument 'seed': 'float' object cannot be interpreted as an integer")``
+       on NaN.  Pre-validate via ``random.Random(seed)`` so the same
+       rejection (ValueError on NaN) and acceptance (negative ints
+       hashed to a deterministic state) match nx.
+
+    2. The Rust path's NetworkXUnfeasible message wraps the offending
+       nodes as a Python list-of-strings (``["99"]``) where nx uses
+       a set repr (``{99}``).  Re-raise with nx's wording so callers
+       regex-matching the message string aren't broken.
+    """
+    _validate_backend_dispatch_keywords(
+        "maximal_independent_set", backend, backend_kwargs
+    )
+
+    # Seed validation matching random.Random.seed semantics
+    if seed is not None:
+        if isinstance(seed, float):
+            import math as _math
+            if _math.isnan(seed):
+                raise ValueError(
+                    "nan cannot be used to generate a random.Random instance"
+                )
+        # Hash negative / large ints down to u64 range.  random.Random
+        # itself accepts any int; the Rust SmallRng API needs u64.
+        if isinstance(seed, int) and not isinstance(seed, bool):
+            seed = seed & 0xFFFF_FFFF_FFFF_FFFF
+
+    try:
+        return _raw_maximal_independent_set(G, nodes, seed)
+    except NetworkXUnfeasible as exc:
+        # Reformat the message to match nx's set-repr wording.
+        msg = str(exc)
+        if nodes is not None:
+            try:
+                node_set = set(nodes)
+            except TypeError:
+                raise
+            if "is not a subset" in msg:
+                raise NetworkXUnfeasible(
+                    f"{node_set} is not a subset of the nodes of G"
+                ) from exc
+            if "is not an independent set" in msg:
+                raise NetworkXUnfeasible(
+                    f"{node_set} is not an independent set of G"
+                ) from exc
+        raise
 
 
 def spanner(G, stretch, weight=None, seed=None):
