@@ -26599,6 +26599,41 @@ class _FilteredEdgeView:
 
     __hash__ = None
 
+    def __repr__(self):
+        # br-r37-c1-fevname: nx's subgraph-view edges repr matches the
+        # parent class form ``EdgeView([...])`` / ``OutEdgeView([...])``
+        # / ``MultiEdgeView([...])`` / ``OutMultiEdgeView([...])``.
+        # fnx previously fell through to default ``<...object at
+        # 0x...>``. Use ``type(self).__name__`` so the four subclasses
+        # below pick up the canonical nx label.
+        if self._view.is_multigraph():
+            return f"{type(self).__name__}({list(self(keys=True))!r})"
+        return f"{type(self).__name__}({list(self())!r})"
+
+
+# br-r37-c1-fevname: per-direction × multi subclasses with canonical
+# nx __name__ so type(S.edges).__name__ matches nx for subgraph
+# views.  The factory at SubgraphView.edges dispatches based on
+# is_directed() / is_multigraph().
+class _FilteredGraphEdgeView(_FilteredEdgeView):
+    pass
+_FilteredGraphEdgeView.__name__ = "EdgeView"
+
+
+class _FilteredOutEdgeView(_FilteredEdgeView):
+    pass
+_FilteredOutEdgeView.__name__ = "OutEdgeView"
+
+
+class _FilteredMultiEdgeView(_FilteredEdgeView):
+    pass
+_FilteredMultiEdgeView.__name__ = "MultiEdgeView"
+
+
+class _FilteredOutMultiEdgeView(_FilteredEdgeView):
+    pass
+_FilteredOutMultiEdgeView.__name__ = "OutMultiEdgeView"
+
 
 class _FilteredGraphView:
     adjlist_inner_dict_factory = dict
@@ -26783,7 +26818,23 @@ class _FilteredGraphView:
 
     @property
     def edges(self):
-        return _FilteredEdgeView(self)
+        # br-r37-c1-fevname: nx exposes subgraph-view edges with the
+        # canonical per-class name (EdgeView for Graph, OutEdgeView
+        # for DiGraph, MultiEdgeView for MultiGraph, OutMultiEdgeView
+        # for MultiDiGraph). Dispatch based on the underlying graph's
+        # directionality and multi-ness so ``type(S.edges).__name__``
+        # matches nx exactly.
+        directed = self.is_directed()
+        multi = self.is_multigraph()
+        if multi and directed:
+            cls = _FilteredOutMultiEdgeView
+        elif multi:
+            cls = _FilteredMultiEdgeView
+        elif directed:
+            cls = _FilteredOutEdgeView
+        else:
+            cls = _FilteredGraphEdgeView
+        return cls(self)
 
     def neighbors(self, node):
         if not self._node_visible(node):

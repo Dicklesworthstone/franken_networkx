@@ -8134,3 +8134,69 @@ def test_edges_data_returns_canonical_edge_data_view_class():
     assert list(DG.out_edges.data()) == [(1, 2, {})]
     MG = fnx.MultiGraph([(1, 2)])
     assert list(MG.edges.data(keys=True)) == [(1, 2, 0, {})]
+
+
+def test_subgraph_view_edges_class_names_match_nx():
+    """br-r37-c1-fevname: subgraph-view ``.edges`` returned the
+    private ``_FilteredEdgeView`` regardless of underlying graph
+    class, with default-``object``-style ``<...object at 0x...>``
+    repr.  nx exposes the canonical per-class name and a proper
+    formatted repr:
+
+      class            S.edges                S.edges repr
+      -----            -------                ------------
+      Graph            EdgeView               EdgeView([(u, v), ...])
+      DiGraph          OutEdgeView            OutEdgeView([(u, v), ...])
+      MultiGraph       MultiEdgeView          MultiEdgeView([(u, v, k), ...])
+      MultiDiGraph     OutMultiEdgeView       OutMultiEdgeView([(u, v, k), ...])
+
+    Affects ``G.subgraph(...).edges``, ``G.edge_subgraph(...).edges``,
+    and ``nx.subgraph_view(G, ...).edges`` for all four graph classes.
+
+    Drop-in code that introspects ``type(view).__name__`` to detect
+    direction / multi-ness, parses ``repr(view).startswith(
+    'OutEdgeView(')``, or logs/displays subgraphs silently
+    misbehaved (the bare object repr is useless for debugging).
+
+    Fix: define four trivial ``_FilteredEdgeView`` subclasses with
+    canonical ``__name__`` (``_FilteredGraphEdgeView`` ⇒ "EdgeView",
+    ``_FilteredOutEdgeView`` ⇒ "OutEdgeView", etc.), dispatch in
+    ``SubgraphView.edges`` based on ``self.is_directed()`` /
+    ``self.is_multigraph()``, and add base-class ``__repr__`` using
+    ``type(self).__name__``.
+    """
+    import networkx as nx
+
+    cases = [
+        (fnx.Graph,        nx.Graph,        "EdgeView"),
+        (fnx.DiGraph,      nx.DiGraph,      "OutEdgeView"),
+        (fnx.MultiGraph,   nx.MultiGraph,   "MultiEdgeView"),
+        (fnx.MultiDiGraph, nx.MultiDiGraph, "OutMultiEdgeView"),
+    ]
+    for f_cls, n_cls, expected_name in cases:
+        Gf = f_cls([(1, 2), (2, 3), (3, 4)])
+        Gn = n_cls([(1, 2), (2, 3), (3, 4)])
+        Sf = Gf.subgraph([1, 2, 3])
+        Sn = Gn.subgraph([1, 2, 3])
+        assert type(Sf.edges).__name__ == expected_name, (
+            f"{f_cls.__name__}.subgraph().edges class: "
+            f"fnx={type(Sf.edges).__name__} expected={expected_name}"
+        )
+        assert repr(Sf.edges).startswith(f"{expected_name}("), (
+            f"{f_cls.__name__}.subgraph().edges repr should start with "
+            f"{expected_name!r}(, got: {repr(Sf.edges)}"
+        )
+        assert repr(Sf.edges) == repr(Sn.edges), (
+            f"{f_cls.__name__}.subgraph().edges repr should match nx: "
+            f"fnx={repr(Sf.edges)!r} nx={repr(Sn.edges)!r}"
+        )
+
+    # Functional smoke: behavior preserved through the subclass
+    G = fnx.path_graph(5)
+    S = G.subgraph([1, 2, 3])
+    assert list(S.edges) == [(1, 2), (2, 3)]
+    assert (1, 2) in S.edges
+    assert S.edges == S.edges
+    assert len(S.edges) == 2
+    # Set algebra still works
+    assert S.edges & {(1, 2)} == {(1, 2)}
