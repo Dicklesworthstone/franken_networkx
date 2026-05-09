@@ -3706,6 +3706,17 @@ pub fn min_cost_flow_cost(
 #[pyfunction]
 pub fn eccentricity(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>> {
     let gr = extract_graph(g)?;
+    // br-r37-c1-t8055: this kernel collapses directed input via
+    // ``gr.undirected()``, producing wrong eccentricity values for
+    // weakly-but-not-strongly-connected DiGraphs (e.g. a directed
+    // chain). The public wrapper at
+    // python/franken_networkx/__init__.py:eccentricity (br-eccdir)
+    // already routes directed graphs through a directed-aware path
+    // and only calls this kernel on undirected input. Match the
+    // sister-function contract (diameter/radius/center/periphery
+    // require_undirected) so direct callers of `_raw_eccentricity`
+    // see the same nx-shaped error rather than silently-wrong data.
+    require_undirected(&gr, "eccentricity")?;
     let inner = gr.undirected();
     if inner.node_count() == 0 {
         return Err(crate::NetworkXPointlessConcept::new_err("G has no nodes."));

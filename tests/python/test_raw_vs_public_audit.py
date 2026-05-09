@@ -80,6 +80,29 @@ def test_astar_path_length_postmut_matches_nx():
     assert actual == expected, f"fnx={actual} nx={expected}"
 
 
+def test_raw_eccentricity_rejects_directed_input():
+    """br-r37-c1-t8055: _raw_eccentricity collapsed directed input via
+    `gr.undirected()`, returning silently-wrong values for
+    weakly-but-not-strongly-connected DiGraphs. Now matches the
+    diameter/radius/center/periphery contract: directed input raises
+    NetworkXNotImplemented from the kernel itself."""
+    g = fnx.DiGraph()
+    g.add_edge(0, 1)
+    g.add_edge(1, 2)
+    g.add_edge(2, 3)
+    with pytest.raises(fnx.NetworkXNotImplemented):
+        fnx._raw_eccentricity(g)
+    # Public wrapper still works on DiGraph (routes around _raw_).
+    with pytest.raises(fnx.NetworkXError):
+        fnx.eccentricity(g)
+
+
+def test_raw_eccentricity_undirected_unchanged():
+    g = fnx.path_graph(5)
+    result = fnx._raw_eccentricity(g)
+    assert result == {0: 4, 1: 3, 2: 2, 3: 3, 4: 4}
+
+
 def test_astar_path_postmut_matches_nx():
     """br-r37-c1-0x9pd companion: astar_path also gets the sync."""
     fg = fnx.path_graph(5)
