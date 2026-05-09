@@ -608,6 +608,33 @@ impl DiGraph {
         false
     }
 
+    /// br-r37-c1-sjf4t: overwrite the attribute map for an existing edge.
+    pub fn replace_edge_attrs(&mut self, source: &str, target: &str, attrs: AttrMap) -> bool {
+        let edge_key = DirectedEdgeKey::new(source, target);
+        if let Some(slot) = self.edges.get_mut(&edge_key) {
+            if *slot != attrs {
+                *slot = attrs;
+                self.revision = self.revision.saturating_add(1);
+            }
+            true
+        } else {
+            false
+        }
+    }
+
+    /// br-r37-c1-sjf4t: overwrite the attribute map for an existing node.
+    pub fn replace_node_attrs(&mut self, node: &str, attrs: AttrMap) -> bool {
+        if let Some(slot) = self.nodes.get_mut(node) {
+            if *slot != attrs {
+                *slot = attrs;
+                self.revision = self.revision.saturating_add(1);
+            }
+            true
+        } else {
+            false
+        }
+    }
+
     /// Remove directed edge source→target. Returns `true` if it existed.
     pub fn remove_edge(&mut self, source: &str, target: &str) -> bool {
         let removed = self
@@ -1161,6 +1188,41 @@ impl MultiDiGraph {
         );
 
         Ok(key)
+    }
+
+    /// br-r37-c1-sjf4t: overwrite the attribute map for an existing
+    /// (source, target, key) edge. Returns whether the edge existed.
+    pub fn replace_edge_attrs(
+        &mut self,
+        source: &str,
+        target: &str,
+        key: usize,
+        attrs: AttrMap,
+    ) -> bool {
+        let edge_key = DirectedEdgeKey::new(source, target);
+        if let Some(bucket) = self.edges.get_mut(&edge_key)
+            && let Some(slot) = bucket.get_mut(&key)
+        {
+            if *slot != attrs {
+                *slot = attrs;
+                self.revision = self.revision.saturating_add(1);
+            }
+            return true;
+        }
+        false
+    }
+
+    /// br-r37-c1-sjf4t: overwrite the attribute map for an existing node.
+    pub fn replace_node_attrs(&mut self, node: &str, attrs: AttrMap) -> bool {
+        if let Some(slot) = self.nodes.get_mut(node) {
+            if *slot != attrs {
+                *slot = attrs;
+                self.revision = self.revision.saturating_add(1);
+            }
+            true
+        } else {
+            false
+        }
     }
 
     pub fn remove_edge(&mut self, source: &str, target: &str, key: Option<usize>) -> bool {

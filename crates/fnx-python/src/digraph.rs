@@ -1380,6 +1380,37 @@ impl PyMultiDiGraph {
         }
     }
 
+    /// br-r37-c1-sjf4t: push the per-node and per-edge Python attribute
+    /// dicts back into the Rust ``inner`` graph. Called by Python-level
+    /// wrappers before invoking native algorithms so post-creation
+    /// mutations (``G[u][v]['k']=v``) are visible to the Rust kernels.
+    fn _fnx_sync_attrs_to_inner(&mut self, py: Python<'_>) -> PyResult<()> {
+        let nodes: Vec<(String, AttrMap)> = self
+            .node_py_attrs
+            .iter()
+            .map(|(canonical, dict)| Ok((canonical.clone(), py_dict_to_attr_map(dict.bind(py))?)))
+            .collect::<PyResult<_>>()?;
+        for (canonical, attrs) in nodes {
+            self.inner.replace_node_attrs(&canonical, attrs);
+        }
+        let edges: Vec<(String, String, usize, AttrMap)> = self
+            .edge_py_attrs
+            .iter()
+            .map(|((u, v, key), dict)| {
+                Ok((
+                    u.clone(),
+                    v.clone(),
+                    *key,
+                    py_dict_to_attr_map(dict.bind(py))?,
+                ))
+            })
+            .collect::<PyResult<_>>()?;
+        for (u, v, key, attrs) in edges {
+            self.inner.replace_edge_attrs(&u, &v, key, attrs);
+        }
+        Ok(())
+    }
+
     /// Return edge attributes. If key is None, returns dict of key -> attrs.
     #[pyo3(signature = (u, v, key=None, default=None))]
     fn get_edge_data(
@@ -2836,6 +2867,30 @@ impl PyDiGraph {
             || default.unwrap_or_else(|| py.None()),
             |d| d.clone_ref(py).into_any(),
         ))
+    }
+
+    /// br-r37-c1-sjf4t: push the per-node and per-edge Python attribute
+    /// dicts back into the Rust ``inner`` graph. Called by Python-level
+    /// wrappers before invoking native algorithms so post-creation
+    /// mutations (``G[u][v]['k']=v``) are visible to the Rust kernels.
+    fn _fnx_sync_attrs_to_inner(&mut self, py: Python<'_>) -> PyResult<()> {
+        let nodes: Vec<(String, AttrMap)> = self
+            .node_py_attrs
+            .iter()
+            .map(|(canonical, dict)| Ok((canonical.clone(), py_dict_to_attr_map(dict.bind(py))?)))
+            .collect::<PyResult<_>>()?;
+        for (canonical, attrs) in nodes {
+            self.inner.replace_node_attrs(&canonical, attrs);
+        }
+        let edges: Vec<(String, String, AttrMap)> = self
+            .edge_py_attrs
+            .iter()
+            .map(|((u, v), dict)| Ok((u.clone(), v.clone(), py_dict_to_attr_map(dict.bind(py))?)))
+            .collect::<PyResult<_>>()?;
+        for (u, v, attrs) in edges {
+            self.inner.replace_edge_attrs(&u, &v, attrs);
+        }
+        Ok(())
     }
 
     // ---- Views (properties) ----

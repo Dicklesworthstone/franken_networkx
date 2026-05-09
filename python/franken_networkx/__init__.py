@@ -5372,26 +5372,46 @@ def _should_delegate_dijkstra_to_networkx(G, weight):
     return _has_nonnumeric_edge_weight(G, weight)
 
 
-def _graph_has_nonunit_weight(G, weight):
-    """br-dijkignoreweight: the Rust single_source_dijkstra
-    (and its family) silently returns hop-count distances — not
-    weighted distances — when edges carry non-unit weight values.
-    This check detects that case so the single_source wrappers can
-    route to nx. Different from
-    _has_negative_edge_weight_for_dijkstra because we also need to
-    catch positive non-unit weights (the Rust path treats weight=1.5
-    as unweighted).
+def _sync_rust_edge_attrs(G):
+    """br-r37-c1-sjf4t: push Python-visible edge/node attribute dicts
+    back into the Rust ``inner`` graph so native algorithms see
+    post-creation mutations.
+
+    The Python edge dict (returned by ``G[u][v]``) is the same
+    persistent ``Py<PyDict>`` stored in ``edge_py_attrs``, so user
+    mutations like ``G[u][v]['weight'] = 1.5`` or ``attrs[k] = v``
+    inside ``for u,v,attrs in G.edges(data=True)`` ARE visible to the
+    Python side. They are however invisible to the Rust ``inner``
+    graph's parallel ``AttrMap`` storage (used by Rust algorithm
+    kernels). This helper rebuilds ``inner``'s AttrMap from the Python
+    dicts, eliminating the need for the ``_graph_has_nonunit_weight``
+    nx-fallback that previously defended against the staleness bug.
+
+    Cost is O(E + N). For shortest-path algorithms (E log N or worse),
+    this does not change asymptotic complexity, but does eliminate
+    the catastrophic perf hit of the nx fallback.
+
+    Caller is responsible for invoking this before any Rust kernel
+    that reads attrs — it cannot be called from the Rust side without
+    a ``&mut PyGraph`` reference, which the algorithm bindings do not
+    have.
     """
-    if not isinstance(weight, str):
-        return False
-    for _, _, attrs in G.edges(data=True):
-        if not isinstance(attrs, dict) or weight not in attrs:
-            continue
-        try:
-            if float(attrs[weight]) != 1.0:
-                return True
-        except (TypeError, ValueError):
-            return True
+    sync = getattr(G, "_fnx_sync_attrs_to_inner", None)
+    if callable(sync):
+        sync()
+
+
+def _graph_has_nonunit_weight(G, weight):
+    """br-dijkignoreweight (historical): originally signaled "Rust
+    saw stale weights, fall back to nx". Now superseded by
+    :func:`_sync_rust_edge_attrs` (br-r37-c1-sjf4t).
+
+    The function is preserved for any external callers but its body
+    is now: sync the Python attrs into the Rust ``inner`` graph and
+    return ``False`` (no fallback needed). The Rust kernel sees fresh
+    data and produces the correct weighted distances.
+    """
+    _sync_rust_edge_attrs(G)
     return False
 
 

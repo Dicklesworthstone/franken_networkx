@@ -43,13 +43,12 @@ METHODS = ["dijkstra", "bellman-ford"]
 def _seeded_weight_assignment(graph, seed, low=1.0, high=10.0):
     """Assign random weights to every edge.
 
-    NOTE: We avoid ``graph[u][v]['weight'] = ...`` post-mutation because
-    that path is invisible to the Rust algorithms (architectural bead
-    br-r37-c1-sjf4t — Python edge dicts and Rust AttrMap are not kept in
-    sync on mutation). Instead, re-add each edge with the weight as a
-    kwarg, which propagates through ``add_edge_with_attrs`` and updates
-    the Rust storage. add_edge merges attrs onto an existing edge, so
-    this is idempotent and safe.
+    Either ``graph[u][v]['weight'] = ...`` or re-adding via
+    ``add_edge(u, v, weight=...)`` is correct now that
+    ``br-r37-c1-sjf4t`` is fixed (the public wrappers auto-sync the
+    Python-side attr dicts into the Rust ``inner.AttrMap`` before
+    invoking native algorithms). We use ``add_edge`` here for
+    historical continuity.
     """
     rng = random.Random(seed)
     edges = list(graph.edges())

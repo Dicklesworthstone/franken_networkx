@@ -99,11 +99,7 @@ fn node_key_to_string(_py: Python<'_>, key: &Bound<'_, PyAny>) -> PyResult<Strin
     // Floats that exactly represent an integer in i64 range collide
     // (by hash + ==) with their int counterpart in Python dicts.
     if let Ok(f) = key.extract::<f64>() {
-        if f.is_finite()
-            && f.fract() == 0.0
-            && f >= i64::MIN as f64
-            && f <= i64::MAX as f64
-        {
+        if f.is_finite() && f.fract() == 0.0 && f >= i64::MIN as f64 && f <= i64::MAX as f64 {
             return Ok((f as i64).to_string());
         }
         let repr = key.repr()?;
@@ -145,11 +141,7 @@ pub(crate) fn edge_key_lookup_string(_py: Python<'_>, key: &Bound<'_, PyAny>) ->
         return Ok(format!("int:{i}"));
     }
     if let Ok(f) = key.extract::<f64>() {
-        if f.is_finite()
-            && f.fract() == 0.0
-            && f >= i64::MIN as f64
-            && f <= i64::MAX as f64
-        {
+        if f.is_finite() && f.fract() == 0.0 && f >= i64::MIN as f64 && f <= i64::MAX as f64 {
             return Ok(format!("int:{}", f as i64));
         }
         return Ok(format!("float:{f:?}"));
@@ -677,6 +669,37 @@ impl PyMultiGraph {
     }
 
     /// Return attributes of the edge (u, v).
+    /// br-r37-c1-sjf4t: push the per-node and per-edge Python attribute
+    /// dicts back into the Rust ``inner`` graph. Called by Python-level
+    /// wrappers before invoking native algorithms so post-creation
+    /// mutations (``G[u][v]['k']=v``) are visible to the Rust kernels.
+    fn _fnx_sync_attrs_to_inner(&mut self, py: Python<'_>) -> PyResult<()> {
+        let nodes: Vec<(String, AttrMap)> = self
+            .node_py_attrs
+            .iter()
+            .map(|(canonical, dict)| Ok((canonical.clone(), py_dict_to_attr_map(dict.bind(py))?)))
+            .collect::<PyResult<_>>()?;
+        for (canonical, attrs) in nodes {
+            self.inner.replace_node_attrs(&canonical, attrs);
+        }
+        let edges: Vec<(String, String, usize, AttrMap)> = self
+            .edge_py_attrs
+            .iter()
+            .map(|((u, v, key), dict)| {
+                Ok((
+                    u.clone(),
+                    v.clone(),
+                    *key,
+                    py_dict_to_attr_map(dict.bind(py))?,
+                ))
+            })
+            .collect::<PyResult<_>>()?;
+        for (u, v, key, attrs) in edges {
+            self.inner.replace_edge_attrs(&u, &v, key, attrs);
+        }
+        Ok(())
+    }
+
     /// If key is None, returns a dict of key -> attr_dict.
     #[pyo3(signature = (u, v, key=None, default=None))]
     fn get_edge_data(
@@ -3125,6 +3148,30 @@ impl PyGraph {
             || default.unwrap_or_else(|| py.None()),
             |d| d.clone_ref(py).into_any(),
         ))
+    }
+
+    /// br-r37-c1-sjf4t: push the per-node and per-edge Python attribute
+    /// dicts back into the Rust ``inner`` graph. Called by Python-level
+    /// wrappers before invoking native algorithms so post-creation
+    /// mutations (``G[u][v]['k']=v``) are visible to the Rust kernels.
+    fn _fnx_sync_attrs_to_inner(&mut self, py: Python<'_>) -> PyResult<()> {
+        let nodes: Vec<(String, AttrMap)> = self
+            .node_py_attrs
+            .iter()
+            .map(|(canonical, dict)| Ok((canonical.clone(), py_dict_to_attr_map(dict.bind(py))?)))
+            .collect::<PyResult<_>>()?;
+        for (canonical, attrs) in nodes {
+            self.inner.replace_node_attrs(&canonical, attrs);
+        }
+        let edges: Vec<(String, String, AttrMap)> = self
+            .edge_py_attrs
+            .iter()
+            .map(|((u, v), dict)| Ok((u.clone(), v.clone(), py_dict_to_attr_map(dict.bind(py))?)))
+            .collect::<PyResult<_>>()?;
+        for (u, v, attrs) in edges {
+            self.inner.replace_edge_attrs(&u, &v, attrs);
+        }
+        Ok(())
     }
 
     /// ``G.nodes`` — a `NodeView` of the graph's nodes. Supports ``len``, ``in``,
