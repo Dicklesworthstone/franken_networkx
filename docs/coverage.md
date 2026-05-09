@@ -53,7 +53,7 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 | wrapper-patched | `single_source_bellman_ford_path_length` | PY_WRAPPER | raw-vs-public-audit | `docs/raw_vs_public_audit.md` | raw output is post-processed by wrapper to match nx |
 | wrapper-patched | `single_source_dijkstra_path_length` | PY_WRAPPER | raw-vs-public-audit | `docs/raw_vs_public_audit.md` | raw output is post-processed by wrapper to match nx |
 | raw-known-gap | `_raw_is_planar` | RUST_NATIVE | code:KNOWN GAP | `crates/fnx-algorithms/src/lib.rs:KNOWN GAP` | raw kernel still uses necessary edge-count bounds, not a complete LR planarity test |
-| raw-known-gap | `is_planar` | PY_WRAPPER | rust-source-comment (crates/fnx-algorithms/src/lib.rs) | `crates/fnx-algorithms/src/lib.rs` | // KNOWN GAP (br-isplanarbroken / TODO: real LR planarity): the call |
+| raw-known-gap | `is_planar` | PY_WRAPPER | rust-source-comment (crates/fnx-algorithms/src/lib.rs) | `crates/fnx-algorithms/src/lib.rs` | // KNOWN GAP (br-isplanarbroken): this is still a necessary-only test; |
 | owner-acknowledged-limitation | `_raw_is_planar` | RUST_NATIVE | code:KNOWN GAP | `crates/fnx-algorithms/src/lib.rs:KNOWN GAP` | callers are directed to the public wrapper until Boyer-Myrvold/Hopcroft-Tarjan lands |
 | owner-acknowledged-limitation | `is_planar` | PY_WRAPPER | closed-bead | `docs/upstream_divergence_ledger.md` | franken_networkx-isplanarbroken: REVIEW: [HIGH] is_planar classified K3,3 and Petersen as planar (both are canoni |
 

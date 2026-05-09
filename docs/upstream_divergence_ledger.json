@@ -3784,7 +3784,7 @@
       "name": "is_planar",
       "category": "raw-known-gap",
       "source": "rust-source-comment (crates/fnx-algorithms/src/lib.rs)",
-      "note": "// KNOWN GAP (br-isplanarbroken / TODO: real LR planarity): the call",
+      "note": "// KNOWN GAP (br-isplanarbroken): this is still a necessary-only test;",
       "evidence": "crates/fnx-algorithms/src/lib.rs"
     },
     {
@@ -10788,7 +10788,7 @@
       "raw-known-gap": [
         {
           "source": "rust-source-comment (crates/fnx-algorithms/src/lib.rs)",
-          "note": "// KNOWN GAP (br-isplanarbroken / TODO: real LR planarity): the call",
+          "note": "// KNOWN GAP (br-isplanarbroken): this is still a necessary-only test;",
           "evidence": "crates/fnx-algorithms/src/lib.rs"
         }
       ],

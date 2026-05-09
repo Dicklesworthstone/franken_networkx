@@ -190,7 +190,7 @@ Combines static AST analysis (`docs/delegation_ledger.json`), per-fixture audit 
 
 | function | source | note |
 |----------|--------|------|
-| `is_planar` | rust-source-comment (crates/fnx-algorithms/src/lib.rs) | // KNOWN GAP (br-isplanarbroken / TODO: real LR planarity): the call |
+| `is_planar` | rust-source-comment (crates/fnx-algorithms/src/lib.rs) | // KNOWN GAP (br-isplanarbroken): this is still a necessary-only test; |
 
 ## owner-acknowledged-limitation (1)
 

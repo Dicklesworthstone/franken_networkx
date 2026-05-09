@@ -18934,16 +18934,31 @@ pub fn is_planar(graph: &Graph) -> bool {
         return false;
     }
 
-    // KNOWN GAP (br-isplanarbroken / TODO: real LR planarity): the call
-    // below only checks Euler's edge bound `|E| <= 3|V| - 6` globally and
-    // per biconnected component. That is necessary but NOT sufficient —
-    // K3,3 (n=6, m=9) and the Petersen graph (n=10, m=15) both pass the
-    // bound yet are non-planar. The Python wrapper
-    // `franken_networkx.is_planar` works around this by routing through
-    // `check_planarity`, which delegates to NetworkX's reference LR
-    // planarity test. Until a real Boyer-Myrvold / Hopcroft-Tarjan
-    // implementation lands here, callers must not trust this function in
-    // isolation.
+    // br-r37-c1-x0gc6: tighter girth-based necessary condition.
+    // For a simple planar graph with girth g (length of shortest cycle):
+    //     |E| <= g(|V| - 2) / (g - 2)
+    // - g = 3 reduces to the standard 3|V| - 6 bound (already checked).
+    // - g = 4 (triangle-free, includes bipartite) gives 2|V| - 4 — this
+    //   correctly rejects K3,3 (n=6, m=9, bound 8).
+    // - g = 5 gives 5(|V| - 2)/3 — this correctly rejects the Petersen
+    //   graph (n=10, m=15, bound 13).
+    // KNOWN GAP (br-isplanarbroken): this is still a necessary-only test;
+    // a graph passing all bounds may still be non-planar (Kuratowski
+    // subgraph or minor that doesn't trip the girth bound). The public
+    // wrapper `franken_networkx.is_planar` continues to route through
+    // `check_planarity` for full correctness via NetworkX's LR planarity
+    // test until a Boyer-Myrvold port lands here.
+    if let Some(g) = girth(graph)
+        && g >= 4
+        && n >= 3
+    {
+        // bound = g(n - 2) / (g - 2). Use saturating arithmetic to be
+        // safe on huge graphs even though planar |E| stays O(|V|).
+        let bound = g.saturating_mul(n - 2) / (g - 2);
+        if m > bound {
+            return false;
+        }
+    }
 
     // Build adjacency for the planarity algorithm
     let idx: HashMap<&str, usize> = nodes.iter().enumerate().map(|(i, &n)| (n, i)).collect();
