@@ -12260,6 +12260,11 @@ def astar_path(G, source, target, heuristic=None, weight="weight", *, cutoff=Non
             weight=weight,
             cutoff=cutoff,
         )
+    # br-r37-c1-0x9pd: A* reads edge weights from inner.AttrMap, so
+    # post-creation Python mutations (G[u][v]['weight']=v) need to be
+    # synced first — same architectural fix as br-r37-c1-sjf4t for
+    # dijkstra/bellman-ford/floyd-warshall.
+    _sync_rust_edge_attrs(G)
     try:
         return _raw_astar_path(
             G, source, target, heuristic=heuristic, weight=weight
@@ -12290,6 +12295,8 @@ def astar_path_length(
             weight=weight,
             cutoff=cutoff,
         )
+    # br-r37-c1-0x9pd: see astar_path.
+    _sync_rust_edge_attrs(G)
     # br-r37-c1-tm1tq: nx pre-checks ``source not in G or target not in G``
     # and raises a single combined-message NodeNotFound rather than
     # the per-side message that ``astar_path``'s translator returns
