@@ -1,3 +1,5 @@
+import inspect
+
 import networkx as nx
 import pytest
 
@@ -144,6 +146,18 @@ def test_to_scipy_sparse_array_matches_networkx_multigraph_contract():
     wanted = nx.to_scipy_sparse_array(expected, nodelist=["a", "b"], format="csr")
 
     assert np.array_equal(actual.toarray(), wanted.toarray())
+
+
+def test_conversion_docstrings_reflect_multigraph_support():
+    for name in (
+        "to_pandas_edgelist",
+        "to_numpy_array",
+        "from_numpy_array",
+        "from_scipy_sparse_array",
+    ):
+        doc = inspect.getdoc(getattr(fnx, name))
+        assert "multigraphs not yet supported" not in doc
+        assert "Ignored (multigraphs" not in doc
 
 
 def test_to_pandas_edgelist_matches_networkx_multigraph_contract():

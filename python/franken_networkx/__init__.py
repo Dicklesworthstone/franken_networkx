@@ -37714,7 +37714,8 @@ def to_pandas_edgelist(
     dtype : dict, optional
         Column dtypes passed to DataFrame constructor.
     edge_key : str, optional
-        Ignored (multigraphs not yet supported).
+        Column name for edge keys on multigraph inputs. If ``None``,
+        edge keys are omitted.
 
     Returns
     -------
@@ -37889,7 +37890,8 @@ def to_numpy_array(
     order : {'C', 'F'}, optional
         Memory layout passed to ``numpy.full``.
     multigraph_weight : callable, optional
-        Ignored (multigraphs not yet supported). Present for API compat.
+        Aggregation function used to combine parallel edge weights for
+        multigraph inputs.
     weight : str or None, optional
         Edge attribute key used as weight. If ``None``, every edge has
         weight 1. Default ``'weight'``.
@@ -37959,7 +37961,8 @@ def from_numpy_array(
     A : numpy.ndarray
         A 2-D NumPy array interpreted as an adjacency matrix.
     parallel_edges : bool, optional
-        Ignored (multigraphs not yet supported). Present for API compat.
+        If ``True`` and ``create_using`` is a multigraph, integer array
+        entries create that many parallel edges.
     create_using : Graph constructor, optional
         Graph type to create. Default ``Graph()``.
 
@@ -38133,7 +38136,8 @@ def from_scipy_sparse_array(
     A : scipy.sparse array or matrix
         An adjacency matrix representation of a graph.
     parallel_edges : bool, optional
-        Ignored (multigraphs not yet supported). Present for API compat.
+        If ``True`` and ``create_using`` is a multigraph, integer sparse
+        entries create that many parallel edges.
     create_using : Graph constructor, optional
         Graph type to create. Default ``Graph()``.
     edge_attribute : str, optional
