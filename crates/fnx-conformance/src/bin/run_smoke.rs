@@ -42,6 +42,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Err("fixture filter did not match any fixtures".into());
     }
 
+    if let Some(err) = report.artifact_write_error.as_deref() {
+        return Err(format!("conformance artifact emission failed: {err}").into());
+    }
+
     if report.mismatch_count > 0 {
         return Err(format!("conformance mismatches detected: {}", report.mismatch_count).into());
     }

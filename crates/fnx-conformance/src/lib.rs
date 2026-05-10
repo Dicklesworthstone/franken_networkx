@@ -125,6 +125,7 @@ pub struct HarnessReport {
     pub hardened_allowlisted_count: usize,
     pub structured_log_count: usize,
     pub structured_log_path: Option<String>,
+    pub artifact_write_error: Option<String>,
     pub fixture_reports: Vec<FixtureReport>,
 }
 
@@ -1087,7 +1088,7 @@ pub fn run_smoke(config: &HarnessConfig) -> HarnessReport {
         .map(|report| report.hardened_allowlisted_count)
         .sum();
 
-    let report = HarnessReport {
+    let mut report = HarnessReport {
         suite: "smoke",
         oracle_present: config.oracle_root.exists(),
         fixture_count: fixture_reports.len(),
@@ -1099,11 +1100,14 @@ pub fn run_smoke(config: &HarnessConfig) -> HarnessReport {
             .report_root
             .as_ref()
             .map(|root| root.join("structured_logs.jsonl").display().to_string()),
+        artifact_write_error: None,
         fixture_reports,
     };
 
-    if let Some(report_root) = &config.report_root {
-        let _ = write_artifacts(report_root, &report, &config.log_schema_version, &run_id);
+    if let Some(report_root) = &config.report_root
+        && let Err(err) = write_artifacts(report_root, &report, &config.log_schema_version, &run_id)
+    {
+        report.artifact_write_error = Some(format!("{}: {err}", report_root.display()));
     }
 
     report
@@ -5896,6 +5900,57 @@ mod tests {
             "traversal alias fixture mismatches: {:?}",
             report.mismatches
         );
+    }
+
+    #[test]
+    fn run_smoke_reports_artifact_emission_failures() {
+        let root = std::env::temp_dir().join(format!(
+            "fnx-conformance-artifact-fail-closed-{}",
+            unix_time_ms()
+        ));
+        let fixture_root = root.join("fixtures");
+        fs::create_dir_all(&fixture_root).expect("temporary fixture root should be creatable");
+        fs::write(
+            fixture_root.join("artifact_write_strict.json"),
+            r#"{
+                "suite": "unit",
+                "mode": "strict",
+                "fixture_id": "artifact_write_fail_closed",
+                "operations": [
+                    {"op": "add_node", "node": "a"},
+                    {"op": "add_node", "node": "b"},
+                    {"op": "add_edge", "left": "a", "right": "b"}
+                ],
+                "expected": {
+                    "graph": {
+                        "nodes": ["a", "b"],
+                        "edges": [
+                            {"left": "a", "right": "b", "attrs": {}}
+                        ]
+                    }
+                }
+            }"#,
+        )
+        .expect("temporary fixture should be writable");
+
+        let report_root = root.join("report-root-is-file");
+        fs::write(&report_root, "not a directory")
+            .expect("report root sentinel should be writable");
+
+        let mut cfg = HarnessConfig::default_paths();
+        cfg.fixture_root = fixture_root;
+        cfg.report_root = Some(report_root);
+
+        let report = run_smoke(&cfg);
+
+        assert_eq!(report.fixture_count, 1);
+        assert_eq!(report.mismatch_count, 0);
+        let error = report
+            .artifact_write_error
+            .as_deref()
+            .expect("artifact write error should be reported");
+        assert!(error.contains("report-root-is-file"));
+        assert!(error.contains("File exists") || error.contains("Not a directory"));
     }
 
     #[test]
