@@ -961,6 +961,32 @@ def test_conversion_view_edges_set_protocol(name, fnx_builder, nx_builder):
     assert isinstance(e_f & set(e_f), set)
 
 
+@pytest.mark.parametrize("name,fnx_builder,nx_builder", _CONVERSION_EDGE_BUILDERS,
+                         ids=[b[0] for b in _CONVERSION_EDGE_BUILDERS])
+def test_conversion_view_edges_data_none_default_matches_networkx(name, fnx_builder, nx_builder):
+    """br-r37-c1-rpizh: conversion-view edges.data(None, default=...)
+    must keep the default value column. MultiGraph conversion views also
+    preserve the key column when keys=True.
+    """
+    G_f = fnx_builder()
+    G_n = nx_builder()
+
+    assert sorted(G_f.edges.data(None, default=7)) == sorted(
+        G_n.edges.data(None, default=7)
+    )
+    assert sorted(G_f.edges(data=None, default=7)) == sorted(
+        G_n.edges(data=None, default=7)
+    )
+
+    if G_f.is_multigraph():
+        assert sorted(G_f.edges.data(None, default=7, keys=True)) == sorted(
+            G_n.edges.data(None, default=7, keys=True)
+        )
+        assert sorted(G_f.edges(data=None, default=7, keys=True)) == sorted(
+            G_n.edges(data=None, default=7, keys=True)
+        )
+
+
 @pytest.mark.parametrize("name,builder", _MULTI_BUILDERS_FOR_FILTER,
                          ids=[b[0] for b in _MULTI_BUILDERS_FOR_FILTER])
 def test_subgraph_view_multigraph_edges_iter_yields_keys(name, builder):

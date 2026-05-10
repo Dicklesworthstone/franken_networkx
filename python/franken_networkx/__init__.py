@@ -29483,14 +29483,7 @@ class _ConversionEdgeView:
             raise KeyError(edge)
         return self._view.adj[u][v]
 
-    def __call__(self, nbunch=None, data=False, keys=False):
-        if self._view.is_multigraph():
-            return _ConversionMultiEdgeQuery(
-                self._view, nbunch=nbunch, data=data, keys=keys
-            )
-        return self._view._edges(nbunch=nbunch, data=data, keys=keys)
-
-    def data(self, data=True, default=None, nbunch=None, keys=False):
+    def __call__(self, nbunch=None, data=False, keys=False, default=None):
         if isinstance(data, str):
             base = self._view._edges(nbunch=nbunch, data=True, keys=keys)
             if keys:
@@ -29501,7 +29494,19 @@ class _ConversionEdgeView:
             return [
                 (u, v, attrs.get(data, default)) for u, v, attrs in base
             ]
+        if data is None:
+            base = self._view._edges(nbunch=nbunch, data=False, keys=keys)
+            if keys:
+                return [(u, v, k, default) for u, v, k in base]
+            return [(u, v, default) for u, v in base]
+        if self._view.is_multigraph():
+            return _ConversionMultiEdgeQuery(
+                self._view, nbunch=nbunch, data=data, keys=keys
+            )
         return self._view._edges(nbunch=nbunch, data=data, keys=keys)
+
+    def data(self, data=True, default=None, nbunch=None, keys=False):
+        return self(nbunch=nbunch, data=data, keys=keys, default=default)
 
     def __and__(self, other):
         return set(self) & set(other)
