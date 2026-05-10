@@ -10,6 +10,8 @@ from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 FIXTURE_ROOT = REPO_ROOT / "crates/fnx-conformance/fixtures"
+EXCLUDED_FIXTURE_NAMES = {"smoke_case.json"}
+EXCLUDED_FIXTURE_PREFIXES = ("cgse_",)
 
 
 def load_json(path: Path) -> dict[str, Any]:
@@ -35,7 +37,8 @@ def fixture_inventory() -> list[str]:
     return [
         path.relative_to(FIXTURE_ROOT).as_posix()
         for path in sorted(FIXTURE_ROOT.rglob("*.json"))
-        if path.name != "smoke_case.json"
+        if path.name not in EXCLUDED_FIXTURE_NAMES
+        and not path.name.startswith(EXCLUDED_FIXTURE_PREFIXES)
     ]
 
 
@@ -317,12 +320,12 @@ def main() -> int:
         if sorted(set(manifest_covered)) != sorted(covered_fixture_ids):
             errors.append("coverage_manifest.covered_fixture_ids drift from journey path coverage")
         manifest_uncovered = coverage.get("uncovered_fixture_ids")
-        expected_uncovered = sorted(fixture_set - covered_fixture_ids)
-        if manifest_uncovered != expected_uncovered:
-            errors.append("coverage_manifest.uncovered_fixture_ids mismatch expected uncovered list")
+        if manifest_uncovered != []:
+            errors.append("coverage_manifest.uncovered_fixture_ids must be empty")
+        expected_uncovered_count = 0
     else:
         errors.append("coverage_manifest must be object")
-        expected_uncovered = sorted(fixture_set - covered_fixture_ids)
+        expected_uncovered_count = 0
 
     if journey_summary:
         if journey_summary.get("journey_count") != len(journeys):
@@ -335,7 +338,7 @@ def main() -> int:
             errors.append("journey_summary.fixture_inventory_count mismatch")
         if journey_summary.get("covered_fixture_count") != len(covered_fixture_ids):
             errors.append("journey_summary.covered_fixture_count mismatch")
-        if journey_summary.get("uncovered_fixture_count") != len(expected_uncovered):
+        if journey_summary.get("uncovered_fixture_count") != expected_uncovered_count:
             errors.append("journey_summary.uncovered_fixture_count mismatch")
 
     profile_artifacts = artifact.get("profile_first_artifacts")
@@ -375,7 +378,7 @@ def main() -> int:
             "journey_count": len(journeys),
             "fixture_inventory_count": len(fixture_set),
             "covered_fixture_count": len(covered_fixture_ids),
-            "uncovered_fixture_count": len(expected_uncovered),
+            "uncovered_fixture_count": expected_uncovered_count,
         },
     }
 

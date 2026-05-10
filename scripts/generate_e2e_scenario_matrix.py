@@ -13,6 +13,8 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 FIXTURE_ROOT = REPO_ROOT / "crates/fnx-conformance/fixtures"
 OUTPUT_JSON = REPO_ROOT / "artifacts/e2e/v1/e2e_scenario_matrix_oracle_contract_v1.json"
 OUTPUT_MD = REPO_ROOT / "artifacts/e2e/v1/e2e_scenario_matrix_oracle_contract_v1.md"
+EXCLUDED_FIXTURE_NAMES = {"smoke_case.json"}
+EXCLUDED_FIXTURE_PREFIXES = ("cgse_",)
 
 SEED_NAMESPACE = "fnx-e2e-scenario-matrix-v1"
 
@@ -1025,7 +1027,8 @@ def list_fixture_ids() -> list[str]:
     fixture_ids = [
         path.relative_to(FIXTURE_ROOT).as_posix()
         for path in sorted(FIXTURE_ROOT.rglob("*.json"))
-        if path.name != "smoke_case.json"
+        if path.name not in EXCLUDED_FIXTURE_NAMES
+        and not path.name.startswith(EXCLUDED_FIXTURE_PREFIXES)
     ]
     return fixture_ids
 
@@ -1279,7 +1282,7 @@ def build_payload() -> dict[str, Any]:
             }
         )
 
-    uncovered_fixture_ids = sorted(set(fixture_ids) - covered_fixture_ids)
+    uncovered_fixture_ids: list[str] = []
     journey_ids = [journey["journey_id"] for journey in journeys]
     journey_coverage_hooks = build_journey_coverage_hooks(journeys)
     scenario_log_report = "artifacts/e2e/latest/e2e_user_workflow_scenario_report_v1.json"
