@@ -21,6 +21,7 @@ kernel itself.
 from __future__ import annotations
 
 import franken_networkx as fnx
+import pytest
 
 
 # ---------------------------------------------------------------------------
@@ -106,3 +107,60 @@ def test_public_is_planar_still_correct_on_petersen():
 def test_public_is_planar_still_correct_on_k33():
     g = fnx.complete_bipartite_graph(3, 3)
     assert fnx.is_planar(g) is False
+
+
+def test_public_is_planar_girth4_rejects_without_lr_fallback(monkeypatch):
+    """Mycielski(4) is triangle-free, non-bipartite, and violates 2n-4."""
+    g = fnx.mycielski_graph(4)
+
+    def fail_check_planarity(_candidate):
+        raise AssertionError("girth-4 edge bound should reject before LR fallback")
+
+    monkeypatch.setattr(fnx, "check_planarity", fail_check_planarity)
+
+    assert g.number_of_nodes() == 11
+    assert g.number_of_edges() == 20
+    assert fnx.is_bipartite(g) is False
+    assert fnx.is_planar(g) is False
+
+
+@pytest.mark.parametrize("graph_factory", [fnx.petersen_graph, fnx.heawood_graph])
+def test_public_is_planar_sparse_high_girth_graphs_still_use_lr(
+    graph_factory, monkeypatch
+):
+    g = graph_factory()
+    calls = []
+
+    def fake_check_planarity(candidate):
+        calls.append(candidate)
+        return False, None
+
+    monkeypatch.setattr(fnx, "check_planarity", fake_check_planarity)
+
+    assert fnx.is_planar(g) is False
+    assert calls == [g]
+
+
+def test_public_is_planar_preserves_directed_check_planarity_semantics():
+    g = fnx.DiGraph()
+    g.add_nodes_from(range(5))
+    cycle_edges = [(node, (node + 1) % 5) for node in range(5)]
+    g.add_edges_from(cycle_edges)
+    g.add_edges_from((v, u) for u, v in cycle_edges)
+
+    assert g.number_of_edges() > 3 * g.number_of_nodes() - 6
+    assert fnx.check_planarity(g)[0] is True
+    assert fnx.is_planar(g) is True
+
+
+def test_public_is_planar_preserves_multigraph_check_planarity_semantics():
+    g = fnx.MultiGraph()
+    g.add_nodes_from(range(5))
+    for _ in range(4):
+        g.add_edge(0, 1)
+        g.add_edge(1, 2)
+        g.add_edge(2, 3)
+
+    assert g.number_of_edges() > 3 * g.number_of_nodes() - 6
+    assert fnx.check_planarity(g)[0] is True
+    assert fnx.is_planar(g) is True

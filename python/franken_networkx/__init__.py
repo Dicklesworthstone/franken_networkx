@@ -12112,6 +12112,34 @@ def is_chordal(G):
     return _raw_is_chordal(G)
 
 
+def _loopless_simple_undirected_edges(G):
+    if G.is_directed() or G.is_multigraph():
+        return None
+
+    edges = list(G.edges())
+    for u, v in edges:
+        if u == v:
+            return None
+    return edges
+
+
+def _is_triangle_free_with_edges(G, edges):
+    adjacency = {node: set() for node in G.nodes()}
+    for u, v in edges:
+        adjacency.setdefault(u, set()).add(v)
+        adjacency.setdefault(v, set()).add(u)
+
+    for u, v in edges:
+        u_neighbors = adjacency[u]
+        v_neighbors = adjacency[v]
+        if len(u_neighbors) <= len(v_neighbors):
+            if any(node in v_neighbors for node in u_neighbors):
+                return False
+        elif any(node in u_neighbors for node in v_neighbors):
+            return False
+    return True
+
+
 def is_planar(G, *, backend=None, **backend_kwargs):
     """Return True if ``G`` is planar.
 
@@ -12136,18 +12164,22 @@ def is_planar(G, *, backend=None, **backend_kwargs):
     # crate via br-r37-c1-xdjpt; lifted to the Python wrapper here so
     # the speedup is independent of binary state.
     n = G.number_of_nodes()
-    if n <= 4:
-        # Every graph with ≤ 4 nodes is planar.
-        return True
     m = G.number_of_edges()
-    if m > 3 * n - 6:
-        # Euler bound: any planar graph with ≥ 3 nodes has |E| ≤ 3|V|-6.
-        return False
-    # Bipartite-tightened bound (Kuratowski): bipartite planar graphs
-    # have |E| ≤ 2|V|-4. The 2-coloring BFS is O(|V|+|E|) — same order
-    # as the nx-graph copy it avoids when triggered.
-    if m > 2 * n - 4 and is_bipartite(G):
-        return False
+    simple_edges = _loopless_simple_undirected_edges(G)
+    if simple_edges is not None:
+        if n <= 4:
+            # Every loop-free simple graph with ≤ 4 nodes is planar.
+            return True
+        if m > 3 * n - 6:
+            # Euler bound: planar simple graphs with ≥ 3 nodes have
+            # |E| ≤ 3|V|-6.
+            return False
+        # Girth-4 tightened bound: triangle-free planar simple graphs
+        # have |E| ≤ 2|V|-4. The adjacency-set triangle scan is
+        # O(sum(deg(u), deg(v))) over edges and replaces the heavier
+        # nx-graph copy + full LR embedding when triggered.
+        if m > 2 * n - 4 and _is_triangle_free_with_edges(G, simple_edges):
+            return False
     is_p, _ = check_planarity(G)
     return is_p
 
