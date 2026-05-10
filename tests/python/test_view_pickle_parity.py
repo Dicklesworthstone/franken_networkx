@@ -1235,6 +1235,34 @@ def test_in_edges_data_method():
     assert sorted(DG.out_edges.data()) == sorted(DG_n.out_edges.data())
 
 
+def test_multidigraph_in_out_edges_data_keys_matches_networkx():
+    """br-r37-c1-j33q6: MultiDiGraph in/out edge data views accept
+    keys=True on their .data() method, including filtered graph views.
+    """
+    MDG = fnx.MultiDiGraph()
+    MDG_n = nx.MultiDiGraph()
+    for graph in (MDG, MDG_n):
+        graph.add_edge("a", "b", key="heavy", weight=3)
+        graph.add_edge("b", "c", key="missing")
+
+    for G, G_n in (
+        (MDG, MDG_n),
+        (MDG.subgraph(["a", "b", "c"]), MDG_n.subgraph(["a", "b", "c"])),
+    ):
+        assert sorted(G.out_edges.data("weight", default=7, keys=True)) == sorted(
+            G_n.out_edges.data("weight", default=7, keys=True)
+        )
+        assert sorted(G.in_edges.data("weight", default=7, keys=True)) == sorted(
+            G_n.in_edges.data("weight", default=7, keys=True)
+        )
+        assert sorted(G.out_edges.data(None, default=7, keys=True)) == sorted(
+            G_n.out_edges.data(None, default=7, keys=True)
+        )
+        assert sorted(G.in_edges.data(None, default=7, keys=True)) == sorted(
+            G_n.in_edges.data(None, default=7, keys=True)
+        )
+
+
 def test_subgraph_view_loses_live_filtering_after_pickle():
     """The live subgraph view tracks filter changes against its parent
     graph. After pickle, the restored object is independent (matches

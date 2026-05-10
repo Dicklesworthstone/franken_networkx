@@ -4991,12 +4991,14 @@ _InEdgeView.__name__ = "InEdgeView"
 
 
 class _OutMultiEdgeView(_DiEdgeMethodView):
-    pass
+    def data(self, data=True, default=None, nbunch=None, keys=False):
+        return self(nbunch=nbunch, data=data, keys=keys, default=default)
 _OutMultiEdgeView.__name__ = "OutMultiEdgeView"
 
 
 class _InMultiEdgeView(_DiEdgeMethodView):
-    pass
+    def data(self, data=True, default=None, nbunch=None, keys=False):
+        return self(nbunch=nbunch, data=data, keys=keys, default=default)
 _InMultiEdgeView.__name__ = "InMultiEdgeView"
 
 
