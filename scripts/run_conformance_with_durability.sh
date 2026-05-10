@@ -4,27 +4,39 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
-if command -v rch >/dev/null 2>&1; then
-  CARGO_RUNNER=(rch exec -- env CARGO_TARGET_DIR=target-codex cargo)
-else
-  CARGO_RUNNER=(env CARGO_TARGET_DIR=target-codex cargo)
-fi
+TARGET_DIR="${CARGO_TARGET_DIR:-target-codex}"
+export CARGO_TARGET_DIR="$TARGET_DIR"
+
+cargo_build() {
+  if command -v rch >/dev/null 2>&1; then
+    RCH_ENV_ALLOWLIST="${RCH_ENV_ALLOWLIST:+$RCH_ENV_ALLOWLIST,}CARGO_TARGET_DIR" \
+      rch exec -- cargo build -q "$@"
+  else
+    cargo build -q "$@"
+  fi
+}
+
+RUN_SMOKE_BIN="$TARGET_DIR/debug/run_smoke"
+DURABILITY_BIN="$TARGET_DIR/debug/fnx-durability"
 
 REPORT_PATH="artifacts/conformance/latest/smoke_report.json"
 LOG_PATH="artifacts/conformance/latest/structured_logs.jsonl"
 NORMALIZATION_PATH="artifacts/conformance/latest/structured_log_emitter_normalization_report.json"
 MATRIX_PATH="artifacts/conformance/latest/telemetry_dependent_unblock_matrix_v1.json"
 TAXONOMY_PATH="artifacts/conformance/latest/mismatch_taxonomy_report.json"
+DASHBOARD_PATH="artifacts/conformance/latest/conformance_dashboard_v1.json"
 SIDECAR_PATH="artifacts/conformance/latest/smoke_report.raptorq.json"
 LOG_SIDECAR_PATH="artifacts/conformance/latest/structured_logs.raptorq.json"
 NORMALIZATION_SIDECAR_PATH="artifacts/conformance/latest/structured_log_emitter_normalization_report.raptorq.json"
 MATRIX_SIDECAR_PATH="artifacts/conformance/latest/telemetry_dependent_unblock_matrix_v1.raptorq.json"
 TAXONOMY_SIDECAR_PATH="artifacts/conformance/latest/mismatch_taxonomy_report.raptorq.json"
+DASHBOARD_SIDECAR_PATH="artifacts/conformance/latest/conformance_dashboard_v1.raptorq.json"
 RECOVERED_PATH="artifacts/conformance/latest/smoke_report.recovered.json"
 LOG_RECOVERED_PATH="artifacts/conformance/latest/structured_logs.recovered.json"
 NORMALIZATION_RECOVERED_PATH="artifacts/conformance/latest/structured_log_emitter_normalization_report.recovered.json"
 MATRIX_RECOVERED_PATH="artifacts/conformance/latest/telemetry_dependent_unblock_matrix_v1.recovered.json"
 TAXONOMY_RECOVERED_PATH="artifacts/conformance/latest/mismatch_taxonomy_report.recovered.json"
+DASHBOARD_RECOVERED_PATH="artifacts/conformance/latest/conformance_dashboard_v1.recovered.json"
 PIPELINE_REPORT_PATH="artifacts/conformance/latest/durability_pipeline_report.json"
 RELIABILITY_REPORT_PATH="artifacts/conformance/latest/reliability_budget_report_v1.json"
 FLAKE_QUARANTINE_PATH="artifacts/conformance/latest/flake_quarantine_v1.json"
@@ -56,23 +68,32 @@ LATE_ARTIFACT_SPECS=(
   "$RELIABILITY_VALIDATION_PATH|$RELIABILITY_VALIDATION_SIDECAR_PATH|$RELIABILITY_VALIDATION_RECOVERED_PATH|reliability_budget_gate_validation_v1|conformance_gate"
   "$FINAL_GATE_REPORT_PATH|$FINAL_GATE_SIDECAR_PATH|$FINAL_GATE_RECOVERED_PATH|logging_final_gate_report_v1|conformance_gate"
   "$FINAL_CHECKLIST_PATH|$FINAL_CHECKLIST_SIDECAR_PATH|$FINAL_CHECKLIST_RECOVERED_PATH|logging_release_checklist_v1|conformance_gate"
+  "$DASHBOARD_PATH|$DASHBOARD_SIDECAR_PATH|$DASHBOARD_RECOVERED_PATH|conformance_dashboard_v1|conformance_gate"
 )
 
-TOTAL_STEPS=$((2 + 3 * ${#EARLY_ARTIFACT_SPECS[@]} + 3 * ${#LATE_ARTIFACT_SPECS[@]} + 3))
+TOTAL_STEPS=$((5 + 3 * ${#EARLY_ARTIFACT_SPECS[@]} + 3 * ${#LATE_ARTIFACT_SPECS[@]} + 3))
 step=1
 
 echo "[$step/$TOTAL_STEPS] Capturing oracle-backed fixtures..."
 ./scripts/capture_oracle_fixtures.py
 step=$((step + 1))
 
+echo "[$step/$TOTAL_STEPS] Building conformance harness..."
+cargo_build -p fnx-conformance --bin run_smoke
+step=$((step + 1))
+
+echo "[$step/$TOTAL_STEPS] Building durability CLI..."
+cargo_build -p fnx-durability --bin fnx-durability
+step=$((step + 1))
+
 echo "[$step/$TOTAL_STEPS] Running conformance harness..."
-"${CARGO_RUNNER[@]}" run -q -p fnx-conformance --bin run_smoke
+"$RUN_SMOKE_BIN"
 step=$((step + 1))
 
 for spec in "${EARLY_ARTIFACT_SPECS[@]}"; do
   IFS='|' read -r artifact_path sidecar_path _recovered_path artifact_id artifact_type <<< "$spec"
   echo "[$step/$TOTAL_STEPS] Generating durability sidecar for $artifact_id..."
-  "${CARGO_RUNNER[@]}" run -q -p fnx-durability --bin fnx-durability -- \
+  "$DURABILITY_BIN" \
     generate "$artifact_path" "$sidecar_path" "$artifact_id" "$artifact_type" 1400 6
   step=$((step + 1))
 done
@@ -80,7 +101,7 @@ done
 for spec in "${EARLY_ARTIFACT_SPECS[@]}"; do
   IFS='|' read -r artifact_path sidecar_path _recovered_path artifact_id _artifact_type <<< "$spec"
   echo "[$step/$TOTAL_STEPS] Running scrub verification for $artifact_id..."
-  "${CARGO_RUNNER[@]}" run -q -p fnx-durability --bin fnx-durability -- \
+  "$DURABILITY_BIN" \
     scrub "$artifact_path" "$sidecar_path"
   step=$((step + 1))
 done
@@ -88,7 +109,7 @@ done
 for spec in "${EARLY_ARTIFACT_SPECS[@]}"; do
   IFS='|' read -r _artifact_path sidecar_path recovered_path artifact_id _artifact_type <<< "$spec"
   echo "[$step/$TOTAL_STEPS] Running decode drill for $artifact_id..."
-  "${CARGO_RUNNER[@]}" run -q -p fnx-durability --bin fnx-durability -- \
+  "$DURABILITY_BIN" \
     decode-drill "$sidecar_path" "$recovered_path"
   step=$((step + 1))
 done
@@ -105,10 +126,14 @@ echo "[$step/$TOTAL_STEPS] Generating final logging gate report..."
 python3 ./scripts/generate_logging_gate_report.py
 step=$((step + 1))
 
+echo "[$step/$TOTAL_STEPS] Generating conformance dashboard..."
+python3 ./scripts/generate_conformance_dashboard.py
+step=$((step + 1))
+
 for spec in "${LATE_ARTIFACT_SPECS[@]}"; do
   IFS='|' read -r artifact_path sidecar_path _recovered_path artifact_id artifact_type <<< "$spec"
   echo "[$step/$TOTAL_STEPS] Generating durability sidecar for $artifact_id..."
-  "${CARGO_RUNNER[@]}" run -q -p fnx-durability --bin fnx-durability -- \
+  "$DURABILITY_BIN" \
     generate "$artifact_path" "$sidecar_path" "$artifact_id" "$artifact_type" 1400 6
   step=$((step + 1))
 done
@@ -116,7 +141,7 @@ done
 for spec in "${LATE_ARTIFACT_SPECS[@]}"; do
   IFS='|' read -r artifact_path sidecar_path _recovered_path artifact_id _artifact_type <<< "$spec"
   echo "[$step/$TOTAL_STEPS] Running scrub verification for $artifact_id..."
-  "${CARGO_RUNNER[@]}" run -q -p fnx-durability --bin fnx-durability -- \
+  "$DURABILITY_BIN" \
     scrub "$artifact_path" "$sidecar_path"
   step=$((step + 1))
 done
@@ -124,7 +149,7 @@ done
 for spec in "${LATE_ARTIFACT_SPECS[@]}"; do
   IFS='|' read -r _artifact_path sidecar_path recovered_path artifact_id _artifact_type <<< "$spec"
   echo "[$step/$TOTAL_STEPS] Running decode drill for $artifact_id..."
-  "${CARGO_RUNNER[@]}" run -q -p fnx-durability --bin fnx-durability -- \
+  "$DURABILITY_BIN" \
     decode-drill "$sidecar_path" "$recovered_path"
   step=$((step + 1))
 done
@@ -186,6 +211,11 @@ entries = [
         "sidecar_path": "artifacts/conformance/latest/logging_release_checklist_v1.raptorq.json",
         "recovered_path": "artifacts/conformance/latest/logging_release_checklist_v1.recovered.md",
     },
+    {
+        "artifact_path": "artifacts/conformance/latest/conformance_dashboard_v1.json",
+        "sidecar_path": "artifacts/conformance/latest/conformance_dashboard_v1.raptorq.json",
+        "recovered_path": "artifacts/conformance/latest/conformance_dashboard_v1.recovered.json",
+    },
 ]
 
 materialized = []
@@ -232,3 +262,4 @@ echo "  flake_quarantine:$FLAKE_QUARANTINE_PATH"
 echo "  reliability_validation:$RELIABILITY_VALIDATION_PATH"
 echo "  final_gate_report:$FINAL_GATE_REPORT_PATH"
 echo "  final_release_checklist:$FINAL_CHECKLIST_PATH"
+echo "  dashboard:$DASHBOARD_PATH"

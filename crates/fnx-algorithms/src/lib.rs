@@ -12867,7 +12867,8 @@ pub fn is_semieulerian(graph: &Graph) -> IsSemiEulerianResult {
 /// Returns `None` if no Eulerian circuit exists.
 /// The `source` parameter optionally specifies the starting node; if `None`,
 /// the lexicographically smallest non-isolated node is used.
-/// Neighbor traversal is in sorted order for determinism.
+/// Neighbor traversal is in sorted order for determinism; the yielded edge
+/// stream follows NetworkX's undirected backtracking order.
 #[must_use]
 pub fn eulerian_circuit(graph: &Graph, source: Option<&str>) -> Option<EulerianCircuitResult> {
     let mut cgse_sink = cgse_begin(CgseReferenceAlgorithm::EulerianCircuit);
@@ -12917,7 +12918,11 @@ pub fn eulerian_circuit(graph: &Graph, source: Option<&str>) -> Option<EulerianC
             .to_owned()
     };
 
-    let edges = hierholzer_traverse(graph, &start, &mut cgse_sink);
+    let edges = hierholzer_traverse(graph, &start, &mut cgse_sink)
+        .into_iter()
+        .rev()
+        .map(|(left, right)| (right, left))
+        .collect::<Vec<_>>();
     let edges_scanned = check.witness.edges_scanned + edges.len();
 
     cgse_publish(
@@ -38314,6 +38319,17 @@ mod tests {
         assert!(result.is_some());
         let circuit = result.unwrap();
         assert_eq!(circuit.edges.len(), 6);
+        assert_eq!(
+            circuit.edges,
+            vec![
+                ("a".to_owned(), "c".to_owned()),
+                ("c".to_owned(), "e".to_owned()),
+                ("e".to_owned(), "d".to_owned()),
+                ("d".to_owned(), "c".to_owned()),
+                ("c".to_owned(), "b".to_owned()),
+                ("b".to_owned(), "a".to_owned()),
+            ]
+        );
         assert_eq!(circuit.edges[0].0, circuit.edges[5].1);
         // Verify all edges used exactly once
         let mut edge_set: HashSet<(String, String)> = HashSet::new();

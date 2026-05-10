@@ -5300,7 +5300,9 @@ fn compare_edges(
     expected: &GraphSnapshotExpectation,
     mismatches: &mut Vec<Mismatch>,
 ) {
-    if snapshot.edges != expected.edges {
+    if normalize_undirected_edge_endpoints(&snapshot.edges)
+        != normalize_undirected_edge_endpoints(&expected.edges)
+    {
         mismatches.push(Mismatch {
             category: "graph_edges".to_owned(),
             message: format!(
@@ -5309,6 +5311,23 @@ fn compare_edges(
             ),
         });
     }
+}
+
+fn normalize_undirected_edge_endpoints(edges: &[EdgeSnapshot]) -> Vec<EdgeSnapshot> {
+    edges
+        .iter()
+        .map(|edge| {
+            if edge.left <= edge.right {
+                edge.clone()
+            } else {
+                EdgeSnapshot {
+                    left: edge.right.clone(),
+                    right: edge.left.clone(),
+                    attrs: edge.attrs.clone(),
+                }
+            }
+        })
+        .collect()
 }
 
 fn default_dispatch_registry(mode: CompatibilityMode) -> BackendRegistry {
@@ -5728,6 +5747,33 @@ mod tests {
         assert_eq!(record.fixture_name, "test_example");
         assert!(record.passed);
         assert_eq!(record.duration_ms, 42);
+    }
+
+    #[test]
+    fn compare_edges_accepts_undirected_endpoint_orientation() {
+        let snapshot = GraphSnapshot {
+            mode: CompatibilityMode::Strict,
+            nodes: vec!["c".to_owned(), "d".to_owned()],
+            node_attrs: BTreeMap::new(),
+            edges: vec![EdgeSnapshot {
+                left: "d".to_owned(),
+                right: "c".to_owned(),
+                attrs: AttrMap::new(),
+            }],
+        };
+        let expected = GraphSnapshotExpectation {
+            nodes: snapshot.nodes.clone(),
+            edges: vec![EdgeSnapshot {
+                left: "c".to_owned(),
+                right: "d".to_owned(),
+                attrs: AttrMap::new(),
+            }],
+        };
+        let mut mismatches = Vec::new();
+
+        compare_edges(&snapshot, &expected, &mut mismatches);
+
+        assert!(mismatches.is_empty());
     }
 
     #[test]
