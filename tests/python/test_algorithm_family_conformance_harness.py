@@ -33,7 +33,6 @@ class AlgorithmCase:
     fixtures: tuple[str, ...]
     call: Callable[[Any, Any], Any]
     comparator: Callable[[Any, Any], None]
-    expected_divergence: str | None = None
 
     @property
     def id(self) -> str:
@@ -241,25 +240,15 @@ def _assert_outcome_equivalent(
     actual: Outcome,
     expected: Outcome,
     comparator: Callable[[Any, Any], None],
-    expected_divergence: str | None,
 ) -> None:
     if actual.status != expected.status:
-        if expected_divergence:
-            pytest.xfail(expected_divergence)
         assert actual.status == expected.status, f"fnx={actual!r} nx={expected!r}"
 
     if actual.status == "err":
-        if actual.payload != expected.payload and expected_divergence:
-            pytest.xfail(expected_divergence)
         assert actual.payload == expected.payload
         return
 
-    try:
-        comparator(actual.payload, expected.payload)
-    except AssertionError:
-        if expected_divergence:
-            pytest.xfail(expected_divergence)
-        raise
+    comparator(actual.payload, expected.payload)
 
 
 def _same(name: str) -> Callable[[Any, Any], Any]:
@@ -460,7 +449,6 @@ def test_algorithm_family_conformance_matrix(case: AlgorithmCase, fixture_name: 
         fnx_outcome,
         nx_outcome,
         case.comparator,
-        case.expected_divergence,
     )
 
 
