@@ -3,6 +3,7 @@
   "packet_id": "FNX-P2C-FOUNDATION",
   "fixture_ids": [
     "generated/centrality_degree_strict.json",
+    "generated/centrality_edge_betweenness_strict.json",
     "generated/centrality_closeness_strict.json"
   ],
   "oracle_source": "legacy_networkx",

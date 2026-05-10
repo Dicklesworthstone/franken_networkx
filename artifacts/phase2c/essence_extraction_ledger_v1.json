@@ -3065,7 +3065,96 @@
         "seed interpretation drift",
         "edge emission order drift"
       ],
-      "behavior_region_map": [],
+      "behavior_region_map": [
+        {
+          "region_id": "P2C007-R1",
+          "pathway": "normal",
+          "legacy_anchor_refs": [
+            "networkx/generators/classic.py:316-359",
+            "networkx/generators/tests/test_classic.py:147-182"
+          ],
+          "symbols": [
+            "complete_graph"
+          ],
+          "behavior_note": "complete_graph materializes all pairwise edges deterministically, with undirected using combinations and directed using permutations; duplicate labels in node containers preserve legacy self-loop/backward-compatible behavior.",
+          "compatibility_policy": "strict mode preserves complete_graph edge cardinality and directed/undirected orientation exactly, including duplicate-node container effects",
+          "downstream_contract_rows": [
+            "Input Contract: packet operations",
+            "Output Contract: algorithm/state result",
+            "Determinism Commitments: stable traversal and output ordering"
+          ],
+          "planned_oracle_tests": [
+            "networkx/generators/tests/test_classic.py:147-170",
+            "networkx/generators/tests/test_classic.py:171-182"
+          ]
+        },
+        {
+          "region_id": "P2C007-R2",
+          "pathway": "normal",
+          "legacy_anchor_refs": [
+            "networkx/generators/classic.py:478-505",
+            "networkx/generators/tests/test_classic.py:212-235"
+          ],
+          "symbols": [
+            "cycle_graph"
+          ],
+          "behavior_note": "cycle_graph emits pairwise cyclic edges in deterministic sequence and preserves directed orientation for DiGraph constructors.",
+          "compatibility_policy": "preserve cycle closure ordering and directed edge direction to avoid output-order drift",
+          "downstream_contract_rows": [
+            "Input Contract: packet operations",
+            "Output Contract: algorithm/state result",
+            "Determinism Commitments: stable traversal and output ordering"
+          ],
+          "planned_oracle_tests": [
+            "networkx/generators/tests/test_classic.py:212-220",
+            "networkx/generators/tests/test_classic.py:222-235"
+          ]
+        },
+        {
+          "region_id": "P2C007-R3",
+          "pathway": "edge",
+          "legacy_anchor_refs": [
+            "networkx/generators/classic.py:586-680",
+            "networkx/generators/tests/test_classic.py:268-335"
+          ],
+          "symbols": [
+            "empty_graph"
+          ],
+          "behavior_note": "empty_graph deterministically constructs or clears graph instances, preserves requested graph class, and fails closed when create_using is not a valid graph constructor or instance.",
+          "compatibility_policy": "strict and hardened modes both preserve create_using semantics and TypeError envelopes for invalid graph-type inputs",
+          "downstream_contract_rows": [
+            "Input Contract: compatibility mode",
+            "Error Contract: malformed input affecting compatibility",
+            "Error Contract: unknown incompatible feature"
+          ],
+          "planned_oracle_tests": [
+            "networkx/generators/tests/test_classic.py:268-305",
+            "networkx/generators/tests/test_classic.py:307-335"
+          ]
+        },
+        {
+          "region_id": "P2C007-R4",
+          "pathway": "normal",
+          "legacy_anchor_refs": [
+            "networkx/generators/classic.py:788-809",
+            "networkx/generators/tests/test_classic.py:409-444"
+          ],
+          "symbols": [
+            "path_graph"
+          ],
+          "behavior_note": "path_graph preserves iterable order in path construction and deterministic edge emission, including duplicate-node input behavior in both directed and undirected constructors.",
+          "compatibility_policy": "preserve ordered-path construction semantics and duplicate-node handling exactly",
+          "downstream_contract_rows": [
+            "Input Contract: packet operations",
+            "Output Contract: algorithm/state result",
+            "Determinism Commitments: stable traversal and output ordering"
+          ],
+          "planned_oracle_tests": [
+            "networkx/generators/tests/test_classic.py:409-427",
+            "networkx/generators/tests/test_classic.py:428-444"
+          ]
+        }
+      ],
       "raptorq_artifacts": {
         "legacy_anchor_map": "artifacts/phase2c/FNX-P2C-007/legacy_anchor_map.md",
         "contract_table": "artifacts/phase2c/FNX-P2C-007/contract_table.md",
@@ -3139,25 +3228,427 @@
         "artifacts/conformance/latest/structured_logs.jsonl",
         "artifacts/conformance/latest/structured_log_emitter_normalization_report.json",
         "artifacts/conformance/latest/telemetry_dependent_unblock_matrix_v1.json"
+      ],
+      "packet_boundary_threat_matrix": [
+        {
+          "threat_id": "P2C007-TM-1",
+          "threat_class": "input_shape_abuse",
+          "strict_mode_response": "Fail-closed on invalid create_using graph descriptors and preserve duplicate-node container semantics exactly without silent repair.",
+          "hardened_mode_response": "Apply only allowlisted deterministic diagnostics/tie-break normalization metadata and otherwise fail closed for incompatible input-shape pathways.",
+          "mitigations": [
+            "create_using type/instance guardrails",
+            "duplicate-node container parity assertions",
+            "deterministic node-order normalization checks"
+          ],
+          "evidence_artifact": "artifacts/phase2c/FNX-P2C-007/contract_table.md",
+          "adversarial_fixture_hooks": [
+            "generators_invalid_create_using_payload",
+            "generators_duplicate_node_container"
+          ],
+          "crash_triage_taxonomy": [
+            "generators.input.invalid_create_using_type",
+            "generators.input.duplicate_container_semantic_drift"
+          ],
+          "hardened_allowlisted_categories": [
+            "bounded_diagnostic_enrichment",
+            "deterministic_tie_break_normalization"
+          ],
+          "compatibility_boundary": "generator constructor and node-container boundary"
+        },
+        {
+          "threat_id": "P2C007-TM-2",
+          "threat_class": "ordering_drift",
+          "strict_mode_response": "Fail-closed when complete/cycle/path edge-order signatures diverge from legacy-observable order.",
+          "hardened_mode_response": "Permit only allowlisted deterministic tie-break normalization evidence; no output topology/order drift is allowed.",
+          "mitigations": [
+            "edge-order signature checkpoints",
+            "directed/undirected orientation parity assertions",
+            "fixture-level isomorphism signature verification"
+          ],
+          "evidence_artifact": "artifacts/phase2c/FNX-P2C-007/legacy_anchor_map.md",
+          "adversarial_fixture_hooks": [
+            "generators_ordering_drift_probe"
+          ],
+          "crash_triage_taxonomy": [
+            "generators.ordering.cycle_closure_drift",
+            "generators.ordering.path_emit_drift"
+          ],
+          "hardened_allowlisted_categories": [
+            "bounded_diagnostic_enrichment",
+            "deterministic_tie_break_normalization"
+          ],
+          "compatibility_boundary": "generator deterministic edge-order boundary"
+        },
+        {
+          "threat_id": "P2C007-TM-3",
+          "threat_class": "resource_exhaustion",
+          "strict_mode_response": "Fail-closed when generator workloads exceed strict node/edge budget envelopes.",
+          "hardened_mode_response": "Apply bounded resource clamps with deterministic admission diagnostics, then fail closed when budget violations remain unresolved.",
+          "mitigations": [
+            "node/edge budget sentinels",
+            "bounded workload admission checks",
+            "deterministic budget-exceeded telemetry"
+          ],
+          "evidence_artifact": "artifacts/phase2c/FNX-P2C-007/parity_gate.yaml",
+          "adversarial_fixture_hooks": [
+            "generators_large_n_budget_blowup"
+          ],
+          "crash_triage_taxonomy": [
+            "generators.resource.node_budget_exceeded",
+            "generators.resource.edge_budget_exceeded"
+          ],
+          "hardened_allowlisted_categories": [
+            "bounded_diagnostic_enrichment",
+            "bounded_resource_clamp"
+          ],
+          "compatibility_boundary": "generator workload budget boundary"
+        },
+        {
+          "threat_id": "P2C007-TM-4",
+          "threat_class": "state_corruption",
+          "strict_mode_response": "Fail-closed if create_using instance pathways violate clear-before-populate state invariants.",
+          "hardened_mode_response": "Run deterministic preflight/postflight state checks and fail closed if stale-state leakage is detected.",
+          "mitigations": [
+            "create_using.clear() invariant checks",
+            "post-generation edge/node cardinality assertions",
+            "state-reset replay forensics hooks"
+          ],
+          "evidence_artifact": "artifacts/phase2c/FNX-P2C-007/contract_table.md",
+          "adversarial_fixture_hooks": [
+            "generators_state_leak_reuse_instance"
+          ],
+          "crash_triage_taxonomy": [
+            "generators.state.preexisting_edges_not_cleared",
+            "generators.state.create_using_clear_contract_breach"
+          ],
+          "hardened_allowlisted_categories": [
+            "bounded_diagnostic_enrichment"
+          ],
+          "compatibility_boundary": "create_using state-reset boundary"
+        },
+        {
+          "threat_id": "P2C007-TM-5",
+          "threat_class": "version_skew",
+          "strict_mode_response": "Fail-closed on unsupported packet contract/version envelopes for generator-first-wave artifacts.",
+          "hardened_mode_response": "Reject incompatible envelopes with deterministic diagnostics; no compatibility fallback shims.",
+          "mitigations": [
+            "artifact contract version pinning",
+            "packet schema compatibility probes",
+            "gate-time version envelope checks"
+          ],
+          "evidence_artifact": "artifacts/phase2c/FNX-P2C-007/parity_gate.yaml",
+          "adversarial_fixture_hooks": [
+            "generators_contract_version_skew"
+          ],
+          "crash_triage_taxonomy": [
+            "generators.version.unsupported_contract_envelope",
+            "generators.version.packet_schema_mismatch"
+          ],
+          "hardened_allowlisted_categories": [
+            "bounded_diagnostic_enrichment"
+          ],
+          "compatibility_boundary": "generator contract version envelope boundary"
+        }
+      ],
+      "compatibility_boundary_matrix": [
+        {
+          "boundary_id": "P2C007-CB-1",
+          "strict_parity_obligation": "create_using dispatch and graph-instance clearing semantics match legacy behavior exactly.",
+          "hardened_allowlisted_deviation_categories": [
+            "bounded_diagnostic_enrichment",
+            "deterministic_tie_break_normalization"
+          ],
+          "fail_closed_default": "fail_closed_on_invalid_generator_create_using",
+          "evidence_hooks": [
+            "networkx/generators/classic.py:667-680",
+            "networkx/generators/tests/test_classic.py:268-335",
+            "artifacts/phase2c/FNX-P2C-007/contract_table.md#error-contract"
+          ]
+        },
+        {
+          "boundary_id": "P2C007-CB-2",
+          "strict_parity_obligation": "duplicate-node container semantics for complete/cycle/path generators remain legacy-observable.",
+          "hardened_allowlisted_deviation_categories": [
+            "bounded_diagnostic_enrichment",
+            "deterministic_tie_break_normalization"
+          ],
+          "fail_closed_default": "fail_closed_on_duplicate_container_semantic_drift",
+          "evidence_hooks": [
+            "networkx/generators/tests/test_classic.py:162-170",
+            "networkx/generators/tests/test_classic.py:225-235",
+            "networkx/generators/tests/test_classic.py:431-444"
+          ]
+        },
+        {
+          "boundary_id": "P2C007-CB-3",
+          "strict_parity_obligation": "complete/cycle/path edge-order emission and directed orientation signatures remain deterministic.",
+          "hardened_allowlisted_deviation_categories": [
+            "bounded_diagnostic_enrichment",
+            "deterministic_tie_break_normalization"
+          ],
+          "fail_closed_default": "fail_closed_on_generator_edge_order_drift",
+          "evidence_hooks": [
+            "generated/generators_complete_strict.json",
+            "generated/generators_cycle_strict.json",
+            "generated/generators_path_strict.json",
+            "artifacts/phase2c/FNX-P2C-007/legacy_anchor_map.md#extraction-ledger-crosswalk"
+          ]
+        },
+        {
+          "boundary_id": "P2C007-CB-4",
+          "strict_parity_obligation": "generator workloads remain within strict node/edge budget envelopes.",
+          "hardened_allowlisted_deviation_categories": [
+            "bounded_diagnostic_enrichment",
+            "bounded_resource_clamp"
+          ],
+          "fail_closed_default": "fail_closed_on_generator_workload_budget_exhausted",
+          "evidence_hooks": [
+            "artifacts/phase2c/FNX-P2C-007/parity_gate.yaml",
+            "artifacts/perf/phase2c/perf_regression_gate_report_v1.json"
+          ]
+        },
+        {
+          "boundary_id": "P2C007-CB-5",
+          "strict_parity_obligation": "unknown generator feature/metadata pathways are rejected deterministically with zero output drift.",
+          "hardened_allowlisted_deviation_categories": [
+            "bounded_diagnostic_enrichment"
+          ],
+          "fail_closed_default": "fail_closed_on_unknown_generator_feature_path",
+          "evidence_hooks": [
+            "artifacts/phase2c/FNX-P2C-007/parity_gate.yaml",
+            "artifacts/phase2c/FNX-P2C-007/risk_note.md#packet-threat-matrix"
+          ]
+        }
+      ],
+      "module_boundary_skeleton": [
+        {
+          "boundary_id": "P2C007-MB-1",
+          "crate": "fnx-generators",
+          "module_path": "crates/fnx-generators/src/lib.rs",
+          "public_seam": "pub fn complete_graph",
+          "internal_ownership": "complete_graph node-container normalization, deterministic edge materialization for Graph/DiGraph constructors, and duplicate-node compatibility handling",
+          "legacy_compat_surface": "networkx.generators.classic.complete_graph",
+          "threat_boundary_refs": [
+            "P2C007-CB-2",
+            "P2C007-CB-3",
+            "P2C007-CB-4"
+          ],
+          "compile_check": "cargo test -p fnx-generators -- --nocapture",
+          "parallel_owner_scope": "complete_graph semantics and determinism probes only"
+        },
+        {
+          "boundary_id": "P2C007-MB-2",
+          "crate": "fnx-generators",
+          "module_path": "crates/fnx-generators/src/lib.rs",
+          "public_seam": "pub fn cycle_graph / pub fn path_graph",
+          "internal_ownership": "pairwise cyclic closure and iterable-order path emission semantics, including directed orientation and duplicate-label behavior parity",
+          "legacy_compat_surface": "networkx.generators.classic.cycle_graph / networkx.generators.classic.path_graph",
+          "threat_boundary_refs": [
+            "P2C007-CB-2",
+            "P2C007-CB-3",
+            "P2C007-CB-4"
+          ],
+          "compile_check": "cargo check -p fnx-generators --all-targets",
+          "parallel_owner_scope": "cycle/path ordering and closure semantics only"
+        },
+        {
+          "boundary_id": "P2C007-MB-3",
+          "crate": "fnx-generators",
+          "module_path": "crates/fnx-generators/src/lib.rs",
+          "public_seam": "pub fn empty_graph",
+          "internal_ownership": "create_using dispatch ordering, graph-instance clear-before-populate invariants, and TypeError fail-closed envelopes for invalid graph-type inputs",
+          "legacy_compat_surface": "networkx.generators.classic.empty_graph",
+          "threat_boundary_refs": [
+            "P2C007-CB-1",
+            "P2C007-CB-5"
+          ],
+          "compile_check": "cargo test -p fnx-generators empty_graph -- --nocapture",
+          "parallel_owner_scope": "empty_graph constructor/instance boundary only"
+        },
+        {
+          "boundary_id": "P2C007-MB-4",
+          "crate": "fnx-runtime",
+          "module_path": "crates/fnx-runtime/src/lib.rs",
+          "public_seam": "pub struct CgsePolicyEngine",
+          "internal_ownership": "strict/hardened policy-row enforcement, allowlisted hardened deviation controls, and deterministic decision evidence emission for generator packet boundaries",
+          "legacy_compat_surface": "strict/hardened compatibility envelope for generator classic family",
+          "threat_boundary_refs": [
+            "P2C007-CB-1",
+            "P2C007-CB-3",
+            "P2C007-CB-5"
+          ],
+          "compile_check": "cargo check -p fnx-runtime --all-targets",
+          "parallel_owner_scope": "generator policy routing and evidence terms only"
+        }
+      ],
+      "implementation_sequence": [
+        {
+          "checkpoint_id": "P2C007-SEQ-1",
+          "order": 1,
+          "depends_on": [],
+          "objective": "Lock compile-checkable generator module seams and packet-boundary ownership before behavior changes.",
+          "modules_touched": [
+            "crates/fnx-generators/src/lib.rs",
+            "crates/fnx-runtime/src/lib.rs"
+          ],
+          "verification_entrypoints": [
+            "unit::fnx-p2c-007::boundary_shape",
+            "cargo check -p fnx-generators"
+          ],
+          "structured_log_hooks": [
+            "generators.boundary.complete_graph_ready",
+            "generators.boundary.cycle_path_ready",
+            "generators.boundary.empty_graph_ready"
+          ],
+          "risk_checkpoint": "fail if crate seam ownership or threat-boundary mapping is ambiguous"
+        },
+        {
+          "checkpoint_id": "P2C007-SEQ-2",
+          "order": 2,
+          "depends_on": [
+            "P2C007-SEQ-1"
+          ],
+          "objective": "Implement strict complete/cycle/path deterministic ordering and directedness parity with zero mismatch budget.",
+          "modules_touched": [
+            "crates/fnx-generators/src/lib.rs"
+          ],
+          "verification_entrypoints": [
+            "networkx/generators/tests/test_classic.py:147-235",
+            "differential::fnx-p2c-007::fixtures"
+          ],
+          "structured_log_hooks": [
+            "generators.strict.edge_order_signature",
+            "generators.strict.cycle_closure_signature"
+          ],
+          "risk_checkpoint": "halt if strict mode edge-order or directedness signature drifts"
+        },
+        {
+          "checkpoint_id": "P2C007-SEQ-3",
+          "order": 3,
+          "depends_on": [
+            "P2C007-SEQ-1",
+            "P2C007-SEQ-2"
+          ],
+          "objective": "Finalize empty_graph create_using dispatch, instance-clear invariants, and fail-closed TypeError envelopes.",
+          "modules_touched": [
+            "crates/fnx-generators/src/lib.rs"
+          ],
+          "verification_entrypoints": [
+            "networkx/generators/tests/test_classic.py:268-335",
+            "adversarial::fnx-p2c-007::malformed_inputs"
+          ],
+          "structured_log_hooks": [
+            "generators.empty_graph.create_using_dispatch",
+            "generators.empty_graph.fail_closed_type_error"
+          ],
+          "risk_checkpoint": "fail on any create_using pathway that mutates state without clear-before-populate"
+        },
+        {
+          "checkpoint_id": "P2C007-SEQ-4",
+          "order": 4,
+          "depends_on": [
+            "P2C007-SEQ-2",
+            "P2C007-SEQ-3"
+          ],
+          "objective": "Apply hardened allowlisted policy-row controls and deterministic diagnostic envelopes for generator threat classes.",
+          "modules_touched": [
+            "crates/fnx-runtime/src/lib.rs",
+            "crates/fnx-generators/src/lib.rs"
+          ],
+          "verification_entrypoints": [
+            "adversarial::fnx-p2c-007::ordering_drift",
+            "adversarial::fnx-p2c-007::large_n_budget_blowup"
+          ],
+          "structured_log_hooks": [
+            "generators.hardened.allowlisted_category",
+            "generators.hardened.audit_envelope_emitted"
+          ],
+          "risk_checkpoint": "fail on any non-allowlisted hardened deviation category"
+        },
+        {
+          "checkpoint_id": "P2C007-SEQ-5",
+          "order": 5,
+          "depends_on": [
+            "P2C007-SEQ-4"
+          ],
+          "objective": "Run packet readiness/e2e/perf gates and publish replay-auditable evidence artifacts for handoff to packet test implementation beads.",
+          "modules_touched": [
+            "crates/fnx-conformance/tests/phase2c_packet_readiness_gate.rs",
+            "scripts/run_phase2c_readiness_e2e.sh",
+            "artifacts/phase2c/FNX-P2C-007/"
+          ],
+          "verification_entrypoints": [
+            "cargo test -p fnx-conformance --test phase2c_packet_readiness_gate",
+            "cargo test -p fnx-conformance --test e2e_script_pack_gate"
+          ],
+          "structured_log_hooks": [
+            "generators.readiness.gate_result",
+            "generators.e2e.replay_bundle"
+          ],
+          "risk_checkpoint": "stop on any strict/hardened parity, security, or budget gate mismatch"
+        }
+      ],
+      "verification_entrypoints": [
+        {
+          "stage": "unit",
+          "harness": "unit::fnx-p2c-007::contract",
+          "structured_log_hook": "generators.unit.contract_asserted",
+          "replay_metadata_fields": [
+            "packet_id",
+            "generator_name",
+            "strict_mode",
+            "fixture_id"
+          ],
+          "failure_forensics_artifact": "artifacts/conformance/latest/structured_logs.jsonl"
+        },
+        {
+          "stage": "property",
+          "harness": "property::fnx-p2c-007::invariants",
+          "structured_log_hook": "generators.property.invariant_checkpoint",
+          "replay_metadata_fields": [
+            "seed",
+            "graph_fingerprint",
+            "mode_policy",
+            "invariant_id"
+          ],
+          "failure_forensics_artifact": "artifacts/conformance/latest/structured_log_emitter_normalization_report.json"
+        },
+        {
+          "stage": "differential",
+          "harness": "differential::fnx-p2c-007::fixtures",
+          "structured_log_hook": "generators.diff.oracle_comparison",
+          "replay_metadata_fields": [
+            "fixture_id",
+            "oracle_ref",
+            "edge_order_signature",
+            "mismatch_count"
+          ],
+          "failure_forensics_artifact": "artifacts/phase2c/FNX-P2C-007/parity_report.json"
+        },
+        {
+          "stage": "e2e",
+          "harness": "e2e::fnx-p2c-007::golden_journey",
+          "structured_log_hook": "generators.e2e.replay_emitted",
+          "replay_metadata_fields": [
+            "scenario_id",
+            "thread_id",
+            "trace_id",
+            "forensics_bundle"
+          ],
+          "failure_forensics_artifact": "artifacts/conformance/latest/telemetry_dependent_unblock_matrix_v1.json"
+        }
       ]
     },
     {
       "packet_id": "FNX-P2C-008",
       "legacy_paths": [
-        "networkx/__init__.py",
         "networkx/utils/configs.py",
-        "networkx/utils/backends.py",
         "networkx/lazy_imports.py"
       ],
       "legacy_symbols": [
-        "Config",
-        "BackendPriorities",
-        "NetworkXConfig",
-        "_set_configs_from_environment",
         "_dispatchable",
-        "attach",
-        "_lazy_import",
-        "DelayedImportErrorModule"
+        "config",
+        "lazy imports"
       ],
       "graph_mutation_contract": "Mutations preserve deterministic adjacency semantics and observable output parity.",
       "view_cache_contract": "View/cache interactions remain deterministic with explicit revision invalidation.",
@@ -3171,77 +3662,18 @@
         "unscoped upstream APIs not yet admitted by packet roadmap"
       ],
       "oracle_tests": [
-        "networkx/utils/tests/test_config.py",
-        "networkx/utils/tests/test_backends.py",
-        "networkx/tests/test_lazy_imports.py"
+        "utils/runtime behavior tests"
       ],
       "performance_sentinels": [
         "artifacts/perf/BASELINE_BFS_V1.md",
-        "artifacts/perf/phase2c/perf_baseline_matrix_v1.json",
-        "artifacts/perf/phase2c/hotspot_one_lever_backlog_v1.json",
-        "artifacts/perf/phase2c/perf_regression_gate_report_v1.json",
-        "artifacts/perf/phase2c/isomorphism_harness_report_v1.json"
+        "artifacts/perf/OPPORTUNITY_MATRIX.md",
+        "artifacts/perf/phase2c/bfs_neighbor_iter_delta.json"
       ],
       "compatibility_risks": [
         "environment-based behavior skew",
         "optional dependency fallback ambiguity"
       ],
-      "behavior_region_map": [
-        {
-          "region_id": "P2C008-R1",
-          "pathway": "config-core",
-          "source_anchors": [
-            "networkx/utils/configs.py:8-225",
-            "networkx/utils/tests/test_config.py:29-118",
-            "networkx/utils/tests/test_config.py:227-263"
-          ],
-          "behavior_note": "Strict Config rejects unknown keys/deletes, mapping access mirrors attribute semantics, and context manager staging restores prior values deterministically."
-        },
-        {
-          "region_id": "P2C008-R2",
-          "pathway": "backend-config-validation",
-          "source_anchors": [
-            "networkx/utils/configs.py:228-275",
-            "networkx/utils/configs.py:277-396",
-            "networkx/utils/tests/test_config.py:119-170"
-          ],
-          "behavior_note": "BackendPriorities and NetworkXConfig normalize backend-priority payloads and fail closed on unknown backends, invalid bools, and invalid warning names."
-        },
-        {
-          "region_id": "P2C008-R3",
-          "pathway": "environment-bootstrap",
-          "source_anchors": [
-            "networkx/__init__.py:15-24",
-            "networkx/utils/backends.py:113-185",
-            "networkx/conftest.py:45-88"
-          ],
-          "behavior_note": "Import-time bootstrap deterministically maps NETWORKX_* env variables into runtime config with explicit precedence rules."
-        },
-        {
-          "region_id": "P2C008-R4",
-          "pathway": "dispatch-fallback-optional-deps",
-          "source_anchors": [
-            "networkx/utils/backends.py:202-212",
-            "networkx/utils/backends.py:621-715",
-            "networkx/utils/backends.py:717-813",
-            "networkx/utils/backends.py:879-1045",
-            "networkx/utils/tests/test_backends.py:44-95",
-            "networkx/utils/tests/test_backends.py:162-225"
-          ],
-          "behavior_note": "Dispatch computes deterministic backend try-order, limits conversion surfaces, and emits stable fail-closed errors for unknown or ambiguous backend routes."
-        },
-        {
-          "region_id": "P2C008-R5",
-          "pathway": "lazy-import-proxy",
-          "source_anchors": [
-            "networkx/lazy_imports.py:11-79",
-            "networkx/lazy_imports.py:82-98",
-            "networkx/lazy_imports.py:100-188",
-            "networkx/tests/test_lazy_imports.py:9-96"
-          ],
-          "behavior_note": "Lazy import wrappers defer module loading until attribute access and lazily surface import failures with preserved callsite context."
-        }
-      ],
+      "behavior_region_map": [],
       "raptorq_artifacts": {
         "legacy_anchor_map": "artifacts/phase2c/FNX-P2C-008/legacy_anchor_map.md",
         "contract_table": "artifacts/phase2c/FNX-P2C-008/contract_table.md",
@@ -3287,8 +3719,8 @@
       },
       "profile_first_artifacts": {
         "baseline": "artifacts/perf/BASELINE_BFS_V1.md",
-        "hotspot": "artifacts/perf/phase2c/hotspot_one_lever_backlog_v1.json",
-        "delta": "artifacts/perf/phase2c/perf_regression_gate_report_v1.json"
+        "hotspot": "artifacts/perf/OPPORTUNITY_MATRIX.md",
+        "delta": "artifacts/perf/phase2c/bfs_neighbor_iter_delta.json"
       },
       "decision_theoretic_runtime_contract": {
         "states": [

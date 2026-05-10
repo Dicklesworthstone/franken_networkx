@@ -4,6 +4,7 @@
   "fixture_ids": [
     "graph_core_shortest_path_strict.json",
     "generated/centrality_degree_strict.json",
+    "generated/centrality_edge_betweenness_strict.json",
     "generated/centrality_closeness_strict.json",
     "generated/components_connected_strict.json"
   ],

@@ -1,7 +1,7 @@
 {
   "artifact_id": "FNX-P2C-002-parity-report",
   "artifact_type": "phase2c_parity_report",
-  "source_hash": "blake3:placeholder",
+  "source_hash": "sha256:d8e64f0deb61b2b597ccf8542f1afaa2492b49025530740cf670b8ab3bd2c655",
   "raptorq": {
     "k": 1,
     "repair_symbols": 1,

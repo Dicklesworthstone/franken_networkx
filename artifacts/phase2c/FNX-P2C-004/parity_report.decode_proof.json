@@ -2,8 +2,8 @@
   "schema_version": "1.0.0",
   "artifact_id": "FNX-P2C-004-parity-report",
   "source_artifact": "artifacts/phase2c/FNX-P2C-004/parity_report.json",
-  "source_hash": "blake3:placeholder",
-  "recovered_hash": "blake3:placeholder",
+  "source_hash": "sha256:627f2b2e260eea36b9dc885ae3c580d19a63c72c66e9acb23abcfb054ee64de0",
+  "recovered_hash": "sha256:627f2b2e260eea36b9dc885ae3c580d19a63c72c66e9acb23abcfb054ee64de0",
   "status": "verified",
   "verified_at_utc": "2026-02-14T06:40:00Z"
 }

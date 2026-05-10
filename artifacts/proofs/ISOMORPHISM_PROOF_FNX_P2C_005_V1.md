@@ -10,7 +10,7 @@
 - deterministic tie-break and ordering invariants maintained.
 
 ## Evidence
-- fixture ids: graph_core_shortest_path_strict.json, generated/centrality_degree_strict.json, generated/centrality_closeness_strict.json, generated/components_connected_strict.json
+- fixture ids: graph_core_shortest_path_strict.json, generated/centrality_degree_strict.json, generated/centrality_edge_betweenness_strict.json, generated/centrality_closeness_strict.json, generated/components_connected_strict.json
 - parity report: artifacts/phase2c/FNX-P2C-005/parity_report.json
 - raptorq sidecar: artifacts/phase2c/FNX-P2C-005/parity_report.raptorq.json
 - decode proof: artifacts/phase2c/FNX-P2C-005/parity_report.decode_proof.json

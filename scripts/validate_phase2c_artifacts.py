@@ -8,10 +8,15 @@ field/section is missing.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 from pathlib import Path
 from typing import Any
+
+
+def sha256_file_hash(path: Path) -> str:
+    return f"sha256:{hashlib.sha256(path.read_bytes()).hexdigest()}"
 
 
 def load_json(path: Path) -> dict[str, Any]:
@@ -37,6 +42,23 @@ def top_level_yaml_keys(text: str) -> set[str]:
         if key:
             keys.add(key)
     return keys
+
+
+def validate_source_hash(
+    payload: dict[str, Any],
+    key: str,
+    expected_hash: str,
+    filename: str,
+) -> list[str]:
+    errors: list[str] = []
+    value = payload.get(key)
+    if not isinstance(value, str) or not value:
+        errors.append(f"{filename} missing non-empty hash `{key}`")
+    elif "placeholder" in value:
+        errors.append(f"{filename} contains placeholder hash `{key}`")
+    elif value != expected_hash:
+        errors.append(f"{filename} hash `{key}` does not match parity_report.json")
+    return errors
 
 
 def validate_artifact(
@@ -68,6 +90,36 @@ def validate_artifact(
         for key in artifact_spec["required_keys"]:
             if key not in payload:
                 errors.append(f"missing json key `{key}` in {artifact_spec['filename']}")
+        if artifact_key in {"raptorq_sidecar", "decode_proof"}:
+            parity_report_path = packet_path / "parity_report.json"
+            if not parity_report_path.exists():
+                errors.append("missing artifact: parity_report.json")
+            else:
+                expected_hash = sha256_file_hash(parity_report_path)
+                errors.extend(
+                    validate_source_hash(
+                        payload,
+                        "source_hash",
+                        expected_hash,
+                        artifact_spec["filename"],
+                    )
+                )
+                if artifact_key == "decode_proof":
+                    errors.extend(
+                        validate_source_hash(
+                            payload,
+                            "recovered_hash",
+                            expected_hash,
+                            artifact_spec["filename"],
+                        )
+                    )
+                    source_artifact = payload.get("source_artifact")
+                    expected_artifact = str(parity_report_path)
+                    if source_artifact != expected_artifact:
+                        errors.append(
+                            f"{artifact_spec['filename']} source_artifact "
+                            f"does not reference {expected_artifact}"
+                        )
     elif kind == "yaml_keys":
         text = artifact_path.read_text(encoding="utf-8")
         keys = top_level_yaml_keys(text)

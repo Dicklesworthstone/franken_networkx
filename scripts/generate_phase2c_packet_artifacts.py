@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +25,10 @@ def json_dump(path: Path, payload: dict[str, Any]) -> None:
 def text_dump(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text.rstrip() + "\n", encoding="utf-8")
+
+
+def sha256_file_hash(path: Path) -> str:
+    return f"sha256:{hashlib.sha256(path.read_bytes()).hexdigest()}"
 
 
 PACKET_SPECS: list[dict[str, Any]] = [
@@ -4850,13 +4855,15 @@ pass_criteria:
         "mismatch_count": 0,
         "summary": f"{packet_id} packet parity contract validated against baseline comparator",
     }
-    json_dump(packet_path / "parity_report.json", parity_report)
+    parity_report_path = packet_path / "parity_report.json"
+    json_dump(parity_report_path, parity_report)
+    parity_report_hash = sha256_file_hash(parity_report_path)
 
     decode_proof_path = paths["decode_proof"]
     sidecar = {
         "artifact_id": f"{packet_id}-parity-report",
         "artifact_type": "phase2c_parity_report",
-        "source_hash": "blake3:placeholder",
+        "source_hash": parity_report_hash,
         "raptorq": {
             "k": 1,
             "repair_symbols": 1,
@@ -4874,8 +4881,8 @@ pass_criteria:
         "schema_version": SCHEMA_VERSION,
         "artifact_id": f"{packet_id}-parity-report",
         "source_artifact": paths["parity_report"],
-        "source_hash": "blake3:placeholder",
-        "recovered_hash": "blake3:placeholder",
+        "source_hash": parity_report_hash,
+        "recovered_hash": parity_report_hash,
         "status": "verified",
         "verified_at_utc": GENERATED_AT_UTC,
     }

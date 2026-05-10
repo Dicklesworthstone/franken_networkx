@@ -7,7 +7,7 @@
     "generated/generators_complete_strict.json"
   ],
   "oracle_source": "legacy_networkx",
-  "generated_at_utc": "2026-02-18T08:32:00Z",
+  "generated_at_utc": "2026-02-14T06:40:00Z",
   "legacy_paths": [
     "networkx/generators/"
   ],
@@ -33,11 +33,7 @@
   ],
   "performance_sentinels": [
     "artifacts/perf/BASELINE_BFS_V1.md",
-    "artifacts/perf/phase2c/perf_baseline_matrix_v1.json",
-    "artifacts/perf/phase2c/hotspot_one_lever_backlog_v1.json",
-    "artifacts/perf/phase2c/perf_regression_gate_report_v1.json",
-    "artifacts/perf/phase2c/isomorphism_harness_report_v1.json",
-    "artifacts/proofs/ISOMORPHISM_PROOF_FNX_P2C_007_V1.md"
+    "artifacts/perf/phase2c/bfs_neighbor_iter_delta.json"
   ],
   "compatibility_risks": [
     "seed interpretation drift",

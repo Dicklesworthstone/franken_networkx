@@ -14,6 +14,30 @@ fn load_json(path: &Path) -> Value {
         .unwrap_or_else(|err| panic!("expected valid json at {}: {err}", path.display()))
 }
 
+fn assert_real_source_hash<'a>(
+    packet_id: &str,
+    filename: &str,
+    payload: &'a Value,
+    key: &str,
+) -> &'a str {
+    let value = payload.get(key).and_then(Value::as_str).unwrap_or_else(|| {
+        panic!("packet {packet_id} artifact {filename} key `{key}` must be a string")
+    });
+    assert!(
+        !value.is_empty(),
+        "packet {packet_id} artifact {filename} key `{key}` must be non-empty"
+    );
+    assert!(
+        !value.contains("placeholder"),
+        "packet {packet_id} artifact {filename} key `{key}` must not be a placeholder"
+    );
+    assert!(
+        value.starts_with("sha256:") || value.starts_with("blake3:"),
+        "packet {packet_id} artifact {filename} key `{key}` should include a hash algorithm prefix"
+    );
+    value
+}
+
 fn top_level_yaml_keys(text: &str) -> BTreeSet<String> {
     text.lines()
         .filter_map(|raw| {
@@ -157,6 +181,22 @@ fn topology_and_packet_artifacts_are_complete_and_decode_proof_enforced() {
                         assert!(
                             payload.get(key_name).is_some(),
                             "packet {packet_id} artifact {filename} missing key `{key_name}`"
+                        );
+                    }
+                    if *artifact_key == "raptorq_sidecar" {
+                        assert_real_source_hash(packet_id, filename, &payload, "source_hash");
+                    } else if *artifact_key == "decode_proof" {
+                        let source_hash =
+                            assert_real_source_hash(packet_id, filename, &payload, "source_hash");
+                        let recovered_hash = assert_real_source_hash(
+                            packet_id,
+                            filename,
+                            &payload,
+                            "recovered_hash",
+                        );
+                        assert_eq!(
+                            source_hash, recovered_hash,
+                            "packet {packet_id} decode proof should recover the exact source hash"
                         );
                     }
                 }
