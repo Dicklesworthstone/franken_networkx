@@ -342,8 +342,11 @@ def main() -> int:
                         "stage_id": stage_id,
                         "run_id": f"{run_id}::{budget_id}::{stage_id}",
                         "status": "fail",
-                        "observed_value": {"error": "stage_id not implemented in gate runner"},
-                        "threshold_value": {"required": "implemented"},
+                        "observed_value": {
+                            "error": "unknown required stage_id configured in gate_stage_contract",
+                            "known_stage_ids": sorted(stage_catalog),
+                        },
+                        "threshold_value": {"required": "known stage_id"},
                         "replay_command": gate_command,
                         "artifact_refs": evidence_paths,
                     }
@@ -360,6 +363,11 @@ def main() -> int:
                     "artifact_refs": evidence_paths,
                 }
             )
+
+        if any(stage["status"] == "fail" for stage in stage_results):
+            status = "fail"
+        elif any(stage["status"] == "warn" for stage in stage_results):
+            status = "warn"
 
         observed = {
             "unit_line_pct_proxy": round(proxy_unit_line_pct, 3),
