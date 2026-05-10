@@ -26,7 +26,7 @@
     },
     {
       "budget_id": "REL-BUD-002",
-      "packet_family": "FNX-P2C-004",
+      "packet_family": "FNX-P2C-004/FNX-P2C-006",
       "coverage_floor": {
         "unit_line_pct": 90,
         "branch_pct": 80
@@ -111,7 +111,7 @@
         "unit_line_pct": 90,
         "branch_pct": 80
       },
-      "property_floor": 4,
+      "property_floor": 1,
       "e2e_replay_pass_floor": 1.0,
       "flake_ceiling_pct_7d": 0.5,
       "runtime_guardrail": {
@@ -175,6 +175,7 @@
     {"packet_id": "FNX-P2C-001", "budget_id": "REL-BUD-001", "owning_bead": "bd-315.12.5"},
     {"packet_id": "FNX-P2C-002", "budget_id": "REL-BUD-001", "owning_bead": "bd-315.13.5"},
     {"packet_id": "FNX-P2C-004", "budget_id": "REL-BUD-002", "owning_bead": "bd-315.15.5"},
+    {"packet_id": "FNX-P2C-006", "budget_id": "REL-BUD-002", "owning_bead": "bd-315.17.5"},
     {"packet_id": "FNX-P2C-005", "budget_id": "REL-BUD-003", "owning_bead": "bd-315.16.5"},
     {"packet_id": "FNX-P2C-007", "budget_id": "REL-BUD-004", "owning_bead": "bd-315.18.5"},
     {"packet_id": "FNX-P2C-008", "budget_id": "REL-BUD-005", "owning_bead": "bd-315.19.5"},

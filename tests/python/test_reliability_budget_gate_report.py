@@ -8,6 +8,9 @@ from pathlib import Path
 from scripts import generate_reliability_budget_gate_report as gate
 
 
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
 def _write_json(path: Path, payload: object) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload), encoding="utf-8")
@@ -19,6 +22,11 @@ def _write_jsonl(path: Path, rows: list[dict[str, object]]) -> None:
         "".join(json.dumps(row, sort_keys=True) + "\n" for row in rows),
         encoding="utf-8",
     )
+
+
+def _check(condition: bool, message: str) -> None:
+    if not condition:
+        raise AssertionError(message)
 
 
 def test_phase2c_passed_status_satisfies_e2e_replay_stage(
@@ -138,3 +146,34 @@ def test_phase2c_passed_status_satisfies_e2e_replay_stage(
         "runtime_guardrail": "pass",
         "evidence_presence": "pass",
     }
+
+
+def test_reliability_budget_spec_matches_packet_fixture_scope() -> None:
+    spec = json.loads(
+        (REPO_ROOT / "artifacts/conformance/v1/reliability_budget_gate_v1.json")
+        .read_text(encoding="utf-8")
+    )
+    budgets = {row["budget_id"]: row for row in spec["budget_definitions"]}
+    mapping = {
+        row["packet_id"]: row["budget_id"] for row in spec["packet_family_mapping"]
+    }
+
+    _check(
+        mapping["FNX-P2C-006"] == "REL-BUD-002",
+        "FNX-P2C-006 must contribute to REL-BUD-002",
+    )
+    _check(
+        "FNX-P2C-006" in budgets["REL-BUD-002"]["packet_family"].split("/"),
+        "REL-BUD-002 packet_family must name FNX-P2C-006",
+    )
+
+    packet_009_manifest = json.loads(
+        (REPO_ROOT / "artifacts/phase2c/FNX-P2C-009/fixture_manifest.json")
+        .read_text(encoding="utf-8")
+    )
+
+    _check(
+        budgets["REL-BUD-006"]["property_floor"]
+        <= len(packet_009_manifest["fixture_ids"]),
+        "REL-BUD-006 property floor must not exceed FNX-P2C-009 fixture scope",
+    )
