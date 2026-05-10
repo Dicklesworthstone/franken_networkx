@@ -165,7 +165,7 @@ impl PyComplexityWitness {
             self.0.m,
             self.0.policy.id(),
             self.0.observed_count,
-            &hex::encode(&self.0.decision_path_blake3[..4])
+            hex::encode(&self.0.decision_path_blake3[..4])
         )
     }
 }

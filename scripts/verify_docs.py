@@ -16,6 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 MARKDOWN_SOURCES = [ROOT / "README.md"]
 EXAMPLE_DIR = ROOT / "examples"
 DOCS_DIR = ROOT / "docs"
+DOCS_EXEC_TIMEOUT_SECONDS = 60
 PYTHON_FENCE_RE = re.compile(r"```([^\n`]*)\n(.*?)```", re.DOTALL)
 LINK_RE = re.compile(r'!?\[[^\]]*\]\(([^)\s]+(?:\s+"[^"]*")?)\)')
 HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*$", re.MULTILINE)
@@ -127,8 +128,13 @@ def run_markdown(path: Path, python_bin: str) -> list[str]:
             env=env,
             capture_output=True,
             text=True,
+            timeout=DOCS_EXEC_TIMEOUT_SECONDS,
             check=True,
         )  # nosec B603 - the executed code comes from repository-owned documentation
+    except subprocess.TimeoutExpired:
+        errors.append(
+            f"{path}: markdown execution timed out after {DOCS_EXEC_TIMEOUT_SECONDS}s"
+        )
     except subprocess.CalledProcessError as exc:  # pragma: no cover - exercised in CI on failure
         errors.append(
             "\n".join(
@@ -151,8 +157,11 @@ def run_example(path: Path, python_bin: str) -> list[str]:
             env=env,
             capture_output=True,
             text=True,
+            timeout=DOCS_EXEC_TIMEOUT_SECONDS,
             check=True,
         )  # nosec B603 - the executed code comes from repository-owned example scripts
+    except subprocess.TimeoutExpired:
+        return [f"{path}: example timed out after {DOCS_EXEC_TIMEOUT_SECONDS}s"]
     except subprocess.CalledProcessError as exc:
         return [
             "\n".join(
@@ -176,8 +185,13 @@ def validate_generated_docs(python_bin: str) -> list[str]:
             env=env,
             capture_output=True,
             text=True,
+            timeout=DOCS_EXEC_TIMEOUT_SECONDS,
             check=True,
         )  # nosec B603 - the executed generator is repository-owned
+    except subprocess.TimeoutExpired:
+        return [
+            f"generated docs validation timed out after {DOCS_EXEC_TIMEOUT_SECONDS}s"
+        ]
     except subprocess.CalledProcessError as exc:
         return [
             "\n".join(

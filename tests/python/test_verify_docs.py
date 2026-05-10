@@ -45,3 +45,26 @@ def test_docs_verifier_prefers_checkout_python_package(tmp_path: Path) -> None:
 
     if "has no attribute 'bipartite_sets'" not in failure_text:
         raise AssertionError(f"expected checkout import failure, got: {failure_text}")
+
+
+def test_docs_verifier_times_out_markdown_blocks(tmp_path: Path) -> None:
+    verify_docs = _load_verify_docs_script()
+    verify_docs["run_markdown"].__globals__["DOCS_EXEC_TIMEOUT_SECONDS"] = 0.1
+
+    doc = tmp_path / "sleeping.md"
+    doc.write_text(
+        "\n".join(
+            [
+                "```python",
+                "import time",
+                "time.sleep(30)",
+                "```",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    failures = verify_docs["run_markdown"](doc, sys.executable)
+    failure_text = "\n".join(failures)
+
+    if "markdown execution timed out after 0.1s" not in failure_text:
+        raise AssertionError(f"expected timeout failure, got: {failure_text}")
