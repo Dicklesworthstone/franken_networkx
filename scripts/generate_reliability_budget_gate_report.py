@@ -56,6 +56,10 @@ def normalize_status(value: Any) -> str:
     return "unknown"
 
 
+def is_success_status(value: Any) -> bool:
+    return normalize_status(value) in {"pass", "passed"}
+
+
 def as_int(value: Any, fallback: int = 0) -> int:
     if isinstance(value, bool):
         return fallback
@@ -225,7 +229,7 @@ def main() -> int:
     mismatch_count = as_int(smoke_report.get("mismatch_count"), 0)
     proxy_unit_line_pct = 100.0 if fixture_count > 0 else 0.0
     proxy_branch_pct = 100.0 if fixture_count > 0 and mismatch_count == 0 else 0.0
-    e2e_pass_ratio = 1.0 if phase2c_report.get("status") == "pass" else 0.0
+    e2e_pass_ratio = 1.0 if is_success_status(phase2c_report.get("status")) else 0.0
 
     budgets_out: list[dict[str, Any]] = []
     failure_envelopes: list[dict[str, Any]] = []
