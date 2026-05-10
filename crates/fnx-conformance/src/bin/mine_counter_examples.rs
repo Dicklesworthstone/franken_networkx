@@ -309,8 +309,11 @@ fn run_undirected_algorithm(algorithm: ReferenceAlgorithm, graph: &Graph) {
         ReferenceAlgorithm::ConnectedComponents => {
             let _ = connected_components(graph);
         }
-        ReferenceAlgorithm::Kruskal | ReferenceAlgorithm::Prim => {
-            // MST algorithms not yet implemented - skip
+        ReferenceAlgorithm::Kruskal => {
+            let _ = minimum_spanning_tree(graph, "weight");
+        }
+        ReferenceAlgorithm::Prim => {
+            let _ = minimum_spanning_tree_prim(graph, "weight");
         }
         ReferenceAlgorithm::EulerianCircuit => {
             let _ = is_eulerian(graph);
@@ -357,5 +360,50 @@ fn run_directed_algorithm(algorithm: ReferenceAlgorithm, graph: &DiGraph) {
         | ReferenceAlgorithm::Kruskal
         | ReferenceAlgorithm::Prim
         | ReferenceAlgorithm::EulerianCircuit => {}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use fnx_cgse::{ComplexityWitness, TieBreakPolicy};
+
+    fn collect_undirected_witnesses(algorithm: ReferenceAlgorithm) -> Vec<ComplexityWitness> {
+        let mut graph = Graph::new(CompatibilityMode::Strict);
+        for node in ["a", "b", "c"] {
+            graph.add_node(node.to_owned());
+        }
+        let _ = graph.add_edge("a".to_owned(), "b".to_owned());
+        let _ = graph.add_edge("b".to_owned(), "c".to_owned());
+        let _ = graph.add_edge("a".to_owned(), "c".to_owned());
+
+        let (_, witnesses) = collect_witnesses(|| run_undirected_algorithm(algorithm, &graph));
+        witnesses
+    }
+
+    #[test]
+    fn kruskal_miner_path_emits_cgse_witness() {
+        let witnesses = collect_undirected_witnesses(ReferenceAlgorithm::Kruskal);
+
+        assert_eq!(witnesses.len(), 1);
+        let witness = &witnesses[0];
+        assert_eq!(witness.policy, TieBreakPolicy::WeightThenLex);
+        assert_eq!(witness.dominant_term, "m_log_m");
+        assert_eq!(witness.n, 3);
+        assert_eq!(witness.m, 3);
+        assert!(witness.observed_count > 0);
+    }
+
+    #[test]
+    fn prim_miner_path_emits_cgse_witness() {
+        let witnesses = collect_undirected_witnesses(ReferenceAlgorithm::Prim);
+
+        assert_eq!(witnesses.len(), 1);
+        let witness = &witnesses[0];
+        assert_eq!(witness.policy, TieBreakPolicy::WeightThenLex);
+        assert_eq!(witness.dominant_term, "m_log_n");
+        assert_eq!(witness.n, 3);
+        assert_eq!(witness.m, 3);
+        assert!(witness.observed_count > 0);
     }
 }
