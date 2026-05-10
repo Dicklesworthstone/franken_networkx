@@ -3641,6 +3641,13 @@
       "evidence": ""
     },
     {
+      "name": "transitivity",
+      "category": "native-parity",
+      "source": "static-classification",
+      "note": "static=rust-native; raw-vs-public=wrapper-corrected",
+      "evidence": ""
+    },
+    {
       "name": "tree_broadcast_center",
       "category": "native-parity",
       "source": "static-classification",
@@ -3768,6 +3775,13 @@
     },
     {
       "name": "all_pairs_shortest_path_length",
+      "category": "wrapper-patched",
+      "source": "raw-vs-public-audit",
+      "note": "raw output is post-processed by wrapper to match nx",
+      "evidence": "docs/raw_vs_public_audit.md"
+    },
+    {
+      "name": "transitivity",
       "category": "wrapper-patched",
       "source": "raw-vs-public-audit",
       "note": "raw output is post-processed by wrapper to match nx",
@@ -10628,6 +10642,25 @@
           "evidence": ""
         }
       ],
+      "raw-known-gap": [],
+      "owner-acknowledged-limitation": []
+    },
+    "transitivity": {
+      "native-parity": [
+        {
+          "source": "static-classification",
+          "note": "static=rust-native; raw-vs-public=wrapper-corrected",
+          "evidence": ""
+        }
+      ],
+      "wrapper-patched": [
+        {
+          "source": "raw-vs-public-audit",
+          "note": "raw output is post-processed by wrapper to match nx",
+          "evidence": "docs/raw_vs_public_audit.md"
+        }
+      ],
+      "intentionally-delegated": [],
       "raw-known-gap": [],
       "owner-acknowledged-limitation": []
     },

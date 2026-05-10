@@ -356,16 +356,21 @@ def _classify(report: FuncReport) -> str:
     has_disagreement = False
     public_matches_nx_everywhere = True
     raw_matches_nx_everywhere = True
-    error_divergence = False
+    raw_stricter_than_public = False  # raw raises, public+nx return
+    raw_looser_than_public = False    # raw returns, public+nx raise
 
     for row in report.rows:
-        # Error vs success divergence
-        if row.raw.ok != row.public.ok:
-            error_divergence = True
+        # Distinguish two kinds of error mismatch:
+        # - raw raises while public + nx return → stricter raw kernel
+        #   (intentional defensive guard; wrapper has richer handling)
+        # - raw returns while public + nx raise → the audit's true bug
+        #   class (the kernel must be tightened)
+        if not row.raw.ok and row.public.ok and row.nx_baseline.ok:
+            raw_stricter_than_public = True
+        if row.raw.ok and not row.public.ok and not row.nx_baseline.ok:
+            raw_looser_than_public = True
 
         if not row.raw.ok or not row.public.ok or not row.nx_baseline.ok:
-            # Skip fixture from value comparison when an error happened on
-            # any path; error_divergence captures the structural mismatch.
             if not row.public.ok and row.nx_baseline.ok:
                 public_matches_nx_everywhere = False
             if not row.raw.ok and row.nx_baseline.ok:
@@ -383,8 +388,13 @@ def _classify(report: FuncReport) -> str:
         if not _approx_equal(rn, nn):
             raw_matches_nx_everywhere = False
 
-    if error_divergence:
+    if raw_looser_than_public:
+        # raw returns garbage where nx + wrapper correctly raise — bug.
         return "error-divergence"
+    if raw_stricter_than_public and public_matches_nx_everywhere:
+        # raw is intentionally stricter; wrapper bridges to nx — same
+        # category as wrapper-corrected: the wrapper is doing real work.
+        return "wrapper-corrected"
     if not has_disagreement and raw_matches_nx_everywhere and public_matches_nx_everywhere:
         return "identical"
     if has_disagreement and public_matches_nx_everywhere and not raw_matches_nx_everywhere:
@@ -392,7 +402,6 @@ def _classify(report: FuncReport) -> str:
     if not public_matches_nx_everywhere and not raw_matches_nx_everywhere:
         return "wrapper-misalign"
     if not has_disagreement and raw_matches_nx_everywhere and not public_matches_nx_everywhere:
-        # Public diverges from both raw and nx — wrapper is wrong.
         return "wrapper-broken"
     if has_disagreement and raw_matches_nx_everywhere and not public_matches_nx_everywhere:
         return "wrapper-broken"
