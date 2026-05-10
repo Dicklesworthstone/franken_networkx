@@ -368,6 +368,14 @@ def _call(fn, args, kwargs) -> CallOutcome:
     return CallOutcome(ok=True, value=result)
 
 
+def _outcome_matches(left: CallOutcome, right: CallOutcome) -> bool:
+    if left.ok and right.ok:
+        return _approx_equal(_normalize(left.value), _normalize(right.value))
+    if not left.ok and not right.ok:
+        return left.error_type == right.error_type and left.error_msg == right.error_msg
+    return False
+
+
 @dataclass
 class FixtureRow:
     fixture_id: str
@@ -408,11 +416,14 @@ def _classify(report: FuncReport) -> str:
         if row.raw.ok and not row.public.ok and not row.nx_baseline.ok:
             raw_looser_than_public = True
 
+        if not _outcome_matches(row.raw, row.public):
+            has_disagreement = True
+        if not _outcome_matches(row.public, row.nx_baseline):
+            public_matches_nx_everywhere = False
+        if not _outcome_matches(row.raw, row.nx_baseline):
+            raw_matches_nx_everywhere = False
+
         if not row.raw.ok or not row.public.ok or not row.nx_baseline.ok:
-            if not row.public.ok and row.nx_baseline.ok:
-                public_matches_nx_everywhere = False
-            if not row.raw.ok and row.nx_baseline.ok:
-                raw_matches_nx_everywhere = False
             continue
 
         rn = _normalize(row.raw.value)

@@ -167,6 +167,21 @@ def test_raw_barycenter_rejects_empty_graph():
         fnx._raw_barycenter(fnx.Graph())
 
 
+def test_audit_classifies_barycenter_exception_type_drift():
+    """br-r37-c1-ts8kd: raw/public/nx all raising is not enough for
+    parity. The audit must compare exception classes too."""
+    from scripts import raw_vs_public_audit as audit
+
+    reports = {report.name: report for report in audit.run_audit()}
+    barycenter = reports["barycenter"]
+    directed_row = next(row for row in barycenter.rows if row.fixture_id == "digraph-chain-5")
+
+    assert directed_row.raw.error_type == "NetworkXNotImplemented"
+    assert directed_row.public.error_type == "NetworkXNoPath"
+    assert directed_row.nx_baseline.error_type == "NetworkXNoPath"
+    assert barycenter.classification == "wrapper-corrected"
+
+
 @pytest.mark.parametrize(
     "fn_name,builder,expected",
     [
