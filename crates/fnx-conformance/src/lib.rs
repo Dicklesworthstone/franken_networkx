@@ -24,6 +24,7 @@ use fnx_algorithms::{
 };
 // find_cliques, node_connectivity, minimum_node_cut, global_node_connectivity,
 // global_minimum_node_cut used via fnx_algorithms:: prefix
+use fnx_classes::digraph::DiGraph;
 use fnx_classes::{AttrMap, EdgeSnapshot, Graph, GraphSnapshot};
 use fnx_convert::{AdjacencyPayload, EdgeListPayload, GraphConverter};
 use fnx_dispatch::{BackendRegistry, BackendSpec, DispatchDecision, DispatchRequest};
@@ -926,6 +927,7 @@ struct ExpectedClosenessVitality {
 #[derive(Debug)]
 struct ExecutionContext {
     graph: Graph,
+    digraph: DiGraph,
     dispatch_registry: BackendRegistry,
     shortest_path_result: Option<Vec<String>>,
     shortest_path_weighted_result: Option<Vec<String>>,
@@ -1771,6 +1773,7 @@ fn run_fixture(
 
     let mut context = ExecutionContext {
         graph: Graph::new(mode),
+        digraph: DiGraph::new(mode),
         dispatch_registry: default_dispatch_registry(mode),
         shortest_path_result: None,
         shortest_path_weighted_result: None,
@@ -1876,21 +1879,36 @@ fn run_fixture(
     for operation in fixture.operations {
         match operation {
             Operation::AddNode { node, attrs } => {
-                let _ = context.graph.add_node_with_attrs(node, attrs);
+                let _ = context
+                    .graph
+                    .add_node_with_attrs(node.clone(), attrs.clone());
+                let _ = context.digraph.add_node_with_attrs(node, attrs);
             }
             Operation::AddEdge { left, right, attrs } => {
-                if let Err(err) = context.graph.add_edge_with_attrs(left, right, attrs) {
+                if let Err(err) =
+                    context
+                        .graph
+                        .add_edge_with_attrs(left.clone(), right.clone(), attrs.clone())
+                {
                     mismatches.push(Mismatch {
                         category: "graph_mutation".to_owned(),
                         message: format!("add_edge failed: {err}"),
                     });
                 }
+                if let Err(err) = context.digraph.add_edge_with_attrs(left, right, attrs) {
+                    mismatches.push(Mismatch {
+                        category: "graph_mutation".to_owned(),
+                        message: format!("add_directed_edge failed: {err}"),
+                    });
+                }
             }
             Operation::RemoveNode { node } => {
                 let _ = context.graph.remove_node(&node);
+                let _ = context.digraph.remove_node(&node);
             }
             Operation::RemoveEdge { left, right } => {
                 let _ = context.graph.remove_edge(&left, &right);
+                let _ = context.digraph.remove_edge(&left, &right);
             }
             Operation::ShortestPathQuery { source, target } => {
                 let result = shortest_path_unweighted(&context.graph, &source, &target);
@@ -2343,9 +2361,10 @@ fn run_fixture(
                 context.bfs_layers_result = Some(result);
             }
             Operation::TopologicalSortQuery => {
-                // Topological sort requires a DiGraph - convert from undirected for testing
-                // In practice, this should only be called on DAGs represented as digraphs
-                context.topological_sort_result = None; // Placeholder - requires DiGraph
+                if let Some(result) = fnx_algorithms::topological_sort(&context.digraph) {
+                    context.topological_sort_result = Some(result.order);
+                    context.witness = Some(result.witness);
+                }
             }
             // Link prediction operations
             Operation::JaccardCoefficientQuery { ebunch } => {
@@ -5774,6 +5793,44 @@ mod tests {
         compare_edges(&snapshot, &expected, &mut mismatches);
 
         assert!(mismatches.is_empty());
+    }
+
+    #[test]
+    fn topological_sort_query_uses_directed_harness_graph() {
+        let root = std::env::temp_dir().join(format!(
+            "fnx-conformance-topological-sort-{}",
+            unix_time_ms()
+        ));
+        fs::create_dir_all(&root).expect("temporary fixture root should be creatable");
+        let fixture_path = root.join("topological_sort_query.json");
+        fs::write(
+            &fixture_path,
+            r#"{
+                "suite": "unit",
+                "mode": "strict",
+                "fixture_id": "topological_sort_query",
+                "operations": [
+                    {"op": "add_node", "node": "a"},
+                    {"op": "add_node", "node": "b"},
+                    {"op": "add_node", "node": "c"},
+                    {"op": "add_edge", "left": "a", "right": "b"},
+                    {"op": "add_edge", "left": "b", "right": "c"},
+                    {"op": "topological_sort_query"}
+                ],
+                "expected": {
+                    "topological_sort": ["a", "b", "c"]
+                }
+            }"#,
+        )
+        .expect("temporary fixture should be writable");
+
+        let report = run_fixture(fixture_path, CompatibilityMode::Strict, &root);
+
+        assert!(
+            report.passed,
+            "topological sort fixture mismatches: {:?}",
+            report.mismatches
+        );
     }
 
     #[test]
