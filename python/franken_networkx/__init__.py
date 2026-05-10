@@ -26535,7 +26535,7 @@ class _ReverseDirectedViewBase:
             return _ReverseOutMultiEdgeView(self)
         return _ReverseOutEdgeView(self)
 
-    def _out_edges_compute(self, nbunch=None, data=False, keys=False):
+    def _out_edges_compute(self, nbunch=None, data=False, keys=False, default=None):
         nodes = self._nbunch(nbunch)
         result = []
         adjacency = self.succ
@@ -26543,7 +26543,13 @@ class _ReverseDirectedViewBase:
             for source in nodes:
                 for target, keyed_attrs in adjacency[source].items():
                     for key, attrs in keyed_attrs.items():
-                        if data and keys:
+                        if isinstance(data, str):
+                            result.append(
+                                (source, target, key, attrs.get(data, default))
+                                if keys
+                                else (source, target, attrs.get(data, default))
+                            )
+                        elif data and keys:
                             result.append((source, target, key, attrs))
                         elif data:
                             result.append((source, target, attrs))
@@ -26554,13 +26560,15 @@ class _ReverseDirectedViewBase:
         else:
             for source in nodes:
                 for target, attrs in adjacency[source].items():
-                    if data:
+                    if isinstance(data, str):
+                        result.append((source, target, attrs.get(data, default)))
+                    elif data:
                         result.append((source, target, attrs))
                     else:
                         result.append((source, target))
         return result
 
-    def _in_edges_compute(self, nbunch=None, data=False, keys=False):
+    def _in_edges_compute(self, nbunch=None, data=False, keys=False, default=None):
         nodes = self._nbunch(nbunch)
         result = []
         adjacency = self.pred
@@ -26568,7 +26576,13 @@ class _ReverseDirectedViewBase:
             for target in nodes:
                 for source, keyed_attrs in adjacency[target].items():
                     for key, attrs in keyed_attrs.items():
-                        if data and keys:
+                        if isinstance(data, str):
+                            result.append(
+                                (source, target, key, attrs.get(data, default))
+                                if keys
+                                else (source, target, attrs.get(data, default))
+                            )
+                        elif data and keys:
                             result.append((source, target, key, attrs))
                         elif data:
                             result.append((source, target, attrs))
@@ -26579,7 +26593,9 @@ class _ReverseDirectedViewBase:
         else:
             for target in nodes:
                 for source, attrs in adjacency[target].items():
-                    if data:
+                    if isinstance(data, str):
+                        result.append((source, target, attrs.get(data, default)))
+                    elif data:
                         result.append((source, target, attrs))
                     else:
                         result.append((source, target))
@@ -26855,10 +26871,10 @@ class _RevEdgeMethodViewBase:
     def __repr__(self):
         return f"{type(self).__name__}({list(self)!r})"
 
-    def data(self, data=True, default=None, nbunch=None):
+    def data(self, data=True, default=None, nbunch=None, keys=False):
         # br-r37-c1-revview-data: nx's reverse-view edges have a
         # ``.data()`` method that returns an EdgeDataView. Match.
-        return self._compute(nbunch=nbunch, data=data)
+        return self._compute(nbunch=nbunch, data=data, keys=keys, default=default)
 
     # br-r37-c1-revvcopy: see _RevDegreeViewBase above — same fix
     # for in_edges / out_edges proxies.

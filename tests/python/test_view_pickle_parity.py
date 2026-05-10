@@ -880,6 +880,48 @@ def test_reverse_view_edges_set_protocol(name, fnx_builder, nx_builder):
     assert isinstance(e_f - set(e_f), set)
 
 
+def test_reverse_view_in_out_edges_data_attr_default_matches_networkx():
+    """br-r37-c1-dnfh8: reverse-view in_edges/out_edges data(attr)
+    must return attribute values, not full attr dicts, and must honor
+    default for missing attrs. MultiDiGraph also supports keys=True.
+    """
+    DG = fnx.DiGraph()
+    DG_n = nx.DiGraph()
+    for graph in (DG, DG_n):
+        graph.add_edge("a", "b", weight=3)
+        graph.add_edge("c", "b")
+
+    R = DG.reverse(copy=False)
+    R_n = DG_n.reverse(copy=False)
+    assert sorted(R.out_edges.data("weight", default=7)) == sorted(
+        R_n.out_edges.data("weight", default=7)
+    )
+    assert sorted(R.in_edges.data("weight", default=7)) == sorted(
+        R_n.in_edges.data("weight", default=7)
+    )
+
+    MDG = fnx.MultiDiGraph()
+    MDG_n = nx.MultiDiGraph()
+    for graph in (MDG, MDG_n):
+        graph.add_edge("a", "b", key="heavy", weight=3)
+        graph.add_edge("a", "b", key="missing")
+
+    MR = MDG.reverse(copy=False)
+    MR_n = MDG_n.reverse(copy=False)
+    assert sorted(MR.out_edges.data("weight", default=7)) == sorted(
+        MR_n.out_edges.data("weight", default=7)
+    )
+    assert sorted(MR.in_edges.data("weight", default=7)) == sorted(
+        MR_n.in_edges.data("weight", default=7)
+    )
+    assert sorted(MR.out_edges.data("weight", default=7, keys=True)) == sorted(
+        MR_n.out_edges.data("weight", default=7, keys=True)
+    )
+    assert sorted(MR.in_edges.data("weight", default=7, keys=True)) == sorted(
+        MR_n.in_edges.data("weight", default=7, keys=True)
+    )
+
+
 @pytest.mark.parametrize("name,fnx_builder,nx_builder", _CONVERSION_EDGE_BUILDERS,
                          ids=[b[0] for b in _CONVERSION_EDGE_BUILDERS])
 def test_conversion_view_edges_set_protocol(name, fnx_builder, nx_builder):
