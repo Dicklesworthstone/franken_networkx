@@ -1888,20 +1888,25 @@ fn run_fixture(
                 let _ = context.digraph.add_node_with_attrs(node, attrs);
             }
             Operation::AddEdge { left, right, attrs } => {
-                if let Err(err) =
-                    context
-                        .graph
-                        .add_edge_with_attrs(left.clone(), right.clone(), attrs.clone())
-                {
+                let graph_error = context
+                    .graph
+                    .add_edge_with_attrs(left.clone(), right.clone(), attrs.clone())
+                    .err();
+                let digraph_error = context
+                    .digraph
+                    .add_edge_with_attrs(left, right, attrs)
+                    .err();
+                if graph_error.is_some() || digraph_error.is_some() {
+                    let mut messages = Vec::new();
+                    if let Some(err) = graph_error {
+                        messages.push(format!("add_edge failed: {err}"));
+                    }
+                    if let Some(err) = digraph_error {
+                        messages.push(format!("add_directed_edge failed: {err}"));
+                    }
                     mismatches.push(Mismatch {
                         category: "graph_mutation".to_owned(),
-                        message: format!("add_edge failed: {err}"),
-                    });
-                }
-                if let Err(err) = context.digraph.add_edge_with_attrs(left, right, attrs) {
-                    mismatches.push(Mismatch {
-                        category: "graph_mutation".to_owned(),
-                        message: format!("add_directed_edge failed: {err}"),
+                        message: messages.join("; "),
                     });
                 }
             }
