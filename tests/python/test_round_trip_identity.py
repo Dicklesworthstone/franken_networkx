@@ -112,9 +112,9 @@ def _degree_value(G, node):
         return G.degree[node]
 
 
-def _behavior_signature(module, G):
+def _behavior_fingerprint(module, G):
     nodes = tuple(sorted(G.nodes(), key=_sort_key))
-    signature = {
+    fingerprint = {
         "degrees": tuple((node, _degree_value(G, node)) for node in nodes),
         "neighbors_n2": tuple(sorted(G.neighbors("n2"), key=_sort_key)),
         "shortest_path_n1_n3": tuple(module.shortest_path(G, "n1", "n3")),
@@ -122,7 +122,7 @@ def _behavior_signature(module, G):
     }
 
     if G.is_directed():
-        signature.update(
+        fingerprint.update(
             {
                 "ancestors_n3": tuple(sorted(module.ancestors(G, "n3"), key=_sort_key)),
                 "descendants_n1": tuple(sorted(module.descendants(G, "n1"), key=_sort_key)),
@@ -138,7 +138,7 @@ def _behavior_signature(module, G):
             }
         )
     else:
-        signature.update(
+        fingerprint.update(
             {
                 "all_pairs_shortest_path_length": _normalize_distance_matrix(
                     module.all_pairs_shortest_path_length(G)
@@ -149,7 +149,7 @@ def _behavior_signature(module, G):
             }
         )
 
-    return signature
+    return fingerprint
 
 
 def _reference_graph(graph_type, fmt):
@@ -162,7 +162,7 @@ def _reference_graph(graph_type, fmt):
     return populate_graph(nx_graph_types[graph_type](), fmt)
 
 def assert_graphs_equal(G1, G2, format_name):
-    if format_name in ("pajek", "adjlist", "edgelist"):
+    if format_name == "pajek":
         pass
     else:
         assert type(G1) is type(G2)
@@ -181,6 +181,9 @@ def assert_graphs_equal(G1, G2, format_name):
             assert G1.nodes[n] == G2.nodes[n]
         
     if G1.is_multigraph():
+        if format_name in ("adjlist", "edgelist"):
+            assert sorted(G1.edges()) == sorted(G2.edges())
+            return
         assert sorted(G1.edges(keys=True)) == sorted(G2.edges(keys=True))
         for u, v, k in G1.edges(keys=True):
             if format_name in ("gml", "pajek"):
@@ -216,8 +219,6 @@ def round_trip(G, fmt):
         data = fnx.node_link_data(G)
         return fnx.node_link_graph(data)
     elif fmt == "gml":
-        if G.is_multigraph():
-            pytest.skip("fnx.write_gml does not support MultiGraph")
         with tempfile.NamedTemporaryFile(suffix=".gml", delete=False) as f:
             path = f.name
         try:
@@ -226,8 +227,6 @@ def round_trip(G, fmt):
         finally:
             os.unlink(path)
     elif fmt == "graphml":
-        if G.is_multigraph():
-            pytest.skip("fnx.write_graphml does not support MultiGraph")
         with tempfile.NamedTemporaryFile(suffix=".graphml", delete=False) as f:
             path = f.name
         try:
@@ -239,10 +238,8 @@ def round_trip(G, fmt):
         with tempfile.NamedTemporaryFile(suffix=".edgelist", delete=False) as f:
             path = f.name
         try:
-            if G.is_multigraph():
-                pytest.skip("write_edgelist does not support MultiGraph in franken_networkx without losing parallel edges")
             fnx.write_edgelist(G, path)
-            G_parsed = fnx.read_edgelist(path)
+            G_parsed = fnx.read_edgelist(path, create_using=type(G)())
             return G_parsed
         finally:
             os.unlink(path)
@@ -250,10 +247,8 @@ def round_trip(G, fmt):
         with tempfile.NamedTemporaryFile(suffix=".adjlist", delete=False) as f:
             path = f.name
         try:
-            if G.is_multigraph():
-                pytest.skip("write_adjlist does not support MultiGraph in franken_networkx without losing parallel edges")
             fnx.write_adjlist(G, path)
-            G_parsed = fnx.read_adjlist(path)
+            G_parsed = fnx.read_adjlist(path, create_using=type(G)())
             return G_parsed
         finally:
             os.unlink(path)
@@ -283,8 +278,6 @@ def networkx_round_trip(G, fmt):
         data = nx.node_link_data(G)
         return nx.node_link_graph(data)
     elif fmt == "gml":
-        if G.is_multigraph():
-            pytest.skip("networkx.write_gml does not support MultiGraph")
         with tempfile.NamedTemporaryFile(suffix=".gml", delete=False) as f:
             path = f.name
         try:
@@ -293,8 +286,6 @@ def networkx_round_trip(G, fmt):
         finally:
             os.unlink(path)
     elif fmt == "graphml":
-        if G.is_multigraph():
-            pytest.skip("networkx.write_graphml does not support MultiGraph")
         with tempfile.NamedTemporaryFile(suffix=".graphml", delete=False) as f:
             path = f.name
         try:
@@ -303,23 +294,19 @@ def networkx_round_trip(G, fmt):
         finally:
             os.unlink(path)
     elif fmt == "edgelist":
-        if G.is_multigraph():
-            pytest.skip("networkx.write_edgelist does not preserve MultiGraph parallel edges")
         with tempfile.NamedTemporaryFile(suffix=".edgelist", delete=False) as f:
             path = f.name
         try:
             nx.write_edgelist(G, path)
-            return nx.read_edgelist(path)
+            return nx.read_edgelist(path, create_using=type(G)())
         finally:
             os.unlink(path)
     elif fmt == "adjlist":
-        if G.is_multigraph():
-            pytest.skip("networkx.write_adjlist does not preserve MultiGraph parallel edges")
         with tempfile.NamedTemporaryFile(suffix=".adjlist", delete=False) as f:
             path = f.name
         try:
             nx.write_adjlist(G, path)
-            return nx.read_adjlist(path)
+            return nx.read_adjlist(path, create_using=type(G)())
         finally:
             os.unlink(path)
     elif fmt == "pajek":
@@ -385,13 +372,15 @@ def test_round_trip_behavior_matches_networkx(graph_type, fmt):
 
     G_reference_round_trip = networkx_round_trip(G_reference, fmt)
 
-    original_signature = _behavior_signature(fnx, G)
-    round_trip_signature = _behavior_signature(fnx, G_round_trip)
-    reference_signature = _behavior_signature(nx, G_reference)
-    reference_round_trip_signature = _behavior_signature(nx, G_reference_round_trip)
+    original_fingerprint = _behavior_fingerprint(fnx, G)
+    round_trip_fingerprint = _behavior_fingerprint(fnx, G_round_trip)
+    reference_fingerprint = _behavior_fingerprint(nx, G_reference)
+    reference_round_trip_fingerprint = _behavior_fingerprint(
+        nx, G_reference_round_trip
+    )
 
-    assert original_signature == reference_signature
-    assert round_trip_signature == reference_round_trip_signature
+    assert original_fingerprint == reference_fingerprint
+    assert round_trip_fingerprint == reference_round_trip_fingerprint
 
 
 # ---------------------------------------------------------------------------

@@ -192,7 +192,7 @@ See [`REALITY_CHECK_BRIDGE_PLAN_2026-04-08.md`](REALITY_CHECK_BRIDGE_PLAN_2026-0
 1. **Wire strict/hardened modes into parsers (D2-D4):** the D1 decision is resolved in favor of implementation; remaining work is connecting runtime policy state to `fnx-readwrite` entry points and proving strict/hardened behavior with ≥24 strict and ≥24 hardened fixtures.
 2. **Conformance regeneration (B2-B4):** refresh `artifacts/conformance/latest/` reports and add a CI freshness gate.
 3. **Performance proof artifacts (E3):** run the profile-and-prove optimization loop for each SLO row to earn the SPEC §17 budgets.
-4. **Algorithm surface quality:** track remaining nx-parity gaps (e.g. multigraph serialization, backend dispatch tail) via beads; see `bv --robot-triage` for the current set.
+4. **Algorithm surface quality:** track remaining nx-parity gaps (e.g. backend dispatch tail and newly surfaced parity regressions) via beads; see `bv --robot-triage` for the current set.
 
 ## Porting Artifact Set
 
