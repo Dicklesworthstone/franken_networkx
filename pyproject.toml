@@ -63,6 +63,7 @@ python-source = "python"
 module-name = "franken_networkx._fnx"
 manifest-path = "crates/fnx-python/Cargo.toml"
 features = ["pyo3/extension-module", "pyo3/abi3-py310"]
+include = ["fnx_backend_info.py"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests/python"]
