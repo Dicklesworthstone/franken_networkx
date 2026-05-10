@@ -787,9 +787,7 @@ pub fn multigraph_to_normalized_payload(graph: &MultiGraph) -> MultiGraphSnapsho
 }
 
 #[must_use]
-pub fn multidigraph_to_normalized_payload(
-    graph: &MultiDiGraph,
-) -> MultiDiGraphSnapshot {
+pub fn multidigraph_to_normalized_payload(graph: &MultiDiGraph) -> MultiDiGraphSnapshot {
     graph.snapshot()
 }
 
@@ -802,11 +800,7 @@ impl GraphConverter {
     /// converter previously returned the error directly without
     /// leaving an audit-trail entry. Add a fail-closed decision so
     /// ``evidence_ledger()`` reflects the rejection.
-    fn record_dispatch_failure(
-        &mut self,
-        operation: &'static str,
-        err: &DispatchError,
-    ) {
+    fn record_dispatch_failure(&mut self, operation: &'static str, err: &DispatchError) {
         let message = format!("dispatch rejected: {err}");
         self.record(operation, DecisionAction::FailClosed, &message, 1.0);
     }
@@ -1123,10 +1117,8 @@ mod tests {
             serde_json::from_str(r#"{"nodes":["a","b"]}"#).expect("nodes only");
         assert_eq!(nodes_only.nodes.len(), 2);
         assert!(nodes_only.edges.is_empty());
-        let edges_only: EdgeListPayload = serde_json::from_str(
-            r#"{"edges":[{"left":"a","right":"b"}]}"#,
-        )
-        .expect("edges only");
+        let edges_only: EdgeListPayload =
+            serde_json::from_str(r#"{"edges":[{"left":"a","right":"b"}]}"#).expect("edges only");
         assert!(edges_only.nodes.is_empty());
         assert_eq!(edges_only.edges.len(), 1);
     }
