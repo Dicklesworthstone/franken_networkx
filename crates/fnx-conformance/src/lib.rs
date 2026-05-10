@@ -431,26 +431,31 @@ enum Operation {
         weight_attr: String,
     },
     // Traversal algorithms
+    #[serde(alias = "dfs_edges_query")]
     DFSEdgesQuery {
         source: String,
         #[serde(default)]
         depth_limit: Option<usize>,
     },
+    #[serde(alias = "dfs_preorder_nodes_query")]
     DFSPreorderNodesQuery {
         source: String,
         #[serde(default)]
         depth_limit: Option<usize>,
     },
+    #[serde(alias = "dfs_postorder_nodes_query")]
     DFSPostorderNodesQuery {
         source: String,
         #[serde(default)]
         depth_limit: Option<usize>,
     },
+    #[serde(alias = "bfs_edges_query")]
     BFSEdgesQuery {
         source: String,
         #[serde(default)]
         depth_limit: Option<usize>,
     },
+    #[serde(alias = "bfs_layers_query")]
     BFSLayersQuery {
         source: String,
     },
@@ -5829,6 +5834,63 @@ mod tests {
         assert!(
             report.passed,
             "topological sort fixture mismatches: {:?}",
+            report.mismatches
+        );
+    }
+
+    #[test]
+    fn traversal_queries_accept_natural_bfs_dfs_operation_names() {
+        let root = std::env::temp_dir().join(format!(
+            "fnx-conformance-traversal-op-aliases-{}",
+            unix_time_ms()
+        ));
+        fs::create_dir_all(&root).expect("temporary fixture root should be creatable");
+        let fixture_path = root.join("traversal_op_aliases.json");
+        fs::write(
+            &fixture_path,
+            r#"{
+                "suite": "unit",
+                "mode": "strict",
+                "fixture_id": "traversal_op_aliases",
+                "operations": [
+                    {"op": "add_node", "node": "0"},
+                    {"op": "add_node", "node": "1"},
+                    {"op": "add_node", "node": "2"},
+                    {"op": "add_node", "node": "3"},
+                    {"op": "add_edge", "left": "0", "right": "1"},
+                    {"op": "add_edge", "left": "0", "right": "2"},
+                    {"op": "add_edge", "left": "1", "right": "3"},
+                    {"op": "add_edge", "left": "2", "right": "3"},
+                    {"op": "bfs_edges_query", "source": "0"},
+                    {"op": "bfs_layers_query", "source": "0"},
+                    {"op": "dfs_edges_query", "source": "0"},
+                    {"op": "dfs_preorder_nodes_query", "source": "0"},
+                    {"op": "dfs_postorder_nodes_query", "source": "0"}
+                ],
+                "expected": {
+                    "bfs_edges": [
+                        {"left": "0", "right": "1"},
+                        {"left": "0", "right": "2"},
+                        {"left": "1", "right": "3"}
+                    ],
+                    "bfs_layers": [["0"], ["1", "2"], ["3"]],
+                    "dfs_edges": [
+                        {"left": "0", "right": "1"},
+                        {"left": "1", "right": "3"},
+                        {"left": "3", "right": "2"}
+                    ],
+                    "dfs_preorder_nodes": ["0", "1", "3", "2"],
+                    "dfs_postorder_nodes": ["2", "3", "1", "0"]
+                }
+            }"#,
+        )
+        .expect("temporary fixture should be writable");
+
+        let report = run_fixture(fixture_path, CompatibilityMode::Strict, &root);
+
+        assert!(
+            report.passed,
+            "traversal alias fixture mismatches: {:?}",
             report.mismatches
         );
     }
