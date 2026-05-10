@@ -103,6 +103,38 @@ def test_raw_eccentricity_undirected_unchanged():
     assert result == {0: 4, 1: 3, 2: 2, 3: 3, 4: 4}
 
 
+def test_raw_find_cliques_rejects_directed_input():
+    """br-r37-c1-ewpss: kernel previously collapsed directed input via
+    gr.undirected() and silently returned cliques on the underlying
+    undirected projection."""
+    g = fnx.DiGraph()
+    g.add_edge(0, 1)
+    g.add_edge(1, 2)
+    with pytest.raises(fnx.NetworkXNotImplemented):
+        fnx._raw_find_cliques(g)
+
+
+def test_raw_is_chordal_rejects_directed_input():
+    """br-r37-c1-ewpss: same fix as find_cliques."""
+    g = fnx.DiGraph()
+    g.add_edge(0, 1)
+    g.add_edge(1, 2)
+    with pytest.raises(fnx.NetworkXNotImplemented):
+        fnx._raw_is_chordal(g)
+
+
+def test_raw_find_cliques_undirected_unchanged():
+    g = fnx.path_graph(5)
+    result = fnx._raw_find_cliques(g)
+    # 4 edges, each a maximal clique (path graph)
+    assert len(result) == 4
+
+
+def test_raw_is_chordal_undirected_unchanged():
+    assert fnx._raw_is_chordal(fnx.path_graph(5)) is True
+    assert fnx._raw_is_chordal(fnx.cycle_graph(6)) is False
+
+
 def test_astar_path_postmut_matches_nx():
     """br-r37-c1-0x9pd companion: astar_path also gets the sync."""
     fg = fnx.path_graph(5)

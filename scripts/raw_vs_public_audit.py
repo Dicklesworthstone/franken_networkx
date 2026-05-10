@@ -172,6 +172,7 @@ def _arg_none(fg, ng, side):
 # fixture coverage is straightforward.
 FUNCTION_SPECS: list[tuple[str, CallShape, set[str]]] = [
     # name, call shape, fixtures to skip (by id)
+    # Shortest-path family
     ("single_source_dijkstra_path_length", CallShape(_arg_first_node), set()),
     ("single_source_dijkstra_path", CallShape(_arg_first_node), set()),
     ("single_source_bellman_ford_path_length", CallShape(_arg_first_node), set()),
@@ -180,22 +181,55 @@ FUNCTION_SPECS: list[tuple[str, CallShape, set[str]]] = [
     ("shortest_path_length", CallShape(_arg_first_two_nodes), set()),
     ("all_pairs_dijkstra_path_length", CallShape(_arg_none), set()),
     ("all_pairs_shortest_path_length", CallShape(_arg_none), set()),
+    # Centrality
     ("betweenness_centrality", CallShape(_arg_none), set()),
     ("closeness_centrality", CallShape(_arg_none), set()),
+    ("degree_centrality", CallShape(_arg_none), set()),
     ("clustering", CallShape(_arg_none), set()),
+    ("average_clustering", CallShape(_arg_none), set()),
+    ("harmonic_centrality", CallShape(_arg_none), set()),
+    ("load_centrality", CallShape(_arg_none), set()),
+    ("transitivity", CallShape(_arg_none), set()),
+    ("triangles", CallShape(_arg_none), set()),
+    ("square_clustering", CallShape(_arg_none), set()),
+    # Structural
     ("articulation_points", CallShape(_arg_none), set()),
     ("bridges", CallShape(_arg_none), set()),
     ("is_planar", CallShape(_arg_none), set()),
     ("is_eulerian", CallShape(_arg_none), set()),
-    ("number_of_edges", CallShape(_arg_none), set()),
-    ("density", CallShape(_arg_none), set()),
     ("is_connected", CallShape(_arg_none), set()),
+    ("is_biconnected", CallShape(_arg_none), set()),
+    ("is_bipartite", CallShape(_arg_none), set()),
+    ("is_chordal", CallShape(_arg_none), set()),
+    ("is_forest", CallShape(_arg_none), set()),
+    ("is_tree", CallShape(_arg_none), set()),
     ("connected_components", CallShape(_arg_none), set()),
+    ("number_connected_components", CallShape(_arg_none), set()),
+    ("biconnected_components", CallShape(_arg_none), set()),
+    ("density", CallShape(_arg_none), set()),
+    ("number_of_edges", CallShape(_arg_none), set()),
+    ("number_of_isolates", CallShape(_arg_none), set()),
+    ("number_of_selfloops", CallShape(_arg_none), set()),
+    # Distance
     ("diameter", CallShape(_arg_none), set()),
     ("radius", CallShape(_arg_none), set()),
     ("center", CallShape(_arg_none), set()),
     ("periphery", CallShape(_arg_none), set()),
     ("eccentricity", CallShape(_arg_none), set()),
+    ("girth", CallShape(_arg_none), set()),
+    ("barycenter", CallShape(_arg_none), set()),
+    # Cliques / coloring
+    ("find_cliques", CallShape(_arg_none), set()),
+    ("graph_clique_number", CallShape(_arg_none), set()),
+    ("number_of_cliques", CallShape(_arg_none), set()),
+    ("greedy_color", CallShape(_arg_none), set()),
+    ("core_number", CallShape(_arg_none), set()),
+    # Tree / DAG
+    ("topological_sort", CallShape(_arg_none), set()),
+    ("dag_longest_path", CallShape(_arg_none), set()),
+    ("dag_longest_path_length", CallShape(_arg_none), set()),
+    # Counts
+    ("degree_histogram", CallShape(_arg_none), set()),
 ]
 
 
@@ -239,14 +273,26 @@ def _approx_equal(a, b, tol: float = 1e-9) -> bool:
         return True
     if a is None or b is None:
         return False
-    if isinstance(a, tuple) and isinstance(b, tuple):
-        if a[0] != b[0]:
-            return False
+    # Tagged 2-tuples emitted by ``_normalize``: ("num", float),
+    # ("dict", kv_tuple), ("list", elements), etc. Detect tag equality
+    # before falling through to generic element-wise tuple comparison.
+    if (
+        isinstance(a, tuple)
+        and isinstance(b, tuple)
+        and len(a) == 2
+        and len(b) == 2
+        and a[0] == b[0]
+        and isinstance(a[0], str)
+    ):
         if a[0] == "num":
             return math.isclose(a[1], b[1], rel_tol=1e-9, abs_tol=1e-12)
+        if a[0] in ("dict", "list", "tuple", "set"):
+            return _approx_equal(a[1], b[1], tol)
+        # other tagged variants — fall through to element-wise compare
+    if isinstance(a, tuple) and isinstance(b, tuple):
         if len(a) != len(b):
             return False
-        return all(_approx_equal(x, y, tol) for x, y in zip(a[1], b[1]))
+        return all(_approx_equal(x, y, tol) for x, y in zip(a, b))
     return False
 
 

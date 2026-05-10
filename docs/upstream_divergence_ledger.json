@@ -2440,7 +2440,7 @@
       "name": "degree_centrality",
       "category": "native-parity",
       "source": "static-classification",
-      "note": "static=rust-native; raw-vs-public=unaudited",
+      "note": "static=rust-native; raw-vs-public=identical",
       "evidence": ""
     },
     {
@@ -2622,7 +2622,7 @@
       "name": "find_cliques",
       "category": "native-parity",
       "source": "static-classification",
-      "note": "static=rust-native; raw-vs-public=unaudited",
+      "note": "static=rust-native; raw-vs-public=wrapper-corrected",
       "evidence": ""
     },
     {
@@ -2678,7 +2678,7 @@
       "name": "girth",
       "category": "native-parity",
       "source": "static-classification",
-      "note": "static=rust-native; raw-vs-public=unaudited",
+      "note": "static=rust-native; raw-vs-public=wrapper-corrected",
       "evidence": ""
     },
     {
@@ -2832,14 +2832,14 @@
       "name": "is_biconnected",
       "category": "native-parity",
       "source": "static-classification",
-      "note": "static=rust-native; raw-vs-public=unaudited",
+      "note": "static=rust-native; raw-vs-public=identical",
       "evidence": ""
     },
     {
       "name": "is_bipartite",
       "category": "native-parity",
       "source": "static-classification",
-      "note": "static=rust-reexport; raw-vs-public=unaudited",
+      "note": "static=rust-reexport; raw-vs-public=untestable-not-exposed",
       "evidence": ""
     },
     {
@@ -2916,7 +2916,7 @@
       "name": "is_forest",
       "category": "native-parity",
       "source": "static-classification",
-      "note": "static=rust-native; raw-vs-public=unaudited",
+      "note": "static=rust-native; raw-vs-public=identical",
       "evidence": ""
     },
     {
@@ -3000,7 +3000,7 @@
       "name": "is_tree",
       "category": "native-parity",
       "source": "static-classification",
-      "note": "static=rust-native; raw-vs-public=unaudited",
+      "note": "static=rust-native; raw-vs-public=identical",
       "evidence": ""
     },
     {
@@ -3084,7 +3084,7 @@
       "name": "load_centrality",
       "category": "native-parity",
       "source": "static-classification",
-      "note": "static=rust-native; raw-vs-public=unaudited",
+      "note": "static=rust-native; raw-vs-public=identical",
       "evidence": ""
     },
     {
@@ -3371,21 +3371,21 @@
       "name": "number_connected_components",
       "category": "native-parity",
       "source": "static-classification",
-      "note": "static=rust-native; raw-vs-public=unaudited",
+      "note": "static=rust-native; raw-vs-public=identical",
       "evidence": ""
     },
     {
       "name": "number_of_isolates",
       "category": "native-parity",
       "source": "static-classification",
-      "note": "static=rust-reexport; raw-vs-public=unaudited",
+      "note": "static=rust-reexport; raw-vs-public=untestable-not-exposed",
       "evidence": ""
     },
     {
       "name": "number_of_selfloops",
       "category": "native-parity",
       "source": "static-classification",
-      "note": "static=rust-native; raw-vs-public=unaudited",
+      "note": "static=rust-native; raw-vs-public=untestable-not-exposed",
       "evidence": ""
     },
     {
@@ -3595,7 +3595,7 @@
       "name": "square_clustering",
       "category": "native-parity",
       "source": "static-classification",
-      "note": "static=rust-native; raw-vs-public=unaudited",
+      "note": "static=rust-native; raw-vs-public=untestable-not-exposed",
       "evidence": ""
     },
     {
@@ -3641,13 +3641,6 @@
       "evidence": ""
     },
     {
-      "name": "transitivity",
-      "category": "native-parity",
-      "source": "static-classification",
-      "note": "static=rust-native; raw-vs-public=unaudited",
-      "evidence": ""
-    },
-    {
       "name": "tree_broadcast_center",
       "category": "native-parity",
       "source": "static-classification",
@@ -3672,7 +3665,7 @@
       "name": "triangles",
       "category": "native-parity",
       "source": "static-classification",
-      "note": "static=rust-native; raw-vs-public=unaudited",
+      "note": "static=rust-native; raw-vs-public=identical",
       "evidence": ""
     },
     {
@@ -3781,6 +3774,34 @@
       "evidence": "docs/raw_vs_public_audit.md"
     },
     {
+      "name": "biconnected_components",
+      "category": "wrapper-patched",
+      "source": "raw-vs-public-audit",
+      "note": "raw output is post-processed by wrapper to match nx",
+      "evidence": "docs/raw_vs_public_audit.md"
+    },
+    {
+      "name": "girth",
+      "category": "wrapper-patched",
+      "source": "raw-vs-public-audit",
+      "note": "raw output is post-processed by wrapper to match nx",
+      "evidence": "docs/raw_vs_public_audit.md"
+    },
+    {
+      "name": "find_cliques",
+      "category": "wrapper-patched",
+      "source": "raw-vs-public-audit",
+      "note": "raw output is post-processed by wrapper to match nx",
+      "evidence": "docs/raw_vs_public_audit.md"
+    },
+    {
+      "name": "greedy_color",
+      "category": "wrapper-patched",
+      "source": "raw-vs-public-audit",
+      "note": "raw output is post-processed by wrapper to match nx",
+      "evidence": "docs/raw_vs_public_audit.md"
+    },
+    {
       "name": "is_planar",
       "category": "raw-known-gap",
       "source": "rust-source-comment (crates/fnx-algorithms/src/lib.rs)",
@@ -3791,7 +3812,7 @@
       "name": "is_planar",
       "category": "owner-acknowledged-limitation",
       "source": "closed-bead",
-      "note": "franken_networkx-isplanarbroken: REVIEW: [HIGH] is_planar classified K3,3 and Petersen as planar (both are canoni",
+      "note": "br-r37-c1-x0gc6: [bug] Rust is_planar misclassifies K3,3 + Petersen as planar",
       "evidence": ""
     }
   ],
@@ -8054,7 +8075,13 @@
     },
     "biconnected_components": {
       "native-parity": [],
-      "wrapper-patched": [],
+      "wrapper-patched": [
+        {
+          "source": "raw-vs-public-audit",
+          "note": "raw output is post-processed by wrapper to match nx",
+          "evidence": "docs/raw_vs_public_audit.md"
+        }
+      ],
       "intentionally-delegated": [
         {
           "source": "static-classification",
@@ -8342,7 +8369,7 @@
       "native-parity": [
         {
           "source": "static-classification",
-          "note": "static=rust-native; raw-vs-public=unaudited",
+          "note": "static=rust-native; raw-vs-public=identical",
           "evidence": ""
         }
       ],
@@ -8680,11 +8707,17 @@
       "native-parity": [
         {
           "source": "static-classification",
-          "note": "static=rust-native; raw-vs-public=unaudited",
+          "note": "static=rust-native; raw-vs-public=wrapper-corrected",
           "evidence": ""
         }
       ],
-      "wrapper-patched": [],
+      "wrapper-patched": [
+        {
+          "source": "raw-vs-public-audit",
+          "note": "raw output is post-processed by wrapper to match nx",
+          "evidence": "docs/raw_vs_public_audit.md"
+        }
+      ],
       "intentionally-delegated": [],
       "raw-known-gap": [],
       "owner-acknowledged-limitation": []
@@ -8784,11 +8817,17 @@
       "native-parity": [
         {
           "source": "static-classification",
-          "note": "static=rust-native; raw-vs-public=unaudited",
+          "note": "static=rust-native; raw-vs-public=wrapper-corrected",
           "evidence": ""
         }
       ],
-      "wrapper-patched": [],
+      "wrapper-patched": [
+        {
+          "source": "raw-vs-public-audit",
+          "note": "raw output is post-processed by wrapper to match nx",
+          "evidence": "docs/raw_vs_public_audit.md"
+        }
+      ],
       "intentionally-delegated": [],
       "raw-known-gap": [],
       "owner-acknowledged-limitation": []
@@ -8847,7 +8886,13 @@
     },
     "greedy_color": {
       "native-parity": [],
-      "wrapper-patched": [],
+      "wrapper-patched": [
+        {
+          "source": "raw-vs-public-audit",
+          "note": "raw output is post-processed by wrapper to match nx",
+          "evidence": "docs/raw_vs_public_audit.md"
+        }
+      ],
       "intentionally-delegated": [
         {
           "source": "static-classification",
@@ -9070,7 +9115,7 @@
       "native-parity": [
         {
           "source": "static-classification",
-          "note": "static=rust-native; raw-vs-public=unaudited",
+          "note": "static=rust-native; raw-vs-public=identical",
           "evidence": ""
         }
       ],
@@ -9083,7 +9128,7 @@
       "native-parity": [
         {
           "source": "static-classification",
-          "note": "static=rust-reexport; raw-vs-public=unaudited",
+          "note": "static=rust-reexport; raw-vs-public=untestable-not-exposed",
           "evidence": ""
         }
       ],
@@ -9226,7 +9271,7 @@
       "native-parity": [
         {
           "source": "static-classification",
-          "note": "static=rust-native; raw-vs-public=unaudited",
+          "note": "static=rust-native; raw-vs-public=identical",
           "evidence": ""
         }
       ],
@@ -9382,7 +9427,7 @@
       "native-parity": [
         {
           "source": "static-classification",
-          "note": "static=rust-native; raw-vs-public=unaudited",
+          "note": "static=rust-native; raw-vs-public=identical",
           "evidence": ""
         }
       ],
@@ -9538,7 +9583,7 @@
       "native-parity": [
         {
           "source": "static-classification",
-          "note": "static=rust-native; raw-vs-public=unaudited",
+          "note": "static=rust-native; raw-vs-public=identical",
           "evidence": ""
         }
       ],
@@ -10071,7 +10116,7 @@
       "native-parity": [
         {
           "source": "static-classification",
-          "note": "static=rust-native; raw-vs-public=unaudited",
+          "note": "static=rust-native; raw-vs-public=identical",
           "evidence": ""
         }
       ],
@@ -10084,7 +10129,7 @@
       "native-parity": [
         {
           "source": "static-classification",
-          "note": "static=rust-reexport; raw-vs-public=unaudited",
+          "note": "static=rust-reexport; raw-vs-public=untestable-not-exposed",
           "evidence": ""
         }
       ],
@@ -10097,7 +10142,7 @@
       "native-parity": [
         {
           "source": "static-classification",
-          "note": "static=rust-native; raw-vs-public=unaudited",
+          "note": "static=rust-native; raw-vs-public=untestable-not-exposed",
           "evidence": ""
         }
       ],
@@ -10499,7 +10544,7 @@
       "native-parity": [
         {
           "source": "static-classification",
-          "note": "static=rust-native; raw-vs-public=unaudited",
+          "note": "static=rust-native; raw-vs-public=untestable-not-exposed",
           "evidence": ""
         }
       ],
@@ -10586,19 +10631,6 @@
       "raw-known-gap": [],
       "owner-acknowledged-limitation": []
     },
-    "transitivity": {
-      "native-parity": [
-        {
-          "source": "static-classification",
-          "note": "static=rust-native; raw-vs-public=unaudited",
-          "evidence": ""
-        }
-      ],
-      "wrapper-patched": [],
-      "intentionally-delegated": [],
-      "raw-known-gap": [],
-      "owner-acknowledged-limitation": []
-    },
     "tree_broadcast_center": {
       "native-parity": [
         {
@@ -10642,7 +10674,7 @@
       "native-parity": [
         {
           "source": "static-classification",
-          "note": "static=rust-native; raw-vs-public=unaudited",
+          "note": "static=rust-native; raw-vs-public=identical",
           "evidence": ""
         }
       ],
@@ -10795,7 +10827,7 @@
       "owner-acknowledged-limitation": [
         {
           "source": "closed-bead",
-          "note": "franken_networkx-isplanarbroken: REVIEW: [HIGH] is_planar classified K3,3 and Petersen as planar (both are canoni",
+          "note": "br-r37-c1-x0gc6: [bug] Rust is_planar misclassifies K3,3 + Petersen as planar",
           "evidence": ""
         }
       ]

@@ -3253,6 +3253,13 @@ pub fn square_clustering(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Py<Py
 #[pyfunction]
 pub fn find_cliques(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Vec<Vec<PyObject>>> {
     let gr = extract_graph(g)?;
+    // br-r37-c1-ewpss: kernel previously collapsed directed input via
+    // ``gr.undirected()`` and silently returned cliques on the
+    // underlying undirected projection. nx and the public wrapper both
+    // reject directed input; mirror the find_cliques_adjacency_sets
+    // contract so direct callers of `_raw_find_cliques` see the same
+    // NetworkXNotImplemented error.
+    require_undirected(&gr, "find_cliques")?;
     let inner = gr.undirected();
     let result = py.allow_threads(|| fnx_algorithms::find_cliques(inner));
     Ok(result
@@ -9779,6 +9786,10 @@ fn is_planar(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<bool> {
 #[pyo3(signature = (g,))]
 fn is_chordal(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<bool> {
     let gr = extract_graph(g)?;
+    // br-r37-c1-ewpss: see find_cliques for rationale. is_chordal is
+    // an undirected-graph concept; nx and the public wrapper both
+    // reject directed input.
+    require_undirected(&gr, "is_chordal")?;
     let inner = gr.undirected();
     Ok(py.allow_threads(|| fnx_algorithms::is_chordal(inner)))
 }
