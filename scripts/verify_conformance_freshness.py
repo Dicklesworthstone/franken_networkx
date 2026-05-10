@@ -25,12 +25,15 @@ SOURCE_ROOTS = [
     Path("crates/fnx-algorithms"),
     Path("python/franken_networkx"),
 ]
+IGNORED_SOURCE_DIRS = {"__pycache__"}
+IGNORED_SOURCE_SUFFIXES = {".pyc", ".pyo"}
 
 
 def load_json(path: Path) -> dict | None:
     """Load JSON file or return None if missing/invalid."""
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        decoder = json.JSONDecoder()
+        return decoder.decode(path.read_text(encoding="utf-8"))
     except (FileNotFoundError, json.JSONDecodeError) as e:
         print(f"::warning file={path}::failed to load: {e}")
         return None
@@ -49,7 +52,7 @@ def check_dashboard(artifacts_root: Path) -> tuple[bool, list[str]]:
     # Check status
     status = dashboard.get("status")
     if status != "pass":
-        errors.append(f"dashboard status is '{status}', expected 'pass'")
+        errors.append(f"dashboard status {status!r}, expected 'pass'")
 
     # Check summary
     summary = dashboard.get("summary", {})
@@ -116,6 +119,15 @@ def format_mtime(path: Path) -> str:
     return datetime.fromtimestamp(path.stat().st_mtime, timezone.utc).isoformat()
 
 
+def is_source_freshness_candidate(path: Path) -> bool:
+    """Return whether a path should participate in source freshness checks."""
+    if not path.is_file():
+        return False
+    if any(part in IGNORED_SOURCE_DIRS for part in path.parts):
+        return False
+    return path.suffix not in IGNORED_SOURCE_SUFFIXES
+
+
 def check_fixture_report_freshness(
     artifacts_root: Path, source_roots: list[Path] | None = None
 ) -> tuple[bool, list[str]]:
@@ -127,7 +139,12 @@ def check_fixture_report_freshness(
         return False, errors
 
     roots = SOURCE_ROOTS if source_roots is None else source_roots
-    source_files = [path for root in roots for path in root.rglob("*") if path.is_file()]
+    source_files = [
+        path
+        for root in roots
+        for path in root.rglob("*")
+        if is_source_freshness_candidate(path)
+    ]
     if not source_files:
         errors.append("no source files found for freshness comparison")
         return False, errors
