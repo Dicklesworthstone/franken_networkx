@@ -1,5 +1,7 @@
 import os
 import tempfile
+from pathlib import Path
+
 import pytest
 
 import franken_networkx as fnx
@@ -38,6 +40,14 @@ BEHAVIOR_FORMATS = [
     "adjlist",
     "pajek",
 ]
+
+
+def test_imported_franken_networkx_resolves_to_checkout_package():
+    repo_python = Path(__file__).resolve().parents[2] / "python"
+    imported_path = Path(fnx.__file__).resolve()
+
+    assert imported_path.is_relative_to(repo_python), imported_path
+
 
 def populate_graph(G, fmt):
     if fmt not in ("adjlist", "edgelist", "graph6", "sparse6"):

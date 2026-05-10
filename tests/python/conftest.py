@@ -7,10 +7,18 @@ to verify algorithm correctness across the Python binding layer.
 import hashlib
 import json
 import logging
+import sys
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+REPO_PYTHON = REPO_ROOT / "python"
+for path in (REPO_PYTHON, REPO_ROOT):
+    path_text = str(path)
+    if path_text not in sys.path:
+        sys.path.insert(0, path_text)
 
 import pytest
 
