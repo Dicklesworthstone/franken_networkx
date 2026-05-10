@@ -7679,6 +7679,22 @@ def _restore_branching_edge_attrs(result, source, attr_name, default, preserve_a
             result[u][v][attr_name] = default
 
 
+def _branching_partition_graph_for_networkx(G, partition):
+    """Convert fnx EdgePartition attributes before NetworkX delegation."""
+    graph = _networkx_graph_for_parity(G)
+    if partition is None:
+        return graph
+
+    import networkx as nx
+
+    graph = graph.copy()
+    for _, _, attrs in graph.edges(data=True):
+        value = attrs.get(partition)
+        if isinstance(value, EdgePartition):
+            attrs[partition] = nx.EdgePartition(value.value)
+    return graph
+
+
 def minimum_branching(G, attr="weight", default=1, preserve_attrs=False, partition=None):
     """br-isokw: ``G`` matches nx; default aligned to int 1 (was 1.0).
 
@@ -7687,9 +7703,9 @@ def minimum_branching(G, attr="weight", default=1, preserve_attrs=False, partiti
     no branching with positive sum). Delegate the undirected case so
     drop-in code works.
     """
-    if not G.is_directed():
+    if partition is not None or not G.is_directed():
         return _call_networkx_for_parity(
-            "minimum_branching", G,
+            "minimum_branching", _branching_partition_graph_for_networkx(G, partition),
             attr=attr, default=default,
             preserve_attrs=preserve_attrs, partition=partition,
         )
@@ -7708,9 +7724,9 @@ def maximum_branching(G, attr="weight", default=1, preserve_attrs=False, partiti
     maximum-weight spanning result). Delegate to nx for undirected
     so drop-in code works.
     """
-    if not G.is_directed():
+    if partition is not None or not G.is_directed():
         return _call_networkx_for_parity(
-            "maximum_branching", G,
+            "maximum_branching", _branching_partition_graph_for_networkx(G, partition),
             attr=attr, default=default,
             preserve_attrs=preserve_attrs, partition=partition,
         )
@@ -7730,6 +7746,15 @@ def minimum_spanning_arborescence(G, attr="weight", default=1, preserve_attrs=Fa
     """
     if not G.is_directed():
         raise NetworkXNotImplemented("not implemented for undirected type")
+    if partition is not None:
+        return _call_networkx_for_parity(
+            "minimum_spanning_arborescence",
+            _branching_partition_graph_for_networkx(G, partition),
+            attr=attr,
+            default=default,
+            preserve_attrs=preserve_attrs,
+            partition=partition,
+        )
     result = _raw_minimum_spanning_arborescence(
         G, attr=attr, default=default, preserve_attrs=preserve_attrs, partition=partition,
     )
@@ -7744,6 +7769,15 @@ def maximum_spanning_arborescence(G, attr="weight", default=1, preserve_attrs=Fa
     """
     if not G.is_directed():
         raise NetworkXNotImplemented("not implemented for undirected type")
+    if partition is not None:
+        return _call_networkx_for_parity(
+            "maximum_spanning_arborescence",
+            _branching_partition_graph_for_networkx(G, partition),
+            attr=attr,
+            default=default,
+            preserve_attrs=preserve_attrs,
+            partition=partition,
+        )
     result = _raw_maximum_spanning_arborescence(
         G, attr=attr, default=default, preserve_attrs=preserve_attrs, partition=partition,
     )

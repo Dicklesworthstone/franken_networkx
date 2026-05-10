@@ -544,6 +544,17 @@ class TestMST:
 
 @pytest.mark.conformance
 class TestBranchings:
+    def _partitioned_branching_graphs(self, fnx, nx):
+        G_fnx = fnx.DiGraph()
+        G_nx = nx.DiGraph()
+        G_fnx.add_edge("a", "b", weight=1, part=fnx.EdgePartition.INCLUDED)
+        G_fnx.add_edge("a", "c", weight=5, part=fnx.EdgePartition.EXCLUDED)
+        G_fnx.add_edge("b", "c", weight=2)
+        G_nx.add_edge("a", "b", weight=1, part=nx.EdgePartition.INCLUDED)
+        G_nx.add_edge("a", "c", weight=5, part=nx.EdgePartition.EXCLUDED)
+        G_nx.add_edge("b", "c", weight=2)
+        return G_fnx, G_nx
+
     def test_maximum_branching_matches_networkx(self, fnx, nx):
         G_fnx = fnx.DiGraph()
         G_nx = nx.DiGraph()
@@ -568,6 +579,24 @@ class TestBranchings:
 
         fnx_result = fnx.minimum_branching(G_fnx)
         nx_result = nx.minimum_branching(G_nx)
+        assert list(fnx_result.nodes) == list(nx_result.nodes)
+        assert _sorted_directed_weighted_edges(fnx_result) == _sorted_directed_weighted_edges(nx_result)
+
+    @pytest.mark.parametrize(
+        "name",
+        [
+            "maximum_branching",
+            "minimum_branching",
+            "maximum_spanning_arborescence",
+            "minimum_spanning_arborescence",
+        ],
+    )
+    def test_partitioned_branching_wrappers_match_networkx(self, fnx, nx, name):
+        G_fnx, G_nx = self._partitioned_branching_graphs(fnx, nx)
+
+        fnx_result = getattr(fnx, name)(G_fnx, partition="part")
+        nx_result = getattr(nx, name)(G_nx, partition="part")
+
         assert list(fnx_result.nodes) == list(nx_result.nodes)
         assert _sorted_directed_weighted_edges(fnx_result) == _sorted_directed_weighted_edges(nx_result)
 
