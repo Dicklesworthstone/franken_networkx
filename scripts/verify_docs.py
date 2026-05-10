@@ -21,6 +21,16 @@ LINK_RE = re.compile(r'!?\[[^\]]*\]\(([^)\s]+(?:\s+"[^"]*")?)\)')
 HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*$", re.MULTILINE)
 
 
+def repo_python_env() -> dict[str, str]:
+    env = os.environ.copy()
+    paths = [str(ROOT / "python"), str(ROOT)]
+    existing = env.get("PYTHONPATH")
+    if existing:
+        paths.append(existing)
+    env["PYTHONPATH"] = os.pathsep.join(paths)
+    return env
+
+
 def github_anchor(title: str) -> str:
     anchor = title.strip().lower()
     anchor = re.sub(r"[^\w\s-]", "", anchor)
@@ -109,8 +119,7 @@ def run_markdown(path: Path, python_bin: str) -> list[str]:
         source_lines.append(block.rstrip())
         source_lines.append("")
 
-    env = os.environ.copy()
-    env.setdefault("PYTHONPATH", str(ROOT))
+    env = repo_python_env()
     try:
         subprocess.run(
             [python_bin, "-c", "\n".join(source_lines)],
@@ -134,8 +143,7 @@ def run_markdown(path: Path, python_bin: str) -> list[str]:
 
 
 def run_example(path: Path, python_bin: str) -> list[str]:
-    env = os.environ.copy()
-    env.setdefault("PYTHONPATH", str(ROOT))
+    env = repo_python_env()
     try:
         subprocess.run(
             [python_bin, str(path)],
@@ -160,8 +168,7 @@ def run_example(path: Path, python_bin: str) -> list[str]:
 
 
 def validate_generated_docs(python_bin: str) -> list[str]:
-    env = os.environ.copy()
-    env.setdefault("PYTHONPATH", str(ROOT))
+    env = repo_python_env()
     try:
         subprocess.run(
             [python_bin, str(ROOT / "scripts" / "generate_coverage_matrix.py"), "--check"],

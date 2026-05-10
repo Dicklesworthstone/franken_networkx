@@ -60,7 +60,7 @@ nx.shortest_path(G, 0, 99)
 | Euler | `eulerian_circuit`, `eulerian_path`, `is_eulerian`, `has_eulerian_path`, `is_semieulerian` |
 | Paths & Cycles | `all_simple_paths`, `cycle_basis`, `simple_cycles`, `find_cycle`, `is_simple_path` |
 | Operators | `complement`, `union`, `intersection`, `compose`, `difference`, `symmetric_difference` |
-| Bipartite | `is_bipartite`, `bipartite_sets` |
+| Bipartite | `is_bipartite`, `bipartite.sets` |
 | Coloring | `greedy_color` |
 | Distance | `diameter`, `radius`, `center`, `periphery`, `eccentricity`, `density`, `barycenter` |
 | Efficiency | `global_efficiency`, `local_efficiency` |

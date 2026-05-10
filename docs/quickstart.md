@@ -100,7 +100,8 @@ associations.add_edges_from(
         ("gene:EGFR", "pathway:signaling"),
     ]
 )
-left, right = fnx.bipartite_sets(associations)
+genes = {"gene:BRCA1", "gene:EGFR", "gene:TP53"}
+left, right = fnx.bipartite.sets(associations, top_nodes=genes)
 
 interaction = fnx.Graph()
 interaction.add_edges_from(
@@ -114,7 +115,7 @@ interaction.add_edges_from(
 clustering = fnx.clustering(interaction)
 
 assert fnx.is_bipartite(associations)
-assert "gene:TP53" in left or "gene:TP53" in right
+assert "gene:TP53" in left
 assert clustering["TP53"] >= 0.0
 ```
 
