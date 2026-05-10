@@ -9,6 +9,25 @@ import re
 import shlex
 import warnings
 
+_NX_READWRITE_SUBMODULES = (
+    "adjlist",
+    "edgelist",
+    "gexf",
+    "gml",
+    "graph6",
+    "graphml",
+    "json_graph",
+    "json_graph.adjacency",
+    "json_graph.cytoscape",
+    "json_graph.node_link",
+    "json_graph.tree",
+    "leda",
+    "multiline_adjlist",
+    "pajek",
+    "sparse6",
+    "text",
+)
+
 
 def _normalize_lines(lines):
     """Normalize a string or iterable into a list of text lines."""
@@ -1893,6 +1912,46 @@ def relabel_gexf_graph(G):
 # ``networkx.readwrite`` for any name not defined in this module.
 # Submodules (``fnx.readwrite.json_graph`` etc.) and nx-only converters
 # resolve transparently; the fnx-implemented names take precedence.
+def _build_readwrite_submodule_alias(alias, source_module):
+    import types
+
+    module = types.ModuleType(alias, getattr(source_module, "__doc__", None))
+    for key, value in vars(source_module).items():
+        if key in {"__name__", "__package__", "__spec__", "__loader__"}:
+            continue
+        module.__dict__[key] = value
+
+    module.__dict__["__name__"] = alias
+    module.__dict__["__package__"] = alias.rpartition(".")[0]
+
+    for key in dir(source_module):
+        if key.startswith("_") or key not in globals():
+            continue
+        module.__dict__[key] = globals()[key]
+
+    return module
+
+
+def _install_readwrite_submodule_aliases():
+    import importlib
+    import sys
+
+    installed = {}
+    for submodule_name in _NX_READWRITE_SUBMODULES:
+        source_name = f"networkx.readwrite.{submodule_name}"
+        alias = f"{__name__}.{submodule_name}"
+        source_module = importlib.import_module(source_name)
+        module = _build_readwrite_submodule_alias(alias, source_module)
+        sys.modules[alias] = module
+        installed[alias] = module
+
+    for alias, module in installed.items():
+        parent_name, _, child_name = alias.rpartition(".")
+        parent = sys.modules.get(parent_name)
+        if parent is not None:
+            setattr(parent, child_name, module)
+
+
 def __getattr__(name):
     """Fallback to ``networkx.readwrite`` for any name not implemented
     by fnx's own readwrite layer."""
@@ -1910,3 +1969,6 @@ def __dir__():
     import networkx.readwrite as _src
 
     return sorted(set(globals()) | set(dir(_src)))
+
+
+_install_readwrite_submodule_aliases()

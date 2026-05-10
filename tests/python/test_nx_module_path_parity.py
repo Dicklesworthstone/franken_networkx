@@ -21,6 +21,24 @@ import franken_networkx as fnx
 
 
 SUB_MODULES = ["utils", "linalg", "convert", "relabel", "convert_matrix"]
+READWRITE_SUBMODULES = [
+    "adjlist",
+    "edgelist",
+    "gexf",
+    "gml",
+    "graph6",
+    "graphml",
+    "json_graph",
+    "json_graph.adjacency",
+    "json_graph.cytoscape",
+    "json_graph.node_link",
+    "json_graph.tree",
+    "leda",
+    "multiline_adjlist",
+    "pajek",
+    "sparse6",
+    "text",
+]
 
 
 def test_each_module_path_is_directly_importable():
@@ -81,3 +99,27 @@ def test_aliases_against_nx_for_classlike_names():
             assert getattr(fnx.utils, name) is getattr(nx.utils, name), (
                 f"fnx.utils.{name} must alias nx.utils.{name}"
             )
+
+
+def test_readwrite_submodule_paths_are_directly_importable():
+    """``import franken_networkx.readwrite.<submodule>`` must mirror nx."""
+    for name in READWRITE_SUBMODULES:
+        fnx_mod = importlib.import_module(f"franken_networkx.readwrite.{name}")
+        nx_mod = importlib.import_module(f"networkx.readwrite.{name}")
+        assert fnx_mod is not None
+        assert nx_mod is not None
+
+
+def test_readwrite_submodules_keep_fnx_implemented_names():
+    """Alias modules should still expose fnx's local readwrite wrappers."""
+    import franken_networkx.readwrite as fnx_readwrite
+
+    gml = importlib.import_module("franken_networkx.readwrite.gml")
+    graph6 = importlib.import_module("franken_networkx.readwrite.graph6")
+    sparse6 = importlib.import_module("franken_networkx.readwrite.sparse6")
+    pajek = importlib.import_module("franken_networkx.readwrite.pajek")
+
+    assert gml.parse_gml is fnx_readwrite.parse_gml
+    assert graph6.to_graph6_bytes is fnx_readwrite.to_graph6_bytes
+    assert sparse6.from_sparse6_bytes is fnx_readwrite.from_sparse6_bytes
+    assert pajek.generate_pajek is fnx_readwrite.generate_pajek
