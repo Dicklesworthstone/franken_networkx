@@ -348,7 +348,7 @@ fn run_directed_algorithm(algorithm: ReferenceAlgorithm, graph: &DiGraph) {
             }
         }
         ReferenceAlgorithm::StronglyConnectedComponents => {
-            // SCC algorithm not yet CGSE-instrumented - skip
+            let _ = strongly_connected_components(graph);
         }
         ReferenceAlgorithm::TopologicalSort => {
             let _ = topological_sort(graph);
@@ -381,6 +381,19 @@ mod tests {
         witnesses
     }
 
+    fn collect_directed_witnesses(algorithm: ReferenceAlgorithm) -> Vec<ComplexityWitness> {
+        let mut graph = DiGraph::new(CompatibilityMode::Strict);
+        for node in ["a", "b", "c"] {
+            graph.add_node(node.to_owned());
+        }
+        let _ = graph.add_edge("a".to_owned(), "b".to_owned());
+        let _ = graph.add_edge("b".to_owned(), "c".to_owned());
+        let _ = graph.add_edge("c".to_owned(), "a".to_owned());
+
+        let (_, witnesses) = collect_witnesses(|| run_directed_algorithm(algorithm, &graph));
+        witnesses
+    }
+
     #[test]
     fn kruskal_miner_path_emits_cgse_witness() {
         let witnesses = collect_undirected_witnesses(ReferenceAlgorithm::Kruskal);
@@ -402,6 +415,19 @@ mod tests {
         let witness = &witnesses[0];
         assert_eq!(witness.policy, TieBreakPolicy::WeightThenLex);
         assert_eq!(witness.dominant_term, "m_log_n");
+        assert_eq!(witness.n, 3);
+        assert_eq!(witness.m, 3);
+        assert!(witness.observed_count > 0);
+    }
+
+    #[test]
+    fn strongly_connected_components_miner_path_emits_cgse_witness() {
+        let witnesses = collect_directed_witnesses(ReferenceAlgorithm::StronglyConnectedComponents);
+
+        assert_eq!(witnesses.len(), 1);
+        let witness = &witnesses[0];
+        assert_eq!(witness.policy, TieBreakPolicy::InsertionOrder);
+        assert_eq!(witness.dominant_term, "n_plus_m");
         assert_eq!(witness.n, 3);
         assert_eq!(witness.m, 3);
         assert!(witness.observed_count > 0);
