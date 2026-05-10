@@ -22,13 +22,13 @@ This ledger separates the broad public-export category from source-visible runti
 | Runtime route | Exports | Helper call sites | Rule |
 |---------------|---------|-------------------|------|
 | RUST_NATIVE | 16 | 0 | native extension export from `franken_networkx._fnx` |
-| PY_WRAPPER | 694 | 0 | Python-defined export with no visible NetworkX route |
-| NETWORKX_HELPER | 146 | 170 | Python-defined export with `_call_networkx_*_for_parity(...)` branches |
+| PY_WRAPPER | 692 | 0 | Python-defined export with no visible NetworkX route |
+| NETWORKX_HELPER | 148 | 172 | Python-defined export with `_call_networkx_*_for_parity(...)` branches |
 | DIRECT_NETWORKX | 0 | 0 | Python-defined export that directly imports or calls NetworkX |
 | CLASS | 32 | 0 | public classes, exceptions, iterators |
 | CONSTANT | 3 | 0 | public non-callable values |
 
-`NETWORKX_HELPER` currently covers 146 public export(s) and 170 parity-helper call site(s).
+`NETWORKX_HELPER` currently covers 148 public export(s) and 172 parity-helper call site(s).
 
 ## Upstream Divergence Ledger
 
@@ -37,8 +37,8 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 | Divergence state | Rows | Rule |
 |------------------|------|------|
 | native-parity | 16 | public Rust-native export; no Python fallback route detected |
-| wrapper-patched | 6 | public wrapper records a compatibility repair over a lower-level gap |
-| intentionally-delegated | 146 | AST-visible parity helper or direct NetworkX route |
+| wrapper-patched | 17 | public wrapper records a compatibility repair over a lower-level gap |
+| intentionally-delegated | 148 | AST-visible parity helper or direct NetworkX route |
 | raw-known-gap | 2 | lower-level raw/native implementation has a documented parity gap |
 | owner-acknowledged-limitation | 2 | documented limitation is intentionally owned until native repair |
 
@@ -49,13 +49,24 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 | wrapper-patched | `all_pairs_dijkstra_path_length` | PY_WRAPPER | raw-vs-public-audit | `docs/raw_vs_public_audit.md` | raw output is post-processed by wrapper to match nx |
 | wrapper-patched | `all_pairs_shortest_path_length` | PY_WRAPPER | raw-vs-public-audit | `docs/raw_vs_public_audit.md` | raw output is post-processed by wrapper to match nx |
 | wrapper-patched | `astar_path_length` | PY_WRAPPER | raw-vs-public-audit | `docs/raw_vs_public_audit.md` | raw output is post-processed by wrapper to match nx |
+| wrapper-patched | `biconnected_components` | PY_WRAPPER | raw-vs-public-audit | `docs/raw_vs_public_audit.md` | raw output is post-processed by wrapper to match nx |
+| wrapper-patched | `bridges` | PY_WRAPPER | raw-vs-public-audit | `docs/raw_vs_public_audit.md` | raw output is post-processed by wrapper to match nx |
+| wrapper-patched | `degree_centrality` | PY_WRAPPER | raw-vs-public-audit | `docs/raw_vs_public_audit.md` | raw output is post-processed by wrapper to match nx |
+| wrapper-patched | `degree_histogram` | PY_WRAPPER | raw-vs-public-audit | `docs/raw_vs_public_audit.md` | raw output is post-processed by wrapper to match nx |
+| wrapper-patched | `eccentricity` | PY_WRAPPER | raw-vs-public-audit | `docs/raw_vs_public_audit.md` | raw output is post-processed by wrapper to match nx |
+| wrapper-patched | `find_cliques` | PY_WRAPPER | raw-vs-public-audit | `docs/raw_vs_public_audit.md` | raw output is post-processed by wrapper to match nx |
+| wrapper-patched | `girth` | PY_WRAPPER | raw-vs-public-audit | `docs/raw_vs_public_audit.md` | raw output is post-processed by wrapper to match nx |
+| wrapper-patched | `greedy_color` | PY_WRAPPER | raw-vs-public-audit | `docs/raw_vs_public_audit.md` | raw output is post-processed by wrapper to match nx |
+| wrapper-patched | `is_forest` | PY_WRAPPER | raw-vs-public-audit | `docs/raw_vs_public_audit.md` | raw output is post-processed by wrapper to match nx |
 | wrapper-patched | `is_planar` | PY_WRAPPER | bead:br-isplanarbroken | `python/franken_networkx/__init__.py:br-isplanarbroken` | public wrapper routes through check_planarity so K3,3/Petersen match NetworkX |
+| wrapper-patched | `is_tree` | PY_WRAPPER | raw-vs-public-audit | `docs/raw_vs_public_audit.md` | raw output is post-processed by wrapper to match nx |
 | wrapper-patched | `single_source_bellman_ford_path_length` | PY_WRAPPER | raw-vs-public-audit | `docs/raw_vs_public_audit.md` | raw output is post-processed by wrapper to match nx |
 | wrapper-patched | `single_source_dijkstra_path_length` | PY_WRAPPER | raw-vs-public-audit | `docs/raw_vs_public_audit.md` | raw output is post-processed by wrapper to match nx |
+| wrapper-patched | `transitivity` | PY_WRAPPER | raw-vs-public-audit | `docs/raw_vs_public_audit.md` | raw output is post-processed by wrapper to match nx |
 | raw-known-gap | `_raw_is_planar` | RUST_NATIVE | code:KNOWN GAP | `crates/fnx-algorithms/src/lib.rs:KNOWN GAP` | raw kernel still uses necessary edge-count bounds, not a complete LR planarity test |
 | raw-known-gap | `is_planar` | PY_WRAPPER | rust-source-comment (crates/fnx-algorithms/src/lib.rs) | `crates/fnx-algorithms/src/lib.rs` | // KNOWN GAP (br-isplanarbroken): this is still a necessary-only test; |
 | owner-acknowledged-limitation | `_raw_is_planar` | RUST_NATIVE | code:KNOWN GAP | `crates/fnx-algorithms/src/lib.rs:KNOWN GAP` | callers are directed to the public wrapper until Boyer-Myrvold/Hopcroft-Tarjan lands |
-| owner-acknowledged-limitation | `is_planar` | PY_WRAPPER | closed-bead | `docs/upstream_divergence_ledger.md` | franken_networkx-isplanarbroken: REVIEW: [HIGH] is_planar classified K3,3 and Petersen as planar (both are canoni |
+| owner-acknowledged-limitation | `is_planar` | PY_WRAPPER | closed-bead | `docs/upstream_divergence_ledger.md` | br-r37-c1-n2md9: Short-circuit public is_planar with girth bound before LR fallback |
 
 ## Performance Route Probes
 
@@ -168,6 +179,7 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 | `maximum_branching` | 1 | `maximum_branching` |
 | `maximum_flow` | 1 | `maximum_flow` |
 | `maximum_flow_value` | 1 | `maximum_flow_value` |
+| `maximum_spanning_arborescence` | 1 | `maximum_spanning_arborescence` |
 | `maximum_spanning_edges` | 1 | `maximum_spanning_edges` |
 | `min_weight_matching` | 1 | `min_weight_matching` |
 | `minimum_branching` | 1 | `minimum_branching` |
@@ -175,6 +187,7 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 | `minimum_cut_value` | 1 | `minimum_cut_value` |
 | `minimum_edge_cut` | 1 | `minimum_edge_cut` |
 | `minimum_node_cut` | 1 | `minimum_node_cut` |
+| `minimum_spanning_arborescence` | 1 | `minimum_spanning_arborescence` |
 | `minimum_spanning_edges` | 1 | `minimum_spanning_edges` |
 | `multi_source_dijkstra` | 1 | `multi_source_dijkstra` |
 | `mutual_weight` | 1 | `mutual_weight` |

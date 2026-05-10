@@ -3182,6 +3182,11 @@ pub fn voterank(
 #[pyfunction]
 pub fn clustering(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>> {
     let gr = extract_graph(g)?;
+    // br-r37-c1-djohp: kernel collapses multigraph input, silently
+    // returning the simple-graph projection's clustering coefficient.
+    // nx and the public wrapper both raise NetworkXNotImplemented on
+    // multigraph; mirror that here.
+    require_not_multigraph(&gr)?;
     let result = if gr.is_directed() {
         let dg = gr.digraph().expect("is_directed checked");
         py.allow_threads(|| fnx_algorithms::clustering_coefficient_directed(dg))
@@ -3196,6 +3201,16 @@ pub fn clustering(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>> 
 #[pyfunction]
 pub fn average_clustering(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<f64> {
     let gr = extract_graph(g)?;
+    // br-r37-c1-djohp: see clustering rationale.
+    require_not_multigraph(&gr)?;
+    // br-r37-c1-djohp: nx computes ``sum(c) / len(c)`` which raises
+    // ZeroDivisionError on the empty-graph case; mirror that contract
+    // so direct callers can't paper over an empty input.
+    if gr.node_count_original() == 0 {
+        return Err(pyo3::exceptions::PyZeroDivisionError::new_err(
+            "division by zero",
+        ));
+    }
     let result = if gr.is_directed() {
         let dg = gr.digraph().expect("is_directed checked");
         py.allow_threads(|| fnx_algorithms::clustering_coefficient_directed(dg))
@@ -3222,6 +3237,8 @@ pub fn transitivity(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<f64> {
     // already routes directed inputs through a native triangle-iter path,
     // so end users of fnx.transitivity are unaffected.
     require_undirected(&gr, "transitivity")?;
+    // br-r37-c1-djohp: also reject multigraph (sister kernels do too).
+    require_not_multigraph(&gr)?;
     let inner = gr.undirected();
     Ok(py.allow_threads(|| fnx_algorithms::clustering_coefficient(inner).transitivity))
 }
@@ -3929,6 +3946,9 @@ pub fn greedy_color(py: Python<'_>, g: &Bound<'_, PyAny>, strategy: &str) -> PyR
 #[pyfunction]
 pub fn core_number(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>> {
     let gr = extract_graph(g)?;
+    // br-r37-c1-djohp: nx rejects multigraph (parallel edges break the
+    // bucket-based k-core decomposition); mirror that contract.
+    require_not_multigraph(&gr)?;
     let inner = gr.undirected();
     let result = py.allow_threads(|| fnx_algorithms::core_number(inner));
     let dict = PyDict::new(py);
@@ -9790,6 +9810,8 @@ fn is_chordal(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<bool> {
     // an undirected-graph concept; nx and the public wrapper both
     // reject directed input.
     require_undirected(&gr, "is_chordal")?;
+    // br-r37-c1-djohp: nx also rejects multigraph; mirror that.
+    require_not_multigraph(&gr)?;
     let inner = gr.undirected();
     Ok(py.allow_threads(|| fnx_algorithms::is_chordal(inner)))
 }
@@ -9808,6 +9830,12 @@ fn barycenter(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Vec<PyObject>> {
     // (br-r37-c1-ecqmz).
     require_undirected(&gr, "barycenter")?;
     let inner = gr.undirected();
+    // br-r37-c1-djohp: nx raises NetworkXPointlessConcept on empty
+    // input; mirror that here so direct callers see a clear error
+    // rather than the empty list the kernel would otherwise return.
+    if inner.node_count() == 0 {
+        return Err(crate::NetworkXPointlessConcept::new_err("G has no nodes."));
+    }
     if inner.node_count() > 0 {
         let connected = py.allow_threads(|| fnx_algorithms::is_connected(inner).is_connected);
         if !connected {
@@ -11534,6 +11562,10 @@ pub fn is_attracting_component(
 pub fn girth(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Option<usize>> {
     let gr = extract_graph(g)?;
     require_undirected(&gr, "girth")?;
+    // br-r37-c1-djohp: nx rejects multigraph because parallel edges
+    // create length-2 cycles that aren't meaningful in the simple-graph
+    // sense; mirror that contract.
+    require_not_multigraph(&gr)?;
     let inner = gr.undirected();
     Ok(py.allow_threads(|| fnx_algorithms::girth(inner)))
 }

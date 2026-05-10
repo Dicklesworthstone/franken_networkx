@@ -2440,7 +2440,7 @@
       "name": "degree_centrality",
       "category": "native-parity",
       "source": "static-classification",
-      "note": "static=rust-native; raw-vs-public=identical",
+      "note": "static=rust-native; raw-vs-public=wrapper-corrected",
       "evidence": ""
     },
     {
@@ -2916,7 +2916,7 @@
       "name": "is_forest",
       "category": "native-parity",
       "source": "static-classification",
-      "note": "static=rust-native; raw-vs-public=identical",
+      "note": "static=rust-native; raw-vs-public=wrapper-corrected",
       "evidence": ""
     },
     {
@@ -3000,7 +3000,7 @@
       "name": "is_tree",
       "category": "native-parity",
       "source": "static-classification",
-      "note": "static=rust-native; raw-vs-public=identical",
+      "note": "static=rust-native; raw-vs-public=wrapper-corrected",
       "evidence": ""
     },
     {
@@ -3781,6 +3781,13 @@
       "evidence": "docs/raw_vs_public_audit.md"
     },
     {
+      "name": "degree_centrality",
+      "category": "wrapper-patched",
+      "source": "raw-vs-public-audit",
+      "note": "raw output is post-processed by wrapper to match nx",
+      "evidence": "docs/raw_vs_public_audit.md"
+    },
+    {
       "name": "transitivity",
       "category": "wrapper-patched",
       "source": "raw-vs-public-audit",
@@ -3788,7 +3795,35 @@
       "evidence": "docs/raw_vs_public_audit.md"
     },
     {
+      "name": "bridges",
+      "category": "wrapper-patched",
+      "source": "raw-vs-public-audit",
+      "note": "raw output is post-processed by wrapper to match nx",
+      "evidence": "docs/raw_vs_public_audit.md"
+    },
+    {
+      "name": "is_forest",
+      "category": "wrapper-patched",
+      "source": "raw-vs-public-audit",
+      "note": "raw output is post-processed by wrapper to match nx",
+      "evidence": "docs/raw_vs_public_audit.md"
+    },
+    {
+      "name": "is_tree",
+      "category": "wrapper-patched",
+      "source": "raw-vs-public-audit",
+      "note": "raw output is post-processed by wrapper to match nx",
+      "evidence": "docs/raw_vs_public_audit.md"
+    },
+    {
       "name": "biconnected_components",
+      "category": "wrapper-patched",
+      "source": "raw-vs-public-audit",
+      "note": "raw output is post-processed by wrapper to match nx",
+      "evidence": "docs/raw_vs_public_audit.md"
+    },
+    {
+      "name": "eccentricity",
       "category": "wrapper-patched",
       "source": "raw-vs-public-audit",
       "note": "raw output is post-processed by wrapper to match nx",
@@ -3816,6 +3851,13 @@
       "evidence": "docs/raw_vs_public_audit.md"
     },
     {
+      "name": "degree_histogram",
+      "category": "wrapper-patched",
+      "source": "raw-vs-public-audit",
+      "note": "raw output is post-processed by wrapper to match nx",
+      "evidence": "docs/raw_vs_public_audit.md"
+    },
+    {
       "name": "is_planar",
       "category": "raw-known-gap",
       "source": "rust-source-comment (crates/fnx-algorithms/src/lib.rs)",
@@ -3826,7 +3868,7 @@
       "name": "is_planar",
       "category": "owner-acknowledged-limitation",
       "source": "closed-bead",
-      "note": "br-r37-c1-x0gc6: [bug] Rust is_planar misclassifies K3,3 + Petersen as planar",
+      "note": "br-r37-c1-n2md9: Short-circuit public is_planar with girth bound before LR fallback",
       "evidence": ""
     }
   ],
@@ -8134,7 +8176,13 @@
     },
     "bridges": {
       "native-parity": [],
-      "wrapper-patched": [],
+      "wrapper-patched": [
+        {
+          "source": "raw-vs-public-audit",
+          "note": "raw output is post-processed by wrapper to match nx",
+          "evidence": "docs/raw_vs_public_audit.md"
+        }
+      ],
       "intentionally-delegated": [
         {
           "source": "static-classification",
@@ -8383,11 +8431,17 @@
       "native-parity": [
         {
           "source": "static-classification",
-          "note": "static=rust-native; raw-vs-public=identical",
+          "note": "static=rust-native; raw-vs-public=wrapper-corrected",
           "evidence": ""
         }
       ],
-      "wrapper-patched": [],
+      "wrapper-patched": [
+        {
+          "source": "raw-vs-public-audit",
+          "note": "raw output is post-processed by wrapper to match nx",
+          "evidence": "docs/raw_vs_public_audit.md"
+        }
+      ],
       "intentionally-delegated": [],
       "raw-known-gap": [],
       "owner-acknowledged-limitation": []
@@ -8550,7 +8604,13 @@
     },
     "eccentricity": {
       "native-parity": [],
-      "wrapper-patched": [],
+      "wrapper-patched": [
+        {
+          "source": "raw-vs-public-audit",
+          "note": "raw output is post-processed by wrapper to match nx",
+          "evidence": "docs/raw_vs_public_audit.md"
+        }
+      ],
       "intentionally-delegated": [
         {
           "source": "static-classification",
@@ -9285,11 +9345,17 @@
       "native-parity": [
         {
           "source": "static-classification",
-          "note": "static=rust-native; raw-vs-public=identical",
+          "note": "static=rust-native; raw-vs-public=wrapper-corrected",
           "evidence": ""
         }
       ],
-      "wrapper-patched": [],
+      "wrapper-patched": [
+        {
+          "source": "raw-vs-public-audit",
+          "note": "raw output is post-processed by wrapper to match nx",
+          "evidence": "docs/raw_vs_public_audit.md"
+        }
+      ],
       "intentionally-delegated": [],
       "raw-known-gap": [],
       "owner-acknowledged-limitation": []
@@ -9441,11 +9507,17 @@
       "native-parity": [
         {
           "source": "static-classification",
-          "note": "static=rust-native; raw-vs-public=identical",
+          "note": "static=rust-native; raw-vs-public=wrapper-corrected",
           "evidence": ""
         }
       ],
-      "wrapper-patched": [],
+      "wrapper-patched": [
+        {
+          "source": "raw-vs-public-audit",
+          "note": "raw output is post-processed by wrapper to match nx",
+          "evidence": "docs/raw_vs_public_audit.md"
+        }
+      ],
       "intentionally-delegated": [],
       "raw-known-gap": [],
       "owner-acknowledged-limitation": []
@@ -10846,6 +10918,19 @@
       "raw-known-gap": [],
       "owner-acknowledged-limitation": []
     },
+    "degree_histogram": {
+      "native-parity": [],
+      "wrapper-patched": [
+        {
+          "source": "raw-vs-public-audit",
+          "note": "raw output is post-processed by wrapper to match nx",
+          "evidence": "docs/raw_vs_public_audit.md"
+        }
+      ],
+      "intentionally-delegated": [],
+      "raw-known-gap": [],
+      "owner-acknowledged-limitation": []
+    },
     "is_planar": {
       "native-parity": [],
       "wrapper-patched": [],
@@ -10860,7 +10945,7 @@
       "owner-acknowledged-limitation": [
         {
           "source": "closed-bead",
-          "note": "br-r37-c1-x0gc6: [bug] Rust is_planar misclassifies K3,3 + Petersen as planar",
+          "note": "br-r37-c1-n2md9: Short-circuit public is_planar with girth bound before LR fallback",
           "evidence": ""
         }
       ]

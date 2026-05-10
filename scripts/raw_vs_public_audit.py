@@ -117,6 +117,40 @@ def _digraph_chain_5() -> tuple[fnx.DiGraph, nx.DiGraph]:
     return fg, ng
 
 
+def _multigraph_path_5() -> tuple[fnx.MultiGraph, nx.MultiGraph]:
+    """Undirected multigraph with one extra parallel edge."""
+    fg = fnx.MultiGraph()
+    ng = nx.MultiGraph()
+    for i in range(4):
+        fg.add_edge(i, i + 1)
+        ng.add_edge(i, i + 1)
+    # Extra parallel edge to exercise multi-key paths.
+    fg.add_edge(0, 1)
+    ng.add_edge(0, 1)
+    return fg, ng
+
+
+def _multidigraph_chain_5() -> tuple[fnx.MultiDiGraph, nx.MultiDiGraph]:
+    fg = fnx.MultiDiGraph()
+    ng = nx.MultiDiGraph()
+    for i in range(4):
+        fg.add_edge(i, i + 1)
+        ng.add_edge(i, i + 1)
+    return fg, ng
+
+
+def _empty_graph() -> tuple[fnx.Graph, nx.Graph]:
+    return fnx.Graph(), nx.Graph()
+
+
+def _single_node() -> tuple[fnx.Graph, nx.Graph]:
+    fg = fnx.Graph()
+    ng = nx.Graph()
+    fg.add_node(0)
+    ng.add_node(0)
+    return fg, ng
+
+
 # Map fixture id -> (label, builder).
 FIXTURES: list[tuple[str, callable]] = [
     ("path-5", _path_graph_5),
@@ -128,6 +162,10 @@ FIXTURES: list[tuple[str, callable]] = [
     ("bipartite-3-3", _bipartite_3_3),
     ("petersen", _petersen),
     ("digraph-chain-5", _digraph_chain_5),
+    ("multigraph-path-5", _multigraph_path_5),
+    ("multidigraph-chain-5", _multidigraph_chain_5),
+    ("empty", _empty_graph),
+    ("single-node", _single_node),
 ]
 
 

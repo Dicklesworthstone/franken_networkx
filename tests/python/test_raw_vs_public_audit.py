@@ -135,6 +135,55 @@ def test_raw_is_chordal_undirected_unchanged():
     assert fnx._raw_is_chordal(fnx.cycle_graph(6)) is False
 
 
+@pytest.mark.parametrize(
+    "fn_name",
+    [
+        "clustering",
+        "average_clustering",
+        "transitivity",
+        "is_chordal",
+        "core_number",
+        "girth",
+    ],
+)
+def test_raw_kernels_reject_multigraph(fn_name):
+    """br-r37-c1-djohp: extended audit found 6 raw kernels that
+    silently collapse multigraph input to its simple-graph projection.
+    Each gains a require_not_multigraph guard so direct callers see
+    NetworkXNotImplemented matching nx + the public wrappers."""
+    mg = fnx.MultiGraph()
+    mg.add_edge(0, 1)
+    mg.add_edge(0, 1)  # parallel edge
+    mg.add_edge(1, 2)
+    fn = getattr(fnx, "_raw_" + fn_name)
+    with pytest.raises(fnx.NetworkXNotImplemented):
+        fn(mg)
+
+
+def test_raw_barycenter_rejects_empty_graph():
+    """br-r37-c1-djohp: nx raises NetworkXPointlessConcept on empty
+    input; raw kernel previously returned []."""
+    with pytest.raises(fnx.NetworkXPointlessConcept):
+        fnx._raw_barycenter(fnx.Graph())
+
+
+@pytest.mark.parametrize(
+    "fn_name,builder,expected",
+    [
+        ("clustering", lambda: fnx.path_graph(5),
+         {0: 0.0, 1: 0.0, 2: 0.0, 3: 0.0, 4: 0.0}),
+        ("transitivity", lambda: fnx.complete_graph(4), 1.0),
+        ("girth", lambda: fnx.cycle_graph(6), 6),
+        ("core_number", lambda: fnx.path_graph(3), {0: 1, 1: 1, 2: 1}),
+        ("is_chordal", lambda: fnx.path_graph(5), True),
+    ],
+)
+def test_raw_kernels_simple_graph_unchanged(fn_name, builder, expected):
+    """Sanity: the multigraph guards do not break the simple-graph path."""
+    fn = getattr(fnx, "_raw_" + fn_name)
+    assert fn(builder()) == expected
+
+
 def test_astar_path_postmut_matches_nx():
     """br-r37-c1-0x9pd companion: astar_path also gets the sync."""
     fg = fnx.path_graph(5)
