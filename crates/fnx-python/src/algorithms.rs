@@ -9806,12 +9806,13 @@ fn is_planar(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<bool> {
 #[pyo3(signature = (g,))]
 fn is_chordal(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<bool> {
     let gr = extract_graph(g)?;
+    // br-r37-c1-djohp/br-r37-c1-tiy27: nx rejects multigraph before
+    // directed on MultiDiGraph; mirror that guard precedence.
+    require_not_multigraph(&gr)?;
     // br-r37-c1-ewpss: see find_cliques for rationale. is_chordal is
     // an undirected-graph concept; nx and the public wrapper both
     // reject directed input.
     require_undirected(&gr, "is_chordal")?;
-    // br-r37-c1-djohp: nx also rejects multigraph; mirror that.
-    require_not_multigraph(&gr)?;
     let inner = gr.undirected();
     Ok(py.allow_threads(|| fnx_algorithms::is_chordal(inner)))
 }

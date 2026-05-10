@@ -12105,10 +12105,10 @@ def is_chordal(G):
     every self-loop graph — the delegation reproduces that exact
     selectivity).
     """
-    if G.is_directed():
-        raise NetworkXNotImplemented("not implemented for directed type")
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
     if any(u == v for u, v in G.edges()):
         return _call_networkx_for_parity("is_chordal", G)
     return _raw_is_chordal(G)

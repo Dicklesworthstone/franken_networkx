@@ -160,6 +160,20 @@ def test_raw_kernels_reject_multigraph(fn_name):
         fn(mg)
 
 
+def test_is_chordal_multidigraph_rejects_multigraph_before_directed():
+    """br-r37-c1-tiy27: nx reports the multigraph guard for MultiDiGraph."""
+    fg = fnx.MultiDiGraph()
+    fg.add_edge(0, 1)
+    ng = nx.MultiDiGraph()
+    ng.add_edge(0, 1)
+
+    for fn in (fnx._raw_is_chordal, fnx.is_chordal):
+        with pytest.raises(fnx.NetworkXNotImplemented, match="multigraph type"):
+            fn(fg)
+    with pytest.raises(nx.NetworkXNotImplemented, match="multigraph type"):
+        nx.is_chordal(ng)
+
+
 def test_raw_barycenter_rejects_empty_graph():
     """br-r37-c1-djohp: nx raises NetworkXPointlessConcept on empty
     input; raw kernel previously returned []."""
