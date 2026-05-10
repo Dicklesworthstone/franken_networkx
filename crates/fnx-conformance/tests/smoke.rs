@@ -150,6 +150,109 @@ fn smoke_emits_structured_logs_with_replay_metadata() {
 }
 
 #[test]
+fn passing_rerun_overwrites_stale_failure_envelope() {
+    let fixture_root = unique_fixture_root();
+    let report_root = unique_report_root();
+    let fixture_name = "graph_core_stale_failure_envelope_strict.json";
+    write_fixture(
+        &fixture_root,
+        fixture_name,
+        r#"{
+  "suite": "graph_core_v1",
+  "mode": "strict",
+  "fixture_id": "graph_core::stale_failure_envelope_cleanup",
+  "operations": [
+    { "op": "add_edge", "left": "a", "right": "b" }
+  ],
+  "expected": {
+    "graph": {
+      "nodes": ["a", "b"],
+      "edges": []
+    }
+  }
+}"#,
+    );
+
+    let mut cfg = HarnessConfig::default_paths();
+    cfg.fixture_root = fixture_root.clone();
+    cfg.report_root = Some(report_root.clone());
+
+    let failing_report = run_smoke(&cfg);
+    assert_eq!(failing_report.fixture_count, 1);
+    assert_eq!(failing_report.mismatch_count, 1);
+
+    let envelope_path =
+        report_root.join("graph_core_stale_failure_envelope_strict_json.failure_envelope.json");
+    let stale_envelope: serde_json::Value = serde_json::from_str(
+        &fs::read_to_string(&envelope_path).expect("failure envelope should be emitted"),
+    )
+    .expect("failure envelope should be valid json");
+    assert_eq!(stale_envelope["reason_code"].as_str(), Some("mismatch"));
+    assert_eq!(stale_envelope["strict_violation_count"].as_u64(), Some(1));
+
+    write_fixture(
+        &fixture_root,
+        fixture_name,
+        r#"{
+  "suite": "graph_core_v1",
+  "mode": "strict",
+  "fixture_id": "graph_core::stale_failure_envelope_cleanup",
+  "operations": [
+    { "op": "add_edge", "left": "a", "right": "b" }
+  ],
+  "expected": {
+    "graph": {
+      "nodes": ["a", "b"],
+      "edges": [
+        { "left": "a", "right": "b", "attrs": {} }
+      ]
+    }
+  }
+}"#,
+    );
+
+    let passing_report = run_smoke(&cfg);
+    assert_eq!(passing_report.fixture_count, 1);
+    assert_eq!(passing_report.mismatch_count, 0);
+    assert!(
+        passing_report
+            .fixture_reports
+            .iter()
+            .all(|fixture| fixture.passed)
+    );
+
+    let current_envelope: serde_json::Value = serde_json::from_str(
+        &fs::read_to_string(&envelope_path).expect("existing envelope should be rewritten"),
+    )
+    .expect("rewritten envelope should be valid json");
+    assert!(current_envelope["reason_code"].is_null());
+    assert_eq!(current_envelope["strict_violation_count"].as_u64(), Some(0));
+    assert!(
+        current_envelope["mismatches"]
+            .as_array()
+            .is_some_and(Vec::is_empty)
+    );
+
+    let logs = read_structured_logs(&report_root);
+    let [log] = logs.as_slice() else {
+        assert_eq!(logs.len(), 1);
+        return;
+    };
+    assert_eq!(log.status, TestStatus::Passed);
+    assert!(log.reason_code.is_none());
+    assert!(
+        log.failure_repro.is_none(),
+        "passing rerun should not keep stale failure reproduction metadata"
+    );
+    assert!(
+        !log.artifact_refs
+            .iter()
+            .any(|artifact| artifact.ends_with(".failure_envelope.json")),
+        "passing structured log should not reference the stale failure envelope"
+    );
+}
+
+#[test]
 fn packet_001_metamorphic_and_adversarial_fixtures_emit_seeded_taxonomy() {
     let fixture_root = unique_fixture_root();
     write_fixture(

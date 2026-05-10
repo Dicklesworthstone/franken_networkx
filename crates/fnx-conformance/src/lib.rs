@@ -1130,13 +1130,11 @@ fn write_artifacts(
             &fixture_path,
             serde_json::to_string_pretty(fixture).unwrap_or_else(|_| "{}".to_owned()),
         )?;
-        let failure_envelope_path =
-            if fixture.strict_violation_count > 0 || fixture.hardened_allowlisted_count > 0 {
-                Some(report_root.join(format!("{sanitized}.failure_envelope.json")))
-            } else {
-                None
-            };
-        if let Some(envelope_path) = &failure_envelope_path {
+        let envelope_path = report_root.join(format!("{sanitized}.failure_envelope.json"));
+        let should_emit_failure_envelope =
+            fixture.strict_violation_count > 0 || fixture.hardened_allowlisted_count > 0;
+        let failure_envelope_path = should_emit_failure_envelope.then_some(envelope_path.as_path());
+        if should_emit_failure_envelope || envelope_path.exists() {
             let envelope = build_failure_envelope(
                 fixture,
                 packet_id_for_fixture(&fixture.suite, &fixture.fixture_name),
@@ -1146,7 +1144,7 @@ fn write_artifacts(
                 ],
             );
             fs::write(
-                envelope_path,
+                &envelope_path,
                 serde_json::to_string_pretty(&envelope).map_err(io::Error::other)?,
             )?;
         }
@@ -1157,7 +1155,7 @@ fn write_artifacts(
             &fixture_path,
             log_schema_version,
             run_id,
-            failure_envelope_path.as_deref(),
+            failure_envelope_path,
         ));
     }
 
