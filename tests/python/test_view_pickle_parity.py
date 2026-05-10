@@ -922,6 +922,65 @@ def test_reverse_view_in_out_edges_data_attr_default_matches_networkx():
     )
 
 
+def test_reverse_view_edges_data_none_default_matches_networkx():
+    """br-r37-c1-yqrra: explicit data=None keeps the default value
+    column on reverse-view edge data views and callable edge views.
+    """
+    DG = fnx.DiGraph()
+    DG_n = nx.DiGraph()
+    for graph in (DG, DG_n):
+        graph.add_edge("a", "b", weight=3)
+        graph.add_edge("c", "b")
+
+    R = DG.reverse(copy=False)
+    R_n = DG_n.reverse(copy=False)
+    assert sorted(R.edges.data(None, default=7)) == sorted(
+        R_n.edges.data(None, default=7)
+    )
+    assert sorted(R.edges(data=None, default=7)) == sorted(
+        R_n.edges(data=None, default=7)
+    )
+    assert sorted(R.out_edges.data(None, default=7)) == sorted(
+        R_n.out_edges.data(None, default=7)
+    )
+    assert sorted(R.in_edges.data(None, default=7)) == sorted(
+        R_n.in_edges.data(None, default=7)
+    )
+
+    MDG = fnx.MultiDiGraph()
+    MDG_n = nx.MultiDiGraph()
+    for graph in (MDG, MDG_n):
+        graph.add_edge("a", "b", key="heavy", weight=3)
+        graph.add_edge("a", "b", key="missing")
+
+    MR = MDG.reverse(copy=False)
+    MR_n = MDG_n.reverse(copy=False)
+    assert sorted(MR.edges.data(None, default=7)) == sorted(
+        MR_n.edges.data(None, default=7)
+    )
+    assert sorted(MR.edges(data=None, default=7)) == sorted(
+        MR_n.edges(data=None, default=7)
+    )
+    assert sorted(MR.out_edges.data(None, default=7)) == sorted(
+        MR_n.out_edges.data(None, default=7)
+    )
+    assert sorted(MR.in_edges.data(None, default=7)) == sorted(
+        MR_n.in_edges.data(None, default=7)
+    )
+    assert sorted(MR.edges.data(None, default=7, keys=True)) == sorted(
+        MR_n.edges.data(None, default=7, keys=True)
+    )
+    assert sorted(MR.edges(data=None, default=7, keys=True)) == sorted(
+        MR_n.edges(data=None, default=7, keys=True)
+    )
+    assert sorted(MR.out_edges.data(None, default=7, keys=True)) == sorted(
+        MR_n.out_edges.data(None, default=7, keys=True)
+    )
+    assert sorted(MR.in_edges.data(None, default=7, keys=True)) == sorted(
+        MR_n.in_edges.data(None, default=7, keys=True)
+    )
+
+
 @pytest.mark.parametrize("name,fnx_builder,nx_builder", _CONVERSION_EDGE_BUILDERS,
                          ids=[b[0] for b in _CONVERSION_EDGE_BUILDERS])
 def test_conversion_view_edges_set_protocol(name, fnx_builder, nx_builder):

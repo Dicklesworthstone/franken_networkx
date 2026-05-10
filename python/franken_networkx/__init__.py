@@ -26508,6 +26508,10 @@ class _ReverseDirectedViewBase:
                                 if keys
                                 else (source, target, attrs.get(data, default))
                             )
+                        elif data is None and keys:
+                            result.append((source, target, key, default))
+                        elif data is None:
+                            result.append((source, target, default))
                         elif data and keys:
                             result.append((source, target, key, attrs))
                         elif data:
@@ -26521,6 +26525,8 @@ class _ReverseDirectedViewBase:
                 for target, attrs in self._graph.pred[source].items():
                     if isinstance(data, str):
                         result.append((source, target, attrs.get(data, default)))
+                    elif data is None:
+                        result.append((source, target, default))
                     elif data:
                         result.append((source, target, attrs))
                     else:
@@ -26549,6 +26555,10 @@ class _ReverseDirectedViewBase:
                                 if keys
                                 else (source, target, attrs.get(data, default))
                             )
+                        elif data is None and keys:
+                            result.append((source, target, key, default))
+                        elif data is None:
+                            result.append((source, target, default))
                         elif data and keys:
                             result.append((source, target, key, attrs))
                         elif data:
@@ -26562,6 +26572,8 @@ class _ReverseDirectedViewBase:
                 for target, attrs in adjacency[source].items():
                     if isinstance(data, str):
                         result.append((source, target, attrs.get(data, default)))
+                    elif data is None:
+                        result.append((source, target, default))
                     elif data:
                         result.append((source, target, attrs))
                     else:
@@ -26582,6 +26594,10 @@ class _ReverseDirectedViewBase:
                                 if keys
                                 else (source, target, attrs.get(data, default))
                             )
+                        elif data is None and keys:
+                            result.append((source, target, key, default))
+                        elif data is None:
+                            result.append((source, target, default))
                         elif data and keys:
                             result.append((source, target, key, attrs))
                         elif data:
@@ -26595,6 +26611,8 @@ class _ReverseDirectedViewBase:
                 for source, attrs in adjacency[target].items():
                     if isinstance(data, str):
                         result.append((source, target, attrs.get(data, default)))
+                    elif data is None:
+                        result.append((source, target, default))
                     elif data:
                         result.append((source, target, attrs))
                     else:
