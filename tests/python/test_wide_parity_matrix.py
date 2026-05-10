@@ -395,38 +395,11 @@ CASES = [
 ]
 
 
-def _expected_divergence(case_name: str, fixture_name: str) -> str | None:
-    if (
-        case_name in {"strongly_connected_components", "topological_sort"}
-        and fixture_name.startswith("digraph")
-    ):
-        return "franken_networkx-zzcm7: directed component/topological order contract"
-    if case_name == "local_bridges" and fixture_name in {
-        "digraph-path",
-        "digraph-cycle",
-        "multigraph",
-    }:
-        return "franken_networkx-zzcm8: local_bridges graph-family contract"
-    if fixture_name == "multigraph" and case_name in {
-        "is_tree",
-        "is_forest",
-        "bridges",
-        "degree_centrality",
-        "complement",
-    }:
-        return "franken_networkx-zzcm9: multigraph structural algorithm contract"
-    return None
-
-
 @pytest.mark.parametrize("case", CASES, ids=[case.name for case in CASES])
 @pytest.mark.parametrize("fixture", _fixtures(), ids=[fixture.name for fixture in _fixtures()])
 def test_wide_algorithm_parity_matrix(case: AlgorithmCase, fixture: GraphFixture):
     fnx_result = _run(fnx, fixture.fnx_graph, case.call)
     nx_result = _run(nx, fixture.nx_graph, case.call)
-    if fnx_result != nx_result:
-        reason = _expected_divergence(case.name, fixture.name)
-        if reason is not None:
-            pytest.xfail(reason)
     assert fnx_result == nx_result, (
         f"{case.name} diverged on {fixture.name}\n"
         f"fnx={fnx_result!r}\n"
