@@ -1225,23 +1225,6 @@ class TestIsRegularExpander:
     @pytest.mark.parametrize(
         ("builder", "epsilon"),
         [
-            pytest.param(
-                lambda graph: graph.add_edges_from(
-                    [("a", "b"), ("b", "c"), ("c", "d"), ("d", "a")]
-                ),
-                0,
-                marks=pytest.mark.xfail(
-                    strict=False,
-                    reason=(
-                        "C_4 with epsilon=0 sits exactly on the Alon-Boppana "
-                        "boundary (|lambda_2|=2=2*sqrt(d-1)). "
-                        "sp.sparse.linalg.eigsh uses a random v0 and the result "
-                        "flips sign of the tiny numerical noise around the strict "
-                        "``<`` comparison — both nx and fnx flake on this case "
-                        "independently. Accept either outcome."
-                    ),
-                ),
-            ),
             (lambda graph: graph.add_edges_from([("a", "b"), ("b", "c"), ("c", "d"), ("d", "a")]), 0.5),
             (lambda graph: graph.add_edges_from([("a", "b"), ("b", "c"), ("c", "d")]), 0),
             (lambda graph: graph.add_edges_from([("a", "b"), ("a", "c"), ("a", "d"), ("b", "c"), ("b", "d"), ("c", "d")]), 0),
@@ -1263,6 +1246,39 @@ class TestIsRegularExpander:
         )
 
         assert fnx.is_regular_expander(graph, epsilon=epsilon) is expected_result
+
+    @pytest.mark.parametrize(
+        "eigenvalues",
+        [
+            [-2.0, 2.0],
+            [-1.999999999999, 2.0],
+        ],
+    )
+    def test_c4_boundary_contract_matches_networkx_without_fallback(
+        self, monkeypatch, eigenvalues
+    ):
+        import scipy as sp
+
+        graph = fnx.Graph()
+        expected = nx.Graph()
+        edges = [("a", "b"), ("b", "c"), ("c", "d"), ("d", "a")]
+        graph.add_edges_from(edges)
+        expected.add_edges_from(edges)
+
+        def fixed_eigsh(*args, **kwargs):
+            return eigenvalues
+
+        monkeypatch.setattr(sp.sparse.linalg, "eigsh", fixed_eigsh)
+        expected_result = nx.is_regular_expander(expected, epsilon=0)
+        monkeypatch.setattr(
+            nx,
+            "is_regular_expander",
+            lambda *args, **kwargs: (_ for _ in ()).throw(
+                AssertionError("NetworkX is_regular_expander fallback should not be used")
+            ),
+        )
+
+        assert fnx.is_regular_expander(graph, epsilon=0) is expected_result
 
     @pytest.mark.parametrize(
         ("fnx_cls", "nx_cls"),
