@@ -209,6 +209,25 @@ _SUPPORTED_ALGORITHMS = {
     "chordal_graph_treewidth": fnx.chordal_graph_treewidth,
     "make_max_clique_graph": fnx.make_max_clique_graph,
     "ring_of_cliques": fnx.ring_of_cliques,
+    # Dispatchable I/O and conversion helpers. NetworkX does not dispatch
+    # write_* helpers, node_link_data, or to_dict_of_dicts, so they are
+    # intentionally absent from the backend registry.
+    "read_edgelist": fnx.read_edgelist,
+    "read_adjlist": fnx.read_adjlist,
+    "read_graphml": fnx.read_graphml,
+    "node_link_graph": fnx.node_link_graph,
+    "to_numpy_array": fnx.to_numpy_array,
+    "from_numpy_array": fnx.from_numpy_array,
+    "to_scipy_sparse_array": fnx.to_scipy_sparse_array,
+    "from_scipy_sparse_array": fnx.from_scipy_sparse_array,
+    "from_dict_of_dicts": fnx.from_dict_of_dicts,
+    "from_dict_of_lists": fnx.from_dict_of_lists,
+    "to_dict_of_lists": fnx.to_dict_of_lists,
+    "from_edgelist": fnx.from_edgelist,
+    "to_edgelist": fnx.to_edgelist,
+    "convert_node_labels_to_integers": fnx.convert_node_labels_to_integers,
+    "from_pandas_edgelist": fnx.from_pandas_edgelist,
+    "to_pandas_edgelist": fnx.to_pandas_edgelist,
     # Classic graph generators
     "path_graph": fnx.path_graph,
     "cycle_graph": fnx.cycle_graph,

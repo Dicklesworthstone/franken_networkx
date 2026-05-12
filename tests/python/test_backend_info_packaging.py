@@ -8,6 +8,8 @@ from pathlib import Path
 
 import networkx as nx
 import franken_networkx as fnx
+import franken_networkx.backend as fnx_backend
+import pytest
 
 try:
     import tomllib
@@ -67,3 +69,73 @@ def test_readme_core_generators_dispatch_through_networkx_backend():
         assert generated.number_of_nodes() == expected_nodes
         if expected_edges is not None:
             assert generated.number_of_edges() == expected_edges
+
+
+def test_readme_dispatchable_io_conversion_helpers_dispatch_through_backend(tmp_path):
+    np = pytest.importorskip("numpy")
+    scipy_sparse = pytest.importorskip("scipy.sparse")
+
+    edge_path = tmp_path / "edges.txt"
+    edge_path.write_text("1 2\n2 3\n", encoding="utf-8")
+    adj_path = tmp_path / "adj.txt"
+    adj_path.write_text("1 2 3\n2 3\n", encoding="utf-8")
+    graphml_path = tmp_path / "graph.graphml"
+    nx.write_graphml(nx.path_graph(3), graphml_path)
+
+    graph_cases = [
+        ("read_edgelist", (edge_path,), {"nodetype": int}, 3, 2),
+        ("read_adjlist", (adj_path,), {"nodetype": int}, 3, 3),
+        ("read_graphml", (graphml_path,), {}, 3, 2),
+        (
+            "node_link_graph",
+            (nx.node_link_data(nx.path_graph(3), edges="links"),),
+            {"edges": "links"},
+            3,
+            2,
+        ),
+        ("from_numpy_array", (np.eye(3),), {}, 3, 3),
+        ("from_scipy_sparse_array", (scipy_sparse.eye(3, format="csr"),), {}, 3, 3),
+        ("from_dict_of_dicts", ({0: {1: {}}, 1: {2: {}}, 2: {}},), {}, 3, 2),
+        ("from_dict_of_lists", ({0: [1], 1: [2], 2: []},), {}, 3, 2),
+        ("from_edgelist", ([(0, 1), (1, 2)],), {}, 3, 2),
+        ("convert_node_labels_to_integers", (nx.path_graph(["a", "b", "c"]),), {}, 3, 2),
+    ]
+    for name, args, kwargs, expected_nodes, expected_edges in graph_cases:
+        assert "franken_networkx" in getattr(nx, name).backends
+        generated = getattr(nx, name)(*args, backend="franken_networkx", **kwargs)
+        assert isinstance(generated, (nx.Graph, fnx.Graph))
+        assert generated.number_of_nodes() == expected_nodes
+        assert generated.number_of_edges() == expected_edges
+
+    path = nx.path_graph(3)
+    array = nx.to_numpy_array(path, backend="franken_networkx")
+    assert array.shape == (3, 3)
+    assert array.sum() == 4
+
+    sparse_array = nx.to_scipy_sparse_array(path, backend="franken_networkx")
+    assert sparse_array.shape == (3, 3)
+    assert sparse_array.nnz == 4
+
+    assert nx.to_dict_of_lists(path, backend="franken_networkx") == {
+        0: [1],
+        1: [0, 2],
+        2: [1],
+    }
+    assert sorted(nx.to_edgelist(path, backend="franken_networkx")) == [
+        (0, 1, {}),
+        (1, 2, {}),
+    ]
+
+
+def test_readme_non_dispatchable_helpers_stay_out_of_backend_registry():
+    non_dispatchable = [
+        "write_edgelist",
+        "write_adjlist",
+        "write_graphml",
+        "node_link_data",
+        "to_dict_of_dicts",
+    ]
+    info = fnx_backend.get_backend_info()
+    for name in non_dispatchable:
+        assert not hasattr(getattr(nx, name), "backends")
+        assert name not in info["functions"]
