@@ -24,6 +24,46 @@ import pytest
 
 log = logging.getLogger("fnx_conformance")
 
+_NATIVE_EXTENSION_CRATES = (
+    "fnx-algorithms",
+    "fnx-cgse",
+    "fnx-classes",
+    "fnx-convert",
+    "fnx-dispatch",
+    "fnx-generators",
+    "fnx-python",
+    "fnx-readwrite",
+    "fnx-runtime",
+    "fnx-views",
+)
+
+
+def _ensure_checkout_native_extension_fresh() -> None:
+    """Fail fast when pytest would load a stale in-tree `_fnx` extension."""
+    extension_path = REPO_PYTHON / "franken_networkx" / "_fnx.abi3.so"
+    if not extension_path.exists():
+        return
+
+    newest_source_mtime = 0.0
+    crates_root = REPO_ROOT / "crates"
+    for crate_name in _NATIVE_EXTENSION_CRATES:
+        for source_path in (crates_root / crate_name / "src").glob("**/*.rs"):
+            try:
+                newest_source_mtime = max(newest_source_mtime, source_path.stat().st_mtime)
+            except OSError:
+                continue
+
+    if newest_source_mtime == 0.0:
+        return
+
+    extension_mtime = extension_path.stat().st_mtime
+    if extension_mtime + 1.0 < newest_source_mtime:
+        raise pytest.UsageError(
+            "stale python/franken_networkx/_fnx.abi3.so is older than Rust "
+            "sources; rebuild the Python extension before running pytest "
+            "(for example: rch exec -- maturin develop --features pyo3/abi3-py310)"
+        )
+
 
 # ---------------------------------------------------------------------------
 # Parity record emitter for Rust harness integration (B5)
@@ -113,7 +153,7 @@ class ParityRecordEmitter:
 
     def flush(self) -> None:
         self.output_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(self.output_path, "w") as f:
+        with open(self.output_path, "w", encoding="utf-8") as f:
             for record in self.records:
                 f.write(json.dumps(asdict(record), default=str) + "\n")
 
@@ -133,6 +173,7 @@ def pytest_addoption(parser: pytest.Parser) -> None:
 
 def pytest_configure(config: pytest.Config) -> None:
     global _emitter
+    _ensure_checkout_native_extension_fresh()
     output_path = config.getoption("--emit-parity-records", default=None)
     if output_path:
         _emitter = ParityRecordEmitter(Path(output_path))
