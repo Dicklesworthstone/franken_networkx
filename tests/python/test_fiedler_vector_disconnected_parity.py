@@ -26,6 +26,20 @@ needs_nx = pytest.mark.skipif(not HAS_NX, reason="networkx not installed")
 
 
 @needs_nx
+@pytest.mark.parametrize("function_name", ["algebraic_connectivity", "fiedler_vector"])
+def test_unknown_solver_method_raises_networkxerror(function_name):
+    G = fnx.path_graph(4)
+    GX = nx.path_graph(4)
+    fnx_function = getattr(fnx, function_name)
+    nx_function = getattr(nx, function_name)
+
+    with pytest.raises(fnx.NetworkXError, match=r"^unknown method 'bogus'\.$"):
+        fnx_function(G, method="bogus")
+    with pytest.raises(nx.NetworkXError, match=r"^unknown method 'bogus'\.$"):
+        nx_function(GX, method="bogus")
+
+
+@needs_nx
 def test_disconnected_two_components_raises():
     G = fnx.Graph([(1, 2), (3, 4)])
     GX = nx.Graph([(1, 2), (3, 4)])

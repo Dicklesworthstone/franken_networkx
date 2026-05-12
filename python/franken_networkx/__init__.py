@@ -16738,6 +16738,16 @@ def adjacency_spectrum(G, weight="weight"):
     return sp.linalg.eigvals(adjacency_matrix(G, weight=weight).todense())
 
 
+_FIEDLER_METHODS = frozenset(
+    ("tracemin", "tracemin_pcg", "tracemin_lu", "lanczos", "lobpcg")
+)
+
+
+def _validate_fiedler_method(method):
+    if method not in _FIEDLER_METHODS:
+        raise NetworkXError(f"unknown method {method!r}.")
+
+
 def algebraic_connectivity(G, weight="weight", normalized=False, tol=1e-8, method="tracemin_pcg", seed=None):
     """Return the algebraic connectivity of *G*.
 
@@ -16766,7 +16776,7 @@ def algebraic_connectivity(G, weight="weight", normalized=False, tol=1e-8, metho
     """
     import numpy as np
 
-    del tol, method, seed  # accepted for nx parity but not used
+    del seed  # accepted for nx parity but not used
 
     # br-r37-c1-d8qdy: nx is @not_implemented_for('directed') — fnx
     # would otherwise compute a meaningless Fiedler value on the
@@ -16779,6 +16789,13 @@ def algebraic_connectivity(G, weight="weight", normalized=False, tol=1e-8, metho
     # graphs; fnx silently returned 0.0. Match the documented contract.
     if len(G) < 2:
         raise NetworkXError("graph has less than two nodes.")
+
+    if not is_connected(G):
+        return 0.0
+
+    if len(G) > 2:
+        _validate_fiedler_method(method)
+    del tol, method  # accepted for nx parity but not used by the dense solver
 
     if normalized:
         spectrum = np.sort(
@@ -16822,7 +16839,7 @@ def fiedler_vector(
     -------
     numpy.ndarray
     """
-    del tol, method, seed  # accepted for nx signature parity
+    del seed  # accepted for nx parity but not used
 
     import numpy as np
 
@@ -16837,6 +16854,9 @@ def fiedler_vector(
         raise NetworkXError("graph has less than two nodes.")
     if not is_connected(G):
         raise NetworkXError("graph is not connected.")
+    if len(G) > 2:
+        _validate_fiedler_method(method)
+    del tol, method  # accepted for nx parity but not used by the dense solver
 
     if normalized:
         L = normalized_laplacian_matrix(G, weight=weight).toarray()
