@@ -1,5 +1,6 @@
 """Tests for GEXF compatibility wrappers."""
 
+from io import BytesIO
 from pathlib import Path
 
 import franken_networkx as fnx
@@ -37,6 +38,43 @@ def test_read_and_write_gexf_round_trip(tmp_path: Path):
     assert parsed.number_of_edges() == 1
     assert parsed.is_directed()
     assert parsed.nodes["n1"]["label"] == "Node One"
+
+
+def test_write_gexf_accepts_reserved_simple_node_attrs():
+    graph = fnx.Graph()
+    graph.add_node("n0")
+    graph.nodes["n0"]["node_for_adding"] = "node-value"
+
+    buffer = BytesIO()
+    fnx.write_gexf(graph, buffer)
+
+    assert b"node_for_adding" in buffer.getvalue()
+
+
+def test_write_gexf_accepts_reserved_simple_edge_attrs():
+    graph = fnx.Graph()
+    graph.add_edge("n0", "n1")
+    graph["n0"]["n1"]["u_of_edge"] = "left-value"
+    graph["n0"]["n1"]["v_of_edge"] = "right-value"
+
+    buffer = BytesIO()
+    fnx.write_gexf(graph, buffer)
+
+    payload = buffer.getvalue()
+    assert b"u_of_edge" in payload
+    assert b"v_of_edge" in payload
+
+
+def test_write_gexf_accepts_multigraph_edge_key_attr():
+    graph = fnx.MultiGraph()
+    graph.add_edge("n0", "n1", key="edge-key", label="parallel-edge")
+    graph["n0"]["n1"]["edge-key"]["key"] = "user-key-attr"
+
+    buffer = BytesIO()
+    fnx.write_gexf(graph, buffer)
+
+    payload = buffer.getvalue()
+    assert b"parallel-edge" in payload
 
 
 def test_relabel_gexf_graph_uses_label_attribute():

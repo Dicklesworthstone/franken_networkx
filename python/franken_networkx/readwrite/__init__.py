@@ -1853,10 +1853,10 @@ def _multigraph_to_nx(G):
     cls = _nx_mod.MultiDiGraph if G.is_directed() else _nx_mod.MultiGraph
     out = cls()
     out.graph.update(dict(G.graph))
-    for node, attrs in G.nodes(data=True):
-        out.add_node(node, **dict(attrs))
-    for u, v, key, attrs in G.edges(keys=True, data=True):
-        out.add_edge(u, v, key=key, **dict(attrs))
+    out.add_nodes_from((node, dict(attrs)) for node, attrs in G.nodes(data=True))
+    out.add_edges_from(
+        (u, v, key, dict(attrs)) for u, v, key, attrs in G.edges(keys=True, data=True)
+    )
     return out
 
 
@@ -1870,10 +1870,8 @@ def _simple_to_nx(G):
     cls = _nx_mod.DiGraph if G.is_directed() else _nx_mod.Graph
     out = cls()
     out.graph.update(dict(G.graph))
-    for node, attrs in G.nodes(data=True):
-        out.add_node(node, **dict(attrs))
-    for u, v, attrs in G.edges(data=True):
-        out.add_edge(u, v, **dict(attrs))
+    out.add_nodes_from((node, dict(attrs)) for node, attrs in G.nodes(data=True))
+    out.add_edges_from((u, v, dict(attrs)) for u, v, attrs in G.edges(data=True))
     return out
 
 
