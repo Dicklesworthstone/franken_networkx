@@ -6,6 +6,9 @@ import runpy
 import sys
 from pathlib import Path
 
+import networkx as nx
+import franken_networkx as fnx
+
 try:
     import tomllib
 except ModuleNotFoundError:  # pragma: no cover - Python 3.10 fallback
@@ -44,3 +47,23 @@ def test_fnx_backend_info_loads_without_importing_package():
     info = module_globals["get_backend_info"]()
     assert info["short_summary"]
     assert "shortest_path" in info["functions"]
+
+
+def test_readme_core_generators_dispatch_through_networkx_backend():
+    generator_cases = [
+        ("path_graph", (5,), {}, 5, 4),
+        ("cycle_graph", (5,), {}, 5, 5),
+        ("star_graph", (4,), {}, 5, 4),
+        ("complete_graph", (4,), {}, 4, 6),
+        ("empty_graph", (3,), {}, 3, 0),
+        ("gnp_random_graph", (6, 0.4), {"seed": 7}, 6, None),
+        ("watts_strogatz_graph", (8, 2, 0.25), {"seed": 7}, 8, None),
+        ("barabasi_albert_graph", (8, 2), {"seed": 7}, 8, None),
+    ]
+    for name, args, kwargs, expected_nodes, expected_edges in generator_cases:
+        assert "franken_networkx" in getattr(nx, name).backends
+        generated = getattr(nx, name)(*args, backend="franken_networkx", **kwargs)
+        assert isinstance(generated, (nx.Graph, fnx.Graph))
+        assert generated.number_of_nodes() == expected_nodes
+        if expected_edges is not None:
+            assert generated.number_of_edges() == expected_edges
