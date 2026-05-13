@@ -151,6 +151,44 @@ def _single_node() -> tuple[fnx.Graph, nx.Graph]:
     return fg, ng
 
 
+def _selfloop_path() -> tuple[fnx.Graph, nx.Graph]:
+    """Self-loop on node 0 plus a 2-edge path. Exercises kernels that
+    might silently double-count or skip self-loops."""
+    fg = fnx.Graph()
+    ng = nx.Graph()
+    fg.add_edge(0, 0)
+    ng.add_edge(0, 0)
+    fg.add_edge(0, 1)
+    ng.add_edge(0, 1)
+    fg.add_edge(1, 2)
+    ng.add_edge(1, 2)
+    return fg, ng
+
+
+def _two_components() -> tuple[fnx.Graph, nx.Graph]:
+    """Disconnected graph: two 2-node components. Exercises distance-
+    measure kernels that should raise on unreachable pairs."""
+    fg = fnx.Graph()
+    ng = nx.Graph()
+    fg.add_edge(0, 1)
+    ng.add_edge(0, 1)
+    fg.add_edge(2, 3)
+    ng.add_edge(2, 3)
+    return fg, ng
+
+
+def _negative_weights_digraph() -> tuple[fnx.DiGraph, nx.DiGraph]:
+    """Directed graph with negative edge weights. Dijkstra should
+    delegate to nx; Bellman-Ford should accept."""
+    fg = fnx.DiGraph()
+    ng = nx.DiGraph()
+    fg.add_edge(0, 1, weight=-1.0)
+    ng.add_edge(0, 1, weight=-1.0)
+    fg.add_edge(1, 2, weight=-2.0)
+    ng.add_edge(1, 2, weight=-2.0)
+    return fg, ng
+
+
 # Map fixture id -> (label, builder).
 FIXTURES: list[tuple[str, callable]] = [
     ("path-5", _path_graph_5),
@@ -166,6 +204,9 @@ FIXTURES: list[tuple[str, callable]] = [
     ("multidigraph-chain-5", _multidigraph_chain_5),
     ("empty", _empty_graph),
     ("single-node", _single_node),
+    ("selfloop-path", _selfloop_path),
+    ("two-components", _two_components),
+    ("negative-weights-digraph", _negative_weights_digraph),
 ]
 
 

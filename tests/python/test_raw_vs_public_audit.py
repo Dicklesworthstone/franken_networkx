@@ -181,6 +181,25 @@ def test_raw_barycenter_rejects_empty_graph():
         fnx._raw_barycenter(fnx.Graph())
 
 
+def test_raw_core_number_rejects_self_loops():
+    """br-r37-c1-ftorb: extended audit found that _raw_core_number
+    silently returned wrong values on graphs with self-loops because
+    the k-core bucket decomposition double-counts the loop in the
+    degree. nx raises NetworkXNotImplemented with a remediation hint;
+    mirror that contract."""
+    g = fnx.Graph()
+    g.add_edge(0, 0)  # self-loop
+    g.add_edge(0, 1)
+    g.add_edge(1, 2)
+    with pytest.raises(fnx.NetworkXNotImplemented, match="self loops"):
+        fnx._raw_core_number(g)
+    # Public wrapper inherits the same rejection.
+    with pytest.raises(fnx.NetworkXNotImplemented, match="self loops"):
+        fnx.core_number(g)
+    # Simple graph still works.
+    assert fnx._raw_core_number(fnx.path_graph(5)) == {0: 1, 1: 1, 2: 1, 3: 1, 4: 1}
+
+
 def test_audit_classifies_barycenter_exception_type_drift():
     """br-r37-c1-ts8kd: raw/public/nx all raising is not enough for
     parity. The audit must compare exception classes too."""

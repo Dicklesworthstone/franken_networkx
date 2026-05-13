@@ -7976,12 +7976,12 @@
     },
     {
       "name": "colliders",
-      "classification": "nx-fallback",
+      "classification": "py-wrapper",
       "is_rust_reexport": false,
-      "calls_parity_helper": true,
+      "calls_parity_helper": false,
       "calls_raw_rust": false,
       "raw_rust_targets": [],
-      "body_lines": 4
+      "body_lines": 15
     },
     {
       "name": "color",
@@ -9951,12 +9951,12 @@
     },
     {
       "name": "has_cycle",
-      "classification": "nx-fallback",
+      "classification": "py-wrapper",
       "is_rust_reexport": false,
-      "calls_parity_helper": true,
+      "calls_parity_helper": false,
       "calls_raw_rust": false,
       "raw_rust_targets": [],
-      "body_lines": 4
+      "body_lines": 12
     },
     {
       "name": "has_eulerian_path",
@@ -11831,12 +11831,12 @@
     },
     {
       "name": "mutual_weight",
-      "classification": "nx-fallback",
+      "classification": "py-wrapper",
       "is_rust_reexport": false,
-      "calls_parity_helper": true,
+      "calls_parity_helper": false,
       "calls_raw_rust": false,
       "raw_rust_targets": [],
-      "body_lines": 5
+      "body_lines": 15
     },
     {
       "name": "mycielski_graph",
@@ -12117,12 +12117,12 @@
     },
     {
       "name": "normalized_mutual_weight",
-      "classification": "nx-fallback",
+      "classification": "py-wrapper",
       "is_rust_reexport": false,
-      "calls_parity_helper": true,
+      "calls_parity_helper": false,
       "calls_raw_rust": false,
       "raw_rust_targets": [],
-      "body_lines": 5
+      "body_lines": 8
     },
     {
       "name": "null_graph",
@@ -14150,12 +14150,12 @@
     },
     {
       "name": "v_structures",
-      "classification": "nx-fallback",
+      "classification": "py-wrapper",
       "is_rust_reexport": false,
-      "calls_parity_helper": true,
+      "calls_parity_helper": false,
       "calls_raw_rust": false,
       "raw_rust_targets": [],
-      "body_lines": 4
+      "body_lines": 10
     },
     {
       "name": "vf2pp_all_isomorphisms",

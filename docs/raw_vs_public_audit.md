@@ -8,11 +8,11 @@ Functions audited: **51**
 
 | classification | count | meaning |
 |----------------|-------|---------|
-| `identical` | 19 | raw and public agree on every fixture, both match nx — public could call raw directly |
+| `identical` | 18 | raw and public agree on every fixture, both match nx — public could call raw directly |
 | `untestable-not-exposed` | 9 | raw or public not exposed in the audited shape; manual review |
-| `wrapper-corrected` | 23 | raw and public disagree, public matches nx — wrapper is necessary |
+| `wrapper-corrected` | 24 | raw and public disagree, public matches nx — wrapper is necessary |
 
-## identical (19)
+## identical (18)
 
 ### `articulation_points`
 
@@ -31,6 +31,9 @@ Functions audited: **51**
 | multidigraph-chain-5 | raises NetworkXNotImplemented | raises NetworkXNotImplemented | raises NetworkXNotImplemented |
 | empty | `[]` | `[]` | `[]` |
 | single-node | `[]` | `[]` | `[]` |
+| selfloop-path | `[1]` | `[1]` | `[1]` |
+| two-components | `[]` | `[]` | `[]` |
+| negative-weights-digraph | raises NetworkXNotImplemented | raises NetworkXNotImplemented | raises NetworkXNotImplemented |
 
 ### `average_clustering`
 
@@ -49,6 +52,9 @@ Functions audited: **51**
 | multidigraph-chain-5 | raises NetworkXNotImplemented | raises NetworkXNotImplemented | raises NetworkXNotImplemented |
 | empty | raises ZeroDivisionError | raises ZeroDivisionError | raises ZeroDivisionError |
 | single-node | `0.0` | `0.0` | `0.0` |
+| selfloop-path | `0.0` | `0.0` | `0.0` |
+| two-components | `0.0` | `0.0` | `0.0` |
+| negative-weights-digraph | `0.0` | `0.0` | `0.0` |
 
 ### `betweenness_centrality`
 
@@ -67,6 +73,9 @@ Functions audited: **51**
 | multidigraph-chain-5 | `{0: 0.0, 1: 0.25, 2: 0.3333333333333333, 3: 0.2...` | `{0: 0.0, 1: 0.25, 2: 0.3333333333333333, 3: 0.2...` | `{0: 0.0, 1: 0.25, 2: 0.3333333333333333, 3: 0.2...` |
 | empty | `{}` | `{}` | `{}` |
 | single-node | `{0: 0.0}` | `{0: 0.0}` | `{0: 0.0}` |
+| selfloop-path | `{0: 0.0, 1: 1.0, 2: 0.0}` | `{0: 0.0, 1: 1.0, 2: 0.0}` | `{0: 0.0, 1: 1.0, 2: 0.0}` |
+| two-components | `{0: 0.0, 1: 0.0, 2: 0.0, 3: 0.0}` | `{0: 0.0, 1: 0.0, 2: 0.0, 3: 0.0}` | `{0: 0.0, 1: 0.0, 2: 0.0, 3: 0.0}` |
+| negative-weights-digraph | `{0: 0.0, 1: 0.5, 2: 0.0}` | `{0: 0.0, 1: 0.5, 2: 0.0}` | `{0: 0.0, 1: 0.5, 2: 0.0}` |
 
 ### `closeness_centrality`
 
@@ -85,6 +94,9 @@ Functions audited: **51**
 | multidigraph-chain-5 | `{0: 0.0, 1: 0.25, 2: 0.3333333333333333, 3: 0.3...` | `{0: 0.0, 1: 0.25, 2: 0.3333333333333333, 3: 0.3...` | `{0: 0.0, 1: 0.25, 2: 0.3333333333333333, 3: 0.3...` |
 | empty | `{}` | `{}` | `{}` |
 | single-node | `{0: 0.0}` | `{0: 0.0}` | `{0: 0.0}` |
+| selfloop-path | `{0: 0.6666666666666666, 1: 1.0, 2: 0.6666666666...` | `{0: 0.6666666666666666, 1: 1.0, 2: 0.6666666666...` | `{0: 0.6666666666666666, 1: 1.0, 2: 0.6666666666...` |
+| two-components | `{0: 0.3333333333333333, 1: 0.3333333333333333, ...` | `{0: 0.3333333333333333, 1: 0.3333333333333333, ...` | `{0: 0.3333333333333333, 1: 0.3333333333333333, ...` |
+| negative-weights-digraph | `{0: 0.0, 1: 0.5, 2: 0.6666666666666666}` | `{0: 0.0, 1: 0.5, 2: 0.6666666666666666}` | `{0: 0.0, 1: 0.5, 2: 0.6666666666666666}` |
 
 ### `clustering`
 
@@ -103,6 +115,9 @@ Functions audited: **51**
 | multidigraph-chain-5 | raises NetworkXNotImplemented | raises NetworkXNotImplemented | raises NetworkXNotImplemented |
 | empty | `{}` | `{}` | `{}` |
 | single-node | `{0: 0.0}` | `{0: 0}` | `{0: 0}` |
+| selfloop-path | `{0: 0.0, 1: 0.0, 2: 0.0}` | `{0: 0, 1: 0, 2: 0}` | `{0: 0, 1: 0, 2: 0}` |
+| two-components | `{0: 0.0, 1: 0.0, 2: 0.0, 3: 0.0}` | `{0: 0, 1: 0, 2: 0, 3: 0}` | `{0: 0, 1: 0, 2: 0, 3: 0}` |
+| negative-weights-digraph | `{0: 0.0, 1: 0.0, 2: 0.0}` | `{0: 0, 1: 0, 2: 0}` | `{0: 0, 1: 0, 2: 0}` |
 
 ### `connected_components`
 
@@ -121,6 +136,9 @@ Functions audited: **51**
 | multidigraph-chain-5 | raises NetworkXNotImplemented | raises NetworkXNotImplemented | raises NetworkXNotImplemented |
 | empty | `[]` | `[]` | `[]` |
 | single-node | `[{0}]` | `[{0}]` | `[{0}]` |
+| selfloop-path | `[{0, 1, 2}]` | `[{0, 1, 2}]` | `[{0, 1, 2}]` |
+| two-components | `[{0, 1}, {2, 3}]` | `[{0, 1}, {2, 3}]` | `[{0, 1}, {2, 3}]` |
+| negative-weights-digraph | raises NetworkXNotImplemented | raises NetworkXNotImplemented | raises NetworkXNotImplemented |
 
 ### `core_number`
 
@@ -139,23 +157,9 @@ Functions audited: **51**
 | multidigraph-chain-5 | raises NetworkXNotImplemented | raises NetworkXNotImplemented | raises NetworkXNotImplemented |
 | empty | `{}` | `{}` | `{}` |
 | single-node | `{0: 0}` | `{0: 0}` | `{0: 0}` |
-
-### `dijkstra_path_length`
-
-| fixture | raw | public | nx |
-|---------|-----|--------|-----|
-| path-5 | `4.0` | `4` | `4` |
-| cycle-6 | `1.0` | `1` | `1` |
-| star-5 | `1.0` | `1` | `1` |
-| complete-4 | `1.0` | `1` | `1` |
-| weighted-path-5 | `12.0` | `12.0` | `12.0` |
-| bipartite-3-3 | `1.0` | `1` | `1` |
-| petersen | `2.0` | `2` | `2` |
-| digraph-chain-5 | `4.0` | `4` | `4` |
-| multigraph-path-5 | `4.0` | `4` | `4` |
-| multidigraph-chain-5 | `4.0` | `4` | `4` |
-| empty | raises TypeError | raises TypeError | raises TypeError |
-| single-node | raises TypeError | raises TypeError | raises TypeError |
+| selfloop-path | raises NetworkXNotImplemented | raises NetworkXNotImplemented | raises NetworkXNotImplemented |
+| two-components | `{0: 1, 1: 1, 2: 1, 3: 1}` | `{0: 1, 1: 1, 2: 1, 3: 1}` | `{0: 1, 1: 1, 2: 1, 3: 1}` |
+| negative-weights-digraph | `{0: 1, 1: 1, 2: 1}` | `{0: 1, 1: 1, 2: 1}` | `{0: 1, 1: 1, 2: 1}` |
 
 ### `harmonic_centrality`
 
@@ -174,6 +178,9 @@ Functions audited: **51**
 | multidigraph-chain-5 | `{0: 0.0, 1: 1.0, 2: 1.5, 3: 1.8333333333333333,...` | `{0: 0.0, 1: 1.0, 2: 1.5, 3: 1.8333333333333333,...` | `{0: 0, 1: 1.0, 2: 1.5, 3: 1.8333333333333333, 4...` |
 | empty | `{}` | `{}` | `{}` |
 | single-node | `{0: 0.0}` | `{0: 0.0}` | `{0: 0}` |
+| selfloop-path | `{0: 1.5, 1: 2.0, 2: 1.5}` | `{0: 1.5, 1: 2.0, 2: 1.5}` | `{0: 1.5, 1: 2.0, 2: 1.5}` |
+| two-components | `{0: 1.0, 1: 1.0, 2: 1.0, 3: 1.0}` | `{0: 1.0, 1: 1.0, 2: 1.0, 3: 1.0}` | `{0: 1.0, 1: 1.0, 2: 1.0, 3: 1.0}` |
+| negative-weights-digraph | `{0: 0.0, 1: 1.0, 2: 1.5}` | `{0: 0.0, 1: 1.0, 2: 1.5}` | `{0: 0, 1: 1.0, 2: 1.5}` |
 
 ### `is_biconnected`
 
@@ -192,6 +199,9 @@ Functions audited: **51**
 | multidigraph-chain-5 | raises NetworkXNotImplemented | raises NetworkXNotImplemented | raises NetworkXNotImplemented |
 | empty | `False` | `False` | `False` |
 | single-node | `False` | `False` | `False` |
+| selfloop-path | `False` | `False` | `False` |
+| two-components | `False` | `False` | `False` |
+| negative-weights-digraph | raises NetworkXNotImplemented | raises NetworkXNotImplemented | raises NetworkXNotImplemented |
 
 ### `is_chordal`
 
@@ -210,6 +220,9 @@ Functions audited: **51**
 | multidigraph-chain-5 | raises NetworkXNotImplemented | raises NetworkXNotImplemented | raises NetworkXNotImplemented |
 | empty | `True` | `True` | `True` |
 | single-node | `True` | `True` | `True` |
+| selfloop-path | `True` | `True` | `True` |
+| two-components | `True` | `True` | `True` |
+| negative-weights-digraph | raises NetworkXNotImplemented | raises NetworkXNotImplemented | raises NetworkXNotImplemented |
 
 ### `is_connected`
 
@@ -228,6 +241,9 @@ Functions audited: **51**
 | multidigraph-chain-5 | raises NetworkXNotImplemented | raises NetworkXNotImplemented | raises NetworkXNotImplemented |
 | empty | raises NetworkXPointlessConcept | raises NetworkXPointlessConcept | raises NetworkXPointlessConcept |
 | single-node | `True` | `True` | `True` |
+| selfloop-path | `True` | `True` | `True` |
+| two-components | `False` | `False` | `False` |
+| negative-weights-digraph | raises NetworkXNotImplemented | raises NetworkXNotImplemented | raises NetworkXNotImplemented |
 
 ### `is_eulerian`
 
@@ -246,6 +262,9 @@ Functions audited: **51**
 | multidigraph-chain-5 | `False` | `False` | `False` |
 | empty | raises NetworkXPointlessConcept | raises NetworkXPointlessConcept | raises NetworkXPointlessConcept |
 | single-node | `True` | `True` | `True` |
+| selfloop-path | `False` | `False` | `False` |
+| two-components | `False` | `False` | `False` |
+| negative-weights-digraph | `False` | `False` | `False` |
 
 ### `is_planar`
 
@@ -264,6 +283,9 @@ Functions audited: **51**
 | multidigraph-chain-5 | `True` | `True` | `True` |
 | empty | `True` | `True` | `True` |
 | single-node | `True` | `True` | `True` |
+| selfloop-path | `True` | `True` | `True` |
+| two-components | `True` | `True` | `True` |
+| negative-weights-digraph | `True` | `True` | `True` |
 
 ### `load_centrality`
 
@@ -282,6 +304,9 @@ Functions audited: **51**
 | multidigraph-chain-5 | `{0: 0.0, 1: 0.25, 2: 0.3333333333333333, 3: 0.2...` | `{0: 0.0, 1: 0.25, 2: 0.3333333333333333, 3: 0.2...` | `{0: 0.0, 1: 0.25, 2: 0.3333333333333333, 3: 0.2...` |
 | empty | `{}` | `{}` | `{}` |
 | single-node | `{0: 0.0}` | `{0: 0.0}` | `{0: 0.0}` |
+| selfloop-path | `{0: 0.0, 1: 1.0, 2: 0.0}` | `{0: 0.0, 1: 1.0, 2: 0.0}` | `{0: 0.0, 1: 1.0, 2: 0.0}` |
+| two-components | `{0: 0.0, 1: 0.0, 2: 0.0, 3: 0.0}` | `{0: 0.0, 1: 0.0, 2: 0.0, 3: 0.0}` | `{0: 0.0, 1: 0.0, 2: 0.0, 3: 0.0}` |
+| negative-weights-digraph | `{0: 0.0, 1: 0.5, 2: 0.0}` | `{0: 0.0, 1: 0.5, 2: 0.0}` | `{0: 0.0, 1: 0.5, 2: 0.0}` |
 
 ### `number_connected_components`
 
@@ -300,24 +325,30 @@ Functions audited: **51**
 | multidigraph-chain-5 | raises NetworkXNotImplemented | raises NetworkXNotImplemented | raises NetworkXNotImplemented |
 | empty | `0` | `0` | `0` |
 | single-node | `1` | `1` | `1` |
+| selfloop-path | `1` | `1` | `1` |
+| two-components | `2` | `2` | `2` |
+| negative-weights-digraph | raises NetworkXNotImplemented | raises NetworkXNotImplemented | raises NetworkXNotImplemented |
 
 ### `single_source_dijkstra_path`
 
 | fixture | raw | public | nx |
 |---------|-----|--------|-----|
-| path-5 | `{1: [0, 1], 0: [0], 3: [0, 1, 2, 3], 2: [0, 1, ...` | `{0: [0], 1: [0, 1], 2: [0, 1, 2], 3: [0, 1, 2, ...` | `{0: [0], 1: [0, 1], 2: [0, 1, 2], 3: [0, 1, 2, ...` |
-| cycle-6 | `{0: [0], 1: [0, 1], 4: [0, 5, 4], 5: [0, 5], 2:...` | `{0: [0], 1: [0, 1], 5: [0, 5], 2: [0, 1, 2], 4:...` | `{0: [0], 1: [0, 1], 5: [0, 5], 2: [0, 1, 2], 4:...` |
-| star-5 | `{4: [0, 4], 2: [0, 2], 3: [0, 3], 5: [0, 5], 0:...` | `{0: [0], 1: [0, 1], 2: [0, 2], 3: [0, 3], 4: [0...` | `{0: [0], 1: [0, 1], 2: [0, 2], 3: [0, 3], 4: [0...` |
-| complete-4 | `{0: [0], 1: [0, 1], 2: [0, 2], 3: [0, 3]}` | `{0: [0], 1: [0, 1], 2: [0, 2], 3: [0, 3]}` | `{0: [0], 1: [0, 1], 2: [0, 2], 3: [0, 3]}` |
-| weighted-path-5 | `{0: [0], 3: [0, 1, 2, 3], 1: [0, 1], 2: [0, 1, ...` | `{0: [0], 1: [0, 1], 2: [0, 1, 2], 3: [0, 1, 2, ...` | `{0: [0], 1: [0, 1], 2: [0, 1, 2], 3: [0, 1, 2, ...` |
-| weighted-postmut-5 | `{2: [0, 1, 2], 4: [0, 1, 2, 3, 4], 1: [0, 1], 3...` | `{0: [0], 1: [0, 1], 2: [0, 1, 2], 3: [0, 1, 2, ...` | `{0: [0], 1: [0, 1], 2: [0, 1, 2], 3: [0, 1, 2, ...` |
-| bipartite-3-3 | `{0: [0], 4: [0, 4], 5: [0, 5], 2: [0, 3, 2], 1:...` | `{0: [0], 3: [0, 3], 4: [0, 4], 5: [0, 5], 1: [0...` | `{0: [0], 3: [0, 3], 4: [0, 4], 5: [0, 5], 1: [0...` |
-| petersen | `{0: [0], 1: [0, 1], 4: [0, 4], 6: [0, 1, 6], 3:...` | `{0: [0], 1: [0, 1], 4: [0, 4], 5: [0, 5], 2: [0...` | `{0: [0], 1: [0, 1], 4: [0, 4], 5: [0, 5], 2: [0...` |
-| digraph-chain-5 | `{0: [0], 3: [0, 1, 2, 3], 1: [0, 1], 4: [0, 1, ...` | `{0: [0], 1: [0, 1], 2: [0, 1, 2], 3: [0, 1, 2, ...` | `{0: [0], 1: [0, 1], 2: [0, 1, 2], 3: [0, 1, 2, ...` |
-| multigraph-path-5 | `{2: [0, 1, 2], 1: [0, 1], 0: [0], 3: [0, 1, 2, ...` | `{0: [0], 1: [0, 1], 2: [0, 1, 2], 3: [0, 1, 2, ...` | `{0: [0], 1: [0, 1], 2: [0, 1, 2], 3: [0, 1, 2, ...` |
-| multidigraph-chain-5 | `{2: [0, 1, 2], 4: [0, 1, 2, 3, 4], 3: [0, 1, 2,...` | `{0: [0], 1: [0, 1], 2: [0, 1, 2], 3: [0, 1, 2, ...` | `{0: [0], 1: [0, 1], 2: [0, 1, 2], 3: [0, 1, 2, ...` |
+| path-5 | `{3: [0, 1, 2, 3], 0: [0], 4: [0, 1, 2, 3, 4], 2...` | `{0: [0], 1: [0, 1], 2: [0, 1, 2], 3: [0, 1, 2, ...` | `{0: [0], 1: [0, 1], 2: [0, 1, 2], 3: [0, 1, 2, ...` |
+| cycle-6 | `{4: [0, 5, 4], 1: [0, 1], 5: [0, 5], 2: [0, 1, ...` | `{0: [0], 1: [0, 1], 5: [0, 5], 2: [0, 1, 2], 4:...` | `{0: [0], 1: [0, 1], 5: [0, 5], 2: [0, 1, 2], 4:...` |
+| star-5 | `{1: [0, 1], 5: [0, 5], 2: [0, 2], 4: [0, 4], 0:...` | `{0: [0], 1: [0, 1], 2: [0, 2], 3: [0, 3], 4: [0...` | `{0: [0], 1: [0, 1], 2: [0, 2], 3: [0, 3], 4: [0...` |
+| complete-4 | `{0: [0], 1: [0, 1], 3: [0, 3], 2: [0, 2]}` | `{0: [0], 1: [0, 1], 2: [0, 2], 3: [0, 3]}` | `{0: [0], 1: [0, 1], 2: [0, 2], 3: [0, 3]}` |
+| weighted-path-5 | `{3: [0, 1, 2, 3], 2: [0, 1, 2], 0: [0], 1: [0, ...` | `{0: [0], 1: [0, 1], 2: [0, 1, 2], 3: [0, 1, 2, ...` | `{0: [0], 1: [0, 1], 2: [0, 1, 2], 3: [0, 1, 2, ...` |
+| weighted-postmut-5 | `{4: [0, 1, 2, 3, 4], 0: [0], 1: [0, 1], 3: [0, ...` | `{0: [0], 1: [0, 1], 2: [0, 1, 2], 3: [0, 1, 2, ...` | `{0: [0], 1: [0, 1], 2: [0, 1, 2], 3: [0, 1, 2, ...` |
+| bipartite-3-3 | `{4: [0, 4], 5: [0, 5], 1: [0, 3, 1], 0: [0], 3:...` | `{0: [0], 3: [0, 3], 4: [0, 4], 5: [0, 5], 1: [0...` | `{0: [0], 3: [0, 3], 4: [0, 4], 5: [0, 5], 1: [0...` |
+| petersen | `{7: [0, 5, 7], 8: [0, 5, 8], 1: [0, 1], 2: [0, ...` | `{0: [0], 1: [0, 1], 4: [0, 4], 5: [0, 5], 2: [0...` | `{0: [0], 1: [0, 1], 4: [0, 4], 5: [0, 5], 2: [0...` |
+| digraph-chain-5 | `{4: [0, 1, 2, 3, 4], 1: [0, 1], 3: [0, 1, 2, 3]...` | `{0: [0], 1: [0, 1], 2: [0, 1, 2], 3: [0, 1, 2, ...` | `{0: [0], 1: [0, 1], 2: [0, 1, 2], 3: [0, 1, 2, ...` |
+| multigraph-path-5 | `{4: [0, 1, 2, 3, 4], 0: [0], 3: [0, 1, 2, 3], 1...` | `{0: [0], 1: [0, 1], 2: [0, 1, 2], 3: [0, 1, 2, ...` | `{0: [0], 1: [0, 1], 2: [0, 1, 2], 3: [0, 1, 2, ...` |
+| multidigraph-chain-5 | `{1: [0, 1], 2: [0, 1, 2], 0: [0], 3: [0, 1, 2, ...` | `{0: [0], 1: [0, 1], 2: [0, 1, 2], 3: [0, 1, 2, ...` | `{0: [0], 1: [0, 1], 2: [0, 1, 2], 3: [0, 1, 2, ...` |
 | empty | raises TypeError | raises TypeError | raises TypeError |
 | single-node | `{0: [0]}` | `{0: [0]}` | `{0: [0]}` |
+| selfloop-path | `{1: [0, 1], 0: [0], 2: [0, 1, 2]}` | `{0: [0], 1: [0, 1], 2: [0, 1, 2]}` | `{0: [0], 1: [0, 1], 2: [0, 1, 2]}` |
+| two-components | `{0: [0], 1: [0, 1]}` | `{0: [0], 1: [0, 1]}` | `{0: [0], 1: [0, 1]}` |
+| negative-weights-digraph | `{2: [0, 1, 2], 0: [0], 1: [0, 1]}` | `{0: [0], 1: [0, 1], 2: [0, 1, 2]}` | `{0: [0], 1: [0, 1], 2: [0, 1, 2]}` |
 
 ### `topological_sort`
 
@@ -336,6 +367,9 @@ Functions audited: **51**
 | multidigraph-chain-5 | `[0, 1, 2, 3, 4]` | `[0, 1, 2, 3, 4]` | `[0, 1, 2, 3, 4]` |
 | empty | raises NetworkXError | raises NetworkXError | raises NetworkXError |
 | single-node | raises NetworkXError | raises NetworkXError | raises NetworkXError |
+| selfloop-path | raises NetworkXError | raises NetworkXError | raises NetworkXError |
+| two-components | raises NetworkXError | raises NetworkXError | raises NetworkXError |
+| negative-weights-digraph | `[0, 1, 2]` | `[0, 1, 2]` | `[0, 1, 2]` |
 
 ### `triangles`
 
@@ -354,6 +388,9 @@ Functions audited: **51**
 | multidigraph-chain-5 | raises NetworkXNotImplemented | raises NetworkXNotImplemented | raises NetworkXNotImplemented |
 | empty | `{}` | `{}` | `{}` |
 | single-node | `{0: 0}` | `{0: 0}` | `{0: 0}` |
+| selfloop-path | `{0: 0, 1: 0, 2: 0}` | `{0: 0, 1: 0, 2: 0}` | `{0: 0, 1: 0, 2: 0}` |
+| two-components | `{0: 0, 1: 0, 2: 0, 3: 0}` | `{0: 0, 1: 0, 2: 0, 3: 0}` | `{0: 0, 1: 0, 2: 0, 3: 0}` |
+| negative-weights-digraph | raises NetworkXNotImplemented | raises NetworkXNotImplemented | raises NetworkXNotImplemented |
 
 ## untestable-not-exposed (9)
 
@@ -395,25 +432,28 @@ Functions audited: **51**
 
 - `_raw_square_clustering` not exposed
 
-## wrapper-corrected (23)
+## wrapper-corrected (24)
 
 ### `all_pairs_dijkstra_path_length`
 
 | fixture | raw | public | nx |
 |---------|-----|--------|-----|
-| path-5 | `{4: {2: 2.0, 1: 3.0, 0: 4.0, 3: 1.0, 4: 0.0}, 3...` | `[(0, {0: 0.0, 1: 1.0, 2: 2.0, 3: 3.0, 4: 4.0}),...` | `[(0, {0: 0, 1: 1, 2: 2, 3: 3, 4: 4}), (1, {1: 0...` |
-| cycle-6 | `{4: {1: 3.0, 3: 1.0, 0: 2.0, 4: 0.0, 2: 2.0, 5:...` | `[(0, {0: 0.0, 1: 1.0, 5: 1.0, 2: 2.0, 4: 2.0, 3...` | `[(0, {0: 0, 1: 1, 5: 1, 2: 2, 4: 2, 3: 3}), (1,...` |
-| star-5 | `{2: {5: 2.0, 3: 2.0, 1: 2.0, 0: 1.0, 2: 0.0, 4:...` | `[(0, {0: 0.0, 1: 1.0, 2: 1.0, 3: 1.0, 4: 1.0, 5...` | `[(0, {0: 0, 1: 1, 2: 1, 3: 1, 4: 1, 5: 1}), (1,...` |
-| complete-4 | `{0: {0: 0.0, 1: 1.0, 3: 1.0, 2: 1.0}, 1: {2: 1....` | `[(0, {0: 0.0, 1: 1.0, 2: 1.0, 3: 1.0}), (1, {1:...` | `[(0, {0: 0, 1: 1, 2: 1, 3: 1}), (1, {1: 0, 0: 1...` |
-| weighted-path-5 | `{0: {0: 0.0, 3: 7.5, 4: 12.0, 1: 1.5, 2: 4.0}, ...` | `[(0, {0: 0.0, 1: 1.5, 2: 4.0, 3: 7.5, 4: 12.0})...` | `[(0, {0: 0, 1: 1.5, 2: 4.0, 3: 7.5, 4: 12.0}), ...` |
-| weighted-postmut-5 | `{0: {2: 2.0, 0: 0.0, 4: 4.0, 1: 1.0, 3: 3.0}, 1...` | `[(0, {0: 0.0, 1: 1.5, 2: 4.0, 3: 7.5, 4: 12.0})...` | `[(0, {0: 0, 1: 1.5, 2: 4.0, 3: 7.5, 4: 12.0}), ...` |
-| bipartite-3-3 | `{3: {4: 2.0, 5: 2.0, 1: 1.0, 0: 1.0, 2: 1.0, 3:...` | `[(0, {0: 0.0, 3: 1.0, 4: 1.0, 5: 1.0, 1: 2.0, 2...` | `[(0, {0: 0, 3: 1, 4: 1, 5: 1, 1: 2, 2: 2}), (1,...` |
-| petersen | `{4: {5: 2.0, 1: 2.0, 4: 0.0, 8: 2.0, 6: 2.0, 3:...` | `[(0, {0: 0.0, 1: 1.0, 4: 1.0, 5: 1.0, 2: 2.0, 6...` | `[(0, {0: 0, 1: 1, 4: 1, 5: 1, 2: 2, 6: 2, 3: 2,...` |
-| digraph-chain-5 | `{1: {2: 1.0, 4: 3.0, 1: 0.0, 3: 2.0}, 2: {3: 1....` | `[(0, {0: 0.0, 1: 1.0, 2: 2.0, 3: 3.0, 4: 4.0}),...` | `[(0, {0: 0, 1: 1, 2: 2, 3: 3, 4: 4}), (1, {1: 0...` |
-| multigraph-path-5 | `{1: {0: 1.0, 4: 3.0, 2: 1.0, 3: 2.0, 1: 0.0}, 2...` | `[(0, {0: 0.0, 1: 1.0, 2: 2.0, 3: 3.0, 4: 4.0}),...` | `[(0, {0: 0, 1: 1, 2: 2, 3: 3, 4: 4}), (1, {1: 0...` |
-| multidigraph-chain-5 | `{1: {2: 1.0, 4: 3.0, 1: 0.0, 3: 2.0}, 0: {1: 1....` | `[(0, {0: 0.0, 1: 1.0, 2: 2.0, 3: 3.0, 4: 4.0}),...` | `[(0, {0: 0, 1: 1, 2: 2, 3: 3, 4: 4}), (1, {1: 0...` |
+| path-5 | `{0: {0: 0.0, 3: 3.0, 4: 4.0, 1: 1.0, 2: 2.0}, 3...` | `[(0, {0: 0.0, 1: 1.0, 2: 2.0, 3: 3.0, 4: 4.0}),...` | `[(0, {0: 0, 1: 1, 2: 2, 3: 3, 4: 4}), (1, {1: 0...` |
+| cycle-6 | `{4: {1: 3.0, 4: 0.0, 0: 2.0, 3: 1.0, 2: 2.0, 5:...` | `[(0, {0: 0.0, 1: 1.0, 5: 1.0, 2: 2.0, 4: 2.0, 3...` | `[(0, {0: 0, 1: 1, 5: 1, 2: 2, 4: 2, 3: 3}), (1,...` |
+| star-5 | `{1: {4: 2.0, 2: 2.0, 3: 2.0, 1: 0.0, 0: 1.0, 5:...` | `[(0, {0: 0.0, 1: 1.0, 2: 1.0, 3: 1.0, 4: 1.0, 5...` | `[(0, {0: 0, 1: 1, 2: 1, 3: 1, 4: 1, 5: 1}), (1,...` |
+| complete-4 | `{0: {2: 1.0, 0: 0.0, 1: 1.0, 3: 1.0}, 2: {0: 1....` | `[(0, {0: 0.0, 1: 1.0, 2: 1.0, 3: 1.0}), (1, {1:...` | `[(0, {0: 0, 1: 1, 2: 1, 3: 1}), (1, {1: 0, 0: 1...` |
+| weighted-path-5 | `{2: {0: 4.0, 1: 2.5, 3: 3.5, 4: 8.0, 2: 0.0}, 3...` | `[(0, {0: 0.0, 1: 1.5, 2: 4.0, 3: 7.5, 4: 12.0})...` | `[(0, {0: 0, 1: 1.5, 2: 4.0, 3: 7.5, 4: 12.0}), ...` |
+| weighted-postmut-5 | `{0: {4: 4.0, 0: 0.0, 2: 2.0, 1: 1.0, 3: 3.0}, 2...` | `[(0, {0: 0.0, 1: 1.5, 2: 4.0, 3: 7.5, 4: 12.0})...` | `[(0, {0: 0, 1: 1.5, 2: 4.0, 3: 7.5, 4: 12.0}), ...` |
+| bipartite-3-3 | `{3: {3: 0.0, 1: 1.0, 5: 2.0, 2: 1.0, 0: 1.0, 4:...` | `[(0, {0: 0.0, 3: 1.0, 4: 1.0, 5: 1.0, 1: 2.0, 2...` | `[(0, {0: 0, 3: 1, 4: 1, 5: 1, 1: 2, 2: 2}), (1,...` |
+| petersen | `{2: {1: 1.0, 6: 2.0, 9: 2.0, 4: 2.0, 2: 0.0, 7:...` | `[(0, {0: 0.0, 1: 1.0, 4: 1.0, 5: 1.0, 2: 2.0, 6...` | `[(0, {0: 0, 1: 1, 4: 1, 5: 1, 2: 2, 6: 2, 3: 2,...` |
+| digraph-chain-5 | `{3: {3: 0.0, 4: 1.0}, 1: {4: 3.0, 2: 1.0, 1: 0....` | `[(0, {0: 0.0, 1: 1.0, 2: 2.0, 3: 3.0, 4: 4.0}),...` | `[(0, {0: 0, 1: 1, 2: 2, 3: 3, 4: 4}), (1, {1: 0...` |
+| multigraph-path-5 | `{3: {1: 2.0, 3: 0.0, 4: 1.0, 0: 3.0, 2: 1.0}, 4...` | `[(0, {0: 0.0, 1: 1.0, 2: 2.0, 3: 3.0, 4: 4.0}),...` | `[(0, {0: 0, 1: 1, 2: 2, 3: 3, 4: 4}), (1, {1: 0...` |
+| multidigraph-chain-5 | `{1: {2: 1.0, 4: 3.0, 3: 2.0, 1: 0.0}, 3: {4: 1....` | `[(0, {0: 0.0, 1: 1.0, 2: 2.0, 3: 3.0, 4: 4.0}),...` | `[(0, {0: 0, 1: 1, 2: 2, 3: 3, 4: 4}), (1, {1: 0...` |
 | empty | `{}` | `[]` | `[]` |
 | single-node | `{0: {0: 0.0}}` | `[(0, {0: 0.0})]` | `[(0, {0: 0})]` |
+| selfloop-path | `{1: {1: 0.0, 2: 1.0, 0: 1.0}, 2: {1: 1.0, 0: 2....` | `[(0, {0: 0.0, 1: 1.0, 2: 2.0}), (1, {1: 0.0, 0:...` | `[(0, {0: 0, 1: 1, 2: 2}), (1, {1: 0, 0: 1, 2: 1...` |
+| two-components | `{0: {0: 0.0, 1: 1.0}, 2: {2: 0.0, 3: 1.0}, 3: {...` | `[(0, {0: 0.0, 1: 1.0}), (1, {1: 0.0, 0: 1.0}), ...` | `[(0, {0: 0, 1: 1}), (1, {1: 0, 0: 1}), (2, {2: ...` |
+| negative-weights-digraph | `{2: {2: 0.0}, 1: {1: 0.0, 2: 1.0}, 0: {0: 0.0, ...` | `[(0, {0: 0, 1: -1.0, 2: -3.0}), (1, {1: 0, 2: -...` | `[(0, {0: 0, 1: -1.0, 2: -3.0}), (1, {1: 0, 2: -...` |
 
 ### `all_pairs_shortest_path_length`
 
@@ -432,6 +472,9 @@ Functions audited: **51**
 | multidigraph-chain-5 | `{0: {0: 0, 1: 1, 2: 2, 3: 3, 4: 4}, 1: {1: 0, 2...` | `[(0, {0: 0, 1: 1, 2: 2, 3: 3, 4: 4}), (1, {1: 0...` | `[(0, {0: 0, 1: 1, 2: 2, 3: 3, 4: 4}), (1, {1: 0...` |
 | empty | `{}` | `[]` | `[]` |
 | single-node | `{0: {0: 0}}` | `[(0, {0: 0})]` | `[(0, {0: 0})]` |
+| selfloop-path | `{0: {0: 0, 1: 1, 2: 2}, 1: {1: 0, 0: 1, 2: 1}, ...` | `[(0, {0: 0, 1: 1, 2: 2}), (1, {1: 0, 0: 1, 2: 1...` | `[(0, {0: 0, 1: 1, 2: 2}), (1, {1: 0, 0: 1, 2: 1...` |
+| two-components | `{0: {0: 0, 1: 1}, 1: {1: 0, 0: 1}, 2: {2: 0, 3:...` | `[(0, {0: 0, 1: 1}), (1, {1: 0, 0: 1}), (2, {2: ...` | `[(0, {0: 0, 1: 1}), (1, {1: 0, 0: 1}), (2, {2: ...` |
+| negative-weights-digraph | `{0: {0: 0, 1: 1, 2: 2}, 1: {1: 0, 2: 1}, 2: {2:...` | `[(0, {0: 0, 1: 1, 2: 2}), (1, {1: 0, 2: 1}), (2...` | `[(0, {0: 0, 1: 1, 2: 2}), (1, {1: 0, 2: 1}), (2...` |
 
 ### `astar_path_length`
 
@@ -450,6 +493,9 @@ Functions audited: **51**
 | multidigraph-chain-5 | `4.0` | `4` | `4` |
 | empty | raises TypeError | raises TypeError | raises TypeError |
 | single-node | raises TypeError | raises TypeError | raises TypeError |
+| selfloop-path | `2.0` | `2` | `2` |
+| two-components | raises ValueError | raises NetworkXNoPath | raises NetworkXNoPath |
+| negative-weights-digraph | `2.0` | `-3.0` | `-3.0` |
 
 ### `barycenter`
 
@@ -468,6 +514,9 @@ Functions audited: **51**
 | multidigraph-chain-5 | raises NetworkXNotImplemented | raises NetworkXNoPath | raises NetworkXNoPath |
 | empty | raises NetworkXPointlessConcept | raises NetworkXPointlessConcept | raises NetworkXPointlessConcept |
 | single-node | `[0]` | `[0]` | `[0]` |
+| selfloop-path | `[1]` | `[1]` | `[1]` |
+| two-components | raises NetworkXNoPath | raises NetworkXNoPath | raises NetworkXNoPath |
+| negative-weights-digraph | raises NetworkXNotImplemented | raises NetworkXNoPath | raises NetworkXNoPath |
 
 ### `biconnected_components`
 
@@ -486,6 +535,9 @@ Functions audited: **51**
 | multidigraph-chain-5 | raises NetworkXNotImplemented | raises NetworkXNotImplemented | raises NetworkXNotImplemented |
 | empty | `[]` | `[]` | `[]` |
 | single-node | `[]` | `[]` | `[]` |
+| selfloop-path | `[[1, 2], [0, 1]]` | `[{1, 2}, {0, 1}]` | `[{1, 2}, {0, 1}]` |
+| two-components | `[[0, 1], [2, 3]]` | `[{0, 1}, {2, 3}]` | `[{0, 1}, {2, 3}]` |
+| negative-weights-digraph | raises NetworkXNotImplemented | raises NetworkXNotImplemented | raises NetworkXNotImplemented |
 
 ### `bridges`
 
@@ -504,6 +556,9 @@ Functions audited: **51**
 | multidigraph-chain-5 | raises NetworkXNotImplemented | raises NetworkXNotImplemented | raises NetworkXNotImplemented |
 | empty | `[]` | `[]` | `[]` |
 | single-node | `[]` | `[]` | `[]` |
+| selfloop-path | `[(0, 1), (1, 2)]` | `[(0, 1), (1, 2)]` | `[(0, 1), (1, 2)]` |
+| two-components | `[(0, 1), (2, 3)]` | `[(0, 1), (2, 3)]` | `[(0, 1), (2, 3)]` |
+| negative-weights-digraph | raises NetworkXNotImplemented | raises NetworkXNotImplemented | raises NetworkXNotImplemented |
 
 ### `center`
 
@@ -522,6 +577,9 @@ Functions audited: **51**
 | multidigraph-chain-5 | raises NetworkXNotImplemented | raises NetworkXError | raises NetworkXError |
 | empty | raises NetworkXPointlessConcept | raises NetworkXPointlessConcept | raises NetworkXPointlessConcept |
 | single-node | `[0]` | `[0]` | `[0]` |
+| selfloop-path | `[1]` | `[1]` | `[1]` |
+| two-components | raises NetworkXError | raises NetworkXError | raises NetworkXError |
+| negative-weights-digraph | raises NetworkXNotImplemented | raises NetworkXError | raises NetworkXError |
 
 ### `dag_longest_path`
 
@@ -540,6 +598,9 @@ Functions audited: **51**
 | multidigraph-chain-5 | `[0, 1, 2, 3, 4]` | `[0, 1, 2, 3, 4]` | `[0, 1, 2, 3, 4]` |
 | empty | raises NetworkXError | raises NetworkXNotImplemented | raises NetworkXNotImplemented |
 | single-node | raises NetworkXError | raises NetworkXNotImplemented | raises NetworkXNotImplemented |
+| selfloop-path | raises NetworkXError | raises NetworkXNotImplemented | raises NetworkXNotImplemented |
+| two-components | raises NetworkXError | raises NetworkXNotImplemented | raises NetworkXNotImplemented |
+| negative-weights-digraph | `[0, 1, 2]` | `[0]` | `[0]` |
 
 ### `dag_longest_path_length`
 
@@ -558,6 +619,9 @@ Functions audited: **51**
 | multidigraph-chain-5 | `4` | `4` | `4` |
 | empty | raises NetworkXError | raises NetworkXNotImplemented | raises NetworkXNotImplemented |
 | single-node | raises NetworkXError | raises NetworkXNotImplemented | raises NetworkXNotImplemented |
+| selfloop-path | raises NetworkXError | raises NetworkXNotImplemented | raises NetworkXNotImplemented |
+| two-components | raises NetworkXError | raises NetworkXNotImplemented | raises NetworkXNotImplemented |
+| negative-weights-digraph | `2` | `0` | `0` |
 
 ### `degree_centrality`
 
@@ -576,6 +640,9 @@ Functions audited: **51**
 | multidigraph-chain-5 | `{0: 0.25, 1: 0.5, 2: 0.5, 3: 0.5, 4: 0.25}` | `{0: 0.25, 1: 0.5, 2: 0.5, 3: 0.5, 4: 0.25}` | `{0: 0.25, 1: 0.5, 2: 0.5, 3: 0.5, 4: 0.25}` |
 | empty | `{}` | `{}` | `{}` |
 | single-node | `{0: 1.0}` | `{0: 1}` | `{0: 1}` |
+| selfloop-path | `{0: 1.5, 1: 1.0, 2: 0.5}` | `{0: 1.5, 1: 1.0, 2: 0.5}` | `{0: 1.5, 1: 1.0, 2: 0.5}` |
+| two-components | `{0: 0.3333333333333333, 1: 0.3333333333333333, ...` | `{0: 0.3333333333333333, 1: 0.3333333333333333, ...` | `{0: 0.3333333333333333, 1: 0.3333333333333333, ...` |
+| negative-weights-digraph | `{0: 0.5, 1: 1.0, 2: 0.5}` | `{0: 0.5, 1: 1.0, 2: 0.5}` | `{0: 0.5, 1: 1.0, 2: 0.5}` |
 
 ### `degree_histogram`
 
@@ -594,6 +661,9 @@ Functions audited: **51**
 | multidigraph-chain-5 | `[0, 2, 3]` | `[0, 2, 3]` | `[0, 2, 3]` |
 | empty | `[]` | `[]` | `[]` |
 | single-node | `[1]` | `[1]` | `[1]` |
+| selfloop-path | `[0, 1, 2]` | `[0, 1, 1, 1]` | `[0, 1, 1, 1]` |
+| two-components | `[0, 4]` | `[0, 4]` | `[0, 4]` |
+| negative-weights-digraph | `[0, 2, 1]` | `[0, 2, 1]` | `[0, 2, 1]` |
 
 ### `diameter`
 
@@ -612,6 +682,29 @@ Functions audited: **51**
 | multidigraph-chain-5 | raises NetworkXNotImplemented | raises NetworkXError | raises NetworkXError |
 | empty | raises NetworkXPointlessConcept | raises ValueError | raises ValueError |
 | single-node | `0` | `0` | `0` |
+| selfloop-path | `2` | `2` | `2` |
+| two-components | raises NetworkXError | raises NetworkXError | raises NetworkXError |
+| negative-weights-digraph | raises NetworkXNotImplemented | raises NetworkXError | raises NetworkXError |
+
+### `dijkstra_path_length`
+
+| fixture | raw | public | nx |
+|---------|-----|--------|-----|
+| path-5 | `4.0` | `4` | `4` |
+| cycle-6 | `1.0` | `1` | `1` |
+| star-5 | `1.0` | `1` | `1` |
+| complete-4 | `1.0` | `1` | `1` |
+| weighted-path-5 | `12.0` | `12.0` | `12.0` |
+| bipartite-3-3 | `1.0` | `1` | `1` |
+| petersen | `2.0` | `2` | `2` |
+| digraph-chain-5 | `4.0` | `4` | `4` |
+| multigraph-path-5 | `4.0` | `4` | `4` |
+| multidigraph-chain-5 | `4.0` | `4` | `4` |
+| empty | raises TypeError | raises TypeError | raises TypeError |
+| single-node | raises TypeError | raises TypeError | raises TypeError |
+| selfloop-path | `2.0` | `2` | `2` |
+| two-components | raises NetworkXNoPath | raises NetworkXNoPath | raises NetworkXNoPath |
+| negative-weights-digraph | `2.0` | `-3.0` | `-3.0` |
 
 ### `eccentricity`
 
@@ -630,6 +723,9 @@ Functions audited: **51**
 | multidigraph-chain-5 | raises NetworkXNotImplemented | raises NetworkXError | raises NetworkXError |
 | empty | raises NetworkXPointlessConcept | `{}` | `{}` |
 | single-node | `{0: 0}` | `{0: 0}` | `{0: 0}` |
+| selfloop-path | `{0: 2, 1: 1, 2: 2}` | `{0: 2, 1: 1, 2: 2}` | `{0: 2, 1: 1, 2: 2}` |
+| two-components | raises NetworkXError | raises NetworkXError | raises NetworkXError |
+| negative-weights-digraph | raises NetworkXNotImplemented | raises NetworkXError | raises NetworkXError |
 
 ### `find_cliques`
 
@@ -648,6 +744,9 @@ Functions audited: **51**
 | multidigraph-chain-5 | raises NetworkXNotImplemented | raises NetworkXNotImplemented | raises NetworkXNotImplemented |
 | empty | `[]` | `[]` | `[]` |
 | single-node | `[[0]]` | `[[0]]` | `[[0]]` |
+| selfloop-path | `[[1, 2]]` | `[[1, 0], [1, 2]]` | `[[1, 0], [1, 2]]` |
+| two-components | `[[0, 1], [2, 3]]` | `[[0, 1], [2, 3]]` | `[[0, 1], [2, 3]]` |
+| negative-weights-digraph | raises NetworkXNotImplemented | raises NetworkXNotImplemented | raises NetworkXNotImplemented |
 
 ### `girth`
 
@@ -666,6 +765,9 @@ Functions audited: **51**
 | multidigraph-chain-5 | raises NetworkXNotImplemented | raises NetworkXNotImplemented | raises NetworkXNotImplemented |
 | empty | `None` | `inf` | `inf` |
 | single-node | `None` | `inf` | `inf` |
+| selfloop-path | `1` | `1` | `1` |
+| two-components | `None` | `inf` | `inf` |
+| negative-weights-digraph | raises NetworkXNotImplemented | raises NetworkXNotImplemented | raises NetworkXNotImplemented |
 
 ### `greedy_color`
 
@@ -684,6 +786,9 @@ Functions audited: **51**
 | multidigraph-chain-5 | `{1: 0, 2: 1, 3: 0, 0: 1, 4: 1}` | `{1: 0, 2: 0, 3: 0, 0: 1, 4: 0}` | `{1: 0, 2: 0, 3: 0, 0: 1, 4: 0}` |
 | empty | `{}` | `{}` | `{}` |
 | single-node | `{0: 0}` | `{0: 0}` | `{0: 0}` |
+| selfloop-path | `{0: 0, 1: 1, 2: 0}` | `{0: 0, 1: 1, 2: 0}` | `{0: 0, 1: 1, 2: 0}` |
+| two-components | `{0: 0, 1: 1, 2: 0, 3: 1}` | `{0: 0, 1: 1, 2: 0, 3: 1}` | `{0: 0, 1: 1, 2: 0, 3: 1}` |
+| negative-weights-digraph | `{1: 0, 0: 1, 2: 1}` | `{1: 0, 0: 1, 2: 0}` | `{1: 0, 0: 1, 2: 0}` |
 
 ### `is_forest`
 
@@ -702,6 +807,9 @@ Functions audited: **51**
 | multidigraph-chain-5 | `True` | `True` | `True` |
 | empty | raises NetworkXPointlessConcept | raises NetworkXPointlessConcept | raises NetworkXPointlessConcept |
 | single-node | `True` | `True` | `True` |
+| selfloop-path | `False` | `False` | `False` |
+| two-components | `True` | `True` | `True` |
+| negative-weights-digraph | `True` | `True` | `True` |
 
 ### `is_tree`
 
@@ -720,6 +828,9 @@ Functions audited: **51**
 | multidigraph-chain-5 | `True` | `True` | `True` |
 | empty | raises NetworkXPointlessConcept | raises NetworkXPointlessConcept | raises NetworkXPointlessConcept |
 | single-node | `True` | `True` | `True` |
+| selfloop-path | `False` | `False` | `False` |
+| two-components | `False` | `False` | `False` |
+| negative-weights-digraph | `True` | `True` | `True` |
 
 ### `periphery`
 
@@ -738,6 +849,9 @@ Functions audited: **51**
 | multidigraph-chain-5 | raises NetworkXNotImplemented | raises NetworkXError | raises NetworkXError |
 | empty | raises NetworkXPointlessConcept | raises ValueError | raises ValueError |
 | single-node | `[0]` | `[0]` | `[0]` |
+| selfloop-path | `[0, 2]` | `[0, 2]` | `[0, 2]` |
+| two-components | raises NetworkXError | raises NetworkXError | raises NetworkXError |
+| negative-weights-digraph | raises NetworkXNotImplemented | raises NetworkXError | raises NetworkXError |
 
 ### `radius`
 
@@ -756,42 +870,51 @@ Functions audited: **51**
 | multidigraph-chain-5 | raises NetworkXNotImplemented | raises NetworkXError | raises NetworkXError |
 | empty | raises NetworkXPointlessConcept | raises ValueError | raises ValueError |
 | single-node | `0` | `0` | `0` |
+| selfloop-path | `1` | `1` | `1` |
+| two-components | raises NetworkXError | raises NetworkXError | raises NetworkXError |
+| negative-weights-digraph | raises NetworkXNotImplemented | raises NetworkXError | raises NetworkXError |
 
 ### `single_source_bellman_ford_path_length`
 
 | fixture | raw | public | nx |
 |---------|-----|--------|-----|
-| path-5 | `{2: 2.0, 4: 4.0, 3: 3.0, 0: 0.0, 1: 1.0}` | `{0: 0, 1: 1, 2: 2, 3: 3, 4: 4}` | `{0: 0, 1: 1, 2: 2, 3: 3, 4: 4}` |
-| cycle-6 | `{4: 2.0, 2: 2.0, 1: 1.0, 5: 1.0, 0: 0.0, 3: 3.0}` | `{0: 0, 1: 1, 5: 1, 2: 2, 4: 2, 3: 3}` | `{0: 0, 1: 1, 5: 1, 2: 2, 4: 2, 3: 3}` |
-| star-5 | `{1: 1.0, 4: 1.0, 5: 1.0, 2: 1.0, 0: 0.0, 3: 1.0}` | `{0: 0, 1: 1, 2: 1, 3: 1, 4: 1, 5: 1}` | `{0: 0, 1: 1, 2: 1, 3: 1, 4: 1, 5: 1}` |
-| complete-4 | `{2: 1.0, 1: 1.0, 0: 0.0, 3: 1.0}` | `{0: 0, 1: 1, 2: 1, 3: 1}` | `{0: 0, 1: 1, 2: 1, 3: 1}` |
-| weighted-path-5 | `{1: 1.5, 2: 4.0, 3: 7.5, 0: 0.0, 4: 12.0}` | `{0: 0.0, 1: 1.5, 2: 4.0, 3: 7.5, 4: 12.0}` | `{0: 0, 1: 1.5, 2: 4.0, 3: 7.5, 4: 12.0}` |
-| weighted-postmut-5 | `{4: 4.0, 0: 0.0, 2: 2.0, 1: 1.0, 3: 3.0}` | `{0: 0.0, 1: 1.5, 2: 4.0, 3: 7.5, 4: 12.0}` | `{0: 0, 1: 1.5, 2: 4.0, 3: 7.5, 4: 12.0}` |
-| bipartite-3-3 | `{1: 2.0, 4: 1.0, 5: 1.0, 0: 0.0, 2: 2.0, 3: 1.0}` | `{0: 0, 3: 1, 4: 1, 5: 1, 1: 2, 2: 2}` | `{0: 0, 3: 1, 4: 1, 5: 1, 1: 2, 2: 2}` |
-| petersen | `{1: 1.0, 6: 2.0, 4: 1.0, 7: 2.0, 9: 2.0, 0: 0.0...` | `{0: 0, 1: 1, 4: 1, 5: 1, 2: 2, 6: 2, 3: 2, 9: 2...` | `{0: 0, 1: 1, 4: 1, 5: 1, 2: 2, 6: 2, 3: 2, 9: 2...` |
-| digraph-chain-5 | `{0: 0.0, 3: 3.0, 2: 2.0, 4: 4.0, 1: 1.0}` | `{0: 0, 1: 1, 2: 2, 3: 3, 4: 4}` | `{0: 0, 1: 1, 2: 2, 3: 3, 4: 4}` |
-| multigraph-path-5 | `{2: 2.0, 0: 0.0, 1: 1.0, 4: 4.0, 3: 3.0}` | `{0: 0, 1: 1, 2: 2, 3: 3, 4: 4}` | `{0: 0, 1: 1, 2: 2, 3: 3, 4: 4}` |
-| multidigraph-chain-5 | `{0: 0.0, 3: 3.0, 1: 1.0, 4: 4.0, 2: 2.0}` | `{0: 0, 1: 1, 2: 2, 3: 3, 4: 4}` | `{0: 0, 1: 1, 2: 2, 3: 3, 4: 4}` |
+| path-5 | `{2: 2.0, 3: 3.0, 4: 4.0, 0: 0.0, 1: 1.0}` | `{0: 0, 1: 1, 2: 2, 3: 3, 4: 4}` | `{0: 0, 1: 1, 2: 2, 3: 3, 4: 4}` |
+| cycle-6 | `{4: 2.0, 5: 1.0, 0: 0.0, 3: 3.0, 2: 2.0, 1: 1.0}` | `{0: 0, 1: 1, 5: 1, 2: 2, 4: 2, 3: 3}` | `{0: 0, 1: 1, 5: 1, 2: 2, 4: 2, 3: 3}` |
+| star-5 | `{2: 1.0, 0: 0.0, 3: 1.0, 4: 1.0, 5: 1.0, 1: 1.0}` | `{0: 0, 1: 1, 2: 1, 3: 1, 4: 1, 5: 1}` | `{0: 0, 1: 1, 2: 1, 3: 1, 4: 1, 5: 1}` |
+| complete-4 | `{1: 1.0, 0: 0.0, 2: 1.0, 3: 1.0}` | `{0: 0, 1: 1, 2: 1, 3: 1}` | `{0: 0, 1: 1, 2: 1, 3: 1}` |
+| weighted-path-5 | `{0: 0.0, 3: 7.5, 2: 4.0, 4: 12.0, 1: 1.5}` | `{0: 0.0, 1: 1.5, 2: 4.0, 3: 7.5, 4: 12.0}` | `{0: 0, 1: 1.5, 2: 4.0, 3: 7.5, 4: 12.0}` |
+| weighted-postmut-5 | `{3: 3.0, 1: 1.0, 2: 2.0, 4: 4.0, 0: 0.0}` | `{0: 0.0, 1: 1.5, 2: 4.0, 3: 7.5, 4: 12.0}` | `{0: 0, 1: 1.5, 2: 4.0, 3: 7.5, 4: 12.0}` |
+| bipartite-3-3 | `{4: 1.0, 2: 2.0, 1: 2.0, 0: 0.0, 5: 1.0, 3: 1.0}` | `{0: 0, 3: 1, 4: 1, 5: 1, 1: 2, 2: 2}` | `{0: 0, 3: 1, 4: 1, 5: 1, 1: 2, 2: 2}` |
+| petersen | `{7: 2.0, 0: 0.0, 3: 2.0, 1: 1.0, 6: 2.0, 5: 1.0...` | `{0: 0, 1: 1, 4: 1, 5: 1, 2: 2, 6: 2, 3: 2, 9: 2...` | `{0: 0, 1: 1, 4: 1, 5: 1, 2: 2, 6: 2, 3: 2, 9: 2...` |
+| digraph-chain-5 | `{3: 3.0, 0: 0.0, 2: 2.0, 4: 4.0, 1: 1.0}` | `{0: 0, 1: 1, 2: 2, 3: 3, 4: 4}` | `{0: 0, 1: 1, 2: 2, 3: 3, 4: 4}` |
+| multigraph-path-5 | `{4: 4.0, 3: 3.0, 1: 1.0, 2: 2.0, 0: 0.0}` | `{0: 0, 1: 1, 2: 2, 3: 3, 4: 4}` | `{0: 0, 1: 1, 2: 2, 3: 3, 4: 4}` |
+| multidigraph-chain-5 | `{2: 2.0, 4: 4.0, 3: 3.0, 1: 1.0, 0: 0.0}` | `{0: 0, 1: 1, 2: 2, 3: 3, 4: 4}` | `{0: 0, 1: 1, 2: 2, 3: 3, 4: 4}` |
 | empty | raises TypeError | raises TypeError | raises TypeError |
 | single-node | `{0: 0.0}` | `{0: 0}` | `{0: 0}` |
+| selfloop-path | `{1: 1.0, 0: 0.0, 2: 2.0}` | `{0: 0, 1: 1, 2: 2}` | `{0: 0, 1: 1, 2: 2}` |
+| two-components | `{1: 1.0, 0: 0.0}` | `{0: 0, 1: 1}` | `{0: 0, 1: 1}` |
+| negative-weights-digraph | `{0: 0.0, 2: -3.0, 1: -1.0}` | `{2: -3.0, 1: -1.0, 0: 0.0}` | `{0: 0, 1: -1.0, 2: -3.0}` |
 
 ### `single_source_dijkstra_path_length`
 
 | fixture | raw | public | nx |
 |---------|-----|--------|-----|
-| path-5 | `{2: 2.0, 4: 4.0, 1: 1.0, 0: 0.0, 3: 3.0}` | `{0: 0, 1: 1, 2: 2, 3: 3, 4: 4}` | `{0: 0, 1: 1, 2: 2, 3: 3, 4: 4}` |
-| cycle-6 | `{1: 1.0, 5: 1.0, 3: 3.0, 4: 2.0, 0: 0.0, 2: 2.0}` | `{0: 0, 1: 1, 5: 1, 2: 2, 4: 2, 3: 3}` | `{0: 0, 1: 1, 5: 1, 2: 2, 4: 2, 3: 3}` |
-| star-5 | `{1: 1.0, 2: 1.0, 3: 1.0, 4: 1.0, 5: 1.0, 0: 0.0}` | `{0: 0, 1: 1, 2: 1, 3: 1, 4: 1, 5: 1}` | `{0: 0, 1: 1, 2: 1, 3: 1, 4: 1, 5: 1}` |
-| complete-4 | `{0: 0.0, 1: 1.0, 2: 1.0, 3: 1.0}` | `{0: 0, 1: 1, 2: 1, 3: 1}` | `{0: 0, 1: 1, 2: 1, 3: 1}` |
-| weighted-path-5 | `{0: 0.0, 1: 1.5, 4: 12.0, 3: 7.5, 2: 4.0}` | `{0: 0.0, 1: 1.5, 2: 4.0, 3: 7.5, 4: 12.0}` | `{0: 0, 1: 1.5, 2: 4.0, 3: 7.5, 4: 12.0}` |
-| weighted-postmut-5 | `{0: 0.0, 3: 3.0, 4: 4.0, 1: 1.0, 2: 2.0}` | `{0: 0.0, 1: 1.5, 2: 4.0, 3: 7.5, 4: 12.0}` | `{0: 0, 1: 1.5, 2: 4.0, 3: 7.5, 4: 12.0}` |
-| bipartite-3-3 | `{3: 1.0, 5: 1.0, 2: 2.0, 0: 0.0, 1: 2.0, 4: 1.0}` | `{0: 0, 3: 1, 4: 1, 5: 1, 1: 2, 2: 2}` | `{0: 0, 3: 1, 4: 1, 5: 1, 1: 2, 2: 2}` |
-| petersen | `{1: 1.0, 5: 1.0, 6: 2.0, 9: 2.0, 2: 2.0, 0: 0.0...` | `{0: 0, 1: 1, 4: 1, 5: 1, 2: 2, 6: 2, 3: 2, 9: 2...` | `{0: 0, 1: 1, 4: 1, 5: 1, 2: 2, 6: 2, 3: 2, 9: 2...` |
-| digraph-chain-5 | `{3: 3.0, 4: 4.0, 2: 2.0, 0: 0.0, 1: 1.0}` | `{0: 0, 1: 1, 2: 2, 3: 3, 4: 4}` | `{0: 0, 1: 1, 2: 2, 3: 3, 4: 4}` |
-| multigraph-path-5 | `{1: 1.0, 2: 2.0, 4: 4.0, 3: 3.0, 0: 0.0}` | `{0: 0, 1: 1, 2: 2, 3: 3, 4: 4}` | `{0: 0, 1: 1, 2: 2, 3: 3, 4: 4}` |
-| multidigraph-chain-5 | `{4: 4.0, 1: 1.0, 2: 2.0, 3: 3.0, 0: 0.0}` | `{0: 0, 1: 1, 2: 2, 3: 3, 4: 4}` | `{0: 0, 1: 1, 2: 2, 3: 3, 4: 4}` |
+| path-5 | `{1: 1.0, 4: 4.0, 3: 3.0, 2: 2.0, 0: 0.0}` | `{0: 0, 1: 1, 2: 2, 3: 3, 4: 4}` | `{0: 0, 1: 1, 2: 2, 3: 3, 4: 4}` |
+| cycle-6 | `{3: 3.0, 2: 2.0, 5: 1.0, 4: 2.0, 0: 0.0, 1: 1.0}` | `{0: 0, 1: 1, 5: 1, 2: 2, 4: 2, 3: 3}` | `{0: 0, 1: 1, 5: 1, 2: 2, 4: 2, 3: 3}` |
+| star-5 | `{5: 1.0, 4: 1.0, 3: 1.0, 0: 0.0, 2: 1.0, 1: 1.0}` | `{0: 0, 1: 1, 2: 1, 3: 1, 4: 1, 5: 1}` | `{0: 0, 1: 1, 2: 1, 3: 1, 4: 1, 5: 1}` |
+| complete-4 | `{0: 0.0, 3: 1.0, 1: 1.0, 2: 1.0}` | `{0: 0, 1: 1, 2: 1, 3: 1}` | `{0: 0, 1: 1, 2: 1, 3: 1}` |
+| weighted-path-5 | `{4: 12.0, 3: 7.5, 1: 1.5, 0: 0.0, 2: 4.0}` | `{0: 0.0, 1: 1.5, 2: 4.0, 3: 7.5, 4: 12.0}` | `{0: 0, 1: 1.5, 2: 4.0, 3: 7.5, 4: 12.0}` |
+| weighted-postmut-5 | `{0: 0.0, 2: 2.0, 3: 3.0, 4: 4.0, 1: 1.0}` | `{0: 0.0, 1: 1.5, 2: 4.0, 3: 7.5, 4: 12.0}` | `{0: 0, 1: 1.5, 2: 4.0, 3: 7.5, 4: 12.0}` |
+| bipartite-3-3 | `{5: 1.0, 2: 2.0, 3: 1.0, 1: 2.0, 4: 1.0, 0: 0.0}` | `{0: 0, 3: 1, 4: 1, 5: 1, 1: 2, 2: 2}` | `{0: 0, 3: 1, 4: 1, 5: 1, 1: 2, 2: 2}` |
+| petersen | `{8: 2.0, 2: 2.0, 6: 2.0, 1: 1.0, 5: 1.0, 4: 1.0...` | `{0: 0, 1: 1, 4: 1, 5: 1, 2: 2, 6: 2, 3: 2, 9: 2...` | `{0: 0, 1: 1, 4: 1, 5: 1, 2: 2, 6: 2, 3: 2, 9: 2...` |
+| digraph-chain-5 | `{2: 2.0, 1: 1.0, 0: 0.0, 3: 3.0, 4: 4.0}` | `{0: 0, 1: 1, 2: 2, 3: 3, 4: 4}` | `{0: 0, 1: 1, 2: 2, 3: 3, 4: 4}` |
+| multigraph-path-5 | `{1: 1.0, 2: 2.0, 3: 3.0, 0: 0.0, 4: 4.0}` | `{0: 0, 1: 1, 2: 2, 3: 3, 4: 4}` | `{0: 0, 1: 1, 2: 2, 3: 3, 4: 4}` |
+| multidigraph-chain-5 | `{0: 0.0, 1: 1.0, 3: 3.0, 4: 4.0, 2: 2.0}` | `{0: 0, 1: 1, 2: 2, 3: 3, 4: 4}` | `{0: 0, 1: 1, 2: 2, 3: 3, 4: 4}` |
 | empty | raises TypeError | raises TypeError | raises TypeError |
 | single-node | `{0: 0.0}` | `{0: 0}` | `{0: 0}` |
+| selfloop-path | `{0: 0.0, 1: 1.0, 2: 2.0}` | `{0: 0, 1: 1, 2: 2}` | `{0: 0, 1: 1, 2: 2}` |
+| two-components | `{0: 0.0, 1: 1.0}` | `{0: 0, 1: 1}` | `{0: 0, 1: 1}` |
+| negative-weights-digraph | `{2: 2.0, 0: 0.0, 1: 1.0}` | `{0: 0, 1: -1.0, 2: -3.0}` | `{0: 0, 1: -1.0, 2: -3.0}` |
 
 ### `transitivity`
 
@@ -810,3 +933,6 @@ Functions audited: **51**
 | multidigraph-chain-5 | raises NetworkXNotImplemented | raises NetworkXNotImplemented | raises NetworkXNotImplemented |
 | empty | `0.0` | `0` | `0` |
 | single-node | `0.0` | `0` | `0` |
+| selfloop-path | `0.0` | `0` | `0` |
+| two-components | `0.0` | `0` | `0` |
+| negative-weights-digraph | raises NetworkXNotImplemented | `0` | `0` |

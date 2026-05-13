@@ -2353,13 +2353,6 @@
       "evidence": ""
     },
     {
-      "name": "colliders",
-      "category": "intentionally-delegated",
-      "source": "static-classification",
-      "note": "wrapper calls _call_networkx_for_parity exclusively",
-      "evidence": ""
-    },
-    {
       "name": "common_neighbors",
       "category": "native-parity",
       "source": "static-classification",
@@ -2773,13 +2766,6 @@
       "evidence": ""
     },
     {
-      "name": "has_cycle",
-      "category": "intentionally-delegated",
-      "source": "static-classification",
-      "note": "wrapper calls _call_networkx_for_parity exclusively",
-      "evidence": ""
-    },
-    {
       "name": "has_eulerian_path",
       "category": "intentionally-delegated",
       "source": "static-classification",
@@ -3180,9 +3166,9 @@
     },
     {
       "name": "maximum_spanning_arborescence",
-      "category": "native-parity",
+      "category": "intentionally-delegated",
       "source": "static-classification",
-      "note": "static=rust-native; raw-vs-public=unaudited",
+      "note": "mixed-route: wrapper has both _raw_<X> and parity-helper paths",
       "evidence": ""
     },
     {
@@ -3257,9 +3243,9 @@
     },
     {
       "name": "minimum_spanning_arborescence",
-      "category": "native-parity",
+      "category": "intentionally-delegated",
       "source": "static-classification",
-      "note": "static=rust-native; raw-vs-public=unaudited",
+      "note": "mixed-route: wrapper has both _raw_<X> and parity-helper paths",
       "evidence": ""
     },
     {
@@ -3288,13 +3274,6 @@
       "category": "intentionally-delegated",
       "source": "static-classification",
       "note": "mixed-route: wrapper has both _raw_<X> and parity-helper paths",
-      "evidence": ""
-    },
-    {
-      "name": "mutual_weight",
-      "category": "intentionally-delegated",
-      "source": "static-classification",
-      "note": "wrapper calls _call_networkx_for_parity exclusively",
       "evidence": ""
     },
     {
@@ -3351,13 +3330,6 @@
       "category": "intentionally-delegated",
       "source": "static-classification",
       "note": "mixed-route: wrapper has both _raw_<X> and parity-helper paths",
-      "evidence": ""
-    },
-    {
-      "name": "normalized_mutual_weight",
-      "category": "intentionally-delegated",
-      "source": "static-classification",
-      "note": "wrapper calls _call_networkx_for_parity exclusively",
       "evidence": ""
     },
     {
@@ -3711,13 +3683,6 @@
       "evidence": ""
     },
     {
-      "name": "v_structures",
-      "category": "intentionally-delegated",
-      "source": "static-classification",
-      "note": "wrapper calls _call_networkx_for_parity exclusively",
-      "evidence": ""
-    },
-    {
       "name": "weakly_connected_components",
       "category": "native-parity",
       "source": "static-classification",
@@ -3754,6 +3719,13 @@
     },
     {
       "name": "single_source_bellman_ford_path_length",
+      "category": "wrapper-patched",
+      "source": "raw-vs-public-audit",
+      "note": "raw output is post-processed by wrapper to match nx",
+      "evidence": "docs/raw_vs_public_audit.md"
+    },
+    {
+      "name": "dijkstra_path_length",
       "category": "wrapper-patched",
       "source": "raw-vs-public-audit",
       "note": "raw output is post-processed by wrapper to match nx",
@@ -3823,6 +3795,34 @@
       "evidence": "docs/raw_vs_public_audit.md"
     },
     {
+      "name": "diameter",
+      "category": "wrapper-patched",
+      "source": "raw-vs-public-audit",
+      "note": "raw output is post-processed by wrapper to match nx",
+      "evidence": "docs/raw_vs_public_audit.md"
+    },
+    {
+      "name": "radius",
+      "category": "wrapper-patched",
+      "source": "raw-vs-public-audit",
+      "note": "raw output is post-processed by wrapper to match nx",
+      "evidence": "docs/raw_vs_public_audit.md"
+    },
+    {
+      "name": "center",
+      "category": "wrapper-patched",
+      "source": "raw-vs-public-audit",
+      "note": "raw output is post-processed by wrapper to match nx",
+      "evidence": "docs/raw_vs_public_audit.md"
+    },
+    {
+      "name": "periphery",
+      "category": "wrapper-patched",
+      "source": "raw-vs-public-audit",
+      "note": "raw output is post-processed by wrapper to match nx",
+      "evidence": "docs/raw_vs_public_audit.md"
+    },
+    {
       "name": "eccentricity",
       "category": "wrapper-patched",
       "source": "raw-vs-public-audit",
@@ -3837,6 +3837,13 @@
       "evidence": "docs/raw_vs_public_audit.md"
     },
     {
+      "name": "barycenter",
+      "category": "wrapper-patched",
+      "source": "raw-vs-public-audit",
+      "note": "raw output is post-processed by wrapper to match nx",
+      "evidence": "docs/raw_vs_public_audit.md"
+    },
+    {
       "name": "find_cliques",
       "category": "wrapper-patched",
       "source": "raw-vs-public-audit",
@@ -3845,6 +3852,20 @@
     },
     {
       "name": "greedy_color",
+      "category": "wrapper-patched",
+      "source": "raw-vs-public-audit",
+      "note": "raw output is post-processed by wrapper to match nx",
+      "evidence": "docs/raw_vs_public_audit.md"
+    },
+    {
+      "name": "dag_longest_path",
+      "category": "wrapper-patched",
+      "source": "raw-vs-public-audit",
+      "note": "raw output is post-processed by wrapper to match nx",
+      "evidence": "docs/raw_vs_public_audit.md"
+    },
+    {
+      "name": "dag_longest_path_length",
       "category": "wrapper-patched",
       "source": "raw-vs-public-audit",
       "note": "raw output is post-processed by wrapper to match nx",
@@ -8027,7 +8048,13 @@
     },
     "barycenter": {
       "native-parity": [],
-      "wrapper-patched": [],
+      "wrapper-patched": [
+        {
+          "source": "raw-vs-public-audit",
+          "note": "raw output is post-processed by wrapper to match nx",
+          "evidence": "docs/raw_vs_public_audit.md"
+        }
+      ],
       "intentionally-delegated": [
         {
           "source": "static-classification",
@@ -8195,7 +8222,13 @@
     },
     "center": {
       "native-parity": [],
-      "wrapper-patched": [],
+      "wrapper-patched": [
+        {
+          "source": "raw-vs-public-audit",
+          "note": "raw output is post-processed by wrapper to match nx",
+          "evidence": "docs/raw_vs_public_audit.md"
+        }
+      ],
       "intentionally-delegated": [
         {
           "source": "static-classification",
@@ -8268,19 +8301,6 @@
       ],
       "wrapper-patched": [],
       "intentionally-delegated": [],
-      "raw-known-gap": [],
-      "owner-acknowledged-limitation": []
-    },
-    "colliders": {
-      "native-parity": [],
-      "wrapper-patched": [],
-      "intentionally-delegated": [
-        {
-          "source": "static-classification",
-          "note": "wrapper calls _call_networkx_for_parity exclusively",
-          "evidence": ""
-        }
-      ],
       "raw-known-gap": [],
       "owner-acknowledged-limitation": []
     },
@@ -8403,7 +8423,13 @@
     },
     "dag_longest_path_length": {
       "native-parity": [],
-      "wrapper-patched": [],
+      "wrapper-patched": [
+        {
+          "source": "raw-vs-public-audit",
+          "note": "raw output is post-processed by wrapper to match nx",
+          "evidence": "docs/raw_vs_public_audit.md"
+        }
+      ],
       "intentionally-delegated": [
         {
           "source": "static-classification",
@@ -8487,7 +8513,13 @@
     },
     "diameter": {
       "native-parity": [],
-      "wrapper-patched": [],
+      "wrapper-patched": [
+        {
+          "source": "raw-vs-public-audit",
+          "note": "raw output is post-processed by wrapper to match nx",
+          "evidence": "docs/raw_vs_public_audit.md"
+        }
+      ],
       "intentionally-delegated": [
         {
           "source": "static-classification",
@@ -8526,7 +8558,13 @@
     },
     "dijkstra_path_length": {
       "native-parity": [],
-      "wrapper-patched": [],
+      "wrapper-patched": [
+        {
+          "source": "raw-vs-public-audit",
+          "note": "raw output is post-processed by wrapper to match nx",
+          "evidence": "docs/raw_vs_public_audit.md"
+        }
+      ],
       "intentionally-delegated": [
         {
           "source": "static-classification",
@@ -9069,19 +9107,6 @@
       "owner-acknowledged-limitation": []
     },
     "harmonic_function": {
-      "native-parity": [],
-      "wrapper-patched": [],
-      "intentionally-delegated": [
-        {
-          "source": "static-classification",
-          "note": "wrapper calls _call_networkx_for_parity exclusively",
-          "evidence": ""
-        }
-      ],
-      "raw-known-gap": [],
-      "owner-acknowledged-limitation": []
-    },
-    "has_cycle": {
       "native-parity": [],
       "wrapper-patched": [],
       "intentionally-delegated": [
@@ -9848,15 +9873,15 @@
       "owner-acknowledged-limitation": []
     },
     "maximum_spanning_arborescence": {
-      "native-parity": [
+      "native-parity": [],
+      "wrapper-patched": [],
+      "intentionally-delegated": [
         {
           "source": "static-classification",
-          "note": "static=rust-native; raw-vs-public=unaudited",
+          "note": "mixed-route: wrapper has both _raw_<X> and parity-helper paths",
           "evidence": ""
         }
       ],
-      "wrapper-patched": [],
-      "intentionally-delegated": [],
       "raw-known-gap": [],
       "owner-acknowledged-limitation": []
     },
@@ -9991,15 +10016,15 @@
       "owner-acknowledged-limitation": []
     },
     "minimum_spanning_arborescence": {
-      "native-parity": [
+      "native-parity": [],
+      "wrapper-patched": [],
+      "intentionally-delegated": [
         {
           "source": "static-classification",
-          "note": "static=rust-native; raw-vs-public=unaudited",
+          "note": "mixed-route: wrapper has both _raw_<X> and parity-helper paths",
           "evidence": ""
         }
       ],
-      "wrapper-patched": [],
-      "intentionally-delegated": [],
       "raw-known-gap": [],
       "owner-acknowledged-limitation": []
     },
@@ -10049,19 +10074,6 @@
         {
           "source": "static-classification",
           "note": "mixed-route: wrapper has both _raw_<X> and parity-helper paths",
-          "evidence": ""
-        }
-      ],
-      "raw-known-gap": [],
-      "owner-acknowledged-limitation": []
-    },
-    "mutual_weight": {
-      "native-parity": [],
-      "wrapper-patched": [],
-      "intentionally-delegated": [
-        {
-          "source": "static-classification",
-          "note": "wrapper calls _call_networkx_for_parity exclusively",
           "evidence": ""
         }
       ],
@@ -10166,19 +10178,6 @@
         {
           "source": "static-classification",
           "note": "mixed-route: wrapper has both _raw_<X> and parity-helper paths",
-          "evidence": ""
-        }
-      ],
-      "raw-known-gap": [],
-      "owner-acknowledged-limitation": []
-    },
-    "normalized_mutual_weight": {
-      "native-parity": [],
-      "wrapper-patched": [],
-      "intentionally-delegated": [
-        {
-          "source": "static-classification",
-          "note": "wrapper calls _call_networkx_for_parity exclusively",
           "evidence": ""
         }
       ],
@@ -10343,7 +10342,13 @@
     },
     "periphery": {
       "native-parity": [],
-      "wrapper-patched": [],
+      "wrapper-patched": [
+        {
+          "source": "raw-vs-public-audit",
+          "note": "raw output is post-processed by wrapper to match nx",
+          "evidence": "docs/raw_vs_public_audit.md"
+        }
+      ],
       "intentionally-delegated": [
         {
           "source": "static-classification",
@@ -10369,7 +10374,13 @@
     },
     "radius": {
       "native-parity": [],
-      "wrapper-patched": [],
+      "wrapper-patched": [
+        {
+          "source": "raw-vs-public-audit",
+          "note": "raw output is post-processed by wrapper to match nx",
+          "evidence": "docs/raw_vs_public_audit.md"
+        }
+      ],
       "intentionally-delegated": [
         {
           "source": "static-classification",
@@ -10853,19 +10864,6 @@
       "raw-known-gap": [],
       "owner-acknowledged-limitation": []
     },
-    "v_structures": {
-      "native-parity": [],
-      "wrapper-patched": [],
-      "intentionally-delegated": [
-        {
-          "source": "static-classification",
-          "note": "wrapper calls _call_networkx_for_parity exclusively",
-          "evidence": ""
-        }
-      ],
-      "raw-known-gap": [],
-      "owner-acknowledged-limitation": []
-    },
     "weakly_connected_components": {
       "native-parity": [
         {
@@ -10915,6 +10913,19 @@
           "evidence": ""
         }
       ],
+      "raw-known-gap": [],
+      "owner-acknowledged-limitation": []
+    },
+    "dag_longest_path": {
+      "native-parity": [],
+      "wrapper-patched": [
+        {
+          "source": "raw-vs-public-audit",
+          "note": "raw output is post-processed by wrapper to match nx",
+          "evidence": "docs/raw_vs_public_audit.md"
+        }
+      ],
+      "intentionally-delegated": [],
       "raw-known-gap": [],
       "owner-acknowledged-limitation": []
     },

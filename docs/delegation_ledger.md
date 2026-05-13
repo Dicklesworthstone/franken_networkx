@@ -15,8 +15,8 @@ Counts derived from `python/franken_networkx/__init__.py` AST. Categories:
 | classification | count |
 |----------------|-------|
 | `mixed-route` | 62 |
-| `nx-fallback` | 93 |
-| `py-wrapper` | 1027 |
+| `nx-fallback` | 88 |
+| `py-wrapper` | 1032 |
 | `rust-native` | 77 |
 | `rust-reexport` | 303 |
 
@@ -188,7 +188,7 @@ Per-(function, shape) instrumentation. Wraps `_call_networkx_for_parity` and eve
 | `closeness_vitality` | `py-wrapper` | no | — |
 | `clustering` | `rust-native` | no | `_raw_clustering` |
 | `cn_soundarajan_hopcroft` | `py-wrapper` | no | — |
-| `colliders` | `nx-fallback` | yes | — |
+| `colliders` | `py-wrapper` | no | — |
 | `color` | `py-wrapper` | no | — |
 | `combinatorial_embedding_to_pos` | `py-wrapper` | no | — |
 | `common_neighbor_centrality` | `py-wrapper` | no | — |
@@ -427,7 +427,7 @@ Per-(function, shape) instrumentation. Wraps `_call_networkx_for_parity` and eve
 | `harmonic_diameter` | `nx-fallback` | yes | — |
 | `harmonic_function` | `nx-fallback` | yes | — |
 | `has_bridges` | `py-wrapper` | no | — |
-| `has_cycle` | `nx-fallback` | yes | — |
+| `has_cycle` | `py-wrapper` | no | — |
 | `has_eulerian_path` | `mixed-route` | yes | `_raw_has_eulerian_path` |
 | `has_path` | `mixed-route` | yes | `_raw_has_path` |
 | `havel_hakimi_graph` | `py-wrapper` | no | — |
@@ -629,7 +629,7 @@ Per-(function, shape) instrumentation. Wraps `_call_networkx_for_parity` and eve
 | `multi_source_dijkstra_path` | `py-wrapper` | no | — |
 | `multi_source_dijkstra_path_length` | `py-wrapper` | no | — |
 | `multipartite_layout` | `untracked` |  |  |
-| `mutual_weight` | `nx-fallback` | yes | — |
+| `mutual_weight` | `py-wrapper` | no | — |
 | `mycielski_graph` | `py-wrapper` | no | — |
 | `mycielskian` | `py-wrapper` | no | — |
 | `navigable_small_world_graph` | `py-wrapper` | no | — |
@@ -659,7 +659,7 @@ Per-(function, shape) instrumentation. Wraps `_call_networkx_for_parity` and eve
 | `normalized_cut_size` | `mixed-route` | yes | `_raw_normalized_cut_size` |
 | `normalized_laplacian_matrix` | `py-wrapper` | no | — |
 | `normalized_laplacian_spectrum` | `py-wrapper` | no | — |
-| `normalized_mutual_weight` | `nx-fallback` | yes | — |
+| `normalized_mutual_weight` | `py-wrapper` | no | — |
 | `null_graph` | `py-wrapper` | no | — |
 | `number_attracting_components` | `rust-native` | no | `_raw_number_attracting_components` |
 | `number_connected_components` | `rust-native` | no | `_raw_number_connected_components` |
@@ -905,7 +905,7 @@ Per-(function, shape) instrumentation. Wraps `_call_networkx_for_parity` and eve
 | `uniform_random_intersection_graph` | `py-wrapper` | no | — |
 | `union` | `rust-native` | no | `_raw_union` |
 | `union_all` | `py-wrapper` | no | — |
-| `v_structures` | `nx-fallback` | yes | — |
+| `v_structures` | `py-wrapper` | no | — |
 | `vf2pp_all_isomorphisms` | `py-wrapper` | no | — |
 | `vf2pp_is_isomorphic` | `py-wrapper` | no | — |
 | `vf2pp_isomorphism` | `py-wrapper` | no | — |

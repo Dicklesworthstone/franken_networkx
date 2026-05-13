@@ -37,7 +37,7 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 | Divergence state | Rows | Rule |
 |------------------|------|------|
 | native-parity | 16 | public Rust-native export; no Python fallback route detected |
-| wrapper-patched | 17 | public wrapper records a compatibility repair over a lower-level gap |
+| wrapper-patched | 25 | public wrapper records a compatibility repair over a lower-level gap |
 | intentionally-delegated | 143 | AST-visible parity helper or direct NetworkX route |
 | raw-known-gap | 2 | lower-level raw/native implementation has a documented parity gap |
 | owner-acknowledged-limitation | 2 | documented limitation is intentionally owned until native repair |
@@ -49,10 +49,16 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 | wrapper-patched | `all_pairs_dijkstra_path_length` | PY_WRAPPER | raw-vs-public-audit | `docs/raw_vs_public_audit.md` | raw output is post-processed by wrapper to match nx |
 | wrapper-patched | `all_pairs_shortest_path_length` | PY_WRAPPER | raw-vs-public-audit | `docs/raw_vs_public_audit.md` | raw output is post-processed by wrapper to match nx |
 | wrapper-patched | `astar_path_length` | PY_WRAPPER | raw-vs-public-audit | `docs/raw_vs_public_audit.md` | raw output is post-processed by wrapper to match nx |
+| wrapper-patched | `barycenter` | PY_WRAPPER | raw-vs-public-audit | `docs/raw_vs_public_audit.md` | raw output is post-processed by wrapper to match nx |
 | wrapper-patched | `biconnected_components` | PY_WRAPPER | raw-vs-public-audit | `docs/raw_vs_public_audit.md` | raw output is post-processed by wrapper to match nx |
 | wrapper-patched | `bridges` | PY_WRAPPER | raw-vs-public-audit | `docs/raw_vs_public_audit.md` | raw output is post-processed by wrapper to match nx |
+| wrapper-patched | `center` | PY_WRAPPER | raw-vs-public-audit | `docs/raw_vs_public_audit.md` | raw output is post-processed by wrapper to match nx |
+| wrapper-patched | `dag_longest_path` | PY_WRAPPER | raw-vs-public-audit | `docs/raw_vs_public_audit.md` | raw output is post-processed by wrapper to match nx |
+| wrapper-patched | `dag_longest_path_length` | PY_WRAPPER | raw-vs-public-audit | `docs/raw_vs_public_audit.md` | raw output is post-processed by wrapper to match nx |
 | wrapper-patched | `degree_centrality` | PY_WRAPPER | raw-vs-public-audit | `docs/raw_vs_public_audit.md` | raw output is post-processed by wrapper to match nx |
 | wrapper-patched | `degree_histogram` | PY_WRAPPER | raw-vs-public-audit | `docs/raw_vs_public_audit.md` | raw output is post-processed by wrapper to match nx |
+| wrapper-patched | `diameter` | PY_WRAPPER | raw-vs-public-audit | `docs/raw_vs_public_audit.md` | raw output is post-processed by wrapper to match nx |
+| wrapper-patched | `dijkstra_path_length` | PY_WRAPPER | raw-vs-public-audit | `docs/raw_vs_public_audit.md` | raw output is post-processed by wrapper to match nx |
 | wrapper-patched | `eccentricity` | PY_WRAPPER | raw-vs-public-audit | `docs/raw_vs_public_audit.md` | raw output is post-processed by wrapper to match nx |
 | wrapper-patched | `find_cliques` | PY_WRAPPER | raw-vs-public-audit | `docs/raw_vs_public_audit.md` | raw output is post-processed by wrapper to match nx |
 | wrapper-patched | `girth` | PY_WRAPPER | raw-vs-public-audit | `docs/raw_vs_public_audit.md` | raw output is post-processed by wrapper to match nx |
@@ -60,6 +66,8 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 | wrapper-patched | `is_forest` | PY_WRAPPER | raw-vs-public-audit | `docs/raw_vs_public_audit.md` | raw output is post-processed by wrapper to match nx |
 | wrapper-patched | `is_planar` | PY_WRAPPER | bead:br-isplanarbroken | `python/franken_networkx/__init__.py:br-isplanarbroken` | public wrapper routes through check_planarity so K3,3/Petersen match NetworkX |
 | wrapper-patched | `is_tree` | PY_WRAPPER | raw-vs-public-audit | `docs/raw_vs_public_audit.md` | raw output is post-processed by wrapper to match nx |
+| wrapper-patched | `periphery` | PY_WRAPPER | raw-vs-public-audit | `docs/raw_vs_public_audit.md` | raw output is post-processed by wrapper to match nx |
+| wrapper-patched | `radius` | PY_WRAPPER | raw-vs-public-audit | `docs/raw_vs_public_audit.md` | raw output is post-processed by wrapper to match nx |
 | wrapper-patched | `single_source_bellman_ford_path_length` | PY_WRAPPER | raw-vs-public-audit | `docs/raw_vs_public_audit.md` | raw output is post-processed by wrapper to match nx |
 | wrapper-patched | `single_source_dijkstra_path_length` | PY_WRAPPER | raw-vs-public-audit | `docs/raw_vs_public_audit.md` | raw output is post-processed by wrapper to match nx |
 | wrapper-patched | `transitivity` | PY_WRAPPER | raw-vs-public-audit | `docs/raw_vs_public_audit.md` | raw output is post-processed by wrapper to match nx |

@@ -3950,6 +3950,20 @@ pub fn core_number(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>>
     // bucket-based k-core decomposition); mirror that contract.
     require_not_multigraph(&gr)?;
     let inner = gr.undirected();
+    // br-r37-c1-ftorb: nx also rejects self-loops because the bucket
+    // decomposition double-counts loops in the degree, producing wrong
+    // core numbers. nx raises NetworkXNotImplemented with a remediation
+    // hint; mirror it.
+    for node in inner.nodes_ordered() {
+        if let Some(neighbors) = inner.neighbors(node)
+            && neighbors.iter().any(|&n| n == node)
+        {
+            return Err(crate::NetworkXNotImplemented::new_err(
+                "Input graph has self loops which is not permitted; \
+                 Consider using G.remove_edges_from(nx.selfloop_edges(G)).",
+            ));
+        }
+    }
     let result = py.allow_threads(|| fnx_algorithms::core_number(inner));
     let dict = PyDict::new(py);
     for nc in &result.core_numbers {
@@ -9840,9 +9854,19 @@ fn barycenter(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Vec<PyObject>> {
     if inner.node_count() > 0 {
         let connected = py.allow_threads(|| fnx_algorithms::is_connected(inner).is_connected);
         if !connected {
-            return Err(NetworkXNoPath::new_err(
-                "Input graph is disconnected, so every induced subgraph has infinite barycentricity.",
-            ));
+            // br-r37-c1-ftorb: nx's error message includes the graph
+            // repr ("Graph with N nodes and M edges"). Mirror that
+            // shape so users matching on the message string keep
+            // working when migrating from nx.
+            let kind = if gr.is_directed() { "DiGraph" } else { "Graph" };
+            let msg = format!(
+                "Input graph {} with {} nodes and {} edges is disconnected, \
+                 so every induced subgraph has infinite barycentricity.",
+                kind,
+                inner.node_count(),
+                inner.edge_count(),
+            );
+            return Err(NetworkXNoPath::new_err(msg));
         }
     }
     let result = py.allow_threads(|| fnx_algorithms::barycenter(inner));
