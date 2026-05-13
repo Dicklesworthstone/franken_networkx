@@ -34022,6 +34022,12 @@ def gomory_hu_tree(G, capacity="capacity", flow_func=None):
 
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
+    # br-r37-c1-yj4b3: nx rejects MultiGraph/MultiDiGraph explicitly
+    # before any capacity check with NetworkXError. Previously fnx's
+    # MultiGraph path fell through to the infinite-capacity check and
+    # raised NetworkXUnbounded — wrong error class. Match nx contract.
+    if G.is_multigraph():
+        raise NetworkXError("MultiGraph and MultiDiGraph not supported (yet).")
     if len(G) == 0:
         raise NetworkXError("Empty Graph does not have a Gomory-Hu tree representation")
 
