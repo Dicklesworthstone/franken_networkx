@@ -8241,7 +8241,14 @@ def efficiency(G, u, v):
     its underlying single_source_shortest_path call; the Rust
     binding emitted ``Node {u} is not in G``.  Re-raising with
     nx's exact wording keeps regex-matching tests intact.
+
+    br-r37-c1-t2gyx: nx applies @not_implemented_for("directed")
+    decorator before the function body — directed input should raise
+    NetworkXNotImplemented, not return a centrality value computed
+    over the undirected projection. fnx previously silently accepted.
     """
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
     try:
         path_length = shortest_path_length(G, u, v)
     except NetworkXNoPath:
@@ -13528,11 +13535,26 @@ from franken_networkx._fnx import (
     all_pairs_bellman_ford_path_length as _raw_all_pairs_bellman_ford_path_length,
     floyd_warshall as _raw_floyd_warshall,
     floyd_warshall_predecessor_and_distance as _raw_floyd_warshall_predecessor_and_distance,
-    bidirectional_shortest_path,
+    bidirectional_shortest_path as _raw_bidirectional_shortest_path,
     negative_edge_cycle as _raw_negative_edge_cycle,
     predecessor as _raw_predecessor,
     path_weight,
 )
+
+
+def bidirectional_shortest_path(G, source, target):
+    """Return the shortest path between source and target via two-way BFS.
+
+    br-r37-c1-t2gyx: the Rust kernel ``_raw_bidirectional_shortest_path``
+    has ``require_undirected`` and rejects directed input. nx supports
+    DiGraph (forward BFS from source + backward BFS from target, meeting
+    in the middle). Delegate directed input to nx.
+    """
+    if G.is_directed():
+        return _call_networkx_for_parity(
+            "bidirectional_shortest_path", G, source, target
+        )
+    return _raw_bidirectional_shortest_path(G, source, target)
 
 
 def is_aperiodic(G):
