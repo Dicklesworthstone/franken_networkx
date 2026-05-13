@@ -7704,8 +7704,13 @@ def minimum_branching(G, attr="weight", default=1, preserve_attrs=False, partiti
     Graph since branchings are tree-shaped; an undirected graph has
     no branching with positive sum). Delegate the undirected case so
     drop-in code works.
+
+    br-r37-c1-s8x7z: the Rust kernel matches only ``GraphRef::Directed``
+    (simple DiGraph) and rejects MultiDiGraph with a custom error
+    message. nx accepts MultiDiGraph. Delegate multigraph input to nx
+    so drop-in callers using MultiDiGraph keep working.
     """
-    if partition is not None or not G.is_directed():
+    if partition is not None or not G.is_directed() or G.is_multigraph():
         return _call_networkx_for_parity(
             "minimum_branching", _branching_partition_graph_for_networkx(G, partition),
             attr=attr, default=default,
@@ -7725,8 +7730,11 @@ def maximum_branching(G, attr="weight", default=1, preserve_attrs=False, partiti
     br-r37-c1-ugod2: nx accepts undirected graphs (returns the
     maximum-weight spanning result). Delegate to nx for undirected
     so drop-in code works.
+
+    br-r37-c1-s8x7z: also delegate MultiDiGraph; the Rust kernel
+    rejects MultiDiGraph but nx accepts it.
     """
-    if partition is not None or not G.is_directed():
+    if partition is not None or not G.is_directed() or G.is_multigraph():
         return _call_networkx_for_parity(
             "maximum_branching", _branching_partition_graph_for_networkx(G, partition),
             attr=attr, default=default,
@@ -7745,10 +7753,14 @@ def minimum_spanning_arborescence(G, attr="weight", default=1, preserve_attrs=Fa
     br-r37-c1-ugod2: nx raises NetworkXNotImplemented('not implemented
     for undirected type') for undirected input — translate the Rust
     binding's custom message to match.
+
+    br-r37-c1-s8x7z: also delegate MultiDiGraph; the Rust kernel only
+    matches simple DiGraph and rejects MultiDiGraph with a custom
+    message, while nx accepts MultiDiGraph.
     """
     if not G.is_directed():
         raise NetworkXNotImplemented("not implemented for undirected type")
-    if partition is not None:
+    if partition is not None or G.is_multigraph():
         return _call_networkx_for_parity(
             "minimum_spanning_arborescence",
             _branching_partition_graph_for_networkx(G, partition),
@@ -7768,10 +7780,13 @@ def maximum_spanning_arborescence(G, attr="weight", default=1, preserve_attrs=Fa
     """br-isokw: ``G`` matches nx; default aligned to int 1.
 
     br-r37-c1-ugod2: same nx-message alignment as minimum_spanning_arborescence.
+
+    br-r37-c1-s8x7z: also delegate MultiDiGraph (Rust kernel rejects
+    multigraph but nx accepts).
     """
     if not G.is_directed():
         raise NetworkXNotImplemented("not implemented for undirected type")
-    if partition is not None:
+    if partition is not None or G.is_multigraph():
         return _call_networkx_for_parity(
             "maximum_spanning_arborescence",
             _branching_partition_graph_for_networkx(G, partition),
