@@ -37936,15 +37936,17 @@ def to_edgelist(G, nodelist=None):
 
     Returns
     -------
-    edges : list of tuples
-        Each element is ``(u, v, data_dict)``.
+    edges : EdgeDataView (or similar iterable)
+        Iterable of ``(u, v, data_dict)``.
+
+    br-r37-c1-rsvst: nx returns ``G.edges(data=True)`` directly — an
+    EdgeDataView, not a materialized list. fnx previously materialized
+    the list which broke isinstance checks against
+    ``networkx.EdgeDataView``. Mirror nx by returning the view itself.
     """
     if nodelist is not None:
-        nodeset = set(nodelist)
-        return [
-            (u, v, d) for u, v, d in G.edges(data=True) if u in nodeset and v in nodeset
-        ]
-    return list(G.edges(data=True))
+        return G.edges(nodelist, data=True)
+    return G.edges(data=True)
 
 
 def convert_node_labels_to_integers(

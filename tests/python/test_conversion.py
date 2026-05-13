@@ -553,9 +553,11 @@ class TestEdgelist:
         G = fnx.Graph()
         G.add_edge(0, 1, weight=1.0)
         G.add_edge(1, 2, weight=2.0)
-        el = fnx.to_edgelist(G)
+        # br-r37-c1-rsvst: to_edgelist now returns G.edges(data=True)
+        # directly (an EdgeDataView, matching nx). Materialize via
+        # list() before subscripting.
+        el = list(fnx.to_edgelist(G))
         assert len(el) == 2
-        # Each element is (u, v, data_dict)
         assert len(el[0]) == 3
 
         H = fnx.from_edgelist([(u, v) for u, v, _ in el])
@@ -565,8 +567,15 @@ class TestEdgelist:
         G = fnx.Graph()
         G.add_edge(0, 1)
         G.add_edge(1, 2)
-        el = fnx.to_edgelist(G, nodelist=[0, 1])
-        assert len(el) == 1
+        # br-r37-c1-rsvst: nodelist semantics now match nx — edges
+        # incident to ANY node in nodelist, not just edges fully within
+        # nodelist. Passing nodelist=[0, 1] therefore includes (1, 2)
+        # too because 1 ∈ nodelist.
+        el = list(fnx.to_edgelist(G, nodelist=[0, 1]))
+        assert len(el) == 2
+        edge_set = {(u, v) for u, v, _ in el}
+        assert (0, 1) in edge_set
+        assert (1, 2) in edge_set
 
     def test_from_edgelist_with_data(self):
         edges = [(0, 1, {"weight": 1.0}), (1, 2, {"weight": 2.0})]
