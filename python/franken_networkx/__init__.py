@@ -31405,7 +31405,18 @@ def k_edge_components(G, k):
     br-kedgegen: nx returns a generator of components; wrap the list
     in iter() so drop-in callers that do ``next(k_edge_components(...))``
     work.
+
+    br-r37-c1-67dnc: nx's k_edge_components uses
+    ``@not_implemented_for('multigraph')`` only — DiGraph IS supported.
+    fnx's implementation reuses bridges() (undirected-only) so was
+    accidentally rejecting DiGraph downstream while silently accepting
+    MultiGraph (working on the simple-graph projection). Add explicit
+    multigraph rejection + DiGraph delegation to match nx.
     """
+    if G.is_multigraph():
+        raise NetworkXNotImplemented("not implemented for multigraph type")
+    if G.is_directed():
+        return iter(_call_networkx_for_parity("k_edge_components", G, k))
     return iter(_k_edge_components_list(G, k))
 
 
@@ -31490,7 +31501,16 @@ def _k_edge_components_list(G, k):
 
 
 def k_edge_subgraphs(G, k):
-    """Yield k-edge-connected component subgraphs."""
+    """Yield k-edge-connected component subgraphs.
+
+    br-r37-c1-67dnc: same wrong-type handling as k_edge_components —
+    nx supports DiGraph and rejects MultiGraph.
+    """
+    if G.is_multigraph():
+        raise NetworkXNotImplemented("not implemented for multigraph type")
+    if G.is_directed():
+        yield from _call_networkx_for_parity("k_edge_subgraphs", G, k)
+        return
     for comp in _k_edge_components_list(G, k):
         yield G.subgraph(comp)
 
