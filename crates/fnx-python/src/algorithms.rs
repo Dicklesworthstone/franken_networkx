@@ -3956,7 +3956,7 @@ pub fn core_number(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>>
     // hint; mirror it.
     for node in inner.nodes_ordered() {
         if let Some(neighbors) = inner.neighbors(node)
-            && neighbors.iter().any(|&n| n == node)
+            && neighbors.contains(&node)
         {
             return Err(crate::NetworkXNotImplemented::new_err(
                 "Input graph has self loops which is not permitted; \
