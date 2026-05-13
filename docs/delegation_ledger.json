@@ -478,6 +478,15 @@
       "body_lines": 6
     },
     {
+      "name": "_branching_partition_graph_for_networkx",
+      "classification": "py-wrapper",
+      "is_rust_reexport": false,
+      "calls_parity_helper": false,
+      "calls_raw_rust": false,
+      "raw_rust_targets": [],
+      "body_lines": 13
+    },
+    {
       "name": "_build_flow_residual_network",
       "classification": "py-wrapper",
       "is_rust_reexport": false,
@@ -2206,6 +2215,15 @@
       "body_lines": 8
     },
     {
+      "name": "_is_triangle_free_with_edges",
+      "classification": "py-wrapper",
+      "is_rust_reexport": false,
+      "calls_parity_helper": false,
+      "calls_raw_rust": false,
+      "raw_rust_targets": [],
+      "body_lines": 14
+    },
+    {
       "name": "_is_valid_tree_degree_sequence_via_nx",
       "classification": "py-wrapper",
       "is_rust_reexport": false,
@@ -2447,6 +2465,15 @@
       "calls_raw_rust": false,
       "raw_rust_targets": [],
       "body_lines": 18
+    },
+    {
+      "name": "_loopless_simple_undirected_edges",
+      "classification": "py-wrapper",
+      "is_rust_reexport": false,
+      "calls_parity_helper": false,
+      "calls_raw_rust": false,
+      "raw_rust_targets": [],
+      "body_lines": 8
     },
     {
       "name": "_louvain_impl",
@@ -6760,6 +6787,15 @@
       "body_lines": 5
     },
     {
+      "name": "_validate_fiedler_method",
+      "classification": "py-wrapper",
+      "is_rust_reexport": false,
+      "calls_parity_helper": false,
+      "calls_raw_rust": false,
+      "raw_rust_targets": [],
+      "body_lines": 2
+    },
+    {
       "name": "_validate_flow_func_selector",
       "classification": "py-wrapper",
       "is_rust_reexport": false,
@@ -7036,7 +7072,7 @@
       "calls_parity_helper": false,
       "calls_raw_rust": false,
       "raw_rust_targets": [],
-      "body_lines": 50
+      "body_lines": 57
     },
     {
       "name": "all_neighbors",
@@ -9213,7 +9249,7 @@
       "calls_parity_helper": false,
       "calls_raw_rust": false,
       "raw_rust_targets": [],
-      "body_lines": 52
+      "body_lines": 55
     },
     {
       "name": "find_asteroidal_triple",
@@ -9391,7 +9427,7 @@
       "calls_parity_helper": false,
       "calls_raw_rust": false,
       "raw_rust_targets": [],
-      "body_lines": 91
+      "body_lines": 92
     },
     {
       "name": "from_pandas_adjacency",
@@ -9427,7 +9463,7 @@
       "calls_parity_helper": false,
       "calls_raw_rust": false,
       "raw_rust_targets": [],
-      "body_lines": 52
+      "body_lines": 53
     },
     {
       "name": "frozen",
@@ -10596,7 +10632,7 @@
       "calls_parity_helper": false,
       "calls_raw_rust": false,
       "raw_rust_targets": [],
-      "body_lines": 37
+      "body_lines": 41
     },
     {
       "name": "is_pseudographical",
@@ -11442,14 +11478,14 @@
     },
     {
       "name": "maximum_spanning_arborescence",
-      "classification": "rust-native",
+      "classification": "mixed-route",
       "is_rust_reexport": false,
-      "calls_parity_helper": false,
+      "calls_parity_helper": true,
       "calls_raw_rust": true,
       "raw_rust_targets": [
         "_raw_maximum_spanning_arborescence"
       ],
-      "body_lines": 11
+      "body_lines": 20
     },
     {
       "name": "maximum_spanning_edges",
@@ -11632,14 +11668,14 @@
     },
     {
       "name": "minimum_spanning_arborescence",
-      "classification": "rust-native",
+      "classification": "mixed-route",
       "is_rust_reexport": false,
-      "calls_parity_helper": false,
+      "calls_parity_helper": true,
       "calls_raw_rust": true,
       "raw_rust_targets": [
         "_raw_minimum_spanning_arborescence"
       ],
-      "body_lines": 13
+      "body_lines": 22
     },
     {
       "name": "minimum_spanning_edges",
@@ -13736,7 +13772,7 @@
       "calls_parity_helper": false,
       "calls_raw_rust": false,
       "raw_rust_targets": [],
-      "body_lines": 75
+      "body_lines": 76
     },
     {
       "name": "to_pandas_adjacency",
@@ -13754,7 +13790,7 @@
       "calls_parity_helper": false,
       "calls_raw_rust": false,
       "raw_rust_targets": [],
-      "body_lines": 75
+      "body_lines": 76
     },
     {
       "name": "to_prufer_sequence",

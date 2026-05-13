@@ -11148,10 +11148,18 @@ def is_directed_acyclic_graph(G):
 
 
 def has_cycle(G):
-    """Return True if the directed graph G has at least one cycle."""
-    return _call_networkx_submodule_for_parity(
-        "algorithms.dag", "has_cycle", G,
-    )
+    """Return True if the directed graph G has at least one cycle.
+
+    br-r37-c1-2fsuy: native implementation via
+    ``not is_directed_acyclic_graph(G)``. A directed graph contains a
+    cycle iff it is not a DAG; ``is_directed_acyclic_graph`` is already
+    a native Rust kernel, so this avoids the nx fallback.
+    nx.algorithms.dag.has_cycle raises NetworkXNotImplemented on
+    undirected input; mirror that contract.
+    """
+    if not G.is_directed():
+        raise NetworkXNotImplemented("not implemented for undirected type")
+    return not is_directed_acyclic_graph(G)
 
 
 def colliders(G):

@@ -14,10 +14,10 @@ Counts derived from `python/franken_networkx/__init__.py` AST. Categories:
 
 | classification | count |
 |----------------|-------|
-| `mixed-route` | 60 |
+| `mixed-route` | 62 |
 | `nx-fallback` | 93 |
-| `py-wrapper` | 1023 |
-| `rust-native` | 79 |
+| `py-wrapper` | 1027 |
+| `rust-native` | 77 |
 | `rust-reexport` | 303 |
 
 ## Runtime probe results
@@ -591,7 +591,7 @@ Per-(function, shape) instrumentation. Wraps `_call_networkx_for_parity` and eve
 | `maximum_flow_value` | `mixed-route` | yes | `_raw_maximum_flow_value` |
 | `maximum_independent_set` | `rust-reexport` | no | — |
 | `maximum_matching` | `py-wrapper` | no | — |
-| `maximum_spanning_arborescence` | `rust-native` | no | `_raw_maximum_spanning_arborescence` |
+| `maximum_spanning_arborescence` | `mixed-route` | yes | `_raw_maximum_spanning_arborescence` |
 | `maximum_spanning_edges` | `mixed-route` | yes | `_raw_mse` |
 | `maximum_spanning_tree` | `rust-native` | no | `_raw_maximum_spanning_tree` |
 | `maybe_regular_expander` | `py-wrapper` | no | — |
@@ -611,7 +611,7 @@ Per-(function, shape) instrumentation. Wraps `_call_networkx_for_parity` and eve
 | `minimum_cycle_basis` | `rust-native` | no | `_raw_minimum_cycle_basis` |
 | `minimum_edge_cut` | `nx-fallback` | yes | — |
 | `minimum_node_cut` | `nx-fallback` | yes | — |
-| `minimum_spanning_arborescence` | `rust-native` | no | `_raw_minimum_spanning_arborescence` |
+| `minimum_spanning_arborescence` | `mixed-route` | yes | `_raw_minimum_spanning_arborescence` |
 | `minimum_spanning_edges` | `mixed-route` | yes | `_raw_minimum_spanning_edges` |
 | `minimum_spanning_tree` | `rust-native` | no | `_raw_minimum_spanning_tree` |
 | `minimum_st_edge_cut` | `py-wrapper` | no | — |
