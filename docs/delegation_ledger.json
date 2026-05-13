@@ -4078,6 +4078,15 @@
       "body_lines": 0
     },
     {
+      "name": "_raw_bidirectional_shortest_path",
+      "classification": "rust-reexport",
+      "is_rust_reexport": true,
+      "calls_parity_helper": false,
+      "calls_raw_rust": false,
+      "raw_rust_targets": [],
+      "body_lines": 0
+    },
+    {
       "name": "_raw_bridges",
       "classification": "rust-reexport",
       "is_rust_reexport": true,
@@ -4645,6 +4654,15 @@
       "body_lines": 0
     },
     {
+      "name": "_raw_is_dominating_set",
+      "classification": "rust-reexport",
+      "is_rust_reexport": true,
+      "calls_parity_helper": false,
+      "calls_raw_rust": false,
+      "raw_rust_targets": [],
+      "body_lines": 0
+    },
+    {
       "name": "_raw_is_edge_cover",
       "classification": "rust-reexport",
       "is_rust_reexport": true,
@@ -4700,6 +4718,15 @@
     },
     {
       "name": "_raw_is_semiconnected",
+      "classification": "rust-reexport",
+      "is_rust_reexport": true,
+      "calls_parity_helper": false,
+      "calls_raw_rust": false,
+      "raw_rust_targets": [],
+      "body_lines": 0
+    },
+    {
+      "name": "_raw_is_semieulerian",
       "classification": "rust-reexport",
       "is_rust_reexport": true,
       "calls_parity_helper": false,
@@ -7671,12 +7698,14 @@
     },
     {
       "name": "bidirectional_shortest_path",
-      "classification": "rust-reexport",
-      "is_rust_reexport": true,
-      "calls_parity_helper": false,
-      "calls_raw_rust": false,
-      "raw_rust_targets": [],
-      "body_lines": 0
+      "classification": "mixed-route",
+      "is_rust_reexport": false,
+      "calls_parity_helper": true,
+      "calls_raw_rust": true,
+      "raw_rust_targets": [
+        "_raw_bidirectional_shortest_path"
+      ],
+      "body_lines": 12
     },
     {
       "name": "binomial_graph",
@@ -8186,7 +8215,7 @@
       "calls_parity_helper": false,
       "calls_raw_rust": false,
       "raw_rust_targets": [],
-      "body_lines": 42
+      "body_lines": 48
     },
     {
       "name": "connected_watts_strogatz_graph",
@@ -8826,16 +8855,16 @@
     },
     {
       "name": "dominating_set",
-      "classification": "rust-native",
+      "classification": "mixed-route",
       "is_rust_reexport": false,
-      "calls_parity_helper": false,
+      "calls_parity_helper": true,
       "calls_raw_rust": true,
       "raw_rust_targets": [
         "_raw_dominating_set",
         "_raw_nbrs",
         "_raw_neighbors_dispatch"
       ],
-      "body_lines": 56
+      "body_lines": 62
     },
     {
       "name": "dorogovtsev_goltsev_mendes_graph",
@@ -9059,7 +9088,7 @@
       "calls_parity_helper": false,
       "calls_raw_rust": false,
       "raw_rust_targets": [],
-      "body_lines": 31
+      "body_lines": 38
     },
     {
       "name": "ego_graph",
@@ -9088,7 +9117,7 @@
       "calls_parity_helper": false,
       "calls_raw_rust": false,
       "raw_rust_targets": [],
-      "body_lines": 55
+      "body_lines": 72
     },
     {
       "name": "empty_graph",
@@ -9728,7 +9757,7 @@
       "calls_parity_helper": false,
       "calls_raw_rust": false,
       "raw_rust_targets": [],
-      "body_lines": 59
+      "body_lines": 65
     },
     {
       "name": "google_matrix",
@@ -9862,14 +9891,14 @@
     },
     {
       "name": "group_degree_centrality",
-      "classification": "rust-native",
+      "classification": "mixed-route",
       "is_rust_reexport": false,
-      "calls_parity_helper": false,
+      "calls_parity_helper": true,
       "calls_raw_rust": true,
       "raw_rust_targets": [
         "_raw_group_degree_centrality"
       ],
-      "body_lines": 3
+      "body_lines": 11
     },
     {
       "name": "group_in_degree_centrality",
@@ -10421,12 +10450,14 @@
     },
     {
       "name": "is_dominating_set",
-      "classification": "rust-reexport",
-      "is_rust_reexport": true,
-      "calls_parity_helper": false,
-      "calls_raw_rust": false,
-      "raw_rust_targets": [],
-      "body_lines": 0
+      "classification": "mixed-route",
+      "is_rust_reexport": false,
+      "calls_parity_helper": true,
+      "calls_raw_rust": true,
+      "raw_rust_targets": [
+        "_raw_is_dominating_set"
+      ],
+      "body_lines": 11
     },
     {
       "name": "is_edge_cover",
@@ -10683,12 +10714,12 @@
     },
     {
       "name": "is_semieulerian",
-      "classification": "rust-reexport",
-      "is_rust_reexport": true,
+      "classification": "py-wrapper",
+      "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": false,
       "raw_rust_targets": [],
-      "body_lines": 0
+      "body_lines": 11
     },
     {
       "name": "is_simple_path",
@@ -10923,25 +10954,25 @@
       "calls_parity_helper": false,
       "calls_raw_rust": false,
       "raw_rust_targets": [],
-      "body_lines": 70
+      "body_lines": 73
     },
     {
       "name": "k_edge_components",
-      "classification": "py-wrapper",
+      "classification": "nx-fallback",
       "is_rust_reexport": false,
-      "calls_parity_helper": false,
+      "calls_parity_helper": true,
       "calls_raw_rust": false,
       "raw_rust_targets": [],
-      "body_lines": 11
+      "body_lines": 22
     },
     {
       "name": "k_edge_subgraphs",
-      "classification": "py-wrapper",
+      "classification": "nx-fallback",
       "is_rust_reexport": false,
-      "calls_parity_helper": false,
+      "calls_parity_helper": true,
       "calls_raw_rust": false,
       "raw_rust_targets": [],
-      "body_lines": 3
+      "body_lines": 12
     },
     {
       "name": "k_factor",
@@ -10950,7 +10981,7 @@
       "calls_parity_helper": false,
       "calls_raw_rust": false,
       "raw_rust_targets": [],
-      "body_lines": 68
+      "body_lines": 79
     },
     {
       "name": "k_random_intersection_graph",
@@ -11434,7 +11465,7 @@
       "raw_rust_targets": [
         "_raw_maximum_branching"
       ],
-      "body_lines": 17
+      "body_lines": 20
     },
     {
       "name": "maximum_flow",
@@ -11485,7 +11516,7 @@
       "raw_rust_targets": [
         "_raw_maximum_spanning_arborescence"
       ],
-      "body_lines": 20
+      "body_lines": 23
     },
     {
       "name": "maximum_spanning_edges",
@@ -11543,7 +11574,7 @@
       "calls_parity_helper": false,
       "calls_raw_rust": false,
       "raw_rust_targets": [],
-      "body_lines": 216
+      "body_lines": 220
     },
     {
       "name": "min_cost_flow_cost",
@@ -11588,7 +11619,7 @@
       "calls_parity_helper": true,
       "calls_raw_rust": false,
       "raw_rust_targets": [],
-      "body_lines": 30
+      "body_lines": 27
     },
     {
       "name": "min_weighted_dominating_set",
@@ -11617,7 +11648,7 @@
       "raw_rust_targets": [
         "_raw_minimum_branching"
       ],
-      "body_lines": 19
+      "body_lines": 24
     },
     {
       "name": "minimum_cut",
@@ -11675,7 +11706,7 @@
       "raw_rust_targets": [
         "_raw_minimum_spanning_arborescence"
       ],
-      "body_lines": 22
+      "body_lines": 26
     },
     {
       "name": "minimum_spanning_edges",
@@ -12421,14 +12452,14 @@
     },
     {
       "name": "partition_spanning_tree",
-      "classification": "rust-native",
+      "classification": "mixed-route",
       "is_rust_reexport": false,
-      "calls_parity_helper": false,
+      "calls_parity_helper": true,
       "calls_raw_rust": true,
       "raw_rust_targets": [
         "_raw_partition_spanning_tree"
       ],
-      "body_lines": 2
+      "body_lines": 14
     },
     {
       "name": "path_graph",
@@ -13432,7 +13463,7 @@
       "raw_rust_targets": [
         "_raw_spanner"
       ],
-      "body_lines": 23
+      "body_lines": 30
     },
     {
       "name": "spectral_bisection",

@@ -14,10 +14,10 @@ Counts derived from `python/franken_networkx/__init__.py` AST. Categories:
 
 | classification | count |
 |----------------|-------|
-| `mixed-route` | 62 |
-| `nx-fallback` | 88 |
-| `py-wrapper` | 1032 |
-| `rust-native` | 77 |
+| `mixed-route` | 67 |
+| `nx-fallback` | 90 |
+| `py-wrapper` | 1031 |
+| `rust-native` | 74 |
 | `rust-reexport` | 303 |
 
 ## Runtime probe results
@@ -153,7 +153,7 @@ Per-(function, shape) instrumentation. Wraps `_call_networkx_for_parity` and eve
 | `biconnected_component_edges` | `nx-fallback` | yes | — |
 | `biconnected_components` | `nx-fallback` | yes | — |
 | `bidirectional_dijkstra` | `nx-fallback` | yes | — |
-| `bidirectional_shortest_path` | `rust-reexport` | no | — |
+| `bidirectional_shortest_path` | `mixed-route` | yes | `_raw_bidirectional_shortest_path` |
 | `binomial_graph` | `py-wrapper` | no | — |
 | `binomial_tree` | `py-wrapper` | no | — |
 | `bipartite_layout` | `untracked` |  |  |
@@ -281,7 +281,7 @@ Per-(function, shape) instrumentation. Wraps `_call_networkx_for_parity` and eve
 | `display` | `untracked` |  |  |
 | `dodecahedral_graph` | `py-wrapper` | no | — |
 | `dominance_frontiers` | `rust-native` | no | `_raw_dominance_frontiers` |
-| `dominating_set` | `rust-native` | no | `_raw_dominating_set`, `_raw_nbrs`, `_raw_neighbors_dispatch` |
+| `dominating_set` | `mixed-route` | yes | `_raw_dominating_set`, `_raw_nbrs`, `_raw_neighbors_dispatch` |
 | `dorogovtsev_goltsev_mendes_graph` | `py-wrapper` | no | — |
 | `double_edge_swap` | `py-wrapper` | no | — |
 | `draw` | `untracked` |  |  |
@@ -418,7 +418,7 @@ Per-(function, shape) instrumentation. Wraps `_call_networkx_for_parity` and eve
 | `grid_graph` | `py-wrapper` | no | — |
 | `group_betweenness_centrality` | `py-wrapper` | no | — |
 | `group_closeness_centrality` | `py-wrapper` | no | — |
-| `group_degree_centrality` | `rust-native` | no | `_raw_group_degree_centrality` |
+| `group_degree_centrality` | `mixed-route` | yes | `_raw_group_degree_centrality` |
 | `group_in_degree_centrality` | `rust-native` | no | `_raw_group_in_degree_centrality` |
 | `group_out_degree_centrality` | `rust-native` | no | `_raw_group_out_degree_centrality` |
 | `gutman_index` | `py-wrapper` | no | — |
@@ -477,7 +477,7 @@ Per-(function, shape) instrumentation. Wraps `_call_networkx_for_parity` and eve
 | `is_directed` | `py-wrapper` | no | — |
 | `is_directed_acyclic_graph` | `rust-native` | no | `_raw_is_directed_acyclic_graph` |
 | `is_distance_regular` | `rust-native` | no | `_raw_is_distance_regular` |
-| `is_dominating_set` | `rust-reexport` | no | — |
+| `is_dominating_set` | `mixed-route` | yes | `_raw_is_dominating_set` |
 | `is_edge_cover` | `rust-native` | no | `_raw_is_edge_cover` |
 | `is_empty` | `rust-reexport` | no | — |
 | `is_eulerian` | `mixed-route` | yes | `_raw_is_eulerian` |
@@ -505,7 +505,7 @@ Per-(function, shape) instrumentation. Wraps `_call_networkx_for_parity` and eve
 | `is_regular` | `py-wrapper` | no | — |
 | `is_regular_expander` | `py-wrapper` | no | — |
 | `is_semiconnected` | `rust-native` | no | `_raw_is_semiconnected` |
-| `is_semieulerian` | `rust-reexport` | no | — |
+| `is_semieulerian` | `py-wrapper` | no | — |
 | `is_simple_path` | `rust-native` | no | `_raw_is_simple_path` |
 | `is_strongly_connected` | `rust-native` | no | `_raw_is_strongly_connected` |
 | `is_strongly_regular` | `py-wrapper` | no | — |
@@ -532,8 +532,8 @@ Per-(function, shape) instrumentation. Wraps `_call_networkx_for_parity` and eve
 | `k_corona` | `py-wrapper` | no | — |
 | `k_crust` | `py-wrapper` | no | — |
 | `k_edge_augmentation` | `py-wrapper` | no | — |
-| `k_edge_components` | `py-wrapper` | no | — |
-| `k_edge_subgraphs` | `py-wrapper` | no | — |
+| `k_edge_components` | `nx-fallback` | yes | — |
+| `k_edge_subgraphs` | `nx-fallback` | yes | — |
 | `k_factor` | `py-wrapper` | no | — |
 | `k_random_intersection_graph` | `py-wrapper` | no | — |
 | `k_shell` | `py-wrapper` | no | — |
@@ -700,7 +700,7 @@ Per-(function, shape) instrumentation. Wraps `_call_networkx_for_parity` and eve
 | `parse_pajek` | `untracked` |  |  |
 | `parse_sparse6` | `untracked` |  |  |
 | `partial_duplication_graph` | `py-wrapper` | no | — |
-| `partition_spanning_tree` | `rust-native` | no | `_raw_partition_spanning_tree` |
+| `partition_spanning_tree` | `mixed-route` | yes | `_raw_partition_spanning_tree` |
 | `path_graph` | `py-wrapper` | no | — |
 | `path_weight` | `py-wrapper` | no | — |
 | `percolation_centrality` | `py-wrapper` | no | — |
