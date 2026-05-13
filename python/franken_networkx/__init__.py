@@ -11194,19 +11194,32 @@ def v_structures(G):
 
 
 def mutual_weight(G, u, v, weight=None):
-    """Return the mutual weight (Burt 1992) of edges between u and v in G."""
-    return _call_networkx_submodule_for_parity(
-        "algorithms.structuralholes", "mutual_weight", G,
-        u, v, weight=weight,
-    )
+    """Return the mutual weight (Burt 1992) of edges between u and v in G.
+
+    br-r37-c1-b7ejh: native implementation. Sums the (u, v) and (v, u)
+    edge weights; missing edges contribute 0, present edges without
+    the ``weight`` key contribute 1 (matches nx semantics).
+    """
+    try:
+        a_uv = G[u][v].get(weight, 1)
+    except KeyError:
+        a_uv = 0
+    try:
+        a_vu = G[v][u].get(weight, 1)
+    except KeyError:
+        a_vu = 0
+    return a_uv + a_vu
 
 
 def normalized_mutual_weight(G, u, v, norm=sum, weight=None):
-    """Return normalized mutual weight (Burt 1992) of edges between u and v in G."""
-    return _call_networkx_submodule_for_parity(
-        "algorithms.structuralholes", "normalized_mutual_weight", G,
-        u, v, norm=norm, weight=weight,
-    )
+    """Return normalized mutual weight (Burt 1992) of edges between u and v in G.
+
+    br-r37-c1-b7ejh: native implementation. Divides ``mutual_weight(u, v)``
+    by ``norm(mutual_weight(u, w) for w in all-neighbors(u))``.
+    Returns 0 when the scale is 0 (matches nx).
+    """
+    scale = norm(mutual_weight(G, u, w, weight) for w in set(all_neighbors(G, u)))
+    return 0 if scale == 0 else mutual_weight(G, u, v, weight) / scale
 
 
 def harmonic_function(G, max_iter=30, label_name="label"):
