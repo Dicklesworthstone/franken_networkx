@@ -22869,8 +22869,12 @@ def min_cost_flow(G, demand="demand", capacity="capacity", weight="weight"):
     NetworkXUnfeasible
         If no feasible flow exists.
     """
+    # br-r37-c1-3qt4m: nx's @not_implemented_for('undirected')
+    # decorator raises NetworkXNotImplemented, not NetworkXError.
+    # min_cost_flow_cost and capacity_scaling both call this so the
+    # fix propagates to the whole family.
     if not G.is_directed():
-        raise NetworkXError("min_cost_flow requires a directed graph")
+        raise NetworkXNotImplemented("not implemented for undirected type")
 
     nodes = list(G.nodes())
     n = len(nodes)
