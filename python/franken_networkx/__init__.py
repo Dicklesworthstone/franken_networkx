@@ -12615,11 +12615,18 @@ def spanner(G, stretch, weight=None, seed=None):
       3. empty graph + valid stretch → ValueError("math domain
          error") from log(0) leak
     """
-    # nx checks stretch FIRST regardless of graph contents.
-    if not isinstance(stretch, (int, float)) or stretch < 1:
-        raise ValueError("stretch must be at least 1")
+    # br-r37-c1-spnr-order: nx applies @not_implemented_for("directed")
+    # and @not_implemented_for("multigraph") decorators BEFORE the
+    # function body's stretch validation. Wrong-type input therefore
+    # raises NetworkXNotImplemented regardless of stretch value.
+    # The previous comment ("nx checks stretch FIRST") was incorrect
+    # — verified against nx source.
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
+    if not isinstance(stretch, (int, float)) or stretch < 1:
+        raise ValueError("stretch must be at least 1")
     if G.number_of_nodes() == 0:
         raise ValueError("math domain error")
     return _raw_spanner(G, stretch, weight=weight, seed=seed)
@@ -31765,17 +31772,20 @@ def k_edge_augmentation(G, k, avail=None, weight=None, partial=False):
     candidate edges between node pairs that are not yet locally
     k-edge-connected, then prune redundant additions deterministically.
     """
+    # br-r37-c1-keaug-order: nx's @not_implemented_for decorators
+    # fire BEFORE the function body, so wrong-type input raises
+    # NetworkXNotImplemented regardless of k value. Move the type
+    # guards above the k validation so callers see nx-shaped errors.
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
+    if G.is_multigraph():
+        raise NetworkXNotImplemented("not implemented for multigraph type")
     # br-r37-c1-keaug-k0: nx raises ValueError("k must be a
     # positive integer, not {k}") for k <= 0; fnx previously
     # silently returned an empty list, masking caller bugs
     # (typo'd k, off-by-one, etc.) that should fail loudly.
     if k <= 0:
         raise ValueError(f"k must be a positive integer, not {k}")
-
-    if G.is_directed():
-        raise NetworkXNotImplemented("not implemented for directed type")
-    if G.is_multigraph():
-        raise NetworkXNotImplemented("not implemented for multigraph type")
     if G.number_of_nodes() < k + 1:
         msg = f"impossible to {k} connect in graph with less than {k + 1} nodes"
         if partial:
