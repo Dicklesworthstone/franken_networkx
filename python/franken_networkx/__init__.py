@@ -24862,6 +24862,12 @@ def connected_double_edge_swap(G, nswap=1, _window_threshold=3, seed=None):
     # nodes, disconnected graph). Previously fnx silently spun the
     # nswap*100-iteration sampling loop and returned 0 — which masked
     # input bugs and broke callers that branch on the exception type.
+    # br-r37-c1-cdes-order: nx's ``@not_implemented_for("directed")``
+    # decorator fires BEFORE the function body, so a directed graph
+    # with fewer than 4 nodes raises NetworkXNotImplemented, not
+    # NetworkXError. Move the directed guard first to match.
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
     if len(G) == 0:
         raise NetworkXPointlessConcept(
             "Connectivity is undefined for the null graph."
