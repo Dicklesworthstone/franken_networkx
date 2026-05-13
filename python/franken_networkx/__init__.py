@@ -10038,6 +10038,12 @@ def dominating_set(G, start_with=None):
             dominated |= undom_nbrs
             remaining -= undom_nbrs
         return dominating
+    # br-r37-c1-3jn5a: _raw_dominating_set has require_undirected, but
+    # nx supports DiGraph (uses out-neighbors / successors for the
+    # greedy step). Delegate directed input to nx so drop-in callers
+    # using DiGraph keep working.
+    if G.is_directed():
+        return _call_networkx_for_parity("dominating_set", G, start_with=start_with)
     # br-domtype: nx.dominating_set returns a set; the Rust binding
     # returned a list. The docstring already claims set, so users
     # relying on set operations (union/intersection/issubset) silently
