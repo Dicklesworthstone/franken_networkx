@@ -7822,7 +7822,19 @@ def random_spanning_tree(G, weight=None, *, multiplicative=True, seed=None):
 
 
 def partition_spanning_tree(G, minimum=True, weight="weight", partition="partition", ignore_nan=False):
-    """br-isokw: ``G`` matches nx."""
+    """br-isokw: ``G`` matches nx.
+
+    br-r37-c1-3jn5a-followup: the Rust kernel rejects directed and
+    multigraph input, but nx accepts all four graph classes (the
+    Kruskal/Prim variants generalize trivially across them). Delegate
+    those cases to nx so drop-in callers keep working.
+    """
+    if G.is_directed() or G.is_multigraph():
+        return _call_networkx_for_parity(
+            "partition_spanning_tree", G,
+            minimum=minimum, weight=weight,
+            partition=partition, ignore_nan=ignore_nan,
+        )
     return _raw_partition_spanning_tree(G, minimum=minimum, weight=weight, partition=partition, ignore_nan=ignore_nan)
 
 # Algorithm functions — Euler
