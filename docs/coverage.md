@@ -22,13 +22,13 @@ This ledger separates the broad public-export category from source-visible runti
 | Runtime route | Exports | Helper call sites | Rule |
 |---------------|---------|-------------------|------|
 | RUST_NATIVE | 16 | 0 | native extension export from `franken_networkx._fnx` |
-| PY_WRAPPER | 692 | 0 | Python-defined export with no visible NetworkX route |
-| NETWORKX_HELPER | 148 | 172 | Python-defined export with `_call_networkx_*_for_parity(...)` branches |
+| PY_WRAPPER | 697 | 0 | Python-defined export with no visible NetworkX route |
+| NETWORKX_HELPER | 143 | 167 | Python-defined export with `_call_networkx_*_for_parity(...)` branches |
 | DIRECT_NETWORKX | 0 | 0 | Python-defined export that directly imports or calls NetworkX |
 | CLASS | 32 | 0 | public classes, exceptions, iterators |
 | CONSTANT | 3 | 0 | public non-callable values |
 
-`NETWORKX_HELPER` currently covers 148 public export(s) and 172 parity-helper call site(s).
+`NETWORKX_HELPER` currently covers 143 public export(s) and 167 parity-helper call site(s).
 
 ## Upstream Divergence Ledger
 
@@ -38,7 +38,7 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 |------------------|------|------|
 | native-parity | 16 | public Rust-native export; no Python fallback route detected |
 | wrapper-patched | 17 | public wrapper records a compatibility repair over a lower-level gap |
-| intentionally-delegated | 148 | AST-visible parity helper or direct NetworkX route |
+| intentionally-delegated | 143 | AST-visible parity helper or direct NetworkX route |
 | raw-known-gap | 2 | lower-level raw/native implementation has a documented parity gap |
 | owner-acknowledged-limitation | 2 | documented limitation is intentionally owned until native repair |
 
@@ -112,7 +112,6 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 | `chain_decomposition` | 2 | `chain_decomposition` |
 | `chordal_graph_cliques` | 1 | `chordal_graph_cliques` |
 | `closeness_centrality` | 1 | `closeness_centrality` |
-| `colliders` | 1 | `colliders` |
 | `complete_to_chordal_graph` | 1 | `complete_to_chordal_graph` |
 | `constraint` | 1 | `constraint` |
 | `core_number` | 1 | `core_number` |
@@ -152,7 +151,6 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 | `harmonic_centrality` | 1 | `harmonic_centrality` |
 | `harmonic_diameter` | 1 | `harmonic_diameter` |
 | `harmonic_function` | 1 | `harmonic_function` |
-| `has_cycle` | 1 | `has_cycle` |
 | `has_eulerian_path` | 3 | `has_eulerian_path` |
 | `has_path` | 1 | `has_path` |
 | `hyper_wiener_index` | 1 | `hyper_wiener_index` |
@@ -190,12 +188,10 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 | `minimum_spanning_arborescence` | 1 | `minimum_spanning_arborescence` |
 | `minimum_spanning_edges` | 1 | `minimum_spanning_edges` |
 | `multi_source_dijkstra` | 1 | `multi_source_dijkstra` |
-| `mutual_weight` | 1 | `mutual_weight` |
 | `negative_edge_cycle` | 1 | `negative_edge_cycle` |
 | `node_connectivity` | 3 | `node_connectivity` |
 | `node_disjoint_paths` | 1 | `node_disjoint_paths` |
 | `normalized_cut_size` | 1 | `normalized_cut_size` |
-| `normalized_mutual_weight` | 1 | `normalized_mutual_weight` |
 | `omega` | 1 | `omega` |
 | `pagerank` | 1 | `pagerank` |
 | `periphery` | 1 | `periphery` |
@@ -223,7 +219,6 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 | `trophic_incoherence_parameter` | 1 | `trophic_incoherence_parameter` |
 | `trophic_levels` | 1 | `trophic_levels` |
 | `tutte_polynomial` | 1 | `tutte_polynomial` |
-| `v_structures` | 1 | `v_structures` |
 | `weisfeiler_lehman_graph_hash` | 1 | `weisfeiler_lehman_graph_hash` |
 | `weisfeiler_lehman_subgraph_hashes` | 1 | `weisfeiler_lehman_subgraph_hashes` |
 | `wiener_index` | 1 | `wiener_index` |
