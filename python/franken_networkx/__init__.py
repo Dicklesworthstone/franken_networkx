@@ -10575,7 +10575,17 @@ def transitive_closure(G, reflexive=False):
         return _call_networkx_for_parity(
             "transitive_closure", G, reflexive=reflexive
         )
-    return _raw_transitive_closure(G, reflexive=False)
+    result = _raw_transitive_closure(G, reflexive=False)
+    # br-r37-c1-gtkxs: the Rust kernel returns a DiGraph stripped of
+    # node and edge attributes. nx's transitive_closure preserves
+    # them. Copy attrs from G onto the result for parity.
+    for node, attrs in G.nodes(data=True):
+        if attrs and node in result:
+            result.nodes[node].update(attrs)
+    for u, v, attrs in G.edges(data=True):
+        if attrs and result.has_edge(u, v):
+            result[u][v].update(attrs)
+    return result
 
 
 def transitive_reduction(G):
