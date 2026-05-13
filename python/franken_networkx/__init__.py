@@ -5075,7 +5075,19 @@ class SpanningTreeIterator:
         if self.G.is_directed():
             raise NetworkXNotImplemented("not implemented for directed type")
         if self.G.is_multigraph():
-            raise NetworkXNotImplemented("not implemented for multigraph type")
+            # br-r37-c1-ho3db: nx supports MultiGraph in
+            # SpanningTreeIterator; the Rust kernel is simple-only.
+            # Delegate to nx so MultiGraph callers keep working.
+            import networkx as _nx_local
+            self._iterator = iter(
+                _nx_local.SpanningTreeIterator(
+                    _networkx_graph_for_parity(self.G),
+                    weight=self.weight,
+                    minimum=self.minimum,
+                    ignore_nan=self.ignore_nan,
+                )
+            )
+            return self
         graph = _nan_filtered_graph(self.G, self.weight, self.ignore_nan)
         self._iterator = spanning_tree_iterator_rust(
             graph,
@@ -5131,9 +5143,19 @@ class ArborescenceIterator:
 
             raise NetworkXNotImplemented("not implemented for undirected type")
         if self.G.is_multigraph():
-            from franken_networkx._fnx import NetworkXNotImplemented
-
-            raise NetworkXNotImplemented("not implemented for multigraph type")
+            # br-r37-c1-ho3db: nx supports MultiDiGraph in
+            # ArborescenceIterator; the Rust kernel is simple-only.
+            # Delegate to nx so MultiDiGraph callers keep working.
+            import networkx as _nx_local
+            self._iterator = iter(
+                _nx_local.ArborescenceIterator(
+                    _networkx_graph_for_parity(self.G),
+                    weight=self.weight,
+                    minimum=self.minimum,
+                    init_partition=self.init_partition,
+                )
+            )
+            return self
         if self.G.number_of_nodes() == 0:
             raise NetworkXPointlessConcept("G has no nodes.")
         self._iterator = arborescence_iterator_rust(

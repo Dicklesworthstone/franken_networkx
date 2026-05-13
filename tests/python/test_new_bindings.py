@@ -322,14 +322,20 @@ class TestBranchingConstructors:
         with pytest.raises(fnx.NetworkXNotImplemented, match="directed type"):
             _fnx.spanning_tree_iterator_rust(digraph)
 
-    def test_spanning_tree_iterator_rejects_multigraphs(self):
+    def test_spanning_tree_iterator_multigraph_delegates_to_nx(self):
+        """br-r37-c1-ho3db: nx's SpanningTreeIterator supports MultiGraph,
+        so the public wrapper now delegates multigraph input to nx
+        instead of raising. The raw Rust binding remains simple-only
+        as the direct-Rust API contract."""
         multigraph = fnx.MultiGraph()
         multigraph.add_edge("a", "b", key=0, weight=1)
         multigraph.add_edge("a", "b", key=1, weight=2)
 
-        with pytest.raises(fnx.NetworkXNotImplemented, match="multigraph type"):
-            next(iter(fnx.SpanningTreeIterator(multigraph)))
+        # Public wrapper delegates and yields results.
+        trees = list(fnx.SpanningTreeIterator(multigraph))
+        assert len(trees) >= 1
 
+        # Raw Rust binding still rejects (kept strict).
         with pytest.raises(fnx.NetworkXNotImplemented, match="multigraph type"):
             _fnx.spanning_tree_iterator_rust(multigraph)
     def test_arborescence_iterator_rejects_undirected_graphs(self):
@@ -350,14 +356,20 @@ class TestBranchingConstructors:
         # The rust-level binding does not check node count; the python wrapper does.
         # So we no longer test that _fnx.arborescence_iterator_rust(digraph) raises it.
 
-    def test_arborescence_iterator_rejects_multidigraphs(self):
+    def test_arborescence_iterator_multidigraph_delegates_to_nx(self):
+        """br-r37-c1-ho3db: nx's ArborescenceIterator supports
+        MultiDiGraph, so the public wrapper now delegates multigraph
+        input to nx instead of raising. The raw Rust binding remains
+        simple-only as the direct-Rust API contract."""
         multidigraph = fnx.MultiDiGraph()
         multidigraph.add_edge("a", "b", key=0, weight=1)
         multidigraph.add_edge("a", "b", key=1, weight=2)
 
-        with pytest.raises(fnx.NetworkXNotImplemented, match="multigraph type"):
-            next(iter(fnx.ArborescenceIterator(multidigraph)))
+        # Public wrapper delegates and yields results.
+        arbs = list(fnx.ArborescenceIterator(multidigraph))
+        assert len(arbs) >= 1
 
+        # Raw Rust binding still rejects (kept strict).
         with pytest.raises(fnx.NetworkXNotImplemented, match="multigraph type"):
             _fnx.arborescence_iterator_rust(multidigraph)
 
