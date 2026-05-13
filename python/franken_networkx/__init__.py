@@ -36884,7 +36884,18 @@ def k_factor(G, k, matching_weight="weight"):
 
     ``matching_weight`` matches networkx's public signature and is
     forwarded to the internal max-weight matching used for k=1.
+
+    br-r37-c1-kfact-guard: nx applies ``@not_implemented_for("directed",
+    "multigraph")`` decorators which fire BEFORE the function body.
+    Previously fnx's k=0 short-circuit returned an empty Graph on
+    directed / multigraph input — wrong contract. Move the type
+    guards before any short-circuit so callers catching
+    NetworkXNotImplemented behave like nx.
     """
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
+    if G.is_multigraph():
+        raise NetworkXNotImplemented("not implemented for multigraph type")
     if k < 0:
         raise NetworkXError("k must be non-negative")
     if k == 0:
