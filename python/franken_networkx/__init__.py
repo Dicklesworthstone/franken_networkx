@@ -20965,12 +20965,27 @@ def quotient_graph(
         H = G.__class__()
 
     # Add block nodes
+    # br-r37-c1-ja61l: when node_data is not provided, nx attaches a
+    # default attribute dict to each block node containing the block's
+    # subgraph, node count, edge count, and density. Mirror nx's
+    # contract so drop-in callers see the same node-attr shape.
+    def _default_node_data(block):
+        sub = G.subgraph(block)
+        nnodes = sub.number_of_nodes()
+        nedges = sub.number_of_edges()
+        return {
+            "graph": sub,
+            "nnodes": nnodes,
+            "nedges": nedges,
+            "density": density(sub),
+        }
+
     for block in partition:
         node_label = block
         if node_data is not None:
             H.add_node(node_label, **node_data(block))
         else:
-            H.add_node(node_label)
+            H.add_node(node_label, **_default_node_data(block))
 
     # Add edges between blocks
     for i, block_u in enumerate(partition):
