@@ -101,18 +101,18 @@ def test_single_edge_matches_nx():
 
 
 @needs_nx
-def test_multigraph_projects_to_min_weight_per_parallel_edge():
-    """MultiGraph input projects to simple Graph using the min weight
-    per pair of parallel edges before delegation."""
+def test_multigraph_rejected_matching_nx_contract():
+    """br-r37-c1-gt95l: nx's ``min_weight_matching`` carries
+    ``@not_implemented_for("multigraph")`` and raises on MultiGraph.
+    The fnx wrapper used to silently project parallel edges (taking
+    the min weight) — a fnx-only convenience. Sister of
+    br-r37-c1-mwm-mg (max_weight_matching) — mirror the nx contract."""
     mg = fnx.MultiGraph()
     mg.add_edge(0, 1, weight=5)
-    mg.add_edge(0, 1, weight=2)  # parallel — min=2 wins
+    mg.add_edge(0, 1, weight=2)
     mg.add_edge(2, 3, weight=1)
-    result = fnx.min_weight_matching(mg)
-    # Both edges should be in the matching (independent edges).
-    normalised = set(frozenset(e) for e in result)
-    assert frozenset({0, 1}) in normalised
-    assert frozenset({2, 3}) in normalised
+    with pytest.raises(fnx.NetworkXNotImplemented, match="multigraph"):
+        fnx.min_weight_matching(mg)
 
 
 @needs_nx

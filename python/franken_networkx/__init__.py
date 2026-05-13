@@ -6740,24 +6740,21 @@ def min_weight_matching(G, weight="weight"):
     the result against a reference set broke. Delegate to nx so the
     chosen matching and per-pair tuple direction match nx exactly.
 
-    Multigraph inputs project to a simple Graph (taking the
-    *minimum* weight per parallel edge) before delegation, mirroring
-    the max_weight_matching wrapper.
+    br-r37-c1-gt95l: nx's ``min_weight_matching`` carries the same
+    ``@not_implemented_for("multigraph")`` / ``directed`` decorators
+    as ``max_weight_matching`` and raises NetworkXNotImplemented on
+    those input types. Previously fnx silently collapsed parallel
+    edges (taking the *minimum* per pair) and returned a matching —
+    a fnx-only convenience that masked nx's documented contract.
+    Sister of br-r37-c1-mwm-mg (which fixed max_weight_matching);
+    mirror the same eager rejection here.
     """
+    # Check directed first to match nx's decorator ordering.
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
     if G.is_multigraph():
-        projected = (DiGraph if G.is_directed() else Graph)()
-        projected.add_nodes_from(G.nodes(data=True))
-        for u, v, data in G.edges(data=True):
-            edge_weight = data.get(weight, 1)
-            if projected.has_edge(u, v):
-                if edge_weight < projected[u][v].get(weight, 1):
-                    projected[u][v][weight] = edge_weight
-            else:
-                projected.add_edge(u, v, **{weight: edge_weight})
-        target = projected
-    else:
-        target = G
-    return _call_networkx_for_parity("min_weight_matching", target, weight=weight)
+        raise NetworkXNotImplemented("not implemented for multigraph type")
+    return _call_networkx_for_parity("min_weight_matching", G, weight=weight)
 
 
 def max_weight_matching(G, maxcardinality=False, weight="weight"):
