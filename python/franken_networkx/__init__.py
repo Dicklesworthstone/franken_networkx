@@ -32017,6 +32017,23 @@ def eigenvector_centrality_numpy(
         raise NetworkXPointlessConcept(
             "cannot compute centrality for the null graph"
         )
+    # br-r37-c1-evnum-amb: nx raises AmbiguousSolution when the graph
+    # is disconnected (undirected: not is_connected; directed: not
+    # is_strongly_connected). The numpy eigensolver still returns a
+    # vector but with one component arbitrary, so the result is not
+    # uniquely defined and nx documents this as ambiguous. Mirror the
+    # nx contract so direct callers see the same exception.
+    if G.is_directed():
+        if not is_strongly_connected(G):
+            raise _AmbiguousSolution(
+                "`eigenvector_centrality_numpy` does not give consistent "
+                "results for disconnected graphs"
+            )
+    elif not is_connected(G):
+        raise _AmbiguousSolution(
+            "`eigenvector_centrality_numpy` does not give consistent "
+            "results for disconnected graphs"
+        )
     A = to_numpy_array(G, nodelist=nodelist, weight=weight)
     vals, vecs = np.linalg.eig(A)
     idx = np.argmax(np.real(vals))
