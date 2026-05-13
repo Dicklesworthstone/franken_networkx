@@ -7816,8 +7816,22 @@ from franken_networkx._fnx import (
     eulerian_path as _raw_eulerian_path,
     has_eulerian_path as _raw_has_eulerian_path,
     is_eulerian as _raw_is_eulerian,
-    is_semieulerian,
+    is_semieulerian as _raw_is_semieulerian,
 )
+
+
+def is_semieulerian(G):
+    """Return True iff the graph has an Eulerian path but not a circuit.
+
+    br-r37-c1-lg07d: the Rust kernel ``_raw_is_semieulerian`` has
+    ``require_undirected`` and rejects directed input. nx supports
+    ``is_semieulerian`` on digraphs (a digraph has an Eulerian path iff
+    at most one node has out-in=1, at most one has in-out=1, and all
+    others have equal in/out, with the underlying graph connected).
+    Compose from the directed-aware ``has_eulerian_path`` and
+    ``is_eulerian`` wrappers so the directed semantics are preserved.
+    """
+    return has_eulerian_path(G) and not is_eulerian(G)
 
 
 def is_eulerian(G):
