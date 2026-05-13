@@ -14260,8 +14260,16 @@ def global_reaching_centrality(
 
 
 def group_degree_centrality(G, S, *, backend=None, **backend_kwargs):
-    """Compute group degree centrality for a node set."""
+    """Compute group degree centrality for a node set.
+
+    br-r37-c1-gdcdir: the Rust kernel ``_raw_group_degree_centrality``
+    has ``require_undirected`` and rejects directed input. nx supports
+    DiGraph for group_degree_centrality (uses combined in+out degree
+    of nodes in S to nodes not in S). Delegate directed input to nx.
+    """
     _validate_backend_dispatch_keywords("group_degree_centrality", backend, backend_kwargs)
+    if G.is_directed():
+        return _call_networkx_for_parity("group_degree_centrality", G, S)
     return _raw_group_degree_centrality(G, S)
 
 
