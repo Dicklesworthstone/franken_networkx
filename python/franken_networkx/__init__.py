@@ -11163,17 +11163,34 @@ def has_cycle(G):
 
 
 def colliders(G):
-    """Yield (parent1, child, parent2) collider triples in DAG G."""
-    return _call_networkx_submodule_for_parity(
-        "algorithms.dag", "colliders", G,
-    )
+    """Yield (parent1, child, parent2) collider triples.
+
+    br-r37-c1-n23aj: native implementation. nx.algorithms.dag.colliders
+    yields ``(p1, node, p2)`` for every ``combinations(G.predecessors(node), 2)``
+    on every node. Cyclic graphs are intentionally allowed (the docstring
+    notes the algorithm works on them; users opt into DAG-only via an
+    explicit is_directed_acyclic_graph check).
+    """
+    if not G.is_directed():
+        raise NetworkXNotImplemented("not implemented for undirected type")
+    for node in G.nodes:
+        preds = list(G.predecessors(node))
+        for i, p1 in enumerate(preds):
+            for p2 in preds[i + 1:]:
+                yield (p1, node, p2)
 
 
 def v_structures(G):
-    """Yield (parent1, child, parent2) v-structures (unmarried colliders) in DAG G."""
-    return _call_networkx_submodule_for_parity(
-        "algorithms.dag", "v_structures", G,
-    )
+    """Yield (parent1, child, parent2) v-structures (unmarried colliders).
+
+    br-r37-c1-n23aj: native implementation. A v-structure is a collider
+    whose parents are not adjacent (neither directed edge between them).
+    """
+    if not G.is_directed():
+        raise NetworkXNotImplemented("not implemented for undirected type")
+    for p1, c, p2 in colliders(G):
+        if not (G.has_edge(p1, p2) or G.has_edge(p2, p1)):
+            yield (p1, c, p2)
 
 
 def mutual_weight(G, u, v, weight=None):
