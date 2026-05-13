@@ -10014,8 +10014,22 @@ def single_source_shortest_path_length(G, source, cutoff=None):
 # Algorithm functions — dominating set
 from franken_networkx._fnx import (
     dominating_set as _raw_dominating_set,
-    is_dominating_set,
+    is_dominating_set as _raw_is_dominating_set,
 )
+
+
+def is_dominating_set(G, nbunch):
+    """Return True if ``nbunch`` is a dominating set of ``G``.
+
+    br-r37-c1-hdhe3: the Rust kernel ``_raw_is_dominating_set`` has
+    ``require_undirected`` and rejects directed input. nx supports
+    DiGraph / MultiDiGraph for is_dominating_set (checks coverage
+    via out-neighbors / successors). Sister of br-r37-c1-3jn5a which
+    fixed ``dominating_set`` the same way.
+    """
+    if G.is_directed():
+        return _call_networkx_for_parity("is_dominating_set", G, nbunch)
+    return _raw_is_dominating_set(G, nbunch)
 
 
 def dominating_set(G, start_with=None):
