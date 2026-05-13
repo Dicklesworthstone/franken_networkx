@@ -1876,14 +1876,25 @@ def _simple_to_nx(G):
 
 
 def relabel_gexf_graph(G):
-    """Relabel a GEXF graph from internal ids to label attributes."""
+    """Relabel a GEXF graph from internal ids to label attributes.
+
+    br-r37-c1-9p30c: nx raises ``NetworkXError('Failed to relabel
+    nodes: missing node labels found. Use relabel=False.')`` if ANY
+    node lacks the 'label' attribute. fnx used to silently no-op
+    (mapping stays empty, relabel_nodes returns unchanged). Mirror
+    nx's strict contract so drop-in callers catch missing-label
+    inputs at the same point.
+    """
     import franken_networkx as fnx
 
     mapping = {}
     for node, attrs in G.nodes(data=True):
-        label = attrs.get("label")
-        if label is not None:
-            mapping[node] = label
+        if not isinstance(attrs, dict) or "label" not in attrs or attrs.get("label") is None:
+            raise fnx.NetworkXError(
+                "Failed to relabel nodes: missing node labels found. "
+                "Use relabel=False."
+            )
+        mapping[node] = attrs["label"]
     relabeled = fnx.relabel_nodes(G, mapping, copy=True)
     for original, label in mapping.items():
         attrs = relabeled.nodes[label]
