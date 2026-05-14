@@ -105,6 +105,25 @@ def test_dijkstra_finite_weights_no_regression():
 
 
 @needs_nx
+def test_astar_path_avoids_inf_weighted_edge():
+    """br-r37-c1-nncon: same +inf-as-1.0 bug as dijkstra, hit astar_path too."""
+    fg = _make_inf_alt_graph(fnx.Graph)
+    ng = _make_inf_alt_graph(nx.Graph)
+    assert fnx.astar_path(fg, 0, 1, weight="weight") == nx.astar_path(ng, 0, 1, weight="weight")
+    assert fnx.astar_path(fg, 0, 1, weight="weight") == [0, 2, 1]
+
+
+@needs_nx
+def test_astar_path_length_skips_inf_edge():
+    fg = _make_inf_alt_graph(fnx.Graph)
+    ng = _make_inf_alt_graph(nx.Graph)
+    fl = fnx.astar_path_length(fg, 0, 1, weight="weight")
+    nl = nx.astar_path_length(ng, 0, 1, weight="weight")
+    assert fl == nl
+    assert fl == 2.0
+
+
+@needs_nx
 def test_dijkstra_inf_in_directed_graph():
     fg = fnx.DiGraph()
     fg.add_edge(0, 1, weight=float("inf"))

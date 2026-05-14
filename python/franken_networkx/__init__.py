@@ -12619,6 +12619,7 @@ def astar_path(G, source, target, heuristic=None, weight="weight", *, cutoff=Non
     if (
         _should_delegate_astar_to_networkx(weight, cutoff)
         or _has_negative_edge_weight_for_dijkstra(G, weight)
+        or _has_positive_infinity_edge_weight_for_dijkstra(G, weight)
         or _has_nonnumeric_edge_weight(G, weight)
     ):
         return _call_networkx_for_parity(
@@ -12654,6 +12655,7 @@ def astar_path_length(
     if (
         _should_delegate_astar_to_networkx(weight, cutoff)
         or _has_negative_edge_weight_for_dijkstra(G, weight)
+        or _has_positive_infinity_edge_weight_for_dijkstra(G, weight)
         or _has_nonnumeric_edge_weight(G, weight)
     ):
         return _call_networkx_for_parity(
