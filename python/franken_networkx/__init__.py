@@ -6139,6 +6139,8 @@ def is_connected(G, *, backend=None, **backend_kwargs):
     works on fnx.
     """
     _validate_backend_dispatch_keywords("is_connected", backend, backend_kwargs)
+    # br-r37-c1-pf5vu: accept nx-typed inputs.
+    G = _coerce_arg_to_fnx_graph(G)
     return _raw_is_connected(G)
 
 
@@ -6150,6 +6152,8 @@ def number_connected_components(G, *, backend=None, **backend_kwargs):
     _validate_backend_dispatch_keywords(
         "number_connected_components", backend, backend_kwargs,
     )
+    # br-r37-c1-pf5vu: accept nx-typed inputs.
+    G = _coerce_arg_to_fnx_graph(G)
     return _raw_number_connected_components(G)
 
 
@@ -6187,6 +6191,8 @@ def connected_components(G, *, backend=None, **backend_kwargs):
     _validate_backend_dispatch_keywords(
         "connected_components", backend, backend_kwargs,
     )
+    # br-r37-c1-pf5vu: accept nx-typed inputs.
+    G = _coerce_arg_to_fnx_graph(G)
     yield from _raw_connected_components(G)
 
 
@@ -6260,6 +6266,8 @@ def is_tree(G, *, backend=None, **backend_kwargs):
     False (n=2, directed m=2). Handle the directed branch explicitly.
     """
     _validate_backend_dispatch_keywords("is_tree", backend, backend_kwargs)
+    # br-r37-c1-pf5vu: accept nx-typed inputs.
+    G = _coerce_arg_to_fnx_graph(G)
     n = G.number_of_nodes()
     if n == 0:
         raise NetworkXPointlessConcept("G has no nodes.")
@@ -6285,6 +6293,8 @@ def is_forest(G, *, backend=None, **backend_kwargs):
     to have ``|E| == |V| - 1`` counting directed edges.
     """
     _validate_backend_dispatch_keywords("is_forest", backend, backend_kwargs)
+    # br-r37-c1-pf5vu: accept nx-typed inputs.
+    G = _coerce_arg_to_fnx_graph(G)
     if G.number_of_nodes() == 0:
         raise NetworkXPointlessConcept("G has no nodes.")
     if G.is_directed():
@@ -7824,7 +7834,7 @@ from franken_networkx._fnx import (
     bipartite_sets as _bipartite_sets,
     core_number as _raw_core_number,
     greedy_color as _raw_greedy_color,
-    is_bipartite,
+    is_bipartite as _raw_is_bipartite,
     is_forest as _raw_is_forest,
     is_tree as _raw_is_tree,
     maximum_branching as _raw_maximum_branching,
@@ -7837,6 +7847,17 @@ from franken_networkx._fnx import (
     partition_spanning_tree as _raw_partition_spanning_tree,
     random_spanning_tree as _raw_random_spanning_tree,
 )
+
+
+def is_bipartite(G):
+    """Return True if graph ``G`` is bipartite.
+
+    br-r37-c1-pf5vu: thin wrapper around the Rust ``_raw_is_bipartite``
+    so we can coerce nx-typed inputs at the boundary (the bare PyO3
+    import would reject nx graphs with a TypeError).
+    """
+    G = _coerce_arg_to_fnx_graph(G)
+    return _raw_is_bipartite(G)
 
 
 def number_of_spanning_trees(G, *, root=None, weight=None):
@@ -11549,6 +11570,8 @@ from franken_networkx._fnx import (
 
 def is_directed_acyclic_graph(G):
     """br-isokw: ``G`` matches nx; Rust binding used ``g``."""
+    # br-r37-c1-pf5vu: accept nx-typed inputs.
+    G = _coerce_arg_to_fnx_graph(G)
     return _raw_is_directed_acyclic_graph(G)
 
 
