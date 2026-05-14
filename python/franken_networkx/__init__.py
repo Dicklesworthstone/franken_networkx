@@ -23721,7 +23721,9 @@ def directed_edge_swap(G, *, nswap=1, max_tries=100, seed=None):
     """
     import random as _random
 
-    rng = _random.Random(seed)
+    # br-r37-c1-pq52x: handle pre-wrapped Random from nx dispatcher
+    # (same shape as br-r37-c1-frbgb on double_edge_swap).
+    rng = seed if isinstance(seed, _random.Random) else _random.Random(seed)
 
     # br-r37-c1-n7rgh: nx is @not_implemented_for('undirected') and
     # raises NetworkXNotImplemented (catchable via that subclass);

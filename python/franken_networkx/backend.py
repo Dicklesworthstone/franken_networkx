@@ -319,6 +319,12 @@ _SUPPORTED_ALGORITHMS = {
     # place; same dispatch-gap family as the entries above.
     "double_edge_swap": fnx.double_edge_swap,
     "connected_double_edge_swap": fnx.connected_double_edge_swap,
+    # br-r37-c1-pq52x: more mutating dispatchables flagged by nx.
+    "directed_edge_swap": fnx.directed_edge_swap,
+    "incremental_closeness_centrality": fnx.incremental_closeness_centrality,
+    "recursive_simple_cycles": fnx.recursive_simple_cycles,
+    "remove_edge_attributes": fnx.remove_edge_attributes,
+    "remove_node_attributes": fnx.remove_node_attributes,
     # Graph operators
     "union": fnx.union,
     "intersection": fnx.intersection,
