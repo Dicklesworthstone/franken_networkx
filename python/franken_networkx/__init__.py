@@ -38829,7 +38829,23 @@ def from_scipy_sparse_array(
     if graph.is_multigraph() and not graph.is_directed():
         triples = ((u, v, weight) for u, v, weight in triples if u <= v)
 
-    graph.add_weighted_edges_from(triples, weight=edge_attribute)
+    if edge_attribute is None:
+        # br-r37-c1-oa0fs: nx accepts ``edge_attribute=None`` and uses
+        # the literal ``None`` as the edge-attribute dict key. fnx's
+        # ``add_weighted_edges_from`` *and* ``add_edges_from`` both
+        # validate attr keys against ``str``, rejecting ``None``. Add
+        # each edge first (no attrs), then set ``G[u][v][None] = w``
+        # directly — the per-edge dict accepts arbitrary hashable keys.
+        if graph.is_multigraph():
+            for u, v, w in triples:
+                key = graph.add_edge(u, v)
+                graph[u][v][key][None] = w
+        else:
+            for u, v, w in triples:
+                graph.add_edge(u, v)
+                graph[u][v][None] = w
+    else:
+        graph.add_weighted_edges_from(triples, weight=edge_attribute)
     return graph
 
 
