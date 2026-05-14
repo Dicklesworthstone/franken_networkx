@@ -5452,6 +5452,38 @@ def _has_negative_edge_weight_for_dijkstra(G, weight):
     return False
 
 
+def _has_positive_infinity_edge_weight_for_dijkstra(G, weight):
+    """br-r37-c1-z35td: detect ``+inf`` edge weights.
+
+    The Rust ``edge_weight_or_default`` helper filters out non-finite
+    values with ``.filter(|value| value.is_finite() && *value >= 0.0)``
+    and falls back to the unit default of ``1.0``. That silently turns
+    an ``inf``-weighted edge into a ``1.0``-weighted edge, so the
+    dijkstra kernel routes through it as if it were the cheapest path
+    — diverging from nx, which correctly treats ``inf`` as "edge
+    exists but is never relaxed" and routes around it via any finite
+    alternative.
+
+    The cleanest scoped fix is to detect ``+inf`` weights in the
+    Python wrapper and delegate to nx (mirroring the existing
+    ``-inf`` / negative-weight delegation path). Mutating the Rust
+    helper would touch ~50 call sites across matching / mst /
+    bellman-ford / flow algorithms, each with its own implicit
+    contract about how the default kicks in.
+    """
+    if not isinstance(weight, str):
+        return False
+    if G.is_multigraph():
+        attrs_iter = (attrs for _, _, _, attrs in G.edges(keys=True, data=True))
+    else:
+        attrs_iter = (attrs for _, _, attrs in G.edges(data=True))
+    for attrs in attrs_iter:
+        value = attrs.get(weight, 1)
+        if isinstance(value, numbers.Real) and not math.isnan(value) and math.isinf(value) and value > 0:
+            return True
+    return False
+
+
 def _has_nonnumeric_edge_weight(G, weight):
     """Detect non-numeric edge weight values (str, list, dict, None, etc.).
 
@@ -5493,6 +5525,13 @@ def _should_delegate_dijkstra_to_networkx(G, weight):
     if not isinstance(weight, str):
         return True
     if _has_negative_edge_weight_for_dijkstra(G, weight):
+        return True
+    # br-r37-c1-z35td: delegate when any edge weight is +inf — Rust's
+    # ``edge_weight_or_default`` filters out non-finite values and
+    # silently substitutes 1.0, causing dijkstra to traverse inf
+    # edges as if they were unit-weighted (and produce wildly wrong
+    # paths). nx correctly skips inf-weighted edges.
+    if _has_positive_infinity_edge_weight_for_dijkstra(G, weight):
         return True
     # br-r37-c1-djk-strw: also delegate when edge values at
     # ``weight`` key are non-numeric — Rust silently treats them
