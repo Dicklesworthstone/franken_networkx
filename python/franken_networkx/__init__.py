@@ -5470,9 +5470,32 @@ def _has_positive_infinity_edge_weight_for_dijkstra(G, weight):
     helper would touch ~50 call sites across matching / mst /
     bellman-ford / flow algorithms, each with its own implicit
     contract about how the default kicks in.
+
+    br-r37-c1-8cqeh: route the scan through the existing native
+    ``graph_has_nonfinite_edge_weight`` helper for non-multigraphs.
+    The native scan returns False fast for finite-only graphs (the
+    common case), eliminating ~50 ms of Python iteration on
+    BA5000-sized inputs. Only graphs with at least one non-finite
+    weight pay the Python scan to disambiguate +inf from -inf/NaN.
     """
     if not isinstance(weight, str):
         return False
+    # Fast path: native scan returns False for graphs whose every
+    # weight attr value is finite — covers the common case and skips
+    # the ~50 ms Python iteration entirely. Sync Python edge attrs
+    # into the Rust inner graph first (post-creation
+    # ``G[u][v]['weight'] = ...`` mutations don't otherwise reach the
+    # native scan; see br-r37-c1-sjf4t for the sync helper rationale).
+    if _native_has_nonfinite_edge_weight is not None and not G.is_multigraph():
+        _sync_rust_edge_attrs(G)
+        try:
+            native = _native_has_nonfinite_edge_weight(G, weight)
+        except Exception:
+            native = None
+        if native is False:
+            return False
+        # native is True or None — fall through to the Python scan
+        # to specifically detect +inf (vs -inf / NaN).
     if G.is_multigraph():
         attrs_iter = (attrs for _, _, _, attrs in G.edges(keys=True, data=True))
     else:
