@@ -10547,6 +10547,28 @@ def _operator_output_class(G, H=None):
     return type(G)
 
 
+def _coerce_arg_to_fnx_graph(G):
+    """br-r37-c1-i2uub: coerce an nx.Graph-typed arg to the matching
+    fnx graph class so PyO3-bound Rust operators (which strictly
+    accept fnx-typed graphs) work transparently on mixed inputs.
+
+    Pass-through for graphs already of fnx type. For nx graphs, route
+    through ``franken_networkx.readwrite._from_nx_graph`` which builds
+    the corresponding fnx graph with the same nodes/edges/attrs.
+    """
+    if isinstance(G, (Graph, DiGraph, MultiGraph, MultiDiGraph)):
+        return G
+    try:
+        import networkx as _nx_for_coerce
+
+        if isinstance(G, _nx_for_coerce.Graph):
+            from franken_networkx.readwrite import _from_nx_graph
+            return _from_nx_graph(G)
+    except ImportError:
+        pass
+    return G
+
+
 def _rebuild_operator_output(output, cls):
     """Rebuild a generic fnx Graph (what the Rust operator returns) as
     an instance of ``cls`` (the caller's graph class).
@@ -10639,6 +10661,10 @@ def union(G, H, rename=()):
     Graph
         A new graph with the nodes and edges from both G and H.
     """
+    # br-r37-c1-i2uub: accept nx-typed inputs by coercing to fnx
+    # graphs (matches nx's permissive duck-typing on mixed inputs).
+    G = _coerce_arg_to_fnx_graph(G)
+    H = _coerce_arg_to_fnx_graph(H)
     if rename:
         return _union_with_rename_via_parity(G, H, rename)
     # br-r37-c1-union-order: nx checks the type-mismatch
