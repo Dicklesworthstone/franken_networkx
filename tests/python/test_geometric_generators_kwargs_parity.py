@@ -131,22 +131,30 @@ def test_minkowski_p_changes_neighbour_set(name):
 # ---------------------------------------------------------------------------
 
 @needs_nx
-@pytest.mark.parametrize("name", ["waxman_graph", "geographical_threshold_graph"])
-def test_custom_metric_callable_used(name):
+def test_custom_metric_callable_used_geographical():
     """A degenerate metric returning 0 for every pair forces all edges
     to satisfy the threshold — proves the metric override is used."""
-    fn = getattr(fnx, name)
     zero_metric = lambda a, b: 0.0  # noqa: E731
-    if name == "geographical_threshold_graph":
-        # With distance always 0, the (w[u]+w[v])/d term explodes →
-        # every pair edge is added (we treat d=0 as infinity in our impl).
-        G = fn(6, theta=0.5, seed=42, metric=zero_metric)
-    else:
-        # waxman: P(edge) = beta * exp(-d / (alpha*L)) → with d=0,
-        # P=beta*1=0.4. Some edges will fire on a fixed seed.
-        G = fn(20, beta=0.9, alpha=0.1, seed=42, metric=zero_metric)
-    # Should have some edges — not the empty graph
+    # With distance always 0, the (w[u]+w[v])/d term explodes →
+    # every pair edge is added (we treat d=0 as infinity in our impl).
+    G = fnx.geographical_threshold_graph(6, theta=0.5, seed=42, metric=zero_metric)
     assert G.number_of_edges() > 0
+
+
+@needs_nx
+def test_custom_metric_callable_used_waxman_matches_nx_zero_metric_contract():
+    """br-r37-c1-359bl: a metric that returns 0 for every pair makes
+    ``L = max(metric(...)) = 0``, and ``-d / (alpha * L)`` divides by
+    zero. nx raises ``ZeroDivisionError`` from this path; fnx must
+    match that contract (it previously masked the error by computing
+    L from the domain diagonal instead of the actual max pair
+    distance — a behaviour that *also* caused waxman_graph(seed=N) to
+    diverge from nx)."""
+    zero_metric = lambda a, b: 0.0  # noqa: E731
+    with pytest.raises(ZeroDivisionError):
+        fnx.waxman_graph(20, beta=0.9, alpha=0.1, seed=42, metric=zero_metric)
+    with pytest.raises(ZeroDivisionError):
+        nx.waxman_graph(20, beta=0.9, alpha=0.1, seed=42, metric=zero_metric)
 
 
 # ---------------------------------------------------------------------------

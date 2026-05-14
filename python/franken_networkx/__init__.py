@@ -32742,24 +32742,56 @@ def waxman_graph(
 
     if isinstance(n, int) and n < 0:
         raise NetworkXError(f"Negative number of nodes not valid: {n}")
-    rng = _random.Random(seed)
+    # br-r37-c1-359bl: handle pre-wrapped Random from nx dispatcher
+    # (nx's @py_random_state(6) decorator wraps the seed into a
+    # ``random.Random`` instance before calling).
+    rng = seed if isinstance(seed, _random.Random) else _random.Random(seed)
     G = Graph()
     positions = {}
     x0, y0, x1, y1 = domain
     for i in range(n):
         positions[i] = (rng.uniform(x0, x1), rng.uniform(y0, y1))
         G.add_node(i, **{pos_name: positions[i]})
-    if L is None:
-        L = math.sqrt((x1 - x0) ** 2 + (y1 - y0) ** 2)
 
     def distance(a, b):
         return metric(a, b) if metric is not None else _minkowski_distance(a, b, 2)
 
+    # br-r37-c1-359bl: when L is None, nx's Waxman-1 sets L to the
+    # actual maximum pair distance (``max(metric(x, y) for x, y in
+    # combinations(pos.values(), 2))``), *not* the domain diagonal.
+    # The diagonal is always >= the actual max pair distance, so
+    # using the diagonal makes prob = beta * exp(-d/(alpha * L))
+    # larger than nx's, producing extra edges on identical seeds.
+    if L is None:
+        if n >= 2:
+            L = max(
+                distance(positions[i], positions[j])
+                for i in range(n)
+                for j in range(i + 1, n)
+            )
+        else:
+            L = math.sqrt((x1 - x0) ** 2 + (y1 - y0) ** 2)
+        waxman2 = False
+    else:
+        waxman2 = True
+
+    # br-r37-c1-359bl: nx evaluates ``should_join`` as
+    # ``seed.random() < beta * exp(-dist(*pair) / (alpha * L))``.
+    # Python evaluates ``<`` left-to-right, so the *prob* draw
+    # happens BEFORE the *dist* draw — opposite of the intuitive
+    # order. For Waxman-1 the dist call doesn't consume rng
+    # (positions are pre-drawn), so the order doesn't matter; for
+    # Waxman-2 it does — flipping the order matches nx's edge set
+    # byte-for-byte across all seeds.
     for i in range(n):
         for j in range(i + 1, n):
-            d = distance(positions[i], positions[j])
+            prob_draw = rng.random()
+            if waxman2:
+                d = rng.random() * L
+            else:
+                d = distance(positions[i], positions[j])
             prob = beta * math.exp(-d / (alpha * L))
-            if rng.random() < prob:
+            if prob_draw < prob:
                 G.add_edge(i, j)
     return G
 
