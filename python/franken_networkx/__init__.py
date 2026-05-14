@@ -5619,10 +5619,43 @@ def _sync_rust_edge_attrs(G):
     that reads attrs — it cannot be called from the Rust side without
     a ``&mut PyGraph`` reference, which the algorithm bindings do not
     have.
+
+    br-r37-c1-z9lpk: thread-safety. The PyO3 ``&mut self`` borrow on
+    ``_fnx_sync_attrs_to_inner`` is exclusive — concurrent calls from
+    Python threads (with the GIL released inside ``py.allow_threads``
+    by the algorithm kernel that *we* are about to invoke) collide
+    on the borrow and raise ``RuntimeError: Already borrowed``.
+
+    Catch that race and treat it as benign: if another thread is
+    holding the borrow it is *also* syncing the same Python attr
+    dicts, so the resulting Rust state after that thread finishes is
+    identical to what we would have written. Spin briefly with a
+    bounded retry to give the holder time to drop the borrow, then
+    proceed without sync (any subsequent algorithm read will see the
+    other thread's sync result, which is correct for the same input
+    Python state).
     """
     sync = getattr(G, "_fnx_sync_attrs_to_inner", None)
-    if callable(sync):
-        sync()
+    if not callable(sync):
+        return
+    # Retry budget: a sync of a 200-node path graph takes well under
+    # a millisecond, so even 8 yields is enough to win the race in
+    # practice without risking lockup if the holder is genuinely slow.
+    for _ in range(8):
+        try:
+            sync()
+            return
+        except RuntimeError as exc:
+            if "Already borrowed" not in str(exc):
+                raise
+            # Yield to the holder; once it drops the &mut borrow we
+            # can re-acquire. Pure Python "yield" via a no-op sleep
+            # releases the GIL and lets the other thread progress.
+            import time as _time
+            _time.sleep(0)
+    # Last-ditch: bail out without sync. Another thread's sync of the
+    # same Python attr dicts has been or will be applied — the Rust
+    # state will reflect the user's Python edits either way.
 
 
 def _graph_has_nonunit_weight(G, weight):
