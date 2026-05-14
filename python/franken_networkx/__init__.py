@@ -5902,6 +5902,8 @@ def average_shortest_path_length(G, weight=None, method=None):
 
 
 def dijkstra_path(G, source, target, weight="weight"):
+    # br-r37-c1-phy2p: accept nx-typed inputs.
+    G = _coerce_arg_to_fnx_graph(G)
     # br-r37-c1-c4agn: hash-check for nx-shaped TypeError parity.
     hash(source)
     hash(target)
@@ -5935,6 +5937,8 @@ def _path_length_preserving_weight_type(G, path, weight):
 
 
 def bellman_ford_path(G, source, target, weight="weight"):
+    # br-r37-c1-phy2p: accept nx-typed inputs.
+    G = _coerce_arg_to_fnx_graph(G)
     # br-r37-c1-c4agn: hash-check for nx-shaped TypeError parity.
     hash(source)
     hash(target)
@@ -5971,6 +5975,8 @@ def shortest_path(
     # crashed on fnx with `TypeError: shortest_path() got an unexpected
     # keyword argument 'backend'`. Match the dispatch surface.
     _validate_backend_dispatch_keywords("shortest_path", backend, backend_kwargs)
+    # br-r37-c1-phy2p: accept nx-typed inputs.
+    G = _coerce_arg_to_fnx_graph(G)
     if method not in ("dijkstra", "bellman-ford"):
         raise ValueError(f"method not supported: {method}")
     if _path_query_has_missing_nodes(G, source=source, target=target):
@@ -12739,6 +12745,8 @@ def _translate_astar_no_path(exc, source, target):
 
 
 def astar_path(G, source, target, heuristic=None, weight="weight", *, cutoff=None):
+    # br-r37-c1-phy2p: accept nx-typed inputs.
+    G = _coerce_arg_to_fnx_graph(G)
     # br-r37-c1-bzio2: the Rust _raw_astar_path honours edge weights via
     # edge_weight_or_default (verified parity vs nx on weighted graphs);
     # the previous unconditional ``_graph_has_nonunit_weight`` gate was
