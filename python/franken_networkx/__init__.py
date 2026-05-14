@@ -42,6 +42,40 @@ from franken_networkx._fnx import DiGraph
 from franken_networkx._fnx import MultiGraph
 from franken_networkx._fnx import MultiDiGraph
 
+# br-r37-c1-0epvo: nx 3.3+ uses ``__networkx_backend__`` on graph
+# instances to route dispatcher-mutated functions (e.g.
+# ``minimum_branching``, ``minimum_spanning_arborescence``) to the
+# matching registered backend. Without this attribute nx's dispatcher
+# refuses to auto-convert fnx graphs for "preserve+mutate" entry
+# points and raises ``RuntimeError: ... was called with inputs from
+# multiple backends: set()`` (because fnx.Graph is *not* a subclass of
+# ``nx.Graph`` and therefore fails nx's `isinstance(g, nx.Graph)` check
+# inside the fallback-to-orig branch).
+#
+# fnx is already registered as a backend via pyproject.toml
+# ``[project.entry-points."networkx.backends"]`` so tagging the graph
+# classes makes the dispatcher route fnx graphs back through the
+# registered backend interface for any function fnx implements.
+#
+# For functions fnx does *not* implement (~all of nx beyond the ~300
+# entries in ``franken_networkx.backend._SUPPORTED_ALGORITHMS``), the
+# dispatcher would otherwise raise ``NotImplementedError`` because
+# graph_backend_names would be ``{"franken_networkx"}`` with no fall-
+# back path. Enabling ``nx.config.fallback_to_nx`` adds ``"networkx"``
+# to ``backend_fallback`` so unimplemented functions reach nx's own
+# pure-Python kernel — restoring drop-in compatibility for the long
+# tail of ``nx.algorithms.X`` that fnx doesn't override.
+Graph.__networkx_backend__ = "franken_networkx"
+DiGraph.__networkx_backend__ = "franken_networkx"
+MultiGraph.__networkx_backend__ = "franken_networkx"
+MultiDiGraph.__networkx_backend__ = "franken_networkx"
+try:
+    import networkx as _nx_for_fallback_cfg
+
+    _nx_for_fallback_cfg.config.fallback_to_nx = True
+except Exception:
+    pass
+
 
 class EdgePartition(Enum):
     OPEN = 0
@@ -7793,6 +7827,30 @@ def minimum_spanning_arborescence(G, attr="weight", default=1, preserve_attrs=Fa
     )
     _restore_branching_edge_attrs(result, G, attr, default, preserve_attrs)
     return result
+
+
+def _minimal_branching_backend_impl(G, /, *, attr="weight", default=1, preserve_attrs=False, partition=None):
+    """br-r37-c1-0epvo: backend-only implementation of ``minimal_branching``.
+
+    nx exposes ``minimal_branching`` only under ``nx.algorithms.tree`` (no
+    top-level alias) — the namespace-parity lock in
+    ``test_branching_weight_minimal_branching_only_at_branchings_namespace``
+    enforces that fnx mirrors that. So this implementation is private
+    (underscore-prefixed) and registered into the backend dispatch table
+    via ``franken_networkx.backend._SUPPORTED_ALGORITHMS`` *only*; it is
+    not exposed at ``fnx.minimal_branching``.
+
+    Once registered, ``nx.algorithms.tree.minimal_branching(fnx_graph)``
+    routes through this implementation (after the ``__networkx_backend__``
+    class attribute tags fnx graphs as belonging to the franken_networkx
+    backend). The implementation delegates to nx's pure-Python kernel via
+    the existing parity bridge.
+    """
+    return _call_networkx_submodule_for_parity(
+        "algorithms.tree", "minimal_branching", G,
+        attr=attr, default=default,
+        preserve_attrs=preserve_attrs, partition=partition,
+    )
 
 
 def maximum_spanning_arborescence(G, attr="weight", default=1, preserve_attrs=False, partition=None):

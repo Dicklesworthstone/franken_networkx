@@ -96,6 +96,11 @@ _SUPPORTED_ALGORITHMS = {
     "maximum_spanning_arborescence": fnx.maximum_spanning_arborescence,
     "minimum_spanning_edges": fnx.minimum_spanning_edges,
     "minimum_branching": fnx.minimum_branching,
+    # br-r37-c1-0epvo: minimal_branching is registered using the private
+    # backend-only implementation so ``fnx.minimal_branching`` stays
+    # AttributeError (matching nx's namespace contract — see
+    # test_branching_weight_minimal_branching_only_at_branchings_namespace).
+    "minimal_branching": fnx._minimal_branching_backend_impl,
     "minimum_spanning_arborescence": fnx.minimum_spanning_arborescence,
     "minimum_spanning_tree": fnx.minimum_spanning_tree,
     # Euler
