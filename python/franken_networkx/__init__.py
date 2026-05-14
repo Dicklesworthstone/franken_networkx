@@ -5400,7 +5400,7 @@ except ImportError:  # pragma: no cover — defensive for partial builds
     _native_has_negative_edge_weight = None
 
 
-def _has_negative_edge_weight_for_dijkstra(G, weight):
+def _has_negative_edge_weight_for_dijkstra(G, weight, *, _skip_sync=False):
     if not isinstance(weight, str):
         return False
 
@@ -5429,6 +5429,23 @@ def _has_negative_edge_weight_for_dijkstra(G, weight):
         # weights?``.  Fall through to the Python scan below
         # specifically for the -inf case so we delegate to nx.
         if native is False:
+            # br-r37-c1-8cqeh: if the broader nonfinite-scan also
+            # returns False, every weight is a finite numeric — so
+            # there's no -inf either. Skip the Python -inf sweep
+            # entirely. Cuts the gate from ~60 ms to ~15 ms on
+            # BA5000-density graphs.
+            if (
+                _native_has_nonfinite_edge_weight is not None
+                and not G.is_multigraph()
+            ):
+                if not _skip_sync:
+                    _sync_rust_edge_attrs(G)
+                try:
+                    nonfinite = _native_has_nonfinite_edge_weight(G, weight)
+                except Exception:
+                    nonfinite = None
+                if nonfinite is False:
+                    return False
             for _, _, attrs in G.edges(data=True):
                 value = attrs.get(weight, 1)
                 if isinstance(value, numbers.Real) and value == -math.inf:
@@ -5452,7 +5469,7 @@ def _has_negative_edge_weight_for_dijkstra(G, weight):
     return False
 
 
-def _has_positive_infinity_edge_weight_for_dijkstra(G, weight):
+def _has_positive_infinity_edge_weight_for_dijkstra(G, weight, *, _skip_sync=False):
     """br-r37-c1-z35td: detect ``+inf`` edge weights.
 
     The Rust ``edge_weight_or_default`` helper filters out non-finite
@@ -5487,7 +5504,8 @@ def _has_positive_infinity_edge_weight_for_dijkstra(G, weight):
     # ``G[u][v]['weight'] = ...`` mutations don't otherwise reach the
     # native scan; see br-r37-c1-sjf4t for the sync helper rationale).
     if _native_has_nonfinite_edge_weight is not None and not G.is_multigraph():
-        _sync_rust_edge_attrs(G)
+        if not _skip_sync:
+            _sync_rust_edge_attrs(G)
         try:
             native = _native_has_nonfinite_edge_weight(G, weight)
         except Exception:
@@ -5507,7 +5525,7 @@ def _has_positive_infinity_edge_weight_for_dijkstra(G, weight):
     return False
 
 
-def _has_nonnumeric_edge_weight(G, weight):
+def _has_nonnumeric_edge_weight(G, weight, *, _skip_sync=False):
     """Detect non-numeric edge weight values (str, list, dict, None, etc.).
 
     br-r37-c1-djk-strw: when ``weight`` is a string but the actual
@@ -5516,6 +5534,15 @@ def _has_nonnumeric_edge_weight(G, weight):
     loop.  The Rust dijkstra silently treats the value as 1.0,
     masking the type error.  Callers that pass garbage weights
     deserve to fail loudly.
+
+    Notes on native helper: the Rust ``graph_has_nonfinite_edge_weight``
+    cannot safely short-circuit this gate. Its ``as_f64()`` call
+    accepts string-numeric values like ``"5"`` (parses to 5.0,
+    considered finite) and therefore returns False on graphs whose
+    Python weight attrs are strings — but the Python kernels then
+    raise ``TypeError`` because ``int + "5"`` is not defined. So we
+    *cannot* use the native False as evidence of no-nonnumeric. The
+    Python scan must run.
     """
     if not isinstance(weight, str):
         return False
@@ -5547,19 +5574,26 @@ def _should_delegate_dijkstra_to_networkx(G, weight):
     # weight (including ``None``) to nx to preserve drop-in parity.
     if not isinstance(weight, str):
         return True
-    if _has_negative_edge_weight_for_dijkstra(G, weight):
+    # br-r37-c1-8cqeh: sync Python edge attrs into the Rust inner
+    # graph *once* up front, then run all three gates with the sync
+    # already done. Each gate's native scan otherwise re-syncs
+    # (~13 ms), so calling three gates without this hoisted sync
+    # pays the sync cost three times.
+    if not G.is_multigraph():
+        _sync_rust_edge_attrs(G)
+    if _has_negative_edge_weight_for_dijkstra(G, weight, _skip_sync=True):
         return True
     # br-r37-c1-z35td: delegate when any edge weight is +inf — Rust's
     # ``edge_weight_or_default`` filters out non-finite values and
     # silently substitutes 1.0, causing dijkstra to traverse inf
     # edges as if they were unit-weighted (and produce wildly wrong
     # paths). nx correctly skips inf-weighted edges.
-    if _has_positive_infinity_edge_weight_for_dijkstra(G, weight):
+    if _has_positive_infinity_edge_weight_for_dijkstra(G, weight, _skip_sync=True):
         return True
     # br-r37-c1-djk-strw: also delegate when edge values at
     # ``weight`` key are non-numeric — Rust silently treats them
     # as 1.0; nx raises TypeError.
-    return _has_nonnumeric_edge_weight(G, weight)
+    return _has_nonnumeric_edge_weight(G, weight, _skip_sync=True)
 
 
 def _sync_rust_edge_attrs(G):
