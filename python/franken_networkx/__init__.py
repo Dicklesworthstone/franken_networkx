@@ -10761,6 +10761,9 @@ def _intersection_via_parity(G, H):
 
 def difference(G, H):
     """Return a graph with edges in G but not in H (same node set)."""
+    # br-r37-c1-jwdzp: accept nx-typed inputs (sibling of br-r37-c1-i2uub).
+    G = _coerce_arg_to_fnx_graph(G)
+    H = _coerce_arg_to_fnx_graph(H)
     # br-diffnodes: nx enforces that G and H have identical node sets and
     # raises NetworkXError("Node sets of graphs not equal") otherwise. fnx
     # silently computed an edge-set difference over whatever nodes were
@@ -10780,6 +10783,9 @@ def difference(G, H):
 
 def symmetric_difference(G, H):
     """Return a graph with edges in exactly one of G, H (same node set)."""
+    # br-r37-c1-jwdzp: accept nx-typed inputs (sibling of br-r37-c1-i2uub).
+    G = _coerce_arg_to_fnx_graph(G)
+    H = _coerce_arg_to_fnx_graph(H)
     # br-diffnodes: same precondition as ``difference``.
     if set(G.nodes()) != set(H.nodes()):
         raise NetworkXError("Node sets of graphs not equal")
@@ -12502,11 +12508,17 @@ class TimeRespectingDiGraphMatcher(_nx_isomorphism.TimeRespectingDiGraphMatcher)
 
 def fast_could_be_isomorphic(G1, G2):
     """br-isokw: ``G1, G2`` match nx; Rust binding used ``g1, g2``."""
+    # br-r37-c1-jwdzp: accept nx-typed inputs.
+    G1 = _coerce_arg_to_fnx_graph(G1)
+    G2 = _coerce_arg_to_fnx_graph(G2)
     return _raw_fast_could_be_isomorphic(G1, G2)
 
 
 def faster_could_be_isomorphic(G1, G2):
     """br-isokw: ``G1, G2`` match nx."""
+    # br-r37-c1-jwdzp: accept nx-typed inputs.
+    G1 = _coerce_arg_to_fnx_graph(G1)
+    G2 = _coerce_arg_to_fnx_graph(G2)
     return _raw_faster_could_be_isomorphic(G1, G2)
 
 # Planarity
@@ -33885,6 +33897,9 @@ def _isomorphic_mapping_matches_callbacks(G1, G2, mapping, node_match, edge_matc
 
 def could_be_isomorphic(G1, G2, *, properties="dtc"):
     """Return False if graphs are definitely not isomorphic."""
+    # br-r37-c1-jwdzp: accept nx-typed inputs.
+    G1 = _coerce_arg_to_fnx_graph(G1)
+    G2 = _coerce_arg_to_fnx_graph(G2)
     if G1.order() != G2.order():
         return False
 
@@ -33958,6 +33973,9 @@ GraphMatcher, DiGraphMatcher, MultiGraphMatcher, MultiDiGraphMatcher = (
 
 def is_isomorphic(G1, G2, node_match=None, edge_match=None):
     """Test graph isomorphism, preserving NetworkX callback semantics."""
+    # br-r37-c1-jwdzp: accept nx-typed inputs.
+    G1 = _coerce_arg_to_fnx_graph(G1)
+    G2 = _coerce_arg_to_fnx_graph(G2)
     if node_match is None and edge_match is None:
         return _is_isomorphic_rust(G1, G2)
 
@@ -35023,6 +35041,9 @@ def optimal_edit_paths(
     upper_bound=None,
 ):
     """Find optimal edit paths."""
+    # br-r37-c1-jwdzp: accept nx-typed inputs.
+    G1 = _coerce_arg_to_fnx_graph(G1)
+    G2 = _coerce_arg_to_fnx_graph(G2)
     handled, native_result = _native_graph_edit_distance_common_case(
         G1,
         G2,
@@ -35661,10 +35682,15 @@ def graph_edit_distance(
 
     Matches networkx's full positional + keyword surface so
     ``inspect.signature`` introspection is identical (br-r37-c1-gedsig).
+
+    br-r37-c1-jwdzp: accept nx-typed inputs so cross-library calls
+    don't get rejected by the Rust kernel's strict type check.
     The native fast path handles common small-graph cases;
     ``timeout`` requires the iterative algorithm and is delegated to
     networkx.
     """
+    G1 = _coerce_arg_to_fnx_graph(G1)
+    G2 = _coerce_arg_to_fnx_graph(G2)
     handled, native_result = _native_graph_edit_distance_common_case(
         G1,
         G2,
