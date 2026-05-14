@@ -77,6 +77,33 @@ except Exception:
     pass
 
 
+# br-r37-c1-u3umv: ``nx.drawing.layout._process_params`` short-circuits
+# ``isinstance(G, nx.Graph)`` for graph-like objects that *aren't* an
+# ``nx.Graph`` subclass: it discards the input and rebuilds a node-only
+# graph (no edges) via ``empty.add_nodes_from(G)``. fnx graph classes
+# pass the duck-type API but fail the isinstance check, so every nx
+# layout helper that calls ``_process_params`` (spring/fr/kk/spectral/
+# planar/...) silently runs on an edge-less version of the graph and
+# produces positions that ignore connectivity. Patch the helper at
+# import time to convert fnx graphs into nx graphs *with edges* before
+# delegating to the original implementation.
+try:
+    import networkx.drawing.layout as _nx_layout_module
+
+    _original_process_params = _nx_layout_module._process_params
+
+    def _fnx_aware_process_params(G, center, dim):
+        if isinstance(G, (Graph, DiGraph, MultiGraph, MultiDiGraph)):
+            from franken_networkx.backend import _fnx_to_nx
+            G = _fnx_to_nx(G)
+        return _original_process_params(G, center, dim)
+
+    _fnx_aware_process_params.__wrapped__ = _original_process_params
+    _nx_layout_module._process_params = _fnx_aware_process_params
+except Exception:
+    pass
+
+
 class EdgePartition(Enum):
     OPEN = 0
     INCLUDED = 1
