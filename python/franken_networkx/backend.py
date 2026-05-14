@@ -308,6 +308,13 @@ _SUPPORTED_ALGORITHMS = {
     "set_edge_attributes": fnx.set_edge_attributes,
     "get_node_attributes": fnx.get_node_attributes,
     "get_edge_attributes": fnx.get_edge_attributes,
+    # br-r37-c1-tq78w: same mutation-preserving dispatch family.
+    # ``copy=False`` paths mutate the input graph; without these
+    # entries the dispatcher raises NotImplementedError.
+    "relabel_nodes": fnx.relabel_nodes,
+    "contracted_nodes": fnx.contracted_nodes,
+    "contracted_edge": fnx.contracted_edge,
+    "identified_nodes": fnx.identified_nodes,
     # Graph operators
     "union": fnx.union,
     "intersection": fnx.intersection,
