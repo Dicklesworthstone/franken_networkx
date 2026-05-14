@@ -298,6 +298,16 @@ _SUPPORTED_ALGORITHMS = {
     "label_propagation_communities": fnx.label_propagation_communities,
     "asyn_lpa_communities": fnx.asyn_lpa_communities,
     "greedy_modularity_communities": fnx.greedy_modularity_communities,
+    # Attribute setters / getters. br-r37-c1-l2j31: nx flags
+    # ``set_*_attributes`` as mutation-preserving so the dispatcher
+    # refuses to auto-convert fnx graphs to nx (the mutation would
+    # land on a throwaway copy). Register fnx's wrappers so the
+    # dispatcher routes the fnx graph in directly and the user's
+    # in-place mutation reaches the underlying graph.
+    "set_node_attributes": fnx.set_node_attributes,
+    "set_edge_attributes": fnx.set_edge_attributes,
+    "get_node_attributes": fnx.get_node_attributes,
+    "get_edge_attributes": fnx.get_edge_attributes,
     # Graph operators
     "union": fnx.union,
     "intersection": fnx.intersection,
