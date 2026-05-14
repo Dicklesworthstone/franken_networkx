@@ -36500,18 +36500,30 @@ def _random_internet_as_graph_impl(n, seed=None):
 
 
 def random_reference(G, niter=1, connectivity=True, seed=None):
-    """Random reference graph preserving degree sequence.
+    """Random reference graph preserving degree sequence (Maslov-Sneppen).
 
     br-r37-c1-tqimg: nx is @not_implemented_for('directed',
     'multigraph').
+
+    br-r37-c1-maq1r: nx's Maslov-Sneppen algorithm picks source
+    nodes weighted by degree (via the degree CDF) and rejects swaps
+    that disconnect the graph when ``connectivity=True``. The earlier
+    fnx implementation simply called ``double_edge_swap`` which picks
+    edges uniformly and does no connectivity check — a completely
+    different algorithm. Delegate to nx for byte-for-byte seed
+    parity, matching the upstream Maslov-Sneppen semantics.
     """
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
-    H = G.copy()
-    double_edge_swap(H, nswap=niter * G.number_of_edges(), seed=seed)
-    return H
+    if len(G) < 4:
+        raise NetworkXError("Graph has fewer than four nodes.")
+    if G.number_of_edges() < 2:
+        raise NetworkXError("Graph has fewer that 2 edges")
+    return _call_networkx_for_parity(
+        "random_reference", G, niter=niter, connectivity=connectivity, seed=seed,
+    )
 
 
 def random_labeled_rooted_tree(n, *, seed=None):
