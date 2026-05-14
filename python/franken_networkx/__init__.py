@@ -10434,8 +10434,17 @@ def louvain_partitions(G, weight="weight", resolution=1, threshold=1e-07, seed=N
     )
 
 
-def modularity(G, communities, weight="weight", resolution=1):
+def _modularity_backend_impl(G, communities, weight="weight", resolution=1):
     """Compute the modularity of a partition of ``G``.
+
+    br-r37-c1-ecua7: nx exposes ``modularity`` only at
+    ``nx.community.modularity`` (and ``nx.algorithms.community.modularity``)
+    — ``nx.modularity`` raises ``AttributeError``. fnx mirrors that
+    namespace contract by keeping this implementation private and
+    routing it through the backend dispatch table. Users call via
+    ``fnx.community.modularity(G, ...)``; the dispatcher routes the fnx
+    graph back through ``franken_networkx.backend._SUPPORTED_ALGORITHMS``
+    which maps ``"modularity"`` to this private implementation.
 
     Matches upstream NetworkX: raises ``NotAPartition`` when the
     community sets do not form a valid partition of ``G.nodes`` —
@@ -40953,7 +40962,9 @@ __all__ = [
     "is_dominating_set",
     # Algorithms — community detection
     "louvain_communities",
-    "modularity",
+    # br-r37-c1-ecua7: modularity removed from top-level __all__ to
+    # mirror nx's namespace contract (nx.modularity raises
+    # AttributeError; the function lives at nx.community.modularity).
     "label_propagation_communities",
     "fast_label_propagation_communities",
     "asyn_lpa_communities",

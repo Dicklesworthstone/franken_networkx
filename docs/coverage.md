@@ -7,11 +7,11 @@
 | Category | Count | % | Rule |
 |----------|-------|---|------|
 | RUST_NATIVE | 13 | 1% | native extension exports from `franken_networkx._fnx` |
-| PY_WRAPPER | 843 | 94% | Python-defined exports with no runtime NetworkX dependency detected |
+| PY_WRAPPER | 842 | 94% | Python-defined exports with no runtime NetworkX dependency detected |
 | NX_DELEGATED | 0 | 0% | Python-defined exports that import or call NetworkX at runtime |
 | CLASS | 32 | 3% | public classes, exceptions, iterators |
 | CONSTANT | 3 | 0% | public non-callable values |
-| **Total public exports** | **891** | | unique names from `franken_networkx.__all__` |
+| **Total public exports** | **890** | | unique names from `franken_networkx.__all__` |
 
 All declared public exports are classified. `--check` fails if this generated report drifts from the live module surface.
 
@@ -22,7 +22,7 @@ This ledger separates the broad public-export category from source-visible runti
 | Runtime route | Exports | Helper call sites | Rule |
 |---------------|---------|-------------------|------|
 | RUST_NATIVE | 13 | 0 | native extension export from `franken_networkx._fnx` |
-| PY_WRAPPER | 693 | 0 | Python-defined export with no visible NetworkX route |
+| PY_WRAPPER | 692 | 0 | Python-defined export with no visible NetworkX route |
 | NETWORKX_HELPER | 150 | 174 | Python-defined export with `_call_networkx_*_for_parity(...)` branches |
 | DIRECT_NETWORKX | 0 | 0 | Python-defined export that directly imports or calls NetworkX |
 | CLASS | 32 | 0 | public classes, exceptions, iterators |
@@ -242,7 +242,7 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 
 | Module | Count |
 |--------|-------|
-| `franken_networkx` | 787 |
+| `franken_networkx` | 786 |
 | `franken_networkx.readwrite` | 35 |
 | `franken_networkx.drawing.nx_pylab` | 21 |
 | `franken_networkx.drawing.layout` | 15 |
@@ -270,7 +270,7 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 - `number_of_isolates`
 - `number_of_spanning_arborescences`
 
-## PY_WRAPPER exports (843)
+## PY_WRAPPER exports (842)
 
 - `LCF_graph`
 - `LFR_benchmark_graph`
@@ -800,7 +800,6 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 - `mixing_dict`
 - `mixing_expansion`
 - `modular_product`
-- `modularity`
 - `modularity_matrix`
 - `modularity_spectrum`
 - `moebius_kantor_graph`

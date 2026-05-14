@@ -294,7 +294,10 @@ _SUPPORTED_ALGORITHMS = {
     "is_dominating_set": fnx.is_dominating_set,
     # Community detection
     "louvain_communities": fnx.louvain_communities,
-    "modularity": fnx.modularity,
+    # br-r37-c1-ecua7: registered using the private backend-only impl
+    # so ``fnx.modularity`` stays AttributeError (matching nx's namespace
+    # — nx exposes modularity only at nx.community.modularity).
+    "modularity": fnx._modularity_backend_impl,
     "label_propagation_communities": fnx.label_propagation_communities,
     "asyn_lpa_communities": fnx.asyn_lpa_communities,
     "greedy_modularity_communities": fnx.greedy_modularity_communities,

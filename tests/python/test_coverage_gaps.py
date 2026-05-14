@@ -255,7 +255,7 @@ class TestCommunityDetection:
         G = fnx.complete_graph(4)
         # modularity expects lists of node labels
         comms = [[0, 1], [2, 3]]
-        m = fnx.modularity(G, comms)
+        m = fnx.community.modularity(G, comms)
         assert isinstance(m, float)
         assert -0.5 <= m <= 1.0
 

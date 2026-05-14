@@ -85,7 +85,7 @@ def test_louvain_partition_invariants(make):
 
     # Modularity of each partition should land in the valid range for the
     # same graph.
-    f_mod = fnx.modularity(fg, f_parts)
+    f_mod = fnx.community.modularity(fg, f_parts)
     n_mod = nx.community.modularity(ng, n_parts)
     assert -0.5 <= f_mod <= 1.0
     assert -0.5 <= n_mod <= 1.0
@@ -234,7 +234,7 @@ def test_modularity_matches_networkx_on_trivial_partition():
     fg, ng = _barbell()
     # A deterministic partition — split the barbell's two lobes.
     communities = [set(range(0, 4)), set(range(4, 10))]
-    f_mod = fnx.modularity(fg, communities)
+    f_mod = fnx.community.modularity(fg, communities)
     n_mod = nx.community.modularity(ng, communities)
     assert math.isclose(f_mod, n_mod, rel_tol=1e-5, abs_tol=1e-7)
 
@@ -254,7 +254,7 @@ def test_modularity_rejects_invalid_partitions_with_notapartition(bad):
         nx.community.modularity(ng, bad)
 
     with pytest.raises(fnx.NotAPartition) as fnx_exc:
-        fnx.modularity(fg, bad)
+        fnx.community.modularity(fg, bad)
 
     assert str(fnx_exc.value) == str(nx_exc.value)
 
