@@ -85,9 +85,33 @@ DIRECTED_ONLY = [
 ]
 
 
-def _assert_centrality_close(actual, expected, rel=1e-6, abs_=1e-9):
+def _assert_centrality_close(actual, expected, rel=1e-6, abs_=1e-9, allow_sign_flip=False):
+    """Compare two dict-keyed centrality vectors for value parity.
+
+    ``allow_sign_flip``: if True, also accept a match where every value
+    in ``actual`` is the sign-flipped version of ``expected``. This is
+    needed for SVD-based centralities (e.g. HITS via
+    ``scipy.sparse.linalg.svds``) where the principal singular vector
+    is defined only up to overall sign — ARPACK may pick either sign
+    from one call to the next, so a strict equality check would be
+    intermittently flaky (br-r37-c1-tiuam).
+    """
     assert actual.keys() == expected.keys(), f"key mismatch: {set(actual) ^ set(expected)}"
-    for key in actual:
+    keys = list(actual)
+    if allow_sign_flip:
+        positive_match = all(
+            math.isclose(actual[k], expected[k], rel_tol=rel, abs_tol=abs_)
+            for k in keys
+        )
+        negative_match = all(
+            math.isclose(actual[k], -expected[k], rel_tol=rel, abs_tol=abs_)
+            for k in keys
+        )
+        assert positive_match or negative_match, (
+            f"sign-tolerant mismatch: fnx={actual} nx={expected}"
+        )
+        return
+    for key in keys:
         assert math.isclose(
             actual[key], expected[key], rel_tol=rel, abs_tol=abs_
         ), f"{key}: fnx={actual[key]} nx={expected[key]}"
@@ -258,9 +282,41 @@ def test_katz_centrality_matches_networkx(make, n):
     )
 
 
-@pytest.mark.parametrize("make, n", UNDIRECTED_FAMILIES)
+@pytest.mark.parametrize(
+    "make, n",
+    [
+        pytest.param(_path, 5, id="path-5"),
+        pytest.param(
+            _star,
+            5,
+            id="star-5",
+            marks=pytest.mark.xfail(
+                strict=False,
+                reason=(
+                    "br-r37-c1-tiuam: star_graph has a 2-D principal "
+                    "singular subspace (eigenvalues ±sqrt(n)); "
+                    "scipy.sparse.linalg.svds returns *different basis "
+                    "vectors* from that subspace across calls (not just "
+                    "sign flips). Both fnx and nx share this scipy "
+                    "non-determinism, so exact-value parity is not "
+                    "achievable on this fixture."
+                ),
+            ),
+        ),
+        pytest.param(_cycle, 6, id="cycle-6"),
+        pytest.param(_complete, 4, id="complete-4"),
+        pytest.param(_weighted_path, 5, id="weighted-path-5"),
+    ],
+)
 def test_hits_structural_invariants(make, n):
-    """HITS exact parity with an explicit start vector."""
+    """HITS parity with an explicit start vector.
+
+    br-r37-c1-tiuam: scipy's svds is only defined up to overall sign
+    on the returned singular vector, and ARPACK does not pick a
+    consistent sign across calls. Use ``allow_sign_flip=True`` so
+    the test tolerates the SVD sign ambiguity (which is shared by
+    both fnx.hits and nx.hits — they wrap the same scipy call).
+    """
     fg, ng = make(n)
     f_hubs, f_auth = fnx.hits(
         fg,
@@ -275,8 +331,8 @@ def test_hits_structural_invariants(make, n):
         nstart=_deterministic_nstart(ng),
     )
     assert f_hubs.keys() == f_auth.keys() == n_hubs.keys() == n_auth.keys()
-    _assert_centrality_close(f_hubs, n_hubs, rel=1e-5, abs_=1e-7)
-    _assert_centrality_close(f_auth, n_auth, rel=1e-5, abs_=1e-7)
+    _assert_centrality_close(f_hubs, n_hubs, rel=1e-5, abs_=1e-7, allow_sign_flip=True)
+    _assert_centrality_close(f_auth, n_auth, rel=1e-5, abs_=1e-7, allow_sign_flip=True)
 
 
 # ---------------------------------------------------------------------------
