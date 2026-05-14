@@ -315,6 +315,10 @@ _SUPPORTED_ALGORITHMS = {
     "contracted_nodes": fnx.contracted_nodes,
     "contracted_edge": fnx.contracted_edge,
     "identified_nodes": fnx.identified_nodes,
+    # br-r37-c1-frbgb: edge-swap helpers mutate the input graph in
+    # place; same dispatch-gap family as the entries above.
+    "double_edge_swap": fnx.double_edge_swap,
+    "connected_double_edge_swap": fnx.connected_double_edge_swap,
     # Graph operators
     "union": fnx.union,
     "intersection": fnx.intersection,

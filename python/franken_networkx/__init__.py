@@ -23666,7 +23666,12 @@ def double_edge_swap(G, nswap=1, max_tries=100, seed=None):
     if G.number_of_edges() < 2:
         raise NetworkXError("Graph has fewer than 2 edges")
 
-    rng = _random.Random(seed)
+    # br-r37-c1-frbgb: when called via the nx dispatcher (registered in
+    # backend._SUPPORTED_ALGORITHMS), nx's ``@py_random_state("seed")``
+    # decorator has already wrapped ``seed`` into a ``random.Random``
+    # instance. Detect that and reuse the pre-built RNG so the dispatch
+    # path doesn't crash on ``Random.Random(<Random>)``.
+    rng = seed if isinstance(seed, _random.Random) else _random.Random(seed)
     edges = list(G.edges())
     swaps_done = 0
     tries = 0
@@ -25147,7 +25152,8 @@ def connected_double_edge_swap(G, nswap=1, _window_threshold=3, seed=None):
         raise NetworkXError("Graph has fewer than four nodes.")
     if not is_connected(G):
         raise NetworkXError("Graph not connected")
-    rng = _random.Random(seed)
+    # br-r37-c1-frbgb: handle pre-wrapped Random from nx dispatcher.
+    rng = seed if isinstance(seed, _random.Random) else _random.Random(seed)
     if G.number_of_edges() < 2:
         return 0
     swaps_done = 0
