@@ -17000,6 +17000,8 @@ def power(G, k):
     The k-th power G^k has the same nodes as G. Two nodes u, v are
     adjacent in G^k iff their shortest path distance in G is <= k.
     """
+    # br-r37-c1-9rd4z: accept nx-typed inputs.
+    G = _coerce_arg_to_fnx_graph(G)
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
     if G.is_directed():
@@ -33998,6 +34000,9 @@ def is_isomorphic(G1, G2, node_match=None, edge_match=None):
 
 def vf2pp_is_isomorphic(G1, G2, node_label=None, default_label=None):
     """Test isomorphism using VF2++."""
+    # br-r37-c1-9rd4z: accept nx-typed inputs.
+    G1 = _coerce_arg_to_fnx_graph(G1)
+    G2 = _coerce_arg_to_fnx_graph(G2)
     # br-r37-c1-vf2pp-empty: nx's vf2pp treats empty graphs as a
     # degenerate case and returns False / None / [] for the
     # is/get/all forms respectively.  The Rust binding instead
@@ -34021,6 +34026,9 @@ def vf2pp_is_isomorphic(G1, G2, node_label=None, default_label=None):
 
 def vf2pp_isomorphism(G1, G2, node_label=None, default_label=None):
     """Find one isomorphism mapping using VF2++."""
+    # br-r37-c1-9rd4z: accept nx-typed inputs.
+    G1 = _coerce_arg_to_fnx_graph(G1)
+    G2 = _coerce_arg_to_fnx_graph(G2)
     # br-r37-c1-vf2pp-empty: empty-graph short-circuit (see
     # vf2pp_is_isomorphic).
     if G1.number_of_nodes() == 0 or G2.number_of_nodes() == 0:
@@ -34039,6 +34047,9 @@ def vf2pp_isomorphism(G1, G2, node_label=None, default_label=None):
 
 def vf2pp_all_isomorphisms(G1, G2, node_label=None, default_label=None):
     """Generate all isomorphism mappings using VF2++."""
+    # br-r37-c1-9rd4z: accept nx-typed inputs.
+    G1 = _coerce_arg_to_fnx_graph(G1)
+    G2 = _coerce_arg_to_fnx_graph(G2)
     # br-r37-c1-vf2pp-empty: empty-graph short-circuit (see
     # vf2pp_is_isomorphic).
     if G1.number_of_nodes() == 0 or G2.number_of_nodes() == 0:
