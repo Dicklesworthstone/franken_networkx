@@ -6740,6 +6740,8 @@ def eigenvector_centrality(
     _validate_backend_dispatch_keywords("eigenvector_centrality", backend, backend_kwargs)
 
     # br-r37-c1-pyo3prefix: see ``pagerank`` for the rationale.  The
+    # br-r37-c1-y77dc: accept nx-typed inputs.
+    G = _coerce_arg_to_fnx_graph(G)
     # Rust binding declares ``max_iter`` as unsigned int and prefixes
     # the TypeError with ``argument 'max_iter':``; nx raises the bare
     # ``'float' object cannot be interpreted as an integer`` from
@@ -6875,6 +6877,8 @@ def betweenness_centrality(
 ):
     """Compute betweenness centrality for nodes."""
     _validate_backend_dispatch_keywords("betweenness_centrality", backend, backend_kwargs)
+    # br-r37-c1-y77dc: accept nx-typed inputs.
+    G = _coerce_arg_to_fnx_graph(G)
 
     if k is not None or weight is not None or seed is not None:
         return _call_networkx_for_parity(
@@ -16310,6 +16314,8 @@ def pagerank(
 ):
     """Return the PageRank of the nodes in graph ``G``."""
     _validate_backend_dispatch_keywords("pagerank", backend, backend_kwargs)
+    # br-r37-c1-y77dc: accept nx-typed inputs.
+    G = _coerce_arg_to_fnx_graph(G)
 
     # br-r37-c1-pyo3prefix: the Rust binding declares ``max_iter`` as
     # an unsigned int and rejects floats with ``TypeError: argument
@@ -16450,6 +16456,8 @@ def closeness_centrality(
         float if u is specified.
     """
     _validate_backend_dispatch_keywords("closeness_centrality", backend, backend_kwargs)
+    # br-r37-c1-y77dc: accept nx-typed inputs.
+    G = _coerce_arg_to_fnx_graph(G)
 
     # Delegate to NetworkX for unsupported parameters
     if u is not None or distance is not None or not wf_improved:
@@ -16564,6 +16572,8 @@ def katz_centrality(
         Dictionary of nodes with Katz centrality as value.
     """
     _validate_backend_dispatch_keywords("katz_centrality", backend, backend_kwargs)
+    # br-r37-c1-y77dc: accept nx-typed inputs.
+    G = _coerce_arg_to_fnx_graph(G)
 
     # br-r37-c1-tqimg: nx is decorated with
     # @not_implemented_for('multigraph'); fnx silently accepted MG.
