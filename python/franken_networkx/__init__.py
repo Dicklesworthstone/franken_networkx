@@ -18844,7 +18844,10 @@ def barbell_graph(m1, m2, create_using=None):
 def bull_graph(create_using=None):
     """Return the bull graph."""
     if create_using is None:
-        return _rust_bull_graph()
+        g = _rust_bull_graph()
+        # br-r37-c1-61kez: Rust fast path skipped the name tag.
+        g.graph["name"] = "Bull Graph"
+        return g
     return _classic_named_graph_from_adjlist(
         {0: [1, 2], 1: [0, 2, 3], 2: [0, 1, 4], 3: [1], 4: [2]},
         create_using=create_using,
@@ -18977,7 +18980,10 @@ def wheel_graph(n, create_using=None):
 def diamond_graph(create_using=None):
     """Return the diamond graph."""
     if create_using is None:
-        return _rust_diamond_graph()
+        g = _rust_diamond_graph()
+        # br-r37-c1-61kez: Rust fast path skipped the name tag.
+        g.graph["name"] = "Diamond Graph"
+        return g
     return _classic_named_graph_from_adjlist(
         {0: [1, 2], 1: [0, 2, 3], 2: [0, 1, 3], 3: [1, 2]},
         create_using=create_using,
@@ -18988,7 +18994,10 @@ def diamond_graph(create_using=None):
 def house_graph(create_using=None):
     """Return the house graph."""
     if create_using is None:
-        return _rust_house_graph()
+        g = _rust_house_graph()
+        # br-r37-c1-61kez: Rust fast path skipped the name tag.
+        g.graph["name"] = "House Graph"
+        return g
     return _classic_named_graph_from_adjlist(
         {0: [1, 2], 1: [0, 3], 2: [0, 3, 4], 3: [1, 2, 4], 4: [2, 3]},
         create_using=create_using,
@@ -19035,7 +19044,10 @@ def cubical_graph(create_using=None):
 def petersen_graph(create_using=None):
     """Return the Petersen graph."""
     if create_using is None:
-        return _rust_petersen_graph()
+        g = _rust_petersen_graph()
+        # br-r37-c1-61kez: Rust fast path skipped the name tag.
+        g.graph["name"] = "Petersen Graph"
+        return g
     return _classic_named_graph_from_adjlist(
         {
             0: [1, 4, 5],
@@ -19057,7 +19069,10 @@ def petersen_graph(create_using=None):
 def tetrahedral_graph(create_using=None):
     """Return the tetrahedral graph."""
     if create_using is None:
-        return _rust_tetrahedral_graph()
+        g = _rust_tetrahedral_graph()
+        # br-r37-c1-61kez: Rust fast path skipped the name tag.
+        g.graph["name"] = "Platonic Tetrahedral Graph"
+        return g
     graph = complete_graph(4, create_using=create_using)
     graph.graph["name"] = "Platonic Tetrahedral Graph"
     return graph
@@ -19194,7 +19209,10 @@ def truncated_tetrahedron_graph(create_using=None):
 def chvatal_graph(create_using=None):
     """Return the Chvatal graph."""
     if create_using is None:
-        return _rust_chvatal_graph()
+        g = _rust_chvatal_graph()
+        # br-r37-c1-61kez: Rust fast path skipped the name tag.
+        g.graph["name"] = "Chvatal Graph"
+        return g
     return _classic_named_graph_from_adjlist(
         {
             0: [1, 4, 6, 9],
@@ -19265,7 +19283,10 @@ def icosahedral_graph(create_using=None):
 def krackhardt_kite_graph(create_using=None):
     """Return the Krackhardt kite graph."""
     if create_using is None:
-        return _rust_krackhardt_kite_graph()
+        g = _rust_krackhardt_kite_graph()
+        # br-r37-c1-61kez: Rust fast path skipped the name tag.
+        g.graph["name"] = "Krackhardt Kite Social Network"
+        return g
     return _classic_named_graph_from_adjlist(
         {
             0: [1, 2, 3, 5],
