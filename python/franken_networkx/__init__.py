@@ -104,6 +104,49 @@ except Exception:
     pass
 
 
+# br-r37-c1-sg4dw: ``nx.scale_free_graph`` is decorated
+# ``@_dispatchable(graphs=None, returns_graph=True)`` so the dispatcher
+# never sees its ``initial_graph`` argument, and the function body then
+# raises ``NetworkXError("initial_graph must be a MultiDiGraph.")`` via
+# an ``isinstance(initial_graph, nx.MultiDiGraph)`` guard when the user
+# passes an fnx multidigraph. Wrap the function so fnx multidigraph
+# inputs are converted to nx.MultiDiGraph before the original kernel
+# runs. Patch all three exported references (``nx.scale_free_graph``,
+# ``nx.generators.scale_free_graph``,
+# ``nx.generators.directed.scale_free_graph``) so the fix is visible
+# regardless of which import path the user took.
+try:
+    import networkx as _nx_for_sfg_patch
+    import networkx.generators.directed as _nx_directed_for_sfg
+    import networkx.generators as _nx_generators_for_sfg
+    import functools as _functools_for_sfg
+
+    _original_scale_free_graph = _nx_directed_for_sfg.scale_free_graph
+
+    @_functools_for_sfg.wraps(_original_scale_free_graph)
+    def _fnx_aware_scale_free_graph(n, *args, initial_graph=None, **kwargs):
+        if initial_graph is not None and isinstance(
+            initial_graph, (Graph, DiGraph, MultiGraph, MultiDiGraph)
+        ):
+            from franken_networkx.backend import _fnx_to_nx
+            initial_graph = _fnx_to_nx(initial_graph)
+            if not isinstance(initial_graph, _nx_for_sfg_patch.MultiDiGraph):
+                converted = _nx_for_sfg_patch.MultiDiGraph()
+                for node, attrs in initial_graph.nodes(data=True):
+                    converted.add_node(node, **attrs)
+                for u, v, *rest in initial_graph.edges(data=True):
+                    data = rest[0] if rest else {}
+                    converted.add_edge(u, v, **data)
+                initial_graph = converted
+        return _original_scale_free_graph(n, *args, initial_graph=initial_graph, **kwargs)
+
+    _nx_directed_for_sfg.scale_free_graph = _fnx_aware_scale_free_graph
+    _nx_generators_for_sfg.scale_free_graph = _fnx_aware_scale_free_graph
+    _nx_for_sfg_patch.scale_free_graph = _fnx_aware_scale_free_graph
+except Exception:
+    pass
+
+
 class EdgePartition(Enum):
     OPEN = 0
     INCLUDED = 1
