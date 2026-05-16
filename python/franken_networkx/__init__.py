@@ -6559,29 +6559,6 @@ def _local_node_connectivity_via_nx(G, s, t, flow_func, auxiliary, residual, cut
     )
 
 
-def local_node_connectivity(
-    G,
-    s,
-    t,
-    flow_func=None,
-    auxiliary=None,
-    residual=None,
-    cutoff=None,
-):
-    """Return the local node connectivity between ``s`` and ``t``.
-
-    br-r37-c1-k4pod: previous body called ``node_connectivity(G, s,
-    t, cutoff=cutoff)`` which raised ``TypeError`` for ALL inputs
-    because the ``node_connectivity`` wrapper does not accept a
-    ``cutoff`` kwarg.  nx's ``local_node_connectivity`` lives in
-    ``networkx.algorithms.connectivity`` and takes a max-flow path
-    that uses ``cutoff`` properly — delegate there so cutoff /
-    auxiliary / residual / flow_func all work as documented.
-    """
-    _validate_flow_func_selector(flow_func)
-    return _local_node_connectivity_via_nx(
-        G, s, t, flow_func, auxiliary, residual, cutoff
-    )
 
 
 # Algorithm functions — centrality
@@ -11639,33 +11616,8 @@ def is_directed_acyclic_graph(G):
 
 
 
-def mutual_weight(G, u, v, weight=None):
-    """Return the mutual weight (Burt 1992) of edges between u and v in G.
-
-    br-r37-c1-b7ejh: native implementation. Sums the (u, v) and (v, u)
-    edge weights; missing edges contribute 0, present edges without
-    the ``weight`` key contribute 1 (matches nx semantics).
-    """
-    try:
-        a_uv = G[u][v].get(weight, 1)
-    except KeyError:
-        a_uv = 0
-    try:
-        a_vu = G[v][u].get(weight, 1)
-    except KeyError:
-        a_vu = 0
-    return a_uv + a_vu
 
 
-def normalized_mutual_weight(G, u, v, norm=sum, weight=None):
-    """Return normalized mutual weight (Burt 1992) of edges between u and v in G.
-
-    br-r37-c1-b7ejh: native implementation. Divides ``mutual_weight(u, v)``
-    by ``norm(mutual_weight(u, w) for w in all-neighbors(u))``.
-    Returns 0 when the scale is 0 (matches nx).
-    """
-    scale = norm(mutual_weight(G, u, w, weight) for w in set(all_neighbors(G, u)))
-    return 0 if scale == 0 else mutual_weight(G, u, v, weight) / scale
 
 
 
@@ -11751,11 +11703,6 @@ def _is_valid_tree_degree_sequence_via_nx(degree_sequence):
 # Module ``__getattr__`` traps top-level access.
 
 
-def boruvka_mst_edges(
-    G, minimum=True, weight="weight", keys=False, data=True, ignore_nan=False,
-):
-    """Yield MST edges using Boruvka's algorithm."""
-    yield from _boruvka_mst_edges_via_nx(G, minimum, weight, keys, data, ignore_nan)
 
 
 def _boruvka_mst_edges_via_nx(G, minimum, weight, keys, data, ignore_nan):
@@ -11767,13 +11714,6 @@ def _boruvka_mst_edges_via_nx(G, minimum, weight, keys, data, ignore_nan):
     )
 
 
-def kruskal_mst_edges(
-    G, minimum, weight="weight", keys=True, data=True, ignore_nan=False, partition=None,
-):
-    """Yield MST edges using Kruskal's algorithm."""
-    yield from _kruskal_mst_edges_via_nx(
-        G, minimum, weight, keys, data, ignore_nan, partition,
-    )
 
 
 def _kruskal_mst_edges_via_nx(G, minimum, weight, keys, data, ignore_nan, partition):
@@ -11784,11 +11724,6 @@ def _kruskal_mst_edges_via_nx(G, minimum, weight, keys, data, ignore_nan, partit
     )
 
 
-def prim_mst_edges(
-    G, minimum, weight="weight", keys=True, data=True, ignore_nan=False,
-):
-    """Yield MST edges using Prim's algorithm."""
-    yield from _prim_mst_edges_via_nx(G, minimum, weight, keys, data, ignore_nan)
 
 
 def _prim_mst_edges_via_nx(G, minimum, weight, keys, data, ignore_nan):
@@ -40446,7 +40381,6 @@ __all__ = [
     "generalized_degree",
     "is_semiconnected",
     "all_pairs_node_connectivity",
-    "local_node_connectivity",
     "contracted_nodes",
     "contracted_edge",
     "is_directed",
@@ -40772,13 +40706,8 @@ __all__ = [
     "dag_longest_path_length",
     "descendants",
     "is_directed_acyclic_graph",
-    "mutual_weight",
-    "normalized_mutual_weight",
     "random_uniform_k_out_graph",
     "is_valid_tree_degree_sequence",
-    "boruvka_mst_edges",
-    "kruskal_mst_edges",
-    "prim_mst_edges",
     "BinaryHeap",
     "MinHeap",
     "PairingHeap",
@@ -41884,6 +41813,21 @@ def __getattr__(name):
         "cc_dot", "cc_max", "cc_min",
         "greedy_branching", "greedy_tsp",
         "large_clique_size", "to_vertex_cover",
+    ):
+        raise AttributeError(
+            f"module 'networkx' has no attribute '{name}'"
+        )
+    # br-r37-c1-luy4x: 6 more nx-namespaced helpers — none at nx
+    # top level. Removed for drop-in parity:
+    #   nx.algorithms.tree.mst.X: boruvka_mst_edges / kruskal_mst_edges /
+    #                             prim_mst_edges
+    #   nx.algorithms.structuralholes.X: mutual_weight /
+    #                                    normalized_mutual_weight
+    #   nx.algorithms.connectivity.X: local_node_connectivity
+    if name in (
+        "boruvka_mst_edges", "kruskal_mst_edges", "prim_mst_edges",
+        "mutual_weight", "normalized_mutual_weight",
+        "local_node_connectivity",
     ):
         raise AttributeError(
             f"module 'networkx' has no attribute '{name}'"
