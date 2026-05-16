@@ -13231,12 +13231,11 @@
   },
   {
     "name": "draw_bipartite",
-    "classification": "positional-mismatch",
-    "fnx_signature": "(G, top_nodes=None, **kwargs)",
+    "classification": "kwarg-superset",
+    "fnx_signature": "(G, *, top_nodes=None, **kwargs)",
     "nx_signature": "(G, **kwargs)",
     "deltas": [
-      "positional arity differs: fnx=2 (['G', 'top_nodes']) vs nx=1 (['G'])",
-      "extra in fnx: top_nodes (kind=POSITIONAL_OR_KEYWORD, default=None)"
+      "extra in fnx: top_nodes (kind=KEYWORD_ONLY, default=None)"
     ],
     "fnx_params": [
       {
@@ -13247,7 +13246,7 @@
       },
       {
         "name": "top_nodes",
-        "kind": "POSITIONAL_OR_KEYWORD",
+        "kind": "KEYWORD_ONLY",
         "default": null,
         "has_default": true
       },
@@ -46910,8 +46909,8 @@
   {
     "name": "subgraph_view",
     "classification": "identical",
-    "fnx_signature": "(G, *, filter_node=<function no_filter at 0x712d585496c0>, filter_edge=<function no_filter at 0x712d585496c0>)",
-    "nx_signature": "(G, *, filter_node=<function no_filter at 0x712d5a3d6ca0>, filter_edge=<function no_filter at 0x712d5a3d6ca0>)",
+    "fnx_signature": "(G, *, filter_node=<function no_filter at 0x77349750bd80>, filter_edge=<function no_filter at 0x77349750bd80>)",
+    "nx_signature": "(G, *, filter_node=<function no_filter at 0x77349750bd80>, filter_edge=<function no_filter at 0x77349750bd80>)",
     "deltas": [],
     "fnx_params": [
       {
