@@ -29,7 +29,8 @@ def test_draw_bipartite_uses_bipartite_layout_when_pos_missing(monkeypatch):
 
     monkeypatch.setattr(nx_pylab, "draw", fake_draw)
 
-    result = fnx.draw_bipartite(graph, {"top"})
+    # br-r37-c1-hufne: top_nodes is keyword-only after br-r37-c1-5b7i4
+    result = fnx.draw_bipartite(graph, top_nodes={"top"})
 
     assert result == "drawn"
     assert captured["graph"] is graph
@@ -66,7 +67,7 @@ def test_draw_bipartite_transformed_graph_uses_local_layout(monkeypatch):
 
     monkeypatch.setattr(nx_pylab, "draw", fake_draw)
 
-    result = fnx.draw_bipartite(graph, top_nodes, node_size=10)
+    result = fnx.draw_bipartite(graph, top_nodes=top_nodes, node_size=10)
 
     assert result == "drawn"
     assert captured["graph"] is graph
@@ -110,7 +111,7 @@ def test_draw_bipartite_transformed_graph_respects_explicit_pos(monkeypatch):
 
     monkeypatch.setattr(nx_pylab, "draw", fake_draw)
 
-    result = fnx.draw_bipartite(graph, top_nodes, pos=explicit_pos, node_size=10)
+    result = fnx.draw_bipartite(graph, top_nodes=top_nodes, pos=explicit_pos, node_size=10)
 
     assert result == "drawn"
     assert captured["graph"] is graph
