@@ -12006,52 +12006,10 @@ from networkx.algorithms import isomorphism as _nx_isomorphism
 # ``__getattr__`` traps top-level access.
 
 
-class GraphMatcher(_nx_isomorphism.GraphMatcher):
-    """VF2 graph matcher accepting FrankenNetworkX graph objects."""
-
-    def __init__(self, G1, G2, node_match=None, edge_match=None):
-        super().__init__(
-            _networkx_graph_for_parity(G1),
-            _networkx_graph_for_parity(G2),
-            node_match=node_match,
-            edge_match=edge_match,
-        )
-
-
-class DiGraphMatcher(_nx_isomorphism.DiGraphMatcher):
-    """VF2 directed-graph matcher accepting FrankenNetworkX graph objects."""
-
-    def __init__(self, G1, G2, node_match=None, edge_match=None):
-        super().__init__(
-            _networkx_graph_for_parity(G1),
-            _networkx_graph_for_parity(G2),
-            node_match=node_match,
-            edge_match=edge_match,
-        )
-
-
-class MultiGraphMatcher(_nx_isomorphism.MultiGraphMatcher):
-    """VF2 multigraph matcher accepting FrankenNetworkX graph objects."""
-
-    def __init__(self, G1, G2, node_match=None, edge_match=None):
-        super().__init__(
-            _networkx_graph_for_parity(G1),
-            _networkx_graph_for_parity(G2),
-            node_match=node_match,
-            edge_match=edge_match,
-        )
-
-
-class MultiDiGraphMatcher(_nx_isomorphism.MultiDiGraphMatcher):
-    """VF2 directed-multigraph matcher accepting FrankenNetworkX graph objects."""
-
-    def __init__(self, G1, G2, node_match=None, edge_match=None):
-        super().__init__(
-            _networkx_graph_for_parity(G1),
-            _networkx_graph_for_parity(G2),
-            node_match=node_match,
-            edge_match=edge_match,
-        )
+# br-r37-c1-qliut: GraphMatcher / DiGraphMatcher / MultiGraphMatcher /
+# MultiDiGraphMatcher were defined as explicit subclasses here, but the
+# factory at module-level (see _build_vf2_matcher_classes below) overwrites
+# all four assignments. The earlier explicit defs were dead code.
 
 
 class ISMAGS(_nx_isomorphism.ISMAGS):
@@ -33258,6 +33216,8 @@ def _rooted_tree_isomorphism_via_parity(t1, root1, t2, root2):
 
 
 _ISOMORPHISM_MODULE_EXPORTS = (
+    # br-r37-c1-qliut: deduped — the 4 matcher names below appeared
+    # twice in this tuple. Kept the first occurrence only.
     "GraphMatcher",
     "DiGraphMatcher",
     "MultiGraphMatcher",
@@ -33272,10 +33232,6 @@ _ISOMORPHISM_MODULE_EXPORTS = (
     "vf2pp_is_isomorphic",
     "vf2pp_isomorphism",
     "vf2pp_all_isomorphisms",
-    "GraphMatcher",
-    "DiGraphMatcher",
-    "MultiGraphMatcher",
-    "MultiDiGraphMatcher",
 )
 
 
