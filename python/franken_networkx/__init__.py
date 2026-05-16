@@ -12665,10 +12665,6 @@ from franken_networkx._fnx import (
 
 
 
-def large_clique_size(G):
-    """br-r37-c1-0555d: nx-coerce wrapper."""
-    G = _coerce_arg_to_fnx_graph(G)
-    return _raw_large_clique_size(G)
 
 
 
@@ -14641,15 +14637,15 @@ from franken_networkx.readwrite import (
     generate_gml,
     generate_multiline_adjlist,
     generate_pajek,
-    parse_graph6,
-    parse_gexf,
+    # br-r37-c1-dytcs: parse_gexf, parse_graph6, parse_sparse6 are
+    # nx-readwrite-only (nx top level does not re-export them);
+    # callers reach them via fnx.readwrite.X.
     parse_adjlist,
     parse_edgelist,
     parse_gml,
     parse_leda,
     parse_multiline_adjlist,
     parse_pajek,
-    parse_sparse6,
     read_gexf,
     read_graph6,
     read_leda,
@@ -15140,18 +15136,10 @@ def _call_networkx_bipartite_for_parity(name, G, /, *args, **kwargs):
 
 
 
-def to_vertex_cover(G, matching, top_nodes=None):
-    """Return a vertex cover dual of a maximum bipartite matching."""
-    return _call_networkx_bipartite_for_parity(
-        "to_vertex_cover", G, matching, top_nodes=top_nodes,
-    )
 
 
 
 
-def cc_dot(nu, nv):
-    """Latapy bipartite clustering kernel — dot variant."""
-    return _cc_dot_via_nx(nu, nv)
 
 
 def _cc_dot_via_nx(nu, nv):
@@ -15160,18 +15148,12 @@ def _cc_dot_via_nx(nu, nv):
     return _nx.algorithms.bipartite.cluster.cc_dot(nu, nv)
 
 
-def cc_max(nu, nv):
-    """Latapy bipartite clustering kernel — max variant."""
-    return _cc_max_via_nx(nu, nv)
 
 
 def _cc_max_via_nx(nu, nv):
     return _nx.algorithms.bipartite.cluster.cc_max(nu, nv)
 
 
-def cc_min(nu, nv):
-    """Latapy bipartite clustering kernel — min variant."""
-    return _cc_min_via_nx(nu, nv)
 
 
 def _cc_min_via_nx(nu, nv):
@@ -20555,11 +20537,6 @@ def _call_networkx_approximation_for_parity(name, G, /, *args, **kwargs):
 
 
 
-def greedy_tsp(G, weight="weight", source=None):
-    """Greedy nearest-neighbour heuristic for the traveling salesman problem."""
-    return _call_networkx_approximation_for_parity(
-        "greedy_tsp", G, weight=weight, source=source,
-    )
 
 
 
@@ -37030,54 +37007,6 @@ def tree_all_pairs_lowest_common_ancestor(
                     yield (other, node), rust_results[(other, node)]
 
 
-def greedy_branching(G, attr="weight", default=1, kind="max", seed=None):
-    """Return a branching obtained through a simple greedy algorithm.
-
-    Mirrors ``networkx.algorithms.tree.branchings.greedy_branching``. This is
-    the pedagogical baseline: edges are sorted by weight (with a node-id
-    tie-break to normalize across runs), then added as long as the result
-    remains a branching (no cycles and in-degree ≤ 1 per node). The output
-    is not guaranteed to be optimal.
-
-    When ``attr`` is None each edge is treated equally (weight 1) and the
-    stored edge attribute is suppressed so the returned graph has no edge
-    data, matching NetworkX.
-    """
-    if kind not in ("min", "max"):
-        raise NetworkXError("Unknown value for `kind`.")
-    reverse = kind == "max"
-
-    if attr is None:
-        import random as _random
-
-        rng = _random.Random(seed)
-        # Matches NetworkX: when attr is None, generate a random key that the
-        # graph is vanishingly unlikely to already have, then treat it as the
-        # attribute name throughout. Edges in the result carry this random
-        # key (mirroring the upstream behaviour exactly).
-        attr = f"_greedy_branching_{rng.getrandbits(64):016x}"
-
-    edges = [
-        (u, v, data.get(attr, default)) for (u, v, data) in G.edges(data=True)
-    ]
-    try:
-        edges.sort(key=lambda e: (e[2], e[0], e[1]), reverse=reverse)
-    except TypeError:
-        edges.sort(key=lambda e: e[2], reverse=reverse)
-
-    B = DiGraph()
-    B.add_nodes_from(G)
-
-    uf = _TarjanUnionFind()
-    for u, v, w in edges:
-        if uf[u] == uf[v]:
-            continue
-        if B.in_degree[v] >= 1:
-            continue
-        B.add_edge(u, v, **{attr: w})
-        uf.union(u, v)
-
-    return B
 
 
 def random_kernel_graph(n, kernel_integral, kernel_root=None, seed=None, *, create_using=None, backend=None, **backend_kwargs):
@@ -40310,10 +40239,6 @@ __all__ = [
     # from_biadjacency_matrix are only at nx.bipartite, not nx
     # top-level; not exported.
     "projected_graph",
-    "cc_dot",
-    "cc_max",
-    "cc_min",
-    "to_vertex_cover",
     "core_number",
     "EdgePartition",
     "SpanningTreeIterator",
@@ -40322,7 +40247,6 @@ __all__ = [
     "is_bipartite",
     "is_forest",
     "is_tree",
-    "greedy_branching",
     "maximum_branching",
     "maximum_spanning_arborescence",
     "number_of_spanning_trees",
@@ -40871,9 +40795,7 @@ __all__ = [
     "shortest_simple_paths",
     # Algorithms — approximation
     "maximal_independent_set",
-    "large_clique_size",
     "spanner",
-    "greedy_tsp",
     # Algorithms — tree recognition
     "is_arborescence",
     "is_branching",
@@ -41011,15 +40933,12 @@ __all__ = [
     "generate_gml",
     "generate_multiline_adjlist",
     "generate_pajek",
-    "parse_graph6",
-    "parse_gexf",
     "parse_adjlist",
     "parse_edgelist",
     "parse_gml",
     "parse_leda",
     "parse_multiline_adjlist",
     "parse_pajek",
-    "parse_sparse6",
     "read_gexf",
     "read_graph6",
     "read_leda",
@@ -41949,6 +41868,22 @@ def __getattr__(name):
         "hopcroft_karp_matching", "latapy_clustering",
         "matching_dict_to_set",
         "is_locally_k_edge_connected", "is_reachable",
+    ):
+        raise AttributeError(
+            f"module 'networkx' has no attribute '{name}'"
+        )
+    # br-r37-c1-dytcs: 10 more nx-namespaced helpers — none at nx
+    # top level. Removed for drop-in parity:
+    #   nx.readwrite.X (selective): parse_gexf / parse_graph6 / parse_sparse6
+    #   nx.algorithms.bipartite.cluster.X: cc_dot / cc_max / cc_min
+    #   nx.algorithms.tree.branchings.X:   greedy_branching
+    #   nx.algorithms.approximation.X:     greedy_tsp / large_clique_size
+    #   nx.algorithms.bipartite.X:         to_vertex_cover
+    if name in (
+        "parse_gexf", "parse_graph6", "parse_sparse6",
+        "cc_dot", "cc_max", "cc_min",
+        "greedy_branching", "greedy_tsp",
+        "large_clique_size", "to_vertex_cover",
     ):
         raise AttributeError(
             f"module 'networkx' has no attribute '{name}'"
