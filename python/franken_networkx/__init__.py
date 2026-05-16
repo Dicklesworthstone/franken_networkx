@@ -6209,6 +6209,8 @@ def articulation_points(G):
     instead of delegating to networkx — ~50x faster on BA200, more
     at scale (br-r37-c1-9kyjl is superseded).
     """
+    # br-r37-c1-eghxq: accept nx-typed inputs.
+    G = _coerce_arg_to_fnx_graph(G)
     if G.is_multigraph():
         # The Rust impl is a simple-graph DFS; multigraph parallel
         # edges need nx's chain-decomposition path for correct AP
@@ -6234,6 +6236,8 @@ def bridges(G, root=None):
     edge
         Bridges in the graph.
     """
+    # br-r37-c1-eghxq: accept nx-typed inputs.
+    G = _coerce_arg_to_fnx_graph(G)
     if root is not None:
         yield from _call_networkx_for_parity("bridges", G, root=root)
         return
@@ -8287,6 +8291,8 @@ def eulerian_path(G, source=None, keys=False):
     # raises NodeNotFound (subclass of NetworkXException, NOT
     # NetworkXError).  Pre-validate at the wrapper to match the
     # sibling eulerian_circuit's exception class.
+    # br-r37-c1-eghxq: accept nx-typed inputs.
+    G = _coerce_arg_to_fnx_graph(G)
     if source is not None and source not in G:
         raise NetworkXError(f"Node {source} is not in the graph.")
     # br-r37-c1-z4i7f: nx supports directed graphs; the Rust binding
@@ -8372,6 +8378,8 @@ def cycle_basis(G, root=None):
     multigraph inputs before the basis computation runs, rather than
     silently returning ``[]``.
     """
+    # br-r37-c1-eghxq: accept nx-typed inputs.
+    G = _coerce_arg_to_fnx_graph(G)
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
     if root is not None:
@@ -8677,6 +8685,8 @@ def bfs_layers(G, sources):
     # ``if sources in G`` test which silently returns False on
     # unhashable: when the bare ``sources`` is hashable and a node,
     # treat as single-source; otherwise iterate.
+    # br-r37-c1-eghxq: accept nx-typed inputs.
+    G = _coerce_arg_to_fnx_graph(G)
     try:
         single_node = sources in G
     except TypeError:
@@ -8724,6 +8734,8 @@ def descendants_at_distance(G, source, distance):
     and hash-check up front so unhashable inputs also raise
     NetworkXError (matching nx's pre-hash validation).
     """
+    # br-r37-c1-eghxq: accept nx-typed inputs.
+    G = _coerce_arg_to_fnx_graph(G)
     try:
         hash(source)
     except TypeError as exc:
@@ -8858,6 +8870,8 @@ def bfs_edges(G, source, reverse=False, depth_limit=None, sort_neighbors=None):
     negative values. Match nx by short-circuiting to empty on
     negative depth_limit.
     """
+    # br-r37-c1-eghxq: accept nx-typed inputs.
+    G = _coerce_arg_to_fnx_graph(G)
     hash(source)
     # br-r37-c1-bfs-cutfloat: nx accepts any numeric ``depth_limit``
     # (NaN / +inf / negative / float).  fnx's Rust binding's PyO3
@@ -9008,6 +9022,8 @@ def dfs_edges(G, source=None, depth_limit=None, *, sort_neighbors=None):
     behaviour (NaN/-inf/neg → empty, +inf → unbounded, finite
     float → ceil).
     """
+    # br-r37-c1-eghxq: accept nx-typed inputs.
+    G = _coerce_arg_to_fnx_graph(G)
     if source is not None:
         hash(source)
     depth_limit = _normalize_bfs_depth_limit(depth_limit)
@@ -9248,6 +9264,8 @@ def edge_dfs(G, source=None, orientation=None):
 
 def bfs_predecessors(G, source, depth_limit=None, sort_neighbors=None):
     """Return (node, predecessor) pairs from BFS."""
+    # br-r37-c1-eghxq: accept nx-typed inputs.
+    G = _coerce_arg_to_fnx_graph(G)
     return (
         (child, parent)
         for parent, child in bfs_edges(
@@ -9267,6 +9285,8 @@ def bfs_successors(G, source, depth_limit=None, sort_neighbors=None):
     they were discovered by the BFS. Honours the ``sort_neighbors``
     callable when provided.
     """
+    # br-r37-c1-eghxq: accept nx-typed inputs.
+    G = _coerce_arg_to_fnx_graph(G)
     if sort_neighbors is not None:
         edge_source = _py_bfs_edges(G, source, depth_limit, sort_neighbors)
     else:
@@ -9318,6 +9338,8 @@ def dfs_predecessors(G, source=None, depth_limit=None, *, sort_neighbors=None):
     dfs_edges so iteration order matches nx exactly. Values
     (parent for each node) were already correct.
     """
+    # br-r37-c1-eghxq: accept nx-typed inputs.
+    G = _coerce_arg_to_fnx_graph(G)
     try:
         preds = {}
         for u, v in dfs_edges(G, source=source, depth_limit=depth_limit, sort_neighbors=sort_neighbors):
@@ -9334,6 +9356,8 @@ def dfs_successors(G, source=None, depth_limit=None, *, sort_neighbors=None):
     ``dfs_predecessors``. Build via dfs_edges walk so the dict's
     iteration order matches nx's DFS-discovery contract.
     """
+    # br-r37-c1-eghxq: accept nx-typed inputs.
+    G = _coerce_arg_to_fnx_graph(G)
     try:
         from collections import defaultdict
         succs = defaultdict(list)
@@ -9351,6 +9375,8 @@ def dfs_preorder_nodes(G, source=None, depth_limit=None, *, sort_neighbors=None)
     on unhashable inputs. Restructured as outer fn returning inner
     generator so the hash check fires at call time, not first ``next()``.
     """
+    # br-r37-c1-eghxq: accept nx-typed inputs.
+    G = _coerce_arg_to_fnx_graph(G)
     if source is not None:
         hash(source)
 
@@ -9378,6 +9404,8 @@ def dfs_postorder_nodes(G, source=None, depth_limit=None, *, sort_neighbors=None
     on unhashable inputs. Restructured as outer fn returning inner
     generator so the hash check fires at call time, not first ``next()``.
     """
+    # br-r37-c1-eghxq: accept nx-typed inputs.
+    G = _coerce_arg_to_fnx_graph(G)
     if source is not None:
         hash(source)
 
@@ -11396,6 +11424,8 @@ from franken_networkx._fnx import (
 
 def number_strongly_connected_components(G):
     """Number of strongly connected components in directed graph ``G``."""
+    # br-r37-c1-eghxq: accept nx-typed inputs.
+    G = _coerce_arg_to_fnx_graph(G)
     try:
         return _raw_number_strongly_connected_components(G)
     except NetworkXNotImplemented as exc:
@@ -11415,6 +11445,8 @@ def is_strongly_connected(G):
     it as lowercase ``g`` so ``is_strongly_connected(G=digraph)``
     kwarg-style drop-in calls broke.
     """
+    # br-r37-c1-eghxq: accept nx-typed inputs.
+    G = _coerce_arg_to_fnx_graph(G)
     try:
         return _raw_is_strongly_connected(G)
     except NetworkXNotImplemented as exc:
@@ -11439,6 +11471,8 @@ def strongly_connected_components(G):
     Tarjan/Nuutila discovery order, avoiding the previous NetworkX
     delegation on the public path.
     """
+    # br-r37-c1-eghxq: accept nx-typed inputs.
+    G = _coerce_arg_to_fnx_graph(G)
     if not G.is_directed():
         # Preserve the standard '@not_implemented_for' error format so
         # callers see a stable message (br-r37-c1-4elbw).
@@ -11456,6 +11490,8 @@ from franken_networkx._fnx import (
 
 def number_weakly_connected_components(G):
     """Number of weakly connected components in directed graph ``G``."""
+    # br-r37-c1-eghxq: accept nx-typed inputs.
+    G = _coerce_arg_to_fnx_graph(G)
     try:
         return _raw_number_weakly_connected_components(G)
     except NetworkXNotImplemented as exc:
@@ -11470,6 +11506,8 @@ def number_weakly_connected_components(G):
 
 def is_weakly_connected(G):
     """Return True if the directed graph ``G`` is weakly connected."""
+    # br-r37-c1-eghxq: accept nx-typed inputs.
+    G = _coerce_arg_to_fnx_graph(G)
     try:
         return _raw_is_weakly_connected(G)
     except NetworkXNotImplemented as exc:
@@ -11487,6 +11525,8 @@ def weakly_connected_components(G):
 
     Matches upstream's ``generator[set]`` contract (franken_networkx-v1nwd).
     """
+    # br-r37-c1-eghxq: accept nx-typed inputs.
+    G = _coerce_arg_to_fnx_graph(G)
     try:
         components = list(_raw_weakly_connected_components(G))
     except NetworkXNotImplemented as exc:
@@ -12149,6 +12189,8 @@ def ancestors(G, source):
     br-r37-c1-i9whv: hash check up front for nx parity on unhashable
     inputs (TypeError, not NetworkXError).
     """
+    # br-r37-c1-eghxq: accept nx-typed inputs.
+    G = _coerce_arg_to_fnx_graph(G)
     hash(source)
     if source not in G:
         raise NetworkXError(_ancestors_descendants_missing_node_msg(G, source))
@@ -12176,6 +12218,8 @@ def descendants(G, source):
 
     br-r37-c1-i9whv: hash check up front for nx parity.
     """
+    # br-r37-c1-eghxq: accept nx-typed inputs.
+    G = _coerce_arg_to_fnx_graph(G)
     hash(source)
     if source not in G:
         raise NetworkXError(_ancestors_descendants_missing_node_msg(G, source))
@@ -16902,6 +16946,8 @@ def core_number(G):
     producing core numbers half the size. Delegate the directed
     case to NX so the in+out degree count matches.
     """
+    # br-r37-c1-eghxq: accept nx-typed inputs.
+    G = _coerce_arg_to_fnx_graph(G)
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
     # br-r37-c1-fbons: O(|V|) has_edge probe with short-circuit on first
