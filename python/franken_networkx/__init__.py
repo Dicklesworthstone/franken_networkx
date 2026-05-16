@@ -13015,11 +13015,33 @@ from franken_networkx._fnx import (
     is_digraphical as _raw_is_digraphical,
     is_multigraphical,
     is_pseudographical,
-    is_k_regular,
+    is_k_regular as _raw_is_k_regular,
     is_weighted,
     is_negatively_weighted,
     is_distance_regular as _raw_is_distance_regular,
 )
+
+
+def is_k_regular(G, k):
+    """Determines whether the graph ``G`` is a k-regular graph.
+
+    A k-regular graph is a graph where each vertex has degree k.
+
+    Parameters
+    ----------
+    G : NetworkX graph
+    k : int
+        Target degree.
+
+    Returns
+    -------
+    bool
+        Whether ``G`` is k-regular.
+
+    br-r37-c1-akzum: wraps the Rust binding so users get a help()
+    docstring matching nx.
+    """
+    return _raw_is_k_regular(G, k)
 
 
 def simple_cycles(G, length_bound=None):
