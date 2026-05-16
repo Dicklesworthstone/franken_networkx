@@ -5943,6 +5943,12 @@ def _path_length_preserving_weight_type(G, path, weight):
 
 
 def bellman_ford_path(G, source, target, weight="weight"):
+    """Return the shortest path from ``source`` to ``target`` via Bellman-Ford.
+
+    Handles negative edge weights (Dijkstra requires non-negative).
+    Mirrors ``networkx.bellman_ford_path``. Raises ``NetworkXUnbounded``
+    on negative cycles, ``NetworkXNoPath`` if no path exists.
+    """
     # br-r37-c1-phy2p: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
     # br-r37-c1-c4agn: hash-check for nx-shaped TypeError parity.
@@ -14285,6 +14291,12 @@ def dijkstra_path_length(G, source, target, weight="weight"):
 
 
 def bellman_ford_path_length(G, source, target, weight="weight"):
+    """Return the shortest weighted path length from ``source`` to ``target`` via Bellman-Ford.
+
+    Handles negative edge weights. Mirrors ``networkx.bellman_ford_path_length``.
+    Raises ``NetworkXUnbounded`` on negative cycles reachable from ``source``,
+    ``NetworkXNoPath`` if ``target`` is unreachable.
+    """
     if _should_delegate_bellman_ford_to_networkx(weight, G):
         return _call_networkx_for_parity(
             "bellman_ford_path_length", G, source, target, weight=weight
@@ -14317,6 +14329,12 @@ def bellman_ford_path_length(G, source, target, weight="weight"):
 
 
 def negative_edge_cycle(G, weight="weight", heuristic=True):
+    """Return ``True`` if ``G`` contains a negative-weight cycle.
+
+    Mirrors ``networkx.negative_edge_cycle``. The ``heuristic`` flag enables a
+    fast preliminary check; set to ``False`` for a guaranteed full Bellman-Ford
+    sweep.
+    """
     if _should_delegate_negative_edge_cycle_to_networkx(G, weight, heuristic):
         return _call_networkx_for_parity(
             "negative_edge_cycle", G, weight=weight, heuristic=heuristic
@@ -14481,6 +14499,12 @@ def single_source_dijkstra_path_length(G, source, cutoff=None, weight="weight"):
 
 
 def single_source_bellman_ford(G, source, target=None, weight="weight"):
+    """Single-source weighted shortest paths from ``source`` via Bellman-Ford.
+
+    Returns ``(distances, paths)`` dicts keyed by reachable node. If ``target``
+    is given, returns ``(distance, path)`` to that node alone. Handles negative
+    edge weights; raises ``NetworkXUnbounded`` on negative cycles.
+    """
     # br-r37-c1-ybw1s: nx-shaped TypeError on unhashable source.
     hash(source)
     # br-bfignoreweight: same weight-ignoring bug as dijkstra — the
@@ -14511,6 +14535,12 @@ def single_source_bellman_ford(G, source, target=None, weight="weight"):
 
 
 def single_source_bellman_ford_path(G, source, weight="weight"):
+    """Single-source weighted shortest paths from ``source`` via Bellman-Ford.
+
+    Returns a dict ``{target: path}`` keyed by reachable node. Handles negative
+    edge weights; raises ``NetworkXUnbounded`` on negative cycles reachable
+    from ``source``.
+    """
     # br-r37-c1-ybw1s: nx-shaped TypeError on unhashable source.
     hash(source)
     # br-bfignoreweight: delegate weighted inputs.
@@ -14532,6 +14562,12 @@ def single_source_bellman_ford_path(G, source, weight="weight"):
 
 
 def single_source_bellman_ford_path_length(G, source, weight="weight"):
+    """Single-source weighted shortest path lengths from ``source`` via Bellman-Ford.
+
+    Returns a dict ``{target: distance}`` keyed by reachable node. Handles
+    negative edge weights; raises ``NetworkXUnbounded`` on negative cycles
+    reachable from ``source``.
+    """
     # br-r37-c1-ybw1s: nx-shaped TypeError on unhashable source.
     hash(source)
     # br-bfignoreweight: delegate weighted inputs.
