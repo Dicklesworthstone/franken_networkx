@@ -6536,23 +6536,6 @@ def edge_connectivity(G, s=None, t=None, flow_func=None, cutoff=None):
     return result
 
 
-def local_edge_connectivity(
-    G,
-    s,
-    t,
-    flow_func=None,
-    auxiliary=None,
-    residual=None,
-    cutoff=None,
-):
-    """Return the local edge connectivity between ``s`` and ``t``."""
-    _validate_flow_func_selector(flow_func)
-    return edge_connectivity(
-        G,
-        s=s,
-        t=t,
-        cutoff=cutoff,
-    )
 
 
 def _local_node_connectivity_via_nx(G, s, t, flow_func, auxiliary, residual, cutoff):
@@ -20815,11 +20798,6 @@ def all_pairs_node_connectivity(G, nbunch=None, flow_func=None):
     return result
 
 
-def minimum_st_node_cut(G, s, t, flow_func=None, auxiliary=None, residual=None):
-    """Return the minimum s-t node cut."""
-    _validate_flow_func_selector(flow_func)
-    del auxiliary, residual
-    return set(minimum_node_cut(G, s, t))
 
 
 def _call_networkx_connectivity_for_parity(name, G, /, *args, **kwargs):
@@ -20889,18 +20867,8 @@ def treewidth_min_fill_in(G):
 
 
 
-def minimum_st_edge_cut(G, s, t, flow_func=None, auxiliary=None, residual=None):
-    """Return the minimum st edge cut as a set of edges."""
-    _validate_flow_func_selector(flow_func)
-    return _call_networkx_connectivity_for_parity(
-        "minimum_st_edge_cut", G, s, t,
-        flow_func=flow_func, auxiliary=auxiliary, residual=residual,
-    )
 
 
-def bridge_components(G):
-    """Yield 2-edge-connected components after removing bridges."""
-    return _call_networkx_connectivity_for_parity("bridge_components", G)
 
 
 def is_locally_k_edge_connected(G, s, t, k):
@@ -40963,11 +40931,8 @@ __all__ = [
     "generalized_degree",
     "is_semiconnected",
     "all_pairs_node_connectivity",
-    "bridge_components",
     "is_locally_k_edge_connected",
     "local_node_connectivity",
-    "minimum_st_edge_cut",
-    "minimum_st_node_cut",
     "contracted_nodes",
     "contracted_edge",
     "is_directed",
@@ -42381,6 +42346,22 @@ def __getattr__(name):
         "eppstein_matching", "maximum_matching",
         "minimum_weight_full_matching", "node_redundancy",
         "color", "degrees", "robins_alexander_clustering", "sets",
+    ):
+        raise AttributeError(
+            f"module 'networkx' has no attribute '{name}'"
+        )
+    # br-r37-c1-vt5fm: 4 nx.connectivity helpers live at
+    # nx.algorithms.connectivity.X but not at nx top level. fnx
+    # exposed all 4 — removed for drop-in parity. They remain
+    # reachable via fnx.connectivity.X through the auto-bound
+    # submodule fallback. (Flow primitives edmonds_karp /
+    # preflow_push / shortest_augmenting_path / dinitz /
+    # boykov_kolmogorov are intentionally NOT hidden here — tests
+    # use the flow_func=fnx.X callable-arg pattern and would need a
+    # parallel migration; tracked in br-r37-c1-yrtsz.)
+    if name in (
+        "local_edge_connectivity", "minimum_st_edge_cut",
+        "minimum_st_node_cut", "bridge_components",
     ):
         raise AttributeError(
             f"module 'networkx' has no attribute '{name}'"
