@@ -290,7 +290,7 @@ def test_is_tournament_negative_cases():
 def test_tournament_matrix_matches_networkx(name, edges, nodes):
     import numpy as np
     fg, ng = _pair_directed(edges, nodes)
-    fr = fnx.tournament_matrix(fg)
+    fr = fnx.tournament.tournament_matrix(fg)
     nr = nx_tournament.tournament_matrix(ng)
     fr_arr = fr.toarray() if hasattr(fr, "toarray") else fr
     nr_arr = nr.toarray() if hasattr(nr, "toarray") else nr

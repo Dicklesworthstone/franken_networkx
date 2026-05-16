@@ -33,7 +33,7 @@ needs_nx = pytest.mark.skipif(not HAS_NX, reason="networkx not installed")
 @pytest.mark.parametrize("n", [1, 5, 20, 100])
 @pytest.mark.parametrize("exponent", [1.5, 2.0, 3.0])
 def test_powerlaw_sequence_matches_networkx(seed, n, exponent):
-    actual = fnx.powerlaw_sequence(n, exponent=exponent, seed=seed)
+    actual = fnx.utils.powerlaw_sequence(n, exponent=exponent, seed=seed)
     expected = nx.utils.powerlaw_sequence(n, exponent=exponent, seed=seed)
     assert actual == expected
     assert len(actual) == n
@@ -49,7 +49,7 @@ def test_powerlaw_sequence_matches_networkx(seed, n, exponent):
 @pytest.mark.parametrize("alpha", [1.5, 2.0, 3.5])
 @pytest.mark.parametrize("xmin", [1, 5])
 def test_zipf_rv_matches_networkx(seed, alpha, xmin):
-    actual = fnx.zipf_rv(alpha, xmin=xmin, seed=seed)
+    actual = fnx.utils.zipf_rv(alpha, xmin=xmin, seed=seed)
     expected = nx.utils.zipf_rv(alpha, xmin=xmin, seed=seed)
     assert actual == expected
     assert isinstance(actual, int)
@@ -72,7 +72,7 @@ def test_zipf_rv_matches_networkx(seed, alpha, xmin):
     ],
 )
 def test_cumulative_distribution_matches_networkx(distribution):
-    actual = fnx.cumulative_distribution(distribution)
+    actual = fnx.utils.cumulative_distribution(distribution)
     expected = nx.utils.cumulative_distribution(distribution)
     assert actual == expected
     # cdf starts at 0; nx normalises by sum so it ends at 1.0
@@ -114,7 +114,7 @@ def test_discrete_sequence_matches_networkx(seed, n):
     ],
 )
 def test_is_valid_tree_degree_sequence(sequence, valid):
-    result = fnx.is_valid_tree_degree_sequence(sequence)
+    result = fnx.utils.is_valid_tree_degree_sequence(sequence)
     # fnx returns (bool, reason) tuple — first element is the bool.
     if isinstance(result, tuple):
         assert result[0] == valid, f"seq={sequence}: got {result}, expected valid={valid}"
@@ -125,7 +125,7 @@ def test_is_valid_tree_degree_sequence(sequence, valid):
 def test_is_valid_tree_degree_sequence_returns_tuple_with_reason():
     """The fnx helper returns ``(valid, reason)`` so callers can surface
     a useful error message. Lock that contract."""
-    valid, reason = fnx.is_valid_tree_degree_sequence([2, 2, 2])
+    valid, reason = fnx.utils.is_valid_tree_degree_sequence([2, 2, 2])
     assert valid is False
     assert isinstance(reason, str)
     assert reason  # non-empty

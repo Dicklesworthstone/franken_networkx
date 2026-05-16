@@ -178,19 +178,19 @@ def test_utils_and_helpers():
     list(fnx.utils.cuthill_mckee_ordering(G))
     list(fnx.utils.connected_cuthill_mckee_ordering(G))
     list(fnx.utils.reverse_cuthill_mckee_ordering(G))
-    fnx.pseudo_peripheral_node(G)
-    assert fnx.edges_equal([(0, 1)], [(0, 1)])
-    assert fnx.nodes_equal([1, 2], [2, 1])
-    assert fnx.graphs_equal(G, G)
-    fnx.make_list_of_ints([1.0, 2.0])
+    fnx.utils.rcm.pseudo_peripheral_node(G)
+    assert fnx.utils.edges_equal([(0, 1)], [(0, 1)])
+    assert fnx.utils.nodes_equal([1, 2], [2, 1])
+    assert fnx.utils.graphs_equal(G, G)
+    fnx.utils.make_list_of_ints([1.0, 2.0])
     fnx.random_uniform_k_out_graph(8, 2, seed=42)
-    list(fnx.flow_matrix_row(fnx.complete_graph(4)))
+    list(fnx.algorithms.centrality.flow_matrix.flow_matrix_row(fnx.complete_graph(4)))
 
 
 def test_random_sequence():
-    fnx.powerlaw_sequence(20, exponent=2.5, seed=42)
-    fnx.zipf_rv(2.0, xmin=1, seed=42)
-    assert fnx.cumulative_distribution([0.5, 0.3, 0.2]) == [0.0, 0.5, 0.8, 1.0]
+    fnx.utils.powerlaw_sequence(20, exponent=2.5, seed=42)
+    fnx.utils.zipf_rv(2.0, xmin=1, seed=42)
+    assert fnx.utils.cumulative_distribution([0.5, 0.3, 0.2]) == [0.0, 0.5, 0.8, 1.0]
     fnx.is_valid_tree_degree_sequence([1, 1, 1, 3])
 
 
@@ -213,29 +213,29 @@ def test_tree_primitives():
 
 
 def test_filter_factories():
-    hide = fnx.hide_nodes([1])
+    hide = fnx.classes.filters.hide_nodes([1])
     assert hide(0) is True and hide(1) is False
-    show = fnx.show_nodes([1])
+    show = fnx.classes.filters.show_nodes([1])
     assert show(1) is True and show(0) is False
     for name in (
         "hide_edges", "hide_diedges", "hide_multiedges", "hide_multidiedges",
         "show_edges", "show_diedges", "show_multiedges", "show_multidiedges",
     ):
         getattr(fnx, name)([])
-    assert fnx.no_filter(1) is True
+    assert fnx.classes.filters.no_filter(1) is True
 
 
 def test_heaps_and_frozen():
-    h = fnx.BinaryHeap()
+    h = fnx.utils.heaps.BinaryHeap()
     h.insert("a", 1)
     h.insert("b", 0)
     assert h.min()[0] == "b"
-    p = fnx.PairingHeap()
+    p = fnx.utils.heaps.PairingHeap()
     p.insert("x", 10)
     assert p.min()[0] == "x"
     import networkx as nx
     with pytest.raises(nx.NetworkXError):
-        fnx.frozen()
+        fnx.classes.function.frozen()
 
 
 def test_coloring_strategies():
@@ -247,17 +247,17 @@ def test_coloring_strategies():
     # NOTE: strategy_saturation_largest_first hangs upstream when called with
     # empty colors={} (it expects greedy_color to drive it). Verified below
     # via greedy_color instead.
-    list(fnx.strategy_largest_first(G, {}))
-    list(fnx.strategy_random_sequential(G, {}, seed=42))
-    list(fnx.strategy_smallest_last(G, {}))
-    list(fnx.strategy_independent_set(G, {}))
-    list(fnx.strategy_connected_sequential_bfs(G, {}))
-    list(fnx.strategy_connected_sequential_dfs(G, {}))
-    list(fnx.strategy_connected_sequential(G, {}, traversal="bfs"))
+    list(fnx.coloring.strategy_largest_first(G, {}))
+    list(fnx.coloring.strategy_random_sequential(G, {}, seed=42))
+    list(fnx.coloring.strategy_smallest_last(G, {}))
+    list(fnx.coloring.strategy_independent_set(G, {}))
+    list(fnx.coloring.strategy_connected_sequential_bfs(G, {}))
+    list(fnx.coloring.strategy_connected_sequential_dfs(G, {}))
+    list(fnx.coloring.strategy_connected_sequential(G, {}, traversal="bfs"))
     # Callable strategy works with greedy_color (br-g915s fix); this also
     # exercises strategy_saturation_largest_first end-to-end.
-    fnx.greedy_color(G, strategy=fnx.strategy_largest_first)
-    fnx.greedy_color(G, strategy=fnx.strategy_saturation_largest_first)
+    fnx.greedy_color(G, strategy=fnx.coloring.strategy_largest_first)
+    fnx.greedy_color(G, strategy=fnx.coloring.strategy_saturation_largest_first)
 
 
 def test_matching_dict_to_set():

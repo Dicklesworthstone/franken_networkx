@@ -253,7 +253,7 @@ def test_modularity_rejects_invalid_partitions_with_notapartition(bad):
     with pytest.raises(nx.community.quality.NotAPartition) as nx_exc:
         nx.community.modularity(ng, bad)
 
-    with pytest.raises(fnx.NotAPartition) as fnx_exc:
+    with pytest.raises(fnx.community.quality.NotAPartition) as fnx_exc:
         fnx.community.modularity(fg, bad)
 
     assert str(fnx_exc.value) == str(nx_exc.value)

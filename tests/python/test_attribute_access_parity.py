@@ -320,7 +320,7 @@ def test_bfs_tree_returns_fnx_digraph():
 
 
 def test_random_tournament_returns_fnx_digraph():
-    tournament = fnx.random_tournament(5, seed=42)
+    tournament = fnx.tournament.random_tournament(5, seed=42)
     assert isinstance(tournament, fnx.DiGraph)
     assert tournament.number_of_nodes() == 5
 

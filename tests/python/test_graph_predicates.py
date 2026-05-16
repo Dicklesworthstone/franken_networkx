@@ -440,7 +440,7 @@ class TestTournamentScoreSequence:
     def test_complete_oriented_scores(self):
         graph = fnx.DiGraph()
         graph.add_edges_from([(1, 0), (1, 3), (0, 2), (0, 3), (2, 1), (3, 2)])
-        assert fnx.score_sequence(graph) == [1, 1, 2, 2]
+        assert fnx.tournament.score_sequence(graph) == [1, 1, 2, 2]
 
     @pytest.mark.parametrize(
         ("fnx_cls", "nx_cls", "builder"),
@@ -482,11 +482,11 @@ class TestTournamentScoreSequence:
 
         if isinstance(expected_result, Exception):
             with pytest.raises(Exception) as fnx_exc:
-                fnx.score_sequence(graph)
+                fnx.tournament.score_sequence(graph)
             assert type(fnx_exc.value).__name__ == type(expected_result).__name__
             assert str(fnx_exc.value) == str(expected_result)
         else:
-            assert fnx.score_sequence(graph) == expected_result
+            assert fnx.tournament.score_sequence(graph) == expected_result
 
 
 class TestTournamentIsReachable:
@@ -569,7 +569,7 @@ class TestTournamentMatrix:
         g.add_edge(0, 2)
         g.add_edge(1, 2)
 
-        mat = fnx.tournament_matrix(g)
+        mat = fnx.tournament.tournament_matrix(g)
         assert sp.issparse(mat)
         assert mat.shape == (3, 3)
         # Convert to dense for easier assertions
@@ -596,7 +596,7 @@ class TestTournamentMatrix:
             g.add_edge(0, 2)
             g.add_edge(1, 2)
 
-        fnx_mat = fnx.tournament_matrix(g_fnx)
+        fnx_mat = fnx.tournament.tournament_matrix(g_fnx)
         nx_mat = nx_tournament_matrix(g_nx)
         # Compare as dense arrays
         np.testing.assert_array_equal(fnx_mat.toarray(), nx_mat.toarray())
