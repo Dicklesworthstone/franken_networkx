@@ -11266,18 +11266,13 @@ from franken_networkx._fnx import (
     average_node_connectivity as _raw_average_node_connectivity,
     is_k_edge_connected as _raw_is_k_edge_connected,
     all_pairs_dijkstra as _raw_all_pairs_dijkstra,
-    number_of_spanning_arborescences,
+    # br-r37-c1-ccr8k: number_of_spanning_arborescences removed from
+    # fnx top level (not in nx anywhere). _fnx Rust binding still has
+    # it; callers can reach it via franken_networkx._fnx if needed.
     global_node_connectivity as _raw_global_node_connectivity,
 )
 
 
-def global_node_connectivity(G):
-    """Return the global node connectivity of ``G``.
-
-    br-r37-c1-1y7h1: nx-coerce wrapper.
-    """
-    G = _coerce_arg_to_fnx_graph(G)
-    return _raw_global_node_connectivity(G)
 
 
 def is_k_edge_connected(G, k):
@@ -11624,9 +11619,6 @@ def is_directed_acyclic_graph(G):
 
 
 
-def random_uniform_k_out_graph(n, k, self_loops=True, with_replacement=True, seed=None):
-    """Return a random k-out digraph on n nodes."""
-    return _random_uniform_k_out_graph_via_nx(n, k, self_loops, with_replacement, seed)
 
 
 def _random_uniform_k_out_graph_via_nx(n, k, self_loops, with_replacement, seed):
@@ -11684,9 +11676,6 @@ def _connected_cuthill_mckee_ordering_via_nx(G, heuristic):
 # submodule fallback.
 
 
-def is_valid_tree_degree_sequence(degree_sequence):
-    """Test whether ``degree_sequence`` is a valid tree degree sequence."""
-    return _is_valid_tree_degree_sequence_via_nx(degree_sequence)
 
 
 def _is_valid_tree_degree_sequence_via_nx(degree_sequence):
@@ -40670,8 +40659,6 @@ __all__ = [
     "average_node_connectivity",
     "is_k_edge_connected",
     "all_pairs_dijkstra",
-    "number_of_spanning_arborescences",
-    "global_node_connectivity",
     # Algorithms — strongly connected components
     "strongly_connected_components",
     "number_strongly_connected_components",
@@ -40706,8 +40693,6 @@ __all__ = [
     "dag_longest_path_length",
     "descendants",
     "is_directed_acyclic_graph",
-    "random_uniform_k_out_graph",
-    "is_valid_tree_degree_sequence",
     "BinaryHeap",
     "MinHeap",
     "PairingHeap",
@@ -41828,6 +41813,22 @@ def __getattr__(name):
         "boruvka_mst_edges", "kruskal_mst_edges", "prim_mst_edges",
         "mutual_weight", "normalized_mutual_weight",
         "local_node_connectivity",
+    ):
+        raise AttributeError(
+            f"module 'networkx' has no attribute '{name}'"
+        )
+    # br-r37-c1-ccr8k: 4 fnx-only helpers that don't exist anywhere
+    # in nx. Removed from fnx top level for drop-in parity (callers
+    # can use the closest nx equivalent or the _fnx Rust binding):
+    #   global_node_connectivity     -> use node_connectivity
+    #   is_valid_tree_degree_sequence
+    #   number_of_spanning_arborescences (still in franken_networkx._fnx)
+    #   random_uniform_k_out_graph
+    if name in (
+        "global_node_connectivity",
+        "is_valid_tree_degree_sequence",
+        "number_of_spanning_arborescences",
+        "random_uniform_k_out_graph",
     ):
         raise AttributeError(
             f"module 'networkx' has no attribute '{name}'"
