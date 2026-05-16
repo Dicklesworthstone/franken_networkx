@@ -250,10 +250,17 @@ def test_strategy_callable_node_order_matches_networkx(name, edges, nodes, fn_na
     """Each strategy is itself an iterator/generator over node ordering.
     Asserts both libraries produce the same node ordering — so the
     greedy_color output dict matches by construction."""
+    # br-r37-c1-xhcip / br-r37-c1-xc6c2: the 8 strategy_X callables
+    # were hidden from fnx top level; fnx.coloring.X auto-resolves
+    # to nx's pure-Python strategy. With an fnx graph passed in, nx
+    # iterates fnx's adjacency — which can produce a different DFS
+    # order than nx's adjacency. Convert to nx for parity comparison
+    # (the strategies are nx's; fnx doesn't have a native impl).
+    from franken_networkx import _networkx_graph_for_parity
     fg, ng = _pair(edges, nodes)
-    fnx_strat = getattr(fnx, fn_name)
+    fnx_strat = getattr(fnx.coloring, fn_name)
     nx_strat = getattr(nx.coloring, fn_name)
-    fr_order = list(fnx_strat(fg, {}))
+    fr_order = list(fnx_strat(_networkx_graph_for_parity(fg), {}))
     nr_order = list(nx_strat(ng, {}))
     assert fr_order == nr_order, (
         f"{name} {fn_name}: order diverged fnx={fr_order} nx={nr_order}"
