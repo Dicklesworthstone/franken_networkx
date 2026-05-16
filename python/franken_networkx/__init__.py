@@ -12076,98 +12076,12 @@ from networkx.utils.heaps import (  # noqa: E402
 # top level; removed from fnx top-level in br-r37-c1-qy2r4 to match.
 
 
-# Greedy coloring strategies (networkx.algorithms.coloring.greedy_coloring) —
-# users pass these as the ``strategy=`` kwarg to greedy_color. Re-exported
-# directly because the strategies themselves are pure callables that operate
-# on the (G, colors) protocol expected by greedy_color.
-def strategy_largest_first(G, colors):
-    """Greedy-color strategy: largest-degree first."""
-    return _strategy_largest_first_via_nx(G, colors)
-
-
-def _strategy_largest_first_via_nx(G, colors):
-    """br-r37-c1-aic4h: private helper keeps the public function
-    classified as PY_WRAPPER in the coverage matrix."""
-    return _nx.algorithms.coloring.strategy_largest_first(
-        _networkx_graph_for_parity(G), colors,
-    )
-
-
-def strategy_random_sequential(G, colors, seed=None):
-    """Greedy-color strategy: random sequential ordering."""
-    return _strategy_random_sequential_via_nx(G, colors, seed)
-
-
-def _strategy_random_sequential_via_nx(G, colors, seed):
-    return _nx.algorithms.coloring.strategy_random_sequential(
-        _networkx_graph_for_parity(G), colors, seed=seed,
-    )
-
-
-def strategy_smallest_last(G, colors):
-    """Greedy-color strategy: smallest-last ordering."""
-    return _strategy_smallest_last_via_nx(G, colors)
-
-
-def _strategy_smallest_last_via_nx(G, colors):
-    return _nx.algorithms.coloring.strategy_smallest_last(
-        _networkx_graph_for_parity(G), colors,
-    )
-
-
-def strategy_independent_set(G, colors):
-    """Greedy-color strategy: independent-set growing."""
-    return _strategy_independent_set_via_nx(G, colors)
-
-
-def _strategy_independent_set_via_nx(G, colors):
-    return _nx.algorithms.coloring.strategy_independent_set(
-        _networkx_graph_for_parity(G), colors,
-    )
-
-
-def strategy_connected_sequential_bfs(G, colors):
-    """Greedy-color strategy: connected sequential (BFS traversal)."""
-    return _strategy_connected_sequential_bfs_via_nx(G, colors)
-
-
-def _strategy_connected_sequential_bfs_via_nx(G, colors):
-    return _nx.algorithms.coloring.strategy_connected_sequential_bfs(
-        _networkx_graph_for_parity(G), colors,
-    )
-
-
-def strategy_connected_sequential_dfs(G, colors):
-    """Greedy-color strategy: connected sequential (DFS traversal)."""
-    return _strategy_connected_sequential_dfs_via_nx(G, colors)
-
-
-def _strategy_connected_sequential_dfs_via_nx(G, colors):
-    return _nx.algorithms.coloring.strategy_connected_sequential_dfs(
-        _networkx_graph_for_parity(G), colors,
-    )
-
-
-def strategy_connected_sequential(G, colors, traversal="bfs"):
-    """Greedy-color strategy: connected sequential with selectable traversal."""
-    return _strategy_connected_sequential_via_nx(G, colors, traversal)
-
-
-def _strategy_connected_sequential_via_nx(G, colors, traversal):
-    return _nx.algorithms.coloring.strategy_connected_sequential(
-        _networkx_graph_for_parity(G), colors, traversal=traversal,
-    )
-
-
-def strategy_saturation_largest_first(G, colors):
-    """Greedy-color strategy: saturation-largest-first (DSATUR)."""
-    return _strategy_saturation_largest_first_via_nx(G, colors)
-
-
-def _strategy_saturation_largest_first_via_nx(G, colors):
-    return _nx.algorithms.coloring.strategy_saturation_largest_first(
-        _networkx_graph_for_parity(G), colors,
-    )
+# Greedy coloring strategies live at nx.coloring.X / nx.algorithms.coloring.X;
+# nx top-level does not re-export them. The 8 strategy_X top-level wrappers
+# were removed in br-r37-c1-xc6c2 for drop-in parity. They remain reachable
+# via fnx.coloring.X / fnx.algorithms.coloring.X through the auto-bound
+# submodule fallback (greedy_color still accepts the canonical string names
+# as the ``strategy=`` kwarg).
 
 
 def matching_dict_to_set(matching):
@@ -41884,14 +41798,6 @@ __all__ = [
     "BinaryHeap",
     "MinHeap",
     "PairingHeap",
-    "strategy_largest_first",
-    "strategy_random_sequential",
-    "strategy_smallest_last",
-    "strategy_independent_set",
-    "strategy_connected_sequential_bfs",
-    "strategy_connected_sequential_dfs",
-    "strategy_connected_sequential",
-    "strategy_saturation_largest_first",
     "matching_dict_to_set",
     "lexicographic_topological_sort",
     "topological_sort",
@@ -42903,6 +42809,21 @@ def __getattr__(name):
         "make_list_of_ints", "cumulative_distribution",
         "powerlaw_sequence", "zipf_rv",
         "frozen", "flow_matrix_row", "pseudo_peripheral_node",
+    ):
+        raise AttributeError(
+            f"module 'networkx' has no attribute '{name}'"
+        )
+    # br-r37-c1-xc6c2: greedy-coloring strategy callables live at
+    # nx.coloring.X / nx.algorithms.coloring.X but not at nx top level.
+    # fnx exposed all 8 — removed for drop-in parity; still reachable
+    # via fnx.coloring.X (greedy_color also accepts the string names).
+    if name in (
+        "strategy_largest_first", "strategy_smallest_last",
+        "strategy_random_sequential", "strategy_independent_set",
+        "strategy_connected_sequential",
+        "strategy_connected_sequential_bfs",
+        "strategy_connected_sequential_dfs",
+        "strategy_saturation_largest_first",
     ):
         raise AttributeError(
             f"module 'networkx' has no attribute '{name}'"
