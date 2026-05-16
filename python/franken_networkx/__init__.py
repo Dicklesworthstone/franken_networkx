@@ -12901,6 +12901,12 @@ def _translate_astar_no_path(exc, source, target):
 
 
 def astar_path(G, source, target, heuristic=None, weight="weight", *, cutoff=None):
+    """Return the shortest path from ``source`` to ``target`` via A* search.
+
+    ``heuristic(u, v)`` should be admissible (never overestimate). If omitted,
+    A* degenerates to Dijkstra. Mirrors ``networkx.astar_path``; raises
+    ``NetworkXNoPath`` if no path exists.
+    """
     # br-r37-c1-phy2p: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
     # br-r37-c1-bzio2: the Rust _raw_astar_path honours edge weights via
@@ -12951,6 +12957,11 @@ def astar_path(G, source, target, heuristic=None, weight="weight", *, cutoff=Non
 def astar_path_length(
     G, source, target, heuristic=None, weight="weight", *, cutoff=None
 ):
+    """Return the shortest path length from ``source`` to ``target`` via A* search.
+
+    ``heuristic(u, v)`` should be admissible. Mirrors ``networkx.astar_path_length``;
+    raises ``NetworkXNoPath`` if no path exists.
+    """
     # br-r37-c1-bzio2: same gate update as astar_path.
     # br-r37-c1-astar-strw: non-numeric weight delegation (sibling).
     if (
@@ -14683,6 +14694,12 @@ def all_pairs_bellman_ford_path_length(G, weight="weight"):
 
 
 def floyd_warshall(G, weight="weight"):
+    """All-pairs shortest path lengths via the Floyd-Warshall algorithm.
+
+    Returns a dict-of-dicts ``{u: {v: distance}}`` for every pair of nodes.
+    Handles negative edge weights (no negative cycles); time complexity is
+    O(|V|^3). Mirrors ``networkx.floyd_warshall``.
+    """
     # br-fwignoreweight: the Rust floyd_warshall also silently ignores
     # non-unit edge weights (same class of bug as dijkstra / BF).
     # Delegate weighted inputs to nx.
@@ -14699,6 +14716,12 @@ def floyd_warshall(G, weight="weight"):
 
 
 def floyd_warshall_predecessor_and_distance(G, weight="weight"):
+    """All-pairs predecessors and distances via the Floyd-Warshall algorithm.
+
+    Returns ``(predecessors, distances)``: predecessors is a nested dict
+    suitable for ``reconstruct_path``, distances mirrors ``floyd_warshall``.
+    Mirrors ``networkx.floyd_warshall_predecessor_and_distance``.
+    """
     # br-fwignoreweight: delegate weighted inputs.
     if _should_delegate_floyd_warshall_to_networkx(weight) or _graph_has_nonunit_weight(G, weight):
         return _call_networkx_for_parity(
