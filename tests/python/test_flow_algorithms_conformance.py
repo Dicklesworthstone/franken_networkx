@@ -229,7 +229,7 @@ def test_algorithm_residual_flow_value_matches_maximum_flow_value(
 def test_edmonds_karp_integral_residual_value_types_match_networkx():
     fg, ng = _pair_directed([("s", "a", 3), ("a", "t", 3)])
 
-    fr = fnx.edmonds_karp(fg, "s", "t")
+    fr = fnx.flow.edmonds_karp(fg, "s", "t")
     nr = nx_flow.edmonds_karp(ng, "s", "t")
 
     assert fr.graph["flow_value"] == nr.graph["flow_value"]
@@ -249,12 +249,12 @@ def test_edmonds_karp_integral_residual_value_types_match_networkx():
 def test_high_level_flow_with_fnx_edmonds_karp_preserves_integral_types():
     fg, ng = _pair_directed([("s", "a", 3), ("a", "t", 3)])
 
-    fnx_value = fnx.maximum_flow_value(fg, "s", "t", flow_func=fnx.edmonds_karp)
+    fnx_value = fnx.maximum_flow_value(fg, "s", "t", flow_func=fnx.flow.edmonds_karp)
     nx_value = nx.maximum_flow_value(ng, "s", "t", flow_func=nx_flow.edmonds_karp)
     assert fnx_value == nx_value
     assert isinstance(fnx_value, int)
 
-    fnx_cut = fnx.minimum_cut_value(fg, "s", "t", flow_func=fnx.edmonds_karp)
+    fnx_cut = fnx.minimum_cut_value(fg, "s", "t", flow_func=fnx.flow.edmonds_karp)
     nx_cut = nx.minimum_cut_value(ng, "s", "t", flow_func=nx_flow.edmonds_karp)
     assert fnx_cut == nx_cut
     assert isinstance(fnx_cut, int)
@@ -266,7 +266,7 @@ def test_edmonds_karp_malformed_capacity_raises_like_networkx(capacity):
     with pytest.raises(Exception) as nx_exc:
         nx_flow.edmonds_karp(ng, "s", "t")
     with pytest.raises(type(nx_exc.value)) as fnx_exc:
-        fnx.edmonds_karp(fg, "s", "t")
+        fnx.flow.edmonds_karp(fg, "s", "t")
     assert str(fnx_exc.value) == str(nx_exc.value)
 
 

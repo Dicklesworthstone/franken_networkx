@@ -97,7 +97,7 @@ _SUPPORTED_ALGORITHMS = {
     "minimum_spanning_edges": fnx.minimum_spanning_edges,
     "minimum_branching": fnx.minimum_branching,
     # br-r37-c1-0epvo: minimal_branching is registered using the private
-    # backend-only implementation so ``fnx.minimal_branching`` stays
+    # backend-only implementation so ``fnx.algorithms.tree.branchings.minimal_branching`` stays
     # AttributeError (matching nx's namespace contract — see
     # test_branching_weight_minimal_branching_only_at_branchings_namespace).
     "minimal_branching": fnx._minimal_branching_backend_impl,
@@ -143,7 +143,11 @@ _SUPPORTED_ALGORITHMS = {
     "topological_generations": fnx.topological_generations,
     "dag_longest_path": fnx.dag_longest_path,
     "dag_longest_path_length": fnx.dag_longest_path_length,
-    "lexicographic_topological_sort": fnx.lexicographic_topological_sort,
+    # br-r37-c1-yrtsz: fnx.lexicographical_topological_sort was a typo
+    # alias removed from top level (br-r37-c1-hoqqp). nx's canonical
+    # name is ``lexicographical_topological_sort`` (with the trailing
+    # "al"); use the correctly-spelled fnx wrapper.
+    "lexicographical_topological_sort": fnx.lexicographical_topological_sort,
     "is_directed_acyclic_graph": fnx.is_directed_acyclic_graph,
     "ancestors": fnx.ancestors,
     "descendants": fnx.descendants,
@@ -176,12 +180,12 @@ _SUPPORTED_ALGORITHMS = {
     "astar_path_length": fnx.astar_path_length,
     "shortest_simple_paths": fnx.shortest_simple_paths,
     # Approximation algorithms
-    "min_weighted_vertex_cover": fnx.min_weighted_vertex_cover,
+    "min_weighted_vertex_cover": fnx.approximation.min_weighted_vertex_cover,
     "maximal_independent_set": fnx.maximal_independent_set,
-    "maximum_independent_set": fnx.maximum_independent_set,
-    "max_clique": fnx.max_clique,
-    "clique_removal": fnx.clique_removal,
-    "large_clique_size": fnx.large_clique_size,
+    "maximum_independent_set": fnx.approximation.maximum_independent_set,
+    "max_clique": fnx.approximation.max_clique,
+    "clique_removal": fnx.approximation.clique_removal,
+    "large_clique_size": fnx.approximation.large_clique_size,
     "spanner": fnx.spanner,
     # Strongly connected components
     "strongly_connected_components": fnx.strongly_connected_components,
@@ -293,14 +297,14 @@ _SUPPORTED_ALGORITHMS = {
     "dominating_set": fnx.dominating_set,
     "is_dominating_set": fnx.is_dominating_set,
     # Community detection
-    "louvain_communities": fnx.louvain_communities,
+    "louvain_communities": fnx.community.louvain_communities,
     # br-r37-c1-ecua7: registered using the private backend-only impl
-    # so ``fnx.modularity`` stays AttributeError (matching nx's namespace
+    # so ``fnx.community.modularity`` stays AttributeError (matching nx's namespace
     # — nx exposes modularity only at nx.community.modularity).
     "modularity": fnx._modularity_backend_impl,
-    "label_propagation_communities": fnx.label_propagation_communities,
-    "asyn_lpa_communities": fnx.asyn_lpa_communities,
-    "greedy_modularity_communities": fnx.greedy_modularity_communities,
+    "label_propagation_communities": fnx.community.label_propagation_communities,
+    "asyn_lpa_communities": fnx.community.asyn_lpa_communities,
+    "greedy_modularity_communities": fnx.community.greedy_modularity_communities,
     # Attribute setters / getters. br-r37-c1-l2j31: nx flags
     # ``set_*_attributes`` as mutation-preserving so the dispatcher
     # refuses to auto-convert fnx graphs to nx (the mutation would

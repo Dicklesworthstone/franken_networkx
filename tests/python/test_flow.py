@@ -27,7 +27,7 @@ class TestFlow:
             ],
         )
 
-        fnx_residual = fnx.edmonds_karp(DG_fnx, "s", "t")
+        fnx_residual = fnx.flow.edmonds_karp(DG_fnx, "s", "t")
         nx_residual = nx.algorithms.flow.edmonds_karp(DG_nx, "s", "t")
 
         assert fnx_residual.graph["algorithm"] == nx_residual.graph["algorithm"]
@@ -54,7 +54,7 @@ class TestFlow:
 
         message = "Infinite capacity path, flow unbounded above."
         with pytest.raises(fnx.NetworkXUnbounded, match=message):
-            fnx.edmonds_karp(DG_fnx, "s", "t")
+            fnx.flow.edmonds_karp(DG_fnx, "s", "t")
         with pytest.raises(nx.NetworkXUnbounded, match=message):
             nx.algorithms.flow.edmonds_karp(DG_nx, "s", "t")
 
@@ -71,7 +71,7 @@ class TestFlow:
             ],
         )
 
-        fnx_residual = fnx.edmonds_karp(DG_fnx, "s", "t", cutoff=3.0)
+        fnx_residual = fnx.flow.edmonds_karp(DG_fnx, "s", "t", cutoff=3.0)
         nx_residual = nx.algorithms.flow.edmonds_karp(DG_nx, "s", "t", cutoff=3.0)
 
         assert abs(fnx_residual.graph["flow_value"] - nx_residual.graph["flow_value"]) < 1e-9

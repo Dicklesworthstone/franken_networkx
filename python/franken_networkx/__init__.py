@@ -7398,50 +7398,6 @@ def _edmonds_karp_core(residual, source, sink, cutoff):
     return flow_value
 
 
-def edmonds_karp(
-    G,
-    source,
-    sink,
-    capacity="capacity",
-    residual=None,
-    value_only=False,
-    cutoff=None,
-):
-    """Find a maximum single-commodity flow using the Edmonds-Karp algorithm."""
-    if source not in G:
-        raise NetworkXError(f"node {source} not in graph")
-    if sink not in G:
-        raise NetworkXError(f"node {sink} not in graph")
-    if source == sink:
-        raise NetworkXError("source and sink are the same node")
-
-    all_int = residual is None and _all_flow_caps_integral(G, capacity)
-    if residual is None:
-        if _flow_has_infinite_capacity(G, capacity):
-            return _call_networkx_flow_for_parity(
-                "edmonds_karp",
-                G,
-                source,
-                sink,
-                capacity=capacity,
-                residual=residual,
-                value_only=value_only,
-                cutoff=cutoff,
-            )
-        residual = _build_flow_residual_network(G, capacity)
-
-    for node in residual:
-        for attrs in residual[node].values():
-            attrs["flow"] = 0
-
-    if cutoff is None:
-        cutoff = float("inf")
-
-    residual.graph["flow_value"] = _edmonds_karp_core(residual, source, sink, cutoff)
-    residual.graph["algorithm"] = "edmonds_karp"
-    if all_int:
-        _coerce_integral_flow_residual(residual)
-    return residual
 
 
 def _call_networkx_flow_for_parity(name, G, /, *args, **kwargs):
@@ -7455,94 +7411,12 @@ def _call_networkx_flow_for_parity(name, G, /, *args, **kwargs):
         _raise_translated_networkx_exception(exc)
 
 
-def shortest_augmenting_path(
-    G,
-    s,
-    t,
-    capacity="capacity",
-    residual=None,
-    value_only=False,
-    two_phase=False,
-    cutoff=None,
-):
-    """Find a maximum single-commodity flow using the shortest augmenting path algorithm."""
-    return _call_networkx_flow_for_parity(
-        "shortest_augmenting_path",
-        G,
-        s,
-        t,
-        capacity=capacity,
-        residual=residual,
-        value_only=value_only,
-        two_phase=two_phase,
-        cutoff=cutoff,
-    )
 
 
-def preflow_push(
-    G,
-    s,
-    t,
-    capacity="capacity",
-    residual=None,
-    global_relabel_freq=1,
-    value_only=False,
-):
-    """Find a maximum single-commodity flow using the highest-label preflow-push algorithm."""
-    return _call_networkx_flow_for_parity(
-        "preflow_push",
-        G,
-        s,
-        t,
-        capacity=capacity,
-        residual=residual,
-        global_relabel_freq=global_relabel_freq,
-        value_only=value_only,
-    )
 
 
-def dinitz(
-    G,
-    s,
-    t,
-    capacity="capacity",
-    residual=None,
-    value_only=False,
-    cutoff=None,
-):
-    """Find a maximum single-commodity flow using Dinitz' algorithm."""
-    return _call_networkx_flow_for_parity(
-        "dinitz",
-        G,
-        s,
-        t,
-        capacity=capacity,
-        residual=residual,
-        value_only=value_only,
-        cutoff=cutoff,
-    )
 
 
-def boykov_kolmogorov(
-    G,
-    s,
-    t,
-    capacity="capacity",
-    residual=None,
-    value_only=False,
-    cutoff=None,
-):
-    """Find a maximum single-commodity flow using Boykov-Kolmogorov algorithm."""
-    return _call_networkx_flow_for_parity(
-        "boykov_kolmogorov",
-        G,
-        s,
-        t,
-        capacity=capacity,
-        residual=residual,
-        value_only=value_only,
-        cutoff=cutoff,
-    )
 
 
 def minimum_cut(flowG, _s, _t, capacity="capacity", flow_func=None, **kwargs):
@@ -40140,14 +40014,9 @@ __all__ = [
     "min_edge_cover",
     "min_weight_matching",
     # Algorithms — flow
-    "boykov_kolmogorov",
-    "dinitz",
-    "edmonds_karp",
     "maximum_flow",
     "maximum_flow_value",
     "minimum_cut",
-    "preflow_push",
-    "shortest_augmenting_path",
     "minimum_cut_value",
     # Algorithms — distance measures
     "center",
@@ -41851,14 +41720,22 @@ def __getattr__(name):
     # nx.algorithms.connectivity.X but not at nx top level. fnx
     # exposed all 4 — removed for drop-in parity. They remain
     # reachable via fnx.connectivity.X through the auto-bound
-    # submodule fallback. (Flow primitives edmonds_karp /
-    # preflow_push / shortest_augmenting_path / dinitz /
-    # boykov_kolmogorov are intentionally NOT hidden here — tests
-    # use the flow_func=fnx.X callable-arg pattern and would need a
-    # parallel migration; tracked in br-r37-c1-yrtsz.)
+    # submodule fallback.
     if name in (
         "local_edge_connectivity", "minimum_st_edge_cut",
         "minimum_st_node_cut", "bridge_components",
+    ):
+        raise AttributeError(
+            f"module 'networkx' has no attribute '{name}'"
+        )
+    # br-r37-c1-yrtsz: 5 nx.algorithms.flow primitives — none at nx
+    # top level. fnx exposed all 5 + accepted them as
+    # ``flow_func=fnx.X`` callable args in tests. Removed for
+    # drop-in parity; tests migrated to ``flow_func=fnx.flow.X``.
+    # Reachable via fnx.flow.X / fnx.algorithms.flow.X.
+    if name in (
+        "edmonds_karp", "preflow_push", "shortest_augmenting_path",
+        "dinitz", "boykov_kolmogorov",
     ):
         raise AttributeError(
             f"module 'networkx' has no attribute '{name}'"
