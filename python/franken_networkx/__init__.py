@@ -11685,9 +11685,6 @@ def _random_uniform_k_out_graph_via_nx(n, k, self_loops, with_replacement, seed)
     )
 
 
-def reverse_cuthill_mckee_ordering(G, heuristic=None):
-    """Return the reverse Cuthill-McKee node ordering for bandwidth reduction."""
-    return _reverse_cuthill_mckee_ordering_via_nx(G, heuristic)
 
 
 def _reverse_cuthill_mckee_ordering_via_nx(G, heuristic):
@@ -11702,9 +11699,6 @@ def _reverse_cuthill_mckee_ordering_via_nx(G, heuristic):
 # can use the nx-qualified path directly.
 
 
-def cuthill_mckee_ordering(G, heuristic=None):
-    """Return the Cuthill-McKee node ordering for bandwidth reduction."""
-    return _cuthill_mckee_ordering_via_nx(G, heuristic)
 
 
 def _cuthill_mckee_ordering_via_nx(G, heuristic):
@@ -11713,9 +11707,6 @@ def _cuthill_mckee_ordering_via_nx(G, heuristic):
     )
 
 
-def connected_cuthill_mckee_ordering(G, heuristic=None):
-    """Return the Cuthill-McKee ordering for a connected graph."""
-    return _connected_cuthill_mckee_ordering_via_nx(G, heuristic)
 
 
 def _connected_cuthill_mckee_ordering_via_nx(G, heuristic):
@@ -11842,9 +11833,6 @@ from networkx.utils.heaps import (  # noqa: E402
 # as the ``strategy=`` kwarg).
 
 
-def matching_dict_to_set(matching):
-    """Convert a matching dict {node: partner} to a set of frozenset({u, v}) edges."""
-    return _matching_dict_to_set_via_nx(matching)
 
 
 def _matching_dict_to_set_via_nx(matching):
@@ -13437,26 +13425,6 @@ def _random_tournament_via_parity(n, *, seed=None):
     return _from_nx_graph(nx_result, create_using=DiGraph())
 
 
-def is_reachable(G, s, t):
-    """Return True if there is a path from s to t in tournament G.
-
-    Parameters
-    ----------
-    G : DiGraph
-        A tournament graph.
-    s : node
-        Source node.
-    t : node
-        Target node.
-
-    Returns
-    -------
-    bool
-        True if t is reachable from s.
-    """
-    return _call_networkx_submodule_for_parity(
-        "algorithms.tournament", "is_reachable", G, s, t
-    )
 
 
 
@@ -15153,35 +15121,6 @@ def _bipartite_density(B, nodes):
     return B.number_of_edges() / (len(top) * len(bottom))
 
 
-def hopcroft_karp_matching(G, top_nodes=None):
-    """Return a maximum cardinality matching for a bipartite graph.
-
-    Uses the Hopcroft-Karp algorithm conceptually, but delegates to the
-    existing maximal matching implementation.
-
-    Parameters
-    ----------
-    G : Graph
-        A bipartite graph.
-    top_nodes : container, optional
-        The nodes in one bipartite set. If None, computed from bipartite_sets.
-
-    Returns
-    -------
-    dict
-        A mapping from each matched node to its partner.
-    """
-    if top_nodes is None:
-        top, _ = _bipartite_sets(G)
-        top_nodes = top
-
-    # Use the existing max-weight matching (with unit weights = max cardinality)
-    matching_edges = max_weight_matching(G)
-    result = {}
-    for u, v in matching_edges:
-        result[u] = v
-        result[v] = u
-    return result
 
 
 def _call_networkx_bipartite_for_parity(name, G, /, *args, **kwargs):
@@ -15208,11 +15147,6 @@ def to_vertex_cover(G, matching, top_nodes=None):
     )
 
 
-def latapy_clustering(G, nodes=None, mode="dot"):
-    """Bipartite clustering coefficient (Latapy et al.)."""
-    return _call_networkx_bipartite_for_parity(
-        "latapy_clustering", G, nodes=nodes, mode=mode,
-    )
 
 
 def cc_dot(nu, nv):
@@ -20660,11 +20594,6 @@ def greedy_tsp(G, weight="weight", source=None):
 
 
 
-def is_locally_k_edge_connected(G, s, t, k):
-    """Return True if there are k edge-disjoint paths between s and t in G."""
-    return _call_networkx_connectivity_for_parity(
-        "is_locally_k_edge_connected", G, s, t, k,
-    )
 
 
 def voronoi_cells(G, center_nodes, weight="weight"):
@@ -40381,11 +40310,9 @@ __all__ = [
     # from_biadjacency_matrix are only at nx.bipartite, not nx
     # top-level; not exported.
     "projected_graph",
-    "hopcroft_karp_matching",
     "cc_dot",
     "cc_max",
     "cc_min",
-    "latapy_clustering",
     "to_vertex_cover",
     "core_number",
     "EdgePartition",
@@ -40595,7 +40522,6 @@ __all__ = [
     "generalized_degree",
     "is_semiconnected",
     "all_pairs_node_connectivity",
-    "is_locally_k_edge_connected",
     "local_node_connectivity",
     "contracted_nodes",
     "contracted_edge",
@@ -40925,9 +40851,6 @@ __all__ = [
     "mutual_weight",
     "normalized_mutual_weight",
     "random_uniform_k_out_graph",
-    "reverse_cuthill_mckee_ordering",
-    "cuthill_mckee_ordering",
-    "connected_cuthill_mckee_ordering",
     "is_valid_tree_degree_sequence",
     "boruvka_mst_edges",
     "kruskal_mst_edges",
@@ -40935,7 +40858,6 @@ __all__ = [
     "BinaryHeap",
     "MinHeap",
     "PairingHeap",
-    "matching_dict_to_set",
     "topological_sort",
     "topological_generations",
     # Algorithms — graph isomorphism
@@ -40983,7 +40905,6 @@ __all__ = [
     "is_regular",
     "is_k_regular",
     "is_tournament",
-    "is_reachable",
     "is_weighted",
     "is_negatively_weighted",
     "is_path",
@@ -42009,6 +41930,25 @@ def __getattr__(name):
         "lexicographic_topological_sort", "root_to_leaf_paths",
         "treewidth_min_degree", "treewidth_min_fill_in",
         "harmonic_function", "local_and_global_consistency",
+    ):
+        raise AttributeError(
+            f"module 'networkx' has no attribute '{name}'"
+        )
+    # br-r37-c1-3u5xk: 8 more nx-namespaced helpers — none at nx
+    # top level. Removed for drop-in parity:
+    #   nx.utils.rcm.X:           cuthill_mckee_ordering /
+    #                             connected_cuthill_mckee_ordering /
+    #                             reverse_cuthill_mckee_ordering
+    #   nx.bipartite.X:           hopcroft_karp_matching / latapy_clustering
+    #   nx.algorithms.matching.X: matching_dict_to_set
+    #   nx.algorithms.connectivity.X: is_locally_k_edge_connected
+    #   nx.algorithms.tournament.X:   is_reachable
+    if name in (
+        "cuthill_mckee_ordering", "connected_cuthill_mckee_ordering",
+        "reverse_cuthill_mckee_ordering",
+        "hopcroft_karp_matching", "latapy_clustering",
+        "matching_dict_to_set",
+        "is_locally_k_edge_connected", "is_reachable",
     ):
         raise AttributeError(
             f"module 'networkx' has no attribute '{name}'"
