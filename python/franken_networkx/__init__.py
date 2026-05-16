@@ -24290,8 +24290,17 @@ def directed_edge_swap(G, *, nswap=1, max_tries=100, seed=None):
     swaps_done = 0
     tries = 0
 
-    while swaps_done < nswap and tries < nswap * max_tries:
+    # br-r37-c1-zoj3v: nx caps total attempts at max_tries directly
+    # (nx swap.py:94 reads ``if tries > max_tries``) and raises
+    # NetworkXAlgorithmError on exhaustion — fnx previously used
+    # ``nswap * max_tries`` and silently returned G when exhausted.
+    while swaps_done < nswap:
         tries += 1
+        if tries > max_tries:
+            raise NetworkXAlgorithmError(
+                f"Maximum number of swap attempts ({tries}) exceeded "
+                f"before desired swaps achieved ({nswap})."
+            )
         e1 = edges[rng.randint(0, len(edges) - 1)]
         e2 = edges[rng.randint(0, len(edges) - 1)]
         u, v = e1
