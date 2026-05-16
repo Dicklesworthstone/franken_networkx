@@ -7633,6 +7633,8 @@ def diameter(G, e=None, usebounds=False, weight=None):
     int or float
         Diameter of the graph.
     """
+    # br-r37-c1-eg0jk: accept nx-typed inputs.
+    G = _coerce_arg_to_fnx_graph(G)
     # Delegate cases where the native path does not yet preserve nx contracts.
     if e is not None or usebounds or weight is not None or len(G) == 0:
         return _call_networkx_for_parity(
@@ -7669,6 +7671,8 @@ def radius(G, e=None, usebounds=False, weight=None):
     int or float
         Radius of the graph.
     """
+    # br-r37-c1-eg0jk: accept nx-typed inputs.
+    G = _coerce_arg_to_fnx_graph(G)
     # Delegate cases where the native path does not yet preserve nx contracts.
     if e is not None or usebounds or weight is not None or len(G) == 0:
         return _call_networkx_for_parity(
@@ -7702,6 +7706,8 @@ def center(G, e=None, usebounds=False, weight=None):
     list
         List of nodes in the center.
     """
+    # br-r37-c1-eg0jk: accept nx-typed inputs.
+    G = _coerce_arg_to_fnx_graph(G)
     # Delegate cases where the native path does not yet preserve nx contracts.
     if e is not None or usebounds or weight is not None or len(G) == 0:
         return _call_networkx_for_parity(
@@ -7742,6 +7748,8 @@ def periphery(G, e=None, usebounds=False, weight=None):
     list
         List of nodes in the periphery.
     """
+    # br-r37-c1-eg0jk: accept nx-typed inputs.
+    G = _coerce_arg_to_fnx_graph(G)
     # Delegate cases where the native path does not yet preserve nx contracts.
     if e is not None or usebounds or weight is not None or len(G) == 0:
         return _call_networkx_for_parity(
@@ -7764,6 +7772,8 @@ def periphery(G, e=None, usebounds=False, weight=None):
 
 def eccentricity(G, v=None, sp=None, weight=None):
     """Returns the eccentricity of nodes in G."""
+    # br-r37-c1-eg0jk: accept nx-typed inputs.
+    G = _coerce_arg_to_fnx_graph(G)
     if len(G) == 0:
         return {}
 
