@@ -14647,14 +14647,13 @@ def read_graphml(
 def write_gml(G, path, stringizer=None):
     """Write a graph in GML format.
 
-    Delegates to NetworkX's writer (br-wgmldr) when ``stringizer`` is
-    supplied, the graph is a multigraph, or the graph is not a native fnx
-    graph. Falls back to the Rust fast path for the common native
-    simple-graph / no-stringizer case.
+    Delegates to NetworkX's writer (br-wgmldr / br-r37-c1-qqvu4)
+    so the on-disk format matches nx byte-for-byte: nx assigns
+    sequential int IDs starting at 0 and puts the original node
+    value in a ``label`` field; the Rust fast path used the raw
+    node value as ``id`` which broke cross-library roundtrips.
     """
-    if stringizer is not None or not isinstance(G, (Graph, DiGraph)) or G.is_multigraph():
-        return _write_gml_via_nx(G, path, stringizer=stringizer)
-    return _rust_write_gml(G, path)
+    return _write_gml_via_nx(G, path, stringizer=stringizer)
 
 
 def read_gml(path, label="label", destringizer=None):

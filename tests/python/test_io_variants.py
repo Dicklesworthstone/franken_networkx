@@ -359,18 +359,22 @@ def test_rust_write_gml_preserves_graph_attrs(tmp_path: Path):
     assert 'owner "qa"' in content
 
 
-def test_write_gml_default_uses_rust_fast_path(monkeypatch, tmp_path: Path):
-    def fail_delegate(*args, **kwargs):
-        raise AssertionError("default write_gml should use Rust fast path")
-
+def test_write_gml_matches_networkx_bytes(tmp_path: Path):
+    # br-r37-c1-qqvu4: write_gml now routes through nx so the on-disk
+    # GML format matches nx byte-for-byte. nx assigns sequential int
+    # IDs and stores the original node value in 'label'; the previous
+    # Rust fast path used the raw node value as 'id', diverging from
+    # nx and breaking cross-library roundtrips.
     graph = fnx.path_graph(4)
-    monkeypatch.setattr(fnx, "_write_gml_via_nx", fail_delegate)
+    nx_graph = nx.path_graph(4)
     path = tmp_path / "graph.gml"
+    nx_path = tmp_path / "graph_nx.gml"
 
     fnx.write_gml(graph, path)
+    nx.write_gml(nx_graph, nx_path)
 
-    content = path.read_text(encoding="utf-8")
-    assert "directed 0" not in content
+    assert path.read_bytes() == nx_path.read_bytes()
+
     parsed = nx.read_gml(path)
     assert sorted(parsed.edges()) == [("0", "1"), ("1", "2"), ("2", "3")]
 
