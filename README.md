@@ -69,7 +69,7 @@ nx.shortest_path(G, 0, 99)
 | Link prediction | `common_neighbors`, `jaccard_coefficient`, `adamic_adar_index`, `preferential_attachment`, `resource_allocation_index` |
 | Reciprocity | `reciprocity`, `overall_reciprocity` |
 | Graph metrics | `average_degree_connectivity`, `rich_club_coefficient`, `s_metric` |
-| Community | `louvain_communities`, `greedy_modularity_communities`, `label_propagation_communities`, `modularity` |
+| Community | `louvain_communities`, `greedy_modularity_communities`, `label_propagation_communities`, `community.modularity` |
 | Isomorphism | `is_isomorphic`, `could_be_isomorphic`, `fast_could_be_isomorphic`, `faster_could_be_isomorphic` |
 | Planarity | `is_planar` |
 | Approximation | `min_weighted_vertex_cover`, `maximum_independent_set`, `max_clique`, `clique_removal`, `large_clique_size` |
