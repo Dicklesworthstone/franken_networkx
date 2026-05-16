@@ -6354,6 +6354,8 @@ def node_connectivity(G, s=None, t=None, flow_func=None):
     int
         The node connectivity of G.
     """
+    # br-r37-c1-0555d: accept nx-typed inputs.
+    G = _coerce_arg_to_fnx_graph(G)
     if len(G) == 0:
         # Match nx's contract: connectivity is undefined for the null
         # graph (br-r37-c1-turq0). The Rust impl silently returned 0.
@@ -6415,6 +6417,8 @@ def edge_connectivity(G, s=None, t=None, flow_func=None, cutoff=None):
     int
         The edge connectivity of G.
     """
+    # br-r37-c1-0555d: accept nx-typed inputs.
+    G = _coerce_arg_to_fnx_graph(G)
     if len(G) == 0:
         # Match nx's contract: connectivity is undefined for the null
         # graph (br-r37-c1-turq0). The Rust impl silently returned 0.
@@ -7235,6 +7239,8 @@ def maximum_flow(flowG, _s, _t, capacity="capacity", flow_func=None, **kwargs):
     native always returns float. Coerce back to int when inputs are
     integer-typed so `isinstance(flow_value, int)` matches nx.
     """
+    # br-r37-c1-0555d: accept nx-typed inputs.
+    flowG = _coerce_arg_to_fnx_graph(flowG)
     _reject_multigraph_flow(flowG)
     if flow_func is not None or kwargs or _flow_has_infinite_capacity(flowG, capacity):
         return _call_networkx_for_parity(
@@ -7248,6 +7254,8 @@ def maximum_flow(flowG, _s, _t, capacity="capacity", flow_func=None, **kwargs):
 
 def maximum_flow_value(flowG, _s, _t, capacity="capacity", flow_func=None, **kwargs):
     """Return just the max-flow value. nx-int parity when all caps int."""
+    # br-r37-c1-0555d: accept nx-typed inputs.
+    flowG = _coerce_arg_to_fnx_graph(flowG)
     _reject_multigraph_flow(flowG)
     if flow_func is not None or kwargs or _flow_has_infinite_capacity(flowG, capacity):
         return _call_networkx_for_parity(
@@ -7554,6 +7562,8 @@ def minimum_cut(flowG, _s, _t, capacity="capacity", flow_func=None, **kwargs):
     None`` passing any kwarg is a user error, so we raise with nx's
     message instead of ``TypeError: unexpected keyword argument``.
     """
+    # br-r37-c1-0555d: accept nx-typed inputs.
+    flowG = _coerce_arg_to_fnx_graph(flowG)
     _validate_flow_func_selector(flow_func)
     _reject_multigraph_flow(flowG)
     if kwargs and flow_func is None:
@@ -7583,6 +7593,8 @@ def minimum_cut_value(flowG, _s, _t, capacity="capacity", flow_func=None, **kwar
     trailing ``**kwargs`` mirrors nx's contract of forwarding to
     ``flow_func`` (and raising when none is supplied).
     """
+    # br-r37-c1-0555d: accept nx-typed inputs.
+    flowG = _coerce_arg_to_fnx_graph(flowG)
     _validate_flow_func_selector(flow_func)
     _reject_multigraph_flow(flowG)
     if kwargs and flow_func is None:
@@ -7890,6 +7902,8 @@ def number_of_spanning_trees(G, *, root=None, weight=None):
     Thin wrapper over the Rust binding so the introspectable signature
     matches nx's ``(G, *, root=None, weight=None)`` (br-r37-c1-cirha).
     """
+    # br-r37-c1-0555d: accept nx-typed inputs.
+    G = _coerce_arg_to_fnx_graph(G)
     return _raw_number_of_spanning_trees(G, root=root, weight=weight)
 
 
@@ -9992,6 +10006,8 @@ def chordal_graph_cliques(G):
     MultiGraph to a simple Graph before delegating to the Rust core
     so the algorithm matches nx's behavior on multigraph inputs.
     """
+    # br-r37-c1-0555d: accept nx-typed inputs.
+    G = _coerce_arg_to_fnx_graph(G)
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
     if G.is_multigraph():
@@ -10183,6 +10199,8 @@ def enumerate_all_cliques(G):
     Generator function so the returned object is a true generator
     matching nx's contract (br-r37-c1-682kr).
     """
+    # br-r37-c1-0555d: accept nx-typed inputs.
+    G = _coerce_arg_to_fnx_graph(G)
     yield from _raw_enumerate_all_cliques(G)
 
 
@@ -10388,6 +10406,8 @@ def is_dominating_set(G, nbunch):
     via out-neighbors / successors). Sister of br-r37-c1-3jn5a which
     fixed ``dominating_set`` the same way.
     """
+    # br-r37-c1-0555d: accept nx-typed inputs.
+    G = _coerce_arg_to_fnx_graph(G)
     if G.is_directed():
         return _call_networkx_for_parity("is_dominating_set", G, nbunch)
     return _raw_is_dominating_set(G, nbunch)
@@ -10416,6 +10436,8 @@ def dominating_set(G, start_with=None):
     # storage and isn't a multigraph — same wrapper-bypass pattern as
     # find_cliques (lgyq8) and square_clustering (7t95c). Profiling
     # showed ~50% of pre-bypass time was AtlasView dispatch.
+    # br-r37-c1-0555d: accept nx-typed inputs.
+    G = _coerce_arg_to_fnx_graph(G)
     if start_with is not None:
         if start_with not in G:
             raise NetworkXError(f"node {start_with} is not in G")
@@ -12988,14 +13010,44 @@ def shortest_simple_paths(G, source, target, weight=None):
 
 # Algorithm functions — approximation
 from franken_networkx._fnx import (
-    clique_removal,
+    clique_removal as _raw_clique_removal,
     maximal_independent_set as _raw_maximal_independent_set,
-    large_clique_size,
-    max_clique,
-    maximum_independent_set,
-    min_weighted_vertex_cover,
+    large_clique_size as _raw_large_clique_size,
+    max_clique as _raw_max_clique,
+    maximum_independent_set as _raw_maximum_independent_set,
+    min_weighted_vertex_cover as _raw_min_weighted_vertex_cover,
     spanner as _raw_spanner,
 )
+
+
+def clique_removal(G):
+    """br-r37-c1-0555d: nx-coerce wrapper."""
+    G = _coerce_arg_to_fnx_graph(G)
+    return _raw_clique_removal(G)
+
+
+def large_clique_size(G):
+    """br-r37-c1-0555d: nx-coerce wrapper."""
+    G = _coerce_arg_to_fnx_graph(G)
+    return _raw_large_clique_size(G)
+
+
+def max_clique(G):
+    """br-r37-c1-0555d: nx-coerce wrapper."""
+    G = _coerce_arg_to_fnx_graph(G)
+    return _raw_max_clique(G)
+
+
+def maximum_independent_set(G):
+    """br-r37-c1-0555d: nx-coerce wrapper."""
+    G = _coerce_arg_to_fnx_graph(G)
+    return _raw_maximum_independent_set(G)
+
+
+def min_weighted_vertex_cover(G, weight=None):
+    """br-r37-c1-0555d: nx-coerce wrapper."""
+    G = _coerce_arg_to_fnx_graph(G)
+    return _raw_min_weighted_vertex_cover(G, weight=weight)
 
 
 def maximal_independent_set(G, nodes=None, seed=None, *, backend=None, **backend_kwargs):
@@ -13119,8 +13171,17 @@ def is_branching(G):
 from franken_networkx._fnx import (
     is_isolate as _raw_is_isolate,
     isolates as _raw_isolates,
-    number_of_isolates,
+    number_of_isolates as _raw_number_of_isolates,
 )
+
+
+def number_of_isolates(G):
+    """Return the number of isolated nodes (degree-0).
+
+    br-r37-c1-0555d: nx-coerce wrapper.
+    """
+    G = _coerce_arg_to_fnx_graph(G)
+    return _raw_number_of_isolates(G)
 
 
 def isolates(G):
@@ -13342,6 +13403,8 @@ def is_matching(G, matching):
     endpoints) instead of bridging through nx via the parity
     helper.
     """
+    # br-r37-c1-0555d: accept nx-typed inputs.
+    G = _coerce_arg_to_fnx_graph(G)
     if G.is_directed() or G.is_multigraph():
         return _call_networkx_for_parity("is_matching", G, matching)
     return _fnx.is_matching(G, matching)
@@ -13352,6 +13415,8 @@ def is_maximal_matching(G, matching):
 
     See :func:`is_matching`.
     """
+    # br-r37-c1-0555d: accept nx-typed inputs.
+    G = _coerce_arg_to_fnx_graph(G)
     if G.is_directed() or G.is_multigraph():
         return _call_networkx_for_parity("is_maximal_matching", G, matching)
     return _fnx.is_maximal_matching(G, matching)
@@ -13362,6 +13427,8 @@ def is_perfect_matching(G, matching):
 
     See :func:`is_matching`.
     """
+    # br-r37-c1-0555d: accept nx-typed inputs.
+    G = _coerce_arg_to_fnx_graph(G)
     if G.is_directed() or G.is_multigraph():
         return _call_networkx_for_parity("is_perfect_matching", G, matching)
     return _fnx.is_perfect_matching(G, matching)
@@ -13895,6 +13962,8 @@ def is_edge_cover(G, cover):
     Second parameter renamed from the Rust binding's ``edges`` to match
     networkx's public signature ``is_edge_cover(G, cover)``.
     """
+    # br-r37-c1-0555d: accept nx-typed inputs.
+    G = _coerce_arg_to_fnx_graph(G)
     return _raw_is_edge_cover(G, cover)
 
 
@@ -14846,6 +14915,8 @@ def node_connected_component(G, n):
 
 def is_biconnected(G):
     """br-isokw: ``G`` matches nx; Rust binding used ``g``."""
+    # br-r37-c1-0555d: accept nx-typed inputs.
+    G = _coerce_arg_to_fnx_graph(G)
     return _raw_is_biconnected(G)
 
 
@@ -15175,6 +15246,8 @@ def read_gml(path, label="label", destringizer=None):
 
 def is_semiconnected(G):
     """Returns True if the graph is semiconnected, False otherwise."""
+    # br-r37-c1-0555d: accept nx-typed inputs.
+    G = _coerce_arg_to_fnx_graph(G)
     if not G.is_directed():
         raise NetworkXNotImplemented("not implemented for undirected type")
     if len(G) == 0:
@@ -15184,6 +15257,8 @@ def is_semiconnected(G):
 
 def attracting_components(G):
     """Generates the attracting components in ``G``."""
+    # br-r37-c1-0555d: accept nx-typed inputs.
+    G = _coerce_arg_to_fnx_graph(G)
     if not G.is_directed():
         raise NetworkXNotImplemented("not implemented for undirected type")
     return (set(component) for component in _raw_attracting_components(G))
@@ -15191,6 +15266,8 @@ def attracting_components(G):
 
 def number_attracting_components(G):
     """Returns the number of attracting components in ``G``."""
+    # br-r37-c1-0555d: accept nx-typed inputs.
+    G = _coerce_arg_to_fnx_graph(G)
     if not G.is_directed():
         raise NetworkXNotImplemented("not implemented for undirected type")
     return _raw_number_attracting_components(G)
