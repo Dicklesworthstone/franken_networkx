@@ -40,7 +40,7 @@ import itertools as _itertools
 from itertools import combinations as _combinations, count as _count
 import math as _math
 import numbers as _numbers
-import operator
+import operator as _operator
 import sys as _sys
 import types as _types
 
@@ -8852,15 +8852,15 @@ def _coerce_index_arg(value, arg_name):
     the ``argument 'max_iter':`` prefix.  Drop-in callers that
     regex-match nx's exact wording fail on fnx.
 
-    Use ``operator.index`` to reproduce nx's TypeError wording exactly
+    Use ``_operator.index`` to reproduce nx's TypeError wording exactly
     while still accepting bool/int/numpy-int values.
     """
     if value is None:
         return value
     try:
-        return operator.index(value)
+        return _operator.index(value)
     except TypeError:
-        # operator.index already raises with the nx-shaped message;
+        # _operator.index already raises with the nx-shaped message;
         # let it surface unchanged (no PyO3 prefix).
         raise
 
@@ -10453,7 +10453,7 @@ from franken_networkx._fnx import (
 
 
 def _operator_output_class(G, H=None):
-    """Pick the fnx output class for a binary/unary graph operator.
+    """Pick the fnx output class for a binary/unary graph _operator.
 
     br-r37-c1-opmsg: nx splits the type-mismatch error message
     along two axes — directedness and multigraphness — rather
