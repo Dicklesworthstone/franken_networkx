@@ -20,33 +20,42 @@ except ModuleNotFoundError:  # pragma: no cover - Python 3.10 fallback
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def _maturin_include_paths() -> set[str]:
+def _backend_info_entry_point() -> str:
+    """Return the configured entry-point string for the networkx.backend_info group."""
     pyproject_text = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
     if tomllib is None:
-        return {"fnx_backend_info.py"} if 'include = ["fnx_backend_info.py"]' in pyproject_text else set()
+        # Pre-3.11 fallback: regex out the line we care about.
+        import re
+        m = re.search(
+            r"\[project\.entry-points\.\"networkx\.backend_info\"\][^\[]*?"
+            r"franken_networkx\s*=\s*\"([^\"]+)\"",
+            pyproject_text,
+            re.DOTALL,
+        )
+        return m.group(1) if m else ""
     pyproject = tomllib.loads(pyproject_text)
-    include = pyproject["tool"]["maturin"].get("include", [])
-    paths = set()
-    for entry in include:
-        if isinstance(entry, str):
-            paths.add(entry)
-        elif isinstance(entry, dict) and isinstance(entry.get("path"), str):
-            paths.add(entry["path"])
-    return paths
+    return (
+        pyproject.get("project", {})
+        .get("entry-points", {})
+        .get("networkx.backend_info", {})
+        .get("franken_networkx", "")
+    )
 
 
-def test_fnx_backend_info_is_explicitly_included_for_maturin():
-    assert "fnx_backend_info.py" in _maturin_include_paths()
-    assert (ROOT / "python" / "fnx_backend_info.py").is_file()
+def test_backend_info_entry_point_targets_package_module():
+    # br-r37-c1-opu0s: backend-info metadata lives at
+    # franken_networkx.backend_info (br-r37-c1-bocpu); the previous
+    # top-level python/fnx_backend_info.py shim was never installed
+    # into the wheel and triggered an nx RuntimeWarning at import.
+    assert _backend_info_entry_point() == "franken_networkx.backend_info:get_backend_info"
+    assert (ROOT / "python" / "franken_networkx" / "backend_info.py").is_file()
 
 
-def test_fnx_backend_info_loads_without_importing_package():
-    sys.modules.pop("franken_networkx", None)
-    module_path = ROOT / "python" / "fnx_backend_info.py"
-    module_globals = runpy.run_path(str(module_path), run_name="fnx_backend_info_under_test")
-
-    assert "franken_networkx" not in sys.modules
-    info = module_globals["get_backend_info"]()
+def test_backend_info_module_loads_and_exports_get_backend_info():
+    # Import the package-local backend_info module and confirm its
+    # get_backend_info() contract still holds.
+    from franken_networkx import backend_info as _bi
+    info = _bi.get_backend_info()
     assert info["short_summary"]
     assert "shortest_path" in info["functions"]
 
