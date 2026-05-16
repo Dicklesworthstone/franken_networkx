@@ -99,13 +99,6 @@
       "evidence": ""
     },
     {
-      "name": "NotAPartition",
-      "category": "native-parity",
-      "source": "static-classification",
-      "note": "static=rust-reexport; raw-vs-public=unaudited",
-      "evidence": ""
-    },
-    {
       "name": "NotATree",
       "category": "native-parity",
       "source": "static-classification",
@@ -114,6 +107,13 @@
     },
     {
       "name": "PowerIterationFailedConvergence",
+      "category": "native-parity",
+      "source": "static-classification",
+      "note": "static=rust-reexport; raw-vs-public=unaudited",
+      "evidence": ""
+    },
+    {
+      "name": "_NotAPartition",
       "category": "native-parity",
       "source": "static-classification",
       "note": "static=rust-reexport; raw-vs-public=unaudited",
@@ -288,6 +288,13 @@
       "evidence": ""
     },
     {
+      "name": "_minimal_branching_backend_impl",
+      "category": "intentionally-delegated",
+      "source": "static-classification",
+      "note": "wrapper calls _call_networkx_for_parity exclusively",
+      "evidence": ""
+    },
+    {
       "name": "_minimum_cut_raw",
       "category": "native-parity",
       "source": "static-classification",
@@ -299,6 +306,13 @@
       "category": "native-parity",
       "source": "static-classification",
       "note": "static=rust-reexport; raw-vs-public=unaudited",
+      "evidence": ""
+    },
+    {
+      "name": "_modularity_backend_impl",
+      "category": "native-parity",
+      "source": "static-classification",
+      "note": "static=rust-native; raw-vs-public=unaudited",
       "evidence": ""
     },
     {
@@ -484,6 +498,13 @@
       "evidence": ""
     },
     {
+      "name": "_raw_bidirectional_shortest_path",
+      "category": "native-parity",
+      "source": "static-classification",
+      "note": "static=rust-reexport; raw-vs-public=unaudited",
+      "evidence": ""
+    },
+    {
       "name": "_raw_bridges",
       "category": "native-parity",
       "source": "static-classification",
@@ -499,6 +520,13 @@
     },
     {
       "name": "_raw_chordal_graph_cliques",
+      "category": "native-parity",
+      "source": "static-classification",
+      "note": "static=rust-reexport; raw-vs-public=unaudited",
+      "evidence": ""
+    },
+    {
+      "name": "_raw_clique_removal",
       "category": "native-parity",
       "source": "static-classification",
       "note": "static=rust-reexport; raw-vs-public=unaudited",
@@ -792,6 +820,13 @@
       "evidence": ""
     },
     {
+      "name": "_raw_global_node_connectivity",
+      "category": "native-parity",
+      "source": "static-classification",
+      "note": "static=rust-reexport; raw-vs-public=unaudited",
+      "evidence": ""
+    },
+    {
       "name": "_raw_greedy_color",
       "category": "native-parity",
       "source": "static-classification",
@@ -876,6 +911,13 @@
       "evidence": ""
     },
     {
+      "name": "_raw_is_arborescence",
+      "category": "native-parity",
+      "source": "static-classification",
+      "note": "static=rust-reexport; raw-vs-public=unaudited",
+      "evidence": ""
+    },
+    {
       "name": "_raw_is_attracting_component",
       "category": "native-parity",
       "source": "static-classification",
@@ -884,6 +926,20 @@
     },
     {
       "name": "_raw_is_biconnected",
+      "category": "native-parity",
+      "source": "static-classification",
+      "note": "static=rust-reexport; raw-vs-public=unaudited",
+      "evidence": ""
+    },
+    {
+      "name": "_raw_is_bipartite",
+      "category": "native-parity",
+      "source": "static-classification",
+      "note": "static=rust-reexport; raw-vs-public=unaudited",
+      "evidence": ""
+    },
+    {
+      "name": "_raw_is_branching",
       "category": "native-parity",
       "source": "static-classification",
       "note": "static=rust-reexport; raw-vs-public=unaudited",
@@ -919,6 +975,13 @@
     },
     {
       "name": "_raw_is_distance_regular",
+      "category": "native-parity",
+      "source": "static-classification",
+      "note": "static=rust-reexport; raw-vs-public=unaudited",
+      "evidence": ""
+    },
+    {
+      "name": "_raw_is_dominating_set",
       "category": "native-parity",
       "source": "static-classification",
       "note": "static=rust-reexport; raw-vs-public=unaudited",
@@ -968,6 +1031,13 @@
     },
     {
       "name": "_raw_is_semiconnected",
+      "category": "native-parity",
+      "source": "static-classification",
+      "note": "static=rust-reexport; raw-vs-public=unaudited",
+      "evidence": ""
+    },
+    {
+      "name": "_raw_is_semieulerian",
       "category": "native-parity",
       "source": "static-classification",
       "note": "static=rust-reexport; raw-vs-public=unaudited",
@@ -1030,6 +1100,13 @@
       "evidence": ""
     },
     {
+      "name": "_raw_large_clique_size",
+      "category": "native-parity",
+      "source": "static-classification",
+      "note": "static=rust-reexport; raw-vs-public=unaudited",
+      "evidence": ""
+    },
+    {
       "name": "_raw_lexicographic_topological_sort",
       "category": "native-parity",
       "source": "static-classification",
@@ -1052,6 +1129,13 @@
     },
     {
       "name": "_raw_louvain_communities",
+      "category": "native-parity",
+      "source": "static-classification",
+      "note": "static=rust-reexport; raw-vs-public=unaudited",
+      "evidence": ""
+    },
+    {
+      "name": "_raw_max_clique",
       "category": "native-parity",
       "source": "static-classification",
       "note": "static=rust-reexport; raw-vs-public=unaudited",
@@ -1107,6 +1191,13 @@
       "evidence": ""
     },
     {
+      "name": "_raw_maximum_independent_set",
+      "category": "native-parity",
+      "source": "static-classification",
+      "note": "static=rust-reexport; raw-vs-public=unaudited",
+      "evidence": ""
+    },
+    {
       "name": "_raw_maximum_spanning_arborescence",
       "category": "native-parity",
       "source": "static-classification",
@@ -1129,6 +1220,13 @@
     },
     {
       "name": "_raw_min_weight_matching",
+      "category": "native-parity",
+      "source": "static-classification",
+      "note": "static=rust-reexport; raw-vs-public=unaudited",
+      "evidence": ""
+    },
+    {
+      "name": "_raw_min_weighted_vertex_cover",
       "category": "native-parity",
       "source": "static-classification",
       "note": "static=rust-reexport; raw-vs-public=unaudited",
@@ -1234,6 +1332,13 @@
     },
     {
       "name": "_raw_number_connected_components",
+      "category": "native-parity",
+      "source": "static-classification",
+      "note": "static=rust-reexport; raw-vs-public=unaudited",
+      "evidence": ""
+    },
+    {
+      "name": "_raw_number_of_isolates",
       "category": "native-parity",
       "source": "static-classification",
       "note": "static=rust-reexport; raw-vs-public=unaudited",
@@ -2298,9 +2403,9 @@
     },
     {
       "name": "bidirectional_shortest_path",
-      "category": "native-parity",
+      "category": "intentionally-delegated",
       "source": "static-classification",
-      "note": "static=rust-reexport; raw-vs-public=unaudited",
+      "note": "mixed-route: wrapper has both _raw_<X> and parity-helper paths",
       "evidence": ""
     },
     {
@@ -2329,13 +2434,6 @@
       "category": "intentionally-delegated",
       "source": "static-classification",
       "note": "mixed-route: wrapper has both _raw_<X> and parity-helper paths",
-      "evidence": ""
-    },
-    {
-      "name": "clique_removal",
-      "category": "native-parity",
-      "source": "static-classification",
-      "note": "static=rust-reexport; raw-vs-public=unaudited",
       "evidence": ""
     },
     {
@@ -2515,9 +2613,9 @@
     },
     {
       "name": "dominating_set",
-      "category": "native-parity",
+      "category": "intentionally-delegated",
       "source": "static-classification",
-      "note": "static=rust-native; raw-vs-public=unaudited",
+      "note": "mixed-route: wrapper has both _raw_<X> and parity-helper paths",
       "evidence": ""
     },
     {
@@ -2682,13 +2780,6 @@
       "evidence": ""
     },
     {
-      "name": "global_node_connectivity",
-      "category": "native-parity",
-      "source": "static-classification",
-      "note": "static=rust-reexport; raw-vs-public=unaudited",
-      "evidence": ""
-    },
-    {
       "name": "gnm_random_graph",
       "category": "intentionally-delegated",
       "source": "static-classification",
@@ -2710,17 +2801,10 @@
       "evidence": ""
     },
     {
-      "name": "greedy_modularity_communities",
+      "name": "group_degree_centrality",
       "category": "intentionally-delegated",
       "source": "static-classification",
       "note": "mixed-route: wrapper has both _raw_<X> and parity-helper paths",
-      "evidence": ""
-    },
-    {
-      "name": "group_degree_centrality",
-      "category": "native-parity",
-      "source": "static-classification",
-      "note": "static=rust-native; raw-vs-public=unaudited",
       "evidence": ""
     },
     {
@@ -2738,13 +2822,6 @@
       "evidence": ""
     },
     {
-      "name": "hamiltonian_path",
-      "category": "intentionally-delegated",
-      "source": "static-classification",
-      "note": "wrapper calls _call_networkx_for_parity exclusively",
-      "evidence": ""
-    },
-    {
       "name": "harmonic_centrality",
       "category": "intentionally-delegated",
       "source": "static-classification",
@@ -2753,13 +2830,6 @@
     },
     {
       "name": "harmonic_diameter",
-      "category": "intentionally-delegated",
-      "source": "static-classification",
-      "note": "wrapper calls _call_networkx_for_parity exclusively",
-      "evidence": ""
-    },
-    {
-      "name": "harmonic_function",
       "category": "intentionally-delegated",
       "source": "static-classification",
       "note": "wrapper calls _call_networkx_for_parity exclusively",
@@ -2811,7 +2881,7 @@
       "name": "is_arborescence",
       "category": "native-parity",
       "source": "static-classification",
-      "note": "static=rust-reexport; raw-vs-public=unaudited",
+      "note": "static=rust-native; raw-vs-public=unaudited",
       "evidence": ""
     },
     {
@@ -2825,14 +2895,14 @@
       "name": "is_bipartite",
       "category": "native-parity",
       "source": "static-classification",
-      "note": "static=rust-reexport; raw-vs-public=untestable-not-exposed",
+      "note": "static=rust-native; raw-vs-public=identical",
       "evidence": ""
     },
     {
       "name": "is_branching",
       "category": "native-parity",
       "source": "static-classification",
-      "note": "static=rust-reexport; raw-vs-public=unaudited",
+      "note": "static=rust-native; raw-vs-public=unaudited",
       "evidence": ""
     },
     {
@@ -2872,9 +2942,9 @@
     },
     {
       "name": "is_dominating_set",
-      "category": "native-parity",
+      "category": "intentionally-delegated",
       "source": "static-classification",
-      "note": "static=rust-reexport; raw-vs-public=unaudited",
+      "note": "mixed-route: wrapper has both _raw_<X> and parity-helper paths",
       "evidence": ""
     },
     {
@@ -2948,24 +3018,10 @@
       "evidence": ""
     },
     {
-      "name": "is_reachable",
-      "category": "intentionally-delegated",
-      "source": "static-classification",
-      "note": "wrapper calls _call_networkx_for_parity exclusively",
-      "evidence": ""
-    },
-    {
       "name": "is_semiconnected",
       "category": "native-parity",
       "source": "static-classification",
       "note": "static=rust-native; raw-vs-public=unaudited",
-      "evidence": ""
-    },
-    {
-      "name": "is_semieulerian",
-      "category": "native-parity",
-      "source": "static-classification",
-      "note": "static=rust-reexport; raw-vs-public=unaudited",
       "evidence": ""
     },
     {
@@ -3018,14 +3074,21 @@
       "evidence": ""
     },
     {
-      "name": "k_clique_communities",
+      "name": "k_components",
       "category": "intentionally-delegated",
       "source": "static-classification",
       "note": "wrapper calls _call_networkx_for_parity exclusively",
       "evidence": ""
     },
     {
-      "name": "k_components",
+      "name": "k_edge_components",
+      "category": "intentionally-delegated",
+      "source": "static-classification",
+      "note": "wrapper calls _call_networkx_for_parity exclusively",
+      "evidence": ""
+    },
+    {
+      "name": "k_edge_subgraphs",
       "category": "intentionally-delegated",
       "source": "static-classification",
       "note": "wrapper calls _call_networkx_for_parity exclusively",
@@ -3053,31 +3116,10 @@
       "evidence": ""
     },
     {
-      "name": "large_clique_size",
-      "category": "native-parity",
-      "source": "static-classification",
-      "note": "static=rust-reexport; raw-vs-public=unaudited",
-      "evidence": ""
-    },
-    {
-      "name": "lexicographic_topological_sort",
-      "category": "native-parity",
-      "source": "static-classification",
-      "note": "static=rust-native; raw-vs-public=unaudited",
-      "evidence": ""
-    },
-    {
       "name": "load_centrality",
       "category": "native-parity",
       "source": "static-classification",
       "note": "static=rust-native; raw-vs-public=identical",
-      "evidence": ""
-    },
-    {
-      "name": "local_and_global_consistency",
-      "category": "intentionally-delegated",
-      "source": "static-classification",
-      "note": "wrapper calls _call_networkx_for_parity exclusively",
       "evidence": ""
     },
     {
@@ -3092,20 +3134,6 @@
       "category": "native-parity",
       "source": "static-classification",
       "note": "static=rust-native; raw-vs-public=unaudited",
-      "evidence": ""
-    },
-    {
-      "name": "louvain_partitions",
-      "category": "intentionally-delegated",
-      "source": "static-classification",
-      "note": "wrapper calls _call_networkx_for_parity exclusively",
-      "evidence": ""
-    },
-    {
-      "name": "max_clique",
-      "category": "native-parity",
-      "source": "static-classification",
-      "note": "static=rust-reexport; raw-vs-public=unaudited",
       "evidence": ""
     },
     {
@@ -3158,13 +3186,6 @@
       "evidence": ""
     },
     {
-      "name": "maximum_independent_set",
-      "category": "native-parity",
-      "source": "static-classification",
-      "note": "static=rust-reexport; raw-vs-public=unaudited",
-      "evidence": ""
-    },
-    {
       "name": "maximum_spanning_arborescence",
       "category": "intentionally-delegated",
       "source": "static-classification",
@@ -3190,13 +3211,6 @@
       "category": "intentionally-delegated",
       "source": "static-classification",
       "note": "wrapper calls _call_networkx_for_parity exclusively",
-      "evidence": ""
-    },
-    {
-      "name": "min_weighted_vertex_cover",
-      "category": "native-parity",
-      "source": "static-classification",
-      "note": "static=rust-reexport; raw-vs-public=unaudited",
       "evidence": ""
     },
     {
@@ -3257,13 +3271,6 @@
     },
     {
       "name": "minimum_spanning_tree",
-      "category": "native-parity",
-      "source": "static-classification",
-      "note": "static=rust-native; raw-vs-public=unaudited",
-      "evidence": ""
-    },
-    {
-      "name": "modularity",
       "category": "native-parity",
       "source": "static-classification",
       "note": "static=rust-native; raw-vs-public=unaudited",
@@ -3350,7 +3357,7 @@
       "name": "number_of_isolates",
       "category": "native-parity",
       "source": "static-classification",
-      "note": "static=rust-reexport; raw-vs-public=untestable-not-exposed",
+      "note": "static=rust-native; raw-vs-public=identical",
       "evidence": ""
     },
     {
@@ -3358,13 +3365,6 @@
       "category": "native-parity",
       "source": "static-classification",
       "note": "static=rust-native; raw-vs-public=untestable-not-exposed",
-      "evidence": ""
-    },
-    {
-      "name": "number_of_spanning_arborescences",
-      "category": "native-parity",
-      "source": "static-classification",
-      "note": "static=rust-reexport; raw-vs-public=unaudited",
       "evidence": ""
     },
     {
@@ -3411,9 +3411,9 @@
     },
     {
       "name": "partition_spanning_tree",
-      "category": "native-parity",
+      "category": "intentionally-delegated",
       "source": "static-classification",
-      "note": "static=rust-native; raw-vs-public=unaudited",
+      "note": "mixed-route: wrapper has both _raw_<X> and parity-helper paths",
       "evidence": ""
     },
     {
@@ -3435,6 +3435,13 @@
       "category": "intentionally-delegated",
       "source": "static-classification",
       "note": "mixed-route: wrapper has both _raw_<X> and parity-helper paths",
+      "evidence": ""
+    },
+    {
+      "name": "random_reference",
+      "category": "intentionally-delegated",
+      "source": "static-classification",
+      "note": "wrapper calls _call_networkx_for_parity exclusively",
       "evidence": ""
     },
     {
@@ -3596,13 +3603,6 @@
       "category": "native-parity",
       "source": "static-classification",
       "note": "static=rust-native; raw-vs-public=unaudited",
-      "evidence": ""
-    },
-    {
-      "name": "tournament_matrix",
-      "category": "intentionally-delegated",
-      "source": "static-classification",
-      "note": "wrapper calls _call_networkx_for_parity exclusively",
       "evidence": ""
     },
     {
@@ -4076,19 +4076,6 @@
       "raw-known-gap": [],
       "owner-acknowledged-limitation": []
     },
-    "NotAPartition": {
-      "native-parity": [
-        {
-          "source": "static-classification",
-          "note": "static=rust-reexport; raw-vs-public=unaudited",
-          "evidence": ""
-        }
-      ],
-      "wrapper-patched": [],
-      "intentionally-delegated": [],
-      "raw-known-gap": [],
-      "owner-acknowledged-limitation": []
-    },
     "NotATree": {
       "native-parity": [
         {
@@ -4103,6 +4090,19 @@
       "owner-acknowledged-limitation": []
     },
     "PowerIterationFailedConvergence": {
+      "native-parity": [
+        {
+          "source": "static-classification",
+          "note": "static=rust-reexport; raw-vs-public=unaudited",
+          "evidence": ""
+        }
+      ],
+      "wrapper-patched": [],
+      "intentionally-delegated": [],
+      "raw-known-gap": [],
+      "owner-acknowledged-limitation": []
+    },
+    "_NotAPartition": {
       "native-parity": [
         {
           "source": "static-classification",
@@ -4427,6 +4427,19 @@
       "raw-known-gap": [],
       "owner-acknowledged-limitation": []
     },
+    "_minimal_branching_backend_impl": {
+      "native-parity": [],
+      "wrapper-patched": [],
+      "intentionally-delegated": [
+        {
+          "source": "static-classification",
+          "note": "wrapper calls _call_networkx_for_parity exclusively",
+          "evidence": ""
+        }
+      ],
+      "raw-known-gap": [],
+      "owner-acknowledged-limitation": []
+    },
     "_minimum_cut_raw": {
       "native-parity": [
         {
@@ -4445,6 +4458,19 @@
         {
           "source": "static-classification",
           "note": "static=rust-reexport; raw-vs-public=unaudited",
+          "evidence": ""
+        }
+      ],
+      "wrapper-patched": [],
+      "intentionally-delegated": [],
+      "raw-known-gap": [],
+      "owner-acknowledged-limitation": []
+    },
+    "_modularity_backend_impl": {
+      "native-parity": [
+        {
+          "source": "static-classification",
+          "note": "static=rust-native; raw-vs-public=unaudited",
           "evidence": ""
         }
       ],
@@ -4791,6 +4817,19 @@
       "raw-known-gap": [],
       "owner-acknowledged-limitation": []
     },
+    "_raw_bidirectional_shortest_path": {
+      "native-parity": [
+        {
+          "source": "static-classification",
+          "note": "static=rust-reexport; raw-vs-public=unaudited",
+          "evidence": ""
+        }
+      ],
+      "wrapper-patched": [],
+      "intentionally-delegated": [],
+      "raw-known-gap": [],
+      "owner-acknowledged-limitation": []
+    },
     "_raw_bridges": {
       "native-parity": [
         {
@@ -4818,6 +4857,19 @@
       "owner-acknowledged-limitation": []
     },
     "_raw_chordal_graph_cliques": {
+      "native-parity": [
+        {
+          "source": "static-classification",
+          "note": "static=rust-reexport; raw-vs-public=unaudited",
+          "evidence": ""
+        }
+      ],
+      "wrapper-patched": [],
+      "intentionally-delegated": [],
+      "raw-known-gap": [],
+      "owner-acknowledged-limitation": []
+    },
+    "_raw_clique_removal": {
       "native-parity": [
         {
           "source": "static-classification",
@@ -5363,6 +5415,19 @@
       "raw-known-gap": [],
       "owner-acknowledged-limitation": []
     },
+    "_raw_global_node_connectivity": {
+      "native-parity": [
+        {
+          "source": "static-classification",
+          "note": "static=rust-reexport; raw-vs-public=unaudited",
+          "evidence": ""
+        }
+      ],
+      "wrapper-patched": [],
+      "intentionally-delegated": [],
+      "raw-known-gap": [],
+      "owner-acknowledged-limitation": []
+    },
     "_raw_greedy_color": {
       "native-parity": [
         {
@@ -5519,6 +5584,19 @@
       "raw-known-gap": [],
       "owner-acknowledged-limitation": []
     },
+    "_raw_is_arborescence": {
+      "native-parity": [
+        {
+          "source": "static-classification",
+          "note": "static=rust-reexport; raw-vs-public=unaudited",
+          "evidence": ""
+        }
+      ],
+      "wrapper-patched": [],
+      "intentionally-delegated": [],
+      "raw-known-gap": [],
+      "owner-acknowledged-limitation": []
+    },
     "_raw_is_attracting_component": {
       "native-parity": [
         {
@@ -5533,6 +5611,32 @@
       "owner-acknowledged-limitation": []
     },
     "_raw_is_biconnected": {
+      "native-parity": [
+        {
+          "source": "static-classification",
+          "note": "static=rust-reexport; raw-vs-public=unaudited",
+          "evidence": ""
+        }
+      ],
+      "wrapper-patched": [],
+      "intentionally-delegated": [],
+      "raw-known-gap": [],
+      "owner-acknowledged-limitation": []
+    },
+    "_raw_is_bipartite": {
+      "native-parity": [
+        {
+          "source": "static-classification",
+          "note": "static=rust-reexport; raw-vs-public=unaudited",
+          "evidence": ""
+        }
+      ],
+      "wrapper-patched": [],
+      "intentionally-delegated": [],
+      "raw-known-gap": [],
+      "owner-acknowledged-limitation": []
+    },
+    "_raw_is_branching": {
       "native-parity": [
         {
           "source": "static-classification",
@@ -5598,6 +5702,19 @@
       "owner-acknowledged-limitation": []
     },
     "_raw_is_distance_regular": {
+      "native-parity": [
+        {
+          "source": "static-classification",
+          "note": "static=rust-reexport; raw-vs-public=unaudited",
+          "evidence": ""
+        }
+      ],
+      "wrapper-patched": [],
+      "intentionally-delegated": [],
+      "raw-known-gap": [],
+      "owner-acknowledged-limitation": []
+    },
+    "_raw_is_dominating_set": {
       "native-parity": [
         {
           "source": "static-classification",
@@ -5689,6 +5806,19 @@
       "owner-acknowledged-limitation": []
     },
     "_raw_is_semiconnected": {
+      "native-parity": [
+        {
+          "source": "static-classification",
+          "note": "static=rust-reexport; raw-vs-public=unaudited",
+          "evidence": ""
+        }
+      ],
+      "wrapper-patched": [],
+      "intentionally-delegated": [],
+      "raw-known-gap": [],
+      "owner-acknowledged-limitation": []
+    },
+    "_raw_is_semieulerian": {
       "native-parity": [
         {
           "source": "static-classification",
@@ -5805,6 +5935,19 @@
       "raw-known-gap": [],
       "owner-acknowledged-limitation": []
     },
+    "_raw_large_clique_size": {
+      "native-parity": [
+        {
+          "source": "static-classification",
+          "note": "static=rust-reexport; raw-vs-public=unaudited",
+          "evidence": ""
+        }
+      ],
+      "wrapper-patched": [],
+      "intentionally-delegated": [],
+      "raw-known-gap": [],
+      "owner-acknowledged-limitation": []
+    },
     "_raw_lexicographic_topological_sort": {
       "native-parity": [
         {
@@ -5845,6 +5988,19 @@
       "owner-acknowledged-limitation": []
     },
     "_raw_louvain_communities": {
+      "native-parity": [
+        {
+          "source": "static-classification",
+          "note": "static=rust-reexport; raw-vs-public=unaudited",
+          "evidence": ""
+        }
+      ],
+      "wrapper-patched": [],
+      "intentionally-delegated": [],
+      "raw-known-gap": [],
+      "owner-acknowledged-limitation": []
+    },
+    "_raw_max_clique": {
       "native-parity": [
         {
           "source": "static-classification",
@@ -5948,6 +6104,19 @@
       "raw-known-gap": [],
       "owner-acknowledged-limitation": []
     },
+    "_raw_maximum_independent_set": {
+      "native-parity": [
+        {
+          "source": "static-classification",
+          "note": "static=rust-reexport; raw-vs-public=unaudited",
+          "evidence": ""
+        }
+      ],
+      "wrapper-patched": [],
+      "intentionally-delegated": [],
+      "raw-known-gap": [],
+      "owner-acknowledged-limitation": []
+    },
     "_raw_maximum_spanning_arborescence": {
       "native-parity": [
         {
@@ -5988,6 +6157,19 @@
       "owner-acknowledged-limitation": []
     },
     "_raw_min_weight_matching": {
+      "native-parity": [
+        {
+          "source": "static-classification",
+          "note": "static=rust-reexport; raw-vs-public=unaudited",
+          "evidence": ""
+        }
+      ],
+      "wrapper-patched": [],
+      "intentionally-delegated": [],
+      "raw-known-gap": [],
+      "owner-acknowledged-limitation": []
+    },
+    "_raw_min_weighted_vertex_cover": {
       "native-parity": [
         {
           "source": "static-classification",
@@ -6183,6 +6365,19 @@
       "owner-acknowledged-limitation": []
     },
     "_raw_number_connected_components": {
+      "native-parity": [
+        {
+          "source": "static-classification",
+          "note": "static=rust-reexport; raw-vs-public=unaudited",
+          "evidence": ""
+        }
+      ],
+      "wrapper-patched": [],
+      "intentionally-delegated": [],
+      "raw-known-gap": [],
+      "owner-acknowledged-limitation": []
+    },
+    "_raw_number_of_isolates": {
       "native-parity": [
         {
           "source": "static-classification",
@@ -8189,15 +8384,15 @@
       "owner-acknowledged-limitation": []
     },
     "bidirectional_shortest_path": {
-      "native-parity": [
+      "native-parity": [],
+      "wrapper-patched": [],
+      "intentionally-delegated": [
         {
           "source": "static-classification",
-          "note": "static=rust-reexport; raw-vs-public=unaudited",
+          "note": "mixed-route: wrapper has both _raw_<X> and parity-helper paths",
           "evidence": ""
         }
       ],
-      "wrapper-patched": [],
-      "intentionally-delegated": [],
       "raw-known-gap": [],
       "owner-acknowledged-limitation": []
     },
@@ -8262,19 +8457,6 @@
           "evidence": ""
         }
       ],
-      "raw-known-gap": [],
-      "owner-acknowledged-limitation": []
-    },
-    "clique_removal": {
-      "native-parity": [
-        {
-          "source": "static-classification",
-          "note": "static=rust-reexport; raw-vs-public=unaudited",
-          "evidence": ""
-        }
-      ],
-      "wrapper-patched": [],
-      "intentionally-delegated": [],
       "raw-known-gap": [],
       "owner-acknowledged-limitation": []
     },
@@ -8628,15 +8810,15 @@
       "owner-acknowledged-limitation": []
     },
     "dominating_set": {
-      "native-parity": [
+      "native-parity": [],
+      "wrapper-patched": [],
+      "intentionally-delegated": [
         {
           "source": "static-classification",
-          "note": "static=rust-native; raw-vs-public=unaudited",
+          "note": "mixed-route: wrapper has both _raw_<X> and parity-helper paths",
           "evidence": ""
         }
       ],
-      "wrapper-patched": [],
-      "intentionally-delegated": [],
       "raw-known-gap": [],
       "owner-acknowledged-limitation": []
     },
@@ -8957,19 +9139,6 @@
       "raw-known-gap": [],
       "owner-acknowledged-limitation": []
     },
-    "global_node_connectivity": {
-      "native-parity": [
-        {
-          "source": "static-classification",
-          "note": "static=rust-reexport; raw-vs-public=unaudited",
-          "evidence": ""
-        }
-      ],
-      "wrapper-patched": [],
-      "intentionally-delegated": [],
-      "raw-known-gap": [],
-      "owner-acknowledged-limitation": []
-    },
     "gnm_random_graph": {
       "native-parity": [],
       "wrapper-patched": [],
@@ -9015,7 +9184,7 @@
       "raw-known-gap": [],
       "owner-acknowledged-limitation": []
     },
-    "greedy_modularity_communities": {
+    "group_degree_centrality": {
       "native-parity": [],
       "wrapper-patched": [],
       "intentionally-delegated": [
@@ -9025,19 +9194,6 @@
           "evidence": ""
         }
       ],
-      "raw-known-gap": [],
-      "owner-acknowledged-limitation": []
-    },
-    "group_degree_centrality": {
-      "native-parity": [
-        {
-          "source": "static-classification",
-          "note": "static=rust-native; raw-vs-public=unaudited",
-          "evidence": ""
-        }
-      ],
-      "wrapper-patched": [],
-      "intentionally-delegated": [],
       "raw-known-gap": [],
       "owner-acknowledged-limitation": []
     },
@@ -9067,19 +9223,6 @@
       "raw-known-gap": [],
       "owner-acknowledged-limitation": []
     },
-    "hamiltonian_path": {
-      "native-parity": [],
-      "wrapper-patched": [],
-      "intentionally-delegated": [
-        {
-          "source": "static-classification",
-          "note": "wrapper calls _call_networkx_for_parity exclusively",
-          "evidence": ""
-        }
-      ],
-      "raw-known-gap": [],
-      "owner-acknowledged-limitation": []
-    },
     "harmonic_centrality": {
       "native-parity": [],
       "wrapper-patched": [],
@@ -9094,19 +9237,6 @@
       "owner-acknowledged-limitation": []
     },
     "harmonic_diameter": {
-      "native-parity": [],
-      "wrapper-patched": [],
-      "intentionally-delegated": [
-        {
-          "source": "static-classification",
-          "note": "wrapper calls _call_networkx_for_parity exclusively",
-          "evidence": ""
-        }
-      ],
-      "raw-known-gap": [],
-      "owner-acknowledged-limitation": []
-    },
-    "harmonic_function": {
       "native-parity": [],
       "wrapper-patched": [],
       "intentionally-delegated": [
@@ -9201,7 +9331,7 @@
       "native-parity": [
         {
           "source": "static-classification",
-          "note": "static=rust-reexport; raw-vs-public=unaudited",
+          "note": "static=rust-native; raw-vs-public=unaudited",
           "evidence": ""
         }
       ],
@@ -9227,7 +9357,7 @@
       "native-parity": [
         {
           "source": "static-classification",
-          "note": "static=rust-reexport; raw-vs-public=untestable-not-exposed",
+          "note": "static=rust-native; raw-vs-public=identical",
           "evidence": ""
         }
       ],
@@ -9240,7 +9370,7 @@
       "native-parity": [
         {
           "source": "static-classification",
-          "note": "static=rust-reexport; raw-vs-public=unaudited",
+          "note": "static=rust-native; raw-vs-public=unaudited",
           "evidence": ""
         }
       ],
@@ -9315,15 +9445,15 @@
       "owner-acknowledged-limitation": []
     },
     "is_dominating_set": {
-      "native-parity": [
+      "native-parity": [],
+      "wrapper-patched": [],
+      "intentionally-delegated": [
         {
           "source": "static-classification",
-          "note": "static=rust-reexport; raw-vs-public=unaudited",
+          "note": "mixed-route: wrapper has both _raw_<X> and parity-helper paths",
           "evidence": ""
         }
       ],
-      "wrapper-patched": [],
-      "intentionally-delegated": [],
       "raw-known-gap": [],
       "owner-acknowledged-limitation": []
     },
@@ -9463,37 +9593,11 @@
       "raw-known-gap": [],
       "owner-acknowledged-limitation": []
     },
-    "is_reachable": {
-      "native-parity": [],
-      "wrapper-patched": [],
-      "intentionally-delegated": [
-        {
-          "source": "static-classification",
-          "note": "wrapper calls _call_networkx_for_parity exclusively",
-          "evidence": ""
-        }
-      ],
-      "raw-known-gap": [],
-      "owner-acknowledged-limitation": []
-    },
     "is_semiconnected": {
       "native-parity": [
         {
           "source": "static-classification",
           "note": "static=rust-native; raw-vs-public=unaudited",
-          "evidence": ""
-        }
-      ],
-      "wrapper-patched": [],
-      "intentionally-delegated": [],
-      "raw-known-gap": [],
-      "owner-acknowledged-limitation": []
-    },
-    "is_semieulerian": {
-      "native-parity": [
-        {
-          "source": "static-classification",
-          "note": "static=rust-reexport; raw-vs-public=unaudited",
           "evidence": ""
         }
       ],
@@ -9599,7 +9703,7 @@
       "raw-known-gap": [],
       "owner-acknowledged-limitation": []
     },
-    "k_clique_communities": {
+    "k_components": {
       "native-parity": [],
       "wrapper-patched": [],
       "intentionally-delegated": [
@@ -9612,7 +9716,20 @@
       "raw-known-gap": [],
       "owner-acknowledged-limitation": []
     },
-    "k_components": {
+    "k_edge_components": {
+      "native-parity": [],
+      "wrapper-patched": [],
+      "intentionally-delegated": [
+        {
+          "source": "static-classification",
+          "note": "wrapper calls _call_networkx_for_parity exclusively",
+          "evidence": ""
+        }
+      ],
+      "raw-known-gap": [],
+      "owner-acknowledged-limitation": []
+    },
+    "k_edge_subgraphs": {
       "native-parity": [],
       "wrapper-patched": [],
       "intentionally-delegated": [
@@ -9664,32 +9781,6 @@
       "raw-known-gap": [],
       "owner-acknowledged-limitation": []
     },
-    "large_clique_size": {
-      "native-parity": [
-        {
-          "source": "static-classification",
-          "note": "static=rust-reexport; raw-vs-public=unaudited",
-          "evidence": ""
-        }
-      ],
-      "wrapper-patched": [],
-      "intentionally-delegated": [],
-      "raw-known-gap": [],
-      "owner-acknowledged-limitation": []
-    },
-    "lexicographic_topological_sort": {
-      "native-parity": [
-        {
-          "source": "static-classification",
-          "note": "static=rust-native; raw-vs-public=unaudited",
-          "evidence": ""
-        }
-      ],
-      "wrapper-patched": [],
-      "intentionally-delegated": [],
-      "raw-known-gap": [],
-      "owner-acknowledged-limitation": []
-    },
     "load_centrality": {
       "native-parity": [
         {
@@ -9700,19 +9791,6 @@
       ],
       "wrapper-patched": [],
       "intentionally-delegated": [],
-      "raw-known-gap": [],
-      "owner-acknowledged-limitation": []
-    },
-    "local_and_global_consistency": {
-      "native-parity": [],
-      "wrapper-patched": [],
-      "intentionally-delegated": [
-        {
-          "source": "static-classification",
-          "note": "wrapper calls _call_networkx_for_parity exclusively",
-          "evidence": ""
-        }
-      ],
       "raw-known-gap": [],
       "owner-acknowledged-limitation": []
     },
@@ -9734,32 +9812,6 @@
         {
           "source": "static-classification",
           "note": "static=rust-native; raw-vs-public=unaudited",
-          "evidence": ""
-        }
-      ],
-      "wrapper-patched": [],
-      "intentionally-delegated": [],
-      "raw-known-gap": [],
-      "owner-acknowledged-limitation": []
-    },
-    "louvain_partitions": {
-      "native-parity": [],
-      "wrapper-patched": [],
-      "intentionally-delegated": [
-        {
-          "source": "static-classification",
-          "note": "wrapper calls _call_networkx_for_parity exclusively",
-          "evidence": ""
-        }
-      ],
-      "raw-known-gap": [],
-      "owner-acknowledged-limitation": []
-    },
-    "max_clique": {
-      "native-parity": [
-        {
-          "source": "static-classification",
-          "note": "static=rust-reexport; raw-vs-public=unaudited",
           "evidence": ""
         }
       ],
@@ -9859,19 +9911,6 @@
       "raw-known-gap": [],
       "owner-acknowledged-limitation": []
     },
-    "maximum_independent_set": {
-      "native-parity": [
-        {
-          "source": "static-classification",
-          "note": "static=rust-reexport; raw-vs-public=unaudited",
-          "evidence": ""
-        }
-      ],
-      "wrapper-patched": [],
-      "intentionally-delegated": [],
-      "raw-known-gap": [],
-      "owner-acknowledged-limitation": []
-    },
     "maximum_spanning_arborescence": {
       "native-parity": [],
       "wrapper-patched": [],
@@ -9921,19 +9960,6 @@
           "evidence": ""
         }
       ],
-      "raw-known-gap": [],
-      "owner-acknowledged-limitation": []
-    },
-    "min_weighted_vertex_cover": {
-      "native-parity": [
-        {
-          "source": "static-classification",
-          "note": "static=rust-reexport; raw-vs-public=unaudited",
-          "evidence": ""
-        }
-      ],
-      "wrapper-patched": [],
-      "intentionally-delegated": [],
       "raw-known-gap": [],
       "owner-acknowledged-limitation": []
     },
@@ -10042,19 +10068,6 @@
       "owner-acknowledged-limitation": []
     },
     "minimum_spanning_tree": {
-      "native-parity": [
-        {
-          "source": "static-classification",
-          "note": "static=rust-native; raw-vs-public=unaudited",
-          "evidence": ""
-        }
-      ],
-      "wrapper-patched": [],
-      "intentionally-delegated": [],
-      "raw-known-gap": [],
-      "owner-acknowledged-limitation": []
-    },
-    "modularity": {
       "native-parity": [
         {
           "source": "static-classification",
@@ -10214,7 +10227,7 @@
       "native-parity": [
         {
           "source": "static-classification",
-          "note": "static=rust-reexport; raw-vs-public=untestable-not-exposed",
+          "note": "static=rust-native; raw-vs-public=identical",
           "evidence": ""
         }
       ],
@@ -10228,19 +10241,6 @@
         {
           "source": "static-classification",
           "note": "static=rust-native; raw-vs-public=untestable-not-exposed",
-          "evidence": ""
-        }
-      ],
-      "wrapper-patched": [],
-      "intentionally-delegated": [],
-      "raw-known-gap": [],
-      "owner-acknowledged-limitation": []
-    },
-    "number_of_spanning_arborescences": {
-      "native-parity": [
-        {
-          "source": "static-classification",
-          "note": "static=rust-reexport; raw-vs-public=unaudited",
           "evidence": ""
         }
       ],
@@ -10328,15 +10328,15 @@
       "owner-acknowledged-limitation": []
     },
     "partition_spanning_tree": {
-      "native-parity": [
+      "native-parity": [],
+      "wrapper-patched": [],
+      "intentionally-delegated": [
         {
           "source": "static-classification",
-          "note": "static=rust-native; raw-vs-public=unaudited",
+          "note": "mixed-route: wrapper has both _raw_<X> and parity-helper paths",
           "evidence": ""
         }
       ],
-      "wrapper-patched": [],
-      "intentionally-delegated": [],
       "raw-known-gap": [],
       "owner-acknowledged-limitation": []
     },
@@ -10385,6 +10385,19 @@
         {
           "source": "static-classification",
           "note": "mixed-route: wrapper has both _raw_<X> and parity-helper paths",
+          "evidence": ""
+        }
+      ],
+      "raw-known-gap": [],
+      "owner-acknowledged-limitation": []
+    },
+    "random_reference": {
+      "native-parity": [],
+      "wrapper-patched": [],
+      "intentionally-delegated": [
+        {
+          "source": "static-classification",
+          "note": "wrapper calls _call_networkx_for_parity exclusively",
           "evidence": ""
         }
       ],
@@ -10699,19 +10712,6 @@
       ],
       "wrapper-patched": [],
       "intentionally-delegated": [],
-      "raw-known-gap": [],
-      "owner-acknowledged-limitation": []
-    },
-    "tournament_matrix": {
-      "native-parity": [],
-      "wrapper-patched": [],
-      "intentionally-delegated": [
-        {
-          "source": "static-classification",
-          "note": "wrapper calls _call_networkx_for_parity exclusively",
-          "evidence": ""
-        }
-      ],
       "raw-known-gap": [],
       "owner-acknowledged-limitation": []
     },
