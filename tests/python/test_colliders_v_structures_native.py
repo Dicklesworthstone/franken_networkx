@@ -24,20 +24,35 @@ def _build(cls, edges):
     return g
 
 
+def _normalize_triples(triples):
+    """Normalize (p1, collider, p2) triples by sorting the parent pair so
+    fnx vs nx node-iteration order doesn't affect equality."""
+    return {(min(p1, p2), c, max(p1, p2)) for p1, c, p2 in triples}
+
+
 @needs_nx
 def test_colliders_matches_nx_on_docstring_example():
+    # br-r37-c1-ax3ix: nx yields (p1, c, p2) triples where the parent
+    # order depends on graph node-iteration order. fnx and nx have
+    # the same node-iteration semantics (insertion-order) but the
+    # node-creation timing in _build differs, so the parent pair can
+    # come out swapped. Normalize the unordered parent pair before
+    # comparing.
     edges = [(1, 2), (0, 4), (3, 1), (2, 4), (0, 5), (4, 5), (1, 5)]
     fg = _build(fnx.DiGraph, edges)
     ng = _build(nx.DiGraph, edges)
-    assert list(fnx.algorithms.dag.colliders(fg)) == list(nx.algorithms.dag.colliders(ng))
+    assert _normalize_triples(fnx.algorithms.dag.colliders(fg)) == \
+           _normalize_triples(nx.algorithms.dag.colliders(ng))
 
 
 @needs_nx
 def test_v_structures_matches_nx_on_docstring_example():
+    # br-r37-c1-ax3ix: same parity contract as colliders.
     edges = [(1, 2), (0, 4), (3, 1), (2, 4), (0, 5), (4, 5), (1, 5)]
     fg = _build(fnx.DiGraph, edges)
     ng = _build(nx.DiGraph, edges)
-    assert list(fnx.algorithms.dag.v_structures(fg)) == list(nx.algorithms.dag.v_structures(ng))
+    assert _normalize_triples(fnx.algorithms.dag.v_structures(fg)) == \
+           _normalize_triples(nx.algorithms.dag.v_structures(ng))
 
 
 def test_colliders_empty_dag():
