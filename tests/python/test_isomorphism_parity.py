@@ -283,8 +283,12 @@ def test_top_level_isomorphism_module_exports_franken_wrappers():
     # franken submodule).  Verify they are reachable via
     # fnx.algorithms.isomorphism for the matcher names; verify the
     # other names (matchers + Graph types) live in fnx.isomorphism.
+    # br-r37-c1-rhwwa: tree_isomorphism / rooted_tree_isomorphism were
+    # also hidden from fnx top-level (br-r37-c1-dm5jl); they live at
+    # fnx.algorithms.isomorphism via the auto-bound nx submodule.
     _MATCHERS_AT_ALGO_ONLY = {
         "categorical_node_match", "numerical_edge_match", "generic_multiedge_match",
+        "tree_isomorphism", "rooted_tree_isomorphism",
     }
     for export_name in expected_exports:
         if export_name in _MATCHERS_AT_ALGO_ONLY:
