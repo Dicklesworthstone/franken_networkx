@@ -4665,6 +4665,15 @@
       "body_lines": 0
     },
     {
+      "name": "_raw_is_k_regular",
+      "classification": "rust-reexport",
+      "is_rust_reexport": true,
+      "calls_parity_helper": false,
+      "calls_raw_rust": false,
+      "raw_rust_targets": [],
+      "body_lines": 0
+    },
+    {
       "name": "_raw_is_planar",
       "classification": "rust-reexport",
       "is_rust_reexport": true,
@@ -10034,12 +10043,14 @@
     },
     {
       "name": "is_k_regular",
-      "classification": "rust-reexport",
-      "is_rust_reexport": true,
+      "classification": "rust-native",
+      "is_rust_reexport": false,
       "calls_parity_helper": false,
-      "calls_raw_rust": false,
-      "raw_rust_targets": [],
-      "body_lines": 0
+      "calls_raw_rust": true,
+      "raw_rust_targets": [
+        "_raw_is_k_regular"
+      ],
+      "body_lines": 19
     },
     {
       "name": "is_kl_connected",
@@ -13148,7 +13159,7 @@
       "calls_parity_helper": false,
       "calls_raw_rust": false,
       "raw_rust_targets": [],
-      "body_lines": 10
+      "body_lines": 9
     },
     {
       "name": "write_graphml",

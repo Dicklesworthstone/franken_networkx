@@ -1023,6 +1023,13 @@
       "evidence": ""
     },
     {
+      "name": "_raw_is_k_regular",
+      "category": "native-parity",
+      "source": "static-classification",
+      "note": "static=rust-reexport; raw-vs-public=unaudited",
+      "evidence": ""
+    },
+    {
       "name": "_raw_is_planar",
       "category": "native-parity",
       "source": "static-classification",
@@ -2986,7 +2993,7 @@
       "name": "is_k_regular",
       "category": "native-parity",
       "source": "static-classification",
-      "note": "static=rust-reexport; raw-vs-public=unaudited",
+      "note": "static=rust-native; raw-vs-public=unaudited",
       "evidence": ""
     },
     {
@@ -5780,6 +5787,19 @@
       "owner-acknowledged-limitation": []
     },
     "_raw_is_k_edge_connected": {
+      "native-parity": [
+        {
+          "source": "static-classification",
+          "note": "static=rust-reexport; raw-vs-public=unaudited",
+          "evidence": ""
+        }
+      ],
+      "wrapper-patched": [],
+      "intentionally-delegated": [],
+      "raw-known-gap": [],
+      "owner-acknowledged-limitation": []
+    },
+    "_raw_is_k_regular": {
       "native-parity": [
         {
           "source": "static-classification",
@@ -9532,7 +9552,7 @@
       "native-parity": [
         {
           "source": "static-classification",
-          "note": "static=rust-reexport; raw-vs-public=unaudited",
+          "note": "static=rust-native; raw-vs-public=unaudited",
           "evidence": ""
         }
       ],

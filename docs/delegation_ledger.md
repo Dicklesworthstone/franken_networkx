@@ -17,7 +17,7 @@ Counts derived from `python/franken_networkx/__init__.py` AST. Categories:
 | `mixed-route` | 66 |
 | `nx-fallback` | 85 |
 | `py-wrapper` | 899 |
-| `rust-native` | 77 |
+| `rust-native` | 78 |
 | `rust-reexport` | 302 |
 
 ## Runtime probe results
@@ -438,7 +438,7 @@ Per-(function, shape) instrumentation. Wraps `_call_networkx_for_parity` and eve
 | `is_isolate` | `py-wrapper` | no | — |
 | `is_isomorphic` | `py-wrapper` | no | — |
 | `is_k_edge_connected` | `rust-native` | no | `_raw_is_k_edge_connected` |
-| `is_k_regular` | `rust-reexport` | no | — |
+| `is_k_regular` | `rust-native` | no | `_raw_is_k_regular` |
 | `is_kl_connected` | `py-wrapper` | no | — |
 | `is_matching` | `nx-fallback` | yes | — |
 | `is_maximal_matching` | `nx-fallback` | yes | — |
