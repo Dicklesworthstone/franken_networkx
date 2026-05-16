@@ -233,12 +233,12 @@ class TestCommunityDetection:
             for j in range(i + 1, 8):
                 G.add_edge(i, j)
         G.add_edge(3, 4)  # bridge
-        comms = fnx.louvain_communities(G)
+        comms = fnx.community.louvain_communities(G)
         assert len(comms) >= 2
 
     def test_label_propagation_communities(self):
         G = fnx.path_graph(10)
-        comms = fnx.label_propagation_communities(G)
+        comms = fnx.community.label_propagation_communities(G)
         assert len(comms) >= 1
         # All nodes should be in some community
         all_nodes = set()
@@ -248,7 +248,7 @@ class TestCommunityDetection:
 
     def test_greedy_modularity_communities(self):
         G = fnx.complete_graph(6)
-        comms = fnx.greedy_modularity_communities(G)
+        comms = fnx.community.greedy_modularity_communities(G)
         assert len(comms) >= 1
 
     def test_modularity(self):

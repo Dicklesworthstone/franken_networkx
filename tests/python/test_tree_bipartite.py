@@ -64,7 +64,7 @@ class TestBipartite:
         """bipartite.color should return a valid 2-coloring for a path graph."""
         G_fnx, G_nx = path_graph
         from networkx.algorithms import bipartite as nx_bip
-        fnx_coloring = fnx.color(G_fnx)
+        fnx_coloring = fnx.bipartite.color(G_fnx)
         nx_coloring = nx_bip.color(G_nx)
         # Both should assign 0 or 1 to each node
         assert set(fnx_coloring.values()) <= {0, 1}
@@ -79,7 +79,7 @@ class TestBipartite:
         """bipartite.color should raise on non-bipartite graph."""
         G_fnx, _ = triangle_graph
         with pytest.raises(fnx.NetworkXError):
-            fnx.color(G_fnx)
+            fnx.bipartite.color(G_fnx)
 
 
 @pytest.mark.conformance
@@ -209,7 +209,7 @@ class TestGreedyBranchingParity:
         Gn = self._weighted_digraph(nx)
         Gf = self._weighted_digraph(fnx)
         Bn = nx.algorithms.tree.branchings.greedy_branching(Gn, kind=kind)
-        Bf = fnx.greedy_branching(Gf, kind=kind)
+        Bf = fnx.algorithms.tree.branchings.greedy_branching(Gf, kind=kind)
 
         def triples(G):
             return sorted(
@@ -222,7 +222,7 @@ class TestGreedyBranchingParity:
     @pytest.mark.parametrize("kind", ["max", "min"])
     def test_result_is_a_branching(self, fnx, kind):
         Gf = self._weighted_digraph(fnx)
-        Bf = fnx.greedy_branching(Gf, kind=kind)
+        Bf = fnx.algorithms.tree.branchings.greedy_branching(Gf, kind=kind)
         assert all(Bf.in_degree[n] <= 1 for n in Bf.nodes())
         assert fnx.is_directed_acyclic_graph(Bf)
         assert set(Bf.nodes()) == set(Gf.nodes())
@@ -240,7 +240,7 @@ class TestGreedyBranchingParity:
         Bn = nx.algorithms.tree.branchings.greedy_branching(
             Gn, attr="cost", default=100, kind="max"
         )
-        Bf = fnx.greedy_branching(Gf, attr="cost", default=100, kind="max")
+        Bf = fnx.algorithms.tree.branchings.greedy_branching(Gf, attr="cost", default=100, kind="max")
         assert sorted((u, v, B.edges[u, v].get("cost")) for u, v in Bn.edges() for B in [Bn]) == sorted(
             (u, v, B.edges[u, v].get("cost")) for u, v in Bf.edges() for B in [Bf]
         )
@@ -253,18 +253,18 @@ class TestGreedyBranchingParity:
         Bn = nx.algorithms.tree.branchings.greedy_branching(
             Gn, attr=None, kind="max", seed=7
         )
-        Bf = fnx.greedy_branching(Gf, attr=None, kind="max", seed=7)
+        Bf = fnx.algorithms.tree.branchings.greedy_branching(Gf, attr=None, kind="max", seed=7)
         assert Bf.number_of_edges() == Bn.number_of_edges()
         assert all(Bf.in_degree[n] <= 1 for n in Bf.nodes())
 
     def test_invalid_kind_raises(self, fnx):
         Gf = self._weighted_digraph(fnx)
         with pytest.raises(fnx.NetworkXError):
-            fnx.greedy_branching(Gf, kind="not-a-kind")
+            fnx.algorithms.tree.branchings.greedy_branching(Gf, kind="not-a-kind")
 
     def test_empty_graph_returns_empty_branching(self, fnx):
         Gf = fnx.DiGraph()
-        Bf = fnx.greedy_branching(Gf)
+        Bf = fnx.algorithms.tree.branchings.greedy_branching(Gf)
         assert Bf.number_of_nodes() == 0
         assert Bf.number_of_edges() == 0
 

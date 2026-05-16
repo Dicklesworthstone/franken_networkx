@@ -29,7 +29,7 @@ def test_colliders_matches_nx_on_docstring_example():
     edges = [(1, 2), (0, 4), (3, 1), (2, 4), (0, 5), (4, 5), (1, 5)]
     fg = _build(fnx.DiGraph, edges)
     ng = _build(nx.DiGraph, edges)
-    assert list(fnx.colliders(fg)) == list(nx.algorithms.dag.colliders(ng))
+    assert list(fnx.algorithms.dag.colliders(fg)) == list(nx.algorithms.dag.colliders(ng))
 
 
 @needs_nx
@@ -37,20 +37,20 @@ def test_v_structures_matches_nx_on_docstring_example():
     edges = [(1, 2), (0, 4), (3, 1), (2, 4), (0, 5), (4, 5), (1, 5)]
     fg = _build(fnx.DiGraph, edges)
     ng = _build(nx.DiGraph, edges)
-    assert list(fnx.v_structures(fg)) == list(nx.algorithms.dag.v_structures(ng))
+    assert list(fnx.algorithms.dag.v_structures(fg)) == list(nx.algorithms.dag.v_structures(ng))
 
 
 def test_colliders_empty_dag():
     g = fnx.DiGraph()
     g.add_edge(0, 1)
-    assert list(fnx.colliders(g)) == []
+    assert list(fnx.algorithms.dag.colliders(g)) == []
 
 
 def test_colliders_two_parents():
     g = fnx.DiGraph()
     g.add_edge(0, 2)
     g.add_edge(1, 2)
-    assert list(fnx.colliders(g)) == [(0, 2, 1)]
+    assert list(fnx.algorithms.dag.colliders(g)) == [(0, 2, 1)]
 
 
 def test_v_structures_unmarried_only():
@@ -58,24 +58,24 @@ def test_v_structures_unmarried_only():
     g.add_edge(0, 2)
     g.add_edge(1, 2)
     # Without edge between 0 and 1, this is a v-structure.
-    assert list(fnx.v_structures(g)) == [(0, 2, 1)]
+    assert list(fnx.algorithms.dag.v_structures(g)) == [(0, 2, 1)]
     # Adding 0->1 makes them "married" — no longer a v-structure.
     g.add_edge(0, 1)
-    assert list(fnx.v_structures(g)) == []
+    assert list(fnx.algorithms.dag.v_structures(g)) == []
 
 
 def test_colliders_rejects_undirected():
     g = fnx.Graph()
     g.add_edge(0, 1)
     with pytest.raises(fnx.NetworkXNotImplemented):
-        list(fnx.colliders(g))
+        list(fnx.algorithms.dag.colliders(g))
 
 
 def test_v_structures_rejects_undirected():
     g = fnx.Graph()
     g.add_edge(0, 1)
     with pytest.raises(fnx.NetworkXNotImplemented):
-        list(fnx.v_structures(g))
+        list(fnx.algorithms.dag.v_structures(g))
 
 
 @needs_nx
@@ -84,4 +84,4 @@ def test_colliders_allows_cyclic_graphs():
     edges = [(0, 1), (1, 0), (0, 2), (1, 2)]
     fg = _build(fnx.DiGraph, edges)
     ng = _build(nx.DiGraph, edges)
-    assert list(fnx.colliders(fg)) == list(nx.algorithms.dag.colliders(ng))
+    assert list(fnx.algorithms.dag.colliders(fg)) == list(nx.algorithms.dag.colliders(ng))

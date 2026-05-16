@@ -85,7 +85,7 @@ def test_greedy_tsp_matches_networkx(n, source):
     if source >= n:
         pytest.skip("source out of range for this n")
     fg, ng = _make_complete_weighted_pair(n)
-    fr = fnx.greedy_tsp(fg, source=source)
+    fr = fnx.approximation.greedy_tsp(fg, source=source)
     nr = _nx_greedy_tsp(ng, source=source)
     assert fr == nr, f"K_{n} src={source}: fnx={fr} nx={nr}"
 
@@ -93,7 +93,7 @@ def test_greedy_tsp_matches_networkx(n, source):
 @pytest.mark.parametrize("n", [3, 4, 5, 6, 7])
 def test_greedy_tsp_returns_valid_hamiltonian_cycle(n):
     fg, _ = _make_complete_weighted_pair(n)
-    tour = fnx.greedy_tsp(fg, source=0)
+    tour = fnx.approximation.greedy_tsp(fg, source=0)
     assert tour[0] == tour[-1] == 0, f"K_{n}: tour doesn't start/end at 0"
     visited = tour[:-1]
     assert sorted(visited) == list(range(n)), (
@@ -112,7 +112,7 @@ def test_christofides_returns_valid_hamiltonian_cycle(n):
     returns a valid Hamiltonian cycle (starts and ends at the same
     node, visits every other exactly once)."""
     fg, _ = _make_complete_weighted_pair(n)
-    tour = fnx.christofides(fg)
+    tour = fnx.approximation.christofides(fg)
     assert tour[0] == tour[-1], f"K_{n}: tour doesn't start/end at same node"
     visited = tour[:-1]
     assert sorted(visited) == list(range(n)), (
@@ -128,7 +128,7 @@ def test_christofides_returns_valid_hamiltonian_cycle(n):
 @pytest.mark.parametrize("n", [4, 5, 6, 7, 8])
 def test_traveling_salesman_problem_returns_valid_cycle(n):
     fg, _ = _make_complete_weighted_pair(n)
-    tour = fnx.traveling_salesman_problem(fg)
+    tour = fnx.approximation.traveling_salesman_problem(fg)
     assert tour[0] == tour[-1]
     assert sorted(tour[:-1]) == list(range(n))
 
@@ -143,7 +143,7 @@ def test_traveling_salesman_with_explicit_nodes_subset(n, nodes_subset):
     that visits the specified subset (using the metric closure
     derived from G's shortest paths)."""
     fg, _ = _make_complete_weighted_pair(n)
-    tour = fnx.traveling_salesman_problem(fg, nodes=nodes_subset)
+    tour = fnx.approximation.traveling_salesman_problem(fg, nodes=nodes_subset)
     assert tour[0] == tour[-1]
     # All requested nodes are in the tour
     assert set(nodes_subset) <= set(tour)
@@ -170,7 +170,7 @@ def test_metric_closure_matches_networkx(name, builder):
     for u, v in g_nx.edges():
         g_fnx.add_edge(u, v, weight=1.0)
         g_nx.edges[u, v]["weight"] = 1.0
-    fr = fnx.metric_closure(g_fnx)
+    fr = fnx.approximation.metric_closure(g_fnx)
     nr = _nx_metric_closure(g_nx)
     fr_e = sorted(
         (u, v, fr.edges[u, v].get("distance"))
@@ -193,7 +193,7 @@ def test_metric_closure_matches_networkx(name, builder):
 def test_simulated_annealing_tsp_matches_networkx(n, seed):
     fg, ng = _make_complete_weighted_pair(n)
     init = list(range(n)) + [0]
-    fr = fnx.simulated_annealing_tsp(fg, init_cycle=init, seed=seed)
+    fr = fnx.approximation.simulated_annealing_tsp(fg, init_cycle=init, seed=seed)
     nr = _nx_sa_tsp(ng, init_cycle=init, seed=seed)
     assert fr == nr, f"K_{n} seed={seed}: fnx={fr} nx={nr}"
 
@@ -203,7 +203,7 @@ def test_simulated_annealing_tsp_matches_networkx(n, seed):
 def test_threshold_accepting_tsp_matches_networkx(n, seed):
     fg, ng = _make_complete_weighted_pair(n)
     init = list(range(n)) + [0]
-    fr = fnx.threshold_accepting_tsp(fg, init_cycle=init, seed=seed)
+    fr = fnx.approximation.threshold_accepting_tsp(fg, init_cycle=init, seed=seed)
     nr = _nx_ta_tsp(ng, init_cycle=init, seed=seed)
     assert fr == nr, f"K_{n} seed={seed}: fnx={fr} nx={nr}"
 
@@ -230,7 +230,7 @@ def test_treewidth_min_degree_value_matches_networkx(name, builder):
     g_fnx = fnx.Graph()
     g_fnx.add_nodes_from(g_nx.nodes())
     g_fnx.add_edges_from(g_nx.edges())
-    fr_tw, _ = fnx.treewidth_min_degree(g_fnx)
+    fr_tw, _ = fnx.approximation.treewidth_min_degree(g_fnx)
     nr_tw, _ = _nx_treewidth_min_degree(g_nx)
     assert fr_tw == nr_tw, f"{name}: fnx={fr_tw} nx={nr_tw}"
 
@@ -250,7 +250,7 @@ def test_treewidth_min_fill_in_value_matches_networkx(name, builder):
     g_fnx = fnx.Graph()
     g_fnx.add_nodes_from(g_nx.nodes())
     g_fnx.add_edges_from(g_nx.edges())
-    fr_tw, _ = fnx.treewidth_min_fill_in(g_fnx)
+    fr_tw, _ = fnx.approximation.treewidth_min_fill_in(g_fnx)
     nr_tw, _ = _nx_treewidth_min_fill_in(g_nx)
     assert fr_tw == nr_tw, f"{name}: fnx={fr_tw} nx={nr_tw}"
 
@@ -266,7 +266,7 @@ def test_christofides_tour_cost_within_3_2_of_optimal(n):
     """Christofides guarantees a tour at most 1.5× optimal on metric
     instances. Verify on small K_n with metric weights."""
     fg, _ = _make_complete_weighted_pair(n)
-    tour = fnx.christofides(fg)
+    tour = fnx.approximation.christofides(fg)
     cost = sum(fg.edges[u, v]["weight"] for u, v in zip(tour[:-1], tour[1:]))
     # Compute brute-force optimal for small n
     nodes = list(fg.nodes())
@@ -301,14 +301,14 @@ def test_metric_closure_disconnected_raises_matching_networkx():
     with pytest.raises(nx.NetworkXError):
         _nx_metric_closure(ng)
     with pytest.raises(fnx.NetworkXError):
-        fnx.metric_closure(fg)
+        fnx.approximation.metric_closure(fg)
 
 
 def test_greedy_tsp_single_node_returns_trivial_tour():
     """Single node tour is the trivial cycle [v, v] (start = end)."""
     g = fnx.Graph(); g.add_node(0)
     gn = nx.Graph(); gn.add_node(0)
-    fr = fnx.greedy_tsp(g, source=0)
+    fr = fnx.approximation.greedy_tsp(g, source=0)
     nr = _nx_greedy_tsp(gn, source=0)
     assert fr == nr == [0, 0]
 
@@ -332,7 +332,7 @@ def test_randomized_partitioning_matches_networkx(name, builder, seed):
     g_fnx = fnx.Graph()
     g_fnx.add_nodes_from(g_nx.nodes())
     g_fnx.add_edges_from(g_nx.edges())
-    fr_cut, fr_part = fnx.randomized_partitioning(g_fnx, seed=seed)
+    fr_cut, fr_part = fnx.approximation.randomized_partitioning(g_fnx, seed=seed)
     nr_cut, nr_part = _nx_randomized_partitioning(g_nx, seed=seed)
     assert fr_cut == nr_cut
     fr_norm = sorted(frozenset(p) for p in fr_part)

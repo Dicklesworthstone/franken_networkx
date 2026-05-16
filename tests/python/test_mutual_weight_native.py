@@ -32,33 +32,33 @@ def test_mutual_weight_unweighted_both_directions():
     g = fnx.DiGraph()
     g.add_edge(0, 1)
     g.add_edge(1, 0)
-    assert fnx.mutual_weight(g, 0, 1) == 2
+    assert fnx.algorithms.structuralholes.mutual_weight(g, 0, 1) == 2
 
 
 def test_mutual_weight_unweighted_one_direction():
     g = fnx.DiGraph()
     g.add_edge(0, 1)
-    assert fnx.mutual_weight(g, 0, 1) == 1
+    assert fnx.algorithms.structuralholes.mutual_weight(g, 0, 1) == 1
 
 
 def test_mutual_weight_no_edges():
     g = fnx.DiGraph()
     g.add_node(0)
     g.add_node(1)
-    assert fnx.mutual_weight(g, 0, 1) == 0
+    assert fnx.algorithms.structuralholes.mutual_weight(g, 0, 1) == 0
 
 
 def test_mutual_weight_with_weight_attr():
     g = fnx.DiGraph()
     g.add_edge(0, 1, weight=2.5)
     g.add_edge(1, 0, weight=1.5)
-    assert fnx.mutual_weight(g, 0, 1, weight="weight") == 4.0
+    assert fnx.algorithms.structuralholes.mutual_weight(g, 0, 1, weight="weight") == 4.0
 
 
 def test_mutual_weight_missing_weight_key_treats_as_one():
     g = fnx.DiGraph()
     g.add_edge(0, 1)  # no weight attr
-    assert fnx.mutual_weight(g, 0, 1, weight="weight") == 1
+    assert fnx.algorithms.structuralholes.mutual_weight(g, 0, 1, weight="weight") == 1
 
 
 @needs_nx
@@ -67,7 +67,7 @@ def test_mutual_weight_matches_nx():
     fg = _build(fnx.DiGraph, edges)
     ng = _build(nx.DiGraph, edges)
     for u, v in [(0, 1), (0, 2), (1, 2)]:
-        assert fnx.mutual_weight(fg, u, v, weight="w") == (
+        assert fnx.algorithms.structuralholes.mutual_weight(fg, u, v, weight="w") == (
             nx.algorithms.structuralholes.mutual_weight(ng, u, v, weight="w")
         )
 
@@ -80,7 +80,7 @@ def test_normalized_mutual_weight_basic():
     # mutual_weight(0,1) = 2 (both dirs), mutual_weight(0,2) = 1
     # neighbors of 0 are {1, 2} → norm=sum gives 2+1=3
     # normalized = 2/3
-    assert fnx.normalized_mutual_weight(g, 0, 1) == pytest.approx(2 / 3)
+    assert fnx.algorithms.structuralholes.normalized_mutual_weight(g, 0, 1) == pytest.approx(2 / 3)
 
 
 def test_normalized_mutual_weight_zero_scale():
@@ -88,7 +88,7 @@ def test_normalized_mutual_weight_zero_scale():
     g.add_node(0)
     g.add_node(1)
     # No edges → scale is 0 → return 0 (avoid division by zero)
-    assert fnx.normalized_mutual_weight(g, 0, 1) == 0
+    assert fnx.algorithms.structuralholes.normalized_mutual_weight(g, 0, 1) == 0
 
 
 @needs_nx
@@ -99,7 +99,7 @@ def test_normalized_mutual_weight_matches_nx():
     expected = nx.algorithms.structuralholes.normalized_mutual_weight(
         ng, 0, 1, weight="w"
     )
-    assert fnx.normalized_mutual_weight(fg, 0, 1, weight="w") == pytest.approx(expected)
+    assert fnx.algorithms.structuralholes.normalized_mutual_weight(fg, 0, 1, weight="w") == pytest.approx(expected)
 
 
 @needs_nx
@@ -110,6 +110,6 @@ def test_normalized_mutual_weight_max_norm():
     expected = nx.algorithms.structuralholes.normalized_mutual_weight(
         ng, 0, 1, norm=max, weight="w"
     )
-    assert fnx.normalized_mutual_weight(fg, 0, 1, norm=max, weight="w") == pytest.approx(
+    assert fnx.algorithms.structuralholes.normalized_mutual_weight(fg, 0, 1, norm=max, weight="w") == pytest.approx(
         expected
     )

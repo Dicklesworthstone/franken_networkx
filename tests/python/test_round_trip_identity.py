@@ -411,7 +411,7 @@ def test_gexf_multigraph_round_trip(fnx_cls):
     g.add_edge(1, 2, key=0, weight=3.0)
 
     gexf_str = "\n".join(fnx.generate_gexf(g))
-    parsed = fnx.parse_gexf(gexf_str)
+    parsed = fnx.readwrite.parse_gexf(gexf_str)
 
     assert isinstance(parsed, fnx_cls)
     # Parallel edges preserved (keys and weights round-trip)

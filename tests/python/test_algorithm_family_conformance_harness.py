@@ -412,10 +412,10 @@ def _community_cases() -> list[AlgorithmCase]:
             "community",
             "modularity",
             ("barbell",),
-            lambda module, graph: (
-                nx.community.modularity(graph, [set(range(0, 4)), set(range(4, 10))])
-                if module is nx
-                else module.modularity(graph, [set(range(0, 4)), set(range(4, 10))])
+            # br-r37-c1-17uhk: fnx.modularity was hidden at top-level
+            # (br-r37-c1-02sx1). Use the namespaced form on both libs.
+            lambda module, graph: module.community.modularity(
+                graph, [set(range(0, 4)), set(range(4, 10))]
             ),
             _loose_numeric_comparator,
         ),

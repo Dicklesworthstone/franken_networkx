@@ -19,7 +19,7 @@ def test_graph6_byte_and_parse_round_trip():
     graph = _path_graph()
 
     encoded = fnx.to_graph6_bytes(graph, header=False)
-    parsed = fnx.parse_graph6(encoded.decode("ascii"))
+    parsed = fnx.readwrite.parse_graph6(encoded.decode("ascii"))
     restored = fnx.from_graph6_bytes(encoded)
 
     assert parsed.number_of_nodes() == 4
@@ -32,7 +32,7 @@ def test_sparse6_byte_and_parse_round_trip():
     graph = _path_graph()
 
     encoded = fnx.to_sparse6_bytes(graph, header=False)
-    parsed = fnx.parse_sparse6(encoded.decode("ascii"))
+    parsed = fnx.readwrite.parse_sparse6(encoded.decode("ascii"))
     restored = fnx.from_sparse6_bytes(encoded)
 
     assert parsed.number_of_nodes() == 4

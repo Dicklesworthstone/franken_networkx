@@ -6866,7 +6866,7 @@ def test_parse_gexf_accepts_bytes_input():
 
     # Empty bytes / str / bytearray
     for empty in (b"", "", bytearray()):
-        G = fnx.parse_gexf(empty)
+        G = fnx.readwrite.parse_gexf(empty)
         assert G.number_of_nodes() == 0
         assert G.number_of_edges() == 0
 
@@ -6878,12 +6878,12 @@ def test_parse_gexf_accepts_bytes_input():
     gexf_bytes = buf.getvalue()
 
     # bytes input
-    G_parsed_bytes = fnx.parse_gexf(gexf_bytes)
+    G_parsed_bytes = fnx.readwrite.parse_gexf(gexf_bytes)
     assert G_parsed_bytes.number_of_nodes() == G_orig.number_of_nodes()
     assert G_parsed_bytes.number_of_edges() == G_orig.number_of_edges()
 
     # str input (already worked pre-fix)
-    G_parsed_str = fnx.parse_gexf(gexf_bytes.decode("utf-8"))
+    G_parsed_str = fnx.readwrite.parse_gexf(gexf_bytes.decode("utf-8"))
     assert G_parsed_str.number_of_nodes() == G_orig.number_of_nodes()
 
 
@@ -8958,7 +8958,7 @@ def test_fnx_community_louvain_communities_uses_fnx_wrapper():
     2-cluster partition on Karate (modularity ~0.40) instead of the
     canonical 4-cluster answer (modularity ~0.44).
 
-    The top-level ``fnx.louvain_communities`` correctly converted
+    The top-level ``fnx.community.louvain_communities`` correctly converted
     via ``_louvain_impl`` → ``_call_networkx_submodule_for_parity``
     → ``_fnx_to_nx`` and returned 4 communities.  But drop-in code
     using the canonical submodule path
@@ -8966,7 +8966,7 @@ def test_fnx_community_louvain_communities_uses_fnx_wrapper():
     answer.
 
     Fix: route ``fnx.community.louvain_communities`` through the
-    top-level ``fnx.louvain_communities`` wrapper.
+    top-level ``fnx.community.louvain_communities`` wrapper.
     """
     import networkx as nx
 
@@ -8985,9 +8985,9 @@ def test_fnx_community_louvain_communities_uses_fnx_wrapper():
             f"  fnx={f_communities}\n  nx ={n_communities}"
         )
 
-    # The top-level fnx.louvain_communities also yields 4 communities
+    # The top-level fnx.community.louvain_communities also yields 4 communities
     # (sanity check the submodule routes through it).
-    top = fnx.louvain_communities(G_f, seed=42)
+    top = fnx.community.louvain_communities(G_f, seed=42)
     sub = fnx.community.louvain_communities(G_f, seed=42)
     assert sorted(sorted(c) for c in top) == sorted(sorted(c) for c in sub)
     assert len(sub) == 4  # Canonical Karate 4-community answer

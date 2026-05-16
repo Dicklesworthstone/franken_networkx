@@ -63,11 +63,11 @@ def _fnx_class(nx_graph):
 )
 def test_bridge_components_matches_networkx(name, builder):
     f_graph, nx_graph = _build_pair(builder)
-    actual = sorted(frozenset(c) for c in fnx.bridge_components(f_graph))
+    actual = sorted(frozenset(c) for c in fnx.algorithms.connectivity.bridge_components(f_graph))
     expected = sorted(frozenset(c) for c in nx.connectivity.bridge_components(nx_graph))
     assert actual == expected
     # Each component should be a frozenset / set
-    for component in fnx.bridge_components(f_graph):
+    for component in fnx.algorithms.connectivity.bridge_components(f_graph):
         assert isinstance(component, (set, frozenset))
 
 
@@ -87,7 +87,7 @@ def test_bridge_components_matches_networkx(name, builder):
 )
 def test_minimum_st_edge_cut_matches_networkx(name, builder, s, t):
     f_graph, nx_graph = _build_pair(builder)
-    actual = fnx.minimum_st_edge_cut(f_graph, s, t)
+    actual = fnx.algorithms.connectivity.minimum_st_edge_cut(f_graph, s, t)
     expected = nx.connectivity.minimum_st_edge_cut(nx_graph, s, t)
     # Both return sets of edge tuples; cardinalities must match exactly
     # because the value is the min-cut size. The actual edges may differ
@@ -107,7 +107,7 @@ def test_minimum_st_edge_cut_directed_matches_networkx():
     f_graph = fnx.DiGraph()
     f_graph.add_edges_from(nx_graph.edges(data=True))
 
-    actual = fnx.minimum_st_edge_cut(f_graph, 0, 4)
+    actual = fnx.algorithms.connectivity.minimum_st_edge_cut(f_graph, 0, 4)
     expected = nx.connectivity.minimum_st_edge_cut(nx_graph, 0, 4)
     assert isinstance(actual, set)
     assert len(actual) == len(expected)
@@ -130,7 +130,7 @@ def test_minimum_st_edge_cut_directed_matches_networkx():
 @pytest.mark.parametrize("k", [1, 2, 3, 4, 5, 10])
 def test_is_locally_k_edge_connected_matches_networkx(name, builder, s, t, k):
     f_graph, nx_graph = _build_pair(builder)
-    actual = fnx.is_locally_k_edge_connected(f_graph, s, t, k)
+    actual = fnx.algorithms.connectivity.is_locally_k_edge_connected(f_graph, s, t, k)
     expected = nx.connectivity.is_locally_k_edge_connected(nx_graph, s, t, k)
     assert actual == expected
     assert isinstance(actual, bool)
@@ -146,7 +146,7 @@ def test_is_locally_k_edge_connected_disconnected_components():
 
     # 0..2 in one component, 3..5 in the other
     for k in [1, 2, 3]:
-        actual = fnx.is_locally_k_edge_connected(f_graph, 0, 5, k)
+        actual = fnx.algorithms.connectivity.is_locally_k_edge_connected(f_graph, 0, 5, k)
         expected = nx.connectivity.is_locally_k_edge_connected(nx_graph, 0, 5, k)
         assert actual == expected
         assert actual is False

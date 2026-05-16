@@ -336,7 +336,7 @@ class TestCentralityParity:
 class TestCommunityParity:
     def test_k_clique_communities(self):
         G = fnx.complete_graph(5)
-        comms = list(fnx.k_clique_communities(G, 3))
+        comms = list(fnx.community.k_clique_communities(G, 3))
         # Complete graph K5 has one 3-clique community containing all 5 nodes
         assert len(comms) == 1
         assert len(comms[0]) == 5
@@ -345,7 +345,7 @@ class TestCommunityParity:
         G = fnx.Graph()
         G.add_edges_from([(0, 1), (1, 2), (2, 0)])
         G.add_edges_from([(3, 4), (4, 5), (5, 3)])
-        comms = sorted(fnx.k_clique_communities(G, 3), key=min)
+        comms = sorted(fnx.community.k_clique_communities(G, 3), key=min)
         assert len(comms) == 2
 
     def test_simrank_similarity_self(self):

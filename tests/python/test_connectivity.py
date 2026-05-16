@@ -247,9 +247,9 @@ class TestConnectivity:
             fail_networkx_fallback,
         )
 
-        assert fnx.local_edge_connectivity(D_fnx, 0, 3) == expected_default
+        assert fnx.algorithms.connectivity.local_edge_connectivity(D_fnx, 0, 3) == expected_default
         assert (
-            fnx.local_edge_connectivity(
+            fnx.algorithms.connectivity.local_edge_connectivity(
                 D_fnx,
                 0,
                 3,
@@ -279,7 +279,7 @@ class TestConnectivity:
         )
 
         with pytest.raises(fnx.NetworkXError) as actual:
-            fnx.local_edge_connectivity(D_fnx, 0, 3, flow_func=1)
+            fnx.algorithms.connectivity.local_edge_connectivity(D_fnx, 0, 3, flow_func=1)
 
         assert str(actual.value) == str(expected.value)
 

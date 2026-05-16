@@ -300,7 +300,7 @@ def test_harmonic_function_matches_networkx(name, edges, labels):
     for n, lab in labels.items():
         fg.nodes[n]["label"] = lab
         ng.nodes[n]["label"] = lab
-    fr = fnx.harmonic_function(fg)
+    fr = fnx.algorithms.node_classification.harmonic_function(fg)
     nr = nx_nc.harmonic_function(ng)
     assert fr == nr, f"{name}: fnx={fr} nx={nr}"
 
@@ -323,7 +323,7 @@ def test_local_and_global_consistency_matches_networkx(name, edges, labels, alph
     for n, lab in labels.items():
         fg.nodes[n]["label"] = lab
         ng.nodes[n]["label"] = lab
-    fr = fnx.local_and_global_consistency(fg, alpha=alpha)
+    fr = fnx.algorithms.node_classification.local_and_global_consistency(fg, alpha=alpha)
     nr = nx_nc.local_and_global_consistency(ng, alpha=alpha)
     assert fr == nr, f"{name} alpha={alpha}: fnx={fr} nx={nr}"
 

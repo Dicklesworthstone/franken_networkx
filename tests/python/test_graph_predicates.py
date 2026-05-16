@@ -498,8 +498,8 @@ class TestTournamentIsReachable:
         g.add_edge("a", "b")
         g.add_edge("b", "c")
         g.add_edge("a", "c")
-        assert fnx.is_reachable(g, "a", "b") is True
-        assert fnx.is_reachable(g, "a", "c") is True
+        assert fnx.tournament.is_reachable(g, "a", "b") is True
+        assert fnx.tournament.is_reachable(g, "a", "c") is True
 
     def test_transitive_reachable(self):
         """Transitive path should be reachable."""
@@ -507,7 +507,7 @@ class TestTournamentIsReachable:
         g.add_edge("a", "b")
         g.add_edge("b", "c")
         g.add_edge("a", "c")
-        assert fnx.is_reachable(g, "a", "c") is True
+        assert fnx.tournament.is_reachable(g, "a", "c") is True
 
     def test_not_reachable(self):
         """Reverse direction should not be reachable in tournament."""
@@ -515,8 +515,8 @@ class TestTournamentIsReachable:
         g.add_edge("a", "b")
         g.add_edge("b", "c")
         g.add_edge("a", "c")
-        assert fnx.is_reachable(g, "c", "a") is False
-        assert fnx.is_reachable(g, "b", "a") is False
+        assert fnx.tournament.is_reachable(g, "c", "a") is False
+        assert fnx.tournament.is_reachable(g, "b", "a") is False
 
     def test_parity_with_networkx(self):
         """is_reachable should match NetworkX behavior."""
@@ -531,7 +531,7 @@ class TestTournamentIsReachable:
         from networkx.algorithms.tournament import is_reachable as nx_is_reachable
 
         for s, t in [(0, 1), (0, 2), (1, 2), (1, 0), (2, 0), (2, 1)]:
-            fnx_result = fnx.is_reachable(g_fnx, s, t)
+            fnx_result = fnx.tournament.is_reachable(g_fnx, s, t)
             nx_result = nx_is_reachable(g_nx, s, t)
             assert fnx_result == nx_result, f"Mismatch for ({s}, {t})"
 
@@ -546,7 +546,7 @@ class TestTournamentIsReachable:
 
         for source in mapping.values():
             for target in mapping.values():
-                fnx_result = fnx.is_reachable(g_fnx, source, target)
+                fnx_result = fnx.tournament.is_reachable(g_fnx, source, target)
                 nx_result = nx_is_reachable(g_nx, source, target)
                 assert fnx_result == nx_result, f"Mismatch for ({source!r}, {target!r})"
 

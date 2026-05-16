@@ -110,74 +110,74 @@ def _dag():
 
 def test_tsp_family():
     G = _weighted_undirected_k4()
-    assert fnx.greedy_tsp(G, weight="weight")
-    assert fnx.christofides(G, weight="weight")
-    assert fnx.traveling_salesman_problem(G, weight="weight")
-    assert fnx.metric_closure(G).number_of_nodes() == 4
+    assert fnx.approximation.greedy_tsp(G, weight="weight")
+    assert fnx.approximation.christofides(G, weight="weight")
+    assert fnx.approximation.traveling_salesman_problem(G, weight="weight")
+    assert fnx.approximation.metric_closure(G).number_of_nodes() == 4
 
 
 def test_approx_extension():
     G = _weighted_undirected_k4()
-    assert fnx.treewidth_min_degree(G)[0] >= 1
-    assert fnx.treewidth_min_fill_in(G)[0] >= 1
-    assert fnx.steiner_tree(fnx.cycle_graph(6), [0, 2, 4]).number_of_edges() >= 1
-    assert fnx.min_edge_dominating_set(fnx.path_graph(6))
-    assert fnx.min_maximal_matching(fnx.path_graph(6))
-    assert fnx.min_weighted_dominating_set(fnx.path_graph(6))
-    val, _cut = fnx.randomized_partitioning(G, seed=42)
+    assert fnx.approximation.treewidth_min_degree(G)[0] >= 1
+    assert fnx.approximation.treewidth_min_fill_in(G)[0] >= 1
+    assert fnx.approximation.steiner_tree(fnx.cycle_graph(6), [0, 2, 4]).number_of_edges() >= 1
+    assert fnx.approximation.min_edge_dominating_set(fnx.path_graph(6))
+    assert fnx.approximation.min_maximal_matching(fnx.path_graph(6))
+    assert fnx.approximation.min_weighted_dominating_set(fnx.path_graph(6))
+    val, _cut = fnx.approximation.randomized_partitioning(G, seed=42)
     assert val >= 0
-    val, _cut = fnx.one_exchange(G, seed=42)
+    val, _cut = fnx.approximation.one_exchange(G, seed=42)
     assert val >= 0
-    rs = fnx.ramsey_R2(fnx.cycle_graph(7))
+    rs = fnx.approximation.ramsey_R2(fnx.cycle_graph(7))
     assert len(rs) == 2
-    fnx.densest_subgraph(fnx.barabasi_albert_graph(20, 2, seed=42), iterations=1)
+    fnx.approximation.densest_subgraph(fnx.barabasi_albert_graph(20, 2, seed=42), iterations=1)
 
 
 def test_bipartite_family():
     B, top = _bipartite_graph()
     assert fnx.eppstein_matching(B, top_nodes=top)
     assert fnx.maximum_matching(B, top_nodes=top)
-    fnx.latapy_clustering(B, nodes=top)
-    fnx.robins_alexander_clustering(B)
+    fnx.bipartite.latapy_clustering(B, nodes=top)
+    fnx.bipartite.robins_alexander_clustering(B)
     fnx.node_redundancy(B, nodes=top)
-    fnx.degrees(B, top)
-    fnx.sets(B, top_nodes=top)
-    assert fnx.cc_dot({1, 2}, {2, 3}) >= 0
-    assert fnx.cc_max({1, 2}, {2, 3}) >= 0
-    assert fnx.cc_min({1, 2}, {2, 3}) >= 0
+    fnx.bipartite.degrees(B, top)
+    fnx.bipartite.sets(B, top_nodes=top)
+    assert fnx.algorithms.bipartite.cluster.cc_dot({1, 2}, {2, 3}) >= 0
+    assert fnx.algorithms.bipartite.cluster.cc_max({1, 2}, {2, 3}) >= 0
+    assert fnx.algorithms.bipartite.cluster.cc_min({1, 2}, {2, 3}) >= 0
 
 
 def test_dag_and_structuralholes():
     DAG = _dag()
-    assert fnx.has_cycle(DAG) is False
+    assert fnx.algorithms.dag.has_cycle(DAG) is False
     cycle = fnx.DiGraph()
     cycle.add_edges_from([(0, 1), (1, 2), (2, 0)])
-    assert fnx.has_cycle(cycle) is True
-    list(fnx.colliders(DAG))
-    list(fnx.v_structures(DAG))
+    assert fnx.algorithms.dag.has_cycle(cycle) is True
+    list(fnx.algorithms.dag.colliders(DAG))
+    list(fnx.algorithms.dag.v_structures(DAG))
 
     G = fnx.DiGraph()
     for u, v, w in [(0, 1, 2), (1, 0, 3)]:
         G.add_edge(u, v, weight=w)
-    assert fnx.mutual_weight(G, 0, 1, weight="weight") == 5
-    fnx.normalized_mutual_weight(G, 0, 1, weight="weight")
+    assert fnx.algorithms.structuralholes.mutual_weight(G, 0, 1, weight="weight") == 5
+    fnx.algorithms.structuralholes.normalized_mutual_weight(G, 0, 1, weight="weight")
 
 
 def test_node_classification():
     G = fnx.path_graph(5)
     G.nodes[0]["label"] = "A"
     G.nodes[4]["label"] = "B"
-    labels = fnx.harmonic_function(G)
+    labels = fnx.algorithms.node_classification.harmonic_function(G)
     assert labels[0] == "A" and labels[-1] == "B"
-    labels = fnx.local_and_global_consistency(G)
+    labels = fnx.algorithms.node_classification.local_and_global_consistency(G)
     assert labels[0] == "A" and labels[-1] == "B"
 
 
 def test_utils_and_helpers():
     G = fnx.path_graph(8)
-    list(fnx.cuthill_mckee_ordering(G))
-    list(fnx.connected_cuthill_mckee_ordering(G))
-    list(fnx.reverse_cuthill_mckee_ordering(G))
+    list(fnx.utils.cuthill_mckee_ordering(G))
+    list(fnx.utils.connected_cuthill_mckee_ordering(G))
+    list(fnx.utils.reverse_cuthill_mckee_ordering(G))
     fnx.pseudo_peripheral_node(G)
     assert fnx.edges_equal([(0, 1)], [(0, 1)])
     assert fnx.nodes_equal([1, 2], [2, 1])
@@ -207,9 +207,9 @@ def test_tree_primitives():
     fnx.algorithms.tree.branchings.branching_weight(G_nx)
     fnx.algorithms.tree.branchings.minimal_branching(G_nx, attr="weight")
     K = _weighted_undirected_k4()
-    list(fnx.boruvka_mst_edges(K))
-    list(fnx.kruskal_mst_edges(K, minimum=True, keys=False))
-    list(fnx.prim_mst_edges(K, minimum=True, keys=False))
+    list(fnx.algorithms.tree.mst.boruvka_mst_edges(K))
+    list(fnx.algorithms.tree.mst.kruskal_mst_edges(K, minimum=True, keys=False))
+    list(fnx.algorithms.tree.mst.prim_mst_edges(K, minimum=True, keys=False))
 
 
 def test_filter_factories():
@@ -261,5 +261,5 @@ def test_coloring_strategies():
 
 
 def test_matching_dict_to_set():
-    s = fnx.matching_dict_to_set({0: 1, 1: 0, 2: 3, 3: 2})
+    s = fnx.algorithms.matching.matching_dict_to_set({0: 1, 1: 0, 2: 3, 3: 2})
     assert s == {(0, 1), (2, 3)}

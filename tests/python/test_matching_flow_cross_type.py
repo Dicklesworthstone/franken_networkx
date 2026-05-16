@@ -116,19 +116,19 @@ def test_is_semiconnected_nx():
 
 @needs_nx
 def test_min_weighted_vertex_cover_nx():
-    cover = fnx.min_weighted_vertex_cover(nx.path_graph(5))
+    cover = fnx.approximation.min_weighted_vertex_cover(nx.path_graph(5))
     assert isinstance(cover, set)
 
 
 @needs_nx
 def test_maximum_independent_set_nx():
-    iset = fnx.maximum_independent_set(nx.path_graph(5))
+    iset = fnx.approximation.maximum_independent_set(nx.path_graph(5))
     assert isinstance(iset, set)
 
 
 @needs_nx
 def test_max_clique_nx():
-    clq = fnx.max_clique(nx.complete_graph(4))
+    clq = fnx.approximation.max_clique(nx.complete_graph(4))
     assert len(clq) == 4
 
 

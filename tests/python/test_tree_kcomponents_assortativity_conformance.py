@@ -145,7 +145,7 @@ def test_branching_weight_matches_networkx():
 def test_greedy_branching_matches_networkx(name, builder):
     fg = builder(fnx)
     ng = builder(nx)
-    fr = sorted(fnx.greedy_branching(fg).edges())
+    fr = sorted(fnx.algorithms.tree.branchings.greedy_branching(fg).edges())
     nr = sorted(nx.algorithms.tree.greedy_branching(ng).edges())
     assert fr == nr, f"{name}: fnx={fr} nx={nr}"
 
@@ -300,7 +300,7 @@ def test_minimum_st_edge_cut_matches_networkx_size(name, builder, s, t):
     on the top-level ``nx`` namespace). Cut sizes must agree even when
     the specific cut chosen differs by tie-break."""
     fg, ng = _build_pair(builder)
-    fr = fnx.minimum_st_edge_cut(fg, s, t)
+    fr = fnx.algorithms.connectivity.minimum_st_edge_cut(fg, s, t)
     nr = nx.algorithms.connectivity.minimum_st_edge_cut(ng, s, t)
     assert len(fr) == len(nr), f"{name}: fnx={len(fr)} nx={len(nr)}"
 
@@ -314,7 +314,7 @@ def test_minimum_st_edge_cut_matches_networkx_size(name, builder, s, t):
 )
 def test_minimum_st_node_cut_matches_networkx_size(name, builder, s, t):
     fg, ng = _build_pair(builder)
-    fr = fnx.minimum_st_node_cut(fg, s, t)
+    fr = fnx.algorithms.connectivity.minimum_st_node_cut(fg, s, t)
     nr = nx.algorithms.connectivity.minimum_st_node_cut(ng, s, t)
     assert len(fr) == len(nr)
 

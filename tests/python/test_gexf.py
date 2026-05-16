@@ -17,7 +17,7 @@ def _sample_graph():
 def test_generate_and_parse_gexf_round_trip():
     graph = _sample_graph()
     gexf = "\n".join(fnx.generate_gexf(graph))
-    parsed = fnx.parse_gexf(gexf)
+    parsed = fnx.readwrite.parse_gexf(gexf)
 
     assert parsed.is_directed()
     assert parsed.number_of_nodes() == 2
@@ -101,7 +101,7 @@ def test_gexf_helpers_do_not_delegate_to_networkx(monkeypatch, tmp_path: Path):
     fnx.write_gexf(graph, path)
     parsed = fnx.read_gexf(path)
     generated = "\n".join(fnx.generate_gexf(parsed))
-    reparsed = fnx.parse_gexf(generated)
+    reparsed = fnx.readwrite.parse_gexf(generated)
     relabeled = fnx.relabel_gexf_graph(reparsed)
 
     assert reparsed.number_of_edges() == 1

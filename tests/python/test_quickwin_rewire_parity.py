@@ -27,7 +27,7 @@ def test_minimum_st_node_cut_matches_nx():
     expected = nx.Graph()
     expected.add_edges_from([("s", "a"), ("a", "b"), ("b", "t"), ("a", "t")])
 
-    assert fnx.minimum_st_node_cut(graph, "s", "t") == nx.minimum_node_cut(expected, "s", "t")
+    assert fnx.algorithms.connectivity.minimum_st_node_cut(graph, "s", "t") == nx.minimum_node_cut(expected, "s", "t")
 
 
 def test_ego_graph_matches_nx():

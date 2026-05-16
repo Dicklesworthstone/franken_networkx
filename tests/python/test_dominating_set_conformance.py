@@ -285,7 +285,7 @@ def test_min_weighted_vertex_cover_unit_weights_is_valid(name, edges, nodes):
     equality so the harness doesn't break when one side picks a
     different but equally-correct cover."""
     fg, _ = _pair(edges, nodes)
-    fr = set(fnx.min_weighted_vertex_cover(fg))
+    fr = set(fnx.approximation.min_weighted_vertex_cover(fg))
     assert _is_vertex_cover(fg, fr), f"{name}: fnx cover {fr} is not a vertex cover"
 
 
@@ -313,7 +313,7 @@ def test_min_weighted_vertex_cover_weighted_is_valid(name, edges, nodes, weights
     for n, w in weights.items():
         fg.nodes[n]["weight"] = w
         ng.nodes[n]["weight"] = w
-    fr = set(fnx.min_weighted_vertex_cover(fg, weight="weight"))
+    fr = set(fnx.approximation.min_weighted_vertex_cover(fg, weight="weight"))
     nr = set(_nx_min_weighted_vertex_cover(ng, weight="weight"))
     assert _is_vertex_cover(fg, fr), f"{name}: fnx cover {fr} is invalid"
     assert _is_vertex_cover(ng, nr), f"{name}: nx cover {nr} is invalid"

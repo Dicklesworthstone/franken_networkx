@@ -114,7 +114,7 @@ def test_label_propagation_communities_matches_networkx():
     graph = fnx.path_graph(6)
     nx_graph = _to_nx(graph)
 
-    result = fnx.label_propagation_communities(graph)
+    result = fnx.community.label_propagation_communities(graph)
     expected = nx_label_propagation_communities(nx_graph)
 
     assert isinstance(result, ValuesView)
@@ -129,7 +129,7 @@ def test_label_propagation_communities_multigraph_matches_networkx():
     graph.add_edge(1, 2)
     nx_graph = _to_nx(graph)
 
-    result = fnx.label_propagation_communities(graph)
+    result = fnx.community.label_propagation_communities(graph)
     expected = nx_label_propagation_communities(nx_graph)
 
     assert _community_frozensets(result) == _community_frozensets(expected)
@@ -152,7 +152,7 @@ def test_asyn_lpa_communities_matches_networkx_without_fallback(monkeypatch):
         lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("delegated")),
     )
 
-    actual = list(fnx.asyn_lpa_communities(graph, seed=1))
+    actual = list(fnx.community.asyn_lpa_communities(graph, seed=1))
     assert _community_frozensets(actual) == _community_frozensets(expected)
 
 
@@ -180,7 +180,7 @@ def test_asyn_lpa_communities_weighted_directed_matches_networkx():
         ]
     )
 
-    actual = list(fnx.asyn_lpa_communities(graph, weight="weight", seed=7))
+    actual = list(fnx.community.asyn_lpa_communities(graph, weight="weight", seed=7))
     expected = list(nx_asyn_lpa_communities(expected_graph, weight="weight", seed=7))
     assert _community_frozensets(actual) == _community_frozensets(expected)
 
@@ -197,14 +197,14 @@ def test_girvan_newman_directed_matches_networkx_without_fallback(monkeypatch):
         lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("delegated")),
     )
 
-    actual = list(fnx.girvan_newman(graph))
+    actual = list(fnx.community.girvan_newman(graph))
     assert _normalize_partition_sequence(actual) == _normalize_partition_sequence(expected)
 
 
 def test_girvan_newman_empty_edges_and_custom_edge_match_networkx():
     actual_empty = fnx.empty_graph(3)
     expected_empty = nx.empty_graph(3)
-    assert _normalize_partition_sequence(list(fnx.girvan_newman(actual_empty))) == _normalize_partition_sequence(
+    assert _normalize_partition_sequence(list(fnx.community.girvan_newman(actual_empty))) == _normalize_partition_sequence(
         list(nx.community.girvan_newman(expected_empty))
     )
 
@@ -217,7 +217,7 @@ def test_girvan_newman_empty_edges_and_custom_edge_match_networkx():
         return max(graph.edges(data="weight"), key=lambda edge: edge[2])[:2]
 
     assert _normalize_partition_sequence(
-        list(fnx.girvan_newman(actual_weighted, heaviest))
+        list(fnx.community.girvan_newman(actual_weighted, heaviest))
     ) == _normalize_partition_sequence(list(nx.community.girvan_newman(expected_weighted, heaviest)))
 
 
@@ -234,7 +234,7 @@ def test_louvain_communities_matches_networkx_for_multilevel_controls(kwargs):
     graph = fnx.barbell_graph(4, 2)
     nx_graph = _to_nx(graph)
 
-    result = fnx.louvain_communities(graph, **kwargs)
+    result = fnx.community.louvain_communities(graph, **kwargs)
     expected = nx.community.louvain_communities(nx_graph, **kwargs)
 
     _assert_partition_equal(result, expected)
@@ -247,7 +247,7 @@ def test_louvain_communities_max_level_error_contract_matches_networkx():
     with pytest.raises(ValueError) as expected:
         nx.community.louvain_communities(nx_graph, max_level=0)
     with pytest.raises(ValueError) as actual:
-        fnx.louvain_communities(graph, max_level=0)
+        fnx.community.louvain_communities(graph, max_level=0)
 
     assert str(actual.value) == str(expected.value)
 
@@ -278,7 +278,7 @@ def test_label_propagation_communities_directed_error_contract_matches_networkx(
     with pytest.raises(expected_error) as expected:
         list(nx_label_propagation_communities(expected_graph))
     with pytest.raises(actual_error) as actual:
-        list(fnx.label_propagation_communities(actual_graph))
+        list(fnx.community.label_propagation_communities(actual_graph))
 
     assert str(actual.value) == str(expected.value)
 
@@ -291,7 +291,7 @@ def test_asyn_fluidc_rejects_directed_and_multigraph(graph_constructor):
     with pytest.raises(nx.NetworkXNotImplemented) as expected:
         list(nx_asyn_fluidc(expected_graph, 1))
     with pytest.raises(fnx.NetworkXNotImplemented) as actual:
-        list(fnx.asyn_fluidc(actual_graph, 1))
+        list(fnx.community.asyn_fluidc(actual_graph, 1))
 
     assert str(actual.value) == str(expected.value)
 
@@ -306,13 +306,13 @@ def test_asyn_fluidc_error_contract_matches_networkx():
         with pytest.raises(nx.NetworkXError) as expected:
             list(nx_asyn_fluidc(expected_graph, k))
         with pytest.raises(fnx.NetworkXError) as actual:
-            list(fnx.asyn_fluidc(actual_graph, k))
+            list(fnx.community.asyn_fluidc(actual_graph, k))
         assert str(actual.value) == str(expected.value)
 
     with pytest.raises(ValueError) as expected:
         list(nx_asyn_fluidc(expected_graph, 1, max_iter=0))
     with pytest.raises(ValueError) as actual:
-        list(fnx.asyn_fluidc(actual_graph, 1, max_iter=0))
+        list(fnx.community.asyn_fluidc(actual_graph, 1, max_iter=0))
     assert str(actual.value) == str(expected.value)
 
     actual_graph.add_node("b")
@@ -320,7 +320,7 @@ def test_asyn_fluidc_error_contract_matches_networkx():
     with pytest.raises(nx.NetworkXError) as expected:
         list(nx_asyn_fluidc(expected_graph, 1))
     with pytest.raises(fnx.NetworkXError) as actual:
-        list(fnx.asyn_fluidc(actual_graph, 1))
+        list(fnx.community.asyn_fluidc(actual_graph, 1))
     assert str(actual.value) == str(expected.value)
 
 
@@ -329,7 +329,7 @@ def test_asyn_fluidc_seeded_cases_match_networkx():
     single_actual.add_node("a")
     single_expected = nx.Graph()
     single_expected.add_node("a")
-    assert _community_frozensets(fnx.asyn_fluidc(single_actual, 1)) == _community_frozensets(
+    assert _community_frozensets(fnx.community.asyn_fluidc(single_actual, 1)) == _community_frozensets(
         nx_asyn_fluidc(single_expected, 1),
     )
 
@@ -337,7 +337,7 @@ def test_asyn_fluidc_seeded_cases_match_networkx():
     two_actual.add_edge("a", "b")
     two_expected = nx.Graph()
     two_expected.add_edge("a", "b")
-    assert _community_frozensets(fnx.asyn_fluidc(two_actual, 2)) == _community_frozensets(
+    assert _community_frozensets(fnx.community.asyn_fluidc(two_actual, 2)) == _community_frozensets(
         nx_asyn_fluidc(two_expected, 2),
     )
 
@@ -365,7 +365,7 @@ def test_asyn_fluidc_seeded_cases_match_networkx():
             ("f", "e"),
         ],
     )
-    assert _community_frozensets(fnx.asyn_fluidc(graph, 2, seed=7)) == _community_frozensets(
+    assert _community_frozensets(fnx.community.asyn_fluidc(graph, 2, seed=7)) == _community_frozensets(
         nx_asyn_fluidc(expected_graph, 2, seed=7),
     )
 
@@ -374,7 +374,7 @@ def test_kernighan_lin_bisection_matches_networkx():
     graph = fnx.barbell_graph(3, 0)
     expected_graph = nx.barbell_graph(3, 0)
 
-    actual = fnx.kernighan_lin_bisection(graph, seed=1)
+    actual = fnx.community.kernighan_lin_bisection(graph, seed=1)
     expected = nx_kernighan_lin_bisection(expected_graph, seed=1)
 
     _assert_partition_equal(actual, expected)
@@ -387,7 +387,7 @@ def test_kernighan_lin_bisection_partition_and_multigraph_match_networkx():
     expected_graph.add_edges_from([("A", "B"), ("A", "C"), ("B", "C"), ("C", "D")])
     partition = ({"A", "B"}, {"C", "D"})
 
-    actual = fnx.kernighan_lin_bisection(graph, partition=partition)
+    actual = fnx.community.kernighan_lin_bisection(graph, partition=partition)
     expected = nx_kernighan_lin_bisection(expected_graph, partition=partition)
     _assert_partition_equal(actual, expected)
 
@@ -401,7 +401,7 @@ def test_kernighan_lin_bisection_partition_and_multigraph_match_networkx():
     expected_multigraph.add_edges_from([(0, 1), (1, 2), (2, 3), (3, 0)])
     expected_multigraph.remove_edge(1, 2)
 
-    actual_multigraph = fnx.kernighan_lin_bisection(multigraph, seed=0)
+    actual_multigraph = fnx.community.kernighan_lin_bisection(multigraph, seed=0)
     expected_multigraph_partition = nx_kernighan_lin_bisection(expected_multigraph, seed=0)
     _assert_partition_equal(actual_multigraph, expected_multigraph_partition)
 
@@ -415,7 +415,7 @@ def test_kernighan_lin_bisection_weight_and_error_contract_match_networkx():
             return None
         return u + v
 
-    actual = fnx.kernighan_lin_bisection(graph, weight=my_weight)
+    actual = fnx.community.kernighan_lin_bisection(graph, weight=my_weight)
     expected = nx_kernighan_lin_bisection(expected_graph, weight=my_weight)
     _assert_partition_equal(actual, expected)
 
@@ -424,7 +424,7 @@ def test_kernighan_lin_bisection_weight_and_error_contract_match_networkx():
     with pytest.raises(nx.NetworkXNotImplemented) as expected_directed_error:
         nx_kernighan_lin_bisection(expected_directed)
     with pytest.raises(fnx.NetworkXNotImplemented) as actual_directed_error:
-        fnx.kernighan_lin_bisection(actual_directed)
+        fnx.community.kernighan_lin_bisection(actual_directed)
     assert str(actual_directed_error.value) == str(expected_directed_error.value)
 
     invalid_partition = ({0, 1}, {1, 2, 3})
@@ -433,14 +433,14 @@ def test_kernighan_lin_bisection_weight_and_error_contract_match_networkx():
     with pytest.raises(nx.NetworkXError) as expected_invalid_error:
         nx_kernighan_lin_bisection(expected_invalid_graph, partition=invalid_partition)
     with pytest.raises(fnx.NetworkXError) as actual_invalid_error:
-        fnx.kernighan_lin_bisection(actual_graph, partition=invalid_partition)
+        fnx.community.kernighan_lin_bisection(actual_graph, partition=invalid_partition)
     assert str(actual_invalid_error.value) == str(expected_invalid_error.value)
 
     too_many_blocks = ({0}, {1}, {2, 3})
     with pytest.raises(nx.NetworkXError) as expected_block_error:
         nx_kernighan_lin_bisection(expected_invalid_graph, partition=too_many_blocks)
     with pytest.raises(fnx.NetworkXError) as actual_block_error:
-        fnx.kernighan_lin_bisection(actual_graph, partition=too_many_blocks)
+        fnx.community.kernighan_lin_bisection(actual_graph, partition=too_many_blocks)
     assert str(actual_block_error.value) == str(expected_block_error.value)
 
 

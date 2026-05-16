@@ -77,7 +77,7 @@ def _path(n=6):
 )
 def test_louvain_partition_invariants(make):
     fg, ng = make()
-    f_parts = fnx.louvain_communities(fg, seed=42)
+    f_parts = fnx.community.louvain_communities(fg, seed=42)
     n_parts = nx.community.louvain_communities(ng, seed=42)
 
     _assert_partition_covers_all_nodes(f_parts, fg)
@@ -111,7 +111,7 @@ def test_louvain_partition_invariants(make):
 )
 def test_greedy_modularity_partition_invariants(make):
     fg, ng = make()
-    f_parts = fnx.greedy_modularity_communities(fg)
+    f_parts = fnx.community.greedy_modularity_communities(fg)
     n_parts = nx.community.greedy_modularity_communities(ng)
 
     _assert_partition_covers_all_nodes(f_parts, fg)
@@ -139,7 +139,7 @@ def test_greedy_modularity_partition_invariants(make):
 )
 def test_label_propagation_partition_invariants(make):
     fg, ng = make()
-    f_parts = list(fnx.label_propagation_communities(fg))
+    f_parts = list(fnx.community.label_propagation_communities(fg))
     n_parts = list(nx.community.label_propagation_communities(ng))
 
     _assert_partition_covers_all_nodes(f_parts, fg)
@@ -163,7 +163,7 @@ def test_label_propagation_partition_invariants(make):
 )
 def test_asyn_lpa_partition_invariants(make):
     fg, ng = make()
-    f_parts = list(fnx.asyn_lpa_communities(fg, seed=42))
+    f_parts = list(fnx.community.asyn_lpa_communities(fg, seed=42))
     n_parts = list(nx.community.asyn_lpa_communities(ng, seed=42))
 
     _assert_partition_covers_all_nodes(f_parts, fg)
@@ -178,7 +178,7 @@ def test_asyn_lpa_partition_invariants(make):
 
 def test_girvan_newman_first_split_invariants():
     fg, ng = _barbell()
-    f_gen = fnx.girvan_newman(fg)
+    f_gen = fnx.community.girvan_newman(fg)
     n_gen = nx.community.girvan_newman(ng)
 
     f_first = next(iter(f_gen))
@@ -197,7 +197,7 @@ def test_girvan_newman_first_split_invariants():
 
 def test_kernighan_lin_bisection_partition_covers_nodes():
     fg, ng = _barbell()
-    f_A, f_B = fnx.kernighan_lin_bisection(fg, seed=42)
+    f_A, f_B = fnx.community.kernighan_lin_bisection(fg, seed=42)
     n_A, n_B = nx.community.kernighan_lin_bisection(ng, seed=42)
 
     for A, B, g in [(f_A, f_B, fg), (n_A, n_B, ng)]:
@@ -215,7 +215,7 @@ def test_kernighan_lin_bisection_partition_covers_nodes():
 
 def test_asyn_fluidc_partition_invariants():
     fg, ng = _barbell()
-    f_parts = list(fnx.asyn_fluidc(fg, k=2, seed=42))
+    f_parts = list(fnx.community.asyn_fluidc(fg, k=2, seed=42))
     n_parts = list(nx.community.asyn_fluidc(ng, k=2, seed=42))
     _assert_partition_covers_all_nodes(f_parts, fg)
     _assert_partition_covers_all_nodes(n_parts, ng)
@@ -267,15 +267,15 @@ def test_modularity_rejects_invalid_partitions_with_notapartition(bad):
 def test_louvain_seed_reproducibility_within_fnx():
     """Same seed → same partition on fnx (catches seed-threading regressions)."""
     fg, _ = _barbell()
-    a = _normalize(fnx.louvain_communities(fg, seed=42))
-    b = _normalize(fnx.louvain_communities(fg, seed=42))
+    a = _normalize(fnx.community.louvain_communities(fg, seed=42))
+    b = _normalize(fnx.community.louvain_communities(fg, seed=42))
     assert a == b, "louvain seed=42 produced different partitions on reruns"
 
 
 def test_kernighan_lin_seed_reproducibility_within_fnx():
     fg, _ = _barbell()
-    a = fnx.kernighan_lin_bisection(fg, seed=42)
-    b = fnx.kernighan_lin_bisection(fg, seed=42)
+    a = fnx.community.kernighan_lin_bisection(fg, seed=42)
+    b = fnx.community.kernighan_lin_bisection(fg, seed=42)
     # Canonicalize by sorting each half.
     def _canon(pair):
         return tuple(sorted(tuple(sorted(h)) for h in pair))

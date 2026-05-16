@@ -50,7 +50,7 @@ def test_local_node_connectivity_basic_works():
     from networkx.algorithms.connectivity import local_node_connectivity as nx_lnc
     G = fnx.Graph([(1, 2), (2, 3), (3, 4)])
     GX = nx.Graph([(1, 2), (2, 3), (3, 4)])
-    assert fnx.local_node_connectivity(G, 1, 4) == nx_lnc(GX, 1, 4)
+    assert fnx.algorithms.connectivity.local_node_connectivity(G, 1, 4) == nx_lnc(GX, 1, 4)
 
 
 @needs_nx
@@ -58,7 +58,7 @@ def test_local_node_connectivity_with_cutoff():
     from networkx.algorithms.connectivity import local_node_connectivity as nx_lnc
     G = fnx.Graph([(1, 2), (2, 3), (3, 4), (1, 4)])
     GX = nx.Graph([(1, 2), (2, 3), (3, 4), (1, 4)])
-    assert fnx.local_node_connectivity(G, 1, 4, cutoff=1) == nx_lnc(GX, 1, 4, cutoff=1)
+    assert fnx.algorithms.connectivity.local_node_connectivity(G, 1, 4, cutoff=1) == nx_lnc(GX, 1, 4, cutoff=1)
 
 
 @needs_nx
@@ -69,7 +69,7 @@ def test_local_node_connectivity_missing_node_raises_keyerror():
     G = fnx.Graph([(1, 2), (2, 3)])
     GX = nx.Graph([(1, 2), (2, 3)])
     with pytest.raises(KeyError):
-        fnx.local_node_connectivity(G, 99, 2)
+        fnx.algorithms.connectivity.local_node_connectivity(G, 99, 2)
     with pytest.raises(KeyError):
         nx_lnc(GX, 99, 2)
 

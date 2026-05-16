@@ -338,7 +338,7 @@ def test_min_maximal_matching_is_valid_maximal_matching(name, edges, nodes):
     approximation), but the result must be a valid maximal matching
     in both libraries."""
     fg, _ = _pair(edges, nodes)
-    m = fnx.min_maximal_matching(fg)
+    m = fnx.approximation.min_maximal_matching(fg)
     assert fnx.is_matching(fg, m), f"{name}: not a valid matching"
     assert fnx.is_maximal_matching(fg, m), f"{name}: not maximal"
 

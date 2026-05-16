@@ -1378,14 +1378,14 @@ class TestCommunity:
     def test_girvan_newman(self):
         G = fnx.Graph()
         G.add_edges_from([(0, 1), (1, 2), (0, 2), (3, 4), (4, 5), (3, 5), (2, 3)])
-        parts = list(fnx.girvan_newman(G))
+        parts = list(fnx.community.girvan_newman(G))
         assert len(parts) >= 1
         assert len(parts[0]) == 2
 
     def test_k_clique_communities(self):
         G = fnx.Graph()
         G.add_edges_from([(0, 1), (0, 2), (1, 2), (2, 3), (2, 4), (3, 4)])
-        comms = list(fnx.k_clique_communities(G, 3))
+        comms = list(fnx.community.k_clique_communities(G, 3))
         assert len(comms) == 2
 
 

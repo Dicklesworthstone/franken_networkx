@@ -30,7 +30,7 @@ class TestGirvanNewman:
     def test_two_cliques_with_bridge(self):
         G = fnx.Graph()
         G.add_edges_from([(0, 1), (1, 2), (0, 2), (3, 4), (4, 5), (3, 5), (2, 3)])
-        partitions = list(fnx.girvan_newman(G))
+        partitions = list(fnx.community.girvan_newman(G))
         assert len(partitions) >= 1
         # First split should separate the two triangles
         first = partitions[0]
@@ -46,12 +46,12 @@ class TestGirvanNewman:
         """
         G = fnx.Graph()
         G.add_node(0)
-        partitions = list(fnx.girvan_newman(G))
+        partitions = list(fnx.community.girvan_newman(G))
         assert [[frozenset(c) for c in p] for p in partitions] == [[frozenset({0})]]
 
     def test_empty_graph(self):
         G = fnx.Graph()
-        partitions = list(fnx.girvan_newman(G))
+        partitions = list(fnx.community.girvan_newman(G))
         assert partitions == [()]
 
     def test_disconnected_graph(self):
@@ -59,7 +59,7 @@ class TestGirvanNewman:
         G.add_edge(0, 1)
         G.add_edge(2, 3)
         # Already disconnected — first yield should have 2 components
-        partitions = list(fnx.girvan_newman(G))
+        partitions = list(fnx.community.girvan_newman(G))
         assert len(partitions) >= 1
 
 
@@ -67,7 +67,7 @@ class TestKCliqueCommunities:
     def test_two_overlapping_triangles(self):
         G = fnx.Graph()
         G.add_edges_from([(0, 1), (0, 2), (1, 2), (2, 3), (2, 4), (3, 4)])
-        comms = list(fnx.k_clique_communities(G, 3))
+        comms = list(fnx.community.k_clique_communities(G, 3))
         assert len(comms) == 2
         # Node 2 should be in both communities
         all_nodes = set()
@@ -77,19 +77,19 @@ class TestKCliqueCommunities:
 
     def test_k_too_large(self):
         G = fnx.path_graph(3)
-        comms = list(fnx.k_clique_communities(G, 3))
+        comms = list(fnx.community.k_clique_communities(G, 3))
         assert comms == []
 
     def test_k_equals_2(self):
         G = fnx.path_graph(4)
-        comms = list(fnx.k_clique_communities(G, 2))
+        comms = list(fnx.community.k_clique_communities(G, 2))
         # Each edge is a 2-clique, and they're all adjacent
         assert len(comms) >= 1
 
     def test_k_less_than_2_raises(self):
         G = fnx.Graph()
         with pytest.raises(ValueError):
-            list(fnx.k_clique_communities(G, 1))
+            list(fnx.community.k_clique_communities(G, 1))
 
 
 # ---------------------------------------------------------------------------
@@ -102,12 +102,12 @@ class TestBipartiteHelpers:
         B = fnx.Graph()
         B.add_edges_from([(1, "a"), (1, "b"), (2, "b"), (2, "c")])
         top, _ = fnx.bipartite.sets(B)
-        assert fnx.is_bipartite_node_set(B, top)
+        assert fnx.bipartite.is_bipartite_node_set(B, top)
 
     def test_is_bipartite_node_set_invalid(self):
         B = fnx.Graph()
         B.add_edges_from([(1, "a"), (2, "b")])
-        assert not fnx.is_bipartite_node_set(B, [1, "a"])
+        assert not fnx.bipartite.is_bipartite_node_set(B, [1, "a"])
 
     def test_projected_graph(self):
         B = fnx.Graph()
@@ -134,7 +134,7 @@ class TestBipartiteHelpers:
     def test_hopcroft_karp_matching(self):
         B = fnx.Graph()
         B.add_edges_from([(1, "a"), (1, "b"), (2, "b"), (3, "c")])
-        m = fnx.hopcroft_karp_matching(B)
+        m = fnx.bipartite.hopcroft_karp_matching(B)
         # Should match at least 2 pairs
         assert len(m) >= 4  # Each match creates 2 entries (u->v and v->u)
 

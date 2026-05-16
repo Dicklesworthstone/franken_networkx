@@ -173,7 +173,7 @@ class TestDAGCoverage:
     def test_lexicographic_topological_sort(self):
         D = fnx.DiGraph()
         D.add_edges_from([(0, 1), (0, 2), (1, 3), (2, 3)])
-        result = list(fnx.lexicographic_topological_sort(D))
+        result = list(fnx.algorithms.dag.lexicographic_topological_sort(D))
         assert result[0] == 0
         assert result[-1] == 3
 

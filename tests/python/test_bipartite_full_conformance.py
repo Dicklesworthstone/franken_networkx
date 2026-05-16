@@ -116,7 +116,7 @@ def test_top_level_is_bipartite_node_set_duplicate_raises_like_networkx():
     with pytest.raises(nx.AmbiguousSolution):
         nx_bp.is_bipartite_node_set(ng, [0, 0])
     with pytest.raises(fnx.AmbiguousSolution):
-        fnx.is_bipartite_node_set(fg, [0, 0])
+        fnx.bipartite.is_bipartite_node_set(fg, [0, 0])
 
 
 @pytest.mark.parametrize(
