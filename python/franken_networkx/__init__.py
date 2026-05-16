@@ -11892,36 +11892,10 @@ def _pseudo_peripheral_node_via_nx(G):
     return _nx.utils.rcm.pseudo_peripheral_node(_networkx_graph_for_parity(G))
 
 
-def edges_equal(edges1, edges2, *, directed=False):
-    """Test that two edge collections are equal (order-insensitive)."""
-    return _edges_equal_via_nx(edges1, edges2, directed)
-
-
-def _edges_equal_via_nx(edges1, edges2, directed):
-    """br-r37-c1-kp6aw: private helper keeps the public function
-    classified as PY_WRAPPER in the coverage matrix."""
-    return _nx.utils.edges_equal(edges1, edges2, directed=directed)
-
-
-def graphs_equal(graph1, graph2):
-    """Test that two graphs are equal (nodes, edges, attributes)."""
-    return _graphs_equal_via_nx(graph1, graph2)
-
-
-def _graphs_equal_via_nx(graph1, graph2):
-    return _nx.utils.graphs_equal(
-        _networkx_graph_for_parity(graph1),
-        _networkx_graph_for_parity(graph2),
-    )
-
-
-def nodes_equal(nodes1, nodes2):
-    """Test that two node collections are equal (order-insensitive)."""
-    return _nodes_equal_via_nx(nodes1, nodes2)
-
-
-def _nodes_equal_via_nx(nodes1, nodes2):
-    return _nx.utils.nodes_equal(nodes1, nodes2)
+# edges_equal/graphs_equal/nodes_equal: nx exposes these only under
+# nx.utils.X; fnx.utils.X still works via the auto-bound submodule
+# fallback. The top-level fnx forms were removed in br-r37-c1-j57zz to
+# mirror nx's namespacing.
 
 
 def make_list_of_ints(sequence):
@@ -21102,17 +21076,9 @@ def degree_pearson_correlation_coefficient(G, x="out", y="in", weight=None, node
     return float(sp.stats.pearsonr(left, right)[0])
 
 
-def average_degree(G):
-    """Return the average degree of *G*.
-
-    Returns
-    -------
-    float
-    """
-    n = G.number_of_nodes()
-    if n == 0:
-        return 0.0
-    return 2.0 * G.number_of_edges() / n
+# average_degree was an fnx-only convenience function — removed in
+# br-r37-c1-j57zz to mirror nx (which has no such top-level function).
+# Equivalent: 2 * G.number_of_edges() / G.number_of_nodes().
 
 
 def generalized_degree(G, nodes=None):
@@ -41597,7 +41563,6 @@ __all__ = [
     # Additional algorithms
     "load_centrality",
     "degree_pearson_correlation_coefficient",
-    "average_degree",
     "generalized_degree",
     "is_semiconnected",
     "all_pairs_node_connectivity",
@@ -41948,9 +41913,6 @@ __all__ = [
     "connected_cuthill_mckee_ordering",
     "pseudo_peripheral_node",
     "flow_matrix_row",
-    "edges_equal",
-    "graphs_equal",
-    "nodes_equal",
     "make_list_of_ints",
     "powerlaw_sequence",
     "zipf_rv",
@@ -42971,6 +42933,15 @@ def __getattr__(name):
     # fnx.tournament.hamiltonian_path still works via the auto-bound
     # nx.algorithms.tournament submodule fallback.
     if name == "hamiltonian_path":
+        raise AttributeError(
+            f"module 'networkx' has no attribute '{name}'"
+        )
+    # br-r37-c1-j57zz: ``nodes_equal`` / ``edges_equal`` /
+    # ``graphs_equal`` live only at nx.utils.X; ``average_degree``
+    # doesn't exist in nx at all. Removed from fnx top-level for
+    # drop-in parity (the three test helpers are still reachable
+    # via fnx.utils.X through the submodule fallback).
+    if name in ("nodes_equal", "edges_equal", "graphs_equal", "average_degree"):
         raise AttributeError(
             f"module 'networkx' has no attribute '{name}'"
         )
