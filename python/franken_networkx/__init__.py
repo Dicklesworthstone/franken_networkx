@@ -11850,15 +11850,10 @@ def _reverse_cuthill_mckee_ordering_via_nx(G, heuristic):
     )
 
 
-def flow_matrix_row(G, weight=None, dtype=float, solver="lu"):
-    """Yield rows of the current-flow matrix used for current-flow centrality."""
-    yield from _flow_matrix_row_via_nx(G, weight, dtype, solver)
-
-
-def _flow_matrix_row_via_nx(G, weight, dtype, solver):
-    yield from _nx.algorithms.centrality.flow_matrix.flow_matrix_row(
-        _networkx_graph_for_parity(G), weight=weight, dtype=dtype, solver=solver,
-    )
+# flow_matrix_row was an fnx-only public alias for the deeply-nested
+# nx.algorithms.centrality.flow_matrix.flow_matrix_row helper. Removed
+# in br-r37-c1-qy2r4 because nx top-level doesn't expose it; callers
+# can use the nx-qualified path directly.
 
 
 def cuthill_mckee_ordering(G, heuristic=None):
@@ -11883,13 +11878,9 @@ def _connected_cuthill_mckee_ordering_via_nx(G, heuristic):
     )
 
 
-def pseudo_peripheral_node(G):
-    """Return a pseudo-peripheral node of the graph (used for RCM seed)."""
-    return _pseudo_peripheral_node_via_nx(G)
-
-
-def _pseudo_peripheral_node_via_nx(G):
-    return _nx.utils.rcm.pseudo_peripheral_node(_networkx_graph_for_parity(G))
+# pseudo_peripheral_node was an fnx-only public alias for the deeply
+# nested nx.utils.rcm.pseudo_peripheral_node helper. Removed in
+# br-r37-c1-qy2r4 because nx top-level doesn't expose it.
 
 
 # edges_equal/graphs_equal/nodes_equal: nx exposes these only under
@@ -11898,40 +11889,10 @@ def _pseudo_peripheral_node_via_nx(G):
 # mirror nx's namespacing.
 
 
-def make_list_of_ints(sequence):
-    """Coerce a sequence to a list of plain Python ints."""
-    return _make_list_of_ints_via_nx(sequence)
-
-
-def _make_list_of_ints_via_nx(sequence):
-    return _nx.utils.make_list_of_ints(sequence)
-
-
-def powerlaw_sequence(n, exponent=2.0, seed=None):
-    """Return a power-law degree sequence of length n with the given exponent."""
-    return _powerlaw_sequence_via_nx(n, exponent, seed)
-
-
-def _powerlaw_sequence_via_nx(n, exponent, seed):
-    return _nx.utils.powerlaw_sequence(n, exponent=exponent, seed=seed)
-
-
-def zipf_rv(alpha, xmin=1, seed=None):
-    """Sample a Zipf-distributed random variate (alpha > 1)."""
-    return _zipf_rv_via_nx(alpha, xmin, seed)
-
-
-def _zipf_rv_via_nx(alpha, xmin, seed):
-    return _nx.utils.zipf_rv(alpha, xmin=xmin, seed=seed)
-
-
-def cumulative_distribution(distribution):
-    """Return the cumulative distribution from a discrete probability distribution."""
-    return _cumulative_distribution_via_nx(distribution)
-
-
-def _cumulative_distribution_via_nx(distribution):
-    return _nx.utils.cumulative_distribution(distribution)
+# make_list_of_ints / powerlaw_sequence / zipf_rv / cumulative_distribution
+# live only at nx.utils.X; removed from fnx top-level in br-r37-c1-qy2r4
+# to mirror nx namespacing. fnx.utils.X still works via the auto-bound
+# submodule fallback.
 
 
 def is_valid_tree_degree_sequence(degree_sequence):
@@ -12110,15 +12071,9 @@ from networkx.utils.heaps import (  # noqa: E402
 )
 
 
-def frozen(*args, **kwargs):
-    """No-op sentinel raised by methods on a frozen graph."""
-    return _frozen_via_nx(*args, **kwargs)
-
-
-def _frozen_via_nx(*args, **kwargs):
-    """br-r37-c1-idi4s: private helper keeps the public function
-    classified as PY_WRAPPER in the coverage matrix."""
-    return _nx.classes.function.frozen(*args, **kwargs)
+# ``frozen`` is the no-op raiser nx uses internally on frozen-graph
+# mutators (nx.classes.function.frozen). nx doesn't re-export it at
+# top level; removed from fnx top-level in br-r37-c1-qy2r4 to match.
 
 
 # Greedy coloring strategies (networkx.algorithms.coloring.greedy_coloring) —
@@ -41911,12 +41866,6 @@ __all__ = [
     "reverse_cuthill_mckee_ordering",
     "cuthill_mckee_ordering",
     "connected_cuthill_mckee_ordering",
-    "pseudo_peripheral_node",
-    "flow_matrix_row",
-    "make_list_of_ints",
-    "powerlaw_sequence",
-    "zipf_rv",
-    "cumulative_distribution",
     "is_valid_tree_degree_sequence",
     "boruvka_mst_edges",
     "kruskal_mst_edges",
@@ -41935,7 +41884,6 @@ __all__ = [
     "BinaryHeap",
     "MinHeap",
     "PairingHeap",
-    "frozen",
     "strategy_largest_first",
     "strategy_random_sequential",
     "strategy_smallest_last",
@@ -42942,6 +42890,20 @@ def __getattr__(name):
     # drop-in parity (the three test helpers are still reachable
     # via fnx.utils.X through the submodule fallback).
     if name in ("nodes_equal", "edges_equal", "graphs_equal", "average_degree"):
+        raise AttributeError(
+            f"module 'networkx' has no attribute '{name}'"
+        )
+    # br-r37-c1-qy2r4: more leaked fnx top-level helpers nx doesn't
+    # re-export at top level — make_list_of_ints / cumulative_distribution
+    # / powerlaw_sequence / zipf_rv live at nx.utils.X (still reachable
+    # via fnx.utils.X). frozen / flow_matrix_row / pseudo_peripheral_node
+    # are fnx-only public aliases for deeply-nested nx internals — drop
+    # them; callers can use the nx-qualified path directly.
+    if name in (
+        "make_list_of_ints", "cumulative_distribution",
+        "powerlaw_sequence", "zipf_rv",
+        "frozen", "flow_matrix_row", "pseudo_peripheral_node",
+    ):
         raise AttributeError(
             f"module 'networkx' has no attribute '{name}'"
         )
