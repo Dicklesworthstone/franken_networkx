@@ -43002,7 +43002,10 @@ def __getattr__(name):
     try:
         return getattr(nx, name)
     except AttributeError as exc:
-        raise AttributeError(f"module {__name__!r} has no attribute {name!r}") from exc
+        # br-r37-c1-aohtp: mirror nx's exact wording so drop-in callers
+        # branching on the AttributeError message see identical text on
+        # fnx and nx (siblings in this same handler already do).
+        raise AttributeError(f"module 'networkx' has no attribute '{name}'") from exc
 
 
 def __dir__():
