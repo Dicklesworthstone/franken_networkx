@@ -345,21 +345,21 @@ class TestIsKEdgeConnected:
 
 class TestGlobalNodeConnectivity:
     def test_complete(self, k4):
-        assert fnx.global_node_connectivity(k4) == 3
+        assert fnx.node_connectivity(k4) == 3
 
     def test_path(self, path5):
-        assert fnx.global_node_connectivity(path5) == 1
+        assert fnx.node_connectivity(path5) == 1
 
     def test_single_node(self):
         G = fnx.Graph()
         G.add_node(0)
-        assert fnx.global_node_connectivity(G) == 0
+        assert fnx.node_connectivity(G) == 0
 
     def test_directed_orders_pairs(self):
         D = fnx.DiGraph()
         D.add_edge(0, 1)
         D.add_edge(0, 2)
-        assert fnx.global_node_connectivity(D) == 0
+        assert fnx.node_connectivity(D) == 0
 
 
 class TestHyperWienerIndex:

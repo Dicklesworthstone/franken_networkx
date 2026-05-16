@@ -19,7 +19,7 @@ needs_nx = pytest.mark.skipif(not HAS_NX, reason="networkx not installed")
 
 @needs_nx
 def test_global_node_connectivity_nx():
-    assert fnx.global_node_connectivity(nx.path_graph(5)) == 1
+    assert fnx.node_connectivity(nx.path_graph(5)) == 1
 
 
 @needs_nx
