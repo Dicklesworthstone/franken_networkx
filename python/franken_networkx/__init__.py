@@ -16,18 +16,18 @@ Or as a NetworkX backend (zero code changes required)::
     # Now all supported algorithms dispatch to Rust automatically.
 """
 
-import base64
+import base64 as _base64
 from collections import Counter, defaultdict, deque
 from collections.abc import Collection, Generator, Iterable, Iterator, Mapping, Set
-from copy import deepcopy
+from copy import deepcopy as _deepcopy
 from enum import Enum
 from functools import wraps as _wraps
-import gzip
+import gzip as _gzip
 from heapq import heappop, heappush
-import io
-import itertools
+import io as _io
+import itertools as _itertools
 from itertools import combinations, count
-import math
+import math as _math
 import numbers as _numbers
 import operator
 import sys as _sys
@@ -3236,19 +3236,19 @@ class _WeightAwareDegreeView:
         return (list, (list(self),))
 
     # br-r37-c1-vcopy: nx's DegreeView/DiDegreeView preserve type
-    # through copy.copy / copy.deepcopy.  The __reduce__ snapshot
+    # through copy.copy / copy._deepcopy.  The __reduce__ snapshot
     # path made copy return a plain list — define __copy__ /
     # __deepcopy__ returning self so type(c) is preserved.
     def __copy__(self):
         return self
 
     def __deepcopy__(self, memo):
-        # br-r37-c1-vcopydc: deepcopy must be a SNAPSHOT independent
+        # br-r37-c1-vcopydc: _deepcopy must be a SNAPSHOT independent
         # of subsequent G mutations (matches nx).  Deep-copy the
         # underlying graph and return its .degree view — preserves
         # type (DegreeView/DiDegreeView via the cycle-190 subclasses)
         # AND snapshot semantics.
-        new_graph = deepcopy(self._graph, memo)
+        new_graph = _deepcopy(self._graph, memo)
         return new_graph.degree
 
     def __eq__(self, other):
@@ -3987,9 +3987,9 @@ _MULTIDIGRAPH_NODE_VIEW_TYPE.__reduce__ = _node_view_reduce
 
 
 # br-r37-c1-vcopy: nx's NodeView preserves type through
-# ``copy.copy(G.nodes)`` / ``copy.deepcopy(G.nodes)`` — both return
+# ``copy.copy(G.nodes)`` / ``copy._deepcopy(G.nodes)`` — both return
 # a NodeView instance.  fnx's ``__reduce__`` snapshot path made
-# copy.copy / deepcopy return a plain ``dict`` (the snapshot
+# copy.copy / _deepcopy return a plain ``dict`` (the snapshot
 # product), so ``isinstance(copy.copy(G.nodes), NodeView)`` was
 # False.  Rust-bound NodeView types don't allow direct
 # instantiation, so:
@@ -3998,7 +3998,7 @@ _MULTIDIGRAPH_NODE_VIEW_TYPE.__reduce__ = _node_view_reduce
 #     through the copied view).
 #   - ``__deepcopy__`` builds a NEW graph populated from the
 #     current snapshot and returns its NodeView (matches nx's
-#     ``copy.deepcopy`` snapshot semantic — independent of
+#     ``copy._deepcopy`` snapshot semantic — independent of
 #     subsequent G mutations).
 def _node_view_copy(self):
     return self
@@ -4008,7 +4008,7 @@ _NODE_VIEW_TYPE_TO_GRAPH_CLASS = {}
 
 
 def _node_view_deepcopy(self, memo):
-    # br-r37-c1-vcopydc: nx's deepcopy of NodeView is a SNAPSHOT
+    # br-r37-c1-vcopydc: nx's _deepcopy of NodeView is a SNAPSHOT
     # — independent of subsequent G mutations.  Materialise via
     # the existing __reduce__ snapshot pattern, but build a new
     # fnx Graph (of the matching class) and return ITS NodeView so
@@ -4113,7 +4113,7 @@ _EDGE_VIEW_TYPE.__reduce__ = _edge_view_reduce
 
 
 # br-r37-c1-vcopy: same reasoning as _node_view_copy above —
-# preserve EdgeView type through copy.copy / copy.deepcopy.
+# preserve EdgeView type through copy.copy / copy._deepcopy.
 # br-r37-c1-vcopydc: __deepcopy__ must produce a SNAPSHOT
 # independent of subsequent G mutations (matches nx).
 def _edge_view_copy(self):
@@ -4725,11 +4725,11 @@ for _cls in (Graph, DiGraph, MultiGraph, MultiDiGraph):
 
 def _graph_deepcopy(self, memo=None):
     """br-dcpy: the Rust __deepcopy__ didn't traverse nested attribute
-    values, so deepcopy(G).nodes[n]['x'].append(...) mutated the
+    values, so _deepcopy(G).nodes[n]['x'].append(...) mutated the
     original graph's attrs too. Re-implement at Python level by
     constructing a fresh graph and deep-copying every attrs dict.
     """
-    from copy import deepcopy as _dc
+    from copy import _deepcopy as _dc
 
     cls = type(self)
     out = cls()
@@ -4950,7 +4950,7 @@ class _DiEdgeMethodView:
 
     # br-r37-c1-vcopy: nx's InEdgeView / OutEdgeView / InMultiEdgeView
     # / OutMultiEdgeView preserve type through copy.copy /
-    # copy.deepcopy.  __copy__ returns self (live wrapper).
+    # copy._deepcopy.  __copy__ returns self (live wrapper).
     # br-r37-c1-vcopydc: __deepcopy__ must be a SNAPSHOT independent
     # of subsequent G mutations (matches nx).  Deep-copy the
     # underlying graph and return its in_edges or out_edges
@@ -4959,7 +4959,7 @@ class _DiEdgeMethodView:
         return self
 
     def __deepcopy__(self, memo):
-        new_graph = deepcopy(self._graph, memo)
+        new_graph = _deepcopy(self._graph, memo)
         cls_name = type(self).__name__
         if cls_name in ("InEdgeView", "InMultiEdgeView"):
             return new_graph.in_edges
@@ -5126,7 +5126,7 @@ def _nan_filtered_graph(G, weight, ignore_nan):
     if G.is_multigraph():
         for u, v, key, attrs in G.edges(keys=True, data=True):
             edge_weight = attrs.get(weight, 1)
-            if isinstance(edge_weight, float) and math.isnan(edge_weight):
+            if isinstance(edge_weight, float) and _math.isnan(edge_weight):
                 if ignore_nan:
                     continue
                 raise ValueError(
@@ -5136,7 +5136,7 @@ def _nan_filtered_graph(G, weight, ignore_nan):
     else:
         for u, v, attrs in G.edges(data=True):
             edge_weight = attrs.get(weight, 1)
-            if isinstance(edge_weight, float) and math.isnan(edge_weight):
+            if isinstance(edge_weight, float) and _math.isnan(edge_weight):
                 if ignore_nan:
                     continue
                 raise ValueError(
@@ -5448,7 +5448,7 @@ def _has_negative_edge_weight_for_dijkstra(G, weight, *, _skip_sync=False):
                     return False
             for _, _, attrs in G.edges(data=True):
                 value = attrs.get(weight, 1)
-                if isinstance(value, _numbers.Real) and value == -math.inf:
+                if isinstance(value, _numbers.Real) and value == -_math.inf:
                     return True
             return False
 
@@ -5464,7 +5464,7 @@ def _has_negative_edge_weight_for_dijkstra(G, weight, *, _skip_sync=False):
         # br-r37-c1-djk-neginf: also catches ``-inf`` (drop the
         # isfinite filter — ``-inf < 0`` is True, NaN comparisons
         # all yield False so neither broken case re-enters here).
-        if isinstance(value, _numbers.Real) and not math.isnan(value) and value < 0:
+        if isinstance(value, _numbers.Real) and not _math.isnan(value) and value < 0:
             return True
     return False
 
@@ -5520,7 +5520,7 @@ def _has_positive_infinity_edge_weight_for_dijkstra(G, weight, *, _skip_sync=Fal
         attrs_iter = (attrs for _, _, attrs in G.edges(data=True))
     for attrs in attrs_iter:
         value = attrs.get(weight, 1)
-        if isinstance(value, _numbers.Real) and not math.isnan(value) and math.isinf(value) and value > 0:
+        if isinstance(value, _numbers.Real) and not _math.isnan(value) and _math.isinf(value) and value > 0:
             return True
     return False
 
@@ -5696,7 +5696,7 @@ def _has_nan_or_inf_edge_weight(G, weight):
         value = attrs[weight]
         if isinstance(value, bool):
             continue
-        if isinstance(value, float) and (math.isnan(value) or math.isinf(value)):
+        if isinstance(value, float) and (_math.isnan(value) or _math.isinf(value)):
             return True
     return False
 
@@ -5933,11 +5933,11 @@ def _path_length_preserving_weight_type(G, path, weight):
 
     total = 0
     if G.is_multigraph():
-        for node, neighbor in itertools.pairwise(path):
+        for node, neighbor in _itertools.pairwise(path):
             total += min(attrs.get(weight, 1) for attrs in G[node][neighbor].values())
         return total
 
-    for node, neighbor in itertools.pairwise(path):
+    for node, neighbor in _itertools.pairwise(path):
         total += G[node][neighbor].get(weight, 1)
     return total
 
@@ -8008,7 +8008,7 @@ def _restore_branching_edge_attrs(result, source, attr_name, default, preserve_a
     When ``preserve_attrs`` is False, only the named weight attribute
     is copied (matching nx's contract: non-weight attrs are dropped).
     """
-    from copy import deepcopy
+    from copy import _deepcopy
 
     for u, v in list(result.edges()):
         result[u][v].clear()
@@ -8018,7 +8018,7 @@ def _restore_branching_edge_attrs(result, source, attr_name, default, preserve_a
                 # Copy everything (preserving original types).
                 if attr_name not in src_attrs:
                     src_attrs[attr_name] = default
-                result[u][v].update(deepcopy(src_attrs))
+                result[u][v].update(_deepcopy(src_attrs))
             else:
                 # Only the weight attr — preserve its original type.
                 weight_value = src_attrs.get(attr_name, default)
@@ -8560,10 +8560,10 @@ def all_simple_paths(
         # Empirical: nx(3.5) yields the 4-edge path; ceil(3.5)=4
         # → fnx with cutoff=4 also yields it.  +inf → None
         # (unbounded).
-        if math.isinf(cutoff):
+        if _math.isinf(cutoff):
             cutoff = None
         else:
-            cutoff = math.ceil(cutoff)
+            cutoff = _math.ceil(cutoff)
     if source == target:
         yield [source]
         return
@@ -8968,11 +8968,11 @@ def _normalize_bfs_depth_limit(depth_limit):
     # Numeric — coerce
     try:
         if isinstance(depth_limit, float):
-            if math.isnan(depth_limit):
+            if _math.isnan(depth_limit):
                 return _DEPTH_EMPTY
-            if math.isinf(depth_limit):
+            if _math.isinf(depth_limit):
                 return None if depth_limit > 0 else _DEPTH_EMPTY
-            depth_limit = math.ceil(depth_limit)
+            depth_limit = _math.ceil(depth_limit)
         depth_int = int(depth_limit)
     except (TypeError, ValueError):
         return depth_limit  # let downstream surface the error
@@ -9037,11 +9037,11 @@ def _normalize_predecessor_cutoff(cutoff):
         return None
     try:
         if isinstance(cutoff, float):
-            if math.isnan(cutoff):
+            if _math.isnan(cutoff):
                 return None  # NaN comparisons False → unbounded
-            if math.isinf(cutoff):
+            if _math.isinf(cutoff):
                 return None if cutoff > 0 else 1
-            cutoff = math.ceil(cutoff)
+            cutoff = _math.ceil(cutoff)
         cutoff_int = int(cutoff)
     except (TypeError, ValueError):
         return cutoff
@@ -9636,7 +9636,7 @@ def wiener_index(G, weight=None, *, backend=None, **backend_kwargs):
                 "Connectivity is undefined for the null graph."
             )
         value = _fnx.wiener_index(G, weight=None)
-        if math.isinf(value):
+        if _math.isinf(value):
             return float("inf")
         # br-r37-c1-t26b4: nx returns int when the graph is directed
         # because nx returns ``total`` un-divided in that branch, and
@@ -10100,7 +10100,7 @@ def all_triangles(G, nbunch=None):
 
     nbunch_nodes = _global_nbunch_nodes(G, nbunch)
     nbunch_lookup = dict.fromkeys(nbunch_nodes)
-    relevant_nodes = itertools.chain(
+    relevant_nodes = _itertools.chain(
         nbunch_lookup,
         (
             neighbor
@@ -11236,7 +11236,7 @@ def _compute_rich_club_coefficients(G):
     """Return the rich-club coefficient by degree threshold."""
     deghist = degree_histogram(G)
     total = sum(deghist)
-    nks = (total - cs for cs in itertools.accumulate(deghist) if total - cs > 1)
+    nks = (total - cs for cs in _itertools.accumulate(deghist) if total - cs > 1)
 
     degree_view = G.degree
     if callable(degree_view):
@@ -12493,7 +12493,7 @@ def _dag_length_rust_weight_attrs_safe(G, weight):
                     return False
                 continue
             if type(value) is float:
-                if not math.isfinite(value):
+                if not _math.isfinite(value):
                     return False
                 continue
             return False
@@ -13418,7 +13418,7 @@ def mixing_expansion(G, S, T=None, weight=None):
 
 def node_expansion(G, S):
     """Return the node expansion of a set."""
-    neighborhood = set(itertools.chain.from_iterable(G.neighbors(v) for v in S))
+    neighborhood = set(_itertools.chain.from_iterable(G.neighbors(v) for v in S))
     return len(neighborhood) / len(S)
 
 
@@ -13527,7 +13527,7 @@ def _treewidth_decomp(graph, heuristic):
     elim_node = heuristic(graph_dict)
     while elim_node is not None:
         nbrs = graph_dict[elim_node]
-        for u, v in itertools.permutations(nbrs, 2):
+        for u, v in _itertools.permutations(nbrs, 2):
             if v not in graph_dict[u]:
                 graph_dict[u].add(v)
 
@@ -13613,7 +13613,7 @@ def girth(G):
     """Return the length of the shortest cycle in ``G``.
 
     Matches nx contract (br-girthinf): acyclic graphs return
-    ``math.inf`` (float), not ``None``, so ``girth(G) < k`` works
+    ``_math.inf`` (float), not ``None``, so ``girth(G) < k`` works
     without TypeError.
 
     br-r37-c1-tqimg: nx is @not_implemented_for('multigraph').
@@ -13627,7 +13627,7 @@ def girth(G):
 
     value = _raw_girth(G)
     if value is None:
-        return math.inf
+        return _math.inf
     return value
 
 
@@ -14169,7 +14169,7 @@ def is_aperiodic(G):
         for u in this_level:
             for v in G[u]:
                 if v in levels:
-                    gcd_cycle = math.gcd(gcd_cycle, levels[u] - levels[v] + 1)
+                    gcd_cycle = _math.gcd(gcd_cycle, levels[u] - levels[v] + 1)
                 else:
                     next_level.append(v)
                     levels[v] = level
@@ -14408,7 +14408,7 @@ def _single_source_dijkstra_cutoff_view(source, dists, paths, cutoff):
     # before the filter loop.
     if cutoff is None:
         return dists, paths
-    if isinstance(cutoff, float) and (math.isnan(cutoff) or cutoff == math.inf):
+    if isinstance(cutoff, float) and (_math.isnan(cutoff) or cutoff == _math.inf):
         return dists, paths
 
     filtered_dists = {}
@@ -14882,7 +14882,7 @@ def _average_path_weight(G, path, weight=None):
         return 0
     if weight is None:
         return 1 / path_length
-    total_weight = sum(G.edges[u, v][weight] for u, v in itertools.pairwise(path))
+    total_weight = sum(G.edges[u, v][weight] for u, v in _itertools.pairwise(path))
     return total_weight / path_length
 
 
@@ -15455,7 +15455,7 @@ def complete_graph(n, create_using=None, *, backend=None, **backend_kwargs):
     graph = _classic_graph_from_create_using(create_using)
     _add_nodes_in_order(graph, nodes)
     if len(nodes) > 1:
-        edges = itertools.permutations(nodes, 2) if graph.is_directed() else combinations(nodes, 2)
+        edges = _itertools.permutations(nodes, 2) if graph.is_directed() else combinations(nodes, 2)
         for u, v in edges:
             graph.add_edge(u, v)
     return graph
@@ -15474,7 +15474,7 @@ def cycle_graph(n, create_using=None):
     graph = _classic_graph_from_create_using(create_using)
     _add_nodes_in_order(graph, nodes)
     if nodes:
-        for u, v in itertools.pairwise(nodes):
+        for u, v in _itertools.pairwise(nodes):
             graph.add_edge(u, v)
         # Closing edge: nx's pairwise(nodes, cyclic=True) yields the
         # wrap-around for any nonempty list, including the n=1 self-loop.
@@ -15503,7 +15503,7 @@ def path_graph(n, create_using=None, *, backend=None, **backend_kwargs):
 
     graph = _classic_graph_from_create_using(create_using)
     _add_nodes_in_order(graph, nodes)
-    for u, v in itertools.pairwise(nodes):
+    for u, v in _itertools.pairwise(nodes):
         graph.add_edge(u, v)
     return graph
 
@@ -16166,14 +16166,14 @@ def all_neighbors(graph, node):
     For directed graphs, returns predecessors followed by successors.
     """
     if graph.is_directed():
-        return itertools.chain(graph.predecessors(node), graph.successors(node))
+        return _itertools.chain(graph.predecessors(node), graph.successors(node))
     return graph.neighbors(node)
 
 
 def is_path(G, path):
     """Return whether or not the specified path exists in *G*."""
     try:
-        return all(nbr in G[node] for node, nbr in itertools.pairwise(path))
+        return all(nbr in G[node] for node, nbr in _itertools.pairwise(path))
     except (KeyError, TypeError):
         return False
 
@@ -16185,11 +16185,11 @@ def path_weight(G, path, weight):
 
     cost = 0
     if G.is_multigraph():
-        for node, nbr in itertools.pairwise(path):
+        for node, nbr in _itertools.pairwise(path):
             cost += min(attrs[weight] for attrs in G[node][nbr].values())
         return cost
 
-    for node, nbr in itertools.pairwise(path):
+    for node, nbr in _itertools.pairwise(path):
         cost += G[node][nbr][weight]
     return cost
 
@@ -16612,7 +16612,7 @@ def _normalize_pagerank_vector(vector, nodes, *, zero_sum="raise"):
     # dropped keys.  Filter first to match nx semantics.
     nodeset = set(nodes)
     filtered = {key: value for key, value in vector.items() if key in nodeset}
-    total = math.fsum(filtered.values())
+    total = _math.fsum(filtered.values())
     if total == 0 and zero_sum == "nan":
         nan = float("nan")
         return dict.fromkeys(nodes, nan)
@@ -16623,7 +16623,7 @@ def _pagerank_outgoing_weights(G, node, weight):
     if G.is_multigraph():
         neighbor_weights = {}
         for nbr, keyed_attrs in G.succ[node].items():
-            neighbor_weights[nbr] = math.fsum(
+            neighbor_weights[nbr] = _math.fsum(
                 1.0 if weight is None else attrs.get(weight, 1)
                 for attrs in keyed_attrs.values()
             )
@@ -16671,7 +16671,7 @@ def _pagerank_needs_networkx_weight_parity(G, weight):
             value = float(attrs[weight])
         except (TypeError, ValueError, OverflowError):
             return True
-        if not math.isfinite(value):
+        if not _math.isfinite(value):
             return True
     return False
 
@@ -16768,7 +16768,7 @@ def pagerank(
     dangling_nodes = []
     for node in nodes:
         neighbor_weights = _pagerank_outgoing_weights(directed_graph, node, weight)
-        total_weight = math.fsum(neighbor_weights.values())
+        total_weight = _math.fsum(neighbor_weights.values())
         if total_weight == 0:
             transition_weights[node] = None
             dangling_nodes.append(node)
@@ -16781,7 +16781,7 @@ def pagerank(
     for _ in range(max_iter):
         previous = current
         current = dict.fromkeys(nodes, 0.0)
-        dangling_sum = alpha * math.fsum(previous[node] for node in dangling_nodes)
+        dangling_sum = alpha * _math.fsum(previous[node] for node in dangling_nodes)
 
         for node in nodes:
             neighbor_weights = transition_weights[node]
@@ -16797,7 +16797,7 @@ def pagerank(
                 + (1.0 - alpha) * personalization_vector.get(node, 0)
             )
 
-        error = math.fsum(abs(current[node] - previous[node]) for node in nodes)
+        error = _math.fsum(abs(current[node] - previous[node]) for node in nodes)
         if error < node_count * tol:
             return current
 
@@ -17484,7 +17484,7 @@ def union_all(graphs, rename=()):
     _validate_same_graph_family(graphs)
 
     R = graphs[0].__class__()
-    rename_iter = itertools.chain(rename, itertools.repeat(None))
+    rename_iter = _itertools.chain(rename, _itertools.repeat(None))
     for G, prefix in zip(graphs, rename_iter):
         R.graph.update(G.graph)
 
@@ -18438,7 +18438,7 @@ def bellman_ford_predecessor_and_distance(
         edge_weight = weight_fn(u, v, edge_data)
         if edge_weight is None:
             continue
-        if dist[u] + edge_weight < dist.get(v, math.inf):
+        if dist[u] + edge_weight < dist.get(v, _math.inf):
             raise NetworkXUnbounded("Negative cycle detected.")
 
     return pred, dist
@@ -18821,7 +18821,7 @@ def _native_random_seed(seed):
 
         return _random.randrange(1 << 64)
     if isinstance(seed, float):
-        if math.isnan(seed):
+        if _math.isnan(seed):
             raise ValueError(
                 "nan cannot be used to generate a random.Random instance"
             )
@@ -18888,7 +18888,7 @@ def gnp_random_graph(n, p, seed=None, directed=False, *, create_using=None, back
     if p <= 0:
         return graph
 
-    edge_pairs = itertools.permutations(range(n), 2) if directed else combinations(range(n), 2)
+    edge_pairs = _itertools.permutations(range(n), 2) if directed else combinations(range(n), 2)
     for u, v in edge_pairs:
         if rng.random() < p:
             graph.add_edge(u, v)
@@ -19146,8 +19146,8 @@ def grid_2d_graph(m, n, periodic=False, create_using=None):
     for i in rows:
         for j in cols:
             G.add_node((i, j))
-    G.add_edges_from(((i, j), (pi, j)) for pi, i in itertools.pairwise(rows) for j in cols)
-    G.add_edges_from(((i, j), (i, pj)) for i in rows for pj, j in itertools.pairwise(cols))
+    G.add_edges_from(((i, j), (pi, j)) for pi, i in _itertools.pairwise(rows) for j in cols)
+    G.add_edges_from(((i, j), (i, pj)) for i in rows for pj, j in _itertools.pairwise(cols))
 
     try:
         periodic_r, periodic_c = periodic
@@ -19243,7 +19243,7 @@ def barbell_graph(m1, m2, create_using=None):
 
     G.add_nodes_from(range(m1, m1 + m2 - 1))
     if m2 > 1:
-        G.add_edges_from(itertools.pairwise(range(m1, m1 + m2)))
+        G.add_edges_from(_itertools.pairwise(range(m1, m1 + m2)))
 
     G.add_edges_from(
         (u, v) for u in range(m1 + m2, 2 * m1 + m2) for v in range(u + 1, 2 * m1 + m2)
@@ -19297,8 +19297,8 @@ def ladder_graph(n, create_using=None):
     G = empty_graph(2 * n, create_using)
     if G.is_directed():
         raise NetworkXError("Directed Graph not supported")
-    G.add_edges_from(itertools.pairwise(range(n)))
-    G.add_edges_from(itertools.pairwise(range(n, 2 * n)))
+    G.add_edges_from(_itertools.pairwise(range(n)))
+    G.add_edges_from(_itertools.pairwise(range(n, 2 * n)))
     G.add_edges_from((v, v + n) for v in range(n))
     return G
 
@@ -19324,7 +19324,7 @@ def lollipop_graph(m, n, create_using=None):
 
     _add_nodes_in_order(G, n_nodes)
     if N > 1:
-        G.add_edges_from(itertools.pairwise(n_nodes))
+        G.add_edges_from(_itertools.pairwise(n_nodes))
 
     if len(G) != M + N:
         raise NetworkXError("Nodes must be distinct in containers m and n")
@@ -19363,7 +19363,7 @@ def tadpole_graph(m, n, create_using=None):
     if G.is_directed():
         raise NetworkXError("Directed Graph not supported")
 
-    G.add_edges_from(itertools.pairwise([m_nodes[-1], *n_nodes]))
+    G.add_edges_from(_itertools.pairwise([m_nodes[-1], *n_nodes]))
     return G
 
 
@@ -19385,7 +19385,7 @@ def wheel_graph(n, create_using=None):
         hub, *rim = nodes
         G.add_edges_from((hub, node) for node in rim)
         if len(rim) > 1:
-            G.add_edges_from(itertools.pairwise(rim))
+            G.add_edges_from(_itertools.pairwise(rim))
             G.add_edge(rim[-1], rim[0])
     return G
 
@@ -19958,8 +19958,8 @@ def complete_multipartite_graph(*subset_sizes):
     graph = Graph()
     for partition_index, subset in enumerate(subsets):
         graph.add_nodes_from(subset, subset=partition_index)
-    for left, right in itertools.combinations(subsets, 2):
-        graph.add_edges_from(itertools.product(left, right))
+    for left, right in _itertools.combinations(subsets, 2):
+        graph.add_edges_from(_itertools.product(left, right))
     return graph
 
 
@@ -19996,7 +19996,7 @@ def gnm_random_graph(n, m, seed=None, directed=False, *, create_using=None):
     # br-r37-c1-rustseed: NaN seed must surface nx's exact
     # ``ValueError("nan cannot be used to generate a random.Random
     # instance")`` rather than silent random.Random(NaN) acceptance.
-    if isinstance(seed, float) and math.isnan(seed):
+    if isinstance(seed, float) and _math.isnan(seed):
         raise ValueError(
             "nan cannot be used to generate a random.Random instance"
         )
@@ -20823,7 +20823,7 @@ def _rescale_betweenness_local(
         scale_source = (
             1 / ((source_scale - 1) * (pair_nodes - 1))
             if source_scale > 1
-            else math.nan
+            else _math.nan
         )
         scale_nonsource = 1 / (source_scale * (pair_nodes - 1))
     else:
@@ -20831,7 +20831,7 @@ def _rescale_betweenness_local(
         scale_source = (
             pair_nodes / ((source_scale - 1) * correction)
             if source_scale > 1
-            else math.nan
+            else _math.nan
         )
         scale_nonsource = pair_nodes / (source_scale * correction)
 
@@ -21185,7 +21185,7 @@ def all_pairs_node_connectivity(G, nbunch=None, flow_func=None):
 
     result = {node: {} for node in nodes}
     missing = object()
-    for left, right in itertools.combinations(nodes, 2):
+    for left, right in _itertools.combinations(nodes, 2):
         if left not in G:
             raise KeyError(left)
         if right not in G:
@@ -22229,7 +22229,7 @@ def is_directed(G):
 
 def _degree_sequence_stublist(degree_sequence):
     return list(
-        itertools.chain.from_iterable(
+        _itertools.chain.from_iterable(
             [node] * degree for node, degree in enumerate(degree_sequence)
         )
     )
@@ -22250,7 +22250,7 @@ def _configuration_model_local(
 
     rng = _generator_random_state(seed)
     if directed:
-        pairs = itertools.zip_longest(degree_sequence, in_degree_sequence, fillvalue=0)
+        pairs = _itertools.zip_longest(degree_sequence, in_degree_sequence, fillvalue=0)
         out_degrees, in_degrees = zip(*pairs)
         out_stubs = _degree_sequence_stublist(out_degrees)
         in_stubs = _degree_sequence_stublist(in_degrees)
@@ -22983,7 +22983,7 @@ def multi_source_dijkstra(G, sources, target=None, cutoff=None, weight="weight")
     # filters out everything (sister of the single-source fix
     # br-r37-c1-djk-cutnan).  Short-circuit before the filter.
     if cutoff is not None:
-        if not (isinstance(cutoff, float) and (math.isnan(cutoff) or cutoff == math.inf)):
+        if not (isinstance(cutoff, float) and (_math.isnan(cutoff) or cutoff == _math.inf)):
             # nx always retains the source nodes even when
             # ``cutoff < 0`` (sources have d=0 and the filter
             # ``d <= cutoff`` would drop them; nx's loop adds
@@ -23945,7 +23945,7 @@ def _validate_network_simplex_inputs(G, demand, capacity, weight):
         if not isinstance(node_attrs, dict):
             continue
         node_demand = float(node_attrs.get(demand, 0))
-        if math.isinf(node_demand):
+        if _math.isinf(node_demand):
             raise NetworkXError(f"node {node!r} has infinite demand")
         total_demand += node_demand
 
@@ -23953,7 +23953,7 @@ def _validate_network_simplex_inputs(G, demand, capacity, weight):
         if not isinstance(edge_attrs, dict):
             continue
         edge_weight = float(edge_attrs.get(weight, 0))
-        if math.isinf(edge_weight):
+        if _math.isinf(edge_weight):
             raise NetworkXError(f"edge {(u, v)!r} has infinite weight")
 
         edge_capacity = float(edge_attrs.get(capacity, float("inf")))
@@ -24927,7 +24927,7 @@ def non_randomness(G, k=None, weight="weight"):
 
     eigenvalues = np.linalg.eigvals(to_numpy_array(G, weight=weight))
     nr = float(np.real(np.sum(eigenvalues[:k])))
-    nr_rd = (nr - ((n - 2 * k) * p + k)) / math.sqrt(2 * k * p * (1 - p))
+    nr_rd = (nr - ((n - 2 * k) * p + k)) / _math.sqrt(2 * k * p * (1 - p))
     return nr, nr_rd
 
 
@@ -26530,10 +26530,10 @@ def group_betweenness_centrality(
     for group in C:
         group = set(group)
         group_score = 0.0
-        sigma_matrix = deepcopy(sigma)
-        path_matrix = deepcopy(path_betweenness)
-        next_sigma_matrix = deepcopy(sigma_matrix)
-        next_path_matrix = deepcopy(path_matrix)
+        sigma_matrix = _deepcopy(sigma)
+        path_matrix = _deepcopy(path_betweenness)
+        next_sigma_matrix = _deepcopy(sigma_matrix)
+        next_path_matrix = _deepcopy(path_matrix)
         for node in group:
             group_score += path_matrix[node][node]
             for left in group:
@@ -27355,14 +27355,14 @@ class _ReverseDirectedViewBase:
         """
         cls = self.to_directed_class()
         out = cls()
-        out.graph.update(deepcopy(self.graph))
+        out.graph.update(_deepcopy(self.graph))
         out.add_nodes_from((n, self._graph.nodes[n]) for n in self._graph)
         if self.is_multigraph():
             for u, v, key, attrs in self._edges(data=True, keys=True):
-                out.add_edges_from([(u, v, key, deepcopy(attrs))])
+                out.add_edges_from([(u, v, key, _deepcopy(attrs))])
         else:
             for u, v, attrs in self._edges(data=True):
-                out.add_edge(u, v, **deepcopy(attrs))
+                out.add_edge(u, v, **_deepcopy(attrs))
         return out
 
     def to_undirected(self, as_view=False):
@@ -27373,14 +27373,14 @@ class _ReverseDirectedViewBase:
         """
         cls = self.to_undirected_class()
         out = cls()
-        out.graph.update(deepcopy(self.graph))
+        out.graph.update(_deepcopy(self.graph))
         out.add_nodes_from((n, self._graph.nodes[n]) for n in self._graph)
         if self.is_multigraph():
             for u, v, key, attrs in self._edges(data=True, keys=True):
-                out.add_edges_from([(u, v, key, deepcopy(attrs))])
+                out.add_edges_from([(u, v, key, _deepcopy(attrs))])
         else:
             for u, v, attrs in self._edges(data=True):
-                out.add_edge(u, v, **deepcopy(attrs))
+                out.add_edge(u, v, **_deepcopy(attrs))
         return out
 
     def reverse(self, copy=True):
@@ -27674,7 +27674,7 @@ class _ReverseDirectedViewBase:
     def __deepcopy__(self, memo):
         # br-r37-c1-revvcopy-outer: see __copy__ above. Freeze the
         # deep-copied result for nx parity.
-        copied = deepcopy(self.copy(), memo)
+        copied = _deepcopy(self.copy(), memo)
         memo[id(self)] = copied
         try:
             from networkx import freeze as _nx_freeze
@@ -27824,12 +27824,12 @@ class _RevEdgeMethodViewBase:
         return self
 
     def __deepcopy__(self, memo):
-        # br-r37-c1-vcopydc (cycle 200 dual): nx's deepcopy is a
+        # br-r37-c1-vcopydc (cycle 200 dual): nx's _deepcopy is a
         # SNAPSHOT independent of subsequent G mutations.  Deep-
         # copy the underlying directed graph, build its reverse,
         # and return the matching view based on the cycle-188-style
         # subclass name.
-        new_graph = deepcopy(self._owner._graph, memo)
+        new_graph = _deepcopy(self._owner._graph, memo)
         new_reverse = new_graph.reverse(copy=False)
         cls_name = type(self).__name__
         if cls_name in ("InEdgeView", "InMultiEdgeView"):
@@ -27886,17 +27886,17 @@ class _RevDegreeViewBase:
     def __repr__(self):
         return f"{type(self).__name__}({dict(self)!r})"
 
-    # br-r37-c1-revvcopy: copy.deepcopy(R.degree) recursed into the
+    # br-r37-c1-revvcopy: copy._deepcopy(R.degree) recursed into the
     # parent graph and tripped _graph_deepcopy's no-arg ``cls()``
     # (reverse view requires a graph arg).  __copy__ returns self
     # (live wrapper, matching nx).  __deepcopy__ snapshots via
     # deep-copy of underlying graph + reverse + .degree (cycle 200
-    # dual; matches nx's snapshot semantic for deepcopy).
+    # dual; matches nx's snapshot semantic for _deepcopy).
     def __copy__(self):
         return self
 
     def __deepcopy__(self, memo):
-        new_graph = deepcopy(self._owner._graph, memo)
+        new_graph = _deepcopy(self._owner._graph, memo)
         new_reverse = new_graph.reverse(copy=False)
         return new_reverse.degree
 
@@ -27987,7 +27987,7 @@ class _ReverseAdjacencyView(Mapping):
         return self
 
     def __deepcopy__(self, memo):
-        new_graph = deepcopy(self._view._graph, memo)
+        new_graph = _deepcopy(self._view._graph, memo)
         new_reverse = new_graph.reverse(copy=False)
         # self._reverse=True means we're the .pred view (reversed
         # from .succ); False means we're the .succ view.  Reverse
@@ -28111,12 +28111,12 @@ class _ReverseEdgeView:
     # br-r37-c1-revvcopy: __copy__ returns self (live wrapper —
     # matches nx).  __deepcopy__ snapshots via deep-copy of the
     # underlying directed graph + reverse + .edges (cycle 200 dual;
-    # snapshot semantics for deepcopy).
+    # snapshot semantics for _deepcopy).
     def __copy__(self):
         return self
 
     def __deepcopy__(self, memo):
-        new_graph = deepcopy(self._view._graph, memo)
+        new_graph = _deepcopy(self._view._graph, memo)
         new_reverse = new_graph.reverse(copy=False)
         return new_reverse.edges
 
@@ -28312,7 +28312,7 @@ class NodeView(Mapping):
         return self
 
     def __deepcopy__(self, memo):
-        # br-r37-c1-vcopydc (cycle 201 follow-up): default deepcopy
+        # br-r37-c1-vcopydc (cycle 201 follow-up): default _deepcopy
         # recursively copied ``self._view`` (the subgraph view),
         # which materialises to a plain frozen Graph via
         # _FilteredGraphView.__deepcopy__ — that Graph lacks
@@ -28320,7 +28320,7 @@ class NodeView(Mapping):
         # raised AttributeError.  Snapshot via the deep-copied
         # subgraph and return its ``.nodes`` (Rust-bound NodeView,
         # ``__name__ == "NodeView"`` matching nx).
-        new_graph = deepcopy(self._view, memo)
+        new_graph = _deepcopy(self._view, memo)
         return new_graph.nodes
 
 
@@ -28471,14 +28471,14 @@ class _FilteredEdgeView:
         return self
 
     def __deepcopy__(self, memo):
-        # br-r37-c1-vcopydc (cycle 211): default deepcopy recursively
+        # br-r37-c1-vcopydc (cycle 211): default _deepcopy recursively
         # copied ``self._view`` (the subgraph view), which materialises
         # to a plain frozen Graph via _FilteredGraphView.__deepcopy__
         # — that Graph lacks ``_edges`` (the filter machinery), so
         # subsequent .edges attribute access raised AttributeError.
         # Snapshot via the deep-copied subgraph and return its
         # ``.edges`` (Rust-bound EdgeView, ``__name__`` matches nx).
-        new_graph = deepcopy(self._view, memo)
+        new_graph = _deepcopy(self._view, memo)
         return new_graph.edges
 
 
@@ -28838,9 +28838,9 @@ class _FilteredGraphView:
             return result
 
     def __deepcopy__(self, memo):
-        # br-r37-c1-fgvcopy: nx's ``copy.deepcopy`` of a subgraph
+        # br-r37-c1-fgvcopy: nx's ``copy._deepcopy`` of a subgraph
         # also returns a frozen graph.  Freeze the deep-copied result.
-        copied = deepcopy(self.copy(), memo)
+        copied = _deepcopy(self.copy(), memo)
         memo[id(self)] = copied
         try:
             from networkx import freeze as _nx_freeze
@@ -29925,12 +29925,12 @@ def _copy_preserving_insertion_order(self, as_view=False):
     br-r37-c1-3tlkj: nx.Graph.copy() is a *shallow* copy — the
     documented contract reads "if an attribute is a container, that
     container is shared by the original and the copy." Previously
-    we used ``deepcopy`` for graph/node/edge attrs, which produced
+    we used ``_deepcopy`` for graph/node/edge attrs, which produced
     independent containers (a stronger invariant than nx). Code
     relying on shared mutation of nested attrs (a documented and
     sometimes-load-bearing nx behavior) silently broke. Mirror nx's
     ``dict(...)`` / ``self.graph.update(self.graph)`` semantics.
-    Note: copy.deepcopy(G) — the Python built-in — still routes
+    Note: copy._deepcopy(G) — the Python built-in — still routes
     through ``__deepcopy__`` and remains a true deep copy.
     """
     if as_view is True:
@@ -29970,20 +29970,20 @@ def _subgraph_with_view(subgraph_impl):
 
 def _graph_to_directed_copy(self):
     result = self.to_directed_class()()
-    result.graph.update(deepcopy(self.graph))
-    result.add_nodes_from((node, deepcopy(attrs)) for node, attrs in self.nodes(data=True))
+    result.graph.update(_deepcopy(self.graph))
+    result.add_nodes_from((node, _deepcopy(attrs)) for node, attrs in self.nodes(data=True))
     for source in self:
         for target, attrs in self[source].items():
-            result.add_edge(source, target, **deepcopy(attrs))
+            result.add_edge(source, target, **_deepcopy(attrs))
     return result
 
 
 def _multigraph_to_directed_copy(self):
     result = self.to_directed_class()()
-    result.graph.update(deepcopy(self.graph))
-    result.add_nodes_from((node, deepcopy(attrs)) for node, attrs in self.nodes(data=True))
+    result.graph.update(_deepcopy(self.graph))
+    result.add_nodes_from((node, _deepcopy(attrs)) for node, attrs in self.nodes(data=True))
     result.add_edges_from(
-        (source, target, key, deepcopy(attrs))
+        (source, target, key, _deepcopy(attrs))
         for source in self
         for target, keyed_attrs in self.adj[source].items()
         for key, attrs in keyed_attrs.items()
@@ -29993,10 +29993,10 @@ def _multigraph_to_directed_copy(self):
 
 def _digraph_to_directed_copy(self):
     result = self.to_directed_class()()
-    result.graph.update(deepcopy(self.graph))
-    result.add_nodes_from((node, deepcopy(attrs)) for node, attrs in self.nodes(data=True))
+    result.graph.update(_deepcopy(self.graph))
+    result.add_nodes_from((node, _deepcopy(attrs)) for node, attrs in self.nodes(data=True))
     result.add_edges_from(
-        (source, target, deepcopy(attrs))
+        (source, target, _deepcopy(attrs))
         for source in self
         for target, attrs in self.adj[source].items()
     )
@@ -30005,10 +30005,10 @@ def _digraph_to_directed_copy(self):
 
 def _multidigraph_to_directed_copy(self):
     result = self.to_directed_class()()
-    result.graph.update(deepcopy(self.graph))
-    result.add_nodes_from((node, deepcopy(attrs)) for node, attrs in self.nodes(data=True))
+    result.graph.update(_deepcopy(self.graph))
+    result.add_nodes_from((node, _deepcopy(attrs)) for node, attrs in self.nodes(data=True))
     result.add_edges_from(
-        (source, target, key, deepcopy(attrs))
+        (source, target, key, _deepcopy(attrs))
         for source in self
         for target, keyed_attrs in self.adj[source].items()
         for key, attrs in keyed_attrs.items()
@@ -30085,18 +30085,18 @@ def _to_undirected_with_view(to_undirected_impl):
         if as_view is True:
             return _generic_undirected_graph_view(self)
         result = self.to_undirected_class()()
-        result.graph.update(deepcopy(self.graph))
+        result.graph.update(_deepcopy(self.graph))
         result.add_nodes_from(
-            (node, deepcopy(attrs)) for node, attrs in self.nodes(data=True)
+            (node, _deepcopy(attrs)) for node, attrs in self.nodes(data=True)
         )
         if self.is_multigraph():
             result.add_edges_from(
-                (u, v, key, deepcopy(attrs))
+                (u, v, key, _deepcopy(attrs))
                 for u, v, key, attrs in self.edges(keys=True, data=True)
             )
         else:
             result.add_edges_from(
-                (u, v, deepcopy(attrs)) for u, v, attrs in self.edges(data=True)
+                (u, v, _deepcopy(attrs)) for u, v, attrs in self.edges(data=True)
             )
         return result
 
@@ -30115,12 +30115,12 @@ def _directed_to_undirected_with_view(to_undirected_impl):
                 # canonicalises endpoints and diverges from nx on
                 # MultiDiGraph where an edge was added one-way).
                 result = self.to_undirected_class()()
-                result.graph.update(deepcopy(self.graph))
+                result.graph.update(_deepcopy(self.graph))
                 result.add_nodes_from(
-                    (node, deepcopy(attrs)) for node, attrs in self.nodes(data=True)
+                    (node, _deepcopy(attrs)) for node, attrs in self.nodes(data=True)
                 )
                 result.add_edges_from(
-                    (u, v, key, deepcopy(attrs))
+                    (u, v, key, _deepcopy(attrs))
                     for u in self
                     for v, keyed_attrs in self.adj[u].items()
                     for key, attrs in keyed_attrs.items()
@@ -30128,23 +30128,23 @@ def _directed_to_undirected_with_view(to_undirected_impl):
                 return result
 
             result = self.to_undirected_class()()
-            result.graph.update(deepcopy(self.graph))
+            result.graph.update(_deepcopy(self.graph))
             result.add_nodes_from(
-                (node, deepcopy(attrs)) for node, attrs in self.nodes(data=True)
+                (node, _deepcopy(attrs)) for node, attrs in self.nodes(data=True)
             )
             result.add_edges_from(
-                (u, v, deepcopy(attrs))
+                (u, v, _deepcopy(attrs))
                 for u in self
                 for v, attrs in self.adj[u].items()
             )
             return result
 
         result = self.to_undirected_class()()
-        result.graph.update(deepcopy(self.graph))
-        result.add_nodes_from((node, deepcopy(attrs)) for node, attrs in self.nodes(data=True))
+        result.graph.update(_deepcopy(self.graph))
+        result.add_nodes_from((node, _deepcopy(attrs)) for node, attrs in self.nodes(data=True))
         if self.is_multigraph():
             result.add_edges_from(
-                (u, v, key, deepcopy(attrs))
+                (u, v, key, _deepcopy(attrs))
                 for u in self
                 for v, keyed_attrs in self.adj[u].items()
                 for key, attrs in keyed_attrs.items()
@@ -30152,7 +30152,7 @@ def _directed_to_undirected_with_view(to_undirected_impl):
             )
         else:
             result.add_edges_from(
-                (u, v, deepcopy(attrs))
+                (u, v, _deepcopy(attrs))
                 for u in self
                 for v, attrs in self.adj[u].items()
                 if v in self.pred[u]
@@ -30853,7 +30853,7 @@ class _ConversionGraphViewBase:
         return (_reconstruct_filtered_view_as_copy, (self.copy(),))
 
     def __deepcopy__(self, memo):
-        copied = deepcopy(self.copy(), memo)
+        copied = _deepcopy(self.copy(), memo)
         memo[id(self)] = copied
         return copied
 
@@ -31127,7 +31127,7 @@ def _weighted_triangles_and_degree_iter_local(G, nodes=None, weight="weight"):
             neighbor_neighbors = set(G[neighbor]) - seen_neighbors
             edge_weight = normalized_weight(node, neighbor)
             for shared_neighbor in neighbor_set & neighbor_neighbors:
-                weighted_triangle_sum += math.cbrt(
+                weighted_triangle_sum += _math.cbrt(
                     edge_weight
                     * normalized_weight(neighbor, shared_neighbor)
                     * normalized_weight(shared_neighbor, node)
@@ -31144,12 +31144,12 @@ def _directed_triangles_and_degree_iter_local(G, nodes=None):
         successor_set = set(successors) - {node}
 
         directed_triangle_count = 0
-        for neighbor in itertools.chain(predecessor_set, successor_set):
+        for neighbor in _itertools.chain(predecessor_set, successor_set):
             neighbor_predecessors = set(G.pred[neighbor]) - {neighbor}
             neighbor_successors = set(G.succ[neighbor]) - {neighbor}
             directed_triangle_count += sum(
                 1
-                for third_node in itertools.chain(
+                for third_node in _itertools.chain(
                     predecessor_set & neighbor_predecessors,
                     predecessor_set & neighbor_successors,
                     successor_set & neighbor_predecessors,
@@ -31185,25 +31185,25 @@ def _directed_weighted_triangles_and_degree_iter_local(G, nodes=None, weight="we
             neighbor_predecessors = set(G.pred[neighbor]) - {neighbor}
             neighbor_successors = set(G.succ[neighbor]) - {neighbor}
             for third_node in predecessor_set & neighbor_predecessors:
-                directed_triangle_sum += math.cbrt(
+                directed_triangle_sum += _math.cbrt(
                     normalized_weight(neighbor, node)
                     * normalized_weight(third_node, node)
                     * normalized_weight(third_node, neighbor)
                 )
             for third_node in predecessor_set & neighbor_successors:
-                directed_triangle_sum += math.cbrt(
+                directed_triangle_sum += _math.cbrt(
                     normalized_weight(neighbor, node)
                     * normalized_weight(third_node, node)
                     * normalized_weight(neighbor, third_node)
                 )
             for third_node in successor_set & neighbor_predecessors:
-                directed_triangle_sum += math.cbrt(
+                directed_triangle_sum += _math.cbrt(
                     normalized_weight(neighbor, node)
                     * normalized_weight(node, third_node)
                     * normalized_weight(third_node, neighbor)
                 )
             for third_node in successor_set & neighbor_successors:
-                directed_triangle_sum += math.cbrt(
+                directed_triangle_sum += _math.cbrt(
                     normalized_weight(neighbor, node)
                     * normalized_weight(node, third_node)
                     * normalized_weight(neighbor, third_node)
@@ -31213,25 +31213,25 @@ def _directed_weighted_triangles_and_degree_iter_local(G, nodes=None, weight="we
             neighbor_predecessors = set(G.pred[neighbor]) - {neighbor}
             neighbor_successors = set(G.succ[neighbor]) - {neighbor}
             for third_node in predecessor_set & neighbor_predecessors:
-                directed_triangle_sum += math.cbrt(
+                directed_triangle_sum += _math.cbrt(
                     normalized_weight(node, neighbor)
                     * normalized_weight(third_node, node)
                     * normalized_weight(third_node, neighbor)
                 )
             for third_node in predecessor_set & neighbor_successors:
-                directed_triangle_sum += math.cbrt(
+                directed_triangle_sum += _math.cbrt(
                     normalized_weight(node, neighbor)
                     * normalized_weight(third_node, node)
                     * normalized_weight(neighbor, third_node)
                 )
             for third_node in successor_set & neighbor_predecessors:
-                directed_triangle_sum += math.cbrt(
+                directed_triangle_sum += _math.cbrt(
                     normalized_weight(node, neighbor)
                     * normalized_weight(node, third_node)
                     * normalized_weight(third_node, neighbor)
                 )
             for third_node in successor_set & neighbor_successors:
-                directed_triangle_sum += math.cbrt(
+                directed_triangle_sum += _math.cbrt(
                     normalized_weight(node, neighbor)
                     * normalized_weight(node, third_node)
                     * normalized_weight(neighbor, third_node)
@@ -32789,7 +32789,7 @@ def relaxed_caveman_graph(l, k, p, seed=None):
     # br-r37-c1-rustseed (sister): NaN seed must surface nx's
     # ``ValueError("nan cannot be used to generate a random.Random
     # instance")`` rather than silent random.Random(NaN) acceptance.
-    if isinstance(seed, float) and math.isnan(seed):
+    if isinstance(seed, float) and _math.isnan(seed):
         raise ValueError(
             "nan cannot be used to generate a random.Random instance"
         )
@@ -33047,7 +33047,7 @@ def random_geometric_graph(n, radius, dim=2, pos=None, p=2, seed=None, *, pos_na
     # br-r37-c1-rustseed: NaN seed must surface nx's
     # ``ValueError("nan cannot be used to generate a random.Random
     # instance")`` rather than be silently accepted by random.Random.
-    if isinstance(seed, float) and math.isnan(seed):
+    if isinstance(seed, float) and _math.isnan(seed):
         raise ValueError(
             "nan cannot be used to generate a random.Random instance"
         )
@@ -33085,7 +33085,7 @@ def _minkowski_distance(p1, p2, p):
         return max(abs(a - b) for a, b in zip(p1, p2))
     if p == 2:
         # Common case — keep a fast/clear codepath.
-        return math.sqrt(sum((a - b) ** 2 for a, b in zip(p1, p2)))
+        return _math.sqrt(sum((a - b) ** 2 for a, b in zip(p1, p2)))
     return sum(abs(a - b) ** p for a, b in zip(p1, p2)) ** (1.0 / p)
 
 
@@ -33128,7 +33128,7 @@ def soft_random_geometric_graph(
 
     if p_dist is None:
         def p_dist(d):
-            return math.exp(-d)
+            return _math.exp(-d)
 
     if p == float("inf"):
         # Chebyshev: filter on max(|a-b|) ≤ radius. NX computes the dist
@@ -33208,7 +33208,7 @@ def waxman_graph(
                 for j in range(i + 1, n)
             )
         else:
-            L = math.sqrt((x1 - x0) ** 2 + (y1 - y0) ** 2)
+            L = _math.sqrt((x1 - x0) ** 2 + (y1 - y0) ** 2)
         waxman2 = False
     else:
         waxman2 = True
@@ -33228,7 +33228,7 @@ def waxman_graph(
                 d = rng.random() * L
             else:
                 d = distance(positions[i], positions[j])
-            prob = beta * math.exp(-d / (alpha * L))
+            prob = beta * _math.exp(-d / (alpha * L))
             if prob_draw < prob:
                 G.add_edge(i, j)
     return G
@@ -34304,8 +34304,8 @@ def could_be_isomorphic(G1, G2, *, properties="dtc"):
             return False
 
     if "c" in properties_to_check:
-        G1_props.append(Counter(itertools.chain.from_iterable(find_cliques(G1))))
-        G2_props.append(Counter(itertools.chain.from_iterable(find_cliques(G2))))
+        G1_props.append(Counter(_itertools.chain.from_iterable(find_cliques(G1))))
+        G2_props.append(Counter(_itertools.chain.from_iterable(find_cliques(G2))))
         if not _properties_consistent():
             return False
 
@@ -34717,7 +34717,7 @@ def _tree_data_is_weakly_connected(G):
     stack = [nodes[0]]
     while stack:
         node = stack.pop()
-        neighbors = itertools.chain(G[node], G.predecessors(node))
+        neighbors = _itertools.chain(G[node], G.predecessors(node))
         for neighbor in neighbors:
             if neighbor not in seen:
                 seen.add(neighbor)
@@ -35155,7 +35155,7 @@ def _prepare_panther_paths(
         )
 
     inv_node_map = {name: index for index, name in enumerate(G)}
-    t_choose_2 = math.comb(path_length, 2)
+    t_choose_2 = _math.comb(path_length, 2)
     sample_size = int((c / eps**2) * (np.log2(t_choose_2) + 1 + np.log(1 / delta)))
     index_map = {}
 
@@ -35310,7 +35310,7 @@ def _graph_edit_exact_paths_python(
     right_nodes = list(G2.nodes())
     left_edges = list(G1.edges())
     right_edges = list(G2.edges())
-    best_cost = math.inf
+    best_cost = _math.inf
     best_mappings = []
     initial_mapping = {}
 
@@ -36373,7 +36373,7 @@ def parse_graphml(
     else:
         payload = graphml_string
 
-    graph = read_graphml(io.BytesIO(payload))
+    graph = read_graphml(_io.BytesIO(payload))
 
     if node_type is not str:
         mapping = {node: node_type(node) for node in list(graph.nodes())}
@@ -37460,7 +37460,7 @@ def _graph_atlas_records():
     if _GRAPH_ATLAS_RECORDS is not None:
         return _GRAPH_ATLAS_RECORDS
 
-    lines = gzip.decompress(base64.b64decode(_GRAPH_ATLAS_DATA_GZ)).decode().splitlines()
+    lines = _gzip.decompress(_base64.b64decode(_GRAPH_ATLAS_DATA_GZ)).decode().splitlines()
     records = []
     index = 0
     while index < len(lines):
@@ -37681,7 +37681,7 @@ def maybe_regular_expander_graph(n, d, *, create_using=None, max_tries=100, seed
             cycle.append(n - 1)
             new_edges = {
                 (u, v)
-                for u, v in itertools.pairwise(cycle + [cycle[0]])
+                for u, v in _itertools.pairwise(cycle + [cycle[0]])
                 if (u, v) not in edges and (v, u) not in edges
             }
             if len(new_edges) == n:
@@ -39109,7 +39109,7 @@ def from_numpy_array(
             for u, v in edges
         )
     elif python_type is int and graph.is_multigraph() and parallel_edges:
-        chain = itertools.chain.from_iterable
+        chain = _itertools.chain.from_iterable
         if edge_attr in [False, None]:
             triples = chain(((u, v, {}) for _ in range(A[u, v])) for (u, v) in edges)
         else:
@@ -39264,7 +39264,7 @@ def from_scipy_sparse_array(
         for u, v, weight in zip(coo.row, coo.col, coo.data)
     )
     if A.dtype.kind in ("i", "u") and graph.is_multigraph() and parallel_edges:
-        chain = itertools.chain.from_iterable
+        chain = _itertools.chain.from_iterable
         triples = chain(((u, v, 1) for _ in range(int(weight))) for (u, v, weight) in triples)
     if graph.is_multigraph() and not graph.is_directed():
         triples = ((u, v, weight) for u, v, weight in triples if u <= v)
@@ -39763,7 +39763,7 @@ def dual_barabasi_albert_graph(
     # br-r37-c1-rustseed (sister): NaN seed must surface nx's
     # ``ValueError("nan cannot be used to generate a random.Random
     # instance")`` rather than silently fall through ``random.Random(NaN)``.
-    if isinstance(seed, float) and math.isnan(seed):
+    if isinstance(seed, float) and _math.isnan(seed):
         raise ValueError(
             "nan cannot be used to generate a random.Random instance"
         )
@@ -40315,7 +40315,7 @@ def hexagonal_lattice_graph(
         graph.remove_node((n, height))
 
     if with_positions:
-        sqrt3_over_2 = math.sqrt(3) / 2
+        sqrt3_over_2 = _math.sqrt(3) / 2
         positions = {}
         for i in cols:
             for j in rows:
@@ -40371,7 +40371,7 @@ def triangular_lattice_graph(
         graph.remove_nodes_from((width, j) for j in rows[1::2])
 
     if with_positions:
-        sqrt3_over_2 = math.sqrt(3) / 2
+        sqrt3_over_2 = _math.sqrt(3) / 2
         positions = {}
         for i in cols:
             for j in rows:
@@ -40398,7 +40398,7 @@ def grid_graph(dim, periodic=False):
 
     dimensions = list(dim)
     periodic_flags = (
-        iter(periodic) if isinstance(periodic, Iterable) else itertools.repeat(periodic)
+        iter(periodic) if isinstance(periodic, Iterable) else _itertools.repeat(periodic)
     )
 
     axes = []
@@ -40435,10 +40435,10 @@ def grid_graph(dim, periodic=False):
         ]
         return values[0] if len(values) == 1 else tuple(values)
 
-    for positions in itertools.product(*index_axes):
+    for positions in _itertools.product(*index_axes):
         graph.add_node(make_node(positions))
 
-    for positions in itertools.product(*index_axes):
+    for positions in _itertools.product(*index_axes):
         left = make_node(positions)
         for output_index, axis in enumerate(output_axes):
             axis_pos = positions[output_index]
@@ -40525,7 +40525,7 @@ def lattice_reference(G, niter=5, D=None, connectivity=True, seed=None):
         lower = list(range(1, node_count))
         upper = list(range(node_count - 1, 0, -1))
         wrapped = [0] + [min(left, right) for left, right in zip(lower, upper)]
-        for v in range(math.ceil(node_count / 2)):
+        for v in range(_math.ceil(node_count / 2)):
             row = wrapped[v + 1 :] + wrapped[: v + 1]
             distance[node_count - v - 1] = row
             distance[v] = list(reversed(row))
@@ -40579,7 +40579,7 @@ def margulis_gabber_galil_graph(n, create_using=None):
     if graph.is_directed() or not graph.is_multigraph():
         raise NetworkXError("`create_using` must be an undirected multigraph.")
 
-    for x, y in itertools.product(range(n), repeat=2):
+    for x, y in _itertools.product(range(n), repeat=2):
         for u, v in (
             ((x + 2 * y) % n, y),
             ((x + (2 * y + 1)) % n, y),
@@ -40652,13 +40652,13 @@ def fast_gnp_random_graph(n, p, seed=None, directed=False, *, create_using=None,
         )
 
     graph = empty_graph(n, create_using=graph, default=default)
-    lp = math.log(1.0 - p)
+    lp = _math.log(1.0 - p)
 
     if directed:
         v = 1
         w = -1
         while v < n:
-            lr = math.log(1.0 - rng.random())
+            lr = _math.log(1.0 - rng.random())
             w = w + 1 + int(lr / lp)
             while w >= v and v < n:
                 w = w - v
@@ -40669,7 +40669,7 @@ def fast_gnp_random_graph(n, p, seed=None, directed=False, *, create_using=None,
     v = 1
     w = -1
     while v < n:
-        lr = math.log(1.0 - rng.random())
+        lr = _math.log(1.0 - rng.random())
         w = w + 1 + int(lr / lp)
         while w >= v and v < n:
             w = w - v
@@ -41137,7 +41137,7 @@ def expected_degree_graph(w, seed=None, selfloops=True):
         probability = min(sequence[target] * factor, 1)
         while target < n and probability > 0:
             if probability != 1:
-                target += math.floor(math.log(rng.random(), 1 - probability))
+                target += _math.floor(_math.log(rng.random(), 1 - probability))
             if target < n:
                 next_probability = min(sequence[target] * factor, 1)
                 if rng.random() < next_probability / probability:
