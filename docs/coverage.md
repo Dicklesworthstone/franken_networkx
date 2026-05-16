@@ -6,12 +6,12 @@
 
 | Category | Count | % | Rule |
 |----------|-------|---|------|
-| RUST_NATIVE | 13 | 1% | native extension exports from `franken_networkx._fnx` |
-| PY_WRAPPER | 842 | 94% | Python-defined exports with no runtime NetworkX dependency detected |
+| RUST_NATIVE | 2 | 0% | native extension exports from `franken_networkx._fnx` |
+| PY_WRAPPER | 730 | 95% | Python-defined exports with no runtime NetworkX dependency detected |
 | NX_DELEGATED | 0 | 0% | Python-defined exports that import or call NetworkX at runtime |
-| CLASS | 32 | 3% | public classes, exceptions, iterators |
+| CLASS | 28 | 3% | public classes, exceptions, iterators |
 | CONSTANT | 3 | 0% | public non-callable values |
-| **Total public exports** | **890** | | unique names from `franken_networkx.__all__` |
+| **Total public exports** | **763** | | unique names from `franken_networkx.__all__` |
 
 All declared public exports are classified. `--check` fails if this generated report drifts from the live module surface.
 
@@ -21,14 +21,14 @@ This ledger separates the broad public-export category from source-visible runti
 
 | Runtime route | Exports | Helper call sites | Rule |
 |---------------|---------|-------------------|------|
-| RUST_NATIVE | 13 | 0 | native extension export from `franken_networkx._fnx` |
-| PY_WRAPPER | 692 | 0 | Python-defined export with no visible NetworkX route |
-| NETWORKX_HELPER | 150 | 174 | Python-defined export with `_call_networkx_*_for_parity(...)` branches |
+| RUST_NATIVE | 2 | 0 | native extension export from `franken_networkx._fnx` |
+| PY_WRAPPER | 587 | 0 | Python-defined export with no visible NetworkX route |
+| NETWORKX_HELPER | 143 | 167 | Python-defined export with `_call_networkx_*_for_parity(...)` branches |
 | DIRECT_NETWORKX | 0 | 0 | Python-defined export that directly imports or calls NetworkX |
-| CLASS | 32 | 0 | public classes, exceptions, iterators |
+| CLASS | 28 | 0 | public classes, exceptions, iterators |
 | CONSTANT | 3 | 0 | public non-callable values |
 
-`NETWORKX_HELPER` currently covers 150 public export(s) and 174 parity-helper call site(s).
+`NETWORKX_HELPER` currently covers 143 public export(s) and 167 parity-helper call site(s).
 
 ## Upstream Divergence Ledger
 
@@ -36,9 +36,9 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 
 | Divergence state | Rows | Rule |
 |------------------|------|------|
-| native-parity | 13 | public Rust-native export; no Python fallback route detected |
+| native-parity | 2 | public Rust-native export; no Python fallback route detected |
 | wrapper-patched | 25 | public wrapper records a compatibility repair over a lower-level gap |
-| intentionally-delegated | 150 | AST-visible parity helper or direct NetworkX route |
+| intentionally-delegated | 143 | AST-visible parity helper or direct NetworkX route |
 | raw-known-gap | 2 | lower-level raw/native implementation has a documented parity gap |
 | owner-acknowledged-limitation | 2 | documented limitation is intentionally owned until native repair |
 
@@ -156,12 +156,9 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 | `gnm_random_graph` | 1 | `gnm_random_graph` |
 | `goldberg_radzik` | 1 | `goldberg_radzik` |
 | `greedy_color` | 2 | `greedy_color` |
-| `greedy_modularity_communities` | 1 | `greedy_modularity_communities` |
 | `group_degree_centrality` | 1 | `group_degree_centrality` |
-| `hamiltonian_path` | 1 | `hamiltonian_path` |
 | `harmonic_centrality` | 1 | `harmonic_centrality` |
 | `harmonic_diameter` | 1 | `harmonic_diameter` |
-| `harmonic_function` | 1 | `harmonic_function` |
 | `has_eulerian_path` | 3 | `has_eulerian_path` |
 | `has_path` | 1 | `has_path` |
 | `hyper_wiener_index` | 1 | `hyper_wiener_index` |
@@ -173,19 +170,15 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 | `is_maximal_matching` | 1 | `is_maximal_matching` |
 | `is_minimal_d_separator` | 1 | `is_minimal_d_separator` |
 | `is_perfect_matching` | 1 | `is_perfect_matching` |
-| `is_reachable` | 1 | `is_reachable` |
 | `johnson` | 1 | `johnson` |
 | `junction_tree` | 1 | `junction_tree` |
-| `k_clique_communities` | 1 | `k_clique_communities` |
 | `k_components` | 1 | `k_components` |
 | `k_edge_components` | 1 | `k_edge_components` |
 | `k_edge_subgraphs` | 1 | `k_edge_subgraphs` |
 | `katz_centrality` | 1 | `katz_centrality` |
 | `kosaraju_strongly_connected_components` | 1 | `kosaraju_strongly_connected_components` |
 | `laplacian_centrality` | 1 | `laplacian_centrality` |
-| `local_and_global_consistency` | 1 | `local_and_global_consistency` |
 | `local_bridges` | 1 | `local_bridges` |
-| `louvain_partitions` | 1 | `louvain_partitions` |
 | `max_weight_clique` | 1 | `max_weight_clique` |
 | `max_weight_matching` | 1 | `max_weight_matching` |
 | `maximum_branching` | 1 | `maximum_branching` |
@@ -212,6 +205,7 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 | `periphery` | 1 | `periphery` |
 | `predecessor` | 1 | `predecessor` |
 | `radius` | 1 | `radius` |
+| `random_reference` | 1 | `random_reference` |
 | `random_spanning_tree` | 1 | `random_spanning_tree` |
 | `shortest_path` | 3 | `shortest_path` |
 | `shortest_path_length` | 3 | `shortest_path_length` |
@@ -227,7 +221,6 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 | `single_source_dijkstra_path_length` | 1 | `single_source_dijkstra_path_length` |
 | `spectral_ordering` | 1 | `spectral_ordering` |
 | `stoer_wagner` | 1 | `stoer_wagner` |
-| `tournament_matrix` | 1 | `tournament_matrix` |
 | `transitive_closure` | 1 | `transitive_closure` |
 | `triadic_census` | 1 | `triadic_census` |
 | `trophic_differences` | 1 | `trophic_differences` |
@@ -242,35 +235,22 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 
 | Module | Count |
 |--------|-------|
-| `franken_networkx` | 786 |
-| `franken_networkx.readwrite` | 35 |
+| `franken_networkx` | 677 |
+| `franken_networkx.readwrite` | 32 |
 | `franken_networkx.drawing.nx_pylab` | 21 |
 | `franken_networkx.drawing.layout` | 15 |
-| `franken_networkx._fnx` | 13 |
 | `networkx.exception` | 12 |
-| `networkx.utils.heaps` | 3 |
 | `builtins` | 2 |
-| `networkx.algorithms.community.quality` | 1 |
+| `franken_networkx._fnx` | 2 |
 | `networkx.algorithms.tree.coding` | 1 |
 | `networkx.utils.configs` | 1 |
 
-## RUST_NATIVE exports (13)
+## RUST_NATIVE exports (2)
 
-- `clique_removal`
-- `global_node_connectivity`
-- `is_arborescence`
-- `is_bipartite`
-- `is_branching`
 - `is_empty`
 - `is_k_regular`
-- `large_clique_size`
-- `max_clique`
-- `maximum_independent_set`
-- `min_weighted_vertex_cover`
-- `number_of_isolates`
-- `number_of_spanning_arborescences`
 
-## PY_WRAPPER exports (842)
+## PY_WRAPPER exports (730)
 
 - `LCF_graph`
 - `LFR_benchmark_graph`
@@ -307,11 +287,8 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 - `approximate_current_flow_betweenness_centrality`
 - `arf_layout`
 - `articulation_points`
-- `asadpour_atsp`
 - `astar_path`
 - `astar_path_length`
-- `asyn_fluidc`
-- `asyn_lpa_communities`
 - `attr_matrix`
 - `attr_sparse_matrix`
 - `attracting_components`
@@ -319,7 +296,6 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 - `attribute_mixing_dict`
 - `attribute_mixing_matrix`
 - `average_clustering`
-- `average_degree`
 - `average_degree_connectivity`
 - `average_neighbor_degree`
 - `average_node_connectivity`
@@ -350,18 +326,12 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 - `binomial_graph`
 - `binomial_tree`
 - `bipartite_layout`
-- `boruvka_mst_edges`
 - `boundary_expansion`
-- `boykov_kolmogorov`
-- `bridge_components`
 - `bridges`
 - `bull_graph`
 - `capacity_scaling`
 - `cartesian_product`
 - `caveman_graph`
-- `cc_dot`
-- `cc_max`
-- `cc_min`
 - `cd_index`
 - `center`
 - `chain_decomposition`
@@ -370,7 +340,6 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 - `chordal_graph_cliques`
 - `chordal_graph_treewidth`
 - `chordless_cycles`
-- `christofides`
 - `chromatic_polynomial`
 - `chvatal_graph`
 - `circulant_graph`
@@ -380,8 +349,6 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 - `closeness_vitality`
 - `clustering`
 - `cn_soundarajan_hopcroft`
-- `colliders`
-- `color`
 - `combinatorial_embedding_to_pos`
 - `common_neighbor_centrality`
 - `common_neighbors`
@@ -400,7 +367,6 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 - `configuration_model`
 - `connected_caveman_graph`
 - `connected_components`
-- `connected_cuthill_mckee_ordering`
 - `connected_dominating_set`
 - `connected_double_edge_swap`
 - `connected_watts_strogatz_graph`
@@ -414,12 +380,10 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 - `could_be_isomorphic`
 - `create_empty_copy`
 - `cubical_graph`
-- `cumulative_distribution`
 - `current_flow_betweenness_centrality`
 - `current_flow_betweenness_centrality_subset`
 - `current_flow_closeness_centrality`
 - `cut_size`
-- `cuthill_mckee_ordering`
 - `cycle_basis`
 - `cycle_graph`
 - `cytoscape_data`
@@ -437,9 +401,7 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 - `degree_mixing_matrix`
 - `degree_pearson_correlation_coefficient`
 - `degree_sequence_tree`
-- `degrees`
 - `dense_gnm_random_graph`
-- `densest_subgraph`
 - `density`
 - `desargues_graph`
 - `descendants`
@@ -458,7 +420,6 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 - `dijkstra_path`
 - `dijkstra_path_length`
 - `dijkstra_predecessor_and_distance`
-- `dinitz`
 - `directed_combinatorial_laplacian_matrix`
 - `directed_configuration_model`
 - `directed_edge_swap`
@@ -495,7 +456,6 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 - `eccentricity`
 - `edge_betweenness_centrality`
 - `edge_betweenness_centrality_subset`
-- `edge_betweenness_partition`
 - `edge_bfs`
 - `edge_boundary`
 - `edge_connectivity`
@@ -507,8 +467,6 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 - `edge_load_centrality`
 - `edge_subgraph`
 - `edges`
-- `edges_equal`
-- `edmonds_karp`
 - `effective_graph_resistance`
 - `effective_size`
 - `efficiency`
@@ -517,7 +475,6 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 - `eigenvector_centrality_numpy`
 - `empty_graph`
 - `enumerate_all_cliques`
-- `eppstein_matching`
 - `equitable_color`
 - `equivalence_classes`
 - `erdos_renyi_graph`
@@ -529,7 +486,6 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 - `extended_barabasi_albert_graph`
 - `fast_could_be_isomorphic`
 - `fast_gnp_random_graph`
-- `fast_label_propagation_communities`
 - `faster_could_be_isomorphic`
 - `fiedler_vector`
 - `find_asteroidal_triple`
@@ -541,7 +497,6 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 - `find_negative_cycle`
 - `florentine_families_graph`
 - `flow_hierarchy`
-- `flow_matrix_row`
 - `floyd_warshall`
 - `floyd_warshall_numpy`
 - `floyd_warshall_predecessor_and_distance`
@@ -558,7 +513,6 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 - `from_prufer_sequence`
 - `from_scipy_sparse_array`
 - `from_sparse6_bytes`
-- `frozen`
 - `frucht_graph`
 - `fruchterman_reingold_layout`
 - `full_join`
@@ -583,7 +537,6 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 - `get_edge_attributes`
 - `get_node_attributes`
 - `girth`
-- `girvan_newman`
 - `global_efficiency`
 - `global_parameters`
 - `global_reaching_centrality`
@@ -598,12 +551,7 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 - `graph_atlas`
 - `graph_atlas_g`
 - `graph_edit_distance`
-- `graphs_equal`
-- `greedy_branching`
 - `greedy_color`
-- `greedy_modularity_communities`
-- `greedy_source_expansion`
-- `greedy_tsp`
 - `grid_2d_graph`
 - `grid_graph`
 - `group_betweenness_centrality`
@@ -612,27 +560,18 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 - `group_in_degree_centrality`
 - `group_out_degree_centrality`
 - `gutman_index`
-- `hamiltonian_path`
 - `harmonic_centrality`
 - `harmonic_diameter`
-- `harmonic_function`
 - `has_bridges`
-- `has_cycle`
 - `has_eulerian_path`
 - `has_path`
 - `havel_hakimi_graph`
 - `heawood_graph`
 - `hexagonal_lattice_graph`
-- `hide_diedges`
-- `hide_edges`
-- `hide_multidiedges`
-- `hide_multiedges`
-- `hide_nodes`
 - `hits`
 - `hkn_harary_graph`
 - `hnm_harary_graph`
 - `hoffman_singleton_graph`
-- `hopcroft_karp_matching`
 - `house_graph`
 - `house_x_graph`
 - `hyper_wiener_index`
@@ -644,7 +583,6 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 - `incidence_matrix`
 - `incremental_closeness_centrality`
 - `induced_subgraph`
-- `info`
 - `information_centrality`
 - `intersection`
 - `intersection_all`
@@ -652,10 +590,12 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 - `interval_graph`
 - `inverse_line_graph`
 - `is_aperiodic`
+- `is_arborescence`
 - `is_at_free`
 - `is_attracting_component`
 - `is_biconnected`
-- `is_bipartite_node_set`
+- `is_bipartite`
+- `is_branching`
 - `is_chordal`
 - `is_connected`
 - `is_connected_dominating_set`
@@ -674,19 +614,16 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 - `is_isomorphic`
 - `is_k_edge_connected`
 - `is_kl_connected`
-- `is_locally_k_edge_connected`
 - `is_matching`
 - `is_maximal_matching`
 - `is_minimal_d_separator`
 - `is_multigraphical`
 - `is_negatively_weighted`
-- `is_partition`
 - `is_path`
 - `is_perfect_graph`
 - `is_perfect_matching`
 - `is_planar`
 - `is_pseudographical`
-- `is_reachable`
 - `is_regular`
 - `is_regular_expander`
 - `is_semiconnected`
@@ -701,7 +638,6 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 - `is_valid_degree_sequence_havel_hakimi`
 - `is_valid_directed_joint_degree`
 - `is_valid_joint_degree`
-- `is_valid_tree_degree_sequence`
 - `is_weakly_connected`
 - `is_weighted`
 - `isolates`
@@ -710,7 +646,6 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 - `join_trees`
 - `joint_degree_graph`
 - `junction_tree`
-- `k_clique_communities`
 - `k_components`
 - `k_core`
 - `k_corona`
@@ -727,42 +662,29 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 - `katz_centrality`
 - `katz_centrality_numpy`
 - `kemeny_constant`
-- `kernighan_lin_bisection`
 - `kl_connected_subgraph`
 - `kneser_graph`
 - `kosaraju_strongly_connected_components`
 - `krackhardt_kite_graph`
-- `kruskal_mst_edges`
-- `label_propagation_communities`
 - `ladder_graph`
 - `laplacian_centrality`
 - `laplacian_matrix`
 - `laplacian_spectrum`
-- `latapy_clustering`
 - `lattice_reference`
-- `leiden_communities`
-- `leiden_partitions`
 - `les_miserables_graph`
 - `lexicographic_product`
-- `lexicographic_topological_sort`
 - `lexicographical_topological_sort`
 - `line_graph`
 - `load_centrality`
-- `local_and_global_consistency`
 - `local_bridges`
 - `local_constraint`
 - `local_efficiency`
-- `local_node_connectivity`
 - `local_reaching_centrality`
 - `lollipop_graph`
-- `louvain_communities`
-- `louvain_partitions`
 - `lowest_common_ancestor`
 - `make_clique_bipartite`
-- `make_list_of_ints`
 - `make_max_clique_graph`
 - `margulis_gabber_galil_graph`
-- `matching_dict_to_set`
 - `max_flow_min_cost`
 - `max_weight_clique`
 - `max_weight_matching`
@@ -771,20 +693,15 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 - `maximum_branching`
 - `maximum_flow`
 - `maximum_flow_value`
-- `maximum_matching`
 - `maximum_spanning_arborescence`
 - `maximum_spanning_edges`
 - `maximum_spanning_tree`
 - `maybe_regular_expander`
 - `maybe_regular_expander_graph`
-- `metric_closure`
 - `min_cost_flow`
 - `min_cost_flow_cost`
 - `min_edge_cover`
-- `min_edge_dominating_set`
-- `min_maximal_matching`
 - `min_weight_matching`
-- `min_weighted_dominating_set`
 - `minimum_branching`
 - `minimum_cut`
 - `minimum_cut_value`
@@ -794,9 +711,6 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 - `minimum_spanning_arborescence`
 - `minimum_spanning_edges`
 - `minimum_spanning_tree`
-- `minimum_st_edge_cut`
-- `minimum_st_node_cut`
-- `minimum_weight_full_matching`
 - `mixing_dict`
 - `mixing_expansion`
 - `modular_product`
@@ -808,7 +722,6 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 - `multi_source_dijkstra_path`
 - `multi_source_dijkstra_path_length`
 - `multipartite_layout`
-- `mutual_weight`
 - `mycielski_graph`
 - `mycielskian`
 - `navigable_small_world_graph`
@@ -816,7 +729,6 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 - `neighbors`
 - `network_simplex`
 - `newman_watts_strogatz_graph`
-- `no_filter`
 - `node_attribute_xy`
 - `node_boundary`
 - `node_clique_number`
@@ -827,9 +739,7 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 - `node_expansion`
 - `node_link_data`
 - `node_link_graph`
-- `node_redundancy`
 - `nodes`
-- `nodes_equal`
 - `nodes_with_selfloops`
 - `non_edges`
 - `non_neighbors`
@@ -838,12 +748,12 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 - `normalized_cut_size`
 - `normalized_laplacian_matrix`
 - `normalized_laplacian_spectrum`
-- `normalized_mutual_weight`
 - `null_graph`
 - `number_attracting_components`
 - `number_connected_components`
 - `number_of_cliques`
 - `number_of_edges`
+- `number_of_isolates`
 - `number_of_nodes`
 - `number_of_nonisomorphic_trees`
 - `number_of_selfloops`
@@ -854,7 +764,6 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 - `numeric_assortativity_coefficient`
 - `octahedral_graph`
 - `omega`
-- `one_exchange`
 - `onion_layers`
 - `optimal_edit_paths`
 - `optimize_edit_paths`
@@ -868,14 +777,11 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 - `pappus_graph`
 - `parse_adjlist`
 - `parse_edgelist`
-- `parse_gexf`
 - `parse_gml`
-- `parse_graph6`
 - `parse_graphml`
 - `parse_leda`
 - `parse_multiline_adjlist`
 - `parse_pajek`
-- `parse_sparse6`
 - `partial_duplication_graph`
 - `partition_spanning_tree`
 - `path_graph`
@@ -887,20 +793,15 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 - `planted_partition_graph`
 - `power`
 - `powerlaw_cluster_graph`
-- `powerlaw_sequence`
 - `predecessor`
 - `preferential_attachment`
 - `prefix_tree`
 - `prefix_tree_recursive`
-- `preflow_push`
-- `prim_mst_edges`
 - `projected_graph`
 - `prominent_group`
-- `pseudo_peripheral_node`
 - `quotient_graph`
 - `ra_index_soundarajan_hopcroft`
 - `radius`
-- `ramsey_R2`
 - `random_clustered_graph`
 - `random_cograph`
 - `random_degree_sequence_graph`
@@ -922,12 +823,9 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 - `random_regular_graph`
 - `random_shell_graph`
 - `random_spanning_tree`
-- `random_tournament`
-- `random_uniform_k_out_graph`
 - `random_unlabeled_rooted_forest`
 - `random_unlabeled_rooted_tree`
 - `random_unlabeled_tree`
-- `randomized_partitioning`
 - `read_adjlist`
 - `read_edgelist`
 - `read_gexf`
@@ -953,37 +851,25 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 - `resource_allocation_index`
 - `restricted_view`
 - `reverse`
-- `reverse_cuthill_mckee_ordering`
 - `reverse_view`
 - `rich_club_coefficient`
 - `ring_of_cliques`
-- `robins_alexander_clustering`
 - `rooted_product`
-- `rooted_tree_isomorphism`
 - `s_metric`
 - `scale_free_graph`
 - `schultz_index`
-- `score_sequence`
 - `second_order_centrality`
 - `sedgewick_maze_graph`
 - `selfloop_edges`
 - `set_edge_attributes`
 - `set_node_attributes`
-- `sets`
 - `shell_layout`
-- `shortest_augmenting_path`
 - `shortest_path`
 - `shortest_path_length`
 - `shortest_simple_paths`
-- `show_diedges`
-- `show_edges`
-- `show_multidiedges`
-- `show_multiedges`
-- `show_nodes`
 - `sigma`
 - `simple_cycles`
 - `simrank_similarity`
-- `simulated_annealing_tsp`
 - `single_source_all_shortest_paths`
 - `single_source_bellman_ford`
 - `single_source_bellman_ford_path`
@@ -1006,18 +892,9 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 - `spring_layout`
 - `square_clustering`
 - `star_graph`
-- `steiner_tree`
 - `stochastic_block_model`
 - `stochastic_graph`
 - `stoer_wagner`
-- `strategy_connected_sequential`
-- `strategy_connected_sequential_bfs`
-- `strategy_connected_sequential_dfs`
-- `strategy_independent_set`
-- `strategy_largest_first`
-- `strategy_random_sequential`
-- `strategy_saturation_largest_first`
-- `strategy_smallest_last`
 - `strong_product`
 - `strongly_connected_components`
 - `subgraph`
@@ -1029,7 +906,6 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 - `tadpole_graph`
 - `tensor_product`
 - `tetrahedral_graph`
-- `threshold_accepting_tsp`
 - `thresholded_random_geometric_graph`
 - `to_dict_of_dicts`
 - `to_dict_of_lists`
@@ -1047,23 +923,17 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 - `to_scipy_sparse_array`
 - `to_sparse6_bytes`
 - `to_undirected`
-- `to_vertex_cover`
 - `topological_generations`
 - `topological_sort`
-- `tournament_matrix`
 - `transitive_closure`
 - `transitive_closure_dag`
 - `transitive_reduction`
 - `transitivity`
-- `traveling_salesman_problem`
 - `tree_all_pairs_lowest_common_ancestor`
 - `tree_broadcast_center`
 - `tree_broadcast_time`
 - `tree_data`
 - `tree_graph`
-- `tree_isomorphism`
-- `treewidth_min_degree`
-- `treewidth_min_fill_in`
 - `triad_graph`
 - `triad_type`
 - `triadic_census`
@@ -1082,7 +952,6 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 - `uniform_random_intersection_graph`
 - `union`
 - `union_all`
-- `v_structures`
 - `vf2pp_all_isomorphisms`
 - `vf2pp_is_isomorphic`
 - `vf2pp_isomorphism`
@@ -1113,15 +982,13 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 - `write_pajek`
 - `write_sparse6`
 - `write_weighted_edgelist`
-- `zipf_rv`
 
 ## NX_DELEGATED exports (0)
 
 
-## CLASS exports (32)
+## CLASS exports (28)
 
 - `ArborescenceIterator`
-- `BinaryHeap`
 - `DiGraph`
 - `DiGraphMatcher`
 - `EdgePartition`
@@ -1129,7 +996,6 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 - `GraphMatcher`
 - `HasACycle`
 - `ISMAGS`
-- `MinHeap`
 - `MultiDiGraph`
 - `MultiDiGraphMatcher`
 - `MultiGraph`
@@ -1145,9 +1011,7 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 - `NetworkXUnbounded`
 - `NetworkXUnfeasible`
 - `NodeNotFound`
-- `NotAPartition`
 - `NotATree`
-- `PairingHeap`
 - `PowerIterationFailedConvergence`
 - `SpanningTreeIterator`
 - `TimeRespectingDiGraphMatcher`
