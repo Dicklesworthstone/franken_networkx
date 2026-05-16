@@ -140,7 +140,7 @@ def test_maximum_flow_value_per_algorithm_matches_networkx(
     name, edges, source, target, algorithm,
 ):
     fg, ng = _pair_directed(edges)
-    fnx_fn = getattr(fnx, algorithm)
+    fnx_fn = getattr(fnx.flow, algorithm)
     nx_fn = getattr(nx_flow, algorithm)
     try:
         nr = nx.maximum_flow_value(ng, source, target, flow_func=nx_fn)
@@ -159,7 +159,7 @@ def test_minimum_cut_value_per_algorithm_matches_networkx(
     name, edges, source, target, algorithm,
 ):
     fg, ng = _pair_directed(edges)
-    fnx_fn = getattr(fnx, algorithm)
+    fnx_fn = getattr(fnx.flow, algorithm)
     nx_fn = getattr(nx_flow, algorithm)
     try:
         nr_val, _ = nx.minimum_cut(ng, source, target, flow_func=nx_fn)
@@ -186,7 +186,7 @@ def test_all_algorithms_produce_same_max_flow_value(
     fg, _ = _pair_directed(edges)
     values = {}
     for algorithm in ALGORITHMS:
-        fnx_fn = getattr(fnx, algorithm)
+        fnx_fn = getattr(fnx.flow, algorithm)
         try:
             v = fnx.maximum_flow_value(fg, source, target, flow_func=fnx_fn)
         except (fnx.NetworkXUnbounded, nx.NetworkXUnbounded):
@@ -216,7 +216,7 @@ def test_algorithm_residual_flow_value_matches_maximum_flow_value(
     ``flow_value`` attribute equal to ``maximum_flow_value(...,
     flow_func=algo)``."""
     fg, _ = _pair_directed(edges)
-    fnx_fn = getattr(fnx, algorithm)
+    fnx_fn = getattr(fnx.flow, algorithm)
     residual = fnx_fn(fg, source, target)
     flow_value = residual.graph["flow_value"]
     expected = fnx.maximum_flow_value(fg, source, target, flow_func=fnx_fn)
@@ -288,7 +288,7 @@ def test_minimum_cut_partition_separates_source_and_target(
     ``target`` in the T-side. Together S and T must cover every node
     in the graph and be disjoint."""
     fg, _ = _pair_directed(edges)
-    fnx_fn = getattr(fnx, algorithm)
+    fnx_fn = getattr(fnx.flow, algorithm)
     cut_value, (S, T) = fnx.minimum_cut(fg, source, target, flow_func=fnx_fn)
     assert source in S, f"{name} {algorithm}: source not in S-side"
     assert target in T, f"{name} {algorithm}: target not in T-side"
@@ -312,7 +312,7 @@ def test_no_path_returns_zero_or_raises(algorithm):
     for u, v in [("s", "a"), ("b", "t")]:
         fg.add_edge(u, v, capacity=10)
         ng.add_edge(u, v, capacity=10)
-    fnx_fn = getattr(fnx, algorithm)
+    fnx_fn = getattr(fnx.flow, algorithm)
     nx_fn = getattr(nx_flow, algorithm)
     try:
         nr = nx.maximum_flow_value(ng, "s", "t", flow_func=nx_fn)
@@ -333,7 +333,7 @@ def test_infinite_capacity_path_raises_unbounded(algorithm):
     for u, v in [("s", "a"), ("a", "t")]:  # no capacity → infinite
         fg.add_edge(u, v)
         ng.add_edge(u, v)
-    fnx_fn = getattr(fnx, algorithm)
+    fnx_fn = getattr(fnx.flow, algorithm)
     nx_fn = getattr(nx_flow, algorithm)
     with pytest.raises(nx.NetworkXUnbounded):
         nx.maximum_flow_value(ng, "s", "t", flow_func=nx_fn)
@@ -393,7 +393,7 @@ def test_source_equals_target_raises_or_zero(algorithm):
     ng = nx.DiGraph()
     fg.add_edge(0, 1, capacity=5)
     ng.add_edge(0, 1, capacity=5)
-    fnx_fn = getattr(fnx, algorithm)
+    fnx_fn = getattr(fnx.flow, algorithm)
     nx_fn = getattr(nx_flow, algorithm)
     with pytest.raises(nx.NetworkXError) as nx_exc:
         nx.maximum_flow_value(ng, 0, 0, flow_func=nx_fn)
@@ -433,7 +433,7 @@ def test_minimum_cut_value_high_level_matches_networkx(
     name, edges, source, target, algorithm,
 ):
     fg, ng = _pair_directed(edges)
-    fnx_fn = getattr(fnx, algorithm)
+    fnx_fn = getattr(fnx.flow, algorithm)
     nx_fn = getattr(nx_flow, algorithm)
     try:
         nr = nx.minimum_cut_value(ng, source, target, flow_func=nx_fn)
@@ -454,7 +454,7 @@ def test_minimum_cut_value_high_level_matches_networkx(
 def test_custom_capacity_attribute_name(algorithm):
     edges = [("s", "a", 3), ("s", "b", 4), ("a", "t", 3), ("b", "t", 4)]
     fg, ng = _pair_directed(edges, capacity_attr="weight")
-    fnx_fn = getattr(fnx, algorithm)
+    fnx_fn = getattr(fnx.flow, algorithm)
     nx_fn = getattr(nx_flow, algorithm)
     fr = fnx.maximum_flow_value(fg, "s", "t", capacity="weight",
                                  flow_func=fnx_fn)
