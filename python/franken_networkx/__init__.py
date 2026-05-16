@@ -23,7 +23,7 @@ from copy import deepcopy as _deepcopy
 from enum import Enum
 from functools import wraps as _wraps
 import gzip as _gzip
-from heapq import heappop, heappush
+from heapq import heappop as _heappop, heappush as _heappush
 import io as _io
 import itertools as _itertools
 from itertools import combinations, count
@@ -9677,7 +9677,7 @@ def wiener_index(G, weight=None, *, backend=None, **backend_kwargs):
         distances = {source: 0.0}
         queue = [(0.0, next(counter), source)]
         while queue:
-            distance, _, node = heappop(queue)
+            distance, _, node = _heappop(queue)
             if distance > distances[node]:
                 continue
             for neighbor in G.neighbors(node):
@@ -9695,7 +9695,7 @@ def wiener_index(G, weight=None, *, backend=None, **backend_kwargs):
                 candidate = distance + edge_weight
                 if candidate < distances.get(neighbor, float("inf")):
                     distances[neighbor] = candidate
-                    heappush(queue, (candidate, next(counter), neighbor))
+                    _heappush(queue, (candidate, next(counter), neighbor))
         return distances
 
     if weight is None:
@@ -13191,10 +13191,10 @@ class _MinDegreeHeuristic:
 
     def best_node(self, graph):
         for node in self._update_nodes:
-            heappush(self._degreeq, (len(graph[node]), next(self._counter), node))
+            _heappush(self._degreeq, (len(graph[node]), next(self._counter), node))
 
         while self._degreeq:
-            min_degree, _, elim_node = heappop(self._degreeq)
+            min_degree, _, elim_node = _heappop(self._degreeq)
             if elim_node not in graph or len(graph[elim_node]) != min_degree:
                 continue
             if min_degree == len(graph) - 1:
@@ -20332,9 +20332,9 @@ def _single_source_dijkstra_path_basic_local(G, source, weight, cutoff=None):
     seen = {source: 0}
     counter = count()
     queue = []
-    heappush(queue, (0, next(counter), source, source))
+    _heappush(queue, (0, next(counter), source, source))
     while queue:
-        distance, _, pred, node = heappop(queue)
+        distance, _, pred, node = _heappop(queue)
         if node in distances:
             continue
         sigma[node] += sigma[pred]
@@ -20351,7 +20351,7 @@ def _single_source_dijkstra_path_basic_local(G, source, weight, cutoff=None):
                 neighbor not in seen or total_distance < seen[neighbor]
             ):
                 seen[neighbor] = total_distance
-                heappush(queue, (total_distance, next(counter), node, neighbor))
+                _heappush(queue, (total_distance, next(counter), node, neighbor))
                 sigma[neighbor] = 0.0
                 predecessors[neighbor] = [node]
             elif neighbor not in distances and total_distance == seen[neighbor]:
@@ -24136,7 +24136,7 @@ def _simple_graph_weighted_shortest_path_lengths(G, source, weight):
     queue = [(0.0, next(counter), source)]
 
     while queue:
-        distance, _, node = heappop(queue)
+        distance, _, node = _heappop(queue)
         if distance > distances[node]:
             continue
 
@@ -24145,7 +24145,7 @@ def _simple_graph_weighted_shortest_path_lengths(G, source, weight):
             candidate = distance + edge_weight
             if candidate < distances.get(neighbor, float("inf")):
                 distances[neighbor] = candidate
-                heappush(queue, (candidate, next(counter), neighbor))
+                _heappush(queue, (candidate, next(counter), neighbor))
 
     return distances
 
@@ -24391,11 +24391,11 @@ class _KernighanLinHeap:
         if current is not None and value > current and not allow_increase:
             return
         self._values[key] = value
-        heappush(self._heap, (value, next(self._counter), key))
+        _heappush(self._heap, (value, next(self._counter), key))
 
     def pop(self):
         while self._heap:
-            value, _, key = heappop(self._heap)
+            value, _, key = _heappop(self._heap)
             current = self._values.get(key)
             if current is None or current != value:
                 continue
@@ -40453,15 +40453,15 @@ def directed_havel_hakimi_graph(in_deg_sequence, out_deg_sequence, create_using=
         sumout += out_degree
         maxin = max(maxin, in_degree)
         if in_degree > 0:
-            heappush(stubheap, (-out_degree, -in_degree, node))
+            _heappush(stubheap, (-out_degree, -in_degree, node))
         elif out_degree > 0:
-            heappush(zeroheap, (-out_degree, node))
+            _heappush(zeroheap, (-out_degree, node))
     if sumin != sumout:
         raise NetworkXError("Invalid degree sequences. Sequences must have equal sums.")
 
     modified = [(0, 0, 0)] * (maxin + 1)
     while stubheap:
-        freeout, freein, target = heappop(stubheap)
+        freeout, freein, target = _heappop(stubheap)
         freein *= -1
         if freein > len(stubheap) + len(zeroheap):
             raise NetworkXError("Non-digraphical integer sequence")
@@ -40469,10 +40469,10 @@ def directed_havel_hakimi_graph(in_deg_sequence, out_deg_sequence, create_using=
         modified_len = 0
         for _ in range(freein):
             if zeroheap and (not stubheap or stubheap[0][0] > zeroheap[0][0]):
-                stubout, source = heappop(zeroheap)
+                stubout, source = _heappop(zeroheap)
                 stubin = 0
             else:
-                stubout, stubin, source = heappop(stubheap)
+                stubout, stubin, source = _heappop(stubheap)
             if stubout == 0:
                 raise NetworkXError("Non-digraphical integer sequence")
             graph.add_edge(source, target)
@@ -40483,11 +40483,11 @@ def directed_havel_hakimi_graph(in_deg_sequence, out_deg_sequence, create_using=
         for i in range(modified_len):
             stub = modified[i]
             if stub[1] < 0:
-                heappush(stubheap, stub)
+                _heappush(stubheap, stub)
             else:
-                heappush(zeroheap, (stub[0], stub[2]))
+                _heappush(zeroheap, (stub[0], stub[2]))
         if freeout < 0:
-            heappush(zeroheap, (freeout, target))
+            _heappush(zeroheap, (freeout, target))
 
     return graph
 
