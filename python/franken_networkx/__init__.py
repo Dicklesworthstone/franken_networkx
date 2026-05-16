@@ -5902,6 +5902,12 @@ def average_shortest_path_length(G, weight=None, method=None):
 
 
 def dijkstra_path(G, source, target, weight="weight"):
+    """Return the shortest weighted path from ``source`` to ``target`` in ``G``.
+
+    Mirrors ``networkx.dijkstra_path``: returns a list of nodes along
+    the shortest path. Raises ``NetworkXNoPath`` if no path exists and
+    ``NodeNotFound`` if ``source`` is missing.
+    """
     # br-r37-c1-phy2p: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
     # br-r37-c1-c4agn: hash-check for nx-shaped TypeError parity.
@@ -14252,6 +14258,11 @@ def predecessor(G, source, target=None, cutoff=None, return_seen=None):
 
 
 def dijkstra_path_length(G, source, target, weight="weight"):
+    """Return the shortest weighted path length from ``source`` to ``target``.
+
+    Mirrors ``networkx.dijkstra_path_length``. Raises ``NetworkXNoPath``
+    if no path exists.
+    """
     if _should_delegate_dijkstra_to_networkx(G, weight):
         return _call_networkx_for_parity(
             "dijkstra_path_length", G, source, target, weight=weight
@@ -14386,6 +14397,12 @@ def _reorder_by_distance(dists, *, G=None, source=None):
 
 
 def single_source_dijkstra(G, source, target=None, cutoff=None, weight="weight"):
+    """Single-source weighted shortest paths from ``source``.
+
+    Returns ``(distances, paths)`` dicts keyed by node. If ``target`` is
+    provided, returns the ``(distance, path)`` to that specific target.
+    Mirrors ``networkx.single_source_dijkstra``.
+    """
     # br-r37-c1-ybw1s: nx-shaped TypeError on unhashable source.
     hash(source)
     # br-dijkignoreweight: the Rust single_source_dijkstra silently
@@ -14426,6 +14443,11 @@ def single_source_dijkstra(G, source, target=None, cutoff=None, weight="weight")
 
 
 def single_source_dijkstra_path(G, source, cutoff=None, weight="weight"):
+    """Single-source weighted shortest paths from ``source``.
+
+    Returns a dict ``{target: path}`` keyed by every reachable node.
+    Mirrors ``networkx.single_source_dijkstra_path``.
+    """
     # br-r37-c1-ybw1s: nx-shaped TypeError on unhashable source.
     hash(source)
     # br-dijkignoreweight: same as single_source_dijkstra.
@@ -14438,6 +14460,11 @@ def single_source_dijkstra_path(G, source, cutoff=None, weight="weight"):
 
 
 def single_source_dijkstra_path_length(G, source, cutoff=None, weight="weight"):
+    """Single-source weighted shortest path lengths from ``source``.
+
+    Returns a dict ``{target: distance}``. Mirrors
+    ``networkx.single_source_dijkstra_path_length``.
+    """
     # br-r37-c1-ybw1s: nx-shaped TypeError on unhashable source.
     hash(source)
     # br-dijkignoreweight: delegate weighted inputs to nx.
