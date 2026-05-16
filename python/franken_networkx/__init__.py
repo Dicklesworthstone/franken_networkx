@@ -5981,6 +5981,14 @@ def shortest_path(
     G, source=None, target=None, weight=None, method="dijkstra",
     *, backend=None, **backend_kwargs,
 ):
+    """Compute shortest paths in ``G``.
+
+    With both ``source`` and ``target``: returns a single path. With only one,
+    returns a dict keyed by the other endpoint. With neither, returns a
+    dict-of-dicts of all pairs. ``method`` selects the weighted algorithm
+    (``"dijkstra"`` or ``"bellman-ford"``); set ``weight=None`` for unweighted
+    BFS. Mirrors ``networkx.shortest_path``.
+    """
     # br-r37-c1-spbk: nx adds `backend=None, **backend_kwargs` to all
     # dispatchable functions via the @_dispatchable decorator. Drop-in
     # code that does `nx.shortest_path(G, ..., backend='networkx')`
@@ -6125,6 +6133,11 @@ def shortest_path_length(G, source=None, target=None, weight=None, method="dijks
 
 
 def has_path(G, source, target):
+    """Return ``True`` if a path exists between ``source`` and ``target``.
+
+    Equivalent to checking whether ``target`` is reachable from ``source`` in
+    ``G``. Mirrors ``networkx.has_path``.
+    """
     # br-r37-c1-rg8jh: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
     if _path_query_has_missing_nodes(G, source=source, target=target):
@@ -14172,6 +14185,11 @@ def _single_target_shortest_path_neighbors(G, node):
 
 
 def single_target_shortest_path_length(G, target, cutoff=None):
+    """Reverse BFS lengths to ``target`` from every other node.
+
+    Returns a dict ``{source: distance}`` of hop counts. ``cutoff`` truncates
+    the search depth. Mirrors ``networkx.single_target_shortest_path_length``.
+    """
     if target not in G:
         raise NodeNotFound(f"Target {target} is not in G")
     if cutoff is None:
@@ -14200,6 +14218,11 @@ def single_target_shortest_path_length(G, target, cutoff=None):
 
 
 def single_target_shortest_path(G, target, cutoff=None):
+    """Reverse BFS paths to ``target`` from every other node.
+
+    Returns a dict ``{source: path-list}`` where each path ends at ``target``.
+    Mirrors ``networkx.single_target_shortest_path``.
+    """
     if target not in G:
         raise NodeNotFound(f"Target {target} not in G")
     if cutoff is None:
@@ -14246,6 +14269,13 @@ def _ordered_predecessor_nodes_and_levels(G, source, predecessor_map):
 
 
 def predecessor(G, source, target=None, cutoff=None, return_seen=None):
+    """BFS-predecessor map for shortest paths from ``source``.
+
+    Returns a dict ``{node: [predecessors]}`` where each list holds every
+    BFS-predecessor of ``node`` on a shortest path from ``source``. If
+    ``return_seen=True``, also returns the per-node BFS depth dict. Mirrors
+    ``networkx.predecessor``.
+    """
     # br-r37-c1-pred-dir: nx's ``predecessor`` (shortest-path BFS
     # predecessor map) supports directed graphs; fnx's Rust binding
     # rejects them with NetworkXNotImplemented("not implemented for
