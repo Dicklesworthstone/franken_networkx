@@ -24,17 +24,16 @@ import franken_networkx as _fnx
 def label_propagation_communities(G, *, backend=None, **backend_kwargs):
     """Yield community sets determined by asynchronous label propagation.
 
-    Native fnx implementation: dispatches to the same Rust binding that
-    ``franken_networkx.label_propagation_communities`` uses, returning
-    a generator-of-sets matching ``networkx.algorithms.community``'s
-    documented contract.
-
-    br-r37-c1-bk-submod: backend dispatch surface match nx.
+    br-r37-c1-cy2me: re-routes to nx's algorithm against the converted
+    graph. Previously called ``_fnx.label_propagation_communities``
+    (top-level), which was hidden in br-r37-c1-02sx1.
     """
     _fnx._validate_backend_dispatch_keywords(
         "label_propagation_communities", backend, backend_kwargs
     )
-    return _fnx.label_propagation_communities(G)
+    return _nx_community.label_propagation_communities(
+        _fnx._networkx_graph_for_parity(G)
+    )
 
 
 def louvain_communities(
@@ -47,26 +46,15 @@ def louvain_communities(
 ):
     """Find communities via the Louvain algorithm.
 
-    br-r37-c1-louvainsubmod: ``fnx.community.louvain_communities``
-    previously re-exported nx's function directly via the
-    ``from networkx.algorithms.community import *`` line. Calling
-    ``nx.community.louvain_communities`` on an fnx Graph (no
-    conversion to a real nx Graph) produced WRONG partitions —
-    nx's multi-level Louvain returns trivial 2-cluster partition
-    on Karate (modularity ~0.40) instead of the canonical 4-cluster
-    answer (modularity ~0.44).  Direct call via the top-level
-    ``fnx.louvain_communities`` correctly converts and returns
-    the 4-cluster answer.  Drop-in code using the canonical
-    submodule path (``fnx.community.louvain_communities``) silently
-    got the wrong answer.
-
-    Fix: route this submodule entry-point through the top-level
-    ``franken_networkx.louvain_communities`` (which goes through
-    ``_louvain_impl`` → ``_call_networkx_submodule_for_parity`` →
-    ``_fnx_to_nx`` conversion).
+    br-r37-c1-louvainsubmod / br-r37-c1-cy2me: nx's multi-level
+    Louvain produces wrong partitions when called on an fnx Graph
+    without conversion. Convert via ``_networkx_graph_for_parity``
+    then dispatch through nx.algorithms.community.louvain_communities.
+    Previously this routed through ``_fnx.louvain_communities``
+    (top-level), which was hidden in br-r37-c1-uwm5v.
     """
-    return _fnx.louvain_communities(
-        G,
+    return _nx_community.louvain_communities(
+        _fnx._networkx_graph_for_parity(G),
         weight=weight,
         resolution=resolution,
         threshold=threshold,

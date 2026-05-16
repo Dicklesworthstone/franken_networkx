@@ -257,9 +257,12 @@ def _same(name: str) -> Callable[[Any, Any], Any]:
 
 def _community_call(name: str, **kwargs: Any) -> Callable[[Any, Any], Any]:
     def call(module: Any, graph: Any) -> Any:
-        if module is nx:
-            return getattr(nx.community, name)(graph, **kwargs)
-        return getattr(module, name)(graph, **kwargs)
+        # br-r37-c1-cy2me: community helpers (louvain_communities,
+        # label_propagation_communities, greedy_modularity_communities,
+        # ...) live only at <module>.community.X. fnx mirrored nx's
+        # namespacing in br-r37-c1-uwm5v; reach for the namespaced form
+        # on both libs.
+        return getattr(module.community, name)(graph, **kwargs)
 
     return call
 

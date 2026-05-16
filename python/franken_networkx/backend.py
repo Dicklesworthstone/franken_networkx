@@ -302,9 +302,18 @@ _SUPPORTED_ALGORITHMS = {
     # so ``fnx.community.modularity`` stays AttributeError (matching nx's namespace
     # — nx exposes modularity only at nx.community.modularity).
     "modularity": fnx._modularity_backend_impl,
-    "label_propagation_communities": fnx.community.label_propagation_communities,
-    "asyn_lpa_communities": fnx.community.asyn_lpa_communities,
-    "greedy_modularity_communities": fnx.community.greedy_modularity_communities,
+    # br-r37-c1-cy2me: These three community algorithms previously
+    # registered to top-level fnx functions that have since been
+    # hidden (br-r37-c1-02sx1 / br-r37-c1-uwm5v). Routing through
+    # fnx.community.X here causes recursion (the nx dispatcher
+    # ping-pongs between nx → fnx → nx) because the submodule entry
+    # resolves to the same nx function via __getattr__ fallback.
+    # ``label_propagation_communities`` has a native fnx-side
+    # conversion+dispatch wrapper in community.py — but registering
+    # it in the dispatch table would still recurse on nx-side calls
+    # that don't go through that wrapper. Drop the entries entirely
+    # and let the nx dispatcher fall through to its pure-Python
+    # implementation.
     # Attribute setters / getters. br-r37-c1-l2j31: nx flags
     # ``set_*_attributes`` as mutation-preserving so the dispatcher
     # refuses to auto-convert fnx graphs to nx (the mutation would
