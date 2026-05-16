@@ -11633,50 +11633,10 @@ def is_directed_acyclic_graph(G):
     return _raw_is_directed_acyclic_graph(G)
 
 
-def has_cycle(G):
-    """Return True if the directed graph G has at least one cycle.
-
-    br-r37-c1-2fsuy: native implementation via
-    ``not is_directed_acyclic_graph(G)``. A directed graph contains a
-    cycle iff it is not a DAG; ``is_directed_acyclic_graph`` is already
-    a native Rust kernel, so this avoids the nx fallback.
-    nx.algorithms.dag.has_cycle raises NetworkXNotImplemented on
-    undirected input; mirror that contract.
-    """
-    if not G.is_directed():
-        raise NetworkXNotImplemented("not implemented for undirected type")
-    return not is_directed_acyclic_graph(G)
 
 
-def colliders(G):
-    """Yield (parent1, child, parent2) collider triples.
-
-    br-r37-c1-n23aj: native implementation. nx.algorithms.dag.colliders
-    yields ``(p1, node, p2)`` for every ``combinations(G.predecessors(node), 2)``
-    on every node. Cyclic graphs are intentionally allowed (the docstring
-    notes the algorithm works on them; users opt into DAG-only via an
-    explicit is_directed_acyclic_graph check).
-    """
-    if not G.is_directed():
-        raise NetworkXNotImplemented("not implemented for undirected type")
-    for node in G.nodes:
-        preds = list(G.predecessors(node))
-        for i, p1 in enumerate(preds):
-            for p2 in preds[i + 1:]:
-                yield (p1, node, p2)
 
 
-def v_structures(G):
-    """Yield (parent1, child, parent2) v-structures (unmarried colliders).
-
-    br-r37-c1-n23aj: native implementation. A v-structure is a collider
-    whose parents are not adjacent (neither directed edge between them).
-    """
-    if not G.is_directed():
-        raise NetworkXNotImplemented("not implemented for undirected type")
-    for p1, c, p2 in colliders(G):
-        if not (G.has_edge(p1, p2) or G.has_edge(p2, p1)):
-            yield (p1, c, p2)
 
 
 def mutual_weight(G, u, v, weight=None):
@@ -11708,20 +11668,8 @@ def normalized_mutual_weight(G, u, v, norm=sum, weight=None):
     return 0 if scale == 0 else mutual_weight(G, u, v, weight) / scale
 
 
-def harmonic_function(G, max_iter=30, label_name="label"):
-    """Node classification by harmonic-function label propagation."""
-    return _call_networkx_submodule_for_parity(
-        "algorithms.node_classification", "harmonic_function", G,
-        max_iter=max_iter, label_name=label_name,
-    )
 
 
-def local_and_global_consistency(G, alpha=0.99, max_iter=30, label_name="label"):
-    """Node classification by local-and-global-consistency label propagation."""
-    return _call_networkx_submodule_for_parity(
-        "algorithms.node_classification", "local_and_global_consistency", G,
-        alpha=alpha, max_iter=max_iter, label_name=label_name,
-    )
 
 
 def random_uniform_k_out_graph(n, k, self_loops=True, with_replacement=True, seed=None):
@@ -12008,21 +11956,6 @@ def topological_sort(G):
         )
 
 
-def lexicographic_topological_sort(G, key=None):
-    """Yield nodes in lexicographic topological order.
-
-    Raises ``NetworkXUnfeasible`` on a cyclic graph for nx parity
-    (br-zzcm7).
-    """
-    try:
-        if key is None:
-            yield from _raw_lexicographic_topological_sort(G)
-        else:
-            yield from _raw_lexicographic_topological_sort(G, key)
-    except HasACycle as exc:
-        raise NetworkXUnfeasible(
-            "Graph contains a cycle or graph changed during iteration"
-        ) from exc
 
 
 def topological_generations(G):
@@ -20701,14 +20634,8 @@ def greedy_tsp(G, weight="weight", source=None):
 
 
 
-def treewidth_min_degree(G):
-    """Approximate treewidth + tree decomposition via the min-degree heuristic."""
-    return _call_networkx_approximation_for_parity("treewidth_min_degree", G)
 
 
-def treewidth_min_fill_in(G):
-    """Approximate treewidth + tree decomposition via the min-fill-in heuristic."""
-    return _call_networkx_approximation_for_parity("treewidth_min_fill_in", G)
 
 
 
@@ -22110,14 +22037,6 @@ def all_pairs_lowest_common_ancestor(G, pairs=None, *, backend=None, **backend_k
     return generate_lca_from_pairs(G, pairs)
 
 
-def root_to_leaf_paths(G):
-    """Yields root-to-leaf paths in a directed acyclic graph."""
-    roots = [v for v, d in G.in_degree if d == 0]
-    leaves = [v for v, d in G.out_degree if d == 0]
-
-    for root in roots:
-        for leaf in leaves:
-            yield from all_simple_paths(G, root, leaf)
 
 
 def prefix_tree(paths):
@@ -22194,7 +22113,9 @@ def dag_to_branching(G):
     if not is_directed_acyclic_graph(G):
         raise HasACycle("dag_to_branching is only defined for acyclic graphs")
 
-    paths = root_to_leaf_paths(G)
+    # br-r37-c1-hoqqp: ``root_to_leaf_paths`` is no longer top-level;
+    # reach for the canonical nx location.
+    paths = _nx.algorithms.dag.root_to_leaf_paths(G)
     B = prefix_tree(paths)
     # Remove the synthetic root (0) AND the NIL terminal (-1) added by
     # prefix_tree so the returned branching matches nx's exactly
@@ -41001,13 +40922,8 @@ __all__ = [
     "dag_longest_path_length",
     "descendants",
     "is_directed_acyclic_graph",
-    "has_cycle",
-    "colliders",
-    "v_structures",
     "mutual_weight",
     "normalized_mutual_weight",
-    "harmonic_function",
-    "local_and_global_consistency",
     "random_uniform_k_out_graph",
     "reverse_cuthill_mckee_ordering",
     "cuthill_mckee_ordering",
@@ -41020,7 +40936,6 @@ __all__ = [
     "MinHeap",
     "PairingHeap",
     "matching_dict_to_set",
-    "lexicographic_topological_sort",
     "topological_sort",
     "topological_generations",
     # Algorithms — graph isomorphism
@@ -41037,8 +40952,6 @@ __all__ = [
     "large_clique_size",
     "spanner",
     "greedy_tsp",
-    "treewidth_min_degree",
-    "treewidth_min_fill_in",
     # Algorithms — tree recognition
     "is_arborescence",
     "is_branching",
@@ -42082,6 +41995,20 @@ def __getattr__(name):
         "label_propagation_communities", "k_clique_communities",
         "greedy_source_expansion", "kernighan_lin_bisection",
         "is_partition", "is_bipartite_node_set",
+    ):
+        raise AttributeError(
+            f"module 'networkx' has no attribute '{name}'"
+        )
+    # br-r37-c1-hoqqp: 9 dag / treewidth / node_classification
+    # helpers at nx.algorithms.{dag,approximation,node_classification}.X
+    # — none at nx top level. fnx exposed all 9 — removed for
+    # drop-in parity. ``lexicographic_topological_sort`` is fnx-only
+    # (nx never exposed it). Reachable via fnx.algorithms.X.
+    if name in (
+        "colliders", "v_structures", "has_cycle",
+        "lexicographic_topological_sort", "root_to_leaf_paths",
+        "treewidth_min_degree", "treewidth_min_fill_in",
+        "harmonic_function", "local_and_global_consistency",
     ):
         raise AttributeError(
             f"module 'networkx' has no attribute '{name}'"
