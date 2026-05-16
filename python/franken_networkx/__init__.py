@@ -1289,7 +1289,7 @@ class _DiGraphEdgeView:
         # logic. Match nx's _Set semantics: equal to another view of
         # the same edges OR any collections.abc.Set with matching
         # contents. NOT equal to lists/tuples (parity with nx).
-        from collections.abc import _Set as _Set
+        from collections.abc import Set as _Set
         if isinstance(other, _DiGraphEdgeView):
             return set(self) == set(other)
         if isinstance(other, _Set):
@@ -1573,7 +1573,7 @@ class _MultiGraphEdgeView:
         # br-r37-c1-eveq: see _DiGraphEdgeView.__eq__. nx's
         # MultiEdgeView inherits from _Set; lock content-based
         # equality matching nx exactly.
-        from collections.abc import _Set as _Set
+        from collections.abc import Set as _Set
         if isinstance(other, _MultiGraphEdgeView):
             return set(self) == set(other)
         if isinstance(other, _Set):
@@ -1778,7 +1778,7 @@ class _MultiDiGraphEdgeView:
 
     def __eq__(self, other):
         # br-r37-c1-eveq: see _DiGraphEdgeView.__eq__.
-        from collections.abc import _Set as _Set
+        from collections.abc import Set as _Set
         if isinstance(other, _MultiDiGraphEdgeView):
             return set(self) == set(other)
         if isinstance(other, _Set):
@@ -4067,7 +4067,7 @@ def _node_view_eq(self, other):
     `object.__eq__` (identity), so two view accesses returned False
     even when the node-attr content matched. Match nx's _Mapping
     semantics exactly via dict equality."""
-    from collections.abc import _Mapping as _Mapping
+    from collections.abc import Mapping as _Mapping
     if type(other) in _ALL_NODE_VIEW_TYPES:
         return dict(self) == dict(other)
     if isinstance(other, _Mapping):
@@ -4751,7 +4751,7 @@ def _graph_deepcopy(self, memo=None):
     original graph's attrs too. Re-implement at Python level by
     constructing a fresh graph and deep-copying every attrs dict.
     """
-    from copy import _deepcopy as _dc
+    from copy import deepcopy as _dc
 
     cls = type(self)
     out = cls()
@@ -5008,7 +5008,7 @@ class _DiEdgeMethodView:
         # Match nx's _Set-inheritance semantics exactly: equal only to
         # another set-like view of the same edges. Lists / tuples are
         # NOT equal to a view (nx's `view == [...]` returns False).
-        from collections.abc import _Set as _Set
+        from collections.abc import Set as _Set
         if isinstance(other, _DiEdgeMethodView):
             return set(self) == set(other)
         if isinstance(other, _Set):
@@ -5058,7 +5058,7 @@ class _DiEdgeMethodView:
     def __le__(self, other):
         if isinstance(other, _DiEdgeMethodView):
             return set(self) <= set(other)
-        from collections.abc import _Set as _Set
+        from collections.abc import Set as _Set
         if isinstance(other, _Set):
             return set(self) <= set(other)
         return NotImplemented
@@ -5066,7 +5066,7 @@ class _DiEdgeMethodView:
     def __lt__(self, other):
         if isinstance(other, _DiEdgeMethodView):
             return set(self) < set(other)
-        from collections.abc import _Set as _Set
+        from collections.abc import Set as _Set
         if isinstance(other, _Set):
             return set(self) < set(other)
         return NotImplemented
@@ -5074,7 +5074,7 @@ class _DiEdgeMethodView:
     def __ge__(self, other):
         if isinstance(other, _DiEdgeMethodView):
             return set(self) >= set(other)
-        from collections.abc import _Set as _Set
+        from collections.abc import Set as _Set
         if isinstance(other, _Set):
             return set(self) >= set(other)
         return NotImplemented
@@ -5082,7 +5082,7 @@ class _DiEdgeMethodView:
     def __gt__(self, other):
         if isinstance(other, _DiEdgeMethodView):
             return set(self) > set(other)
-        from collections.abc import _Set as _Set
+        from collections.abc import Set as _Set
         if isinstance(other, _Set):
             return set(self) > set(other)
         return NotImplemented
@@ -7867,7 +7867,7 @@ def _restore_branching_edge_attrs(result, source, attr_name, default, preserve_a
     When ``preserve_attrs`` is False, only the named weight attribute
     is copied (matching nx's contract: non-weight attrs are dropped).
     """
-    from copy import _deepcopy
+    from copy import deepcopy as _deepcopy
 
     for u, v in list(result.edges()):
         result[u][v].clear()
@@ -8684,7 +8684,7 @@ from franken_networkx._fnx import (
 
 def _py_bfs_edges(G, source, depth_limit=None, sort_neighbors=None, reverse=False):
     """Python-level BFS with sort_neighbors support."""
-    from collections import _deque
+    from collections import deque as _deque
 
     visited = {source}
     queue = _deque([(source, 0)])
@@ -9264,7 +9264,7 @@ def dfs_successors(G, source=None, depth_limit=None, *, sort_neighbors=None):
     # br-r37-c1-eghxq: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
     try:
-        from collections import _defaultdict
+        from collections import defaultdict as _defaultdict
         succs = _defaultdict(list)
         for u, v in dfs_edges(G, source=source, depth_limit=depth_limit, sort_neighbors=sort_neighbors):
             succs[u].append(v)
@@ -11679,7 +11679,7 @@ def ancestors(G, source):
         raise NetworkXError(_ancestors_descendants_missing_node_msg(G, source))
     if G.is_directed():
         return set(_raw_ancestors(G, source))
-    from collections import _deque
+    from collections import deque as _deque
     seen = {source}
     q = _deque([source])
     while q:
@@ -11708,7 +11708,7 @@ def descendants(G, source):
         raise NetworkXError(_ancestors_descendants_missing_node_msg(G, source))
     if G.is_directed():
         return set(_raw_descendants(G, source))
-    from collections import _deque
+    from collections import deque as _deque
     seen = {source}
     q = _deque([source])
     while q:
@@ -11734,7 +11734,7 @@ def topological_sort(G):
     """
     if not G.is_directed():
         raise NetworkXError("Topological sort not defined on undirected graphs.")
-    from collections import _deque
+    from collections import deque as _deque
 
     # Count parallel edges as separate in-degree increments for
     # MultiDiGraph parity, then decrement once per outgoing edge (not
@@ -15545,7 +15545,7 @@ def local_bridges(G, with_span=True, weight=None):
             if with_span:
                 # Compute shortest path from u to v not using edge (u,v).
                 # BFS/Dijkstra from u, but skip the direct u->v hop.
-                from collections import _deque
+                from collections import deque as _deque
 
                 if weight is None:
                     # Unweighted BFS avoiding direct (u,v) edge.
@@ -18281,7 +18281,7 @@ def kneser_graph(n, k):
     or k=0 (returning degenerate graphs with empty-tuple nodes). Add
     nx-compatible validation so invalid inputs fail fast.
     """
-    from itertools import _combinations
+    from itertools import combinations as _combinations
 
     if n <= 0:
         raise NetworkXError("n should be greater than zero")
@@ -20703,7 +20703,7 @@ def snap_aggregation(
     -------
     Graph or DiGraph
     """
-    from collections import _Counter, _defaultdict
+    from collections import Counter as _Counter, defaultdict as _defaultdict
 
     if isinstance(node_attributes, str):
         node_attributes = [node_attributes]
@@ -20954,8 +20954,8 @@ def identified_nodes(
 
 def inverse_line_graph(G):
     """Return an inverse line graph, when it exists."""
-    from collections import _defaultdict
-    from itertools import _combinations
+    from collections import defaultdict as _defaultdict
+    from itertools import combinations as _combinations
 
     def _triangles_local(graph, edge):
         u, v = edge
@@ -25834,7 +25834,7 @@ def eulerize(G):
     Finds odd-degree nodes, computes shortest paths between all pairs of them,
     finds minimum weight matching, and duplicates matched-path edges.
     """
-    from itertools import _combinations
+    from itertools import combinations as _combinations
 
     if len(G) == 0:
         raise NetworkXPointlessConcept("Cannot Eulerize null graph")
@@ -25886,7 +25886,7 @@ def moral_graph(G):
     fnx fell through to G.predecessors() which raises AttributeError
     on undirected. Add the explicit type guard.
     """
-    from itertools import _combinations
+    from itertools import combinations as _combinations
 
     if not G.is_directed():
         raise NetworkXNotImplemented("not implemented for undirected type")
@@ -26715,7 +26715,7 @@ class _ReverseAdjacencyView(_Mapping):
         # Recursively unwrap inner mapping values (per-key dicts on
         # MultiGraph wrap as AtlasView) so the repr matches nx's
         # plain-dict format.
-        from collections.abc import _Mapping as _Mapping
+        from collections.abc import Mapping as _Mapping
         def _unwrap(v):
             if isinstance(v, _Mapping):
                 return {k2: _unwrap(v2) for k2, v2 in v.items()}
@@ -26803,7 +26803,7 @@ class _ReverseEdgeView:
     # br-r37-c1-{fbtk0, s89yr, ovudh}; identical fix shape on a
     # different wrapper class.
     def __eq__(self, other):
-        from collections.abc import _Set as _Set
+        from collections.abc import Set as _Set
         if isinstance(other, _ReverseEdgeView):
             return set(self) == set(other)
         if isinstance(other, _Set):
@@ -27164,7 +27164,7 @@ class _FilteredEdgeView:
         # identity comparison which returned False. nx's
         # filtered EdgeView is set-like; match its content-based
         # equality across all set-like types.
-        from collections.abc import _Set as _Set
+        from collections.abc import Set as _Set
         if isinstance(other, _FilteredEdgeView):
             return set(self) == set(other)
         if isinstance(other, _Set):
@@ -29237,7 +29237,7 @@ class _ConversionEdgeView:
         return set(self).isdisjoint(other)
 
     def __eq__(self, other):
-        from collections.abc import _Set as _Set
+        from collections.abc import Set as _Set
         if isinstance(other, _ConversionEdgeView):
             return set(self) == set(other)
         if isinstance(other, _Set):
@@ -38237,7 +38237,7 @@ def prominent_group(
     Uses a greedy approach: iteratively add the node that most increases
     the group betweenness centrality.
     """
-    from itertools import _combinations
+    from itertools import combinations as _combinations
 
     nodes = list(G.nodes())
     n = len(nodes)
