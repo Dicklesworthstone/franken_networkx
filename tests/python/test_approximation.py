@@ -318,10 +318,13 @@ class TestCliqueRemoval:
         assert all_nodes == set(petersen.nodes())
 
     def test_empty(self):
+        # br-r37-c1-lhbai: nx's clique_removal on an empty graph returns
+        # (set(), [set()]) — the cliques list contains one empty set.
+        # Match that contract after migrating off the fnx top-level.
         G = fnx.Graph()
         iset, cliques = fnx.approximation.clique_removal(G)
-        assert len(iset) == 0
-        assert len(cliques) == 0
+        assert iset == set()
+        assert cliques == [set()]
 
 
 # ---------------------------------------------------------------------------
