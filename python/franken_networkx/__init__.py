@@ -11349,8 +11349,17 @@ from franken_networkx._fnx import (
     is_k_edge_connected as _raw_is_k_edge_connected,
     all_pairs_dijkstra as _raw_all_pairs_dijkstra,
     number_of_spanning_arborescences,
-    global_node_connectivity,
+    global_node_connectivity as _raw_global_node_connectivity,
 )
+
+
+def global_node_connectivity(G):
+    """Return the global node connectivity of ``G``.
+
+    br-r37-c1-1y7h1: nx-coerce wrapper.
+    """
+    G = _coerce_arg_to_fnx_graph(G)
+    return _raw_global_node_connectivity(G)
 
 
 def is_k_edge_connected(G, k):
@@ -13997,6 +14006,8 @@ def immediate_dominators(G, start):
     Matches upstream ``nx.immediate_dominators`` contract: the returned
     dict does **not** include ``start`` itself (franken_networkx-y87ra).
     """
+    # br-r37-c1-1y7h1: accept nx-typed inputs.
+    G = _coerce_arg_to_fnx_graph(G)
     # br-r37-c1-mz7g4: nx pre-validates ``start in G`` (silently
     # returns False on unhashable, then raises NetworkXError);
     # without this guard fnx silently computes whatever the Rust impl
@@ -14026,6 +14037,8 @@ def dominance_frontiers(G, start):
     False on unhashable, then raises NetworkXError); without this
     guard fnx silently computes. Match nx's exact contract.
     """
+    # br-r37-c1-1y7h1: accept nx-typed inputs.
+    G = _coerce_arg_to_fnx_graph(G)
     if start not in G:
         raise NetworkXError("start is not in G")
     return _raw_dominance_frontiers(G, start)
@@ -21022,6 +21035,8 @@ def all_pairs_node_connectivity(G, nbunch=None, flow_func=None):
         ``result[u][v]`` is the node connectivity between u and v.
     """
     _validate_flow_func_selector(flow_func)
+    # br-r37-c1-1y7h1: accept nx-typed inputs.
+    G = _coerce_arg_to_fnx_graph(G)
     # Directed graphs: the Rust fast path over-reports connectivity (it
     # silently treats some anti-parallel / alternate-direction paths as
     # independent). Concrete reproducer: DiGraph on edges [(0,1),(1,2),
