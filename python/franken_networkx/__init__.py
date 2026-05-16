@@ -12844,10 +12844,6 @@ from franken_networkx._fnx import (
 )
 
 
-def clique_removal(G):
-    """br-r37-c1-0555d: nx-coerce wrapper."""
-    G = _coerce_arg_to_fnx_graph(G)
-    return _raw_clique_removal(G)
 
 
 def large_clique_size(G):
@@ -12856,22 +12852,10 @@ def large_clique_size(G):
     return _raw_large_clique_size(G)
 
 
-def max_clique(G):
-    """br-r37-c1-0555d: nx-coerce wrapper."""
-    G = _coerce_arg_to_fnx_graph(G)
-    return _raw_max_clique(G)
 
 
-def maximum_independent_set(G):
-    """br-r37-c1-0555d: nx-coerce wrapper."""
-    G = _coerce_arg_to_fnx_graph(G)
-    return _raw_maximum_independent_set(G)
 
 
-def min_weighted_vertex_cover(G, weight=None):
-    """br-r37-c1-0555d: nx-coerce wrapper."""
-    G = _coerce_arg_to_fnx_graph(G)
-    return _raw_min_weighted_vertex_cover(G, weight=weight)
 
 
 def maximal_independent_set(G, nodes=None, seed=None, *, backend=None, **backend_kwargs):
@@ -20975,18 +20959,8 @@ def _call_networkx_approximation_for_parity(name, G, /, *args, **kwargs):
         _raise_translated_networkx_exception(exc)
 
 
-def metric_closure(G, weight="weight"):
-    """Return the metric closure of an undirected graph."""
-    return _call_networkx_approximation_for_parity(
-        "metric_closure", G, weight=weight,
-    )
 
 
-def christofides(G, weight="weight", tree=None):
-    """Approximate the minimum-weight Hamiltonian cycle via Christofides' algorithm."""
-    return _call_networkx_approximation_for_parity(
-        "christofides", G, weight=weight, tree=tree,
-    )
 
 
 def greedy_tsp(G, weight="weight", source=None):
@@ -20996,51 +20970,10 @@ def greedy_tsp(G, weight="weight", source=None):
     )
 
 
-def simulated_annealing_tsp(
-    G,
-    init_cycle,
-    weight="weight",
-    source=None,
-    temp=100,
-    move="1-1",
-    max_iterations=10,
-    N_inner=100,
-    alpha=0.01,
-    seed=None,
-):
-    """Simulated-annealing heuristic for the traveling salesman problem."""
-    return _call_networkx_approximation_for_parity(
-        "simulated_annealing_tsp", G, init_cycle,
-        weight=weight, source=source, temp=temp, move=move,
-        max_iterations=max_iterations, N_inner=N_inner, alpha=alpha, seed=seed,
-    )
 
 
-def threshold_accepting_tsp(
-    G,
-    init_cycle,
-    weight="weight",
-    source=None,
-    threshold=1,
-    move="1-1",
-    max_iterations=10,
-    N_inner=100,
-    alpha=0.1,
-    seed=None,
-):
-    """Threshold-accepting heuristic for the traveling salesman problem."""
-    return _call_networkx_approximation_for_parity(
-        "threshold_accepting_tsp", G, init_cycle,
-        weight=weight, source=source, threshold=threshold, move=move,
-        max_iterations=max_iterations, N_inner=N_inner, alpha=alpha, seed=seed,
-    )
 
 
-def asadpour_atsp(G, weight="weight", seed=None, source=None):
-    """Asadpour algorithm for the asymmetric traveling salesman problem."""
-    return _call_networkx_approximation_for_parity(
-        "asadpour_atsp", G, weight=weight, seed=seed, source=source,
-    )
 
 
 def treewidth_min_degree(G):
@@ -21053,72 +20986,22 @@ def treewidth_min_fill_in(G):
     return _call_networkx_approximation_for_parity("treewidth_min_fill_in", G)
 
 
-def steiner_tree(G, terminal_nodes, weight="weight", method=None):
-    """Approximate the minimum Steiner tree spanning the given terminal nodes."""
-    return _call_networkx_approximation_for_parity(
-        "steiner_tree", G, terminal_nodes,
-        weight=weight, method=method,
-    )
 
 
-def min_edge_dominating_set(G):
-    """Return a minimum edge dominating set of G (approximation)."""
-    return _call_networkx_approximation_for_parity("min_edge_dominating_set", G)
 
 
-def min_maximal_matching(G):
-    """Return a 2-approximation for the minimum maximal matching of G."""
-    return _call_networkx_approximation_for_parity("min_maximal_matching", G)
 
 
-def min_weighted_dominating_set(G, weight=None):
-    """Return a minimum weighted dominating set of G (approximation)."""
-    return _call_networkx_approximation_for_parity(
-        "min_weighted_dominating_set", G, weight=weight,
-    )
 
 
-def one_exchange(G, initial_cut=None, seed=None, weight=None):
-    """One-exchange local search for max-cut on G."""
-    return _call_networkx_approximation_for_parity(
-        "one_exchange", G,
-        initial_cut=initial_cut, seed=seed, weight=weight,
-    )
 
 
-def randomized_partitioning(G, seed=None, p=0.5, weight=None):
-    """Randomized 1/2-approximation for max-cut on G."""
-    return _call_networkx_approximation_for_parity(
-        "randomized_partitioning", G,
-        seed=seed, p=p, weight=weight,
-    )
 
 
-def ramsey_R2(G):
-    """Compute the largest clique-independent set pair (Ramsey approximation)."""
-    return _call_networkx_approximation_for_parity("ramsey_R2", G)
 
 
-def densest_subgraph(G, iterations=1, *, method="fista"):
-    """Approximate the densest subgraph of G."""
-    return _call_networkx_approximation_for_parity(
-        "densest_subgraph", G, iterations=iterations, method=method,
-    )
 
 
-def traveling_salesman_problem(
-    G,
-    weight="weight",
-    nodes=None,
-    cycle=True,
-    method=None,
-    **kwargs,
-):
-    """Approximate solution to the TSP / route-inspection problem."""
-    return _call_networkx_approximation_for_parity(
-        "traveling_salesman_problem", G,
-        weight=weight, nodes=nodes, cycle=cycle, method=method, **kwargs,
-    )
 
 
 def minimum_st_edge_cut(G, s, t, flow_func=None, auxiliary=None, residual=None):
@@ -41713,28 +41596,10 @@ __all__ = [
     "astar_path_length",
     "shortest_simple_paths",
     # Algorithms — approximation
-    "min_weighted_vertex_cover",
     "maximal_independent_set",
-    "maximum_independent_set",
-    "max_clique",
-    "clique_removal",
     "large_clique_size",
     "spanner",
-    "asadpour_atsp",
-    "christofides",
-    "densest_subgraph",
     "greedy_tsp",
-    "metric_closure",
-    "min_edge_dominating_set",
-    "min_maximal_matching",
-    "min_weighted_dominating_set",
-    "one_exchange",
-    "ramsey_R2",
-    "randomized_partitioning",
-    "simulated_annealing_tsp",
-    "steiner_tree",
-    "threshold_accepting_tsp",
-    "traveling_salesman_problem",
     "treewidth_min_degree",
     "treewidth_min_fill_in",
     # Algorithms — tree recognition
@@ -42739,6 +42604,23 @@ def __getattr__(name):
         "show_nodes", "show_edges", "show_diedges",
         "show_multiedges", "show_multidiedges",
         "no_filter",
+    ):
+        raise AttributeError(
+            f"module 'networkx' has no attribute '{name}'"
+        )
+    # br-r37-c1-xgqo1: 18 nx.approximation helpers live at
+    # nx.approximation.X but not at nx top level. fnx exposed all
+    # 18 — removed for drop-in parity. They remain reachable via
+    # fnx.approximation.X through the auto-bound submodule fallback.
+    if name in (
+        "christofides", "clique_removal", "densest_subgraph",
+        "maximum_independent_set", "max_clique", "metric_closure",
+        "min_edge_dominating_set", "min_maximal_matching",
+        "min_weighted_dominating_set", "min_weighted_vertex_cover",
+        "one_exchange", "randomized_partitioning", "ramsey_R2",
+        "simulated_annealing_tsp", "threshold_accepting_tsp",
+        "steiner_tree", "traveling_salesman_problem",
+        "asadpour_atsp",
     ):
         raise AttributeError(
             f"module 'networkx' has no attribute '{name}'"
