@@ -258,8 +258,12 @@ class TestGreedyBranchingParity:
         assert all(Bf.in_degree[n] <= 1 for n in Bf.nodes())
 
     def test_invalid_kind_raises(self, fnx):
+        # br-r37-c1-d9ff5: nx raises NetworkXException (the parent class
+        # of NetworkXError) for an unknown kind. After br-r37-c1-dytcs
+        # hid fnx.greedy_branching, the namespaced call resolves to
+        # nx's pure-Python; match its exact exception class.
         Gf = self._weighted_digraph(fnx)
-        with pytest.raises(fnx.NetworkXError):
+        with pytest.raises(fnx.NetworkXException, match="Unknown value for"):
             fnx.algorithms.tree.branchings.greedy_branching(Gf, kind="not-a-kind")
 
     def test_empty_graph_returns_empty_branching(self, fnx):
