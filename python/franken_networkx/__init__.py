@@ -21,16 +21,16 @@ from collections import Counter, defaultdict, deque
 from collections.abc import Collection, Generator, Iterable, Iterator, Mapping, Set
 from copy import deepcopy
 from enum import Enum
-from functools import wraps
+from functools import wraps as _wraps
 import gzip
 from heapq import heappop, heappush
 import io
 import itertools
 from itertools import combinations, count
 import math
-import numbers
+import numbers as _numbers
 import operator
-import sys
+import sys as _sys
 import types as _types
 
 from franken_networkx import _fnx
@@ -123,7 +123,7 @@ try:
 
     _original_scale_free_graph = _nx_directed_for_sfg.scale_free_graph
 
-    @_functools_for_sfg.wraps(_original_scale_free_graph)
+    @_functools_for_sfg._wraps(_original_scale_free_graph)
     def _fnx_aware_scale_free_graph(n, *args, initial_graph=None, **kwargs):
         if initial_graph is not None and isinstance(
             initial_graph, (Graph, DiGraph, MultiGraph, MultiDiGraph)
@@ -5197,7 +5197,7 @@ class SpanningTreeIterator:
             graph,
             self.weight,
             self.minimum,
-            sys.maxsize,
+            _sys.maxsize,
         )
         return self
 
@@ -5266,7 +5266,7 @@ class ArborescenceIterator:
             self.G,
             self.weight,
             self.minimum,
-            sys.maxsize,
+            _sys.maxsize,
             self.init_partition,
         )
         return self
@@ -5448,7 +5448,7 @@ def _has_negative_edge_weight_for_dijkstra(G, weight, *, _skip_sync=False):
                     return False
             for _, _, attrs in G.edges(data=True):
                 value = attrs.get(weight, 1)
-                if isinstance(value, numbers.Real) and value == -math.inf:
+                if isinstance(value, _numbers.Real) and value == -math.inf:
                     return True
             return False
 
@@ -5464,7 +5464,7 @@ def _has_negative_edge_weight_for_dijkstra(G, weight, *, _skip_sync=False):
         # br-r37-c1-djk-neginf: also catches ``-inf`` (drop the
         # isfinite filter — ``-inf < 0`` is True, NaN comparisons
         # all yield False so neither broken case re-enters here).
-        if isinstance(value, numbers.Real) and not math.isnan(value) and value < 0:
+        if isinstance(value, _numbers.Real) and not math.isnan(value) and value < 0:
             return True
     return False
 
@@ -5520,7 +5520,7 @@ def _has_positive_infinity_edge_weight_for_dijkstra(G, weight, *, _skip_sync=Fal
         attrs_iter = (attrs for _, _, attrs in G.edges(data=True))
     for attrs in attrs_iter:
         value = attrs.get(weight, 1)
-        if isinstance(value, numbers.Real) and not math.isnan(value) and math.isinf(value) and value > 0:
+        if isinstance(value, _numbers.Real) and not math.isnan(value) and math.isinf(value) and value > 0:
             return True
     return False
 
@@ -5557,7 +5557,7 @@ def _has_nonnumeric_edge_weight(G, weight, *, _skip_sync=False):
         if isinstance(value, bool):
             # bools are ints; leave to the numeric path
             continue
-        if not isinstance(value, numbers.Real):
+        if not isinstance(value, _numbers.Real):
             return True
     return False
 
@@ -13591,7 +13591,7 @@ class _ApproximationNamespace:
         # introspection and let typos through silently.
         import functools as _functools
 
-        @_functools.wraps(nx_func)
+        @_functools._wraps(nx_func)
         def wrapper(G, *args, **kwargs):
             nx_G = _networkx_graph_for_parity(G)
             return nx_func(nx_G, *args, **kwargs)
@@ -15449,7 +15449,7 @@ def complete_graph(n, create_using=None, *, backend=None, **backend_kwargs):
     """Return the complete graph K_n."""
     _validate_backend_dispatch_keywords("complete_graph", backend, backend_kwargs)
     n, nodes = _nodes_or_number_local(n)
-    if create_using is None and isinstance(n, numbers.Integral):
+    if create_using is None and isinstance(n, _numbers.Integral):
         return _rust_complete_graph(int(n))
 
     graph = _classic_graph_from_create_using(create_using)
@@ -15486,7 +15486,7 @@ def empty_graph(n=0, create_using=None, default=Graph):
     """Return the empty graph with n nodes and zero edges."""
     n, nodes = _nodes_or_number_local(n)
     default_graph_type = _classic_default_graph_type(default)
-    if create_using is None and default_graph_type is Graph and isinstance(n, numbers.Integral):
+    if create_using is None and default_graph_type is Graph and isinstance(n, _numbers.Integral):
         return _rust_empty_graph(int(n))
 
     graph = _classic_graph_from_create_using(create_using, default=default_graph_type)
@@ -15498,7 +15498,7 @@ def path_graph(n, create_using=None, *, backend=None, **backend_kwargs):
     """Return the path graph P_n."""
     _validate_backend_dispatch_keywords("path_graph", backend, backend_kwargs)
     n, nodes = _nodes_or_number_local(n)
-    if create_using is None and isinstance(n, numbers.Integral):
+    if create_using is None and isinstance(n, _numbers.Integral):
         return _rust_path_graph(int(n))
 
     graph = _classic_graph_from_create_using(create_using)
@@ -15511,7 +15511,7 @@ def path_graph(n, create_using=None, *, backend=None, **backend_kwargs):
 def star_graph(n, create_using=None):
     """Return the star graph on n + 1 nodes."""
     n, nodes = _nodes_or_number_local(n)
-    if isinstance(n, numbers.Integral):
+    if isinstance(n, _numbers.Integral):
         nodes.append(int(n))
         if create_using is None:
             return _rust_star_graph(int(n))
@@ -17406,7 +17406,7 @@ def power(G, k):
     if k <= 0:
         raise ValueError("k must be a positive integer")
 
-    if isinstance(k, numbers.Integral):
+    if isinstance(k, _numbers.Integral):
         raw_graph = _fnx.power_rust(G, int(k))
         canonical_to_node = {str(node): node for node in G.nodes()}
 
@@ -18936,11 +18936,11 @@ def _seeded_watts_strogatz_rust_args(n, k, p, seed, create_using):
     if (
         create_using is None
         and seed is not None
-        and isinstance(seed, numbers.Integral)
+        and isinstance(seed, _numbers.Integral)
         and not isinstance(seed, bool)
-        and isinstance(n, numbers.Integral)
+        and isinstance(n, _numbers.Integral)
         and not isinstance(n, bool)
-        and isinstance(k, numbers.Integral)
+        and isinstance(k, _numbers.Integral)
         and not isinstance(k, bool)
     ):
         try:
@@ -19143,7 +19143,7 @@ def complete_bipartite_graph(n1, n2, create_using=None):
     if G.is_directed():
         raise NetworkXError("Directed Graph not supported")
 
-    if isinstance(n1_value, numbers.Integral) and isinstance(n2_value, numbers.Integral):
+    if isinstance(n1_value, _numbers.Integral) and isinstance(n2_value, _numbers.Integral):
         bottom = [n1_value + i for i in bottom]
 
     for node in top:
@@ -19338,7 +19338,7 @@ def lollipop_graph(m, n, create_using=None):
     # the bell-vs-stick joining node (e.g. fnx adj[3] = [2,4] vs
     # nx [4,2]). The Python construction below already matches nx.
     n_value, n_nodes = _nodes_or_number_local(n)
-    if isinstance(m_value, numbers.Integral) and isinstance(n_value, numbers.Integral):
+    if isinstance(m_value, _numbers.Integral) and isinstance(n_value, _numbers.Integral):
         n_nodes = list(range(M, M + n_value))
     N = len(n_nodes)
 
@@ -19374,13 +19374,13 @@ def tadpole_graph(m, n, create_using=None):
     n_value, n_nodes = _nodes_or_number_local(n)
     if (
         create_using is None
-        and isinstance(m_value, numbers.Integral)
-        and isinstance(n_value, numbers.Integral)
+        and isinstance(m_value, _numbers.Integral)
+        and isinstance(n_value, _numbers.Integral)
         and m_value >= 3
     ):
         return _rust_tadpole_graph(m_value, n_value)
 
-    if isinstance(m_value, numbers.Integral) and isinstance(n_value, numbers.Integral):
+    if isinstance(m_value, _numbers.Integral) and isinstance(n_value, _numbers.Integral):
         n_nodes = list(range(M, M + n_value))
 
     G = cycle_graph(m_nodes, create_using)
@@ -21525,7 +21525,7 @@ def _stoer_wagner_weights_all_integral(G, weight):
         return False
     for _, _, attrs in G.edges(data=True):
         value = attrs.get(weight, 1) if isinstance(attrs, dict) else 1
-        if not isinstance(value, numbers.Integral):
+        if not isinstance(value, _numbers.Integral):
             return False
     return True
 
@@ -26927,7 +26927,7 @@ def number_of_walks(G, walk_length, *, backend=None, **backend_kwargs):
         raise NetworkXError("Graph has no nodes or edges")
     if walk_length < 0:
         raise ValueError(f"`walk_length` cannot be negative: {walk_length}")
-    if not isinstance(walk_length, numbers.Integral):
+    if not isinstance(walk_length, _numbers.Integral):
         raise ValueError("exponent must be an integer")
 
     A = to_numpy_array(G, weight=None)
@@ -29982,7 +29982,7 @@ def _copy_preserving_insertion_order(self, as_view=False):
 
 
 def _subgraph_with_view(subgraph_impl):
-    @wraps(subgraph_impl)
+    @_wraps(subgraph_impl)
     def subgraph(self, nodes):
         return _generic_filtered_graph_view(
             self,
@@ -32493,7 +32493,7 @@ def _find_missing_edge_chordal(G):
     return ()
 
 
-def _find_chordality_breaker(G, s=None, treewidth_bound=sys.maxsize):
+def _find_chordality_breaker(G, s=None, treewidth_bound=_sys.maxsize):
     if len(G) == 0:
         raise NetworkXPointlessConcept("Graph has no nodes.")
 
@@ -32522,7 +32522,7 @@ def _find_chordality_breaker(G, s=None, treewidth_bound=sys.maxsize):
     return ()
 
 
-def find_induced_nodes(G, s, t, treewidth_bound=sys.maxsize):
+def find_induced_nodes(G, s, t, treewidth_bound=_sys.maxsize):
     """Return the set of induced nodes in the path from ``s`` to ``t``."""
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
@@ -34567,7 +34567,7 @@ def _build_isomorphism_module():
 
 
 isomorphism = _build_isomorphism_module()
-sys.modules[f"{__name__}.isomorphism"] = isomorphism
+_sys.modules[f"{__name__}.isomorphism"] = isomorphism
 
 
 # Tree/Forest Utilities (br-xkr)
@@ -40429,7 +40429,7 @@ def grid_graph(dim, periodic=False):
     periods = []
     for axis in dimensions:
         periods.append(bool(next(periodic_flags)))
-        if isinstance(axis, numbers.Integral):
+        if isinstance(axis, _numbers.Integral):
             # br-r37-c1-grid-neg: nx routes grid_graph through
             # cartesian_product of path_graph(d) for each d; a
             # negative ``d`` raises NetworkXError("Negative number
@@ -42330,7 +42330,7 @@ def _bulk_rename_first_param_to_G():
             new_first = raw_params[0].replace(name="G")
             new_sig = _insp.Signature([new_first] + list(raw_params[1:]))
 
-            @_ft.wraps(raw_fn)
+            @_ft._wraps(raw_fn)
             def wrapper(*args, **kwargs):
                 if "G" in kwargs and "g" not in kwargs:
                     kwargs["g"] = kwargs.pop("G")
@@ -42374,7 +42374,7 @@ def _bulk_promote_to_generator():
             continue
 
         def _make_wrapper(raw_fn):
-            @_ft.wraps(raw_fn)
+            @_ft._wraps(raw_fn)
             def wrapper(*args, **kwargs):
                 result = raw_fn(*args, **kwargs)
                 if hasattr(result, "__next__"):
@@ -42720,7 +42720,7 @@ def _bulk_add_backend_dispatch_kwargs():
                 for p in base_sig.parameters.values()
             )
 
-            @_ft.wraps(raw_fn)
+            @_ft._wraps(raw_fn)
             def wrapper(*args, backend=None, **kwargs):
                 if has_var_keyword:
                     # The original consumes **kwargs; only validate
@@ -42884,7 +42884,7 @@ def _bulk_coerce_negative_depth_to_zero():
             return normalized, normalized is not val
 
         def _make_wrapper(raw_fn, idx, name):
-            @_ft.wraps(raw_fn)
+            @_ft._wraps(raw_fn)
             def wrapper(*args, **kwargs):
                 # Try keyword first, then positional.
                 if name in kwargs:
