@@ -123,7 +123,7 @@ try:
 
     _original_scale_free_graph = _nx_directed_for_sfg.scale_free_graph
 
-    @_functools_for_sfg._wraps(_original_scale_free_graph)
+    @_functools_for_sfg.wraps(_original_scale_free_graph)
     def _fnx_aware_scale_free_graph(n, *args, initial_graph=None, **kwargs):
         if initial_graph is not None and isinstance(
             initial_graph, (Graph, DiGraph, MultiGraph, MultiDiGraph)
@@ -13591,7 +13591,7 @@ class _ApproximationNamespace:
         # introspection and let typos through silently.
         import functools as _functools
 
-        @_functools._wraps(nx_func)
+        @_functools.wraps(nx_func)
         def wrapper(G, *args, **kwargs):
             nx_G = _networkx_graph_for_parity(G)
             return nx_func(nx_G, *args, **kwargs)
@@ -42305,7 +42305,7 @@ def _bulk_rename_first_param_to_G():
             new_first = raw_params[0].replace(name="G")
             new_sig = _insp.Signature([new_first] + list(raw_params[1:]))
 
-            @_ft._wraps(raw_fn)
+            @_ft.wraps(raw_fn)
             def wrapper(*args, **kwargs):
                 if "G" in kwargs and "g" not in kwargs:
                     kwargs["g"] = kwargs.pop("G")
@@ -42349,7 +42349,7 @@ def _bulk_promote_to_generator():
             continue
 
         def _make_wrapper(raw_fn):
-            @_ft._wraps(raw_fn)
+            @_ft.wraps(raw_fn)
             def wrapper(*args, **kwargs):
                 result = raw_fn(*args, **kwargs)
                 if hasattr(result, "__next__"):
@@ -42695,7 +42695,7 @@ def _bulk_add_backend_dispatch_kwargs():
                 for p in base_sig.parameters.values()
             )
 
-            @_ft._wraps(raw_fn)
+            @_ft.wraps(raw_fn)
             def wrapper(*args, backend=None, **kwargs):
                 if has_var_keyword:
                     # The original consumes **kwargs; only validate
@@ -42859,7 +42859,7 @@ def _bulk_coerce_negative_depth_to_zero():
             return normalized, normalized is not val
 
         def _make_wrapper(raw_fn, idx, name):
-            @_ft._wraps(raw_fn)
+            @_ft.wraps(raw_fn)
             def wrapper(*args, **kwargs):
                 # Try keyword first, then positional.
                 if name in kwargs:
