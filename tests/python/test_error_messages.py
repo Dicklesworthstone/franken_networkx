@@ -411,7 +411,8 @@ class TestExceptionHierarchy:
     """Exception types must form the same inheritance tree as NetworkX."""
 
     def test_exported_exceptions_are_networkx_classes(self):
-        pairs = [
+        # (top-level-name, nx-class)
+        toplevel_pairs = [
             ("NetworkXException", nx.NetworkXException),
             ("NetworkXError", nx.NetworkXError),
             ("NetworkXPointlessConcept", nx.NetworkXPointlessConcept),
@@ -421,15 +422,22 @@ class TestExceptionHierarchy:
             ("NetworkXNoCycle", nx.NetworkXNoCycle),
             ("NetworkXUnbounded", nx.NetworkXUnbounded),
             ("NetworkXNotImplemented", nx.NetworkXNotImplemented),
-            ("NotAPartition", nx.community.quality.NotAPartition),
             ("NotATree", nx.NotATree),
             ("NodeNotFound", nx.NodeNotFound),
             ("HasACycle", nx.HasACycle),
             ("PowerIterationFailedConvergence", nx.PowerIterationFailedConvergence),
         ]
-
-        for name, nx_class in pairs:
+        for name, nx_class in toplevel_pairs:
             assert getattr(fnx, name) is nx_class
+
+        # br-r37-c1-esvs4: NotAPartition is namespaced in nx
+        # (nx.community.quality.NotAPartition; nx top-level does
+        # not expose it). fnx mirrors that — reach it via the
+        # community.quality submodule.
+        assert (
+            fnx.community.quality.NotAPartition
+            is nx.community.quality.NotAPartition
+        )
 
     def test_native_raises_are_caught_by_networkx_handlers(self):
         with pytest.raises(nx.NetworkXNoPath):
