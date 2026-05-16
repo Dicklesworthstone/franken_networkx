@@ -2627,6 +2627,11 @@ def _init_absorbing_dict_of_dicts(raw_init, is_multigraph):
             # items as unhashable nodes-by-id.  Pre-walk the items,
             # validate they're sized-2-or-3, and remember whether
             # any list-typed elements need conversion to tuples.
+            # br-r37-c1-wpt9x: MultiGraph/MultiDiGraph also accept
+            # ``(u, v, key, data_dict)`` 4-tuples; the 4th element
+            # must be a dict per nx's ``add_edges_from`` contract.
+            is_multi = self.is_multigraph()
+            valid_lengths = (2, 3, 4) if is_multi else (2, 3)
             needs_tuple_conversion = False
             for item in incoming_graph_data:
                 # str/bytes elements (chars / int) are scalars without
@@ -2635,7 +2640,13 @@ def _init_absorbing_dict_of_dicts(raw_init, is_multigraph):
                 if isinstance(item, (str, bytes)) or not hasattr(item, "__len__"):
                     self.clear()
                     raise NetworkXError("Input is not a valid edge list")
-                if len(item) not in (2, 3):
+                if len(item) not in valid_lengths:
+                    self.clear()
+                    raise NetworkXError("Input is not a valid edge list")
+                if is_multi and len(item) == 4 and not isinstance(item[3], dict):
+                    # nx's add_edges_from requires the 4th element be a
+                    # data dict; non-dict 4-tuples like (u, v, k, w) hit
+                    # ``NetworkXError("Input is not a valid edge list")``.
                     self.clear()
                     raise NetworkXError("Input is not a valid edge list")
                 if not isinstance(item, tuple):
