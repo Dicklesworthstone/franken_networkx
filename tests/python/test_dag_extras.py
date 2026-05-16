@@ -178,7 +178,7 @@ class TestDagLongestPathLength:
 
 class TestLexicographicTopologicalSort:
     def test_diamond(self, diamond_dag):
-        order = list(fnx.algorithms.dag.lexicographic_topological_sort(diamond_dag))
+        order = list(fnx.algorithms.dag.lexicographical_topological_sort(diamond_dag))
         assert set(order) == {0, 1, 2, 3}
         # Must be a valid topological order
         assert order.index(0) < order.index(1)
@@ -191,12 +191,12 @@ class TestLexicographicTopologicalSort:
         D = fnx.DiGraph()
         D.add_edge(0, 2)
         D.add_edge(1, 2)
-        order = list(fnx.algorithms.dag.lexicographic_topological_sort(D))
+        order = list(fnx.algorithms.dag.lexicographical_topological_sort(D))
         # Both 0 and 1 are sources; lexicographic means 0 before 1
         assert order.index(0) < order.index(1)
 
     def test_chain(self, chain_dag):
-        order = list(fnx.algorithms.dag.lexicographic_topological_sort(chain_dag))
+        order = list(fnx.algorithms.dag.lexicographical_topological_sort(chain_dag))
         assert order == [0, 1, 2, 3, 4]
 
     def test_cycle_raises(self):
@@ -205,7 +205,7 @@ class TestLexicographicTopologicalSort:
         D.add_edge(0, 1)
         D.add_edge(1, 0)
         with pytest.raises(fnx.NetworkXUnfeasible):
-            list(fnx.algorithms.dag.lexicographic_topological_sort(D))
+            list(fnx.algorithms.dag.lexicographical_topological_sort(D))
 
 
 # ---------------------------------------------------------------------------
