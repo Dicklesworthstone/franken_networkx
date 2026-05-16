@@ -137,9 +137,13 @@ class TestBipartiteHelpers:
         assert d == pytest.approx(1.0)
 
     def test_hopcroft_karp_matching(self):
+        # br-r37-c1-dm6j9: nx.bipartite.hopcroft_karp_matching auto-detects
+        # bipartite sets which raises AmbiguousSolution on disconnected
+        # graphs. The previous fnx-native wrapper was hidden in
+        # br-r37-c1-3u5xk; supply top_nodes explicitly.
         B = fnx.Graph()
         B.add_edges_from([(1, "a"), (1, "b"), (2, "b"), (3, "c")])
-        m = fnx.bipartite.hopcroft_karp_matching(B)
+        m = fnx.bipartite.hopcroft_karp_matching(B, top_nodes={1, 2, 3})
         # Should match at least 2 pairs
         assert len(m) >= 4  # Each match creates 2 entries (u->v and v->u)
 
