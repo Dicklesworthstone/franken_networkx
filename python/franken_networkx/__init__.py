@@ -13856,22 +13856,10 @@ def score_sequence(G):
     return sorted(degree for _node, degree in degree_items)
 
 
-def hamiltonian_path(G):
-    """Return a Hamiltonian path in the tournament graph G.
-
-    Parameters
-    ----------
-    G : DiGraph
-        A tournament graph.
-
-    Returns
-    -------
-    list
-        A list of nodes forming a Hamiltonian path.
-    """
-    return _call_networkx_submodule_for_parity(
-        "algorithms.tournament", "hamiltonian_path", G
-    )
+# hamiltonian_path was top-level in fnx — removed in br-r37-c1-twl53 to
+# mirror nx's namespacing (lives at nx.tournament.hamiltonian_path only).
+# fnx.tournament.hamiltonian_path still works through the auto-bound
+# submodule fallback in __getattr__.
 
 
 def random_tournament(n, seed=None):
@@ -42064,7 +42052,6 @@ __all__ = [
     "is_k_regular",
     "is_tournament",
     "score_sequence",
-    "hamiltonian_path",
     "random_tournament",
     "is_reachable",
     "tournament_matrix",
@@ -42976,6 +42963,14 @@ def __getattr__(name):
     # the _fnx Rust binding, masking nx's AttributeError for drop-in
     # callers branching on ``hasattr(nx, 'graph_clique_number')``.
     if name == "graph_clique_number":
+        raise AttributeError(
+            f"module 'networkx' has no attribute '{name}'"
+        )
+    # br-r37-c1-twl53: hamiltonian_path lives only at
+    # nx.tournament.hamiltonian_path; nx top-level raises AttributeError.
+    # fnx.tournament.hamiltonian_path still works via the auto-bound
+    # nx.algorithms.tournament submodule fallback.
+    if name == "hamiltonian_path":
         raise AttributeError(
             f"module 'networkx' has no attribute '{name}'"
         )
