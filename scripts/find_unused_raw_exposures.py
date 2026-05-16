@@ -116,6 +116,36 @@ TRIAGE = {
     "_raw_single_source_dijkstra_path": ("keep-public-api",
         "wrapper composes from _raw_single_source_dijkstra (yields paths "
         "alongside dists in one pass)"),
+    # ---- keep-public-api: namespace-hide batches removed the public
+    # top-level wrappers (the algorithm is reachable via nx through
+    # fnx.community.X / fnx.approximation.X), but the Rust kernel
+    # remains exposed for direct callers (br-r37-c1-{ccr8k, uwm5v,
+    # xgqo1, 02sx1}). ----
+    "_raw_clique_removal": ("keep-public-api",
+        "br-r37-c1-xgqo1: nx.approximation.clique_removal routes "
+        "fnx.approximation.X; raw kept as direct-Rust API"),
+    "_raw_global_node_connectivity": ("keep-public-api",
+        "br-r37-c1-ccr8k: fnx-only top-level removed; raw kept for "
+        "direct callers (use node_connectivity for nx parity)"),
+    "_raw_greedy_modularity_communities": ("keep-public-api",
+        "br-r37-c1-uwm5v: fnx.community.X falls through to nx; "
+        "raw kept as direct-Rust API"),
+    "_raw_large_clique_size": ("keep-public-api",
+        "br-r37-c1-dytcs: fnx.approximation.large_clique_size falls "
+        "through to nx; raw kept as direct-Rust API"),
+    "_raw_louvain_communities": ("keep-public-api",
+        "br-r37-c1-uwm5v: fnx.community.louvain_communities falls "
+        "through to nx (with fg->ng conversion); raw kept as direct"
+        "-Rust API"),
+    "_raw_max_clique": ("keep-public-api",
+        "br-r37-c1-xgqo1: fnx.approximation.max_clique falls through "
+        "to nx; raw kept as direct-Rust API"),
+    "_raw_maximum_independent_set": ("keep-public-api",
+        "br-r37-c1-xgqo1: fnx.approximation.maximum_independent_set "
+        "falls through to nx; raw kept as direct-Rust API"),
+    "_raw_min_weighted_vertex_cover": ("keep-public-api",
+        "br-r37-c1-xgqo1: fnx.approximation.min_weighted_vertex_cover "
+        "falls through to nx; raw kept as direct-Rust API"),
 }
 
 
