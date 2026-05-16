@@ -10530,41 +10530,6 @@ from franken_networkx._fnx import (
 )
 
 
-def louvain_communities(
-    G,
-    weight="weight",
-    resolution=1,
-    threshold=1e-07,
-    max_level=None,
-    seed=None,
-):
-    """Find communities via the Louvain algorithm.
-
-    br-louvainG: wrap the Rust binding so the first parameter is ``G``
-    (matching nx.community.louvain_communities), not the lowercase
-    ``g`` the Rust-side exposes. Also normalizes the ``resolution``
-    default to ``1`` (int) to match nx so default-kwargs introspection
-    is identical.
-
-    br-louvainquality: the Rust _raw_louvain_communities only did the
-    first Louvain pass (nodes joining initial communities) — it never
-    performed the second-phase aggregation (collapse each community to
-    a super-node, re-run the first phase, iterate until convergence).
-    On karate that produced 2 communities with modularity ~0.4036 vs
-    nx's 4-community partition with modularity ~0.44. Since Louvain
-    is an approximate modularity maximizer, the quality gap was
-    user-visible — nx's output is strictly better. Route through
-    _louvain_impl which delegates to nx so fnx yields equivalent
-    (quality-matched) partitions.
-    """
-    return _louvain_impl(
-        G,
-        weight=weight,
-        resolution=resolution,
-        threshold=threshold,
-        max_level=max_level,
-        seed=seed,
-    )
 
 
 def _louvain_impl(G, *, weight, resolution, threshold, max_level, seed):
@@ -10573,7 +10538,6 @@ def _louvain_impl(G, *, weight, resolution, threshold, max_level, seed):
     """
     return _call_networkx_submodule_for_parity(
         "algorithms.community",
-        "louvain_communities",
         G,
         weight=weight,
         resolution=resolution,
@@ -10583,17 +10547,6 @@ def _louvain_impl(G, *, weight, resolution, threshold, max_level, seed):
     )
 
 
-def louvain_partitions(G, weight="weight", resolution=1, threshold=1e-07, seed=None):
-    """Yield partitions for each level of the Louvain Community Detection Algorithm."""
-    return _call_networkx_submodule_for_parity(
-        "algorithms.community",
-        "louvain_partitions",
-        G,
-        weight=weight,
-        resolution=resolution,
-        threshold=threshold,
-        seed=seed,
-    )
 
 
 def _modularity_backend_impl(G, communities, weight="weight", resolution=1):
@@ -15548,22 +15501,6 @@ def node_redundancy(G, nodes=None):
 # ---------------------------------------------------------------------------
 
 
-def girvan_newman(G, most_valuable_edge=None):
-    """Find communities in graph ``G`` using the Girvan-Newman method."""
-    if G.number_of_edges() == 0:
-        yield tuple(connected_components(G))
-        return
-
-    if most_valuable_edge is None:
-
-        def most_valuable_edge(graph):
-            betweenness = edge_betweenness_centrality(graph)
-            return max(betweenness, key=betweenness.get)
-
-    graph = G.copy().to_undirected()
-    graph.remove_edges_from(list(selfloop_edges(graph)))
-    while graph.number_of_edges() > 0:
-        yield _without_most_valuable_edges(graph, most_valuable_edge)
 
 
 def _without_most_valuable_edges(G, most_valuable_edge):
@@ -24700,92 +24637,6 @@ def kernighan_lin_bisection(G, partition=None, max_iter=10, weight="weight", see
     return part1, part2
 
 
-def asyn_fluidc(G, k, max_iter=100, seed=None):
-    """Return communities in G as detected by the Fluid Communities algorithm."""
-    if G.is_directed():
-        raise NetworkXNotImplemented("not implemented for directed type")
-    if G.is_multigraph():
-        raise NetworkXNotImplemented("not implemented for multigraph type")
-    if not isinstance(k, int):
-        raise NetworkXError("k must be an integer.")
-    if k <= 0:
-        raise NetworkXError("k must be greater than 0.")
-    if not is_connected(G):
-        raise NetworkXError("Fluid Communities require connected Graphs.")
-    if len(G) < k:
-        raise NetworkXError("k cannot be bigger than the number of nodes.")
-    if max_iter <= 0:
-        raise ValueError(f"{max_iter=} must be greater than 0")
-
-    rng = _generator_random_state(seed)
-    max_density = 1.0
-    vertices = list(G)
-    rng.shuffle(vertices)
-    communities = {node: index for index, node in enumerate(vertices[:k])}
-    density = {}
-    community_sizes = {}
-    for node in communities:
-        community_sizes[communities[node]] = 1
-        density[communities[node]] = max_density
-
-    iteration_count = 0
-    should_continue = True
-    while should_continue and iteration_count < max_iter:
-        should_continue = False
-        iteration_count += 1
-        vertices = list(G)
-        rng.shuffle(vertices)
-        for vertex in vertices:
-            community_counter = Counter()
-            try:
-                community_counter.update(
-                    {communities[vertex]: density[communities[vertex]]},
-                )
-            except KeyError:
-                pass
-
-            for neighbor in G[vertex]:
-                try:
-                    community_counter.update(
-                        {communities[neighbor]: density[communities[neighbor]]},
-                    )
-                except KeyError:
-                    continue
-
-            new_community = -1
-            if community_counter:
-                max_frequency = max(community_counter.values())
-                best_communities = [
-                    community
-                    for community, frequency in community_counter.items()
-                    if (max_frequency - frequency) < 0.0001
-                ]
-                try:
-                    if communities[vertex] in best_communities:
-                        new_community = communities[vertex]
-                except KeyError:
-                    pass
-
-                if new_community == -1:
-                    should_continue = True
-                    new_community = rng.choice(best_communities)
-                    try:
-                        community_sizes[communities[vertex]] -= 1
-                        density[communities[vertex]] = (
-                            max_density / community_sizes[communities[vertex]]
-                        )
-                    except KeyError:
-                        pass
-                    communities[vertex] = new_community
-                    community_sizes[communities[vertex]] += 1
-                    density[communities[vertex]] = (
-                        max_density / community_sizes[communities[vertex]]
-                    )
-
-    grouped = {}
-    for node, community in communities.items():
-        grouped.setdefault(community, set()).add(node)
-    return iter(grouped.values())
 
 
 def label_propagation_communities(G, *, backend=None, **backend_kwargs):
@@ -24812,11 +24663,6 @@ def _call_networkx_community_for_parity(name, G, /, *args, **kwargs):
         _raise_translated_networkx_exception(exc)
 
 
-def fast_label_propagation_communities(G, *, weight=None, seed=None):
-    """Generate community sets determined by fast label propagation."""
-    return _call_networkx_community_for_parity(
-        "fast_label_propagation_communities", G, weight=weight, seed=seed
-    )
 
 
 def is_partition(G, communities):
@@ -24832,19 +24678,8 @@ def leiden_communities(G, weight="weight", resolution=1, max_level=None, seed=No
     )
 
 
-def leiden_partitions(G, weight="weight", resolution=1, seed=None):
-    """Yield partitions of G during Leiden community detection."""
-    return _call_networkx_community_for_parity(
-        "leiden_partitions", G,
-        weight=weight, resolution=resolution, seed=seed,
-    )
 
 
-def edge_betweenness_partition(G, number_of_sets, *, weight=None):
-    """Partition G using edge betweenness centrality."""
-    return _call_networkx_community_for_parity(
-        "edge_betweenness_partition", G, number_of_sets, weight=weight,
-    )
 
 
 def greedy_source_expansion(G, *, source, cutoff=None, method="clauset"):
@@ -24855,41 +24690,6 @@ def greedy_source_expansion(G, *, source, cutoff=None, method="clauset"):
     )
 
 
-def asyn_lpa_communities(G, weight=None, seed=None):
-    """Returns communities in ``G`` as detected by asynchronous label propagation."""
-    rng = _generator_random_state(seed)
-    labels = {node: index for index, node in enumerate(G)}
-    should_continue = True
-
-    while should_continue:
-        should_continue = False
-        nodes = list(G)
-        rng.shuffle(nodes)
-
-        for node in nodes:
-            if not G[node]:
-                continue
-
-            if weight is None:
-                label_freq = Counter(map(labels.get, G[node]))
-            else:
-                label_freq = defaultdict(float)
-                for _, neighbor, edge_weight in G.edges(node, data=weight, default=1):
-                    label_freq[labels[neighbor]] += edge_weight
-
-            max_freq = max(label_freq.values())
-            best_labels = [
-                label for label, frequency in label_freq.items() if frequency == max_freq
-            ]
-
-            if labels[node] not in best_labels:
-                labels[node] = rng.choice(best_labels)
-                should_continue = True
-
-    grouped = defaultdict(set)
-    for node, label in labels.items():
-        grouped[label].add(node)
-    yield from grouped.values()
 
 
 def is_distance_regular(G):
@@ -41122,22 +40922,15 @@ __all__ = [
     "dominating_set",
     "is_dominating_set",
     # Algorithms — community detection
-    "louvain_communities",
     # br-r37-c1-ecua7: modularity removed from top-level __all__ to
     # mirror nx's namespace contract (nx.modularity raises
     # AttributeError; the function lives at nx.community.modularity).
     "label_propagation_communities",
-    "fast_label_propagation_communities",
-    "asyn_lpa_communities",
     "greedy_modularity_communities",
     "greedy_source_expansion",
-    "girvan_newman",
     "is_partition",
     "k_clique_communities",
     "leiden_communities",
-    "leiden_partitions",
-    "louvain_partitions",
-    "edge_betweenness_partition",
     # Attribute helpers
     "set_node_attributes",
     "get_node_attributes",
@@ -41499,7 +41292,6 @@ __all__ = [
     "make_clique_bipartite",
     "k_components",
     "k_factor",
-    "asyn_fluidc",
     "spectral_graph_forge",
     "tutte_polynomial",
     "tree_all_pairs_lowest_common_ancestor",
@@ -42621,6 +42413,20 @@ def __getattr__(name):
         "simulated_annealing_tsp", "threshold_accepting_tsp",
         "steiner_tree", "traveling_salesman_problem",
         "asadpour_atsp",
+    ):
+        raise AttributeError(
+            f"module 'networkx' has no attribute '{name}'"
+        )
+    # br-r37-c1-uwm5v: 8 nx.community helpers live at nx.community.X
+    # but not at nx top level. fnx exposed all 8 — removed for
+    # drop-in parity. They remain reachable via fnx.community.X
+    # through the auto-bound submodule fallback.
+    if name in (
+        "louvain_communities", "louvain_partitions",
+        "leiden_partitions", "asyn_fluidc",
+        "asyn_lpa_communities",
+        "fast_label_propagation_communities",
+        "edge_betweenness_partition", "girvan_newman",
     ):
         raise AttributeError(
             f"module 'networkx' has no attribute '{name}'"
