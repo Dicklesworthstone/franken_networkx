@@ -6113,6 +6113,8 @@ def shortest_path_length(G, source=None, target=None, weight=None, method="dijks
 
 
 def has_path(G, source, target):
+    # br-r37-c1-rg8jh: accept nx-typed inputs.
+    G = _coerce_arg_to_fnx_graph(G)
     if _path_query_has_missing_nodes(G, source=source, target=target):
         return _call_networkx_for_parity("has_path", G, source, target)
     return _raw_has_path(G, source, target)
@@ -6837,6 +6839,8 @@ def harmonic_centrality(
         Dictionary of nodes with harmonic centrality as value.
     """
     _validate_backend_dispatch_keywords("harmonic_centrality", backend, backend_kwargs)
+    # br-r37-c1-rg8jh: accept nx-typed inputs.
+    G = _coerce_arg_to_fnx_graph(G)
 
     if nbunch is not None or distance is not None or sources is not None:
         return _call_networkx_for_parity(
@@ -6862,6 +6866,8 @@ def degree_centrality(G, *, backend=None, **backend_kwargs):
     nodes.
     """
     _validate_backend_dispatch_keywords("degree_centrality", backend, backend_kwargs)
+    # br-r37-c1-rg8jh: accept nx-typed inputs.
+    G = _coerce_arg_to_fnx_graph(G)
     # br-r37-c1-pu5q7: nx special-cases ``len(G) <= 1`` and returns
     # ``{n: 1 for n in G}`` (int 1, not 1.0 or NaN) before any
     # ``1 / (n - 1)`` would divide by zero. Mirror that for both the
@@ -8192,6 +8198,8 @@ def is_eulerian(G):
     Delegate the 0- and 1-node branches to a Python check and keep the
     fast path for ``G`` with >= 2 distinct nodes.
     """
+    # br-r37-c1-rg8jh: accept nx-typed inputs.
+    G = _coerce_arg_to_fnx_graph(G)
     if G.number_of_nodes() <= 1:
         if G.is_directed():
             # For <=1 nodes the helper is the right answer (nx is_eulerian
@@ -8320,6 +8328,8 @@ def has_eulerian_path(G, source=None):
     bool
         True if G has an Eulerian path.
     """
+    # br-r37-c1-rg8jh: accept nx-typed inputs.
+    G = _coerce_arg_to_fnx_graph(G)
     # br-r37-c1-bf1wb: nx supports directed graphs here (a digraph has
     # an Eulerian path iff at most one node has out-in=1, at most one
     # has in-out=1, all others have equal in/out, and the underlying
@@ -8549,6 +8559,8 @@ def efficiency(G, u, v):
     NetworkXNotImplemented, not return a centrality value computed
     over the undirected projection. fnx previously silently accepted.
     """
+    # br-r37-c1-rg8jh: accept nx-typed inputs.
+    G = _coerce_arg_to_fnx_graph(G)
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
     try:
@@ -8576,6 +8588,8 @@ def global_efficiency(G):
     since nx's ``denom = n*(n-1)`` branch initializes ``g_eff = 0`` (int)
     without ever dividing on that path.
     """
+    # br-r37-c1-rg8jh: accept nx-typed inputs.
+    G = _coerce_arg_to_fnx_graph(G)
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
     if G.number_of_nodes() < 2:
@@ -8594,6 +8608,8 @@ def local_efficiency(G):
     returned 0.0; surface the same exception so drop-in code that
     catches ZeroDivisionError on empty inputs keeps working.
     """
+    # br-r37-c1-rg8jh: accept nx-typed inputs.
+    G = _coerce_arg_to_fnx_graph(G)
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
     if len(G) == 0:
@@ -9525,6 +9541,8 @@ def wiener_index(G, weight=None, *, backend=None, **backend_kwargs):
     and multigraph parallel-edge semantics follow NetworkX exactly.
     """
     _validate_backend_dispatch_keywords("wiener_index", backend, backend_kwargs)
+    # br-r37-c1-rg8jh: accept nx-typed inputs.
+    G = _coerce_arg_to_fnx_graph(G)
 
     # br-wienerport: route the unweighted simple-graph case (the most
     # common one) through the native Rust port, which dispatches on
@@ -12702,6 +12720,8 @@ def barycenter(G, weight=None, attr=None, sp=None, *, backend=None, **backend_kw
     where the user expects it.
     """
     _validate_backend_dispatch_keywords("barycenter", backend, backend_kwargs)
+    # br-r37-c1-rg8jh: accept nx-typed inputs.
+    G = _coerce_arg_to_fnx_graph(G)
     if len(G) == 0:
         # Match nx's split empty-graph behavior: undirected graph
         # classes raise, while directed graph classes return [].
@@ -13028,9 +13048,28 @@ def spanner(G, stretch, weight=None, seed=None):
 
 # Algorithm functions — tree recognition
 from franken_networkx._fnx import (
-    is_arborescence,
-    is_branching,
+    is_arborescence as _raw_is_arborescence,
+    is_branching as _raw_is_branching,
 )
+
+
+def is_arborescence(G):
+    """Return True if ``G`` is an arborescence.
+
+    br-r37-c1-rg8jh: Python wrapper around the bare Rust binding so
+    nx-typed inputs are coerced at the boundary.
+    """
+    G = _coerce_arg_to_fnx_graph(G)
+    return _raw_is_arborescence(G)
+
+
+def is_branching(G):
+    """Return True if ``G`` is a branching (forest of in-arborescences).
+
+    br-r37-c1-rg8jh: see is_arborescence.
+    """
+    G = _coerce_arg_to_fnx_graph(G)
+    return _raw_is_branching(G)
 
 # Algorithm functions — isolates
 from franken_networkx._fnx import (
@@ -13050,6 +13089,8 @@ def isolates(G):
     callers like ``next(isolates(huge_graph))`` don't pay for the full
     materialisation.
     """
+    # br-r37-c1-rg8jh: accept nx-typed inputs.
+    G = _coerce_arg_to_fnx_graph(G)
     yield from _raw_isolates(G)
 
 
@@ -14509,6 +14550,8 @@ def in_degree_centrality(G, *, backend=None, **backend_kwargs):
     already counts multi-edges correctly) for multigraphs to match nx.
     """
     _validate_backend_dispatch_keywords("in_degree_centrality", backend, backend_kwargs)
+    # br-r37-c1-rg8jh: accept nx-typed inputs.
+    G = _coerce_arg_to_fnx_graph(G)
     # br-r37-c1-n7rgh: nx is @not_implemented_for('undirected'). The
     # MultiGraph (undirected + multi) branch fell through to
     # G.in_degree() which doesn't exist on undirected and raised
@@ -14538,6 +14581,8 @@ def out_degree_centrality(G, *, backend=None, **backend_kwargs):
     Rust path undercounted parallel edges on MultiDiGraph.
     """
     _validate_backend_dispatch_keywords("out_degree_centrality", backend, backend_kwargs)
+    # br-r37-c1-rg8jh: accept nx-typed inputs.
+    G = _coerce_arg_to_fnx_graph(G)
     # br-r37-c1-n7rgh: same undirected guard as in_degree_centrality.
     if not G.is_directed():
         raise NetworkXNotImplemented("not implemented for undirected type")
