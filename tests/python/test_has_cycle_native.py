@@ -50,9 +50,14 @@ def test_has_cycle_self_loop_is_cycle():
 
 
 def test_has_cycle_rejects_undirected():
+    # br-r37-c1-f5mar: previously asserted fnx.NetworkXNotImplemented
+    # (the now-removed fnx-native wrapper raised that). After
+    # br-r37-c1-hoqqp hid has_cycle, fnx.algorithms.dag.has_cycle
+    # auto-resolves to nx, which raises NetworkXError with the
+    # 'Topological sort not defined on undirected graphs.' message.
     g = fnx.Graph()
     g.add_edge(0, 1)
-    with pytest.raises(fnx.NetworkXNotImplemented):
+    with pytest.raises(fnx.NetworkXError, match="Topological sort"):
         fnx.algorithms.dag.has_cycle(g)
 
 
