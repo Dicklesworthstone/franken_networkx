@@ -42949,6 +42949,14 @@ def __getattr__(name):
         raise AttributeError(
             f"module 'networkx' has no attribute '{name}'"
         )
+    # br-r37-c1-42dos: nx removed top-level ``graph_clique_number``;
+    # it lives only at nx.algorithms.clique. fnx exposed it through
+    # the _fnx Rust binding, masking nx's AttributeError for drop-in
+    # callers branching on ``hasattr(nx, 'graph_clique_number')``.
+    if name == "graph_clique_number":
+        raise AttributeError(
+            f"module 'networkx' has no attribute '{name}'"
+        )
     # br-r37-c1-bipx-removed: bipartite_sets and bipartite_density
     # were exposed at fnx top-level as fnx-only convenience aliases.
     # nx exposes them only at nx.bipartite (sets / density).  Drop-
