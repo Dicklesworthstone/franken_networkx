@@ -87,8 +87,13 @@ class TestKCliqueCommunities:
         assert len(comms) >= 1
 
     def test_k_less_than_2_raises(self):
+        # br-r37-c1-scaa9: nx raises NetworkXError("k=1, k must be
+        # greater than 1.") not ValueError. After the namespace
+        # migration (br-r37-c1-02sx1) fnx.community.k_clique_communities
+        # is nx's pure-Python function; match its exact exception class.
+        import franken_networkx as _f
         G = fnx.Graph()
-        with pytest.raises(ValueError):
+        with pytest.raises(_f.NetworkXError, match="k must be greater than 1"):
             list(fnx.community.k_clique_communities(G, 1))
 
 
