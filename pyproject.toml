@@ -56,14 +56,13 @@ all = ["numpy>=1.24", "scipy>=1.10"]
 franken_networkx = "franken_networkx.backend:backend_interface"
 
 [project.entry-points."networkx.backend_info"]
-franken_networkx = "fnx_backend_info:get_backend_info"
+franken_networkx = "franken_networkx.backend_info:get_backend_info"
 
 [tool.maturin]
 python-source = "python"
 module-name = "franken_networkx._fnx"
 manifest-path = "crates/fnx-python/Cargo.toml"
 features = ["pyo3/extension-module", "pyo3/abi3-py310"]
-include = ["fnx_backend_info.py"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests/python"]
