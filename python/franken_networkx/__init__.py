@@ -15249,25 +15249,6 @@ def is_bipartite_node_set(G, nodes):
     return node_set == set(top) or node_set == set(bottom)
 
 
-def color(G):
-    """Return a two-coloring of a bipartite graph.
-
-    Parameters
-    ----------
-    G : Graph
-        A bipartite graph.
-
-    Returns
-    -------
-    dict
-        A dictionary mapping nodes to 0 or 1.
-
-    Raises
-    ------
-    NetworkXError
-        If the graph is not bipartite.
-    """
-    return _bipartite_color_via_parity(G)
 
 
 def _bipartite_color_via_parity(G):
@@ -15406,25 +15387,10 @@ def _call_networkx_bipartite_for_parity(name, G, /, *args, **kwargs):
         _raise_translated_networkx_exception(exc)
 
 
-def eppstein_matching(G, top_nodes=None):
-    """Return maximum-cardinality bipartite matching via Eppstein's algorithm."""
-    return _call_networkx_bipartite_for_parity(
-        "eppstein_matching", G, top_nodes=top_nodes,
-    )
 
 
-def maximum_matching(G, top_nodes=None):
-    """Return a maximum cardinality matching of a bipartite graph G."""
-    return _call_networkx_bipartite_for_parity(
-        "maximum_matching", G, top_nodes=top_nodes,
-    )
 
 
-def minimum_weight_full_matching(G, top_nodes=None, weight="weight"):
-    """Return a minimum-weight full matching of a bipartite graph G."""
-    return _call_networkx_bipartite_for_parity(
-        "minimum_weight_full_matching", G, top_nodes=top_nodes, weight=weight,
-    )
 
 
 def to_vertex_cover(G, matching, top_nodes=None):
@@ -15470,30 +15436,12 @@ def _cc_min_via_nx(nu, nv):
     return _nx.algorithms.bipartite.cluster.cc_min(nu, nv)
 
 
-def robins_alexander_clustering(G):
-    """Robins-Alexander clustering for bipartite graph G."""
-    return _call_networkx_bipartite_for_parity("robins_alexander_clustering", G)
 
 
-def degrees(B, nodes, weight=None):
-    """Return ``(degX, degY)`` mappings for the two bipartite sets."""
-    return _call_networkx_bipartite_for_parity(
-        "degrees", B, nodes, weight=weight,
-    )
 
 
-def sets(G, top_nodes=None):
-    """Return the two node sets of a bipartite graph."""
-    return _call_networkx_bipartite_for_parity(
-        "sets", G, top_nodes=top_nodes,
-    )
 
 
-def node_redundancy(G, nodes=None):
-    """Return the redundancy coefficient for nodes in bipartite graph G."""
-    return _call_networkx_bipartite_for_parity(
-        "node_redundancy", G, nodes=nodes,
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -40799,14 +40747,7 @@ __all__ = [
     "cc_dot",
     "cc_max",
     "cc_min",
-    "degrees",
-    "eppstein_matching",
     "latapy_clustering",
-    "maximum_matching",
-    "minimum_weight_full_matching",
-    "node_redundancy",
-    "robins_alexander_clustering",
-    "sets",
     "to_vertex_cover",
     "core_number",
     "EdgePartition",
@@ -40814,7 +40755,6 @@ __all__ = [
     "ArborescenceIterator",
     "greedy_color",
     "is_bipartite",
-    "color",
     "is_forest",
     "is_tree",
     "greedy_branching",
@@ -42427,6 +42367,20 @@ def __getattr__(name):
         "asyn_lpa_communities",
         "fast_label_propagation_communities",
         "edge_betweenness_partition", "girvan_newman",
+    ):
+        raise AttributeError(
+            f"module 'networkx' has no attribute '{name}'"
+        )
+    # br-r37-c1-yidw1: 8 nx.bipartite helpers live at nx.bipartite.X
+    # but not at nx top level. fnx exposed all 8 — removed for
+    # drop-in parity. They remain reachable via fnx.bipartite.X
+    # through the auto-bound submodule fallback. Note ``color``,
+    # ``sets``, and ``degrees`` use very generic names — drop-in
+    # callers should reach them via the namespace.
+    if name in (
+        "eppstein_matching", "maximum_matching",
+        "minimum_weight_full_matching", "node_redundancy",
+        "color", "degrees", "robins_alexander_clustering", "sets",
     ):
         raise AttributeError(
             f"module 'networkx' has no attribute '{name}'"
