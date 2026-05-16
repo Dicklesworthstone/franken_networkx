@@ -442,23 +442,23 @@ class TestNumberOfSpanningArborescences:
     def test_simple_digraph(self, simple_digraph):
         # D: 0->1, 0->2, 1->2
         # From root 0: arborescences are {0->1, 0->2} and {0->1, 1->2}
-        result = fnx.number_of_spanning_arborescences(simple_digraph, 0)
+        result = fnx._fnx.number_of_spanning_arborescences(simple_digraph, 0)
         assert result == pytest.approx(2.0)
 
     def test_single_node(self):
         D = fnx.DiGraph()
         D.add_node(0)
-        assert fnx.number_of_spanning_arborescences(D, 0) == pytest.approx(1.0)
+        assert fnx._fnx.number_of_spanning_arborescences(D, 0) == pytest.approx(1.0)
 
     def test_undirected_raises(self, k4):
         with pytest.raises(Exception):
-            fnx.number_of_spanning_arborescences(k4, 0)
+            fnx._fnx.number_of_spanning_arborescences(k4, 0)
 
     def test_disconnected_zero(self):
         D = fnx.DiGraph()
         D.add_node(0)
         D.add_node(1)
-        assert fnx.number_of_spanning_arborescences(D, 0) == pytest.approx(0.0)
+        assert fnx._fnx.number_of_spanning_arborescences(D, 0) == pytest.approx(0.0)
 
     def test_chain_digraph(self):
         # Linear chain 0->1->2->3: only one spanning arborescence from root 0
@@ -466,4 +466,4 @@ class TestNumberOfSpanningArborescences:
         D.add_edge(0, 1)
         D.add_edge(1, 2)
         D.add_edge(2, 3)
-        assert fnx.number_of_spanning_arborescences(D, 0) == pytest.approx(1.0)
+        assert fnx._fnx.number_of_spanning_arborescences(D, 0) == pytest.approx(1.0)
