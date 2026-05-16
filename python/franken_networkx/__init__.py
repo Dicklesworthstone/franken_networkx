@@ -18787,33 +18787,9 @@ def _frozen(*args, **kwargs):
 
 
 # ---------------------------------------------------------------------------
-# Info (deprecated in NetworkX but still commonly used)
+# Info — removed from NetworkX in 3.0; resolved via __getattr__ to mirror nx's
+# AttributeError. (br-r37-c1-m8ktl)
 # ---------------------------------------------------------------------------
-
-
-def info(G, n=None):
-    """Return a summary string of *G* (or node *n*).
-
-    .. deprecated:: 3.0
-        Use ``str(G)`` or direct attribute access instead.
-    """
-    if n is not None:
-        nbrs = list(G.neighbors(n))
-        return f"Node {n} has {len(nbrs)} neighbor(s)"
-    name = getattr(G, "name", "") or ""
-    typ = type(G).__name__
-    n_nodes = G.number_of_nodes()
-    n_edges = G.number_of_edges()
-    lines = [
-        f"Name: {name}",
-        f"Type: {typ}",
-        f"Number of nodes: {n_nodes}",
-        f"Number of edges: {n_edges}",
-    ]
-    if n_nodes > 0:
-        [d for _, d in G.degree]
-        lines.append(f"Average degree: {2.0 * n_edges / n_nodes:.4f}")
-    return "\n".join(lines)
 
 
 # ---------------------------------------------------------------------------
@@ -41594,7 +41570,6 @@ __all__ = [
     "rescale_layout",
     "freeze",
     "is_frozen",
-    "info",
     "binomial_graph",
     "gnm_random_graph",
     "check_planarity",
@@ -42963,6 +42938,14 @@ def __getattr__(name):
     # AttributeError — emit nx's exact wording so drop-in
     # callers branching on the exception see identical behaviour.
     if name in ("biadjacency_matrix", "from_biadjacency_matrix"):
+        raise AttributeError(
+            f"module 'networkx' has no attribute '{name}'"
+        )
+    # br-r37-c1-m8ktl: nx removed top-level ``info`` in 3.0 (the
+    # function lived only as a deprecation shim before that).
+    # fnx kept a working ``info`` that masked nx's AttributeError
+    # for drop-in callers branching on ``hasattr(nx, 'info')``.
+    if name == "info":
         raise AttributeError(
             f"module 'networkx' has no attribute '{name}'"
         )
