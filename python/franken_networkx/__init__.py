@@ -10575,44 +10575,6 @@ def _modularity_backend_impl(G, communities, weight="weight", resolution=1):
     return _raw_modularity(G, community_list, weight=weight, resolution=resolution)
 
 
-def greedy_modularity_communities(G, weight=None, resolution=1, cutoff=1, best_n=None):
-    """Find communities greedily maximizing modularity.
-
-    Parameters
-    ----------
-    G : graph
-        An undirected graph.
-    weight : str, optional
-        Edge attribute name to use for weights. Default is None.
-    resolution : float, optional
-        Resolution parameter for modularity. Default is 1.
-    cutoff : int, optional
-        Minimum community size. Default is 1.
-    best_n : int, optional
-        Maximum number of communities to return. Default is None.
-
-    Returns
-    -------
-    list
-        A list of sets of nodes, one for each community.
-    """
-    # br-gmodweight: the Rust fast-path silently substitutes "weight" for
-    # None, which means it uses edge weights where nx's weight=None ignores
-    # them. Delegate to nx when weight is None (unweighted request) or when
-    # any non-default knob is set so the partition matches upstream exactly.
-    if cutoff != 1 or best_n is not None or weight is None:
-        return list(
-            _call_networkx_submodule_for_parity(
-                "algorithms.community",
-                "greedy_modularity_communities",
-                G,
-                weight=weight,
-                resolution=resolution,
-                cutoff=cutoff,
-                best_n=best_n,
-            )
-        )
-    return _raw_greedy_modularity_communities(G, resolution=float(resolution), weight=weight)
 
 # Algorithm functions — graph operators
 from franken_networkx._fnx import (
@@ -15160,32 +15122,6 @@ def star_graph(n, create_using=None):
 # ---------------------------------------------------------------------------
 
 
-def is_bipartite_node_set(G, nodes):
-    """Check whether *nodes* is one side of a valid bipartition of *G*.
-
-    Parameters
-    ----------
-    G : Graph
-        The input graph.
-    nodes : container
-        Candidate node set.
-
-    Returns
-    -------
-    bool
-        True if *nodes* forms one part of a bipartition.
-    """
-    node_set = set(nodes)
-    if len(node_set) < len(nodes):
-        raise _AmbiguousSolution(
-            "The input node set contains duplicates.\n"
-            "This may lead to incorrect results when using it in bipartite algorithms.\n"
-            "Consider using set(nodes) as the input"
-        )
-    if not is_bipartite(G):
-        return False
-    top, bottom = _bipartite_sets(G)
-    return node_set == set(top) or node_set == set(bottom)
 
 
 
@@ -15402,36 +15338,6 @@ def _without_most_valuable_edges(G, most_valuable_edge):
     return new_components
 
 
-def k_clique_communities(G, k, cliques=None):
-    """Find k-clique communities using the clique percolation method.
-
-    A k-clique community is the union of all cliques of size k that can
-    be reached through adjacent (sharing k-1 nodes) k-cliques.
-
-    Parameters
-    ----------
-    G : Graph
-        The input graph.
-    k : int
-        Size of the smallest clique.
-    cliques : iterable of lists, optional
-        Pre-computed cliques. If provided, delegates to NetworkX which
-        handles the user-provided clique enumeration.
-
-    Yields
-    ------
-    frozenset
-        Each yielded set is a k-clique community.
-    """
-    if k < 2:
-        raise ValueError("k must be >= 2")
-    if cliques is not None:
-        yield from _call_networkx_for_parity(
-            "k_clique_communities", G, k, cliques=cliques
-        )
-        return
-    for community in _fnx.k_clique_communities_rust(G, k):
-        yield community
 
 
 # ---------------------------------------------------------------------------
@@ -24366,7 +24272,9 @@ def non_randomness(G, k=None, weight="weight"):
     m = G.number_of_edges()
 
     if k is None:
-        k = len(tuple(label_propagation_communities(G)))
+        # br-r37-c1-02sx1: ``label_propagation_communities`` is no longer
+        # a top-level fnx name; reach for the canonical nx location.
+        k = len(tuple(_nx.community.label_propagation_communities(G)))
 
     p = (2 * k * m) / (n * (n - k))
     if not 1 <= k < n or not 0 < p < 1:
@@ -24457,71 +24365,10 @@ def _kernighan_lin_sweep(edge_info, side):
         yield total_cost, index, (u, v)
 
 
-def kernighan_lin_bisection(G, partition=None, max_iter=10, weight="weight", seed=None):
-    """Partition a graph into two blocks using the Kernighan-Lin algorithm."""
-    if G.is_directed():
-        raise NetworkXNotImplemented("not implemented for directed type")
-
-    nodes = list(G)
-    if partition is None:
-        rng = _generator_random_state(seed)
-        rng.shuffle(nodes)
-        mid = len(nodes) // 2
-        A, B = nodes[:mid], nodes[mid:]
-    else:
-        try:
-            A, B = partition
-        except (TypeError, ValueError) as err:
-            raise NetworkXError("partition must be two sets") from err
-        if not _is_partition_of_graph(G, [A, B]):
-            raise NetworkXError("partition invalid")
-
-    side = {node: (node in A) for node in nodes}
-
-    if callable(weight):
-        sum_weight = weight
-    elif G.is_multigraph():
-        sum_weight = lambda u, v, d: sum(dd.get(weight, 1) for dd in d.values())
-    else:
-        sum_weight = lambda u, v, d: d.get(weight, 1)
-
-    edge_info = {
-        u: {
-            v: wt
-            for v, d in G.adj[u].items()
-            if (wt := sum_weight(u, v, d)) is not None
-        }
-        for u in G.adj
-    }
-
-    for _ in range(max_iter):
-        costs = list(_kernighan_lin_sweep(edge_info, side))
-        min_cost, min_index, _ = min(costs)
-        if min_cost >= 0:
-            break
-
-        for _, _, (u, v) in costs[:min_index]:
-            side[u] = 1
-            side[v] = 0
-
-    part1 = {u for u, s in side.items() if s == 0}
-    part2 = {u for u, s in side.items() if s == 1}
-    return part1, part2
 
 
 
 
-def label_propagation_communities(G, *, backend=None, **backend_kwargs):
-    """Generates community sets determined by label propagation."""
-    # br-r37-c1-bk-submod: backend dispatch surface match nx.
-    _validate_backend_dispatch_keywords(
-        "label_propagation_communities", backend, backend_kwargs
-    )
-    if G.is_directed():
-        raise NetworkXNotImplemented("not implemented for directed type")
-
-    communities = _fnx.label_propagation_communities(G)
-    return {index: set(community) for index, community in enumerate(communities)}.values()
 
 
 def _call_networkx_community_for_parity(name, G, /, *args, **kwargs):
@@ -24537,29 +24384,14 @@ def _call_networkx_community_for_parity(name, G, /, *args, **kwargs):
 
 
 
-def is_partition(G, communities):
-    """Return True if ``communities`` is a partition of the nodes of ``G``."""
-    return _call_networkx_community_for_parity("is_partition", G, communities)
-
-
-def leiden_communities(G, weight="weight", resolution=1, max_level=None, seed=None):
-    """Find communities in G using the Leiden algorithm."""
-    return _call_networkx_community_for_parity(
-        "leiden_communities", G,
-        weight=weight, resolution=resolution, max_level=max_level, seed=seed,
-    )
 
 
 
 
 
 
-def greedy_source_expansion(G, *, source, cutoff=None, method="clauset"):
-    """Greedy local community expansion from a source node."""
-    return _call_networkx_community_for_parity(
-        "greedy_source_expansion", G,
-        source=source, cutoff=cutoff, method=method,
-    )
+
+
 
 
 
@@ -40627,7 +40459,6 @@ __all__ = [
     # br-r37-c1-bia-removed: biadjacency_matrix /
     # from_biadjacency_matrix are only at nx.bipartite, not nx
     # top-level; not exported.
-    "is_bipartite_node_set",
     "projected_graph",
     "hopcroft_karp_matching",
     "cc_dot",
@@ -40751,12 +40582,6 @@ __all__ = [
     # br-r37-c1-ecua7: modularity removed from top-level __all__ to
     # mirror nx's namespace contract (nx.modularity raises
     # AttributeError; the function lives at nx.community.modularity).
-    "label_propagation_communities",
-    "greedy_modularity_communities",
-    "greedy_source_expansion",
-    "is_partition",
-    "k_clique_communities",
-    "leiden_communities",
     # Attribute helpers
     "set_node_attributes",
     "get_node_attributes",
@@ -40859,7 +40684,6 @@ __all__ = [
     "degree_sequence_tree",
     "common_neighbor_centrality",
     "all_topological_sorts",
-    "kernighan_lin_bisection",
     "lowest_common_ancestor",
     "all_pairs_lowest_common_ancestor",
     "transitive_closure_dag",
@@ -42245,6 +42069,19 @@ def __getattr__(name):
         "asyn_lpa_communities",
         "fast_label_propagation_communities",
         "edge_betweenness_partition", "girvan_newman",
+    ):
+        raise AttributeError(
+            f"module 'networkx' has no attribute '{name}'"
+        )
+    # br-r37-c1-02sx1: 7 more nx.community helpers + nx.bipartite.
+    # is_bipartite_node_set — none at nx top level. fnx exposed
+    # all 8 — removed for drop-in parity. They remain reachable
+    # via fnx.community.X / fnx.bipartite.X.
+    if name in (
+        "greedy_modularity_communities", "leiden_communities",
+        "label_propagation_communities", "k_clique_communities",
+        "greedy_source_expansion", "kernighan_lin_bisection",
+        "is_partition", "is_bipartite_node_set",
     ):
         raise AttributeError(
             f"module 'networkx' has no attribute '{name}'"
