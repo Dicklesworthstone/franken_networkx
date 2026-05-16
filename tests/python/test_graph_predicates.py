@@ -457,9 +457,12 @@ class TestTournamentScoreSequence:
             (fnx.MultiDiGraph, nx.MultiDiGraph, lambda graph: graph.add_edge("a", "b")),
         ],
     )
-    def test_matches_networkx_without_fallback(
-        self, monkeypatch, fnx_cls, nx_cls, builder
-    ):
+    def test_matches_networkx(self, fnx_cls, nx_cls, builder):
+        # br-r37-c1-oujmp: dropped the no-nx-fallback monkeypatch.
+        # After br-r37-c1-dm5jl hid the top-level score_sequence
+        # wrapper, fnx.tournament.X auto-resolves to nx — so the
+        # nx implementation IS the call path. Still verify
+        # numerical / exception-message equality with nx.
         graph = fnx_cls()
         expected = nx_cls()
         builder(graph)
@@ -469,16 +472,6 @@ class TestTournamentScoreSequence:
             expected_result = nx.tournament.score_sequence(expected)
         except Exception as exc:
             expected_result = exc
-
-        monkeypatch.setattr(
-            nx.tournament,
-            "score_sequence",
-            lambda *args, **kwargs: (_ for _ in ()).throw(
-                AssertionError(
-                    "NetworkX tournament.score_sequence fallback should not be used"
-                )
-            ),
-        )
 
         if isinstance(expected_result, Exception):
             with pytest.raises(Exception) as fnx_exc:
