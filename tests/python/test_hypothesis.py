@@ -946,7 +946,7 @@ class TestExpansionMetrics:
     def test_global_node_connectivity_leq_min_degree(self, data):
         """Node connectivity <= minimum degree (Whitney's theorem)."""
         G_fnx, G_nx, n = data
-        gnc = fnx.global_node_connectivity(G_fnx)
+        gnc = fnx.node_connectivity(G_fnx)
         min_deg = min(d for _, d in G_nx.degree())
         assert gnc <= min_deg
 
