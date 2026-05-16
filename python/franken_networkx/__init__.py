@@ -13517,18 +13517,6 @@ def is_tournament(G):
     )
 
 
-def score_sequence(G):
-    """Return the sorted out-degree sequence for a tournament graph."""
-    if G.is_multigraph():
-        raise NetworkXNotImplemented("not implemented for multigraph type")
-    if not G.is_directed():
-        raise NetworkXNotImplemented("not implemented for undirected type")
-    out_degree_view = G.out_degree
-    if callable(out_degree_view):
-        degree_items = out_degree_view()
-    else:
-        degree_items = out_degree_view
-    return sorted(degree for _node, degree in degree_items)
 
 
 # hamiltonian_path was top-level in fnx — removed in br-r37-c1-twl53 to
@@ -13537,22 +13525,6 @@ def score_sequence(G):
 # submodule fallback in __getattr__.
 
 
-def random_tournament(n, seed=None):
-    """Return a random tournament graph on n nodes.
-
-    Parameters
-    ----------
-    n : int
-        Number of nodes.
-    seed : int or None, optional
-        Random seed.
-
-    Returns
-    -------
-    DiGraph
-        A random tournament graph.
-    """
-    return _random_tournament_via_parity(n, seed=seed)
 
 
 def _random_tournament_via_parity(n, *, seed=None):
@@ -13592,22 +13564,6 @@ def is_reachable(G, s, t):
     )
 
 
-def tournament_matrix(G):
-    """Return the tournament matrix for G.
-
-    Parameters
-    ----------
-    G : DiGraph
-        A tournament graph.
-
-    Returns
-    -------
-    numpy.ndarray
-        A matrix where entry (i,j) is 1 if there is an edge from i to j.
-    """
-    return _call_networkx_submodule_for_parity(
-        "algorithms.tournament", "tournament_matrix", G
-    )
 
 
 def is_regular(G):
@@ -33799,22 +33755,6 @@ def vf2pp_all_isomorphisms(G1, G2, node_label=None, default_label=None):
     )
 
 
-def tree_isomorphism(t1, t2):
-    """Return all isomorphism mappings between two trees.
-
-    Parameters
-    ----------
-    t1 : Graph
-        An undirected tree.
-    t2 : Graph
-        An undirected tree.
-
-    Returns
-    -------
-    list
-        A list of dictionaries, each mapping nodes of t1 to nodes of t2.
-    """
-    return _tree_isomorphism_via_parity(t1, t2)
 
 
 def _tree_isomorphism_via_parity(t1, t2):
@@ -33828,26 +33768,6 @@ def _tree_isomorphism_via_parity(t1, t2):
     )
 
 
-def rooted_tree_isomorphism(t1, root1, t2, root2):
-    """Return all isomorphism mappings between two rooted trees.
-
-    Parameters
-    ----------
-    t1 : Graph
-        An undirected tree.
-    root1 : node
-        The root node of t1.
-    t2 : Graph
-        An undirected tree.
-    root2 : node
-        The root node of t2.
-
-    Returns
-    -------
-    list
-        A list of dictionaries, each mapping nodes of t1 to nodes of t2.
-    """
-    return _rooted_tree_isomorphism_via_parity(t1, root1, t2, root2)
 
 
 def _rooted_tree_isomorphism_via_parity(t1, root1, t2, root2):
@@ -33879,8 +33799,6 @@ _ISOMORPHISM_MODULE_EXPORTS = (
     "vf2pp_is_isomorphic",
     "vf2pp_isomorphism",
     "vf2pp_all_isomorphisms",
-    "tree_isomorphism",
-    "rooted_tree_isomorphism",
     "GraphMatcher",
     "DiGraphMatcher",
     "MultiGraphMatcher",
@@ -41118,8 +41036,6 @@ __all__ = [
     "vf2pp_is_isomorphic",
     "vf2pp_isomorphism",
     "vf2pp_all_isomorphisms",
-    "tree_isomorphism",
-    "rooted_tree_isomorphism",
     # Tree/forest utilities
     "junction_tree",
     "join_trees",
@@ -41330,10 +41246,7 @@ __all__ = [
     "is_regular",
     "is_k_regular",
     "is_tournament",
-    "score_sequence",
-    "random_tournament",
     "is_reachable",
-    "tournament_matrix",
     "is_weighted",
     "is_negatively_weighted",
     "is_path",
@@ -42362,6 +42275,17 @@ def __getattr__(name):
     if name in (
         "local_edge_connectivity", "minimum_st_edge_cut",
         "minimum_st_node_cut", "bridge_components",
+    ):
+        raise AttributeError(
+            f"module 'networkx' has no attribute '{name}'"
+        )
+    # br-r37-c1-dm5jl: 5 tournament + tree-isomorphism helpers
+    # live at nx.tournament.X / nx.isomorphism.X but not at nx top
+    # level. fnx exposed all 5 — removed for drop-in parity. They
+    # remain reachable via fnx.tournament.X / fnx.isomorphism.X.
+    if name in (
+        "random_tournament", "tournament_matrix", "score_sequence",
+        "rooted_tree_isomorphism", "tree_isomorphism",
     ):
         raise AttributeError(
             f"module 'networkx' has no attribute '{name}'"
