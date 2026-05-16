@@ -11961,105 +11961,17 @@ def _prim_mst_edges_via_nx(G, minimum, weight, keys, data, ignore_nan):
     )
 
 
-def hide_nodes(nodes):
-    """Return a filter that hides the given nodes."""
-    return _hide_nodes_via_nx(nodes)
-
-
-def _hide_nodes_via_nx(nodes):
-    """br-r37-c1-idi4s: private helper keeps the public function
-    classified as PY_WRAPPER in the coverage matrix."""
-    return _nx.classes.filters.hide_nodes(nodes)
-
-
-def hide_edges(edges):
-    """Return a filter that hides the given edges."""
-    return _hide_edges_via_nx(edges)
-
-
-def _hide_edges_via_nx(edges):
-    return _nx.classes.filters.hide_edges(edges)
-
-
-def hide_diedges(edges):
-    """Return a filter that hides the given directed edges."""
-    return _hide_diedges_via_nx(edges)
-
-
-def _hide_diedges_via_nx(edges):
-    return _nx.classes.filters.hide_diedges(edges)
-
-
-def hide_multiedges(edges):
-    """Return a filter that hides the given multi-edges (undirected)."""
-    return _hide_multiedges_via_nx(edges)
-
-
-def _hide_multiedges_via_nx(edges):
-    return _nx.classes.filters.hide_multiedges(edges)
-
-
-def hide_multidiedges(edges):
-    """Return a filter that hides the given multi-directed-edges."""
-    return _hide_multidiedges_via_nx(edges)
-
-
-def _hide_multidiedges_via_nx(edges):
-    return _nx.classes.filters.hide_multidiedges(edges)
-
-
-def show_nodes(nodes):
-    """Return a filter that shows only the given nodes."""
-    return _show_nodes_via_nx(nodes)
-
-
-def _show_nodes_via_nx(nodes):
-    return _nx.classes.filters.show_nodes(nodes)
-
-
-def show_edges(edges):
-    """Return a filter that shows only the given edges."""
-    return _show_edges_via_nx(edges)
-
-
-def _show_edges_via_nx(edges):
-    return _nx.classes.filters.show_edges(edges)
-
-
-def show_diedges(edges):
-    """Return a filter that shows only the given directed edges."""
-    return _show_diedges_via_nx(edges)
-
-
-def _show_diedges_via_nx(edges):
-    return _nx.classes.filters.show_diedges(edges)
-
-
-def show_multiedges(edges):
-    """Return a filter that shows only the given multi-edges (undirected)."""
-    return _show_multiedges_via_nx(edges)
-
-
-def _show_multiedges_via_nx(edges):
-    return _nx.classes.filters.show_multiedges(edges)
-
-
-def show_multidiedges(edges):
-    """Return a filter that shows only the given multi-directed-edges."""
-    return _show_multidiedges_via_nx(edges)
-
-
-def _show_multidiedges_via_nx(edges):
-    return _nx.classes.filters.show_multidiedges(edges)
-
-
-def no_filter(*items):
-    """The default no-op filter — returns True for any item."""
-    return _no_filter_via_nx(*items)
-
-
-def _no_filter_via_nx(*items):
-    return _nx.classes.filters.no_filter(*items)
+# The 11 subgraph_view filter constructors (hide_X / show_X / no_filter)
+# live only at nx.classes.filters.X; nx top-level raises AttributeError.
+# Removed from fnx top-level in br-r37-c1-32nso for drop-in parity. They
+# remain accessible via fnx.classes.filters.X through the auto-bound
+# submodule fallback.
+#
+# Use a private alias so subgraph_view can reference nx's ``no_filter``
+# as its parameter default (preserving inspect.signature parity per
+# br-r37-c1-svfilter) without leaking ``no_filter`` at fnx top level.
+# Local import — the module-level ``_nx`` alias is bound far later.
+from networkx.classes.filters import no_filter as _subgraph_view_no_filter_default  # noqa: E402
 
 
 # Heap classes (networkx.utils.heaps) — used as default heap= kwarg by
@@ -35475,7 +35387,7 @@ def edge_subgraph(G, edges):
     )
 
 
-def subgraph_view(G, *, filter_node=no_filter, filter_edge=no_filter):
+def subgraph_view(G, *, filter_node=_subgraph_view_no_filter_default, filter_edge=_subgraph_view_no_filter_default):
     """Filtered live view of graph.
 
     br-r37-c1-svfilter: nx's signature uses ``no_filter`` (a callable
@@ -41784,17 +41696,6 @@ __all__ = [
     "boruvka_mst_edges",
     "kruskal_mst_edges",
     "prim_mst_edges",
-    "hide_nodes",
-    "hide_edges",
-    "hide_diedges",
-    "hide_multiedges",
-    "hide_multidiedges",
-    "show_nodes",
-    "show_edges",
-    "show_diedges",
-    "show_multiedges",
-    "show_multidiedges",
-    "no_filter",
     "BinaryHeap",
     "MinHeap",
     "PairingHeap",
@@ -42824,6 +42725,20 @@ def __getattr__(name):
         "strategy_connected_sequential_bfs",
         "strategy_connected_sequential_dfs",
         "strategy_saturation_largest_first",
+    ):
+        raise AttributeError(
+            f"module 'networkx' has no attribute '{name}'"
+        )
+    # br-r37-c1-32nso: 11 subgraph_view filter constructors live at
+    # nx.classes.filters.X — nx top-level raises. fnx exposed all 11;
+    # removed for drop-in parity. They remain reachable via
+    # fnx.classes.filters.X through the auto-bound submodule fallback.
+    if name in (
+        "hide_nodes", "hide_edges", "hide_diedges",
+        "hide_multiedges", "hide_multidiedges",
+        "show_nodes", "show_edges", "show_diedges",
+        "show_multiedges", "show_multidiedges",
+        "no_filter",
     ):
         raise AttributeError(
             f"module 'networkx' has no attribute '{name}'"
