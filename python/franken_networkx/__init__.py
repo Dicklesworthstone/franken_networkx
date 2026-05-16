@@ -24221,7 +24221,9 @@ def double_edge_swap(G, nswap=1, max_tries=100, seed=None):
     edges = list(G.edges())
     swaps_done = 0
     tries = 0
-    max_attempts = nswap * max_tries
+    # br-r37-c1-ekbo3: nx caps total attempts at max_tries — not
+    # nswap * max_tries (nx swap.py:222 reads ``if n >= max_tries``).
+    max_attempts = max_tries
 
     while swaps_done < nswap:
         if tries >= max_attempts:
