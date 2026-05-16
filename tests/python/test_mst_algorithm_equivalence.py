@@ -47,7 +47,9 @@ def _seeded_weight_assignment(graph, seed):
 
 
 def _mst_total_weight(graph, algorithm):
-    fn = getattr(fnx, f"{algorithm}_mst_edges")
+    # br-r37-c1-1pzve: br-r37-c1-luy4x hid the mst-edges helpers from
+    # fnx top level; they live at fnx.algorithms.tree.mst.X.
+    fn = getattr(fnx.algorithms.tree.mst, f"{algorithm}_mst_edges")
     if algorithm == "boruvka":
         edges = list(fn(graph, data=True))
     else:
