@@ -8418,6 +8418,13 @@ def cycle_basis(G, root=None):
 def all_shortest_paths(
     G, source, target, weight=None, method="dijkstra", *, backend=None, **backend_kwargs
 ):
+    """Yield every shortest path from ``source`` to ``target``.
+
+    Returns a generator of equal-length minimum-cost paths. ``method`` selects
+    the underlying algorithm (``"dijkstra"``, ``"bellman-ford"``, or
+    ``"unweighted"``). Mirrors ``networkx.all_shortest_paths``; raises
+    ``NetworkXNoPath`` when advanced if no path exists.
+    """
     # br-r37-c1-6atv8 / br-r37-c1-emxwl: invalid method and missing
     # source raise eagerly, but target-dependent errors happen when
     # the true generator is advanced, matching nx's generator body.
@@ -11434,6 +11441,12 @@ def average_node_connectivity(G, flow_func=None):
     return _raw_average_node_connectivity(G)
 
 def all_pairs_dijkstra(G, cutoff=None, weight="weight"):
+    """Iterator of ``(source, (distances, paths))`` pairs via Dijkstra.
+
+    For every node ``source`` in ``G``, yields the same ``(distances, paths)``
+    dicts as ``single_source_dijkstra(G, source, cutoff=cutoff, weight=weight)``.
+    Mirrors ``networkx.all_pairs_dijkstra``.
+    """
     # br-dijkignoreweight: Rust all_pairs_dijkstra inherits the
     # single-source weight-ignoring bug; delegate any weighted call.
     if cutoff is not None:
@@ -14601,6 +14614,11 @@ def single_source_bellman_ford_path_length(G, source, weight="weight"):
 
 
 def all_pairs_dijkstra_path(G, cutoff=None, weight="weight"):
+    """Iterator of ``(source, paths)`` pairs via Dijkstra.
+
+    ``paths`` is a dict ``{target: path-list}``. Mirrors
+    ``networkx.all_pairs_dijkstra_path``.
+    """
     # br-dijkignoreweight: same weight-ignoring bug in Rust path.
     if cutoff is not None:
         for node in G:
@@ -14629,6 +14647,11 @@ def all_pairs_dijkstra_path(G, cutoff=None, weight="weight"):
 
 
 def all_pairs_dijkstra_path_length(G, cutoff=None, weight="weight"):
+    """Iterator of ``(source, lengths)`` pairs via Dijkstra.
+
+    ``lengths`` is a dict ``{target: distance}``. Mirrors
+    ``networkx.all_pairs_dijkstra_path_length``.
+    """
     # br-dijkignoreweight: Rust path ignores weights; delegate.
     if cutoff is not None:
         for node in G:
@@ -14656,6 +14679,11 @@ def all_pairs_dijkstra_path_length(G, cutoff=None, weight="weight"):
 
 
 def all_pairs_bellman_ford_path(G, weight="weight"):
+    """Iterator of ``(source, paths)`` pairs via Bellman-Ford.
+
+    ``paths`` is a dict ``{target: path-list}``. Handles negative weights.
+    Mirrors ``networkx.all_pairs_bellman_ford_path``.
+    """
     # br-bfignoreweight: delegate weighted inputs to nx.
     if _should_delegate_bellman_ford_to_networkx(weight) or _graph_has_nonunit_weight(G, weight):
         yield from _call_networkx_for_parity(
@@ -14676,6 +14704,11 @@ def all_pairs_bellman_ford_path(G, weight="weight"):
 
 
 def all_pairs_bellman_ford_path_length(G, weight="weight"):
+    """Iterator of ``(source, lengths)`` pairs via Bellman-Ford.
+
+    ``lengths`` is a dict ``{target: distance}``. Handles negative weights.
+    Mirrors ``networkx.all_pairs_bellman_ford_path_length``.
+    """
     # br-bfignoreweight: delegate weighted inputs to nx.
     if _should_delegate_bellman_ford_to_networkx(weight) or _graph_has_nonunit_weight(G, weight):
         yield from _call_networkx_for_parity(
