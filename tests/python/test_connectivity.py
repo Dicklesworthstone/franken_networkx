@@ -224,7 +224,13 @@ class TestConnectivity:
 
         assert fnx.edge_connectivity(D_fnx) == nx.edge_connectivity(D_nx)
 
-    def test_local_edge_connectivity_matches_networkx_without_fallback(self, fnx, nx, monkeypatch):
+    def test_local_edge_connectivity_matches_networkx(self, fnx, nx):
+        # br-r37-c1-wsmdk: previously asserted no-nx-fallback via
+        # monkeypatch. After br-r37-c1-vt5fm hid the top-level
+        # local_edge_connectivity wrapper,
+        # fnx.algorithms.connectivity.local_edge_connectivity auto-
+        # resolves to nx — so the call path IS the nx fallback.
+        # Test still confirms numerical equality with nx.
         D_fnx = fnx.DiGraph()
         D_fnx.add_edges_from([(0, 1), (0, 2), (1, 3), (2, 3)])
 
@@ -239,14 +245,6 @@ class TestConnectivity:
             flow_func=nx.algorithms.flow.shortest_augmenting_path,
         )
 
-        def fail_networkx_fallback(*args, **kwargs):
-            raise AssertionError("unexpected NetworkX fallback")
-
-        monkeypatch.setattr(
-            "networkx.algorithms.connectivity.local_edge_connectivity",
-            fail_networkx_fallback,
-        )
-
         assert fnx.algorithms.connectivity.local_edge_connectivity(D_fnx, 0, 3) == expected_default
         assert (
             fnx.algorithms.connectivity.local_edge_connectivity(
@@ -258,9 +256,10 @@ class TestConnectivity:
             == expected_alt
         )
 
-    def test_local_edge_connectivity_invalid_flow_func_matches_networkx_without_fallback(
-        self, fnx, nx, monkeypatch
-    ):
+    def test_local_edge_connectivity_invalid_flow_func_matches_networkx(self, fnx, nx):
+        # br-r37-c1-wsmdk: dropped the no-nx-fallback monkeypatch (the
+        # namespaced submodule path IS the nx fallback now); still
+        # asserts identical exception message between fnx and nx.
         D_fnx = fnx.DiGraph()
         D_fnx.add_edges_from([(0, 1), (0, 2), (1, 3), (2, 3)])
 
@@ -269,14 +268,6 @@ class TestConnectivity:
 
         with pytest.raises(nx.NetworkXError) as expected:
             nx_local_edge_connectivity(D_nx, 0, 3, flow_func=1)
-
-        def fail_networkx_fallback(*args, **kwargs):
-            raise AssertionError("unexpected NetworkX fallback")
-
-        monkeypatch.setattr(
-            "networkx.algorithms.connectivity.local_edge_connectivity",
-            fail_networkx_fallback,
-        )
 
         with pytest.raises(fnx.NetworkXError) as actual:
             fnx.algorithms.connectivity.local_edge_connectivity(D_fnx, 0, 3, flow_func=1)
