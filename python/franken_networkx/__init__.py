@@ -17,16 +17,27 @@ Or as a NetworkX backend (zero code changes required)::
 """
 
 import base64 as _base64
-from collections import Counter, defaultdict, deque
-from collections.abc import Collection, Generator, Iterable, Iterator, Mapping, Set
+from collections import (
+    Counter as _Counter,
+    defaultdict as _defaultdict,
+    deque as _deque,
+)
+from collections.abc import (
+    Collection as _Collection,
+    Generator as _Generator,
+    Iterable as _Iterable,
+    Iterator as _Iterator,
+    Mapping as _Mapping,
+    Set as _Set,
+)
 from copy import deepcopy as _deepcopy
-from enum import Enum
+from enum import Enum as _Enum
 from functools import wraps as _wraps
 import gzip as _gzip
 from heapq import heappop as _heappop, heappush as _heappush
 import io as _io
 import itertools as _itertools
-from itertools import combinations, count
+from itertools import combinations as _combinations, count as _count
 import math as _math
 import numbers as _numbers
 import operator
@@ -147,7 +158,7 @@ except Exception:
     pass
 
 
-class EdgePartition(Enum):
+class EdgePartition(_Enum):
     OPEN = 0
     INCLUDED = 1
     EXCLUDED = 2
@@ -787,7 +798,7 @@ class NodeDataView:
         # wrapper_descriptor on the Rust NodeView type
         # (`<slot wrapper '__call__' of 'franken_networkx.NodeView'
         # objects>`). Pickle's qualname lookup for that descriptor
-        # finds `fnx.NodeView` (the Python-side Mapping subclass at
+        # finds `fnx.NodeView` (the Python-side _Mapping subclass at
         # line 23932), sees it's a different class object than
         # `_SIMPLE_GRAPH_NODE_VIEW_TYPE` (the Rust type that owns
         # the descriptor), and crashes with PicklingError("not the
@@ -950,7 +961,7 @@ def _adjacency_view_values(self):
     return _AdjValuesView()
 
 
-class AtlasView(Mapping):
+class AtlasView(_Mapping):
     def __init__(self, atlas_getter):
         self._atlas_getter = atlas_getter
 
@@ -994,7 +1005,7 @@ class AtlasView(Mapping):
         return (_reconstruct_atlas_view, (self.copy(),))
 
 
-class AdjacencyView(Mapping):
+class AdjacencyView(_Mapping):
     def __init__(self, atlas_getter):
         self._atlas_getter = atlas_getter
 
@@ -1048,7 +1059,7 @@ class AdjacencyView(Mapping):
         return (_reconstruct_adjacency_view, (self.copy(),))
 
 
-class MultiAdjacencyView(Mapping):
+class MultiAdjacencyView(_Mapping):
     def __init__(self, atlas_getter):
         self._atlas_getter = atlas_getter
 
@@ -1269,16 +1280,16 @@ class _DiGraphEdgeView:
         return set(self) ^ set(other)
 
     def __eq__(self, other):
-        # br-r37-c1-eveq: nx's OutEdgeView inherits from Set, so
+        # br-r37-c1-eveq: nx's OutEdgeView inherits from _Set, so
         # `DG.edges == DG.edges` is True (content-based) and
         # `DG.edges == set_of_edges` works. fnx's _DiGraphEdgeView
         # had set-algebra operators (|/&/-/^) but no __eq__, falling
         # through to default object.__eq__ (identity) — two accesses
         # to `DG.edges` returned False, breaking dedup / set-equality
-        # logic. Match nx's Set semantics: equal to another view of
+        # logic. Match nx's _Set semantics: equal to another view of
         # the same edges OR any collections.abc.Set with matching
         # contents. NOT equal to lists/tuples (parity with nx).
-        from collections.abc import Set as _Set
+        from collections.abc import _Set as _Set
         if isinstance(other, _DiGraphEdgeView):
             return set(self) == set(other)
         if isinstance(other, _Set):
@@ -1300,7 +1311,7 @@ class _DiGraphEdgeView:
     # accidental view-in-set patterns).
     __hash__ = None
 
-    # br-r37-c1-iev-setops: see _DiEdgeMethodView. Set comparison
+    # br-r37-c1-iev-setops: see _DiEdgeMethodView. _Set comparison
     # operators (`<=`, `<`, `>=`, `>`, isdisjoint) — the existing
     # __or__/__and__/__sub__/__xor__ already exist; this just adds
     # the comparison + isdisjoint set.
@@ -1325,7 +1336,7 @@ def _digraph_edges(self):
 
 
 def _multi_edge_keys(self):
-    # Upstream MultiEdgeView yields (u, v, k) keys for the Mapping contract.
+    # Upstream MultiEdgeView yields (u, v, k) keys for the _Mapping contract.
     return iter(self(keys=True))
 
 
@@ -1424,9 +1435,9 @@ class _MultiGraphEdgeView:
         # br-multiiterkeys: nx.MultiEdgeView default iteration yields
         # 3-tuples ``(u, v, key)`` (as opposed to the ``G.edges()`` call
         # form which defaults to 2-tuples). fnx's __iter__ called
-        # self() (keys=False) and yielded 2-tuples, so Set comparisons
+        # self() (keys=False) and yielded 2-tuples, so _Set comparisons
         # and direct iteration consumers (including downstream nx
-        # algorithms) got a different edge count than nx on multigraphs
+        # algorithms) got a different edge _count than nx on multigraphs
         # with parallel edges.
         return iter(self(keys=True))
 
@@ -1560,9 +1571,9 @@ class _MultiGraphEdgeView:
 
     def __eq__(self, other):
         # br-r37-c1-eveq: see _DiGraphEdgeView.__eq__. nx's
-        # MultiEdgeView inherits from Set; lock content-based
+        # MultiEdgeView inherits from _Set; lock content-based
         # equality matching nx exactly.
-        from collections.abc import Set as _Set
+        from collections.abc import _Set as _Set
         if isinstance(other, _MultiGraphEdgeView):
             return set(self) == set(other)
         if isinstance(other, _Set):
@@ -1584,8 +1595,8 @@ class _MultiGraphEdgeView:
     # accidental view-in-set patterns).
     __hash__ = None
 
-    # br-r37-c1-iev-setops: see _DiEdgeMethodView. Set comparison +
-    # algebra operators for nx parity (Set inheritance on
+    # br-r37-c1-iev-setops: see _DiEdgeMethodView. _Set comparison +
+    # algebra operators for nx parity (_Set inheritance on
     # MultiEdgeView).
     def __le__(self, other):
         return set(self) <= set(other) if hasattr(other, "__iter__") else NotImplemented
@@ -1649,7 +1660,7 @@ class _EdgeListWithSetAlgebra(list):
         return set(other) ^ set(self)
 
     def __eq__(self, other):
-        # br-mgedgeeq: nx's MultiEdgeView inherits from Set, so
+        # br-mgedgeeq: nx's MultiEdgeView inherits from _Set, so
         # `MG.edges(keys=True) == {...}` compares as sets. fnx's list
         # subclass previously required another list for equality.
         if isinstance(other, (set, frozenset)):
@@ -1767,7 +1778,7 @@ class _MultiDiGraphEdgeView:
 
     def __eq__(self, other):
         # br-r37-c1-eveq: see _DiGraphEdgeView.__eq__.
-        from collections.abc import Set as _Set
+        from collections.abc import _Set as _Set
         if isinstance(other, _MultiDiGraphEdgeView):
             return set(self) == set(other)
         if isinstance(other, _Set):
@@ -1789,7 +1800,7 @@ class _MultiDiGraphEdgeView:
     # accidental view-in-set patterns).
     __hash__ = None
 
-    # br-r37-c1-iev-setops: see _DiEdgeMethodView. Set comparison +
+    # br-r37-c1-iev-setops: see _DiEdgeMethodView. _Set comparison +
     # algebra operators for nx parity.
     def __le__(self, other):
         return set(self) <= set(other) if hasattr(other, "__iter__") else NotImplemented
@@ -1832,7 +1843,7 @@ def _simple_graph_adjacency(self):
     # br-r37-c1-adjdict: nx yields ``(node, inner_dict)`` where the
     # inner is a real ``dict`` (the underlying _adj[node] storage —
     # mutating it adds edges).  fnx's ``self.adj[node]`` returns an
-    # ``AtlasView`` (a read-only Mapping wrapper), so
+    # ``AtlasView`` (a read-only _Mapping wrapper), so
     # ``isinstance(adj, dict)`` returned False on fnx.  The
     # AtlasView's underlying storage is Rust-bound and not directly
     # exposable as a Python ``dict`` reference, so we materialise a
@@ -2592,7 +2603,7 @@ def _init_absorbing_dict_of_dicts(raw_init, is_multigraph):
         # and unpacks each item as a 2- or 3-element edge spec; if any
         # item isn't sized-2-or-3, nx surfaces ``NetworkXError("Input
         # is not a valid edge list")`` from ``to_networkx_graph``'s
-        # final Collection branch.  fnx's Rust __new__ silently
+        # final _Collection branch.  fnx's Rust __new__ silently
         # absorbed lists/tuples/sets/ranges/strs/bytes of non-edge
         # items as node iterables (one node per element), producing
         # ``Graph(nodes=N, edges=0)`` instead of the expected error.
@@ -2912,7 +2923,7 @@ class MultiGraphDegreeView:
 
 
 # br-r37-c1-mdvname: ``type(MG.degree).__name__`` should return
-# nx's canonical ``MultiDegreeView``.  Set ``__name__`` so
+# nx's canonical ``MultiDegreeView``.  _Set ``__name__`` so
 # introspection matches.
 MultiGraphDegreeView.__name__ = "MultiDegreeView"
 
@@ -2995,7 +3006,7 @@ class MultiDiGraphDegreeView:
 
 # br-r37-c1-mdvname: ``type(MDG.degree).__name__`` should return
 # nx's canonical ``DiMultiDegreeView`` (not the fnx-internal class
-# name).  Set ``__name__`` on the class so introspection matches.
+# name).  _Set ``__name__`` on the class so introspection matches.
 MultiDiGraphDegreeView.__name__ = "DiMultiDegreeView"
 
 
@@ -3626,7 +3637,7 @@ _DiGraphEdgeView.values = _adjacency_view_values
 # ``_EdgeListWithSetAlgebra`` (MultiGraph, MultiDiGraph) — diverging
 # on ``type(view).__name__`` for 7 of the 8 combos.  Define
 # 5 trivial list subclasses with canonical ``__name__`` and route
-# each ``.data()`` method to the right one. Set-algebra inherits
+# each ``.data()`` method to the right one. _Set-algebra inherits
 # from _EdgeListWithSetAlgebra so set-typed expressions still work.
 
 class _OutEdgeDataView(_EdgeListWithSetAlgebra):
@@ -3829,8 +3840,8 @@ _EDGE_VIEW_TYPE.__getitem__ = _make_edge_view_getitem_preserving_key(
 def _view_set_eq(self, other):
     """br-vweqset: nx NodeView/EdgeView inherit from collections.abc.Set
     so `G.edges == {(0,1),(1,2)}` returns True. The Rust-native fnx
-    views have no ABC inheritance; this wrapper mimics Set.__eq__
-    semantics — True when `other` is Set-like and contains the same
+    views have no ABC inheritance; this wrapper mimics _Set.__eq__
+    semantics — True when `other` is _Set-like and contains the same
     elements, False otherwise.
     """
     if self is other:
@@ -3863,21 +3874,21 @@ def _view_set_isdisjoint(self, other):
     return not any(item in other for item in self)
 
 
-# br-vweqset: nx's EdgeView inherits from Set and supports
+# br-vweqset: nx's EdgeView inherits from _Set and supports
 # `G.edges == {(0,1), (1,2)}` set-equality. fnx's EdgeView is a bare
-# Rust type with no ABC inheritance. Apply Set.__eq__ semantics to
-# EdgeView only. NodeView is a Mapping in nx — it does NOT compare
-# equal to a plain set of nodes (Mapping.__eq__ returns NotImplemented
-# and Set.__eq__ is False) — so we leave its __eq__ alone.
+# Rust type with no ABC inheritance. Apply _Set.__eq__ semantics to
+# EdgeView only. NodeView is a _Mapping in nx — it does NOT compare
+# equal to a plain set of nodes (_Mapping.__eq__ returns NotImplemented
+# and _Set.__eq__ is False) — so we leave its __eq__ alone.
 _EDGE_VIEW_TYPE.__eq__ = _view_set_eq
 _EDGE_VIEW_TYPE.__ne__ = _view_set_ne
 _EDGE_VIEW_TYPE.isdisjoint = _view_set_isdisjoint
 _EDGE_VIEW_TYPE.__hash__ = None  # unhashable once we define __eq__
 
-# br-evsetcmp: EdgeView also missed Set subset/superset comparisons
+# br-evsetcmp: EdgeView also missed _Set subset/superset comparisons
 # (same fix family as NodeView — br-nvsetcmp below). nx.EdgeView
 # inherits collections.abc.Set, so ``{(0,1)} <= G.edges`` works.
-# Apply the same Set-style comparisons to both undirected and
+# Apply the same _Set-style comparisons to both undirected and
 # directed Rust EdgeView types.
 def _ev_set_le(self, other):
     try:
@@ -3934,17 +3945,17 @@ for _ev_type in (
     _ev_type.__ge__ = _ev_set_ge
     _ev_type.__lt__ = _ev_set_lt
     _ev_type.__gt__ = _ev_set_gt
-    Set.register(_ev_type)
+    _Set.register(_ev_type)
     # br-r37-c1-vmapabc: nx's EdgeView / OutEdgeView / MultiEdgeView /
     # OutMultiEdgeView all inherit from ``collections.abc.Mapping``,
-    # so ``isinstance(G.edges, Mapping)`` returns True. fnx's
+    # so ``isinstance(G.edges, _Mapping)`` returns True. fnx's
     # Rust-bound + Python-wrapped EdgeView types implement the full
-    # Mapping protocol (``__getitem__`` / ``__len__`` / ``__iter__`` /
+    # _Mapping protocol (``__getitem__`` / ``__len__`` / ``__iter__`` /
     # ``__contains__`` / ``keys`` / ``values`` / ``items`` / ``get``)
-    # but were not registered as Mapping virtual subclasses, so the
+    # but were not registered as _Mapping virtual subclasses, so the
     # isinstance check returned False — diverging on type-dispatch
     # paths in drop-in code.  Register here to fix.
-    Mapping.register(_ev_type)
+    _Mapping.register(_ev_type)
 _MULTIGRAPH_NODE_VIEW_TYPE.__call__ = _node_view_call_with_attr_support(
     _MULTIGRAPH_NODE_VIEW_CALL
 )
@@ -4044,19 +4055,19 @@ for _nv_type, _g_cls in (
 
 
 def _node_view_eq(self, other):
-    """br-r37-c1-nv-eq: nx's NodeView inherits from BOTH Mapping AND
-    Set (via multiple inheritance), but `__eq__` comes from Mapping —
+    """br-r37-c1-nv-eq: nx's NodeView inherits from BOTH _Mapping AND
+    _Set (via multiple inheritance), but `__eq__` comes from _Mapping —
     so `G.nodes == G.nodes` is True only when the dict representation
     `{node: attrs}` matches on both sides (same keys AND same
     per-node attribute dicts). `G.nodes == G2.nodes` is False if the
     nodes overlap but attrs differ. `G.nodes == set([0,1])` is False
-    because a set has no Mapping interface.
+    because a set has no _Mapping interface.
 
     The Rust-bound NodeView types fell through to default
     `object.__eq__` (identity), so two view accesses returned False
-    even when the node-attr content matched. Match nx's Mapping
+    even when the node-attr content matched. Match nx's _Mapping
     semantics exactly via dict equality."""
-    from collections.abc import Mapping as _Mapping
+    from collections.abc import _Mapping as _Mapping
     if type(other) in _ALL_NODE_VIEW_TYPES:
         return dict(self) == dict(other)
     if isinstance(other, _Mapping):
@@ -4084,9 +4095,9 @@ def _node_view_isdisjoint(self, other):
     `collections.abc.Set` which provides `.isdisjoint(other)`. The
     Rust-bound NodeView types don't have it, so
     `G.nodes.isdisjoint(H.nodes)` raised AttributeError on fnx
-    while nx returned True/False. The Set comparison/algebra
+    while nx returned True/False. The _Set comparison/algebra
     OPERATORS already work on NodeView (because Python's `<=`,
-    `&`, etc. bridge Mapping-keys-iter to set semantics), but
+    `&`, etc. bridge _Mapping-keys-iter to set semantics), but
     `isdisjoint` is a method-name and needs explicit binding."""
     return set(self).isdisjoint(other)
 
@@ -4102,8 +4113,8 @@ for _nv_type in _ALL_NODE_VIEW_TYPES:
     # ``__hash__`` here, silently accepting the view as hashable
     # — diverging on a contract that drop-in callers rely on
     # (``except TypeError: ...`` around accidental view-in-set
-    # patterns).  Set ``__hash__ = None`` so fnx matches nx.
-    # Set protocol operators (``&``, ``|``, ``<=``, ``isdisjoint``)
+    # patterns).  _Set ``__hash__ = None`` so fnx matches nx.
+    # _Set protocol operators (``&``, ``|``, ``<=``, ``isdisjoint``)
     # still work because they iterate the view, not hash it.
     _nv_type.__hash__ = None
     _nv_type.isdisjoint = _node_view_isdisjoint
@@ -4179,7 +4190,7 @@ for _node_view_type in (
 
 # br-r37-c1-k147g: Rust-bound view classes had reprs that either
 # stringified node IDs (NodeView, DegreeView showed ('0', '1', ...)
-# instead of (0, 1, ...)) or showed an opaque count (EdgeView shows
+# instead of (0, 1, ...)) or showed an opaque _count (EdgeView shows
 # "EdgeView(2 edges)"). Override __repr__ to match nx's contract:
 # repr lists the actual node/edge content with original types.
 # br-r37-c1-mpv5x: nx __str__ on these views returns bare data
@@ -4250,12 +4261,12 @@ del _dv_cls
 
 
 # br-nvrsub: nx.NodeView inherits from collections.abc.Set so
-# ``some_set - G.nodes`` works (via Set.__rsub__). fnx's Rust-native
-# NodeView isn't a Set ABC subclass, so Python's set protocol falls
+# ``some_set - G.nodes`` works (via _Set.__rsub__). fnx's Rust-native
+# NodeView isn't a _Set ABC subclass, so Python's set protocol falls
 # back to `set.__sub__(NodeView) -> NotImplemented` then attempts
 # `NodeView.__rsub__(set)` which doesn't exist — raising TypeError.
 # Broke nx.group_betweenness_centrality's `if set_v - G.nodes:` check.
-# Add the missing reflected set-operator methods that mirror a Set
+# Add the missing reflected set-operator methods that mirror a _Set
 # protocol over iteration.
 def _nv_rsub(self, other):
     return set(other) - set(self)
@@ -4288,9 +4299,9 @@ for _node_view_type in (
 # br-nvsetcmp: nx.NodeView inherits from collections.abc.Set and
 # therefore supports ``G.nodes <= {0,1,2}``, ``G.nodes >= other``,
 # and the strict variants ``<`` ``>``. fnx's Rust-native NodeView
-# only inherits Mapping, so Set-style comparisons raised TypeError
+# only inherits _Mapping, so _Set-style comparisons raised TypeError
 # ("not supported between NodeView and set"). Also register as a
-# virtual subclass of collections.abc.Set so isinstance(nv, Set)
+# virtual subclass of collections.abc.Set so isinstance(nv, _Set)
 # is True (third-party code in nx.algorithms sometimes branches on
 # that).
 def _nv_set_le(self, other):
@@ -4347,30 +4358,30 @@ for _node_view_type in (
     _node_view_type.__ge__ = _nv_set_ge
     _node_view_type.__lt__ = _nv_set_lt
     _node_view_type.__gt__ = _nv_set_gt
-    Set.register(_node_view_type)
+    _Set.register(_node_view_type)
     # br-r37-c1-vmapabc: nx's NodeView inherits from
-    # ``collections.abc.Mapping`` and ``Set``. fnx already registers
-    # the Rust-bound NodeView types as Set virtual subclasses (above),
-    # but missed Mapping — so ``isinstance(G.nodes, Mapping)``
+    # ``collections.abc.Mapping`` and ``_Set``. fnx already registers
+    # the Rust-bound NodeView types as _Set virtual subclasses (above),
+    # but missed _Mapping — so ``isinstance(G.nodes, _Mapping)``
     # returned False, diverging on type-dispatch paths in drop-in
-    # code.  The full Mapping protocol is already implemented
+    # code.  The full _Mapping protocol is already implemented
     # (__getitem__ / __len__ / __iter__ / __contains__ / keys /
     # values / items / get), so virtual registration is safe.
-    Mapping.register(_node_view_type)
+    _Mapping.register(_node_view_type)
 
 
 # br-r37-c1-vkeysview: nx's NodeView (Graph/DiGraph/MultiGraph/
 # MultiDiGraph) and MultiEdgeView types return ``KeysView`` /
 # ``ValuesView`` / ``ItemsView`` instances from ``.keys()`` /
-# ``.values()`` / ``.items()`` (via Mapping inheritance) — so
+# ``.values()`` / ``.items()`` (via _Mapping inheritance) — so
 # ``G.nodes.keys() & {0, 1, 99}`` returns the set intersection.
 # fnx's Rust-bound NodeView ``.keys()`` etc. returned plain
-# ``list`` (or generators on Multi*Graph.edges), breaking Set
+# ``list`` (or generators on Multi*Graph.edges), breaking _Set
 # algebra on the result:
 #
 #   G.nodes.keys() & {0, 1}  →  TypeError(unsupported operand)
 #
-# Now that the views are registered as Mapping virtual subclasses
+# Now that the views are registered as _Mapping virtual subclasses
 # (above + the EdgeView block), wrap each ``.keys`` / ``.values``
 # / ``.items`` to return the proper ``cabc.KeysView`` / ``cabc
 # .ValuesView`` / ``cabc.ItemsView`` so set algebra works.
@@ -4394,7 +4405,7 @@ def _mapping_items_view(self):
 
 
 # br-r37-c1-nvdata: nx's NodeView.data() returns a ``NodeDataView``
-# instance (set-like, supports indexing as Mapping AND tuple-membership
+# instance (set-like, supports indexing as _Mapping AND tuple-membership
 # semantics). The Rust-bound NodeView's ``data`` method returned the
 # underlying NodeView directly, so ``type(G.nodes.data()).__name__``
 # was ``NodeView`` instead of ``NodeDataView`` and tuple-form
@@ -4412,11 +4423,11 @@ def _node_view_data_method(self, data=True, default=None):
 
 
 # nx's NodeDataView inherits from collections.abc.Set so
-# ``isinstance(view, Set)`` returns True. Register the fnx wrapper
-# as a Set virtual subclass to match.  NodeDataView already
+# ``isinstance(view, _Set)`` returns True. Register the fnx wrapper
+# as a _Set virtual subclass to match.  NodeDataView already
 # implements __contains__/__iter__/__len__ so the registration is
 # safe (no abstract-method gap).
-Set.register(NodeDataView)
+_Set.register(NodeDataView)
 
 
 for _nv_type in _ALL_NODE_VIEW_TYPES:
@@ -4427,7 +4438,7 @@ for _nv_type in _ALL_NODE_VIEW_TYPES:
 
 # Multi*Graph.edges return generators / list_iterator from keys/items/
 # values — also wrap to KeysView / ValuesView / ItemsView so set
-# algebra works (matching nx's MultiEdgeView Mapping inheritance).
+# algebra works (matching nx's MultiEdgeView _Mapping inheritance).
 _MultiGraphEdgeView.keys = _mapping_keys_view
 _MultiGraphEdgeView.values = _mapping_values_view
 _MultiGraphEdgeView.items = _mapping_items_view
@@ -4988,16 +4999,16 @@ class _DiEdgeMethodView:
         return f"{type(self).__name__}({list(self)!r})"
 
     # br-r37-c1-iev-eq-data: CROSS-REVIEW gaps in br-r37-c1-7gej0.
-    # nx.InEdgeView is set-like (inherits from Set), so two view
+    # nx.InEdgeView is set-like (inherits from _Set), so two view
     # accesses on the same graph compare equal. fnx's wrapper used
     # default `object.__eq__` (identity), so `G.in_edges == G.in_edges`
     # was False — a real parity break for any code that compares
     # views.
     def __eq__(self, other):
-        # Match nx's Set-inheritance semantics exactly: equal only to
+        # Match nx's _Set-inheritance semantics exactly: equal only to
         # another set-like view of the same edges. Lists / tuples are
         # NOT equal to a view (nx's `view == [...]` returns False).
-        from collections.abc import Set as _Set
+        from collections.abc import _Set as _Set
         if isinstance(other, _DiEdgeMethodView):
             return set(self) == set(other)
         if isinstance(other, _Set):
@@ -5038,7 +5049,7 @@ class _DiEdgeMethodView:
             return _wrap_edge_data_view(result, _OutMultiEdgeDataView)
         return result
 
-    # br-r37-c1-iev-setops: nx.InEdgeView inherits from Set so all set
+    # br-r37-c1-iev-setops: nx.InEdgeView inherits from _Set so all set
     # comparison + algebra operators work (`<=`, `<`, `>=`, `>`,
     # `isdisjoint`, `&`, `|`, `-`, `^`). The wrapper had iter/contains/
     # len + custom __eq__ but no comparison-or-algebra operators —
@@ -5047,7 +5058,7 @@ class _DiEdgeMethodView:
     def __le__(self, other):
         if isinstance(other, _DiEdgeMethodView):
             return set(self) <= set(other)
-        from collections.abc import Set as _Set
+        from collections.abc import _Set as _Set
         if isinstance(other, _Set):
             return set(self) <= set(other)
         return NotImplemented
@@ -5055,7 +5066,7 @@ class _DiEdgeMethodView:
     def __lt__(self, other):
         if isinstance(other, _DiEdgeMethodView):
             return set(self) < set(other)
-        from collections.abc import Set as _Set
+        from collections.abc import _Set as _Set
         if isinstance(other, _Set):
             return set(self) < set(other)
         return NotImplemented
@@ -5063,7 +5074,7 @@ class _DiEdgeMethodView:
     def __ge__(self, other):
         if isinstance(other, _DiEdgeMethodView):
             return set(self) >= set(other)
-        from collections.abc import Set as _Set
+        from collections.abc import _Set as _Set
         if isinstance(other, _Set):
             return set(self) >= set(other)
         return NotImplemented
@@ -5071,7 +5082,7 @@ class _DiEdgeMethodView:
     def __gt__(self, other):
         if isinstance(other, _DiEdgeMethodView):
             return set(self) > set(other)
-        from collections.abc import Set as _Set
+        from collections.abc import _Set as _Set
         if isinstance(other, _Set):
             return set(self) > set(other)
         return NotImplemented
@@ -5793,7 +5804,7 @@ def _call_networkx_for_parity(name, G, /, *args, **kwargs):
     except Exception as exc:
         _raise_translated_networkx_exception(exc)
 
-    if isinstance(result, Iterator):
+    if isinstance(result, _Iterator):
         def _wrapped_iterator():
             try:
                 yield from result
@@ -5845,7 +5856,7 @@ def _call_networkx_submodule_for_parity(submodule_path, name, G, /, *args, **kwa
     except Exception as exc:
         _raise_translated_networkx_exception(exc)
 
-    if isinstance(result, Iterator):
+    if isinstance(result, _Iterator):
         def _wrapped_iterator():
             try:
                 yield from result
@@ -6298,7 +6309,7 @@ def is_tree(G, *, backend=None, **backend_kwargs):
 
     A tree is a connected graph with ``n - 1`` edges and no cycles. On a
     MultiGraph, parallel edges create cycles, so br-zzcm9 requires we
-    count parallels rather than relying on the simple-projection native
+    _count parallels rather than relying on the simple-projection native
     path (which overcounts nodes-without-parallels as trees).
 
     br-treedir: NetworkX's directed contract counts directed edges
@@ -6314,7 +6325,7 @@ def is_tree(G, *, backend=None, **backend_kwargs):
     if n == 0:
         raise NetworkXPointlessConcept("G has no nodes.")
     if G.is_directed():
-        # Multigraphs count parallels naturally via number_of_edges.
+        # Multigraphs _count parallels naturally via number_of_edges.
         m = G.number_of_edges()
         return m == n - 1 and is_weakly_connected(G)
     if G.is_multigraph():
@@ -6863,7 +6874,7 @@ def harmonic_centrality(
 def degree_centrality(G, *, backend=None, **backend_kwargs):
     """Compute degree centrality for nodes.
 
-    For MultiGraph inputs (br-zzcm9), count parallel edges in the degree
+    For MultiGraph inputs (br-zzcm9), _count parallel edges in the degree
     numerator — nx's contract is ``{v: G.degree(v) / (n - 1)}`` where
     ``G.degree(v)`` counts parallels, but the Rust native projects to a
     simple graph first, which under-reports degree for parallel-edged
@@ -7099,7 +7110,7 @@ def min_edge_cover(G, matching_algorithm=None):
     Returns
     -------
     set
-        Set of edges forming a minimum edge cover. Bipartite matching
+        _Set of edges forming a minimum edge cover. Bipartite matching
         algorithms (dict-returning) produce both ``(u, v)`` and
         ``(v, u)`` directions per edge, matching nx's contract.
     """
@@ -8080,7 +8091,7 @@ def is_eulerian(G):
     """Return True iff *G* is Eulerian (connected + all even degrees).
 
     The Rust helper returned False for a graph consisting only of a
-    self-loop — it either excluded self-loops from its degree count or
+    self-loop — it either excluded self-loops from its degree _count or
     special-cased 1-node graphs. nx includes the self-loop's +2 degree
     contribution and correctly reports True for e.g. Graph([(0,0)]).
     Delegate the 0- and 1-node branches to a Python check and keep the
@@ -8351,7 +8362,7 @@ def all_simple_paths(
     only handles a scalar target, so iterable-target inputs delegate to
     NetworkX to preserve the exact emission order.
 
-    Generator function so the returned object is a true generator
+    _Generator function so the returned object is a true generator
     matching nx's contract (br-r37-c1-682kr).
     """
     _validate_backend_dispatch_keywords("all_simple_paths", backend, backend_kwargs)
@@ -8395,7 +8406,7 @@ def all_simple_paths(
         return
     if isinstance(cutoff, float):
         # nx accepts any numeric cutoff (compares via ``len(stack)
-        # >= cutoff`` where ``len(stack)`` is an integer count of
+        # >= cutoff`` where ``len(stack)`` is an integer _count of
         # nodes-on-the-path).  ``ceil`` yields the same effective
         # semantics: a fractional cutoff like 3.5 still admits paths
         # whose stack-length never reaches the integer ceiling
@@ -8670,10 +8681,10 @@ from franken_networkx._fnx import (
 
 def _py_bfs_edges(G, source, depth_limit=None, sort_neighbors=None, reverse=False):
     """Python-level BFS with sort_neighbors support."""
-    from collections import deque
+    from collections import _deque
 
     visited = {source}
-    queue = deque([(source, 0)])
+    queue = _deque([(source, 0)])
     max_depth = depth_limit if depth_limit is not None else float("inf")
     if reverse and G.is_directed():
         neighbor_iter = G.predecessors
@@ -8747,7 +8758,7 @@ def _py_dfs_edges(G, source=None, depth_limit=None, sort_neighbors=None):
 def bfs_edges(G, source, reverse=False, depth_limit=None, sort_neighbors=None):
     """Yield edges in BFS order from source.
 
-    Generator function so the returned object is a true generator
+    _Generator function so the returned object is a true generator
     matching nx's contract (br-r37-c1-682kr).
 
     br-r37-c1-c4agn: hash-check on source eagerly so unhashable
@@ -8864,7 +8875,7 @@ def _normalize_predecessor_cutoff(cutoff):
     The check is *truthy-aware* — distinct from the BFS-shape
     semantic in ``_normalize_bfs_depth_limit``.  And ``level``
     increments BEFORE the break check, so a positive cutoff N
-    admits exactly level N before stopping.  Mapping:
+    admits exactly level N before stopping.  _Mapping:
 
       * None / 0 / NaN / +inf → None (unbounded — falsy or
         comparison never breaks)
@@ -8901,7 +8912,7 @@ def _normalize_predecessor_cutoff(cutoff):
 def dfs_edges(G, source=None, depth_limit=None, *, sort_neighbors=None):
     """Yield edges in DFS order from source.
 
-    Generator function so the returned object is a true generator
+    _Generator function so the returned object is a true generator
     matching nx's contract (br-r37-c1-682kr).
 
     br-r37-c1-c4agn: hash-check on source eagerly (when supplied).
@@ -9027,7 +9038,7 @@ def edge_bfs(G, source=None, orientation=None):
     check_reverse = directed and orientation in ("reverse", "ignore")
     visited_nodes = set(nodes)
     visited_edges = set()
-    queue = deque((node, edges_from(node)) for node in nodes)
+    queue = _deque((node, edges_from(node)) for node in nodes)
 
     while queue:
         _parent, children_edges = queue.popleft()
@@ -9250,8 +9261,8 @@ def dfs_successors(G, source=None, depth_limit=None, *, sort_neighbors=None):
     # br-r37-c1-eghxq: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
     try:
-        from collections import defaultdict
-        succs = defaultdict(list)
+        from collections import _defaultdict
+        succs = _defaultdict(list)
         for u, v in dfs_edges(G, source=source, depth_limit=depth_limit, sort_neighbors=sort_neighbors):
             succs[u].append(v)
         return dict(succs)
@@ -9370,7 +9381,7 @@ def overall_reciprocity(G, *, backend=None, **backend_kwargs):
     # br-r37-c1-5gfx7: directed fast path. The original
     # ``G.to_undirected().number_of_edges()`` clones the whole graph
     # — fnx materializes a fresh undirected graph (O(|V|+|E|) copy)
-    # vs nx's thin view. For directed inputs we can count reciprocal
+    # vs nx's thin view. For directed inputs we can _count reciprocal
     # pairs directly: iterate edges once, check if (v, u) is also
     # in the edge set. The math:
     #   n_overlap_edge = 2 * |{(u, v) ∈ E : (v, u) ∈ E, u ≠ v}|
@@ -9380,7 +9391,7 @@ def overall_reciprocity(G, *, backend=None, **backend_kwargs):
         edge_set = {(u, v) for u, v in G.edges() if u != v}
         reciprocal_pairs = sum(1 for u, v in edge_set if (v, u) in edge_set)
         # Each reciprocal pair contributes 2 directed edges to the
-        # overlap (since the count is symmetric: (u,v) and (v,u) both
+        # overlap (since the _count is symmetric: (u,v) and (v,u) both
         # match). The sum above counts each pair twice (once as (u,v),
         # once as (v,u)), so reciprocal_pairs IS already n_overlap_edge.
         return reciprocal_pairs / n_all_edge
@@ -9513,7 +9524,7 @@ def wiener_index(G, weight=None, *, backend=None, **backend_kwargs):
 
     def _single_source_unweighted_lengths(source):
         lengths = {source: 0}
-        queue = deque([source])
+        queue = _deque([source])
         while queue:
             node = queue.popleft()
             next_distance = lengths[node] + 1
@@ -9552,7 +9563,7 @@ def wiener_index(G, weight=None, *, backend=None, **backend_kwargs):
     if weight is None:
         total = sum(sum(_single_source_unweighted_lengths(node).values()) for node in G)
     else:
-        counter = count()
+        counter = _count()
         total = sum(sum(_single_source_weighted_lengths(node).values()) for node in G)
 
     return total if G.is_directed() else total / 2
@@ -9985,7 +9996,7 @@ def chordal_graph_treewidth(G):
 def find_cliques(G, nodes=None):
     """Yield all maximal cliques in an undirected graph.
 
-    Generator function so the returned object is a true generator
+    _Generator function so the returned object is a true generator
     matching nx's contract (br-r37-c1-682kr).
 
     br-r37-c1-tvf43: run the nx-order iterative Bron-Kerbosch path
@@ -10073,7 +10084,7 @@ def find_cliques(G, nodes=None):
 def enumerate_all_cliques(G):
     """Yield all cliques (not just maximal) in an undirected graph.
 
-    Generator function so the returned object is a true generator
+    _Generator function so the returned object is a true generator
     matching nx's contract (br-r37-c1-682kr).
     """
     # br-r37-c1-0555d: accept nx-typed inputs.
@@ -10084,7 +10095,7 @@ def enumerate_all_cliques(G):
 def find_cliques_recursive(G, nodes=None):
     """Yield all maximal cliques in an undirected graph (recursive).
 
-    Generator function so the returned object is a true generator
+    _Generator function so the returned object is a true generator
     matching nx's contract (br-r37-c1-682kr).
 
     br-r37-c1-g71v3: same iteration-order drift as find_cliques —
@@ -10109,7 +10120,7 @@ def number_of_cliques(G, nodes=None, cliques=None):
     if not isinstance(nodes, list):
         return sum(1 for clique in cliques if nodes in clique)
 
-    clique_counts = Counter()
+    clique_counts = _Counter()
     for clique in cliques:
         clique_counts.update(clique)
     return {node: clique_counts[node] for node in nodes}
@@ -10140,7 +10151,7 @@ def node_clique_number(G, nodes=None, cliques=None, separate_nodes=False):
     if nodes in G:
         return max(len(clique) for clique in cliques if nodes in clique)
 
-    size_for_node = defaultdict(int)
+    size_for_node = _defaultdict(int)
     for clique in cliques:
         clique_size = len(clique)
         for node in clique:
@@ -10833,7 +10844,7 @@ def degree_histogram(G):
     degree_view = G.degree
     if callable(degree_view):
         degree_view = degree_view()
-    counts = Counter(degree for _node, degree in degree_view)
+    counts = _Counter(degree for _node, degree in degree_view)
     return [counts.get(i, 0) for i in range(max(counts) + 1 if counts else 0)]
 
 def _adc_iter_nodes(G, nodes):
@@ -10912,8 +10923,8 @@ def average_degree_connectivity(
     ):
         _raw_nbrs = _raw_neighbors_dispatch(G)
         deg = dict(G.degree())
-        dsum: dict[int, int] = defaultdict(int)
-        dnorm: dict[int, int] = defaultdict(int)
+        dsum: dict[int, int] = _defaultdict(int)
+        dnorm: dict[int, int] = _defaultdict(int)
         for u, du in deg.items():
             dnorm[du] += du
             dsum[du] += sum(deg[v] for v in _raw_nbrs(G, u))
@@ -10967,8 +10978,8 @@ def average_degree_connectivity(
         neighbors = lambda node: G.neighbors(node)
         reverse = False
 
-    dsum = defaultdict(int)
-    dnorm = defaultdict(int)
+    dsum = _defaultdict(int)
+    dnorm = _defaultdict(int)
     source_nodes = _adc_iter_nodes(G, nodes)
 
     for node in source_nodes:
@@ -11209,7 +11220,7 @@ def average_node_connectivity(G, flow_func=None):
     return _raw_average_node_connectivity(G)
 
 def all_pairs_dijkstra(G, cutoff=None, weight="weight"):
-    """Iterator of ``(source, (distances, paths))`` pairs via Dijkstra.
+    """_Iterator of ``(source, (distances, paths))`` pairs via Dijkstra.
 
     For every node ``source`` in ``G``, yields the same ``(distances, paths)``
     dicts as ``single_source_dijkstra(G, source, cutoff=cutoff, weight=weight)``.
@@ -11663,9 +11674,9 @@ def ancestors(G, source):
         raise NetworkXError(_ancestors_descendants_missing_node_msg(G, source))
     if G.is_directed():
         return set(_raw_ancestors(G, source))
-    from collections import deque
+    from collections import _deque
     seen = {source}
-    q = deque([source])
+    q = _deque([source])
     while q:
         n = q.popleft()
         for nbr in G[n]:
@@ -11692,9 +11703,9 @@ def descendants(G, source):
         raise NetworkXError(_ancestors_descendants_missing_node_msg(G, source))
     if G.is_directed():
         return set(_raw_descendants(G, source))
-    from collections import deque
+    from collections import _deque
     seen = {source}
-    q = deque([source])
+    q = _deque([source])
     while q:
         n = q.popleft()
         for nbr in G[n]:
@@ -11718,7 +11729,7 @@ def topological_sort(G):
     """
     if not G.is_directed():
         raise NetworkXError("Topological sort not defined on undirected graphs.")
-    from collections import deque
+    from collections import _deque
 
     # Count parallel edges as separate in-degree increments for
     # MultiDiGraph parity, then decrement once per outgoing edge (not
@@ -11726,17 +11737,17 @@ def topological_sort(G):
     indegree = {v: 0 for v in G}
     for _, v in G.edges():
         indegree[v] += 1
-    queue = deque(v for v in G if indegree[v] == 0)
-    count = 0
+    queue = _deque(v for v in G if indegree[v] == 0)
+    _count = 0
     while queue:
         u = queue.popleft()
         yield u
-        count += 1
+        _count += 1
         for _, v in G.edges(u):
             indegree[v] -= 1
             if indegree[v] == 0:
                 queue.append(v)
-    if count != len(G):
+    if _count != len(G):
         raise NetworkXUnfeasible(
             "Graph contains a cycle or graph changed during iteration"
         )
@@ -12414,7 +12425,7 @@ def astar_path_length(
     # actual chosen path (which is what nx's accumulator uses) so
     # parallel non-int edges that aren't on the path don't demote
     # the result to float.  Uses ``isinstance(v, int)`` so bool
-    # weights count as int (bool is an int subclass and nx
+    # weights _count as int (bool is an int subclass and nx
     # accumulates True + True as 2).
     if isinstance(weight, str) and isinstance(result, float) and result.is_integer():
         try:
@@ -12439,7 +12450,7 @@ def astar_path_length(
 def shortest_simple_paths(G, source, target, weight=None):
     """Yield simple paths from source to target in increasing length order.
 
-    Generator function so the returned object is a true generator
+    _Generator function so the returned object is a true generator
     matching nx's contract (br-r37-c1-682kr).
     """
     # The Rust fast path eagerly returns a capped Vec (1000 paths), but
@@ -12671,7 +12682,7 @@ def cut_size(G, S, T=None, weight=None):
 
     raw = _raw_cut_size(G, _coerce_nbunch(S), _coerce_nbunch(T), weight=weight)
     if weight is None or _sp_edge_weights_all_int(G, weight):
-        # Result is necessarily an integer (edge count or sum of int
+        # Result is necessarily an integer (edge _count or sum of int
         # weights); coerce safely.
         if isinstance(raw, float) and raw.is_integer():
             return int(raw)
@@ -12708,7 +12719,7 @@ def edge_boundary(G, nbunch1, nbunch2=None, data=False, keys=False, default=None
     to nx when any of the data/keys/default switches are non-default
     so the emitted tuples match exactly.
 
-    Generator function so the returned object is a true generator
+    _Generator function so the returned object is a true generator
     matching nx's contract (br-r37-c1-ohxpp).
     """
     if data is False and not keys and default is None and not G.is_multigraph():
@@ -12859,7 +12870,7 @@ class _MinDegreeHeuristic:
     def __init__(self, graph):
         self._update_nodes = []
         self._degreeq = []
-        self._counter = count()
+        self._counter = _count()
         for node in graph:
             self._degreeq.append((len(graph[node]), next(self._counter), node))
         import heapq
@@ -13189,7 +13200,7 @@ def is_tournament(G):
     if not G.is_directed():
         raise NetworkXNotImplemented("not implemented for undirected type")
     return (
-        all((v in G[u]) ^ (u in G[v]) for u, v in combinations(G, 2))
+        all((v in G[u]) ^ (u in G[v]) for u, v in _combinations(G, 2))
         and number_of_selfloops(G) == 0
     )
 
@@ -13765,7 +13776,7 @@ def single_source_dijkstra(G, source, target=None, cutoff=None, weight="weight")
     # br-r37-c1-ybw1s: nx-shaped TypeError on unhashable source.
     hash(source)
     # br-dijkignoreweight: the Rust single_source_dijkstra silently
-    # returns hop-count distances on any weighted input (it ignores
+    # returns hop-_count distances on any weighted input (it ignores
     # the weight attribute). Delegate to nx when any edge carries a
     # non-unit weight so results are correct.
     if _should_delegate_dijkstra_to_networkx(G, weight) or _graph_has_nonunit_weight(G, weight):
@@ -13849,7 +13860,7 @@ def single_source_bellman_ford(G, source, target=None, weight="weight"):
     # br-r37-c1-ybw1s: nx-shaped TypeError on unhashable source.
     hash(source)
     # br-bfignoreweight: same weight-ignoring bug as dijkstra — the
-    # Rust Bellman-Ford returns hop-count distances on weighted input.
+    # Rust Bellman-Ford returns hop-_count distances on weighted input.
     # Delegate any weighted graph to nx.
     if (
         target is not None
@@ -13931,7 +13942,7 @@ def single_source_bellman_ford_path_length(G, source, weight="weight"):
 
 
 def all_pairs_dijkstra_path(G, cutoff=None, weight="weight"):
-    """Iterator of ``(source, paths)`` pairs via Dijkstra.
+    """_Iterator of ``(source, paths)`` pairs via Dijkstra.
 
     ``paths`` is a dict ``{target: path-list}``. Mirrors
     ``networkx.all_pairs_dijkstra_path``.
@@ -13964,7 +13975,7 @@ def all_pairs_dijkstra_path(G, cutoff=None, weight="weight"):
 
 
 def all_pairs_dijkstra_path_length(G, cutoff=None, weight="weight"):
-    """Iterator of ``(source, lengths)`` pairs via Dijkstra.
+    """_Iterator of ``(source, lengths)`` pairs via Dijkstra.
 
     ``lengths`` is a dict ``{target: distance}``. Mirrors
     ``networkx.all_pairs_dijkstra_path_length``.
@@ -13996,7 +14007,7 @@ def all_pairs_dijkstra_path_length(G, cutoff=None, weight="weight"):
 
 
 def all_pairs_bellman_ford_path(G, weight="weight"):
-    """Iterator of ``(source, paths)`` pairs via Bellman-Ford.
+    """_Iterator of ``(source, paths)`` pairs via Bellman-Ford.
 
     ``paths`` is a dict ``{target: path-list}``. Handles negative weights.
     Mirrors ``networkx.all_pairs_bellman_ford_path``.
@@ -14021,7 +14032,7 @@ def all_pairs_bellman_ford_path(G, weight="weight"):
 
 
 def all_pairs_bellman_ford_path_length(G, weight="weight"):
-    """Iterator of ``(source, lengths)`` pairs via Bellman-Ford.
+    """_Iterator of ``(source, lengths)`` pairs via Bellman-Ford.
 
     ``lengths`` is a dict ``{target: distance}``. Handles negative weights.
     Mirrors ``networkx.all_pairs_bellman_ford_path_length``.
@@ -14055,7 +14066,7 @@ def floyd_warshall(G, weight="weight"):
     # Delegate weighted inputs to nx.
     if _should_delegate_floyd_warshall_to_networkx(weight) or _graph_has_nonunit_weight(G, weight):
         return _call_networkx_for_parity("floyd_warshall", G, weight=weight)
-    # br-r37-c1-h1kf2: nx's defaultdict-based access pattern produces a
+    # br-r37-c1-h1kf2: nx's _defaultdict-based access pattern produces a
     # specific inner-dict iteration order that's algorithm-dependent
     # (driven by G.nodes() iteration in the triple loop). Rather than
     # re-implement the algorithm just to match the order, delegate the
@@ -14311,7 +14322,7 @@ from franken_networkx._fnx import (
 def biconnected_component_edges(G):
     """Yield edges within each biconnected component of an undirected graph.
 
-    Generator function so the returned object is a true generator
+    _Generator function so the returned object is a true generator
     matching nx's contract (br-r37-c1-24wk3). The Rust binding returns
     a materialized list; wrapping with ``yield from`` makes the returned
     object a true ``generator`` so ``isinstance(result,
@@ -14742,7 +14753,7 @@ def complete_graph(n, create_using=None, *, backend=None, **backend_kwargs):
     graph = _classic_graph_from_create_using(create_using)
     _add_nodes_in_order(graph, nodes)
     if len(nodes) > 1:
-        edges = _itertools.permutations(nodes, 2) if graph.is_directed() else combinations(nodes, 2)
+        edges = _itertools.permutations(nodes, 2) if graph.is_directed() else _combinations(nodes, 2)
         for u, v in edges:
             graph.add_edge(u, v)
     return graph
@@ -15012,7 +15023,7 @@ def _edge_attribute_dict(G, edge):
 
 
 def set_node_attributes(G, values, name=None):
-    """Set node attributes from a dictionary or scalar.
+    """_Set node attributes from a dictionary or scalar.
 
     Parameters
     ----------
@@ -15025,7 +15036,7 @@ def set_node_attributes(G, values, name=None):
     name : str, optional
         Attribute name. Required when *values* is a dict of scalars or a scalar.
     """
-    if isinstance(values, Mapping):
+    if isinstance(values, _Mapping):
         if name is not None:
             for node, value in values.items():
                 if G.has_node(node):
@@ -15072,7 +15083,7 @@ def get_node_attributes(G, name, default=None):
 
 
 def set_edge_attributes(G, values, name=None):
-    """Set edge attributes from a dictionary or scalar.
+    """_Set edge attributes from a dictionary or scalar.
 
     Parameters
     ----------
@@ -15084,7 +15095,7 @@ def set_edge_attributes(G, values, name=None):
     name : str, optional
         Attribute name. Required when *values* is a scalar.
     """
-    if isinstance(values, Mapping):
+    if isinstance(values, _Mapping):
         if name is not None:
             for edge, value in values.items():
                 try:
@@ -15173,7 +15184,7 @@ def number_of_selfloops(G):
     """Return the number of self-loop edges in *G*."""
     # br-r37-c1-61okz: O(|V|) via has_edge probe when bypass is safe.
     # Was 300x slower than nx because it materialized selfloop_edges
-    # tuples just to count them, and selfloop_edges itself walked the
+    # tuples just to _count them, and selfloop_edges itself walked the
     # AdjacencyView for every node.
     if _raw_neighbors_dispatch(G) is not None and not G.is_multigraph():
         return sum(1 for u in G if G.has_edge(u, u))
@@ -15198,7 +15209,7 @@ def selfloop_edges(G, data=False, keys=False, default=None):
     Returns
     -------
     iterator
-        Iterator over self-loop edges.
+        _Iterator over self-loop edges.
     """
     # br-r37-c1-61okz: bypass AdjacencyView for the common case —
     # direct ``has_edge(u, u)`` probe per node skips the AtlasView
@@ -15571,12 +15582,12 @@ def local_bridges(G, with_span=True, weight=None):
             if with_span:
                 # Compute shortest path from u to v not using edge (u,v).
                 # BFS/Dijkstra from u, but skip the direct u->v hop.
-                from collections import deque
+                from collections import _deque
 
                 if weight is None:
                     # Unweighted BFS avoiding direct (u,v) edge.
                     dist = {u: 0}
-                    queue = deque([u])
+                    queue = _deque([u])
                     found = False
                     while queue and not found:
                         curr = queue.popleft()
@@ -16288,7 +16299,7 @@ def core_number(G):
     br-r37-c1-dg2dn: nx also raises NetworkXNotImplemented when the
     graph has any self-loop ("Input graph has self loops which is
     not permitted; Consider using G.remove_edges_from(nx.selfloop_edges(G)).").
-    The Rust path silently included self-loops in the degree count
+    The Rust path silently included self-loops in the degree _count
     and returned a value dict — propagating into k_core / k_shell /
     k_crust / k_corona, which all consume core_number.
 
@@ -16298,7 +16309,7 @@ def core_number(G):
     pair separately. The Rust ``_raw_core_number`` calls
     ``gr.undirected()`` and folds antiparallel edges together,
     producing core numbers half the size. Delegate the directed
-    case to NX so the in+out degree count matches.
+    case to NX so the in+out degree _count matches.
     """
     # br-r37-c1-eghxq: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
@@ -16346,7 +16357,7 @@ def k_core(G, k=None, core_number=None):
         raise NetworkXNotImplemented(_self_loop_guard_for_core_family())
     if core_number is None:
         # br-coredir: route through the public wrapper so directed
-        # graphs use NX's in+out degree count instead of the Rust
+        # graphs use NX's in+out degree _count instead of the Rust
         # binding's undirected collapse.
         core_number = globals()["core_number"](G)
     if k is None:
@@ -16371,7 +16382,7 @@ def k_shell(G, k=None, core_number=None):
         raise NetworkXNotImplemented(_self_loop_guard_for_core_family())
     if core_number is None:
         # br-coredir: route through the public wrapper so directed
-        # graphs use NX's in+out degree count instead of the Rust
+        # graphs use NX's in+out degree _count instead of the Rust
         # binding's undirected collapse.
         core_number = globals()["core_number"](G)
     if k is None:
@@ -16396,7 +16407,7 @@ def k_crust(G, k=None, core_number=None):
         raise NetworkXNotImplemented(_self_loop_guard_for_core_family())
     if core_number is None:
         # br-coredir: route through the public wrapper so directed
-        # graphs use NX's in+out degree count instead of the Rust
+        # graphs use NX's in+out degree _count instead of the Rust
         # binding's undirected collapse.
         core_number = globals()["core_number"](G)
     if k is None:
@@ -16423,7 +16434,7 @@ def k_corona(G, k, core_number=None):
         raise NetworkXNotImplemented(_self_loop_guard_for_core_family())
     if core_number is None:
         # br-coredir: route through the public wrapper so directed
-        # graphs use NX's in+out degree count instead of the Rust
+        # graphs use NX's in+out degree _count instead of the Rust
         # binding's undirected collapse.
         core_number = globals()["core_number"](G)
     core_nodes = {n for n, c in core_number.items() if c >= k}
@@ -17650,7 +17661,7 @@ def degree_mixing_dict(G, x="out", y="in", weight=None, nodes=None, normalized=F
     Returns
     -------
     dict of dicts
-        ``result[d1][d2]`` is the count of edges between nodes of
+        ``result[d1][d2]`` is the _count of edges between nodes of
         degree d1 and degree d2.
     """
     return mixing_dict(
@@ -17908,7 +17919,7 @@ def _frozen(*args, **kwargs):
 
 
 # ---------------------------------------------------------------------------
-# Generator aliases
+# _Generator aliases
 # ---------------------------------------------------------------------------
 
 
@@ -18003,7 +18014,7 @@ def gnp_random_graph(n, p, seed=None, directed=False, *, create_using=None, back
     if p <= 0:
         return graph
 
-    edge_pairs = _itertools.permutations(range(n), 2) if directed else combinations(range(n), 2)
+    edge_pairs = _itertools.permutations(range(n), 2) if directed else _combinations(range(n), 2)
     for u, v in edge_pairs:
         if rng.random() < p:
             graph.add_edge(u, v)
@@ -18307,7 +18318,7 @@ def kneser_graph(n, k):
     or k=0 (returning degenerate graphs with empty-tuple nodes). Add
     nx-compatible validation so invalid inputs fail fast.
     """
-    from itertools import combinations
+    from itertools import _combinations
 
     if n <= 0:
         raise NetworkXError("n should be greater than zero")
@@ -18315,7 +18326,7 @@ def kneser_graph(n, k):
         raise NetworkXError("k should be greater than zero and smaller than n")
 
     G = empty_graph(0)
-    nodes = [tuple(sorted(c)) for c in combinations(range(n), k)]
+    nodes = [tuple(sorted(c)) for c in _combinations(range(n), k)]
     G.add_nodes_from(nodes)
     for i, a in enumerate(nodes):
         sa = set(a)
@@ -19805,7 +19816,7 @@ def node_link_graph(
     key = None if not multigraph else key
     graph.graph.update(dict(data.get("graph", {})))
 
-    counter = count()
+    counter = _count()
     for node_payload in data[nodes]:
         node = _json_graph_to_tuple(node_payload.get(name, next(counter)))
         node_data = {str(k): v for k, v in node_payload.items() if k != name}
@@ -19857,7 +19868,7 @@ def _single_source_shortest_path_basic_local(G, source, cutoff=None):
     sigma = dict.fromkeys(G, 0.0)
     distances = {source: 0}
     sigma[source] = 1.0
-    queue = deque([source])
+    queue = _deque([source])
     while queue:
         node = queue.popleft()
         stack.append(node)
@@ -19883,7 +19894,7 @@ def _single_source_dijkstra_path_basic_local(G, source, weight, cutoff=None):
     distances = {}
     sigma[source] = 1.0
     seen = {source: 0}
-    counter = count()
+    counter = _count()
     queue = []
     _heappush(queue, (0, next(counter), source, source))
     while queue:
@@ -20237,7 +20248,7 @@ def generalized_degree(G, nodes=None):
     Returns
     -------
     dict
-        ``{node: Counter}`` where Counter maps triangle count to
+        ``{node: _Counter}`` where _Counter maps triangle _count to
         number of edges with that many triangles.
     """
     if G.is_directed():
@@ -20504,7 +20515,7 @@ def dedensify(G, threshold, prefix=None, copy=True):
     H : Graph or DiGraph
         Dedensified graph.
     compressor_nodes : set
-        Set of compressor node labels that were added.
+        _Set of compressor node labels that were added.
     """
     if threshold < 2:
         raise NetworkXError("The degree threshold must be >= 2")
@@ -20646,7 +20657,7 @@ def quotient_graph(
     # Add block nodes
     # br-r37-c1-ja61l: when node_data is not provided, nx attaches a
     # default attribute dict to each block node containing the block's
-    # subgraph, node count, edge count, and density. Mirror nx's
+    # subgraph, node _count, edge _count, and density. Mirror nx's
     # contract so drop-in callers see the same node-attr shape.
     def _default_node_data(block):
         sub = G.subgraph(block)
@@ -20680,14 +20691,14 @@ def quotient_graph(
                 else:
                     # Sum weights of cross-block edges
                     total = 0
-                    count = 0
+                    _count = 0
                     for u in block_u:
                         for v in block_v:
                             if G.has_edge(u, v):
                                 d = G.edges[u, v]
                                 total += d.get(weight, 1) if weight else 1
-                                count += 1
-                    attrs = {weight: total} if weight and count else {}
+                                _count += 1
+                    attrs = {weight: total} if weight and _count else {}
                     H.add_edge(block_u, block_v, **attrs)
 
     if relabel:
@@ -20729,7 +20740,7 @@ def snap_aggregation(
     -------
     Graph or DiGraph
     """
-    from collections import Counter, defaultdict
+    from collections import _Counter, _defaultdict
 
     if isinstance(node_attributes, str):
         node_attributes = [node_attributes]
@@ -20748,7 +20759,7 @@ def snap_aggregation(
     group_lookup = {}
     for n in G.nodes():
         group_lookup[n] = tuple(G.nodes[n].get(attr) for attr in node_attributes)
-    groups = defaultdict(set)
+    groups = _defaultdict(set)
     for node, node_type in group_lookup.items():
         groups[node_type].add(node)
 
@@ -20758,7 +20769,7 @@ def snap_aggregation(
         for group_id in groups:
             current_group = groups[group_id]
             for node in current_group:
-                nbr_info[node] = {gid: Counter() for gid in groups}
+                nbr_info[node] = {gid: _Counter() for gid in groups}
                 for nbr in G.neighbors(node):
                     edge_key = (node, nbr)
                     etype = edge_types.get(edge_key, ())
@@ -20767,16 +20778,16 @@ def snap_aggregation(
 
             group_size = len(current_group)
             for other_gid in groups:
-                edge_counts = Counter()
+                edge_counts = _Counter()
                 for node in current_group:
                     edge_counts.update(nbr_info[node][other_gid].keys())
-                if not all(count == group_size for count in edge_counts.values()):
+                if not all(_count == group_size for _count in edge_counts.values()):
                     return group_id, nbr_info
 
         return None, nbr_info
 
     def _split(nbr_info, group_id):
-        new_group_mappings = defaultdict(set)
+        new_group_mappings = _defaultdict(set)
         for node in groups[group_id]:
             signature = tuple(frozenset(etypes) for etypes in nbr_info[node].values())
             new_group_mappings[signature].add(node)
@@ -20980,8 +20991,8 @@ def identified_nodes(
 
 def inverse_line_graph(G):
     """Return an inverse line graph, when it exists."""
-    from collections import defaultdict
-    from itertools import combinations
+    from collections import _defaultdict
+    from itertools import _combinations
 
     def _triangles_local(graph, edge):
         u, v = edge
@@ -20999,16 +21010,16 @@ def inverse_line_graph(G):
         for u in triangle:
             if u not in graph:
                 raise NetworkXError(f"Vertex {u} not in graph")
-        for u, v in combinations(triangle, 2):
+        for u, v in _combinations(triangle, 2):
             if u not in graph[v]:
                 raise NetworkXError(f"Edge ({u}, {v}) not in graph")
 
-        triangle_neighbors = defaultdict(int)
+        triangle_neighbors = _defaultdict(int)
         for triangle_node in triangle:
             for neighbor in graph[triangle_node]:
                 if neighbor not in triangle:
                     triangle_neighbors[neighbor] += 1
-        return any(count in (1, 3) for count in triangle_neighbors.values())
+        return any(_count in (1, 3) for _count in triangle_neighbors.values())
 
     def _select_starting_cell_local(graph, starting_edge=None):
         if starting_edge is None:
@@ -21062,7 +21073,7 @@ def inverse_line_graph(G):
     def _find_partition_local(graph, starting_cell):
         graph_partition = graph.copy()
         partition = [starting_cell]
-        graph_partition.remove_edges_from(list(combinations(starting_cell, 2)))
+        graph_partition.remove_edges_from(list(_combinations(starting_cell, 2)))
         partitioned_vertices = list(starting_cell)
         while graph_partition.number_of_edges() > 0:
             u = partitioned_vertices.pop()
@@ -21075,7 +21086,7 @@ def inverse_line_graph(G):
                                 "G is not a line graph (partition cell not a complete subgraph)"
                             )
                 partition.append(tuple(new_cell))
-                graph_partition.remove_edges_from(list(combinations(new_cell, 2)))
+                graph_partition.remove_edges_from(list(_combinations(new_cell, 2)))
                 partitioned_vertices += new_cell
         return partition
 
@@ -21108,13 +21119,13 @@ def inverse_line_graph(G):
             "G is not a line graph (vertex found in more than two partition cells)"
         )
 
-    singleton_cells = tuple((u,) for u, count in partition_count.items() if count == 1)
+    singleton_cells = tuple((u,) for u, _count in partition_count.items() if _count == 1)
     H = Graph()
     for node in partition:
         H.add_node(node)
     for node in singleton_cells:
         H.add_node(node)
-    for left, right in combinations(H.nodes(), 2):
+    for left, right in _combinations(H.nodes(), 2):
         if any(item in right for item in left):
             H.add_edge(left, right)
     return H
@@ -21347,7 +21358,7 @@ class _DegreeSequenceRandomGraph:
         aux_graph = Graph()
         aux_graph.add_edges_from(
             (u, v)
-            for u, v in combinations(self.remaining_degree, 2)
+            for u, v in _combinations(self.remaining_degree, 2)
             if not self.graph.has_edge(u, v)
         )
         while self.remaining_degree:
@@ -22855,11 +22866,11 @@ def max_flow_min_cost(G, s, t, capacity="capacity", weight="weight"):
     # Get max flow value
     max_val = maximum_flow_value(G, s, t, capacity=capacity)
 
-    # Set up demands per nx convention: source supplies (negative),
+    # _Set up demands per nx convention: source supplies (negative),
     # sink consumes (positive).
     H = G.copy()
     set_node_attributes(H, {s: -max_val, t: max_val}, name="demand")
-    # Set demand=0 for all other nodes that don't already have one.
+    # _Set demand=0 for all other nodes that don't already have one.
     for n in H.nodes():
         if n != s and n != t:
             attrs = H.nodes[n] if hasattr(H.nodes, "__getitem__") else {}
@@ -23013,14 +23024,14 @@ def triadic_census(G, nodelist=None):
     ----------
     G : DiGraph
     nodelist : optional list of nodes
-        Restrict the triad count to triads containing at least one
+        Restrict the triad _count to triads containing at least one
         node from ``nodelist`` (nx parity — br-triadnode). When
         ``nodelist`` is None, counts all triads in the graph.
 
     Returns
     -------
     dict
-        ``{triad_type: count}`` for all 16 types.
+        ``{triad_type: _count}`` for all 16 types.
     """
     # br-r37-c1-n7rgh: nx is @not_implemented_for('undirected') and
     # raises NetworkXNotImplemented; previously fnx raised
@@ -23663,7 +23674,7 @@ def estrada_index(G):
 
 def _simple_graph_weighted_shortest_path_lengths(G, source, weight):
     distances = {source: 0.0}
-    counter = count()
+    counter = _count()
     queue = [(0.0, next(counter), source)]
 
     while queue:
@@ -23917,7 +23928,7 @@ class _KernighanLinHeap:
     def __init__(self):
         self._heap = []
         self._values = {}
-        self._counter = count()
+        self._counter = _count()
 
     def insert(self, key, value, allow_increase=False):
         current = self._values.get(key)
@@ -24250,7 +24261,7 @@ def all_node_cuts(G, k=None, flow_func=None):
             condensed = condensation(residual)
 
             component_mapping = condensed.graph["mapping"]
-            inverse_component_mapping = defaultdict(list)
+            inverse_component_mapping = _defaultdict(list)
             for node, component in component_mapping.items():
                 inverse_component_mapping[component].append(node)
 
@@ -24496,7 +24507,7 @@ def _current_flow_pseudo_peripheral_node(G):
     """Return a pseudo-peripheral node for reverse Cuthill-McKee ordering."""
     def _ordered_path_lengths(source):
         distances = {source: 0}
-        queue = deque([source])
+        queue = _deque([source])
         while queue:
             parent = queue.popleft()
             next_distance = distances[parent] + 1
@@ -24528,7 +24539,7 @@ def _connected_cuthill_mckee_ordering(G, heuristic=None):
     """Yield the Cuthill-McKee ordering for a connected graph."""
     start = heuristic(G) if heuristic is not None else _current_flow_pseudo_peripheral_node(G)
     visited = {start}
-    queue = deque([start])
+    queue = _deque([start])
     while queue:
         parent = queue.popleft()
         yield parent
@@ -25508,7 +25519,7 @@ def cn_soundarajan_hopcroft(G, ebunch=None, community="community"):
     br-shcomm: nx raises NetworkXAlgorithmError when any node in ebunch
     lacks the community attribute. fnx previously treated missing
     community as None and silently computed a plain common-neighbor
-    count without the bonus — a correctness trap for callers that
+    _count without the bonus — a correctness trap for callers that
     assumed nx contract. Now raises the same error.
 
     br-r37-c1-fa5tf: nx is @not_implemented_for('directed',
@@ -25824,7 +25835,7 @@ def global_parameters(b, c):
     intersection array (b, c).
 
     Matches NetworkX's public signature:
-    ``global_parameters(b: list, c: list) -> Iterable[tuple[int, int, int]]``.
+    ``global_parameters(b: list, c: list) -> _Iterable[tuple[int, int, int]]``.
     For a distance-regular graph with diameter d, the intersection array
     is ``[b_0, ..., b_{d-1}]`` and ``[c_1, ..., c_d]``; the yielded
     triples are ``(c_i, a_i, b_i)`` where ``a_i = b_0 - b_i - c_i``.
@@ -25860,7 +25871,7 @@ def eulerize(G):
     Finds odd-degree nodes, computes shortest paths between all pairs of them,
     finds minimum weight matching, and duplicates matched-path edges.
     """
-    from itertools import combinations
+    from itertools import _combinations
 
     if len(G) == 0:
         raise NetworkXPointlessConcept("Cannot Eulerize null graph")
@@ -25873,7 +25884,7 @@ def eulerize(G):
 
     # Build a complete graph on odd-degree nodes weighted by shortest path length.
     odd_complete = Graph()
-    for u, v in combinations(odd_nodes, 2):
+    for u, v in _combinations(odd_nodes, 2):
         length = shortest_path_length(G, u, v, weight="weight")
         odd_complete.add_edge(u, v, weight=length)
 
@@ -25912,7 +25923,7 @@ def moral_graph(G):
     fnx fell through to G.predecessors() which raises AttributeError
     on undirected. Add the explicit type guard.
     """
-    from itertools import combinations
+    from itertools import _combinations
 
     if not G.is_directed():
         raise NetworkXNotImplemented("not implemented for undirected type")
@@ -25928,7 +25939,7 @@ def moral_graph(G):
     # Marry co-parents: for each node, connect all pairs of predecessors.
     for node in G.nodes():
         preds = list(G.predecessors(node))
-        for u, v in combinations(preds, 2):
+        for u, v in _combinations(preds, 2):
             if not H.has_edge(u, v):
                 H.add_edge(u, v)
 
@@ -26548,7 +26559,7 @@ class _ReverseDirectedViewBase:
 # ``__name__`` for type introspection.
 class _RevEdgeMethodViewBase:
     """Base proxy: wraps an edge-computing method on the reverse
-    view. ``self()`` (no args) → list of edges. Iterable / sized.
+    view. ``self()`` (no args) → list of edges. _Iterable / sized.
     Calling with kwargs forwards to the underlying compute method.
     """
 
@@ -26695,7 +26706,7 @@ def _reverse_directed_view_for(graph):
     return view_type(graph)
 
 
-class _ReverseNeighborMap(Mapping):
+class _ReverseNeighborMap(_Mapping):
     def __init__(self, view, node, *, reverse=False):
         self._view = view
         self._node = node
@@ -26716,7 +26727,7 @@ class _ReverseNeighborMap(Mapping):
         return self._raw_neighbors()[neighbor]
 
 
-class _ReverseAdjacencyView(Mapping):
+class _ReverseAdjacencyView(_Mapping):
     def __init__(self, view, *, reverse=False):
         self._view = view
         self._reverse = reverse
@@ -26741,7 +26752,7 @@ class _ReverseAdjacencyView(Mapping):
         # Recursively unwrap inner mapping values (per-key dicts on
         # MultiGraph wrap as AtlasView) so the repr matches nx's
         # plain-dict format.
-        from collections.abc import Mapping as _Mapping
+        from collections.abc import _Mapping as _Mapping
         def _unwrap(v):
             if isinstance(v, _Mapping):
                 return {k2: _unwrap(v2) for k2, v2 in v.items()}
@@ -26824,12 +26835,12 @@ class _ReverseEdgeView:
             nbunch=nbunch, data=data, keys=keys, default=default
         )
 
-    # br-r37-c1-rev-setops: nx's reverse view edges inherit from Set;
-    # the wrapper had no Set protocol at all. Same defect family as
+    # br-r37-c1-rev-setops: nx's reverse view edges inherit from _Set;
+    # the wrapper had no _Set protocol at all. Same defect family as
     # br-r37-c1-{fbtk0, s89yr, ovudh}; identical fix shape on a
     # different wrapper class.
     def __eq__(self, other):
-        from collections.abc import Set as _Set
+        from collections.abc import _Set as _Set
         if isinstance(other, _ReverseEdgeView):
             return set(self) == set(other)
         if isinstance(other, _Set):
@@ -26932,7 +26943,7 @@ _ReverseDirectedView.__name__ = "DiGraph"
 _ReverseMultiDirectedView.__name__ = "MultiDiGraph"
 
 
-class _FilteredNeighborMap(Mapping):
+class _FilteredNeighborMap(_Mapping):
     def __init__(self, view, node, *, reverse=False):
         self._view = view
         self._node = node
@@ -26983,7 +26994,7 @@ class _FilteredNeighborMap(Mapping):
         raise KeyError(f"Key {neighbor} not found")
 
 
-class FilterAtlas(Mapping):
+class FilterAtlas(_Mapping):
     def __init__(self, view, node, *, reverse=False):
         self._neighbors = _FilteredNeighborMap(view, node, reverse=reverse)
 
@@ -26997,7 +27008,7 @@ class FilterAtlas(Mapping):
         return self._neighbors[key]
 
 
-class _FilteredAdjacencyView(Mapping):
+class _FilteredAdjacencyView(_Mapping):
     def __init__(self, view, *, reverse=False):
         self._view = view
         self._reverse = reverse
@@ -27041,7 +27052,7 @@ def _node_attrs_for_view_graph(graph, node):
     raise KeyError(f"Key {node} not found")
 
 
-class NodeView(Mapping):
+class NodeView(_Mapping):
     def __init__(self, view):
         self._view = view
 
@@ -27153,8 +27164,8 @@ class _FilteredEdgeView:
     items = _adjacency_view_items
     values = _adjacency_view_values
 
-    # br-filtedgeop: nx.EdgeView inherits from Set, so `G.edges - some_iter`
-    # works via Set.__sub__. fnx's _FilteredEdgeView had no set-operator
+    # br-filtedgeop: nx.EdgeView inherits from _Set, so `G.edges - some_iter`
+    # works via _Set.__sub__. fnx's _FilteredEdgeView had no set-operator
     # methods, breaking nx._min_cycle_basis which does
     # `chords = G.edges - tree_edges - {(v, u) for u, v in tree_edges}`.
     def __sub__(self, other):
@@ -27190,7 +27201,7 @@ class _FilteredEdgeView:
         # identity comparison which returned False. nx's
         # filtered EdgeView is set-like; match its content-based
         # equality across all set-like types.
-        from collections.abc import Set as _Set
+        from collections.abc import _Set as _Set
         if isinstance(other, _FilteredEdgeView):
             return set(self) == set(other)
         if isinstance(other, _Set):
@@ -27203,7 +27214,7 @@ class _FilteredEdgeView:
             return NotImplemented
         return not eq
 
-    # br-r37-c1-fev-setops: nx's filtered EdgeView inherits from Set
+    # br-r37-c1-fev-setops: nx's filtered EdgeView inherits from _Set
     # so all comparison + isdisjoint work. The previous fnx wrapper
     # had partial coverage (-, |, &, ^) but missing <=, <, >=, >,
     # and isdisjoint.
@@ -27771,7 +27782,7 @@ def _private_pred_mapping(self, fallback):
     return fallback(self)
 
 
-class _AssignedPrivateNodeView(Mapping):
+class _AssignedPrivateNodeView(_Mapping):
     def __init__(self, graph):
         self._graph = graph
 
@@ -28612,7 +28623,7 @@ _FILTERED_GRAPH_VIEW_TYPES = {
 
 _FILTERED_SUBCLASS_VIEW_CACHE: dict = {}
 
-# Set of canonical graph types — instances of these go through the
+# _Set of canonical graph types — instances of these go through the
 # precomputed fast path; subclasses go through the subclass-preserving
 # dynamic-class path (br-r37-c1-subgraphsub).
 _FILTERED_GRAPH_VIEW_TYPES_SOURCE_TYPES = frozenset((
@@ -29031,7 +29042,7 @@ for _cls in (Graph, DiGraph, MultiGraph, MultiDiGraph):
 del _cls, _meth_name, _meth, _rename_seen, _METHOD_NAMES
 
 
-class _ConversionNodeView(Mapping):
+class _ConversionNodeView(_Mapping):
     def __init__(self, view):
         self._view = view
 
@@ -29244,7 +29255,7 @@ class _ConversionEdgeView:
         return set(other) ^ set(self)
 
     # br-r37-c1-cev-setops: nx's converted-view EdgeView inherits from
-    # Set; the wrapper had |/&/-/^ but missing <=/</>=/>/isdisjoint
+    # _Set; the wrapper had |/&/-/^ but missing <=/</>=/>/isdisjoint
     # and __eq__. Same defect family as br-r37-c1-{fbtk0, s89yr};
     # identical fix shape on a different wrapper class.
     def __le__(self, other):
@@ -29263,7 +29274,7 @@ class _ConversionEdgeView:
         return set(self).isdisjoint(other)
 
     def __eq__(self, other):
-        from collections.abc import Set as _Set
+        from collections.abc import _Set as _Set
         if isinstance(other, _ConversionEdgeView):
             return set(self) == set(other)
         if isinstance(other, _Set):
@@ -29284,7 +29295,7 @@ class _ConversionEdgeView:
     values = _adjacency_view_values
 
 
-class _UnionKeyAtlas(Mapping):
+class _UnionKeyAtlas(_Mapping):
     def __init__(self, primary, secondary):
         self._primary = primary
         self._secondary = secondary
@@ -29307,7 +29318,7 @@ class _UnionKeyAtlas(Mapping):
         return self._secondary[key]
 
 
-class _ConversionNeighborMap(Mapping):
+class _ConversionNeighborMap(_Mapping):
     def __init__(self, view, node, *, reverse=False):
         self._view = view
         self._node = node
@@ -29328,7 +29339,7 @@ class _ConversionNeighborMap(Mapping):
         return self._view._adj_neighbor_value(self._node, neighbor)
 
 
-class _ConversionAdjacencyView(Mapping):
+class _ConversionAdjacencyView(_Mapping):
     def __init__(self, view, *, reverse=False):
         self._view = view
         self._reverse = reverse
@@ -29866,10 +29877,10 @@ def _triangles_and_degree_iter_local(G, nodes=None):
 
     for node, node_neighbors in nodes_neighbors:
         neighbor_set = set(node_neighbors) - {node}
-        generalized_degree = Counter(
+        generalized_degree = _Counter(
             len(neighbor_set & (set(G[neighbor]) - {neighbor})) for neighbor in neighbor_set
         )
-        triangle_count = sum(size * count for size, count in generalized_degree.items())
+        triangle_count = sum(size * _count for size, _count in generalized_degree.items())
         yield (node, len(neighbor_set), triangle_count, generalized_degree)
 
 
@@ -30206,7 +30217,7 @@ def triangles(G, nodes=None):
         raw = _raw_triangles(G)
         # br-r37-c1-k3khk: the Rust binding returns the dict with keys
         # sorted; nx iterates in node-insertion order. Reorder so
-        # ``for node, count in triangles(G).items():`` matches nx.
+        # ``for node, _count in triangles(G).items():`` matches nx.
         return {node: raw[node] for node in G.nodes() if node in raw}
 
     if G.is_directed():
@@ -30856,7 +30867,7 @@ def weisfeiler_lehman_subgraph_hashes(
 def lexicographical_topological_sort(G, key=None):
     """Yield nodes in lexicographic-tie-broken topological order.
 
-    Generator function so the returned object is a true generator
+    _Generator function so the returned object is a true generator
     matching nx's contract (br-r37-c1-682kr).
 
     Raises ``NetworkXUnfeasible`` when ``G`` contains a cycle, matching
@@ -30938,7 +30949,7 @@ def onion_layers(G):
 
     br-onionlayers: the Rust _fnx.onion_layers_rust diverged from nx
     on the karate club graph — 3 nodes (1, 3, 13) were placed in layer
-    7 where nx places them in layer 6, and the global layer-count
+    7 where nx places them in layer 6, and the global layer-_count
     distribution differed (fnx {7:5, 6:1, 5:4, 4:3, 3:9, 2:11, 1:1} vs
     nx {7:2, 6:4, 5:4, 4:3, 3:9, 2:11, 1:1}). Route through nx's
     reference implementation for exact parity with the published
@@ -31080,7 +31091,7 @@ def _k_edge_degree(G, node):
 
 def _k_edge_complement_edges(G):
     nodes = list(G.nodes())
-    for u, v in combinations(nodes, 2):
+    for u, v in _combinations(nodes, 2):
         if not G.has_edge(u, v):
             yield (u, v)
 
@@ -31088,14 +31099,14 @@ def _k_edge_complement_edges(G):
 def _k_edge_avail_weight(raw_weight, weight):
     if raw_weight is None:
         return 1
-    if isinstance(raw_weight, Mapping):
+    if isinstance(raw_weight, _Mapping):
         key = "weight" if weight is None else weight
         return raw_weight[key]
     return raw_weight
 
 
 def _k_edge_unpack_available_edges(avail, weight=None, G=None):
-    if isinstance(avail, Mapping):
+    if isinstance(avail, _Mapping):
         available = list(avail.items())
         edges = [edge for edge, _ in available]
         weights = [raw_weight for _, raw_weight in available]
@@ -31120,7 +31131,7 @@ def _k_edge_unpack_available_edges(avail, weight=None, G=None):
 
 
 def _k_edge_validate_available_endpoints(avail, G):
-    edges = avail.keys() if isinstance(avail, Mapping) else avail
+    edges = avail.keys() if isinstance(avail, _Mapping) else avail
     for edge in edges:
         u, v = edge[:2]
         if u not in G:
@@ -31380,7 +31391,7 @@ def stochastic_block_model(
 
     br-sbmrng: fnx's native fast path (Rust) and Python fallback both
     diverged structurally from nx — the Rust binding produced ~25% of
-    nx's edge count for symmetric block matrices, and the Python
+    nx's edge _count for symmetric block matrices, and the Python
     fallback iterated over node pairs in a different order than nx's
     block-pair loop, so ``seed.random()`` calls were consumed in a
     different sequence. Upshot: different edge sets for the same
@@ -31965,7 +31976,7 @@ def waxman_graph(
 
     # br-r37-c1-359bl: when L is None, nx's Waxman-1 sets L to the
     # actual maximum pair distance (``max(metric(x, y) for x, y in
-    # combinations(pos.values(), 2))``), *not* the domain diagonal.
+    # _combinations(pos.values(), 2))``), *not* the domain diagonal.
     # The diagonal is always >= the actual max pair distance, so
     # using the diagonal makes prob = beta * exp(-d/(alpha * L))
     # larger than nx's, producing extra edges on identical seeds.
@@ -32050,7 +32061,7 @@ def geographical_threshold_graph(
         weight = {v: rng.expovariate(1) for v in G}
     elif callable(weight):
         weight = {v: weight() for v in G}
-    elif not isinstance(weight, Mapping):
+    elif not isinstance(weight, _Mapping):
         weight = {v: weight for v in G}
 
     if pos is None:
@@ -32120,7 +32131,7 @@ def thresholded_random_geometric_graph(
         weight = {v: rng.expovariate(1) for v in G}
     elif callable(weight):
         weight = {v: weight() for v in G}
-    elif not isinstance(weight, Mapping):
+    elif not isinstance(weight, _Mapping):
         weight = {v: weight for v in G}
 
     if pos is None:
@@ -32263,7 +32274,7 @@ def _chromatic_polynomial_simple_local(G, symbol, memo):
 
 
 def _equitable_make_C_from_F_local(F):
-    C = defaultdict(list)
+    C = _defaultdict(list)
     for node, color in F.items():
         C[color].append(node)
     return C
@@ -32769,7 +32780,7 @@ def _embedding_triangulate(embedding, fully_triangulate=True):
 def _embedding_canonical_ordering(embedding, outer_face):
     v1 = outer_face[0]
     v2 = outer_face[1]
-    chords = defaultdict(int)
+    chords = _defaultdict(int)
     marked_nodes = set()
     ready_to_pick = set(outer_face)
 
@@ -33073,8 +33084,8 @@ def could_be_isomorphic(G1, G2, *, properties="dtc"):
             return False
 
     if "c" in properties_to_check:
-        G1_props.append(Counter(_itertools.chain.from_iterable(find_cliques(G1))))
-        G2_props.append(Counter(_itertools.chain.from_iterable(find_cliques(G2))))
+        G1_props.append(_Counter(_itertools.chain.from_iterable(find_cliques(G1))))
+        G2_props.append(_Counter(_itertools.chain.from_iterable(find_cliques(G2))))
         if not _properties_consistent():
             return False
 
@@ -33773,7 +33784,7 @@ def _numpy_random_state(seed):
     if isinstance(seed, int):
         return np.random.RandomState(seed)
     raise ValueError(
-        f"{seed} cannot be used to create a numpy.random.RandomState or Generator",
+        f"{seed} cannot be used to create a numpy.random.RandomState or _Generator",
     )
 
 
@@ -34216,7 +34227,7 @@ def optimize_edit_paths(
     roots=None,
     timeout=None,
 ):
-    """Iterator yielding final edit paths from the local optimal-path
+    """_Iterator yielding final edit paths from the local optimal-path
     wrapper.
 
     Matches networkx's full positional + keyword surface so
@@ -34870,7 +34881,7 @@ def optimize_graph_edit_distance(
     edge_ins_cost=None,
     upper_bound=None,
 ):
-    """Iterator yielding successive graph edit distance estimates.
+    """_Iterator yielding successive graph edit distance estimates.
 
     Matches networkx's signature; the local wrapper currently yields a
     single final cost. (br-r37-c1-gedsig)
@@ -34999,7 +35010,7 @@ def _is_connected_undirected(G):
         return False
 
     seen = {nodes[0]}
-    queue = deque([nodes[0]])
+    queue = _deque([nodes[0]])
     while queue:
         current = queue.popleft()
         for neighbor in G.neighbors(current):
@@ -35187,7 +35198,7 @@ def _graphml_string(
         },
     )
     keys = {}
-    attributes = defaultdict(list)
+    attributes = _defaultdict(list)
 
     def get_key(name, attr_type, scope, default):
         keys_key = (name, attr_type, scope)
@@ -36760,8 +36771,8 @@ def tree_all_pairs_lowest_common_ancestor(
 
     pair_dict = None
     if pairs is not None:
-        pair_dict = defaultdict(set)
-        if not isinstance(pairs, Mapping | Set):
+        pair_dict = _defaultdict(set)
+        if not isinstance(pairs, _Mapping | _Set):
             pairs = set(pairs)
         for u, v in pairs:
             for node in (u, v):
@@ -36794,7 +36805,7 @@ def tree_all_pairs_lowest_common_ancestor(
         return
 
     rust_results = dict(_rust_tree_lca(G, root, list(pairs)))
-    colors = defaultdict(bool)
+    colors = _defaultdict(bool)
     for node in _tree_lca_dfs_postorder_nodes(G, root):
         colors[node] = True
         for other in pair_dict[node]:
@@ -36996,7 +37007,7 @@ def relabel_nodes(G, mapping, copy=True):
                     dependency_edges[old].append(new)
                     indegree[new] = indegree.get(new, 0) + 1
 
-            queue = deque(node for node in dependency_nodes if indegree[node] == 0)
+            queue = _deque(node for node in dependency_nodes if indegree[node] == 0)
             topo_order = []
             while queue:
                 node = queue.popleft()
@@ -37401,7 +37412,7 @@ def to_edgelist(G, nodelist=None):
     Returns
     -------
     edges : EdgeDataView (or similar iterable)
-        Iterable of ``(u, v, data_dict)``.
+        _Iterable of ``(u, v, data_dict)``.
 
     br-r37-c1-rsvst: nx returns ``G.edges(data=True)`` directly — an
     EdgeDataView, not a materialized list. fnx previously materialized
@@ -38196,7 +38207,7 @@ def to_networkx_graph(data, create_using=None, multigraph_input=False):
             except Exception as err2:
                 raise TypeError("Input is not known type.") from err2
 
-    if isinstance(data, (list, tuple, Iterator)):
+    if isinstance(data, (list, tuple, _Iterator)):
         try:
             return from_edgelist(data, create_using=create_using)
         except Exception:
@@ -38242,7 +38253,7 @@ def to_networkx_graph(data, create_using=None, multigraph_input=False):
     except Exception as err:
         raise NetworkXError("Input is not a correct scipy sparse array type.") from err
 
-    if isinstance(data, (Collection, Generator, Iterator)):
+    if isinstance(data, (_Collection, _Generator, _Iterator)):
         try:
             return from_edgelist(data, create_using=create_using)
         except Exception as err:
@@ -38265,7 +38276,7 @@ def prominent_group(
     Uses a greedy approach: iteratively add the node that most increases
     the group betweenness centrality.
     """
-    from itertools import combinations
+    from itertools import _combinations
 
     nodes = list(G.nodes())
     n = len(nodes)
@@ -38303,7 +38314,7 @@ def prominent_group(
     # Exact: enumerate all k-subsets (only practical for small k and n).
     best_group = None
     best_score = -1
-    for combo in combinations(candidates, k):
+    for combo in _combinations(candidates, k):
         score = group_betweenness_centrality(
             G, set(combo), normalized=normalized, weight=weight, endpoints=endpoints
         )
@@ -38531,9 +38542,9 @@ def extended_barabasi_albert_graph(
     attachment_preference = list(range(m))
     new_node = m
 
-    def random_subset(population, count):
+    def random_subset(population, _count):
         targets = set()
-        while len(targets) < count:
+        while len(targets) < _count:
             targets.add(rng.choice(population))
         return targets
 
@@ -39081,7 +39092,7 @@ def grid_graph(dim, periodic=False):
 
     dimensions = list(dim)
     periodic_flags = (
-        iter(periodic) if isinstance(periodic, Iterable) else _itertools.repeat(periodic)
+        iter(periodic) if isinstance(periodic, _Iterable) else _itertools.repeat(periodic)
     )
 
     axes = []
@@ -39164,10 +39175,10 @@ def lattice_reference(G, niter=5, D=None, connectivity=True, seed=None):
             cdf.append(cumulative)
         return [element / cumulative for element in cdf]
 
-    def discrete_sequence(count, cdistribution, rng):
+    def discrete_sequence(_count, cdistribution, rng):
         return [
             bisect.bisect_left(cdistribution, rng.random()) - 1
-            for _ in range(count)
+            for _ in range(_count)
         ]
 
     def matrix_value(matrix, row, col):
@@ -39522,7 +39533,7 @@ def random_regular_graph(d, n, seed=None, *, create_using=None, backend=None, **
         stubs = list(range(n)) * d
 
         while stubs:
-            potential_edges = defaultdict(lambda: 0)
+            potential_edges = _defaultdict(lambda: 0)
             rng.shuffle(stubs)
             stubiter = iter(stubs)
             for s1, s2 in zip(stubiter, stubiter):
