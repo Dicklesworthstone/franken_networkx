@@ -5317,7 +5317,10 @@ from franken_networkx._fnx import (
     NetworkXPointlessConcept,
     NetworkXUnbounded,
     NetworkXUnfeasible,
-    NotAPartition,
+    # br-r37-c1-4asgt: NotAPartition lives at nx.algorithms.community.
+    # quality.X but not at nx top level. Aliased privately so internal
+    # raises still work; the public surface stays fnx.community.X.
+    NotAPartition as _NotAPartition,
     NotATree,
     NodeNotFound,
     PowerIterationFailedConvergence,
@@ -10423,10 +10426,10 @@ def _modularity_backend_impl(G, communities, weight="weight", resolution=1):
     for community in community_list:
         for node in community:
             if node in seen or node not in node_set:
-                raise NotAPartition(G, community_list)
+                raise _NotAPartition(G, community_list)
             seen.add(node)
     if seen != node_set:
-        raise NotAPartition(G, community_list)
+        raise _NotAPartition(G, community_list)
     # br-modzero: nx.community.modularity raises ZeroDivisionError on a
     # graph with zero edges (the 2m divisor is 0). fnx used to silently
     # return 0.0 from the Rust path — diverging from nx's runtime
@@ -11620,12 +11623,14 @@ def _prim_mst_edges_via_nx(G, minimum, weight, keys, data, ignore_nan):
 from networkx.classes.filters import no_filter as _subgraph_view_no_filter_default  # noqa: E402
 
 
-# Heap classes (networkx.utils.heaps) — used as default heap= kwarg by
-# algorithms like stoer_wagner. Re-exported directly from nx.
+# br-r37-c1-4asgt: Heap classes (networkx.utils.heaps) live at
+# nx.utils.X / nx.utils.heaps.X but not at nx top level. Imported
+# privately so internal code (stoer_wagner default heap=, etc.)
+# still works; the public surface remains fnx.utils.X.
 from networkx.utils.heaps import (  # noqa: E402
-    BinaryHeap,
-    MinHeap,
-    PairingHeap,
+    BinaryHeap as _BinaryHeap,
+    MinHeap as _MinHeap,
+    PairingHeap as _PairingHeap,
 )
 
 
@@ -39978,7 +39983,6 @@ __all__ = [
     "NetworkXTreewidthBoundExceeded",
     "NetworkXUnbounded",
     "NetworkXUnfeasible",
-    "NotAPartition",
     "NotATree",
     "NodeNotFound",
     "PowerIterationFailedConvergence",
@@ -40573,9 +40577,6 @@ __all__ = [
     "dag_longest_path_length",
     "descendants",
     "is_directed_acyclic_graph",
-    "BinaryHeap",
-    "MinHeap",
-    "PairingHeap",
     "topological_sort",
     "topological_generations",
     # Algorithms — graph isomorphism
@@ -41747,6 +41748,18 @@ def __getattr__(name):
     if name in (
         "edmonds_karp", "preflow_push", "shortest_augmenting_path",
         "dinitz", "boykov_kolmogorov",
+    ):
+        raise AttributeError(
+            f"module 'networkx' has no attribute '{name}'"
+        )
+    # br-r37-c1-4asgt: 3 nx.utils.heaps.X classes (BinaryHeap, MinHeap,
+    # PairingHeap) + NotAPartition (nx.algorithms.community.quality.X).
+    # All exposed at fnx top level but not at nx top level. Aliased
+    # privately as _BinaryHeap / _NotAPartition / etc; reachable via
+    # fnx.utils.X / fnx.community.X.
+    if name in (
+        "BinaryHeap", "MinHeap", "PairingHeap",
+        "NotAPartition",
     ):
         raise AttributeError(
             f"module 'networkx' has no attribute '{name}'"
