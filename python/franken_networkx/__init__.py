@@ -6322,6 +6322,8 @@ def complement(G):
     with the non-edges (between each pair of distinct nodes, one edge
     per missing pair — matches a simple-graph complement structure).
     """
+    # br-r37-c1-nwkg0: accept nx-typed inputs.
+    G = _coerce_arg_to_fnx_graph(G)
     if G.is_multigraph():
         return _complement_via_nx(G)
     return _raw_complement(G)
@@ -6995,6 +6997,8 @@ def maximal_matching(G):
     first, so MultiDiGraph yields the 'directed' message. Mirror
     that ordering: directed check fires first.
     """
+    # br-r37-c1-nwkg0: accept nx-typed inputs.
+    G = _coerce_arg_to_fnx_graph(G)
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
     if G.is_multigraph():
@@ -9390,6 +9394,8 @@ def dfs_tree(G, source=None, depth_limit=None, *, sort_neighbors=None):
     depth_limit to 0 so the Rust path sees a valid unsigned and
     produces the matching single-node tree.
     """
+    # br-r37-c1-nwkg0: accept nx-typed inputs.
+    G = _coerce_arg_to_fnx_graph(G)
     if source is not None:
         hash(source)
     if depth_limit is not None:
@@ -9640,6 +9646,8 @@ def minimum_spanning_tree(G, weight="weight", algorithm="kruskal", ignore_nan=Fa
     Graph
         A minimum spanning tree or forest.
     """
+    # br-r37-c1-nwkg0: accept nx-typed inputs.
+    G = _coerce_arg_to_fnx_graph(G)
     # br-r37-c1-ow5fy: nx's @not_implemented_for('directed') raises
     # NetworkXNotImplemented; the Rust binding silently returned a
     # Graph result. MST is undefined on directed graphs (use
@@ -9714,6 +9722,8 @@ def maximum_spanning_tree(G, weight="weight", algorithm="kruskal", ignore_nan=Fa
     Graph
         A maximum spanning tree or forest.
     """
+    # br-r37-c1-nwkg0: accept nx-typed inputs.
+    G = _coerce_arg_to_fnx_graph(G)
     # br-r37-c1-ow5fy: same directed-rejection guard as
     # minimum_spanning_tree.
     if G.is_directed():
@@ -10896,6 +10906,8 @@ def transitive_closure(G, reflexive=False):
     Delegate for multigraphs and for graphs known to contain cycles
     (where the self-loop distinction matters).
     """
+    # br-r37-c1-nwkg0: accept nx-typed inputs.
+    G = _coerce_arg_to_fnx_graph(G)
     # br-tcreflnone: nx treats ``reflexive=None`` as the historical
     # default — it maps to False semantically but was kept as a
     # tri-value flag (None / False / True). The Rust binding is
@@ -13398,6 +13410,8 @@ def girth(G):
     """
     import math
 
+    # br-r37-c1-nwkg0: accept nx-typed inputs.
+    G = _coerce_arg_to_fnx_graph(G)
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
 
@@ -13484,6 +13498,8 @@ def find_cycle(G, source=None, orientation=None):
     Delegate undirected cases to nx so the cycle's edge tuples and
     traversal direction match.
     """
+    # br-r37-c1-nwkg0: accept nx-typed inputs.
+    G = _coerce_arg_to_fnx_graph(G)
     if (
         G.is_multigraph()
         or source is not None
@@ -31107,6 +31123,8 @@ def square_clustering(G, nodes=None):
 
 def triangles(G, nodes=None):
     """Compute the number of triangles."""
+    # br-r37-c1-nwkg0: accept nx-typed inputs.
+    G = _coerce_arg_to_fnx_graph(G)
     if nodes is None:
         raw = _raw_triangles(G)
         # br-r37-c1-k3khk: the Rust binding returns the dict with keys
