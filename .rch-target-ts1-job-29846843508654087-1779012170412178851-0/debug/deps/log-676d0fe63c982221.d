@@ -1,0 +1,8 @@
+/data/projects/franken_networkx/.rch-target-ts1-job-29846843508654087-1779012170412178851-0/debug/deps/log-676d0fe63c982221.d: /tmp/rch-cargo-home-ts1-1578830-1779012175781208884/registry/src/index.crates.io-1949cf8c6b5b557f/log-0.4.29/src/lib.rs /tmp/rch-cargo-home-ts1-1578830-1779012175781208884/registry/src/index.crates.io-1949cf8c6b5b557f/log-0.4.29/src/macros.rs /tmp/rch-cargo-home-ts1-1578830-1779012175781208884/registry/src/index.crates.io-1949cf8c6b5b557f/log-0.4.29/src/serde.rs /tmp/rch-cargo-home-ts1-1578830-1779012175781208884/registry/src/index.crates.io-1949cf8c6b5b557f/log-0.4.29/src/__private_api.rs
+
+/data/projects/franken_networkx/.rch-target-ts1-job-29846843508654087-1779012170412178851-0/debug/deps/liblog-676d0fe63c982221.rmeta: /tmp/rch-cargo-home-ts1-1578830-1779012175781208884/registry/src/index.crates.io-1949cf8c6b5b557f/log-0.4.29/src/lib.rs /tmp/rch-cargo-home-ts1-1578830-1779012175781208884/registry/src/index.crates.io-1949cf8c6b5b557f/log-0.4.29/src/macros.rs /tmp/rch-cargo-home-ts1-1578830-1779012175781208884/registry/src/index.crates.io-1949cf8c6b5b557f/log-0.4.29/src/serde.rs /tmp/rch-cargo-home-ts1-1578830-1779012175781208884/registry/src/index.crates.io-1949cf8c6b5b557f/log-0.4.29/src/__private_api.rs
+
+/tmp/rch-cargo-home-ts1-1578830-1779012175781208884/registry/src/index.crates.io-1949cf8c6b5b557f/log-0.4.29/src/lib.rs:
+/tmp/rch-cargo-home-ts1-1578830-1779012175781208884/registry/src/index.crates.io-1949cf8c6b5b557f/log-0.4.29/src/macros.rs:
+/tmp/rch-cargo-home-ts1-1578830-1779012175781208884/registry/src/index.crates.io-1949cf8c6b5b557f/log-0.4.29/src/serde.rs:
+/tmp/rch-cargo-home-ts1-1578830-1779012175781208884/registry/src/index.crates.io-1949cf8c6b5b557f/log-0.4.29/src/__private_api.rs:
