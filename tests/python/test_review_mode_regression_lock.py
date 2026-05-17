@@ -10355,7 +10355,7 @@ def test_average_shortest_path_length_respects_subgraph_view_filter():
     sg_fnx = gf.subgraph([0, 1, 3, 4])
     sg_nx = gn.subgraph([0, 1, 3, 4])
     import pytest as _pytest
-    with _pytest.raises(NetworkXError):
+    with _pytest.raises(fnx.NetworkXError):
         fnx.average_shortest_path_length(sg_fnx)
     with _pytest.raises(nx.NetworkXError):
         nx.average_shortest_path_length(sg_nx)
