@@ -3,6 +3,10 @@
 target-codex-*/
 **/*.rs.bk
 
+# rch (remote cargo helper) per-job artifact directories — accidentally
+# committed in 4372cf30; gitignored to prevent recurrence.
+.rch-target-*/
+
 # Python cache artifacts
 __pycache__/
 *.py[cod]
