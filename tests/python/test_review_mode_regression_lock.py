@@ -10596,3 +10596,21 @@ def test_boundary_and_single_source_dijkstra_on_subgraph_view():
     dist_n, paths_n = nx.single_source_dijkstra(sgn, 0)
     assert sorted(dist_f.keys()) == sorted(dist_n.keys()) == [0, 1, 2, 3]
     assert sorted(paths_f.keys()) == sorted(paths_n.keys()) == [0, 1, 2, 3]
+
+
+def test_minimum_cycle_basis_respects_subgraph_view():
+    """br-r37-c1-ey500 (cycle 230): minimum_cycle_basis fed
+    SubgraphView straight to _raw_minimum_cycle_basis and got back
+    cycles involving parent nodes outside the view. Add coerce preface.
+    """
+    import networkx as nx
+
+    sgf = fnx.complete_graph(6).subgraph([0, 1, 2, 3])
+    sgn = nx.complete_graph(6).subgraph([0, 1, 2, 3])
+    cf = [sorted(c) for c in fnx.minimum_cycle_basis(sgf)]
+    cn = [sorted(c) for c in nx.minimum_cycle_basis(sgn)]
+    # Every cycle should be inside {0,1,2,3}
+    allowed = {0, 1, 2, 3}
+    for cycle in cf:
+        assert set(cycle).issubset(allowed)
+    assert sorted(cf) == sorted(cn)

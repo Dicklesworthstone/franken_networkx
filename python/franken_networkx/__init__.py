@@ -25575,6 +25575,9 @@ def minimum_cycle_basis(G, weight=None):
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
 
+    # br-r37-c1-ey500: materialize SubgraphView first (view family).
+    G = _coerce_arg_to_fnx_graph(G)
+
     # br-mincyclewt: weighted inputs → delegate to nx for optimality.
     if weight is not None:
         return _minimum_cycle_basis_via_parity(G, weight)
