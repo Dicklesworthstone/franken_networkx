@@ -10719,3 +10719,27 @@ def test_min_cost_flow_inf_and_unbalanced_demand_match_nx():
     with _pytest.raises(nx.NetworkXUnfeasible) as en2:
         nx.min_cost_flow(mk_unbal_nx())
     assert str(ef2.value) == str(en2.value) == "total node demand is not zero"
+
+
+def test_add_edges_from_string_edge_raises_networkx_error():
+    """br-r37-c1-icuqb (cycle 232): add_edges_from with a string
+    'edge' fell through fnx's str/bytes short-circuit into Rust,
+    which raised generic TypeError instead of nx's NetworkXError.
+    Strings ARE iterable so nx treats them via the len() gate (a
+    2- or 3-char str unpacks; anything else raises NetworkXError).
+
+    Drop str/bytes from the short-circuit so the len() check applies.
+    """
+    import networkx as nx
+    import pytest as _pytest
+
+    # 'oops' has len 4 — should raise NetworkXError with nx wording.
+    with _pytest.raises(fnx.NetworkXError) as ef:
+        g = fnx.Graph()
+        g.add_edges_from([(0, 1), 'oops'])
+    with _pytest.raises(nx.NetworkXError) as en:
+        g = nx.Graph()
+        g.add_edges_from([(0, 1), 'oops'])
+    assert str(ef.value) == str(en.value) == (
+        "Edge tuple oops must be a 2-tuple or 3-tuple."
+    )

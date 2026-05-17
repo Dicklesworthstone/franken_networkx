@@ -2212,8 +2212,15 @@ def _add_edges_from_materialized(raw):
         # Replicate the len-based gate here so both error contracts
         # match nx exactly before delegating.
         for i, edge in enumerate(materialized):
-            if isinstance(edge, (tuple, str, bytes)):
+            if isinstance(edge, tuple):
                 continue
+            # br-r37-c1-icuqb: strings/bytes are iterables too — nx
+            # gates them with len(e) and raises NetworkXError on bad
+            # arity (e.g. "oops" -> "Edge tuple oops must be a 2-tuple
+            # or 3-tuple."). Pre-fix fnx short-circuited them and let
+            # them fall through to the Rust binding which raised a
+            # generic TypeError, breaking callers using
+            # ``except nx.NetworkXError`` to catch malformed edges.
             ne = len(edge)
             if ne not in (2, 3):
                 raise NetworkXError(
