@@ -9855,25 +9855,33 @@ def ring_of_cliques(num_cliques, clique_size):
 
 
 def all_triangles(G, nbunch=None):
-    """Yield unique triangles in an undirected graph."""
+    """Yield unique triangles in an undirected graph.
+
+    br-r37-c1-ulojb: previously routed nbunch=None to the Rust
+    binding which produced triangles with unsorted vertex tuples
+    (e.g. ``(0, 12, 3)``) and a non-nx iteration order. nx's
+    contract yields ``(u, v, w)`` with insertion-id order
+    ``id(u) < id(v) < id(w)``. Use the Python reference impl for
+    both branches so the output matches nx exactly.
+    """
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
 
     if nbunch is None:
-        yield from _rust_all_triangles(G)
-        return
-
-    nbunch_nodes = _global_nbunch_nodes(G, nbunch)
-    nbunch_lookup = dict.fromkeys(nbunch_nodes)
-    relevant_nodes = _itertools.chain(
-        nbunch_lookup,
-        (
-            neighbor
-            for node in nbunch_lookup
-            for neighbor in G.neighbors(node)
-            if neighbor not in nbunch_lookup
-        ),
-    )
+        nbunch_lookup = dict.fromkeys(G)
+        relevant_nodes = nbunch_lookup
+    else:
+        nbunch_nodes = _global_nbunch_nodes(G, nbunch)
+        nbunch_lookup = dict.fromkeys(nbunch_nodes)
+        relevant_nodes = _itertools.chain(
+            nbunch_lookup,
+            (
+                neighbor
+                for node in nbunch_lookup
+                for neighbor in G.neighbors(node)
+                if neighbor not in nbunch_lookup
+            ),
+        )
     node_to_id = {node: index for index, node in enumerate(relevant_nodes)}
 
     for u in nbunch_lookup:

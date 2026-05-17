@@ -10845,6 +10845,33 @@ def test_pickle_and_shallow_copy_preserve_frozen_flag():
     assert not fnx.is_frozen(copy.copy(g))
 
 
+def test_all_triangles_iteration_order_matches_nx():
+    """br-r37-c1-ulojb (cycle 238): all_triangles routed nbunch=None
+    to the Rust binding which produced triangles with unsorted vertex
+    tuples (e.g. ``(0, 12, 3)``) and a non-nx iteration order. nx's
+    contract yields ``(u, v, w)`` with insertion-id order
+    ``id(u) < id(v) < id(w)`` and iterates in nx-canonical order.
+
+    Use the Python reference impl for both branches.
+    """
+    import networkx as nx
+
+    # K4
+    assert list(fnx.all_triangles(fnx.complete_graph(4))) == list(
+        nx.all_triangles(nx.complete_graph(4))
+    )
+
+    # Karate club — 45 triangles, exact order should match
+    assert list(fnx.all_triangles(fnx.karate_club_graph())) == list(
+        nx.all_triangles(nx.karate_club_graph())
+    )
+
+    # nbunch path still works
+    assert list(fnx.all_triangles(fnx.complete_graph(5), nbunch=[0])) == list(
+        nx.all_triangles(nx.complete_graph(5), nbunch=[0])
+    )
+
+
 def test_custom_python_attrs_survive_deepcopy_and_pickle():
     """br-r37-c1-8nz0x (cycle 233): nx preserves user-set instance
     attrs (``g.custom_attr = 'x'``) across deepcopy and pickle via its
