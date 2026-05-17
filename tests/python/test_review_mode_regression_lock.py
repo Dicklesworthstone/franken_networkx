@@ -10288,3 +10288,27 @@ def test_rust_path_respects_subgraph_view_filter():
         tuple(sorted(e)) for e in fnx.symmetric_difference(sg1, g3).edges()
     )
     assert sym == [(0, 4), (3, 4)]
+
+
+def test_clustering_respects_subgraph_view_filter():
+    """br-r37-c1-c7xg2 (cycle 227): ``clustering`` short-circuited to
+    ``_raw_clustering(G)`` (a Rust-fast path) without going through
+    ``_coerce_arg_to_fnx_graph``. SubgraphView isinstance-passes the
+    canonical Graph type but the Rust binding reads the parent's
+    Rust state directly, so a view over four visible nodes ended up
+    returning five entries (one per parent node, including the hidden
+    one).
+
+    Fix: route ``clustering`` through ``_coerce_arg_to_fnx_graph`` so
+    the view gets materialized via _materialize_filtered_view first.
+    """
+    import networkx as nx
+
+    g_fnx = fnx.path_graph(5)
+    g_nx = nx.path_graph(5)
+    sg_fnx = g_fnx.subgraph([0, 1, 3, 4])
+    sg_nx = g_nx.subgraph([0, 1, 3, 4])
+    c_fnx = fnx.clustering(sg_fnx)
+    c_nx = nx.clustering(sg_nx)
+    assert sorted(c_fnx.keys()) == sorted(c_nx.keys()) == [0, 1, 3, 4]
+    assert c_fnx == c_nx

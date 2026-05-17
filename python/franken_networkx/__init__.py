@@ -29524,6 +29524,10 @@ def clustering(G, nodes=None, weight=None):
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
 
+    # br-r37-c1-c7xg2: materialize SubgraphView before crossing into
+    # Rust so the filter is honored. Pass-through for plain fnx graphs.
+    G = _coerce_arg_to_fnx_graph(G)
+
     # br-r37-c1-wh0x0: route the most common case (undirected, no
     # weight, all-nodes) through the Rust ``_raw_clustering`` binding
     # — it's bit-exact identical to nx's per-node coefficient and runs
