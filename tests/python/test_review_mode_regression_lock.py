@@ -10668,3 +10668,54 @@ def test_capacity_scaling_unfeasible_message_matches_nx():
     assert str(e_fnx_cs.value) == str(e_nx_cs.value) == (
         "No flow satisfying all demands."
     )
+
+
+def test_min_cost_flow_inf_and_unbalanced_demand_match_nx():
+    """br-r37-c1-74xas (cycle 231): min_cost_flow demand validation
+    raised wrong exception type (NetworkXUnfeasible) and wrong message
+    on the inf-demand path (nx uses NetworkXError "node X has infinite
+    demand"), and the wrong wording on the unbalanced-demand path
+    (nx uses "total node demand is not zero", lowercase, no period).
+
+    Detect inf demand explicitly and use the nx wordings for parity.
+    """
+    import networkx as nx
+    import pytest as _pytest
+
+    # Infinite demand → NetworkXError
+    def mk_inf_fnx():
+        g = fnx.DiGraph()
+        g.add_node(0, demand=float('inf'))
+        g.add_node(1, demand=-5)
+        g.add_edge(0, 1, capacity=5, weight=1)
+        return g
+    def mk_inf_nx():
+        g = nx.DiGraph()
+        g.add_node(0, demand=float('inf'))
+        g.add_node(1, demand=-5)
+        g.add_edge(0, 1, capacity=5, weight=1)
+        return g
+    with _pytest.raises(fnx.NetworkXError) as ef:
+        fnx.min_cost_flow(mk_inf_fnx())
+    with _pytest.raises(nx.NetworkXError) as en:
+        nx.min_cost_flow(mk_inf_nx())
+    assert str(ef.value) == str(en.value) == "node 0 has infinite demand"
+
+    # Unbalanced demand → NetworkXUnfeasible with exact wording
+    def mk_unbal_fnx():
+        g = fnx.DiGraph()
+        g.add_node(0, demand=-5)
+        g.add_node(1, demand=3)
+        g.add_edge(0, 1, capacity=10, weight=1)
+        return g
+    def mk_unbal_nx():
+        g = nx.DiGraph()
+        g.add_node(0, demand=-5)
+        g.add_node(1, demand=3)
+        g.add_edge(0, 1, capacity=10, weight=1)
+        return g
+    with _pytest.raises(fnx.NetworkXUnfeasible) as ef2:
+        fnx.min_cost_flow(mk_unbal_fnx())
+    with _pytest.raises(nx.NetworkXUnfeasible) as en2:
+        nx.min_cost_flow(mk_unbal_nx())
+    assert str(ef2.value) == str(en2.value) == "total node demand is not zero"

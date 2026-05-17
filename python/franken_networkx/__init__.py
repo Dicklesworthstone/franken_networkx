@@ -22315,12 +22315,19 @@ def min_cost_flow(G, demand="demand", capacity="capacity", weight="weight"):
         else:
             node_demand[node] = 0.0
 
+    # br-r37-c1-74xas: nx raises NetworkXError("node X has infinite
+    # demand") at this stage (not NetworkXUnfeasible). Detect inf
+    # demand explicitly so the exception type + message match nx.
+    for node, d in node_demand.items():
+        if _math.isinf(d):
+            raise NetworkXError(f"node {node!r} has infinite demand")
+
     # Check feasibility: sum of demands must be zero
+    # br-r37-c1-74xas: nx's exact wording is "total node demand is not
+    # zero" — match it (still NetworkXUnfeasible).
     total_demand = sum(node_demand.values())
     if abs(total_demand) > 1e-10:
-        raise NetworkXUnfeasible(
-            f"Total node demand is {total_demand}, must be zero for feasible flow"
-        )
+        raise NetworkXUnfeasible("total node demand is not zero")
 
     # Initialize flow dict
     flow = {u: {} for u in nodes}
