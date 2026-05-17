@@ -10573,3 +10573,26 @@ def test_cut_size_and_normalized_cut_size_respect_subgraph_view():
         round(fnx.mixing_expansion(sgf, [0, 1]), 6)
         == round(nx.mixing_expansion(sgn, [0, 1]), 6)
     )
+
+
+def test_boundary_and_single_source_dijkstra_on_subgraph_view():
+    """br-r37-c1-e861i (cycle 230): node_boundary, edge_boundary, and
+    single_source_dijkstra fed SubgraphView directly into the Rust
+    _raw_* kernels and returned entries for nodes outside the view.
+    boundary_expansion is fixed transitively (via node_boundary).
+    """
+    import networkx as nx
+
+    sgf = fnx.complete_graph(6).subgraph([0, 1, 2, 3])
+    sgn = nx.complete_graph(6).subgraph([0, 1, 2, 3])
+
+    assert fnx.node_boundary(sgf, [0, 1]) == nx.node_boundary(sgn, [0, 1]) == {2, 3}
+    assert sorted(tuple(sorted(e)) for e in fnx.edge_boundary(sgf, [0, 1])) == sorted(
+        tuple(sorted(e)) for e in nx.edge_boundary(sgn, [0, 1])
+    )
+    assert fnx.boundary_expansion(sgf, [0, 1]) == nx.boundary_expansion(sgn, [0, 1])
+
+    dist_f, paths_f = fnx.single_source_dijkstra(sgf, 0)
+    dist_n, paths_n = nx.single_source_dijkstra(sgn, 0)
+    assert sorted(dist_f.keys()) == sorted(dist_n.keys()) == [0, 1, 2, 3]
+    assert sorted(paths_f.keys()) == sorted(paths_n.keys()) == [0, 1, 2, 3]

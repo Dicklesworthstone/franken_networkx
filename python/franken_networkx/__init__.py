@@ -12541,6 +12541,8 @@ def node_boundary(G, nbunch1, nbunch2=None):
     ``nb.issubset(...)``, ``nb & other``) silently broke. Coerce to
     set.
     """
+    # br-r37-c1-e861i: materialize SubgraphView first (view family).
+    G = _coerce_arg_to_fnx_graph(G)
     result = _raw_node_boundary(G, _coerce_nbunch(nbunch1), _coerce_nbunch(nbunch2))
     return set(result) if not isinstance(result, set) else result
 
@@ -12557,6 +12559,8 @@ def edge_boundary(G, nbunch1, nbunch2=None, data=False, keys=False, default=None
     _Generator function so the returned object is a true generator
     matching nx's contract (br-r37-c1-ohxpp).
     """
+    # br-r37-c1-e861i: materialize SubgraphView first (view family).
+    G = _coerce_arg_to_fnx_graph(G)
     if data is False and not keys and default is None and not G.is_multigraph():
         yield from _raw_edge_boundary(G, _coerce_nbunch(nbunch1), _coerce_nbunch(nbunch2))
         return
@@ -13619,6 +13623,8 @@ def single_source_dijkstra(G, source, target=None, cutoff=None, weight="weight")
     """
     # br-r37-c1-ybw1s: nx-shaped TypeError on unhashable source.
     hash(source)
+    # br-r37-c1-e861i: materialize SubgraphView first (view family).
+    G = _coerce_arg_to_fnx_graph(G)
     # br-dijkignoreweight: the Rust single_source_dijkstra silently
     # returns hop-_count distances on any weighted input (it ignores
     # the weight attribute). Delegate to nx when any edge carries a
