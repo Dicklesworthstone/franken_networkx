@@ -4573,8 +4573,30 @@ MultiDiGraph.pred = property(_multidigraph_pred_view)
 MultiDiGraph.adj = property(_multidigraph_adj_view)
 MultiDiGraph.__getitem__ = _graph_getitem_from_adj
 MultiDiGraph.degree = property(MultiDiGraphDegreeView)
-MultiDiGraph.in_degree = property(lambda self: _InMultiDegreeView(self, "pred"))
-MultiDiGraph.out_degree = property(lambda self: _OutMultiDegreeView(self, "succ"))
+# br-r37-c1-b3cnf follow-up: cache MultiDiGraph in/out_degree wrappers
+# (Graph.degree + DiGraph.in/out_degree already cache via their
+# private-aware property; multi variants need their own caching path
+# since they go through a different factory).
+def _multidigraph_in_degree(self):
+    cache = vars(self)
+    view = cache.get("_fnx_view_in_degree")
+    if view is None:
+        view = _InMultiDegreeView(self, "pred")
+        cache["_fnx_view_in_degree"] = view
+    return view
+
+
+def _multidigraph_out_degree(self):
+    cache = vars(self)
+    view = cache.get("_fnx_view_out_degree")
+    if view is None:
+        view = _OutMultiDegreeView(self, "succ")
+        cache["_fnx_view_out_degree"] = view
+    return view
+
+
+MultiDiGraph.in_degree = property(_multidigraph_in_degree)
+MultiDiGraph.out_degree = property(_multidigraph_out_degree)
 
 # br-privadj: many nx internals reach into the private `G._adj`, `G._node`,
 # `G._succ`, `G._pred` dict storage (e.g. connected_components._plain_bfs,
@@ -27892,7 +27914,14 @@ def _private_aware_degree(raw_degree):
             else:
                 cls = _AssignedDegreeView
             return cls(self)
-        return raw_degree.__get__(self, type(self))
+        # br-r37-c1-b3cnf follow-up: cache the DegreeView wrapper so
+        # ``g.degree is g.degree`` matches nx's @cached_property.
+        cache = vars(self)
+        view = cache.get("_fnx_view_degree")
+        if view is None:
+            view = raw_degree.__get__(self, type(self))
+            cache["_fnx_view_degree"] = view
+        return view
 
     return property(degree)
 

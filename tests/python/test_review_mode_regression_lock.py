@@ -10924,6 +10924,15 @@ def test_view_identity_is_cached_like_nx():
     assert 99 in nv
     assert g.nodes is nv
 
+    # br-r37-c1-b3cnf follow-up: DegreeView (incl multi/digraph variants)
+    g_path = fnx.path_graph(3)
+    assert g_path.degree is g_path.degree
+
+    mdg = fnx.MultiDiGraph()
+    mdg.add_edge(0, 1)
+    assert mdg.in_degree is mdg.in_degree
+    assert mdg.out_degree is mdg.out_degree
+
 
 def test_custom_python_attrs_survive_deepcopy_and_pickle():
     """br-r37-c1-8nz0x (cycle 233): nx preserves user-set instance
