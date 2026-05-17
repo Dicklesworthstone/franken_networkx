@@ -1872,10 +1872,9 @@ def _multigraph_adjacency(self):
     return ((node, _unwrap(self.adj[node])) for node in self)
 
 
-_GRAPH_COPY = Graph.copy
-_DIGRAPH_COPY = DiGraph.copy
-_MULTIGRAPH_COPY = MultiGraph.copy
-_MULTIDIGRAPH_COPY = MultiDiGraph.copy
+# br-r37-c1-c8xop: previously saved Graph.copy / DiGraph.copy /
+# MultiGraph.copy / MultiDiGraph.copy as module-level aliases here
+# (_GRAPH_COPY etc) but they were never read elsewhere — dead code.
 
 
 def _make_none_rejecting_add_edge(raw_add_edge, is_multigraph=False):
@@ -9760,7 +9759,8 @@ def chordal_graph_cliques(G):
 # labels 0..n*k-1 with clique-bridge edges specifically at
 # (i*k + 1, (i+1)*k % (n*k)). Shadow the Rust binding with a Python
 # wrapper that mirrors nx's labelling + validation messages.
-_rust_ring_of_cliques = ring_of_cliques  # keep reference in case anything internal needs it
+# br-r37-c1-c8xop: previously kept _rust_ring_of_cliques as a fallback
+# reference "in case anything internal needs it" but nothing did. Removed.
 
 
 def ring_of_cliques(num_cliques, clique_size):
