@@ -10548,3 +10548,28 @@ def test_random_spanning_tree_and_tc_dag_on_subgraph_view():
     tcn = nx.transitive_closure_dag(dgn)
     assert type(tcf) is fnx.DiGraph
     assert sorted(tcf.edges()) == sorted(tcn.edges())
+
+
+def test_cut_size_and_normalized_cut_size_respect_subgraph_view():
+    """br-r37-c1-eog89 (cycle 230): cut_size and normalized_cut_size
+    fed SubgraphView directly to Rust _raw_cut_size/
+    _raw_normalized_cut_size, which read the parent's adjacency and
+    returned wrong (parent-sized) results. mixing_expansion transitively
+    inherits the cut_size fix.
+
+    Repro: K6.subgraph([0,1,2,3]). cut_size(sg, [0,1]) — nx returns 4
+    (K4 view's cut), pre-fix fnx returned 8 (K6 parent's cut).
+    """
+    import networkx as nx
+
+    sgf = fnx.complete_graph(6).subgraph([0, 1, 2, 3])
+    sgn = nx.complete_graph(6).subgraph([0, 1, 2, 3])
+    assert fnx.cut_size(sgf, [0, 1]) == nx.cut_size(sgn, [0, 1]) == 4
+    assert (
+        round(fnx.normalized_cut_size(sgf, [0, 1]), 6)
+        == round(nx.normalized_cut_size(sgn, [0, 1]), 6)
+    )
+    assert (
+        round(fnx.mixing_expansion(sgf, [0, 1]), 6)
+        == round(nx.mixing_expansion(sgn, [0, 1]), 6)
+    )

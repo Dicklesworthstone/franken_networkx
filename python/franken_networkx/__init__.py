@@ -12506,6 +12506,8 @@ def cut_size(G, S, T=None, weight=None):
     binding always returns float. Coerce to int when input weights
     permit so isinstance(cut_size(G, S), int) checks match nx.
     """
+    # br-r37-c1-eog89: materialize SubgraphView first (view family).
+    G = _coerce_arg_to_fnx_graph(G)
     if G.is_multigraph():
         return _call_networkx_for_parity(
             "cut_size", G, S, T=T, weight=weight,
@@ -12522,6 +12524,8 @@ def cut_size(G, S, T=None, weight=None):
 
 def normalized_cut_size(G, S, T=None, weight=None):
     """br-boundkw: ``G, S, T`` match nx."""
+    # br-r37-c1-eog89: materialize SubgraphView first (view family).
+    G = _coerce_arg_to_fnx_graph(G)
     if G.is_multigraph():
         return _call_networkx_for_parity(
             "normalized_cut_size", G, S, T=T, weight=weight,
