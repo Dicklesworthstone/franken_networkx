@@ -281,13 +281,6 @@
       "evidence": ""
     },
     {
-      "name": "_louvain_impl",
-      "category": "intentionally-delegated",
-      "source": "static-classification",
-      "note": "wrapper calls _call_networkx_for_parity exclusively",
-      "evidence": ""
-    },
-    {
       "name": "_minimal_branching_backend_impl",
       "category": "intentionally-delegated",
       "source": "static-classification",
@@ -4409,19 +4402,6 @@
       "owner-acknowledged-limitation": []
     },
     "_link_prediction_lazy_delegate": {
-      "native-parity": [],
-      "wrapper-patched": [],
-      "intentionally-delegated": [
-        {
-          "source": "static-classification",
-          "note": "wrapper calls _call_networkx_for_parity exclusively",
-          "evidence": ""
-        }
-      ],
-      "raw-known-gap": [],
-      "owner-acknowledged-limitation": []
-    },
-    "_louvain_impl": {
       "native-parity": [],
       "wrapper-patched": [],
       "intentionally-delegated": [

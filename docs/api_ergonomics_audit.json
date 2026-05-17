@@ -46909,8 +46909,8 @@
   {
     "name": "subgraph_view",
     "classification": "identical",
-    "fnx_signature": "(G, *, filter_node=<function no_filter at 0x777a4d317d80>, filter_edge=<function no_filter at 0x777a4d317d80>)",
-    "nx_signature": "(G, *, filter_node=<function no_filter at 0x777a4d317d80>, filter_edge=<function no_filter at 0x777a4d317d80>)",
+    "fnx_signature": "(G, *, filter_node=<function no_filter at 0x7747c3b179c0>, filter_edge=<function no_filter at 0x7747c3b179c0>)",
+    "nx_signature": "(G, *, filter_node=<function no_filter at 0x7747c3b179c0>, filter_edge=<function no_filter at 0x7747c3b179c0>)",
     "deltas": [],
     "fnx_params": [
       {

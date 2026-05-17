@@ -10,7 +10,7 @@ Combines static AST analysis (`docs/delegation_ledger.json`), per-fixture audit 
 |----------|-------|---------|
 | `native-parity` | 380 | Rust-native execution; output matches NetworkX byte-for-byte |
 | `wrapper-patched` | 24 | Python wrapper post-processes raw output (sort, type-coerce, etc.) so the user-visible result matches NetworkX |
-| `intentionally-delegated` | 151 | Wrapper routes to NetworkX (via _call_networkx_for_parity) for some or all input shapes; not a Rust-native path |
+| `intentionally-delegated` | 150 | Wrapper routes to NetworkX (via _call_networkx_for_parity) for some or all input shapes; not a Rust-native path |
 | `raw-known-gap` | 1 | Lower-level _raw_<X> kernel has a documented gap; public wrapper hides the divergence via fallback |
 | `owner-acknowledged-limitation` | 1 | Divergence is intentional / out-of-scope; documented in source |
 
@@ -47,14 +47,13 @@ Combines static AST analysis (`docs/delegation_ledger.json`), per-fixture audit 
 | `single_source_dijkstra_path_length` | raw-vs-public-audit | raw output is post-processed by wrapper to match nx |
 | `transitivity` | raw-vs-public-audit | raw output is post-processed by wrapper to match nx |
 
-## intentionally-delegated (151)
+## intentionally-delegated (150)
 
 | function | source | note |
 |----------|--------|------|
 | `_complement_via_nx` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
 | `_current_flow_betweenness_impl` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
 | `_link_prediction_lazy_delegate` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
-| `_louvain_impl` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
 | `_minimal_branching_backend_impl` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
 | `_onion_layers_impl` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
 | `_simrank_impl` | static-classification | wrapper calls _call_networkx_for_parity exclusively |

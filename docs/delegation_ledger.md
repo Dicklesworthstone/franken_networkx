@@ -15,8 +15,8 @@ Counts derived from `python/franken_networkx/__init__.py` AST. Categories:
 | classification | count |
 |----------------|-------|
 | `mixed-route` | 66 |
-| `nx-fallback` | 85 |
-| `py-wrapper` | 899 |
+| `nx-fallback` | 84 |
+| `py-wrapper` | 859 |
 | `rust-native` | 78 |
 | `rust-reexport` | 302 |
 
@@ -319,7 +319,7 @@ Per-(function, shape) instrumentation. Wraps `_call_networkx_for_parity` and eve
 | `find_induced_nodes` | `py-wrapper` | no | — |
 | `find_minimal_d_separator` | `nx-fallback` | yes | — |
 | `find_negative_cycle` | `mixed-route` | yes | `_raw_find_negative_cycle` |
-| `florentine_families_graph` | `py-wrapper` | no | — |
+| `florentine_families_graph` | `untracked` |  |  |
 | `flow_hierarchy` | `nx-fallback` | yes | — |
 | `floyd_warshall` | `nx-fallback` | yes | — |
 | `floyd_warshall_numpy` | `py-wrapper` | no | — |
