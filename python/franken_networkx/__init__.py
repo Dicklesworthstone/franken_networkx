@@ -10296,6 +10296,30 @@ def _operator_output_class(G, H=None):
             raise NetworkXError(
                 "All graphs must be graphs or multigraphs."
             )
+    return _concrete_class_for(G)
+
+
+def _concrete_class_for(G):
+    """Return the fnx canonical concrete class for ``G``.
+
+    br-r37-c1-k7dct: ``type(G)`` for a SubgraphView is the synthetic
+    ``_FilteredGraphView`` subclass whose ``__init__`` requires a
+    ``graph`` arg, so callers that do ``cls()`` blow up downstream
+    (intersection / difference / symmetric_difference / compose /
+    disjoint_union / relabel_nodes all rebuild via ``cls()``).
+    Mirror nx by returning the canonical concrete class for the view's
+    (directed, multigraph) flavor. Pass-through for plain graphs.
+    """
+    if isinstance(G, _FilteredGraphView):
+        directed = G.is_directed()
+        multigraph = G.is_multigraph()
+        if directed and multigraph:
+            return MultiDiGraph
+        if directed:
+            return DiGraph
+        if multigraph:
+            return MultiGraph
+        return Graph
     return type(G)
 
 
@@ -36361,7 +36385,10 @@ def relabel_nodes(G, mapping, copy=True):
         _map = mapping
 
     if copy:
-        H = G.__class__()
+        # br-r37-c1-k7dct: SubgraphView's class is _FilteredGraphView,
+        # whose __init__ requires a ``graph`` arg — bare ``cls()`` fails.
+        # Route through the canonical-class resolver.
+        H = _concrete_class_for(G)()
         H.graph.update(G.graph)
         for n in G.nodes():
             new_n = _map.get(n, n)

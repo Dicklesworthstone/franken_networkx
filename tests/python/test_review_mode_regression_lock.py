@@ -10156,3 +10156,79 @@ def test_g_graph_inplace_or_operator_merges_correctly():
     g.graph = {"x": 1}
     assert before is g.graph
     assert dict(g.graph) == {"x": 1}
+
+
+def test_set_operators_on_subgraph_views():
+    """br-r37-c1-k7dct (cycle 225): the binary graph operators
+    ``intersection`` / ``difference`` / ``symmetric_difference`` /
+    ``compose`` / ``disjoint_union`` rebuild their output via
+    ``type(G)()`` (directly or transitively through
+    ``_operator_output_class`` / ``relabel_nodes``).  When ``G`` is a
+    ``SubgraphView``, ``type(G)`` is the synthetic
+    ``_FilteredGraphView`` whose ``__init__`` requires a ``graph``
+    positional arg, so the bare ``cls()`` blew up with
+    ``TypeError: _FilteredGraphView.__init__() missing 1 required
+    positional argument: 'graph'``.  nx returns a concrete
+    Graph/DiGraph/MultiGraph/MultiDiGraph in this case.
+
+    Fix: route ``type(G)`` resolution through
+    ``_concrete_class_for(G)``, which substitutes the canonical
+    concrete fnx class for any ``_FilteredGraphView`` based on the
+    view's (is_directed, is_multigraph) flavor.
+    """
+    import networkx as nx
+
+    def _build_fnx():
+        g1 = fnx.Graph()
+        g1.add_nodes_from([0, 1, 2])
+        g1.add_edges_from([(0, 1), (1, 2)])
+        g2 = fnx.Graph()
+        g2.add_nodes_from([0, 1, 2])
+        g2.add_edges_from([(0, 1), (0, 2)])
+        return g1.subgraph([0, 1, 2]), g2.subgraph([0, 1, 2])
+
+    def _build_nx():
+        g1 = nx.Graph()
+        g1.add_nodes_from([0, 1, 2])
+        g1.add_edges_from([(0, 1), (1, 2)])
+        g2 = nx.Graph()
+        g2.add_nodes_from([0, 1, 2])
+        g2.add_edges_from([(0, 1), (0, 2)])
+        return g1.subgraph([0, 1, 2]), g2.subgraph([0, 1, 2])
+
+    fsg1, fsg2 = _build_fnx()
+    nsg1, nsg2 = _build_nx()
+
+    def _canon(g):
+        return sorted(tuple(sorted(e)) for e in g.edges())
+
+    # intersection/symmetric_difference/compose: same edge set as nx.
+    for op_name in ("intersection", "symmetric_difference", "compose"):
+        f_op = getattr(fnx, op_name)
+        n_op = getattr(nx, op_name)
+        assert _canon(f_op(fsg1, fsg2)) == _canon(n_op(nsg1, nsg2)), op_name
+
+    # disjoint_union renumbers nodes to ints — compare canonical edges.
+    assert _canon(fnx.disjoint_union(fsg1, fsg2)) == _canon(
+        nx.disjoint_union(nsg1, nsg2)
+    )
+
+    # difference: edge set parity (fnx may emit tuples reversed, set parity is what counts).
+    assert _canon(fnx.difference(fsg1, fsg2)) == _canon(
+        nx.difference(nsg1, nsg2)
+    )
+
+    # The returned objects must be concrete classes (NOT view subclasses),
+    # so callers can mutate them.
+    out = fnx.intersection(fsg1, fsg2)
+    assert type(out) is fnx.Graph
+    out.add_edge(99, 100)  # must not raise (was previously a view => frozen)
+    assert (99, 100) in [tuple(sorted(e)) for e in out.edges()]
+
+    # Directed view → DiGraph output.
+    fdg = fnx.DiGraph()
+    fdg.add_nodes_from([0, 1, 2])
+    fdg.add_edges_from([(0, 1), (1, 2)])
+    sg = fdg.subgraph([0, 1, 2])
+    out = fnx.intersection(sg, sg)
+    assert type(out) is fnx.DiGraph
