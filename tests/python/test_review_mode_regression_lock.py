@@ -10843,3 +10843,52 @@ def test_pickle_and_shallow_copy_preserve_frozen_flag():
     g = fnx.Graph([(0, 1)])
     assert not fnx.is_frozen(pickle.loads(pickle.dumps(g)))
     assert not fnx.is_frozen(copy.copy(g))
+
+
+def test_custom_python_attrs_survive_deepcopy_and_pickle():
+    """br-r37-c1-8nz0x (cycle 233): nx preserves user-set instance
+    attrs (``g.custom_attr = 'x'``) across deepcopy and pickle via its
+    default __dict__ copy. fnx's _graph_deepcopy and the Rust
+    __reduce_ex__ omitted them.
+
+    Carry over any non-internal __dict__ keys (excluding the
+    fnx-managed ``_fnx_*`` slots and the separately-handled ``frozen``
+    flag) in both _graph_deepcopy and the reduce wrapper.
+    """
+    import networkx as nx
+    import copy
+    import pickle
+
+    # deepcopy
+    g = fnx.Graph([(0, 1)])
+    g.custom_attr = "hello"
+    g.numeric_attr = 42
+    h = copy.deepcopy(g)
+    assert h.custom_attr == "hello"
+    assert h.numeric_attr == 42
+
+    # nx parity
+    gn = nx.Graph([(0, 1)])
+    gn.custom_attr = "hello"
+    hn = copy.deepcopy(gn)
+    assert h.custom_attr == hn.custom_attr
+
+    # pickle
+    h2 = pickle.loads(pickle.dumps(g))
+    assert h2.custom_attr == "hello"
+    assert h2.numeric_attr == 42
+
+    # Mutability of the custom attr in the copy doesn't affect original.
+    g.custom_attr = "original"
+    h3 = copy.deepcopy(g)
+    h3.custom_attr = "mutated"
+    assert g.custom_attr == "original"
+
+    # SubgraphView pickle still works AND preserves frozen.
+    g4 = fnx.path_graph(5)
+    sg = g4.subgraph([0, 1, 2])
+    h4 = pickle.loads(pickle.dumps(sg))
+    assert type(h4) is fnx.Graph
+    assert sorted(h4.nodes()) == [0, 1, 2]
+    assert sorted(h4.edges()) == [(0, 1), (1, 2)]
+    assert fnx.is_frozen(h4)

@@ -4792,6 +4792,22 @@ def _graph_deepcopy(self, memo=None):
     # the new graph when the source was frozen.
     if getattr(self, "frozen", False):
         freeze(out)
+    # br-r37-c1-8nz0x: generalize — copy over any custom
+    # Python-side instance attributes the user set (g.custom_attr = ...)
+    # that aren't already part of the freshly-constructed graph's
+    # state and aren't fnx-internal override slots. nx preserves
+    # them via its default __dict__ deepcopy.
+    src_dict = vars(self)
+    out_dict = vars(out)
+    for key, val in src_dict.items():
+        if key in out_dict:
+            continue
+        if key.startswith("_fnx_"):
+            continue
+        try:
+            out_dict[key] = _dc(val, memo)
+        except Exception:
+            out_dict[key] = val
     return out
 
 
@@ -28172,9 +28188,10 @@ MultiDiGraph.__copy__ = _graph_shallowcopy
 # {'mode', 'runtime_policy', 'nodes', 'edges', 'graph'} — none of
 # which carry frozen. Wrap the reduce result to re-apply freeze on
 # load when the source was frozen.
-def _reconstruct_graph_preserving_frozen(reduce_payload, was_frozen):
+def _reconstruct_graph_preserving_frozen(reduce_payload, was_frozen, extra_attrs=None):
     """Module-level pickle reconstructor: rebuild via the inner
-    reduce payload, then re-apply freeze if the source was frozen."""
+    reduce payload, restore custom Python-side instance attrs,
+    then re-apply freeze if the source was frozen."""
     cls, args = reduce_payload[0], reduce_payload[1]
     state = reduce_payload[2] if len(reduce_payload) > 2 else None
     obj = cls(*args)
@@ -28183,6 +28200,14 @@ def _reconstruct_graph_preserving_frozen(reduce_payload, was_frozen):
             obj.__setstate__(state)
         else:
             obj.__dict__.update(state)
+    # br-r37-c1-8nz0x: re-apply custom instance attrs before freezing
+    # so user-set Python-side attributes survive the round trip.
+    if extra_attrs:
+        for key, val in extra_attrs.items():
+            try:
+                setattr(obj, key, val)
+            except Exception:
+                obj.__dict__[key] = val
     if was_frozen:
         freeze(obj)
     return obj
@@ -28200,6 +28225,11 @@ _MULTIDIGRAPH_RAW_REDUCE_EX = MultiDiGraph.__reduce_ex__
 
 def _make_reduce_ex_preserving_frozen(raw_reduce_ex):
     def _reduce_ex(self, protocol=2):
+        # br-r37-c1-ish29 follow-up: _FilteredGraphView has its own
+        # __reduce__ that snapshots to a real Graph copy. Delegate so
+        # the SG view's custom path runs instead of our generic one.
+        if isinstance(self, _FilteredGraphView):
+            return self.__reduce__()
         inner = raw_reduce_ex(self, protocol)
         if isinstance(inner, tuple) and len(inner) >= 2:
             reconstructor = inner[0]
@@ -28212,7 +28242,22 @@ def _make_reduce_ex_preserving_frozen(raw_reduce_ex):
         else:
             normalized = inner
         was_frozen = bool(getattr(self, "frozen", False))
-        return (_reconstruct_graph_preserving_frozen, (normalized, was_frozen))
+        # br-r37-c1-8nz0x: capture custom Python-side __dict__ attrs
+        # the user set on the graph (e.g. ``g.custom_attr = 'x'``) so
+        # they survive pickle, matching nx's __dict__ preservation.
+        extra = {}
+        for key, val in vars(self).items():
+            if key.startswith("_fnx_"):
+                continue
+            if key == "frozen":
+                # Handled separately so the freeze() re-application
+                # also restores the mutator overrides.
+                continue
+            extra[key] = val
+        return (
+            _reconstruct_graph_preserving_frozen,
+            (normalized, was_frozen, extra or None),
+        )
     return _reduce_ex
 
 
@@ -28227,9 +28272,11 @@ def _reconstruct_filtered_view_as_copy(graph_copy):
 
     `__reduce__` snapshots the filtered view as a real Graph/DiGraph/
     MultiGraph/MultiDiGraph copy at pickle time; this reconstructor
-    just returns that copy. Matches nx's behavior, where pickling a
-    `G.subgraph(...)` view yields a plain (canonical-class) graph.
+    just returns that copy (re-frozen — SG views are always frozen,
+    so the snapshot must inherit that contract to match nx).
     """
+    if not getattr(graph_copy, "frozen", False):
+        freeze(graph_copy)
     return graph_copy
 
 
