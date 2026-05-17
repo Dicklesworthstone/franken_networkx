@@ -10614,3 +10614,57 @@ def test_minimum_cycle_basis_respects_subgraph_view():
     for cycle in cf:
         assert set(cycle).issubset(allowed)
     assert sorted(cf) == sorted(cn)
+
+
+def test_capacity_scaling_unfeasible_message_matches_nx():
+    """br-r37-c1-8lsax (cycle 231): nx's network_simplex and
+    capacity_scaling raise NetworkXUnfeasible with DIFFERENT wording.
+    nx.network_simplex says "no flow satisfies all node demands";
+    nx.capacity_scaling says "No flow satisfying all demands." (cap N,
+    'satisfying', trailing period).
+
+    fnx shares one min_cost_flow implementation that always raised
+    the network_simplex message. Wrap the call in capacity_scaling to
+    translate the message at that boundary so both functions match
+    their nx counterparts exactly.
+    """
+    import networkx as nx
+    import pytest as _pytest
+
+    def make_fnx():
+        g = fnx.DiGraph()
+        g.add_node(0, demand=-5)
+        g.add_node(1)
+        g.add_node(2, demand=5)
+        g.add_edges_from([
+            (0, 1, {'capacity': 4, 'weight': 1}),
+            (1, 2, {'capacity': 5, 'weight': 2}),
+        ])
+        return g
+
+    def make_nx():
+        g = nx.DiGraph()
+        g.add_node(0, demand=-5)
+        g.add_node(1)
+        g.add_node(2, demand=5)
+        g.add_edges_from([
+            (0, 1, {'capacity': 4, 'weight': 1}),
+            (1, 2, {'capacity': 5, 'weight': 2}),
+        ])
+        return g
+
+    with _pytest.raises(NetworkXUnfeasible) as e_fnx_ns:
+        fnx.network_simplex(make_fnx())
+    with _pytest.raises(nx.NetworkXUnfeasible) as e_nx_ns:
+        nx.network_simplex(make_nx())
+    assert str(e_fnx_ns.value) == str(e_nx_ns.value) == (
+        "no flow satisfies all node demands"
+    )
+
+    with _pytest.raises(NetworkXUnfeasible) as e_fnx_cs:
+        fnx.capacity_scaling(make_fnx())
+    with _pytest.raises(nx.NetworkXUnfeasible) as e_nx_cs:
+        nx.capacity_scaling(make_nx())
+    assert str(e_fnx_cs.value) == str(e_nx_cs.value) == (
+        "No flow satisfying all demands."
+    )

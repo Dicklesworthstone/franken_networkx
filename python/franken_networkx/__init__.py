@@ -22552,7 +22552,19 @@ def capacity_scaling(
     tuple
         ``(flowCost, flowDict)`` matching NetworkX's return signature.
     """
-    flow = min_cost_flow(G, demand=demand, capacity=capacity, weight=weight)
+    try:
+        flow = min_cost_flow(G, demand=demand, capacity=capacity, weight=weight)
+    except NetworkXUnfeasible as exc:
+        # br-r37-c1-8lsax: nx's capacity_scaling and network_simplex
+        # raise NetworkXUnfeasible with DIFFERENT wording — capacity_
+        # scaling uses "No flow satisfying all demands." (cap+period),
+        # network_simplex uses "no flow satisfies all node demands".
+        # min_cost_flow shares the network_simplex wording; translate
+        # at this boundary so caller message-matching code aligns.
+        msg = str(exc)
+        if msg == "no flow satisfies all node demands":
+            raise NetworkXUnfeasible("No flow satisfying all demands.") from None
+        raise
     cost = cost_of_flow(G, flow, weight=weight)
     return cost, flow
 
