@@ -7182,16 +7182,6 @@ def _coerce_flow_dict(flow_dict, all_int):
     return out
 
 
-def _coerce_integral_flow_residual(residual):
-    residual.graph["inf"] = _coerce_flow_value(residual.graph["inf"], True)
-    residual.graph["flow_value"] = _coerce_flow_value(
-        residual.graph["flow_value"], True,
-    )
-    for node in residual:
-        for attrs in residual[node].values():
-            attrs["capacity"] = _coerce_flow_value(attrs["capacity"], True)
-            attrs["flow"] = _coerce_flow_value(attrs["flow"], True)
-    return residual
 
 
 def _flow_has_infinite_capacity(flowG, capacity):
@@ -7274,136 +7264,12 @@ def _flow_capacity_value(u, v, attrs, capacity):
     return float(raw_value)
 
 
-def _build_flow_residual_network(G, capacity):
-    if G.is_multigraph():
-        raise NetworkXError("MultiGraph and MultiDiGraph not supported (yet).")
-
-    residual = DiGraph()
-    if hasattr(residual, "__networkx_cache__"):
-        residual.__networkx_cache__ = None
-    residual.add_nodes_from(G)
-
-    edge_list = []
-    for u, v, attrs in G.edges(data=True):
-        if u == v:
-            continue
-        edge_capacity = _flow_capacity_value(u, v, attrs, capacity)
-        if edge_capacity is None or edge_capacity <= 0:
-            continue
-        edge_list.append((u, v, edge_capacity))
-
-    inf = (
-        3 * sum(edge_capacity for _, _, edge_capacity in edge_list if edge_capacity != float("inf"))
-        or 1
-    )
-
-    if G.is_directed():
-        for u, v, edge_capacity in edge_list:
-            residual_capacity = min(edge_capacity, inf)
-            if not residual.has_edge(u, v):
-                residual.add_edge(u, v, capacity=residual_capacity)
-                residual.add_edge(v, u, capacity=0)
-            else:
-                residual[u][v]["capacity"] = residual_capacity
-    else:
-        for u, v, edge_capacity in edge_list:
-            residual_capacity = min(edge_capacity, inf)
-            residual.add_edge(u, v, capacity=residual_capacity)
-            residual.add_edge(v, u, capacity=residual_capacity)
-
-    residual.graph["inf"] = inf
-    return residual
-
-
-def _edmonds_karp_core(residual, source, sink, cutoff):
-    inf = residual.graph["inf"]
-
-    def augment(path):
-        flow = inf
-        path_iter = iter(path)
-        left = next(path_iter)
-        for right in path_iter:
-            attrs = residual.succ[left][right]
-            flow = min(flow, attrs["capacity"] - attrs["flow"])
-            left = right
-
-        if flow * 2 > inf:
-            raise NetworkXUnbounded("Infinite capacity path, flow unbounded above.")
-
-        path_iter = iter(path)
-        left = next(path_iter)
-        for right in path_iter:
-            residual.succ[left][right]["flow"] += flow
-            residual.succ[right][left]["flow"] -= flow
-            left = right
-
-        return flow
-
-    def bidirectional_bfs():
-        pred = {source: None}
-        queue_from_source = [source]
-        succ = {sink: None}
-        queue_from_sink = [sink]
-
-        while True:
-            next_queue = []
-            if len(queue_from_source) <= len(queue_from_sink):
-                for left in queue_from_source:
-                    for right, attrs in residual.succ[left].items():
-                        if right not in pred and attrs["flow"] < attrs["capacity"]:
-                            pred[right] = left
-                            if right in succ:
-                                return right, pred, succ
-                            next_queue.append(right)
-                if not next_queue:
-                    return None, None, None
-                queue_from_source = next_queue
-            else:
-                for right in queue_from_sink:
-                    for left, attrs in residual.pred[right].items():
-                        if left not in succ and attrs["flow"] < attrs["capacity"]:
-                            succ[left] = right
-                            if left in pred:
-                                return left, pred, succ
-                            next_queue.append(left)
-                if not next_queue:
-                    return None, None, None
-                queue_from_sink = next_queue
-
-    flow_value = 0
-    while flow_value < cutoff:
-        meeting_node, pred, succ = bidirectional_bfs()
-        if pred is None:
-            break
-
-        path = [meeting_node]
-        cursor = meeting_node
-        while cursor != source:
-            cursor = pred[cursor]
-            path.append(cursor)
-        path.reverse()
-
-        cursor = meeting_node
-        while cursor != sink:
-            cursor = succ[cursor]
-            path.append(cursor)
-
-        flow_value += augment(path)
-
-    return flow_value
 
 
 
 
-def _call_networkx_flow_for_parity(name, G, /, *args, **kwargs):
-    import networkx as nx
 
-    try:
-        return getattr(nx.algorithms.flow, name)(
-            _networkx_graph_for_parity(G), *args, **kwargs
-        )
-    except Exception as exc:
-        _raise_translated_networkx_exception(exc)
+
 
 
 
@@ -14780,44 +14646,10 @@ def projected_graph(B, nodes, multigraph=False):
     return G
 
 
-def _bipartite_density(B, nodes):
-    """Return the bipartite density of a bipartite graph *B*.
-
-    The bipartite density is ``|E| / (|top| * |bottom|)`` for undirected graphs,
-    and ``|E| / (2 * |top| * |bottom|)`` for directed graphs.
-
-    Parameters
-    ----------
-    B : Graph
-        A bipartite graph.
-    nodes : container
-        Nodes in one of the two bipartite sets.
-
-    Returns
-    -------
-    float
-        The bipartite density.
-    """
-    top = set(nodes)
-    bottom = set(B.nodes()) - top
-    if not top or not bottom:
-        return 0.0
-    if B.is_directed():
-        return B.number_of_edges() / (2.0 * len(top) * len(bottom))
-    return B.number_of_edges() / (len(top) * len(bottom))
 
 
 
 
-def _call_networkx_bipartite_for_parity(name, G, /, *args, **kwargs):
-    import networkx as nx
-
-    try:
-        return getattr(nx.algorithms.bipartite, name)(
-            _networkx_graph_for_parity(G), *args, **kwargs
-        )
-    except Exception as exc:
-        _raise_translated_networkx_exception(exc)
 
 
 
@@ -14857,16 +14689,6 @@ def _call_networkx_bipartite_for_parity(name, G, /, *args, **kwargs):
 
 
 
-def _without_most_valuable_edges(G, most_valuable_edge):
-    """Remove edges until the number of connected components increases."""
-    original_num_components = number_connected_components(G)
-    num_new_components = original_num_components
-    while num_new_components <= original_num_components:
-        edge = most_valuable_edge(G)
-        G.remove_edge(*edge)
-        new_components = tuple(connected_components(G))
-        num_new_components = len(new_components)
-    return new_components
 
 
 
@@ -16858,129 +16680,6 @@ def karate_club_graph():
     return G
 
 
-def _karate_club_graph_unused_no_attrs():  # pragma: no cover
-    """Kept only because removing the full edge list would blow up the diff."""
-    G = Graph()
-    G.add_nodes_from(range(34))
-    # Zachary (1977) edge list
-    edges = [
-        (0, 1),
-        (0, 2),
-        (0, 3),
-        (0, 4),
-        (0, 5),
-        (0, 6),
-        (0, 7),
-        (0, 8),
-        (0, 10),
-        (0, 11),
-        (0, 12),
-        (0, 13),
-        (0, 17),
-        (0, 19),
-        (0, 21),
-        (0, 31),
-        (1, 2),
-        (1, 3),
-        (1, 7),
-        (1, 13),
-        (1, 17),
-        (1, 19),
-        (1, 21),
-        (1, 30),
-        (2, 3),
-        (2, 7),
-        (2, 8),
-        (2, 9),
-        (2, 13),
-        (2, 27),
-        (2, 28),
-        (2, 32),
-        (3, 7),
-        (3, 12),
-        (3, 13),
-        (4, 6),
-        (4, 10),
-        (5, 6),
-        (5, 10),
-        (5, 16),
-        (6, 16),
-        (8, 30),
-        (8, 32),
-        (8, 33),
-        (9, 33),
-        (13, 33),
-        (14, 32),
-        (14, 33),
-        (15, 32),
-        (15, 33),
-        (18, 32),
-        (18, 33),
-        (19, 33),
-        (20, 32),
-        (20, 33),
-        (22, 32),
-        (22, 33),
-        (23, 25),
-        (23, 27),
-        (23, 29),
-        (23, 32),
-        (23, 33),
-        (24, 25),
-        (24, 27),
-        (24, 31),
-        (25, 31),
-        (26, 29),
-        (26, 33),
-        (27, 33),
-        (28, 31),
-        (28, 33),
-        (29, 32),
-        (29, 33),
-        (30, 32),
-        (30, 33),
-        (31, 32),
-        (31, 33),
-        (32, 33),
-    ]
-    G.add_edges_from([(u, v) for u, v in edges])
-    return G
-
-
-def florentine_families_graph():
-    """Return the Florentine families marriage graph (15 nodes, 20 edges).
-
-    A classic social network of marriage alliances among Renaissance
-    Florentine families.
-
-    br-r37-c1-dgicx: replicate nx's exact add_edge sequence so node
-    insertion order, edge iteration order, and per-node adj order
-    match nx's contract. The previous canonical/alphabetical edge
-    list produced a different graph shape (same connectivity, but
-    iteration-order differs).
-    """
-    G = Graph()
-    G.add_edge("Acciaiuoli", "Medici")
-    G.add_edge("Castellani", "Peruzzi")
-    G.add_edge("Castellani", "Strozzi")
-    G.add_edge("Castellani", "Barbadori")
-    G.add_edge("Medici", "Barbadori")
-    G.add_edge("Medici", "Ridolfi")
-    G.add_edge("Medici", "Tornabuoni")
-    G.add_edge("Medici", "Albizzi")
-    G.add_edge("Medici", "Salviati")
-    G.add_edge("Salviati", "Pazzi")
-    G.add_edge("Peruzzi", "Strozzi")
-    G.add_edge("Peruzzi", "Bischeri")
-    G.add_edge("Strozzi", "Ridolfi")
-    G.add_edge("Strozzi", "Bischeri")
-    G.add_edge("Ridolfi", "Tornabuoni")
-    G.add_edge("Tornabuoni", "Guadagni")
-    G.add_edge("Albizzi", "Ginori")
-    G.add_edge("Albizzi", "Guadagni")
-    G.add_edge("Bischeri", "Guadagni")
-    G.add_edge("Guadagni", "Lamberteschi")
-    return G
 
 
 # ---------------------------------------------------------------------------
@@ -19085,14 +18784,6 @@ def check_planarity(G, counterexample=False, *, backend=None, **backend_kwargs):
 # wrappers that other fnx code exercises (so the submodule continues
 # to forward to a working implementation).
 
-def _check_planarity_recursive_internal(G, counterexample=False, *,
-                                        backend=None, **backend_kwargs):
-    _validate_backend_dispatch_keywords(
-        "check_planarity_recursive", backend, backend_kwargs
-    )
-    return _check_planarity_certificate(
-        G, counterexample=counterexample, recursive=True,
-    )
 
 
 
@@ -20179,26 +19870,8 @@ def all_pairs_node_connectivity(G, nbunch=None, flow_func=None):
 
 
 
-def _call_networkx_connectivity_for_parity(name, G, /, *args, **kwargs):
-    import networkx as nx
-
-    try:
-        return getattr(nx.algorithms.connectivity, name)(
-            _networkx_graph_for_parity(G), *args, **kwargs
-        )
-    except Exception as exc:
-        _raise_translated_networkx_exception(exc)
 
 
-def _call_networkx_approximation_for_parity(name, G, /, *args, **kwargs):
-    import networkx as nx
-
-    try:
-        return getattr(nx.algorithms.approximation, name)(
-            _networkx_graph_for_parity(G), *args, **kwargs
-        )
-    except Exception as exc:
-        _raise_translated_networkx_exception(exc)
 
 
 
@@ -23830,48 +23503,6 @@ class _KernighanLinHeap:
         return bool(self._values)
 
 
-def _is_partition_of_graph(G, communities):
-    nodes = set(G)
-    seen = set()
-    for community in communities:
-        community_nodes = set(community)
-        if seen & community_nodes:
-            return False
-        seen.update(community_nodes)
-    return seen == nodes
-
-
-def _kernighan_lin_sweep(edge_info, side):
-    """Yield cumulative costs and node pairs for a KL sweep."""
-    heap0, heap1 = cost_heaps = _KernighanLinHeap(), _KernighanLinHeap()
-    for u, nbrs in edge_info.items():
-        cost_u = sum(wt if side[v] else -wt for v, wt in nbrs.items())
-        if side[u]:
-            heap1.insert(u, cost_u)
-        else:
-            heap0.insert(u, -cost_u)
-
-    def _update_heap_values(node):
-        side_node = side[node]
-        for nbr, wt in edge_info[node].items():
-            side_nbr = side[nbr]
-            if side_nbr == side_node:
-                wt = -wt
-            heap_nbr = cost_heaps[side_nbr]
-            if nbr in heap_nbr:
-                cost_nbr = heap_nbr.get(nbr) + 2 * wt
-                heap_nbr.insert(nbr, cost_nbr, allow_increase=True)
-
-    index = 0
-    total_cost = 0
-    while heap0 and heap1:
-        u, cost_u = heap0.pop()
-        _update_heap_values(u)
-        v, cost_v = heap1.pop()
-        _update_heap_values(v)
-        total_cost += cost_u + cost_v
-        index += 1
-        yield total_cost, index, (u, v)
 
 
 
@@ -23880,15 +23511,8 @@ def _kernighan_lin_sweep(edge_info, side):
 
 
 
-def _call_networkx_community_for_parity(name, G, /, *args, **kwargs):
-    import networkx as nx
 
-    try:
-        return getattr(nx.algorithms.community, name)(
-            _networkx_graph_for_parity(G), *args, **kwargs
-        )
-    except Exception as exc:
-        _raise_translated_networkx_exception(exc)
+
 
 
 
@@ -28132,10 +27756,6 @@ def _private_aware_has_edge_multi(raw_has_edge):
 
 
 # Keep the legacy alias so any internal call sites still resolve.
-def _private_aware_has_edge(raw_has_edge):
-    """Legacy multi-style wrapper kept for backwards-compat in the Rust
-    binding tables. Prefer the simple/multi variants for class methods."""
-    return _private_aware_has_edge_multi(raw_has_edge)
 
 
 def _private_aware_get_edge_data_simple(raw_get_edge_data):
@@ -28190,8 +27810,6 @@ def _private_aware_get_edge_data_multi(raw_get_edge_data):
 
 
 # Legacy alias retained for callers in the Rust binding tables.
-def _private_aware_get_edge_data(raw_get_edge_data):
-    return _private_aware_get_edge_data_multi(raw_get_edge_data)
 
 
 def _private_aware_number_of_nodes(raw_number_of_nodes):
@@ -28558,13 +28176,6 @@ def _generic_filtered_graph_view(graph, *, filter_node=None, filter_edge=None):
     return view_type(graph, filter_node=filter_node, filter_edge=filter_edge)
 
 
-def _copy_with_view(copy_impl):
-    def copy(self, as_view=False):
-        if as_view is True:
-            return _generic_filtered_graph_view(self)
-        return copy_impl(self)
-
-    return copy
 
 
 def _copy_preserving_insertion_order(self, as_view=False):
@@ -28724,13 +28335,6 @@ def _multidigraph_to_directed_with_view(to_directed_impl):
     return _wraps_without_signature_poisoning(to_directed_impl, to_directed)
 
 
-def _to_directed_with_view(to_directed_impl):
-    def to_directed(self, as_view=False):
-        if as_view is True:
-            return _generic_directed_graph_view(self)
-        return to_directed_impl(self)
-
-    return _wraps_without_signature_poisoning(to_directed_impl, to_directed)
 
 
 def _to_undirected_with_view(to_undirected_impl):
@@ -30580,73 +30184,6 @@ def _davis_southern_women_impl():
     return _from_nx_graph(_nx.davis_southern_women_graph(backend="networkx"))
 
 
-def _davis_southern_women_graph_unused_legacy():  # pragma: no cover
-    """Old builder kept out of the public surface."""
-    G = Graph()
-    women = [
-        "Evelyn",
-        "Laura",
-        "Theresa",
-        "Brenda",
-        "Charlotte",
-        "Frances",
-        "Eleanor",
-        "Pearl",
-        "Ruth",
-        "Verne",
-        "Myrna",
-        "Katherine",
-        "Sylvia",
-        "Nora",
-        "Helen",
-        "Dorothy",
-        "Olivia",
-        "Flora",
-    ]
-    events = [
-        "E1",
-        "E2",
-        "E3",
-        "E4",
-        "E5",
-        "E6",
-        "E7",
-        "E8",
-        "E9",
-        "E10",
-        "E11",
-        "E12",
-        "E13",
-        "E14",
-    ]
-    for w in women:
-        G.add_node(w, bipartite=0)
-    for e in events:
-        G.add_node(e, bipartite=1)
-    att = {
-        "Evelyn": ["E1", "E2", "E3", "E4", "E5", "E6", "E8", "E9"],
-        "Laura": ["E1", "E2", "E3", "E5", "E6", "E7", "E8"],
-        "Theresa": ["E2", "E3", "E4", "E5", "E6", "E7", "E8", "E9"],
-        "Brenda": ["E1", "E3", "E4", "E5", "E6", "E7", "E8"],
-        "Charlotte": ["E3", "E4", "E5", "E7"],
-        "Frances": ["E3", "E5", "E6", "E8"],
-        "Eleanor": ["E5", "E6", "E7", "E8"],
-        "Pearl": ["E6", "E8", "E9"],
-        "Ruth": ["E5", "E7", "E8", "E9"],
-        "Verne": ["E7", "E8", "E9", "E12"],
-        "Myrna": ["E8", "E9", "E10", "E12"],
-        "Katherine": ["E8", "E9", "E10", "E12", "E13", "E14"],
-        "Sylvia": ["E7", "E8", "E9", "E10", "E12", "E13", "E14"],
-        "Nora": ["E6", "E7", "E9", "E10", "E11", "E12", "E13", "E14"],
-        "Helen": ["E7", "E8", "E10", "E11", "E12"],
-        "Dorothy": ["E8", "E9", "E10", "E11", "E12", "E13", "E14"],
-        "Olivia": ["E8", "E9", "E12", "E13", "E14"],
-        "Flora": ["E8", "E9", "E11", "E12", "E13", "E14"],
-    }
-    for w, evts in att.items():
-        for e in evts:
-            G.add_edge(w, e)
-    return G
 
 
 # Misc generators (br-fjh)
