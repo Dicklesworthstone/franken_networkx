@@ -7255,13 +7255,6 @@ def _validate_flow_func_selector(flow_func):
     return flow_func
 
 
-def _flow_capacity_value(u, v, attrs, capacity):
-    del u, v
-    raw_value = attrs.get(capacity, float("inf"))
-    if raw_value is None:
-        return None
-
-    return float(raw_value)
 
 
 
@@ -23470,37 +23463,6 @@ def non_randomness(G, k=None, weight="weight"):
     return nr, nr_rd
 
 
-class _KernighanLinHeap:
-    def __init__(self):
-        self._heap = []
-        self._values = {}
-        self._counter = _count()
-
-    def insert(self, key, value, allow_increase=False):
-        current = self._values.get(key)
-        if current is not None and value > current and not allow_increase:
-            return
-        self._values[key] = value
-        _heappush(self._heap, (value, next(self._counter), key))
-
-    def pop(self):
-        while self._heap:
-            value, _, key = _heappop(self._heap)
-            current = self._values.get(key)
-            if current is None or current != value:
-                continue
-            del self._values[key]
-            return key, value
-        raise KeyError("pop from an empty heap")
-
-    def get(self, key):
-        return self._values[key]
-
-    def __contains__(self, key):
-        return key in self._values
-
-    def __bool__(self):
-        return bool(self._values)
 
 
 
@@ -36104,44 +36066,6 @@ def _tree_lca_dfs_postorder_nodes(G, root):
     return order
 
 
-class _TarjanUnionFind:
-    """Minimal union-find used by tree_all_pairs_lowest_common_ancestor.
-
-    Mirrors the subset of networkx.utils.UnionFind that the LCA routine
-    actually touches: `uf[x]` returns the canonical representative and
-    auto-inserts fresh elements, and `uf.union(a, b)` merges by size.
-    """
-
-    __slots__ = ("_parent", "_weight")
-
-    def __init__(self):
-        self._parent = {}
-        self._weight = {}
-
-    def __getitem__(self, item):
-        if item not in self._parent:
-            self._parent[item] = item
-            self._weight[item] = 1
-            return item
-        # Find root with path halving.
-        path = [item]
-        root = self._parent[item]
-        while root != path[-1]:
-            path.append(root)
-            root = self._parent[root]
-        for ancestor in path:
-            self._parent[ancestor] = root
-        return root
-
-    def union(self, *items):
-        roots = {self[item] for item in items}
-        if len(roots) <= 1:
-            return
-        heaviest = max(roots, key=lambda r: self._weight[r])
-        for root in roots:
-            if root != heaviest:
-                self._weight[heaviest] += self._weight[root]
-                self._parent[root] = heaviest
 
 
 def tree_all_pairs_lowest_common_ancestor(
