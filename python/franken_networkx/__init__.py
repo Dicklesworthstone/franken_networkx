@@ -6552,25 +6552,6 @@ def edge_connectivity(G, s=None, t=None, flow_func=None, cutoff=None):
 
 
 
-def _local_node_connectivity_via_nx(G, s, t, flow_func, auxiliary, residual, cutoff):
-    """Private helper (br-r37-c1-k4pod): nx's
-    ``local_node_connectivity`` is not exposed at the top-level
-    ``networkx.*`` namespace, so ``_call_networkx_for_parity`` (which
-    uses ``getattr(nx, name)``) can't reach it.  Direct import is
-    kept behind this underscored helper so the public
-    ``local_node_connectivity`` wrapper stays classified as
-    PY_WRAPPER (not NX_DELEGATED) by the coverage matrix scanner.
-    """
-    import networkx as nx
-
-    return nx.algorithms.connectivity.local_node_connectivity(
-        _networkx_graph_for_parity(G),
-        s, t,
-        flow_func=flow_func,
-        auxiliary=auxiliary,
-        residual=residual,
-        cutoff=cutoff,
-    )
 
 
 
@@ -11509,20 +11490,10 @@ def is_directed_acyclic_graph(G):
 
 
 
-def _random_uniform_k_out_graph_via_nx(n, k, self_loops, with_replacement, seed):
-    """br-r37-c1-ec18d: private helper keeps the public function
-    classified as PY_WRAPPER in the coverage matrix."""
-    return _nx.generators.directed.random_uniform_k_out_graph(
-        n, k, self_loops=self_loops, with_replacement=with_replacement, seed=seed,
-    )
 
 
 
 
-def _reverse_cuthill_mckee_ordering_via_nx(G, heuristic):
-    return _nx.utils.reverse_cuthill_mckee_ordering(
-        _networkx_graph_for_parity(G), heuristic=heuristic,
-    )
 
 
 # flow_matrix_row was an fnx-only public alias for the deeply-nested
@@ -11533,18 +11504,10 @@ def _reverse_cuthill_mckee_ordering_via_nx(G, heuristic):
 
 
 
-def _cuthill_mckee_ordering_via_nx(G, heuristic):
-    return _nx.utils.cuthill_mckee_ordering(
-        _networkx_graph_for_parity(G), heuristic=heuristic,
-    )
 
 
 
 
-def _connected_cuthill_mckee_ordering_via_nx(G, heuristic):
-    return _nx.utils.rcm.connected_cuthill_mckee_ordering(
-        _networkx_graph_for_parity(G), heuristic=heuristic,
-    )
 
 
 # pseudo_peripheral_node was an fnx-only public alias for the deeply
@@ -11566,10 +11529,6 @@ def _connected_cuthill_mckee_ordering_via_nx(G, heuristic):
 
 
 
-def _is_valid_tree_degree_sequence_via_nx(degree_sequence):
-    """br-r37-c1-ec18d: private helper keeps the public function
-    classified as PY_WRAPPER in the coverage matrix."""
-    return _nx.utils.is_valid_tree_degree_sequence(degree_sequence)
 
 
 # br-r37-c1-bw-removed: ``branching_weight`` and ``minimal_branching``
@@ -11582,32 +11541,14 @@ def _is_valid_tree_degree_sequence_via_nx(degree_sequence):
 
 
 
-def _boruvka_mst_edges_via_nx(G, minimum, weight, keys, data, ignore_nan):
-    """br-r37-c1-kp6aw: private helper keeps the public function
-    classified as PY_WRAPPER in the coverage matrix."""
-    yield from _nx.algorithms.tree.mst.boruvka_mst_edges(
-        _networkx_graph_for_parity(G),
-        minimum=minimum, weight=weight, keys=keys, data=data, ignore_nan=ignore_nan,
-    )
 
 
 
 
-def _kruskal_mst_edges_via_nx(G, minimum, weight, keys, data, ignore_nan, partition):
-    yield from _nx.algorithms.tree.mst.kruskal_mst_edges(
-        _networkx_graph_for_parity(G),
-        minimum, weight=weight, keys=keys, data=data, ignore_nan=ignore_nan,
-        partition=partition,
-    )
 
 
 
 
-def _prim_mst_edges_via_nx(G, minimum, weight, keys, data, ignore_nan):
-    yield from _nx.algorithms.tree.mst.prim_mst_edges(
-        _networkx_graph_for_parity(G),
-        minimum, weight=weight, keys=keys, data=data, ignore_nan=ignore_nan,
-    )
 
 
 # The 11 subgraph_view filter constructors (hide_X / show_X / no_filter)
@@ -11649,10 +11590,6 @@ from networkx.utils.heaps import (  # noqa: E402
 
 
 
-def _matching_dict_to_set_via_nx(matching):
-    """br-r37-c1-ec18d: private helper keeps the public function
-    classified as PY_WRAPPER in the coverage matrix."""
-    return _nx.algorithms.matching.matching_dict_to_set(matching)
 
 
 def _ancestors_descendants_missing_node_msg(G, source):
@@ -14935,22 +14872,14 @@ def _call_networkx_bipartite_for_parity(name, G, /, *args, **kwargs):
 
 
 
-def _cc_dot_via_nx(nu, nv):
-    """br-r37-c1-kp6aw: private helper keeps the public function
-    classified as PY_WRAPPER in the coverage matrix."""
-    return _nx.algorithms.bipartite.cluster.cc_dot(nu, nv)
 
 
 
 
-def _cc_max_via_nx(nu, nv):
-    return _nx.algorithms.bipartite.cluster.cc_max(nu, nv)
 
 
 
 
-def _cc_min_via_nx(nu, nv):
-    return _nx.algorithms.bipartite.cluster.cc_min(nu, nv)
 
 
 
