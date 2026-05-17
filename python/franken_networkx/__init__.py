@@ -10361,19 +10361,6 @@ from franken_networkx._fnx import (
 
 
 
-def _louvain_impl(G, *, weight, resolution, threshold, max_level, seed):
-    """Private delegation so the public louvain_communities stays
-    PY_WRAPPER in the coverage classifier.
-    """
-    return _call_networkx_submodule_for_parity(
-        "algorithms.community",
-        G,
-        weight=weight,
-        resolution=resolution,
-        threshold=threshold,
-        max_level=max_level,
-        seed=seed,
-    )
 
 
 
@@ -13137,19 +13124,6 @@ def is_tournament(G):
 
 
 
-def _random_tournament_via_parity(n, *, seed=None):
-    """Indirection helper — keeps ``random_tournament`` out of NX_DELEGATED.
-
-    Round-trips the upstream nx.DiGraph result back to fnx.DiGraph so
-    callers always receive an fnx graph (franken_networkx-3ehfp).
-    """
-    from networkx.algorithms.tournament import (
-        random_tournament as _upstream_random_tournament,
-    )
-    from franken_networkx.readwrite import _from_nx_graph
-
-    nx_result = _upstream_random_tournament(n, seed=seed)
-    return _from_nx_graph(nx_result, create_using=DiGraph())
 
 
 
@@ -14753,20 +14727,6 @@ def star_graph(n, create_using=None):
 
 
 
-def _bipartite_color_via_parity(G):
-    """Indirection helper — keeps ``color`` classified as PY_WRAPPER.
-
-    Upstream nx.algorithms.bipartite.color raises NetworkXError when
-    the graph isn't bipartite; preserve the translation to fnx's own
-    NetworkXError class.
-    """
-    import networkx as _nx_mod
-    from networkx.algorithms.bipartite import color as _nx_color
-
-    try:
-        return _nx_color(_networkx_graph_for_parity(G))
-    except _nx_mod.NetworkXError as e:
-        raise NetworkXError(str(e)) from None
 
 
 # br-r37-c1-bia-removed: ``biadjacency_matrix`` and
@@ -19135,22 +19095,8 @@ def _check_planarity_recursive_internal(G, counterexample=False, *,
     )
 
 
-def _get_counterexample_internal(G, *, backend=None, **backend_kwargs):
-    _validate_backend_dispatch_keywords("get_counterexample", backend, backend_kwargs)
-    is_p, certificate = check_planarity(G, counterexample=True)
-    if is_p:
-        raise NetworkXException("G is planar - no counter example.")
-    return certificate
 
 
-def _get_counterexample_recursive_internal(G, *, backend=None, **backend_kwargs):
-    _validate_backend_dispatch_keywords(
-        "get_counterexample_recursive", backend, backend_kwargs
-    )
-    is_p, certificate = _check_planarity_recursive_internal(G, counterexample=True)
-    if is_p:
-        raise NetworkXException("G is planar - no counter example.")
-    return certificate
 
 
 def all_simple_edge_paths(
@@ -33152,31 +33098,10 @@ def vf2pp_all_isomorphisms(G1, G2, node_label=None, default_label=None):
 
 
 
-def _tree_isomorphism_via_parity(t1, t2):
-    """Helper — keeps ``tree_isomorphism`` classified as PY_WRAPPER."""
-    from networkx.algorithms.isomorphism import (
-        tree_isomorphism as _upstream_tree_iso,
-    )
-
-    return _upstream_tree_iso(
-        _networkx_graph_for_parity(t1), _networkx_graph_for_parity(t2)
-    )
 
 
 
 
-def _rooted_tree_isomorphism_via_parity(t1, root1, t2, root2):
-    """Helper — keeps ``rooted_tree_isomorphism`` classified as PY_WRAPPER."""
-    from networkx.algorithms.isomorphism import (
-        rooted_tree_isomorphism as _upstream_rooted_iso,
-    )
-
-    return _upstream_rooted_iso(
-        _networkx_graph_for_parity(t1),
-        root1,
-        _networkx_graph_for_parity(t2),
-        root2,
-    )
 
 
 _ISOMORPHISM_MODULE_EXPORTS = (
