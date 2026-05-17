@@ -9571,6 +9571,9 @@ def greedy_color(G, strategy="largest_first", interchange=False):
     dict
         Dictionary mapping nodes to colors (integers starting at 0).
     """
+    # br-r37-c1-gr1ct: materialize SubgraphView so the Rust shortcut
+    # sees the filtered nodes/edges (view family).
+    G = _coerce_arg_to_fnx_graph(G)
     if interchange or callable(strategy):
         return _call_networkx_for_parity(
             "greedy_color",
@@ -9707,6 +9710,8 @@ def all_pairs_shortest_path_length(G, cutoff=None, *, backend=None, **backend_kw
     _validate_backend_dispatch_keywords(
         "all_pairs_shortest_path_length", backend, backend_kwargs
     )
+    # br-r37-c1-gr1ct: materialize SubgraphView first (view family).
+    G = _coerce_arg_to_fnx_graph(G)
     lengths = _raw_all_pairs_shortest_path_length(G, cutoff)
     for source in G:
         if source in lengths:
@@ -13642,6 +13647,8 @@ def single_source_dijkstra_path(G, source, cutoff=None, weight="weight"):
     """
     # br-r37-c1-ybw1s: nx-shaped TypeError on unhashable source.
     hash(source)
+    # br-r37-c1-gr1ct: materialize SubgraphView first (view family).
+    G = _coerce_arg_to_fnx_graph(G)
     # br-dijkignoreweight: same as single_source_dijkstra.
     if _should_delegate_dijkstra_to_networkx(G, weight) or _graph_has_nonunit_weight(G, weight):
         return _call_networkx_for_parity(
@@ -13802,6 +13809,8 @@ def all_pairs_dijkstra_path_length(G, cutoff=None, weight="weight"):
     ``lengths`` is a dict ``{target: distance}``. Mirrors
     ``networkx.all_pairs_dijkstra_path_length``.
     """
+    # br-r37-c1-gr1ct: materialize SubgraphView first (view family).
+    G = _coerce_arg_to_fnx_graph(G)
     # br-dijkignoreweight: Rust path ignores weights; delegate.
     if cutoff is not None:
         for node in G:
@@ -21531,6 +21540,8 @@ def multi_source_dijkstra(G, sources, target=None, cutoff=None, weight="weight")
     """Return shortest path lengths and paths from any source in *sources*."""
     if not sources:
         raise ValueError("sources must not be empty")
+    # br-r37-c1-gr1ct: materialize SubgraphView first (view family).
+    G = _coerce_arg_to_fnx_graph(G)
     # br-dijkignoreweight: the Rust multi_source_dijkstra inherits the
     # same weight-ignoring bug as single_source_dijkstra. Delegate any
     # weighted input to nx for correctness.

@@ -10359,3 +10359,48 @@ def test_average_shortest_path_length_respects_subgraph_view_filter():
         fnx.average_shortest_path_length(sg_fnx)
     with _pytest.raises(nx.NetworkXError):
         nx.average_shortest_path_length(sg_nx)
+
+
+def test_more_rust_shortcuts_respect_subgraph_view_filter():
+    """br-r37-c1-gr1ct (cycle 228): siblings of the earlier
+    view-coerce family fixes. Five more Rust shortcuts —
+    greedy_color, all_pairs_shortest_path_length,
+    all_pairs_dijkstra_path_length, single_source_dijkstra_path,
+    multi_source_dijkstra(_path_length) — short-circuited into the
+    Rust binding without coercing, so they returned entries for
+    nodes the view filters out.
+
+    Repro: K6.subgraph([0,1,2,3]). View should only mention nodes
+    0-3 but pre-fix versions returned data for 4, 5 too.
+    """
+    import networkx as nx
+
+    sgf = fnx.complete_graph(6).subgraph([0, 1, 2, 3])
+    sgn = nx.complete_graph(6).subgraph([0, 1, 2, 3])
+
+    # greedy_color: only the visible nodes should be colored.
+    cf = fnx.greedy_color(sgf)
+    cn = nx.greedy_color(sgn)
+    assert sorted(cf.keys()) == sorted(cn.keys()) == [0, 1, 2, 3]
+
+    # all_pairs_shortest_path_length: visible-only entries.
+    apspl_f = dict(fnx.all_pairs_shortest_path_length(sgf))
+    apspl_n = dict(nx.all_pairs_shortest_path_length(sgn))
+    assert sorted(apspl_f.keys()) == sorted(apspl_n.keys()) == [0, 1, 2, 3]
+    assert all(sorted(v.keys()) == [0, 1, 2, 3] for v in apspl_f.values())
+
+    # all_pairs_dijkstra_path_length: visible-only entries.
+    apdj_f = dict(fnx.all_pairs_dijkstra_path_length(sgf))
+    apdj_n = dict(nx.all_pairs_dijkstra_path_length(sgn))
+    assert sorted(apdj_f.keys()) == sorted(apdj_n.keys()) == [0, 1, 2, 3]
+    assert all(sorted(v.keys()) == [0, 1, 2, 3] for v in apdj_f.values())
+
+    # single_source_dijkstra_path: visible-only entries.
+    ssdp_f = fnx.single_source_dijkstra_path(sgf, 0)
+    ssdp_n = nx.single_source_dijkstra_path(sgn, 0)
+    assert sorted(ssdp_f.keys()) == sorted(ssdp_n.keys()) == [0, 1, 2, 3]
+
+    # multi_source_dijkstra_path_length: visible-only entries.
+    msdpl_f = fnx.multi_source_dijkstra_path_length(sgf, [0, 1])
+    msdpl_n = nx.multi_source_dijkstra_path_length(sgn, [0, 1])
+    assert sorted(msdpl_f.keys()) == sorted(msdpl_n.keys()) == [0, 1, 2, 3]
