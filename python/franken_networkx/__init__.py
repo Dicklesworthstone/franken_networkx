@@ -6633,6 +6633,10 @@ def average_neighbor_degree(
     """Returns the average degree of the neighborhood of each node."""
     _validate_backend_dispatch_keywords("average_neighbor_degree", backend, backend_kwargs)
 
+    # br-r37-c1-c7xg2: materialize SubgraphView before crossing into
+    # Rust so the filter is honored. Pass-through for plain fnx graphs.
+    G = _coerce_arg_to_fnx_graph(G)
+
     # br-mgavgnbd: the Rust fast path ignored parallel multi-edges, so
     # sum(t_deg[nbr] for nbr in adj[n]) was computed against an
     # adj-view that collapsed parallel edges but the degree was also

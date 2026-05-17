@@ -10312,3 +10312,26 @@ def test_clustering_respects_subgraph_view_filter():
     c_nx = nx.clustering(sg_nx)
     assert sorted(c_fnx.keys()) == sorted(c_nx.keys()) == [0, 1, 3, 4]
     assert c_fnx == c_nx
+
+
+def test_average_neighbor_degree_respects_subgraph_view_filter():
+    """br-r37-c1-2dbnk (cycle 228): sibling of br-r37-c1-c7xg2.
+    ``average_neighbor_degree`` short-circuited the undirected /
+    no-weight / no-nbunch / simple-graph case to
+    ``_raw_average_neighbor_degree(G)`` without coercing first, so
+    SubgraphView passed through and the Rust reader returned the
+    parent's full degrees.
+
+    Repro: K6.subgraph([0,1,2,3]) — view's K4 should give each node
+    avg-neighbor-degree 3. Pre-fix fnx returned 5 (the K6 degree).
+    """
+    import networkx as nx
+
+    gf = fnx.complete_graph(6)
+    gn = nx.complete_graph(6)
+    sg_fnx = gf.subgraph([0, 1, 2, 3])
+    sg_nx = gn.subgraph([0, 1, 2, 3])
+    assert (
+        fnx.assortativity.average_neighbor_degree(sg_fnx)
+        == nx.assortativity.average_neighbor_degree(sg_nx)
+    )
