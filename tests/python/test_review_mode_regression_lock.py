@@ -10764,3 +10764,37 @@ def test_degree_nbunch_unhashable_raises_networkx_error():
     assert str(ef.value) == str(en.value) == (
         "Node [0] in sequence nbunch is not a valid node."
     )
+
+
+def test_deepcopy_preserves_frozen_flag():
+    """br-r37-c1-9e7gd (cycle 233): copy.deepcopy(g) stripped the
+    frozen attribute because fnx's _graph_deepcopy constructs a fresh
+    cls() instead of cloning instance __dict__. nx preserves it.
+
+    Re-apply freeze on the new graph when the source was frozen.
+    """
+    import networkx as nx
+    import copy
+
+    # Frozen path
+    g = fnx.path_graph(3)
+    fnx.freeze(g)
+    h = copy.deepcopy(g)
+    assert fnx.is_frozen(h)
+    assert h.frozen is True
+
+    # Mutator is rejected post-deepcopy
+    import pytest as _pytest
+    with _pytest.raises(fnx.NetworkXError):
+        h.add_node(99)
+
+    # Round-trip parity vs nx
+    gn = nx.path_graph(3)
+    nx.freeze(gn)
+    hn = copy.deepcopy(gn)
+    assert nx.is_frozen(hn) == fnx.is_frozen(h)
+
+    # Non-frozen graph stays non-frozen after deepcopy
+    g2 = fnx.path_graph(3)
+    h2 = copy.deepcopy(g2)
+    assert not fnx.is_frozen(h2)

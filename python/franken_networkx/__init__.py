@@ -4784,6 +4784,14 @@ def _graph_deepcopy(self, memo=None):
     else:
         for u, v, attrs in self.edges(data=True):
             out.add_edges_from([(u, v, _dc(dict(attrs), memo))])
+    # br-r37-c1-9e7gd: nx preserves the frozen-graph flag (and its
+    # mutator overrides) across deepcopy because it copies the
+    # instance __dict__. fnx's _graph_deepcopy constructs a fresh
+    # cls() and populates it, so the frozen attribute and the
+    # ``add_node=_frozen`` overrides are lost. Re-apply freeze on
+    # the new graph when the source was frozen.
+    if getattr(self, "frozen", False):
+        freeze(out)
     return out
 
 
