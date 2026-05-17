@@ -10331,7 +10331,21 @@ def _coerce_arg_to_fnx_graph(G):
     Pass-through for graphs already of fnx type. For nx graphs, route
     through ``franken_networkx.readwrite._from_nx_graph`` which builds
     the corresponding fnx graph with the same nodes/edges/attrs.
+
+    br-r37-c1-ajhcl: ``_FilteredGraphView`` (SubgraphView /
+    EdgeSubgraphView / subgraph_view / restricted_view / reverse_view)
+    isinstance-passes the canonical fnx Graph types because they're
+    added as a second base for parity, but their filtered node/edge
+    set lives entirely in Python — Rust ``_raw_*`` helpers read the
+    parent's Rust adjacency directly and silently ignore the filter,
+    silently producing wrong answers for connected_components /
+    is_connected / number_connected_components / difference /
+    symmetric_difference and any other Rust path. Materialize views
+    to a concrete fnx graph (preserving only the view's visible
+    nodes + edges + attrs) before crossing the Rust boundary.
     """
+    if isinstance(G, _FilteredGraphView):
+        return _materialize_filtered_view(G)
     if isinstance(G, (Graph, DiGraph, MultiGraph, MultiDiGraph)):
         return G
     try:
@@ -10343,6 +10357,26 @@ def _coerce_arg_to_fnx_graph(G):
     except ImportError:
         pass
     return G
+
+
+def _materialize_filtered_view(view):
+    """br-r37-c1-ajhcl: build a concrete fnx graph that contains only
+    the view's visible nodes + edges (and their attrs), so callers
+    that hand the result to Rust ``_raw_*`` operators see the filtered
+    contents rather than the parent's full Rust state.
+    """
+    cls = _concrete_class_for(view)
+    out = cls()
+    out.graph.update(dict(view.graph))
+    for n in view.nodes():
+        out.add_node(n, **dict(view.nodes[n]))
+    if view.is_multigraph():
+        for u, v, k, d in view.edges(keys=True, data=True):
+            out.add_edge(u, v, key=k, **dict(d))
+    else:
+        for u, v, d in view.edges(data=True):
+            out.add_edge(u, v, **dict(d))
+    return out
 
 
 def _rebuild_operator_output(output, cls):

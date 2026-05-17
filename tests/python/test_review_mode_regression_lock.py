@@ -10232,3 +10232,59 @@ def test_set_operators_on_subgraph_views():
     sg = fdg.subgraph([0, 1, 2])
     out = fnx.intersection(sg, sg)
     assert type(out) is fnx.DiGraph
+
+
+def test_rust_path_respects_subgraph_view_filter():
+    """br-r37-c1-ajhcl (cycle 227): SubgraphView / _FilteredGraphView
+    isinstance-passes the canonical fnx Graph type (a second-base trick
+    added for isinstance parity), so ``_coerce_arg_to_fnx_graph`` used
+    to pass the view through unchanged. But Rust ``_raw_*`` operators
+    read the parent's Rust adjacency directly — they have no knowledge
+    of the Python-side filter — so callers got the parent's full
+    connectivity instead of the view's filtered one.
+
+    Bug repro: g=path_graph(5); sg=g.subgraph([0,1,3,4]). View edges
+    are [(0,1), (3,4)] — two components. fnx returned ONE component
+    {0,1,2,3,4} (parent's full set) and is_connected=True.
+
+    Sister operators (``difference`` / ``symmetric_difference``)
+    likewise leaked the parent's hidden edges back into the result.
+
+    Fix: ``_coerce_arg_to_fnx_graph`` now detects _FilteredGraphView
+    first and materializes it via ``_materialize_filtered_view`` (a
+    cheap copy of the view's visible nodes + edges + attrs into a
+    fresh concrete fnx graph) before the Rust binding sees it.
+    """
+    import networkx as nx
+
+    # connected_components on a SubgraphView that hides middle node 2
+    g = fnx.path_graph(5)
+    sg = g.subgraph([0, 1, 3, 4])
+    cc_fnx = [sorted(c) for c in fnx.connected_components(sg)]
+    cc_nx = [
+        sorted(c)
+        for c in nx.connected_components(nx.path_graph(5).subgraph([0, 1, 3, 4]))
+    ]
+    assert sorted(cc_fnx) == sorted(cc_nx) == [[0, 1], [3, 4]]
+    assert fnx.is_connected(sg) is False
+    assert fnx.number_connected_components(sg) == 2
+
+    # difference: only the view's visible edges should be considered.
+    g1 = fnx.path_graph(5)
+    g2 = fnx.Graph()
+    g2.add_nodes_from([0, 1, 3, 4])
+    g2.add_edge(0, 1)
+    sg1 = g1.subgraph([0, 1, 3, 4])
+    # Visible edges of sg1: {(0,1), (3,4)}. g2 has {(0,1)}. Difference: {(3,4)}.
+    diff = sorted(tuple(sorted(e)) for e in fnx.difference(sg1, g2).edges())
+    assert diff == [(3, 4)]
+
+    # symmetric_difference parity
+    g3 = fnx.Graph()
+    g3.add_nodes_from([0, 1, 3, 4])
+    g3.add_edge(0, 1)
+    g3.add_edge(0, 4)
+    sym = sorted(
+        tuple(sorted(e)) for e in fnx.symmetric_difference(sg1, g3).edges()
+    )
+    assert sym == [(0, 4), (3, 4)]
