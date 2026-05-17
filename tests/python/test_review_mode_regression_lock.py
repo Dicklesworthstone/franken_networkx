@@ -10653,7 +10653,7 @@ def test_capacity_scaling_unfeasible_message_matches_nx():
         ])
         return g
 
-    with _pytest.raises(NetworkXUnfeasible) as e_fnx_ns:
+    with _pytest.raises(fnx.NetworkXUnfeasible) as e_fnx_ns:
         fnx.network_simplex(make_fnx())
     with _pytest.raises(nx.NetworkXUnfeasible) as e_nx_ns:
         nx.network_simplex(make_nx())
@@ -10661,7 +10661,7 @@ def test_capacity_scaling_unfeasible_message_matches_nx():
         "no flow satisfies all node demands"
     )
 
-    with _pytest.raises(NetworkXUnfeasible) as e_fnx_cs:
+    with _pytest.raises(fnx.NetworkXUnfeasible) as e_fnx_cs:
         fnx.capacity_scaling(make_fnx())
     with _pytest.raises(nx.NetworkXUnfeasible) as e_nx_cs:
         nx.capacity_scaling(make_nx())
