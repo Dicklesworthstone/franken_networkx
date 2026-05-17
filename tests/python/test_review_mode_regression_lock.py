@@ -10450,3 +10450,22 @@ def test_transitive_reduction_on_subgraph_view():
     assert sorted(out.edges()) == sorted(
         nx.transitive_reduction(nx.DiGraph([(0, 1), (1, 2), (2, 3), (3, 4), (4, 5)]).subgraph([0, 1, 3, 4])).edges()
     )
+
+
+def test_quotient_graph_on_subgraph_view():
+    """br-r37-c1-5r04c (cycle 229): quotient_graph fell back to
+    bare ``G.__class__()`` when create_using was None, crashing
+    on _FilteredGraphView SubgraphView inputs. Same cycle-225
+    family fix — route through _concrete_class_for(G).
+    """
+    import networkx as nx
+
+    gf = fnx.complete_graph(6)
+    gn = nx.complete_graph(6)
+    sgf = gf.subgraph([0, 1, 2, 3])
+    sgn = gn.subgraph([0, 1, 2, 3])
+    # Trivial single-block partition collapses to a single super-node.
+    qf = fnx.quotient_graph(sgf, lambda u, v: True)
+    qn = nx.quotient_graph(sgn, lambda u, v: True)
+    assert qf.number_of_nodes() == qn.number_of_nodes()
+    assert qf.number_of_edges() == qn.number_of_edges()

@@ -20263,7 +20263,10 @@ def quotient_graph(
     if create_using is not None:
         H = _empty_graph_from_create_using(create_using)
     else:
-        H = G.__class__()
+        # br-r37-c1-5r04c: SubgraphView's class is _FilteredGraphView,
+        # whose __init__ requires a 'graph' arg — bare ``cls()`` fails.
+        # Route through canonical-class resolver (cycle-225 family).
+        H = _concrete_class_for(G)()
 
     # Add block nodes
     # br-r37-c1-ja61l: when node_data is not provided, nx attaches a
