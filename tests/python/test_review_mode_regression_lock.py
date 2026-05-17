@@ -10404,3 +10404,26 @@ def test_more_rust_shortcuts_respect_subgraph_view_filter():
     msdpl_f = fnx.multi_source_dijkstra_path_length(sgf, [0, 1])
     msdpl_n = nx.multi_source_dijkstra_path_length(sgn, [0, 1])
     assert sorted(msdpl_f.keys()) == sorted(msdpl_n.keys()) == [0, 1, 2, 3]
+
+
+def test_spanning_tree_helpers_respect_subgraph_view_filter():
+    """br-r37-c1-zapl2 (cycle 228): sibling of gr1ct.
+    minimum_spanning_edges and partition_spanning_tree short-circuit
+    into the Rust kernel without coercing; SubgraphView callers got
+    a spanning structure sized to the parent (e.g. 5 edges from a
+    K6) instead of the view's K4 (3 edges).
+    """
+    import networkx as nx
+
+    sgf = fnx.complete_graph(6).subgraph([0, 1, 2, 3])
+    sgn = nx.complete_graph(6).subgraph([0, 1, 2, 3])
+    assert (
+        len(list(fnx.minimum_spanning_edges(sgf)))
+        == len(list(nx.minimum_spanning_edges(sgn)))
+        == 3
+    )
+    assert (
+        len(list(fnx.partition_spanning_tree(sgf).edges()))
+        == len(list(nx.partition_spanning_tree(sgn).edges()))
+        == 3
+    )

@@ -7656,6 +7656,8 @@ def minimum_spanning_edges(G, algorithm="kruskal", weight="weight", keys=True, d
     return type for callers that introspect generator-ness (e.g.
     Cython interop, ``inspect.isgenerator``).
     """
+    # br-r37-c1-gr1ct: materialize SubgraphView first (view family).
+    G = _coerce_arg_to_fnx_graph(G)
     # br-mstcallable / br-mstweightwrong: same suboptimal-MST issue
     # as the tree functions; delegate anything weighted to nx.
     if (
@@ -7906,6 +7908,8 @@ def partition_spanning_tree(G, minimum=True, weight="weight", partition="partiti
     Kruskal/Prim variants generalize trivially across them). Delegate
     those cases to nx so drop-in callers keep working.
     """
+    # br-r37-c1-gr1ct: materialize SubgraphView first (view family).
+    G = _coerce_arg_to_fnx_graph(G)
     if G.is_directed() or G.is_multigraph():
         return _call_networkx_for_parity(
             "partition_spanning_tree", G,
