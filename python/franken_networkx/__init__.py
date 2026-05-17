@@ -28154,6 +28154,10 @@ def _graph_shallowcopy(self):
         result._adj = self.adj
     else:
         result._adj = self.adj
+    # br-r37-c1-ish29: preserve frozen flag + mutator overrides on
+    # shallow copy (sister of br-r37-c1-9e7gd for deepcopy).
+    if getattr(self, "frozen", False):
+        freeze(result)
     return result
 
 
@@ -28161,6 +28165,61 @@ Graph.__copy__ = _graph_shallowcopy
 DiGraph.__copy__ = _graph_shallowcopy
 MultiGraph.__copy__ = _graph_shallowcopy
 MultiDiGraph.__copy__ = _graph_shallowcopy
+
+
+# br-r37-c1-ish29: preserve the frozen flag across pickle. The Rust
+# __reduce_ex__ returns (constructor, args, state) with state =
+# {'mode', 'runtime_policy', 'nodes', 'edges', 'graph'} — none of
+# which carry frozen. Wrap the reduce result to re-apply freeze on
+# load when the source was frozen.
+def _reconstruct_graph_preserving_frozen(reduce_payload, was_frozen):
+    """Module-level pickle reconstructor: rebuild via the inner
+    reduce payload, then re-apply freeze if the source was frozen."""
+    cls, args = reduce_payload[0], reduce_payload[1]
+    state = reduce_payload[2] if len(reduce_payload) > 2 else None
+    obj = cls(*args)
+    if state is not None:
+        if hasattr(obj, "__setstate__"):
+            obj.__setstate__(state)
+        else:
+            obj.__dict__.update(state)
+    if was_frozen:
+        freeze(obj)
+    return obj
+
+
+import copyreg
+
+# Capture the Rust __reduce_ex__ before installing our wrapper so we
+# can call into it without recursing.
+_GRAPH_RAW_REDUCE_EX = Graph.__reduce_ex__
+_DIGRAPH_RAW_REDUCE_EX = DiGraph.__reduce_ex__
+_MULTIGRAPH_RAW_REDUCE_EX = MultiGraph.__reduce_ex__
+_MULTIDIGRAPH_RAW_REDUCE_EX = MultiDiGraph.__reduce_ex__
+
+
+def _make_reduce_ex_preserving_frozen(raw_reduce_ex):
+    def _reduce_ex(self, protocol=2):
+        inner = raw_reduce_ex(self, protocol)
+        if isinstance(inner, tuple) and len(inner) >= 2:
+            reconstructor = inner[0]
+            if reconstructor is copyreg.__newobj__:
+                cls = inner[1][0]
+                rest_args = inner[1][1:]
+                normalized = (cls, rest_args) + inner[2:]
+            else:
+                normalized = inner
+        else:
+            normalized = inner
+        was_frozen = bool(getattr(self, "frozen", False))
+        return (_reconstruct_graph_preserving_frozen, (normalized, was_frozen))
+    return _reduce_ex
+
+
+Graph.__reduce_ex__ = _make_reduce_ex_preserving_frozen(_GRAPH_RAW_REDUCE_EX)
+DiGraph.__reduce_ex__ = _make_reduce_ex_preserving_frozen(_DIGRAPH_RAW_REDUCE_EX)
+MultiGraph.__reduce_ex__ = _make_reduce_ex_preserving_frozen(_MULTIGRAPH_RAW_REDUCE_EX)
+MultiDiGraph.__reduce_ex__ = _make_reduce_ex_preserving_frozen(_MULTIDIGRAPH_RAW_REDUCE_EX)
 
 
 def _reconstruct_filtered_view_as_copy(graph_copy):

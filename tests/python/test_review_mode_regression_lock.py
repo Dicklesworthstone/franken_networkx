@@ -10798,3 +10798,48 @@ def test_deepcopy_preserves_frozen_flag():
     g2 = fnx.path_graph(3)
     h2 = copy.deepcopy(g2)
     assert not fnx.is_frozen(h2)
+
+
+def test_pickle_and_shallow_copy_preserve_frozen_flag():
+    """br-r37-c1-ish29 (cycle 233): sibling of 9e7gd. pickle and
+    copy.copy also dropped the frozen flag because the Rust __reduce_ex__
+    and the existing _graph_shallowcopy didn't propagate it.
+
+    Wrap __reduce_ex__ at the Python layer to capture the frozen
+    state and re-apply on reconstruction; add the same re-freeze
+    branch to _graph_shallowcopy.
+    """
+    import networkx as nx
+    import copy
+    import pickle
+
+    for cls_pair in [
+        (fnx.Graph, nx.Graph),
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiGraph, nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ]:
+        fcls, ncls = cls_pair
+        g = fcls()
+        g.add_edge(0, 1)
+        fnx.freeze(g)
+        gn = ncls()
+        gn.add_edge(0, 1)
+        nx.freeze(gn)
+
+        # Pickle round-trip
+        h = pickle.loads(pickle.dumps(g))
+        hn = pickle.loads(pickle.dumps(gn))
+        assert fnx.is_frozen(h) is True, f"{fcls.__name__} pickle"
+        assert fnx.is_frozen(h) == nx.is_frozen(hn)
+
+        # Shallow copy
+        s = copy.copy(g)
+        sn = copy.copy(gn)
+        assert fnx.is_frozen(s) is True, f"{fcls.__name__} shallow"
+        assert fnx.is_frozen(s) == nx.is_frozen(sn)
+
+    # Non-frozen graph stays unfrozen through pickle + shallow
+    g = fnx.Graph([(0, 1)])
+    assert not fnx.is_frozen(pickle.loads(pickle.dumps(g)))
+    assert not fnx.is_frozen(copy.copy(g))
