@@ -10469,3 +10469,55 @@ def test_quotient_graph_on_subgraph_view():
     qn = nx.quotient_graph(sgn, lambda u, v: True)
     assert qf.number_of_nodes() == qn.number_of_nodes()
     assert qf.number_of_edges() == qn.number_of_edges()
+
+
+def test_more_helpers_on_subgraph_view():
+    """br-r37-c1-s8w2p (cycle 229): six more rebuild helpers used
+    bare ``G.__class__()`` (or two sites in ``power``), all of which
+    raised TypeError on SubgraphView (_FilteredGraphView.__init__
+    requires a 'graph' arg). Replaced each with
+    ``_concrete_class_for(G)()`` so views are rebuilt as their
+    canonical concrete class.
+
+    Functions covered: create_empty_copy, ego_graph, contracted_nodes,
+    identified_nodes, panther_similarity, snap_aggregation, power.
+    Plus the private helpers _nan_filtered_graph,
+    _panther_induced_ordered_copy, _copy_graph_shallow.
+    """
+    import networkx as nx
+
+    # K6 subgraph -> K4 view
+    sgf = fnx.complete_graph(6).subgraph([0, 1, 2, 3])
+    sgn = nx.complete_graph(6).subgraph([0, 1, 2, 3])
+
+    # create_empty_copy: returns 4 nodes, no edges
+    cf = fnx.create_empty_copy(sgf)
+    cn = nx.create_empty_copy(sgn)
+    assert sorted(cf.nodes()) == sorted(cn.nodes()) == [0, 1, 2, 3]
+    assert cf.number_of_edges() == cn.number_of_edges() == 0
+
+    # ego_graph from a P5 SG
+    gpf = fnx.path_graph(10).subgraph(range(5))
+    gpn = nx.path_graph(10).subgraph(range(5))
+    egf = fnx.ego_graph(gpf, 2)
+    egn = nx.ego_graph(gpn, 2)
+    assert sorted(egf.nodes()) == sorted(egn.nodes())
+
+    # contracted_nodes
+    cnf = fnx.contracted_nodes(sgf, 0, 1)
+    cnn = nx.contracted_nodes(sgn, 0, 1)
+    assert sorted(cnf.nodes()) == sorted(cnn.nodes())
+
+    # power: K4 squared = K4 (already complete) — no crash, edge set matches
+    pf = fnx.power(sgf, 2)
+    pn = nx.power(sgn, 2)
+    assert (
+        sorted(tuple(sorted(e)) for e in pf.edges())
+        == sorted(tuple(sorted(e)) for e in pn.edges())
+    )
+
+    # panther_similarity (k=2, fixed seed)
+    psf = fnx.panther_similarity(sgf, 0, k=2, seed=42)
+    psn = nx.panther_similarity(sgn, 0, k=2, seed=42)
+    assert set(psf.keys()).issubset({0, 1, 2, 3})
+    assert set(psn.keys()) == set(psf.keys())

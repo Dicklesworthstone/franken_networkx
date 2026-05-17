@@ -5140,7 +5140,8 @@ MultiDiGraph.in_edges = _make_edge_method_view_property(_multidigraph_in_edges, 
 
 
 def _nan_filtered_graph(G, weight, ignore_nan):
-    H = G.__class__()
+    # br-r37-c1-s8w2p: SubgraphView class can't be empty-constructed.
+    H = _concrete_class_for(G)()
     H.graph.update(dict(G.graph))
     H.add_nodes_from(G.nodes(data=True))
 
@@ -14945,7 +14946,8 @@ def create_empty_copy(G, with_data=True):
     H : Graph
         A graph with the same nodes but no edges.
     """
-    H = G.__class__()
+    # br-r37-c1-s8w2p: SubgraphView class can't be empty-constructed.
+    H = _concrete_class_for(G)()
     if with_data:
         H.graph.update(dict(G.graph))
         H.add_nodes_from((node, dict(attrs)) for node, attrs in G.nodes(data=True))
@@ -16045,7 +16047,8 @@ def ego_graph(G, n, radius=1, center=True, undirected=False, distance=None):
     # nodes_within). Match that contract instead of BFS-visit order.
     ordered_nodes = [node for node in G.nodes() if node in nodes_within]
 
-    graph = G.__class__()
+    # br-r37-c1-s8w2p: SubgraphView class can't be empty-constructed.
+    graph = _concrete_class_for(G)()
     graph.graph.update(dict(G.graph))
     for node in ordered_nodes:
         graph.add_node(node, **dict(G.nodes[node]))
@@ -16306,11 +16309,15 @@ def power(G, k):
     if k <= 0:
         raise ValueError("k must be a positive integer")
 
+    # br-r37-c1-s8w2p: materialize SubgraphView and use canonical class
+    # to avoid the cycle-225-family TypeError. Both branches build the
+    # output via G.__class__() which fails for views.
+    G = _coerce_arg_to_fnx_graph(G)
     if isinstance(k, _numbers.Integral):
         raw_graph = _fnx.power_rust(G, int(k))
         canonical_to_node = {str(node): node for node in G.nodes()}
 
-        graph = G.__class__()
+        graph = _concrete_class_for(G)()
         for raw_node in raw_graph.nodes():
             graph.add_node(canonical_to_node.get(raw_node, raw_node))
         for raw_u, raw_v in raw_graph.edges():
@@ -16320,7 +16327,7 @@ def power(G, k):
             )
         return graph
 
-    graph = G.__class__()
+    graph = _concrete_class_for(G)()
     graph.add_nodes_from(G)
     for node in G:
         seen = {}
@@ -20420,7 +20427,8 @@ def snap_aggregation(
         eligible_gid, nbr_info = _eligible_group()
 
     # Build the summary graph
-    output = G.__class__()
+    # br-r37-c1-s8w2p: SubgraphView class can't be empty-constructed.
+    output = _concrete_class_for(G)()
     node_label_lookup = {}
     for index, group_id in enumerate(groups):
         group_set = groups[group_id]
@@ -20532,7 +20540,8 @@ def identified_nodes(
     if v not in G:
         raise NetworkXError(f"Node {v} is not in the graph.")
     # Build a new graph preserving node order from G (skip v)
-    H = G.__class__()
+    # br-r37-c1-s8w2p: SubgraphView class can't be empty-constructed.
+    H = _concrete_class_for(G)()
     v_data = dict(G.nodes[v])
 
     def add_node_with_deferred_contraction(graph, node, attrs):
@@ -33278,7 +33287,8 @@ def _panther_isolates(G):
 
 def _panther_induced_ordered_copy(G, nodes):
     node_set = set(nodes)
-    graph = G.__class__()
+    # br-r37-c1-s8w2p: SubgraphView class can't be empty-constructed.
+    graph = _concrete_class_for(G)()
     graph.graph.update(dict(G.graph))
     graph.add_nodes_from((node, dict(G.nodes[node])) for node in G if node in node_set)
     if G.is_multigraph():
@@ -36830,7 +36840,8 @@ def _classic_named_graph_from_adjlist(
 
 def _copy_graph_shallow(G):
     """Return a shallow graph copy preserving graph, node, and edge attrs."""
-    H = G.__class__()
+    # br-r37-c1-s8w2p: SubgraphView class can't be empty-constructed.
+    H = _concrete_class_for(G)()
     H.graph.update(dict(G.graph))
     for node, attrs in G.nodes(data=True):
         H.add_node(node, **dict(attrs))
