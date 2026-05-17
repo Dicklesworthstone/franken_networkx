@@ -10743,3 +10743,24 @@ def test_add_edges_from_string_edge_raises_networkx_error():
     assert str(ef.value) == str(en.value) == (
         "Edge tuple oops must be a 2-tuple or 3-tuple."
     )
+
+
+def test_degree_nbunch_unhashable_raises_networkx_error():
+    """br-r37-c1-tk51o (cycle 232): DegreeView.__call__(nbunch)
+    silently filtered unhashable elements via the ``n in self._graph``
+    short-circuit (returns False for unhashables). nx raises
+    NetworkXError "Node X in sequence nbunch is not a valid node."
+
+    Validate each nbunch element with hash() before the membership
+    check so the error contract matches nx exactly.
+    """
+    import networkx as nx
+    import pytest as _pytest
+
+    with _pytest.raises(fnx.NetworkXError) as ef:
+        list(fnx.path_graph(5).degree([[0]]))
+    with _pytest.raises(nx.NetworkXError) as en:
+        list(nx.path_graph(5).degree([[0]]))
+    assert str(ef.value) == str(en.value) == (
+        "Node [0] in sequence nbunch is not a valid node."
+    )

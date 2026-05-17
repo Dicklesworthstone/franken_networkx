@@ -3338,7 +3338,21 @@ class _WeightAwareDegreeView:
                         return self._raw[nbunch]
                 except TypeError:
                     pass
-                filtered = [n for n in nbunch if n in self._graph]
+                # br-r37-c1-tk51o: nx.Graph.nbunch_iter raises
+                # NetworkXError("Node X in sequence nbunch is not a
+                # valid node.") on any unhashable element. Pre-fix fnx
+                # silently filtered them out via ``n in self._graph``
+                # short-circuit (returns False for unhashables).
+                filtered = []
+                for n in nbunch:
+                    try:
+                        hash(n)
+                    except TypeError:
+                        raise NetworkXError(
+                            f"Node {n} in sequence nbunch is not a valid node."
+                        )
+                    if n in self._graph:
+                        filtered.append(n)
                 # br-degnbnview: nx.Graph.degree(nbunch) returns a
                 # DegreeView-like object that iterates as (node, deg)
                 # tuples AND supports ``view[node]`` key lookup for any
