@@ -4,7 +4,7 @@ All notable changes to FrankenNetworkX are documented in this file.
 
 This project has no formal releases, git tags, or GitHub Releases yet. The
 timeline below is reconstructed exhaustively from the commit history on `main`
-(2,608 commits, 2026-02-13 through 2026-05-16). Sections are organized by
+(2,621 commits, 2026-02-13 through 2026-05-17). Sections are organized by
 capability area rather than raw diff order. Every link points to the actual
 commit on GitHub.
 
@@ -12,11 +12,11 @@ Repository: <https://github.com/Dicklesworthstone/franken_networkx>
 
 ---
 
-## Unreleased (HEAD -- 7e22ddcc)
+## Unreleased (HEAD -- 77a4f3b7)
 
 Workspace version: **0.1.0** (`Cargo.toml`).
-PyPI package name: `franken-networkx` (Alpha, `pip install franken-networkx`).
-No GitHub Releases or git tags exist as of 2026-05-16.
+PyPI package name: `franken-networkx` (Development Status :: 4 - Beta, `pip install franken-networkx`).
+No GitHub Releases or git tags exist as of 2026-05-17.
 
 ---
 
@@ -1153,8 +1153,8 @@ the full workspace architecture and the first executable vertical slice.
 
 | Metric | Value |
 |--------|-------|
-| Total commits | 2,608 |
-| Date range | 2026-02-13 to 2026-05-16 |
+| Total commits | 2,621 |
+| Date range | 2026-02-13 to 2026-05-17 |
 | Git tags | 0 |
 | GitHub Releases | 0 |
 | Workspace version | 0.1.0 |
