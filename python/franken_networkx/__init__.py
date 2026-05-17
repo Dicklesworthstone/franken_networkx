@@ -10738,10 +10738,16 @@ def _transitive_reduction_via_parity(G):
     """br-r37-c1-nhz31: private helper keeps the public
     ``transitive_reduction`` classified as PY_WRAPPER in the
     coverage matrix.
+
+    br-r37-c1-blaz5: ``type(G)`` for a SubgraphView is the synthetic
+    ``_FilteredGraphView`` whose ``__init__`` requires a ``graph`` arg —
+    so the bare ``type(G)()`` blew up with TypeError. Route through
+    ``_concrete_class_for(G)`` (same canonical-class resolver as the
+    cycle-225 br-r37-c1-k7dct operator fix family).
     """
     nx_result = _nx.transitive_reduction(_networkx_graph_for_parity(G))
     from franken_networkx.readwrite import _from_nx_graph
-    cls = type(G)()
+    cls = _concrete_class_for(G)()
     return _from_nx_graph(nx_result, create_using=cls)
 
 

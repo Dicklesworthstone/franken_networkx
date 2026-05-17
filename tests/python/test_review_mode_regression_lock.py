@@ -10427,3 +10427,26 @@ def test_spanning_tree_helpers_respect_subgraph_view_filter():
         == len(list(nx.partition_spanning_tree(sgn).edges()))
         == 3
     )
+
+
+def test_transitive_reduction_on_subgraph_view():
+    """br-r37-c1-blaz5 (cycle 229): transitive_reduction's
+    _transitive_reduction_via_parity helper rebuilt the result via
+    bare ``type(G)()``, which is _FilteredGraphView for SubgraphView
+    inputs — the synthetic class's __init__ requires a 'graph' arg,
+    so the call raised TypeError. Route through _concrete_class_for(G).
+
+    Same root cause as the cycle-225 operator fix family
+    (br-r37-c1-k7dct).
+    """
+    import networkx as nx
+
+    g = fnx.DiGraph([(0, 1), (1, 2), (2, 3), (3, 4), (4, 5)])
+    sg = g.subgraph([0, 1, 3, 4])
+    # nx and fnx both treat the SG as: edges {(0,1), (3,4)} (node 2 hidden).
+    out = fnx.transitive_reduction(sg)
+    assert type(out) is fnx.DiGraph
+    assert sorted(out.edges()) == [(0, 1), (3, 4)]
+    assert sorted(out.edges()) == sorted(
+        nx.transitive_reduction(nx.DiGraph([(0, 1), (1, 2), (2, 3), (3, 4), (4, 5)]).subgraph([0, 1, 3, 4])).edges()
+    )
