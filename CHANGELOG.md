@@ -1160,11 +1160,11 @@ the full workspace architecture and the first executable vertical slice.
 | Workspace version | 0.1.0 |
 | Workspace crates | 12 |
 | Public exports in `franken_networkx.*` | 763 (731 PY_WRAPPER, 1 RUST_NATIVE, 28 CLASS, 3 CONSTANT) |
-| Backend-dispatched algorithms (`_SUPPORTED_ALGORITHMS`) | ~317 |
+| Backend-dispatched algorithms (`_SUPPORTED_ALGORITHMS`) | 316 |
 | Graph types | Graph, DiGraph, MultiGraph, MultiDiGraph |
 | Algorithm families | 25+ (shortest path, connectivity, centrality, clustering, matching, flow, trees, Euler, DAG, traversal, community, isomorphism, planarity, approximation, coloring, link prediction, and more) |
-| Test files (Python parity gate) | 383 in `tests/python/` |
-| Fuzz targets | 36 in `fuzz/fuzz_targets/` |
+| Test files (Python parity gate) | 377 in `tests/python/` |
+| Fuzz targets | 33 binaries in `fuzz/Cargo.toml` (`[[bin]]` entries) |
 | I/O formats | edgelist, adjlist, weighted edgelist, multiline adjlist, GraphML, GML, JSON (node-link), Pajek, LEDA, GEXF, graph6, sparse6 |
 | CI gates | G0–G8 (docs freshness, fmt, clippy, rust tests, python parity, e2e, docs, examples, conformance, performance SLO, UBS, fuzz smoke, RaptorQ durability) |
 | Conformance audit ledgers | coverage matrix, raw-vs-public, delegation, upstream divergence, API ergonomics |
