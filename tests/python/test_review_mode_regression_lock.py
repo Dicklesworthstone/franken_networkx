@@ -10335,3 +10335,27 @@ def test_average_neighbor_degree_respects_subgraph_view_filter():
         fnx.assortativity.average_neighbor_degree(sg_fnx)
         == nx.assortativity.average_neighbor_degree(sg_nx)
     )
+
+
+def test_average_shortest_path_length_respects_subgraph_view_filter():
+    """br-r37-c1-10xrd (cycle 228): sibling of ajhcl/c7xg2/2dbnk.
+    ``average_shortest_path_length`` called ``_raw_average_shortest_path_
+    length(G)`` directly; on a SubgraphView whose visible nodes happen
+    to be disconnected (P5.subgraph([0,1,3,4]) — node 2 hidden), the
+    Rust path reads the parent's connected P5 state and quietly
+    returns a number instead of raising NetworkXError("Graph is not
+    connected.") as nx does.
+
+    Fix: coerce SG before the Rust call.
+    """
+    import networkx as nx
+
+    gf = fnx.path_graph(5)
+    gn = nx.path_graph(5)
+    sg_fnx = gf.subgraph([0, 1, 3, 4])
+    sg_nx = gn.subgraph([0, 1, 3, 4])
+    import pytest as _pytest
+    with _pytest.raises(NetworkXError):
+        fnx.average_shortest_path_length(sg_fnx)
+    with _pytest.raises(nx.NetworkXError):
+        nx.average_shortest_path_length(sg_nx)

@@ -5892,6 +5892,11 @@ def average_shortest_path_length(G, weight=None, method=None):
 
     Matches ``networkx.average_shortest_path_length`` signature.
     """
+    # br-r37-c1-10xrd: materialize SubgraphView so the Rust path sees
+    # the filtered nodes/edges (and correctly raises NetworkXError
+    # when the view is disconnected). Same view-coerce family as
+    # br-r37-c1-ajhcl / -c7xg2 / -2dbnk.
+    G = _coerce_arg_to_fnx_graph(G)
     # br-r37-c1-aspl-fw: nx accepts ``method='floyd-warshall'`` and
     # ``method='floyd-warshall-numpy'``; fnx previously rejected
     # both with ``ValueError("method not supported: ...")``.
