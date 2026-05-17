@@ -4557,8 +4557,28 @@ MultiGraph.edges = property(_multigraph_edges)
 MultiDiGraph.edges = property(_multidigraph_edges)
 MultiGraph.degree = property(MultiGraphDegreeView)
 DiGraph.edges = property(_digraph_edges)
-DiGraph.in_degree = property(lambda self: _InDegreeView(self, "pred"))
-DiGraph.out_degree = property(lambda self: _OutDegreeView(self, "succ"))
+# br-r37-c1-b3cnf follow-up: cache DiGraph in/out_degree wrappers
+# (same pattern as MultiDiGraph variants below).
+def _digraph_in_degree(self):
+    cache = vars(self)
+    view = cache.get("_fnx_view_in_degree")
+    if view is None:
+        view = _InDegreeView(self, "pred")
+        cache["_fnx_view_in_degree"] = view
+    return view
+
+
+def _digraph_out_degree(self):
+    cache = vars(self)
+    view = cache.get("_fnx_view_out_degree")
+    if view is None:
+        view = _OutDegreeView(self, "succ")
+        cache["_fnx_view_out_degree"] = view
+    return view
+
+
+DiGraph.in_degree = property(_digraph_in_degree)
+DiGraph.out_degree = property(_digraph_out_degree)
 MultiDiGraph.adjlist_inner_dict_factory = dict
 MultiDiGraph.adjlist_outer_dict_factory = dict
 MultiDiGraph.edge_attr_dict_factory = dict
@@ -27194,6 +27214,12 @@ class _FilteredGraphView:
         # for MultiDiGraph). Dispatch based on the underlying graph's
         # directionality and multi-ness so ``type(S.edges).__name__``
         # matches nx exactly.
+        # br-r37-c1-b3cnf follow-up: cache the wrapper so
+        # ``sg.edges is sg.edges`` matches nx's @cached_property.
+        cache = vars(self)
+        view = cache.get("_fnx_view_edges")
+        if view is not None:
+            return view
         directed = self.is_directed()
         multi = self.is_multigraph()
         if multi and directed:
@@ -27204,7 +27230,9 @@ class _FilteredGraphView:
             cls = _FilteredOutEdgeView
         else:
             cls = _FilteredGraphEdgeView
-        return cls(self)
+        view = cls(self)
+        cache["_fnx_view_edges"] = view
+        return view
 
     def neighbors(self, node):
         if not self._node_visible(node):
@@ -27842,11 +27870,15 @@ def _private_aware_contains(raw_contains):
 
 def _private_aware_nodes(raw_nodes):
     def nodes(self):
+        cache = vars(self)
         if _private_override(self, _PRIVATE_NODE_OVERRIDE) is not _PRIVATE_MISSING:
-            return _AssignedPrivateNodeView(self)
+            view = cache.get("_fnx_view_nodes_assigned")
+            if view is None:
+                view = _AssignedPrivateNodeView(self)
+                cache["_fnx_view_nodes_assigned"] = view
+            return view
         # br-r37-c1-b3cnf: cache the raw NodeView wrapper so
         # ``g.nodes is g.nodes`` matches nx's @cached_property identity.
-        cache = vars(self)
         view = cache.get("_fnx_view_nodes")
         if view is None:
             view = raw_nodes.__get__(self, type(self))
@@ -27858,11 +27890,18 @@ def _private_aware_nodes(raw_nodes):
 
 def _private_aware_edges(raw_edges):
     def edges(self):
+        # br-r37-c1-b3cnf follow-up: cache wrapper for both branches
+        # (private storage / regular). Both should return the same
+        # instance on repeat access per nx's @cached_property contract.
+        cache = vars(self)
         if _has_networkx_private_storage(self):
-            return _AssignedPrivateEdgeView(self)
+            view = cache.get("_fnx_view_edges_assigned")
+            if view is None:
+                view = _AssignedPrivateEdgeView(self)
+                cache["_fnx_view_edges_assigned"] = view
+            return view
         # br-r37-c1-b3cnf: cache the raw EdgeView wrapper so
         # ``g.edges is g.edges`` matches nx's @cached_property identity.
-        cache = vars(self)
         view = cache.get("_fnx_view_edges")
         if view is None:
             view = raw_edges.__get__(self, type(self))

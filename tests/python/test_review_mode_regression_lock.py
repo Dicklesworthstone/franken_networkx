@@ -10933,6 +10933,17 @@ def test_view_identity_is_cached_like_nx():
     assert mdg.in_degree is mdg.in_degree
     assert mdg.out_degree is mdg.out_degree
 
+    # DiGraph in/out_degree cached too
+    dg = fnx.DiGraph([(0, 1)])
+    assert dg.in_degree is dg.in_degree
+    assert dg.out_degree is dg.out_degree
+
+    # SubgraphView.edges cached
+    g = fnx.path_graph(5)
+    sg = g.subgraph([0, 1, 2])
+    assert sg.edges is sg.edges
+    assert sg.nodes is sg.nodes
+
 
 def test_custom_python_attrs_survive_deepcopy_and_pickle():
     """br-r37-c1-8nz0x (cycle 233): nx preserves user-set instance
