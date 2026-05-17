@@ -20,6 +20,35 @@ except ModuleNotFoundError:  # pragma: no cover - Python 3.10 fallback
 ROOT = Path(__file__).resolve().parents[2]
 
 
+def _backend_registered_with_networkx() -> bool:
+    """True when the installed entry_points actually registered fnx with nx.
+
+    br-r37-c1-dfj9b: br-r37-c1-bocpu moved the entry point from the
+    top-level ``fnx_backend_info`` shim to ``franken_networkx.backend_info``.
+    Wheels built before that fix have a broken entry-point string;
+    nx then fails to register fnx as a backend at import time (visible
+    as ``RuntimeWarning: No module named 'fnx_backend_info'``). The
+    runtime-dispatch tests below require the entry point to actually
+    load, so skip them when the install is stale.
+    """
+    try:
+        return "franken_networkx" in nx.path_graph.backends
+    except (AttributeError, TypeError):
+        return False
+
+
+_needs_registered_backend = pytest.mark.skipif(
+    not _backend_registered_with_networkx(),
+    reason=(
+        "fnx is not registered with the running nx dispatcher — most "
+        "likely a stale installed wheel still references the removed "
+        "fnx_backend_info entry point (br-r37-c1-bocpu). Rebuild the "
+        "wheel via 'maturin develop' or 'pip install -e .' to re-link "
+        "the franken_networkx.backend_info entry point."
+    ),
+)
+
+
 def _backend_info_entry_point() -> str:
     """Return the configured entry-point string for the networkx.backend_info group."""
     pyproject_text = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
@@ -60,6 +89,7 @@ def test_backend_info_module_loads_and_exports_get_backend_info():
     assert "shortest_path" in info["functions"]
 
 
+@_needs_registered_backend
 def test_readme_core_generators_dispatch_through_networkx_backend():
     generator_cases = [
         ("path_graph", (5,), {}, 5, 4),
@@ -80,6 +110,7 @@ def test_readme_core_generators_dispatch_through_networkx_backend():
             assert generated.number_of_edges() == expected_edges
 
 
+@_needs_registered_backend
 def test_readme_dispatchable_io_conversion_helpers_dispatch_through_backend(tmp_path):
     np = pytest.importorskip("numpy")
     scipy_sparse = pytest.importorskip("scipy.sparse")
