@@ -10898,6 +10898,33 @@ def test_all_shortest_paths_iteration_order_matches_nx():
     assert fp3 == np3
 
 
+def test_view_identity_is_cached_like_nx():
+    """br-r37-c1-b3cnf (cycle 240): nx uses @cached_property for view
+    accessors so ``g.nodes is g.nodes`` returns True. fnx created a
+    fresh wrapper each access (False), breaking caller code that
+    relies on view identity.
+
+    Add per-instance caching slots so repeat access returns the same
+    object across nodes, edges, adj, succ, pred for all 4 graph types.
+    """
+    for cls in (fnx.Graph, fnx.DiGraph, fnx.MultiGraph, fnx.MultiDiGraph):
+        g = cls()
+        g.add_edge(0, 1)
+        assert g.nodes is g.nodes, f"{cls.__name__}.nodes not cached"
+        assert g.edges is g.edges, f"{cls.__name__}.edges not cached"
+        assert g.adj is g.adj, f"{cls.__name__}.adj not cached"
+        if g.is_directed():
+            assert g.succ is g.succ, f"{cls.__name__}.succ not cached"
+            assert g.pred is g.pred, f"{cls.__name__}.pred not cached"
+
+    # Live tracking: cached view still reflects mutations to underlying graph
+    g = fnx.path_graph(3)
+    nv = g.nodes
+    g.add_node(99)
+    assert 99 in nv
+    assert g.nodes is nv
+
+
 def test_custom_python_attrs_survive_deepcopy_and_pickle():
     """br-r37-c1-8nz0x (cycle 233): nx preserves user-set instance
     attrs (``g.custom_attr = 'x'``) across deepcopy and pickle via its

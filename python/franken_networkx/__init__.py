@@ -1127,42 +1127,75 @@ def _reconstruct_multi_adjacency_view(snapshot):
     return MultiAdjacencyView(lambda: snapshot)
 
 
-def _multigraph_adj_view(self):
-    return MultiAdjacencyView(lambda: _MULTIGRAPH_ADJ_DESCRIPTOR.__get__(self, MultiGraph))
+# br-r37-c1-b3cnf: nx uses @cached_property for view accessors so
+# ``g.adj is g.adj`` returns True. Cache the wrapper view on the
+# instance via a fnx-managed slot so repeat access returns the same
+# object (matching nx's identity-preservation contract). Subgraph
+# views and the underlying Rust descriptor still see live data —
+# the cache only memoizes the Python wrapper instance.
+def _cached_view(slot, factory):
+    def _accessor(self):
+        cache = vars(self)
+        view = cache.get(slot)
+        if view is None:
+            view = factory(self)
+            cache[slot] = view
+        return view
+    return _accessor
 
 
-def _graph_adj_view(self):
-    return AdjacencyView(lambda: _GRAPH_ADJ_DESCRIPTOR.__get__(self, Graph))
+_multigraph_adj_view = _cached_view(
+    "_fnx_view_adj",
+    lambda self: MultiAdjacencyView(lambda: _MULTIGRAPH_ADJ_DESCRIPTOR.__get__(self, MultiGraph)),
+)
 
 
-def _digraph_adj_view(self):
-    return AdjacencyView(lambda: _DIGRAPH_ADJ_DESCRIPTOR.__get__(self, DiGraph))
+_graph_adj_view = _cached_view(
+    "_fnx_view_adj",
+    lambda self: AdjacencyView(lambda: _GRAPH_ADJ_DESCRIPTOR.__get__(self, Graph)),
+)
 
 
-def _multidigraph_adj_view(self):
-    return MultiAdjacencyView(
+_digraph_adj_view = _cached_view(
+    "_fnx_view_adj",
+    lambda self: AdjacencyView(lambda: _DIGRAPH_ADJ_DESCRIPTOR.__get__(self, DiGraph)),
+)
+
+
+_multidigraph_adj_view = _cached_view(
+    "_fnx_view_adj",
+    lambda self: MultiAdjacencyView(
         lambda: _MULTIDIGRAPH_ADJ_DESCRIPTOR.__get__(self, MultiDiGraph)
-    )
+    ),
+)
 
 
-def _digraph_succ_view(self):
-    return AdjacencyView(lambda: _DIGRAPH_SUCC_DESCRIPTOR.__get__(self, DiGraph))
+_digraph_succ_view = _cached_view(
+    "_fnx_view_succ",
+    lambda self: AdjacencyView(lambda: _DIGRAPH_SUCC_DESCRIPTOR.__get__(self, DiGraph)),
+)
 
 
-def _digraph_pred_view(self):
-    return AdjacencyView(lambda: _DIGRAPH_PRED_DESCRIPTOR.__get__(self, DiGraph))
+_digraph_pred_view = _cached_view(
+    "_fnx_view_pred",
+    lambda self: AdjacencyView(lambda: _DIGRAPH_PRED_DESCRIPTOR.__get__(self, DiGraph)),
+)
 
 
-def _multidigraph_succ_view(self):
-    return MultiAdjacencyView(
+_multidigraph_succ_view = _cached_view(
+    "_fnx_view_succ",
+    lambda self: MultiAdjacencyView(
         lambda: _MULTIDIGRAPH_SUCC_DESCRIPTOR.__get__(self, MultiDiGraph)
-    )
+    ),
+)
 
 
-def _multidigraph_pred_view(self):
-    return MultiAdjacencyView(
+_multidigraph_pred_view = _cached_view(
+    "_fnx_view_pred",
+    lambda self: MultiAdjacencyView(
         lambda: _MULTIDIGRAPH_PRED_DESCRIPTOR.__get__(self, MultiDiGraph)
-    )
+    ),
+)
 
 
 def _graph_getitem_from_adj(self, node):
@@ -27789,7 +27822,14 @@ def _private_aware_nodes(raw_nodes):
     def nodes(self):
         if _private_override(self, _PRIVATE_NODE_OVERRIDE) is not _PRIVATE_MISSING:
             return _AssignedPrivateNodeView(self)
-        return raw_nodes.__get__(self, type(self))
+        # br-r37-c1-b3cnf: cache the raw NodeView wrapper so
+        # ``g.nodes is g.nodes`` matches nx's @cached_property identity.
+        cache = vars(self)
+        view = cache.get("_fnx_view_nodes")
+        if view is None:
+            view = raw_nodes.__get__(self, type(self))
+            cache["_fnx_view_nodes"] = view
+        return view
 
     return property(nodes)
 
@@ -27798,7 +27838,13 @@ def _private_aware_edges(raw_edges):
     def edges(self):
         if _has_networkx_private_storage(self):
             return _AssignedPrivateEdgeView(self)
-        view = raw_edges.__get__(self, type(self))
+        # br-r37-c1-b3cnf: cache the raw EdgeView wrapper so
+        # ``g.edges is g.edges`` matches nx's @cached_property identity.
+        cache = vars(self)
+        view = cache.get("_fnx_view_edges")
+        if view is None:
+            view = raw_edges.__get__(self, type(self))
+            cache["_fnx_view_edges"] = view
         # br-r37-c1-dc14n: register the graph in the per-process
         # weakref map so EdgeDataView (created lazily when the user
         # calls view(nbunch=...)) can recover the owning graph and
