@@ -10872,6 +10872,32 @@ def test_all_triangles_iteration_order_matches_nx():
     )
 
 
+def test_all_shortest_paths_iteration_order_matches_nx():
+    """br-r37-c1-o92w8 (cycle 239): the Rust ``_raw_all_shortest_paths``
+    yields paths in adj-iteration order rather than nx's BFS-discovery
+    order. karate(0->33) gave [(0,13,33),(0,19,33),(0,31,33),(0,8,33)]
+    while nx yields [(0,8,33),(0,13,33),(0,19,33),(0,31,33)].
+
+    Delegate the unweighted case (and the method='unweighted' branch)
+    to nx so iteration order matches the documented contract.
+    """
+    import networkx as nx
+
+    fp = [tuple(p) for p in fnx.all_shortest_paths(fnx.karate_club_graph(), 0, 33)]
+    npp = [tuple(p) for p in nx.all_shortest_paths(nx.karate_club_graph(), 0, 33)]
+    assert fp == npp == [(0, 8, 33), (0, 13, 33), (0, 19, 33), (0, 31, 33)]
+
+    # C6 multiple paths
+    fp2 = [tuple(p) for p in fnx.all_shortest_paths(fnx.cycle_graph(6), 0, 3)]
+    np2 = [tuple(p) for p in nx.all_shortest_paths(nx.cycle_graph(6), 0, 3)]
+    assert fp2 == np2
+
+    # method='unweighted' explicit
+    fp3 = [tuple(p) for p in fnx.all_shortest_paths(fnx.karate_club_graph(), 0, 33, method='unweighted')]
+    np3 = [tuple(p) for p in nx.all_shortest_paths(nx.karate_club_graph(), 0, 33, method='unweighted')]
+    assert fp3 == np3
+
+
 def test_custom_python_attrs_survive_deepcopy_and_pickle():
     """br-r37-c1-8nz0x (cycle 233): nx preserves user-set instance
     attrs (``g.custom_attr = 'x'``) across deepcopy and pickle via its

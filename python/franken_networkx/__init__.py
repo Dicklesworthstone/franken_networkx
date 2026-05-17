@@ -8214,10 +8214,23 @@ def all_shortest_paths(
         hash(target)
         if target not in G:
             raise NetworkXNoPath(f"Target {target} cannot be reached from given sources")
+        # br-r37-c1-o92w8: the Rust ``_raw_all_shortest_paths`` yields
+        # paths in adj-iteration order rather than nx's BFS-discovery
+        # order. For karate(0->33) nx yields [(0,8,33),(0,13,33),
+        # (0,19,33),(0,31,33)]; Rust yielded them re-shuffled. Delegate
+        # the unweighted case (weight=None) to nx so iteration order
+        # matches the documented contract.
+        if weight is None:
+            yield from _call_networkx_for_parity(
+                "all_shortest_paths", G, source, target, method=method,
+            )
+            return
         if method == "unweighted":
             # nx accepts method='unweighted' even when weight is supplied;
             # the method selection wins and edge weights are ignored.
-            yield from _raw_all_shortest_paths(G, source, target, weight=None, method=method)
+            yield from _call_networkx_for_parity(
+                "all_shortest_paths", G, source, target, weight=weight, method=method,
+            )
             return
         if weight is not None and G.is_directed():
             # Delegate non-string / callable weights to NetworkX (the PyO3
