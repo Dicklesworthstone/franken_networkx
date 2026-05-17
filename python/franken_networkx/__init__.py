@@ -36086,6 +36086,51 @@ def tutte_polynomial(G, *, x=None, y=None):
     return 1
 
 
+class _TarjanUnionFind:
+    """Minimal union-find used by tree_all_pairs_lowest_common_ancestor.
+
+    Mirrors the subset of networkx.utils.UnionFind that the LCA routine
+    actually touches: `uf[x]` returns the canonical representative and
+    auto-inserts fresh elements, and `uf.union(a, b)` merges by size.
+
+    br-r37-c1-jkqwg: restored after the orphan-helper sweep removed
+    it — tests in test_parity_comprehensive.py monkey-patch it to
+    assert the LCA routine uses the local Tarjan kernel (not a nx
+    fallback).
+    """
+
+    __slots__ = ("_parent", "_weight")
+
+    def __init__(self):
+        self._parent = {}
+        self._weight = {}
+
+    def __getitem__(self, item):
+        if item not in self._parent:
+            self._parent[item] = item
+            self._weight[item] = 1
+            return item
+        # Find root with path halving.
+        path = [item]
+        root = self._parent[item]
+        while root != path[-1]:
+            path.append(root)
+            root = self._parent[root]
+        for ancestor in path:
+            self._parent[ancestor] = root
+        return root
+
+    def union(self, *items):
+        roots = {self[item] for item in items}
+        if len(roots) <= 1:
+            return
+        heaviest = max(roots, key=lambda r: self._weight[r])
+        for root in roots:
+            if root != heaviest:
+                self._weight[heaviest] += self._weight[root]
+                self._parent[root] = heaviest
+
+
 def _tree_lca_dfs_postorder_nodes(G, root):
     visited = {root}
     stack = [(root, iter(G[root]))]
