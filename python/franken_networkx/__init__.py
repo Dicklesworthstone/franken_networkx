@@ -7898,7 +7898,9 @@ def random_spanning_tree(G, weight=None, *, multiplicative=True, seed=None):
         seed=seed,
     )
     from franken_networkx.readwrite import _from_nx_graph
-    return _from_nx_graph(nx_result, create_using=type(G)())
+    # br-r37-c1-lblzk: SubgraphView's class is _FilteredGraphView,
+    # whose __init__ requires a 'graph' arg. Cycle-225 family fix.
+    return _from_nx_graph(nx_result, create_using=_concrete_class_for(G)())
 
 
 def partition_spanning_tree(G, minimum=True, weight="weight", partition="partition", ignore_nan=False):
@@ -21516,7 +21518,8 @@ def _transitive_closure_dag_via_parity(G, topo_order):
         _networkx_graph_for_parity(G), **kwargs,
     )
     from franken_networkx.readwrite import _from_nx_graph
-    cls = type(G)()
+    # br-r37-c1-lblzk: cycle-225 family — SubgraphView can't be empty-constructed.
+    cls = _concrete_class_for(G)()
     return _from_nx_graph(nx_result, create_using=cls)
 
 

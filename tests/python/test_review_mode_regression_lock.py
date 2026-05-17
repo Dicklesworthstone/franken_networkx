@@ -10521,3 +10521,30 @@ def test_more_helpers_on_subgraph_view():
     psn = nx.panther_similarity(sgn, 0, k=2, seed=42)
     assert set(psf.keys()).issubset({0, 1, 2, 3})
     assert set(psn.keys()) == set(psf.keys())
+
+
+def test_random_spanning_tree_and_tc_dag_on_subgraph_view():
+    """br-r37-c1-lblzk (cycle 230): random_spanning_tree
+    (_random_spanning_tree_via_parity) and transitive_closure_dag
+    (_transitive_closure_dag_via_parity) rebuilt results via bare
+    ``type(G)()`` — crashed on SubgraphView. Same cycle-225 family fix:
+    route through _concrete_class_for(G).
+    """
+    import networkx as nx
+
+    # random_spanning_tree: works on a connected SubgraphView (K6 -> K4).
+    sgf = fnx.complete_graph(6).subgraph([0, 1, 2, 3])
+    sgn = nx.complete_graph(6).subgraph([0, 1, 2, 3])
+    rstf = fnx.random_spanning_tree(sgf, seed=42)
+    rstn = nx.random_spanning_tree(sgn, seed=42)
+    assert type(rstf) is fnx.Graph
+    assert rstf.number_of_nodes() == rstn.number_of_nodes() == 4
+    assert rstf.number_of_edges() == rstn.number_of_edges() == 3
+
+    # transitive_closure_dag on a DAG SubgraphView.
+    dgf = fnx.DiGraph([(0, 1), (1, 2), (2, 3)]).subgraph([0, 1, 2, 3])
+    dgn = nx.DiGraph([(0, 1), (1, 2), (2, 3)]).subgraph([0, 1, 2, 3])
+    tcf = fnx.transitive_closure_dag(dgf)
+    tcn = nx.transitive_closure_dag(dgn)
+    assert type(tcf) is fnx.DiGraph
+    assert sorted(tcf.edges()) == sorted(tcn.edges())
