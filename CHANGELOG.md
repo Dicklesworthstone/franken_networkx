@@ -4,7 +4,7 @@ All notable changes to FrankenNetworkX are documented in this file.
 
 This project has no formal releases, git tags, or GitHub Releases yet. The
 timeline below is reconstructed exhaustively from the commit history on `main`
-(246 commits, 2026-02-13 through 2026-03-21). Sections are organized by
+(2,608 commits, 2026-02-13 through 2026-05-16). Sections are organized by
 capability area rather than raw diff order. Every link points to the actual
 commit on GitHub.
 
@@ -12,11 +12,352 @@ Repository: <https://github.com/Dicklesworthstone/franken_networkx>
 
 ---
 
-## Unreleased (HEAD -- 0437033)
+## Unreleased (HEAD -- 7e22ddcc)
 
 Workspace version: **0.1.0** (`Cargo.toml`).
 PyPI package name: `franken-networkx` (Alpha, `pip install franken-networkx`).
-No GitHub Releases or git tags exist as of 2026-04-13.
+No GitHub Releases or git tags exist as of 2026-05-16.
+
+---
+
+## 2026-04-14 -- 2026-05-16 -- Parity Convergence, Audit Ledgers, and Top-Level Namespace Cleanup (2,071 commits)
+
+The longest sustained run on the project: 33 days of mostly mechanical
+parity work driven by the `br-r37-c1-*` bead cycle. Themes are best read
+as parallel work streams rather than a date timeline.
+
+### Algorithm Surface — "port:" cycle (early-cycle, ≈100 fixes)
+
+A batch of `port:` commits drove final NetworkX-faithful behavior on
+algorithms where the Rust path was correct but a corner case (seeding,
+default arguments, exception class, callable arguments, etc.) diverged.
+Representative items:
+
+- **Path/centrality parity** — `multi_source_shortest_path`,
+  `shortest_path_length` (source-only), `pagerank` dangling, `eccentricity`,
+  `subgraph_centrality` normalized, `information_centrality`,
+  `bellman_ford_predecessor_and_distance`,
+  `bfs_predecessors` iterator, `degree_mixing_matrix`,
+  `dijkstra_predecessor_and_distance` predecessor order,
+  `astar_path` heuristic-callable contract,
+  `tree_all_pairs_lowest_common_ancestor`,
+  `edge_current_flow_betweenness_centrality`,
+  `label_propagation_communities`, `katz_centrality_numpy`,
+  `subgraph_centrality_numpy`, `johnson` all-pairs inner-dict order.
+- **Community detection** — Louvain communities, `asyn_fluidc`,
+  `girvan_newman`, `kernighan_lin_bisection`,
+  `label_propagation_communities` parity locked.
+- **Tree / spanning / branching** — Edmonds-Karp public parity,
+  `greedy_branching`, `network_simplex` parity, `chordal_graph_treewidth`,
+  `complete_to_chordal_graph` via NetworkX MCS-M port, `find_induced_nodes`.
+- **Generators** — `random_geometric_graph` Minkowski p + list return,
+  `complete_multipartite_graph` iterable partitions, `erdos_renyi_graph` seed
+  parity, `waxman_graph(seed=)` byte-for-byte, `gnp_random_graph` accepts
+  p outside [0,1] matching nx, `random_reference` now implements
+  Maslov-Sneppen, `random_regular_graph` converges instead of
+  fail-closed, SBM preserves user-supplied `nodelist` order.
+- **Bipartite & I/O** — `bipartite.biadjacency_matrix` and
+  `from_biadjacency_matrix` natively, `parse_edgelist` delimiter parity,
+  weighted/multiline edgelist accepts file-like, GraphML attr collision
+  fix (GEXF), `write_gml` routes through nx for byte-exact format parity.
+- **MultiGraph/MultiDiGraph** — `MultiDiGraph.edges` keys view parity,
+  MultiGraph constructor honors 3-level dicts and dedupes adj-lists,
+  4-tuple `(u, v, key, data_dict)` accepted, `MultiGraph` diff/symmetric_diff
+  preserve parallel edges, `Multi*.nodes()` returns live `NodeView` (not
+  frozen list), `G.edges()` returns live view for DiGraph/Multi*,
+  `Multi*` reverse-edge data defaults.
+- **Misc** — `gomory_hu_tree` flow_func, `edge_bfs`/`edge_dfs` traversal
+  contracts, `could_be_isomorphic` properties contract, `min_weight_matching`
+  tuple direction, `transitive_reduction` + `transitive_closure_dag`
+  adj/edge order, `minimum_node_cut`/`minimum_edge_cut` parity,
+  `wiener_index` directed result coerced to int, `barycenter` non-strongly-
+  connected `NetworkXNoPath`, `all_shortest_paths` returns a real generator,
+  `florentine_families_graph` order.
+
+### Exception Class & Error-Message Parity (≈80 fixes)
+
+Surface-level work to make every public path raise the same exception
+class with the same message wording as NetworkX:
+
+- **Unhashable-node TypeError sweep** — 60+ functions now raise `TypeError`
+  on unhashable source/target/nbunch instead of letting `dict[unhashable]`
+  bubble up: `single_source_*`, `bidirectional_dijkstra`,
+  `bellman_ford_path_length`, `dfs_*_nodes`, `immediate_dominators`,
+  `dominance_frontiers`, `edge_betweenness_subset`, `find_negative_cycle`,
+  `resistance_distance`, `bfs_layers(iterable)`, `astar_path_length`, etc.
+- **Wrong-type / wrong-graph-direction** — `is_dominating_set` accepts
+  DiGraph, `bidirectional_shortest_path` accepts directed, `algebraic_connectivity`
+  rejects directed, `lex_topo_sort`/`dag_to_branching` undirected guards,
+  `dag_to_branching` rejects multigraph, `min_weight_matching` rejects
+  multigraph, `gomory_hu_tree` rejects MultiGraph, `min_cost_flow` family
+  raises `NetworkXNotImplemented` on undirected, `branching` family accepts
+  MultiDiGraph, `partition_spanning_tree` accepts directed/multigraph (via
+  nx delegation), 15+ functions add `@not_implemented_for('multigraph')`,
+  `spanner` + `k_edge_augmentation` type guards before validation,
+  `k_edge_components`/`k_edge_subgraphs` correct wrong-type handling,
+  `k_factor` wrong-type guards before k=0 short-circuit.
+- **Self-loop handling** — core family, `eulerian_path`, connectivity
+  predicates, `is_chordal` / `complete_to_chordal_graph`, `chordal_graph_cliques`
+  accepts MultiGraph.
+- **Empty/disconnected/singleton** — `second_order_centrality`,
+  `eigenvector_centrality` / `_numpy`, `fiedler_vector` raises on
+  disconnected/small graphs, `barycenter` split empty-graph contract,
+  `degree_centrality` int 1 not NaN on singleton, `clustering` emits int 0
+  for triangle-free, `harmonic_centrality` set-based dict iteration order,
+  `trophic_levels` returns `{}` on empty DiGraph,
+  `eigenvector_centrality_numpy` raises `AmbiguousSolution` on disconnected.
+- **Exception-class normalization** — `bellman_ford_path_length` negative-
+  cycle wording, `negative_edge_cycle` accepts non-string weight,
+  `PowerIterationFailedConvergence` re-raised at wrapper layer with exact
+  args, `NetworkXNoCycle` deduplicated, `triad_type` exception class,
+  link-prediction `soundarajan_hopcroft` + WIC raise correct types,
+  `relabel_gexf_graph` raises `NetworkXError` on missing labels.
+
+### Iteration-Order Parity (≈40 fixes)
+
+The hardest class of parity bugs. Every fix below is "the value is correct
+but the dict/iter order does not match the reference":
+
+- `Graph.edges(nbunch)` ordered via adj-walk
+  ([br-r37-c1-dc14n](https://github.com/Dicklesworthstone/franken_networkx/commit/dc14n));
+  `_from_nx_graph` adj-order preservation
+  ([br-r37-c1-4d97w](https://github.com/Dicklesworthstone/franken_networkx/commit/4d97w)).
+- `center`, `periphery`, `k_truss` subgraph,
+  `kosaraju_strongly_connected_components`, `edge_betweenness_centrality`
+  key order, `johnson` all-pairs inner-dict, `equivalence_classes` returns set,
+  `generic_bfs_edges` default-neighbors order, `node_degree_xy` iter order
+  + self-loop edges(nbunch), `dfs_predecessors`/`dfs_successors` dict order,
+  `all_pairs_dijkstra` inner + outer order parity tests, all-pairs shortest
+  path inner-order parity, `articulation_biconnected_dfs_order`,
+  `bridges_dfs_order`, `dag_longest_path` tie-break via native impl.
+
+### Boundary Coercion ("accept nx graph args") cycle (≈12 family-wide fixes)
+
+A single intentional contract: every fnx function should accept an
+`nx.Graph` (or fnx graph) interchangeably and coerce at the boundary.
+Shipped in family-wide batches:
+
+- `fnx.union`, 8 sibling binary operators, MST/operator family, power +
+  vf2pp, shortest-path family, centrality family, distance family,
+  connectivity family, operator/MST family, +15 / +23 / +23 / +4 batches
+  across BFS/DFS/connectivity/matching/flow/clique/approximation.
+- Layout fast-paths: `nx.X_layout(fnx_graph)` no longer silently drops
+  edges; `nx.scale_free_graph` accepts fnx graphs as `initial_graph`.
+
+### NetworkX Backend Dispatch — mutation, dispatch gaps, recursion
+
+- **Mutation-preserving dispatch** registered for `relabel_nodes`,
+  `contracted_{nodes,edge}`, `identified_nodes`, `set/get_{node,edge}_attributes`,
+  `double_edge_swap` + `connected_double_edge_swap`, and 5 more mutators
+  closing the dispatch gap sweep.
+- `nx.algorithms.tree.X(fnx_graph)` routed for mutation-preserving fns.
+- Backend signature checking improved; `can_run` / `should_run` unified
+  ([1d06ec15](https://github.com/Dicklesworthstone/franken_networkx/commit/1d06ec15),
+  [180dc866](https://github.com/Dicklesworthstone/franken_networkx/commit/180dc866)).
+- Dispatch fail-closed reasons fixed for unknown stages
+  ([e2b37274](https://github.com/Dicklesworthstone/franken_networkx/commit/e2b37274)).
+- `backend_info` packaging fixed to point at `franken_networkx.backend_info`
+  ([6d1ccab8](https://github.com/Dicklesworthstone/franken_networkx/commit/6d1ccab8)).
+
+### CGSE Engine Hardening
+
+- `with_ledger` / `drain_witnesses` use `try_borrow_mut` to avoid panic
+  on re-entrant CGSE calls
+  ([br-r37-c1-g80ih](https://github.com/Dicklesworthstone/franken_networkx/commit/br-r37-c1-g80ih)).
+- `#[must_use]` on `with_ledger` surfaces silent-discard at compile time
+  ([br-r37-c1-03n2x](https://github.com/Dicklesworthstone/franken_networkx/commit/br-r37-c1-03n2x)).
+- Decision-theoretic action logic fix in `fnx-runtime`
+  ([892179e9](https://github.com/Dicklesworthstone/franken_networkx/commit/892179e9)).
+
+### Performance — Profile + Prove (≈25 perf commits)
+
+Each landed with a witness + a benchmark delta:
+
+- **Dijkstra** — native Rust scan for negative-weight gate
+  ([br-r37-c1-644fx](https://github.com/Dicklesworthstone/franken_networkx/commit/br-r37-c1-644fx));
+  +∞ edge weights delegate to nx instead of becoming 1.0
+  ([br-r37-c1-z35td](https://github.com/Dicklesworthstone/franken_networkx/commit/br-r37-c1-z35td));
+  hoist sync + native-scan short-circuit for negative gate
+  ([br-r37-c1-8cqeh](https://github.com/Dicklesworthstone/franken_networkx/commit/br-r37-c1-8cqeh));
+  +inf gate through native nonfinite-scan helper;
+  Dijkstra tie-breaking stabilized.
+- **A*** — +inf edge weights delegate to nx
+  ([br-r37-c1-nncon](https://github.com/Dicklesworthstone/franken_networkx/commit/br-r37-c1-nncon));
+  drop overly-defensive nonunit-weight gate, reuse native scan.
+- **PageRank** — native Rust scan for non-finite weight gate
+  ([br-r37-c1-s0tno](https://github.com/Dicklesworthstone/franken_networkx/commit/br-r37-c1-s0tno));
+  parameterized PageRank.
+- **Connectivity** — `connected_components` switched to index-based BFS +
+  direct `PySet` emission
+  ([br-r37-c1-anace](https://github.com/Dicklesworthstone/franken_networkx/commit/br-r37-c1-anace));
+  borrowed variant for PyO3 fast path; dropped unnecessary `LexMin` sort.
+- **Clustering family** — undirected/unweighted `clustering` routed
+  through Rust ([br-r37-c1-wh0x0](https://github.com/Dicklesworthstone/franken_networkx/commit/br-r37-c1-wh0x0));
+  `square_clustering` bypasses `AtlasView` via `CachedNeighborSets`.
+- **Coloring** — `greedy_color` default routes through Rust matching nx
+  `largest_first` tie-breaking
+  ([br-r37-c1-fki5h](https://github.com/Dicklesworthstone/franken_networkx/commit/br-r37-c1-fki5h)).
+- **Community** — native `fnx.community` submodule with label-propagation
+  fast path ([br-r37-c1-rq36c](https://github.com/Dicklesworthstone/franken_networkx/commit/br-r37-c1-rq36c)).
+- **Operators** — `complement` single-pass via `complement_edges` /
+  `extend_edges_unrecorded` ([br-r37-c1-4jd8m](https://github.com/Dicklesworthstone/franken_networkx/commit/br-r37-c1-4jd8m)).
+- **Centrality** — native Newman load impl + Rust fast path
+  ([br-r37-c1-3wzcj](https://github.com/Dicklesworthstone/franken_networkx/commit/br-r37-c1-3wzcj));
+  `betweenness_centrality_subset` offloaded to Rust;
+  GIL released during shortest-path computations
+  ([ce8d54e8](https://github.com/Dicklesworthstone/franken_networkx/commit/ce8d54e8));
+  GIL release in `pagerank`.
+- **Planarity** — `is_planar` cheap necessary-condition short-circuits
+  before nx round-trip; bipartite + girth bounds catch K3,3 and Petersen
+  ([br-r37-c1-xdjpt](https://github.com/Dicklesworthstone/franken_networkx/commit/br-r37-c1-xdjpt)).
+- **Cliques** — `find_cliques` bypasses per-call wrapper overhead via raw
+  Rust neighbors ([br-r37-c1-lgyq8](https://github.com/Dicklesworthstone/franken_networkx/commit/br-r37-c1-lgyq8));
+  adjacency built via `G.neighbors` not `G[u]`.
+- **k-core** — `core_number` O(|V|) self-loop guard instead of O(|E|) edge
+  walk ([br-r37-c1-fbons](https://github.com/Dicklesworthstone/franken_networkx/commit/br-r37-c1-fbons)).
+- **Graph adjacency** — replaced O(n²) adjacency matrices with sparse
+  HashMap/HashSet structures ([95d1ab09](https://github.com/Dicklesworthstone/franken_networkx/commit/95d1ab09)).
+- **Hot-path thread safety** — `_sync_rust_edge_attrs` tolerates concurrent
+  `&mut self` borrow with bounded retry
+  ([1fddb025](https://github.com/Dicklesworthstone/franken_networkx/commit/1fddb025)).
+
+### Testing — Metamorphic + Fuzz + Golden (≈110 commits)
+
+A coordinated testing-discipline push covering three complementary
+techniques:
+
+- **Metamorphic (≈22 commits)** — algebraic invariants instead of golden
+  snapshots: connectivity/cut/tree, centrality/metric/structural,
+  degree/k-core/Whitney, distance/diameter, combinatorial algorithms,
+  classic-generator structural identities, DAG/topological-sort,
+  max-flow/min-cut, bipartite König, adjacency-matrix algebraic identities,
+  link-prediction math, common-neighbors/non-neighbors,
+  selfloop/reciprocity/avg-deg-conn, find_cliques/pagerank/triangles/harmonic,
+  directed distance-metric relations, planarity + core_number.
+- **Fuzz (≈30+ commits)** — readwrite cargo-fuzz targets added; nx-oracle
+  differential parity fuzzer over random fixtures (a "review-mode"
+  harness); fuzz coverage for multigraph complement, self-loops in
+  review-mode seed grid, `is_planar` Kuratowski-bound fast-path branches,
+  directed-graph distance-metric regression-lock,
+  `common_neighbors`/`non_neighbors` bypass,
+  `average_degree_connectivity`/`overall_reciprocity`,
+  `node_attribute_xy`/per-node reciprocity, dominating-set property contract.
+- **Golden** — review-mode snapshots for harmonic / degree_centrality /
+  clustering / triangles; planar K3,3 / Petersen / K5 regression-lock;
+  directed distance-metric surface snapshot; `is_planar` / `core_number`
+  / `square_clustering` recent-fix surface frozen.
+
+### Conformance & Audit Ledger Infrastructure
+
+- **Coverage matrix** ([docs/coverage.md](docs/coverage.md)) — auto-generated
+  AST classification of every `__all__` export. 763 public exports;
+  RUST_NATIVE/PY_WRAPPER/CLASS/CONSTANT categories; secondary runtime
+  ledger separating 588 pure-wrapper vs 143 NETWORKX_HELPER call sites.
+- **Raw-vs-public audit** ([br-r37-c1-cvrij](https://github.com/Dicklesworthstone/franken_networkx/commit/br-r37-c1-cvrij))
+  — every `_raw_X` Rust kernel cross-checked against its public wrapper to
+  document wrapper-side parity repairs (25 wrapper-patched rows).
+- **Delegation ledger** ([br-r37-c1-256q5](https://github.com/Dicklesworthstone/franken_networkx/commit/br-r37-c1-256q5))
+  — AST + runtime instrumentation enumerates 143 `_call_networkx_*_for_parity`
+  call sites across 167 routes.
+- **Upstream divergence ledger** ([br-r37-c1-hchj7](https://github.com/Dicklesworthstone/franken_networkx/commit/br-r37-c1-hchj7))
+  — unified ledger of native-parity, wrapper-patched, intentionally-delegated,
+  raw-known-gap, and owner-acknowledged-limitation rows; wired into
+  `docs/coverage.md` ([br-r37-c1-943zy](https://github.com/Dicklesworthstone/franken_networkx/commit/br-r37-c1-943zy)).
+- **API ergonomics audit** — `docs/api_ergonomics_audit.{md,json}` ranks
+  Python-side wrappers by signature drift vs nx.
+- **Audit ledger refresh cycle** — periodic `chore(docs): regenerate
+  audit ledgers` after fix batches.
+- **Community detection conformance** — fixtures + harness API alignment
+  ([162ebd4b](https://github.com/Dicklesworthstone/franken_networkx/commit/162ebd4b),
+  [96a71a0f](https://github.com/Dicklesworthstone/franken_networkx/commit/96a71a0f)).
+- **Algorithm-family conformance harness** — `test_algorithm_family_conformance_harness.py`
+  consolidates per-family parity contracts.
+- **Conformance bootstrap drift-proofing** — `br-r37-c1-rcfsf` normalizes
+  CC comparison and drift-proofs bootstrap fixtures.
+- **Adversarial parser fixtures + fuzz harnesses** — readwrite
+  ([c23c249a](https://github.com/Dicklesworthstone/franken_networkx/commit/c23c249a)).
+
+### Top-Level Namespace Cleanup ("hide leaked helpers")
+
+A coordinated late-cycle effort to make `franken_networkx.*` exactly mirror
+`networkx.*` — anything reachable in nx via a submodule path should not leak
+to the fnx top level:
+
+- 11 `nx.classes.filters` helpers, 18 `nx.approximation` helpers,
+  8 `nx.community`, 8 `nx.bipartite`, 4 `nx.algorithms.connectivity`,
+  5 tournament + tree-isomorphism, 9 dag/treewidth/node_classification,
+  8 more nx-namespaced helpers, 10 more, 6 more
+  (mst/structuralholes/connectivity), 4 fnx-only-not-in-nx, 5
+  `nx.algorithms.flow` primitives, 4 heaps + NotAPartition.
+- Removed leaked stdlib types and modules: `base64`, `gzip`, `io`,
+  `itertools`, `math`, `deepcopy`, `sys`, `numbers`, `wraps`, `operator`,
+  `heappop`/`heappush`, `nodes_equal`/`edges_equal`/`graphs_equal`/`average_degree`,
+  12 more stdlib types.
+- Hidden 8 `greedy_color` `strategy_X` helpers (kept under `nx.coloring`
+  only), `top-level hamiltonian_path`, `info` (mirroring nx 3.0+ removal),
+  `graph_clique_number` (mirroring nx 3.6 removal).
+- Final cleanup removed 42 orphan `_via_nx` helpers + 3 orphan helper
+  classes; `_TarjanUnionFind` and `florentine_families_graph` restored
+  after over-eager sweep.
+
+### CI / Tooling
+
+- **CI restructured into G0..G8 sequential gates** with `rch` optional in
+  scripts ([c8e3b3df](https://github.com/Dicklesworthstone/franken_networkx/commit/c8e3b3df));
+  docs-freshness gate (G0) enforces README/FEATURE_PARITY/CHANGELOG cannot
+  drift more than 50 commits behind HEAD; fuzz smoke (G7b), docs verifier
+  (G4c), examples (G4d), conformance (G5), performance SLO (G6), UBS (G7),
+  RaptorQ durability (G8).
+- Beads project state + ruff linter config tracked
+  ([390985dd](https://github.com/Dicklesworthstone/franken_networkx/commit/390985dd),
+  [01eeeaaf](https://github.com/Dicklesworthstone/franken_networkx/commit/01eeeaaf)).
+- E2E integration tests with NumPy/SciPy via
+  `scripts/e2e_integration_test.py`.
+- Docs verifier ([scripts/verify_docs.py](scripts/verify_docs.py)) bound-
+  runtime, imports fixed.
+- Reliability gate clarification for unknown stages.
+
+### New Native Algorithms (selected)
+
+Beyond pure parity work, ≈40 algorithms gained native Rust fast paths:
+
+- `stochastic_block_model` ([f17654f1](https://github.com/Dicklesworthstone/franken_networkx/commit/f17654f1)),
+  partial duplication, relaxed caveman, Tutte polynomial,
+  navigable small-world (Kleinberg), `random_tree` via Prüfer sequence,
+  LCF + LFR generators, lattice + structured graph generators,
+  scale-free + preferential attachment, social datasets,
+  Prüfer encode/decode, K-clique communities, edge current-flow betweenness,
+  SimRank, Google matrix, second-order centrality, communicability betweenness,
+  current-flow betweenness, attribute mixing/assortativity, AT-free detection,
+  triadic census + triad census labels, all-pairs LCA,
+  `generate_edgelist`, group betweenness centrality,
+  edge swap helpers (`double_edge_swap`, `connected_double_edge_swap`,
+  directed/undirected variants honoring `max_tries`), Stoer-Wagner minimum cut,
+  k-truss / onion_layers, Prüfer sequence Rust, `dedensify`, full join,
+  identified_nodes, moral graph, lexicographic topological sort,
+  all_triads, `node_degree_xy`, all-pairs node connectivity,
+  `has_path_directed`, local bridges, `tree_data`, generic BFS,
+  union_all/intersection_all, square clustering refactor, `from_pandas_adjacency`,
+  Prüfer + nested-tuple conversions, 18 advanced centrality + 8 connectivity
+  functions, 16 traversal + utility, 13 functions (social datasets,
+  Weisfeiler-Lehman hash, k-truss, structural), 4 graph products,
+  layout delegation surface, Pajek/LEDA/multiline adjlist + graph6/sparse6
+  I/O ([892179e9](https://github.com/Dicklesworthstone/franken_networkx/commit/892179e9),
+  [7e7dc5b3](https://github.com/Dicklesworthstone/franken_networkx/commit/7e7dc5b3)),
+  GEXF I/O ([4fea9209](https://github.com/Dicklesworthstone/franken_networkx/commit/4fea9209)),
+  graph-edit distance ([d1e6af7f](https://github.com/Dicklesworthstone/franken_networkx/commit/d1e6af7f)),
+  goldberg_radzik undirected ([89fbcc1b](https://github.com/Dicklesworthstone/franken_networkx/commit/89fbcc1b)),
+  Edmonds' algorithm rewrite ([9edb5819](https://github.com/Dicklesworthstone/franken_networkx/commit/9edb5819)),
+  spanning-tree + arborescence iterators (Janssens-Sörensen partition scheme,
+  [297c01b8](https://github.com/Dicklesworthstone/franken_networkx/commit/297c01b8),
+  [ddd58b96](https://github.com/Dicklesworthstone/franken_networkx/commit/ddd58b96)),
+  all_node_cuts ([417ef716](https://github.com/Dicklesworthstone/franken_networkx/commit/417ef716)),
+  vf2++ no-label bindings ([8d7100bc](https://github.com/Dicklesworthstone/franken_networkx/commit/8d7100bc)),
+  SNAP aggregation ([826c7b76](https://github.com/Dicklesworthstone/franken_networkx/commit/826c7b76)).
+- Round-mark milestone: "100% NetworkX top-level function parity
+  (731/731)" ([fcc705fb](https://github.com/Dicklesworthstone/franken_networkx/commit/fcc705fb)).
+
+---
 
 ---
 
@@ -812,17 +1153,21 @@ the full workspace architecture and the first executable vertical slice.
 
 | Metric | Value |
 |--------|-------|
-| Total commits | 246 |
-| Date range | 2026-02-13 to 2026-03-21 |
+| Total commits | 2,608 |
+| Date range | 2026-02-13 to 2026-05-16 |
 | Git tags | 0 |
 | GitHub Releases | 0 |
 | Workspace version | 0.1.0 |
-| Workspace crates | 11 |
-| Python-exposed functions | 428+ |
+| Workspace crates | 12 |
+| Public exports in `franken_networkx.*` | 763 (731 PY_WRAPPER, 1 RUST_NATIVE, 28 CLASS, 3 CONSTANT) |
+| Backend-dispatched algorithms (`_SUPPORTED_ALGORITHMS`) | ~317 |
 | Graph types | Graph, DiGraph, MultiGraph, MultiDiGraph |
 | Algorithm families | 25+ (shortest path, connectivity, centrality, clustering, matching, flow, trees, Euler, DAG, traversal, community, isomorphism, planarity, approximation, coloring, link prediction, and more) |
-| I/O formats | edgelist, adjlist, GraphML, GML, JSON (node-link) |
-| Conformance fixtures | 20+ oracle-backed golden fixtures |
+| Test files (Python parity gate) | 383 in `tests/python/` |
+| Fuzz targets | 36 in `fuzz/fuzz_targets/` |
+| I/O formats | edgelist, adjlist, weighted edgelist, multiline adjlist, GraphML, GML, JSON (node-link), Pajek, LEDA, GEXF, graph6, sparse6 |
+| CI gates | G0–G8 (docs freshness, fmt, clippy, rust tests, python parity, e2e, docs, examples, conformance, performance SLO, UBS, fuzz smoke, RaptorQ durability) |
+| Conformance audit ledgers | coverage matrix, raw-vs-public, delegation, upstream divergence, API ergonomics |
 | License | MIT |
 
 ---
@@ -831,14 +1176,15 @@ the full workspace architecture and the first executable vertical slice.
 
 | Crate | Role |
 |-------|------|
-| `fnx-classes` | Graph, DiGraph, MultiGraph, MultiDiGraph core types |
-| `fnx-algorithms` | All algorithm implementations |
-| `fnx-generators` | Deterministic and seeded graph generators |
-| `fnx-readwrite` | I/O: edgelist, adjlist, GraphML, GML, JSON |
+| `fnx-classes` | Graph, DiGraph, MultiGraph, MultiDiGraph core types; deterministic adjacency storage |
 | `fnx-views` | Live/cached view semantics with revision invalidation |
-| `fnx-dispatch` | Deterministic dispatch routing |
-| `fnx-convert` | Conversion routes between graph types and external formats |
-| `fnx-durability` | RaptorQ sidecar, scrub/decode drill pipeline |
-| `fnx-conformance` | Fixture-driven conformance harness with oracle validation |
-| `fnx-runtime` | Strict/hardened runtime, evidence ledger, CGSE policy engine |
-| `fnx-python` | PyO3/maturin Python bindings (ABI3, Python 3.10+) |
+| `fnx-dispatch` | Deterministic dispatch routing and backend registry |
+| `fnx-convert` | Conversion routes between graph types, NumPy/SciPy, dict-of-dicts/lists, pandas |
+| `fnx-algorithms` | All algorithm implementations (~46 KLOC across shortest path, centrality, connectivity, flow, matching, trees, community, etc.) |
+| `fnx-generators` | Deterministic and seeded graph generators (classic, random, scale-free, lattice, social) |
+| `fnx-readwrite` | I/O: edgelist, adjlist, GraphML, GML, JSON, Pajek, LEDA, GEXF, graph6, sparse6 |
+| `fnx-cgse` | Canonical Graph Semantics Engine: TieBreakPolicy (12 variants), ComplexityWitness, WitnessLedger, V1 policy registry |
+| `fnx-runtime` | Strict/Hardened CompatibilityMode, CgsePolicyEngine, DecisionRecord, fail-closed defaults |
+| `fnx-conformance` | Fixture-driven conformance harness with oracle validation; structured logs + replay commands |
+| `fnx-durability` | RaptorQ sidecar generation, scrub verification, decode-drill proofs |
+| `fnx-python` | PyO3/maturin Python bindings (ABI3, Python 3.10+); cdylib `franken_networkx._fnx` |
