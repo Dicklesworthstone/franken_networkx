@@ -9886,14 +9886,18 @@ def all_triangles(G, nbunch=None):
 
     for u in nbunch_lookup:
         u_id = node_to_id[u]
-        # G.adj[u].keys() may return a dict_keyiterator on fnx (vs a
-        # dict_keys view on nx); coerce to set() so intersection works.
-        u_neighbors = set(G.adj[u].keys())
+        # br-r37-c1-ulojb: use dict_keys directly (matching nx's
+        # ``G._adj[u].keys()`` access) so the ``keys & keys`` set
+        # intersection produces the same iteration order as nx.
+        # Wrapping in ``set(...)`` first changes the resulting set's
+        # internal layout, causing the inner ``for w in ...`` loop
+        # to yield in a different order.
+        u_neighbors = G.adj[u].keys()
         for v in u_neighbors:
             v_id = node_to_id.get(v, -1)
             if v_id <= u_id:
                 continue
-            v_neighbors = set(G.adj[v].keys())
+            v_neighbors = G.adj[v].keys()
             for w in v_neighbors & u_neighbors:
                 if node_to_id.get(w, -1) > v_id:
                     yield (u, v, w)
