@@ -47,7 +47,7 @@ That contract is enforced by a 377-file Python parity test suite, by a curated R
 | Public API exports | ~730 | **763** classified in `docs/coverage.md` |
 | Backend-dispatch surface | n/a | **316** algorithms registered in `backend.py` |
 | Tie-break determinism | implicit | explicit **CGSE** (12-variant `TieBreakPolicy`) |
-| Complexity audit | none | `ComplexityWitness` per call, Merkle-hashed decision-path ledger |
+| Complexity audit | none | `ComplexityWitness` per call, length-prefixed Blake3 decision-path ledger |
 | Strict vs hardened parsing | n/a | mode-aware `CgsePolicyEngine` with fail-closed defaults |
 | Durable conformance artifacts | n/a | RaptorQ erasure-coded sidecars with decode-proof receipts |
 | Fuzz harness | none | **33** cargo-fuzz binaries across parsers + algorithm families |
@@ -179,11 +179,11 @@ FrankenNetworkX implements 25+ algorithm families. The table below is a high-lev
 |--------|--------------------|
 | **Shortest path** | `shortest_path`, `all_shortest_paths`, `dijkstra_path`, `bellman_ford_path`, `multi_source_dijkstra`, `bidirectional_dijkstra`, `has_path`, `shortest_path_length`, `average_shortest_path_length`, `single_source_*`, `all_pairs_*`, `astar_path`, `astar_path_length`, `shortest_simple_paths`, `johnson`, `floyd_warshall*`, `find_negative_cycle` |
 | **Connectivity** | `is_connected`, `connected_components`, `node_connectivity`, `edge_connectivity`, `minimum_node_cut`, `minimum_edge_cut`, `bridges`, `articulation_points`, `biconnected_components`, `strongly_connected_components`, `kosaraju_strongly_connected_components`, `condensation`, `weakly_connected_components`, `k_edge_components`, `k_edge_subgraphs`, `k_edge_augmentation`, `all_node_cuts`, `local_node_connectivity`, `local_edge_connectivity` |
-| **Centrality** | `pagerank`, `betweenness_centrality`, `edge_betweenness_centrality`, `closeness_centrality`, `harmonic_centrality`, `eigenvector_centrality` (+ `_numpy`), `katz_centrality` (+ `_numpy`), `degree_centrality`, `hits`, `voterank`, `load_centrality`, `subgraph_centrality`, `information_centrality`, `second_order_centrality`, `group_betweenness_centrality`, `current_flow_betweenness`, `communicability_betweenness` |
+| **Centrality** | `pagerank`, `betweenness_centrality`, `edge_betweenness_centrality`, `closeness_centrality`, `harmonic_centrality`, `eigenvector_centrality` (+ `_numpy`), `katz_centrality` (+ `_numpy`), `degree_centrality`, `hits`, `voterank`, `load_centrality`, `subgraph_centrality`, `information_centrality`, `second_order_centrality`, `group_betweenness_centrality`, `current_flow_betweenness`, `communicability`, `communicability_betweenness_centrality`, `communicability_exp` |
 | **Clustering** | `clustering`, `triangles`, `transitivity`, `average_clustering`, `square_clustering`, `generalized_degree` |
 | **Matching** | `max_weight_matching`, `min_weight_matching`, `maximal_matching`, `hopcroft_karp_matching`, `min_edge_cover`, `is_matching`, `is_maximal_matching`, `is_perfect_matching`, `is_edge_cover` |
 | **Flow** | `maximum_flow`, `maximum_flow_value`, `minimum_cut`, `minimum_cut_value`, `min_cost_flow*`, `network_simplex`, `stoer_wagner`, `gomory_hu_tree`, `edmonds_karp` |
-| **Trees & forests** | `minimum_spanning_tree`, `maximum_spanning_tree`, `partition_spanning_tree`, `random_spanning_tree`, `number_of_spanning_trees`, `is_tree`, `is_forest`, `is_arborescence`, `is_branching`, `maximum_branching`, `minimum_branching`, `greedy_branching`, `Edmonds`, `SpanningTreeIterator`, `ArborescenceIterator`, `tree_data`, `prufer_*` |
+| **Trees & forests** | `minimum_spanning_tree`, `maximum_spanning_tree`, `partition_spanning_tree`, `random_spanning_tree`, `number_of_spanning_trees`, `is_tree`, `is_forest`, `is_arborescence`, `is_branching`, `maximum_branching`, `minimum_branching`, `greedy_branching`, `SpanningTreeIterator`, `ArborescenceIterator`, `tree_data`, `from_prufer_sequence`, `to_prufer_sequence` |
 | **Euler** | `eulerian_circuit`, `eulerian_path`, `is_eulerian`, `has_eulerian_path`, `is_semieulerian`, `eulerize` |
 | **Paths & cycles** | `all_simple_paths`, `all_simple_edge_paths`, `cycle_basis`, `simple_cycles`, `find_cycle`, `is_simple_path`, `has_cycle` |
 | **Operators** | `complement`, `union`, `intersection`, `compose`, `difference`, `symmetric_difference`, `disjoint_union`, `cartesian_product`, `tensor_product`, `lexicographic_product`, `strong_product`, `power` |
@@ -242,9 +242,9 @@ The full export list is in [`docs/coverage.md`](docs/coverage.md). To use a spec
            ▼                    ▼                ▼
    ┌────────────────┐  ┌──────────────────┐  ┌─────────────────────────────┐
    │   fnx-views    │  │  fnx-generators  │  │       fnx-runtime           │
-   │  NodeView      │  │ classic, random, │  │  CompatibilityMode          │
-   │  EdgeView      │  │ scale-free,      │  │  (Strict | Hardened)        │
-   │  DegreeView    │  │ lattice, social  │  │  CgsePolicyEngine           │
+   │  GraphView     │  │ classic, random, │  │  CompatibilityMode          │
+   │  DiGraphView   │  │ scale-free,      │  │  (Strict | Hardened)        │
+   │  CachedSnap-   │  │ lattice, social  │  │  CgsePolicyEngine           │
    │  cached        │  │ SBM, WS, BA, GNP │  │  DecisionRecord / evidence  │
    └────────────────┘  └──────────────────┘  └─────────────────────────────┘
                                              ┌─────────────────────────────┐
@@ -259,7 +259,7 @@ The full export list is in [`docs/coverage.md`](docs/coverage.md). To use a spec
 | Crate | Purpose |
 |---|---|
 | `fnx-classes` | Core graph types and deterministic adjacency storage (`IndexMap<Node, IndexMap<Neighbor, AttrMap>>`). Attribute storage via `BTreeMap`. Node and edge insertion order is preserved, which matters for tie-break parity. |
-| `fnx-views` | Live `NodeView` / `EdgeView` / `DegreeView` / `AdjacencyView` wrappers; revision-invalidated subgraph views; `SubgraphView` that operators (`union`, `intersection`, …) handle correctly. |
+| `fnx-views` | Borrowed snapshot wrappers (`GraphView<'a>`, `DiGraphView<'a>`) plus revision-tracking `CachedSnapshotView` / `CachedDiGraphSnapshotView`. Used by the conformance harness and snapshot round-trip layer. The Python-facing live views (`NodeView`, `EdgeView`, `DegreeView`, `AdjacencyView`, `SubgraphView`) are defined in `crates/fnx-python/src/views.rs` as PyO3 classes on top of these primitives. |
 | `fnx-dispatch` | Backend registry, dispatch routing, fail-closed decision plumbing for the NetworkX backend protocol. |
 | `fnx-convert` | Conversions between graph types, NumPy / SciPy / pandas interop, dict-of-dicts and dict-of-lists round-trips, node-label remapping. |
 | `fnx-algorithms` | ~47 KLOC across 550+ public functions covering shortest path, centrality, connectivity, clustering, matching, flow, trees, community, isomorphism, planarity, polynomials, spectral, traversal, and DAG families. |
@@ -689,8 +689,8 @@ Tracing `fnx.pagerank(G, alpha=0.85)` from the Python call site down to native c
  ┌────────────────────────────────────────────────────────────────────┐
  │  6. Python wrapper post-processing (if needed)                     │
  │     • For ~25 "wrapper-patched" functions, post-processes the      │
- │       raw output to match nx's iteration order exactly (e.g.       │
- │       single_source_dijkstra_path_length re-keys output).          │
+ │       raw output to match nx iteration order or coerce return      │
+ │       types (cataloged in docs/raw_vs_public_audit.md).            │
  │     • Returns the user-visible result.                             │
  └────────────────────────────────────────────────────────────────────┘
 ```
@@ -1061,7 +1061,7 @@ The native algorithm implementations in `fnx-algorithms` favor textbook complexi
 
 - **Maximum-weight matching.** Edmonds' blossom-shrinking algorithm, native Rust port. `max_weight_matching` and `min_weight_matching` share the same kernel parameterized by sign and the `maxcardinality` flag.
 - **Maximal matching.** Greedy with canonical edge enumeration; suitable as a lower-bound approximation.
-- **Bipartite matching helpers (`hopcroft_karp_matching`, `min_weight_full_matching`).** Live under `fnx.bipartite.*` and currently delegate to the upstream `networkx.algorithms.bipartite` reference. Tracked in `docs/delegation_ledger.md`.
+- **Bipartite matching helpers (`hopcroft_karp_matching`, `eppstein_matching`, `minimum_weight_full_matching`).** Live under `fnx.bipartite.*` and currently delegate to the upstream `networkx.algorithms.bipartite` reference. Tracked in `docs/delegation_ledger.md`.
 
 ### Flow
 
@@ -2305,7 +2305,7 @@ Three design choices fall out of this layout:
 - **Adjacency and edge attributes live in separate maps.** Adjacency lookups (`G[u]`, `G.neighbors(u)`) don't have to walk attribute payloads. Edge-attribute mutations (`G[u][v]["weight"] = 2`) are constant-time on the canonical `EdgeKey` and don't disturb the neighbor iteration order.
 - **`DiGraph` keeps `successors` and `predecessors` as separate adjacency maps.** `in_degree(v)` and `out_degree(v)` are O(1) lookups, not full edge walks.
 
-The `revision` counter is incremented on every mutation; cached views in `fnx-views` carry the revision they last saw, so view invalidation is a single integer compare.
+The `revision` counter is incremented on every mutation; the cached snapshot views in `fnx-views` and the Python view classes carry the revision they last saw, so view invalidation is a single integer compare.
 
 ### Node identity
 
@@ -2337,7 +2337,7 @@ Node insertion order is preserved across the entire graph lifecycle, with two im
 
 ### Views
 
-`fnx-views` provides `NodeView`, `EdgeView`, `DegreeView`, `AdjacencyView`, and `SubgraphView` wrappers. Views are *live*: mutations to the underlying graph are visible through them. Cached views carry a revision counter so they can invalidate themselves cheaply when the graph changes underneath them. `SubgraphView` is the structure operators (`union`, `intersection`, `difference`, `compose`) accept transparently; they don't materialize a fresh graph unless asked to.
+The Python view classes (`NodeView`, `EdgeView`, `DegreeView`, `AdjacencyView`, `SubgraphView`) are defined in `crates/fnx-python/src/views.rs` on top of the borrowed snapshot primitives in `fnx-views`. Views are *live*: mutations to the underlying graph are visible through them. They carry a revision counter so they can invalidate themselves cheaply when the graph changes underneath them. `SubgraphView` is the structure operators (`union`, `intersection`, `difference`, `compose`) accept transparently; they don't materialize a fresh graph unless asked to.
 
 ### Edge attribute semantics
 
@@ -2394,11 +2394,11 @@ In rough priority order (`bv --robot-triage` shows the current bead backlog):
 ## Glossary
 
 - **CGSE (Canonical Graph Semantics Engine).** The Rust crate (`fnx-cgse`) and runtime policy machinery (`fnx-runtime`) that pin tie-break policy and emit complexity witnesses.
-- **Complexity witness.** A `ComplexityWitness { n, m, dominant_term, observed_count, upper_bound, policy, decision_path_hash }` receipt emitted per algorithm execution, drainable from a `WitnessLedger` for audit.
+- **Complexity witness.** A `ComplexityWitness { n, m, dominant_term, observed_count, policy, seed, decision_path_blake3 }` receipt emitted per algorithm execution, drainable from a `WitnessLedger` for audit.
 - **Compatibility mode (Strict vs Hardened).** Two-mode runtime contract: Strict fails closed on malformed input; Hardened applies bounded recovery and records every recovery as a `DecisionRecord`.
 - **Conformance harness.** The `fnx-conformance` crate; replays curated graph fixtures through fnx and the legacy NetworkX oracle, emitting a structured report under `artifacts/conformance/latest/`.
 - **Coverage matrix.** The `docs/coverage.md` ledger, auto-generated from `franken_networkx.__all__` by `scripts/generate_coverage_matrix.py`. Classifies every export and fails CI on drift.
-- **Decision-path hash.** A length-prefixed Merkle hash of the sequence of tie-break decisions an algorithm made. Used to detect non-determinism.
+- **Decision-path hash (`decision_path_blake3`).** A length-prefixed Blake3 hash of the sequence of tie-break decisions an algorithm made. Used to detect non-determinism.
 - **Delegation ledger.** `docs/delegation_ledger.md`; enumerates every `_call_networkx_*_for_parity` route (public exports that intentionally fall back to NetworkX for specific argument shapes).
 - **Fail-closed.** A policy choice in `fnx-runtime`: on uncertain input, raise rather than guess. The default in Strict mode.
 - **PY_WRAPPER / RUST_NATIVE / NETWORKX_HELPER.** The three runtime-route categories in the coverage matrix's runtime ledger.
