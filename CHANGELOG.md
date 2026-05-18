@@ -4,7 +4,7 @@ All notable changes to FrankenNetworkX are documented in this file.
 
 This project has no formal releases, git tags, or GitHub Releases yet. The
 timeline below is reconstructed exhaustively from the commit history on `main`
-(2,621 commits, 2026-02-13 through 2026-05-17). Sections are organized by
+(2,729 commits, 2026-02-13 through 2026-05-17). Sections are organized by
 capability area rather than raw diff order. Every link points to the actual
 commit on GitHub.
 
@@ -12,7 +12,7 @@ Repository: <https://github.com/Dicklesworthstone/franken_networkx>
 
 ---
 
-## Unreleased (HEAD -- 77a4f3b7)
+## Unreleased (HEAD -- 36e6beae)
 
 Workspace version: **0.1.0** (`Cargo.toml`).
 PyPI package name: `franken-networkx` (Development Status :: 4 - Beta, `pip install franken-networkx`).
@@ -20,9 +20,9 @@ No GitHub Releases or git tags exist as of 2026-05-17.
 
 ---
 
-## 2026-04-14 -- 2026-05-16 -- Parity Convergence, Audit Ledgers, and Top-Level Namespace Cleanup (2,071 commits)
+## 2026-04-14 -- 2026-05-17 -- Parity Convergence, Audit Ledgers, and Top-Level Namespace Cleanup (2,207 commits)
 
-The longest sustained run on the project: 33 days of mostly mechanical
+The longest sustained run on the project: 34 days of mostly mechanical
 parity work driven by the `br-r37-c1-*` bead cycle. Themes are best read
 as parallel work streams rather than a date timeline.
 
@@ -357,7 +357,52 @@ Beyond pure parity work, ≈40 algorithms gained native Rust fast paths:
 - Round-mark milestone: "100% NetworkX top-level function parity
   (731/731)" ([fcc705fb](https://github.com/Dicklesworthstone/franken_networkx/commit/fcc705fb)).
 
----
+### Final-Week Push (2026-05-16 to 2026-05-17)
+
+- **View caching contract.** `g.nodes`, `g.edges`, `g.adj`, `g.succ`, `g.pred`,
+  `g.degree`, `g.in_degree`, `g.out_degree`, and `SubgraphView.edges` now
+  match nx's `@cached_property` semantics so `g.nodes is g.nodes` is `True`
+  across all four graph types
+  ([8ccdab52](https://github.com/Dicklesworthstone/franken_networkx/commit/8ccdab52),
+  [807fd0b0](https://github.com/Dicklesworthstone/franken_networkx/commit/807fd0b0),
+  [94f0149f](https://github.com/Dicklesworthstone/franken_networkx/commit/94f0149f);
+  bead `br-r37-c1-b3cnf`).
+- **Pickle + deepcopy fidelity.** `frozen` flag and custom Python-side
+  instance attrs (mutator overrides, subclass state) now survive `pickle`,
+  `copy.copy`, and `copy.deepcopy`
+  ([03690ef5](https://github.com/Dicklesworthstone/franken_networkx/commit/03690ef5),
+  [0c6f83f1](https://github.com/Dicklesworthstone/franken_networkx/commit/0c6f83f1),
+  [4513ca62](https://github.com/Dicklesworthstone/franken_networkx/commit/4513ca62);
+  beads `br-r37-c1-8nz0x`, `br-r37-c1-ish29`, `br-r37-c1-9e7gd`).
+- **SubgraphView coercion wave.** Roughly 12 algorithm-shortcut callers
+  that bare-constructed `G.__class__()` and crashed on `SubgraphView`
+  fixed: `transitive_reduction`, `random_spanning_tree`,
+  `transitive_closure_dag`, `quotient_graph`, `cut_size`,
+  `normalized_cut_size`, `node_boundary`, `edge_boundary`,
+  `single_source_dijkstra`, `minimum_cycle_basis`, spanning-tree
+  helpers, average-shortest-path-length, average-neighbor-degree
+  ([95b28ee9](https://github.com/Dicklesworthstone/franken_networkx/commit/95b28ee9),
+  [b348f4fb](https://github.com/Dicklesworthstone/franken_networkx/commit/b348f4fb),
+  [232732c0](https://github.com/Dicklesworthstone/franken_networkx/commit/232732c0),
+  and the rest of the `br-r37-c1-{blaz5, 5r04c, s8w2p, lblzk, eog89, e861i, ey500, zapl2, gr1ct, 10xrd, 2dbnk}` bead family).
+- **Iteration-order refinements.** `all_shortest_paths`
+  ([a94d0a01](https://github.com/Dicklesworthstone/franken_networkx/commit/a94d0a01)),
+  `triangles` set-intersection order
+  ([eb3f6e68](https://github.com/Dicklesworthstone/franken_networkx/commit/eb3f6e68)),
+  `all_triangles` enumeration order
+  ([19ae5c95](https://github.com/Dicklesworthstone/franken_networkx/commit/19ae5c95)).
+- **Exception-class polishing.** `add_edges_from('oops')` raises
+  `NetworkXError` not `TypeError`; `degree(nbunch=[unhashable])` raises
+  `NetworkXError` instead of silently skipping; `min_cost_flow` and
+  `capacity_scaling` raise `NetworkXUnfeasible` with byte-identical
+  messages
+  ([4e1b2442](https://github.com/Dicklesworthstone/franken_networkx/commit/4e1b2442),
+  [832f1041](https://github.com/Dicklesworthstone/franken_networkx/commit/832f1041),
+  [c681db4c](https://github.com/Dicklesworthstone/franken_networkx/commit/c681db4c),
+  [1acd525e](https://github.com/Dicklesworthstone/franken_networkx/commit/1acd525e)).
+- **Hygiene.** `rch-target/` build artifacts that had been accidentally
+  committed were untracked and added to `.gitignore`
+  ([8e2f32b2](https://github.com/Dicklesworthstone/franken_networkx/commit/8e2f32b2)).
 
 ---
 
@@ -1153,7 +1198,7 @@ the full workspace architecture and the first executable vertical slice.
 
 | Metric | Value |
 |--------|-------|
-| Total commits | 2,621 |
+| Total commits | 2,729 |
 | Date range | 2026-02-13 to 2026-05-17 |
 | Git tags | 0 |
 | GitHub Releases | 0 |

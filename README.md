@@ -1039,7 +1039,7 @@ The native algorithm implementations in `fnx-algorithms` favor textbook complexi
 
 - **Dijkstra.** Standard binary-heap Dijkstra with the `WeightThenLex` CGSE policy: equal-distance frontier nodes are ordered by node label. Single-source / multi-source / bidirectional all share the same kernel. NetworkX's `heapq` implementation tie-breaks by an insertion counter; fnx's path-reconstruction layer applies a post-pass that recovers the nx-canonical predecessor chain so the visible result (the returned path / dict) matches even when the inner-heap order differs. The `+∞` and negative-weight gates are short-circuit native scans before the algorithm enters its main loop; invalid input fails fast or delegates to `nx` per the documented contract.
 - **Bellman-Ford.** O(VE) relaxation with predecessor reconstruction. Negative-cycle detection scans the last-pass relaxation; the canonical error wording matches NetworkX's exact string (regression-locked in `test_bellman_ford_negative_cycle_message_parity.py`).
-- **A*.** Standard heuristic-guided Dijkstra. The heuristic callable contract was tightened in cycle `br-r37-c1-74xw` to honor NetworkX's exact signature.
+- **A*.** Standard heuristic-guided Dijkstra. The heuristic callable contract was tightened in commit [`b7d9e785`](https://github.com/Dicklesworthstone/franken_networkx/commit/b7d9e785) (`franken_networkx-74xw`) to honor NetworkX's exact signature.
 - **Johnson all-pairs.** Edge re-weighting via Bellman-Ford + Dijkstra from every source. The inner-dict ordering of `johnson` was specifically locked to NetworkX's order in `br-r37-c1-9l73c`.
 
 ### Connectivity
@@ -1253,7 +1253,7 @@ fnx.shortest_path(G, "a", "z", weight=lambda u,v,d: d.get("cost", 1) + d.get("to
 
 ### Reading attributes from algorithm output
 
-Many algorithms return the original graph's attributes as part of their output. The `subgraph_view` returned by `G.subgraph([...])` shares the underlying attribute store, so mutations propagate. Use `G.subgraph([...]).copy()` to take a snapshot.
+Many algorithms return the original graph's attributes as part of their output. The `SubgraphView` returned by `G.subgraph([...])` shares the underlying attribute store, so mutations propagate. Use `G.subgraph([...]).copy()` to take a snapshot.
 
 ### Attribute mutation outside an algorithm call
 
@@ -2183,7 +2183,7 @@ For very small graphs (< 100 nodes / single-shot analysis), the PyO3 marshaling 
 
 ### "I called `G.add_edge(0, 1)` and then `G[0][1]['weight'] = 5` but `nx.shortest_path(G, 0, 1, weight='weight', backend='franken_networkx')` returned the wrong path"
 
-This is a known sync subtlety. `_sync_rust_edge_attrs(G)` runs transparently before weighted-algorithm dispatch, but if you're doing direct `G[u][v][k] = v` mutation outside of any algorithm call and then querying `G.adj[u][v][k]`, you may see stale Python-side state. The fix landed in cycle `br-r37-c1-sjf4t` + `0x9pd`; if you see this on the latest version, please file an issue.
+This is a known sync subtlety. `_sync_rust_edge_attrs(G)` runs transparently before weighted-algorithm dispatch, but if you're doing direct `G[u][v][k] = v` mutation outside of any algorithm call and then querying `G.adj[u][v][k]`, you may see stale Python-side state. The fix landed in beads `br-r37-c1-sjf4t` and `br-r37-c1-0x9pd`; if you see this on the latest version, please file an issue.
 
 ### "MultiGraph edge keys of `0`, `0.0`, and `False` are colliding"
 
