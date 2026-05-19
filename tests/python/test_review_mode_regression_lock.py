@@ -11113,3 +11113,53 @@ def test_custom_python_attrs_survive_deepcopy_and_pickle():
     assert sorted(h4.nodes()) == [0, 1, 2]
     assert sorted(h4.edges()) == [(0, 1), (1, 2)]
     assert fnx.is_frozen(h4)
+
+
+def test_shallow_copy_returns_independent_writable_graph():
+    """br-r37-c1-4wqn9 (cycle 250): the previous _graph_shallowcopy
+    overrode result._adj / result._node to point at self.adj / self._node
+    while result was a fresh-empty Rust graph. h.add_edge(2, 3) wrote to
+    h's own Rust storage, but h.edges read through the overridden view
+    pointing at g — so the write was silently invisible.
+
+    Fix: delegate to self.copy() so copy.copy(g) returns an independent
+    writable copy (diverges from nx's shared-state contract, but is
+    consistent with g.copy() and never silently drops writes).
+    """
+    import copy
+
+    # Undirected: copy is independent, h's writes don't leak to g
+    g = fnx.Graph([(0, 1)])
+    h = copy.copy(g)
+    h.add_edge(2, 3)
+    assert sorted(h.edges()) == [(0, 1), (2, 3)]
+    assert sorted(g.edges()) == [(0, 1)]
+
+    # Frozen flag survives
+    g2 = fnx.path_graph(3)
+    fnx.freeze(g2)
+    h2 = copy.copy(g2)
+    assert fnx.is_frozen(h2)
+
+    # DiGraph: independent + correct direction semantics
+    g3 = fnx.DiGraph([(0, 1), (1, 2)])
+    h3 = copy.copy(g3)
+    h3.add_edge(2, 3)
+    assert sorted(h3.edges()) == [(0, 1), (1, 2), (2, 3)]
+    assert sorted(g3.edges()) == [(0, 1), (1, 2)]
+
+    # MultiGraph: parallel edge keys still work after copy.copy
+    g4 = fnx.MultiGraph()
+    g4.add_edge(0, 1, key='a')
+    h4 = copy.copy(g4)
+    h4.add_edge(0, 1, key='b')
+    assert h4.number_of_edges(0, 1) == 2
+    assert g4.number_of_edges(0, 1) == 1
+
+    # Graph + node attrs survive
+    g5 = fnx.Graph()
+    g5.graph['name'] = 'orig'
+    g5.add_node(0, color='red')
+    h5 = copy.copy(g5)
+    assert h5.graph['name'] == 'orig'
+    assert h5.nodes[0]['color'] == 'red'

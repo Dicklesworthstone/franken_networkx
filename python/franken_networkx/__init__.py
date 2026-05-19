@@ -28346,17 +28346,14 @@ MultiDiGraph._node = property(
 
 
 def _graph_shallowcopy(self):
-    result = type(self)()
-    setattr(result, _GRAPH_ATTR_OVERRIDE, self.graph)
-    result._node = self._node
-    if self.is_directed():
-        result._succ = self.succ
-        result._pred = self.pred
-        result._adj = self.adj
-    else:
-        result._adj = self.adj
-    # br-r37-c1-ish29: preserve frozen flag + mutator overrides on
-    # shallow copy (sister of br-r37-c1-9e7gd for deepcopy).
+    # br-r37-c1-4wqn9: previous override-pattern (set h._adj = self.adj,
+    # h._node = self._node) caused silent write-loss: h.add_edge wrote
+    # to h's separate Rust storage but h.edges still read through the
+    # overridden _adj view pointing at g. Delegate to self.copy() so
+    # copy.copy(g) returns an independent copy (diverges from nx's
+    # shared-state contract, but is consistent with g.copy() and
+    # never silently loses writes).
+    result = self.copy()
     if getattr(self, "frozen", False):
         freeze(result)
     return result
