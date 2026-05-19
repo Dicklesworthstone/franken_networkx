@@ -586,17 +586,33 @@ def parse_edgelist(
 
 
 def parse_gml(lines, label="label", destringizer=None, *, backend=None, **backend_kwargs):
-    """Parse GML text or lines into a FrankenNetworkX graph."""
+    """Parse GML text or lines into a FrankenNetworkX graph.
+
+    For the default ``label="label"`` / ``destringizer=None`` combination
+    the local Rust reader is used. For non-default ``label`` (e.g. the
+    common ``label="id"`` mode that names nodes by their GML ``id``
+    field) or any supplied ``destringizer``, fall back to upstream
+    ``networkx.parse_gml`` and convert the result — nx's reader is the
+    semantic source of truth for those parser customizations and the
+    Rust reader does not yet model them. Previously fnx raised a
+    ``NetworkXError("parse_gml currently supports only label='label'
+    and no destringizer")`` for those callers, which broke drop-in
+    parity vs nx.parse_gml.
+    """
     import franken_networkx as fnx
     from franken_networkx import _fnx
 
     if label != "label" or destringizer is not None:
-        # The local Rust reader implements the default NetworkX label handling.
-        # Keep unsupported parser customizations explicit instead of silently
-        # falling back to NetworkX.
-        raise fnx.NetworkXError(
-            "parse_gml currently supports only label='label' and no destringizer",
+        import networkx as nx
+
+        text = "\n".join(
+            line.decode("utf-8") if isinstance(line, bytes) else str(line)
+            for line in _normalize_lines(lines)
         )
+        if not text.strip():
+            raise fnx.NetworkXError("input contains no graph")
+        nx_graph = nx.parse_gml(text, label=label, destringizer=destringizer)
+        return _from_nx_graph(nx_graph)
 
     text = "\n".join(
         line.decode("utf-8") if isinstance(line, bytes) else str(line)

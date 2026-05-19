@@ -182,3 +182,69 @@ class TestGraphmlWriterTypeValidation:
         round_trip = fnx.parse_graphml(text)
         assert round_trip.number_of_nodes() == 3
         assert round_trip.number_of_edges() == 1
+
+
+class TestParseGmlLabelAndDestringizerParity:
+    """parse_gml must accept the same ``label`` and ``destringizer``
+    customizations as nx.parse_gml. Previously fnx.parse_gml raised
+    ``NetworkXError("parse_gml currently supports only label='label'
+    and no destringizer")`` for any non-default value, breaking drop-in
+    parity. The wrapper now falls back to upstream ``nx.parse_gml`` for
+    those modes and converts the result back to fnx via
+    ``_from_nx_graph``.
+    """
+
+    def test_parse_gml_label_id_matches_networkx(self):
+        # Two nodes with only ``id`` (no ``label``) — nx supports this
+        # via ``label='id'``; fnx must accept it identically.
+        gml = (
+            "graph [\n"
+            "  node [ id 0 ]\n"
+            "  node [ id 1 ]\n"
+            "  edge [ source 0 target 1 ]\n"
+            "]"
+        )
+        nx_g = nx.parse_gml(gml, label="id")
+        fnx_g = fnx.parse_gml(gml, label="id")
+        assert sorted(fnx_g.nodes()) == sorted(nx_g.nodes()) == [0, 1]
+        assert sorted(fnx_g.edges()) == sorted(nx_g.edges()) == [(0, 1)]
+
+    def test_parse_gml_destringizer_int_coerces_labels(self):
+        # Labels arrive as quoted strings ("42", "7") but destringizer=int
+        # turns them into Python ints. nx and fnx must coerce identically.
+        gml = (
+            "graph [\n"
+            '  node [ id 0 label "42" ]\n'
+            '  node [ id 1 label "7" ]\n'
+            "  edge [ source 0 target 1 ]\n"
+            "]"
+        )
+        nx_g = nx.parse_gml(gml, destringizer=int)
+        fnx_g = fnx.parse_gml(gml, destringizer=int)
+        assert sorted(fnx_g.nodes()) == sorted(nx_g.nodes()) == [7, 42]
+        assert all(isinstance(n, int) for n in fnx_g.nodes())
+
+    def test_parse_gml_label_id_with_destringizer(self):
+        gml = (
+            "graph [\n"
+            "  node [ id 0 ]\n"
+            "  node [ id 1 ]\n"
+            "  edge [ source 0 target 1 ]\n"
+            "]"
+        )
+        fnx_g = fnx.parse_gml(gml, label="id", destringizer=str)
+        nx_g = nx.parse_gml(gml, label="id", destringizer=str)
+        # destringizer=str leaves int ids alone (id parsed as int by GML)
+        assert sorted(fnx_g.nodes()) == sorted(nx_g.nodes())
+
+    def test_parse_gml_default_still_uses_rust_reader(self):
+        # Sanity: the default path is unaffected — labels still required
+        # and the Rust reader's structural validations still fire.
+        with pytest.raises(fnx.NetworkXError, match=r"has no 'label' attribute"):
+            fnx.parse_gml("graph [ node [ id 0 ] ]")
+
+    def test_parse_gml_empty_label_id_rejected_like_nx(self):
+        # Empty input on the label='id' (nx-fallback) path must still
+        # raise NetworkXError, matching the default-path behavior.
+        with pytest.raises(fnx.NetworkXError):
+            fnx.parse_gml("", label="id")
