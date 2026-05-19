@@ -86,9 +86,14 @@ pyo3::import_exception!(networkx.exception, PowerIterationFailedConvergence);
 /// integral / out-of-range / non-finite floats keep their `repr`-
 /// based canonical so distinct hashes (NaN, Inf, 1.5, 1e20) remain
 /// distinct nodes.
+///
+/// br-r37-c1-hej8k: Python strings live in their own dict-key
+/// namespace; ``1`` and ``"1"`` are distinct even though ``1`` /
+/// ``1.0`` / ``True`` are equal keys. Prefix strings so text nodes do
+/// not collide with numeric canonical keys.
 fn node_key_to_string(_py: Python<'_>, key: &Bound<'_, PyAny>) -> PyResult<String> {
     if let Ok(s) = key.extract::<String>() {
-        return Ok(s);
+        return Ok(format!("str:{}:{s}", s.len()));
     }
     // bool is a subclass of int, so extract::<i64>() handles both —
     // True → "1", False → "0", aligning with hash(True)==hash(1),

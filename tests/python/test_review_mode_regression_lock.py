@@ -7314,6 +7314,48 @@ def test_int_float_node_identity_matches_python_dict():
     )
 
 
+def test_int_and_same_text_string_nodes_remain_distinct():
+    """br-r37-c1-hej8k: Python dicts do not conflate ``1`` with
+    ``"1"`` even though fnx must still conflate ``1`` / ``1.0`` /
+    ``True``.  The node canonical key therefore needs a separate
+    string namespace, not just ``str(value)`` for every Python key.
+    """
+    cases = [
+        (1, "1"),
+        (0, "0"),
+        (True, "True"),
+        (False, "False"),
+    ]
+
+    for cls in (fnx.Graph, fnx.DiGraph, fnx.MultiGraph, fnx.MultiDiGraph):
+        for left, right in cases:
+            G = cls()
+            G.add_edge(left, right)
+
+            assert G.number_of_nodes() == 2, (
+                f"{cls.__name__}.add_edge({left!r}, {right!r}) "
+                f"collapsed distinct int/bool and str nodes: {list(G.nodes())}"
+            )
+            assert list(G.nodes()) == [left, right]
+            assert left in G
+            assert right in G
+            assert G.has_node(left)
+            assert G.has_node(right)
+            assert G.has_edge(left, right)
+            assert not G.has_edge(left, left)
+            assert dict(G[left]).keys() == {right}
+            expected_right_neighbors = set() if G.is_directed() else {left}
+            assert dict(G[right]).keys() == expected_right_neighbors
+
+        G = cls()
+        G.add_node(1)
+        G.add_node("1")
+        G.add_node(1.0)
+        G.add_node(True)
+        assert list(G.nodes()) == [1, "1"]
+        assert G.number_of_nodes() == 2
+
+
 def test_node_first_add_wins_for_displayed_py_object():
     """br-r37-c1-firstwins: nx uses dicts for node storage, so the
     FIRST Python object added under a given canonical key (e.g.
