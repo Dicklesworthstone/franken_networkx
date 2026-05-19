@@ -43,6 +43,9 @@ def louvain_communities(
     threshold=1e-07,
     max_level=None,
     seed=None,
+    *,
+    backend=None,
+    **backend_kwargs,
 ):
     """Find communities via the Louvain algorithm.
 
@@ -52,7 +55,16 @@ def louvain_communities(
     then dispatch through nx.algorithms.community.louvain_communities.
     Previously this routed through ``_fnx.louvain_communities``
     (top-level), which was hidden in br-r37-c1-uwm5v.
+
+    Accepts ``backend=`` and arbitrary backend kwargs to match nx's
+    public signature (``nx.community.louvain_communities`` exposes
+    ``*, backend=None, **backend_kwargs``). They are validated via
+    the shared dispatch-keyword guard, then discarded — fnx is the
+    backend.
     """
+    _fnx._validate_backend_dispatch_keywords(
+        "louvain_communities", backend, backend_kwargs
+    )
     return _nx_community.louvain_communities(
         _fnx._networkx_graph_for_parity(G),
         weight=weight,

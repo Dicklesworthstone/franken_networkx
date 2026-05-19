@@ -473,3 +473,33 @@ def test_prominent_group_matches_networkx_when_pandas_available():
     expected = nx.prominent_group(nx.karate_club_graph(), 3)
 
     assert result == expected
+
+
+def test_louvain_communities_accepts_backend_kwarg_like_networkx():
+    """fnx.community.louvain_communities must expose the same backend
+    dispatch surface as nx.community.louvain_communities — i.e. accept
+    ``backend=`` and arbitrary ``**backend_kwargs`` after the
+    keyword-only ``*`` boundary. Before this fix the wrapper omitted
+    those parameters, so ``fnx.community.louvain_communities(g,
+    backend=None)`` raised TypeError while the nx call succeeded.
+    """
+    import inspect
+
+    fnx_sig = inspect.signature(fnx.community.louvain_communities)
+    nx_sig = inspect.signature(nx.community.louvain_communities)
+    assert str(fnx_sig) == str(nx_sig), (
+        f"signature drift\n  fnx: {fnx_sig}\n  nx : {nx_sig}"
+    )
+
+    graph = fnx.karate_club_graph()
+    result = list(fnx.community.louvain_communities(graph, seed=42, backend=None))
+    assert len(result) > 0
+    assert all(isinstance(c, set) for c in result)
+
+    # Unknown backend should propagate the same ImportError that nx raises.
+    with pytest.raises(ImportError):
+        fnx.community.louvain_communities(graph, backend="definitely_no_such_backend")
+
+    # Unknown free kwargs still rejected (validator passes through TypeError).
+    with pytest.raises(TypeError):
+        fnx.community.louvain_communities(graph, some_garbage=True)
