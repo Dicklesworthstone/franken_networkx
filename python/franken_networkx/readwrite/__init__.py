@@ -602,6 +602,14 @@ def parse_gml(lines, label="label", destringizer=None, *, backend=None, **backen
     import franken_networkx as fnx
     from franken_networkx import _fnx
 
+    # br-r37-c1-a4yvc: parse_gml previously accepted arbitrary
+    # ``backend=`` / ``**backend_kwargs`` values silently. nx validates
+    # them — unknown backends raise ImportError, unknown free kwargs
+    # raise TypeError. Run the shared dispatch-keyword guard so both
+    # paths (Rust reader and nx fallback) reject the same invalid
+    # arguments nx rejects.
+    fnx._validate_backend_dispatch_keywords("parse_gml", backend, backend_kwargs)
+
     if label != "label" or destringizer is not None:
         import networkx as nx
 

@@ -248,3 +248,30 @@ class TestParseGmlLabelAndDestringizerParity:
         # raise NetworkXError, matching the default-path behavior.
         with pytest.raises(fnx.NetworkXError):
             fnx.parse_gml("", label="id")
+
+    def test_parse_gml_rejects_invalid_backend_dispatch_kwargs(self):
+        """br-r37-c1-a4yvc: parse_gml previously accepted any
+        ``backend=`` / ``**backend_kwargs`` silently. nx raises
+        ImportError for unknown backends and TypeError for stray
+        positional kwargs — fnx must match both via the shared
+        dispatch-keyword guard.
+        """
+        gml = (
+            "graph [\n"
+            '  node [ id 0 label "a" ]\n'
+            '  node [ id 1 label "b" ]\n'
+            "  edge [ source 0 target 1 ]\n"
+            "]"
+        )
+        # Unknown backend — nx's guard raises ImportError
+        with pytest.raises(ImportError):
+            fnx.parse_gml(gml, backend="definitely_no_such_backend")
+        # Random kwarg — nx raises TypeError
+        with pytest.raises(TypeError):
+            fnx.parse_gml(gml, garbage_kwarg=True)
+        # Validation also fires on the nx-fallback (label='id') path
+        with pytest.raises(TypeError):
+            fnx.parse_gml(gml, label="id", garbage_kwarg=True)
+        # backend=None is fine
+        g = fnx.parse_gml(gml, backend=None)
+        assert sorted(g.nodes()) == ["a", "b"]
