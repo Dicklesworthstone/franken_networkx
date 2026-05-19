@@ -2266,6 +2266,14 @@ def _add_edges_from_materialized(raw):
         # endpoints as Python-id-keyed nodes.
         for edge in materialized:
             if isinstance(edge, tuple) and len(edge) >= 2:
+                # br-r37-c1-83r45: nx.Graph.add_edges_from raises
+                # ``ValueError("None cannot be a node")`` when either
+                # endpoint is None. fnx's add_edge already rejects
+                # None (same wording) but add_edges_from skipped the
+                # check — Drop-in code using add_edges_from to absorb
+                # ``(None, X)`` silently corrupted graphs.
+                if edge[0] is None or edge[1] is None:
+                    raise ValueError("None cannot be a node")
                 hash(edge[0])
                 hash(edge[1])
         # br-r37-c1-aef-tupshape: nx raises NetworkXError("Edge tuple

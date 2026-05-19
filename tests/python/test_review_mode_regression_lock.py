@@ -11018,6 +11018,37 @@ def test_cut_size_and_conductance_honor_weight():
     assert fnx.cut_size(fg, [0, 1]) == nx.cut_size(ng, [0, 1]) == 4
 
 
+def test_add_edges_from_rejects_none_endpoint():
+    """br-r37-c1-83r45 (cycle 243): add_edge(None, 1) correctly raised
+    ValueError("None cannot be a node") in both fnx and nx, but
+    add_edges_from([(None, 1)]) silently accepted None on fnx while
+    nx raised. Add the None-endpoint check to the add_edges_from
+    wrapper to match nx's contract.
+    """
+    import networkx as nx
+    import pytest as _pytest
+
+    # nx behavior reference
+    with _pytest.raises(ValueError) as en:
+        g = nx.Graph()
+        g.add_edges_from([(None, 1)])
+    assert str(en.value) == "None cannot be a node"
+
+    # fnx now matches
+    with _pytest.raises(ValueError) as ef:
+        g = fnx.Graph()
+        g.add_edges_from([(None, 1)])
+    assert str(ef.value) == "None cannot be a node"
+
+    # Symmetric: second endpoint
+    with _pytest.raises(ValueError):
+        fnx.Graph().add_edges_from([(0, None)])
+
+    # add_edge still rejects None
+    with _pytest.raises(ValueError):
+        fnx.Graph().add_edge(None, 1)
+
+
 def test_custom_python_attrs_survive_deepcopy_and_pickle():
     """br-r37-c1-8nz0x (cycle 233): nx preserves user-set instance
     attrs (``g.custom_attr = 'x'``) across deepcopy and pickle via its
