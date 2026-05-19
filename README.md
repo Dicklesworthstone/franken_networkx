@@ -715,7 +715,7 @@ If you find a behavior that doesn't match NetworkX and isn't listed in `upstream
 
 ### Exception class hierarchy
 
-FrankenNetworkX re-exports NetworkX's exception classes verbatim so `except nx.NetworkXError:` and `except fnx.NetworkXError:` catch the same instances. 14 of these classes show up as public `CLASS` exports in `docs/coverage.md`; `AmbiguousSolution` and `ExceededMaxIterations` are not re-exported at `fnx.*` (they're imported privately in `__init__.py` for raising) but you can still catch them as `nx.AmbiguousSolution` / `nx.ExceededMaxIterations`. The actual hierarchy (matches `networkx.exception`):
+FrankenNetworkX re-exports NetworkX's exception classes verbatim so `except nx.NetworkXError:` and `except fnx.NetworkXError:` catch the same instances. 14 of these classes are explicitly listed in `fnx.__all__` and show up as public `CLASS` exports in `docs/coverage.md`. The remaining two (`AmbiguousSolution`, `ExceededMaxIterations`) are not in `__all__` but are still reachable as `fnx.AmbiguousSolution` / `fnx.ExceededMaxIterations` via the package's `__getattr__` fallback to `networkx` (the identity is preserved: `fnx.AmbiguousSolution is nx.AmbiguousSolution`). The actual hierarchy (matches `networkx.exception`):
 
 ```
 Exception
@@ -1004,10 +1004,10 @@ The same script works in backend mode: leave `nx.config.backend_priority = ["fra
 
 ### Hot-path design notes
 
-- **Index-based working sets.** Algorithm interiors operate on dense `Vec<u32>` node indices rather than chasing `IndexMap` lookups in tight loops. The index↔label map is built once at the start of a call.
-- **Visited bitsets.** BFS / DFS / SCC / matching kernels use packed bitsets, not `HashSet<NodeId>`, for the visited tracking. This trades a one-time `O(n / 64)` allocation for cache-friendly inner loops.
-- **Binary heaps without `Reverse` allocation.** Dijkstra-family algorithms use `BinaryHeap<(OrderedFloat<f64>, u32)>` with a min-heap reordering, avoiding the per-push `Reverse(_)` wrapper allocation profiled in earlier versions.
-- **Branchless deterministic tie-break.** Tie-break comparisons are inlined into the heap-key comparator so the equal-weight branch never enters a slower Python-style comparison path.
+- **Index-based working sets.** Algorithm interiors operate on dense `Vec<usize>` node indices rather than chasing `IndexMap` lookups in tight loops. The index↔label map is built once at the start of a call via `graph.nodes_ordered()` + `graph.get_node_index(name)`.
+- **Byte-array visited tracking.** BFS / DFS / SCC / matching kernels use a `vec![false; n]` byte array (≈45 sites), not `HashSet<NodeId>`, for visited tracking. One contiguous allocation per call, cache-friendly inner loops.
+- **Min-heap without `Reverse` allocation.** Dijkstra-family algorithms use a custom `DijkstraState { dist: f64, seq: u64, node }` struct whose `Ord` impl reverses the dist comparison; the standard `BinaryHeap` acts as a min-heap with no per-push `Reverse(_)` wrapper.
+- **FIFO tie-break in the comparator.** The `seq` insertion counter is the secondary key in `DijkstraState`'s `Ord` impl, so equal-distance entries pop in the order they were pushed (matching NetworkX's `heapq`-with-counter behavior bit-exactly). No post-pass needed.
 - **Borrowed PyO3 returns.** `connected_components` emits a `PySet` per component directly from Rust instead of building a Vec first and converting in a second pass, which saves one full pass over the result.
 
 ### Cost model: when fnx wins, by how much, and why
@@ -1037,7 +1037,7 @@ The native algorithm implementations in `fnx-algorithms` favor textbook complexi
 
 ### Shortest path
 
-- **Dijkstra.** Standard binary-heap Dijkstra with the `WeightThenLex` CGSE policy: equal-distance frontier nodes are ordered by node label. Single-source / multi-source / bidirectional all share the same kernel. NetworkX's `heapq` implementation tie-breaks by an insertion counter; fnx's path-reconstruction layer applies a post-pass that recovers the nx-canonical predecessor chain so the visible result (the returned path / dict) matches even when the inner-heap order differs. The `+∞` and negative-weight gates are short-circuit native scans before the algorithm enters its main loop; invalid input fails fast or delegates to `nx` per the documented contract.
+- **Dijkstra.** Standard binary-heap Dijkstra. Internally uses a `DijkstraState { dist: f64, seq: u64, node }` struct whose `Ord` impl reverses the dist comparison (so a max-heap acts as a min-heap, with no per-push `Reverse(_)` wrapper) and tie-breaks equal-distance entries by insertion-counter `seq` to match NetworkX's `heapq`-with-counter behavior exactly. Single-source / multi-source / bidirectional all share the same kernel. The `+∞` and negative-weight gates are short-circuit native scans before the algorithm enters its main loop; invalid input fails fast or delegates to `nx` per the documented contract.
 - **Bellman-Ford.** O(VE) relaxation with predecessor reconstruction. Negative-cycle detection scans the last-pass relaxation; the canonical error wording matches NetworkX's exact string (regression-locked in `test_bellman_ford_negative_cycle_message_parity.py`).
 - **A*.** Standard heuristic-guided Dijkstra. The heuristic callable contract was tightened in commit [`b7d9e785`](https://github.com/Dicklesworthstone/franken_networkx/commit/b7d9e785) (`franken_networkx-74xw`) to honor NetworkX's exact signature.
 - **Johnson all-pairs.** Edge re-weighting via Bellman-Ford + Dijkstra from every source. The inner-dict ordering of `johnson` was specifically locked to NetworkX's order in `br-r37-c1-9l73c`.
