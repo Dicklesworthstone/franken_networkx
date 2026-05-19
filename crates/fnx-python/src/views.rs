@@ -787,12 +787,7 @@ impl AdjacencyView {
             .iter()
             .map(|n| g.py_node_key(py, n))
             .collect();
-        Py::new(
-            py,
-            NodeIterator {
-                inner: nodes.into_iter(),
-            },
-        )
+        Py::new(py, NodeIterator::unguarded(nodes))
     }
 
     fn __repr__(&self, py: Python<'_>) -> String {

@@ -17,7 +17,7 @@ pub use readwrite::{RawNodeLinkError, RawNodeLinkReport, parse_raw_node_link_jso
 
 use fnx_classes::{AttrMap, Graph, MultiGraph};
 use fnx_runtime::{CgseValue, CompatibilityMode, RuntimePolicy};
-use pyo3::exceptions::{PyKeyError, PyTypeError, PyValueError};
+use pyo3::exceptions::{PyKeyError, PyRuntimeError, PyTypeError, PyValueError};
 use pyo3::marker::Ungil;
 use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyDict, PyIterator, PyTuple};
@@ -1151,13 +1151,18 @@ impl PyMultiGraph {
         Ok(self.inner.has_node(&canonical))
     }
 
-    fn __iter__(&self, py: Python<'_>) -> PyResult<Py<NodeIterator>> {
-        let nodes: Vec<PyObject> = self
+    fn __iter__(slf: PyRef<'_, Self>) -> PyResult<Py<NodeIterator>> {
+        let py = slf.py();
+        let expected_nodes: Vec<String> = slf
             .inner
             .nodes_ordered()
             .into_iter()
+            .map(str::to_owned)
+            .collect();
+        let nodes: Vec<PyObject> = expected_nodes
+            .iter()
             .map(|n| {
-                self.node_key_map.get(n).map_or_else(
+                slf.node_key_map.get(n).map_or_else(
                     || {
                         unwrap_infallible(n.to_owned().into_pyobject(py))
                             .into_any()
@@ -1167,11 +1172,14 @@ impl PyMultiGraph {
                 )
             })
             .collect();
+        let graph = Py::from(slf);
         Py::new(
             py,
-            NodeIterator {
-                inner: nodes.into_iter(),
-            },
+            NodeIterator::with_graph_guard(
+                nodes,
+                NodeIteratorGuard::MultiGraph(graph),
+                expected_nodes,
+            ),
         )
     }
 
@@ -1789,12 +1797,7 @@ impl MultiGraphNodeView {
             .into_iter()
             .map(|n| g.py_node_key(py, n))
             .collect();
-        Py::new(
-            py,
-            NodeIterator {
-                inner: nodes.into_iter(),
-            },
-        )
+        Py::new(py, NodeIterator::unguarded(nodes))
     }
 
     #[pyo3(signature = (data=false, default=None))]
@@ -2127,12 +2130,7 @@ impl MultiGraphEdgeView {
                 result.push(tuple.into_any().unbind());
             }
         }
-        Py::new(
-            py,
-            NodeIterator {
-                inner: result.into_iter(),
-            },
-        )
+        Py::new(py, NodeIterator::unguarded(result))
     }
 }
 
@@ -2167,12 +2165,7 @@ impl MultiGraphDegreeView {
             let pair = PyTuple::new(py, &[py_node, deg])?;
             result.push(pair.into_any().unbind());
         }
-        Py::new(
-            py,
-            NodeIterator {
-                inner: result.into_iter(),
-            },
-        )
+        Py::new(py, NodeIterator::unguarded(result))
     }
 }
 
@@ -2776,18 +2769,22 @@ impl PyGraph {
     }
 
     /// Iterate over nodes (called by ``for n in G``).
-    fn __iter__(&self, py: Python<'_>) -> PyResult<Py<NodeIterator>> {
-        let nodes: Vec<PyObject> = self
+    fn __iter__(slf: PyRef<'_, Self>) -> PyResult<Py<NodeIterator>> {
+        let py = slf.py();
+        let expected_nodes: Vec<String> = slf
             .inner
             .nodes_ordered()
             .into_iter()
-            .map(|n| self.py_node_key(py, n))
+            .map(str::to_owned)
             .collect();
+        let nodes: Vec<PyObject> = expected_nodes
+            .iter()
+            .map(|n| slf.py_node_key(py, n))
+            .collect();
+        let graph = Py::from(slf);
         Py::new(
             py,
-            NodeIterator {
-                inner: nodes.into_iter(),
-            },
+            NodeIterator::with_graph_guard(nodes, NodeIteratorGuard::Graph(graph), expected_nodes),
         )
     }
 
@@ -3535,8 +3532,71 @@ mod tests {
 // ---------------------------------------------------------------------------
 
 #[pyclass]
-struct NodeIterator {
+pub(crate) struct NodeIterator {
     inner: std::vec::IntoIter<PyObject>,
+    guard: Option<(NodeIteratorGuard, Vec<String>)>,
+}
+
+pub(crate) enum NodeIteratorGuard {
+    Graph(Py<PyGraph>),
+    MultiGraph(Py<PyMultiGraph>),
+    DiGraph(Py<digraph::PyDiGraph>),
+    MultiDiGraph(Py<digraph::PyMultiDiGraph>),
+}
+
+impl NodeIteratorGuard {
+    fn current_nodes(&self, py: Python<'_>) -> Vec<String> {
+        match self {
+            Self::Graph(graph) => graph
+                .borrow(py)
+                .inner
+                .nodes_ordered()
+                .into_iter()
+                .map(str::to_owned)
+                .collect(),
+            Self::MultiGraph(graph) => graph
+                .borrow(py)
+                .inner
+                .nodes_ordered()
+                .into_iter()
+                .map(str::to_owned)
+                .collect(),
+            Self::DiGraph(graph) => graph
+                .borrow(py)
+                .inner
+                .nodes_ordered()
+                .into_iter()
+                .map(str::to_owned)
+                .collect(),
+            Self::MultiDiGraph(graph) => graph
+                .borrow(py)
+                .inner
+                .nodes_ordered()
+                .into_iter()
+                .map(str::to_owned)
+                .collect(),
+        }
+    }
+}
+
+impl NodeIterator {
+    pub(crate) fn unguarded(items: Vec<PyObject>) -> Self {
+        Self {
+            inner: items.into_iter(),
+            guard: None,
+        }
+    }
+
+    pub(crate) fn with_graph_guard(
+        items: Vec<PyObject>,
+        graph: NodeIteratorGuard,
+        expected_nodes: Vec<String>,
+    ) -> Self {
+        Self {
+            inner: items.into_iter(),
+            guard: Some((graph, expected_nodes)),
+        }
+    }
 }
 
 #[pymethods]
@@ -3545,8 +3605,25 @@ impl NodeIterator {
         slf
     }
 
-    fn __next__(mut slf: PyRefMut<'_, Self>) -> Option<PyObject> {
-        slf.inner.next()
+    fn __next__(mut slf: PyRefMut<'_, Self>) -> PyResult<Option<PyObject>> {
+        if let Some((graph, expected_nodes)) = &slf.guard {
+            let current_nodes = graph.current_nodes(slf.py());
+            if current_nodes.len() != expected_nodes.len() {
+                return Err(PyRuntimeError::new_err(
+                    "dictionary changed size during iteration",
+                ));
+            }
+            if current_nodes
+                .iter()
+                .zip(expected_nodes.iter())
+                .any(|(current, expected)| current != expected)
+            {
+                return Err(PyRuntimeError::new_err(
+                    "dictionary keys changed during iteration",
+                ));
+            }
+        }
+        Ok(slf.inner.next())
     }
 }
 

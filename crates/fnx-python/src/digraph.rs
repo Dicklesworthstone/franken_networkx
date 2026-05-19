@@ -790,18 +790,26 @@ impl PyMultiDiGraph {
         Ok(self.inner.has_node(&canonical))
     }
 
-    fn __iter__(&self, py: Python<'_>) -> PyResult<Py<crate::NodeIterator>> {
-        let nodes: Vec<PyObject> = self
+    fn __iter__(slf: PyRef<'_, Self>) -> PyResult<Py<crate::NodeIterator>> {
+        let py = slf.py();
+        let expected_nodes: Vec<String> = slf
             .inner
             .nodes_ordered()
             .into_iter()
-            .map(|n| self.py_node_key(py, n))
+            .map(str::to_owned)
             .collect();
+        let nodes: Vec<PyObject> = expected_nodes
+            .iter()
+            .map(|n| slf.py_node_key(py, n))
+            .collect();
+        let graph = Py::from(slf);
         Py::new(
             py,
-            crate::NodeIterator {
-                inner: nodes.into_iter(),
-            },
+            crate::NodeIterator::with_graph_guard(
+                nodes,
+                crate::NodeIteratorGuard::MultiDiGraph(graph),
+                expected_nodes,
+            ),
         )
     }
 
@@ -1566,12 +1574,7 @@ impl MultiDiGraphNodeView {
             .into_iter()
             .map(|n| g.py_node_key(py, n))
             .collect();
-        Py::new(
-            py,
-            crate::NodeIterator {
-                inner: nodes.into_iter(),
-            },
-        )
+        Py::new(py, crate::NodeIterator::unguarded(nodes))
     }
 
     #[pyo3(signature = (data=false, default=None))]
@@ -1922,12 +1925,7 @@ impl MultiDiGraphEdgeView {
             };
             result.push(item);
         }
-        Py::new(
-            py,
-            crate::NodeIterator {
-                inner: result.into_iter(),
-            },
-        )
+        Py::new(py, crate::NodeIterator::unguarded(result))
     }
 }
 
@@ -1970,12 +1968,7 @@ impl MultiDiGraphDegreeView {
             let pair = PyTuple::new(py, &[py_node, deg_obj])?;
             result.push(pair.into_any().unbind());
         }
-        Py::new(
-            py,
-            crate::NodeIterator {
-                inner: result.into_iter(),
-            },
-        )
+        Py::new(py, crate::NodeIterator::unguarded(result))
     }
 }
 
@@ -3016,18 +3009,26 @@ impl PyDiGraph {
         Ok(self.inner.has_node(&canonical))
     }
 
-    fn __iter__(&self, py: Python<'_>) -> PyResult<Py<crate::NodeIterator>> {
-        let nodes: Vec<PyObject> = self
+    fn __iter__(slf: PyRef<'_, Self>) -> PyResult<Py<crate::NodeIterator>> {
+        let py = slf.py();
+        let expected_nodes: Vec<String> = slf
             .inner
             .nodes_ordered()
             .into_iter()
-            .map(|n| self.py_node_key(py, n))
+            .map(str::to_owned)
             .collect();
+        let nodes: Vec<PyObject> = expected_nodes
+            .iter()
+            .map(|n| slf.py_node_key(py, n))
+            .collect();
+        let graph = Py::from(slf);
         Py::new(
             py,
-            crate::NodeIterator {
-                inner: nodes.into_iter(),
-            },
+            crate::NodeIterator::with_graph_guard(
+                nodes,
+                crate::NodeIteratorGuard::DiGraph(graph),
+                expected_nodes,
+            ),
         )
     }
 
@@ -3956,12 +3957,7 @@ impl DiAdjacencyView {
             .into_iter()
             .map(|n| g.py_node_key(py, n))
             .collect();
-        Py::new(
-            py,
-            crate::NodeIterator {
-                inner: nodes.into_iter(),
-            },
-        )
+        Py::new(py, crate::NodeIterator::unguarded(nodes))
     }
 
     fn __bool__(&self, py: Python<'_>) -> bool {
