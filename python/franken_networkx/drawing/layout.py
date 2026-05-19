@@ -871,14 +871,11 @@ def forceatlas2_layout(
     **backend_kwargs,
 ):
     """Position nodes using the ForceAtlas2 layout algorithm."""
-    if backend is not None and backend != "networkx":
-        # Match upstream NetworkX: a non-default backend triggers the dispatch
-        # path which raises ImportError when that backend isn't installed.
-        raise ImportError(
-            f"'{backend}' backend is not installed."
-        )
-    del backend_kwargs  # The default in-tree implementation ignores backend kwargs.
     import franken_networkx as fnx
+
+    fnx._validate_backend_dispatch_keywords(
+        "forceatlas2_layout", backend, backend_kwargs
+    )
 
     nodes = list(G)
     if len(nodes) == 0:
