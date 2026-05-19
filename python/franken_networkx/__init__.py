@@ -36825,10 +36825,22 @@ def relabel_nodes(G, mapping, copy=True):
         if G.is_multigraph():
             # 4-tuple form avoids `key=key, **d` collision when d contains
             # a 'key' attribute (franken_networkx-uphdr).
-            H.add_edges_from(
+            new_edges = [
                 (_map.get(u, u), _map.get(v, v), key, dict(d))
                 for u, v, key, d in G.edges(keys=True, data=True)
-            )
+            ]
+            undirected = not G.is_directed()
+            seen_edges = set()
+            for index, (source, target, key, data) in enumerate(new_edges):
+                while (source, target, key) in seen_edges:
+                    if not isinstance(key, int | float):
+                        key = 0
+                    key += 1
+                seen_edges.add((source, target, key))
+                if undirected:
+                    seen_edges.add((target, source, key))
+                new_edges[index] = (source, target, key, data)
+            H.add_edges_from(new_edges)
         else:
             for u, v, d in G.edges(data=True):
                 H.add_edge(_map.get(u, u), _map.get(v, v), **d)

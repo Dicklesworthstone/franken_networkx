@@ -181,6 +181,39 @@ class TestRelabelNodes:
     @pytest.mark.parametrize(
         ("fnx_cls", "nx_cls"),
         [
+            (fnx.MultiGraph, nx.MultiGraph),
+            (fnx.MultiDiGraph, nx.MultiDiGraph),
+        ],
+    )
+    def test_copy_true_multigraph_key_collisions_match_networkx_without_fallback(
+        self, monkeypatch, fnx_cls, nx_cls
+    ):
+        graph = fnx_cls()
+        expected = nx_cls()
+        for current in (graph, expected):
+            current.add_edge(0, 2, key=0, label="left")
+            current.add_edge(1, 2, key=0, label="right")
+
+        expected_result = nx.relabel_nodes(expected, {0: 1}, copy=True)
+
+        _block_networkx_conversion(monkeypatch, "relabel_nodes")
+
+        result = fnx.relabel_nodes(graph, {0: 1}, copy=True)
+        result_edges = sorted(
+            (u, v, key, dict(data))
+            for u, v, key, data in result.edges(keys=True, data=True)
+        )
+        expected_edges = sorted(
+            (u, v, key, dict(data))
+            for u, v, key, data in expected_result.edges(keys=True, data=True)
+        )
+
+        assert result.number_of_edges(1, 2) == expected_result.number_of_edges(1, 2)
+        assert result_edges == expected_edges
+
+    @pytest.mark.parametrize(
+        ("fnx_cls", "nx_cls"),
+        [
             (fnx.Graph, nx.Graph),
             (fnx.DiGraph, nx.DiGraph),
             (fnx.MultiGraph, nx.MultiGraph),
