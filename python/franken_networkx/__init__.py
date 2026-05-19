@@ -3201,6 +3201,10 @@ def _add_weighted_edges_from_with_attr(cls):
         materialized = list(ebunch_to_add)
         for edge in materialized:
             if isinstance(edge, tuple) and len(edge) >= 2:
+                # br-r37-c1-83r45 follow-up: reject None endpoints
+                # (matches nx; sister of the add_edges_from fix).
+                if edge[0] is None or edge[1] is None:
+                    raise ValueError("None cannot be a node")
                 hash(edge[0])
                 hash(edge[1])
         if not attr:

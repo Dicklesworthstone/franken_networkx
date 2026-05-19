@@ -11049,6 +11049,23 @@ def test_add_edges_from_rejects_none_endpoint():
         fnx.Graph().add_edge(None, 1)
 
 
+def test_add_weighted_edges_from_rejects_none_endpoint():
+    """br-r37-c1-3qswx (cycle 243): sister of br-r37-c1-83r45.
+    add_weighted_edges_from skipped the None-endpoint check just like
+    add_edges_from did. Add the same guard.
+    """
+    import networkx as nx
+    import pytest as _pytest
+
+    with _pytest.raises(ValueError) as ef:
+        fnx.Graph().add_weighted_edges_from([(None, 1, 5)])
+    assert str(ef.value) == "None cannot be a node"
+
+    with _pytest.raises(ValueError) as en:
+        nx.Graph().add_weighted_edges_from([(None, 1, 5)])
+    assert str(en.value) == "None cannot be a node"
+
+
 def test_custom_python_attrs_survive_deepcopy_and_pickle():
     """br-r37-c1-8nz0x (cycle 233): nx preserves user-set instance
     attrs (``g.custom_attr = 'x'``) across deepcopy and pickle via its
