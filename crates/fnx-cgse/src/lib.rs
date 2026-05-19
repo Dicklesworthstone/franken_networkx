@@ -8,7 +8,7 @@
 //!
 //! ## Architecture
 //!
-//! - [`TieBreakPolicy`]: closed sum type with 12 named ordering variants.
+//! - [`TieBreakPolicy`]: closed sum type with 13 named ordering variants.
 //! - [`ComplexityWitness`]: per-execution record carrying `(n, m, observed_ops,
 //!   policy_id, decision_path_blake3)`.
 //! - [`WitnessSink`]: thread-local collector that algorithms call on every
@@ -25,7 +25,7 @@ use std::cell::{Cell, RefCell};
 // Tie-Break Policies
 // ---------------------------------------------------------------------------
 
-/// The 12 canonical tie-break orderings that NetworkX algorithms exhibit.
+/// The 13 canonical tie-break orderings that NetworkX algorithms exhibit.
 ///
 /// Each algorithm family declares exactly one policy. When two candidates
 /// are equally ranked by the algorithm's primary metric (cost, weight, degree,
@@ -45,6 +45,14 @@ pub enum TieBreakPolicy {
     ReverseInsertionOrder,
     /// Primary: weight ascending; secondary: lex-min label.
     WeightThenLex,
+    /// Primary: weight ascending; secondary: insertion order (FIFO).
+    ///
+    /// This is the policy NetworkX's heap-based weighted algorithms
+    /// actually use, via `heapq` + `itertools.count()` as a per-push
+    /// monotonic sequence counter. fnx's Dijkstra uses the same scheme
+    /// so equal-weight frontier entries pop in the order they were
+    /// pushed, matching NetworkX byte-for-byte.
+    WeightThenInsertionOrder,
     /// Primary: lex-min label; secondary: weight ascending.
     LexThenWeight,
     /// Deterministic hash of (seed, label) — reproducible but order-agnostic.
@@ -71,6 +79,7 @@ impl TieBreakPolicy {
             Self::InsertionOrder => "insertion_order",
             Self::ReverseInsertionOrder => "reverse_insertion_order",
             Self::WeightThenLex => "weight_then_lex",
+            Self::WeightThenInsertionOrder => "weight_then_insertion_order",
             Self::LexThenWeight => "lex_then_weight",
             Self::DeterministicHash { .. } => "deterministic_hash",
             Self::DegreeMinThenLex => "degree_min_then_lex",
@@ -92,9 +101,13 @@ impl TieBreakPolicy {
                 // These are governed by the underlying IndexMap order;
                 // typically no-op or handled at the iterator level.
             }
-            Self::WeightThenLex | Self::LexThenWeight => {
-                // These require external weight data; handled by specialized
-                // priority queue wrappers in fnx-algorithms.
+            Self::WeightThenLex | Self::WeightThenInsertionOrder | Self::LexThenWeight => {
+                // These require external weight data (and for
+                // WeightThenInsertionOrder, a monotonic insertion
+                // counter); handled by specialized priority-queue
+                // wrappers in fnx-algorithms (see DijkstraState's
+                // Ord impl for the canonical WeightThenInsertionOrder
+                // pattern).
             }
             Self::DeterministicHash { seed } => {
                 let s = *seed;
@@ -434,7 +447,10 @@ impl ReferenceAlgorithm {
     #[must_use]
     pub const fn policy(self) -> TieBreakPolicy {
         match self {
-            Self::Dijkstra => TieBreakPolicy::WeightThenLex,
+            // Dijkstra's heap uses DijkstraState { dist, seq, node } where
+            // `seq` is a monotonic per-push counter. Ties on `dist` resolve
+            // FIFO, matching NetworkX's heapq + itertools.count() exactly.
+            Self::Dijkstra => TieBreakPolicy::WeightThenInsertionOrder,
             Self::BellmanFord => TieBreakPolicy::InsertionOrder,
             Self::Bfs => TieBreakPolicy::InsertionOrder,
             Self::Dfs => TieBreakPolicy::InsertionOrder,
@@ -442,7 +458,14 @@ impl ReferenceAlgorithm {
             Self::MinWeightMatching => TieBreakPolicy::WeightThenLex,
             Self::ConnectedComponents => TieBreakPolicy::LexMin,
             Self::StronglyConnectedComponents => TieBreakPolicy::InsertionOrder,
+            // Kruskal sorts edges by (weight, left, right) lex-min; pure
+            // WeightThenLex with no insertion-counter component.
             Self::Kruskal => TieBreakPolicy::WeightThenLex,
+            // Prim's PrimEdgeState also threads `seq` as the *quaternary*
+            // key after (weight, left, right); for the V1 registry's
+            // single-policy slot, WeightThenLex captures the dominant
+            // behavior (seq matters only when weight, left, right all tie,
+            // which is unusual outside multigraphs).
             Self::Prim => TieBreakPolicy::WeightThenLex,
             Self::EulerianCircuit => TieBreakPolicy::InsertionOrder,
             Self::TopologicalSort => TieBreakPolicy::InsertionOrder,

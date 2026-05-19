@@ -2,13 +2,13 @@
   "schema_version": "1.0.0",
   "artifact_id": "cgse-adversarial-tiebreak-corpus-v1",
   "generated_at_utc": "2026-04-10T02:30:00Z",
-  "description": "Adversarial test graphs that force tie-break decisions in all 12 CGSE reference algorithms. Each case is designed to trigger the algorithm's declared tie-break policy.",
+  "description": "Adversarial test graphs that force tie-break decisions in all 12 CGSE reference algorithms (covering 13 declared TieBreakPolicy variants). Each case is designed to trigger the algorithm's declared tie-break policy.",
   "test_cases": [
     {
       "case_id": "dijkstra_equal_weight_paths",
       "algorithm": "dijkstra",
-      "policy": "weight_then_lex",
-      "description": "Two paths from A to D with identical total weight; lex-min path should win",
+      "policy": "weight_then_insertion_order",
+      "description": "Two paths from A to D with identical total weight; FIFO insertion order wins (matches nx heapq + itertools.count())",
       "graph": {
         "directed": false,
         "nodes": ["a", "b", "c", "d"],
@@ -27,8 +27,8 @@
     {
       "case_id": "dijkstra_three_way_tie",
       "algorithm": "dijkstra",
-      "policy": "weight_then_lex",
-      "description": "Three equal-weight paths; lex-min intermediate node wins",
+      "policy": "weight_then_insertion_order",
+      "description": "Three equal-weight paths; FIFO insertion order wins (matches nx heapq + itertools.count())",
       "graph": {
         "directed": false,
         "nodes": ["s", "a", "b", "c", "t"],

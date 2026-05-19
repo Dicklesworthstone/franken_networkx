@@ -1,7 +1,7 @@
 //! Python bindings for the Canonical Graph Semantics Engine (CGSE).
 //!
 //! Exposes:
-//! - `TieBreakPolicy`: The 12 canonical tie-break orderings
+//! - `TieBreakPolicy`: The 13 canonical tie-break orderings
 //! - `ComplexityWitness`: Per-execution proof of tie-break decisions
 //! - `collect_witnesses()`: Wrapper for running algorithms with witness collection
 
@@ -9,7 +9,7 @@ use fnx_cgse::{ComplexityWitness, ReferenceAlgorithm, TieBreakPolicy, v1_policy_
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 
-/// The 12 canonical tie-break orderings that NetworkX algorithms exhibit.
+/// The 13 canonical tie-break orderings that NetworkX algorithms exhibit.
 #[pyclass(name = "TieBreakPolicy")]
 #[derive(Debug, Clone)]
 pub struct PyTieBreakPolicy(pub TieBreakPolicy);
@@ -44,6 +44,14 @@ impl PyTieBreakPolicy {
     #[staticmethod]
     fn weight_then_lex() -> Self {
         Self(TieBreakPolicy::WeightThenLex)
+    }
+
+    /// Primary: weight ascending; secondary: insertion order (FIFO).
+    /// This is what fnx's Dijkstra actually uses to match NetworkX's
+    /// heapq + itertools.count() byte-for-byte.
+    #[staticmethod]
+    fn weight_then_insertion_order() -> Self {
+        Self(TieBreakPolicy::WeightThenInsertionOrder)
     }
 
     /// Primary: lex-min label; secondary: weight ascending.

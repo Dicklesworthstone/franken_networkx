@@ -400,6 +400,7 @@ fn cgse_adversarial_policy_matches_algorithm() {
 
         let expected_policy = match case.policy.as_str() {
             "weight_then_lex" => TieBreakPolicy::WeightThenLex,
+            "weight_then_insertion_order" => TieBreakPolicy::WeightThenInsertionOrder,
             "insertion_order" => TieBreakPolicy::InsertionOrder,
             "lex_min" => TieBreakPolicy::LexMin,
             other => panic!("Unknown policy in corpus: {}", other),

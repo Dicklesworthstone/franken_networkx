@@ -46,7 +46,7 @@ That contract is enforced by a 377-file Python parity test suite, by a curated R
 | GIL release on heavy work | n/a (pure Python) | yes; hundreds of `py.allow_threads(...)` sites |
 | Public API exports | ~730 | **763** classified in `docs/coverage.md` |
 | Backend-dispatch surface | n/a | **316** algorithms registered in `backend.py` |
-| Tie-break determinism | implicit | explicit **CGSE** (12-variant `TieBreakPolicy`) |
+| Tie-break determinism | implicit | explicit **CGSE** (13-variant `TieBreakPolicy`) |
 | Complexity audit | none | `ComplexityWitness` per call, length-prefixed Blake3 decision-path ledger |
 | Strict vs hardened parsing | n/a | mode-aware `CgsePolicyEngine` with fail-closed defaults |
 | Durable conformance artifacts | n/a | RaptorQ erasure-coded sidecars with decode-proof receipts |
@@ -265,7 +265,7 @@ The full export list is in [`docs/coverage.md`](docs/coverage.md). To use a spec
 | `fnx-algorithms` | ~47 KLOC across 550+ public functions covering shortest path, centrality, connectivity, clustering, matching, flow, trees, community, isomorphism, planarity, polynomials, spectral, traversal, and DAG families. |
 | `fnx-generators` | Classic, random, scale-free, lattice, and social graph generators. Deterministic seeded RNG with NetworkX-byte-compatible edge enumeration order where contracted. |
 | `fnx-readwrite` | Native Rust parsers and writers for **7 formats**: edgelist, adjlist, GraphML, GML, JSON (node-link), Pajek, GEXF. Cargo-fuzz hardened with 8 dedicated parser fuzzers. Format variants exposed at the Python layer (`read_weighted_edgelist`, `read_multiline_adjlist`, `read_leda`, `read_graph6`, `read_sparse6`) compose the native primitives or delegate to NetworkX for niche formats. |
-| `fnx-cgse` | **Canonical Graph Semantics Engine.** 12-variant `TieBreakPolicy` sum type. `ComplexityWitness { n, m, dominant_term, observed_count, policy, seed, decision_path_blake3 }` with length-prefixed Blake3 hashing. `WitnessSink`, `WitnessLedger`, and a V1 policy registry mapping reference algorithms to canonical policies. |
+| `fnx-cgse` | **Canonical Graph Semantics Engine.** 13-variant `TieBreakPolicy` sum type. `ComplexityWitness { n, m, dominant_term, observed_count, policy, seed, decision_path_blake3 }` with length-prefixed Blake3 hashing. `WitnessSink`, `WitnessLedger`, and a V1 policy registry mapping reference algorithms to canonical policies. |
 | `fnx-runtime` | `CompatibilityMode::{Strict, Hardened}`, `CgsePolicyEngine`, structured `DecisionRecord`s with evidence terms, fail-closed defaults. |
 | `fnx-conformance` | Curated parity harness; fixture replay; differential report generation; structured logs and replay commands; artifact emitters writing to `artifacts/conformance/latest/`. |
 | `fnx-durability` | RaptorQ sidecar generation, integrity scrub, decode-proof artifacts for conformance fixture bundles, benchmark baselines, migration manifests, reproducibility ledgers, and long-lived state snapshots. |
@@ -277,7 +277,7 @@ The full export list is in [`docs/coverage.md`](docs/coverage.md). To use a spec
 
 CGSE is the project's core correctness mechanism. It treats algorithmic *tie-breaking* as part of the API contract rather than incidental behavior.
 
-### The 12 Tie-Break Policies
+### The 13 Tie-Break Policies
 
 Every algorithm declares, at the type level, which policy governs its choices when multiple equally-correct answers exist:
 
@@ -288,6 +288,7 @@ pub enum TieBreakPolicy {
     InsertionOrder,                      // adjacency-list order
     ReverseInsertionOrder,               // reverse adjacency-list order
     WeightThenLex,                       // weight ↑ then lex-min label
+    WeightThenInsertionOrder,            // weight ↑ then FIFO insertion (Dijkstra)
     LexThenWeight,                       // lex-min label then weight ↑
     DeterministicHash { seed: u64 },     // reproducible but order-agnostic
     DegreeMinThenLex,                    // min-degree node, ties lex-min
@@ -299,6 +300,8 @@ pub enum TieBreakPolicy {
 ```
 
 Defined in [`crates/fnx-cgse/src/lib.rs:37`](crates/fnx-cgse/src/lib.rs). Each policy has a short stable identifier used in ledger entries and serialized artifacts.
+
+The `WeightThenInsertionOrder` variant is the one NetworkX actually exhibits in its heap-driven shortest-path algorithms (`heapq` + `itertools.count()` as a per-push monotonic counter). fnx's Dijkstra uses the same scheme: a `DijkstraState { dist, seq, node }` struct whose `Ord` impl tie-breaks equal-distance entries by the insertion-counter `seq`. The choice of `WeightThenInsertionOrder` over `WeightThenLex` for Dijkstra is intentional: matching NetworkX byte-for-byte beats insertion-order-independent reproducibility for the project's drop-in-compatibility contract. The CGSE V1 registry now records this honestly.
 
 ### Complexity-class reference
 
@@ -325,7 +328,7 @@ The `v1_policy_registry()` table pins a canonical tie-break policy and dominant 
 
 | Family | Reference algorithm | Tie-break policy | Dominant complexity |
 |---|---|---|---|
-| shortest_path | `dijkstra` | `WeightThenLex` | `n_plus_m_log_n` |
+| shortest_path | `dijkstra` | `WeightThenInsertionOrder` | `n_plus_m_log_n` |
 | shortest_path | `bellman_ford` | `InsertionOrder` | `n_m` |
 | traversal | `bfs` | `InsertionOrder` | `n_plus_m` |
 | traversal | `dfs` | `InsertionOrder` | `n_plus_m` |
@@ -338,7 +341,7 @@ The `v1_policy_registry()` table pins a canonical tie-break policy and dominant 
 | euler | `eulerian_circuit` | `InsertionOrder` | `m` |
 | dag | `topological_sort` | `InsertionOrder` | `n_plus_m` |
 
-The choice of `InsertionOrder` for `bfs`/`dfs`/`bellman_ford`/`topological_sort` is exactly the NetworkX behavior: those algorithms iterate adjacency in the order the user inserted edges, and `IndexMap` preserves that. The choice of `WeightThenLex` for weighted algorithms reflects NetworkX's `heapq` semantics, where equal-weight heap entries are broken by Python's tuple comparison on subsequent fields (which lex-compares the node labels).
+The choice of `InsertionOrder` for `bfs`/`dfs`/`bellman_ford`/`topological_sort` is exactly the NetworkX behavior: those algorithms iterate adjacency in the order the user inserted edges, and `IndexMap` preserves that. The choice of `WeightThenInsertionOrder` for Dijkstra matches NetworkX's `heapq + itertools.count()` pattern (a monotonic per-push counter is the secondary key, so equal-weight frontier entries pop in FIFO order). The choice of `WeightThenLex` for Kruskal / Prim / matching reflects those algorithms' deterministic edge sort by `(weight, left, right)` labels.
 
 These assignments encode the same tie-break choices a careful reading of the NetworkX source would extract, except now they are machine-readable, versioned in source, and enforceable via the witness ledger. The broader algorithm surface (~550 functions) inherits the appropriate policy via the family the algorithm belongs to.
 
@@ -372,7 +375,7 @@ from franken_networkx._fnx import cgse  # bound Rust submodule
 registry = cgse.policy_registry()
 for algorithm, info in registry.items():
     print(f"{algorithm:30s} → policy={info['policy']:20s} bound={info['dominant_complexity']}")
-# dijkstra                       → policy=weight_then_lex      bound=n_plus_m_log_n
+# dijkstra                       → policy=weight_then_insertion_order bound=n_plus_m_log_n
 # bellman_ford                   → policy=insertion_order      bound=n_m
 # bfs                            → policy=insertion_order      bound=n_plus_m
 # connected_components           → policy=lex_min              bound=n_plus_m
@@ -381,7 +384,7 @@ for algorithm, info in registry.items():
 # ...
 
 # You can also query an algorithm's canonical policy directly:
-print(cgse.algorithm_policy("dijkstra"))      # → TieBreakPolicy.weight_then_lex
+print(cgse.algorithm_policy("dijkstra"))      # → TieBreakPolicy.weight_then_insertion_order
 print(cgse.algorithm_policy("unknown_algo"))  # → None
 print(cgse.reference_algorithms()[:5])        # → ['dijkstra', 'bellman_ford', 'bfs', 'dfs', 'max_weight_matching']
 ```
@@ -432,12 +435,13 @@ Different policies on the same algorithm give different, but reproducible, answe
 # the policy that matches NetworkX's behavior is the default. The visibility matters
 # when you're auditing for reproducibility.
 
-# Dijkstra under WeightThenLex (the default, matching NetworkX): equal-weight
-# alternatives broken by lex-min node label.
+# Dijkstra under WeightThenInsertionOrder (the default, matching NetworkX):
+# equal-weight frontier entries pop in the order they were inserted (FIFO).
 fnx.shortest_path(G, "a", "z", weight="w")
 
-# The same algorithm under DfsPreorder would tie-break by DFS visit order;
-# a different but equally-correct shortest path may emerge in the equal-weight case.
+# Under a hypothetical WeightThenLex policy, equal-weight alternatives would
+# be broken by lex-min node label instead, giving insertion-order-independent
+# results but breaking byte-for-byte parity with NetworkX.
 ```
 
 You should almost never override the default. The defaults are chosen to match NetworkX. The point is that *which* tie-break is in effect is now a contract, not an emergent property of Python dict layout.
@@ -1355,13 +1359,13 @@ plt.savefig("karate.png", dpi=160)
 import franken_networkx as fnx
 from franken_networkx._fnx import cgse
 
-# The 12 tie-break policies are reachable as named constructors:
+# The 13 tie-break policies are reachable as named constructors:
 p = cgse.TieBreakPolicy.weight_then_lex()
 print(p.id())                       # "weight_then_lex"
 
 # Per-algorithm canonical policy. Only the 12 reference algorithms have
 # entries; unknown algorithms return None.
-print(cgse.algorithm_policy("dijkstra"))             # → TieBreakPolicy.weight_then_lex
+print(cgse.algorithm_policy("dijkstra"))             # → TieBreakPolicy.weight_then_insertion_order
 print(cgse.algorithm_policy("max_weight_matching")) # → TieBreakPolicy.weight_then_lex
 print(cgse.algorithm_policy("pagerank"))             # → None (not in the V1 reference set)
 
@@ -2403,7 +2407,7 @@ In rough priority order (`bv --robot-triage` shows the current bead backlog):
 - **Fail-closed.** A policy choice in `fnx-runtime`: on uncertain input, raise rather than guess. The default in Strict mode.
 - **PY_WRAPPER / RUST_NATIVE / NETWORKX_HELPER.** The three runtime-route categories in the coverage matrix's runtime ledger.
 - **RaptorQ sidecar.** An RFC 6330 erasure-coded shadow file written alongside a long-lived artifact (conformance bundle, perf baseline, migration manifest). Combined with a scrub report and a decode-proof receipt to make the artifact self-healing.
-- **TieBreakPolicy.** The 12-variant Rust enum in `fnx-cgse` that pins how an algorithm resolves equally-correct choices.
+- **TieBreakPolicy.** The 13-variant Rust enum in `fnx-cgse` that pins how an algorithm resolves equally-correct choices.
 - **Upstream divergence ledger.** `docs/upstream_divergence_ledger.md`; unified record of `native-parity`, `wrapper-patched`, `intentionally-delegated`, `raw-known-gap`, and `owner-acknowledged-limitation` rows.
 - **Witness ledger.** A scoped collector inside `fnx-cgse`; you push an algorithm execution into it and drain `ComplexityWitness` receipts at the end of a scope.
 

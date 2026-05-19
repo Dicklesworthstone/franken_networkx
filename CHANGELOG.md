@@ -404,6 +404,21 @@ Beyond pure parity work, ≈40 algorithms gained native Rust fast paths:
   committed were untracked and added to `.gitignore`
   ([8e2f32b2](https://github.com/Dicklesworthstone/franken_networkx/commit/8e2f32b2)).
 
+### CGSE Registry Truth-up (2026-05-18)
+
+- Added `TieBreakPolicy::WeightThenInsertionOrder` to `fnx-cgse` and
+  updated the V1 registry entry for `ReferenceAlgorithm::Dijkstra` to
+  return it. The old `WeightThenLex` annotation for Dijkstra was
+  *aspirational*: the actual `DijkstraState { dist, seq, node }` struct
+  in `fnx-algorithms` has always tie-broken by the monotonic per-push
+  `seq` counter (matching NetworkX's `heapq + itertools.count()`
+  byte-for-byte). The registry now records this honestly. Total enum
+  variant count: 12 → 13. Touched: `crates/fnx-cgse/src/lib.rs`,
+  `crates/fnx-python/src/cgse.rs` (new `weight_then_insertion_order`
+  staticmethod constructor), `crates/fnx-conformance/fixtures/
+  cgse_adversarial_tiebreak_corpus_v1.json` (the two `dijkstra_*`
+  cases re-tagged), and the conformance test's policy-string match arm.
+
 ---
 
 ## 2026-04-13 -- CGSE Crown Jewel & I/O Hardening (200 commits)
@@ -1228,7 +1243,7 @@ the full workspace architecture and the first executable vertical slice.
 | `fnx-algorithms` | All algorithm implementations (~46 KLOC across shortest path, centrality, connectivity, flow, matching, trees, community, etc.) |
 | `fnx-generators` | Deterministic and seeded graph generators (classic, random, scale-free, lattice, social) |
 | `fnx-readwrite` | I/O: edgelist, adjlist, GraphML, GML, JSON, Pajek, LEDA, GEXF, graph6, sparse6 |
-| `fnx-cgse` | Canonical Graph Semantics Engine: TieBreakPolicy (12 variants), ComplexityWitness, WitnessLedger, V1 policy registry |
+| `fnx-cgse` | Canonical Graph Semantics Engine: TieBreakPolicy (13 variants), ComplexityWitness, WitnessLedger, V1 policy registry |
 | `fnx-runtime` | Strict/Hardened CompatibilityMode, CgsePolicyEngine, DecisionRecord, fail-closed defaults |
 | `fnx-conformance` | Fixture-driven conformance harness with oracle validation; structured logs + replay commands |
 | `fnx-durability` | RaptorQ sidecar generation, scrub verification, decode-drill proofs |
