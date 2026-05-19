@@ -941,3 +941,74 @@ def test_random_unlabeled_rooted_tree_supports_numpy_seed_adapter():
 
     assert sorted(_to_nx(fnx_tree).edges()) == sorted(expected_tree.edges())
     assert fnx_tree.graph["root"] == expected_tree.graph["root"]
+
+
+@pytest.mark.parametrize(
+    ("name", "call"),
+    [
+        ("barabasi_albert_graph", lambda fn: fn(5, 2, random_kw="x")),
+        ("watts_strogatz_graph", lambda fn: fn(5, 2, 0.5, random_kw="x")),
+        ("newman_watts_strogatz_graph", lambda fn: fn(5, 2, 0.5, random_kw="x")),
+        ("random_regular_graph", lambda fn: fn(2, 6, random_kw="x")),
+        ("powerlaw_cluster_graph", lambda fn: fn(5, 2, 0.5, random_kw="x")),
+        ("random_lobster", lambda fn: fn(5, 0.5, 0.5, random_kw="x")),
+        ("random_shell_graph", lambda fn: fn([(5, 5, 1.0)], random_kw="x")),
+        ("random_powerlaw_tree", lambda fn: fn(5, random_kw="x")),
+        ("dual_barabasi_albert_graph", lambda fn: fn(5, 2, 3, 0.5, random_kw="x")),
+        (
+            "extended_barabasi_albert_graph",
+            lambda fn: fn(5, 2, 0.1, 0.1, random_kw="x"),
+        ),
+    ],
+)
+def test_generator_wrappers_reject_unexpected_backend_kwargs(name, call):
+    """br-r37-c1-vefyq: 10 native generator wrappers used to silently
+    drop ``**backend_kwargs`` (via ``del backend_kwargs``) so passing
+    a typo'd kwarg like ``random_kw='x'`` returned a graph instead of
+    raising TypeError the way nx does. Route through the shared
+    ``_validate_backend_dispatch_keywords`` guard so unknown free
+    kwargs raise TypeError (and unknown ``backend=`` values raise
+    ImportError) the same way nx does.
+    """
+    fnx_fn = getattr(fnx, name)
+    nx_fn = getattr(nx, name)
+    with pytest.raises(TypeError):
+        call(fnx_fn)
+    with pytest.raises(TypeError):
+        call(nx_fn)
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "barabasi_albert_graph",
+        "watts_strogatz_graph",
+        "newman_watts_strogatz_graph",
+        "random_regular_graph",
+        "powerlaw_cluster_graph",
+        "random_lobster",
+        "random_shell_graph",
+        "random_powerlaw_tree",
+        "dual_barabasi_albert_graph",
+        "extended_barabasi_albert_graph",
+    ],
+)
+def test_generator_wrappers_reject_unknown_backend(name):
+    """Companion to the kwargs-validation test: unknown ``backend=``
+    values must still raise ImportError, matching nx's dispatch guard.
+    """
+    fnx_fn = getattr(fnx, name)
+    args_by_name = {
+        "barabasi_albert_graph": (5, 2),
+        "watts_strogatz_graph": (5, 2, 0.5),
+        "newman_watts_strogatz_graph": (5, 2, 0.5),
+        "random_regular_graph": (2, 6),
+        "powerlaw_cluster_graph": (5, 2, 0.5),
+        "random_lobster": (5, 0.5, 0.5),
+        "random_shell_graph": ([(5, 5, 1.0)],),
+        "random_powerlaw_tree": (5,),
+        "dual_barabasi_albert_graph": (5, 2, 3, 0.5),
+        "extended_barabasi_albert_graph": (5, 2, 0.1, 0.1),
+    }
+    with pytest.raises(ImportError):
+        fnx_fn(*args_by_name[name], backend="definitely_no_such_backend")

@@ -17917,9 +17917,7 @@ def _seeded_watts_strogatz_rust_args(n, k, p, seed, create_using):
 
 def watts_strogatz_graph(n, k, p, seed=None, *, create_using=None, backend=None, **backend_kwargs):
     """Return a Watts-Strogatz small-world graph."""
-    if backend is not None and backend != "networkx":
-        raise ImportError(f"'{backend}' backend is not installed.")
-    del backend_kwargs  # in-tree implementation ignores backend kwargs
+    _validate_backend_dispatch_keywords("watts_strogatz_graph", backend, backend_kwargs)
     rust_args = _seeded_watts_strogatz_rust_args(n, k, p, seed, create_using)
     if rust_args is not None:
         return _rust_watts_strogatz_graph(*rust_args)
@@ -17968,9 +17966,7 @@ def barabasi_albert_graph(
     **backend_kwargs,
 ):
     """Return a Barabasi-Albert preferential attachment graph."""
-    if backend is not None and backend != "networkx":
-        raise ImportError(f"'{backend}' backend is not installed.")
-    del backend_kwargs  # in-tree implementation ignores backend kwargs
+    _validate_backend_dispatch_keywords("barabasi_albert_graph", backend, backend_kwargs)
     graph = _checked_create_using(
         create_using,
         directed=False,
@@ -35345,9 +35341,7 @@ def number_of_nonisomorphic_trees(order):
 
 def random_lobster(n, p1, p2, seed=None, *, create_using=None, backend=None, **backend_kwargs):
     """Random lobster graph."""
-    if backend is not None and backend != "networkx":
-        raise ImportError(f"'{backend}' backend is not installed.")
-    del backend_kwargs  # in-tree implementation ignores backend kwargs
+    _validate_backend_dispatch_keywords("random_lobster", backend, backend_kwargs)
     rng = _generator_random_state(seed)
     p1, p2 = abs(p1), abs(p2)
     if any(p >= 1 for p in [p1, p2]):
@@ -35408,9 +35402,7 @@ def random_lobster_graph(n, p1, p2, seed=None, *, create_using=None, backend=Non
 
 def random_shell_graph(constructor, seed=None, *, create_using=None, backend=None, **backend_kwargs):
     """Multi-shell random graph."""
-    if backend is not None and backend != "networkx":
-        raise ImportError(f"'{backend}' backend is not installed.")
-    del backend_kwargs  # in-tree implementation ignores backend kwargs
+    _validate_backend_dispatch_keywords("random_shell_graph", backend, backend_kwargs)
     rng = _generator_random_state(seed)
     graph = _checked_create_using(
         create_using,
@@ -38295,9 +38287,9 @@ def dual_barabasi_albert_graph(
     **backend_kwargs,
 ):
     """Return a dual Barabasi-Albert preferential attachment graph."""
-    if backend is not None and backend != "networkx":
-        raise ImportError(f"'{backend}' backend is not installed.")
-    del backend_kwargs  # in-tree implementation ignores backend kwargs
+    _validate_backend_dispatch_keywords(
+        "dual_barabasi_albert_graph", backend, backend_kwargs
+    )
     import random as _random
 
     target = _empty_graph_from_create_using(create_using, default=Graph)
@@ -38389,9 +38381,9 @@ def extended_barabasi_albert_graph(
     n, m, p, q, seed=None, *, create_using=None, backend=None, **backend_kwargs
 ):
     """Return an extended Barabasi-Albert graph."""
-    if backend is not None and backend != "networkx":
-        raise ImportError(f"'{backend}' backend is not installed.")
-    del backend_kwargs  # in-tree implementation ignores backend kwargs
+    _validate_backend_dispatch_keywords(
+        "extended_barabasi_albert_graph", backend, backend_kwargs
+    )
     graph = _checked_create_using(create_using, directed=False, multigraph=False, default=Graph)
     if m < 1 or m >= n:
         raise NetworkXError(
@@ -38532,9 +38524,7 @@ def scale_free_graph(
 
 def random_powerlaw_tree(n, gamma=3, seed=None, tries=100, *, create_using=None, backend=None, **backend_kwargs):
     """Return a random tree with a power-law degree distribution."""
-    if backend is not None and backend != "networkx":
-        raise ImportError(f"'{backend}' backend is not installed.")
-    del backend_kwargs  # in-tree implementation ignores backend kwargs
+    _validate_backend_dispatch_keywords("random_powerlaw_tree", backend, backend_kwargs)
     graph = _checked_create_using(
         create_using,
         directed=False,
@@ -39240,9 +39230,9 @@ def fast_gnp_random_graph(n, p, seed=None, directed=False, *, create_using=None,
 
 def newman_watts_strogatz_graph(n, k, p, seed=None, *, create_using=None, backend=None, **backend_kwargs):
     """Return a Newman-Watts-Strogatz small-world graph."""
-    if backend is not None and backend != "networkx":
-        raise ImportError(f"'{backend}' backend is not installed.")
-    del backend_kwargs  # in-tree implementation ignores backend kwargs
+    _validate_backend_dispatch_keywords(
+        "newman_watts_strogatz_graph", backend, backend_kwargs
+    )
     # br-nwsval: validate with nx-shaped NetworkXError at the Python edge so
     # that the Rust ValueError(FailClosed{...}) doesn't leak. nx accepts
     # k=0 and k=1 (returns the empty graph on n nodes — the ring with
@@ -39330,9 +39320,7 @@ def connected_watts_strogatz_graph(n, k, p, tries=100, seed=None, *, create_usin
 
 def random_regular_graph(d, n, seed=None, *, create_using=None, backend=None, **backend_kwargs):
     """Return a random d-regular graph."""
-    if backend is not None and backend != "networkx":
-        raise ImportError(f"'{backend}' backend is not installed.")
-    del backend_kwargs  # in-tree implementation ignores backend kwargs
+    _validate_backend_dispatch_keywords("random_regular_graph", backend, backend_kwargs)
     # br-codrgen: seeded output diverges from nx because the Rust native
     # uses MT19937 while nx uses Python's random.Random. Keeping native
     # per the "no nx fallback for generators" design invariant guarded
@@ -39429,9 +39417,7 @@ def random_regular_graph(d, n, seed=None, *, create_using=None, backend=None, **
 
 def powerlaw_cluster_graph(n, m, p, seed=None, *, create_using=None, backend=None, **backend_kwargs):
     """Return a powerlaw-cluster graph."""
-    if backend is not None and backend != "networkx":
-        raise ImportError(f"'{backend}' backend is not installed.")
-    del backend_kwargs  # in-tree implementation ignores backend kwargs
+    _validate_backend_dispatch_keywords("powerlaw_cluster_graph", backend, backend_kwargs)
     # br-powerlawexc: nx raises NetworkXError with its own wording; fnx used
     # to surface the Rust 'ValueError(FailClosed{...})' on the default path.
     # Normalize to nx's exact message so regex-matched pytest.raises keeps
