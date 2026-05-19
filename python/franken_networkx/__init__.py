@@ -31370,9 +31370,9 @@ def gaussian_random_partition_graph(
 
     Argument order matches networkx: ``(n, s, v, p_in, p_out, directed, seed)``.
     """
-    if backend is not None and backend != "networkx":
-        raise ImportError(f"'{backend}' backend is not installed.")
-    del backend_kwargs
+    _validate_backend_dispatch_keywords(
+        "gaussian_random_partition_graph", backend, backend_kwargs
+    )
 
     if s > n:
         raise NetworkXError("s must be <= n")
@@ -35629,9 +35629,9 @@ def _partial_duplication_graph_impl(
     **backend_kwargs,
 ):
     """Private nx parity helper so the public wrapper stays PY_WRAPPER."""
-    if backend is not None and backend != "networkx":
-        raise ImportError(f"'{backend}' backend is not installed.")
-    del backend_kwargs
+    _validate_backend_dispatch_keywords(
+        "partial_duplication_graph", backend, backend_kwargs
+    )
 
     from franken_networkx.readwrite import _from_nx_graph, _to_nx_create_using
 
@@ -35684,9 +35684,9 @@ def _duplication_divergence_graph_impl(
     **backend_kwargs,
 ):
     """Private nx parity helper so the public wrapper stays PY_WRAPPER."""
-    if backend is not None and backend != "networkx":
-        raise ImportError(f"'{backend}' backend is not installed.")
-    del backend_kwargs
+    _validate_backend_dispatch_keywords(
+        "duplication_divergence_graph", backend, backend_kwargs
+    )
 
     from franken_networkx.readwrite import _from_nx_graph, _to_nx_create_using
 
@@ -35781,9 +35781,9 @@ def _uniform_random_intersection_graph_impl(
     **backend_kwargs,
 ):
     """Private nx parity helper so the public wrapper stays PY_WRAPPER."""
-    if backend is not None and backend != "networkx":
-        raise ImportError(f"'{backend}' backend is not installed.")
-    del backend_kwargs
+    _validate_backend_dispatch_keywords(
+        "uniform_random_intersection_graph", backend, backend_kwargs
+    )
 
     from franken_networkx.readwrite import _from_nx_graph
 
@@ -35827,9 +35827,9 @@ def _general_random_intersection_graph_impl(
     **backend_kwargs,
 ):
     """Private nx parity helper so the public wrapper stays PY_WRAPPER."""
-    if backend is not None and backend != "networkx":
-        raise ImportError(f"'{backend}' backend is not installed.")
-    del backend_kwargs
+    _validate_backend_dispatch_keywords(
+        "general_random_intersection_graph", backend, backend_kwargs
+    )
 
     from franken_networkx.readwrite import _from_nx_graph
 

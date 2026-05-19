@@ -959,6 +959,20 @@ def test_random_unlabeled_rooted_tree_supports_numpy_seed_adapter():
             "extended_barabasi_albert_graph",
             lambda fn: fn(5, 2, 0.1, 0.1, random_kw="x"),
         ),
+        (
+            "gaussian_random_partition_graph",
+            lambda fn: fn(10, 4, 0.5, 0.5, 0.1, random_kw="x"),
+        ),
+        ("partial_duplication_graph", lambda fn: fn(5, 2, 0.5, 0.3, random_kw="x")),
+        ("duplication_divergence_graph", lambda fn: fn(5, 0.5, random_kw="x")),
+        (
+            "uniform_random_intersection_graph",
+            lambda fn: fn(5, 4, 0.3, random_kw="x"),
+        ),
+        (
+            "general_random_intersection_graph",
+            lambda fn: fn(5, 1, [0.3], random_kw="x"),
+        ),
     ],
 )
 def test_generator_wrappers_reject_unexpected_backend_kwargs(name, call):
@@ -991,6 +1005,11 @@ def test_generator_wrappers_reject_unexpected_backend_kwargs(name, call):
         "random_powerlaw_tree",
         "dual_barabasi_albert_graph",
         "extended_barabasi_albert_graph",
+        "gaussian_random_partition_graph",
+        "partial_duplication_graph",
+        "duplication_divergence_graph",
+        "uniform_random_intersection_graph",
+        "general_random_intersection_graph",
     ],
 )
 def test_generator_wrappers_reject_unknown_backend(name):
@@ -1009,6 +1028,11 @@ def test_generator_wrappers_reject_unknown_backend(name):
         "random_powerlaw_tree": (5,),
         "dual_barabasi_albert_graph": (5, 2, 3, 0.5),
         "extended_barabasi_albert_graph": (5, 2, 0.1, 0.1),
+        "gaussian_random_partition_graph": (10, 4, 0.5, 0.5, 0.1),
+        "partial_duplication_graph": (5, 2, 0.5, 0.3),
+        "duplication_divergence_graph": (5, 0.5),
+        "uniform_random_intersection_graph": (5, 4, 0.3),
+        "general_random_intersection_graph": (5, 1, [0.3]),
     }
     with pytest.raises(ImportError):
         fnx_fn(*args_by_name[name], backend="definitely_no_such_backend")
