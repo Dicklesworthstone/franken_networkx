@@ -689,6 +689,9 @@ def from_graph6_bytes(bytes_in, *, backend=None, **backend_kwargs):
     """Parse graph6 bytes into a FrankenNetworkX graph."""
     import franken_networkx as fnx
 
+    fnx._validate_backend_dispatch_keywords(
+        "from_graph6_bytes", backend, backend_kwargs
+    )
     data = bytes(bytes_in).rstrip(b"\n")
     if data.startswith(b">>graph6<<"):
         data = data[10:]
@@ -768,6 +771,9 @@ def from_sparse6_bytes(string, *, backend=None, **backend_kwargs):
     """
     import franken_networkx as fnx
 
+    fnx._validate_backend_dispatch_keywords(
+        "from_sparse6_bytes", backend, backend_kwargs
+    )
     data = bytes(string)
     if data.startswith(b">>sparse6<<"):
         data = data[11:]
@@ -953,6 +959,8 @@ def parse_pajek(lines, *, backend=None, **backend_kwargs):
     """Parse Pajek text or lines into a FrankenNetworkX graph."""
     import franken_networkx as fnx
 
+    fnx._validate_backend_dispatch_keywords("parse_pajek", backend, backend_kwargs)
+
     def split_line(line):
         try:
             return [part.decode("utf-8") for part in shlex.split(str(line).encode("utf-8"))]
@@ -1123,6 +1131,8 @@ def read_leda(path, encoding="UTF-8", *, backend=None, **backend_kwargs):
 def parse_leda(lines, *, backend=None, **backend_kwargs):
     """Parse LEDA text or lines into a FrankenNetworkX graph."""
     import franken_networkx as fnx
+
+    fnx._validate_backend_dispatch_keywords("parse_leda", backend, backend_kwargs)
 
     if isinstance(lines, str):
         lines_iter = iter(lines.split("\n"))

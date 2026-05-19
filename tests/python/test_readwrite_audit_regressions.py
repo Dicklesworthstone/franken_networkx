@@ -249,6 +249,31 @@ class TestParseGmlLabelAndDestringizerParity:
         with pytest.raises(fnx.NetworkXError):
             fnx.parse_gml("", label="id")
 
+    def test_other_readwrite_parsers_reject_unexpected_backend_kwargs(self):
+        """Companion follow-up: from_graph6_bytes, from_sparse6_bytes,
+        parse_pajek, parse_leda used to silently swallow free kwargs
+        like ``garbage_kw='x'``. They now route through
+        ``_validate_backend_dispatch_keywords`` and raise TypeError
+        the way nx does. ImportError for unknown ``backend=`` is
+        the same path (via the validator).
+        """
+        cases = [
+            ("from_graph6_bytes", lambda fn: fn(b"A_", garbage_kw="x")),
+            ("from_sparse6_bytes", lambda fn: fn(b":A_", garbage_kw="x")),
+            ("parse_pajek", lambda fn: fn(["*Vertices 0"], garbage_kw="x")),
+            (
+                "parse_leda",
+                lambda fn: fn(
+                    ["LEDA.GRAPH", "void", "int", "-1", "0", "0"],
+                    garbage_kw="x",
+                ),
+            ),
+        ]
+        for name, call in cases:
+            fnx_fn = getattr(fnx, name, None) or getattr(fnx.readwrite, name)
+            with pytest.raises(TypeError):
+                call(fnx_fn)
+
     def test_parse_gml_rejects_invalid_backend_dispatch_kwargs(self):
         """br-r37-c1-a4yvc: parse_gml previously accepted any
         ``backend=`` / ``**backend_kwargs`` silently. nx raises
