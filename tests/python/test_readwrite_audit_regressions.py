@@ -249,14 +249,16 @@ class TestParseGmlLabelAndDestringizerParity:
         with pytest.raises(fnx.NetworkXError):
             fnx.parse_gml("", label="id")
 
-    def test_other_readwrite_parsers_reject_unexpected_backend_kwargs(self):
+    def test_other_readwrite_parsers_reject_unexpected_backend_kwargs(self, tmp_path):
         """Companion follow-up: from_graph6_bytes, from_sparse6_bytes,
-        parse_pajek, parse_leda used to silently swallow free kwargs
-        like ``garbage_kw='x'``. They now route through
+        parse_pajek, parse_leda, read_graph6, read_sparse6, read_pajek,
+        read_leda used to silently swallow free kwargs like
+        ``garbage_kw='x'``. They now route through
         ``_validate_backend_dispatch_keywords`` and raise TypeError
         the way nx does. ImportError for unknown ``backend=`` is
         the same path (via the validator).
         """
+        # Parsers that operate on lines/bytes directly
         cases = [
             ("from_graph6_bytes", lambda fn: fn(b"A_", garbage_kw="x")),
             ("from_sparse6_bytes", lambda fn: fn(b":A_", garbage_kw="x")),
@@ -273,6 +275,17 @@ class TestParseGmlLabelAndDestringizerParity:
             fnx_fn = getattr(fnx, name, None) or getattr(fnx.readwrite, name)
             with pytest.raises(TypeError):
                 call(fnx_fn)
+
+        # Readers that take a path — write a tiny file then exercise
+        # the wrapper with a garbage kwarg. They must still reject
+        # before opening the file (the validation runs first).
+        sample = tmp_path / "sample.g6"
+        sample.write_bytes(b"A_")
+        path_cases = ["read_graph6", "read_sparse6", "read_pajek", "read_leda"]
+        for name in path_cases:
+            fnx_fn = getattr(fnx, name, None) or getattr(fnx.readwrite, name)
+            with pytest.raises(TypeError):
+                fnx_fn(str(sample), garbage_kw="x")
 
     def test_parse_gml_rejects_invalid_backend_dispatch_kwargs(self):
         """br-r37-c1-a4yvc: parse_gml previously accepted any

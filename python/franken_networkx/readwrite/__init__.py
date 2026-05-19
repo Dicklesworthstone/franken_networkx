@@ -739,6 +739,9 @@ def to_graph6_bytes(G, nodes=None, header=True):
 
 def read_graph6(path, *, backend=None, **backend_kwargs):
     """Read graph6 data from a path or file-like object."""
+    import franken_networkx as fnx
+
+    fnx._validate_backend_dispatch_keywords("read_graph6", backend, backend_kwargs)
     graphs = []
     for line in _read_bytes(path).splitlines():
         line = line.strip()
@@ -893,6 +896,9 @@ def to_sparse6_bytes(G, nodes=None, header=True):
 
 def read_sparse6(path, *, backend=None, **backend_kwargs):
     """Read sparse6 data from a path or file-like object."""
+    import franken_networkx as fnx
+
+    fnx._validate_backend_dispatch_keywords("read_sparse6", backend, backend_kwargs)
     graphs = []
     for line in _read_bytes(path).splitlines():
         line = line.strip()
@@ -917,6 +923,9 @@ def parse_sparse6(string):
 
 def read_pajek(path, encoding="UTF-8", *, backend=None, **backend_kwargs):
     """Read Pajek text without NetworkX delegation."""
+    import franken_networkx as fnx
+
+    fnx._validate_backend_dispatch_keywords("read_pajek", backend, backend_kwargs)
     if hasattr(path, "read"):
         data = path.read()
         if isinstance(data, bytes):
@@ -1112,6 +1121,9 @@ def generate_pajek(G):
 
 def read_leda(path, encoding="UTF-8", *, backend=None, **backend_kwargs):
     """Read LEDA text without NetworkX delegation."""
+    import franken_networkx as fnx
+
+    fnx._validate_backend_dispatch_keywords("read_leda", backend, backend_kwargs)
     if hasattr(path, "read"):
         data = path.read()
         if isinstance(data, bytes):
