@@ -10945,6 +10945,44 @@ def test_view_identity_is_cached_like_nx():
     assert sg.nodes is sg.nodes
 
 
+def test_community_modularity_honors_weight():
+    """br-r37-c1-nim1v (cycle 242): the Rust ``_raw_modularity`` ignored
+    the ``weight`` kwarg — it returned the unweighted modularity even
+    when the user asked for a weighted attribute.
+
+    Repro: K4 with weights ``w(u,v)=abs(u-v)+1`` and partition
+    ``[{0,1},{2,3}]``. nx returns -0.25 (weighted); fnx pre-fix returned
+    -1/6 (the unweighted value).
+
+    Fix in ``_modularity_backend_impl``: detect "actually weighted"
+    inputs via ``_graph_has_nonunit_weight`` and delegate to nx's
+    reference implementation.
+    """
+    import networkx as nx
+
+    fg = fnx.complete_graph(4)
+    for u, v in fg.edges():
+        fg[u][v]['w'] = abs(u - v) + 1
+    ng = nx.complete_graph(4)
+    for u, v in ng.edges():
+        ng[u][v]['w'] = abs(u - v) + 1
+
+    partition = [{0, 1}, {2, 3}]
+    f_mod = fnx.community.modularity(fg, partition, weight='w')
+    n_mod = nx.community.modularity(ng, partition, weight='w')
+    assert round(f_mod, 10) == round(n_mod, 10) == -0.25
+
+    # Unweighted path still works
+    f_un = fnx.community.modularity(fg, partition)
+    n_un = nx.community.modularity(ng, partition)
+    assert round(f_un, 10) == round(n_un, 10)
+
+    # Resolution kwarg honored alongside weight
+    f_res = fnx.community.modularity(fg, partition, weight='w', resolution=2)
+    n_res = nx.community.modularity(ng, partition, weight='w', resolution=2)
+    assert round(f_res, 10) == round(n_res, 10)
+
+
 def test_custom_python_attrs_survive_deepcopy_and_pickle():
     """br-r37-c1-8nz0x (cycle 233): nx preserves user-set instance
     attrs (``g.custom_attr = 'x'``) across deepcopy and pickle via its

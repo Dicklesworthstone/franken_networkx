@@ -10430,6 +10430,27 @@ def _modularity_backend_impl(G, communities, weight="weight", resolution=1):
     # precondition order matches nx.
     if G.number_of_edges() == 0:
         raise ZeroDivisionError("division by zero")
+    # br-r37-c1-nim1v: the Rust ``_raw_modularity`` ignores the
+    # ``weight`` kwarg — it returns the unweighted modularity even
+    # when the user asks for a weighted attribute. Detect "actually
+    # weighted" inputs and delegate to nx's reference implementation
+    # so the result matches the documented contract.
+    if (
+        weight is not None
+        and weight != "weight"  # cheap check first
+    ):
+        weighted = _graph_has_nonunit_weight(G, weight)
+    elif weight is not None:
+        weighted = _graph_has_nonunit_weight(G, weight)
+    else:
+        weighted = False
+    if weighted:
+        return _nx.community.modularity(
+            _networkx_graph_for_parity(G),
+            community_list,
+            weight=weight,
+            resolution=resolution,
+        )
     return _raw_modularity(G, community_list, weight=weight, resolution=resolution)
 
 
