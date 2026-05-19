@@ -10983,6 +10983,41 @@ def test_community_modularity_honors_weight():
     assert round(f_res, 10) == round(n_res, 10)
 
 
+def test_cut_size_and_conductance_honor_weight():
+    """br-r37-c1-2c8ed (cycle 242): sister of br-r37-c1-nim1v
+    (modularity weight bug). The Rust ``_raw_cut_size`` ignores the
+    weight kwarg too — returning the unweighted edge count instead
+    of the weighted sum. conductance depends on cut_size and is
+    broken transitively.
+
+    Repro: K4 with weights ``w(u,v)=abs(u-v)+1``, S=[0,1].
+    nx.cut_size returns 12 (sum: 3+4+2+3); fnx pre-fix returned 4.
+
+    Fix: delegate to nx in ``cut_size`` and ``normalized_cut_size``
+    when the input actually has a non-unit weight attribute.
+    """
+    import networkx as nx
+
+    fg = fnx.complete_graph(4)
+    for u, v in fg.edges():
+        fg[u][v]['w'] = abs(u - v) + 1
+    ng = nx.complete_graph(4)
+    for u, v in ng.edges():
+        ng[u][v]['w'] = abs(u - v) + 1
+
+    assert fnx.cut_size(fg, [0, 1], weight='w') == nx.cut_size(ng, [0, 1], weight='w') == 12
+    assert (
+        round(fnx.conductance(fg, [0, 1], weight='w'), 10)
+        == round(nx.conductance(ng, [0, 1], weight='w'), 10)
+    )
+    assert (
+        round(fnx.normalized_cut_size(fg, [0, 1], weight='w'), 10)
+        == round(nx.normalized_cut_size(ng, [0, 1], weight='w'), 10)
+    )
+    # Unweighted path still works
+    assert fnx.cut_size(fg, [0, 1]) == nx.cut_size(ng, [0, 1]) == 4
+
+
 def test_custom_python_attrs_survive_deepcopy_and_pickle():
     """br-r37-c1-8nz0x (cycle 233): nx preserves user-set instance
     attrs (``g.custom_attr = 'x'``) across deepcopy and pickle via its

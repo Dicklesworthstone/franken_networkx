@@ -12679,6 +12679,14 @@ def cut_size(G, S, T=None, weight=None):
             "cut_size", G, S, T=T, weight=weight,
         )
 
+    # br-r37-c1-2c8ed: the Rust _raw_cut_size silently ignores the
+    # weight kwarg (returns unweighted edge count). Delegate to nx
+    # when the input actually has a non-unit weight attribute.
+    if weight is not None and _graph_has_nonunit_weight(G, weight):
+        return _call_networkx_for_parity(
+            "cut_size", G, S, T=T, weight=weight,
+        )
+
     raw = _raw_cut_size(G, _coerce_nbunch(S), _coerce_nbunch(T), weight=weight)
     if weight is None or _sp_edge_weights_all_int(G, weight):
         # Result is necessarily an integer (edge _count or sum of int
@@ -12693,6 +12701,11 @@ def normalized_cut_size(G, S, T=None, weight=None):
     # br-r37-c1-eog89: materialize SubgraphView first (view family).
     G = _coerce_arg_to_fnx_graph(G)
     if G.is_multigraph():
+        return _call_networkx_for_parity(
+            "normalized_cut_size", G, S, T=T, weight=weight,
+        )
+    # br-r37-c1-2c8ed: sister of cut_size — Rust path ignores weight.
+    if weight is not None and _graph_has_nonunit_weight(G, weight):
         return _call_networkx_for_parity(
             "normalized_cut_size", G, S, T=T, weight=weight,
         )
