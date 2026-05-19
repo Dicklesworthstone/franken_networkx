@@ -3182,41 +3182,37 @@ MultiDiGraph.nbunch_iter = _graph_nbunch_iter
 
 
 def _add_weighted_edges_from_with_attr(cls):
-    raw = cls.add_weighted_edges_from
-
     def add_weighted_edges_from(self, ebunch_to_add, weight="weight", **attr):
         """Accept extra **attr that apply to every inserted edge (matches nx).
 
         Upstream NetworkX's add_weighted_edges_from(ebunch_to_add,
         weight=..., **attr) applies ``attr`` to every edge in addition
-        to the weight. The fnx Rust method only takes (ebunch, weight),
-        so fall back to per-edge add_edge when any trailing attrs are
-        present. Parameter name matches nx (br-r37-c1-wcdm3).
+        to the weight. The fnx Rust method only takes string weight
+        names and validates endpoints up front, but nx streams through
+        ``add_edges_from`` one edge at a time. Keep the Python wrapper
+        on the streaming path so earlier valid edges remain inserted if
+        a later edge or generator step raises. Parameter name matches nx
+        (br-r37-c1-wcdm3).
 
         br-r37-c1-g438p: hash-validate endpoints up front so unhashable
         types (list, set, dict) raise nx-shaped TypeError instead of
         being silently absorbed by the Rust binding (which keys nodes
         by Python id when the value isn't hashable).
         """
-        materialized = list(ebunch_to_add)
-        for edge in materialized:
-            if isinstance(edge, tuple) and len(edge) >= 2:
-                # br-r37-c1-83r45 follow-up: reject None endpoints
-                # (matches nx; sister of the add_edges_from fix).
-                if edge[0] is None or edge[1] is None:
-                    raise ValueError("None cannot be a node")
-                hash(edge[0])
-                hash(edge[1])
-        if not attr:
-            return raw(self, materialized, weight=weight)
-        for edge in materialized:
-            if len(edge) == 3:
-                u, v, w = edge
-                self.add_edge(u, v, **{weight: w}, **attr)
+        for edge in ebunch_to_add:
+            u, v, w = edge
+            if u is None or v is None:
+                raise ValueError("None cannot be a node")
+            hash(u)
+            hash(v)
+            edge_attrs = dict(attr)
+            edge_attrs[weight] = w
+            if self.is_multigraph():
+                key = self.add_edge(u, v)
+                self.edges[u, v, key].update(edge_attrs)
             else:
-                raise ValueError(
-                    f"Edge tuple {edge!r} must be a 3-tuple (u, v, weight)"
-                )
+                self.add_edge(u, v)
+                self.edges[u, v].update(edge_attrs)
 
     return add_weighted_edges_from
 

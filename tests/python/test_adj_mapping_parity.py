@@ -1005,3 +1005,100 @@ def test_reverse_view_adj_exposes_mapping_helpers():
     assert [dict(v) for v in frv.adj.values()] == [dict(v) for v in nrv.adj.values()]
     assert frv.adj.get(99) is None
     assert frv.adj.get(99, "sentinel") == "sentinel"
+
+
+@pytest.mark.parametrize(
+    ("fnx_ctor", "nx_ctor"),
+    [
+        (fnx.Graph, nx.Graph),
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiGraph, nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
+def test_add_weighted_edges_from_streams_partial_progress(fnx_ctor, nx_ctor):
+    def exploding_edges():
+        yield (1, 2, 3)
+        raise RuntimeError("boom")
+
+    fg = fnx_ctor()
+    ng = nx_ctor()
+
+    with pytest.raises(RuntimeError, match="boom"):
+        fg.add_weighted_edges_from(exploding_edges())
+    with pytest.raises(RuntimeError, match="boom"):
+        ng.add_weighted_edges_from(exploding_edges())
+
+    assert list(fg.edges(data=True)) == list(ng.edges(data=True))
+
+
+@pytest.mark.parametrize(
+    ("fnx_ctor", "nx_ctor", "bad_edge", "exc_type", "message"),
+    [
+        (fnx.Graph, nx.Graph, [None, 4, 5], ValueError, "None cannot be a node"),
+        (fnx.DiGraph, nx.DiGraph, [[], 4, 5], TypeError, "unhashable type: 'list'"),
+        (fnx.MultiGraph, nx.MultiGraph, [None, 4, 5], ValueError, "None cannot be a node"),
+        (
+            fnx.MultiDiGraph,
+            nx.MultiDiGraph,
+            [[], 4, 5],
+            TypeError,
+            "unhashable type: 'list'",
+        ),
+    ],
+)
+def test_add_weighted_edges_from_preserves_prior_edges_before_bad_endpoint(
+    fnx_ctor,
+    nx_ctor,
+    bad_edge,
+    exc_type,
+    message,
+):
+    fg = fnx_ctor()
+    ng = nx_ctor()
+    edges = [(1, 2, 3), bad_edge]
+
+    with pytest.raises(exc_type, match=message):
+        fg.add_weighted_edges_from(edges)
+    with pytest.raises(exc_type, match=message):
+        ng.add_weighted_edges_from(edges)
+
+    assert list(fg.edges(data=True)) == list(ng.edges(data=True))
+
+
+@pytest.mark.parametrize(
+    ("fnx_ctor", "nx_ctor"),
+    [
+        (fnx.Graph, nx.Graph),
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiGraph, nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
+def test_add_weighted_edges_from_accepts_non_string_weight_key(fnx_ctor, nx_ctor):
+    fg = fnx_ctor()
+    ng = nx_ctor()
+
+    fg.add_weighted_edges_from([(1, 2, 3)], weight=("w",))
+    ng.add_weighted_edges_from([(1, 2, 3)], weight=("w",))
+
+    assert list(fg.edges(data=True)) == list(ng.edges(data=True))
+
+
+@pytest.mark.parametrize(
+    ("fnx_ctor", "nx_ctor"),
+    [
+        (fnx.Graph, nx.Graph),
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiGraph, nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
+def test_add_weighted_edges_from_weight_value_overrides_common_attr(fnx_ctor, nx_ctor):
+    fg = fnx_ctor()
+    ng = nx_ctor()
+
+    fg.add_weighted_edges_from([(1, 2, 3)], weight="w", w=9, color="red")
+    ng.add_weighted_edges_from([(1, 2, 3)], weight="w", w=9, color="red")
+
+    assert list(fg.edges(data=True)) == list(ng.edges(data=True))
