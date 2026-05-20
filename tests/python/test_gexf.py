@@ -85,6 +85,38 @@ def test_generate_gexf_simple_graph_honors_version_13_namespace():
     assert actual_first_line == expected_first_line
 
 
+def _multigraph_snapshot(graph):
+    return (
+        graph.is_directed(),
+        sorted((node, tuple(sorted(attrs.items()))) for node, attrs in graph.nodes(data=True)),
+        sorted(
+            (u, v, key, tuple(sorted(attrs.items())))
+            for u, v, key, attrs in graph.edges(keys=True, data=True)
+        ),
+    )
+
+
+def test_gexf_version_13_multigraph_round_trip_matches_networkx():
+    fnx_graph = fnx.MultiGraph()
+    nx_graph = nx.MultiGraph()
+    for graph in (fnx_graph, nx_graph):
+        graph.add_node("n0", label="Node Zero")
+        graph.add_node("n1", label="Node One")
+        graph.add_edge("n0", "n1", key="k1", weight=1.0)
+        graph.add_edge("n0", "n1", key="k2", weight=2.0, label="parallel-edge")
+
+    fnx_payload = "\n".join(fnx.generate_gexf(fnx_graph, version="1.3")).encode()
+    nx_payload = "\n".join(nx.generate_gexf(nx_graph, version="1.3")).encode()
+
+    assert b'xmlns="http://gexf.net/1.3"' in fnx_payload
+
+    actual = fnx.read_gexf(BytesIO(fnx_payload), version="1.3")
+    expected = nx.read_gexf(BytesIO(nx_payload), version="1.3")
+
+    assert actual.is_multigraph()
+    assert _multigraph_snapshot(actual) == _multigraph_snapshot(expected)
+
+
 def test_write_gexf_accepts_reserved_simple_node_attrs():
     graph = fnx.Graph()
     graph.add_node("n0")
