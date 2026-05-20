@@ -906,24 +906,14 @@ def test_forceatlas2_layout_matches_networkx_without_delegation():
         assert np.allclose(graph.nodes[node]["pos"], coords)
 
 
-def test_forceatlas2_layout_empty_pos_matches_default_seeded_layout():
+def test_forceatlas2_layout_empty_pos_matches_upstream_error():
     graph = fnx.path_graph(4)
-    expected = _as_tuples(nx.forceatlas2_layout(nx.path_graph(4), seed=5, max_iter=3))
+    expected_graph = nx.path_graph(4)
 
-    with mock.patch(
-        "networkx.forceatlas2_layout",
-        side_effect=AssertionError("NetworkX forceatlas2_layout should not be used"),
-    ):
-        actual = _as_tuples(
-            fnx.forceatlas2_layout(
-                graph,
-                pos={},
-                seed=5,
-                max_iter=3,
-            )
-        )
-
-    _assert_positions_close(actual, expected)
+    with pytest.raises(ValueError, match="zero-size array"):
+        fnx.forceatlas2_layout(graph, pos={}, seed=5, max_iter=3)
+    with pytest.raises(ValueError, match="zero-size array"):
+        nx.forceatlas2_layout(expected_graph, pos={}, seed=5, max_iter=3)
 
 
 def test_forceatlas2_layout_tuple_labels_match_networkx_without_delegation():

@@ -885,9 +885,6 @@ def forceatlas2_layout(
     if pos is None:
         pos = random_layout(G, dim=dim, seed=rng)
         pos_arr = np.array(list(pos.values()))
-    elif len(pos) == 0:
-        pos = random_layout(G, dim=dim, seed=rng)
-        pos_arr = np.array(list(pos.values()))
     elif len(pos) == len(nodes):
         pos_arr = np.array([pos[node] for node in nodes])
     else:
