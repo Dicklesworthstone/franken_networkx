@@ -313,3 +313,40 @@ class TestParseGmlLabelAndDestringizerParity:
         # backend=None is fine
         g = fnx.parse_gml(gml, backend=None)
         assert sorted(g.nodes()) == ["a", "b"]
+
+    def test_remaining_readwrite_dispatch_wrappers_reject_stray_kwargs(self, tmp_path):
+        """Review hardening: every readwrite wrapper with the nx
+        dispatch surface must reject stray backend kwargs instead of
+        silently accepting them.
+        """
+        parse_cases = [
+            ("parse_adjlist", lambda fn: fn(["0 1"], garbage_kw="x")),
+            ("parse_edgelist", lambda fn: fn(["0 1"], garbage_kw="x")),
+            (
+                "parse_multiline_adjlist",
+                lambda fn: fn(["0 1", "1"], garbage_kw="x"),
+            ),
+        ]
+        for name, call in parse_cases:
+            with pytest.raises(TypeError):
+                call(getattr(fnx, name))
+            with pytest.raises(TypeError):
+                call(getattr(nx, name))
+
+        multiline_path = tmp_path / "sample.adjlist"
+        multiline_path.write_text("0 1\n1\n")
+        weighted_path = tmp_path / "sample.edgelist"
+        weighted_path.write_text("0 1 2.0\n")
+        gexf_path = tmp_path / "sample.gexf"
+        nx.write_gexf(nx.path_graph(2), gexf_path)
+
+        path_cases = [
+            ("read_multiline_adjlist", multiline_path),
+            ("read_weighted_edgelist", weighted_path),
+            ("read_gexf", gexf_path),
+        ]
+        for name, path in path_cases:
+            with pytest.raises(TypeError):
+                getattr(fnx, name)(path, garbage_kw="x")
+            with pytest.raises(TypeError):
+                getattr(nx, name)(path, garbage_kw="x")

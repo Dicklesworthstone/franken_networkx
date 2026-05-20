@@ -486,6 +486,11 @@ def parse_adjlist(
     *, backend=None, **backend_kwargs,
 ):
     """Parse an adjacency-list line stream into a FrankenNetworkX graph."""
+    import franken_networkx as fnx
+
+    fnx._validate_backend_dispatch_keywords(
+        "parse_adjlist", backend, backend_kwargs
+    )
     G = _new_graph(create_using)
     for line in _normalize_lines(lines):
         idx = line.find(comments)
@@ -526,6 +531,11 @@ def parse_edgelist(
     **backend_kwargs,
 ):
     """Parse an edge-list line stream into a FrankenNetworkX graph."""
+    import franken_networkx as fnx
+
+    fnx._validate_backend_dispatch_keywords(
+        "parse_edgelist", backend, backend_kwargs
+    )
     G = _new_graph(create_using)
     for line in _normalize_lines(lines):
         if comments is not None:
@@ -1200,6 +1210,11 @@ def read_multiline_adjlist(
     object or an already-opened file-like object (binary or text
     mode). Mirrors nx's ``@open_file`` decorator semantics.
     """
+    import franken_networkx as fnx
+
+    fnx._validate_backend_dispatch_keywords(
+        "read_multiline_adjlist", backend, backend_kwargs
+    )
     if hasattr(path, "read"):
         data = path.read()
         if isinstance(data, bytes):
@@ -1272,6 +1287,11 @@ def parse_multiline_adjlist(
     **backend_kwargs,
 ):
     """Parse multiline adjacency-list text or lines into a FrankenNetworkX graph."""
+    import franken_networkx as fnx
+
+    fnx._validate_backend_dispatch_keywords(
+        "parse_multiline_adjlist", backend, backend_kwargs
+    )
     G = _new_graph(create_using)
     it = iter(_normalize_lines(lines))
     import ast as _ast
@@ -1370,6 +1390,11 @@ def read_weighted_edgelist(
     object or an already-opened file-like object (binary or text
     mode). Mirrors nx's ``@open_file`` decorator semantics.
     """
+    import franken_networkx as fnx
+
+    fnx._validate_backend_dispatch_keywords(
+        "read_weighted_edgelist", backend, backend_kwargs
+    )
     if hasattr(path, "read"):
         data = path.read()
         if isinstance(data, bytes):
@@ -1698,6 +1723,7 @@ def read_gexf(path, node_type=None, relabel=False, version="1.2draft", *, backen
     import franken_networkx as fnx
     from franken_networkx import _fnx
 
+    fnx._validate_backend_dispatch_keywords("read_gexf", backend, backend_kwargs)
     _validate_gexf_version(version)
     if hasattr(path, "read"):
         raw = path.read()
