@@ -824,6 +824,9 @@ impl NodeViewIterator {
         slf
     }
     fn __next__(mut slf: PyRefMut<'_, Self>) -> PyResult<Option<PyObject>> {
+        let Some(item) = slf.inner.next() else {
+            return Ok(None);
+        };
         if let (Some(graph), Some(expected_nodes)) = (&slf.graph, &slf.expected_nodes) {
             let py = slf.py();
             let g = graph.borrow(py);
@@ -843,7 +846,7 @@ impl NodeViewIterator {
                 ));
             }
         }
-        Ok(slf.inner.next())
+        Ok(Some(item))
     }
 }
 

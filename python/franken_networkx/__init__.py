@@ -370,6 +370,7 @@ class _FailFastEdgeIterator:
         return self
 
     def __next__(self):
+        item = next(self._iterator)
         current_nodes = tuple(self._graph)
         if len(current_nodes) != len(self._expected_nodes):
             raise RuntimeError("dictionary changed size during iteration")
@@ -380,7 +381,7 @@ class _FailFastEdgeIterator:
             and self._graph.number_of_edges() != self._expected_edge_count
         ):
             raise RuntimeError("dictionary changed size during iteration")
-        return next(self._iterator)
+        return item
 
 
 def _guarded_edge_list(result, graph, *, guard_edge_count=False):

@@ -3619,6 +3619,9 @@ impl NodeIterator {
     }
 
     fn __next__(mut slf: PyRefMut<'_, Self>) -> PyResult<Option<PyObject>> {
+        let Some(item) = slf.inner.next() else {
+            return Ok(None);
+        };
         if let Some((graph, expected_nodes)) = &slf.guard {
             let current_nodes = graph.current_nodes(slf.py());
             if current_nodes.len() != expected_nodes.len() {
@@ -3636,7 +3639,7 @@ impl NodeIterator {
                 ));
             }
         }
-        Ok(slf.inner.next())
+        Ok(Some(item))
     }
 }
 

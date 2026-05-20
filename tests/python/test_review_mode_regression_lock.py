@@ -7444,6 +7444,20 @@ def test_edge_view_iteration_matches_existing_node_edge_mutation_scope():
             next(edge_iter)
 
 
+def test_exhausted_edge_view_iterators_remain_exhausted_after_mutation():
+    """After StopIteration, nx dict-backed edge iterators stay exhausted."""
+    for cls in (fnx.Graph, fnx.DiGraph, fnx.MultiGraph, fnx.MultiDiGraph):
+        G = cls()
+        G.add_edge(0, 1)
+        edge_iter = iter(G.edges)
+        next(edge_iter)
+        with pytest.raises(StopIteration):
+            next(edge_iter)
+        G.add_edge(99, 100)
+        with pytest.raises(StopIteration):
+            next(edge_iter)
+
+
 def test_node_first_add_wins_for_displayed_py_object():
     """br-r37-c1-firstwins: nx uses dicts for node storage, so the
     FIRST Python object added under a given canonical key (e.g.
