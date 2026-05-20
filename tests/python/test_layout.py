@@ -1386,8 +1386,11 @@ def test_forceatlas2_layout_accepts_backend_keyword_surface():
         fnx.forceatlas2_layout(G, backend="nonexistent")
     with pytest.raises(ImportError):
         nx.forceatlas2_layout(nG, backend="nonexistent")
-    # **backend_kwargs accepts arbitrary trailing kwargs without TypeError.
-    fnx.forceatlas2_layout(G, foo="bar")
+    # Stray backend kwargs reject exactly like nx's dispatch wrapper.
+    with pytest.raises(TypeError):
+        fnx.forceatlas2_layout(G, foo="bar")
+    with pytest.raises(TypeError):
+        nx.forceatlas2_layout(nG, foo="bar")
 
 
 @pytest.mark.parametrize(
