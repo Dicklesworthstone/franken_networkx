@@ -1858,6 +1858,12 @@ impl MultiDiGraphEdgeView {
         default: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<Py<crate::NodeIterator>> {
         let g = self.graph.borrow(py);
+        let expected_nodes: Vec<String> = g
+            .inner
+            .nodes_ordered()
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
         let source_nodes = parse_edge_nbunch_for_multidigraph(py, &g, nbunch)?;
         let mut view_data = parse_view_data(data)?;
         if let (Some(def), ViewData::Attr(attr)) = (default, &view_data) {
@@ -1925,7 +1931,14 @@ impl MultiDiGraphEdgeView {
             };
             result.push(item);
         }
-        Py::new(py, crate::NodeIterator::unguarded(result))
+        Py::new(
+            py,
+            crate::NodeIterator::with_graph_guard(
+                result,
+                crate::NodeIteratorGuard::MultiDiGraph(self.graph.clone_ref(py)),
+                expected_nodes,
+            ),
+        )
     }
 }
 
@@ -3632,6 +3645,12 @@ impl DiEdgeView {
 
     fn __iter__(&self, py: Python<'_>) -> PyResult<Py<DiViewIterator>> {
         let g = self.graph.borrow(py);
+        let expected_nodes: Vec<String> = g
+            .inner
+            .nodes_ordered()
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
         let items: Vec<PyObject> = g
             .edge_py_attrs
             .iter()
@@ -3669,8 +3688,8 @@ impl DiEdgeView {
             py,
             DiViewIterator {
                 inner: items.into_iter(),
-                graph: None,
-                expected_nodes: None,
+                graph: Some(self.graph.clone_ref(py)),
+                expected_nodes: Some(expected_nodes),
             },
         )
     }

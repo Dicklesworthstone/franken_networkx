@@ -371,6 +371,12 @@ impl EdgeView {
 
     fn __iter__(&self, py: Python<'_>) -> PyResult<Py<NodeViewIterator>> {
         let g = self.graph.borrow(py);
+        let expected_nodes: Vec<String> = g
+            .inner
+            .nodes_ordered()
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
         let items: Vec<PyObject> = g
             .inner
             .edges_ordered()
@@ -408,8 +414,8 @@ impl EdgeView {
             py,
             NodeViewIterator {
                 inner: items.into_iter(),
-                graph: None,
-                expected_nodes: None,
+                graph: Some(self.graph.clone_ref(py)),
+                expected_nodes: Some(expected_nodes),
             },
         )
     }

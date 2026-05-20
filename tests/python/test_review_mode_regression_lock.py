@@ -7381,6 +7381,26 @@ def test_graph_iteration_detects_node_mutation_like_python_dict():
             next(node_iter)
 
 
+def test_edge_view_iteration_detects_node_mutation_like_python_dict():
+    """br-r37-c1-wf3qf: edge views also iterate through nx's node dict."""
+    for cls in (fnx.Graph, fnx.DiGraph, fnx.MultiGraph, fnx.MultiDiGraph):
+        G = cls()
+        G.add_edges_from([(0, 1), (1, 2)])
+        edge_iter = iter(G.edges)
+        assert next(edge_iter) == (0, 1)
+        G.add_edge(99, 100)
+        with pytest.raises(RuntimeError, match="dictionary changed size during iteration"):
+            next(edge_iter)
+
+        G = cls()
+        G.add_edges_from([(0, 1), (1, 2)])
+        edge_iter = iter(G.edges)
+        assert next(edge_iter) == (0, 1)
+        G.remove_node(2)
+        with pytest.raises(RuntimeError, match="dictionary changed size during iteration"):
+            next(edge_iter)
+
+
 def test_node_first_add_wins_for_displayed_py_object():
     """br-r37-c1-firstwins: nx uses dicts for node storage, so the
     FIRST Python object added under a given canonical key (e.g.

@@ -2089,6 +2089,12 @@ impl MultiGraphEdgeView {
         default: Option<PyObject>,
     ) -> PyResult<Py<NodeIterator>> {
         let g = self.graph.borrow(py);
+        let expected_nodes: Vec<String> = g
+            .inner
+            .nodes_ordered()
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
         let mut result = Vec::new();
         let edges = g.inner.edges_ordered();
         for edge in &edges {
@@ -2130,7 +2136,14 @@ impl MultiGraphEdgeView {
                 result.push(tuple.into_any().unbind());
             }
         }
-        Py::new(py, NodeIterator::unguarded(result))
+        Py::new(
+            py,
+            NodeIterator::with_graph_guard(
+                result,
+                NodeIteratorGuard::MultiGraph(self.graph.clone_ref(py)),
+                expected_nodes,
+            ),
+        )
     }
 }
 
