@@ -2,6 +2,7 @@
 name = "fnx-algorithms"
 version = "0.1.0"
 edition = "2024"
+description = "Deterministic graph algorithms for FrankenNetworkX"
 license-file = "../../LICENSE"
 
 [lib]
@@ -22,7 +23,7 @@ dhat = { version = "0.3.3", optional = true }
 rand_core = "0.10.1"
 
 [dev-dependencies]
-fnx-runtime = { path = "../fnx-runtime" }
+fnx-runtime = { version = "0.1.0", path = "../fnx-runtime" }
 proptest = "1.11.0"
 criterion = { version = "0.8.2", features = ["html_reports"] }
 

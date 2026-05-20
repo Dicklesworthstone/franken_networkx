@@ -2,10 +2,11 @@
 name = "fnx-classes"
 version = "0.1.0"
 edition = "2024"
+description = "Core graph classes and data structures for FrankenNetworkX"
 license-file = "../../LICENSE"
 
 [dependencies]
-fnx-runtime = { path = "../fnx-runtime" }
+fnx-runtime = { version = "0.1.0", path = "../fnx-runtime" }
 indexmap = "2.14.0"
 serde = { version = "1.0.228", features = ["derive"] }
 
