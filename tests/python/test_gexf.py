@@ -3,6 +3,9 @@
 from io import BytesIO
 from pathlib import Path
 
+import networkx as nx
+import pytest
+
 import franken_networkx as fnx
 
 
@@ -38,6 +41,48 @@ def test_read_and_write_gexf_round_trip(tmp_path: Path):
     assert parsed.number_of_edges() == 1
     assert parsed.is_directed()
     assert parsed.nodes["n1"]["label"] == "Node One"
+
+
+def _minimal_gexf(namespace="http://www.gexf.net/1.2draft", version="1.2"):
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        f'<gexf xmlns="{namespace}" version="{version}">\n'
+        '  <graph mode="static" defaultedgetype="undirected">\n'
+        '    <nodes><node id="0" label="zero"/></nodes>\n'
+        "    <edges/>\n"
+        "  </graph>\n"
+        "</gexf>"
+    ).encode("utf-8")
+
+
+@pytest.mark.parametrize("version", ["1.2", "not-a-version"])
+def test_gexf_unknown_version_errors_match_networkx(version):
+    payload = _minimal_gexf()
+    expected_message = f"Unknown GEXF version {version}."
+
+    with pytest.raises(nx.NetworkXError) as nx_err:
+        nx.read_gexf(BytesIO(payload), version=version)
+    assert str(nx_err.value) == expected_message
+
+    with pytest.raises(fnx.NetworkXError) as fnx_err:
+        fnx.read_gexf(BytesIO(payload), version=version)
+    assert str(fnx_err.value) == expected_message
+
+
+def test_read_gexf_accepts_version_13_like_networkx():
+    payload = _minimal_gexf(namespace="http://gexf.net/1.3", version="1.3")
+
+    expected = nx.read_gexf(BytesIO(payload), version="1.3")
+    actual = fnx.read_gexf(BytesIO(payload), version="1.3")
+
+    assert list(actual.nodes(data=True)) == list(expected.nodes(data=True))
+
+
+def test_generate_gexf_simple_graph_honors_version_13_namespace():
+    actual_first_line = next(iter(fnx.generate_gexf(fnx.path_graph(1), version="1.3")))
+    expected_first_line = next(iter(nx.generate_gexf(nx.path_graph(1), version="1.3")))
+
+    assert actual_first_line == expected_first_line
 
 
 def test_write_gexf_accepts_reserved_simple_node_attrs():

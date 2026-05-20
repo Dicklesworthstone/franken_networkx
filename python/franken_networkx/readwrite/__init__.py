@@ -1698,8 +1698,10 @@ def write_graphml_lxml(
 
 
 def _validate_gexf_version(version):
-    if version not in ("1.1draft", "1.2draft", "1.2"):
-        raise ValueError("version must be one of: '1.1draft', '1.2draft', '1.2'")
+    if version not in ("1.1draft", "1.2draft", "1.3"):
+        import franken_networkx as fnx
+
+        raise fnx.NetworkXError(f"Unknown GEXF version {version}.")
 
 
 def _apply_gexf_node_type(graph, node_type):
@@ -1790,6 +1792,11 @@ def generate_gexf(G, encoding="utf-8", prettyprint=True, version="1.2draft"):
             G, encoding=encoding, prettyprint=prettyprint, version=version
         )
         return
+    if version != "1.2draft":
+        yield from _generate_gexf_simple_via_nx(
+            G, encoding=encoding, prettyprint=prettyprint, version=version
+        )
+        return
     yield from _fnx.write_gexf_string_rust(G).splitlines()
 
 
@@ -1848,6 +1855,23 @@ def _generate_gexf_via_nx(G, *, encoding, prettyprint, version):
 
     yield from _upstream_generate_gexf(
         _multigraph_to_nx(G),
+        encoding=encoding,
+        prettyprint=prettyprint,
+        version=version,
+    )
+
+
+def _generate_gexf_simple_via_nx(G, *, encoding, prettyprint, version):
+    """Delegate non-default simple-graph GEXF versions to nx.
+
+    The Rust writer emits the default 1.2draft namespace. Upstream nx
+    also supports 1.1draft and 1.3, so those versioned calls must use
+    the semantic oracle until the native writer models every variant.
+    """
+    from networkx.readwrite.gexf import generate_gexf as _upstream_generate_gexf
+
+    yield from _upstream_generate_gexf(
+        _simple_to_nx(G),
         encoding=encoding,
         prettyprint=prettyprint,
         version=version,
