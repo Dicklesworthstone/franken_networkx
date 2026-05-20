@@ -3127,6 +3127,12 @@ impl EdgeListEngine {
                                 CgseValue::String(xml_attr_value(&attr, decoder)?),
                             );
                         }
+                        b"label" => {
+                            pending_edge_attrs.insert(
+                                "label".to_owned(),
+                                CgseValue::String(xml_attr_value(&attr, decoder)?),
+                            );
+                        }
                         b"weight" => {
                             let value = xml_attr_value(&attr, decoder)?;
                             pending_edge_attrs.insert(
@@ -5767,6 +5773,38 @@ mod tests {
         assert_eq!(parsed.graph.edge_count(), 1);
         assert!(parsed.graph.has_edge("a", "b"));
         assert!(!parsed.graph.has_edge("b", "a"));
+    }
+
+    #[test]
+    fn gexf_read_preserves_edge_label_attribute() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<gexf xmlns="http://www.gexf.net/1.2draft" version="1.2">
+  <graph mode="static" defaultedgetype="undirected">
+    <nodes>
+      <node id="n0" label="Node Zero"/>
+      <node id="n1" label="Node One"/>
+    </nodes>
+    <edges>
+      <edge id="e0" source="n0" target="n1" weight="2.5" label="edge label"/>
+    </edges>
+  </graph>
+</gexf>"#;
+
+        let mut engine = EdgeListEngine::strict();
+        let parsed = engine.read_gexf(xml).expect("gexf read should succeed");
+        let edge_attrs = parsed
+            .graph
+            .edge_attrs("n0", "n1")
+            .expect("edge attrs should exist");
+        assert_eq!(
+            edge_attrs.get("label"),
+            Some(&CgseValue::String("edge label".to_owned()))
+        );
+        assert_eq!(
+            edge_attrs.get("id"),
+            Some(&CgseValue::String("e0".to_owned()))
+        );
+        assert_eq!(edge_attrs.get("weight"), Some(&CgseValue::Float(2.5)));
     }
 
     #[test]
