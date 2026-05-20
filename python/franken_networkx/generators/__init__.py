@@ -8,47 +8,69 @@ even though ``franken_networkx.balanced_tree`` worked fine.
 
 Start with every public name from ``networkx.generators`` (eagerly via
 star-import for the common direct-attribute case), then overlay any
-FrankenNetworkX top-level generator implementations so module-level
-imports return fnx graph classes instead of pure NetworkX graphs. The
-fall-through ``__getattr__`` still exposes NetworkX's nested submodules
-(``classic``, ``random_graphs``, etc.) so imports like
-``franken_networkx.generators.classic.balanced_tree`` resolve
-transparently.
+FrankenNetworkX top-level generator implementations so module-level and
+nested-submodule imports return fnx graph classes instead of pure
+NetworkX graphs. NetworkX's nested submodules (``classic``,
+``random_graphs``, etc.) are proxied so imports like
+``franken_networkx.generators.classic.balanced_tree`` resolve.
 """
 
 from networkx.generators import *  # noqa: F401, F403
 
 
-def _overlay_franken_generators():
+def _franken_parent_globals():
     import sys
 
     parent = sys.modules.get("franken_networkx")
-    if parent is None:
+    return {} if parent is None else vars(parent)
+
+
+def _overlay_franken_generators(namespace):
+    parent_globals = _franken_parent_globals()
+    if not parent_globals:
         return
-    parent_globals = vars(parent)
-    for name, value in tuple(globals().items()):
+    for name, value in tuple(namespace.items()):
         if name.startswith("_") or not callable(value):
             continue
         replacement = parent_globals.get(name)
         if callable(replacement):
-            globals()[name] = replacement
+            namespace[name] = replacement
 
 
-_overlay_franken_generators()
+def _register_franken_generator_submodules():
+    import sys
+    import types
+    import networkx.generators as _src
+
+    for name, value in tuple(vars(_src).items()):
+        if not isinstance(value, types.ModuleType):
+            continue
+        if not value.__name__.startswith("networkx.generators."):
+            continue
+        module_name = f"{__name__}.{name}"
+        proxy = types.ModuleType(module_name, value.__doc__)
+        proxy.__dict__.update(value.__dict__)
+        proxy.__name__ = module_name
+        proxy.__package__ = __name__
+        proxy.__spec__ = None
+        _overlay_franken_generators(proxy.__dict__)
+        sys.modules[module_name] = proxy
+        globals()[name] = proxy
+
+
+_overlay_franken_generators(globals())
+_register_franken_generator_submodules()
 
 
 def __getattr__(name):
     """Fall through to ``networkx.generators`` for any name the
     star-import didn't pick up (notably nested submodules like
     ``classic`` that aren't auto-imported)."""
-    import sys
     import networkx.generators as _src
 
-    parent = sys.modules.get("franken_networkx")
-    if parent is not None:
-        parent_globals = vars(parent)
-        if name in parent_globals:
-            return parent_globals[name]
+    parent_globals = _franken_parent_globals()
+    if name in parent_globals:
+        return parent_globals[name]
 
     try:
         return getattr(_src, name)

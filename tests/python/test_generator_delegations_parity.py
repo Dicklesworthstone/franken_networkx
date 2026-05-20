@@ -120,6 +120,25 @@ def test_generators_submodule_prefers_franken_graph_constructors():
         pytest.fail("path_graph import did not return a franken_networkx backend graph")
 
 
+def test_generators_nested_submodule_imports_prefer_franken_exports():
+    from franken_networkx.generators import classic
+    import franken_networkx.generators.classic as classic_submodule
+
+    for module in (classic, classic_submodule):
+        actual = module.path_graph(4)
+        expected = nx.path_graph(4)
+
+        if not isinstance(actual, fnx.Graph):
+            pytest.fail(
+                f"{module.__name__}.path_graph returned {type(actual).__name__}, "
+                "expected fnx.Graph"
+            )
+        if getattr(actual, "__networkx_backend__", None) != "franken_networkx":
+            pytest.fail(f"{module.__name__}.path_graph did not return an fnx backend graph")
+        if _graph_data_signature(_to_nx(actual)) != _graph_data_signature(expected):
+            pytest.fail(f"{module.__name__}.path_graph graph data diverged from NetworkX")
+
+
 def test_random_labeled_tree_rejects_null_graph():
     with pytest.raises(fnx.NetworkXPointlessConcept, match="null graph is not a tree"):
         fnx.random_labeled_tree(0, seed=42)
