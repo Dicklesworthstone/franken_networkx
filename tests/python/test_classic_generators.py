@@ -8,6 +8,15 @@ import pytest
 import franken_networkx as fnx
 
 
+def _assert_stray_backend_kwarg_rejected(name, *args, **kwargs):
+    import networkx as nx
+
+    with pytest.raises(TypeError, match="unexpected keyword argument 'foo'"):
+        getattr(fnx, name)(*args, foo="bar", **kwargs)
+    with pytest.raises(TypeError, match="unexpected keyword argument 'foo'"):
+        getattr(nx, name)(*args, foo="bar", **kwargs)
+
+
 # ---------------------------------------------------------------------------
 # Named graphs
 # ---------------------------------------------------------------------------
@@ -445,10 +454,13 @@ class TestWattsStrogatzBackendKeyword:
         with pytest.raises(ImportError):
             fnx.newman_watts_strogatz_graph(10, 4, 0.1, backend="nonexistent")
 
-    def test_arbitrary_backend_kwargs_accepted(self):
-        # **backend_kwargs must absorb trailing kwargs without TypeError.
-        fnx.watts_strogatz_graph(10, 4, 0.1, foo="bar", spam=1)
-        fnx.newman_watts_strogatz_graph(10, 4, 0.1, foo="bar", spam=1)
+    def test_unknown_kwargs_rejected_matching_networkx(self):
+        _assert_stray_backend_kwarg_rejected(
+            "watts_strogatz_graph", 10, 4, 0.1
+        )
+        _assert_stray_backend_kwarg_rejected(
+            "newman_watts_strogatz_graph", 10, 4, 0.1
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -476,9 +488,11 @@ class TestAttachmentGeneratorBackendKeyword:
         with pytest.raises(ImportError):
             fnx.powerlaw_cluster_graph(10, 2, 0.3, backend="nonexistent")
 
-    def test_arbitrary_backend_kwargs_accepted(self):
-        fnx.barabasi_albert_graph(10, 2, foo="bar", spam=1)
-        fnx.powerlaw_cluster_graph(10, 2, 0.3, foo="bar", spam=1)
+    def test_unknown_kwargs_rejected_matching_networkx(self):
+        _assert_stray_backend_kwarg_rejected("barabasi_albert_graph", 10, 2)
+        _assert_stray_backend_kwarg_rejected(
+            "powerlaw_cluster_graph", 10, 2, 0.3
+        )
 
 
 class TestGnpFamilyBackendKeyword:
@@ -549,8 +563,9 @@ class TestTreeShellRandomGeneratorsKeywordSurface:
         fnx.random_lobster(10, 0.3, 0.3, seed=42, backend="networkx")
         with pytest.raises(ImportError):
             fnx.random_lobster(10, 0.3, 0.3, seed=42, backend="nonexistent")
-        # Arbitrary trailing kwargs absorbed by **backend_kwargs.
-        fnx.random_lobster(10, 0.3, 0.3, seed=42, foo="bar", spam=1)
+        _assert_stray_backend_kwarg_rejected(
+            "random_lobster", 10, 0.3, 0.3, seed=42
+        )
 
     def test_random_shell_graph_backend_dispatch(self):
         constructor = [(2, 4, 0.4), (3, 8, 0.5)]
@@ -558,14 +573,18 @@ class TestTreeShellRandomGeneratorsKeywordSurface:
         fnx.random_shell_graph(constructor, seed=42, backend="networkx")
         with pytest.raises(ImportError):
             fnx.random_shell_graph(constructor, seed=42, backend="nonexistent")
-        fnx.random_shell_graph(constructor, seed=42, foo="bar")
+        _assert_stray_backend_kwarg_rejected(
+            "random_shell_graph", constructor, seed=42
+        )
 
     def test_random_powerlaw_tree_backend_dispatch(self):
         fnx.random_powerlaw_tree(10, seed=42, tries=1000, backend=None)
         fnx.random_powerlaw_tree(10, seed=42, tries=1000, backend="networkx")
         with pytest.raises(ImportError):
             fnx.random_powerlaw_tree(10, seed=42, tries=1000, backend="nonexistent")
-        fnx.random_powerlaw_tree(10, seed=42, tries=1000, foo="bar")
+        _assert_stray_backend_kwarg_rejected(
+            "random_powerlaw_tree", 10, seed=42, tries=1000
+        )
 
 
 # ---------------------------------------------------------------------------
