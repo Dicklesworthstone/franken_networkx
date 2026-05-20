@@ -1739,7 +1739,7 @@ def read_gexf(path, node_type=None, relabel=False, version="1.2draft", *, backen
         graph = _read_gexf_via_nx(raw)
     else:
         graph = _fnx.read_gexf(BytesIO(raw))
-        _restore_gexf_missing_node_labels(graph, raw)
+        _restore_gexf_node_metadata(graph, raw)
 
     graph = _apply_gexf_node_type(graph, node_type)
     if relabel:
@@ -1880,9 +1880,9 @@ def _gexf_document_is_multigraph(raw_bytes):
     edges or contain repeated ``(source, target)`` pairs?
 
     Pulls ``source`` / ``target`` attributes off every ``<edge>``
-    element with ``xml.etree.ElementTree.iterparse`` so attribute
-    order and quote style don't matter (franken_networkx-2ky8p). The
-    ``parallel="true"`` declaration on ``<edges>`` is also honoured.
+    element with an expat event parser so attribute order and quote
+    style don't matter (franken_networkx-2ky8p). The ``parallel="true"``
+    declaration on ``<edges>`` is also honoured.
     """
     try:
         text = raw_bytes.decode("utf-8", errors="ignore")
@@ -1891,24 +1891,22 @@ def _gexf_document_is_multigraph(raw_bytes):
     if 'parallel="true"' in text or "parallel='true'" in text:
         return True
 
-    import xml.etree.ElementTree as ET
-    from io import BytesIO
+    from xml.parsers import expat
 
     pairs = []
+
+    def start_element(name, attrs):
+        if _xml_local_name(name) == "edge":
+            source = attrs.get("source")
+            target = attrs.get("target")
+            if source is not None and target is not None:
+                pairs.append((source, target))
+
+    parser = expat.ParserCreate(namespace_separator="}")
+    parser.StartElementHandler = start_element
     try:
-        for _event, elem in ET.iterparse(BytesIO(raw_bytes), events=("end",)):
-            # Tag names in GEXF carry a namespace prefix like
-            # "{http://www.gexf.net/1.2draft}edge"; strip it before
-            # comparing so any GEXF version matches.
-            tag = elem.tag.rsplit("}", 1)[-1] if "}" in elem.tag else elem.tag
-            if tag == "edge":
-                source = elem.attrib.get("source")
-                target = elem.attrib.get("target")
-                if source is not None and target is not None:
-                    pairs.append((source, target))
-            # Free memory — we only need attribute values, not the tree.
-            elem.clear()
-    except ET.ParseError:
+        parser.Parse(raw_bytes, True)
+    except expat.ExpatError:
         return False
 
     if not pairs:
@@ -1916,25 +1914,64 @@ def _gexf_document_is_multigraph(raw_bytes):
     return len(pairs) != len(set(pairs))
 
 
-def _restore_gexf_missing_node_labels(graph, raw_bytes):
-    """Mirror nx's simple-GEXF surface for nodes with no label attr."""
-    import xml.etree.ElementTree as ET
+def _xml_local_name(name):
+    return name.rsplit("}", 1)[-1].rsplit(":", 1)[-1]
 
-    missing_ids = []
+
+def _restore_gexf_node_metadata(graph, raw_bytes):
+    """Mirror nx's simple-GEXF surface for hierarchy node metadata."""
+    from xml.parsers import expat
+
+    node_metadata = []
+    node_stack = []
+
+    def start_element(name, attrs):
+        tag = _xml_local_name(name)
+        if tag == "node":
+            node_id = attrs.get("id")
+            if node_id is not None:
+                inherited_pid = node_stack[-1]["id"] if node_stack else None
+                node_stack.append(
+                    {
+                        "id": node_id,
+                        "missing_label": "label" not in attrs,
+                        "pid": attrs.get("pid", inherited_pid),
+                        "parents": [],
+                    }
+                )
+        elif tag == "parent" and node_stack and attrs.get("for") is not None:
+            node_stack[-1]["parents"].append(attrs["for"])
+
+    def end_element(name):
+        if _xml_local_name(name) == "node" and node_stack:
+            metadata = node_stack.pop()
+            parents = metadata["parents"]
+            node_metadata.append(
+                (
+                    metadata["id"],
+                    metadata["missing_label"],
+                    metadata["pid"],
+                    parents if parents else None,
+                )
+            )
+
+    parser = expat.ParserCreate(namespace_separator="}")
+    parser.StartElementHandler = start_element
+    parser.EndElementHandler = end_element
     try:
-        for _event, elem in ET.iterparse(BytesIO(raw_bytes), events=("end",)):
-            tag = elem.tag.rsplit("}", 1)[-1] if "}" in elem.tag else elem.tag
-            if tag == "node":
-                node_id = elem.attrib.get("id")
-                if node_id is not None and "label" not in elem.attrib:
-                    missing_ids.append(node_id)
-            elem.clear()
-    except ET.ParseError:
+        parser.Parse(raw_bytes, True)
+    except expat.ExpatError:
         return graph
 
-    for node_id in missing_ids:
+    for node_id, missing_label, pid, parents in node_metadata:
         if node_id in graph:
-            graph.nodes[node_id]["label"] = None
+            attrs = graph.nodes[node_id]
+            if missing_label:
+                attrs["label"] = None
+            if pid is not None:
+                attrs["pid"] = pid
+            if parents is not None:
+                attrs["parents"] = parents
     return graph
 
 
@@ -2022,6 +2059,10 @@ def relabel_gexf_graph(G):
         attrs = relabeled.nodes[label]
         attrs["id"] = original
         attrs.pop("label", None)
+        if "pid" in attrs:
+            attrs["pid"] = mapping[attrs["pid"]]
+        if "parents" in attrs:
+            attrs["parents"] = [mapping[parent] for parent in attrs["parents"]]
     return relabeled
 
 
