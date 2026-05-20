@@ -93,6 +93,33 @@ def test_random_labeled_tree_matches_networkx_seeded_edges():
     assert sorted(graph.edges()) == sorted(expected.edges())
 
 
+def test_generators_submodule_prefers_franken_graph_constructors():
+    import franken_networkx.generators as generators
+    from franken_networkx.generators import path_graph
+
+    for name, args in (
+        ("path_graph", (4,)),
+        ("complete_graph", (4,)),
+        ("cycle_graph", (4,)),
+        ("balanced_tree", (2, 2)),
+    ):
+        actual = getattr(generators, name)(*args)
+        expected = getattr(nx, name)(*args)
+
+        if not isinstance(actual, fnx.Graph):
+            pytest.fail(f"{name} returned {type(actual).__name__}, expected fnx.Graph")
+        if getattr(actual, "__networkx_backend__", None) != "franken_networkx":
+            pytest.fail(f"{name} did not return a franken_networkx backend graph")
+        if _graph_data_signature(_to_nx(actual)) != _graph_data_signature(expected):
+            pytest.fail(f"{name} graph data diverged from NetworkX")
+
+    direct = path_graph(3)
+    if not isinstance(direct, fnx.Graph):
+        pytest.fail(f"path_graph import returned {type(direct).__name__}, expected fnx.Graph")
+    if getattr(direct, "__networkx_backend__", None) != "franken_networkx":
+        pytest.fail("path_graph import did not return a franken_networkx backend graph")
+
+
 def test_random_labeled_tree_rejects_null_graph():
     with pytest.raises(fnx.NetworkXPointlessConcept, match="null graph is not a tree"):
         fnx.random_labeled_tree(0, seed=42)
