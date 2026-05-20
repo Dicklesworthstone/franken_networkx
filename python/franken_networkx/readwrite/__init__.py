@@ -1735,8 +1735,8 @@ def read_gexf(path, node_type=None, relabel=False, version="1.2draft", *, backen
         with open(path, "rb") as handle:
             raw = handle.read()
 
-    if _gexf_document_is_multigraph(raw):
-        graph = _read_gexf_via_nx(raw)
+    if _gexf_document_is_multigraph(raw) or _gexf_document_has_hierarchy(raw):
+        graph = _read_gexf_via_nx(raw, version=version)
     else:
         graph = _fnx.read_gexf(BytesIO(raw))
         _restore_gexf_node_metadata(graph, raw)
@@ -1797,14 +1797,14 @@ def generate_gexf(G, encoding="utf-8", prettyprint=True, version="1.2draft"):
     )
 
 
-def _read_gexf_via_nx(raw_bytes):
+def _read_gexf_via_nx(raw_bytes, *, version="1.2draft"):
     """Read a multigraph-shape GEXF document through nx and rehydrate
     as an fnx Multi*Graph (kept private so ``read_gexf`` stays out of
     the NX_DELEGATED classification).
     """
     from networkx.readwrite.gexf import read_gexf as _upstream_read_gexf
 
-    nx_graph = _upstream_read_gexf(BytesIO(raw_bytes))
+    nx_graph = _upstream_read_gexf(BytesIO(raw_bytes), version=version)
     return _from_nx_graph(nx_graph)
 
 
@@ -1912,6 +1912,37 @@ def _gexf_document_is_multigraph(raw_bytes):
     if not pairs:
         return False
     return len(pairs) != len(set(pairs))
+
+
+def _gexf_document_has_hierarchy(raw_bytes):
+    from xml.parsers import expat
+
+    has_hierarchy = False
+    node_depth = 0
+
+    def start_element(name, attrs):
+        nonlocal has_hierarchy, node_depth
+        tag = _xml_local_name(name)
+        if tag == "node":
+            if node_depth > 0 or attrs.get("pid") is not None:
+                has_hierarchy = True
+            node_depth += 1
+        elif tag == "parent":
+            has_hierarchy = True
+
+    def end_element(name):
+        nonlocal node_depth
+        if _xml_local_name(name) == "node" and node_depth:
+            node_depth -= 1
+
+    parser = expat.ParserCreate(namespace_separator="}")
+    parser.StartElementHandler = start_element
+    parser.EndElementHandler = end_element
+    try:
+        parser.Parse(raw_bytes, True)
+    except expat.ExpatError:
+        return False
+    return has_hierarchy
 
 
 def _xml_local_name(name):

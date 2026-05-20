@@ -146,6 +146,30 @@ def test_read_gexf_preserves_hierarchy_metadata(relabel):
     assert list(actual.nodes(data=True)) == list(expected.nodes(data=True))
 
 
+@pytest.mark.parametrize("relabel", [False, True])
+def test_read_gexf_preserves_nested_hierarchy_metadata(relabel):
+    payload = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<gexf xmlns="http://www.gexf.net/1.2draft" version="1.2">\n'
+        '  <graph mode="static" defaultedgetype="undirected">\n'
+        "    <nodes>\n"
+        '      <node id="root" label="Root">\n'
+        "        <nodes>\n"
+        '          <node id="child" label="Child"/>\n'
+        "        </nodes>\n"
+        "      </node>\n"
+        "    </nodes>\n"
+        "    <edges/>\n"
+        "  </graph>\n"
+        "</gexf>"
+    ).encode("utf-8")
+
+    expected = nx.read_gexf(BytesIO(payload), relabel=relabel)
+    actual = fnx.read_gexf(BytesIO(payload), relabel=relabel)
+
+    assert list(actual.nodes(data=True)) == list(expected.nodes(data=True))
+
+
 def test_generate_gexf_simple_graph_honors_version_13_namespace():
     actual_first_line = next(iter(fnx.generate_gexf(fnx.path_graph(1), version="1.3")))
     expected_first_line = next(iter(nx.generate_gexf(nx.path_graph(1), version="1.3")))
