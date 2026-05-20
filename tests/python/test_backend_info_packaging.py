@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+import subprocess
 import runpy
 import sys
 from pathlib import Path
@@ -23,13 +25,10 @@ ROOT = Path(__file__).resolve().parents[2]
 def _backend_registered_with_networkx() -> bool:
     """True when the installed entry_points actually registered fnx with nx.
 
-    br-r37-c1-dfj9b: br-r37-c1-bocpu moved the entry point from the
-    top-level ``fnx_backend_info`` shim to ``franken_networkx.backend_info``.
-    Wheels built before that fix have a broken entry-point string;
-    nx then fails to register fnx as a backend at import time (visible
-    as ``RuntimeWarning: No module named 'fnx_backend_info'``). The
-    runtime-dispatch tests below require the entry point to actually
-    load, so skip them when the install is stale.
+    bd-devh2: the backend-info entry point must load before
+    ``franken_networkx`` itself, while NetworkX is still importing. If
+    the installed wheel is stale, nx may fail to register fnx as a
+    backend or may trip the import-cycle guard below.
     """
     try:
         return "franken_networkx" in nx.path_graph.backends
@@ -41,10 +40,9 @@ _needs_registered_backend = pytest.mark.skipif(
     not _backend_registered_with_networkx(),
     reason=(
         "fnx is not registered with the running nx dispatcher — most "
-        "likely a stale installed wheel still references the removed "
-        "fnx_backend_info entry point (br-r37-c1-bocpu). Rebuild the "
-        "wheel via 'maturin develop' or 'pip install -e .' to re-link "
-        "the franken_networkx.backend_info entry point."
+        "likely a stale installed wheel has the wrong backend_info "
+        "entry point. Rebuild the wheel via 'maturin develop' or "
+        "'pip install -e .' to re-link fnx_backend_info."
     ),
 )
 
@@ -72,21 +70,48 @@ def _backend_info_entry_point() -> str:
 
 
 def test_backend_info_entry_point_targets_package_module():
-    # br-r37-c1-opu0s: backend-info metadata lives at
-    # franken_networkx.backend_info (br-r37-c1-bocpu); the previous
-    # top-level python/fnx_backend_info.py shim was never installed
-    # into the wheel and triggered an nx RuntimeWarning at import.
-    assert _backend_info_entry_point() == "franken_networkx.backend_info:get_backend_info"
-    assert (ROOT / "python" / "franken_networkx" / "backend_info.py").is_file()
+    # bd-devh2: NetworkX loads backend_info entry points while
+    # networkx.__init__ is still partially initialized. A package-local
+    # target imports franken_networkx.__init__ first and can panic while
+    # the PyO3 extension imports nx exceptions. Keep this as a top-level
+    # module that does not import franken_networkx or networkx.
+    assert _backend_info_entry_point() == "fnx_backend_info:get_backend_info"
+    assert (ROOT / "python" / "fnx_backend_info.py").is_file()
 
 
 def test_backend_info_module_loads_and_exports_get_backend_info():
-    # Import the package-local backend_info module and confirm its
-    # get_backend_info() contract still holds.
-    from franken_networkx import backend_info as _bi
+    # Import the top-level backend_info module and confirm its
+    # get_backend_info() contract still holds without importing the
+    # franken_networkx package.
+    import fnx_backend_info as _bi
+
     info = _bi.get_backend_info()
     assert info["short_summary"]
     assert "shortest_path" in info["functions"]
+
+
+def test_networkx_imports_before_franken_networkx_backend_package():
+    env = os.environ.copy()
+    python_path = str(ROOT / "python")
+    env["PYTHONPATH"] = (
+        python_path
+        if not env.get("PYTHONPATH")
+        else python_path + os.pathsep + env["PYTHONPATH"]
+    )
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import networkx as nx; assert 'franken_networkx' in nx.path_graph.backends",
+        ],
+        cwd=ROOT,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=30,
+    )
+    assert result.returncode == 0, result.stderr
 
 
 @_needs_registered_backend

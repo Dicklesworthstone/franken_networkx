@@ -63,12 +63,6 @@ venv/
 .pytest_cache/
 .ruff_cache/
 
-# br-r37-c1-0bikz: the top-level fnx_backend_info.py shim was
-# removed in br-r37-c1-bocpu (entry point now points at
-# franken_networkx.backend_info). Some stale build caches
-# recreate it; ignore so it never re-lands in the tree.
-python/fnx_backend_info.py
-
 # Generic backup files
 *.bak
 

@@ -56,7 +56,7 @@ all = ["numpy>=1.24", "scipy>=1.10"]
 franken_networkx = "franken_networkx.backend:backend_interface"
 
 [project.entry-points."networkx.backend_info"]
-franken_networkx = "franken_networkx.backend_info:get_backend_info"
+franken_networkx = "fnx_backend_info:get_backend_info"
 
 [tool.maturin]
 python-source = "python"
