@@ -357,6 +357,40 @@ def _remove_node_with_networkx_missing_node_error(remove_node_impl, *, graph_kin
     return remove_node
 
 
+class _FailFastEdgeIterator:
+    def __init__(self, graph, iterable, *, guard_edge_count=False):
+        self._graph = graph
+        self._iterator = iter(iterable)
+        self._expected_nodes = tuple(graph)
+        self._expected_edge_count = (
+            graph.number_of_edges() if guard_edge_count else None
+        )
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        current_nodes = tuple(self._graph)
+        if len(current_nodes) != len(self._expected_nodes):
+            raise RuntimeError("dictionary changed size during iteration")
+        if current_nodes != self._expected_nodes:
+            raise RuntimeError("dictionary keys changed during iteration")
+        if (
+            self._expected_edge_count is not None
+            and self._graph.number_of_edges() != self._expected_edge_count
+        ):
+            raise RuntimeError("dictionary changed size during iteration")
+        return next(self._iterator)
+
+
+def _guarded_edge_list(result, graph, *, guard_edge_count=False):
+    if not isinstance(result, _EdgeListWithSetAlgebra):
+        result = _EdgeListWithSetAlgebra(result)
+    result._fnx_guard_graph = graph
+    result._fnx_guard_edge_count = guard_edge_count
+    return result
+
+
 class EdgeDataView:
     """Live view over ``G.edges(data=..., nbunch=...)`` matching nx's
     EdgeDataView contract (br-r37-c1-sf1ku).
@@ -516,7 +550,9 @@ class EdgeDataView:
         return edge
 
     def __iter__(self):
-        return iter(self._materialize())
+        if self._graph is None:
+            return iter(self._materialize())
+        return _FailFastEdgeIterator(self._graph, self._materialize())
 
     def __len__(self):
         return len(self._materialize())
@@ -1248,7 +1284,11 @@ class _DiGraphEdgeView:
         # br-r37-c1-msf5j: walk adj directly so __call__ can return
         # self (a live view) without causing __iter__ → __call__
         # recursion when called with default args.
-        return iter(self._materialize())
+        return _FailFastEdgeIterator(
+            self._graph,
+            self._materialize(),
+            guard_edge_count=True,
+        )
 
     def __len__(self):
         return self._graph.number_of_edges()
@@ -1298,7 +1338,7 @@ class _DiGraphEdgeView:
                     result.append((source, target))
                 else:
                     result.append((source, target, attrs.get(data, default)))
-        return result
+        return _guarded_edge_list(result, self._graph, guard_edge_count=True)
 
     def __or__(self, other):
         return set(self) | set(other)
@@ -1423,7 +1463,11 @@ class _LiveMultiEdgeCallView:
                         yield (source, target)
 
     def __iter__(self):
-        return self._walk()
+        return _FailFastEdgeIterator(
+            self._graph,
+            self._walk(),
+            guard_edge_count=True,
+        )
 
     def __len__(self):
         return self._graph.number_of_edges()
@@ -1472,7 +1516,11 @@ class _MultiGraphEdgeView:
         # and direct iteration consumers (including downstream nx
         # algorithms) got a different edge _count than nx on multigraphs
         # with parallel edges.
-        return iter(self(keys=True))
+        return _FailFastEdgeIterator(
+            self._graph,
+            self(keys=True),
+            guard_edge_count=True,
+        )
 
     def __len__(self):
         return self._graph.number_of_edges()
@@ -1594,13 +1642,21 @@ class _MultiGraphEdgeView:
                     else:
                         result.append((source, target, attrs.get(data, default)))
         if data is not False:
-            return _wrap_edge_data_view(result, _MultiEdgeDataView)
+            return _guarded_edge_list(
+                _wrap_edge_data_view(result, _MultiEdgeDataView),
+                self._graph,
+                guard_edge_count=True,
+            )
         # br-r37-c1-mekvc (cycle 214): keys=True (data=False) wraps
         # in canonical ``MultiEdgeView`` so both
         # ``type(view).__name__`` and ``(u, v) in view`` match nx.
         if keys:
-            return _wrap_edge_data_view(result, _MultiEdgeView)
-        return result
+            return _guarded_edge_list(
+                _wrap_edge_data_view(result, _MultiEdgeView),
+                self._graph,
+                guard_edge_count=True,
+            )
+        return _guarded_edge_list(result, self._graph, guard_edge_count=True)
 
     def __eq__(self, other):
         # br-r37-c1-eveq: see _DiGraphEdgeView.__eq__. nx's
@@ -1668,6 +1724,16 @@ class _EdgeListWithSetAlgebra(list):
     breaking existing callers that iterate the value as a list.
     """
 
+    def __iter__(self):
+        graph = getattr(self, "_fnx_guard_graph", None)
+        if graph is None:
+            return list.__iter__(self)
+        return _FailFastEdgeIterator(
+            graph,
+            list.__iter__(self),
+            guard_edge_count=getattr(self, "_fnx_guard_edge_count", False),
+        )
+
     def __and__(self, other):
         return set(self) & set(other)
 
@@ -1722,7 +1788,11 @@ class _MultiDiGraphEdgeView:
         # yields 3-tuples ``(u, v, key)`` matching nx.MultiEdgeView's
         # default iter contract; the ``G.edges()`` call form still
         # defaults to 2-tuples via the keys=False default.
-        return iter(self(keys=True))
+        return _FailFastEdgeIterator(
+            self._graph,
+            self(keys=True),
+            guard_edge_count=True,
+        )
 
     def __len__(self):
         return self._graph.number_of_edges()
@@ -1796,13 +1866,21 @@ class _MultiDiGraphEdgeView:
         # — wrap in OutMultiEdgeDataView when data is requested so
         # ``type(MDG.edges(data=True)).__name__`` matches nx.
         if data is not False:
-            return _wrap_edge_data_view(result, _OutMultiEdgeDataView)
+            return _guarded_edge_list(
+                _wrap_edge_data_view(result, _OutMultiEdgeDataView),
+                self._graph,
+                guard_edge_count=True,
+            )
         # br-r37-c1-mekvc (cycle 214): keys=True (data=False) wraps
         # in canonical ``OutMultiEdgeView`` so both
         # ``type(view).__name__`` and ``(u, v) in view`` match nx.
         if keys:
-            return _wrap_edge_data_view(result, _OutMultiEdgesKeysView)
-        return result
+            return _guarded_edge_list(
+                _wrap_edge_data_view(result, _OutMultiEdgesKeysView),
+                self._graph,
+                guard_edge_count=True,
+            )
+        return _guarded_edge_list(result, self._graph, guard_edge_count=True)
 
     keys = _multi_edge_keys
     items = _multi_edge_items
