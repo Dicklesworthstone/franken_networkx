@@ -1739,6 +1739,7 @@ def read_gexf(path, node_type=None, relabel=False, version="1.2draft", *, backen
         graph = _read_gexf_via_nx(raw)
     else:
         graph = _fnx.read_gexf(BytesIO(raw))
+        _restore_gexf_missing_node_labels(graph, raw)
 
     graph = _apply_gexf_node_type(graph, node_type)
     if relabel:
@@ -1915,6 +1916,28 @@ def _gexf_document_is_multigraph(raw_bytes):
     return len(pairs) != len(set(pairs))
 
 
+def _restore_gexf_missing_node_labels(graph, raw_bytes):
+    """Mirror nx's simple-GEXF surface for nodes with no label attr."""
+    import xml.etree.ElementTree as ET
+
+    missing_ids = []
+    try:
+        for _event, elem in ET.iterparse(BytesIO(raw_bytes), events=("end",)):
+            tag = elem.tag.rsplit("}", 1)[-1] if "}" in elem.tag else elem.tag
+            if tag == "node":
+                node_id = elem.attrib.get("id")
+                if node_id is not None and "label" not in elem.attrib:
+                    missing_ids.append(node_id)
+            elem.clear()
+    except ET.ParseError:
+        return graph
+
+    for node_id in missing_ids:
+        if node_id in graph:
+            graph.nodes[node_id]["label"] = None
+    return graph
+
+
 def parse_gexf(string, node_type=None, relabel=False, version="1.2draft"):
     """Parse a GEXF string into a FrankenNetworkX graph.
 
@@ -1979,14 +2002,21 @@ def relabel_gexf_graph(G):
     """
     import franken_networkx as fnx
 
-    mapping = {}
+    pairs = []
     for node, attrs in G.nodes(data=True):
-        if not isinstance(attrs, dict) or "label" not in attrs or attrs.get("label") is None:
+        if not isinstance(attrs, dict) or "label" not in attrs:
             raise fnx.NetworkXError(
                 "Failed to relabel nodes: missing node labels found. "
                 "Use relabel=False."
             )
-        mapping[node] = attrs["label"]
+        pairs.append((node, attrs["label"]))
+    labels = [label for _node, label in pairs]
+    if len(set(labels)) != len(G):
+        raise fnx.NetworkXError(
+            "Failed to relabel nodes: duplicate node labels found. "
+            "Use relabel=False."
+        )
+    mapping = dict(pairs)
     relabeled = fnx.relabel_nodes(G, mapping, copy=True)
     for original, label in mapping.items():
         attrs = relabeled.nodes[label]

@@ -3105,10 +3105,9 @@ impl EdgeListEngine {
                 }
                 let _ = graph.add_node(id.clone());
                 pending_node_attrs.clear();
-                pending_node_attrs.insert(
-                    "label".to_owned(),
-                    CgseValue::String(label.unwrap_or_else(|| id.clone())),
-                );
+                if let Some(label) = label {
+                    pending_node_attrs.insert("label".to_owned(), CgseValue::String(label));
+                }
                 *current_node = Some(id);
             }
             b"edge" => {
@@ -5805,6 +5804,27 @@ mod tests {
             Some(&CgseValue::String("e0".to_owned()))
         );
         assert_eq!(edge_attrs.get("weight"), Some(&CgseValue::Float(2.5)));
+    }
+
+    #[test]
+    fn gexf_read_omits_absent_node_label_attribute() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<gexf xmlns="http://www.gexf.net/1.2draft" version="1.2">
+  <graph mode="static" defaultedgetype="undirected">
+    <nodes>
+      <node id="n0"/>
+    </nodes>
+    <edges/>
+  </graph>
+</gexf>"#;
+
+        let mut engine = EdgeListEngine::strict();
+        let parsed = engine.read_gexf(xml).expect("gexf read should succeed");
+        let node_attrs = parsed
+            .graph
+            .node_attrs("n0")
+            .expect("node attrs should exist");
+        assert!(!node_attrs.contains_key("label"));
     }
 
     #[test]
