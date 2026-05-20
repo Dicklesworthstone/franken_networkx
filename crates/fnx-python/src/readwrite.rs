@@ -7,8 +7,14 @@
 
 use crate::algorithms::{GraphRef, extract_graph};
 use crate::digraph::PyDiGraph;
-use crate::{PyGraph, PyObject, PythonAllowThreadsExt, cgse_value_to_py, py_dict_to_attr_map};
+use crate::{
+    PyGraph, PyObject, PythonAllowThreadsExt, cgse_value_to_py, node_key_to_string,
+    py_dict_to_attr_map,
+};
+use fnx_classes::Graph as RustGraph;
+use fnx_classes::digraph::DiGraph as RustDiGraph;
 use fnx_readwrite::{DiReadWriteReport, EdgeListEngine, ReadWriteError, ReadWriteReport};
+use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
 use pyo3::types::PyDict;
@@ -88,30 +94,41 @@ fn write_output_bytes(py: Python<'_>, dest: &Bound<'_, PyAny>, content: &str) ->
 fn report_to_pygraph(py: Python<'_>, report: ReadWriteReport) -> PyResult<PyGraph> {
     let graph_attrs = report.graph_attrs;
     let g = report.graph;
+    let mut inner = RustGraph::new(g.mode());
+    let mut raw_to_canonical = HashMap::new();
     let mut node_key_map = HashMap::new();
     let mut node_py_attrs = HashMap::new();
     for node_id in g.nodes_ordered() {
-        node_key_map.insert(
-            node_id.to_owned(),
-            node_id.into_pyobject(py)?.into_any().unbind(),
-        );
+        let py_key = node_id.to_owned().into_pyobject(py)?.into_any().unbind();
+        let canonical = node_key_to_string(py, py_key.bind(py))?;
+        raw_to_canonical.insert(node_id.to_owned(), canonical.clone());
+        node_key_map.insert(canonical.clone(), py_key);
         let d = PyDict::new(py);
-        if let Some(attrs) = g.node_attrs(node_id) {
-            for (k, v) in attrs {
-                d.set_item(k, crate::cgse_value_to_py(py, v)?)?;
-            }
+        let attrs = g.node_attrs(node_id).cloned().unwrap_or_default();
+        for (k, v) in &attrs {
+            d.set_item(k, crate::cgse_value_to_py(py, v)?)?;
         }
-        node_py_attrs.insert(node_id.to_owned(), d.unbind());
+        inner.add_node_with_attrs(canonical.clone(), attrs);
+        node_py_attrs.insert(canonical, d.unbind());
     }
 
     let mut edge_py_attrs = HashMap::new();
     for es in g.edges_ordered() {
-        let key = PyGraph::edge_key(&es.left, &es.right);
+        let left = raw_to_canonical
+            .get(&es.left)
+            .cloned()
+            .unwrap_or_else(|| es.left.clone());
+        let right = raw_to_canonical
+            .get(&es.right)
+            .cloned()
+            .unwrap_or_else(|| es.right.clone());
+        inner
+            .add_edge_with_attrs(left.clone(), right.clone(), es.attrs.clone())
+            .map_err(|err| PyRuntimeError::new_err(format!("failed to import edge: {err}")))?;
+        let key = PyGraph::edge_key(&left, &right);
         let d = PyDict::new(py);
-        if let Some(attrs) = g.edge_attrs(&es.left, &es.right) {
-            for (k, v) in attrs {
-                d.set_item(k, crate::cgse_value_to_py(py, v)?)?;
-            }
+        for (k, v) in &es.attrs {
+            d.set_item(k, crate::cgse_value_to_py(py, v)?)?;
         }
         edge_py_attrs.insert(key, d.unbind());
     }
@@ -122,7 +139,7 @@ fn report_to_pygraph(py: Python<'_>, report: ReadWriteReport) -> PyResult<PyGrap
     }
 
     Ok(PyGraph {
-        inner: g,
+        inner,
         node_key_map,
         node_py_attrs,
         edge_py_attrs,
@@ -134,30 +151,41 @@ fn report_to_pygraph(py: Python<'_>, report: ReadWriteReport) -> PyResult<PyGrap
 fn di_report_to_pydigraph(py: Python<'_>, report: DiReadWriteReport) -> PyResult<PyDiGraph> {
     let graph_attrs = report.graph_attrs;
     let g = report.graph;
+    let mut inner = RustDiGraph::new(g.mode());
+    let mut raw_to_canonical = HashMap::new();
     let mut node_key_map = HashMap::new();
     let mut node_py_attrs = HashMap::new();
     for node_id in g.nodes_ordered() {
-        node_key_map.insert(
-            node_id.to_owned(),
-            node_id.into_pyobject(py)?.into_any().unbind(),
-        );
+        let py_key = node_id.to_owned().into_pyobject(py)?.into_any().unbind();
+        let canonical = node_key_to_string(py, py_key.bind(py))?;
+        raw_to_canonical.insert(node_id.to_owned(), canonical.clone());
+        node_key_map.insert(canonical.clone(), py_key);
         let d = PyDict::new(py);
-        if let Some(attrs) = g.node_attrs(node_id) {
-            for (k, v) in attrs {
-                d.set_item(k, crate::cgse_value_to_py(py, v)?)?;
-            }
+        let attrs = g.node_attrs(node_id).cloned().unwrap_or_default();
+        for (k, v) in &attrs {
+            d.set_item(k, crate::cgse_value_to_py(py, v)?)?;
         }
-        node_py_attrs.insert(node_id.to_owned(), d.unbind());
+        inner.add_node_with_attrs(canonical.clone(), attrs);
+        node_py_attrs.insert(canonical, d.unbind());
     }
 
     let mut edge_py_attrs = HashMap::new();
     for es in g.edges_ordered() {
-        let key = PyDiGraph::edge_key(&es.left, &es.right);
+        let left = raw_to_canonical
+            .get(&es.left)
+            .cloned()
+            .unwrap_or_else(|| es.left.clone());
+        let right = raw_to_canonical
+            .get(&es.right)
+            .cloned()
+            .unwrap_or_else(|| es.right.clone());
+        inner
+            .add_edge_with_attrs(left.clone(), right.clone(), es.attrs.clone())
+            .map_err(|err| PyRuntimeError::new_err(format!("failed to import edge: {err}")))?;
+        let key = PyDiGraph::edge_key(&left, &right);
         let d = PyDict::new(py);
-        if let Some(attrs) = g.edge_attrs(&es.left, &es.right) {
-            for (k, v) in attrs {
-                d.set_item(k, crate::cgse_value_to_py(py, v)?)?;
-            }
+        for (k, v) in &es.attrs {
+            d.set_item(k, crate::cgse_value_to_py(py, v)?)?;
         }
         edge_py_attrs.insert(key, d.unbind());
     }
@@ -168,7 +196,7 @@ fn di_report_to_pydigraph(py: Python<'_>, report: DiReadWriteReport) -> PyResult
     }
 
     Ok(PyDiGraph {
-        inner: g,
+        inner,
         node_key_map,
         node_py_attrs,
         edge_py_attrs,

@@ -1782,22 +1782,18 @@ def generate_gexf(G, encoding="utf-8", prettyprint=True, version="1.2draft"):
 
     Multigraph inputs are serialised via upstream nx (supports
     parallel edges with per-edge keys / ids, franken_networkx-rrh32).
-    Simple graphs keep the native Rust writer.
+    Simple graphs also route through nx so public Python node labels,
+    not internal canonical storage keys, appear in generated GEXF.
     """
-    from franken_networkx import _fnx
-
     _validate_gexf_version(version)
     if G.is_multigraph():
         yield from _generate_gexf_via_nx(
             G, encoding=encoding, prettyprint=prettyprint, version=version
         )
         return
-    if version != "1.2draft":
-        yield from _generate_gexf_simple_via_nx(
-            G, encoding=encoding, prettyprint=prettyprint, version=version
-        )
-        return
-    yield from _fnx.write_gexf_string_rust(G).splitlines()
+    yield from _generate_gexf_simple_via_nx(
+        G, encoding=encoding, prettyprint=prettyprint, version=version
+    )
 
 
 def _read_gexf_via_nx(raw_bytes):
