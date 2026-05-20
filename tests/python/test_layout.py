@@ -906,6 +906,37 @@ def test_forceatlas2_layout_matches_networkx_without_delegation():
         assert np.allclose(graph.nodes[node]["pos"], coords)
 
 
+def test_forceatlas2_layout_partial_tuple_pos_matches_networkx_without_delegation():
+    mapping = {node: ("forceatlas-partial", node) for node in range(5)}
+    graph = fnx.relabel_nodes(fnx.path_graph(5), mapping)
+    graph.add_edge(mapping[0], mapping[3], weight=2)
+    expected_graph = nx.relabel_nodes(nx.path_graph(5), mapping)
+    expected_graph.add_edge(mapping[0], mapping[3], weight=2)
+    partial_pos = {
+        mapping[0]: np.array([-1.0, 0.5]),
+        mapping[3]: np.array([1.5, -0.25]),
+    }
+    options = {
+        "pos": partial_pos,
+        "seed": 13,
+        "max_iter": 4,
+        "weight": "weight",
+    }
+    expected = _as_tuples(nx.forceatlas2_layout(expected_graph, **options))
+
+    with mock.patch(
+        "networkx.forceatlas2_layout",
+        side_effect=AssertionError("NetworkX forceatlas2_layout should not be used"),
+    ):
+        actual = _as_tuples(
+            fnx.forceatlas2_layout(graph, **options, store_pos_as="pos")
+        )
+
+    _assert_positions_close(actual, expected)
+    for node, coords in actual.items():
+        assert np.allclose(graph.nodes[node]["pos"], coords)
+
+
 def test_forceatlas2_layout_empty_pos_matches_upstream_error():
     graph = fnx.path_graph(4)
     expected_graph = nx.path_graph(4)
