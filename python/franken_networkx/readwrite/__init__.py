@@ -799,6 +799,117 @@ def _translate_gml_error_to_nx(message):
     return message
 
 
+def parse_graphml(
+    graphml_string,
+    node_type=str,
+    edge_key_type=int,
+    force_multigraph=False,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    """Parse GraphML string into a FrankenNetworkX graph.
+
+    Wraps ``networkx.parse_graphml`` and converts the result to an fnx
+    graph type so the return is drop-in compatible with fnx code.
+
+    Parameters
+    ----------
+    graphml_string : string
+       String containing graphml information
+       (e.g., contents of a graphml file).
+
+    node_type: Python type (default: str)
+       Convert node ids to this type
+
+    edge_key_type: Python type (default: int)
+       Convert graphml edge ids to this type. Multigraphs use id as edge key.
+       Non-multigraphs add to edge attribute dict with name "id".
+
+    force_multigraph : bool (default: False)
+       If True, return a multigraph with edge keys. If False (the default)
+       return a multigraph when multiedges are in the graph.
+
+    Returns
+    -------
+    graph: FrankenNetworkX graph
+        If no parallel edges are found a Graph or DiGraph is returned.
+        Otherwise a MultiGraph or MultiDiGraph is returned.
+    """
+    import networkx as nx
+    import franken_networkx as fnx
+
+    fnx._validate_backend_dispatch_keywords("parse_graphml", backend, backend_kwargs)
+
+    nx_graph = nx.parse_graphml(
+        graphml_string,
+        node_type=node_type,
+        edge_key_type=edge_key_type,
+        force_multigraph=force_multigraph,
+    )
+    return _from_nx_graph(nx_graph)
+
+
+class GraphMLReader:
+    """Read a GraphML document producing FrankenNetworkX graph objects.
+
+    Wraps ``networkx.readwrite.graphml.GraphMLReader`` and converts the
+    returned graphs to fnx graph types for drop-in compatibility.
+
+    Parameters
+    ----------
+    node_type : Python type (default: str)
+        Convert node ids to this type.
+
+    edge_key_type : Python type (default: int)
+        Convert graphml edge ids to this type. Multigraphs use id as edge key.
+        Non-multigraphs add to edge attribute dict with name "id".
+
+    force_multigraph : bool (default: False)
+        If True, return a multigraph with edge keys. If False (the default)
+        return a multigraph when multiedges are in the graph.
+
+    Examples
+    --------
+    >>> import franken_networkx as fnx
+    >>> reader = fnx.readwrite.GraphMLReader()
+    >>> G = reader(path="example.graphml")  # doctest: +SKIP
+    """
+
+    def __init__(
+        self,
+        node_type=str,
+        edge_key_type=int,
+        force_multigraph=False,
+    ):
+        from networkx.readwrite.graphml import GraphMLReader as _NxReader
+
+        self._nx_reader = _NxReader(
+            node_type=node_type,
+            edge_key_type=edge_key_type,
+            force_multigraph=force_multigraph,
+        )
+
+    def __call__(self, path=None, string=None):
+        """Read a GraphML document from path or string.
+
+        Parameters
+        ----------
+        path : file or string
+            File or filename to read.
+        string : string
+            String containing graphml information.
+
+        Yields
+        ------
+        graph : FrankenNetworkX graph
+            If no parallel edges are found a Graph or DiGraph is returned.
+            Otherwise a MultiGraph or MultiDiGraph is returned.
+        """
+        for nx_graph in self._nx_reader(path=path, string=string):
+            yield _from_nx_graph(nx_graph)
+
+
 def from_graph6_bytes(bytes_in, *, backend=None, **backend_kwargs):
     """Parse graph6 bytes into a FrankenNetworkX graph."""
     import franken_networkx as fnx
