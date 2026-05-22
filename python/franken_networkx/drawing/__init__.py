@@ -81,6 +81,24 @@ __all__ = [
 ]
 
 
+# br-r37-c1-yze40: networkx.drawing re-exports apply_matplotlib_colors
+# (from nx_pylab) and rescale_layout (from layout) into its namespace via
+# star-imports, so ``nx.drawing.apply_matplotlib_colors`` and
+# ``nx.drawing.rescale_layout`` resolve.  fnx keeps both public wrappers in
+# the top-level package, so mirror them here for ``nx.drawing.<name>``
+# parity — and as the *same* objects, since nx itself has
+# ``nx.drawing.rescale_layout is nx.rescale_layout``.  The parent package
+# binds both names (def lines ~17740 / ~34526) well before it imports this
+# subpackage (~36769), so the lookup into the partially-initialised parent
+# is safe.
+from franken_networkx import (  # noqa: E402
+    apply_matplotlib_colors,
+    rescale_layout,
+)
+
+__all__ += ["apply_matplotlib_colors", "rescale_layout"]
+
+
 def _install_drawing_child_aliases():
     import importlib
     import pkgutil
