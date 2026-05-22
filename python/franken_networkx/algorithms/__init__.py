@@ -143,6 +143,9 @@ def _alias_nx_child_modules(nx_dotted, fnx_dotted):
         if isinstance(sub, Exception):
             continue
         _sys.modules[fnx_child] = sub
+        parent = _sys.modules.get(fnx_dotted)
+        if parent is not None:
+            setattr(parent, name, sub)
         if info.ispkg:
             _alias_nx_child_modules(nx_child, fnx_child)
 
@@ -167,6 +170,9 @@ approximation = _fnx_approximation  # Override in module globals
 import franken_networkx.minors as _fnx_minors
 _sys.modules[f"{__name__}.minors"] = _fnx_minors
 minors = _fnx_minors  # Override in module globals
+_alias_nx_child_modules(
+    "networkx.algorithms.minors", f"{__name__}.minors"
+)
 
 import franken_networkx.operators as _fnx_operators
 _sys.modules[f"{__name__}.operators"] = _fnx_operators
