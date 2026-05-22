@@ -56,6 +56,7 @@ _FNX_OVERRIDE_SUBMODULES = {
     "minors",
     "operators",
     "clique",
+    "cluster",
     "summarization",
     "moral",
     "tree",
@@ -135,6 +136,10 @@ operators = _fnx_operators  # Override in module globals
 import franken_networkx.clique as _fnx_clique
 _sys.modules[f"{__name__}.clique"] = _fnx_clique
 clique = _fnx_clique  # Override in module globals
+
+_fnx_cluster = _importlib.import_module("franken_networkx.cluster")
+_sys.modules[f"{__name__}.cluster"] = _fnx_cluster
+cluster = _fnx_cluster  # Override in module globals
 
 import franken_networkx.summarization as _fnx_summarization
 _sys.modules[f"{__name__}.summarization"] = _fnx_summarization
