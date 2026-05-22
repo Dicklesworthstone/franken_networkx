@@ -74,34 +74,46 @@ def test_copy_copy_shares_graph_node_and_edge_attrs_like_networkx(fnx_ctor, nx_c
     fv = copy.copy(fg)
     nv = copy.copy(ng)
 
+    # Graph-level attrs ARE shared after copy.copy — _graph_shallowcopy
+    # routes them through _GRAPH_ATTR_OVERRIDE, matching nx's
+    # ``copy.copy(G).graph is G.graph`` contract.
     assert fv.graph is fg.graph
     assert nv.graph is ng.graph
     fv.graph["added"] = True
     nv.graph["added"] = True
     assert fg.graph == ng.graph
 
-    assert fv.nodes["a"] is fg.nodes["a"]
+    # br-r37-c1-tk6j1 + br-r37-c1-4wqn9: node and edge attr dicts are NOT
+    # shared after copy.copy in fnx (documented intentional divergence —
+    # see memory/project_intentional_divergences.md).  The
+    # ``result._node = self._node`` / ``result._adj = self.adj``
+    # override pattern that nx relies on caused silent write-loss in
+    # fnx because ``result.add_edge`` writes to the copy's own Rust
+    # storage while reads went through the override view, leaving the
+    # two desynchronised.  Lock the actual contract: structurally equal
+    # but independent dicts; mutations on the copy do not propagate to
+    # the source.
+    assert fv.nodes["a"] == fg.nodes["a"]
     assert nv.nodes["a"] is ng.nodes["a"]
-    fv.nodes["a"]["shared"] = True
+    fv.nodes["a"]["copy_only"] = True
     nv.nodes["a"]["shared"] = True
-    assert fg.nodes["a"] == ng.nodes["a"]
+    assert "copy_only" not in fg.nodes["a"]
+    assert ng.nodes["a"].get("shared") is True
 
     if fg.is_multigraph():
-        assert fv.edges["a", "b", "k"] is fg.edges["a", "b", "k"]
+        assert fv.edges["a", "b", "k"] == fg.edges["a", "b", "k"]
         assert nv.edges["a", "b", "k"] is ng.edges["a", "b", "k"]
-        fv.edges["a", "b", "k"]["shared"] = True
+        fv.edges["a", "b", "k"]["copy_only"] = True
         nv.edges["a", "b", "k"]["shared"] = True
-        assert fg.edges["a", "b", "k"] == ng.edges["a", "b", "k"]
-        assert list(fv.edges(keys=True, data=True)) == list(
-            nv.edges(keys=True, data=True)
-        )
+        assert "copy_only" not in fg.edges["a", "b", "k"]
+        assert ng.edges["a", "b", "k"].get("shared") is True
     else:
-        assert fv.edges["a", "b"] is fg.edges["a", "b"]
+        assert fv.edges["a", "b"] == fg.edges["a", "b"]
         assert nv.edges["a", "b"] is ng.edges["a", "b"]
-        fv.edges["a", "b"]["shared"] = True
+        fv.edges["a", "b"]["copy_only"] = True
         nv.edges["a", "b"]["shared"] = True
-        assert fg.edges["a", "b"] == ng.edges["a", "b"]
-        assert list(fv.edges(data=True)) == list(nv.edges(data=True))
+        assert "copy_only" not in fg.edges["a", "b"]
+        assert ng.edges["a", "b"].get("shared") is True
 
 
 @pytest.mark.parametrize(
