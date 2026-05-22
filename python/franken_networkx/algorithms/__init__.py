@@ -24,18 +24,26 @@ import pkgutil as _pkgutil
 from networkx.algorithms import *  # noqa: F401, F403
 
 
+_FNX_OVERRIDE_SUBMODULES = {"bipartite"}
+
+
 def _alias_nx_submodules(nx_pkg, fnx_prefix):
     """Recursively alias nx submodules into ``sys.modules`` under fnx_prefix.
 
     Skips ``tests`` packages (pytest-fixture-bound) and private modules
     starting with ``_`` so we don't expose nx's internal test helpers as
     fnx public API.
+
+    Also skips submodules listed in _FNX_OVERRIDE_SUBMODULES which have
+    native fnx implementations that should take precedence.
     """
     if not hasattr(nx_pkg, "__path__"):
         return
     for info in _pkgutil.iter_modules(nx_pkg.__path__):
         name = info.name
         if name == "tests" or name.startswith("_"):
+            continue
+        if name in _FNX_OVERRIDE_SUBMODULES:
             continue
         nx_dotted = f"{nx_pkg.__name__}.{name}"
         fnx_dotted = f"{fnx_prefix}.{name}"
@@ -51,6 +59,14 @@ def _alias_nx_submodules(nx_pkg, fnx_prefix):
 
 
 _alias_nx_submodules(_importlib.import_module("networkx.algorithms"), __name__)
+
+# Override bipartite submodule to use fnx's native implementation
+# which wraps nx functions to return fnx graph types.
+# This must happen AFTER the star import since `from networkx.algorithms import *`
+# imports `bipartite` into the module namespace directly.
+import franken_networkx.bipartite as _fnx_bipartite
+_sys.modules[f"{__name__}.bipartite"] = _fnx_bipartite
+bipartite = _fnx_bipartite  # Override in module globals
 
 
 def __getattr__(name):

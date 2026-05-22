@@ -1,13 +1,13 @@
 """Pure-Python graph I/O helpers layered on top of the core bindings."""
 
-import ast
-import bz2
-import gzip
-from io import BytesIO, StringIO
-from pathlib import Path
-import re
-import shlex
-import warnings
+import ast as _ast
+import bz2 as _bz2
+import gzip as _gzip
+from io import BytesIO as _BytesIO, StringIO as _StringIO
+from pathlib import Path as _Path
+import re as _re
+import shlex as _shlex
+import warnings as _warnings
 
 _NX_READWRITE_SUBMODULES = (
     "adjlist",
@@ -252,9 +252,9 @@ def _read_gml_via_nx(path, *, label="label", destringizer=None):
     if hasattr(path, "read"):
         data = path.read()
         if isinstance(data, str):
-            path = BytesIO(data.encode("ascii"))
+            path = _BytesIO(data.encode("ascii"))
         else:
-            path = BytesIO(bytes(data))
+            path = _BytesIO(bytes(data))
 
     nx_graph = nx.read_gml(path, label=label, destringizer=destringizer)
     return _from_nx_graph(nx_graph)
@@ -446,7 +446,7 @@ def _read_bytes(path):
     if hasattr(path, "read"):
         data = path.read()
     else:
-        data = Path(path).read_bytes()
+        data = _Path(path).read_bytes()
     if isinstance(data, str):
         return data.encode("ascii")
     return bytes(data)
@@ -460,7 +460,7 @@ def _write_bytes(path, data):
         except TypeError:
             path.write(data.decode("ascii"))
         return None
-    Path(path).write_bytes(data)
+    _Path(path).write_bytes(data)
     return None
 
 
@@ -675,7 +675,7 @@ def parse_edgelist(
                     edge_data = ",".join(edge_tokens)
                 else:
                     edge_data = " ".join(edge_tokens)
-                edgedata = dict(ast.literal_eval(edge_data.strip()))
+                edgedata = dict(_ast.literal_eval(edge_data.strip()))
             except Exception as err:
                 raise TypeError(
                     f"Failed to convert edge data ({edge_tokens}) to dictionary."
@@ -748,7 +748,7 @@ def parse_gml(lines, label="label", destringizer=None, *, backend=None, **backen
     # those as NetworkXError, so re-raise the concrete subset here for
     # drop-in parity.
     try:
-        return _fnx.read_gml(StringIO(text))
+        return _fnx.read_gml(_StringIO(text))
     except OSError as exc:
         message = str(exc)
         prefix = "readwrite `read_gml` failed closed: "
@@ -774,18 +774,18 @@ def parse_gml(lines, label="label", destringizer=None, *, backend=None, **backen
 _GML_ERROR_TRANSLATIONS = (
     # (regex pattern, replacement template)
     # node missing label — ``gml node {id} missing label``
-    (re.compile(r"^gml node (\S+) missing label$"),
+    (_re.compile(r"^gml node (\S+) missing label$"),
      r"node #\1 has no 'label' attribute"),
     # node missing id — no id available, use ``#?``
-    (re.compile(r"^gml node missing id$"),
+    (_re.compile(r"^gml node missing id$"),
      "node #? has no 'id' attribute"),
     # edge missing source/target — ``gml edge missing source/target:
     # source=None target=Some(X)`` and the symmetric variant.
-    (re.compile(r"^gml edge missing source/target: source=None target=Some\(([^)]+)\)$"),
+    (_re.compile(r"^gml edge missing source/target: source=None target=Some\(([^)]+)\)$"),
      r"edge #? has no 'source' attribute"),
-    (re.compile(r"^gml edge missing source/target: source=Some\(([^)]+)\) target=None$"),
+    (_re.compile(r"^gml edge missing source/target: source=Some\(([^)]+)\) target=None$"),
      r"edge #? has no 'target' attribute"),
-    (re.compile(r"^gml edge missing source/target: source=None target=None$"),
+    (_re.compile(r"^gml edge missing source/target: source=None target=None$"),
      "edge #? has no 'source' attribute"),
 )
 
@@ -1275,12 +1275,12 @@ def read_pajek(path, encoding="UTF-8", *, backend=None, **backend_kwargs):
             data = data.decode(encoding)
         return parse_pajek(data)
 
-    input_path = Path(path)
+    input_path = _Path(path)
     if input_path.suffix == ".gz":
-        with gzip.open(input_path, "rt", encoding=encoding) as fh:
+        with _gzip.open(input_path, "rt", encoding=encoding) as fh:
             return parse_pajek(fh)
     if input_path.suffix == ".bz2":
-        with bz2.open(input_path, "rt", encoding=encoding) as fh:
+        with _bz2.open(input_path, "rt", encoding=encoding) as fh:
             return parse_pajek(fh)
     return parse_pajek(input_path.read_text(encoding=encoding))
 
@@ -1295,12 +1295,12 @@ def write_pajek(G, path, encoding="UTF-8"):
             path.write(data.decode(encoding))
         return None
 
-    output_path = Path(path)
+    output_path = _Path(path)
     if output_path.suffix == ".gz":
-        with gzip.open(output_path, "wb") as fh:
+        with _gzip.open(output_path, "wb") as fh:
             fh.write(data)
     elif output_path.suffix == ".bz2":
-        with bz2.open(output_path, "wb") as fh:
+        with _bz2.open(output_path, "wb") as fh:
             fh.write(data)
     else:
         output_path.write_bytes(data)
@@ -1315,9 +1315,12 @@ def parse_pajek(lines, *, backend=None, **backend_kwargs):
 
     def split_line(line):
         try:
-            return [part.decode("utf-8") for part in shlex.split(str(line).encode("utf-8"))]
+            return [
+                part.decode("utf-8")
+                for part in _shlex.split(str(line).encode("utf-8"))
+            ]
         except AttributeError:
-            return shlex.split(str(line))
+            return _shlex.split(str(line))
 
     def graph_as(graph, graph_type):
         converted = graph_type()
@@ -1441,7 +1444,7 @@ def generate_pajek(G):
                 line += f" {make_qstr(key)} {make_qstr(value)}"
             else:
                 reason = "Empty attribute" if isinstance(value, str) else "Non-string attribute"
-                warnings.warn(f"Node attribute {key} is not processed. {reason}.")
+                _warnings.warn(f"Node attribute {key} is not processed. {reason}.")
         yield line
 
     yield "*arcs" if G.is_directed() else "*edges"
@@ -1458,7 +1461,7 @@ def generate_pajek(G):
                     if isinstance(attr_value, str)
                     else "Non-string attribute"
                 )
-                warnings.warn(f"Edge attribute {key} is not processed. {reason}.")
+                _warnings.warn(f"Edge attribute {key} is not processed. {reason}.")
         yield line
 
 
@@ -1473,12 +1476,12 @@ def read_leda(path, encoding="UTF-8", *, backend=None, **backend_kwargs):
             data = data.decode(encoding)
         return parse_leda(data)
 
-    input_path = Path(path)
+    input_path = _Path(path)
     if input_path.suffix == ".gz":
-        with gzip.open(input_path, "rt", encoding=encoding) as fh:
+        with _gzip.open(input_path, "rt", encoding=encoding) as fh:
             return parse_leda(fh)
     if input_path.suffix == ".bz2":
-        with bz2.open(input_path, "rt", encoding=encoding) as fh:
+        with _bz2.open(input_path, "rt", encoding=encoding) as fh:
             return parse_leda(fh)
     return parse_leda(input_path.read_text(encoding=encoding))
 
@@ -1863,7 +1866,7 @@ def generate_gml(G, stringizer=None):
     """Yield GML lines from a graph without NetworkX delegation."""
     import franken_networkx as fnx
 
-    valid_keys = re.compile("^[A-Za-z][0-9A-Za-z_]*$")
+    valid_keys = _re.compile("^[A-Za-z][0-9A-Za-z_]*$")
     list_start_value = "_networkx_list_start"
 
     def escape(text):
@@ -1871,7 +1874,7 @@ def generate_gml(G, stringizer=None):
             ch = match.group(0)
             return "&#" + str(ord(ch)) + ";"
 
-        return re.sub('[^ -~]|[&"]', fixup, text)
+        return _re.sub('[^ -~]|[&"]', fixup, text)
 
     def stringize(key, value, ignored_keys, indent, in_list=False):
         if not isinstance(key, str):
@@ -2071,7 +2074,7 @@ def read_gexf(path, node_type=None, relabel=False, version="1.2draft", *, backen
     if _gexf_document_is_multigraph(raw) or _gexf_document_has_hierarchy(raw):
         graph = _read_gexf_via_nx(raw, version=version)
     else:
-        graph = _fnx.read_gexf(BytesIO(raw))
+        graph = _fnx.read_gexf(_BytesIO(raw))
         _restore_gexf_node_metadata(graph, raw)
 
     graph = _apply_gexf_node_type(graph, node_type)
@@ -2137,7 +2140,7 @@ def _read_gexf_via_nx(raw_bytes, *, version="1.2draft"):
     """
     from networkx.readwrite.gexf import read_gexf as _upstream_read_gexf
 
-    nx_graph = _upstream_read_gexf(BytesIO(raw_bytes), version=version)
+    nx_graph = _upstream_read_gexf(_BytesIO(raw_bytes), version=version)
     return _from_nx_graph(nx_graph)
 
 
@@ -2349,9 +2352,9 @@ def parse_gexf(string, node_type=None, relabel=False, version="1.2draft"):
     assumed str (br-r37-c1-gexfbytes).
     """
     if isinstance(string, (bytes, bytearray)):
-        buffer = BytesIO(bytes(string))
+        buffer = _BytesIO(bytes(string))
     else:
-        buffer = BytesIO(string.encode("utf-8"))
+        buffer = _BytesIO(string.encode("utf-8"))
     return read_gexf(
         buffer,
         node_type=node_type,

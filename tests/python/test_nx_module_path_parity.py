@@ -110,6 +110,28 @@ def test_readwrite_submodule_paths_are_directly_importable():
         assert nx_mod is not None
 
 
+def test_readwrite_module_does_not_leak_stdlib_helpers():
+    """``franken_networkx.readwrite`` should not expose internal imports."""
+    import franken_networkx.readwrite as fnx_readwrite
+    import networkx.readwrite as nx_readwrite
+
+    helper_names = {
+        "BytesIO",
+        "Path",
+        "StringIO",
+        "ast",
+        "bz2",
+        "gzip",
+        "re",
+        "shlex",
+        "warnings",
+    }
+
+    for name in helper_names:
+        assert hasattr(fnx_readwrite, name) is hasattr(nx_readwrite, name)
+        assert (name in dir(fnx_readwrite)) is (name in dir(nx_readwrite))
+
+
 def test_readwrite_submodules_keep_fnx_implemented_names():
     """Alias modules should still expose fnx's local readwrite wrappers."""
     import franken_networkx.readwrite as fnx_readwrite
