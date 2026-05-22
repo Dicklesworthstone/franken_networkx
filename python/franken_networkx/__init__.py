@@ -36882,8 +36882,19 @@ def _random_kernel_graph_via_parity(
 
 
 # Drawing — thin delegation to NetworkX/matplotlib (lazy import)
-from franken_networkx import bipartite as bipartite  # noqa: F401 — native overrides
-from franken_networkx import community as community  # noqa: F401 — native overrides (br-r37-c1-rq36c)
+# br-r37-c1-cfcls: import submodules with native overrides so fnx.X returns fnx types
+from franken_networkx import approximation as approximation  # noqa: F401
+from franken_networkx import bipartite as bipartite  # noqa: F401
+from franken_networkx import clique as clique  # noqa: F401
+from franken_networkx import community as community  # noqa: F401
+from franken_networkx import dag as dag  # noqa: F401
+from franken_networkx import euler as euler  # noqa: F401
+from franken_networkx import flow as flow  # noqa: F401
+from franken_networkx import minors as minors  # noqa: F401
+from franken_networkx import operators as operators  # noqa: F401
+from franken_networkx import tournament as tournament  # noqa: F401
+from franken_networkx import traversal as traversal  # noqa: F401
+from franken_networkx import tree as tree  # noqa: F401
 from franken_networkx.drawing import (
     arf_layout,
     bfs_layout,
