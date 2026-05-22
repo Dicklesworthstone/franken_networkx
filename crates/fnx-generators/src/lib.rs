@@ -850,6 +850,41 @@ impl GraphGenerator {
         Ok(self.finish_graph_report(graph, warnings))
     }
 
+    /// Return a degree sequence for a random power-law tree.
+    pub fn random_powerlaw_tree_sequence(
+        &mut self,
+        n: usize,
+        gamma: f64,
+        seed: u64,
+        tries: usize,
+    ) -> Result<Vec<usize>, GenerationError> {
+        random_powerlaw_tree_sequence_inner(n, gamma, seed, tries, "random_powerlaw_tree_sequence")
+    }
+
+    /// Generate a random tree with a power-law degree distribution.
+    pub fn random_powerlaw_tree(
+        &mut self,
+        n: usize,
+        gamma: f64,
+        seed: u64,
+        tries: usize,
+    ) -> Result<GenerationReport, GenerationError> {
+        let (n, warnings) = self.validate_n("random_powerlaw_tree", n, MAX_N_GNP)?;
+        let sequence =
+            random_powerlaw_tree_sequence_inner(n, gamma, seed, tries, "random_powerlaw_tree")?;
+        let graph = degree_sequence_tree_graph(self.mode, &sequence)?;
+
+        self.record(
+            "random_powerlaw_tree",
+            DecisionAction::Allow,
+            0.08,
+            format!(
+                "generated random powerlaw tree with n={n}, gamma={gamma}, seed={seed}, tries={tries}"
+            ),
+        );
+        Ok(self.finish_graph_report(graph, warnings))
+    }
+
     fn validate_n(
         &mut self,
         operation: &'static str,
@@ -1947,6 +1982,138 @@ fn remove_first_usize(values: &mut Vec<usize>, value: usize) -> bool {
     }
 }
 
+fn random_powerlaw_tree_sequence_inner(
+    n: usize,
+    gamma: f64,
+    seed: u64,
+    tries: usize,
+    operation: &'static str,
+) -> Result<Vec<usize>, GenerationError> {
+    if n == 0 {
+        return Err(GenerationError::FailClosed {
+            operation,
+            reason: "empty range in randrange(0, 0)".to_owned(),
+        });
+    }
+
+    let mut rng = PythonRandom::new(seed);
+    let mut zseq = (0..n)
+        .map(|_| clamp_powerlaw_degree(n, python_paretovariate(gamma - 1.0, &mut rng)))
+        .collect::<Vec<usize>>();
+    let mut swap = (0..tries)
+        .map(|_| clamp_powerlaw_degree(n, python_paretovariate(gamma - 1.0, &mut rng)))
+        .collect::<Vec<usize>>();
+
+    for _ in 0..swap.len() {
+        if is_valid_tree_degree_sequence(&zseq) {
+            return Ok(zseq);
+        }
+        let index = rng.randrange(n);
+        let Some(next_degree) = swap.pop() else {
+            break;
+        };
+        zseq[index] = next_degree;
+    }
+
+    Err(GenerationError::FailClosed {
+        operation,
+        reason: format!("Exceeded max ({tries}) attempts for a valid tree sequence."),
+    })
+}
+
+fn python_paretovariate(alpha: f64, rng: &mut PythonRandom) -> f64 {
+    (1.0 - rng.random()).powf(-1.0 / alpha)
+}
+
+fn clamp_powerlaw_degree(n: usize, value: f64) -> usize {
+    if !value.is_finite() {
+        return n;
+    }
+    python_round_nonnegative(value).min(n)
+}
+
+fn python_round_nonnegative(value: f64) -> usize {
+    let floor = value.floor();
+    let fraction = value - floor;
+    if fraction < 0.5 {
+        floor as usize
+    } else if fraction > 0.5 {
+        floor as usize + 1
+    } else {
+        let floor_int = floor as usize;
+        if floor_int.is_multiple_of(2) {
+            floor_int
+        } else {
+            floor_int + 1
+        }
+    }
+}
+
+fn is_valid_tree_degree_sequence(sequence: &[usize]) -> bool {
+    let twice_edges = sequence.iter().sum::<usize>();
+    if sequence.len().saturating_mul(2) != twice_edges.saturating_add(2) {
+        return false;
+    }
+    sequence == [0] || sequence.iter().all(|degree| *degree > 0)
+}
+
+fn degree_sequence_tree_graph(
+    mode: CompatibilityMode,
+    degree_sequence: &[usize],
+) -> Result<Graph, GenerationError> {
+    if !is_valid_tree_degree_sequence(degree_sequence) {
+        return Err(GenerationError::FailClosed {
+            operation: "degree_sequence_tree",
+            reason: "tree must have one more node than number of edges".to_owned(),
+        });
+    }
+
+    let mut graph = Graph::new(mode);
+    if degree_sequence == [0] {
+        graph.add_node("0");
+        return Ok(graph);
+    }
+
+    let mut degree_backbone = degree_sequence
+        .iter()
+        .copied()
+        .filter(|degree| *degree > 1)
+        .collect::<Vec<usize>>();
+    degree_backbone.sort_by(|left, right| right.cmp(left));
+
+    let backbone_len = degree_backbone.len() + 2;
+    for node in 0..backbone_len {
+        graph.add_node(node.to_string());
+    }
+    for node in 0..backbone_len.saturating_sub(1) {
+        graph
+            .add_edge(node.to_string(), (node + 1).to_string())
+            .map_err(|err| GenerationError::FailClosed {
+                operation: "degree_sequence_tree",
+                reason: err.to_string(),
+            })?;
+    }
+
+    let mut last = backbone_len;
+    for source in 1..backbone_len.saturating_sub(1) {
+        let Some(degree) = degree_backbone.pop() else {
+            break;
+        };
+        let leaf_count = degree.saturating_sub(2);
+        for target in last..last + leaf_count {
+            graph
+                .add_edge(source.to_string(), target.to_string())
+                .map_err(|err| GenerationError::FailClosed {
+                    operation: "degree_sequence_tree",
+                    reason: err.to_string(),
+                })?;
+        }
+        last += leaf_count;
+    }
+
+    Ok(graph)
+}
+
 /// Sample `count` distinct elements from `seq` with replacement-by-set,
 /// matching the inner loop of nx's `_random_subset`.
 ///
@@ -2680,6 +2847,66 @@ mod tests {
         let err = gg
             .extended_barabasi_albert_graph(5, 2, 0.6, 0.4, 1)
             .expect_err("p + q >= 1 should fail");
+        assert!(matches!(err, GenerationError::FailClosed { .. }));
+    }
+
+    #[test]
+    fn random_powerlaw_tree_sequence_matches_networkx_seeded_example() {
+        let mut gg = GraphGenerator::strict();
+        let sequence = gg
+            .random_powerlaw_tree_sequence(8, 3.0, 5, 100)
+            .expect("power-law tree sequence should succeed");
+        assert_eq!(sequence, vec![1, 1, 4, 1, 1, 2, 1, 3]);
+    }
+
+    #[test]
+    fn random_powerlaw_tree_matches_networkx_seeded_example() {
+        let mut gg = GraphGenerator::strict();
+        let report = gg
+            .random_powerlaw_tree(8, 3.0, 5, 100)
+            .expect("power-law tree should succeed");
+        assert_eq!(
+            sorted_graph_edges(&report.graph),
+            vec![
+                ("0".to_owned(), "1".to_owned()),
+                ("1".to_owned(), "2".to_owned()),
+                ("2".to_owned(), "3".to_owned()),
+                ("2".to_owned(), "5".to_owned()),
+                ("3".to_owned(), "4".to_owned()),
+                ("3".to_owned(), "6".to_owned()),
+                ("3".to_owned(), "7".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn random_powerlaw_tree_matches_networkx_fractional_gamma_example() {
+        let mut gg = GraphGenerator::strict();
+        let report = gg
+            .random_powerlaw_tree(10, 2.5, 7, 100)
+            .expect("power-law tree should succeed");
+        assert_eq!(
+            sorted_graph_edges(&report.graph),
+            vec![
+                ("0".to_owned(), "1".to_owned()),
+                ("1".to_owned(), "2".to_owned()),
+                ("2".to_owned(), "3".to_owned()),
+                ("3".to_owned(), "4".to_owned()),
+                ("3".to_owned(), "7".to_owned()),
+                ("4".to_owned(), "5".to_owned()),
+                ("4".to_owned(), "8".to_owned()),
+                ("5".to_owned(), "6".to_owned()),
+                ("5".to_owned(), "9".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn random_powerlaw_tree_sequence_fails_after_exhausted_tries() {
+        let mut gg = GraphGenerator::strict();
+        let err = gg
+            .random_powerlaw_tree_sequence(5, 3.0, 1, 0)
+            .expect_err("tries=0 should fail like NetworkX");
         assert!(matches!(err, GenerationError::FailClosed { .. }));
     }
 
