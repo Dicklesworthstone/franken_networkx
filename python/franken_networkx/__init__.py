@@ -29269,7 +29269,6 @@ class _ConversionGraphViewBase:
 
     def __init__(self, graph):
         self.__dict__["_graph"] = graph
-        self.__dict__["graph"] = graph.graph
         self.__dict__["frozen"] = True
         self.__dict__["_nodes_view"] = _ConversionNodeView(self)
         self.__dict__["_edges_view"] = _ConversionEdgeView(self)
@@ -29297,6 +29296,16 @@ class _ConversionGraphViewBase:
     @property
     def pred(self):
         return self.__dict__.get("_pred_view") or super().pred
+
+    @property
+    def graph(self):
+        # br-r37-c1-9ut0c: the fnx Graph base class exposes ``graph`` as a
+        # ``_GraphAttrsDescriptor`` (a data descriptor), so an instance
+        # ``__dict__`` entry cannot shadow it.  Surface the source graph's
+        # attribute dict directly — a conversion view shares structure
+        # with its source, so ``to_directed``/``to_undirected`` must
+        # preserve graph-level attributes (parity with networkx).
+        return self._graph.graph
 
     def __iter__(self):
         return iter(self._graph)
