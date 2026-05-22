@@ -88,6 +88,13 @@ try:
 except Exception:
     _NETWORKX_GRAPH_DEFAULT = Graph
 
+try:
+    import networkx.lazy_imports as _nx_lazy_imports
+
+    _sys.modules[f"{__name__}.lazy_imports"] = _nx_lazy_imports
+except Exception:
+    pass
+
 
 # br-r37-c1-u3umv: ``nx.drawing.layout._process_params`` short-circuits
 # ``isinstance(G, nx.Graph)`` for graph-like objects that *aren't* an

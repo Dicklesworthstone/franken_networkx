@@ -14,6 +14,7 @@ _PACKAGE_NAMES = (
     "networkx.readwrite",
     "networkx.utils",
 )
+_IMPORT_WALK_EXCLUSIONS = {"networkx.conftest"}
 
 
 def _public_child_modules(package_name: str):
@@ -21,6 +22,20 @@ def _public_child_modules(package_name: str):
     for info in pkgutil.walk_packages(package.__path__, prefix=f"{package_name}."):
         parts = info.name.split(".")
         if any(part == "tests" or part.startswith("_") for part in parts):
+            continue
+        yield info.name
+
+
+def _public_networkx_modules():
+    import networkx as nx
+
+    for info in pkgutil.walk_packages(nx.__path__, prefix="networkx."):
+        if info.name in _IMPORT_WALK_EXCLUSIONS:
+            continue
+        parts = info.name.split(".")
+        if any(part == "tests" for part in parts):
+            continue
+        if any(part.startswith("_") for part in parts[1:]):
             continue
         yield info.name
 
@@ -40,6 +55,28 @@ def test_non_algorithm_child_modules_import_like_networkx():
             )
 
     assert not failures
+
+
+def test_public_networkx_import_walk_has_no_framed_missing_modules():
+    failures = []
+    for nx_name in _public_networkx_modules():
+        fnx_name = nx_name.replace("networkx.", "franken_networkx.", 1)
+        try:
+            importlib.import_module(nx_name)
+            importlib.import_module(fnx_name)
+        except Exception as exc:
+            failures.append(
+                (nx_name, fnx_name, type(exc).__name__, str(exc).splitlines()[0])
+            )
+
+    assert not failures
+
+
+def test_top_level_lazy_imports_aliases_networkx_module():
+    actual = importlib.import_module("franken_networkx.lazy_imports")
+    expected = importlib.import_module("networkx.lazy_imports")
+
+    assert actual is expected
 
 
 def test_classes_graph_child_module_aliases_networkx_module():
