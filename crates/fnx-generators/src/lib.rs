@@ -167,6 +167,52 @@ impl GraphGenerator {
         Ok(self.finish_graph_report(graph, Vec::new()))
     }
 
+    fn add_full_rary_tree_edges(
+        graph: &mut Graph,
+        node_labels: &[String],
+        r: usize,
+        n: usize,
+        operation: &'static str,
+    ) -> Result<(), GenerationError> {
+        if r == 0 {
+            return Ok(());
+        }
+
+        let mut next_child = 1usize;
+        let mut parent = 0usize;
+        while next_child < n {
+            for _ in 0..r {
+                if next_child == n {
+                    break;
+                }
+                let parent_label =
+                    node_labels
+                        .get(parent)
+                        .ok_or_else(|| GenerationError::FailClosed {
+                            operation,
+                            reason: format!("tree parent index {parent} is outside n={n}"),
+                        })?;
+                let child_label =
+                    node_labels
+                        .get(next_child)
+                        .ok_or_else(|| GenerationError::FailClosed {
+                            operation,
+                            reason: format!("tree child index {next_child} is outside n={n}"),
+                        })?;
+                graph
+                    .add_edge(parent_label.clone(), child_label.clone())
+                    .map_err(|err| GenerationError::FailClosed {
+                        operation,
+                        reason: err.to_string(),
+                    })?;
+                next_child += 1;
+            }
+            parent += 1;
+        }
+
+        Ok(())
+    }
+
     pub fn empty_graph(&mut self, n: usize) -> Result<GenerationReport, GenerationError> {
         let (n, warnings) = self.validate_n("empty_graph", n, MAX_N_GENERIC)?;
         let (graph, _) = graph_with_n_nodes(self.mode, n);
@@ -255,31 +301,33 @@ impl GraphGenerator {
         let (n, warnings) = self.validate_n("full_rary_tree", n, MAX_N_GENERIC)?;
         let (mut graph, node_labels) = graph_with_n_nodes(self.mode, n);
 
-        if r > 0 {
-            let mut next_child = 1usize;
-            let mut parent = 0usize;
-            while next_child < n {
-                for _ in 0..r {
-                    if next_child == n {
-                        break;
-                    }
-                    graph
-                        .add_edge(node_labels[parent].clone(), node_labels[next_child].clone())
-                        .map_err(|err| GenerationError::FailClosed {
-                            operation: "full_rary_tree",
-                            reason: err.to_string(),
-                        })?;
-                    next_child += 1;
-                }
-                parent += 1;
-            }
-        }
+        Self::add_full_rary_tree_edges(&mut graph, &node_labels, r, n, "full_rary_tree")?;
 
         self.record(
             "full_rary_tree",
             DecisionAction::Allow,
             0.03,
             format!("generated full r-ary tree with r={r}, n={n}"),
+        );
+        Ok(self.finish_graph_report(graph, warnings))
+    }
+
+    pub fn balanced_tree(
+        &mut self,
+        r: usize,
+        h: usize,
+    ) -> Result<GenerationReport, GenerationError> {
+        let total_nodes = balanced_tree_node_count(r, h);
+        let (n, warnings) = self.validate_n("balanced_tree", total_nodes, MAX_N_GENERIC)?;
+        let (mut graph, node_labels) = graph_with_n_nodes(self.mode, n);
+
+        Self::add_full_rary_tree_edges(&mut graph, &node_labels, r, n, "balanced_tree")?;
+
+        self.record(
+            "balanced_tree",
+            DecisionAction::Allow,
+            0.03,
+            format!("generated balanced tree with r={r}, h={h}, n={n}"),
         );
         Ok(self.finish_graph_report(graph, warnings))
     }
@@ -3959,6 +4007,25 @@ fn ring_lattice_edges(n: usize, half_k: usize) -> Vec<(usize, usize)> {
     edges
 }
 
+fn balanced_tree_node_count(r: usize, h: usize) -> usize {
+    let mut total = 1usize;
+    let mut level_nodes = 1usize;
+    for _ in 0..h {
+        level_nodes = match level_nodes.checked_mul(r) {
+            Some(value) => value,
+            None => return MAX_N_GENERIC + 1,
+        };
+        total = match total.checked_add(level_nodes) {
+            Some(value) => value,
+            None => return MAX_N_GENERIC + 1,
+        };
+        if total > MAX_N_GENERIC {
+            return total;
+        }
+    }
+    total
+}
+
 fn watts_strogatz_graph_core(
     mode: CompatibilityMode,
     n: usize,
@@ -4657,6 +4724,73 @@ mod tests {
         assert_eq!(
             err.to_string(),
             "generator `full_rary_tree` failed closed: n=100001 exceeds max_allowed=100000"
+        );
+    }
+
+    #[test]
+    fn balanced_tree_matches_networkx_binary_height_three_labels() {
+        let mut generator = GraphGenerator::strict();
+        let report = generator
+            .balanced_tree(2, 3)
+            .expect("balanced tree generation should succeed");
+
+        assert_eq!(report.graph.node_count(), 15);
+        assert_eq!(report.graph.edge_count(), 14);
+        assert_eq!(
+            sorted_graph_edges(&report.graph),
+            vec![
+                ("0".to_owned(), "1".to_owned()),
+                ("0".to_owned(), "2".to_owned()),
+                ("1".to_owned(), "3".to_owned()),
+                ("1".to_owned(), "4".to_owned()),
+                ("2".to_owned(), "5".to_owned()),
+                ("2".to_owned(), "6".to_owned()),
+                ("3".to_owned(), "7".to_owned()),
+                ("3".to_owned(), "8".to_owned()),
+                ("4".to_owned(), "10".to_owned()),
+                ("4".to_owned(), "9".to_owned()),
+                ("5".to_owned(), "11".to_owned()),
+                ("5".to_owned(), "12".to_owned()),
+                ("6".to_owned(), "13".to_owned()),
+                ("6".to_owned(), "14".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn balanced_tree_r_one_and_zero_branching_match_networkx() {
+        let mut generator = GraphGenerator::strict();
+        let path = generator
+            .balanced_tree(1, 4)
+            .expect("r=1 balanced tree generation should succeed");
+        let zero_branching = generator
+            .balanced_tree(0, 5)
+            .expect("r=0 balanced tree generation should succeed");
+
+        assert_eq!(path.graph.node_count(), 5);
+        assert_eq!(
+            sorted_graph_edges(&path.graph),
+            vec![
+                ("0".to_owned(), "1".to_owned()),
+                ("1".to_owned(), "2".to_owned()),
+                ("2".to_owned(), "3".to_owned()),
+                ("3".to_owned(), "4".to_owned()),
+            ]
+        );
+        assert_eq!(zero_branching.graph.node_count(), 1);
+        assert_eq!(zero_branching.graph.edge_count(), 0);
+    }
+
+    #[test]
+    fn balanced_tree_rejects_node_count_beyond_generic_limit() {
+        let mut generator = GraphGenerator::strict();
+        let err = generator
+            .balanced_tree(2, 16)
+            .expect_err("balanced tree should reject oversized node count");
+
+        assert_eq!(
+            err.to_string(),
+            "generator `balanced_tree` failed closed: n=131071 exceeds max_allowed=100000"
         );
     }
 
