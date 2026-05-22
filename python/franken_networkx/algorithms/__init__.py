@@ -40,6 +40,7 @@ _FNX_OVERRIDE_SUBMODULES = {
     "graph_hashing",
     "hierarchy",
     "isolate",
+    "lowest_common_ancestors",
     "mis",
     "non_randomness",
     "perfect_graph",
@@ -270,6 +271,12 @@ hierarchy = _fnx_hierarchy  # Override in module globals
 _fnx_isolate = _importlib.import_module("franken_networkx.isolate")
 _sys.modules[f"{__name__}.isolate"] = _fnx_isolate
 isolate = _fnx_isolate  # Override in module globals
+
+_fnx_lowest_common_ancestors = _importlib.import_module(
+    "franken_networkx.lowest_common_ancestors"
+)
+_sys.modules[f"{__name__}.lowest_common_ancestors"] = _fnx_lowest_common_ancestors
+lowest_common_ancestors = _fnx_lowest_common_ancestors  # Override in module globals
 
 _fnx_mis = _importlib.import_module("franken_networkx.mis")
 _sys.modules[f"{__name__}.mis"] = _fnx_mis
