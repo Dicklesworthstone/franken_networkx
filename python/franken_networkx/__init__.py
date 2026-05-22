@@ -8630,6 +8630,7 @@ def tree_broadcast_center(G):
     'multigraph' first for MultiDiGraph (inner decorator fires
     first) — mirror that ordering.
     """
+    G = _coerce_arg_to_fnx_graph(G)
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
     if G.is_directed():
@@ -8643,6 +8644,7 @@ def tree_broadcast_time(G, node=None):
     br-r37-c1-2dwen: same multigraph/directed type-guard ordering
     as tree_broadcast_center.
     """
+    G = _coerce_arg_to_fnx_graph(G)
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
     if G.is_directed():
