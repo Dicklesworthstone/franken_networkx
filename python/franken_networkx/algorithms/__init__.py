@@ -42,6 +42,7 @@ _FNX_OVERRIDE_SUBMODULES = {
     "smetric",
     "voronoi",
     "vitality",
+    "walks",
     "wiener",
     "approximation",
     "minors",
@@ -270,6 +271,10 @@ voronoi = _fnx_voronoi  # Override in module globals
 _fnx_vitality = _importlib.import_module("franken_networkx.vitality")
 _sys.modules[f"{__name__}.vitality"] = _fnx_vitality
 vitality = _fnx_vitality  # Override in module globals
+
+_fnx_walks = _importlib.import_module("franken_networkx.walks")
+_sys.modules[f"{__name__}.walks"] = _fnx_walks
+walks = _fnx_walks  # Override in module globals
 
 _fnx_chains = _importlib.import_module("franken_networkx.chains")
 _sys.modules[f"{__name__}.chains"] = _fnx_chains
