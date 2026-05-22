@@ -3270,6 +3270,124 @@ impl GraphGenerator {
         Ok(self.finish_graph_report(graph, Vec::new()))
     }
 
+    pub fn grid_2d_graph(
+        &mut self,
+        m: usize,
+        n: usize,
+        periodic: (bool, bool),
+    ) -> Result<GenerationReport, GenerationError> {
+        let operation = "grid_2d_graph";
+        let node_count = m
+            .checked_mul(n)
+            .ok_or_else(|| GenerationError::FailClosed {
+                operation,
+                reason: format!("node count overflow for m={m}, n={n}"),
+            })?;
+        if node_count > MAX_N_GENERIC {
+            let reason = format!("node count {node_count} exceeds max_allowed={MAX_N_GENERIC}");
+            self.record(operation, DecisionAction::FailClosed, 0.95, reason.clone());
+            return Err(GenerationError::FailClosed { operation, reason });
+        }
+
+        let row_edges =
+            m.saturating_sub(1)
+                .checked_mul(n)
+                .ok_or_else(|| GenerationError::FailClosed {
+                    operation,
+                    reason: format!("edge count overflow for m={m}, n={n}"),
+                })?;
+        let col_edges =
+            n.saturating_sub(1)
+                .checked_mul(m)
+                .ok_or_else(|| GenerationError::FailClosed {
+                    operation,
+                    reason: format!("edge count overflow for m={m}, n={n}"),
+                })?;
+        let periodic_row_edges = if periodic.0 && m > 2 { n } else { 0 };
+        let periodic_col_edges = if periodic.1 && n > 2 { m } else { 0 };
+        let edge_count = row_edges
+            .checked_add(col_edges)
+            .and_then(|value| value.checked_add(periodic_row_edges))
+            .and_then(|value| value.checked_add(periodic_col_edges))
+            .ok_or_else(|| GenerationError::FailClosed {
+                operation,
+                reason: format!("edge count overflow for m={m}, n={n}"),
+            })?;
+        let max_dense_edges = MAX_N_COMPLETE * (MAX_N_COMPLETE - 1) / 2;
+        if edge_count > max_dense_edges {
+            let reason = format!("edge count {edge_count} exceeds max_allowed={max_dense_edges}");
+            self.record(operation, DecisionAction::FailClosed, 0.95, reason.clone());
+            return Err(GenerationError::FailClosed { operation, reason });
+        }
+
+        let mut graph = Graph::new(self.mode);
+        let mut labels = Vec::with_capacity(node_count);
+        for row in 0..m {
+            for col in 0..n {
+                let label = format_grid_2d_label(row, col);
+                graph.add_node(label.clone());
+                labels.push(label);
+            }
+        }
+
+        for row in 1..m {
+            for col in 0..n {
+                graph
+                    .add_edge(
+                        labels[(row - 1) * n + col].clone(),
+                        labels[row * n + col].clone(),
+                    )
+                    .map_err(|err| GenerationError::FailClosed {
+                        operation,
+                        reason: err.to_string(),
+                    })?;
+            }
+        }
+        for row in 0..m {
+            for col in 1..n {
+                graph
+                    .add_edge(
+                        labels[row * n + col - 1].clone(),
+                        labels[row * n + col].clone(),
+                    )
+                    .map_err(|err| GenerationError::FailClosed {
+                        operation,
+                        reason: err.to_string(),
+                    })?;
+            }
+        }
+        if periodic.0 && m > 2 {
+            for col in 0..n {
+                graph
+                    .add_edge(labels[col].clone(), labels[(m - 1) * n + col].clone())
+                    .map_err(|err| GenerationError::FailClosed {
+                        operation,
+                        reason: err.to_string(),
+                    })?;
+            }
+        }
+        if periodic.1 && n > 2 {
+            for row in 0..m {
+                graph
+                    .add_edge(labels[row * n].clone(), labels[row * n + n - 1].clone())
+                    .map_err(|err| GenerationError::FailClosed {
+                        operation,
+                        reason: err.to_string(),
+                    })?;
+            }
+        }
+
+        self.record(
+            operation,
+            DecisionAction::Allow,
+            0.04,
+            format!(
+                "generated grid_2d_graph with m={m}, n={n}, periodic={periodic:?}, nodes={node_count}, edges={edge_count}"
+            ),
+        );
+        Ok(self.finish_graph_report(graph, Vec::new()))
+    }
+
     pub fn gnp_random_graph(
         &mut self,
         n: usize,
@@ -5427,6 +5545,10 @@ fn format_binary_tuple_label(value: usize, width: usize) -> String {
         [bit] => format!("({bit},)"),
         _ => format!("({})", bits.join(", ")),
     }
+}
+
+fn format_grid_2d_label(row: usize, col: usize) -> String {
+    format!("({row}, {col})")
 }
 
 fn watts_strogatz_graph_core(
@@ -9144,6 +9266,73 @@ mod tests {
         assert_eq!(
             err.to_string(),
             "generator `hypercube_graph` failed closed: node count 131072 exceeds max_allowed=100000"
+        );
+    }
+
+    #[test]
+    fn grid_2d_graph_matches_networkx_rectangular_grid_edges() {
+        let mut generator = GraphGenerator::strict();
+        let report = generator
+            .grid_2d_graph(2, 3, (false, false))
+            .expect("2x3 grid graph should succeed");
+
+        assert_eq!(report.graph.node_count(), 6);
+        assert_eq!(report.graph.edge_count(), 7);
+        assert_eq!(
+            sorted_graph_edges(&report.graph),
+            vec![
+                ("(0, 0)".to_owned(), "(0, 1)".to_owned()),
+                ("(0, 0)".to_owned(), "(1, 0)".to_owned()),
+                ("(0, 1)".to_owned(), "(0, 2)".to_owned()),
+                ("(0, 1)".to_owned(), "(1, 1)".to_owned()),
+                ("(0, 2)".to_owned(), "(1, 2)".to_owned()),
+                ("(1, 0)".to_owned(), "(1, 1)".to_owned()),
+                ("(1, 1)".to_owned(), "(1, 2)".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn grid_2d_graph_periodic_axes_add_networkx_wrap_edges() {
+        let mut generator = GraphGenerator::strict();
+        let report = generator
+            .grid_2d_graph(3, 4, (true, true))
+            .expect("periodic grid graph should succeed");
+        let edges = sorted_graph_edges(&report.graph);
+
+        assert_eq!(report.graph.node_count(), 12);
+        assert_eq!(report.graph.edge_count(), 24);
+        assert!(edges.contains(&("(0, 0)".to_owned(), "(2, 0)".to_owned())));
+        assert!(edges.contains(&("(1, 0)".to_owned(), "(1, 3)".to_owned())));
+        assert!(edges.contains(&("(0, 3)".to_owned(), "(2, 3)".to_owned())));
+    }
+
+    #[test]
+    fn grid_2d_graph_small_periodic_dimensions_do_not_duplicate_edges() {
+        let mut generator = GraphGenerator::strict();
+        let report = generator
+            .grid_2d_graph(2, 2, (true, true))
+            .expect("small periodic grid graph should succeed");
+
+        assert_eq!(report.graph.node_count(), 4);
+        assert_eq!(report.graph.edge_count(), 4);
+    }
+
+    #[test]
+    fn grid_2d_graph_empty_axis_and_oversized_inputs_match_policy() {
+        let mut generator = GraphGenerator::strict();
+        let empty = generator
+            .grid_2d_graph(0, 5, (false, false))
+            .expect("empty-axis grid should succeed");
+        assert_eq!(empty.graph.node_count(), 0);
+        assert_eq!(empty.graph.edge_count(), 0);
+
+        let err = generator
+            .grid_2d_graph(MAX_N_GENERIC + 1, 1, (false, false))
+            .expect_err("oversized grid should fail closed");
+        assert_eq!(
+            err.to_string(),
+            "generator `grid_2d_graph` failed closed: node count 100001 exceeds max_allowed=100000"
         );
     }
 
