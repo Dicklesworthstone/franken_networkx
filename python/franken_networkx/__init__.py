@@ -14606,6 +14606,10 @@ from franken_networkx.readwrite import (
 )
 
 
+def _edgelist_native_writer_preserves_node_labels(G):
+    return not any(isinstance(node, str) for node in G.nodes())
+
+
 def write_edgelist(G, path, comments="#", delimiter=" ", data=True, encoding="utf-8"):
     """Write a graph as a list of edges.
 
@@ -14620,6 +14624,7 @@ def write_edgelist(G, path, comments="#", delimiter=" ", data=True, encoding="ut
         and data is True
         and encoding == "utf-8"
         and not G.is_multigraph()
+        and _edgelist_native_writer_preserves_node_labels(G)
     ):
         return _rust_write_edgelist(G, path)
     return _write_edgelist_via_nx(

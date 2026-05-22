@@ -406,6 +406,23 @@ class TestEdgelistNxCrossCompat:
         data = nx_graph.get_edge_data("0", "1")
         assert data == {"weight": 2.5}
 
+    def test_string_node_labels_round_trip_without_internal_prefixes(self):
+        G = fnx.Graph()
+        G.add_edge("n1", "n2", weight=2.5)
+        G.add_edge("n2", "n3")
+
+        buf = io.BytesIO()
+        fnx.write_edgelist(G, buf)
+
+        raw = buf.getvalue()
+        assert b"str:" not in raw
+        parsed = fnx.read_edgelist(io.BytesIO(raw))
+        assert sorted(parsed.nodes()) == ["n1", "n2", "n3"]
+        assert sorted(map(tuple, map(sorted, parsed.edges()))) == [
+            ("n1", "n2"),
+            ("n2", "n3"),
+        ]
+
     def test_read_edgelist_honours_nodetype_int(self):
         import networkx as nx
 
@@ -430,9 +447,10 @@ class TestEdgelistNxCrossCompat:
         import inspect
         import networkx as nx
 
-        assert str(inspect.signature(fnx.read_edgelist)) == str(
-            inspect.signature(nx.read_edgelist)
-        )
+        fnx_signature = str(inspect.signature(fnx.read_edgelist))
+        nx_signature = str(inspect.signature(nx.read_edgelist))
+        if fnx_signature not in (nx_signature,):
+            pytest.fail(f"fnx.read_edgelist signature {fnx_signature} != {nx_signature}")
 
     @pytest.mark.parametrize("backend", [None, "networkx"])
     def test_read_edgelist_accepts_supported_backend_keyword(self, backend):
