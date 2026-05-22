@@ -879,6 +879,52 @@ impl GraphGenerator {
         )
     }
 
+    pub fn truncated_cube_graph(&mut self) -> Result<GenerationReport, GenerationError> {
+        self.small_named_graph_from_edges(
+            "truncated_cube_graph",
+            "Truncated Cube Graph",
+            24,
+            &[
+                (0, 1),
+                (0, 2),
+                (0, 4),
+                (1, 11),
+                (1, 14),
+                (2, 3),
+                (2, 4),
+                (3, 6),
+                (3, 8),
+                (4, 5),
+                (5, 16),
+                (5, 18),
+                (6, 7),
+                (6, 8),
+                (7, 10),
+                (7, 12),
+                (8, 9),
+                (9, 17),
+                (9, 20),
+                (10, 11),
+                (10, 12),
+                (11, 14),
+                (12, 13),
+                (13, 21),
+                (13, 22),
+                (14, 15),
+                (15, 19),
+                (15, 23),
+                (16, 17),
+                (16, 18),
+                (17, 20),
+                (18, 19),
+                (19, 23),
+                (20, 21),
+                (21, 22),
+                (22, 23),
+            ],
+        )
+    }
+
     pub fn truncated_tetrahedron_graph(&mut self) -> Result<GenerationReport, GenerationError> {
         self.small_named_graph_from_edges(
             "truncated_tetrahedron_graph",
@@ -4530,6 +4576,66 @@ mod tests {
             .map(|node| report.graph.degree(node.as_str()))
             .collect::<Vec<usize>>();
         assert_eq!(degrees, vec![3; 4]);
+    }
+
+    #[test]
+    fn truncated_cube_graph_matches_networkx_edges_and_degrees() {
+        let mut generator = GraphGenerator::strict();
+        let report = generator
+            .truncated_cube_graph()
+            .expect("Truncated Cube Graph generation should succeed");
+        assert_eq!(report.graph.node_count(), 24);
+        assert_eq!(report.graph.edge_count(), 36);
+
+        let mut expected_edges = vec![
+            ("0".to_owned(), "1".to_owned()),
+            ("0".to_owned(), "2".to_owned()),
+            ("0".to_owned(), "4".to_owned()),
+            ("1".to_owned(), "11".to_owned()),
+            ("1".to_owned(), "14".to_owned()),
+            ("2".to_owned(), "3".to_owned()),
+            ("2".to_owned(), "4".to_owned()),
+            ("3".to_owned(), "6".to_owned()),
+            ("3".to_owned(), "8".to_owned()),
+            ("4".to_owned(), "5".to_owned()),
+            ("5".to_owned(), "16".to_owned()),
+            ("5".to_owned(), "18".to_owned()),
+            ("6".to_owned(), "7".to_owned()),
+            ("6".to_owned(), "8".to_owned()),
+            ("7".to_owned(), "10".to_owned()),
+            ("7".to_owned(), "12".to_owned()),
+            ("8".to_owned(), "9".to_owned()),
+            ("9".to_owned(), "17".to_owned()),
+            ("9".to_owned(), "20".to_owned()),
+            ("10".to_owned(), "11".to_owned()),
+            ("10".to_owned(), "12".to_owned()),
+            ("11".to_owned(), "14".to_owned()),
+            ("12".to_owned(), "13".to_owned()),
+            ("13".to_owned(), "21".to_owned()),
+            ("13".to_owned(), "22".to_owned()),
+            ("14".to_owned(), "15".to_owned()),
+            ("15".to_owned(), "19".to_owned()),
+            ("15".to_owned(), "23".to_owned()),
+            ("16".to_owned(), "17".to_owned()),
+            ("16".to_owned(), "18".to_owned()),
+            ("17".to_owned(), "20".to_owned()),
+            ("18".to_owned(), "19".to_owned()),
+            ("19".to_owned(), "23".to_owned()),
+            ("20".to_owned(), "21".to_owned()),
+            ("21".to_owned(), "22".to_owned()),
+            ("22".to_owned(), "23".to_owned()),
+        ];
+        expected_edges.sort();
+        assert_eq!(sorted_graph_edges(&report.graph), expected_edges);
+
+        let degrees = report
+            .graph
+            .snapshot()
+            .nodes
+            .iter()
+            .map(|node| report.graph.degree(node.as_str()))
+            .collect::<Vec<usize>>();
+        assert_eq!(degrees, vec![3; 24]);
     }
 
     #[test]
