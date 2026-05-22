@@ -16668,7 +16668,9 @@ def compose_all(graphs):
         else:
             for u, v, d in H.edges(data=True):
                 R.add_edge(u, v, **d)
-    return R
+    # br-r37-c1-mmwsw: Always return fnx type for consistency
+    from franken_networkx.readwrite import _from_nx_graph
+    return _from_nx_graph(R)
 
 
 def union_all(graphs, rename=()):
@@ -16710,7 +16712,9 @@ def union_all(graphs, rename=()):
         else:
             for u, v, d in G.edges(data=True):
                 R.add_edge(_rename(u), _rename(v), **d)
-    return R
+    # br-r37-c1-mmwsw: Always return fnx type for consistency
+    from franken_networkx.readwrite import _from_nx_graph
+    return _from_nx_graph(R)
 
 
 # ---------------------------------------------------------------------------
@@ -17770,7 +17774,9 @@ def intersection_all(graphs):
         for u, v in graphs[0].edges():
             if u in R and v in R and all(G.has_edge(u, v) for G in graphs[1:]):
                 R.add_edge(u, v)
-    return R
+    # br-r37-c1-mmwsw: Always return fnx type for consistency
+    from franken_networkx.readwrite import _from_nx_graph
+    return _from_nx_graph(R)
 
 
 def disjoint_union_all(graphs):
