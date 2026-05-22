@@ -195,7 +195,11 @@ pub(crate) fn weighted_edge_triplet<'py>(
 pub(crate) fn py_dict_to_attr_map(attrs: &Bound<'_, PyDict>) -> PyResult<AttrMap> {
     let mut rust_attrs = AttrMap::new();
     for (k, v) in attrs.iter() {
-        let key: String = k.extract()?;
+        let key: String = if let Ok(s) = k.extract::<String>() {
+            s
+        } else {
+            k.str()?.to_string_lossy().into_owned()
+        };
         let val = if let Ok(d) = v.downcast::<PyDict>() {
             let nested = py_dict_to_attr_map(d)?;
             CgseValue::Map(nested)
