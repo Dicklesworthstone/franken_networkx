@@ -247,6 +247,43 @@ impl GraphGenerator {
         Ok(self.finish_graph_report(graph, warnings))
     }
 
+    pub fn full_rary_tree(
+        &mut self,
+        r: usize,
+        n: usize,
+    ) -> Result<GenerationReport, GenerationError> {
+        let (n, warnings) = self.validate_n("full_rary_tree", n, MAX_N_GENERIC)?;
+        let (mut graph, node_labels) = graph_with_n_nodes(self.mode, n);
+
+        if r > 0 {
+            let mut next_child = 1usize;
+            let mut parent = 0usize;
+            while next_child < n {
+                for _ in 0..r {
+                    if next_child == n {
+                        break;
+                    }
+                    graph
+                        .add_edge(node_labels[parent].clone(), node_labels[next_child].clone())
+                        .map_err(|err| GenerationError::FailClosed {
+                            operation: "full_rary_tree",
+                            reason: err.to_string(),
+                        })?;
+                    next_child += 1;
+                }
+                parent += 1;
+            }
+        }
+
+        self.record(
+            "full_rary_tree",
+            DecisionAction::Allow,
+            0.03,
+            format!("generated full r-ary tree with r={r}, n={n}"),
+        );
+        Ok(self.finish_graph_report(graph, warnings))
+    }
+
     pub fn cycle_graph(&mut self, n: usize) -> Result<GenerationReport, GenerationError> {
         let (n, warnings) = self.validate_n("cycle_graph", n, MAX_N_GENERIC)?;
         let (mut graph, node_labels) = graph_with_n_nodes(self.mode, n);
@@ -4557,6 +4594,70 @@ mod tests {
         let snapshot = report.graph.snapshot();
         assert_eq!(snapshot.nodes, vec!["0"]);
         assert!(snapshot.edges.is_empty());
+    }
+
+    #[test]
+    fn full_rary_tree_matches_networkx_binary_ten_labels() {
+        let mut generator = GraphGenerator::strict();
+        let report = generator
+            .full_rary_tree(2, 10)
+            .expect("full r-ary tree generation should succeed");
+        let snapshot = report.graph.snapshot();
+
+        assert_eq!(
+            snapshot.nodes,
+            (0..10)
+                .map(|node| node.to_string())
+                .collect::<Vec<String>>()
+        );
+        let got = snapshot
+            .edges
+            .iter()
+            .map(|edge| (edge.left.clone(), edge.right.clone()))
+            .collect::<Vec<(String, String)>>();
+        assert_eq!(
+            got,
+            vec![
+                ("0".to_owned(), "1".to_owned()),
+                ("0".to_owned(), "2".to_owned()),
+                ("1".to_owned(), "3".to_owned()),
+                ("1".to_owned(), "4".to_owned()),
+                ("2".to_owned(), "5".to_owned()),
+                ("2".to_owned(), "6".to_owned()),
+                ("3".to_owned(), "7".to_owned()),
+                ("3".to_owned(), "8".to_owned()),
+                ("4".to_owned(), "9".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn full_rary_tree_empty_and_zero_branching_match_networkx() {
+        let mut generator = GraphGenerator::strict();
+        let empty = generator
+            .full_rary_tree(2, 0)
+            .expect("empty full r-ary tree generation should succeed");
+        let isolates = generator
+            .full_rary_tree(0, 5)
+            .expect("zero-branching full r-ary tree generation should succeed");
+
+        assert_eq!(empty.graph.node_count(), 0);
+        assert_eq!(empty.graph.edge_count(), 0);
+        assert_eq!(isolates.graph.node_count(), 5);
+        assert_eq!(isolates.graph.edge_count(), 0);
+    }
+
+    #[test]
+    fn full_rary_tree_rejects_n_beyond_generic_limit() {
+        let mut generator = GraphGenerator::strict();
+        let err = generator
+            .full_rary_tree(2, MAX_N_GENERIC + 1)
+            .expect_err("full r-ary tree should reject oversized n");
+
+        assert_eq!(
+            err.to_string(),
+            "generator `full_rary_tree` failed closed: n=100001 exceeds max_allowed=100000"
+        );
     }
 
     #[test]
