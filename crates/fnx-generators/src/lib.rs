@@ -179,6 +179,28 @@ impl GraphGenerator {
         Ok(self.finish_graph_report(graph, warnings))
     }
 
+    pub fn null_graph(&mut self) -> Result<GenerationReport, GenerationError> {
+        let (graph, _) = graph_with_n_nodes(self.mode, 0);
+        self.record(
+            "null_graph",
+            DecisionAction::Allow,
+            0.02,
+            "generated null graph with n=0".to_owned(),
+        );
+        Ok(self.finish_graph_report(graph, Vec::new()))
+    }
+
+    pub fn trivial_graph(&mut self) -> Result<GenerationReport, GenerationError> {
+        let (graph, _) = graph_with_n_nodes(self.mode, 1);
+        self.record(
+            "trivial_graph",
+            DecisionAction::Allow,
+            0.02,
+            "generated trivial graph with n=1".to_owned(),
+        );
+        Ok(self.finish_graph_report(graph, Vec::new()))
+    }
+
     pub fn path_graph(&mut self, n: usize) -> Result<GenerationReport, GenerationError> {
         let (n, warnings) = self.validate_n("path_graph", n, MAX_N_GENERIC)?;
         let (mut graph, node_labels) = graph_with_n_nodes(self.mode, n);
@@ -3865,6 +3887,27 @@ mod tests {
         assert_eq!(snapshot.edges[0].right, "1");
         assert_eq!(snapshot.edges[2].left, "2");
         assert_eq!(snapshot.edges[2].right, "3");
+    }
+
+    #[test]
+    fn null_and_trivial_graph_match_networkx_node_edge_counts() {
+        let mut generator = GraphGenerator::strict();
+        let null_report = generator
+            .null_graph()
+            .expect("null graph generation should succeed");
+        let trivial_report = generator
+            .trivial_graph()
+            .expect("trivial graph generation should succeed");
+
+        assert_eq!(null_report.graph.node_count(), 0);
+        assert_eq!(null_report.graph.edge_count(), 0);
+        assert!(null_report.graph.snapshot().nodes.is_empty());
+        assert!(null_report.graph.snapshot().edges.is_empty());
+
+        assert_eq!(trivial_report.graph.node_count(), 1);
+        assert_eq!(trivial_report.graph.edge_count(), 0);
+        assert_eq!(trivial_report.graph.snapshot().nodes, vec!["0"]);
+        assert!(trivial_report.graph.snapshot().edges.is_empty());
     }
 
     #[test]
