@@ -910,6 +910,124 @@ class GraphMLReader:
             yield _from_nx_graph(nx_graph)
 
 
+def read_adjlist(
+    path,
+    comments="#",
+    delimiter=None,
+    create_using=None,
+    nodetype=None,
+    encoding="utf-8",
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    """Read graph in adjacency list format from path.
+
+    Wraps ``networkx.read_adjlist`` and converts the result to an fnx
+    graph type for drop-in compatibility.
+    """
+    import networkx as nx
+    import franken_networkx as fnx
+
+    fnx._validate_backend_dispatch_keywords("read_adjlist", backend, backend_kwargs)
+
+    nx_graph = nx.read_adjlist(
+        path,
+        comments=comments,
+        delimiter=delimiter,
+        create_using=create_using,
+        nodetype=nodetype,
+        encoding=encoding,
+    )
+    return _from_nx_graph(nx_graph, create_using=create_using)
+
+
+def read_edgelist(
+    path,
+    comments="#",
+    delimiter=None,
+    create_using=None,
+    nodetype=None,
+    data=True,
+    edgetype=None,
+    encoding="utf-8",
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    """Read a graph from a list of edges.
+
+    Wraps ``networkx.read_edgelist`` and converts the result to an fnx
+    graph type for drop-in compatibility.
+    """
+    import networkx as nx
+    import franken_networkx as fnx
+
+    fnx._validate_backend_dispatch_keywords("read_edgelist", backend, backend_kwargs)
+
+    nx_graph = nx.read_edgelist(
+        path,
+        comments=comments,
+        delimiter=delimiter,
+        create_using=create_using,
+        nodetype=nodetype,
+        data=data,
+        edgetype=edgetype,
+        encoding=encoding,
+    )
+    return _from_nx_graph(nx_graph, create_using=create_using)
+
+
+def read_gml(
+    path,
+    label="label",
+    destringizer=None,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    """Read graph in GML format from path.
+
+    Wraps ``networkx.read_gml`` and converts the result to an fnx
+    graph type for drop-in compatibility.
+    """
+    import networkx as nx
+    import franken_networkx as fnx
+
+    fnx._validate_backend_dispatch_keywords("read_gml", backend, backend_kwargs)
+
+    nx_graph = nx.read_gml(path, label=label, destringizer=destringizer)
+    return _from_nx_graph(nx_graph)
+
+
+def read_graphml(
+    path,
+    node_type=str,
+    edge_key_type=int,
+    force_multigraph=False,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    """Read graph in GraphML format from path.
+
+    Wraps ``networkx.read_graphml`` and converts the result to an fnx
+    graph type for drop-in compatibility.
+    """
+    import networkx as nx
+    import franken_networkx as fnx
+
+    fnx._validate_backend_dispatch_keywords("read_graphml", backend, backend_kwargs)
+
+    nx_graph = nx.read_graphml(
+        path,
+        node_type=node_type,
+        edge_key_type=edge_key_type,
+        force_multigraph=force_multigraph,
+    )
+    return _from_nx_graph(nx_graph)
+
+
 def from_graph6_bytes(bytes_in, *, backend=None, **backend_kwargs):
     """Parse graph6 bytes into a FrankenNetworkX graph."""
     import franken_networkx as fnx
