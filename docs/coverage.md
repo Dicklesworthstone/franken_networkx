@@ -7,10 +7,10 @@
 | Category | Count | % | Rule |
 |----------|-------|---|------|
 | RUST_NATIVE | 1 | 0% | native extension exports from `franken_networkx._fnx` |
-| PY_WRAPPER | 731 | 95% | Python-defined exports with no runtime NetworkX dependency detected |
+| PY_WRAPPER | 732 | 95% | Python-defined exports with no runtime NetworkX dependency detected |
 | NX_DELEGATED | 0 | 0% | Python-defined exports that import or call NetworkX at runtime |
 | CLASS | 28 | 3% | public classes, exceptions, iterators |
-| CONSTANT | 3 | 0% | public non-callable values |
+| CONSTANT | 2 | 0% | public non-callable values |
 | **Total public exports** | **763** | | unique names from `franken_networkx.__all__` |
 
 All declared public exports are classified. `--check` fails if this generated report drifts from the live module surface.
@@ -22,13 +22,13 @@ This ledger separates the broad public-export category from source-visible runti
 | Runtime route | Exports | Helper call sites | Rule |
 |---------------|---------|-------------------|------|
 | RUST_NATIVE | 1 | 0 | native extension export from `franken_networkx._fnx` |
-| PY_WRAPPER | 588 | 0 | Python-defined export with no visible NetworkX route |
-| NETWORKX_HELPER | 143 | 167 | Python-defined export with `_call_networkx_*_for_parity(...)` branches |
+| PY_WRAPPER | 591 | 0 | Python-defined export with no visible NetworkX route |
+| NETWORKX_HELPER | 141 | 168 | Python-defined export with `_call_networkx_*_for_parity(...)` branches |
 | DIRECT_NETWORKX | 0 | 0 | Python-defined export that directly imports or calls NetworkX |
 | CLASS | 28 | 0 | public classes, exceptions, iterators |
-| CONSTANT | 3 | 0 | public non-callable values |
+| CONSTANT | 2 | 0 | public non-callable values |
 
-`NETWORKX_HELPER` currently covers 143 public export(s) and 167 parity-helper call site(s).
+`NETWORKX_HELPER` currently covers 141 public export(s) and 168 parity-helper call site(s).
 
 ## Upstream Divergence Ledger
 
@@ -38,7 +38,7 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 |------------------|------|------|
 | native-parity | 1 | public Rust-native export; no Python fallback route detected |
 | wrapper-patched | 25 | public wrapper records a compatibility repair over a lower-level gap |
-| intentionally-delegated | 143 | AST-visible parity helper or direct NetworkX route |
+| intentionally-delegated | 141 | AST-visible parity helper or direct NetworkX route |
 | raw-known-gap | 2 | lower-level raw/native implementation has a documented parity gap |
 | owner-acknowledged-limitation | 2 | documented limitation is intentionally owned until native repair |
 
@@ -94,9 +94,9 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 | `all_pairs_dijkstra_path` | 1 | `all_pairs_dijkstra_path` |
 | `all_pairs_dijkstra_path_length` | 1 | `all_pairs_dijkstra_path_length` |
 | `all_pairs_node_connectivity` | 1 | `all_pairs_node_connectivity` |
-| `all_shortest_paths` | 3 | `all_shortest_paths` |
+| `all_shortest_paths` | 5 | `all_shortest_paths` |
 | `all_simple_edge_paths` | 2 | `all_simple_edge_paths` |
-| `all_simple_paths` | 2 | `all_simple_paths` |
+| `all_simple_paths` | 1 | `all_simple_paths` |
 | `all_topological_sorts` | 1 | `all_topological_sorts` |
 | `antichains` | 1 | `antichains` |
 | `approximate_current_flow_betweenness_centrality` | 1 | `approximate_current_flow_betweenness_centrality` |
@@ -116,7 +116,6 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 | `biconnected_components` | 1 | `biconnected_components` |
 | `bidirectional_dijkstra` | 1 | `bidirectional_dijkstra` |
 | `bidirectional_shortest_path` | 1 | `bidirectional_shortest_path` |
-| `bridges` | 1 | `bridges` |
 | `center` | 1 | `center` |
 | `chain_decomposition` | 2 | `chain_decomposition` |
 | `chordal_graph_cliques` | 1 | `chordal_graph_cliques` |
@@ -125,8 +124,7 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 | `constraint` | 1 | `constraint` |
 | `core_number` | 1 | `core_number` |
 | `current_flow_betweenness_centrality_subset` | 1 | `current_flow_betweenness_centrality_subset` |
-| `cut_size` | 1 | `cut_size` |
-| `dag_longest_path_length` | 1 | `dag_longest_path_length` |
+| `cut_size` | 2 | `cut_size` |
 | `degree_assortativity_coefficient` | 1 | `degree_assortativity_coefficient` |
 | `dfs_labeled_edges` | 1 | `dfs_labeled_edges` |
 | `diameter` | 1 | `diameter` |
@@ -198,7 +196,7 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 | `negative_edge_cycle` | 1 | `negative_edge_cycle` |
 | `node_connectivity` | 3 | `node_connectivity` |
 | `node_disjoint_paths` | 1 | `node_disjoint_paths` |
-| `normalized_cut_size` | 1 | `normalized_cut_size` |
+| `normalized_cut_size` | 2 | `normalized_cut_size` |
 | `omega` | 1 | `omega` |
 | `pagerank` | 1 | `pagerank` |
 | `partition_spanning_tree` | 1 | `partition_spanning_tree` |
@@ -235,13 +233,15 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 
 | Module | Count |
 |--------|-------|
-| `franken_networkx` | 678 |
+| `franken_networkx` | 676 |
 | `franken_networkx.readwrite` | 32 |
 | `franken_networkx.drawing.nx_pylab` | 21 |
 | `franken_networkx.drawing.layout` | 15 |
 | `networkx.exception` | 12 |
 | `builtins` | 2 |
 | `franken_networkx._fnx` | 1 |
+| `franken_networkx.bridges` | 1 |
+| `franken_networkx.reciprocity` | 1 |
 | `networkx.algorithms.tree.coding` | 1 |
 | `networkx.utils.configs` | 1 |
 
@@ -249,7 +249,7 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 
 - `is_empty`
 
-## PY_WRAPPER exports (731)
+## PY_WRAPPER exports (732)
 
 - `LCF_graph`
 - `LFR_benchmark_graph`
@@ -363,6 +363,7 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 - `compose_all`
 - `condensation`
 - `conductance`
+- `config`
 - `configuration_model`
 - `connected_caveman_graph`
 - `connected_components`
@@ -1017,8 +1018,7 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 - `TimeRespectingDiGraphMatcher`
 - `TimeRespectingGraphMatcher`
 
-## CONSTANT exports (3)
+## CONSTANT exports (2)
 
 - `__version__`
-- `config`
 - `isomorphism`

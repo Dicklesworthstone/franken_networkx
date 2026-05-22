@@ -97,10 +97,39 @@ DIVERGENCE_ANNOTATIONS = (
 )
 
 
+def _materialize_callable_module_shims(fnx):
+    """Force every ``franken_networkx`` subpackage to import.
+
+    br-r37-c1-oul4c: several exports (``bridges``, ``reciprocity``,
+    ``isomorphism`` ...) start life as a plain function and are
+    *replaced* by a callable-module shim the first time the matching
+    ``franken_networkx.<name>`` subpackage is imported.  Whether that
+    has happened depends on global import order, which made both the
+    category and runtime-route classification — and therefore the
+    rendered doc — non-deterministic.  Eagerly importing every
+    subpackage pins the introspected state to the fully-materialized
+    form, so the ledger is reproducible regardless of caller.
+    """
+    import importlib  # pylint: disable=import-outside-toplevel
+    import pkgutil  # pylint: disable=import-outside-toplevel
+
+    for info in pkgutil.walk_packages(fnx.__path__, f"{fnx.__name__}."):
+        if ".tests" in info.name or info.name.endswith(".tests"):
+            continue
+        try:
+            importlib.import_module(info.name)
+        except Exception:  # pylint: disable=broad-except
+            # optional/​heavy backends (matplotlib, pydot ...) may be
+            # absent — skip; their exports are introspected as-is.
+            continue
+
+
 def load_public_exports():
     sys.path.insert(0, str(ROOT))
     sys.path.insert(0, str(ROOT / "python"))
     import franken_networkx as fnx  # pylint: disable=import-outside-toplevel
+
+    _materialize_callable_module_shims(fnx)
 
     duplicates = []
     seen = set()
@@ -185,7 +214,17 @@ def uses_networkx_runtime(obj) -> bool:
 def classify_export(obj) -> str:
     if inspect.isclass(obj):
         return "CLASS"
-    if not (inspect.isbuiltin(obj) or inspect.isfunction(obj)):
+    # br-r37-c1-oul4c: classify on `callable()` rather than
+    # isbuiltin/isfunction.  Exports like `bridges` / `reciprocity` are
+    # served by a callable-module shim (`_CallableBridgesModule`) that
+    # *replaces* the plain function the first time the matching
+    # `franken_networkx.<name>` submodule is imported.  A plain function
+    # is `isfunction`, the shim is not — so the old gate made the
+    # classification (and the rendered doc) depend on submodule import
+    # order, leaving test_generated_coverage_matrix_document_is_current
+    # permanently stale.  `callable()` is true for both forms, so the
+    # classification is now deterministic.
+    if not callable(obj):
         return "CONSTANT"
 
     module_name = getattr(obj, "__module__", "") or ""
