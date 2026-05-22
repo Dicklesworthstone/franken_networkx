@@ -315,6 +315,18 @@ def _from_nx_graph(graph, create_using=None):
     """
     from franken_networkx.backend import _topo_emit_edges_by_adj
 
+    # br-r37-c1-aot3m: many wrappers do
+    # ``nx_result = nx.<fn>(args, create_using=create_using)``
+    # then ``_from_nx_graph(nx_result, create_using=create_using)``.
+    # When ``create_using`` is an fnx instance, nx may mutate it in
+    # place and return the SAME object — so ``graph is create_using``.
+    # _empty_like_nx_graph would then ``create_using.clear()``, wiping
+    # the source before this function re-iterates it (empty result).
+    # Short-circuit: if the source already IS the requested target,
+    # it's already correctly populated.
+    if create_using is not None and graph is create_using:
+        return graph
+
     result = _empty_like_nx_graph(graph, create_using=create_using)
 
     for key, value in graph.graph.items():
