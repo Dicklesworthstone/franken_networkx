@@ -5,6 +5,8 @@ Tests cover:
 - edge_dfs
 """
 
+import importlib
+
 import networkx as nx
 import pytest
 import franken_networkx as fnx
@@ -168,3 +170,34 @@ def test_edge_traversal_invalid_orientation_matches_networkx_without_fallback(
 
     with pytest.raises(fnx.NetworkXError, match="invalid orientation argument."):
         list(fnx_function(graph, 0, orientation="hello"))
+
+
+def test_algorithms_traversal_child_submodules_import_like_networkx():
+    for name in (
+        "beamsearch",
+        "breadth_first_search",
+        "depth_first_search",
+        "edgebfs",
+        "edgedfs",
+    ):
+        actual = importlib.import_module(
+            f"franken_networkx.algorithms.traversal.{name}"
+        )
+        expected = importlib.import_module(f"networkx.algorithms.traversal.{name}")
+
+        assert actual is expected
+
+
+def test_algorithms_traversal_from_import_exposes_child_module():
+    from franken_networkx.algorithms.traversal import beamsearch
+
+    graph = fnx.path_graph(4)
+    nx_graph = _to_nx(graph)
+
+    actual = list(beamsearch.bfs_beam_edges(graph, 0, lambda node: -node, width=1))
+    expected = list(
+        nx.algorithms.traversal.beamsearch.bfs_beam_edges(
+            nx_graph, 0, lambda node: -node, width=1
+        )
+    )
+    assert actual == expected

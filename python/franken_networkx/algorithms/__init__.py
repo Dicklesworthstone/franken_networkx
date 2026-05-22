@@ -119,6 +119,34 @@ def _alias_nx_submodules(nx_pkg, fnx_prefix):
             _alias_nx_submodules(sub, fnx_dotted)
 
 
+def _alias_nx_child_modules(nx_dotted, fnx_dotted):
+    """Alias child modules under an overridden fnx algorithm module."""
+    try:
+        nx_pkg = _importlib.import_module(nx_dotted)
+    except Exception:
+        return
+    if not hasattr(nx_pkg, "__path__"):
+        return
+    for info in _pkgutil.iter_modules(nx_pkg.__path__):
+        name = info.name
+        if name == "tests" or name.startswith("_"):
+            continue
+        nx_child = f"{nx_dotted}.{name}"
+        fnx_child = f"{fnx_dotted}.{name}"
+        if fnx_child in _sys.modules:
+            continue
+        sub = None
+        try:
+            sub = _importlib.import_module(nx_child)
+        except Exception as exc:
+            sub = exc
+        if isinstance(sub, Exception):
+            continue
+        _sys.modules[fnx_child] = sub
+        if info.ispkg:
+            _alias_nx_child_modules(nx_child, fnx_child)
+
+
 _alias_nx_submodules(_importlib.import_module("networkx.algorithms"), __name__)
 
 # Override bipartite submodule to use fnx's native implementation
@@ -168,6 +196,9 @@ flow = _fnx_flow  # Override in module globals
 import franken_networkx.traversal as _fnx_traversal
 _sys.modules[f"{__name__}.traversal"] = _fnx_traversal
 traversal = _fnx_traversal  # Override in module globals
+_alias_nx_child_modules(
+    "networkx.algorithms.traversal", f"{__name__}.traversal"
+)
 
 import franken_networkx.euler as _fnx_euler
 _sys.modules[f"{__name__}.euler"] = _fnx_euler
