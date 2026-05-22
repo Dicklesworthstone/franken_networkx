@@ -29324,6 +29324,28 @@ class _ConversionGraphViewBase:
             return _frozen
         return getattr(self.copy(), name)
 
+    # br-r37-c1-cvfrz: a conversion view's class is built with the
+    # canonical Graph type as a second base (for isinstance parity), so
+    # the inherited Rust mutators (add_node, add_edge, update, ...) sit
+    # in the MRO ahead of ``__getattr__`` — exactly the defect fixed for
+    # _FilteredGraphView in br-r37-c1-fgvfrz.  Calling them on the view
+    # mutated its uninitialised Rust state as a silent no-op instead of
+    # raising NetworkXError("Frozen graph can't be modified").  Shadow
+    # every mutator on the base so it is resolved before the inherited
+    # canonical method.
+    add_node = _frozen
+    add_nodes_from = _frozen
+    remove_node = _frozen
+    remove_nodes_from = _frozen
+    add_edge = _frozen
+    add_edges_from = _frozen
+    add_weighted_edges_from = _frozen
+    remove_edge = _frozen
+    remove_edges_from = _frozen
+    clear = _frozen
+    clear_edges = _frozen
+    update = _frozen
+
     def is_directed(self):
         return self._directed
 
