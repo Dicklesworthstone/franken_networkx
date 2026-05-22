@@ -40,6 +40,7 @@ _FNX_OVERRIDE_SUBMODULES = {
     "mis",
     "non_randomness",
     "smetric",
+    "vitality",
     "wiener",
     "approximation",
     "minors",
@@ -260,6 +261,10 @@ non_randomness = _fnx_non_randomness.non_randomness  # Match nx: function attr
 _fnx_smetric = _importlib.import_module("franken_networkx.smetric")
 _sys.modules[f"{__name__}.smetric"] = _fnx_smetric
 smetric = _fnx_smetric  # Override in module globals
+
+_fnx_vitality = _importlib.import_module("franken_networkx.vitality")
+_sys.modules[f"{__name__}.vitality"] = _fnx_vitality
+vitality = _fnx_vitality  # Override in module globals
 
 _fnx_chains = _importlib.import_module("franken_networkx.chains")
 _sys.modules[f"{__name__}.chains"] = _fnx_chains
