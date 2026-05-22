@@ -29221,25 +29221,39 @@ class _ConversionGraphViewBase:
             self.__dict__["_succ_view"] = self._adj_view
             self.__dict__["_pred_view"] = _ConversionAdjacencyView(self, reverse=True)
 
+    # br-r37-c1-cvempty: these must test the cached view for *presence*,
+    # not truthiness.  The view objects define ``__len__``, so an empty
+    # conversion view (0 nodes / 0 edges) is falsy — ``X or super().Y``
+    # then fell through to the inherited canonical accessor, which on
+    # the synthetic view recursed (number_of_edges -> edges -> empty,
+    # falsy -> super().edges -> EdgesView.__len__ -> number_of_edges)
+    # and blew the stack.  ``is not None`` resolves the cached view
+    # regardless of emptiness; the ``super()`` branch survives only for
+    # succ/pred on undirected views (where the view is never cached).
     @property
     def nodes(self):
-        return self.__dict__.get("_nodes_view") or super().nodes
+        view = self.__dict__.get("_nodes_view")
+        return view if view is not None else super().nodes
 
     @property
     def edges(self):
-        return self.__dict__.get("_edges_view") or super().edges
+        view = self.__dict__.get("_edges_view")
+        return view if view is not None else super().edges
 
     @property
     def adj(self):
-        return self.__dict__.get("_adj_view") or super().adj
+        view = self.__dict__.get("_adj_view")
+        return view if view is not None else super().adj
 
     @property
     def succ(self):
-        return self.__dict__.get("_succ_view") or super().succ
+        view = self.__dict__.get("_succ_view")
+        return view if view is not None else super().succ
 
     @property
     def pred(self):
-        return self.__dict__.get("_pred_view") or super().pred
+        view = self.__dict__.get("_pred_view")
+        return view if view is not None else super().pred
 
     @property
     def graph(self):
@@ -29397,6 +29411,17 @@ class _ConversionGraphViewBase:
         if self.is_multigraph():
             return len(self.edges(keys=True))
         return len(self.edges())
+
+    def size(self, weight=None):
+        # br-r37-c1-cvempty: the canonical Graph.size routes string
+        # ``weight`` through the Rust ``size_impl``, which reads the
+        # synthetic view's empty Rust backing and returns 0.  Compute
+        # from the view's own (source-backed) ``degree`` instead — nx's
+        # exact formula ``sum(d for _, d in degree(weight=...)) / 2``.
+        if weight is None:
+            return self.number_of_edges()
+        s = sum(d for _, d in self.degree(weight=weight))
+        return s / 2
 
     def adjacency(self):
         return ((node, self.adj[node]) for node in self)
