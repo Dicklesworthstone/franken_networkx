@@ -9711,7 +9711,11 @@ def _minimum_spanning_tree_via_parity(G, weight, algorithm, ignore_nan):
         ignore_nan=ignore_nan,
     )
     from franken_networkx.readwrite import _from_nx_graph
-    return _from_nx_graph(nx_result, create_using=type(G)())
+    if isinstance(G, (Graph, DiGraph, MultiGraph, MultiDiGraph)):
+        create_using = type(G)()
+    else:
+        create_using = None
+    return _from_nx_graph(nx_result, create_using=create_using)
 
 
 def _mst_has_weight_edge_attr(G, weight):
@@ -9776,7 +9780,11 @@ def _maximum_spanning_tree_via_parity(G, weight, algorithm, ignore_nan):
         ignore_nan=ignore_nan,
     )
     from franken_networkx.readwrite import _from_nx_graph
-    return _from_nx_graph(nx_result, create_using=type(G)())
+    if isinstance(G, (Graph, DiGraph, MultiGraph, MultiDiGraph)):
+        create_using = type(G)()
+    else:
+        create_using = None
+    return _from_nx_graph(nx_result, create_using=create_using)
 
 
 def greedy_color(G, strategy="largest_first", interchange=False):
