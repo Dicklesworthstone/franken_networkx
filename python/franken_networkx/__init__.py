@@ -36529,55 +36529,12 @@ def spectral_graph_forge(G, alpha, transformation="identity", seed=None):
     return H
 
 
-def tutte_polynomial(G, *, x=None, y=None):
-    """Compute the Tutte polynomial of ``G``.
-
-    br-tuttesig / br-r37-c1-rrf-tut: nx.tutte_polynomial takes only
-    ``(G, *, backend=, **backend_kwargs)`` and returns a *symbolic*
-    sympy polynomial in the variables x, y. Calling
-    ``fnx.tutte_polynomial(G)`` with the nx contract used to raise
-    ``TypeError: missing 2 required positional arguments: 'x' and 'y'``
-    because fnx's Rust-era wrapper required numeric arguments to
-    evaluate the polynomial.
-
-    To preserve both: keep the numeric evaluation path as a
-    fnx-specific extension (when both ``x`` and ``y`` are supplied),
-    and delegate to nx's sympy-backed reference when no evaluation
-    point is requested. ``x`` and ``y`` are now KEYWORD_ONLY so a
-    positional call like ``tutte_polynomial(G, 1, 1)`` rejects with
-    TypeError on both libraries.
-    """
-    if x is None and y is None:
-        return _call_networkx_for_parity("tutte_polynomial", G)
-    if x is None or y is None:
-        raise TypeError(
-            "tutte_polynomial requires either both x and y (numeric "
-            "evaluation) or neither (symbolic polynomial via nx)"
-        )
-    if G.number_of_edges() == 0:
-        return 1
-    edges = list(G.edges())
-    e = edges[0]
-    u, v = e
-    if u == v:
-        G1 = G.copy()
-        G1.remove_edge(u, v)
-        return y * tutte_polynomial(G1, x=x, y=y)
-    if G.has_edge(u, v):
-        is_bridge_edge = False
-        G_test = G.copy()
-        G_test.remove_edge(u, v)
-        if number_connected_components(G_test) > number_connected_components(G):
-            is_bridge_edge = True
-        is_loop = u == v
-        if is_bridge_edge:
-            return x * tutte_polynomial(G_test, x=x, y=y)
-        elif is_loop:
-            return y * tutte_polynomial(G_test, x=x, y=y)
-        else:
-            G2 = contracted_nodes(G, u, v, self_loops=False)
-            return tutte_polynomial(G_test, x=x, y=y) + tutte_polynomial(G2, x=x, y=y)
-    return 1
+def tutte_polynomial(G, *, backend=None, **backend_kwargs):
+    """Return the symbolic Tutte polynomial of ``G`` with NetworkX semantics."""
+    _validate_backend_dispatch_keywords(
+        "tutte_polynomial", backend, backend_kwargs
+    )
+    return _call_networkx_for_parity("tutte_polynomial", G)
 
 
 class _TarjanUnionFind:

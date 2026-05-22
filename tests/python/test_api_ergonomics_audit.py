@@ -7,10 +7,9 @@ Companion to ``scripts/api_ergonomics_audit.py``. Locks in:
    ``write_edgelist``, ``parse_edgelist``) have signatures matching
    ``networkx`` exactly. These are the highest-traffic IO/conversion
    points; signature drift here breaks adoption.
-3. The intentional ergonomic extensions (``draw_bipartite`` adds
-   ``top_nodes``, ``tutte_polynomial`` adds ``x``/``y``) are stable —
-   if either changes shape we want a re-classification, not a silent
-   drift.
+3. The remaining intentional ergonomic extension
+   (``draw_bipartite`` adds ``top_nodes``) is stable; if it changes
+   shape we want a re-classification, not silent drift.
 """
 
 from __future__ import annotations
@@ -87,12 +86,11 @@ def test_draw_bipartite_keeps_top_nodes_extension():
     )
 
 
-def test_tutte_polynomial_keeps_x_y_extension():
+def test_tutte_polynomial_signature_matches_networkx():
     sig = inspect.signature(fnx.tutte_polynomial)
-    names = [p.name for p in sig.parameters.values()]
-    assert "x" in names and "y" in names, (
-        f"tutte_polynomial lost x/y kwargs: {names}"
-    )
+    nx_sig = inspect.signature(nx.tutte_polynomial)
+
+    assert str(sig) == str(nx_sig)
 
 
 # ---------------------------------------------------------------------------

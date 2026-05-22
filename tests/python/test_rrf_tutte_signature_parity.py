@@ -7,10 +7,9 @@ Bead br-r37-c1-rrf-tut. Two stale signatures:
   nx is ``(n, *, seed=None)``. Drop-in code calling
   ``rrf(5, seed=42)`` worked, but ``rrf(5, None, 42)`` worked on fnx
   and rejected on nx.
-- ``tutte_polynomial(G, x=None, y=None)`` — fnx accepted ``x``/``y``
-  positionally as a numeric-evaluation extension; nx is ``(G,)`` with
-  no other positional arguments. Calling ``tutte_polynomial(G, 1, 1)``
-  on nx raised TypeError. fnx now requires ``x``/``y`` keyword-only.
+- ``tutte_polynomial(G)`` — fnx previously accepted ``x``/``y`` numeric
+  evaluation kwargs; nx rejects them. fnx now mirrors nx's dispatch
+  signature and unexpected-keyword behavior.
 """
 
 from __future__ import annotations
@@ -77,14 +76,11 @@ def test_rrf_default_call_returns_graph_with_n_nodes():
 # ---------------------------------------------------------------------------
 
 @needs_nx
-def test_tutte_polynomial_x_y_keyword_only():
-    """fnx's x, y numeric-evaluation extension must be keyword-only —
-    nx accepts only G positionally."""
+def test_tutte_polynomial_signature_matches_networkx():
     fnx_sig = inspect.signature(fnx.tutte_polynomial)
-    for name in ("x", "y"):
-        assert (
-            fnx_sig.parameters[name].kind == inspect.Parameter.KEYWORD_ONLY
-        ), f"{name} should be KEYWORD_ONLY"
+    nx_sig = inspect.signature(nx.tutte_polynomial)
+
+    assert str(fnx_sig) == str(nx_sig)
 
 
 @needs_nx
@@ -98,10 +94,7 @@ def test_tutte_polynomial_rejects_positional_x_y():
 
 
 @needs_nx
-def test_tutte_polynomial_kwargs_x_y_evaluation():
-    """fnx's numeric-evaluation extension still works with kwargs.
-    For the path graph P3 (a tree), the Tutte polynomial T(x, y) = x^2,
-    so T(2, 3) = 4."""
+def test_tutte_polynomial_rejects_x_y_kwargs_like_networkx():
     G = fnx.path_graph(3)
-    val = fnx.tutte_polynomial(G, x=2, y=3)
-    assert val == 4
+    with pytest.raises(TypeError, match="unexpected keyword argument 'x'"):
+        fnx.tutte_polynomial(G, x=2, y=3)
