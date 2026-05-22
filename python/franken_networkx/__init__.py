@@ -3295,11 +3295,19 @@ def _add_weighted_edges_from_with_attr(cls):
             edge_attrs = dict(attr)
             edge_attrs[weight] = w
             if self.is_multigraph():
-                key = self.add_edge(u, v)
-                self.edges[u, v, key].update(edge_attrs)
+                if isinstance(weight, str):
+                    self.add_edge(u, v, **edge_attrs)
+                else:
+                    key = self.add_edge(u, v)
+                    self.edges[u, v, key].update(edge_attrs)
+                    _sync_rust_edge_attrs(self)
             else:
-                self.add_edge(u, v)
-                self.edges[u, v].update(edge_attrs)
+                if isinstance(weight, str):
+                    self.add_edge(u, v, **edge_attrs)
+                else:
+                    self.add_edge(u, v)
+                    self.edges[u, v].update(edge_attrs)
+                    _sync_rust_edge_attrs(self)
 
     return add_weighted_edges_from
 
