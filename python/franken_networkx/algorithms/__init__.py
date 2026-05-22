@@ -51,6 +51,7 @@ _FNX_OVERRIDE_SUBMODULES = {
     "polynomials",
     "reciprocity",
     "richclub",
+    "simple_paths",
     "smetric",
     "voronoi",
     "vitality",
@@ -326,6 +327,10 @@ reciprocity = _fnx_reciprocity.reciprocity  # Match nx: function attr
 _fnx_richclub = _importlib.import_module("franken_networkx.richclub")
 _sys.modules[f"{__name__}.richclub"] = _fnx_richclub
 richclub = _fnx_richclub  # Override in module globals
+
+_fnx_simple_paths = _importlib.import_module("franken_networkx.simple_paths")
+_sys.modules[f"{__name__}.simple_paths"] = _fnx_simple_paths
+simple_paths = _fnx_simple_paths  # Override in module globals
 
 _fnx_smetric = _importlib.import_module("franken_networkx.smetric")
 _sys.modules[f"{__name__}.smetric"] = _fnx_smetric
