@@ -163,9 +163,12 @@ _alias_nx_child_modules(
     "networkx.algorithms.bipartite", f"{__name__}.bipartite"
 )
 
-import franken_networkx.approximation as _fnx_approximation
+_fnx_approximation = _importlib.import_module("franken_networkx.approximation")
 _sys.modules[f"{__name__}.approximation"] = _fnx_approximation
 approximation = _fnx_approximation  # Override in module globals
+_alias_nx_child_modules(
+    "networkx.algorithms.approximation", f"{__name__}.approximation"
+)
 
 import franken_networkx.minors as _fnx_minors
 _sys.modules[f"{__name__}.minors"] = _fnx_minors
