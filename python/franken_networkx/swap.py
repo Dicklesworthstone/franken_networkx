@@ -30,7 +30,7 @@ def double_edge_swap(G, nswap=1, max_tries=100, seed=None, *, backend=None, **ba
     return _from_nx_graph(nx_result)
 
 
-def directed_edge_swap(G, nswap=1, max_tries=100, seed=None, *, backend=None, **backend_kwargs):
+def directed_edge_swap(G, *, nswap=1, max_tries=100, seed=None, backend=None, **backend_kwargs):
     """Swap three edges in a directed graph while keeping the node degrees fixed.
 
     Wraps ``networkx.algorithms.swap.directed_edge_swap`` and converts

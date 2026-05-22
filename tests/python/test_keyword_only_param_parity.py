@@ -15,6 +15,7 @@ import inspect
 import pytest
 
 import franken_networkx as fnx
+import franken_networkx.swap as fnx_swap
 
 try:
     import networkx as nx
@@ -88,6 +89,23 @@ def test_directed_edge_swap_rejects_positional_nswap():
     # nx rejects: directed_edge_swap(G, 1) — 'nswap' is keyword-only.
     with pytest.raises(TypeError):
         fnx.directed_edge_swap(G, 1)
+
+
+@needs_nx
+def test_swap_directed_edge_swap_param_kind_matches_networkx():
+    fp = inspect.signature(fnx_swap.directed_edge_swap).parameters
+    np_ = inspect.signature(nx.algorithms.swap.directed_edge_swap).parameters
+    for p in ("nswap", "max_tries", "seed"):
+        assert fp[p].kind == inspect.Parameter.KEYWORD_ONLY
+        assert np_[p].kind == inspect.Parameter.KEYWORD_ONLY
+
+
+@needs_nx
+def test_swap_directed_edge_swap_rejects_positional_nswap():
+    G = fnx.DiGraph()
+    G.add_edges_from([(0, 1), (1, 2), (2, 3), (3, 0)])
+    with pytest.raises(TypeError):
+        fnx_swap.directed_edge_swap(G, 1)
 
 
 @needs_nx
