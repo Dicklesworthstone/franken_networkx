@@ -368,6 +368,40 @@ impl GraphGenerator {
         )
     }
 
+    pub fn chvatal_graph(&mut self) -> Result<GenerationReport, GenerationError> {
+        self.small_named_graph_from_edges(
+            "chvatal_graph",
+            "Chvatal Graph",
+            12,
+            &[
+                (0, 1),
+                (0, 4),
+                (0, 6),
+                (0, 9),
+                (1, 2),
+                (1, 5),
+                (1, 7),
+                (2, 3),
+                (2, 6),
+                (2, 8),
+                (3, 4),
+                (3, 7),
+                (3, 9),
+                (4, 5),
+                (4, 8),
+                (5, 10),
+                (5, 11),
+                (6, 10),
+                (6, 11),
+                (7, 8),
+                (7, 11),
+                (8, 10),
+                (9, 10),
+                (9, 11),
+            ],
+        )
+    }
+
     pub fn complete_graph(&mut self, n: usize) -> Result<GenerationReport, GenerationError> {
         let (n, warnings) = self.validate_n("complete_graph", n, MAX_N_COMPLETE)?;
         let graph = Graph::complete_graph(self.mode, n);
@@ -3192,6 +3226,54 @@ mod tests {
             .collect::<Vec<usize>>();
         degree_sequence.sort_unstable();
         assert_eq!(degree_sequence, vec![1, 1, 2, 3, 3]);
+    }
+
+    #[test]
+    fn chvatal_graph_matches_networkx_edges_and_degrees() {
+        let mut generator = GraphGenerator::strict();
+        let report = generator
+            .chvatal_graph()
+            .expect("Chvatal Graph generation should succeed");
+        assert_eq!(report.graph.node_count(), 12);
+        assert_eq!(report.graph.edge_count(), 24);
+
+        let mut expected_edges = vec![
+            ("0".to_owned(), "1".to_owned()),
+            ("0".to_owned(), "4".to_owned()),
+            ("0".to_owned(), "6".to_owned()),
+            ("0".to_owned(), "9".to_owned()),
+            ("1".to_owned(), "2".to_owned()),
+            ("1".to_owned(), "5".to_owned()),
+            ("1".to_owned(), "7".to_owned()),
+            ("2".to_owned(), "3".to_owned()),
+            ("2".to_owned(), "6".to_owned()),
+            ("2".to_owned(), "8".to_owned()),
+            ("3".to_owned(), "4".to_owned()),
+            ("3".to_owned(), "7".to_owned()),
+            ("3".to_owned(), "9".to_owned()),
+            ("4".to_owned(), "5".to_owned()),
+            ("4".to_owned(), "8".to_owned()),
+            ("5".to_owned(), "10".to_owned()),
+            ("5".to_owned(), "11".to_owned()),
+            ("6".to_owned(), "10".to_owned()),
+            ("6".to_owned(), "11".to_owned()),
+            ("7".to_owned(), "8".to_owned()),
+            ("7".to_owned(), "11".to_owned()),
+            ("8".to_owned(), "10".to_owned()),
+            ("9".to_owned(), "10".to_owned()),
+            ("9".to_owned(), "11".to_owned()),
+        ];
+        expected_edges.sort();
+        assert_eq!(sorted_graph_edges(&report.graph), expected_edges);
+
+        let degrees = report
+            .graph
+            .snapshot()
+            .nodes
+            .iter()
+            .map(|node| report.graph.degree(node.as_str()))
+            .collect::<Vec<usize>>();
+        assert_eq!(degrees, vec![4; 12]);
     }
 
     #[test]
