@@ -5487,9 +5487,17 @@ def test_algorithms_submodule_import_paths_match_nx():
     prefix.  Verifies a representative sample of 1- and 2-deep paths.
     """
     import importlib
+    import sys
     import networkx as nx_mod
 
-    # 1-deep paths — sample of high-traffic submodules
+    # 1-deep paths — sample of high-traffic submodules.
+    # br-r37-c1-x5oxs: ``franken_networkx.algorithms.X`` resolves to one
+    # of two things: it aliases ``networkx.algorithms.X`` directly, OR —
+    # when fnx ships a native override module (e.g.
+    # ``franken_networkx/approximation.py``, which wraps steiner_tree /
+    # treewidth_* to return fnx graph types) — it aliases that
+    # ``franken_networkx.X`` native module.  Either way the import path
+    # must resolve; only those two identities are acceptable.
     for sub in (
         "approximation",
         "assortativity",
@@ -5512,8 +5520,10 @@ def test_algorithms_submodule_import_paths_match_nx():
         nx_path = f"networkx.algorithms.{sub}"
         fnx_mod = importlib.import_module(fnx_path)
         nx_sub = importlib.import_module(nx_path)
-        assert fnx_mod is nx_sub, (
-            f"{fnx_path} should alias {nx_path} but got distinct objects"
+        native = sys.modules.get(f"franken_networkx.{sub}")
+        assert fnx_mod is nx_sub or fnx_mod is native, (
+            f"{fnx_path} should alias {nx_path} or the fnx-native "
+            f"franken_networkx.{sub} module but got {fnx_mod!r}"
         )
 
     # 2-deep paths — subpackages of subpackages
