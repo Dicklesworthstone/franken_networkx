@@ -22110,64 +22110,18 @@ def generate_random_paths(
     list
         Each yield is a random walk path.
     """
-    import random as _random
-
-    rng = _random.Random(seed)
-    nodes = list(G.nodes())
-    if not nodes:
-        # br-r37-c1-grp-empty: nx's transition-matrix construction
-        # leaks a ValueError on empty G (``randint(0, -1)`` → "high
-        # <= 0").  fnx previously short-circuited silently.  Match
-        # nx's leaky-but-stable contract.
-        raise ValueError("high <= 0")
-    if source is not None and source not in G:
-        raise NodeNotFound(f"Source {source} is not in G")
-
-    is_multi = G.is_multigraph()
-
-    def _weighted_choice(current):
-        # Mirror nx.generate_random_paths' transition step: build a
-        # weight vector over the current node's neighbours and sample
-        # by that distribution.
-        if is_multi:
-            nbrs = []
-            weights = []
-            for nbr, keydict in G[current].items():
-                # Multigraph: total weight across parallel edges.
-                w = 0.0
-                for _, attrs in keydict.items():
-                    if weight is None:
-                        w += 1.0
-                    else:
-                        w += float(attrs.get(weight, 1.0))
-                if w > 0:
-                    nbrs.append(nbr)
-                    weights.append(w)
-        else:
-            nbrs = []
-            weights = []
-            for nbr, attrs in G[current].items():
-                w = 1.0 if weight is None else float(attrs.get(weight, 1.0))
-                if w > 0:
-                    nbrs.append(nbr)
-                    weights.append(w)
-        if not nbrs:
-            return None
-        if weight is None:
-            return rng.choice(nbrs)
-        return rng.choices(nbrs, weights=weights, k=1)[0]
-
-    for _ in range(sample_size):
-        start = source if source is not None else rng.choice(nodes)
-        path = [start]
-        current = start
-        for _ in range(path_length):
-            nxt = _weighted_choice(current)
-            if nxt is None:
-                break
-            path.append(nxt)
-            current = nxt
-        yield path
+    # NetworkX uses the numpy random-state decorator and samples from a
+    # transition-probability matrix.  The Panther helper below implements that
+    # contract exactly and also populates ``index_map`` with the same path ids.
+    yield from _panther_generate_random_paths(
+        G,
+        sample_size,
+        path_length=path_length,
+        index_map=index_map,
+        weight=weight,
+        seed=seed,
+        source=source,
+    )
 
 
 def johnson(G, weight="weight"):
