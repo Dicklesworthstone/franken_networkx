@@ -38,6 +38,7 @@ _FNX_OVERRIDE_SUBMODULES = {
     "hierarchy",
     "isolate",
     "mis",
+    "non_randomness",
     "wiener",
     "approximation",
     "minors",
@@ -250,6 +251,10 @@ isolate = _fnx_isolate  # Override in module globals
 _fnx_mis = _importlib.import_module("franken_networkx.mis")
 _sys.modules[f"{__name__}.mis"] = _fnx_mis
 mis = _fnx_mis  # Override in module globals
+
+_fnx_non_randomness = _importlib.import_module("franken_networkx._non_randomness")
+_sys.modules[f"{__name__}.non_randomness"] = _fnx_non_randomness
+non_randomness = _fnx_non_randomness.non_randomness  # Match nx: function attr
 
 _fnx_chains = _importlib.import_module("franken_networkx.chains")
 _sys.modules[f"{__name__}.chains"] = _fnx_chains
