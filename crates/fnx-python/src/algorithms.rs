@@ -11,7 +11,9 @@ use crate::{
     PythonAllowThreadsExt, node_key_to_string,
 };
 use fnx_classes::AttrMap;
-use pyo3::exceptions::{PyIndexError, PyKeyError, PyValueError, PyZeroDivisionError};
+use pyo3::exceptions::{
+    PyIndexError, PyKeyError, PyRuntimeError, PyValueError, PyZeroDivisionError,
+};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList, PyTuple};
 use std::cell::OnceCell;
@@ -366,6 +368,27 @@ pub(crate) fn extract_graph<'py>(g: &'py Bound<'py, PyAny>) -> PyResult<GraphRef
         Err(pyo3::exceptions::PyTypeError::new_err(
             "expected Graph, DiGraph, MultiGraph, or MultiDiGraph",
         ))
+    }
+}
+
+fn sync_rust_attrs_if_available(g: &Bound<'_, PyAny>) -> PyResult<()> {
+    let Ok(sync) = g.getattr("_fnx_sync_attrs_to_inner") else {
+        return Ok(());
+    };
+    if !sync.is_callable() {
+        return Ok(());
+    }
+    match sync.call0() {
+        Ok(_) => Ok(()),
+        Err(err) => {
+            if err.is_instance_of::<PyRuntimeError>(g.py())
+                && err.to_string().contains("Already borrowed")
+            {
+                Ok(())
+            } else {
+                Err(err)
+            }
+        }
     }
 }
 
@@ -2003,6 +2026,7 @@ pub fn dijkstra_path(
     target: &Bound<'_, PyAny>,
     weight: &str,
 ) -> PyResult<Vec<PyObject>> {
+    sync_rust_attrs_if_available(g)?;
     let gr = extract_graph(g)?;
     let s = node_key_to_string(py, source)?;
     let t = node_key_to_string(py, target)?;
@@ -2045,6 +2069,7 @@ pub fn bellman_ford_path(
     target: &Bound<'_, PyAny>,
     weight: &str,
 ) -> PyResult<Vec<PyObject>> {
+    sync_rust_attrs_if_available(g)?;
     let gr = extract_graph(g)?;
     let s = node_key_to_string(py, source)?;
     let t = node_key_to_string(py, target)?;
@@ -2116,6 +2141,7 @@ pub fn multi_source_dijkstra(
     sources: &Bound<'_, PyAny>,
     weight: &str,
 ) -> PyResult<(PyObject, PyObject)> {
+    sync_rust_attrs_if_available(g)?;
     let gr = extract_graph(g)?;
     let iter = pyo3::types::PyIterator::from_object(sources)?;
     let mut source_strs = Vec::new();
@@ -6444,6 +6470,9 @@ pub fn dag_longest_path(
     weight: Option<&str>,
     default_weight: f64,
 ) -> PyResult<Vec<PyObject>> {
+    if weight.is_some() {
+        sync_rust_attrs_if_available(g)?;
+    }
     let gr = extract_graph(g)?;
     if !gr.is_directed() {
         return Err(NetworkXError::new_err(
@@ -6476,6 +6505,9 @@ pub fn dag_longest_path_length(
     weight: Option<&str>,
     default_weight: f64,
 ) -> PyResult<PyObject> {
+    if weight.is_some() {
+        sync_rust_attrs_if_available(g)?;
+    }
     let gr = extract_graph(g)?;
     if !gr.is_directed() {
         return Err(NetworkXError::new_err(
@@ -10531,6 +10563,7 @@ fn dijkstra_path_length(
     target: &Bound<'_, PyAny>,
     weight: &str,
 ) -> PyResult<f64> {
+    sync_rust_attrs_if_available(g)?;
     let gr = extract_graph(g)?;
     let s = node_key_to_string(py, source)?;
     let t = node_key_to_string(py, target)?;
@@ -10567,6 +10600,7 @@ fn bellman_ford_path_length(
     target: &Bound<'_, PyAny>,
     weight: &str,
 ) -> PyResult<f64> {
+    sync_rust_attrs_if_available(g)?;
     let gr = extract_graph(g)?;
     let s = node_key_to_string(py, source)?;
     let t = node_key_to_string(py, target)?;
@@ -10616,6 +10650,7 @@ fn single_source_dijkstra(
     source: &Bound<'_, PyAny>,
     weight: &str,
 ) -> PyResult<(PyObject, PyObject)> {
+    sync_rust_attrs_if_available(g)?;
     let gr = extract_graph(g)?;
     let s = node_key_to_string(py, source)?;
     validate_node_str(&gr, &s, "Source")?;
@@ -10648,6 +10683,7 @@ fn single_source_dijkstra_path(
     source: &Bound<'_, PyAny>,
     weight: &str,
 ) -> PyResult<PyObject> {
+    sync_rust_attrs_if_available(g)?;
     let gr = extract_graph(g)?;
     let s = node_key_to_string(py, source)?;
     validate_node_str(&gr, &s, "Source")?;
@@ -10676,6 +10712,7 @@ fn single_source_dijkstra_path_length(
     source: &Bound<'_, PyAny>,
     weight: &str,
 ) -> PyResult<PyObject> {
+    sync_rust_attrs_if_available(g)?;
     let gr = extract_graph(g)?;
     let s = node_key_to_string(py, source)?;
     validate_node_str(&gr, &s, "Source")?;
@@ -10705,6 +10742,7 @@ fn single_source_bellman_ford(
     source: &Bound<'_, PyAny>,
     weight: &str,
 ) -> PyResult<(PyObject, PyObject)> {
+    sync_rust_attrs_if_available(g)?;
     let gr = extract_graph(g)?;
     let s = node_key_to_string(py, source)?;
     validate_node_str(&gr, &s, "Source")?;
@@ -10774,6 +10812,7 @@ fn single_source_bellman_ford_path(
     source: &Bound<'_, PyAny>,
     weight: &str,
 ) -> PyResult<PyObject> {
+    sync_rust_attrs_if_available(g)?;
     let gr = extract_graph(g)?;
     let s = node_key_to_string(py, source)?;
     validate_node_str(&gr, &s, "Source")?;
@@ -10811,6 +10850,7 @@ fn single_source_bellman_ford_path_length(
     source: &Bound<'_, PyAny>,
     weight: &str,
 ) -> PyResult<PyObject> {
+    sync_rust_attrs_if_available(g)?;
     let gr = extract_graph(g)?;
     let s = node_key_to_string(py, source)?;
     validate_node_str(&gr, &s, "Source")?;
@@ -10905,6 +10945,7 @@ fn all_pairs_dijkstra_path_length(
     g: &Bound<'_, PyAny>,
     weight: &str,
 ) -> PyResult<PyObject> {
+    sync_rust_attrs_if_available(g)?;
     let gr = extract_graph(g)?;
     let result = if gr.is_directed() {
         let dg = gr
@@ -10939,6 +10980,7 @@ fn all_pairs_dijkstra_path(
     g: &Bound<'_, PyAny>,
     weight: &str,
 ) -> PyResult<PyObject> {
+    sync_rust_attrs_if_available(g)?;
     let gr = extract_graph(g)?;
     let result = if gr.is_directed() {
         let dg = gr
@@ -10975,6 +11017,7 @@ fn all_pairs_bellman_ford_path_length(
     g: &Bound<'_, PyAny>,
     weight: &str,
 ) -> PyResult<PyObject> {
+    sync_rust_attrs_if_available(g)?;
     let gr = extract_graph(g)?;
     let result = if let Some(weighted_projection) = gr.weighted_digraph_projection(weight) {
         let __wp = weighted_projection.as_ref();
@@ -11023,6 +11066,7 @@ fn all_pairs_bellman_ford_path(
     g: &Bound<'_, PyAny>,
     weight: &str,
 ) -> PyResult<PyObject> {
+    sync_rust_attrs_if_available(g)?;
     let gr = extract_graph(g)?;
     let result = if let Some(weighted_projection) = gr.weighted_digraph_projection(weight) {
         let __wp = weighted_projection.as_ref();
@@ -11067,6 +11111,7 @@ fn all_pairs_bellman_ford_path(
 #[pyfunction]
 #[pyo3(signature = (g, weight="weight"))]
 fn floyd_warshall(py: Python<'_>, g: &Bound<'_, PyAny>, weight: &str) -> PyResult<PyObject> {
+    sync_rust_attrs_if_available(g)?;
     let gr = extract_graph(g)?;
     require_undirected(&gr, "floyd_warshall")?;
     let weighted_projection = gr.weighted_undirected_projection(weight);
@@ -11091,6 +11136,7 @@ fn floyd_warshall_predecessor_and_distance(
     g: &Bound<'_, PyAny>,
     weight: &str,
 ) -> PyResult<(PyObject, PyObject)> {
+    sync_rust_attrs_if_available(g)?;
     let gr = extract_graph(g)?;
     require_undirected(&gr, "floyd_warshall_predecessor_and_distance")?;
     let weighted_projection = gr.weighted_undirected_projection(weight);
@@ -11154,6 +11200,7 @@ fn bidirectional_shortest_path(
 #[pyfunction]
 #[pyo3(signature = (g, weight="weight"))]
 fn negative_edge_cycle(py: Python<'_>, g: &Bound<'_, PyAny>, weight: &str) -> PyResult<bool> {
+    sync_rust_attrs_if_available(g)?;
     let gr = extract_graph(g)?;
     require_undirected(&gr, "negative_edge_cycle")?;
     let weighted_projection = gr.weighted_undirected_projection(weight);
@@ -11197,6 +11244,7 @@ fn path_weight(
     path: Vec<Bound<'_, PyAny>>,
     weight: &str,
 ) -> PyResult<f64> {
+    sync_rust_attrs_if_available(g)?;
     let gr = extract_graph(g)?;
     let path_strs: Vec<String> = path
         .iter()

@@ -8,11 +8,12 @@ attrs[k] = v`` — used to be invisible to Rust algorithm kernels because
 edge creation but not kept in sync on mutation.
 
 The architectural fix exposes a ``_fnx_sync_attrs_to_inner()`` method
-on every PyGraph variant; the Python wrapper layer calls it via the
-historical ``_graph_has_nonunit_weight`` helper before invoking native
-algorithms. This file verifies:
+on every PyGraph variant; both the Python wrapper layer and raw Rust
+weighted bindings call it before invoking native algorithms. This file
+verifies:
 
-1. The raw Rust binding sees fresh data after the sync method runs.
+1. The raw Rust binding sees fresh data without requiring callers to
+   remember an explicit sync call.
 2. Public wrappers (``single_source_dijkstra_path_length``, etc.)
    produce correct weighted distances even when weights were assigned
    post-creation.
@@ -60,15 +61,26 @@ def test_sync_propagates_post_creation_edge_mutation_undirected():
     g[0][1]["weight"] = 1.5
     g[1][2]["weight"] = 2.5
 
-    # Before sync, raw Rust path returns hop-count distances.
-    before = dict(raw.single_source_dijkstra_path_length(g, 0))
-    assert before == {0: 0.0, 1: 1.0, 2: 2.0}
+    distances = dict(raw.single_source_dijkstra_path_length(g, 0))
+    assert distances == {0: 0.0, 1: 1.5, 2: 4.0}
 
-    g._fnx_sync_attrs_to_inner()
 
-    # After sync, raw Rust returns weighted distances.
-    after = dict(raw.single_source_dijkstra_path_length(g, 0))
-    assert after == {0: 0.0, 1: 1.5, 2: 4.0}
+def test_raw_weighted_path_length_sees_add_weighted_edges_from_attrs():
+    g = fnx.Graph()
+    g.add_weighted_edges_from([(0, 1, 5.5), (1, 2, 7.25)])
+
+    assert raw.dijkstra_path_length(g, 0, 2) == pytest.approx(12.75)
+    assert raw.bellman_ford_path_length(g, 0, 2) == pytest.approx(12.75)
+
+
+def test_raw_dag_longest_path_length_sees_post_creation_attrs():
+    g = fnx.DiGraph()
+    g.add_edge(0, 1)
+    g.add_edge(1, 2)
+    g[0][1]["weight"] = 3
+    g[1][2]["weight"] = 4
+
+    assert raw.dag_longest_path_length(g, "weight") == pytest.approx(7.0)
 
 
 def test_sync_propagates_post_creation_edge_mutation_directed():
