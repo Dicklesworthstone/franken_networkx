@@ -5,7 +5,7 @@ use fnx_classes::digraph::{DiGraph, MultiDiGraph};
 use fnx_runtime::{CompatibilityMode, DecisionAction, EvidenceLedger, EvidenceTerm, RuntimePolicy};
 use mt19937::{MT19937, gen_res53};
 use rand::Rng;
-use std::fmt;
+use std::{collections::BTreeMap, fmt};
 
 /// Maximum nodes for general generators (path, cycle, empty, etc.).
 /// At average degree ~10, a 100k-node graph uses ~2M edges ≈ 48MB.
@@ -2728,6 +2728,191 @@ impl GraphGenerator {
             ),
         );
         Ok(self.finish_digraph_report(graph, Vec::new()))
+    }
+
+    fn mycielskian_core(
+        &self,
+        operation: &'static str,
+        source: &Graph,
+        iterations: usize,
+    ) -> Result<Graph, GenerationError> {
+        let source_snapshot = source.snapshot();
+        let source_n = source_snapshot.nodes.len();
+        if source_n > MAX_N_GENERIC {
+            let reason = format!("node count {source_n} exceeds max_allowed={MAX_N_GENERIC}");
+            return Err(GenerationError::FailClosed { operation, reason });
+        }
+
+        let (mut graph, node_labels) = graph_with_n_nodes(self.mode, source_n);
+        let index_by_label = source_snapshot
+            .nodes
+            .iter()
+            .enumerate()
+            .map(|(index, node)| (node.clone(), index))
+            .collect::<BTreeMap<String, usize>>();
+        for edge in source_snapshot.edges {
+            let source_index =
+                *index_by_label
+                    .get(&edge.left)
+                    .ok_or_else(|| GenerationError::FailClosed {
+                        operation,
+                        reason: format!("edge source {} is missing from source nodes", edge.left),
+                    })?;
+            let target_index =
+                *index_by_label
+                    .get(&edge.right)
+                    .ok_or_else(|| GenerationError::FailClosed {
+                        operation,
+                        reason: format!("edge target {} is missing from source nodes", edge.right),
+                    })?;
+            graph
+                .add_edge(
+                    node_labels[source_index].clone(),
+                    node_labels[target_index].clone(),
+                )
+                .map_err(|err| GenerationError::FailClosed {
+                    operation,
+                    reason: err.to_string(),
+                })?;
+        }
+
+        let max_dense_edges = MAX_N_COMPLETE * (MAX_N_COMPLETE - 1) / 2;
+        if graph.edge_count() > max_dense_edges {
+            let reason = format!(
+                "edge count {} exceeds max_allowed={max_dense_edges}",
+                graph.edge_count()
+            );
+            return Err(GenerationError::FailClosed { operation, reason });
+        }
+
+        for _ in 0..iterations {
+            let current_n = graph.node_count();
+            let current_edges = graph.edge_count();
+            let projected_nodes = current_n
+                .checked_mul(2)
+                .and_then(|value| value.checked_add(1))
+                .ok_or_else(|| GenerationError::FailClosed {
+                    operation,
+                    reason: "node count overflow during Mycielski iteration".to_owned(),
+                })?;
+            if projected_nodes > MAX_N_GENERIC {
+                let reason =
+                    format!("node count {projected_nodes} exceeds max_allowed={MAX_N_GENERIC}");
+                return Err(GenerationError::FailClosed { operation, reason });
+            }
+
+            let projected_edges = current_edges
+                .checked_mul(3)
+                .and_then(|value| value.checked_add(current_n))
+                .ok_or_else(|| GenerationError::FailClosed {
+                    operation,
+                    reason: "edge count overflow during Mycielski iteration".to_owned(),
+                })?;
+            if projected_edges > max_dense_edges {
+                let reason =
+                    format!("edge count {projected_edges} exceeds max_allowed={max_dense_edges}");
+                return Err(GenerationError::FailClosed { operation, reason });
+            }
+
+            let old_edges = graph.snapshot().edges;
+            for node in current_n..projected_nodes {
+                let _ = graph.add_node(node.to_string());
+            }
+
+            for edge in old_edges {
+                let source_index =
+                    edge.left
+                        .parse::<usize>()
+                        .map_err(|err| GenerationError::FailClosed {
+                            operation,
+                            reason: format!("invalid Mycielski source label {}: {err}", edge.left),
+                        })?;
+                let target_index =
+                    edge.right
+                        .parse::<usize>()
+                        .map_err(|err| GenerationError::FailClosed {
+                            operation,
+                            reason: format!("invalid Mycielski target label {}: {err}", edge.right),
+                        })?;
+                graph
+                    .add_edge(edge.left.clone(), (target_index + current_n).to_string())
+                    .map_err(|err| GenerationError::FailClosed {
+                        operation,
+                        reason: err.to_string(),
+                    })?;
+                graph
+                    .add_edge((source_index + current_n).to_string(), edge.right)
+                    .map_err(|err| GenerationError::FailClosed {
+                        operation,
+                        reason: err.to_string(),
+                    })?;
+            }
+
+            let root = (2 * current_n).to_string();
+            for node in current_n..(2 * current_n) {
+                graph
+                    .add_edge(node.to_string(), root.clone())
+                    .map_err(|err| GenerationError::FailClosed {
+                        operation,
+                        reason: err.to_string(),
+                    })?;
+            }
+        }
+
+        Ok(graph)
+    }
+
+    pub fn mycielskian(
+        &mut self,
+        graph: &Graph,
+        iterations: usize,
+    ) -> Result<GenerationReport, GenerationError> {
+        let operation = "mycielskian";
+        let graph = self.mycielskian_core(operation, graph, iterations)?;
+        self.record(
+            operation,
+            DecisionAction::Allow,
+            0.04,
+            format!(
+                "generated Mycielskian with iterations={iterations}, nodes={}, edges={}",
+                graph.node_count(),
+                graph.edge_count()
+            ),
+        );
+        Ok(self.finish_graph_report(graph, Vec::new()))
+    }
+
+    pub fn mycielski_graph(&mut self, n: usize) -> Result<GenerationReport, GenerationError> {
+        let operation = "mycielski_graph";
+        if n < 1 {
+            let reason = "must satisfy n >= 1".to_owned();
+            self.record(operation, DecisionAction::FailClosed, 0.95, reason.clone());
+            return Err(GenerationError::FailClosed { operation, reason });
+        }
+
+        let graph = if n == 1 {
+            graph_with_n_nodes(self.mode, 1).0
+        } else {
+            let (mut base, base_labels) = graph_with_n_nodes(self.mode, 2);
+            base.add_edge(base_labels[0].clone(), base_labels[1].clone())
+                .map_err(|err| GenerationError::FailClosed {
+                    operation,
+                    reason: err.to_string(),
+                })?;
+            self.mycielskian_core(operation, &base, n - 2)?
+        };
+
+        self.record(
+            operation,
+            DecisionAction::Allow,
+            0.04,
+            format!(
+                "generated Mycielski graph n={n} with nodes={}, edges={}",
+                graph.node_count(),
+                graph.edge_count()
+            ),
+        );
+        Ok(self.finish_graph_report(graph, Vec::new()))
     }
 
     pub fn gnp_random_graph(
@@ -8250,6 +8435,96 @@ mod tests {
         assert_eq!(
             err.to_string(),
             "generator `triad_graph` failed closed: unknown triad name \"bogus\"; use one of the triad names in the TRIAD_NAMES constant"
+        );
+    }
+
+    #[test]
+    fn mycielskian_path_graph_matches_networkx_cycle_five() {
+        let mut generator = GraphGenerator::strict();
+        let base = generator
+            .path_graph(2)
+            .expect("path graph generation should succeed")
+            .graph;
+        let report = generator
+            .mycielskian(&base, 1)
+            .expect("Mycielskian generation should succeed");
+
+        assert_eq!(report.graph.node_count(), 5);
+        assert_eq!(report.graph.edge_count(), 5);
+        assert_eq!(
+            sorted_graph_edges(&report.graph),
+            vec![
+                ("0".to_owned(), "1".to_owned()),
+                ("0".to_owned(), "3".to_owned()),
+                ("1".to_owned(), "2".to_owned()),
+                ("2".to_owned(), "4".to_owned()),
+                ("3".to_owned(), "4".to_owned()),
+            ]
+        );
+        let degrees = (0..5)
+            .map(|node| report.graph.degree(&node.to_string()))
+            .collect::<Vec<usize>>();
+        assert_eq!(degrees, vec![2; 5]);
+    }
+
+    #[test]
+    fn mycielskian_two_iterations_match_networkx_size() {
+        let mut generator = GraphGenerator::strict();
+        let base = generator
+            .path_graph(2)
+            .expect("path graph generation should succeed")
+            .graph;
+        let report = generator
+            .mycielskian(&base, 2)
+            .expect("iterated Mycielskian generation should succeed");
+
+        assert_eq!(report.graph.node_count(), 11);
+        assert_eq!(report.graph.edge_count(), 20);
+    }
+
+    #[test]
+    fn mycielski_graph_base_family_matches_networkx() {
+        let mut generator = GraphGenerator::strict();
+        let m1 = generator
+            .mycielski_graph(1)
+            .expect("first Mycielski graph should succeed");
+        let m2 = generator
+            .mycielski_graph(2)
+            .expect("second Mycielski graph should succeed");
+        let m3 = generator
+            .mycielski_graph(3)
+            .expect("third Mycielski graph should succeed");
+        let m4 = generator
+            .mycielski_graph(4)
+            .expect("fourth Mycielski graph should succeed");
+
+        assert_eq!(m1.graph.snapshot().nodes, vec!["0"]);
+        assert_eq!(m1.graph.edge_count(), 0);
+        assert_eq!(m2.graph.node_count(), 2);
+        assert_eq!(m2.graph.edge_count(), 1);
+        assert_eq!(m3.graph.node_count(), 5);
+        assert_eq!(m3.graph.edge_count(), 5);
+        assert_eq!(m4.graph.node_count(), 11);
+        assert_eq!(m4.graph.edge_count(), 20);
+    }
+
+    #[test]
+    fn mycielski_graph_rejects_invalid_and_dense_inputs() {
+        let mut generator = GraphGenerator::strict();
+        let zero = generator
+            .mycielski_graph(0)
+            .expect_err("zero-index Mycielski graph should fail closed");
+        assert_eq!(
+            zero.to_string(),
+            "generator `mycielski_graph` failed closed: must satisfy n >= 1"
+        );
+
+        let dense = generator
+            .mycielski_graph(15)
+            .expect_err("large Mycielski graph should reject excessive edge count");
+        assert_eq!(
+            dense.to_string(),
+            "generator `mycielski_graph` failed closed: edge count 5555555 exceeds max_allowed=1999000"
         );
     }
 
