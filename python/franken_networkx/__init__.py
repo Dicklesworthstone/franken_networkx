@@ -33294,7 +33294,9 @@ def junction_tree(G):
     omitted sepset nodes, breaking drop-in parity. Delegate to nx so
     the returned tree's node/edge structure matches.
     """
-    return _call_networkx_for_parity("junction_tree", G)
+    from franken_networkx.readwrite import _from_nx_graph
+    nx_result = _call_networkx_for_parity("junction_tree", G)
+    return _from_nx_graph(nx_result)
 
 
 def join_trees(rooted_trees, *, label_attribute=None, first_label=0):
@@ -33500,7 +33502,9 @@ def complete_to_chordal_graph(G):
     delegating any self-loop input to nx.
     """
     if any(u == v for u, v in G.edges()):
-        return _call_networkx_for_parity("complete_to_chordal_graph", G)
+        from franken_networkx.readwrite import _from_nx_graph
+        nx_graph, alpha = _call_networkx_for_parity("complete_to_chordal_graph", G)
+        return _from_nx_graph(nx_graph), alpha
     H = G.copy()
     # Use the original graph's node order — on franken_networkx, Graph.copy()
     # does not preserve insertion order, which shifts tie-breaking in MCS-M
