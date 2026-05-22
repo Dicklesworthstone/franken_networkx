@@ -27,7 +27,8 @@ def quotient_graph(
     edge_relation=None,
     node_data=None,
     edge_data=None,
-    relabel=True,
+    weight="weight",
+    relabel=False,
     create_using=None,
     *,
     backend=None,
@@ -45,6 +46,7 @@ def quotient_graph(
         edge_relation=edge_relation,
         node_data=node_data,
         edge_data=edge_data,
+        weight=weight,
         relabel=relabel,
         create_using=create_using,
     )
