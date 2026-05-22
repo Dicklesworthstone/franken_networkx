@@ -9,6 +9,8 @@ Current native overrides:
 - ``from_prufer_sequence`` — returns fnx.Graph
 - ``from_nested_tuple`` — returns fnx.Graph
 - ``junction_tree`` — returns fnx.Graph
+- ``minimum_spanning_tree`` — returns fnx.Graph
+- ``maximum_spanning_tree`` — returns fnx.Graph
 """
 
 from __future__ import annotations
@@ -50,4 +52,26 @@ def junction_tree(G, *, backend=None, **backend_kwargs):
     """
     _fnx._validate_backend_dispatch_keywords("junction_tree", backend, backend_kwargs)
     nx_result = _nx_tree.junction_tree(G)
+    return _from_nx_graph(nx_result)
+
+
+def minimum_spanning_tree(G, weight="weight", algorithm="kruskal", ignore_nan=False, *, backend=None, **backend_kwargs):
+    """Return a minimum spanning tree of an undirected graph.
+
+    Wraps ``networkx.algorithms.tree.minimum_spanning_tree`` and converts
+    the result to an fnx graph type for drop-in compatibility.
+    """
+    _fnx._validate_backend_dispatch_keywords("minimum_spanning_tree", backend, backend_kwargs)
+    nx_result = _nx_tree.minimum_spanning_tree(G, weight=weight, algorithm=algorithm, ignore_nan=ignore_nan)
+    return _from_nx_graph(nx_result)
+
+
+def maximum_spanning_tree(G, weight="weight", algorithm="kruskal", ignore_nan=False, *, backend=None, **backend_kwargs):
+    """Return a maximum spanning tree of an undirected graph.
+
+    Wraps ``networkx.algorithms.tree.maximum_spanning_tree`` and converts
+    the result to an fnx graph type for drop-in compatibility.
+    """
+    _fnx._validate_backend_dispatch_keywords("maximum_spanning_tree", backend, backend_kwargs)
+    nx_result = _nx_tree.maximum_spanning_tree(G, weight=weight, algorithm=algorithm, ignore_nan=ignore_nan)
     return _from_nx_graph(nx_result)
