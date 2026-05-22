@@ -29823,7 +29823,10 @@ def reverse(G, copy=True):
     if not G.is_directed():
         raise NetworkXError("Cannot reverse an undirected graph.")
     if copy:
-        return G.reverse()
+        result = G.reverse()
+        # Always return fnx type for consistency
+        from franken_networkx.readwrite import _from_nx_graph
+        return _from_nx_graph(result)
     return _reverse_directed_view_for(G)
 
 
