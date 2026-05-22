@@ -39,6 +39,7 @@ _FNX_OVERRIDE_SUBMODULES = {
     "isolate",
     "mis",
     "non_randomness",
+    "richclub",
     "smetric",
     "voronoi",
     "vitality",
@@ -259,6 +260,10 @@ mis = _fnx_mis  # Override in module globals
 _fnx_non_randomness = _importlib.import_module("franken_networkx._non_randomness")
 _sys.modules[f"{__name__}.non_randomness"] = _fnx_non_randomness
 non_randomness = _fnx_non_randomness.non_randomness  # Match nx: function attr
+
+_fnx_richclub = _importlib.import_module("franken_networkx.richclub")
+_sys.modules[f"{__name__}.richclub"] = _fnx_richclub
+richclub = _fnx_richclub  # Override in module globals
 
 _fnx_smetric = _importlib.import_module("franken_networkx.smetric")
 _sys.modules[f"{__name__}.smetric"] = _fnx_smetric
