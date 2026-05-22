@@ -152,6 +152,14 @@ def _alias_nx_child_modules(nx_dotted, fnx_dotted):
 
 _alias_nx_submodules(_importlib.import_module("networkx.algorithms"), __name__)
 
+_nx_connectivity_cuts = _importlib.import_module(
+    "networkx.algorithms.connectivity.cuts"
+)
+_sys.modules[f"{__name__}.connectivity.cuts"] = _nx_connectivity_cuts
+_connectivity_parent = _sys.modules.get(f"{__name__}.connectivity")
+if _connectivity_parent is not None:
+    _connectivity_parent.cuts = _nx_connectivity_cuts
+
 # Override bipartite submodule to use fnx's native implementation
 # which wraps nx functions to return fnx graph types.
 # This must happen AFTER the star import since `from networkx.algorithms import *`
