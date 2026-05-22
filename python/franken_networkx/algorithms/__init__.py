@@ -24,7 +24,7 @@ import pkgutil as _pkgutil
 from networkx.algorithms import *  # noqa: F401, F403
 
 
-_FNX_OVERRIDE_SUBMODULES = {"bipartite", "approximation", "minors", "operators"}
+_FNX_OVERRIDE_SUBMODULES = {"bipartite", "approximation", "minors", "operators", "clique"}
 
 
 def _alias_nx_submodules(nx_pkg, fnx_prefix):
@@ -79,6 +79,10 @@ minors = _fnx_minors  # Override in module globals
 import franken_networkx.operators as _fnx_operators
 _sys.modules[f"{__name__}.operators"] = _fnx_operators
 operators = _fnx_operators  # Override in module globals
+
+import franken_networkx.clique as _fnx_clique
+_sys.modules[f"{__name__}.clique"] = _fnx_clique
+clique = _fnx_clique  # Override in module globals
 
 
 def __getattr__(name):
