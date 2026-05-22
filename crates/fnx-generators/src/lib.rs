@@ -1944,6 +1944,101 @@ impl GraphGenerator {
         Ok(self.finish_graph_report(graph, warnings))
     }
 
+    pub fn complete_multipartite_graph(
+        &mut self,
+        subset_sizes: &[usize],
+    ) -> Result<GenerationReport, GenerationError> {
+        let operation = "complete_multipartite_graph";
+        let mut total_nodes = 0usize;
+        let mut edge_count = 0usize;
+        for &size in subset_sizes {
+            let new_edges =
+                total_nodes
+                    .checked_mul(size)
+                    .ok_or_else(|| GenerationError::FailClosed {
+                        operation,
+                        reason: "edge count overflow".to_owned(),
+                    })?;
+            edge_count =
+                edge_count
+                    .checked_add(new_edges)
+                    .ok_or_else(|| GenerationError::FailClosed {
+                        operation,
+                        reason: "edge count overflow".to_owned(),
+                    })?;
+            total_nodes =
+                total_nodes
+                    .checked_add(size)
+                    .ok_or_else(|| GenerationError::FailClosed {
+                        operation,
+                        reason: "node count overflow".to_owned(),
+                    })?;
+        }
+
+        if total_nodes > MAX_N_GENERIC {
+            let reason = format!("node count {total_nodes} exceeds max_allowed={MAX_N_GENERIC}");
+            self.record(operation, DecisionAction::FailClosed, 0.95, reason.clone());
+            return Err(GenerationError::FailClosed { operation, reason });
+        }
+
+        let max_dense_edges = MAX_N_COMPLETE * (MAX_N_COMPLETE - 1) / 2;
+        if edge_count > max_dense_edges {
+            let reason = format!("edge count {edge_count} exceeds max_allowed={max_dense_edges}");
+            self.record(operation, DecisionAction::FailClosed, 0.95, reason.clone());
+            return Err(GenerationError::FailClosed { operation, reason });
+        }
+
+        let mut graph = Graph::new(self.mode);
+        let mut node_labels = Vec::with_capacity(total_nodes);
+        let mut extents = Vec::with_capacity(subset_sizes.len());
+        let mut start = 0usize;
+        for (subset_index, &size) in subset_sizes.iter().enumerate() {
+            let end = start + size;
+            extents.push((start, end));
+            let subset_value =
+                i64::try_from(subset_index).map_err(|_| GenerationError::FailClosed {
+                    operation,
+                    reason: format!("subset index {subset_index} exceeds i64 range"),
+                })?;
+            for node in start..end {
+                let label = node.to_string();
+                let mut attrs = fnx_classes::AttrMap::new();
+                attrs.insert(
+                    "subset".to_owned(),
+                    fnx_runtime::CgseValue::Int(subset_value),
+                );
+                graph.add_node_with_attrs(label.clone(), attrs);
+                node_labels.push(label);
+            }
+            start = end;
+        }
+
+        for (left_index, &(left_start, left_end)) in extents.iter().enumerate() {
+            for &(right_start, right_end) in extents.iter().skip(left_index + 1) {
+                for left in left_start..left_end {
+                    for right in right_start..right_end {
+                        graph
+                            .add_edge(node_labels[left].clone(), node_labels[right].clone())
+                            .map_err(|err| GenerationError::FailClosed {
+                                operation,
+                                reason: err.to_string(),
+                            })?;
+                    }
+                }
+            }
+        }
+
+        self.record(
+            operation,
+            DecisionAction::Allow,
+            0.05,
+            format!(
+                "generated complete multipartite graph with subsets={subset_sizes:?}, n={total_nodes}, m={edge_count}"
+            ),
+        );
+        Ok(self.finish_graph_report(graph, Vec::new()))
+    }
+
     pub fn gnp_random_graph(
         &mut self,
         n: usize,
@@ -6636,6 +6731,92 @@ mod tests {
             .complete_graph(5)
             .expect("complete graph generation should succeed");
         assert_eq!(report.graph.edge_count(), 10);
+    }
+
+    #[test]
+    fn complete_multipartite_graph_matches_networkx_tripartite_example() {
+        let mut generator = GraphGenerator::strict();
+        let report = generator
+            .complete_multipartite_graph(&[1, 2, 3])
+            .expect("complete multipartite graph generation should succeed");
+
+        assert_eq!(report.graph.node_count(), 6);
+        assert_eq!(report.graph.edge_count(), 11);
+        assert_eq!(
+            sorted_graph_edges(&report.graph),
+            vec![
+                ("0".to_owned(), "1".to_owned()),
+                ("0".to_owned(), "2".to_owned()),
+                ("0".to_owned(), "3".to_owned()),
+                ("0".to_owned(), "4".to_owned()),
+                ("0".to_owned(), "5".to_owned()),
+                ("1".to_owned(), "3".to_owned()),
+                ("1".to_owned(), "4".to_owned()),
+                ("1".to_owned(), "5".to_owned()),
+                ("2".to_owned(), "3".to_owned()),
+                ("2".to_owned(), "4".to_owned()),
+                ("2".to_owned(), "5".to_owned()),
+            ]
+        );
+
+        let subsets = (0..6)
+            .map(|node| {
+                report
+                    .graph
+                    .node_attrs(&node.to_string())
+                    .and_then(|attrs| attrs.get("subset"))
+                    .cloned()
+            })
+            .collect::<Vec<Option<fnx_runtime::CgseValue>>>();
+        assert_eq!(
+            subsets,
+            vec![
+                Some(fnx_runtime::CgseValue::Int(0)),
+                Some(fnx_runtime::CgseValue::Int(1)),
+                Some(fnx_runtime::CgseValue::Int(1)),
+                Some(fnx_runtime::CgseValue::Int(2)),
+                Some(fnx_runtime::CgseValue::Int(2)),
+                Some(fnx_runtime::CgseValue::Int(2)),
+            ]
+        );
+    }
+
+    #[test]
+    fn complete_multipartite_graph_empty_and_single_subset_match_networkx() {
+        let mut generator = GraphGenerator::strict();
+        let null_report = generator
+            .complete_multipartite_graph(&[])
+            .expect("empty multipartite graph generation should succeed");
+        let isolates = generator
+            .complete_multipartite_graph(&[4])
+            .expect("single-subset multipartite graph generation should succeed");
+
+        assert_eq!(null_report.graph.node_count(), 0);
+        assert_eq!(null_report.graph.edge_count(), 0);
+        assert_eq!(isolates.graph.node_count(), 4);
+        assert_eq!(isolates.graph.edge_count(), 0);
+        for node in 0..4 {
+            assert_eq!(
+                isolates
+                    .graph
+                    .node_attrs(&node.to_string())
+                    .and_then(|attrs| attrs.get("subset")),
+                Some(&fnx_runtime::CgseValue::Int(0))
+            );
+        }
+    }
+
+    #[test]
+    fn complete_multipartite_graph_rejects_dense_edge_count() {
+        let mut generator = GraphGenerator::strict();
+        let err = generator
+            .complete_multipartite_graph(&[MAX_N_COMPLETE, MAX_N_COMPLETE])
+            .expect_err("dense multipartite graph should reject excessive edge count");
+
+        assert_eq!(
+            err.to_string(),
+            "generator `complete_multipartite_graph` failed closed: edge count 4000000 exceeds max_allowed=1999000"
+        );
     }
 
     #[test]
