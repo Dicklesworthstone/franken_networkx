@@ -9,6 +9,8 @@ Current native overrides:
 
 - ``collaboration_weighted_projected_graph`` — Newman's collaboration
   weighted projection (franken_networkx-f2e8).
+- ``generic_weighted_projected_graph`` — returns fnx.Graph
+- ``overlap_weighted_projected_graph`` — returns fnx.Graph
 """
 
 from __future__ import annotations
@@ -85,6 +87,32 @@ def weighted_projected_graph(B, nodes, ratio=False, *, backend=None, **backend_k
         "weighted_projected_graph", backend, backend_kwargs
     )
     nx_result = _nx_bipartite.weighted_projected_graph(B, nodes, ratio=ratio)
+    return _from_nx_graph(nx_result)
+
+
+def generic_weighted_projected_graph(B, nodes, weight_function=None, *, backend=None, **backend_kwargs):
+    """Return a weighted projection of B with a user-specified weight function.
+
+    Wraps ``networkx.algorithms.bipartite.generic_weighted_projected_graph`` and
+    converts the result to an fnx graph type for drop-in compatibility.
+    """
+    _fnx._validate_backend_dispatch_keywords(
+        "generic_weighted_projected_graph", backend, backend_kwargs
+    )
+    nx_result = _nx_bipartite.generic_weighted_projected_graph(B, nodes, weight_function=weight_function)
+    return _from_nx_graph(nx_result)
+
+
+def overlap_weighted_projected_graph(B, nodes, jaccard=True, *, backend=None, **backend_kwargs):
+    """Return a weighted projection of B using overlap/Jaccard coefficients.
+
+    Wraps ``networkx.algorithms.bipartite.overlap_weighted_projected_graph`` and
+    converts the result to an fnx graph type for drop-in compatibility.
+    """
+    _fnx._validate_backend_dispatch_keywords(
+        "overlap_weighted_projected_graph", backend, backend_kwargs
+    )
+    nx_result = _nx_bipartite.overlap_weighted_projected_graph(B, nodes, jaccard=jaccard)
     return _from_nx_graph(nx_result)
 
 
