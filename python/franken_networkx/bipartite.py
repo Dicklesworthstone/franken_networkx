@@ -177,3 +177,52 @@ def reverse_havel_hakimi_graph(aseq, bseq, create_using=None, *, backend=None, *
     )
     nx_result = _nx_bipartite.reverse_havel_hakimi_graph(aseq, bseq, create_using=create_using)
     return _from_nx_graph(nx_result, create_using=create_using)
+
+
+def from_biadjacency_matrix(A, create_using=None, edge_attribute="weight", *, row_order=None, column_order=None, backend=None, **backend_kwargs):
+    """Create a bipartite graph from a biadjacency matrix.
+
+    Wraps ``networkx.algorithms.bipartite.from_biadjacency_matrix`` and converts
+    the result to an fnx graph type for drop-in compatibility.
+    """
+    _fnx._validate_backend_dispatch_keywords(
+        "from_biadjacency_matrix", backend, backend_kwargs
+    )
+    nx_result = _nx_bipartite.from_biadjacency_matrix(
+        A, create_using=create_using, edge_attribute=edge_attribute,
+        row_order=row_order, column_order=column_order
+    )
+    return _from_nx_graph(nx_result, create_using=create_using)
+
+
+def parse_edgelist(lines, comments="#", delimiter=None, create_using=None, nodetype=None, data=True, *, backend=None, **backend_kwargs):
+    """Parse lines of a bipartite graph edge list representation.
+
+    Wraps ``networkx.algorithms.bipartite.parse_edgelist`` and converts
+    the result to an fnx graph type for drop-in compatibility.
+    """
+    _fnx._validate_backend_dispatch_keywords(
+        "parse_edgelist", backend, backend_kwargs
+    )
+    nx_result = _nx_bipartite.parse_edgelist(
+        lines, comments=comments, delimiter=delimiter,
+        create_using=create_using, nodetype=nodetype, data=data
+    )
+    return _from_nx_graph(nx_result, create_using=create_using)
+
+
+def read_edgelist(path, comments="#", delimiter=None, create_using=None, nodetype=None, data=True, edgetype=None, encoding="utf-8", *, backend=None, **backend_kwargs):
+    """Read a bipartite graph edge list from a file.
+
+    Wraps ``networkx.algorithms.bipartite.read_edgelist`` and converts
+    the result to an fnx graph type for drop-in compatibility.
+    """
+    _fnx._validate_backend_dispatch_keywords(
+        "read_edgelist", backend, backend_kwargs
+    )
+    nx_result = _nx_bipartite.read_edgelist(
+        path, comments=comments, delimiter=delimiter,
+        create_using=create_using, nodetype=nodetype, data=data,
+        edgetype=edgetype, encoding=encoding
+    )
+    return _from_nx_graph(nx_result, create_using=create_using)
