@@ -2549,6 +2549,127 @@ impl GraphGenerator {
         Ok(self.finish_graph_report(graph, Vec::new()))
     }
 
+    pub fn sudoku_graph(&mut self, n: usize) -> Result<GenerationReport, GenerationError> {
+        let operation = "sudoku_graph";
+        let n2 = n
+            .checked_mul(n)
+            .ok_or_else(|| GenerationError::FailClosed {
+                operation,
+                reason: format!("node count overflow for n={n}"),
+            })?;
+        let n3 = n2
+            .checked_mul(n)
+            .ok_or_else(|| GenerationError::FailClosed {
+                operation,
+                reason: format!("node count overflow for n={n}"),
+            })?;
+        let n4 = n3
+            .checked_mul(n)
+            .ok_or_else(|| GenerationError::FailClosed {
+                operation,
+                reason: format!("node count overflow for n={n}"),
+            })?;
+        if n4 > MAX_N_GENERIC {
+            let reason = format!("node count {n4} exceeds max_allowed={MAX_N_GENERIC}");
+            self.record(operation, DecisionAction::FailClosed, 0.95, reason.clone());
+            return Err(GenerationError::FailClosed { operation, reason });
+        }
+
+        let edge_count = if n < 2 {
+            0
+        } else {
+            let degree_term = n
+                .checked_mul(3)
+                .and_then(|value| value.checked_add(1))
+                .ok_or_else(|| GenerationError::FailClosed {
+                    operation,
+                    reason: format!("edge count overflow for n={n}"),
+                })?;
+            let degree =
+                (n - 1)
+                    .checked_mul(degree_term)
+                    .ok_or_else(|| GenerationError::FailClosed {
+                        operation,
+                        reason: format!("edge count overflow for n={n}"),
+                    })?;
+            n4.checked_mul(degree)
+                .map(|value| value / 2)
+                .ok_or_else(|| GenerationError::FailClosed {
+                    operation,
+                    reason: format!("edge count overflow for n={n}"),
+                })?
+        };
+        let max_dense_edges = MAX_N_COMPLETE * (MAX_N_COMPLETE - 1) / 2;
+        if edge_count > max_dense_edges {
+            let reason = format!("edge count {edge_count} exceeds max_allowed={max_dense_edges}");
+            self.record(operation, DecisionAction::FailClosed, 0.95, reason.clone());
+            return Err(GenerationError::FailClosed { operation, reason });
+        }
+
+        let (mut graph, node_labels) = graph_with_n_nodes(self.mode, n4);
+        if n >= 2 {
+            for row_no in 0..n2 {
+                let row_start = row_no * n2;
+                for j in 1..n2 {
+                    for i in 0..j {
+                        graph
+                            .add_edge(
+                                node_labels[row_start + i].clone(),
+                                node_labels[row_start + j].clone(),
+                            )
+                            .map_err(|err| GenerationError::FailClosed {
+                                operation,
+                                reason: err.to_string(),
+                            })?;
+                    }
+                }
+            }
+
+            for col_no in 0..n2 {
+                let mut j = col_no;
+                while j < n4 {
+                    let mut i = col_no;
+                    while i < j {
+                        graph
+                            .add_edge(node_labels[i].clone(), node_labels[j].clone())
+                            .map_err(|err| GenerationError::FailClosed {
+                                operation,
+                                reason: err.to_string(),
+                            })?;
+                        i += n2;
+                    }
+                    j += n2;
+                }
+            }
+
+            for band_no in 0..n {
+                for stack_no in 0..n {
+                    let box_start = n3 * band_no + n * stack_no;
+                    for j in 1..n2 {
+                        for i in 0..j {
+                            let u = box_start + (i % n) + n2 * (i / n);
+                            let v = box_start + (j % n) + n2 * (j / n);
+                            graph
+                                .add_edge(node_labels[u].clone(), node_labels[v].clone())
+                                .map_err(|err| GenerationError::FailClosed {
+                                    operation,
+                                    reason: err.to_string(),
+                                })?;
+                        }
+                    }
+                }
+            }
+        }
+
+        self.record(
+            operation,
+            DecisionAction::Allow,
+            0.04,
+            format!("generated sudoku graph with n={n}, nodes={n4}, edges={edge_count}"),
+        );
+        Ok(self.finish_graph_report(graph, Vec::new()))
+    }
+
     pub fn gnp_random_graph(
         &mut self,
         n: usize,
@@ -7897,6 +8018,108 @@ mod tests {
         assert_eq!(
             err.to_string(),
             "generator `windmill_graph` failed closed: edge count 4002000 exceeds max_allowed=1999000"
+        );
+    }
+
+    #[test]
+    fn sudoku_graph_zero_and_one_order_match_networkx() {
+        let mut generator = GraphGenerator::strict();
+        let zero = generator
+            .sudoku_graph(0)
+            .expect("zero-order sudoku graph generation should succeed");
+        let one = generator
+            .sudoku_graph(1)
+            .expect("one-order sudoku graph generation should succeed");
+
+        assert_eq!(zero.graph.node_count(), 0);
+        assert_eq!(zero.graph.edge_count(), 0);
+        assert_eq!(one.graph.snapshot().nodes, vec!["0"]);
+        assert_eq!(one.graph.edge_count(), 0);
+    }
+
+    #[test]
+    fn sudoku_graph_order_two_matches_networkx_neighbors() {
+        let mut generator = GraphGenerator::strict();
+        let report = generator
+            .sudoku_graph(2)
+            .expect("order-two sudoku graph generation should succeed");
+
+        assert_eq!(report.graph.node_count(), 16);
+        assert_eq!(report.graph.edge_count(), 56);
+        let degrees = (0..16)
+            .map(|node| report.graph.degree(&node.to_string()))
+            .collect::<Vec<usize>>();
+        assert_eq!(degrees, vec![7; 16]);
+
+        let mut neighbors = report.graph.neighbors("6").unwrap_or_default();
+        neighbors.sort();
+        assert_eq!(
+            neighbors,
+            vec![
+                "10".to_owned(),
+                "14".to_owned(),
+                "2".to_owned(),
+                "3".to_owned(),
+                "4".to_owned(),
+                "5".to_owned(),
+                "7".to_owned(),
+            ]
+        );
+    }
+
+    #[test]
+    fn sudoku_graph_default_order_matches_networkx_counts_and_neighbors() {
+        let mut generator = GraphGenerator::strict();
+        let report = generator
+            .sudoku_graph(3)
+            .expect("default-order sudoku graph generation should succeed");
+
+        assert_eq!(report.graph.node_count(), 81);
+        assert_eq!(report.graph.edge_count(), 810);
+        let degrees = (0..81)
+            .map(|node| report.graph.degree(&node.to_string()))
+            .collect::<Vec<usize>>();
+        assert_eq!(degrees, vec![20; 81]);
+
+        let mut neighbors = report.graph.neighbors("42").unwrap_or_default();
+        neighbors.sort();
+        assert_eq!(
+            neighbors,
+            vec![
+                "15".to_owned(),
+                "24".to_owned(),
+                "33".to_owned(),
+                "34".to_owned(),
+                "35".to_owned(),
+                "36".to_owned(),
+                "37".to_owned(),
+                "38".to_owned(),
+                "39".to_owned(),
+                "40".to_owned(),
+                "41".to_owned(),
+                "43".to_owned(),
+                "44".to_owned(),
+                "51".to_owned(),
+                "52".to_owned(),
+                "53".to_owned(),
+                "6".to_owned(),
+                "60".to_owned(),
+                "69".to_owned(),
+                "78".to_owned(),
+            ]
+        );
+    }
+
+    #[test]
+    fn sudoku_graph_rejects_dense_edge_count() {
+        let mut generator = GraphGenerator::strict();
+        let err = generator
+            .sudoku_graph(17)
+            .expect_err("dense sudoku graph should reject excessive edge count");
+
+        assert_eq!(
+            err.to_string(),
+            "generator `sudoku_graph` failed closed: edge count 34744736 exceeds max_allowed=1999000"
         );
     }
 
