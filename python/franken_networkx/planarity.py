@@ -18,6 +18,16 @@ import networkx.algorithms.planarity as _nx_planarity
 import franken_networkx as _fnx
 from franken_networkx.readwrite import _from_nx_graph
 
+# br-r37-c1-56nd2: nx's ``planarity.__all__`` only star-exports
+# ``check_planarity``, ``is_planar`` and ``PlanarEmbedding``.
+# ``check_planarity_recursive`` is a module-level public function but is
+# absent from ``__all__``, so ``import *`` above does not pick it up.
+# Re-export it explicitly for ``fnx.algorithms.planarity`` parity — the
+# upstream function already handles backend dispatch and returns an
+# ``nx.PlanarEmbedding`` certificate, so no native wrapper is needed
+# (this mirrors how ``check_planarity`` is surfaced via the star import).
+check_planarity_recursive = _nx_planarity.check_planarity_recursive
+
 
 def get_counterexample(G, *, backend=None, **backend_kwargs):
     """Obtains a Kuratowski subgraph.
