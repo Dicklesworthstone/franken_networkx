@@ -13078,11 +13078,16 @@ class _ApproximationNamespace:
         # ``(G, *args, **kwargs)`` shape that hid every kwarg from
         # introspection and let typos through silently.
         import functools as _functools
+        from franken_networkx.readwrite import _from_nx_graph
 
         @_functools.wraps(nx_func)
         def wrapper(G, *args, **kwargs):
             nx_G = _networkx_graph_for_parity(G)
-            return nx_func(nx_G, *args, **kwargs)
+            result = nx_func(nx_G, *args, **kwargs)
+            # br-r37-c1-apxret: convert graph results to fnx types
+            if isinstance(result, _nx.Graph):
+                return _from_nx_graph(result)
+            return result
 
         return wrapper
 
