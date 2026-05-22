@@ -41890,7 +41890,7 @@ def __getattr__(name):
     # br-r37-c1-als7z: for submodules that fnx has its own version of,
     # return the fnx submodule instead of nx's so fnx.generators.balanced_tree
     # returns fnx types instead of nx types.
-    _fnx_submodules = {"generators", "algorithms", "readwrite", "linalg", "utils", "drawing", "classes", "connectivity"}
+    _fnx_submodules = {"generators", "algorithms", "readwrite", "linalg", "utils", "drawing", "classes", "connectivity", "broadcasting"}
     if name in _fnx_submodules:
         import importlib
         try:
