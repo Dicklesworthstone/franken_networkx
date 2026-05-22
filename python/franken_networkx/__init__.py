@@ -13109,6 +13109,11 @@ class _ApproximationNamespace:
             # br-r37-c1-apxret: convert graph results to fnx types
             if isinstance(result, _nx.Graph):
                 return _from_nx_graph(result)
+            # br-r37-c1-treewidth: handle (int, Graph) tuple returns
+            if isinstance(result, tuple) and len(result) == 2:
+                first, second = result
+                if isinstance(second, _nx.Graph):
+                    return (first, _from_nx_graph(second))
             return result
 
         return wrapper
