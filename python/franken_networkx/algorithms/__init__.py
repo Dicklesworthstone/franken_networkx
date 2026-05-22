@@ -35,6 +35,7 @@ _FNX_OVERRIDE_SUBMODULES = {
     "dominance",
     "dominating",
     "efficiency_measures",
+    "graph_hashing",
     "hierarchy",
     "isolate",
     "mis",
@@ -246,6 +247,10 @@ _fnx_efficiency_measures = _importlib.import_module(
 )
 _sys.modules[f"{__name__}.efficiency_measures"] = _fnx_efficiency_measures
 efficiency_measures = _fnx_efficiency_measures  # Override in module globals
+
+_fnx_graph_hashing = _importlib.import_module("franken_networkx.graph_hashing")
+_sys.modules[f"{__name__}.graph_hashing"] = _fnx_graph_hashing
+graph_hashing = _fnx_graph_hashing  # Override in module globals
 
 _fnx_hierarchy = _importlib.import_module("franken_networkx.hierarchy")
 _sys.modules[f"{__name__}.hierarchy"] = _fnx_hierarchy
