@@ -39,6 +39,7 @@ _FNX_OVERRIDE_SUBMODULES = {
     "isolate",
     "mis",
     "non_randomness",
+    "perfect_graph",
     "richclub",
     "smetric",
     "voronoi",
@@ -260,6 +261,10 @@ mis = _fnx_mis  # Override in module globals
 _fnx_non_randomness = _importlib.import_module("franken_networkx._non_randomness")
 _sys.modules[f"{__name__}.non_randomness"] = _fnx_non_randomness
 non_randomness = _fnx_non_randomness.non_randomness  # Match nx: function attr
+
+_fnx_perfect_graph = _importlib.import_module("franken_networkx.perfect_graph")
+_sys.modules[f"{__name__}.perfect_graph"] = _fnx_perfect_graph
+perfect_graph = _fnx_perfect_graph  # Override in module globals
 
 _fnx_richclub = _importlib.import_module("franken_networkx.richclub")
 _sys.modules[f"{__name__}.richclub"] = _fnx_richclub
