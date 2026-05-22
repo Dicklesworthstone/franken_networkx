@@ -116,6 +116,19 @@ def overlap_weighted_projected_graph(B, nodes, jaccard=True, *, backend=None, **
     return _from_nx_graph(nx_result)
 
 
+def random_graph(n, m, p, seed=None, directed=False, *, backend=None, **backend_kwargs):
+    """Return a bipartite random graph.
+
+    Wraps ``networkx.algorithms.bipartite.random_graph`` and converts
+    the result to an fnx graph type for drop-in compatibility.
+    """
+    _fnx._validate_backend_dispatch_keywords(
+        "random_graph", backend, backend_kwargs
+    )
+    nx_result = _nx_bipartite.random_graph(n, m, p, seed=seed, directed=directed)
+    return _from_nx_graph(nx_result)
+
+
 def gnmk_random_graph(n, m, k, seed=None, directed=False, *, backend=None, **backend_kwargs):
     """Return a random bipartite graph G_{n,m,k}.
 
