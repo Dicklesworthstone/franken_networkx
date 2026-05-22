@@ -17,6 +17,18 @@ import networkx.algorithms.dag as _nx_dag
 import franken_networkx as _fnx
 from franken_networkx.readwrite import _from_nx_graph
 
+# br-r37-c1-4gmg2: has_cycle, colliders and v_structures are module-level
+# public functions of networkx.algorithms.dag but are absent from
+# dag.__all__, so the star import above does not pick them up.  Re-export
+# them explicitly for fnx.algorithms.dag parity (same root cause as
+# check_planarity_recursive, br-r37-c1-56nd2).  nx's implementations
+# already accept fnx graph types, handle backend dispatch, and raise the
+# correct NetworkXError / NetworkXNotImplemented on undirected input, so
+# no native wrapper is needed.
+has_cycle = _nx_dag.has_cycle
+colliders = _nx_dag.colliders
+v_structures = _nx_dag.v_structures
+
 
 def dag_to_branching(G, *, backend=None, **backend_kwargs):
     """Return a branching representing the DAG.
