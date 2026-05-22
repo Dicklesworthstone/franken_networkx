@@ -850,6 +850,15 @@ impl GraphGenerator {
         Ok(self.finish_graph_report(graph, warnings))
     }
 
+    pub fn tetrahedral_graph(&mut self) -> Result<GenerationReport, GenerationError> {
+        self.small_named_graph_from_edges(
+            "tetrahedral_graph",
+            "Platonic Tetrahedral Graph",
+            4,
+            &[(0, 1), (0, 2), (0, 3), (1, 2), (1, 3), (2, 3)],
+        )
+    }
+
     pub fn complete_graph(&mut self, n: usize) -> Result<GenerationReport, GenerationError> {
         let (n, warnings) = self.validate_n("complete_graph", n, MAX_N_COMPLETE)?;
         let graph = Graph::complete_graph(self.mode, n);
@@ -4409,6 +4418,36 @@ mod tests {
             generator.generalized_petersen_graph(5, 3),
             Err(GenerationError::FailClosed { .. })
         ));
+    }
+
+    #[test]
+    fn tetrahedral_graph_matches_networkx_edges_and_degrees() {
+        let mut generator = GraphGenerator::strict();
+        let report = generator
+            .tetrahedral_graph()
+            .expect("Platonic Tetrahedral Graph generation should succeed");
+        assert_eq!(report.graph.node_count(), 4);
+        assert_eq!(report.graph.edge_count(), 6);
+
+        let mut expected_edges = vec![
+            ("0".to_owned(), "1".to_owned()),
+            ("0".to_owned(), "2".to_owned()),
+            ("0".to_owned(), "3".to_owned()),
+            ("1".to_owned(), "2".to_owned()),
+            ("1".to_owned(), "3".to_owned()),
+            ("2".to_owned(), "3".to_owned()),
+        ];
+        expected_edges.sort();
+        assert_eq!(sorted_graph_edges(&report.graph), expected_edges);
+
+        let degrees = report
+            .graph
+            .snapshot()
+            .nodes
+            .iter()
+            .map(|node| report.graph.degree(node.as_str()))
+            .collect::<Vec<usize>>();
+        assert_eq!(degrees, vec![3; 4]);
     }
 
     #[test]
