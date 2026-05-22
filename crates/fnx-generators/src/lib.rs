@@ -1723,6 +1723,132 @@ impl GraphGenerator {
         Ok(self.finish_digraph_report(graph, warnings))
     }
 
+    /// Generate a preferential-attachment random k-out directed multigraph.
+    ///
+    /// This follows NetworkX's pure-Python `random_k_out_graph` branch:
+    /// active sources are chosen uniformly until they reach out-degree `k`,
+    /// while targets are chosen by ordered roulette-wheel sampling over
+    /// mutable preferential weights.
+    pub fn random_k_out_graph(
+        &mut self,
+        n: usize,
+        k: usize,
+        alpha: f64,
+        self_loops: bool,
+        seed: u64,
+    ) -> Result<MultiDiGenerationReport, GenerationError> {
+        let (n, warnings) = self.validate_n("random_k_out_graph", n, MAX_N_GNP)?;
+        if alpha < 0.0 {
+            return Err(GenerationError::FailClosed {
+                operation: "random_k_out_graph",
+                reason: "alpha must be positive".to_owned(),
+            });
+        }
+
+        let iterations = n
+            .checked_mul(k)
+            .ok_or_else(|| GenerationError::FailClosed {
+                operation: "random_k_out_graph",
+                reason: "k * n overflowed".to_owned(),
+            })?;
+
+        let mut graph = MultiDiGraph::new(self.mode);
+        let node_labels = (0..n)
+            .map(|node| {
+                let label = node.to_string();
+                let _ = graph.add_node(label.clone());
+                label
+            })
+            .collect::<Vec<String>>();
+
+        if iterations == 0 {
+            self.record(
+                "random_k_out_graph",
+                DecisionAction::Allow,
+                0.05,
+                format!("generated empty random k-out graph: n={n}, k={k}, alpha={alpha}"),
+            );
+            return Ok(self.finish_multidigraph_report(graph, warnings));
+        }
+
+        let mut rng = PythonRandom::new(seed);
+        let mut weights = (0..n)
+            .map(|node| (node, alpha))
+            .collect::<Vec<(usize, f64)>>();
+        let mut active_sources = (0..n).collect::<Vec<usize>>();
+        let mut out_strengths = vec![0usize; n];
+
+        for _ in 0..iterations {
+            if active_sources.is_empty() {
+                return Err(GenerationError::FailClosed {
+                    operation: "random_k_out_graph",
+                    reason: "no active sources remain".to_owned(),
+                });
+            }
+            let source_position = rng.choice_index(active_sources.len());
+            let source = active_sources[source_position];
+
+            let popped_weight = if self_loops {
+                None
+            } else {
+                let Some(weight_position) = weights.iter().position(|(node, _)| *node == source)
+                else {
+                    return Err(GenerationError::FailClosed {
+                        operation: "random_k_out_graph",
+                        reason: "source weight missing".to_owned(),
+                    });
+                };
+                Some(weights.remove(weight_position))
+            };
+
+            let Some(target) = weighted_choice_ordered(&weights, &mut rng) else {
+                return Err(GenerationError::FailClosed {
+                    operation: "random_k_out_graph",
+                    reason: "weighted target choice has no positive candidate".to_owned(),
+                });
+            };
+
+            if let Some(weight) = popped_weight {
+                weights.push(weight);
+            }
+
+            graph
+                .add_edge_with_attrs(
+                    node_labels[source].clone(),
+                    node_labels[target].clone(),
+                    fnx_classes::AttrMap::new(),
+                )
+                .map_err(|err| GenerationError::FailClosed {
+                    operation: "random_k_out_graph",
+                    reason: err.to_string(),
+                })?;
+
+            if let Some((_, target_weight)) = weights.iter_mut().find(|(node, _)| *node == target) {
+                *target_weight += 1.0;
+            } else {
+                return Err(GenerationError::FailClosed {
+                    operation: "random_k_out_graph",
+                    reason: "target weight missing".to_owned(),
+                });
+            }
+
+            out_strengths[source] = out_strengths[source].saturating_add(1);
+            if out_strengths[source] == k {
+                active_sources.remove(source_position);
+            }
+        }
+
+        self.record(
+            "random_k_out_graph",
+            DecisionAction::Allow,
+            0.08,
+            format!(
+                "generated random k-out graph: n={n}, k={k}, alpha={alpha}, self_loops={self_loops}, seed={seed}"
+            ),
+        );
+        Ok(self.finish_multidigraph_report(graph, warnings))
+    }
+
     /// Generate a growing network digraph (GN model).
     ///
     /// Nodes are added one at a time. Each new node connects to an existing
@@ -2507,6 +2633,18 @@ fn python_sample_indices(
     }
 
     Ok(result)
+}
+
+fn weighted_choice_ordered(weights: &[(usize, f64)], rng: &mut PythonRandom) -> Option<usize> {
+    let total = weights.iter().map(|(_, weight)| *weight).sum::<f64>();
+    let mut threshold = rng.random() * total;
+    for (node, weight) in weights {
+        threshold -= weight;
+        if threshold < 0.0 {
+            return Some(*node);
+        }
+    }
+    None
 }
 
 /// Sample `count` distinct elements from `seq` with replacement-by-set,
@@ -3553,6 +3691,84 @@ mod tests {
         let err = gg
             .random_uniform_k_out_digraph(3, 3, false, 1)
             .expect_err("without-replacement branch cannot sample enough targets");
+        assert!(matches!(err, GenerationError::FailClosed { .. }));
+    }
+
+    #[test]
+    fn random_k_out_graph_matches_networkx_python_branch_seeded_examples() {
+        let mut gg = GraphGenerator::strict();
+        let loops = gg
+            .random_k_out_graph(5, 2, 1.0, true, 42)
+            .expect("random k-out graph should succeed");
+        assert!(loops.graph.is_directed());
+        assert!(loops.graph.is_multigraph());
+        let loop_edges = loops
+            .graph
+            .snapshot()
+            .edges
+            .into_iter()
+            .map(|edge| (edge.source, edge.target, edge.key))
+            .collect::<Vec<(String, String, usize)>>();
+        assert_eq!(
+            loop_edges,
+            vec![
+                ("0".to_owned(), "0".to_owned(), 0),
+                ("0".to_owned(), "0".to_owned(), 1),
+                ("1".to_owned(), "3".to_owned(), 0),
+                ("1".to_owned(), "1".to_owned(), 0),
+                ("2".to_owned(), "0".to_owned(), 0),
+                ("2".to_owned(), "3".to_owned(), 0),
+                ("3".to_owned(), "0".to_owned(), 0),
+                ("3".to_owned(), "0".to_owned(), 1),
+                ("4".to_owned(), "0".to_owned(), 0),
+                ("4".to_owned(), "1".to_owned(), 0),
+            ]
+        );
+
+        let no_loops = gg
+            .random_k_out_graph(5, 2, 1.0, false, 42)
+            .expect("random k-out graph without self-loops should succeed");
+        let no_loop_edges = no_loops
+            .graph
+            .snapshot()
+            .edges
+            .into_iter()
+            .map(|edge| (edge.source, edge.target, edge.key))
+            .collect::<Vec<(String, String, usize)>>();
+        assert_eq!(
+            no_loop_edges,
+            vec![
+                ("0".to_owned(), "1".to_owned(), 0),
+                ("0".to_owned(), "1".to_owned(), 1),
+                ("1".to_owned(), "0".to_owned(), 0),
+                ("1".to_owned(), "3".to_owned(), 0),
+                ("2".to_owned(), "1".to_owned(), 0),
+                ("2".to_owned(), "3".to_owned(), 0),
+                ("3".to_owned(), "0".to_owned(), 0),
+                ("3".to_owned(), "0".to_owned(), 1),
+                ("4".to_owned(), "3".to_owned(), 0),
+                ("4".to_owned(), "1".to_owned(), 0),
+            ]
+        );
+    }
+
+    #[test]
+    fn random_k_out_graph_handles_empty_and_invalid_inputs() {
+        let mut gg = GraphGenerator::strict();
+        let empty = gg
+            .random_k_out_graph(3, 0, 1.0, false, 1)
+            .expect("k=0 should produce only nodes");
+        assert_eq!(empty.graph.node_count(), 3);
+        assert_eq!(empty.graph.edge_count(), 0);
+
+        let err = gg
+            .random_k_out_graph(3, 1, -0.1, true, 1)
+            .expect_err("negative alpha should fail like NetworkX");
+        assert!(matches!(err, GenerationError::FailClosed { .. }));
+
+        let err = gg
+            .random_k_out_graph(1, 1, 1.0, false, 1)
+            .expect_err("no self-loop branch has no target for n=1");
         assert!(matches!(err, GenerationError::FailClosed { .. }));
     }
 
