@@ -559,41 +559,22 @@ impl GraphGenerator {
         let mut graph = report.graph;
         warnings.extend(report.warnings);
 
-        // Maintain a "repeated list" of nodes for proportional-to-degree sampling.
-        // Each time an edge (u, v) is added, both u and v appear once more.
-        let mut repeated_nodes: Vec<usize> = vec![0; m];
-        // Star graph (m+1 nodes) has node 0 as center connected to nodes 1..m.
-        // Degree(0) = m, Degree(1..m) = 1.
-        for i in 1..=m {
-            repeated_nodes.push(i);
-        }
-
-        // Node labels are "0", "1", ..., "n-1"
-        let node_labels: Vec<String> = (0..n).map(|i| i.to_string()).collect();
-
+        let mut repeated_nodes = repeated_nodes_from_graph(&graph);
         let mut rng = PythonRandom::new(seed);
-        // Grow the graph: add nodes m+1..n-1 one at a time.
-        for source in (m + 1)..n {
-            graph.add_node(node_labels[source].clone());
-
-            // Choose m distinct targets from existing nodes proportional to degree.
-            let mut targets = Vec::with_capacity(m);
-            let mut target_set = std::collections::HashSet::new();
-
-            while targets.len() < m {
-                let idx = rng.randrange(repeated_nodes.len());
-                let candidate = repeated_nodes[idx];
-                if target_set.insert(candidate) {
-                    targets.push(candidate);
-                }
+        let mut source = graph.node_count();
+        while source < n {
+            let targets = random_subset_python(&repeated_nodes, m, &mut rng);
+            for target in &targets {
+                graph
+                    .add_edge(source.to_string(), target.to_string())
+                    .map_err(|err| GenerationError::FailClosed {
+                        operation: "barabasi_albert_graph",
+                        reason: err.to_string(),
+                    })?;
             }
-
-            // Add edges from new node to chosen targets.
-            for &target in &targets {
-                let _ = graph.add_edge(node_labels[source].clone(), node_labels[target].clone());
-                repeated_nodes.push(source);
-                repeated_nodes.push(target);
-            }
+            repeated_nodes.extend(targets.iter().copied());
+            repeated_nodes.extend(std::iter::repeat_n(source, m));
+            source += 1;
         }
 
         self.record(
@@ -601,6 +582,83 @@ impl GraphGenerator {
             DecisionAction::Allow,
             0.08,
             format!("generated barabasi-albert graph with n={n}, m={m}, seed={seed}"),
+        );
+        Ok(self.finish_graph_report(graph, warnings))
+    }
+
+    /// Generate a dual Barabási-Albert preferential attachment graph.
+    ///
+    /// Each new node attaches with `m1` edges with probability `p`, otherwise
+    /// `m2` edges. This mirrors NetworkX's default initial graph and seeded
+    /// repeated-degree sampling contract.
+    pub fn dual_barabasi_albert_graph(
+        &mut self,
+        n: usize,
+        m1: usize,
+        m2: usize,
+        p: f64,
+        seed: u64,
+    ) -> Result<GenerationReport, GenerationError> {
+        let (n, mut warnings) = self.validate_n("dual_barabasi_albert_graph", n, MAX_N_GNP)?;
+        let (p, p_warning) = self.validate_probability("dual_barabasi_albert_graph", p)?;
+        if let Some(warning) = p_warning {
+            warnings.push(warning);
+        }
+
+        if m1 < 1 || m1 >= n {
+            return Err(GenerationError::FailClosed {
+                operation: "dual_barabasi_albert_graph",
+                reason: format!("requires 1 <= m1 < n, got m1={m1}, n={n}"),
+            });
+        }
+        if m2 < 1 || m2 >= n {
+            return Err(GenerationError::FailClosed {
+                operation: "dual_barabasi_albert_graph",
+                reason: format!("requires 1 <= m2 < n, got m2={m2}, n={n}"),
+            });
+        }
+
+        if p == 1.0 {
+            let mut report = self.barabasi_albert_graph(n, m1, seed)?;
+            warnings.append(&mut report.warnings);
+            return Ok(self.finish_graph_report(report.graph, warnings));
+        }
+        if p == 0.0 {
+            let mut report = self.barabasi_albert_graph(n, m2, seed)?;
+            warnings.append(&mut report.warnings);
+            return Ok(self.finish_graph_report(report.graph, warnings));
+        }
+
+        let report = self.star_graph(m1.max(m2))?;
+        let mut graph = report.graph;
+        warnings.extend(report.warnings);
+
+        let mut repeated_nodes = repeated_nodes_from_graph(&graph);
+        let mut rng = PythonRandom::new(seed);
+        let mut source = graph.node_count();
+        while source < n {
+            let m = if rng.random() < p { m1 } else { m2 };
+            let targets = random_subset_python(&repeated_nodes, m, &mut rng);
+            for target in &targets {
+                graph
+                    .add_edge(source.to_string(), target.to_string())
+                    .map_err(|err| GenerationError::FailClosed {
+                        operation: "dual_barabasi_albert_graph",
+                        reason: err.to_string(),
+                    })?;
+            }
+            repeated_nodes.extend(targets.iter().copied());
+            repeated_nodes.extend(std::iter::repeat_n(source, m));
+            source += 1;
+        }
+
+        self.record(
+            "dual_barabasi_albert_graph",
+            DecisionAction::Allow,
+            0.08,
+            format!(
+                "generated dual barabasi-albert graph with n={n}, m1={m1}, m2={m2}, p={p}, seed={seed}"
+            ),
         );
         Ok(self.finish_graph_report(graph, warnings))
     }
@@ -1669,6 +1727,16 @@ fn graph_is_connected(graph: &Graph) -> bool {
     visited.len() == nodes.len()
 }
 
+fn repeated_nodes_from_graph(graph: &Graph) -> Vec<usize> {
+    let mut repeated = Vec::new();
+    for node in graph.nodes_ordered() {
+        if let Ok(index) = node.parse::<usize>() {
+            repeated.extend(std::iter::repeat_n(index, graph.degree(node)));
+        }
+    }
+    repeated
+}
+
 /// Sample `count` distinct elements from `seq` with replacement-by-set,
 /// matching the inner loop of nx's `_random_subset`.
 ///
@@ -2243,6 +2311,87 @@ mod tests {
         assert_eq!(report.graph.node_count(), 10);
         // Initial star(1) has 1 edge; 8 new nodes each attach 1 edge → 1 + 8 = 9 edges.
         assert_eq!(report.graph.edge_count(), 9);
+    }
+
+    #[test]
+    fn dual_barabasi_albert_matches_networkx_seeded_example() {
+        let mut gg = GraphGenerator::strict();
+        let report = gg
+            .dual_barabasi_albert_graph(10, 1, 3, 0.5, 7)
+            .expect("dual ba should succeed");
+        assert_eq!(report.graph.node_count(), 10);
+        assert_eq!(
+            sorted_graph_edges(&report.graph),
+            vec![
+                ("0".to_owned(), "1".to_owned()),
+                ("0".to_owned(), "2".to_owned()),
+                ("0".to_owned(), "3".to_owned()),
+                ("0".to_owned(), "4".to_owned()),
+                ("0".to_owned(), "5".to_owned()),
+                ("0".to_owned(), "6".to_owned()),
+                ("0".to_owned(), "8".to_owned()),
+                ("0".to_owned(), "9".to_owned()),
+                ("5".to_owned(), "7".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn dual_barabasi_albert_degenerates_to_ba_for_probability_bounds() {
+        let mut gg = GraphGenerator::strict();
+        let p0 = gg
+            .dual_barabasi_albert_graph(8, 1, 3, 0.0, 5)
+            .expect("p=0 should use m2 ba");
+        assert_eq!(
+            sorted_graph_edges(&p0.graph),
+            vec![
+                ("0".to_owned(), "1".to_owned()),
+                ("0".to_owned(), "2".to_owned()),
+                ("0".to_owned(), "3".to_owned()),
+                ("0".to_owned(), "4".to_owned()),
+                ("0".to_owned(), "5".to_owned()),
+                ("0".to_owned(), "6".to_owned()),
+                ("1".to_owned(), "7".to_owned()),
+                ("2".to_owned(), "4".to_owned()),
+                ("2".to_owned(), "6".to_owned()),
+                ("3".to_owned(), "4".to_owned()),
+                ("3".to_owned(), "5".to_owned()),
+                ("3".to_owned(), "7".to_owned()),
+                ("4".to_owned(), "5".to_owned()),
+                ("4".to_owned(), "6".to_owned()),
+                ("4".to_owned(), "7".to_owned()),
+            ]
+        );
+
+        let p1 = gg
+            .dual_barabasi_albert_graph(8, 1, 3, 1.0, 5)
+            .expect("p=1 should use m1 ba");
+        assert_eq!(
+            sorted_graph_edges(&p1.graph),
+            vec![
+                ("0".to_owned(), "1".to_owned()),
+                ("0".to_owned(), "5".to_owned()),
+                ("1".to_owned(), "2".to_owned()),
+                ("1".to_owned(), "3".to_owned()),
+                ("2".to_owned(), "7".to_owned()),
+                ("3".to_owned(), "4".to_owned()),
+                ("4".to_owned(), "6".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn dual_barabasi_albert_rejects_invalid_m_values() {
+        let mut gg = GraphGenerator::strict();
+        let err = gg
+            .dual_barabasi_albert_graph(5, 0, 2, 0.5, 1)
+            .expect_err("m1=0 should fail");
+        assert!(matches!(err, GenerationError::FailClosed { .. }));
+
+        let err = gg
+            .dual_barabasi_albert_graph(5, 1, 5, 0.5, 1)
+            .expect_err("m2=n should fail");
+        assert!(matches!(err, GenerationError::FailClosed { .. }));
     }
 
     #[test]
