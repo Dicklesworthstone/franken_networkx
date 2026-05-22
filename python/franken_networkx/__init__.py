@@ -6620,6 +6620,16 @@ def node_connectivity(G, s=None, t=None, flow_func=None):
         raise NetworkXPointlessConcept(
             "Connectivity is undefined for the null graph."
         )
+    # br-r37-c1-znqrc: match nx's two-stage check — "Both source and
+    # target must be specified" when exactly one is given, then "node
+    # X not in graph" (bare value, not the Rust "node str:2:X" leak)
+    # when both are given but absent.
+    if (s is None) ^ (t is None):
+        raise NetworkXError("Both source and target must be specified.")
+    if s is not None and s not in G:
+        raise NetworkXError(f"node {s} not in graph")
+    if t is not None and t not in G:
+        raise NetworkXError(f"node {t} not in graph")
     if flow_func is not None:
         return _call_networkx_for_parity(
             "node_connectivity",
@@ -6683,6 +6693,14 @@ def edge_connectivity(G, s=None, t=None, flow_func=None, cutoff=None):
         raise NetworkXPointlessConcept(
             "Connectivity is undefined for the null graph."
         )
+    # br-r37-c1-znqrc: see node_connectivity above — both-or-neither
+    # specified, then nx-shaped node-membership message.
+    if (s is None) ^ (t is None):
+        raise NetworkXError("Both source and target must be specified.")
+    if s is not None and s not in G:
+        raise NetworkXError(f"node {s} not in graph")
+    if t is not None and t not in G:
+        raise NetworkXError(f"node {t} not in graph")
     if flow_func is not None:
         return _call_networkx_for_parity(
             "edge_connectivity",
