@@ -1,36 +1,51 @@
-"""FrankenNetworkX broadcasting submodule.
+"""FrankenNetworkX broadcasting algorithm submodule.
 
-Re-exports the upstream ``networkx.algorithms.broadcasting`` surface so
-existing ``franken_networkx.broadcasting.*`` call sites keep working.
-
-Current functions:
-- ``tree_broadcast_center`` — returns (time, centers) tuple
-- ``tree_broadcast_time`` — returns broadcast time from node
+Re-exports the upstream ``networkx.algorithms.broadcasting`` public surface
+for direct module import parity, while delegating implemented functions to
+the existing fnx wrappers.
 """
 
 from __future__ import annotations
 
-from networkx.algorithms.broadcasting import *  # noqa: F401,F403
-import networkx.algorithms.broadcasting as _nx_broadcasting
+import importlib as _importlib
+
+_nx_broadcasting = _importlib.import_module("networkx.algorithms.broadcasting")
 
 import franken_networkx as _fnx
 
+__all__ = list(
+    getattr(
+        _nx_broadcasting,
+        "__all__",
+        ("tree_broadcast_center", "tree_broadcast_time"),
+    )
+)
+
 
 def tree_broadcast_center(G, *, backend=None, **backend_kwargs):
-    """Return the tree broadcast center.
-
-    Wraps ``networkx.algorithms.broadcasting.tree_broadcast_center``.
-    Returns tuple (broadcast_time, set of center nodes).
-    """
-    _fnx._validate_backend_dispatch_keywords("tree_broadcast_center", backend, backend_kwargs)
-    return _nx_broadcasting.tree_broadcast_center(G)
+    """Return the broadcast center of a tree with the upstream signature."""
+    _fnx._validate_backend_dispatch_keywords(
+        "tree_broadcast_center", backend, backend_kwargs
+    )
+    return _fnx.tree_broadcast_center(G)
 
 
 def tree_broadcast_time(G, node=None, *, backend=None, **backend_kwargs):
-    """Return the broadcast time of a tree from the given node.
+    """Return the minimum broadcast time with the upstream signature."""
+    _fnx._validate_backend_dispatch_keywords(
+        "tree_broadcast_time", backend, backend_kwargs
+    )
+    return _fnx.tree_broadcast_time(G, node=node)
 
-    Wraps ``networkx.algorithms.broadcasting.tree_broadcast_time``.
-    Returns integer broadcast time.
-    """
-    _fnx._validate_backend_dispatch_keywords("tree_broadcast_time", backend, backend_kwargs)
-    return _nx_broadcasting.tree_broadcast_time(G, node=node)
+
+def __getattr__(name):
+    try:
+        return getattr(_nx_broadcasting, name)
+    except AttributeError as exc:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}") from exc
+
+
+def __dir__():
+    public_globals = {name for name in globals() if not name.startswith("_")}
+    public_upstream = {name for name in dir(_nx_broadcasting) if not name.startswith("_")}
+    return sorted(public_globals | public_upstream)

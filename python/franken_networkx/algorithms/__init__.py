@@ -27,6 +27,7 @@ from networkx.algorithms import *  # noqa: F401, F403
 _FNX_OVERRIDE_SUBMODULES = {
     "asteroidal",
     "boundary",
+    "broadcasting",
     "bipartite",
     "chains",
     "wiener",
@@ -201,6 +202,10 @@ asteroidal = _fnx_asteroidal  # Override in module globals
 _fnx_boundary = _importlib.import_module("franken_networkx.boundary")
 _sys.modules[f"{__name__}.boundary"] = _fnx_boundary
 boundary = _fnx_boundary  # Override in module globals
+
+_fnx_broadcasting = _importlib.import_module("franken_networkx.broadcasting")
+_sys.modules[f"{__name__}.broadcasting"] = _fnx_broadcasting
+broadcasting = _fnx_broadcasting  # Override in module globals
 
 _fnx_chains = _importlib.import_module("franken_networkx.chains")
 _sys.modules[f"{__name__}.chains"] = _fnx_chains
