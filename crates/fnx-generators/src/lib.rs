@@ -1237,6 +1237,78 @@ impl GraphGenerator {
         Ok(self.finish_graph_report(graph, warnings))
     }
 
+    /// Generate a random lobster graph.
+    ///
+    /// This matches NetworkX's iterative construction: sample a random path
+    /// backbone length, attach caterpillar leaves with probability `p1`, then
+    /// attach lobster leaves to those caterpillar nodes with probability `p2`.
+    pub fn random_lobster_graph(
+        &mut self,
+        n: usize,
+        p1: f64,
+        p2: f64,
+        seed: u64,
+    ) -> Result<GenerationReport, GenerationError> {
+        let (n, warnings) = self.validate_n("random_lobster_graph", n, MAX_N_GNP)?;
+        let p1 = p1.abs();
+        let p2 = p2.abs();
+        if p1 >= 1.0 || p2 >= 1.0 {
+            return Err(GenerationError::FailClosed {
+                operation: "random_lobster_graph",
+                reason: "Probability values for `p1` and `p2` must both be < 1.".to_owned(),
+            });
+        }
+
+        let mut rng = PythonRandom::new(seed);
+        let backbone_len = (2.0 * rng.random() * n as f64 + 0.5) as usize;
+        let mut graph = Graph::new(self.mode);
+
+        for node in 0..backbone_len {
+            graph.add_node(node.to_string());
+        }
+        for node in 0..backbone_len.saturating_sub(1) {
+            graph
+                .add_edge(node.to_string(), (node + 1).to_string())
+                .map_err(|err| GenerationError::FailClosed {
+                    operation: "random_lobster_graph",
+                    reason: err.to_string(),
+                })?;
+        }
+
+        if backbone_len > 0 {
+            let mut current_node = backbone_len - 1;
+            for backbone_node in 0..backbone_len {
+                while rng.random() < p1 {
+                    current_node += 1;
+                    graph
+                        .add_edge(backbone_node.to_string(), current_node.to_string())
+                        .map_err(|err| GenerationError::FailClosed {
+                            operation: "random_lobster_graph",
+                            reason: err.to_string(),
+                        })?;
+                    let caterpillar_node = current_node;
+                    while rng.random() < p2 {
+                        current_node += 1;
+                        graph
+                            .add_edge(caterpillar_node.to_string(), current_node.to_string())
+                            .map_err(|err| GenerationError::FailClosed {
+                                operation: "random_lobster_graph",
+                                reason: err.to_string(),
+                            })?;
+                    }
+                }
+            }
+        }
+
+        self.record(
+            "random_lobster_graph",
+            DecisionAction::Allow,
+            0.08,
+            format!("generated random lobster graph with n={n}, p1={p1}, p2={p2}, seed={seed}"),
+        );
+        Ok(self.finish_graph_report(graph, warnings))
+    }
+
     /// Fast G(n,p) random graph using Batagelj-Brandes algorithm.
     ///
     /// O(n + m) expected time instead of O(n²) for the naive approach.
@@ -2907,6 +2979,68 @@ mod tests {
         let err = gg
             .random_powerlaw_tree_sequence(5, 3.0, 1, 0)
             .expect_err("tries=0 should fail like NetworkX");
+        assert!(matches!(err, GenerationError::FailClosed { .. }));
+    }
+
+    #[test]
+    fn random_lobster_graph_matches_networkx_seeded_example() {
+        let mut gg = GraphGenerator::strict();
+        let report = gg
+            .random_lobster_graph(8, 0.35, 0.7, 11)
+            .expect("lobster graph should succeed");
+        assert_eq!(
+            sorted_graph_edges(&report.graph),
+            vec![
+                ("0".to_owned(), "1".to_owned()),
+                ("1".to_owned(), "2".to_owned()),
+                ("10".to_owned(), "11".to_owned()),
+                ("10".to_owned(), "12".to_owned()),
+                ("2".to_owned(), "3".to_owned()),
+                ("3".to_owned(), "4".to_owned()),
+                ("4".to_owned(), "5".to_owned()),
+                ("5".to_owned(), "10".to_owned()),
+                ("5".to_owned(), "6".to_owned()),
+                ("5".to_owned(), "7".to_owned()),
+                ("6".to_owned(), "13".to_owned()),
+                ("7".to_owned(), "8".to_owned()),
+                ("7".to_owned(), "9".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn random_lobster_graph_uses_absolute_probabilities_like_networkx() {
+        let mut gg = GraphGenerator::strict();
+        let report = gg
+            .random_lobster_graph(6, -0.3, -0.2, 9)
+            .expect("negative probabilities should be absolutized");
+        assert_eq!(
+            sorted_graph_edges(&report.graph),
+            vec![
+                ("0".to_owned(), "1".to_owned()),
+                ("1".to_owned(), "2".to_owned()),
+                ("1".to_owned(), "6".to_owned()),
+                ("1".to_owned(), "7".to_owned()),
+                ("2".to_owned(), "3".to_owned()),
+                ("2".to_owned(), "8".to_owned()),
+                ("3".to_owned(), "4".to_owned()),
+                ("3".to_owned(), "9".to_owned()),
+                ("4".to_owned(), "5".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn random_lobster_graph_rejects_unit_probabilities() {
+        let mut gg = GraphGenerator::strict();
+        let err = gg
+            .random_lobster_graph(5, 1.0, 0.2, 1)
+            .expect_err("p1 >= 1 should fail");
+        assert!(matches!(err, GenerationError::FailClosed { .. }));
+
+        let err = gg
+            .random_lobster_graph(5, 0.2, -1.0, 1)
+            .expect_err("abs(p2) >= 1 should fail");
         assert!(matches!(err, GenerationError::FailClosed { .. }));
     }
 
