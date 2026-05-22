@@ -24,7 +24,7 @@ import pkgutil as _pkgutil
 from networkx.algorithms import *  # noqa: F401, F403
 
 
-_FNX_OVERRIDE_SUBMODULES = {"bipartite", "approximation", "minors", "operators", "clique", "summarization", "moral", "tree", "flow", "traversal", "euler", "sparsifiers", "triads", "threshold", "dag", "chordal", "core", "hybrid", "tournament"}
+_FNX_OVERRIDE_SUBMODULES = {"bipartite", "approximation", "minors", "operators", "clique", "summarization", "moral", "tree", "flow", "traversal", "euler", "sparsifiers", "triads", "threshold", "dag", "chordal", "core", "hybrid", "tournament", "smallworld"}
 
 
 def _alias_nx_submodules(nx_pkg, fnx_prefix):
@@ -139,6 +139,10 @@ hybrid = _fnx_hybrid  # Override in module globals
 import franken_networkx.tournament as _fnx_tournament
 _sys.modules[f"{__name__}.tournament"] = _fnx_tournament
 tournament = _fnx_tournament  # Override in module globals
+
+import franken_networkx.smallworld as _fnx_smallworld
+_sys.modules[f"{__name__}.smallworld"] = _fnx_smallworld
+smallworld = _fnx_smallworld  # Override in module globals
 
 
 def __getattr__(name):
