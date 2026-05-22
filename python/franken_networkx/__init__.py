@@ -15250,7 +15250,9 @@ def create_empty_copy(G, with_data=True):
         H.add_nodes_from((node, dict(attrs)) for node, attrs in G.nodes(data=True))
     else:
         H.add_nodes_from(G.nodes())
-    return H
+    # Always return fnx type for consistency
+    from franken_networkx.readwrite import _from_nx_graph
+    return _from_nx_graph(H)
 
 
 def number_of_selfloops(G):
