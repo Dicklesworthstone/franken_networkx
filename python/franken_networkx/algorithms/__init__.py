@@ -43,6 +43,7 @@ _FNX_OVERRIDE_SUBMODULES = {
     "graphical",
     "hierarchy",
     "isolate",
+    "link_prediction",
     "lowest_common_ancestors",
     "matching",
     "mis",
@@ -293,6 +294,10 @@ hierarchy = _fnx_hierarchy  # Override in module globals
 _fnx_isolate = _importlib.import_module("franken_networkx.isolate")
 _sys.modules[f"{__name__}.isolate"] = _fnx_isolate
 isolate = _fnx_isolate  # Override in module globals
+
+_fnx_link_prediction = _importlib.import_module("franken_networkx.link_prediction")
+_sys.modules[f"{__name__}.link_prediction"] = _fnx_link_prediction
+link_prediction = _fnx_link_prediction  # Override in module globals
 
 _fnx_lowest_common_ancestors = _importlib.import_module(
     "franken_networkx.lowest_common_ancestors"
