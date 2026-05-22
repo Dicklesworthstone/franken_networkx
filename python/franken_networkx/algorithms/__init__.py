@@ -194,6 +194,9 @@ moral = _fnx_moral  # Override in module globals
 import franken_networkx.tree as _fnx_tree
 _sys.modules[f"{__name__}.tree"] = _fnx_tree
 tree = _fnx_tree  # Override in module globals
+_alias_nx_child_modules(
+    "networkx.algorithms.tree", f"{__name__}.tree"
+)
 
 import franken_networkx.flow as _fnx_flow
 _sys.modules[f"{__name__}.flow"] = _fnx_flow
