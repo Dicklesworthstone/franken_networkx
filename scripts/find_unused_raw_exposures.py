@@ -146,6 +146,23 @@ TRIAGE = {
     "_raw_min_weighted_vertex_cover": ("keep-public-api",
         "br-r37-c1-xgqo1: fnx.approximation.min_weighted_vertex_cover "
         "falls through to nx; raw kept as direct-Rust API"),
+    # ---- 2026-05-22 (br-r37-c1-rebzj cousin): wrappers delegate to nx ----
+    "_raw_bellman_ford_path": ("keep-public-api",
+        "br-r37-c1-9axrp: Rust bellman_ford_path returns incorrect paths "
+        "(direct edge instead of shorter multi-hop); wrapper delegates "
+        "to nx until the Rust binding is fixed.  Raw kept as direct API."),
+    "_raw_bellman_ford_path_length": ("keep-public-api",
+        "br-r37-c1-9axrp: same Rust bug as _raw_bellman_ford_path; "
+        "wrapper delegates to nx.  Raw kept as direct API."),
+    "_raw_max_weight_clique": ("keep-public-api",
+        "br-r37-c1-07gkp: Rust max_weight_clique returns clique *size* "
+        "instead of summing node weights, and rejects weight=None "
+        "(br-mwclqnone). Wrapper delegates to nx; raw kept as direct API."),
+    "_raw_average_node_connectivity": ("keep-public-api",
+        "br-r37-c1-qz40o: Rust BFS-based local_node_connectivity is a "
+        "heuristic that mis-reports in non-trivial cases; wrapper "
+        "delegates to nx's max-flow-on-auxiliary-graph path.  Raw kept "
+        "as direct API."),
 }
 
 
