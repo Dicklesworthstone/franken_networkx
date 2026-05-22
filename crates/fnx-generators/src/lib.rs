@@ -1309,6 +1309,104 @@ impl GraphGenerator {
         Ok(self.finish_graph_report(graph, warnings))
     }
 
+    /// Generate a random shell graph from `(nodes, edges, ratio)` shell tuples.
+    ///
+    /// The `ratio` controls how many of each shell's requested edges are placed
+    /// inside that shell; the remainder are sampled between this shell and the
+    /// next one. The same Python-compatible RNG stream is reused throughout,
+    /// matching NetworkX's `random_shell_graph` construction.
+    pub fn random_shell_graph(
+        &mut self,
+        constructor: &[(usize, usize, f64)],
+        seed: u64,
+    ) -> Result<GenerationReport, GenerationError> {
+        let total_nodes = constructor
+            .iter()
+            .try_fold(0usize, |acc, (n, _, _)| acc.checked_add(*n))
+            .ok_or_else(|| GenerationError::FailClosed {
+                operation: "random_shell_graph",
+                reason: "total node count overflowed".to_owned(),
+            })?;
+        let (_, warnings) = self.validate_n("random_shell_graph", total_nodes, MAX_N_GNP)?;
+
+        let mut rng = PythonRandom::new(seed);
+        let mut graph = Graph::new(self.mode);
+        let mut shells = Vec::with_capacity(constructor.len());
+        let mut inter_shell_edge_counts = Vec::with_capacity(constructor.len());
+        let mut first_label = 0usize;
+
+        for (n, m, ratio) in constructor.iter().copied() {
+            if !ratio.is_finite() {
+                return Err(GenerationError::FailClosed {
+                    operation: "random_shell_graph",
+                    reason: "shell ratio must be finite".to_owned(),
+                });
+            }
+
+            let intra_shell_edges = (m as f64 * ratio).trunc() as i128;
+            let inter_shell_edges = m as i128 - intra_shell_edges;
+            inter_shell_edge_counts.push(nonnegative_i128_to_usize(inter_shell_edges));
+
+            let shell_nodes = (first_label..first_label + n)
+                .map(|node| node.to_string())
+                .collect::<Vec<String>>();
+            for node in &shell_nodes {
+                graph.add_node(node.clone());
+            }
+            add_gnm_edges_with_rng(
+                &mut graph,
+                &shell_nodes,
+                nonnegative_i128_to_usize(intra_shell_edges),
+                &mut rng,
+                "random_shell_graph",
+            )?;
+            first_label += n;
+            shells.push(shell_nodes);
+        }
+
+        for shell_index in 0..shells.len().saturating_sub(1) {
+            let total_edges = inter_shell_edge_counts[shell_index];
+            let left_shell = &shells[shell_index];
+            let right_shell = &shells[shell_index + 1];
+            let possible_edges = left_shell.len().saturating_mul(right_shell.len());
+            if total_edges > possible_edges {
+                return Err(GenerationError::FailClosed {
+                    operation: "random_shell_graph",
+                    reason: format!(
+                        "requested {total_edges} inter-shell edges but only {possible_edges} are possible"
+                    ),
+                });
+            }
+
+            let mut edge_count = 0usize;
+            while edge_count < total_edges {
+                let u = &left_shell[rng.choice_index(left_shell.len())];
+                let v = &right_shell[rng.choice_index(right_shell.len())];
+                if u == v || graph.has_edge(u, v) {
+                    continue;
+                }
+                graph.add_edge(u.clone(), v.clone()).map_err(|err| {
+                    GenerationError::FailClosed {
+                        operation: "random_shell_graph",
+                        reason: err.to_string(),
+                    }
+                })?;
+                edge_count += 1;
+            }
+        }
+
+        self.record(
+            "random_shell_graph",
+            DecisionAction::Allow,
+            0.08,
+            format!(
+                "generated random shell graph with shells={}, seed={seed}",
+                constructor.len()
+            ),
+        );
+        Ok(self.finish_graph_report(graph, warnings))
+    }
+
     /// Fast G(n,p) random graph using Batagelj-Brandes algorithm.
     ///
     /// O(n + m) expected time instead of O(n²) for the naive approach.
@@ -2186,6 +2284,56 @@ fn degree_sequence_tree_graph(
     Ok(graph)
 }
 
+fn nonnegative_i128_to_usize(value: i128) -> usize {
+    if value <= 0 {
+        0
+    } else {
+        usize::try_from(value).unwrap_or(usize::MAX)
+    }
+}
+
+fn add_gnm_edges_with_rng(
+    graph: &mut Graph,
+    node_labels: &[String],
+    m: usize,
+    rng: &mut PythonRandom,
+    operation: &'static str,
+) -> Result<(), GenerationError> {
+    let n = node_labels.len();
+    let max_edges = n.saturating_mul(n.saturating_sub(1)) / 2;
+    if m >= max_edges {
+        for left in 0..n {
+            for right in (left + 1)..n {
+                graph
+                    .add_edge(node_labels[left].clone(), node_labels[right].clone())
+                    .map_err(|err| GenerationError::FailClosed {
+                        operation,
+                        reason: err.to_string(),
+                    })?;
+            }
+        }
+        return Ok(());
+    }
+
+    let mut edge_count = 0usize;
+    while edge_count < m {
+        let u = rng.choice_index(n);
+        let v = rng.choice_index(n);
+        if u == v || graph.has_edge(&node_labels[u], &node_labels[v]) {
+            continue;
+        }
+        graph
+            .add_edge(node_labels[u].clone(), node_labels[v].clone())
+            .map_err(|err| GenerationError::FailClosed {
+                operation,
+                reason: err.to_string(),
+            })?;
+        edge_count += 1;
+    }
+
+    Ok(())
+}
+
 /// Sample `count` distinct elements from `seq` with replacement-by-set,
 /// matching the inner loop of nx's `_random_subset`.
 ///
@@ -3041,6 +3189,66 @@ mod tests {
         let err = gg
             .random_lobster_graph(5, 0.2, -1.0, 1)
             .expect_err("abs(p2) >= 1 should fail");
+        assert!(matches!(err, GenerationError::FailClosed { .. }));
+    }
+
+    #[test]
+    fn random_shell_graph_matches_networkx_seeded_example() {
+        let mut gg = GraphGenerator::strict();
+        let report = gg
+            .random_shell_graph(&[(4, 3, 0.5), (3, 2, 0.5)], 5)
+            .expect("shell graph should succeed");
+        assert_eq!(
+            sorted_graph_edges(&report.graph),
+            vec![
+                ("0".to_owned(), "3".to_owned()),
+                ("0".to_owned(), "4".to_owned()),
+                ("0".to_owned(), "5".to_owned()),
+                ("4".to_owned(), "6".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn random_shell_graph_matches_networkx_multi_shell_example() {
+        let mut gg = GraphGenerator::strict();
+        let report = gg
+            .random_shell_graph(&[(3, 2, 1.0), (2, 1, 0.0), (4, 3, 0.5)], 7)
+            .expect("shell graph should succeed");
+        assert_eq!(
+            sorted_graph_edges(&report.graph),
+            vec![
+                ("0".to_owned(), "1".to_owned()),
+                ("1".to_owned(), "2".to_owned()),
+                ("3".to_owned(), "6".to_owned()),
+                ("5".to_owned(), "7".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn random_shell_graph_saturates_shells_like_networkx_gnm() {
+        let mut gg = GraphGenerator::strict();
+        let report = gg
+            .random_shell_graph(&[(2, 5, 1.0), (3, 3, 1.0)], 2)
+            .expect("shell graph should succeed");
+        assert_eq!(
+            sorted_graph_edges(&report.graph),
+            vec![
+                ("0".to_owned(), "1".to_owned()),
+                ("2".to_owned(), "3".to_owned()),
+                ("2".to_owned(), "4".to_owned()),
+                ("3".to_owned(), "4".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn random_shell_graph_fails_closed_when_inter_shell_edges_are_impossible() {
+        let mut gg = GraphGenerator::strict();
+        let err = gg
+            .random_shell_graph(&[(1, 3, 0.0), (1, 0, 0.0)], 1)
+            .expect_err("only one inter-shell edge is possible");
         assert!(matches!(err, GenerationError::FailClosed { .. }));
     }
 
