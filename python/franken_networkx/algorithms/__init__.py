@@ -168,6 +168,9 @@ minors = _fnx_minors  # Override in module globals
 import franken_networkx.operators as _fnx_operators
 _sys.modules[f"{__name__}.operators"] = _fnx_operators
 operators = _fnx_operators  # Override in module globals
+_alias_nx_child_modules(
+    "networkx.algorithms.operators", f"{__name__}.operators"
+)
 
 import franken_networkx.clique as _fnx_clique
 _sys.modules[f"{__name__}.clique"] = _fnx_clique
