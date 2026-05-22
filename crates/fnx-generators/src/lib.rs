@@ -850,6 +850,130 @@ impl GraphGenerator {
         Ok(self.finish_graph_report(graph, warnings))
     }
 
+    pub fn hoffman_singleton_graph(&mut self) -> Result<GenerationReport, GenerationError> {
+        #[derive(Clone, Copy, PartialEq, Eq)]
+        enum HoffmanSingletonNode {
+            Pentagon { index: usize, vertex: usize },
+            Pentagram { index: usize, vertex: usize },
+        }
+
+        fn label_for(
+            node_order: &mut Vec<HoffmanSingletonNode>,
+            node: HoffmanSingletonNode,
+        ) -> usize {
+            if let Some(index) = node_order
+                .iter()
+                .position(|existing_node| *existing_node == node)
+            {
+                index
+            } else {
+                let index = node_order.len();
+                node_order.push(node);
+                index
+            }
+        }
+
+        fn push_edge(edges: &mut Vec<(usize, usize)>, left: usize, right: usize) {
+            if left <= right {
+                edges.push((left, right));
+            } else {
+                edges.push((right, left));
+            }
+        }
+
+        let mut node_order = Vec::with_capacity(50);
+        let mut edges = Vec::with_capacity(225);
+        for i in 0..5 {
+            for j in 0..5 {
+                let pentagon = label_for(
+                    &mut node_order,
+                    HoffmanSingletonNode::Pentagon {
+                        index: i,
+                        vertex: j,
+                    },
+                );
+                let pentagon_previous = label_for(
+                    &mut node_order,
+                    HoffmanSingletonNode::Pentagon {
+                        index: i,
+                        vertex: (j + 4) % 5,
+                    },
+                );
+                let pentagon_next = label_for(
+                    &mut node_order,
+                    HoffmanSingletonNode::Pentagon {
+                        index: i,
+                        vertex: (j + 1) % 5,
+                    },
+                );
+                push_edge(&mut edges, pentagon, pentagon_previous);
+                push_edge(&mut edges, pentagon, pentagon_next);
+
+                let pentagram = label_for(
+                    &mut node_order,
+                    HoffmanSingletonNode::Pentagram {
+                        index: i,
+                        vertex: j,
+                    },
+                );
+                let pentagram_previous = label_for(
+                    &mut node_order,
+                    HoffmanSingletonNode::Pentagram {
+                        index: i,
+                        vertex: (j + 3) % 5,
+                    },
+                );
+                let pentagram_next = label_for(
+                    &mut node_order,
+                    HoffmanSingletonNode::Pentagram {
+                        index: i,
+                        vertex: (j + 2) % 5,
+                    },
+                );
+                push_edge(&mut edges, pentagram, pentagram_previous);
+                push_edge(&mut edges, pentagram, pentagram_next);
+
+                for k in 0..5 {
+                    let adjacent_pentagram = label_for(
+                        &mut node_order,
+                        HoffmanSingletonNode::Pentagram {
+                            index: k,
+                            vertex: (i * k + j) % 5,
+                        },
+                    );
+                    push_edge(&mut edges, pentagon, adjacent_pentagram);
+                }
+            }
+        }
+        edges.sort_unstable();
+        edges.dedup();
+
+        if node_order.len() != 50 || edges.len() != 175 {
+            let reason = format!(
+                "internal Hoffman-Singleton construction produced n={} m={}; expected n=50 m=175",
+                node_order.len(),
+                edges.len()
+            );
+            self.record(
+                "hoffman_singleton_graph",
+                DecisionAction::FailClosed,
+                0.99,
+                reason.clone(),
+            );
+            return Err(GenerationError::FailClosed {
+                operation: "hoffman_singleton_graph",
+                reason,
+            });
+        }
+
+        self.small_named_graph_from_edges(
+            "hoffman_singleton_graph",
+            "Hoffman-Singleton Graph",
+            50,
+            &edges,
+        )
+    }
+
     pub fn sedgewick_maze_graph(&mut self) -> Result<GenerationReport, GenerationError> {
         self.small_named_graph_from_edges(
             "sedgewick_maze_graph",
@@ -3659,6 +3783,12 @@ mod tests {
         edges
     }
 
+    fn contains_undirected_edge(edges: &[(String, String)], left: usize, right: usize) -> bool {
+        let left = left.to_string();
+        let right = right.to_string();
+        edges.contains(&(left.clone(), right.clone())) || edges.contains(&(right, left))
+    }
+
     fn sorted_digraph_edges(graph: &DiGraph) -> Vec<(String, String)> {
         let mut edges = graph
             .snapshot()
@@ -4591,6 +4721,95 @@ mod tests {
             generator.generalized_petersen_graph(5, 3),
             Err(GenerationError::FailClosed { .. })
         ));
+    }
+
+    #[test]
+    fn hoffman_singleton_graph_matches_networkx_counts_degrees_and_representative_edges() {
+        let mut generator = GraphGenerator::strict();
+        let report = generator
+            .hoffman_singleton_graph()
+            .expect("Hoffman-Singleton Graph generation should succeed");
+        assert_eq!(report.graph.node_count(), 50);
+        assert_eq!(report.graph.edge_count(), 175);
+
+        let degrees = report
+            .graph
+            .snapshot()
+            .nodes
+            .iter()
+            .map(|node| report.graph.degree(node.as_str()))
+            .collect::<Vec<usize>>();
+        assert_eq!(degrees, vec![7; 50]);
+
+        let edges = sorted_graph_edges(&report.graph);
+        let representative_edges = [
+            (0, 1),
+            (0, 2),
+            (0, 3),
+            (0, 6),
+            (0, 7),
+            (0, 8),
+            (0, 9),
+            (1, 12),
+            (1, 17),
+            (1, 26),
+            (1, 27),
+            (1, 28),
+            (1, 29),
+            (2, 10),
+            (2, 11),
+            (2, 13),
+            (2, 14),
+            (2, 15),
+            (2, 16),
+            (3, 4),
+            (3, 5),
+            (3, 30),
+            (3, 35),
+            (3, 40),
+            (3, 45),
+            (4, 11),
+            (4, 17),
+            (4, 34),
+            (4, 39),
+            (4, 44),
+            (27, 44),
+            (27, 47),
+            (28, 32),
+            (28, 39),
+            (28, 40),
+            (28, 48),
+            (29, 30),
+            (29, 37),
+            (29, 43),
+            (29, 49),
+            (30, 31),
+            (30, 32),
+            (31, 34),
+            (32, 33),
+            (33, 34),
+            (35, 36),
+            (35, 37),
+            (36, 39),
+            (37, 38),
+            (38, 39),
+            (40, 41),
+            (40, 42),
+            (41, 44),
+            (42, 43),
+            (43, 44),
+            (45, 46),
+            (45, 47),
+            (46, 49),
+            (47, 48),
+            (48, 49),
+        ];
+        for &(left, right) in &representative_edges {
+            assert!(
+                contains_undirected_edge(&edges, left, right),
+                "missing representative NetworkX edge ({left}, {right})"
+            );
+        }
     }
 
     #[test]
