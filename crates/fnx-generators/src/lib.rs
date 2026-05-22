@@ -953,6 +953,85 @@ impl GraphGenerator {
         )
     }
 
+    pub fn tutte_graph(&mut self) -> Result<GenerationReport, GenerationError> {
+        self.small_named_graph_from_edges(
+            "tutte_graph",
+            "Tutte's Graph",
+            46,
+            &[
+                (0, 1),
+                (0, 2),
+                (0, 3),
+                (1, 4),
+                (1, 26),
+                (2, 10),
+                (2, 11),
+                (3, 18),
+                (3, 19),
+                (4, 5),
+                (4, 33),
+                (5, 6),
+                (5, 29),
+                (6, 7),
+                (6, 27),
+                (7, 8),
+                (7, 14),
+                (8, 9),
+                (8, 38),
+                (9, 10),
+                (9, 37),
+                (10, 39),
+                (11, 12),
+                (11, 39),
+                (12, 13),
+                (12, 35),
+                (13, 14),
+                (13, 15),
+                (14, 34),
+                (15, 16),
+                (15, 22),
+                (16, 17),
+                (16, 44),
+                (17, 18),
+                (17, 43),
+                (18, 45),
+                (19, 20),
+                (19, 45),
+                (20, 21),
+                (20, 41),
+                (21, 22),
+                (21, 23),
+                (22, 40),
+                (23, 24),
+                (23, 27),
+                (24, 25),
+                (24, 32),
+                (25, 26),
+                (25, 31),
+                (26, 33),
+                (27, 28),
+                (28, 29),
+                (28, 32),
+                (29, 30),
+                (30, 31),
+                (30, 33),
+                (31, 32),
+                (34, 35),
+                (34, 38),
+                (35, 36),
+                (36, 37),
+                (36, 39),
+                (37, 38),
+                (40, 41),
+                (40, 44),
+                (41, 42),
+                (42, 43),
+                (42, 45),
+                (43, 44),
+            ],
+        )
+    }
+
     pub fn complete_graph(&mut self, n: usize) -> Result<GenerationReport, GenerationError> {
         let (n, warnings) = self.validate_n("complete_graph", n, MAX_N_COMPLETE)?;
         let graph = Graph::complete_graph(self.mode, n);
@@ -4678,6 +4757,102 @@ mod tests {
             .map(|node| report.graph.degree(node.as_str()))
             .collect::<Vec<usize>>();
         assert_eq!(degrees, vec![3; 12]);
+    }
+
+    #[test]
+    fn tutte_graph_matches_networkx_edges_and_degrees() {
+        let mut generator = GraphGenerator::strict();
+        let report = generator
+            .tutte_graph()
+            .expect("Tutte's Graph generation should succeed");
+        assert_eq!(report.graph.node_count(), 46);
+        assert_eq!(report.graph.edge_count(), 69);
+
+        let mut expected_edges = [
+            (0, 1),
+            (0, 2),
+            (0, 3),
+            (1, 4),
+            (1, 26),
+            (2, 10),
+            (2, 11),
+            (3, 18),
+            (3, 19),
+            (4, 5),
+            (4, 33),
+            (5, 6),
+            (5, 29),
+            (6, 7),
+            (6, 27),
+            (7, 8),
+            (7, 14),
+            (8, 9),
+            (8, 38),
+            (9, 10),
+            (9, 37),
+            (10, 39),
+            (11, 12),
+            (11, 39),
+            (12, 13),
+            (12, 35),
+            (13, 14),
+            (13, 15),
+            (14, 34),
+            (15, 16),
+            (15, 22),
+            (16, 17),
+            (16, 44),
+            (17, 18),
+            (17, 43),
+            (18, 45),
+            (19, 20),
+            (19, 45),
+            (20, 21),
+            (20, 41),
+            (21, 22),
+            (21, 23),
+            (22, 40),
+            (23, 24),
+            (23, 27),
+            (24, 25),
+            (24, 32),
+            (25, 26),
+            (25, 31),
+            (26, 33),
+            (27, 28),
+            (28, 29),
+            (28, 32),
+            (29, 30),
+            (30, 31),
+            (30, 33),
+            (31, 32),
+            (34, 35),
+            (34, 38),
+            (35, 36),
+            (36, 37),
+            (36, 39),
+            (37, 38),
+            (40, 41),
+            (40, 44),
+            (41, 42),
+            (42, 43),
+            (42, 45),
+            (43, 44),
+        ]
+        .into_iter()
+        .map(|(left, right)| (left.to_string(), right.to_string()))
+        .collect::<Vec<(String, String)>>();
+        expected_edges.sort();
+        assert_eq!(sorted_graph_edges(&report.graph), expected_edges);
+
+        let degrees = report
+            .graph
+            .snapshot()
+            .nodes
+            .iter()
+            .map(|node| report.graph.degree(node.as_str()))
+            .collect::<Vec<usize>>();
+        assert_eq!(degrees, vec![3; 46]);
     }
 
     #[test]
