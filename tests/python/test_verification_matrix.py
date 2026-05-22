@@ -9,12 +9,20 @@ import franken_networkx as fnx
 
 
 def _public_functions(module):
+    # br-r37-c1-ycj0r (cousin of br-r37-c1-oul4c): use ``callable()`` so
+    # that fnx's callable-module shims (`_CallableBridgesModule` and
+    # `_CallableReciprocityModule`, which replace ``fnx.bridges`` /
+    # ``fnx.reciprocity`` once the matching subpackage is imported) are
+    # counted as functions — they expose the same call surface as nx's
+    # plain function counterparts.
     names = set()
     for name in dir(module):
         if name.startswith("_"):
             continue
         obj = getattr(module, name)
-        if inspect.isfunction(obj) or inspect.isbuiltin(obj):
+        if inspect.isclass(obj):
+            continue
+        if callable(obj):
             names.add(name)
     return names
 
@@ -35,8 +43,11 @@ def _public_other_attrs(module):
         if name.startswith("_"):
             continue
         obj = getattr(module, name)
-        if not (inspect.isfunction(obj) or inspect.isbuiltin(obj) or inspect.isclass(obj)):
-            names.add(name)
+        if inspect.isclass(obj):
+            continue
+        if callable(obj):
+            continue
+        names.add(name)
     return names
 
 
