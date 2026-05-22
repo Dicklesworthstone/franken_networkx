@@ -29,6 +29,10 @@ has_cycle = _nx_dag.has_cycle
 colliders = _nx_dag.colliders
 v_structures = _nx_dag.v_structures
 
+# br-r37-c1-ukwgj: root_to_leaf_paths is dispatchable but absent from
+# dag.__all__, so the star import skips it.  Re-export for parity.
+root_to_leaf_paths = _nx_dag.root_to_leaf_paths
+
 
 def dag_to_branching(G, *, backend=None, **backend_kwargs):
     """Return a branching representing the DAG.

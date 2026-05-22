@@ -17,6 +17,13 @@ import networkx.algorithms.threshold as _nx_threshold
 import franken_networkx as _fnx
 from franken_networkx.readwrite import _from_nx_graph
 
+# br-r37-c1-ukwgj: find_alternating_4_cycle and find_creation_sequence
+# are dispatchable but absent from threshold.__all__ (which lists only
+# is_threshold_graph / find_threshold_graph), so the star import skips
+# them.  Re-export for fnx.algorithms.threshold parity.
+find_alternating_4_cycle = _nx_threshold.find_alternating_4_cycle
+find_creation_sequence = _nx_threshold.find_creation_sequence
+
 
 def find_threshold_graph(G, create_using=None, *, backend=None, **backend_kwargs):
     """Find a threshold subgraph of the given graph.
