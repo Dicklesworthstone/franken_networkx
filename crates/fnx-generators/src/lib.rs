@@ -3194,6 +3194,82 @@ impl GraphGenerator {
         Ok(self.finish_graph_report(graph, Vec::new()))
     }
 
+    pub fn hypercube_graph(&mut self, n: usize) -> Result<GenerationReport, GenerationError> {
+        let operation = "hypercube_graph";
+        if n == 0 {
+            let graph = Graph::new(self.mode);
+            self.record(
+                operation,
+                DecisionAction::Allow,
+                0.04,
+                "generated 0-dimensional hypercube with nodes=0, edges=0".to_owned(),
+            );
+            return Ok(self.finish_graph_report(graph, Vec::new()));
+        }
+
+        let shift = u32::try_from(n).map_err(|_| GenerationError::FailClosed {
+            operation,
+            reason: format!("dimension {n} exceeds supported shift width"),
+        })?;
+        let node_count = 1usize
+            .checked_shl(shift)
+            .ok_or_else(|| GenerationError::FailClosed {
+                operation,
+                reason: format!("node count overflow for dimension {n}"),
+            })?;
+        if node_count > MAX_N_GENERIC {
+            let reason = format!("node count {node_count} exceeds max_allowed={MAX_N_GENERIC}");
+            self.record(operation, DecisionAction::FailClosed, 0.95, reason.clone());
+            return Err(GenerationError::FailClosed { operation, reason });
+        }
+        let edge_count = node_count
+            .checked_mul(n)
+            .map(|value| value / 2)
+            .ok_or_else(|| GenerationError::FailClosed {
+                operation,
+                reason: format!("edge count overflow for dimension {n}"),
+            })?;
+        let max_dense_edges = MAX_N_COMPLETE * (MAX_N_COMPLETE - 1) / 2;
+        if edge_count > max_dense_edges {
+            let reason = format!("edge count {edge_count} exceeds max_allowed={max_dense_edges}");
+            self.record(operation, DecisionAction::FailClosed, 0.95, reason.clone());
+            return Err(GenerationError::FailClosed { operation, reason });
+        }
+
+        let mut graph = Graph::new(self.mode);
+        let labels = (0..node_count)
+            .map(|value| format_binary_tuple_label(value, n))
+            .collect::<Vec<String>>();
+        for label in &labels {
+            graph.add_node(label.clone());
+        }
+
+        for node in 0..node_count {
+            for bit_index in 0..n {
+                let mask = 1usize << (n - bit_index - 1);
+                let target = node ^ mask;
+                if node < target {
+                    graph
+                        .add_edge(labels[node].clone(), labels[target].clone())
+                        .map_err(|err| GenerationError::FailClosed {
+                            operation,
+                            reason: err.to_string(),
+                        })?;
+                }
+            }
+        }
+
+        self.record(
+            operation,
+            DecisionAction::Allow,
+            0.04,
+            format!(
+                "generated {n}-dimensional hypercube with nodes={node_count}, edges={edge_count}"
+            ),
+        );
+        Ok(self.finish_graph_report(graph, Vec::new()))
+    }
+
     pub fn gnp_random_graph(
         &mut self,
         n: usize,
@@ -5340,6 +5416,17 @@ fn format_k_subset_label(subset: &[usize]) -> String {
 
 fn format_interval_label(interval: (i64, i64)) -> String {
     format!("({}, {})", interval.0, interval.1)
+}
+
+fn format_binary_tuple_label(value: usize, width: usize) -> String {
+    let bits = (0..width)
+        .map(|bit_index| ((value >> (width - bit_index - 1)) & 1).to_string())
+        .collect::<Vec<String>>();
+    match bits.as_slice() {
+        [] => "()".to_owned(),
+        [bit] => format!("({bit},)"),
+        _ => format!("({})", bits.join(", ")),
+    }
 }
 
 fn watts_strogatz_graph_core(
@@ -9002,6 +9089,61 @@ mod tests {
         assert_eq!(
             err.to_string(),
             "generator `interval_graph` failed closed: interval count 2001 exceeds max_allowed=2000"
+        );
+    }
+
+    #[test]
+    fn hypercube_graph_zero_dimension_matches_networkx_empty_graph() {
+        let mut generator = GraphGenerator::strict();
+        let report = generator
+            .hypercube_graph(0)
+            .expect("zero-dimensional hypercube should succeed");
+
+        assert_eq!(report.graph.node_count(), 0);
+        assert_eq!(report.graph.edge_count(), 0);
+    }
+
+    #[test]
+    fn hypercube_graph_one_dimension_uses_singleton_tuple_labels() {
+        let mut generator = GraphGenerator::strict();
+        let report = generator
+            .hypercube_graph(1)
+            .expect("one-dimensional hypercube should succeed");
+
+        assert_eq!(report.graph.node_count(), 2);
+        assert_eq!(report.graph.edge_count(), 1);
+        assert_eq!(
+            sorted_graph_edges(&report.graph),
+            vec![("(0,)".to_owned(), "(1,)".to_owned())]
+        );
+    }
+
+    #[test]
+    fn hypercube_graph_three_dimensions_matches_networkx_counts_and_edges() {
+        let mut generator = GraphGenerator::strict();
+        let report = generator
+            .hypercube_graph(3)
+            .expect("three-dimensional hypercube should succeed");
+        let edges = sorted_graph_edges(&report.graph);
+
+        assert_eq!(report.graph.node_count(), 8);
+        assert_eq!(report.graph.edge_count(), 12);
+        assert!(edges.contains(&("(0, 0, 0)".to_owned(), "(0, 0, 1)".to_owned())));
+        assert!(edges.contains(&("(0, 0, 0)".to_owned(), "(0, 1, 0)".to_owned())));
+        assert!(edges.contains(&("(0, 0, 0)".to_owned(), "(1, 0, 0)".to_owned())));
+        assert!(edges.contains(&("(0, 1, 1)".to_owned(), "(1, 1, 1)".to_owned())));
+    }
+
+    #[test]
+    fn hypercube_graph_rejects_node_count_beyond_generic_limit() {
+        let mut generator = GraphGenerator::strict();
+        let err = generator
+            .hypercube_graph(17)
+            .expect_err("oversized hypercube should fail closed");
+
+        assert_eq!(
+            err.to_string(),
+            "generator `hypercube_graph` failed closed: node count 131072 exceeds max_allowed=100000"
         );
     }
 
