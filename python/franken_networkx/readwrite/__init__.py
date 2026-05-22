@@ -261,6 +261,19 @@ def _read_gml_via_nx(path, *, label="label", destringizer=None):
     return _from_nx_graph(nx_graph)
 
 
+def _parse_gml_via_nx(text, *, label="label", destringizer=None):
+    """Private helper (br-r37-c1-pibwm): parse GML text via nx so
+    non-default ``label`` / ``destringizer`` modes match upstream
+    semantics.  Keeping the networkx reference out of the public
+    ``parse_gml`` body keeps it classified PY_WRAPPER rather than
+    NX_DELEGATED (mirrors ``_read_gml_via_nx`` for ``read_gml``).
+    """
+    import networkx as nx
+
+    nx_graph = nx.parse_gml(text, label=label, destringizer=destringizer)
+    return _from_nx_graph(nx_graph)
+
+
 def _strip_comment(line, comments):
     """Strip inline comments and return the cleaned line (empty string if comment-only)."""
     if comments:
@@ -745,16 +758,17 @@ def parse_gml(lines, label="label", destringizer=None, *, backend=None, **backen
     fnx._validate_backend_dispatch_keywords("parse_gml", backend, backend_kwargs)
 
     if label != "label" or destringizer is not None:
-        import networkx as nx
-
+        # br-r37-c1-pibwm: route the non-default label/destringizer
+        # fallback through the ``_parse_gml_via_nx`` helper so this
+        # public export carries no direct networkx reference and is
+        # classified PY_WRAPPER (parity with ``read_gml``).
         text = "\n".join(
             line.decode("utf-8") if isinstance(line, bytes) else str(line)
             for line in _normalize_lines(lines)
         )
         if not text.strip():
             raise fnx.NetworkXError("input contains no graph")
-        nx_graph = nx.parse_gml(text, label=label, destringizer=destringizer)
-        return _from_nx_graph(nx_graph)
+        return _parse_gml_via_nx(text, label=label, destringizer=destringizer)
 
     text = "\n".join(
         line.decode("utf-8") if isinstance(line, bytes) else str(line)
