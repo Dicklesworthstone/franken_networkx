@@ -16429,6 +16429,7 @@ def k_core(G, k=None, core_number=None):
 
     br-coremg: same MG-rejection as core_number.
     br-r37-c1-dg2dn: also reject self-loop inputs (nx contract).
+    br-r37-c1-cfcls: use fnx.subgraph to ensure fnx return type.
     """
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
@@ -16447,13 +16448,14 @@ def k_core(G, k=None, core_number=None):
         # masking the empty-input case.  Match nx's contract.
         k = max(core_number.values())
     nodes = [n for n, c in core_number.items() if c >= k]
-    return G.subgraph(nodes)
+    return subgraph(G, nodes)
 
 
 def k_shell(G, k=None, core_number=None):
     """Return the k-shell of *G* (nodes with core number exactly k).
 
     br-r37-c1-dg2dn: reject self-loop inputs (nx contract).
+    br-r37-c1-cfcls: use fnx.subgraph to ensure fnx return type.
     """
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
@@ -16472,13 +16474,14 @@ def k_shell(G, k=None, core_number=None):
         # masking the empty-input case.  Match nx's contract.
         k = max(core_number.values())
     nodes = [n for n, c in core_number.items() if c == k]
-    return G.subgraph(nodes)
+    return subgraph(G, nodes)
 
 
 def k_crust(G, k=None, core_number=None):
     """Return the k-crust of *G* (nodes with core number <= k).
 
     br-r37-c1-dg2dn: reject self-loop inputs (nx contract).
+    br-r37-c1-cfcls: use fnx.subgraph to ensure fnx return type.
     """
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
@@ -16499,13 +16502,14 @@ def k_crust(G, k=None, core_number=None):
         # non-trivial input.
         k = max(core_number.values()) - 1
     nodes = [n for n, c in core_number.items() if c <= k]
-    return G.subgraph(nodes)
+    return subgraph(G, nodes)
 
 
 def k_corona(G, k, core_number=None):
     """Return the k-corona of *G* (k-core nodes with exactly k neighbors in k-core).
 
     br-r37-c1-dg2dn: reject self-loop inputs (nx contract).
+    br-r37-c1-cfcls: use fnx.subgraph to ensure fnx return type.
     """
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
@@ -16523,7 +16527,7 @@ def k_corona(G, k, core_number=None):
             nbrs_in_core = sum(1 for nb in G.neighbors(n) if nb in core_nodes)
             if nbrs_in_core == k:
                 corona_nodes.append(n)
-    return G.subgraph(corona_nodes)
+    return subgraph(G, corona_nodes)
 
 
 def line_graph(G, create_using=None):
@@ -17854,7 +17858,11 @@ def rescale_layout(pos, scale=1):
 
 
 def freeze(G):
-    """Modify *G* so that mutation raises an error. Returns *G*."""
+    """Modify *G* so that mutation raises an error. Returns *G*.
+
+    br-r37-c1-cfcls: Convert nx input to fnx for consistent return type.
+    """
+    G = _coerce_arg_to_fnx_graph(G)
     for name in (
         "add_node",
         "add_nodes_from",
