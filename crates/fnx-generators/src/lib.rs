@@ -3134,6 +3134,66 @@ impl GraphGenerator {
         Ok(self.finish_graph_report(graph, Vec::new()))
     }
 
+    pub fn interval_graph(
+        &mut self,
+        intervals: &[(i64, i64)],
+    ) -> Result<GenerationReport, GenerationError> {
+        let operation = "interval_graph";
+        if intervals.len() > MAX_N_COMPLETE {
+            let reason = format!(
+                "interval count {} exceeds max_allowed={MAX_N_COMPLETE}",
+                intervals.len()
+            );
+            self.record(operation, DecisionAction::FailClosed, 0.95, reason.clone());
+            return Err(GenerationError::FailClosed { operation, reason });
+        }
+
+        let mut graph = Graph::new(self.mode);
+        let mut labels = Vec::with_capacity(intervals.len());
+        for &(left, right) in intervals {
+            if left > right {
+                let reason = format!(
+                    "Interval must have lower value first. Got {}",
+                    format_interval_label((left, right))
+                );
+                self.record(operation, DecisionAction::FailClosed, 0.95, reason.clone());
+                return Err(GenerationError::FailClosed { operation, reason });
+            }
+            let label = format_interval_label((left, right));
+            graph.add_node(label.clone());
+            labels.push(label);
+        }
+
+        let mut edge_count = 0usize;
+        for right_index in (0..intervals.len()).rev() {
+            let (left_min, left_max) = intervals[right_index];
+            for left_index in 0..right_index {
+                let (right_min, right_max) = intervals[left_index];
+                if left_max >= right_min && right_max >= left_min {
+                    graph
+                        .add_edge(labels[right_index].clone(), labels[left_index].clone())
+                        .map_err(|err| GenerationError::FailClosed {
+                            operation,
+                            reason: err.to_string(),
+                        })?;
+                    edge_count = edge_count.saturating_add(1);
+                }
+            }
+        }
+
+        self.record(
+            operation,
+            DecisionAction::Allow,
+            0.04,
+            format!(
+                "generated interval graph with input_intervals={}, nodes={}, edges={edge_count}",
+                intervals.len(),
+                graph.node_count()
+            ),
+        );
+        Ok(self.finish_graph_report(graph, Vec::new()))
+    }
+
     pub fn gnp_random_graph(
         &mut self,
         n: usize,
@@ -5276,6 +5336,10 @@ fn format_k_subset_label(subset: &[usize]) -> String {
         .map(|value| value.to_string())
         .collect::<Vec<String>>()
         .join(",")
+}
+
+fn format_interval_label(interval: (i64, i64)) -> String {
+    format!("({}, {})", interval.0, interval.1)
 }
 
 fn watts_strogatz_graph_core(
@@ -8872,6 +8936,72 @@ mod tests {
         assert_eq!(
             err.to_string(),
             "generator `hnm_harary_graph` failed closed: edge count 1999001 exceeds max_allowed=1999000"
+        );
+    }
+
+    #[test]
+    fn interval_graph_matches_networkx_example_edges() {
+        let mut generator = GraphGenerator::strict();
+        let report = generator
+            .interval_graph(&[(-2, 3), (1, 4), (2, 3), (4, 6)])
+            .expect("interval graph generation should succeed");
+
+        assert_eq!(report.graph.node_count(), 4);
+        assert_eq!(report.graph.edge_count(), 4);
+        assert_eq!(
+            sorted_graph_edges(&report.graph),
+            vec![
+                ("(-2, 3)".to_owned(), "(1, 4)".to_owned()),
+                ("(-2, 3)".to_owned(), "(2, 3)".to_owned()),
+                ("(1, 4)".to_owned(), "(2, 3)".to_owned()),
+                ("(1, 4)".to_owned(), "(4, 6)".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn interval_graph_empty_and_duplicate_intervals_match_networkx_semantics() {
+        let mut generator = GraphGenerator::strict();
+        let empty = generator
+            .interval_graph(&[])
+            .expect("empty interval graph should succeed");
+        let duplicate = generator
+            .interval_graph(&[(0, 1), (0, 1), (2, 3)])
+            .expect("duplicate interval graph should succeed");
+
+        assert_eq!(empty.graph.node_count(), 0);
+        assert_eq!(empty.graph.edge_count(), 0);
+        assert_eq!(duplicate.graph.node_count(), 2);
+        assert_eq!(duplicate.graph.edge_count(), 1);
+        assert_eq!(
+            sorted_graph_edges(&duplicate.graph),
+            vec![("(0, 1)".to_owned(), "(0, 1)".to_owned())]
+        );
+    }
+
+    #[test]
+    fn interval_graph_rejects_reversed_and_oversized_inputs() {
+        let mut generator = GraphGenerator::strict();
+        let reversed = generator
+            .interval_graph(&[(3, 1)])
+            .expect_err("reversed interval should fail closed");
+        assert_eq!(
+            reversed.to_string(),
+            "generator `interval_graph` failed closed: Interval must have lower value first. Got (3, 1)"
+        );
+
+        let oversized = (0..=MAX_N_COMPLETE)
+            .map(|value| {
+                let value = value as i64;
+                (value, value)
+            })
+            .collect::<Vec<(i64, i64)>>();
+        let err = generator
+            .interval_graph(&oversized)
+            .expect_err("oversized interval input should fail closed");
+        assert_eq!(
+            err.to_string(),
+            "generator `interval_graph` failed closed: interval count 2001 exceeds max_allowed=2000"
         );
     }
 
