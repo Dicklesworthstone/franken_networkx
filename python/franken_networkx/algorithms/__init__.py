@@ -198,6 +198,9 @@ tree = _fnx_tree  # Override in module globals
 import franken_networkx.flow as _fnx_flow
 _sys.modules[f"{__name__}.flow"] = _fnx_flow
 flow = _fnx_flow  # Override in module globals
+_alias_nx_child_modules(
+    "networkx.algorithms.flow", f"{__name__}.flow"
+)
 
 import franken_networkx.traversal as _fnx_traversal
 _sys.modules[f"{__name__}.traversal"] = _fnx_traversal
