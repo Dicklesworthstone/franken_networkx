@@ -34,10 +34,6 @@ def _build_pair():
     return fnx_graph, nx_graph
 
 
-def _normalized_paths(paths):
-    return sorted(tuple(path) for path in paths)
-
-
 def test_direct_simple_paths_module_import_exposes_wrappers():
     module = importlib.import_module("franken_networkx.simple_paths")
 
@@ -78,15 +74,13 @@ def test_simple_path_generators_match_networkx():
     module = importlib.import_module("franken_networkx.simple_paths")
     fnx_graph, nx_graph = _build_pair()
 
-    assert _normalized_paths(
-        module.all_simple_paths(fnx_graph, 0, 3, cutoff=3)
-    ) == _normalized_paths(nx.all_simple_paths(nx_graph, 0, 3, cutoff=3))
+    assert list(module.all_simple_paths(fnx_graph, 0, 3, cutoff=3)) == list(
+        nx.all_simple_paths(nx_graph, 0, 3, cutoff=3)
+    )
     assert list(module.shortest_simple_paths(fnx_graph, 0, 3)) == list(
         nx.shortest_simple_paths(nx_graph, 0, 3)
     )
-    assert _normalized_paths(
-        module.all_simple_edge_paths(fnx_graph, 0, 3, cutoff=3)
-    ) == _normalized_paths(
+    assert list(module.all_simple_edge_paths(fnx_graph, 0, 3, cutoff=3)) == list(
         nx.all_simple_edge_paths(nx_graph, 0, 3, cutoff=3)
     )
 

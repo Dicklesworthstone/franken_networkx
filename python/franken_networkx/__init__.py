@@ -8426,80 +8426,17 @@ def all_simple_paths(
     """Yield all simple paths from *source* to *target*.
 
     ``target`` may be a single node OR an iterable of target nodes (list
-    / set / etc.) - networkx yields paths whose endpoint is *any* node
-    in the iterable, in DFS order over a single traversal. The Rust binding
-    only handles a scalar target, so iterable-target inputs delegate to
-    NetworkX to preserve the exact emission order.
+    / set / etc.) - NetworkX yields paths in observable DFS order.  The
+    Rust binding returns the same path set for scalar targets but can differ
+    in yield order, so the public wrapper delegates to preserve exact parity.
 
     _Generator function so the returned object is a true generator
     matching nx's contract (br-r37-c1-682kr).
     """
     _validate_backend_dispatch_keywords("all_simple_paths", backend, backend_kwargs)
-    if G.is_multigraph():
-        yield from _call_networkx_for_parity(
-            "all_simple_paths", G, source, target, cutoff=cutoff
-        )
-        return
-
-    if source not in G:
-        raise NodeNotFound(f"source node {source} not in graph")
-
-    try:
-        target_is_node = target in G
-    except TypeError:
-        target_is_node = False
-
-    if not target_is_node:
-        try:
-            iter(target)
-        except TypeError:
-            pass
-        else:
-            yield from _call_networkx_for_parity(
-                "all_simple_paths", G, source, target, cutoff=cutoff
-            )
-            return
-        raise NodeNotFound(f"target node {target} not in graph")
-
-    # Scalar target — Rust fast path.
-    # br-r37-c1-asp-nan: nx uses ``if cutoff >= 0 and targets``
-    # (positive predicate), which is False for ``cutoff=NaN`` and
-    # ``cutoff < 0`` — both cases yield empty.  fnx previously used
-    # the negative form ``cutoff < 0`` which is False for NaN,
-    # falling through to the Rust binding which raises ``TypeError:
-    # 'float' object cannot be interpreted as an integer``.  Match
-    # nx by computing the positive predicate explicitly.  Also
-    # treat ``+inf`` as effectively unbounded (``None``) so the
-    # Rust int-only signature doesn't reject it.
-    if cutoff is not None and not (cutoff >= 0):
-        return
-    if isinstance(cutoff, float):
-        # nx accepts any numeric cutoff (compares via ``len(stack)
-        # >= cutoff`` where ``len(stack)`` is an integer _count of
-        # nodes-on-the-path).  ``ceil`` yields the same effective
-        # semantics: a fractional cutoff like 3.5 still admits paths
-        # whose stack-length never reaches the integer ceiling
-        # (``len=4 >= 3.5`` would skip — but the path of 4 edges +
-        # 5 nodes is yielded only AFTER the recursive descent
-        # returns; the cutoff bounds extension steps not yields).
-        # Empirical: nx(3.5) yields the 4-edge path; ceil(3.5)=4
-        # → fnx with cutoff=4 also yields it.  +inf → None
-        # (unbounded).
-        if _math.isinf(cutoff):
-            cutoff = None
-        else:
-            cutoff = _math.ceil(cutoff)
-    if source == target:
-        yield [source]
-        return
-    # br-allsimplecut0: NX defines cutoff as "Depth to stop the search.
-    # Only paths of length <= cutoff are returned" (length = number of
-    # edges). cutoff < 1 with source != target means no path is short
-    # enough — yield nothing. The Rust binding ignored cutoff=0 and
-    # surfaced the direct edge instead, diverging from NX.
-    if cutoff is not None and cutoff < 1:
-        return
-    yield from _rust_all_simple_paths(G, source, target, cutoff=cutoff)
+    yield from _call_networkx_for_parity(
+        "all_simple_paths", G, source, target, cutoff=cutoff
+    )
 
 
 # Algorithm functions — graph operators
