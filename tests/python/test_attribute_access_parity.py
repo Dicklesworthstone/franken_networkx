@@ -320,15 +320,14 @@ def test_bfs_tree_returns_fnx_digraph():
 
 
 def test_random_tournament_returns_digraph():
-    # br-r37-c1-j7v0c: previously this test asserted isinstance(...,
-    # fnx.DiGraph). After fnx.random_tournament was hidden at top
-    # level (br-r37-c1-dm5jl), the namespaced fnx.tournament.X path
-    # auto-resolves to nx.algorithms.tournament.random_tournament,
-    # which returns nx.DiGraph. The expected-divergence here is the
-    # type — assert only the structural result.
-    import networkx as nx
+    # br-r37-c1-j7v0c: random_tournament was originally hidden at the
+    # top level and the namespaced fnx.tournament.X path auto-resolved
+    # to nx, so this test briefly relaxed to ``isinstance(..., nx.DiGraph)``.
+    # br-r37-c1-ovbz4: fnx.tournament.random_tournament has since
+    # acquired a native wrapper that returns ``fnx.DiGraph`` (the
+    # standard fnx drop-in contract); re-lock the fnx-type result.
     tournament = fnx.tournament.random_tournament(5, seed=42)
-    assert isinstance(tournament, nx.DiGraph)
+    assert isinstance(tournament, fnx.DiGraph)
     assert tournament.number_of_nodes() == 5
 
 
