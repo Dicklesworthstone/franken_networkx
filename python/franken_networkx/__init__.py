@@ -28427,14 +28427,18 @@ MultiDiGraph._node = property(
 
 
 def _graph_shallowcopy(self):
+    # br-r37-c1-5ctpe: copy.copy(G) must share the same attribute dict
+    # references (graph attrs are `is`, not just `==`). G.copy() returns
+    # a deep copy; copy.copy(G) returns a shallow copy.
+    #
     # br-r37-c1-4wqn9: previous override-pattern (set h._adj = self.adj,
     # h._node = self._node) caused silent write-loss: h.add_edge wrote
     # to h's separate Rust storage but h.edges still read through the
-    # overridden _adj view pointing at g. Delegate to self.copy() so
-    # copy.copy(g) returns an independent copy (diverges from nx's
-    # shared-state contract, but is consistent with g.copy() and
-    # never silently loses writes).
+    # overridden _adj view pointing at g. Create an independent copy of
+    # the graph STRUCTURE but share the attribute dicts.
     result = self.copy()
+    # Share graph attrs dict by setting the override directly
+    vars(result)[_GRAPH_ATTR_OVERRIDE] = self.graph
     if getattr(self, "frozen", False):
         freeze(result)
     return result
