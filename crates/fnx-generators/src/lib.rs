@@ -290,6 +290,194 @@ impl GraphGenerator {
         Ok(self.finish_graph_report(graph, warnings))
     }
 
+    /// Generate a uniformly sampled undirected graph with exactly `m` edges.
+    ///
+    /// Matches NetworkX's sparse `gnm_random_graph(..., directed=False)`
+    /// selection rule: repeatedly sample endpoint pairs uniformly and reject
+    /// self-loops or duplicate edges until `m` distinct edges have landed.
+    pub fn gnm_random_graph(
+        &mut self,
+        n: usize,
+        m: usize,
+        seed: u64,
+    ) -> Result<GenerationReport, GenerationError> {
+        let (n, warnings) = self.validate_n("gnm_random_graph", n, MAX_N_GNP)?;
+        let max_edges = n.saturating_mul(n.saturating_sub(1)) / 2;
+        if m >= max_edges {
+            let graph = Graph::complete_graph(self.mode, n);
+            self.record(
+                "gnm_random_graph",
+                DecisionAction::Allow,
+                0.05,
+                format!("gnm graph saturated to complete graph: n={n}, m={m}, seed={seed}"),
+            );
+            return Ok(self.finish_graph_report(graph, warnings));
+        }
+
+        let (mut graph, node_labels) = graph_with_n_nodes(self.mode, n);
+        let mut rng = PythonRandom::new(seed);
+        let mut edge_count = 0usize;
+        while edge_count < m {
+            let u = rng.choice_index(n);
+            let v = rng.choice_index(n);
+            if u == v || graph.has_edge(&node_labels[u], &node_labels[v]) {
+                continue;
+            }
+            graph
+                .add_edge(node_labels[u].clone(), node_labels[v].clone())
+                .map_err(|err| GenerationError::FailClosed {
+                    operation: "gnm_random_graph",
+                    reason: err.to_string(),
+                })?;
+            edge_count += 1;
+        }
+
+        self.record(
+            "gnm_random_graph",
+            DecisionAction::Allow,
+            0.08,
+            format!("generated gnm graph with n={n}, m={m}, seed={seed}"),
+        );
+        Ok(self.finish_graph_report(graph, warnings))
+    }
+
+    /// Generate a uniformly sampled directed graph with exactly `m` edges.
+    ///
+    /// Mirrors NetworkX's `gnm_random_graph(..., directed=True)` rejection
+    /// sampler, preserving source/target orientation and rejecting self-loops.
+    pub fn gnm_random_digraph(
+        &mut self,
+        n: usize,
+        m: usize,
+        seed: u64,
+    ) -> Result<DiGenerationReport, GenerationError> {
+        let (n, warnings) = self.validate_n("gnm_random_digraph", n, MAX_N_GNP)?;
+        let max_edges = n.saturating_mul(n.saturating_sub(1));
+        if m >= max_edges {
+            let graph = complete_digraph(self.mode, n);
+            self.record(
+                "gnm_random_digraph",
+                DecisionAction::Allow,
+                0.05,
+                format!("gnm digraph saturated to complete digraph: n={n}, m={m}, seed={seed}"),
+            );
+            return Ok(self.finish_digraph_report(graph, warnings));
+        }
+
+        let (mut graph, node_labels) = digraph_with_n_nodes(self.mode, n);
+        let mut rng = PythonRandom::new(seed);
+        let mut edge_count = 0usize;
+        while edge_count < m {
+            let u = rng.choice_index(n);
+            let v = rng.choice_index(n);
+            if u == v || graph.has_edge(&node_labels[u], &node_labels[v]) {
+                continue;
+            }
+            graph
+                .add_edge(node_labels[u].clone(), node_labels[v].clone())
+                .map_err(|err| GenerationError::FailClosed {
+                    operation: "gnm_random_digraph",
+                    reason: err.to_string(),
+                })?;
+            edge_count += 1;
+        }
+
+        self.record(
+            "gnm_random_digraph",
+            DecisionAction::Allow,
+            0.08,
+            format!("generated gnm digraph with n={n}, m={m}, seed={seed}"),
+        );
+        Ok(self.finish_digraph_report(graph, warnings))
+    }
+
+    /// Generate an undirected `G(n, m)` graph using NetworkX's dense sampler.
+    ///
+    /// This follows Knuth-style selection sampling over the upper-triangular
+    /// adjacency matrix. NetworkX's implementation raises from `randrange(0)`
+    /// for `n > 1, m == 0`; strict mode preserves that fail-closed outcome.
+    pub fn dense_gnm_random_graph(
+        &mut self,
+        n: usize,
+        m: usize,
+        seed: u64,
+    ) -> Result<GenerationReport, GenerationError> {
+        let (n, warnings) = self.validate_n("dense_gnm_random_graph", n, MAX_N_GNP)?;
+        let max_edges = n.saturating_mul(n.saturating_sub(1)) / 2;
+        if m >= max_edges {
+            let graph = Graph::complete_graph(self.mode, n);
+            self.record(
+                "dense_gnm_random_graph",
+                DecisionAction::Allow,
+                0.05,
+                format!("dense gnm graph saturated to complete graph: n={n}, m={m}, seed={seed}"),
+            );
+            return Ok(self.finish_graph_report(graph, warnings));
+        }
+
+        if m == 0 {
+            let reason = "empty range for randrange()".to_owned();
+            self.record(
+                "dense_gnm_random_graph",
+                DecisionAction::FailClosed,
+                0.9,
+                reason.clone(),
+            );
+            return Err(GenerationError::FailClosed {
+                operation: "dense_gnm_random_graph",
+                reason,
+            });
+        }
+
+        let (mut graph, node_labels) = graph_with_n_nodes(self.mode, n);
+        let mut rng = PythonRandom::new(seed);
+        let mut u = 0usize;
+        let mut v = 1usize;
+        let mut seen = 0usize;
+        let mut chosen = 0usize;
+
+        while chosen < m {
+            let remaining = max_edges.saturating_sub(seen);
+            if remaining == 0 {
+                let reason = "empty range for randrange()".to_owned();
+                self.record(
+                    "dense_gnm_random_graph",
+                    DecisionAction::FailClosed,
+                    0.9,
+                    reason.clone(),
+                );
+                return Err(GenerationError::FailClosed {
+                    operation: "dense_gnm_random_graph",
+                    reason,
+                });
+            }
+
+            if rng.randrange(remaining) < m - chosen {
+                graph
+                    .add_edge(node_labels[u].clone(), node_labels[v].clone())
+                    .map_err(|err| GenerationError::FailClosed {
+                        operation: "dense_gnm_random_graph",
+                        reason: err.to_string(),
+                    })?;
+                chosen += 1;
+            }
+            seen += 1;
+            v += 1;
+            if v == n {
+                u += 1;
+                v = u + 1;
+            }
+        }
+
+        self.record(
+            "dense_gnm_random_graph",
+            DecisionAction::Allow,
+            0.08,
+            format!("generated dense gnm graph with n={n}, m={m}, seed={seed}"),
+        );
+        Ok(self.finish_graph_report(graph, warnings))
+    }
+
     /// Generate a Watts-Strogatz small-world graph.
     ///
     /// Start with a ring lattice of `n` nodes where each node is connected
@@ -1607,10 +1795,23 @@ fn digraph_with_n_nodes(mode: CompatibilityMode, n: usize) -> (DiGraph, Vec<Stri
     (graph, node_labels)
 }
 
+fn complete_digraph(mode: CompatibilityMode, n: usize) -> DiGraph {
+    let (mut graph, node_labels) = digraph_with_n_nodes(mode, n);
+    for source in 0..n {
+        for target in 0..n {
+            if source != target {
+                let _ = graph.add_edge(node_labels[source].clone(), node_labels[target].clone());
+            }
+        }
+    }
+    graph
+}
+
 #[cfg(test)]
 mod tests {
     use super::{GenerationError, GraphGenerator, MAX_N_COMPLETE, MAX_N_GENERIC, MAX_N_STAR};
     use fnx_classes::Graph;
+    use fnx_classes::digraph::DiGraph;
     use fnx_classes::digraph::MultiDiGraph;
     use fnx_runtime::{
         CompatibilityMode, DecisionAction, ForensicsBundleIndex, StructuredTestLog, TestKind,
@@ -1666,6 +1867,28 @@ mod tests {
             snapshot.edges.len(),
             edge_signature.join("|")
         )
+    }
+
+    fn sorted_graph_edges(graph: &Graph) -> Vec<(String, String)> {
+        let mut edges = graph
+            .snapshot()
+            .edges
+            .into_iter()
+            .map(|edge| (edge.left, edge.right))
+            .collect::<Vec<(String, String)>>();
+        edges.sort();
+        edges
+    }
+
+    fn sorted_digraph_edges(graph: &DiGraph) -> Vec<(String, String)> {
+        let mut edges = graph
+            .snapshot()
+            .edges
+            .into_iter()
+            .map(|edge| (edge.left, edge.right))
+            .collect::<Vec<(String, String)>>();
+        edges.sort();
+        edges
     }
 
     #[test]
@@ -1785,6 +2008,99 @@ mod tests {
             .graph
             .snapshot();
         assert_eq!(first, second);
+    }
+
+    #[test]
+    fn gnm_random_graph_matches_networkx_seeded_example() {
+        let mut generator = GraphGenerator::strict();
+        let report = generator
+            .gnm_random_graph(6, 5, 7)
+            .expect("gnm generation should succeed");
+
+        assert_eq!(
+            sorted_graph_edges(&report.graph),
+            vec![
+                ("0".to_owned(), "1".to_owned()),
+                ("0".to_owned(), "4".to_owned()),
+                ("1".to_owned(), "2".to_owned()),
+                ("2".to_owned(), "4".to_owned()),
+                ("3".to_owned(), "5".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn gnm_random_digraph_matches_networkx_seeded_example() {
+        let mut generator = GraphGenerator::strict();
+        let report = generator
+            .gnm_random_digraph(5, 7, 3)
+            .expect("gnm digraph generation should succeed");
+
+        assert_eq!(
+            sorted_digraph_edges(&report.graph),
+            vec![
+                ("0".to_owned(), "3".to_owned()),
+                ("0".to_owned(), "4".to_owned()),
+                ("1".to_owned(), "4".to_owned()),
+                ("2".to_owned(), "4".to_owned()),
+                ("3".to_owned(), "4".to_owned()),
+                ("4".to_owned(), "1".to_owned()),
+                ("4".to_owned(), "3".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn dense_gnm_random_graph_matches_networkx_seeded_example() {
+        let mut generator = GraphGenerator::strict();
+        let report = generator
+            .dense_gnm_random_graph(6, 5, 7)
+            .expect("dense gnm generation should succeed");
+
+        assert_eq!(
+            sorted_graph_edges(&report.graph),
+            vec![
+                ("0".to_owned(), "2".to_owned()),
+                ("0".to_owned(), "5".to_owned()),
+                ("1".to_owned(), "2".to_owned()),
+                ("1".to_owned(), "4".to_owned()),
+                ("2".to_owned(), "4".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn dense_gnm_zero_edges_preserves_networkx_fail_closed_path() {
+        let mut generator = GraphGenerator::strict();
+        let err = generator
+            .dense_gnm_random_graph(3, 0, 1)
+            .expect_err("NetworkX dense_gnm_random_graph raises for n > 1, m == 0");
+        assert!(matches!(
+            err,
+            GenerationError::FailClosed {
+                operation: "dense_gnm_random_graph",
+                ..
+            }
+        ));
+        assert!(err.to_string().contains("empty range for randrange()"));
+    }
+
+    #[test]
+    fn gnm_generators_saturate_to_complete_graphs() {
+        let mut generator = GraphGenerator::strict();
+        let graph = generator
+            .gnm_random_graph(4, 99, 1)
+            .expect("oversized m should saturate to complete graph")
+            .graph;
+        assert_eq!(graph.node_count(), 4);
+        assert_eq!(graph.edge_count(), 6);
+
+        let digraph = generator
+            .gnm_random_digraph(4, 99, 1)
+            .expect("oversized directed m should saturate to complete digraph")
+            .graph;
+        assert_eq!(digraph.node_count(), 4);
+        assert_eq!(digraph.edge_count(), 12);
     }
 
     #[test]
