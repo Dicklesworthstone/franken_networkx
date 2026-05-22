@@ -24,7 +24,7 @@ import pkgutil as _pkgutil
 from networkx.algorithms import *  # noqa: F401, F403
 
 
-_FNX_OVERRIDE_SUBMODULES = {"bipartite", "approximation", "minors", "operators", "clique", "summarization", "moral", "tree", "flow", "traversal"}
+_FNX_OVERRIDE_SUBMODULES = {"bipartite", "approximation", "minors", "operators", "clique", "summarization", "moral", "tree", "flow", "traversal", "euler", "sparsifiers"}
 
 
 def _alias_nx_submodules(nx_pkg, fnx_prefix):
@@ -103,6 +103,14 @@ flow = _fnx_flow  # Override in module globals
 import franken_networkx.traversal as _fnx_traversal
 _sys.modules[f"{__name__}.traversal"] = _fnx_traversal
 traversal = _fnx_traversal  # Override in module globals
+
+import franken_networkx.euler as _fnx_euler
+_sys.modules[f"{__name__}.euler"] = _fnx_euler
+euler = _fnx_euler  # Override in module globals
+
+import franken_networkx.sparsifiers as _fnx_sparsifiers
+_sys.modules[f"{__name__}.sparsifiers"] = _fnx_sparsifiers
+sparsifiers = _fnx_sparsifiers  # Override in module globals
 
 
 def __getattr__(name):
