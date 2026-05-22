@@ -785,6 +785,71 @@ impl GraphGenerator {
         )
     }
 
+    pub fn generalized_petersen_graph(
+        &mut self,
+        n: usize,
+        k: usize,
+    ) -> Result<GenerationReport, GenerationError> {
+        let operation = "generalized_petersen_graph";
+        if n <= 2 {
+            let reason = format!("n >= 3 required. Got n={n}");
+            self.record(operation, DecisionAction::FailClosed, 0.95, reason.clone());
+            return Err(GenerationError::FailClosed { operation, reason });
+        }
+
+        if k == 0 {
+            let reason = format!("Got n={n} k={k}. Need 1 <= k <= n/2");
+            self.record(operation, DecisionAction::FailClosed, 0.95, reason.clone());
+            return Err(GenerationError::FailClosed { operation, reason });
+        }
+
+        let (n, warnings) = self.validate_n(operation, n, MAX_N_GENERIC / 2)?;
+        if k > n / 2 {
+            let reason = format!("Got n={n} k={k}. Need 1 <= k <= n/2");
+            self.record(operation, DecisionAction::FailClosed, 0.95, reason.clone());
+            return Err(GenerationError::FailClosed { operation, reason });
+        }
+
+        let total_nodes = n
+            .checked_mul(2)
+            .ok_or_else(|| GenerationError::FailClosed {
+                operation,
+                reason: format!("2 * n overflows usize for n={n}"),
+            })?;
+        let (mut graph, node_labels) = graph_with_n_nodes(self.mode, total_nodes);
+        for i in 0..n {
+            graph
+                .add_edge(node_labels[i].clone(), node_labels[(i + 1) % n].clone())
+                .map_err(|err| GenerationError::FailClosed {
+                    operation,
+                    reason: err.to_string(),
+                })?;
+            graph
+                .add_edge(node_labels[i].clone(), node_labels[n + i].clone())
+                .map_err(|err| GenerationError::FailClosed {
+                    operation,
+                    reason: err.to_string(),
+                })?;
+            graph
+                .add_edge(
+                    node_labels[n + i].clone(),
+                    node_labels[n + ((i + k) % n)].clone(),
+                )
+                .map_err(|err| GenerationError::FailClosed {
+                    operation,
+                    reason: err.to_string(),
+                })?;
+        }
+
+        self.record(
+            operation,
+            DecisionAction::Allow,
+            0.04,
+            format!("generated generalized Petersen graph GP({n}, {k})"),
+        );
+        Ok(self.finish_graph_report(graph, warnings))
+    }
+
     pub fn complete_graph(&mut self, n: usize) -> Result<GenerationReport, GenerationError> {
         let (n, warnings) = self.validate_n("complete_graph", n, MAX_N_COMPLETE)?;
         let graph = Graph::complete_graph(self.mode, n);
@@ -4249,6 +4314,101 @@ mod tests {
             .map(|node| report.graph.degree(node.as_str()))
             .collect::<Vec<usize>>();
         assert_eq!(degrees, vec![3; 10]);
+    }
+
+    #[test]
+    fn generalized_petersen_graph_matches_networkx_petersen_case() {
+        let mut generator = GraphGenerator::strict();
+        let report = generator
+            .generalized_petersen_graph(5, 2)
+            .expect("generalized Petersen GP(5, 2) generation should succeed");
+        assert_eq!(report.graph.node_count(), 10);
+        assert_eq!(report.graph.edge_count(), 15);
+
+        let mut expected_edges = vec![
+            ("0".to_owned(), "1".to_owned()),
+            ("0".to_owned(), "4".to_owned()),
+            ("0".to_owned(), "5".to_owned()),
+            ("1".to_owned(), "2".to_owned()),
+            ("1".to_owned(), "6".to_owned()),
+            ("2".to_owned(), "3".to_owned()),
+            ("2".to_owned(), "7".to_owned()),
+            ("3".to_owned(), "4".to_owned()),
+            ("3".to_owned(), "8".to_owned()),
+            ("4".to_owned(), "9".to_owned()),
+            ("5".to_owned(), "7".to_owned()),
+            ("5".to_owned(), "8".to_owned()),
+            ("6".to_owned(), "8".to_owned()),
+            ("6".to_owned(), "9".to_owned()),
+            ("7".to_owned(), "9".to_owned()),
+        ];
+        expected_edges.sort();
+        assert_eq!(sorted_graph_edges(&report.graph), expected_edges);
+
+        let degrees = report
+            .graph
+            .snapshot()
+            .nodes
+            .iter()
+            .map(|node| report.graph.degree(node.as_str()))
+            .collect::<Vec<usize>>();
+        assert_eq!(degrees, vec![3; 10]);
+    }
+
+    #[test]
+    fn generalized_petersen_graph_matches_networkx_boundary_case() {
+        let mut generator = GraphGenerator::strict();
+        let report = generator
+            .generalized_petersen_graph(6, 3)
+            .expect("generalized Petersen GP(6, 3) generation should succeed");
+        assert_eq!(report.graph.node_count(), 12);
+        assert_eq!(report.graph.edge_count(), 15);
+
+        let mut expected_edges = vec![
+            ("0".to_owned(), "1".to_owned()),
+            ("0".to_owned(), "5".to_owned()),
+            ("0".to_owned(), "6".to_owned()),
+            ("1".to_owned(), "2".to_owned()),
+            ("1".to_owned(), "7".to_owned()),
+            ("2".to_owned(), "3".to_owned()),
+            ("2".to_owned(), "8".to_owned()),
+            ("3".to_owned(), "4".to_owned()),
+            ("3".to_owned(), "9".to_owned()),
+            ("4".to_owned(), "5".to_owned()),
+            ("4".to_owned(), "10".to_owned()),
+            ("5".to_owned(), "11".to_owned()),
+            ("6".to_owned(), "9".to_owned()),
+            ("7".to_owned(), "10".to_owned()),
+            ("8".to_owned(), "11".to_owned()),
+        ];
+        expected_edges.sort();
+        assert_eq!(sorted_graph_edges(&report.graph), expected_edges);
+
+        let degrees = report
+            .graph
+            .snapshot()
+            .nodes
+            .iter()
+            .map(|node| report.graph.degree(node.as_str()))
+            .collect::<Vec<usize>>();
+        assert_eq!(degrees, vec![3, 3, 3, 3, 3, 3, 2, 2, 2, 2, 2, 2]);
+    }
+
+    #[test]
+    fn generalized_petersen_graph_rejects_networkx_error_boundaries() {
+        let mut generator = GraphGenerator::strict();
+        assert!(matches!(
+            generator.generalized_petersen_graph(2, 1),
+            Err(GenerationError::FailClosed { .. })
+        ));
+        assert!(matches!(
+            generator.generalized_petersen_graph(5, 0),
+            Err(GenerationError::FailClosed { .. })
+        ));
+        assert!(matches!(
+            generator.generalized_petersen_graph(5, 3),
+            Err(GenerationError::FailClosed { .. })
+        ));
     }
 
     #[test]
