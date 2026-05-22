@@ -14,12 +14,17 @@ Current native overrides (product functions):
 - ``rooted_product`` — returns fnx graph
 - ``corona_product`` — returns fnx graph
 - ``power`` — returns fnx graph
+- ``union_all`` — returns fnx graph
+- ``intersection_all`` — returns fnx graph
+- ``compose_all`` — returns fnx graph
+- ``disjoint_union_all`` — returns fnx graph
 """
 
 from __future__ import annotations
 
 from networkx.algorithms.operators import *  # noqa: F401,F403
 import networkx.algorithms.operators.product as _nx_product
+import networkx.algorithms.operators.all as _nx_all
 
 import franken_networkx as _fnx
 from franken_networkx.readwrite import _from_nx_graph
@@ -110,4 +115,48 @@ def power(G, k, *, backend=None, **backend_kwargs):
     """
     _fnx._validate_backend_dispatch_keywords("power", backend, backend_kwargs)
     nx_result = _nx_product.power(G, k)
+    return _from_nx_graph(nx_result)
+
+
+def union_all(graphs, rename=(), *, backend=None, **backend_kwargs):
+    """Return the union of all graphs.
+
+    Wraps ``networkx.algorithms.operators.union_all`` and converts
+    the result to an fnx graph type for drop-in compatibility.
+    """
+    _fnx._validate_backend_dispatch_keywords("union_all", backend, backend_kwargs)
+    nx_result = _nx_all.union_all(graphs, rename=rename)
+    return _from_nx_graph(nx_result)
+
+
+def intersection_all(graphs, *, backend=None, **backend_kwargs):
+    """Return the intersection of all graphs.
+
+    Wraps ``networkx.algorithms.operators.intersection_all`` and converts
+    the result to an fnx graph type for drop-in compatibility.
+    """
+    _fnx._validate_backend_dispatch_keywords("intersection_all", backend, backend_kwargs)
+    nx_result = _nx_all.intersection_all(graphs)
+    return _from_nx_graph(nx_result)
+
+
+def compose_all(graphs, *, backend=None, **backend_kwargs):
+    """Return the composition of all graphs.
+
+    Wraps ``networkx.algorithms.operators.compose_all`` and converts
+    the result to an fnx graph type for drop-in compatibility.
+    """
+    _fnx._validate_backend_dispatch_keywords("compose_all", backend, backend_kwargs)
+    nx_result = _nx_all.compose_all(graphs)
+    return _from_nx_graph(nx_result)
+
+
+def disjoint_union_all(graphs, *, backend=None, **backend_kwargs):
+    """Return the disjoint union of all graphs.
+
+    Wraps ``networkx.algorithms.operators.disjoint_union_all`` and converts
+    the result to an fnx graph type for drop-in compatibility.
+    """
+    _fnx._validate_backend_dispatch_keywords("disjoint_union_all", backend, backend_kwargs)
+    nx_result = _nx_all.disjoint_union_all(graphs)
     return _from_nx_graph(nx_result)
