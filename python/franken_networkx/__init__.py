@@ -20795,9 +20795,13 @@ def identified_nodes(
             add_node_with_deferred_contraction(G, n, H.nodes[n])
         for s, t, d_attr in H.edges(data=True):
             add_edge_with_deferred_contraction(G, s, t, d_attr)
-        # br-r37-c1-k3ksc: Always return fnx type for consistency
-        from franken_networkx.readwrite import _from_nx_graph
-        return _from_nx_graph(G)
+        # br-r37-c1-7xvjl: copy=False means in-place mutation — nx
+        # returns the *same* object the caller passed (``result is G``).
+        # Routing through ``_from_nx_graph`` (br-r37-c1-k3ksc, "always
+        # return fnx type") copied G and broke that identity; for an
+        # in-place contraction G is already the caller's graph, so
+        # return it directly.
+        return G
 
     # br-r37-c1-k3ksc: Always return fnx type for consistency
     from franken_networkx.readwrite import _from_nx_graph
