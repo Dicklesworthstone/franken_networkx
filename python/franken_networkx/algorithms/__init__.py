@@ -24,7 +24,7 @@ import pkgutil as _pkgutil
 from networkx.algorithms import *  # noqa: F401, F403
 
 
-_FNX_OVERRIDE_SUBMODULES = {"bipartite", "approximation", "minors", "operators", "clique", "summarization", "moral", "tree", "flow", "traversal", "euler", "sparsifiers", "triads", "threshold"}
+_FNX_OVERRIDE_SUBMODULES = {"bipartite", "approximation", "minors", "operators", "clique", "summarization", "moral", "tree", "flow", "traversal", "euler", "sparsifiers", "triads", "threshold", "dag"}
 
 
 def _alias_nx_submodules(nx_pkg, fnx_prefix):
@@ -119,6 +119,10 @@ triads = _fnx_triads  # Override in module globals
 import franken_networkx.threshold as _fnx_threshold
 _sys.modules[f"{__name__}.threshold"] = _fnx_threshold
 threshold = _fnx_threshold  # Override in module globals
+
+import franken_networkx.dag as _fnx_dag
+_sys.modules[f"{__name__}.dag"] = _fnx_dag
+dag = _fnx_dag  # Override in module globals
 
 
 def __getattr__(name):
