@@ -24,7 +24,7 @@ import pkgutil as _pkgutil
 from networkx.algorithms import *  # noqa: F401, F403
 
 
-_FNX_OVERRIDE_SUBMODULES = {"bipartite", "approximation", "minors", "operators", "clique", "summarization", "moral"}
+_FNX_OVERRIDE_SUBMODULES = {"bipartite", "approximation", "minors", "operators", "clique", "summarization", "moral", "tree"}
 
 
 def _alias_nx_submodules(nx_pkg, fnx_prefix):
@@ -91,6 +91,10 @@ summarization = _fnx_summarization  # Override in module globals
 import franken_networkx.moral as _fnx_moral
 _sys.modules[f"{__name__}.moral"] = _fnx_moral
 moral = _fnx_moral  # Override in module globals
+
+import franken_networkx.tree as _fnx_tree
+_sys.modules[f"{__name__}.tree"] = _fnx_tree
+tree = _fnx_tree  # Override in module globals
 
 
 def __getattr__(name):
