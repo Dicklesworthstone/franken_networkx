@@ -13480,10 +13480,12 @@ def max_weight_clique(G, weight="weight"):
     'str'`` AND the Rust cache made in-place ``G.nodes[n]['weight']
     = 1`` invisible to the Rust call. Delegate to nx for weight=None
     so the cardinality semantics are correct.
+
+    br-r37-c1-07gkp: The Rust implementation also returns the clique
+    size instead of summing node weights. Always delegate to nx until
+    the Rust binding is fixed.
     """
-    if weight is None:
-        return _call_networkx_for_parity("max_weight_clique", G, weight=None)
-    return _raw_max_weight_clique(G, weight=weight)
+    return _call_networkx_for_parity("max_weight_clique", G, weight=weight)
 
 # Algorithm functions — DAG additional
 from franken_networkx._fnx import (
