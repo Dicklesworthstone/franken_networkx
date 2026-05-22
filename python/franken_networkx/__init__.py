@@ -10582,19 +10582,20 @@ def _concrete_class_for(G):
     (intersection / difference / symmetric_difference / compose /
     disjoint_union / relabel_nodes all rebuild via ``cls()``).
     Mirror nx by returning the canonical concrete class for the view's
-    (directed, multigraph) flavor. Pass-through for plain graphs.
+    (directed, multigraph) flavor.
+
+    br-r37-c1-cfcls: Always return fnx types, not nx types. When G is
+    an nx.Graph, we still want fnx output for drop-in parity.
     """
-    if isinstance(G, _FilteredGraphView):
-        directed = G.is_directed()
-        multigraph = G.is_multigraph()
-        if directed and multigraph:
-            return MultiDiGraph
-        if directed:
-            return DiGraph
-        if multigraph:
-            return MultiGraph
-        return Graph
-    return type(G)
+    directed = G.is_directed()
+    multigraph = G.is_multigraph()
+    if directed and multigraph:
+        return MultiDiGraph
+    if directed:
+        return DiGraph
+    if multigraph:
+        return MultiGraph
+    return Graph
 
 
 def _coerce_arg_to_fnx_graph(G):
@@ -16530,8 +16531,10 @@ def line_graph(G, create_using=None):
 
     The line graph L(G) has a node for each edge in G. Two nodes in L(G)
     are adjacent iff the corresponding edges in G share an endpoint.
+
+    br-r37-c1-cfcls: Always use fnx type as default, not G.__class__.
     """
-    graph = _empty_graph_from_create_using(create_using, default=G.__class__)
+    graph = _empty_graph_from_create_using(create_using, default=_concrete_class_for(G))
 
     if G.is_directed():
         if G.is_multigraph():
@@ -16580,10 +16583,13 @@ def line_graph(G, create_using=None):
 
 
 def make_max_clique_graph(G, create_using=None):
-    """Return the maximal-clique intersection graph of *G*."""
+    """Return the maximal-clique intersection graph of *G*.
+
+    br-r37-c1-cfcls: Always use fnx type as default, not G.__class__.
+    """
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
-    graph = _empty_graph_from_create_using(create_using, default=G.__class__)
+    graph = _empty_graph_from_create_using(create_using, default=_concrete_class_for(G))
     cliques = list(find_cliques(G))
     for index in range(len(cliques)):
         graph.add_node(index)
