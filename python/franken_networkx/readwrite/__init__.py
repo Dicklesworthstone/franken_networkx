@@ -23,6 +23,7 @@ _NX_READWRITE_SUBMODULES = (
     "json_graph.tree",
     "leda",
     "multiline_adjlist",
+    "p2g",
     "pajek",
     "sparse6",
     "text",

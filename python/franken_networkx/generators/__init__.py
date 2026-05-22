@@ -38,23 +38,36 @@ def _overlay_franken_generators(namespace):
 
 
 def _register_franken_generator_submodules():
+    import importlib
+    import pkgutil
     import sys
     import types
     import networkx.generators as _src
 
+    modules = {}
     for name, value in tuple(vars(_src).items()):
-        if not isinstance(value, types.ModuleType):
+        if isinstance(value, types.ModuleType) and value.__name__.startswith(
+            "networkx.generators."
+        ):
+            modules[name] = value
+
+    for info in pkgutil.iter_modules(_src.__path__):
+        name = info.name
+        if name == "tests" or name.startswith("_"):
             continue
-        if not value.__name__.startswith("networkx.generators."):
-            continue
-        module_name = f"{__name__}.{name}"
-        proxy = types.ModuleType(module_name, value.__doc__)
-        proxy.__dict__.update(value.__dict__)
-        proxy.__name__ = module_name
+        modules.setdefault(
+            name, importlib.import_module(f"networkx.generators.{name}")
+        )
+
+    for name, source_module in modules.items():
+        alias = f"{__name__}.{name}"
+        proxy = types.ModuleType(alias, source_module.__doc__)
+        proxy.__dict__.update(source_module.__dict__)
+        proxy.__name__ = alias
         proxy.__package__ = __name__
         proxy.__spec__ = None
         _overlay_franken_generators(proxy.__dict__)
-        sys.modules[module_name] = proxy
+        sys.modules[alias] = proxy
         globals()[name] = proxy
 
 

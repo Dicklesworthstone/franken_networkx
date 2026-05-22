@@ -9,6 +9,24 @@ expects to be importable through the ``franken_networkx.linalg`` path.
 from networkx.linalg import *  # noqa: F401, F403
 
 
+def _install_linalg_child_aliases():
+    import importlib
+    import pkgutil
+    import sys
+    import networkx.linalg as _src
+
+    for info in pkgutil.iter_modules(_src.__path__):
+        name = info.name
+        if name == "tests" or name.startswith("_"):
+            continue
+        alias = f"{__name__}.{name}"
+        if alias in sys.modules:
+            continue
+        module = importlib.import_module(f"networkx.linalg.{name}")
+        sys.modules[alias] = module
+        globals()[name] = module
+
+
 def __getattr__(name):
     import networkx.linalg as _src
 
@@ -24,3 +42,6 @@ def __dir__():
     import networkx.linalg as _src
 
     return sorted(set(globals()) | set(dir(_src)))
+
+
+_install_linalg_child_aliases()

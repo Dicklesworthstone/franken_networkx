@@ -79,3 +79,25 @@ __all__ = [
     "spectral_layout",
     "spring_layout",
 ]
+
+
+def _install_drawing_child_aliases():
+    import importlib
+    import pkgutil
+    import sys
+    import networkx.drawing as _src
+
+    native_children = {"layout", "nx_pylab"}
+    for info in pkgutil.iter_modules(_src.__path__):
+        name = info.name
+        if name in native_children or name == "tests" or name.startswith("_"):
+            continue
+        alias = f"{__name__}.{name}"
+        if alias in sys.modules:
+            continue
+        module = importlib.import_module(f"networkx.drawing.{name}")
+        sys.modules[alias] = module
+        globals()[name] = module
+
+
+_install_drawing_child_aliases()
