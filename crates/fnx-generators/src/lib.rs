@@ -3491,6 +3491,132 @@ impl GraphGenerator {
         Ok(self.finish_graph_report(graph, Vec::new()))
     }
 
+    pub fn partial_duplication_graph(
+        &mut self,
+        total_nodes: usize,
+        initial_clique_size: usize,
+        p: f64,
+        q: f64,
+        seed: u64,
+    ) -> Result<GenerationReport, GenerationError> {
+        let operation = "partial_duplication_graph";
+        if !(0.0..=1.0).contains(&p) || !(0.0..=1.0).contains(&q) {
+            let reason = "partial duplication graph must have 0 <= p, q <= 1.".to_owned();
+            self.record(operation, DecisionAction::FailClosed, 1.0, reason.clone());
+            return Err(GenerationError::FailClosed { operation, reason });
+        }
+        if initial_clique_size > total_nodes {
+            let reason = "partial duplication graph must have n <= N.".to_owned();
+            self.record(operation, DecisionAction::FailClosed, 1.0, reason.clone());
+            return Err(GenerationError::FailClosed { operation, reason });
+        }
+        if initial_clique_size == 0 && total_nodes > 0 {
+            let reason = "partial duplication graph requires n >= 1 when N > 0".to_owned();
+            self.record(operation, DecisionAction::FailClosed, 1.0, reason.clone());
+            return Err(GenerationError::FailClosed { operation, reason });
+        }
+
+        let (total_nodes, warnings) = self.validate_n(operation, total_nodes, MAX_N_GENERIC)?;
+        if initial_clique_size > total_nodes {
+            let reason = "partial duplication graph must have n <= N.".to_owned();
+            self.record(operation, DecisionAction::FailClosed, 1.0, reason.clone());
+            return Err(GenerationError::FailClosed { operation, reason });
+        }
+        let initial_edges = initial_clique_size
+            .checked_mul(initial_clique_size.saturating_sub(1))
+            .map(|value| value / 2)
+            .ok_or_else(|| GenerationError::FailClosed {
+                operation,
+                reason: format!("edge count overflow for n={initial_clique_size}"),
+            })?;
+        let max_dense_edges = MAX_N_COMPLETE * (MAX_N_COMPLETE - 1) / 2;
+        if initial_edges > max_dense_edges {
+            let reason =
+                format!("edge count {initial_edges} exceeds max_allowed={max_dense_edges}");
+            self.record(operation, DecisionAction::FailClosed, 0.95, reason.clone());
+            return Err(GenerationError::FailClosed { operation, reason });
+        }
+
+        let mut graph = Graph::new(self.mode);
+        let node_labels = (0..total_nodes)
+            .map(|node| node.to_string())
+            .collect::<Vec<String>>();
+        for label in node_labels.iter().take(initial_clique_size) {
+            graph.add_node(label.clone());
+        }
+
+        let mut edge_count = 0usize;
+        for left in 0..initial_clique_size {
+            for right in (left + 1)..initial_clique_size {
+                graph
+                    .add_edge(node_labels[left].clone(), node_labels[right].clone())
+                    .map_err(|err| GenerationError::FailClosed {
+                        operation,
+                        reason: err.to_string(),
+                    })?;
+                edge_count += 1;
+            }
+        }
+
+        let mut rng = PythonRandom::new(seed);
+        for new_node in initial_clique_size..total_nodes {
+            let source_node = rng.randrange(new_node);
+            let new_label = node_labels[new_node].clone();
+            graph.add_node(new_label.clone());
+
+            let source_neighbors = graph
+                .neighbors(&node_labels[source_node])
+                .unwrap_or_default()
+                .into_iter()
+                .map(str::to_owned)
+                .collect::<Vec<String>>();
+            for neighbor in source_neighbors {
+                if rng.random() < p {
+                    graph.add_edge(new_label.clone(), neighbor).map_err(|err| {
+                        GenerationError::FailClosed {
+                            operation,
+                            reason: err.to_string(),
+                        }
+                    })?;
+                    edge_count += 1;
+                    if edge_count > max_dense_edges {
+                        let reason = format!(
+                            "edge count {edge_count} exceeds max_allowed={max_dense_edges}"
+                        );
+                        self.record(operation, DecisionAction::FailClosed, 0.95, reason.clone());
+                        return Err(GenerationError::FailClosed { operation, reason });
+                    }
+                }
+            }
+
+            if rng.random() < q {
+                graph
+                    .add_edge(new_label, node_labels[source_node].clone())
+                    .map_err(|err| GenerationError::FailClosed {
+                        operation,
+                        reason: err.to_string(),
+                    })?;
+                edge_count += 1;
+                if edge_count > max_dense_edges {
+                    let reason =
+                        format!("edge count {edge_count} exceeds max_allowed={max_dense_edges}");
+                    self.record(operation, DecisionAction::FailClosed, 0.95, reason.clone());
+                    return Err(GenerationError::FailClosed { operation, reason });
+                }
+            }
+        }
+
+        self.record(
+            operation,
+            DecisionAction::Allow,
+            0.08,
+            format!(
+                "generated partial_duplication_graph with N={total_nodes}, n={initial_clique_size}, p={p}, q={q}, seed={seed}, edges={edge_count}"
+            ),
+        );
+        Ok(self.finish_graph_report(graph, warnings))
+    }
+
     pub fn gnp_random_graph(
         &mut self,
         n: usize,
@@ -9636,6 +9762,77 @@ mod tests {
         assert_eq!(
             err.to_string(),
             "generator `grid_graph` failed closed: node count 100001 exceeds max_allowed=100000"
+        );
+    }
+
+    #[test]
+    fn partial_duplication_graph_matches_networkx_seeded_example() {
+        let mut generator = GraphGenerator::strict();
+        let report = generator
+            .partial_duplication_graph(6, 3, 0.5, 0.25, 7)
+            .expect("partial duplication graph should succeed");
+
+        assert_eq!(report.graph.node_count(), 6);
+        assert_eq!(
+            sorted_graph_edges(&report.graph),
+            vec![
+                ("0".to_owned(), "1".to_owned()),
+                ("0".to_owned(), "2".to_owned()),
+                ("0".to_owned(), "5".to_owned()),
+                ("1".to_owned(), "2".to_owned()),
+                ("1".to_owned(), "3".to_owned()),
+                ("1".to_owned(), "4".to_owned()),
+                ("1".to_owned(), "5".to_owned()),
+                ("2".to_owned(), "3".to_owned()),
+                ("2".to_owned(), "4".to_owned()),
+                ("2".to_owned(), "5".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn partial_duplication_graph_matches_networkx_sparse_seeded_example() {
+        let mut generator = GraphGenerator::strict();
+        let report = generator
+            .partial_duplication_graph(7, 2, 0.7, 0.4, 11)
+            .expect("partial duplication graph should succeed");
+
+        assert_eq!(report.graph.node_count(), 7);
+        assert_eq!(
+            sorted_graph_edges(&report.graph),
+            vec![
+                ("0".to_owned(), "1".to_owned()),
+                ("0".to_owned(), "3".to_owned()),
+                ("0".to_owned(), "4".to_owned()),
+                ("2".to_owned(), "6".to_owned()),
+                ("4".to_owned(), "5".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn partial_duplication_graph_validates_inputs_and_initial_clique() {
+        let mut generator = GraphGenerator::strict();
+        let clique = generator
+            .partial_duplication_graph(4, 4, 0.0, 0.0, 1)
+            .expect("N=n should return the initial complete graph");
+        assert_eq!(clique.graph.node_count(), 4);
+        assert_eq!(clique.graph.edge_count(), 6);
+
+        let probability_err = generator
+            .partial_duplication_graph(4, 2, -0.1, 0.5, 1)
+            .expect_err("out-of-range probabilities should fail closed");
+        assert_eq!(
+            probability_err.to_string(),
+            "generator `partial_duplication_graph` failed closed: partial duplication graph must have 0 <= p, q <= 1."
+        );
+
+        let size_err = generator
+            .partial_duplication_graph(3, 4, 0.5, 0.5, 1)
+            .expect_err("initial clique larger than final graph should fail closed");
+        assert_eq!(
+            size_err.to_string(),
+            "generator `partial_duplication_graph` failed closed: partial duplication graph must have n <= N."
         );
     }
 
