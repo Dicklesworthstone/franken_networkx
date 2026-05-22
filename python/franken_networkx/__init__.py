@@ -6187,32 +6187,12 @@ def bellman_ford_path(G, source, target, weight="weight"):
     Mirrors ``networkx.bellman_ford_path``. Raises ``NetworkXUnbounded``
     on negative cycles, ``NetworkXNoPath`` if no path exists.
     """
-    # br-r37-c1-phy2p: accept nx-typed inputs.
-    G = _coerce_arg_to_fnx_graph(G)
-    # br-r37-c1-c4agn: hash-check for nx-shaped TypeError parity.
-    hash(source)
-    hash(target)
-    if _should_delegate_bellman_ford_to_networkx(weight, G):
-        return _call_networkx_for_parity(
-            "bellman_ford_path", G, source, target, weight=weight
-        )
-    if source not in G:
-        raise NodeNotFound(f"Source {source} not in G")
-    if target not in G:
-        raise NetworkXNoPath(f"Target {target} cannot be reached from given sources")
-    try:
-        return _raw_bellman_ford_path(G, source, target, weight=weight)
-    except NetworkXNoPath as exc:
-        raise NetworkXNoPath(
-            f"Target {target} cannot be reached from given sources"
-        ) from exc
-    except NetworkXUnbounded as exc:
-        # br-r37-c1-wtjho: the Rust impl says "Negative cost cycle
-        # detected."; nx uses "Negative cycle detected." (no "cost").
-        # Re-raise with nx's exact wording for drop-in error matching.
-        if "cost cycle" in str(exc):
-            raise NetworkXUnbounded("Negative cycle detected.") from exc
-        raise
+    # br-r37-c1-9axrp: The Rust bellman_ford_path implementation returns
+    # incorrect paths (e.g., direct edge instead of shorter multi-hop path).
+    # Always delegate to nx until the Rust binding is fixed.
+    return _call_networkx_for_parity(
+        "bellman_ford_path", G, source, target, weight=weight
+    )
 
 
 def shortest_path(
@@ -13798,35 +13778,11 @@ def bellman_ford_path_length(G, source, target, weight="weight"):
     Raises ``NetworkXUnbounded`` on negative cycles reachable from ``source``,
     ``NetworkXNoPath`` if ``target`` is unreachable.
     """
-    if _should_delegate_bellman_ford_to_networkx(weight, G):
-        return _call_networkx_for_parity(
-            "bellman_ford_path_length", G, source, target, weight=weight
-        )
-    # br-r37-c1-mz7g4: hash-validate source for nx-shaped TypeError
-    # parity on unhashable inputs (sibling fix to bellman_ford_path).
-    hash(source)
-    if source not in G:
-        raise NodeNotFound(f"Source {source} not in G")
-    # br-r37-c1-omjmu: hash-validate target — nx raises TypeError
-    # on unhashable target inside its inner loop; without this guard
-    # fnx falls through to NetworkXNoPath.
-    hash(target)
-    if target not in G:
-        raise NetworkXNoPath(f"node {target} not reachable from {source}")
-    try:
-        _raw_bellman_ford_path_length(G, source, target, weight=weight)
-    except NetworkXNoPath as exc:
-        raise NetworkXNoPath(f"node {target} not reachable from {source}") from exc
-    except NetworkXUnbounded as exc:
-        # br-r37-c1-iss4p: the Rust impl says "Negative cost cycle
-        # detected."; nx uses "Negative cycle detected." (no "cost").
-        # Mirror the normalization already in bellman_ford_path
-        # (br-r37-c1-wtjho) for drop-in error matching.
-        if "cost cycle" in str(exc):
-            raise NetworkXUnbounded("Negative cycle detected.") from exc
-        raise
-    path = bellman_ford_path(G, source, target, weight=weight)
-    return _path_length_preserving_weight_type(G, path, weight)
+    # br-r37-c1-9axrp: The Rust bellman_ford implementation returns
+    # incorrect paths/lengths. Always delegate to nx until fixed.
+    return _call_networkx_for_parity(
+        "bellman_ford_path_length", G, source, target, weight=weight
+    )
 
 
 def negative_edge_cycle(G, weight="weight", heuristic=True):
