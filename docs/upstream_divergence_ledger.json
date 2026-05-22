@@ -3718,13 +3718,6 @@
       "evidence": "docs/raw_vs_public_audit.md"
     },
     {
-      "name": "single_source_bellman_ford_path_length",
-      "category": "wrapper-patched",
-      "source": "raw-vs-public-audit",
-      "note": "raw output is post-processed by wrapper to match nx",
-      "evidence": "docs/raw_vs_public_audit.md"
-    },
-    {
       "name": "dijkstra_path_length",
       "category": "wrapper-patched",
       "source": "raw-vs-public-audit",
@@ -10536,13 +10529,7 @@
     },
     "single_source_bellman_ford_path_length": {
       "native-parity": [],
-      "wrapper-patched": [
-        {
-          "source": "raw-vs-public-audit",
-          "note": "raw output is post-processed by wrapper to match nx",
-          "evidence": "docs/raw_vs_public_audit.md"
-        }
-      ],
+      "wrapper-patched": [],
       "intentionally-delegated": [
         {
           "source": "static-classification",
