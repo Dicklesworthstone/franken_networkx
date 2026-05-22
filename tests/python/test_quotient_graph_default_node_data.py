@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import inspect
+
 import pytest
 
 import franken_networkx as fnx
+import franken_networkx.minors as fnx_minors
 
 try:
     import networkx as nx
@@ -15,6 +18,45 @@ except ImportError:
 
 
 needs_nx = pytest.mark.skipif(not HAS_NX, reason="networkx not installed")
+
+
+@needs_nx
+def test_minors_quotient_graph_signature_matches_networkx():
+    fnx_contract = tuple(inspect.signature(fnx_minors.quotient_graph).parameters.items())
+    nx_contract = tuple(
+        inspect.signature(nx.algorithms.minors.quotient_graph).parameters.items()
+    )
+    if fnx_contract != nx_contract:
+        pytest.fail(f"fnx {fnx_contract!r} != nx {nx_contract!r}")
+
+
+@needs_nx
+def test_minors_quotient_graph_default_relabel_matches_networkx():
+    partition = [{0, 1}, {2, 3}]
+
+    result = fnx_minors.quotient_graph(fnx.path_graph(4), partition)
+    expected = nx.algorithms.minors.quotient_graph(nx.path_graph(4), partition)
+
+    assert set(result.nodes()) == set(expected.nodes())
+    assert all(isinstance(node, frozenset) for node in result.nodes())
+
+
+@needs_nx
+def test_minors_quotient_graph_accepts_weight_keyword():
+    graph = fnx.Graph()
+    graph.add_edges_from([(0, 2), (1, 3)])
+    expected_graph = nx.Graph()
+    expected_graph.add_edges_from([(0, 2), (1, 3)])
+    partition = [{0, 1}, {2, 3}]
+
+    result = fnx_minors.quotient_graph(graph, partition, weight="capacity")
+    expected = nx.algorithms.minors.quotient_graph(
+        expected_graph, partition, weight="capacity"
+    )
+
+    assert sorted(result.edges(data=True), key=repr) == sorted(
+        expected.edges(data=True), key=repr
+    )
 
 
 @needs_nx
