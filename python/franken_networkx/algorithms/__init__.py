@@ -261,6 +261,9 @@ planarity = _fnx_planarity  # Override in module globals
 import franken_networkx.components as _fnx_components
 _sys.modules[f"{__name__}.components"] = _fnx_components
 components = _fnx_components  # Override in module globals
+_alias_nx_child_modules(
+    "networkx.algorithms.components", f"{__name__}.components"
+)
 
 _fnx_bridges = _importlib.import_module("franken_networkx.bridges")
 _sys.modules[f"{__name__}.bridges"] = _fnx_bridges
