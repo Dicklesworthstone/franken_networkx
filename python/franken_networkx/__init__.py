@@ -7425,6 +7425,23 @@ def _reject_multigraph_flow(flowG):
         raise NetworkXError("MultiGraph and MultiDiGraph not supported (yet).")
 
 
+def _check_flow_endpoints(flowG, source, sink):
+    """Raise nx-shaped NetworkXError when source/sink isn't in the graph.
+
+    br-r37-c1-uvkmm: the raw flow bindings raise NetworkXError(
+    "node str:1:s not in graph") — the Rust binding's typed-node
+    representation (type:lineage:value) leaks instead of the bare
+    value nx uses ("node s not in graph"). Pre-check at the Python
+    boundary so every flow wrapper (maximum_flow / maximum_flow_value
+    / minimum_cut / minimum_cut_value) raises the same message nx
+    raises, regardless of whether it falls to the raw or nx path.
+    """
+    if source not in flowG:
+        raise NetworkXError(f"node {source} not in graph")
+    if sink not in flowG:
+        raise NetworkXError(f"node {sink} not in graph")
+
+
 def maximum_flow(flowG, _s, _t, capacity="capacity", flow_func=None, **kwargs):
     """Compute the maximum flow and flow dict between ``_s`` and ``_t``.
 
@@ -7435,6 +7452,7 @@ def maximum_flow(flowG, _s, _t, capacity="capacity", flow_func=None, **kwargs):
     # br-r37-c1-0555d: accept nx-typed inputs.
     flowG = _coerce_arg_to_fnx_graph(flowG)
     _reject_multigraph_flow(flowG)
+    _check_flow_endpoints(flowG, _s, _t)
     if flow_func is not None or kwargs or _flow_has_infinite_capacity(flowG, capacity):
         return _call_networkx_for_parity(
             "maximum_flow", flowG, _s, _t, capacity=capacity,
@@ -7450,6 +7468,7 @@ def maximum_flow_value(flowG, _s, _t, capacity="capacity", flow_func=None, **kwa
     # br-r37-c1-0555d: accept nx-typed inputs.
     flowG = _coerce_arg_to_fnx_graph(flowG)
     _reject_multigraph_flow(flowG)
+    _check_flow_endpoints(flowG, _s, _t)
     if flow_func is not None or kwargs or _flow_has_infinite_capacity(flowG, capacity):
         return _call_networkx_for_parity(
             "maximum_flow_value", flowG, _s, _t, capacity=capacity,
@@ -7502,6 +7521,7 @@ def minimum_cut(flowG, _s, _t, capacity="capacity", flow_func=None, **kwargs):
     flowG = _coerce_arg_to_fnx_graph(flowG)
     _validate_flow_func_selector(flow_func)
     _reject_multigraph_flow(flowG)
+    _check_flow_endpoints(flowG, _s, _t)
     if kwargs and flow_func is None:
         raise NetworkXError(
             "You have to explicitly set a flow_func if you need to pass "
@@ -7533,6 +7553,7 @@ def minimum_cut_value(flowG, _s, _t, capacity="capacity", flow_func=None, **kwar
     flowG = _coerce_arg_to_fnx_graph(flowG)
     _validate_flow_func_selector(flow_func)
     _reject_multigraph_flow(flowG)
+    _check_flow_endpoints(flowG, _s, _t)
     if kwargs and flow_func is None:
         raise NetworkXError(
             "You have to explicitly set a flow_func if you need to pass "
