@@ -9,6 +9,7 @@ Current native overrides:
 - ``steiner_tree`` — returns fnx.Graph
 - ``treewidth_min_degree`` — returns (int, fnx.Graph)
 - ``treewidth_min_fill_in`` — returns (int, fnx.Graph)
+- ``metric_closure`` — returns fnx.Graph
 """
 
 from __future__ import annotations
@@ -53,3 +54,14 @@ def treewidth_min_fill_in(G, *, backend=None, **backend_kwargs):
     _fnx._validate_backend_dispatch_keywords("treewidth_min_fill_in", backend, backend_kwargs)
     treewidth, nx_decomp = _nx_approx.treewidth_min_fill_in(G)
     return treewidth, _from_nx_graph(nx_decomp)
+
+
+def metric_closure(G, weight="weight", *, backend=None, **backend_kwargs):
+    """Return the metric closure of a graph.
+
+    Wraps ``networkx.algorithms.approximation.metric_closure`` and converts
+    the result to an fnx graph type for drop-in compatibility.
+    """
+    _fnx._validate_backend_dispatch_keywords("metric_closure", backend, backend_kwargs)
+    nx_result = _nx_approx.metric_closure(G, weight=weight)
+    return _from_nx_graph(nx_result)
