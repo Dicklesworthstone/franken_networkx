@@ -2210,6 +2210,95 @@ impl GraphGenerator {
         Ok(self.finish_graph_report(graph, Vec::new()))
     }
 
+    pub fn windmill_graph(
+        &mut self,
+        n: usize,
+        k: usize,
+    ) -> Result<GenerationReport, GenerationError> {
+        let operation = "windmill_graph";
+        if n < 2 {
+            let reason = "A windmill graph must have at least two cliques".to_owned();
+            self.record(operation, DecisionAction::FailClosed, 0.95, reason.clone());
+            return Err(GenerationError::FailClosed { operation, reason });
+        }
+        if k < 2 {
+            let reason = "The cliques must have at least two nodes".to_owned();
+            self.record(operation, DecisionAction::FailClosed, 0.95, reason.clone());
+            return Err(GenerationError::FailClosed { operation, reason });
+        }
+
+        let leaf_count = n
+            .checked_mul(k - 1)
+            .ok_or_else(|| GenerationError::FailClosed {
+                operation,
+                reason: format!("node count overflow for n={n}, k={k}"),
+            })?;
+        let total_nodes = leaf_count
+            .checked_add(1)
+            .ok_or_else(|| GenerationError::FailClosed {
+                operation,
+                reason: format!("node count overflow for n={n}, k={k}"),
+            })?;
+        if total_nodes > MAX_N_GENERIC {
+            let reason = format!("node count {total_nodes} exceeds max_allowed={MAX_N_GENERIC}");
+            self.record(operation, DecisionAction::FailClosed, 0.95, reason.clone());
+            return Err(GenerationError::FailClosed { operation, reason });
+        }
+
+        let clique_edges = k.checked_mul(k - 1).map(|value| value / 2).ok_or_else(|| {
+            GenerationError::FailClosed {
+                operation,
+                reason: format!("edge count overflow for n={n}, k={k}"),
+            }
+        })?;
+        let edge_count =
+            n.checked_mul(clique_edges)
+                .ok_or_else(|| GenerationError::FailClosed {
+                    operation,
+                    reason: format!("edge count overflow for n={n}, k={k}"),
+                })?;
+        let max_dense_edges = MAX_N_COMPLETE * (MAX_N_COMPLETE - 1) / 2;
+        if edge_count > max_dense_edges {
+            let reason = format!("edge count {edge_count} exceeds max_allowed={max_dense_edges}");
+            self.record(operation, DecisionAction::FailClosed, 0.95, reason.clone());
+            return Err(GenerationError::FailClosed { operation, reason });
+        }
+
+        let (mut graph, node_labels) = graph_with_n_nodes(self.mode, total_nodes);
+        for clique in 0..n {
+            let first_leaf = 1 + clique * (k - 1);
+            let end = first_leaf + (k - 1);
+            for leaf in first_leaf..end {
+                graph
+                    .add_edge(node_labels[0].clone(), node_labels[leaf].clone())
+                    .map_err(|err| GenerationError::FailClosed {
+                        operation,
+                        reason: err.to_string(),
+                    })?;
+            }
+            for left in first_leaf..end {
+                for right in (left + 1)..end {
+                    graph
+                        .add_edge(node_labels[left].clone(), node_labels[right].clone())
+                        .map_err(|err| GenerationError::FailClosed {
+                            operation,
+                            reason: err.to_string(),
+                        })?;
+                }
+            }
+        }
+
+        self.record(
+            operation,
+            DecisionAction::Allow,
+            0.04,
+            format!(
+                "generated windmill graph with n={n}, k={k}, nodes={total_nodes}, edges={edge_count}"
+            ),
+        );
+        Ok(self.finish_graph_report(graph, Vec::new()))
+    }
+
     pub fn gnp_random_graph(
         &mut self,
         n: usize,
@@ -7229,6 +7318,101 @@ mod tests {
         assert_eq!(
             err.to_string(),
             "generator `complete_multipartite_graph` failed closed: edge count 4000000 exceeds max_allowed=1999000"
+        );
+    }
+
+    #[test]
+    fn windmill_graph_rejects_invalid_parameters_like_networkx() {
+        let mut generator = GraphGenerator::strict();
+        let too_few_cliques = generator
+            .windmill_graph(1, 3)
+            .expect_err("windmill graph should reject fewer than two cliques");
+        assert_eq!(
+            too_few_cliques.to_string(),
+            "generator `windmill_graph` failed closed: A windmill graph must have at least two cliques"
+        );
+
+        let too_small_cliques = generator
+            .windmill_graph(3, 1)
+            .expect_err("windmill graph should reject cliques smaller than two nodes");
+        assert_eq!(
+            too_small_cliques.to_string(),
+            "generator `windmill_graph` failed closed: The cliques must have at least two nodes"
+        );
+    }
+
+    #[test]
+    fn windmill_graph_minimum_case_matches_networkx() {
+        let mut generator = GraphGenerator::strict();
+        let report = generator
+            .windmill_graph(2, 2)
+            .expect("minimum windmill graph generation should succeed");
+
+        assert_eq!(report.graph.node_count(), 3);
+        assert_eq!(report.graph.edge_count(), 2);
+        assert_eq!(
+            sorted_graph_edges(&report.graph),
+            vec![
+                ("0".to_owned(), "1".to_owned()),
+                ("0".to_owned(), "2".to_owned()),
+            ]
+        );
+
+        let degrees = (0..3)
+            .map(|node| report.graph.degree(&node.to_string()))
+            .collect::<Vec<usize>>();
+        assert_eq!(degrees, vec![2, 1, 1]);
+    }
+
+    #[test]
+    fn windmill_graph_matches_networkx_shared_center_structure() {
+        let mut generator = GraphGenerator::strict();
+        let report = generator
+            .windmill_graph(3, 4)
+            .expect("windmill graph generation should succeed");
+
+        assert_eq!(report.graph.node_count(), 10);
+        assert_eq!(report.graph.edge_count(), 18);
+        assert_eq!(
+            sorted_graph_edges(&report.graph),
+            vec![
+                ("0".to_owned(), "1".to_owned()),
+                ("0".to_owned(), "2".to_owned()),
+                ("0".to_owned(), "3".to_owned()),
+                ("0".to_owned(), "4".to_owned()),
+                ("0".to_owned(), "5".to_owned()),
+                ("0".to_owned(), "6".to_owned()),
+                ("0".to_owned(), "7".to_owned()),
+                ("0".to_owned(), "8".to_owned()),
+                ("0".to_owned(), "9".to_owned()),
+                ("1".to_owned(), "2".to_owned()),
+                ("1".to_owned(), "3".to_owned()),
+                ("2".to_owned(), "3".to_owned()),
+                ("4".to_owned(), "5".to_owned()),
+                ("4".to_owned(), "6".to_owned()),
+                ("5".to_owned(), "6".to_owned()),
+                ("7".to_owned(), "8".to_owned()),
+                ("7".to_owned(), "9".to_owned()),
+                ("8".to_owned(), "9".to_owned()),
+            ]
+        );
+
+        let degrees = (0..10)
+            .map(|node| report.graph.degree(&node.to_string()))
+            .collect::<Vec<usize>>();
+        assert_eq!(degrees, vec![9, 3, 3, 3, 3, 3, 3, 3, 3, 3]);
+    }
+
+    #[test]
+    fn windmill_graph_rejects_dense_edge_count() {
+        let mut generator = GraphGenerator::strict();
+        let err = generator
+            .windmill_graph(2, 2001)
+            .expect_err("dense windmill graph should reject excessive edge count");
+
+        assert_eq!(
+            err.to_string(),
+            "generator `windmill_graph` failed closed: edge count 4002000 exceeds max_allowed=1999000"
         );
     }
 
