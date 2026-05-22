@@ -1600,6 +1600,129 @@ impl GraphGenerator {
         Ok(self.finish_digraph_report(graph, warnings))
     }
 
+    /// Generate a uniform random k-out directed multigraph.
+    ///
+    /// This is the `with_replacement=True` branch of NetworkX's
+    /// `random_uniform_k_out_graph`: each source chooses `k` targets uniformly
+    /// with replacement, so parallel edges are preserved.
+    pub fn random_uniform_k_out_multidigraph(
+        &mut self,
+        n: usize,
+        k: usize,
+        self_loops: bool,
+        seed: u64,
+    ) -> Result<MultiDiGenerationReport, GenerationError> {
+        let (n, warnings) = self.validate_n("random_uniform_k_out_multidigraph", n, MAX_N_GNP)?;
+        let mut graph = MultiDiGraph::new(self.mode);
+        let node_labels = (0..n)
+            .map(|node| {
+                let label = node.to_string();
+                let _ = graph.add_node(label.clone());
+                label
+            })
+            .collect::<Vec<String>>();
+
+        if k == 0 || n == 0 {
+            self.record(
+                "random_uniform_k_out_multidigraph",
+                DecisionAction::Allow,
+                0.05,
+                format!("generated empty uniform k-out multidigraph: n={n}, k={k}"),
+            );
+            return Ok(self.finish_multidigraph_report(graph, warnings));
+        }
+
+        let mut rng = PythonRandom::new(seed);
+        for source in 0..n {
+            let candidate_targets = uniform_k_out_candidates(n, source, self_loops);
+            if candidate_targets.is_empty() {
+                return Err(GenerationError::FailClosed {
+                    operation: "random_uniform_k_out_multidigraph",
+                    reason: "Cannot choose from an empty sequence".to_owned(),
+                });
+            }
+            for _ in 0..k {
+                let target = candidate_targets[rng.choice_index(candidate_targets.len())];
+                graph
+                    .add_edge_with_attrs(
+                        node_labels[source].clone(),
+                        node_labels[target].clone(),
+                        fnx_classes::AttrMap::new(),
+                    )
+                    .map_err(|err| GenerationError::FailClosed {
+                        operation: "random_uniform_k_out_multidigraph",
+                        reason: err.to_string(),
+                    })?;
+            }
+        }
+
+        self.record(
+            "random_uniform_k_out_multidigraph",
+            DecisionAction::Allow,
+            0.08,
+            format!(
+                "generated uniform k-out multidigraph: n={n}, k={k}, self_loops={self_loops}, seed={seed}"
+            ),
+        );
+        Ok(self.finish_multidigraph_report(graph, warnings))
+    }
+
+    /// Generate a uniform random k-out simple digraph.
+    ///
+    /// This is the `with_replacement=False` branch of NetworkX's
+    /// `random_uniform_k_out_graph`: each source samples `k` distinct targets,
+    /// yielding a directed graph with no parallel edges.
+    pub fn random_uniform_k_out_digraph(
+        &mut self,
+        n: usize,
+        k: usize,
+        self_loops: bool,
+        seed: u64,
+    ) -> Result<DiGenerationReport, GenerationError> {
+        let (n, warnings) = self.validate_n("random_uniform_k_out_digraph", n, MAX_N_GNP)?;
+        let (mut graph, node_labels) = digraph_with_n_nodes(self.mode, n);
+
+        if k == 0 || n == 0 {
+            self.record(
+                "random_uniform_k_out_digraph",
+                DecisionAction::Allow,
+                0.05,
+                format!("generated empty uniform k-out digraph: n={n}, k={k}"),
+            );
+            return Ok(self.finish_digraph_report(graph, warnings));
+        }
+
+        let mut rng = PythonRandom::new(seed);
+        for source in 0..n {
+            let candidate_targets = uniform_k_out_candidates(n, source, self_loops);
+            let sample = python_sample_indices(
+                candidate_targets.len(),
+                k,
+                &mut rng,
+                "random_uniform_k_out_digraph",
+            )?;
+            for sampled_index in sample {
+                let target = candidate_targets[sampled_index];
+                graph
+                    .add_edge(node_labels[source].clone(), node_labels[target].clone())
+                    .map_err(|err| GenerationError::FailClosed {
+                        operation: "random_uniform_k_out_digraph",
+                        reason: err.to_string(),
+                    })?;
+            }
+        }
+
+        self.record(
+            "random_uniform_k_out_digraph",
+            DecisionAction::Allow,
+            0.08,
+            format!(
+                "generated uniform k-out digraph: n={n}, k={k}, self_loops={self_loops}, seed={seed}"
+            ),
+        );
+        Ok(self.finish_digraph_report(graph, warnings))
+    }
+
     /// Generate a growing network digraph (GN model).
     ///
     /// Nodes are added one at a time. Each new node connects to an existing
@@ -2332,6 +2455,58 @@ fn add_gnm_edges_with_rng(
     }
 
     Ok(())
+}
+
+fn uniform_k_out_candidates(n: usize, source: usize, self_loops: bool) -> Vec<usize> {
+    (0..n)
+        .filter(|candidate| self_loops || *candidate != source)
+        .collect()
+}
+
+fn python_sample_indices(
+    population_len: usize,
+    count: usize,
+    rng: &mut PythonRandom,
+    operation: &'static str,
+) -> Result<Vec<usize>, GenerationError> {
+    if count > population_len {
+        return Err(GenerationError::FailClosed {
+            operation,
+            reason: "Sample larger than population or is negative".to_owned(),
+        });
+    }
+
+    let mut result = Vec::with_capacity(count);
+    let mut set_size = 21usize;
+    if count > 5 {
+        let target = count.saturating_mul(3);
+        let mut power_of_four = 1usize;
+        while power_of_four < target {
+            power_of_four = power_of_four.saturating_mul(4);
+        }
+        set_size = set_size.saturating_add(power_of_four);
+    }
+
+    if population_len <= set_size {
+        let mut pool = (0..population_len).collect::<Vec<usize>>();
+        for i in 0..count {
+            let j = rng.randbelow(population_len - i);
+            result.push(pool[j]);
+            pool[j] = pool[population_len - i - 1];
+        }
+    } else {
+        let mut selected = std::collections::HashSet::with_capacity(count);
+        for _ in 0..count {
+            let mut j = rng.randbelow(population_len);
+            while selected.contains(&j) {
+                j = rng.randbelow(population_len);
+            }
+            selected.insert(j);
+            result.push(j);
+        }
+    }
+
+    Ok(result)
 }
 
 /// Sample `count` distinct elements from `seq` with replacement-by-set,
@@ -3249,6 +3424,135 @@ mod tests {
         let err = gg
             .random_shell_graph(&[(1, 3, 0.0), (1, 0, 0.0)], 1)
             .expect_err("only one inter-shell edge is possible");
+        assert!(matches!(err, GenerationError::FailClosed { .. }));
+    }
+
+    #[test]
+    fn random_uniform_k_out_multidigraph_matches_networkx_seeded_example() {
+        let mut gg = GraphGenerator::strict();
+        let report = gg
+            .random_uniform_k_out_multidigraph(4, 2, true, 3)
+            .expect("uniform k-out multidigraph should succeed");
+        assert!(report.graph.is_directed());
+        assert!(report.graph.is_multigraph());
+
+        let edges = report
+            .graph
+            .snapshot()
+            .edges
+            .into_iter()
+            .map(|edge| (edge.source, edge.target, edge.key))
+            .collect::<Vec<(String, String, usize)>>();
+        assert_eq!(
+            edges,
+            vec![
+                ("0".to_owned(), "1".to_owned(), 0),
+                ("0".to_owned(), "1".to_owned(), 1),
+                ("1".to_owned(), "2".to_owned(), 0),
+                ("1".to_owned(), "3".to_owned(), 0),
+                ("2".to_owned(), "0".to_owned(), 0),
+                ("2".to_owned(), "0".to_owned(), 1),
+                ("3".to_owned(), "3".to_owned(), 0),
+                ("3".to_owned(), "2".to_owned(), 0),
+            ]
+        );
+    }
+
+    #[test]
+    fn random_uniform_k_out_multidigraph_respects_self_loop_filter() {
+        let mut gg = GraphGenerator::strict();
+        let report = gg
+            .random_uniform_k_out_multidigraph(4, 2, false, 3)
+            .expect("uniform k-out multidigraph should succeed");
+        let edges = report
+            .graph
+            .snapshot()
+            .edges
+            .into_iter()
+            .map(|edge| (edge.source, edge.target, edge.key))
+            .collect::<Vec<(String, String, usize)>>();
+        assert_eq!(
+            edges,
+            vec![
+                ("0".to_owned(), "1".to_owned(), 0),
+                ("0".to_owned(), "3".to_owned(), 0),
+                ("1".to_owned(), "3".to_owned(), 0),
+                ("1".to_owned(), "0".to_owned(), 0),
+                ("2".to_owned(), "1".to_owned(), 0),
+                ("2".to_owned(), "3".to_owned(), 0),
+                ("3".to_owned(), "1".to_owned(), 0),
+                ("3".to_owned(), "2".to_owned(), 0),
+            ]
+        );
+    }
+
+    #[test]
+    fn random_uniform_k_out_digraph_matches_networkx_seeded_examples() {
+        let mut gg = GraphGenerator::strict();
+        let no_loops = gg
+            .random_uniform_k_out_digraph(5, 2, false, 4)
+            .expect("uniform k-out digraph should succeed");
+        let no_loop_edges = no_loops
+            .graph
+            .snapshot()
+            .edges
+            .into_iter()
+            .map(|edge| (edge.left, edge.right))
+            .collect::<Vec<(String, String)>>();
+        assert_eq!(
+            no_loop_edges,
+            vec![
+                ("0".to_owned(), "2".to_owned()),
+                ("0".to_owned(), "4".to_owned()),
+                ("1".to_owned(), "0".to_owned()),
+                ("1".to_owned(), "3".to_owned()),
+                ("2".to_owned(), "4".to_owned()),
+                ("2".to_owned(), "1".to_owned()),
+                ("3".to_owned(), "1".to_owned()),
+                ("3".to_owned(), "0".to_owned()),
+                ("4".to_owned(), "0".to_owned()),
+                ("4".to_owned(), "3".to_owned()),
+            ]
+        );
+
+        let loops = gg
+            .random_uniform_k_out_digraph(5, 2, true, 4)
+            .expect("uniform k-out digraph with loops should succeed");
+        let loop_edges = loops
+            .graph
+            .snapshot()
+            .edges
+            .into_iter()
+            .map(|edge| (edge.left, edge.right))
+            .collect::<Vec<(String, String)>>();
+        assert_eq!(
+            loop_edges,
+            vec![
+                ("0".to_owned(), "1".to_owned()),
+                ("0".to_owned(), "2".to_owned()),
+                ("1".to_owned(), "0".to_owned()),
+                ("1".to_owned(), "3".to_owned()),
+                ("2".to_owned(), "3".to_owned()),
+                ("2".to_owned(), "1".to_owned()),
+                ("3".to_owned(), "0".to_owned()),
+                ("3".to_owned(), "4".to_owned()),
+                ("4".to_owned(), "0".to_owned()),
+                ("4".to_owned(), "3".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn random_uniform_k_out_fails_closed_for_impossible_targets() {
+        let mut gg = GraphGenerator::strict();
+        let err = gg
+            .random_uniform_k_out_multidigraph(1, 1, false, 1)
+            .expect_err("with-replacement branch has no target to choose");
+        assert!(matches!(err, GenerationError::FailClosed { .. }));
+
+        let err = gg
+            .random_uniform_k_out_digraph(3, 3, false, 1)
+            .expect_err("without-replacement branch cannot sample enough targets");
         assert!(matches!(err, GenerationError::FailClosed { .. }));
     }
 
