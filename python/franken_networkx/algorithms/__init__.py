@@ -54,6 +54,7 @@ _FNX_OVERRIDE_SUBMODULES = {
     "richclub",
     "simple_paths",
     "smetric",
+    "structuralholes",
     "voronoi",
     "vitality",
     "walks",
@@ -340,6 +341,10 @@ simple_paths = _fnx_simple_paths  # Override in module globals
 _fnx_smetric = _importlib.import_module("franken_networkx.smetric")
 _sys.modules[f"{__name__}.smetric"] = _fnx_smetric
 smetric = _fnx_smetric  # Override in module globals
+
+_fnx_structuralholes = _importlib.import_module("franken_networkx.structuralholes")
+_sys.modules[f"{__name__}.structuralholes"] = _fnx_structuralholes
+structuralholes = _fnx_structuralholes  # Override in module globals
 
 _fnx_voronoi = _importlib.import_module("franken_networkx.voronoi")
 _sys.modules[f"{__name__}.voronoi"] = _fnx_voronoi
