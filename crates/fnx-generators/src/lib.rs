@@ -128,6 +128,45 @@ impl GraphGenerator {
         MultiDiGenerationReport { graph, warnings }
     }
 
+    fn small_named_graph_from_edges(
+        &mut self,
+        operation: &'static str,
+        graph_name: &'static str,
+        n: usize,
+        edges: &[(usize, usize)],
+    ) -> Result<GenerationReport, GenerationError> {
+        let (mut graph, node_labels) = graph_with_n_nodes(self.mode, n);
+        for &(left, right) in edges {
+            let left_label = node_labels
+                .get(left)
+                .ok_or_else(|| GenerationError::FailClosed {
+                    operation,
+                    reason: format!("edge source index {left} is outside n={n}"),
+                })?;
+            let right_label =
+                node_labels
+                    .get(right)
+                    .ok_or_else(|| GenerationError::FailClosed {
+                        operation,
+                        reason: format!("edge target index {right} is outside n={n}"),
+                    })?;
+            graph
+                .add_edge(left_label.clone(), right_label.clone())
+                .map_err(|err| GenerationError::FailClosed {
+                    operation,
+                    reason: err.to_string(),
+                })?;
+        }
+
+        self.record(
+            operation,
+            DecisionAction::Allow,
+            0.02,
+            format!("generated {graph_name} with n={n}, m={}", edges.len()),
+        );
+        Ok(self.finish_graph_report(graph, Vec::new()))
+    }
+
     pub fn empty_graph(&mut self, n: usize) -> Result<GenerationReport, GenerationError> {
         let (n, warnings) = self.validate_n("empty_graph", n, MAX_N_GENERIC)?;
         let (graph, _) = graph_with_n_nodes(self.mode, n);
@@ -318,6 +357,15 @@ impl GraphGenerator {
             ),
         );
         Ok(self.finish_graph_report(graph, warnings))
+    }
+
+    pub fn bull_graph(&mut self) -> Result<GenerationReport, GenerationError> {
+        self.small_named_graph_from_edges(
+            "bull_graph",
+            "Bull Graph",
+            5,
+            &[(0, 1), (0, 2), (1, 2), (1, 3), (2, 4)],
+        )
     }
 
     pub fn complete_graph(&mut self, n: usize) -> Result<GenerationReport, GenerationError> {
@@ -3114,6 +3162,36 @@ mod tests {
             sorted_graph_edges(&singleton.graph),
             vec![("0".to_owned(), "0".to_owned())]
         );
+    }
+
+    #[test]
+    fn bull_graph_matches_networkx_edges_and_degrees() {
+        let mut generator = GraphGenerator::strict();
+        let report = generator
+            .bull_graph()
+            .expect("Bull Graph generation should succeed");
+        assert_eq!(report.graph.node_count(), 5);
+        assert_eq!(report.graph.edge_count(), 5);
+        assert_eq!(
+            sorted_graph_edges(&report.graph),
+            vec![
+                ("0".to_owned(), "1".to_owned()),
+                ("0".to_owned(), "2".to_owned()),
+                ("1".to_owned(), "2".to_owned()),
+                ("1".to_owned(), "3".to_owned()),
+                ("2".to_owned(), "4".to_owned()),
+            ]
+        );
+
+        let mut degree_sequence = report
+            .graph
+            .snapshot()
+            .nodes
+            .iter()
+            .map(|node| report.graph.degree(node.as_str()))
+            .collect::<Vec<usize>>();
+        degree_sequence.sort_unstable();
+        assert_eq!(degree_sequence, vec![1, 1, 2, 3, 3]);
     }
 
     #[test]
