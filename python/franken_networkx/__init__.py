@@ -41765,6 +41765,17 @@ def __getattr__(name):
         )
     import networkx as nx
 
+    # br-r37-c1-als7z: for submodules that fnx has its own version of,
+    # return the fnx submodule instead of nx's so fnx.generators.balanced_tree
+    # returns fnx types instead of nx types.
+    _fnx_submodules = {"generators", "algorithms", "readwrite", "linalg", "utils", "drawing", "classes"}
+    if name in _fnx_submodules:
+        import importlib
+        try:
+            return importlib.import_module(f"franken_networkx.{name}")
+        except ImportError:
+            pass  # Fall through to nx
+
     try:
         return getattr(nx, name)
     except AttributeError as exc:
