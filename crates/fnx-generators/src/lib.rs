@@ -332,6 +332,92 @@ impl GraphGenerator {
         Ok(self.finish_graph_report(graph, warnings))
     }
 
+    pub fn dorogovtsev_goltsev_mendes_graph(
+        &mut self,
+        n: usize,
+    ) -> Result<GenerationReport, GenerationError> {
+        let operation = "dorogovtsev_goltsev_mendes_graph";
+        let mut node_count = 2usize;
+        let mut edge_count = 1usize;
+        for _ in 0..n {
+            node_count = node_count.checked_add(edge_count).ok_or_else(|| {
+                let reason = format!("node count overflow for generation n={n}");
+                self.record(operation, DecisionAction::FailClosed, 0.95, reason.clone());
+                GenerationError::FailClosed { operation, reason }
+            })?;
+            edge_count = edge_count.checked_mul(3).ok_or_else(|| {
+                let reason = format!("edge count overflow for generation n={n}");
+                self.record(operation, DecisionAction::FailClosed, 0.95, reason.clone());
+                GenerationError::FailClosed { operation, reason }
+            })?;
+            if node_count > MAX_N_GENERIC {
+                let reason = format!("node count {node_count} exceeds max_allowed={MAX_N_GENERIC}");
+                self.record(operation, DecisionAction::FailClosed, 0.95, reason.clone());
+                return Err(GenerationError::FailClosed { operation, reason });
+            }
+        }
+
+        let (mut graph, node_labels) = graph_with_n_nodes(self.mode, node_count);
+        let left_label = node_labels
+            .first()
+            .ok_or_else(|| GenerationError::FailClosed {
+                operation,
+                reason: "base edge source index 0 is outside n=2".to_owned(),
+            })?;
+        let right_label = node_labels
+            .get(1)
+            .ok_or_else(|| GenerationError::FailClosed {
+                operation,
+                reason: "base edge target index 1 is outside n=2".to_owned(),
+            })?;
+        graph
+            .add_edge(left_label.clone(), right_label.clone())
+            .map_err(|err| GenerationError::FailClosed {
+                operation,
+                reason: err.to_string(),
+            })?;
+
+        let mut next_node = 2usize;
+        for _ in 0..n {
+            let current_edges = graph.edges_ordered();
+
+            for edge in current_edges {
+                let new_node =
+                    node_labels
+                        .get(next_node)
+                        .ok_or_else(|| GenerationError::FailClosed {
+                            operation,
+                            reason: format!(
+                                "generated node index {next_node} is outside n={node_count}"
+                            ),
+                        })?;
+                graph.add_edge(edge.left, new_node.clone()).map_err(|err| {
+                    GenerationError::FailClosed {
+                        operation,
+                        reason: err.to_string(),
+                    }
+                })?;
+                graph
+                    .add_edge(edge.right, new_node.clone())
+                    .map_err(|err| GenerationError::FailClosed {
+                        operation,
+                        reason: err.to_string(),
+                    })?;
+                next_node += 1;
+            }
+        }
+
+        self.record(
+            operation,
+            DecisionAction::Allow,
+            0.03,
+            format!(
+                "generated Dorogovtsev-Goltsev-Mendes graph with generation n={n}, nodes={node_count}, edges={edge_count}"
+            ),
+        );
+        Ok(self.finish_graph_report(graph, Vec::new()))
+    }
+
     pub fn cycle_graph(&mut self, n: usize) -> Result<GenerationReport, GenerationError> {
         let (n, warnings) = self.validate_n("cycle_graph", n, MAX_N_GENERIC)?;
         let (mut graph, node_labels) = graph_with_n_nodes(self.mode, n);
@@ -4886,6 +4972,84 @@ mod tests {
         assert_eq!(
             err.to_string(),
             "generator `balanced_tree` failed closed: n=131071 exceeds max_allowed=100000"
+        );
+    }
+
+    #[test]
+    fn dorogovtsev_goltsev_mendes_graph_matches_networkx_base_case() {
+        let mut generator = GraphGenerator::strict();
+        let report = generator
+            .dorogovtsev_goltsev_mendes_graph(0)
+            .expect("DGM graph generation should succeed");
+
+        assert_eq!(report.graph.node_count(), 2);
+        assert_eq!(report.graph.edge_count(), 1);
+        assert_eq!(report.graph.snapshot().nodes, vec!["0", "1"]);
+        assert_eq!(
+            sorted_graph_edges(&report.graph),
+            vec![("0".to_owned(), "1".to_owned())]
+        );
+    }
+
+    #[test]
+    fn dorogovtsev_goltsev_mendes_graph_generation_two_matches_networkx() {
+        let mut generator = GraphGenerator::strict();
+        let report = generator
+            .dorogovtsev_goltsev_mendes_graph(2)
+            .expect("DGM graph generation should succeed");
+
+        assert_eq!(report.graph.node_count(), 6);
+        assert_eq!(report.graph.edge_count(), 9);
+        assert_eq!(
+            sorted_graph_edges(&report.graph),
+            vec![
+                ("0".to_owned(), "1".to_owned()),
+                ("0".to_owned(), "2".to_owned()),
+                ("0".to_owned(), "3".to_owned()),
+                ("0".to_owned(), "4".to_owned()),
+                ("1".to_owned(), "2".to_owned()),
+                ("1".to_owned(), "3".to_owned()),
+                ("1".to_owned(), "5".to_owned()),
+                ("2".to_owned(), "4".to_owned()),
+                ("2".to_owned(), "5".to_owned()),
+            ]
+        );
+        let degrees = (0..6)
+            .map(|node| report.graph.degree(&node.to_string()))
+            .collect::<Vec<usize>>();
+        assert_eq!(degrees, vec![4, 4, 4, 2, 2, 2]);
+    }
+
+    #[test]
+    fn dorogovtsev_goltsev_mendes_graph_generation_three_counts_and_degrees() {
+        let mut generator = GraphGenerator::strict();
+        let report = generator
+            .dorogovtsev_goltsev_mendes_graph(3)
+            .expect("DGM graph generation should succeed");
+        let edges = sorted_graph_edges(&report.graph);
+
+        assert_eq!(report.graph.node_count(), 15);
+        assert_eq!(report.graph.edge_count(), 27);
+        assert!(contains_undirected_edge(&edges, 0, 9));
+        assert!(contains_undirected_edge(&edges, 1, 12));
+        assert!(contains_undirected_edge(&edges, 2, 14));
+        assert!(contains_undirected_edge(&edges, 5, 14));
+        let degrees = (0..15)
+            .map(|node| report.graph.degree(&node.to_string()))
+            .collect::<Vec<usize>>();
+        assert_eq!(degrees, vec![8, 8, 8, 4, 4, 4, 2, 2, 2, 2, 2, 2, 2, 2, 2]);
+    }
+
+    #[test]
+    fn dorogovtsev_goltsev_mendes_graph_rejects_oversized_generation() {
+        let mut generator = GraphGenerator::strict();
+        let err = generator
+            .dorogovtsev_goltsev_mendes_graph(12)
+            .expect_err("DGM graph should reject oversized node count");
+
+        assert_eq!(
+            err.to_string(),
+            "generator `dorogovtsev_goltsev_mendes_graph` failed closed: node count 265722 exceeds max_allowed=100000"
         );
     }
 
