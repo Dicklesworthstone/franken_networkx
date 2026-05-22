@@ -32,7 +32,7 @@ def bfs_tree(G, source, reverse=False, depth_limit=None, sort_neighbors=None, *,
     return _from_nx_graph(nx_result)
 
 
-def dfs_tree(G, source=None, depth_limit=None, sort_neighbors=None, *, backend=None, **backend_kwargs):
+def dfs_tree(G, source=None, depth_limit=None, *, sort_neighbors=None, backend=None, **backend_kwargs):
     """Return an oriented tree constructed from a depth-first search.
 
     Wraps ``networkx.algorithms.traversal.dfs_tree`` and converts
