@@ -37,6 +37,7 @@ _FNX_OVERRIDE_SUBMODULES = {
     "efficiency_measures",
     "hierarchy",
     "isolate",
+    "mis",
     "wiener",
     "approximation",
     "minors",
@@ -245,6 +246,10 @@ hierarchy = _fnx_hierarchy  # Override in module globals
 _fnx_isolate = _importlib.import_module("franken_networkx.isolate")
 _sys.modules[f"{__name__}.isolate"] = _fnx_isolate
 isolate = _fnx_isolate  # Override in module globals
+
+_fnx_mis = _importlib.import_module("franken_networkx.mis")
+_sys.modules[f"{__name__}.mis"] = _fnx_mis
+mis = _fnx_mis  # Override in module globals
 
 _fnx_chains = _importlib.import_module("franken_networkx.chains")
 _sys.modules[f"{__name__}.chains"] = _fnx_chains
