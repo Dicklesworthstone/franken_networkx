@@ -29,6 +29,7 @@ _FNX_OVERRIDE_SUBMODULES = {
     "boundary",
     "bipartite",
     "chains",
+    "wiener",
     "approximation",
     "minors",
     "operators",
@@ -204,6 +205,10 @@ boundary = _fnx_boundary  # Override in module globals
 _fnx_chains = _importlib.import_module("franken_networkx.chains")
 _sys.modules[f"{__name__}.chains"] = _fnx_chains
 chains = _fnx_chains  # Override in module globals
+
+_fnx_wiener = _importlib.import_module("franken_networkx.wiener")
+_sys.modules[f"{__name__}.wiener"] = _fnx_wiener
+wiener = _fnx_wiener  # Override in module globals
 
 
 def __getattr__(name):
