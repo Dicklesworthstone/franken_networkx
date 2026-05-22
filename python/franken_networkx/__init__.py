@@ -8576,6 +8576,11 @@ def tree_broadcast_time(G, node=None):
 
     br-r37-c1-2dwen: same multigraph/directed type-guard ordering
     as tree_broadcast_center.
+
+    br-r37-c1-g3fye: raise NodeNotFound with nx's bare-value message
+    when ``node`` isn't in G — the Rust binding's NodeNotFound message
+    leaks its typed-node representation (``"node str:1:z not in G"``)
+    instead of ``"node z not in G"``.
     """
     G = _coerce_arg_to_fnx_graph(G)
     if G.is_multigraph():
@@ -8584,6 +8589,8 @@ def tree_broadcast_time(G, node=None):
         raise NetworkXNotImplemented("not implemented for directed type")
     if node is None:
         return _raw_tree_broadcast_time(G)
+    if node not in G:
+        raise NodeNotFound(f"node {node} not in G")
     return _raw_tree_broadcast_time(G, node)
 
 # Algorithm functions — traversal (BFS) — wrapped for sort_neighbors support
