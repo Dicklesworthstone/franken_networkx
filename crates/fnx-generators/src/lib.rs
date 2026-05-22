@@ -456,6 +456,51 @@ impl GraphGenerator {
         Ok(self.finish_graph_report(graph, warnings))
     }
 
+    pub fn circulant_graph(
+        &mut self,
+        n: usize,
+        offsets: &[isize],
+    ) -> Result<GenerationReport, GenerationError> {
+        let (n, warnings) = self.validate_n("circulant_graph", n, MAX_N_GENERIC)?;
+        let (mut graph, node_labels) = graph_with_n_nodes(self.mode, n);
+
+        if n > 0 {
+            let n_i128 = n as i128;
+            for node in 0..n {
+                let node_i128 = node as i128;
+                for &offset in offsets {
+                    let offset_i128 = offset as i128;
+                    let backward = (node_i128 - offset_i128).rem_euclid(n_i128) as usize;
+                    graph
+                        .add_edge(node_labels[node].clone(), node_labels[backward].clone())
+                        .map_err(|err| GenerationError::FailClosed {
+                            operation: "circulant_graph",
+                            reason: err.to_string(),
+                        })?;
+
+                    let forward = (node_i128 + offset_i128).rem_euclid(n_i128) as usize;
+                    graph
+                        .add_edge(node_labels[node].clone(), node_labels[forward].clone())
+                        .map_err(|err| GenerationError::FailClosed {
+                            operation: "circulant_graph",
+                            reason: err.to_string(),
+                        })?;
+                }
+            }
+        }
+
+        self.record(
+            "circulant_graph",
+            DecisionAction::Allow,
+            0.03,
+            format!(
+                "generated circulant graph with n={n}, offset_count={}",
+                offsets.len()
+            ),
+        );
+        Ok(self.finish_graph_report(graph, warnings))
+    }
+
     pub fn barbell_graph(
         &mut self,
         m1: usize,
@@ -4672,6 +4717,91 @@ mod tests {
             .map(|node| report.graph.degree(&node.to_string()))
             .collect::<Vec<usize>>();
         assert_eq!(degrees, vec![3; 10]);
+    }
+
+    #[test]
+    fn circulant_graph_matches_networkx_empty_graph_case() {
+        let mut generator = GraphGenerator::strict();
+        let report = generator
+            .circulant_graph(0, &[1])
+            .expect("circulant graph generation should succeed");
+
+        assert_eq!(report.graph.node_count(), 0);
+        assert_eq!(report.graph.edge_count(), 0);
+        assert!(sorted_graph_edges(&report.graph).is_empty());
+    }
+
+    #[test]
+    fn circulant_graph_matches_networkx_self_loop_case() {
+        let mut generator = GraphGenerator::strict();
+        let report = generator
+            .circulant_graph(1, &[1])
+            .expect("circulant graph generation should succeed");
+
+        assert_eq!(report.graph.node_count(), 1);
+        assert_eq!(report.graph.edge_count(), 1);
+        assert_eq!(
+            sorted_graph_edges(&report.graph),
+            vec![("0".to_owned(), "0".to_owned())]
+        );
+        assert_eq!(report.graph.degree("0"), 2);
+    }
+
+    #[test]
+    fn circulant_graph_matches_networkx_cycle_case() {
+        let mut generator = GraphGenerator::strict();
+        let report = generator
+            .circulant_graph(5, &[1])
+            .expect("circulant graph generation should succeed");
+
+        assert_eq!(report.graph.node_count(), 5);
+        assert_eq!(report.graph.edge_count(), 5);
+        assert_eq!(
+            sorted_graph_edges(&report.graph),
+            vec![
+                ("0".to_owned(), "1".to_owned()),
+                ("0".to_owned(), "4".to_owned()),
+                ("1".to_owned(), "2".to_owned()),
+                ("2".to_owned(), "3".to_owned()),
+                ("3".to_owned(), "4".to_owned()),
+            ]
+        );
+
+        let degrees = (0..5)
+            .map(|node| report.graph.degree(&node.to_string()))
+            .collect::<Vec<usize>>();
+        assert_eq!(degrees, vec![2; 5]);
+    }
+
+    #[test]
+    fn circulant_graph_matches_networkx_complete_case() {
+        let mut generator = GraphGenerator::strict();
+        let report = generator
+            .circulant_graph(5, &[1, 2])
+            .expect("circulant graph generation should succeed");
+
+        assert_eq!(report.graph.node_count(), 5);
+        assert_eq!(report.graph.edge_count(), 10);
+        assert_eq!(
+            sorted_graph_edges(&report.graph),
+            vec![
+                ("0".to_owned(), "1".to_owned()),
+                ("0".to_owned(), "2".to_owned()),
+                ("0".to_owned(), "3".to_owned()),
+                ("0".to_owned(), "4".to_owned()),
+                ("1".to_owned(), "2".to_owned()),
+                ("1".to_owned(), "3".to_owned()),
+                ("1".to_owned(), "4".to_owned()),
+                ("2".to_owned(), "3".to_owned()),
+                ("2".to_owned(), "4".to_owned()),
+                ("3".to_owned(), "4".to_owned()),
+            ]
+        );
+
+        let degrees = (0..5)
+            .map(|node| report.graph.degree(&node.to_string()))
+            .collect::<Vec<usize>>();
+        assert_eq!(degrees, vec![4; 5]);
     }
 
     #[test]
