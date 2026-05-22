@@ -3617,6 +3617,111 @@ impl GraphGenerator {
         Ok(self.finish_graph_report(graph, warnings))
     }
 
+    pub fn duplication_divergence_graph(
+        &mut self,
+        n: usize,
+        p: f64,
+        seed: u64,
+    ) -> Result<GenerationReport, GenerationError> {
+        let operation = "duplication_divergence_graph";
+        if !(0.0..=1.0).contains(&p) {
+            let reason = format!("p={p} is not in [0,1].");
+            self.record(operation, DecisionAction::FailClosed, 1.0, reason.clone());
+            return Err(GenerationError::FailClosed { operation, reason });
+        }
+        if n < 2 {
+            let reason = "n must be greater than or equal to 2".to_owned();
+            self.record(operation, DecisionAction::FailClosed, 1.0, reason.clone());
+            return Err(GenerationError::FailClosed { operation, reason });
+        }
+        if p <= 0.0 && n > 2 {
+            let reason =
+                "p=0 cannot retain replica edges for n > 2; generation would not terminate"
+                    .to_owned();
+            self.record(operation, DecisionAction::FailClosed, 1.0, reason.clone());
+            return Err(GenerationError::FailClosed { operation, reason });
+        }
+
+        let (n, warnings) = self.validate_n(operation, n, MAX_N_GENERIC)?;
+        let max_dense_edges = MAX_N_COMPLETE * (MAX_N_COMPLETE - 1) / 2;
+        let mut graph = Graph::new(self.mode);
+        let node_labels = (0..n).map(|node| node.to_string()).collect::<Vec<String>>();
+
+        graph
+            .add_edge(node_labels[0].clone(), node_labels[1].clone())
+            .map_err(|err| GenerationError::FailClosed {
+                operation,
+                reason: err.to_string(),
+            })?;
+
+        let mut rng = PythonRandom::new(seed);
+        let mut edge_count = 1usize;
+        let mut next_node = 2usize;
+        let mut failed_replications = 0usize;
+        let max_failed_replications = n.saturating_mul(1000).max(1000);
+
+        while next_node < n {
+            let current_nodes = graph
+                .nodes_ordered()
+                .into_iter()
+                .map(str::to_owned)
+                .collect::<Vec<String>>();
+            let source_node = current_nodes[rng.choice_index(current_nodes.len())].clone();
+            let new_label = node_labels[next_node].clone();
+            graph.add_node(new_label.clone());
+
+            let source_neighbors = graph
+                .neighbors(&source_node)
+                .unwrap_or_default()
+                .into_iter()
+                .map(str::to_owned)
+                .collect::<Vec<String>>();
+            let mut retained_any_edge = false;
+            for neighbor in source_neighbors {
+                if rng.random() < p {
+                    graph.add_edge(new_label.clone(), neighbor).map_err(|err| {
+                        GenerationError::FailClosed {
+                            operation,
+                            reason: err.to_string(),
+                        }
+                    })?;
+                    retained_any_edge = true;
+                    edge_count += 1;
+                    if edge_count > max_dense_edges {
+                        let reason = format!(
+                            "edge count {edge_count} exceeds max_allowed={max_dense_edges}"
+                        );
+                        self.record(operation, DecisionAction::FailClosed, 0.95, reason.clone());
+                        return Err(GenerationError::FailClosed { operation, reason });
+                    }
+                }
+            }
+
+            if retained_any_edge {
+                next_node += 1;
+                failed_replications = 0;
+            } else {
+                graph.remove_node(&new_label);
+                failed_replications += 1;
+                if failed_replications > max_failed_replications {
+                    let reason = format!(
+                        "exceeded {max_failed_replications} failed replica attempts at node {next_node}"
+                    );
+                    self.record(operation, DecisionAction::FailClosed, 1.0, reason.clone());
+                    return Err(GenerationError::FailClosed { operation, reason });
+                }
+            }
+        }
+
+        self.record(
+            operation,
+            DecisionAction::Allow,
+            0.08,
+            format!("generated duplication_divergence_graph with n={n}, p={p}, seed={seed}, edges={edge_count}"),
+        );
+        Ok(self.finish_graph_report(graph, warnings))
+    }
+
     pub fn gnp_random_graph(
         &mut self,
         n: usize,
@@ -9833,6 +9938,96 @@ mod tests {
         assert_eq!(
             size_err.to_string(),
             "generator `partial_duplication_graph` failed closed: partial duplication graph must have n <= N."
+        );
+    }
+
+    #[test]
+    fn duplication_divergence_graph_matches_networkx_seeded_example() {
+        let mut generator = GraphGenerator::strict();
+        let report = generator
+            .duplication_divergence_graph(6, 0.5, 7)
+            .expect("duplication-divergence graph should succeed");
+
+        assert_eq!(report.graph.node_count(), 6);
+        assert_eq!(
+            sorted_graph_edges(&report.graph),
+            vec![
+                ("0".to_owned(), "1".to_owned()),
+                ("0".to_owned(), "5".to_owned()),
+                ("1".to_owned(), "2".to_owned()),
+                ("1".to_owned(), "3".to_owned()),
+                ("1".to_owned(), "4".to_owned()),
+                ("2".to_owned(), "5".to_owned()),
+                ("4".to_owned(), "5".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn duplication_divergence_graph_matches_networkx_sparse_seeded_example() {
+        let mut generator = GraphGenerator::strict();
+        let report = generator
+            .duplication_divergence_graph(6, 0.25, 3)
+            .expect("duplication-divergence graph should succeed");
+
+        assert_eq!(report.graph.node_count(), 6);
+        assert_eq!(
+            sorted_graph_edges(&report.graph),
+            vec![
+                ("0".to_owned(), "1".to_owned()),
+                ("1".to_owned(), "2".to_owned()),
+                ("1".to_owned(), "3".to_owned()),
+                ("2".to_owned(), "4".to_owned()),
+                ("2".to_owned(), "5".to_owned()),
+                ("3".to_owned(), "4".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn duplication_divergence_graph_validates_inputs() {
+        let mut generator = GraphGenerator::strict();
+        let p_one = generator
+            .duplication_divergence_graph(4, 1.0, 2)
+            .expect("p=1 should deterministically retain every neighbor edge");
+        assert_eq!(
+            sorted_graph_edges(&p_one.graph),
+            vec![
+                ("0".to_owned(), "1".to_owned()),
+                ("0".to_owned(), "3".to_owned()),
+                ("1".to_owned(), "2".to_owned()),
+                ("2".to_owned(), "3".to_owned()),
+            ]
+        );
+
+        let base = generator
+            .duplication_divergence_graph(2, 0.0, 2)
+            .expect("p=0 is valid for the initial two-node graph");
+        assert_eq!(base.graph.node_count(), 2);
+        assert_eq!(base.graph.edge_count(), 1);
+
+        let probability_err = generator
+            .duplication_divergence_graph(4, -0.1, 1)
+            .expect_err("out-of-range probability should fail closed");
+        assert_eq!(
+            probability_err.to_string(),
+            "generator `duplication_divergence_graph` failed closed: p=-0.1 is not in [0,1]."
+        );
+
+        let size_err = generator
+            .duplication_divergence_graph(1, 0.5, 1)
+            .expect_err("n less than two should fail closed");
+        assert_eq!(
+            size_err.to_string(),
+            "generator `duplication_divergence_graph` failed closed: n must be greater than or equal to 2"
+        );
+
+        let nonterminating_err = generator
+            .duplication_divergence_graph(3, 0.0, 1)
+            .expect_err("p=0 cannot add nodes beyond the initial edge");
+        assert_eq!(
+            nonterminating_err.to_string(),
+            "generator `duplication_divergence_graph` failed closed: p=0 cannot retain replica edges for n > 2; generation would not terminate"
         );
     }
 
