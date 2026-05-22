@@ -10956,9 +10956,13 @@ def transitive_closure(G, reflexive=False):
         or reflexive is not False
         or (G.is_directed() and not is_directed_acyclic_graph(G))
     ):
-        return _call_networkx_for_parity(
+        # br-r37-c1-8q79a: convert nx result to fnx type
+        from franken_networkx.readwrite import _from_nx_graph
+
+        nx_result = _call_networkx_for_parity(
             "transitive_closure", G, reflexive=reflexive
         )
+        return _from_nx_graph(nx_result)
     result = _raw_transitive_closure(G, reflexive=False)
     # br-r37-c1-gtkxs: the Rust kernel returns a DiGraph stripped of
     # node and edge attributes. nx's transitive_closure preserves
