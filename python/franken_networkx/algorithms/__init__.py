@@ -25,6 +25,7 @@ from networkx.algorithms import *  # noqa: F401, F403
 
 
 _FNX_OVERRIDE_SUBMODULES = {
+    "asteroidal",
     "bipartite",
     "approximation",
     "minors",
@@ -189,6 +190,10 @@ components = _fnx_components  # Override in module globals
 _fnx_bridges = _importlib.import_module("franken_networkx.bridges")
 _sys.modules[f"{__name__}.bridges"] = _fnx_bridges
 bridges = _fnx_bridges  # Override in module globals
+
+_fnx_asteroidal = _importlib.import_module("franken_networkx.asteroidal")
+_sys.modules[f"{__name__}.asteroidal"] = _fnx_asteroidal
+asteroidal = _fnx_asteroidal  # Override in module globals
 
 
 def __getattr__(name):
