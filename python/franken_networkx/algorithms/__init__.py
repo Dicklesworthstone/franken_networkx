@@ -24,7 +24,7 @@ import pkgutil as _pkgutil
 from networkx.algorithms import *  # noqa: F401, F403
 
 
-_FNX_OVERRIDE_SUBMODULES = {"bipartite", "approximation", "minors", "operators", "clique", "summarization", "moral", "tree", "flow", "traversal", "euler", "sparsifiers", "triads", "threshold", "dag", "chordal", "core", "hybrid", "tournament", "smallworld", "regular"}
+_FNX_OVERRIDE_SUBMODULES = {"bipartite", "approximation", "minors", "operators", "clique", "summarization", "moral", "tree", "flow", "traversal", "euler", "sparsifiers", "triads", "threshold", "dag", "chordal", "core", "hybrid", "tournament", "smallworld", "regular", "swap", "planarity"}
 
 
 def _alias_nx_submodules(nx_pkg, fnx_prefix):
@@ -147,6 +147,14 @@ smallworld = _fnx_smallworld  # Override in module globals
 import franken_networkx.regular as _fnx_regular
 _sys.modules[f"{__name__}.regular"] = _fnx_regular
 regular = _fnx_regular  # Override in module globals
+
+import franken_networkx.swap as _fnx_swap
+_sys.modules[f"{__name__}.swap"] = _fnx_swap
+swap = _fnx_swap  # Override in module globals
+
+import franken_networkx.planarity as _fnx_planarity
+_sys.modules[f"{__name__}.planarity"] = _fnx_planarity
+planarity = _fnx_planarity  # Override in module globals
 
 
 def __getattr__(name):
