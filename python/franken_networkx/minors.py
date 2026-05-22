@@ -7,6 +7,9 @@ fnx graph types instead of NetworkX graphs.
 
 Current native overrides:
 - ``quotient_graph`` — returns fnx.Graph/fnx.DiGraph
+- ``contracted_nodes`` — returns fnx graph
+- ``contracted_edge`` — returns fnx graph
+- ``identified_nodes`` — returns fnx graph
 """
 
 from __future__ import annotations
@@ -46,3 +49,36 @@ def quotient_graph(
         create_using=create_using,
     )
     return _from_nx_graph(nx_result, create_using=create_using)
+
+
+def contracted_nodes(G, u, v, self_loops=True, copy=True, *, store_contraction_as="contraction", backend=None, **backend_kwargs):
+    """Return the graph with nodes u and v contracted.
+
+    Wraps ``networkx.algorithms.minors.contracted_nodes`` and converts
+    the result to an fnx graph type for drop-in compatibility.
+    """
+    _fnx._validate_backend_dispatch_keywords("contracted_nodes", backend, backend_kwargs)
+    nx_result = _nx_minors.contracted_nodes(G, u, v, self_loops=self_loops, copy=copy, store_contraction_as=store_contraction_as)
+    return _from_nx_graph(nx_result)
+
+
+def contracted_edge(G, edge, self_loops=True, copy=True, *, store_contraction_as="contraction", backend=None, **backend_kwargs):
+    """Return the graph with the specified edge contracted.
+
+    Wraps ``networkx.algorithms.minors.contracted_edge`` and converts
+    the result to an fnx graph type for drop-in compatibility.
+    """
+    _fnx._validate_backend_dispatch_keywords("contracted_edge", backend, backend_kwargs)
+    nx_result = _nx_minors.contracted_edge(G, edge, self_loops=self_loops, copy=copy, store_contraction_as=store_contraction_as)
+    return _from_nx_graph(nx_result)
+
+
+def identified_nodes(G, u, v, self_loops=True, copy=True, *, store_contraction_as="contraction", backend=None, **backend_kwargs):
+    """Return the graph with nodes u and v identified (contracted).
+
+    Wraps ``networkx.algorithms.minors.identified_nodes`` and converts
+    the result to an fnx graph type for drop-in compatibility.
+    """
+    _fnx._validate_backend_dispatch_keywords("identified_nodes", backend, backend_kwargs)
+    nx_result = _nx_minors.identified_nodes(G, u, v, self_loops=self_loops, copy=copy, store_contraction_as=store_contraction_as)
+    return _from_nx_graph(nx_result)
