@@ -11396,22 +11396,14 @@ def average_node_connectivity(G, flow_func=None):
     float
         The average node connectivity of G.
     """
-    if flow_func is not None:
-        return _call_networkx_for_parity(
-            "average_node_connectivity",
-            G,
-            flow_func=flow_func,
-        )
-    # br-r37-c1-anc-int0: nx's reference returns ``0`` (int) on
-    # the empty / single-node case (``if den == 0: return 0``);
-    # the Rust raw binding returned ``float(0.0)``.  Same int/
-    # float family as br-r37-c1-eff-int0 (efficiency) /
-    # 3ejen (estrada_index) / 4jnwn (transitivity).  When G has
-    # fewer than 2 nodes there are no (u, v) pairs to enumerate
-    # so the sum stays 0 and nx never enters the divide-branch.
-    if G.number_of_nodes() < 2:
-        return 0
-    return _raw_average_node_connectivity(G)
+    # br-r37-c1-qz40o: Rust BFS-based local_node_connectivity uses a
+    # heuristic that doesn't give correct values in all cases. Always
+    # delegate to nx which uses proper max-flow on an auxiliary graph.
+    return _call_networkx_for_parity(
+        "average_node_connectivity",
+        G,
+        flow_func=flow_func,
+    )
 
 def all_pairs_dijkstra(G, cutoff=None, weight="weight"):
     """_Iterator of ``(source, (distances, paths))`` pairs via Dijkstra.
