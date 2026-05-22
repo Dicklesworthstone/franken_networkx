@@ -84,8 +84,9 @@ try:
     import networkx as _nx_for_fallback_cfg
 
     _nx_for_fallback_cfg.config.fallback_to_nx = True
+    _NETWORKX_GRAPH_DEFAULT = _nx_for_fallback_cfg.Graph
 except Exception:
-    pass
+    _NETWORKX_GRAPH_DEFAULT = Graph
 
 
 # br-r37-c1-u3umv: ``nx.drawing.layout._process_params`` short-circuits
@@ -14939,7 +14940,7 @@ def cycle_graph(n, create_using=None):
     return graph
 
 
-def empty_graph(n=0, create_using=None, default=Graph):
+def empty_graph(n=0, create_using=None, default=_NETWORKX_GRAPH_DEFAULT):
     """Return the empty graph with n nodes and zero edges."""
     n, nodes = _nodes_or_number_local(n)
     default_graph_type = _classic_default_graph_type(default)
@@ -29412,15 +29413,35 @@ class _ConversionGraphViewBase:
     node_dict_factory = dict
 
     def __init__(self, graph):
-        self._graph = graph
-        self.graph = graph.graph
-        self.frozen = True
-        self.nodes = _ConversionNodeView(self)
-        self.edges = _ConversionEdgeView(self)
-        self.adj = _ConversionAdjacencyView(self)
+        self.__dict__["_graph"] = graph
+        self.__dict__["graph"] = graph.graph
+        self.__dict__["frozen"] = True
+        self.__dict__["_nodes_view"] = _ConversionNodeView(self)
+        self.__dict__["_edges_view"] = _ConversionEdgeView(self)
+        self.__dict__["_adj_view"] = _ConversionAdjacencyView(self)
         if self.is_directed():
-            self.succ = self.adj
-            self.pred = _ConversionAdjacencyView(self, reverse=True)
+            self.__dict__["_succ_view"] = self._adj_view
+            self.__dict__["_pred_view"] = _ConversionAdjacencyView(self, reverse=True)
+
+    @property
+    def nodes(self):
+        return self.__dict__.get("_nodes_view") or super().nodes
+
+    @property
+    def edges(self):
+        return self.__dict__.get("_edges_view") or super().edges
+
+    @property
+    def adj(self):
+        return self.__dict__.get("_adj_view") or super().adj
+
+    @property
+    def succ(self):
+        return self.__dict__.get("_succ_view") or super().succ
+
+    @property
+    def pred(self):
+        return self.__dict__.get("_pred_view") or super().pred
 
     def __iter__(self):
         return iter(self._graph)
@@ -29774,8 +29795,8 @@ class _DirectedMultiGraphConversionView(_ConversionGraphViewBase):
 
 
 _DIRECTED_CONVERSION_VIEW_TYPES = {
-    False: type("DiGraph", (_DirectedGraphConversionView,), {}),
-    True: type("MultiDiGraph", (_DirectedMultiGraphConversionView,), {}),
+    False: type("DiGraph", (_DirectedGraphConversionView, DiGraph), {}),
+    True: type("MultiDiGraph", (_DirectedMultiGraphConversionView, MultiDiGraph), {}),
 }
 
 
@@ -29852,8 +29873,8 @@ class _UndirectedMultiGraphConversionView(_ConversionGraphViewBase):
 
 
 _UNDIRECTED_CONVERSION_VIEW_TYPES = {
-    False: type("Graph", (_UndirectedGraphConversionView,), {}),
-    True: type("MultiGraph", (_UndirectedMultiGraphConversionView,), {}),
+    False: type("Graph", (_UndirectedGraphConversionView, Graph), {}),
+    True: type("MultiGraph", (_UndirectedMultiGraphConversionView, MultiGraph), {}),
 }
 
 
