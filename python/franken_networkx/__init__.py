@@ -35727,9 +35727,11 @@ def random_reference(G, niter=1, connectivity=True, seed=None):
         raise NetworkXError("Graph has fewer than four nodes.")
     if G.number_of_edges() < 2:
         raise NetworkXError("Graph has fewer that 2 edges")
-    return _call_networkx_for_parity(
+    nx_result = _call_networkx_for_parity(
         "random_reference", G, niter=niter, connectivity=connectivity, seed=seed,
     )
+    from franken_networkx.readwrite import _from_nx_graph
+    return _from_nx_graph(nx_result)
 
 
 def random_labeled_rooted_tree(n, *, seed=None):

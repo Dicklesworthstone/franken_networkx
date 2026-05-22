@@ -32,6 +32,7 @@ needs_nx = pytest.mark.skipif(not HAS_NX, reason="networkx not installed")
 def test_random_reference_edge_set_matches_nx(seed, niter):
     fg = fnx.random_reference(fnx.cycle_graph(10), niter=niter, seed=seed)
     ng = nx.random_reference(nx.cycle_graph(10), niter=niter, seed=seed)
+    assert isinstance(fg, fnx.Graph)
     assert sorted(fg.edges()) == sorted(ng.edges())
 
 
@@ -40,6 +41,7 @@ def test_random_reference_edge_set_matches_nx(seed, niter):
 def test_random_reference_connectivity_false_matches_nx(seed):
     fg = fnx.random_reference(fnx.cycle_graph(10), niter=2, connectivity=False, seed=seed)
     ng = nx.random_reference(nx.cycle_graph(10), niter=2, connectivity=False, seed=seed)
+    assert isinstance(fg, fnx.Graph)
     assert sorted(fg.edges()) == sorted(ng.edges())
 
 
