@@ -27,3 +27,36 @@ def dag_to_branching(G, *, backend=None, **backend_kwargs):
     _fnx._validate_backend_dispatch_keywords("dag_to_branching", backend, backend_kwargs)
     nx_result = _nx_dag.dag_to_branching(G)
     return _from_nx_graph(nx_result)
+
+
+def transitive_closure(G, reflexive=False, *, backend=None, **backend_kwargs):
+    """Return the transitive closure of a DAG.
+
+    Wraps ``networkx.algorithms.dag.transitive_closure`` and converts
+    the result to an fnx graph type for drop-in compatibility.
+    """
+    _fnx._validate_backend_dispatch_keywords("transitive_closure", backend, backend_kwargs)
+    nx_result = _nx_dag.transitive_closure(G, reflexive=reflexive)
+    return _from_nx_graph(nx_result)
+
+
+def transitive_closure_dag(G, topo_order=None, *, backend=None, **backend_kwargs):
+    """Return the transitive closure of a DAG (optimized version).
+
+    Wraps ``networkx.algorithms.dag.transitive_closure_dag`` and converts
+    the result to an fnx graph type for drop-in compatibility.
+    """
+    _fnx._validate_backend_dispatch_keywords("transitive_closure_dag", backend, backend_kwargs)
+    nx_result = _nx_dag.transitive_closure_dag(G, topo_order=topo_order)
+    return _from_nx_graph(nx_result)
+
+
+def transitive_reduction(G, *, backend=None, **backend_kwargs):
+    """Return the transitive reduction of a DAG.
+
+    Wraps ``networkx.algorithms.dag.transitive_reduction`` and converts
+    the result to an fnx graph type for drop-in compatibility.
+    """
+    _fnx._validate_backend_dispatch_keywords("transitive_reduction", backend, backend_kwargs)
+    nx_result = _nx_dag.transitive_reduction(G)
+    return _from_nx_graph(nx_result)
