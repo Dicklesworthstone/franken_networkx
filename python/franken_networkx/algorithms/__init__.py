@@ -32,6 +32,7 @@ _FNX_OVERRIDE_SUBMODULES = {
     "chains",
     "communicability_alg",
     "covering",
+    "efficiency_measures",
     "isolate",
     "wiener",
     "approximation",
@@ -219,6 +220,12 @@ communicability_alg = _fnx_communicability_alg  # Override in module globals
 _fnx_covering = _importlib.import_module("franken_networkx.covering")
 _sys.modules[f"{__name__}.covering"] = _fnx_covering
 covering = _fnx_covering  # Override in module globals
+
+_fnx_efficiency_measures = _importlib.import_module(
+    "franken_networkx.efficiency_measures"
+)
+_sys.modules[f"{__name__}.efficiency_measures"] = _fnx_efficiency_measures
+efficiency_measures = _fnx_efficiency_measures  # Override in module globals
 
 _fnx_isolate = _importlib.import_module("franken_networkx.isolate")
 _sys.modules[f"{__name__}.isolate"] = _fnx_isolate
