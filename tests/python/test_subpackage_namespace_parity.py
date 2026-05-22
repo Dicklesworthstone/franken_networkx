@@ -45,17 +45,36 @@ def test_subpackage_direct_attribute_access_works():
 
 def test_nested_submodule_access_falls_through_to_networkx():
     """``fnx.generators.classic``, ``fnx.algorithms.approximation``, etc.
-    must resolve via __getattr__ fall-through. Without this, code that
+    must resolve via __getattr__ fall-through.  Without this, code that
     walks the nx submodule tree explicitly breaks even though the top
-    level works."""
+    level works.
+
+    br-r37-c1-qhcc2 (cousin to br-r37-c1-x5oxs): the resolved module
+    is either an ``is``-identical nx submodule OR an fnx overlay /
+    native module — fnx legitimately wraps several submodules
+    (``franken_networkx.generators._register_franken_generator_submodules``
+    builds an overlay proxy; ``franken_networkx.approximation`` is a
+    native module returning fnx graph types).  Lock the documented
+    fall-through contract without forcing strict ``is nx`` identity.
+    """
     fnx_gens = importlib.import_module("franken_networkx.generators")
     fnx_algos = importlib.import_module("franken_networkx.algorithms")
 
-    assert fnx_gens.classic is nx.generators.classic, (
-        "fnx.generators.classic should alias nx.generators.classic"
+    classic = fnx_gens.classic
+    assert (
+        classic is nx.generators.classic
+        or classic.__name__.startswith("franken_networkx")
+    ), (
+        "fnx.generators.classic should alias nx.generators.classic or "
+        f"an fnx overlay/native module, got {classic!r}"
     )
-    assert fnx_algos.approximation is nx.algorithms.approximation, (
+    approximation = fnx_algos.approximation
+    assert (
+        approximation is nx.algorithms.approximation
+        or approximation.__name__.startswith("franken_networkx")
+    ), (
         "fnx.algorithms.approximation should alias nx.algorithms.approximation"
+        f" or an fnx-native module, got {approximation!r}"
     )
 
 
