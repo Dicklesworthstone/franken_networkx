@@ -402,6 +402,24 @@ def test_identified_nodes_and_inverse_line_graph_match_networkx():
     assert sorted(_to_nx(inverse).edges()) == sorted(inverse_nx.edges())
 
 
+def test_add_node_accepts_nested_attrs_with_non_string_keys():
+    graph = fnx.Graph()
+
+    graph.add_node("root", contraction={1: {}, (2, 3): {"label": "edge"}})
+
+    assert graph.nodes["root"]["contraction"] == {1: {}, (2, 3): {"label": "edge"}}
+
+
+def test_contracted_nodes_preserves_integer_contraction_keys():
+    graph = fnx.Graph()
+    graph.add_nodes_from([0, 1, 2])
+    graph.add_edges_from([(0, 1), (1, 2)])
+
+    contracted = fnx.contracted_nodes(graph, 0, 1)
+
+    assert contracted.nodes[0]["contraction"] == {1: {}}
+
+
 def test_identified_nodes_does_not_fallback(monkeypatch):
     path = fnx.path_graph(4)
     expected = nx.identified_nodes(_to_nx(path), 1, 2, self_loops=False)
