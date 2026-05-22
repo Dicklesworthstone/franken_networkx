@@ -337,6 +337,110 @@ def _from_nx_graph_or_graphs(graph_or_graphs, create_using=None):
     return _from_nx_graph(graph_or_graphs, create_using=create_using)
 
 
+def adjacency_data(G, attrs={"id": "id", "key": "key"}):  # noqa: B006
+    """Return adjacency JSON data using fnx's graph-preserving wrapper."""
+    import franken_networkx as fnx
+
+    return fnx.adjacency_data(G, attrs=attrs)
+
+
+def adjacency_graph(
+    data,
+    directed=False,
+    multigraph=True,
+    attrs={"id": "id", "key": "key"},  # noqa: B006
+):
+    """Return an fnx graph from adjacency JSON data."""
+    import franken_networkx as fnx
+
+    return fnx.adjacency_graph(
+        data,
+        directed=directed,
+        multigraph=multigraph,
+        attrs=attrs,
+    )
+
+
+def node_link_data(
+    G,
+    *,
+    source="source",
+    target="target",
+    name="id",
+    key="key",
+    edges="edges",
+    nodes="nodes",
+):
+    """Return node-link JSON data using fnx's wrapper."""
+    import franken_networkx as fnx
+
+    return fnx.node_link_data(
+        G,
+        source=source,
+        target=target,
+        name=name,
+        key=key,
+        edges=edges,
+        nodes=nodes,
+    )
+
+
+def node_link_graph(
+    data,
+    directed=False,
+    multigraph=True,
+    *,
+    source="source",
+    target="target",
+    name="id",
+    key="key",
+    edges="edges",
+    nodes="nodes",
+):
+    """Return an fnx graph from node-link JSON data."""
+    import franken_networkx as fnx
+
+    return fnx.node_link_graph(
+        data,
+        directed=directed,
+        multigraph=multigraph,
+        source=source,
+        target=target,
+        name=name,
+        key=key,
+        edges=edges,
+        nodes=nodes,
+    )
+
+
+def tree_data(G, root, ident="id", children="children"):
+    """Serialize a rooted tree using fnx's wrapper."""
+    import franken_networkx as fnx
+
+    return fnx.tree_data(G, root, ident=ident, children=children)
+
+
+def tree_graph(data, ident="id", children="children"):
+    """Return an fnx directed tree from nested tree JSON data."""
+    import franken_networkx as fnx
+
+    return fnx.tree_graph(data, ident=ident, children=children)
+
+
+def cytoscape_data(G, name="name", ident="id"):
+    """Return Cytoscape JSON data using fnx's wrapper."""
+    import franken_networkx as fnx
+
+    return fnx.cytoscape_data(G, name=name, ident=ident)
+
+
+def cytoscape_graph(data, name="name", ident="id"):
+    """Return an fnx graph from Cytoscape JSON data."""
+    import franken_networkx as fnx
+
+    return fnx.cytoscape_graph(data, name=name, ident=ident)
+
+
 def _read_bytes(path):
     """Read bytes from a path-like or file-like object."""
     if hasattr(path, "read"):

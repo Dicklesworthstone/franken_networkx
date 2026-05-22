@@ -118,8 +118,34 @@ def test_readwrite_submodules_keep_fnx_implemented_names():
     graph6 = importlib.import_module("franken_networkx.readwrite.graph6")
     sparse6 = importlib.import_module("franken_networkx.readwrite.sparse6")
     pajek = importlib.import_module("franken_networkx.readwrite.pajek")
+    adjacency = importlib.import_module("franken_networkx.readwrite.json_graph.adjacency")
+    cytoscape = importlib.import_module("franken_networkx.readwrite.json_graph.cytoscape")
+    tree = importlib.import_module("franken_networkx.readwrite.json_graph.tree")
 
     assert gml.parse_gml is fnx_readwrite.parse_gml
     assert graph6.to_graph6_bytes is fnx_readwrite.to_graph6_bytes
     assert sparse6.from_sparse6_bytes is fnx_readwrite.from_sparse6_bytes
     assert pajek.generate_pajek is fnx_readwrite.generate_pajek
+    assert adjacency.adjacency_graph is fnx_readwrite.adjacency_graph
+    assert cytoscape.cytoscape_graph is fnx_readwrite.cytoscape_graph
+    assert tree.tree_graph is fnx_readwrite.tree_graph
+
+
+def test_readwrite_json_graph_builders_return_fnx_graphs():
+    """``fnx.readwrite`` JSON graph builders must preserve fnx graph types."""
+    import franken_networkx.readwrite as fnx_readwrite
+
+    adjacency_payload = nx.adjacency_data(nx.path_graph(3))
+    cytoscape_payload = nx.cytoscape_data(nx.path_graph(3))
+    tree_payload = nx.tree_data(
+        nx.balanced_tree(2, 2, create_using=nx.DiGraph),
+        root=0,
+    )
+
+    adjacency_graph = fnx_readwrite.adjacency_graph(adjacency_payload)
+    cytoscape_graph = fnx_readwrite.cytoscape_graph(cytoscape_payload)
+    tree_graph = fnx_readwrite.tree_graph(tree_payload)
+
+    assert isinstance(adjacency_graph, fnx.Graph)
+    assert isinstance(cytoscape_graph, fnx.Graph)
+    assert isinstance(tree_graph, fnx.DiGraph)
