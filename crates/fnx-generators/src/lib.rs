@@ -418,6 +418,91 @@ impl GraphGenerator {
         Ok(self.finish_graph_report(graph, Vec::new()))
     }
 
+    pub fn kneser_graph(
+        &mut self,
+        n: usize,
+        k: usize,
+    ) -> Result<GenerationReport, GenerationError> {
+        let operation = "kneser_graph";
+        if n == 0 {
+            let reason = "n should be greater than zero".to_owned();
+            self.record(operation, DecisionAction::FailClosed, 0.95, reason.clone());
+            return Err(GenerationError::FailClosed { operation, reason });
+        }
+        if k == 0 || k > n {
+            let reason = "k should be greater than zero and smaller than n".to_owned();
+            self.record(operation, DecisionAction::FailClosed, 0.95, reason.clone());
+            return Err(GenerationError::FailClosed { operation, reason });
+        }
+
+        let node_count = checked_binomial(n, k).ok_or_else(|| GenerationError::FailClosed {
+            operation,
+            reason: format!("node count overflow for n={n}, k={k}"),
+        })?;
+        if node_count > MAX_N_GENERIC {
+            let reason = format!("node count {node_count} exceeds max_allowed={MAX_N_GENERIC}");
+            self.record(operation, DecisionAction::FailClosed, 0.95, reason.clone());
+            return Err(GenerationError::FailClosed { operation, reason });
+        }
+
+        let degree = if 2usize.saturating_mul(k) > n {
+            0
+        } else {
+            checked_binomial(n - k, k).ok_or_else(|| GenerationError::FailClosed {
+                operation,
+                reason: format!("degree overflow for n={n}, k={k}"),
+            })?
+        };
+        let edge_count = node_count
+            .checked_mul(degree)
+            .map(|attempts| attempts / 2)
+            .ok_or_else(|| GenerationError::FailClosed {
+                operation,
+                reason: format!("edge count overflow for n={n}, k={k}"),
+            })?;
+        let max_dense_edges = MAX_N_COMPLETE * (MAX_N_COMPLETE - 1) / 2;
+        if edge_count > max_dense_edges {
+            let reason = format!("edge count {edge_count} exceeds max_allowed={max_dense_edges}");
+            self.record(operation, DecisionAction::FailClosed, 0.95, reason.clone());
+            return Err(GenerationError::FailClosed { operation, reason });
+        }
+
+        let subsets = k_combinations(n, k);
+        let labels = subsets
+            .iter()
+            .map(|subset| format_k_subset_label(subset))
+            .collect::<Vec<String>>();
+        let mut graph = Graph::new(self.mode);
+
+        if 2usize.saturating_mul(k) > n {
+            for label in &labels {
+                graph.add_node(label.clone());
+            }
+        } else {
+            for (subset, label) in subsets.iter().zip(labels.iter()) {
+                let complement = complement_values(n, subset);
+                for target_subset in k_combinations_from_values(&complement, k) {
+                    graph
+                        .add_edge(label.clone(), format_k_subset_label(&target_subset))
+                        .map_err(|err| GenerationError::FailClosed {
+                            operation,
+                            reason: err.to_string(),
+                        })?;
+                }
+            }
+        }
+
+        self.record(
+            operation,
+            DecisionAction::Allow,
+            0.04,
+            format!(
+                "generated Kneser graph with n={n}, k={k}, nodes={node_count}, edges={edge_count}"
+            ),
+        );
+        Ok(self.finish_graph_report(graph, Vec::new()))
+    }
+
     pub fn cycle_graph(&mut self, n: usize) -> Result<GenerationReport, GenerationError> {
         let (n, warnings) = self.validate_n("cycle_graph", n, MAX_N_GENERIC)?;
         let (mut graph, node_labels) = graph_with_n_nodes(self.mode, n);
@@ -4207,6 +4292,68 @@ fn balanced_tree_node_count(r: usize, h: usize) -> usize {
     total
 }
 
+fn checked_binomial(n: usize, k: usize) -> Option<usize> {
+    if k > n {
+        return None;
+    }
+    let k = k.min(n - k);
+    let mut result = 1usize;
+    for step in 1..=k {
+        result = result.checked_mul(n - k + step)? / step;
+    }
+    Some(result)
+}
+
+fn k_combinations(n: usize, k: usize) -> Vec<Vec<usize>> {
+    let values = (0..n).collect::<Vec<usize>>();
+    k_combinations_from_values(&values, k)
+}
+
+fn k_combinations_from_values(values: &[usize], k: usize) -> Vec<Vec<usize>> {
+    if k > values.len() {
+        return Vec::new();
+    }
+    let mut result = Vec::new();
+    let mut combination = Vec::with_capacity(k);
+    build_k_combinations(values, k, 0, &mut combination, &mut result);
+    result
+}
+
+fn build_k_combinations(
+    values: &[usize],
+    k: usize,
+    start: usize,
+    combination: &mut Vec<usize>,
+    result: &mut Vec<Vec<usize>>,
+) {
+    if combination.len() == k {
+        result.push(combination.clone());
+        return;
+    }
+
+    let needed = k - combination.len();
+    let max_start = values.len().saturating_sub(needed);
+    for index in start..=max_start {
+        combination.push(values[index]);
+        build_k_combinations(values, k, index + 1, combination, result);
+        combination.pop();
+    }
+}
+
+fn complement_values(n: usize, subset: &[usize]) -> Vec<usize> {
+    (0..n)
+        .filter(|value| !subset.contains(value))
+        .collect::<Vec<usize>>()
+}
+
+fn format_k_subset_label(subset: &[usize]) -> String {
+    subset
+        .iter()
+        .map(|value| value.to_string())
+        .collect::<Vec<String>>()
+        .join(",")
+}
+
 fn watts_strogatz_graph_core(
     mode: CompatibilityMode,
     n: usize,
@@ -5050,6 +5197,108 @@ mod tests {
         assert_eq!(
             err.to_string(),
             "generator `dorogovtsev_goltsev_mendes_graph` failed closed: node count 265722 exceeds max_allowed=100000"
+        );
+    }
+
+    #[test]
+    fn kneser_graph_rejects_invalid_parameters_like_networkx() {
+        let mut generator = GraphGenerator::strict();
+
+        let zero_n = generator
+            .kneser_graph(0, 1)
+            .expect_err("n=0 should fail closed");
+        assert_eq!(
+            zero_n.to_string(),
+            "generator `kneser_graph` failed closed: n should be greater than zero"
+        );
+
+        let zero_k = generator
+            .kneser_graph(3, 0)
+            .expect_err("k=0 should fail closed");
+        assert_eq!(
+            zero_k.to_string(),
+            "generator `kneser_graph` failed closed: k should be greater than zero and smaller than n"
+        );
+
+        let oversized_k = generator
+            .kneser_graph(3, 4)
+            .expect_err("k>n should fail closed");
+        assert_eq!(
+            oversized_k.to_string(),
+            "generator `kneser_graph` failed closed: k should be greater than zero and smaller than n"
+        );
+    }
+
+    #[test]
+    fn kneser_graph_generation_order_matches_networkx_petersen_case() {
+        let mut generator = GraphGenerator::strict();
+        let report = generator
+            .kneser_graph(5, 2)
+            .expect("Kneser graph generation should succeed");
+        let snapshot = report.graph.snapshot();
+
+        assert_eq!(report.graph.node_count(), 10);
+        assert_eq!(report.graph.edge_count(), 15);
+        assert_eq!(
+            snapshot.nodes,
+            vec![
+                "0,1", "2,3", "2,4", "3,4", "0,2", "1,3", "1,4", "0,3", "1,2", "0,4",
+            ]
+        );
+        let degrees = snapshot
+            .nodes
+            .iter()
+            .map(|node| report.graph.degree(node.as_str()))
+            .collect::<Vec<usize>>();
+        assert_eq!(degrees, vec![3; 10]);
+    }
+
+    #[test]
+    fn kneser_graph_half_case_matches_networkx_disjoint_pairs() {
+        let mut generator = GraphGenerator::strict();
+        let report = generator
+            .kneser_graph(4, 2)
+            .expect("Kneser graph generation should succeed");
+
+        assert_eq!(report.graph.node_count(), 6);
+        assert_eq!(report.graph.edge_count(), 3);
+        assert_eq!(
+            sorted_graph_edges(&report.graph),
+            vec![
+                ("0,1".to_owned(), "2,3".to_owned()),
+                ("0,2".to_owned(), "1,3".to_owned()),
+                ("0,3".to_owned(), "1,2".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn kneser_graph_two_k_greater_than_n_adds_isolates_in_combination_order() {
+        let mut generator = GraphGenerator::strict();
+        let report = generator
+            .kneser_graph(5, 3)
+            .expect("Kneser graph generation should succeed");
+
+        assert_eq!(report.graph.edge_count(), 0);
+        assert_eq!(
+            report.graph.snapshot().nodes,
+            vec![
+                "0,1,2", "0,1,3", "0,1,4", "0,2,3", "0,2,4", "0,3,4", "1,2,3", "1,2,4", "1,3,4",
+                "2,3,4",
+            ]
+        );
+    }
+
+    #[test]
+    fn kneser_graph_rejects_dense_edge_count() {
+        let mut generator = GraphGenerator::strict();
+        let err = generator
+            .kneser_graph(20, 5)
+            .expect_err("dense Kneser graph should fail closed");
+
+        assert_eq!(
+            err.to_string(),
+            "generator `kneser_graph` failed closed: edge count 23279256 exceeds max_allowed=1999000"
         );
     }
 
