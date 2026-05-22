@@ -628,6 +628,73 @@ impl GraphGenerator {
         Ok(self.finish_graph_report(graph, Vec::new()))
     }
 
+    pub fn binomial_tree(&mut self, n: usize) -> Result<GenerationReport, GenerationError> {
+        if n >= usize::BITS as usize {
+            let reason = format!("node count overflow for binomial tree order n={n}");
+            self.record(
+                "binomial_tree",
+                DecisionAction::FailClosed,
+                0.95,
+                reason.clone(),
+            );
+            return Err(GenerationError::FailClosed {
+                operation: "binomial_tree",
+                reason,
+            });
+        }
+
+        let node_count = 1usize << n;
+        if node_count > MAX_N_GENERIC {
+            let reason = format!("node count {node_count} exceeds max_allowed={MAX_N_GENERIC}");
+            self.record(
+                "binomial_tree",
+                DecisionAction::FailClosed,
+                0.95,
+                reason.clone(),
+            );
+            return Err(GenerationError::FailClosed {
+                operation: "binomial_tree",
+                reason,
+            });
+        }
+
+        let (mut graph, node_labels) = graph_with_n_nodes(self.mode, node_count);
+        let mut edges = Vec::<(usize, usize)>::with_capacity(node_count.saturating_sub(1));
+        let mut tree_size = 1;
+        for _ in 0..n {
+            let shifted_edges = edges
+                .iter()
+                .map(|&(left, right)| (left + tree_size, right + tree_size))
+                .collect::<Vec<(usize, usize)>>();
+            for &(left, right) in &shifted_edges {
+                graph
+                    .add_edge(node_labels[left].clone(), node_labels[right].clone())
+                    .map_err(|err| GenerationError::FailClosed {
+                        operation: "binomial_tree",
+                        reason: err.to_string(),
+                    })?;
+            }
+            edges.extend(shifted_edges);
+
+            graph
+                .add_edge(node_labels[0].clone(), node_labels[tree_size].clone())
+                .map_err(|err| GenerationError::FailClosed {
+                    operation: "binomial_tree",
+                    reason: err.to_string(),
+                })?;
+            edges.push((0, tree_size));
+            tree_size *= 2;
+        }
+
+        self.record(
+            "binomial_tree",
+            DecisionAction::Allow,
+            0.03,
+            format!("generated binomial tree with order n={n}"),
+        );
+        Ok(self.finish_graph_report(graph, Vec::new()))
+    }
+
     pub fn lollipop_graph(
         &mut self,
         m: usize,
@@ -4869,6 +4936,59 @@ mod tests {
             .map(|node| report.graph.degree(&node.to_string()))
             .collect::<Vec<usize>>();
         assert_eq!(degrees, vec![2, 2, 3, 2, 2, 3, 2, 2]);
+    }
+
+    #[test]
+    fn binomial_tree_matches_networkx_order_zero_case() {
+        let mut generator = GraphGenerator::strict();
+        let report = generator
+            .binomial_tree(0)
+            .expect("binomial tree generation should succeed");
+
+        assert_eq!(report.graph.node_count(), 1);
+        assert_eq!(report.graph.edge_count(), 0);
+        assert!(sorted_graph_edges(&report.graph).is_empty());
+    }
+
+    #[test]
+    fn binomial_tree_matches_networkx_order_three_labels() {
+        let mut generator = GraphGenerator::strict();
+        let report = generator
+            .binomial_tree(3)
+            .expect("binomial tree generation should succeed");
+
+        assert_eq!(report.graph.node_count(), 8);
+        assert_eq!(report.graph.edge_count(), 7);
+        assert_eq!(
+            sorted_graph_edges(&report.graph),
+            vec![
+                ("0".to_owned(), "1".to_owned()),
+                ("0".to_owned(), "2".to_owned()),
+                ("0".to_owned(), "4".to_owned()),
+                ("2".to_owned(), "3".to_owned()),
+                ("4".to_owned(), "5".to_owned()),
+                ("4".to_owned(), "6".to_owned()),
+                ("6".to_owned(), "7".to_owned()),
+            ]
+        );
+
+        let degrees = (0..8)
+            .map(|node| report.graph.degree(&node.to_string()))
+            .collect::<Vec<usize>>();
+        assert_eq!(degrees, vec![3, 1, 2, 1, 3, 1, 2, 1]);
+    }
+
+    #[test]
+    fn binomial_tree_rejects_orders_beyond_node_limit() {
+        let mut generator = GraphGenerator::strict();
+        let err = generator
+            .binomial_tree(17)
+            .expect_err("order 17 exceeds MAX_N_GENERIC nodes");
+
+        assert_eq!(
+            err.to_string(),
+            "generator `binomial_tree` failed closed: node count 131072 exceeds max_allowed=100000"
+        );
     }
 
     #[test]
