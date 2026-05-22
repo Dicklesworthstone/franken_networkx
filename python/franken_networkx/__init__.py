@@ -12655,6 +12655,11 @@ def spanner(G, stretch, weight=None, seed=None):
         raise ValueError("stretch must be at least 1")
     if G.number_of_nodes() == 0:
         raise ValueError("math domain error")
+    # br-r37-c1-dt6du: nx's @py_random_state decorator converts int seeds
+    # to random.Random objects, but Rust binding expects int. Extract seed.
+    import random as _random
+    if isinstance(seed, _random.Random):
+        seed = seed.randint(0, 2**63 - 1)
     return _raw_spanner(G, stretch, weight=weight, seed=seed)
 
 
