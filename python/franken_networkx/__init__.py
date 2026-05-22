@@ -11929,51 +11929,6 @@ def dag_longest_path(G, weight="weight", default_weight=1, topo_order=None):
     return path
 
 
-def _dag_length_rust_weight_attrs_safe(G, weight):
-    """Return True when edge weights are safe for the Rust length fast path.
-
-    NetworkX reads edge values directly with ``data.get(weight,
-    default_weight)``. The Rust storage only exposes finite numeric
-    CGSE values to the native algorithm, so non-numeric values,
-    non-finite floats, oversized integers, and ``None`` as an actual
-    edge-attribute key must stay on the parity bridge.
-    """
-    if weight is None:
-        for _, _, attrs in G.edges(data=True):
-            if isinstance(attrs, dict) and None in attrs:
-                return False
-        return True
-    if not isinstance(weight, str):
-        return False
-    for _, _, attrs in G.edges(data=True):
-        if isinstance(attrs, dict) and weight in attrs:
-            value = attrs[weight]
-            if isinstance(value, bool):
-                continue
-            if type(value) is int:
-                if abs(value) > 2**53:
-                    return False
-                continue
-            if type(value) is float:
-                if not _math.isfinite(value):
-                    return False
-                continue
-            return False
-    return True
-
-
-def _dag_longest_path_uses_integer_weights(G, path, weight, default_weight):
-    """Return True when nx would accumulate the selected path as an int."""
-    if not isinstance(default_weight, int):
-        return False
-    for u, v in zip(path, path[1:]):
-        edge_data = G.get_edge_data(u, v, default={})
-        value = edge_data.get(weight, default_weight)
-        if not isinstance(value, int):
-            return False
-    return True
-
-
 def dag_longest_path_length(G, weight="weight", default_weight=1):
     """Return the length of the longest path in a DAG.
 
@@ -11993,59 +11948,40 @@ def dag_longest_path_length(G, weight="weight", default_weight=1):
 
     br-daglongundir: nx is @not_implemented_for('undirected') and
     raises NetworkXNotImplemented('not implemented for undirected type').
-    The Rust binding raised NetworkXError with a different message —
-    callers catching NetworkXNotImplemented would miss the signal.
     Gate on G.is_directed() so the exception class matches.
 
-    br-daglenport: with the weighted Rust port in place, the simple
-    cases (string weight, scalar default_weight, no multigraph) go
-    straight to ``franken_networkx._fnx.dag_longest_path_length``.
-    Multigraphs and non-string weight kwargs still bridge to nx so
-    parallel-edge "max weight" semantics and callable-weight forms
-    keep their nx contracts.
+    br-r37-c1-jwa0g: the length is computed from the (pure-Python,
+    weight-correct) ``dag_longest_path`` result by summing edge weights
+    via Python ``G[u][v]`` access — exactly nx's algorithm.  The Rust
+    ``_fnx.dag_longest_path_length`` fast path was dropped: its
+    ``edge_attrs()`` reader is blind to weights stored by
+    ``add_weighted_edges_from`` or post-creation ``G[u][v][w]=...``
+    mutation (Rust attr-sync gap, br-r37-c1-7s20o), so it silently
+    returned the hop count for such graphs.  Summing from an integer
+    ``0`` also makes int/float return-type preservation natural —
+    sum-of-ints stays int — matching nx without any restoration logic.
+    The cyclic-graph error contract is inherited from
+    ``dag_longest_path`` -> ``topological_sort`` (NetworkXUnfeasible,
+    "Graph contains a cycle or graph changed during iteration").
     """
     if not G.is_directed():
         raise NetworkXNotImplemented("not implemented for undirected type")
-    if (
-        not G.is_multigraph()
-        and isinstance(weight, str)
-        and isinstance(default_weight, (int, float))
-        and _dag_length_rust_weight_attrs_safe(G, weight)
-    ):
-        # br-daglencycle: nx surfaces a cyclic-graph error via
-        # topological_sort, which raises NetworkXUnfeasible with the
-        # wording "Graph contains a cycle or graph changed during
-        # iteration". The Rust binding raises HasACycle with a
-        # shorter message; catch and translate so callers using
-        # ``except nx.NetworkXUnfeasible:`` keep working AND the
-        # error message matches nx exactly.
-        try:
-            result = _fnx.dag_longest_path_length(
-                G, weight=weight, default_weight=float(default_weight)
-            )
-        except HasACycle as exc:
-            raise NetworkXUnfeasible(
-                "Graph contains a cycle or graph changed during iteration"
-            ) from exc
-        # br-r37-c1-daglen-int: nx returns int when all edge weights
-        # (and ``default_weight``) are int — sum-of-ints stays int.
-        # The Rust binding coerces ``default_weight`` to float, so the
-        # result is always float.  Restore int return type when all
-        # contributing weights are int (matching nx's natural-type
-        # behavior used by callers comparing to int literals).
-        if isinstance(default_weight, int) and result.is_integer():
-            path = dag_longest_path(G, weight=weight, default_weight=default_weight)
-            if _dag_longest_path_uses_integer_weights(
-                G, path, weight, default_weight
-            ):
-                return int(result)
-        return result
-    return _call_networkx_for_parity(
-        "dag_longest_path_length",
-        G,
-        weight=weight,
-        default_weight=default_weight,
+    path = dag_longest_path(
+        G, weight=weight, default_weight=default_weight
     )
+    path_length = 0
+    if G.is_multigraph():
+        for u, v in zip(path, path[1:]):
+            keydict = G[u][v]
+            heaviest = max(
+                keydict,
+                key=lambda k: keydict[k].get(weight, default_weight),
+            )
+            path_length += keydict[heaviest].get(weight, default_weight)
+    else:
+        for u, v in zip(path, path[1:]):
+            path_length += G[u][v].get(weight, default_weight)
+    return path_length
 
 # Algorithm functions — graph isomorphism
 from franken_networkx._fnx import (
