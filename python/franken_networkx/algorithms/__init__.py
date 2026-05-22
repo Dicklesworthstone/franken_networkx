@@ -156,6 +156,9 @@ _alias_nx_submodules(_importlib.import_module("networkx.algorithms"), __name__)
 import franken_networkx.bipartite as _fnx_bipartite
 _sys.modules[f"{__name__}.bipartite"] = _fnx_bipartite
 bipartite = _fnx_bipartite  # Override in module globals
+_alias_nx_child_modules(
+    "networkx.algorithms.bipartite", f"{__name__}.bipartite"
+)
 
 import franken_networkx.approximation as _fnx_approximation
 _sys.modules[f"{__name__}.approximation"] = _fnx_approximation
