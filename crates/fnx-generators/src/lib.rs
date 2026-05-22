@@ -663,6 +663,193 @@ impl GraphGenerator {
         Ok(self.finish_graph_report(graph, warnings))
     }
 
+    /// Generate an extended Barabási-Albert graph.
+    ///
+    /// Mirrors NetworkX's Albert-Barabási extension: each iteration either
+    /// adds existing-node edges, rewires existing edges, or adds a new node
+    /// with preferentially attached edges according to probabilities `p` and
+    /// `q`.
+    pub fn extended_barabasi_albert_graph(
+        &mut self,
+        n: usize,
+        m: usize,
+        p: f64,
+        q: f64,
+        seed: u64,
+    ) -> Result<GenerationReport, GenerationError> {
+        let (n, warnings) = self.validate_n("extended_barabasi_albert_graph", n, MAX_N_GNP)?;
+
+        if m < 1 || m >= n {
+            return Err(GenerationError::FailClosed {
+                operation: "extended_barabasi_albert_graph",
+                reason: format!("requires 1 <= m < n, got m={m}, n={n}"),
+            });
+        }
+        if p + q >= 1.0 {
+            return Err(GenerationError::FailClosed {
+                operation: "extended_barabasi_albert_graph",
+                reason: format!("requires p + q < 1, got p={p}, q={q}"),
+            });
+        }
+
+        let (mut graph, _) = graph_with_n_nodes(self.mode, m);
+        let mut attachment_preference = (0..m).collect::<Vec<usize>>();
+        let mut rng = PythonRandom::new(seed);
+        let mut new_node = m;
+
+        while new_node < n {
+            let a_probability = rng.random();
+            let node_count = graph.node_count();
+            let clique_degree = node_count.saturating_sub(1);
+            let clique_size = node_count.saturating_mul(clique_degree) / 2;
+
+            if a_probability < p && clique_size >= m && graph.edge_count() <= clique_size - m {
+                let mut eligible_nodes = graph
+                    .nodes_ordered()
+                    .into_iter()
+                    .filter_map(|node| node.parse::<usize>().ok())
+                    .filter(|node| graph.degree(&node.to_string()) < clique_degree)
+                    .collect::<Vec<usize>>();
+
+                for _ in 0..m {
+                    let src_node = choose_existing_node(
+                        &eligible_nodes,
+                        &mut rng,
+                        "extended_barabasi_albert_graph",
+                    )?;
+                    let mut prohibited_nodes = graph
+                        .neighbors(&src_node.to_string())
+                        .unwrap_or_default()
+                        .into_iter()
+                        .filter_map(|node| node.parse::<usize>().ok())
+                        .collect::<std::collections::BTreeSet<usize>>();
+                    prohibited_nodes.insert(src_node);
+
+                    let dest_candidates = attachment_preference
+                        .iter()
+                        .copied()
+                        .filter(|node| !prohibited_nodes.contains(node))
+                        .collect::<Vec<usize>>();
+                    let dest_node = choose_existing_node(
+                        &dest_candidates,
+                        &mut rng,
+                        "extended_barabasi_albert_graph",
+                    )?;
+
+                    graph
+                        .add_edge(src_node.to_string(), dest_node.to_string())
+                        .map_err(|err| GenerationError::FailClosed {
+                            operation: "extended_barabasi_albert_graph",
+                            reason: err.to_string(),
+                        })?;
+                    attachment_preference.push(src_node);
+                    attachment_preference.push(dest_node);
+
+                    if graph.degree(&src_node.to_string()) == clique_degree {
+                        remove_first_usize(&mut eligible_nodes, src_node);
+                    }
+                    if graph.degree(&dest_node.to_string()) == clique_degree {
+                        remove_first_usize(&mut eligible_nodes, dest_node);
+                    }
+                }
+            } else if p <= a_probability
+                && a_probability < p + q
+                && m <= graph.edge_count()
+                && graph.edge_count() < clique_size
+            {
+                let mut eligible_nodes = graph
+                    .nodes_ordered()
+                    .into_iter()
+                    .filter_map(|node| node.parse::<usize>().ok())
+                    .filter(|node| {
+                        let degree = graph.degree(&node.to_string());
+                        degree > 0 && degree < clique_degree
+                    })
+                    .collect::<Vec<usize>>();
+
+                for _ in 0..m {
+                    let node = choose_existing_node(
+                        &eligible_nodes,
+                        &mut rng,
+                        "extended_barabasi_albert_graph",
+                    )?;
+                    let mut nbr_nodes = graph
+                        .neighbors(&node.to_string())
+                        .unwrap_or_default()
+                        .into_iter()
+                        .filter_map(|neighbor| neighbor.parse::<usize>().ok())
+                        .collect::<Vec<usize>>();
+                    let src_node = choose_existing_node(
+                        &nbr_nodes,
+                        &mut rng,
+                        "extended_barabasi_albert_graph",
+                    )?;
+
+                    nbr_nodes.push(node);
+                    let prohibited_nodes = nbr_nodes
+                        .into_iter()
+                        .collect::<std::collections::BTreeSet<usize>>();
+                    let dest_candidates = attachment_preference
+                        .iter()
+                        .copied()
+                        .filter(|candidate| !prohibited_nodes.contains(candidate))
+                        .collect::<Vec<usize>>();
+                    let dest_node = choose_existing_node(
+                        &dest_candidates,
+                        &mut rng,
+                        "extended_barabasi_albert_graph",
+                    )?;
+
+                    graph.remove_edge(&node.to_string(), &src_node.to_string());
+                    graph
+                        .add_edge(node.to_string(), dest_node.to_string())
+                        .map_err(|err| GenerationError::FailClosed {
+                            operation: "extended_barabasi_albert_graph",
+                            reason: err.to_string(),
+                        })?;
+
+                    remove_first_usize(&mut attachment_preference, src_node);
+                    attachment_preference.push(dest_node);
+
+                    if graph.degree(&src_node.to_string()) == 0 {
+                        remove_first_usize(&mut eligible_nodes, src_node);
+                    }
+                    if eligible_nodes.contains(&dest_node) {
+                        if graph.degree(&dest_node.to_string()) == clique_degree {
+                            remove_first_usize(&mut eligible_nodes, dest_node);
+                        }
+                    } else if graph.degree(&dest_node.to_string()) == 1 {
+                        eligible_nodes.push(dest_node);
+                    }
+                }
+            } else {
+                let targets = random_subset_python(&attachment_preference, m, &mut rng);
+                for target in &targets {
+                    graph
+                        .add_edge(new_node.to_string(), target.to_string())
+                        .map_err(|err| GenerationError::FailClosed {
+                            operation: "extended_barabasi_albert_graph",
+                            reason: err.to_string(),
+                        })?;
+                }
+
+                attachment_preference.extend(targets.iter().copied());
+                attachment_preference.extend(std::iter::repeat_n(new_node, m + 1));
+                new_node += 1;
+            }
+        }
+
+        self.record(
+            "extended_barabasi_albert_graph",
+            DecisionAction::Allow,
+            0.08,
+            format!(
+                "generated extended barabasi-albert graph with n={n}, m={m}, p={p}, q={q}, seed={seed}"
+            ),
+        );
+        Ok(self.finish_graph_report(graph, warnings))
+    }
+
     fn validate_n(
         &mut self,
         operation: &'static str,
@@ -1737,6 +1924,29 @@ fn repeated_nodes_from_graph(graph: &Graph) -> Vec<usize> {
     repeated
 }
 
+fn choose_existing_node(
+    candidates: &[usize],
+    rng: &mut PythonRandom,
+    operation: &'static str,
+) -> Result<usize, GenerationError> {
+    if candidates.is_empty() {
+        return Err(GenerationError::FailClosed {
+            operation,
+            reason: "cannot choose from an empty candidate set".to_owned(),
+        });
+    }
+    Ok(candidates[rng.choice_index(candidates.len())])
+}
+
+fn remove_first_usize(values: &mut Vec<usize>, value: usize) -> bool {
+    if let Some(index) = values.iter().position(|candidate| *candidate == value) {
+        values.remove(index);
+        true
+    } else {
+        false
+    }
+}
+
 /// Sample `count` distinct elements from `seq` with replacement-by-set,
 /// matching the inner loop of nx's `_random_subset`.
 ///
@@ -2391,6 +2601,85 @@ mod tests {
         let err = gg
             .dual_barabasi_albert_graph(5, 1, 5, 0.5, 1)
             .expect_err("m2=n should fail");
+        assert!(matches!(err, GenerationError::FailClosed { .. }));
+    }
+
+    #[test]
+    fn extended_barabasi_albert_matches_networkx_seeded_example() {
+        let mut gg = GraphGenerator::strict();
+        let report = gg
+            .extended_barabasi_albert_graph(8, 2, 0.4, 0.2, 4)
+            .expect("extended ba should succeed");
+        assert_eq!(report.graph.node_count(), 8);
+        assert_eq!(
+            sorted_graph_edges(&report.graph),
+            vec![
+                ("0".to_owned(), "1".to_owned()),
+                ("0".to_owned(), "2".to_owned()),
+                ("0".to_owned(), "3".to_owned()),
+                ("0".to_owned(), "4".to_owned()),
+                ("0".to_owned(), "5".to_owned()),
+                ("0".to_owned(), "6".to_owned()),
+                ("0".to_owned(), "7".to_owned()),
+                ("1".to_owned(), "2".to_owned()),
+                ("1".to_owned(), "3".to_owned()),
+                ("1".to_owned(), "4".to_owned()),
+                ("1".to_owned(), "5".to_owned()),
+                ("1".to_owned(), "6".to_owned()),
+                ("2".to_owned(), "3".to_owned()),
+                ("2".to_owned(), "4".to_owned()),
+                ("2".to_owned(), "5".to_owned()),
+                ("2".to_owned(), "6".to_owned()),
+                ("3".to_owned(), "4".to_owned()),
+                ("4".to_owned(), "7".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn extended_barabasi_albert_handles_rewire_heavy_seeded_example() {
+        let mut gg = GraphGenerator::strict();
+        let report = gg
+            .extended_barabasi_albert_graph(10, 2, 0.05, 0.8, 11)
+            .expect("extended ba should succeed");
+        assert_eq!(
+            sorted_graph_edges(&report.graph),
+            vec![
+                ("0".to_owned(), "1".to_owned()),
+                ("0".to_owned(), "2".to_owned()),
+                ("0".to_owned(), "3".to_owned()),
+                ("0".to_owned(), "5".to_owned()),
+                ("0".to_owned(), "7".to_owned()),
+                ("0".to_owned(), "8".to_owned()),
+                ("1".to_owned(), "2".to_owned()),
+                ("1".to_owned(), "3".to_owned()),
+                ("1".to_owned(), "5".to_owned()),
+                ("1".to_owned(), "6".to_owned()),
+                ("2".to_owned(), "3".to_owned()),
+                ("2".to_owned(), "4".to_owned()),
+                ("2".to_owned(), "6".to_owned()),
+                ("2".to_owned(), "9".to_owned()),
+                ("3".to_owned(), "4".to_owned()),
+                ("3".to_owned(), "5".to_owned()),
+                ("3".to_owned(), "9".to_owned()),
+                ("4".to_owned(), "6".to_owned()),
+                ("5".to_owned(), "6".to_owned()),
+                ("6".to_owned(), "8".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn extended_barabasi_albert_rejects_invalid_inputs() {
+        let mut gg = GraphGenerator::strict();
+        let err = gg
+            .extended_barabasi_albert_graph(5, 0, 0.1, 0.1, 1)
+            .expect_err("m=0 should fail");
+        assert!(matches!(err, GenerationError::FailClosed { .. }));
+
+        let err = gg
+            .extended_barabasi_albert_graph(5, 2, 0.6, 0.4, 1)
+            .expect_err("p + q >= 1 should fail");
         assert!(matches!(err, GenerationError::FailClosed { .. }));
     }
 
