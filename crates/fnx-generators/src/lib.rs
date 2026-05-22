@@ -3388,6 +3388,109 @@ impl GraphGenerator {
         Ok(self.finish_graph_report(graph, Vec::new()))
     }
 
+    pub fn grid_graph(
+        &mut self,
+        dim: &[usize],
+        periodic: &[bool],
+    ) -> Result<GenerationReport, GenerationError> {
+        let operation = "grid_graph";
+        if dim.is_empty() {
+            let graph = Graph::new(self.mode);
+            self.record(
+                operation,
+                DecisionAction::Allow,
+                0.04,
+                "generated empty 0-dimensional grid graph".to_owned(),
+            );
+            return Ok(self.finish_graph_report(graph, Vec::new()));
+        }
+
+        let periodic_flags = grid_graph_periodic_flags(operation, dim.len(), periodic)?;
+        let node_count = checked_usize_product(dim).ok_or_else(|| GenerationError::FailClosed {
+            operation,
+            reason: format!("node count overflow for dim={dim:?}"),
+        })?;
+        if node_count > MAX_N_GENERIC {
+            let reason = format!("node count {node_count} exceeds max_allowed={MAX_N_GENERIC}");
+            self.record(operation, DecisionAction::FailClosed, 0.95, reason.clone());
+            return Err(GenerationError::FailClosed { operation, reason });
+        }
+
+        let edge_count = grid_graph_edge_count(operation, dim, &periodic_flags)?;
+        let max_dense_edges = MAX_N_COMPLETE * (MAX_N_COMPLETE - 1) / 2;
+        if edge_count > max_dense_edges {
+            let reason = format!("edge count {edge_count} exceeds max_allowed={max_dense_edges}");
+            self.record(operation, DecisionAction::FailClosed, 0.95, reason.clone());
+            return Err(GenerationError::FailClosed { operation, reason });
+        }
+
+        let sizes = dim.iter().rev().copied().collect::<Vec<usize>>();
+        let periodic_by_label_axis = periodic_flags.iter().rev().copied().collect::<Vec<bool>>();
+        let mut graph = Graph::new(self.mode);
+        if node_count == 0 {
+            self.record(
+                operation,
+                DecisionAction::Allow,
+                0.04,
+                format!(
+                    "generated grid_graph with dim={dim:?}, periodic={periodic_flags:?}, nodes=0, edges=0"
+                ),
+            );
+            return Ok(self.finish_graph_report(graph, Vec::new()));
+        }
+
+        let labels = (0..node_count)
+            .map(|index| format_grid_graph_label(&grid_coordinates_from_index(index, &sizes)))
+            .collect::<Vec<String>>();
+        for label in &labels {
+            graph.add_node(label.clone());
+        }
+
+        for index in 0..node_count {
+            let coordinates = grid_coordinates_from_index(index, &sizes);
+            for (axis, axis_size) in sizes.iter().copied().enumerate() {
+                let coordinate = coordinates[axis];
+                let maybe_target = if coordinate + 1 < axis_size {
+                    let mut target = coordinates.clone();
+                    target[axis] += 1;
+                    Some(target)
+                } else if periodic_by_label_axis[axis] {
+                    match axis_size {
+                        1 => Some(coordinates.clone()),
+                        2 => None,
+                        _ => {
+                            let mut target = coordinates.clone();
+                            target[axis] = 0;
+                            Some(target)
+                        }
+                    }
+                } else {
+                    None
+                };
+
+                if let Some(target) = maybe_target {
+                    let target_index = grid_coordinates_to_index(&target, &sizes);
+                    graph
+                        .add_edge(labels[index].clone(), labels[target_index].clone())
+                        .map_err(|err| GenerationError::FailClosed {
+                            operation,
+                            reason: err.to_string(),
+                        })?;
+                }
+            }
+        }
+
+        self.record(
+            operation,
+            DecisionAction::Allow,
+            0.04,
+            format!(
+                "generated grid_graph with dim={dim:?}, periodic={periodic_flags:?}, nodes={node_count}, edges={edge_count}"
+            ),
+        );
+        Ok(self.finish_graph_report(graph, Vec::new()))
+    }
+
     pub fn gnp_random_graph(
         &mut self,
         n: usize,
@@ -5549,6 +5652,106 @@ fn format_binary_tuple_label(value: usize, width: usize) -> String {
 
 fn format_grid_2d_label(row: usize, col: usize) -> String {
     format!("({row}, {col})")
+}
+
+fn grid_graph_periodic_flags(
+    operation: &'static str,
+    dimension_count: usize,
+    periodic: &[bool],
+) -> Result<Vec<bool>, GenerationError> {
+    match periodic.len() {
+        0 => Ok(vec![false; dimension_count]),
+        1 => Ok(vec![periodic[0]; dimension_count]),
+        len if len == dimension_count => Ok(periodic.to_vec()),
+        len => Err(GenerationError::FailClosed {
+            operation,
+            reason: format!(
+                "periodic flag count {len} does not match dimension count {dimension_count}"
+            ),
+        }),
+    }
+}
+
+fn checked_usize_product(values: &[usize]) -> Option<usize> {
+    values
+        .iter()
+        .try_fold(1usize, |accumulator, value| accumulator.checked_mul(*value))
+}
+
+fn grid_graph_edge_count(
+    operation: &'static str,
+    dim: &[usize],
+    periodic: &[bool],
+) -> Result<usize, GenerationError> {
+    let node_count = checked_usize_product(dim).ok_or_else(|| GenerationError::FailClosed {
+        operation,
+        reason: format!("node count overflow for dim={dim:?}"),
+    })?;
+    if node_count == 0 {
+        return Ok(0);
+    }
+
+    let mut edge_count = 0usize;
+    for (axis_size, is_periodic) in dim.iter().copied().zip(periodic.iter().copied()) {
+        let axis_edges = if is_periodic {
+            match axis_size {
+                0 => 0,
+                1 | 2 => 1,
+                _ => axis_size,
+            }
+        } else {
+            axis_size.saturating_sub(1)
+        };
+        let other_axis_product = node_count / axis_size;
+        let contribution = axis_edges.checked_mul(other_axis_product).ok_or_else(|| {
+            GenerationError::FailClosed {
+                operation,
+                reason: format!("edge count overflow for dim={dim:?}"),
+            }
+        })?;
+        edge_count =
+            edge_count
+                .checked_add(contribution)
+                .ok_or_else(|| GenerationError::FailClosed {
+                    operation,
+                    reason: format!("edge count overflow for dim={dim:?}"),
+                })?;
+    }
+    Ok(edge_count)
+}
+
+fn grid_coordinates_from_index(mut index: usize, sizes: &[usize]) -> Vec<usize> {
+    let mut coordinates = vec![0usize; sizes.len()];
+    for axis in (0..sizes.len()).rev() {
+        let axis_size = sizes[axis];
+        coordinates[axis] = index % axis_size;
+        index /= axis_size;
+    }
+    coordinates
+}
+
+fn grid_coordinates_to_index(coordinates: &[usize], sizes: &[usize]) -> usize {
+    coordinates
+        .iter()
+        .zip(sizes.iter())
+        .fold(0usize, |index, (coordinate, axis_size)| {
+            index * axis_size + coordinate
+        })
+}
+
+fn format_grid_graph_label(coordinates: &[usize]) -> String {
+    match coordinates {
+        [] => "()".to_owned(),
+        [coordinate] => coordinate.to_string(),
+        _ => format!(
+            "({})",
+            coordinates
+                .iter()
+                .map(|coordinate| coordinate.to_string())
+                .collect::<Vec<String>>()
+                .join(", ")
+        ),
+    }
 }
 
 fn watts_strogatz_graph_core(
@@ -9333,6 +9536,106 @@ mod tests {
         assert_eq!(
             err.to_string(),
             "generator `grid_2d_graph` failed closed: node count 100001 exceeds max_allowed=100000"
+        );
+    }
+
+    #[test]
+    fn grid_graph_two_dimensional_integer_dims_match_networkx_reversed_labels() {
+        let mut generator = GraphGenerator::strict();
+        let report = generator
+            .grid_graph(&[2, 3], &[])
+            .expect("2 by 3 grid graph should succeed");
+
+        assert_eq!(report.graph.node_count(), 6);
+        assert_eq!(report.graph.edge_count(), 7);
+        assert_eq!(
+            sorted_graph_edges(&report.graph),
+            vec![
+                ("(0, 0)".to_owned(), "(0, 1)".to_owned()),
+                ("(0, 0)".to_owned(), "(1, 0)".to_owned()),
+                ("(0, 1)".to_owned(), "(1, 1)".to_owned()),
+                ("(1, 0)".to_owned(), "(1, 1)".to_owned()),
+                ("(1, 0)".to_owned(), "(2, 0)".to_owned()),
+                ("(1, 1)".to_owned(), "(2, 1)".to_owned()),
+                ("(2, 0)".to_owned(), "(2, 1)".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn grid_graph_periodic_scalar_matches_networkx_cycle_axes() {
+        let mut generator = GraphGenerator::strict();
+        let report = generator
+            .grid_graph(&[2, 3], &[true])
+            .expect("periodic 2 by 3 grid graph should succeed");
+        let edges = sorted_graph_edges(&report.graph);
+
+        assert_eq!(report.graph.node_count(), 6);
+        assert_eq!(report.graph.edge_count(), 9);
+        assert!(edges.contains(&("(0, 0)".to_owned(), "(2, 0)".to_owned())));
+        assert!(edges.contains(&("(0, 1)".to_owned(), "(2, 1)".to_owned())));
+        assert!(edges.contains(&("(0, 0)".to_owned(), "(0, 1)".to_owned())));
+    }
+
+    #[test]
+    fn grid_graph_three_dimensions_match_networkx_counts_and_edges() {
+        let mut generator = GraphGenerator::strict();
+        let report = generator
+            .grid_graph(&[2, 3, 4], &[])
+            .expect("3-dimensional grid graph should succeed");
+        let edges = sorted_graph_edges(&report.graph);
+
+        assert_eq!(report.graph.node_count(), 24);
+        assert_eq!(report.graph.edge_count(), 46);
+        assert!(edges.contains(&("(0, 0, 0)".to_owned(), "(0, 0, 1)".to_owned())));
+        assert!(edges.contains(&("(0, 0, 0)".to_owned(), "(0, 1, 0)".to_owned())));
+        assert!(edges.contains(&("(0, 0, 0)".to_owned(), "(1, 0, 0)".to_owned())));
+        assert!(edges.contains(&("(1, 2, 0)".to_owned(), "(1, 2, 1)".to_owned())));
+    }
+
+    #[test]
+    fn grid_graph_empty_one_dimensional_and_invalid_periodic_cases_match_policy() {
+        let mut generator = GraphGenerator::strict();
+        let empty = generator
+            .grid_graph(&[], &[])
+            .expect("empty-dimension grid graph should succeed");
+        assert_eq!(empty.graph.node_count(), 0);
+        assert_eq!(empty.graph.edge_count(), 0);
+
+        let one = generator
+            .grid_graph(&[1], &[true])
+            .expect("periodic singleton grid graph should succeed");
+        assert_eq!(one.graph.node_count(), 1);
+        assert_eq!(one.graph.edge_count(), 1);
+        assert_eq!(
+            sorted_graph_edges(&one.graph),
+            vec![("0".to_owned(), "0".to_owned())]
+        );
+
+        let err = generator
+            .grid_graph(&[2, 3], &[true, false, true])
+            .expect_err("mismatched periodic flags should fail closed");
+        assert_eq!(
+            err.to_string(),
+            "generator `grid_graph` failed closed: periodic flag count 3 does not match dimension count 2"
+        );
+    }
+
+    #[test]
+    fn grid_graph_empty_axis_and_oversized_inputs_match_policy() {
+        let mut generator = GraphGenerator::strict();
+        let empty_axis = generator
+            .grid_graph(&[0, 3], &[true])
+            .expect("empty-axis grid graph should succeed");
+        assert_eq!(empty_axis.graph.node_count(), 0);
+        assert_eq!(empty_axis.graph.edge_count(), 0);
+
+        let err = generator
+            .grid_graph(&[MAX_N_GENERIC + 1], &[])
+            .expect_err("oversized grid graph should fail closed");
+        assert_eq!(
+            err.to_string(),
+            "generator `grid_graph` failed closed: node count 100001 exceeds max_allowed=100000"
         );
     }
 
