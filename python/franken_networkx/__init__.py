@@ -36952,7 +36952,9 @@ def relabel_nodes(G, mapping, copy=True):
         else:
             for u, v, d in G.edges(data=True):
                 H.add_edge(_map.get(u, u), _map.get(v, v), **d)
-        return H
+        # Always return fnx type for consistency
+        from franken_networkx.readwrite import _from_nx_graph
+        return _from_nx_graph(H)
     else:
         mapping_keys = set(_map)
         mapping_values = set(_map.values())
