@@ -2915,6 +2915,225 @@ impl GraphGenerator {
         Ok(self.finish_graph_report(graph, Vec::new()))
     }
 
+    pub fn hkn_harary_graph(
+        &mut self,
+        k: usize,
+        n: usize,
+    ) -> Result<GenerationReport, GenerationError> {
+        let operation = "hkn_harary_graph";
+        if k < 1 {
+            let reason = "The node connectivity must be >= 1!".to_owned();
+            self.record(operation, DecisionAction::FailClosed, 0.95, reason.clone());
+            return Err(GenerationError::FailClosed { operation, reason });
+        }
+        let minimum_nodes = k
+            .checked_add(1)
+            .ok_or_else(|| GenerationError::FailClosed {
+                operation,
+                reason: format!("node connectivity overflow for k={k}"),
+            })?;
+        if n < minimum_nodes {
+            let reason = "The number of nodes must be >= k+1 !".to_owned();
+            self.record(operation, DecisionAction::FailClosed, 0.95, reason.clone());
+            return Err(GenerationError::FailClosed { operation, reason });
+        }
+        if n > MAX_N_GENERIC {
+            let reason = format!("node count {n} exceeds max_allowed={MAX_N_GENERIC}");
+            self.record(operation, DecisionAction::FailClosed, 0.95, reason.clone());
+            return Err(GenerationError::FailClosed { operation, reason });
+        }
+
+        let edge_count = k
+            .checked_mul(n)
+            .and_then(|value| value.checked_add(1))
+            .map(|value| value / 2)
+            .ok_or_else(|| GenerationError::FailClosed {
+                operation,
+                reason: format!("edge count overflow for k={k}, n={n}"),
+            })?;
+        let max_dense_edges = MAX_N_COMPLETE * (MAX_N_COMPLETE - 1) / 2;
+        if edge_count > max_dense_edges {
+            let reason = format!("edge count {edge_count} exceeds max_allowed={max_dense_edges}");
+            self.record(operation, DecisionAction::FailClosed, 0.95, reason.clone());
+            return Err(GenerationError::FailClosed { operation, reason });
+        }
+
+        let (mut graph, node_labels) = graph_with_n_nodes(self.mode, n);
+        if k == 1 {
+            for node in 0..n.saturating_sub(1) {
+                graph
+                    .add_edge(node_labels[node].clone(), node_labels[node + 1].clone())
+                    .map_err(|err| GenerationError::FailClosed {
+                        operation,
+                        reason: err.to_string(),
+                    })?;
+            }
+        } else {
+            let offset = k / 2;
+            for shift in 1..=offset {
+                for node in 0..n {
+                    let target = (node + shift) % n;
+                    graph
+                        .add_edge(node_labels[node].clone(), node_labels[target].clone())
+                        .map_err(|err| GenerationError::FailClosed {
+                            operation,
+                            reason: err.to_string(),
+                        })?;
+                }
+            }
+
+            let half = n / 2;
+            if k % 2 == 1 {
+                if n.is_multiple_of(2) {
+                    for node in 0..half {
+                        graph
+                            .add_edge(node_labels[node].clone(), node_labels[node + half].clone())
+                            .map_err(|err| GenerationError::FailClosed {
+                                operation,
+                                reason: err.to_string(),
+                            })?;
+                    }
+                } else {
+                    for node in 0..=half {
+                        let target = (node + half) % n;
+                        graph
+                            .add_edge(node_labels[node].clone(), node_labels[target].clone())
+                            .map_err(|err| GenerationError::FailClosed {
+                                operation,
+                                reason: err.to_string(),
+                            })?;
+                    }
+                }
+            }
+        }
+
+        self.record(
+            operation,
+            DecisionAction::Allow,
+            0.04,
+            format!("generated Harary graph H_{{{k},{n}}} with edges={edge_count}"),
+        );
+        Ok(self.finish_graph_report(graph, Vec::new()))
+    }
+
+    pub fn hnm_harary_graph(
+        &mut self,
+        n: usize,
+        m: usize,
+    ) -> Result<GenerationReport, GenerationError> {
+        let operation = "hnm_harary_graph";
+        if n < 1 {
+            let reason = "The number of nodes must be >= 1!".to_owned();
+            self.record(operation, DecisionAction::FailClosed, 0.95, reason.clone());
+            return Err(GenerationError::FailClosed { operation, reason });
+        }
+        if m < n - 1 {
+            let reason = "The number of edges must be >= n - 1 !".to_owned();
+            self.record(operation, DecisionAction::FailClosed, 0.95, reason.clone());
+            return Err(GenerationError::FailClosed { operation, reason });
+        }
+        let max_possible_edges = n.checked_mul(n - 1).map(|value| value / 2).ok_or_else(|| {
+            GenerationError::FailClosed {
+                operation,
+                reason: format!("edge count overflow for n={n}, m={m}"),
+            }
+        })?;
+        if m > max_possible_edges {
+            let reason = "The number of edges must be <= n(n-1)/2".to_owned();
+            self.record(operation, DecisionAction::FailClosed, 0.95, reason.clone());
+            return Err(GenerationError::FailClosed { operation, reason });
+        }
+        if n > MAX_N_GENERIC {
+            let reason = format!("node count {n} exceeds max_allowed={MAX_N_GENERIC}");
+            self.record(operation, DecisionAction::FailClosed, 0.95, reason.clone());
+            return Err(GenerationError::FailClosed { operation, reason });
+        }
+        let max_dense_edges = MAX_N_COMPLETE * (MAX_N_COMPLETE - 1) / 2;
+        if m > max_dense_edges {
+            let reason = format!("edge count {m} exceeds max_allowed={max_dense_edges}");
+            self.record(operation, DecisionAction::FailClosed, 0.95, reason.clone());
+            return Err(GenerationError::FailClosed { operation, reason });
+        }
+
+        let double_edges = m
+            .checked_mul(2)
+            .ok_or_else(|| GenerationError::FailClosed {
+                operation,
+                reason: format!("edge count overflow for n={n}, m={m}"),
+            })?;
+        let degree_floor = double_edges / n;
+        let offset = degree_floor / 2;
+        let (mut graph, node_labels) = graph_with_n_nodes(self.mode, n);
+
+        for shift in 1..=offset {
+            for node in 0..n {
+                let target = (node + shift) % n;
+                graph
+                    .add_edge(node_labels[node].clone(), node_labels[target].clone())
+                    .map_err(|err| GenerationError::FailClosed {
+                        operation,
+                        reason: err.to_string(),
+                    })?;
+            }
+        }
+
+        let half = n / 2;
+        if n.is_multiple_of(2) || degree_floor.is_multiple_of(2) {
+            if degree_floor % 2 == 1 {
+                for node in 0..half {
+                    graph
+                        .add_edge(node_labels[node].clone(), node_labels[node + half].clone())
+                        .map_err(|err| GenerationError::FailClosed {
+                            operation,
+                            reason: err.to_string(),
+                        })?;
+                }
+            }
+
+            let remainder = double_edges % n;
+            for node in 0..(remainder / 2) {
+                graph
+                    .add_edge(
+                        node_labels[node].clone(),
+                        node_labels[node + offset + 1].clone(),
+                    )
+                    .map_err(|err| GenerationError::FailClosed {
+                        operation,
+                        reason: err.to_string(),
+                    })?;
+            }
+        } else {
+            let remaining_edges =
+                m.checked_sub(n.checked_mul(offset).ok_or_else(|| {
+                    GenerationError::FailClosed {
+                        operation,
+                        reason: format!("edge count overflow for n={n}, m={m}"),
+                    }
+                })?)
+                .ok_or_else(|| GenerationError::FailClosed {
+                    operation,
+                    reason: format!("edge count underflow for n={n}, m={m}"),
+                })?;
+            for node in 0..remaining_edges {
+                let target = (node + half) % n;
+                graph
+                    .add_edge(node_labels[node].clone(), node_labels[target].clone())
+                    .map_err(|err| GenerationError::FailClosed {
+                        operation,
+                        reason: err.to_string(),
+                    })?;
+            }
+        }
+
+        self.record(
+            operation,
+            DecisionAction::Allow,
+            0.04,
+            format!("generated Harary graph H_{{{n},{m}}} with edges={m}"),
+        );
+        Ok(self.finish_graph_report(graph, Vec::new()))
+    }
+
     pub fn gnp_random_graph(
         &mut self,
         n: usize,
@@ -8525,6 +8744,134 @@ mod tests {
         assert_eq!(
             dense.to_string(),
             "generator `mycielski_graph` failed closed: edge count 5555555 exceeds max_allowed=1999000"
+        );
+    }
+
+    #[test]
+    fn hkn_harary_graph_connectivity_one_matches_path_graph() {
+        let mut generator = GraphGenerator::strict();
+        let report = generator
+            .hkn_harary_graph(1, 6)
+            .expect("H_{1,6} generation should succeed");
+
+        assert_eq!(report.graph.node_count(), 6);
+        assert_eq!(report.graph.edge_count(), 5);
+        assert_eq!(
+            sorted_graph_edges(&report.graph),
+            vec![
+                ("0".to_owned(), "1".to_owned()),
+                ("1".to_owned(), "2".to_owned()),
+                ("2".to_owned(), "3".to_owned()),
+                ("3".to_owned(), "4".to_owned()),
+                ("4".to_owned(), "5".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn hkn_harary_graph_odd_connectivity_odd_order_matches_networkx_edges() {
+        let mut generator = GraphGenerator::strict();
+        let report = generator
+            .hkn_harary_graph(3, 5)
+            .expect("H_{3,5} generation should succeed");
+
+        assert_eq!(report.graph.node_count(), 5);
+        assert_eq!(report.graph.edge_count(), 8);
+        assert_eq!(
+            sorted_graph_edges(&report.graph),
+            vec![
+                ("0".to_owned(), "1".to_owned()),
+                ("0".to_owned(), "2".to_owned()),
+                ("0".to_owned(), "4".to_owned()),
+                ("1".to_owned(), "2".to_owned()),
+                ("1".to_owned(), "3".to_owned()),
+                ("2".to_owned(), "3".to_owned()),
+                ("2".to_owned(), "4".to_owned()),
+                ("3".to_owned(), "4".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn hnm_harary_graph_even_order_remainder_matches_networkx_edges() {
+        let mut generator = GraphGenerator::strict();
+        let report = generator
+            .hnm_harary_graph(6, 10)
+            .expect("H_{6,10} generation should succeed");
+
+        assert_eq!(report.graph.node_count(), 6);
+        assert_eq!(report.graph.edge_count(), 10);
+        assert_eq!(
+            sorted_graph_edges(&report.graph),
+            vec![
+                ("0".to_owned(), "1".to_owned()),
+                ("0".to_owned(), "2".to_owned()),
+                ("0".to_owned(), "3".to_owned()),
+                ("0".to_owned(), "5".to_owned()),
+                ("1".to_owned(), "2".to_owned()),
+                ("1".to_owned(), "4".to_owned()),
+                ("2".to_owned(), "3".to_owned()),
+                ("2".to_owned(), "5".to_owned()),
+                ("3".to_owned(), "4".to_owned()),
+                ("4".to_owned(), "5".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn harary_graphs_reject_networkx_error_boundaries() {
+        let mut generator = GraphGenerator::strict();
+        let bad_k = generator
+            .hkn_harary_graph(0, 0)
+            .expect_err("k below one should fail closed");
+        assert_eq!(
+            bad_k.to_string(),
+            "generator `hkn_harary_graph` failed closed: The node connectivity must be >= 1!"
+        );
+
+        let too_few_nodes = generator
+            .hkn_harary_graph(6, 6)
+            .expect_err("n below k + 1 should fail closed");
+        assert_eq!(
+            too_few_nodes.to_string(),
+            "generator `hkn_harary_graph` failed closed: The number of nodes must be >= k+1 !"
+        );
+
+        let bad_n = generator
+            .hnm_harary_graph(0, 0)
+            .expect_err("n below one should fail closed");
+        assert_eq!(
+            bad_n.to_string(),
+            "generator `hnm_harary_graph` failed closed: The number of nodes must be >= 1!"
+        );
+
+        let too_few_edges = generator
+            .hnm_harary_graph(6, 4)
+            .expect_err("m below n - 1 should fail closed");
+        assert_eq!(
+            too_few_edges.to_string(),
+            "generator `hnm_harary_graph` failed closed: The number of edges must be >= n - 1 !"
+        );
+
+        let too_many_edges = generator
+            .hnm_harary_graph(6, 16)
+            .expect_err("m above n choose two should fail closed");
+        assert_eq!(
+            too_many_edges.to_string(),
+            "generator `hnm_harary_graph` failed closed: The number of edges must be <= n(n-1)/2"
+        );
+    }
+
+    #[test]
+    fn hnm_harary_graph_rejects_dense_edge_count() {
+        let mut generator = GraphGenerator::strict();
+        let err = generator
+            .hnm_harary_graph(2001, 1_999_001)
+            .expect_err("dense Harary graph should fail closed");
+
+        assert_eq!(
+            err.to_string(),
+            "generator `hnm_harary_graph` failed closed: edge count 1999001 exceeds max_allowed=1999000"
         );
     }
 
