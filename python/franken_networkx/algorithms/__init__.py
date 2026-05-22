@@ -33,6 +33,7 @@ _FNX_OVERRIDE_SUBMODULES = {
     "communicability_alg",
     "covering",
     "dominance",
+    "dominating",
     "efficiency_measures",
     "isolate",
     "wiener",
@@ -225,6 +226,10 @@ covering = _fnx_covering  # Override in module globals
 _fnx_dominance = _importlib.import_module("franken_networkx.dominance")
 _sys.modules[f"{__name__}.dominance"] = _fnx_dominance
 dominance = _fnx_dominance  # Override in module globals
+
+_fnx_dominating = _importlib.import_module("franken_networkx.dominating")
+_sys.modules[f"{__name__}.dominating"] = _fnx_dominating
+dominating = _fnx_dominating  # Override in module globals
 
 _fnx_efficiency_measures = _importlib.import_module(
     "franken_networkx.efficiency_measures"
