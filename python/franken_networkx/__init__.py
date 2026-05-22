@@ -23837,7 +23837,9 @@ def resistance_distance(G, nodeA=None, nodeB=None, weight=None, invert_weight=Tr
     if not is_connected(G):
         raise NetworkXError("Graph G must be strongly connected.")
 
-    L = laplacian_matrix(G, nodelist=nodelist, weight=weight or "weight").toarray()
+    # br-r37-c1-uvupu: use weight directly, not weight or "weight"
+    # which incorrectly uses "weight" when None is passed
+    L = laplacian_matrix(G, nodelist=nodelist, weight=weight).toarray()
     # Pseudo-inverse of Laplacian
     L_pinv = np.linalg.pinv(L)
 
