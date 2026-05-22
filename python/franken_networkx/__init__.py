@@ -20619,7 +20619,9 @@ def quotient_graph(
         mapping = {block: i for i, block in enumerate(partition)}
         H = relabel_nodes(H, mapping)
 
-    return H
+    # br-r37-c1-e8sjt: Always return fnx type for consistency
+    from franken_networkx.readwrite import _from_nx_graph
+    return _from_nx_graph(H, create_using=create_using)
 
 
 def snap_aggregation(
@@ -20753,7 +20755,9 @@ def snap_aggregation(
                         source_supernode, target_supernode, **superedge_attrs
                     )
 
-    return output
+    # br-r37-c1-k3ksc: Always return fnx type for consistency
+    from franken_networkx.readwrite import _from_nx_graph
+    return _from_nx_graph(output)
 
 
 def full_join(G, H, rename=(None, None)):
@@ -20900,9 +20904,13 @@ def identified_nodes(
             add_node_with_deferred_contraction(G, n, H.nodes[n])
         for s, t, d_attr in H.edges(data=True):
             add_edge_with_deferred_contraction(G, s, t, d_attr)
-        return G
+        # br-r37-c1-k3ksc: Always return fnx type for consistency
+        from franken_networkx.readwrite import _from_nx_graph
+        return _from_nx_graph(G)
 
-    return H
+    # br-r37-c1-k3ksc: Always return fnx type for consistency
+    from franken_networkx.readwrite import _from_nx_graph
+    return _from_nx_graph(H)
 
 
 def inverse_line_graph(G):
