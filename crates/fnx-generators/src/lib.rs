@@ -2670,6 +2670,66 @@ impl GraphGenerator {
         Ok(self.finish_graph_report(graph, Vec::new()))
     }
 
+    pub fn triad_graph(&mut self, triad_name: &str) -> Result<DiGenerationReport, GenerationError> {
+        let operation = "triad_graph";
+        let edges = match triad_name {
+            "003" => &[][..],
+            "012" => &[("a", "b")][..],
+            "102" => &[("a", "b"), ("b", "a")][..],
+            "021D" => &[("b", "a"), ("b", "c")][..],
+            "021U" => &[("a", "b"), ("c", "b")][..],
+            "021C" => &[("a", "b"), ("b", "c")][..],
+            "111D" => &[("a", "c"), ("c", "a"), ("b", "c")][..],
+            "111U" => &[("a", "c"), ("c", "a"), ("c", "b")][..],
+            "030T" => &[("a", "b"), ("c", "b"), ("a", "c")][..],
+            "030C" => &[("b", "a"), ("c", "b"), ("a", "c")][..],
+            "201" => &[("a", "b"), ("b", "a"), ("a", "c"), ("c", "a")][..],
+            "120D" => &[("b", "c"), ("b", "a"), ("a", "c"), ("c", "a")][..],
+            "120U" => &[("a", "b"), ("c", "b"), ("a", "c"), ("c", "a")][..],
+            "120C" => &[("a", "b"), ("b", "c"), ("a", "c"), ("c", "a")][..],
+            "210" => &[("a", "b"), ("b", "c"), ("c", "b"), ("a", "c"), ("c", "a")][..],
+            "300" => &[
+                ("a", "b"),
+                ("b", "a"),
+                ("b", "c"),
+                ("c", "b"),
+                ("a", "c"),
+                ("c", "a"),
+            ][..],
+            _ => {
+                let reason = format!(
+                    "unknown triad name \"{triad_name}\"; use one of the triad names in the TRIAD_NAMES constant"
+                );
+                self.record(operation, DecisionAction::FailClosed, 0.95, reason.clone());
+                return Err(GenerationError::FailClosed { operation, reason });
+            }
+        };
+
+        let mut graph = DiGraph::new(self.mode);
+        for node in ["a", "b", "c"] {
+            let _ = graph.add_node(node.to_owned());
+        }
+        for &(source, target) in edges {
+            graph
+                .add_edge(source.to_owned(), target.to_owned())
+                .map_err(|err| GenerationError::FailClosed {
+                    operation,
+                    reason: err.to_string(),
+                })?;
+        }
+
+        self.record(
+            operation,
+            DecisionAction::Allow,
+            0.02,
+            format!(
+                "generated triad graph {triad_name} with nodes=3, edges={}",
+                edges.len()
+            ),
+        );
+        Ok(self.finish_digraph_report(graph, Vec::new()))
+    }
+
     pub fn gnp_random_graph(
         &mut self,
         n: usize,
@@ -8120,6 +8180,76 @@ mod tests {
         assert_eq!(
             err.to_string(),
             "generator `sudoku_graph` failed closed: edge count 34744736 exceeds max_allowed=1999000"
+        );
+    }
+
+    #[test]
+    fn triad_graph_003_has_three_isolates_like_networkx() {
+        let mut generator = GraphGenerator::strict();
+        let report = generator
+            .triad_graph("003")
+            .expect("empty triad graph generation should succeed");
+
+        assert_eq!(report.graph.snapshot().nodes, vec!["a", "b", "c"]);
+        assert_eq!(report.graph.edge_count(), 0);
+        let degrees = ["a", "b", "c"]
+            .iter()
+            .map(|node| report.graph.out_degree(node) + report.graph.in_degree(node))
+            .collect::<Vec<usize>>();
+        assert_eq!(degrees, vec![0, 0, 0]);
+    }
+
+    #[test]
+    fn triad_graph_030t_matches_networkx_edges() {
+        let mut generator = GraphGenerator::strict();
+        let report = generator
+            .triad_graph("030T")
+            .expect("transitive triad graph generation should succeed");
+
+        assert_eq!(report.graph.node_count(), 3);
+        assert_eq!(report.graph.edge_count(), 3);
+        assert_eq!(
+            sorted_digraph_edges(&report.graph),
+            vec![
+                ("a".to_owned(), "b".to_owned()),
+                ("a".to_owned(), "c".to_owned()),
+                ("c".to_owned(), "b".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn triad_graph_300_matches_networkx_complete_digraph() {
+        let mut generator = GraphGenerator::strict();
+        let report = generator
+            .triad_graph("300")
+            .expect("complete triad graph generation should succeed");
+
+        assert_eq!(report.graph.node_count(), 3);
+        assert_eq!(report.graph.edge_count(), 6);
+        assert_eq!(
+            sorted_digraph_edges(&report.graph),
+            vec![
+                ("a".to_owned(), "b".to_owned()),
+                ("a".to_owned(), "c".to_owned()),
+                ("b".to_owned(), "a".to_owned()),
+                ("b".to_owned(), "c".to_owned()),
+                ("c".to_owned(), "a".to_owned()),
+                ("c".to_owned(), "b".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn triad_graph_rejects_unknown_name_like_networkx() {
+        let mut generator = GraphGenerator::strict();
+        let err = generator
+            .triad_graph("bogus")
+            .expect_err("unknown triad name should fail closed");
+
+        assert_eq!(
+            err.to_string(),
+            "generator `triad_graph` failed closed: unknown triad name \"bogus\"; use one of the triad names in the TRIAD_NAMES constant"
         );
     }
 
