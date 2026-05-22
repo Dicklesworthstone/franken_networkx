@@ -7974,11 +7974,13 @@ def minimum_branching(G, attr="weight", default=1, preserve_attrs=False, partiti
     so drop-in callers using MultiDiGraph keep working.
     """
     if partition is not None or not G.is_directed() or G.is_multigraph():
-        return _call_networkx_for_parity(
+        from franken_networkx.readwrite import _from_nx_graph
+        nx_result = _call_networkx_for_parity(
             "minimum_branching", _branching_partition_graph_for_networkx(G, partition),
             attr=attr, default=default,
             preserve_attrs=preserve_attrs, partition=partition,
         )
+        return _from_nx_graph(nx_result)
     result = _raw_minimum_branching(
         G, attr=attr, default=default, preserve_attrs=preserve_attrs, partition=partition,
     )
@@ -7998,11 +8000,13 @@ def maximum_branching(G, attr="weight", default=1, preserve_attrs=False, partiti
     rejects MultiDiGraph but nx accepts it.
     """
     if partition is not None or not G.is_directed() or G.is_multigraph():
-        return _call_networkx_for_parity(
+        from franken_networkx.readwrite import _from_nx_graph
+        nx_result = _call_networkx_for_parity(
             "maximum_branching", _branching_partition_graph_for_networkx(G, partition),
             attr=attr, default=default,
             preserve_attrs=preserve_attrs, partition=partition,
         )
+        return _from_nx_graph(nx_result)
     result = _raw_maximum_branching(
         G, attr=attr, default=default, preserve_attrs=preserve_attrs, partition=partition,
     )
@@ -8024,7 +8028,8 @@ def minimum_spanning_arborescence(G, attr="weight", default=1, preserve_attrs=Fa
     if not G.is_directed():
         raise NetworkXNotImplemented("not implemented for undirected type")
     if partition is not None or G.is_multigraph():
-        return _call_networkx_for_parity(
+        from franken_networkx.readwrite import _from_nx_graph
+        nx_result = _call_networkx_for_parity(
             "minimum_spanning_arborescence",
             _branching_partition_graph_for_networkx(G, partition),
             attr=attr,
@@ -8032,6 +8037,7 @@ def minimum_spanning_arborescence(G, attr="weight", default=1, preserve_attrs=Fa
             preserve_attrs=preserve_attrs,
             partition=partition,
         )
+        return _from_nx_graph(nx_result)
     result = _raw_minimum_spanning_arborescence(
         G, attr=attr, default=default, preserve_attrs=preserve_attrs, partition=partition,
     )
@@ -8074,7 +8080,8 @@ def maximum_spanning_arborescence(G, attr="weight", default=1, preserve_attrs=Fa
     if not G.is_directed():
         raise NetworkXNotImplemented("not implemented for undirected type")
     if partition is not None or G.is_multigraph():
-        return _call_networkx_for_parity(
+        from franken_networkx.readwrite import _from_nx_graph
+        nx_result = _call_networkx_for_parity(
             "maximum_spanning_arborescence",
             _branching_partition_graph_for_networkx(G, partition),
             attr=attr,
@@ -8082,6 +8089,7 @@ def maximum_spanning_arborescence(G, attr="weight", default=1, preserve_attrs=Fa
             preserve_attrs=preserve_attrs,
             partition=partition,
         )
+        return _from_nx_graph(nx_result)
     result = _raw_maximum_spanning_arborescence(
         G, attr=attr, default=default, preserve_attrs=preserve_attrs, partition=partition,
     )
@@ -8121,11 +8129,13 @@ def partition_spanning_tree(G, minimum=True, weight="weight", partition="partiti
     # br-r37-c1-gr1ct: materialize SubgraphView first (view family).
     G = _coerce_arg_to_fnx_graph(G)
     if G.is_directed() or G.is_multigraph():
-        return _call_networkx_for_parity(
+        from franken_networkx.readwrite import _from_nx_graph
+        nx_result = _call_networkx_for_parity(
             "partition_spanning_tree", G,
             minimum=minimum, weight=weight,
             partition=partition, ignore_nan=ignore_nan,
         )
+        return _from_nx_graph(nx_result)
     return _raw_partition_spanning_tree(G, minimum=minimum, weight=weight, partition=partition, ignore_nan=ignore_nan)
 
 # Algorithm functions — Euler
