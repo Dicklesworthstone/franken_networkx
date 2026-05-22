@@ -24,7 +24,7 @@ import pkgutil as _pkgutil
 from networkx.algorithms import *  # noqa: F401, F403
 
 
-_FNX_OVERRIDE_SUBMODULES = {"bipartite", "approximation"}
+_FNX_OVERRIDE_SUBMODULES = {"bipartite", "approximation", "minors"}
 
 
 def _alias_nx_submodules(nx_pkg, fnx_prefix):
@@ -71,6 +71,10 @@ bipartite = _fnx_bipartite  # Override in module globals
 import franken_networkx.approximation as _fnx_approximation
 _sys.modules[f"{__name__}.approximation"] = _fnx_approximation
 approximation = _fnx_approximation  # Override in module globals
+
+import franken_networkx.minors as _fnx_minors
+_sys.modules[f"{__name__}.minors"] = _fnx_minors
+minors = _fnx_minors  # Override in module globals
 
 
 def __getattr__(name):
