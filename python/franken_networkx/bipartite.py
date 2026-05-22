@@ -99,3 +99,81 @@ def gnmk_random_graph(n, m, k, seed=None, directed=False, *, backend=None, **bac
     )
     nx_result = _nx_bipartite.gnmk_random_graph(n, m, k, seed=seed, directed=directed)
     return _from_nx_graph(nx_result)
+
+
+def alternating_havel_hakimi_graph(aseq, bseq, create_using=None, *, backend=None, **backend_kwargs):
+    """Return a bipartite graph from two degree sequences using alternating Havel-Hakimi.
+
+    Wraps ``networkx.algorithms.bipartite.alternating_havel_hakimi_graph`` and converts
+    the result to an fnx graph type for drop-in compatibility.
+    """
+    _fnx._validate_backend_dispatch_keywords(
+        "alternating_havel_hakimi_graph", backend, backend_kwargs
+    )
+    nx_result = _nx_bipartite.alternating_havel_hakimi_graph(aseq, bseq, create_using=create_using)
+    return _from_nx_graph(nx_result, create_using=create_using)
+
+
+def complete_bipartite_graph(n1, n2, create_using=None, *, backend=None, **backend_kwargs):
+    """Return the complete bipartite graph K_{n1,n2}.
+
+    Wraps ``networkx.algorithms.bipartite.complete_bipartite_graph`` and converts
+    the result to an fnx graph type for drop-in compatibility.
+    """
+    _fnx._validate_backend_dispatch_keywords(
+        "complete_bipartite_graph", backend, backend_kwargs
+    )
+    nx_result = _nx_bipartite.complete_bipartite_graph(n1, n2, create_using=create_using)
+    return _from_nx_graph(nx_result, create_using=create_using)
+
+
+def configuration_model(aseq, bseq, create_using=None, seed=None, *, backend=None, **backend_kwargs):
+    """Return a random bipartite graph from two degree sequences.
+
+    Wraps ``networkx.algorithms.bipartite.configuration_model`` and converts
+    the result to an fnx graph type for drop-in compatibility.
+    """
+    _fnx._validate_backend_dispatch_keywords(
+        "configuration_model", backend, backend_kwargs
+    )
+    nx_result = _nx_bipartite.configuration_model(aseq, bseq, create_using=create_using, seed=seed)
+    return _from_nx_graph(nx_result, create_using=create_using)
+
+
+def havel_hakimi_graph(aseq, bseq, create_using=None, *, backend=None, **backend_kwargs):
+    """Return a bipartite graph from two degree sequences using Havel-Hakimi.
+
+    Wraps ``networkx.algorithms.bipartite.havel_hakimi_graph`` and converts
+    the result to an fnx graph type for drop-in compatibility.
+    """
+    _fnx._validate_backend_dispatch_keywords(
+        "havel_hakimi_graph", backend, backend_kwargs
+    )
+    nx_result = _nx_bipartite.havel_hakimi_graph(aseq, bseq, create_using=create_using)
+    return _from_nx_graph(nx_result, create_using=create_using)
+
+
+def preferential_attachment_graph(aseq, p, create_using=None, seed=None, *, backend=None, **backend_kwargs):
+    """Create a bipartite graph with preferential attachment model.
+
+    Wraps ``networkx.algorithms.bipartite.preferential_attachment_graph`` and converts
+    the result to an fnx graph type for drop-in compatibility.
+    """
+    _fnx._validate_backend_dispatch_keywords(
+        "preferential_attachment_graph", backend, backend_kwargs
+    )
+    nx_result = _nx_bipartite.preferential_attachment_graph(aseq, p, create_using=create_using, seed=seed)
+    return _from_nx_graph(nx_result, create_using=create_using)
+
+
+def reverse_havel_hakimi_graph(aseq, bseq, create_using=None, *, backend=None, **backend_kwargs):
+    """Return a bipartite graph from two degree sequences using reverse Havel-Hakimi.
+
+    Wraps ``networkx.algorithms.bipartite.reverse_havel_hakimi_graph`` and converts
+    the result to an fnx graph type for drop-in compatibility.
+    """
+    _fnx._validate_backend_dispatch_keywords(
+        "reverse_havel_hakimi_graph", backend, backend_kwargs
+    )
+    nx_result = _nx_bipartite.reverse_havel_hakimi_graph(aseq, bseq, create_using=create_using)
+    return _from_nx_graph(nx_result, create_using=create_using)

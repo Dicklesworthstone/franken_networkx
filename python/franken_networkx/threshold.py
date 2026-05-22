@@ -27,3 +27,14 @@ def find_threshold_graph(G, create_using=None, *, backend=None, **backend_kwargs
     _fnx._validate_backend_dispatch_keywords("find_threshold_graph", backend, backend_kwargs)
     nx_result = _nx_threshold.find_threshold_graph(G, create_using=create_using)
     return _from_nx_graph(nx_result, create_using=create_using)
+
+
+def threshold_graph(creation_sequence, create_using=None, *, backend=None, **backend_kwargs):
+    """Build a threshold graph from a creation sequence.
+
+    Wraps ``networkx.algorithms.threshold.threshold_graph`` and converts
+    the result to an fnx graph type for drop-in compatibility.
+    """
+    _fnx._validate_backend_dispatch_keywords("threshold_graph", backend, backend_kwargs)
+    nx_result = _nx_threshold.threshold_graph(creation_sequence, create_using=create_using)
+    return _from_nx_graph(nx_result, create_using=create_using)
