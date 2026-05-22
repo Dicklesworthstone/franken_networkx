@@ -14,9 +14,9 @@ Counts derived from `python/franken_networkx/__init__.py` AST. Categories:
 
 | classification | count |
 |----------------|-------|
-| `mixed-route` | 66 |
-| `nx-fallback` | 84 |
-| `py-wrapper` | 859 |
+| `mixed-route` | 62 |
+| `nx-fallback` | 87 |
+| `py-wrapper` | 863 |
 | `rust-native` | 78 |
 | `rust-reexport` | 302 |
 
@@ -121,14 +121,14 @@ Per-(function, shape) instrumentation. Wraps `_call_networkx_for_parity` and eve
 | `average_clustering` | `py-wrapper` | no | — |
 | `average_degree_connectivity` | `rust-native` | no | `_raw_nbrs`, `_raw_neighbors_dispatch` |
 | `average_neighbor_degree` | `rust-native` | no | `_raw_average_neighbor_degree` |
-| `average_node_connectivity` | `mixed-route` | yes | `_raw_average_node_connectivity` |
+| `average_node_connectivity` | `nx-fallback` | yes | — |
 | `average_shortest_path_length` | `mixed-route` | yes | `_raw_average_shortest_path_length` |
 | `balanced_tree` | `py-wrapper` | no | — |
 | `barabasi_albert_graph` | `py-wrapper` | no | — |
 | `barbell_graph` | `py-wrapper` | no | — |
 | `barycenter` | `mixed-route` | yes | `_raw_barycenter` |
-| `bellman_ford_path` | `mixed-route` | yes | `_raw_bellman_ford_path` |
-| `bellman_ford_path_length` | `mixed-route` | yes | `_raw_bellman_ford_path_length` |
+| `bellman_ford_path` | `nx-fallback` | yes | — |
+| `bellman_ford_path_length` | `nx-fallback` | yes | — |
 | `bellman_ford_predecessor_and_distance` | `nx-fallback` | yes | — |
 | `bethe_hessian_matrix` | `py-wrapper` | no | — |
 | `bethe_hessian_spectrum` | `py-wrapper` | no | — |
@@ -213,7 +213,7 @@ Per-(function, shape) instrumentation. Wraps `_call_networkx_for_parity` and eve
 | `cytoscape_data` | `py-wrapper` | no | — |
 | `cytoscape_graph` | `py-wrapper` | no | — |
 | `dag_longest_path` | `py-wrapper` | no | — |
-| `dag_longest_path_length` | `nx-fallback` | yes | — |
+| `dag_longest_path_length` | `py-wrapper` | no | — |
 | `dag_to_branching` | `py-wrapper` | no | — |
 | `davis_southern_women_graph` | `py-wrapper` | no | — |
 | `dedensify` | `py-wrapper` | no | — |
@@ -319,7 +319,7 @@ Per-(function, shape) instrumentation. Wraps `_call_networkx_for_parity` and eve
 | `find_induced_nodes` | `py-wrapper` | no | — |
 | `find_minimal_d_separator` | `nx-fallback` | yes | — |
 | `find_negative_cycle` | `mixed-route` | yes | `_raw_find_negative_cycle` |
-| `florentine_families_graph` | `untracked` |  |  |
+| `florentine_families_graph` | `py-wrapper` | no | — |
 | `flow_hierarchy` | `nx-fallback` | yes | — |
 | `floyd_warshall` | `nx-fallback` | yes | — |
 | `floyd_warshall_numpy` | `py-wrapper` | no | — |
@@ -513,7 +513,7 @@ Per-(function, shape) instrumentation. Wraps `_call_networkx_for_parity` and eve
 | `make_max_clique_graph` | `py-wrapper` | no | — |
 | `margulis_gabber_galil_graph` | `py-wrapper` | no | — |
 | `max_flow_min_cost` | `py-wrapper` | no | — |
-| `max_weight_clique` | `mixed-route` | yes | `_raw_max_weight_clique` |
+| `max_weight_clique` | `nx-fallback` | yes | — |
 | `max_weight_matching` | `nx-fallback` | yes | — |
 | `maximal_independent_set` | `rust-native` | no | `_raw_maximal_independent_set` |
 | `maximal_matching` | `rust-native` | no | `_raw_maximal_matching` |

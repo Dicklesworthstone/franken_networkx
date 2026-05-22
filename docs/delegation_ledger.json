@@ -187,7 +187,7 @@
       "calls_parity_helper": false,
       "calls_raw_rust": false,
       "raw_rust_targets": [],
-      "body_lines": 333
+      "body_lines": 344
     },
     {
       "name": "__version__",
@@ -268,7 +268,7 @@
       "calls_parity_helper": false,
       "calls_raw_rust": false,
       "raw_rust_targets": [],
-      "body_lines": 81
+      "body_lines": 96
     },
     {
       "name": "_add_json_multiedge",
@@ -295,7 +295,7 @@
       "calls_parity_helper": false,
       "calls_raw_rust": false,
       "raw_rust_targets": [],
-      "body_lines": 33
+      "body_lines": 41
     },
     {
       "name": "_adjacency_view_get",
@@ -514,6 +514,15 @@
       "body_lines": 72
     },
     {
+      "name": "_cached_view",
+      "classification": "py-wrapper",
+      "is_rust_reexport": false,
+      "calls_parity_helper": false,
+      "calls_raw_rust": false,
+      "raw_rust_targets": [],
+      "body_lines": 8
+    },
+    {
       "name": "_call_networkx_for_parity",
       "classification": "py-wrapper",
       "is_rust_reexport": false,
@@ -539,6 +548,15 @@
       "calls_raw_rust": false,
       "raw_rust_targets": [],
       "body_lines": 5
+    },
+    {
+      "name": "_check_flow_endpoints",
+      "classification": "py-wrapper",
+      "is_rust_reexport": false,
+      "calls_parity_helper": false,
+      "calls_raw_rust": false,
+      "raw_rust_targets": [],
+      "body_lines": 14
     },
     {
       "name": "_check_planarity_certificate",
@@ -628,7 +646,7 @@
       "calls_parity_helper": false,
       "calls_raw_rust": false,
       "raw_rust_targets": [],
-      "body_lines": 19
+      "body_lines": 33
     },
     {
       "name": "_coerce_flow_dict",
@@ -694,6 +712,15 @@
       "body_lines": 30
     },
     {
+      "name": "_concrete_class_for",
+      "classification": "py-wrapper",
+      "is_rust_reexport": false,
+      "calls_parity_helper": false,
+      "calls_raw_rust": false,
+      "raw_rust_targets": [],
+      "body_lines": 22
+    },
+    {
       "name": "_condensation_raw",
       "classification": "rust-reexport",
       "is_rust_reexport": true,
@@ -754,7 +781,7 @@
       "calls_parity_helper": false,
       "calls_raw_rust": false,
       "raw_rust_targets": [],
-      "body_lines": 12
+      "body_lines": 13
     },
     {
       "name": "_copy_preserving_insertion_order",
@@ -791,24 +818,6 @@
       "calls_raw_rust": false,
       "raw_rust_targets": [],
       "body_lines": 29
-    },
-    {
-      "name": "_dag_length_rust_weight_attrs_safe",
-      "classification": "py-wrapper",
-      "is_rust_reexport": false,
-      "calls_parity_helper": false,
-      "calls_raw_rust": false,
-      "raw_rust_targets": [],
-      "body_lines": 30
-    },
-    {
-      "name": "_dag_longest_path_uses_integer_weights",
-      "classification": "py-wrapper",
-      "is_rust_reexport": false,
-      "calls_parity_helper": false,
-      "calls_raw_rust": false,
-      "raw_rust_targets": [],
-      "body_lines": 9
     },
     {
       "name": "_davis_southern_women_impl",
@@ -910,15 +919,6 @@
       "body_lines": 0
     },
     {
-      "name": "_digraph_adj_view",
-      "classification": "py-wrapper",
-      "is_rust_reexport": false,
-      "calls_parity_helper": false,
-      "calls_raw_rust": false,
-      "raw_rust_targets": [],
-      "body_lines": 1
-    },
-    {
       "name": "_digraph_degree",
       "classification": "py-wrapper",
       "is_rust_reexport": false,
@@ -937,6 +937,15 @@
       "body_lines": 1
     },
     {
+      "name": "_digraph_in_degree",
+      "classification": "py-wrapper",
+      "is_rust_reexport": false,
+      "calls_parity_helper": false,
+      "calls_raw_rust": false,
+      "raw_rust_targets": [],
+      "body_lines": 6
+    },
+    {
       "name": "_digraph_in_edges",
       "classification": "py-wrapper",
       "is_rust_reexport": false,
@@ -946,25 +955,16 @@
       "body_lines": 10
     },
     {
+      "name": "_digraph_out_degree",
+      "classification": "py-wrapper",
+      "is_rust_reexport": false,
+      "calls_parity_helper": false,
+      "calls_raw_rust": false,
+      "raw_rust_targets": [],
+      "body_lines": 6
+    },
+    {
       "name": "_digraph_out_edges",
-      "classification": "py-wrapper",
-      "is_rust_reexport": false,
-      "calls_parity_helper": false,
-      "calls_raw_rust": false,
-      "raw_rust_targets": [],
-      "body_lines": 1
-    },
-    {
-      "name": "_digraph_pred_view",
-      "classification": "py-wrapper",
-      "is_rust_reexport": false,
-      "calls_parity_helper": false,
-      "calls_raw_rust": false,
-      "raw_rust_targets": [],
-      "body_lines": 1
-    },
-    {
-      "name": "_digraph_succ_view",
       "classification": "py-wrapper",
       "is_rust_reexport": false,
       "calls_parity_helper": false,
@@ -1205,6 +1205,15 @@
       "calls_raw_rust": false,
       "raw_rust_targets": [],
       "body_lines": 15
+    },
+    {
+      "name": "_edgelist_native_writer_preserves_node_labels",
+      "classification": "py-wrapper",
+      "is_rust_reexport": false,
+      "calls_parity_helper": false,
+      "calls_raw_rust": false,
+      "raw_rust_targets": [],
+      "body_lines": 1
     },
     {
       "name": "_edgeview_contains_with_nx_semantics",
@@ -1513,15 +1522,6 @@
       "body_lines": 4
     },
     {
-      "name": "_graph_adj_view",
-      "classification": "py-wrapper",
-      "is_rust_reexport": false,
-      "calls_parity_helper": false,
-      "calls_raw_rust": false,
-      "raw_rust_targets": [],
-      "body_lines": 1
-    },
-    {
       "name": "_graph_atlas_from_record",
       "classification": "py-wrapper",
       "is_rust_reexport": false,
@@ -1546,7 +1546,7 @@
       "calls_parity_helper": false,
       "calls_raw_rust": false,
       "raw_rust_targets": [],
-      "body_lines": 19
+      "body_lines": 43
     },
     {
       "name": "_graph_degree",
@@ -1726,7 +1726,7 @@
       "calls_parity_helper": false,
       "calls_raw_rust": false,
       "raw_rust_targets": [],
-      "body_lines": 10
+      "body_lines": 15
     },
     {
       "name": "_graph_str",
@@ -1808,6 +1808,15 @@
       "calls_raw_rust": false,
       "raw_rust_targets": [],
       "body_lines": 47
+    },
+    {
+      "name": "_guarded_edge_list",
+      "classification": "py-wrapper",
+      "is_rust_reexport": false,
+      "calls_parity_helper": false,
+      "calls_raw_rust": false,
+      "raw_rust_targets": [],
+      "body_lines": 5
     },
     {
       "name": "_harary_graph_from_edges",
@@ -2269,6 +2278,15 @@
       "body_lines": 7
     },
     {
+      "name": "_make_reduce_ex_preserving_frozen",
+      "classification": "py-wrapper",
+      "is_rust_reexport": false,
+      "calls_parity_helper": false,
+      "calls_raw_rust": false,
+      "raw_rust_targets": [],
+      "body_lines": 35
+    },
+    {
       "name": "_mapping_items_view",
       "classification": "py-wrapper",
       "is_rust_reexport": false,
@@ -2305,6 +2323,15 @@
       "body_lines": 19
     },
     {
+      "name": "_materialize_filtered_view",
+      "classification": "py-wrapper",
+      "is_rust_reexport": false,
+      "calls_parity_helper": false,
+      "calls_raw_rust": false,
+      "raw_rust_targets": [],
+      "body_lines": 17
+    },
+    {
       "name": "_matrix_exp",
       "classification": "py-wrapper",
       "is_rust_reexport": false,
@@ -2320,7 +2347,7 @@
       "calls_parity_helper": false,
       "calls_raw_rust": false,
       "raw_rust_targets": [],
-      "body_lines": 12
+      "body_lines": 16
     },
     {
       "name": "_mcf_inputs_all_integral",
@@ -2383,7 +2410,7 @@
       "calls_parity_helper": false,
       "calls_raw_rust": false,
       "raw_rust_targets": [],
-      "body_lines": 12
+      "body_lines": 16
     },
     {
       "name": "_minkowski_distance",
@@ -2403,7 +2430,7 @@
       "raw_rust_targets": [
         "_raw_modularity"
       ],
-      "body_lines": 40
+      "body_lines": 61
     },
     {
       "name": "_mst_has_weight_edge_attr",
@@ -2478,15 +2505,6 @@
       "body_lines": 13
     },
     {
-      "name": "_multidigraph_adj_view",
-      "classification": "py-wrapper",
-      "is_rust_reexport": false,
-      "calls_parity_helper": false,
-      "calls_raw_rust": false,
-      "raw_rust_targets": [],
-      "body_lines": 3
-    },
-    {
       "name": "_multidigraph_edges",
       "classification": "py-wrapper",
       "is_rust_reexport": false,
@@ -2494,6 +2512,15 @@
       "calls_raw_rust": false,
       "raw_rust_targets": [],
       "body_lines": 1
+    },
+    {
+      "name": "_multidigraph_in_degree",
+      "classification": "py-wrapper",
+      "is_rust_reexport": false,
+      "calls_parity_helper": false,
+      "calls_raw_rust": false,
+      "raw_rust_targets": [],
+      "body_lines": 6
     },
     {
       "name": "_multidigraph_in_edges",
@@ -2505,6 +2532,15 @@
       "body_lines": 17
     },
     {
+      "name": "_multidigraph_out_degree",
+      "classification": "py-wrapper",
+      "is_rust_reexport": false,
+      "calls_parity_helper": false,
+      "calls_raw_rust": false,
+      "raw_rust_targets": [],
+      "body_lines": 6
+    },
+    {
       "name": "_multidigraph_out_edges",
       "classification": "py-wrapper",
       "is_rust_reexport": false,
@@ -2512,24 +2548,6 @@
       "calls_raw_rust": false,
       "raw_rust_targets": [],
       "body_lines": 1
-    },
-    {
-      "name": "_multidigraph_pred_view",
-      "classification": "py-wrapper",
-      "is_rust_reexport": false,
-      "calls_parity_helper": false,
-      "calls_raw_rust": false,
-      "raw_rust_targets": [],
-      "body_lines": 3
-    },
-    {
-      "name": "_multidigraph_succ_view",
-      "classification": "py-wrapper",
-      "is_rust_reexport": false,
-      "calls_parity_helper": false,
-      "calls_raw_rust": false,
-      "raw_rust_targets": [],
-      "body_lines": 3
     },
     {
       "name": "_multidigraph_to_directed_copy",
@@ -2548,15 +2566,6 @@
       "calls_raw_rust": false,
       "raw_rust_targets": [],
       "body_lines": 6
-    },
-    {
-      "name": "_multigraph_adj_view",
-      "classification": "py-wrapper",
-      "is_rust_reexport": false,
-      "calls_parity_helper": false,
-      "calls_raw_rust": false,
-      "raw_rust_targets": [],
-      "body_lines": 1
     },
     {
       "name": "_multigraph_adjacency",
@@ -2655,7 +2664,7 @@
       "calls_parity_helper": false,
       "calls_raw_rust": false,
       "raw_rust_targets": [],
-      "body_lines": 26
+      "body_lines": 27
     },
     {
       "name": "_native_graph_edit_distance_common_case",
@@ -3078,7 +3087,7 @@
       "calls_parity_helper": false,
       "calls_raw_rust": false,
       "raw_rust_targets": [],
-      "body_lines": 13
+      "body_lines": 14
     },
     {
       "name": "_panther_isolates",
@@ -3159,7 +3168,7 @@
       "calls_parity_helper": false,
       "calls_raw_rust": false,
       "raw_rust_targets": [],
-      "body_lines": 20
+      "body_lines": 27
     },
     {
       "name": "_private_aware_edges",
@@ -3168,7 +3177,7 @@
       "calls_parity_helper": false,
       "calls_raw_rust": false,
       "raw_rust_targets": [],
-      "body_lines": 18
+      "body_lines": 31
     },
     {
       "name": "_private_aware_get_edge_data_multi",
@@ -3249,7 +3258,7 @@
       "calls_parity_helper": false,
       "calls_raw_rust": false,
       "raw_rust_targets": [],
-      "body_lines": 6
+      "body_lines": 17
     },
     {
       "name": "_private_aware_number_of_edges",
@@ -5148,7 +5157,16 @@
       "calls_parity_helper": false,
       "calls_raw_rust": false,
       "raw_rust_targets": [],
-      "body_lines": 8
+      "body_lines": 10
+    },
+    {
+      "name": "_reconstruct_graph_preserving_frozen",
+      "classification": "py-wrapper",
+      "is_rust_reexport": false,
+      "calls_parity_helper": false,
+      "calls_raw_rust": false,
+      "raw_rust_targets": [],
+      "body_lines": 22
     },
     {
       "name": "_reconstruct_multi_adjacency_view",
@@ -6255,7 +6273,7 @@
       "calls_parity_helper": false,
       "calls_raw_rust": false,
       "raw_rust_targets": [],
-      "body_lines": 13
+      "body_lines": 14
     },
     {
       "name": "_transitive_reduction_via_parity",
@@ -6264,7 +6282,7 @@
       "calls_parity_helper": false,
       "calls_raw_rust": false,
       "raw_rust_targets": [],
-      "body_lines": 8
+      "body_lines": 14
     },
     {
       "name": "_translate_astar_no_path",
@@ -6717,7 +6735,7 @@
       "raw_rust_targets": [
         "_raw_all_pairs_dijkstra_path_length"
       ],
-      "body_lines": 29
+      "body_lines": 31
     },
     {
       "name": "all_pairs_lowest_common_ancestor",
@@ -6757,7 +6775,7 @@
       "raw_rust_targets": [
         "_raw_all_pairs_shortest_path_length"
       ],
-      "body_lines": 13
+      "body_lines": 15
     },
     {
       "name": "all_shortest_paths",
@@ -6768,7 +6786,7 @@
       "raw_rust_targets": [
         "_raw_all_shortest_paths"
       ],
-      "body_lines": 64
+      "body_lines": 77
     },
     {
       "name": "all_simple_edge_paths",
@@ -6786,7 +6804,7 @@
       "calls_parity_helper": true,
       "calls_raw_rust": false,
       "raw_rust_targets": [],
-      "body_lines": 79
+      "body_lines": 16
     },
     {
       "name": "all_topological_sorts",
@@ -6804,7 +6822,7 @@
       "calls_parity_helper": false,
       "calls_raw_rust": false,
       "raw_rust_targets": [],
-      "body_lines": 21
+      "body_lines": 24
     },
     {
       "name": "all_triangles",
@@ -6813,7 +6831,7 @@
       "calls_parity_helper": false,
       "calls_raw_rust": false,
       "raw_rust_targets": [],
-      "body_lines": 34
+      "body_lines": 46
     },
     {
       "name": "ancestors",
@@ -6973,18 +6991,16 @@
       "raw_rust_targets": [
         "_raw_average_neighbor_degree"
       ],
-      "body_lines": 96
+      "body_lines": 100
     },
     {
       "name": "average_node_connectivity",
-      "classification": "mixed-route",
+      "classification": "nx-fallback",
       "is_rust_reexport": false,
       "calls_parity_helper": true,
-      "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_average_node_connectivity"
-      ],
-      "body_lines": 30
+      "calls_raw_rust": false,
+      "raw_rust_targets": [],
+      "body_lines": 22
     },
     {
       "name": "average_shortest_path_length",
@@ -6995,7 +7011,7 @@
       "raw_rust_targets": [
         "_raw_average_shortest_path_length"
       ],
-      "body_lines": 35
+      "body_lines": 40
     },
     {
       "name": "balanced_tree",
@@ -7013,7 +7029,7 @@
       "calls_parity_helper": false,
       "calls_raw_rust": false,
       "raw_rust_targets": [],
-      "body_lines": 45
+      "body_lines": 43
     },
     {
       "name": "barbell_graph",
@@ -7037,25 +7053,21 @@
     },
     {
       "name": "bellman_ford_path",
-      "classification": "mixed-route",
+      "classification": "nx-fallback",
       "is_rust_reexport": false,
       "calls_parity_helper": true,
-      "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_bellman_ford_path"
-      ],
-      "body_lines": 32
+      "calls_raw_rust": false,
+      "raw_rust_targets": [],
+      "body_lines": 12
     },
     {
       "name": "bellman_ford_path_length",
-      "classification": "mixed-route",
+      "classification": "nx-fallback",
       "is_rust_reexport": false,
       "calls_parity_helper": true,
-      "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_bellman_ford_path_length"
-      ],
-      "body_lines": 35
+      "calls_raw_rust": false,
+      "raw_rust_targets": [],
+      "body_lines": 11
     },
     {
       "name": "bellman_ford_predecessor_and_distance",
@@ -7259,7 +7271,7 @@
       "calls_parity_helper": false,
       "calls_raw_rust": false,
       "raw_rust_targets": [],
-      "body_lines": 29
+      "body_lines": 41
     },
     {
       "name": "cartesian_product",
@@ -7418,7 +7430,7 @@
       "raw_rust_targets": [
         "_raw_clustering"
       ],
-      "body_lines": 61
+      "body_lines": 65
     },
     {
       "name": "cn_soundarajan_hopcroft",
@@ -7531,7 +7543,7 @@
       "calls_parity_helper": true,
       "calls_raw_rust": false,
       "raw_rust_targets": [],
-      "body_lines": 47
+      "body_lines": 49
     },
     {
       "name": "compose",
@@ -7549,7 +7561,7 @@
       "calls_parity_helper": false,
       "calls_raw_rust": false,
       "raw_rust_targets": [],
-      "body_lines": 17
+      "body_lines": 19
     },
     {
       "name": "condensation",
@@ -7706,7 +7718,7 @@
       "calls_parity_helper": false,
       "calls_raw_rust": false,
       "raw_rust_targets": [],
-      "body_lines": 21
+      "body_lines": 24
     },
     {
       "name": "cubical_graph",
@@ -7753,7 +7765,7 @@
       "raw_rust_targets": [
         "_raw_cut_size"
       ],
-      "body_lines": 19
+      "body_lines": 29
     },
     {
       "name": "cycle_basis",
@@ -7804,12 +7816,12 @@
     },
     {
       "name": "dag_longest_path_length",
-      "classification": "nx-fallback",
+      "classification": "py-wrapper",
       "is_rust_reexport": false,
-      "calls_parity_helper": true,
+      "calls_parity_helper": false,
       "calls_raw_rust": false,
       "raw_rust_targets": [],
-      "body_lines": 71
+      "body_lines": 52
     },
     {
       "name": "dag_to_branching",
@@ -8305,7 +8317,7 @@
       "raw_rust_targets": [
         "_raw_edge_boundary"
       ],
-      "body_lines": 23
+      "body_lines": 25
     },
     {
       "name": "edge_connectivity",
@@ -8316,7 +8328,7 @@
       "raw_rust_targets": [
         "_raw_edge_connectivity"
       ],
-      "body_lines": 101
+      "body_lines": 109
     },
     {
       "name": "edge_current_flow_betweenness_centrality",
@@ -8424,7 +8436,7 @@
       "calls_parity_helper": false,
       "calls_raw_rust": false,
       "raw_rust_targets": [],
-      "body_lines": 99
+      "body_lines": 102
     },
     {
       "name": "eigenvector_centrality",
@@ -8660,6 +8672,15 @@
       "body_lines": 39
     },
     {
+      "name": "florentine_families_graph",
+      "classification": "py-wrapper",
+      "is_rust_reexport": false,
+      "calls_parity_helper": false,
+      "calls_raw_rust": false,
+      "raw_rust_targets": [],
+      "body_lines": 37
+    },
+    {
       "name": "flow_hierarchy",
       "classification": "nx-fallback",
       "is_rust_reexport": false,
@@ -8702,7 +8723,7 @@
       "calls_parity_helper": false,
       "calls_raw_rust": false,
       "raw_rust_targets": [],
-      "body_lines": 18
+      "body_lines": 22
     },
     {
       "name": "from_dict_of_dicts",
@@ -8864,7 +8885,7 @@
       "calls_parity_helper": false,
       "calls_raw_rust": false,
       "raw_rust_targets": [],
-      "body_lines": 93
+      "body_lines": 47
     },
     {
       "name": "generic_bfs_edges",
@@ -9068,7 +9089,7 @@
       "raw_rust_targets": [
         "_raw_greedy_color"
       ],
-      "body_lines": 49
+      "body_lines": 52
     },
     {
       "name": "grid_2d_graph",
@@ -9314,7 +9335,7 @@
       "calls_parity_helper": false,
       "calls_raw_rust": false,
       "raw_rust_targets": [],
-      "body_lines": 108
+      "body_lines": 117
     },
     {
       "name": "immediate_dominators",
@@ -9390,7 +9411,7 @@
       "calls_parity_helper": false,
       "calls_raw_rust": false,
       "raw_rust_targets": [],
-      "body_lines": 26
+      "body_lines": 28
     },
     {
       "name": "intersection_array",
@@ -9519,7 +9540,7 @@
       "calls_parity_helper": false,
       "calls_raw_rust": false,
       "raw_rust_targets": [],
-      "body_lines": 16
+      "body_lines": 18
     },
     {
       "name": "is_d_separator",
@@ -9990,7 +10011,7 @@
       "calls_parity_helper": true,
       "calls_raw_rust": false,
       "raw_rust_targets": [],
-      "body_lines": 13
+      "body_lines": 15
     },
     {
       "name": "k_components",
@@ -10008,7 +10029,7 @@
       "calls_parity_helper": false,
       "calls_raw_rust": false,
       "raw_rust_targets": [],
-      "body_lines": 23
+      "body_lines": 24
     },
     {
       "name": "k_corona",
@@ -10017,7 +10038,7 @@
       "calls_parity_helper": false,
       "calls_raw_rust": false,
       "raw_rust_targets": [],
-      "body_lines": 21
+      "body_lines": 22
     },
     {
       "name": "k_crust",
@@ -10026,7 +10047,7 @@
       "calls_parity_helper": false,
       "calls_raw_rust": false,
       "raw_rust_targets": [],
-      "body_lines": 24
+      "body_lines": 25
     },
     {
       "name": "k_edge_augmentation",
@@ -10053,7 +10074,7 @@
       "calls_parity_helper": true,
       "calls_raw_rust": false,
       "raw_rust_targets": [],
-      "body_lines": 12
+      "body_lines": 14
     },
     {
       "name": "k_factor",
@@ -10080,7 +10101,7 @@
       "calls_parity_helper": false,
       "calls_raw_rust": false,
       "raw_rust_targets": [],
-      "body_lines": 22
+      "body_lines": 23
     },
     {
       "name": "k_truss",
@@ -10244,7 +10265,7 @@
       "calls_parity_helper": false,
       "calls_raw_rust": false,
       "raw_rust_targets": [],
-      "body_lines": 51
+      "body_lines": 53
     },
     {
       "name": "load_centrality",
@@ -10329,7 +10350,7 @@
       "calls_parity_helper": false,
       "calls_raw_rust": false,
       "raw_rust_targets": [],
-      "body_lines": 13
+      "body_lines": 16
     },
     {
       "name": "margulis_gabber_galil_graph",
@@ -10351,14 +10372,12 @@
     },
     {
       "name": "max_weight_clique",
-      "classification": "mixed-route",
+      "classification": "nx-fallback",
       "is_rust_reexport": false,
       "calls_parity_helper": true,
-      "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_max_weight_clique"
-      ],
-      "body_lines": 13
+      "calls_raw_rust": false,
+      "raw_rust_targets": [],
+      "body_lines": 15
     },
     {
       "name": "max_weight_matching",
@@ -10400,7 +10419,7 @@
       "raw_rust_targets": [
         "_raw_maximum_branching"
       ],
-      "body_lines": 20
+      "body_lines": 22
     },
     {
       "name": "maximum_flow",
@@ -10411,7 +10430,7 @@
       "raw_rust_targets": [
         "_raw_maximum_flow"
       ],
-      "body_lines": 17
+      "body_lines": 18
     },
     {
       "name": "maximum_flow_value",
@@ -10422,7 +10441,7 @@
       "raw_rust_targets": [
         "_raw_maximum_flow_value"
       ],
-      "body_lines": 13
+      "body_lines": 14
     },
     {
       "name": "maximum_spanning_arborescence",
@@ -10433,7 +10452,7 @@
       "raw_rust_targets": [
         "_raw_maximum_spanning_arborescence"
       ],
-      "body_lines": 23
+      "body_lines": 25
     },
     {
       "name": "maximum_spanning_edges",
@@ -10482,7 +10501,7 @@
       "calls_parity_helper": false,
       "calls_raw_rust": false,
       "raw_rust_targets": [],
-      "body_lines": 220
+      "body_lines": 227
     },
     {
       "name": "min_cost_flow_cost",
@@ -10520,7 +10539,7 @@
       "raw_rust_targets": [
         "_raw_minimum_branching"
       ],
-      "body_lines": 24
+      "body_lines": 26
     },
     {
       "name": "minimum_cut",
@@ -10529,7 +10548,7 @@
       "calls_parity_helper": true,
       "calls_raw_rust": false,
       "raw_rust_targets": [],
-      "body_lines": 34
+      "body_lines": 35
     },
     {
       "name": "minimum_cut_value",
@@ -10538,7 +10557,7 @@
       "calls_parity_helper": true,
       "calls_raw_rust": false,
       "raw_rust_targets": [],
-      "body_lines": 29
+      "body_lines": 30
     },
     {
       "name": "minimum_cycle_basis",
@@ -10549,7 +10568,7 @@
       "raw_rust_targets": [
         "_raw_minimum_cycle_basis"
       ],
-      "body_lines": 25
+      "body_lines": 28
     },
     {
       "name": "minimum_edge_cut",
@@ -10578,7 +10597,7 @@
       "raw_rust_targets": [
         "_raw_minimum_spanning_arborescence"
       ],
-      "body_lines": 26
+      "body_lines": 28
     },
     {
       "name": "minimum_spanning_edges",
@@ -10589,7 +10608,7 @@
       "raw_rust_targets": [
         "_raw_minimum_spanning_edges"
       ],
-      "body_lines": 34
+      "body_lines": 36
     },
     {
       "name": "minimum_spanning_tree",
@@ -10674,7 +10693,7 @@
       "raw_rust_targets": [
         "_raw_multi_source_dijkstra"
       ],
-      "body_lines": 67
+      "body_lines": 69
     },
     {
       "name": "multi_source_dijkstra_path",
@@ -10780,7 +10799,7 @@
       "raw_rust_targets": [
         "_raw_node_boundary"
       ],
-      "body_lines": 9
+      "body_lines": 11
     },
     {
       "name": "node_clique_number",
@@ -10811,7 +10830,7 @@
       "raw_rust_targets": [
         "_raw_node_connectivity"
       ],
-      "body_lines": 58
+      "body_lines": 68
     },
     {
       "name": "node_degree_xy",
@@ -10924,7 +10943,7 @@
       "raw_rust_targets": [
         "_raw_normalized_cut_size"
       ],
-      "body_lines": 6
+      "body_lines": 13
     },
     {
       "name": "normalized_laplacian_matrix",
@@ -11232,7 +11251,7 @@
       "raw_rust_targets": [
         "_raw_partition_spanning_tree"
       ],
-      "body_lines": 14
+      "body_lines": 18
     },
     {
       "name": "path_graph",
@@ -11295,7 +11314,7 @@
       "calls_parity_helper": false,
       "calls_raw_rust": false,
       "raw_rust_targets": [],
-      "body_lines": 48
+      "body_lines": 52
     },
     {
       "name": "powerlaw_cluster_graph",
@@ -11304,7 +11323,7 @@
       "calls_parity_helper": false,
       "calls_raw_rust": false,
       "raw_rust_targets": [],
-      "body_lines": 37
+      "body_lines": 35
     },
     {
       "name": "predecessor",
@@ -11369,7 +11388,7 @@
       "calls_parity_helper": false,
       "calls_raw_rust": false,
       "raw_rust_targets": [],
-      "body_lines": 138
+      "body_lines": 146
     },
     {
       "name": "ra_index_soundarajan_hopcroft",
@@ -11488,7 +11507,7 @@
       "calls_parity_helper": false,
       "calls_raw_rust": false,
       "raw_rust_targets": [],
-      "body_lines": 31
+      "body_lines": 29
     },
     {
       "name": "random_lobster_graph",
@@ -11515,7 +11534,7 @@
       "calls_parity_helper": false,
       "calls_raw_rust": false,
       "raw_rust_targets": [],
-      "body_lines": 12
+      "body_lines": 10
     },
     {
       "name": "random_powerlaw_tree_sequence",
@@ -11533,7 +11552,7 @@
       "calls_parity_helper": true,
       "calls_raw_rust": false,
       "raw_rust_targets": [],
-      "body_lines": 24
+      "body_lines": 26
     },
     {
       "name": "random_regular_expander_graph",
@@ -11551,7 +11570,7 @@
       "calls_parity_helper": false,
       "calls_raw_rust": false,
       "raw_rust_targets": [],
-      "body_lines": 96
+      "body_lines": 94
     },
     {
       "name": "random_shell_graph",
@@ -11560,7 +11579,7 @@
       "calls_parity_helper": false,
       "calls_raw_rust": false,
       "raw_rust_targets": [],
-      "body_lines": 56
+      "body_lines": 54
     },
     {
       "name": "random_spanning_tree",
@@ -11569,7 +11588,7 @@
       "calls_parity_helper": true,
       "calls_raw_rust": false,
       "raw_rust_targets": [],
-      "body_lines": 16
+      "body_lines": 18
     },
     {
       "name": "random_unlabeled_rooted_forest",
@@ -11668,7 +11687,7 @@
       "calls_parity_helper": false,
       "calls_raw_rust": false,
       "raw_rust_targets": [],
-      "body_lines": 133
+      "body_lines": 150
     },
     {
       "name": "relaxed_caveman_graph",
@@ -11713,7 +11732,7 @@
       "calls_parity_helper": false,
       "calls_raw_rust": false,
       "raw_rust_targets": [],
-      "body_lines": 75
+      "body_lines": 77
     },
     {
       "name": "resource_allocation_index",
@@ -11740,7 +11759,7 @@
       "calls_parity_helper": false,
       "calls_raw_rust": false,
       "raw_rust_targets": [],
-      "body_lines": 6
+      "body_lines": 9
     },
     {
       "name": "reverse_view",
@@ -11960,7 +11979,7 @@
       "raw_rust_targets": [
         "_raw_single_source_dijkstra"
       ],
-      "body_lines": 43
+      "body_lines": 45
     },
     {
       "name": "single_source_dijkstra_path",
@@ -11969,7 +11988,7 @@
       "calls_parity_helper": true,
       "calls_raw_rust": false,
       "raw_rust_targets": [],
-      "body_lines": 14
+      "body_lines": 16
     },
     {
       "name": "single_source_dijkstra_path_length",
@@ -12027,7 +12046,7 @@
       "calls_parity_helper": false,
       "calls_raw_rust": false,
       "raw_rust_targets": [],
-      "body_lines": 130
+      "body_lines": 133
     },
     {
       "name": "soft_random_geometric_graph",
@@ -12047,7 +12066,7 @@
       "raw_rust_targets": [
         "_raw_spanner"
       ],
-      "body_lines": 30
+      "body_lines": 35
     },
     {
       "name": "spectral_bisection",
@@ -12373,7 +12392,7 @@
       "raw_rust_targets": [
         "_raw_transitive_closure"
       ],
-      "body_lines": 43
+      "body_lines": 47
     },
     {
       "name": "transitive_closure_dag",
@@ -12422,7 +12441,7 @@
       "raw_rust_targets": [
         "_raw_tree_broadcast_center"
       ],
-      "body_lines": 13
+      "body_lines": 14
     },
     {
       "name": "tree_broadcast_time",
@@ -12433,7 +12452,7 @@
       "raw_rust_targets": [
         "_raw_tree_broadcast_time"
       ],
-      "body_lines": 12
+      "body_lines": 20
     },
     {
       "name": "tree_data",
@@ -12588,7 +12607,7 @@
       "calls_parity_helper": true,
       "calls_raw_rust": false,
       "raw_rust_targets": [],
-      "body_lines": 48
+      "body_lines": 5
     },
     {
       "name": "uniform_random_intersection_graph",
@@ -12617,7 +12636,7 @@
       "calls_parity_helper": false,
       "calls_raw_rust": false,
       "raw_rust_targets": [],
-      "body_lines": 39
+      "body_lines": 41
     },
     {
       "name": "vf2pp_all_isomorphisms",
@@ -12689,7 +12708,7 @@
       "calls_parity_helper": false,
       "calls_raw_rust": false,
       "raw_rust_targets": [],
-      "body_lines": 39
+      "body_lines": 37
     },
     {
       "name": "waxman_graph",
@@ -12781,7 +12800,7 @@
       "calls_parity_helper": false,
       "calls_raw_rust": false,
       "raw_rust_targets": [],
-      "body_lines": 18
+      "body_lines": 19
     },
     {
       "name": "write_gml",
