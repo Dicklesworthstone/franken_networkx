@@ -2278,6 +2278,87 @@ impl GraphGenerator {
         Ok(self.finish_graph_report(graph, Vec::new()))
     }
 
+    pub fn connected_caveman_graph(
+        &mut self,
+        l: usize,
+        k: usize,
+    ) -> Result<GenerationReport, GenerationError> {
+        let operation = "connected_caveman_graph";
+        if k < 2 {
+            let reason =
+                "The size of cliques in a connected caveman graph must be at least 2.".to_owned();
+            self.record(operation, DecisionAction::FailClosed, 0.95, reason.clone());
+            return Err(GenerationError::FailClosed { operation, reason });
+        }
+
+        let total_nodes = l
+            .checked_mul(k)
+            .ok_or_else(|| GenerationError::FailClosed {
+                operation,
+                reason: format!("node count overflow for l={l}, k={k}"),
+            })?;
+        if total_nodes > MAX_N_GENERIC {
+            let reason = format!("node count {total_nodes} exceeds max_allowed={MAX_N_GENERIC}");
+            self.record(operation, DecisionAction::FailClosed, 0.95, reason.clone());
+            return Err(GenerationError::FailClosed { operation, reason });
+        }
+
+        let clique_edges = k.checked_mul(k - 1).map(|value| value / 2).ok_or_else(|| {
+            GenerationError::FailClosed {
+                operation,
+                reason: format!("edge count overflow for l={l}, k={k}"),
+            }
+        })?;
+        let edge_count =
+            l.checked_mul(clique_edges)
+                .ok_or_else(|| GenerationError::FailClosed {
+                    operation,
+                    reason: format!("edge count overflow for l={l}, k={k}"),
+                })?;
+        let max_dense_edges = MAX_N_COMPLETE * (MAX_N_COMPLETE - 1) / 2;
+        if edge_count > max_dense_edges {
+            let reason = format!("edge count {edge_count} exceeds max_allowed={max_dense_edges}");
+            self.record(operation, DecisionAction::FailClosed, 0.95, reason.clone());
+            return Err(GenerationError::FailClosed { operation, reason });
+        }
+
+        let (mut graph, node_labels) = graph_with_n_nodes(self.mode, total_nodes);
+        for start in (0..total_nodes).step_by(k) {
+            let end = start + k;
+            for left in start..end {
+                for right in (left + 1)..end {
+                    graph
+                        .add_edge(node_labels[left].clone(), node_labels[right].clone())
+                        .map_err(|err| GenerationError::FailClosed {
+                            operation,
+                            reason: err.to_string(),
+                        })?;
+                }
+            }
+        }
+
+        for start in (0..total_nodes).step_by(k) {
+            let _ = graph.remove_edge(&node_labels[start], &node_labels[start + 1]);
+            let previous = (start + total_nodes - 1) % total_nodes;
+            graph
+                .add_edge(node_labels[start].clone(), node_labels[previous].clone())
+                .map_err(|err| GenerationError::FailClosed {
+                    operation,
+                    reason: err.to_string(),
+                })?;
+        }
+
+        self.record(
+            operation,
+            DecisionAction::Allow,
+            0.04,
+            format!(
+                "generated connected caveman graph with l={l}, k={k}, nodes={total_nodes}, edge_bound={edge_count}"
+            ),
+        );
+        Ok(self.finish_graph_report(graph, Vec::new()))
+    }
+
     pub fn ring_of_cliques(
         &mut self,
         num_cliques: usize,
@@ -7551,6 +7632,85 @@ mod tests {
         assert_eq!(
             err.to_string(),
             "generator `caveman_graph` failed closed: edge count 4002000 exceeds max_allowed=1999000"
+        );
+    }
+
+    #[test]
+    fn connected_caveman_graph_rejects_invalid_k_like_networkx() {
+        let mut generator = GraphGenerator::strict();
+        let err = generator
+            .connected_caveman_graph(3, 1)
+            .expect_err("connected caveman graph should reject clique size below two");
+
+        assert_eq!(
+            err.to_string(),
+            "generator `connected_caveman_graph` failed closed: The size of cliques in a connected caveman graph must be at least 2."
+        );
+    }
+
+    #[test]
+    fn connected_caveman_graph_matches_networkx_rewired_triangles() {
+        let mut generator = GraphGenerator::strict();
+        let report = generator
+            .connected_caveman_graph(3, 3)
+            .expect("connected caveman graph generation should succeed");
+
+        assert_eq!(report.graph.node_count(), 9);
+        assert_eq!(report.graph.edge_count(), 9);
+        assert_eq!(
+            sorted_graph_edges(&report.graph),
+            vec![
+                ("0".to_owned(), "2".to_owned()),
+                ("0".to_owned(), "8".to_owned()),
+                ("1".to_owned(), "2".to_owned()),
+                ("2".to_owned(), "3".to_owned()),
+                ("3".to_owned(), "5".to_owned()),
+                ("4".to_owned(), "5".to_owned()),
+                ("5".to_owned(), "6".to_owned()),
+                ("6".to_owned(), "8".to_owned()),
+                ("7".to_owned(), "8".to_owned()),
+            ]
+        );
+
+        let degrees = (0..9)
+            .map(|node| report.graph.degree(&node.to_string()))
+            .collect::<Vec<usize>>();
+        assert_eq!(degrees, vec![2, 1, 3, 2, 1, 3, 2, 1, 3]);
+    }
+
+    #[test]
+    fn connected_caveman_graph_empty_and_single_clique_cases_match_networkx() {
+        let mut generator = GraphGenerator::strict();
+        let empty = generator
+            .connected_caveman_graph(0, 3)
+            .expect("zero-clique connected caveman graph generation should succeed");
+        let single = generator
+            .connected_caveman_graph(1, 3)
+            .expect("single-clique connected caveman graph generation should succeed");
+
+        assert_eq!(empty.graph.node_count(), 0);
+        assert_eq!(empty.graph.edge_count(), 0);
+        assert_eq!(single.graph.node_count(), 3);
+        assert_eq!(single.graph.edge_count(), 2);
+        assert_eq!(
+            sorted_graph_edges(&single.graph),
+            vec![
+                ("0".to_owned(), "2".to_owned()),
+                ("1".to_owned(), "2".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn connected_caveman_graph_rejects_dense_edge_count() {
+        let mut generator = GraphGenerator::strict();
+        let err = generator
+            .connected_caveman_graph(2, 2001)
+            .expect_err("dense connected caveman graph should reject excessive edge count");
+
+        assert_eq!(
+            err.to_string(),
+            "generator `connected_caveman_graph` failed closed: edge count 4002000 exceeds max_allowed=1999000"
         );
     }
 
