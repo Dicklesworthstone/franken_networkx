@@ -349,10 +349,16 @@ def adjacency_graph(
     directed=False,
     multigraph=True,
     attrs={"id": "id", "key": "key"},  # noqa: B006
+    *,
+    backend=None,
+    **backend_kwargs,
 ):
     """Return an fnx graph from adjacency JSON data."""
     import franken_networkx as fnx
 
+    fnx._validate_backend_dispatch_keywords(
+        "adjacency_graph", backend, backend_kwargs
+    )
     return fnx.adjacency_graph(
         data,
         directed=directed,
@@ -396,10 +402,15 @@ def node_link_graph(
     key="key",
     edges="edges",
     nodes="nodes",
+    backend=None,
+    **backend_kwargs,
 ):
     """Return an fnx graph from node-link JSON data."""
     import franken_networkx as fnx
 
+    fnx._validate_backend_dispatch_keywords(
+        "node_link_graph", backend, backend_kwargs
+    )
     return fnx.node_link_graph(
         data,
         directed=directed,
@@ -420,10 +431,13 @@ def tree_data(G, root, ident="id", children="children"):
     return fnx.tree_data(G, root, ident=ident, children=children)
 
 
-def tree_graph(data, ident="id", children="children"):
+def tree_graph(
+    data, ident="id", children="children", *, backend=None, **backend_kwargs
+):
     """Return an fnx directed tree from nested tree JSON data."""
     import franken_networkx as fnx
 
+    fnx._validate_backend_dispatch_keywords("tree_graph", backend, backend_kwargs)
     return fnx.tree_graph(data, ident=ident, children=children)
 
 
@@ -434,10 +448,15 @@ def cytoscape_data(G, name="name", ident="id"):
     return fnx.cytoscape_data(G, name=name, ident=ident)
 
 
-def cytoscape_graph(data, name="name", ident="id"):
+def cytoscape_graph(
+    data, name="name", ident="id", *, backend=None, **backend_kwargs
+):
     """Return an fnx graph from Cytoscape JSON data."""
     import franken_networkx as fnx
 
+    fnx._validate_backend_dispatch_keywords(
+        "cytoscape_graph", backend, backend_kwargs
+    )
     return fnx.cytoscape_graph(data, name=name, ident=ident)
 
 
@@ -1848,12 +1867,13 @@ def generate_edgelist(G, delimiter=" ", data=True):
     ``u<delimiter>v<delimiter>val1<delimiter>val2 ...`` when *data* is a list
     of attribute keys.
     """
-    if data is True:
-        for u, v, d in G.edges(data=True):
-            yield delimiter.join([str(u), str(v), str(d)])
-    elif data is False:
-        for u, v in G.edges():
-            yield delimiter.join([str(u), str(v)])
+    if isinstance(data, bool):
+        if data:
+            for u, v, d in G.edges(data=True):
+                yield delimiter.join([str(u), str(v), str(d)])
+        else:
+            for u, v in G.edges():
+                yield delimiter.join([str(u), str(v)])
     else:
         # data is a list of attribute keys
         for u, v, d in G.edges(data=True):

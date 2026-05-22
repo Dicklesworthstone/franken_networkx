@@ -18,6 +18,7 @@ import importlib
 
 import networkx as nx
 import franken_networkx as fnx
+import pytest
 
 
 SUB_MODULES = ["utils", "linalg", "convert", "relabel", "convert_matrix"]
@@ -41,12 +42,17 @@ READWRITE_SUBMODULES = [
 ]
 
 
+def _expect(condition, message):
+    if not condition:
+        pytest.fail(message)
+
+
 def test_each_module_path_is_directly_importable():
     """``import franken_networkx.<sub>`` must succeed for every nx
     top-level submodule."""
     for name in SUB_MODULES:
         mod = importlib.import_module(f"franken_networkx.{name}")
-        assert mod is not None, f"franken_networkx.{name} did not import"
+        _expect(mod is not None, f"franken_networkx.{name} did not import")
 
 
 def test_from_import_works_for_each_module():
@@ -68,10 +74,10 @@ def test_module_dir_covers_nx_public_names():
         nx_public = {n for n in dir(nx_mod) if not n.startswith("_")}
         fnx_public = {n for n in dir(fnx_mod) if not n.startswith("_")}
         missing = nx_public - fnx_public
-        assert not missing, (
+        _expect(not missing, (
             f"franken_networkx.{name} dir() missing names also exposed "
             f"by networkx.{name}: {sorted(missing)[:5]}{'...' if len(missing) > 5 else ''}"
-        )
+        ))
 
 
 def test_callables_actually_execute():
@@ -80,11 +86,11 @@ def test_callables_actually_execute():
     issues that would let ``hasattr`` lie)."""
     G = fnx.path_graph(4)
     A = fnx.linalg.adjacency_matrix(G)
-    assert A.shape == (4, 4)
+    _expect(A.shape == (4, 4), "adjacency_matrix shape must match graph order")
     relabeled = fnx.relabel.relabel_nodes(G, {0: "a", 1: "b", 2: "c", 3: "d"})
-    assert "a" in relabeled and "d" in relabeled
+    _expect("a" in relabeled and "d" in relabeled, "relabel_nodes result is missing endpoints")
     arr = fnx.convert_matrix.to_numpy_array(G)
-    assert arr.shape == (4, 4)
+    _expect(arr.shape == (4, 4), "to_numpy_array shape must match graph order")
 
 
 def test_aliases_against_nx_for_classlike_names():
@@ -96,9 +102,9 @@ def test_aliases_against_nx_for_classlike_names():
     # GraphIterator-ish names (sample from nx.utils)
     for name in ("UnionFind", "PythonRandomInterface", "decorators"):
         if hasattr(nx.utils, name):
-            assert getattr(fnx.utils, name) is getattr(nx.utils, name), (
+            _expect(getattr(fnx.utils, name) is getattr(nx.utils, name), (
                 f"fnx.utils.{name} must alias nx.utils.{name}"
-            )
+            ))
 
 
 def test_readwrite_submodule_paths_are_directly_importable():
@@ -106,8 +112,8 @@ def test_readwrite_submodule_paths_are_directly_importable():
     for name in READWRITE_SUBMODULES:
         fnx_mod = importlib.import_module(f"franken_networkx.readwrite.{name}")
         nx_mod = importlib.import_module(f"networkx.readwrite.{name}")
-        assert fnx_mod is not None
-        assert nx_mod is not None
+        _expect(fnx_mod is not None, f"franken_networkx.readwrite.{name} did not import")
+        _expect(nx_mod is not None, f"networkx.readwrite.{name} did not import")
 
 
 def test_readwrite_module_does_not_leak_stdlib_helpers():
@@ -128,8 +134,14 @@ def test_readwrite_module_does_not_leak_stdlib_helpers():
     }
 
     for name in helper_names:
-        assert hasattr(fnx_readwrite, name) is hasattr(nx_readwrite, name)
-        assert (name in dir(fnx_readwrite)) is (name in dir(nx_readwrite))
+        _expect(
+            hasattr(fnx_readwrite, name) == hasattr(nx_readwrite, name),
+            f"{name} hasattr visibility differs from networkx.readwrite",
+        )
+        _expect(
+            (name in dir(fnx_readwrite)) == (name in dir(nx_readwrite)),
+            f"{name} dir visibility differs from networkx.readwrite",
+        )
 
 
 def test_readwrite_submodules_keep_fnx_implemented_names():
@@ -144,13 +156,16 @@ def test_readwrite_submodules_keep_fnx_implemented_names():
     cytoscape = importlib.import_module("franken_networkx.readwrite.json_graph.cytoscape")
     tree = importlib.import_module("franken_networkx.readwrite.json_graph.tree")
 
-    assert gml.parse_gml is fnx_readwrite.parse_gml
-    assert graph6.to_graph6_bytes is fnx_readwrite.to_graph6_bytes
-    assert sparse6.from_sparse6_bytes is fnx_readwrite.from_sparse6_bytes
-    assert pajek.generate_pajek is fnx_readwrite.generate_pajek
-    assert adjacency.adjacency_graph is fnx_readwrite.adjacency_graph
-    assert cytoscape.cytoscape_graph is fnx_readwrite.cytoscape_graph
-    assert tree.tree_graph is fnx_readwrite.tree_graph
+    for local, exported, label in (
+        (gml.parse_gml, fnx_readwrite.parse_gml, "gml.parse_gml"),
+        (graph6.to_graph6_bytes, fnx_readwrite.to_graph6_bytes, "graph6.to_graph6_bytes"),
+        (sparse6.from_sparse6_bytes, fnx_readwrite.from_sparse6_bytes, "sparse6.from_sparse6_bytes"),
+        (pajek.generate_pajek, fnx_readwrite.generate_pajek, "pajek.generate_pajek"),
+        (adjacency.adjacency_graph, fnx_readwrite.adjacency_graph, "adjacency.adjacency_graph"),
+        (cytoscape.cytoscape_graph, fnx_readwrite.cytoscape_graph, "cytoscape.cytoscape_graph"),
+        (tree.tree_graph, fnx_readwrite.tree_graph, "tree.tree_graph"),
+    ):
+        _expect(local is exported, f"{label} must alias franken_networkx.readwrite")
 
 
 def test_readwrite_json_graph_builders_return_fnx_graphs():
@@ -168,6 +183,68 @@ def test_readwrite_json_graph_builders_return_fnx_graphs():
     cytoscape_graph = fnx_readwrite.cytoscape_graph(cytoscape_payload)
     tree_graph = fnx_readwrite.tree_graph(tree_payload)
 
-    assert isinstance(adjacency_graph, fnx.Graph)
-    assert isinstance(cytoscape_graph, fnx.Graph)
-    assert isinstance(tree_graph, fnx.DiGraph)
+    _expect(isinstance(adjacency_graph, fnx.Graph), "adjacency_graph must return fnx.Graph")
+    _expect(isinstance(cytoscape_graph, fnx.Graph), "cytoscape_graph must return fnx.Graph")
+    _expect(isinstance(tree_graph, fnx.DiGraph), "tree_graph must return fnx.DiGraph")
+
+
+def test_readwrite_json_graph_builder_signatures_match_networkx():
+    """JSON graph builders should keep nx's backend keyword surface."""
+    import inspect
+    import franken_networkx.readwrite as fnx_readwrite
+    import networkx.readwrite as nx_readwrite
+
+    for name in (
+        "adjacency_graph",
+        "cytoscape_graph",
+        "node_link_graph",
+        "tree_graph",
+    ):
+        fnx_signature = str(inspect.signature(getattr(fnx_readwrite, name)))
+        nx_signature = str(inspect.signature(getattr(nx_readwrite, name)))
+        _expect(
+            fnx_signature in (nx_signature,),
+            f"{name} signature {fnx_signature} != {nx_signature}",
+        )
+
+
+def test_readwrite_json_graph_builders_accept_backend_keyword():
+    """NetworkX backend kwargs should validate like other readwrite wrappers."""
+    import franken_networkx.readwrite as fnx_readwrite
+
+    adjacency_payload = nx.adjacency_data(nx.path_graph(3))
+    cytoscape_payload = nx.cytoscape_data(nx.path_graph(3))
+    node_link_payload = nx.node_link_data(nx.path_graph(3))
+    tree_payload = nx.tree_data(
+        nx.balanced_tree(2, 2, create_using=nx.DiGraph),
+        root=0,
+    )
+
+    for graph, expected_type, label in (
+        (
+            fnx_readwrite.adjacency_graph(adjacency_payload, backend="networkx"),
+            fnx.Graph,
+            "adjacency_graph",
+        ),
+        (
+            fnx_readwrite.cytoscape_graph(cytoscape_payload, backend="networkx"),
+            fnx.Graph,
+            "cytoscape_graph",
+        ),
+        (
+            fnx_readwrite.node_link_graph(node_link_payload, backend="networkx"),
+            fnx.Graph,
+            "node_link_graph",
+        ),
+        (
+            fnx_readwrite.tree_graph(tree_payload, backend="networkx"),
+            fnx.DiGraph,
+            "tree_graph",
+        ),
+    ):
+        _expect(isinstance(graph, expected_type), f"{label} returned wrong graph type")
+
+    with pytest.raises(ImportError):
+        fnx_readwrite.adjacency_graph(adjacency_payload, backend="missing")
+    with pytest.raises(TypeError):
+        fnx_readwrite.tree_graph(tree_payload, backend_kwargs={"x": 1})
