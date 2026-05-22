@@ -36885,16 +36885,28 @@ def _random_kernel_graph_via_parity(
 # br-r37-c1-cfcls: import submodules with native overrides so fnx.X returns fnx types
 from franken_networkx import approximation as approximation  # noqa: F401
 from franken_networkx import bipartite as bipartite  # noqa: F401
+from franken_networkx import chordal as chordal  # noqa: F401
 from franken_networkx import clique as clique  # noqa: F401
 from franken_networkx import community as community  # noqa: F401
+from franken_networkx import components as components  # noqa: F401
+from franken_networkx import core as core  # noqa: F401
 from franken_networkx import dag as dag  # noqa: F401
 from franken_networkx import euler as euler  # noqa: F401
 from franken_networkx import flow as flow  # noqa: F401
+from franken_networkx import hybrid as hybrid  # noqa: F401
 from franken_networkx import minors as minors  # noqa: F401
+from franken_networkx import moral as moral  # noqa: F401
 from franken_networkx import operators as operators  # noqa: F401
+from franken_networkx import planarity as planarity  # noqa: F401
+from franken_networkx import regular as regular  # noqa: F401
+from franken_networkx import smallworld as smallworld  # noqa: F401
+from franken_networkx import sparsifiers as sparsifiers  # noqa: F401
+from franken_networkx import summarization as summarization  # noqa: F401
+from franken_networkx import swap as swap  # noqa: F401
 from franken_networkx import tournament as tournament  # noqa: F401
 from franken_networkx import traversal as traversal  # noqa: F401
 from franken_networkx import tree as tree  # noqa: F401
+from franken_networkx import triads as triads  # noqa: F401
 from franken_networkx.drawing import (
     arf_layout,
     bfs_layout,
