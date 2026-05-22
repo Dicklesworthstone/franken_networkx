@@ -16396,7 +16396,7 @@
   {
     "name": "empty_graph",
     "classification": "identical",
-    "fnx_signature": "(n=0, create_using=None, default=<class 'franken_networkx.Graph'>, *, backend=None, **backend_kwargs)",
+    "fnx_signature": "(n=0, create_using=None, default=<class 'networkx.classes.graph.Graph'>, *, backend=None, **backend_kwargs)",
     "nx_signature": "(n=0, create_using=None, default=<class 'networkx.classes.graph.Graph'>, *, backend=None, **backend_kwargs)",
     "deltas": [],
     "fnx_params": [
@@ -46909,8 +46909,8 @@
   {
     "name": "subgraph_view",
     "classification": "identical",
-    "fnx_signature": "(G, *, filter_node=<function no_filter at 0x7747c3b179c0>, filter_edge=<function no_filter at 0x7747c3b179c0>)",
-    "nx_signature": "(G, *, filter_node=<function no_filter at 0x7747c3b179c0>, filter_edge=<function no_filter at 0x7747c3b179c0>)",
+    "fnx_signature": "(G, *, filter_node=<function no_filter at 0x7c1ccee07420>, filter_edge=<function no_filter at 0x7c1ccee07420>)",
+    "nx_signature": "(G, *, filter_node=<function no_filter at 0x7c1ccee07420>, filter_edge=<function no_filter at 0x7c1ccee07420>)",
     "deltas": [],
     "fnx_params": [
       {
@@ -50076,31 +50076,16 @@
   },
   {
     "name": "tutte_polynomial",
-    "classification": "kwarg-superset",
-    "fnx_signature": "(G, *, x=None, y=None, backend=None, **backend_kwargs)",
+    "classification": "identical",
+    "fnx_signature": "(G, *, backend=None, **backend_kwargs)",
     "nx_signature": "(G, *, backend=None, **backend_kwargs)",
-    "deltas": [
-      "extra in fnx: x (kind=KEYWORD_ONLY, default=None)",
-      "extra in fnx: y (kind=KEYWORD_ONLY, default=None)"
-    ],
+    "deltas": [],
     "fnx_params": [
       {
         "name": "G",
         "kind": "POSITIONAL_OR_KEYWORD",
         "default": null,
         "has_default": false
-      },
-      {
-        "name": "x",
-        "kind": "KEYWORD_ONLY",
-        "default": null,
-        "has_default": true
-      },
-      {
-        "name": "y",
-        "kind": "KEYWORD_ONLY",
-        "default": null,
-        "has_default": true
       },
       {
         "name": "backend",
