@@ -20538,7 +20538,10 @@ def quotient_graph(
     Returns
     -------
     Graph or DiGraph
+
+    br-r37-c1-cfcls: coerce to fnx for consistent return type.
     """
+    G = _coerce_arg_to_fnx_graph(G)
     # Normalize partition
     if callable(partition):
         # Build partition from equivalence relation
@@ -23038,9 +23041,12 @@ def all_triads(G):
     ------
     DiGraph
         Each yielded graph is a 3-node subgraph.
+
+    br-r37-c1-cfcls: coerce to fnx for consistent return type.
     """
     if not G.is_directed():
         raise NetworkXNotImplemented("not implemented for undirected type")
+    G = _coerce_arg_to_fnx_graph(G)
 
     nodes = list(G.nodes())
     n = len(nodes)
@@ -24248,6 +24254,8 @@ def is_connected_dominating_set(G, nbunch):
     # is_connected expects a concrete fnx graph class; G.subgraph() returns a
     # filtered view which the Rust dispatch rejects. Materialise the induced
     # subgraph via copy() before checking connectedness.
+    # br-r37-c1-cfcls: coerce to fnx for consistent type handling.
+    G = _coerce_arg_to_fnx_graph(G)
     return is_connected(G.subgraph(S).copy())
 
 
@@ -31072,12 +31080,14 @@ def k_edge_subgraphs(G, k):
 
     br-r37-c1-67dnc: same wrong-type handling as k_edge_components —
     nx supports DiGraph and rejects MultiGraph.
+    br-r37-c1-cfcls: coerce to fnx for consistent return type.
     """
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
     if G.is_directed():
         yield from _call_networkx_for_parity("k_edge_subgraphs", G, k)
         return
+    G = _coerce_arg_to_fnx_graph(G)
     for comp in _k_edge_components_list(G, k):
         yield G.subgraph(comp)
 
