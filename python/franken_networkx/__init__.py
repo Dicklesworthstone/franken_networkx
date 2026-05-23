@@ -24306,10 +24306,14 @@ def connected_double_edge_swap(G, nswap=1, _window_threshold=3, seed=None):
         raise NetworkXPointlessConcept(
             "Connectivity is undefined for the null graph."
         )
-    if len(G) < 4:
-        raise NetworkXError("Graph has fewer than four nodes.")
+    # br-r37-c1-0oasd: nx checks is_connected before len(G) < 4, so a
+    # disconnected sub-4-node graph (e.g. 3 isolated nodes) raises
+    # "Graph not connected" — not "Graph has fewer than four nodes."
+    # Match nx's body ordering for message parity.
     if not is_connected(G):
         raise NetworkXError("Graph not connected")
+    if len(G) < 4:
+        raise NetworkXError("Graph has fewer than four nodes.")
     # br-r37-c1-frbgb: handle pre-wrapped Random from nx dispatcher.
     rng = seed if isinstance(seed, _random.Random) else _random.Random(seed)
     if G.number_of_edges() < 2:
