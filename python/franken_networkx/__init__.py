@@ -11245,14 +11245,12 @@ def _compute_rich_club_coefficients(G):
     total = sum(deghist)
     nks = (total - cs for cs in _itertools.accumulate(deghist) if total - cs > 1)
 
-    degree_view = G.degree
-    if callable(degree_view):
-        degree_of = degree_view
-    else:
-        degree_of = degree_view.__getitem__
+    # br-r37-c1-smetricdegcache: snapshot degrees once instead of
+    # calling G.degree(u) per edge endpoint.
+    deg = dict(G.degree())
 
     edge_degrees = sorted(
-        (sorted((degree_of(u), degree_of(v))) for u, v in G.edges()),
+        (sorted((deg[u], deg[v])) for u, v in G.edges()),
         reverse=True,
     )
     ek = G.number_of_edges()
@@ -11368,12 +11366,13 @@ def rich_club_coefficient(
 def s_metric(G, *, backend=None, **backend_kwargs):
     """Return the s-metric of the graph."""
     _validate_backend_dispatch_keywords("s_metric", backend, backend_kwargs)
-    degree_view = G.degree
-    if callable(degree_view):
-        degree_of = degree_view
-    else:
-        degree_of = degree_view.__getitem__
-    return float(sum(degree_of(u) * degree_of(v) for (u, v) in G.edges()))
+    # br-r37-c1-smetricdegcache: snapshot degrees once into a plain
+    # dict; the previous per-edge ``degree_of(u)``/``degree_of(v)``
+    # calls were ~2× as many PyO3 round-trips as edges, dominating
+    # wall time on ~1k-edge graphs.  dict(G.degree()) is a single
+    # native call (~0.05ms for 200 nodes).
+    deg = dict(G.degree())
+    return float(sum(deg[u] * deg[v] for (u, v) in G.edges()))
 
 # Algorithm functions — graph metrics (expansion, conductance, volume)
 from franken_networkx._fnx import (
@@ -22331,7 +22330,10 @@ def bethe_hessian_matrix(G, r=None, nodelist=None):
     # product preserves nx's csr_array return type.
     D = scipy.sparse.diags_array(d, dtype=float)
     if r is None:
-        unweighted_degs = [G.degree(v) for v in nodelist]
+        # br-r37-c1-smetricdegcache: dict(G.degree()) once instead of
+        # per-node G.degree(v) PyO3 calls.
+        deg_dict = dict(G.degree())
+        unweighted_degs = [deg_dict[v] for v in nodelist]
         deg_sum = sum(unweighted_degs)
         if deg_sum > 0:
             r = sum(x * x for x in unweighted_degs) / deg_sum - 1
@@ -25578,13 +25580,14 @@ def cn_soundarajan_hopcroft(G, ebunch=None, community="community"):
         raise NetworkXNotImplemented("not implemented for directed type")
 
     def _gen():
+        # br-r37-c1-rasnap: snapshot adjacency once for the per-pair
+        # neighbour-intersection loop.
+        adj_snap = {n: set(G.neighbors(n)) for n in G}
         eb = non_edges(G) if ebunch is None else ebunch
         for u, v in eb:
             u_comm = _lp_community_of(G, u, community)
             v_comm = _lp_community_of(G, v, community)
-            u_nbrs = set(G.neighbors(u))
-            v_nbrs = set(G.neighbors(v))
-            common = u_nbrs & v_nbrs
+            common = adj_snap.get(u, set()) & adj_snap.get(v, set())
             score = len(common)
             if u_comm == v_comm:
                 for w in common:
@@ -25613,6 +25616,12 @@ def ra_index_soundarajan_hopcroft(G, ebunch=None, community="community"):
         raise NetworkXNotImplemented("not implemented for directed type")
 
     def _gen():
+        # br-r37-c1-rasnap: snapshot adjacency + degrees once so the
+        # per-(u, v) inner loop is plain dict lookups.  Previously each
+        # iteration paid G.neighbors(u) × 2 + G.degree(w) for every
+        # common neighbour — O(|ebunch| × deg × PyO3-call-cost).
+        adj_snap = {n: set(G.neighbors(n)) for n in G}
+        deg_snap = dict(G.degree())
         eb = non_edges(G) if ebunch is None else ebunch
         for u, v in eb:
             u_comm = _lp_community_of(G, u, community)
@@ -25623,13 +25632,11 @@ def ra_index_soundarajan_hopcroft(G, ebunch=None, community="community"):
                 # diverge.
                 yield (u, v, 0)
                 continue
-            u_nbrs = set(G.neighbors(u))
-            v_nbrs = set(G.neighbors(v))
-            common = u_nbrs & v_nbrs
+            common = adj_snap.get(u, set()) & adj_snap.get(v, set())
             score = 0
             for w in common:
                 if _lp_community_of(G, w, community) == u_comm:
-                    deg_w = G.degree(w)
+                    deg_w = deg_snap.get(w, 0)
                     if deg_w > 0:
                         score = score + 1 / deg_w
             yield (u, v, score)
