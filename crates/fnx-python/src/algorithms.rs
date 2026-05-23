@@ -12706,6 +12706,7 @@ pub fn power_rust(py: Python<'_>, g: &Bound<'_, PyAny>, k: usize) -> PyResult<Py
         node_py_attrs: std::collections::HashMap::new(),
         edge_py_attrs: std::collections::HashMap::new(),
         graph_attrs: PyDict::new(py).unbind(),
+        nodes_seq: 0,
     };
     Ok(pg.into_pyobject(py)?.into_any().unbind())
 }
@@ -12752,6 +12753,7 @@ pub fn ego_graph_rust(
         node_py_attrs: std::collections::HashMap::new(),
         edge_py_attrs: std::collections::HashMap::new(),
         graph_attrs: PyDict::new(py).unbind(),
+        nodes_seq: 0,
     };
     Ok(pg.into_pyobject(py)?.into_any().unbind())
 }
@@ -12880,6 +12882,7 @@ pub fn full_join_rust(
         node_py_attrs: std::collections::HashMap::new(),
         edge_py_attrs: std::collections::HashMap::new(),
         graph_attrs: PyDict::new(py).unbind(),
+        nodes_seq: 0,
     };
     Ok(pg.into_pyobject(py)?.into_any().unbind())
 }
@@ -12907,6 +12910,7 @@ pub fn identified_nodes_rust(
         node_py_attrs: std::collections::HashMap::new(),
         edge_py_attrs: std::collections::HashMap::new(),
         graph_attrs: PyDict::new(py).unbind(),
+        nodes_seq: 0,
     };
     Ok(pg.into_pyobject(py)?.into_any().unbind())
 }
@@ -12993,6 +12997,7 @@ pub fn dedensify_rust(
         node_py_attrs: std::collections::HashMap::new(),
         edge_py_attrs: std::collections::HashMap::new(),
         graph_attrs: PyDict::new(py).unbind(),
+        nodes_seq: 0,
     };
     Ok((pg.into_pyobject(py)?.into_any().unbind(), compressors))
 }
@@ -13101,6 +13106,7 @@ pub fn quotient_graph_rust(
         node_py_attrs: std::collections::HashMap::new(),
         edge_py_attrs: std::collections::HashMap::new(),
         graph_attrs: PyDict::new(py).unbind(),
+        nodes_seq: 0,
     };
     Ok(pg.into_pyobject(py)?.into_any().unbind())
 }
@@ -13123,6 +13129,7 @@ pub fn moral_graph_rust(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<PyObje
         node_py_attrs: std::collections::HashMap::new(),
         edge_py_attrs: std::collections::HashMap::new(),
         graph_attrs: PyDict::new(py).unbind(),
+        nodes_seq: 0,
     };
     Ok(pg.into_pyobject(py)?.into_any().unbind())
 }
@@ -13516,6 +13523,7 @@ pub fn gomory_hu_tree_rust(
         node_py_attrs: std::collections::HashMap::new(),
         edge_py_attrs: std::collections::HashMap::new(),
         graph_attrs: PyDict::new(py).unbind(),
+        nodes_seq: 0,
     };
     Ok(pg.into_pyobject(py)?.into_any().unbind())
 }
@@ -13562,6 +13570,7 @@ pub fn snap_aggregation_rust(
         node_py_attrs: std::collections::HashMap::new(),
         edge_py_attrs: std::collections::HashMap::new(),
         graph_attrs: PyDict::new(py).unbind(),
+        nodes_seq: 0,
     };
     Ok(pg.into_pyobject(py)?.into_any().unbind())
 }
@@ -14773,6 +14782,7 @@ mod tests {
                 edge_py_attrs: HashMap::new(),
                 edge_py_keys: HashMap::new(),
                 graph_attrs: PyDict::new(py).unbind(),
+                nodes_seq: 0,
             };
             let mut weighted_attrs = AttrMap::new();
             weighted_attrs.insert("weight".to_owned(), 1.0.into());

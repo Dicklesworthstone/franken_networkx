@@ -303,6 +303,14 @@ pub(crate) struct PyGraph {
     pub(crate) edge_py_attrs: HashMap<(String, String), Py<PyDict>>,
     /// Graph-level attribute dict.
     pub(crate) graph_attrs: Py<PyDict>,
+    /// Monotonic counter bumped on every node add/remove (br-r37-c1-39d82).
+    /// Used by NodeIteratorGuard to detect concurrent node-set mutations
+    /// during iteration in O(1) without re-cloning ``nodes_ordered()``.
+    /// Wraps via ``wrapping_add`` so we never trip the overflow-checks
+    /// fuzz harness, but the diff-based comparison is correct under
+    /// wrap so long as ≥ 2⁶⁴ mutations don't happen between
+    /// construction and a single next() call.
+    pub(crate) nodes_seq: u64,
 }
 
 impl PyGraph {
@@ -347,7 +355,17 @@ impl PyGraph {
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
             graph_attrs: PyDict::new(py).unbind(),
+            nodes_seq: 0,
         })
+    }
+
+    /// Bump the node-mutation counter after any add/remove operation
+    /// (br-r37-c1-39d82).  ``wrapping_add`` avoids overflow-check
+    /// panics — the diff-based comparison in NodeIteratorGuard's
+    /// __next__ is correct under wrap.
+    #[inline]
+    pub(crate) fn bump_nodes_seq(&mut self) {
+        self.nodes_seq = self.nodes_seq.wrapping_add(1);
     }
 }
 
@@ -365,6 +383,8 @@ pub(crate) struct PyMultiGraph {
     pub(crate) edge_py_attrs: HashMap<(String, String, usize), Py<PyDict>>,
     pub(crate) edge_py_keys: HashMap<(String, String, usize), PyObject>,
     pub(crate) graph_attrs: Py<PyDict>,
+    /// br-r37-c1-39d82: see PyGraph::nodes_seq.
+    pub(crate) nodes_seq: u64,
 }
 
 impl PyMultiGraph {
@@ -478,7 +498,14 @@ impl PyMultiGraph {
             edge_py_attrs: HashMap::new(),
             edge_py_keys: HashMap::new(),
             graph_attrs: PyDict::new(py).unbind(),
+            nodes_seq: 0,
         })
+    }
+
+    /// br-r37-c1-39d82: see PyGraph::bump_nodes_seq.
+    #[inline]
+    pub(crate) fn bump_nodes_seq(&mut self) {
+        self.nodes_seq = self.nodes_seq.wrapping_add(1);
     }
 }
 
@@ -801,6 +828,7 @@ impl PyMultiGraph {
         }
 
         self.inner.add_node_with_attrs(canonical, rust_attrs);
+        self.bump_nodes_seq();
         Ok(())
     }
 
@@ -831,6 +859,7 @@ impl PyMultiGraph {
             }
             self.add_node(py, &item, attr)?;
         }
+        self.bump_nodes_seq();
         Ok(())
     }
 
@@ -861,6 +890,7 @@ impl PyMultiGraph {
         self.inner.remove_node(&canonical);
         self.node_key_map.remove(&canonical);
         self.node_py_attrs.remove(&canonical);
+        self.bump_nodes_seq();
         Ok(())
     }
 
@@ -888,6 +918,7 @@ impl PyMultiGraph {
                 self.node_py_attrs.remove(&canonical);
             }
         }
+        self.bump_nodes_seq();
         Ok(())
     }
 
@@ -1179,7 +1210,7 @@ impl PyMultiGraph {
         let graph = Py::from(slf);
         Py::new(
             py,
-            NodeIterator::with_graph_guard(
+            NodeIterator::with_graph_guard(py, 
                 nodes,
                 NodeIteratorGuard::MultiGraph(graph),
                 expected_nodes,
@@ -1307,6 +1338,7 @@ impl PyMultiGraph {
             edge_py_attrs: HashMap::new(),
             edge_py_keys: HashMap::new(),
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
+            nodes_seq: 0,
         };
         for (canonical, py_key) in &self.node_key_map {
             let rust_attrs = self
@@ -1374,6 +1406,7 @@ impl PyMultiGraph {
             edge_py_keys: HashMap::new(),
             // SHARE the graph attrs dict (shallow copy)
             graph_attrs: self.graph_attrs.clone_ref(py),
+            nodes_seq: 0,
         };
         // Copy nodes but SHARE attribute dicts
         for (canonical, py_key) in &self.node_key_map {
@@ -1454,6 +1487,7 @@ impl PyMultiGraph {
             edge_py_attrs: HashMap::new(),
             edge_py_keys: HashMap::new(),
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
+            nodes_seq: 0,
         };
 
         for canonical in &keep {
@@ -1529,6 +1563,7 @@ impl PyMultiGraph {
             edge_py_attrs: HashMap::new(),
             edge_py_keys: HashMap::new(),
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
+            nodes_seq: 0,
         };
 
         for (u, v, key_filter) in &keep_edges {
@@ -1612,6 +1647,7 @@ impl PyMultiGraph {
             edge_py_attrs: HashMap::new(),
             edge_py_keys: HashMap::new(),
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
+            nodes_seq: 0,
         };
 
         for (canonical, py_key) in &self.node_key_map {
@@ -2217,7 +2253,7 @@ impl MultiGraphEdgeView {
         }
         Py::new(
             py,
-            NodeIterator::with_graph_guard(
+            NodeIterator::with_graph_guard(py, 
                 result,
                 NodeIteratorGuard::MultiGraph(self.graph.clone_ref(py)),
                 expected_nodes,
@@ -2473,6 +2509,7 @@ impl PyGraph {
         self.inner
             .add_node_with_attrs(canonical.clone(), rust_attrs);
         log::debug!(target: "franken_networkx", "add_node: {canonical}");
+        self.bump_nodes_seq();
         Ok(())
     }
 
@@ -2506,6 +2543,7 @@ impl PyGraph {
             // Otherwise, it's just a node key.
             self.add_node(py, &item, attr)?;
         }
+        self.bump_nodes_seq();
         Ok(())
     }
 
@@ -2531,6 +2569,7 @@ impl PyGraph {
         self.inner.remove_node(&canonical);
         self.node_key_map.remove(&canonical);
         self.node_py_attrs.remove(&canonical);
+        self.bump_nodes_seq();
         Ok(())
     }
 
@@ -2552,6 +2591,7 @@ impl PyGraph {
                 self.node_py_attrs.remove(&canonical);
             }
         }
+        self.bump_nodes_seq();
         Ok(())
     }
 
@@ -2876,7 +2916,7 @@ impl PyGraph {
         let graph = Py::from(slf);
         Py::new(
             py,
-            NodeIterator::with_graph_guard(nodes, NodeIteratorGuard::Graph(graph), expected_nodes),
+            NodeIterator::with_graph_guard(py, nodes, NodeIteratorGuard::Graph(graph), expected_nodes),
         )
     }
 
@@ -2941,6 +2981,7 @@ impl PyGraph {
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
+            nodes_seq: 0,
         };
         // Copy nodes
         for (canonical, py_key) in &self.node_key_map {
@@ -3013,6 +3054,7 @@ impl PyGraph {
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
+            nodes_seq: 0,
         };
 
         // Add kept nodes
@@ -3076,6 +3118,7 @@ impl PyGraph {
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
+            nodes_seq: 0,
         };
 
         // Collect nodes from kept edges
@@ -3365,6 +3408,7 @@ impl PyGraph {
             edge_py_attrs: HashMap::new(),
             // SHARE the graph attrs dict (shallow copy)
             graph_attrs: self.graph_attrs.clone_ref(py),
+            nodes_seq: 0,
         };
         // Copy nodes but SHARE attribute dicts
         for (canonical, py_key) in &self.node_key_map {
@@ -3677,7 +3721,12 @@ mod tests {
 #[pyclass]
 pub(crate) struct NodeIterator {
     inner: std::vec::IntoIter<PyObject>,
-    guard: Option<(NodeIteratorGuard, Vec<String>)>,
+    /// (guard, expected_nodes_at_construction, expected_nodes_seq)
+    /// — br-r37-c1-39d82 added the seq snapshot so __next__ can
+    /// detect node-set mutations in O(1) instead of O(N) clone +
+    /// compare on every call.  The expected_nodes Vec is kept for
+    /// the fallback path (legacy callers that don't bump nodes_seq).
+    guard: Option<(NodeIteratorGuard, Vec<String>, u64)>,
 }
 
 pub(crate) enum NodeIteratorGuard {
@@ -3732,6 +3781,20 @@ impl NodeIteratorGuard {
             Self::MultiDiGraph(graph) => graph.borrow(py).inner.node_count(),
         }
     }
+
+    /// br-r37-c1-39d82: O(1) monotonic counter bumped on every
+    /// add_node/remove_node.  Iterators capture this at construction
+    /// and compare in __next__ to detect ANY node-set mutation
+    /// (including count-preserving remove+add) without re-cloning
+    /// ``nodes_ordered()``.
+    fn nodes_seq(&self, py: Python<'_>) -> u64 {
+        match self {
+            Self::Graph(graph) => graph.borrow(py).nodes_seq,
+            Self::MultiGraph(graph) => graph.borrow(py).nodes_seq,
+            Self::DiGraph(graph) => graph.borrow(py).nodes_seq,
+            Self::MultiDiGraph(graph) => graph.borrow(py).nodes_seq,
+        }
+    }
 }
 
 impl NodeIterator {
@@ -3743,13 +3806,18 @@ impl NodeIterator {
     }
 
     pub(crate) fn with_graph_guard(
+        py: Python<'_>,
         items: Vec<PyObject>,
         graph: NodeIteratorGuard,
         expected_nodes: Vec<String>,
     ) -> Self {
+        // br-r37-c1-39d82: capture nodes_seq at construction so
+        // __next__ can detect mutations in O(1) instead of cloning
+        // ``nodes_ordered()`` on every call.
+        let expected_seq = graph.nodes_seq(py);
         Self {
             inner: items.into_iter(),
-            guard: Some((graph, expected_nodes)),
+            guard: Some((graph, expected_nodes, expected_seq)),
         }
     }
 }
@@ -3764,27 +3832,21 @@ impl NodeIterator {
         let Some(item) = slf.inner.next() else {
             return Ok(None);
         };
-        if let Some((graph, expected_nodes)) = &slf.guard {
-            // br-r37-c1-nodeitergsfast: O(1) size check is cheap;
-            // emit the "dictionary changed size" error path immediately
-            // when the count differs.
-            let current_count = graph.node_count(slf.py());
-            if current_count != expected_nodes.len() {
-                return Err(PyRuntimeError::new_err(
-                    "dictionary changed size during iteration",
-                ));
-            }
-            // O(N) key-permutation check — needed to detect
-            // remove+add (count-preserving mutations).  We rebuild
-            // ``current_nodes`` but compare borrowed strs without an
-            // extra ``to_owned`` per element to keep the constant
-            // factor low.
-            let current_nodes = graph.current_nodes(slf.py());
-            if current_nodes
-                .iter()
-                .zip(expected_nodes.iter())
-                .any(|(current, expected)| current != expected)
-            {
+        if let Some((graph, expected_nodes, expected_seq)) = &slf.guard {
+            // br-r37-c1-39d82: O(1) mutation-counter check.  Any
+            // add_node / remove_node / add_nodes_from /
+            // remove_nodes_from bumps nodes_seq; a mismatch here means
+            // the node set changed during iteration.  Disambiguate
+            // size-change vs key-permutation via the count check so
+            // the error wording matches Python's dict contract.
+            let current_seq = graph.nodes_seq(slf.py());
+            if current_seq != *expected_seq {
+                let current_count = graph.node_count(slf.py());
+                if current_count != expected_nodes.len() {
+                    return Err(PyRuntimeError::new_err(
+                        "dictionary changed size during iteration",
+                    ));
+                }
                 return Err(PyRuntimeError::new_err(
                     "dictionary keys changed during iteration",
                 ));

@@ -144,6 +144,7 @@ fn report_to_pygraph(py: Python<'_>, report: ReadWriteReport) -> PyResult<PyGrap
         node_py_attrs,
         edge_py_attrs,
         graph_attrs: py_graph_attrs.unbind(),
+        nodes_seq: 0,
     })
 }
 
@@ -201,6 +202,7 @@ fn di_report_to_pydigraph(py: Python<'_>, report: DiReadWriteReport) -> PyResult
         node_py_attrs,
         edge_py_attrs,
         graph_attrs: py_graph_attrs.unbind(),
+        nodes_seq: 0,
     })
 }
 

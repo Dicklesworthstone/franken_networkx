@@ -32,6 +32,8 @@ pub struct PyDiGraph {
     /// Per-edge Python attrs. Key is (source, target) — NOT canonicalized.
     pub(crate) edge_py_attrs: HashMap<(String, String), Py<PyDict>>,
     pub(crate) graph_attrs: Py<PyDict>,
+    /// br-r37-c1-39d82: see PyGraph::nodes_seq.
+    pub(crate) nodes_seq: u64,
 }
 
 #[pyclass(
@@ -48,6 +50,8 @@ pub struct PyMultiDiGraph {
     pub(crate) edge_py_attrs: HashMap<(String, String, usize), Py<PyDict>>,
     pub(crate) edge_py_keys: HashMap<(String, String, usize), PyObject>,
     pub(crate) graph_attrs: Py<PyDict>,
+    /// br-r37-c1-39d82: see PyGraph::nodes_seq.
+    pub(crate) nodes_seq: u64,
 }
 
 impl PyMultiDiGraph {
@@ -162,7 +166,14 @@ impl PyMultiDiGraph {
             edge_py_attrs: HashMap::new(),
             edge_py_keys: HashMap::new(),
             graph_attrs: PyDict::new(py).unbind(),
+            nodes_seq: 0,
         })
+    }
+
+    /// br-r37-c1-39d82: see PyGraph::bump_nodes_seq.
+    #[inline]
+    pub(crate) fn bump_nodes_seq(&mut self) {
+        self.nodes_seq = self.nodes_seq.wrapping_add(1);
     }
 }
 
@@ -409,6 +420,7 @@ impl PyMultiDiGraph {
             }
         }
         self.inner.add_node_with_attrs(canonical, rust_attrs);
+        self.bump_nodes_seq();
         Ok(())
     }
 
@@ -439,6 +451,7 @@ impl PyMultiDiGraph {
             }
             self.add_node(py, &item, attr)?;
         }
+        self.bump_nodes_seq();
         Ok(())
     }
 
@@ -656,6 +669,7 @@ impl PyMultiDiGraph {
         self.inner.remove_node(&canonical);
         self.node_key_map.remove(&canonical);
         self.node_py_attrs.remove(&canonical);
+        self.bump_nodes_seq();
         Ok(())
     }
 
@@ -696,6 +710,7 @@ impl PyMultiDiGraph {
                 self.node_py_attrs.remove(&canonical);
             }
         }
+        self.bump_nodes_seq();
         Ok(())
     }
 
@@ -805,7 +820,7 @@ impl PyMultiDiGraph {
         let graph = Py::from(slf);
         Py::new(
             py,
-            crate::NodeIterator::with_graph_guard(
+            crate::NodeIterator::with_graph_guard(py, 
                 nodes,
                 crate::NodeIteratorGuard::MultiDiGraph(graph),
                 expected_nodes,
@@ -989,6 +1004,7 @@ impl PyMultiDiGraph {
             edge_py_attrs: HashMap::new(),
             edge_py_keys: HashMap::new(),
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
+            nodes_seq: 0,
         };
         for (canonical, py_key) in &self.node_key_map {
             let rust_attrs = self
@@ -1052,6 +1068,7 @@ impl PyMultiDiGraph {
             edge_py_keys: HashMap::new(),
             // SHARE the graph attrs dict (shallow copy)
             graph_attrs: self.graph_attrs.clone_ref(py),
+            nodes_seq: 0,
         };
         // Copy nodes but SHARE attribute dicts
         for (canonical, py_key) in &self.node_key_map {
@@ -1128,6 +1145,7 @@ impl PyMultiDiGraph {
             edge_py_attrs: HashMap::new(),
             edge_py_keys: HashMap::new(),
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
+            nodes_seq: 0,
         };
 
         for canonical in &keep {
@@ -1186,6 +1204,7 @@ impl PyMultiDiGraph {
             edge_py_attrs: HashMap::new(),
             edge_py_keys: HashMap::new(),
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
+            nodes_seq: 0,
         };
 
         for item in iter {
@@ -1275,6 +1294,7 @@ impl PyMultiDiGraph {
             edge_py_attrs: HashMap::new(),
             edge_py_keys: HashMap::new(),
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
+            nodes_seq: 0,
         };
 
         for (canonical, py_key) in &self.node_key_map {
@@ -1330,6 +1350,7 @@ impl PyMultiDiGraph {
             edge_py_attrs: HashMap::new(),
             edge_py_keys: HashMap::new(),
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
+            nodes_seq: 0,
         };
         for canonical in self.inner.nodes_ordered() {
             let rust_attrs = self
@@ -2005,7 +2026,7 @@ impl MultiDiGraphEdgeView {
         }
         Py::new(
             py,
-            crate::NodeIterator::with_graph_guard(
+            crate::NodeIterator::with_graph_guard(py, 
                 result,
                 crate::NodeIteratorGuard::MultiDiGraph(self.graph.clone_ref(py)),
                 expected_nodes,
@@ -2093,7 +2114,14 @@ impl PyDiGraph {
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
             graph_attrs: PyDict::new(py).unbind(),
+            nodes_seq: 0,
         })
+    }
+
+    /// br-r37-c1-39d82: see PyGraph::bump_nodes_seq.
+    #[inline]
+    pub(crate) fn bump_nodes_seq(&mut self) {
+        self.nodes_seq = self.nodes_seq.wrapping_add(1);
     }
 }
 
@@ -2315,6 +2343,7 @@ impl PyDiGraph {
         }
 
         self.inner.add_node_with_attrs(canonical, rust_attrs);
+        self.bump_nodes_seq();
         Ok(())
     }
 
@@ -2345,6 +2374,7 @@ impl PyDiGraph {
             }
             self.add_node(py, &item, attr)?;
         }
+        self.bump_nodes_seq();
         Ok(())
     }
 
@@ -2374,6 +2404,7 @@ impl PyDiGraph {
         self.inner.remove_node(&canonical);
         self.node_key_map.remove(&canonical);
         self.node_py_attrs.remove(&canonical);
+        self.bump_nodes_seq();
         Ok(())
     }
 
@@ -2400,6 +2431,7 @@ impl PyDiGraph {
                 self.node_py_attrs.remove(&canonical);
             }
         }
+        self.bump_nodes_seq();
         Ok(())
     }
 
@@ -2645,6 +2677,7 @@ impl PyDiGraph {
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
+            nodes_seq: 0,
         };
         // Copy nodes in graph insertion order to preserve NetworkX iteration.
         for canonical in self.inner.nodes_ordered() {
@@ -2733,6 +2766,7 @@ impl PyDiGraph {
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
+            nodes_seq: 0,
         };
         for (canonical, py_key) in &self.node_key_map {
             let rust_attrs = self
@@ -2787,6 +2821,7 @@ impl PyDiGraph {
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
+            nodes_seq: 0,
         };
 
         for canonical in &keep {
@@ -2847,6 +2882,7 @@ impl PyDiGraph {
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
+            nodes_seq: 0,
         };
 
         let mut nodes_needed: std::collections::HashSet<String> = std::collections::HashSet::new();
@@ -3109,7 +3145,7 @@ impl PyDiGraph {
         let graph = Py::from(slf);
         Py::new(
             py,
-            crate::NodeIterator::with_graph_guard(
+            crate::NodeIterator::with_graph_guard(py, 
                 nodes,
                 crate::NodeIteratorGuard::DiGraph(graph),
                 expected_nodes,
@@ -3223,6 +3259,7 @@ impl PyDiGraph {
             edge_py_attrs: HashMap::new(),
             // SHARE the graph attrs dict (shallow copy)
             graph_attrs: self.graph_attrs.clone_ref(py),
+            nodes_seq: 0,
         };
         // Copy nodes but SHARE attribute dicts
         for (canonical, py_key) in &self.node_key_map {
