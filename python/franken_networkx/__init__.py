@@ -7234,6 +7234,9 @@ def maximal_matching(G):
     """
     # br-r37-c1-nwkg0: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
+    # br-r37-c1-2dwen: nx's @not_implemented_for decorators apply
+    # ``multigraph`` outer, ``directed`` inner — inner fires first,
+    # so MultiDiGraph yields the 'directed' message.
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
     if G.is_multigraph():
@@ -7328,10 +7331,10 @@ def min_edge_cover(G, matching_algorithm=None):
         algorithms (dict-returning) produce both ``(u, v)`` and
         ``(v, u)`` directions per edge, matching nx's contract.
     """
-    if G.is_directed():
-        raise NetworkXNotImplemented("not implemented for directed type")
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
     # br-r37-c1-mec-iso: nx raises ``NetworkXException`` (not
     # NetworkXError) the moment any node has degree 0 — covering
     # both "no edges with isolated nodes" and "some edges but at
@@ -11277,10 +11280,10 @@ def rich_club_coefficient(
     _validate_backend_dispatch_keywords(
         "rich_club_coefficient", backend, backend_kwargs
     )
-    if G.is_directed():
-        raise NetworkXNotImplemented("not implemented for directed type")
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
     if number_of_selfloops(G) > 0:
         raise Exception(
             "rich_club_coefficient is not implemented for graphs with self loops."
@@ -11340,10 +11343,10 @@ def is_k_edge_connected(G, k):
     Rust binding accepted k=0 and returned True (vacuously). Match
     nx's validation.
     """
-    if G.is_directed():
-        raise NetworkXNotImplemented("not implemented for directed type")
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
     if k < 1:
         raise ValueError(f"k must be positive, not {k}")
     if not isinstance(k, int):
@@ -12579,10 +12582,10 @@ def spanner(G, stretch, weight=None, seed=None):
     # raises NetworkXNotImplemented regardless of stretch value.
     # The previous comment ("nx checks stretch FIRST") was incorrect
     # — verified against nx source.
-    if G.is_directed():
-        raise NetworkXNotImplemented("not implemented for directed type")
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
     if not isinstance(stretch, (int, float)) or stretch < 1:
         raise ValueError("stretch must be at least 1")
     if G.number_of_nodes() == 0:
@@ -12979,10 +12982,10 @@ def _treewidth_decomp(graph, heuristic):
 
 
 def _treewidth_min_degree(G):
-    if G.is_directed():
-        raise NetworkXNotImplemented("not implemented for directed type")
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
 
     heuristic = _MinDegreeHeuristic(G)
     return _treewidth_decomp(G, lambda graph: heuristic.best_node(graph))
@@ -15542,7 +15545,9 @@ def local_bridges(G, with_span=True, weight=None):
     Matches the upstream ``@not_implemented_for("directed", "multigraph")``
     decorator (br-zzcm8) — directed and multigraph inputs raise
     NetworkXNotImplemented instead of silently projecting to simple
-    graphs.
+    graphs.  br-r37-c1-mnziq: nx applies the decorators with
+    ``directed`` inner, so on a MultiDiGraph the 'directed' message
+    fires first.
     """
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
@@ -17514,10 +17519,10 @@ def subgraph_centrality(G, *, normalized=False, backend=None, **backend_kwargs):
 
     import numpy as np
 
-    if G.is_directed():
-        raise NetworkXNotImplemented("not implemented for directed type")
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
 
     nodelist = list(G.nodes())
     A = to_numpy_array(G, nodelist=nodelist, weight=None)
@@ -20121,6 +20126,8 @@ def generalized_degree(G, nodes=None):
         ``{node: _Counter}`` where _Counter maps triangle _count to
         number of edges with that many triangles.
     """
+    # br-r37-c1-mnziq: nx decorator order makes 'directed' fire first
+    # on MultiDiGraph.
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
     if G.is_multigraph():
@@ -20975,10 +20982,10 @@ def inverse_line_graph(G):
                 partitioned_vertices += new_cell
         return partition
 
-    if G.is_directed():
-        raise NetworkXNotImplemented("not implemented for directed type")
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
     if G.number_of_nodes() == 0:
         return empty_graph(1)
     if G.number_of_nodes() == 1:
@@ -23280,10 +23287,10 @@ def is_strongly_regular(G):
     plus C_3 as True where nx returns False. Also enforce nx's
     directed/multigraph rejection explicitly.
     """
-    if G.is_directed():
-        raise NetworkXNotImplemented("not implemented for directed type")
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
     return is_distance_regular(G) and diameter(G) == 2
 
 
@@ -23590,10 +23597,10 @@ def gutman_index(G, weight=None, *, backend=None, **backend_kwargs):
     Sum over all pairs of deg(u)*deg(v)*dist(u,v).
     """
     _validate_backend_dispatch_keywords("gutman_index", backend, backend_kwargs)
-    if G.is_directed():
-        raise NetworkXNotImplemented("not implemented for directed type")
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
     if not is_connected(G):
         return float("inf")
 
@@ -23621,10 +23628,10 @@ def schultz_index(G, weight=None, *, backend=None, **backend_kwargs):
     Sum over all pairs of (deg(u)+deg(v))*dist(u,v).
     """
     _validate_backend_dispatch_keywords("schultz_index", backend, backend_kwargs)
-    if G.is_directed():
-        raise NetworkXNotImplemented("not implemented for directed type")
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
     if not is_connected(G):
         return float("inf")
 
@@ -25859,10 +25866,10 @@ def minimum_cycle_basis(G, weight=None):
     per-component implementation to guarantee a true minimum.
     Unweighted graphs (weight=None) still use the Rust fast path.
     """
-    if G.is_directed():
-        raise NetworkXNotImplemented("not implemented for directed type")
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
 
     # br-r37-c1-ey500: materialize SubgraphView first (view family).
     G = _coerce_arg_to_fnx_graph(G)
@@ -30277,6 +30284,8 @@ def triangles(G, nodes=None):
         # ``for node, _count in triangles(G).items():`` matches nx.
         return {node: raw[node] for node in G.nodes() if node in raw}
 
+    # br-r37-c1-mnziq: nx decorator order makes 'directed' fire first
+    # on MultiDiGraph.
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
     if G.is_multigraph():
@@ -30604,10 +30613,10 @@ def modularity_matrix(G, nodelist=None, weight=None):
     """Modularity matrix B = A - k*k^T/(2m)."""
     import numpy as np
 
-    if G.is_directed():
-        raise NetworkXNotImplemented("not implemented for directed type")
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
     # br-r37-c1-mgdq0: nx routes through to_scipy_sparse_array which
     # raises only on no-nodes; for nodes>0 but no edges, it returns an
     # (n,n) NaN matrix (m=0 -> divide-by-zero in k*k^T/(2m)).  fnx's
@@ -31319,10 +31328,10 @@ def _find_chordality_breaker(G, s=None, treewidth_bound=_sys.maxsize):
 
 def find_induced_nodes(G, s, t, treewidth_bound=_sys.maxsize):
     """Return the set of induced nodes in the path from ``s`` to ``t``."""
-    if G.is_directed():
-        raise NetworkXNotImplemented("not implemented for directed type")
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
     if not is_chordal(G):
         raise NetworkXError("Input graph is not chordal.")
 
@@ -31378,10 +31387,10 @@ def k_edge_augmentation(G, k, avail=None, weight=None, partial=False):
     # fire BEFORE the function body, so wrong-type input raises
     # NetworkXNotImplemented regardless of k value. Move the type
     # guards above the k validation so callers see nx-shaped errors.
-    if G.is_directed():
-        raise NetworkXNotImplemented("not implemented for directed type")
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
     # br-r37-c1-keaug-k0: nx raises ValueError("k must be a
     # positive integer, not {k}") for k <= 0; fnx previously
     # silently returned an empty list, masking caller bugs
@@ -34726,10 +34735,10 @@ def apply_matplotlib_colors(
 
 def communicability_exp(G):
     """Communicability via scipy.linalg.expm."""
-    if G.is_directed():
-        raise NetworkXNotImplemented("not implemented for directed type")
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
 
     import scipy as sp
 
@@ -36558,10 +36567,10 @@ def k_factor(G, k, matching_weight="weight"):
     guards before any short-circuit so callers catching
     NetworkXNotImplemented behave like nx.
     """
-    if G.is_directed():
-        raise NetworkXNotImplemented("not implemented for directed type")
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
     if k < 0:
         raise NetworkXError("k must be non-negative")
     if k == 0:
@@ -39205,10 +39214,10 @@ def lattice_reference(G, niter=5, D=None, connectivity=True, seed=None):
     import bisect
     import math
 
-    if G.is_directed():
-        raise NetworkXNotImplemented("not implemented for directed type")
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
     if len(G) < 4:
         raise NetworkXError("Graph has fewer than four nodes.")
     if G.number_of_edges() < 2:

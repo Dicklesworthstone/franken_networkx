@@ -604,10 +604,13 @@ def _ensure_undirected_for_graph6(G, operation, *, reject_multigraph):
     """Raise NetworkX-compatible errors for unsupported graph6/sparse6 writes."""
     import franken_networkx as fnx
 
-    if G.is_directed():
-        raise fnx.NetworkXNotImplemented("not implemented for directed type")
+    # br-r37-c1-mnziq: nx's to_graph6_bytes decorators apply multigraph
+    # first (outer), directed second; multigraph guard fires first when
+    # both apply on a MultiDiGraph.
     if reject_multigraph and G.is_multigraph():
         raise fnx.NetworkXNotImplemented("not implemented for multigraph type")
+    if G.is_directed():
+        raise fnx.NetworkXNotImplemented("not implemented for directed type")
 
 
 def _graph6_has_edge(G, left, right):
