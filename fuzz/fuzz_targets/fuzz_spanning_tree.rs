@@ -212,11 +212,16 @@ fuzz_target!(|input: SpanningTreeInput| {
             if ag.nodes.len() <= 16 {
                 let count =
                     fnx_algorithms::number_of_spanning_trees(&ag.graph, Some(&ag.weight_attr));
-                // Count is non-negative finite (or 0 for disconnected
-                // graphs).
+                // br-r37-c1-5ipb0: the Matrix-Tree theorem's
+                // non-negativity guarantee only holds for non-negative
+                // edge weights. ArbitraryWeightedGraph may produce
+                // negative weights (matches nx behaviour — both
+                // libraries return e.g. -11.0 on a 3-node graph with
+                // weights [-5, 3, -2]). Drop the non-negativity check;
+                // keep finiteness as the safety invariant.
                 assert!(
-                    count.is_finite() && count >= -MST_EPS,
-                    "number_of_spanning_trees {} is not non-negative finite",
+                    count.is_finite(),
+                    "number_of_spanning_trees {} is not finite",
                     count
                 );
             }
