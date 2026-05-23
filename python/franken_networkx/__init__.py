@@ -6297,7 +6297,10 @@ def shortest_path_length(G, source=None, target=None, weight=None, method="dijks
     If only *source* is given, return a dict mapping target to length.
     If both are given, return a single number.
     Matches ``networkx.shortest_path_length``.
+
+    br-r37-c1-ssspview: materialize SubgraphView inputs first.
     """
+    G = _coerce_arg_to_fnx_graph(G)
     if method not in ("dijkstra", "bellman-ford"):
         raise ValueError(f"method not supported: {method}")
     if _path_query_has_missing_nodes(G, source=source, target=target):
@@ -10411,7 +10414,11 @@ def single_source_shortest_path(G, source, cutoff=None):
     reachable from itself at distance 0). The Rust binding declared
     cutoff as unsigned int and raised OverflowError on negatives.
     Coerce negative cutoff to 0 to match nx exactly.
+
+    br-r37-c1-ssspview: materialize SubgraphView inputs before
+    crossing the Rust boundary (see single_source_shortest_path_length).
     """
+    G = _coerce_arg_to_fnx_graph(G)
     if source not in G:
         raise NodeNotFound(f"Source {source} not in G")
     if cutoff is not None:
@@ -10430,7 +10437,16 @@ def single_source_shortest_path_length(G, source, cutoff=None):
     reachable node. Matches NetworkX: raises
     NodeNotFound('Source {src} is not in G') when the source isn't in
     the graph.
+
+    br-r37-c1-ssspview: ``_coerce_arg_to_fnx_graph`` materializes
+    SubgraphView / restricted_view / reverse_view / EdgeSubgraphView
+    inputs to a concrete fnx graph before the Rust kernel runs.  The
+    Rust binding reads the parent's adjacency directly and silently
+    ignores the view filter without this materialization — sister
+    bug to the ``shortest_path`` / ``shortest_path_length`` view
+    handling.
     """
+    G = _coerce_arg_to_fnx_graph(G)
     if source not in G:
         raise NodeNotFound(f"Source {source} is not in G")
     raw = _raw_single_source_shortest_path_length(G, source, cutoff)
