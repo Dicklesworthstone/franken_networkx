@@ -4169,6 +4169,16 @@ fn gml_tokenize(input: &str) -> Vec<String> {
     let mut chars = input.chars().peekable();
 
     while let Some(&ch) = chars.peek() {
+        // br-r37-c1-xuezl: the inner word-building branch below breaks on
+        // ``c.is_whitespace()`` (broader than the outer set), so any
+        // Unicode whitespace not listed here (e.g. ``\x0b`` vertical tab,
+        // ``\x0c`` form feed, Unicode spaces) would never be consumed by
+        // either branch — the outer loop saw it again, infinite-looped.
+        // Use ``is_whitespace`` here too to match.
+        if ch.is_whitespace() {
+            chars.next();
+            continue;
+        }
         match ch {
             ' ' | '\t' | '\n' | '\r' => {
                 chars.next();
