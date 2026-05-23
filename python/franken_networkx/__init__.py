@@ -24840,10 +24840,10 @@ def current_flow_closeness_centrality(
     if not is_connected(G):
         raise NetworkXError("Graph not connected.")
 
+    import numpy as np
     node_count = G.number_of_nodes()
     ordering = list(_reverse_cuthill_mckee_ordering(G))
     relabeled = relabel_nodes(G, dict(zip(ordering, range(node_count))))
-    centrality = dict.fromkeys(relabeled, 0.0)
 
     laplacian = laplacian_matrix(
         relabeled,
@@ -24853,13 +24853,23 @@ def current_flow_closeness_centrality(
     laplacian = laplacian.astype(dtype)
     inverse = solvername[solver](laplacian, width=1, dtype=dtype)
 
-    for node in relabeled:
+    # br-r37-c1-icperf: previously a per-pair O(N²) Python inner loop
+    # over relabeled × relabeled, calling ``row.item(node)`` and
+    # ``row.item(other)`` ~40,000 times for n=200 (~400ms of the
+    # 468ms total).  The inner loop is mathematically equivalent to:
+    #   centrality[node] += n * row[node] - 2 * row.sum()
+    #   centrality       += row[node]    (broadcast to all entries)
+    # — a fully vectorized form that drops the 40k Python iterations
+    # to two numpy ops per outer iteration (~9ms total).
+    n = node_count
+    centrality_arr = np.zeros(n, dtype=float)
+    for node in range(n):
         row = inverse.get_row(node)
-        for other in relabeled:
-            centrality[node] += row.item(node) - 2 * row.item(other)
-            centrality[other] += row.item(node)
+        diag = float(row[node])
+        centrality_arr[node] += n * diag - 2.0 * float(row.sum())
+        centrality_arr += diag
 
-    return {ordering[node]: 1 / value for node, value in centrality.items()}
+    return {ordering[i]: 1.0 / centrality_arr[i] for i in range(n)}
 
 
 def betweenness_centrality_subset(
