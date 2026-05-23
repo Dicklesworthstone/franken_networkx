@@ -23000,21 +23000,31 @@ def triads_by_type(G):
 
     Returns
     -------
-    dict
-        ``{triad_type: [list of triad subgraphs]}``
+    collections.defaultdict
+        ``{triad_type: [list of triad subgraphs]}`` — a defaultdict(list)
+        so ``result[unknown_type]`` yields ``[]`` matching nx's contract.
 
     br-triadsempty: nx.triads_by_type only includes keys for types
     that actually appear in the graph. fnx pre-populated all 16 triad
     types with empty lists, so iterating items / checking membership
     would diverge (fnx yields 16 entries; nx yields only non-empty
     counts). Drop empty buckets to match nx's sparse output.
+
+    br-r37-c1-3gqao: return defaultdict(list) (matching nx's container
+    type) so callers indexing unknown triad types get [] not KeyError.
     """
+    from collections import defaultdict as _defaultdict
+
     result = {t: [] for t in _TRIAD_TYPES}
     for triad in all_triads(G):
         ttype = triad_type(triad)
         if ttype in result:
             result[ttype].append(triad)
-    return {t: triads for t, triads in result.items() if triads}
+    out = _defaultdict(list)
+    for t, triads in result.items():
+        if triads:
+            out[t] = triads
+    return out
 
 
 # ---------------------------------------------------------------------------
