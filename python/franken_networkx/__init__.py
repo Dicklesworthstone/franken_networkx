@@ -13913,6 +13913,42 @@ def _reorder_by_distance(dists, *, G=None, source=None, adj=None):
     )
 
 
+def _snapshot_edge_weights(G, weight_attr, default=1.0):
+    """Build a frozenset-keyed ``{frozenset((u, v)): weight}`` dict so
+    callers can look up the weight of an edge in O(1) without paying
+    a PyO3 round-trip per lookup.  Used by APSP wrappers that need to
+    derive distances from a returned path (br-r37-c1-bfdistderive).
+    Returns ``None`` for non-string ``weight_attr`` — callers should
+    fall back to whatever existing path they had.
+    """
+    if not isinstance(weight_attr, str):
+        return None
+    out = {}
+    for u, v, attrs in G.edges(data=True):
+        if isinstance(attrs, dict):
+            w = attrs.get(weight_attr, default)
+        else:
+            w = default
+        out[frozenset((u, v))] = w
+    return out
+
+
+def _path_lengths_from_paths(paths_by_target, edge_weights):
+    """Given ``paths_by_target = {target: [src, ..., target]}`` and a
+    ``{frozenset((u, v)): weight}`` lookup dict, return
+    ``{target: total_weight}``.  Self-targets (path == [src]) get 0.
+    """
+    if edge_weights is None:
+        return {}
+    out = {}
+    for target, path in paths_by_target.items():
+        total = 0.0
+        for i in range(len(path) - 1):
+            total += edge_weights.get(frozenset((path[i], path[i + 1])), 1.0)
+        out[target] = total
+    return out
+
+
 def _bfs_visit_order_from_adj(adj, source):
     """Same shape as :func:`_bfs_visit_order` but walks a pre-snapshotted
     ``adj`` dict (``{node: list_of_neighbours}``) — avoids PyO3 round-trip
@@ -14138,13 +14174,18 @@ def all_pairs_dijkstra_path(G, cutoff=None, weight="weight"):
     # ``for source, paths in all_pairs_dijkstra_path(G): ...`` matches
     # nx's iteration contract (Rust dict yields in arbitrary order).
     raw = _raw_all_pairs_dijkstra_path(G, weight=weight)
-    raw_lengths = _raw_all_pairs_dijkstra_path_length(G, weight=weight)
+    # br-r37-c1-apspadj: pre-snapshot adjacency (see all_pairs_dijkstra).
+    adj_snapshot = {u: list(G.adj[u]) for u in G.nodes()}
+    # br-r37-c1-bfdistderive: derive distances by summing edge weights
+    # along each path instead of calling _raw_all_pairs_dijkstra_path_length
+    # separately (dijkstra run twice).
+    edge_weights = _snapshot_edge_weights(G, weight)
     for node in G.nodes():
         if node in raw:
             # br-r37-c1-6rphu: reorder inner dict by (distance, BFS).
             inner = raw[node]
-            dists = dict(raw_lengths.get(node, {}))
-            order = _reorder_by_distance(dists, G=G, source=node)
+            dists = _path_lengths_from_paths(inner, edge_weights)
+            order = _reorder_by_distance(dists, G=G, source=node, adj=adj_snapshot)
             yield (node, {k: inner[k] for k in order if k in inner})
 
 
@@ -14174,11 +14215,13 @@ def all_pairs_dijkstra_path_length(G, cutoff=None, weight="weight"):
     # br-r37-c1-3dxfn: iterate outer keys in node-insertion order
     # matching nx (Rust dict yields in arbitrary order).
     raw = _raw_all_pairs_dijkstra_path_length(G, weight=weight)
+    # br-r37-c1-apspadj: pre-snapshot adjacency.
+    adj_snapshot = {u: list(G.adj[u]) for u in G.nodes()}
     for node in G.nodes():
         if node in raw:
             # br-r37-c1-6rphu: reorder inner dict by (distance, BFS).
             inner = dict(raw[node])
-            order = _reorder_by_distance(inner, G=G, source=node)
+            order = _reorder_by_distance(inner, G=G, source=node, adj=adj_snapshot)
             yield (node, {k: inner[k] for k in order})
 
 
@@ -14197,13 +14240,22 @@ def all_pairs_bellman_ford_path(G, weight="weight"):
     # br-r37-c1-sk5be: iterate outer keys in node-insertion order
     # matching nx (Rust dict yields in arbitrary order).
     raw = _raw_all_pairs_bellman_ford_path(G, weight=weight)
-    raw_lengths = _raw_all_pairs_bellman_ford_path_length(G, weight=weight)
+    # br-r37-c1-apspadj: pre-snapshot adjacency (see all_pairs_dijkstra).
+    adj_snapshot = {u: list(G.adj[u]) for u in G.nodes()}
+    # br-r37-c1-bfdistderive: previously called both
+    # ``_raw_all_pairs_bellman_ford_path`` *and*
+    # ``_raw_all_pairs_bellman_ford_path_length`` — duplicate BF runs
+    # taking ~345ms on a 200-node weighted graph just to get distances
+    # for the per-source reorder.  Derive distances by summing edge
+    # weights along each returned path using a pre-cached edge-weight
+    # dict (~3ms build, ~20ms total lookup vs 345ms).
+    edge_weights = _snapshot_edge_weights(G, weight)
     for node in G.nodes():
         if node in raw:
             # br-r37-c1-6rphu: reorder inner dict by (distance, BFS).
             inner = raw[node]
-            dists = dict(raw_lengths.get(node, {}))
-            order = _reorder_by_distance(dists, G=G, source=node)
+            dists = _path_lengths_from_paths(inner, edge_weights)
+            order = _reorder_by_distance(dists, G=G, source=node, adj=adj_snapshot)
             yield (node, {k: inner[k] for k in order if k in inner})
 
 
@@ -14222,11 +14274,13 @@ def all_pairs_bellman_ford_path_length(G, weight="weight"):
     # br-r37-c1-sk5be: iterate outer keys in node-insertion order
     # matching nx (Rust dict yields in arbitrary order).
     raw = _raw_all_pairs_bellman_ford_path_length(G, weight=weight)
+    # br-r37-c1-apspadj: pre-snapshot adjacency.
+    adj_snapshot = {u: list(G.adj[u]) for u in G.nodes()}
     for node in G.nodes():
         if node in raw:
             # br-r37-c1-6rphu: reorder inner dict by (distance, BFS).
             inner = dict(raw[node])
-            order = _reorder_by_distance(inner, G=G, source=node)
+            order = _reorder_by_distance(inner, G=G, source=node, adj=adj_snapshot)
             yield (node, {k: inner[k] for k in order})
 
 
