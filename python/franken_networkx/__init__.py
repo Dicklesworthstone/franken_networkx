@@ -22750,6 +22750,17 @@ def capacity_scaling(
     tuple
         ``(flowCost, flowDict)`` matching NetworkX's return signature.
     """
+    # br-r37-c1-3qt4m: nx's @not_implemented_for('undirected') on
+    # capacity_scaling raises NetworkXNotImplemented before the
+    # network_simplex empty-graph check.  Match the ordering.
+    if not G.is_directed():
+        raise NetworkXNotImplemented("not implemented for undirected type")
+    # br-r37-c1-kpaki: nx's capacity_scaling uses its own path that
+    # returns (0, {}) on empty input — it does NOT raise the
+    # network_simplex "graph has no nodes" error min_cost_flow now
+    # surfaces.  Match nx by short-circuiting before delegating.
+    if len(G) == 0:
+        return 0, {}
     try:
         flow = min_cost_flow(G, demand=demand, capacity=capacity, weight=weight)
     except NetworkXUnfeasible as exc:
