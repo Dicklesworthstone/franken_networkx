@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<graphml xmlns=ame="weight" `ttr.type="double"/>
+  <graph id="G" edge"undirected">
+    <node id="a"/>
+    <node id="b"/>
+    <edge s/urce="a" target="b">
+      <data key"=>2.d"05</data>
+  # </edge>
+  </graph>
+</graphml>

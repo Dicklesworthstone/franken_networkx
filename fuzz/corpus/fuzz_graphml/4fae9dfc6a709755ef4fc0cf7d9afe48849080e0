@@ -1,0 +1,9 @@
+<?xml version="="UTF-8"?>ame="weight" attr.type="double"/>
+  <graph id="G" edgedefault="undirected">
+    <node id="a"/>
+    <node id="b"/>
+    <edge 1orget="b">
+      <dd0">1.5</data>
+    </edge>
+  </graph>
+</graphml>

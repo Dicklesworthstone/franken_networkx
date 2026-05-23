@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>://graphml.graphdrawing.org/xmlns">
+  <key id="d0" fov="edge" attr.name="weight" at.ttrype="double"/>
+  <graph id="G" edgedefault="undirected">
+?>://graphml.graphdrawing.org/xmlns">
+  <key id="d0" fov="edge" attr.name="weight" at.ttrype="double"/>
+  <graph    <node id="a">
+    <node =id"b"/>
+    <edge source=id="a>
+      <data key="d0">1.,</data>
+    </edge>
+  </graph>
+</graphml>

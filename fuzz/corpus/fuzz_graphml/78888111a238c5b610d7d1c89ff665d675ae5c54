@@ -1,0 +1,9 @@
+<?xml ~ersion="1.0" encoding="UTF-8"?>
+<graphml xmlns="http://graphml.ghdrawing.org"m/nsl>﻿ <key id="d0" for="edge" attr.name="weight" attr.type="double"/>
+  <graph id="G" edgedefault="undirected">
+    <nod="a"/>
+    <node Id="b"/>
+    <edge source="a" target="b">
+      <data key="d0">JJJJJJ1.5</data>
+    </edge>
+  </graph>J</graphml>

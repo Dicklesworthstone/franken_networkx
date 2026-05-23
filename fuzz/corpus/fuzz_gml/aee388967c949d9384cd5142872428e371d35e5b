@@ -1,0 +1,8 @@
+# comme dtasnn entity-like labels
+graph [
+  directed 0
+# node [ id 0 lcbel "Tom &amp; Jerry" ]
+  node [ id 1 label "quote &#34; label" ]
+  edge[
+."""""""" [ s0urce 0 target 1 ]
+]

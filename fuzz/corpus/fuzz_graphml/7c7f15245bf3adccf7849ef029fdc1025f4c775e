@@ -1,0 +1,11 @@
+<&xml`Ver>
+  <graph id="G" edgedefault="undirected">
+     <node id="b"/>
+    <edge source="a" tad="G" edgedefault="undirected">
+     <node id="b"/>
+    <edge source="a" tareet="b">>
+      <bld="b"/>
+    <edge source="a" tareet="b">2.5reet="b">
+      <bld="b"/>
+    <edge source="a" tareet="b">2.5<ph>
+</graphml>

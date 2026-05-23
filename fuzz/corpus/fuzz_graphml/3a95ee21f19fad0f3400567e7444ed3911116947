@@ -1,0 +1,7 @@
+<?xml ~ersion="1.0" encoding="UTF-8"?>
+<grap(ml xml(s="http://graphml." for="e`ge" attr.name="weight" attr.type="double"/>
+  <graph id="G" edgedefault="undirected">
+    <node id="a"/>
+    <.ode id="b"/>
+    <edge source="a" t#rget="b">
+      <data key="d0">1t" atb"/<?x   <edge source="age source=hml>

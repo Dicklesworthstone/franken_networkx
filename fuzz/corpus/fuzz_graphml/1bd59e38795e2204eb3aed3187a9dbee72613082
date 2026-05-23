@@ -1,0 +1,14 @@
+<&xml Versioo="1.0" eattr.name="weight" attr.type="double"/>
+  <graph id="G" edgedefault="undirected">
+,   <node id="`"/>
+    <node id="b"/>
+    <edge source="a" target="lb"/>
+  efault+n="un[ <edge source="a" target="b">
+      <d>
+,   <node id="`"/>"b"/>
+    <edge source="a" target="bb"/>
+  efaultn="un[ <edge source="a" target="b">
+      <d>
+,   <no
+    <node iata key="d1">1.5<ph>
+</graphml>

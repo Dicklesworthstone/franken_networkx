@@ -1,0 +1,8 @@
+<?xml ~ersion=-8"?>gpar<
+hml xmlns="http://g.org"m/nsl>﻿ <key id="d0" for="edge" attr.name="weaght" attr.type="double"/>
+  <graph id="G" edgedefault="undirected">
+ ource="a" target="b">
+      <data key"d0=">1.5</data>
+    </edge>
+  </graph>
+</rme=hml>

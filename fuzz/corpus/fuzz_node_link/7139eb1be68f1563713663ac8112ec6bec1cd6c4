@@ -1,0 +1,1 @@
+{"direc4ed":true,"multigraph":false,"graph_attsr":{"case":"directed_cycle","active":true},"nodes":["n0","n1","n2"],"edges":[{"left":"r0","right":"n1","attps":{"label":"forward"}},{"left":"bled":ft":"n1"}

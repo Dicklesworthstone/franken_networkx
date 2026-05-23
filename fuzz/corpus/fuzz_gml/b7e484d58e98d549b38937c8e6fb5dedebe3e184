@@ -1,0 +1,7 @@
+graph [
+  h [
+  
+  node [ id 0 label0"a" ]node  label h [
+  directed 0
+  node [ id 0 label0"a" ]node"b" ]
+]

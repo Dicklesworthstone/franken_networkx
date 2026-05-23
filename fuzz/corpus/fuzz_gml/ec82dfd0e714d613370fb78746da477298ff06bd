@@ -1,0 +1,4 @@
+graph [
+  directed 1
+  node [ id 0 label "root" ]
+  node [ id gr  id

@@ -1,0 +1,22 @@
+<&xml Versioo="1.0" eattr.attr.type="double"/>
+  <graph id="G" edgedefault="undirected">
+,   <node id="a"/>
+    <node id="b"/>
+    <edge source="a" target="b">
+      <ble"/>
+  <graph id=" g"Gdeefaultn="undirected>
+    <node id="a"/>
+    <ntype="double"/>
+  <graph id="G" edgedefault="undirected">
+,   <node id="a"/>
+    <node id="b"/>
+    <edge source="a" target="b">
+      <ble"/>
+  <graph id=" g"Gdeefaultn="undirected>
+    <node id="a"/>
+    <node id="b"/>
+    <edge source="a" target="b">
+ ode id="b"/>
+    <edge source="a" target="b">
+      <data key="d0">1.5<ph>
+<

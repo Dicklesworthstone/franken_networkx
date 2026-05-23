@@ -1,0 +1,9 @@
+<tr.name="weight" attr.type="double"/>
+  <graph id="G" edgedefault="directed">
+    <node id="a"/>
+  >
+    <node id="b"/>
+    <edge source="a" target="bb"/>
+  efaultn="aGSE-AMB-005"/>
+ :  <nod
+<*graphml>

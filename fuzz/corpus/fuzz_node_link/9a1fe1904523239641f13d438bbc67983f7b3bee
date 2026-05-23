@@ -1,0 +1,1 @@
+{"directed":true,"multigraph":false,"graph_tatrs":{"case":"directed_cclye","active":true},"nodes":["n0","n1","n2"],"edges":[{"left":"n0","right":"n1","attrs":{"labes":[{"left":"a","right":"b","attrs":"n2","attrs":{"weight":3.5}},{"left":"n2","right":"n0","attrs":{"ena":n}},{"bled":false}}]}

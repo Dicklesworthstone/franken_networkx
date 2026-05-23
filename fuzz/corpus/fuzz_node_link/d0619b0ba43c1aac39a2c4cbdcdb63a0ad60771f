@@ -1,0 +1,1 @@
+{"dirtgarph":false,"graph_attrs":{"case":"cycle","active":true},"nodes":["n0","n1","n2"],"edges":[{"left":"n0","right":"n1","attrs":{"label":"forward"}},{"left":"n1","right":"1","attrs":{"label":"forward"}},{"len2",""]

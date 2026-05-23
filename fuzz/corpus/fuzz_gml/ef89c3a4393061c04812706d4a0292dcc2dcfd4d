@@ -1,0 +1,3 @@
+graph [  node [ id 0 ]
+ sedge [ source 0 target 0 ]
+]

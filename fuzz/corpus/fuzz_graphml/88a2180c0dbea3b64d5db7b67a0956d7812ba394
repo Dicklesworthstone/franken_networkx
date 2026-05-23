@@ -1,0 +1,9 @@
+<?xml version="1.0UTF-9"?>
+<graphml xmlns="http://graphml.graphdra/xmlns">
+  <kde id="a"/>
+    <node id="b"/>
+    <edge source="a" target="b">
+      <data jey="d0">1.5</data>
+    </edge>
+  </graph>
+</graphml>

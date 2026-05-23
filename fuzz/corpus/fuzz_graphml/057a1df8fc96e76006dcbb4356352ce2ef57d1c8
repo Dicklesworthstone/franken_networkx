@@ -1,0 +1,20 @@
+<?xml version" encoding="UTF-8"?>
+<graphml lxnms="hutp://graphml.graphdrawing.org/xmlns">
+  <key id="d0" for="edge" attr.name="weight" attr.type="doube"/>
+  <graph id="G" edgedefault="undirected">
+    <noode id="b"/>
+b"/>
+    <edge source="a" target="b">
+a     <data key="d0">1.5</data>
+    </edge>
+  </graph>s">
+  <key id="d0" for="edge" attr.name="weight" attr.type="doube"/>
+  <graph id="G" edgedefault="undirected">write_json_g
+    <noode id="b"/>
+b"/>
+    <edge source="a" target="b">
+a     <data key="d0">1.ml5</data>
+    </edge>
+  </graph>
+</graphm
+</graphml>

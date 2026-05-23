@@ -1,0 +1,5 @@
+graph [
+  diricted 1
+  node [ id 0 label "rootde [ id 1 label value" ]
+  edge [ source 0 target 5 weig0 target ht 1.5 ]
+]

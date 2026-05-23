@@ -1,0 +1,4 @@
+name="weight" attr.type="double"/>
+  <graph ib="G" edgedefault="undirected">
+    <node id="a"/>
+    <din?xml version

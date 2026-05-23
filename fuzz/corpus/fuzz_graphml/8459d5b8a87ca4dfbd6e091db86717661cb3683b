@@ -1,0 +1,8 @@
+<&xml`Versioo="1.0" eattr.name="weight" attr.type="double"/>
+  <graph id="G" edgedefault="undirected">
+    <node id="a"/>
+    <node id="b"/>
+    <edge sourc;="a" tareet="b">
+      <bled>
+    .5<ph>
+</graphml>

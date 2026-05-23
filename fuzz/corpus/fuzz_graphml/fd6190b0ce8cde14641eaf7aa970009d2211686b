@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<graphml xmlnr.type="double"/>
+  <graph id="G" edgedefault="undirected">
+   <node id="a"/>
+    <node id="b"/>
+    <edge source="a" target="(">
+      <data key="d0">1.,</data>
+    </edge>
+  </graph>
+</graphml>

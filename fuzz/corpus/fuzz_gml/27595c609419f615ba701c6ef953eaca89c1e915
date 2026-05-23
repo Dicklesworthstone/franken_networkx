@@ -1,0 +1,5 @@
+graph [
+  direected 0
+  node [ id 5 labelz "Tom &amp;" ]
+  node [ id 1 labe [ id 0 label "b" ]
+]

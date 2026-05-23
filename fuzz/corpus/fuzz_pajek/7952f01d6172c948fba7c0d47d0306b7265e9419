@@ -1,0 +1,8 @@
+*Vertices 4
+1 "source"2
+ "mid"
+3 "sink"
+ra"
+*Arcslis.0
+2 3 -2.0
+3 1 0
