@@ -1984,6 +1984,98 @@ pub fn graph_has_negative_edge_weight(
     Ok(result)
 }
 
+/// Build COO-format adjacency arrays (rows, cols, data) directly from
+/// the Rust storage.  Used by the Python ``to_scipy_sparse_array`` /
+/// ``to_numpy_array`` wrappers (br-r37-c1-lqlx2) to skip the per-edge
+/// PyO3 tuple alloc that ``G._adj.items()`` iteration in Python pays.
+///
+/// ``nodelist`` is a Python sequence of fnx node objects (int/str/tuple
+/// — anything ``node_key_to_string`` accepts) defining the row/column
+/// ordering.  ``weight_attr`` is the edge-attribute name to read; when
+/// ``None`` every edge gets ``default_weight`` (matching nx's
+/// ``weight=None`` contract).
+///
+/// For undirected graphs the function emits BOTH ``(u, v)`` and
+/// ``(v, u)`` entries (modulo self-loop dedup) so the resulting COO
+/// array constructs the full symmetric matrix.  For directed graphs
+/// each edge emits a single ``(src, dst)`` entry.  Edges with
+/// endpoints outside ``nodelist`` are skipped (matching the Python
+/// wrapper's ``if u not in index`` filter).
+///
+/// Returns ``None`` for multigraphs (caller falls back to the Python
+/// path which dedups parallel edges).
+#[pyfunction]
+#[pyo3(signature = (g, nodelist, weight_attr, default_weight=1.0))]
+pub fn adjacency_arrays(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    nodelist: &Bound<'_, PyAny>,
+    weight_attr: Option<&str>,
+    default_weight: f64,
+) -> PyResult<Option<(Vec<u32>, Vec<u32>, Vec<f64>)>> {
+    let nodes_iter = pyo3::types::PyIterator::from_object(nodelist)?;
+    let mut index: HashMap<String, u32> = HashMap::new();
+    let mut count: u32 = 0;
+    for item in nodes_iter {
+        let item = item?;
+        let canonical = node_key_to_string(py, &item)?;
+        index.entry(canonical).or_insert(count);
+        count += 1;
+    }
+
+    let gr = extract_graph(g)?;
+    let (rows, cols, data) = match &gr {
+        GraphRef::Undirected(pg) => {
+            let inner = &pg.inner;
+            let edge_count = inner.edge_count();
+            let mut rows: Vec<u32> = Vec::with_capacity(edge_count * 2);
+            let mut cols: Vec<u32> = Vec::with_capacity(edge_count * 2);
+            let mut data: Vec<f64> = Vec::with_capacity(edge_count * 2);
+            for (u, v, attrs) in inner.edges_ordered_borrowed() {
+                let Some(&ui) = index.get(u) else { continue };
+                let Some(&vi) = index.get(v) else { continue };
+                let w = weight_attr
+                    .and_then(|attr| attrs.get(attr).and_then(|val| val.as_f64()))
+                    .unwrap_or(default_weight);
+                rows.push(ui);
+                cols.push(vi);
+                data.push(w);
+                if ui != vi {
+                    rows.push(vi);
+                    cols.push(ui);
+                    data.push(w);
+                }
+            }
+            (rows, cols, data)
+        }
+        GraphRef::Directed { dg, .. } => {
+            let inner = &dg.inner;
+            let edge_count = inner.edge_count();
+            let mut rows: Vec<u32> = Vec::with_capacity(edge_count);
+            let mut cols: Vec<u32> = Vec::with_capacity(edge_count);
+            let mut data: Vec<f64> = Vec::with_capacity(edge_count);
+            for (u, v, attrs) in inner.edges_ordered_borrowed() {
+                let Some(&ui) = index.get(u) else { continue };
+                let Some(&vi) = index.get(v) else { continue };
+                let w = weight_attr
+                    .and_then(|attr| attrs.get(attr).and_then(|val| val.as_f64()))
+                    .unwrap_or(default_weight);
+                rows.push(ui);
+                cols.push(vi);
+                data.push(w);
+            }
+            (rows, cols, data)
+        }
+        GraphRef::MultiUndirected { .. } | GraphRef::MultiDirected { .. } => {
+            // Multigraph: parallel-edge accumulation has subtle nx
+            // contracts (sum vs first vs ignore).  Defer to the
+            // Python path.
+            return Ok(None);
+        }
+    };
+    Ok(Some((rows, cols, data)))
+}
+
 /// Native O(|E|) scan for any non-finite or non-numeric edge weight
 /// at ``weight_attr``. Used by the Python ``pagerank`` dispatcher
 /// (br-r37-c1-s0tno) to decide whether to delegate to nx without
@@ -14056,6 +14148,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(dijkstra_path, m)?)?;
     m.add_function(wrap_pyfunction!(graph_has_negative_edge_weight, m)?)?;
     m.add_function(wrap_pyfunction!(graph_has_nonfinite_edge_weight, m)?)?;
+    m.add_function(wrap_pyfunction!(adjacency_arrays, m)?)?;
     m.add_function(wrap_pyfunction!(bellman_ford_path, m)?)?;
     m.add_function(wrap_pyfunction!(multi_source_dijkstra, m)?)?;
     // Connectivity

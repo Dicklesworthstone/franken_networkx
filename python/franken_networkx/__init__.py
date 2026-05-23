@@ -15940,6 +15940,13 @@ try:
 except ImportError:  # pragma: no cover — defensive for partial builds
     _native_has_nonfinite_edge_weight = None
 
+try:
+    from franken_networkx._fnx import (
+        adjacency_arrays as _native_adjacency_arrays,
+    )
+except ImportError:  # pragma: no cover — defensive for partial builds
+    _native_adjacency_arrays = None
+
 
 def _pagerank_needs_networkx_weight_parity(G, weight):
     if weight is None:
@@ -38003,7 +38010,6 @@ def to_numpy_array(
         if missing:
             raise NetworkXError(f"Nodes {missing} in nodelist is not in G")
 
-    index = {node: i for i, node in enumerate(nodelist)}
     matrix = np.full(
         (len(nodelist), len(nodelist)),
         nonedge,
@@ -38011,6 +38017,28 @@ def to_numpy_array(
         order=order,
     )
 
+    # br-r37-c1-lqlx2: native Rust COO builder, same fast path as
+    # to_scipy_sparse_array.  Scatter (rows, cols, data) into the
+    # pre-allocated dense matrix.
+    if (
+        _native_adjacency_arrays is not None
+        and not G.is_multigraph()
+        and isinstance(G, (Graph, DiGraph))
+        and (weight is None or isinstance(weight, str))
+    ):
+        _sync_rust_edge_attrs(G)
+        weight_attr = None if weight is None else weight
+        native_result = _native_adjacency_arrays(G, nodelist, weight_attr, 1.0)
+        if native_result is not None:
+            rows, cols, data = native_result
+            if rows:
+                rows_arr = np.asarray(rows)
+                cols_arr = np.asarray(cols)
+                data_arr = np.asarray(data, dtype=matrix.dtype)
+                matrix[rows_arr, cols_arr] = data_arr
+            return matrix
+
+    index = {node: i for i, node in enumerate(nodelist)}
     if G.is_multigraph():
         edge_values = {}
         for u, v, _, edge_attrs in G.edges(keys=True, data=True):
@@ -38194,20 +38222,60 @@ def to_scipy_sparse_array(G, nodelist=None, dtype=None, weight="weight", format=
         if missing:
             raise NetworkXError(f"Nodes {missing} in nodelist is not in G")
 
-    index = {node: i for i, node in enumerate(nodelist)}
-    # br-r37-c1-tssaperf: previously built a dict-of-tuple-keys then
-    # split into three lists (rows, cols, data) for scipy.sparse.coo
-    # — ~5ms on a 100-node 1k-edge digraph (vs nx ~0.3ms, 15× slower).
-    # Two changes:
-    #  (1) iterate G._adj.items() directly instead of G.edges(data=True)
-    #      — yields (u, {v: attrs, ...}) without per-edge tuple alloc
-    #      across PyO3 (~25% faster).
-    #  (2) for non-multigraph: every emitted (i, j) is unique within
-    #      the graph's edge set, so accumulate flat lists; for
-    #      multigraph keep the {(i, j): sum} dedup since parallel
-    #      edges must coalesce.
     is_directed = G.is_directed()
     weight_is_none = weight is None
+    # br-r37-c1-lqlx2: native Rust COO builder for non-multigraph.
+    # Iterates the IndexMap directly (~0.1ms for 1000 edges) instead
+    # of Python's G._adj.items() loop (~3ms).  Returns None for
+    # multigraph; we keep the dedup-by-sum Python path for those.
+    # Requires sync because mutations via G[u][v][k]=v live in the
+    # Python attrs view until pushed back to Rust storage.  Skip the
+    # native path when caller passes an explicit ``dtype`` we'd have
+    # to coerce in Python anyway (the dtype arg is preserved by the
+    # scipy COO constructor when given to ``coo_array(..., dtype=)``).
+    if (
+        _native_adjacency_arrays is not None
+        and not G.is_multigraph()
+        and isinstance(G, (Graph, DiGraph))
+        and (weight is None or isinstance(weight, str))
+    ):
+        _sync_rust_edge_attrs(G)
+        weight_attr = None if weight is None else weight
+        native_result = _native_adjacency_arrays(G, nodelist, weight_attr, 1.0)
+        if native_result is not None:
+            rows, cols, data = native_result
+            # br-r37-c1-tssadtype: nx preserves int dtype when every
+            # edge weight is an integer (literal int 1 for weight=None;
+            # or integer-valued ``weight=`` attrs).  Native helper
+            # returns Vec<f64> uniformly; check if every value is an
+            # integer in i64 range and coerce when the caller didn't
+            # pin a dtype.
+            if dtype is None and all(
+                isinstance(v, (int, float))
+                and float(v).is_integer()
+                and -(2**63) <= v <= 2**63 - 1
+                for v in data
+            ):
+                import numpy as _np
+                data_arr = _np.asarray(data, dtype=_np.int64)
+                matrix = scipy.sparse.coo_array(
+                    (data_arr, (rows, cols)),
+                    shape=(len(nodelist), len(nodelist)),
+                )
+            else:
+                matrix = scipy.sparse.coo_array(
+                    (data, (rows, cols)),
+                    shape=(len(nodelist), len(nodelist)),
+                    dtype=dtype,
+                )
+            return matrix.asformat(format)
+
+    # br-r37-c1-tssaperf: Python fallback path — multigraph (which
+    # needs parallel-edge sum dedup), non-string weight key, or
+    # non-fnx graph input (subclass).  Iterate G._adj.items()
+    # directly instead of G.edges(data=True) — yields (u, {v: attrs})
+    # without per-edge tuple alloc across PyO3.
+    index = {node: i for i, node in enumerate(nodelist)}
     rows = []
     cols = []
     data = []
