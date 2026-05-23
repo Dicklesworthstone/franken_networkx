@@ -647,18 +647,26 @@ def _fnx_to_nx(fg):
         # orientation-agnostic and safe across non-comparable node
         # types (nx allows mixing int / str / tuple nodes).
         if fg.is_directed():
-            attrs_by_pair = {
-                (u, v): attrs for u, v, attrs in fg.edges(data=True)
-            }
+            # br-r37-c1-fnxtonxadjdir: iterate _adj.items() — faster
+            # than edges(data=True) and yields (u, {v: attrs})
+            # directly, preserving out-adj order.
+            attrs_by_pair = {}
+            for u, nbrs in fg._adj.items():
+                for v, attrs in nbrs.items():
+                    attrs_by_pair[(u, v)] = attrs
             edges_in_order = []
             for u, v in _topo_emit_edges_by_adj(fg):
                 attrs = attrs_by_pair.get((u, v), {})
                 edges_in_order.append((u, v, dict(attrs)))
         else:
-            attrs_by_pair = {
-                frozenset((u, v)): attrs
-                for u, v, attrs in fg.edges(data=True)
-            }
+            # br-r37-c1-fnxtonxadjdir: same _adj.items() optimization
+            # as the directed branch.  Undirected: each edge appears
+            # twice in adj but frozenset key dedups it; the topo emit
+            # then yields each edge once.
+            attrs_by_pair = {}
+            for u, nbrs in fg._adj.items():
+                for v, attrs in nbrs.items():
+                    attrs_by_pair[frozenset((u, v))] = attrs
             edges_in_order = []
             for u, v in _topo_emit_edges_by_adj(fg):
                 attrs = attrs_by_pair.get(frozenset((u, v)), {})
