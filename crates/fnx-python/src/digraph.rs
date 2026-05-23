@@ -466,12 +466,18 @@ impl PyMultiDiGraph {
     ) -> PyResult<PyObject> {
         let u_canonical = node_key_to_string(py, u)?;
         let v_canonical = node_key_to_string(py, v)?;
+
+        // br-r37-c1-39d82: track new-node creation to bump
+        // nodes_seq for iterator staleness detection.
+        let __was_new = !self.node_key_map.contains_key(&u_canonical)
+            || !self.node_key_map.contains_key(&v_canonical);
         self.node_key_map
             .entry(u_canonical.clone())
             .or_insert_with(|| u.clone().unbind());
         self.node_key_map
             .entry(v_canonical.clone())
             .or_insert_with(|| v.clone().unbind());
+        if __was_new { self.bump_nodes_seq(); }
         self.node_py_attrs
             .entry(u_canonical.clone())
             .or_insert_with(|| PyDict::new(py).unbind());
@@ -2448,12 +2454,18 @@ impl PyDiGraph {
         let u_canonical = node_key_to_string(py, u)?;
         let v_canonical = node_key_to_string(py, v)?;
 
+        // br-r37-c1-39d82: track new-node creation to bump
+        // nodes_seq for iterator staleness detection.
+        let __was_new = !self.node_key_map.contains_key(&u_canonical)
+            || !self.node_key_map.contains_key(&v_canonical);
+
         self.node_key_map
             .entry(u_canonical.clone())
             .or_insert_with(|| u.clone().unbind());
         self.node_key_map
             .entry(v_canonical.clone())
             .or_insert_with(|| v.clone().unbind());
+        if __was_new { self.bump_nodes_seq(); }
         self.node_py_attrs
             .entry(u_canonical.clone())
             .or_insert_with(|| PyDict::new(py).unbind());
