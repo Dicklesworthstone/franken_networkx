@@ -17453,71 +17453,23 @@ def bellman_ford_predecessor_and_distance(
     (pred, dist) : tuple of dicts
         pred maps each node to its predecessor list.
         dist maps each node to its distance from source.
+
+    br-r37-c1-bfslow: the pure-Python relaxation loop below is the
+    textbook O(N·E) algorithm and on a 200-node 1k-edge graph ran in
+    ~96ms — 128× slower than ``nx.bellman_ford_predecessor_and_distance``,
+    which uses an SLF-queue optimization in its inner loop.  Delegate
+    to nx unconditionally; the conversion cost (~6ms post the
+    backend.py topo / attr-cache fix in br-r37-c1-d4h4l) is far less
+    than the ~90ms saved.
     """
     del target, heuristic
 
     if source not in G:
         raise NodeNotFound(f"Node {source} is not found in the graph")
 
-    # br-r37-c1-bfnannumeric: if any edge weight is NaN / +/-inf, the
-    # pure-Python relaxation loop below misuses NaN — ``current is None``
-    # short-circuits to ``dist[v] = NaN`` on first visit, leaking NaN
-    # into the distance map.  nx skips these via ``candidate < current``
-    # (NaN comparisons return False).  Delegate when we detect them.
-    if _has_nan_or_inf_edge_weight(G, weight):
-        nx_pred, nx_dist = _call_networkx_for_parity(
-            "bellman_ford_predecessor_and_distance", G, source, weight=weight
-        )
-        return nx_pred, nx_dist
-
-    weight_fn = _bellman_ford_weight_function(G, weight)
-    if G.is_multigraph():
-        if any(
-            weight_fn(u, v, {k: d}) < 0
-            for u, v, k, d in selfloop_edges(G, keys=True, data=True)
-        ):
-            raise NetworkXUnbounded("Negative cycle detected.")
-    else:
-        if any(weight_fn(u, v, d) < 0 for u, v, d in selfloop_edges(G, data=True)):
-            raise NetworkXUnbounded("Negative cycle detected.")
-
-    dist = {source: 0}
-    pred = {source: []}
-
-    if len(G) == 1:
-        return pred, dist
-
-    for _ in range(len(G) - 1):
-        updated = False
-        for u, v, edge_data in _bellman_ford_adjacency_entries(G):
-            if u not in dist:
-                continue
-            edge_weight = weight_fn(u, v, edge_data)
-            if edge_weight is None:
-                continue
-            candidate = dist[u] + edge_weight
-            current = dist.get(v)
-            if current is None or candidate < current:
-                dist[v] = candidate
-                pred[v] = [u]
-                updated = True
-            elif candidate == current:
-                predecessors = pred.setdefault(v, [])
-                if u not in predecessors:
-                    predecessors.append(u)
-        if not updated:
-            break
-
-    for u, v, edge_data in _bellman_ford_adjacency_entries(G):
-        if u not in dist:
-            continue
-        edge_weight = weight_fn(u, v, edge_data)
-        if edge_weight is None:
-            continue
-        if dist[u] + edge_weight < dist.get(v, _math.inf):
-            raise NetworkXUnbounded("Negative cycle detected.")
-
-    return pred, dist
+    return _call_networkx_for_parity(
+        "bellman_ford_predecessor_and_distance", G, source, weight=weight
+    )
 
 
 # ---------------------------------------------------------------------------
