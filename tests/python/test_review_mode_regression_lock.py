@@ -11317,3 +11317,80 @@ def test_shallow_copy_returns_independent_writable_graph():
     h5 = copy.copy(g5)
     assert h5.graph['name'] == 'orig'
     assert h5.nodes[0]['color'] == 'red'
+
+
+def test_graph_iteration_detects_clear_mutation():
+    """br-r37-c1-akjbv: G.clear() wipes the node set and must
+    invalidate any active iterator (matches Python dict_keyiterator's
+    "dictionary changed size during iteration" semantics).
+    """
+    for cls in (fnx.Graph, fnx.DiGraph, fnx.MultiGraph, fnx.MultiDiGraph):
+        G = cls()
+        G.add_nodes_from([0, 1, 2, 3])
+        node_iter = iter(G)
+        assert next(node_iter) == 0
+        G.clear()
+        with pytest.raises(
+            RuntimeError, match="dictionary changed size during iteration"
+        ):
+            next(node_iter)
+
+
+def test_graph_iteration_detects_add_edge_creating_new_node():
+    """br-r37-c1-eiwh0: G.add_edge that implicitly creates an endpoint
+    must invalidate any active node iterator — bumping nodes_seq is
+    required even though the user only called add_edge(), not add_node().
+    """
+    # u-new endpoint
+    for cls in (fnx.Graph, fnx.DiGraph, fnx.MultiGraph, fnx.MultiDiGraph):
+        G = cls()
+        G.add_nodes_from([0, 1])
+        node_iter = iter(G)
+        assert next(node_iter) == 0
+        G.add_edge(99, 0)  # 99 is new, 0 exists
+        with pytest.raises(
+            RuntimeError, match="dictionary changed size during iteration"
+        ):
+            next(node_iter)
+
+    # both endpoints new (selfloop)
+    for cls in (fnx.Graph, fnx.DiGraph, fnx.MultiGraph, fnx.MultiDiGraph):
+        G = cls()
+        G.add_nodes_from([0, 1])
+        node_iter = iter(G)
+        assert next(node_iter) == 0
+        G.add_edge(99, 99)
+        with pytest.raises(
+            RuntimeError, match="dictionary changed size during iteration"
+        ):
+            next(node_iter)
+
+    # add_edges_from with mixed new/existing
+    for cls in (fnx.Graph, fnx.DiGraph, fnx.MultiGraph, fnx.MultiDiGraph):
+        G = cls()
+        G.add_nodes_from([0, 1, 2])
+        node_iter = iter(G)
+        assert next(node_iter) == 0
+        G.add_edges_from([(0, 1), (1, 99)])
+        with pytest.raises(
+            RuntimeError, match="dictionary changed size during iteration"
+        ):
+            next(node_iter)
+
+
+def test_graph_iteration_does_not_raise_on_existing_node_add_edge():
+    """br-r37-c1-eiwh0: the inverse half of the contract — add_edge
+    where BOTH endpoints already exist must NOT trigger the iterator
+    staleness check, matching nx semantics.  False positives here
+    would break legal patterns like ``for u in G: G.add_edge(u, neighbor)``.
+    """
+    for cls in (fnx.Graph, fnx.DiGraph, fnx.MultiGraph, fnx.MultiDiGraph):
+        G = cls()
+        G.add_nodes_from([0, 1, 2, 3])
+        node_iter = iter(G)
+        first = next(node_iter)
+        assert first == 0
+        # Both endpoints exist — must NOT raise on next().
+        G.add_edge(0, 1)
+        nxt = next(node_iter)
+        assert nxt == 1, f"{cls.__name__}: iterator advanced unexpectedly to {nxt}"
