@@ -33582,14 +33582,28 @@ def gomory_hu_tree(G, capacity="capacity", flow_func=None):
         tree.add_nodes_from(G.nodes(data=True))
         return tree
 
-    # br-r37-c1-ght-disc: nx raises NetworkXUnbounded("Infinite
-    # capacity path, flow unbounded above.") on disconnected graphs
-    # AND on graphs with infinite (default-missing) capacity edges.
-    # fnx's tree-construction loop called the Rust min-cut binding
-    # directly, which doesn't propagate the unbounded error —
-    # producing a meaningless tree.  Match nx's contract by
-    # short-circuiting both cases here.
-    if not is_connected(G) or _flow_has_infinite_capacity(G, capacity):
+    # br-r37-c1-ght-disc / br-r37-c1-smmml: nx raises
+    # NetworkXUnbounded("Infinite capacity path, flow unbounded
+    # above.") whenever some non-selfloop edge carries no capacity
+    # (default missing / +inf). fnx's tree-construction loop called
+    # the Rust min-cut binding directly, which didn't propagate the
+    # unbounded error — producing a meaningless tree.
+    #
+    # Earlier this gate also short-circuited on ``not is_connected(G)``,
+    # which over-fired on graphs where nx returns a valid tree:
+    # isolated nodes (no edges → trivially zero-cut tree), a
+    # disconnected graph with explicit capacities (cross-component
+    # cuts are 0), and graphs whose only edges are selfloops
+    # (selfloops do not contribute to any inter-node cut).
+    # ``_minimum_cut_raw`` correctly returns 0 with a valid partition
+    # for cross-component / selfloop-only pairs, so the loop builds
+    # the right tree on its own — the connectivity short-circuit was
+    # unnecessary and produced false-positive unbounded errors.  The
+    # inf-capacity check excludes selfloops for the same reason.
+    if any(
+        attrs.get(capacity, float("inf")) in (None, float("inf"), float("nan"))
+        for u, v, attrs in G.edges(data=True) if u != v
+    ):
         raise NetworkXUnbounded(
             "Infinite capacity path, flow unbounded above."
         )
