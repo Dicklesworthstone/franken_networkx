@@ -774,6 +774,7 @@ impl PyMultiDiGraph {
         self.edge_py_attrs.clear();
         self.edge_py_keys.clear();
         self.graph_attrs = PyDict::new(py).unbind();
+        self.bump_nodes_seq();
         Ok(())
     }
 
@@ -2653,6 +2654,7 @@ impl PyDiGraph {
         self.node_py_attrs.clear();
         self.edge_py_attrs.clear();
         self.graph_attrs = PyDict::new(py).unbind();
+        self.bump_nodes_seq();
         Ok(())
     }
 
