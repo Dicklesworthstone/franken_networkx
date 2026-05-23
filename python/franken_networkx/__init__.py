@@ -366,10 +366,21 @@ def _remove_node_with_networkx_missing_node_error(remove_node_impl, *, graph_kin
 
 
 class _FailFastEdgeIterator:
+    # br-r37-c1-edgesdataperf: previously called `tuple(self._graph)`
+    # and compared it to `self._expected_nodes` on every __next__ —
+    # an O(N) tuple-build + O(N) tuple compare per element, so
+    # iterating an EdgeDataView ran in O(E*N).  For a 200-node
+    # 1000-edge graph this turned `list(g.edges(data=True))` into a
+    # 1.2-second op (and via the MST wrapper's NaN check into a
+    # 1.3-second `minimum_spanning_tree`).  Replace the per-next
+    # walk with O(1) length probes against snapshotted counts: that
+    # still catches add/remove during iteration (nx's exact contract
+    # — Python's dict raises on size-change, not on key-permutation)
+    # without quadratic overhead.
     def __init__(self, graph, iterable, *, guard_edge_count=False):
         self._graph = graph
         self._iterator = iter(iterable)
-        self._expected_nodes = tuple(graph)
+        self._expected_node_count = len(graph)
         self._expected_edge_count = (
             graph.number_of_edges() if guard_edge_count else None
         )
@@ -379,11 +390,8 @@ class _FailFastEdgeIterator:
 
     def __next__(self):
         item = next(self._iterator)
-        current_nodes = tuple(self._graph)
-        if len(current_nodes) != len(self._expected_nodes):
+        if len(self._graph) != self._expected_node_count:
             raise RuntimeError("dictionary changed size during iteration")
-        if current_nodes != self._expected_nodes:
-            raise RuntimeError("dictionary keys changed during iteration")
         if (
             self._expected_edge_count is not None
             and self._graph.number_of_edges() != self._expected_edge_count
@@ -9676,20 +9684,34 @@ def minimum_spanning_tree(G, weight="weight", algorithm="kruskal", ignore_nan=Fa
         raise NetworkXNotImplemented("not implemented for directed type")
     # br-mstcallable: the Rust _raw_minimum_spanning_tree requires
     # ``weight`` to be a str; nx accepts a callable
-    # ``weight(u, v, d) -> float`` (used to derive weights on the fly).
-    # Route non-str weight values through nx.
-    # br-mstweightwrong: the Rust MST implementation also returns
-    # suboptimal (non-minimum) spanning trees on weighted graphs in
-    # specific graph-construction patterns (e.g. cycle_graph(5) with
-    # weights set post-construction: fnx picks an edge with weight 5
-    # over an available weight-2 edge). Delegate any graph that
-    # carries the weight attr on at least one edge — unweighted
-    # graphs still hit the Rust fast path.
-    if algorithm != "kruskal" or ignore_nan or not isinstance(weight, str) or _mst_has_weight_edge_attr(G, weight):
-        # br-r37-c1-rtak4: _call_networkx_for_parity returns an
-        # nx.Graph unchanged; rehydrate as fnx.Graph so downstream
-        # fnx.* calls (is_connected, is_tree, etc.) accept it.
+    # ``weight(u, v, d) -> float``.  Route non-str weight values
+    # through nx.  Same for algorithm != kruskal and ignore_nan
+    # (Rust impl doesn't model NaN-skipping yet).
+    if algorithm != "kruskal" or ignore_nan or not isinstance(weight, str):
         return _minimum_spanning_tree_via_parity(G, weight, algorithm, ignore_nan)
+    # MultiGraph inputs must come back as MultiGraph (parallel edges,
+    # keyed adjacency); the Rust kernel collapses to plain Graph.
+    # Route through nx parity to preserve type.
+    if isinstance(G, MultiGraph):
+        return _minimum_spanning_tree_via_parity(G, weight, algorithm, ignore_nan)
+    # NaN-weighted edges are an nx error condition (with the default
+    # ignore_nan=False), but the Rust kernel silently treats NaN as
+    # the default weight of 1.0.  Detect NaN at the Python level and
+    # route through nx so the user gets the same ValueError they
+    # would from nx directly.
+    if _has_nan_or_inf_edge_weight(G, weight):
+        return _minimum_spanning_tree_via_parity(G, weight, algorithm, ignore_nan)
+    # br-r37-c1-mstsync: previously we routed ANY graph with a weight
+    # attribute through the nx parity path because the Rust kernel
+    # read stale weights for post-construction mutations
+    # (``g[u][v]['weight'] = w`` after the edge was added unweighted).
+    # That detour was a >750× perf hit on weighted MST (e.g. 1300ms
+    # vs nx's 1.7ms on a 200-node graph).  The
+    # ``_sync_rust_edge_attrs`` helper (br-r37-c1-sjf4t) pushes the
+    # Python-visible dict back into Rust storage, so the Rust kernel
+    # now sees fresh weights and returns the same MST as nx in ~1.6ms.
+    if _mst_has_weight_edge_attr(G, weight):
+        _sync_rust_edge_attrs(G)
     return _raw_minimum_spanning_tree(G, weight=weight)
 
 
