@@ -30541,13 +30541,20 @@ def modularity_matrix(G, nodelist=None, weight=None):
         raise NetworkXNotImplemented("not implemented for directed type")
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
-    if G.number_of_nodes() == 0 or G.number_of_edges() == 0:
+    # br-r37-c1-mgdq0: nx routes through to_scipy_sparse_array which
+    # raises only on no-nodes; for nodes>0 but no edges, it returns an
+    # (n,n) NaN matrix (m=0 -> divide-by-zero in k*k^T/(2m)).  fnx's
+    # over-strict ``number_of_edges()==0`` short-circuit erroneously
+    # raised; drop it so numpy produces the same NaN matrix.
+    if G.number_of_nodes() == 0:
         raise NetworkXError("Graph has no nodes or edges")
     if nodelist is None:
         nodelist = list(G.nodes())
     A = to_numpy_array(G, nodelist=nodelist, weight=weight)
     k = A.sum(axis=1)
     m = A.sum() / 2.0
+    # Note: when m == 0 (no edges) numpy emits a RuntimeWarning and the
+    # result is an (n,n) NaN matrix — matches nx exactly.
     return A - np.outer(k, k) / (2 * m)
 
 
