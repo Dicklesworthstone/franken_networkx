@@ -11593,3 +11593,44 @@ def test_reverse_view_dispatch_matches_nx():
     f_pr = {k: round(v, 6) for k, v in fnx.pagerank(fr).items()}
     n_pr = {k: round(v, 6) for k, v in _nx.pagerank(nr).items()}
     assert f_pr == n_pr
+
+
+def test_conversion_view_dispatch_matches_nx():
+    """br-r37-c1-convview: ``G.to_directed(as_view=True)`` and
+    ``G.to_undirected(as_view=True)`` return dynamic subclasses of
+    ``_ConversionGraphViewBase + DiGraph/Graph``.  Their Rust ``inner``
+    still holds the SOURCE adjacency; algorithms that read it
+    directly silently bypass the view's directionality flip.
+
+    Same dispatch-trap family as br-r37-c1-hfug2 (reverse_view).
+    """
+    import networkx as _nx
+
+    # directed cycle → undirected view: must report connected,
+    # path 0 → 2 has length 1 in the undirected graph.
+    fd = fnx.DiGraph()
+    fd.add_edges_from([(0, 1), (1, 2), (2, 0)])
+    nd = _nx.DiGraph()
+    nd.add_edges_from([(0, 1), (1, 2), (2, 0)])
+    fu_view = fd.to_undirected(as_view=True)
+    nu_view = nd.to_undirected(as_view=True)
+    assert fnx.is_connected(fu_view) == _nx.is_connected(nu_view) == True
+    assert fnx.shortest_path_length(fu_view, 0, 2) == _nx.shortest_path_length(
+        nu_view, 0, 2
+    )
+    assert fnx.shortest_path_length(fu_view, 0, 2) == 1
+
+    # undirected path → directed view: each undirected edge becomes
+    # two directed edges (forward + back), pagerank should match.
+    fg = fnx.Graph()
+    fg.add_edges_from([(0, 1), (1, 2), (2, 3)])
+    ng = _nx.Graph()
+    ng.add_edges_from([(0, 1), (1, 2), (2, 3)])
+    fd_view = fg.to_directed(as_view=True)
+    nd_view = ng.to_directed(as_view=True)
+    assert fnx.shortest_path_length(fd_view, 0, 3) == _nx.shortest_path_length(
+        nd_view, 0, 3
+    )
+    f_pr = {k: round(v, 5) for k, v in fnx.pagerank(fd_view).items()}
+    n_pr = {k: round(v, 5) for k, v in _nx.pagerank(nd_view).items()}
+    assert f_pr == n_pr

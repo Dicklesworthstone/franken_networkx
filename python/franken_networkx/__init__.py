@@ -10711,13 +10711,26 @@ def _coerce_arg_to_fnx_graph(G):
         return _materialize_filtered_view(G)
     # br-r37-c1-revview: _ReverseDirectedView and _ReverseMultiDirectedView
     # subclass DiGraph/MultiDiGraph respectively, so they isinstance-pass
-    # the second check below; but their Rust ``inner`` graph still holds
-    # the ORIGINAL (non-reversed) adjacency, so any Rust kernel reads
-    # through the reverse and silently produces wrong answers (sister
-    # bug class to the SubgraphView dispatch trap fixed in
-    # br-r37-c1-gshwt / br-r37-c1-2cyfr).  Materialize by deserializing
-    # the view's reversed edges into a fresh fnx DiGraph.
+    # the canonical-type check below; but their Rust ``inner`` graph
+    # still holds the ORIGINAL (non-reversed) adjacency, so any Rust
+    # kernel reads through the reverse and silently produces wrong
+    # answers (sister bug class to the SubgraphView dispatch trap
+    # fixed in br-r37-c1-gshwt / br-r37-c1-2cyfr).  Materialize by
+    # deserializing the view's reversed edges into a fresh fnx DiGraph.
     if isinstance(G, _ReverseDirectedViewBase):
+        from franken_networkx.readwrite import _from_nx_graph
+        return _from_nx_graph(G)
+    # br-r37-c1-convview: ``G.to_directed(as_view=True)`` and
+    # ``G.to_undirected(as_view=True)`` return dynamic subclasses of
+    # ``_ConversionGraphViewBase + DiGraph/Graph`` whose Rust
+    # ``inner`` still holds the SOURCE adjacency (directed when
+    # converting from directed → undirected, undirected when
+    # converting from undirected → directed).  The synthetic view
+    # transforms iteration in Python; Rust kernels see right through
+    # it and produce wrong answers.  Same fix shape: materialize via
+    # ``_from_nx_graph`` which deserializes the view's ``edges()``
+    # into a fresh fnx graph with correct Rust storage.
+    if isinstance(G, _ConversionGraphViewBase):
         from franken_networkx.readwrite import _from_nx_graph
         return _from_nx_graph(G)
     if isinstance(G, (Graph, DiGraph, MultiGraph, MultiDiGraph)):
