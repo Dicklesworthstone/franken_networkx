@@ -138,6 +138,19 @@ enum CommunityInput {
     LouvainLarge(ArbitraryGraph),
 }
 
+/// Coerce an f32 fuzz-supplied scalar into a finite f64 in `[lo, hi]`.
+///
+/// `f64::clamp` *propagates* NaN, so a fuzzer-controlled NaN resolution
+/// or threshold flows straight through clamping and turns into a NaN
+/// modularity / louvain assertion failure that has nothing to do with
+/// the algorithm under test. Treat NaN/non-finite as the lower bound —
+/// the fuzz target only cares about exercising the algorithm on valid
+/// numeric inputs.
+fn finite_clamp(value: f32, lo: f64, hi: f64) -> f64 {
+    let v = value as f64;
+    if v.is_finite() { v.clamp(lo, hi) } else { lo }
+}
+
 fuzz_target!(|input: CommunityInput| {
     match input {
         CommunityInput::Louvain {
@@ -156,8 +169,8 @@ fuzz_target!(|input: CommunityInput| {
             // the lower clamp to 1e-6 so the fuzzer can't drive the
             // algorithm into pathological convergence times while
             // still exercising small-but-realistic threshold values.
-            let resolution = (resolution as f64).clamp(1e-3, 8.0);
-            let threshold = (threshold as f64).clamp(1e-6, 1.0);
+            let resolution = finite_clamp(resolution, 1e-3, 8.0);
+            let threshold = finite_clamp(threshold, 1e-6, 1.0);
             let communities = fnx_algorithms::louvain_communities(
                 &ag.graph,
                 resolution,
@@ -195,7 +208,7 @@ fuzz_target!(|input: CommunityInput| {
             partition_seed,
             resolution,
         } => {
-            let resolution = (resolution as f64).clamp(1e-3, 8.0);
+            let resolution = finite_clamp(resolution, 1e-3, 8.0);
             let node_count = ag.nodes.len();
             let partition = arbitrary_partition_ids(node_count, partition_seed);
             // modularity may return Err on an invalid partition or a
