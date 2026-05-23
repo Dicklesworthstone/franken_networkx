@@ -3720,6 +3720,18 @@ impl NodeIteratorGuard {
                 .collect(),
         }
     }
+
+    /// O(1) node-count for the guard's underlying graph — used by the
+    /// per-next size-change check (br-r37-c1-nodeitergsfast).  Avoids
+    /// the O(N) ``current_nodes()`` clone on every ``__next__`` call.
+    fn node_count(&self, py: Python<'_>) -> usize {
+        match self {
+            Self::Graph(graph) => graph.borrow(py).inner.node_count(),
+            Self::MultiGraph(graph) => graph.borrow(py).inner.node_count(),
+            Self::DiGraph(graph) => graph.borrow(py).inner.node_count(),
+            Self::MultiDiGraph(graph) => graph.borrow(py).inner.node_count(),
+        }
+    }
 }
 
 impl NodeIterator {
@@ -3753,12 +3765,21 @@ impl NodeIterator {
             return Ok(None);
         };
         if let Some((graph, expected_nodes)) = &slf.guard {
-            let current_nodes = graph.current_nodes(slf.py());
-            if current_nodes.len() != expected_nodes.len() {
+            // br-r37-c1-nodeitergsfast: O(1) size check is cheap;
+            // emit the "dictionary changed size" error path immediately
+            // when the count differs.
+            let current_count = graph.node_count(slf.py());
+            if current_count != expected_nodes.len() {
                 return Err(PyRuntimeError::new_err(
                     "dictionary changed size during iteration",
                 ));
             }
+            // O(N) key-permutation check — needed to detect
+            // remove+add (count-preserving mutations).  We rebuild
+            // ``current_nodes`` but compare borrowed strs without an
+            // extra ``to_owned`` per element to keep the constant
+            // factor low.
+            let current_nodes = graph.current_nodes(slf.py());
             if current_nodes
                 .iter()
                 .zip(expected_nodes.iter())
