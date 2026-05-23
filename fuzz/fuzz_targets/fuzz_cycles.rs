@@ -127,9 +127,17 @@ fuzz_target!(|input: CycleInput| {
                     !cycle.is_empty(),
                     "find_cycle_directed returned empty cycle"
                 );
-                for i in 0..cycle.len() {
+                // br-r37-c1-4q1rb: find_cycle_directed returns a NODE
+                // list that closes the cycle by DUPLICATING the start
+                // node at the end (e.g. triangle 0->1->2->0 yields
+                // ["0","1","2","0"]).  Iterate consecutive pairs
+                // without wrap; wrapping checks has_edge(start, start)
+                // and triggers false-positive selfloop assertions on
+                // graphs that arbitrary_graph.rs is documented to
+                // skip selfloops in.
+                for i in 0..cycle.len().saturating_sub(1) {
                     let u = &cycle[i];
-                    let v = &cycle[(i + 1) % cycle.len()];
+                    let v = &cycle[i + 1];
                     assert!(
                         ag.graph.has_edge(u, v),
                         "find_cycle_directed emitted non-edge {} -> {}",
@@ -151,9 +159,11 @@ fuzz_target!(|input: CycleInput| {
                     !cycle.is_empty(),
                     "find_cycle_undirected returned empty cycle"
                 );
-                for i in 0..cycle.len() {
+                // br-r37-c1-4q1rb: see find_cycle_directed above —
+                // cycle list closes via duplicated start node.
+                for i in 0..cycle.len().saturating_sub(1) {
                     let u = &cycle[i];
-                    let v = &cycle[(i + 1) % cycle.len()];
+                    let v = &cycle[i + 1];
                     assert!(
                         ag.graph.has_edge(u, v),
                         "find_cycle_undirected emitted non-edge {} -- {}",
@@ -190,38 +200,56 @@ fuzz_target!(|input: CycleInput| {
             }
         }
         CycleInput::HasEulerianPath(ag) => {
-            // Cross-check with is_semieulerian: an Eulerian path exists
-            // iff the graph is semi-Eulerian (i.e. has an Eulerian
-            // path; trail visits every edge exactly once). The two
-            // predicates are aliases.
+            // br-r37-c1-eol4n: is_semieulerian is NOT an alias of
+            // has_eulerian_path — it specifically excludes Eulerian
+            // circuits.  The mathematical invariant matching nx and
+            // the fnx docstring is
+            //     is_semieulerian == has_eulerian_path AND NOT is_eulerian
+            // (semi-Eulerian = has Eulerian path but not Eulerian
+            // circuit, i.e. exactly two odd-degree nodes).
             let has = fnx_algorithms::has_eulerian_path(&ag.graph).has_eulerian_path;
             let semi = fnx_algorithms::is_semieulerian(&ag.graph).is_semieulerian;
+            let is_e = fnx_algorithms::is_eulerian(&ag.graph).is_eulerian;
             assert_eq!(
-                has, semi,
-                "has_eulerian_path ({}) disagrees with is_semieulerian ({})",
-                has, semi
+                semi,
+                has && !is_e,
+                "is_semieulerian ({}) != has_eulerian_path ({}) && !is_eulerian ({}) — \
+                 the documented semi-Eulerian invariant",
+                semi,
+                has,
+                is_e
             );
         }
         CycleInput::IsEulerian(ag) => {
-            // Eulerian → semi-Eulerian (Eulerian circuit implies
-            // Eulerian path/trail exists).
+            // Eulerian circuit implies an Eulerian path (the circuit IS
+            // such a path) AND implies NOT semi-Eulerian (semi requires
+            // exactly two odd-degree nodes; Eulerian needs zero).
             let is_e = fnx_algorithms::is_eulerian(&ag.graph).is_eulerian;
             if is_e {
+                let has = fnx_algorithms::has_eulerian_path(&ag.graph).has_eulerian_path;
                 let semi = fnx_algorithms::is_semieulerian(&ag.graph).is_semieulerian;
                 assert!(
-                    semi,
-                    "is_eulerian=true but is_semieulerian=false (Eulerian circuit implies Eulerian path)"
+                    has,
+                    "is_eulerian=true but has_eulerian_path=false (circuit implies path)"
+                );
+                assert!(
+                    !semi,
+                    "is_eulerian=true but is_semieulerian=true (Eulerian circuit is *not* semi-Eulerian)"
                 );
             }
         }
         CycleInput::IsSemiEulerian(ag) => {
-            // Cross-check with has_eulerian_path: aliases.
+            // br-r37-c1-eol4n: same invariant as HasEulerianPath above.
             let semi = fnx_algorithms::is_semieulerian(&ag.graph).is_semieulerian;
             let has = fnx_algorithms::has_eulerian_path(&ag.graph).has_eulerian_path;
+            let is_e = fnx_algorithms::is_eulerian(&ag.graph).is_eulerian;
             assert_eq!(
-                semi, has,
-                "is_semieulerian ({}) disagrees with has_eulerian_path ({})",
-                semi, has
+                semi,
+                has && !is_e,
+                "is_semieulerian ({}) != has_eulerian_path ({}) && !is_eulerian ({})",
+                semi,
+                has,
+                is_e
             );
         }
     }
