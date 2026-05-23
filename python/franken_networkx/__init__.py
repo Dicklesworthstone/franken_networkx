@@ -11466,13 +11466,17 @@ def all_pairs_dijkstra(G, cutoff=None, weight="weight"):
     # br-r37-c1-sk5be: iterate outer keys in node-insertion order
     # matching nx (Rust dict yields in arbitrary order).
     raw = _raw_all_pairs_dijkstra(G, weight=weight)
+    # br-r37-c1-apspadj: snapshot adjacency once so per-source reorder
+    # doesn't pay the PyO3 G.adj[u] round-trip on every BFS step.
+    adj_snapshot = {u: list(G.adj[u]) for u in G.nodes()}
     for node in G.nodes():
         if node in raw:
             # raw[node] is (dists, paths). br-r37-c1-6rphu: reorder
             # both dicts by (distance, BFS-from-source tiebreak)
             # matching nx's per-source iteration contract.
             dists, paths = raw[node]
-            order = _reorder_by_distance(dict(dists), G=G, source=node)
+            d_dict = dict(dists)
+            order = _reorder_by_distance(d_dict, G=G, source=node, adj=adj_snapshot)
             ordered_dists = {k: dists[k] for k in order if k in dists}
             ordered_paths = {k: paths[k] for k in order if k in paths}
             yield (node, (ordered_dists, ordered_paths))
@@ -13876,19 +13880,60 @@ def _sp_coerce_dist_to_int(dists):
             for k, v in dists.items()}
 
 
-def _reorder_by_distance(dists, *, G=None, source=None):
+def _reorder_by_distance(dists, *, G=None, source=None, adj=None):
     """Return the keys of ``dists`` sorted by ascending distance, with
     BFS-from-source-adj-iteration order as the tiebreak (matches nx's
     Dijkstra/BF processing order). When G or source is None the tiebreak
-    falls back to dict-insertion order (br-r37-c1-62jy2)."""
-    if G is not None and source is not None and source in dists:
+    falls back to dict-insertion order (br-r37-c1-62jy2).
+
+    br-r37-c1-reorderfastpath: skip the BFS visit-order build whenever
+    the distances are already unique — most weighted-Dijkstra outputs
+    have no ties, so the BFS scan (~1ms per source) is pure overhead
+    on the all_pairs hot path.  The optional ``adj`` parameter lets
+    callers pre-snapshot ``G.adj`` once and reuse it across many
+    per-source reorder calls, dropping the PyO3 round-trip cost.
+    """
+    if G is None or source is None or source not in dists:
+        # Stable sort by value preserves insertion order on ties.
+        return sorted(dists.keys(), key=lambda k: dists[k])
+    # Fast path: if every distance is unique, ``sorted`` by value
+    # alone is already deterministic and matches nx's nx-also-sorted
+    # output.  ``len(set(dists.values())) == len(dists)`` is O(N).
+    values = list(dists.values())
+    if len(set(values)) == len(values):
+        return sorted(dists.keys(), key=lambda k: dists[k])
+    # Slow path: build BFS index for proper tie-break.
+    if adj is None:
         bfs_index = {n: i for i, n in enumerate(_bfs_visit_order(G, source))}
-        return sorted(
-            dists.keys(),
-            key=lambda k: (dists[k], bfs_index.get(k, float("inf"))),
-        )
-    # Stable sort by value preserves insertion order on ties.
-    return sorted(dists.keys(), key=lambda k: dists[k])
+    else:
+        bfs_index = {n: i for i, n in enumerate(_bfs_visit_order_from_adj(adj, source))}
+    return sorted(
+        dists.keys(),
+        key=lambda k: (dists[k], bfs_index.get(k, float("inf"))),
+    )
+
+
+def _bfs_visit_order_from_adj(adj, source):
+    """Same shape as :func:`_bfs_visit_order` but walks a pre-snapshotted
+    ``adj`` dict (``{node: list_of_neighbours}``) — avoids PyO3 round-trip
+    per visit when the caller is doing many BFS sweeps on the same graph
+    (e.g. ``all_pairs_dijkstra`` reorder).
+    """
+    if source not in adj:
+        yield source
+        return
+    seen = {source}
+    yield source
+    frontier = [source]
+    while frontier:
+        next_frontier = []
+        for u in frontier:
+            for v in adj.get(u, ()):
+                if v not in seen:
+                    seen.add(v)
+                    yield v
+                    next_frontier.append(v)
+        frontier = next_frontier
 
 
 def single_source_dijkstra(G, source, target=None, cutoff=None, weight="weight"):
