@@ -16845,6 +16845,13 @@ def fiedler_vector(
 
     import numpy as np
 
+    # br-r37-c1-96xkv: directed guard runs before any graph-shape
+    # checks so the @not_implemented_for ordering matches nx (a
+    # directed empty/single-node graph raises NetworkXNotImplemented
+    # rather than NetworkXError "graph has less than two nodes").
+    # MultiGraph is *not* rejected: nx's fiedler_vector accepts it.
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
     # br-r37-c1-s22qo: nx raises NetworkXError on disconnected graphs
     # ('graph is not connected.'); fnx's dense eigh solver silently
     # produced a numerically-meaningless eigenvector for the
@@ -23826,8 +23833,14 @@ def non_randomness(G, k=None, weight="weight"):
 
 def is_distance_regular(G):
     """Returns True if the graph is distance regular, False otherwise."""
+    # br-r37-c1-96xkv: directed/multigraph guard runs before any
+    # empty-graph check so an empty directed/multigraph raises the
+    # nx-shaped NetworkXNotImplemented (the @not_implemented_for
+    # decorator fires before nx's body inspects the graph).
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
     if len(G) == 0:
         raise NetworkXPointlessConcept("Graph has no nodes.")
     return _raw_is_distance_regular(G)
@@ -25667,6 +25680,11 @@ def eulerize(G):
     """
     from itertools import combinations as _combinations
 
+    # br-r37-c1-96xkv: directed guard runs before the empty/connected
+    # check so an empty/length<2 directed graph raises the nx-shaped
+    # NetworkXNotImplemented (matches @not_implemented_for ordering).
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
     if len(G) == 0:
         raise NetworkXPointlessConcept("Cannot Eulerize null graph")
     if not is_connected(G):
