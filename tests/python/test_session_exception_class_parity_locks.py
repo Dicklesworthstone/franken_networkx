@@ -330,6 +330,7 @@ def test_maximal_independent_set_selfloop_message_matches_networkx():
         lambda s: fnx.erdos_renyi_graph(10, 0.3, seed=s),
         lambda s: fnx.barabasi_albert_graph(10, 2, seed=s),
         lambda s: fnx.maximal_independent_set(fnx.path_graph(6), seed=s),
+        lambda s: fnx.random_geometric_graph(10, 0.3, seed=s),
     ],
 )
 def test_seeded_generators_accept_random_random_instance(func_call):
@@ -338,3 +339,25 @@ def test_seeded_generators_accept_random_random_instance(func_call):
     import random
 
     func_call(random.Random(42))  # must not raise
+
+
+@pytest.mark.parametrize(
+    "func_call",
+    [
+        lambda s: fnx.newman_watts_strogatz_graph(10, 4, 0.3, seed=s),
+        lambda s: fnx.connected_watts_strogatz_graph(10, 4, 0.3, seed=s),
+        lambda s: fnx.watts_strogatz_graph(10, 4, 0.3, seed=s),
+        lambda s: fnx.gnp_random_graph(10, 0.3, seed=s),
+        lambda s: fnx.erdos_renyi_graph(10, 0.3, seed=s),
+        lambda s: fnx.barabasi_albert_graph(10, 2, seed=s),
+        lambda s: fnx.random_geometric_graph(10, 0.3, seed=s),
+    ],
+)
+def test_seeded_generators_accept_numpy_rng(func_call):
+    """br-r37-c1-3a1sy: nx accepts seed=numpy.random.RandomState(...) and
+    seed=numpy.random.default_rng(...) via @np_random_state; fnx must
+    not raise.  Each func runs with both numpy RNG flavors."""
+    np = pytest.importorskip("numpy")
+
+    func_call(np.random.RandomState(42))
+    func_call(np.random.default_rng(42))
