@@ -24944,7 +24944,11 @@ def second_order_centrality(G, weight="weight", *, backend=None, **backend_kwarg
     if n == 1:
         return {nodelist[0]: 0.0}
     if any(data.get(weight, 0) < 0 for _, _, data in G.edges(data=True)):
-        raise NetworkXError("Graph has negative edge weights.")
+        # br-r37-c1-soc-exc: nx raises the base NetworkXException class
+        # here (atypical — most fnx errors are NetworkXError subclasses),
+        # so callers using ``except NetworkXException as e`` to discriminate
+        # this specific failure don't catch fnx's NetworkXError. Match nx.
+        raise NetworkXException("Graph has negative edge weights.")
 
     directed = DiGraph(G)
     in_degree = dict(directed.in_degree(weight=weight))
