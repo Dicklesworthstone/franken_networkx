@@ -12539,6 +12539,25 @@ def maximal_independent_set(G, nodes=None, seed=None, *, backend=None, **backend
         if isinstance(seed, int) and not isinstance(seed, bool):
             seed = seed & 0xFFFF_FFFF_FFFF_FFFF
 
+    # br-r37-c1-of11w: when ``nodes`` is None and the algorithm fails,
+    # nx reports the failing node as ``"{node} is not an independent
+    # set of G"`` (it picks a random starting node first); the Rust
+    # binding emits ``"[] is not an independent set"`` with no picked
+    # node captured.  Only the selfloop case can trigger the failure
+    # with ``nodes=None``, and the failing node is the selfloop itself.
+    # Pre-pick *just for that case* so the message reformatter below
+    # produces the matching ``{node}`` text — without pre-picking on
+    # success-path graphs (which would advance the seed differently
+    # from nx's body and break MIS-value parity).
+    nodes_picked_for_selfloop = False
+    if nodes is None and len(G) > 0:
+        selfloops = [n for n in G if G.has_edge(n, n)]
+        if selfloops:
+            import random as _random
+            rng = _random.Random(seed) if seed is not None else _random
+            nodes = [rng.choice(list(G))]
+            nodes_picked_for_selfloop = True
+
     try:
         return _raw_maximal_independent_set(G, nodes, seed)
     except NetworkXUnfeasible as exc:
