@@ -7165,6 +7165,14 @@ def voterank(G, number_of_nodes=None, *, backend=None, **backend_kwargs):
     The previous fnx path forwarded to the Rust helper whose internal
     tie-break ordered ties by a different criterion, so elections
     after the top few seeds diverged from networkx.
+
+    br-r37-c1-vrcache: the outer ``for _ in range(number_of_nodes)``
+    loop previously re-invoked ``G.nodes()``, ``G.edges()``, and
+    ``G.edges(winner)`` every iteration — each a PyO3 round-trip
+    materialising a fresh list.  On a 200-node 1k-edge graph this ran
+    ~450ms (~10× slower than nx).  Snapshot the node list, the edge
+    list, and a per-node neighbour map once; per-iteration cost drops
+    to pure-Python dict accumulation.
     """
     _validate_backend_dispatch_keywords("voterank", backend, backend_kwargs)
 
@@ -7174,31 +7182,51 @@ def voterank(G, number_of_nodes=None, *, backend=None, **backend_kwargs):
     if number_of_nodes is None or number_of_nodes > len(G):
         number_of_nodes = len(G)
 
-    if G.is_directed():
+    is_directed = G.is_directed()
+    nodes_snapshot = list(G.nodes())
+    edges_snapshot = list(G.edges())
+    if is_directed:
         avg_degree = sum(deg for _, deg in G.out_degree()) / len(G)
+        # For directed voterank, ``G.edges(winner)`` yields out-edges,
+        # which is the set we decrement.
+        out_neighbours = {n: [] for n in nodes_snapshot}
+        for u, v in edges_snapshot:
+            out_neighbours[u].append(v)
     else:
         avg_degree = sum(deg for _, deg in G.degree()) / len(G)
+        # Undirected: ``G.edges(winner)`` yields all incident edges.
+        out_neighbours = {n: [] for n in nodes_snapshot}
+        for u, v in edges_snapshot:
+            out_neighbours[u].append(v)
+            out_neighbours[v].append(u)
 
-    vote_rank = {n: [0, 1] for n in G.nodes()}
+    vote_rank = {n: [0, 1] for n in nodes_snapshot}
     for _ in range(number_of_nodes):
-        for n in G.nodes():
+        for n in nodes_snapshot:
             vote_rank[n][0] = 0
-        for u, v in G.edges():
+        for u, v in edges_snapshot:
             vote_rank[u][0] += vote_rank[v][1]
-            if not G.is_directed():
+            if not is_directed:
                 vote_rank[v][0] += vote_rank[u][1]
         for n in influential_nodes:
             vote_rank[n][0] = 0
-        # Tie-break matches nx's max() over G.nodes iteration order.
-        winner = max(G.nodes(), key=lambda x: vote_rank[x][0])
-        if vote_rank[winner][0] == 0:
+        # Tie-break matches nx's max() over G.nodes iteration order
+        # by walking the snapshot in the same order.
+        winner = nodes_snapshot[0]
+        winner_score = vote_rank[winner][0]
+        for n in nodes_snapshot:
+            score = vote_rank[n][0]
+            if score > winner_score:
+                winner = n
+                winner_score = score
+        if winner_score == 0:
             return influential_nodes
         influential_nodes.append(winner)
         vote_rank[winner] = [0, 0]
-        for _, nbr in G.edges(winner):
-            vote_rank[nbr][1] -= 1 / avg_degree
-            if vote_rank[nbr][1] < 0:
-                vote_rank[nbr][1] = 0
+        decrement = 1 / avg_degree
+        for nbr in out_neighbours[winner]:
+            new_w = vote_rank[nbr][1] - decrement
+            vote_rank[nbr][1] = new_w if new_w >= 0 else 0
     return influential_nodes
 
 
