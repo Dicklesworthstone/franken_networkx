@@ -33571,6 +33571,17 @@ def gomory_hu_tree(G, capacity="capacity", flow_func=None):
     if len(G) == 0:
         raise NetworkXError("Empty Graph does not have a Gomory-Hu tree representation")
 
+    # br-r37-c1-4bkzp: a 1-node graph has no pairs of distinct nodes to
+    # cut, so the Gomory-Hu tree is trivially empty (the single node,
+    # no edges) regardless of any selfloop's capacity.  Short-circuit
+    # *before* the infinite-capacity check so a selfloop without a
+    # ``capacity`` attribute does not falsely trigger NetworkXUnbounded
+    # (nx returns an empty tree on this same shape).
+    if len(G) == 1:
+        tree = Graph()
+        tree.add_nodes_from(G.nodes(data=True))
+        return tree
+
     # br-r37-c1-ght-disc: nx raises NetworkXUnbounded("Infinite
     # capacity path, flow unbounded above.") on disconnected graphs
     # AND on graphs with infinite (default-missing) capacity edges.
