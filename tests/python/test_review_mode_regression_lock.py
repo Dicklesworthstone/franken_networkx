@@ -11562,3 +11562,34 @@ def test_subgraph_view_dispatch_matches_nx_across_wrappers():
     )
     assert fnx.is_chordal(fv) == _nx.is_chordal(nv)
     assert fnx.is_distance_regular(fv) == _nx.is_distance_regular(nv)
+
+
+def test_reverse_view_dispatch_matches_nx():
+    """br-r37-c1-revview: _ReverseDirectedView / _ReverseMultiDirectedView
+    isinstance-pass DiGraph/MultiDiGraph but their Rust ``inner``
+    storage holds the ORIGINAL edges.  Without _coerce_arg_to_fnx_graph
+    materialization, Rust kernels read through the reverse and return
+    paths in the wrong direction.
+
+    Sister bug class to the SubgraphView dispatch trap fixed in
+    br-r37-c1-gshwt / br-r37-c1-2cyfr.
+    """
+    import networkx as _nx
+    fd = fnx.DiGraph()
+    fd.add_edges_from([(0, 1), (1, 2), (2, 3), (3, 4)])
+    nd = _nx.DiGraph()
+    nd.add_edges_from([(0, 1), (1, 2), (2, 3), (3, 4)])
+    fr = fnx.reverse_view(fd)
+    nr = _nx.reverse_view(nd)
+
+    # Reverse direction is 4 → 3 → 2 → 1 → 0
+    assert fnx.shortest_path_length(fr, 4, 0) == _nx.shortest_path_length(nr, 4, 0)
+    assert fnx.shortest_path_length(fr, 4, 0) == 4
+
+    # Topological sort on reverse: 4, 3, 2, 1, 0
+    assert list(fnx.topological_sort(fr)) == list(_nx.topological_sort(nr))
+
+    # pagerank: rewards different nodes when edges are reversed
+    f_pr = {k: round(v, 6) for k, v in fnx.pagerank(fr).items()}
+    n_pr = {k: round(v, 6) for k, v in _nx.pagerank(nr).items()}
+    assert f_pr == n_pr
