@@ -34,6 +34,8 @@ pub struct PyDiGraph {
     pub(crate) graph_attrs: Py<PyDict>,
     /// br-r37-c1-39d82: see PyGraph::nodes_seq.
     pub(crate) nodes_seq: u64,
+    /// br-r37-c1-jft0i: see PyGraph::edges_seq.
+    pub(crate) edges_seq: u64,
 }
 
 #[pyclass(
@@ -52,6 +54,8 @@ pub struct PyMultiDiGraph {
     pub(crate) graph_attrs: Py<PyDict>,
     /// br-r37-c1-39d82: see PyGraph::nodes_seq.
     pub(crate) nodes_seq: u64,
+    /// br-r37-c1-jft0i: see PyGraph::edges_seq.
+    pub(crate) edges_seq: u64,
 }
 
 impl PyMultiDiGraph {
@@ -167,6 +171,7 @@ impl PyMultiDiGraph {
             edge_py_keys: HashMap::new(),
             graph_attrs: PyDict::new(py).unbind(),
             nodes_seq: 0,
+            edges_seq: 0,
         })
     }
 
@@ -174,6 +179,12 @@ impl PyMultiDiGraph {
     #[inline]
     pub(crate) fn bump_nodes_seq(&mut self) {
         self.nodes_seq = self.nodes_seq.wrapping_add(1);
+    }
+
+    /// br-r37-c1-jft0i: see PyGraph::bump_edges_seq.
+    #[inline]
+    pub(crate) fn bump_edges_seq(&mut self) {
+        self.edges_seq = self.edges_seq.wrapping_add(1);
     }
 }
 
@@ -334,6 +345,20 @@ impl PyMultiDiGraph {
     #[setter]
     fn set_name(&self, py: Python<'_>, value: String) -> PyResult<()> {
         self.graph_attrs.bind(py).set_item("name", value)
+    }
+
+    /// Monotonic node-mutation counter (br-r37-c1-39d82 / jft0i).
+    /// Exposed to Python so view-materialization caches can key on
+    /// ``(nodes_seq, edges_seq)`` without scanning for changes.
+    #[getter]
+    fn nodes_seq(&self) -> u64 {
+        self.nodes_seq
+    }
+
+    /// Monotonic edge-mutation counter (br-r37-c1-jft0i).
+    #[getter]
+    fn edges_seq(&self) -> u64 {
+        self.edges_seq
     }
 
     fn is_directed(&self) -> bool {
@@ -524,6 +549,8 @@ impl PyMultiDiGraph {
                 py_dict.bind(py).set_item(k, val)?;
             }
         }
+        // br-r37-c1-jft0i: bump edges_seq so view-materialization caches invalidate.
+        self.bump_edges_seq();
         Ok(self.remember_edge_key(py, &u_canonical, &v_canonical, actual_key, key))
     }
 
@@ -597,6 +624,7 @@ impl PyMultiDiGraph {
                 }
             }
         }
+        self.bump_edges_seq();
         Ok(())
     }
 
@@ -632,6 +660,7 @@ impl PyMultiDiGraph {
         if let Some(explicit_key) = auto_removal_key {
             self.remove_edge_metadata(&u_canonical, &v_canonical, explicit_key);
         }
+        self.bump_edges_seq();
         Ok(())
     }
 
@@ -645,6 +674,7 @@ impl PyMultiDiGraph {
         }
 
         // surgically remove attributes for incident edges before removing node from inner graph
+        let mut had_incident_edges = false;
         let succs = self
             .inner
             .successors(&canonical)
@@ -654,6 +684,7 @@ impl PyMultiDiGraph {
                 if let Some(keys) = self.inner.edge_keys(&canonical, &v) {
                     for key in keys {
                         self.remove_edge_metadata(&canonical, &v, key);
+                        had_incident_edges = true;
                     }
                 }
             }
@@ -667,6 +698,7 @@ impl PyMultiDiGraph {
                 if let Some(keys) = self.inner.edge_keys(&u, &canonical) {
                     for key in keys {
                         self.remove_edge_metadata(&u, &canonical, key);
+                        had_incident_edges = true;
                     }
                 }
             }
@@ -676,11 +708,17 @@ impl PyMultiDiGraph {
         self.node_key_map.remove(&canonical);
         self.node_py_attrs.remove(&canonical);
         self.bump_nodes_seq();
+        // br-r37-c1-jft0i: removing a node with incident edges also mutates the
+        // edge set, so bump edges_seq to invalidate edge-keyed caches.
+        if had_incident_edges {
+            self.bump_edges_seq();
+        }
         Ok(())
     }
 
     fn remove_nodes_from(&mut self, py: Python<'_>, nodes: &Bound<'_, PyAny>) -> PyResult<()> {
         let iter = PyIterator::from_object(nodes)?;
+        let mut had_incident_edges = false;
         for item in iter {
             let item = item?;
             let canonical = node_key_to_string(py, &item)?;
@@ -694,6 +732,7 @@ impl PyMultiDiGraph {
                         if let Some(keys) = self.inner.edge_keys(&canonical, &v) {
                             for key in keys {
                                 self.remove_edge_metadata(&canonical, &v, key);
+                                had_incident_edges = true;
                             }
                         }
                     }
@@ -707,6 +746,7 @@ impl PyMultiDiGraph {
                         if let Some(keys) = self.inner.edge_keys(&u, &canonical) {
                             for key in keys {
                                 self.remove_edge_metadata(&u, &canonical, key);
+                                had_incident_edges = true;
                             }
                         }
                     }
@@ -717,6 +757,9 @@ impl PyMultiDiGraph {
             }
         }
         self.bump_nodes_seq();
+        if had_incident_edges {
+            self.bump_edges_seq(); // br-r37-c1-jft0i
+        }
         Ok(())
     }
 
@@ -775,6 +818,7 @@ impl PyMultiDiGraph {
         self.edge_py_keys.clear();
         self.graph_attrs = PyDict::new(py).unbind();
         self.bump_nodes_seq();
+        self.bump_edges_seq(); // br-r37-c1-jft0i
         Ok(())
     }
 
@@ -796,6 +840,7 @@ impl PyMultiDiGraph {
         });
         self.edge_py_attrs.clear();
         self.edge_py_keys.clear();
+        self.bump_edges_seq(); // br-r37-c1-jft0i
     }
 
     fn has_node(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<bool> {
@@ -1012,6 +1057,7 @@ impl PyMultiDiGraph {
             edge_py_keys: HashMap::new(),
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,
+            edges_seq: 0,
         };
         for (canonical, py_key) in &self.node_key_map {
             let rust_attrs = self
@@ -1076,6 +1122,7 @@ impl PyMultiDiGraph {
             // SHARE the graph attrs dict (shallow copy)
             graph_attrs: self.graph_attrs.clone_ref(py),
             nodes_seq: 0,
+            edges_seq: 0,
         };
         // Copy nodes but SHARE attribute dicts
         for (canonical, py_key) in &self.node_key_map {
@@ -1153,6 +1200,7 @@ impl PyMultiDiGraph {
             edge_py_keys: HashMap::new(),
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,
+            edges_seq: 0,
         };
 
         for canonical in &keep {
@@ -1212,6 +1260,7 @@ impl PyMultiDiGraph {
             edge_py_keys: HashMap::new(),
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,
+            edges_seq: 0,
         };
 
         for item in iter {
@@ -1302,6 +1351,7 @@ impl PyMultiDiGraph {
             edge_py_keys: HashMap::new(),
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,
+            edges_seq: 0,
         };
 
         for (canonical, py_key) in &self.node_key_map {
@@ -1358,6 +1408,7 @@ impl PyMultiDiGraph {
             edge_py_keys: HashMap::new(),
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,
+            edges_seq: 0,
         };
         for canonical in self.inner.nodes_ordered() {
             let rust_attrs = self
@@ -1426,6 +1477,7 @@ impl PyMultiDiGraph {
             d.set_item(weight, &w)?;
             self.add_edge(py, &u, &v, None, Some(&d))?;
         }
+        self.bump_edges_seq();
         Ok(())
     }
 
@@ -1449,6 +1501,7 @@ impl PyMultiDiGraph {
                 let _ = self.remove_edge(py, u, v, key.as_ref());
             }
         }
+        self.bump_edges_seq();
         Ok(())
     }
 
@@ -2122,6 +2175,7 @@ impl PyDiGraph {
             edge_py_attrs: HashMap::new(),
             graph_attrs: PyDict::new(py).unbind(),
             nodes_seq: 0,
+            edges_seq: 0,
         })
     }
 
@@ -2129,6 +2183,12 @@ impl PyDiGraph {
     #[inline]
     pub(crate) fn bump_nodes_seq(&mut self) {
         self.nodes_seq = self.nodes_seq.wrapping_add(1);
+    }
+
+    /// br-r37-c1-jft0i: see PyGraph::bump_edges_seq.
+    #[inline]
+    pub(crate) fn bump_edges_seq(&mut self) {
+        self.edges_seq = self.edges_seq.wrapping_add(1);
     }
 }
 
@@ -2267,6 +2327,20 @@ impl PyDiGraph {
         self.graph_attrs.bind(py).set_item("name", value)
     }
 
+    /// Monotonic node-mutation counter (br-r37-c1-39d82 / jft0i).
+    /// Exposed to Python so view-materialization caches can key on
+    /// ``(nodes_seq, edges_seq)`` without scanning for changes.
+    #[getter]
+    fn nodes_seq(&self) -> u64 {
+        self.nodes_seq
+    }
+
+    /// Monotonic edge-mutation counter (br-r37-c1-jft0i).
+    #[getter]
+    fn edges_seq(&self) -> u64 {
+        self.edges_seq
+    }
+
     // ---- Predicates ----
 
     /// Always ``True`` for DiGraph.
@@ -2395,16 +2469,19 @@ impl PyDiGraph {
         }
 
         // surgically remove attributes for incident edges before removing node from inner graph
+        let mut had_incident_edges = false;
         if let Some(succs) = self.inner.successors(&canonical) {
             for v in succs {
                 let ek = Self::edge_key(&canonical, v);
                 self.edge_py_attrs.remove(&ek);
+                had_incident_edges = true;
             }
         }
         if let Some(preds) = self.inner.predecessors(&canonical) {
             for u in preds {
                 let ek = Self::edge_key(u, &canonical);
                 self.edge_py_attrs.remove(&ek);
+                had_incident_edges = true;
             }
         }
 
@@ -2412,11 +2489,17 @@ impl PyDiGraph {
         self.node_key_map.remove(&canonical);
         self.node_py_attrs.remove(&canonical);
         self.bump_nodes_seq();
+        // br-r37-c1-jft0i: removing a node with incident edges also mutates the
+        // edge set, so bump edges_seq to invalidate edge-keyed caches.
+        if had_incident_edges {
+            self.bump_edges_seq();
+        }
         Ok(())
     }
 
     fn remove_nodes_from(&mut self, py: Python<'_>, nodes: &Bound<'_, PyAny>) -> PyResult<()> {
         let iter = PyIterator::from_object(nodes)?;
+        let mut had_incident_edges = false;
         for item in iter {
             let item = item?;
             let canonical = node_key_to_string(py, &item)?;
@@ -2425,12 +2508,14 @@ impl PyDiGraph {
                     for v in succs {
                         let ek = Self::edge_key(&canonical, v);
                         self.edge_py_attrs.remove(&ek);
+                        had_incident_edges = true;
                     }
                 }
                 if let Some(preds) = self.inner.predecessors(&canonical) {
                     for u in preds {
                         let ek = Self::edge_key(u, &canonical);
                         self.edge_py_attrs.remove(&ek);
+                        had_incident_edges = true;
                     }
                 }
                 self.inner.remove_node(&canonical);
@@ -2439,6 +2524,9 @@ impl PyDiGraph {
             }
         }
         self.bump_nodes_seq();
+        if had_incident_edges {
+            self.bump_edges_seq(); // br-r37-c1-jft0i
+        }
         Ok(())
     }
 
@@ -2490,7 +2578,10 @@ impl PyDiGraph {
 
         self.inner
             .add_edge_with_attrs(u_canonical, v_canonical, rust_attrs)
-            .map_err(|e| NetworkXError::new_err(e.to_string()))
+            .map_err(|e| NetworkXError::new_err(e.to_string()))?;
+        // br-r37-c1-jft0i: bump edges_seq so view-materialization caches invalidate.
+        self.bump_edges_seq();
+        Ok(())
     }
 
     #[pyo3(signature = (ebunch_to_add, **attr))]
@@ -2534,6 +2625,7 @@ impl PyDiGraph {
             }
             self.add_edge(py, &u, &v, Some(&merged))?;
         }
+        self.bump_edges_seq();
         Ok(())
     }
 
@@ -2552,6 +2644,7 @@ impl PyDiGraph {
             d.set_item(weight, &w)?;
             self.add_edge(py, &u, &v, Some(&d))?;
         }
+        self.bump_edges_seq();
         Ok(())
     }
 
@@ -2573,6 +2666,7 @@ impl PyDiGraph {
         }
         let ek = Self::edge_key(&u_canonical, &v_canonical);
         self.edge_py_attrs.remove(&ek);
+        self.bump_edges_seq();
         Ok(())
     }
 
@@ -2594,6 +2688,7 @@ impl PyDiGraph {
             let ek = Self::edge_key(&u_c, &v_c);
             self.edge_py_attrs.remove(&ek);
         }
+        self.bump_edges_seq();
         Ok(())
     }
 
@@ -2655,6 +2750,7 @@ impl PyDiGraph {
         self.edge_py_attrs.clear();
         self.graph_attrs = PyDict::new(py).unbind();
         self.bump_nodes_seq();
+        self.bump_edges_seq(); // br-r37-c1-jft0i
         Ok(())
     }
 
@@ -2664,6 +2760,7 @@ impl PyDiGraph {
             self.inner.remove_edge(&u, &v);
         }
         self.edge_py_attrs.clear();
+        self.bump_edges_seq(); // br-r37-c1-jft0i
     }
 
     fn has_node(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<bool> {
@@ -2692,6 +2789,7 @@ impl PyDiGraph {
             edge_py_attrs: HashMap::new(),
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,
+            edges_seq: 0,
         };
         // Copy nodes in graph insertion order to preserve NetworkX iteration.
         for canonical in self.inner.nodes_ordered() {
@@ -2781,6 +2879,7 @@ impl PyDiGraph {
             edge_py_attrs: HashMap::new(),
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,
+            edges_seq: 0,
         };
         for (canonical, py_key) in &self.node_key_map {
             let rust_attrs = self
@@ -2836,6 +2935,7 @@ impl PyDiGraph {
             edge_py_attrs: HashMap::new(),
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,
+            edges_seq: 0,
         };
 
         for canonical in &keep {
@@ -2897,6 +2997,7 @@ impl PyDiGraph {
             edge_py_attrs: HashMap::new(),
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,
+            edges_seq: 0,
         };
 
         let mut nodes_needed: std::collections::HashSet<String> = std::collections::HashSet::new();
@@ -3274,6 +3375,7 @@ impl PyDiGraph {
             // SHARE the graph attrs dict (shallow copy)
             graph_attrs: self.graph_attrs.clone_ref(py),
             nodes_seq: 0,
+            edges_seq: 0,
         };
         // Copy nodes but SHARE attribute dicts
         for (canonical, py_key) in &self.node_key_map {

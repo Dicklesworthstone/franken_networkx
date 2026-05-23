@@ -10752,16 +10752,27 @@ def _materialize_filtered_view(view):
     that hand the result to Rust ``_raw_*`` operators see the filtered
     contents rather than the parent's full Rust state.
 
-    Materialization cost is ~30ms on a 200-node graph and caching
-    repeated calls would be a significant win, but the cache key
-    needs to be a monotonic mutation counter to safely invalidate
-    on count-preserving rewires (``remove_edge + add_edge`` flips
-    structure without changing node/edge counts).  Filed
-    br-r37-c1-mutseq as the proper fix: expose ``nodes_seq`` to
-    Python and add a sibling ``edges_seq``; cache key becomes
-    ``(nodes_seq, edges_seq)``.  Until then the unconditional
-    materialization is the correct path.
+    Materialization is ~30ms on a 200-node graph, so a per-view cache
+    keyed on the source's monotonic mutation counters is a significant
+    win for algorithms that call coerce-then-materialize repeatedly on
+    the same view.  br-r37-c1-jft0i: source.nodes_seq + source.edges_seq
+    together form a monotonic key that invalidates on every node/edge
+    mutation including count-preserving rewires (which the earlier
+    ``(node_count, edge_count)`` cache key missed — see br-r37-c1-jy3j3
+    revert).  When the cache key matches, return the previously
+    materialized graph without rescanning the view's iterators.
     """
+    cache_key = None
+    source = getattr(view, "_graph", None)
+    if source is not None:
+        ns = getattr(source, "nodes_seq", None)
+        es = getattr(source, "edges_seq", None)
+        if ns is not None and es is not None:
+            cache_key = (ns, es)
+            cached = view.__dict__.get("_fnx_materialized_cache")
+            if cached is not None and cached[0] == cache_key:
+                return cached[1]
+
     cls = _concrete_class_for(view)
     out = cls()
     out.graph.update(dict(view.graph))
@@ -10773,6 +10784,14 @@ def _materialize_filtered_view(view):
     else:
         for u, v, d in view.edges(data=True):
             out.add_edge(u, v, **dict(d))
+
+    if cache_key is not None:
+        try:
+            view.__dict__["_fnx_materialized_cache"] = (cache_key, out)
+        except (TypeError, AttributeError):
+            # View class with __slots__ that excludes a __dict__ — fall
+            # back to uncached (still correct, just slow).
+            pass
     return out
 
 

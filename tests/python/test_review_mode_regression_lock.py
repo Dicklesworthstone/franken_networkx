@@ -11688,10 +11688,10 @@ def test_view_materialization_invalidates_on_count_preserving_rewire():
     the source graph was rewired with both an edge removal and an
     edge addition (counts preserved, structure changed).
 
-    The proper fix is a monotonic mutation counter exposed from Rust
-    (filed as br-r37-c1-mutseq).  This test locks the
-    correctness-over-perf decision: we DO NOT cache materialization
-    until the counter lands.
+    br-r37-c1-jft0i: the proper fix landed — Rust now exposes monotonic
+    ``nodes_seq`` and ``edges_seq`` counters that bump on every mutation,
+    including count-preserving rewires.  The cache is keyed on the
+    ``(nodes_seq, edges_seq)`` tuple so any mutation invalidates it.
     """
     import networkx as _nx
     fg = fnx.Graph()
@@ -11717,3 +11717,39 @@ def test_view_materialization_invalidates_on_count_preserving_rewire():
     # nx path is now direct: 0→3 has length 1.  fnx must match.
     assert fnx.shortest_path_length(fv, 0, 3) == _nx.shortest_path_length(nv, 0, 3)
     assert fnx.shortest_path_length(fv, 0, 3) == 1
+
+
+def test_view_materialization_cache_hits_when_source_unchanged():
+    """br-r37-c1-jft0i lock: a repeated materialization of the same view
+    over an unchanged source must return the same cached object (object
+    identity check), proving the cache is hit and the per-call cost
+    collapses from O(N+E) view-walk to O(1) dict lookup.
+    """
+    fg = fnx.Graph()
+    fg.add_nodes_from(range(50))
+    fg.add_edges_from((i, (i + 1) % 50) for i in range(50))
+    fg.add_edges_from((i, (i + 2) % 50) for i in range(50))
+
+    fv = fnx.subgraph_view(fg, filter_node=lambda n: True)
+    first = fnx._materialize_filtered_view(fv)
+    second = fnx._materialize_filtered_view(fv)
+    assert first is second, "cache miss on unmutated source"
+
+    # Any mutation must invalidate.
+    fg.add_edge(0, 25)
+    third = fnx._materialize_filtered_view(fv)
+    assert third is not first, "cache returned stale result after add_edge"
+
+
+def test_view_materialization_cache_invalidates_on_node_mutation():
+    """Companion to the rewire test: a node-only mutation (no edge
+    change) must bump nodes_seq and invalidate the cache.
+    """
+    fg = fnx.Graph()
+    fg.add_edges_from([(0, 1), (1, 2)])
+    fv = fnx.subgraph_view(fg, filter_node=lambda n: True)
+    first = fnx._materialize_filtered_view(fv)
+    fg.add_node(99)  # node-only, no edge change
+    second = fnx._materialize_filtered_view(fv)
+    assert second is not first, "cache stale after add_node"
+    assert 99 in second.nodes()

@@ -24,6 +24,7 @@ fn report_to_pygraph(py: Python<'_>, graph: fnx_classes::Graph) -> PyResult<PyGr
         edge_py_attrs: HashMap::new(),
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
+        edges_seq: 0,
     };
 
     // Map string keys to Python int keys.
@@ -60,6 +61,7 @@ fn report_to_pydigraph(
         edge_py_attrs: HashMap::new(),
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
+        edges_seq: 0,
     };
 
     for canonical in pg.inner.nodes_ordered() {
@@ -96,6 +98,7 @@ fn report_to_pymultidigraph(
         edge_py_keys: HashMap::new(),
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
+        edges_seq: 0,
     };
 
     for canonical in pg.inner.nodes_ordered() {

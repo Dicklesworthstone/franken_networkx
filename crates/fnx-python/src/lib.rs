@@ -311,6 +311,13 @@ pub(crate) struct PyGraph {
     /// wrap so long as ≥ 2⁶⁴ mutations don't happen between
     /// construction and a single next() call.
     pub(crate) nodes_seq: u64,
+    /// Sibling to nodes_seq bumped on every edge mutation (add_edge,
+    /// remove_edge, add_edges_from, remove_edges_from, etc).  Together
+    /// with nodes_seq forms a ``(nodes_seq, edges_seq)`` tuple that any
+    /// caller can use as a monotonic graph-mutation key (br-r37-c1-jft0i)
+    /// — e.g. the view materialization cache reverted in br-r37-c1-jy3j3
+    /// needs both to catch count-preserving rewires.
+    pub(crate) edges_seq: u64,
 }
 
 impl PyGraph {
@@ -356,6 +363,7 @@ impl PyGraph {
             edge_py_attrs: HashMap::new(),
             graph_attrs: PyDict::new(py).unbind(),
             nodes_seq: 0,
+            edges_seq: 0,
         })
     }
 
@@ -366,6 +374,15 @@ impl PyGraph {
     #[inline]
     pub(crate) fn bump_nodes_seq(&mut self) {
         self.nodes_seq = self.nodes_seq.wrapping_add(1);
+    }
+
+    /// Bump the edge-mutation counter after any edge add/remove
+    /// (br-r37-c1-jft0i).  Used together with nodes_seq to form a
+    /// monotonic ``(nodes_seq, edges_seq)`` graph-mutation key that's
+    /// exposed to Python for the view materialization cache.
+    #[inline]
+    pub(crate) fn bump_edges_seq(&mut self) {
+        self.edges_seq = self.edges_seq.wrapping_add(1);
     }
 }
 
@@ -385,6 +402,8 @@ pub(crate) struct PyMultiGraph {
     pub(crate) graph_attrs: Py<PyDict>,
     /// br-r37-c1-39d82: see PyGraph::nodes_seq.
     pub(crate) nodes_seq: u64,
+    /// br-r37-c1-jft0i: see PyGraph::edges_seq.
+    pub(crate) edges_seq: u64,
 }
 
 impl PyMultiGraph {
@@ -499,6 +518,7 @@ impl PyMultiGraph {
             edge_py_keys: HashMap::new(),
             graph_attrs: PyDict::new(py).unbind(),
             nodes_seq: 0,
+            edges_seq: 0,
         })
     }
 
@@ -506,6 +526,12 @@ impl PyMultiGraph {
     #[inline]
     pub(crate) fn bump_nodes_seq(&mut self) {
         self.nodes_seq = self.nodes_seq.wrapping_add(1);
+    }
+
+    /// br-r37-c1-jft0i: see PyGraph::bump_edges_seq.
+    #[inline]
+    pub(crate) fn bump_edges_seq(&mut self) {
+        self.edges_seq = self.edges_seq.wrapping_add(1);
     }
 }
 
@@ -666,6 +692,20 @@ impl PyMultiGraph {
     #[setter]
     fn set_name(&self, py: Python<'_>, value: String) -> PyResult<()> {
         self.graph_attrs.bind(py).set_item("name", value)
+    }
+
+    /// Monotonic node-mutation counter (br-r37-c1-39d82 / jft0i).
+    /// Exposed to Python so view-materialization caches can key on
+    /// ``(nodes_seq, edges_seq)`` without scanning for changes.
+    #[getter]
+    fn nodes_seq(&self) -> u64 {
+        self.nodes_seq
+    }
+
+    /// Monotonic edge-mutation counter (br-r37-c1-jft0i).
+    #[getter]
+    fn edges_seq(&self) -> u64 {
+        self.edges_seq
     }
 
     fn is_directed(&self) -> bool {
@@ -877,11 +917,13 @@ impl PyMultiGraph {
             .inner
             .neighbors(&canonical)
             .map(|neighbors| neighbors.into_iter().map(str::to_owned).collect::<Vec<_>>());
+        let mut had_incident_edges = false;
         if let Some(neighbors) = neighbors {
             for nb in neighbors {
                 if let Some(keys) = self.inner.edge_keys(&canonical, &nb) {
                     for key in keys {
                         self.remove_edge_metadata(&canonical, &nb, key);
+                        had_incident_edges = true;
                     }
                 }
             }
@@ -891,11 +933,17 @@ impl PyMultiGraph {
         self.node_key_map.remove(&canonical);
         self.node_py_attrs.remove(&canonical);
         self.bump_nodes_seq();
+        // br-r37-c1-jft0i: removing a node with incident edges also mutates the
+        // edge set, so bump edges_seq to invalidate edge-keyed caches.
+        if had_incident_edges {
+            self.bump_edges_seq();
+        }
         Ok(())
     }
 
     fn remove_nodes_from(&mut self, py: Python<'_>, nodes: &Bound<'_, PyAny>) -> PyResult<()> {
         let iter = PyIterator::from_object(nodes)?;
+        let mut had_incident_edges = false;
         for item in iter {
             let item = item?;
             let canonical = node_key_to_string(py, &item)?;
@@ -909,6 +957,7 @@ impl PyMultiGraph {
                         if let Some(keys) = self.inner.edge_keys(&canonical, &nb) {
                             for key in keys {
                                 self.remove_edge_metadata(&canonical, &nb, key);
+                                had_incident_edges = true;
                             }
                         }
                     }
@@ -919,6 +968,9 @@ impl PyMultiGraph {
             }
         }
         self.bump_nodes_seq();
+        if had_incident_edges {
+            self.bump_edges_seq(); // br-r37-c1-jft0i
+        }
         Ok(())
     }
 
@@ -993,6 +1045,8 @@ impl PyMultiGraph {
                 py_dict.bind(py).set_item(k, val)?;
             }
         }
+        // br-r37-c1-jft0i: bump edges_seq so view-materialization caches invalidate.
+        self.bump_edges_seq();
         Ok(self.remember_edge_key(py, &u_canonical, &v_canonical, actual_key, key))
     }
 
@@ -1066,6 +1120,7 @@ impl PyMultiGraph {
                 }
             }
         }
+        self.bump_edges_seq();
         Ok(())
     }
 
@@ -1102,6 +1157,7 @@ impl PyMultiGraph {
         if let Some(explicit_key) = auto_removal_key {
             self.remove_edge_metadata(&u_canonical, &v_canonical, explicit_key);
         }
+        self.bump_edges_seq();
         Ok(())
     }
 
@@ -1113,6 +1169,7 @@ impl PyMultiGraph {
         self.edge_py_keys.clear();
         self.graph_attrs = PyDict::new(py).unbind();
         self.bump_nodes_seq();
+        self.bump_edges_seq(); // br-r37-c1-jft0i
         Ok(())
     }
 
@@ -1134,6 +1191,7 @@ impl PyMultiGraph {
         });
         self.edge_py_attrs.clear();
         self.edge_py_keys.clear();
+        self.bump_edges_seq(); // br-r37-c1-jft0i
     }
 
     fn has_node(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<bool> {
@@ -1346,6 +1404,7 @@ impl PyMultiGraph {
             edge_py_keys: HashMap::new(),
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,
+            edges_seq: 0,
         };
         for (canonical, py_key) in &self.node_key_map {
             let rust_attrs = self
@@ -1414,6 +1473,7 @@ impl PyMultiGraph {
             // SHARE the graph attrs dict (shallow copy)
             graph_attrs: self.graph_attrs.clone_ref(py),
             nodes_seq: 0,
+            edges_seq: 0,
         };
         // Copy nodes but SHARE attribute dicts
         for (canonical, py_key) in &self.node_key_map {
@@ -1495,6 +1555,7 @@ impl PyMultiGraph {
             edge_py_keys: HashMap::new(),
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,
+            edges_seq: 0,
         };
 
         for canonical in &keep {
@@ -1571,6 +1632,7 @@ impl PyMultiGraph {
             edge_py_keys: HashMap::new(),
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,
+            edges_seq: 0,
         };
 
         for (u, v, key_filter) in &keep_edges {
@@ -1655,6 +1717,7 @@ impl PyMultiGraph {
             edge_py_keys: HashMap::new(),
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,
+            edges_seq: 0,
         };
 
         for (canonical, py_key) in &self.node_key_map {
@@ -1725,6 +1788,7 @@ impl PyMultiGraph {
             d.set_item(weight, &w)?;
             self.add_edge(py, &u, &v, None, Some(&d))?;
         }
+        self.bump_edges_seq();
         Ok(())
     }
 
@@ -1750,6 +1814,7 @@ impl PyMultiGraph {
                 let _ = self.remove_edge(py, u, v, key.as_ref());
             }
         }
+        self.bump_edges_seq();
         Ok(())
     }
 
@@ -2423,6 +2488,20 @@ impl PyGraph {
         self.graph_attrs.bind(py).set_item("name", value)
     }
 
+    /// Monotonic node-mutation counter (br-r37-c1-39d82 / jft0i).
+    /// Exposed to Python so view-materialization caches can key on
+    /// ``(nodes_seq, edges_seq)`` without scanning for changes.
+    #[getter]
+    fn nodes_seq(&self) -> u64 {
+        self.nodes_seq
+    }
+
+    /// Monotonic edge-mutation counter (br-r37-c1-jft0i).
+    #[getter]
+    fn edges_seq(&self) -> u64 {
+        self.edges_seq
+    }
+
     // ---- Predicates ----
 
     /// Returns ``True`` if graph is directed. Always ``False`` for Graph.
@@ -2566,10 +2645,12 @@ impl PyGraph {
         log::debug!(target: "franken_networkx", "remove_node: {canonical}");
 
         // surgically remove attributes for incident edges before removing node from inner graph
+        let mut had_incident_edges = false;
         if let Some(neighbors) = self.inner.neighbors(&canonical) {
             for nb in neighbors {
                 let ek = Self::edge_key(&canonical, nb);
                 self.edge_py_attrs.remove(&ek);
+                had_incident_edges = true;
             }
         }
 
@@ -2577,12 +2658,18 @@ impl PyGraph {
         self.node_key_map.remove(&canonical);
         self.node_py_attrs.remove(&canonical);
         self.bump_nodes_seq();
+        // br-r37-c1-jft0i: removing a node with incident edges also mutates the
+        // edge set, so bump edges_seq to invalidate edge-keyed caches.
+        if had_incident_edges {
+            self.bump_edges_seq();
+        }
         Ok(())
     }
 
     /// Remove multiple nodes. Silently skips absent nodes.
     fn remove_nodes_from(&mut self, py: Python<'_>, nodes: &Bound<'_, PyAny>) -> PyResult<()> {
         let iter = PyIterator::from_object(nodes)?;
+        let mut had_incident_edges = false;
         for item in iter {
             let item = item?;
             let canonical = node_key_to_string(py, &item)?;
@@ -2591,6 +2678,7 @@ impl PyGraph {
                     for nb in neighbors {
                         let ek = Self::edge_key(&canonical, nb);
                         self.edge_py_attrs.remove(&ek);
+                        had_incident_edges = true;
                     }
                 }
                 self.inner.remove_node(&canonical);
@@ -2599,6 +2687,9 @@ impl PyGraph {
             }
         }
         self.bump_nodes_seq();
+        if had_incident_edges {
+            self.bump_edges_seq(); // br-r37-c1-jft0i
+        }
         Ok(())
     }
 
@@ -2654,7 +2745,10 @@ impl PyGraph {
         log::debug!(target: "franken_networkx", "add_edge: {u_canonical} -- {v_canonical}");
         self.inner
             .add_edge_with_attrs(u_canonical, v_canonical, rust_attrs)
-            .map_err(|e| NetworkXError::new_err(e.to_string()))
+            .map_err(|e| NetworkXError::new_err(e.to_string()))?;
+        // br-r37-c1-jft0i: bump edges_seq so view-materialization caches invalidate.
+        self.bump_edges_seq();
+        Ok(())
     }
 
     /// Add edges from an iterable of (u, v) or (u, v, attr_dict) tuples.
@@ -2716,6 +2810,7 @@ impl PyGraph {
                 self.add_edge(py, &u, &v, Some(&merged))?;
             }
         }
+        self.bump_edges_seq();
         Ok(())
     }
 
@@ -2778,6 +2873,7 @@ impl PyGraph {
             d.set_item(weight, &w)?;
             self.add_edge(py, &u, &v, Some(&d))?;
         }
+        self.bump_edges_seq();
         Ok(())
     }
 
@@ -2801,6 +2897,7 @@ impl PyGraph {
         }
         let ek = Self::edge_key(&u_canonical, &v_canonical);
         self.edge_py_attrs.remove(&ek);
+        self.bump_edges_seq();
         Ok(())
     }
 
@@ -2823,6 +2920,7 @@ impl PyGraph {
             let ek = Self::edge_key(&u_c, &v_c);
             self.edge_py_attrs.remove(&ek);
         }
+        self.bump_edges_seq();
         Ok(())
     }
 
@@ -2837,6 +2935,7 @@ impl PyGraph {
         self.edge_py_attrs.clear();
         self.graph_attrs = PyDict::new(py).unbind();
         self.bump_nodes_seq();
+        self.bump_edges_seq(); // br-r37-c1-jft0i
         Ok(())
     }
 
@@ -2848,6 +2947,7 @@ impl PyGraph {
             self.inner.remove_edge(&u, &v);
         }
         self.edge_py_attrs.clear();
+        self.bump_edges_seq(); // br-r37-c1-jft0i
     }
 
     /// Return True if graph has node n.
@@ -2996,6 +3096,7 @@ impl PyGraph {
             edge_py_attrs: HashMap::new(),
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,
+            edges_seq: 0,
         };
         // Copy nodes
         for (canonical, py_key) in &self.node_key_map {
@@ -3069,6 +3170,7 @@ impl PyGraph {
             edge_py_attrs: HashMap::new(),
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,
+            edges_seq: 0,
         };
 
         // Add kept nodes
@@ -3133,6 +3235,7 @@ impl PyGraph {
             edge_py_attrs: HashMap::new(),
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,
+            edges_seq: 0,
         };
 
         // Collect nodes from kept edges
@@ -3423,6 +3526,7 @@ impl PyGraph {
             // SHARE the graph attrs dict (shallow copy)
             graph_attrs: self.graph_attrs.clone_ref(py),
             nodes_seq: 0,
+            edges_seq: 0,
         };
         // Copy nodes but SHARE attribute dicts
         for (canonical, py_key) in &self.node_key_map {
