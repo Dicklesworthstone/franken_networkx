@@ -313,3 +313,28 @@ def test_maximal_independent_set_selfloop_message_matches_networkx():
     g.add_edge(0, 0)
     with pytest.raises(fnx.NetworkXUnfeasible, match=r"\{0\} is not an independent set"):
         fnx.maximal_independent_set(g)
+
+
+# ---------------------------------------------------------------------------
+# br-r37-c1-ms5et — generators accept random.Random as seed
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "func_call",
+    [
+        lambda s: fnx.newman_watts_strogatz_graph(10, 4, 0.3, seed=s),
+        lambda s: fnx.connected_watts_strogatz_graph(10, 4, 0.3, seed=s),
+        lambda s: fnx.watts_strogatz_graph(10, 4, 0.3, seed=s),
+        lambda s: fnx.gnp_random_graph(10, 0.3, seed=s),
+        lambda s: fnx.erdos_renyi_graph(10, 0.3, seed=s),
+        lambda s: fnx.barabasi_albert_graph(10, 2, seed=s),
+        lambda s: fnx.maximal_independent_set(fnx.path_graph(6), seed=s),
+    ],
+)
+def test_seeded_generators_accept_random_random_instance(func_call):
+    """nx accepts seed=random.Random(...) via @py_random_state; fnx must
+    not raise on the same call.  Each func is run with a fresh Random."""
+    import random
+
+    func_call(random.Random(42))  # must not raise
