@@ -11753,3 +11753,42 @@ def test_view_materialization_cache_invalidates_on_node_mutation():
     second = fnx._materialize_filtered_view(fv)
     assert second is not first, "cache stale after add_node"
     assert 99 in second.nodes()
+
+
+def test_reverse_view_materialization_cache_hits():
+    """br-r37-c1-jft0i: extend the (nodes_seq, edges_seq) cache to
+    ``_ReverseDirectedViewBase`` so ``reverse_view`` materializations
+    are also O(1) on repeated calls.
+    """
+    D = fnx.DiGraph()
+    D.add_edges_from([(0, 1), (1, 2), (2, 0)])
+    R = fnx.reverse_view(D)
+    first = fnx._materialize_view_via_from_nx(R)
+    second = fnx._materialize_view_via_from_nx(R)
+    assert first is second, "reverse_view cache miss on unmutated source"
+
+    D.add_edge(0, 3)
+    third = fnx._materialize_view_via_from_nx(R)
+    assert third is not first, "reverse_view cache stale after add_edge"
+    # The materialized view should reflect the reversed direction of
+    # the new edge: 3 → 0.
+    assert third.has_edge(3, 0)
+
+
+def test_conversion_view_materialization_cache_hits():
+    """br-r37-c1-jft0i: extend the cache to ``_ConversionGraphViewBase``
+    so ``to_directed(as_view=True)`` / ``to_undirected(as_view=True)``
+    materializations hit the cache on unchanged sources.
+    """
+    G = fnx.Graph()
+    G.add_edges_from([(0, 1), (1, 2)])
+    DV = G.to_directed(as_view=True)
+    first = fnx._materialize_view_via_from_nx(DV)
+    second = fnx._materialize_view_via_from_nx(DV)
+    assert first is second, "to_directed view cache miss on unmutated source"
+
+    G.add_edge(2, 3)
+    third = fnx._materialize_view_via_from_nx(DV)
+    assert third is not first, "to_directed view cache stale after add_edge"
+    # New edge must appear in both directions in the materialized DiGraph.
+    assert third.has_edge(2, 3) and third.has_edge(3, 2)

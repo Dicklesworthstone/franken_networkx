@@ -10718,8 +10718,7 @@ def _coerce_arg_to_fnx_graph(G):
     # fixed in br-r37-c1-gshwt / br-r37-c1-2cyfr).  Materialize by
     # deserializing the view's reversed edges into a fresh fnx DiGraph.
     if isinstance(G, _ReverseDirectedViewBase):
-        from franken_networkx.readwrite import _from_nx_graph
-        return _from_nx_graph(G)
+        return _materialize_view_via_from_nx(G)
     # br-r37-c1-convview: ``G.to_directed(as_view=True)`` and
     # ``G.to_undirected(as_view=True)`` return dynamic subclasses of
     # ``_ConversionGraphViewBase + DiGraph/Graph`` whose Rust
@@ -10731,8 +10730,7 @@ def _coerce_arg_to_fnx_graph(G):
     # ``_from_nx_graph`` which deserializes the view's ``edges()``
     # into a fresh fnx graph with correct Rust storage.
     if isinstance(G, _ConversionGraphViewBase):
-        from franken_networkx.readwrite import _from_nx_graph
-        return _from_nx_graph(G)
+        return _materialize_view_via_from_nx(G)
     if isinstance(G, (Graph, DiGraph, MultiGraph, MultiDiGraph)):
         return G
     try:
@@ -10791,6 +10789,35 @@ def _materialize_filtered_view(view):
         except (TypeError, AttributeError):
             # View class with __slots__ that excludes a __dict__ — fall
             # back to uncached (still correct, just slow).
+            pass
+    return out
+
+
+def _materialize_view_via_from_nx(view):
+    """br-r37-c1-jft0i: cached counterpart of ``_from_nx_graph`` for
+    view classes that don't go through ``_materialize_filtered_view``
+    (``_ReverseDirectedViewBase`` and ``_ConversionGraphViewBase``).
+    Same monotonic-counter caching contract: read ``source.nodes_seq``
+    and ``source.edges_seq``, key the cache on the tuple, store the
+    materialized graph on ``view.__dict__``.
+    """
+    cache_key = None
+    source = getattr(view, "_graph", None)
+    if source is not None:
+        ns = getattr(source, "nodes_seq", None)
+        es = getattr(source, "edges_seq", None)
+        if ns is not None and es is not None:
+            cache_key = (ns, es)
+            cached = view.__dict__.get("_fnx_materialized_cache")
+            if cached is not None and cached[0] == cache_key:
+                return cached[1]
+
+    from franken_networkx.readwrite import _from_nx_graph
+    out = _from_nx_graph(view)
+    if cache_key is not None:
+        try:
+            view.__dict__["_fnx_materialized_cache"] = (cache_key, out)
+        except (TypeError, AttributeError):
             pass
     return out
 
