@@ -30096,13 +30096,16 @@ def _triangle_selection(G, nodes):
 
 
 def _triangles_and_degree_iter_local(G, nodes=None):
+    # br-r37-c1-undtriclus: snapshot adjacency once so the inner
+    # ``set(G[neighbor])`` calls become plain dict lookups, not PyO3
+    # round-trips.  Cuts ~10ms off a 100-node 1k-edge transitivity call.
+    adj_snapshot = {u: set(G[u]) - {u} for u in G}
     node_iter = G if nodes is None else nodes
-    nodes_neighbors = ((node, G[node]) for node in node_iter)
 
-    for node, node_neighbors in nodes_neighbors:
-        neighbor_set = set(node_neighbors) - {node}
+    for node in node_iter:
+        neighbor_set = adj_snapshot.get(node, set())
         generalized_degree = _Counter(
-            len(neighbor_set & (set(G[neighbor]) - {neighbor})) for neighbor in neighbor_set
+            len(neighbor_set & adj_snapshot.get(neighbor, set())) for neighbor in neighbor_set
         )
         triangle_count = sum(size * _count for size, _count in generalized_degree.items())
         yield (node, len(neighbor_set), triangle_count, generalized_degree)
@@ -30116,19 +30119,28 @@ def _weighted_triangles_and_degree_iter_local(G, nodes=None, weight="weight"):
             attrs.get(weight, 1) for _, _, attrs in G.edges(data=True)
         )
 
+    # br-r37-c1-undtriclus: snapshot adjacency + edge weights once.
+    adj_snapshot = {u: set(G[u]) - {u} for u in G}
+    # Symmetric weight cache for undirected.
+    weight_cache = {}
+    for u, v, attrs in G.edges(data=True):
+        w_norm = attrs.get(weight, 1) / max_weight
+        weight_cache[frozenset((u, v))] = w_norm
     node_iter = G if nodes is None else nodes
-    nodes_neighbors = ((node, G[node]) for node in node_iter)
 
     def normalized_weight(u, v):
+        cached = weight_cache.get(frozenset((u, v)))
+        if cached is not None:
+            return cached
         return G[u][v].get(weight, 1) / max_weight
 
-    for node, node_neighbors in nodes_neighbors:
-        neighbor_set = set(node_neighbors) - {node}
+    for node in node_iter:
+        neighbor_set = adj_snapshot.get(node, set())
         weighted_triangle_sum = 0.0
         seen_neighbors = set()
         for neighbor in neighbor_set:
             seen_neighbors.add(neighbor)
-            neighbor_neighbors = set(G[neighbor]) - seen_neighbors
+            neighbor_neighbors = adj_snapshot.get(neighbor, set()) - seen_neighbors
             edge_weight = normalized_weight(node, neighbor)
             for shared_neighbor in neighbor_set & neighbor_neighbors:
                 weighted_triangle_sum += _math.cbrt(
@@ -30140,17 +30152,24 @@ def _weighted_triangles_and_degree_iter_local(G, nodes=None, weight="weight"):
 
 
 def _directed_triangles_and_degree_iter_local(G, nodes=None):
+    # br-r37-c1-dirclust: previously called ``G.pred[u]`` / ``G.succ[u]``
+    # via PyO3 inside the outer per-node loop AND for each visited
+    # neighbour — for K_100-like digraphs this was 4 PyO3 round-trips
+    # per neighbour, ~21ms total on a 100-node 1k-edge graph
+    # (~5× slower than nx).  Snapshot pred/succ as plain dicts once;
+    # the entire inner loop becomes pure-Python set ops.
+    pred_snapshot = {u: set(G.pred[u]) - {u} for u in G}
+    succ_snapshot = {u: set(G.succ[u]) - {u} for u in G}
     node_iter = G if nodes is None else nodes
-    nodes_neighbors = ((node, G.pred[node], G.succ[node]) for node in node_iter)
 
-    for node, predecessors, successors in nodes_neighbors:
-        predecessor_set = set(predecessors) - {node}
-        successor_set = set(successors) - {node}
+    for node in node_iter:
+        predecessor_set = pred_snapshot.get(node, set())
+        successor_set = succ_snapshot.get(node, set())
 
         directed_triangle_count = 0
         for neighbor in _itertools.chain(predecessor_set, successor_set):
-            neighbor_predecessors = set(G.pred[neighbor]) - {neighbor}
-            neighbor_successors = set(G.succ[neighbor]) - {neighbor}
+            neighbor_predecessors = pred_snapshot.get(neighbor, set())
+            neighbor_successors = succ_snapshot.get(neighbor, set())
             directed_triangle_count += sum(
                 1
                 for third_node in _itertools.chain(
@@ -30174,20 +30193,28 @@ def _directed_weighted_triangles_and_degree_iter_local(G, nodes=None, weight="we
             attrs.get(weight, 1) for _, _, attrs in G.edges(data=True)
         )
 
+    # br-r37-c1-dirclust: snapshot pred/succ + edge-weight dict once.
+    pred_snapshot = {u: set(G.pred[u]) - {u} for u in G}
+    succ_snapshot = {u: set(G.succ[u]) - {u} for u in G}
+    # Directed weight cache: (u, v) ordered tuple.
+    weight_cache = {(u, v): attrs.get(weight, 1) / max_weight
+                    for u, v, attrs in G.edges(data=True)}
     node_iter = G if nodes is None else nodes
-    nodes_neighbors = ((node, G.pred[node], G.succ[node]) for node in node_iter)
 
     def normalized_weight(u, v):
+        cached = weight_cache.get((u, v))
+        if cached is not None:
+            return cached
         return G[u][v].get(weight, 1) / max_weight
 
-    for node, predecessors, successors in nodes_neighbors:
-        predecessor_set = set(predecessors) - {node}
-        successor_set = set(successors) - {node}
+    for node in node_iter:
+        predecessor_set = pred_snapshot.get(node, set())
+        successor_set = succ_snapshot.get(node, set())
 
         directed_triangle_sum = 0.0
         for neighbor in predecessor_set:
-            neighbor_predecessors = set(G.pred[neighbor]) - {neighbor}
-            neighbor_successors = set(G.succ[neighbor]) - {neighbor}
+            neighbor_predecessors = pred_snapshot.get(neighbor, set())
+            neighbor_successors = succ_snapshot.get(neighbor, set())
             for third_node in predecessor_set & neighbor_predecessors:
                 directed_triangle_sum += _math.cbrt(
                     normalized_weight(neighbor, node)
@@ -30214,8 +30241,8 @@ def _directed_weighted_triangles_and_degree_iter_local(G, nodes=None, weight="we
                 )
 
         for neighbor in successor_set:
-            neighbor_predecessors = set(G.pred[neighbor]) - {neighbor}
-            neighbor_successors = set(G.succ[neighbor]) - {neighbor}
+            neighbor_predecessors = pred_snapshot.get(neighbor, set())
+            neighbor_successors = succ_snapshot.get(neighbor, set())
             for third_node in predecessor_set & neighbor_predecessors:
                 directed_triangle_sum += _math.cbrt(
                     normalized_weight(node, neighbor)
