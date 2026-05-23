@@ -11634,3 +11634,49 @@ def test_conversion_view_dispatch_matches_nx():
     f_pr = {k: round(v, 5) for k, v in fnx.pagerank(fd_view).items()}
     n_pr = {k: round(v, 5) for k, v in _nx.pagerank(nd_view).items()}
     assert f_pr == n_pr
+
+
+def test_multigraph_view_dispatch_matches_nx():
+    """Phase 5 of the view-dispatch audit: verify Multi variants are
+    also handled by ``_coerce_arg_to_fnx_graph`` since the dynamic
+    subclasses (MultiGraph variants of _DirectedMultiGraphConversionView,
+    _UndirectedMultiGraphConversionView, _ReverseMultiDirectedView)
+    are covered by the same isinstance checks.
+
+    Probed clean in the deep-validation turn but no test locked the
+    behaviour previously.
+    """
+    import networkx as _nx
+
+    # MultiGraph + subgraph_view
+    fmg = fnx.MultiGraph()
+    nmg = _nx.MultiGraph()
+    for u, v, w in [(0, 1, 1), (0, 1, 2), (1, 2, 3), (2, 3, 4), (0, 3, 5)]:
+        fmg.add_edge(u, v, weight=w)
+        nmg.add_edge(u, v, weight=w)
+    fv = fnx.subgraph_view(fmg, filter_node=lambda n: n >= 1)
+    nv = _nx.subgraph_view(nmg, filter_node=lambda n: n >= 1)
+    assert sorted(fv.nodes()) == sorted(nv.nodes())
+    assert fv.number_of_edges() == nv.number_of_edges()
+    assert fnx.shortest_path_length(fv, 1, 3) == _nx.shortest_path_length(nv, 1, 3)
+    assert fnx.is_connected(fv) == _nx.is_connected(nv)
+
+    # MultiDiGraph + to_undirected(as_view=True)
+    fmd = fnx.MultiDiGraph()
+    nmd = _nx.MultiDiGraph()
+    for u, v in [(0, 1), (0, 1), (1, 2), (2, 0)]:
+        fmd.add_edge(u, v)
+        nmd.add_edge(u, v)
+    muv = fmd.to_undirected(as_view=True)
+    nuv = nmd.to_undirected(as_view=True)
+    assert fnx.is_connected(muv) == _nx.is_connected(nuv)
+    assert fnx.shortest_path_length(muv, 0, 2) == _nx.shortest_path_length(nuv, 0, 2)
+
+    # MultiDiGraph + reverse_view
+    fmd_rev = fnx.reverse_view(fmd)
+    nmd_rev = _nx.reverse_view(nmd)
+    assert sorted(fmd_rev.edges()) == sorted(nmd_rev.edges())
+    # Reverse must have at least one new path direction
+    assert fnx.shortest_path_length(fmd_rev, 0, 2) == _nx.shortest_path_length(
+        nmd_rev, 0, 2
+    )
