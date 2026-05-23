@@ -201,8 +201,14 @@ fuzz_target!(|input: CentralityInput| {
             let result = fnx_algorithms::degree_centrality_directed(&ag.graph);
             assert_score_set_covers_digraph(&result.scores, &ag.graph);
             for s in &result.scores {
-                assert!(s.score >= 0.0 && s.score <= 1.0 + 1.0e-9,
-                    "directed degree centrality out of [0,1]: node={} score={}", s.node, s.score);
+                // br-r37-c1-z33xq: directed degree_centrality is
+                // (in_degree + out_degree) / (n - 1) — each direction
+                // can reach n-1, so the value can reach 2.0 (verified
+                // matches nx on K4-directed and 2-node bidirectional).
+                // The [0, 1] bound only applies to undirected
+                // degree_centrality.
+                assert!(s.score >= 0.0 && s.score <= 2.0 + 1.0e-9,
+                    "directed degree centrality out of [0,2]: node={} score={}", s.node, s.score);
             }
         }
         CentralityInput::EigenvectorUndirected(ag) => {
