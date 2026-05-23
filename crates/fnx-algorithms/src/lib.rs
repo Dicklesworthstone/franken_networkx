@@ -18585,7 +18585,24 @@ pub fn is_isomorphic(g1: &Graph, g2: &Graph) -> bool {
     let deg1_map: Vec<usize> = nodes1.iter().map(|n| g1.neighbor_count(n)).collect();
     let deg2_map: Vec<usize> = nodes2.iter().map(|n| g2.neighbor_count(n)).collect();
 
-    // VF2-style backtracking with degree-based pruning
+    // VF2-style backtracking with degree-based pruning.
+    //
+    // br-r37-c1-vf2-isolates: previously we mapped g1 nodes in insertion
+    // order (`u = depth`).  On graphs dominated by isolates (e.g. 64
+    // nodes, 6 edges → 55 isolates), this explores 55! permutations of
+    // isolate-to-isolate assignments before ever reaching a constrained
+    // node, blowing the libFuzzer timeout (and asymmetrically diverging
+    // from nx which solves the same input in 2ms).  Walk g1 in
+    // descending degree order so constrained (high-degree) nodes are
+    // mapped first; isolates fall out trivially at the end after their
+    // adjacency contracts are already satisfied.
+    let mut g1_order: Vec<usize> = (0..n).collect();
+    g1_order.sort_by(|&a, &b| {
+        deg1_map[b]
+            .cmp(&deg1_map[a]) // descending degree
+            .then(a.cmp(&b)) // deterministic tie-break by index
+    });
+
     let mut mapping: Vec<Option<usize>> = vec![None; n]; // g1 node -> g2 node
     let mut used: Vec<bool> = vec![false; n]; // which g2 nodes are used
 
@@ -18593,6 +18610,7 @@ pub fn is_isomorphic(g1: &Graph, g2: &Graph) -> bool {
     fn backtrack(
         depth: usize,
         n: usize,
+        g1_order: &[usize],
         adj1: &[Vec<bool>],
         adj2: &[Vec<bool>],
         deg1: &[usize],
@@ -18604,7 +18622,7 @@ pub fn is_isomorphic(g1: &Graph, g2: &Graph) -> bool {
             return true;
         }
 
-        let u = depth; // Map g1 nodes in order
+        let u = g1_order[depth];
 
         for v in 0..n {
             if used[v] {
@@ -18616,7 +18634,7 @@ pub fn is_isomorphic(g1: &Graph, g2: &Graph) -> bool {
             }
             // Check adjacency consistency with already-mapped nodes
             let mut consistent = true;
-            for prev_u in 0..depth {
+            for &prev_u in &g1_order[..depth] {
                 if let Some(prev_v) = mapping[prev_u]
                     && adj1[u][prev_u] != adj2[v][prev_v]
                 {
@@ -18631,7 +18649,7 @@ pub fn is_isomorphic(g1: &Graph, g2: &Graph) -> bool {
             mapping[u] = Some(v);
             used[v] = true;
 
-            if backtrack(depth + 1, n, adj1, adj2, deg1, deg2, mapping, used) {
+            if backtrack(depth + 1, n, g1_order, adj1, adj2, deg1, deg2, mapping, used) {
                 return true;
             }
 
@@ -18645,6 +18663,7 @@ pub fn is_isomorphic(g1: &Graph, g2: &Graph) -> bool {
     backtrack(
         0,
         n,
+        &g1_order,
         &adj1,
         &adj2,
         &deg1_map,
@@ -18722,6 +18741,16 @@ pub fn is_isomorphic_directed(g1: &DiGraph, g2: &DiGraph) -> bool {
         .map(|n| (g2.in_degree(n), g2.out_degree(n)))
         .collect();
 
+    // br-r37-c1-vf2-isolates: walk g1 by descending (in_deg+out_deg)
+    // so constrained nodes anchor the search before isolates fan out
+    // — same fix as the undirected variant above.
+    let mut g1_order: Vec<usize> = (0..n).collect();
+    g1_order.sort_by(|&a, &b| {
+        let total_a = deg1_map[a].0 + deg1_map[a].1;
+        let total_b = deg1_map[b].0 + deg1_map[b].1;
+        total_b.cmp(&total_a).then(a.cmp(&b))
+    });
+
     let mut mapping: Vec<Option<usize>> = vec![None; n];
     let mut used: Vec<bool> = vec![false; n];
 
@@ -18729,6 +18758,7 @@ pub fn is_isomorphic_directed(g1: &DiGraph, g2: &DiGraph) -> bool {
     fn backtrack(
         depth: usize,
         n: usize,
+        g1_order: &[usize],
         adj1: &[Vec<bool>],
         adj2: &[Vec<bool>],
         deg1: &[(usize, usize)],
@@ -18740,7 +18770,7 @@ pub fn is_isomorphic_directed(g1: &DiGraph, g2: &DiGraph) -> bool {
             return true;
         }
 
-        let u = depth;
+        let u = g1_order[depth];
 
         for v in 0..n {
             if used[v] {
@@ -18750,7 +18780,7 @@ pub fn is_isomorphic_directed(g1: &DiGraph, g2: &DiGraph) -> bool {
                 continue;
             }
             let mut consistent = true;
-            for prev_u in 0..depth {
+            for &prev_u in &g1_order[..depth] {
                 if let Some(prev_v) = mapping[prev_u]
                     && (adj1[u][prev_u] != adj2[v][prev_v] || adj1[prev_u][u] != adj2[prev_v][v])
                 {
@@ -18765,7 +18795,7 @@ pub fn is_isomorphic_directed(g1: &DiGraph, g2: &DiGraph) -> bool {
             mapping[u] = Some(v);
             used[v] = true;
 
-            if backtrack(depth + 1, n, adj1, adj2, deg1, deg2, mapping, used) {
+            if backtrack(depth + 1, n, g1_order, adj1, adj2, deg1, deg2, mapping, used) {
                 return true;
             }
 
@@ -18779,6 +18809,7 @@ pub fn is_isomorphic_directed(g1: &DiGraph, g2: &DiGraph) -> bool {
     backtrack(
         0,
         n,
+        &g1_order,
         &adj1,
         &adj2,
         &deg1_map,
