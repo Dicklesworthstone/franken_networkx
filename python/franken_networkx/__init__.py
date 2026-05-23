@@ -6822,6 +6822,7 @@ def degree_assortativity_coefficient(G, x="out", y="in", weight=None, nodes=None
     default (unweighted, all-nodes, out-in for directed) — delegate
     to nx whenever any kwarg is non-default.
     """
+    G = _coerce_arg_to_fnx_graph(G)
     # br-mgdegassort: the Rust fast path returned nan for MultiGraph
     # inputs (it did not sum parallel-edge contributions). Route
     # multigraphs through nx for a correct non-nan value.
@@ -8051,6 +8052,7 @@ def minimum_branching(G, attr="weight", default=1, preserve_attrs=False, partiti
     message. nx accepts MultiDiGraph. Delegate multigraph input to nx
     so drop-in callers using MultiDiGraph keep working.
     """
+    G = _coerce_arg_to_fnx_graph(G)
     if partition is not None or not G.is_directed() or G.is_multigraph():
         from franken_networkx.readwrite import _from_nx_graph
         nx_result = _call_networkx_for_parity(
@@ -8077,6 +8079,7 @@ def maximum_branching(G, attr="weight", default=1, preserve_attrs=False, partiti
     br-r37-c1-s8x7z: also delegate MultiDiGraph; the Rust kernel
     rejects MultiDiGraph but nx accepts it.
     """
+    G = _coerce_arg_to_fnx_graph(G)
     if partition is not None or not G.is_directed() or G.is_multigraph():
         from franken_networkx.readwrite import _from_nx_graph
         nx_result = _call_networkx_for_parity(
@@ -8103,6 +8106,7 @@ def minimum_spanning_arborescence(G, attr="weight", default=1, preserve_attrs=Fa
     matches simple DiGraph and rejects MultiDiGraph with a custom
     message, while nx accepts MultiDiGraph.
     """
+    G = _coerce_arg_to_fnx_graph(G)
     if not G.is_directed():
         raise NetworkXNotImplemented("not implemented for undirected type")
     if partition is not None or G.is_multigraph():
@@ -8155,6 +8159,7 @@ def maximum_spanning_arborescence(G, attr="weight", default=1, preserve_attrs=Fa
     br-r37-c1-s8x7z: also delegate MultiDiGraph (Rust kernel rejects
     multigraph but nx accepts).
     """
+    G = _coerce_arg_to_fnx_graph(G)
     if not G.is_directed():
         raise NetworkXNotImplemented("not implemented for undirected type")
     if partition is not None or G.is_multigraph():
@@ -14554,6 +14559,7 @@ def group_degree_centrality(G, S, *, backend=None, **backend_kwargs):
     DiGraph for group_degree_centrality (uses combined in+out degree
     of nodes in S to nodes not in S). Delegate directed input to nx.
     """
+    G = _coerce_arg_to_fnx_graph(G)
     _validate_backend_dispatch_keywords("group_degree_centrality", backend, backend_kwargs)
     if G.is_directed():
         return _call_networkx_for_parity("group_degree_centrality", G, S)
@@ -14562,6 +14568,7 @@ def group_degree_centrality(G, S, *, backend=None, **backend_kwargs):
 
 def group_in_degree_centrality(G, S, *, backend=None, **backend_kwargs):
     """Compute group in-degree centrality for a node set."""
+    G = _coerce_arg_to_fnx_graph(G)
     _validate_backend_dispatch_keywords(
         "group_in_degree_centrality", backend, backend_kwargs
     )
@@ -14570,6 +14577,7 @@ def group_in_degree_centrality(G, S, *, backend=None, **backend_kwargs):
 
 def group_out_degree_centrality(G, S, *, backend=None, **backend_kwargs):
     """Compute group out-degree centrality for a node set."""
+    G = _coerce_arg_to_fnx_graph(G)
     _validate_backend_dispatch_keywords(
         "group_out_degree_centrality", backend, backend_kwargs
     )
@@ -14638,6 +14646,7 @@ def node_connected_component(G, n):
 
     br-r37-c1-c4agn: hash-check for nx-shaped TypeError parity.
     """
+    G = _coerce_arg_to_fnx_graph(G)
     hash(n)
     result = _raw_node_connected_component(G, n)
     return set(result) if not isinstance(result, set) else result
@@ -15393,6 +15402,7 @@ def create_empty_copy(G, with_data=True):
 
 def number_of_selfloops(G):
     """Return the number of self-loop edges in *G*."""
+    G = _coerce_arg_to_fnx_graph(G)
     # br-r37-c1-61okz: O(|V|) via has_edge probe when bypass is safe.
     # Was 300x slower than nx because it materialized selfloop_edges
     # tuples just to _count them, and selfloop_edges itself walked the
@@ -15422,6 +15432,7 @@ def selfloop_edges(G, data=False, keys=False, default=None):
     iterator
         _Iterator over self-loop edges.
     """
+    G = _coerce_arg_to_fnx_graph(G)
     # br-r37-c1-61okz: bypass AdjacencyView for the common case —
     # direct ``has_edge(u, u)`` probe per node skips the AtlasView
     # materialization that the original ``G.adj[node]`` walk did
@@ -16225,6 +16236,7 @@ def edge_betweenness_centrality(
     dict
         Dictionary of edges with betweenness centrality as value.
     """
+    G = _coerce_arg_to_fnx_graph(G)
     _validate_backend_dispatch_keywords(
         "edge_betweenness_centrality", backend, backend_kwargs
     )
@@ -20264,6 +20276,7 @@ def load_centrality(
 
     For unweighted graphs, this is equivalent to betweenness centrality.
     """
+    G = _coerce_arg_to_fnx_graph(G)
     _validate_backend_dispatch_keywords(
         "newman_betweenness_centrality", backend, backend_kwargs
     )
@@ -24101,6 +24114,7 @@ def non_randomness(G, k=None, weight="weight"):
 
 def is_distance_regular(G):
     """Returns True if the graph is distance regular, False otherwise."""
+    G = _coerce_arg_to_fnx_graph(G)
     # br-r37-c1-96xkv: directed/multigraph guard runs before any
     # empty-graph check so an empty directed/multigraph raises the
     # nx-shaped NetworkXNotImplemented (the @not_implemented_for
@@ -25699,6 +25713,7 @@ def node_attribute_xy(G, attribute, nodes=None):
     source is in ``nodes`` are emitted. Matches networkx's public
     signature ``node_attribute_xy(G, attribute, nodes=None)``.
     """
+    G = _coerce_arg_to_fnx_graph(G)
     node_filter = None if nodes is None else set(nodes)
     # br-r37-c1-bjrgc: pre-materialize the node-attribute dict ONCE.
     # br-r37-c1-br82u: bypass G.adjacency() AtlasView for non-multigraph
@@ -30433,6 +30448,7 @@ def average_clustering(G, nodes=None, weight=None, count_zeros=True):
 
 def transitivity(G):
     """Compute graph transitivity."""
+    G = _coerce_arg_to_fnx_graph(G)
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
 
@@ -30465,6 +30481,7 @@ def transitivity(G):
 
 def square_clustering(G, nodes=None):
     """Compute the squares clustering coefficient for nodes."""
+    G = _coerce_arg_to_fnx_graph(G)
     single_node = False
     if nodes is None:
         node_iter = G
@@ -34836,6 +34853,7 @@ def non_edges(graph):
 
 def common_neighbors(G, u, v):
     """Returns the common neighbors of two nodes in a graph."""
+    G = _coerce_arg_to_fnx_graph(G)
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
     if u not in G:

@@ -11463,3 +11463,102 @@ def test_multigraph_parallel_edge_no_new_node_does_not_raise():
         G.add_edge(0, 1)
         nxt = next(node_iter)
         assert nxt == 1, f"{cls.__name__}: false positive on parallel edge"
+
+
+def test_subgraph_view_dispatch_path_algorithms():
+    """br-r37-c1-ahdzz + br-r37-c1-gshwt: ``_coerce_arg_to_fnx_graph``
+    must materialize SubgraphView before any Rust kernel runs;
+    otherwise the kernel reads the parent's adjacency directly and
+    silently bypasses the view filter.
+
+    The diamond graph below has a (0,4) shortcut.  Filtering out node
+    0 should leave only the (1,2,3,4) path of length 3.  A
+    view-bypass bug would route through (0,4) and return 2 instead.
+    """
+    fg = fnx.Graph()
+    fg.add_edges_from([(0, 1), (1, 2), (2, 3), (3, 4), (0, 4)])
+    fv = fnx.subgraph_view(
+        fg,
+        filter_node=lambda n: n >= 1,
+        filter_edge=lambda u, v: u != 0,
+    )
+
+    # shortest path length: nx returns 3 (1→2→3→4); a view-bypass
+    # returns 2 (1→0→4).
+    assert fnx.shortest_path_length(fv, 1, 4) == 3
+    assert fnx.shortest_path(fv, 1, 4) == [1, 2, 3, 4]
+
+    # single-source variants
+    sssp_len = dict(fnx.single_source_shortest_path_length(fv, 1))
+    assert sssp_len == {1: 0, 2: 1, 3: 2, 4: 3}, sssp_len
+
+    # bidirectional shortest path
+    bsp = fnx.bidirectional_shortest_path(fv, 1, 4)
+    assert bsp == [1, 2, 3, 4]
+
+    # predecessor map — view-bypass would say 4's pred is 0, not 3
+    pred = {k: list(v) for k, v in fnx.predecessor(fv, 1).items()}
+    assert pred[4] == [3], f"predecessor leaked through filter: {pred}"
+
+    # is_simple_path on the FILTERED path [1,0,4] — node 0 is gone
+    # so the path is broken; view-bypass would say True
+    assert fnx.is_simple_path(fv, [1, 0, 4]) is False
+    assert fnx.is_simple_path(fv, [1, 2, 3, 4]) is True
+
+    # all_pairs variants
+    apsp = {s: dict(d) for s, d in fnx.all_pairs_shortest_path(fv)}
+    assert apsp[1][4] == [1, 2, 3, 4], f"all_pairs leaked: {apsp[1]}"
+
+
+def test_subgraph_view_dispatch_structural_algorithms():
+    """Structural queries (centrality, components, regularity) must
+    also see through ``_coerce_arg_to_fnx_graph``.
+    """
+    fg = fnx.Graph()
+    fg.add_edges_from([(0, 1), (1, 2), (2, 3), (3, 4), (0, 4)])
+    fv = fnx.subgraph_view(
+        fg,
+        filter_node=lambda n: n >= 1,
+        filter_edge=lambda u, v: u != 0,
+    )
+
+    # node_connected_component: under filter, node 2's component is
+    # {1, 2, 3, 4}, NOT {0, 1, 2, 3, 4}
+    assert sorted(fnx.node_connected_component(fv, 2)) == [1, 2, 3, 4]
+
+    # is_chordal: filtered graph is a path 1-2-3-4 (chordal).
+    # Unfiltered diamond {0,1,2,3,4} with (0,4),(0,1) etc would have
+    # a different chordality answer.
+    assert fnx.is_chordal(fv) is True
+
+    # edge_betweenness_centrality — only edges (1,2),(2,3),(3,4) exist
+    ebc = fnx.edge_betweenness_centrality(fv)
+    assert set(ebc.keys()) == {(1, 2), (2, 3), (3, 4)}, list(ebc.keys())
+    # The middle edge (2,3) carries more flow than the outer edges
+    assert ebc[(2, 3)] > ebc[(1, 2)]
+
+
+def test_subgraph_view_dispatch_matches_nx_across_wrappers():
+    """Aggregate parity check across ~20 wrappers vs nx baseline."""
+    import networkx as _nx
+    fg = fnx.Graph()
+    fg.add_edges_from([(0, 1), (1, 2), (2, 3), (3, 4), (0, 4)])
+    ng = _nx.Graph()
+    ng.add_edges_from([(0, 1), (1, 2), (2, 3), (3, 4), (0, 4)])
+
+    def fnode(n):
+        return n >= 1
+
+    def fedge(u, v):
+        return u != 0
+
+    fv = fnx.subgraph_view(fg, filter_node=fnode, filter_edge=fedge)
+    nv = _nx.subgraph_view(ng, filter_node=fnode, filter_edge=fedge)
+
+    # Spot-check a half-dozen algorithms — every one must match nx.
+    assert fnx.shortest_path_length(fv, 1, 4) == _nx.shortest_path_length(nv, 1, 4)
+    assert sorted(fnx.node_connected_component(fv, 2)) == sorted(
+        _nx.node_connected_component(nv, 2)
+    )
+    assert fnx.is_chordal(fv) == _nx.is_chordal(nv)
+    assert fnx.is_distance_regular(fv) == _nx.is_distance_regular(nv)
