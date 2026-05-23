@@ -20318,6 +20318,19 @@ def stoer_wagner(G, weight="weight", heap=_BINARY_HEAP_DEFAULT):
         raise NetworkXError("graph has less than two nodes.")
     if not is_connected(G):
         raise NetworkXError("graph is not connected.")
+    # br-r37-c1-egxmz: nx rejects negative weights with
+    # NetworkXError('graph has a negative-weighted edge') before
+    # running the Stoer-Wagner contraction.  The Rust binding silently
+    # produced a meaningless result on negative inputs; mirror nx's
+    # precondition here so callers relying on the documented contract
+    # don't silently get wrong cuts.
+    if isinstance(weight, str):
+        for _, _, attrs in G.edges(data=True):
+            if not isinstance(attrs, dict):
+                continue
+            w = attrs.get(weight, 1)
+            if isinstance(w, _numbers.Number) and not isinstance(w, bool) and w < 0:
+                raise NetworkXError("graph has a negative-weighted edge.")
     if weight is None:
         kwargs = {"weight": weight}
         if heap is not None:
