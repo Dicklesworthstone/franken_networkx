@@ -12526,18 +12526,16 @@ def maximal_independent_set(G, nodes=None, seed=None, *, backend=None, **backend
         "maximal_independent_set", backend, backend_kwargs
     )
 
-    # Seed validation matching random.Random.seed semantics
-    if seed is not None:
-        if isinstance(seed, float):
-            import math as _math
-            if _math.isnan(seed):
-                raise ValueError(
-                    "nan cannot be used to generate a random.Random instance"
-                )
-        # Hash negative / large ints down to u64 range.  random.Random
-        # itself accepts any int; the Rust SmallRng API needs u64.
-        if isinstance(seed, int) and not isinstance(seed, bool):
-            seed = seed & 0xFFFF_FFFF_FFFF_FFFF
+    # br-r37-c1-ms5et: route seed through the shared _native_random_seed
+    # helper — handles None / negative / large ints / NaN AND
+    # ``random.Random`` instances (nx accepts random.Random via
+    # @py_random_state; fnx must mirror).  The pre-pick further down
+    # uses the *original* ``seed`` argument (still a Python-level value
+    # or random.Random) so its RNG path matches nx's body.
+    if seed is None:
+        rust_seed = None
+    else:
+        rust_seed = _native_random_seed(seed)
 
     # br-r37-c1-of11w: when ``nodes`` is None and the algorithm fails,
     # nx reports the failing node as ``"{node} is not an independent
@@ -12554,12 +12552,17 @@ def maximal_independent_set(G, nodes=None, seed=None, *, backend=None, **backend
         selfloops = [n for n in G if G.has_edge(n, n)]
         if selfloops:
             import random as _random
-            rng = _random.Random(seed) if seed is not None else _random
+            if isinstance(seed, _random.Random):
+                rng = seed
+            elif seed is not None:
+                rng = _random.Random(seed)
+            else:
+                rng = _random
             nodes = [rng.choice(list(G))]
             nodes_picked_for_selfloop = True
 
     try:
-        return _raw_maximal_independent_set(G, nodes, seed)
+        return _raw_maximal_independent_set(G, nodes, rust_seed)
     except NetworkXUnfeasible as exc:
         # Reformat the message to match nx's set-repr wording.
         msg = str(exc)
@@ -17861,11 +17864,19 @@ def _native_random_seed(seed):
        instance")``.  fnx's Rust path raised the PyO3-prefixed
        ``TypeError("argument 'seed': 'float' object cannot be
        interpreted as an integer")``.  Surface nx's exact wording.
-    """
-    if seed is None:
-        import random as _random
 
+    3. ``random.Random`` instance: nx accepts via ``@py_random_state``
+       and uses it as the rng directly.  fnx's Rust binding can't share
+       a Python RNG state, so draw one u64 from the user's RNG — this
+       advances their RNG state by one call, mirroring nx's expectation
+       that the passed RNG is consumed (br-r37-c1-ms5et).
+    """
+    import random as _random
+
+    if seed is None:
         return _random.randrange(1 << 64)
+    if isinstance(seed, _random.Random):
+        return seed.randrange(1 << 64)
     if isinstance(seed, float):
         if _math.isnan(seed):
             raise ValueError(
