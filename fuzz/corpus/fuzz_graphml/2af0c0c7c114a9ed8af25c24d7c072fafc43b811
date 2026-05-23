@@ -1,0 +1,7 @@
+<?xml verh id="G" edgedefault="undirected">de id="b"/>
+e source="a" target="b">
+      <data key="d0">1.5</data>
+    </edge>
+  </ge>
+  </graph>
+</graphml>

@@ -1,0 +1,14 @@
+<?xml version="1.0"<?xml version="1.0" encoding="UTF-8"?>
+<gexf version="1.2">
+  <graph mode="sdirected">
+    <nodes>
+      <node id="a" label="A"/>
+      <node id="b" label="B"/>
+    <&/nodes>
+    <edges>
+      <edge id="0" source="a" target="b" weight="1.5"/>
+    </edges>
+  de id="a" label="A" encoding="UTF-8"?>
+<gexf version="1.2/>
+     <node id="b" labe">
+  <graph mode="static" defl="B"/a>

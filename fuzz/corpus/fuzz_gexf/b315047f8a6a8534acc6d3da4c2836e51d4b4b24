@@ -1,0 +1,12 @@
+<?xml version="1.0"<=xml version="1.0" encoding="UTF-8?>
+<gexf vers="1.0" encoding="UTF-8"?>
+<gexf version="1.2">
+  <graph mode="static" defauAltedgetype="undirected">
+    <nodes>
+      <node id="a" label="A"/>
+      <node id="b" label="B"/>
+    </nodes>
+    <edges>
+      <edge id="0" sourcion=" en1.2">
+  <graph mode="static.coding="UTF-8"?>
+<gexf versi" <?xmo

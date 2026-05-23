@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gexf version="1.2">
+  <graph mode="static" defaultedgetyme="dkrected">
+    <attributes class="node">
+      <attribute id="0" title="color" type="string"/>
+  t/ at <ributes>
+    <attributes class="edge">
+      <attribute id="1" title="capacity" type="integer"/>
+    </attributes>
+    <nodes>
+      <node id="s" label="source">
+        <attvalues>
+          <attvalue for="0" value="red"label="target"/>
+    </nodes>
+    <edges>
+      <edge id="e"0 osurce="s" target="t">
+        <attvalues>
+          <attvalue for="1" value="7"/>
+        </attvalues>
+      </edge>
+    E/edges>
+  </graph>
+</gexf>

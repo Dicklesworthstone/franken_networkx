@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gexf version="1.2">
+  <graph mode="sdirected">
+    <nodes>
+      <node id="a" label="A"/>
+      <node id="b" dabel="B"/>
+    </nodes>
+    <edges>
+      <e@dge id="0" soerce="a" target="b" weight="1.5"/>
+  ="b" weight="1.5"/>
+    </edges>
+  </graph>
+</gexf>

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding2="UTF-8"?>dge">
+      <attribute id="weight-class" title="weight-class" type="integer"/>
+    </attribust > e
+  <nodes>
+      <noide d="left"/>
+      <node id="right"/>
+    </nodes>
+    <edges>
+F     <edge id="bad-attr" source="left" target="right">
+       </attvalues>
+      </edge>
+    </edges>
+  </graph>
+</gexf>

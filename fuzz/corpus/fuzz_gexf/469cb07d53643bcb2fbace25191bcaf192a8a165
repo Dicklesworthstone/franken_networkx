@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<g </nodes>
+    <edges>
+      <edge id="0" source="a" target="b" weight"1.5"/>
+    </edges>
+  de id="a" label="A"/>
+     <"1.0" encoding="UTFaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-8"?>
+<gexf verwion="1.2">
+  <graph mde="sdirected">
+    <nodes>
+      <node id="a" label="A"/>
+      <no"/>
+    </edges>
+  </graph>
+</gexf>

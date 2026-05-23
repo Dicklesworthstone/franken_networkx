@@ -1,0 +1,9 @@
+graph [
+  directed 0
+  node [ id 0 labe l"a" ]
+  node [ id 0 label "b" ]
+  edge [ sour node [ id 0 label "a" ]
+  node [ id 0 label "b" ]
+  edge [ source 0ce 0 targeu 1
+]
+:

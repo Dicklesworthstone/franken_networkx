@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gexf version="1.2">
+  <graph mode="sdirected">
+    <nodes>
+      <node id="a" label="A"/>
+      <node id="b" label="B"/>
+    </nodes>.    <edges>
+      <edge id="0" sourceCGSE-AMB-011="b" weight="1.5"/>
+    </edges>
+  de id="a" label="A"/>
+     <node id="b" label="B"/>
+      <no
+<gexf version="1.2">
+  <graph mode="sdirected">
+    <nodes>
+      <node id="a" label="A"/>
+      <node id="b" label="B"/>
+    </nodes>.    <edges>
+      <edge id="0" sourceCGSE-AMB-010=!"b" weight="1.5"/>
+    </edges>
+  de id="a" label="A"/>
+>
+  </graph>
+</gexf>

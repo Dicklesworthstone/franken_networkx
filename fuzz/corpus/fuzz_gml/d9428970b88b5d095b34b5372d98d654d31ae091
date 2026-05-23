@@ -1,0 +1,7 @@
+grread_gexfirected 0
+  node [ id(0 labe 0
+  node [ id(0 label "a" ]
+  el "a" ]
+  edge [ source 0 ]
+  edge [ target 0 ]
+]

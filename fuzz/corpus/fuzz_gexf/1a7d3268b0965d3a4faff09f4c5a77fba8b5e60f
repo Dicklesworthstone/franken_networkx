@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gexf version="1.2">
+  <graph mode="static" default="0" title="color" type="string"/>
+    </attributes>
+    <attributes class="edge">
+     <atttvalues>
+          <attvalue for="1" value="7"/>
+        </attvalues>
+      </edgeode">
+     <attribute id="0" tf>

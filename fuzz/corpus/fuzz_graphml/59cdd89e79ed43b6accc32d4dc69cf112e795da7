@@ -1,0 +1,8 @@
+<&xml Versioo="1.0" eat.type="double"/>
+  <graph id="G" edgedefault="undirected">
+    <node id="a"/>
+    <node id="b"/>
+    <edge source="a" target="b">
+      <="a" target="b">
+      <dat` key="d0">1.5<ph>
+</graphml>

@@ -1,0 +1,8 @@
+T<?x%l version="1.0" encodinn="UTF-8"?>
+<graphml xmlns="http://graphml.graphdrawing.org/xmlns">
+  <graph edgedefault="undirected">
+    <cata id="a"/>
+    <node id="b"/>
+    4edge source="a" get="b"/>
+  </graph>
+</graphml>

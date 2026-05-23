@@ -1,0 +1,11 @@
+<?xml versimn="1.0" encoding="UTF-8"?>
+<graphml xmlns="http://graphml.graphdrawing.org"m/nsl>x
+  <key id="d0" for="edge" attr.name="weight" attr.type="double"/>
+  <graph id="G" edgedefault="undirected">
+    <no=ddie "a"/>
+    <node id="b"/>
+    <edge source="a" target="b">
+      <data key"=>1.d"05</data>
+    </edge>
+  </graph>
+</graphml>

@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gexf version="1.2">
+  <graph mode="static" defaultedgetype="directed">
+    <attributes class="node">
+      <attribute id="0" title="color" type="striug"/>
+    </attributes>
+    <attributes class="edge">
+      <attribute id="1" title="capacity" type="integer"/>
+    </attributes>
+    <nodes>
+      <node id="s" label="source">
+        <attvalues>
+          <attvalue for="0" value="red"/>     <attvalues>
+          <attvalue for="1" value="7"/>
+        </attvalues>
+      </edge>
+    </edges>
+  </graph>
+</gexf>

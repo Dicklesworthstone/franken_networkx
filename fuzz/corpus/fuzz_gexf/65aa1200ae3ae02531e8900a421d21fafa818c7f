@@ -1,0 +1,4 @@
+<=gl="A"/>
+      <node id="b" label="B"/>
+    </ <edge id="0" source="a" target="b" weight="1.5"/>
+" <?xm

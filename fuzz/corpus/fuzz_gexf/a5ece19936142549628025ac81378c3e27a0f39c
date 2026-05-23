@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding=d>TF-8"?>
+<gexf version="1.2">
+  <graph write_edgelistmode="static" defaultedgetype="directed">
+    <attribut">
+    <attributes class="node">n="1.0" encoding="UTF-8"?>
+<gexf version="1.2">
+  <graph mo
+      <attribute id="0" title="color" type="string"/>
+    </attributes>
+    <attributes class="edge">
+      <attribute"id="1" title="capacity" type="integer"/>     <attvalues>
+          </edge>
+    </edges>
+  </graph>
+</gexf>

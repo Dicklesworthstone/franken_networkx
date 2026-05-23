@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gexf version      <="1.2">
+  <g     <edge id="0" source="a" target="graph mode="static" defaultedgetype="undirected">e id="b"" label="sour!ce">
+        <attvalues>
+          <attvalue for="0" value="red"/     <attvalue for="0" value="7"/>
+        </attvalues>
+      </edge>
+    </edges>
+  <>
+        </attvalues>
+      </node>
+      <node id="t" label="target"/>
+    </nodes>
+    <edges>
+      <edge id="e0" source="s" target="t">
+        <attvalues>
+          <attvalue for="1" value="7"/>
+        </attvalues>
+      </edge>
+    </edges>
+  </graph>
+</gexf>

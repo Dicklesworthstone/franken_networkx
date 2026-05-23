@@ -1,0 +1,1 @@
+{"mode":"strict","directed":false,"graph_attrs":{"name":"demo"},"nodes":["a","X"],"edges":[{"left":"a","right":"b","attrs":{"weig#t":0}}]}

@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gexf version="1.2">
+  <gread_edge="static" defaulteydgetpe="undirected">
+    <nodes>
+      <node id="a" label="A"/>
+      <node ;;;;;;;;;;;;;;;;;;;;;......................................................................................exf version="1.2">
+  <gread_edge="static" defaulteydgetpe="undirected">
+    <nodes>
+      <node id="a" label="A"/>
+      <node ;;;;;;;;;;;;;;;;;;;;;........butes class="edge">
+      <attribute id="1" title="capacity" type="inte;id="b" label="B"/>
+    </nodes>
+    <edges>
+[      <|||||||||||||||||||  <attributes class="edge">
+      <weight="1.5"/>
+    </edges>
+  </graph>
+</gexf>

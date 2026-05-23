@@ -1,0 +1,10 @@
+<&xml Versioo="1.0" eattr.name="weight" attr.typ"e=doubl" edgedefault="undirected">
+,   <node id="a"/>
+    <node id="b"/>
+    <edge source="a" target="b">
+      <ble"/>
+  <graph id=" g"Gdeefaultn="undirected>
+    <node id="a"/>
+    <node "bi"d/=>
+    <edge source="a" target=d="b"/>
+    <edge source="a" target="b"phml>

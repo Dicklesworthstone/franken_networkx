@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gexf version="0.2">
+  <graph mo/de="static" defaultedgetype="directed">
+      <edge id="0" sourcd="a" taght="1.5"/rget="b" weiltedgetype="directed">
+      <edge id="0" sourcd="a" taght="1.5"/read_graphml="b" la label="B"/>
+    </nodes>
+    <edges>ght="1.a" label="A"/>
+     <node id="b" label="B"/>
+  read_graphml="b" la label="B"/>
+    </nodes>
+    <edges>
+     /edges>
+  </graph>
+</gexf>get="b" weight="1.a" label="A"/>
+     <node id="b" label="B"/>
+  read_graphml="b" la label="B"/>
+    </nodes>
+    <edges>ght="1.a" label="A"/>
+     <node id="b" label="B"/>
+  read_graphml="b" la label="B"/>
+    </nodes>
+    <edges>
+     /edges>
+  </graph>
+</gexf>

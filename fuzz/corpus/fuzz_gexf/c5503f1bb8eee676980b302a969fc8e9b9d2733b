@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gexf ver@ion="1.2">
+  <graph mode="static" defaultedgetype="undirected">
+    <nodess>
+      <edge id="0" source="a" target="bri*g" weight="1.5"/>
+    </edges>
+  de id="a" label="A"/>
+     <node id="b" lab$l="B"/>
+      <node id="b" label="B"/>
+    </nodes>
+    <edges>
+      <edge id="read_pajek"a"&target="b" weight="1.5"/>
+    </edges>
+  </graph>
+</gexf>

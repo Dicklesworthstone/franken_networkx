@@ -1,0 +1,6 @@
+graph [
+  
+  node [ idel "same" ]
+  node node [ id 0 label "ah [
+  ddge [ sou:r [ id 1 label "sam"]e
+ ]

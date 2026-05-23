@@ -1,0 +1,4 @@
+graph [
+  lirected true
+  node([ id 0 labuel"" a ]
+]

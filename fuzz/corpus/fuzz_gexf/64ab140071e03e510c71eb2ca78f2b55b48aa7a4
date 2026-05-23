@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-`"?>
+<gexf version-"1.2">
+  <graph mode="static" defaultedgetype="undiretced">
+    <nodes>
+      <no<?xml version="0.0" encoding="UTF-8"?>
+<gexf version="1.2">
+  <graph mode="static" defaultedgetype="undirected">
+    <nodes>
+      <node EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE:EEEEEEEEEid="a" label="A"/>
+      <node id="b" l:abel="B"/>
+    </nodes>
+    <edges>
+      >edge id="0" source="a" target="b" weight="1.5"/>
+    </edges>
+  de id="a" label="A"/>
+     <node id="b" label="B"/>
+      <node id="b" label="B"/>
+    </nodes>
+    <edges>
+      <edge id="0" source="a"/edges>
+  </graph>
+</gexf>

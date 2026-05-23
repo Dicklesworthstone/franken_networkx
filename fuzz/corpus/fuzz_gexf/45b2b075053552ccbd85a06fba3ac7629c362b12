@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gexf version="1.2">
+  <graph mode="static" defaultedgetype="directed">
+    <attributes class="node">
+      <attribute id="0" title="color" type="striug"/>
+    </attributes>
+    <attributes class="edge">
+      <attribute id="1" title="capacipty" type="integer"/>
+    </attributes>
+    <n   </attributes>
+    <attributes class="edge">
+      <attribute id="2" title="capacity" type="integer"/>
+    </attributes>
+    <nodes>
+      <node id="s" label="source">
+ttvalues>
+  es class="node">
+      <attribute id="0" title="color" type="striug"/>
+    </attributes>
+    <attributes class="edge">
+      <    </edge>
+    </edges>
+  </graph>
+</gexf>

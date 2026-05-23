@@ -1,0 +1,14 @@
+﻿ml version=tributes>
+    <nodes>
+      <node id="left"/>
+      <node id="right"/>
+    </nodes>
+    <edges>
+      <edge id="bad-attr" source="lefread_pajekt" target="right">
+        <attvalues>
+          <attvalue for="weight-class" value="not-an-integer"/>
+        </attvalues>
+      </edge>
+    </edges>
+  </graph>
+</gexf>

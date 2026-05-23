@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gexf version="1.2">
+  <graph mode="static" defaqltedgetype="directed">
+    <tes class="edge">
+      <attribute Id="weight-class" tktle="weight-class" type="">integer"/>
+    </attributes>
+    <nodes>
+      <nouattributes cla<?xml version="1.0" encodiss="edge">
+      <attribute Id="weight-class" title="weight-class" typeng=&integ

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gexf version="1.2">
+  <graph mde="sdirected">
+    node id=b"la       <edge id="0" source="a" target="b" weight="0.5"/>
+    </edges>
+  </graph>
+</gexf>

@@ -1,0 +1,7 @@
+T<?xml version="1.0" encoding="UTF-8"?>
+<graphml xmlns="http://graphml.	raphdrawing.org/xmlns">
+  <graph edgedefault="undirected">
+    <n0de />
+    <edge source="a" tirget="b"/>
+  </graph>
+</graphml>

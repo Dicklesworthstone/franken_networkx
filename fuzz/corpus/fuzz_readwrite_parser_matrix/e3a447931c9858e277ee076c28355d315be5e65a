@@ -1,0 +1,9 @@
+1.g
+ <?xml verml.graphdrawing.org/xmlns">
+  <graphml xmlns="http://graphread_gexfml.graphdrawing.org/xmmlns""a" ">
+  <graph edgedefault="undirected">
+    <node id="a"/>
+    <node id="b"/>
+    <edge source="a" target="b"/>
+  </graph>
+</gr. ,

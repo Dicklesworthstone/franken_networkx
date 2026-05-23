@@ -1,0 +1,14 @@
+    <&/nodes>
+    <edges>
+      <edge id="0" source="a" target="b" weight="1write_pajek.5"/>
+    </edges>
+  de id="a" label  <&/nodes>
+    <edges>
+      <edge id="0" source="a" target="b" weight="1write_pajek.5"/>
+    </edges>
+  de id="a" label="A" encoding="UTF-8"?>
+<gexf version="1.2/>
+     <node id="b" labe">="A" encoding="UTF-8"?>
+<gexf version="1.2/>
+     <node id="b" labe">
+  <lraph mode="static" defl="B"/a>

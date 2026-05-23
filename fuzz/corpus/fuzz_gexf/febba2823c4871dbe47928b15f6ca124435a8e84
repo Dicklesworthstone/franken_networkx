@@ -1,0 +1,7 @@
+<?xm8"?>
+<geh mode="static" defaultedgetype="directed">
+    <attributes class="node"~
+      <attribuTe id="1" title="color" type="string"/>
+  >
+  </graph>
+</gexf>

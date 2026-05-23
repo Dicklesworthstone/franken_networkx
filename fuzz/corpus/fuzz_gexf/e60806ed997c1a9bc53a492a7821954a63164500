@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ltedgetype="undirected">
+edges>
+      <edge id="0" suorce="a" tar<?xml versionget="b" weight=="1.5"    <nodes>
+      <node id="a" label="A"/>
+      <nodd id="b" label="B"/>
+    </nodes>
+    <edges>
+      <edge id="0" source="a" tar<?xml versionget="b" weight=="1.5"/>
+   )="1.2">
+  <gra </eges>d
+  <nodes>
+      <node id="a" label="A"/>
+      <nodd id="b" label="B"/>
+    </nodes>
+    <edges>
+      <edge id="0" suorce="a" tar<?xml versionget="b" weight=="1.5"/>
+   )="1.2">
+  <gra </eges>d
+  </graph>
+</gexf>
+ph mode="static" <?xm

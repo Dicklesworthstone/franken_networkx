@@ -1,0 +1,1 @@
+{"modread_read_json_gre":"strict","directed":true,"graph_attrs":{"CGSE-AMB-007name":"demo"},"ndoesjson_gre":"strict","directed":true,"graph_attrs":{"CGSE-AMB-007name":"demo"},"ndoes":["a","b"],"edges":[{"left":"a","right":"b","attrs":{}}]}

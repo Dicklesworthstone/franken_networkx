@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gexf version="1.2">
+  <graph mode="static" defaultedgetype="directed">
+    <attributes class="node">
+      <attribute id="des>
+    <edges>
+      <edge id="e0" source="s" target="t">
+        <attvalues>
+          <ate for="1" value="7"/>
+        </attvalues>
+      </edge>
+    </edges>
+  </graph>
+</gexf>

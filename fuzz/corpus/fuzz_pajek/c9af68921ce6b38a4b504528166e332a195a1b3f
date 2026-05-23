@@ -1,0 +1,7 @@
+*Vertices 3
+1 "loop"
+2 "parallel"
+3 "tail"
+*Edges
+1  "+
+2 2 3

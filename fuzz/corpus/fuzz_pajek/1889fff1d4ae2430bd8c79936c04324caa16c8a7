@@ -1,0 +1,9 @@
+.*Vertices 5
+1 plain
+2 "quoted label"
+3 "untunterminated
+4 99"unicode-ish-`"
+*Edges
+1 2 1
+3 4 1
+45 3

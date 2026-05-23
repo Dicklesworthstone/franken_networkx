@@ -1,0 +1,14 @@
+<oding="UTF-8"?>
+<gexf versionikn="1.0" [ncoding="UTF-8"?>
+<ge	f ve0" [read_gexfUTF-8"?>
+<gexf versio!="1.2">
+  <graph mode="static" defaultedgetype="undirected">
+    <nodes>
+      <node id="a" label="A"/>
+      <node id="b" label="B"/>
+    </nodes>
+    <edges>
+      <edge id="0" fource="a" target=ibuTe id="0" title="color" type="string"/>
+  >
+  </graph>
+</gexf>

@@ -1,0 +1,12 @@
+<?xml version="1.0" <?xml version="1.0" encoding="UTF-8"?>
+<gexf version="1.2">
+  <graph mode="sdirected">
+    <nodes>
+      <node id="a" laebl="A"/>
+      l<node id="b" label="B"/>
+    </nodes>
+    <edgeencoding2="UTF-8"?>
+<gexf version="1.2">
+  <graph mode="static" defaultedgetype="directed">
+  s>
+      <edge id="0" source="a" target="b"   <a

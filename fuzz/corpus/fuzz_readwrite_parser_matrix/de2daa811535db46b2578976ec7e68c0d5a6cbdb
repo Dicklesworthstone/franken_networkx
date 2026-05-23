@@ -1,0 +1,6 @@
+Z<?xmncoding="UTF-8"?>
+<gexf version="1.2" xmlns="http://www.gexf.net/1.2draft">
+  <graph defaultedgetypei="drected" mode="static">
+    <nodes><node id="ael "abl="a"/><node id="b" label="b"/="0" source="a" target="b"/></edges>
+  </graph>
+</gexf>

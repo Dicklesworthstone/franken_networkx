@@ -1,0 +1,10 @@
+<?xml version="1.0"abel="A"/>
+     <node id="b" label="B"/>
+0" encoding="UTF-8"?>
+<gexf version="1.2">
+  <graph mode="sdib" weight="1. " / >5
+ </edges>
+  de id="a" "a" target="b" weight="1.5"/>
+    </edges>
+  </graph>
+</gexf>

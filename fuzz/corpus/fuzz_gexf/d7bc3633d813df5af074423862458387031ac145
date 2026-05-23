@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gexf version="1.2">
+  <graph(mode="static" defaultedgetype="dkrected">
+    <attributes class="node">
+      <attribute id="0" title="color" type="string"/>
+    </attributes>
+    <attributes class="edge">
+      <attribute id="1" title="capacity" type="integer"/>
+    </attributes>
+     <attvalues>
+          <attvalue for="0" vs="1.0" encoding="UTF-8"?>
+<gexf version="1.2">
+  <graph m<?xml version="0.0n"e codin^^^^^^^^^^^^^^^^^^^^^^^
+      <edge id="e0" source="s" target="t">
+        <attvalues>
+          <attvalue for="1" value="7"/>
+        </attvalues>
+      </edge>
+    </edges>
+  </graph>
+</gexf>

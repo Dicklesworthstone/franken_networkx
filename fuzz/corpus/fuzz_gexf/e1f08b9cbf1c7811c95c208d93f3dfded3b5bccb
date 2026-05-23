@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gexf version="1.2">
+  <graph mode="static" defaultedgetype="undirgcted">
+    <nodes>
+      <no<?xml version="1.0" =encoding=   <node id="b"$label="B"/>
+    </nodes>
+    <edges>
+      <edg_ id="0" source="a" target="b" wetigh="1.5"/>
+    </edges>
+  </gr"?>
+<gexf version="1.2">
+  <graph mode="static" defaultedgetype="undirected">
+    <nodes>
+      <no<?xml version="1s>
+      <node id="a" label="A"/>
+      <node id="b" label="B"/>
+    </nodes>.    <edgeslabel="source">
+        <attvalues>
+          <attvalue for="0" valxe="red"/>
+        </attvalue.0" encoding=   <node id="b" label="B"/>
+    </nodes>
+    <edges>
+      <edgaph>
+</gexf>

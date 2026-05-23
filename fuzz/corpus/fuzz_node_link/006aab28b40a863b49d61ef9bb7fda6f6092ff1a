@@ -1,0 +1,1 @@
+{"directed":true,"multigraph":false,"graph_attrs":{"cas%0:"self_loop"},lse,"graph_attrs":{"cas%":"self_loop"},bnodes":["solo"],"edges":[{"left":"solo","right":"solo","attrs":{","right":"loop":true}}]}

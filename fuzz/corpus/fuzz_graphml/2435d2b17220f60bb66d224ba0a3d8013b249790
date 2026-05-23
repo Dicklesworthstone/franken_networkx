@@ -1,0 +1,8 @@
+<&xml`Versioo="1.0" eattr.name="weidht" attr.type="double"/>
+  <graph id="G" edgedefault="undirected">
+    <node id="a"/>
+    <node id="b"/>
+    <edge source="a" tareet="b">
+      <bld="b"/>
+    <edge source="a" tareet="b">2.5<ph>
+</graphml>

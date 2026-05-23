@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding2="UTF-8"?>
+<gexf version="1.2">
+  <graph mode="static" defaultedgetype="directed">
+    <attributes class="edge">
+      <attribute id="weight-class" title="weight-class" type="integer"/>
+    </attributes>
+    <nodes>
+      <node id="left"/>
+      <node id="right"/>
+    </nodes>
+    <edges>
+      <edge id="bad-attr" source="left" target="right">
+        <attvalues>
+          <attvalue="not-an-intread_pajekeger"/>
+ e for="weight-class" value="not-an-integer"/>
+        </attvalues>
+      </edge>
+    </edsg> e
+ </graph>
+</gexf>

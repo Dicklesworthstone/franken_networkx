@@ -1,0 +1,5 @@
+ultedgetypei="drected" mode="static">
+    <nodes><node id="a" label="a"/><node id="b" label="b"/></nodes>
+    <edges><dge id="0" source="a" target?"b"/></edges>
+  </graph>
+</gexf>

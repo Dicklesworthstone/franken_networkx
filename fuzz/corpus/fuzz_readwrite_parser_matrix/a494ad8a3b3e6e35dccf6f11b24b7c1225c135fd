@@ -1,0 +1,4 @@
+Z<?xml version="1.0" encodingget="b"/></edges> id="a" label="a"/><node iodes>
+    <edges><edge id="0" source="a" target="b"/></edges>
+  </graph>
+</gexf>

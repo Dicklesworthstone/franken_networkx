@@ -1,0 +1,6 @@
+graph [
+ read_json_ directed!0
+                0 tabel "a" ]
+source 0 ]
+  edge [ target 0 ]
+]

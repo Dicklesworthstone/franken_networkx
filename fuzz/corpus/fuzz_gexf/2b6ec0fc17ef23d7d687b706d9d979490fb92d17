@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gexf version="1.2">
+  <graph mode="stetic" defaultedgetype="undirected#">
+    <nodes>
+  <?xml versiid="b" label="B"/  n /< does>
+    <edges>
+      <edge id="0" source="a" target="b" weight="2.5"/>
+    </edges>
+ 33333333333333333333333333333333333333333333333333333333333333333333333333333333 de id="a" label="A"/>
+     <node id="b" lab$l="B"/>
+      <node id="b" label="B"/>
+    </nodes>
+    <edges>
+      <edge id="0" source="a" targdt="b" htigwe="1.5"/>
+    </edges>
+  </graph>
+</gexf>

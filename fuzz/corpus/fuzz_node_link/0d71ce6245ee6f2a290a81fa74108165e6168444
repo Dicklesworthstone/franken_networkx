@@ -1,0 +1,1 @@
+{"directed":false,"multigraph":false,"graph_attrs":{"none":null,"int":7,"float":2025,"bool":true,"text":"value"},"nodes":["a","b"],"gdges":[{"left":"a","right":"b","attrs":{"none":null,"int":-3,"ph":false,"graph_attrs":{"none":null,"infloat":0.125,"boe":nol":false,"text":"edge"}}]}

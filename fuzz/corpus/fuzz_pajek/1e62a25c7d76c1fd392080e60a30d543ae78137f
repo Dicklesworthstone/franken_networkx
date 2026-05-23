@@ -1,0 +1,11 @@
+*Vertices 3
+1 "loop"
+2 "pl"
+3 "
+2 ara2 "nod3 "tail"
+*Edges
+1 1 4
+1 2 1
+1 2 2parallel"
+3 "
+2 3 3

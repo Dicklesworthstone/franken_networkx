@@ -1,0 +1,11 @@
+T<?xml version="1.0" encoding="UTF-8"?>
+<graphml xmlnsersion="1.0" encoding="UTF-8"?>
+<graphml xmlnscted">
+    cted">
+    <node id="a"/>
+    <node id="b"t="undirected">
+    <node id="a"/>
+    <node id="b"/>
+  <node id="a  <edge sou    <edge source="a" target="b"/>
+  </graph>
+</graphml>

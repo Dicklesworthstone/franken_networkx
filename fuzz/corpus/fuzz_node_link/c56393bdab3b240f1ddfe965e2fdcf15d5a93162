@@ -1,0 +1,1 @@
+{"mode":"strict","directed":"yes","multigrh":false,"graph_attrs":{},"nodes":["a","b"],"efffffffffffright":"b","attredges":[{"left":"n0","right":"n1","attrs":{"label":"forward"}},{"left":"n1","right":"n2","attrs":{"weight":3.5}},{"left":s":{}}]}

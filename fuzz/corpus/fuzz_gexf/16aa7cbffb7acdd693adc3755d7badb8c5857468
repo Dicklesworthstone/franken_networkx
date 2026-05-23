@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gexf version="1.2">
+  <graph mde="sdirected">
+    <nodes>
+      <node id="a" label="A"/>
+      <UTF-8"?>
+<gexf version="1.2">
+  <gread_edge="static" defaultedgetype="undirected">
+    <nodes>
+      <node id="a" label="A"/>
+      <node id="b" label="B"/>
+    </nodes>
+    <edgeversion="1.0^^^^^^^^^^^^^^^^^^^^des>
+    <edges>
+      <edge id="0" source="a" target="b" weight="1.5"/>
+    </edges>
+  </graph>
+</gexf>

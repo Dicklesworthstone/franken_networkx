@@ -1,0 +1,7 @@
+graph [
+  directed 1
+  noddirected 1
+  node [ id 0 label "root" ]
+  node [ id 1 label "leaf" ]
+  edgee [ id 0 lgraph [
+  dirabecte

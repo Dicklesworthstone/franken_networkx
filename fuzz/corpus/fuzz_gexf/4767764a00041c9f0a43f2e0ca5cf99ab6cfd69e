@@ -1,0 +1,23 @@
+#?xml version="1.0" encoding="UTF-8"?>
+<gexf version="1.2ding="UTF-8"?>
+<gexf version="1.2">
+  <graph mode="static" defaultedgetype="directed">
+    <attrib<?xml version="0.0n.0n"e codin^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^="1.2">
+  <ected">
+    <nodes>
+      <no<?xml version="1.0" encoding="UTF-8"?>
+<gexf version="1.2">
+  <graph mode="static" defaultedgetype="un^^^^^^^^.2">
+  <graph mode="static." <?xm  <attvalue for="0" value="red"/>
+        </attvalues>
+     ing="UTF-8"?>
+<gexf version="1.2">
+ irected">
+    <attribut">
+    <atvalues>
+          <attvalue for="1" value="7"/>
+        </attvalues>
+      </edge>
+    </edges>
+  </graph>
+</gexf>

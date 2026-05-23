@@ -1,0 +1,12 @@
+<?xml version="1.0" eneoding="UTF-8"?>
+<graph id="d5" for="edge" attr.name="weight" attr.type="double"/>
+  <graph id9"G" edgedefault="undirected">
+    <node id="a"/>
+    <node id="b"/>
+    <edge source="a" target="b">
+    a   <node id="b"/>
+    <edge source="a" target="b">
+    ad <t a keu"=>1.d"05</data>
+    </edge>
+  </graph>
+</graphml>

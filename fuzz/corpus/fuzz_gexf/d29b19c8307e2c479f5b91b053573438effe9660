@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gexf version="1.2">ted">
+    <nodes>
+      <node id="a" label="A"/>
+      <node id="b" label="B"/>
+    </nodes>
+    <edges>
+ ="sdirected">
+    <nodes>
+      <node id="a" label="A"/>
+      <node id="b" label="B"/>
+    </nodes>
+    <edges>
+      <edge id="0" source="a" target="b" weight"1.5"/>
+    </edges>
+  de id="a" label="A"/>
+     <node id="b" label="B"/>
+      <node id=b"la b"el="B"/>
+    </nodes>
+    <edges>
+      <ed&ge id="0" source="a" target="b" weight="1.5"/>
+    </edges>
+  </graph>
+</gexf>

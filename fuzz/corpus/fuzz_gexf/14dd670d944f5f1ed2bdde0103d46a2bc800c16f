@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gexf verskon="1.2">
+  <gread_graphmltatic" defaultedgetype="directed">
+    <attribut">
+    <at    <attribute id="1" title="capacity" type="integer"/>
+="t">
+        <attvalues>
+          <attvalue for="1" vattvalues>
+      </edge~
+    </edges>
+  </graph>
+</gexf>

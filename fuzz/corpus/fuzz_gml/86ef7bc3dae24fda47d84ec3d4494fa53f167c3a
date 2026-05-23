@@ -1,0 +1,6 @@
+graph [d   directed 0
+gra,h [
+  directed 0
+  node [ id 0 label "a""]
+  edge [ soubel "a" ]
+  edge [ source 0

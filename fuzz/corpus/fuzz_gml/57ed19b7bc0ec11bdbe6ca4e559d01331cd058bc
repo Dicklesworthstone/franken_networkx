@@ -1,0 +1,5 @@
+graph [
+  @driected 0
+  node [0 ie 0 ]
+  edge [ target 0 ]
+]

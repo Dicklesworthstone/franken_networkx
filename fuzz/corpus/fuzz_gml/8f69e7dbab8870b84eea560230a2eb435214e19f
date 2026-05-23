@@ -1,0 +1,8 @@
+graph [
+  directed 0
+  name "with attrs"
+  version 7
+  node [ id 0 label "a" color "red" ]
+  node [ id 2 label "bid 0 label "a" color "red" ]
+  node [ id 2 label "b" cob" ]
+]
