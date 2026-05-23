@@ -17870,6 +17870,12 @@ def _native_random_seed(seed):
        a Python RNG state, so draw one u64 from the user's RNG — this
        advances their RNG state by one call, mirroring nx's expectation
        that the passed RNG is consumed (br-r37-c1-ms5et).
+
+    4. ``numpy.random.RandomState`` / ``numpy.random.Generator``: nx
+       accepts both via ``@np_random_state``.  Same strategy as Random
+       — draw one integer from the user's numpy RNG and pass it down
+       (br-r37-c1-3a1sy).  We delay the numpy import so users without
+       numpy aren't forced to pay the import cost.
     """
     import random as _random
 
@@ -17877,6 +17883,22 @@ def _native_random_seed(seed):
         return _random.randrange(1 << 64)
     if isinstance(seed, _random.Random):
         return seed.randrange(1 << 64)
+    # numpy RNG instances — detect lazily so non-numpy callers don't
+    # pay the import cost.
+    type_module = type(seed).__module__
+    if type_module.startswith("numpy.random"):
+        try:
+            import numpy as _np  # noqa: F401  (used implicitly via duck-typing)
+        except ImportError:
+            pass
+        else:
+            # RandomState exposes .randint, Generator exposes .integers.
+            # Both produce a non-negative int we can mask to u64.
+            randint = getattr(seed, "integers", None) or getattr(seed, "randint", None)
+            if callable(randint):
+                # high < 2**63 keeps both APIs happy; mask to u64.
+                val = int(randint(1 << 63))
+                return val & 0xFFFF_FFFF_FFFF_FFFF
     if isinstance(seed, float):
         if _math.isnan(seed):
             raise ValueError(
@@ -31909,7 +31931,12 @@ def random_geometric_graph(n, radius, dim=2, pos=None, p=2, seed=None, *, pos_na
         raise ValueError(
             "nan cannot be used to generate a random.Random instance"
         )
-    rng = _random.Random(seed)
+    # br-r37-c1-3a1sy: accept random.Random / numpy.random.RandomState /
+    # numpy.random.Generator via _native_random_seed (matches nx's
+    # @py_random_state / @np_random_state contract).  random.Random
+    # rejects those types directly.
+    normalized = _native_random_seed(seed) if seed is not None else None
+    rng = _random.Random(normalized)
     G = Graph()
     positions: dict = {}
     for i in range(n):
