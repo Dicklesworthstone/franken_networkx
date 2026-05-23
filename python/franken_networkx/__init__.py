@@ -9694,13 +9694,6 @@ def minimum_spanning_tree(G, weight="weight", algorithm="kruskal", ignore_nan=Fa
     # Route through nx parity to preserve type.
     if isinstance(G, MultiGraph):
         return _minimum_spanning_tree_via_parity(G, weight, algorithm, ignore_nan)
-    # NaN-weighted edges are an nx error condition (with the default
-    # ignore_nan=False), but the Rust kernel silently treats NaN as
-    # the default weight of 1.0.  Detect NaN at the Python level and
-    # route through nx so the user gets the same ValueError they
-    # would from nx directly.
-    if _has_nan_or_inf_edge_weight(G, weight):
-        return _minimum_spanning_tree_via_parity(G, weight, algorithm, ignore_nan)
     # br-r37-c1-mstsync: previously we routed ANY graph with a weight
     # attribute through the nx parity path because the Rust kernel
     # read stale weights for post-construction mutations
@@ -9708,10 +9701,28 @@ def minimum_spanning_tree(G, weight="weight", algorithm="kruskal", ignore_nan=Fa
     # That detour was a >750× perf hit on weighted MST (e.g. 1300ms
     # vs nx's 1.7ms on a 200-node graph).  The
     # ``_sync_rust_edge_attrs`` helper (br-r37-c1-sjf4t) pushes the
-    # Python-visible dict back into Rust storage, so the Rust kernel
-    # now sees fresh weights and returns the same MST as nx in ~1.6ms.
-    if _mst_has_weight_edge_attr(G, weight):
-        _sync_rust_edge_attrs(G)
+    # Python-visible dict back into Rust storage so the Rust kernel
+    # sees fresh weights.  Sync unconditionally — it's ~0.6ms even on
+    # a 1k-edge graph, and skipping the conditional has_weight_attr
+    # Python scan (~1.5ms) is a net win.
+    _sync_rust_edge_attrs(G)
+    # br-r37-c1-mstedgescan: NaN-weighted edges are an nx error
+    # condition (with default ignore_nan=False), but the Rust kernel
+    # silently treats NaN as the default 1.0.  Use the native Rust
+    # nonfinite-scan helper (br-r37-c1-hbfnumeric) post-sync so the
+    # check is O(E) over the in-Rust attr map (~0.05ms) rather than a
+    # Python-side g.edges(data=True) walk (~1.5ms).
+    if _native_has_nonfinite_edge_weight is not None:
+        try:
+            if _native_has_nonfinite_edge_weight(G, weight):
+                return _minimum_spanning_tree_via_parity(G, weight, algorithm, ignore_nan)
+        except Exception:
+            # Defensive: if the native helper errors, fall back to the
+            # Python scan to preserve the NaN-rejection contract.
+            if _has_nan_or_inf_edge_weight(G, weight):
+                return _minimum_spanning_tree_via_parity(G, weight, algorithm, ignore_nan)
+    elif _has_nan_or_inf_edge_weight(G, weight):
+        return _minimum_spanning_tree_via_parity(G, weight, algorithm, ignore_nan)
     return _raw_minimum_spanning_tree(G, weight=weight)
 
 
