@@ -7973,6 +7973,7 @@ def maximum_spanning_edges(G, algorithm="kruskal", weight="weight", keys=True, d
     Rust fast path's ``list_iterator`` is normalised to a true
     generator matching nx's contract.
     """
+    G = _coerce_arg_to_fnx_graph(G)
     from franken_networkx._fnx import maximum_spanning_edges as _raw_mse
     # br-mstcallable / br-mstweightwrong: see minimum_spanning_edges.
     if (
@@ -8446,6 +8447,7 @@ def all_shortest_paths(
     ``"unweighted"``). Mirrors ``networkx.all_shortest_paths``; raises
     ``NetworkXNoPath`` when advanced if no path exists.
     """
+    G = _coerce_arg_to_fnx_graph(G)
     # br-r37-c1-6atv8 / br-r37-c1-emxwl: invalid method and missing
     # source raise eagerly, but target-dependent errors happen when
     # the true generator is advanced, matching nx's generator body.
@@ -9979,6 +9981,7 @@ def all_pairs_shortest_path(G, cutoff=None, *, backend=None, **backend_kwargs):
     implementation returns a dict; wrap it as a generator of pairs in
     source-insertion order so callers can consume it like nx's.
     """
+    G = _coerce_arg_to_fnx_graph(G)
     _validate_backend_dispatch_keywords(
         "all_pairs_shortest_path", backend, backend_kwargs
     )
@@ -10165,6 +10168,7 @@ def find_cliques(G, nodes=None):
     locally for ``nodes=None`` instead of delegating to NetworkX or
     using the Rust binding's canonical clique ordering.
     """
+    G = _coerce_arg_to_fnx_graph(G)
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
 
@@ -11151,6 +11155,7 @@ def average_degree_connectivity(
     **backend_kwargs,
 ):
     """Compute the average degree connectivity of graph."""
+    G = _coerce_arg_to_fnx_graph(G)
     _validate_backend_dispatch_keywords(
         "average_degree_connectivity", backend, backend_kwargs
     )
@@ -11419,6 +11424,7 @@ def is_k_edge_connected(G, k):
     Rust binding accepted k=0 and returned True (vacuously). Match
     nx's validation.
     """
+    G = _coerce_arg_to_fnx_graph(G)
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
     if G.is_directed():
@@ -11469,6 +11475,7 @@ def all_pairs_dijkstra(G, cutoff=None, weight="weight"):
     dicts as ``single_source_dijkstra(G, source, cutoff=cutoff, weight=weight)``.
     Mirrors ``networkx.all_pairs_dijkstra``.
     """
+    G = _coerce_arg_to_fnx_graph(G)
     # br-dijkignoreweight: Rust all_pairs_dijkstra inherits the
     # single-source weight-ignoring bug; delegate any weighted call.
     if cutoff is not None:
@@ -11966,6 +11973,7 @@ def topological_generations(G):
     Raises ``NetworkXUnfeasible`` on a cyclic graph for nx parity
     (br-zzcm7).
     """
+    G = _coerce_arg_to_fnx_graph(G)
     try:
         yield from _raw_topological_generations(G)
     except HasACycle as exc:
@@ -12223,6 +12231,7 @@ def is_chordal(G):
     every self-loop graph — the delegation reproduces that exact
     selectivity).
     """
+    G = _coerce_arg_to_fnx_graph(G)
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
     if G.is_directed():
@@ -12481,6 +12490,7 @@ def astar_path_length(
     ``heuristic(u, v)`` should be admissible. Mirrors ``networkx.astar_path_length``;
     raises ``NetworkXNoPath`` if no path exists.
     """
+    G = _coerce_arg_to_fnx_graph(G)
     # br-r37-c1-bzio2: same gate update as astar_path.
     # br-r37-c1-astar-strw: non-numeric weight delegation (sibling).
     if (
@@ -12602,6 +12612,7 @@ def maximal_independent_set(G, nodes=None, seed=None, *, backend=None, **backend
        a set repr (``{99}``).  Re-raise with nx's wording so callers
        regex-matching the message string aren't broken.
     """
+    G = _coerce_arg_to_fnx_graph(G)
     _validate_backend_dispatch_keywords(
         "maximal_independent_set", backend, backend_kwargs
     )
@@ -12678,6 +12689,7 @@ def spanner(G, stretch, weight=None, seed=None):
       3. empty graph + valid stretch → ValueError("math domain
          error") from log(0) leak
     """
+    G = _coerce_arg_to_fnx_graph(G)
     # br-r37-c1-spnr-order: nx applies @not_implemented_for("directed")
     # and @not_implemented_for("multigraph") decorators BEFORE the
     # function body's stretch validation. Wrong-type input therefore
@@ -12970,6 +12982,7 @@ def is_simple_path(G, nodes):
     Second parameter renamed from the Rust binding's ``path`` to match
     networkx's public signature ``is_simple_path(G, nodes)``.
     """
+    G = _coerce_arg_to_fnx_graph(G)
     return _raw_is_simple_path(G, nodes)
 
 
@@ -13182,6 +13195,7 @@ def find_negative_cycle(G, source, weight="weight"):
     sources; the undirected Rust path silently runs and returns
     ``NetworkXError("No negative cycle found.")`` instead.
     """
+    G = _coerce_arg_to_fnx_graph(G)
     hash(source)
     if source not in G:
         raise NodeNotFound(f"Source {source} not in G")
@@ -13235,6 +13249,7 @@ def is_k_regular(G, k):
     br-r37-c1-akzum: wraps the Rust binding so users get a help()
     docstring matching nx.
     """
+    G = _coerce_arg_to_fnx_graph(G)
     return _raw_is_k_regular(G, k)
 
 
@@ -13609,6 +13624,7 @@ def bidirectional_shortest_path(G, source, target):
     DiGraph (forward BFS from source + backward BFS from target, meeting
     in the middle). Delegate directed input to nx.
     """
+    G = _coerce_arg_to_fnx_graph(G)
     if G.is_directed():
         return _call_networkx_for_parity(
             "bidirectional_shortest_path", G, source, target
@@ -13742,6 +13758,7 @@ def predecessor(G, source, target=None, cutoff=None, return_seen=None):
     ``return_seen=True``, also returns the per-node BFS depth dict. Mirrors
     ``networkx.predecessor``.
     """
+    G = _coerce_arg_to_fnx_graph(G)
     # br-r37-c1-pred-dir: nx's ``predecessor`` (shortest-path BFS
     # predecessor map) supports directed graphs; fnx's Rust binding
     # rejects them with NetworkXNotImplemented("not implemented for
@@ -13789,6 +13806,7 @@ def dijkstra_path_length(G, source, target, weight="weight"):
     Mirrors ``networkx.dijkstra_path_length``. Raises ``NetworkXNoPath``
     if no path exists.
     """
+    G = _coerce_arg_to_fnx_graph(G)
     if _should_delegate_dijkstra_to_networkx(G, weight):
         return _call_networkx_for_parity(
             "dijkstra_path_length", G, source, target, weight=weight
@@ -13831,6 +13849,7 @@ def negative_edge_cycle(G, weight="weight", heuristic=True):
     fast preliminary check; set to ``False`` for a guaranteed full Bellman-Ford
     sweep.
     """
+    G = _coerce_arg_to_fnx_graph(G)
     if _should_delegate_negative_edge_cycle_to_networkx(G, weight, heuristic):
         return _call_networkx_for_parity(
             "negative_edge_cycle", G, weight=weight, heuristic=heuristic
@@ -14082,6 +14101,7 @@ def single_source_bellman_ford(G, source, target=None, weight="weight"):
     is given, returns ``(distance, path)`` to that node alone. Handles negative
     edge weights; raises ``NetworkXUnbounded`` on negative cycles.
     """
+    G = _coerce_arg_to_fnx_graph(G)
     # br-r37-c1-ybw1s: nx-shaped TypeError on unhashable source.
     hash(source)
     # br-bfignoreweight: same weight-ignoring bug as dijkstra — the
@@ -14118,6 +14138,7 @@ def single_source_bellman_ford_path(G, source, weight="weight"):
     edge weights; raises ``NetworkXUnbounded`` on negative cycles reachable
     from ``source``.
     """
+    G = _coerce_arg_to_fnx_graph(G)
     # br-r37-c1-ybw1s: nx-shaped TypeError on unhashable source.
     hash(source)
     # br-bfignoreweight: delegate weighted inputs.
@@ -14145,6 +14166,7 @@ def single_source_bellman_ford_path_length(G, source, weight="weight"):
     negative edge weights; raises ``NetworkXUnbounded`` on negative cycles
     reachable from ``source``.
     """
+    G = _coerce_arg_to_fnx_graph(G)
     # br-r37-c1-ybw1s: nx-shaped TypeError on unhashable source.
     hash(source)
     # br-bfignoreweight: delegate weighted inputs.
@@ -14172,6 +14194,7 @@ def all_pairs_dijkstra_path(G, cutoff=None, weight="weight"):
     ``paths`` is a dict ``{target: path-list}``. Mirrors
     ``networkx.all_pairs_dijkstra_path``.
     """
+    G = _coerce_arg_to_fnx_graph(G)
     # br-dijkignoreweight: same weight-ignoring bug in Rust path.
     if cutoff is not None:
         for node in G:
@@ -14246,6 +14269,7 @@ def all_pairs_bellman_ford_path(G, weight="weight"):
     ``paths`` is a dict ``{target: path-list}``. Handles negative weights.
     Mirrors ``networkx.all_pairs_bellman_ford_path``.
     """
+    G = _coerce_arg_to_fnx_graph(G)
     # br-bfignoreweight: delegate weighted inputs to nx.
     if _should_delegate_bellman_ford_to_networkx(weight) or _graph_has_nonunit_weight(G, weight):
         yield from _call_networkx_for_parity(
@@ -14280,6 +14304,7 @@ def all_pairs_bellman_ford_path_length(G, weight="weight"):
     ``lengths`` is a dict ``{target: distance}``. Handles negative weights.
     Mirrors ``networkx.all_pairs_bellman_ford_path_length``.
     """
+    G = _coerce_arg_to_fnx_graph(G)
     # br-bfignoreweight: delegate weighted inputs to nx.
     if _should_delegate_bellman_ford_to_networkx(weight) or _graph_has_nonunit_weight(G, weight):
         yield from _call_networkx_for_parity(
