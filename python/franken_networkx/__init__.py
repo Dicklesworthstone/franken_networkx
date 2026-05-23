@@ -10752,30 +10752,16 @@ def _materialize_filtered_view(view):
     that hand the result to Rust ``_raw_*`` operators see the filtered
     contents rather than the parent's full Rust state.
 
-    br-r37-c1-viewcache: cache the materialization on the view
-    instance keyed by the source graph's ``nodes_seq`` counter.  On
-    a 200-node W-S graph, materialization is ~38ms; with the cache
-    repeated calls drop to ~0.001ms.  Cache invalidates automatically
-    when the source mutates (nodes_seq bumps).
+    Materialization cost is ~30ms on a 200-node graph and caching
+    repeated calls would be a significant win, but the cache key
+    needs to be a monotonic mutation counter to safely invalidate
+    on count-preserving rewires (``remove_edge + add_edge`` flips
+    structure without changing node/edge counts).  Filed
+    br-r37-c1-mutseq as the proper fix: expose ``nodes_seq`` to
+    Python and add a sibling ``edges_seq``; cache key becomes
+    ``(nodes_seq, edges_seq)``.  Until then the unconditional
+    materialization is the correct path.
     """
-    source = getattr(view, '_graph', None)
-    # Cache key: (source node-count, source edge-count) — coarser than
-    # the Rust ``nodes_seq`` counter would be but doesn't require a
-    # Python-side getter on the Rust struct.  Invalidates correctly on
-    # any add/remove of nodes or edges.  Misses on count-preserving
-    # mutations (rare: remove+add or attr-only changes that don't
-    # affect filter results) — same trade-off as
-    # NodeIteratorGuard's count-only check before br-r37-c1-39d82.
-    cache_key = None
-    if source is not None:
-        try:
-            cache_key = (len(source), source.number_of_edges())
-        except Exception:
-            cache_key = None
-        if cache_key is not None:
-            cached = vars(view).get('_fnx_materialized_cache')
-            if cached is not None and cached[0] == cache_key:
-                return cached[1]
     cls = _concrete_class_for(view)
     out = cls()
     out.graph.update(dict(view.graph))
@@ -10787,11 +10773,6 @@ def _materialize_filtered_view(view):
     else:
         for u, v, d in view.edges(data=True):
             out.add_edge(u, v, **dict(d))
-    if cache_key is not None:
-        try:
-            vars(view)['_fnx_materialized_cache'] = (cache_key, out)
-        except (TypeError, AttributeError):
-            pass
     return out
 
 

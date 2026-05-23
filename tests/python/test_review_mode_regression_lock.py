@@ -11680,3 +11680,40 @@ def test_multigraph_view_dispatch_matches_nx():
     assert fnx.shortest_path_length(fmd_rev, 0, 2) == _nx.shortest_path_length(
         nmd_rev, 0, 2
     )
+
+
+def test_view_materialization_invalidates_on_count_preserving_rewire():
+    """br-r37-c1-a2rxy regression: an earlier perf cache keyed by
+    ``(node_count, edge_count)`` silently returned stale results when
+    the source graph was rewired with both an edge removal and an
+    edge addition (counts preserved, structure changed).
+
+    The proper fix is a monotonic mutation counter exposed from Rust
+    (filed as br-r37-c1-mutseq).  This test locks the
+    correctness-over-perf decision: we DO NOT cache materialization
+    until the counter lands.
+    """
+    import networkx as _nx
+    fg = fnx.Graph()
+    fg.add_nodes_from([0, 1, 2, 3])
+    fg.add_edges_from([(0, 1), (1, 2), (2, 3)])
+    ng = _nx.Graph()
+    ng.add_nodes_from([0, 1, 2, 3])
+    ng.add_edges_from([(0, 1), (1, 2), (2, 3)])
+
+    fv = fnx.subgraph_view(fg, filter_node=lambda n: True)
+    nv = _nx.subgraph_view(ng, filter_node=lambda n: True)
+
+    # Warm any per-view cache.
+    assert fnx.shortest_path_length(fv, 0, 3) == 3
+    assert _nx.shortest_path_length(nv, 0, 3) == 3
+
+    # Count-preserving rewire: remove a middle edge, add a shortcut.
+    fg.remove_edge(1, 2)
+    fg.add_edge(0, 3)
+    ng.remove_edge(1, 2)
+    ng.add_edge(0, 3)
+
+    # nx path is now direct: 0→3 has length 1.  fnx must match.
+    assert fnx.shortest_path_length(fv, 0, 3) == _nx.shortest_path_length(nv, 0, 3)
+    assert fnx.shortest_path_length(fv, 0, 3) == 1
