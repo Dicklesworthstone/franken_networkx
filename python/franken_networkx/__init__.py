@@ -23616,6 +23616,12 @@ def hyper_wiener_index(G, weight=None):
 
     br-r37-c1-tqimg: nx is @not_implemented_for('directed',
     'multigraph').
+
+    br-r37-c1-738gg: nx raises NetworkXPointlessConcept on the empty
+    graph and returns ``float('inf')`` on any disconnected graph (since
+    pairs across components have infinite distance).  The Rust binding
+    returned 0.0 for empty and raised NetworkXError for disconnected;
+    surface the nx-shaped contract here.
     """
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
@@ -23623,6 +23629,12 @@ def hyper_wiener_index(G, weight=None):
         raise NetworkXNotImplemented("not implemented for directed type")
     if weight is not None:
         return _call_networkx_for_parity("hyper_wiener_index", G, weight=weight)
+    if len(G) == 0:
+        raise NetworkXPointlessConcept(
+            "Connectivity is undefined for the null graph."
+        )
+    if not is_connected(G):
+        return float("inf")
     return _fnx.hyper_wiener_index_rust(G)
 
 
