@@ -25706,9 +25706,15 @@ def eulerize(G):
         return G.copy()
 
     # Build a complete graph on odd-degree nodes weighted by shortest path length.
+    # br-r37-c1-53kq4: nx's eulerize uses unweighted (BFS) shortest paths
+    # — the algorithm only needs hop counts between odd-degree nodes;
+    # edge weights are irrelevant.  fnx previously passed weight="weight"
+    # which routed through Dijkstra and rejected negative weights with
+    # ValueError("Contradictory paths found: negative weights?").  Match
+    # nx by leaving weight at its unweighted default.
     odd_complete = Graph()
     for u, v in _combinations(odd_nodes, 2):
-        length = shortest_path_length(G, u, v, weight="weight")
+        length = shortest_path_length(G, u, v)
         odd_complete.add_edge(u, v, weight=length)
 
     # Find minimum weight matching on the odd-degree complete graph.
@@ -25723,7 +25729,8 @@ def eulerize(G):
         H = MultiGraph(G)
 
     for u, v in matching:
-        path = shortest_path(G, u, v, weight="weight")
+        # br-r37-c1-53kq4: see above — unweighted shortest path matches nx.
+        path = shortest_path(G, u, v)
         for i in range(len(path) - 1):
             # In a MultiGraph, adding an edge creates a new one
             if G.is_multigraph():
