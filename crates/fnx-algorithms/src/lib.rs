@@ -5335,8 +5335,25 @@ fn blossom_integer_weight_scale(candidates: &[WeightedEdgeCandidate]) -> f64 {
         return 1.0;
     }
 
+    // br-r37-c1-mwmatching-overflow: mwmatching does primal-dual updates
+    // in i32, accumulating `2*wt + dualvar[i] + dualvar[j]` and walking
+    // blossom-parent paths that fold in `2*dualvar[bi]` per ancestor
+    // (lib.rs:691, 709).  The dual values can grow proportional to the
+    // node count over the algorithm's lifetime, so the safe per-edge
+    // weight ceiling is roughly i32::MAX / (4 * n) — n=number of
+    // distinct endpoints in the candidate set.  fuzz_matching
+    // crash-a653763f triggered the overflow at line 691 with n=30 and
+    // i32::MAX/4 per-edge scale; tightening to /(4n) leaves room for
+    // the slack accumulator to grow without wrapping.
+    let endpoint_count = candidates
+        .iter()
+        .flat_map(|edge| [edge.left.as_str(), edge.right.as_str()])
+        .collect::<std::collections::HashSet<_>>()
+        .len()
+        .max(1);
     let preferred_scale = 1_000_000.0_f64;
-    let bounded_scale = (f64::from(i32::MAX) / max_abs_weight).floor().max(1.0);
+    let safety_ceiling = f64::from(i32::MAX) / (4.0 * endpoint_count as f64);
+    let bounded_scale = (safety_ceiling / max_abs_weight).floor().max(1.0);
     preferred_scale.min(bounded_scale)
 }
 
