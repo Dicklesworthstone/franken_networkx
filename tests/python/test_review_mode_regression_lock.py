@@ -11394,3 +11394,72 @@ def test_graph_iteration_does_not_raise_on_existing_node_add_edge():
         G.add_edge(0, 1)
         nxt = next(node_iter)
         assert nxt == 1, f"{cls.__name__}: iterator advanced unexpectedly to {nxt}"
+
+
+def test_graph_iteration_survives_non_mutating_view_operations():
+    """br-r37-c1-39d82 invariant: ``subgraph()``, ``copy()``, and
+    ``to_directed()`` return NEW graph objects without touching the
+    source's nodes_seq.  An iterator captured on the source must
+    survive these calls (false positives here would break legal
+    patterns like ``for n in G: sub = G.subgraph(...)``).
+    """
+    for cls in (fnx.Graph, fnx.DiGraph, fnx.MultiGraph, fnx.MultiDiGraph):
+        G = cls()
+        G.add_edges_from([(0, 1), (1, 2), (2, 3)])
+        node_iter = iter(G)
+        first = next(node_iter)
+        # subgraph
+        _ = G.subgraph([0, 1, 2])
+        assert next(node_iter) == 1, f"{cls.__name__}: subgraph false-positive"
+        # copy
+        _ = G.copy()
+        # Iterator is partially consumed; just make sure no false-positive raise.
+        list(node_iter)
+
+
+def test_graph_iteration_detects_batch_node_mutations():
+    """br-r37-c1-39d82: ``add_nodes_from`` / ``remove_nodes_from`` /
+    ``add_nodes_from([(n, attrs)])`` must all invalidate active
+    iterators when the node set changes.
+    """
+    # remove_nodes_from
+    for cls in (fnx.Graph, fnx.DiGraph, fnx.MultiGraph, fnx.MultiDiGraph):
+        G = cls()
+        G.add_edges_from([(0, 1), (1, 2), (2, 3), (3, 4)])
+        node_iter = iter(G)
+        next(node_iter)
+        G.remove_nodes_from([2, 3])
+        with pytest.raises(
+            RuntimeError, match="dictionary changed size during iteration"
+        ):
+            next(node_iter)
+
+    # add_nodes_from with attrs dict
+    for cls in (fnx.Graph, fnx.DiGraph, fnx.MultiGraph, fnx.MultiDiGraph):
+        G = cls()
+        G.add_nodes_from([0, 1])
+        node_iter = iter(G)
+        next(node_iter)
+        G.add_nodes_from([(5, {"color": "red"}), (6, {"color": "blue"})])
+        with pytest.raises(
+            RuntimeError, match="dictionary changed size during iteration"
+        ):
+            next(node_iter)
+
+
+def test_multigraph_parallel_edge_no_new_node_does_not_raise():
+    """br-r37-c1-eiwh0 inverse-half: adding a PARALLEL edge in a
+    MultiGraph between two existing nodes must NOT bump nodes_seq
+    (the node set is unchanged).  False positives here would break
+    legitimate multigraph mutation patterns.
+    """
+    for cls in (fnx.MultiGraph, fnx.MultiDiGraph):
+        G = cls()
+        G.add_edges_from([(0, 1), (1, 2)])
+        node_iter = iter(G)
+        first = next(node_iter)
+        assert first == 0
+        # Parallel edge between existing nodes — no new node.
+        G.add_edge(0, 1)
+        nxt = next(node_iter)
+        assert nxt == 1, f"{cls.__name__}: false positive on parallel edge"
