@@ -1079,3 +1079,88 @@ class TestBridgeParity:
         nx_lb = list(nx.local_bridges(nxG))
         # Just verify counts match since order may differ
         assert len(fnx_lb) == len(nx_lb)
+
+
+class TestArticulationParity:
+    """Verify articulation point outputs match NetworkX."""
+
+    def test_articulation_points_path(self):
+        G = fnx.path_graph(5)
+        nxG = nx.path_graph(5)
+        fnx_ap = set(fnx.articulation_points(G))
+        nx_ap = set(nx.articulation_points(nxG))
+        assert fnx_ap == nx_ap
+
+    def test_articulation_points_ladder(self):
+        G = fnx.ladder_graph(5)
+        nxG = nx.ladder_graph(5)
+        fnx_ap = set(fnx.articulation_points(G))
+        nx_ap = set(nx.articulation_points(nxG))
+        assert fnx_ap == nx_ap
+
+
+class TestRichClubParity:
+    """Verify rich club coefficient outputs match NetworkX."""
+
+    def test_rich_club_coefficient(self):
+        G = fnx.barabasi_albert_graph(30, 2, seed=42)
+        nxG = nx.barabasi_albert_graph(30, 2, seed=42)
+        fnx_rc = fnx.rich_club_coefficient(G, normalized=False)
+        nx_rc = nx.rich_club_coefficient(nxG, normalized=False)
+        for k in fnx_rc:
+            if k in nx_rc:
+                assert abs(fnx_rc[k] - nx_rc[k]) < 1e-10
+
+
+class TestSMetricParity:
+    """Verify s-metric outputs match NetworkX."""
+
+    def test_s_metric(self):
+        G = fnx.barabasi_albert_graph(30, 2, seed=42)
+        nxG = nx.barabasi_albert_graph(30, 2, seed=42)
+        fnx_s = fnx.s_metric(G)
+        nx_s = nx.s_metric(nxG)
+        assert abs(fnx_s - nx_s) < 1e-10
+
+
+class TestTournamentParity:
+    """Verify tournament algorithm outputs match NetworkX."""
+
+    def test_is_tournament(self):
+        # A tournament: complete digraph with no symmetric edges
+        DG = fnx.DiGraph()
+        DG.add_edges_from([(0, 1), (0, 2), (1, 2)])
+        nxDG = nx.DiGraph()
+        nxDG.add_edges_from([(0, 1), (0, 2), (1, 2)])
+        assert fnx.is_tournament(DG) == nx.is_tournament(nxDG) == True
+
+        # Not a tournament
+        DG2 = fnx.DiGraph()
+        DG2.add_edges_from([(0, 1), (0, 2)])
+        nxDG2 = nx.DiGraph()
+        nxDG2.add_edges_from([(0, 1), (0, 2)])
+        assert fnx.is_tournament(DG2) == nx.is_tournament(nxDG2) == False
+
+
+class TestAssortativityParity:
+    """Verify assortativity outputs match NetworkX."""
+
+    def test_degree_assortativity_coefficient(self):
+        G = fnx.barabasi_albert_graph(50, 3, seed=42)
+        nxG = nx.barabasi_albert_graph(50, 3, seed=42)
+        fnx_ac = fnx.degree_assortativity_coefficient(G)
+        nx_ac = nx.degree_assortativity_coefficient(nxG)
+        assert abs(fnx_ac - nx_ac) < 1e-10
+
+    def test_attribute_assortativity_coefficient(self):
+        G = fnx.Graph()
+        G.add_nodes_from([(0, {"color": "red"}), (1, {"color": "blue"}),
+                          (2, {"color": "red"}), (3, {"color": "blue"})])
+        G.add_edges_from([(0, 2), (1, 3), (0, 1)])
+        nxG = nx.Graph()
+        nxG.add_nodes_from([(0, {"color": "red"}), (1, {"color": "blue"}),
+                            (2, {"color": "red"}), (3, {"color": "blue"})])
+        nxG.add_edges_from([(0, 2), (1, 3), (0, 1)])
+        fnx_ac = fnx.attribute_assortativity_coefficient(G, "color")
+        nx_ac = nx.attribute_assortativity_coefficient(nxG, "color")
+        assert abs(fnx_ac - nx_ac) < 1e-10
