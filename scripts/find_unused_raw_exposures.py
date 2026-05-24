@@ -163,6 +163,10 @@ TRIAGE = {
         "heuristic that mis-reports in non-trivial cases; wrapper "
         "delegates to nx's max-flow-on-auxiliary-graph path.  Raw kept "
         "as direct API."),
+    "_raw_pagerank": ("keep-public-api",
+        "br-r37-c1-y5y7i: wrapper uses scipy.sparse matvec for 2x+ "
+        "speedup over pure-Rust scalar iteration on dense graphs.  Raw "
+        "Rust kernel kept as direct API for callers who want Rust-only."),
 }
 
 
