@@ -320,3 +320,27 @@ class TestIsomorphismParity:
         nxG1 = nx.path_graph(4)
         nxG2 = nx.cycle_graph(4)
         assert fnx.graph_edit_distance(G1, G2) == nx.graph_edit_distance(nxG1, nxG2)
+
+    def test_tree_isomorphism(self):
+        t1 = fnx.path_graph(5)
+        t2 = fnx.path_graph(5)
+        nxt1 = nx.path_graph(5)
+        nxt2 = nx.path_graph(5)
+        fnx_result = fnx.isomorphism.tree_isomorphism(t1, t2)
+        nx_result = nx.algorithms.isomorphism.tree_isomorphism(nxt1, nxt2)
+        assert set(fnx_result) == set(nx_result)
+
+    def test_tree_isomorphism_non_isomorphic(self):
+        t1 = fnx.path_graph(5)
+        t2 = fnx.star_graph(4)
+        fnx_result = fnx.isomorphism.tree_isomorphism(t1, t2)
+        assert fnx_result == []
+
+    def test_rooted_tree_isomorphism(self):
+        t1 = fnx.path_graph(5)
+        t2 = fnx.path_graph(5)
+        nxt1 = nx.path_graph(5)
+        nxt2 = nx.path_graph(5)
+        fnx_result = fnx.isomorphism.rooted_tree_isomorphism(t1, 0, t2, 0)
+        nx_result = nx.algorithms.isomorphism.rooted_tree_isomorphism(nxt1, 0, nxt2, 0)
+        assert set(fnx_result) == set(nx_result)

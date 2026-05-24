@@ -33698,6 +33698,34 @@ def vf2pp_all_isomorphisms(G1, G2, node_label=None, default_label=None):
     )
 
 
+def tree_isomorphism(t1, t2):
+    """Return an isomorphism mapping between two trees t1 and t2.
+
+    br-r37-c1-l6zub: parity with nx.isomorphism.tree_isomorphism.
+    Delegates to NetworkX (O(n log n) algorithm from Aho-Hopcroft-Ullman).
+    """
+    import networkx as nx
+    return nx.algorithms.isomorphism.tree_isomorphism(
+        _networkx_graph_for_parity(t1),
+        _networkx_graph_for_parity(t2),
+        backend="networkx",
+    )
+
+
+def rooted_tree_isomorphism(t1, root1, t2, root2):
+    """Return an isomorphism mapping between rooted trees.
+
+    br-r37-c1-07kwm: parity with nx.isomorphism.rooted_tree_isomorphism.
+    Delegates to NetworkX (O(n log n) algorithm from Aho-Hopcroft-Ullman).
+    """
+    import networkx as nx
+    return nx.algorithms.isomorphism.rooted_tree_isomorphism(
+        _networkx_graph_for_parity(t1),
+        root1,
+        _networkx_graph_for_parity(t2),
+        root2,
+        backend="networkx",
+    )
 
 
 
@@ -33723,6 +33751,21 @@ _ISOMORPHISM_MODULE_EXPORTS = (
     "vf2pp_is_isomorphic",
     "vf2pp_isomorphism",
     "vf2pp_all_isomorphisms",
+    "tree_isomorphism",
+    "rooted_tree_isomorphism",
+)
+
+
+_ISOMORPHISM_MATCHER_HELPERS = (
+    "categorical_node_match",
+    "categorical_edge_match",
+    "categorical_multiedge_match",
+    "generic_node_match",
+    "generic_edge_match",
+    "generic_multiedge_match",
+    "numerical_node_match",
+    "numerical_edge_match",
+    "numerical_multiedge_match",
 )
 
 
@@ -33730,9 +33773,14 @@ def _build_isomorphism_module():
     module = _types.ModuleType(f"{__name__}.isomorphism")
     module.__doc__ = "FrankenNetworkX graph isomorphism API."
     module.__package__ = __name__
-    module.__all__ = list(_ISOMORPHISM_MODULE_EXPORTS)
+    all_exports = list(_ISOMORPHISM_MODULE_EXPORTS) + list(_ISOMORPHISM_MATCHER_HELPERS)
+    module.__all__ = all_exports
     for export_name in _ISOMORPHISM_MODULE_EXPORTS:
         setattr(module, export_name, globals()[export_name])
+    # br-r37-c1-4cmv8: isomorphism matcher helpers from nx (not at fnx top-level)
+    from networkx.algorithms import isomorphism as _nx_iso
+    for helper_name in _ISOMORPHISM_MATCHER_HELPERS:
+        setattr(module, helper_name, getattr(_nx_iso, helper_name))
     return module
 
 
