@@ -1331,3 +1331,82 @@ class TestMoralGraphParity:
         fnx_edges = set(tuple(sorted(e)) for e in fnx_mg.edges())
         nx_edges = set(tuple(sorted(e)) for e in nx_mg.edges())
         assert fnx_edges == nx_edges
+
+
+class TestBiconnectedParity:
+    """Verify biconnected algorithm outputs match NetworkX."""
+
+    def test_is_biconnected_cycle(self):
+        G = fnx.cycle_graph(5)
+        nxG = nx.cycle_graph(5)
+        assert fnx.is_biconnected(G) == nx.is_biconnected(nxG) == True
+
+    def test_is_biconnected_path(self):
+        G = fnx.path_graph(5)
+        nxG = nx.path_graph(5)
+        assert fnx.is_biconnected(G) == nx.is_biconnected(nxG) == False
+
+    def test_biconnected_components(self):
+        G = fnx.cycle_graph(5)
+        nxG = nx.cycle_graph(5)
+        fnx_bc = list(fnx.biconnected_components(G))
+        nx_bc = list(nx.biconnected_components(nxG))
+        assert len(fnx_bc) == len(nx_bc)
+
+
+class TestTransitivityParity:
+    """Verify transitivity outputs match NetworkX."""
+
+    def test_transitivity(self):
+        G = fnx.complete_graph(5)
+        nxG = nx.complete_graph(5)
+        fnx_t = fnx.transitivity(G)
+        nx_t = nx.transitivity(nxG)
+        assert abs(fnx_t - nx_t) < 1e-10
+
+    def test_transitive_closure(self):
+        DG = fnx.DiGraph()
+        DG.add_edges_from([(0, 1), (1, 2), (2, 3)])
+        nxDG = nx.DiGraph()
+        nxDG.add_edges_from([(0, 1), (1, 2), (2, 3)])
+        fnx_tc = fnx.transitive_closure(DG)
+        nx_tc = nx.transitive_closure(nxDG)
+        assert set(fnx_tc.edges()) == set(nx_tc.edges())
+
+
+class TestDensityParity:
+    """Verify density outputs match NetworkX."""
+
+    def test_density_complete(self):
+        G = fnx.complete_graph(10)
+        nxG = nx.complete_graph(10)
+        assert abs(fnx.density(G) - nx.density(nxG)) < 1e-10
+
+    def test_density_path(self):
+        G = fnx.path_graph(10)
+        nxG = nx.path_graph(10)
+        assert abs(fnx.density(G) - nx.density(nxG)) < 1e-10
+
+
+class TestSimplePathsParity:
+    """Verify simple paths outputs match NetworkX."""
+
+    def test_is_simple_path(self):
+        G = fnx.path_graph(5)
+        nxG = nx.path_graph(5)
+        assert fnx.is_simple_path(G, [0, 1, 2]) == nx.is_simple_path(nxG, [0, 1, 2]) == True
+        assert fnx.is_simple_path(G, [0, 1, 0]) == nx.is_simple_path(nxG, [0, 1, 0]) == False
+
+    def test_all_simple_paths(self):
+        G = fnx.complete_graph(4)
+        nxG = nx.complete_graph(4)
+        fnx_paths = sorted([tuple(p) for p in fnx.all_simple_paths(G, 0, 3)])
+        nx_paths = sorted([tuple(p) for p in nx.all_simple_paths(nxG, 0, 3)])
+        assert fnx_paths == nx_paths
+
+    def test_shortest_simple_paths(self):
+        G = fnx.complete_graph(4)
+        nxG = nx.complete_graph(4)
+        fnx_ssp = [tuple(p) for p in fnx.shortest_simple_paths(G, 0, 3)]
+        nx_ssp = [tuple(p) for p in nx.shortest_simple_paths(nxG, 0, 3)]
+        assert fnx_ssp[:3] == nx_ssp[:3]
