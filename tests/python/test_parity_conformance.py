@@ -521,3 +521,110 @@ class TestMetricsParity:
         G = fnx.barabasi_albert_graph(50, 3, seed=42)
         nxG = nx.barabasi_albert_graph(50, 3, seed=42)
         assert abs(fnx.local_efficiency(G) - nx.local_efficiency(nxG)) < 1e-10
+
+
+class TestTriadsParity:
+    """Verify triad algorithm outputs match NetworkX."""
+
+    def test_triadic_census(self):
+        DG = fnx.DiGraph()
+        DG.add_edges_from([(0, 1), (1, 2), (2, 0), (0, 2)])
+        nxDG = nx.DiGraph()
+        nxDG.add_edges_from([(0, 1), (1, 2), (2, 0), (0, 2)])
+        assert fnx.triadic_census(DG) == nx.triadic_census(nxDG)
+
+    def test_transitivity_digraph(self):
+        DG = fnx.DiGraph()
+        DG.add_edges_from([(0, 1), (1, 2), (0, 2), (2, 3)])
+        nxDG = nx.DiGraph()
+        nxDG.add_edges_from([(0, 1), (1, 2), (0, 2), (2, 3)])
+        assert abs(fnx.transitivity(DG) - nx.transitivity(nxDG)) < 1e-10
+
+
+class TestTreeAlgorithmsParity:
+    """Verify tree algorithm outputs match NetworkX."""
+
+    def test_is_tree(self):
+        T = fnx.path_graph(5)
+        nxT = nx.path_graph(5)
+        assert fnx.is_tree(T) == nx.is_tree(nxT)
+
+    def test_is_forest(self):
+        F = fnx.Graph()
+        F.add_edges_from([(0, 1), (2, 3)])
+        nxF = nx.Graph()
+        nxF.add_edges_from([(0, 1), (2, 3)])
+        assert fnx.is_forest(F) == nx.is_forest(nxF)
+
+    def test_to_prufer_sequence(self):
+        T = fnx.random_labeled_tree(10, seed=42)
+        nxT = nx.random_labeled_tree(10, seed=42)
+        assert fnx.to_prufer_sequence(T) == nx.to_prufer_sequence(nxT)
+
+    def test_from_prufer_sequence(self):
+        seq = [1, 0, 4, 3, 3, 2, 1, 8]
+        fnx_tree = fnx.from_prufer_sequence(seq)
+        nx_tree = nx.from_prufer_sequence(seq)
+        fnx_edges = sorted(tuple(sorted(e)) for e in fnx_tree.edges())
+        nx_edges = sorted(tuple(sorted(e)) for e in nx_tree.edges())
+        assert fnx_edges == nx_edges
+
+
+class TestFlowParity:
+    """Verify flow algorithm outputs match NetworkX."""
+
+    def test_maximum_flow(self):
+        DG = fnx.DiGraph()
+        DG.add_edge(0, 1, capacity=10)
+        DG.add_edge(0, 2, capacity=10)
+        DG.add_edge(1, 3, capacity=4)
+        DG.add_edge(2, 3, capacity=8)
+        DG.add_edge(3, 4, capacity=10)
+        nxDG = nx.DiGraph()
+        nxDG.add_edge(0, 1, capacity=10)
+        nxDG.add_edge(0, 2, capacity=10)
+        nxDG.add_edge(1, 3, capacity=4)
+        nxDG.add_edge(2, 3, capacity=8)
+        nxDG.add_edge(3, 4, capacity=10)
+        fnx_flow, _ = fnx.maximum_flow(DG, 0, 4)
+        nx_flow, _ = nx.maximum_flow(nxDG, 0, 4)
+        assert fnx_flow == nx_flow
+
+    def test_minimum_cut(self):
+        DG = fnx.DiGraph()
+        DG.add_edge(0, 1, capacity=10)
+        DG.add_edge(0, 2, capacity=10)
+        DG.add_edge(1, 3, capacity=4)
+        DG.add_edge(2, 3, capacity=8)
+        DG.add_edge(3, 4, capacity=10)
+        nxDG = nx.DiGraph()
+        nxDG.add_edge(0, 1, capacity=10)
+        nxDG.add_edge(0, 2, capacity=10)
+        nxDG.add_edge(1, 3, capacity=4)
+        nxDG.add_edge(2, 3, capacity=8)
+        nxDG.add_edge(3, 4, capacity=10)
+        fnx_cut, _ = fnx.minimum_cut(DG, 0, 4)
+        nx_cut, _ = nx.minimum_cut(nxDG, 0, 4)
+        assert fnx_cut == nx_cut
+
+
+class TestLinkPredictionParity:
+    """Verify link prediction algorithm outputs match NetworkX."""
+
+    def test_jaccard_coefficient(self):
+        G = fnx.Graph()
+        G.add_edges_from([(0, 1), (0, 2), (1, 2), (1, 3), (2, 3)])
+        nxG = nx.Graph()
+        nxG.add_edges_from([(0, 1), (0, 2), (1, 2), (1, 3), (2, 3)])
+        fnx_jc = list(fnx.jaccard_coefficient(G, [(0, 3)]))
+        nx_jc = list(nx.jaccard_coefficient(nxG, [(0, 3)]))
+        assert fnx_jc == nx_jc
+
+    def test_adamic_adar_index(self):
+        G = fnx.Graph()
+        G.add_edges_from([(0, 1), (0, 2), (1, 2), (1, 3), (2, 3)])
+        nxG = nx.Graph()
+        nxG.add_edges_from([(0, 1), (0, 2), (1, 2), (1, 3), (2, 3)])
+        fnx_aa = list(fnx.adamic_adar_index(G, [(0, 3)]))
+        nx_aa = list(nx.adamic_adar_index(nxG, [(0, 3)]))
+        assert abs(fnx_aa[0][2] - nx_aa[0][2]) < 1e-10
