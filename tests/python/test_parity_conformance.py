@@ -1410,3 +1410,85 @@ class TestSimplePathsParity:
         fnx_ssp = [tuple(p) for p in fnx.shortest_simple_paths(G, 0, 3)]
         nx_ssp = [tuple(p) for p in nx.shortest_simple_paths(nxG, 0, 3)]
         assert fnx_ssp[:3] == nx_ssp[:3]
+
+
+class TestIsolatesParity:
+    """Verify isolate detection outputs match NetworkX."""
+
+    def test_isolates(self):
+        G = fnx.Graph()
+        G.add_nodes_from([0, 1, 2, 3])
+        G.add_edge(0, 1)
+        nxG = nx.Graph()
+        nxG.add_nodes_from([0, 1, 2, 3])
+        nxG.add_edge(0, 1)
+        fnx_iso = list(fnx.isolates(G))
+        nx_iso = list(nx.isolates(nxG))
+        assert set(fnx_iso) == set(nx_iso)
+
+    def test_is_isolate(self):
+        G = fnx.Graph()
+        G.add_nodes_from([0, 1, 2])
+        G.add_edge(0, 1)
+        nxG = nx.Graph()
+        nxG.add_nodes_from([0, 1, 2])
+        nxG.add_edge(0, 1)
+        assert fnx.is_isolate(G, 2) == nx.is_isolate(nxG, 2) == True
+        assert fnx.is_isolate(G, 0) == nx.is_isolate(nxG, 0) == False
+
+    def test_number_of_isolates(self):
+        G = fnx.Graph()
+        G.add_nodes_from([0, 1, 2, 3, 4])
+        G.add_edge(0, 1)
+        nxG = nx.Graph()
+        nxG.add_nodes_from([0, 1, 2, 3, 4])
+        nxG.add_edge(0, 1)
+        assert fnx.number_of_isolates(G) == nx.number_of_isolates(nxG) == 3
+
+
+class TestAverageShortestPathParity:
+    """Verify average shortest path length outputs match NetworkX."""
+
+    def test_average_shortest_path_length(self):
+        G = fnx.complete_graph(10)
+        nxG = nx.complete_graph(10)
+        fnx_aspl = fnx.average_shortest_path_length(G)
+        nx_aspl = nx.average_shortest_path_length(nxG)
+        assert abs(fnx_aspl - nx_aspl) < 1e-10
+
+
+class TestReverseParity:
+    """Verify reverse graph outputs match NetworkX."""
+
+    def test_reverse(self):
+        DG = fnx.DiGraph()
+        DG.add_edges_from([(0, 1), (1, 2), (2, 3)])
+        nxDG = nx.DiGraph()
+        nxDG.add_edges_from([(0, 1), (1, 2), (2, 3)])
+        fnx_r = fnx.reverse(DG)
+        nx_r = nx.reverse(nxDG)
+        assert set(fnx_r.edges()) == set(nx_r.edges())
+
+
+class TestLineGraphParity:
+    """Verify line graph outputs match NetworkX."""
+
+    def test_line_graph(self):
+        G = fnx.cycle_graph(5)
+        nxG = nx.cycle_graph(5)
+        fnx_lg = fnx.line_graph(G)
+        nx_lg = nx.line_graph(nxG)
+        assert fnx_lg.number_of_nodes() == nx_lg.number_of_nodes()
+        assert fnx_lg.number_of_edges() == nx_lg.number_of_edges()
+
+
+class TestSquareClusteringParity:
+    """Verify square clustering outputs match NetworkX."""
+
+    def test_square_clustering(self):
+        G = fnx.complete_graph(5)
+        nxG = nx.complete_graph(5)
+        fnx_sc = fnx.square_clustering(G)
+        nx_sc = nx.square_clustering(nxG)
+        for n in fnx_sc:
+            assert abs(fnx_sc[n] - nx_sc[n]) < 1e-10
