@@ -1249,3 +1249,85 @@ class TestResistanceDistanceParity:
         fnx_rd = fnx.resistance_distance(G, 0, 3)
         nx_rd = nx.resistance_distance(nxG, 0, 3)
         assert abs(fnx_rd - nx_rd) < 1e-10
+
+
+class TestAncestorsParity:
+    """Verify ancestor algorithm outputs match NetworkX."""
+
+    def test_ancestors(self):
+        DG = fnx.DiGraph()
+        DG.add_edges_from([(0, 1), (0, 2), (1, 3), (2, 3), (3, 4)])
+        nxDG = nx.DiGraph()
+        nxDG.add_edges_from([(0, 1), (0, 2), (1, 3), (2, 3), (3, 4)])
+        fnx_anc = fnx.ancestors(DG, 4)
+        nx_anc = nx.ancestors(nxDG, 4)
+        assert fnx_anc == nx_anc
+
+    def test_descendants(self):
+        DG = fnx.DiGraph()
+        DG.add_edges_from([(0, 1), (0, 2), (1, 3), (2, 3), (3, 4)])
+        nxDG = nx.DiGraph()
+        nxDG.add_edges_from([(0, 1), (0, 2), (1, 3), (2, 3), (3, 4)])
+        fnx_desc = fnx.descendants(DG, 0)
+        nx_desc = nx.descendants(nxDG, 0)
+        assert fnx_desc == nx_desc
+
+
+class TestComplementParity:
+    """Verify complement outputs match NetworkX."""
+
+    def test_complement(self):
+        G = fnx.path_graph(5)
+        nxG = nx.path_graph(5)
+        fnx_c = fnx.complement(G)
+        nx_c = nx.complement(nxG)
+        assert set(fnx_c.edges()) == set(nx_c.edges())
+
+
+class TestUnionIntersectionParity:
+    """Verify union and intersection outputs match NetworkX."""
+
+    def test_union(self):
+        G1 = fnx.path_graph(3)
+        G2 = fnx.path_graph(3)
+        nxG1 = nx.path_graph(3)
+        nxG2 = nx.path_graph(3)
+        fnx_u = fnx.union(G1, G2, rename=("G1", "G2"))
+        nx_u = nx.union(nxG1, nxG2, rename=("G1", "G2"))
+        assert set(fnx_u.nodes()) == set(nx_u.nodes())
+        assert set(fnx_u.edges()) == set(nx_u.edges())
+
+    def test_intersection(self):
+        G1 = fnx.complete_graph(5)
+        G2 = fnx.cycle_graph(5)
+        nxG1 = nx.complete_graph(5)
+        nxG2 = nx.cycle_graph(5)
+        fnx_i = fnx.intersection(G1, G2)
+        nx_i = nx.intersection(nxG1, nxG2)
+        assert set(fnx_i.nodes()) == set(nx_i.nodes())
+        assert set(fnx_i.edges()) == set(nx_i.edges())
+
+    def test_disjoint_union(self):
+        G1 = fnx.path_graph(3)
+        G2 = fnx.path_graph(3)
+        nxG1 = nx.path_graph(3)
+        nxG2 = nx.path_graph(3)
+        fnx_du = fnx.disjoint_union(G1, G2)
+        nx_du = nx.disjoint_union(nxG1, nxG2)
+        assert fnx_du.number_of_nodes() == nx_du.number_of_nodes()
+        assert fnx_du.number_of_edges() == nx_du.number_of_edges()
+
+
+class TestMoralGraphParity:
+    """Verify moral graph outputs match NetworkX."""
+
+    def test_moral_graph(self):
+        DG = fnx.DiGraph()
+        DG.add_edges_from([(0, 2), (1, 2), (2, 3)])
+        nxDG = nx.DiGraph()
+        nxDG.add_edges_from([(0, 2), (1, 2), (2, 3)])
+        fnx_mg = fnx.moral_graph(DG)
+        nx_mg = nx.moral_graph(nxDG)
+        fnx_edges = set(tuple(sorted(e)) for e in fnx_mg.edges())
+        nx_edges = set(tuple(sorted(e)) for e in nx_mg.edges())
+        assert fnx_edges == nx_edges
