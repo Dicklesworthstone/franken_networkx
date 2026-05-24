@@ -1164,3 +1164,88 @@ class TestAssortativityParity:
         fnx_ac = fnx.attribute_assortativity_coefficient(G, "color")
         nx_ac = nx.attribute_assortativity_coefficient(nxG, "color")
         assert abs(fnx_ac - nx_ac) < 1e-10
+
+
+class TestVitalityParity:
+    """Verify vitality algorithm outputs match NetworkX."""
+
+    def test_closeness_vitality(self):
+        G = fnx.cycle_graph(6)
+        nxG = nx.cycle_graph(6)
+        fnx_cv = fnx.closeness_vitality(G)
+        nx_cv = nx.closeness_vitality(nxG)
+        for n in fnx_cv:
+            if math.isfinite(fnx_cv[n]) and math.isfinite(nx_cv[n]):
+                assert abs(fnx_cv[n] - nx_cv[n]) < 1e-10
+            else:
+                assert fnx_cv[n] == nx_cv[n]
+
+
+class TestVoronoiParity:
+    """Verify Voronoi algorithm outputs match NetworkX."""
+
+    def test_voronoi_cells(self):
+        G = fnx.cycle_graph(10)
+        nxG = nx.cycle_graph(10)
+        fnx_vc = fnx.voronoi_cells(G, {0, 5})
+        nx_vc = nx.voronoi_cells(nxG, {0, 5})
+        for center in fnx_vc:
+            assert fnx_vc[center] == nx_vc[center]
+
+
+class TestEffectiveSizeParity:
+    """Verify effective size outputs match NetworkX."""
+
+    def test_effective_size(self):
+        G = fnx.barabasi_albert_graph(20, 2, seed=42)
+        nxG = nx.barabasi_albert_graph(20, 2, seed=42)
+        fnx_es = fnx.effective_size(G)
+        nx_es = nx.effective_size(nxG)
+        for n in fnx_es:
+            assert abs(fnx_es[n] - nx_es[n]) < 1e-10
+
+
+class TestDistanceMeasuresParity:
+    """Verify distance measure outputs match NetworkX."""
+
+    def test_eccentricity(self):
+        G = fnx.path_graph(10)
+        nxG = nx.path_graph(10)
+        fnx_e = fnx.eccentricity(G)
+        nx_e = nx.eccentricity(nxG)
+        assert fnx_e == nx_e
+
+    def test_diameter(self):
+        G = fnx.path_graph(10)
+        nxG = nx.path_graph(10)
+        assert fnx.diameter(G) == nx.diameter(nxG)
+
+    def test_radius(self):
+        G = fnx.path_graph(10)
+        nxG = nx.path_graph(10)
+        assert fnx.radius(G) == nx.radius(nxG)
+
+    def test_center(self):
+        G = fnx.path_graph(10)
+        nxG = nx.path_graph(10)
+        fnx_c = fnx.center(G)
+        nx_c = nx.center(nxG)
+        assert fnx_c == nx_c
+
+    def test_periphery(self):
+        G = fnx.path_graph(10)
+        nxG = nx.path_graph(10)
+        fnx_p = fnx.periphery(G)
+        nx_p = nx.periphery(nxG)
+        assert fnx_p == nx_p
+
+
+class TestResistanceDistanceParity:
+    """Verify resistance distance outputs match NetworkX."""
+
+    def test_resistance_distance(self):
+        G = fnx.cycle_graph(6)
+        nxG = nx.cycle_graph(6)
+        fnx_rd = fnx.resistance_distance(G, 0, 3)
+        nx_rd = nx.resistance_distance(nxG, 0, 3)
+        assert abs(fnx_rd - nx_rd) < 1e-10
