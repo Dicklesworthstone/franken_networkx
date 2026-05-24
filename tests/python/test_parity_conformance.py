@@ -453,3 +453,71 @@ class TestConnectivityParity:
         nxG = nx.Graph()
         nxG.add_edges_from([(0, 1), (1, 2), (2, 3), (3, 1), (3, 4)])
         assert set(fnx.bridges(G)) == set(nx.bridges(nxG))
+
+
+class TestSpanningTreeParity:
+    """Verify spanning tree algorithm outputs match NetworkX."""
+
+    def test_minimum_spanning_tree_kruskal(self):
+        G = fnx.Graph()
+        G.add_weighted_edges_from([(0, 1, 1), (1, 2, 2), (0, 2, 3), (2, 3, 1)])
+        nxG = nx.Graph()
+        nxG.add_weighted_edges_from([(0, 1, 1), (1, 2, 2), (0, 2, 3), (2, 3, 1)])
+        fnx_mst = fnx.minimum_spanning_tree(G, algorithm="kruskal")
+        nx_mst = nx.minimum_spanning_tree(nxG, algorithm="kruskal")
+        fnx_edges = sorted(tuple(sorted(e)) for e in fnx_mst.edges())
+        nx_edges = sorted(tuple(sorted(e)) for e in nx_mst.edges())
+        assert fnx_edges == nx_edges
+
+    def test_minimum_spanning_tree_prim(self):
+        G = fnx.Graph()
+        G.add_weighted_edges_from([(0, 1, 1), (1, 2, 2), (0, 2, 3), (2, 3, 1)])
+        nxG = nx.Graph()
+        nxG.add_weighted_edges_from([(0, 1, 1), (1, 2, 2), (0, 2, 3), (2, 3, 1)])
+        fnx_mst = fnx.minimum_spanning_tree(G, algorithm="prim")
+        nx_mst = nx.minimum_spanning_tree(nxG, algorithm="prim")
+        fnx_edges = sorted(tuple(sorted(e)) for e in fnx_mst.edges())
+        nx_edges = sorted(tuple(sorted(e)) for e in nx_mst.edges())
+        assert fnx_edges == nx_edges
+
+    def test_maximum_spanning_tree(self):
+        G = fnx.Graph()
+        G.add_weighted_edges_from([(0, 1, 1), (1, 2, 2), (0, 2, 3), (2, 3, 1)])
+        nxG = nx.Graph()
+        nxG.add_weighted_edges_from([(0, 1, 1), (1, 2, 2), (0, 2, 3), (2, 3, 1)])
+        fnx_mst = fnx.maximum_spanning_tree(G)
+        nx_mst = nx.maximum_spanning_tree(nxG)
+        fnx_edges = sorted(tuple(sorted(e)) for e in fnx_mst.edges())
+        nx_edges = sorted(tuple(sorted(e)) for e in nx_mst.edges())
+        assert fnx_edges == nx_edges
+
+
+class TestMetricsParity:
+    """Verify graph metrics match NetworkX."""
+
+    def test_average_clustering(self):
+        G = fnx.barabasi_albert_graph(100, 3, seed=42)
+        nxG = nx.barabasi_albert_graph(100, 3, seed=42)
+        assert abs(fnx.average_clustering(G) - nx.average_clustering(nxG)) < 1e-10
+
+    def test_average_shortest_path_length(self):
+        G = fnx.path_graph(10)
+        nxG = nx.path_graph(10)
+        fnx_aspl = fnx.average_shortest_path_length(G)
+        nx_aspl = nx.average_shortest_path_length(nxG)
+        assert abs(fnx_aspl - nx_aspl) < 1e-10
+
+    def test_wiener_index(self):
+        G = fnx.path_graph(10)
+        nxG = nx.path_graph(10)
+        assert fnx.wiener_index(G) == nx.wiener_index(nxG)
+
+    def test_global_efficiency(self):
+        G = fnx.barabasi_albert_graph(50, 3, seed=42)
+        nxG = nx.barabasi_albert_graph(50, 3, seed=42)
+        assert abs(fnx.global_efficiency(G) - nx.global_efficiency(nxG)) < 1e-10
+
+    def test_local_efficiency(self):
+        G = fnx.barabasi_albert_graph(50, 3, seed=42)
+        nxG = nx.barabasi_albert_graph(50, 3, seed=42)
+        assert abs(fnx.local_efficiency(G) - nx.local_efficiency(nxG)) < 1e-10
