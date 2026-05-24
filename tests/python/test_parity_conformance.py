@@ -975,3 +975,107 @@ class TestDegreeParity:
         nx_and = nx.average_neighbor_degree(nxG)
         for n in fnx_and:
             assert abs(fnx_and[n] - nx_and[n]) < 1e-10
+
+
+class TestBoundaryParity:
+    """Verify boundary algorithm outputs match NetworkX."""
+
+    def test_node_boundary(self):
+        G = fnx.complete_bipartite_graph(3, 4)
+        nxG = nx.complete_bipartite_graph(3, 4)
+        fnx_nb = set(fnx.node_boundary(G, [0, 1, 2]))
+        nx_nb = set(nx.node_boundary(nxG, [0, 1, 2]))
+        assert fnx_nb == nx_nb
+
+    def test_edge_boundary(self):
+        G = fnx.complete_bipartite_graph(3, 4)
+        nxG = nx.complete_bipartite_graph(3, 4)
+        fnx_eb = set(fnx.edge_boundary(G, [0, 1, 2]))
+        nx_eb = set(nx.edge_boundary(nxG, [0, 1, 2]))
+        assert fnx_eb == nx_eb
+
+
+class TestWienerParity:
+    """Verify Wiener index outputs match NetworkX."""
+
+    def test_wiener_index_path(self):
+        G = fnx.path_graph(10)
+        nxG = nx.path_graph(10)
+        fnx_wi = fnx.wiener_index(G)
+        nx_wi = nx.wiener_index(nxG)
+        assert fnx_wi == nx_wi
+
+    def test_wiener_index_cycle(self):
+        G = fnx.cycle_graph(10)
+        nxG = nx.cycle_graph(10)
+        fnx_wi = fnx.wiener_index(G)
+        nx_wi = nx.wiener_index(nxG)
+        assert fnx_wi == nx_wi
+
+
+class TestReciprocityParity:
+    """Verify reciprocity outputs match NetworkX."""
+
+    def test_overall_reciprocity(self):
+        DG = fnx.DiGraph()
+        DG.add_edges_from([(0, 1), (1, 0), (1, 2), (2, 3), (3, 2)])
+        nxDG = nx.DiGraph()
+        nxDG.add_edges_from([(0, 1), (1, 0), (1, 2), (2, 3), (3, 2)])
+        fnx_r = fnx.overall_reciprocity(DG)
+        nx_r = nx.overall_reciprocity(nxDG)
+        assert abs(fnx_r - nx_r) < 1e-10
+
+    def test_reciprocity(self):
+        DG = fnx.DiGraph()
+        DG.add_edges_from([(0, 1), (1, 0), (1, 2), (2, 3), (3, 2)])
+        nxDG = nx.DiGraph()
+        nxDG.add_edges_from([(0, 1), (1, 0), (1, 2), (2, 3), (3, 2)])
+        fnx_r = fnx.reciprocity(DG, [0, 1])
+        nx_r = nx.reciprocity(nxDG, [0, 1])
+        assert fnx_r == nx_r
+
+
+class TestCoreParity:
+    """Verify k-core outputs match NetworkX."""
+
+    def test_core_number(self):
+        G = fnx.barabasi_albert_graph(30, 3, seed=42)
+        nxG = nx.barabasi_albert_graph(30, 3, seed=42)
+        fnx_cn = fnx.core_number(G)
+        nx_cn = nx.core_number(nxG)
+        assert fnx_cn == nx_cn
+
+    def test_k_core(self):
+        G = fnx.barabasi_albert_graph(30, 3, seed=42)
+        nxG = nx.barabasi_albert_graph(30, 3, seed=42)
+        fnx_kc = fnx.k_core(G, k=2)
+        nx_kc = nx.k_core(nxG, k=2)
+        assert set(fnx_kc.nodes()) == set(nx_kc.nodes())
+
+
+class TestBridgeParity:
+    """Verify bridge algorithm outputs match NetworkX."""
+
+    def test_bridges(self):
+        G = fnx.path_graph(5)
+        nxG = nx.path_graph(5)
+        fnx_bridges = set(fnx.bridges(G))
+        nx_bridges = set(nx.bridges(nxG))
+        assert fnx_bridges == nx_bridges
+
+    def test_has_bridges(self):
+        G = fnx.path_graph(5)
+        nxG = nx.path_graph(5)
+        assert fnx.has_bridges(G) == nx.has_bridges(nxG) == True
+
+        G2 = fnx.cycle_graph(5)
+        nxG2 = nx.cycle_graph(5)
+        assert fnx.has_bridges(G2) == nx.has_bridges(nxG2) == False
+
+    def test_local_bridges(self):
+        G = fnx.ladder_graph(5)
+        nxG = nx.ladder_graph(5)
+        fnx_lb = list(fnx.local_bridges(G))
+        nx_lb = list(nx.local_bridges(nxG))
+        # Just verify counts match since order may differ
+        assert len(fnx_lb) == len(nx_lb)
