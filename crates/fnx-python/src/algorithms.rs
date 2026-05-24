@@ -7792,21 +7792,24 @@ pub fn single_source_shortest_path_length(
 ) -> PyResult<PyObject> {
     let gr = extract_graph(g)?;
     let source_key = node_key_to_string(py, source)?;
-    let result = if gr.is_directed() {
+    let dict = pyo3::types::PyDict::new(py);
+    if gr.is_directed() {
         let inner = gr.digraph().expect("is_directed checked above");
-        py.allow_threads(|| {
+        let result = py.allow_threads(|| {
             fnx_algorithms::single_source_shortest_path_length_directed(inner, &source_key, cutoff)
-        })
+        });
+        for (node, length) in &result {
+            dict.set_item(gr.py_node_key(py, node), *length)?;
+        }
     } else {
         let inner = gr.undirected();
-        py.allow_threads(|| {
+        let result = py.allow_threads(|| {
             fnx_algorithms::single_source_shortest_path_length(inner, &source_key, cutoff)
-        })
+        });
+        for (node, length) in &result {
+            dict.set_item(gr.py_node_key(py, node), *length)?;
+        }
     };
-    let dict = pyo3::types::PyDict::new(py);
-    for (node, length) in &result {
-        dict.set_item(gr.py_node_key(py, node), *length)?;
-    }
     Ok(dict.into_any().unbind())
 }
 

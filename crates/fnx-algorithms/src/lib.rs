@@ -1862,13 +1862,30 @@ pub fn single_source_shortest_path_length(
     source: &str,
     cutoff: Option<usize>,
 ) -> HashMap<String, usize> {
-    let mut result: HashMap<String, usize> = HashMap::new();
-    if !graph.has_node(source) {
-        return result;
-    }
+    single_source_shortest_path_length_borrowed(graph, source, cutoff)
+        .into_iter()
+        .map(|(node, dist)| (node.to_owned(), dist))
+        .collect()
+}
 
-    result.insert(source.to_owned(), 0);
-    let mut frontier: Vec<&str> = vec![source];
+/// Borrowed-string version that avoids String allocations during BFS.
+/// Returns Vec of (node_name, distance) pairs for reachable nodes.
+#[must_use]
+pub fn single_source_shortest_path_length_borrowed<'a>(
+    graph: &'a Graph,
+    source: &str,
+    cutoff: Option<usize>,
+) -> Vec<(&'a str, usize)> {
+    let nodes: Vec<&str> = graph.nodes_ordered();
+    let n = nodes.len();
+
+    let Some(source_idx) = graph.get_node_index(source) else {
+        return Vec::new();
+    };
+
+    let mut distances = vec![usize::MAX; n];
+    distances[source_idx] = 0;
+    let mut frontier: Vec<usize> = vec![source_idx];
     let mut level = 0usize;
 
     while !frontier.is_empty() {
@@ -1877,13 +1894,13 @@ pub fn single_source_shortest_path_length(
         {
             break;
         }
-        let mut next_frontier: Vec<&str> = Vec::new();
-        for &node in &frontier {
-            if let Some(neighbors) = graph.neighbors_iter(node) {
-                for nbr in neighbors {
-                    if !result.contains_key(nbr) {
-                        result.insert(nbr.to_owned(), level + 1);
-                        next_frontier.push(nbr);
+        let mut next_frontier: Vec<usize> = Vec::new();
+        for &node_idx in &frontier {
+            if let Some(neighbor_indices) = graph.neighbors_indices(node_idx) {
+                for &nbr_idx in neighbor_indices {
+                    if distances[nbr_idx] == usize::MAX {
+                        distances[nbr_idx] = level + 1;
+                        next_frontier.push(nbr_idx);
                     }
                 }
             }
@@ -1892,6 +1909,12 @@ pub fn single_source_shortest_path_length(
         level += 1;
     }
 
+    let mut result = Vec::with_capacity(n);
+    for (idx, &dist) in distances.iter().enumerate() {
+        if dist != usize::MAX {
+            result.push((nodes[idx], dist));
+        }
+    }
     result
 }
 
@@ -13685,33 +13708,39 @@ pub fn bfs_edges(graph: &Graph, source: &str, depth_limit: Option<usize>) -> Vec
     let mut cgse_sink = cgse_begin(CgseReferenceAlgorithm::Bfs);
 
     let max_depth = depth_limit.unwrap_or(usize::MAX);
-    let mut visited: HashSet<&str> = HashSet::new();
-    let mut edges: Vec<(String, String)> = Vec::new();
+    let nodes: Vec<&str> = graph.nodes_ordered();
+    let n = nodes.len();
 
-    if !graph.has_node(source) {
+    let Some(source_idx) = graph.get_node_index(source) else {
         cgse_publish(
             CgseReferenceAlgorithm::Bfs,
             graph.node_count(),
             graph.edge_count(),
             cgse_sink,
         );
-        return edges;
-    }
+        return Vec::new();
+    };
 
-    visited.insert(source);
-    let mut queue: VecDeque<(&str, usize)> = VecDeque::new();
-    queue.push_back((source, 0));
+    let mut visited = vec![false; n];
+    let mut edges: Vec<(String, String)> = Vec::new();
 
-    while let Some((node, depth)) = queue.pop_front() {
+    visited[source_idx] = true;
+    let mut queue: VecDeque<(usize, usize)> = VecDeque::new();
+    queue.push_back((source_idx, 0));
+
+    while let Some((node_idx, depth)) = queue.pop_front() {
         if depth >= max_depth {
             continue;
         }
-        if let Some(neighbors) = graph.neighbors(node) {
-            for neighbor in neighbors {
-                if visited.insert(neighbor) {
-                    cgse_record_decision(&mut cgse_sink, neighbor, node);
-                    edges.push((node.to_owned(), neighbor.to_owned()));
-                    queue.push_back((neighbor, depth + 1));
+        if let Some(neighbor_indices) = graph.neighbors_indices(node_idx) {
+            let node_str = nodes[node_idx];
+            for &nbr_idx in neighbor_indices {
+                if !visited[nbr_idx] {
+                    visited[nbr_idx] = true;
+                    let nbr_str = nodes[nbr_idx];
+                    cgse_record_decision(&mut cgse_sink, nbr_str, node_str);
+                    edges.push((node_str.to_owned(), nbr_str.to_owned()));
+                    queue.push_back((nbr_idx, depth + 1));
                 }
             }
         }
