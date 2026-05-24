@@ -693,3 +693,164 @@ class TestCyclesParity:
         fnx_cycle = fnx.find_cycle(G)
         nx_cycle = nx.find_cycle(nxG)
         assert len(fnx_cycle) == len(nx_cycle)
+
+
+class TestBipartiteParity:
+    """Verify bipartite algorithm outputs match NetworkX."""
+
+    def test_is_bipartite(self):
+        G = fnx.complete_bipartite_graph(3, 4)
+        nxG = nx.complete_bipartite_graph(3, 4)
+        assert fnx.is_bipartite(G) == nx.is_bipartite(nxG) == True
+
+        # triangle is not bipartite
+        G2 = fnx.cycle_graph(3)
+        nxG2 = nx.cycle_graph(3)
+        assert fnx.is_bipartite(G2) == nx.is_bipartite(nxG2) == False
+
+    def test_bipartite_sets(self):
+        G = fnx.complete_bipartite_graph(3, 4)
+        nxG = nx.complete_bipartite_graph(3, 4)
+        fnx_top, fnx_bottom = fnx.bipartite.sets(G)
+        nx_top, nx_bottom = nx.bipartite.sets(nxG)
+        assert len(fnx_top) == len(nx_top)
+        assert len(fnx_bottom) == len(nx_bottom)
+
+    def test_bipartite_density(self):
+        G = fnx.complete_bipartite_graph(3, 4)
+        nxG = nx.complete_bipartite_graph(3, 4)
+        fnx_top, _ = fnx.bipartite.sets(G)
+        nx_top, _ = nx.bipartite.sets(nxG)
+        fnx_d = fnx.bipartite.density(G, fnx_top)
+        nx_d = nx.bipartite.density(nxG, nx_top)
+        assert abs(fnx_d - nx_d) < 1e-10
+
+    def test_bipartite_clustering(self):
+        G = fnx.complete_bipartite_graph(3, 4)
+        nxG = nx.complete_bipartite_graph(3, 4)
+        fnx_c = fnx.bipartite.clustering(G)
+        nx_c = nx.bipartite.clustering(nxG)
+        for n in fnx_c:
+            assert abs(fnx_c[n] - nx_c[n]) < 1e-10
+
+
+class TestTraversalParity:
+    """Verify traversal algorithm outputs match NetworkX."""
+
+    def test_bfs_edges(self):
+        G = fnx.balanced_tree(2, 3)
+        nxG = nx.balanced_tree(2, 3)
+        fnx_edges = list(fnx.bfs_edges(G, 0))
+        nx_edges = list(nx.bfs_edges(nxG, 0))
+        assert fnx_edges == nx_edges
+
+    def test_bfs_tree(self):
+        G = fnx.barabasi_albert_graph(20, 2, seed=42)
+        nxG = nx.barabasi_albert_graph(20, 2, seed=42)
+        fnx_tree = fnx.bfs_tree(G, 0)
+        nx_tree = nx.bfs_tree(nxG, 0)
+        assert set(fnx_tree.edges()) == set(nx_tree.edges())
+
+    def test_dfs_edges(self):
+        G = fnx.balanced_tree(2, 3)
+        nxG = nx.balanced_tree(2, 3)
+        fnx_edges = list(fnx.dfs_edges(G, 0))
+        nx_edges = list(nx.dfs_edges(nxG, 0))
+        assert fnx_edges == nx_edges
+
+    def test_dfs_preorder_nodes(self):
+        G = fnx.balanced_tree(2, 3)
+        nxG = nx.balanced_tree(2, 3)
+        fnx_nodes = list(fnx.dfs_preorder_nodes(G, 0))
+        nx_nodes = list(nx.dfs_preorder_nodes(nxG, 0))
+        assert fnx_nodes == nx_nodes
+
+    def test_dfs_postorder_nodes(self):
+        G = fnx.balanced_tree(2, 3)
+        nxG = nx.balanced_tree(2, 3)
+        fnx_nodes = list(fnx.dfs_postorder_nodes(G, 0))
+        nx_nodes = list(nx.dfs_postorder_nodes(nxG, 0))
+        assert fnx_nodes == nx_nodes
+
+
+class TestColoringParity:
+    """Verify graph coloring outputs match NetworkX."""
+
+    def test_greedy_color_petersen(self):
+        G = fnx.petersen_graph()
+        nxG = nx.petersen_graph()
+        fnx_col = fnx.greedy_color(G)
+        nx_col = nx.greedy_color(nxG)
+        assert max(fnx_col.values()) + 1 == max(nx_col.values()) + 1
+
+    def test_greedy_color_cycle(self):
+        G = fnx.cycle_graph(6)
+        nxG = nx.cycle_graph(6)
+        fnx_col = fnx.greedy_color(G)
+        nx_col = nx.greedy_color(nxG)
+        fnx_num_colors = len(set(fnx_col.values()))
+        nx_num_colors = len(set(nx_col.values()))
+        assert fnx_num_colors == nx_num_colors
+
+    def test_equitable_color(self):
+        G = fnx.complete_graph(4)
+        nxG = nx.complete_graph(4)
+        fnx_col = fnx.equitable_color(G, 4)
+        nx_col = nx.equitable_color(nxG, 4)
+        assert len(set(fnx_col.values())) == len(set(nx_col.values()))
+
+
+class TestPlanarityParity:
+    """Verify planarity algorithm outputs match NetworkX."""
+
+    def test_is_planar_k4(self):
+        G = fnx.complete_graph(4)
+        nxG = nx.complete_graph(4)
+        assert fnx.is_planar(G) == nx.is_planar(nxG) == True
+
+    def test_is_planar_k5(self):
+        G = fnx.complete_graph(5)
+        nxG = nx.complete_graph(5)
+        assert fnx.is_planar(G) == nx.is_planar(nxG) == False
+
+    def test_is_planar_k33(self):
+        G = fnx.complete_bipartite_graph(3, 3)
+        nxG = nx.complete_bipartite_graph(3, 3)
+        assert fnx.is_planar(G) == nx.is_planar(nxG) == False
+
+    def test_check_planarity_petersen(self):
+        G = fnx.petersen_graph()
+        nxG = nx.petersen_graph()
+        fnx_planar, _ = fnx.check_planarity(G)
+        nx_planar, _ = nx.check_planarity(nxG)
+        assert fnx_planar == nx_planar == False
+
+
+class TestDominanceParity:
+    """Verify dominance algorithm outputs match NetworkX."""
+
+    def test_dominating_set(self):
+        G = fnx.path_graph(10)
+        nxG = nx.path_graph(10)
+        fnx_ds = fnx.dominating_set(G)
+        nx_ds = nx.dominating_set(nxG)
+        # verify both are valid dominating sets (not necessarily same)
+        assert fnx.is_dominating_set(G, fnx_ds)
+        assert nx.is_dominating_set(nxG, nx_ds)
+
+    def test_is_dominating_set(self):
+        G = fnx.path_graph(5)
+        nxG = nx.path_graph(5)
+        dom = {1, 3}
+        assert fnx.is_dominating_set(G, dom) == nx.is_dominating_set(nxG, dom)
+        non_dom = {0}
+        assert fnx.is_dominating_set(G, non_dom) == nx.is_dominating_set(nxG, non_dom)
+
+    def test_immediate_dominators(self):
+        DG = fnx.DiGraph()
+        DG.add_edges_from([(0, 1), (0, 2), (1, 3), (2, 3), (3, 4)])
+        nxDG = nx.DiGraph()
+        nxDG.add_edges_from([(0, 1), (0, 2), (1, 3), (2, 3), (3, 4)])
+        fnx_idom = fnx.immediate_dominators(DG, 0)
+        nx_idom = nx.immediate_dominators(nxDG, 0)
+        assert fnx_idom == nx_idom
