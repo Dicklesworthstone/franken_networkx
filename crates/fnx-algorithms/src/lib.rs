@@ -2006,25 +2006,18 @@ pub fn connected_components_borrowed(graph: &Graph) -> (Vec<Vec<&str>>, usize, u
         queue_peak = queue_peak.max(queue.len());
 
         while let Some(current_idx) = queue.pop_front() {
-            let current = nodes[current_idx];
-            let Some(neighbors) = graph.neighbors_iter(current) else {
+            // Use integer-indexed adjacency for O(1) neighbor traversal.
+            let Some(neighbor_indices) = graph.neighbors_indices(current_idx) else {
                 continue;
             };
 
-            for neighbor in neighbors {
+            for &nbr_idx in neighbor_indices {
                 edges_scanned += 1;
-                // Reuse the graph's existing IndexMap-backed
-                // ``get_node_index`` lookup instead of building a
-                // parallel ``HashMap<&str, usize>`` per call.
-                let nbr_idx = match graph.get_node_index(neighbor) {
-                    Some(i) => i,
-                    None => continue,
-                };
                 if !visited[nbr_idx] {
                     visited[nbr_idx] = true;
                     queue.push_back(nbr_idx);
-                    component.push(neighbor);
-                    cgse_record_decision(&mut cgse_sink, neighbor, current);
+                    component.push(nodes[nbr_idx]);
+                    cgse_record_decision(&mut cgse_sink, nodes[nbr_idx], nodes[current_idx]);
                     nodes_touched += 1;
                     queue_peak = queue_peak.max(queue.len());
                 }
