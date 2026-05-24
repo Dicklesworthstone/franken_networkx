@@ -1614,3 +1614,91 @@ class TestHarmonicCentralityParity:
         nx_hc = nx.harmonic_centrality(nxG)
         for n in fnx_hc:
             assert abs(fnx_hc[n] - nx_hc[n]) < 1e-10
+
+
+class TestClassicGeneratorsParity:
+    """Verify classic graph generators match NetworkX."""
+
+    def test_barbell_graph(self):
+        G = fnx.barbell_graph(5, 3)
+        nxG = nx.barbell_graph(5, 3)
+        assert G.number_of_nodes() == nxG.number_of_nodes()
+        assert G.number_of_edges() == nxG.number_of_edges()
+
+    def test_bull_graph(self):
+        G = fnx.bull_graph()
+        nxG = nx.bull_graph()
+        assert G.number_of_nodes() == nxG.number_of_nodes()
+        assert G.number_of_edges() == nxG.number_of_edges()
+
+    def test_chvatal_graph(self):
+        G = fnx.chvatal_graph()
+        nxG = nx.chvatal_graph()
+        assert G.number_of_nodes() == nxG.number_of_nodes()
+        assert G.number_of_edges() == nxG.number_of_edges()
+
+    def test_cubical_graph(self):
+        G = fnx.cubical_graph()
+        nxG = nx.cubical_graph()
+        assert G.number_of_nodes() == nxG.number_of_nodes()
+        assert G.number_of_edges() == nxG.number_of_edges()
+
+    def test_desargues_graph(self):
+        G = fnx.desargues_graph()
+        nxG = nx.desargues_graph()
+        assert G.number_of_nodes() == nxG.number_of_nodes()
+        assert G.number_of_edges() == nxG.number_of_edges()
+
+    def test_dodecahedral_graph(self):
+        G = fnx.dodecahedral_graph()
+        nxG = nx.dodecahedral_graph()
+        assert G.number_of_nodes() == nxG.number_of_nodes()
+        assert G.number_of_edges() == nxG.number_of_edges()
+
+    def test_heawood_graph(self):
+        G = fnx.heawood_graph()
+        nxG = nx.heawood_graph()
+        assert G.number_of_nodes() == nxG.number_of_nodes()
+        assert G.number_of_edges() == nxG.number_of_edges()
+
+    def test_icosahedral_graph(self):
+        G = fnx.icosahedral_graph()
+        nxG = nx.icosahedral_graph()
+        assert G.number_of_nodes() == nxG.number_of_nodes()
+        assert G.number_of_edges() == nxG.number_of_edges()
+
+    def test_moebius_kantor_graph(self):
+        G = fnx.moebius_kantor_graph()
+        nxG = nx.moebius_kantor_graph()
+        assert G.number_of_nodes() == nxG.number_of_nodes()
+        assert G.number_of_edges() == nxG.number_of_edges()
+
+    def test_octahedral_graph(self):
+        G = fnx.octahedral_graph()
+        nxG = nx.octahedral_graph()
+        assert G.number_of_nodes() == nxG.number_of_nodes()
+        assert G.number_of_edges() == nxG.number_of_edges()
+
+
+class TestCurrentFlowCentralityParity:
+    """Verify current flow centrality outputs match NetworkX."""
+
+    def test_current_flow_closeness_centrality(self):
+        G = fnx.cycle_graph(6)
+        nxG = nx.cycle_graph(6)
+        fnx_cfc = fnx.current_flow_closeness_centrality(G)
+        nx_cfc = nx.current_flow_closeness_centrality(nxG)
+        for n in fnx_cfc:
+            assert abs(fnx_cfc[n] - nx_cfc[n]) < 1e-10
+
+
+class TestKatzCentralityParity:
+    """Verify Katz centrality outputs match NetworkX."""
+
+    def test_katz_centrality(self):
+        G = fnx.barabasi_albert_graph(20, 2, seed=42)
+        nxG = nx.barabasi_albert_graph(20, 2, seed=42)
+        fnx_kc = fnx.katz_centrality(G, alpha=0.1)
+        nx_kc = nx.katz_centrality(nxG, alpha=0.1)
+        for n in fnx_kc:
+            assert abs(fnx_kc[n] - nx_kc[n]) < 1e-8
