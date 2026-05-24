@@ -1702,3 +1702,52 @@ class TestKatzCentralityParity:
         nx_kc = nx.katz_centrality(nxG, alpha=0.1)
         for n in fnx_kc:
             assert abs(fnx_kc[n] - nx_kc[n]) < 1e-8
+
+
+class TestLoadCentralityParity:
+    """Verify load centrality outputs match NetworkX."""
+
+    def test_load_centrality(self):
+        G = fnx.barabasi_albert_graph(30, 2, seed=42)
+        nxG = nx.barabasi_albert_graph(30, 2, seed=42)
+        fnx_lc = fnx.load_centrality(G)
+        nx_lc = nx.load_centrality(nxG)
+        for n in fnx_lc:
+            assert abs(fnx_lc[n] - nx_lc[n]) < 1e-10
+
+
+class TestEfficiencyParity:
+    """Verify efficiency outputs match NetworkX."""
+
+    def test_global_efficiency(self):
+        G = fnx.barabasi_albert_graph(20, 2, seed=42)
+        nxG = nx.barabasi_albert_graph(20, 2, seed=42)
+        fnx_ge = fnx.global_efficiency(G)
+        nx_ge = nx.global_efficiency(nxG)
+        assert abs(fnx_ge - nx_ge) < 1e-10
+
+    def test_local_efficiency(self):
+        G = fnx.barabasi_albert_graph(20, 2, seed=42)
+        nxG = nx.barabasi_albert_graph(20, 2, seed=42)
+        fnx_le = fnx.local_efficiency(G)
+        nx_le = nx.local_efficiency(nxG)
+        assert abs(fnx_le - nx_le) < 1e-10
+
+    def test_efficiency(self):
+        G = fnx.complete_graph(10)
+        nxG = nx.complete_graph(10)
+        fnx_e = fnx.efficiency(G, 0, 5)
+        nx_e = nx.efficiency(nxG, 0, 5)
+        assert abs(fnx_e - nx_e) < 1e-10
+
+
+class TestInformationCentralityParity:
+    """Verify information centrality outputs match NetworkX."""
+
+    def test_information_centrality(self):
+        G = fnx.cycle_graph(8)
+        nxG = nx.cycle_graph(8)
+        fnx_ic = fnx.information_centrality(G)
+        nx_ic = nx.information_centrality(nxG)
+        for n in fnx_ic:
+            assert abs(fnx_ic[n] - nx_ic[n]) < 1e-10
