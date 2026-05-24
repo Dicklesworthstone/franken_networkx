@@ -854,3 +854,124 @@ class TestDominanceParity:
         fnx_idom = fnx.immediate_dominators(DG, 0)
         nx_idom = nx.immediate_dominators(nxDG, 0)
         assert fnx_idom == nx_idom
+
+
+class TestEulerianParity:
+    """Verify Eulerian algorithm outputs match NetworkX."""
+
+    def test_is_eulerian(self):
+        G = fnx.cycle_graph(5)
+        nxG = nx.cycle_graph(5)
+        assert fnx.is_eulerian(G) == nx.is_eulerian(nxG) == True
+
+        # Complete graph K4 is not Eulerian (odd degree vertices)
+        G2 = fnx.complete_graph(4)
+        nxG2 = nx.complete_graph(4)
+        assert fnx.is_eulerian(G2) == nx.is_eulerian(nxG2) == False
+
+    def test_has_eulerian_path(self):
+        G = fnx.path_graph(5)
+        nxG = nx.path_graph(5)
+        assert fnx.has_eulerian_path(G) == nx.has_eulerian_path(nxG) == True
+
+    def test_is_semieulerian(self):
+        G = fnx.path_graph(5)
+        nxG = nx.path_graph(5)
+        assert fnx.is_semieulerian(G) == nx.is_semieulerian(nxG) == True
+
+    def test_eulerian_circuit(self):
+        G = fnx.cycle_graph(6)
+        nxG = nx.cycle_graph(6)
+        fnx_circuit = list(fnx.eulerian_circuit(G))
+        nx_circuit = list(nx.eulerian_circuit(nxG))
+        assert len(fnx_circuit) == len(nx_circuit) == 6
+
+
+class TestCliqueParity:
+    """Verify clique algorithm outputs match NetworkX."""
+
+    def test_enumerate_all_cliques(self):
+        G = fnx.complete_graph(4)
+        nxG = nx.complete_graph(4)
+        fnx_cliques = sorted([tuple(sorted(c)) for c in fnx.enumerate_all_cliques(G)])
+        nx_cliques = sorted([tuple(sorted(c)) for c in nx.enumerate_all_cliques(nxG)])
+        assert fnx_cliques == nx_cliques
+
+    def test_find_cliques(self):
+        G = fnx.Graph()
+        G.add_edges_from([(0, 1), (0, 2), (1, 2), (2, 3)])
+        nxG = nx.Graph()
+        nxG.add_edges_from([(0, 1), (0, 2), (1, 2), (2, 3)])
+        fnx_cliques = sorted([tuple(sorted(c)) for c in fnx.find_cliques(G)])
+        nx_cliques = sorted([tuple(sorted(c)) for c in nx.find_cliques(nxG)])
+        assert fnx_cliques == nx_cliques
+
+    def test_node_clique_number(self):
+        G = fnx.complete_graph(5)
+        nxG = nx.complete_graph(5)
+        fnx_cn = fnx.node_clique_number(G)
+        nx_cn = nx.node_clique_number(nxG)
+        assert fnx_cn == nx_cn
+
+
+class TestChordalParity:
+    """Verify chordal algorithm outputs match NetworkX."""
+
+    def test_is_chordal_cycle(self):
+        G = fnx.cycle_graph(5)
+        nxG = nx.cycle_graph(5)
+        assert fnx.is_chordal(G) == nx.is_chordal(nxG) == False
+
+    def test_is_chordal_complete(self):
+        G = fnx.complete_graph(5)
+        nxG = nx.complete_graph(5)
+        assert fnx.is_chordal(G) == nx.is_chordal(nxG) == True
+
+    def test_chordal_graph_cliques(self):
+        G = fnx.complete_graph(4)
+        nxG = nx.complete_graph(4)
+        fnx_cliques = list(fnx.chordal_graph_cliques(G))
+        nx_cliques = list(nx.chordal_graph_cliques(nxG))
+        assert len(fnx_cliques) == len(nx_cliques)
+
+
+class TestDegreeParity:
+    """Verify degree-related algorithm outputs match NetworkX."""
+
+    def test_degree_histogram(self):
+        G = fnx.barabasi_albert_graph(50, 3, seed=42)
+        nxG = nx.barabasi_albert_graph(50, 3, seed=42)
+        fnx_hist = fnx.degree_histogram(G)
+        nx_hist = nx.degree_histogram(nxG)
+        assert fnx_hist == nx_hist
+
+    def test_is_regular(self):
+        G = fnx.cycle_graph(6)
+        nxG = nx.cycle_graph(6)
+        assert fnx.is_regular(G) == nx.is_regular(nxG) == True
+
+        G2 = fnx.path_graph(5)
+        nxG2 = nx.path_graph(5)
+        assert fnx.is_regular(G2) == nx.is_regular(nxG2) == False
+
+    def test_is_k_regular(self):
+        G = fnx.cycle_graph(6)
+        nxG = nx.cycle_graph(6)
+        assert fnx.is_k_regular(G, 2) == nx.is_k_regular(nxG, 2) == True
+        assert fnx.is_k_regular(G, 3) == nx.is_k_regular(nxG, 3) == False
+
+    def test_degree_centrality(self):
+        G = fnx.complete_graph(5)
+        nxG = nx.complete_graph(5)
+        fnx_dc = fnx.degree_centrality(G)
+        nx_dc = nx.degree_centrality(nxG)
+        for n in fnx_dc:
+            assert abs(fnx_dc[n] - nx_dc[n]) < 1e-10
+
+    def test_average_neighbor_degree(self):
+        G = fnx.barabasi_albert_graph(30, 2, seed=42)
+        nxG = nx.barabasi_albert_graph(30, 2, seed=42)
+        fnx_and = fnx.average_neighbor_degree(G)
+        nx_and = nx.average_neighbor_degree(nxG)
+        for n in fnx_and:
+            assert abs(fnx_and[n] - nx_and[n]) < 1e-10
