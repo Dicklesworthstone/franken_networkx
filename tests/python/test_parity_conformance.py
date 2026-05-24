@@ -628,3 +628,68 @@ class TestLinkPredictionParity:
         fnx_aa = list(fnx.adamic_adar_index(G, [(0, 3)]))
         nx_aa = list(nx.adamic_adar_index(nxG, [(0, 3)]))
         assert abs(fnx_aa[0][2] - nx_aa[0][2]) < 1e-10
+
+
+class TestApproximationParity:
+    """Verify approximation algorithm outputs match NetworkX."""
+
+    def test_large_clique_size(self):
+        G = fnx.barabasi_albert_graph(50, 3, seed=42)
+        nxG = nx.barabasi_albert_graph(50, 3, seed=42)
+        assert fnx.approximation.large_clique_size(G) == nx.approximation.large_clique_size(nxG)
+
+    def test_average_clustering_approx(self):
+        G = fnx.barabasi_albert_graph(50, 3, seed=42)
+        nxG = nx.barabasi_albert_graph(50, 3, seed=42)
+        fnx_ac = fnx.approximation.average_clustering(G, seed=42)
+        nx_ac = nx.approximation.average_clustering(nxG, seed=42)
+        assert abs(fnx_ac - nx_ac) < 1e-10
+
+    def test_min_weighted_vertex_cover(self):
+        G = fnx.Graph()
+        G.add_edges_from([(0, 1), (1, 2), (2, 3), (0, 3)])
+        nxG = nx.Graph()
+        nxG.add_edges_from([(0, 1), (1, 2), (2, 3), (0, 3)])
+        fnx_cover = fnx.approximation.min_weighted_vertex_cover(G)
+        nx_cover = nx.approximation.min_weighted_vertex_cover(nxG)
+        assert fnx_cover == nx_cover
+
+
+class TestCutsParity:
+    """Verify cut algorithm outputs match NetworkX."""
+
+    def test_minimum_node_cut(self):
+        G = fnx.Graph()
+        G.add_edges_from([(0, 1), (1, 2), (2, 3), (0, 3), (0, 2)])
+        nxG = nx.Graph()
+        nxG.add_edges_from([(0, 1), (1, 2), (2, 3), (0, 3), (0, 2)])
+        assert fnx.minimum_node_cut(G) == nx.minimum_node_cut(nxG)
+
+    def test_minimum_edge_cut(self):
+        G = fnx.Graph()
+        G.add_edges_from([(0, 1), (1, 2), (2, 3), (0, 3), (0, 2)])
+        nxG = nx.Graph()
+        nxG.add_edges_from([(0, 1), (1, 2), (2, 3), (0, 3), (0, 2)])
+        fnx_cut = {tuple(sorted(e)) for e in fnx.minimum_edge_cut(G)}
+        nx_cut = {tuple(sorted(e)) for e in nx.minimum_edge_cut(nxG)}
+        assert len(fnx_cut) == len(nx_cut)
+
+
+class TestCyclesParity:
+    """Verify cycle algorithm outputs match NetworkX."""
+
+    def test_simple_cycles(self):
+        DG = fnx.DiGraph()
+        DG.add_edges_from([(0, 1), (1, 2), (2, 0), (2, 3), (3, 1)])
+        nxDG = nx.DiGraph()
+        nxDG.add_edges_from([(0, 1), (1, 2), (2, 0), (2, 3), (3, 1)])
+        fnx_cycles = sorted([tuple(c) for c in fnx.simple_cycles(DG)])
+        nx_cycles = sorted([tuple(c) for c in nx.simple_cycles(nxDG)])
+        assert fnx_cycles == nx_cycles
+
+    def test_find_cycle(self):
+        G = fnx.cycle_graph(5)
+        nxG = nx.cycle_graph(5)
+        fnx_cycle = fnx.find_cycle(G)
+        nx_cycle = nx.find_cycle(nxG)
+        assert len(fnx_cycle) == len(nx_cycle)
