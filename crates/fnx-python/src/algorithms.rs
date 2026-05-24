@@ -2015,12 +2015,10 @@ pub fn adjacency_arrays(
 ) -> PyResult<Option<(Vec<u32>, Vec<u32>, Vec<f64>)>> {
     let nodes_iter = pyo3::types::PyIterator::from_object(nodelist)?;
     let mut index: HashMap<String, u32> = HashMap::new();
-    let mut count: u32 = 0;
-    for item in nodes_iter {
+    for (count, item) in (0_u32..).zip(nodes_iter) {
         let item = item?;
         let canonical = node_key_to_string(py, &item)?;
         index.entry(canonical).or_insert(count);
-        count += 1;
     }
 
     let gr = extract_graph(g)?;

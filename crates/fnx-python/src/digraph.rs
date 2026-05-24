@@ -502,7 +502,9 @@ impl PyMultiDiGraph {
         self.node_key_map
             .entry(v_canonical.clone())
             .or_insert_with(|| v.clone().unbind());
-        if __was_new { self.bump_nodes_seq(); }
+        if __was_new {
+            self.bump_nodes_seq();
+        }
         self.node_py_attrs
             .entry(u_canonical.clone())
             .or_insert_with(|| PyDict::new(py).unbind());
@@ -872,10 +874,11 @@ impl PyMultiDiGraph {
         let graph = Py::from(slf);
         Py::new(
             py,
-            crate::NodeIterator::with_graph_guard(py, 
+            crate::NodeIterator::with_graph_guard(
+                py,
                 nodes,
                 crate::NodeIteratorGuard::MultiDiGraph(graph),
-                expected_nodes,
+                expected_nodes.len(),
             ),
         )
     }
@@ -2086,10 +2089,11 @@ impl MultiDiGraphEdgeView {
         }
         Py::new(
             py,
-            crate::NodeIterator::with_graph_guard(py, 
+            crate::NodeIterator::with_graph_guard(
+                py,
                 result,
                 crate::NodeIteratorGuard::MultiDiGraph(self.graph.clone_ref(py)),
-                expected_nodes,
+                expected_nodes.len(),
             ),
         )
     }
@@ -2554,7 +2558,9 @@ impl PyDiGraph {
         self.node_key_map
             .entry(v_canonical.clone())
             .or_insert_with(|| v.clone().unbind());
-        if __was_new { self.bump_nodes_seq(); }
+        if __was_new {
+            self.bump_nodes_seq();
+        }
         self.node_py_attrs
             .entry(u_canonical.clone())
             .or_insert_with(|| PyDict::new(py).unbind());
@@ -3260,10 +3266,11 @@ impl PyDiGraph {
         let graph = Py::from(slf);
         Py::new(
             py,
-            crate::NodeIterator::with_graph_guard(py, 
+            crate::NodeIterator::with_graph_guard(
+                py,
                 nodes,
                 crate::NodeIteratorGuard::DiGraph(graph),
-                expected_nodes,
+                expected_nodes.len(),
             ),
         )
     }

@@ -997,7 +997,9 @@ impl PyMultiGraph {
         self.node_key_map
             .entry(v_canonical.clone())
             .or_insert_with(|| v.clone().unbind());
-        if __was_new { self.bump_nodes_seq(); }
+        if __was_new {
+            self.bump_nodes_seq();
+        }
         self.node_py_attrs
             .entry(u_canonical.clone())
             .or_insert_with(|| PyDict::new(py).unbind());
@@ -1275,10 +1277,11 @@ impl PyMultiGraph {
         let graph = Py::from(slf);
         Py::new(
             py,
-            NodeIterator::with_graph_guard(py, 
+            NodeIterator::with_graph_guard(
+                py,
                 nodes,
                 NodeIteratorGuard::MultiGraph(graph),
-                expected_nodes,
+                expected_nodes.len(),
             ),
         )
     }
@@ -2325,10 +2328,11 @@ impl MultiGraphEdgeView {
         }
         Py::new(
             py,
-            NodeIterator::with_graph_guard(py, 
+            NodeIterator::with_graph_guard(
+                py,
                 result,
                 NodeIteratorGuard::MultiGraph(self.graph.clone_ref(py)),
-                expected_nodes,
+                expected_nodes.len(),
             ),
         )
     }
@@ -2720,7 +2724,9 @@ impl PyGraph {
         self.node_key_map
             .entry(v_canonical.clone())
             .or_insert_with(|| v.clone().unbind());
-        if __was_new { self.bump_nodes_seq(); }
+        if __was_new {
+            self.bump_nodes_seq();
+        }
         self.node_py_attrs
             .entry(u_canonical.clone())
             .or_insert_with(|| PyDict::new(py).unbind());
@@ -3030,7 +3036,12 @@ impl PyGraph {
         let graph = Py::from(slf);
         Py::new(
             py,
-            NodeIterator::with_graph_guard(py, nodes, NodeIteratorGuard::Graph(graph), expected_nodes),
+            NodeIterator::with_graph_guard(
+                py,
+                nodes,
+                NodeIteratorGuard::Graph(graph),
+                expected_nodes.len(),
+            ),
         )
     }
 
@@ -3860,6 +3871,7 @@ pub(crate) enum NodeIteratorGuard {
 }
 
 impl NodeIteratorGuard {
+    #[allow(dead_code)]
     fn current_nodes(&self, py: Python<'_>) -> Vec<String> {
         match self {
             Self::Graph(graph) => graph
