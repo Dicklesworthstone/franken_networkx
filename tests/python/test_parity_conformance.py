@@ -344,3 +344,112 @@ class TestIsomorphismParity:
         fnx_result = fnx.isomorphism.rooted_tree_isomorphism(t1, 0, t2, 0)
         nx_result = nx.algorithms.isomorphism.rooted_tree_isomorphism(nxt1, 0, nxt2, 0)
         assert set(fnx_result) == set(nx_result)
+
+
+class TestGraphOperationsParity:
+    """Verify graph operations match NetworkX."""
+
+    def test_cartesian_product(self):
+        G1 = fnx.path_graph(3)
+        G2 = fnx.path_graph(2)
+        nxG1 = nx.path_graph(3)
+        nxG2 = nx.path_graph(2)
+        fnx_cart = fnx.cartesian_product(G1, G2)
+        nx_cart = nx.cartesian_product(nxG1, nxG2)
+        assert sorted(fnx_cart.nodes()) == sorted(nx_cart.nodes())
+        assert fnx_cart.number_of_edges() == nx_cart.number_of_edges()
+
+    def test_compose(self):
+        G1 = fnx.Graph()
+        G1.add_edges_from([(0, 1), (1, 2)])
+        G2 = fnx.Graph()
+        G2.add_edges_from([(1, 2), (2, 3)])
+        nxG1 = nx.Graph()
+        nxG1.add_edges_from([(0, 1), (1, 2)])
+        nxG2 = nx.Graph()
+        nxG2.add_edges_from([(1, 2), (2, 3)])
+        fnx_comp = fnx.compose(G1, G2)
+        nx_comp = nx.compose(nxG1, nxG2)
+        assert sorted(fnx_comp.edges()) == sorted(nx_comp.edges())
+
+    def test_line_graph(self):
+        G = fnx.path_graph(4)
+        nxG = nx.path_graph(4)
+        fnx_line = fnx.line_graph(G)
+        nx_line = nx.line_graph(nxG)
+        assert sorted(fnx_line.nodes()) == sorted(nx_line.nodes())
+        assert sorted(fnx_line.edges()) == sorted(nx_line.edges())
+
+    def test_power_graph(self):
+        G = fnx.path_graph(5)
+        nxG = nx.path_graph(5)
+        fnx_pow = fnx.power(G, 2)
+        nx_pow = nx.power(nxG, 2)
+        assert sorted(fnx_pow.edges()) == sorted(nx_pow.edges())
+
+
+class TestDAGParity:
+    """Verify DAG algorithm outputs match NetworkX."""
+
+    def test_dag_longest_path(self):
+        DG = fnx.DiGraph()
+        DG.add_weighted_edges_from([(0, 1, 1), (0, 2, 2), (1, 3, 3), (2, 3, 1)])
+        nxDG = nx.DiGraph()
+        nxDG.add_weighted_edges_from([(0, 1, 1), (0, 2, 2), (1, 3, 3), (2, 3, 1)])
+        fnx_path = fnx.dag_longest_path(DG, weight="weight")
+        nx_path = nx.dag_longest_path(nxDG, weight="weight")
+        assert fnx_path == nx_path
+
+    def test_dag_longest_path_length(self):
+        DG = fnx.DiGraph()
+        DG.add_weighted_edges_from([(0, 1, 1), (0, 2, 2), (1, 3, 3), (2, 3, 1)])
+        nxDG = nx.DiGraph()
+        nxDG.add_weighted_edges_from([(0, 1, 1), (0, 2, 2), (1, 3, 3), (2, 3, 1)])
+        fnx_length = fnx.dag_longest_path_length(DG, weight="weight")
+        nx_length = nx.dag_longest_path_length(nxDG, weight="weight")
+        assert fnx_length == nx_length
+
+    def test_ancestors_descendants(self):
+        DG = fnx.DiGraph()
+        DG.add_edges_from([(0, 1), (0, 2), (1, 3), (2, 3)])
+        nxDG = nx.DiGraph()
+        nxDG.add_edges_from([(0, 1), (0, 2), (1, 3), (2, 3)])
+        assert fnx.ancestors(DG, 3) == nx.ancestors(nxDG, 3)
+        assert fnx.descendants(DG, 0) == nx.descendants(nxDG, 0)
+
+    def test_transitive_closure(self):
+        DG = fnx.DiGraph()
+        DG.add_edges_from([(0, 1), (1, 2), (2, 3)])
+        nxDG = nx.DiGraph()
+        nxDG.add_edges_from([(0, 1), (1, 2), (2, 3)])
+        fnx_tc = fnx.transitive_closure(DG)
+        nx_tc = nx.transitive_closure(nxDG)
+        assert sorted(fnx_tc.edges()) == sorted(nx_tc.edges())
+
+
+class TestConnectivityParity:
+    """Verify connectivity algorithm outputs match NetworkX."""
+
+    def test_node_connectivity(self):
+        G = fnx.barabasi_albert_graph(50, 3, seed=42)
+        nxG = nx.barabasi_albert_graph(50, 3, seed=42)
+        assert fnx.node_connectivity(G) == nx.node_connectivity(nxG)
+
+    def test_edge_connectivity(self):
+        G = fnx.barabasi_albert_graph(50, 3, seed=42)
+        nxG = nx.barabasi_albert_graph(50, 3, seed=42)
+        assert fnx.edge_connectivity(G) == nx.edge_connectivity(nxG)
+
+    def test_articulation_points(self):
+        G = fnx.Graph()
+        G.add_edges_from([(0, 1), (1, 2), (2, 3), (3, 1), (3, 4)])
+        nxG = nx.Graph()
+        nxG.add_edges_from([(0, 1), (1, 2), (2, 3), (3, 1), (3, 4)])
+        assert set(fnx.articulation_points(G)) == set(nx.articulation_points(nxG))
+
+    def test_bridges(self):
+        G = fnx.Graph()
+        G.add_edges_from([(0, 1), (1, 2), (2, 3), (3, 1), (3, 4)])
+        nxG = nx.Graph()
+        nxG.add_edges_from([(0, 1), (1, 2), (2, 3), (3, 1), (3, 4)])
+        assert set(fnx.bridges(G)) == set(nx.bridges(nxG))
