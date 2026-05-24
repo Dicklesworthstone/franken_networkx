@@ -251,3 +251,72 @@ class TestEdgeCaseParity:
         G = fnx.barabasi_albert_graph(50, 3, seed=42)
         nxG = nx.barabasi_albert_graph(50, 3, seed=42)
         assert abs(fnx.transitivity(G) - nx.transitivity(nxG)) < 1e-10
+
+
+class TestCommunityParity:
+    """Verify community detection outputs match NetworkX."""
+
+    def test_louvain_communities(self):
+        G = fnx.barabasi_albert_graph(50, 3, seed=42)
+        nxG = nx.barabasi_albert_graph(50, 3, seed=42)
+        fnx_louvain = list(fnx.community.louvain_communities(G, seed=42))
+        nx_louvain = list(nx.community.louvain_communities(nxG, seed=42))
+        fnx_sets = set(frozenset(c) for c in fnx_louvain)
+        nx_sets = set(frozenset(c) for c in nx_louvain)
+        assert fnx_sets == nx_sets
+
+    def test_greedy_modularity_communities(self):
+        G = fnx.barabasi_albert_graph(50, 3, seed=42)
+        nxG = nx.barabasi_albert_graph(50, 3, seed=42)
+        fnx_greedy = list(fnx.community.greedy_modularity_communities(G))
+        nx_greedy = list(nx.community.greedy_modularity_communities(nxG))
+        fnx_sets = set(frozenset(c) for c in fnx_greedy)
+        nx_sets = set(frozenset(c) for c in nx_greedy)
+        assert fnx_sets == nx_sets
+
+
+class TestLinkAnalysisParity:
+    """Verify link analysis algorithm outputs match NetworkX."""
+
+    def test_eigenvector_centrality(self):
+        G = fnx.barabasi_albert_graph(50, 3, seed=42)
+        nxG = nx.barabasi_albert_graph(50, 3, seed=42)
+        fnx_ec = fnx.eigenvector_centrality(G, max_iter=1000)
+        nx_ec = nx.eigenvector_centrality(nxG, max_iter=1000)
+        max_diff = max(abs(fnx_ec[n] - nx_ec[n]) for n in fnx_ec)
+        assert max_diff < 1e-6
+
+    def test_hits(self):
+        G = fnx.barabasi_albert_graph(50, 3, seed=42)
+        nxG = nx.barabasi_albert_graph(50, 3, seed=42)
+        fnx_hubs, fnx_auth = fnx.hits(G, max_iter=1000)
+        nx_hubs, nx_auth = nx.hits(nxG, max_iter=1000)
+        max_hub_diff = max(abs(fnx_hubs[n] - nx_hubs[n]) for n in fnx_hubs)
+        max_auth_diff = max(abs(fnx_auth[n] - nx_auth[n]) for n in fnx_auth)
+        assert max_hub_diff < 1e-6
+        assert max_auth_diff < 1e-6
+
+
+class TestIsomorphismParity:
+    """Verify isomorphism algorithm outputs match NetworkX."""
+
+    def test_is_isomorphic_same(self):
+        G1 = fnx.cycle_graph(5)
+        G2 = fnx.cycle_graph(5)
+        nxG1 = nx.cycle_graph(5)
+        nxG2 = nx.cycle_graph(5)
+        assert fnx.is_isomorphic(G1, G2) == nx.is_isomorphic(nxG1, nxG2)
+
+    def test_is_isomorphic_different(self):
+        G1 = fnx.cycle_graph(5)
+        G2 = fnx.path_graph(5)
+        nxG1 = nx.cycle_graph(5)
+        nxG2 = nx.path_graph(5)
+        assert fnx.is_isomorphic(G1, G2) == nx.is_isomorphic(nxG1, nxG2)
+
+    def test_graph_edit_distance(self):
+        G1 = fnx.path_graph(4)
+        G2 = fnx.cycle_graph(4)
+        nxG1 = nx.path_graph(4)
+        nxG2 = nx.cycle_graph(4)
+        assert fnx.graph_edit_distance(G1, G2) == nx.graph_edit_distance(nxG1, nxG2)
