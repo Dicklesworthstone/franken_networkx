@@ -1492,3 +1492,125 @@ class TestSquareClusteringParity:
         nx_sc = nx.square_clustering(nxG)
         for n in fnx_sc:
             assert abs(fnx_sc[n] - nx_sc[n]) < 1e-10
+
+
+class TestProductParity:
+    """Verify graph product outputs match NetworkX."""
+
+    def test_cartesian_product(self):
+        G1 = fnx.path_graph(3)
+        G2 = fnx.path_graph(2)
+        nxG1 = nx.path_graph(3)
+        nxG2 = nx.path_graph(2)
+        fnx_cp = fnx.cartesian_product(G1, G2)
+        nx_cp = nx.cartesian_product(nxG1, nxG2)
+        assert fnx_cp.number_of_nodes() == nx_cp.number_of_nodes()
+        assert fnx_cp.number_of_edges() == nx_cp.number_of_edges()
+
+    def test_tensor_product(self):
+        G1 = fnx.cycle_graph(3)
+        G2 = fnx.cycle_graph(3)
+        nxG1 = nx.cycle_graph(3)
+        nxG2 = nx.cycle_graph(3)
+        fnx_tp = fnx.tensor_product(G1, G2)
+        nx_tp = nx.tensor_product(nxG1, nxG2)
+        assert fnx_tp.number_of_nodes() == nx_tp.number_of_nodes()
+        assert fnx_tp.number_of_edges() == nx_tp.number_of_edges()
+
+    def test_strong_product(self):
+        G1 = fnx.path_graph(3)
+        G2 = fnx.path_graph(2)
+        nxG1 = nx.path_graph(3)
+        nxG2 = nx.path_graph(2)
+        fnx_sp = fnx.strong_product(G1, G2)
+        nx_sp = nx.strong_product(nxG1, nxG2)
+        assert fnx_sp.number_of_nodes() == nx_sp.number_of_nodes()
+        assert fnx_sp.number_of_edges() == nx_sp.number_of_edges()
+
+
+class TestPowerParity:
+    """Verify power graph outputs match NetworkX."""
+
+    def test_power(self):
+        G = fnx.path_graph(5)
+        nxG = nx.path_graph(5)
+        fnx_p = fnx.power(G, 2)
+        nx_p = nx.power(nxG, 2)
+        assert fnx_p.number_of_nodes() == nx_p.number_of_nodes()
+        assert fnx_p.number_of_edges() == nx_p.number_of_edges()
+
+
+class TestGraphGeneratorsParity:
+    """Verify graph generator outputs match NetworkX."""
+
+    def test_complete_graph(self):
+        G = fnx.complete_graph(10)
+        nxG = nx.complete_graph(10)
+        assert G.number_of_nodes() == nxG.number_of_nodes()
+        assert G.number_of_edges() == nxG.number_of_edges()
+
+    def test_cycle_graph(self):
+        G = fnx.cycle_graph(10)
+        nxG = nx.cycle_graph(10)
+        assert G.number_of_nodes() == nxG.number_of_nodes()
+        assert G.number_of_edges() == nxG.number_of_edges()
+
+    def test_path_graph(self):
+        G = fnx.path_graph(10)
+        nxG = nx.path_graph(10)
+        assert G.number_of_nodes() == nxG.number_of_nodes()
+        assert G.number_of_edges() == nxG.number_of_edges()
+
+    def test_star_graph(self):
+        G = fnx.star_graph(10)
+        nxG = nx.star_graph(10)
+        assert G.number_of_nodes() == nxG.number_of_nodes()
+        assert G.number_of_edges() == nxG.number_of_edges()
+
+    def test_wheel_graph(self):
+        G = fnx.wheel_graph(10)
+        nxG = nx.wheel_graph(10)
+        assert G.number_of_nodes() == nxG.number_of_nodes()
+        assert G.number_of_edges() == nxG.number_of_edges()
+
+    def test_ladder_graph(self):
+        G = fnx.ladder_graph(10)
+        nxG = nx.ladder_graph(10)
+        assert G.number_of_nodes() == nxG.number_of_nodes()
+        assert G.number_of_edges() == nxG.number_of_edges()
+
+    def test_grid_2d_graph(self):
+        G = fnx.grid_2d_graph(5, 5)
+        nxG = nx.grid_2d_graph(5, 5)
+        assert G.number_of_nodes() == nxG.number_of_nodes()
+        assert G.number_of_edges() == nxG.number_of_edges()
+
+    def test_petersen_graph(self):
+        G = fnx.petersen_graph()
+        nxG = nx.petersen_graph()
+        assert G.number_of_nodes() == nxG.number_of_nodes()
+        assert G.number_of_edges() == nxG.number_of_edges()
+
+    def test_tutte_graph(self):
+        G = fnx.tutte_graph()
+        nxG = nx.tutte_graph()
+        assert G.number_of_nodes() == nxG.number_of_nodes()
+        assert G.number_of_edges() == nxG.number_of_edges()
+
+    def test_balanced_tree(self):
+        G = fnx.balanced_tree(2, 4)
+        nxG = nx.balanced_tree(2, 4)
+        assert G.number_of_nodes() == nxG.number_of_nodes()
+        assert G.number_of_edges() == nxG.number_of_edges()
+
+
+class TestHarmonicCentralityParity:
+    """Verify harmonic centrality outputs match NetworkX."""
+
+    def test_harmonic_centrality(self):
+        G = fnx.barabasi_albert_graph(30, 2, seed=42)
+        nxG = nx.barabasi_albert_graph(30, 2, seed=42)
+        fnx_hc = fnx.harmonic_centrality(G)
+        nx_hc = nx.harmonic_centrality(nxG)
+        for n in fnx_hc:
+            assert abs(fnx_hc[n] - nx_hc[n]) < 1e-10
