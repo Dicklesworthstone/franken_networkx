@@ -1751,3 +1751,86 @@ class TestInformationCentralityParity:
         nx_ic = nx.information_centrality(nxG)
         for n in fnx_ic:
             assert abs(fnx_ic[n] - nx_ic[n]) < 1e-10
+
+
+class TestSubgraphParity:
+    """Verify subgraph operations match NetworkX."""
+
+    def test_subgraph(self):
+        G = fnx.complete_graph(10)
+        nxG = nx.complete_graph(10)
+        fnx_sg = fnx.subgraph(G, [0, 1, 2, 3])
+        nx_sg = nx.subgraph(nxG, [0, 1, 2, 3])
+        assert fnx_sg.number_of_nodes() == nx_sg.number_of_nodes()
+        assert fnx_sg.number_of_edges() == nx_sg.number_of_edges()
+
+    def test_induced_subgraph(self):
+        G = fnx.complete_graph(10)
+        nxG = nx.complete_graph(10)
+        fnx_sg = fnx.induced_subgraph(G, [0, 1, 2, 3])
+        nx_sg = nx.induced_subgraph(nxG, [0, 1, 2, 3])
+        assert fnx_sg.number_of_nodes() == nx_sg.number_of_nodes()
+        assert fnx_sg.number_of_edges() == nx_sg.number_of_edges()
+
+    def test_subgraph_centrality(self):
+        G = fnx.cycle_graph(8)
+        nxG = nx.cycle_graph(8)
+        fnx_sc = fnx.subgraph_centrality(G)
+        nx_sc = nx.subgraph_centrality(nxG)
+        for n in fnx_sc:
+            assert abs(fnx_sc[n] - nx_sc[n]) < 1e-8
+
+
+class TestRelabelParity:
+    """Verify relabel operations match NetworkX."""
+
+    def test_relabel_nodes(self):
+        G = fnx.path_graph(5)
+        nxG = nx.path_graph(5)
+        mapping = {0: "a", 1: "b", 2: "c", 3: "d", 4: "e"}
+        fnx_rel = fnx.relabel_nodes(G, mapping)
+        nx_rel = nx.relabel_nodes(nxG, mapping)
+        assert set(fnx_rel.nodes()) == set(nx_rel.nodes())
+        assert fnx_rel.number_of_edges() == nx_rel.number_of_edges()
+
+
+class TestSelfLoopParity:
+    """Verify self-loop detection matches NetworkX."""
+
+    def test_number_of_selfloops(self):
+        G = fnx.Graph()
+        G.add_edges_from([(0, 1), (1, 2), (0, 0), (2, 2)])
+        nxG = nx.Graph()
+        nxG.add_edges_from([(0, 1), (1, 2), (0, 0), (2, 2)])
+        assert fnx.number_of_selfloops(G) == nx.number_of_selfloops(nxG) == 2
+
+    def test_nodes_with_selfloops(self):
+        G = fnx.Graph()
+        G.add_edges_from([(0, 1), (1, 2), (0, 0), (2, 2)])
+        nxG = nx.Graph()
+        nxG.add_edges_from([(0, 1), (1, 2), (0, 0), (2, 2)])
+        fnx_nwsl = set(fnx.nodes_with_selfloops(G))
+        nx_nwsl = set(nx.nodes_with_selfloops(nxG))
+        assert fnx_nwsl == nx_nwsl
+
+
+class TestCopyParity:
+    """Verify graph copy operations match NetworkX."""
+
+    def test_to_undirected(self):
+        DG = fnx.DiGraph()
+        DG.add_edges_from([(0, 1), (1, 2), (2, 0)])
+        nxDG = nx.DiGraph()
+        nxDG.add_edges_from([(0, 1), (1, 2), (2, 0)])
+        fnx_ud = DG.to_undirected()
+        nx_ud = nxDG.to_undirected()
+        assert fnx_ud.number_of_nodes() == nx_ud.number_of_nodes()
+        assert fnx_ud.number_of_edges() == nx_ud.number_of_edges()
+
+    def test_to_directed(self):
+        G = fnx.cycle_graph(5)
+        nxG = nx.cycle_graph(5)
+        fnx_dir = G.to_directed()
+        nx_dir = nxG.to_directed()
+        assert fnx_dir.number_of_nodes() == nx_dir.number_of_nodes()
+        assert fnx_dir.number_of_edges() == nx_dir.number_of_edges()
