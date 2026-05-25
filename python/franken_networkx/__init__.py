@@ -6268,6 +6268,17 @@ def shortest_path(
                 weight=weight,
                 method=method,
             )
+    if weight is None and source is not None and target is not None:
+        # br-gauntlet-sp-bidir: nx.shortest_path routes the unweighted
+        # point-to-point case through ``bidirectional_shortest_path``, whose
+        # meet-in-the-middle predecessor construction selects one specific path
+        # among equal-length alternatives. ``_raw_shortest_path`` used a plain
+        # forward BFS, returning a different (still valid, same length) path and
+        # breaking byte-for-byte parity on grids / regular graphs / any graph
+        # with multiple shortest paths. fnx's ``bidirectional_shortest_path``
+        # already matches nx exactly (incl. the NetworkXNoPath wording and the
+        # source==target single-node path), so delegate to it.
+        return bidirectional_shortest_path(G, source, target)
     result = _raw_shortest_path(G, source=source, target=target, weight=weight, method=method)
     if source is None and target is None and isinstance(result, dict):
         # networkx returns a generator of (source, paths_dict) pairs when both
@@ -16176,6 +16187,18 @@ def pagerank(
     # br-r37-c1-y77dc: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
 
+    # br-gauntlet-pagerank-sync: pagerank reads edge weights from the Rust
+    # ``inner`` adjacency via native helpers (``_native_has_nonfinite_edge_weight``
+    # in the parity scan and ``_native_adjacency_arrays`` in ``_pagerank_scipy``).
+    # A post-construction mutation such as ``G.edges[u, v]["weight"] = w`` only
+    # updates the Python-side attribute dict, leaving ``inner`` stale, so the
+    # native scan/matvec silently ignore the new weights (observable bug: fnx
+    # returned the *unweighted* PageRank while nx returned the weighted one).
+    # Push the Python attrs down first whenever a weight attribute is read,
+    # exactly as the Dijkstra-family wrappers already do.
+    if isinstance(weight, str):
+        _sync_rust_edge_attrs(G)
+
     # br-r37-c1-pyo3prefix: the Rust binding declares ``max_iter`` as
     # an unsigned int and rejects floats with ``TypeError: argument
     # 'max_iter': 'float' object cannot be interpreted as an
@@ -16358,6 +16381,21 @@ def edge_betweenness_centrality(
 
     # Delegate to NetworkX for unsupported parameters
     if k is not None or not normalized or weight is not None or seed is not None:
+        return _call_networkx_for_parity(
+            "edge_betweenness_centrality",
+            G,
+            k=k,
+            normalized=normalized,
+            weight=weight,
+            seed=seed,
+        )
+    # br-gauntlet-ebc-multi: nx keys multigraph edge-betweenness by
+    # ``(u, v, key)`` 3-tuples and computes a separate value per parallel
+    # edge; the native ``_raw_edge_betweenness_centrality`` kernel collapses
+    # parallel edges to a single ``(u, v)`` 2-tuple, losing both the key
+    # dimension and the per-edge values. Delegate multigraphs to nx so the
+    # key shape and values match the reference.
+    if G.is_multigraph():
         return _call_networkx_for_parity(
             "edge_betweenness_centrality",
             G,
