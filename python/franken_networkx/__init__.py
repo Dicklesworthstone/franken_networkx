@@ -9382,10 +9382,13 @@ def bfs_successors(G, source, depth_limit=None, sort_neighbors=None):
 
 def bfs_tree(G, source, reverse=False, depth_limit=None, sort_neighbors=None):
     """Return BFS tree rooted at source."""
-    # Upstream returns an nx.DiGraph; round-trip through the fnx readwrite
-    # converter so callers see an fnx.DiGraph (franken_networkx-3ehfp).
+    G = _coerce_arg_to_fnx_graph(G)
+    if sort_neighbors is None:
+        try:
+            return _bfs_tree_raw(G, source, reverse, depth_limit, None)
+        except Exception:
+            pass
     from franken_networkx.readwrite import _from_nx_graph
-
     nx_result = _call_networkx_for_parity(
         "bfs_tree",
         G,

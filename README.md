@@ -1021,15 +1021,30 @@ The cost of a `fnx.algorithm(G)` call decomposes into four chunks:
 | Chunk | Typical scale | Notes |
 |---|---|---|
 | Python → Rust marshaling | ~5–50 μs base + O(n + m) for graph conversion when a *new* graph is constructed | Reusing an existing fnx graph: ~5 μs total per call (attribute lookup only). Constructing a fresh fnx graph from an nx graph at call time: O(n + m) plus a constant ~5 μs/node, ~3 μs/edge for dict→IndexMap conversion. |
-| Native algorithm execution | algorithm-dependent | Where fnx wins: tight Rust loops over `Vec<u32>` indices with packed visited bitsets. For algorithms that are linear in `(n + m)`, the GIL-released native loop is typically 10–100× faster than the equivalent NetworkX Python loop. |
+| Native algorithm execution | algorithm-dependent | Performance varies by algorithm family (see table below). Algorithms with native Rust kernels and minimal marshaling overhead (betweenness, clustering, shortest_path) are 2-4× faster. Algorithms requiring attr sync (dijkstra, MST, pagerank) or graph-result construction (bfs_tree, dfs_tree) are 2-6× slower. |
 | Rust → Python return marshaling | O(output size) | For algorithms returning a `dict[node, float]` of size `n`, this is the dominant tail. A `PyDict::set_item` per entry plus an arc-bumped node label string. ~0.5–1 μs per entry. |
 | Wrapper-side post-processing (if any) | O(output size) | The 25 wrapper-patched functions add a single pass over the output for iteration-order normalization. Skipped for the 731 - 25 = 706 functions that don't need it. |
 
 The performance break-even versus pure-Python NetworkX is roughly:
 
 - **Below ~100 nodes**: marshaling cost dominates; NetworkX usually wins or ties.
-- **100–10,000 nodes**: fnx wins for most algorithms by 5–50×. Cubic algorithms (e.g. Floyd-Warshall, exact betweenness on dense graphs) win more.
-- **Above ~10,000 nodes**: fnx wins by 10–100× on most algorithms. Some (like `find_cliques` and `transitive_closure` on dense graphs) can be 1000× or more thanks to native bitset enumeration.
+- **100–10,000 nodes**: fnx wins on compute-heavy algorithms (betweenness 3-4×, clustering 4×, shortest_path 5×). Graph-returning or sync-heavy algorithms (bfs_tree, dijkstra, MST, pagerank) are 2-6× slower.
+- **Above ~10,000 nodes**: fnx wins by 3-10× on betweenness, cliques, and other cubic/exponential algorithms. Linear algorithms with sync overhead remain slower.
+
+**Per-family performance (n=2000 BA graph, warmed imports):**
+
+| Family | fnx vs nx | Notes |
+|--------|-----------|-------|
+| betweenness_centrality | 3.8× faster | Native bitset enumeration |
+| clustering (all nodes) | 4× faster | Native triangle counting |
+| shortest_path (BFS) | 5× faster | Native BFS |
+| number_connected_components | 5× faster | Native union-find |
+| bfs_edges / dfs_edges | 0.8-2× | Near parity |
+| bfs_tree / dfs_tree | 4-6× slower | DiGraph result construction |
+| pagerank | 2-3× slower | Sync + scipy overhead |
+| core_number | 4-6× slower | Dict reordering |
+| minimum_spanning_tree | 4× slower | Sync + Graph result construction |
+| dijkstra (weighted) | 80-200× slower | Sync overhead dominates |
 
 If you can keep the graph on the fnx side (don't reconstruct per call), the marshaling chunk vanishes. The backend-dispatch path automatically caches the converted graph for repeat calls.
 
