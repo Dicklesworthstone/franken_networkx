@@ -1041,9 +1041,9 @@ The performance break-even versus pure-Python NetworkX is roughly:
 | single_pair_shortest_path | 10-20× slower | String-key hashing overhead |
 | number_connected_components | 10× faster | Native union-find |
 | bfs_edges / dfs_edges | 0.8-2× | Near parity |
-| bfs_tree / dfs_tree | 4-6× slower | DiGraph result construction |
-| pagerank | 2-3× slower | Sync + scipy overhead |
-| core_number | 4-6× slower | Dict reordering |
+| bfs_tree / dfs_tree | 25-35× slower | DiGraph result construction overhead |
+| pagerank | 2-4× slower | Sync + scipy overhead |
+| core_number | 1-2× slower | Dict reordering |
 | minimum_spanning_tree | 4× slower | Sync + Graph result construction |
 | dijkstra (weighted) | 8-17× slower | String hashing + sync overhead |
 
