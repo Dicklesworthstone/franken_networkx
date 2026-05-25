@@ -5655,6 +5655,13 @@ try:
 except ImportError:  # pragma: no cover — defensive for partial builds
     _native_has_negative_edge_weight = None
 
+try:
+    from franken_networkx._fnx import (
+        check_dijkstra_edge_weights_fast as _native_check_dijkstra_weights_fast,
+    )
+except ImportError:  # pragma: no cover — defensive for partial builds
+    _native_check_dijkstra_weights_fast = None
+
 
 def _has_negative_edge_weight_for_dijkstra(G, weight, *, _skip_sync=False):
     if not isinstance(weight, str):
@@ -5802,6 +5809,29 @@ def _has_nonnumeric_edge_weight(G, weight, *, _skip_sync=False):
     """
     if not isinstance(weight, str):
         return False
+    # br-gauntlet-perf1: for simple Graph/DiGraph, route through the native
+    # O(E) ``is_strictly_numeric()`` variant scan instead of materializing the
+    # Python EdgeView edge-by-edge (the dominant cost in the weighted-Dijkstra
+    # slowdown). The native helper checks the ``CgseValue`` variant (Bool/Int/
+    # Float = numeric; String/Map = non-numeric), which matches this function's
+    # ``bool or numbers.Real`` semantics exactly and — crucially — does NOT use
+    # ``as_f64`` (so a string weight like ``"5"`` is correctly non-numeric).
+    # Requires the Rust ``inner`` adjacency to be current; callers sync first
+    # (``_skip_sync=True`` means the sync already ran). Multigraphs keep the
+    # Python scan (no native multigraph variant).
+    if (
+        _native_has_nonnumeric_edge_weight is not None
+        and not G.is_multigraph()
+        and hasattr(G, "_fnx_sync_attrs_to_inner")
+    ):
+        if not _skip_sync:
+            _sync_rust_edge_attrs(G)
+        try:
+            native = _native_has_nonnumeric_edge_weight(G, weight)
+        except Exception:
+            native = None
+        if native is not None:
+            return bool(native)
     if G.is_multigraph():
         attrs_iter = (attrs for _, _, _, attrs in G.edges(keys=True, data=True))
     else:
@@ -5821,49 +5851,32 @@ def _has_nonnumeric_edge_weight(G, weight, *, _skip_sync=False):
 def _should_delegate_dijkstra_to_networkx(G, weight):
     if callable(weight):
         return True
-    # br-r37-c1-blu7u: nx accepts any hashable (or None) as ``weight``
-    # (it's used as an attribute key on edge-data dicts; non-string
-    # keys and ``None`` silently fall back to the unweighted-default
-    # of 1).  The Rust binding's PyO3 signature is ``weight: str``,
-    # so int / float / bytes / tuple / None values raise a TypeError
-    # before the algorithm runs.  Delegate any non-string, non-callable
-    # weight (including ``None``) to nx to preserve drop-in parity.
     if not isinstance(weight, str):
         return True
-    # br-gauntlet-perf1-cache-unsound: a previous PERF-1 attempt cached the
-    # delegation decision keyed on (id(G), weight, G.number_of_edges()). That
-    # cache is UNSOUND: an edge-weight mutation via ``G[u][v]["weight"] = -5``
-    # (or ``= inf`` / a non-numeric value) does NOT change the edge count and
-    # does NOT bump any cheap mutation counter (edges_seq/nodes_seq stay put on
-    # attr writes), so a graph that was "don't delegate" (all-positive) would
-    # keep that stale decision after mutating to a negative/inf/non-numeric
-    # weight and silently run native Dijkstra → wrong distances vs nx. There is
-    # no cheap invalidation signal for attribute mutations, so the decision must
-    # be recomputed each call. The redundant double-gate (the real PERF-1 cost)
-    # is already removed at the single_source_dijkstra* wrappers.
-    # br-r37-c1-8cqeh: sync Python edge attrs into the Rust inner
-    # graph *once* up front, then run all three gates with the sync
-    # already done. Each gate's native scan otherwise re-syncs
-    # (~13 ms), so calling three gates without this hoisted sync
-    # pays the sync cost three times.
+    # br-gauntlet-perf1-fast: use a single-pass native scan over edge_py_attrs
+    # that returns (has_negative, has_nonfinite, has_nonnumeric) WITHOUT needing
+    # the expensive _sync_rust_edge_attrs. The old approach synced (~10ms at 2K
+    # nodes) then ran three separate native helpers. The new helper reads directly
+    # from edge_py_attrs (the Python dicts), skipping sync entirely. For
+    # multigraphs, fall back to the slow path (no native multigraph variant).
+    if _native_check_dijkstra_weights_fast is not None and not G.is_multigraph():
+        try:
+            fast_result = _native_check_dijkstra_weights_fast(G, weight)
+        except Exception:
+            fast_result = None
+        if fast_result is not None:
+            has_negative, has_nonfinite, has_nonnumeric = fast_result
+            return has_negative or has_nonfinite or has_nonnumeric
+    # Multigraph or fallback: sync once, then run three gates with _skip_sync.
     if not G.is_multigraph():
         _sync_rust_edge_attrs(G)
-    result = False
     if _has_negative_edge_weight_for_dijkstra(G, weight, _skip_sync=True):
-        result = True
-    # br-r37-c1-z35td: delegate when any edge weight is +inf — Rust's
-    # ``edge_weight_or_default`` filters out non-finite values and
-    # silently substitutes 1.0, causing dijkstra to traverse inf
-    # edges as if they were unit-weighted (and produce wildly wrong
-    # paths). nx correctly skips inf-weighted edges.
-    elif _has_positive_infinity_edge_weight_for_dijkstra(G, weight, _skip_sync=True):
-        result = True
-    # br-r37-c1-djk-strw: also delegate when edge values at
-    # ``weight`` key are non-numeric — Rust silently treats them
-    # as 1.0; nx raises TypeError.
-    elif _has_nonnumeric_edge_weight(G, weight, _skip_sync=True):
-        result = True
-    return result
+        return True
+    if _has_positive_infinity_edge_weight_for_dijkstra(G, weight, _skip_sync=True):
+        return True
+    if _has_nonnumeric_edge_weight(G, weight, _skip_sync=True):
+        return True
+    return False
 
 
 def _sync_rust_edge_attrs(G):
@@ -6293,6 +6306,17 @@ def shortest_path(
         # already matches nx exactly (incl. the NetworkXNoPath wording and the
         # source==target single-node path), so delegate to it.
         return bidirectional_shortest_path(G, source, target)
+    if isinstance(weight, str):
+        # br-gauntlet-sp-weightsync: the weighted path runs the native
+        # ``_raw_shortest_path`` kernel, which reads edge weights from the Rust
+        # ``inner`` adjacency. ``shortest_path`` historically relied on
+        # ``_should_delegate_dijkstra_to_networkx`` syncing ``inner`` as a side
+        # effect, but that gate now uses a fast scan over ``edge_py_attrs`` that
+        # skips the sync. Without an explicit sync here, a post-construction
+        # weight mutation (``G.edges[u, v]["weight"] = w``) is invisible to the
+        # native kernel and it returns a NON-OPTIMAL path (e.g. weight 22 vs the
+        # true 12). Sync ``inner`` before the kernel, matching dijkstra_path.
+        _sync_rust_edge_attrs(G)
     result = _raw_shortest_path(G, source=source, target=target, weight=weight, method=method)
     if source is None and target is None and isinstance(result, dict):
         # networkx returns a generator of (source, paths_dict) pairs when both
@@ -14025,6 +14049,22 @@ def _sp_edge_weights_all_int(G, weight):
     """
     if not isinstance(weight, str):
         return False
+    # br-gauntlet-perf1: native O(E) Int-variant scan for simple Graph/DiGraph,
+    # avoiding the slow Python EdgeView materialization (this was the dominant
+    # residual cost in weighted single_source_dijkstra after the non-numeric
+    # gate went native). The caller (single_source_dijkstra) has already synced
+    # Python edge attrs into ``inner``. Multigraphs keep the Python scan.
+    if (
+        _native_edge_weights_all_int is not None
+        and not G.is_multigraph()
+        and hasattr(G, "_fnx_sync_attrs_to_inner")
+    ):
+        try:
+            native = _native_edge_weights_all_int(G, weight)
+        except Exception:
+            native = None
+        if native is not None:
+            return bool(native)
     import numbers as _numbers
     for _, _, attrs in G.edges(data=True):
         if not isinstance(attrs, dict):
@@ -16107,6 +16147,30 @@ try:
     )
 except ImportError:  # pragma: no cover — defensive for partial builds
     _native_has_nonfinite_edge_weight = None
+
+try:
+    # br-gauntlet-perf1: native O(E) non-numeric-weight scan. Unlike the
+    # ``as_f64``-based ``graph_has_nonfinite_edge_weight`` (which parses
+    # ``"5"`` → 5.0 and would wrongly call a string weight numeric), this
+    # helper checks the ``CgseValue`` *variant* via ``is_strictly_numeric()``
+    # (true only for Bool/Int/Float), so it is a SOUND replacement for the
+    # slow Python EdgeView scan in ``_has_nonnumeric_edge_weight``.
+    from franken_networkx._fnx import (
+        graph_has_nonnumeric_edge_weight as _native_has_nonnumeric_edge_weight,
+    )
+except ImportError:  # pragma: no cover — defensive for partial builds
+    _native_has_nonnumeric_edge_weight = None
+
+try:
+    # br-gauntlet-perf1: native O(E) all-integer-weights scan (Int CgseValue
+    # variant; missing keys default to int 1). Replaces the Python EdgeView
+    # scan in ``_sp_edge_weights_all_int`` (the shortest-path int/float
+    # distance-coercion parity gate).
+    from franken_networkx._fnx import (
+        graph_edge_weights_all_int as _native_edge_weights_all_int,
+    )
+except ImportError:  # pragma: no cover — defensive for partial builds
+    _native_edge_weights_all_int = None
 
 try:
     from franken_networkx._fnx import (

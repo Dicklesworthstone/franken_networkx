@@ -5461,6 +5461,58 @@ pub fn digraph_has_nonfinite_edge_weight(digraph: &DiGraph, weight_attr: &str) -
     false
 }
 
+#[must_use]
+pub fn graph_has_nonnumeric_edge_weight(graph: &Graph, weight_attr: &str) -> bool {
+    for (_, _, attrs) in graph.edges_ordered_borrowed() {
+        if let Some(raw) = attrs.get(weight_attr) {
+            if !raw.is_strictly_numeric() {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+#[must_use]
+pub fn digraph_has_nonnumeric_edge_weight(digraph: &DiGraph, weight_attr: &str) -> bool {
+    for (_, _, attrs) in digraph.edges_ordered_borrowed() {
+        if let Some(raw) = attrs.get(weight_attr) {
+            if !raw.is_strictly_numeric() {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// True iff every present value at `weight_attr` is an integer variant (missing
+/// keys default to int 1, so they do not break the all-int property). Mirrors
+/// the Python `_sp_edge_weights_all_int` gate, replacing its O(E) EdgeView scan.
+#[must_use]
+pub fn graph_edge_weights_all_int(graph: &Graph, weight_attr: &str) -> bool {
+    for (_, _, attrs) in graph.edges_ordered_borrowed() {
+        if let Some(raw) = attrs.get(weight_attr) {
+            if !raw.is_int() {
+                return false;
+            }
+        }
+    }
+    true
+}
+
+/// `DiGraph` counterpart to [`graph_edge_weights_all_int`].
+#[must_use]
+pub fn digraph_edge_weights_all_int(digraph: &DiGraph, weight_attr: &str) -> bool {
+    for (_, _, attrs) in digraph.edges_ordered_borrowed() {
+        if let Some(raw) = attrs.get(weight_attr) {
+            if !raw.is_int() {
+                return false;
+            }
+        }
+    }
+    true
+}
+
 fn matching_edge_weight_or_default(
     graph: &Graph,
     left: &str,

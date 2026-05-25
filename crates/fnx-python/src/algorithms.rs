@@ -2111,6 +2111,125 @@ pub fn graph_has_nonfinite_edge_weight(
 }
 
 #[pyfunction]
+#[pyo3(signature = (g, weight_attr))]
+pub fn graph_has_nonnumeric_edge_weight(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    weight_attr: &str,
+) -> PyResult<Option<bool>> {
+    let gr = extract_graph(g)?;
+    let result = match &gr {
+        GraphRef::Undirected(pg) => {
+            let inner = &pg.inner;
+            Some(py.allow_threads(|| {
+                fnx_algorithms::graph_has_nonnumeric_edge_weight(inner, weight_attr)
+            }))
+        }
+        GraphRef::Directed { dg, .. } => {
+            let inner = &dg.inner;
+            Some(py.allow_threads(|| {
+                fnx_algorithms::digraph_has_nonnumeric_edge_weight(inner, weight_attr)
+            }))
+        }
+        GraphRef::MultiUndirected { .. } | GraphRef::MultiDirected { .. } => None,
+    };
+    Ok(result)
+}
+
+#[pyfunction]
+#[pyo3(signature = (g, weight_attr))]
+pub fn graph_edge_weights_all_int(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    weight_attr: &str,
+) -> PyResult<Option<bool>> {
+    let gr = extract_graph(g)?;
+    let result = match &gr {
+        GraphRef::Undirected(pg) => {
+            let inner = &pg.inner;
+            Some(py.allow_threads(|| fnx_algorithms::graph_edge_weights_all_int(inner, weight_attr)))
+        }
+        GraphRef::Directed { dg, .. } => {
+            let inner = &dg.inner;
+            Some(
+                py.allow_threads(|| fnx_algorithms::digraph_edge_weights_all_int(inner, weight_attr)),
+            )
+        }
+        GraphRef::MultiUndirected { .. } | GraphRef::MultiDirected { .. } => None,
+    };
+    Ok(result)
+}
+
+#[pyfunction]
+#[pyo3(signature = (g, weight_attr))]
+pub fn check_dijkstra_edge_weights_fast(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    weight_attr: &str,
+) -> PyResult<Option<(bool, bool, bool)>> {
+    let gr = extract_graph(g)?;
+    match &gr {
+        GraphRef::Undirected(pg) => {
+            let mut has_negative = false;
+            let mut has_nonfinite = false;
+            let mut has_nonnumeric = false;
+            for dict in pg.edge_py_attrs.values() {
+                let bound = dict.bind(py);
+                if let Some(val) = bound.get_item(weight_attr)? {
+                    if let Ok(f) = val.extract::<f64>() {
+                        if f < 0.0 {
+                            has_negative = true;
+                        }
+                        if !f.is_finite() {
+                            has_nonfinite = true;
+                        }
+                    } else if let Ok(i) = val.extract::<i64>() {
+                        if i < 0 {
+                            has_negative = true;
+                        }
+                    } else if val.extract::<bool>().is_err() {
+                        has_nonnumeric = true;
+                    }
+                }
+                if has_negative && has_nonfinite && has_nonnumeric {
+                    break;
+                }
+            }
+            Ok(Some((has_negative, has_nonfinite, has_nonnumeric)))
+        }
+        GraphRef::Directed { dg, .. } => {
+            let mut has_negative = false;
+            let mut has_nonfinite = false;
+            let mut has_nonnumeric = false;
+            for dict in dg.edge_py_attrs.values() {
+                let bound = dict.bind(py);
+                if let Some(val) = bound.get_item(weight_attr)? {
+                    if let Ok(f) = val.extract::<f64>() {
+                        if f < 0.0 {
+                            has_negative = true;
+                        }
+                        if !f.is_finite() {
+                            has_nonfinite = true;
+                        }
+                    } else if let Ok(i) = val.extract::<i64>() {
+                        if i < 0 {
+                            has_negative = true;
+                        }
+                    } else if val.extract::<bool>().is_err() {
+                        has_nonnumeric = true;
+                    }
+                }
+                if has_negative && has_nonfinite && has_nonnumeric {
+                    break;
+                }
+            }
+            Ok(Some((has_negative, has_nonfinite, has_nonnumeric)))
+        }
+        GraphRef::MultiUndirected { .. } | GraphRef::MultiDirected { .. } => Ok(None),
+    }
+}
+
+#[pyfunction]
 #[pyo3(signature = (g, source, target, weight="weight"))]
 pub fn dijkstra_path(
     py: Python<'_>,
@@ -14170,6 +14289,9 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(dijkstra_path, m)?)?;
     m.add_function(wrap_pyfunction!(graph_has_negative_edge_weight, m)?)?;
     m.add_function(wrap_pyfunction!(graph_has_nonfinite_edge_weight, m)?)?;
+    m.add_function(wrap_pyfunction!(graph_has_nonnumeric_edge_weight, m)?)?;
+    m.add_function(wrap_pyfunction!(graph_edge_weights_all_int, m)?)?;
+    m.add_function(wrap_pyfunction!(check_dijkstra_edge_weights_fast, m)?)?;
     m.add_function(wrap_pyfunction!(adjacency_arrays, m)?)?;
     m.add_function(wrap_pyfunction!(bellman_ford_path, m)?)?;
     m.add_function(wrap_pyfunction!(multi_source_dijkstra, m)?)?;

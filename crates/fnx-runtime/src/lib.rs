@@ -94,6 +94,19 @@ impl CgseValue {
     }
 
     #[must_use]
+    pub fn is_strictly_numeric(&self) -> bool {
+        matches!(self, Self::Float(_) | Self::Int(_) | Self::Bool(_))
+    }
+
+    /// True iff the value is an integer variant (NOT bool, NOT float). Mirrors
+    /// Python's ``isinstance(v, numbers.Integral) and not isinstance(v, bool)``,
+    /// used by the shortest-path int/float distance-coercion parity gate.
+    #[must_use]
+    pub fn is_int(&self) -> bool {
+        matches!(self, Self::Int(_))
+    }
+
+    #[must_use]
     pub fn as_str(&self) -> String {
         match self {
             Self::String(s) => s.clone(),
