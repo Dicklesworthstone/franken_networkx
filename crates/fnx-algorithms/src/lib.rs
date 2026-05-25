@@ -6146,85 +6146,68 @@ pub fn density(graph: &Graph) -> DensityResult {
 ///
 /// Uses BFS from `source`.  Returns `false` if either node is missing from the graph.
 #[must_use]
-pub fn has_path(graph: &Graph, source: &str, target: &str) -> HasPathResult {
-    has_path_generic(graph, source, target)
+pub fn has_path(graph: &Graph, source: &str, target: &str) -> bool {
+    let Some(source_idx) = graph.get_node_index(source) else {
+        return false;
+    };
+    let Some(target_idx) = graph.get_node_index(target) else {
+        return false;
+    };
+    if source_idx == target_idx {
+        return true;
+    }
+
+    let n = graph.node_count();
+    let mut visited = vec![false; n];
+    let mut queue: VecDeque<usize> = VecDeque::new();
+
+    visited[source_idx] = true;
+    queue.push_back(source_idx);
+
+    while let Some(current) = queue.pop_front() {
+        if current == target_idx {
+            return true;
+        }
+        if let Some(neighbors) = graph.neighbors_indices(current) {
+            for &nbr in neighbors {
+                if !visited[nbr] {
+                    visited[nbr] = true;
+                    queue.push_back(nbr);
+                }
+            }
+        }
+    }
+    false
 }
 
 #[must_use]
-pub fn has_path_directed(digraph: &DiGraph, source: &str, target: &str) -> HasPathResult {
-    has_path_generic(digraph, source, target)
-}
-
-fn has_path_generic<G: GraphView>(graph: &G, source: &str, target: &str) -> HasPathResult {
-    if source == target && graph.has_node(source) {
-        return HasPathResult {
-            has_path: true,
-            witness: ComplexityWitness {
-                algorithm: "bfs_has_path".to_owned(),
-                complexity_claim: "O(|V| + |E|)".to_owned(),
-                nodes_touched: 1,
-                edges_scanned: 0,
-                queue_peak: 0,
-            },
-        };
+pub fn has_path_directed(digraph: &DiGraph, source: &str, target: &str) -> bool {
+    if source == target && digraph.has_node(source) {
+        return true;
     }
-    if !graph.has_node(source) || !graph.has_node(target) {
-        return HasPathResult {
-            has_path: false,
-            witness: ComplexityWitness {
-                algorithm: "bfs_has_path".to_owned(),
-                complexity_claim: "O(|V| + |E|)".to_owned(),
-                nodes_touched: 0,
-                edges_scanned: 0,
-                queue_peak: 0,
-            },
-        };
+    if !digraph.has_node(source) || !digraph.has_node(target) {
+        return false;
     }
 
-    let mut visited = HashSet::new();
-    let mut queue = VecDeque::new();
-    let mut edges_scanned = 0usize;
-    let mut queue_peak = 0usize;
+    let mut visited: HashSet<&str> = HashSet::new();
+    let mut queue: VecDeque<&str> = VecDeque::new();
 
     visited.insert(source);
     queue.push_back(source);
 
     while let Some(current) = queue.pop_front() {
         if current == target {
-            return HasPathResult {
-                has_path: true,
-                witness: ComplexityWitness {
-                    algorithm: "bfs_has_path".to_owned(),
-                    complexity_claim: "O(|V| + |E|)".to_owned(),
-                    nodes_touched: visited.len(),
-                    edges_scanned,
-                    queue_peak,
-                },
-            };
+            return true;
         }
-        if let Some(neighbors) = graph.neighbors_iter(current) {
-            for neighbor in neighbors {
-                edges_scanned += 1;
-                if visited.insert(neighbor) {
-                    queue.push_back(neighbor);
+        if let Some(successors) = digraph.successors_iter(current) {
+            for nbr in successors {
+                if visited.insert(nbr) {
+                    queue.push_back(nbr);
                 }
             }
         }
-        if queue.len() > queue_peak {
-            queue_peak = queue.len();
-        }
     }
-
-    HasPathResult {
-        has_path: false,
-        witness: ComplexityWitness {
-            algorithm: "bfs_has_path".to_owned(),
-            complexity_claim: "O(|V| + |E|)".to_owned(),
-            nodes_touched: visited.len(),
-            edges_scanned,
-            queue_peak,
-        },
-    }
+    false
 }
 
 /// Returns the length of the shortest path between `source` and `target`.
@@ -29739,7 +29722,7 @@ pub fn tutte_polynomial(graph: &Graph, x: f64, y: f64) -> f64 {
     }
     let mut g_no_e = graph.clone();
     let _ = g_no_e.remove_edge(&u, &v);
-    if !has_path(&g_no_e, &u, &v).has_path {
+    if !has_path(&g_no_e, &u, &v) {
         return x * tutte_polynomial(&identified_nodes(&g_no_e, &u, &v), x, y);
     }
     tutte_polynomial(&g_no_e, x, y) + tutte_polynomial(&identified_nodes(&g_no_e, &u, &v), x, y)
@@ -30364,7 +30347,7 @@ pub fn gomory_hu_tree(graph: &Graph, weight_attr: &str) -> Graph {
                     if parent[j] == parent[i] {
                         // Check if j is reachable from i in the graph minus the cut
                         // Simplified: use BFS in original graph
-                        if has_path(graph, nodes[i], nodes[j]).has_path {
+                        if has_path(graph, nodes[i], nodes[j]) {
                             parent[j] = i;
                         }
                     }
