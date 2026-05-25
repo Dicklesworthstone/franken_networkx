@@ -6944,7 +6944,7 @@ def average_neighbor_degree(
         raw = _raw_average_neighbor_degree(G)
         # br-r37-c1-h1kf2: reorder dict in node-insertion order
         # matching nx (Rust binding returns sorted-key order).
-        return {node: raw[node] for node in G.nodes() if node in raw}
+        return {node: raw[node] for node in G if node in raw}  # br-gauntlet-perf4: `for node in G` (fast native Graph.__iter__) not `G.nodes()` (NodeView iterator is ~350x slower; identical order)
 
     if G.is_directed():
         if source == "in":
@@ -16797,12 +16797,14 @@ def core_number(G):
     G = _coerce_arg_to_fnx_graph(G)
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
-    # br-r37-c1-fbons: O(|V|) has_edge probe with short-circuit on first
-    # hit replaces the prior O(|E|) ``any(u == v for u, v in G.edges())``.
-    # Profiling showed the edge-iteration variant was 24% of total
-    # core_number time on BA200; the new form is ~2.5x faster on the
-    # same fixture and short-circuits early when a self-loop is present.
-    if any(G.has_edge(u, u) for u in G):
+    # br-gauntlet-perf4: the prior ``any(G.has_edge(u, u) for u in G)`` probe
+    # called the Python ``has_edge`` wrapper once per node; on graphs with
+    # private attribute storage that wrapper takes a slow path
+    # (``u not in self`` + ``self.adj[u]``) which chains into the NodeView
+    # ``__iter__`` length-guard, so the "O(|V|)" guard ballooned to ~1.77s of a
+    # 1.95s core_number call at n=20000. ``number_of_selfloops`` is a single
+    # native O(|E|) pass over the adjacency. (Same NetworkXNotImplemented wording.)
+    if number_of_selfloops(G) > 0:
         raise NetworkXNotImplemented(
             "Input graph has self loops which is not permitted; "
             "Consider using G.remove_edges_from(nx.selfloop_edges(G))."
@@ -16813,7 +16815,7 @@ def core_number(G):
     # br-r37-c1-9fa26: the Rust binding returns the dict with keys
     # sorted; nx iterates in node-insertion order. Reorder so
     # ``for node, core in result.items():`` matches nx's contract.
-    return {node: raw[node] for node in G.nodes() if node in raw}
+    return {node: raw[node] for node in G if node in raw}  # br-gauntlet-perf4: `for node in G` (fast native Graph.__iter__) not `G.nodes()` (NodeView iterator is ~350x slower; identical order)
 
 
 def _self_loop_guard_for_core_family():
@@ -25466,7 +25468,7 @@ def second_order_centrality(G, weight="weight", *, backend=None, **backend_kwarg
         # arbitrary internal order; nx iterates in node-insertion
         # order. Reorder so ``for node, score in result.items():``
         # matches nx's contract.
-        return {node: raw[node] for node in G.nodes() if node in raw}
+        return {node: raw[node] for node in G if node in raw}  # br-gauntlet-perf4: `for node in G` (fast native Graph.__iter__) not `G.nodes()` (NodeView iterator is ~350x slower; identical order)
 
     import numpy as np
 
@@ -25556,7 +25558,7 @@ def communicability_betweenness_centrality(G, *, backend=None, **backend_kwargs)
     # br-r37-c1-pm78h: the Rust binding returns the dict in arbitrary
     # internal order; nx iterates in node-insertion order. Reorder so
     # ``for node, score in result.items():`` matches nx's contract.
-    return {node: raw[node] for node in G.nodes() if node in raw}
+    return {node: raw[node] for node in G if node in raw}  # br-gauntlet-perf4: `for node in G` (fast native Graph.__iter__) not `G.nodes()` (NodeView iterator is ~350x slower; identical order)
 
 
 def trophic_levels(G, weight="weight"):
