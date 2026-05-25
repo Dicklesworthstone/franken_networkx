@@ -10458,9 +10458,8 @@ def single_source_shortest_path_length(G, source, cutoff=None):
     G = _coerce_arg_to_fnx_graph(G)
     if source not in G:
         raise NodeNotFound(f"Source {source} is not in G")
-    raw = _raw_single_source_shortest_path_length(G, source, cutoff)
-    # br-r37-c1-tlrdu: reorder in BFS-visit-from-source order matching nx.
-    return {node: raw[node] for node in _bfs_visit_order(G, source) if node in raw}
+    # Rust returns results in BFS discovery order (br-r37-c1-bapbi), so no reordering needed.
+    return _raw_single_source_shortest_path_length(G, source, cutoff)
 
 # Algorithm functions — dominating set
 from franken_networkx._fnx import (

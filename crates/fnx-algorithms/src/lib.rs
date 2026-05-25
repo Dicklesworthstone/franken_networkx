@@ -1853,7 +1853,7 @@ pub fn single_source_shortest_path_directed(
 
 /// Return shortest path lengths from a single source (unweighted, BFS).
 ///
-/// Returns a map from each reachable node to its distance from source.
+/// Returns (node, distance) pairs in BFS discovery order.
 /// `cutoff` limits the search depth (None = no limit).
 /// Matches `networkx.single_source_shortest_path_length(G, source, cutoff=None)`.
 #[must_use]
@@ -1861,7 +1861,7 @@ pub fn single_source_shortest_path_length(
     graph: &Graph,
     source: &str,
     cutoff: Option<usize>,
-) -> HashMap<String, usize> {
+) -> Vec<(String, usize)> {
     single_source_shortest_path_length_borrowed(graph, source, cutoff)
         .into_iter()
         .map(|(node, dist)| (node.to_owned(), dist))
@@ -1869,7 +1869,7 @@ pub fn single_source_shortest_path_length(
 }
 
 /// Borrowed-string version that avoids String allocations during BFS.
-/// Returns Vec of (node_name, distance) pairs for reachable nodes.
+/// Returns Vec of (node_name, distance) pairs in BFS discovery order.
 #[must_use]
 pub fn single_source_shortest_path_length_borrowed<'a>(
     graph: &'a Graph,
@@ -1883,8 +1883,12 @@ pub fn single_source_shortest_path_length_borrowed<'a>(
         return Vec::new();
     };
 
-    let mut distances = vec![usize::MAX; n];
-    distances[source_idx] = 0;
+    // Track results in BFS order as we discover nodes
+    let mut result: Vec<(&str, usize)> = Vec::with_capacity(n);
+    let mut visited = vec![false; n];
+    visited[source_idx] = true;
+    result.push((nodes[source_idx], 0));
+
     let mut frontier: Vec<usize> = vec![source_idx];
     let mut level = 0usize;
 
@@ -1898,8 +1902,9 @@ pub fn single_source_shortest_path_length_borrowed<'a>(
         for &node_idx in &frontier {
             if let Some(neighbor_indices) = graph.neighbors_indices(node_idx) {
                 for &nbr_idx in neighbor_indices {
-                    if distances[nbr_idx] == usize::MAX {
-                        distances[nbr_idx] = level + 1;
+                    if !visited[nbr_idx] {
+                        visited[nbr_idx] = true;
+                        result.push((nodes[nbr_idx], level + 1));
                         next_frontier.push(nbr_idx);
                     }
                 }
@@ -1909,12 +1914,6 @@ pub fn single_source_shortest_path_length_borrowed<'a>(
         level += 1;
     }
 
-    let mut result = Vec::with_capacity(n);
-    for (idx, &dist) in distances.iter().enumerate() {
-        if dist != usize::MAX {
-            result.push((nodes[idx], dist));
-        }
-    }
     result
 }
 
@@ -15725,7 +15724,10 @@ pub fn all_pairs_shortest_path_length(
 ) -> HashMap<String, HashMap<String, usize>> {
     let mut result = HashMap::new();
     for node in graph.nodes_ordered() {
-        let lengths = single_source_shortest_path_length(graph, node, cutoff);
+        let lengths: HashMap<String, usize> =
+            single_source_shortest_path_length(graph, node, cutoff)
+                .into_iter()
+                .collect();
         result.insert(node.to_owned(), lengths);
     }
     result
@@ -21014,6 +21016,8 @@ pub fn single_target_shortest_path_length(
 ) -> HashMap<String, usize> {
     // For undirected graphs, lengths are the same regardless of direction
     single_source_shortest_path_length(graph, target, cutoff)
+        .into_iter()
+        .collect()
 }
 
 /// Single-target shortest path lengths for a directed graph (unweighted reverse BFS).
@@ -40082,7 +40086,8 @@ mod tests {
         let _ = g.add_edge("a", "b");
         let _ = g.add_edge("b", "c");
         let _ = g.add_edge("c", "d");
-        let lengths = single_source_shortest_path_length(&g, "a", None);
+        let lengths: HashMap<String, usize> =
+            single_source_shortest_path_length(&g, "a", None).into_iter().collect();
         assert_eq!(lengths["a"], 0);
         assert_eq!(lengths["b"], 1);
         assert_eq!(lengths["c"], 2);
@@ -40095,7 +40100,8 @@ mod tests {
         let _ = g.add_edge("a", "b");
         let _ = g.add_edge("b", "c");
         let _ = g.add_edge("c", "d");
-        let lengths = single_source_shortest_path_length(&g, "a", Some(1));
+        let lengths: HashMap<String, usize> =
+            single_source_shortest_path_length(&g, "a", Some(1)).into_iter().collect();
         assert_eq!(lengths.len(), 2); // a (0), b (1)
         assert!(!lengths.contains_key("c"));
     }
