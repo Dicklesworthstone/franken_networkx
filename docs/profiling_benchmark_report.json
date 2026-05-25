@@ -3,7 +3,7 @@
     "python_version": "3.13.7",
     "platform": "Linux-6.17.0-14-generic-x86_64-with-glibc2.42",
     "processor": "",
-    "timestamp": "2026-05-25T21:29:09.658260+00:00",
+    "timestamp": "2026-05-25T22:13:44.592674+00:00",
     "nx_version": "3.6.1"
   },
   "results": [
@@ -11,142 +11,142 @@
       "scenario": "betweenness_centrality_1k",
       "description": "Betweenness centrality on 1K-node BA graph",
       "nx": {
-        "p50": 1794.762,
-        "p95": 1838.022,
-        "p99": 1843.644,
-        "min": 1749.246,
-        "max": 1843.644,
-        "mean": 1795.181,
-        "stdev": 26.015
+        "p50": 1921.447,
+        "p95": 7294.896,
+        "p99": 12332.81,
+        "min": 1833.171,
+        "max": 12332.81,
+        "mean": 3083.962,
+        "stdev": 2313.71
       },
       "fnx": {
-        "p50": 530.277,
-        "p95": 548.613,
-        "p99": 556.686,
-        "min": 498.093,
-        "max": 556.686,
-        "mean": 529.075,
-        "stdev": 13.886
+        "p50": 533.864,
+        "p95": 562.423,
+        "p99": 564.988,
+        "min": 498.147,
+        "max": 564.988,
+        "mean": 534.104,
+        "stdev": 16.705
       },
-      "ratio": 0.295,
+      "ratio": 0.278,
       "status": "FASTER"
     },
     {
       "scenario": "closeness_centrality_1k",
       "description": "Closeness centrality on 1K-node BA graph",
       "nx": {
-        "p50": 316.757,
-        "p95": 335.896,
-        "p99": 336.618,
-        "min": 294.624,
-        "max": 336.618,
-        "mean": 314.034,
-        "stdev": 10.949
+        "p50": 321.04,
+        "p95": 345.147,
+        "p99": 363.224,
+        "min": 307.208,
+        "max": 363.224,
+        "mean": 323.55,
+        "stdev": 11.979
       },
       "fnx": {
-        "p50": 413.315,
-        "p95": 432.51,
-        "p99": 456.155,
-        "min": 397.559,
-        "max": 456.155,
-        "mean": 413.361,
-        "stdev": 13.731
+        "p50": 409.006,
+        "p95": 426.77,
+        "p99": 446.621,
+        "min": 391.66,
+        "max": 446.621,
+        "mean": 409.945,
+        "stdev": 12.754
       },
-      "ratio": 1.305,
+      "ratio": 1.274,
       "status": "SLOWER"
     },
     {
       "scenario": "degree_centrality_5k",
       "description": "Degree centrality on 5K-node BA graph",
       "nx": {
-        "p50": 0.665,
-        "p95": 1.113,
-        "p99": 1.662,
-        "min": 0.643,
-        "max": 1.662,
-        "mean": 0.764,
-        "stdev": 0.223
+        "p50": 0.659,
+        "p95": 0.708,
+        "p99": 0.754,
+        "min": 0.644,
+        "max": 0.754,
+        "mean": 0.665,
+        "stdev": 0.023
       },
       "fnx": {
-        "p50": 0.93,
-        "p95": 1.367,
-        "p99": 2.964,
-        "min": 0.917,
-        "max": 2.964,
-        "mean": 1.046,
-        "stdev": 0.415
+        "p50": 0.954,
+        "p95": 1.016,
+        "p99": 1.232,
+        "min": 0.93,
+        "max": 1.232,
+        "mean": 0.966,
+        "stdev": 0.058
       },
-      "ratio": 1.398,
+      "ratio": 1.448,
       "status": "SLOWER"
     },
     {
       "scenario": "clustering_1k",
       "description": "Local clustering coefficients on 1K-node BA graph",
       "nx": {
-        "p50": 19.595,
-        "p95": 19.924,
-        "p99": 21.99,
-        "min": 19.456,
-        "max": 21.99,
-        "mean": 19.709,
-        "stdev": 0.484
+        "p50": 20.886,
+        "p95": 24.63,
+        "p99": 26.419,
+        "min": 19.574,
+        "max": 26.419,
+        "mean": 21.283,
+        "stdev": 1.843
       },
       "fnx": {
-        "p50": 3.437,
-        "p95": 4.655,
-        "p99": 6.647,
-        "min": 3.393,
-        "max": 6.647,
-        "mean": 3.723,
-        "stdev": 0.695
+        "p50": 3.588,
+        "p95": 5.039,
+        "p99": 5.324,
+        "min": 3.438,
+        "max": 5.324,
+        "mean": 3.813,
+        "stdev": 0.529
       },
-      "ratio": 0.175,
+      "ratio": 0.172,
       "status": "FASTER"
     },
     {
       "scenario": "average_clustering_1k",
       "description": "Average clustering coefficient on 1K-node BA graph",
       "nx": {
-        "p50": 19.105,
-        "p95": 23.861,
-        "p99": 25.759,
-        "min": 18.857,
-        "max": 25.759,
-        "mean": 19.963,
-        "stdev": 1.791
+        "p50": 21.277,
+        "p95": 25.693,
+        "p99": 26.271,
+        "min": 19.03,
+        "max": 26.271,
+        "mean": 21.735,
+        "stdev": 2.108
       },
       "fnx": {
-        "p50": 3.53,
-        "p95": 5.896,
-        "p99": 6.349,
-        "min": 3.44,
-        "max": 6.349,
-        "mean": 4.077,
-        "stdev": 0.907
+        "p50": 4.022,
+        "p95": 5.202,
+        "p99": 5.386,
+        "min": 3.572,
+        "max": 5.386,
+        "mean": 4.165,
+        "stdev": 0.49
       },
-      "ratio": 0.185,
+      "ratio": 0.189,
       "status": "FASTER"
     },
     {
       "scenario": "transitivity_1k",
       "description": "Global transitivity on 1K-node WS graph",
       "nx": {
-        "p50": 7.527,
-        "p95": 10.339,
-        "p99": 10.884,
-        "min": 7.323,
-        "max": 10.884,
-        "mean": 7.966,
-        "stdev": 1.03
+        "p50": 7.724,
+        "p95": 8.28,
+        "p99": 9.592,
+        "min": 7.406,
+        "max": 9.592,
+        "mean": 7.81,
+        "stdev": 0.45
       },
       "fnx": {
-        "p50": 0.799,
-        "p95": 0.816,
-        "p99": 0.818,
-        "min": 0.786,
-        "max": 0.818,
-        "mean": 0.801,
-        "stdev": 0.009
+        "p50": 0.822,
+        "p95": 0.921,
+        "p99": 1.102,
+        "min": 0.81,
+        "max": 1.102,
+        "mean": 0.838,
+        "stdev": 0.059
       },
       "ratio": 0.106,
       "status": "FASTER"
@@ -157,341 +157,341 @@
       "nx": {
         "p50": 0.016,
         "p95": 0.019,
-        "p99": 0.02,
-        "min": 0.014,
-        "max": 0.02,
-        "mean": 0.016,
-        "stdev": 0.001
+        "p99": 0.026,
+        "min": 0.015,
+        "max": 0.026,
+        "mean": 0.017,
+        "stdev": 0.002
       },
       "fnx": {
-        "p50": 0.175,
-        "p95": 0.187,
-        "p99": 0.194,
-        "min": 0.173,
-        "max": 0.194,
-        "mean": 0.177,
-        "stdev": 0.005
+        "p50": 0.189,
+        "p95": 0.242,
+        "p99": 0.248,
+        "min": 0.175,
+        "max": 0.248,
+        "mean": 0.197,
+        "stdev": 0.023
       },
-      "ratio": 10.937,
+      "ratio": 11.812,
       "status": "REGRESS"
     },
     {
       "scenario": "all_pairs_shortest_path_length_500",
       "description": "All-pairs shortest path lengths on 500-node BA graph",
       "nx": {
-        "p50": 68.957,
-        "p95": 78.054,
-        "p99": 90.732,
-        "min": 66.89,
-        "max": 90.732,
-        "mean": 71.533,
-        "stdev": 5.286
+        "p50": 69.503,
+        "p95": 79.25,
+        "p99": 95.758,
+        "min": 66.871,
+        "max": 95.758,
+        "mean": 70.947,
+        "stdev": 5.813
       },
       "fnx": {
-        "p50": 23.236,
-        "p95": 28.573,
-        "p99": 30.022,
-        "min": 22.862,
-        "max": 30.022,
-        "mean": 24.292,
-        "stdev": 2.041
+        "p50": 25.913,
+        "p95": 34.107,
+        "p99": 34.842,
+        "min": 23.176,
+        "max": 34.842,
+        "mean": 26.444,
+        "stdev": 3.595
       },
-      "ratio": 0.337,
+      "ratio": 0.373,
       "status": "FASTER"
     },
     {
       "scenario": "dijkstra_path_1k",
       "description": "Dijkstra single-pair path on 1K BA graph",
       "nx": {
-        "p50": 0.832,
-        "p95": 0.901,
-        "p99": 0.924,
-        "min": 0.817,
-        "max": 0.924,
-        "mean": 0.841,
-        "stdev": 0.028
+        "p50": 0.829,
+        "p95": 0.884,
+        "p99": 0.905,
+        "min": 0.816,
+        "max": 0.905,
+        "mean": 0.832,
+        "stdev": 0.02
       },
       "fnx": {
-        "p50": 1.697,
-        "p95": 1.772,
-        "p99": 1.98,
-        "min": 1.652,
-        "max": 1.98,
-        "mean": 1.71,
-        "stdev": 0.067
+        "p50": 1.705,
+        "p95": 1.831,
+        "p99": 1.893,
+        "min": 1.643,
+        "max": 1.893,
+        "mean": 1.719,
+        "stdev": 0.06
       },
-      "ratio": 2.04,
+      "ratio": 2.057,
       "status": "REGRESS"
     },
     {
       "scenario": "bfs_edges_1k",
       "description": "BFS traversal edges on 1K BA graph",
       "nx": {
-        "p50": 0.449,
-        "p95": 1.072,
-        "p99": 1.389,
+        "p50": 0.372,
+        "p95": 0.383,
+        "p99": 0.385,
         "min": 0.369,
-        "max": 1.389,
-        "mean": 0.563,
-        "stdev": 0.259
-      },
-      "fnx": {
-        "p50": 0.179,
-        "p95": 0.192,
-        "p99": 0.192,
-        "min": 0.177,
-        "max": 0.192,
-        "mean": 0.181,
+        "max": 0.385,
+        "mean": 0.374,
         "stdev": 0.005
       },
-      "ratio": 0.399,
+      "fnx": {
+        "p50": 0.181,
+        "p95": 0.196,
+        "p99": 0.23,
+        "min": 0.177,
+        "max": 0.23,
+        "mean": 0.184,
+        "stdev": 0.011
+      },
+      "ratio": 0.487,
       "status": "FASTER"
     },
     {
       "scenario": "dfs_edges_1k",
       "description": "DFS traversal edges on 1K BA graph",
       "nx": {
-        "p50": 0.549,
-        "p95": 0.578,
-        "p99": 1.199,
-        "min": 0.541,
-        "max": 1.199,
-        "mean": 0.578,
-        "stdev": 0.13
+        "p50": 0.613,
+        "p95": 0.844,
+        "p99": 0.905,
+        "min": 0.543,
+        "max": 0.905,
+        "mean": 0.636,
+        "stdev": 0.096
       },
       "fnx": {
-        "p50": 0.647,
-        "p95": 0.662,
-        "p99": 0.663,
-        "min": 0.634,
-        "max": 0.663,
-        "mean": 0.648,
-        "stdev": 0.008
+        "p50": 0.649,
+        "p95": 0.74,
+        "p99": 0.811,
+        "min": 0.636,
+        "max": 0.811,
+        "mean": 0.658,
+        "stdev": 0.038
       },
-      "ratio": 1.179,
-      "status": "SLOWER"
+      "ratio": 1.059,
+      "status": "PARITY"
     },
     {
       "scenario": "connected_components_2k",
       "description": "Connected components on 2K ER graph",
       "nx": {
-        "p50": 0.641,
-        "p95": 0.806,
-        "p99": 0.824,
-        "min": 0.624,
-        "max": 0.824,
-        "mean": 0.664,
-        "stdev": 0.059
+        "p50": 0.639,
+        "p95": 0.652,
+        "p99": 0.691,
+        "min": 0.628,
+        "max": 0.691,
+        "mean": 0.64,
+        "stdev": 0.013
       },
       "fnx": {
-        "p50": 0.211,
-        "p95": 0.346,
-        "p99": 0.388,
-        "min": 0.196,
-        "max": 0.388,
-        "mean": 0.227,
-        "stdev": 0.048
+        "p50": 0.201,
+        "p95": 0.215,
+        "p99": 0.252,
+        "min": 0.198,
+        "max": 0.252,
+        "mean": 0.205,
+        "stdev": 0.011
       },
-      "ratio": 0.329,
+      "ratio": 0.315,
       "status": "FASTER"
     },
     {
       "scenario": "number_connected_components_2k",
       "description": "Count connected components on 2K ER graph",
       "nx": {
-        "p50": 0.641,
-        "p95": 0.661,
-        "p99": 0.671,
-        "min": 0.628,
-        "max": 0.671,
-        "mean": 0.641,
-        "stdev": 0.01
+        "p50": 0.653,
+        "p95": 0.684,
+        "p99": 0.693,
+        "min": 0.644,
+        "max": 0.693,
+        "mean": 0.657,
+        "stdev": 0.012
       },
       "fnx": {
-        "p50": 0.099,
-        "p95": 0.112,
-        "p99": 0.138,
+        "p50": 0.101,
+        "p95": 0.115,
+        "p99": 0.12,
         "min": 0.097,
-        "max": 0.138,
+        "max": 0.12,
         "mean": 0.102,
-        "stdev": 0.008
+        "stdev": 0.005
       },
-      "ratio": 0.154,
+      "ratio": 0.155,
       "status": "FASTER"
     },
     {
       "scenario": "core_number_1k",
       "description": "K-core decomposition on 1K BA graph",
       "nx": {
-        "p50": 2.425,
-        "p95": 3.364,
-        "p99": 3.885,
-        "min": 2.387,
-        "max": 3.885,
-        "mean": 2.579,
-        "stdev": 0.366
+        "p50": 2.501,
+        "p95": 3.306,
+        "p99": 3.397,
+        "min": 2.42,
+        "max": 3.397,
+        "mean": 2.712,
+        "stdev": 0.34
       },
       "fnx": {
-        "p50": 2.561,
-        "p95": 3.657,
-        "p99": 4.093,
-        "min": 2.537,
-        "max": 4.093,
-        "mean": 2.733,
-        "stdev": 0.392
+        "p50": 2.617,
+        "p95": 3.885,
+        "p99": 4.122,
+        "min": 2.529,
+        "max": 4.122,
+        "mean": 2.811,
+        "stdev": 0.454
       },
-      "ratio": 1.056,
+      "ratio": 1.046,
       "status": "PARITY"
     },
     {
       "scenario": "pagerank_1k",
       "description": "PageRank on 1K BA graph",
       "nx": {
-        "p50": 3.531,
-        "p95": 3.626,
-        "p99": 5.323,
-        "min": 3.487,
-        "max": 5.323,
-        "mean": 3.616,
-        "stdev": 0.358
+        "p50": 3.902,
+        "p95": 6.435,
+        "p99": 6.604,
+        "min": 3.518,
+        "max": 6.604,
+        "mean": 4.51,
+        "stdev": 1.142
       },
       "fnx": {
-        "p50": 6.14,
-        "p95": 7.488,
-        "p99": 9.336,
-        "min": 5.1,
-        "max": 9.336,
-        "mean": 6.256,
-        "stdev": 0.955
+        "p50": 6.068,
+        "p95": 10.89,
+        "p99": 12.149,
+        "min": 5.045,
+        "max": 12.149,
+        "mean": 6.919,
+        "stdev": 2.022
       },
-      "ratio": 1.739,
+      "ratio": 1.555,
       "status": "SLOWER"
     },
     {
       "scenario": "is_connected_5k",
       "description": "Connectivity check on 5K BA graph",
       "nx": {
-        "p50": 1.475,
-        "p95": 1.555,
-        "p99": 1.58,
-        "min": 1.456,
-        "max": 1.58,
-        "mean": 1.487,
-        "stdev": 0.032
+        "p50": 1.483,
+        "p95": 1.597,
+        "p99": 1.753,
+        "min": 1.463,
+        "max": 1.753,
+        "mean": 1.498,
+        "stdev": 0.06
       },
       "fnx": {
-        "p50": 2.597,
-        "p95": 3.494,
-        "p99": 4.748,
-        "min": 2.305,
-        "max": 4.748,
-        "mean": 2.712,
-        "stdev": 0.487
+        "p50": 2.932,
+        "p95": 5.634,
+        "p99": 7.933,
+        "min": 2.307,
+        "max": 7.933,
+        "mean": 3.461,
+        "stdev": 1.29
       },
-      "ratio": 1.761,
+      "ratio": 1.977,
       "status": "SLOWER"
     },
     {
       "scenario": "diameter_1k",
       "description": "Graph diameter on 1K BA graph",
       "nx": {
-        "p50": 319.878,
-        "p95": 337.781,
-        "p99": 339.622,
-        "min": 301.084,
-        "max": 339.622,
-        "mean": 320.242,
-        "stdev": 9.723
+        "p50": 314.828,
+        "p95": 326.181,
+        "p99": 347.036,
+        "min": 301.404,
+        "max": 347.036,
+        "mean": 314.819,
+        "stdev": 8.753
       },
       "fnx": {
-        "p50": 399.633,
-        "p95": 418.994,
-        "p99": 433.369,
-        "min": 378.269,
-        "max": 433.369,
-        "mean": 399.116,
-        "stdev": 11.884
+        "p50": 396.543,
+        "p95": 412.897,
+        "p99": 439.543,
+        "min": 383.823,
+        "max": 439.543,
+        "mean": 398.159,
+        "stdev": 11.547
       },
-      "ratio": 1.249,
+      "ratio": 1.26,
       "status": "SLOWER"
     },
     {
       "scenario": "is_biconnected_1k",
       "description": "Biconnectivity check on 1K BA graph",
       "nx": {
-        "p50": 3.102,
-        "p95": 5.344,
-        "p99": 31.175,
-        "min": 3.012,
-        "max": 31.175,
-        "mean": 4.376,
-        "stdev": 5.604
+        "p50": 3.147,
+        "p95": 5.559,
+        "p99": 35.403,
+        "min": 3.036,
+        "max": 35.403,
+        "mean": 4.746,
+        "stdev": 6.42
       },
       "fnx": {
-        "p50": 0.584,
-        "p95": 0.606,
-        "p99": 0.607,
-        "min": 0.573,
-        "max": 0.607,
-        "mean": 0.585,
-        "stdev": 0.009
+        "p50": 0.59,
+        "p95": 1.905,
+        "p99": 2.376,
+        "min": 0.574,
+        "max": 2.376,
+        "mean": 0.776,
+        "stdev": 0.461
       },
-      "ratio": 0.188,
+      "ratio": 0.187,
       "status": "FASTER"
     },
     {
       "scenario": "strongly_connected_1k",
       "description": "Strong connectivity on 1K directed BA graph",
       "nx": {
-        "p50": 2.506,
-        "p95": 3.356,
-        "p99": 3.818,
-        "min": 2.458,
-        "max": 3.818,
-        "mean": 2.772,
-        "stdev": 0.388
+        "p50": 2.533,
+        "p95": 2.73,
+        "p99": 3.994,
+        "min": 2.464,
+        "max": 3.994,
+        "mean": 2.605,
+        "stdev": 0.298
       },
       "fnx": {
-        "p50": 0.64,
-        "p95": 1.224,
-        "p99": 2.288,
-        "min": 0.594,
-        "max": 2.288,
-        "mean": 0.773,
-        "stdev": 0.364
+        "p50": 0.611,
+        "p95": 0.921,
+        "p99": 1.28,
+        "min": 0.597,
+        "max": 1.28,
+        "mean": 0.666,
+        "stdev": 0.145
       },
-      "ratio": 0.255,
+      "ratio": 0.241,
       "status": "FASTER"
     },
     {
       "scenario": "weakly_connected_1k",
       "description": "Weak connectivity on 1K directed BA graph",
       "nx": {
-        "p50": 0.426,
-        "p95": 0.515,
-        "p99": 0.562,
-        "min": 0.412,
-        "max": 0.562,
-        "mean": 0.44,
-        "stdev": 0.038
+        "p50": 0.417,
+        "p95": 0.487,
+        "p99": 0.502,
+        "min": 0.409,
+        "max": 0.502,
+        "mean": 0.426,
+        "stdev": 0.025
       },
       "fnx": {
-        "p50": 0.897,
-        "p95": 1.055,
-        "p99": 1.187,
-        "min": 0.881,
-        "max": 1.187,
-        "mean": 0.922,
-        "stdev": 0.066
+        "p50": 0.907,
+        "p95": 0.987,
+        "p99": 1.018,
+        "min": 0.895,
+        "max": 1.018,
+        "mean": 0.92,
+        "stdev": 0.033
       },
-      "ratio": 2.106,
+      "ratio": 2.175,
       "status": "REGRESS"
     }
   ],
   "summary": {
     "faster": 10,
-    "parity": 1,
-    "slower": 6,
+    "parity": 2,
+    "slower": 5,
     "regress": 3,
     "errors": 0
   }
