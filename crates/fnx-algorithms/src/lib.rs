@@ -1762,21 +1762,26 @@ pub fn bellman_ford_shortest_paths_directed(
 
 /// Return all shortest paths from a single source (unweighted, BFS).
 ///
-/// Returns a map from each reachable node to the shortest path from source
-/// to that node. `cutoff` limits the search depth (None = no limit).
+/// Returns (node, path) pairs in BFS discovery order.
+/// `cutoff` limits the search depth (None = no limit).
 /// Matches `networkx.single_source_shortest_path(G, source, cutoff=None)`.
 #[must_use]
 pub fn single_source_shortest_path(
     graph: &Graph,
     source: &str,
     cutoff: Option<usize>,
-) -> HashMap<String, Vec<String>> {
-    let mut result: HashMap<String, Vec<String>> = HashMap::new();
+) -> Vec<(String, Vec<String>)> {
     if !graph.has_node(source) {
-        return result;
+        return Vec::new();
     }
 
-    result.insert(source.to_owned(), vec![source.to_owned()]);
+    // Track paths for lookup (to build child paths from parent paths)
+    let mut paths: HashMap<String, Vec<String>> = HashMap::new();
+    // Track BFS discovery order
+    let mut result: Vec<(String, Vec<String>)> = Vec::new();
+
+    paths.insert(source.to_owned(), vec![source.to_owned()]);
+    result.push((source.to_owned(), vec![source.to_owned()]));
     let mut frontier: Vec<&str> = vec![source];
     let mut level = 0usize;
 
@@ -1790,10 +1795,11 @@ pub fn single_source_shortest_path(
         for &node in &frontier {
             if let Some(neighbors) = graph.neighbors_iter(node) {
                 for nbr in neighbors {
-                    if !result.contains_key(nbr) {
-                        let mut path = result[node].clone();
+                    if !paths.contains_key(nbr) {
+                        let mut path = paths[node].clone();
                         path.push(nbr.to_owned());
-                        result.insert(nbr.to_owned(), path);
+                        paths.insert(nbr.to_owned(), path.clone());
+                        result.push((nbr.to_owned(), path));
                         next_frontier.push(nbr);
                     }
                 }
@@ -1808,20 +1814,23 @@ pub fn single_source_shortest_path(
 
 /// Return all shortest paths from a single source for a directed graph (unweighted, BFS).
 ///
-/// Returns a map from each reachable node to the shortest path from source
-/// to that node. `cutoff` limits the search depth (None = no limit).
+/// Returns (node, path) pairs in BFS discovery order.
+/// `cutoff` limits the search depth (None = no limit).
 #[must_use]
 pub fn single_source_shortest_path_directed(
     digraph: &DiGraph,
     source: &str,
     cutoff: Option<usize>,
-) -> HashMap<String, Vec<String>> {
-    let mut result: HashMap<String, Vec<String>> = HashMap::new();
+) -> Vec<(String, Vec<String>)> {
     if !digraph.has_node(source) {
-        return result;
+        return Vec::new();
     }
 
-    result.insert(source.to_owned(), vec![source.to_owned()]);
+    let mut paths: HashMap<String, Vec<String>> = HashMap::new();
+    let mut result: Vec<(String, Vec<String>)> = Vec::new();
+
+    paths.insert(source.to_owned(), vec![source.to_owned()]);
+    result.push((source.to_owned(), vec![source.to_owned()]));
     let mut frontier: Vec<&str> = vec![source];
     let mut level = 0usize;
 
@@ -1835,10 +1844,11 @@ pub fn single_source_shortest_path_directed(
         for &node in &frontier {
             if let Some(successors) = digraph.successors_iter(node) {
                 for nbr in successors {
-                    if !result.contains_key(nbr) {
-                        let mut path = result[node].clone();
+                    if !paths.contains_key(nbr) {
+                        let mut path = paths[node].clone();
                         path.push(nbr.to_owned());
-                        result.insert(nbr.to_owned(), path);
+                        paths.insert(nbr.to_owned(), path.clone());
+                        result.push((nbr.to_owned(), path));
                         next_frontier.push(nbr);
                     }
                 }
@@ -15689,7 +15699,8 @@ pub fn all_pairs_shortest_path(
 ) -> HashMap<String, HashMap<String, Vec<String>>> {
     let mut result = HashMap::new();
     for node in graph.nodes_ordered() {
-        let paths = single_source_shortest_path(graph, node, cutoff);
+        let paths: HashMap<String, Vec<String>> =
+            single_source_shortest_path(graph, node, cutoff).into_iter().collect();
         result.insert(node.to_owned(), paths);
     }
     result
@@ -15706,7 +15717,8 @@ pub fn all_pairs_shortest_path_directed(
 ) -> HashMap<String, HashMap<String, Vec<String>>> {
     let mut result = HashMap::new();
     for node in digraph.nodes_ordered() {
-        let paths = single_source_shortest_path_directed(digraph, node, cutoff);
+        let paths: HashMap<String, Vec<String>> =
+            single_source_shortest_path_directed(digraph, node, cutoff).into_iter().collect();
         result.insert(node.to_owned(), paths);
     }
     result
@@ -40049,7 +40061,8 @@ mod tests {
         let _ = g.add_edge("a", "b");
         let _ = g.add_edge("b", "c");
         let _ = g.add_edge("c", "d");
-        let paths = single_source_shortest_path(&g, "a", None);
+        let paths: HashMap<String, Vec<String>> =
+            single_source_shortest_path(&g, "a", None).into_iter().collect();
         assert_eq!(paths["a"], vec!["a"]);
         assert_eq!(paths["b"], vec!["a", "b"]);
         assert_eq!(paths["c"], vec!["a", "b", "c"]);
@@ -40062,7 +40075,8 @@ mod tests {
         let _ = g.add_edge("a", "b");
         let _ = g.add_edge("b", "c");
         let _ = g.add_edge("c", "d");
-        let paths = single_source_shortest_path(&g, "a", Some(2));
+        let paths: HashMap<String, Vec<String>> =
+            single_source_shortest_path(&g, "a", Some(2)).into_iter().collect();
         assert!(paths.contains_key("a"));
         assert!(paths.contains_key("b"));
         assert!(paths.contains_key("c"));
@@ -40074,7 +40088,8 @@ mod tests {
         let mut g = Graph::strict();
         let _ = g.add_edge("a", "b");
         g.add_node("c");
-        let paths = single_source_shortest_path(&g, "a", None);
+        let paths: HashMap<String, Vec<String>> =
+            single_source_shortest_path(&g, "a", None).into_iter().collect();
         assert!(paths.contains_key("a"));
         assert!(paths.contains_key("b"));
         assert!(!paths.contains_key("c"));

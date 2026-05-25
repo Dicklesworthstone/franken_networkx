@@ -10436,9 +10436,8 @@ def single_source_shortest_path(G, source, cutoff=None):
                 cutoff = 0
         except (TypeError, ValueError):
             pass
-    raw = _raw_single_source_shortest_path(G, source, cutoff)
-    # br-r37-c1-tlrdu: reorder in BFS-visit-from-source order matching nx.
-    return {node: raw[node] for node in _bfs_visit_order(G, source) if node in raw}
+    # Rust returns results in BFS discovery order (br-r37-c1-bapbi), so no reordering needed.
+    return _raw_single_source_shortest_path(G, source, cutoff)
 
 
 def single_source_shortest_path_length(G, source, cutoff=None):

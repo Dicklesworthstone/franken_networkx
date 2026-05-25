@@ -785,10 +785,10 @@ fn compute_single_source_shortest_paths(
     method: &str,
 ) -> PyResult<std::collections::HashMap<String, Vec<String>>> {
     match weight {
-        None => {
-            Ok(py
-                .allow_threads(|| fnx_algorithms::single_source_shortest_path(inner, source, None)))
-        }
+        None => Ok(py
+            .allow_threads(|| fnx_algorithms::single_source_shortest_path(inner, source, None))
+            .into_iter()
+            .collect()),
         Some(w) => {
             match method {
                 "dijkstra" => Ok(py.allow_threads(|| {
@@ -821,9 +821,12 @@ fn compute_single_source_shortest_paths_directed(
     method: &str,
 ) -> PyResult<std::collections::HashMap<String, Vec<String>>> {
     match weight {
-        None => Ok(py.allow_threads(|| {
-            fnx_algorithms::single_source_shortest_path_directed(inner, source, None)
-        })),
+        None => Ok(py
+            .allow_threads(|| {
+                fnx_algorithms::single_source_shortest_path_directed(inner, source, None)
+            })
+            .into_iter()
+            .collect()),
         Some(w) => match method {
             "dijkstra" => Ok(py.allow_threads(|| {
                 fnx_algorithms::single_source_dijkstra_path_directed(inner, source, w)
