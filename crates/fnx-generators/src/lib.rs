@@ -4660,8 +4660,15 @@ impl GraphGenerator {
         let mut repeated_nodes: Vec<usize> = (0..m).collect();
 
         for source in m..n {
-            let mut possible_targets = random_subset_python(&repeated_nodes, m, &mut rng);
-            let Some(mut target) = possible_targets.pop_first() else {
+            // nx's `_random_subset` returns a Python `set`; Holme-Kim pops it one
+            // element at a time with `set.pop()`, which yields hash-table slot
+            // order — NOT sorted order. Use a CPython-set-pop-order deque so the
+            // per-pop target sequence (and therefore the cascading `repeated_nodes`
+            // growth and downstream draws) matches nx byte-for-byte. (BA is immune
+            // because it links to *all* targets, so it keeps `random_subset_python`.)
+            let mut possible_targets =
+                random_subset_python_cpyset_order(&repeated_nodes, m, &mut rng);
+            let Some(mut target) = possible_targets.pop_front() else {
                 continue;
             };
             let _ = graph.add_edge(node_labels[source].clone(), node_labels[target].clone());
@@ -4689,7 +4696,7 @@ impl GraphGenerator {
                     }
                 }
 
-                let Some(next_target) = possible_targets.pop_first() else {
+                let Some(next_target) = possible_targets.pop_front() else {
                     break;
                 };
                 target = next_target;
@@ -6352,6 +6359,120 @@ fn random_subset_python(
     targets
 }
 
+/// Reproduce the *pop order* of a CPython `set` of small non-negative integers,
+/// given the order in which the unique elements were first inserted.
+///
+/// NetworkX's `_random_subset` returns a Python `set`, and consumers such as
+/// `powerlaw_cluster_graph` call `set.pop()` repeatedly — which yields elements
+/// in the set's internal hash-table slot order, NOT sorted order. A `BTreeSet`
+/// (sorted) diverges. This is a faithful port of CPython `setobject.c`
+/// (MINSIZE=8, LINEAR_PROBES=9, PERTURB_SHIFT=5, resize when `fill*5 >= mask*3`)
+/// for `usize` keys whose Python hash equals their value. Validated against real
+/// CPython `set.pop()` over 200k fuzzed cases (see workspace
+/// `harness/cpython_set_model.py`).
+fn cpython_set_pop_order(insertion_order: &[usize]) -> Vec<usize> {
+    const MIN: usize = 8;
+    const LINEAR_PROBES: usize = 9;
+    const PERTURB_SHIFT: u32 = 5;
+
+    fn next_pow2_atleast(x: usize) -> usize {
+        let mut s = MIN;
+        while s <= x {
+            s <<= 1;
+        }
+        s
+    }
+
+    fn find_slot(table: &[Option<usize>], mask: usize, key: usize) -> (usize, bool) {
+        let h = key as u64;
+        let mut perturb = h;
+        let mut i = (h & mask as u64) as usize;
+        loop {
+            match table[i] {
+                None => return (i, false),
+                Some(k) if k == key => return (i, true),
+                _ => {}
+            }
+            if i + LINEAR_PROBES <= mask {
+                for j in 1..=LINEAR_PROBES {
+                    let idx = i + j;
+                    match table[idx] {
+                        None => return (idx, false),
+                        Some(k) if k == key => return (idx, true),
+                        _ => {}
+                    }
+                }
+            }
+            perturb >>= PERTURB_SHIFT;
+            i = (((i as u64) * 5 + 1 + perturb) & mask as u64) as usize;
+        }
+    }
+
+    let mut table: Vec<Option<usize>> = vec![None; MIN];
+    let mut mask = MIN - 1;
+    let mut fill = 0usize;
+    let mut used = 0usize;
+
+    for &key in insertion_order {
+        let (slot, found) = find_slot(&table, mask, key);
+        if found {
+            continue;
+        }
+        table[slot] = Some(key);
+        fill += 1;
+        used += 1;
+        if fill * 5 >= mask * 3 {
+            // grow: CPython picks used*(used>50000?2:4), rounded up to a power of two strictly above it.
+            let factor = if used > 50_000 { 2 } else { 4 };
+            let newsize = next_pow2_atleast(used * factor);
+            let old: Vec<usize> = table.iter().filter_map(|&k| k).collect();
+            table = vec![None; newsize];
+            mask = newsize - 1;
+            fill = 0;
+            used = 0;
+            for k in old {
+                let (slot, _) = find_slot(&table, mask, k);
+                table[slot] = Some(k);
+                fill += 1;
+                used += 1;
+            }
+        }
+    }
+    table.into_iter().flatten().collect()
+}
+
+/// Like `random_subset_python` but returns the elements in CPython `set.pop()`
+/// order (front-to-back). The RNG draw sequence is byte-identical to
+/// `random_subset_python` (same `rng.choice_index` calls, same loop condition),
+/// so callers that previously consumed `random_subset_python` keep identical
+/// random state; only the iteration/pop order changes to match nx.
+fn random_subset_python_cpyset_order(
+    seq: &[usize],
+    count: usize,
+    rng: &mut PythonRandom,
+) -> std::collections::VecDeque<usize> {
+    if seq.is_empty() || count == 0 {
+        return std::collections::VecDeque::new();
+    }
+    let unique_cap = {
+        let mut tmp: std::collections::BTreeSet<usize> = std::collections::BTreeSet::new();
+        for &v in seq {
+            tmp.insert(v);
+        }
+        tmp.len()
+    };
+    let target_count = count.min(unique_cap);
+    let mut seen: std::collections::HashSet<usize> = std::collections::HashSet::new();
+    let mut insertion: Vec<usize> = Vec::with_capacity(target_count);
+    while seen.len() < target_count {
+        let choice = seq[rng.choice_index(seq.len())];
+        if seen.insert(choice) {
+            insertion.push(choice);
+        }
+    }
+    cpython_set_pop_order(&insertion).into()
+}
+
 fn weighted_choice_python(weights: &[f64], rng: &mut PythonRandom) -> usize {
     if weights.is_empty() {
         // Degenerate input — no candidate to pick. Return 0 by convention so
@@ -6461,6 +6582,39 @@ fn complete_digraph(mode: CompatibilityMode, n: usize) -> DiGraph {
         }
     }
     graph
+}
+
+#[cfg(test)]
+mod cpython_set_tests {
+    use super::cpython_set_pop_order;
+
+    /// Golden vectors generated from real CPython `set.pop()` order (validated
+    /// against 200k fuzzed cases in the gauntlet workspace
+    /// `harness/cpython_set_model.py`). Locks the slot-order + growth behavior
+    /// that `powerlaw_cluster_graph` relies on for nx seed parity.
+    #[test]
+    fn cpython_set_pop_order_matches_reference() {
+        let cases: Vec<(Vec<usize>, Vec<usize>)> = vec![
+            (vec![3, 8], vec![8, 3]),
+            (vec![8, 3], vec![8, 3]),
+            (vec![1, 2, 3, 4], vec![1, 2, 3, 4]),
+            (vec![7, 15, 23], vec![15, 23, 7]),
+            (vec![5, 13, 21, 29, 37], vec![37, 5, 13, 21, 29]),
+            (vec![0, 8, 16, 24], vec![0, 8, 16, 24]),
+            (vec![10, 2, 18, 9], vec![18, 9, 10, 2]),
+            (vec![40, 1, 9, 17, 33, 6], vec![1, 33, 6, 40, 9, 17]),
+            (vec![9, 1, 17, 25, 8, 16], vec![1, 8, 9, 16, 17, 25]),
+            (vec![0, 1, 2, 3, 4, 5, 6, 7], vec![0, 1, 2, 3, 4, 5, 6, 7]),
+            (vec![13, 5, 21], vec![5, 21, 13]),
+        ];
+        for (insertion, expected) in cases {
+            assert_eq!(
+                cpython_set_pop_order(&insertion),
+                expected,
+                "pop order mismatch for insertion {insertion:?}"
+            );
+        }
+    }
 }
 
 #[cfg(test)]
