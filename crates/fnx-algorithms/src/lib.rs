@@ -15638,8 +15638,9 @@ pub fn all_pairs_shortest_path(
 ) -> HashMap<String, HashMap<String, Vec<String>>> {
     let mut result = HashMap::new();
     for node in graph.nodes_ordered() {
-        let paths: HashMap<String, Vec<String>> =
-            single_source_shortest_path(graph, node, cutoff).into_iter().collect();
+        let paths: HashMap<String, Vec<String>> = single_source_shortest_path(graph, node, cutoff)
+            .into_iter()
+            .collect();
         result.insert(node.to_owned(), paths);
     }
     result
@@ -15657,7 +15658,9 @@ pub fn all_pairs_shortest_path_directed(
     let mut result = HashMap::new();
     for node in digraph.nodes_ordered() {
         let paths: HashMap<String, Vec<String>> =
-            single_source_shortest_path_directed(digraph, node, cutoff).into_iter().collect();
+            single_source_shortest_path_directed(digraph, node, cutoff)
+                .into_iter()
+                .collect();
         result.insert(node.to_owned(), paths);
     }
     result
@@ -18641,7 +18644,17 @@ pub fn is_isomorphic(g1: &Graph, g2: &Graph) -> bool {
             mapping[u] = Some(v);
             used[v] = true;
 
-            if backtrack(depth + 1, n, g1_order, adj1, adj2, deg1, deg2, mapping, used) {
+            if backtrack(
+                depth + 1,
+                n,
+                g1_order,
+                adj1,
+                adj2,
+                deg1,
+                deg2,
+                mapping,
+                used,
+            ) {
                 return true;
             }
 
@@ -18787,7 +18800,17 @@ pub fn is_isomorphic_directed(g1: &DiGraph, g2: &DiGraph) -> bool {
             mapping[u] = Some(v);
             used[v] = true;
 
-            if backtrack(depth + 1, n, g1_order, adj1, adj2, deg1, deg2, mapping, used) {
+            if backtrack(
+                depth + 1,
+                n,
+                g1_order,
+                adj1,
+                adj2,
+                deg1,
+                deg2,
+                mapping,
+                used,
+            ) {
                 return true;
             }
 
@@ -39992,8 +40015,9 @@ mod tests {
         let _ = g.add_edge("a", "b");
         let _ = g.add_edge("b", "c");
         let _ = g.add_edge("c", "d");
-        let paths: HashMap<String, Vec<String>> =
-            single_source_shortest_path(&g, "a", None).into_iter().collect();
+        let paths: HashMap<String, Vec<String>> = single_source_shortest_path(&g, "a", None)
+            .into_iter()
+            .collect();
         assert_eq!(paths["a"], vec!["a"]);
         assert_eq!(paths["b"], vec!["a", "b"]);
         assert_eq!(paths["c"], vec!["a", "b", "c"]);
@@ -40006,8 +40030,9 @@ mod tests {
         let _ = g.add_edge("a", "b");
         let _ = g.add_edge("b", "c");
         let _ = g.add_edge("c", "d");
-        let paths: HashMap<String, Vec<String>> =
-            single_source_shortest_path(&g, "a", Some(2)).into_iter().collect();
+        let paths: HashMap<String, Vec<String>> = single_source_shortest_path(&g, "a", Some(2))
+            .into_iter()
+            .collect();
         assert!(paths.contains_key("a"));
         assert!(paths.contains_key("b"));
         assert!(paths.contains_key("c"));
@@ -40019,8 +40044,9 @@ mod tests {
         let mut g = Graph::strict();
         let _ = g.add_edge("a", "b");
         g.add_node("c");
-        let paths: HashMap<String, Vec<String>> =
-            single_source_shortest_path(&g, "a", None).into_iter().collect();
+        let paths: HashMap<String, Vec<String>> = single_source_shortest_path(&g, "a", None)
+            .into_iter()
+            .collect();
         assert!(paths.contains_key("a"));
         assert!(paths.contains_key("b"));
         assert!(!paths.contains_key("c"));
@@ -40032,8 +40058,9 @@ mod tests {
         let _ = g.add_edge("a", "b");
         let _ = g.add_edge("b", "c");
         let _ = g.add_edge("c", "d");
-        let lengths: HashMap<String, usize> =
-            single_source_shortest_path_length(&g, "a", None).into_iter().collect();
+        let lengths: HashMap<String, usize> = single_source_shortest_path_length(&g, "a", None)
+            .into_iter()
+            .collect();
         assert_eq!(lengths["a"], 0);
         assert_eq!(lengths["b"], 1);
         assert_eq!(lengths["c"], 2);
@@ -40046,8 +40073,9 @@ mod tests {
         let _ = g.add_edge("a", "b");
         let _ = g.add_edge("b", "c");
         let _ = g.add_edge("c", "d");
-        let lengths: HashMap<String, usize> =
-            single_source_shortest_path_length(&g, "a", Some(1)).into_iter().collect();
+        let lengths: HashMap<String, usize> = single_source_shortest_path_length(&g, "a", Some(1))
+            .into_iter()
+            .collect();
         assert_eq!(lengths.len(), 2); // a (0), b (1)
         assert!(!lengths.contains_key("c"));
     }

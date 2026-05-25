@@ -1678,9 +1678,8 @@ pub fn shortest_path_length(
                 ))),
             }
         } else {
-            let result = py.allow_threads(|| {
-                fnx_algorithms::shortest_path_unweighted_directed(inner, &s, &t)
-            });
+            let result = py
+                .allow_threads(|| fnx_algorithms::shortest_path_unweighted_directed(inner, &s, &t));
             match result.path {
                 Some(path) => Ok((path.len().saturating_sub(1))
                     .into_pyobject(py)?

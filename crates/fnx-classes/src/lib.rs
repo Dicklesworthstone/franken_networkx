@@ -488,9 +488,10 @@ impl Graph {
                 .insert(left.clone());
 
             // Update integer adjacency
-            if let (Some(left_idx), Some(right_idx)) =
-                (self.nodes.get_index_of(&left), self.nodes.get_index_of(&right))
-            {
+            if let (Some(left_idx), Some(right_idx)) = (
+                self.nodes.get_index_of(&left),
+                self.nodes.get_index_of(&right),
+            ) {
                 self.adj_indices[left_idx].push(right_idx);
                 if left_idx != right_idx {
                     self.adj_indices[right_idx].push(left_idx);
@@ -597,9 +598,10 @@ impl Graph {
 
         // Update integer adjacency (only for new edges, avoid duplicates)
         if changed {
-            if let (Some(left_idx), Some(right_idx)) =
-                (self.nodes.get_index_of(&left), self.nodes.get_index_of(&right))
-            {
+            if let (Some(left_idx), Some(right_idx)) = (
+                self.nodes.get_index_of(&left),
+                self.nodes.get_index_of(&right),
+            ) {
                 if !self.adj_indices[left_idx].contains(&right_idx) {
                     self.adj_indices[left_idx].push(right_idx);
                 }
@@ -716,9 +718,10 @@ impl Graph {
                 right_neighbors.shift_remove(left);
             }
             // Update integer adjacency
-            if let (Some(left_idx), Some(right_idx)) =
-                (self.nodes.get_index_of(left), self.nodes.get_index_of(right))
-            {
+            if let (Some(left_idx), Some(right_idx)) = (
+                self.nodes.get_index_of(left),
+                self.nodes.get_index_of(right),
+            ) {
                 self.adj_indices[left_idx].retain(|&i| i != right_idx);
                 if left_idx != right_idx {
                     self.adj_indices[right_idx].retain(|&i| i != left_idx);
