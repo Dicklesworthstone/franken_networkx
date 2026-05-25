@@ -106,7 +106,8 @@ impl NodeView {
             NodeViewIterator {
                 inner: items.into_iter(),
                 graph: Some(self.graph.clone_ref(py)),
-                expected_nodes: Some(nodes),
+                expected_count: Some(nodes.len()),
+                expected_seq: Some(g.nodes_seq),
             },
         )
     }
@@ -415,7 +416,8 @@ impl EdgeView {
             NodeViewIterator {
                 inner: items.into_iter(),
                 graph: Some(self.graph.clone_ref(py)),
-                expected_nodes: Some(expected_nodes),
+                expected_count: Some(expected_nodes.len()),
+                expected_seq: Some(g.nodes_seq),
             },
         )
     }
@@ -653,7 +655,8 @@ impl DegreeView {
             NodeViewIterator {
                 inner: items.into_iter(),
                 graph: None,
-                expected_nodes: None,
+                expected_count: None,
+                expected_seq: None,
             },
         )
     }
@@ -815,7 +818,13 @@ impl AdjacencyView {
 pub struct NodeViewIterator {
     inner: std::vec::IntoIter<PyObject>,
     graph: Option<Py<PyGraph>>,
-    expected_nodes: Option<Vec<String>>,
+    // br-gauntlet-perf-nodeviewiter: O(1) mutation guard. The old design stored
+    // the full expected node list and rebuilt+compared it on EVERY __next__
+    // (O(N) per next → O(N^2) total), which made list(G.nodes()) ~900x slower
+    // than list(G) at n=20000. We now snapshot the node count + nodes_seq and
+    // do an O(1) comparison per next, mirroring NodeIterator (br-r37-c1-39d82).
+    expected_count: Option<usize>,
+    expected_seq: Option<u64>,
 }
 
 #[pymethods]
@@ -827,20 +836,23 @@ impl NodeViewIterator {
         let Some(item) = slf.inner.next() else {
             return Ok(None);
         };
-        if let (Some(graph), Some(expected_nodes)) = (&slf.graph, &slf.expected_nodes) {
+        if let (Some(graph), Some(expected_count), Some(expected_seq)) =
+            (&slf.graph, slf.expected_count, slf.expected_seq)
+        {
+            // br-gauntlet-perf-nodeviewiter: O(1) mutation-counter check (was an
+            // O(N) nodes_ordered() rebuild + full element compare on EVERY next,
+            // i.e. O(N^2) to iterate, ~900x slower than list(G) at n=20000). Any
+            // add_node / remove_node bumps nodes_seq; only when it changes do we
+            // disambiguate size-change vs key-permutation via node_count, so the
+            // exact Python-dict error wording (size vs keys) is preserved.
             let py = slf.py();
             let g = graph.borrow(py);
-            let current_nodes = g.inner.nodes_ordered();
-            if current_nodes.len() != expected_nodes.len() {
-                return Err(PyRuntimeError::new_err(
-                    "dictionary changed size during iteration",
-                ));
-            }
-            if current_nodes
-                .iter()
-                .zip(expected_nodes.iter())
-                .any(|(current, expected)| current != expected)
-            {
+            if g.nodes_seq != expected_seq {
+                if g.inner.node_count() != expected_count {
+                    return Err(PyRuntimeError::new_err(
+                        "dictionary changed size during iteration",
+                    ));
+                }
                 return Err(PyRuntimeError::new_err(
                     "dictionary keys changed during iteration",
                 ));
