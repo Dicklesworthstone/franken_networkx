@@ -938,118 +938,72 @@ struct WeightedEdgeCandidate {
     weight: f64,
 }
 
+/// Returns the shortest path between source and target using BFS.
+/// Returns None if no path exists or either node is missing.
 #[must_use]
-pub fn shortest_path_unweighted(graph: &Graph, source: &str, target: &str) -> ShortestPathResult {
-    if !graph.has_node(source) || !graph.has_node(target) {
-        return ShortestPathResult {
-            path: None,
-            witness: ComplexityWitness {
-                algorithm: "bfs_shortest_path".to_owned(),
-                complexity_claim: "O(|V| + |E|)".to_owned(),
-                nodes_touched: 0,
-                edges_scanned: 0,
-                queue_peak: 0,
-            },
-        };
+pub fn shortest_path_unweighted(graph: &Graph, source: &str, target: &str) -> Option<Vec<String>> {
+    let Some(source_idx) = graph.get_node_index(source) else {
+        return None;
+    };
+    let Some(target_idx) = graph.get_node_index(target) else {
+        return None;
+    };
+
+    if source_idx == target_idx {
+        return Some(vec![source.to_owned()]);
     }
 
-    if source == target {
-        return ShortestPathResult {
-            path: Some(vec![source.to_owned()]),
-            witness: ComplexityWitness {
-                algorithm: "bfs_shortest_path".to_owned(),
-                complexity_claim: "O(|V| + |E|)".to_owned(),
-                nodes_touched: 1,
-                edges_scanned: 0,
-                queue_peak: 1,
-            },
-        };
-    }
+    let n = graph.node_count();
+    let nodes = graph.nodes_ordered();
+    let mut visited = vec![false; n];
+    let mut predecessor: Vec<Option<usize>> = vec![None; n];
+    let mut queue: VecDeque<usize> = VecDeque::new();
 
-    let mut visited: HashSet<&str> = HashSet::new();
-    let mut predecessor: HashMap<&str, &str> = HashMap::new();
-    let mut queue: VecDeque<&str> = VecDeque::new();
-
-    visited.insert(source);
-    queue.push_back(source);
-
-    let mut nodes_touched = 1;
-    let mut edges_scanned = 0;
-    let mut queue_peak = 1;
+    visited[source_idx] = true;
+    queue.push_back(source_idx);
 
     while let Some(current) = queue.pop_front() {
-        let Some(neighbors) = graph.neighbors_iter(current) else {
-            continue;
-        };
+        if let Some(neighbors) = graph.neighbors_indices(current) {
+            for &nbr in neighbors {
+                if !visited[nbr] {
+                    visited[nbr] = true;
+                    predecessor[nbr] = Some(current);
+                    queue.push_back(nbr);
 
-        for neighbor in neighbors {
-            edges_scanned += 1;
-            if !visited.insert(neighbor) {
-                continue;
-            }
-            predecessor.insert(neighbor, current);
-            queue.push_back(neighbor);
-            nodes_touched += 1;
-            queue_peak = queue_peak.max(queue.len());
-
-            if neighbor == target {
-                let path = rebuild_path(&predecessor, source, target);
-                return ShortestPathResult {
-                    path: Some(path),
-                    witness: ComplexityWitness {
-                        algorithm: "bfs_shortest_path".to_owned(),
-                        complexity_claim: "O(|V| + |E|)".to_owned(),
-                        nodes_touched,
-                        edges_scanned,
-                        queue_peak,
-                    },
-                };
+                    if nbr == target_idx {
+                        // Reconstruct path
+                        let mut path = vec![nodes[nbr].to_owned()];
+                        let mut cur = current;
+                        while cur != source_idx {
+                            path.push(nodes[cur].to_owned());
+                            cur = predecessor[cur].expect("predecessor should exist");
+                        }
+                        path.push(nodes[source_idx].to_owned());
+                        path.reverse();
+                        return Some(path);
+                    }
+                }
             }
         }
     }
 
-    ShortestPathResult {
-        path: None,
-        witness: ComplexityWitness {
-            algorithm: "bfs_shortest_path".to_owned(),
-            complexity_claim: "O(|V| + |E|)".to_owned(),
-            nodes_touched,
-            edges_scanned,
-            queue_peak,
-        },
-    }
+    None
 }
 
+/// Returns the shortest path between source and target in a directed graph using BFS.
+/// Returns None if no path exists or either node is missing.
 #[must_use]
 pub fn shortest_path_unweighted_directed(
     digraph: &DiGraph,
     source: &str,
     target: &str,
-) -> ShortestPathResult {
+) -> Option<Vec<String>> {
     if !digraph.has_node(source) || !digraph.has_node(target) {
-        return ShortestPathResult {
-            path: None,
-            witness: ComplexityWitness {
-                algorithm: "bfs_shortest_path_directed".to_owned(),
-                complexity_claim: "O(|V| + |E|)".to_owned(),
-                nodes_touched: 0,
-                edges_scanned: 0,
-                queue_peak: 0,
-            },
-        };
+        return None;
     }
 
     if source == target {
-        return ShortestPathResult {
-            path: Some(vec![source.to_owned()]),
-            witness: ComplexityWitness {
-                algorithm: "bfs_shortest_path_directed".to_owned(),
-                complexity_claim: "O(|V| + |E|)".to_owned(),
-                nodes_touched: 1,
-                edges_scanned: 0,
-                queue_peak: 1,
-            },
-        };
+        return Some(vec![source.to_owned()]);
     }
 
     let mut visited: HashSet<&str> = HashSet::new();
@@ -1059,51 +1013,22 @@ pub fn shortest_path_unweighted_directed(
     visited.insert(source);
     queue.push_back(source);
 
-    let mut nodes_touched = 1;
-    let mut edges_scanned = 0;
-    let mut queue_peak = 1;
-
     while let Some(current) = queue.pop_front() {
-        let Some(successors) = digraph.successors_iter(current) else {
-            continue;
-        };
+        if let Some(successors) = digraph.successors_iter(current) {
+            for successor in successors {
+                if visited.insert(successor) {
+                    predecessor.insert(successor, current);
+                    queue.push_back(successor);
 
-        for successor in successors {
-            edges_scanned += 1;
-            if !visited.insert(successor) {
-                continue;
-            }
-            predecessor.insert(successor, current);
-            queue.push_back(successor);
-            nodes_touched += 1;
-            queue_peak = queue_peak.max(queue.len());
-
-            if successor == target {
-                let path = rebuild_path(&predecessor, source, target);
-                return ShortestPathResult {
-                    path: Some(path),
-                    witness: ComplexityWitness {
-                        algorithm: "bfs_shortest_path_directed".to_owned(),
-                        complexity_claim: "O(|V| + |E|)".to_owned(),
-                        nodes_touched,
-                        edges_scanned,
-                        queue_peak,
-                    },
-                };
+                    if successor == target {
+                        return Some(rebuild_path(&predecessor, source, target));
+                    }
+                }
             }
         }
     }
 
-    ShortestPathResult {
-        path: None,
-        witness: ComplexityWitness {
-            algorithm: "bfs_shortest_path_directed".to_owned(),
-            complexity_claim: "O(|V| + |E|)".to_owned(),
-            nodes_touched,
-            edges_scanned,
-            queue_peak,
-        },
-    }
+    None
 }
 
 #[must_use]
@@ -12190,8 +12115,7 @@ pub fn efficiency(graph: &Graph, source: &str, target: &str) -> Option<f64> {
         return None;
     }
 
-    let result = shortest_path_unweighted(graph, source, target);
-    Some(match result.path {
+    Some(match shortest_path_unweighted(graph, source, target) {
         Some(path) => 1.0 / path.len().saturating_sub(1) as f64,
         None => 0.0,
     })

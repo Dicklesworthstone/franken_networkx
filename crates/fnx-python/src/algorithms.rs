@@ -661,11 +661,8 @@ fn compute_single_shortest_path(
     method: &str,
 ) -> PyResult<Option<Vec<String>>> {
     match weight {
-        None => {
-            let result = py
-                .allow_threads(|| fnx_algorithms::shortest_path_unweighted(inner, source, target));
-            Ok(result.path)
-        }
+        None => Ok(py
+            .allow_threads(|| fnx_algorithms::shortest_path_unweighted(inner, source, target))),
         Some(w) => match method {
             "dijkstra" => {
                 let result = py.allow_threads(|| {
@@ -723,12 +720,9 @@ fn compute_single_shortest_path_directed(
     method: &str,
 ) -> PyResult<Option<Vec<String>>> {
     match weight {
-        None => {
-            let result = py.allow_threads(|| {
-                fnx_algorithms::shortest_path_unweighted_directed(inner, source, target)
-            });
-            Ok(result.path)
-        }
+        None => Ok(py.allow_threads(|| {
+            fnx_algorithms::shortest_path_unweighted_directed(inner, source, target)
+        })),
         Some(w) => match method {
             "dijkstra" => {
                 let result = py.allow_threads(|| {
@@ -1678,9 +1672,9 @@ pub fn shortest_path_length(
                 ))),
             }
         } else {
-            let result = py
-                .allow_threads(|| fnx_algorithms::shortest_path_unweighted_directed(inner, &s, &t));
-            match result.path {
+            match py.allow_threads(|| {
+                fnx_algorithms::shortest_path_unweighted_directed(inner, &s, &t)
+            }) {
                 Some(path) => Ok((path.len().saturating_sub(1))
                     .into_pyobject(py)?
                     .into_any()
