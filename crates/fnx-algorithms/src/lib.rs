@@ -41067,6 +41067,44 @@ mod tests {
         assert!(is_planar(&g));
     }
 
+    #[test]
+    fn test_is_planar_edge_deletion_monotonicity() {
+        // Regression test for is_planar monotonicity bug (fixed in 5a23f997c).
+        // The bug: girth-based and per-BCC bounds could reject planar subgraphs.
+        // When an edge was removed from a triangle, girth increased (3→4+),
+        // tightening the bound and incorrectly rejecting the subgraph.
+        //
+        // This test verifies: if is_planar(G) returns true, then is_planar(G-e)
+        // also returns true for any edge e in G.
+        let mut g = Graph::strict();
+
+        // Build a graph with triangles that passes the Euler bound.
+        // n=6, m=10 (passes 3*6-6=12)
+        let edges = [
+            ("n0", "n1"), ("n0", "n2"), ("n0", "n3"),
+            ("n1", "n2"), // forms triangle n0-n1-n2
+            ("n1", "n4"), ("n1", "n5"),
+            ("n2", "n3"), ("n3", "n4"), ("n4", "n5"),
+            ("n2", "n5"),
+        ];
+        for (u, v) in &edges {
+            let _ = g.add_edge(*u, *v);
+        }
+
+        // Original graph must be planar
+        assert!(is_planar(&g), "original graph should be planar");
+
+        // Removing ANY edge must preserve planarity (monotonicity)
+        for (u, v) in &edges {
+            let mut g_minus_e = g.clone();
+            let _ = g_minus_e.remove_edge(*u, *v);
+            assert!(
+                is_planar(&g_minus_e),
+                "removing edge ({u},{v}) must preserve planarity"
+            );
+        }
+    }
+
     // ── Barycenter tests ────────────────────────────────────────────────────
 
     #[test]
