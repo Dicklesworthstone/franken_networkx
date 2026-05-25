@@ -8352,7 +8352,7 @@ pub fn minimum_spanning_arborescence(
 /// Counts the number of triangles each node participates in.
 ///
 /// A triangle is a 3-clique. Each triangle is counted once per participating node.
-/// Returns nodes in deterministic canonical order.
+/// Returns nodes in graph's node-insertion order (matching G.nodes()).
 #[must_use]
 pub fn triangles(graph: &Graph) -> TrianglesResult {
     let nodes = graph.nodes_ordered();
@@ -8401,7 +8401,8 @@ pub fn triangles(graph: &Graph) -> TrianglesResult {
         }
     }
 
-    let mut result: Vec<NodeTriangleCount> = nodes
+    // Return in nodes_ordered() order (insertion order), matching G.nodes()
+    let result: Vec<NodeTriangleCount> = nodes
         .iter()
         .enumerate()
         .map(|(idx, &node)| NodeTriangleCount {
@@ -8409,7 +8410,6 @@ pub fn triangles(graph: &Graph) -> TrianglesResult {
             count: tri_count[idx],
         })
         .collect();
-    result.sort_by(|a, b| a.node.cmp(&b.node));
 
     TrianglesResult {
         triangles: result,

@@ -30679,11 +30679,8 @@ def triangles(G, nodes=None):
     # br-r37-c1-nwkg0: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
     if nodes is None:
-        raw = _raw_triangles(G)
-        # br-r37-c1-k3khk: the Rust binding returns the dict with keys
-        # sorted; nx iterates in node-insertion order. Reorder so
-        # ``for node, _count in triangles(G).items():`` matches nx.
-        return {node: raw[node] for node in G.nodes() if node in raw}
+        # Rust returns results in node-insertion order (matching G.nodes())
+        return _raw_triangles(G)
 
     # br-r37-c1-mnziq: nx decorator order makes 'directed' fire first
     # on MultiDiGraph.
