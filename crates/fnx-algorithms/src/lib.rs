@@ -6103,7 +6103,22 @@ pub fn density(graph: &Graph) -> DensityResult {
 ///
 /// Uses BFS from `source`.  Returns `false` if either node is missing from the graph.
 #[must_use]
-pub fn has_path(graph: &Graph, source: &str, target: &str) -> bool {
+pub fn has_path(graph: &Graph, source: &str, target: &str) -> HasPathResult {
+    let result = has_path_fast(graph, source, target);
+    HasPathResult {
+        has_path: result,
+        witness: ComplexityWitness {
+            algorithm: "bfs_has_path".to_owned(),
+            complexity_claim: "O(|V| + |E|)".to_owned(),
+            nodes_touched: 0,
+            edges_scanned: 0,
+            queue_peak: 0,
+        },
+    }
+}
+
+/// Fast internal implementation using integer indices.
+fn has_path_fast(graph: &Graph, source: &str, target: &str) -> bool {
     let Some(source_idx) = graph.get_node_index(source) else {
         return false;
     };
@@ -6138,7 +6153,21 @@ pub fn has_path(graph: &Graph, source: &str, target: &str) -> bool {
 }
 
 #[must_use]
-pub fn has_path_directed(digraph: &DiGraph, source: &str, target: &str) -> bool {
+pub fn has_path_directed(digraph: &DiGraph, source: &str, target: &str) -> HasPathResult {
+    let result = has_path_directed_fast(digraph, source, target);
+    HasPathResult {
+        has_path: result,
+        witness: ComplexityWitness {
+            algorithm: "bfs_has_path_directed".to_owned(),
+            complexity_claim: "O(|V| + |E|)".to_owned(),
+            nodes_touched: 0,
+            edges_scanned: 0,
+            queue_peak: 0,
+        },
+    }
+}
+
+fn has_path_directed_fast(digraph: &DiGraph, source: &str, target: &str) -> bool {
     if source == target && digraph.has_node(source) {
         return true;
     }
@@ -29701,7 +29730,7 @@ pub fn tutte_polynomial(graph: &Graph, x: f64, y: f64) -> f64 {
     }
     let mut g_no_e = graph.clone();
     let _ = g_no_e.remove_edge(&u, &v);
-    if !has_path(&g_no_e, &u, &v) {
+    if !has_path(&g_no_e, &u, &v).has_path {
         return x * tutte_polynomial(&identified_nodes(&g_no_e, &u, &v), x, y);
     }
     tutte_polynomial(&g_no_e, x, y) + tutte_polynomial(&identified_nodes(&g_no_e, &u, &v), x, y)
@@ -30326,7 +30355,7 @@ pub fn gomory_hu_tree(graph: &Graph, weight_attr: &str) -> Graph {
                     if parent[j] == parent[i] {
                         // Check if j is reachable from i in the graph minus the cut
                         // Simplified: use BFS in original graph
-                        if has_path(graph, nodes[i], nodes[j]) {
+                        if has_path(graph, nodes[i], nodes[j]).has_path {
                             parent[j] = i;
                         }
                     }

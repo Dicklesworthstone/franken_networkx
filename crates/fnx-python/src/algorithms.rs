@@ -1746,10 +1746,12 @@ pub fn has_path(
     validate_node(&gr, &s, source, "Source")?;
     validate_node(&gr, &t, target, "Target")?;
     if let Some(inner) = gr.digraph() {
-        Ok(py.allow_threads(|| fnx_algorithms::has_path_directed(inner, &s, &t)))
+        let result = py.allow_threads(|| fnx_algorithms::has_path_directed(inner, &s, &t));
+        Ok(result.has_path)
     } else {
         let inner = gr.undirected();
-        Ok(py.allow_threads(|| fnx_algorithms::has_path(inner, &s, &t)))
+        let result = py.allow_threads(|| fnx_algorithms::has_path(inner, &s, &t));
+        Ok(result.has_path)
     }
 }
 
