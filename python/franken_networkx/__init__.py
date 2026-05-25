@@ -5830,14 +5830,17 @@ def _should_delegate_dijkstra_to_networkx(G, weight):
     # weight (including ``None``) to nx to preserve drop-in parity.
     if not isinstance(weight, str):
         return True
-    # PERF-1: cache delegation check result per (graph_id, weight, edge_count).
-    # The edge_count acts as a coarse invalidation signal - if edges are
-    # added/removed, the cache is bypassed. For same-edge-count mutations
-    # (weight changes), _sync_rust_edge_attrs handles pushing new values.
-    cache_key = (id(G), weight, G.number_of_edges())
-    cache = getattr(G, "_dijkstra_delegate_cache", None)
-    if cache is not None and cache[0] == cache_key:
-        return cache[1]
+    # br-gauntlet-perf1-cache-unsound: a previous PERF-1 attempt cached the
+    # delegation decision keyed on (id(G), weight, G.number_of_edges()). That
+    # cache is UNSOUND: an edge-weight mutation via ``G[u][v]["weight"] = -5``
+    # (or ``= inf`` / a non-numeric value) does NOT change the edge count and
+    # does NOT bump any cheap mutation counter (edges_seq/nodes_seq stay put on
+    # attr writes), so a graph that was "don't delegate" (all-positive) would
+    # keep that stale decision after mutating to a negative/inf/non-numeric
+    # weight and silently run native Dijkstra → wrong distances vs nx. There is
+    # no cheap invalidation signal for attribute mutations, so the decision must
+    # be recomputed each call. The redundant double-gate (the real PERF-1 cost)
+    # is already removed at the single_source_dijkstra* wrappers.
     # br-r37-c1-8cqeh: sync Python edge attrs into the Rust inner
     # graph *once* up front, then run all three gates with the sync
     # already done. Each gate's native scan otherwise re-syncs
@@ -5860,11 +5863,6 @@ def _should_delegate_dijkstra_to_networkx(G, weight):
     # as 1.0; nx raises TypeError.
     elif _has_nonnumeric_edge_weight(G, weight, _skip_sync=True):
         result = True
-    # Cache the result
-    try:
-        G._dijkstra_delegate_cache = (cache_key, result)
-    except AttributeError:
-        pass  # read-only graph view
     return result
 
 
