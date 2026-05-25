@@ -13651,6 +13651,25 @@ def immediate_dominators(G, start):
     # Rust binding returns a dict that includes {start: start}; drop the
     # self-dominator entry to match nx's documented shape.
     idom.pop(start, None)
+    # br-gauntlet-idom-order: nx builds the idom dict by iterating nodes in
+    # reverse-postorder (``order = dfs_postorder_nodes(G, start); order.pop();
+    # order.reverse()``) and inserts each key on first assignment, so the dict
+    # iteration order is that reverse-postorder (excluding ``start``). The native
+    # kernel returns correct *values* but in a different key order, which breaks
+    # the iteration-order parity contract. Reorder to nx's exact sequence.
+    try:
+        order = list(dfs_postorder_nodes(G, start))
+        if order:
+            order.pop()  # drop ``start`` (last in postorder)
+        order.reverse()
+        reordered = {u: idom[u] for u in order if u in idom}
+        # keep any stragglers (defensive: should be empty) in original order
+        for k, v in idom.items():
+            if k not in reordered:
+                reordered[k] = v
+        idom = reordered
+    except Exception:
+        pass
     return idom
 
 
