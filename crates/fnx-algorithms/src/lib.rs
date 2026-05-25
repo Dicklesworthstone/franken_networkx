@@ -8361,31 +8361,30 @@ pub fn triangles(graph: &Graph) -> TrianglesResult {
         };
     }
 
-    let neighbor_sets: HashMap<&str, HashSet<&str>> = nodes
-        .iter()
-        .map(|&node| {
-            let set = graph
-                .neighbors_iter(node)
-                .map(|iter| iter.collect::<HashSet<&str>>())
-                .unwrap_or_default();
-            (node, set)
+    // Build neighbor sets using integer indices for faster comparison
+    let neighbor_sets: Vec<HashSet<usize>> = (0..n)
+        .map(|idx| {
+            graph
+                .neighbors_indices(idx)
+                .map(|indices| indices.iter().copied().collect::<HashSet<usize>>())
+                .unwrap_or_default()
         })
         .collect();
 
-    let mut tri_count: HashMap<&str, usize> = nodes.iter().map(|&n| (n, 0)).collect();
+    let mut tri_count: Vec<usize> = vec![0; n];
     let mut edges_scanned = 0usize;
 
-    for &u in &nodes {
-        if let Some(neighbors) = graph.neighbors_iter(u) {
-            for v in neighbors {
+    for u in 0..n {
+        if let Some(neighbors) = graph.neighbors_indices(u) {
+            for &v in neighbors {
                 if u < v {
                     edges_scanned += 1;
                     let nbrs_v = &neighbor_sets[v];
                     for &w in &neighbor_sets[u] {
-                        if v < w && nbrs_v.contains(w) {
-                            *tri_count.entry(u).or_default() += 1;
-                            *tri_count.entry(v).or_default() += 1;
-                            *tri_count.entry(w).or_default() += 1;
+                        if v < w && nbrs_v.contains(&w) {
+                            tri_count[u] += 1;
+                            tri_count[v] += 1;
+                            tri_count[w] += 1;
                         }
                     }
                 }
@@ -8395,9 +8394,10 @@ pub fn triangles(graph: &Graph) -> TrianglesResult {
 
     let mut result: Vec<NodeTriangleCount> = nodes
         .iter()
-        .map(|&node| NodeTriangleCount {
+        .enumerate()
+        .map(|(idx, &node)| NodeTriangleCount {
             node: node.to_owned(),
-            count: tri_count[node],
+            count: tri_count[idx],
         })
         .collect();
     result.sort_by(|a, b| a.node.cmp(&b.node));
