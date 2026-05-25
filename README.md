@@ -1028,23 +1028,24 @@ The cost of a `fnx.algorithm(G)` call decomposes into four chunks:
 The performance break-even versus pure-Python NetworkX is roughly:
 
 - **Below ~100 nodes**: marshaling cost dominates; NetworkX usually wins or ties.
-- **100–10,000 nodes**: fnx wins on compute-heavy algorithms (betweenness 3-4×, clustering 4×, shortest_path 5×). Graph-returning or sync-heavy algorithms (bfs_tree, dijkstra, MST, pagerank) are 2-6× slower.
-- **Above ~10,000 nodes**: fnx wins by 3-10× on betweenness, cliques, and other cubic/exponential algorithms. Linear algorithms with sync overhead remain slower.
+- **100–10,000 nodes**: fnx wins on compute-heavy algorithms (betweenness 3×, clustering 4×, connected_components 10×). Single-query shortest paths and dijkstra are 8-20× slower due to string-key hashing overhead; all-pairs variants are 3× faster.
+- **Above ~10,000 nodes**: fnx wins by 3-10× on betweenness, cliques, and other cubic/exponential algorithms. Linear single-query algorithms with string-key overhead remain slower.
 
 **Per-family performance (n=2000 BA graph, warmed imports):**
 
 | Family | fnx vs nx | Notes |
 |--------|-----------|-------|
-| betweenness_centrality | 3.8× faster | Native bitset enumeration |
+| betweenness_centrality | 3× faster | Native bitset enumeration |
 | clustering (all nodes) | 4× faster | Native triangle counting |
-| shortest_path (BFS) | 5× faster | Native BFS |
-| number_connected_components | 5× faster | Native union-find |
+| all_pairs_shortest_path | 3× faster | Algorithmic work dominates |
+| single_pair_shortest_path | 10-20× slower | String-key hashing overhead |
+| number_connected_components | 10× faster | Native union-find |
 | bfs_edges / dfs_edges | 0.8-2× | Near parity |
 | bfs_tree / dfs_tree | 4-6× slower | DiGraph result construction |
 | pagerank | 2-3× slower | Sync + scipy overhead |
 | core_number | 4-6× slower | Dict reordering |
 | minimum_spanning_tree | 4× slower | Sync + Graph result construction |
-| dijkstra (weighted) | 80-200× slower | Sync overhead dominates |
+| dijkstra (weighted) | 8-17× slower | String hashing + sync overhead |
 
 If you can keep the graph on the fnx side (don't reconstruct per call), the marshaling chunk vanishes. The backend-dispatch path automatically caches the converted graph for repeat calls.
 

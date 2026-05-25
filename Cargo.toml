@@ -19,3 +19,8 @@ members = [
 edition = "2024"
 version = "0.1.0"
 license-file = "LICENSE"
+
+[profile.release-perf]
+inherits = "release"
+debug = "line-tables-only"
+strip = false
