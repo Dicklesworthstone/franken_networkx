@@ -2144,19 +2144,22 @@ pub fn graph_edge_weights_all_int(
     weight_attr: &str,
 ) -> PyResult<Option<bool>> {
     let gr = extract_graph(g)?;
-    let result = match &gr {
-        GraphRef::Undirected(pg) => {
-            let inner = &pg.inner;
-            Some(py.allow_threads(|| fnx_algorithms::graph_edge_weights_all_int(inner, weight_attr)))
-        }
-        GraphRef::Directed { dg, .. } => {
-            let inner = &dg.inner;
-            Some(
-                py.allow_threads(|| fnx_algorithms::digraph_edge_weights_all_int(inner, weight_attr)),
-            )
-        }
-        GraphRef::MultiUndirected { .. } | GraphRef::MultiDirected { .. } => None,
-    };
+    let result =
+        match &gr {
+            GraphRef::Undirected(pg) => {
+                let inner = &pg.inner;
+                Some(py.allow_threads(|| {
+                    fnx_algorithms::graph_edge_weights_all_int(inner, weight_attr)
+                }))
+            }
+            GraphRef::Directed { dg, .. } => {
+                let inner = &dg.inner;
+                Some(py.allow_threads(|| {
+                    fnx_algorithms::digraph_edge_weights_all_int(inner, weight_attr)
+                }))
+            }
+            GraphRef::MultiUndirected { .. } | GraphRef::MultiDirected { .. } => None,
+        };
     Ok(result)
 }
 

@@ -19130,7 +19130,6 @@ fn planar_edge_bound_with_bcc(n: usize, adj: &[Vec<usize>]) -> bool {
     m <= 3 * n - 6
 }
 
-
 // ── Chordality ─────────────────────────────────────────────────────────────
 
 /// Check whether a graph is chordal (every cycle of length 4+ has a chord).
@@ -41133,10 +41132,15 @@ mod tests {
         // Build a graph with triangles that passes the Euler bound.
         // n=6, m=10 (passes 3*6-6=12)
         let edges = [
-            ("n0", "n1"), ("n0", "n2"), ("n0", "n3"),
+            ("n0", "n1"),
+            ("n0", "n2"),
+            ("n0", "n3"),
             ("n1", "n2"), // forms triangle n0-n1-n2
-            ("n1", "n4"), ("n1", "n5"),
-            ("n2", "n3"), ("n3", "n4"), ("n4", "n5"),
+            ("n1", "n4"),
+            ("n1", "n5"),
+            ("n2", "n3"),
+            ("n3", "n4"),
+            ("n4", "n5"),
             ("n2", "n5"),
         ];
         for (u, v) in &edges {
