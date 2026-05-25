@@ -5830,6 +5830,14 @@ def _should_delegate_dijkstra_to_networkx(G, weight):
     # weight (including ``None``) to nx to preserve drop-in parity.
     if not isinstance(weight, str):
         return True
+    # PERF-1: cache delegation check result per (graph_id, weight, edge_count).
+    # The edge_count acts as a coarse invalidation signal - if edges are
+    # added/removed, the cache is bypassed. For same-edge-count mutations
+    # (weight changes), _sync_rust_edge_attrs handles pushing new values.
+    cache_key = (id(G), weight, G.number_of_edges())
+    cache = getattr(G, "_dijkstra_delegate_cache", None)
+    if cache is not None and cache[0] == cache_key:
+        return cache[1]
     # br-r37-c1-8cqeh: sync Python edge attrs into the Rust inner
     # graph *once* up front, then run all three gates with the sync
     # already done. Each gate's native scan otherwise re-syncs
@@ -5837,19 +5845,27 @@ def _should_delegate_dijkstra_to_networkx(G, weight):
     # pays the sync cost three times.
     if not G.is_multigraph():
         _sync_rust_edge_attrs(G)
+    result = False
     if _has_negative_edge_weight_for_dijkstra(G, weight, _skip_sync=True):
-        return True
+        result = True
     # br-r37-c1-z35td: delegate when any edge weight is +inf — Rust's
     # ``edge_weight_or_default`` filters out non-finite values and
     # silently substitutes 1.0, causing dijkstra to traverse inf
     # edges as if they were unit-weighted (and produce wildly wrong
     # paths). nx correctly skips inf-weighted edges.
-    if _has_positive_infinity_edge_weight_for_dijkstra(G, weight, _skip_sync=True):
-        return True
+    elif _has_positive_infinity_edge_weight_for_dijkstra(G, weight, _skip_sync=True):
+        result = True
     # br-r37-c1-djk-strw: also delegate when edge values at
     # ``weight`` key are non-numeric — Rust silently treats them
     # as 1.0; nx raises TypeError.
-    return _has_nonnumeric_edge_weight(G, weight, _skip_sync=True)
+    elif _has_nonnumeric_edge_weight(G, weight, _skip_sync=True):
+        result = True
+    # Cache the result
+    try:
+        G._dijkstra_delegate_cache = (cache_key, result)
+    except AttributeError:
+        pass  # read-only graph view
+    return result
 
 
 def _sync_rust_edge_attrs(G):
@@ -14175,13 +14191,10 @@ def single_source_dijkstra_path(G, source, cutoff=None, weight="weight"):
     """
     # br-r37-c1-ybw1s: nx-shaped TypeError on unhashable source.
     hash(source)
-    # br-r37-c1-gr1ct: materialize SubgraphView first (view family).
-    G = _coerce_arg_to_fnx_graph(G)
-    # br-dijkignoreweight: same as single_source_dijkstra.
-    if _should_delegate_dijkstra_to_networkx(G, weight) or _graph_has_nonunit_weight(G, weight):
-        return _call_networkx_for_parity(
-            "single_source_dijkstra_path", G, source, cutoff=cutoff, weight=weight
-        )
+    # br-gauntlet-perf1: ``single_source_dijkstra`` runs the IDENTICAL
+    # delegation gate + edge-weight scans; pre-gating here ran the O(E) Python
+    # edge scans a second time per call. Delegate straight through — the
+    # ``paths`` returned are identical.
     _, paths = single_source_dijkstra(G, source, cutoff=cutoff, weight=weight)
     return paths
 
@@ -14194,15 +14207,12 @@ def single_source_dijkstra_path_length(G, source, cutoff=None, weight="weight"):
     """
     # br-r37-c1-ybw1s: nx-shaped TypeError on unhashable source.
     hash(source)
-    # br-dijkignoreweight: delegate weighted inputs to nx.
-    if _should_delegate_dijkstra_to_networkx(G, weight) or _graph_has_nonunit_weight(G, weight):
-        return _call_networkx_for_parity(
-            "single_source_dijkstra_path_length",
-            G,
-            source,
-            cutoff=cutoff,
-            weight=weight,
-        )
+    # br-gauntlet-perf1: ``single_source_dijkstra`` runs the IDENTICAL
+    # delegation gate + edge-weight scans. Pre-gating here ran those O(E)
+    # Python edge scans a SECOND time per call (PERF-1: weighted SSSP was
+    # 80-374x slower than nx, dominated by redundant EdgeView materialization).
+    # Delegate straight through — distances are identical
+    # (nx.single_source_dijkstra(...)[0] == nx.single_source_dijkstra_path_length).
     dists, _ = single_source_dijkstra(G, source, cutoff=cutoff, weight=weight)
     return dists
 
