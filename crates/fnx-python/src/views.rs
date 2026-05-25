@@ -372,20 +372,18 @@ impl EdgeView {
 
     fn __iter__(&self, py: Python<'_>) -> PyResult<Py<NodeViewIterator>> {
         let g = self.graph.borrow(py);
-        let expected_nodes: Vec<String> = g
-            .inner
-            .nodes_ordered()
-            .into_iter()
-            .map(str::to_owned)
-            .collect();
+        // br-r37-c1-eqedg: use O(1) node_count() instead of allocating nodes_ordered() Vec
+        let node_count = g.inner.node_count();
+        let nodes_seq = g.nodes_seq;
+        // br-r37-c1-eqedg: use edges_ordered_borrowed to avoid string cloning in Rust
         let items: Vec<PyObject> = g
             .inner
-            .edges_ordered()
+            .edges_ordered_borrowed()
             .into_iter()
-            .map(|edge| {
-                let py_u = g.py_node_key(py, &edge.left);
-                let py_v = g.py_node_key(py, &edge.right);
-                let ek = PyGraph::edge_key(&edge.left, &edge.right);
+            .map(|(left, right, _attrs)| {
+                let py_u = g.py_node_key(py, left);
+                let py_v = g.py_node_key(py, right);
+                let ek = PyGraph::edge_key(left, right);
                 let attrs = g.edge_py_attrs.get(&ek);
                 match &self.data {
                     NodeViewData::NoData => tuple_object(py, &[py_u, py_v]),
@@ -416,8 +414,8 @@ impl EdgeView {
             NodeViewIterator {
                 inner: items.into_iter(),
                 graph: Some(self.graph.clone_ref(py)),
-                expected_count: Some(expected_nodes.len()),
-                expected_seq: Some(g.nodes_seq),
+                expected_count: Some(node_count),
+                expected_seq: Some(nodes_seq),
             },
         )
     }
@@ -471,15 +469,16 @@ impl EdgeView {
             if let (Some(def), NodeViewData::Attr(attr)) = (default, &view_data) {
                 view_data = NodeViewData::AttrWithDefault(attr.clone(), def.clone().unbind());
             }
+            // br-r37-c1-eqedg: use edges_ordered_borrowed to avoid string cloning
             let items: Vec<PyObject> = g
                 .inner
-                .edges_ordered()
+                .edges_ordered_borrowed()
                 .into_iter()
-                .filter(|edge| node_set.contains(&edge.left) || node_set.contains(&edge.right))
-                .map(|edge| {
-                    let py_u = g.py_node_key(py, &edge.left);
-                    let py_v = g.py_node_key(py, &edge.right);
-                    let ek = PyGraph::edge_key(&edge.left, &edge.right);
+                .filter(|(left, right, _)| node_set.contains(*left) || node_set.contains(*right))
+                .map(|(left, right, _attrs)| {
+                    let py_u = g.py_node_key(py, left);
+                    let py_v = g.py_node_key(py, right);
+                    let ek = PyGraph::edge_key(left, right);
                     let attrs = g.edge_py_attrs.get(&ek);
                     match &view_data {
                         NodeViewData::NoData => tuple_object(py, &[py_u, py_v]),
@@ -529,13 +528,14 @@ impl EdgeView {
     /// Union: self | other
     fn __or__(&self, py: Python<'_>, other: &Bound<'_, PyAny>) -> PyResult<PyObject> {
         let g = self.graph.borrow(py);
+        // br-r37-c1-eqedg: use edges_ordered_borrowed
         let self_edges: Vec<PyObject> = g
             .inner
-            .edges_ordered()
+            .edges_ordered_borrowed()
             .into_iter()
-            .map(|edge| {
-                let py_u = g.py_node_key(py, &edge.left);
-                let py_v = g.py_node_key(py, &edge.right);
+            .map(|(left, right, _)| {
+                let py_u = g.py_node_key(py, left);
+                let py_v = g.py_node_key(py, right);
                 tuple_object(py, &[py_u, py_v])
             })
             .collect::<PyResult<Vec<_>>>()?;
@@ -554,9 +554,10 @@ impl EdgeView {
             .collect::<PyResult<Vec<_>>>()?;
         let other_set = pyo3::types::PySet::new(py, other_vec.iter())?;
         let mut result = Vec::new();
-        for edge in g.inner.edges_ordered() {
-            let py_u = g.py_node_key(py, &edge.left);
-            let py_v = g.py_node_key(py, &edge.right);
+        // br-r37-c1-eqedg: use edges_ordered_borrowed
+        for (left, right, _) in g.inner.edges_ordered_borrowed() {
+            let py_u = g.py_node_key(py, left);
+            let py_v = g.py_node_key(py, right);
             let py_edge = tuple_object(py, &[py_u, py_v])?;
             if other_set.contains(&py_edge)? {
                 result.push(py_edge);
@@ -574,9 +575,10 @@ impl EdgeView {
             .collect::<PyResult<Vec<_>>>()?;
         let other_set = pyo3::types::PySet::new(py, other_vec.iter())?;
         let mut result = Vec::new();
-        for edge in g.inner.edges_ordered() {
-            let py_u = g.py_node_key(py, &edge.left);
-            let py_v = g.py_node_key(py, &edge.right);
+        // br-r37-c1-eqedg: use edges_ordered_borrowed
+        for (left, right, _) in g.inner.edges_ordered_borrowed() {
+            let py_u = g.py_node_key(py, left);
+            let py_v = g.py_node_key(py, right);
             let py_edge = tuple_object(py, &[py_u, py_v])?;
             if !other_set.contains(&py_edge)? {
                 result.push(py_edge);
@@ -589,13 +591,14 @@ impl EdgeView {
     /// Symmetric difference: self ^ other
     fn __xor__(&self, py: Python<'_>, other: &Bound<'_, PyAny>) -> PyResult<PyObject> {
         let g = self.graph.borrow(py);
+        // br-r37-c1-eqedg: use edges_ordered_borrowed
         let self_edges: Vec<PyObject> = g
             .inner
-            .edges_ordered()
+            .edges_ordered_borrowed()
             .into_iter()
-            .map(|edge| {
-                let py_u = g.py_node_key(py, &edge.left);
-                let py_v = g.py_node_key(py, &edge.right);
+            .map(|(left, right, _)| {
+                let py_u = g.py_node_key(py, left);
+                let py_v = g.py_node_key(py, right);
                 tuple_object(py, &[py_u, py_v])
             })
             .collect::<PyResult<Vec<_>>>()?;
