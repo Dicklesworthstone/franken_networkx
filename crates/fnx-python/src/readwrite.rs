@@ -18,6 +18,7 @@ use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
 use pyo3::types::PyDict;
+use std::sync::atomic::AtomicBool;
 use serde_json::Value as JsonValue;
 use std::collections::HashMap;
 
@@ -146,6 +147,7 @@ fn report_to_pygraph(py: Python<'_>, report: ReadWriteReport) -> PyResult<PyGrap
         graph_attrs: py_graph_attrs.unbind(),
         nodes_seq: 0,
         edges_seq: 0,
+        edges_dirty: AtomicBool::new(false),
     })
 }
 
@@ -205,6 +207,7 @@ fn di_report_to_pydigraph(py: Python<'_>, report: DiReadWriteReport) -> PyResult
         graph_attrs: py_graph_attrs.unbind(),
         nodes_seq: 0,
         edges_seq: 0,
+        edges_dirty: AtomicBool::new(false),
     })
 }
 
