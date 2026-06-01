@@ -6381,13 +6381,13 @@ pub fn minimum_spanning_tree(graph: &Graph, weight_attr: &str) -> MinimumSpannin
 
     let edges_scanned = edge_list.len();
 
-    // Sort by weight, then deterministic tie-break by (left, right)
-    edge_list.sort_by(|a, b| {
-        a.0.partial_cmp(&b.0)
-            .unwrap_or(std::cmp::Ordering::Equal)
-            .then_with(|| a.1.cmp(b.1))
-            .then_with(|| a.2.cmp(b.2))
-    });
+    // NetworkX sorts edges by weight ONLY with a *stable* sort, so equal-weight
+    // edges retain G.edges() iteration order. `edge_list` was collected in that
+    // same order (node-order x neighbor-order, first-seen), and Rust's `sort_by`
+    // is stable, so weight-only is enough. A lexicographic (left, right)
+    // tie-break would select a *different* (still valid) MST than nx whenever
+    // weights tie — e.g. on unweighted graphs where every weight defaults to 1.
+    edge_list.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
 
     // Union-Find
     let mut parent: HashMap<&str, &str> = HashMap::new();
@@ -6636,13 +6636,11 @@ pub fn maximum_spanning_tree(graph: &Graph, weight_attr: &str) -> MinimumSpannin
 
     let edges_scanned = edge_list.len();
 
-    // Sort by DESCENDING weight for maximum spanning tree
-    edge_list.sort_by(|a, b| {
-        b.0.partial_cmp(&a.0)
-            .unwrap_or(std::cmp::Ordering::Equal)
-            .then_with(|| a.1.cmp(b.1))
-            .then_with(|| a.2.cmp(b.2))
-    });
+    // Sort by DESCENDING weight for maximum spanning tree. As in
+    // minimum_spanning_tree, nx uses a *stable* sort by weight only
+    // (`sorted(..., reverse=True)`, which preserves G.edges() order for equal
+    // weights), so we must not add a lexicographic (left, right) tie-break.
+    edge_list.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
 
     // Union-Find (same as MST)
     let mut parent: HashMap<&str, &str> = HashMap::new();
