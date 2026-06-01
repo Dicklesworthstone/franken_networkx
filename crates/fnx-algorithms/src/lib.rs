@@ -968,7 +968,6 @@ fn shortest_path_unweighted_fast(graph: &Graph, source: &str, target: &str) -> O
     }
 
     let n = graph.node_count();
-    let nodes = graph.nodes_ordered();
     let mut visited = vec![false; n];
     let mut predecessor: Vec<Option<usize>> = vec![None; n];
     let mut queue: VecDeque<usize> = VecDeque::new();
@@ -985,14 +984,15 @@ fn shortest_path_unweighted_fast(graph: &Graph, source: &str, target: &str) -> O
                     queue.push_back(nbr);
 
                     if nbr == target_idx {
-                        // Reconstruct path
-                        let mut path = vec![nodes[nbr].to_owned()];
-                        let mut cur = current;
-                        while cur != source_idx {
-                            path.push(nodes[cur].to_owned());
-                            cur = predecessor[cur].expect("predecessor should exist");
+                        let mut path = Vec::new();
+                        let mut cur = nbr;
+                        loop {
+                            path.push(graph.get_node_name(cur)?.to_owned());
+                            if cur == source_idx {
+                                break;
+                            }
+                            cur = predecessor[cur]?;
                         }
-                        path.push(nodes[source_idx].to_owned());
                         path.reverse();
                         return Some(path);
                     }
