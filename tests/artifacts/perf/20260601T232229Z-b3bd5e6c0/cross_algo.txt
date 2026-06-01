@@ -1,0 +1,6 @@
+{"algo":"betweenness","n":1500,"m":6000,"avg_deg":8,"iters":3,"total_ms":3075.2886,"per_iter_ms":1025.0962,"checksum":8.284148}
+{"algo":"pagerank","n":1500,"m":6000,"avg_deg":8,"iters":3,"total_ms":3.7173,"per_iter_ms":1.2391,"checksum":3.000000}
+{"algo":"closeness","n":1500,"m":6000,"avg_deg":8,"iters":3,"total_ms":2524.4601,"per_iter_ms":841.4867,"checksum":1200.149757}
+{"algo":"components","n":1500,"m":6000,"avg_deg":8,"iters":3,"total_ms":0.2534,"per_iter_ms":0.0845,"checksum":3.000000}
+{"algo":"dijkstra_ssp","n":1500,"m":6000,"avg_deg":8,"iters":3,"total_ms":0.0193,"per_iter_ms":0.0064,"checksum":15.000000}
+{"algo":"lookup_sweep","n":1500,"m":6000,"avg_deg":8,"iters":20,"total_ms":8.5698,"per_iter_ms":0.4285,"checksum":179357500.000000}

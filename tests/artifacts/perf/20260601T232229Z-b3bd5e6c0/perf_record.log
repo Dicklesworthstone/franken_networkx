@@ -1,0 +1,2 @@
+{"algo":"betweenness","n":1500,"m":6000,"avg_deg":8,"iters":20,"total_ms":20540.1281,"per_iter_ms":1027.0064,"checksum":55.227651}
+[ perf record: Woken up 180 times to write data ]

@@ -3139,11 +3139,23 @@ fn betweenness_centrality_generic<G: GraphView>(
     let mut edges_scanned = 0usize;
     let mut queue_peak = 0usize;
 
+    // Profiling-only, env-gated (`PERF_SPANS=1`): attribute cumulative time to
+    // the SSSP/BFS phase vs the dependency-accumulation phase. Zero Instant
+    // calls when disabled. Measurement aid only — not part of the algorithm.
+    let perf_spans = std::env::var_os("PERF_SPANS").is_some();
+    let mut bfs_ns: u128 = 0;
+    let mut accum_ns: u128 = 0;
+    let mut alloc_ns: u128 = 0;
+
     for s in 0..n {
+        let alloc_t = if perf_spans { Some(std::time::Instant::now()) } else { None };
         let mut stack = Vec::<usize>::with_capacity(n);
         let mut predecessors = vec![Vec::<usize>::new(); n];
         let mut sigma = vec![0.0; n];
         let mut distance = vec![-1i64; n];
+        if let Some(t) = alloc_t {
+            alloc_ns += t.elapsed().as_nanos();
+        }
 
         sigma[s] = 1.0;
         distance[s] = 0;
@@ -3152,6 +3164,7 @@ fn betweenness_centrality_generic<G: GraphView>(
         queue.push_back(s);
         queue_peak = queue_peak.max(queue.len());
 
+        let bfs_t = if perf_spans { Some(std::time::Instant::now()) } else { None };
         while let Some(v) = queue.pop_front() {
             stack.push(v);
             let dist_v = distance[v];
@@ -3172,11 +3185,15 @@ fn betweenness_centrality_generic<G: GraphView>(
                 }
             }
         }
+        if let Some(t) = bfs_t {
+            bfs_ns += t.elapsed().as_nanos();
+        }
         total_nodes_touched += stack.len();
 
         if endpoints {
             centrality[s] += stack.len().saturating_sub(1) as f64;
         }
+        let accum_t = if perf_spans { Some(std::time::Instant::now()) } else { None };
         let mut dependency = vec![0.0; n];
         while let Some(w) = stack.pop() {
             let sigma_w = sigma[w];
@@ -3190,6 +3207,18 @@ fn betweenness_centrality_generic<G: GraphView>(
                 centrality[w] += if endpoints { delta_w + 1.0 } else { delta_w };
             }
         }
+        if let Some(t) = accum_t {
+            accum_ns += t.elapsed().as_nanos();
+        }
+    }
+
+    if perf_spans {
+        eprintln!(
+            "{{\"perf.profile.span_summary\":true,\"algo\":\"brandes_betweenness\",\"n\":{n},\"edges_scanned\":{edges_scanned},\"bfs_phase_ms\":{:.3},\"accum_phase_ms\":{:.3},\"alloc_phase_ms\":{:.3}}}",
+            bfs_ns as f64 / 1e6,
+            accum_ns as f64 / 1e6,
+            alloc_ns as f64 / 1e6,
+        );
     }
 
     let pair_base = if endpoints { n } else { n.saturating_sub(1) };

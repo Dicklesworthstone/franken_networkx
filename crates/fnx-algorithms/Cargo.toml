@@ -11,6 +11,7 @@ doctest = false
 [features]
 default = []
 dhat-heap = ["dhat"]
+profile-pprof = ["pprof"]
 
 [dependencies]
 fnx-classes = { version = "0.1.0", path = "../fnx-classes" }
@@ -20,6 +21,7 @@ mwmatching = "0.1.1"
 mt19937 = "3.3.0"
 serde = { version = "1.0.228", features = ["derive"] }
 dhat = { version = "0.3.3", optional = true }
+pprof = { version = "0.15.0", optional = true, default-features = false }
 rand_core = "0.10.1"
 
 [dev-dependencies]

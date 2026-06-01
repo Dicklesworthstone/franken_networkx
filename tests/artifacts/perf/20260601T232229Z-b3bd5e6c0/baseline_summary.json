@@ -1,0 +1,18 @@
+{
+  "scenario": "betweenness_centrality (Brandes) on connected sparse random graph",
+  "n_nodes": 1500,
+  "m_edges": 6000,
+  "avg_degree": 8,
+  "samples": 30,
+  "metric": "per_iter_ms (wall-clock, single run; graph build + 1 warmup excluded)",
+  "p50_ms": 1024.355,
+  "p95_ms": 1096.503,
+  "p99_ms": 1186.769,
+  "min_ms": 969.552,
+  "max_ms": 1217.977,
+  "mean_ms": 1031.079,
+  "stdev_ms": 48.657,
+  "cv_pct": 4.72,
+  "peak_rss_kb": 11372,
+  "variance_caveat": "CV 4.7% \u2014 shared swarm host under heavy load (load_avg ~51 on 64 cores, governor=powersave). Absolute latency is noisy; hotspot RANKING is taken from perf self-time attribution which is robust to host load."
+}
