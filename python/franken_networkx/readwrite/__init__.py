@@ -590,14 +590,16 @@ def _format_nodes_for_graph6(G, nodes):
     """Return the node ordering used by graph6 writers."""
     if nodes is None:
         return list(G.nodes())
-    return list(nodes)
+    requested = set(nodes)
+    return [node for node in G.nodes() if node in requested]
 
 
 def _format_nodes_for_sparse6(G, nodes):
     """Return the sorted node ordering used by NetworkX sparse6 writers."""
     if nodes is None:
         return sorted(G.nodes())
-    return sorted(nodes)
+    requested = set(nodes)
+    return sorted(node for node in G.nodes() if node in requested)
 
 
 def _ensure_undirected_for_graph6(G, operation, *, reject_multigraph):

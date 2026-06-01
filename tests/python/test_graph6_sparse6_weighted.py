@@ -72,6 +72,25 @@ def test_sparse6_known_networkx_encodings():
     assert fnx.to_sparse6_bytes(fnx.complete_graph(4), header=False) == b":CcKI\n"
 
 
+def test_graph6_sparse6_nodes_filter_matches_networkx():
+    graph = fnx.Graph()
+    graph.add_nodes_from([2, 1, 0, 3])
+    graph.add_edges_from([(2, 1), (1, 0), (0, 3), (2, 3)])
+
+    expected = nx.Graph()
+    expected.add_nodes_from([2, 1, 0, 3])
+    expected.add_edges_from([(2, 1), (1, 0), (0, 3), (2, 3)])
+
+    node_cases = ([1, 2, 0], [3, 0, 2], [1, 1, 2], [99, 1, 2], [99])
+    for nodes in node_cases:
+        assert fnx.to_graph6_bytes(graph, nodes=nodes, header=False) == nx.to_graph6_bytes(
+            expected, nodes=nodes, header=False
+        )
+        assert fnx.to_sparse6_bytes(graph, nodes=nodes, header=False) == nx.to_sparse6_bytes(
+            expected, nodes=nodes, header=False
+        )
+
+
 def test_sparse6_duplicate_edges_return_multigraph():
     graph = fnx.from_sparse6_bytes(b":A_")
 
