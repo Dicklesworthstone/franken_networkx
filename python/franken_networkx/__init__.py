@@ -16233,9 +16233,8 @@ def _pagerank_scipy(G, alpha, max_iter, tol, weight):
     nodelist = list(G)
     # br-r37-c1-raqel: build COO directly for pagerank to skip dtype
     # checks in to_scipy_sparse_array. Native path returns (rows, cols, data).
-    if _native_adjacency_arrays is not None and not G.is_multigraph():
-        weight_attr = None if weight is None else weight
-        native_result = _native_adjacency_arrays(G, nodelist, weight_attr, 1.0)
+    if _native_adjacency_arrays is not None and not G.is_multigraph() and weight is None:
+        native_result = _native_adjacency_arrays(G, nodelist, None, 1.0)
         if native_result is not None:
             rows, cols, data = native_result
             A = sp.coo_array(
@@ -38377,14 +38376,13 @@ def to_numpy_array(
         _native_adjacency_arrays is not None
         and not G.is_multigraph()
         and isinstance(G, (Graph, DiGraph))
-        and (weight is None or isinstance(weight, str))
+        and weight is None
     ):
-        # br-r37-c1-tssanostskip: skip sync when weight=None — native
-        # helper doesn't read attrs in that case.
-        if weight is not None:
-            _sync_rust_edge_attrs(G)
-        weight_attr = None if weight is None else weight
-        native_result = _native_adjacency_arrays(G, nodelist, weight_attr, 1.0)
+        # br-r37-c1-hits-bipartite-svds-degenerate-xjar9: use the native
+        # helper only when no edge attrs are read. Python-visible mutations
+        # like ``G[u][v]["weight"] = 7`` can otherwise be stale in Rust
+        # storage, while the fallback reads the live Python attr dicts.
+        native_result = _native_adjacency_arrays(G, nodelist, None, 1.0)
         if native_result is not None:
             rows, cols, data = native_result
             if rows:
@@ -38593,17 +38591,12 @@ def to_scipy_sparse_array(G, nodelist=None, dtype=None, weight="weight", format=
         _native_adjacency_arrays is not None
         and not G.is_multigraph()
         and isinstance(G, (Graph, DiGraph))
-        and (weight is None or isinstance(weight, str))
+        and weight is None
     ):
-        # br-r37-c1-tssanostskip: skip sync when ``weight=None`` —
-        # the native helper uses default_weight for every edge and
-        # never reads attrs, so the Python-side staleness is
-        # irrelevant.  On a 1000-node graph this drops ~33ms off
-        # the unweighted matrix path.
-        if weight is not None:
-            _sync_rust_edge_attrs(G)
-        weight_attr = None if weight is None else weight
-        native_result = _native_adjacency_arrays(G, nodelist, weight_attr, 1.0)
+        # br-r37-c1-hits-bipartite-svds-degenerate-xjar9: weighted
+        # matrix exports must read Python-visible attr dicts because
+        # direct adjacency mutations can be stale in Rust storage.
+        native_result = _native_adjacency_arrays(G, nodelist, None, 1.0)
         if native_result is not None:
             rows, cols, data = native_result
             # br-r37-c1-tssadtype: nx preserves int dtype when every

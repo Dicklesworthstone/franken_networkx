@@ -148,6 +148,27 @@ def test_to_scipy_sparse_array_matches_networkx_multigraph_contract():
     assert np.array_equal(actual.toarray(), wanted.toarray())
 
 
+def test_matrix_exports_honor_post_construction_weight_mutation():
+    np = pytest.importorskip("numpy")
+    pytest.importorskip("scipy")
+
+    graph = fnx.path_graph(4)
+    expected = nx.path_graph(4)
+    graph[0][1]["weight"] = 100
+    expected[0][1]["weight"] = 100
+
+    nodelist = list(graph)
+    actual_dense = fnx.to_numpy_array(graph, nodelist=nodelist, weight="weight")
+    expected_dense = nx.to_numpy_array(expected, nodelist=nodelist, weight="weight")
+    actual_sparse = fnx.to_scipy_sparse_array(graph, nodelist=nodelist, weight="weight")
+    expected_sparse = nx.to_scipy_sparse_array(expected, nodelist=nodelist, weight="weight")
+    actual_adjacency = fnx.adjacency_matrix(graph, nodelist=nodelist, weight="weight")
+
+    assert np.array_equal(actual_dense, expected_dense)
+    assert np.array_equal(actual_sparse.toarray(), expected_sparse.toarray())
+    assert np.array_equal(actual_adjacency.toarray(), expected_sparse.toarray())
+
+
 def test_conversion_docstrings_reflect_multigraph_support():
     for name in (
         "to_pandas_edgelist",
