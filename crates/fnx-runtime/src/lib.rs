@@ -2033,7 +2033,7 @@ impl DriftAnalyzer {
             *op_counts.entry(record.operation.clone()).or_insert(0) += 1;
         }
         let mut top_ops: Vec<_> = op_counts.into_iter().collect();
-        top_ops.sort_by_key(|item| std::cmp::Reverse(item.1));
+        top_ops.sort_by(|left, right| right.1.cmp(&left.1).then_with(|| left.0.cmp(&right.0)));
         let top_operations: Vec<OperationRiskSummary> = top_ops
             .into_iter()
             .take(5)
@@ -6893,6 +6893,33 @@ mod tests {
                 .iter()
                 .any(|r| r.contains("High under-confidence"))
         );
+    }
+
+    #[test]
+    fn drift_analyzer_tie_breaks_top_operations_by_name() {
+        let mut ledger = super::VersionedDecisionLedger::new("tied-top-operations");
+
+        for operation in ["zeta_op", "alpha_op", "middle_op"] {
+            ledger.append(super::DecisionRecord {
+                ts_unix_ms: 1000,
+                operation: operation.to_owned(),
+                mode: CompatibilityMode::Strict,
+                action: DecisionAction::FullValidate,
+                incompatibility_probability: 0.7,
+                rationale: "tied under-confidence count".to_owned(),
+                evidence: vec![],
+            });
+        }
+
+        let analyzer = super::DriftAnalyzer::new();
+        let report = analyzer.analyze(&ledger);
+        let operations: Vec<_> = report
+            .top_operations
+            .iter()
+            .map(|summary| summary.operation.as_str())
+            .collect();
+
+        assert_eq!(operations, vec!["alpha_op", "middle_op", "zeta_op"]);
     }
 
     // ──────────────────────────────────────────────────────────────────────────
