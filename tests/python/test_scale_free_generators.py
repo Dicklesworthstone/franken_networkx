@@ -79,6 +79,15 @@ def test_gn_graph_matches_networkx():
     assert sorted(_to_nx(graph).edges()) == sorted(graph_nx.edges())
 
 
+def test_gn_graph_nonpositive_seed_graph_matches_networkx():
+    for n in (-2, -1, 0, False):
+        graph = fnx.gn_graph(n)
+        graph_nx = nx.gn_graph(n)
+        assert graph.is_directed()
+        assert sorted(_to_nx(graph).nodes()) == sorted(graph_nx.nodes())
+        assert sorted(_to_nx(graph).edges()) == sorted(graph_nx.edges())
+
+
 def test_native_scale_free_and_gn_graphs_do_not_fallback_to_networkx(monkeypatch):
     def fail(*args, **kwargs):
         raise AssertionError("networkx fallback was used")

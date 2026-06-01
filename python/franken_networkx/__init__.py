@@ -39490,6 +39490,16 @@ def gn_graph(n, kernel=None, create_using=None, seed=None):
 
     from franken_networkx import _fnx
 
+    # NetworkX initializes the GN graph with edge (1, 0) for every
+    # integral n <= 0.  The Rust fast path takes usize and either
+    # returns the empty graph for 0 or rejects negative values before
+    # the wrapper can preserve that observable seed-graph contract.
+    if kernel is None and isinstance(n, _numbers.Integral) and n <= 0:
+        graph = _checked_directed_create_using(create_using, default=DiGraph)
+        graph = empty_graph(1, create_using=graph, default=DiGraph)
+        graph.add_edge(1, 0)
+        return graph
+
     if kernel is None and create_using is None:
         return _fnx.gn_graph(n, seed=seed, create_using=None)
 
