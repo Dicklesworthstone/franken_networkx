@@ -2090,7 +2090,7 @@ pub fn degree_centrality_directed(graph: &DiGraph) -> DegreeCentralityResult {
             },
         };
     }
-    let denominator = (n - 1) as f64;
+    let reciprocal = 1.0 / ((n - 1) as f64);
     let mut edges_scanned = 0usize;
     let mut scores = Vec::with_capacity(n);
     for node in &nodes {
@@ -2098,7 +2098,9 @@ pub fn degree_centrality_directed(graph: &DiGraph) -> DegreeCentralityResult {
         let in_deg = graph.in_degree(node);
         let degree = in_deg + out_deg;
         edges_scanned += degree;
-        let score = (degree as f64) / denominator;
+        // Match NetworkX exactly: it precomputes `s = 1.0 / (n - 1)` and
+        // multiplies (`d * s`), which differs from `d / (n - 1)` by up to 1 ULP.
+        let score = (degree as f64) * reciprocal;
         scores.push(CentralityScore {
             node: (*node).to_owned(),
             score,
@@ -2152,7 +2154,7 @@ fn degree_centrality_generic<G: GraphView>(graph: &G) -> DegreeCentralityResult 
         };
     }
 
-    let denominator = (n - 1) as f64;
+    let reciprocal = 1.0 / ((n - 1) as f64);
     let mut edges_scanned = 0usize;
     let mut scores = Vec::with_capacity(n);
     for node in nodes {
@@ -2161,7 +2163,9 @@ fn degree_centrality_generic<G: GraphView>(graph: &G) -> DegreeCentralityResult 
         let self_loop_extra = usize::from(graph.has_edge(node, node));
         let degree = neighbor_count + self_loop_extra;
         edges_scanned += degree;
-        let score = (degree as f64) / denominator;
+        // Match NetworkX exactly: it precomputes `s = 1.0 / (n - 1)` and
+        // multiplies (`d * s`), which differs from `d / (n - 1)` by up to 1 ULP.
+        let score = (degree as f64) * reciprocal;
         scores.push(CentralityScore {
             node: node.to_owned(),
             score,
