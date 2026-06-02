@@ -15,6 +15,15 @@ import inspect
 
 import franken_networkx as fnx
 
+# br-r37-c1-xykjs: bulk native adjacency+attrs dump for the _fnx_to_nx parity
+# conversion — one PyO3 crossing instead of per-edge AtlasView access.
+try:
+    from franken_networkx._fnx import (
+        fnx_to_nx_adjacency as _native_fnx_to_nx_adjacency,
+    )
+except ImportError:  # pragma: no cover — defensive for partial builds
+    _native_fnx_to_nx_adjacency = None
+
 log = logging.getLogger("franken_networkx.backend")
 
 # ---------------------------------------------------------------------------
@@ -478,7 +487,7 @@ def _convert_result_to_nx(value):
     return value
 
 
-def _topo_emit_edges_by_adj(fg):
+def _topo_emit_edges_by_adj(fg, adj=None):
     """Yield ``(u, v)`` pairs in an order consistent with each node's
     ``fg.adj[u]`` insertion order (br-r37-c1-sgnab).
 
@@ -502,8 +511,16 @@ def _topo_emit_edges_by_adj(fg):
     # (dominated _fnx_to_nx); deque + a ready-queue (br-r37-c1-toposeq)
     # brings it under 1ms.
     from collections import deque as _deque
-    queues = {u: _deque(fg.adj[u]) for u in fg.nodes()}
-    nodes_order = list(fg.nodes())
+    # br-r37-c1-xykjs: ``adj`` (a ``{node: [neighbors]}`` dict in node-insertion
+    # order, neighbors in adj-insertion order) lets the caller pre-fetch the
+    # whole adjacency in one native crossing; the emit algorithm is unchanged so
+    # the output order is identical to the per-node ``fg.adj[u]`` build.
+    if adj is None:
+        queues = {u: _deque(fg.adj[u]) for u in fg.nodes()}
+        nodes_order = list(fg.nodes())
+    else:
+        queues = {u: _deque(nbrs) for u, nbrs in adj.items()}
+        nodes_order = list(adj.keys())
 
     if is_directed:
         # Directed: emit each u's out-edges in adj order. No
@@ -635,42 +652,55 @@ def _fnx_to_nx(fg):
         # Use 3-tuple attrs form so attr names that collide with nx's
         # positional ``u_of_edge`` / ``v_of_edge`` parameters don't
         # raise ``multiple values for argument`` (franken_networkx-yr7kf).
+        # Directed graphs must key on the ordered (u, v) tuple — collapsing
+        # (0,1) and (1,0) via frozenset would corrupt asymmetric edges
+        # (mutual_weight, directed PageRank, etc.).  Undirected graphs key on
+        # frozenset so the lookup is orientation-agnostic and safe across
+        # non-comparable node types (nx allows mixing int / str / tuple nodes).
+        directed = fg.is_directed()
+        # br-r37-c1-xykjs: pull the whole (node, [(neighbor, attrs)]) structure
+        # in one native crossing (reads the fresh edge_py_attrs) instead of two
+        # per-edge AtlasView passes (attrs_by_pair + the topo queues build).
         #
-        # br-r37-c1-attrcache: previously did ``dict(fg.edges[u, v])``
-        # per (u, v) yielded from the topo emit, taking ~5ms for 1k
-        # edges on top of the topo cost.  Pre-fetch all (u, v, attrs)
-        # via a single ``edges(data=True)`` sweep (~2ms) and look up
-        # in O(1).  Directed graphs must key on the ordered (u, v)
-        # tuple — collapsing (0,1) and (1,0) via frozenset would
-        # corrupt asymmetric edges (mutual_weight, directed PageRank,
-        # etc.).  Undirected graphs key on frozenset so the lookup is
-        # orientation-agnostic and safe across non-comparable node
-        # types (nx allows mixing int / str / tuple nodes).
-        if fg.is_directed():
-            # br-r37-c1-fnxtonxadjdir: iterate _adj.items() — faster
-            # than edges(data=True) and yields (u, {v: attrs})
-            # directly, preserving out-adj order.
+        # Gate on the EXACT concrete type: the native helper reads the underlying
+        # Rust ``inner`` adjacency, which bypasses node/edge filtering on a
+        # SubgraphView (``type(view) is not Graph`` though it reports as one).
+        # Views and any subclass fall to the AtlasView Python path, which honours
+        # the filtered ``fg._adj``. (See reference_subgraph_view_coerce.)
+        bulk = (
+            _native_fnx_to_nx_adjacency(fg)
+            if (
+                _native_fnx_to_nx_adjacency is not None
+                and type(fg) in (fnx.Graph, fnx.DiGraph)
+            )
+            else None
+        )
+        if bulk is not None:
+            adj_neighbors = {node: [nbr for nbr, _a in nbrs] for node, nbrs in bulk}
             attrs_by_pair = {}
-            for u, nbrs in fg._adj.items():
-                for v, attrs in nbrs.items():
-                    attrs_by_pair[(u, v)] = attrs
+            if directed:
+                for node, nbrs in bulk:
+                    for nbr, attrs in nbrs:
+                        attrs_by_pair[(node, nbr)] = attrs
+            else:
+                for node, nbrs in bulk:
+                    for nbr, attrs in nbrs:
+                        attrs_by_pair[frozenset((node, nbr))] = attrs
             edges_in_order = []
-            for u, v in _topo_emit_edges_by_adj(fg):
-                attrs = attrs_by_pair.get((u, v), {})
-                edges_in_order.append((u, v, dict(attrs)))
+            for u, v in _topo_emit_edges_by_adj(fg, adj=adj_neighbors):
+                key = (u, v) if directed else frozenset((u, v))
+                edges_in_order.append((u, v, dict(attrs_by_pair.get(key, {}))))
         else:
-            # br-r37-c1-fnxtonxadjdir: same _adj.items() optimization
-            # as the directed branch.  Undirected: each edge appears
-            # twice in adj but frozenset key dedups it; the topo emit
-            # then yields each edge once.
+            # Defensive fallback (e.g. native helper unavailable): the
+            # per-node AtlasView path.
             attrs_by_pair = {}
             for u, nbrs in fg._adj.items():
                 for v, attrs in nbrs.items():
-                    attrs_by_pair[frozenset((u, v))] = attrs
+                    attrs_by_pair[(u, v) if directed else frozenset((u, v))] = attrs
             edges_in_order = []
             for u, v in _topo_emit_edges_by_adj(fg):
-                attrs = attrs_by_pair.get(frozenset((u, v)), {})
-                edges_in_order.append((u, v, dict(attrs)))
+                key = (u, v) if directed else frozenset((u, v))
+                edges_in_order.append((u, v, dict(attrs_by_pair.get(key, {}))))
         G.add_edges_from(edges_in_order)
     G.graph.update(dict(fg.graph))
     return G

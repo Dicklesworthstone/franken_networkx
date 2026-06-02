@@ -2086,6 +2086,75 @@ pub fn adjacency_arrays(
     Ok(Some((rows, cols, data)))
 }
 
+/// Bulk per-node adjacency + edge attrs for the `_fnx_to_nx` parity conversion.
+///
+/// Returns, for each node in node-insertion order, its neighbors in
+/// adjacency-insertion order paired with that edge's Python attribute dict
+/// (read from `edge_py_attrs`, the fresh Python source — no `inner` staleness).
+/// Undirected graphs emit each edge twice (once per endpoint), matching the
+/// `G._adj.items()` iteration the Python path replaces; directed graphs emit
+/// out-edges only.
+///
+/// This collapses the two per-element-PyO3 view passes in `_fnx_to_nx`
+/// (`attrs_by_pair` + the topo `queues` build) into a single boundary crossing.
+/// Returns `None` for multigraphs (caller keeps the Python path). Edges with no
+/// attributes share one empty dict sentinel; the Python side copies via
+/// `dict(attrs)` so sharing is safe. (br-r37-c1-xykjs)
+#[pyfunction]
+pub fn fnx_to_nx_adjacency(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+) -> PyResult<Option<Vec<(PyObject, Vec<(PyObject, PyObject)>)>>> {
+    let gr = extract_graph(g)?;
+    let empty: PyObject = PyDict::new(py).into_any().unbind();
+    let result = match &gr {
+        GraphRef::Undirected(pg) => {
+            let inner = &pg.inner;
+            let node_order: Vec<&str> = inner.nodes_ordered();
+            let mut out: Vec<(PyObject, Vec<(PyObject, PyObject)>)> =
+                Vec::with_capacity(node_order.len());
+            for node in node_order {
+                let mut nbrs: Vec<(PyObject, PyObject)> = Vec::new();
+                if let Some(it) = inner.neighbors_iter(node) {
+                    for nbr in it {
+                        let attrs = match gr.edge_attrs_for_undirected(node, nbr) {
+                            Some(d) => d.clone_ref(py).into_any(),
+                            None => empty.clone_ref(py),
+                        };
+                        nbrs.push((gr.py_node_key(py, nbr), attrs));
+                    }
+                }
+                out.push((gr.py_node_key(py, node), nbrs));
+            }
+            out
+        }
+        GraphRef::Directed { dg, .. } => {
+            let inner = &dg.inner;
+            let node_order: Vec<&str> = inner.nodes_ordered();
+            let mut out: Vec<(PyObject, Vec<(PyObject, PyObject)>)> =
+                Vec::with_capacity(node_order.len());
+            for node in node_order {
+                let mut nbrs: Vec<(PyObject, PyObject)> = Vec::new();
+                if let Some(it) = inner.successors_iter(node) {
+                    for nbr in it {
+                        let attrs = match gr.edge_attrs_for_directed(node, nbr) {
+                            Some(d) => d.clone_ref(py).into_any(),
+                            None => empty.clone_ref(py),
+                        };
+                        nbrs.push((gr.py_node_key(py, nbr), attrs));
+                    }
+                }
+                out.push((gr.py_node_key(py, node), nbrs));
+            }
+            out
+        }
+        GraphRef::MultiUndirected { .. } | GraphRef::MultiDirected { .. } => {
+            return Ok(None);
+        }
+    };
+    Ok(Some(result))
+}
+
 /// Return whether any simple-graph edge has a Python-visible attribute key.
 ///
 /// This scans ``edge_py_attrs`` instead of the Rust ``inner`` attrs so callers
@@ -14422,6 +14491,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(graph_edge_weights_all_int, m)?)?;
     m.add_function(wrap_pyfunction!(check_dijkstra_edge_weights_fast, m)?)?;
     m.add_function(wrap_pyfunction!(adjacency_arrays, m)?)?;
+    m.add_function(wrap_pyfunction!(fnx_to_nx_adjacency, m)?)?;
     m.add_function(wrap_pyfunction!(graph_has_edge_attr, m)?)?;
     m.add_function(wrap_pyfunction!(bellman_ford_path, m)?)?;
     m.add_function(wrap_pyfunction!(multi_source_dijkstra, m)?)?;
