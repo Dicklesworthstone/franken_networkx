@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import cProfile
 import hashlib
+import hmac
 import io
 import json
 import pstats
@@ -173,7 +174,9 @@ def run_sweep(args: argparse.Namespace) -> int:
                 "fnx": fnx_rec,
                 "nx": nx_rec,
                 "fnx_over_nx": fnx_rec["mean_sec"] / nx_rec["mean_sec"],
-                "digests_match": fnx_rec["digest"] == nx_rec["digest"],
+                "digests_match": hmac.compare_digest(
+                    fnx_rec["digest"], nx_rec["digest"]
+                ),
             }
         )
     return 0

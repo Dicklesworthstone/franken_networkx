@@ -45,6 +45,10 @@ def _csr_sig(A):
     )
 
 
+def _assert_csr_sig_equal(left, right):
+    np.testing.assert_equal(_csr_sig(left), _csr_sig(right))
+
+
 def _build(directed, kind, seed):
     rng = random.Random(seed)
     n = rng.randint(1, 30)
@@ -92,7 +96,7 @@ def test_csr_byte_identical_to_networkx(directed, kind, dtype, weight, seed):
         return
     a = nx.to_scipy_sparse_array(ng, dtype=dtype, weight=weight)
     b = fnx.to_scipy_sparse_array(fg, dtype=dtype, weight=weight)
-    assert _csr_sig(a) == _csr_sig(b)
+    _assert_csr_sig_equal(a, b)
 
 
 @needs_nx
@@ -107,7 +111,7 @@ def test_dtype_float_weighted_uses_native_and_matches():
     fg[0][1]["weight"] = 7.5
     a = nx.adjacency_matrix(ng, nodelist=list(ng), dtype=float)
     b = fnx.adjacency_matrix(fg, nodelist=list(fg), dtype=float)
-    assert _csr_sig(a) == _csr_sig(b)
+    _assert_csr_sig_equal(a, b)
 
 
 @needs_nx
@@ -138,7 +142,7 @@ def test_dtype_none_absent_string_weight_routes_native(monkeypatch):
     a = nx.to_scipy_sparse_array(ng, dtype=None, weight="weight")
     b = fnx.to_scipy_sparse_array(fg, dtype=None, weight="weight")
 
-    assert _csr_sig(a) == _csr_sig(b)
+    _assert_csr_sig_equal(a, b)
     assert b.dtype.kind in {"i", "u"}
     assert ("has_attr", "weight") in calls
     assert ("adjacency", None, 1.0) in calls
@@ -173,7 +177,7 @@ def test_dtype_none_present_string_weight_keeps_python_fallback(monkeypatch):
     a = nx.to_scipy_sparse_array(ng, dtype=None, weight="weight")
     b = fnx.to_scipy_sparse_array(fg, dtype=None, weight="weight")
 
-    assert _csr_sig(a) == _csr_sig(b)
+    _assert_csr_sig_equal(a, b)
     assert b.dtype.kind == "f"
     assert ("has_attr", "weight") in calls
     assert not any(call[0] == "adjacency" for call in calls)
