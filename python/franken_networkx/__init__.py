@@ -8011,6 +8011,13 @@ from franken_networkx._fnx import (
     random_spanning_tree as _raw_random_spanning_tree,
 )
 
+# br-r37-c1-l5es6: native onion_layers kernel now matches nx exactly; route the
+# wrapper to it instead of delegating (avoids the _fnx_to_nx conversion cost).
+try:
+    from franken_networkx._fnx import onion_layers_rust as _raw_onion_layers
+except ImportError:  # pragma: no cover — defensive for partial builds
+    _raw_onion_layers = None
+
 
 def is_bipartite(G):
     """Return True if graph ``G`` is bipartite.
@@ -31771,20 +31778,37 @@ def _k_truss_via_parity(G, k):
 def onion_layers(G):
     """Onion layer decomposition (generalized k-core peeling).
 
-    br-onionlayers: the Rust _fnx.onion_layers_rust diverged from nx
-    on the karate club graph — 3 nodes (1, 3, 13) were placed in layer
-    7 where nx places them in layer 6, and the global layer-_count
-    distribution differed (fnx {7:5, 6:1, 5:4, 4:3, 3:9, 2:11, 1:1} vs
-    nx {7:2, 6:4, 5:4, 4:3, 3:9, 2:11, 1:1}). Route through nx's
-    reference implementation for exact parity with the published
-    algorithm.
+    br-r37-c1-l5es6: the native ``onion_layers`` kernel now matches nx
+    exactly — it tracks ``current_core`` as a high-water mark of the minimum
+    degree and peels every node with ``degree <= current_core`` per layer
+    (the old kernel peeled only the current-minimum-degree nodes, splitting a
+    layer into several and diverging on the karate club graph). Within-layer
+    order is ``(degree, node-insertion-index)`` so the result dict key order
+    matches nx's stable ``sorted(degrees, key=degrees.get)``. Running natively
+    instead of delegating to nx avoids the full ``_fnx_to_nx`` graph
+    conversion (the dominant cost of the old delegated path).
+
+    nx is ``@not_implemented_for('multigraph', 'directed')`` and rejects
+    self-loops; match those error contracts before dispatching.
     """
-    return _onion_layers_impl(G)
+    G = _coerce_arg_to_fnx_graph(G)
+    if G.is_multigraph():
+        raise NetworkXNotImplemented("not implemented for multigraph type")
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
+    if number_of_selfloops(G) > 0:
+        raise NetworkXNotImplemented(
+            "Input graph contains self loops which is not permitted; "
+            "Consider using G.remove_edges_from(nx.selfloop_edges(G))."
+        )
+    if _raw_onion_layers is None:
+        return _onion_layers_impl(G)
+    return _raw_onion_layers(G)
 
 
 def _onion_layers_impl(G):
-    """Private delegation helper so the public ``onion_layers`` stays
-    PY_WRAPPER in the coverage classifier (see br-onionlayers).
+    """Private delegation helper (fallback when the native kernel is
+    unavailable); keeps the public ``onion_layers`` PY_WRAPPER-classified.
     """
     return _call_networkx_for_parity("onion_layers", G)
 
