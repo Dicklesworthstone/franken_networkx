@@ -32290,19 +32290,25 @@ def eigenvector_centrality_numpy(
     # iterations.  Use the same path.
     import scipy.sparse.linalg
     A = to_scipy_sparse_array(G, nodelist=nodelist, weight=weight, format="csr")
+    # br-r37-c1-evnumdir: nx solves ``eigs(M.T, ...)`` — the *left* eigenvector
+    # (in-edge convention) for directed graphs. fnx previously solved ``eigs(A)``
+    # (the right / out-edge eigenvector), so eigenvector_centrality_numpy
+    # returned the wrong values on DiGraphs (it disagreed with both nx and
+    # fnx's own iterative eigenvector_centrality, which already use in-edges).
+    # For undirected graphs A is symmetric so A.T == A and this is a no-op.
+    AT = A.astype(float).transpose().tocsr()
     # ``which="LR"`` selects the eigenpair with largest real part —
     # matching nx's argmax-over-real path.  Force float dtype so the
     # solver doesn't run in complex mode by default; nx's contract is
     # to return real centralities.
     try:
         vals, vecs = scipy.sparse.linalg.eigs(
-            A.astype(float), k=1, which="LR", maxiter=max_iter or n * 10, tol=tol or 0,
+            AT, k=1, which="LR", maxiter=max_iter or n * 10, tol=tol or 0,
         )
     except scipy.sparse.linalg.ArpackNoConvergence:
         # Fall back to the dense path on convergence failure — small
         # graphs sometimes can't fit Arnoldi's k+1 restart constraint.
-        A_dense = A.toarray()
-        vals, vecs = np.linalg.eig(A_dense)
+        vals, vecs = np.linalg.eig(AT.toarray())
     idx = int(np.argmax(np.real(vals)))
     ev = np.abs(np.real(vecs[:, idx]))
     norm = np.linalg.norm(ev)
