@@ -12621,6 +12621,14 @@ def astar_path(G, source, target, heuristic=None, weight="weight", *, cutoff=Non
     # br-r37-c1-vi0zo on dijkstra/bellman_ford.
     if (
         _should_delegate_astar_to_networkx(weight, cutoff)
+        # br-r37-c1-astdir: the Rust _raw_astar_path kernel only has an
+        # undirected ``&Graph`` implementation; the PyO3 binding feeds it
+        # ``gr.undirected()`` even for DiGraph/MultiDiGraph, so direction was
+        # silently dropped and astar returned paths over non-existent
+        # (reverse) directed edges. dijkstra/bellman_ford honour direction;
+        # astar has no directed kernel, so delegate directed graphs to nx
+        # until a native directed A* lands.
+        or G.is_directed()
         or _has_negative_edge_weight_for_dijkstra(G, weight)
         or _has_positive_infinity_edge_weight_for_dijkstra(G, weight)
         or _has_nonnumeric_edge_weight(G, weight)
@@ -12663,6 +12671,10 @@ def astar_path_length(
     # br-r37-c1-astar-strw: non-numeric weight delegation (sibling).
     if (
         _should_delegate_astar_to_networkx(weight, cutoff)
+        # br-r37-c1-astdir: see astar_path — undirected-only Rust kernel drops
+        # direction, so astar_path_length returned the undirected distance on
+        # DiGraphs. Delegate directed graphs to nx.
+        or G.is_directed()
         or _has_negative_edge_weight_for_dijkstra(G, weight)
         or _has_positive_infinity_edge_weight_for_dijkstra(G, weight)
         or _has_nonnumeric_edge_weight(G, weight)

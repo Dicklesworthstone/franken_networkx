@@ -18372,10 +18372,18 @@ pub fn astar_path<E>(
     let zero_h = |_: &str| Ok(0.0);
     let h: AstarHeuristic<'_, E> = heuristic.unwrap_or(&zero_h);
 
+    // br-r37-c1-astie: tie-break among equal f-scores must match nx, which
+    // pushes ``(f, next(counter), node, ...)`` onto its heap — i.e. FIFO by
+    // insertion order, NOT by node identity. The previous ``other.node.cmp``
+    // tie-break returned a different (still valid) shortest path than nx when
+    // multiple equal-cost paths exist (e.g. unit-weight grids). Carry a
+    // monotonic counter and break ties on it (smaller counter = earlier
+    // pushed = pops first) so ``astar_path`` reproduces nx's chosen path.
     #[derive(PartialEq)]
     struct State {
         f_score: f64,
         g_score: f64,
+        counter: u64,
         node: String,
     }
 
@@ -18391,7 +18399,7 @@ pub fn astar_path<E>(
                 .f_score
                 .partial_cmp(&self.f_score)
                 .unwrap_or(Ordering::Equal)
-                .then_with(|| other.node.cmp(&self.node))
+                .then_with(|| other.counter.cmp(&self.counter))
         }
     }
 
@@ -18399,13 +18407,16 @@ pub fn astar_path<E>(
     let mut came_from: HashMap<String, String> = HashMap::new();
     let mut heap = BinaryHeap::new();
     let mut visited: HashSet<String> = HashSet::new();
+    let mut counter: u64 = 0;
 
     g_scores.insert(source.to_string(), 0.0);
     heap.push(State {
         f_score: h(source)?,
         g_score: 0.0,
+        counter,
         node: source.to_string(),
     });
+    counter += 1;
 
     while let Some(State { node, g_score, .. }) = heap.pop() {
         if node == target {
@@ -18441,8 +18452,10 @@ pub fn astar_path<E>(
                     heap.push(State {
                         f_score: tentative_g + h(nbr)?,
                         g_score: tentative_g,
+                        counter,
                         node: nbr.to_string(),
                     });
+                    counter += 1;
                 }
             }
         }
