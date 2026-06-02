@@ -16456,18 +16456,6 @@ def pagerank(
     # br-r37-c1-y77dc: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
 
-    # br-gauntlet-pagerank-sync: pagerank reads edge weights from the Rust
-    # ``inner`` adjacency via native helpers (``_native_has_nonfinite_edge_weight``
-    # in the parity scan and ``_native_adjacency_arrays`` in ``_pagerank_scipy``).
-    # A post-construction mutation such as ``G.edges[u, v]["weight"] = w`` only
-    # updates the Python-side attribute dict, leaving ``inner`` stale, so the
-    # native scan/matvec silently ignore the new weights (observable bug: fnx
-    # returned the *unweighted* PageRank while nx returned the weighted one).
-    # Push the Python attrs down first whenever a weight attribute is read,
-    # exactly as the Dijkstra-family wrappers already do.
-    if isinstance(weight, str):
-        _sync_rust_edge_attrs(G)
-
     # br-r37-c1-pyo3prefix: the Rust binding declares ``max_iter`` as
     # an unsigned int and rejects floats with ``TypeError: argument
     # 'max_iter': 'float' object cannot be interpreted as an
@@ -16484,13 +16472,38 @@ def pagerank(
     # and we fall through to the pure-Python path in that case. Non-string
     # hashable weight keys also stay on the Python path because the PyO3
     # binding accepts only str/None.
+    pagerank_weight = weight
+    if (
+        isinstance(weight, str)
+        and _native_has_edge_attr is not None
+        and not G.is_multigraph()
+        and isinstance(G, (Graph, DiGraph))
+    ):
+        try:
+            native_has_attr = _native_has_edge_attr(G, weight)
+        except Exception:
+            native_has_attr = None
+        if native_has_attr is False:
+            pagerank_weight = None
+
+    # br-gauntlet-pagerank-sync: pagerank reads edge weights from the Rust
+    # ``inner`` adjacency via native helpers (``_native_has_nonfinite_edge_weight``
+    # in the parity scan and ``_native_adjacency_arrays`` in ``_pagerank_scipy``).
+    # A post-construction mutation such as ``G.edges[u, v]["weight"] = w`` only
+    # updates the Python-side attribute dict, leaving ``inner`` stale, so the
+    # native scan/matvec silently ignore the new weights (observable bug: fnx
+    # returned the *unweighted* PageRank while nx returned the weighted one).
+    # Push Python attrs down only when a real string weight attr can be read.
+    if isinstance(pagerank_weight, str):
+        _sync_rust_edge_attrs(G)
+
     if (
         personalization is None
         and nstart is None
         and dangling is None
-        and (weight is None or isinstance(weight, str))
+        and (pagerank_weight is None or isinstance(pagerank_weight, str))
     ):
-        if _pagerank_needs_networkx_weight_parity(G, weight):
+        if _pagerank_needs_networkx_weight_parity(G, pagerank_weight):
             return _call_networkx_for_parity(
                 "pagerank",
                 G,
@@ -16499,12 +16512,12 @@ def pagerank(
                 max_iter=max_iter,
                 tol=tol,
                 nstart=None,
-                weight=weight,
+                weight=pagerank_weight,
                 dangling=None,
             )
         # br-r37-c1-y5y7i: use scipy.sparse matvec for 2-3× speedup
         # over pure-Rust scalar iteration on dense graphs.
-        return _pagerank_scipy(G, alpha, max_iter, tol, weight)
+        return _pagerank_scipy(G, alpha, max_iter, tol, pagerank_weight)
 
     if len(G) == 0:
         return {}

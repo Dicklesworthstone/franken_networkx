@@ -80,6 +80,71 @@ def test_pagerank_missing_weight_attribute_match_networkx():
 
 
 @needs_nx
+def test_pagerank_absent_string_weight_routes_as_unweighted(monkeypatch):
+    """br-r37-c1-syvnz: if a simple graph has no requested weight attr,
+    nx semantics are exactly unit weights; fnx may skip value scans and
+    call the sparse PageRank helper as ``weight=None``."""
+    f_graph, nx_graph = _build_pair(
+        lambda: nx.gnp_random_graph(40, 0.2, seed=1729)
+    )
+    calls = []
+    original_scipy = fnx._pagerank_scipy
+    original_sync = fnx._sync_rust_edge_attrs
+
+    def wrapped_scipy(graph, alpha, max_iter, tol, weight):
+        calls.append(("scipy", weight))
+        return original_scipy(graph, alpha, max_iter, tol, weight)
+
+    def wrapped_sync(graph):
+        calls.append(("sync", None))
+        return original_sync(graph)
+
+    monkeypatch.setattr(fnx, "_pagerank_scipy", wrapped_scipy)
+    monkeypatch.setattr(fnx, "_sync_rust_edge_attrs", wrapped_sync)
+
+    r_fnx = fnx.pagerank(f_graph, weight="missing")
+    r_nx = nx.pagerank(nx_graph, weight="missing")
+
+    assert _max_pagerank_diff(r_fnx, r_nx) < 1e-9
+    assert ("scipy", None) in calls
+    assert ("sync", None) not in calls
+
+
+@needs_nx
+def test_pagerank_present_string_weight_keeps_weighted_route(monkeypatch):
+    """A real weight attr must keep the stale-attr sync and weighted
+    sparse helper route."""
+    def builder():
+        g = nx.gnp_random_graph(40, 0.2, seed=1730)
+        for u, v in g.edges():
+            g[u][v]["weight"] = 1.0 + ((u + v) % 5)
+        return g
+
+    f_graph, nx_graph = _build_pair(builder)
+    calls = []
+    original_scipy = fnx._pagerank_scipy
+    original_sync = fnx._sync_rust_edge_attrs
+
+    def wrapped_scipy(graph, alpha, max_iter, tol, weight):
+        calls.append(("scipy", weight))
+        return original_scipy(graph, alpha, max_iter, tol, weight)
+
+    def wrapped_sync(graph):
+        calls.append(("sync", None))
+        return original_sync(graph)
+
+    monkeypatch.setattr(fnx, "_pagerank_scipy", wrapped_scipy)
+    monkeypatch.setattr(fnx, "_sync_rust_edge_attrs", wrapped_sync)
+
+    r_fnx = fnx.pagerank(f_graph, weight="weight")
+    r_nx = nx.pagerank(nx_graph, weight="weight")
+
+    assert _max_pagerank_diff(r_fnx, r_nx) < 1e-9
+    assert ("sync", None) in calls
+    assert ("scipy", "weight") in calls
+
+
+@needs_nx
 def test_pagerank_weight_none_matches_networkx():
     """``weight=None`` short-circuits to unweighted on both sides."""
     def builder():

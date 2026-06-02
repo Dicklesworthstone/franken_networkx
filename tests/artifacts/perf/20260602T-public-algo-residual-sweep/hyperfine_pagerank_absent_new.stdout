@@ -1,0 +1,3 @@
+Benchmark 1: .venv/bin/python tests/artifacts/perf/20260602T-public-algo-residual-sweep/bench_pagerank_absent_weight.py --impl fnx --mode new --n 1000 --p 0.05 --seed 42 --repeats 3
+  Time (mean ± σ):     602.5 ms ±  14.4 ms    [User: 4501.7 ms, System: 103.0 ms]
+  Range (min … max):   574.8 ms … 618.6 ms    7 runs

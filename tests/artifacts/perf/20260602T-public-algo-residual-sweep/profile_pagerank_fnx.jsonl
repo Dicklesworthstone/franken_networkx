@@ -1,0 +1,1 @@
+{"case": "pagerank_gnp_1000", "digest": "58d17b197d5e3e6d9055f9a1004c4962a177e1429f85e89b44dce73673491475", "impl": "fnx", "profile": "tests/artifacts/perf/20260602T-public-algo-residual-sweep/profile_pagerank_fnx.txt"}

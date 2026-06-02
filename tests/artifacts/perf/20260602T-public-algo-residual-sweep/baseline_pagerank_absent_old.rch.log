@@ -1,0 +1,2 @@
+  [2m2026-06-02T19:01:24.384053Z[0m [33m WARN[0m [1;33mrch::hook[0m[33m: [33mexec called with non-compilation command: .venv/bin/python tests/artifacts/perf/20260602T-public-algo-residual-sweep/bench_pagerank_absent_weight.py --impl fnx --mode old --repeats 24 --n 1000 --p 0.05 --seed 42[0m
+    [2;3mat[0m rch/src/hook.rs:402 [2;3mon[0m ThreadId(1)

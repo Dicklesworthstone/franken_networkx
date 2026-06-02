@@ -1,0 +1,51 @@
+         177051 function calls (170111 primitive calls) in 0.142 seconds
+
+   Ordered by: cumulative time
+   List reduced from 1298 to 45 due to restriction <45>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+       29    0.000    0.000    0.275    0.009 __init__.py:1(<module>)
+        1    0.001    0.001    0.142    0.142 __init__.py:16441(pagerank)
+        1    0.000    0.000    0.134    0.134 __init__.py:16390(_pagerank_scipy)
+    177/1    0.001    0.000    0.113    0.113 <frozen importlib._bootstrap>:1349(_find_and_load)
+    173/1    0.001    0.000    0.113    0.113 <frozen importlib._bootstrap>:1304(_find_and_load_unlocked)
+    413/3    0.000    0.000    0.113    0.038 <frozen importlib._bootstrap>:480(_call_with_frames_removed)
+    169/2    0.000    0.000    0.113    0.057 <frozen importlib._bootstrap>:911(_load_unlocked)
+    151/2    0.000    0.000    0.113    0.056 <frozen importlib._bootstrap_external>:1020(exec_module)
+    155/2    0.001    0.000    0.113    0.056 {built-in method builtins.exec}
+        2    0.000    0.000    0.094    0.047 _base.py:1(<module>)
+    60/20    0.000    0.000    0.093    0.005 {built-in method builtins.__import__}
+        1    0.000    0.000    0.093    0.093 _sputils.py:1(<module>)
+        1    0.000    0.000    0.092    0.092 _util.py:1(<module>)
+        1    0.000    0.000    0.091    0.091 _array_api.py:1(<module>)
+    96/20    0.000    0.000    0.086    0.004 <frozen importlib._bootstrap>:1390(_handle_fromlist)
+        3    0.000    0.000    0.070    0.023 _internal.py:56(clone_module)
+2263/1706    0.000    0.000    0.069    0.000 {built-in method builtins.hasattr}
+       11    0.000    0.000    0.069    0.006 __init__.py:704(__getattr__)
+        1    0.000    0.000    0.037    0.037 f2py2e.py:1(<module>)
+      218    0.001    0.000    0.031    0.000 __init__.py:330(_compile)
+       76    0.000    0.000    0.030    0.000 __init__.py:287(compile)
+       81    0.000    0.000    0.030    0.000 _compiler.py:743(compile)
+        1    0.000    0.000    0.029    0.029 capi_maps.py:1(<module>)
+        1    0.000    0.000    0.027    0.027 crackfortran.py:1(<module>)
+      151    0.001    0.000    0.022    0.000 <frozen importlib._bootstrap_external>:1093(get_code)
+       81    0.000    0.000    0.019    0.000 _parser.py:970(parse)
+   469/81    0.004    0.000    0.019    0.000 _parser.py:451(_parse_sub)
+   629/86    0.006    0.000    0.019    0.000 _parser.py:511(_parse)
+      151    0.002    0.000    0.014    0.000 <frozen importlib._bootstrap_external>:782(_compile_bytecode)
+        1    0.013    0.013    0.013    0.013 {built-in method franken_networkx._fnx.adjacency_arrays}
+  269/267    0.002    0.000    0.012    0.000 {built-in method builtins.__build_class__}
+      151    0.012    0.000    0.012    0.000 {built-in method marshal.loads}
+       81    0.000    0.000    0.011    0.000 _compiler.py:576(_code)
+  1148/81    0.004    0.000    0.009    0.000 _compiler.py:37(_compile)
+      173    0.001    0.000    0.009    0.000 <frozen importlib._bootstrap>:1240(_find_spec)
+      169    0.000    0.000    0.008    0.000 <frozen importlib._bootstrap_external>:1551(find_spec)
+      169    0.000    0.000    0.008    0.000 <frozen importlib._bootstrap_external>:1522(_get_spec)
+        1    0.000    0.000    0.007    0.007 __init__.py:16357(_pagerank_needs_networkx_weight_parity)
+        1    0.007    0.007    0.007    0.007 {built-in method franken_networkx._fnx.graph_has_nonfinite_edge_weight}
+      202    0.001    0.000    0.007    0.000 <frozen importlib._bootstrap_external>:1624(find_spec)
+        1    0.000    0.000    0.006    0.006 core.py:1(<module>)
+        1    0.000    0.000    0.006    0.006 _docscrape.py:1(<module>)
+    14/10    0.000    0.000    0.006    0.001 <frozen importlib._bootstrap_external>:1326(exec_module)
+    14/10    0.004    0.000    0.006    0.001 {built-in method _imp.exec_dynamic}
+      104    0.000    0.000    0.005    0.000 inspect.py:3373(signature)
