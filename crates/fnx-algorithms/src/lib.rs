@@ -3147,8 +3147,29 @@ fn betweenness_centrality_generic<G: GraphView>(
     let mut accum_ns: u128 = 0;
     let mut alloc_ns: u128 = 0;
 
+    let adjacency = nodes
+        .iter()
+        .map(|&node| {
+            let mut indexed_neighbors = Vec::with_capacity(graph.neighbor_count(node));
+            if let Some(neighbors) = graph.neighbors_iter(node) {
+                for neighbor in neighbors {
+                    indexed_neighbors.push(
+                        graph
+                            .get_node_index(neighbor)
+                            .expect("graph neighbor must exist in node index"),
+                    );
+                }
+            }
+            indexed_neighbors
+        })
+        .collect::<Vec<Vec<usize>>>();
+
     for s in 0..n {
-        let alloc_t = if perf_spans { Some(std::time::Instant::now()) } else { None };
+        let alloc_t = if perf_spans {
+            Some(std::time::Instant::now())
+        } else {
+            None
+        };
         let mut stack = Vec::<usize>::with_capacity(n);
         let mut predecessors = vec![Vec::<usize>::new(); n];
         let mut sigma = vec![0.0; n];
@@ -3164,24 +3185,25 @@ fn betweenness_centrality_generic<G: GraphView>(
         queue.push_back(s);
         queue_peak = queue_peak.max(queue.len());
 
-        let bfs_t = if perf_spans { Some(std::time::Instant::now()) } else { None };
+        let bfs_t = if perf_spans {
+            Some(std::time::Instant::now())
+        } else {
+            None
+        };
         while let Some(v) = queue.pop_front() {
             stack.push(v);
             let dist_v = distance[v];
-            if let Some(neighbors) = graph.neighbors_iter(nodes[v]) {
-                for w_name in neighbors {
-                    edges_scanned += 1;
-                    let w = graph.get_node_index(w_name).unwrap();
+            for &w in &adjacency[v] {
+                edges_scanned += 1;
 
-                    if distance[w] < 0 {
-                        distance[w] = dist_v + 1;
-                        queue.push_back(w);
-                        queue_peak = queue_peak.max(queue.len());
-                    }
-                    if distance[w] == dist_v + 1 {
-                        sigma[w] += sigma[v];
-                        predecessors[w].push(v);
-                    }
+                if distance[w] < 0 {
+                    distance[w] = dist_v + 1;
+                    queue.push_back(w);
+                    queue_peak = queue_peak.max(queue.len());
+                }
+                if distance[w] == dist_v + 1 {
+                    sigma[w] += sigma[v];
+                    predecessors[w].push(v);
                 }
             }
         }
@@ -3193,7 +3215,11 @@ fn betweenness_centrality_generic<G: GraphView>(
         if endpoints {
             centrality[s] += stack.len().saturating_sub(1) as f64;
         }
-        let accum_t = if perf_spans { Some(std::time::Instant::now()) } else { None };
+        let accum_t = if perf_spans {
+            Some(std::time::Instant::now())
+        } else {
+            None
+        };
         let mut dependency = vec![0.0; n];
         while let Some(w) = stack.pop() {
             let sigma_w = sigma[w];
