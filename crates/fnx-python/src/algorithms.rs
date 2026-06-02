@@ -9129,6 +9129,71 @@ fn greedy_modularity_communities(
 // A* shortest path
 // ===========================================================================
 
+/// Run the generic A* path kernel against an undirected `Graph` or a directed
+/// `DiGraph` (the kernel uses `GraphView::neighbors_iter`, which yields
+/// successors for `DiGraph`, so direction is honoured). Builds the optional
+/// Python heuristic closure once; releases the GIL only on the heuristic-free
+/// path. br-r37-c1-kp1va: replaces the old undirected-only dispatch that fed
+/// `gr.undirected()` even for DiGraph and silently dropped edge direction.
+fn run_astar_path<G: fnx_algorithms::GraphView + ?Sized + Sync>(
+    py: Python<'_>,
+    gr: &GraphRef<'_>,
+    inner: &G,
+    src_key: &str,
+    tgt_key: &str,
+    target: &Bound<'_, PyAny>,
+    heuristic: Option<&Bound<'_, PyAny>>,
+    weight: &str,
+) -> PyResult<Option<Vec<String>>> {
+    if let Some(callable) = heuristic {
+        let tgt_obj = target.clone().unbind();
+        let callable_obj = callable.clone().unbind();
+        let h = |node_str: &str| -> PyResult<f64> {
+            let node_py = gr.py_node_key(py, node_str);
+            let tgt_bound = tgt_obj.bind(py);
+            callable_obj
+                .bind(py)
+                .call1((node_py, tgt_bound))
+                .and_then(|r| r.extract::<f64>())
+        };
+        fnx_algorithms::astar_path(inner, src_key, tgt_key, weight, Some(&h))
+    } else {
+        py.allow_threads(|| {
+            fnx_algorithms::astar_path::<G, PyErr>(inner, src_key, tgt_key, weight, None)
+        })
+    }
+}
+
+/// Directed-aware sibling of [`run_astar_path`] for `astar_path_length`.
+fn run_astar_path_length<G: fnx_algorithms::GraphView + ?Sized + Sync>(
+    py: Python<'_>,
+    gr: &GraphRef<'_>,
+    inner: &G,
+    src_key: &str,
+    tgt_key: &str,
+    target: &Bound<'_, PyAny>,
+    heuristic: Option<&Bound<'_, PyAny>>,
+    weight: &str,
+) -> PyResult<Option<f64>> {
+    if let Some(callable) = heuristic {
+        let tgt_obj = target.clone().unbind();
+        let callable_obj = callable.clone().unbind();
+        let h = |node_str: &str| -> PyResult<f64> {
+            let node_py = gr.py_node_key(py, node_str);
+            let tgt_bound = tgt_obj.bind(py);
+            callable_obj
+                .bind(py)
+                .call1((node_py, tgt_bound))
+                .and_then(|r| r.extract::<f64>())
+        };
+        fnx_algorithms::astar_path_length(inner, src_key, tgt_key, weight, Some(&h))
+    } else {
+        py.allow_threads(|| {
+            fnx_algorithms::astar_path_length::<G, PyErr>(inner, src_key, tgt_key, weight, None)
+        })
+    }
+}
+
 /// A* shortest path from source to target.
 ///
 /// ``heuristic`` is an optional Python callable ``heuristic(u, v) -> float``
@@ -9144,32 +9209,34 @@ fn astar_path(
     weight: &str,
 ) -> PyResult<Vec<PyObject>> {
     let gr = extract_graph(g)?;
-    let inner = gr.undirected();
     let src_key = node_key_to_string(py, source)?;
     let tgt_key = node_key_to_string(py, target)?;
     validate_node(&gr, &src_key, source, "Source")?;
     validate_node(&gr, &tgt_key, target, "Target")?;
 
-    let result = if let Some(callable) = heuristic {
-        // With heuristic: build a closure that calls back into Python.
-        // The closure converts internal string keys back to Python objects
-        // and invokes the user-supplied heuristic(u, target).
-        let tgt_obj = target.clone().unbind();
-        let callable_obj = callable.clone().unbind();
-        let h = |node_str: &str| -> PyResult<f64> {
-            let node_py = gr.py_node_key(py, node_str);
-            let tgt_bound = tgt_obj.bind(py);
-            callable_obj
-                .bind(py)
-                .call1((node_py, tgt_bound))
-                .and_then(|r| r.extract::<f64>())
-        };
-        fnx_algorithms::astar_path(inner, &src_key, &tgt_key, weight, Some(&h))
-    } else {
-        // Without heuristic: can release the GIL.
-        py.allow_threads(|| {
-            fnx_algorithms::astar_path::<PyErr>(inner, &src_key, &tgt_key, weight, None)
-        })
+    // Directed graphs run the kernel against their DiGraph projection so edge
+    // direction is respected; undirected graphs use the inner Graph.
+    let result = match gr.weighted_digraph_projection(weight) {
+        Some(proj) => run_astar_path(
+            py,
+            &gr,
+            proj.as_ref(),
+            &src_key,
+            &tgt_key,
+            target,
+            heuristic,
+            weight,
+        ),
+        None => run_astar_path(
+            py,
+            &gr,
+            gr.undirected(),
+            &src_key,
+            &tgt_key,
+            target,
+            heuristic,
+            weight,
+        ),
     };
 
     match result {
@@ -9194,28 +9261,32 @@ fn astar_path_length(
     weight: &str,
 ) -> PyResult<f64> {
     let gr = extract_graph(g)?;
-    let inner = gr.undirected();
     let src_key = node_key_to_string(py, source)?;
     let tgt_key = node_key_to_string(py, target)?;
     validate_node(&gr, &src_key, source, "Source")?;
     validate_node(&gr, &tgt_key, target, "Target")?;
 
-    let result = if let Some(callable) = heuristic {
-        let tgt_obj = target.clone().unbind();
-        let callable_obj = callable.clone().unbind();
-        let h = |node_str: &str| -> PyResult<f64> {
-            let node_py = gr.py_node_key(py, node_str);
-            let tgt_bound = tgt_obj.bind(py);
-            callable_obj
-                .bind(py)
-                .call1((node_py, tgt_bound))
-                .and_then(|r| r.extract::<f64>())
-        };
-        fnx_algorithms::astar_path_length(inner, &src_key, &tgt_key, weight, Some(&h))
-    } else {
-        py.allow_threads(|| {
-            fnx_algorithms::astar_path_length::<PyErr>(inner, &src_key, &tgt_key, weight, None)
-        })
+    let result = match gr.weighted_digraph_projection(weight) {
+        Some(proj) => run_astar_path_length(
+            py,
+            &gr,
+            proj.as_ref(),
+            &src_key,
+            &tgt_key,
+            target,
+            heuristic,
+            weight,
+        ),
+        None => run_astar_path_length(
+            py,
+            &gr,
+            gr.undirected(),
+            &src_key,
+            &tgt_key,
+            target,
+            heuristic,
+            weight,
+        ),
     };
 
     match result {

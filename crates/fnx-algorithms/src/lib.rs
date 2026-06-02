@@ -18353,8 +18353,8 @@ type AstarHeuristic<'a, E> = &'a dyn Fn(&str) -> Result<f64, E>;
 /// If None, uses zero heuristic (degenerates to Dijkstra).
 ///
 /// NetworkX equivalent: `networkx.algorithms.shortest_paths.astar.astar_path`
-pub fn astar_path<E>(
-    graph: &Graph,
+pub fn astar_path<G: GraphView + ?Sized, E>(
+    graph: &G,
     source: &str,
     target: &str,
     weight_attr: &str,
@@ -18438,12 +18438,21 @@ pub fn astar_path<E>(
             continue;
         }
 
-        if let Some(nbrs) = graph.neighbors(&node) {
-            for &nbr in &nbrs {
+        // GraphView::neighbors_iter yields successors for DiGraph (directed)
+        // and neighbors for Graph (undirected), so this kernel is correct for
+        // both. Collect to owned strings to avoid holding the graph borrow
+        // across the g_scores/heap mutations below.
+        let nbrs: Vec<String> = graph
+            .neighbors_iter(&node)
+            .map(|it| it.map(str::to_owned).collect())
+            .unwrap_or_default();
+        {
+            for nbr in &nbrs {
+                let nbr = nbr.as_str();
                 if visited.contains(nbr) {
                     continue;
                 }
-                let w = edge_weight_or_default(graph, &node, nbr, weight_attr);
+                let w = graph.edge_weight(&node, nbr, Some(weight_attr));
                 let tentative_g = g_score + w;
                 let current_g = *g_scores.get(nbr).unwrap_or(&f64::INFINITY);
                 if tentative_g < current_g {
@@ -18467,8 +18476,8 @@ pub fn astar_path<E>(
 /// A* shortest path length.
 ///
 /// Returns the total weight of the A* shortest path, or None if no path exists.
-pub fn astar_path_length<E>(
-    graph: &Graph,
+pub fn astar_path_length<G: GraphView + ?Sized, E>(
+    graph: &G,
     source: &str,
     target: &str,
     weight_attr: &str,
@@ -18482,7 +18491,7 @@ pub fn astar_path_length<E>(
     }
     let mut total = 0.0;
     for i in 0..path.len() - 1 {
-        total += edge_weight_or_default(graph, &path[i], &path[i + 1], weight_attr);
+        total += graph.edge_weight(&path[i], &path[i + 1], Some(weight_attr));
     }
     Ok(Some(total))
 }

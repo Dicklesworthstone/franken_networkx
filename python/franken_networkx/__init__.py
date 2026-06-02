@@ -12619,16 +12619,13 @@ def astar_path(G, source, target, heuristic=None, weight="weight", *, cutoff=Non
     # silently treats them as 1.0; nx propagates a TypeError on the
     # natural ``+`` accumulation.  Same defect family as
     # br-r37-c1-vi0zo on dijkstra/bellman_ford.
+    # br-r37-c1-kp1va: the Rust _raw_astar_path kernel is now generic over
+    # GraphView and the PyO3 binding dispatches DiGraph/MultiDiGraph to their
+    # directed projection (GraphView::neighbors_iter yields successors), so
+    # directed A* runs natively and respects edge direction — the prior
+    # ``G.is_directed()`` delegation (br-r37-c1-astdir) is removed.
     if (
         _should_delegate_astar_to_networkx(weight, cutoff)
-        # br-r37-c1-astdir: the Rust _raw_astar_path kernel only has an
-        # undirected ``&Graph`` implementation; the PyO3 binding feeds it
-        # ``gr.undirected()`` even for DiGraph/MultiDiGraph, so direction was
-        # silently dropped and astar returned paths over non-existent
-        # (reverse) directed edges. dijkstra/bellman_ford honour direction;
-        # astar has no directed kernel, so delegate directed graphs to nx
-        # until a native directed A* lands.
-        or G.is_directed()
         or _has_negative_edge_weight_for_dijkstra(G, weight)
         or _has_positive_infinity_edge_weight_for_dijkstra(G, weight)
         or _has_nonnumeric_edge_weight(G, weight)
@@ -12669,12 +12666,9 @@ def astar_path_length(
     G = _coerce_arg_to_fnx_graph(G)
     # br-r37-c1-bzio2: same gate update as astar_path.
     # br-r37-c1-astar-strw: non-numeric weight delegation (sibling).
+    # br-r37-c1-kp1va: directed A* now runs natively (see astar_path).
     if (
         _should_delegate_astar_to_networkx(weight, cutoff)
-        # br-r37-c1-astdir: see astar_path — undirected-only Rust kernel drops
-        # direction, so astar_path_length returned the undirected distance on
-        # DiGraphs. Delegate directed graphs to nx.
-        or G.is_directed()
         or _has_negative_edge_weight_for_dijkstra(G, weight)
         or _has_positive_infinity_edge_weight_for_dijkstra(G, weight)
         or _has_nonnumeric_edge_weight(G, weight)
