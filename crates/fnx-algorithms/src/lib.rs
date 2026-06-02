@@ -2322,6 +2322,19 @@ fn harmonic_centrality_generic<G: GraphView>(graph: &G) -> HarmonicCentralityRes
     let mut edges_scanned = 0usize;
     let mut queue_peak = 0usize;
 
+    let reverse_adjacency = nodes
+        .iter()
+        .map(|&node| {
+            let mut indexed_neighbors = Vec::new();
+            if let Some(neighbors) = graph.in_neighbors_iter(node) {
+                for neighbor in neighbors {
+                    indexed_neighbors.push(graph.get_node_index(neighbor));
+                }
+            }
+            indexed_neighbors
+        })
+        .collect::<Vec<Vec<Option<usize>>>>();
+
     for (s, source) in nodes.iter().enumerate() {
         let mut queue: VecDeque<usize> = VecDeque::new();
         let mut distances: Vec<Option<usize>> = vec![None; n];
@@ -2339,15 +2352,13 @@ fn harmonic_centrality_generic<G: GraphView>(graph: &G) -> HarmonicCentralityRes
                 harmonic += 1.0 / (d as f64);
             }
 
-            if let Some(neighbors) = graph.in_neighbors_iter(nodes[u]) {
-                for v_name in neighbors {
-                    edges_scanned += 1;
-                    let v = graph.get_node_index(v_name).unwrap();
-                    if distances[v].is_none() {
-                        distances[v] = Some(d + 1);
-                        queue.push_back(v);
-                        queue_peak = queue_peak.max(queue.len());
-                    }
+            for maybe_v in &reverse_adjacency[u] {
+                edges_scanned += 1;
+                let v = maybe_v.expect("graph in-neighbor must exist in canonical node index");
+                if distances[v].is_none() {
+                    distances[v] = Some(d + 1);
+                    queue.push_back(v);
+                    queue_peak = queue_peak.max(queue.len());
                 }
             }
         }
