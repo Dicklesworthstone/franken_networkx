@@ -1,0 +1,9 @@
+  [2m2026-06-02T01:51:04.572154Z[0m [33m WARN[0m [1;33mrch::hook[0m[33m: [33mexec called with non-compilation command: zsh -lc 'for i in 1 2; do PERF_SPANS=1 cargo run -q -p fnx-algorithms --profile release-perf --bin perf_harness -- --algo=betweenness --n=1500 --deg=8 --iters=1; done'[0m
+    [2;3mat[0m rch/src/hook.rs:402 [2;3mon[0m ThreadId(1)
+
+{"perf.profile.span_summary":true,"algo":"brandes_betweenness","n":1500,"edges_scanned":18000000,"bfs_phase_ms":82.509,"accum_phase_ms":26.040,"alloc_phase_ms":0.942}
+{"perf.profile.span_summary":true,"algo":"brandes_betweenness","n":1500,"edges_scanned":18000000,"bfs_phase_ms":82.418,"accum_phase_ms":26.385,"alloc_phase_ms":0.960}
+{"algo":"betweenness","n":1500,"m":6000,"avg_deg":8,"iters":1,"total_ms":111.7372,"per_iter_ms":111.7372,"checksum":2.761383}
+{"perf.profile.span_summary":true,"algo":"brandes_betweenness","n":1500,"edges_scanned":18000000,"bfs_phase_ms":84.168,"accum_phase_ms":27.416,"alloc_phase_ms":0.952}
+{"perf.profile.span_summary":true,"algo":"brandes_betweenness","n":1500,"edges_scanned":18000000,"bfs_phase_ms":83.732,"accum_phase_ms":27.016,"alloc_phase_ms":0.941}
+{"algo":"betweenness","n":1500,"m":6000,"avg_deg":8,"iters":1,"total_ms":113.5113,"per_iter_ms":113.5113,"checksum":2.761383}
