@@ -142,6 +142,9 @@ pub trait GraphView {
     fn nodes_ordered(&self) -> Vec<&str>;
     fn get_node_index(&self, node: &str) -> Option<usize>;
     fn get_node_name(&self, index: usize) -> Option<&str>;
+    fn neighbors_indices(&self, _node_idx: usize) -> Option<&[usize]> {
+        None
+    }
     fn neighbors_iter(&self, node: &str) -> Option<Box<dyn Iterator<Item = &str> + '_>>;
     fn in_neighbors_iter(&self, node: &str) -> Option<Box<dyn Iterator<Item = &str> + '_>>;
     fn neighbor_count(&self, node: &str) -> usize;
@@ -162,6 +165,9 @@ impl GraphView for Graph {
     }
     fn get_node_name(&self, index: usize) -> Option<&str> {
         self.get_node_name(index)
+    }
+    fn neighbors_indices(&self, node_idx: usize) -> Option<&[usize]> {
+        Graph::neighbors_indices(self, node_idx)
     }
     fn neighbors_iter(&self, node: &str) -> Option<Box<dyn Iterator<Item = &str> + '_>> {
         self.neighbors_iter(node)
@@ -2834,6 +2840,13 @@ pub fn pagerank_with_weight<G: GraphView>(
             },
         };
     }
+
+    if weight_attr.is_none()
+        && let Some(result) = pagerank_unweighted_indexed(graph, &nodes, alpha, max_iter, tol)
+    {
+        return result;
+    }
+
     let mut canonical_nodes = nodes.clone();
     canonical_nodes.sort_unstable();
     let index_by_node = canonical_nodes
@@ -2939,6 +2952,148 @@ pub fn pagerank_with_weight<G: GraphView>(
             queue_peak: 0,
         },
     }
+}
+
+fn pagerank_unweighted_indexed<G: GraphView>(
+    graph: &G,
+    nodes: &[&str],
+    alpha: f64,
+    max_iter: usize,
+    tol: f64,
+) -> Option<PageRankResult> {
+    let n = nodes.len();
+    let mut canonical_indices = Vec::<usize>::with_capacity(n);
+    for &node in nodes {
+        canonical_indices.push(graph.get_node_index(node)?);
+    }
+    canonical_indices.sort_unstable_by(|&left, &right| {
+        graph
+            .get_node_name(left)
+            .expect("canonical pagerank node index must resolve to a name")
+            .cmp(
+                graph
+                    .get_node_name(right)
+                    .expect("canonical pagerank node index must resolve to a name"),
+            )
+    });
+
+    let graph_index_len = graph.node_count();
+    let missing_rank = usize::MAX;
+    let mut rank_by_graph_index = vec![missing_rank; graph_index_len];
+    for (rank_idx, &node_idx) in canonical_indices.iter().enumerate() {
+        if node_idx >= graph_index_len {
+            return None;
+        }
+        rank_by_graph_index[node_idx] = rank_idx;
+    }
+
+    let mut canonical_out_edges = Vec::<Vec<(usize, f64)>>::with_capacity(n);
+    let mut out_weight = Vec::<f64>::with_capacity(n);
+    let mut total_edges_per_iter = 0usize;
+    for &u_idx in &canonical_indices {
+        let mut neighbor_indices = graph.neighbors_indices(u_idx)?.to_vec();
+        neighbor_indices.sort_unstable_by(|&left, &right| {
+            graph
+                .get_node_name(left)
+                .expect("pagerank neighbor index must resolve to a name")
+                .cmp(
+                    graph
+                        .get_node_name(right)
+                        .expect("pagerank neighbor index must resolve to a name"),
+                )
+        });
+        let weight_sum = neighbor_indices.len() as f64;
+        let weight_share = if weight_sum > 0.0 {
+            1.0 / weight_sum
+        } else {
+            0.0
+        };
+        let mut entries = Vec::<(usize, f64)>::with_capacity(neighbor_indices.len());
+        for v_idx in neighbor_indices {
+            let rank_idx = rank_by_graph_index
+                .get(v_idx)
+                .copied()
+                .unwrap_or(missing_rank);
+            if rank_idx != missing_rank {
+                entries.push((rank_idx, weight_share));
+            }
+        }
+        total_edges_per_iter += entries.len();
+        canonical_out_edges.push(entries);
+        out_weight.push(weight_sum);
+    }
+
+    let n_f64 = n as f64;
+    let base = (1.0 - alpha) / n_f64;
+    let mut ranks = vec![1.0 / n_f64; n];
+    let mut next_ranks = vec![0.0_f64; n];
+    let mut iterations = 0usize;
+    let mut edges_scanned = 0usize;
+    let mut converged = false;
+
+    for _ in 0..max_iter {
+        iterations += 1;
+        let dangling_mass = ranks
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, value)| (out_weight[idx] == 0.0).then_some(*value))
+            .sum::<f64>();
+        let dangling_term = alpha * dangling_mass / n_f64;
+
+        next_ranks.fill(base + dangling_term);
+        for u_idx in 0..n {
+            let entries = &canonical_out_edges[u_idx];
+            if entries.is_empty() {
+                continue;
+            }
+            let push = alpha * ranks[u_idx];
+            for &(v_idx, weight_share) in entries {
+                next_ranks[v_idx] += push * weight_share;
+            }
+        }
+        edges_scanned += total_edges_per_iter;
+
+        let delta = next_ranks
+            .iter()
+            .zip(ranks.iter())
+            .map(|(left, right)| (left - right).abs())
+            .sum::<f64>();
+        ranks.copy_from_slice(&next_ranks);
+        if delta < n_f64 * tol {
+            converged = true;
+            break;
+        }
+    }
+
+    let scores = nodes
+        .iter()
+        .map(|node| {
+            let graph_idx = graph
+                .get_node_index(node)
+                .expect("graph output node must exist in pagerank index");
+            let rank_idx = rank_by_graph_index
+                .get(graph_idx)
+                .copied()
+                .filter(|idx| *idx != missing_rank)
+                .expect("graph output node must exist in canonical pagerank rank index");
+            CentralityScore {
+                node: (*node).to_owned(),
+                score: ranks[rank_idx],
+            }
+        })
+        .collect::<Vec<CentralityScore>>();
+
+    Some(PageRankResult {
+        scores,
+        converged,
+        witness: ComplexityWitness {
+            algorithm: "pagerank_power_iteration".to_owned(),
+            complexity_claim: "O(k * (|V| + |E|))".to_owned(),
+            nodes_touched: n.saturating_mul(iterations),
+            edges_scanned,
+            queue_peak: 0,
+        },
+    })
 }
 
 #[must_use]

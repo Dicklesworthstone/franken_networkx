@@ -1,0 +1,2 @@
+da8c234fe6c49d59c75fab6e50a080d9efbfe0167a44929bdc4769563ee73d8d  tests/artifacts/perf/20260602T012023Z-tealspring-pagerank/golden/pagerank_head.txt
+da8c234fe6c49d59c75fab6e50a080d9efbfe0167a44929bdc4769563ee73d8d  tests/artifacts/perf/20260602T012023Z-tealspring-pagerank/golden/pagerank_after_indexed.txt
