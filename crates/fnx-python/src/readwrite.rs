@@ -20,6 +20,7 @@ use pyo3::types::PyBytes;
 use pyo3::types::PyDict;
 use serde_json::Value as JsonValue;
 use std::collections::HashMap;
+use std::sync::atomic::AtomicBool;
 
 /// Read the file content from a path-like or file-like Python object.
 fn read_input(py: Python<'_>, source: &Bound<'_, PyAny>) -> PyResult<String> {
@@ -146,6 +147,7 @@ fn report_to_pygraph(py: Python<'_>, report: ReadWriteReport) -> PyResult<PyGrap
         graph_attrs: py_graph_attrs.unbind(),
         nodes_seq: 0,
         edges_seq: 0,
+        edges_dirty: AtomicBool::new(false),
     })
 }
 
@@ -205,6 +207,7 @@ fn di_report_to_pydigraph(py: Python<'_>, report: DiReadWriteReport) -> PyResult
         graph_attrs: py_graph_attrs.unbind(),
         nodes_seq: 0,
         edges_seq: 0,
+        edges_dirty: AtomicBool::new(false),
     })
 }
 

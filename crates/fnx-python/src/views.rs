@@ -372,6 +372,9 @@ impl EdgeView {
 
     fn __iter__(&self, py: Python<'_>) -> PyResult<Py<NodeViewIterator>> {
         let g = self.graph.borrow(py);
+        if matches!(&self.data, NodeViewData::AllData) && g.inner.edge_count() > 0 {
+            g.mark_edges_dirty();
+        }
         // br-r37-c1-eqedg: use O(1) node_count() instead of allocating nodes_ordered() Vec
         let node_count = g.inner.node_count();
         let nodes_seq = g.nodes_seq;
@@ -431,6 +434,7 @@ impl EdgeView {
         if !g.inner.has_edge(&u, &v) {
             return Err(PyKeyError::new_err(format!("({}, {})", u, v)));
         }
+        g.mark_edges_dirty();
         Ok(g.edge_py_attrs
             .get(&ek)
             .map_or_else(|| PyDict::new(py).unbind(), |d| d.clone_ref(py)))
@@ -468,6 +472,9 @@ impl EdgeView {
             let mut view_data = parse_data_param(data)?;
             if let (Some(def), NodeViewData::Attr(attr)) = (default, &view_data) {
                 view_data = NodeViewData::AttrWithDefault(attr.clone(), def.clone().unbind());
+            }
+            if matches!(&view_data, NodeViewData::AllData) && g.inner.edge_count() > 0 {
+                g.mark_edges_dirty();
             }
             // br-r37-c1-eqedg: use edges_ordered_borrowed to avoid string cloning
             let items: Vec<PyObject> = g
@@ -776,6 +783,9 @@ impl AdjacencyView {
         let canonical = node_key_to_string(py, n)?;
         if !g.inner.has_node(&canonical) {
             return Err(crate::missing_key_error(n));
+        }
+        if g.inner.edge_count() > 0 {
+            g.mark_edges_dirty();
         }
         let neighbors = g.inner.neighbors(&canonical).unwrap_or_default();
         let result = PyDict::new(py);

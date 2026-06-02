@@ -18,6 +18,7 @@ use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList, PyTuple};
 use std::cell::OnceCell;
 use std::collections::{HashMap, HashSet};
+use std::sync::atomic::AtomicBool;
 
 type SpanningEdgeSamples = (Vec<(String, String)>, Vec<f64>);
 const PAGERANK_WEIGHT_ATTR: &str = "__fnx_pagerank_weight__";
@@ -12834,6 +12835,7 @@ pub fn power_rust(py: Python<'_>, g: &Bound<'_, PyAny>, k: usize) -> PyResult<Py
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,
+        edges_dirty: AtomicBool::new(false),
     };
     Ok(pg.into_pyobject(py)?.into_any().unbind())
 }
@@ -12882,6 +12884,7 @@ pub fn ego_graph_rust(
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,
+        edges_dirty: AtomicBool::new(false),
     };
     Ok(pg.into_pyobject(py)?.into_any().unbind())
 }
@@ -13012,6 +13015,7 @@ pub fn full_join_rust(
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,
+        edges_dirty: AtomicBool::new(false),
     };
     Ok(pg.into_pyobject(py)?.into_any().unbind())
 }
@@ -13041,6 +13045,7 @@ pub fn identified_nodes_rust(
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,
+        edges_dirty: AtomicBool::new(false),
     };
     Ok(pg.into_pyobject(py)?.into_any().unbind())
 }
@@ -13129,6 +13134,7 @@ pub fn dedensify_rust(
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,
+        edges_dirty: AtomicBool::new(false),
     };
     Ok((pg.into_pyobject(py)?.into_any().unbind(), compressors))
 }
@@ -13239,6 +13245,7 @@ pub fn quotient_graph_rust(
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,
+        edges_dirty: AtomicBool::new(false),
     };
     Ok(pg.into_pyobject(py)?.into_any().unbind())
 }
@@ -13263,6 +13270,7 @@ pub fn moral_graph_rust(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<PyObje
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,
+        edges_dirty: AtomicBool::new(false),
     };
     Ok(pg.into_pyobject(py)?.into_any().unbind())
 }
@@ -13658,6 +13666,7 @@ pub fn gomory_hu_tree_rust(
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,
+        edges_dirty: AtomicBool::new(false),
     };
     Ok(pg.into_pyobject(py)?.into_any().unbind())
 }
@@ -13706,6 +13715,7 @@ pub fn snap_aggregation_rust(
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,
+        edges_dirty: AtomicBool::new(false),
     };
     Ok(pg.into_pyobject(py)?.into_any().unbind())
 }
@@ -14922,6 +14932,7 @@ mod tests {
                 graph_attrs: PyDict::new(py).unbind(),
                 nodes_seq: 0,
                 edges_seq: 0,
+                edges_dirty: AtomicBool::new(false),
             };
             let mut weighted_attrs = AttrMap::new();
             weighted_attrs.insert("weight".to_owned(), 1.0.into());

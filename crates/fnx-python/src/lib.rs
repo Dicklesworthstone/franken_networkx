@@ -23,6 +23,7 @@ use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyDict, PyIterator, PyTuple};
 use std::collections::{HashMap, HashSet};
 use std::convert::Infallible;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 pub(crate) type PyObject = Py<PyAny>;
 
@@ -318,6 +319,8 @@ pub(crate) struct PyGraph {
     /// — e.g. the view materialization cache reverted in br-r37-c1-jy3j3
     /// needs both to catch count-preserving rewires.
     pub(crate) edges_seq: u64,
+    /// Monotonic dirty marker for Python-visible edge attr dict handouts.
+    pub(crate) edges_dirty: AtomicBool,
 }
 
 impl PyGraph {
@@ -364,6 +367,7 @@ impl PyGraph {
             graph_attrs: PyDict::new(py).unbind(),
             nodes_seq: 0,
             edges_seq: 0,
+            edges_dirty: AtomicBool::new(false),
         })
     }
 
@@ -383,6 +387,11 @@ impl PyGraph {
     #[inline]
     pub(crate) fn bump_edges_seq(&mut self) {
         self.edges_seq = self.edges_seq.wrapping_add(1);
+    }
+
+    #[inline]
+    pub(crate) fn mark_edges_dirty(&self) {
+        self.edges_dirty.store(true, Ordering::Relaxed);
     }
 }
 
@@ -404,6 +413,8 @@ pub(crate) struct PyMultiGraph {
     pub(crate) nodes_seq: u64,
     /// br-r37-c1-jft0i: see PyGraph::edges_seq.
     pub(crate) edges_seq: u64,
+    /// See PyGraph::edges_dirty.
+    pub(crate) edges_dirty: AtomicBool,
 }
 
 impl PyMultiGraph {
@@ -519,6 +530,7 @@ impl PyMultiGraph {
             graph_attrs: PyDict::new(py).unbind(),
             nodes_seq: 0,
             edges_seq: 0,
+            edges_dirty: AtomicBool::new(false),
         })
     }
 
@@ -532,6 +544,11 @@ impl PyMultiGraph {
     #[inline]
     pub(crate) fn bump_edges_seq(&mut self) {
         self.edges_seq = self.edges_seq.wrapping_add(1);
+    }
+
+    #[inline]
+    pub(crate) fn mark_edges_dirty(&self) {
+        self.edges_dirty.store(true, Ordering::Relaxed);
     }
 }
 
@@ -758,6 +775,9 @@ impl PyMultiGraph {
         for (canonical, attrs) in nodes {
             self.inner.replace_node_attrs(&canonical, attrs);
         }
+        if !self.edges_dirty.load(Ordering::Relaxed) {
+            return Ok(());
+        }
         let edges: Vec<(String, String, usize, AttrMap)> = self
             .edge_py_attrs
             .iter()
@@ -793,6 +813,7 @@ impl PyMultiGraph {
             else {
                 return Ok(default.unwrap_or_else(|| py.None()));
             };
+            self.mark_edges_dirty();
             let ek = Self::edge_key(&u_c, &v_c, internal_key);
             Ok(self.edge_py_attrs.get(&ek).map_or_else(
                 || default.unwrap_or_else(|| py.None()),
@@ -803,6 +824,7 @@ impl PyMultiGraph {
             if keys.is_empty() {
                 Ok(default.unwrap_or_else(|| py.None()))
             } else {
+                self.mark_edges_dirty();
                 let result = PyDict::new(py);
                 for k in keys {
                     let ek = Self::edge_key(&u_c, &v_c, k);
@@ -1291,6 +1313,7 @@ impl PyMultiGraph {
         if !self.inner.has_node(&canonical) {
             return Err(missing_key_error(n));
         }
+        self.mark_edges_dirty();
         let result = PyDict::new(py);
         for neighbor in self.inner.neighbors(&canonical).unwrap_or_default() {
             let py_nb = self.node_key_map.get(neighbor).map_or_else(
@@ -1380,6 +1403,9 @@ impl PyMultiGraph {
 
     /// Return an adjacency dict: {node: {neighbor: {key: edge_attrs}}}.
     fn adjacency(&self, py: Python<'_>) -> PyResult<Py<PyDict>> {
+        if self.inner.edge_count() > 0 {
+            self.mark_edges_dirty();
+        }
         let result = PyDict::new(py);
         for node in self.inner.nodes_ordered() {
             let py_node = self.py_node_key(py, node);
@@ -1408,6 +1434,7 @@ impl PyMultiGraph {
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,
             edges_seq: 0,
+            edges_dirty: AtomicBool::new(false),
         };
         for (canonical, py_key) in &self.node_key_map {
             let rust_attrs = self
@@ -1477,6 +1504,7 @@ impl PyMultiGraph {
             graph_attrs: self.graph_attrs.clone_ref(py),
             nodes_seq: 0,
             edges_seq: 0,
+            edges_dirty: AtomicBool::new(self.edges_dirty.load(Ordering::Relaxed)),
         };
         // Copy nodes but SHARE attribute dicts
         for (canonical, py_key) in &self.node_key_map {
@@ -1559,6 +1587,7 @@ impl PyMultiGraph {
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,
             edges_seq: 0,
+            edges_dirty: AtomicBool::new(false),
         };
 
         for canonical in &keep {
@@ -1636,6 +1665,7 @@ impl PyMultiGraph {
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,
             edges_seq: 0,
+            edges_dirty: AtomicBool::new(false),
         };
 
         for (u, v, key_filter) in &keep_edges {
@@ -1721,6 +1751,7 @@ impl PyMultiGraph {
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,
             edges_seq: 0,
+            edges_dirty: AtomicBool::new(false),
         };
 
         for (canonical, py_key) in &self.node_key_map {
@@ -2279,6 +2310,9 @@ impl MultiGraphEdgeView {
         default: Option<PyObject>,
     ) -> PyResult<Py<NodeIterator>> {
         let g = self.graph.borrow(py);
+        if data && g.inner.edge_count() > 0 {
+            g.mark_edges_dirty();
+        }
         let expected_nodes: Vec<String> = g
             .inner
             .nodes_ordered()
@@ -3051,6 +3085,7 @@ impl PyGraph {
         if !self.inner.has_node(&canonical) {
             return Err(missing_key_error(n));
         }
+        self.mark_edges_dirty();
         let neighbors = self.inner.neighbors(&canonical).unwrap_or_default();
         let result = PyDict::new(py);
         for nb in neighbors {
@@ -3108,6 +3143,7 @@ impl PyGraph {
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,
             edges_seq: 0,
+            edges_dirty: AtomicBool::new(false),
         };
         // Copy nodes
         for (canonical, py_key) in &self.node_key_map {
@@ -3182,6 +3218,7 @@ impl PyGraph {
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,
             edges_seq: 0,
+            edges_dirty: AtomicBool::new(false),
         };
 
         // Add kept nodes
@@ -3247,6 +3284,7 @@ impl PyGraph {
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,
             edges_seq: 0,
+            edges_dirty: AtomicBool::new(false),
         };
 
         // Collect nodes from kept edges
@@ -3409,6 +3447,9 @@ impl PyGraph {
         let u_c = node_key_to_string(py, u)?;
         let v_c = node_key_to_string(py, v)?;
         let ek = Self::edge_key(&u_c, &v_c);
+        if self.edge_py_attrs.contains_key(&ek) {
+            self.mark_edges_dirty();
+        }
         Ok(self.edge_py_attrs.get(&ek).map_or_else(
             || default.unwrap_or_else(|| py.None()),
             |d| d.clone_ref(py).into_any(),
@@ -3427,6 +3468,9 @@ impl PyGraph {
             .collect::<PyResult<_>>()?;
         for (canonical, attrs) in nodes {
             self.inner.replace_node_attrs(&canonical, attrs);
+        }
+        if !self.edges_dirty.load(Ordering::Relaxed) {
+            return Ok(());
         }
         let edges: Vec<(String, String, AttrMap)> = self
             .edge_py_attrs
@@ -3538,6 +3582,7 @@ impl PyGraph {
             graph_attrs: self.graph_attrs.clone_ref(py),
             nodes_seq: 0,
             edges_seq: 0,
+            edges_dirty: AtomicBool::new(self.edges_dirty.load(Ordering::Relaxed)),
         };
         // Copy nodes but SHARE attribute dicts
         for (canonical, py_key) in &self.node_key_map {

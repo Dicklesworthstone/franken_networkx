@@ -11,6 +11,7 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use std::collections::HashMap;
+use std::sync::atomic::AtomicBool;
 
 /// Build a PyGraph from a Rust Graph returned by a generator.
 ///
@@ -25,6 +26,7 @@ fn report_to_pygraph(py: Python<'_>, graph: fnx_classes::Graph) -> PyResult<PyGr
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,
+        edges_dirty: AtomicBool::new(false),
     };
 
     // Map string keys to Python int keys.
@@ -62,6 +64,7 @@ fn report_to_pydigraph(
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,
+        edges_dirty: AtomicBool::new(false),
     };
 
     for canonical in pg.inner.nodes_ordered() {
@@ -99,6 +102,7 @@ fn report_to_pymultidigraph(
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,
+        edges_dirty: AtomicBool::new(false),
     };
 
     for canonical in pg.inner.nodes_ordered() {

@@ -18,6 +18,7 @@ use pyo3::exceptions::{PyKeyError, PyRuntimeError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyIterator, PyTuple};
 use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 // ---------------------------------------------------------------------------
 // PyDiGraph
@@ -36,6 +37,8 @@ pub struct PyDiGraph {
     pub(crate) nodes_seq: u64,
     /// br-r37-c1-jft0i: see PyGraph::edges_seq.
     pub(crate) edges_seq: u64,
+    /// See PyGraph::edges_dirty.
+    pub(crate) edges_dirty: AtomicBool,
 }
 
 #[pyclass(
@@ -56,6 +59,8 @@ pub struct PyMultiDiGraph {
     pub(crate) nodes_seq: u64,
     /// br-r37-c1-jft0i: see PyGraph::edges_seq.
     pub(crate) edges_seq: u64,
+    /// See PyGraph::edges_dirty.
+    pub(crate) edges_dirty: AtomicBool,
 }
 
 impl PyMultiDiGraph {
@@ -172,6 +177,7 @@ impl PyMultiDiGraph {
             graph_attrs: PyDict::new(py).unbind(),
             nodes_seq: 0,
             edges_seq: 0,
+            edges_dirty: AtomicBool::new(false),
         })
     }
 
@@ -185,6 +191,11 @@ impl PyMultiDiGraph {
     #[inline]
     pub(crate) fn bump_edges_seq(&mut self) {
         self.edges_seq = self.edges_seq.wrapping_add(1);
+    }
+
+    #[inline]
+    pub(crate) fn mark_edges_dirty(&self) {
+        self.edges_dirty.store(true, Ordering::Relaxed);
     }
 }
 
@@ -888,6 +899,7 @@ impl PyMultiDiGraph {
         if !self.inner.has_node(&canonical) {
             return Err(crate::missing_key_error(n));
         }
+        self.mark_edges_dirty();
         let result = PyDict::new(py);
         for successor in self.inner.successors(&canonical).unwrap_or_default() {
             result.set_item(
@@ -994,6 +1006,9 @@ impl PyMultiDiGraph {
     }
 
     fn adjacency(&self, py: Python<'_>) -> PyResult<Py<PyDict>> {
+        if self.inner.edge_count() > 0 {
+            self.mark_edges_dirty();
+        }
         let result = PyDict::new(py);
         for node in self.inner.nodes_ordered() {
             let py_node = self.py_node_key(py, node);
@@ -1024,6 +1039,9 @@ impl PyMultiDiGraph {
 
     #[getter]
     fn pred(&self, py: Python<'_>) -> PyResult<Py<PyDict>> {
+        if self.inner.edge_count() > 0 {
+            self.mark_edges_dirty();
+        }
         let result = PyDict::new(py);
         for node in self.inner.nodes_ordered() {
             let py_node = self.py_node_key(py, node);
@@ -1061,6 +1079,7 @@ impl PyMultiDiGraph {
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,
             edges_seq: 0,
+            edges_dirty: AtomicBool::new(false),
         };
         for (canonical, py_key) in &self.node_key_map {
             let rust_attrs = self
@@ -1126,6 +1145,7 @@ impl PyMultiDiGraph {
             graph_attrs: self.graph_attrs.clone_ref(py),
             nodes_seq: 0,
             edges_seq: 0,
+            edges_dirty: AtomicBool::new(self.edges_dirty.load(Ordering::Relaxed)),
         };
         // Copy nodes but SHARE attribute dicts
         for (canonical, py_key) in &self.node_key_map {
@@ -1204,6 +1224,7 @@ impl PyMultiDiGraph {
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,
             edges_seq: 0,
+            edges_dirty: AtomicBool::new(false),
         };
 
         for canonical in &keep {
@@ -1264,6 +1285,7 @@ impl PyMultiDiGraph {
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,
             edges_seq: 0,
+            edges_dirty: AtomicBool::new(false),
         };
 
         for item in iter {
@@ -1355,6 +1377,7 @@ impl PyMultiDiGraph {
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,
             edges_seq: 0,
+            edges_dirty: AtomicBool::new(false),
         };
 
         for (canonical, py_key) in &self.node_key_map {
@@ -1412,6 +1435,7 @@ impl PyMultiDiGraph {
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,
             edges_seq: 0,
+            edges_dirty: AtomicBool::new(false),
         };
         for canonical in self.inner.nodes_ordered() {
             let rust_attrs = self
@@ -1557,6 +1581,9 @@ impl PyMultiDiGraph {
         for (canonical, attrs) in nodes {
             self.inner.replace_node_attrs(&canonical, attrs);
         }
+        if !self.edges_dirty.load(Ordering::Relaxed) {
+            return Ok(());
+        }
         let edges: Vec<(String, String, usize, AttrMap)> = self
             .edge_py_attrs
             .iter()
@@ -1592,6 +1619,7 @@ impl PyMultiDiGraph {
             else {
                 return Ok(default.unwrap_or_else(|| py.None()));
             };
+            self.mark_edges_dirty();
             let ek = Self::edge_key(&u_c, &v_c, internal_key);
             Ok(self.edge_py_attrs.get(&ek).map_or_else(
                 || default.unwrap_or_else(|| py.None()),
@@ -1602,6 +1630,7 @@ impl PyMultiDiGraph {
             if keys.is_empty() {
                 Ok(default.unwrap_or_else(|| py.None()))
             } else {
+                self.mark_edges_dirty();
                 let result = PyDict::new(py);
                 for k in keys {
                     let ek = Self::edge_key(&u_c, &v_c, k);
@@ -2025,6 +2054,9 @@ impl MultiDiGraphEdgeView {
         if let (Some(def), ViewData::Attr(attr)) = (default, &view_data) {
             view_data = ViewData::AttrWithDefault(attr.clone(), def.clone().unbind());
         }
+        if matches!(&view_data, ViewData::AllData) && g.inner.edge_count() > 0 {
+            g.mark_edges_dirty();
+        }
         let mut result = Vec::new();
         let edges = g.inner.edges_ordered();
         for edge in &edges {
@@ -2180,6 +2212,7 @@ impl PyDiGraph {
             graph_attrs: PyDict::new(py).unbind(),
             nodes_seq: 0,
             edges_seq: 0,
+            edges_dirty: AtomicBool::new(false),
         })
     }
 
@@ -2193,6 +2226,11 @@ impl PyDiGraph {
     #[inline]
     pub(crate) fn bump_edges_seq(&mut self) {
         self.edges_seq = self.edges_seq.wrapping_add(1);
+    }
+
+    #[inline]
+    pub(crate) fn mark_edges_dirty(&self) {
+        self.edges_dirty.store(true, Ordering::Relaxed);
     }
 }
 
@@ -2796,6 +2834,7 @@ impl PyDiGraph {
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,
             edges_seq: 0,
+            edges_dirty: AtomicBool::new(false),
         };
         // Copy nodes in graph insertion order to preserve NetworkX iteration.
         for canonical in self.inner.nodes_ordered() {
@@ -2886,6 +2925,7 @@ impl PyDiGraph {
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,
             edges_seq: 0,
+            edges_dirty: AtomicBool::new(false),
         };
         for (canonical, py_key) in &self.node_key_map {
             let rust_attrs = self
@@ -2942,6 +2982,7 @@ impl PyDiGraph {
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,
             edges_seq: 0,
+            edges_dirty: AtomicBool::new(false),
         };
 
         for canonical in &keep {
@@ -3004,6 +3045,7 @@ impl PyDiGraph {
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,
             edges_seq: 0,
+            edges_dirty: AtomicBool::new(false),
         };
 
         let mut nodes_needed: std::collections::HashSet<String> = std::collections::HashSet::new();
@@ -3098,6 +3140,9 @@ impl PyDiGraph {
         let u_c = node_key_to_string(py, u)?;
         let v_c = node_key_to_string(py, v)?;
         let ek = (u_c, v_c);
+        if self.edge_py_attrs.contains_key(&ek) {
+            self.mark_edges_dirty();
+        }
         Ok(self.edge_py_attrs.get(&ek).map_or_else(
             || default.unwrap_or_else(|| py.None()),
             |d| d.clone_ref(py).into_any(),
@@ -3116,6 +3161,9 @@ impl PyDiGraph {
             .collect::<PyResult<_>>()?;
         for (canonical, attrs) in nodes {
             self.inner.replace_node_attrs(&canonical, attrs);
+        }
+        if !self.edges_dirty.load(Ordering::Relaxed) {
+            return Ok(());
         }
         let edges: Vec<(String, String, AttrMap)> = self
             .edge_py_attrs
@@ -3281,6 +3329,7 @@ impl PyDiGraph {
         if !self.inner.has_node(&canonical) {
             return Err(crate::missing_key_error(n));
         }
+        self.mark_edges_dirty();
         let succs = self.inner.successors(&canonical).unwrap_or_default();
         let result = PyDict::new(py);
         for s in succs {
@@ -3383,6 +3432,7 @@ impl PyDiGraph {
             graph_attrs: self.graph_attrs.clone_ref(py),
             nodes_seq: 0,
             edges_seq: 0,
+            edges_dirty: AtomicBool::new(self.edges_dirty.load(Ordering::Relaxed)),
         };
         // Copy nodes but SHARE attribute dicts
         for (canonical, py_key) in &self.node_key_map {
@@ -3926,6 +3976,9 @@ impl DiEdgeView {
 
     fn __iter__(&self, py: Python<'_>) -> PyResult<Py<DiViewIterator>> {
         let g = self.graph.borrow(py);
+        if matches!(&self.data, ViewData::AllData) && g.inner.edge_count() > 0 {
+            g.mark_edges_dirty();
+        }
         let expected_nodes: Vec<String> = g
             .inner
             .nodes_ordered()
@@ -3985,6 +4038,7 @@ impl DiEdgeView {
         if !g.inner.has_edge(&u, &v) {
             return Err(PyKeyError::new_err(format!("({}, {})", u, v)));
         }
+        g.mark_edges_dirty();
         let ek = PyDiGraph::edge_key(&u, &v);
         Ok(g.edge_py_attrs
             .get(&ek)
@@ -4014,6 +4068,9 @@ impl DiEdgeView {
             let mut view_data = parse_view_data(data)?;
             if let (Some(def), ViewData::Attr(attr)) = (default, &view_data) {
                 view_data = ViewData::AttrWithDefault(attr.clone(), def.clone().unbind());
+            }
+            if matches!(&view_data, ViewData::AllData) && g.inner.edge_count() > 0 {
+                g.mark_edges_dirty();
             }
             let items: Vec<PyObject> = g
                 .edge_py_attrs
@@ -4228,6 +4285,9 @@ impl DiAdjacencyView {
         let canonical = node_key_to_string(py, n)?;
         if !g.inner.has_node(&canonical) {
             return Err(crate::missing_key_error(n));
+        }
+        if g.inner.edge_count() > 0 {
+            g.mark_edges_dirty();
         }
         let neighbors = match self.kind {
             AdjKind::Successors => g.inner.successors(&canonical).unwrap_or_default(),
