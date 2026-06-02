@@ -281,6 +281,26 @@ impl CgsePolicyRule {
     }
 
     #[must_use]
+    pub const fn operation_name(self) -> &'static str {
+        match self {
+            Self::R01 => "graph_core_mutation::cgse-r01",
+            Self::R02 => "graph_core_mutation::cgse-r02",
+            Self::R03 => "graph_core_mutation::cgse-r03",
+            Self::R04 => "view_semantics::cgse-r04",
+            Self::R05 => "dispatch_routing::cgse-r05",
+            Self::R06 => "dispatch_routing::cgse-r06",
+            Self::R07 => "conversion_contracts::cgse-r07",
+            Self::R08 => "shortest_path_algorithms::cgse-r08",
+            Self::R09 => "shortest_path_algorithms::cgse-r09",
+            Self::R10 => "readwrite_serialization::cgse-r10",
+            Self::R11 => "readwrite_serialization::cgse-r11",
+            Self::R12 => "generator_semantics::cgse-r12",
+            Self::R13 => "runtime_config::cgse-r13",
+            Self::R14 => "oracle_test_surface::cgse-r14",
+        }
+    }
+
+    #[must_use]
     pub const fn hardened_allowlist(self) -> &'static [&'static str] {
         match self {
             Self::R01 => &["CGSE-AMB-001"],
@@ -1654,11 +1674,7 @@ impl CgsePolicyEngine {
 
         let decision = DecisionRecord {
             ts_unix_ms,
-            operation: format!(
-                "{}::{}",
-                rule.operation_family().as_str(),
-                rule.as_rule_id().to_lowercase()
-            ),
+            operation: rule.operation_name().to_owned(),
             mode: self.mode,
             action,
             incompatibility_probability: clamped_probability,
@@ -5198,6 +5214,14 @@ mod tests {
             assert!(!rule.policy_id().is_empty());
             assert!(!rule.fail_closed_default().is_empty());
             assert!(!rule.hardened_allowlist().is_empty());
+            assert_eq!(
+                rule.operation_name(),
+                format!(
+                    "{}::{}",
+                    rule.operation_family().as_str(),
+                    rule.as_rule_id().to_lowercase()
+                )
+            );
         }
         assert_eq!(
             CgsePolicyRule::R08.operation_family(),
