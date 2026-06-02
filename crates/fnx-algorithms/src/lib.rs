@@ -1557,7 +1557,7 @@ pub fn bellman_ford_shortest_paths(
     }
 
     let ordered_nodes = graph.nodes_ordered();
-    let ordered_edges = undirected_edges_in_iteration_order(graph);
+    let node_count = ordered_nodes.len();
     let mut distances = HashMap::<String, f64>::new();
     let mut predecessors = HashMap::<String, Option<String>>::new();
 
@@ -1566,52 +1566,29 @@ pub fn bellman_ford_shortest_paths(
 
     let mut nodes_touched = 1usize;
     let mut edges_scanned = 0usize;
-    let mut queue_peak = 1usize;
 
-    for _ in 0..ordered_nodes.len().saturating_sub(1) {
-        let mut changed = false;
-        for (left, right) in &ordered_edges {
-            let edge_weight = signed_edge_weight_or_default(graph, left, right, weight_attr);
-            edges_scanned += 2;
-            if relax_weighted_edge(
-                left,
-                right,
-                edge_weight,
-                &mut distances,
-                &mut predecessors,
-                &mut nodes_touched,
-            ) {
-                cgse_record_decision(&mut cgse_sink, right, left);
-                changed = true;
-            }
-            if relax_weighted_edge(
-                right,
-                left,
-                edge_weight,
-                &mut distances,
-                &mut predecessors,
-                &mut nodes_touched,
-            ) {
-                cgse_record_decision(&mut cgse_sink, left, right);
-                changed = true;
-            }
-        }
-        queue_peak = queue_peak.max(distances.len());
-        if !changed {
-            break;
-        }
-    }
-
-    let mut negative_cycle_detected = false;
-    for (left, right) in &ordered_edges {
-        let edge_weight = signed_edge_weight_or_default(graph, left, right, weight_attr);
-        if can_relax_weighted_edge(left, right, edge_weight, &distances)
-            || can_relax_weighted_edge(right, left, edge_weight, &distances)
-        {
-            negative_cycle_detected = true;
-            break;
-        }
-    }
+    // networkx implements Bellman-Ford as the SPFA variant (FIFO deque), not the
+    // textbook |V|-1-pass relaxation. The processing order determines which
+    // predecessor first establishes a node's minimum distance, so for
+    // equal-distance ties SPFA and textbook BF pick different (but equal-length)
+    // shortest paths. Mirror nx's deque order so single_source/all_pairs path
+    // outputs match exactly. (br-r37-c1-wloxg)
+    let (negative_cycle_detected, queue_peak) = bellman_ford_spfa(
+        source,
+        node_count,
+        |node| {
+            graph
+                .neighbors_iter(node)
+                .map(|it| it.map(str::to_owned).collect::<Vec<String>>())
+                .unwrap_or_default()
+        },
+        |from, to| signed_edge_weight_or_default(graph, from, to, weight_attr),
+        &mut distances,
+        &mut predecessors,
+        &mut cgse_sink,
+        &mut nodes_touched,
+        &mut edges_scanned,
+    );
 
     cgse_publish(
         CgseReferenceAlgorithm::BellmanFord,
@@ -1657,7 +1634,7 @@ pub fn bellman_ford_shortest_paths_directed(
     }
 
     let ordered_nodes = digraph.nodes_ordered();
-    let ordered_edges = directed_edges_in_iteration_order(digraph);
+    let node_count = ordered_nodes.len();
     let mut distances = HashMap::<String, f64>::new();
     let mut predecessors = HashMap::<String, Option<String>>::new();
 
@@ -1666,39 +1643,26 @@ pub fn bellman_ford_shortest_paths_directed(
 
     let mut nodes_touched = 1usize;
     let mut edges_scanned = 0usize;
-    let mut queue_peak = 1usize;
+    let mut cgse_sink: Option<CgseWitnessSink> = None;
 
-    for _ in 0..ordered_nodes.len().saturating_sub(1) {
-        let mut changed = false;
-        for (left, right) in &ordered_edges {
-            let edge_weight =
-                signed_digraph_edge_weight_or_default(digraph, left, right, weight_attr);
-            edges_scanned += 1;
-            if relax_weighted_edge(
-                left,
-                right,
-                edge_weight,
-                &mut distances,
-                &mut predecessors,
-                &mut nodes_touched,
-            ) {
-                changed = true;
-            }
-        }
-        queue_peak = queue_peak.max(distances.len());
-        if !changed {
-            break;
-        }
-    }
-
-    let mut negative_cycle_detected = false;
-    for (left, right) in &ordered_edges {
-        let edge_weight = signed_digraph_edge_weight_or_default(digraph, left, right, weight_attr);
-        if can_relax_weighted_edge(left, right, edge_weight, &distances) {
-            negative_cycle_detected = true;
-            break;
-        }
-    }
+    // Match networkx's SPFA (FIFO deque) processing order so equal-distance path
+    // tie-breaks agree with nx for directed graphs too. (br-r37-c1-wloxg)
+    let (negative_cycle_detected, queue_peak) = bellman_ford_spfa(
+        source,
+        node_count,
+        |node| {
+            digraph
+                .successors_iter(node)
+                .map(|it| it.map(str::to_owned).collect::<Vec<String>>())
+                .unwrap_or_default()
+        },
+        |from, to| signed_digraph_edge_weight_or_default(digraph, from, to, weight_attr),
+        &mut distances,
+        &mut predecessors,
+        &mut cgse_sink,
+        &mut nodes_touched,
+        &mut edges_scanned,
+    );
 
     weighted_paths_result(
         &ordered_nodes,
@@ -5409,6 +5373,79 @@ fn weighted_paths_result(
         negative_cycle_detected,
         witness,
     }
+}
+
+/// Shortest-Path Faster Algorithm (SPFA) relaxation loop, matching the
+/// processing order of networkx's `_inner_bellman_ford`.
+///
+/// networkx implements Bellman-Ford as SPFA: a FIFO queue seeded with the
+/// source, popping a node and relaxing its out-edges in adjacency-insertion
+/// order. A predecessor is recorded only on a strict distance improvement
+/// (`<`), so the first node to establish a given minimum distance wins every
+/// equal-distance tie. Mirroring this order is what makes fnx's reconstructed
+/// shortest paths agree with nx when multiple equal-length paths exist.
+///
+/// Negative cycles are detected the same way nx does: a node enqueued
+/// `node_count` times implies a reachable negative cycle. Returns
+/// `(negative_cycle_detected, queue_peak)`; `distances` and `predecessors` are
+/// filled in place. (br-r37-c1-wloxg)
+#[allow(clippy::too_many_arguments)]
+fn bellman_ford_spfa<N, W>(
+    source: &str,
+    node_count: usize,
+    mut neighbors_of: N,
+    mut edge_weight: W,
+    distances: &mut HashMap<String, f64>,
+    predecessors: &mut HashMap<String, Option<String>>,
+    cgse_sink: &mut Option<CgseWitnessSink>,
+    nodes_touched: &mut usize,
+    edges_scanned: &mut usize,
+) -> (bool, usize)
+where
+    N: FnMut(&str) -> Vec<String>,
+    W: FnMut(&str, &str) -> f64,
+{
+    let mut queue = VecDeque::<String>::new();
+    let mut in_queue = HashSet::<String>::new();
+    let mut enqueue_count = HashMap::<String, usize>::new();
+    queue.push_back(source.to_owned());
+    in_queue.insert(source.to_owned());
+    let mut queue_peak = 1usize;
+
+    while let Some(u) = queue.pop_front() {
+        in_queue.remove(&u);
+        let Some(base_distance) = distances.get(&u).copied() else {
+            continue;
+        };
+        for v in neighbors_of(&u) {
+            *edges_scanned += 1;
+            let candidate = base_distance + edge_weight(&u, &v);
+            let improves = match distances.get(&v) {
+                Some(existing) => candidate + DISTANCE_COMPARISON_EPSILON < *existing,
+                None => true,
+            };
+            if !improves {
+                continue;
+            }
+            if distances.insert(v.clone(), candidate).is_none() {
+                *nodes_touched += 1;
+            }
+            predecessors.insert(v.clone(), Some(u.clone()));
+            cgse_record_decision(cgse_sink, &v, &u);
+            if !in_queue.contains(&v) {
+                let count = enqueue_count.get(&v).copied().unwrap_or(0) + 1;
+                if count >= node_count {
+                    return (true, queue_peak);
+                }
+                enqueue_count.insert(v.clone(), count);
+                queue.push_back(v.clone());
+                in_queue.insert(v);
+                queue_peak = queue_peak.max(queue.len());
+            }
+        }
+    }
+
+    (false, queue_peak)
 }
 
 fn relax_weighted_edge(
