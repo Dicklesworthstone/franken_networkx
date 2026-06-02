@@ -17771,7 +17771,13 @@ def constraint(G, nodes=None, weight=None, *, backend=None, **backend_kwargs):
     # nx uses the directed mutual-weight convention (neighbors = successors |
     # predecessors, mutual_weight = w(u->v) + w(v->u)). Delegate directed
     # graphs to nx, like the weighted path already does.
-    if weight is not None or G.is_directed():
+    # br-r37-c1-1boe3: the Rust kernel also effectively ignores self-loops,
+    # but nx's matrix path folds a self-loop into the mutual-weight row-sum /
+    # row-max normalization (while still excluding the node from its own
+    # neighbor sum), so the two diverge whenever a non-isolated node carries a
+    # self-loop. Delegate self-loop graphs to nx rather than re-deriving nx's
+    # subtle matrix semantics in Rust.
+    if weight is not None or G.is_directed() or number_of_selfloops(G) > 0:
         return _call_networkx_submodule_for_parity(
             "algorithms.structuralholes", "constraint", G,
             nodes=nodes, weight=weight,
@@ -17820,7 +17826,10 @@ def effective_size(G, nodes=None, weight=None, *, backend=None, **backend_kwargs
     _validate_backend_dispatch_keywords("effective_size", backend, backend_kwargs)
     # br-r37-c1-shdir: see constraint — the Rust effective_size_rust kernel is
     # undirected-only and mishandled DiGraphs. Delegate directed graphs to nx.
-    if weight is not None or G.is_directed():
+    # br-r37-c1-1boe3: the Rust kernel also ignores self-loops, but nx folds a
+    # self-loop into the mutual-weight normalization, so delegate self-loop
+    # graphs to nx (same reasoning as constraint).
+    if weight is not None or G.is_directed() or number_of_selfloops(G) > 0:
         return _call_networkx_submodule_for_parity(
             "algorithms.structuralholes", "effective_size", G,
             nodes=nodes, weight=weight,
