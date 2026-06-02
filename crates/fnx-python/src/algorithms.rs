@@ -10045,10 +10045,13 @@ fn maximal_independent_set_with_random(
                 "Cannot choose from an empty sequence",
             ));
         }
-        let first = random
-            .call_method1("choice", (ordered_nodes.clone(),))?
-            .extract::<String>()?;
-        required.push(first);
+        // br-r37-c1-dxm71: random.choice(seq) == seq[random._randbelow(len(seq))];
+        // call _randbelow directly so we never clone the whole node list into a
+        // Python list just to pick one element.
+        let i = random
+            .call_method1("_randbelow", (ordered_nodes.len(),))?
+            .extract::<usize>()?;
+        required.push(ordered_nodes[i].clone());
     }
 
     let required_set: HashSet<&str> = required.iter().map(String::as_str).collect();
@@ -10065,40 +10068,64 @@ fn maximal_independent_set_with_random(
         }
     }
 
-    let mut indep_nodes = required;
-    let mut blocked: HashSet<String> = indep_nodes.iter().cloned().collect();
-    for node in &indep_nodes {
-        if let Some(neighbors) = inner.neighbors(node) {
-            blocked.extend(neighbors.into_iter().map(str::to_owned));
-        }
-    }
-
-    let mut available_nodes: Vec<String> = ordered_nodes
-        .into_iter()
-        .filter(|node| !blocked.contains(node))
+    // br-r37-c1-dxm71: run the peeling loop on node INDICES with a Vec<bool>
+    // ``blocked`` and per-node adjacency built once. The previous loop cloned
+    // the entire remaining ``available_nodes`` Vec<String> into a Python list
+    // on every iteration (to feed random.choice) and used a HashSet<String>
+    // for blocking — O(N) string clones + a PyO3 list build per pick, the
+    // dominant cost (~7x slower than nx). Using ``random._randbelow(len)`` for
+    // the index keeps nx's exact RNG sequence while never materialising the
+    // node list in Python. Output is byte-identical (same index per pick, same
+    // greedy removal order, same node strings).
+    let n = ordered_nodes.len();
+    let node_to_idx: HashMap<&str, usize> = ordered_nodes
+        .iter()
+        .enumerate()
+        .map(|(i, node)| (node.as_str(), i))
         .collect();
-
-    while !available_nodes.is_empty() {
-        let chosen = random
-            .call_method1("choice", (available_nodes.clone(),))?
-            .extract::<String>()?;
-        let index = available_nodes
-            .iter()
-            .position(|candidate| candidate == &chosen)
-            .expect("choice must return an available node");
-        available_nodes.remove(index);
-        indep_nodes.push(chosen.clone());
-
-        let mut banned = HashSet::from([chosen.clone()]);
-        if let Some(neighbors) = inner.neighbors(&chosen) {
-            banned.extend(neighbors.into_iter().map(str::to_owned));
+    let mut adj: Vec<Vec<usize>> = vec![Vec::new(); n];
+    for (i, node) in ordered_nodes.iter().enumerate() {
+        if let Some(neighbors) = inner.neighbors(node) {
+            for nbr in neighbors {
+                if let Some(&j) = node_to_idx.get(nbr) {
+                    adj[i].push(j);
+                }
+            }
         }
-        available_nodes.retain(|candidate| !banned.contains(candidate));
     }
 
-    Ok(indep_nodes
+    let mut blocked = vec![false; n];
+    let mut indep_idx: Vec<usize> = Vec::with_capacity(n);
+    for node in &required {
+        let i = node_to_idx[node.as_str()];
+        indep_idx.push(i);
+        blocked[i] = true;
+        for &j in &adj[i] {
+            blocked[j] = true;
+        }
+    }
+
+    // Candidate indices in node-insertion order (matches the previous
+    // ``ordered_nodes`` filter order).
+    let mut available: Vec<usize> = (0..n).filter(|&i| !blocked[i]).collect();
+    while !available.is_empty() {
+        let i = random
+            .call_method1("_randbelow", (available.len(),))?
+            .extract::<usize>()?;
+        let chosen = available[i];
+        indep_idx.push(chosen);
+        blocked[chosen] = true;
+        for &j in &adj[chosen] {
+            blocked[j] = true;
+        }
+        // Drops the chosen node and its neighbours together — identical to the
+        // old ``remove(index)`` + neighbour ``retain`` (order preserved).
+        available.retain(|&idx| !blocked[idx]);
+    }
+
+    Ok(indep_idx
         .into_iter()
-        .map(|node| gr.py_node_key(py, &node))
+        .map(|idx| gr.py_node_key(py, &ordered_nodes[idx]))
         .collect())
 }
 
@@ -10129,7 +10156,8 @@ fn maximal_independent_set(
         return maximal_independent_set_with_random(py, &gr, inner, &initial_nodes, &random);
     }
 
-    maximal_independent_set_with_random(py, &gr, inner, &initial_nodes, random_module.as_any())
+    let random_inst = random_module.getattr("_inst")?;
+    maximal_independent_set_with_random(py, &gr, inner, &initial_nodes, random_inst.as_any())
 }
 
 /// Greedy approximation for maximum independent set.
