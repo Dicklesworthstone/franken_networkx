@@ -6410,8 +6410,7 @@ fn _average_shortest_path_length_undirected(graph: &Graph) -> AverageShortestPat
 /// `NetworkXPointlessConcept`).  A single-node graph returns `true`.
 #[must_use]
 pub fn is_connected(graph: &Graph) -> IsConnectedResult {
-    let nodes = graph.nodes_ordered();
-    let n = nodes.len();
+    let n = graph.node_count();
     if n == 0 {
         return IsConnectedResult {
             is_connected: false,
@@ -6425,19 +6424,22 @@ pub fn is_connected(graph: &Graph) -> IsConnectedResult {
         };
     }
 
-    let mut visited = HashSet::new();
+    let mut visited = vec![false; n];
+    let mut visited_count = 1usize;
     let mut queue = VecDeque::new();
     let mut edges_scanned = 0usize;
     let mut queue_peak = 0usize;
 
-    visited.insert(nodes[0]);
-    queue.push_back(nodes[0]);
+    visited[0] = true;
+    queue.push_back(0usize);
 
     while let Some(current) = queue.pop_front() {
-        if let Some(neighbors) = graph.neighbors_iter(current) {
-            for neighbor in neighbors {
+        if let Some(neighbors) = graph.neighbors_indices(current) {
+            for &neighbor in neighbors {
                 edges_scanned += 1;
-                if visited.insert(neighbor) {
+                if !visited[neighbor] {
+                    visited[neighbor] = true;
+                    visited_count += 1;
                     queue.push_back(neighbor);
                 }
             }
@@ -6448,11 +6450,11 @@ pub fn is_connected(graph: &Graph) -> IsConnectedResult {
     }
 
     IsConnectedResult {
-        is_connected: visited.len() == n,
+        is_connected: visited_count == n,
         witness: ComplexityWitness {
             algorithm: "bfs_is_connected".to_owned(),
             complexity_claim: "O(|V| + |E|)".to_owned(),
-            nodes_touched: visited.len(),
+            nodes_touched: visited_count,
             edges_scanned,
             queue_peak,
         },
@@ -17821,36 +17823,59 @@ pub fn maximal_independent_set(
         }
     }
 
-    let mut indep_nodes = required;
-    let mut blocked: HashSet<String> = indep_nodes.iter().cloned().collect();
-    for node in &indep_nodes {
+    // br-r37-c1-dxm71: run the peeling loop on node INDICES with a Vec<bool>
+    // ``blocked`` instead of a HashSet<String>. The previous version cloned
+    // every chosen node and every neighbour string on each pick (the fnx
+    // String-node substrate tax), which made the kernel ~7x slower than nx.
+    // Indices give O(1) blocking with no hashing/cloning. Output is identical:
+    // the index permutation tracks the string permutation 1:1 (same RNG
+    // sequence, same swap positions), and the greedy scan order is unchanged.
+    let n = ordered_nodes.len();
+    let node_to_idx: HashMap<&str, usize> = ordered_nodes
+        .iter()
+        .enumerate()
+        .map(|(i, node)| (node.as_str(), i))
+        .collect();
+    let mut adj: Vec<Vec<usize>> = vec![Vec::new(); n];
+    for (i, node) in ordered_nodes.iter().enumerate() {
         if let Some(neighbors) = graph.neighbors(node) {
-            blocked.extend(neighbors.into_iter().map(str::to_owned));
+            for nbr in neighbors {
+                if let Some(&j) = node_to_idx.get(nbr) {
+                    adj[i].push(j);
+                }
+            }
         }
     }
 
-    let mut available_nodes: Vec<String> = ordered_nodes
-        .into_iter()
-        .filter(|node| !blocked.contains(node))
-        .collect();
+    let mut blocked = vec![false; n];
+    let mut indep_nodes = required;
+    for node in &indep_nodes {
+        let i = node_to_idx[node.as_str()];
+        blocked[i] = true;
+        for &j in &adj[i] {
+            blocked[j] = true;
+        }
+    }
+
+    // Candidate indices in node-insertion order (matches the old
+    // ``ordered_nodes`` filter order before the shuffle).
+    let mut available: Vec<usize> = (0..n).filter(|&i| !blocked[i]).collect();
 
     if let Some(mut s) = seed_state {
-        // We need deterministic shuffle for replay stability if seed is given
-        // Simple Fisher-Yates
-        for i in (1..available_nodes.len()).rev() {
+        // Deterministic Fisher-Yates over indices — identical swap sequence
+        // to the previous string-based shuffle.
+        for i in (1..available.len()).rev() {
             let j = (next_seed(&mut s) as usize) % (i + 1);
-            available_nodes.swap(i, j);
+            available.swap(i, j);
         }
     }
 
-    for chosen in available_nodes {
-        if !blocked.contains(&chosen) {
-            indep_nodes.push(chosen.clone());
-            blocked.insert(chosen.clone());
-            if let Some(neighbors) = graph.neighbors(&chosen) {
-                for nbr in neighbors {
-                    blocked.insert(nbr.to_owned());
-                }
+    for idx in available {
+        if !blocked[idx] {
+            indep_nodes.push(ordered_nodes[idx].clone());
+            blocked[idx] = true;
+            for &j in &adj[idx] {
+                blocked[j] = true;
             }
         }
     }
@@ -20906,11 +20931,7 @@ pub fn single_source_dijkstra_full_directed(
 /// Single-source Dijkstra returning (distances, paths) for undirected graph.
 /// Matches `networkx.single_source_dijkstra(G, source, weight=weight)`.
 #[must_use]
-pub fn single_source_dijkstra_full(
-    graph: &Graph,
-    source: &str,
-    weight_attr: &str,
-) -> DijkstraFull {
+pub fn single_source_dijkstra_full(graph: &Graph, source: &str, weight_attr: &str) -> DijkstraFull {
     let result = multi_source_dijkstra(graph, &[source], weight_attr);
     // result.distances is in finalize (heap-pop) order, matching nx key order.
     let mut distances = Vec::with_capacity(result.distances.len());
@@ -21256,10 +21277,7 @@ pub fn single_target_shortest_path_length_directed(
 /// Matches `networkx.all_pairs_dijkstra(G, weight=weight)`.
 #[allow(clippy::type_complexity)]
 #[must_use]
-pub fn all_pairs_dijkstra(
-    graph: &Graph,
-    weight_attr: &str,
-) -> Vec<(String, DijkstraFull)> {
+pub fn all_pairs_dijkstra(graph: &Graph, weight_attr: &str) -> Vec<(String, DijkstraFull)> {
     graph
         .nodes_ordered()
         .into_iter()
@@ -21308,10 +21326,7 @@ pub fn all_pairs_dijkstra_path_length_directed(
 /// All-pairs Dijkstra returning paths only.
 /// Matches `networkx.all_pairs_dijkstra_path(G, weight=weight)`.
 #[must_use]
-pub fn all_pairs_dijkstra_path(
-    graph: &Graph,
-    weight_attr: &str,
-) -> Vec<(String, OrderedPaths)> {
+pub fn all_pairs_dijkstra_path(graph: &Graph, weight_attr: &str) -> Vec<(String, OrderedPaths)> {
     graph
         .nodes_ordered()
         .into_iter()
@@ -42281,8 +42296,9 @@ mod tests {
         let mut g = Graph::strict();
         let _ = g.add_edge("a", "b");
         let _ = g.add_edge("b", "c");
-        let paths: HashMap<String, Vec<String>> =
-            single_source_dijkstra_path(&g, "a", "weight").into_iter().collect();
+        let paths: HashMap<String, Vec<String>> = single_source_dijkstra_path(&g, "a", "weight")
+            .into_iter()
+            .collect();
         assert_eq!(paths["c"], vec!["a", "b", "c"]);
     }
 
@@ -42291,8 +42307,9 @@ mod tests {
         let mut g = Graph::strict();
         let _ = g.add_edge("a", "b");
         let _ = g.add_edge("b", "c");
-        let dists: HashMap<String, f64> =
-            single_source_dijkstra_path_length(&g, "a", "weight").into_iter().collect();
+        let dists: HashMap<String, f64> = single_source_dijkstra_path_length(&g, "a", "weight")
+            .into_iter()
+            .collect();
         assert_eq!(dists["a"], 0.0);
         assert_eq!(dists["b"], 1.0);
         assert_eq!(dists["c"], 2.0);
@@ -42305,7 +42322,9 @@ mod tests {
         let _ = g.add_edge_with_attrs("b", "c", attrs([("weight", "2.0")]));
         let _ = g.add_edge_with_attrs("a", "c", attrs([("weight", "10.0")]));
         let dists: HashMap<String, f64> =
-            single_source_dijkstra_path_length_directed(&g, "a", "weight").into_iter().collect();
+            single_source_dijkstra_path_length_directed(&g, "a", "weight")
+                .into_iter()
+                .collect();
         assert_eq!(dists["a"], 0.0);
         assert_eq!(dists["b"], 1.0);
         assert_eq!(dists["c"], 3.0);
@@ -42320,10 +42339,11 @@ mod tests {
         let mut g = Graph::strict();
         let _ = g.add_edge("a", "b");
         let _ = g.add_edge("b", "c");
-        let paths: HashMap<String, Vec<String>> = single_source_bellman_ford_path(&g, "a", "weight")
-            .expect("no negative cycle")
-            .into_iter()
-            .collect();
+        let paths: HashMap<String, Vec<String>> =
+            single_source_bellman_ford_path(&g, "a", "weight")
+                .expect("no negative cycle")
+                .into_iter()
+                .collect();
         assert_eq!(paths["c"], vec!["a", "b", "c"]);
     }
 
@@ -42332,11 +42352,10 @@ mod tests {
         let mut g = Graph::strict();
         let _ = g.add_edge("a", "b");
         let _ = g.add_edge("b", "c");
-        let dists: HashMap<String, f64> =
-            single_source_bellman_ford_path_length(&g, "a", "weight")
-                .expect("no negative cycle")
-                .into_iter()
-                .collect();
+        let dists: HashMap<String, f64> = single_source_bellman_ford_path_length(&g, "a", "weight")
+            .expect("no negative cycle")
+            .into_iter()
+            .collect();
         assert_eq!(dists["a"], 0.0);
         assert_eq!(dists["c"], 2.0);
     }
@@ -42416,10 +42435,11 @@ mod tests {
         let mut g = Graph::strict();
         let _ = g.add_edge("a", "b");
         let _ = g.add_edge("b", "c");
-        let paths: HashMap<String, HashMap<String, Vec<String>>> = all_pairs_dijkstra_path(&g, "weight")
-            .into_iter()
-            .map(|(k, v)| (k, v.into_iter().collect()))
-            .collect();
+        let paths: HashMap<String, HashMap<String, Vec<String>>> =
+            all_pairs_dijkstra_path(&g, "weight")
+                .into_iter()
+                .map(|(k, v)| (k, v.into_iter().collect()))
+                .collect();
         assert_eq!(paths["a"]["c"], vec!["a", "b", "c"]);
         assert_eq!(paths["c"]["a"], vec!["c", "b", "a"]);
     }
@@ -42429,10 +42449,11 @@ mod tests {
         let mut g = Graph::strict();
         let _ = g.add_edge("a", "b");
         let _ = g.add_edge("b", "c");
-        let dists: HashMap<String, HashMap<String, f64>> = all_pairs_dijkstra_path_length(&g, "weight")
-            .into_iter()
-            .map(|(k, v)| (k, v.into_iter().collect()))
-            .collect();
+        let dists: HashMap<String, HashMap<String, f64>> =
+            all_pairs_dijkstra_path_length(&g, "weight")
+                .into_iter()
+                .map(|(k, v)| (k, v.into_iter().collect()))
+                .collect();
         assert_eq!(dists["a"]["c"], 2.0);
         assert_eq!(dists["a"]["a"], 0.0);
     }
@@ -46072,6 +46093,29 @@ mod tests {
         assert_eq!(t.nodes_ordered().len(), 10);
         assert_eq!(t.edge_count(), 9); // n-1 edges
         assert!(crate::is_connected(&t).is_connected);
+    }
+
+    #[test]
+    fn test_is_connected_uses_indexed_traversal_semantics() {
+        let mut connected = Graph::strict();
+        let _ = connected.add_edge("a", "b");
+        let _ = connected.add_edge("b", "c");
+        let connected_result = crate::is_connected(&connected);
+        assert!(connected_result.is_connected);
+        assert_eq!(connected_result.witness.nodes_touched, 3);
+
+        let mut disconnected = Graph::strict();
+        let _ = disconnected.add_edge("a", "b");
+        disconnected.add_node("isolated");
+        let disconnected_result = crate::is_connected(&disconnected);
+        assert!(!disconnected_result.is_connected);
+        assert_eq!(disconnected_result.witness.nodes_touched, 2);
+
+        let mut self_loop_only = Graph::strict();
+        let _ = self_loop_only.add_edge("solo", "solo");
+        let self_loop_result = crate::is_connected(&self_loop_only);
+        assert!(self_loop_result.is_connected);
+        assert_eq!(self_loop_result.witness.nodes_touched, 1);
     }
 
     #[test]
