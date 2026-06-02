@@ -24403,25 +24403,44 @@ def resistance_distance(G, nodeA=None, nodeB=None, weight=None, invert_weight=Tr
     if not is_connected(G):
         raise NetworkXError("Graph G must be strongly connected.")
 
+    # br-r37-c1-resdinvw: proper resistance distance builds the Laplacian
+    # from the *reciprocal* of the edge weights (weight = resistance, so
+    # conductance = 1/weight). nx does this on a copy whenever
+    # ``invert_weight`` is True (the default) and a weight key is given;
+    # fnx previously ignored ``invert_weight`` entirely, so weighted graphs
+    # came out as though invert_weight=False — wrong by default.
+    Gc = G
+    if invert_weight and weight is not None:
+        Gc = G.copy()
+        if Gc.is_multigraph():
+            for u, v, k, d in Gc.edges(keys=True, data=True):
+                Gc[u][v][k][weight] = 1 / d[weight]
+        else:
+            for u, v, d in Gc.edges(data=True):
+                Gc[u][v][weight] = 1 / d[weight]
+
     # br-r37-c1-uvupu: use weight directly, not weight or "weight"
     # which incorrectly uses "weight" when None is passed
-    L = laplacian_matrix(G, nodelist=nodelist, weight=weight).toarray()
-    # Pseudo-inverse of Laplacian
-    L_pinv = np.linalg.pinv(L)
+    L = laplacian_matrix(Gc, nodelist=nodelist, weight=weight).toarray()
+    # Pseudo-inverse of Laplacian (symmetric for undirected graphs)
+    L_pinv = np.linalg.pinv(L, hermitian=True)
 
     idx = {node: i for i, node in enumerate(nodelist)}
 
-    if nodeA is not None and nodeB is not None:
-        i, j = idx[nodeA], idx[nodeB]
-        return float(L_pinv[i, i] + L_pinv[j, j] - 2 * L_pinv[i, j])
+    def _rd(a, b):
+        i, j = idx[a], idx[b]
+        return float(L_pinv[i, i] + L_pinv[j, j] - L_pinv[i, j] - L_pinv[j, i])
 
-    result = {}
-    for u in nodelist:
-        result[u] = {}
-        for v in nodelist:
-            i, j = idx[u], idx[v]
-            result[u][v] = float(L_pinv[i, i] + L_pinv[j, j] - 2 * L_pinv[i, j])
-    return result
+    # nx returns a float when both endpoints are given, and a *flat* dict
+    # keyed by the other endpoint when exactly one of nodeA/nodeB is given.
+    if nodeA is not None and nodeB is not None:
+        return _rd(nodeA, nodeB)
+    if nodeA is not None:
+        return {v: _rd(nodeA, v) for v in nodelist}
+    if nodeB is not None:
+        return {u: _rd(u, nodeB) for u in nodelist}
+
+    return {u: {v: _rd(u, v) for v in nodelist} for u in nodelist}
 
 
 def kemeny_constant(G, *, weight=None, backend=None, **backend_kwargs):
