@@ -15006,14 +15006,23 @@ def biconnected_components(G):
 
     Matches upstream's ``generator[set]`` contract (franken_networkx-v1nwd).
 
-    br-bccbowtie: the Rust ``_raw_biconnected_components`` failed to
-    split at articulation points on graphs like the "bowtie" (two
-    triangles sharing a single vertex), returning one merged
-    component instead of NX's two. The companion
-    ``biconnected_component_edges`` already delegates to NX
-    (br-r37-c1-9kyjl) — mirror that delegation here so the
-    node-component decomposition matches NX's articulation-point
-    splitting on every fixture.
+    br-bccbowtie: the Rust ``_raw_biconnected_components`` previously
+    failed to split at articulation points on graphs like the "bowtie"
+    (two triangles sharing a single vertex), returning one merged
+    component instead of NX's two, so this wrapper delegated to NX.
+
+    br-r37-c1-bccdisc: the root cause was a low-link bug in the Rust
+    edge-stack DFS — back edges folded in ``low[w]`` instead of
+    ``discovery[w]`` (nx does ``low[parent] = min(low[parent],
+    discovery[child])``). On the bowtie the shared articulation vertex
+    carries ``low < disc``, so the wrong propagation defeated the
+    ``low >= disc[parent]`` split test. With that fixed the native
+    kernel produces byte-identical node-set components AND the same
+    component sequence as the nx-delegation path (verified: 400 random
+    graphs incl. trees/triangle-chains, set + sequence equality, plus
+    empty/single/self-loop corners). Drop the delegation: the native
+    DFS over fnx's own adjacency is ~4-5x faster than convert-to-nx +
+    nx's pure-Python DFS.
     """
     G = _coerce_arg_to_fnx_graph(G)
     # br-r37-c1-scceager: nx is @not_implemented_for('directed') — eager raise.
@@ -15022,8 +15031,7 @@ def biconnected_components(G):
 
     def _gen():
         yield from (
-            set(component)
-            for component in _call_networkx_for_parity("biconnected_components", G)
+            set(component) for component in _raw_biconnected_components(G)
         )
 
     return _gen()

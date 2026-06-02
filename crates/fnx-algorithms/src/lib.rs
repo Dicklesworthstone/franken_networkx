@@ -22183,11 +22183,18 @@ pub fn biconnected_component_edges(graph: &Graph) -> Vec<Vec<(String, String)>> 
                     stack.push((w, w_succs, 0));
                 } else if parent.get(v_str) != Some(&Some(w)) && discovery[w] < discovery[v_str] {
                     edge_stack.push((v_str, w));
-                    let w_low = low[w];
+                    // br-r37-c1-bccdisc: for a back edge (v, w) the low-link must
+                    // fold in the DISCOVERY time of w, not low[w]. Using low[w]
+                    // wrongly propagates a deeper ancestor reachable from w (e.g.
+                    // the bowtie's shared articulation vertex carries low < disc),
+                    // which defeats the `low >= disc[parent]` split test and merges
+                    // two biconnected components into one. nx's _biconnected_dfs
+                    // does `low[parent] = min(low[parent], discovery[child])`.
+                    let w_disc = discovery[w];
                     if let Some(v_low) = low.get_mut(v_str)
-                        && w_low < *v_low
+                        && w_disc < *v_low
                     {
-                        *v_low = w_low;
+                        *v_low = w_disc;
                     }
                 }
             } else {
