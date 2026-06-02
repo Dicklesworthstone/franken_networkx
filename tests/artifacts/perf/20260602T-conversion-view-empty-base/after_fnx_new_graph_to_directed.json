@@ -1,0 +1,1 @@
+{"calls": 50, "cases": [{"case": "graph_to_directed", "digest": "ed98a168154b409394d776d61e5872bbed509f3e7e670cbc0867cf4f3161f9c8", "seconds_per_call": 3.34412e-06}], "combined_snapshot_digest": "7e033fc29b4b5fc211a95afaf2438c6851272e086ace0b2c9ffc6e4e9faa3257", "degree": 4, "digest_n": 64, "engine": "fnx-new", "mean_seconds_per_call": 3.34412e-06, "n": 1000}

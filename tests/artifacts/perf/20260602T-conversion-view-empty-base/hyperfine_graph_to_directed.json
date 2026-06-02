@@ -1,0 +1,76 @@
+{
+  "results": [
+    {
+      "command": ".venv/bin/python tests/artifacts/perf/20260602T-conversion-view-empty-base/bench_conversion_view.py --engine fnx-old --case graph_to_directed --n 1000 --degree 4 --calls 50",
+      "mean": 1.3921046395999999,
+      "stddev": 0.034305967217832536,
+      "median": 1.3850275292,
+      "user": 5.14564742,
+      "system": 0.4636146,
+      "min": 1.3480371422,
+      "max": 1.4398644582,
+      "times": [
+        1.3791539632,
+        1.4084401052,
+        1.3850275292,
+        1.3480371422,
+        1.4398644582
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": ".venv/bin/python tests/artifacts/perf/20260602T-conversion-view-empty-base/bench_conversion_view.py --engine fnx-new --case graph_to_directed --n 1000 --degree 4 --calls 50",
+      "mean": 0.32658790220000006,
+      "stddev": 0.011590505289453993,
+      "median": 0.33259187120000006,
+      "user": 4.47254602,
+      "system": 0.07037279999999999,
+      "min": 0.30650517420000006,
+      "max": 0.33422599920000007,
+      "times": [
+        0.30650517420000006,
+        0.32673300520000004,
+        0.33288346120000006,
+        0.33259187120000006,
+        0.33422599920000007
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": ".venv/bin/python tests/artifacts/perf/20260602T-conversion-view-empty-base/bench_conversion_view.py --engine nx --case graph_to_directed --n 1000 --degree 4 --calls 50",
+      "mean": 0.15816783360000003,
+      "stddev": 0.010887697978209442,
+      "median": 0.1581798502,
+      "user": 0.12552242,
+      "system": 0.0320372,
+      "min": 0.1463307962,
+      "max": 0.17029594020000002,
+      "times": [
+        0.1463307962,
+        0.1483489392,
+        0.17029594020000002,
+        0.1581798502,
+        0.1676836422
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}
