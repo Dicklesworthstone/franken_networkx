@@ -17026,13 +17026,21 @@ def k_core(G, k=None, core_number=None):
     """
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
-    if any(u == v for u, v in G.edges()):
-        raise NetworkXNotImplemented(_self_loop_guard_for_core_family())
     if core_number is None:
         # br-coredir: route through the public wrapper so directed
         # graphs use NX's in+out degree _count instead of the Rust
         # binding's undirected collapse.
+        # br-r37-c1-lczjd: core_number() runs the native O(|E|)
+        # number_of_selfloops self-loop guard itself and raises the
+        # identical NetworkXNotImplemented, so the redundant Python
+        # ``any(u == v for u, v in G.edges())`` EdgeView pass (~86ms of
+        # k_crust's 199ms at n=20000; already dropped from core_number
+        # by br-gauntlet-perf4) is skipped here.
         core_number = globals()["core_number"](G)
+    elif number_of_selfloops(G) > 0:
+        # Caller supplied core_number, so core_number() never runs;
+        # still reject self-loops per nx, via the native fast check.
+        raise NetworkXNotImplemented(_self_loop_guard_for_core_family())
     if k is None:
         # br-r37-c1-kcore-empty: nx's _core_subgraph does
         # ``k = max(core.values())`` with no fallback — empty
@@ -17052,13 +17060,18 @@ def k_shell(G, k=None, core_number=None):
     """
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
-    if any(u == v for u, v in G.edges()):
-        raise NetworkXNotImplemented(_self_loop_guard_for_core_family())
     if core_number is None:
         # br-coredir: route through the public wrapper so directed
         # graphs use NX's in+out degree _count instead of the Rust
         # binding's undirected collapse.
+        # br-r37-c1-lczjd: skip the redundant Python EdgeView self-loop
+        # guard — core_number() raises the identical NetworkXNotImplemented
+        # via the native number_of_selfloops check.
         core_number = globals()["core_number"](G)
+    elif number_of_selfloops(G) > 0:
+        # Caller supplied core_number, so core_number() never runs;
+        # still reject self-loops per nx, via the native fast check.
+        raise NetworkXNotImplemented(_self_loop_guard_for_core_family())
     if k is None:
         # br-r37-c1-kcore-empty: nx's _core_subgraph does
         # ``k = max(core.values())`` with no fallback — empty
@@ -17078,13 +17091,18 @@ def k_crust(G, k=None, core_number=None):
     """
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
-    if any(u == v for u, v in G.edges()):
-        raise NetworkXNotImplemented(_self_loop_guard_for_core_family())
     if core_number is None:
         # br-coredir: route through the public wrapper so directed
         # graphs use NX's in+out degree _count instead of the Rust
         # binding's undirected collapse.
+        # br-r37-c1-lczjd: skip the redundant Python EdgeView self-loop
+        # guard — core_number() raises the identical NetworkXNotImplemented
+        # via the native number_of_selfloops check.
         core_number = globals()["core_number"](G)
+    elif number_of_selfloops(G) > 0:
+        # Caller supplied core_number, so core_number() never runs;
+        # still reject self-loops per nx, via the native fast check.
+        raise NetworkXNotImplemented(_self_loop_guard_for_core_family())
     if k is None:
         # br-r37-c1-qzdbg: nx's k_crust uses ``max(core.values())
         # - 1`` (one less than _core_subgraph's default), per the
@@ -17106,13 +17124,18 @@ def k_corona(G, k, core_number=None):
     """
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
-    if any(u == v for u, v in G.edges()):
-        raise NetworkXNotImplemented(_self_loop_guard_for_core_family())
     if core_number is None:
         # br-coredir: route through the public wrapper so directed
         # graphs use NX's in+out degree _count instead of the Rust
         # binding's undirected collapse.
+        # br-r37-c1-lczjd: skip the redundant Python EdgeView self-loop
+        # guard — core_number() raises the identical NetworkXNotImplemented
+        # via the native number_of_selfloops check.
         core_number = globals()["core_number"](G)
+    elif number_of_selfloops(G) > 0:
+        # Caller supplied core_number, so core_number() never runs;
+        # still reject self-loops per nx, via the native fast check.
+        raise NetworkXNotImplemented(_self_loop_guard_for_core_family())
     core_nodes = {n for n, c in core_number.items() if c >= k}
     corona_nodes = []
     for n in core_nodes:
