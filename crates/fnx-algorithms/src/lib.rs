@@ -2215,6 +2215,19 @@ fn closeness_centrality_generic<G: GraphView>(graph: &G) -> ClosenessCentralityR
     let mut total_edges_scanned = 0usize;
     let mut global_queue_peak = 0usize;
 
+    let reverse_adjacency = nodes
+        .iter()
+        .map(|&node| {
+            let mut indexed_neighbors = Vec::new();
+            if let Some(neighbors) = graph.in_neighbors_iter(node) {
+                for neighbor in neighbors {
+                    indexed_neighbors.push(graph.get_node_index(neighbor));
+                }
+            }
+            indexed_neighbors
+        })
+        .collect::<Vec<Vec<Option<usize>>>>();
+
     for s in 0..n {
         let mut queue = VecDeque::<usize>::new();
         let mut distance = vec![None; n];
@@ -2235,16 +2248,14 @@ fn closeness_centrality_generic<G: GraphView>(graph: &G) -> ClosenessCentralityR
             // which gives us the reverse BFS needed by NX's closeness
             // centrality convention (sum of distances from all nodes TO s).
             // For undirected graphs, in_neighbors_iter == neighbors_iter.
-            if let Some(neighbors) = graph.in_neighbors_iter(nodes[v]) {
-                for w_name in neighbors {
-                    total_edges_scanned += 1;
-                    if let Some(w) = graph.get_node_index(w_name)
-                        && distance[w].is_none()
-                    {
-                        distance[w] = Some(d + 1);
-                        queue.push_back(w);
-                        global_queue_peak = global_queue_peak.max(queue.len());
-                    }
+            for maybe_w in &reverse_adjacency[v] {
+                total_edges_scanned += 1;
+                if let Some(w) = *maybe_w
+                    && distance[w].is_none()
+                {
+                    distance[w] = Some(d + 1);
+                    queue.push_back(w);
+                    global_queue_peak = global_queue_peak.max(queue.len());
                 }
             }
         }
