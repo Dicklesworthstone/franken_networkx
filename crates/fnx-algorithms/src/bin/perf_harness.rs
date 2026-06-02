@@ -21,9 +21,11 @@
 //! CLI equivalents are also accepted so rch cargo-run invocations can pass
 //! settings through with `-- --pprof --algo=betweenness --n=1500`.
 
-use std::collections::{BTreeMap, HashSet};
 use std::hint::black_box;
 use std::time::Instant;
+
+#[cfg(feature = "profile-pprof")]
+use std::collections::{BTreeMap, HashSet};
 
 use fnx_algorithms::{
     betweenness_centrality, closeness_centrality, connected_components, pagerank,
@@ -113,11 +115,7 @@ fn main() {
         .unwrap_or(1);
     let seed = args
         .seed
-        .or_else(|| {
-            std::env::var("SEED")
-                .ok()
-                .and_then(|v| v.parse().ok())
-        })
+        .or_else(|| std::env::var("SEED").ok().and_then(|v| v.parse().ok()))
         .unwrap_or(0x2545_F491_4F6C_DD1D);
     let pprof_freq = args.pprof_freq.or_else(|| {
         std::env::var("PPROF_FREQ")
@@ -130,10 +128,6 @@ fn main() {
             .and_then(|value| value.parse().ok())
     });
     let pprof_enabled = args.pprof || std::env::var_os("PPROF").is_some();
-    let seed: u64 = std::env::var("SEED")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(seed);
 
     let g = build_sparse(n, deg, seed);
     let m = g.edge_count();
@@ -198,13 +192,21 @@ fn start_pprof_guard(
         return None;
     }
 
-    Some(
-        pprof::ProfilerGuardBuilder::default()
-            .frequency(frequency.unwrap_or(997))
-            .blocklist(&["libc", "libgcc", "pthread", "vdso"])
-            .build()
-            .expect("pprof guard should start"),
-    )
+    let sample_frequency = match frequency {
+        Some(value) => value,
+        None => 997,
+    };
+    match pprof::ProfilerGuardBuilder::default()
+        .frequency(sample_frequency)
+        .blocklist(&["libc", "libgcc", "pthread", "vdso"])
+        .build()
+    {
+        Ok(guard) => Some(guard),
+        Err(error) => {
+            eprintln!("failed to start pprof profiler: {error}");
+            std::process::exit(2);
+        }
+    }
 }
 
 #[cfg(not(feature = "profile-pprof"))]
@@ -222,7 +224,13 @@ fn print_pprof_report(guard: Option<pprof::ProfilerGuard<'static>>, limit: Optio
         return;
     };
 
-    let report = guard.report().build().expect("pprof report should build");
+    let report = match guard.report().build() {
+        Ok(report) => report,
+        Err(error) => {
+            eprintln!("failed to build pprof report: {error}");
+            std::process::exit(2);
+        }
+    };
     let mut samples_by_symbol = BTreeMap::<String, isize>::new();
 
     for (frames, count) in &report.data {
