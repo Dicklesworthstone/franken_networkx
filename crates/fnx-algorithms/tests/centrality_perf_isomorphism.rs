@@ -94,9 +94,13 @@ fn sparse_edges(n: usize, avg_deg: usize, seed: u64) -> Vec<(usize, usize)> {
 fn assert_maps_close(a: &HashMap<String, f64>, b: &HashMap<String, f64>, label: &str) {
     assert_eq!(a.len(), b.len(), "{label}: node count differs");
     for (k, va) in a {
-        let vb = b
-            .get(k)
-            .unwrap_or_else(|| panic!("{label}: node {k} missing in permuted graph"));
+        assert!(
+            b.contains_key(k),
+            "{label}: node {k} missing in permuted graph"
+        );
+        let Some(vb) = b.get(k) else {
+            continue;
+        };
         let diff = (va - vb).abs();
         let tol = 1e-9 * va.abs().max(1.0);
         assert!(
@@ -109,7 +113,12 @@ fn assert_maps_close(a: &HashMap<String, f64>, b: &HashMap<String, f64>, label: 
 /// Permutation must not change per-node centrality scores.
 #[test]
 fn centrality_is_insertion_order_invariant() {
-    for &(n, deg, seed) in &[(60usize, 6usize, 1u64), (120, 8, 7), (200, 4, 42), (90, 10, 99)] {
+    for &(n, deg, seed) in &[
+        (60usize, 6usize, 1u64),
+        (120, 8, 7),
+        (200, 4, 42),
+        (90, 10, 99),
+    ] {
         let edges = sparse_edges(n, deg, seed);
         let canonical: Vec<usize> = (0..n).collect();
         // Reverse insertion order — a maximally different ordering.

@@ -956,12 +956,8 @@ pub fn shortest_path_unweighted(graph: &Graph, source: &str, target: &str) -> Sh
 
 /// Fast internal implementation using integer indices.
 fn shortest_path_unweighted_fast(graph: &Graph, source: &str, target: &str) -> Option<Vec<String>> {
-    let Some(source_idx) = graph.get_node_index(source) else {
-        return None;
-    };
-    let Some(target_idx) = graph.get_node_index(target) else {
-        return None;
-    };
+    let source_idx = graph.get_node_index(source)?;
+    let target_idx = graph.get_node_index(target)?;
 
     if source_idx == target_idx {
         return Some(vec![source.to_owned()]);
@@ -5545,10 +5541,10 @@ pub fn digraph_has_nonfinite_edge_weight(digraph: &DiGraph, weight_attr: &str) -
 #[must_use]
 pub fn graph_has_nonnumeric_edge_weight(graph: &Graph, weight_attr: &str) -> bool {
     for (_, _, attrs) in graph.edges_ordered_borrowed() {
-        if let Some(raw) = attrs.get(weight_attr) {
-            if !raw.is_strictly_numeric() {
-                return true;
-            }
+        if let Some(raw) = attrs.get(weight_attr)
+            && !raw.is_strictly_numeric()
+        {
+            return true;
         }
     }
     false
@@ -5557,10 +5553,10 @@ pub fn graph_has_nonnumeric_edge_weight(graph: &Graph, weight_attr: &str) -> boo
 #[must_use]
 pub fn digraph_has_nonnumeric_edge_weight(digraph: &DiGraph, weight_attr: &str) -> bool {
     for (_, _, attrs) in digraph.edges_ordered_borrowed() {
-        if let Some(raw) = attrs.get(weight_attr) {
-            if !raw.is_strictly_numeric() {
-                return true;
-            }
+        if let Some(raw) = attrs.get(weight_attr)
+            && !raw.is_strictly_numeric()
+        {
+            return true;
         }
     }
     false
@@ -5572,10 +5568,10 @@ pub fn digraph_has_nonnumeric_edge_weight(digraph: &DiGraph, weight_attr: &str) 
 #[must_use]
 pub fn graph_edge_weights_all_int(graph: &Graph, weight_attr: &str) -> bool {
     for (_, _, attrs) in graph.edges_ordered_borrowed() {
-        if let Some(raw) = attrs.get(weight_attr) {
-            if !raw.is_int() {
-                return false;
-            }
+        if let Some(raw) = attrs.get(weight_attr)
+            && !raw.is_int()
+        {
+            return false;
         }
     }
     true
@@ -5585,10 +5581,10 @@ pub fn graph_edge_weights_all_int(graph: &Graph, weight_attr: &str) -> bool {
 #[must_use]
 pub fn digraph_edge_weights_all_int(digraph: &DiGraph, weight_attr: &str) -> bool {
     for (_, _, attrs) in digraph.edges_ordered_borrowed() {
-        if let Some(raw) = attrs.get(weight_attr) {
-            if !raw.is_int() {
-                return false;
-            }
+        if let Some(raw) = attrs.get(weight_attr)
+            && !raw.is_int()
+        {
+            return false;
         }
     }
     true
@@ -41232,7 +41228,7 @@ mod tests {
         // Removing ANY edge must preserve planarity (monotonicity)
         for (u, v) in &edges {
             let mut g_minus_e = g.clone();
-            let _ = g_minus_e.remove_edge(*u, *v);
+            let _ = g_minus_e.remove_edge(u, v);
             assert!(
                 is_planar(&g_minus_e),
                 "removing edge ({u},{v}) must preserve planarity"
