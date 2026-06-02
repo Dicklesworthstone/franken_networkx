@@ -11741,11 +11741,21 @@ def strongly_connected_components(G):
     """
     # br-r37-c1-eghxq: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
+    # br-r37-c1-scceager: nx wraps these directed-only generators with
+    # @not_implemented_for, so the NetworkXNotImplemented is raised EAGERLY on
+    # the call — not when the generator is first iterated. A generator function
+    # here would defer the check (a ``try: g = scc(undirected) except`` around
+    # the *call* would miss it). Do the type check eagerly and return an inner
+    # generator, matching nx's contract.
     if not G.is_directed():
         # Preserve the standard '@not_implemented_for' error format so
         # callers see a stable message (br-r37-c1-4elbw).
         raise NetworkXNotImplemented("not implemented for undirected type")
-    yield from _raw_strongly_connected_components(G)
+
+    def _gen():
+        yield from _raw_strongly_connected_components(G)
+
+    return _gen()
 
 
 # Algorithm functions — weakly connected components
@@ -11795,18 +11805,16 @@ def weakly_connected_components(G):
     """
     # br-r37-c1-eghxq: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
-    try:
-        components = list(_raw_weakly_connected_components(G))
-    except NetworkXNotImplemented as exc:
-        # br-r37-c1-1ewpw: align Rust binding's custom message with
-        # nx's standard '@not_implemented_for' format.
-        if "not defined for undirected" in str(exc):
-            raise NetworkXNotImplemented(
-                "not implemented for undirected type"
-            ) from exc
-        raise
-    for component in components:
-        yield set(component)
+    # br-r37-c1-scceager: raise the directed-only error EAGERLY (nx contract),
+    # not lazily on first iteration. See strongly_connected_components.
+    if not G.is_directed():
+        raise NetworkXNotImplemented("not implemented for undirected type")
+
+    def _gen():
+        for component in _raw_weakly_connected_components(G):
+            yield set(component)
+
+    return _gen()
 
 # Algorithm functions — link prediction
 from franken_networkx._fnx import (
@@ -13793,7 +13801,16 @@ def antichains(G, topo_order=None):
     set
         An antichain (set of nodes with no path between any pair).
     """
-    yield from _call_networkx_for_parity("antichains", G, topo_order=topo_order)
+    # br-r37-c1-scceager: nx's antichains is @not_implemented_for('undirected'),
+    # raising eagerly on the call. Match that; a cyclic DiGraph still raises
+    # NetworkXUnfeasible lazily on iteration (via the nx delegation), as in nx.
+    if not G.is_directed():
+        raise NetworkXNotImplemented("not implemented for undirected type")
+
+    def _gen():
+        yield from _call_networkx_for_parity("antichains", G, topo_order=topo_order)
+
+    return _gen()
 
 # Algorithm functions — additional shortest path
 from franken_networkx._fnx import (
@@ -14836,13 +14853,19 @@ def kosaraju_strongly_connected_components(G, source=None):
     matches its documented Kosaraju traversal exactly. Mirrors the
     sister strongly_connected_components fix (br-r37-c1-2vdtt).
     """
+    # br-r37-c1-scceager: eager directed-only check (nx contract), then return
+    # the generator. See strongly_connected_components.
     if not G.is_directed():
         # Preserve the standard '@not_implemented_for' error format
         # so callers see a stable message (br-r37-c1-4elbw).
         raise NetworkXNotImplemented("not implemented for undirected type")
-    yield from _call_networkx_for_parity(
-        "kosaraju_strongly_connected_components", G, source=source,
-    )
+
+    def _gen():
+        yield from _call_networkx_for_parity(
+            "kosaraju_strongly_connected_components", G, source=source,
+        )
+
+    return _gen()
 
 
 def node_connected_component(G, n):
@@ -22080,7 +22103,17 @@ def all_topological_sorts(G):
     list
         Each yield is a valid topological ordering.
     """
-    yield from _call_networkx_for_parity("all_topological_sorts", G)
+    # br-r37-c1-scceager: nx's all_topological_sorts is
+    # @not_implemented_for('undirected'), raising eagerly on the call. Match
+    # that; a cyclic DiGraph still raises NetworkXUnfeasible lazily on
+    # iteration (via the nx delegation), as in nx.
+    if not G.is_directed():
+        raise NetworkXNotImplemented("not implemented for undirected type")
+
+    def _gen():
+        yield from _call_networkx_for_parity("all_topological_sorts", G)
+
+    return _gen()
 
 
 def lowest_common_ancestor(
