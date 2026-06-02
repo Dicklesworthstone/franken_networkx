@@ -6546,7 +6546,15 @@ def connected_components(G, *, backend=None, **backend_kwargs):
     )
     # br-r37-c1-pf5vu: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
-    yield from _raw_connected_components(G)
+    # br-r37-c1-scceager: nx is @not_implemented_for('directed') — raise EAGERLY
+    # on the call, not lazily on iteration. Return an inner generator.
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
+
+    def _gen():
+        yield from _raw_connected_components(G)
+
+    return _gen()
 
 
 def articulation_points(G):
@@ -6562,13 +6570,20 @@ def articulation_points(G):
     """
     # br-r37-c1-eghxq: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
-    if G.is_multigraph():
-        # The Rust impl is a simple-graph DFS; multigraph parallel
-        # edges need nx's chain-decomposition path for correct AP
-        # detection on parallel-edge cycles.
-        yield from _call_networkx_for_parity("articulation_points", G)
-        return
-    yield from _raw_articulation_points(G)
+    # br-r37-c1-scceager: nx is @not_implemented_for('directed') — eager raise.
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
+
+    def _gen():
+        if G.is_multigraph():
+            # The Rust impl is a simple-graph DFS; multigraph parallel
+            # edges need nx's chain-decomposition path for correct AP
+            # detection on parallel-edge cycles.
+            yield from _call_networkx_for_parity("articulation_points", G)
+            return
+        yield from _raw_articulation_points(G)
+
+    return _gen()
 
 
 def bridges(G, root=None):
@@ -6589,23 +6604,30 @@ def bridges(G, root=None):
     """
     # br-r37-c1-eghxq: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
-    if root is not None:
-        yield from _call_networkx_for_parity("bridges", G, root=root)
-        return
-    if G.is_multigraph():
-        # br-zzcm9: a parallel edge pair is never a bridge — removing
-        # one leaves the other connecting u and v, so connectivity is
-        # preserved. The Rust native bridges pass treats the simple
-        # projection, which misreports parallel pairs as bridges.
-        for u, v in _raw_bridges(G):
-            if len(G[u][v]) == 1:
-                yield (u, v)
-        return
-    # br-r37-c1-rf7lr: the Rust binding now emits bridges in
-    # graph-edge-insertion order with original edge orientation,
-    # matching nx.bridges() (which iterates ``H.edges`` after a chain
-    # decomposition). br-r37-c1-h83lo is superseded.
-    yield from _raw_bridges(G)
+    # br-r37-c1-scceager: nx is @not_implemented_for('directed') — eager raise.
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
+
+    def _gen():
+        if root is not None:
+            yield from _call_networkx_for_parity("bridges", G, root=root)
+            return
+        if G.is_multigraph():
+            # br-zzcm9: a parallel edge pair is never a bridge — removing
+            # one leaves the other connecting u and v, so connectivity is
+            # preserved. The Rust native bridges pass treats the simple
+            # projection, which misreports parallel pairs as bridges.
+            for u, v in _raw_bridges(G):
+                if len(G[u][v]) == 1:
+                    yield (u, v)
+            return
+        # br-r37-c1-rf7lr: the Rust binding now emits bridges in
+        # graph-edge-insertion order with original edge orientation,
+        # matching nx.bridges() (which iterates ``H.edges`` after a chain
+        # decomposition). br-r37-c1-h83lo is superseded.
+        yield from _raw_bridges(G)
+
+    return _gen()
 
 
 def is_tree(G, *, backend=None, **backend_kwargs):
@@ -10258,10 +10280,17 @@ def find_cliques(G, nodes=None):
     locally for ``nodes=None`` instead of delegating to NetworkX or
     using the Rust binding's canonical clique ordering.
     """
+    # br-r37-c1-scceager: find_cliques' body uses ``yield``, making this a
+    # generator function — so the directed-only check must run in this
+    # non-generator wrapper to raise EAGERLY on the call (nx contract), not
+    # lazily on first iteration. The generator body lives in _find_cliques_impl.
     G = _coerce_arg_to_fnx_graph(G)
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
+    return _find_cliques_impl(G, nodes)
 
+
+def _find_cliques_impl(G, nodes=None):
     if nodes is None:
         nodes = []
 
@@ -10345,7 +10374,14 @@ def enumerate_all_cliques(G):
     """
     # br-r37-c1-0555d: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
-    yield from _raw_enumerate_all_cliques(G)
+    # br-r37-c1-scceager: nx is @not_implemented_for('directed') — eager raise.
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
+
+    def _gen():
+        yield from _raw_enumerate_all_cliques(G)
+
+    return _gen()
 
 
 def find_cliques_recursive(G, nodes=None):
@@ -14905,10 +14941,18 @@ def biconnected_components(G):
     node-component decomposition matches NX's articulation-point
     splitting on every fixture.
     """
-    yield from (
-        set(component)
-        for component in _call_networkx_for_parity("biconnected_components", G)
-    )
+    G = _coerce_arg_to_fnx_graph(G)
+    # br-r37-c1-scceager: nx is @not_implemented_for('directed') — eager raise.
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
+
+    def _gen():
+        yield from (
+            set(component)
+            for component in _call_networkx_for_parity("biconnected_components", G)
+        )
+
+    return _gen()
 
 
 # Graph generators — classic

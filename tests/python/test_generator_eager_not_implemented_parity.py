@@ -53,6 +53,42 @@ def test_directed_results_unchanged(name):
     assert canon(fnx_fn(gf)) == canon(nx_fn(gn))
 
 
+# Undirected-only generators: must raise NetworkXNotImplemented EAGERLY on a
+# DiGraph (nx is @not_implemented_for('directed')).
+_UNDIRECTED_ONLY = [
+    "connected_components",
+    "biconnected_components",
+    "articulation_points",
+    "bridges",
+    "find_cliques",
+    "enumerate_all_cliques",
+]
+
+
+@pytest.mark.parametrize("name", _UNDIRECTED_ONLY)
+def test_undirected_only_raises_eagerly_on_directed(name):
+    DG_nx = nx.DiGraph([(0, 1), (1, 2)])
+    DG_fnx = fnx.DiGraph([(0, 1), (1, 2)])
+    with pytest.raises(nx.NetworkXNotImplemented):
+        getattr(nx, name)(DG_nx)
+    with pytest.raises(fnx.NetworkXNotImplemented):
+        getattr(fnx, name)(DG_fnx)
+
+
+@pytest.mark.parametrize("name", _UNDIRECTED_ONLY)
+def test_undirected_only_results_unchanged(name):
+    edges = [(0, 1), (1, 2), (2, 0), (2, 3), (3, 0)]
+    gn, gf = nx.Graph(edges), fnx.Graph(edges)
+
+    def canon(gen):
+        out = []
+        for item in gen:
+            out.append(tuple(item) if isinstance(item, (list, tuple)) else tuple(sorted(item)))
+        return sorted(out)
+
+    assert canon(getattr(fnx, name)(gf)) == canon(getattr(nx, name)(gn))
+
+
 def test_cyclic_topological_still_raises_lazily():
     # The DAG requirement (NetworkXUnfeasible) is correctly lazy in nx — the
     # eager fix must not turn it eager.
