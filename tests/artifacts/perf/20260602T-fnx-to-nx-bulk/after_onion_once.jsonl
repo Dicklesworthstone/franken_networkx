@@ -1,0 +1,1 @@
+{"edges": 11984, "elapsed_s": 0.059581475987215526, "expected_graph_sha256": "60baad123bf321cd2a0307d326aa2fa9bb3d1d528ee3d4236fc0e075bf6626c4", "mode": "native", "nodes": 3000, "repeat": 1, "sha256": "6573e535f2d3d498d6d72f76389e7aa561a5acb88988609ce3db9f23a6c67499", "workload": "onion"}
