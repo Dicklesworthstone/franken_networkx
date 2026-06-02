@@ -89,6 +89,58 @@ def test_undirected_only_results_unchanged(name):
     assert canon(getattr(fnx, name)(gf)) == canon(getattr(nx, name)(gn))
 
 
+# More undirected-only generators (link prediction, MST edges, chain
+# decomposition, etc.) — eager NetworkXNotImplemented on a DiGraph.
+_MORE_UNDIRECTED_ONLY = [
+    "adamic_adar_index",
+    "jaccard_coefficient",
+    "preferential_attachment",
+    "resource_allocation_index",
+    "all_triangles",
+    "biconnected_component_edges",
+    "chain_decomposition",
+    "find_cliques_recursive",
+    "minimum_spanning_edges",
+    "maximum_spanning_edges",
+]
+
+
+@pytest.mark.parametrize("name", _MORE_UNDIRECTED_ONLY)
+def test_more_undirected_only_raises_eagerly_on_directed(name):
+    DG_nx = nx.DiGraph([(0, 1), (1, 2)])
+    DG_fnx = fnx.DiGraph([(0, 1), (1, 2)])
+    with pytest.raises(nx.NetworkXNotImplemented):
+        getattr(nx, name)(DG_nx)
+    with pytest.raises(fnx.NetworkXNotImplemented):
+        getattr(fnx, name)(DG_fnx)
+
+
+# These also reject multigraphs eagerly (networkx @not_implemented_for both).
+_MULTIGRAPH_REJECTORS = [
+    "adamic_adar_index",
+    "jaccard_coefficient",
+    "preferential_attachment",
+    "resource_allocation_index",
+    "chain_decomposition",
+]
+
+
+@pytest.mark.parametrize("name", _MULTIGRAPH_REJECTORS)
+def test_multigraph_rejectors_raise_eagerly(name):
+    MG_nx = nx.MultiGraph([(0, 1), (0, 1)])
+    MG_fnx = fnx.MultiGraph([(0, 1), (0, 1)])
+    with pytest.raises(nx.NetworkXNotImplemented):
+        getattr(nx, name)(MG_nx)
+    with pytest.raises(fnx.NetworkXNotImplemented):
+        getattr(fnx, name)(MG_fnx)
+    # MultiDiGraph reports the multigraph message (checked before directed), as nx.
+    mdg_nx, mdg_fnx = nx.MultiDiGraph([(0, 1)]), fnx.MultiDiGraph([(0, 1)])
+    with pytest.raises(nx.NetworkXNotImplemented, match="multigraph"):
+        getattr(nx, name)(mdg_nx)
+    with pytest.raises(fnx.NetworkXNotImplemented, match="multigraph"):
+        getattr(fnx, name)(mdg_fnx)
+
+
 def test_cyclic_topological_still_raises_lazily():
     # The DAG requirement (NetworkXUnfeasible) is correctly lazy in nx — the
     # eager fix must not turn it eager.

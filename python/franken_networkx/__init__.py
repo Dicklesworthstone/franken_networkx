@@ -8048,24 +8048,31 @@ def minimum_spanning_edges(G, algorithm="kruskal", weight="weight", keys=True, d
     """
     # br-r37-c1-gr1ct: materialize SubgraphView first (view family).
     G = _coerce_arg_to_fnx_graph(G)
-    # br-mstcallable / br-mstweightwrong: same suboptimal-MST issue
-    # as the tree functions; delegate anything weighted to nx.
-    if (
-        algorithm == "kruskal"
-        and isinstance(weight, str)
-        and not _mst_has_weight_edge_attr(G, weight)
-    ):
-        yield from _raw_minimum_spanning_edges(G, algorithm=algorithm, weight=weight, keys=keys, data=data, ignore_nan=ignore_nan)
-        return
-    yield from _call_networkx_for_parity(
-        "minimum_spanning_edges",
-        G,
-        algorithm=algorithm,
-        weight=weight,
-        keys=keys,
-        data=data,
-        ignore_nan=ignore_nan,
-    )
+    # br-r37-c1-scceager: nx is @not_implemented_for('directed') — eager raise.
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
+
+    def _gen():
+        # br-mstcallable / br-mstweightwrong: same suboptimal-MST issue
+        # as the tree functions; delegate anything weighted to nx.
+        if (
+            algorithm == "kruskal"
+            and isinstance(weight, str)
+            and not _mst_has_weight_edge_attr(G, weight)
+        ):
+            yield from _raw_minimum_spanning_edges(G, algorithm=algorithm, weight=weight, keys=keys, data=data, ignore_nan=ignore_nan)
+            return
+        yield from _call_networkx_for_parity(
+            "minimum_spanning_edges",
+            G,
+            algorithm=algorithm,
+            weight=weight,
+            keys=keys,
+            data=data,
+            ignore_nan=ignore_nan,
+        )
+
+    return _gen()
 
 
 def maximum_spanning_edges(G, algorithm="kruskal", weight="weight", keys=True, data=True, ignore_nan=False):
@@ -8079,24 +8086,31 @@ def maximum_spanning_edges(G, algorithm="kruskal", weight="weight", keys=True, d
     generator matching nx's contract.
     """
     G = _coerce_arg_to_fnx_graph(G)
+    # br-r37-c1-scceager: nx is @not_implemented_for('directed') — eager raise.
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
     from franken_networkx._fnx import maximum_spanning_edges as _raw_mse
-    # br-mstcallable / br-mstweightwrong: see minimum_spanning_edges.
-    if (
-        algorithm == "kruskal"
-        and isinstance(weight, str)
-        and not _mst_has_weight_edge_attr(G, weight)
-    ):
-        yield from _raw_mse(G, algorithm=algorithm, weight=weight, keys=keys, data=data, ignore_nan=ignore_nan)
-        return
-    yield from _call_networkx_for_parity(
-        "maximum_spanning_edges",
-        G,
-        algorithm=algorithm,
-        weight=weight,
-        keys=keys,
-        data=data,
-        ignore_nan=ignore_nan,
-    )
+
+    def _gen():
+        # br-mstcallable / br-mstweightwrong: see minimum_spanning_edges.
+        if (
+            algorithm == "kruskal"
+            and isinstance(weight, str)
+            and not _mst_has_weight_edge_attr(G, weight)
+        ):
+            yield from _raw_mse(G, algorithm=algorithm, weight=weight, keys=keys, data=data, ignore_nan=ignore_nan)
+            return
+        yield from _call_networkx_for_parity(
+            "maximum_spanning_edges",
+            G,
+            algorithm=algorithm,
+            weight=weight,
+            keys=keys,
+            data=data,
+            ignore_nan=ignore_nan,
+        )
+
+    return _gen()
 
 
 def _restore_branching_edge_attrs(result, source, attr_name, default, preserve_attrs):
@@ -10220,9 +10234,15 @@ def all_triangles(G, nbunch=None):
     ``id(u) < id(v) < id(w)``. Use the Python reference impl for
     both branches so the output matches nx exactly.
     """
+    # br-r37-c1-scceager: all_triangles' body uses ``yield`` (generator), so
+    # the directed-only check must run in this non-generator wrapper to raise
+    # EAGERLY on the call (nx contract). Generator body in _all_triangles_impl.
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
+    return _all_triangles_impl(G, nbunch)
 
+
+def _all_triangles_impl(G, nbunch=None):
     if nbunch is None:
         nbunch_lookup = dict.fromkeys(G)
         relevant_nodes = nbunch_lookup
@@ -10393,10 +10413,19 @@ def find_cliques_recursive(G, nodes=None):
     br-r37-c1-g71v3: same iteration-order drift as find_cliques —
     delegate the ``nodes=None`` case to nx for parity.
     """
-    if nodes is None:
-        yield from _call_networkx_for_parity("find_cliques_recursive", G)
-        return
-    yield from find_cliques(G, nodes=nodes)
+    # br-r37-c1-scceager: nx is @not_implemented_for('directed') — eager raise
+    # (sibling of find_cliques). Return an inner generator.
+    G = _coerce_arg_to_fnx_graph(G)
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
+
+    def _gen():
+        if nodes is None:
+            yield from _call_networkx_for_parity("find_cliques_recursive", G)
+            return
+        yield from find_cliques(G, nodes=nodes)
+
+    return _gen()
 
 
 def number_of_cliques(G, nodes=None, cliques=None):
@@ -11874,6 +11903,13 @@ def _link_prediction_validate_ebunch(G, ebunch):
     """
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
+    # br-r37-c1-scceager: nx's link-prediction functions are also
+    # @not_implemented_for('directed') and raise EAGERLY on the call. The fnx
+    # generator path deferred this to first iteration. Check here (this helper
+    # runs eagerly before _link_prediction_lazy_delegate returns its generator).
+    # multigraph is checked first so a MultiDiGraph reports 'multigraph', as nx.
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
     materialized = list(ebunch) if ebunch is not None else None
     if materialized is not None:
         for u, v in materialized:
@@ -14874,7 +14910,14 @@ def biconnected_component_edges(G):
     each component (e.g. ('b', 'a') instead of canonical ('a', 'b')).
     Delegate so edge tuples match nx's algorithm-specific orientation.
     """
-    yield from _call_networkx_for_parity("biconnected_component_edges", G)
+    # br-r37-c1-scceager: nx is @not_implemented_for('directed') — eager raise.
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
+
+    def _gen():
+        yield from _call_networkx_for_parity("biconnected_component_edges", G)
+
+    return _gen()
 
 
 def kosaraju_strongly_connected_components(G, source=None):
@@ -19784,11 +19827,22 @@ def chain_decomposition(G, root=None):
     Downstream algorithms (minimum_cycle_basis, is_chordal helpers)
     depend on non-empty chain output for cyclic graphs.
     """
-    if root is None:
-        result = _call_networkx_for_parity("chain_decomposition", G)
-    else:
-        result = _call_networkx_for_parity("chain_decomposition", G, root=root)
-    yield from result
+    # br-r37-c1-scceager: nx is @not_implemented_for('directed','multigraph')
+    # and raises EAGERLY on the call. multigraph is checked first so a
+    # MultiDiGraph reports 'multigraph', matching nx.
+    if G.is_multigraph():
+        raise NetworkXNotImplemented("not implemented for multigraph type")
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
+
+    def _gen():
+        if root is None:
+            result = _call_networkx_for_parity("chain_decomposition", G)
+        else:
+            result = _call_networkx_for_parity("chain_decomposition", G, root=root)
+        yield from result
+
+    return _gen()
 
 
 def bidirectional_dijkstra(G, source, target, weight="weight"):
