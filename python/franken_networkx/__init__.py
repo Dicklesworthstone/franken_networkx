@@ -14427,11 +14427,10 @@ def single_source_bellman_ford(G, source, target=None, weight="weight"):
     # wording (no quoted repr).
     if source not in G:
         raise NodeNotFound(f"Source {source} not in G")
+    # br-r37-c1-e9rea: the kernel emits dist/path dicts in nx's SPFA
+    # first-discovery order (NOT distance-sorted — e.g. a node at distance 3
+    # can precede one at distance 2). Trust that order directly; do not sort.
     dists, paths = _raw_single_source_bellman_ford(G, source, weight=weight)
-    # br-r37-c1-62jy2: reorder by ascending distance matching nx.
-    order = _reorder_by_distance(dists, G=G, source=source)
-    dists = {k: dists[k] for k in order}
-    paths = {k: paths[k] for k in order if k in paths}
     return dists, paths
 
 
@@ -14455,12 +14454,9 @@ def single_source_bellman_ford_path(G, source, weight="weight"):
     # not in G' variant.
     if source not in G:
         raise NodeNotFound(f"Source {source} not in G")
-    paths = _raw_single_source_bellman_ford_path(G, source, weight=weight)
-    # br-r37-c1-62jy2: order by distance via the length variant
-    # (single Rust call, much cheaper than re-running BF in Python).
-    dists = _raw_single_source_bellman_ford_path_length(G, source, weight=weight)
-    order = _reorder_by_distance(dict(dists), G=G, source=source)
-    return {k: paths[k] for k in order if k in paths}
+    # br-r37-c1-e9rea: the kernel emits the path dict in nx's SPFA
+    # first-discovery order (not distance-sorted). Trust it directly.
+    return _raw_single_source_bellman_ford_path(G, source, weight=weight)
 
 
 def single_source_bellman_ford_path_length(G, source, weight="weight"):
@@ -14484,12 +14480,13 @@ def single_source_bellman_ford_path_length(G, source, weight="weight"):
     if source not in G:
         raise NodeNotFound(f"Source {source} not in G")
     result = _raw_single_source_bellman_ford_path_length(G, source, weight=weight)
-    # br-ssintfloat: preserve int distances when all edge weights are int.
+    # br-r37-c1-e9rea: the kernel emits the length dict in nx's SPFA
+    # first-discovery order (not distance-sorted). Trust it directly.
+    # br-ssintfloat: preserve int distances when all edge weights are int
+    # (dict comprehension keeps insertion/discovery order).
     if _sp_edge_weights_all_int(G, weight):
-        result = _sp_coerce_dist_to_int(dict(result))
-    # br-r37-c1-62jy2: reorder by ascending distance.
-    order = _reorder_by_distance(dict(result), G=G, source=source)
-    return {k: result[k] for k in order}
+        return _sp_coerce_dist_to_int(dict(result))
+    return dict(result)
 
 
 def all_pairs_dijkstra_path(G, cutoff=None, weight="weight"):
@@ -14577,23 +14574,11 @@ def all_pairs_bellman_ford_path(G, weight="weight"):
     # br-r37-c1-sk5be: iterate outer keys in node-insertion order
     # matching nx (Rust dict yields in arbitrary order).
     raw = _raw_all_pairs_bellman_ford_path(G, weight=weight)
-    # br-r37-c1-apspadj: pre-snapshot adjacency (see all_pairs_dijkstra).
-    adj_snapshot = {u: list(G.adj[u]) for u in G.nodes()}
-    # br-r37-c1-bfdistderive: previously called both
-    # ``_raw_all_pairs_bellman_ford_path`` *and*
-    # ``_raw_all_pairs_bellman_ford_path_length`` — duplicate BF runs
-    # taking ~345ms on a 200-node weighted graph just to get distances
-    # for the per-source reorder.  Derive distances by summing edge
-    # weights along each returned path using a pre-cached edge-weight
-    # dict (~3ms build, ~20ms total lookup vs 345ms).
-    edge_weights = _snapshot_edge_weights(G, weight)
     for node in G.nodes():
         if node in raw:
-            # br-r37-c1-6rphu: reorder inner dict by (distance, BFS).
-            inner = raw[node]
-            dists = _path_lengths_from_paths(inner, edge_weights)
-            order = _reorder_by_distance(dists, G=G, source=node, adj=adj_snapshot)
-            yield (node, {k: inner[k] for k in order if k in inner})
+            # br-r37-c1-e9rea: the kernel already yields each source's paths in
+            # nx's SPFA first-discovery order (not distance-sorted), so trust it.
+            yield (node, dict(raw[node]))
 
 
 def all_pairs_bellman_ford_path_length(G, weight="weight"):
@@ -14612,14 +14597,11 @@ def all_pairs_bellman_ford_path_length(G, weight="weight"):
     # br-r37-c1-sk5be: iterate outer keys in node-insertion order
     # matching nx (Rust dict yields in arbitrary order).
     raw = _raw_all_pairs_bellman_ford_path_length(G, weight=weight)
-    # br-r37-c1-apspadj: pre-snapshot adjacency.
-    adj_snapshot = {u: list(G.adj[u]) for u in G.nodes()}
     for node in G.nodes():
         if node in raw:
-            # br-r37-c1-6rphu: reorder inner dict by (distance, BFS).
-            inner = dict(raw[node])
-            order = _reorder_by_distance(inner, G=G, source=node, adj=adj_snapshot)
-            yield (node, {k: inner[k] for k in order})
+            # br-r37-c1-e9rea: the kernel already yields each source's lengths in
+            # nx's SPFA first-discovery order (not distance-sorted), so trust it.
+            yield (node, dict(raw[node]))
 
 
 def floyd_warshall(G, weight="weight"):

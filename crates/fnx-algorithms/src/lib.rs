@@ -1569,10 +1569,10 @@ pub fn bellman_ford_shortest_paths(
         };
     }
 
-    let ordered_nodes = graph.nodes_ordered();
-    let node_count = ordered_nodes.len();
+    let node_count = graph.node_count();
     let mut distances = HashMap::<String, f64>::new();
     let mut predecessors = HashMap::<String, Option<String>>::new();
+    let mut discovery_order = Vec::<String>::new();
 
     distances.insert(source.to_owned(), 0.0);
     predecessors.insert(source.to_owned(), None);
@@ -1598,6 +1598,7 @@ pub fn bellman_ford_shortest_paths(
         |from, to| signed_edge_weight_or_default(graph, from, to, weight_attr),
         &mut distances,
         &mut predecessors,
+        &mut discovery_order,
         &mut cgse_sink,
         &mut nodes_touched,
         &mut edges_scanned,
@@ -1610,8 +1611,11 @@ pub fn bellman_ford_shortest_paths(
         cgse_sink,
     );
 
+    // Emit entries in nx's SPFA first-discovery order. (br-r37-c1-e9rea)
+    let discovery_refs: Vec<&str> = discovery_order.iter().map(String::as_str).collect();
+
     weighted_paths_result(
-        &ordered_nodes,
+        &discovery_refs,
         distances,
         predecessors,
         negative_cycle_detected,
@@ -1646,10 +1650,10 @@ pub fn bellman_ford_shortest_paths_directed(
         };
     }
 
-    let ordered_nodes = digraph.nodes_ordered();
-    let node_count = ordered_nodes.len();
+    let node_count = digraph.node_count();
     let mut distances = HashMap::<String, f64>::new();
     let mut predecessors = HashMap::<String, Option<String>>::new();
+    let mut discovery_order = Vec::<String>::new();
 
     distances.insert(source.to_owned(), 0.0);
     predecessors.insert(source.to_owned(), None);
@@ -1672,13 +1676,17 @@ pub fn bellman_ford_shortest_paths_directed(
         |from, to| signed_digraph_edge_weight_or_default(digraph, from, to, weight_attr),
         &mut distances,
         &mut predecessors,
+        &mut discovery_order,
         &mut cgse_sink,
         &mut nodes_touched,
         &mut edges_scanned,
     );
 
+    // Emit entries in nx's SPFA first-discovery order. (br-r37-c1-e9rea)
+    let discovery_refs: Vec<&str> = discovery_order.iter().map(String::as_str).collect();
+
     weighted_paths_result(
-        &ordered_nodes,
+        &discovery_refs,
         distances,
         predecessors,
         negative_cycle_detected,
@@ -5410,6 +5418,7 @@ fn bellman_ford_spfa<N, W>(
     mut edge_weight: W,
     distances: &mut HashMap<String, f64>,
     predecessors: &mut HashMap<String, Option<String>>,
+    discovery_order: &mut Vec<String>,
     cgse_sink: &mut Option<CgseWitnessSink>,
     nodes_touched: &mut usize,
     edges_scanned: &mut usize,
@@ -5423,6 +5432,11 @@ where
     let mut enqueue_count = HashMap::<String, usize>::new();
     queue.push_back(source.to_owned());
     in_queue.insert(source.to_owned());
+    // networkx builds the dist/pred dicts in first-discovery (first-relaxation)
+    // order during SPFA; the source is inserted first. Record that order so the
+    // leaf path/length functions can emit Python dicts with nx's key order.
+    // (br-r37-c1-e9rea)
+    discovery_order.push(source.to_owned());
     let mut queue_peak = 1usize;
 
     while let Some(u) = queue.pop_front() {
@@ -5442,6 +5456,7 @@ where
             }
             if distances.insert(v.clone(), candidate).is_none() {
                 *nodes_touched += 1;
+                discovery_order.push(v.clone());
             }
             predecessors.insert(v.clone(), Some(u.clone()));
             cgse_record_decision(cgse_sink, &v, &u);
@@ -20942,7 +20957,7 @@ pub fn single_source_bellman_ford_path(
     graph: &Graph,
     source: &str,
     weight_attr: &str,
-) -> Option<HashMap<String, Vec<String>>> {
+) -> Option<OrderedPaths> {
     let result = bellman_ford_shortest_paths(graph, source, weight_attr);
     if result.negative_cycle_detected {
         return None;
@@ -20954,7 +20969,8 @@ pub fn single_source_bellman_ford_path(
         .map(|e| (e.node.as_str(), e.predecessor.as_deref()))
         .collect();
 
-    let mut paths = HashMap::new();
+    // result.distances is in nx's SPFA first-discovery order. (br-r37-c1-e9rea)
+    let mut paths = Vec::with_capacity(result.distances.len());
     for entry in &result.distances {
         let mut path = vec![entry.node.clone()];
         let mut cur = entry.node.as_str();
@@ -20963,7 +20979,7 @@ pub fn single_source_bellman_ford_path(
             cur = prev;
         }
         path.reverse();
-        paths.insert(entry.node.clone(), path);
+        paths.push((entry.node.clone(), path));
     }
 
     Some(paths)
@@ -20977,17 +20993,20 @@ pub fn single_source_bellman_ford_path_length(
     graph: &Graph,
     source: &str,
     weight_attr: &str,
-) -> Option<HashMap<String, f64>> {
+) -> Option<OrderedDistances> {
     let result = bellman_ford_shortest_paths(graph, source, weight_attr);
     if result.negative_cycle_detected {
         return None;
     }
 
-    let mut distances = HashMap::new();
-    for entry in &result.distances {
-        distances.insert(entry.node.clone(), entry.distance);
-    }
-    Some(distances)
+    // result.distances is in nx's SPFA first-discovery order. (br-r37-c1-e9rea)
+    Some(
+        result
+            .distances
+            .iter()
+            .map(|entry| (entry.node.clone(), entry.distance))
+            .collect(),
+    )
 }
 
 /// Single-source Bellman-Ford returning paths only for directed graph.
@@ -20997,7 +21016,7 @@ pub fn single_source_bellman_ford_path_directed(
     digraph: &DiGraph,
     source: &str,
     weight_attr: &str,
-) -> Option<HashMap<String, Vec<String>>> {
+) -> Option<OrderedPaths> {
     let result = bellman_ford_shortest_paths_directed(digraph, source, weight_attr);
     if result.negative_cycle_detected {
         return None;
@@ -21009,7 +21028,8 @@ pub fn single_source_bellman_ford_path_directed(
         .map(|e| (e.node.as_str(), e.predecessor.as_deref()))
         .collect();
 
-    let mut paths = HashMap::new();
+    // result.distances is in nx's SPFA first-discovery order. (br-r37-c1-e9rea)
+    let mut paths = Vec::with_capacity(result.distances.len());
     for entry in &result.distances {
         let mut path = vec![entry.node.clone()];
         let mut cur = entry.node.as_str();
@@ -21018,7 +21038,7 @@ pub fn single_source_bellman_ford_path_directed(
             cur = prev;
         }
         path.reverse();
-        paths.insert(entry.node.clone(), path);
+        paths.push((entry.node.clone(), path));
     }
 
     Some(paths)
@@ -21031,29 +21051,31 @@ pub fn single_source_bellman_ford_path_length_directed(
     digraph: &DiGraph,
     source: &str,
     weight_attr: &str,
-) -> Option<HashMap<String, f64>> {
+) -> Option<OrderedDistances> {
     let result = bellman_ford_shortest_paths_directed(digraph, source, weight_attr);
     if result.negative_cycle_detected {
         return None;
     }
 
-    let mut distances = HashMap::new();
-    for entry in &result.distances {
-        distances.insert(entry.node.clone(), entry.distance);
-    }
-    Some(distances)
+    // result.distances is in nx's SPFA first-discovery order. (br-r37-c1-e9rea)
+    Some(
+        result
+            .distances
+            .iter()
+            .map(|entry| (entry.node.clone(), entry.distance))
+            .collect(),
+    )
 }
 
 /// Single-source Bellman-Ford returning (distances, paths).
 /// Returns None if a negative cycle is detected.
 /// Matches `networkx.single_source_bellman_ford(G, source, weight=weight)`.
-#[allow(clippy::type_complexity)]
 #[must_use]
 pub fn single_source_bellman_ford(
     graph: &Graph,
     source: &str,
     weight_attr: &str,
-) -> Option<(HashMap<String, f64>, HashMap<String, Vec<String>>)> {
+) -> Option<DijkstraFull> {
     let result = bellman_ford_shortest_paths(graph, source, weight_attr);
     if result.negative_cycle_detected {
         return None;
@@ -21065,10 +21087,11 @@ pub fn single_source_bellman_ford(
         .map(|e| (e.node.as_str(), e.predecessor.as_deref()))
         .collect();
 
-    let mut distances = HashMap::new();
-    let mut paths = HashMap::new();
+    // result.distances is in nx's SPFA first-discovery order. (br-r37-c1-e9rea)
+    let mut distances = Vec::with_capacity(result.distances.len());
+    let mut paths = Vec::with_capacity(result.distances.len());
     for entry in &result.distances {
-        distances.insert(entry.node.clone(), entry.distance);
+        distances.push((entry.node.clone(), entry.distance));
         let mut path = vec![entry.node.clone()];
         let mut cur = entry.node.as_str();
         while let Some(Some(prev)) = pred_map.get(cur) {
@@ -21076,7 +21099,7 @@ pub fn single_source_bellman_ford(
             cur = prev;
         }
         path.reverse();
-        paths.insert(entry.node.clone(), path);
+        paths.push((entry.node.clone(), path));
     }
 
     Some((distances, paths))
@@ -21297,11 +21320,11 @@ pub fn all_pairs_dijkstra_path_length(
 pub fn all_pairs_bellman_ford_path(
     graph: &Graph,
     weight_attr: &str,
-) -> Option<HashMap<String, HashMap<String, Vec<String>>>> {
-    let mut result = HashMap::new();
+) -> Option<Vec<(String, OrderedPaths)>> {
+    let mut result = Vec::new();
     for node in graph.nodes_ordered() {
         let paths = single_source_bellman_ford_path(graph, node, weight_attr)?;
-        result.insert(node.to_owned(), paths);
+        result.push((node.to_owned(), paths));
     }
     Some(result)
 }
@@ -21313,11 +21336,11 @@ pub fn all_pairs_bellman_ford_path(
 pub fn all_pairs_bellman_ford_path_length(
     graph: &Graph,
     weight_attr: &str,
-) -> Option<HashMap<String, HashMap<String, f64>>> {
-    let mut result = HashMap::new();
+) -> Option<Vec<(String, OrderedDistances)>> {
+    let mut result = Vec::new();
     for node in graph.nodes_ordered() {
         let dists = single_source_bellman_ford_path_length(graph, node, weight_attr)?;
-        result.insert(node.to_owned(), dists);
+        result.push((node.to_owned(), dists));
     }
     Some(result)
 }
@@ -42267,7 +42290,10 @@ mod tests {
         let mut g = Graph::strict();
         let _ = g.add_edge("a", "b");
         let _ = g.add_edge("b", "c");
-        let paths = single_source_bellman_ford_path(&g, "a", "weight").expect("no negative cycle");
+        let paths: HashMap<String, Vec<String>> = single_source_bellman_ford_path(&g, "a", "weight")
+            .expect("no negative cycle")
+            .into_iter()
+            .collect();
         assert_eq!(paths["c"], vec!["a", "b", "c"]);
     }
 
@@ -42276,8 +42302,11 @@ mod tests {
         let mut g = Graph::strict();
         let _ = g.add_edge("a", "b");
         let _ = g.add_edge("b", "c");
-        let dists =
-            single_source_bellman_ford_path_length(&g, "a", "weight").expect("no negative cycle");
+        let dists: HashMap<String, f64> =
+            single_source_bellman_ford_path_length(&g, "a", "weight")
+                .expect("no negative cycle")
+                .into_iter()
+                .collect();
         assert_eq!(dists["a"], 0.0);
         assert_eq!(dists["c"], 2.0);
     }
@@ -42289,6 +42318,8 @@ mod tests {
         let _ = g.add_edge("b", "c");
         let (dists, paths) =
             single_source_bellman_ford(&g, "a", "weight").expect("no negative cycle");
+        let dists: HashMap<String, f64> = dists.into_iter().collect();
+        let paths: HashMap<String, Vec<String>> = paths.into_iter().collect();
         assert_eq!(dists["c"], 2.0);
         assert_eq!(paths["c"], vec!["a", "b", "c"]);
     }
@@ -42401,7 +42432,12 @@ mod tests {
         let mut g = Graph::strict();
         let _ = g.add_edge("a", "b");
         let _ = g.add_edge("b", "c");
-        let paths = all_pairs_bellman_ford_path(&g, "weight").expect("no negative cycle");
+        let paths: HashMap<String, HashMap<String, Vec<String>>> =
+            all_pairs_bellman_ford_path(&g, "weight")
+                .expect("no negative cycle")
+                .into_iter()
+                .map(|(k, v)| (k, v.into_iter().collect()))
+                .collect();
         assert_eq!(paths["a"]["c"], vec!["a", "b", "c"]);
     }
 
@@ -42410,7 +42446,12 @@ mod tests {
         let mut g = Graph::strict();
         let _ = g.add_edge("a", "b");
         let _ = g.add_edge("b", "c");
-        let dists = all_pairs_bellman_ford_path_length(&g, "weight").expect("no negative cycle");
+        let dists: HashMap<String, HashMap<String, f64>> =
+            all_pairs_bellman_ford_path_length(&g, "weight")
+                .expect("no negative cycle")
+                .into_iter()
+                .map(|(k, v)| (k, v.into_iter().collect()))
+                .collect();
         assert_eq!(dists["a"]["c"], 2.0);
     }
 

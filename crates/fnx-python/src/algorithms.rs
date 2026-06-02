@@ -801,7 +801,7 @@ fn compute_single_source_shortest_paths(
                         fnx_algorithms::single_source_bellman_ford_path(inner, source, w)
                     });
                     match result {
-                        Some(paths) => Ok(paths),
+                        Some(paths) => Ok(paths.into_iter().collect()),
                         None => Err(crate::NetworkXUnbounded::new_err(
                             "Negative cost cycle detected.",
                         )),
@@ -841,7 +841,7 @@ fn compute_single_source_shortest_paths_directed(
                     fnx_algorithms::single_source_bellman_ford_path_directed(inner, source, w)
                 });
                 match result {
-                    Some(paths) => Ok(paths),
+                    Some(paths) => Ok(paths.into_iter().collect()),
                     None => Err(crate::NetworkXUnbounded::new_err(
                         "Negative cost cycle detected.",
                     )),
@@ -1884,6 +1884,7 @@ pub fn average_shortest_path_length(
                                 source,
                                 weight_attr,
                             )
+                            .map(|v| v.into_iter().collect())
                             .ok_or(AverageShortestPathLengthFailure::NegativeCycle)
                         },
                     )
@@ -1938,6 +1939,7 @@ pub fn average_shortest_path_length(
                         source,
                         weight_attr,
                     )
+                    .map(|v| v.into_iter().collect())
                     .ok_or(AverageShortestPathLengthFailure::NegativeCycle)
                 })
             }) {
@@ -11054,26 +11056,25 @@ fn single_source_bellman_ford(
         if bf.negative_cycle_detected {
             None
         } else {
-            let distances = bf
-                .distances
-                .into_iter()
-                .map(|entry| (entry.node, entry.distance))
-                .collect::<HashMap<_, _>>();
+            // bf.distances is in nx's SPFA first-discovery order; preserve it
+            // by emitting ordered Vecs instead of HashMaps. (br-r37-c1-e9rea)
             let predecessors = bf
                 .predecessors
-                .into_iter()
-                .map(|entry| (entry.node, entry.predecessor))
+                .iter()
+                .map(|entry| (entry.node.as_str(), entry.predecessor.as_deref()))
                 .collect::<HashMap<_, _>>();
-            let mut paths = HashMap::new();
-            for node in distances.keys() {
-                let mut path = vec![node.clone()];
-                let mut cur = node.as_str();
+            let mut distances = Vec::with_capacity(bf.distances.len());
+            let mut paths = Vec::with_capacity(bf.distances.len());
+            for entry in &bf.distances {
+                distances.push((entry.node.clone(), entry.distance));
+                let mut path = vec![entry.node.clone()];
+                let mut cur = entry.node.as_str();
                 while let Some(Some(prev)) = predecessors.get(cur) {
-                    path.push(prev.clone());
+                    path.push((*prev).to_owned());
                     cur = prev;
                 }
                 path.reverse();
-                paths.insert(node.clone(), path);
+                paths.push((entry.node.clone(), path));
             }
             Some((distances, paths))
         }
@@ -11319,7 +11320,7 @@ fn all_pairs_bellman_ford_path_length(
     let gr = extract_graph(g)?;
     let result = if let Some(weighted_projection) = gr.weighted_digraph_projection(weight) {
         let __wp = weighted_projection.as_ref();
-        let mut all_distances = HashMap::new();
+        let mut all_distances = Vec::new();
         for source in __wp.nodes_ordered() {
             let Some(distances) = py.allow_threads(|| {
                 fnx_algorithms::single_source_bellman_ford_path_length_directed(
@@ -11330,7 +11331,7 @@ fn all_pairs_bellman_ford_path_length(
                     "Negative cycle detected.",
                 ));
             };
-            all_distances.insert(source.to_owned(), distances);
+            all_distances.push((source.to_owned(), distances));
         }
         Some(all_distances)
     } else {
@@ -11368,7 +11369,7 @@ fn all_pairs_bellman_ford_path(
     let gr = extract_graph(g)?;
     let result = if let Some(weighted_projection) = gr.weighted_digraph_projection(weight) {
         let __wp = weighted_projection.as_ref();
-        let mut all_paths = HashMap::new();
+        let mut all_paths = Vec::new();
         for source in __wp.nodes_ordered() {
             let Some(paths) = py.allow_threads(|| {
                 fnx_algorithms::single_source_bellman_ford_path_directed(__wp, source, weight)
@@ -11377,7 +11378,7 @@ fn all_pairs_bellman_ford_path(
                     "Negative cycle detected.",
                 ));
             };
-            all_paths.insert(source.to_owned(), paths);
+            all_paths.push((source.to_owned(), paths));
         }
         Some(all_paths)
     } else {
