@@ -685,24 +685,45 @@ def _edge_view_call_with_nbunch_first(edge_view_call):
         nbunch_list = None
         single_node_nbunch = False
         if nbunch is not None:
-            try:
-                iter(nbunch)
-                if isinstance(nbunch, (str, bytes)):
-                    # br-edgesnb (legacy): fnx wraps strings as
-                    # single-node nbunch for ergonomics — nx
-                    # iterates string chars instead.  Preserve
-                    # the silent-skip behaviour for missing
-                    # string nodes (do NOT mark as single_node)
-                    # to stay drop-in compatible with both nx's
-                    # silent-iteration AND fnx's existing
-                    # string-node handling.
-                    nbunch = [nbunch]
-            except TypeError:
-                # True single non-iterable (int, etc) — nx raises
-                # NetworkXError on missing node; see
-                # br-r37-c1-edges-snnb below.
+            owner = _EDGE_VIEW_GRAPH_OWNER.get(id(self))
+            # br-r37-c1-m7mbh: nx.nbunch_iter checks ``if nbunch in self``
+            # FIRST, so a hashable nbunch that is itself a node (e.g. a
+            # tuple key like ``(0, 0)`` in grid_2d_graph) is treated as a
+            # single node — NOT iterated into its components.  fnx only
+            # special-cased str/bytes and non-iterables, so a tuple node
+            # got split into ``[0, 0]`` and ``G.edges((0, 0))`` returned
+            # ``[]``.  Detect the whole-nbunch-is-a-node case up front to
+            # mirror nx's contract for tuple-keyed (and any hashable
+            # iterable) node graphs.  ``x in owner`` swallows TypeError
+            # for unhashable nbunch (lists/sets) and returns False, so
+            # those fall through to sequence handling unchanged.
+            whole_is_node = False
+            if owner is not None and not isinstance(nbunch, (str, bytes)):
+                try:
+                    whole_is_node = nbunch in owner
+                except TypeError:
+                    whole_is_node = False
+            if whole_is_node:
                 nbunch = [nbunch]
-                single_node_nbunch = True
+            else:
+                try:
+                    iter(nbunch)
+                    if isinstance(nbunch, (str, bytes)):
+                        # br-edgesnb (legacy): fnx wraps strings as
+                        # single-node nbunch for ergonomics — nx
+                        # iterates string chars instead.  Preserve
+                        # the silent-skip behaviour for missing
+                        # string nodes (do NOT mark as single_node)
+                        # to stay drop-in compatible with both nx's
+                        # silent-iteration AND fnx's existing
+                        # string-node handling.
+                        nbunch = [nbunch]
+                except TypeError:
+                    # True single non-iterable (int, etc) — nx raises
+                    # NetworkXError on missing node; see
+                    # br-r37-c1-edges-snnb below.
+                    nbunch = [nbunch]
+                    single_node_nbunch = True
             # Materialize nbunch so we can both pass it to Rust and use
             # it to reorder the returned edge tuples below.
             nbunch_list = [n for n in nbunch]
@@ -716,7 +737,6 @@ def _edge_view_call_with_nbunch_first(edge_view_call):
             # the owning graph for the single-node case to restore
             # nx's typed-error contract.
             if single_node_nbunch and nbunch_list:
-                owner = _EDGE_VIEW_GRAPH_OWNER.get(id(self))
                 if owner is not None and nbunch_list[0] not in owner:
                     raise NetworkXError(
                         f"Node {nbunch_list[0]} is not in the graph."
