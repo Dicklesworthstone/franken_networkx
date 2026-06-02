@@ -17345,15 +17345,21 @@ def normalized_laplacian_matrix(G, nodelist=None, weight="weight"):
 
     A = to_scipy_sparse_array(G, nodelist=nodelist, weight=weight)
     n = A.shape[0]
-    d = np.asarray(A.sum(axis=1)).flatten()
-    # Avoid division by zero for isolated nodes
-    d_inv_sqrt = np.zeros_like(d, dtype=float)
-    nonzero = d > 0
-    d_inv_sqrt[nonzero] = 1.0 / np.sqrt(d[nonzero])
-    # Use sparse *arrays* so the result is a csr_array (matching nx).
-    D_inv_sqrt = scipy.sparse.diags_array(d_inv_sqrt)
-    I = scipy.sparse.eye_array(n)
-    return (I - D_inv_sqrt @ A @ D_inv_sqrt).tocsr()
+    diags = np.asarray(A.sum(axis=1)).flatten().astype(float)
+    # br-r37-c1-mxe39: compute N = D^{-1/2} (D - A) D^{-1/2} exactly like nx,
+    # NOT I - D^{-1/2} A D^{-1/2}. The two agree for every node with degree > 0,
+    # but for an isolated (degree-0) node the D^{-1/2} D D^{-1/2} term is 0
+    # (1/sqrt(0) is clamped to 0), so nx's diagonal there is 0 — whereas the
+    # constant-identity form leaves a spurious 1. This matters for any graph
+    # with an isolated node (e.g. disconnected graphs, where a k-component
+    # graph must yield k zero eigenvalues in the spectrum).
+    D = scipy.sparse.diags_array(diags)
+    L = D - A
+    with np.errstate(divide="ignore"):
+        diags_sqrt = 1.0 / np.sqrt(diags)
+    diags_sqrt[np.isinf(diags_sqrt)] = 0
+    D_inv_sqrt = scipy.sparse.diags_array(diags_sqrt)
+    return (D_inv_sqrt @ (L @ D_inv_sqrt)).tocsr()
 
 
 def laplacian_spectrum(G, weight="weight"):
