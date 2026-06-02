@@ -251,14 +251,14 @@ impl GraphGenerator {
         let (n, warnings) = self.validate_n("path_graph", n, MAX_N_GENERIC)?;
         let (mut graph, node_labels) = graph_with_n_nodes(self.mode, n);
 
-        for i in 0..n.saturating_sub(1) {
-            graph
-                .add_edge(node_labels[i].clone(), node_labels[i + 1].clone())
-                .map_err(|err| GenerationError::FailClosed {
-                    operation: "path_graph",
-                    reason: err.to_string(),
-                })?;
-        }
+        let edge_count = n.saturating_sub(1);
+        let inserted = graph.extend_edges_unrecorded(
+            node_labels
+                .iter()
+                .zip(node_labels.iter().skip(1))
+                .map(|(left, right)| (left.clone(), right.clone())),
+        );
+        debug_assert_eq!(inserted, edge_count);
 
         self.record(
             "path_graph",
