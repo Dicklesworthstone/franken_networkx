@@ -15,6 +15,7 @@ Bead: `br-r37-c1-04z53.9`
 - After confirmations: 378.2 ms mean over 10 runs; 372.5 ms mean over 15 runs.
 - Speedup: 2.25x by mean.
 - Score: impact 4 x confidence 5 / effort 2 = 10.0.
+- Note: `rch exec` only offloads compilation commands in this environment. The hyperfine command was invoked through `rch exec`, but `rch` classified it as non-compilation and ran it locally; compile/test/check/clippy gates below were crate-scoped and `rch`-wrapped, with some runs remote and the final full test falling open locally when workers were saturated.
 
 ## Isomorphism
 
@@ -28,5 +29,7 @@ Bead: `br-r37-c1-04z53.9`
 
 - `rch exec -- cargo test -p fnx-runtime cgse_policy_engine_rationale_matrix_matches_legacy_text -- --nocapture`
 - `rch exec -- cargo test -p fnx-runtime`
+- `rch exec -- cargo check -p fnx-runtime --all-targets`
 - `rch exec -- cargo clippy -p fnx-runtime --all-targets -- -D warnings`
-- `cargo fmt -p fnx-runtime -- --check`
+- `rch exec -- cargo fmt -p fnx-runtime --check`
+- `sha256sum -c golden_sha256.txt`
