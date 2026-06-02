@@ -10688,6 +10688,17 @@ def _modularity_backend_impl(G, communities, weight="weight", resolution=1):
     # precondition order matches nx.
     if G.number_of_edges() == 0:
         raise ZeroDivisionError("division by zero")
+    # br-r37-c1-moddir: the Rust ``_raw_modularity`` computes the *undirected*
+    # modularity (k_i*k_j / 2m) even for DiGraph/MultiDiGraph; nx uses the
+    # directed Leicht-Newman formula (k_i^in * k_j^out / m). Delegate directed
+    # graphs to nx so the result matches (the weighted path already delegates).
+    if G.is_directed():
+        return _nx.community.modularity(
+            _networkx_graph_for_parity(G),
+            community_list,
+            weight=weight,
+            resolution=resolution,
+        )
     # br-r37-c1-nim1v: the Rust ``_raw_modularity`` ignores the
     # ``weight`` kwarg — it returns the unweighted modularity even
     # when the user asks for a weighted attribute. Detect "actually
