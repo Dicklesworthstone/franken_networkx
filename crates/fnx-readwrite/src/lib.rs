@@ -207,11 +207,8 @@ impl EdgeListEngine {
             unknown_incompatible_feature: false,
         })?;
 
-        let mut lines = Vec::new();
-        for edge in graph.edges_ordered() {
-            let attrs = encode_attrs(&edge.attrs);
-            lines.push(format!("{} {} {}", edge.left, edge.right, attrs));
-        }
+        let edges = graph.edges_ordered_borrowed();
+        let text = encode_edgelist_edges(&edges);
 
         self.record(
             "write_edgelist",
@@ -220,7 +217,7 @@ impl EdgeListEngine {
             0.02,
         );
 
-        Ok(lines.join("\n"))
+        Ok(text)
     }
 
     pub fn write_digraph_edgelist(&mut self, graph: &DiGraph) -> Result<String, ReadWriteError> {
@@ -232,11 +229,8 @@ impl EdgeListEngine {
             unknown_incompatible_feature: false,
         })?;
 
-        let mut lines = Vec::new();
-        for edge in graph.edges_ordered() {
-            let attrs = encode_attrs(&edge.attrs);
-            lines.push(format!("{} {} {}", edge.left, edge.right, attrs));
-        }
+        let edges = graph.edges_ordered_borrowed();
+        let text = encode_edgelist_edges(&edges);
 
         self.record(
             "write_edgelist",
@@ -245,7 +239,7 @@ impl EdgeListEngine {
             0.02,
         );
 
-        Ok(lines.join("\n"))
+        Ok(text)
     }
 
     pub fn write_adjlist(&mut self, graph: &Graph) -> Result<String, ReadWriteError> {
@@ -4716,6 +4710,22 @@ fn encode_attrs(attrs: &AttrMap) -> String {
         .map(|(k, v)| format!("{}={}", attr_escape(k), attr_escape(&v.as_str())))
         .collect::<Vec<String>>()
         .join(";")
+}
+
+fn encode_edgelist_edges(edges: &[(&str, &str, &AttrMap)]) -> String {
+    let mut output = String::with_capacity(edges.len().saturating_mul(24));
+    for (idx, edge) in edges.iter().enumerate() {
+        let (left, right, attrs) = *edge;
+        if idx > 0 {
+            output.push('\n');
+        }
+        output.push_str(left);
+        output.push(' ');
+        output.push_str(right);
+        output.push(' ');
+        output.push_str(&encode_attrs(attrs));
+    }
+    output
 }
 
 fn decode_attrs(
