@@ -38833,16 +38833,30 @@ def to_scipy_sparse_array(G, nodelist=None, dtype=None, weight="weight", format=
     # native path when caller passes an explicit ``dtype`` we'd have
     # to coerce in Python anyway (the dtype arg is preserved by the
     # scipy COO constructor when given to ``coo_array(..., dtype=)``).
+    # br-r37-c1-wqtfe: also take the native COO builder for a string weight
+    # key when the caller pins ``dtype`` (hits, kemeny, laplacian/spectral all
+    # pass ``dtype=float``). The native helper reads the Rust ``inner`` AttrMap,
+    # which can be stale after ``G[u][v][k]=v`` mutations, so sync first. We
+    # only enable this when ``dtype`` is given because for ``dtype=None`` nx
+    # infers int-vs-float from the original Python value types, which the
+    # f64-returning native helper cannot reproduce; a pinned dtype removes that
+    # ambiguity. The matrix is byte-identical to the Python path (COO -> CSR
+    # canonicalises duplicate/ordering, and the (row, col, data) set matches).
+    _use_native_weighted = isinstance(weight, str) and dtype is not None
     if (
         _native_adjacency_arrays is not None
         and not G.is_multigraph()
         and isinstance(G, (Graph, DiGraph))
-        and weight is None
+        and (weight is None or _use_native_weighted)
     ):
         # br-r37-c1-hits-bipartite-svds-degenerate-xjar9: weighted
         # matrix exports must read Python-visible attr dicts because
-        # direct adjacency mutations can be stale in Rust storage.
-        native_result = _native_adjacency_arrays(G, nodelist, None, 1.0)
+        # direct adjacency mutations can be stale in Rust storage —
+        # push them into ``inner`` before the native read.
+        if _use_native_weighted:
+            _sync_rust_edge_attrs(G)
+        native_weight = weight if isinstance(weight, str) else None
+        native_result = _native_adjacency_arrays(G, nodelist, native_weight, 1.0)
         if native_result is not None:
             rows, cols, data = native_result
             # br-r37-c1-tssadtype: nx preserves int dtype when every

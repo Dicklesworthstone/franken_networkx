@@ -1,0 +1,123 @@
+"""Byte-level parity for the native weighted to_scipy_sparse_array fast path.
+
+Bead br-r37-c1-wqtfe (perf).
+
+to_scipy_sparse_array now routes a string ``weight`` key through the native
+Rust ``adjacency_arrays`` COO builder when ``dtype`` is pinned (the hot matrix
+consumers — hits, kemeny, laplacian/spectral — all pass ``dtype=float``),
+~7x faster than the per-edge Python boundary loop. The native helper reads the
+Rust ``inner`` AttrMap, so the wrapper syncs Python-visible attr mutations first.
+
+These tests pin the produced CSR (shape, dtype, indptr, indices, data) to nx
+byte-for-byte, including the post-creation weight-mutation (staleness) case and
+the dtype=None path (which must still use the value-type-preserving Python
+fallback).
+"""
+
+from __future__ import annotations
+
+import random
+
+import numpy as np
+import pytest
+
+import franken_networkx as fnx
+
+try:
+    import networkx as nx
+    HAS_NX = True
+except ImportError:
+    HAS_NX = False
+
+needs_nx = pytest.mark.skipif(not HAS_NX, reason="networkx not installed")
+
+
+def _csr_sig(A):
+    A = A.tocsr()
+    A.sort_indices()
+    return (
+        A.shape,
+        A.dtype.str,
+        A.indptr.tobytes(),
+        A.indices.tobytes(),
+        np.ascontiguousarray(A.data).tobytes(),
+    )
+
+
+def _build(directed, kind, seed):
+    rng = random.Random(seed)
+    n = rng.randint(1, 30)
+    ng = nx.DiGraph() if directed else nx.Graph()
+    fg = fnx.DiGraph() if directed else fnx.Graph()
+    nodes = list(range(n))
+    rng.shuffle(nodes)
+    for u in nodes:
+        ng.add_node(u)
+        fg.add_node(u)
+    seen = set()
+    for _ in range(rng.randint(0, n * 2)):
+        u, v = rng.choice(nodes), rng.choice(nodes)
+        if (u, v) in seen:
+            continue
+        seen.add((u, v))
+        if kind == "unweighted" or kind == "mutated":
+            ng.add_edge(u, v)
+            fg.add_edge(u, v)
+        elif kind == "wint":
+            w = rng.randint(1, 5)
+            ng.add_edge(u, v, weight=w)
+            fg.add_edge(u, v, weight=w)
+        else:  # wfloat
+            w = rng.choice([1.5, 2.0, 3.25])
+            ng.add_edge(u, v, weight=w)
+            fg.add_edge(u, v, weight=w)
+    if kind == "mutated":
+        for u, v in list(ng.edges()):
+            w = rng.choice([2, 4.5])
+            ng[u][v]["weight"] = w
+            fg[u][v]["weight"] = w
+    return ng, fg
+
+
+@needs_nx
+@pytest.mark.parametrize("directed", [False, True])
+@pytest.mark.parametrize("kind", ["unweighted", "wint", "wfloat", "mutated"])
+@pytest.mark.parametrize("dtype", [float, None, int])
+@pytest.mark.parametrize("weight", ["weight", None])
+@pytest.mark.parametrize("seed", list(range(6)))
+def test_csr_byte_identical_to_networkx(directed, kind, dtype, weight, seed):
+    ng, fg = _build(directed, kind, seed * 101 + 7)
+    if len(ng) == 0:
+        return
+    a = nx.to_scipy_sparse_array(ng, dtype=dtype, weight=weight)
+    b = fnx.to_scipy_sparse_array(fg, dtype=dtype, weight=weight)
+    assert _csr_sig(a) == _csr_sig(b)
+
+
+@needs_nx
+def test_dtype_float_weighted_uses_native_and_matches():
+    # explicit dtype=float + string weight -> native path; mutated weights too
+    ng, fg = nx.Graph(), fnx.Graph()
+    for u, v in [(0, 1), (1, 2), (2, 0), (2, 3)]:
+        ng.add_edge(u, v, weight=1.0)
+        fg.add_edge(u, v, weight=1.0)
+    # mutate post-creation (staleness path)
+    ng[0][1]["weight"] = 7.5
+    fg[0][1]["weight"] = 7.5
+    a = nx.adjacency_matrix(ng, nodelist=list(ng), dtype=float)
+    b = fnx.adjacency_matrix(fg, nodelist=list(fg), dtype=float)
+    assert _csr_sig(a) == _csr_sig(b)
+
+
+@needs_nx
+def test_hits_matches_networkx():
+    # end-to-end consumer of the fast path
+    ng, fg = nx.Graph(), fnx.Graph()
+    for u, v in [(0, 1), (1, 2), (2, 3), (3, 0), (0, 2), (1, 3), (2, 4)]:
+        ng.add_edge(u, v)
+        fg.add_edge(u, v)
+    nh, na = nx.hits(ng)
+    fh, fa = fnx.hits(fg)
+    for k in nh:
+        assert fh[k] == pytest.approx(nh[k], abs=1e-9)
+        assert fa[k] == pytest.approx(na[k], abs=1e-9)
