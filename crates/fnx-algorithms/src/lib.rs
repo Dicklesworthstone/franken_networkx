@@ -41094,7 +41094,7 @@ mod tests {
         let _ = g.add_edge_with_attrs("b", "c", attrs([("weight", "1.0")]));
         let _ = g.add_edge_with_attrs("a", "c", attrs([("weight", "5.0")]));
 
-        let path = astar_path::<()>(&g, "a", "c", "weight", None);
+        let path = astar_path::<_, ()>(&g, "a", "c", "weight", None);
         assert_eq!(
             path,
             Ok(Some(vec![
@@ -41110,7 +41110,7 @@ mod tests {
         let mut g = Graph::strict();
         g.add_node("a");
         g.add_node("b");
-        let path = astar_path::<()>(&g, "a", "b", "weight", None);
+        let path = astar_path::<_, ()>(&g, "a", "b", "weight", None);
         assert_eq!(path, Ok(None));
     }
 
@@ -41118,7 +41118,7 @@ mod tests {
     fn test_astar_path_same_node() {
         let mut g = Graph::strict();
         g.add_node("a");
-        let path = astar_path::<()>(&g, "a", "a", "weight", None);
+        let path = astar_path::<_, ()>(&g, "a", "a", "weight", None);
         assert_eq!(path, Ok(Some(vec!["a".to_string()])));
     }
 
@@ -41148,14 +41148,14 @@ mod tests {
         let _ = g.add_edge_with_attrs("a", "b", attrs([("weight", "2.0")]));
         let _ = g.add_edge_with_attrs("b", "c", attrs([("weight", "3.0")]));
 
-        let length = astar_path_length::<()>(&g, "a", "c", "weight", None);
+        let length = astar_path_length::<_, ()>(&g, "a", "c", "weight", None);
         assert_eq!(length, Ok(Some(5.0)));
     }
 
     #[test]
     fn test_astar_nonexistent_node() {
         let g = Graph::strict();
-        let path = astar_path::<()>(&g, "x", "y", "weight", None);
+        let path = astar_path::<_, ()>(&g, "x", "y", "weight", None);
         assert_eq!(path, Ok(None));
     }
 
