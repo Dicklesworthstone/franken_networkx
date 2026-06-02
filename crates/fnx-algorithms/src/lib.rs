@@ -2337,11 +2337,12 @@ fn harmonic_centrality_generic<G: GraphView>(graph: &G) -> HarmonicCentralityRes
         })
         .collect::<Vec<Vec<Option<usize>>>>();
 
+    let unreached = usize::MAX;
     for (s, source) in nodes.iter().enumerate() {
         let mut queue: VecDeque<usize> = VecDeque::new();
-        let mut distances: Vec<Option<usize>> = vec![None; n];
+        let mut distances: Vec<usize> = vec![unreached; n];
         queue.push_back(s);
-        distances[s] = Some(0usize);
+        distances[s] = 0usize;
         queue_peak = queue_peak.max(queue.len());
 
         let mut reached_count = 0usize;
@@ -2349,7 +2350,7 @@ fn harmonic_centrality_generic<G: GraphView>(graph: &G) -> HarmonicCentralityRes
 
         while let Some(u) = queue.pop_front() {
             reached_count += 1;
-            let d = distances[u].unwrap();
+            let d = distances[u];
             if d > 0 {
                 harmonic += 1.0 / (d as f64);
             }
@@ -2357,8 +2358,8 @@ fn harmonic_centrality_generic<G: GraphView>(graph: &G) -> HarmonicCentralityRes
             for maybe_v in &reverse_adjacency[u] {
                 edges_scanned += 1;
                 let v = maybe_v.expect("graph in-neighbor must exist in canonical node index");
-                if distances[v].is_none() {
-                    distances[v] = Some(d + 1);
+                if distances[v] == unreached {
+                    distances[v] = d + 1;
                     queue.push_back(v);
                     queue_peak = queue_peak.max(queue.len());
                 }
