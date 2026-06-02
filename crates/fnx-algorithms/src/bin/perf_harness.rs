@@ -132,6 +132,14 @@ fn main() {
     let g = build_sparse(n, deg, seed);
     let m = g.edge_count();
 
+    // Golden-output mode for isomorphism proofs: print full-precision per-node
+    // scores in node order so the result can be sha256'd before/after an
+    // optimization. `DUMP=1 ALGO=betweenness N=... | sha256sum`.
+    if std::env::var_os("DUMP").is_some() {
+        dump_golden(&algo, &g);
+        return;
+    }
+
     // Warm one untimed run (page-ins, branch predictor) without polluting the metric.
     run_once(&algo, &g, n);
 
@@ -267,6 +275,40 @@ fn is_profile_noise(symbol: &str) -> bool {
         || symbol.contains("core::ops::function::")
         || symbol.contains("__libc_start")
         || symbol == "Unknown"
+}
+
+/// Print full-precision per-node scores in node order for golden/isomorphism
+/// proofs. Bit-exact `{:.17e}` so any FP drift changes the sha256.
+fn dump_golden(algo: &str, g: &Graph) {
+    let scores: Vec<(String, f64)> = match algo {
+        "betweenness" => betweenness_centrality(g)
+            .scores
+            .into_iter()
+            .map(|s| (s.node, s.score))
+            .collect(),
+        "closeness" => closeness_centrality(g)
+            .scores
+            .into_iter()
+            .map(|s| (s.node, s.score))
+            .collect(),
+        "harmonic" => harmonic_centrality(g)
+            .scores
+            .into_iter()
+            .map(|s| (s.node, s.score))
+            .collect(),
+        "pagerank" => pagerank(g)
+            .scores
+            .into_iter()
+            .map(|s| (s.node, s.score))
+            .collect(),
+        other => {
+            eprintln!("DUMP unsupported for ALGO={other}");
+            std::process::exit(2);
+        }
+    };
+    for (node, score) in scores {
+        println!("{node}\t{score:.17e}");
+    }
 }
 
 /// Run one repetition of the chosen algorithm, returning a checksum derived from
