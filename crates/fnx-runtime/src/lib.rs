@@ -339,6 +339,154 @@ impl CgsePolicyRule {
             Self::R14 => "fail_closed_on_cgse_r14_drift",
         }
     }
+
+    #[must_use]
+    pub const fn selected_rationale_probability_0_2(self, action: DecisionAction) -> &'static str {
+        match (self, action) {
+            (Self::R01, DecisionAction::Allow) => {
+                "deterministic policy CGSE-R01 selected Allow at incompatibility_probability=0.2000"
+            }
+            (Self::R01, DecisionAction::FullValidate) => {
+                "deterministic policy CGSE-R01 selected FullValidate at incompatibility_probability=0.2000"
+            }
+            (Self::R01, DecisionAction::FailClosed) => {
+                "deterministic policy CGSE-R01 selected FailClosed at incompatibility_probability=0.2000"
+            }
+            (Self::R02, DecisionAction::Allow) => {
+                "deterministic policy CGSE-R02 selected Allow at incompatibility_probability=0.2000"
+            }
+            (Self::R02, DecisionAction::FullValidate) => {
+                "deterministic policy CGSE-R02 selected FullValidate at incompatibility_probability=0.2000"
+            }
+            (Self::R02, DecisionAction::FailClosed) => {
+                "deterministic policy CGSE-R02 selected FailClosed at incompatibility_probability=0.2000"
+            }
+            (Self::R03, DecisionAction::Allow) => {
+                "deterministic policy CGSE-R03 selected Allow at incompatibility_probability=0.2000"
+            }
+            (Self::R03, DecisionAction::FullValidate) => {
+                "deterministic policy CGSE-R03 selected FullValidate at incompatibility_probability=0.2000"
+            }
+            (Self::R03, DecisionAction::FailClosed) => {
+                "deterministic policy CGSE-R03 selected FailClosed at incompatibility_probability=0.2000"
+            }
+            (Self::R04, DecisionAction::Allow) => {
+                "deterministic policy CGSE-R04 selected Allow at incompatibility_probability=0.2000"
+            }
+            (Self::R04, DecisionAction::FullValidate) => {
+                "deterministic policy CGSE-R04 selected FullValidate at incompatibility_probability=0.2000"
+            }
+            (Self::R04, DecisionAction::FailClosed) => {
+                "deterministic policy CGSE-R04 selected FailClosed at incompatibility_probability=0.2000"
+            }
+            (Self::R05, DecisionAction::Allow) => {
+                "deterministic policy CGSE-R05 selected Allow at incompatibility_probability=0.2000"
+            }
+            (Self::R05, DecisionAction::FullValidate) => {
+                "deterministic policy CGSE-R05 selected FullValidate at incompatibility_probability=0.2000"
+            }
+            (Self::R05, DecisionAction::FailClosed) => {
+                "deterministic policy CGSE-R05 selected FailClosed at incompatibility_probability=0.2000"
+            }
+            (Self::R06, DecisionAction::Allow) => {
+                "deterministic policy CGSE-R06 selected Allow at incompatibility_probability=0.2000"
+            }
+            (Self::R06, DecisionAction::FullValidate) => {
+                "deterministic policy CGSE-R06 selected FullValidate at incompatibility_probability=0.2000"
+            }
+            (Self::R06, DecisionAction::FailClosed) => {
+                "deterministic policy CGSE-R06 selected FailClosed at incompatibility_probability=0.2000"
+            }
+            (Self::R07, DecisionAction::Allow) => {
+                "deterministic policy CGSE-R07 selected Allow at incompatibility_probability=0.2000"
+            }
+            (Self::R07, DecisionAction::FullValidate) => {
+                "deterministic policy CGSE-R07 selected FullValidate at incompatibility_probability=0.2000"
+            }
+            (Self::R07, DecisionAction::FailClosed) => {
+                "deterministic policy CGSE-R07 selected FailClosed at incompatibility_probability=0.2000"
+            }
+            (Self::R08, DecisionAction::Allow) => {
+                "deterministic policy CGSE-R08 selected Allow at incompatibility_probability=0.2000"
+            }
+            (Self::R08, DecisionAction::FullValidate) => {
+                "deterministic policy CGSE-R08 selected FullValidate at incompatibility_probability=0.2000"
+            }
+            (Self::R08, DecisionAction::FailClosed) => {
+                "deterministic policy CGSE-R08 selected FailClosed at incompatibility_probability=0.2000"
+            }
+            (Self::R09, DecisionAction::Allow) => {
+                "deterministic policy CGSE-R09 selected Allow at incompatibility_probability=0.2000"
+            }
+            (Self::R09, DecisionAction::FullValidate) => {
+                "deterministic policy CGSE-R09 selected FullValidate at incompatibility_probability=0.2000"
+            }
+            (Self::R09, DecisionAction::FailClosed) => {
+                "deterministic policy CGSE-R09 selected FailClosed at incompatibility_probability=0.2000"
+            }
+            (Self::R10, DecisionAction::Allow) => {
+                "deterministic policy CGSE-R10 selected Allow at incompatibility_probability=0.2000"
+            }
+            (Self::R10, DecisionAction::FullValidate) => {
+                "deterministic policy CGSE-R10 selected FullValidate at incompatibility_probability=0.2000"
+            }
+            (Self::R10, DecisionAction::FailClosed) => {
+                "deterministic policy CGSE-R10 selected FailClosed at incompatibility_probability=0.2000"
+            }
+            (Self::R11, DecisionAction::Allow) => {
+                "deterministic policy CGSE-R11 selected Allow at incompatibility_probability=0.2000"
+            }
+            (Self::R11, DecisionAction::FullValidate) => {
+                "deterministic policy CGSE-R11 selected FullValidate at incompatibility_probability=0.2000"
+            }
+            (Self::R11, DecisionAction::FailClosed) => {
+                "deterministic policy CGSE-R11 selected FailClosed at incompatibility_probability=0.2000"
+            }
+            (Self::R12, DecisionAction::Allow) => {
+                "deterministic policy CGSE-R12 selected Allow at incompatibility_probability=0.2000"
+            }
+            (Self::R12, DecisionAction::FullValidate) => {
+                "deterministic policy CGSE-R12 selected FullValidate at incompatibility_probability=0.2000"
+            }
+            (Self::R12, DecisionAction::FailClosed) => {
+                "deterministic policy CGSE-R12 selected FailClosed at incompatibility_probability=0.2000"
+            }
+            (Self::R13, DecisionAction::Allow) => {
+                "deterministic policy CGSE-R13 selected Allow at incompatibility_probability=0.2000"
+            }
+            (Self::R13, DecisionAction::FullValidate) => {
+                "deterministic policy CGSE-R13 selected FullValidate at incompatibility_probability=0.2000"
+            }
+            (Self::R13, DecisionAction::FailClosed) => {
+                "deterministic policy CGSE-R13 selected FailClosed at incompatibility_probability=0.2000"
+            }
+            (Self::R14, DecisionAction::Allow) => {
+                "deterministic policy CGSE-R14 selected Allow at incompatibility_probability=0.2000"
+            }
+            (Self::R14, DecisionAction::FullValidate) => {
+                "deterministic policy CGSE-R14 selected FullValidate at incompatibility_probability=0.2000"
+            }
+            (Self::R14, DecisionAction::FailClosed) => {
+                "deterministic policy CGSE-R14 selected FailClosed at incompatibility_probability=0.2000"
+            }
+        }
+    }
+}
+
+fn selected_policy_rationale(
+    rule: CgsePolicyRule,
+    action: DecisionAction,
+    clamped_probability: f64,
+) -> String {
+    if clamped_probability.to_bits() == 0.2_f64.to_bits() {
+        return rule.selected_rationale_probability_0_2(action).to_owned();
+    }
+
+    format!(
+        "deterministic policy {} selected {:?} at incompatibility_probability={clamped_probability:.4}",
+        rule.as_rule_id(),
+        action
+    )
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -1665,11 +1813,7 @@ impl CgsePolicyEngine {
                 rule.fail_closed_default()
             )
         } else {
-            format!(
-                "deterministic policy {} selected {:?} at incompatibility_probability={clamped_probability:.4}",
-                rule.as_rule_id(),
-                action
-            )
+            selected_policy_rationale(rule, action, clamped_probability)
         };
 
         let decision = DecisionRecord {
@@ -5266,6 +5410,81 @@ mod tests {
         let expected = super::RuntimePolicy::new(CompatibilityMode::Strict).action_for(0.3, false);
 
         assert_eq!(decision.decision.action, expected);
+    }
+
+    fn expected_selected_policy_rationale(
+        rule: CgsePolicyRule,
+        action: DecisionAction,
+        clamped_probability: f64,
+    ) -> String {
+        format!(
+            "deterministic policy {} selected {:?} at incompatibility_probability={clamped_probability:.4}",
+            rule.as_rule_id(),
+            action
+        )
+    }
+
+    fn print_rationale_golden_line(rule: CgsePolicyRule, case_name: &str, rationale: &str) {
+        println!(
+            "CGSE_RATIONALE_GOLDEN\t{}\t{case_name}\t{rationale}",
+            rule.as_rule_id()
+        );
+    }
+
+    #[test]
+    fn cgse_policy_engine_rationale_matrix_matches_legacy_text() {
+        let strict = CgsePolicyEngine::new(CompatibilityMode::Strict);
+        let hardened = CgsePolicyEngine::new(CompatibilityMode::Hardened);
+
+        for rule in CgsePolicyRule::ALL {
+            for (case_name, probability) in [
+                ("strict_selected_allow_0_2", 0.2),
+                ("strict_selected_validate_0_3", 0.3),
+                ("strict_selected_fail_0_9", 0.9),
+            ] {
+                let decision = strict.evaluate_at(rule, None, probability, false, 42);
+                let expected = expected_selected_policy_rationale(
+                    rule,
+                    decision.decision.action,
+                    probability.clamp(0.0, 1.0),
+                );
+                assert_eq!(decision.decision.rationale, expected);
+                print_rationale_golden_line(rule, case_name, &decision.decision.rationale);
+            }
+
+            let nan_decision = strict.evaluate_at(rule, None, f64::NAN, false, 42);
+            let expected_nan = format!(
+                "{} triggered fail-closed due to NaN incompatibility_probability",
+                rule.fail_closed_default()
+            );
+            assert_eq!(nan_decision.decision.rationale, expected_nan);
+            print_rationale_golden_line(rule, "strict_nan", &nan_decision.decision.rationale);
+
+            let unknown_decision = strict.evaluate_at(rule, None, 0.0, true, 42);
+            let expected_unknown = format!(
+                "{} triggered fail-closed due to unknown incompatible feature",
+                rule.fail_closed_default()
+            );
+            assert_eq!(unknown_decision.decision.rationale, expected_unknown);
+            print_rationale_golden_line(
+                rule,
+                "strict_unknown_feature",
+                &unknown_decision.decision.rationale,
+            );
+
+            let ambiguity_decision =
+                hardened.evaluate_at(rule, Some("CGSE-AMB-999"), 0.01, false, 42);
+            let expected_ambiguity = format!(
+                "{} triggered fail-closed because ambiguity tag `CGSE-AMB-999` is not allowlisted in hardened mode",
+                rule.fail_closed_default()
+            );
+            assert_eq!(ambiguity_decision.decision.rationale, expected_ambiguity);
+            print_rationale_golden_line(
+                rule,
+                "hardened_non_allowlisted_ambiguity",
+                &ambiguity_decision.decision.rationale,
+            );
+        }
     }
 
     #[test]

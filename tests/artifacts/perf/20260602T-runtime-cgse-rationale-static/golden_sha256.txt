@@ -1,0 +1,3 @@
+7d7e0d721123b65d948119d78d15a036da657501ef1bdbda6a42229012e2121b  tests/artifacts/perf/20260602T-runtime-cgse-rationale-static/baseline_operation_stdout.txt
+7d7e0d721123b65d948119d78d15a036da657501ef1bdbda6a42229012e2121b  tests/artifacts/perf/20260602T-runtime-cgse-rationale-static/after_operation_stdout.txt
+8b17ac28af35b9c4d6fecbc1093c0d14199efa7c6211a38f7531e5082d102188  tests/artifacts/perf/20260602T-runtime-cgse-rationale-static/rationale_matrix_after.txt
