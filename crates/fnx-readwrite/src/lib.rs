@@ -3559,7 +3559,7 @@ impl EdgeListEngine {
                 }
                 "directed" if depth == 1 && pos + 1 < tokens.len() => {
                     let value = &tokens[pos + 1];
-                    return match parse_gml_directed_value(value) {
+                    return match parse_gml_directed_value(value.as_str()) {
                         Some(flag) => Ok(flag),
                         None => {
                             let warning = format!("gml directed value '{value}' must be 0 or 1");
@@ -3650,7 +3650,7 @@ impl EdgeListEngine {
                 "directed" if pos + 1 < tokens.len() => {
                     directed_declared = true;
                     let value = &tokens[pos + 1];
-                    match parse_gml_directed_value(value) {
+                    match parse_gml_directed_value(value.as_str()) {
                         Some(flag) => {
                             directed = flag;
                         }
@@ -3843,7 +3843,7 @@ impl EdgeListEngine {
                 {
                     graph_attrs.insert(
                         key.to_owned(),
-                        CgseValue::String(gml_unescape(&tokens[pos + 1])),
+                        gml_scalar_value(&tokens[pos + 1]),
                     );
                     pos += 2;
                 }
@@ -3899,7 +3899,7 @@ impl EdgeListEngine {
 
     fn parse_gml_node(
         &mut self,
-        tokens: &[String],
+        tokens: &[GmlTok],
         mut pos: usize,
         warnings: &mut Vec<String>,
     ) -> GmlNodeParseResult {
@@ -3934,7 +3934,7 @@ impl EdgeListEngine {
                     });
                 }
                 "id" if pos + 1 < tokens.len() => {
-                    match tokens[pos + 1].parse::<i64>() {
+                    match tokens[pos + 1].as_str().parse::<i64>() {
                         Ok(parsed) => {
                             id = Some(parsed);
                         }
@@ -3955,7 +3955,7 @@ impl EdgeListEngine {
                     pos += 2;
                 }
                 "label" if pos + 1 < tokens.len() => {
-                    label = Some(gml_unescape(&tokens[pos + 1]));
+                    label = Some(gml_unescape(tokens[pos + 1].as_str()));
                     pos += 2;
                 }
                 key if pos + 1 < tokens.len() && tokens[pos + 1] == "[" => {
@@ -3980,7 +3980,7 @@ impl EdgeListEngine {
                     if pos + 1 < tokens.len() && tokens[pos + 1] != "[" && tokens[pos + 1] != "]" {
                         attrs.insert(
                             key.to_owned(),
-                            CgseValue::String(gml_unescape(&tokens[pos + 1])),
+                            gml_scalar_value(&tokens[pos + 1]),
                         );
                         pos += 2;
                     } else {
@@ -4004,7 +4004,7 @@ impl EdgeListEngine {
 
     fn parse_gml_edge(
         &mut self,
-        tokens: &[String],
+        tokens: &[GmlTok],
         mut pos: usize,
         warnings: &mut Vec<String>,
     ) -> GmlEdgeParseResult {
@@ -4042,7 +4042,7 @@ impl EdgeListEngine {
                     });
                 }
                 "source" if pos + 1 < tokens.len() => {
-                    match tokens[pos + 1].parse::<i64>() {
+                    match tokens[pos + 1].as_str().parse::<i64>() {
                         Ok(parsed) => {
                             source = Some(parsed);
                         }
@@ -4063,7 +4063,7 @@ impl EdgeListEngine {
                     pos += 2;
                 }
                 "target" if pos + 1 < tokens.len() => {
-                    match tokens[pos + 1].parse::<i64>() {
+                    match tokens[pos + 1].as_str().parse::<i64>() {
                         Ok(parsed) => {
                             target = Some(parsed);
                         }
@@ -4105,7 +4105,7 @@ impl EdgeListEngine {
                     if pos + 1 < tokens.len() && tokens[pos + 1] != "[" && tokens[pos + 1] != "]" {
                         attrs.insert(
                             key.to_owned(),
-                            CgseValue::String(gml_unescape(&tokens[pos + 1])),
+                            gml_scalar_value(&tokens[pos + 1]),
                         );
                         pos += 2;
                     } else {
@@ -4156,9 +4156,66 @@ impl EdgeListEngine {
 // GML helpers
 // ---------------------------------------------------------------------------
 
+/// A single GML token plus whether it was a quoted string literal.
+///
+/// GML grammar distinguishes ``value ::= integer | real | string`` where a
+/// string is quoted (``"..."``) and integer/real are bare. The tokenizer
+/// strips the quotes, so without tracking the quoted bit a bare ``2.5`` and a
+/// quoted ``"2.5"`` would be indistinguishable — and the reader would coerce
+/// (or fail to coerce) both the same way. networkx keeps quoted values as
+/// strings and parses bare numeric values to int/float, so we carry the bit.
+#[derive(Clone, Debug)]
+struct GmlTok {
+    text: String,
+    quoted: bool,
+}
+
+impl GmlTok {
+    fn as_str(&self) -> &str {
+        &self.text
+    }
+}
+
+impl PartialEq<&str> for GmlTok {
+    fn eq(&self, other: &&str) -> bool {
+        self.text == *other
+    }
+}
+
+impl std::fmt::Display for GmlTok {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.text)
+    }
+}
+
+/// Convert a GML scalar value token to a typed attribute value, matching
+/// networkx: a quoted token is always a string; a bare token that looks
+/// numeric parses as int (i64) first, then float (f64); anything else (a bare
+/// non-numeric word, an i64-overflowing magnitude, or a non-finite literal
+/// like ``nan``/``inf``) stays a string. Bare integers larger than i64 are a
+/// rare GML corner — nx keeps them as Python big-ints, which CgseValue cannot
+/// represent, so they fall through to f64 (and, if still not finite, string).
+fn gml_scalar_value(tok: &GmlTok) -> CgseValue {
+    if !tok.quoted {
+        let s = tok.text.as_str();
+        let first = s.as_bytes().first().copied();
+        if matches!(first, Some(b'0'..=b'9') | Some(b'+') | Some(b'-') | Some(b'.')) {
+            if let Ok(i) = s.parse::<i64>() {
+                return CgseValue::Int(i);
+            }
+            if let Ok(f) = s.parse::<f64>()
+                && f.is_finite()
+            {
+                return CgseValue::Float(f);
+            }
+        }
+    }
+    CgseValue::String(gml_unescape(&tok.text))
+}
+
 /// Tokenize a GML string into a flat list of tokens.
 /// Handles quoted strings, brackets, and whitespace-separated values.
-fn gml_tokenize(input: &str) -> Vec<String> {
+fn gml_tokenize(input: &str) -> Vec<GmlTok> {
     let mut tokens = Vec::new();
     let mut chars = input.chars().peekable();
 
@@ -4187,7 +4244,10 @@ fn gml_tokenize(input: &str) -> Vec<String> {
                 }
             }
             '[' | ']' => {
-                tokens.push(ch.to_string());
+                tokens.push(GmlTok {
+                    text: ch.to_string(),
+                    quoted: false,
+                });
                 chars.next();
             }
             '"' => {
@@ -4207,7 +4267,10 @@ fn gml_tokenize(input: &str) -> Vec<String> {
                         s.push(c);
                     }
                 }
-                tokens.push(s);
+                tokens.push(GmlTok {
+                    text: s,
+                    quoted: true,
+                });
             }
             _ => {
                 let mut word = String::new();
@@ -4219,7 +4282,10 @@ fn gml_tokenize(input: &str) -> Vec<String> {
                     chars.next();
                 }
                 if !word.is_empty() {
-                    tokens.push(word);
+                    tokens.push(GmlTok {
+                        text: word,
+                        quoted: false,
+                    });
                 }
             }
         }
@@ -4228,9 +4294,9 @@ fn gml_tokenize(input: &str) -> Vec<String> {
     tokens
 }
 
-fn parse_gml_nested_attr(tokens: &[String], mut pos: usize) -> (AttrMap, usize, bool) {
+fn parse_gml_nested_attr(tokens: &[GmlTok], mut pos: usize) -> (AttrMap, usize, bool) {
     let mut map = AttrMap::new();
-    if tokens.get(pos).map(String::as_str) != Some("[") {
+    if tokens.get(pos).map(GmlTok::as_str) != Some("[") {
         return (map, pos, false);
     }
     pos += 1;
@@ -4240,7 +4306,7 @@ fn parse_gml_nested_attr(tokens: &[String], mut pos: usize) -> (AttrMap, usize, 
             return (map, pos + 1, true);
         }
 
-        let key = tokens[pos].clone();
+        let key = tokens[pos].text.clone();
         if pos + 1 >= tokens.len() {
             return (map, pos + 1, false);
         }
@@ -4255,7 +4321,7 @@ fn parse_gml_nested_attr(tokens: &[String], mut pos: usize) -> (AttrMap, usize, 
         } else if tokens[pos + 1] == "]" {
             pos += 1;
         } else {
-            map.insert(key, CgseValue::String(gml_unescape(&tokens[pos + 1])));
+            map.insert(key, gml_scalar_value(&tokens[pos + 1]));
             pos += 2;
         }
     }
