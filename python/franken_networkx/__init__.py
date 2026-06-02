@@ -27924,6 +27924,22 @@ class _FilteredGraphView:
     node_attr_dict_factory = dict
     node_dict_factory = dict
 
+    def __new__(cls, graph=None, *args, **kwargs):
+        # br-r37-c1-pgfd2: build an EMPTY Rust base. The filtered-view classes
+        # mix this in with the canonical PyO3 ``Graph`` (for isinstance
+        # parity), whose ``__new__`` eagerly copies the parent ``graph``'s
+        # entire node + edge set into the view's own Rust storage on every
+        # construction — O(|V|+|E|) per ``subgraph_view`` / ``G.subgraph()``
+        # call. That storage is dead weight: every query method below
+        # (__iter__/nodes/edges/adjacency/neighbors/number_of_*/size/degree/
+        # has_node/has_edge/copy) is overridden to answer through
+        # ``self._graph`` plus the filters, never the base's own adjacency.
+        # ``super().__new__(cls)`` (cls's MRO routes to the Graph base)
+        # allocates an empty graph in O(1); ``__init__`` wires up the live
+        # filtered view. (Also removes the stale-base hazard that forced the
+        # ``has_node`` override.)
+        return super().__new__(cls)
+
     def __init__(self, graph, *, filter_node=None, filter_edge=None):
         self._graph = graph
         # br-r37-c1-fgv-graph-id: nx's subgraph_view / copy(as_view=
