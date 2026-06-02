@@ -16953,9 +16953,8 @@ def ego_graph(G, n, radius=1, center=True, undirected=False, distance=None):
                 graph.add_edge(u, v, **data)
     if not center and n in graph:
         graph.remove_node(n)
-    # Always return fnx type for consistency
-    from franken_networkx.readwrite import _from_nx_graph
-    return _from_nx_graph(graph)
+    # Always return fnx type for consistency.
+    return graph
 
 
 def core_number(G):
