@@ -1,0 +1,6 @@
+baseline sample sha256: 52e0ac53afc061e6ba3f223451e6329ca586176b07505934ba42cf2bb8537286
+after sample sha256:    52e0ac53afc061e6ba3f223451e6329ca586176b07505934ba42cf2bb8537286
+baseline golden sha256: 9a2bef4b166f1a6db4bf3ec4e4e89b72c8c4e2944f27c15b07b7cc9d32c73ba8
+after golden sha256:    9a2bef4b166f1a6db4bf3ec4e4e89b72c8c4e2944f27c15b07b7cc9d32c73ba8
+sample workload: BA(3000, 3, seed=42), maximal_independent_set(seed=7), 30 calls
+golden workload: path24, cycle31, BA(120, 3), selfloop; seeds None/0/1/7/2147483665; nodes None/[0]

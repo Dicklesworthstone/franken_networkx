@@ -203,6 +203,17 @@ class TestMaximalIndependentSet:
         G = fnx.path_graph(5)
         assert fnx.maximal_independent_set(G, [1], seed=1) == [1, 3]
 
+    @needs_nx
+    def test_seeded_barabasi_albert_matches_networkx_order(self):
+        nx_graph = nx.barabasi_albert_graph(100, 4, seed=42)
+        G = fnx.Graph()
+        G.add_nodes_from(nx_graph.nodes())
+        G.add_edges_from(nx_graph.edges())
+
+        assert fnx.maximal_independent_set(G, seed=1) == nx.maximal_independent_set(
+            nx_graph, seed=1
+        )
+
     def test_invalid_seed_nodes_raise(self, triangle):
         with pytest.raises(fnx.NetworkXUnfeasible):
             fnx.maximal_independent_set(triangle, [0, 1])
