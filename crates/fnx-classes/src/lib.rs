@@ -33,6 +33,17 @@ impl EdgeKey {
             }
         }
     }
+
+    fn from_owned(left: String, right: String) -> Self {
+        if left <= right {
+            Self { left, right }
+        } else {
+            Self {
+                left: right,
+                right: left,
+            }
+        }
+    }
 }
 
 #[derive(Hash, PartialEq, Eq, Clone, Copy)]
@@ -472,25 +483,27 @@ impl Graph {
                 self.adj_indices.push(Vec::new());
                 nodes_added = true;
             }
-            let edge_key = EdgeKey::new(&left, &right);
+            let left_idx = self.nodes.get_index_of(&left);
+            let right_idx = self.nodes.get_index_of(&right);
+            let edge_key = EdgeKeyRef::new(&left, &right);
             if self.edges.contains_key(&edge_key) {
                 continue;
             }
-            self.edges.insert(edge_key, AttrMap::new());
+            let adjacency_left = left.clone();
+            let adjacency_right = right.clone();
+            self.edges
+                .insert(EdgeKey::from_owned(left, right), AttrMap::new());
             self.adjacency
-                .entry(left.clone())
+                .entry(adjacency_left.clone())
                 .or_default()
-                .insert(right.clone());
+                .insert(adjacency_right.clone());
             self.adjacency
-                .entry(right.clone())
+                .entry(adjacency_right)
                 .or_default()
-                .insert(left.clone());
+                .insert(adjacency_left);
 
             // Update integer adjacency
-            if let (Some(left_idx), Some(right_idx)) = (
-                self.nodes.get_index_of(&left),
-                self.nodes.get_index_of(&right),
-            ) {
+            if let (Some(left_idx), Some(right_idx)) = (left_idx, right_idx) {
                 self.adj_indices[left_idx].push(right_idx);
                 if left_idx != right_idx {
                     self.adj_indices[right_idx].push(left_idx);
@@ -498,25 +511,30 @@ impl Graph {
             }
             inserted += 1;
         }
-        if inserted > 0 || nodes_added {
-            self.revision = self
-                .revision
-                .saturating_add(u64::try_from(inserted).unwrap_or(u64::MAX));
-            // One summary record covers the whole batch and keeps the
-            // policy ledger non-empty so existing diagnostics still
-            // see the operation.
-            self.record_decision(
-                "extend_edges_unrecorded",
-                0.0,
-                false,
-                vec![EvidenceTerm {
-                    signal: "batch_edge_count".to_owned(),
-                    observed_value: inserted.to_string(),
-                    log_likelihood_ratio: -1.0,
-                }],
-            );
-        }
+        self.record_bulk_edge_summary(inserted, nodes_added);
         inserted
+    }
+
+    fn record_bulk_edge_summary(&mut self, inserted: usize, nodes_added: bool) {
+        if inserted == 0 && !nodes_added {
+            return;
+        }
+        self.revision = self
+            .revision
+            .saturating_add(u64::try_from(inserted).unwrap_or(u64::MAX));
+        // One summary record covers the whole batch and keeps the
+        // policy ledger non-empty so existing diagnostics still
+        // see the operation.
+        self.record_decision(
+            "extend_edges_unrecorded",
+            0.0,
+            false,
+            vec![EvidenceTerm {
+                signal: "batch_edge_count".to_owned(),
+                observed_value: inserted.to_string(),
+                log_likelihood_ratio: -1.0,
+            }],
+        );
     }
 
     pub fn add_edge_with_attrs(

@@ -1,0 +1,7 @@
+{"scenario":"path-edges","sample":0,"n":100000,"iters":3,"elapsed_ms":1858.223344,"nodes":100000,"edges":99999,"checksum":"001226f367981313"}
+{"scenario":"path-edges","sample":1,"n":100000,"iters":3,"elapsed_ms":1933.959970,"nodes":100000,"edges":99999,"checksum":"001226f367981313"}
+{"scenario":"path-edges","sample":2,"n":100000,"iters":3,"elapsed_ms":2058.334287,"nodes":100000,"edges":99999,"checksum":"001226f367981313"}
+{"scenario":"path-edges","sample":3,"n":100000,"iters":3,"elapsed_ms":2309.928688,"nodes":100000,"edges":99999,"checksum":"001226f367981313"}
+{"scenario":"path-edges","sample":4,"n":100000,"iters":3,"elapsed_ms":2041.073119,"nodes":100000,"edges":99999,"checksum":"001226f367981313"}
+{"scenario":"path-edges","sample":5,"n":100000,"iters":3,"elapsed_ms":1741.471514,"nodes":100000,"edges":99999,"checksum":"001226f367981313"}
+{"scenario":"path-edges","sample":6,"n":100000,"iters":3,"elapsed_ms":1838.985221,"nodes":100000,"edges":99999,"checksum":"001226f367981313"}

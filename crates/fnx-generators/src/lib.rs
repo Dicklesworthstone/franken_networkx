@@ -256,7 +256,7 @@ impl GraphGenerator {
             node_labels
                 .iter()
                 .zip(node_labels.iter().skip(1))
-                .map(|(left, right)| (left.clone(), right.clone())),
+                .map(|(left, right)| (left.as_str(), right.as_str())),
         );
         debug_assert_eq!(inserted, edge_count);
 
