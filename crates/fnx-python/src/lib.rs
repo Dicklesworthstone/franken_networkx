@@ -22,7 +22,6 @@ use pyo3::marker::Ungil;
 use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyDict, PyIterator, PyTuple};
 use std::collections::{HashMap, HashSet};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::convert::Infallible;
 
 pub(crate) type PyObject = Py<PyAny>;
@@ -319,10 +318,6 @@ pub(crate) struct PyGraph {
     /// — e.g. the view materialization cache reverted in br-r37-c1-jy3j3
     /// needs both to catch count-preserving rewires.
     pub(crate) edges_seq: u64,
-    /// br-r37-c1-g5ifq: Set true when edge attrs are handed out via __getitem__.
-    /// If false, _fnx_sync_attrs_to_inner can skip edge sync entirely (no
-    /// mutations possible). Uses Cell for interior mutability in &self methods.
-    pub(crate) edges_dirty: AtomicBool,
 }
 
 impl PyGraph {
@@ -369,7 +364,6 @@ impl PyGraph {
             graph_attrs: PyDict::new(py).unbind(),
             nodes_seq: 0,
             edges_seq: 0,
-            edges_dirty: AtomicBool::new(false),
         })
     }
 
@@ -410,8 +404,6 @@ pub(crate) struct PyMultiGraph {
     pub(crate) nodes_seq: u64,
     /// br-r37-c1-jft0i: see PyGraph::edges_seq.
     pub(crate) edges_seq: u64,
-    /// br-r37-c1-g5ifq: see PyGraph::edges_dirty.
-    pub(crate) edges_dirty: AtomicBool,
 }
 
 impl PyMultiGraph {
@@ -527,7 +519,6 @@ impl PyMultiGraph {
             graph_attrs: PyDict::new(py).unbind(),
             nodes_seq: 0,
             edges_seq: 0,
-            edges_dirty: AtomicBool::new(false),
         })
     }
 
@@ -758,8 +749,6 @@ impl PyMultiGraph {
     /// dicts back into the Rust ``inner`` graph. Called by Python-level
     /// wrappers before invoking native algorithms so post-creation
     /// mutations (``G[u][v]['k']=v``) are visible to the Rust kernels.
-    /// br-r37-c1-g5ifq: skip edge sync entirely if edges_dirty is false
-    /// (no edge attrs have been handed out, so no mutations are possible).
     fn _fnx_sync_attrs_to_inner(&mut self, py: Python<'_>) -> PyResult<()> {
         let nodes: Vec<(String, AttrMap)> = self
             .node_py_attrs
@@ -768,10 +757,6 @@ impl PyMultiGraph {
             .collect::<PyResult<_>>()?;
         for (canonical, attrs) in nodes {
             self.inner.replace_node_attrs(&canonical, attrs);
-        }
-        // br-r37-c1-g5ifq: skip edge sync if no edge attrs have been accessed
-        if !self.edges_dirty.load(Ordering::Relaxed) {
-            return Ok(());
         }
         let edges: Vec<(String, String, usize, AttrMap)> = self
             .edge_py_attrs
@@ -1301,14 +1286,11 @@ impl PyMultiGraph {
         )
     }
 
-    /// br-r37-c1-g5ifq: sets edges_dirty since returned dicts may be mutated.
     fn __getitem__(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>> {
         let canonical = node_key_to_string(py, n)?;
         if !self.inner.has_node(&canonical) {
             return Err(missing_key_error(n));
         }
-        // Mark edges dirty since we're handing out edge attr dicts that may be mutated
-        self.edges_dirty.store(true, Ordering::Relaxed);
         let result = PyDict::new(py);
         for neighbor in self.inner.neighbors(&canonical).unwrap_or_default() {
             let py_nb = self.node_key_map.get(neighbor).map_or_else(
@@ -1426,7 +1408,6 @@ impl PyMultiGraph {
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,
             edges_seq: 0,
-            edges_dirty: AtomicBool::new(false),
         };
         for (canonical, py_key) in &self.node_key_map {
             let rust_attrs = self
@@ -1496,7 +1477,6 @@ impl PyMultiGraph {
             graph_attrs: self.graph_attrs.clone_ref(py),
             nodes_seq: 0,
             edges_seq: 0,
-            edges_dirty: AtomicBool::new(false),
         };
         // Copy nodes but SHARE attribute dicts
         for (canonical, py_key) in &self.node_key_map {
@@ -1579,7 +1559,6 @@ impl PyMultiGraph {
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,
             edges_seq: 0,
-            edges_dirty: AtomicBool::new(false),
         };
 
         for canonical in &keep {
@@ -1657,7 +1636,6 @@ impl PyMultiGraph {
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,
             edges_seq: 0,
-            edges_dirty: AtomicBool::new(false),
         };
 
         for (u, v, key_filter) in &keep_edges {
@@ -1743,7 +1721,6 @@ impl PyMultiGraph {
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,
             edges_seq: 0,
-            edges_dirty: AtomicBool::new(false),
         };
 
         for (canonical, py_key) in &self.node_key_map {
@@ -3069,14 +3046,11 @@ impl PyGraph {
     }
 
     /// Get adjacency dict for node (called by ``G[n]``).
-    /// br-r37-c1-g5ifq: sets edges_dirty since returned dicts may be mutated.
     fn __getitem__(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>> {
         let canonical = node_key_to_string(py, n)?;
         if !self.inner.has_node(&canonical) {
             return Err(missing_key_error(n));
         }
-        // Mark edges dirty since we're handing out edge attr dicts that may be mutated
-        self.edges_dirty.store(true, Ordering::Relaxed);
         let neighbors = self.inner.neighbors(&canonical).unwrap_or_default();
         let result = PyDict::new(py);
         for nb in neighbors {
@@ -3134,7 +3108,6 @@ impl PyGraph {
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,
             edges_seq: 0,
-            edges_dirty: AtomicBool::new(false),
         };
         // Copy nodes
         for (canonical, py_key) in &self.node_key_map {
@@ -3209,7 +3182,6 @@ impl PyGraph {
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,
             edges_seq: 0,
-            edges_dirty: AtomicBool::new(false),
         };
 
         // Add kept nodes
@@ -3275,7 +3247,6 @@ impl PyGraph {
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,
             edges_seq: 0,
-            edges_dirty: AtomicBool::new(false),
         };
 
         // Collect nodes from kept edges
@@ -3448,8 +3419,6 @@ impl PyGraph {
     /// dicts back into the Rust ``inner`` graph. Called by Python-level
     /// wrappers before invoking native algorithms so post-creation
     /// mutations (``G[u][v]['k']=v``) are visible to the Rust kernels.
-    /// br-r37-c1-g5ifq: skip edge sync entirely if edges_dirty is false
-    /// (no edge attrs have been handed out, so no mutations are possible).
     fn _fnx_sync_attrs_to_inner(&mut self, py: Python<'_>) -> PyResult<()> {
         let nodes: Vec<(String, AttrMap)> = self
             .node_py_attrs
@@ -3458,10 +3427,6 @@ impl PyGraph {
             .collect::<PyResult<_>>()?;
         for (canonical, attrs) in nodes {
             self.inner.replace_node_attrs(&canonical, attrs);
-        }
-        // br-r37-c1-g5ifq: skip edge sync if no edge attrs have been accessed
-        if !self.edges_dirty.load(Ordering::Relaxed) {
-            return Ok(());
         }
         let edges: Vec<(String, String, AttrMap)> = self
             .edge_py_attrs
@@ -3573,7 +3538,6 @@ impl PyGraph {
             graph_attrs: self.graph_attrs.clone_ref(py),
             nodes_seq: 0,
             edges_seq: 0,
-            edges_dirty: AtomicBool::new(false),
         };
         // Copy nodes but SHARE attribute dicts
         for (canonical, py_key) in &self.node_key_map {
