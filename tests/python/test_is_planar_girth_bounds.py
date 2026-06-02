@@ -1,21 +1,23 @@
-"""br-r37-c1-x0gc6: regression tests for the is_planar girth-based
-necessary-condition tightening.
+"""Regression tests for the ``_raw_is_planar`` kernel's conservative
+necessary-condition check.
 
-Before the fix, ``_raw_is_planar`` only checked Euler's bound
-``m <= 3n-6``, which K3,3 (n=6, m=9, bound 12) and Petersen (n=10,
-m=15, bound 24) both pass, so both were misclassified as planar.
+History: a girth-based bound ``m <= g(n-2)/(g-2)`` was briefly added
+(br-r37-c1-x0gc6) to reject K3,3 / Petersen / Heawood in the raw kernel,
+then **removed in 5a23f997c** ("remove non-monotone girth/BCC checks for
+edge-deletion safety"). The girth bound is unsound for any caller that
+reasons about subgraphs: deleting an edge can *increase* the girth (e.g.
+3→4), which tightens the girth bound, so a graph passing the bound can
+have a subgraph that fails it — breaking the "if G passes, every subgraph
+passes" monotonicity that edge-deletion planarity reasoning relies on.
 
-After the fix, the kernel additionally checks
-``m <= g(n-2)/(g-2)`` where g is the girth:
-- bipartite / triangle-free graphs (g=4): bound = 2(n-2)
-- girth-5 graphs: bound = 5(n-2)/3
-- girth-6 graphs: bound = 6(n-2)/4
-
-This still does not constitute a full LR-planarity test; the public
-wrapper continues to delegate to NetworkX for full correctness. But
-the documented examples (K3,3, Petersen) and the Heawood graph
-(another famous non-planar) are now correctly rejected by the raw
-kernel itself.
+So ``_raw_is_planar`` now applies only Euler's monotone bound
+``m <= 3n-6``. This is a *conservative* necessary condition: it rejects
+graphs that are definitely non-planar (K5: m=10 > 9) but ACCEPTS (returns
+True for) graphs it cannot rule out, including K3,3 / Petersen / Heawood,
+which all satisfy ``m <= 3n-6``. Full correctness is the public wrapper's
+job — ``fnx.is_planar`` applies a bipartite/girth-4 edge bound and then
+delegates to NetworkX's Left-Right planarity test (see the
+``test_public_is_planar_*`` cases below).
 """
 
 from __future__ import annotations
@@ -25,32 +27,36 @@ import pytest
 
 
 # ---------------------------------------------------------------------------
-# Newly-rejected non-planar graphs (regression target)
+# Raw kernel is conservative: it only enforces the monotone m <= 3n-6 bound,
+# so non-planar graphs that satisfy that bound are NOT caught here (they are
+# caught by the public wrapper). See 5a23f997c.
 # ---------------------------------------------------------------------------
 
 
-def test_raw_is_planar_rejects_k33():
-    """K3,3 has n=6, m=9, girth=4. Bound 2(n-2)=8 < 9 → not planar."""
+def test_raw_is_planar_does_not_reject_k33():
+    """K3,3 (n=6, m=9) satisfies 3n-6=12, so the raw Euler bound cannot
+    rule it out — the public wrapper rejects it instead."""
     g = fnx.complete_bipartite_graph(3, 3)
-    assert fnx._raw_is_planar(g) is False
+    assert fnx._raw_is_planar(g) is True
 
 
-def test_raw_is_planar_rejects_petersen():
-    """Petersen has n=10, m=15, girth=5. Bound 5(n-2)/3=13 < 15 → not planar."""
+def test_raw_is_planar_does_not_reject_petersen():
+    """Petersen (n=10, m=15) satisfies 3n-6=24 — not caught by the raw
+    Euler bound (the girth-based bound was removed in 5a23f997c)."""
     g = fnx.petersen_graph()
-    assert fnx._raw_is_planar(g) is False
+    assert fnx._raw_is_planar(g) is True
 
 
-def test_raw_is_planar_rejects_heawood():
-    """Heawood graph (n=14, m=21, girth=6) is non-planar.
-    Bound 6(n-2)/4=18 < 21 → not planar."""
+def test_raw_is_planar_does_not_reject_heawood():
+    """Heawood (n=14, m=21) satisfies 3n-6=36 — not caught by the raw
+    Euler bound."""
     g = fnx.heawood_graph()
-    assert fnx._raw_is_planar(g) is False
+    assert fnx._raw_is_planar(g) is True
 
 
 def test_raw_is_planar_still_rejects_k5():
-    """K5 was already rejected by the 3n-6 bound; ensure the new
-    girth check doesn't break that path."""
+    """K5 (n=5, m=10) violates the monotone Euler bound 3n-6=9 < 10,
+    so the raw kernel still rejects it."""
     g = fnx.complete_graph(5)
     assert fnx._raw_is_planar(g) is False
 

@@ -461,17 +461,22 @@ def test_algorithm_family_conformance_matrix(case: AlgorithmCase, fixture_name: 
 
 
 def test_raw_is_planar_k33_matches_public_wrapper_after_rebuild() -> None:
-    """The raw kernel and public wrapper both reject K3,3.
+    """The public wrapper rejects K3,3; the raw kernel conservatively does not.
 
-    br-r37-c1-s2jfv originally caught a stale local extension that still
-    returned True here after the Rust source fix. Fresh builds must expose
-    the fixed raw kernel, and the public wrapper remains the user-facing
-    contract.
+    br-r37-c1-s2jfv originally caught a stale local extension here. The raw
+    kernel's girth-based bound was later removed (5a23f997c) for
+    edge-deletion soundness, so ``_raw_is_planar`` now applies only the
+    monotone Euler bound ``m <= 3n-6`` — which K3,3 (m=9 <= 12) satisfies,
+    so the raw kernel returns True (cannot rule it out). Full correctness is
+    the public wrapper's job; ``fnx.is_planar`` and ``check_planarity`` (and
+    nx) all reject K3,3 as the user-facing contract.
     """
     fnx_graph = fnx.complete_bipartite_graph(3, 3)
     nx_graph = nx.complete_bipartite_graph(3, 3)
 
-    assert not fnx._raw_is_planar(fnx_graph)
+    # Raw kernel is conservative (Euler bound only) — does NOT reject K3,3.
+    assert fnx._raw_is_planar(fnx_graph) is True
+    # Public wrapper, check_planarity, and nx are the correctness contract.
     assert not nx.is_planar(nx_graph)
     assert not fnx.is_planar(fnx_graph)
     assert not fnx.check_planarity(fnx_graph)[0]
