@@ -16266,8 +16266,13 @@ def _pagerank_scipy(G, alpha, max_iter, tol, weight):
     nodelist = list(G)
     # br-r37-c1-raqel: build COO directly for pagerank to skip dtype
     # checks in to_scipy_sparse_array. Native path returns (rows, cols, data).
-    if _native_adjacency_arrays is not None and not G.is_multigraph() and weight is None:
-        native_result = _native_adjacency_arrays(G, nodelist, None, 1.0)
+    if (
+        _native_adjacency_arrays is not None
+        and not G.is_multigraph()
+        and (weight is None or isinstance(weight, str))
+    ):
+        native_weight = weight if isinstance(weight, str) else None
+        native_result = _native_adjacency_arrays(G, nodelist, native_weight, 1.0)
         if native_result is not None:
             rows, cols, data = native_result
             A = sp.coo_array(
