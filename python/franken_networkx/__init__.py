@@ -25781,6 +25781,18 @@ def communicability_betweenness_centrality(G, *, backend=None, **backend_kwargs)
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
 
+    # br-r37-c1-zuly1: nx computes B = (expA - expm(A_r)) / expA element-wise.
+    # On a disconnected graph expA has zero entries between components, so the
+    # raw division yields inf/nan and nx returns nan for the connected nodes
+    # (isolated nodes get 0.0). The Rust kernel guards that division and
+    # returns finite values, so it diverges from nx on every disconnected
+    # graph. Connected graphs already match — delegate the disconnected case
+    # to nx so the nan contract matches.
+    if G.number_of_nodes() > 0 and not is_connected(G):
+        return _call_networkx_for_parity(
+            "communicability_betweenness_centrality", G
+        )
+
     raw = _fnx.communicability_betweenness_centrality_rust(G, True)
     # br-r37-c1-pm78h: the Rust binding returns the dict in arbitrary
     # internal order; nx iterates in node-insertion order. Reorder so
