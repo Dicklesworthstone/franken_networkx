@@ -6938,9 +6938,14 @@ def degree_assortativity_coefficient(G, x="out", y="in", weight=None, nodes=None
     # / (2, 1) and Pearson reports -1.0 — but nx sees (out, in) =
     # (1, 1) / (1, 1) on both edges, zero variance, NaN. Delegate the
     # directed case so the (out, in) pair extraction matches.
+    # br-r37-c1-tqcpg: the Rust fast path also miscomputes the degree-mixing
+    # statistic when self-loops are present (a self-loop adds 2 to a node's
+    # degree and contributes a (d, d) pair to nx's mixing matrix). Delegate
+    # self-loop graphs to nx, like the multigraph/directed cases above.
     if (
         x == "out" and y == "in" and weight is None and nodes is None
         and not G.is_multigraph() and not G.is_directed()
+        and number_of_selfloops(G) == 0
     ):
         # br-r37-c1-asrt-edgeless: the Rust fast path returned
         # 0.0 on graphs with no edges (empty graph, isolated
@@ -16096,18 +16101,23 @@ def local_bridges(G, with_span=True, weight=None):
         return _call_networkx_for_parity(
             "local_bridges", G, with_span=with_span, weight=weight
         )
-    if not with_span and weight is None:
+    # br-r37-c1-tqcpg: the Rust fast-path (and the old discard-based
+    # intersection below) mishandle self-loops. nx tests
+    # ``set(G[u]) & set(G[v])`` WITHOUT removing the endpoints, so a
+    # self-loop on an endpoint makes it a shared neighbour and the edge is
+    # NOT a local bridge. For loop-free graphs the discard is a no-op, so
+    # both behaviours agree there; route self-loop graphs through the Python
+    # generator with the nx-exact intersection.
+    if not with_span and weight is None and number_of_selfloops(G) == 0:
         from franken_networkx._fnx import local_bridges_rust
 
         return iter(local_bridges_rust(G))
 
     def _generate():
         for u, v in G.edges():
-            u_nbrs = set(G.neighbors(u))
-            v_nbrs = set(G.neighbors(v))
-            u_nbrs.discard(v)
-            v_nbrs.discard(u)
-            if u_nbrs & v_nbrs:
+            # Match nx exactly: intersect full neighbour sets (no endpoint
+            # discard) so a self-loop on u or v counts as a shared neighbour.
+            if set(G.neighbors(u)) & set(G.neighbors(v)):
                 continue  # common neighbor exists — not a local bridge
             if with_span:
                 # Compute shortest path from u to v not using edge (u,v).
