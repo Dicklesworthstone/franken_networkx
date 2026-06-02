@@ -3182,16 +3182,29 @@ fn betweenness_centrality_generic<G: GraphView>(
         })
         .collect::<Vec<Vec<usize>>>();
 
+    let mut stack = Vec::<usize>::with_capacity(n);
+    let mut predecessors = std::iter::repeat_with(Vec::<usize>::new)
+        .take(n)
+        .collect::<Vec<_>>();
+    let mut sigma = vec![0.0; n];
+    let mut distance = vec![-1i64; n];
+    let mut dependency = vec![0.0; n];
+    let mut queue = VecDeque::<usize>::with_capacity(n);
+
     for s in 0..n {
         let alloc_t = if perf_spans {
             Some(std::time::Instant::now())
         } else {
             None
         };
-        let mut stack = Vec::<usize>::with_capacity(n);
-        let mut predecessors = vec![Vec::<usize>::new(); n];
-        let mut sigma = vec![0.0; n];
-        let mut distance = vec![-1i64; n];
+        stack.clear();
+        for predecessor_list in &mut predecessors {
+            predecessor_list.clear();
+        }
+        sigma.fill(0.0);
+        distance.fill(-1);
+        dependency.fill(0.0);
+        queue.clear();
         if let Some(t) = alloc_t {
             alloc_ns += t.elapsed().as_nanos();
         }
@@ -3199,7 +3212,6 @@ fn betweenness_centrality_generic<G: GraphView>(
         sigma[s] = 1.0;
         distance[s] = 0;
 
-        let mut queue = VecDeque::<usize>::new();
         queue.push_back(s);
         queue_peak = queue_peak.max(queue.len());
 
@@ -3238,7 +3250,6 @@ fn betweenness_centrality_generic<G: GraphView>(
         } else {
             None
         };
-        let mut dependency = vec![0.0; n];
         while let Some(w) = stack.pop() {
             let sigma_w = sigma[w];
             let delta_w = dependency[w];
