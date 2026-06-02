@@ -1895,13 +1895,20 @@ pub fn single_source_shortest_path_length_directed(
     digraph: &DiGraph,
     source: &str,
     cutoff: Option<usize>,
-) -> HashMap<String, usize> {
-    let mut result: HashMap<String, usize> = HashMap::new();
+) -> Vec<(String, usize)> {
+    // br-r37-c1-k3cz4: return results in BFS discovery order (sister of the
+    // undirected single_source_shortest_path_length_borrowed). The previous
+    // HashMap return scrambled the key order, so the public Python dict no
+    // longer matched nx's BFS-ordered mapping on directed graphs.
+    let mut result: Vec<(String, usize)> = Vec::new();
     if !digraph.has_node(source) {
         return result;
     }
 
-    result.insert(source.to_owned(), 0);
+    let mut visited: HashSet<&str> = HashSet::new();
+    visited.insert(source);
+    result.push((source.to_owned(), 0));
+
     let mut frontier: Vec<&str> = vec![source];
     let mut level = 0usize;
 
@@ -1915,8 +1922,8 @@ pub fn single_source_shortest_path_length_directed(
         for &node in &frontier {
             if let Some(successors) = digraph.successors_iter(node) {
                 for nbr in successors {
-                    if !result.contains_key(nbr) {
-                        result.insert(nbr.to_owned(), level + 1);
+                    if visited.insert(nbr) {
+                        result.push((nbr.to_owned(), level + 1));
                         next_frontier.push(nbr);
                     }
                 }
@@ -16027,7 +16034,10 @@ pub fn all_pairs_shortest_path_length_directed(
 ) -> HashMap<String, HashMap<String, usize>> {
     let mut result = HashMap::new();
     for node in digraph.nodes_ordered() {
-        let lengths = single_source_shortest_path_length_directed(digraph, node, cutoff);
+        let lengths: HashMap<String, usize> =
+            single_source_shortest_path_length_directed(digraph, node, cutoff)
+                .into_iter()
+                .collect();
         result.insert(node.to_owned(), lengths);
     }
     result
