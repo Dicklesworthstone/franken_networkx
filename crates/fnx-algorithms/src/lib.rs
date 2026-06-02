@@ -36046,6 +36046,41 @@ mod tests {
     }
 
     #[test]
+    fn pagerank_unweighted_indexed_matches_generic_default_weight_path() {
+        let mut graph = Graph::strict();
+        graph.add_edge("10", "2").expect("edge add should succeed");
+        graph.add_edge("2", "1").expect("edge add should succeed");
+        graph.add_edge("1", "a").expect("edge add should succeed");
+        graph.add_edge("a", "10").expect("edge add should succeed");
+        graph.add_edge("10", "1").expect("edge add should succeed");
+
+        let indexed = super::pagerank_with_params(
+            &graph,
+            super::PAGERANK_DEFAULT_ALPHA,
+            super::PAGERANK_DEFAULT_MAX_ITERATIONS,
+            super::PAGERANK_DEFAULT_TOLERANCE,
+        );
+        let generic_default_weight = super::pagerank_with_weight(
+            &graph,
+            super::PAGERANK_DEFAULT_ALPHA,
+            super::PAGERANK_DEFAULT_MAX_ITERATIONS,
+            super::PAGERANK_DEFAULT_TOLERANCE,
+            Some("__missing_weight_attr__"),
+        );
+
+        assert_eq!(indexed.converged, generic_default_weight.converged);
+        assert_eq!(indexed.scores.len(), generic_default_weight.scores.len());
+        for (left, right) in indexed
+            .scores
+            .iter()
+            .zip(generic_default_weight.scores.iter())
+        {
+            assert_eq!(left.node, right.node);
+            assert_eq!(left.score.to_bits(), right.score.to_bits());
+        }
+    }
+
+    #[test]
     fn pagerank_empty_and_singleton_are_empty_or_one() {
         let empty = Graph::strict();
         let empty_result = pagerank(&empty);
