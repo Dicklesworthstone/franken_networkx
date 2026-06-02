@@ -10658,6 +10658,16 @@ def dominating_set(G, start_with=None):
     # showed ~50% of pre-bypass time was AtlasView dispatch.
     # br-r37-c1-0555d: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
+    # br-r37-c1-domstart: nx defaults start_with to
+    # ``arbitrary_element(set(G))`` == ``next(iter(set(G)))`` and then runs
+    # the greedy from there. The Rust ``_raw_dominating_set`` used a
+    # different seed/order, so default-start results diverged from nx on
+    # ~50% of graphs (the set is still a valid dominating set, just not
+    # nx's). Compute nx's exact default seed and reuse the matching greedy
+    # below so the chosen set is identical. (Empty graph keeps fnx's set()
+    # return rather than nx's StopIteration leak.)
+    if start_with is None and not G.is_directed() and len(G) > 0:
+        start_with = next(iter(set(G)))
     if start_with is not None:
         if start_with not in G:
             raise NetworkXError(f"node {start_with} is not in G")
