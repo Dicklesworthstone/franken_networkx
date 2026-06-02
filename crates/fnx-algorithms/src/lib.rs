@@ -3189,7 +3189,7 @@ fn betweenness_centrality_generic<G: GraphView>(
     let mut sigma = vec![0.0; n];
     let mut distance = vec![-1i64; n];
     let mut dependency = vec![0.0; n];
-    let mut queue = VecDeque::<usize>::with_capacity(n);
+    let mut queue = Vec::<usize>::with_capacity(n);
 
     for s in 0..n {
         let alloc_t = if perf_spans {
@@ -3212,7 +3212,8 @@ fn betweenness_centrality_generic<G: GraphView>(
         sigma[s] = 1.0;
         distance[s] = 0;
 
-        queue.push_back(s);
+        let mut queue_head = 0usize;
+        queue.push(s);
         queue_peak = queue_peak.max(queue.len());
 
         let bfs_t = if perf_spans {
@@ -3220,7 +3221,9 @@ fn betweenness_centrality_generic<G: GraphView>(
         } else {
             None
         };
-        while let Some(v) = queue.pop_front() {
+        while queue_head < queue.len() {
+            let v = queue[queue_head];
+            queue_head += 1;
             stack.push(v);
             let dist_v = distance[v];
             for &w in &adjacency[v] {
@@ -3228,8 +3231,8 @@ fn betweenness_centrality_generic<G: GraphView>(
 
                 if distance[w] < 0 {
                     distance[w] = dist_v + 1;
-                    queue.push_back(w);
-                    queue_peak = queue_peak.max(queue.len());
+                    queue.push(w);
+                    queue_peak = queue_peak.max(queue.len() - queue_head);
                 }
                 if distance[w] == dist_v + 1 {
                     sigma[w] += sigma[v];
