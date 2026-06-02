@@ -790,28 +790,26 @@ fn compute_single_source_shortest_paths(
             .allow_threads(|| fnx_algorithms::single_source_shortest_path(inner, source, None))
             .into_iter()
             .collect()),
-        Some(w) => {
-            match method {
-                "dijkstra" => Ok(py
-                    .allow_threads(|| fnx_algorithms::single_source_dijkstra_path(inner, source, w))
-                    .into_iter()
-                    .collect()),
-                "bellman-ford" => {
-                    let result = py.allow_threads(|| {
-                        fnx_algorithms::single_source_bellman_ford_path(inner, source, w)
-                    });
-                    match result {
-                        Some(paths) => Ok(paths.into_iter().collect()),
-                        None => Err(crate::NetworkXUnbounded::new_err(
-                            "Negative cost cycle detected.",
-                        )),
-                    }
+        Some(w) => match method {
+            "dijkstra" => Ok(py
+                .allow_threads(|| fnx_algorithms::single_source_dijkstra_path(inner, source, w))
+                .into_iter()
+                .collect()),
+            "bellman-ford" => {
+                let result = py.allow_threads(|| {
+                    fnx_algorithms::single_source_bellman_ford_path(inner, source, w)
+                });
+                match result {
+                    Some(paths) => Ok(paths.into_iter().collect()),
+                    None => Err(crate::NetworkXUnbounded::new_err(
+                        "Negative cost cycle detected.",
+                    )),
                 }
-                other => Err(NetworkXError::new_err(format!(
-                    "Method {other} not supported for shortest_path."
-                ))),
             }
-        }
+            other => Err(NetworkXError::new_err(format!(
+                "Method {other} not supported for shortest_path."
+            ))),
+        },
     }
 }
 
@@ -2086,6 +2084,44 @@ pub fn adjacency_arrays(
         }
     };
     Ok(Some((rows, cols, data)))
+}
+
+/// Return whether any simple-graph edge has a Python-visible attribute key.
+///
+/// This scans ``edge_py_attrs`` instead of the Rust ``inner`` attrs so callers
+/// can make routing decisions before paying the O(E) sync cost. Multigraphs
+/// return ``None`` because their matrix aggregation contracts stay on the
+/// Python fallback path.
+#[pyfunction]
+#[pyo3(signature = (g, weight_attr))]
+pub fn graph_has_edge_attr(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    weight_attr: &str,
+) -> PyResult<Option<bool>> {
+    let gr = extract_graph(g)?;
+    let has_attr = match &gr {
+        GraphRef::Undirected(pg) => Some(pg.edge_py_attrs.values().try_fold(
+            false,
+            |found, dict| -> PyResult<bool> {
+                if found {
+                    return Ok(true);
+                }
+                dict.bind(py).contains(weight_attr)
+            },
+        )?),
+        GraphRef::Directed { dg, .. } => Some(dg.edge_py_attrs.values().try_fold(
+            false,
+            |found, dict| -> PyResult<bool> {
+                if found {
+                    return Ok(true);
+                }
+                dict.bind(py).contains(weight_attr)
+            },
+        )?),
+        GraphRef::MultiUndirected { .. } | GraphRef::MultiDirected { .. } => None,
+    };
+    Ok(has_attr)
 }
 
 /// Native O(|E|) scan for any non-finite or non-numeric edge weight
@@ -14386,6 +14422,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(graph_edge_weights_all_int, m)?)?;
     m.add_function(wrap_pyfunction!(check_dijkstra_edge_weights_fast, m)?)?;
     m.add_function(wrap_pyfunction!(adjacency_arrays, m)?)?;
+    m.add_function(wrap_pyfunction!(graph_has_edge_attr, m)?)?;
     m.add_function(wrap_pyfunction!(bellman_ford_path, m)?)?;
     m.add_function(wrap_pyfunction!(multi_source_dijkstra, m)?)?;
     // Connectivity

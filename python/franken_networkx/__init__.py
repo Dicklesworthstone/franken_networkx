@@ -16339,6 +16339,13 @@ try:
 except ImportError:  # pragma: no cover — defensive for partial builds
     _native_adjacency_arrays = None
 
+try:
+    from franken_networkx._fnx import (
+        graph_has_edge_attr as _native_has_edge_attr,
+    )
+except ImportError:  # pragma: no cover — defensive for partial builds
+    _native_has_edge_attr = None
+
 
 def _pagerank_needs_networkx_weight_parity(G, weight):
     if weight is None:
@@ -38843,11 +38850,22 @@ def to_scipy_sparse_array(G, nodelist=None, dtype=None, weight="weight", format=
     # ambiguity. The matrix is byte-identical to the Python path (COO -> CSR
     # canonicalises duplicate/ordering, and the (row, col, data) set matches).
     _use_native_weighted = isinstance(weight, str) and dtype is not None
+    _use_native_missing_default_weight = False
+    if (
+        isinstance(weight, str)
+        and dtype is None
+        and _native_has_edge_attr is not None
+        and not G.is_multigraph()
+        and isinstance(G, (Graph, DiGraph))
+    ):
+        native_has_attr = _native_has_edge_attr(G, weight)
+        if native_has_attr is not None:
+            _use_native_missing_default_weight = not native_has_attr
     if (
         _native_adjacency_arrays is not None
         and not G.is_multigraph()
         and isinstance(G, (Graph, DiGraph))
-        and (weight is None or _use_native_weighted)
+        and (weight is None or _use_native_weighted or _use_native_missing_default_weight)
     ):
         # br-r37-c1-hits-bipartite-svds-degenerate-xjar9: weighted
         # matrix exports must read Python-visible attr dicts because
@@ -38855,7 +38873,7 @@ def to_scipy_sparse_array(G, nodelist=None, dtype=None, weight="weight", format=
         # push them into ``inner`` before the native read.
         if _use_native_weighted:
             _sync_rust_edge_attrs(G)
-        native_weight = weight if isinstance(weight, str) else None
+        native_weight = weight if _use_native_weighted else None
         native_result = _native_adjacency_arrays(G, nodelist, native_weight, 1.0)
         if native_result is not None:
             rows, cols, data = native_result

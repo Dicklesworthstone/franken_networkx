@@ -1,0 +1,11 @@
+Benchmark 1: fnx
+  Time (mean ± σ):      3.711 s ±  0.065 s    [User: 7.288 s, System: 0.133 s]
+  Range (min … max):    3.604 s …  3.785 s    10 runs
+
+Benchmark 2: nx
+  Time (mean ± σ):     886.3 ms ±  41.2 ms    [User: 4493.0 ms, System: 128.0 ms]
+  Range (min … max):   811.9 ms … 961.5 ms    10 runs
+
+Summary
+  nx ran
+    4.19 ± 0.21 times faster than fnx

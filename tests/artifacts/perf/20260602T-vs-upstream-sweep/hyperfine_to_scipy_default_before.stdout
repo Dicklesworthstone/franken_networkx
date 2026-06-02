@@ -1,0 +1,3 @@
+Benchmark 1: .venv/bin/python tests/artifacts/perf/20260602T-vs-upstream-sweep/bench_vs_upstream.py bench --case to_scipy_default --impl fnx --n 8000 --m 4 --repeats 1
+  Time (mean ± σ):     975.3 ms ±  17.6 ms    [User: 4703.1 ms, System: 111.6 ms]
+  Range (min … max):   959.5 ms … 1003.1 ms    5 runs

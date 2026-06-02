@@ -1,0 +1,274 @@
+  [2m2026-06-02T18:05:08.594884Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mSelected worker: vmi1149989 at ubuntu@212.90.121.76 (0 slots remaining after reservation, speed 50.0)[0m
+    [2;3mat[0m rch/src/hook.rs:514 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-02T18:05:08.842069Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mStarting remote compilation pipeline for franken_networkx (hash: 20ad164d71ec0837)[0m
+    [2;3mat[0m rch/src/hook.rs:5987 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-02T18:05:08.842132Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mPrepared dependency sync manifest for 13 roots[0m
+    [2;3mat[0m rch/src/hook.rs:6009 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-02T18:05:13.249969Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mSyncing project to worker vmi1149989...[0m
+    [2;3mat[0m rch/src/hook.rs:6039 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-02T18:05:13.250034Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx -> /data/projects/franken_networkx on vmi1149989[0m
+    [2;3mat[0m rch/src/transfer.rs:1400 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-02T18:05:24.327169Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 11077ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1469 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-02T18:05:24.327249Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx/crates/fnx-algorithms -> /data/projects/franken_networkx/crates/fnx-algorithms on vmi1149989[0m
+    [2;3mat[0m rch/src/transfer.rs:1400 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-02T18:05:26.225661Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 1898ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1469 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-02T18:05:26.225735Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx/crates/fnx-cgse -> /data/projects/franken_networkx/crates/fnx-cgse on vmi1149989[0m
+    [2;3mat[0m rch/src/transfer.rs:1400 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-02T18:05:28.111247Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 1885ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1469 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-02T18:05:28.111372Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx/crates/fnx-classes -> /data/projects/franken_networkx/crates/fnx-classes on vmi1149989[0m
+    [2;3mat[0m rch/src/transfer.rs:1400 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-02T18:05:29.999652Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 1888ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1469 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-02T18:05:29.999735Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx/crates/fnx-conformance -> /data/projects/franken_networkx/crates/fnx-conformance on vmi1149989[0m
+    [2;3mat[0m rch/src/transfer.rs:1400 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-02T18:05:31.914444Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 1914ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1469 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-02T18:05:31.914544Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx/crates/fnx-convert -> /data/projects/franken_networkx/crates/fnx-convert on vmi1149989[0m
+    [2;3mat[0m rch/src/transfer.rs:1400 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-02T18:05:33.791172Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 1876ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1469 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-02T18:05:33.791268Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx/crates/fnx-dispatch -> /data/projects/franken_networkx/crates/fnx-dispatch on vmi1149989[0m
+    [2;3mat[0m rch/src/transfer.rs:1400 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-02T18:05:35.644882Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 1853ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1469 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-02T18:05:35.644981Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx/crates/fnx-durability -> /data/projects/franken_networkx/crates/fnx-durability on vmi1149989[0m
+    [2;3mat[0m rch/src/transfer.rs:1400 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-02T18:05:37.537068Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 1892ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1469 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-02T18:05:37.537156Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx/crates/fnx-generators -> /data/projects/franken_networkx/crates/fnx-generators on vmi1149989[0m
+    [2;3mat[0m rch/src/transfer.rs:1400 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-02T18:05:39.346086Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 1808ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1469 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-02T18:05:39.346175Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx/crates/fnx-python -> /data/projects/franken_networkx/crates/fnx-python on vmi1149989[0m
+    [2;3mat[0m rch/src/transfer.rs:1400 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-02T18:05:41.217380Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 1871ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1469 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-02T18:05:41.217464Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx/crates/fnx-readwrite -> /data/projects/franken_networkx/crates/fnx-readwrite on vmi1149989[0m
+    [2;3mat[0m rch/src/transfer.rs:1400 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-02T18:05:43.081953Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 1864ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1469 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-02T18:05:43.082041Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx/crates/fnx-runtime -> /data/projects/franken_networkx/crates/fnx-runtime on vmi1149989[0m
+    [2;3mat[0m rch/src/transfer.rs:1400 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-02T18:05:45.226944Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 2144ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1469 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-02T18:05:45.227031Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx/crates/fnx-views -> /data/projects/franken_networkx/crates/fnx-views on vmi1149989[0m
+    [2;3mat[0m rch/src/transfer.rs:1400 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-02T18:05:47.075831Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 1848ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1469 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-02T18:05:47.075867Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mSync complete: 124950 files, 9054303 bytes in 33818ms[0m
+    [2;3mat[0m rch/src/hook.rs:6202 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-02T18:05:51.142167Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mExecuting command remotely: cargo clippy -p fnx-python --all-targets -- -D warnings[0m
+    [2;3mat[0m rch/src/hook.rs:6240 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-02T18:05:51.142210Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mRewriting CARGO_TARGET_DIR for remote execution (worker-scoped path): /data/tmp/cargo-target -> /data/projects/franken_networkx/.rch-target-vmi1149989-job-29869223945702414-1780423513249961922-0[0m
+    [2;3mat[0m rch/src/transfer.rs:712 [2;3mon[0m ThreadId(1)
+
+    Updating crates.io index
+ Downloading crates ...
+  Downloaded cfg-if v1.0.4
+  Downloaded itoa v1.0.18
+  Downloaded bit-set v0.8.0
+  Downloaded arrayref v0.3.9
+  Downloaded bit-vec v0.8.0
+  Downloaded autocfg v1.5.0
+  Downloaded rand_chacha v0.9.0
+  Downloaded constant_time_eq v0.4.2
+  Downloaded chacha20 v0.10.0
+  Downloaded arrayvec v0.7.6
+  Downloaded getrandom v0.4.2
+  Downloaded bitflags v2.11.1
+  Downloaded cc v1.2.61
+  Downloaded arc-swap v1.9.1
+  Downloaded blake3 v1.8.4
+  Downloaded syn v2.0.117
+  Downloaded heck v0.5.0
+  Downloaded getrandom v0.3.4
+  Downloaded errno v0.3.14
+  Downloaded zmij v1.0.21
+  Downloaded num-traits v0.2.19
+  Downloaded unarray v0.1.4
+  Downloaded rand_core v0.10.1
+  Downloaded pyo3-macros v0.28.3
+  Downloaded mwmatching v0.1.1
+  Downloaded ppv-lite86 v0.2.21
+  Downloaded wait-timeout v0.2.1
+  Downloaded shlex v1.3.0
+  Downloaded rand_xorshift v0.4.0
+  Downloaded quick-error v1.2.3
+  Downloaded hex v0.4.3
+  Downloaded pyo3-log v0.13.3
+  Downloaded fastrand v2.4.1
+  Downloaded inventory v0.3.24
+  Downloaded rusty-fork v0.3.1
+  Downloaded rustversion v1.0.22
+  Downloaded serde_derive v1.0.228
+  Downloaded tempfile v3.27.0
+  Downloaded quote v1.0.45
+  Downloaded pyo3-build-config v0.28.3
+  Downloaded unicode-ident v1.0.24
+  Downloaded rand_core v0.9.5
+  Downloaded target-lexicon v0.13.5
+  Downloaded serde_core v1.0.228
+  Downloaded serde v1.0.228
+  Downloaded pyo3-ffi v0.28.3
+  Downloaded log v0.4.29
+  Downloaded proc-macro2 v1.0.106
+  Downloaded rand v0.9.4
+  Downloaded rand v0.10.1
+  Downloaded serde_json v1.0.149
+  Downloaded hashbrown v0.17.0
+  Downloaded indexmap v2.14.0
+  Downloaded proptest v1.11.0
+  Downloaded memchr v2.8.0
+  Downloaded quick-xml v0.39.2
+  Downloaded pyo3-macros-backend v0.28.3
+  Downloaded once_cell v1.21.4
+  Downloaded mt19937 v3.3.0
+  Downloaded zerocopy v0.8.48
+  Downloaded find-msvc-tools v0.1.9
+  Downloaded equivalent v1.0.2
+  Downloaded pyo3 v0.28.3
+  Downloaded regex-syntax v0.8.10
+  Downloaded cpufeatures v0.3.0
+  Downloaded fnv v1.0.7
+  Downloaded rustix v1.1.4
+  Downloaded libc v0.2.186
+  Downloaded linux-raw-sys v0.12.1
+   Compiling proc-macro2 v1.0.106
+   Compiling quote v1.0.45
+   Compiling unicode-ident v1.0.24
+   Compiling target-lexicon v0.13.5
+    Checking cfg-if v1.0.4
+   Compiling libc v0.2.186
+   Compiling serde_core v1.0.228
+   Compiling zmij v1.0.21
+   Compiling serde v1.0.228
+    Checking memchr v2.8.0
+   Compiling serde_json v1.0.149
+    Checking itoa v1.0.18
+    Checking equivalent v1.0.2
+    Checking hashbrown v0.17.0
+   Compiling shlex v1.3.0
+    Checking cpufeatures v0.3.0
+   Compiling getrandom v0.3.4
+   Compiling find-msvc-tools v0.1.9
+    Checking once_cell v1.21.4
+    Checking rand_core v0.10.1
+   Compiling cc v1.2.61
+   Compiling zerocopy v0.8.48
+   Compiling rustversion v1.0.22
+   Compiling heck v0.5.0
+   Compiling rustix v1.1.4
+    Checking indexmap v2.14.0
+   Compiling pyo3-build-config v0.28.3
+   Compiling getrandom v0.4.2
+   Compiling syn v2.0.117
+    Checking constant_time_eq v0.4.2
+    Checking linux-raw-sys v0.12.1
+   Compiling autocfg v1.5.0
+    Checking arrayvec v0.7.6
+    Checking arrayref v0.3.9
+    Checking bitflags v2.11.1
+    Checking rand_core v0.9.5
+    Checking chacha20 v0.10.0
+    Checking mt19937 v3.3.0
+   Compiling num-traits v0.2.19
+    Checking hex v0.4.3
+    Checking inventory v0.3.24
+    Checking fastrand v2.4.1
+    Checking rand v0.10.1
+    Checking wait-timeout v0.2.1
+    Checking quick-xml v0.39.2
+    Checking arc-swap v1.9.1
+   Compiling blake3 v1.8.4
+    Checking log v0.4.29
+    Checking fnv v1.0.7
+    Checking bit-vec v0.8.0
+    Checking quick-error v1.2.3
+    Checking mwmatching v0.1.1
+    Checking bit-set v0.8.0
+    Checking rand v0.9.4
+    Checking rand_xorshift v0.4.0
+    Checking unarray v0.1.4
+    Checking regex-syntax v0.8.10
+    Checking tempfile v3.27.0
+   Compiling pyo3-macros-backend v0.28.3
+   Compiling pyo3-ffi v0.28.3
+   Compiling pyo3 v0.28.3
+    Checking rusty-fork v0.3.1
+    Checking ppv-lite86 v0.2.21
+   Compiling serde_derive v1.0.228
+    Checking rand_chacha v0.9.0
+    Checking proptest v1.11.0
+   Compiling pyo3-macros v0.28.3
+    Checking fnx-runtime v0.1.0 (/data/projects/franken_networkx/crates/fnx-runtime)
+    Checking fnx-cgse v0.1.0 (/data/projects/franken_networkx/crates/fnx-cgse)
+    Checking fnx-classes v0.1.0 (/data/projects/franken_networkx/crates/fnx-classes)
+    Checking fnx-dispatch v0.1.0 (/data/projects/franken_networkx/crates/fnx-dispatch)
+    Checking pyo3-log v0.13.3
+    Checking fnx-readwrite v0.1.0 (/data/projects/franken_networkx/crates/fnx-readwrite)
+    Checking fnx-algorithms v0.1.0 (/data/projects/franken_networkx/crates/fnx-algorithms)
+    Checking fnx-views v0.1.0 (/data/projects/franken_networkx/crates/fnx-views)
+    Checking fnx-convert v0.1.0 (/data/projects/franken_networkx/crates/fnx-convert)
+    Checking fnx-generators v0.1.0 (/data/projects/franken_networkx/crates/fnx-generators)
+    Checking fnx-python v0.1.0 (/data/projects/franken_networkx/crates/fnx-python)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 38.56s
+  [2m2026-06-02T18:06:31.358190Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mRemote command finished: exit=0 in 40215ms[0m
+    [2;3mat[0m rch/src/hook.rs:6364 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-02T18:06:31.358671Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mRetrieving build artifacts...[0m
+    [2;3mat[0m rch/src/hook.rs:6413 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-02T18:06:31.358689Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mRetrieving artifacts from /data/projects/franken_networkx on vmi1149989[0m
+    [2;3mat[0m rch/src/transfer.rs:2072 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-02T18:06:33.460114Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mArtifacts retrieved in 2101ms (1 files, 3470 bytes)[0m
+    [2;3mat[0m rch/src/transfer.rs:2111 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-02T18:06:33.460146Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mArtifacts retrieved: 1 files, 3470 bytes in 2101ms[0m
+    [2;3mat[0m rch/src/hook.rs:6446 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-02T18:06:33.460228Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mRetrieving artifacts from /data/projects/franken_networkx/.rch-target-vmi1149989-job-29869223945702414-1780423513249961922-0 on vmi1149989[0m
+    [2;3mat[0m rch/src/transfer.rs:2072 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-02T18:06:41.259165Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mArtifacts retrieved in 7798ms (1007 files, 882865 bytes)[0m
+    [2;3mat[0m rch/src/transfer.rs:2111 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-02T18:06:41.259190Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mCustom CARGO_TARGET_DIR artifacts retrieved: 1007 files, 882865 bytes in 7798ms[0m
+    [2;3mat[0m rch/src/hook.rs:6570 [2;3mon[0m ThreadId(1)
+
+[RCH] remote vmi1149989 (92.7s)

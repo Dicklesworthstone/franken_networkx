@@ -10,8 +10,9 @@ Rust ``inner`` AttrMap, so the wrapper syncs Python-visible attr mutations first
 
 These tests pin the produced CSR (shape, dtype, indptr, indices, data) to nx
 byte-for-byte, including the post-creation weight-mutation (staleness) case and
-the dtype=None path (which must still use the value-type-preserving Python
-fallback).
+the dtype=None path. dtype=None still uses the value-type-preserving Python
+fallback when any requested weight attr exists; when the attr is provably absent,
+it may use the native unit-weight path.
 """
 
 from __future__ import annotations
@@ -107,6 +108,75 @@ def test_dtype_float_weighted_uses_native_and_matches():
     a = nx.adjacency_matrix(ng, nodelist=list(ng), dtype=float)
     b = fnx.adjacency_matrix(fg, nodelist=list(fg), dtype=float)
     assert _csr_sig(a) == _csr_sig(b)
+
+
+@needs_nx
+def test_dtype_none_absent_string_weight_routes_native(monkeypatch):
+    native_adjacency = getattr(fnx, "_native_adjacency_arrays", None)
+    native_has_attr = getattr(fnx, "_native_has_edge_attr", None)
+    if native_adjacency is None or native_has_attr is None:
+        pytest.skip("native sparse helpers unavailable")
+
+    ng, fg = nx.Graph(), fnx.Graph()
+    for u, v in [(0, 1), (1, 2), (2, 0), (2, 3)]:
+        ng.add_edge(u, v)
+        fg.add_edge(u, v)
+
+    calls = []
+
+    def wrapped_has_attr(graph, weight):
+        calls.append(("has_attr", weight))
+        return native_has_attr(graph, weight)
+
+    def wrapped_adjacency(graph, nodelist, weight, default_weight):
+        calls.append(("adjacency", weight, default_weight))
+        return native_adjacency(graph, nodelist, weight, default_weight)
+
+    monkeypatch.setattr(fnx, "_native_has_edge_attr", wrapped_has_attr)
+    monkeypatch.setattr(fnx, "_native_adjacency_arrays", wrapped_adjacency)
+
+    a = nx.to_scipy_sparse_array(ng, dtype=None, weight="weight")
+    b = fnx.to_scipy_sparse_array(fg, dtype=None, weight="weight")
+
+    assert _csr_sig(a) == _csr_sig(b)
+    assert b.dtype.kind in {"i", "u"}
+    assert ("has_attr", "weight") in calls
+    assert ("adjacency", None, 1.0) in calls
+
+
+@needs_nx
+def test_dtype_none_present_string_weight_keeps_python_fallback(monkeypatch):
+    native_adjacency = getattr(fnx, "_native_adjacency_arrays", None)
+    native_has_attr = getattr(fnx, "_native_has_edge_attr", None)
+    if native_adjacency is None or native_has_attr is None:
+        pytest.skip("native sparse helpers unavailable")
+
+    ng, fg = nx.Graph(), fnx.Graph()
+    ng.add_edge(0, 1, weight=2.0)
+    fg.add_edge(0, 1, weight=2.0)
+    ng.add_edge(1, 2)
+    fg.add_edge(1, 2)
+
+    calls = []
+
+    def wrapped_has_attr(graph, weight):
+        calls.append(("has_attr", weight))
+        return native_has_attr(graph, weight)
+
+    def wrapped_adjacency(graph, nodelist, weight, default_weight):
+        calls.append(("adjacency", weight, default_weight))
+        return native_adjacency(graph, nodelist, weight, default_weight)
+
+    monkeypatch.setattr(fnx, "_native_has_edge_attr", wrapped_has_attr)
+    monkeypatch.setattr(fnx, "_native_adjacency_arrays", wrapped_adjacency)
+
+    a = nx.to_scipy_sparse_array(ng, dtype=None, weight="weight")
+    b = fnx.to_scipy_sparse_array(fg, dtype=None, weight="weight")
+
+    assert _csr_sig(a) == _csr_sig(b)
+    assert b.dtype.kind == "f"
+    assert ("has_attr", "weight") in calls
+    assert not any(call[0] == "adjacency" for call in calls)
 
 
 @needs_nx
