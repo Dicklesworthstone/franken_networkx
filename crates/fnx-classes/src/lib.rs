@@ -192,8 +192,7 @@ impl Graph {
 
         for left_index in 0..n {
             let left = &node_labels[left_index];
-            for right_index in (left_index + 1)..n {
-                let right = &node_labels[right_index];
+            for (right_index, right) in node_labels.iter().enumerate().skip(left_index + 1) {
                 if let Some(left_neighbors) = graph.adjacency.get_mut(left) {
                     left_neighbors.insert(right.clone());
                 }
