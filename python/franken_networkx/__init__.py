@@ -3484,6 +3484,19 @@ class _WeightAwareDegreeView:
                     total += edge_attrs[weight]
                 else:
                     total += 1
+        # nx counts a self-loop's weight twice for undirected total degree
+        # (DegreeView.__getitem__ adds ``nbrs[n].get(weight, 1)`` again when
+        # ``n in nbrs``). The directed total-degree path already double-counts
+        # it — the loop appears in both succ and pred — and in/out degree count
+        # it once, so only the undirected single-graph branch needs the extra.
+        if self._direction is None and not self._graph.is_directed():
+            adj = self._graph.adj[node]
+            if node in adj:
+                edge_attrs = adj[node]
+                if isinstance(edge_attrs, dict) and weight in edge_attrs:
+                    total += edge_attrs[weight]
+                else:
+                    total += 1
         return total
 
     def __call__(self, nbunch=None, weight=None):
