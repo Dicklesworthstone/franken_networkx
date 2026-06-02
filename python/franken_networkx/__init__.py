@@ -30135,6 +30135,20 @@ class _ConversionGraphViewBase:
     node_attr_dict_factory = dict
     node_dict_factory = dict
 
+    def __new__(cls, graph=None, *args, **kwargs):
+        # br-r37-c1-y2b8t: build an EMPTY Rust base. The conversion-view classes
+        # mix this in with the canonical PyO3 Graph/DiGraph (for isinstance
+        # parity), whose __new__ eagerly copies the parent graph's entire node +
+        # edge set into the view's own Rust storage on every to_directed() /
+        # to_undirected() call — O(|V|+|E|). That storage is dead weight: every
+        # query method below (nodes/edges/adj/succ/pred/neighbors/number_of_*/
+        # size/degree/has_edge/adjacency/copy/__iter__/__len__/__contains__) is
+        # overridden to answer through self._graph. super().__new__(cls) (cls's
+        # MRO routes to the Graph/DiGraph base) allocates an empty graph in O(1);
+        # __init__ wires up the live conversion view. Same fix as
+        # _FilteredGraphView.__new__ (br-r37-c1-pgfd2).
+        return super().__new__(cls)
+
     def __init__(self, graph):
         self.__dict__["_graph"] = graph
         self.__dict__["frozen"] = True
