@@ -26726,6 +26726,14 @@ class _ReverseDirectedViewBase:
     node_attr_dict_factory = dict
     node_dict_factory = dict
 
+    def __new__(cls, graph=None, *args, **kwargs):
+        # br-r37-c1-q131o: empty Rust base — the reverse-view classes mix this
+        # in with the PyO3 DiGraph/MultiDiGraph base, whose __new__ copies the
+        # whole parent graph into the view's storage (O(|V|+|E|)). Dead weight:
+        # every query is answered through self._graph with succ/pred swapped.
+        # Same fix as _FilteredGraphView / _ConversionGraphViewBase.
+        return super().__new__(cls)
+
     def __init__(self, graph):
         self._graph = graph
         self.graph = graph.graph

@@ -104,6 +104,62 @@ def test_to_undirected_of_digraph():
 
 
 @needs_nx
+@pytest.mark.parametrize("seed", list(range(25)))
+def test_reverse_view_structural_parity(seed):
+    # br-r37-c1-q131o: reverse_view had the same parent-copy bug.
+    rng = random.Random(seed * 29 + 2)
+    n = rng.randint(0, 30)
+    ng, fg = nx.DiGraph(), fnx.DiGraph()
+    nodes = list(range(n))
+    rng.shuffle(nodes)
+    for u in nodes:
+        ng.add_node(u)
+        fg.add_node(u)
+    seen = set()
+    for _ in range(rng.randint(0, n * 2)):
+        if not nodes:
+            break
+        a, b = rng.choice(nodes), rng.choice(nodes)
+        if a == b or (a, b) in seen:
+            continue
+        seen.add((a, b))
+        ng.add_edge(a, b)
+        fg.add_edge(a, b)
+    sv = nx.reverse_view(ng)
+    fv = fnx.reverse_view(fg)
+    assert fv.is_directed()
+    assert set(fv) == set(sv)
+    assert fv.number_of_edges() == sv.number_of_edges()
+    assert {(u, v) for u, v in fv.edges()} == {(u, v) for u, v in sv.edges()}
+    for u in sv:
+        assert set(fv.succ[u]) == set(sv.succ[u])
+        assert set(fv.pred[u]) == set(sv.pred[u])
+
+
+@needs_nx
+def test_reverse_view_tracks_parent_and_is_fast():
+    f = fnx.DiGraph()
+    f.add_edges_from([(0, 1), (1, 2)])
+    v = fnx.reverse_view(f)
+    assert sorted(v.edges()) == [(1, 0), (2, 1)]
+    f.add_edge(2, 0)
+    assert sorted(v.edges()) == [(0, 2), (1, 0), (2, 1)]
+
+    big = fnx.DiGraph()
+    g = nx.gnm_random_graph(8000, 32000, seed=1, directed=True)
+    for u in g.nodes():
+        big.add_node(u)
+    for u, vv in g.edges():
+        big.add_edge(u, vv)
+    best = 1e9
+    for _ in range(5):
+        s = time.perf_counter()
+        fnx.reverse_view(big)
+        best = min(best, time.perf_counter() - s)
+    assert best * 1000 < 5.0, f"reverse_view ctor too slow: {best * 1000:.2f}ms"
+
+
+@needs_nx
 def test_construction_does_not_scale_with_parent_size():
     def make(n):
         g = nx.gnm_random_graph(n, n * 4, seed=1)
