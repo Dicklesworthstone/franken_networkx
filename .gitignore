@@ -181,3 +181,4 @@ storage.sqlite3-wal.corrupt-*
 /*.sh
 /*.patch
 .env
+.claude/settings.local.json
