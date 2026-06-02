@@ -25387,7 +25387,11 @@ def current_flow_closeness_centrality(
         centrality_arr[node] += n * diag - 2.0 * float(row.sum())
         centrality_arr += diag
 
-    return {ordering[i]: 1.0 / centrality_arr[i] for i in range(n)}
+    # br-r37-c1-cfctype: nx returns Python ``float`` dict values; ``centrality_arr``
+    # is a numpy array so ``1.0 / centrality_arr[i]`` is ``np.float64``, which
+    # diverges on ``type(v) is float`` and on repr (``np.float64(...)``).
+    # current_flow_betweenness already coerces — match it here.
+    return {ordering[i]: float(1.0 / centrality_arr[i]) for i in range(n)}
 
 
 def betweenness_centrality_subset(
