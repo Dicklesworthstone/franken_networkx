@@ -17658,7 +17658,12 @@ def _random_tree_internal(n, seed=None):
 def constraint(G, nodes=None, weight=None, *, backend=None, **backend_kwargs):
     """Return Burt's constraint for nodes in *G*."""
     _validate_backend_dispatch_keywords("constraint", backend, backend_kwargs)
-    if weight is not None:
+    # br-r37-c1-shdir: the Rust constraint_rust kernel is undirected-only; on
+    # DiGraphs it ignored edge direction and returned uniform values, whereas
+    # nx uses the directed mutual-weight convention (neighbors = successors |
+    # predecessors, mutual_weight = w(u->v) + w(v->u)). Delegate directed
+    # graphs to nx, like the weighted path already does.
+    if weight is not None or G.is_directed():
         return _call_networkx_submodule_for_parity(
             "algorithms.structuralholes", "constraint", G,
             nodes=nodes, weight=weight,
@@ -17705,7 +17710,9 @@ def effective_size(G, nodes=None, weight=None, *, backend=None, **backend_kwargs
         ``{node: effective_size}``
     """
     _validate_backend_dispatch_keywords("effective_size", backend, backend_kwargs)
-    if weight is not None:
+    # br-r37-c1-shdir: see constraint — the Rust effective_size_rust kernel is
+    # undirected-only and mishandled DiGraphs. Delegate directed graphs to nx.
+    if weight is not None or G.is_directed():
         return _call_networkx_submodule_for_parity(
             "algorithms.structuralholes", "effective_size", G,
             nodes=nodes, weight=weight,
