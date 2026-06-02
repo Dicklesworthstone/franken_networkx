@@ -3382,16 +3382,19 @@ fn betweenness_centrality_generic<G: GraphView>(
             queue_head += 1;
             stack.push(v);
             let dist_v = distance[v];
+            let next_dist = dist_v + 1;
+            let sigma_v = sigma[v];
             for &w in &adjacency[v] {
                 edges_scanned += 1;
 
                 if distance[w] < 0 {
-                    distance[w] = dist_v + 1;
+                    distance[w] = next_dist;
                     queue.push(w);
                     queue_peak = queue_peak.max(queue.len() - queue_head);
-                }
-                if distance[w] == dist_v + 1 {
-                    sigma[w] += sigma[v];
+                    sigma[w] += sigma_v;
+                    predecessors[w].push(v);
+                } else if distance[w] == next_dist {
+                    sigma[w] += sigma_v;
                     predecessors[w].push(v);
                 }
             }

@@ -1,0 +1,5 @@
+{"algo":"betweenness","n":1500,"m":6000,"avg_deg":8,"iters":1,"total_ms":128.6898,"per_iter_ms":128.6898,"checksum":2.761383}
+{"algo":"betweenness","n":1500,"m":6000,"avg_deg":8,"iters":1,"total_ms":113.6044,"per_iter_ms":113.6044,"checksum":2.761383}
+{"algo":"betweenness","n":1500,"m":6000,"avg_deg":8,"iters":1,"total_ms":113.2756,"per_iter_ms":113.2756,"checksum":2.761383}
+{"algo":"betweenness","n":1500,"m":6000,"avg_deg":8,"iters":1,"total_ms":117.8427,"per_iter_ms":117.8427,"checksum":2.761383}
+{"algo":"betweenness","n":1500,"m":6000,"avg_deg":8,"iters":1,"total_ms":114.6728,"per_iter_ms":114.6728,"checksum":2.761383}
