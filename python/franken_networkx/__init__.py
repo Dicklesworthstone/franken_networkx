@@ -6760,7 +6760,7 @@ def node_connectivity(G, s=None, t=None, flow_func=None):
     # self-loops + a bridge nx returns 3 (min_degree=3) vs fnx's 2.
     # Delegate any graph with at least one self-loop to nx so both
     # libraries agree on the self-loop weighting.
-    if number_of_selfloops(G) > 0:  # br-r37-c1-5i5gb: native O(|V|) check, not O(|E|) EdgeView pass
+    if any(u == v for u, v in G.edges()):
         return _call_networkx_for_parity("node_connectivity", G, s=s, t=t)
     # Multigraphs with parallel edges bump the min-degree bound above
     # the simple-graph κ = n−1 ceiling (a node with k parallel edges to a
@@ -6842,7 +6842,7 @@ def edge_connectivity(G, s=None, t=None, flow_func=None, cutoff=None):
     # self-loop: nx=2 vs fnx=0; two-node + two self-loops + bridge:
     # nx=3 vs fnx=1). Delegate any self-loop graph to nx so both
     # libraries agree on the weighting.
-    if number_of_selfloops(G) > 0:  # br-r37-c1-5i5gb: native O(|V|) check, not O(|E|) EdgeView pass
+    if any(u == v for u, v in G.edges()):
         return _call_networkx_for_parity(
             "edge_connectivity", G, s=s, t=t, cutoff=cutoff
         )
@@ -8416,7 +8416,7 @@ def is_eulerian(G):
     # vertex remains Eulerian per nx but the Rust path returns
     # False). Delegate to nx whenever any self-loop is present so
     # both predicates carry the same self-loop semantics.
-    if number_of_selfloops(G) > 0:  # br-r37-c1-5i5gb: native O(|V|) check, not O(|E|) EdgeView pass
+    if any(u == v for u, v in G.edges()):
         return _call_networkx_for_parity("is_eulerian", G)
     return _raw_is_eulerian(G)
 
@@ -8494,7 +8494,7 @@ def eulerian_path(G, source=None, keys=False):
     # on graphs that ARE Eulerian, e.g. K3 + self-loop. Delegate
     # any graph with at least one self-loop to nx so eulerian_path
     # is consistent with has_eulerian_path / is_eulerian.
-    if number_of_selfloops(G) > 0:  # br-r37-c1-5i5gb: native O(|V|) check, not O(|E|) EdgeView pass
+    if any(u == v for u, v in G.edges()):
         yield from _call_networkx_for_parity(
             "eulerian_path", G, source=source, keys=keys,
         )
@@ -8534,7 +8534,7 @@ def has_eulerian_path(G, source=None):
     # where nx returns True (e.g. K3 + self-loop, single-node
     # self-loop, self-loop attached to a chain). Delegate any
     # graph with at least one self-loop to nx.
-    if number_of_selfloops(G) > 0:  # br-r37-c1-5i5gb: native O(|V|) check, not O(|E|) EdgeView pass
+    if any(u == v for u, v in G.edges()):
         return _call_networkx_for_parity("has_eulerian_path", G, source=source)
     return _raw_has_eulerian_path(G)
 
@@ -12515,7 +12515,7 @@ def is_chordal(G):
         raise NetworkXNotImplemented("not implemented for multigraph type")
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
-    if number_of_selfloops(G) > 0:  # br-r37-c1-5i5gb: native O(|V|) check, not O(|E|) EdgeView pass
+    if any(u == v for u, v in G.edges()):
         return _call_networkx_for_parity("is_chordal", G)
     return _raw_is_chordal(G)
 
@@ -33615,7 +33615,7 @@ def chromatic_polynomial(G):
 
     import sympy
 
-    if number_of_selfloops(G) > 0:  # br-r37-c1-5i5gb: native O(|V|) check, not O(|E|) EdgeView pass
+    if any(u == v for u, v in G.edges()):
         return sympy.Integer(0)
 
     x = sympy.Symbol("x")
@@ -34488,7 +34488,7 @@ def complete_to_chordal_graph(G):
     reaches that branch; mirror that selective raise pattern by
     delegating any self-loop input to nx.
     """
-    if number_of_selfloops(G) > 0:  # br-r37-c1-5i5gb: native O(|V|) check, not O(|E|) EdgeView pass
+    if any(u == v for u, v in G.edges()):
         from franken_networkx.readwrite import _from_nx_graph
         nx_graph, alpha = _call_networkx_for_parity("complete_to_chordal_graph", G)
         return _from_nx_graph(nx_graph), alpha

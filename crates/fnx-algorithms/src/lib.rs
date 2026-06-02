@@ -6577,7 +6577,32 @@ fn has_path_directed_fast(digraph: &DiGraph, source: &str, target: &str) -> bool
 /// Uses BFS.  Returns `None` if there is no path or if either node is missing.
 #[must_use]
 pub fn shortest_path_length(graph: &Graph, source: &str, target: &str) -> ShortestPathLengthResult {
-    if source == target && graph.has_node(source) {
+    let Some(source_idx) = graph.get_node_index(source) else {
+        return ShortestPathLengthResult {
+            length: None,
+            witness: ComplexityWitness {
+                algorithm: "bfs_shortest_path_length".to_owned(),
+                complexity_claim: "O(|V| + |E|)".to_owned(),
+                nodes_touched: 0,
+                edges_scanned: 0,
+                queue_peak: 0,
+            },
+        };
+    };
+    let Some(target_idx) = graph.get_node_index(target) else {
+        return ShortestPathLengthResult {
+            length: None,
+            witness: ComplexityWitness {
+                algorithm: "bfs_shortest_path_length".to_owned(),
+                complexity_claim: "O(|V| + |E|)".to_owned(),
+                nodes_touched: 0,
+                edges_scanned: 0,
+                queue_peak: 0,
+            },
+        };
+    };
+
+    if source_idx == target_idx {
         return ShortestPathLengthResult {
             length: Some(0),
             witness: ComplexityWitness {
@@ -6589,46 +6614,40 @@ pub fn shortest_path_length(graph: &Graph, source: &str, target: &str) -> Shorte
             },
         };
     }
-    if !graph.has_node(source) || !graph.has_node(target) {
-        return ShortestPathLengthResult {
-            length: None,
-            witness: ComplexityWitness {
-                algorithm: "bfs_shortest_path_length".to_owned(),
-                complexity_claim: "O(|V| + |E|)".to_owned(),
-                nodes_touched: 0,
-                edges_scanned: 0,
-                queue_peak: 0,
-            },
-        };
-    }
 
-    let mut dist: HashMap<&str, usize> = HashMap::new();
+    // br-r37-c1-hbv0y: distance-only BFS does not need string-keyed
+    // HashMap state. Node indices preserve the same BFS frontier while using
+    // dense cache-local distance state and adjacency indices.
+    let unvisited = usize::MAX;
+    let mut dist = vec![unvisited; graph.node_count()];
     let mut queue = VecDeque::new();
     let mut edges_scanned = 0usize;
     let mut queue_peak = 0usize;
+    let mut nodes_touched = 1usize;
 
-    dist.insert(source, 0);
-    queue.push_back(source);
+    dist[source_idx] = 0usize;
+    queue.push_back(source_idx);
 
     while let Some(current) = queue.pop_front() {
         let current_dist = dist[current];
-        if current == target {
+        if current == target_idx {
             return ShortestPathLengthResult {
                 length: Some(current_dist),
                 witness: ComplexityWitness {
                     algorithm: "bfs_shortest_path_length".to_owned(),
                     complexity_claim: "O(|V| + |E|)".to_owned(),
-                    nodes_touched: dist.len(),
+                    nodes_touched,
                     edges_scanned,
                     queue_peak,
                 },
             };
         }
-        if let Some(neighbors) = graph.neighbors_iter(current) {
-            for neighbor in neighbors {
+        if let Some(neighbors) = graph.neighbors_indices(current) {
+            for &neighbor in neighbors {
                 edges_scanned += 1;
-                if !dist.contains_key(neighbor) {
-                    dist.insert(neighbor, current_dist + 1);
+                if dist[neighbor] == unvisited {
+                    dist[neighbor] = current_dist + 1;
+                    nodes_touched += 1;
                     queue.push_back(neighbor);
                 }
             }
@@ -6643,7 +6662,7 @@ pub fn shortest_path_length(graph: &Graph, source: &str, target: &str) -> Shorte
         witness: ComplexityWitness {
             algorithm: "bfs_shortest_path_length".to_owned(),
             complexity_claim: "O(|V| + |E|)".to_owned(),
-            nodes_touched: dist.len(),
+            nodes_touched,
             edges_scanned,
             queue_peak,
         },
@@ -40314,6 +40333,30 @@ mod tests {
         assert!(paths.contains_key("b"));
         assert!(paths.contains_key("c"));
         assert!(!paths.contains_key("d")); // cutoff at depth 2
+    }
+
+    #[test]
+    fn shortest_path_length_indexed_distance_semantics() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b");
+        let _ = g.add_edge("b", "c");
+        let _ = g.add_edge("c", "d");
+        g.add_node("isolated");
+
+        let path = crate::shortest_path_length(&g, "a", "d");
+        assert_eq!(path.length, Some(3));
+        assert_eq!(path.witness.algorithm, "bfs_shortest_path_length");
+        assert_eq!(path.witness.nodes_touched, 4);
+
+        let same = crate::shortest_path_length(&g, "a", "a");
+        assert_eq!(same.length, Some(0));
+        assert_eq!(same.witness.nodes_touched, 1);
+
+        assert_eq!(
+            crate::shortest_path_length(&g, "a", "isolated").length,
+            None
+        );
+        assert_eq!(crate::shortest_path_length(&g, "missing", "a").length, None);
     }
 
     #[test]
