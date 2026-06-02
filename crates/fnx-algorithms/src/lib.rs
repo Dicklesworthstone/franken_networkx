@@ -1324,6 +1324,12 @@ pub fn multi_source_dijkstra(
     let mut pq = BinaryHeap::new();
     let mut seq_counter: u64 = 0;
 
+    // nx yields shortest-path dicts in finalize (heap-pop) order, i.e. sorted by
+    // (distance, push-seq). Record that order here so the leaf path/length
+    // functions can emit Python dicts in the same key order. (br-r37-c1-k9q6q)
+    let mut finalize_order: Vec<usize> = Vec::with_capacity(n);
+    let mut finalized = vec![false; n];
+
     let mut nodes_touched = 0usize;
     let mut edges_scanned = 0usize;
     let mut queue_peak = 0usize;
@@ -1353,6 +1359,10 @@ pub fn multi_source_dijkstra(
     {
         if d > distances[u_idx] {
             continue;
+        }
+        if !finalized[u_idx] {
+            finalized[u_idx] = true;
+            finalize_order.push(u_idx);
         }
 
         if let Some(neighbors) = graph.neighbors_iter(ordered_nodes[u_idx]) {
@@ -1411,8 +1421,11 @@ pub fn multi_source_dijkstra(
         }
     }
 
+    // Emit entries in finalize (heap-pop) order to match networkx key order.
+    let finalize_names: Vec<&str> = finalize_order.iter().map(|&i| ordered_nodes[i]).collect();
+
     weighted_paths_result(
-        &ordered_nodes,
+        &finalize_names,
         dist_map,
         pred_map,
         false,
@@ -15645,7 +15658,10 @@ pub fn wiener_index_weighted_directed(digraph: &DiGraph, weight_attr: &str) -> f
     let mut total: f64 = 0.0;
 
     for s in 0..n {
-        let dists = single_source_dijkstra_directed(digraph, nodes[s], weight_attr);
+        let dists: HashMap<String, f64> =
+            single_source_dijkstra_directed(digraph, nodes[s], weight_attr)
+                .into_iter()
+                .collect();
         for v in 0..n {
             if v == s {
                 continue;
@@ -20664,7 +20680,10 @@ pub fn dijkstra_path_length_directed(
     weight_attr: &str,
 ) -> Option<f64> {
     let result = single_source_dijkstra_directed(digraph, source, weight_attr);
-    result.get(target).copied()
+    result
+        .into_iter()
+        .find(|(node, _)| node == target)
+        .map(|(_, dist)| dist)
 }
 
 /// Return the shortest path length from source to target using Bellman-Ford.
@@ -20688,21 +20707,31 @@ pub fn bellman_ford_path_length(
         .ok_or(false)
 }
 
+/// Ordered `(node, distance)` entries in networkx finalize (heap-pop) order.
+type OrderedDistances = Vec<(String, f64)>;
+/// Ordered `(node, path)` entries in networkx finalize (heap-pop) order.
+type OrderedPaths = Vec<(String, Vec<String>)>;
+/// `(distances, paths)` pair returned by single-source Dijkstra, both ordered.
+type DijkstraFull = (OrderedDistances, OrderedPaths);
+
 /// Single-source Dijkstra returning distances only (directed graph).
-/// Returns HashMap<node, distance>.
+/// Returns `(node, distance)` pairs in networkx finalize order.
 #[must_use]
 pub fn single_source_dijkstra_directed(
     digraph: &DiGraph,
     source: &str,
     weight_attr: &str,
-) -> HashMap<String, f64> {
+) -> Vec<(String, f64)> {
     if !digraph.has_node(source) {
-        return HashMap::new();
+        return Vec::new();
     }
 
     let mut distances: HashMap<String, f64> = HashMap::new();
     let mut pq = BinaryHeap::new();
     let mut seq_counter: u64 = 0;
+    // Finalize (heap-pop) order, matching nx key order. (br-r37-c1-k9q6q)
+    let mut finalize_order: Vec<String> = Vec::new();
+    let mut finalized: HashSet<String> = HashSet::new();
 
     distances.insert(source.to_owned(), 0.0);
     seq_counter += 1;
@@ -20718,6 +20747,10 @@ pub fn single_source_dijkstra_directed(
     {
         if d > *distances.get(u).unwrap_or(&f64::INFINITY) + DISTANCE_COMPARISON_EPSILON {
             continue;
+        }
+        if !finalized.contains(u) {
+            finalized.insert(u.to_owned());
+            finalize_order.push(u.to_owned());
         }
 
         if let Some(successors) = digraph.successors_iter(u) {
@@ -20739,7 +20772,13 @@ pub fn single_source_dijkstra_directed(
         }
     }
 
-    distances
+    finalize_order
+        .into_iter()
+        .map(|node| {
+            let dist = distances[&node];
+            (node, dist)
+        })
+        .collect()
 }
 
 /// Single-source Dijkstra returning (distances, paths) for directed graph.
@@ -20748,15 +20787,18 @@ pub fn single_source_dijkstra_full_directed(
     digraph: &DiGraph,
     source: &str,
     weight_attr: &str,
-) -> (HashMap<String, f64>, HashMap<String, Vec<String>>) {
+) -> DijkstraFull {
     let mut distances: HashMap<String, f64> = HashMap::new();
     let mut predecessors: HashMap<String, Option<String>> = HashMap::new();
     if !digraph.has_node(source) {
-        return (distances, HashMap::new());
+        return (Vec::new(), Vec::new());
     }
 
     let mut pq = BinaryHeap::new();
     let mut seq_counter: u64 = 0;
+    // Finalize (heap-pop) order, matching nx key order. (br-r37-c1-k9q6q)
+    let mut finalize_order: Vec<String> = Vec::new();
+    let mut finalized: HashSet<String> = HashSet::new();
 
     distances.insert(source.to_owned(), 0.0);
     predecessors.insert(source.to_owned(), None);
@@ -20773,6 +20815,10 @@ pub fn single_source_dijkstra_full_directed(
     {
         if d > *distances.get(u).unwrap_or(&f64::INFINITY) + DISTANCE_COMPARISON_EPSILON {
             continue;
+        }
+        if !finalized.contains(u) {
+            finalized.insert(u.to_owned());
+            finalize_order.push(u.to_owned());
         }
 
         if let Some(successors) = digraph.successors_iter(u) {
@@ -20795,8 +20841,10 @@ pub fn single_source_dijkstra_full_directed(
         }
     }
 
-    let mut paths = HashMap::new();
-    for node in distances.keys() {
+    let mut dist_entries = Vec::with_capacity(finalize_order.len());
+    let mut paths = Vec::with_capacity(finalize_order.len());
+    for node in &finalize_order {
+        dist_entries.push((node.clone(), distances[node]));
         let mut path = vec![node.clone()];
         let mut cur = node.as_str();
         while let Some(Some(prev)) = predecessors.get(cur) {
@@ -20804,10 +20852,10 @@ pub fn single_source_dijkstra_full_directed(
             cur = prev;
         }
         path.reverse();
-        paths.insert(node.clone(), path);
+        paths.push((node.clone(), path));
     }
 
-    (distances, paths)
+    (dist_entries, paths)
 }
 
 /// Single-source Dijkstra returning (distances, paths) for undirected graph.
@@ -20817,10 +20865,11 @@ pub fn single_source_dijkstra_full(
     graph: &Graph,
     source: &str,
     weight_attr: &str,
-) -> (HashMap<String, f64>, HashMap<String, Vec<String>>) {
+) -> DijkstraFull {
     let result = multi_source_dijkstra(graph, &[source], weight_attr);
-    let mut distances = HashMap::new();
-    let mut paths = HashMap::new();
+    // result.distances is in finalize (heap-pop) order, matching nx key order.
+    let mut distances = Vec::with_capacity(result.distances.len());
+    let mut paths = Vec::with_capacity(result.distances.len());
 
     let pred_map: HashMap<&str, Option<&str>> = result
         .predecessors
@@ -20829,7 +20878,7 @@ pub fn single_source_dijkstra_full(
         .collect();
 
     for entry in &result.distances {
-        distances.insert(entry.node.clone(), entry.distance);
+        distances.push((entry.node.clone(), entry.distance));
         let mut path = vec![entry.node.clone()];
         let mut cur = entry.node.as_str();
         while let Some(Some(prev)) = pred_map.get(cur) {
@@ -20837,7 +20886,7 @@ pub fn single_source_dijkstra_full(
             cur = prev;
         }
         path.reverse();
-        paths.insert(entry.node.clone(), path);
+        paths.push((entry.node.clone(), path));
     }
 
     (distances, paths)
@@ -20850,7 +20899,7 @@ pub fn single_source_dijkstra_path(
     graph: &Graph,
     source: &str,
     weight_attr: &str,
-) -> HashMap<String, Vec<String>> {
+) -> Vec<(String, Vec<String>)> {
     single_source_dijkstra_full(graph, source, weight_attr).1
 }
 
@@ -20861,7 +20910,7 @@ pub fn single_source_dijkstra_path_length(
     graph: &Graph,
     source: &str,
     weight_attr: &str,
-) -> HashMap<String, f64> {
+) -> Vec<(String, f64)> {
     single_source_dijkstra_full(graph, source, weight_attr).0
 }
 
@@ -20871,7 +20920,7 @@ pub fn single_source_dijkstra_path_directed(
     digraph: &DiGraph,
     source: &str,
     weight_attr: &str,
-) -> HashMap<String, Vec<String>> {
+) -> Vec<(String, Vec<String>)> {
     single_source_dijkstra_full_directed(digraph, source, weight_attr).1
 }
 
@@ -20881,7 +20930,7 @@ pub fn single_source_dijkstra_path_length_directed(
     digraph: &DiGraph,
     source: &str,
     weight_attr: &str,
-) -> HashMap<String, f64> {
+) -> Vec<(String, f64)> {
     single_source_dijkstra_directed(digraph, source, weight_attr)
 }
 
@@ -21157,13 +21206,15 @@ pub fn single_target_shortest_path_length_directed(
 pub fn all_pairs_dijkstra(
     graph: &Graph,
     weight_attr: &str,
-) -> HashMap<String, (HashMap<String, f64>, HashMap<String, Vec<String>>)> {
-    let mut result = HashMap::new();
-    for node in graph.nodes_ordered() {
-        let (dists, paths) = single_source_dijkstra_full(graph, node, weight_attr);
-        result.insert(node.to_owned(), (dists, paths));
-    }
-    result
+) -> Vec<(String, DijkstraFull)> {
+    graph
+        .nodes_ordered()
+        .into_iter()
+        .map(|node| {
+            let (dists, paths) = single_source_dijkstra_full(graph, node, weight_attr);
+            (node.to_owned(), (dists, paths))
+        })
+        .collect()
 }
 
 /// All-pairs Dijkstra returning (distances, paths) for directed graphs.
@@ -21172,13 +21223,15 @@ pub fn all_pairs_dijkstra(
 pub fn all_pairs_dijkstra_directed(
     digraph: &DiGraph,
     weight_attr: &str,
-) -> HashMap<String, (HashMap<String, f64>, HashMap<String, Vec<String>>)> {
-    let mut result = HashMap::new();
-    for node in digraph.nodes_ordered() {
-        let (dists, paths) = single_source_dijkstra_full_directed(digraph, node, weight_attr);
-        result.insert(node.to_owned(), (dists, paths));
-    }
-    result
+) -> Vec<(String, DijkstraFull)> {
+    digraph
+        .nodes_ordered()
+        .into_iter()
+        .map(|node| {
+            let (dists, paths) = single_source_dijkstra_full_directed(digraph, node, weight_attr);
+            (node.to_owned(), (dists, paths))
+        })
+        .collect()
 }
 
 /// All-pairs Dijkstra returning distances only for directed graphs.
@@ -21186,15 +21239,17 @@ pub fn all_pairs_dijkstra_directed(
 pub fn all_pairs_dijkstra_path_length_directed(
     digraph: &DiGraph,
     weight_attr: &str,
-) -> HashMap<String, HashMap<String, f64>> {
-    let mut result = HashMap::new();
-    for node in digraph.nodes_ordered() {
-        result.insert(
-            node.to_owned(),
-            single_source_dijkstra_directed(digraph, node, weight_attr),
-        );
-    }
-    result
+) -> Vec<(String, Vec<(String, f64)>)> {
+    digraph
+        .nodes_ordered()
+        .into_iter()
+        .map(|node| {
+            (
+                node.to_owned(),
+                single_source_dijkstra_directed(digraph, node, weight_attr),
+            )
+        })
+        .collect()
 }
 
 /// All-pairs Dijkstra returning paths only.
@@ -21203,15 +21258,17 @@ pub fn all_pairs_dijkstra_path_length_directed(
 pub fn all_pairs_dijkstra_path(
     graph: &Graph,
     weight_attr: &str,
-) -> HashMap<String, HashMap<String, Vec<String>>> {
-    let mut result = HashMap::new();
-    for node in graph.nodes_ordered() {
-        result.insert(
-            node.to_owned(),
-            single_source_dijkstra_path(graph, node, weight_attr),
-        );
-    }
-    result
+) -> Vec<(String, OrderedPaths)> {
+    graph
+        .nodes_ordered()
+        .into_iter()
+        .map(|node| {
+            (
+                node.to_owned(),
+                single_source_dijkstra_path(graph, node, weight_attr),
+            )
+        })
+        .collect()
 }
 
 /// All-pairs Dijkstra returning distances only.
@@ -21220,15 +21277,17 @@ pub fn all_pairs_dijkstra_path(
 pub fn all_pairs_dijkstra_path_length(
     graph: &Graph,
     weight_attr: &str,
-) -> HashMap<String, HashMap<String, f64>> {
-    let mut result = HashMap::new();
-    for node in graph.nodes_ordered() {
-        result.insert(
-            node.to_owned(),
-            single_source_dijkstra_path_length(graph, node, weight_attr),
-        );
-    }
-    result
+) -> Vec<(String, Vec<(String, f64)>)> {
+    graph
+        .nodes_ordered()
+        .into_iter()
+        .map(|node| {
+            (
+                node.to_owned(),
+                single_source_dijkstra_path_length(graph, node, weight_attr),
+            )
+        })
+        .collect()
 }
 
 /// All-pairs Bellman-Ford returning paths only.
@@ -42154,6 +42213,8 @@ mod tests {
         let _ = g.add_edge_with_attrs("b", "c", attrs([("weight", "2.0")]));
         let _ = g.add_edge_with_attrs("a", "c", attrs([("weight", "4.0")]));
         let (dists, paths) = single_source_dijkstra_full(&g, "a", "weight");
+        let dists: HashMap<String, f64> = dists.into_iter().collect();
+        let paths: HashMap<String, Vec<String>> = paths.into_iter().collect();
         assert_eq!(dists["a"], 0.0);
         assert_eq!(dists["b"], 1.0);
         assert_eq!(dists["c"], 3.0); // a->b->c=3 < a->c=4
@@ -42167,7 +42228,8 @@ mod tests {
         let mut g = Graph::strict();
         let _ = g.add_edge("a", "b");
         let _ = g.add_edge("b", "c");
-        let paths = single_source_dijkstra_path(&g, "a", "weight");
+        let paths: HashMap<String, Vec<String>> =
+            single_source_dijkstra_path(&g, "a", "weight").into_iter().collect();
         assert_eq!(paths["c"], vec!["a", "b", "c"]);
     }
 
@@ -42176,7 +42238,8 @@ mod tests {
         let mut g = Graph::strict();
         let _ = g.add_edge("a", "b");
         let _ = g.add_edge("b", "c");
-        let dists = single_source_dijkstra_path_length(&g, "a", "weight");
+        let dists: HashMap<String, f64> =
+            single_source_dijkstra_path_length(&g, "a", "weight").into_iter().collect();
         assert_eq!(dists["a"], 0.0);
         assert_eq!(dists["b"], 1.0);
         assert_eq!(dists["c"], 2.0);
@@ -42188,7 +42251,8 @@ mod tests {
         let _ = g.add_edge_with_attrs("a", "b", attrs([("weight", "1.0")]));
         let _ = g.add_edge_with_attrs("b", "c", attrs([("weight", "2.0")]));
         let _ = g.add_edge_with_attrs("a", "c", attrs([("weight", "10.0")]));
-        let dists = single_source_dijkstra_path_length_directed(&g, "a", "weight");
+        let dists: HashMap<String, f64> =
+            single_source_dijkstra_path_length_directed(&g, "a", "weight").into_iter().collect();
         assert_eq!(dists["a"], 0.0);
         assert_eq!(dists["b"], 1.0);
         assert_eq!(dists["c"], 3.0);
@@ -42291,7 +42355,10 @@ mod tests {
         let mut g = Graph::strict();
         let _ = g.add_edge("a", "b");
         let _ = g.add_edge("b", "c");
-        let paths = all_pairs_dijkstra_path(&g, "weight");
+        let paths: HashMap<String, HashMap<String, Vec<String>>> = all_pairs_dijkstra_path(&g, "weight")
+            .into_iter()
+            .map(|(k, v)| (k, v.into_iter().collect()))
+            .collect();
         assert_eq!(paths["a"]["c"], vec!["a", "b", "c"]);
         assert_eq!(paths["c"]["a"], vec!["c", "b", "a"]);
     }
@@ -42301,7 +42368,10 @@ mod tests {
         let mut g = Graph::strict();
         let _ = g.add_edge("a", "b");
         let _ = g.add_edge("b", "c");
-        let dists = all_pairs_dijkstra_path_length(&g, "weight");
+        let dists: HashMap<String, HashMap<String, f64>> = all_pairs_dijkstra_path_length(&g, "weight")
+            .into_iter()
+            .map(|(k, v)| (k, v.into_iter().collect()))
+            .collect();
         assert_eq!(dists["a"]["c"], 2.0);
         assert_eq!(dists["a"]["a"], 0.0);
     }
@@ -42312,7 +42382,11 @@ mod tests {
         let _ = g.add_edge_with_attrs("a", "b", attrs([("weight", "1.0")]));
         let _ = g.add_edge_with_attrs("b", "c", attrs([("weight", "2.0")]));
         let _ = g.add_edge_with_attrs("a", "c", attrs([("weight", "10.0")]));
-        let dists = all_pairs_dijkstra_path_length_directed(&g, "weight");
+        let dists: HashMap<String, HashMap<String, f64>> =
+            all_pairs_dijkstra_path_length_directed(&g, "weight")
+                .into_iter()
+                .map(|(k, v)| (k, v.into_iter().collect()))
+                .collect();
         assert_eq!(dists["a"]["c"], 3.0);
         assert_eq!(dists["a"]["a"], 0.0);
         assert!(!dists["c"].contains_key("a"));

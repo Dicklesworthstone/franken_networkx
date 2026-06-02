@@ -792,9 +792,10 @@ fn compute_single_source_shortest_paths(
             .collect()),
         Some(w) => {
             match method {
-                "dijkstra" => Ok(py.allow_threads(|| {
-                    fnx_algorithms::single_source_dijkstra_path(inner, source, w)
-                })),
+                "dijkstra" => Ok(py
+                    .allow_threads(|| fnx_algorithms::single_source_dijkstra_path(inner, source, w))
+                    .into_iter()
+                    .collect()),
                 "bellman-ford" => {
                     let result = py.allow_threads(|| {
                         fnx_algorithms::single_source_bellman_ford_path(inner, source, w)
@@ -829,9 +830,12 @@ fn compute_single_source_shortest_paths_directed(
             .into_iter()
             .collect()),
         Some(w) => match method {
-            "dijkstra" => Ok(py.allow_threads(|| {
-                fnx_algorithms::single_source_dijkstra_path_directed(inner, source, w)
-            })),
+            "dijkstra" => Ok(py
+                .allow_threads(|| {
+                    fnx_algorithms::single_source_dijkstra_path_directed(inner, source, w)
+                })
+                .into_iter()
+                .collect()),
             "bellman-ford" => {
                 let result = py.allow_threads(|| {
                     fnx_algorithms::single_source_bellman_ford_path_directed(inner, source, w)
@@ -1855,7 +1859,9 @@ pub fn average_shortest_path_length(
                         dg_ref,
                         source,
                         weight_attr,
-                    ))
+                    )
+                    .into_iter()
+                    .collect())
                 })
             }) {
                 Ok(total_distance) => total_distance,
@@ -1910,7 +1916,9 @@ pub fn average_shortest_path_length(
                     graph_ref,
                     source,
                     weight_attr,
-                ))
+                )
+                .into_iter()
+                .collect())
             })
         }) {
             Ok(total_distance) => total_distance,
@@ -11279,7 +11287,7 @@ fn all_pairs_dijkstra_path(
         py.allow_threads(|| fnx_algorithms::all_pairs_dijkstra_directed(dg.as_ref(), weight))
             .into_iter()
             .map(|(source, (_dists, paths))| (source, paths))
-            .collect::<HashMap<_, _>>()
+            .collect::<Vec<_>>()
     } else {
         let weighted_projection = gr.weighted_undirected_projection(weight);
         {
@@ -12498,8 +12506,8 @@ fn all_pairs_dijkstra(py: Python<'_>, g: &Bound<'_, PyAny>, weight: &str) -> PyR
     let outer = PyDict::new(py);
     for (source, (dists, paths)) in &result {
         let dist_dict = PyDict::new(py);
-        for (target, &dist) in dists {
-            dist_dict.set_item(gr.py_node_key(py, target), dist)?;
+        for (target, dist) in dists {
+            dist_dict.set_item(gr.py_node_key(py, target), *dist)?;
         }
         let path_dict = PyDict::new(py);
         for (target, path) in paths {

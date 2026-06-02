@@ -11732,17 +11732,15 @@ def all_pairs_dijkstra(G, cutoff=None, weight="weight"):
     # br-r37-c1-sk5be: iterate outer keys in node-insertion order
     # matching nx (Rust dict yields in arbitrary order).
     raw = _raw_all_pairs_dijkstra(G, weight=weight)
-    # br-r37-c1-apspadj: snapshot adjacency once so per-source reorder
-    # doesn't pay the PyO3 G.adj[u] round-trip on every BFS step.
-    adj_snapshot = {u: list(G.adj[u]) for u in G.nodes()}
     for node in G.nodes():
         if node in raw:
-            # raw[node] is (dists, paths). br-r37-c1-6rphu: reorder
-            # both dicts by (distance, BFS-from-source tiebreak)
-            # matching nx's per-source iteration contract.
+            # raw[node] is (dists, paths) already in nx's Dijkstra finalize
+            # (heap-pop) order. br-r37-c1-k9q6q: a stable sort by distance
+            # preserves the push-seq tie-break the kernel encodes; the old
+            # BFS-hop tiebreak diverged from nx on equal-distance nodes.
             dists, paths = raw[node]
             d_dict = dict(dists)
-            order = _reorder_by_distance(d_dict, G=G, source=node, adj=adj_snapshot)
+            order = _reorder_by_distance(d_dict)
             ordered_dists = {k: dists[k] for k in order if k in dists}
             ordered_paths = {k: paths[k] for k in order if k in paths}
             yield (node, (ordered_dists, ordered_paths))
@@ -14355,9 +14353,12 @@ def single_source_dijkstra(G, source, target=None, cutoff=None, weight="weight")
         if target not in dists:
             raise NetworkXNoPath(f"No path to {target}.")
         return dists[target], paths[target]
-    # br-r37-c1-62jy2: reorder both dicts by ascending distance so
-    # iteration matches nx's Dijkstra processing order.
-    order = _reorder_by_distance(dists, G=G, source=source)
+    # br-r37-c1-k9q6q: the Rust kernel now emits entries in nx's Dijkstra
+    # finalize (heap-pop) order — sorted by (distance, push-seq). A plain
+    # stable sort by distance preserves that push-seq tie-break on equal
+    # distances, which BFS-hop order (the old _reorder_by_distance(G=...,
+    # source=...) tiebreak) did NOT reproduce. Trust the kernel order.
+    order = _reorder_by_distance(dists)
     dists = {k: dists[k] for k in order}
     paths = {k: paths[k] for k in order if k in paths}
     return dists, paths
@@ -14515,19 +14516,13 @@ def all_pairs_dijkstra_path(G, cutoff=None, weight="weight"):
     # ``for source, paths in all_pairs_dijkstra_path(G): ...`` matches
     # nx's iteration contract (Rust dict yields in arbitrary order).
     raw = _raw_all_pairs_dijkstra_path(G, weight=weight)
-    # br-r37-c1-apspadj: pre-snapshot adjacency (see all_pairs_dijkstra).
-    adj_snapshot = {u: list(G.adj[u]) for u in G.nodes()}
-    # br-r37-c1-bfdistderive: derive distances by summing edge weights
-    # along each path instead of calling _raw_all_pairs_dijkstra_path_length
-    # separately (dijkstra run twice).
-    edge_weights = _snapshot_edge_weights(G, weight)
     for node in G.nodes():
         if node in raw:
-            # br-r37-c1-6rphu: reorder inner dict by (distance, BFS).
-            inner = raw[node]
-            dists = _path_lengths_from_paths(inner, edge_weights)
-            order = _reorder_by_distance(dists, G=G, source=node, adj=adj_snapshot)
-            yield (node, {k: inner[k] for k in order if k in inner})
+            # br-r37-c1-k9q6q: the kernel already yields each source's paths
+            # in nx's Dijkstra finalize (heap-pop) order, so trust it directly.
+            # (The previous path-derived distance reorder used direction-losing
+            # frozenset edge keys and could mis-order ties on digraphs.)
+            yield (node, dict(raw[node]))
 
 
 def all_pairs_dijkstra_path_length(G, cutoff=None, weight="weight"):
@@ -14556,13 +14551,13 @@ def all_pairs_dijkstra_path_length(G, cutoff=None, weight="weight"):
     # br-r37-c1-3dxfn: iterate outer keys in node-insertion order
     # matching nx (Rust dict yields in arbitrary order).
     raw = _raw_all_pairs_dijkstra_path_length(G, weight=weight)
-    # br-r37-c1-apspadj: pre-snapshot adjacency.
-    adj_snapshot = {u: list(G.adj[u]) for u in G.nodes()}
     for node in G.nodes():
         if node in raw:
-            # br-r37-c1-6rphu: reorder inner dict by (distance, BFS).
+            # raw[node] is already in nx's Dijkstra finalize order;
+            # br-r37-c1-k9q6q: stable sort by distance preserves the
+            # kernel's push-seq tie-break (BFS-hop order diverged).
             inner = dict(raw[node])
-            order = _reorder_by_distance(inner, G=G, source=node, adj=adj_snapshot)
+            order = _reorder_by_distance(inner)
             yield (node, {k: inner[k] for k in order})
 
 
