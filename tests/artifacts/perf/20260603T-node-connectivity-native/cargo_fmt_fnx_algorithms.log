@@ -1,0 +1,13 @@
+  [2m2026-06-03T19:01:47.125229Z[0m [33m WARN[0m [1;33mrch::hook[0m[33m: [33mexec called with non-compilation command: cargo fmt -p fnx-algorithms --check[0m
+    [2;3mat[0m rch/src/hook.rs:402 [2;3mon[0m ThreadId(1)
+
+Diff in /data/projects/franken_networkx/crates/fnx-algorithms/src/lib.rs:10812:
+         if *w == *v || v_neighbors.contains(*w) {
+             continue;
+         }
+[31m-        let (value, edges_scanned, queue_peak) =
+[m[31m-            node_connectivity_from_template(&template, v, w);
+[m[32m+        let (value, edges_scanned, queue_peak) = node_connectivity_from_template(&template, v, w);
+[m         total_edges_scanned += edges_scanned;
+         max_queue_peak = max_queue_peak.max(queue_peak);
+         if value < k {

@@ -10734,6 +10734,23 @@ pub fn node_connectivity(graph: &Graph, source: &str, sink: &str) -> NodeConnect
     }
 }
 
+/// Run local node connectivity from a pre-built node-split residual template.
+/// Cloning the template is equivalent to rebuilding it for each pair because no
+/// pair-specific state exists until `aux_max_flow` mutates the residual clone.
+/// Returns `(connectivity, edges_scanned, queue_peak)`.
+fn node_connectivity_from_template(
+    template: &HashMap<String, HashMap<String, f64>>,
+    source: &str,
+    sink: &str,
+) -> (usize, usize, usize) {
+    let mut residual = template.clone();
+    let s_out = format!("{source}_out");
+    let t_in = format!("{sink}_in");
+    let mut stats = (0_usize, 0_usize, 0_usize);
+    let flow = aux_max_flow(&mut residual, &s_out, &t_in, &mut stats);
+    (flow as usize, stats.1, stats.2)
+}
+
 /// Compute global node connectivity: minimum s-t node connectivity over all pairs.
 ///
 /// Algorithm 11 from Esfahanian: pick min-degree node v, start with K = deg(v),
@@ -10787,16 +10804,19 @@ pub fn global_node_connectivity(graph: &Graph) -> NodeConnectivityResult {
     // K starts at min degree
     let mut k = v_neighbors.len();
 
+    // The node-split auxiliary depends only on the graph, not the pair.
+    let template = build_node_split_auxiliary(graph);
+
     // Check non-neighbors of v
     for w in &nodes {
         if *w == *v || v_neighbors.contains(*w) {
             continue;
         }
-        let result = node_connectivity(graph, v, w);
-        total_edges_scanned += result.witness.edges_scanned;
-        max_queue_peak = max_queue_peak.max(result.witness.queue_peak);
-        if result.value < k {
-            k = result.value;
+        let (value, edges_scanned, queue_peak) = node_connectivity_from_template(&template, v, w);
+        total_edges_scanned += edges_scanned;
+        max_queue_peak = max_queue_peak.max(queue_peak);
+        if value < k {
+            k = value;
         }
     }
 
@@ -10815,11 +10835,12 @@ pub fn global_node_connectivity(graph: &Graph) -> NodeConnectivityResult {
             if x_neighbors.contains(y) {
                 continue;
             }
-            let result = node_connectivity(graph, x, y);
-            total_edges_scanned += result.witness.edges_scanned;
-            max_queue_peak = max_queue_peak.max(result.witness.queue_peak);
-            if result.value < k {
-                k = result.value;
+            let (value, edges_scanned, queue_peak) =
+                node_connectivity_from_template(&template, x, y);
+            total_edges_scanned += edges_scanned;
+            max_queue_peak = max_queue_peak.max(queue_peak);
+            if value < k {
+                k = value;
             }
         }
     }
