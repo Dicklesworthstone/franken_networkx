@@ -914,7 +914,144 @@ pub fn to_edgelist_simple(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Opti
     Ok(Some(result.unbind()))
 }
 
+/// br-r37-c1-fwdense: cache-friendly in-place min-plus Floyd-Warshall over a
+/// flat row-major distance matrix (`dist` is `n*n`, `dist[u*n+v]`).
+///
+/// Bit-identical to the standard k-outer FW and to numpy's broadcast variant
+/// (`for k: A = minimum(A, A[k,:] + A[:,k])`): for each pivot `k` we snapshot
+/// row `k` — invariant during the k-iteration because `dist[k][k]==0` (so the
+/// self-updates to row k and column k are no-ops) — then apply
+/// `dist[u][v] = min(dist[u][v], dist[u][k] + row_k[v])` over contiguous rows.
+/// The snapshot removes the read/write alias between the pivot row and the row
+/// being updated, so the inner `v`-loop is a fused min-add over a contiguous
+/// slice that auto-vectorizes, and it never allocates the `n` temporary `n*n`
+/// arrays numpy's broadcast FW materializes (the dominant cost there). Rows with
+/// `dist[u][k] == +inf` are skipped (inf + x is never smaller than the current
+/// entry), which is also exact.
+fn floyd_warshall_dense_inplace(dist: &mut [f64], n: usize) {
+    debug_assert_eq!(dist.len(), n * n);
+    let mut row_k = vec![0.0f64; n];
+    for k in 0..n {
+        row_k.copy_from_slice(&dist[k * n..(k + 1) * n]);
+        for u in 0..n {
+            let duk = dist[u * n + k];
+            if duk == f64::INFINITY {
+                continue;
+            }
+            let row_u = &mut dist[u * n..(u + 1) * n];
+            for v in 0..n {
+                let cand = duk + row_k[v];
+                if cand < row_u[v] {
+                    row_u[v] = cand;
+                }
+            }
+        }
+    }
+}
+
+/// Read an edge's numeric weight from its live Python attr dict, defaulting to
+/// 1.0 when the key is absent (matches nx `to_numpy_array`'s `data.get(weight,
+/// 1)`); a present-but-non-numeric value raises (as nx would when assembling the
+/// float matrix).
+fn fw_edge_weight(
+    py: Python<'_>,
+    attrs: Option<&Py<PyDict>>,
+    weight: &str,
+) -> PyResult<f64> {
+    match attrs {
+        Some(d) => match d.bind(py).get_item(weight)? {
+            Some(val) => val.extract::<f64>(),
+            None => Ok(1.0),
+        },
+        None => Ok(1.0),
+    }
+}
+
+/// br-r37-c1-fwdense: native `floyd_warshall_numpy` core for simple Graph /
+/// DiGraph with the default nodelist. Builds the dense distance matrix
+/// (non-edges = +inf, diagonal = 0, edge weight or default 1.0, min over any
+/// parallel edges) in node-insertion order, then runs the in-place SIMD FW.
+/// Returns `(n, flat row-major)` which Python reshapes to `(n, n)`. Returns
+/// `None` for multigraph inputs so the Python wrapper falls back. Self-loops are
+/// dropped (nx forces the diagonal to 0). Bit-identical to nx (see
+/// `floyd_warshall_dense_inplace` + nx's `to_numpy_array(nonedge=inf)` +
+/// `fill_diagonal(0)`).
+#[pyfunction]
+pub fn floyd_warshall_dense(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    weight: &str,
+) -> PyResult<Option<(usize, Vec<f64>)>> {
+    let gr = extract_graph(g)?;
+    match &gr {
+        GraphRef::Undirected(pg) => {
+            let nodes = pg.inner.nodes_ordered();
+            let n = nodes.len();
+            let mut idx: HashMap<&str, usize> = HashMap::with_capacity(n);
+            for (i, &nd) in nodes.iter().enumerate() {
+                idx.insert(nd, i);
+            }
+            let mut dist = vec![f64::INFINITY; n * n];
+            for i in 0..n {
+                dist[i * n + i] = 0.0;
+            }
+            for u in pg.inner.nodes_ordered() {
+                let iu = idx[u];
+                if let Some(nbrs) = pg.inner.neighbors_iter(u) {
+                    for v in nbrs {
+                        let iv = idx[v];
+                        if iu == iv {
+                            continue;
+                        }
+                        let ek = PyGraph::edge_key(u, v);
+                        let w = fw_edge_weight(py, pg.edge_py_attrs.get(&ek), weight)?;
+                        let cell = &mut dist[iu * n + iv];
+                        if w < *cell {
+                            *cell = w;
+                        }
+                    }
+                }
+            }
+            floyd_warshall_dense_inplace(&mut dist, n);
+            Ok(Some((n, dist)))
+        }
+        GraphRef::Directed { dg, .. } => {
+            let nodes = dg.inner.nodes_ordered();
+            let n = nodes.len();
+            let mut idx: HashMap<&str, usize> = HashMap::with_capacity(n);
+            for (i, &nd) in nodes.iter().enumerate() {
+                idx.insert(nd, i);
+            }
+            let mut dist = vec![f64::INFINITY; n * n];
+            for i in 0..n {
+                dist[i * n + i] = 0.0;
+            }
+            for u in dg.inner.nodes_ordered() {
+                let iu = idx[u];
+                if let Some(nbrs) = dg.inner.successors_iter(u) {
+                    for v in nbrs {
+                        let iv = idx[v];
+                        if iu == iv {
+                            continue;
+                        }
+                        let ek = PyDiGraph::edge_key(u, v);
+                        let w = fw_edge_weight(py, dg.edge_py_attrs.get(&ek), weight)?;
+                        let cell = &mut dist[iu * n + iv];
+                        if w < *cell {
+                            *cell = w;
+                        }
+                    }
+                }
+            }
+            floyd_warshall_dense_inplace(&mut dist, n);
+            Ok(Some((n, dist)))
+        }
+        GraphRef::MultiUndirected { .. } | GraphRef::MultiDirected { .. } => Ok(None),
+    }
+}
+
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_function(wrap_pyfunction!(floyd_warshall_dense, m)?)?;
     m.add_function(wrap_pyfunction!(to_dict_of_dicts_undirected, m)?)?;
     m.add_function(wrap_pyfunction!(to_dict_of_lists_undirected, m)?)?;
     m.add_function(wrap_pyfunction!(to_edgelist_simple, m)?)?;

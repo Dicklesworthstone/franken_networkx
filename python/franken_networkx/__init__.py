@@ -26783,6 +26783,23 @@ def floyd_warshall_numpy(G, nodelist=None, weight="weight"):
     """Floyd-Warshall via numpy matrix operations."""
     import numpy as np
 
+    # br-r37-c1-fwdense: native in-place SIMD min-plus Floyd-Warshall for the
+    # common case (simple Graph/DiGraph, default nodelist). Replaces numpy's
+    # broadcast FW (`for k: A = minimum(A, A[:,k:k+1] + A[k:k+1,:])`), which
+    # allocates n temporary n*n arrays, with a zero-temp cache-friendly kernel
+    # that also builds the matrix natively (no AtlasView walk). Bit-identical
+    # output. Gated on exact type so subclasses / SubgraphViews fall back.
+    if nodelist is None and type(G) in (Graph, DiGraph) and isinstance(weight, str):
+        try:
+            from franken_networkx._fnx import floyd_warshall_dense as _fw_dense
+        except ImportError:
+            _fw_dense = None
+        if _fw_dense is not None:
+            res = _fw_dense(G, weight)
+            if res is not None:
+                n, flat = res
+                return np.asarray(flat, dtype=float).reshape(n, n)
+
     if nodelist is not None:
         if not (len(nodelist) == len(G) == len(set(nodelist))):
             raise NetworkXError(
