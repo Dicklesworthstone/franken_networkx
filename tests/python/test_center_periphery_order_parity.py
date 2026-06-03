@@ -60,6 +60,18 @@ def test_path_graph_center_matches_nx():
 
 
 @needs_nx
+def test_tree_center_leaf_trimming_does_not_call_eccentricity(monkeypatch):
+    g = fnx.path_graph(6)
+    gx = nx.path_graph(6)
+
+    def fail_eccentricity(*_args, **_kwargs):
+        raise AssertionError("tree center fast path should not call eccentricity")
+
+    monkeypatch.setattr(fnx, "eccentricity", fail_eccentricity)
+    assert fnx.center(g) == nx.center(gx)
+
+
+@needs_nx
 def test_cycle_graph_all_in_periphery_matches_nx():
     """Cycle: every node has same eccentricity, so all in periphery."""
     g = fnx.cycle_graph(6)

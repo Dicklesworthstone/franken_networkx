@@ -1,0 +1,4 @@
+Benchmark 1: env PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260603T-tree-center-leaf-trim/bench_tree_distance.py --impl fnx --op center --repeat 20 --n 1500 >/dev/null
+  Time (mean ± σ):     359.7 ms ±  19.7 ms    [User: 3623.4 ms, System: 61.8 ms]
+  Range (min … max):   325.8 ms … 387.0 ms    15 runs
+ 

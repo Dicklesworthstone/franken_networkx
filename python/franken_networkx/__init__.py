@@ -7963,6 +7963,32 @@ def density(G):
     return result
 
 
+def _tree_center_unweighted(G):
+    center_candidates_degree = dict(G.degree)
+    leaves = {node for node, degree in center_candidates_degree.items() if degree == 1}
+
+    while len(center_candidates_degree) > 2 and leaves:
+        new_leaves = set()
+        for leaf in leaves:
+            del center_candidates_degree[leaf]
+            for neighbor in G.neighbors(leaf):
+                if neighbor not in center_candidates_degree:
+                    continue
+                center_candidates_degree[neighbor] -= 1
+                degree = center_candidates_degree[neighbor]
+                if degree == 1:
+                    new_leaves.add(neighbor)
+                elif degree == 0 and len(center_candidates_degree) != 1:
+                    raise NotATree("input graph is not a tree")
+        leaves = new_leaves
+
+    n = len(center_candidates_degree)
+    if (n == 2 and not leaves) or n not in {1, 2}:
+        raise NotATree("input graph is not a tree")
+
+    return list(center_candidates_degree)
+
+
 def diameter(G, e=None, usebounds=False, weight=None):
     """Returns the diameter of the graph G.
 
@@ -8071,6 +8097,8 @@ def center(G, e=None, usebounds=False, weight=None):
     # safety; fnx.eccentricity now handles directed inputs natively
     # (verified on cycle3 and 5-cycle+chord against nx 3.6.1) so we
     # can drop the delegate and stay on the native path.
+    if not G.is_directed() and is_tree(G):
+        return _tree_center_unweighted(G)
     ecc = eccentricity(G)
     if not ecc:
         return []

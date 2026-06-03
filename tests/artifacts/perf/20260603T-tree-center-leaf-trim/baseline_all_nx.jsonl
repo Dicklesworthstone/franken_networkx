@@ -1,0 +1,1 @@
+{"impl": "nx", "max_seconds": 1.8945176810084376, "mean_seconds": 1.8286134419089648, "min_seconds": 1.7904320679954253, "n": 1500, "op": "all", "p50_seconds": 1.825212283001747, "repeat": 10, "sha256": "ded31e37db96e807e690e4092edffee407a0ef980cf0ca7274dd4806ac8caf12"}
