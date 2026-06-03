@@ -1,0 +1,5 @@
+  [2m2026-06-03T14:56:33.798328Z[0m [33m WARN[0m [1;33mrch::hook[0m[33m: [33mexec called with non-compilation command: .venv/bin/python -m pytest tests/python/test_traversal.py tests/python/test_sort_neighbors_parity.py tests/python/test_traversal_coding_minors_conformance.py tests/python/test_attribute_access_parity.py -q -k 'bfs_tree or bfs_edges'[0m
+    [2;3mat[0m rch/src/hook.rs:402 [2;3mon[0m ThreadId(1)
+
+......................                                                   [100%]
+22 passed, 256 deselected in 0.56s
