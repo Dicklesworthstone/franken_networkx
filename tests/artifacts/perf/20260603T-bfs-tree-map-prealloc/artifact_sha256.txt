@@ -1,0 +1,7 @@
+093fcc6b4ed8eb62f21d54136440233197fd8a3ed9aae3a96698953051367099  tests/artifacts/perf/20260603T-bfs-tree-map-prealloc/target_selection_sweep.jsonl
+8b59fa23d1fa3c9835bc20621248a3bbaf59390da2c790099d84aaf6eec62efd  tests/artifacts/perf/20260603T-bfs-tree-map-prealloc/baseline_fnx.jsonl
+dc7f0d11dde22f032a4366787a01c30b9d3d0139e605d8099e641b58e12d0fc4  tests/artifacts/perf/20260603T-bfs-tree-map-prealloc/baseline_nx.jsonl
+e883dbc90b144afbf1ba561f04b2ae3f3d2426220029eb0f1c35e73000cbcadf  tests/artifacts/perf/20260603T-bfs-tree-map-prealloc/baseline_hyperfine.json
+ab67a29f9a13f0f89f9399f5fbde97196371a4bcc0c48426e8f89e16d761fcd0  tests/artifacts/perf/20260603T-bfs-tree-map-prealloc/profile_before.txt
+eb17b56b8bd4631656d5aa143aa5902339e7837bc753291c1ebeca5135659194  tests/artifacts/perf/20260603T-bfs-tree-map-prealloc/after_fnx.jsonl
+99265f44a37b3d25cf84aa0c25048ea9c0a2da3ac9a5eb821255b49704fcdd57  tests/artifacts/perf/20260603T-bfs-tree-map-prealloc/after_hyperfine.json
