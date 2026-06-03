@@ -2021,6 +2021,15 @@ def _simple_graph_adjacency(self):
     # Rust storage.
     if isinstance(self, _FilteredGraphView):
         return ((node, FilterAtlas(self, node)) for node in self)
+    # br-r37-c1-gadj: build the nested {node: {nbr: attrs}} snapshot natively
+    # (reusing the live edge attr dicts, in node x nbr adjacency order) instead
+    # of materialising dict(self.adj[node]) via the per-element AtlasView lambda
+    # chain (~150x slower than nx). Iterating the native dict's items yields the
+    # same (node, inner_dict) pairs. _FilteredGraphView (handled above) has no
+    # _native_adjacency_dict, so the gate is exact-graph only.
+    native = getattr(self, "_native_adjacency_dict", None)
+    if native is not None:
+        return iter(native().items())
     return ((node, dict(self.adj[node])) for node in self)
 
 

@@ -3427,6 +3427,35 @@ impl PyGraph {
         Ok(result)
     }
 
+    /// br-r37-c1-gadj: native nested adjacency snapshot ({node: {nbr: attrs}})
+    /// so the Python Graph.adjacency (_simple_graph_adjacency) builds it
+    /// natively instead of walking ``dict(self.adj[node])`` via the AtlasView
+    /// lambda chain per node (~150x slower than nx). The inner ``{nbr: attrs}``
+    /// dicts reuse the live ``edge_py_attrs`` Py<PyDict> references (matching
+    /// nx's shared-datadict semantics: ``dict(G.adjacency())[u][v] is
+    /// G[u][v]``), in node x neighbour adjacency order.
+    fn _native_adjacency_dict(&self, py: Python<'_>) -> PyResult<Py<PyDict>> {
+        if self.inner.edge_count() > 0 {
+            self.mark_edges_dirty();
+        }
+        let result = PyDict::new(py);
+        for node in self.inner.nodes_ordered() {
+            let py_node = self.py_node_key(py, node);
+            let nbrs_dict = PyDict::new(py);
+            for neighbor in self.inner.neighbors(node).unwrap_or_default() {
+                let py_nbr = self.py_node_key(py, neighbor);
+                let ek = Self::edge_key(node, neighbor);
+                let attrs = self
+                    .edge_py_attrs
+                    .get(&ek)
+                    .map_or_else(|| PyDict::new(py).unbind(), |d| d.clone_ref(py));
+                nbrs_dict.set_item(&py_nbr, attrs.bind(py))?;
+            }
+            result.set_item(py_node, nbrs_dict)?;
+        }
+        Ok(result.unbind())
+    }
+
     // ---- Python special methods ----
 
     /// Number of nodes (called by ``len(G)``).

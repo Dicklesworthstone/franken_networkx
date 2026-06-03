@@ -3064,6 +3064,34 @@ impl PyDiGraph {
         Ok(result)
     }
 
+    /// br-r37-c1-gadj: native nested adjacency snapshot ({node: {successor:
+    /// attrs}}) so the Python DiGraph.adjacency (_simple_graph_adjacency) builds
+    /// it natively instead of walking ``dict(self.adj[node])`` via the AtlasView
+    /// lambda chain per node (~135x slower than nx). Inner ``{succ: attrs}``
+    /// dicts reuse the live ``edge_py_attrs`` references (directed edge_key), in
+    /// node x successor adjacency order.
+    fn _native_adjacency_dict(&self, py: Python<'_>) -> PyResult<Py<PyDict>> {
+        if self.inner.edge_count() > 0 {
+            self.mark_edges_dirty();
+        }
+        let result = PyDict::new(py);
+        for node in self.inner.nodes_ordered() {
+            let py_node = self.py_node_key(py, node);
+            let succs_dict = PyDict::new(py);
+            for successor in self.inner.successors(node).unwrap_or_default() {
+                let py_succ = self.py_node_key(py, successor);
+                let ek = Self::edge_key(node, successor);
+                let attrs = self
+                    .edge_py_attrs
+                    .get(&ek)
+                    .map_or_else(|| PyDict::new(py).unbind(), |d| d.clone_ref(py));
+                succs_dict.set_item(&py_succ, attrs.bind(py))?;
+            }
+            result.set_item(py_node, succs_dict)?;
+        }
+        Ok(result.unbind())
+    }
+
     // ---- Utility methods ----
 
     fn clear(&mut self, py: Python<'_>) -> PyResult<()> {
