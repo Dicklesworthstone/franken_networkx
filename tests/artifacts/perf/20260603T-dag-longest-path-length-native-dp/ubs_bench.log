@@ -1,0 +1,552 @@
+ℹ Preparing shadow workspace for 1 specified file(s)
+ℹ Scanning shadow workspace at /data/tmp/tmp.ktXION4hER/files_scan
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║  ██╗   ██╗██╗  ████████╗██╗███╗   ███╗ █████╗ ████████╗███████╗              ║
+║  ██║   ██║██║  ╚══██╔══╝██║████╗ ████║██╔══██╗╚══██╔══╝██╔════╝              ║
+║  ██║   ██║██║     ██║   ██║██╔████╔██║███████║   ██║   █████╗                ║
+║  ██║   ██║██║     ██║   ██║██║╚██╔╝██║██╔══██║   ██║   ██╔══╝                ║
+║  ╚██████╔╝███████╗██║   ██║██║ ╚═╝ ██║██║  ██║   ██║   ███████╗              ║
+║   ╚═════╝ ╚══════╝╚═╝   ╚═╝╚═╝     ╚═╝╚═╝  ╚═╝   ╚═╝   ╚══════╝              ║
+║                                                                              ║
+║  ██████╗ ██╗   ██╗ ██████╗         __       __                               ║
+║  ██╔══██╗██║   ██║██╔════╝         \ `-'"-'` /                               ║
+║  ██████╔╝██║   ██║██║  ███╗        / \_   _/ \                               ║
+║  ██╔══██╗██║   ██║██║   ██║        |  d\_/b  |                               ║
+║  ██████╔╝╚██████╔╝╚██████╔╝       .'\   V   /'.                              ║
+║  ╚═════╝  ╚═════╝  ╚═════╝        /   '-...-'   \                            ║
+║                                  | /         \ |                             ║
+║                                  \/\         /\/                             ║
+║                                  ==(||)---(||)==                             ║
+║                                                                              ║
+║  ███████╗  ██████╗   █████╗ ███╗   ██╗███╗   ██╗███████╗██████╗              ║
+║  ██╔════╝  ██╔═══╝  ██╔══██╗████╗  ██║████╗  ██║██╔════╝██╔══██╗             ║
+║  ███████╗  ██║      ███████║██╔██╗ ██║██╔██╗ ██║█████╗  ██████╔╝             ║
+║  ╚════██║  ██║      ██╔══██║██║╚██╗██║██║╚██╗██║██╔══╝  ██╔══██╗             ║
+║  ███████║  ██████╗  ██║  ██║██║ ╚████║██║ ╚████║███████╗██║  ██║             ║
+║  ╚══════╝  ╚═════╝  ╚═╝╚═╝  ╚═══╝╚═╝  ╚═══╝╚══════╝╚═╝  ╚═╝                  ║
+║                                                                              ║
+║   JS / TS • PYTHON • C / C++ • RUST • GO • JAVA • RUBY                       ║
+║   SWIFT • C# • ELIXIR                                                        ║
+║                    UBS: ULTIMATE BUG SCANNER • SARIF FUSION ☄️               ║
+║                                                                              ║
+║                                                                              ║
+║                     Night Owl QA                                             ║
+║                     “We see bugs before you do.”                             ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+UBS Meta-Runner v5.3.2  2026-06-03 15:26:36
+Project: /data/projects/franken_networkx
+Format:  text
+Detected: python
+
+──────── python ────────
+
+╔═══════════════════════════════════════════════════════════════════╗
+║  ██╗   ██╗██╗  ████████╗██╗███╗   ███╗ █████╗ ████████╗███████╗   ║
+║  ██║   ██║██║  ╚══██╔══╝██║████╗ ████║██╔══██╗╚══██╔══╝██╔════╝   ║
+║  ██║   ██║██║     ██║   ██║██╔████╔██║███████║   ██║   █████╗     ║
+║  ██║   ██║██║     ██║   ██║██║╚██╔╝██║██╔══██║   ██║   ██╔══╝     ║
+║  ╚██████╔╝███████╗██║   ██║██║ ╚═╝ ██║██║  ██║   ██║   ███████╗   ║
+║   ╚═════╝ ╚══════╝╚═╝   ╚═╝╚═╝     ╚═╝╚═╝  ╚═╝   ╚═╝   ╚══════╝   ║
+║                                                                   ║
+║  ██████╗ ██╗   ██╗ ██████╗                /^\/^\                  ║
+║  ██╔══██╗██║   ██║██╔════╝              _|__|  O|                 ║
+║  ██████╔╝██║   ██║██║  ███╗            /~     \_/ \               ║
+║  ██╔══██╗██║   ██║██║   ██║           |__________/ \              ║
+║  ██████╔╝╚██████╔╝╚██████╔╝            \_______    \              ║
+║  ╚═════╝  ╚═════╝  ╚═════╝                     `\   \             ║
+║                                                  |   |            ║
+║                                                 /   /             ║
+║                                                /   /              ║
+║                                                                   ║
+║  ███████╗  ██████╗   █████╗ ███╗   ██╗███╗   ██╗███████╗██████╗   ║
+║  ██╔════╝  ██╔═══╝  ██╔══██╗████╗  ██║████╗  ██║██╔════╝██╔══██╗  ║
+║  ███████╗  ██║      ███████║██╔██╗ ██║██╔██╗ ██║█████╗  ██████╔╝  ║
+║  ╚════██║  ██║      ██╔══██║██║╚██╗██║██║╚██╗██║██╔══╝  ██╔══██╗  ║
+║  ███████║  ██████╗  ██║  ██║██║ ╚████║██║ ╚████║███████╗██║  ██║  ║
+║  ╚══════╝  ╚═════╝  ╚═╝╚═╝  ╚═══╝╚═╝  ╚═══╝╚══════╝╚═╝  ╚═╝       ║
+║                                                                   ║
+║  Python module • async/await, serialization, venv heuristics      ║
+║  UBS module: python • catches None bugs & async blocking          ║
+║  ASCII homage: classic snake (ASCII Art Archive)                  ║
+║  Run standalone: modules/ubs-python.sh --help                     ║
+║                                                                   ║
+║  Night Owl QA                                                     ║
+║  “We see bugs before you do.”                                     ║
+╚═══════════════════════════════════════════════════════════════════╝
+
+Project:  /data/projects/franken_networkx
+Started:  2026-06-03 15:26:36
+Files:    1 source files (py,pyi,pyx,pxd,pxi,ipynb)
+
+✓ ast-grep available (ast-grep) - full AST analysis enabled
+✓ uv detected - uvx ephemeral analyzers enabled
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. NONE / DEFENSIVE PROGRAMMING
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+▓▓▓ Detects: None equality, truthy confusions, deep attribute chains
+Pythonic checks use 'is (not) None' and safe attribute access patterns.
+
+• == None or != None (should use 'is' / 'is not')
+  ✓ OK No None equality comparisons
+
+• Attribute chains depth (fragile without guards)
+
+• dict.get(key) without default used immediately
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+2. NUMERIC / ARITHMETIC PITFALLS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+▓▓▓ Detects: Division by variable, float equality, modulo hazards
+Silent numeric bugs propagate incorrect results or ZeroDivisionError.
+
+• Division by variable (possible ÷0)
+  ℹ Info (1 found)
+    Division operations found - check divisors
+
+• Floating-point equality (==)
+
+• Modulo by variable (verify non-zero)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+3. COLLECTION SAFETY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+▓▓▓ Detects: Index risks, mutation during iteration, len checks
+Collection misuse leads to IndexError or logical errors.
+
+• Index arithmetic like arr[i±1]
+
+• Mutation during iteration
+
+• len(x) comparisons
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+4. COMPARISON & TYPE CHECKING TRAPS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+▓▓▓ Detects: 'is' with literals, type() equality, truthiness with bools
+Prefer idiomatic Python comparisons and isinstance.
+
+• 'is' with literals
+  ✓ OK No 'is' literal comparisons
+
+• type(x) == T instead of isinstance
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+5. ASYNC/AWAIT PITFALLS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+▓▓▓ Detects: blocking calls in async, await in loops, floating tasks
+Async bugs cause unpredictable latency and deadlocks.
+  ℹ Info (0 found)
+    Async functions found
+
+• await inside loops (performance)
+
+• Blocking calls in async def
+
+• Async error path coverage
+  ✓ OK All async operations appear protected
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+6. ERROR HANDLING ANTI-PATTERNS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+▓▓▓ Detects: bare except, swallowed errors, poor re-raise
+Proper exception handling simplifies debugging and recovery.
+
+• Bare except
+  ✓ OK No bare except blocks
+
+• except ...: pass
+
+• raise e (loses traceback)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+7. SECURITY VULNERABILITIES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+▓▓▓ Detects: code injection, unsafe deserialization, weak crypto, TLS/CSRF/autoescape off
+Security bugs expose users to attacks and data breaches.
+
+• eval/exec usage
+  ✓ OK No eval/exec detected
+
+• pickle.load/loads
+
+• yaml.load without Loader
+
+• Unsafe deserialization loaders
+  ✓ OK No unsafe Python deserialization loaders detected
+
+• subprocess shell=True / os.system
+  ✓ OK No shell=True / os.system detected
+
+• Command injection dataflow
+  ✓ OK No command injection dataflow detected
+
+• Subprocess calls without timeouts
+  ✓ OK No subprocess calls missing explicit timeouts detected
+
+• Interpolated SQL execution
+  ✓ OK No interpolated SQL execution detected
+
+• NoSQL query injection
+  ✓ OK No request-controlled NoSQL filters detected
+
+• Request-controlled regex patterns
+  ✓ OK No request-controlled regex patterns detected
+
+• Server-side template injection
+  ✓ OK No request-controlled template sources detected
+
+• HTTP response header injection
+  ✓ OK No request-controlled response headers detected
+
+• Email header injection
+  ✓ OK No request-controlled email headers detected
+
+• LDAP filter/DN injection
+  ✓ OK No request-controlled LDAP filters or DNs detected
+
+• requests verify=False (TLS disabled)
+
+• Weak hash algorithms (md5/sha1)
+
+• Password hashing misconfiguration
+  ✓ OK No weak password hashing configurations detected
+
+• Weak or static cryptography configuration
+  ✓ OK No weak crypto modes or static IV/nonces detected
+
+• Timing-safe comparison for secrets
+  ✓ OK No timing-sensitive secret equality comparisons detected
+
+• Security-sensitive assert statements
+  ✓ OK No security-sensitive assert statements detected
+
+• Unsafe filesystem permission modes
+  ✓ OK No world-writable file modes or permissive umasks detected
+
+• Hardcoded secrets
+
+• tempfile.mktemp (insecure)
+
+• Archive extraction path traversal
+  ✓ OK No unvalidated archive extract()/extractall() calls detected
+
+• Open redirect sinks
+  ✓ OK No request-derived open redirect sinks detected
+
+• Host header trusted for absolute URLs
+  ✓ OK No Host-header-derived absolute URLs detected
+
+• SSRF-prone outbound HTTP targets
+  ✓ OK No request-derived outbound HTTP targets detected
+
+• Outbound HTTP calls without timeouts
+  ✓ OK No outbound HTTP calls missing explicit timeouts detected
+
+• Request-derived filesystem paths
+  ✓ OK No request-derived filesystem paths detected
+
+• JWT verification bypass
+  ✓ OK No JWT verification bypass patterns detected
+
+• Credentialed wildcard CORS
+  ✓ OK No wildcard credentialed CORS configurations detected
+
+• Cookie/session security flags
+  ✓ OK No insecure cookie/session flags detected
+
+• CSRF protection disabled
+  ✓ OK No explicit CSRF disable patterns detected
+
+• Template autoescape disabled
+  ✓ OK No explicit template autoescape disables detected
+
+• Request-controlled values marked safe HTML
+  ✓ OK No request-controlled values marked safe HTML detected
+
+• Request-derived mass assignment
+  ✓ OK No request-derived mass assignment patterns detected
+
+• Debug mode and host allow-list
+  ✓ OK No production debug or wildcard host settings detected
+
+• Unsafe XML parser exposure
+  ✓ OK No unsafe XML parser exposure detected
+
+• Security-sensitive random module usage
+  ✓ OK No security-sensitive random module usage detected
+
+• Disabled TLS certificate verification
+  ✓ OK No disabled TLS verification patterns detected
+
+• Lightweight taint analysis
+  ✓ OK No tainted sources reach dangerous sinks
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+8. FUNCTION & SCOPE ISSUES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+▓▓▓ Detects: mutable defaults, many params, nested defs, returns
+Function-level bugs cause subtle state leaks and readability problems.
+
+• Mutable default arguments
+  ✓ OK No mutable default arguments
+
+• Functions with high parameter count (>6)
+
+• Nested function declarations
+
+• Missing returns heuristic
+  ℹ Info (1 found)
+    Some functions may lack return statements
+    Void intended?
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+9. PARSING & TYPE CONVERSION BUGS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+▓▓▓ Detects: json.loads without try, str+num concat, int() edge cases
+Parsing bugs cause runtime exceptions and data corruption.
+
+• json.loads without try/catch
+
+• String concatenation with + adjacent to digits (possible type mix)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+10. CONTROL FLOW GOTCHAS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+▓▓▓ Detects: return/break in finally, nested ternary, unreachable code
+Flow pitfalls cause surprising behavior and lost exceptions.
+
+• return/break/continue inside finally
+
+• Nested conditional expressions
+
+• Unreachable code after return
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+11. DEBUGGING & PRODUCTION CODE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+▓▓▓ Detects: print, breakpoint/pdb, sensitive logs
+Debug artifacts degrade performance and leak information.
+
+• print statements
+  ✓ OK Minimal print usage
+
+• breakpoint() / pdb.set_trace()
+  ✓ OK No debugger calls
+
+• Logging sensitive data
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+12. PERFORMANCE & MEMORY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+▓▓▓ Detects: string concat in loops, regex compile in loops, I/O in loops
+Performance anti-patterns reduce throughput and increase latency.
+
+• String concatenation in loops
+
+• re.compile inside loops
+
+• I/O heavy ops in loops
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+13. VARIABLE & SCOPE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+▓▓▓ Detects: global/nonlocal usage, wildcard imports
+Scope issues cause hard-to-debug conflicts and side effects.
+
+• global/nonlocal statements
+
+• Wildcard imports
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+14. CODE QUALITY MARKERS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+▓▓▓ Detects: TODO, FIXME, HACK, XXX, NOTE
+Technical debt markers indicate incomplete or problematic code.
+  ✓ OK No technical debt markers
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+15. REGEX & STRING SAFETY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+▓▓▓ Detects: ReDoS, dynamic regex with input, escaping issues
+Regex bugs cause performance issues and security vulnerabilities.
+
+• Nested quantifiers (ReDoS risk)
+
+• Dynamic re.compile from variables
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+16. I/O & RESOURCE SAFETY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+▓▓▓ Detects: open without with, missing encoding, rmtree(ignore_errors)
+I/O bugs leak resources and produce nondeterministic behavior.
+
+• open(...) without context manager
+  ✓ OK File usage appears context-managed
+
+• open() without explicit encoding
+
+• shutil.rmtree(ignore_errors=True)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+17. TYPING STRICTNESS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+▓▓▓ Detects: Any usage, type: ignore density
+Type hygiene reduces runtime errors.
+
+• 'Any' usage
+
+• type: ignore comments
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+18. PYTHON I/O & MODULE USAGE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+▓▓▓ Detects: os.system, wildcard imports, dynamic import
+Prefer safer subprocess APIs and explicit imports.
+
+• os.system invocations
+
+• Dynamic imports
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+19. RESOURCE LIFECYCLE CORRELATION
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+▓▓▓ Detects: File handles, subprocesses, and async tasks missing cleanup
+Unreleased resources leak descriptors, zombie processes, and pending tasks
+
+• Resource lifecycle correlation
+  ✓ OK All tracked resource acquisitions have matching cleanups
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+AST-GREP RULE PACK FINDINGS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+20. UV-POWERED EXTRA ANALYZERS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+▓▓▓ Ruff linting, Bandit security, Pip-audit, Mypy, Safety, Detect-secrets
+Uses uvx when available; falls back to system tools if installed.
+
+• ruff (lint)
+  ✓ OK Ruff clean
+
+• bandit (security)
+Run started:2026-06-03 19:26:41.370684+00:00
+
+Test results:
+>> Issue: [B311:blacklist] Standard pseudo-random generators are not suitable for security/cryptographic purposes.
+   Severity: Low   Confidence: High
+   CWE: CWE-330 (https://cwe.mitre.org/data/definitions/330.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_calls.html#b311-random
+   Location: /data/projects/franken_networkx/tests/artifacts/perf/20260603T-dag-longest-path-length-native-dp/bench_dag_longest_path_length.py:14:10
+13	def _build_dag(module, *, n: int, p: float, seed: int):
+14	    rng = random.Random(seed)
+15	    graph = module.DiGraph()
+
+--------------------------------------------------
+
+Code scanned:
+	Total lines of code: 94
+	Total lines skipped (#nosec): 0
+	Total potential issues skipped due to specifically being disabled (e.g., #nosec BXXX): 0
+
+Run metrics:
+	Total issues (by severity):
+		Undefined: 0
+		Low: 1
+		Medium: 0
+		High: 0
+	Total issues (by confidence):
+		Undefined: 0
+		Low: 0
+		Medium: 0
+		High: 1
+Files skipped (0):
+  ℹ Info (0 found)
+    Bandit scan completed
+    See output above
+
+• pip-audit (dependencies)
+  ℹ Info (0 found)
+    pip-audit run (if available)
+    Review advisories above
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+21. DEPRECATIONS & PY3.13 MIGRATIONS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+▓▓▓ Detects: deprecated modules/APIs likely to break on newer Python
+Proactive remediation avoids upgrade surprises.
+
+• Deprecated modules/APIs
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+22. PACKAGING & CONFIG HYGIENE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+▓▓▓ Detects: unpinned requirements, editable installs, local paths
+Supply-chain & reproducibility safeguards.
+
+• Requirements without pins
+
+• Editable installs / local paths
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+23. NOTEBOOK HYGIENE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+▓▓▓ Detects: large cell outputs, execution counts, trusted state
+Keeps VCS diffs clean and reproducible.
+
+• Large embedded outputs
+
+═══════════════════════════════════════════════════════════════════════════
+                    🎯 SCAN COMPLETE 🎯                                  
+═══════════════════════════════════════════════════════════════════════════
+
+Summary Statistics:
+  Files scanned:    1
+  Critical issues:  0
+  Warning issues:   0
+  Info items:       2
+
+Priority Actions:
+  ℹ Consider INFO suggestions
+  Code quality improvements and best practices
+
+  ✨ EXCELLENT! No critical or warning issues found ✨
+
+Scan completed at: 2026-06-03 15:26:42
+
+Tip: Run with -v/--verbose for more code samples per finding.
+Add to pre-commit: ./ubs --ci --fail-on-warning --summary-json=.ubs-summary.json . > py-bug-scan-report.txt
+
+
+──────── Combined Summary ────────
+Files: 1
+Critical: 0
+Warning: 0
+Info: 2
+ubs_exit=0

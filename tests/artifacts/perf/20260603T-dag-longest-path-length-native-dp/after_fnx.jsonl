@@ -1,0 +1,1 @@
+{"elapsed_s": 0.3712657589931041, "module": "fnx", "n": 400, "p": 0.02, "payload": {"length": 16, "length_type": "int"}, "per_call_s": 0.0012375525299770137, "repeat": 300, "seed": 20260603, "sha256": "34f3f915ca217ba76be7da282e59e7c1eddf322628c011cb634db0c7b0c4b4fb"}

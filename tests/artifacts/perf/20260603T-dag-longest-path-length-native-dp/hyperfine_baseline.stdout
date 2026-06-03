@@ -1,0 +1,4 @@
+Benchmark 1: env PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260603T-dag-longest-path-length-native-dp/bench_dag_longest_path_length.py --module fnx --repeat 120
+  Time (mean ± σ):     458.0 ms ±  26.5 ms    [User: 3589.9 ms, System: 56.2 ms]
+  Range (min … max):   419.2 ms … 499.1 ms    10 runs
+ 
