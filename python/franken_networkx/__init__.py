@@ -185,6 +185,27 @@ def _digraph_out_edges(self, nbunch=None, data=False, default=None):
 
 
 def _digraph_in_edges(self, nbunch=None, data=False, default=None):
+    # br-r37-c1-inedges: all-edges path routes to the native node-major
+    # predecessor builder instead of walking pred[target].items() via the
+    # DiAdjacencyView lambda chain (~176x no-data / ~50x data). data=True
+    # reuses the live attr dict (marks dirty for weight re-sync); data=<key>
+    # yields the value. Gated on exact DiGraph type: conversion views
+    # (_DirectedGraphConversionView, a DiGraph subclass with an empty inner that
+    # computes edges from a wrapped graph) and SubgraphViews inherit this method
+    # but must keep the Python pred-walk; their inner is not the source of truth.
+    if nbunch is None and type(self) is DiGraph:
+        if data is False:
+            native = getattr(self, "_native_in_edges_no_data", None)
+            if native is not None:
+                return native()
+        elif data is True:
+            native = getattr(self, "_native_in_edges_with_data", None)
+            if native is not None:
+                return native()
+        else:
+            native = getattr(self, "_native_in_edges_data_key", None)
+            if native is not None:
+                return native(data, default)
     result = []
     for target in self.nbunch_iter(nbunch):
         for source, attrs in self.pred[target].items():

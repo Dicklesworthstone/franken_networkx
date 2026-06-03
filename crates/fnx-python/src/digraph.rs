@@ -3587,6 +3587,76 @@ impl PyDiGraph {
         Ok(items.into_pyobject(py)?.into_any().unbind())
     }
 
+    /// br-r37-c1-inedges: native in-edges materialization. nx's in_edges
+    /// iterates node-major over predecessors (``for t in nodes: for s in
+    /// pred[t]: yield (s, t, ...)``) — a different order than edges_ordered. The
+    /// Python `_digraph_in_edges` walks ``pred[target].items()`` via the
+    /// DiAdjacencyView lambda chain (~176x no-data / ~50x data). These build the
+    /// same node x predecessor order natively from inner adjacency.
+    fn _native_in_edges_no_data(&self, py: Python<'_>) -> PyResult<PyObject> {
+        let mut items = Vec::with_capacity(self.inner.edge_count());
+        for target in self.inner.nodes_ordered() {
+            let py_t = self.py_node_key(py, target);
+            for source in self.inner.predecessors(target).unwrap_or_default() {
+                let py_s = self.py_node_key(py, source);
+                items.push(tuple_object(py, &[py_s, py_t.clone_ref(py)])?);
+            }
+        }
+        Ok(items.into_pyobject(py)?.into_any().unbind())
+    }
+
+    /// br-r37-c1-inedges: in_edges(data=True). Reuses the live edge attr dict
+    /// per edge (identity-shared with G[s][t]); marks edges dirty so a weight
+    /// mutation through the yielded dict re-syncs to the weighted kernel.
+    fn _native_in_edges_with_data(&self, py: Python<'_>) -> PyResult<PyObject> {
+        if self.inner.edge_count() > 0 {
+            self.mark_edges_dirty();
+        }
+        let mut items = Vec::with_capacity(self.inner.edge_count());
+        for target in self.inner.nodes_ordered() {
+            let py_t = self.py_node_key(py, target);
+            for source in self.inner.predecessors(target).unwrap_or_default() {
+                let py_s = self.py_node_key(py, source);
+                let ek = Self::edge_key(source, target);
+                let attrs = self
+                    .edge_py_attrs
+                    .get(&ek)
+                    .map_or_else(|| PyDict::new(py).unbind(), |d| d.clone_ref(py));
+                items.push(tuple_object(py, &[py_s, py_t.clone_ref(py), attrs.into_any()])?);
+            }
+        }
+        Ok(items.into_pyobject(py)?.into_any().unbind())
+    }
+
+    /// br-r37-c1-inedges: in_edges(data=<key>). Yields ``attrs.get(key,
+    /// default)`` per edge (a value, read-only — no dirty-mark).
+    fn _native_in_edges_data_key(
+        &self,
+        py: Python<'_>,
+        key: &Bound<'_, PyAny>,
+        default: PyObject,
+    ) -> PyResult<PyObject> {
+        let mut items = Vec::with_capacity(self.inner.edge_count());
+        for target in self.inner.nodes_ordered() {
+            let py_t = self.py_node_key(py, target);
+            for source in self.inner.predecessors(target).unwrap_or_default() {
+                let py_s = self.py_node_key(py, source);
+                let ek = Self::edge_key(source, target);
+                let value = match self.edge_py_attrs.get(&ek) {
+                    Some(d) => d
+                        .bind(py)
+                        .get_item(key)
+                        .ok()
+                        .flatten()
+                        .map_or_else(|| default.clone_ref(py), |val| val.unbind()),
+                    None => default.clone_ref(py),
+                };
+                items.push(tuple_object(py, &[py_s, py_t.clone_ref(py), value])?);
+            }
+        }
+        Ok(items.into_pyobject(py)?.into_any().unbind())
+    }
+
     /// ``G.adj`` / ``G.succ`` — successor adjacency.
     #[getter]
     fn adj(slf: PyRef<'_, Self>) -> PyResult<Py<DiAdjacencyView>> {
