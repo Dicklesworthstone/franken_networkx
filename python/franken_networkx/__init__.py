@@ -17928,11 +17928,21 @@ def normalized_laplacian_matrix(G, nodelist=None, weight="weight"):
             missing = set(native_nodelist) - set(G)
             if missing:
                 raise NetworkXError(f"Nodes {missing} in nodelist is not in G")
-        native_index_result = _native_adjacency_index_arrays(
-            G,
-            native_nodelist,
-            weight if isinstance(weight, str) else None,
-        )
+        absent_weight_attr = weight if isinstance(weight, str) else None
+        if (
+            nodelist is None
+            and type(G) is Graph
+            and _native_adjacency_default_order_index_arrays is not None
+        ):
+            native_index_result = _native_adjacency_default_order_index_arrays(
+                G, absent_weight_attr
+            )
+        else:
+            native_index_result = _native_adjacency_index_arrays(
+                G,
+                native_nodelist,
+                absent_weight_attr,
+            )
         if native_index_result is not None:
             rows, cols = native_index_result
             n = len(native_nodelist)

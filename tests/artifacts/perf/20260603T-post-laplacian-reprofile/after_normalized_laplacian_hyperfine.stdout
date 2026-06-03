@@ -1,0 +1,4 @@
+Benchmark 1: RCH_ENV_ALLOWLIST=PYTHONPATH rch exec -- env PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260602T-vs-upstream-sweep/bench_vs_upstream.py bench --case normalized_laplacian_default --impl fnx --n 8000 --m 4 --repeats 5
+  Time (mean ± σ):     970.2 ms ± 133.8 ms    [User: 2695.2 ms, System: 145.9 ms]
+  Range (min … max):   824.1 ms … 1261.3 ms    8 runs
+ 
