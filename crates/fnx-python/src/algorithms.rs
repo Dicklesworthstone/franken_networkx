@@ -2269,13 +2269,7 @@ pub fn adjacency_default_order_typed_arrays(
     let mut data = Vec::with_capacity(inner.edge_count() * 2);
     let mut needs_float_dtype = default_weight.fract() != 0.0;
     const MAX_EXACT_F64_INT: i64 = 9_007_199_254_740_992;
-    for (left, right, attrs) in inner.edges_storage_order_iter() {
-        let Some(row) = inner.get_node_index(left) else {
-            continue;
-        };
-        let Some(col) = inner.get_node_index(right) else {
-            continue;
-        };
+    for (row, col, attrs) in inner.edges_storage_order_index_iter() {
         let value = match attrs.get(weight_attr) {
             Some(fnx_runtime::CgseValue::Int(i)) => {
                 if *i < -MAX_EXACT_F64_INT || *i > MAX_EXACT_F64_INT {

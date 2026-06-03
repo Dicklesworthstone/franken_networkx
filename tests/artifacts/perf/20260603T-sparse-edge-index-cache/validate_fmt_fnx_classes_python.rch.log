@@ -1,0 +1,28 @@
+  [2m2026-06-03T16:21:43.985408Z[0m [33m WARN[0m [1;33mrch::hook[0m[33m: [33mexec called with non-compilation command: cargo fmt --check -p fnx-classes -p fnx-python[0m
+    [2;3mat[0m rch/src/hook.rs:402 [2;3mon[0m ThreadId(1)
+
+Diff in /data/projects/franken_networkx/crates/fnx-python/src/digraph.rs:3622:
+                     .edge_py_attrs
+                     .get(&ek)
+                     .map_or_else(|| PyDict::new(py).unbind(), |d| d.clone_ref(py));
+[31m-                items.push(tuple_object(py, &[py_s, py_t.clone_ref(py), attrs.into_any()])?);
+[m[32m+                items.push(tuple_object(
+[m[32m+                    py,
+[m[32m+                    &[py_s, py_t.clone_ref(py), attrs.into_any()],
+[m[32m+                )?);
+[m             }
+         }
+         Ok(items.into_pyobject(py)?.into_any().unbind())
+Diff in /data/projects/franken_networkx/crates/fnx-python/src/readwrite.rs:953:
+ /// 1.0 when the key is absent (matches nx `to_numpy_array`'s `data.get(weight,
+ /// 1)`); a present-but-non-numeric value raises (as nx would when assembling the
+ /// float matrix).
+[31m-fn fw_edge_weight(
+[m[31m-    py: Python<'_>,
+[m[31m-    attrs: Option<&Py<PyDict>>,
+[m[31m-    weight: &str,
+[m[31m-) -> PyResult<f64> {
+[m[32m+fn fw_edge_weight(py: Python<'_>, attrs: Option<&Py<PyDict>>, weight: &str) -> PyResult<f64> {
+[m     match attrs {
+         Some(d) => match d.bind(py).get_item(weight)? {
+             Some(val) => val.extract::<f64>(),

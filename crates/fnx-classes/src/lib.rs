@@ -140,6 +140,7 @@ pub struct Graph {
     /// `adj_indices[i]` contains the node indices of neighbors of node i.
     /// This mirrors `adjacency` but avoids string hashing during BFS/CC.
     adj_indices: Vec<Vec<usize>>,
+    edge_index_endpoints: Vec<(usize, usize)>,
     edges: IndexMap<EdgeKey, AttrMap>,
     runtime_policy: RuntimePolicy,
 }
@@ -153,6 +154,7 @@ impl Graph {
             nodes: IndexMap::new(),
             adjacency: IndexMap::new(),
             adj_indices: Vec::new(),
+            edge_index_endpoints: Vec::new(),
             edges: IndexMap::new(),
             runtime_policy: RuntimePolicy::new(mode),
         }
@@ -167,6 +169,7 @@ impl Graph {
             nodes: IndexMap::new(),
             adjacency: IndexMap::new(),
             adj_indices: Vec::new(),
+            edge_index_endpoints: Vec::new(),
             edges: IndexMap::new(),
             runtime_policy,
         }
@@ -190,6 +193,7 @@ impl Graph {
             nodes: IndexMap::with_capacity(n),
             adjacency: IndexMap::with_capacity(n),
             adj_indices: vec![Vec::with_capacity(n.saturating_sub(1)); n],
+            edge_index_endpoints: Vec::with_capacity(edge_capacity),
             edges: IndexMap::with_capacity(edge_capacity),
             runtime_policy: RuntimePolicy::new(mode),
         };
@@ -213,6 +217,7 @@ impl Graph {
                 // Maintain integer adjacency
                 graph.adj_indices[left_index].push(right_index);
                 graph.adj_indices[right_index].push(left_index);
+                graph.edge_index_endpoints.push((left_index, right_index));
                 graph
                     .edges
                     .insert(EdgeKey::new(left, right), AttrMap::new());
@@ -302,6 +307,16 @@ impl Graph {
     #[inline]
     pub fn neighbors_indices(&self, node_idx: usize) -> Option<&[usize]> {
         self.adj_indices.get(node_idx).map(Vec::as_slice)
+    }
+
+    pub fn edges_storage_order_index_iter(
+        &self,
+    ) -> impl Iterator<Item = (usize, usize, &AttrMap)> + '_ {
+        self.edge_index_endpoints
+            .iter()
+            .copied()
+            .zip(self.edges.values())
+            .map(|((left, right), attrs)| (left, right, attrs))
     }
 
     #[must_use]
@@ -491,6 +506,13 @@ impl Graph {
             }
             let adjacency_left = left.clone();
             let adjacency_right = right.clone();
+            if let (Some(left_idx), Some(right_idx)) = (left_idx, right_idx) {
+                if adjacency_left <= adjacency_right {
+                    self.edge_index_endpoints.push((left_idx, right_idx));
+                } else {
+                    self.edge_index_endpoints.push((right_idx, left_idx));
+                }
+            }
             self.edges
                 .insert(EdgeKey::from_owned(left, right), AttrMap::new());
             self.adjacency
@@ -590,7 +612,8 @@ impl Graph {
 
         let edge_key = EdgeKey::new(&left, &right);
         let self_loop = left == right;
-        let mut changed = !self.edges.contains_key(&edge_key);
+        let new_edge = !self.edges.contains_key(&edge_key);
+        let mut changed = new_edge;
         let edge_attr_count = {
             let edge_attrs = self.edges.entry(edge_key).or_default();
             if !attrs.is_empty()
@@ -619,6 +642,13 @@ impl Graph {
                 self.nodes.get_index_of(&left),
                 self.nodes.get_index_of(&right),
             ) {
+                if new_edge {
+                    if left <= right {
+                        self.edge_index_endpoints.push((left_idx, right_idx));
+                    } else {
+                        self.edge_index_endpoints.push((right_idx, left_idx));
+                    }
+                }
                 if !self.adj_indices[left_idx].contains(&right_idx) {
                     self.adj_indices[left_idx].push(right_idx);
                 }
@@ -744,6 +774,7 @@ impl Graph {
                     self.adj_indices[right_idx].retain(|&i| i != left_idx);
                 }
             }
+            self.rebuild_edge_index_endpoints();
             self.revision = self.revision.saturating_add(1);
         }
         removed
@@ -772,8 +803,9 @@ impl Graph {
         self.adjacency.shift_remove(node);
         self.nodes.shift_remove(node);
 
-        // 3. Rebuild integer adjacency (indices shift after removal).
+        // 3. Rebuild integer caches (indices shift after removal).
         self.rebuild_adj_indices();
+        self.rebuild_edge_index_endpoints();
 
         self.revision = self.revision.saturating_add(1);
         true
@@ -791,6 +823,19 @@ impl Graph {
                         self.adj_indices[node_idx].push(nbr_idx);
                     }
                 }
+            }
+        }
+    }
+
+    fn rebuild_edge_index_endpoints(&mut self) {
+        self.edge_index_endpoints.clear();
+        self.edge_index_endpoints.reserve(self.edges.len());
+        for key in self.edges.keys() {
+            if let (Some(left_idx), Some(right_idx)) = (
+                self.nodes.get_index_of(&key.left),
+                self.nodes.get_index_of(&key.right),
+            ) {
+                self.edge_index_endpoints.push((left_idx, right_idx));
             }
         }
     }
@@ -1579,6 +1624,71 @@ mod tests {
             .map(|edge| (edge.left, edge.right))
             .collect::<Vec<(String, String)>>();
         assert_eq!(pairs, vec![("1".to_owned(), "2".to_owned())]);
+    }
+
+    #[test]
+    fn edge_storage_order_index_iter_tracks_mutations() {
+        let mut graph = Graph::strict();
+        graph.add_node("c");
+        graph.add_node("a");
+        graph.add_node("b");
+        graph
+            .add_edge_with_attrs("c", "a", single_attr("weight", "1"))
+            .expect("edge add should succeed");
+        graph
+            .add_edge_with_attrs("b", "c", single_attr("weight", "2"))
+            .expect("edge add should succeed");
+        graph
+            .add_edge_with_attrs("a", "c", single_attr("color", "red"))
+            .expect("duplicate edge update should succeed");
+
+        let indexed_edges = |graph: &Graph| {
+            graph
+                .edges_storage_order_index_iter()
+                .map(|(left, right, attrs)| {
+                    (
+                        graph
+                            .get_node_name(left)
+                            .expect("left endpoint index should resolve")
+                            .to_owned(),
+                        graph
+                            .get_node_name(right)
+                            .expect("right endpoint index should resolve")
+                            .to_owned(),
+                        attrs.get("weight").cloned(),
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
+
+        assert_eq!(
+            indexed_edges(&graph),
+            vec![
+                (
+                    "a".to_owned(),
+                    "c".to_owned(),
+                    Some(CgseValue::String("1".to_owned())),
+                ),
+                (
+                    "b".to_owned(),
+                    "c".to_owned(),
+                    Some(CgseValue::String("2".to_owned())),
+                ),
+            ]
+        );
+
+        assert!(graph.remove_edge("a", "c"));
+        assert_eq!(
+            indexed_edges(&graph),
+            vec![(
+                "b".to_owned(),
+                "c".to_owned(),
+                Some(CgseValue::String("2".to_owned())),
+            )]
+        );
+
+        assert!(graph.remove_node("b"));
+        assert!(indexed_edges(&graph).is_empty());
     }
 
     fn assert_graph_core_invariants(graph: &Graph) {
