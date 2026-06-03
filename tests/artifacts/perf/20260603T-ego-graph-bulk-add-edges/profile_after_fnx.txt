@@ -1,0 +1,60 @@
+         1596080 function calls in 0.625 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.055    0.055    0.625    0.625 bench_ego_graph_r2.py:43(sample)
+        9    0.001    0.000    0.570    0.063 __init__.py:42701(wrapper)
+        9    0.053    0.006    0.569    0.063 __init__.py:16940(ego_graph)
+        9    0.041    0.005    0.219    0.024 __init__.py:2316(add_edges_from)
+        9    0.152    0.017    0.152    0.017 {function Graph.add_edges_from at 0x7aa63dc6d440}
+   107865    0.025    0.000    0.123    0.000 __init__.py:391(__next__)
+   266301    0.028    0.000    0.097    0.000 {built-in method builtins.len}
+        9    0.000    0.000    0.084    0.009 __init__.py:569(__iter__)
+        9    0.084    0.009    0.084    0.009 __init__.py:464(_materialize)
+   107865    0.027    0.000    0.070    0.000 __init__.py:29011(__len__)
+   133533    0.030    0.000    0.053    0.000 __init__.py:28601(_private_override)
+    18162    0.006    0.000    0.026    0.000 __init__.py:2107(add_node)
+    18162    0.020    0.000    0.020    0.000 {function Graph.add_node at 0x7aa63dc6c9a0}
+    18171    0.007    0.000    0.018    0.000 __init__.py:29034(nodes)
+     1863    0.001    0.000    0.017    0.000 __init__.py:29285(neighbors)
+   151731    0.014    0.000    0.014    0.000 {built-in method builtins.vars}
+    18162    0.011    0.000    0.012    0.000 __init__.py:4367(__getitem__)
+   151731    0.012    0.000    0.012    0.000 {method 'get' of 'dict' objects}
+     1863    0.001    0.000    0.012    0.000 __init__.py:289(neighbors)
+   200835    0.011    0.000    0.011    0.000 {built-in method builtins.isinstance}
+   169551    0.010    0.000    0.010    0.000 {built-in method builtins.hash}
+   107865    0.010    0.000    0.010    0.000 {built-in method builtins.next}
+    27009    0.007    0.000    0.009    0.000 __init__.py:42900(__iter__)
+     1863    0.008    0.000    0.008    0.000 {function _private_aware_neighbors.<locals>.neighbors at 0x7aa63dcde980}
+    83844    0.008    0.000    0.008    0.000 {method 'append' of 'list' objects}
+     1872    0.001    0.000    0.004    0.000 __init__.py:28609(_has_networkx_private_storage)
+     1863    0.002    0.000    0.002    0.000 {built-in method fromkeys}
+     1890    0.001    0.000    0.001    0.000 __init__.py:5059(predicate)
+     1872    0.000    0.000    0.000    0.000 {function _make_class_safe_predicate.<locals>.predicate at 0x7aa63dc84ae0}
+     1872    0.000    0.000    0.000    0.000 {built-in method builtins.iter}
+        9    0.000    0.000    0.000    0.000 __init__.py:29054(edges)
+        9    0.000    0.000    0.000    0.000 weakref.py:164(__setitem__)
+        9    0.000    0.000    0.000    0.000 __init__.py:29021(__contains__)
+        9    0.000    0.000    0.000    0.000 __init__.py:643(wrapped)
+        9    0.000    0.000    0.000    0.000 __init__.py:380(__init__)
+       18    0.000    0.000    0.000    0.000 __init__.py:4869(__get__)
+        9    0.000    0.000    0.000    0.000 __init__.py:10845(_concrete_class_for)
+        9    0.000    0.000    0.000    0.000 __init__.py:2741(__init__)
+        9    0.000    0.000    0.000    0.000 weakref.py:352(__init__)
+        9    0.000    0.000    0.000    0.000 weakref.py:347(__new__)
+        9    0.000    0.000    0.000    0.000 __init__.py:889(wrapped)
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+        9    0.000    0.000    0.000    0.000 __init__.py:425(__init__)
+       18    0.000    0.000    0.000    0.000 {built-in method time.perf_counter}
+        9    0.000    0.000    0.000    0.000 {built-in method __new__ of type object at 0xa15020}
+       18    0.000    0.000    0.000    0.000 {built-in method builtins.id}
+       45    0.000    0.000    0.000    0.000 {method 'pop' of 'dict' objects}
+       18    0.000    0.000    0.000    0.000 {built-in method builtins.getattr}
+        9    0.000    0.000    0.000    0.000 weakref.py:194(get)
+        9    0.000    0.000    0.000    0.000 {method 'keys' of 'dict' objects}
+        9    0.000    0.000    0.000    0.000 __init__.py:18779(_validate_backend_dispatch_keywords)
+       18    0.000    0.000    0.000    0.000 {function _make_class_safe_predicate.<locals>.predicate at 0x7aa63dc84b80}
+        9    0.000    0.000    0.000    0.000 {method 'update' of 'dict' objects}
+
+
