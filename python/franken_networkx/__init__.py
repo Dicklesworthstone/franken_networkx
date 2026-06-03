@@ -39460,13 +39460,26 @@ def to_numpy_array(
         _native_adjacency_arrays is not None
         and not G.is_multigraph()
         and isinstance(G, (Graph, DiGraph))
-        and weight is None
+        and (weight is None or isinstance(weight, str))
     ):
         # br-r37-c1-hits-bipartite-svds-degenerate-xjar9: use the native
         # helper only when no edge attrs are read. Python-visible mutations
         # like ``G[u][v]["weight"] = 7`` can otherwise be stale in Rust
         # storage, while the fallback reads the live Python attr dicts.
-        native_result = _native_adjacency_arrays(G, nodelist, None, 1.0)
+        #
+        # br-tnaweighted: extend the native COO builder to the weighted case
+        # (string ``weight`` key). Unlike ``to_scipy_sparse_array`` we never
+        # need native int-vs-float dtype inference here: the matrix dtype is
+        # already fixed by ``np.full(..., nonedge, dtype=...)`` above (float64
+        # for the default ``nonedge=0.0``), so the f64-returning native helper
+        # scatters into it exactly as the Python ``G._adj`` loop would assign
+        # ``edge_attrs.get(weight, 1)``. Direct ``G[u][v][k]=v`` mutations can
+        # be stale in Rust storage, so push them into ``inner`` before reading.
+        if weight is not None:
+            _sync_rust_edge_attrs(G, edge_only=True)
+        native_result = _native_adjacency_arrays(
+            G, nodelist, weight if weight is not None else None, 1.0
+        )
         if native_result is not None:
             rows, cols, data = native_result
             if rows:
