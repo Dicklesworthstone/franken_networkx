@@ -1,0 +1,12 @@
+         3870931 function calls in 1.782 seconds
+
+   Ordered by: cumulative time
+   List reduced from 38 to 15 due to restriction <15>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+       30    0.299    0.010    1.782    0.059 __init__.py:20833(adjacency_data)
+   405000    0.082    0.000    0.862    0.000 __init__.py:1039(<genexpr>)
+   405000    0.074    0.000    0.780    0.000 __init__.py:1098(_atlas)
+   360000    0.091    0.000    0.780    0.000 __init__.py:1107(__getitem__)
+   405000    0.553    0.000    0.706    0.000 __init__.py:1170(<lambda>)
+    45000    0.270    0.000    0.298    0.000 __init__.py:1160(__getitem__)
