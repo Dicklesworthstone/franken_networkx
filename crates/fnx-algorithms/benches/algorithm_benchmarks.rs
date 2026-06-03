@@ -11,7 +11,7 @@ use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use fnx_algorithms::{
     betweenness_centrality, closeness_centrality, connected_components, degree_centrality,
     eigenvector_centrality, max_flow_edmonds_karp, minimum_cut_edmonds_karp, minimum_spanning_tree,
-    pagerank, shortest_path_unweighted, shortest_path_weighted,
+    pagerank, shortest_path_unweighted, shortest_path_weighted, single_source_dijkstra_path_length,
 };
 use fnx_classes::Graph;
 use fnx_runtime::CgseValue;
@@ -90,6 +90,49 @@ fn build_flow_network(paths: usize, path_len: usize) -> Graph {
         let _ = g.add_edge_with_attrs(last, "t", attr("capacity", &cap));
     }
     g
+}
+
+fn build_weighted_grid(rows: usize, cols: usize) -> Graph {
+    let mut g = Graph::strict();
+    for r in 0..rows {
+        for c in 0..cols {
+            let _ = g.add_node(format!("{r}_{c}"));
+        }
+    }
+    for r in 0..rows {
+        for c in 0..cols {
+            // Deterministic pseudo-weight so the relaxation order is non-trivial.
+            if c + 1 < cols {
+                let w = (((r * 7 + c * 13) % 17 + 1) as f64 * 0.5).to_string();
+                let _ = g.add_edge_with_attrs(
+                    format!("{r}_{c}"),
+                    format!("{r}_{}", c + 1),
+                    attr("weight", &w),
+                );
+            }
+            if r + 1 < rows {
+                let w = (((r * 11 + c * 5) % 19 + 1) as f64 * 0.5).to_string();
+                let _ = g.add_edge_with_attrs(
+                    format!("{r}_{c}"),
+                    format!("{}_{c}", r + 1),
+                    attr("weight", &w),
+                );
+            }
+        }
+    }
+    g
+}
+
+fn bench_single_source_dijkstra(c: &mut Criterion) {
+    let mut group = c.benchmark_group("single_source_dijkstra");
+    for &side in &[20usize, 45, 64] {
+        let g = build_weighted_grid(side, side);
+        let label = side * side;
+        group.bench_with_input(BenchmarkId::new("grid", label), &side, |b, _| {
+            b.iter(|| single_source_dijkstra_path_length(&g, "0_0", "weight"));
+        });
+    }
+    group.finish();
 }
 
 fn build_weighted_complete(n: usize) -> Graph {
@@ -294,6 +337,7 @@ criterion_group!(
     benches,
     bench_shortest_path_unweighted,
     bench_shortest_path_weighted,
+    bench_single_source_dijkstra,
     bench_connected_components,
     bench_degree_centrality,
     bench_closeness_centrality,

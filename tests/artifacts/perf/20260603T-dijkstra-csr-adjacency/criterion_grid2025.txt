@@ -1,0 +1,7 @@
+single_source_dijkstra/grid/2025  (criterion, --warm-up-time 1 --measurement-time 3, rch worker)
+Same-window back-to-back pair:
+  before (neighbors_iter + get_node_index): [13.639 ms 14.035 ms 14.447 ms]
+  after  (neighbors_indices):               [11.162 ms 11.424 ms 11.695 ms]
+  -> 1.23x (18.7% faster)
+Note: shared host load fluctuates ~2.5x across runs; isolated re-runs ranged
+11-28ms for identical code. The same-window pair is the controlled measurement.

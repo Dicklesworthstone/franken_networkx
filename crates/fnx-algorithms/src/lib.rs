@@ -1365,25 +1365,27 @@ pub fn multi_source_dijkstra(
             finalize_order.push(u_idx);
         }
 
-        if let Some(neighbors) = graph.neighbors_iter(ordered_nodes[u_idx]) {
-            for v_name in neighbors {
+        // br-r37-c1-fwudd: iterate integer neighbor indices (CSR adjacency)
+        // instead of `neighbors_iter` + `get_node_index`. `adj_indices` is built
+        // in the same insertion order as the string adjacency, so the push
+        // sequence, heap tie-breaks, and finalize order are bit-identical; this
+        // only removes the per-edge `get_node_index` string-hashmap lookup and
+        // the per-node adjacency string lookup from the hot loop.
+        if let Some(neighbors) = graph.neighbors_indices(u_idx) {
+            let u_name = ordered_nodes[u_idx];
+            for &v_idx in neighbors {
                 edges_scanned += 1;
-                let v_idx = graph.get_node_index(v_name).unwrap();
-                let edge_weight =
-                    edge_weight_or_default(graph, ordered_nodes[u_idx], v_name, weight_attr);
+                let v_name = ordered_nodes[v_idx];
+                let edge_weight = edge_weight_or_default(graph, u_name, v_name, weight_attr);
                 let next_dist = d + edge_weight;
 
                 if next_dist < distances[v_idx] - DISTANCE_COMPARISON_EPSILON {
                     // Record decision: choosing this predecessor over previous (if any)
                     if let Some(old_pred_idx) = predecessors[v_idx] {
-                        cgse_record_decision(
-                            &mut cgse_sink,
-                            ordered_nodes[u_idx],
-                            ordered_nodes[old_pred_idx],
-                        );
+                        cgse_record_decision(&mut cgse_sink, u_name, ordered_nodes[old_pred_idx]);
                     } else {
                         // First path to this node - record choosing this over "none"
-                        cgse_record_decision(&mut cgse_sink, ordered_nodes[u_idx], v_name);
+                        cgse_record_decision(&mut cgse_sink, u_name, v_name);
                     }
                     if distances[v_idx].is_infinite() {
                         nodes_touched += 1;
