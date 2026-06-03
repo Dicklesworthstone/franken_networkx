@@ -171,20 +171,42 @@ def _read_adjlist_via_nx(
 
 
 def _write_adjlist_via_nx(G, path, *, comments="#", delimiter=" ", encoding="utf-8"):
-    """Private helper (br-wadjlk): emit an adjacency list via nx.
+    """Private helper (br-wadjlk): emit an adjacency list.
 
     Kept behind an underscore so the public ``write_adjlist`` stays
     PY_WRAPPER in the coverage classifier.
-    """
-    import networkx as nx
 
-    return nx.write_adjlist(
-        _to_nx(G),
-        path,
-        comments=comments,
-        delimiter=delimiter,
-        encoding=encoding,
-    )
+    br-r37-c1-wadjnative: previously this round-tripped the whole graph
+    through ``_fnx_to_nx`` and called ``nx.write_adjlist`` purely to get
+    nx's timestamped comment header + trailing newlines (the reason the
+    old Rust-native writer was abandoned — see ``write_adjlist`` docstring).
+    The conversion dominated the call (~10ms of a ~14ms write on a 4k-edge
+    graph, ~9.7x nx). We now emit nx's exact header format ourselves and
+    stream the already-byte-identical fast ``generate_adjlist`` lines, so
+    output stays byte-for-byte equal to nx (modulo the inherently-varying
+    GMT timestamp, which differs run-to-run for nx too) without the
+    F->nx conversion.
+    """
+    import sys
+    import time
+
+    from networkx.utils import open_file
+
+    @open_file(1, mode="wb")
+    def _emit(G, path):
+        pargs = comments + " ".join(sys.argv) + "\n"
+        header = (
+            pargs
+            + comments
+            + f" GMT {time.asctime(time.gmtime())}\n"
+            + comments
+            + f" {G.name}\n"
+        )
+        path.write(header.encode(encoding))
+        for line in generate_adjlist(G, delimiter):
+            path.write((line + "\n").encode(encoding))
+
+    return _emit(G, path)
 
 
 def _write_graphml_via_nx(
