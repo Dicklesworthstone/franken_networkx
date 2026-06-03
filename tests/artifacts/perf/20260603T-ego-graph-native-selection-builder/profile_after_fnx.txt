@@ -1,0 +1,19 @@
+         222 function calls in 0.582 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.164    0.164    0.582    0.582 bench_ego_graph_r2.py:43(sample)
+       20    0.000    0.000    0.418    0.021 __init__.py:42957(wrapper)
+       20    0.000    0.000    0.418    0.021 __init__.py:17091(ego_graph)
+       20    0.418    0.021    0.418    0.021 {method '_native_ego_graph_r2' of 'franken_networkx.Graph' objects}
+       20    0.000    0.000    0.000    0.000 __init__.py:29205(__contains__)
+       20    0.000    0.000    0.000    0.000 __init__.py:28785(_private_override)
+       20    0.000    0.000    0.000    0.000 {built-in method builtins.vars}
+       40    0.000    0.000    0.000    0.000 {built-in method time.perf_counter}
+       20    0.000    0.000    0.000    0.000 __init__.py:18946(_validate_backend_dispatch_keywords)
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+       20    0.000    0.000    0.000    0.000 {method 'append' of 'list' objects}
+       20    0.000    0.000    0.000    0.000 {method 'get' of 'dict' objects}
+
+
