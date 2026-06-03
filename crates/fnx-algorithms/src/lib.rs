@@ -6126,23 +6126,39 @@ pub fn distance_measures(graph: &Graph) -> DistanceMeasuresResult {
     let mut total_edges_scanned = 0usize;
     let mut max_queue_peak = 0usize;
 
-    for source in &nodes {
-        let mut dist: HashMap<&str, usize> = HashMap::new();
-        let mut queue = VecDeque::new();
-        dist.insert(source, 0);
-        queue.push_back(*source);
+    // br-r37-c1-l4ujg: integer-indexed BFS over the CSR adjacency
+    // (`neighbors_indices`) instead of a per-source String-keyed
+    // `HashMap<&str, usize>` + `neighbors_iter`. BFS distances are
+    // order-invariant for unweighted graphs, so the eccentricity (max
+    // distance) per node is bit-identical. A reused `dist` array plus a
+    // per-source `seen` stamp gives O(1) reset between the |V| sources
+    // instead of allocating a fresh map each time.
+    let mut dist = vec![0usize; n];
+    let mut seen_stamp = vec![0u32; n];
+    let mut queue: VecDeque<usize> = VecDeque::new();
+    for src_idx in 0..n {
+        let stamp = (src_idx as u32) + 1; // unique, nonzero per source
+        seen_stamp[src_idx] = stamp;
+        dist[src_idx] = 0;
+        queue.clear();
+        queue.push_back(src_idx);
         let mut local_nodes = 0usize;
         let mut local_edges = 0usize;
         let mut local_peak = 0usize;
+        let mut ecc = 0usize;
 
         while let Some(current) = queue.pop_front() {
             local_nodes += 1;
             let current_dist = dist[current];
-            if let Some(neighbors) = graph.neighbors_iter(current) {
-                for neighbor in neighbors {
+            if current_dist > ecc {
+                ecc = current_dist;
+            }
+            if let Some(neighbors) = graph.neighbors_indices(current) {
+                for &neighbor in neighbors {
                     local_edges += 1;
-                    if !dist.contains_key(neighbor) {
-                        dist.insert(neighbor, current_dist + 1);
+                    if seen_stamp[neighbor] != stamp {
+                        seen_stamp[neighbor] = stamp;
+                        dist[neighbor] = current_dist + 1;
                         queue.push_back(neighbor);
                     }
                 }
@@ -6152,9 +6168,8 @@ pub fn distance_measures(graph: &Graph) -> DistanceMeasuresResult {
             }
         }
 
-        let ecc = dist.values().copied().max().unwrap_or(0);
         eccentricities.push(EccentricityEntry {
-            node: (*source).to_owned(),
+            node: nodes[src_idx].to_owned(),
             value: ecc,
         });
 
