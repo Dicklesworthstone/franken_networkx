@@ -1,0 +1,6 @@
+779ca37759fb5fec7bdf9eb8a46b0f51025f25f22cb5514a7848fc9394d27eb1  tests/artifacts/perf/20260603T-bfs-tree-indexed-stream/baseline_fnx.jsonl
+f283f62c4d5ebe4f47dccd84530ad61f396222069e5e28057747b53d71dda86e  tests/artifacts/perf/20260603T-bfs-tree-indexed-stream/baseline_nx.jsonl
+8881d31a5ac842d41527cb397bfd2316cb12a27dec44e5d64d6911b124b31586  tests/artifacts/perf/20260603T-bfs-tree-indexed-stream/baseline_hyperfine.json
+cd6e3b9732e01a84c95257f5d76826c802a6ea65a6c724b59ef9fff7883fdc4f  tests/artifacts/perf/20260603T-bfs-tree-indexed-stream/profile_before.txt
+06b6e24e79282e246b367b493631932f0a756b3d0051f4570f85983614bd052f  tests/artifacts/perf/20260603T-bfs-tree-indexed-stream/after_fnx.jsonl
+e2dffde5167943c2cb0fcde5f9e5b1f05071820d99b8df1f927b66b17396f30e  tests/artifacts/perf/20260603T-bfs-tree-indexed-stream/after_hyperfine.json

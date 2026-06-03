@@ -1,0 +1,32 @@
+{
+  "results": [
+    {
+      "command": ".venv/bin/python tests/artifacts/perf/20260602T-traversal-residual-sweep/bench_traversal.py sample --impl fnx --op bfs_tree --n 3000 --m 4 --repeat 5",
+      "mean": 0.7260176956057143,
+      "stddev": 0.03278861620472232,
+      "median": 0.72433954832,
+      "user": 4.412089408571427,
+      "system": 0.13022459142857143,
+      "min": 0.68818364532,
+      "max": 0.78118121832,
+      "times": [
+        0.71758935832,
+        0.75266219832,
+        0.69149354832,
+        0.72667435232,
+        0.68818364532,
+        0.78118121832,
+        0.72433954832
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}
