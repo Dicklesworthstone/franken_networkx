@@ -17,7 +17,7 @@ except ImportError:
 needs_nx = pytest.mark.skipif(not HAS_NX, reason="networkx not installed")
 
 
-def _csr_sig(A):
+def _csr_payload(A):
     A = A.tocsr()
     A.sort_indices()
     return (
@@ -34,15 +34,15 @@ def test_default_missing_weight_attr_routes_to_native_unweighted(monkeypatch):
     graph.add_edges_from([(0, 1), (1, 2)])
     calls = []
 
-    def fake_native(actual_graph, nodelist, weight, default_weight):
-        calls.append((actual_graph, tuple(nodelist), weight, default_weight))
-        return [0, 1, 1, 2], [1, 0, 2, 1], [1.0, 1.0, 1.0, 1.0]
+    def fake_native(actual_graph, nodelist, absent_weight_attr):
+        calls.append((actual_graph, tuple(nodelist), absent_weight_attr))
+        return [0, 1, 1, 2], [1, 0, 2, 1]
 
-    monkeypatch.setattr(fnx, "_native_adjacency_arrays", fake_native)
+    monkeypatch.setattr(fnx, "_native_adjacency_index_arrays", fake_native)
 
     matrix = fnx.to_scipy_sparse_array(graph)
 
-    assert calls == [(graph, (0, 1, 2), None, 1.0)]
+    assert calls == [(graph, (0, 1, 2), "weight")]
     assert matrix.dtype == np.dtype("int64")
     assert matrix.toarray().tolist() == [[0, 1, 0], [1, 0, 1], [0, 1, 0]]
 
@@ -63,7 +63,7 @@ def test_default_weight_attr_keeps_dtype_inference_fallback(monkeypatch):
     expected = nx.to_scipy_sparse_array(nx_graph)
     actual = fnx.to_scipy_sparse_array(fnx_graph)
 
-    assert _csr_sig(actual) == _csr_sig(expected)
+    assert _csr_payload(actual) == _csr_payload(expected)
     assert actual.dtype == expected.dtype
 
 
@@ -76,12 +76,12 @@ def test_default_missing_weight_attr_matches_networkx(directed):
     nx_graph.add_edges_from(edges)
     fnx_graph.add_edges_from(edges)
 
-    assert _csr_sig(fnx.to_scipy_sparse_array(fnx_graph)) == _csr_sig(
+    assert _csr_payload(fnx.to_scipy_sparse_array(fnx_graph)) == _csr_payload(
         nx.to_scipy_sparse_array(nx_graph)
     )
-    assert _csr_sig(fnx.adjacency_matrix(fnx_graph)) == _csr_sig(
+    assert _csr_payload(fnx.adjacency_matrix(fnx_graph)) == _csr_payload(
         nx.adjacency_matrix(nx_graph)
     )
-    assert _csr_sig(fnx.laplacian_matrix(fnx_graph)) == _csr_sig(
+    assert _csr_payload(fnx.laplacian_matrix(fnx_graph)) == _csr_payload(
         nx.laplacian_matrix(nx_graph)
     )

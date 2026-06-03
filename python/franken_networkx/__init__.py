@@ -16388,6 +16388,13 @@ except ImportError:  # pragma: no cover — defensive for partial builds
 
 try:
     from franken_networkx._fnx import (
+        adjacency_index_arrays as _native_adjacency_index_arrays,
+    )
+except ImportError:  # pragma: no cover — defensive for partial builds
+    _native_adjacency_index_arrays = None
+
+try:
+    from franken_networkx._fnx import (
         graph_has_edge_attr as _native_has_edge_attr,
     )
 except ImportError:  # pragma: no cover — defensive for partial builds
@@ -38987,22 +38994,18 @@ def to_scipy_sparse_array(G, nodelist=None, dtype=None, weight="weight", format=
     # ambiguity. The matrix is byte-identical to the Python path (COO -> CSR
     # canonicalises duplicate/ordering, and the (row, col, data) set matches).
     _use_native_weighted = isinstance(weight, str) and dtype is not None
-    _use_native_missing_default_weight = False
-    if (
+    _probe_native_missing_default_weight = (
         isinstance(weight, str)
         and dtype is None
-        and _native_has_edge_attr is not None
+        and _native_adjacency_index_arrays is not None
         and not G.is_multigraph()
         and isinstance(G, (Graph, DiGraph))
-    ):
-        native_has_attr = _native_has_edge_attr(G, weight)
-        if native_has_attr is not None:
-            _use_native_missing_default_weight = not native_has_attr
+    )
     if (
         _native_adjacency_arrays is not None
         and not G.is_multigraph()
         and isinstance(G, (Graph, DiGraph))
-        and (weight is None or _use_native_weighted or _use_native_missing_default_weight)
+        and (weight is None or _use_native_weighted or _probe_native_missing_default_weight)
     ):
         # br-r37-c1-hits-bipartite-svds-degenerate-xjar9: weighted
         # matrix exports must read Python-visible attr dicts because
@@ -39011,7 +39014,31 @@ def to_scipy_sparse_array(G, nodelist=None, dtype=None, weight="weight", format=
         if _use_native_weighted:
             _sync_rust_edge_attrs(G)
         native_weight = weight if _use_native_weighted else None
-        native_result = _native_adjacency_arrays(G, nodelist, native_weight, 1.0)
+        native_index_result = None
+        if native_weight is None and _native_adjacency_index_arrays is not None:
+            absent_weight_attr = weight if _probe_native_missing_default_weight else None
+            native_index_result = _native_adjacency_index_arrays(
+                G, nodelist, absent_weight_attr
+            )
+            if native_index_result is not None:
+                rows, cols = native_index_result
+                import numpy as _np
+                unit_dtype = _np.int64 if dtype is None else dtype
+                data = _np.ones(len(rows), dtype=unit_dtype)
+                matrix = scipy.sparse.coo_array(
+                    (data, (rows, cols)),
+                    shape=(len(nodelist), len(nodelist)),
+                    dtype=dtype,
+                )
+                return matrix.asformat(format)
+            if _probe_native_missing_default_weight:
+                native_weight = None
+            else:
+                native_weight = weight if _use_native_weighted else None
+        if _probe_native_missing_default_weight and native_index_result is None:
+            native_result = None
+        else:
+            native_result = _native_adjacency_arrays(G, nodelist, native_weight, 1.0)
         if native_result is not None:
             rows, cols, data = native_result
             # br-r37-c1-tssadtype: nx preserves int dtype when every

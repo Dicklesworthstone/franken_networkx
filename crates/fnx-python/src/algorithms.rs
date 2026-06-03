@@ -2086,6 +2086,80 @@ pub fn adjacency_arrays(
     Ok(Some((rows, cols, data)))
 }
 
+/// Return COO row/column arrays for an unweighted simple graph.
+///
+/// This is the default-weight sibling of ``adjacency_arrays``. It can also
+/// prove that a string weight attribute is absent while collecting COO indices,
+/// avoiding a separate native edge-attribute scan before sparse export.
+#[pyfunction]
+#[pyo3(signature = (g, nodelist, absent_weight_attr=None))]
+pub fn adjacency_index_arrays(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    nodelist: &Bound<'_, PyAny>,
+    absent_weight_attr: Option<&str>,
+) -> PyResult<Option<(Vec<u32>, Vec<u32>)>> {
+    let nodes_iter = pyo3::types::PyIterator::from_object(nodelist)?;
+    let mut index: HashMap<String, u32> = HashMap::new();
+    for (count, item) in (0_u32..).zip(nodes_iter) {
+        let item = item?;
+        let canonical = node_key_to_string(py, &item)?;
+        index.entry(canonical).or_insert(count);
+    }
+
+    let gr = extract_graph(g)?;
+    let (rows, cols) = match &gr {
+        GraphRef::Undirected(pg) => {
+            if let Some(attr) = absent_weight_attr {
+                for dict in pg.edge_py_attrs.values() {
+                    if dict.bind(py).contains(attr)? {
+                        return Ok(None);
+                    }
+                }
+            }
+            let inner = &pg.inner;
+            let edge_count = inner.edge_count();
+            let mut rows: Vec<u32> = Vec::with_capacity(edge_count * 2);
+            let mut cols: Vec<u32> = Vec::with_capacity(edge_count * 2);
+            for (u, v, _) in inner.edges_ordered_borrowed() {
+                let Some(&ui) = index.get(u) else { continue };
+                let Some(&vi) = index.get(v) else { continue };
+                rows.push(ui);
+                cols.push(vi);
+                if ui != vi {
+                    rows.push(vi);
+                    cols.push(ui);
+                }
+            }
+            (rows, cols)
+        }
+        GraphRef::Directed { dg, .. } => {
+            if let Some(attr) = absent_weight_attr {
+                for dict in dg.edge_py_attrs.values() {
+                    if dict.bind(py).contains(attr)? {
+                        return Ok(None);
+                    }
+                }
+            }
+            let inner = &dg.inner;
+            let edge_count = inner.edge_count();
+            let mut rows: Vec<u32> = Vec::with_capacity(edge_count);
+            let mut cols: Vec<u32> = Vec::with_capacity(edge_count);
+            for (u, v, _) in inner.edges_ordered_borrowed() {
+                let Some(&ui) = index.get(u) else { continue };
+                let Some(&vi) = index.get(v) else { continue };
+                rows.push(ui);
+                cols.push(vi);
+            }
+            (rows, cols)
+        }
+        GraphRef::MultiUndirected { .. } | GraphRef::MultiDirected { .. } => {
+            return Ok(None);
+        }
+    };
+    Ok(Some((rows, cols)))
+}
+
 /// Bulk per-node adjacency + edge attrs for the `_fnx_to_nx` parity conversion.
 ///
 /// Returns, for each node in node-insertion order, its neighbors in
@@ -14519,6 +14593,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(graph_edge_weights_all_int, m)?)?;
     m.add_function(wrap_pyfunction!(check_dijkstra_edge_weights_fast, m)?)?;
     m.add_function(wrap_pyfunction!(adjacency_arrays, m)?)?;
+    m.add_function(wrap_pyfunction!(adjacency_index_arrays, m)?)?;
     m.add_function(wrap_pyfunction!(fnx_to_nx_adjacency, m)?)?;
     m.add_function(wrap_pyfunction!(graph_has_edge_attr, m)?)?;
     m.add_function(wrap_pyfunction!(bellman_ford_path, m)?)?;

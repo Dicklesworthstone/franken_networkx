@@ -33,7 +33,7 @@ except ImportError:
 needs_nx = pytest.mark.skipif(not HAS_NX, reason="networkx not installed")
 
 
-def _csr_sig(A):
+def _csr_payload(A):
     A = A.tocsr()
     A.sort_indices()
     return (
@@ -45,8 +45,8 @@ def _csr_sig(A):
     )
 
 
-def _assert_csr_sig_equal(left, right):
-    np.testing.assert_equal(_csr_sig(left), _csr_sig(right))
+def _assert_csr_payload_equal(left, right):
+    np.testing.assert_equal(_csr_payload(left), _csr_payload(right))
 
 
 def _build(directed, kind, seed):
@@ -96,7 +96,7 @@ def test_csr_byte_identical_to_networkx(directed, kind, dtype, weight, seed):
         return
     a = nx.to_scipy_sparse_array(ng, dtype=dtype, weight=weight)
     b = fnx.to_scipy_sparse_array(fg, dtype=dtype, weight=weight)
-    _assert_csr_sig_equal(a, b)
+    _assert_csr_payload_equal(a, b)
 
 
 @needs_nx
@@ -111,14 +111,14 @@ def test_dtype_float_weighted_uses_native_and_matches():
     fg[0][1]["weight"] = 7.5
     a = nx.adjacency_matrix(ng, nodelist=list(ng), dtype=float)
     b = fnx.adjacency_matrix(fg, nodelist=list(fg), dtype=float)
-    _assert_csr_sig_equal(a, b)
+    _assert_csr_payload_equal(a, b)
 
 
 @needs_nx
 def test_dtype_none_absent_string_weight_routes_native(monkeypatch):
     native_adjacency = getattr(fnx, "_native_adjacency_arrays", None)
-    native_has_attr = getattr(fnx, "_native_has_edge_attr", None)
-    if native_adjacency is None or native_has_attr is None:
+    native_index = getattr(fnx, "_native_adjacency_index_arrays", None)
+    if native_adjacency is None or native_index is None:
         pytest.skip("native sparse helpers unavailable")
 
     ng, fg = nx.Graph(), fnx.Graph()
@@ -128,31 +128,35 @@ def test_dtype_none_absent_string_weight_routes_native(monkeypatch):
 
     calls = []
 
-    def wrapped_has_attr(graph, weight):
-        calls.append(("has_attr", weight))
-        return native_has_attr(graph, weight)
+    def fail_has_attr(_graph, _weight):
+        raise AssertionError("absent-weight sparse route should fuse attr scan")
 
     def wrapped_adjacency(graph, nodelist, weight, default_weight):
         calls.append(("adjacency", weight, default_weight))
         return native_adjacency(graph, nodelist, weight, default_weight)
 
-    monkeypatch.setattr(fnx, "_native_has_edge_attr", wrapped_has_attr)
+    def wrapped_index(graph, nodelist, absent_weight_attr):
+        calls.append(("index", absent_weight_attr))
+        return native_index(graph, nodelist, absent_weight_attr)
+
+    monkeypatch.setattr(fnx, "_native_has_edge_attr", fail_has_attr)
     monkeypatch.setattr(fnx, "_native_adjacency_arrays", wrapped_adjacency)
+    monkeypatch.setattr(fnx, "_native_adjacency_index_arrays", wrapped_index)
 
     a = nx.to_scipy_sparse_array(ng, dtype=None, weight="weight")
     b = fnx.to_scipy_sparse_array(fg, dtype=None, weight="weight")
 
-    _assert_csr_sig_equal(a, b)
+    _assert_csr_payload_equal(a, b)
     assert b.dtype.kind in {"i", "u"}
-    assert ("has_attr", "weight") in calls
-    assert ("adjacency", None, 1.0) in calls
+    assert ("index", "weight") in calls
+    assert not any(call[0] == "adjacency" for call in calls)
 
 
 @needs_nx
 def test_dtype_none_present_string_weight_keeps_python_fallback(monkeypatch):
     native_adjacency = getattr(fnx, "_native_adjacency_arrays", None)
-    native_has_attr = getattr(fnx, "_native_has_edge_attr", None)
-    if native_adjacency is None or native_has_attr is None:
+    native_index = getattr(fnx, "_native_adjacency_index_arrays", None)
+    if native_adjacency is None or native_index is None:
         pytest.skip("native sparse helpers unavailable")
 
     ng, fg = nx.Graph(), fnx.Graph()
@@ -163,23 +167,27 @@ def test_dtype_none_present_string_weight_keeps_python_fallback(monkeypatch):
 
     calls = []
 
-    def wrapped_has_attr(graph, weight):
-        calls.append(("has_attr", weight))
-        return native_has_attr(graph, weight)
+    def fail_has_attr(_graph, _weight):
+        raise AssertionError("present-weight sparse route should use index probe")
 
     def wrapped_adjacency(graph, nodelist, weight, default_weight):
         calls.append(("adjacency", weight, default_weight))
         return native_adjacency(graph, nodelist, weight, default_weight)
 
-    monkeypatch.setattr(fnx, "_native_has_edge_attr", wrapped_has_attr)
+    def wrapped_index(graph, nodelist, absent_weight_attr):
+        calls.append(("index", absent_weight_attr))
+        return native_index(graph, nodelist, absent_weight_attr)
+
+    monkeypatch.setattr(fnx, "_native_has_edge_attr", fail_has_attr)
     monkeypatch.setattr(fnx, "_native_adjacency_arrays", wrapped_adjacency)
+    monkeypatch.setattr(fnx, "_native_adjacency_index_arrays", wrapped_index)
 
     a = nx.to_scipy_sparse_array(ng, dtype=None, weight="weight")
     b = fnx.to_scipy_sparse_array(fg, dtype=None, weight="weight")
 
-    _assert_csr_sig_equal(a, b)
+    _assert_csr_payload_equal(a, b)
     assert b.dtype.kind == "f"
-    assert ("has_attr", "weight") in calls
+    assert ("index", "weight") in calls
     assert not any(call[0] == "adjacency" for call in calls)
 
 

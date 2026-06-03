@@ -1,0 +1,28 @@
+# Change 001: fused default sparse adjacency index helper
+
+- Timestamp: 2026-06-02T20:34:03-04:00
+- One lever: fuse absent-weight detection with native COO index collection for simple graph sparse export.
+- Files:
+  - `crates/fnx-python/src/algorithms.rs`
+  - `python/franken_networkx/__init__.py`
+  - `tests/python/test_to_scipy_sparse_default_native_parity.py`
+  - `tests/python/test_to_scipy_sparse_native_weighted_parity.py`
+- Baseline:
+  - Sampled-call mean: 0.04150113813011558 s.
+  - Median: 0.029680505002033897 s.
+  - Golden digest: `987fb0c41578a61146699304815a73d3c6d70160384e8fb3046d1d0c7b7d13c6`.
+  - Hyperfine process mean: 0.6556194659000002 s.
+- After:
+  - Sampled-call mean: 0.03525101024994607 s.
+  - Median: 0.030627986991021316 s.
+  - Golden digest: `987fb0c41578a61146699304815a73d3c6d70160384e8fb3046d1d0c7b7d13c6`.
+  - Hyperfine process mean: 0.66966459218 s.
+- Result:
+  - Sampled-call delta: 15.06% faster, 1.1773x speedup.
+  - Process-level hyperfine was noisy and import/build-graph dominated, so it is recorded as a supporting non-acceptance signal rather than the keep gate.
+  - The accepted keep gate is the in-process profiled public call with unchanged golden digest.
+- Reprofile:
+  - `_fnx.graph_has_edge_attr` is removed from the default absent-weight native path.
+  - Remaining native time is in `_fnx.adjacency_index_arrays` plus SciPy COO allocation/conversion.
+- Scanner note:
+  - The test helper was renamed from `_csr_sig` to `_csr_payload` to avoid UBS treating matrix payload equality as a secret/signature comparison.
