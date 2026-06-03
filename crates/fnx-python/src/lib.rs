@@ -201,24 +201,52 @@ pub(crate) fn py_dict_to_attr_map(attrs: &Bound<'_, PyDict>) -> PyResult<AttrMap
         } else {
             k.str()?.to_string_lossy().into_owned()
         };
-        let val = if let Ok(d) = v.downcast::<PyDict>() {
-            let nested = py_dict_to_attr_map(d)?;
-            CgseValue::Map(nested)
-        } else if let Ok(s) = v.extract::<String>() {
-            CgseValue::String(s)
-        } else if let Ok(b) = v.extract::<bool>() {
-            // bool must be checked before i64/f64 because Python bool is a subclass of int
-            CgseValue::Bool(b)
-        } else if let Ok(i) = v.extract::<i64>() {
-            CgseValue::Int(i)
-        } else if let Ok(f) = v.extract::<f64>() {
-            CgseValue::Float(f)
-        } else {
-            CgseValue::String(v.str()?.to_string())
-        };
-        rust_attrs.insert(key, val);
+        rust_attrs.insert(key, py_value_to_cgse(&v)?);
     }
     Ok(rust_attrs)
+}
+
+/// Convert a Python attribute value to a `CgseValue`.
+///
+/// br-r37-c1-aefbatch: a leading exact-type dispatch handles the overwhelmingly
+/// common scalar kinds (float weights, ints, strings, bools) with a single cheap
+/// `is_exact_instance_of` check plus one `extract`, instead of the up-to-four
+/// failed `extract` attempts the fallback chain performs (each failure builds and
+/// discards a `PyErr`). Non-exact types — `dict`, numpy scalars, anything with a
+/// custom `__float__`/`__index__` — fall through to the original chain, so the
+/// resulting `CgseValue` is byte-for-byte identical to the previous behavior.
+fn py_value_to_cgse(v: &Bound<'_, PyAny>) -> PyResult<CgseValue> {
+    // Exact-type fast paths (bool before int: Python bool subclasses int).
+    if v.is_exact_instance_of::<PyBool>() {
+        return Ok(CgseValue::Bool(v.extract::<bool>()?));
+    }
+    if v.is_exact_instance_of::<PyFloat>() {
+        return Ok(CgseValue::Float(v.extract::<f64>()?));
+    }
+    if v.is_exact_instance_of::<PyInt>() {
+        if let Ok(i) = v.extract::<i64>() {
+            return Ok(CgseValue::Int(i));
+        }
+        // Oversized int: fall through to the chain (which yields Float via f64).
+    } else if v.is_exact_instance_of::<PyString>() {
+        return Ok(CgseValue::String(v.extract::<String>()?));
+    }
+
+    if let Ok(d) = v.downcast::<PyDict>() {
+        let nested = py_dict_to_attr_map(d)?;
+        Ok(CgseValue::Map(nested))
+    } else if let Ok(s) = v.extract::<String>() {
+        Ok(CgseValue::String(s))
+    } else if let Ok(b) = v.extract::<bool>() {
+        // bool must be checked before i64/f64 because Python bool is a subclass of int
+        Ok(CgseValue::Bool(b))
+    } else if let Ok(i) = v.extract::<i64>() {
+        Ok(CgseValue::Int(i))
+    } else if let Ok(f) = v.extract::<f64>() {
+        Ok(CgseValue::Float(f))
+    } else {
+        Ok(CgseValue::String(v.str()?.to_string()))
+    }
 }
 
 pub(crate) fn deepcopy_py_dict(
@@ -1196,9 +1224,9 @@ impl PyMultiGraph {
             .entry(ek)
             .or_insert_with(|| PyDict::new(py).unbind());
         if let Some(a) = attr {
-            for (k, val) in a.iter() {
-                py_dict.bind(py).set_item(k, val)?;
-            }
+            // br-r37-c1-aefbatch: single C-level dict.update instead of N
+            // per-item set_item calls (see PyGraph::add_edge).
+            py_dict.bind(py).update(a.as_mapping())?;
         }
         // br-r37-c1-jft0i: bump edges_seq so view-materialization caches invalidate.
         self.bump_edges_seq();
@@ -3223,9 +3251,12 @@ impl PyGraph {
             .or_insert_with(|| PyDict::new(py).unbind());
         if let Some(a) = attr {
             rust_attrs = py_dict_to_attr_map(a)?;
-            for (k, val) in a.iter() {
-                py_dict.bind(py).set_item(k, val)?;
-            }
+            // br-r37-c1-aefbatch: a single C-level dict.update copies all items
+            // in one call instead of N Rust->Python set_item round-trips, which
+            // dominated attributed edge construction (add_edges_from / from_dict
+            // build paths were ~7x nx). The edge dict is freshly created for new
+            // edges and merged-into for existing ones; update() matches both.
+            py_dict.bind(py).update(a.as_mapping())?;
         }
 
         log::debug!(target: "franken_networkx", "add_edge: {u_canonical} -- {v_canonical}");
@@ -3266,6 +3297,26 @@ impl PyGraph {
             // Fast path: no global attrs and no per-edge attrs.
             if !has_global_attr && len == 2 {
                 self.add_edge(py, &u, &v, None)?;
+            } else if !has_global_attr && len == 3 {
+                // br-r37-c1-aefbatch: with no global attr, the third element
+                // (when already a dict) is the edge data verbatim. ``add_edge``
+                // copies it into its own edge_py_attrs dict, so we can hand it
+                // through directly instead of materializing+updating a throwaway
+                // ``merged`` PyDict per edge (one fewer dict alloc + copy on the
+                // dominant construction path: from_dict_of_dicts / list-of-3-tuples).
+                let d = tuple.get_item(2)?;
+                if let Ok(dict_arg) = d.downcast::<PyDict>() {
+                    self.add_edge(py, &u, &v, Some(&dict_arg))?;
+                } else {
+                    // Non-dict third element: replicate nx's TypeError shape by
+                    // routing through ``dict.update`` (see br-edges3rd below).
+                    let merged = PyDict::new(py);
+                    match merged.call_method1("update", (d,)) {
+                        Ok(_) => {}
+                        Err(err) => return Err(err),
+                    }
+                    self.add_edge(py, &u, &v, Some(&merged))?;
+                }
             } else {
                 let merged = PyDict::new(py);
                 if let Some(a) = attr {
