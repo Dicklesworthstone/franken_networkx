@@ -114,6 +114,29 @@ class TestDagLongestPath:
             Dn, weight="cost"
         ) == [0, 2, 3]
 
+    def test_native_fast_path_matches_legacy_topo_order_path(self):
+        import networkx as nx
+
+        edges = [
+            (0, 1, {"cost": 2}),
+            (0, 2, {}),
+            (1, 3, {"cost": 5}),
+            (2, 3, {"cost": 5}),
+            (3, 4, {}),
+        ]
+        D = fnx.DiGraph()
+        Dn = nx.DiGraph()
+        D.add_edges_from(edges)
+        Dn.add_edges_from(edges)
+
+        topo = list(fnx.topological_sort(D))
+        fast = fnx.dag_longest_path(D, weight="cost", default_weight=2)
+        legacy = fnx.dag_longest_path(
+            D, weight="cost", default_weight=2, topo_order=topo
+        )
+        expected = nx.dag_longest_path(Dn, weight="cost", default_weight=2)
+        assert fast == legacy == expected == [0, 1, 3, 4]
+
     def test_topo_order_param_changes_tie_break(self):
         import networkx as nx
 

@@ -1,0 +1,11 @@
+Benchmark 1: .venv/bin/python tests/artifacts/perf/20260603T-dag-longest-path-native/bench_dag_longest_path.py bench --n 400 --edge-count 1600 --samples 1 --engines fnx-legacy --skip-digest
+  Time (mean ± σ):     294.1 ms ±  17.8 ms    [User: 3569.4 ms, System: 60.0 ms]
+  Range (min … max):   268.4 ms … 330.2 ms    20 runs
+ 
+Benchmark 2: .venv/bin/python tests/artifacts/perf/20260603T-dag-longest-path-native/bench_dag_longest_path.py bench --n 400 --edge-count 1600 --samples 1 --engines fnx-native --skip-digest
+  Time (mean ± σ):     294.7 ms ±  21.8 ms    [User: 3406.0 ms, System: 58.0 ms]
+  Range (min … max):   255.0 ms … 337.1 ms    20 runs
+ 
+Summary
+  .venv/bin/python tests/artifacts/perf/20260603T-dag-longest-path-native/bench_dag_longest_path.py bench --n 400 --edge-count 1600 --samples 1 --engines fnx-legacy --skip-digest ran
+    1.00 ± 0.10 times faster than .venv/bin/python tests/artifacts/perf/20260603T-dag-longest-path-native/bench_dag_longest_path.py bench --n 400 --edge-count 1600 --samples 1 --engines fnx-native --skip-digest

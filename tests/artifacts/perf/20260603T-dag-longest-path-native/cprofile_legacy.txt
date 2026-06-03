@@ -1,0 +1,58 @@
+         67542 function calls in 0.032 seconds
+
+   Ordered by: cumulative time
+   List reduced from 104 to 50 due to restriction <50>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.000    0.000    0.033    0.033 /data/projects/franken_networkx/tests/artifacts/perf/20260603T-dag-longest-path-native/bench_dag_longest_path.py:54(run_case)
+        1    0.000    0.000    0.020    0.020 /data/projects/franken_networkx/tests/artifacts/perf/20260603T-dag-longest-path-native/bench_dag_longest_path.py:36(build_graph)
+        2    0.000    0.000    0.010    0.005 /data/projects/franken_networkx/python/franken_networkx/__init__.py:43197(wrapper)
+        1    0.002    0.002    0.010    0.010 /data/projects/franken_networkx/python/franken_networkx/__init__.py:12572(dag_longest_path)
+        1    0.002    0.002    0.010    0.010 /data/projects/franken_networkx/tests/artifacts/perf/20260603T-dag-longest-path-native/bench_dag_longest_path.py:20(build_edges)
+        1    0.002    0.002    0.008    0.008 /data/projects/franken_networkx/python/franken_networkx/__init__.py:2472(add_edges_from)
+     3294    0.002    0.000    0.006    0.000 /usr/lib/python3.13/random.py:295(randrange)
+        1    0.006    0.006    0.006    0.006 {function DiGraph.add_edges_from at 0x747e80d47060}
+     2000    0.000    0.000    0.004    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1039(<genexpr>)
+     2000    0.000    0.000    0.004    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1098(_atlas)
+     1600    0.000    0.000    0.004    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1107(__getitem__)
+     2000    0.003    0.000    0.003    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1170(<lambda>)
+     3294    0.002    0.000    0.003    0.000 /usr/lib/python3.13/random.py:245(_randbelow_with_getrandbits)
+        1    0.000    0.000    0.002    0.002 /data/projects/franken_networkx/python/franken_networkx/__init__.py:2286(add_nodes_from)
+      400    0.000    0.000    0.002    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:2254(add_node)
+        1    0.000    0.000    0.001    0.001 /data/projects/franken_networkx/tests/artifacts/perf/20260603T-dag-longest-path-native/bench_dag_longest_path.py:43(digest_result)
+      400    0.001    0.000    0.001    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1160(__getitem__)
+      400    0.001    0.000    0.001    0.000 {function DiGraph.add_node at 0x747e80d465c0}
+     2400    0.000    0.000    0.001    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1142(_atlas)
+      400    0.000    0.000    0.001    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1037(__iter__)
+      401    0.001    0.000    0.001    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:12434(topological_sort)
+      400    0.000    0.000    0.001    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1104(__iter__)
+      400    0.000    0.000    0.001    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:29835(<lambda>)
+     5255    0.001    0.000    0.001    0.000 {built-in method builtins.len}
+     6588    0.001    0.000    0.001    0.000 {built-in method _operator.index}
+      400    0.000    0.000    0.001    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:29111(_private_pred_mapping)
+     6411    0.001    0.000    0.001    0.000 {built-in method builtins.isinstance}
+     4466    0.001    0.000    0.001    0.000 {method 'getrandbits' of '_random.Random' objects}
+     4400    0.001    0.000    0.001    0.000 {built-in method builtins.hash}
+     3294    0.001    0.000    0.001    0.000 {method 'bit_length' of 'int' objects}
+     3226    0.000    0.000    0.000    0.000 {method 'append' of 'list' objects}
+     1601    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:425(__next__)
+      323    0.000    0.000    0.000    0.000 {built-in method builtins.max}
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1376(__iter__)
+     1600    0.000    0.000    0.000    0.000 {method 'add' of 'set' objects}
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1370(_materialize)
+        1    0.000    0.000    0.000    0.000 {method '_native_edges_no_data' of 'franken_networkx.DiGraph' objects}
+        1    0.000    0.000    0.000    0.000 {method 'sort' of 'list' objects}
+      429    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:29025(_private_override)
+     2432    0.000    0.000    0.000    0.000 {method 'get' of 'dict' objects}
+      401    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1267(_accessor)
+        1    0.000    0.000    0.000    0.000 {method '_native_adjacency_keys' of 'franken_networkx.DiGraph' objects}
+      400    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1086(_adjacency_view_items)
+      401    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:43396(__iter__)
+        3    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:29425(__iter__)
+      832    0.000    0.000    0.000    0.000 {built-in method builtins.vars}
+     1601    0.000    0.000    0.000    0.000 {built-in method builtins.next}
+     1600    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:12646(<lambda>)
+      401    0.000    0.000    0.000    0.000 {built-in method builtins.iter}
+        1    0.000    0.000    0.000    0.000 /usr/lib/python3.13/json/__init__.py:183(dumps)
+
+
