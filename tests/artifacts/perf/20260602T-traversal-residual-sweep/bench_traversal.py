@@ -15,7 +15,10 @@ import networkx as nx
 
 
 def build_pair(n: int, m: int, seed: int) -> tuple[Any, Any]:
-    base = nx.barabasi_albert_graph(n, m, seed=seed)
+    generated = nx.barabasi_albert_graph(n, m, seed=seed)
+    base = nx.Graph()
+    base.add_nodes_from(generated.nodes())
+    base.add_edges_from(generated.edges())
     rust_graph = fnx.Graph()
     rust_graph.add_nodes_from(base.nodes())
     rust_graph.add_edges_from(base.edges())
