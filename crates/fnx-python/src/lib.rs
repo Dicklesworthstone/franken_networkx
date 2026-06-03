@@ -1539,6 +1539,14 @@ impl PyMultiGraph {
         Ok(result.unbind())
     }
 
+    /// br-r37-c1-mdadj: non-shadowed accessor for the native nested adjacency
+    /// snapshot, so the Python MultiGraph.adjacency (_multigraph_adjacency) can
+    /// build it natively instead of walking self.adj[node] via the
+    /// MultiAdjacencyView lambda chain per element (~30000x slower than nx).
+    fn _native_adjacency_dict(&self, py: Python<'_>) -> PyResult<Py<PyDict>> {
+        self.adjacency(py)
+    }
+
     // -----------------------------------------------------------------------
     // Copy / subgraph
     // -----------------------------------------------------------------------

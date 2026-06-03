@@ -1059,6 +1059,15 @@ impl PyMultiDiGraph {
         Ok(result.unbind())
     }
 
+    /// br-r37-c1-mdadj: non-shadowed accessor for the native nested adjacency
+    /// snapshot ({node: {nbr: {key: attrs}}}). The Python MultiDiGraph.adjacency
+    /// (_multigraph_adjacency) walks self.adj[node] via the MultiAdjacencyView
+    /// lambda chain per element (~33000x slower than nx); routing it here builds
+    /// the identical snapshot natively from inner adjacency.
+    fn _native_adjacency_dict(&self, py: Python<'_>) -> PyResult<Py<PyDict>> {
+        self.adjacency(py)
+    }
+
     #[getter]
     fn succ(&self, py: Python<'_>) -> PyResult<Py<PyDict>> {
         self.adjacency(py)

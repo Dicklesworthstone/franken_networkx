@@ -2034,6 +2034,15 @@ def _multigraph_adjacency(self):
     a snapshot dict for type parity (recursive: each neighbour's
     keyed-attrs map is also unwrapped from AtlasView to dict).
     """
+    # br-r37-c1-mdadj: build the nested {node: {nbr: {key: attrs}}} snapshot
+    # natively (reusing the live edge attr dicts, in node x nbr x key order)
+    # instead of unwrapping self.adj[node] via the per-element MultiAdjacencyView
+    # lambda chain (~33000x slower than nx). Identical snapshot; iterating the
+    # native dict's items yields the same (node, inner_dict) pairs.
+    native = getattr(self, "_native_adjacency_dict", None)
+    if native is not None:
+        return iter(native().items())
+
     def _unwrap(view):
         return {nbr: dict(keys) for nbr, keys in view.items()}
     return ((node, _unwrap(self.adj[node])) for node in self)
