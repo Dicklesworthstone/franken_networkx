@@ -1,0 +1,18 @@
+         601 function calls in 0.654 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+       50    0.006    0.000    0.654    0.013 /data/projects/franken_networkx/python/franken_networkx/__init__.py:43317(wrapper)
+       50    0.246    0.005    0.648    0.013 /data/projects/franken_networkx/python/franken_networkx/__init__.py:23711(attr_matrix)
+       50    0.381    0.008    0.381    0.008 {built-in method franken_networkx._fnx.to_edgelist_simple}
+       50    0.021    0.000    0.021    0.000 {built-in method numpy.zeros}
+      100    0.000    0.000    0.001    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:5277(predicate)
+       50    0.000    0.000    0.000    0.000 {function _make_class_safe_predicate.<locals>.predicate at 0x70591680e980}
+      100    0.000    0.000    0.000    0.000 {built-in method builtins.isinstance}
+       50    0.000    0.000    0.000    0.000 {built-in method builtins.len}
+       50    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:19130(_validate_backend_dispatch_keywords)
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+       50    0.000    0.000    0.000    0.000 {function _make_class_safe_predicate.<locals>.predicate at 0x70591680e8e0}
+
+

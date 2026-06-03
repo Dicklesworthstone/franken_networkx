@@ -1,0 +1,39 @@
+  [2m2026-06-03T22:24:29.083923Z[0m [33m WARN[0m [1;33mrch::hook[0m[33m: [33mexec called with non-compilation command: env 'PYTHONPATH=python' .venv/bin/python -c 'import hashlib,json; import numpy as np; import franken_networkx as fnx, networkx as nx
+
+def build(mod, directed=False):
+    g = mod.DiGraph() if directed else mod.Graph()
+    g.add_nodes_from(range(6))
+    for idx,(u,v) in enumerate([(0,1),(1,2),(2,3),(3,4),(4,5),(0,5),(1,4)]):
+        g.add_edge(u, v, weight=idx+1, cap=(idx+1)*2)
+    return g
+
+def norm_result(result, order):
+    if isinstance(result, tuple):
+        matrix, ordv = result
+    else:
+        matrix, ordv = result, order
+    return matrix, list(ordv)
+
+def assert_case(name, directed=False, kwargs=None):
+    kwargs = kwargs or {}
+    gf, gx = build(fnx, directed), build(nx, directed)
+    rf = fnx.attr_matrix(gf, **kwargs)
+    rx = nx.attr_matrix(gx, **kwargs)
+    order = kwargs.get("rc_order")
+    mf, of = norm_result(rf, order)
+    mx, ox = norm_result(rx, order)
+    if of != ox or not np.array_equal(mf, mx):
+        raise AssertionError(name)
+    h=hashlib.sha256(); h.update(mf.tobytes()); h.update(json.dumps(of, sort_keys=True).encode())
+    return {"name": name, "digest": h.hexdigest(), "shape": list(mf.shape)}
+rows=[]
+rows.append(assert_case("undirected_none", kwargs={"rc_order": list(range(6))}))
+rows.append(assert_case("undirected_weight", kwargs={"edge_attr":"weight", "rc_order": list(range(6))}))
+rows.append(assert_case("undirected_named", kwargs={"edge_attr":"cap", "rc_order": list(range(6))}))
+rows.append(assert_case("undirected_callable", kwargs={"edge_attr": lambda u,v: u+v, "rc_order": list(range(6))}))
+rows.append(assert_case("undirected_normalized", kwargs={"normalized": True, "rc_order": list(range(6))}))
+rows.append(assert_case("directed_weight", directed=True, kwargs={"edge_attr":"weight", "rc_order": list(range(6))}))
+rows.append(assert_case("default_order"))
+print(json.dumps({"rows": rows}, sort_keys=True))'[0m
+    [2;3mat[0m rch/src/hook.rs:402 [2;3mon[0m ThreadId(1)
+

@@ -23784,6 +23784,34 @@ def attr_matrix(
 
     # br-r37-c1-amdsnap: G.adjacency() is ~12× slower than G._adj.items()
     # because of AdjacencyView wrapping.  Same yield shape.
+    if node_attr is None and type(G) in (Graph, DiGraph):
+        edgelist = _fnx.to_edgelist_simple(G)
+        if edgelist is not None:
+            for u, v, attrs in edgelist:
+                try:
+                    i, j = index[u], index[v]
+                except KeyError:
+                    continue
+                if edge_attr is None:
+                    value = 1
+                elif callable(edge_attr):
+                    value = edge_attr(u, v)
+                elif edge_attr == "weight":
+                    value = attrs.get("weight", 1)
+                else:
+                    value = attrs[edge_attr]
+                M[i, j] += value
+                if undirected:
+                    M[j, i] = M[i, j]
+            if normalized:
+                rs = M.sum(axis=1)
+                rs[rs == 0] = 1
+                M = M / rs[:, np.newaxis]
+
+            if rc_order is None:
+                return M, ordering
+            return M
+
     seen = set()
     for u, nbrdict in G._adj.items():
         for v in nbrdict:

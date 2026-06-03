@@ -1,0 +1,4 @@
+Benchmark 1: env PYTHONPATH=python .venv/bin/python -c 'import franken_networkx as fnx, networkx as nx; edges=list(nx.gnm_random_graph(800,6000,seed=8675309).edges()); G=fnx.Graph(); G.add_nodes_from(range(800)); G.add_edges_from(edges); order=list(range(800)); fnx.attr_matrix(G, rc_order=order)'
+  Time (mean ± σ):     307.7 ms ±  21.0 ms    [User: 4430.8 ms, System: 62.2 ms]
+  Range (min … max):   284.6 ms … 365.8 ms    20 runs
+ 
