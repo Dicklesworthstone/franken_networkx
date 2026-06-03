@@ -44,9 +44,12 @@ Artifact checksum verification:
 
 ## Validation
 
-- `rch exec -- cargo check -p fnx-python --all-targets`: passed.
-- `rch exec -- cargo clippy -p fnx-python --all-targets -- -D warnings`: passed after removing redundant `#[must_use]` on the iterator helper.
-- `rch exec -- rustfmt --edition 2024 --check crates/fnx-classes/src/lib.rs crates/fnx-python/src/algorithms.rs`: passed.
+- `rch exec -- cargo check -p fnx-classes`: passed.
+- `rch exec -- cargo check -p fnx-python --features pyo3/abi3-py310`: passed.
+- `rch exec -- cargo clippy -p fnx-classes --all-targets -- -D warnings`: passed.
+- `rch exec -- cargo clippy -p fnx-python --features pyo3/abi3-py310 -- -D warnings`: passed.
+- `rustfmt --edition 2024 --check crates/fnx-classes/src/lib.rs crates/fnx-python/src/algorithms.rs`: passed.
 - `rch exec -- cargo test -p fnx-classes edge_storage_order_index_iter_tracks_mutations`: passed.
-- `rch exec -- .venv/bin/python -m pytest tests/python/test_to_scipy_sparse_native_weighted_parity.py tests/python/test_to_scipy_sparse_default_native_parity.py -q`: `303 passed`.
-- `timeout 180 ubs crates/fnx-classes/src/lib.rs crates/fnx-python/src/algorithms.rs`: exit 0.
+- `rch exec -- .venv/bin/python -m pytest tests/python/test_to_scipy_sparse_native_weighted_parity.py -q`: `296 passed`.
+- `rch exec -- .venv/bin/python -m pytest tests/python/test_to_scipy_sparse_default_native_parity.py -q`: `7 passed`.
+- `timeout 180s ubs crates/fnx-classes/src/lib.rs crates/fnx-python/src/algorithms.rs`: exit 0, zero critical issues.
