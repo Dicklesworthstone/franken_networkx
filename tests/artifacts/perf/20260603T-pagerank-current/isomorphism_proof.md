@@ -33,6 +33,7 @@ Rejected alternative:
 Verification:
 - `rch exec -- .venv/bin/python -m py_compile python/franken_networkx/__init__.py`: passed.
 - `rch exec -- .venv/bin/python -m pytest tests/python/test_link_analysis_summarization_conformance.py tests/python/test_algorithm_family_conformance_harness.py -q -k 'pagerank'`: 28 passed, 114 deselected.
+- `rch exec -- cargo check -p fnx-python --all-targets`: passed.
 - `rch exec -- hyperfine ...`: before mean 2.3809479245399996 s, after mean 2.2784277788942857 s.
 - `git diff --check -- python/franken_networkx/__init__.py .skill-loop-progress.md .beads/issues.jsonl tests/artifacts/perf/20260603T-pagerank-current`: passed.
 - `timeout 180 ubs python/franken_networkx/__init__.py tests/artifacts/perf/20260603T-pagerank-current/alien_recommendation_card.md tests/artifacts/perf/20260603T-pagerank-current/isomorphism_proof.md tests/artifacts/perf/20260603T-pagerank-current/golden_sha256.txt`: timed out after preparing/scanning the specified files; no finding body was emitted before timeout.
