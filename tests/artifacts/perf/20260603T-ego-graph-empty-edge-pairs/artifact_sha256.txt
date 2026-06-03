@@ -16,4 +16,4 @@ b1652015c5caf3c82d287159985bc86cc510b3226811bd679ee395004488578b  tests/artifact
 54a3bc77d1dd32ced39a937aca109c74d9eb336d4203b3dec5ad9e71336fa422  tests/artifacts/perf/20260603T-ego-graph-empty-edge-pairs/profile_baseline_fnx.txt
 53be7140f900ef6e183370cb444be05ef41f3eae4a7fb98efb93ba1d06e4e405  tests/artifacts/perf/20260603T-ego-graph-empty-edge-pairs/pytest_focused.rch.log
 e2d73356bde3265e23f11199d665cadb17edd6b8a5013894314336fac7a4cce1  tests/artifacts/perf/20260603T-ego-graph-empty-edge-pairs/ubs_python_init.log
-bf25d269cb0cdf55514332787e0ee751b169d5275094a7e601caab07aed3bc63  tests/artifacts/perf/20260603T-ego-graph-empty-edge-pairs/validation_summary.md
+5f12ee3a5e05ab4b9c28600db14055d8d34a035940af50411c302d903ca335b9  tests/artifacts/perf/20260603T-ego-graph-empty-edge-pairs/validation_summary.md

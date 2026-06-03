@@ -8,9 +8,11 @@
   - Result: passed.
 - `env AGENT_NAME=TealSpring rch exec -- env PYTHONPATH=python .venv/bin/python -m py_compile python/franken_networkx/__init__.py`
   - Result: passed. `rch` warned that this is a non-compilation command, but executed it successfully.
-- `env AGENT_NAME=TealSpring rch exec -- env PYTHONPATH=python .venv/bin/python -m pytest tests/python/test_ego_graph_node_order_parity.py tests/python/test_native_replacements_parity.py::TestEgoGraph tests/python/test_quickwin_rewire_parity.py::test_ego_graph_matches_nx -q`
-  - Result: `13 passed in 0.41s`. `rch` warned that this is a non-compilation command, but executed it successfully.
-- `timeout 90 ubs python/franken_networkx/__init__.py`
+- `env AGENT_NAME=TealSpring rch exec -- cargo check -p fnx-python --features pyo3/abi3-py310`
+  - Result: passed.
+- `env AGENT_NAME=TealSpring rch exec -- env PYTHONPATH=python .venv/bin/python -m pytest tests/python/test_quickwin_rewire_parity.py::test_ego_graph_matches_nx tests/python/test_review_mode_regression_lock.py::test_ego_graph_missing_source_and_nan_radius_match_nx tests/python/test_ego_graph_node_order_parity.py -q`
+  - Result: `12 passed in 0.51s`. `rch` warned that this is a non-compilation command, but executed it successfully.
+- `timeout 240s ubs --only=python python/franken_networkx/__init__.py`
   - Result: timed out after scanner startup without findings. Existing artifact `ubs_python_init.log` records the scanner startup for this changed file.
 
 ## Benchmark Evidence
