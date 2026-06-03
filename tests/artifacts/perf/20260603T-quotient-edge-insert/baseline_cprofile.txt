@@ -1,0 +1,58 @@
+         363342 function calls in 0.235 seconds
+
+   Ordered by: cumulative time
+   List reduced from 110 to 50 due to restriction <50>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.000    0.000    0.235    0.235 /data/projects/franken_networkx/tests/artifacts/perf/20260603T-quotient-edge-insert/bench_quotient_graph.py:77(run_case)
+        1    0.000    0.000    0.118    0.118 /data/projects/franken_networkx/python/franken_networkx/__init__.py:43066(wrapper)
+        1    0.005    0.005    0.118    0.118 /data/projects/franken_networkx/python/franken_networkx/__init__.py:21571(quotient_graph)
+    17662    0.008    0.000    0.105    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:2194(add_edge)
+    17662    0.094    0.000    0.094    0.000 {function Graph.add_edge at 0x747bae065800}
+        1    0.009    0.009    0.074    0.074 /data/projects/franken_networkx/python/franken_networkx/__init__.py:21751(_add_default_undirected_bucketed_edges)
+        1    0.005    0.005    0.072    0.072 /data/projects/franken_networkx/tests/artifacts/perf/20260603T-quotient-edge-insert/bench_quotient_graph.py:20(build_graph)
+        1    0.000    0.000    0.045    0.045 /data/projects/franken_networkx/tests/artifacts/perf/20260603T-quotient-edge-insert/bench_quotient_graph.py:68(digest_result)
+        1    0.008    0.008    0.028    0.028 /data/projects/franken_networkx/tests/artifacts/perf/20260603T-quotient-edge-insert/bench_quotient_graph.py:41(canonical_edges)
+        2    0.000    0.000    0.019    0.009 /data/projects/franken_networkx/python/franken_networkx/__init__.py:612(__iter__)
+        2    0.019    0.009    0.019    0.009 /data/projects/franken_networkx/python/franken_networkx/__init__.py:507(_materialize)
+    18000    0.006    0.000    0.018    0.000 /usr/lib/python3.13/random.py:295(randrange)
+        1    0.000    0.000    0.015    0.015 /usr/lib/python3.13/json/__init__.py:183(dumps)
+        1    0.000    0.000    0.015    0.015 /usr/lib/python3.13/json/encoder.py:183(encode)
+        1    0.015    0.015    0.015    0.015 /usr/lib/python3.13/json/encoder.py:205(iterencode)
+     9288    0.006    0.000    0.011    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:21683(_record_partition_edge)
+    18000    0.008    0.000    0.011    0.000 /usr/lib/python3.13/random.py:245(_randbelow_with_getrandbits)
+      300    0.000    0.000    0.010    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:21727(_default_node_data)
+        1    0.001    0.001    0.010    0.010 /data/projects/franken_networkx/python/franken_networkx/__init__.py:2272(add_nodes_from)
+      300    0.000    0.000    0.009    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:30064(subgraph)
+     3300    0.001    0.000    0.009    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:2240(add_node)
+    25398    0.007    0.000    0.007    0.000 {built-in method builtins.sorted}
+     3300    0.007    0.000    0.007    0.000 {function Graph.add_node at 0x747bae065b20}
+     6300    0.003    0.000    0.006    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:29314(__contains__)
+      300    0.001    0.000    0.006    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:35855(_subgraph_filter_from_nbunch)
+    17656    0.004    0.000    0.006    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:425(__next__)
+    45219    0.005    0.000    0.005    0.000 {method 'get' of 'dict' objects}
+    44924    0.004    0.000    0.004    0.000 {built-in method builtins.hash}
+      300    0.001    0.000    0.003    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:29952(_generic_filtered_graph_view)
+     6622    0.002    0.000    0.003    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:28894(_private_override)
+      300    0.001    0.000    0.002    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:28491(__init__)
+    17656    0.002    0.000    0.002    0.000 {built-in method builtins.next}
+    24601    0.002    0.000    0.002    0.000 {method 'getrandbits' of '_random.Random' objects}
+    18000    0.001    0.000    0.001    0.000 {method 'bit_length' of 'int' objects}
+    18000    0.001    0.000    0.001    0.000 {built-in method _operator.index}
+     1233    0.001    0.000    0.001    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:5237(predicate)
+     8966    0.001    0.000    0.001    0.000 {method 'append' of 'list' objects}
+     7525    0.001    0.000    0.001    0.000 {built-in method builtins.vars}
+        1    0.000    0.000    0.001    0.001 /data/projects/franken_networkx/tests/artifacts/perf/20260603T-quotient-edge-insert/bench_quotient_graph.py:54(canonical_nodes)
+     8366    0.001    0.000    0.001    0.000 {method 'items' of 'dict' objects}
+    10808    0.001    0.000    0.001    0.000 {built-in method builtins.isinstance}
+     6000    0.001    0.000    0.001    0.000 {method 'add' of 'set' objects}
+        1    0.001    0.001    0.001    0.001 {built-in method _hashlib.openssl_sha256}
+        1    0.001    0.001    0.001    0.001 {method 'encode' of 'str' objects}
+      300    0.001    0.000    0.001    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:4545(__getitem__)
+      300    0.000    0.000    0.001    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:28211(_filtered_public_adjacency_view)
+      301    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:29327(nodes)
+      300    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:5047(__get__)
+      300    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:28575(is_multigraph)
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/tests/artifacts/perf/20260603T-quotient-edge-insert/bench_quotient_graph.py:37(make_partition)
+
+

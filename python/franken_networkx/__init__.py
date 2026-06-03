@@ -21759,6 +21759,7 @@ def quotient_graph(
         if not default_pair_weights_supported:
             return False
 
+        edge_bunch = []
         for i, block_u in enumerate(partition):
             for j in range(i + 1, len(partition)):
                 key = (i, j)
@@ -21766,9 +21767,12 @@ def quotient_graph(
                     continue
                 block_v = partition[j]
                 if weight:
-                    H.add_edge(block_u, block_v, **{weight: default_pair_totals[key]})
+                    edge_bunch.append(
+                        (block_u, block_v, {weight: default_pair_totals[key]})
+                    )
                 else:
-                    H.add_edge(block_u, block_v)
+                    edge_bunch.append((block_u, block_v))
+        H.add_edges_from(edge_bunch)
         return True
 
     if not _add_default_undirected_bucketed_edges():
