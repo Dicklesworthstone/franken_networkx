@@ -1374,6 +1374,16 @@ class _DiGraphEdgeView:
                 return _guarded_edge_list(
                     native(), self._graph, guard_edge_count=True
                 )
+        # br-r37-c1-deg-datakey: all-edges data=<key> (e.g. data='weight')
+        # routes to the native (u, v, attrs.get(key, default)) builder instead
+        # of the per-source succ[source].items() AtlasView walk (~40x). data is
+        # a key here (not the True/False sentinels).
+        if nbunch is None and data is not False and data is not True:
+            native = getattr(self._graph, "_native_edges_data_key", None)
+            if native is not None:
+                return _guarded_edge_list(
+                    native(data, default), self._graph, guard_edge_count=True
+                )
         result = []
         for source in self._graph.nbunch_iter(nbunch):
             for target, attrs in self._graph.succ[source].items():

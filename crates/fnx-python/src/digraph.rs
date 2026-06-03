@@ -3554,6 +3554,39 @@ impl PyDiGraph {
         Ok(items.into_pyobject(py)?.into_any().unbind())
     }
 
+    /// br-r37-c1-deg-datakey: native ordered ``(u, v, attrs.get(key, default))``
+    /// materialization for the Python _DiGraphEdgeView ``edges(data=<key>)``
+    /// fast path. Same node x successor traversal as ``_native_edges_no_data``;
+    /// reads each edge's value for ``key`` from the live ``edge_py_attrs`` dict
+    /// (falling back to ``default``), avoiding the per-edge
+    /// ``succ[source].items()`` AtlasView walk (~40x). Yields a VALUE (not the
+    /// dict) so no dirty-mark is needed (read-only, matches nx's
+    /// ``attrs.get(data, default)``).
+    fn _native_edges_data_key(
+        &self,
+        py: Python<'_>,
+        key: &Bound<'_, PyAny>,
+        default: PyObject,
+    ) -> PyResult<PyObject> {
+        let mut items = Vec::with_capacity(self.inner.edge_count());
+        for (u, v, _) in self.inner.edges_ordered_borrowed() {
+            let py_u = self.py_node_key(py, u);
+            let py_v = self.py_node_key(py, v);
+            let ek = Self::edge_key(u, v);
+            let value = match self.edge_py_attrs.get(&ek) {
+                Some(d) => d
+                    .bind(py)
+                    .get_item(key)
+                    .ok()
+                    .flatten()
+                    .map_or_else(|| default.clone_ref(py), |val| val.unbind()),
+                None => default.clone_ref(py),
+            };
+            items.push(tuple_object(py, &[py_u, py_v, value])?);
+        }
+        Ok(items.into_pyobject(py)?.into_any().unbind())
+    }
+
     /// ``G.adj`` / ``G.succ`` — successor adjacency.
     #[getter]
     fn adj(slf: PyRef<'_, Self>) -> PyResult<Py<DiAdjacencyView>> {
