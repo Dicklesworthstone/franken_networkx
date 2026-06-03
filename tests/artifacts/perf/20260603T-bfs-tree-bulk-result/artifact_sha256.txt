@@ -1,0 +1,9 @@
+83823994e0e26034906140876681ae81c1318c6f3f477bab8f89cc1227d4df30  tests/artifacts/perf/20260603T-bfs-tree-bulk-result/baseline_fnx.jsonl
+ee5c8b336bb2e001f7990179f85dbb56618a6e2b9456f27dc28087b4a046d28c  tests/artifacts/perf/20260603T-bfs-tree-bulk-result/baseline_nx.jsonl
+6d4d63e10d90ae4daa2c6b0bc07172052327995c26170fed2add9619f0f30b41  tests/artifacts/perf/20260603T-bfs-tree-bulk-result/after_fnx.jsonl
+e87e159a5e872b7801826bfd30f29aa08e9e6996b1f5983d4595665dcd81d455  tests/artifacts/perf/20260603T-bfs-tree-bulk-result/baseline_hyperfine.json
+53325eaf91d113c69db1fdc90714d38dc16dcf54c0ac70d6ae3eb665a784562f  tests/artifacts/perf/20260603T-bfs-tree-bulk-result/after_hyperfine.json
+c1e1d48d986d121a959ab4a3ec594fc34a0328f5bed47ce62a7ea5df415115dd  tests/artifacts/perf/20260603T-bfs-tree-bulk-result/profile_before.txt
+4796b6b35865a506d083ae8ba377ba304e07a8aa46589520dad680b90ae9fd19  tests/artifacts/perf/20260603T-bfs-tree-bulk-result/profile_after.txt
+ed2596b717c014bf97c864cfb6e69bef0b39b31c805596749e6bb0388d14b41d  tests/artifacts/perf/20260603T-bfs-tree-bulk-result/isomorphism_proof.md
+350d5fe29e13c99992229d43da8c150cbb6584ce7ed3f93c85ab2822ad5e664e  tests/artifacts/perf/20260603T-bfs-tree-bulk-result/alien_recommendation_card.md
