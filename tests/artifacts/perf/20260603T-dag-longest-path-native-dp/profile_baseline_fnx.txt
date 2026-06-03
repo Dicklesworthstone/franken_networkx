@@ -1,0 +1,49 @@
+{"elapsed_s": 1.809875122999074, "payload": {"length": 16, "length_type": "int", "path": [5, 25, 42, 79, 83, 116, 125, 149, 151, 192, 266, 289, 299, 333, 383, 393, 394], "path_types": ["int", "int", "int", "int", "int", "int", "int", "int", "int", "int", "int", "int", "int", "int", "int", "int", "int"]}, "repeat": 80, "sha256": "5b8012a4dd619416733afe7f6475760247475c466e9c3975cfb60f6827688161"}
+         4064810 function calls (4064570 primitive calls) in 1.711 seconds
+
+   Ordered by: cumulative time
+   List reduced from 57 to 40 due to restriction <40>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.000    0.000    1.810    1.810 bench_dag_longest_path.py:40(_time_module)
+       80    0.001    0.000    1.810    0.023 bench_dag_longest_path.py:24(_result_payload)
+  400/160    0.002    0.000    1.809    0.011 __init__.py:43164(wrapper)
+      160    0.301    0.002    1.794    0.011 __init__.py:12546(dag_longest_path)
+       80    0.002    0.000    0.909    0.011 __init__.py:12627(dag_longest_path_length)
+   327360    0.072    0.000    0.626    0.000 __init__.py:1039(<genexpr>)
+   328640    0.068    0.000    0.592    0.000 __init__.py:1098(_atlas)
+   264640    0.071    0.000    0.556    0.000 __init__.py:1107(__getitem__)
+   328640    0.380    0.000    0.524    0.000 __init__.py:1170(<lambda>)
+    65280    0.186    0.000    0.231    0.000 __init__.py:1160(__getitem__)
+   393920    0.077    0.000    0.176    0.000 __init__.py:1142(_atlas)
+    64000    0.026    0.000    0.166    0.000 __init__.py:1037(__iter__)
+    64160    0.089    0.000    0.166    0.000 __init__.py:12434(topological_sort)
+    64000    0.025    0.000    0.140    0.000 __init__.py:1104(__iter__)
+    64000    0.017    0.000    0.121    0.000 __init__.py:29802(<lambda>)
+    64000    0.029    0.000    0.104    0.000 __init__.py:29078(_private_pred_mapping)
+    55200    0.051    0.000    0.074    0.000 {built-in method builtins.max}
+   397600    0.045    0.000    0.045    0.000 {method 'get' of 'dict' objects}
+    67520    0.024    0.000    0.041    0.000 __init__.py:28992(_private_override)
+      160    0.041    0.000    0.041    0.000 {method '_native_adjacency_keys' of 'franken_networkx.DiGraph' objects}
+    65440    0.022    0.000    0.036    0.000 __init__.py:1267(_accessor)
+   266080    0.031    0.000    0.031    0.000 {method 'append' of 'list' objects}
+   264320    0.026    0.000    0.026    0.000 {built-in method builtins.isinstance}
+    64000    0.020    0.000    0.026    0.000 __init__.py:1086(_adjacency_view_items)
+   263360    0.019    0.000    0.019    0.000 __init__.py:12613(<lambda>)
+   132960    0.017    0.000    0.017    0.000 {built-in method builtins.vars}
+      480    0.014    0.000    0.015    0.000 __init__.py:29392(__iter__)
+    64000    0.009    0.000    0.009    0.000 {method 'popleft' of 'collections.deque' objects}
+     1280    0.001    0.000    0.009    0.000 __init__.py:1331(_graph_getitem_from_adj)
+    64000    0.008    0.000    0.008    0.000 {built-in method builtins.iter}
+    65280    0.007    0.000    0.007    0.000 {built-in method builtins.hash}
+    55040    0.007    0.000    0.007    0.000 {method 'append' of 'collections.deque' objects}
+    65280    0.007    0.000    0.007    0.000 __init__.py:1095(__init__)
+    64000    0.006    0.000    0.006    0.000 __init__.py:1034(__init__)
+    64000    0.004    0.000    0.004    0.000 __init__.py:12617(<lambda>)
+     9120    0.004    0.000    0.004    0.000 __init__.py:12488(<genexpr>)
+     1280    0.000    0.000    0.003    0.000 __init__.py:29786(<lambda>)
+     1280    0.001    0.000    0.003    0.000 __init__.py:29061(_private_directed_adj_mapping)
+      800    0.001    0.000    0.001    0.000 __init__.py:5251(predicate)
+      320    0.000    0.000    0.001    0.000 {built-in method builtins.len}
+
+

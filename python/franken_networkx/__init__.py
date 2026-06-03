@@ -12543,6 +12543,32 @@ def topological_generations(G):
         raise
 
 
+def _dag_longest_path_digraph_native(G, weight, default_weight):
+    topo_order = list(topological_sort(G))
+    pred_map = {node: [] for node in topo_order}
+    for u, v, edge_weight in G._native_in_edges_data_key(weight, default_weight):
+        pred_map[v].append((u, edge_weight))
+
+    dist = {}
+    for v in topo_order:
+        us = [
+            (dist[u][0] + edge_weight, u)
+            for u, edge_weight in pred_map[v]
+        ]
+        maxu = max(us, key=lambda x: x[0]) if us else (0, v)
+        dist[v] = maxu if maxu[0] >= 0 else (0, v)
+
+    u = None
+    v = max(dist, key=lambda x: dist[x][0])
+    path = []
+    while u != v:
+        path.append(v)
+        u = v
+        v = dist[v][1]
+    path.reverse()
+    return path
+
+
 def dag_longest_path(G, weight="weight", default_weight=1, topo_order=None):
     """Return the longest path in a DAG.
 
@@ -12580,6 +12606,13 @@ def dag_longest_path(G, weight="weight", default_weight=1, topo_order=None):
         )
     if len(G) == 0:
         return []
+
+    if topo_order is None and type(G) is DiGraph:
+        native_in_edges = getattr(G, "_native_in_edges_data_key", None)
+        if native_in_edges is not None:
+            return _dag_longest_path_digraph_native(
+                G, weight, default_weight
+            )
 
     if topo_order is None:
         topo_order = topological_sort(G)
