@@ -21662,69 +21662,106 @@ def quotient_graph(
         # Route through canonical-class resolver (cycle-225 family).
         H = _concrete_class_for(G)()
 
+    block_index = {}
+    block_nnodes = []
+    for idx, block in enumerate(partition):
+        block_nnodes.append(len(block))
+        for node in block:
+            block_index[node] = idx
+
+    can_bucket_default_undirected_edges = (
+        default_edge_relation
+        and edge_data is None
+        and create_using is None
+        and not G.is_directed()
+        and not G.is_multigraph()
+    )
+    block_nedges = [0] * len(partition)
+    default_pair_totals = {} if can_bucket_default_undirected_edges else None
+    default_pair_weights_supported = True
+
+    def _record_partition_edge(u, v, data):
+        nonlocal default_pair_weights_supported
+
+        u_idx = block_index.get(u)
+        v_idx = block_index.get(v)
+        if u_idx is None or v_idx is None:
+            return
+        if u_idx == v_idx:
+            block_nedges[u_idx] += 1
+            return
+        if default_pair_totals is None:
+            return
+        if u_idx > v_idx:
+            u_idx, v_idx = v_idx, u_idx
+        key = (u_idx, v_idx)
+        if weight:
+            value = data.get(weight, 1)
+            if not isinstance(value, int):
+                default_pair_weights_supported = False
+                return
+            default_pair_totals[key] = default_pair_totals.get(key, 0) + value
+        else:
+            default_pair_totals.setdefault(key, 0)
+
+    if G.is_multigraph():
+        for u, v, _key, data in G.edges(keys=True, data=True):
+            _record_partition_edge(u, v, data)
+    else:
+        for u, v, data in G.edges(data=True):
+            _record_partition_edge(u, v, data)
+
+    def _density_from_counts(nnodes, nedges):
+        if nedges == 0 or nnodes <= 1:
+            return 0
+        result = nedges / (nnodes * (nnodes - 1))
+        if not G.is_directed():
+            result *= 2
+        return result
+
     # Add block nodes
     # br-r37-c1-ja61l: when node_data is not provided, nx attaches a
     # default attribute dict to each block node containing the block's
     # subgraph, node _count, edge _count, and density. Mirror nx's
     # contract so drop-in callers see the same node-attr shape.
-    def _default_node_data(block):
+    def _default_node_data(block, block_idx):
         sub = G.subgraph(block)
-        nnodes = sub.number_of_nodes()
-        nedges = sub.number_of_edges()
+        nnodes = block_nnodes[block_idx]
+        nedges = block_nedges[block_idx]
         return {
             "graph": sub,
             "nnodes": nnodes,
             "nedges": nedges,
-            "density": density(sub),
+            "density": _density_from_counts(nnodes, nedges),
         }
 
-    for block in partition:
+    for block_idx, block in enumerate(partition):
         node_label = block
         if node_data is not None:
             H.add_node(node_label, **node_data(block))
         else:
-            H.add_node(node_label, **_default_node_data(block))
+            attrs = _default_node_data(block, block_idx)
+            H.add_node(node_label)
+            node_attrs = H.nodes[node_label]
+            node_attrs["graph"] = attrs["graph"]
+            node_attrs["nnodes"] = attrs["nnodes"]
+            node_attrs["nedges"] = attrs["nedges"]
+            node_attrs["density"] = attrs["density"]
 
     def _add_default_undirected_bucketed_edges():
-        if (
-            not default_edge_relation
-            or edge_data is not None
-            or create_using is not None
-            or G.is_directed()
-            or G.is_multigraph()
-        ):
+        if not can_bucket_default_undirected_edges:
             return False
-
-        block_index = {}
-        for idx, block in enumerate(partition):
-            for node in block:
-                block_index[node] = idx
-
-        pair_totals = {}
-        for u, v, data in G.edges(data=True):
-            u_idx = block_index.get(u)
-            v_idx = block_index.get(v)
-            if u_idx is None or v_idx is None or u_idx == v_idx:
-                continue
-            if u_idx > v_idx:
-                u_idx, v_idx = v_idx, u_idx
-            key = (u_idx, v_idx)
-            if weight:
-                value = data.get(weight, 1)
-                if not isinstance(value, int):
-                    return False
-                pair_totals[key] = pair_totals.get(key, 0) + value
-            else:
-                pair_totals.setdefault(key, 0)
+        if not default_pair_weights_supported:
+            return False
 
         for i, block_u in enumerate(partition):
             for j in range(i + 1, len(partition)):
                 key = (i, j)
-                if key not in pair_totals:
+                if key not in default_pair_totals:
                     continue
                 block_v = partition[j]
                 if weight:
-                    H.add_edge(block_u, block_v, **{weight: pair_totals[key]})
+                    H.add_edge(block_u, block_v, **{weight: default_pair_totals[key]})
                 else:
                     H.add_edge(block_u, block_v)
         return True
@@ -21759,6 +21796,9 @@ def quotient_graph(
         H = relabel_nodes(H, mapping)
 
     # br-r37-c1-e8sjt: Always return fnx type for consistency
+    if create_using is None:
+        return H
+
     from franken_networkx.readwrite import _from_nx_graph
     return _from_nx_graph(H, create_using=create_using)
 

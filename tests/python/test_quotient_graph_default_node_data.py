@@ -100,6 +100,62 @@ def test_quotient_graph_default_attrs_present():
     assert attrs["nedges"] == 2
 
 
+def test_quotient_graph_default_graph_attr_stays_live_and_ordered():
+    graph = fnx.path_graph(4)
+    result = fnx.quotient_graph(graph, [{0, 1}, {2, 3}])
+    block = frozenset({0, 1})
+    attrs = result.nodes[block]
+
+    assert list(attrs.keys()) == ["graph", "nnodes", "nedges", "density"]
+    assert attrs["nedges"] == 1
+
+    graph.add_edge(0, 0)
+
+    assert attrs["graph"].number_of_edges() == 2
+    assert attrs["nedges"] == 1
+
+
+@needs_nx
+def test_quotient_graph_default_directed_node_metrics_match_networkx():
+    fnx_graph = fnx.DiGraph()
+    fnx_graph.add_edges_from([(0, 1), (1, 0), (1, 2), (2, 2), (2, 3)])
+    nx_graph = nx.DiGraph()
+    nx_graph.add_edges_from(fnx_graph.edges())
+    partition = [{0, 1}, {2, 3}]
+
+    result = fnx.quotient_graph(fnx_graph, partition)
+    expected = nx.quotient_graph(nx_graph, partition)
+
+    for block in result.nodes():
+        result_attrs = result.nodes[block]
+        expected_attrs = expected.nodes[block]
+        assert result_attrs["nnodes"] == expected_attrs["nnodes"]
+        assert result_attrs["nedges"] == expected_attrs["nedges"]
+        assert result_attrs["density"] == pytest.approx(expected_attrs["density"])
+
+
+@needs_nx
+def test_quotient_graph_default_multigraph_node_metrics_match_networkx():
+    fnx_graph = fnx.MultiGraph()
+    fnx_graph.add_edge(0, 1)
+    fnx_graph.add_edge(0, 1)
+    fnx_graph.add_edge(1, 1)
+    fnx_graph.add_edge(1, 2)
+    nx_graph = nx.MultiGraph()
+    nx_graph.add_edges_from(fnx_graph.edges(keys=True))
+    partition = [{0, 1, 2}]
+
+    result = fnx.quotient_graph(fnx_graph, partition)
+    expected = nx.quotient_graph(nx_graph, partition)
+    block = frozenset({0, 1, 2})
+
+    assert result.nodes[block]["nnodes"] == expected.nodes[block]["nnodes"]
+    assert result.nodes[block]["nedges"] == expected.nodes[block]["nedges"]
+    assert result.nodes[block]["density"] == pytest.approx(
+        expected.nodes[block]["density"]
+    )
+
+
 @needs_nx
 def test_quotient_graph_default_unweighted_bucket_path_matches_networkx():
     graph = fnx.Graph()

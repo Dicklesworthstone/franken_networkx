@@ -1,0 +1,4 @@
+Benchmark 1: .venv/bin/python tests/artifacts/perf/20260603T-quotient-node-metrics/bench_quotient_graph.py bench --engines fnx --samples 1 --n 3000 --block-size 10 --extra-edges 9000
+  Time (mean ± σ):      7.339 s ±  0.124 s    [User: 10.811 s, System: 0.098 s]
+  Range (min … max):    7.213 s …  7.522 s    5 runs
+ 
