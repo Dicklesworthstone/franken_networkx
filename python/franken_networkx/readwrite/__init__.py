@@ -389,6 +389,22 @@ def adjacency_data(G, attrs={"id": "id", "key": "key"}):  # noqa: B006
     """Return adjacency JSON data using fnx's graph-preserving wrapper."""
     import franken_networkx as fnx
 
+    # Native fast path for exact simple Graph / DiGraph: build the `nodes`
+    # and `adjacency` arrays in Rust, bypassing the per-edge AdjacencyView
+    # Python machinery that made this ~14x slower than nx. Multigraphs and any
+    # subclass / filtered view (SubgraphView etc.) take the general wrapper.
+    if type(G) in (fnx.Graph, fnx.DiGraph):
+        _attrs = {"id": "id", "key": "key"} if attrs is None else attrs
+        native = fnx._fnx.adjacency_data_simple(G, _attrs["id"])
+        if native is not None:
+            nodes, adjacency = native
+            return {
+                "directed": G.is_directed(),
+                "multigraph": False,
+                "graph": list(G.graph.items()),
+                "nodes": nodes,
+                "adjacency": adjacency,
+            }
     return fnx.adjacency_data(G, attrs=attrs)
 
 

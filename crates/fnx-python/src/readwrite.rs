@@ -876,6 +876,85 @@ pub fn to_dict_of_lists_undirected(
     Ok(Some(outer.unbind()))
 }
 
+/// Native fast path for `adjacency_data` (json_graph) on simple `Graph` and
+/// `DiGraph`. Returns the `(nodes, adjacency)` pair that the Python wrapper
+/// assembles into the full payload:
+///   - `nodes`      = `[{**node_attrs, id_: node}, ...]`     (node insertion order)
+///   - `adjacency`  = `[[{**edge_attrs, id_: nbr}, ...], ...]` (adjacency order)
+///
+/// Each emitted dict is a COPY of the live `node_py_attrs` / `edge_py_attrs`
+/// dict with the `id_` field inserted last, exactly mirroring nx's
+/// `{**attrs, id_: n}` spread (so a pre-existing `id_` key is overwritten in
+/// place and the graph's stored attr dicts are never mutated). This bypasses
+/// the per-access AdjacencyView Python machinery that made the pure-Python
+/// wrapper ~14x slower than nx.
+///
+/// Returns `None` for multigraph inputs so the wrapper falls back to its
+/// general implementation; the wrapper also gates on exact graph type so
+/// filtered SubgraphViews / subclasses never reach here.
+#[pyfunction]
+pub fn adjacency_data_simple(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    id_: &str,
+) -> PyResult<Option<(Py<PyList>, Py<PyList>)>> {
+    let gr = extract_graph(g)?;
+    let nodes = PyList::empty(py);
+    let adjacency = PyList::empty(py);
+    match &gr {
+        GraphRef::Undirected(pg) => {
+            for u in pg.inner.nodes_ordered() {
+                let node_dict = match pg.node_py_attrs.get(u) {
+                    Some(d) => d.bind(py).copy()?,
+                    None => PyDict::new(py),
+                };
+                node_dict.set_item(id_, pg.py_node_key(py, u))?;
+                nodes.append(node_dict)?;
+
+                let nbr_list = PyList::empty(py);
+                if let Some(neighbors) = pg.inner.neighbors_iter(u) {
+                    for v in neighbors {
+                        let ek = PyGraph::edge_key(u, v);
+                        let edge_dict = match pg.edge_py_attrs.get(&ek) {
+                            Some(d) => d.bind(py).copy()?,
+                            None => PyDict::new(py),
+                        };
+                        edge_dict.set_item(id_, pg.py_node_key(py, v))?;
+                        nbr_list.append(edge_dict)?;
+                    }
+                }
+                adjacency.append(nbr_list)?;
+            }
+        }
+        GraphRef::Directed { dg, .. } => {
+            for u in dg.inner.nodes_ordered() {
+                let node_dict = match dg.node_py_attrs.get(u) {
+                    Some(d) => d.bind(py).copy()?,
+                    None => PyDict::new(py),
+                };
+                node_dict.set_item(id_, dg.py_node_key(py, u))?;
+                nodes.append(node_dict)?;
+
+                let nbr_list = PyList::empty(py);
+                if let Some(neighbors) = dg.inner.successors_iter(u) {
+                    for v in neighbors {
+                        let ek = PyDiGraph::edge_key(u, v);
+                        let edge_dict = match dg.edge_py_attrs.get(&ek) {
+                            Some(d) => d.bind(py).copy()?,
+                            None => PyDict::new(py),
+                        };
+                        edge_dict.set_item(id_, dg.py_node_key(py, v))?;
+                        nbr_list.append(edge_dict)?;
+                    }
+                }
+                adjacency.append(nbr_list)?;
+            }
+        }
+        GraphRef::MultiUndirected { .. } | GraphRef::MultiDirected { .. } => return Ok(None),
+    }
+    Ok(Some((nodes.unbind(), adjacency.unbind())))
+}
+
 /// br-r37-c1-gl3nq: native fast path for `to_edgelist` on exact simple
 /// `Graph` and `DiGraph` with no nodelist. It preserves the existing fnx
 /// materialized list-like return behavior while avoiding Python adjacency
@@ -1054,6 +1133,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(floyd_warshall_dense, m)?)?;
     m.add_function(wrap_pyfunction!(to_dict_of_dicts_undirected, m)?)?;
     m.add_function(wrap_pyfunction!(to_dict_of_lists_undirected, m)?)?;
+    m.add_function(wrap_pyfunction!(adjacency_data_simple, m)?)?;
     m.add_function(wrap_pyfunction!(to_edgelist_simple, m)?)?;
     m.add_function(wrap_pyfunction!(read_edgelist, m)?)?;
     m.add_function(wrap_pyfunction!(write_edgelist, m)?)?;
