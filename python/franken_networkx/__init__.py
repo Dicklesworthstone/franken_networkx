@@ -2356,6 +2356,19 @@ def _multi_add_edges_from(self, ebunch_to_add, **attr):
     so a ``'key'`` attribute in datadict doesn't collide with the
     positional ``key`` parameter (franken_networkx-uphdr pattern).
     """
+    # br-r37-c1-mgaddedges: the previous per-edge auto-key computation used
+    # ``self.has_edge(u, v)`` + ``self[u][v]`` (to find the next free parallel
+    # key, gap-aware: ``key = len(existing); while key in existing: key += 1``).
+    # Each ``self[u][v]`` rebuilt the full MultiAdjacencyView — O(E) after every
+    # edges_seq bump — making bulk construction O(E^2) (~130x slower than nx on
+    # 20k edges). Replace ``self[u][v]`` with the native O(1) ``get_edge_data(u,
+    # v)`` keydict (1us even on a 20k-edge graph): same gap-aware key (so mixed
+    # explicit/auto keys still match nx), and route the attr mutation through the
+    # O(1) ``get_edge_data(u, v, key)`` (live dict) instead of ``self[u][v]``.
+    if isinstance(self, MultiGraph) and not self.is_directed():
+        _add_edge = _MULTIGRAPH_ADD_EDGE.__get__(self)
+    else:
+        _add_edge = _MULTIDIGRAPH_ADD_EDGE.__get__(self)
     for e in ebunch_to_add:
         ne = len(e)
         if ne == 4:
@@ -2373,29 +2386,19 @@ def _multi_add_edges_from(self, ebunch_to_add, **attr):
             raise NetworkXError(
                 f"Edge tuple {e} must be a 2-tuple, 3-tuple or 4-tuple."
             )
-        # Auto-assign key if missing + edge already present
         actual_key = key
-        if actual_key is None and self.has_edge(u, v):
-            existing = self[u][v]
-            candidate = len(existing)
-            while candidate in existing:
-                candidate += 1
-            actual_key = candidate
-        # Add the edge (no attrs) then mutate — attrs splat would
-        # collide with ``key`` if datadict has a 'key' entry.
         if actual_key is None:
-            actual_key = _MULTIGRAPH_ADD_EDGE.__get__(self)(u, v, key=None) \
-                if isinstance(self, MultiGraph) and not self.is_directed() \
-                else _MULTIDIGRAPH_ADD_EDGE.__get__(self)(u, v, key=None)
-        else:
-            if isinstance(self, MultiGraph) and not self.is_directed():
-                _MULTIGRAPH_ADD_EDGE.__get__(self)(u, v, key=actual_key)
-            else:
-                _MULTIDIGRAPH_ADD_EDGE.__get__(self)(u, v, key=actual_key)
+            existing = self.get_edge_data(u, v)
+            if existing:
+                actual_key = len(existing)
+                while actual_key in existing:
+                    actual_key += 1
+        # native add_edge returns the key actually used (auto-assigns when None)
+        actual_key = _add_edge(u, v, key=actual_key)
         merged = dict(attr)
         merged.update(dd)
         if merged:
-            self[u][v][actual_key].update(merged)
+            self.get_edge_data(u, v, actual_key).update(merged)
 
 
 MultiGraph.add_edges_from = _multi_add_edges_from
