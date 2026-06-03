@@ -1,0 +1,60 @@
+         1333325 function calls in 0.627 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.053    0.053    0.627    0.627 bench_ego_graph_r2.py:43(sample)
+        9    0.000    0.000    0.574    0.064 __init__.py:42691(wrapper)
+        9    0.059    0.007    0.574    0.064 __init__.py:16940(ego_graph)
+    65682    0.027    0.000    0.209    0.000 __init__.py:2061(add_edge)
+    65682    0.173    0.000    0.173    0.000 {function Graph.add_edge at 0x72d17c46c680}
+   107865    0.028    0.000    0.139    0.000 __init__.py:391(__next__)
+   134937    0.022    0.000    0.098    0.000 {built-in method builtins.len}
+        9    0.000    0.000    0.083    0.009 __init__.py:569(__iter__)
+        9    0.083    0.009    0.083    0.009 __init__.py:464(_materialize)
+   107865    0.030    0.000    0.076    0.000 __init__.py:29001(__len__)
+   133533    0.032    0.000    0.056    0.000 __init__.py:28591(_private_override)
+    18162    0.006    0.000    0.026    0.000 __init__.py:2107(add_node)
+    18162    0.019    0.000    0.019    0.000 {function Graph.add_node at 0x72d17c46c9a0}
+    18171    0.007    0.000    0.018    0.000 __init__.py:29024(nodes)
+   107865    0.016    0.000    0.016    0.000 {built-in method builtins.next}
+     1863    0.001    0.000    0.016    0.000 __init__.py:29275(neighbors)
+   151731    0.015    0.000    0.015    0.000 {built-in method builtins.vars}
+   151731    0.012    0.000    0.012    0.000 {method 'get' of 'dict' objects}
+    18162    0.011    0.000    0.012    0.000 __init__.py:4367(__getitem__)
+   169551    0.011    0.000    0.011    0.000 {built-in method builtins.hash}
+     1863    0.001    0.000    0.011    0.000 __init__.py:289(neighbors)
+    27009    0.006    0.000    0.008    0.000 __init__.py:42890(__iter__)
+     1863    0.008    0.000    0.008    0.000 {function _private_aware_neighbors.<locals>.neighbors at 0x72d17c4de980}
+     1872    0.001    0.000    0.004    0.000 __init__.py:28599(_has_networkx_private_storage)
+    18162    0.002    0.000    0.002    0.000 {method 'append' of 'list' objects}
+     1863    0.001    0.000    0.001    0.000 {built-in method fromkeys}
+     1890    0.001    0.000    0.001    0.000 __init__.py:5059(predicate)
+     3780    0.000    0.000    0.000    0.000 {built-in method builtins.isinstance}
+     1872    0.000    0.000    0.000    0.000 {function _make_class_safe_predicate.<locals>.predicate at 0x72d17c484ae0}
+     1872    0.000    0.000    0.000    0.000 {built-in method builtins.iter}
+        9    0.000    0.000    0.000    0.000 __init__.py:29044(edges)
+        9    0.000    0.000    0.000    0.000 weakref.py:164(__setitem__)
+        9    0.000    0.000    0.000    0.000 __init__.py:643(wrapped)
+        9    0.000    0.000    0.000    0.000 __init__.py:380(__init__)
+        9    0.000    0.000    0.000    0.000 __init__.py:29011(__contains__)
+       18    0.000    0.000    0.000    0.000 __init__.py:4869(__get__)
+        9    0.000    0.000    0.000    0.000 __init__.py:10845(_concrete_class_for)
+        9    0.000    0.000    0.000    0.000 __init__.py:2741(__init__)
+        9    0.000    0.000    0.000    0.000 weakref.py:352(__init__)
+        9    0.000    0.000    0.000    0.000 __init__.py:889(wrapped)
+        9    0.000    0.000    0.000    0.000 weakref.py:347(__new__)
+        9    0.000    0.000    0.000    0.000 __init__.py:425(__init__)
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+       18    0.000    0.000    0.000    0.000 {built-in method time.perf_counter}
+        9    0.000    0.000    0.000    0.000 {built-in method __new__ of type object at 0xa15020}
+        9    0.000    0.000    0.000    0.000 __init__.py:18769(_validate_backend_dispatch_keywords)
+       18    0.000    0.000    0.000    0.000 {built-in method builtins.id}
+        9    0.000    0.000    0.000    0.000 weakref.py:194(get)
+       18    0.000    0.000    0.000    0.000 {built-in method builtins.getattr}
+       45    0.000    0.000    0.000    0.000 {method 'pop' of 'dict' objects}
+        9    0.000    0.000    0.000    0.000 {method 'keys' of 'dict' objects}
+       18    0.000    0.000    0.000    0.000 {function _make_class_safe_predicate.<locals>.predicate at 0x72d17c484b80}
+        9    0.000    0.000    0.000    0.000 {method 'update' of 'dict' objects}
+
+

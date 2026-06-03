@@ -17032,9 +17032,23 @@ def ego_graph(G, n, radius=1, center=True, undirected=False, distance=None):
             if u in nodes_within and v in nodes_within:
                 graph.add_edge(u, v, key=key, **data)
     else:
-        for u, v, data in G.edges(data=True):
+        edge_source = G.edges(data=True)
+        if type(edge_source) is EdgeDataView:
+            edge_source = edge_source._materialize()
+        edges_to_add = []
+        for u, v, data in edge_source:
             if u in nodes_within and v in nodes_within:
-                graph.add_edge(u, v, **data)
+                if data:
+                    for attr_key in data:
+                        if not isinstance(attr_key, str):
+                            graph.add_edge(u, v, **data)
+                            break
+                    else:
+                        edges_to_add.append((u, v, data))
+                else:
+                    edges_to_add.append((u, v, data))
+        if edges_to_add:
+            graph.add_edges_from(edges_to_add)
     if not center and n in graph:
         graph.remove_node(n)
     # Always return fnx type for consistency.
