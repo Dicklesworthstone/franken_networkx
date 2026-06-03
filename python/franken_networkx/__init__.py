@@ -3189,11 +3189,13 @@ class _DirectedDegreeView:
         return iter(self._nodes)
 
     def _node_degree(self, node, weight):
-        # br-r37-c1-5670z: unweighted simple-DiGraph fast path. The generic path
-        # below does len(self._adjacency[node]), which walks the per-node succ/
-        # pred AtlasView in pure Python (O(degree)); the native O(1)
-        # successors/predecessors .len() gives the identical count.
-        if weight is None and not self._graph.is_multigraph():
+        # br-r37-c1-5670z / kjaqc: unweighted directed fast path (simple AND
+        # multi). The generic path below walks the per-node succ/pred AtlasView
+        # in pure Python -- len() for simple (O(degree)), sum(len(keydict) ...)
+        # for multi (O(degree)). The native out_degree/in_degree gives the
+        # identical count (distinct-successor count for simple, edge-multiplicity
+        # sum for multi). Both PyDiGraph and PyMultiDiGraph expose the methods.
+        if weight is None:
             if self._adjacency_attr == "succ":
                 return self._graph._native_out_degree(node)
             if self._adjacency_attr == "pred":

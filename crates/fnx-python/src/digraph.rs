@@ -1000,6 +1000,21 @@ impl PyMultiDiGraph {
         )
     }
 
+    /// br-r37-c1-kjaqc: O(1)-amortized native single-node out-degree (edge
+    /// multiplicity), used by the Python _DirectedDegreeView fast path so the
+    /// unweighted MultiDiGraph case avoids the pure-Python
+    /// sum(len(keydict) for keydict in succ_atlasview.values()) walk.
+    fn _native_out_degree(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<usize> {
+        let canonical = node_key_to_string(py, n)?;
+        Ok(self.inner.out_degree(&canonical))
+    }
+
+    /// br-r37-c1-kjaqc: O(1)-amortized native single-node in-degree (see above).
+    fn _native_in_degree(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<usize> {
+        let canonical = node_key_to_string(py, n)?;
+        Ok(self.inner.in_degree(&canonical))
+    }
+
     #[getter]
     fn adj(&self, py: Python<'_>) -> PyResult<Py<PyDict>> {
         self.adjacency(py)
