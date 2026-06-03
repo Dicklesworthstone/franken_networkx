@@ -1,0 +1,16 @@
+         401 function calls in 1.057 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+       40    0.000    0.000    1.057    0.026 bench_traversal.py:33(<lambda>)
+       40    0.000    0.000    1.057    0.026 __init__.py:42691(wrapper)
+       40    0.000    0.000    1.056    0.026 __init__.py:9464(bfs_tree)
+       40    1.056    0.026    1.056    0.026 {built-in method franken_networkx._fnx.bfs_tree}
+       40    0.000    0.000    0.000    0.000 __init__.py:10870(_coerce_arg_to_fnx_graph)
+      160    0.000    0.000    0.000    0.000 {built-in method builtins.isinstance}
+       40    0.000    0.000    0.000    0.000 __init__.py:18769(_validate_backend_dispatch_keywords)
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+
+
+
