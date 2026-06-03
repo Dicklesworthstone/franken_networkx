@@ -11,7 +11,7 @@
 //! Run:    ALGO=betweenness N=1500 DEG=8 ITERS=1 ./target/release-perf/perf_harness
 //!
 //! Env vars:
-//!   ALGO  — betweenness | pagerank | closeness | harmonic | components | dijkstra_ssp (default betweenness)
+//!   ALGO  — betweenness | pagerank | closeness | harmonic | aspl | components | dijkstra_ssp (default betweenness)
 //!   N     — node count (default 1500)
 //!   DEG   — average degree for the sparse random graph (default 8)
 //!   ITERS — timed repetitions of the algorithm (default 1)
@@ -28,8 +28,8 @@ use std::time::Instant;
 use std::collections::{BTreeMap, HashSet};
 
 use fnx_algorithms::{
-    betweenness_centrality, closeness_centrality, connected_components, harmonic_centrality,
-    pagerank, shortest_path_unweighted,
+    average_shortest_path_length, betweenness_centrality, closeness_centrality,
+    connected_components, harmonic_centrality, pagerank, shortest_path_unweighted,
 };
 use fnx_classes::Graph;
 
@@ -301,6 +301,10 @@ fn dump_golden(algo: &str, g: &Graph) {
             .into_iter()
             .map(|s| (s.node, s.score))
             .collect(),
+        "aspl" => {
+            let score = average_shortest_path_length(g).average_shortest_path_length;
+            vec![("average_shortest_path_length".to_owned(), score)]
+        }
         other => {
             eprintln!("DUMP unsupported for ALGO={other}");
             std::process::exit(2);
@@ -331,6 +335,7 @@ fn run_once(algo: &str, g: &Graph, n: usize) -> f64 {
             let r = harmonic_centrality(g);
             r.scores.iter().map(|s| s.score).sum()
         }
+        "aspl" => average_shortest_path_length(g).average_shortest_path_length,
         "components" => connected_components(g).components.len() as f64,
         "lookup_sweep" => {
             // Non-distorting microbench: replicate exactly the string-keyed
@@ -357,7 +362,7 @@ fn run_once(algo: &str, g: &Graph, n: usize) -> f64 {
         }
         other => {
             eprintln!(
-                "unknown ALGO={other}; valid: betweenness|pagerank|closeness|harmonic|components|dijkstra_ssp"
+                "unknown ALGO={other}; valid: betweenness|pagerank|closeness|harmonic|aspl|components|dijkstra_ssp"
             );
             std::process::exit(2);
         }

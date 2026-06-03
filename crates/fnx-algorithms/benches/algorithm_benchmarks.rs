@@ -9,9 +9,10 @@ use std::collections::BTreeMap;
 
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use fnx_algorithms::{
-    betweenness_centrality, closeness_centrality, connected_components, degree_centrality,
-    eigenvector_centrality, max_flow_edmonds_karp, minimum_cut_edmonds_karp, minimum_spanning_tree,
-    pagerank, shortest_path_unweighted, shortest_path_weighted, single_source_dijkstra_path_length,
+    average_shortest_path_length, betweenness_centrality, closeness_centrality,
+    connected_components, degree_centrality, eigenvector_centrality, max_flow_edmonds_karp,
+    minimum_cut_edmonds_karp, minimum_spanning_tree, pagerank, shortest_path_unweighted,
+    shortest_path_weighted, single_source_dijkstra_path_length,
 };
 use fnx_classes::Graph;
 use fnx_runtime::CgseValue;
@@ -207,6 +208,18 @@ fn bench_connected_components(c: &mut Criterion) {
     group.finish();
 }
 
+fn bench_average_shortest_path_length(c: &mut Criterion) {
+    let mut group = c.benchmark_group("average_shortest_path_length");
+    for &(r, co) in &[(20, 20), (30, 30), (40, 40)] {
+        let g = build_grid(r, co);
+        let label = r * co;
+        group.bench_with_input(BenchmarkId::new("grid", label), &label, |b, _| {
+            b.iter(|| average_shortest_path_length(&g));
+        });
+    }
+    group.finish();
+}
+
 // ---------------------------------------------------------------------------
 // Benchmark: Centrality
 // ---------------------------------------------------------------------------
@@ -339,6 +352,7 @@ criterion_group!(
     bench_shortest_path_weighted,
     bench_single_source_dijkstra,
     bench_connected_components,
+    bench_average_shortest_path_length,
     bench_degree_centrality,
     bench_closeness_centrality,
     bench_betweenness_centrality,

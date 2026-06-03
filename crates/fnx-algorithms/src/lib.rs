@@ -6220,8 +6220,7 @@ pub fn distance_measures(graph: &Graph) -> DistanceMeasuresResult {
 /// Returns `f64::INFINITY` if the graph is disconnected.
 #[must_use]
 pub fn average_shortest_path_length(graph: &Graph) -> AverageShortestPathLengthResult {
-    let nodes = graph.nodes_ordered();
-    let n = nodes.len();
+    let n = graph.node_count();
     if n <= 1 {
         return AverageShortestPathLengthResult {
             average_shortest_path_length: 0.0,
@@ -6240,22 +6239,30 @@ pub fn average_shortest_path_length(graph: &Graph) -> AverageShortestPathLengthR
     let mut total_edges_scanned = 0usize;
     let mut max_queue_peak = 0usize;
 
+    // br-r37-c1-ga0ow: replay the graph's integer adjacency for each BFS
+    // source instead of resolving neighbor names back through the node
+    // hashmap. The final distance sum remains in node-index order, matching
+    // the old `dist.into_iter().flatten().sum()` order exactly.
+    let mut dist = vec![0usize; n];
+    let mut seen_stamp = vec![0u32; n];
+    let mut queue: VecDeque<usize> = VecDeque::new();
     for s in 0..n {
-        let mut dist = vec![None; n];
-        let mut queue = VecDeque::new();
-        dist[s] = Some(0usize);
+        let stamp = (s as u32) + 1;
+        seen_stamp[s] = stamp;
+        dist[s] = 0;
+        queue.clear();
         queue.push_back(s);
         let mut reached = 0usize;
 
         while let Some(u) = queue.pop_front() {
             reached += 1;
-            let d = dist[u].unwrap();
-            if let Some(nbrs) = graph.neighbors(nodes[u]) {
-                for nbr_name in nbrs {
+            let d = dist[u];
+            if let Some(nbrs) = graph.neighbors_indices(u) {
+                for &v in nbrs {
                     total_edges_scanned += 1;
-                    let v = graph.get_node_index(nbr_name).unwrap();
-                    if dist[v].is_none() {
-                        dist[v] = Some(d + 1);
+                    if seen_stamp[v] != stamp {
+                        seen_stamp[v] = stamp;
+                        dist[v] = d + 1;
                         queue.push_back(v);
                     }
                 }
@@ -6276,7 +6283,7 @@ pub fn average_shortest_path_length(graph: &Graph) -> AverageShortestPathLengthR
             };
         }
 
-        total_distance += dist.into_iter().flatten().sum::<usize>();
+        total_distance += dist.iter().sum::<usize>();
         total_nodes_touched += reached;
     }
 

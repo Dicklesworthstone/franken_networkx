@@ -1,0 +1,1 @@
+83225441a418589fc7b0aaaea3d1312eb018d3cccf8d71d925dcd1f8680907aa  tests/artifacts/perf/20260603T-average-shortest-path-indexed/golden_after.txt

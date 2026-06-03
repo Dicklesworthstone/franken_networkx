@@ -1,0 +1,1146 @@
+  [2m2026-06-03T09:04:15.201828Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mSelected worker: vmi1156319 at ubuntu@178.18.254.243 (0 slots remaining after reservation, speed 50.0)[0m
+    [2;3mat[0m rch/src/hook.rs:514 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-03T09:04:15.447422Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mStarting remote compilation pipeline for franken_networkx (hash: 20ad164d71ec0837)[0m
+    [2;3mat[0m rch/src/hook.rs:5987 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-03T09:04:15.447472Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mPrepared dependency sync manifest for 13 roots[0m
+    [2;3mat[0m rch/src/hook.rs:6009 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-03T09:04:19.842207Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mSyncing project to worker vmi1156319...[0m
+    [2;3mat[0m rch/src/hook.rs:6039 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-03T09:04:19.842256Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx -> /data/projects/franken_networkx on vmi1156319[0m
+    [2;3mat[0m rch/src/transfer.rs:1400 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-03T09:04:30.219237Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 10376ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1469 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-03T09:04:30.219317Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx/crates/fnx-algorithms -> /data/projects/franken_networkx/crates/fnx-algorithms on vmi1156319[0m
+    [2;3mat[0m rch/src/transfer.rs:1400 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-03T09:04:32.137718Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 1918ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1469 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-03T09:04:32.137795Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx/crates/fnx-cgse -> /data/projects/franken_networkx/crates/fnx-cgse on vmi1156319[0m
+    [2;3mat[0m rch/src/transfer.rs:1400 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-03T09:04:34.121617Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 1983ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1469 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-03T09:04:34.121675Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx/crates/fnx-classes -> /data/projects/franken_networkx/crates/fnx-classes on vmi1156319[0m
+    [2;3mat[0m rch/src/transfer.rs:1400 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-03T09:04:36.023540Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 1901ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1469 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-03T09:04:36.023620Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx/crates/fnx-conformance -> /data/projects/franken_networkx/crates/fnx-conformance on vmi1156319[0m
+    [2;3mat[0m rch/src/transfer.rs:1400 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-03T09:04:38.029301Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 2005ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1469 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-03T09:04:38.029370Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx/crates/fnx-convert -> /data/projects/franken_networkx/crates/fnx-convert on vmi1156319[0m
+    [2;3mat[0m rch/src/transfer.rs:1400 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-03T09:04:39.942554Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 1913ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1469 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-03T09:04:39.942628Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx/crates/fnx-dispatch -> /data/projects/franken_networkx/crates/fnx-dispatch on vmi1156319[0m
+    [2;3mat[0m rch/src/transfer.rs:1400 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-03T09:04:41.891169Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 1948ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1469 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-03T09:04:41.891236Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx/crates/fnx-durability -> /data/projects/franken_networkx/crates/fnx-durability on vmi1156319[0m
+    [2;3mat[0m rch/src/transfer.rs:1400 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-03T09:04:43.774893Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 1883ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1469 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-03T09:04:43.774959Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx/crates/fnx-generators -> /data/projects/franken_networkx/crates/fnx-generators on vmi1156319[0m
+    [2;3mat[0m rch/src/transfer.rs:1400 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-03T09:04:45.653565Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 1878ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1469 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-03T09:04:45.653629Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx/crates/fnx-python -> /data/projects/franken_networkx/crates/fnx-python on vmi1156319[0m
+    [2;3mat[0m rch/src/transfer.rs:1400 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-03T09:04:47.641669Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 1988ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1469 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-03T09:04:47.641727Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx/crates/fnx-readwrite -> /data/projects/franken_networkx/crates/fnx-readwrite on vmi1156319[0m
+    [2;3mat[0m rch/src/transfer.rs:1400 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-03T09:04:49.572049Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 1930ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1469 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-03T09:04:49.572113Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx/crates/fnx-runtime -> /data/projects/franken_networkx/crates/fnx-runtime on vmi1156319[0m
+    [2;3mat[0m rch/src/transfer.rs:1400 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-03T09:04:51.492975Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 1920ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1469 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-03T09:04:51.493040Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx/crates/fnx-views -> /data/projects/franken_networkx/crates/fnx-views on vmi1156319[0m
+    [2;3mat[0m rch/src/transfer.rs:1400 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-03T09:04:53.532787Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 2039ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1469 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-03T09:04:53.532837Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mSync complete: 125071 files, 6498520 bytes in 33682ms[0m
+    [2;3mat[0m rch/src/hook.rs:6202 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-03T09:04:57.864112Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mExecuting command remotely: cargo test -p fnx-algorithms --lib[0m
+    [2;3mat[0m rch/src/hook.rs:6240 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-03T09:04:57.864148Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mRewriting CARGO_TARGET_DIR for remote execution (worker-scoped path): /data/tmp/cargo-target -> /data/projects/franken_networkx/.rch-target-vmi1156319-job-29869223945705243-1780477459842201607-0[0m
+    [2;3mat[0m rch/src/transfer.rs:712 [2;3mon[0m ThreadId(1)
+
+    Updating crates.io index
+ Downloading crates ...
+  Downloaded find-msvc-tools v0.1.9
+  Downloaded getrandom v0.4.2
+  Downloaded bit-set v0.8.0
+  Downloaded cast v0.3.0
+  Downloaded fnv v1.0.7
+  Downloaded cpufeatures v0.3.0
+  Downloaded errno v0.3.14
+  Downloaded itoa v1.0.18
+  Downloaded alloca v0.4.0
+  Downloaded fastrand v2.4.1
+  Downloaded half v2.7.1
+  Downloaded mwmatching v0.1.1
+  Downloaded page_size v0.6.0
+  Downloaded equivalent v1.0.2
+  Downloaded hex v0.4.3
+  Downloaded unarray v0.1.4
+  Downloaded arrayvec v0.7.6
+  Downloaded once_cell v1.21.4
+  Downloaded plotters-backend v0.3.7
+  Downloaded autocfg v1.5.0
+  Downloaded cfg-if v1.0.4
+  Downloaded clap_lex v1.1.0
+  Downloaded mt19937 v3.3.0
+  Downloaded quick-error v1.2.3
+  Downloaded rand_xorshift v0.4.0
+  Downloaded same-file v1.0.6
+  Downloaded arrayref v0.3.9
+  Downloaded ciborium-ll v0.2.2
+  Downloaded getrandom v0.3.4
+  Downloaded plotters-svg v0.3.7
+  Downloaded ciborium-io v0.2.2
+  Downloaded either v1.15.0
+  Downloaded wait-timeout v0.2.1
+  Downloaded oorandom v11.1.5
+  Downloaded bitflags v2.11.1
+  Downloaded ppv-lite86 v0.2.21
+  Downloaded rand_core v0.9.5
+  Downloaded rand_core v0.10.1
+  Downloaded rusty-fork v0.3.1
+  Downloaded tempfile v3.27.0
+  Downloaded walkdir v2.5.0
+  Downloaded bit-vec v0.8.0
+  Downloaded quote v1.0.45
+  Downloaded criterion-plot v0.8.2
+  Downloaded rand_chacha v0.9.0
+  Downloaded shlex v1.3.0
+  Downloaded tinytemplate v1.2.1
+  Downloaded crossbeam-epoch v0.9.18
+  Downloaded anes v0.1.6
+  Downloaded anstyle v1.0.14
+  Downloaded crossbeam-deque v0.8.6
+  Downloaded crossbeam-utils v0.8.21
+  Downloaded zmij v1.0.21
+  Downloaded ciborium v0.2.2
+  Downloaded num-traits v0.2.19
+  Downloaded serde_derive v1.0.228
+  Downloaded clap v4.6.1
+  Downloaded constant_time_eq v0.4.2
+  Downloaded indexmap v2.14.0
+  Downloaded memchr v2.8.0
+  Downloaded proc-macro2 v1.0.106
+  Downloaded serde_core v1.0.228
+  Downloaded unicode-ident v1.0.24
+  Downloaded rayon-core v1.13.0
+  Downloaded serde v1.0.228
+  Downloaded zerocopy-derive v0.8.48
+  Downloaded cc v1.2.61
+  Downloaded itertools v0.13.0
+  Downloaded plotters v0.3.7
+  Downloaded rand v0.9.4
+  Downloaded criterion v0.8.2
+  Downloaded hashbrown v0.17.0
+  Downloaded regex v1.12.3
+  Downloaded serde_json v1.0.149
+  Downloaded aho-corasick v1.1.4
+  Downloaded rayon v1.12.0
+  Downloaded proptest v1.11.0
+  Downloaded blake3 v1.8.4
+  Downloaded clap_builder v4.6.0
+  Downloaded zerocopy v0.8.48
+  Downloaded syn v2.0.117
+  Downloaded regex-syntax v0.8.10
+  Downloaded rustix v1.1.4
+  Downloaded regex-automata v0.4.14
+  Downloaded libc v0.2.186
+  Downloaded linux-raw-sys v0.12.1
+   Compiling proc-macro2 v1.0.106
+   Compiling unicode-ident v1.0.24
+   Compiling quote v1.0.45
+   Compiling cfg-if v1.0.4
+   Compiling libc v0.2.186
+   Compiling serde_core v1.0.228
+   Compiling shlex v1.3.0
+   Compiling zerocopy v0.8.48
+   Compiling find-msvc-tools v0.1.9
+   Compiling serde v1.0.228
+   Compiling zmij v1.0.21
+   Compiling crossbeam-utils v0.8.21
+   Compiling cc v1.2.61
+   Compiling getrandom v0.3.4
+   Compiling serde_json v1.0.149
+   Compiling autocfg v1.5.0
+   Compiling memchr v2.8.0
+   Compiling itoa v1.0.18
+   Compiling getrandom v0.4.2
+   Compiling num-traits v0.2.19
+   Compiling syn v2.0.117
+   Compiling rustix v1.1.4
+   Compiling crossbeam-epoch v0.9.18
+   Compiling regex-syntax v0.8.10
+   Compiling rand_core v0.9.5
+   Compiling either v1.15.0
+   Compiling bitflags v2.11.1
+   Compiling rayon-core v1.13.0
+   Compiling linux-raw-sys v0.12.1
+   Compiling crossbeam-deque v0.8.6
+   Compiling alloca v0.4.0
+   Compiling blake3 v1.8.4
+   Compiling clap_lex v1.1.0
+   Compiling once_cell v1.21.4
+   Compiling ciborium-io v0.2.2
+   Compiling fastrand v2.4.1
+   Compiling plotters-backend v0.3.7
+   Compiling anstyle v1.0.14
+   Compiling clap_builder v4.6.0
+   Compiling plotters-svg v0.3.7
+   Compiling itertools v0.13.0
+   Compiling wait-timeout v0.2.1
+   Compiling regex-automata v0.4.14
+   Compiling fnv v1.0.7
+   Compiling arrayref v0.3.9
+   Compiling tempfile v3.27.0
+   Compiling cpufeatures v0.3.0
+   Compiling same-file v1.0.6
+   Compiling cast v0.3.0
+   Compiling constant_time_eq v0.4.2
+   Compiling bit-vec v0.8.0
+   Compiling arrayvec v0.7.6
+   Compiling hashbrown v0.17.0
+   Compiling equivalent v1.0.2
+   Compiling quick-error v1.2.3
+   Compiling bit-set v0.8.0
+   Compiling criterion-plot v0.8.2
+   Compiling rusty-fork v0.3.1
+   Compiling regex v1.12.3
+   Compiling indexmap v2.14.0
+   Compiling clap v4.6.1
+   Compiling zerocopy-derive v0.8.48
+   Compiling serde_derive v1.0.228
+   Compiling walkdir v2.5.0
+   Compiling rayon v1.12.0
+   Compiling plotters v0.3.7
+   Compiling rand v0.9.4
+   Compiling rand_xorshift v0.4.0
+   Compiling page_size v0.6.0
+   Compiling anes v0.1.6
+   Compiling rand_core v0.10.1
+   Compiling unarray v0.1.4
+   Compiling hex v0.4.3
+   Compiling oorandom v11.1.5
+   Compiling mt19937 v3.3.0
+   Compiling mwmatching v0.1.1
+   Compiling fnx-runtime v0.1.0 (/data/projects/franken_networkx/crates/fnx-runtime)
+   Compiling tinytemplate v1.2.1
+   Compiling fnx-cgse v0.1.0 (/data/projects/franken_networkx/crates/fnx-cgse)
+   Compiling fnx-classes v0.1.0 (/data/projects/franken_networkx/crates/fnx-classes)
+   Compiling half v2.7.1
+   Compiling ppv-lite86 v0.2.21
+   Compiling ciborium-ll v0.2.2
+   Compiling rand_chacha v0.9.0
+   Compiling ciborium v0.2.2
+   Compiling proptest v1.11.0
+   Compiling criterion v0.8.2
+   Compiling fnx-algorithms v0.1.0 (/data/projects/franken_networkx/crates/fnx-algorithms)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 48.94s
+     Running unittests src/lib.rs (.rch-target-vmi1156319-job-29869223945705243-1780477459842201607-0/debug/deps/fnx_algorithms-548e4dbe4f80fd20)
+
+running 823 tests
+test tests::all_shortest_paths_directed_no_path ... ok
+test test_dijkstra::multi_source_dijkstra_directed_returns_zero_for_source_and_one_for_successor ... ok
+test tests::adamic_adar_index_basic ... ok
+test tests::all_shortest_paths_missing_node ... ok
+test tests::all_shortest_paths_directed_diamond ... ok
+test tests::all_shortest_paths_same_node ... ok
+test tests::all_shortest_paths_diamond ... ok
+test tests::all_shortest_paths_no_path ... ok
+test tests::all_shortest_paths_single ... ok
+test tests::all_shortest_paths_weighted_directed_bellman_ford_unreachable ... ok
+test tests::all_shortest_paths_weighted_no_path ... ok
+test tests::all_shortest_paths_weighted_diamond ... ok
+test tests::all_shortest_paths_weighted_directed_bellman_ford_negative_cycle ... ok
+test tests::all_shortest_paths_weighted_directed_bellman_ford_diamond ... ok
+test tests::all_shortest_paths_weighted_undirected_bellman_ford_negative_edge_is_negative_cycle ... ok
+test tests::all_shortest_paths_weighted_directed_preserves_successor_order ... ok
+test tests::all_simple_paths_direct_edge ... ok
+test tests::all_simple_paths_missing_nodes_returns_empty ... ok
+test tests::all_shortest_paths_weighted_unique ... ok
+test tests::all_shortest_paths_weighted_undirected_bellman_ford_diamond ... ok
+test tests::all_simple_paths_no_path ... ok
+test tests::all_simple_paths_with_cutoff ... ok
+test tests::ancestors_test ... ok
+test tests::all_shortest_paths_weighted_preserves_networkx_path_order ... ok
+test tests::all_simple_paths_triangle ... ok
+test tests::articulation_points_complete_k4_is_empty ... ok
+test tests::articulation_points_cycle_graph_is_empty ... ok
+test tests::articulation_points_empty_graph_is_empty ... ok
+test tests::ancestors_root ... ok
+test tests::apsp_triangle ... ok
+test tests::articulation_points_is_replay_stable_under_insertion_order_noise ... ok
+test tests::articulation_points_disconnected_graph ... ok
+test tests::apsp_with_cutoff ... ok
+test tests::apsp_length_path ... ok
+test tests::articulation_points_single_node_is_empty ... ok
+test tests::articulation_points_path_graph_matches_expected ... ok
+test tests::articulation_points_single_edge_is_empty ... ok
+test tests::articulation_points_star_graph_has_center ... ok
+test tests::articulation_points_two_triangles_with_bridge ... ok
+test tests::average_degree_connectivity_complete ... ok
+test tests::average_degree_connectivity_star ... ok
+test tests::bellman_ford_shortest_paths_returns_empty_for_missing_source ... ok
+test tests::bellman_ford_shortest_paths_detects_negative_cycle ... ok
+test tests::bellman_ford_shortest_paths_positive_weights_match_expected ... ok
+test tests::betweenness_centrality_empty_and_small_graphs_are_zero_or_empty ... ok
+test tests::betweenness_centrality_cycle_graph_distributes_evenly ... ok
+test tests::betweenness_centrality_directed_path_graph_scales_like_networkx ... ok
+test tests::betweenness_centrality_path_graph_matches_expected_values ... ok
+test tests::betweenness_centrality_path_graph_supports_endpoints_and_raw_scaling ... ok
+test tests::bfs_edges_directed_dag ... ok
+test tests::bfs_edges_depth_limit_zero ... ok
+test tests::bfs_edges_path_graph ... ok
+test tests::bfs_edges_with_depth_limit ... ok
+test tests::betweenness_centrality_star_graph_center_is_one ... ok
+test tests::bfs_layers_directed_dag ... ok
+test tests::bfs_layers_test ... ok
+test tests::bfs_predecessors_test ... ok
+test tests::betweenness_centrality_is_replay_stable_under_insertion_order_noise ... ok
+test tests::bfs_shortest_path_uses_deterministic_neighbor_order ... ok
+test tests::bridges_empty_graph_is_empty ... ok
+test tests::bridges_complete_k4_is_empty ... ok
+test tests::bridges_disconnected_graph ... ok
+test tests::bfs_successors_test ... ok
+test tests::bridges_is_replay_stable_under_insertion_order_noise ... ok
+test tests::bridges_single_edge_is_bridge ... ok
+test tests::bridges_single_node_is_empty ... ok
+test tests::bridges_cycle_graph_is_empty ... ok
+test tests::cgse_witness_artifact_skeleton_is_stable_and_deterministic ... ok
+test tests::bridges_path_graph_matches_expected ... ok
+test tests::bridges_two_triangles_with_bridge ... ok
+test tests::bridges_star_graph_all_edges_are_bridges ... ok
+test tests::closeness_centrality_disconnected_graph_matches_networkx_behavior ... ok
+test tests::centrality_and_component_outputs_are_deterministic_under_insertion_order_noise ... ok
+test tests::closeness_centrality_matches_expected_values_and_order ... ok
+test tests::closeness_centrality_singleton_and_empty_are_zero_or_empty ... ok
+test tests::closeness_vitality_cycle ... ok
+test tests::closeness_vitality_bridge_node ... ok
+test tests::closeness_vitality_single_node_api ... ok
+test tests::closeness_vitality_empty ... ok
+test tests::complement_directed_test ... ok
+test tests::common_neighbors_basic ... ok
+test tests::common_neighbors_triangle ... ok
+test tests::complement_empty ... ok
+test tests::complement_path ... ok
+test tests::complement_triangle ... ok
+test tests::condensation_preserves_hardened_mode ... ok
+test tests::complement_involution ... ok
+test tests::condensation_single_scc ... ok
+test tests::connected_components_include_isolated_nodes ... ok
+test tests::connected_components_are_deterministic_and_partitioned ... ok
+test tests::condensation_two_sccs ... ok
+test tests::cycle_basis_disconnected_components ... ok
+test tests::cycle_basis_empty_graph_has_no_cycles ... ok
+test tests::cycle_basis_single_triangle ... ok
+test tests::cycle_basis_matches_networkx_dfs_chord_order ... ok
+test tests::cycle_basis_tree_has_no_cycles ... ok
+test tests::dag_longest_path_cycle_returns_none ... ok
+test tests::cycle_basis_two_connected_triangles ... ok
+test tests::dag_longest_path_empty ... ok
+test tests::dag_longest_path_diamond ... ok
+test tests::cycle_basis_square_graph ... ok
+test tests::dag_longest_path_length_single_node ... ok
+test tests::dag_longest_path_length_basic ... ok
+test tests::degree_centrality_singleton_is_one ... ok
+test tests::default_constants_match_networkx ... ok
+test tests::degree_centrality_matches_expected_values_and_order ... ok
+test tests::degree_centrality_empty_graph_is_empty ... ok
+test tests::dag_longest_path_linear ... ok
+test tests::descendants_at_distance_test ... ok
+test tests::descendants_leaf ... ok
+test tests::descendants_test ... ok
+test tests::descendants_at_distance_zero ... ok
+test tests::dfs_edges_depth_limit_zero ... ok
+test tests::dfs_edges_nonexistent_source ... ok
+test tests::dfs_edges_path_graph ... ok
+test tests::dfs_edges_with_depth_limit ... ok
+test tests::dfs_postorder_nodes_depth_limit_omits_cutoff_node ... ok
+test tests::dfs_postorder_directed ... ok
+test tests::dfs_postorder_nodes_test ... ok
+test tests::dfs_postorder_directed_depth_limit_omits_cutoff_node ... ok
+test tests::dfs_predecessors_test ... ok
+test tests::dominating_set_empty ... ok
+test tests::dfs_successors_test ... ok
+test tests::dfs_preorder_nodes_test ... ok
+test tests::dominating_set_path ... ok
+test tests::dominating_set_star ... ok
+test tests::edge_betweenness_centrality_empty_and_singleton_are_empty ... ok
+test tests::edge_betweenness_centrality_cycle_graph_is_uniform ... ok
+test tests::edge_connectivity_edmonds_karp_fails_for_missing_nodes ... ok
+test tests::efficiency_disconnected_pair_returns_zero ... ok
+test tests::efficiency_matches_pairwise_networkx_examples ... ok
+test tests::efficiency_same_node_reports_division_surface ... ok
+test tests::edge_betweenness_centrality_path_graph_matches_expected_values ... ok
+test tests::eigenvector_centrality_empty_and_singleton_are_empty_or_one ... ok
+test tests::eigenvector_centrality_cycle_graph_is_uniform ... ok
+test tests::eigenvector_centrality_path_graph_matches_legacy_networkx_oracle_values ... ok
+test tests::edge_betweenness_centrality_is_replay_stable_under_insertion_order_noise ... ok
+test tests::edge_connectivity_edmonds_karp_matches_minimum_cut_value ... ok
+test tests::dfs_edges_directed_dag ... ok
+test tests::eigenvector_centrality_star_graph_center_dominates_leaves ... ok
+test tests::eulerian_circuit_butterfly ... ok
+test tests::eulerian_circuit_empty_graph ... ok
+test tests::empty_graph_has_zero_components ... ok
+test tests::eulerian_circuit_not_eulerian ... ok
+test tests::eulerian_circuit_rectangle ... ok
+test tests::eulerian_circuit_triangle ... ok
+test tests::eulerian_circuit_with_source ... ok
+test tests::eulerian_path_circuit_case ... ok
+test tests::eulerian_path_no_path ... ok
+test tests::eulerian_path_with_source ... ok
+test tests::eulerian_path_house_graph ... ok
+test tests::eulerian_path_simple ... ok
+test tests::global_edge_connectivity_edmonds_karp_detects_triangle_redundancy ... ok
+test tests::global_edge_connectivity_edmonds_karp_disconnected_graph_is_zero ... ok
+test tests::global_efficiency_disconnected_graph ... ok
+test tests::global_efficiency_empty_graph_is_zero ... ok
+test tests::global_edge_connectivity_edmonds_karp_complete_graph_returns_min_degree_without_pair_sweep ... ok
+test tests::global_efficiency_complete_k3 ... ok
+test tests::global_efficiency_single_node_is_zero ... ok
+test tests::global_efficiency_path_graph_p3 ... ok
+test tests::global_minimum_edge_cut_edmonds_karp_disconnected_graph_is_zero ... ok
+test tests::global_edge_connectivity_edmonds_karp_detects_path_bottleneck ... ok
+test tests::greedy_modularity_disconnected ... ok
+test tests::global_minimum_node_cut_directed_prefers_lexicographically_smaller_equal_cut ... ok
+test tests::global_minimum_edge_cut_edmonds_karp_triangle_is_two ... ok
+test tests::greedy_modularity_empty ... ok
+test tests::harmonic_centrality_disconnected_graph_matches_networkx_behavior ... ok
+test tests::harmonic_centrality_matches_expected_values_and_order ... ok
+test tests::global_minimum_edge_cut_edmonds_karp_path_graph_returns_first_min_pair ... ok
+test tests::harmonic_centrality_singleton_and_empty_are_zero_or_empty ... ok
+test tests::greedy_modularity_two_cliques ... ok
+test tests::has_eulerian_path_k4 ... ok
+test tests::has_eulerian_path_simple_path ... ok
+test tests::has_eulerian_path_triangle ... ok
+test tests::global_minimum_node_cut_matches_node_connectivity_fixture_regression ... ok
+test tests::hits_centrality_disconnected_graph_matches_expected_behavior ... ok
+test tests::hits_centrality_empty_and_singleton_are_empty_or_one ... ok
+test tests::hits_centrality_cycle_graph_is_uniform ... ok
+test tests::hits_centrality_path_graph_matches_expected_symmetry ... ok
+test tests::is_dag_empty ... ok
+test tests::is_dag_self_loop ... ok
+test tests::hits_centrality_path_graph_matches_legacy_networkx_oracle_values ... ok
+test tests::is_dag_single_node ... ok
+test tests::is_dag_with_cycle ... ok
+test tests::is_dominating_set_invalid ... ok
+test tests::is_empty_false ... ok
+test tests::is_dag_simple ... ok
+test tests::is_eulerian_empty_graph ... ok
+test tests::is_empty_true ... ok
+test tests::is_eulerian_disconnected ... ok
+test tests::is_eulerian_path_graph_not_eulerian ... ok
+test tests::is_dominating_set_valid ... ok
+test tests::is_eulerian_single_node ... ok
+test tests::is_eulerian_rectangle ... ok
+test tests::is_eulerian_square_with_diagonals ... ok
+test tests::is_eulerian_triangle ... ok
+test tests::is_eulerian_with_isolated_node ... ok
+test tests::is_matching_accepts_valid_matching ... ok
+test tests::is_perfect_matching_empty_graph_is_true ... ok
+test tests::is_matching_rejects_invalid_matching ... ok
+test tests::is_strongly_connected_empty ... ok
+test tests::is_semieulerian_path_graph ... ok
+test tests::is_maximal_matching_detects_augmentable_edge ... ok
+test tests::is_perfect_matching_requires_all_nodes_covered ... ok
+test tests::is_strongly_connected_no ... ok
+test tests::is_semieulerian_triangle ... ok
+test tests::global_minimum_edge_cut_edmonds_karp_is_replay_stable ... ok
+test tests::is_weakly_connected_empty ... ok
+test tests::is_strongly_connected_yes ... ok
+test tests::jaccard_coefficient_basic ... ok
+test tests::is_weakly_connected_no ... ok
+test tests::is_weakly_connected_yes ... ok
+test tests::k_core_empty_graph ... ok
+test tests::jaccard_coefficient_no_common ... ok
+test tests::k_core_single_node ... ok
+test tests::k_core_k4_complete ... ok
+test tests::k_core_triangle_with_pendant ... ok
+test tests::k_core_zero_returns_all_nodes ... ok
+test tests::k_corona_isolated_node ... ok
+test tests::k_crust_empty_when_k_less_than_min_core ... ok
+test tests::katz_centrality_empty_and_singleton_are_empty_or_one ... ok
+test tests::k_corona_complete_graph ... ok
+test tests::katz_centrality_cycle_graph_is_uniform ... ok
+test tests::k_shell_path_graph ... ok
+test tests::k_crust_star_graph ... ok
+test tests::katz_centrality_star_graph_center_dominates_leaves ... ok
+test tests::label_propagation_empty ... ok
+test tests::lexicographic_topological_sort_basic ... ok
+test tests::label_propagation_two_components ... ok
+test tests::label_propagation_complete_graph ... ok
+test tests::lexicographic_topological_sort_cycle_returns_none ... ok
+test tests::link_prediction_isolated_nodes ... ok
+test tests::link_prediction_empty_ebunch ... ok
+test tests::lexicographic_topological_sort_linear ... ok
+test tests::louvain_empty_graph ... ok
+test tests::local_efficiency_empty_graph_is_zero ... ok
+test tests::louvain_disconnected ... ok
+test tests::lexicographic_topological_sort_numeric ... ok
+test tests::local_efficiency_complete_k4 ... ok
+test tests::louvain_single_node ... ok
+test tests::max_flow_edmonds_karp_directed_matches_expected_value ... ok
+test tests::max_flow_edmonds_karp_fails_for_missing_nodes ... ok
+test tests::max_flow_edmonds_karp_directed_respects_edge_orientation ... ok
+test tests::louvain_karate_club_basic ... ok
+test tests::louvain_two_cliques ... ok
+test tests::louvain_max_level_stops_after_first_partition ... ok
+test tests::max_flow_edmonds_karp_is_replay_stable ... ok
+test tests::max_flow_edmonds_karp_matches_expected_value ... ok
+test tests::max_spanning_tree_triangle ... ok
+test tests::max_weight_matching_beats_greedy_local_choice ... ok
+test tests::max_weight_matching_maxcardinality_prefers_larger_matching ... ok
+test tests::maximal_matching_empty_graph_is_empty ... ok
+test tests::max_weight_matching_prefers_higher_total_weight ... ok
+test tests::min_edge_cover_empty_graph ... ok
+test tests::maximal_matching_matches_greedy_contract ... ok
+test tests::min_edge_cover_isolated_node_returns_none ... ok
+test tests::min_edge_cover_single_edge ... ok
+test tests::maximal_matching_skips_self_loops ... ok
+test tests::maximal_matching_tie_break_tracks_edge_iteration_order ... ok
+test tests::min_edge_cover_path_graph ... ok
+test tests::min_weight_matching_defaults_missing_weight_to_one ... ok
+test tests::min_weight_matching_uses_weight_inversion_contract ... ok
+test tests::min_edge_cover_triangle ... ok
+test tests::minimum_cut_edmonds_karp_fails_for_missing_nodes ... ok
+test tests::minimum_cycle_basis_core_triangle_returns_single_cycle ... ok
+test tests::minimum_cut_edmonds_karp_directed_matches_networkx_partition ... ok
+test tests::minimum_cycle_basis_core_handles_disconnected_components ... ok
+test tests::minimum_cycle_basis_core_preserves_self_loop_cycle ... ok
+test tests::minimum_cycle_basis_core_empty_and_tree_have_no_cycles ... ok
+test tests::minimum_cut_edmonds_karp_matches_expected_partition ... ok
+test tests::minimum_cut_edmonds_karp_is_replay_stable ... ok
+test tests::minimum_cycle_basis_core_weighted_square_with_diagonal ... ok
+test tests::minimum_cycle_basis_graph_wrapper_rejects_negative_weights ... ok
+test tests::minimum_cycle_basis_graph_wrapper_defaults_missing_weights ... ok
+test tests::minimum_cycle_basis_graph_wrapper_maps_names_and_weights ... ok
+test tests::modularity_rejects_overlapping_partition ... ok
+test tests::minimum_st_edge_cut_edmonds_karp_matches_expected_edges ... ok
+test tests::minimum_node_cut_is_symmetric_for_leaf_source_regression ... ok
+test tests::multi_source_dijkstra_ignores_missing_sources ... ok
+test tests::minimum_st_edge_cut_edmonds_karp_is_replay_stable ... ok
+test tests::modularity_perfect_partition ... ok
+test tests::non_neighbors_complete ... ok
+test tests::non_neighbors_test ... ok
+test tests::multi_source_dijkstra_returns_expected_distances_and_predecessors ... ok
+test tests::number_of_cliques_path ... ok
+test tests::number_connected_components_matches_components_len ... ok
+test tests::number_of_cliques_triangle ... ok
+test tests::number_of_spanning_arborescences_weighted ... ok
+test tests::number_of_spanning_trees_triangle ... ok
+test tests::multi_source_dijkstra_is_replay_stable ... ok
+test tests::number_scc ... ok
+test tests::overall_reciprocity_no_reciprocal ... ok
+test tests::number_wcc ... ok
+test tests::overall_reciprocity_partial ... ok
+test tests::overall_reciprocity_empty ... ok
+test tests::pagerank_cycle_graph_is_uniform ... ok
+test tests::pagerank_reports_unconverged_when_iteration_budget_exhausts ... ok
+test tests::overall_reciprocity_fully_reciprocal ... ok
+test tests::pagerank_empty_and_singleton_are_empty_or_one ... ok
+test tests::pagerank_path_graph_matches_legacy_networkx_oracle_values ... ok
+test tests::pagerank_star_graph_center_dominates_leaves ... ok
+test tests::preferential_attachment_basic ... ok
+test tests::pagerank_unweighted_indexed_matches_generic_default_weight_path ... ok
+test tests::partition_spanning_tree_respects_included_and_excluded_edges ... ok
+test tests::resource_allocation_index_basic ... ok
+test tests::random_spanning_tree_from_samples_returns_tree ... ok
+test tests::rich_club_coefficient_complete ... ok
+test tests::returns_none_when_nodes_are_missing ... ok
+test tests::s_metric_empty ... ok
+test tests::rich_club_coefficient_star ... ok
+test tests::s_metric_triangle ... ok
+test tests::s_metric_star ... ok
+test tests::reciprocity_per_node ... ok
+test tests::scc_all_singletons ... ok
+test tests::scc_empty_graph ... ok
+test tests::scc_simple_cycle ... ok
+test tests::shortest_path_length_indexed_distance_semantics ... ok
+test tests::scc_two_components ... ok
+test tests::shortest_path_tie_break_tracks_first_seen_neighbor_order ... ok
+test tests::sssp_disconnected ... ok
+test tests::scc_single_node ... ok
+test tests::sssp_nonexistent_source ... ok
+test tests::sssp_length_with_cutoff ... ok
+test tests::sssp_path_graph ... ok
+test tests::sssp_with_cutoff ... ok
+test tests::sssp_length_path_graph ... ok
+test tests::test_all_pairs_all_shortest_paths_triangle ... ok
+test tests::test_all_pairs_bellman_ford_path ... ok
+test tests::test_all_pairs_dijkstra_path_length ... ok
+test tests::test_all_pairs_bellman_ford_path_length ... ok
+test tests::test_all_pairs_dijkstra_path_length_directed ... ok
+test tests::test_all_pairs_dijkstra_path ... ok
+test tests::test_all_pairs_lowest_common_ancestor ... ok
+test tests::test_all_topological_sorts_diamond ... ok
+test tests::test_all_topological_sorts_empty ... ok
+test tests::test_all_topological_sorts_single ... ok
+test tests::test_all_triangles_path ... ok
+test tests::test_all_triangles_triangle ... ok
+test tests::test_antichains_chain ... ok
+test tests::test_antichains_diamond ... ok
+test tests::test_arborescence_iterator_empty_graph_preserves_hardened_mode ... ok
+test tests::test_arborescence_iterator_no_arborescence ... ok
+test tests::test_arborescence_iterator_single_node ... ok
+test tests::test_arborescence_iterator_single_node_preserves_hardened_mode ... ok
+test tests::test_astar_nonexistent_node ... ok
+test tests::test_astar_path_length_simple ... ok
+test tests::test_astar_path_no_path ... ok
+test tests::test_astar_path_propagates_heuristic_error ... ok
+test tests::test_astar_path_same_node ... ok
+test tests::test_astar_path_simple ... ok
+test tests::test_astar_path_with_heuristic ... ok
+test tests::test_attracting_components_chain ... ok
+test tests::test_attracting_components_single_scc ... ok
+test tests::test_attracting_components_two_sinks ... ok
+test tests::test_average_node_connectivity ... ok
+test tests::test_average_node_connectivity_directed_sparse_graph ... ok
+test tests::test_balanced_tree ... ok
+test tests::test_barbell_graph ... ok
+test tests::test_barycenter_complete_graph ... ok
+test tests::test_barycenter_empty ... ok
+test tests::test_barycenter_path ... ok
+test tests::test_barycenter_star ... ok
+test tests::test_bellman_ford_path_length_no_path ... ok
+test tests::test_bellman_ford_path_length_simple ... ok
+test tests::test_betweenness_normalization ... ok
+test tests::test_bfs_beam_edges_width ... ok
+test tests::test_biconnected_component_edges_path ... ok
+test tests::test_biconnected_component_edges_triangle ... ok
+test tests::test_arborescence_iterator_constrained_k4_partition_matches_networkx_choice ... ok
+test tests::test_biconnected_components_bridge ... ok
+test tests::test_biconnected_components_empty ... ok
+test tests::test_bidirectional_shortest_path_no_path ... ok
+test tests::test_biconnected_components_triangle ... ok
+test tests::test_bidirectional_shortest_path_optimal ... ok
+test tests::test_bidirectional_shortest_path_same_node ... ok
+test tests::test_bidirectional_shortest_path_simple ... ok
+test tests::test_boundary_expansion ... ok
+test tests::test_binomial_tree ... ok
+test tests::test_bull_graph ... ok
+test tests::test_cartesian_product_directed_path ... ok
+test tests::test_cartesian_product_empty ... ok
+test tests::test_cartesian_product_k2_k3 ... ok
+test tests::test_cartesian_product_label_disambiguation ... ok
+test tests::test_cartesian_product_one_empty ... ok
+test tests::test_cartesian_product_path_path ... ok
+test tests::test_arborescence_iterator_basic ... ok
+test tests::test_chordal_cycle_graph ... ok
+test tests::test_chordal_graph_cliques_cycle4_matches_networkx_runtime ... ok
+test tests::test_chordal_graph_cliques_path ... ok
+test tests::test_chordal_graph_cliques_triangle ... ok
+test tests::test_chordal_graph_cliques_star ... ok
+test tests::test_chordal_graph_treewidth_non_chordal ... ok
+test tests::clustering_coefficient_scores_are_between_zero_and_one ... ok
+test tests::test_chordal_graph_treewidth_path ... ok
+test tests::test_chordal_graph_treewidth_star ... ok
+test tests::test_circulant_graph ... ok
+test tests::test_circular_ladder_graph ... ok
+test tests::test_clique_removal_triangle ... ok
+test tests::test_communicability_betweenness_triangle ... ok
+test tests::test_chvatal_graph ... ok
+test tests::test_complement_empty ... ok
+test tests::test_complement_complete_is_empty ... ok
+test tests::test_complement_simple ... ok
+test tests::test_complete_bipartite_graph ... ok
+test tests::test_conductance ... ok
+test tests::test_connected_dominating_set_covers ... ok
+test tests::test_constraint_empty ... ok
+test tests::test_complete_multipartite_graph ... ok
+test tests::test_constraint_star ... ok
+test tests::test_could_be_isomorphic_no_different_degrees ... ok
+test tests::test_cubical_graph ... ok
+test tests::test_could_be_isomorphic_yes ... ok
+test tests::test_complete_digraph_k4_branching_and_arborescences_match_networkx_tie_break ... ok
+test tests::test_current_flow_betweenness_path ... ok
+test tests::test_cut_size_directed_counts_both_directions ... ok
+test tests::test_degree_histogram_isolated ... ok
+test tests::test_degree_histogram ... ok
+test tests::test_cut_size_uses_complement_when_second_partition_missing ... ok
+test tests::test_arborescence_iterator_complete_digraph_k4_prefix_matches_networkx_order ... ok
+test tests::test_degree_histogram_empty ... ok
+test tests::test_degree_mixing_dict_path ... ok
+test tests::test_diamond_graph ... ok
+test tests::test_desargues_graph ... ok
+test tests::test_digraph_transforms_preserve_runtime_policy ... ok
+test tests::test_dijkstra_path_length_no_path ... ok
+test tests::test_dijkstra_path_length_simple ... ok
+test tests::test_directed_multi_source_dijkstra ... ok
+test tests::test_dijkstra_path_length_weighted ... ok
+test tests::test_edge_bfs_directed ... ok
+test tests::test_edge_bfs_path ... ok
+test tests::test_dominance_frontiers_diamond ... ok
+test tests::test_dodecahedral_graph ... ok
+test tests::test_edge_boundary_directed ... ok
+test tests::test_edge_current_flow_betweenness_path ... ok
+test tests::test_edge_boundary_with_nbunch2 ... ok
+test tests::test_directed_utility_transforms_preserve_runtime_policy ... ok
+test tests::test_edge_dfs_directed ... ok
+test tests::test_edge_boundary ... ok
+test tests::test_edge_dfs_path ... ok
+test tests::test_edge_expansion ... ok
+test tests::test_effective_size_isolated ... ok
+test tests::test_ego_graph_radius ... ok
+test tests::test_edge_disjoint_paths_triangle ... ok
+test tests::test_enumerate_all_cliques_path ... ok
+test tests::test_ego_graph_full_radius ... ok
+test tests::test_enumerate_all_cliques_triangle ... ok
+test tests::test_fast_could_be_isomorphic_basic ... ok
+test tests::test_faster_could_be_isomorphic_basic ... ok
+test tests::test_find_asteroidal_triple_path_is_none ... ok
+test tests::test_find_cliques_recursive_matches_find_cliques ... ok
+test tests::test_find_asteroidal_triple_cycle6 ... ok
+test tests::test_find_cliques_recursive_triangle ... ok
+test tests::test_find_cycle_directed_dag ... ok
+test tests::test_find_cliques_recursive_k4 ... ok
+test tests::test_find_cycle_directed_exists ... ok
+test tests::test_find_cycle_empty ... ok
+test tests::test_find_cycle_undirected_tree ... ok
+test tests::test_find_cycle_undirected_exists ... ok
+test tests::test_find_negative_cycle_exists ... ok
+test tests::test_find_negative_cycle_positive_cycle ... ok
+test tests::test_find_negative_cycle_no_cycle ... ok
+test tests::test_flow_hierarchy_dag_is_one ... ok
+test tests::test_floyd_warshall_disconnected ... ok
+test tests::test_floyd_warshall_simple ... ok
+test tests::test_floyd_warshall_weighted ... ok
+test tests::test_flow_hierarchy_mixed ... ok
+test tests::test_floyd_warshall_predecessor_and_distance ... ok
+test tests::test_full_join_cross_edges ... ok
+test tests::test_full_join_empty ... ok
+test tests::test_frucht_graph ... ok
+test tests::test_generate_edgelist_format ... ok
+test tests::test_full_rary_tree ... ok
+test tests::test_generalized_petersen_graph ... ok
+test tests::test_geometric_edges_within_radius ... ok
+test tests::test_get_node_attributes ... ok
+test tests::test_girth_empty ... ok
+test tests::test_girth_tree ... ok
+test tests::test_girth_square ... ok
+test tests::test_generic_bfs_edges_depth ... ok
+test tests::test_get_edge_attributes ... ok
+test tests::test_girth_multiple_cycles ... ok
+test tests::test_girth_triangle ... ok
+test tests::test_global_reaching_centrality_connected ... ok
+test tests::test_global_reaching_centrality_directed_chain ... ok
+test tests::test_google_matrix_basic ... ok
+test tests::test_graph_compose ... ok
+test tests::test_gomory_hu_tree_preserves_runtime_policy ... ok
+test tests::test_graph_info_format ... ok
+test tests::test_graph_difference ... ok
+test tests::test_graph_intersection ... ok
+test tests::test_graph_symmetric_difference ... ok
+test tests::test_graph_union ... ok
+test tests::test_graph_transforms_preserve_runtime_policy ... ok
+test tests::test_graph_operators_preserve_left_hand_hardened_mode ... ok
+test tests::test_graphml_writer_named_key_ids ... ok
+test tests::test_graphml_writer_edge_id_from_attribute ... ok
+test tests::test_graphml_writer_preserves_graph_attrs_and_prettyprint_false ... ok
+test tests::test_graphml_writer_type_inference_string_stays_string ... ok
+test tests::test_graphml_xml_escaping ... ok
+test tests::test_graphml_writer_type_inference_int ... ok
+test tests::test_group_betweenness_centrality_center ... ok
+test tests::test_grid_2d_graph ... ok
+test tests::test_group_closeness_centrality_hub ... ok
+test tests::test_group_degree_centrality_disconnected ... ok
+test tests::test_group_degree_centrality_triangle ... ok
+test tests::test_graphml_writer_type_inference ... ok
+test tests::test_group_in_degree_centrality ... ok
+test tests::test_gutman_index_disconnected ... ok
+test tests::test_group_out_degree_centrality ... ok
+test tests::test_gutman_index_path ... ok
+test tests::test_harmonic_diameter_path ... ok
+test tests::test_graph_utility_transforms_preserve_runtime_policy ... ok
+test tests::test_house_graph ... ok
+test tests::test_house_x_graph ... ok
+test tests::test_heawood_graph ... ok
+test tests::test_hyper_wiener_index_path ... ok
+test tests::test_hyper_wiener_index_path_four_nodes ... ok
+test tests::test_identified_nodes_merge ... ok
+test tests::test_hypercube_graph ... ok
+test tests::test_identified_nodes_self ... ok
+test tests::test_identified_nodes_preserves_retained_node_attrs ... ok
+test tests::test_immediate_dominators_diamond ... ok
+test tests::test_in_degree_centrality_chain ... ok
+test tests::test_in_degree_centrality_empty ... ok
+test tests::test_icosahedral_graph ... ok
+test tests::test_in_out_degree_centrality_single ... ok
+test tests::test_immediate_dominators_chain ... ok
+test tests::test_intersection_all_common ... ok
+test tests::test_is_aperiodic_two_cycles ... ok
+test tests::test_is_aperiodic_with_self_loop ... ok
+test tests::test_is_arborescence_cycle ... ok
+test tests::test_is_arborescence_empty ... ok
+test tests::test_is_arborescence_not_tree ... ok
+test tests::test_is_arborescence_simple_tree ... ok
+test tests::test_is_attracting_component_empty ... ok
+test tests::test_is_attracting_component_no_outgoing ... ok
+test tests::test_is_attracting_component_not_strongly_connected ... ok
+test tests::test_is_attracting_component_yes ... ok
+test tests::test_hoffman_singleton_graph ... ok
+test tests::test_is_biconnected_disconnected ... ok
+test tests::test_is_biconnected_path_not ... ok
+test tests::test_is_biconnected_single_node ... ok
+test tests::test_is_aperiodic_cycle ... ok
+test tests::test_is_branching_empty ... ok
+test tests::test_is_branching_cycle_with_isolate ... ok
+test tests::test_is_biconnected_triangle ... ok
+test tests::test_is_branching_forest ... ok
+test tests::test_is_branching_not_forest ... ok
+test tests::test_is_digraphical_invalid ... ok
+test tests::test_is_d_separator_fork ... ok
+test tests::test_is_digraphical_valid ... ok
+test tests::test_is_connected_uses_indexed_traversal_semantics ... ok
+test tests::test_is_d_separator_collider ... ok
+test tests::test_is_distance_regular_cycle ... ok
+test tests::test_is_edge_cover_invalid_edge ... ok
+test tests::test_is_distance_regular_path_not ... ok
+test tests::test_is_graphical_invalid ... ok
+test tests::test_is_graphical_valid ... ok
+test tests::test_is_edge_cover_missing_node ... ok
+test tests::test_is_isomorphic_empty ... ok
+test tests::test_is_edge_cover_valid ... ok
+test tests::test_is_isomorphic_different_sizes ... ok
+test tests::test_is_isomorphic_different_structure ... ok
+test tests::test_is_isomorphic_identical ... ok
+test tests::test_is_k_regular ... ok
+test tests::test_is_k_edge_connected ... ok
+test tests::test_is_k_regular_self_loop_counts_twice ... ok
+test tests::test_is_multigraphical ... ok
+test tests::test_is_isomorphic_petersen_negative ... ok
+test tests::test_is_path_graph ... ok
+test tests::test_is_path_graph_not ... ok
+test tests::test_is_negatively_weighted ... ok
+test tests::test_is_path_graph_self_loop_is_false ... ok
+test tests::test_is_planar_empty ... ok
+test tests::test_is_isomorphic_k4 ... ok
+test tests::test_is_planar_cycle_is_planar ... ok
+test tests::test_is_planar_k4 ... ok
+test tests::test_is_planar_k33_passes_euler_bound ... ok
+test tests::test_is_planar_k4_still_planar ... ok
+test tests::test_is_planar_k5_not_planar ... ok
+test tests::test_is_planar_single_node ... ok
+test tests::test_is_planar_tree ... ok
+test tests::test_is_pseudographical ... ok
+test tests::test_is_regular_empty_is_false ... ok
+test tests::test_is_regular_not ... ok
+test tests::test_is_regular ... ok
+test tests::test_is_semiconnected_chain ... ok
+test tests::test_is_planar_petersen_passes_euler_bound ... ok
+test tests::test_is_semiconnected_cycle ... ok
+test tests::test_is_semiconnected_empty ... ok
+test tests::test_is_semiconnected_fork_not ... ok
+test tests::test_is_simple_path_directed ... ok
+test tests::test_is_simple_path_invalid ... ok
+test tests::test_is_simple_path_valid ... ok
+test tests::test_is_weighted ... ok
+test tests::test_is_tournament_not ... ok
+test tests::test_is_tournament_empty_is_true ... ok
+test tests::test_is_tournament ... ok
+test tests::test_isolates_empty_graph ... ok
+test tests::test_isolates_directed ... ok
+test tests::test_isolates_with_isolated_nodes ... ok
+test tests::test_k_clique_communities_no_cliques ... ok
+test tests::test_k_clique_communities_triangle ... ok
+test tests::test_kosaraju_empty ... ok
+test tests::test_k_clique_communities_two_triangles ... ok
+test tests::test_kneser_graph_petersen ... ok
+test tests::test_is_planar_edge_deletion_monotonicity ... ok
+test tests::test_kosaraju_matches_tarjan ... ok
+test tests::test_kosaraju_simple_cycle ... ok
+test tests::test_kosaraju_singletons ... ok
+test tests::test_kosaraju_two_components ... ok
+test tests::test_line_graph_directed_empty ... ok
+test tests::test_line_graph_directed_converging ... ok
+test tests::test_line_graph_directed_diverging ... ok
+test tests::test_ladder_graph ... ok
+test tests::test_krackhardt_kite_graph ... ok
+test tests::test_line_graph_empty ... ok
+test tests::test_line_graph_directed_path ... ok
+test tests::test_line_graph_label_disambiguation ... ok
+test tests::test_line_graph_single_edge ... ok
+test tests::test_line_graph_path ... ok
+test tests::test_line_graph_triangle ... ok
+test tests::test_line_graph_star ... ok
+test tests::test_load_centrality_empty ... ok
+test tests::test_load_centrality_directed_path ... ok
+test tests::test_load_centrality_single_node ... ok
+test tests::test_load_centrality_path ... ok
+test tests::test_load_centrality_triangle ... ok
+test tests::test_load_centrality_star ... ok
+test tests::test_local_bridges_list_path ... ok
+test tests::test_local_reaching_centrality_connected ... ok
+test tests::test_local_reaching_centrality_directed_chain ... ok
+test tests::test_local_reaching_centrality_disconnected ... ok
+test tests::test_lollipop_graph ... ok
+test tests::test_make_max_clique_graph_preserves_hardened_mode ... ok
+test tests::test_make_max_clique_graph_diamond ... ok
+test tests::test_make_max_clique_graph_triangle ... ok
+test tests::test_max_weight_clique_empty ... ok
+test tests::test_max_clique_approx_complete ... ok
+test tests::test_max_clique_approx_empty ... ok
+test tests::test_max_weight_clique_weighted ... ok
+test tests::test_max_clique_approx_triangle_plus ... ok
+test tests::test_maximal_independent_set_single_self_loop_is_unfeasible ... ok
+test tests::test_maximal_independent_set_rejects_non_independent_seed_nodes ... ok
+test tests::test_max_weight_clique_triangle ... ok
+test tests::test_maximum_independent_set_empty ... ok
+test tests::test_maximal_independent_set_with_seed_nodes ... ok
+test tests::test_maximum_independent_set_triangle ... ok
+test tests::test_maximum_branching_matches_networkx_tie_break_example ... ok
+test tests::test_maximum_independent_set_path ... ok
+test tests::test_maximum_spanning_arborescence_returns_none_when_disconnected ... ok
+test tests::test_min_weighted_vertex_cover_empty ... ok
+test tests::test_maximum_spanning_arborescence_matches_expected_edges ... ok
+test tests::test_min_weighted_vertex_cover_single_edge ... ok
+test tests::test_min_weighted_vertex_cover_triangle ... ok
+test tests::test_min_weighted_vertex_cover_star ... ok
+test tests::test_mixing_expansion ... ok
+test tests::test_minimum_branching_prefers_negative_edge ... ok
+test tests::test_moral_graph_connects_coparents ... ok
+test tests::test_minimum_spanning_arborescence_matches_expected_edges ... ok
+test tests::test_moral_graph_no_coparents ... ok
+test tests::test_moebius_kantor_graph ... ok
+test tests::test_negative_edge_cycle_detected ... ok
+test tests::test_navigable_small_world_basic ... ok
+test tests::test_negative_edge_cycle_none ... ok
+test tests::test_node_connected_component_disconnected ... ok
+test tests::test_node_connected_component_missing_node ... ok
+test tests::test_node_clique_number ... ok
+test tests::test_node_boundary ... ok
+test tests::test_node_boundary_directed ... ok
+test tests::test_node_connectivity_directed_local_respects_orientation ... ok
+test tests::test_non_edges ... ok
+test tests::test_node_connected_component_triangle ... ok
+test tests::test_normalized_cut_size_directed_supports_signed_weights ... ok
+test tests::test_normalized_cut_size_matches_expected ... ok
+test tests::test_node_expansion ... ok
+test tests::test_normalized_cut_size_returns_none_for_zero_volume_partition ... ok
+test tests::test_null_graph ... ok
+test tests::test_number_attracting_components ... ok
+test tests::test_out_degree_centrality_chain ... ok
+test tests::test_paley_graph_5 ... ok
+test tests::test_node_disjoint_paths_parallel ... ok
+test tests::test_path_weight_empty ... ok
+test tests::test_octahedral_graph ... ok
+test tests::test_path_weight_no_edge ... ok
+test tests::test_path_weight_unweighted ... ok
+test tests::test_partial_duplication_graph_size ... ok
+test tests::test_path_weight_weighted ... ok
+test tests::test_predecessor_cutoff ... ok
+test tests::test_power_path ... ok
+test tests::test_pappus_graph ... ok
+test tests::test_petersen_graph ... ok
+test tests::test_predecessor_simple ... ok
+test tests::test_random_spanning_tree_directed_unreachable ... ok
+test tests::test_quotient_graph_partition ... ok
+test tests::test_random_spanning_tree_deterministic ... ok
+test tests::test_random_directed_tree_builders_preserve_runtime_policy ... ok
+test tests::test_random_spanning_tree_directed ... ok
+test tests::property_packet_005_invariants ... FAILED
+test tests::test_random_spanning_tree_disconnected ... ok
+test tests::test_random_spanning_tree_single_node ... ok
+test tests::test_random_spanning_tree_two_components ... ok
+test tests::test_random_spanning_tree_triangle ... ok
+test tests::test_random_tree_small ... ok
+test tests::test_random_tree_builders_preserve_runtime_policy ... ok
+test tests::test_random_tree_basic ... ok
+test tests::test_reconstruct_path_no_path ... ok
+test tests::test_reconstruct_path_same_node ... ok
+test tests::test_relabel_nodes_mapping ... ok
+test tests::test_reconstruct_path_simple ... ok
+test tests::test_relabel_nodes_directed_preserves_node_attrs ... ok
+test tests::test_relabel_nodes_preserves_node_attrs ... ok
+test tests::test_ring_of_cliques_2x2 ... ok
+test tests::test_schultz_index_path ... ok
+test tests::test_relaxed_caveman_graph_structure ... ok
+test tests::test_selfloop_functions ... ok
+test tests::test_ring_of_cliques_basic ... ok
+test tests::test_sedgewick_maze_graph ... ok
+test tests::test_second_order_centrality_path ... ok
+test tests::test_shortest_simple_paths_basic ... ok
+test tests::test_shortest_simple_paths_diamond ... ok
+test tests::test_shortest_simple_paths_no_path ... ok
+test tests::test_shortest_simple_paths_weighted ... ok
+test tests::test_simple_cycles_self_loop ... ok
+test tests::test_simple_cycles_dag_no_cycles ... ok
+test tests::test_simple_cycles_triangle ... ok
+test tests::test_simrank_pair ... ok
+test tests::test_simrank_similarity_triangle ... ok
+test tests::test_simple_cycles_two_cycles ... ok
+test tests::test_single_source_bellman_ford_full ... ok
+test tests::test_single_source_bellman_ford_path ... ok
+test tests::test_single_source_bellman_ford_path_length ... ok
+test tests::test_single_source_dijkstra_full ... ok
+test tests::test_single_source_dijkstra_path_length_only ... ok
+test tests::test_single_source_dijkstra_path_only ... ok
+test tests::test_single_source_dijkstra_path_length_directed_only ... ok
+test tests::test_single_target_shortest_path_directed ... ok
+test tests::test_single_target_shortest_path_length ... ok
+test tests::test_single_target_shortest_path ... ok
+test tests::test_snap_aggregation_all_same ... ok
+test tests::test_spanner_rejects_invalid_stretch ... ok
+test tests::test_snap_aggregation_groups_by_attr ... ok
+test tests::test_single_target_shortest_path_length_directed_cutoff ... ok
+test tests::test_snap_aggregation_preserves_hardened_mode ... ok
+test tests::test_spanning_tree_iterator_disconnected_yields_forest ... ok
+test tests::test_spanning_tree_iterator_empty_graph_preserves_hardened_mode ... ok
+test tests::test_spanner_trivial_stretch_one_copies_graph ... ok
+test tests::test_spanning_tree_iterator_returns_single_forest_when_disconnected ... ok
+test tests::test_spanning_tree_iterator_k3_has_three ... ok
+test tests::test_spanning_tree_iterator_max_order ... ok
+test tests::test_spanning_tree_iterator_c4 ... ok
+test tests::test_spanning_tree_iterator_single_node ... ok
+test tests::test_stoer_wagner_disconnected_cut_zero ... ok
+test tests::test_spanning_tree_iterator_max_count_limit ... ok
+test tests::test_spanning_tree_iterator_single_node_preserves_hardened_mode ... ok
+test tests::test_stochastic_block_model_sizes ... ok
+test tests::test_stoer_wagner_triangle ... ok
+test tests::test_stoer_wagner_weighted ... ok
+test tests::test_tensor_product_empty ... ok
+test tests::test_tensor_product_directed ... ok
+test tests::test_tadpole_graph ... ok
+test tests::test_tensor_product_one_empty ... ok
+test tests::test_spanning_tree_iterator_tree_returns_one ... ok
+test tests::test_tetrahedral_graph ... ok
+test tests::test_to_edgelist_path ... ok
+test tests::test_to_dict_of_lists_path ... ok
+test tests::test_tensor_product_path_path ... ok
+test tests::test_tensor_product_triangle_edge ... ok
+test tests::test_tree_all_pairs_lowest_common_ancestor_native_default_pairs ... ok
+test tests::test_tree_all_pairs_lowest_common_ancestor_preserves_requested_orientation ... ok
+test tests::test_tree_all_pairs_lowest_common_ancestor_respects_explicit_root_subtree ... ok
+test tests::test_tree_broadcast_center_path_graph ... ok
+test tests::test_tree_data_path ... ok
+test tests::test_triadic_census_cycle ... ok
+test tests::test_tree_broadcast_center_star_graph ... ok
+test tests::test_triadic_census_empty ... ok
+test tests::test_trivial_graph ... ok
+test tests::test_tree_broadcast_time_path_graph ... ok
+test tests::test_turan_graph ... ok
+test tests::test_spanning_tree_iterator_weight_order ... ok
+test tests::test_tutte_polynomial_tree ... ok
+test tests::test_tutte_polynomial_single_edge ... ok
+test tests::test_volume ... ok
+test tests::test_union_all_disjoint ... ok
+test tests::test_voronoi_cells_path ... ok
+test tests::test_truncated_tetrahedron_graph ... ok
+test tests::test_voronoi_cells_single_center ... ok
+test tests::test_wheel_graph ... ok
+test tests::test_tutte_graph ... ok
+test tests::test_windmill_graph ... ok
+test tests::test_truncated_cube_graph ... ok
+test tests::test_write_graphml_directed ... ok
+test tests::test_write_graphml_contains_structure ... ok
+test tests::to_prufer_sequence_rejects_sparse_labels_without_panicking ... ok
+test tests::to_prufer_sequence_rejects_non_trees_without_panicking ... ok
+test tests::topological_generations_cycle ... ok
+test tests::topological_sort_empty ... ok
+test tests::topological_sort_linear ... ok
+test tests::topological_generations_simple ... ok
+test tests::topological_sort_simple ... ok
+test tests::topological_sort_cycle ... ok
+test tests::transitive_closure_chain ... ok
+test tests::transitive_closure_empty ... ok
+test tests::transitive_reduction_cycle_returns_none ... ok
+test tests::transitive_closure_preserves_hardened_mode ... ok
+test tests::transitive_reduction_chain ... ok
+test tests::transitive_reduction_preserves_all_nodes ... ok
+test tests::transitive_reduction_diamond ... ok
+test tests::transitive_reduction_preserves_hardened_mode ... ok
+test tests::wcc_single_component ... ok
+test tests::weighted_matching_empty_graph_is_empty ... ok
+test tests::wcc_two_components ... ok
+test tests::wcc_empty ... ok
+test tests::weighted_shortest_path_prefers_lower_total_weight ... ok
+test tests::weighted_shortest_path_tie_break_tracks_node_insertion_order ... ok
+test tests::wiener_index_disconnected_returns_infinity ... ok
+test tests::wiener_index_single_node ... ok
+test tests::weighted_matching_replay_stable_under_insertion_order_noise ... ok
+test tests::wiener_index_path ... ok
+test tests::wiener_index_triangle ... ok
+test tests::unit_packet_005_contract_asserted ... ok
+test tests::test_arborescence_iterator_complete_digraph_k4_count ... ok
+test tests::property_packet_005_insertion_permutation_and_noise_are_replay_stable ... ok
+
+failures:
+
+---- tests::property_packet_005_invariants stdout ----
+
+thread 'tests::property_packet_005_invariants' (770283) panicked at crates/fnx-algorithms/src/lib.rs:36981:5:
+Test failed: assertion failed: `(left == right)` 
+  left: `["n1", "n4", "n2", "n5", "n0"]`, 
+ right: `["n1", "n4", "n2", "n0", "n5"]`: P2C005-DC-3 multi-source dijkstra order must match graph node order for reached nodes at crates/fnx-algorithms/src/lib.rs:37032.
+minimal failing input: edges = [
+    (
+        1,
+        4,
+    ),
+    (
+        2,
+        0,
+    ),
+    (
+        4,
+        2,
+    ),
+    (
+        4,
+        5,
+    ),
+]
+	successes: 0
+	local rejects: 0
+	global rejects: 0
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    tests::property_packet_005_invariants
+
+test result: FAILED. 822 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 7.79s
+
+error: test failed, to rerun pass `-p fnx-algorithms --lib`
+  [2m2026-06-03T09:05:56.595747Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mRemote command finished: exit=101 in 58731ms[0m
+    [2;3mat[0m rch/src/hook.rs:6364 [2;3mon[0m ThreadId(1)
+
+[RCH] remote vmi1156319 failed (exit 101)
