@@ -2324,14 +2324,20 @@ def _multi_add_edge_auto_key(raw_add_edge):
     """
 
     def add_edge(self, u_for_edge, v_for_edge, key=None, **attr):
-        if key is None and self.has_edge(u_for_edge, v_for_edge):
-            existing = self[u_for_edge][v_for_edge]
-            # nx.MultiGraph.new_edge_key contract:
-            #   key = len(keydict); while key in keydict: key += 1
-            candidate = len(existing)
-            while candidate in existing:
-                candidate += 1
-            key = candidate
+        if key is None:
+            # br-r37-c1-mgaek: use the native O(1) get_edge_data(u, v) keydict
+            # instead of ``self[u_for_edge][v_for_edge]``, which rebuilds the
+            # full MultiAdjacencyView (O(E)) on EVERY add_edge — making the
+            # public multigraph add_edge O(E) and any per-edge build O(E^2)
+            # (e.g. from_dict_of_dicts of 8k edges took 137s). Same gap-aware
+            # key (nx.MultiGraph.new_edge_key: key = len(keydict); while key in
+            # keydict: key += 1), so explicit/auto key mixes still match nx.
+            existing = self.get_edge_data(u_for_edge, v_for_edge)
+            if existing:
+                candidate = len(existing)
+                while candidate in existing:
+                    candidate += 1
+                key = candidate
         return raw_add_edge(self, u_for_edge, v_for_edge, key=key, **attr)
 
     return add_edge
@@ -20626,7 +20632,11 @@ def _add_json_multiedge(graph, source, target, edge_key, edge_attrs):
         actual_key = graph.add_edge(source, target)
     else:
         actual_key = graph.add_edge(source, target, key=edge_key)
-    graph[source][target][actual_key].update(edge_attrs)
+    # br-r37-c1-mgaek: O(1) native get_edge_data instead of graph[s][t][k],
+    # which rebuilds the full MultiAdjacencyView per edge (O(E) -> O(E^2) in the
+    # from_dict_of_dicts / node_link_graph construction loops).
+    if edge_attrs:
+        graph.get_edge_data(source, target, actual_key).update(edge_attrs)
 
 
 def adjacency_data(G, attrs={"id": "id", "key": "key"}):  # noqa: B006
