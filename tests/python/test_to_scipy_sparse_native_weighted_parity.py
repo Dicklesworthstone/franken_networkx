@@ -193,11 +193,17 @@ def test_dtype_none_absent_string_weight_routes_native(monkeypatch):
 
 
 @needs_nx
-def test_dtype_none_present_string_weight_keeps_python_fallback(monkeypatch):
+def test_dtype_none_present_string_weight_routes_typed_default_native(monkeypatch):
     native_adjacency = getattr(fnx, "_native_adjacency_arrays", None)
     native_index = getattr(fnx, "_native_adjacency_index_arrays", None)
     native_default_index = getattr(fnx, "_native_adjacency_default_order_index_arrays", None)
-    if native_adjacency is None or native_index is None or native_default_index is None:
+    native_typed = getattr(fnx, "_native_adjacency_default_order_typed_arrays", None)
+    if (
+        native_adjacency is None
+        or native_index is None
+        or native_default_index is None
+        or native_typed is None
+    ):
         pytest.skip("native sparse helpers unavailable")
 
     ng, fg = nx.Graph(), fnx.Graph()
@@ -223,12 +229,17 @@ def test_dtype_none_present_string_weight_keeps_python_fallback(monkeypatch):
         calls.append(("default_index", absent_weight_attr))
         return native_default_index(graph, absent_weight_attr)
 
+    def wrapped_typed(graph, weight_attr, default_weight):
+        calls.append(("typed", weight_attr, default_weight))
+        return native_typed(graph, weight_attr, default_weight)
+
     monkeypatch.setattr(fnx, "_native_has_edge_attr", fail_has_attr)
     monkeypatch.setattr(fnx, "_native_adjacency_arrays", wrapped_adjacency)
     monkeypatch.setattr(fnx, "_native_adjacency_index_arrays", wrapped_index)
     monkeypatch.setattr(
         fnx, "_native_adjacency_default_order_index_arrays", wrapped_default_index
     )
+    monkeypatch.setattr(fnx, "_native_adjacency_default_order_typed_arrays", wrapped_typed)
 
     a = nx.to_scipy_sparse_array(ng, dtype=None, weight="weight")
     b = fnx.to_scipy_sparse_array(fg, dtype=None, weight="weight")
@@ -236,7 +247,51 @@ def test_dtype_none_present_string_weight_keeps_python_fallback(monkeypatch):
     _assert_csr_payload_equal(a, b)
     assert b.dtype.kind == "f"
     assert ("default_index", "weight") in calls
+    assert ("typed", "weight", 1.0) in calls
     assert not any(call[0] == "adjacency" for call in calls)
+
+
+@needs_nx
+def test_dtype_none_present_int_string_weight_preserves_int_dtype():
+    ng, fg = nx.Graph(), fnx.Graph()
+    for graph in (ng, fg):
+        graph.add_edge(0, 1, weight=2)
+        graph.add_edge(1, 2)
+        graph.add_edge(2, 3, weight=5)
+
+    a = nx.to_scipy_sparse_array(ng, dtype=None, weight="weight")
+    b = fnx.to_scipy_sparse_array(fg, dtype=None, weight="weight")
+
+    _assert_csr_payload_equal(a, b)
+    assert b.dtype.kind in {"i", "u"}
+
+
+@needs_nx
+def test_dtype_none_present_integral_float_string_weight_preserves_float_dtype():
+    ng, fg = nx.Graph(), fnx.Graph()
+    for graph in (ng, fg):
+        graph.add_edge(0, 1, weight=2.0)
+        graph.add_edge(1, 2, weight=3.0)
+
+    a = nx.to_scipy_sparse_array(ng, dtype=None, weight="weight")
+    b = fnx.to_scipy_sparse_array(fg, dtype=None, weight="weight")
+
+    _assert_csr_payload_equal(a, b)
+    assert b.dtype.kind == "f"
+
+
+@needs_nx
+def test_dtype_none_bool_string_weight_keeps_fallback_dtype():
+    ng, fg = nx.Graph(), fnx.Graph()
+    for graph in (ng, fg):
+        graph.add_edge(0, 1, weight=True)
+        graph.add_edge(1, 2, weight=False)
+
+    a = nx.to_scipy_sparse_array(ng, dtype=None, weight="weight")
+    b = fnx.to_scipy_sparse_array(fg, dtype=None, weight="weight")
+
+    _assert_csr_payload_equal(a, b)
+    assert b.dtype == a.dtype
 
 
 @needs_nx

@@ -2246,6 +2246,69 @@ pub fn adjacency_default_order_arrays(
     Ok(Some((rows, cols, data)))
 }
 
+/// Return weighted COO arrays plus dtype metadata for a default-order Graph.
+///
+/// This is the dtype-preserving sibling of ``adjacency_default_order_arrays``
+/// for ``dtype=None`` sparse exports. It returns ``None`` for value kinds where
+/// converting through f64 would change NetworkX dtype/value semantics.
+#[pyfunction]
+#[pyo3(signature = (g, weight_attr, default_weight=1.0))]
+pub fn adjacency_default_order_typed_arrays(
+    g: &Bound<'_, PyAny>,
+    weight_attr: &str,
+    default_weight: f64,
+) -> PyResult<Option<(Vec<usize>, Vec<usize>, Vec<f64>, bool)>> {
+    let gr = extract_graph(g)?;
+    let GraphRef::Undirected(pg) = &gr else {
+        return Ok(None);
+    };
+
+    let inner = &pg.inner;
+    let mut rows = Vec::with_capacity(inner.edge_count() * 2);
+    let mut cols = Vec::with_capacity(inner.edge_count() * 2);
+    let mut data = Vec::with_capacity(inner.edge_count() * 2);
+    let mut needs_float_dtype = default_weight.fract() != 0.0;
+    const MAX_EXACT_F64_INT: i64 = 9_007_199_254_740_992;
+    for row in 0..inner.node_count() {
+        let Some(row_name) = inner.get_node_name(row) else {
+            continue;
+        };
+        let Some(neighbors) = inner.neighbors_indices(row) else {
+            continue;
+        };
+        for &col in neighbors {
+            let Some(col_name) = inner.get_node_name(col) else {
+                continue;
+            };
+            let value = match inner
+                .edge_attrs(row_name, col_name)
+                .and_then(|attrs| attrs.get(weight_attr))
+            {
+                Some(fnx_runtime::CgseValue::Int(i)) => {
+                    if *i < -MAX_EXACT_F64_INT || *i > MAX_EXACT_F64_INT {
+                        return Ok(None);
+                    }
+                    *i as f64
+                }
+                Some(fnx_runtime::CgseValue::Float(f)) => {
+                    needs_float_dtype = true;
+                    *f
+                }
+                None => default_weight,
+                Some(
+                    fnx_runtime::CgseValue::Bool(_)
+                    | fnx_runtime::CgseValue::String(_)
+                    | fnx_runtime::CgseValue::Map(_),
+                ) => return Ok(None),
+            };
+            rows.push(row);
+            cols.push(col);
+            data.push(value);
+        }
+    }
+    Ok(Some((rows, cols, data, needs_float_dtype)))
+}
+
 /// Bulk per-node adjacency + edge attrs for the `_fnx_to_nx` parity conversion.
 ///
 /// Returns, for each node in node-insertion order, its neighbors in
@@ -14682,6 +14745,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(adjacency_index_arrays, m)?)?;
     m.add_function(wrap_pyfunction!(adjacency_default_order_index_arrays, m)?)?;
     m.add_function(wrap_pyfunction!(adjacency_default_order_arrays, m)?)?;
+    m.add_function(wrap_pyfunction!(adjacency_default_order_typed_arrays, m)?)?;
     m.add_function(wrap_pyfunction!(fnx_to_nx_adjacency, m)?)?;
     m.add_function(wrap_pyfunction!(graph_has_edge_attr, m)?)?;
     m.add_function(wrap_pyfunction!(bellman_ford_path, m)?)?;

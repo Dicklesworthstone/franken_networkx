@@ -16409,6 +16409,13 @@ except ImportError:  # pragma: no cover — defensive for partial builds
 
 try:
     from franken_networkx._fnx import (
+        adjacency_default_order_typed_arrays as _native_adjacency_default_order_typed_arrays,
+    )
+except ImportError:  # pragma: no cover — defensive for partial builds
+    _native_adjacency_default_order_typed_arrays = None
+
+try:
+    from franken_networkx._fnx import (
         graph_has_edge_attr as _native_has_edge_attr,
     )
 except ImportError:  # pragma: no cover — defensive for partial builds
@@ -39194,6 +39201,39 @@ def to_scipy_sparse_array(G, nodelist=None, dtype=None, weight="weight", format=
                 native_weight = None
             else:
                 native_weight = weight if _use_native_weighted else None
+        if (
+            _probe_native_missing_default_weight
+            and native_index_result is None
+            and default_nodelist
+            and format == "csr"
+            and type(G) is Graph
+            and _native_adjacency_default_order_typed_arrays is not None
+        ):
+            # br-r37-c1-04z53.20: dtype=None with present string weights used
+            # to fall back to Python edge iteration solely to preserve nx dtype
+            # inference. The typed native helper returns conservative dtype
+            # metadata; unsupported value kinds still return None and use the
+            # exact Python fallback below.
+            _sync_rust_edge_attrs(G)
+            typed_native_result = _native_adjacency_default_order_typed_arrays(
+                G, weight, 1.0
+            )
+            if typed_native_result is not None:
+                rows, cols, data, needs_float_dtype = typed_native_result
+                import numpy as _np
+                data_dtype = _np.float64 if needs_float_dtype else _np.int64
+                matrix = scipy.sparse.coo_array(
+                    (
+                        _np.asarray(data, dtype=data_dtype),
+                        (
+                            _np.asarray(rows, dtype=_np.intp),
+                            _np.asarray(cols, dtype=_np.intp),
+                        ),
+                    ),
+                    shape=(len(nodelist), len(nodelist)),
+                )
+                return matrix.asformat(format)
+
         if _probe_native_missing_default_weight and native_index_result is None:
             native_result = None
         elif (
