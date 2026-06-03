@@ -16395,6 +16395,13 @@ except ImportError:  # pragma: no cover — defensive for partial builds
 
 try:
     from franken_networkx._fnx import (
+        adjacency_default_order_index_arrays as _native_adjacency_default_order_index_arrays,
+    )
+except ImportError:  # pragma: no cover — defensive for partial builds
+    _native_adjacency_default_order_index_arrays = None
+
+try:
+    from franken_networkx._fnx import (
         graph_has_edge_attr as _native_has_edge_attr,
     )
 except ImportError:  # pragma: no cover — defensive for partial builds
@@ -39090,7 +39097,8 @@ def to_scipy_sparse_array(G, nodelist=None, dtype=None, weight="weight", format=
     if len(G) == 0:
         raise NetworkXError("Graph has no nodes or edges")
 
-    if nodelist is None:
+    default_nodelist = nodelist is None
+    if default_nodelist:
         nodelist = list(G)
     else:
         nodelist = list(nodelist)
@@ -39151,9 +39159,19 @@ def to_scipy_sparse_array(G, nodelist=None, dtype=None, weight="weight", format=
         native_index_result = None
         if native_weight is None and _native_adjacency_index_arrays is not None:
             absent_weight_attr = weight if _probe_native_missing_default_weight else None
-            native_index_result = _native_adjacency_index_arrays(
-                G, nodelist, absent_weight_attr
-            )
+            if (
+                default_nodelist
+                and format == "csr"
+                and type(G) is Graph
+                and _native_adjacency_default_order_index_arrays is not None
+            ):
+                native_index_result = _native_adjacency_default_order_index_arrays(
+                    G, absent_weight_attr
+                )
+            else:
+                native_index_result = _native_adjacency_index_arrays(
+                    G, nodelist, absent_weight_attr
+                )
             if native_index_result is not None:
                 rows, cols = native_index_result
                 import numpy as _np

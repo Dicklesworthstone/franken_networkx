@@ -34,15 +34,43 @@ def test_default_missing_weight_attr_routes_to_native_unweighted(monkeypatch):
     graph.add_edges_from([(0, 1), (1, 2)])
     calls = []
 
+    def fail_generic_index(*_args):
+        raise AssertionError("default Graph CSR route should use default-order helper")
+
+    def fake_native(actual_graph, absent_weight_attr):
+        calls.append((actual_graph, absent_weight_attr))
+        return [0, 1, 1, 2], [1, 0, 2, 1]
+
+    monkeypatch.setattr(fnx, "_native_adjacency_index_arrays", fail_generic_index)
+    monkeypatch.setattr(fnx, "_native_adjacency_default_order_index_arrays", fake_native)
+
+    matrix = fnx.to_scipy_sparse_array(graph)
+
+    assert calls == [(graph, "weight")]
+    assert matrix.dtype == np.dtype("int64")
+    assert matrix.toarray().tolist() == [[0, 1, 0], [1, 0, 1], [0, 1, 0]]
+
+
+def test_explicit_nodelist_keeps_generic_native_index(monkeypatch):
+    graph = fnx.Graph()
+    graph.add_edges_from([(0, 1), (1, 2)])
+    calls = []
+
+    def fail_default_order(*_args):
+        raise AssertionError("explicit nodelist must not use default-order helper")
+
     def fake_native(actual_graph, nodelist, absent_weight_attr):
         calls.append((actual_graph, tuple(nodelist), absent_weight_attr))
         return [0, 1, 1, 2], [1, 0, 2, 1]
 
+    monkeypatch.setattr(
+        fnx, "_native_adjacency_default_order_index_arrays", fail_default_order
+    )
     monkeypatch.setattr(fnx, "_native_adjacency_index_arrays", fake_native)
 
-    matrix = fnx.to_scipy_sparse_array(graph)
+    matrix = fnx.to_scipy_sparse_array(graph, nodelist=[2, 1, 0])
 
-    assert calls == [(graph, (0, 1, 2), "weight")]
+    assert calls == [(graph, (2, 1, 0), "weight")]
     assert matrix.dtype == np.dtype("int64")
     assert matrix.toarray().tolist() == [[0, 1, 0], [1, 0, 1], [0, 1, 0]]
 

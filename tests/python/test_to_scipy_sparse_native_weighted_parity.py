@@ -118,7 +118,8 @@ def test_dtype_float_weighted_uses_native_and_matches():
 def test_dtype_none_absent_string_weight_routes_native(monkeypatch):
     native_adjacency = getattr(fnx, "_native_adjacency_arrays", None)
     native_index = getattr(fnx, "_native_adjacency_index_arrays", None)
-    if native_adjacency is None or native_index is None:
+    native_default_index = getattr(fnx, "_native_adjacency_default_order_index_arrays", None)
+    if native_adjacency is None or native_index is None or native_default_index is None:
         pytest.skip("native sparse helpers unavailable")
 
     ng, fg = nx.Graph(), fnx.Graph()
@@ -139,16 +140,23 @@ def test_dtype_none_absent_string_weight_routes_native(monkeypatch):
         calls.append(("index", absent_weight_attr))
         return native_index(graph, nodelist, absent_weight_attr)
 
+    def wrapped_default_index(graph, absent_weight_attr):
+        calls.append(("default_index", absent_weight_attr))
+        return native_default_index(graph, absent_weight_attr)
+
     monkeypatch.setattr(fnx, "_native_has_edge_attr", fail_has_attr)
     monkeypatch.setattr(fnx, "_native_adjacency_arrays", wrapped_adjacency)
     monkeypatch.setattr(fnx, "_native_adjacency_index_arrays", wrapped_index)
+    monkeypatch.setattr(
+        fnx, "_native_adjacency_default_order_index_arrays", wrapped_default_index
+    )
 
     a = nx.to_scipy_sparse_array(ng, dtype=None, weight="weight")
     b = fnx.to_scipy_sparse_array(fg, dtype=None, weight="weight")
 
     _assert_csr_payload_equal(a, b)
     assert b.dtype.kind in {"i", "u"}
-    assert ("index", "weight") in calls
+    assert ("default_index", "weight") in calls
     assert not any(call[0] == "adjacency" for call in calls)
 
 
@@ -156,7 +164,8 @@ def test_dtype_none_absent_string_weight_routes_native(monkeypatch):
 def test_dtype_none_present_string_weight_keeps_python_fallback(monkeypatch):
     native_adjacency = getattr(fnx, "_native_adjacency_arrays", None)
     native_index = getattr(fnx, "_native_adjacency_index_arrays", None)
-    if native_adjacency is None or native_index is None:
+    native_default_index = getattr(fnx, "_native_adjacency_default_order_index_arrays", None)
+    if native_adjacency is None or native_index is None or native_default_index is None:
         pytest.skip("native sparse helpers unavailable")
 
     ng, fg = nx.Graph(), fnx.Graph()
@@ -178,16 +187,23 @@ def test_dtype_none_present_string_weight_keeps_python_fallback(monkeypatch):
         calls.append(("index", absent_weight_attr))
         return native_index(graph, nodelist, absent_weight_attr)
 
+    def wrapped_default_index(graph, absent_weight_attr):
+        calls.append(("default_index", absent_weight_attr))
+        return native_default_index(graph, absent_weight_attr)
+
     monkeypatch.setattr(fnx, "_native_has_edge_attr", fail_has_attr)
     monkeypatch.setattr(fnx, "_native_adjacency_arrays", wrapped_adjacency)
     monkeypatch.setattr(fnx, "_native_adjacency_index_arrays", wrapped_index)
+    monkeypatch.setattr(
+        fnx, "_native_adjacency_default_order_index_arrays", wrapped_default_index
+    )
 
     a = nx.to_scipy_sparse_array(ng, dtype=None, weight="weight")
     b = fnx.to_scipy_sparse_array(fg, dtype=None, weight="weight")
 
     _assert_csr_payload_equal(a, b)
     assert b.dtype.kind == "f"
-    assert ("index", "weight") in calls
+    assert ("default_index", "weight") in calls
     assert not any(call[0] == "adjacency" for call in calls)
 
 

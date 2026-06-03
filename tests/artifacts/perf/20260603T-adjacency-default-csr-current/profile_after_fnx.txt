@@ -1,0 +1,86 @@
+         173130 function calls (166317 primitive calls) in 0.188 seconds
+
+   Ordered by: cumulative time
+   List reduced from 1195 to 80 due to restriction <80>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+       29    0.000    0.000    0.290    0.010 __init__.py:1(<module>)
+        5    0.000    0.000    0.188    0.038 bench_vs_upstream.py:74(_call_case)
+     10/5    0.003    0.000    0.188    0.038 __init__.py:42634(wrapper)
+        5    0.000    0.000    0.188    0.038 __init__.py:16100(adjacency_matrix)
+        5    0.001    0.000    0.185    0.037 __init__.py:39066(to_scipy_sparse_array)
+    174/1    0.001    0.000    0.119    0.119 <frozen importlib._bootstrap>:1349(_find_and_load)
+    170/1    0.001    0.000    0.119    0.119 <frozen importlib._bootstrap>:1304(_find_and_load_unlocked)
+    407/3    0.000    0.000    0.119    0.040 <frozen importlib._bootstrap>:480(_call_with_frames_removed)
+    166/2    0.000    0.000    0.119    0.059 <frozen importlib._bootstrap>:911(_load_unlocked)
+    148/2    0.000    0.000    0.119    0.059 <frozen importlib._bootstrap_external>:1020(exec_module)
+    152/2    0.001    0.000    0.118    0.059 {built-in method builtins.exec}
+        2    0.000    0.000    0.098    0.049 _base.py:1(<module>)
+    60/20    0.000    0.000    0.098    0.005 {built-in method builtins.__import__}
+        1    0.000    0.000    0.098    0.098 _sputils.py:1(<module>)
+        1    0.000    0.000    0.097    0.097 _util.py:1(<module>)
+        1    0.000    0.000    0.096    0.096 _array_api.py:1(<module>)
+    96/20    0.000    0.000    0.091    0.005 <frozen importlib._bootstrap>:1390(_handle_fromlist)
+        3    0.000    0.000    0.076    0.025 _internal.py:56(clone_module)
+2259/1709    0.000    0.000    0.075    0.000 {built-in method builtins.hasattr}
+       10    0.000    0.000    0.075    0.007 __init__.py:704(__getattr__)
+        1    0.000    0.000    0.044    0.044 f2py2e.py:1(<module>)
+      217    0.001    0.000    0.037    0.000 __init__.py:330(_compile)
+       75    0.000    0.000    0.036    0.000 __init__.py:287(compile)
+        1    0.000    0.000    0.036    0.036 capi_maps.py:1(<module>)
+       80    0.000    0.000    0.035    0.000 _compiler.py:743(compile)
+        5    0.035    0.007    0.035    0.007 {built-in method franken_networkx._fnx.adjacency_default_order_index_arrays}
+        1    0.000    0.000    0.033    0.033 crackfortran.py:1(<module>)
+      148    0.001    0.000    0.023    0.000 <frozen importlib._bootstrap_external>:1093(get_code)
+       80    0.000    0.000    0.022    0.000 _parser.py:970(parse)
+   462/80    0.005    0.000    0.021    0.000 _parser.py:451(_parse_sub)
+   612/80    0.006    0.000    0.021    0.000 _parser.py:511(_parse)
+        5    0.000    0.000    0.021    0.004 _coo.py:32(__init__)
+      148    0.002    0.000    0.015    0.000 <frozen importlib._bootstrap_external>:782(_compile_bytecode)
+       80    0.000    0.000    0.013    0.000 _compiler.py:576(_code)
+      148    0.013    0.000    0.013    0.000 {built-in method marshal.loads}
+       70    0.012    0.000    0.012    0.000 {built-in method numpy.array}
+       15    0.000    0.000    0.012    0.001 _coo.py:62(<genexpr>)
+  1124/80    0.005    0.000    0.012    0.000 _compiler.py:37(_compile)
+      237    0.002    0.000    0.012    0.000 {built-in method builtins.__build_class__}
+      170    0.001    0.000    0.009    0.000 <frozen importlib._bootstrap>:1240(_find_spec)
+       20    0.000    0.000    0.008    0.000 _base.py:1525(_get_index_dtype)
+       20    0.000    0.000    0.008    0.000 _sputils.py:264(get_index_dtype)
+      166    0.000    0.000    0.008    0.000 <frozen importlib._bootstrap_external>:1551(find_spec)
+      166    0.000    0.000    0.008    0.000 <frozen importlib._bootstrap_external>:1522(_get_spec)
+       30    0.008    0.000    0.008    0.000 {built-in method numpy.asarray}
+      196    0.001    0.000    0.007    0.000 <frozen importlib._bootstrap_external>:1624(find_spec)
+        1    0.000    0.000    0.006    0.006 _docscrape.py:1(<module>)
+        5    0.006    0.001    0.006    0.001 __init__.py:28977(__iter__)
+    14/10    0.000    0.000    0.006    0.001 <frozen importlib._bootstrap_external>:1326(exec_module)
+    14/10    0.004    0.000    0.006    0.001 {built-in method _imp.exec_dynamic}
+      221    0.005    0.000    0.005    0.000 {built-in method builtins.eval}
+        1    0.000    0.000    0.005    0.005 core.py:1(<module>)
+      148    0.000    0.000    0.005    0.000 <frozen importlib._bootstrap_external>:1214(get_data)
+        1    0.000    0.000    0.004    0.004 rules.py:1(<module>)
+      166    0.000    0.000    0.004    0.000 <frozen importlib._bootstrap>:806(module_from_spec)
+      104    0.000    0.000    0.004    0.000 inspect.py:3373(signature)
+      104    0.000    0.000    0.004    0.000 inspect.py:3094(from_callable)
+  109/104    0.000    0.000    0.004    0.000 inspect.py:2487(_signature_from_callable)
+        1    0.000    0.000    0.004    0.004 _pickle.py:1(<module>)
+        1    0.000    0.000    0.004    0.004 _testutils.py:1(<module>)
+        1    0.000    0.000    0.004    0.004 pydoc.py:1(<module>)
+      668    0.000    0.000    0.003    0.000 <frozen importlib._bootstrap_external>:145(_path_stat)
+        2    0.000    0.000    0.003    0.002 _aliases.py:1(<module>)
+      675    0.003    0.000    0.003    0.000 {built-in method posix.stat}
+        5    0.000    0.000    0.003    0.001 _base.py:451(asformat)
+        5    0.000    0.000    0.003    0.001 _coo.py:349(tocsr)
+     8948    0.002    0.000    0.003    0.000 _parser.py:167(__getitem__)
+        1    0.000    0.000    0.003    0.003 _delegation.py:1(<module>)
+        1    0.000    0.000    0.003    0.003 _construct.py:1(<module>)
+        3    0.000    0.000    0.003    0.001 _util.py:290(decorator)
+       61    0.000    0.000    0.003    0.000 _internal.py:32(inner)
+ 1340/403    0.002    0.000    0.003    0.000 _parser.py:177(getwidth)
+       86    0.000    0.000    0.002    0.000 auxfuncs.py:627(l_and)
+       13    0.000    0.000    0.002    0.000 core.py:8743(_convert2ma)
+        1    0.000    0.000    0.002    0.002 _funcs.py:1(<module>)
+18125/16978    0.002    0.000    0.002    0.000 {built-in method builtins.len}
+      171    0.000    0.000    0.002    0.000 <frozen importlib._bootstrap>:416(__enter__)
+        5    0.000    0.000    0.002    0.000 _coo.py:383(_coo_to_compressed)
+       99    0.001    0.000    0.002    0.000 inspect.py:2383(_signature_from_function)
+      390    0.002    0.000    0.002    0.000 _compiler.py:241(_optimize_charset)

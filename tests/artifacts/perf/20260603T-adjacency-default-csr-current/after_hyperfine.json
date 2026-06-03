@@ -1,0 +1,32 @@
+{
+  "results": [
+    {
+      "command": ".venv/bin/python tests/artifacts/perf/20260602T-vs-upstream-sweep/bench_vs_upstream.py bench --case adjacency_default --impl fnx --repeats 7 --n 8000 --m 4 >/dev/null",
+      "mean": 0.7459860815942857,
+      "stddev": 0.018798817170078364,
+      "median": 0.7383190738800001,
+      "user": 4.76005491142857,
+      "system": 0.12877641428571426,
+      "min": 0.7255068918800001,
+      "max": 0.78133805688,
+      "times": [
+        0.75936959988,
+        0.74581757388,
+        0.7383190738800001,
+        0.78133805688,
+        0.73732157388,
+        0.7255068918800001,
+        0.73422980088
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

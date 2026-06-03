@@ -2160,6 +2160,45 @@ pub fn adjacency_index_arrays(
     Ok(Some((rows, cols)))
 }
 
+/// Return COO row/column arrays for an unweighted Graph in insertion order.
+///
+/// This is the default-nodelist sibling of ``adjacency_index_arrays``. It uses
+/// cached neighbor-index slices, avoiding Python nodelist canonicalization and
+/// per-edge string lookups on the common ``nodelist=None`` CSR path.
+#[pyfunction]
+#[pyo3(signature = (g, absent_weight_attr=None))]
+pub fn adjacency_default_order_index_arrays(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    absent_weight_attr: Option<&str>,
+) -> PyResult<Option<(Vec<usize>, Vec<usize>)>> {
+    let gr = extract_graph(g)?;
+    let GraphRef::Undirected(pg) = &gr else {
+        return Ok(None);
+    };
+    if let Some(attr) = absent_weight_attr {
+        for dict in pg.edge_py_attrs.values() {
+            if dict.bind(py).contains(attr)? {
+                return Ok(None);
+            }
+        }
+    }
+
+    let inner = &pg.inner;
+    let mut rows = Vec::with_capacity(inner.edge_count() * 2);
+    let mut cols = Vec::with_capacity(inner.edge_count() * 2);
+    for row in 0..inner.node_count() {
+        let Some(neighbors) = inner.neighbors_indices(row) else {
+            continue;
+        };
+        for &col in neighbors {
+            rows.push(row);
+            cols.push(col);
+        }
+    }
+    Ok(Some((rows, cols)))
+}
+
 /// Bulk per-node adjacency + edge attrs for the `_fnx_to_nx` parity conversion.
 ///
 /// Returns, for each node in node-insertion order, its neighbors in
@@ -14594,6 +14633,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(check_dijkstra_edge_weights_fast, m)?)?;
     m.add_function(wrap_pyfunction!(adjacency_arrays, m)?)?;
     m.add_function(wrap_pyfunction!(adjacency_index_arrays, m)?)?;
+    m.add_function(wrap_pyfunction!(adjacency_default_order_index_arrays, m)?)?;
     m.add_function(wrap_pyfunction!(fnx_to_nx_adjacency, m)?)?;
     m.add_function(wrap_pyfunction!(graph_has_edge_attr, m)?)?;
     m.add_function(wrap_pyfunction!(bellman_ford_path, m)?)?;
