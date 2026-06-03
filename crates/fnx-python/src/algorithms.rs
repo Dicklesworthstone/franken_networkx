@@ -2269,40 +2269,37 @@ pub fn adjacency_default_order_typed_arrays(
     let mut data = Vec::with_capacity(inner.edge_count() * 2);
     let mut needs_float_dtype = default_weight.fract() != 0.0;
     const MAX_EXACT_F64_INT: i64 = 9_007_199_254_740_992;
-    for row in 0..inner.node_count() {
-        let Some(row_name) = inner.get_node_name(row) else {
+    for (left, right, attrs) in inner.edges_storage_order_iter() {
+        let Some(row) = inner.get_node_index(left) else {
             continue;
         };
-        let Some(neighbors) = inner.neighbors_indices(row) else {
+        let Some(col) = inner.get_node_index(right) else {
             continue;
         };
-        for &col in neighbors {
-            let Some(col_name) = inner.get_node_name(col) else {
-                continue;
-            };
-            let value = match inner
-                .edge_attrs(row_name, col_name)
-                .and_then(|attrs| attrs.get(weight_attr))
-            {
-                Some(fnx_runtime::CgseValue::Int(i)) => {
-                    if *i < -MAX_EXACT_F64_INT || *i > MAX_EXACT_F64_INT {
-                        return Ok(None);
-                    }
-                    *i as f64
+        let value = match attrs.get(weight_attr) {
+            Some(fnx_runtime::CgseValue::Int(i)) => {
+                if *i < -MAX_EXACT_F64_INT || *i > MAX_EXACT_F64_INT {
+                    return Ok(None);
                 }
-                Some(fnx_runtime::CgseValue::Float(f)) => {
-                    needs_float_dtype = true;
-                    *f
-                }
-                None => default_weight,
-                Some(
-                    fnx_runtime::CgseValue::Bool(_)
-                    | fnx_runtime::CgseValue::String(_)
-                    | fnx_runtime::CgseValue::Map(_),
-                ) => return Ok(None),
-            };
-            rows.push(row);
-            cols.push(col);
+                *i as f64
+            }
+            Some(fnx_runtime::CgseValue::Float(f)) => {
+                needs_float_dtype = true;
+                *f
+            }
+            None => default_weight,
+            Some(
+                fnx_runtime::CgseValue::Bool(_)
+                | fnx_runtime::CgseValue::String(_)
+                | fnx_runtime::CgseValue::Map(_),
+            ) => return Ok(None),
+        };
+        rows.push(row);
+        cols.push(col);
+        data.push(value);
+        if row != col {
+            rows.push(col);
+            cols.push(row);
             data.push(value);
         }
     }

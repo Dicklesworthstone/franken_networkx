@@ -863,6 +863,12 @@ impl Graph {
             .collect()
     }
 
+    pub fn edges_storage_order_iter(&self) -> impl Iterator<Item = (&str, &str, &AttrMap)> + '_ {
+        self.edges
+            .iter()
+            .map(|(key, attrs)| (key.left.as_str(), key.right.as_str(), attrs))
+    }
+
     #[must_use]
     pub fn snapshot(&self) -> GraphSnapshot {
         // br-snapnodeattrs: preserve per-node attributes alongside the

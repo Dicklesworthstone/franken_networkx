@@ -1,0 +1,15 @@
+  [2m2026-06-03T14:27:29.957460Z[0m [33m WARN[0m [1;33mrch::hook[0m[33m: [33mexec called with non-compilation command: cargo fmt -p fnx-classes -p fnx-python --check[0m
+    [2;3mat[0m rch/src/hook.rs:402 [2;3mon[0m ThreadId(1)
+
+Diff in /data/projects/franken_networkx/crates/fnx-python/src/digraph.rs:3622:
+                     .edge_py_attrs
+                     .get(&ek)
+                     .map_or_else(|| PyDict::new(py).unbind(), |d| d.clone_ref(py));
+[31m-                items.push(tuple_object(py, &[py_s, py_t.clone_ref(py), attrs.into_any()])?);
+[m[32m+                items.push(tuple_object(
+[m[32m+                    py,
+[m[32m+                    &[py_s, py_t.clone_ref(py), attrs.into_any()],
+[m[32m+                )?);
+[m             }
+         }
+         Ok(items.into_pyobject(py)?.into_any().unbind())

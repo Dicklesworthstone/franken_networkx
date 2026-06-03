@@ -1,0 +1,7 @@
+aad9344ba7a792abd8cafb7eed474b0d64085a070ec25351740c179bc918d30d  tests/artifacts/perf/20260603T-post-sparse-node-reject-sweep/adjacency_weighted.rch.log
+dea967088dafa170e3e0136732e57d246f2b2a7fae20e639e0c8e51ba954d6ae  tests/artifacts/perf/20260603T-post-sparse-node-reject-sweep/profile_adjacency_weighted_fnx.jsonl
+83f82cc1f719d328d66debd7faa3a399e6ddff6ab0a946ce2b9875d480782ac6  tests/artifacts/perf/20260603T-post-sparse-node-reject-sweep/profile_adjacency_weighted_fnx.rch.log
+5c2e782f88334116c3ba6a1760297d1be98783df9fe17089f2c77ab28adc4b0f  tests/artifacts/perf/20260603T-post-sparse-node-reject-sweep/profile_adjacency_weighted_fnx.txt
+ea0e6a4fab2d892b64b6bd8dd407d255195468cd2be6a7a2cd6a808b0b468d58  tests/artifacts/perf/20260603T-post-sparse-node-reject-sweep/sparse_sweep.jsonl
+27c48a421e77a4e296b52e458e473c759340ab5fa00458f332102278179da89c  tests/artifacts/perf/20260603T-post-sparse-node-reject-sweep/to_scipy_default.rch.log
+7ee5865298390915281262bde74482d237e1591ba6c5b9f81c63328200e4216c  tests/artifacts/perf/20260603T-post-sparse-node-reject-sweep/to_scipy_weighted.rch.log
