@@ -20,7 +20,7 @@ use fnx_runtime::{CgseValue, CompatibilityMode, RuntimePolicy};
 use pyo3::exceptions::{PyKeyError, PyRuntimeError, PyTypeError, PyValueError};
 use pyo3::marker::Ungil;
 use pyo3::prelude::*;
-use pyo3::types::{PyAny, PyDict, PyIterator, PyTuple};
+use pyo3::types::{PyAny, PyDict, PyFloat, PyInt, PyIterator, PyList, PyString, PyTuple};
 use std::collections::{HashMap, HashSet};
 use std::convert::Infallible;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -392,6 +392,126 @@ impl PyGraph {
     #[inline]
     pub(crate) fn mark_edges_dirty(&self) {
         self.edges_dirty.store(true, Ordering::Relaxed);
+    }
+
+    fn is_plain_batch_node(key: &Bound<'_, PyAny>) -> bool {
+        if key.is_instance_of::<PyString>()
+            || key.is_instance_of::<PyInt>()
+            || key.is_instance_of::<PyFloat>()
+        {
+            return true;
+        }
+        if let Ok(tuple) = key.downcast::<PyTuple>() {
+            return tuple.iter().all(|item| {
+                item.is_instance_of::<PyString>()
+                    || item.is_instance_of::<PyInt>()
+                    || item.is_instance_of::<PyFloat>()
+            });
+        }
+        false
+    }
+
+    fn collect_plain_edge_batch<'py, I>(
+        &self,
+        py: Python<'py>,
+        items: I,
+        len: usize,
+    ) -> PyResult<Option<(Vec<(String, String)>, Vec<(String, PyObject)>, u64)>>
+    where
+        I: IntoIterator<Item = Bound<'py, PyAny>>,
+    {
+        let mut edges = Vec::with_capacity(len);
+        let mut new_nodes = Vec::new();
+        let mut seen_nodes: HashSet<String> = self.node_key_map.keys().cloned().collect();
+        let mut node_bumps = 0_u64;
+
+        for item in items {
+            let Ok(tuple) = item.downcast::<PyTuple>() else {
+                return Ok(None);
+            };
+            if tuple.len() != 2 {
+                return Ok(None);
+            }
+
+            let u = tuple.get_item(0)?;
+            let v = tuple.get_item(1)?;
+            if !Self::is_plain_batch_node(&u) || !Self::is_plain_batch_node(&v) {
+                return Ok(None);
+            }
+
+            let u_canonical = node_key_to_string(py, &u)?;
+            let v_canonical = node_key_to_string(py, &v)?;
+            if !seen_nodes.contains(&u_canonical) || !seen_nodes.contains(&v_canonical) {
+                node_bumps = node_bumps.wrapping_add(1);
+            }
+            if seen_nodes.insert(u_canonical.clone()) {
+                new_nodes.push((u_canonical.clone(), u.clone().unbind()));
+            }
+            if seen_nodes.insert(v_canonical.clone()) {
+                new_nodes.push((v_canonical.clone(), v.clone().unbind()));
+            }
+            edges.push((u_canonical, v_canonical));
+        }
+
+        Ok(Some((edges, new_nodes, node_bumps)))
+    }
+
+    fn add_plain_edge_batch(
+        &mut self,
+        py: Python<'_>,
+        edges: Vec<(String, String)>,
+        new_nodes: Vec<(String, PyObject)>,
+        node_bumps: u64,
+    ) {
+        let edge_bumps = u64::try_from(edges.len())
+            .unwrap_or(u64::MAX)
+            .wrapping_add(1);
+
+        for (canonical, node) in new_nodes {
+            self.node_key_map.entry(canonical).or_insert(node);
+        }
+        for (u, v) in &edges {
+            self.node_py_attrs
+                .entry(u.clone())
+                .or_insert_with(|| PyDict::new(py).unbind());
+            self.node_py_attrs
+                .entry(v.clone())
+                .or_insert_with(|| PyDict::new(py).unbind());
+            self.edge_py_attrs
+                .entry(Self::edge_key(u, v))
+                .or_insert_with(|| PyDict::new(py).unbind());
+        }
+
+        let _inserted = self.inner.extend_edges_unrecorded(edges);
+        self.nodes_seq = self.nodes_seq.wrapping_add(node_bumps);
+        self.edges_seq = self.edges_seq.wrapping_add(edge_bumps);
+    }
+
+    fn try_add_plain_edge_batch(
+        &mut self,
+        py: Python<'_>,
+        ebunch_to_add: &Bound<'_, PyAny>,
+    ) -> PyResult<bool> {
+        const PLAIN_EDGE_BATCH_MIN: usize = 8;
+        if let Ok(list) = ebunch_to_add.downcast::<PyList>() {
+            if list.len() < PLAIN_EDGE_BATCH_MIN {
+                return Ok(false);
+            }
+            if let Some((edges, new_nodes, node_bumps)) =
+                self.collect_plain_edge_batch(py, list.iter(), list.len())?
+            {
+                self.add_plain_edge_batch(py, edges, new_nodes, node_bumps);
+                return Ok(true);
+            }
+        } else if let Ok(tuple) = ebunch_to_add.downcast::<PyTuple>()
+            && tuple.len() >= PLAIN_EDGE_BATCH_MIN
+            && let Some((edges, new_nodes, node_bumps)) =
+                self.collect_plain_edge_batch(py, tuple.iter(), tuple.len())?
+        {
+            self.add_plain_edge_batch(py, edges, new_nodes, node_bumps);
+            return Ok(true);
+        }
+        Ok(false)
     }
 }
 
@@ -2800,6 +2920,9 @@ impl PyGraph {
         attr: Option<&Bound<'_, PyDict>>,
     ) -> PyResult<()> {
         let has_global_attr = attr.is_some_and(|a| !a.is_empty());
+        if !has_global_attr && self.try_add_plain_edge_batch(py, ebunch_to_add)? {
+            return Ok(());
+        }
         let iter = PyIterator::from_object(ebunch_to_add)?;
         for item in iter {
             let item = item?;

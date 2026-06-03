@@ -1,0 +1,17 @@
+         4200241 function calls in 1.536 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+       30    0.000    0.000    1.536    0.051 bench_add_edges_fastpath.py:83(<lambda>)
+       30    0.010    0.000    1.536    0.051 bench_add_edges_fastpath.py:62(build_raw_int)
+       30    0.364    0.012    1.481    0.049 __init__.py:2316(add_edges_from)
+       30    0.884    0.029    0.884    0.029 {function Graph.add_edges_from at 0x7e5a3706d440}
+  1800060    0.097    0.000    0.097    0.000 {built-in method builtins.isinstance}
+  1200000    0.072    0.000    0.072    0.000 {built-in method builtins.hash}
+  1200000    0.065    0.000    0.065    0.000 {built-in method builtins.len}
+       30    0.045    0.001    0.045    0.001 bench_add_edges_fastpath.py:25(raw_int_edges)
+       30    0.000    0.000    0.000    0.000 __init__.py:2741(__init__)
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+
+
