@@ -1068,6 +1068,68 @@ impl PyMultiDiGraph {
         self.adjacency(py)
     }
 
+    /// br-r37-c1-wdeg: native total weighted degree (in + out), returning the
+    /// full ``(node, total)`` sequence in node order. The Python
+    /// MultiDiGraphDegreeView weighted path calls module-level
+    /// ``degree(G, node, weight)`` per node, which walks ``G.succ[node]`` and
+    /// ``G.pred[node]`` via the MultiAdjacencyView lambda chain plus
+    /// ``keydict.values()`` (~6000x slower than nx).
+    ///
+    /// nx's ``DiMultiDegreeView`` computes ``deg = sum(<flat over succ>) +
+    /// sum(<flat over pred>)`` — TWO separate ``sum()`` accumulations (each a
+    /// fresh running total) added together, NOT one continuous fold. To stay
+    /// bit-identical (CPython ``sum`` is Neumaier-compensated for floats and
+    /// the association matters), we build the succ/pred value lists in nx's
+    /// exact order and call the SAME builtin ``sum`` for each.
+    fn _native_weighted_degree(
+        &self,
+        py: Python<'_>,
+        weight: &str,
+    ) -> PyResult<Vec<(PyObject, PyObject)>> {
+        let one = 1i64.into_pyobject(py)?.into_any();
+        let sum_fn = py.import("builtins")?.getattr("sum")?;
+        let mut out: Vec<(PyObject, PyObject)> = Vec::with_capacity(self.inner.node_count());
+        for node in self.inner.nodes_ordered() {
+            let succ_vals = pyo3::types::PyList::empty(py);
+            for successor in self.inner.successors(node).unwrap_or_default() {
+                for key in self.inner.edge_keys(node, successor).unwrap_or_default() {
+                    let ek = Self::edge_key(node, successor, key);
+                    let value = match self.edge_py_attrs.get(&ek) {
+                        Some(d) => d
+                            .bind(py)
+                            .get_item(weight)
+                            .ok()
+                            .flatten()
+                            .unwrap_or_else(|| one.clone()),
+                        None => one.clone(),
+                    };
+                    succ_vals.append(value)?;
+                }
+            }
+            let pred_vals = pyo3::types::PyList::empty(py);
+            for predecessor in self.inner.predecessors(node).unwrap_or_default() {
+                for key in self.inner.edge_keys(predecessor, node).unwrap_or_default() {
+                    let ek = Self::edge_key(predecessor, node, key);
+                    let value = match self.edge_py_attrs.get(&ek) {
+                        Some(d) => d
+                            .bind(py)
+                            .get_item(weight)
+                            .ok()
+                            .flatten()
+                            .unwrap_or_else(|| one.clone()),
+                        None => one.clone(),
+                    };
+                    pred_vals.append(value)?;
+                }
+            }
+            let deg = sum_fn
+                .call1((succ_vals,))?
+                .add(sum_fn.call1((pred_vals,))?)?;
+            out.push((self.py_node_key(py, node), deg.unbind()));
+        }
+        Ok(out)
+    }
+
     #[getter]
     fn succ(&self, py: Python<'_>) -> PyResult<Py<PyDict>> {
         self.adjacency(py)

@@ -1547,6 +1547,74 @@ impl PyMultiGraph {
         self.adjacency(py)
     }
 
+    /// br-r37-c1-wdeg: native total weighted degree, returning the full
+    /// ``(node, total)`` sequence in node order. The Python
+    /// MultiGraphDegreeView weighted path calls the module-level
+    /// ``degree(G, node, weight)`` per node, which walks ``G.adj[node]`` via
+    /// the MultiAdjacencyView lambda chain and ``keydict.values()`` per
+    /// neighbor (~16000x slower than nx).
+    ///
+    /// nx's ``MultiDegreeView`` computes ``deg = sum(d.get(weight, 1) for
+    /// key_dict in nbrs.values() for d in key_dict.values())`` — a single
+    /// FLAT ``sum()`` over every (neighbor, key) in adjacency order — and,
+    /// when a self-loop exists, ``deg += sum(d.get(weight, 1) for d in
+    /// nbrs[n].values())`` (a second fresh ``sum`` over the self-loop keys).
+    /// To stay bit-identical (CPython's ``sum`` is Neumaier-compensated for
+    /// floats, and the association of the running total matters), we build
+    /// the value list in nx's exact order and call the SAME builtin ``sum``
+    /// rather than folding with ``+`` in Rust.
+    fn _native_weighted_degree(
+        &self,
+        py: Python<'_>,
+        weight: &str,
+    ) -> PyResult<Vec<(PyObject, PyObject)>> {
+        let one = 1i64.into_pyobject(py)?.into_any();
+        let sum_fn = py.import("builtins")?.getattr("sum")?;
+        let mut out: Vec<(PyObject, PyObject)> = Vec::with_capacity(self.inner.node_count());
+        for node in self.inner.nodes_ordered() {
+            let values = pyo3::types::PyList::empty(py);
+            let mut selfloop = false;
+            for neighbor in self.inner.neighbors(node).unwrap_or_default() {
+                if neighbor == node {
+                    selfloop = true;
+                }
+                for key in self.inner.edge_keys(node, neighbor).unwrap_or_default() {
+                    let ek = Self::edge_key(node, neighbor, key);
+                    let value = match self.edge_py_attrs.get(&ek) {
+                        Some(d) => d
+                            .bind(py)
+                            .get_item(weight)
+                            .ok()
+                            .flatten()
+                            .unwrap_or_else(|| one.clone()),
+                        None => one.clone(),
+                    };
+                    values.append(value)?;
+                }
+            }
+            let mut deg = sum_fn.call1((values,))?;
+            if selfloop {
+                let sl = pyo3::types::PyList::empty(py);
+                for key in self.inner.edge_keys(node, node).unwrap_or_default() {
+                    let ek = Self::edge_key(node, node, key);
+                    let value = match self.edge_py_attrs.get(&ek) {
+                        Some(d) => d
+                            .bind(py)
+                            .get_item(weight)
+                            .ok()
+                            .flatten()
+                            .unwrap_or_else(|| one.clone()),
+                        None => one.clone(),
+                    };
+                    sl.append(value)?;
+                }
+                deg = deg.add(sum_fn.call1((sl,))?)?;
+            }
+            out.push((self.py_node_key(py, node), deg.unbind()));
+        }
+        Ok(out)
+    }
+
     // -----------------------------------------------------------------------
     // Copy / subgraph
     // -----------------------------------------------------------------------

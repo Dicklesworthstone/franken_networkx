@@ -3061,8 +3061,15 @@ class MultiGraphDegreeView:
         return len(self._nodes)
 
     def __iter__(self):
-        for node in self._iter_nodes():
-            yield (node, self[node])
+        # br-r37-c1-wdeg: weighted total degree over all nodes routes to the
+        # native bulk accumulator, which reproduces nx's exact per-node
+        # summation order and numeric type while avoiding the per-node
+        # module-level degree() MultiAdjacencyView lambda walk (~16000x).
+        if self._nodes is None and isinstance(self._weight, str):
+            native = getattr(self._graph, "_native_weighted_degree", None)
+            if native is not None:
+                return iter(native(self._weight))
+        return ((node, self[node]) for node in self._iter_nodes())
 
     def __getitem__(self, node):
         # br-r37-c1-dv-subscript: nx raises ``TypeError`` on
@@ -3143,8 +3150,15 @@ class MultiDiGraphDegreeView:
         return len(self._nodes)
 
     def __iter__(self):
-        for node in self._iter_nodes():
-            yield (node, self[node])
+        # br-r37-c1-wdeg: weighted total degree (in + out) over all nodes
+        # routes to the native bulk accumulator (nx-exact succ-then-pred
+        # summation order + numeric type), avoiding the per-node
+        # module-level degree() MultiAdjacencyView lambda walk (~6000x).
+        if self._nodes is None and isinstance(self._weight, str):
+            native = getattr(self._graph, "_native_weighted_degree", None)
+            if native is not None:
+                return iter(native(self._weight))
+        return ((node, self[node]) for node in self._iter_nodes())
 
     def __getitem__(self, node):
         # br-r37-c1-dv-subscript: nx raises ``TypeError`` on
@@ -31483,37 +31497,41 @@ def degree(G, nbunch=None, weight=None):
         return attrs.get(weight, 1)
 
     def weighted_degree(node):
+        # br-r37-c1-wdeg: match nx's *exact* DegreeView summation, which is a
+        # FLAT ``sum()`` over the (neighbor, key) attribute values plus a
+        # separate self-loop term — NOT a per-neighbor ``edge_total`` grouped
+        # fold. CPython's ``sum`` is Neumaier-compensated for floats and the
+        # association of the running total matters, so grouping per neighbor
+        # (or doubling a self-loop inline) drifts ~1 ULP from nx.
         if G.is_multigraph():
             if G.is_directed():
-                total = 0
-                for keydict in G.succ[node].values():
-                    for attrs in keydict.values():
-                        total += edge_weight(attrs)
-                for keydict in G.pred[node].values():
-                    for attrs in keydict.values():
-                        total += edge_weight(attrs)
-                return total
+                succs = G.succ[node]
+                preds = G.pred[node]
+                return sum(
+                    edge_weight(d) for kd in succs.values() for d in kd.values()
+                ) + sum(
+                    edge_weight(d) for kd in preds.values() for d in kd.values()
+                )
 
-            total = 0
-            for neighbor, keydict in G.adj[node].items():
-                edge_total = 0
-                for attrs in keydict.values():
-                    edge_total += edge_weight(attrs)
-                total += edge_total * 2 if neighbor == node else edge_total
+            nbrs = G.adj[node]
+            total = sum(
+                edge_weight(d) for kd in nbrs.values() for d in kd.values()
+            )
+            if node in nbrs:
+                total += sum(edge_weight(d) for d in nbrs[node].values())
             return total
 
         if G.is_directed():
-            total = 0
-            for attrs in G.succ[node].values():
-                total += edge_weight(attrs)
-            for attrs in G.pred[node].values():
-                total += edge_weight(attrs)
-            return total
+            succs = G.succ[node]
+            preds = G.pred[node]
+            return sum(edge_weight(dd) for dd in succs.values()) + sum(
+                edge_weight(dd) for dd in preds.values()
+            )
 
-        total = 0
-        for neighbor, attrs in G.adj[node].items():
-            edge_total = edge_weight(attrs)
-            total += edge_total * 2 if neighbor == node else edge_total
+        nbrs = G.adj[node]
+        total = sum(edge_weight(dd) for dd in nbrs.values())
+        if node in nbrs:
+            total += edge_weight(nbrs[node])
         return total
 
     if nbunch is None:
