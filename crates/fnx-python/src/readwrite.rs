@@ -876,9 +876,48 @@ pub fn to_dict_of_lists_undirected(
     Ok(Some(outer.unbind()))
 }
 
+/// br-r37-c1-gl3nq: native fast path for `to_edgelist` on exact simple
+/// `Graph` and `DiGraph` with no nodelist. It preserves the existing fnx
+/// materialized list-like return behavior while avoiding Python adjacency
+/// wrapper traversal for every edge.
+#[pyfunction]
+pub fn to_edgelist_simple(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Option<Py<PyList>>> {
+    let gr = extract_graph(g)?;
+    let result = PyList::empty(py);
+    match &gr {
+        GraphRef::Undirected(pg) => {
+            for edge in pg.inner.edges_ordered() {
+                let u = edge.left.as_str();
+                let v = edge.right.as_str();
+                let ek = PyGraph::edge_key(u, v);
+                let attrs = pg
+                    .edge_py_attrs
+                    .get(&ek)
+                    .map_or_else(|| PyDict::new(py).unbind(), |d| d.clone_ref(py));
+                result.append((pg.py_node_key(py, u), pg.py_node_key(py, v), attrs))?;
+            }
+        }
+        GraphRef::Directed { dg, .. } => {
+            for edge in dg.inner.edges_ordered() {
+                let u = edge.left.as_str();
+                let v = edge.right.as_str();
+                let ek = PyDiGraph::edge_key(u, v);
+                let attrs = dg
+                    .edge_py_attrs
+                    .get(&ek)
+                    .map_or_else(|| PyDict::new(py).unbind(), |d| d.clone_ref(py));
+                result.append((dg.py_node_key(py, u), dg.py_node_key(py, v), attrs))?;
+            }
+        }
+        GraphRef::MultiUndirected { .. } | GraphRef::MultiDirected { .. } => return Ok(None),
+    }
+    Ok(Some(result.unbind()))
+}
+
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(to_dict_of_dicts_undirected, m)?)?;
     m.add_function(wrap_pyfunction!(to_dict_of_lists_undirected, m)?)?;
+    m.add_function(wrap_pyfunction!(to_edgelist_simple, m)?)?;
     m.add_function(wrap_pyfunction!(read_edgelist, m)?)?;
     m.add_function(wrap_pyfunction!(write_edgelist, m)?)?;
     m.add_function(wrap_pyfunction!(read_adjlist, m)?)?;

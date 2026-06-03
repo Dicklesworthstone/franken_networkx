@@ -629,6 +629,21 @@ class TestEdgelist:
         assert (0, 1) in edge_set
         assert (1, 2) in edge_set
 
+    def test_to_edgelist_preserves_directed_order_and_live_attrs(self):
+        G = fnx.DiGraph()
+        G.add_edge("a", "b", weight=1)
+        G.add_edge("a", "c", weight=2)
+
+        el = list(fnx.to_edgelist(G))
+
+        if [(u, v) for u, v, _ in el] != [("a", "b"), ("a", "c")]:
+            raise AssertionError("to_edgelist changed directed edge order")
+        if el[0][2] is not G["a"]["b"]:
+            raise AssertionError("to_edgelist did not preserve live edge attrs")
+        el[0][2]["seen"] = True
+        if not G["a"]["b"]["seen"]:
+            raise AssertionError("to_edgelist attr dict is detached from graph storage")
+
     def test_from_edgelist_with_data(self):
         edges = [(0, 1, {"weight": 1.0}), (1, 2, {"weight": 2.0})]
         G = fnx.from_edgelist(edges)

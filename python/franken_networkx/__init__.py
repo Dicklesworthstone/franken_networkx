@@ -38655,6 +38655,10 @@ def to_edgelist(G, nodelist=None):
     the list which broke isinstance checks against
     ``networkx.EdgeDataView``. Mirror nx by returning the view itself.
     """
+    if nodelist is None and (type(G) is Graph or type(G) is DiGraph):
+        _fast = _fnx.to_edgelist_simple(G)
+        if _fast is not None:
+            return _guarded_edge_list(_fast, G, guard_edge_count=True)
     if nodelist is not None:
         return G.edges(nodelist, data=True)
     return G.edges(data=True)

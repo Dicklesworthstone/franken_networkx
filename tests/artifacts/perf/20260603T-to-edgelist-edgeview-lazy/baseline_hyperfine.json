@@ -1,0 +1,60 @@
+{
+  "results": [
+    {
+      "command": ".venv/bin/python tests/artifacts/perf/20260603T-to-edgelist-edgeview-lazy/bench_to_edgelist.py bench --case to_edgelist --repeat 1",
+      "mean": 0.6270005645171429,
+      "stddev": 0.022520618224727663,
+      "median": 0.6262297396600001,
+      "user": 4.5701473085714275,
+      "system": 0.07725676571428572,
+      "min": 0.6013787056600001,
+      "max": 0.6564001016600001,
+      "times": [
+        0.60363461066,
+        0.6262297396600001,
+        0.64922211166,
+        0.61057476866,
+        0.6564001016600001,
+        0.6013787056600001,
+        0.64156391366
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": ".venv/bin/python tests/artifacts/perf/20260603T-to-edgelist-edgeview-lazy/bench_to_edgelist.py bench --case to_edgelist_list --repeat 1",
+      "mean": 0.64388099266,
+      "stddev": 0.03003711935579387,
+      "median": 0.65613224366,
+      "user": 4.403666737142857,
+      "system": 0.07095919428571427,
+      "min": 0.59643801366,
+      "max": 0.68794259166,
+      "times": [
+        0.65627051566,
+        0.61699066366,
+        0.65613224366,
+        0.59643801366,
+        0.63724729266,
+        0.68794259166,
+        0.6561456276600001
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}
