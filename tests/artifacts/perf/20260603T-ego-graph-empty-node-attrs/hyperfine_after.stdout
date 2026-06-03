@@ -1,0 +1,4 @@
+Benchmark 1: python3 tests/artifacts/perf/20260602T-traversal-residual-sweep/bench_traversal.py sample --impl fnx --op ego_graph_r2 --repeat 10 --n 3000 --m 4
+  Time (mean ± σ):     655.8 ms ±  22.4 ms    [User: 4328.1 ms, System: 104.0 ms]
+  Range (min … max):   626.7 ms … 704.4 ms    15 runs
+ 

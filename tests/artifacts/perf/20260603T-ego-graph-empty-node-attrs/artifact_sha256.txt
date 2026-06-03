@@ -1,0 +1,13 @@
+52634bf1e67fd969b8f8f1245426f3f27747a6022e7ad82b53bef508934b51f4  tests/artifacts/perf/20260603T-ego-graph-empty-node-attrs/after_fnx.jsonl
+e582eca90aab314216adc159c910c0f3891a99e4f3c14cda3ab1f35d49ae03e5  tests/artifacts/perf/20260603T-ego-graph-empty-node-attrs/baseline_fnx.jsonl
+57c6b3229f51435245314c17be3cbbe65e4f095b885c83938e21921beebcb9c7  tests/artifacts/perf/20260603T-ego-graph-empty-node-attrs/baseline_nx.jsonl
+5972783382b193aa80f30aa83bfe33a81863f859c7e812e318a5ed5afe4f1761  tests/artifacts/perf/20260603T-ego-graph-empty-node-attrs/hyperfine_after.json
+5c39006f4136fd4e1288da87cf301eb87141cf08e9f01a6b28db1d9553600d04  tests/artifacts/perf/20260603T-ego-graph-empty-node-attrs/hyperfine_after.stdout
+ef52a40bae05cdd5a56a1b8b324d318748b1ba87f69dad40ed20320dc5f8097e  tests/artifacts/perf/20260603T-ego-graph-empty-node-attrs/hyperfine_baseline.json
+b2998861493be20013ea62ba48c0398344e1e62fb3821fd32fd139abbcf25ed7  tests/artifacts/perf/20260603T-ego-graph-empty-node-attrs/hyperfine_baseline.stdout
+da733e077a4f829f0a219b89aef98df989916aabe18e07aa3ffdc5b8bb21cd0a  tests/artifacts/perf/20260603T-ego-graph-empty-node-attrs/py_compile_after.rch.log
+f39017c5872badfbccadc5c5d97e9e6c00600bd64dac2d084d68d06d1a005630  tests/artifacts/perf/20260603T-ego-graph-empty-node-attrs/py_compile_restored.rch.log
+39732b6e325e34f08eda5144860b0698c993e6b0d70f8bedc5a6a808d3852a75  tests/artifacts/perf/20260603T-ego-graph-empty-node-attrs/isomorphism_proof.md
+2cb92f70b0fd397e59f22a310f50f10c2b5a2bbc1c2133b943a6adb63f132cab  tests/artifacts/perf/20260603T-ego-graph-empty-node-attrs/benchmark_report.md
+b73084b24868578f3a4ee367674557dfee51bdf53ab2f4f08db16f68bf16df76  tests/artifacts/perf/20260603T-ego-graph-empty-node-attrs/validation_summary.md
+2b0284820a2c0821978e33339415da280f15cf3240bfe2722fd681be6288b3d1  tests/artifacts/perf/20260603T-ego-graph-empty-node-attrs/ubs_artifacts.log
