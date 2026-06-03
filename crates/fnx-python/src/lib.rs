@@ -3718,6 +3718,61 @@ impl PyGraph {
         views::new_degree_view(py, graph_py)
     }
 
+    /// br-r37-c1-yo1nt: native weighted degree, returning the full
+    /// ``(node, total)`` sequence in node order. The Python
+    /// `_WeightAwareDegreeView` weighted path builds ``dict(G.adj[node])``
+    /// per node (AtlasView walk) — ~43x slower than nx. nx's `DegreeView`
+    /// computes ``sum(dd.get(weight, 1) for dd in nbrs.values())`` plus, for a
+    /// self-loop, ``+ nbrs[n].get(weight, 1)``. CPython ``sum`` is
+    /// Neumaier-compensated, so we build the value list in adjacency order and
+    /// call the SAME builtin ``sum`` for bit-identical numeric parity rather
+    /// than folding with ``+`` in Rust.
+    fn _native_weighted_degree(
+        &self,
+        py: Python<'_>,
+        weight: &str,
+    ) -> PyResult<Vec<(PyObject, PyObject)>> {
+        let one = 1i64.into_pyobject(py)?.into_any();
+        let sum_fn = py.import("builtins")?.getattr("sum")?;
+        let mut out: Vec<(PyObject, PyObject)> = Vec::with_capacity(self.inner.node_count());
+        for node in self.inner.nodes_ordered() {
+            let values = pyo3::types::PyList::empty(py);
+            let mut selfloop = false;
+            for neighbor in self.inner.neighbors(node).unwrap_or_default() {
+                if neighbor == node {
+                    selfloop = true;
+                }
+                let ek = Self::edge_key(node, neighbor);
+                let value = match self.edge_py_attrs.get(&ek) {
+                    Some(d) => d
+                        .bind(py)
+                        .get_item(weight)
+                        .ok()
+                        .flatten()
+                        .unwrap_or_else(|| one.clone()),
+                    None => one.clone(),
+                };
+                values.append(value)?;
+            }
+            let mut deg = sum_fn.call1((values,))?;
+            if selfloop {
+                let ek = Self::edge_key(node, node);
+                let value = match self.edge_py_attrs.get(&ek) {
+                    Some(d) => d
+                        .bind(py)
+                        .get_item(weight)
+                        .ok()
+                        .flatten()
+                        .unwrap_or_else(|| one.clone()),
+                    None => one.clone(),
+                };
+                deg = deg.add(value)?;
+            }
+            out.push((self.py_node_key(py, node), deg.unbind()));
+        }
+        Ok(out)
+    }
+
     /// Equality check — two graphs are equal if they have the same nodes, edges, and attributes.
     fn __eq__(&self, py: Python<'_>, other: &Bound<'_, PyAny>) -> PyResult<bool> {
         let other = match other.extract::<PyRef<'_, PyGraph>>() {

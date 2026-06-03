@@ -3521,35 +3521,38 @@ class _WeightAwareDegreeView:
         return id(self._graph) ^ hash(self._direction or "")
 
     def _weighted_value(self, node, weight):
-        total = 0
+        # br-r37-c1-yo1nt: match nx's DegreeView/DiDegreeView *exact*
+        # summation — a flat ``sum()`` per neighbor-dict group, with the
+        # groups added together (directed total = sum(succ) + sum(pred)),
+        # NOT one continuous fold. CPython ``sum`` is Neumaier-compensated for
+        # floats and the association matters, so a running ``total +=`` drifts
+        # ~1 ULP from nx. See _native_weighted_degree (the all-node fast path).
+        def _grp(neighbors):
+            return sum(
+                edge_attrs[weight]
+                if isinstance(edge_attrs, dict) and weight in edge_attrs
+                else 1
+                for edge_attrs in dict(neighbors).values()
+            )
+
         if self._direction == "in":
-            neighbor_dicts = [self._graph.pred[node]]
-        elif self._direction == "out":
-            neighbor_dicts = [self._graph.succ[node]]
-        elif self._graph.is_directed():
+            return _grp(self._graph.pred[node])
+        if self._direction == "out":
+            return _grp(self._graph.succ[node])
+        if self._graph.is_directed():
             # Total degree on a directed graph is in + out weight sum.
-            neighbor_dicts = [self._graph.succ[node], self._graph.pred[node]]
-        else:
-            neighbor_dicts = [self._graph.adj[node]]
-        for neighbors in neighbor_dicts:
-            for nbr, edge_attrs in dict(neighbors).items():
-                if isinstance(edge_attrs, dict) and weight in edge_attrs:
-                    total += edge_attrs[weight]
-                else:
-                    total += 1
+            return _grp(self._graph.succ[node]) + _grp(self._graph.pred[node])
+        adj = self._graph.adj[node]
+        total = _grp(adj)
         # nx counts a self-loop's weight twice for undirected total degree
         # (DegreeView.__getitem__ adds ``nbrs[n].get(weight, 1)`` again when
-        # ``n in nbrs``). The directed total-degree path already double-counts
-        # it — the loop appears in both succ and pred — and in/out degree count
-        # it once, so only the undirected single-graph branch needs the extra.
-        if self._direction is None and not self._graph.is_directed():
-            adj = self._graph.adj[node]
-            if node in adj:
-                edge_attrs = adj[node]
-                if isinstance(edge_attrs, dict) and weight in edge_attrs:
-                    total += edge_attrs[weight]
-                else:
-                    total += 1
+        # ``n in nbrs``).
+        if node in adj:
+            edge_attrs = adj[node]
+            if isinstance(edge_attrs, dict) and weight in edge_attrs:
+                total += edge_attrs[weight]
+            else:
+                total += 1
         return total
 
     def __call__(self, nbunch=None, weight=None):
@@ -3602,6 +3605,14 @@ class _WeightAwareDegreeView:
                 raise NetworkXError(f"Node {nbunch} is not in the graph.")
         # Weighted path
         if nbunch is None:
+            # br-r37-c1-yo1nt: total weighted degree over all nodes routes to
+            # the native bulk accumulator (nx-exact flat sum() order + numeric
+            # type), avoiding the per-node dict(G.adj[node]) AtlasView walk.
+            # Only the total view (no direction) — in/out keep _weighted_value.
+            if self._direction is None and isinstance(weight, str):
+                native = getattr(self._graph, "_native_weighted_degree", None)
+                if native is not None:
+                    return iter(native(weight))
             return ((n, self._weighted_value(n, weight)) for n in self._graph)
         if nbunch in self._graph:
             return self._weighted_value(nbunch, weight)

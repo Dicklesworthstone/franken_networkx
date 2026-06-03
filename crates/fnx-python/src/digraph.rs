@@ -3372,6 +3372,59 @@ impl PyDiGraph {
         )
     }
 
+    /// br-r37-c1-yo1nt: native total weighted degree (in + out), returning the
+    /// full ``(node, total)`` sequence in node order. The Python
+    /// `_WeightAwareDegreeView` weighted path builds ``dict(G.succ[node])`` +
+    /// ``dict(G.pred[node])`` per node (AtlasView walk) — ~37x slower than nx.
+    /// nx's `DiDegreeView` total is ``sum(<succ>) + sum(<pred>)`` — two
+    /// separate Neumaier-compensated ``sum`` accumulations added — so we build
+    /// the succ/pred value lists in adjacency order and call the SAME builtin
+    /// ``sum`` for each, for bit-identical numeric parity.
+    fn _native_weighted_degree(
+        &self,
+        py: Python<'_>,
+        weight: &str,
+    ) -> PyResult<Vec<(PyObject, PyObject)>> {
+        let one = 1i64.into_pyobject(py)?.into_any();
+        let sum_fn = py.import("builtins")?.getattr("sum")?;
+        let mut out: Vec<(PyObject, PyObject)> = Vec::with_capacity(self.inner.node_count());
+        for node in self.inner.nodes_ordered() {
+            let succ_vals = pyo3::types::PyList::empty(py);
+            for successor in self.inner.successors(node).unwrap_or_default() {
+                let ek = Self::edge_key(node, successor);
+                let value = match self.edge_py_attrs.get(&ek) {
+                    Some(d) => d
+                        .bind(py)
+                        .get_item(weight)
+                        .ok()
+                        .flatten()
+                        .unwrap_or_else(|| one.clone()),
+                    None => one.clone(),
+                };
+                succ_vals.append(value)?;
+            }
+            let pred_vals = pyo3::types::PyList::empty(py);
+            for predecessor in self.inner.predecessors(node).unwrap_or_default() {
+                let ek = Self::edge_key(predecessor, node);
+                let value = match self.edge_py_attrs.get(&ek) {
+                    Some(d) => d
+                        .bind(py)
+                        .get_item(weight)
+                        .ok()
+                        .flatten()
+                        .unwrap_or_else(|| one.clone()),
+                    None => one.clone(),
+                };
+                pred_vals.append(value)?;
+            }
+            let deg = sum_fn
+                .call1((succ_vals,))?
+                .add(sum_fn.call1((pred_vals,))?)?;
+            out.push((self.py_node_key(py, node), deg.unbind()));
+        }
+        Ok(out)
+    }
+
     /// ``G.in_degree`` — in-degree per node.
     #[getter]
     fn in_degree(slf: PyRef<'_, Self>) -> PyResult<Py<DiDegreeView>> {
