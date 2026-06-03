@@ -3730,7 +3730,8 @@ impl DiNodeView {
             DiViewIterator {
                 inner: items.into_iter(),
                 graph: Some(self.graph.clone_ref(py)),
-                expected_nodes: Some(nodes),
+                expected_count: Some(nodes.len()),
+                expected_seq: Some(g.nodes_seq),
             },
         )
     }
@@ -3979,12 +3980,10 @@ impl DiEdgeView {
         if matches!(&self.data, ViewData::AllData) && g.inner.edge_count() > 0 {
             g.mark_edges_dirty();
         }
-        let expected_nodes: Vec<String> = g
-            .inner
-            .nodes_ordered()
-            .into_iter()
-            .map(str::to_owned)
-            .collect();
+        // br-r37-c1-divit: only the node_count + nodes_seq are needed for the
+        // O(1) per-next staleness check, not a full nodes_ordered() Vec.
+        let node_count = g.inner.node_count();
+        let nodes_seq = g.nodes_seq;
         let items: Vec<PyObject> = g
             .edge_py_attrs
             .iter()
@@ -4023,7 +4022,8 @@ impl DiEdgeView {
             DiViewIterator {
                 inner: items.into_iter(),
                 graph: Some(self.graph.clone_ref(py)),
-                expected_nodes: Some(expected_nodes),
+                expected_count: Some(node_count),
+                expected_seq: Some(nodes_seq),
             },
         )
     }
@@ -4175,7 +4175,8 @@ impl DiDegreeView {
             DiViewIterator {
                 inner: items.into_iter(),
                 graph: None,
-                expected_nodes: None,
+                expected_count: None,
+                expected_seq: None,
             },
         )
     }
@@ -4333,7 +4334,13 @@ impl DiAdjacencyView {
 pub struct DiViewIterator {
     inner: std::vec::IntoIter<PyObject>,
     graph: Option<Py<PyDiGraph>>,
-    expected_nodes: Option<Vec<String>>,
+    // br-r37-c1-divit: snapshot node_count + nodes_seq for an O(1) staleness
+    // check per next(), mirroring the undirected NodeViewIterator
+    // (br-gauntlet-perf-nodeviewiter). The previous `Vec<String>` rebuilt
+    // nodes_ordered() and compared every element on EVERY next() — O(N^2) to
+    // iterate a DiGraph view.
+    expected_count: Option<usize>,
+    expected_seq: Option<u64>,
 }
 
 #[pymethods]
@@ -4345,20 +4352,22 @@ impl DiViewIterator {
         let Some(item) = slf.inner.next() else {
             return Ok(None);
         };
-        if let (Some(graph), Some(expected_nodes)) = (&slf.graph, &slf.expected_nodes) {
+        if let (Some(graph), Some(expected_count), Some(expected_seq)) =
+            (&slf.graph, slf.expected_count, slf.expected_seq)
+        {
+            // br-r37-c1-divit: O(1) mutation-counter check. add_node / remove_node
+            // bumps nodes_seq; only when it changes do we disambiguate
+            // size-change vs key-permutation via node_count, preserving the exact
+            // Python-dict error wording. Equivalent to the prior O(N) per-next
+            // nodes_ordered() rebuild + element compare.
             let py = slf.py();
             let g = graph.borrow(py);
-            let current_nodes = g.inner.nodes_ordered();
-            if current_nodes.len() != expected_nodes.len() {
-                return Err(PyRuntimeError::new_err(
-                    "dictionary changed size during iteration",
-                ));
-            }
-            if current_nodes
-                .iter()
-                .zip(expected_nodes.iter())
-                .any(|(current, expected)| current != expected)
-            {
+            if g.nodes_seq != expected_seq {
+                if g.inner.node_count() != expected_count {
+                    return Err(PyRuntimeError::new_err(
+                        "dictionary changed size during iteration",
+                    ));
+                }
                 return Err(PyRuntimeError::new_err(
                     "dictionary keys changed during iteration",
                 ));
