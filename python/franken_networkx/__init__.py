@@ -39180,6 +39180,10 @@ def to_scipy_sparse_array(G, nodelist=None, dtype=None, weight="weight", format=
                         shape=(len(nodelist), len(nodelist)),
                     )
             else:
+                if _use_native_weighted:
+                    rows = _np.asarray(rows, dtype=_np.intp)
+                    cols = _np.asarray(cols, dtype=_np.intp)
+                    data = _np.asarray(data, dtype=dtype)
                 matrix = scipy.sparse.coo_array(
                     (data, (rows, cols)),
                     shape=(len(nodelist), len(nodelist)),

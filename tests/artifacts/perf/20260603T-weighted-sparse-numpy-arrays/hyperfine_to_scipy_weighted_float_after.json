@@ -1,0 +1,32 @@
+{
+  "results": [
+    {
+      "command": ".venv/bin/python tests/artifacts/perf/20260602T-vs-upstream-sweep/bench_vs_upstream.py bench --case to_scipy_weighted_float --impl fnx --n 8000 --m 4 --repeats 1",
+      "mean": 0.7685143486257144,
+      "stddev": 0.03175359360462677,
+      "median": 0.76651673434,
+      "user": 4.5282206714285715,
+      "system": 0.1303634742857143,
+      "min": 0.7252622803400001,
+      "max": 0.8129469933400001,
+      "times": [
+        0.7386940683400001,
+        0.8129469933400001,
+        0.76651673434,
+        0.77171685534,
+        0.80373655434,
+        0.7252622803400001,
+        0.76072695434
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}
