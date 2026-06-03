@@ -780,7 +780,44 @@ fn write_gml(py: Python<'_>, g: &Bound<'_, PyAny>, path: &Bound<'_, PyAny>) -> P
 // Registration
 // ---------------------------------------------------------------------------
 
+/// br-r37-c1-yl59j: native fast path for `to_dict_of_dicts` on a simple
+/// undirected `Graph`. Builds `{u: {v: edge_attr_dict}}` reusing the LIVE edge
+/// attribute dict objects (the same `Py<PyDict>` references returned by
+/// `G[u][v]`) in adjacency order, bypassing the slow per-access AdjacencyView
+/// Python machinery that makes the pure-Python loop ~233x slower than nx.
+///
+/// Returns `None` for any non-undirected input so the Python wrapper falls back
+/// to its general implementation; the wrapper also gates on `type(G) is Graph`
+/// so filtered SubgraphViews / subclasses never reach here.
+#[pyfunction]
+pub fn to_dict_of_dicts_undirected(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+) -> PyResult<Option<Py<PyDict>>> {
+    let gr = extract_graph(g)?;
+    let GraphRef::Undirected(pg) = &gr else {
+        return Ok(None);
+    };
+    let outer = PyDict::new(py);
+    for u in pg.inner.nodes_ordered() {
+        let inner_dict = PyDict::new(py);
+        if let Some(neighbors) = pg.inner.neighbors_iter(u) {
+            for v in neighbors {
+                let ek = PyGraph::edge_key(u, v);
+                let edge_dict = pg
+                    .edge_py_attrs
+                    .get(&ek)
+                    .map_or_else(|| PyDict::new(py).unbind(), |d| d.clone_ref(py));
+                inner_dict.set_item(pg.py_node_key(py, v), edge_dict.bind(py))?;
+            }
+        }
+        outer.set_item(pg.py_node_key(py, u), inner_dict)?;
+    }
+    Ok(Some(outer.unbind()))
+}
+
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_function(wrap_pyfunction!(to_dict_of_dicts_undirected, m)?)?;
     m.add_function(wrap_pyfunction!(read_edgelist, m)?)?;
     m.add_function(wrap_pyfunction!(write_edgelist, m)?)?;
     m.add_function(wrap_pyfunction!(read_adjlist, m)?)?;

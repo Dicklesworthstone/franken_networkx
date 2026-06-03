@@ -1,0 +1,3 @@
+TDOD_GOLDEN (fnx == networkx; structure + inner-dict KEY ORDER + edge-data values; 5 BA sizes)
+8933c83e74c9bf74181ffc5bb94effd15250af0b6d677dfd393ba6ea6bc6ccff
+Also verified: d[u][v] IS G[u][v] (live ref); self-loops; nodelist/edge_data fall through.
