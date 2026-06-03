@@ -987,94 +987,108 @@ def _adjacency_view_get(self, node, default=None):
         return default
 
 
-def _adjacency_view_keys(self):
-    # br-adjkset: nx internals (non_neighbors) do
+# br-r37-c1-adjviewhoist: these adjacency keys/items/values view classes were
+# previously DEFINED INSIDE the ``_adjacency_view_*`` helpers, so a fresh class
+# object was built (``__build_class__`` + two ``type.__new__``) on EVERY
+# ``.keys()/.items()/.values()`` call. Any algorithm that walks ``G.adj[u].items()``
+# (or ``G.succ[u].items()``) per node paid that per-call class-construction tax —
+# e.g. ``topological_sort`` was ~34x slower than nx purely from rebuilding
+# ``_AdjItemsView`` once per node. Hoisted to module level (closing over the view
+# via ``__init__`` instead of a local closure) the classes are built ONCE at import.
+# ``__name__`` is set to the bare nx name so drop-in code branching on
+# ``type(view).__name__`` still sees ``KeysView``/``ItemsView``/``ValuesView``.
+from collections.abc import ItemsView as _ItemsViewABC
+from collections.abc import KeysView as _KeysViewABC
+from collections.abc import ValuesView as _ValuesViewABC
+
+
+class _AdjKeysView(_KeysViewABC):
+    # nx internals (non_neighbors) do
     # ``graph._adj.keys() - graph._adj[node].keys() - {node}`` expecting
-    # dict_keys-like views that support set-difference. A plain iterator
-    # fails with TypeError. Return a KeysView-like frozen set snapshot
-    # so - | & operators work.
-    from collections.abc import KeysView
+    # dict_keys-like views that support set-difference, so we snapshot to a
+    # frozen list and expose KeysView set algebra over it.
+    __slots__ = ("_snapshot",)
 
-    class _AdjKeysView(KeysView):
-        __slots__ = ("_snapshot",)
+    def __init__(self, snapshot):
+        self._snapshot = snapshot
 
-        def __init__(self, snapshot):
-            self._snapshot = snapshot
+    def __iter__(self):
+        return iter(self._snapshot)
 
-        def __iter__(self):
-            return iter(self._snapshot)
+    def __contains__(self, item):
+        return item in self._snapshot
 
-        def __contains__(self, item):
-            return item in self._snapshot
+    def __len__(self):
+        return len(self._snapshot)
 
-        def __len__(self):
-            return len(self._snapshot)
 
-    # br-r37-c1-adjviewname: nx returns bare collections.abc.KeysView
-    # objects from ``G.adj[u].keys()`` (etc).  Rename our subclass so
-    # ``type(view).__name__`` matches nx — drop-in code that branches
-    # on the class name doesn't see the private fnx wrapper name.
-    _AdjKeysView.__name__ = "KeysView"
+_AdjKeysView.__name__ = "KeysView"
+
+
+class _AdjItemsView(_ItemsViewABC):
+    """Re-iterable ItemsView matching nx's contract (a one-shot generator would
+    leave the second pass of ``G.edges.items()`` empty)."""
+
+    __slots__ = ("_view",)
+
+    def __init__(self, view):
+        self._view = view
+
+    def __iter__(self):
+        view = self._view
+        return ((node, view[node]) for node in view)
+
+    def __contains__(self, item):
+        try:
+            key, val = item
+        except (TypeError, ValueError):
+            return False
+        view = self._view
+        return key in view and view[key] == val
+
+    def __len__(self):
+        return len(self._view)
+
+
+_AdjItemsView.__name__ = "ItemsView"
+
+
+class _AdjValuesView(_ValuesViewABC):
+    """Re-iterable ValuesView matching nx."""
+
+    __slots__ = ("_view",)
+
+    def __init__(self, view):
+        self._view = view
+
+    def __iter__(self):
+        view = self._view
+        return (view[node] for node in view)
+
+    def __contains__(self, value):
+        view = self._view
+        for node in view:
+            if view[node] == value:
+                return True
+        return False
+
+    def __len__(self):
+        return len(self._view)
+
+
+_AdjValuesView.__name__ = "ValuesView"
+
+
+def _adjacency_view_keys(self):
     return _AdjKeysView(list(self))
 
 
 def _adjacency_view_items(self):
-    """br-viewitems: return a re-iterable view matching nx's ItemsView
-    contract rather than a one-shot generator. User code that iterates
-    ``G.edges.items()`` twice (e.g. compute + re-render flow) previously
-    saw the second pass empty.
-    """
-    from collections.abc import ItemsView
-
-    view = self
-
-    class _AdjItemsView(ItemsView):
-        def __init__(self):
-            pass
-
-        def __iter__(self):
-            return ((node, view[node]) for node in view)
-
-        def __contains__(self, item):
-            try:
-                key, val = item
-            except (TypeError, ValueError):
-                return False
-            return key in view and view[key] == val
-
-        def __len__(self):
-            return len(view)
-
-    # br-r37-c1-adjviewname: see _AdjKeysView.
-    _AdjItemsView.__name__ = "ItemsView"
-    return _AdjItemsView()
+    return _AdjItemsView(self)
 
 
 def _adjacency_view_values(self):
-    """br-viewitems: re-iterable ValuesView matching nx."""
-    from collections.abc import ValuesView
-
-    view = self
-
-    class _AdjValuesView(ValuesView):
-        def __init__(self):
-            pass
-
-        def __iter__(self):
-            return (view[node] for node in view)
-
-        def __contains__(self, value):
-            for node in view:
-                if view[node] == value:
-                    return True
-            return False
-
-        def __len__(self):
-            return len(view)
-
-    # br-r37-c1-adjviewname: see _AdjKeysView.
-    _AdjValuesView.__name__ = "ValuesView"
-    return _AdjValuesView()
+    return _AdjValuesView(self)
 
 
 class AtlasView(_Mapping):
@@ -12404,22 +12418,48 @@ def topological_sort(G):
         raise NetworkXError("Topological sort not defined on undirected graphs.")
     from collections import deque as _deque
 
-    # Count parallel edges as separate in-degree increments for
-    # MultiDiGraph parity, then decrement once per outgoing edge (not
-    # per unique successor) so parallels cancel out correctly.
+    # br-r37-c1-toposucc: walk the successor adjacency (``G.succ[u].items()``)
+    # directly instead of ``G.edges(u)`` per node. ``G.edges(u)`` materialised a
+    # full guarded _EdgeListWithSetAlgebra (nbunch_iter + per-call view churn)
+    # for every popped node, making topological_sort ~34x slower than nx; the
+    # adjacency walk is the same primitive nx uses and is O(out-degree) per node.
+    # Parallel edges are counted via ``len(keydict)`` for MultiDiGraph parity
+    # (a single successor with k parallel edges contributes k to in-degree, and
+    # the same FIFO queue/insertion-order tie-break is preserved exactly).
+    succ = G.succ
     indegree = {v: 0 for v in G}
-    for _, v in G.edges():
-        indegree[v] += 1
-    queue = _deque(v for v in G if indegree[v] == 0)
-    _count = 0
-    while queue:
-        u = queue.popleft()
-        yield u
-        _count += 1
-        for _, v in G.edges(u):
-            indegree[v] -= 1
-            if indegree[v] == 0:
-                queue.append(v)
+    if G.is_multigraph():
+        # MultiDiGraph: a successor with k parallel edges contributes k.
+        for u in G:
+            for v, keydict in succ[u].items():
+                indegree[v] += len(keydict)
+        queue = _deque(v for v in G if indegree[v] == 0)
+        _count = 0
+        while queue:
+            u = queue.popleft()
+            yield u
+            _count += 1
+            for v, keydict in succ[u].items():
+                indegree[v] -= len(keydict)
+                if indegree[v] == 0:
+                    queue.append(v)
+    else:
+        # DiGraph: iterate successor KEYS only — no per-neighbour attr-dict
+        # getitem (``.items()`` would walk the AtlasView lambda chain for data
+        # we never use), in the same adjacency order so the tie-break is exact.
+        for u in G:
+            for v in succ[u]:
+                indegree[v] += 1
+        queue = _deque(v for v in G if indegree[v] == 0)
+        _count = 0
+        while queue:
+            u = queue.popleft()
+            yield u
+            _count += 1
+            for v in succ[u]:
+                indegree[v] -= 1
+                if indegree[v] == 0:
+                    queue.append(v)
     if _count != len(G):
         raise NetworkXUnfeasible(
             "Graph contains a cycle or graph changed during iteration"
