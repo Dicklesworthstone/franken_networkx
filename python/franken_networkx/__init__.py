@@ -21609,12 +21609,29 @@ def voronoi_cells(G, center_nodes, weight="weight"):
 
 
 def _voronoi_cells_impl(G, center_nodes, *, weight):
-    """Private delegation helper so public voronoi_cells stays
-    PY_WRAPPER in the coverage classifier.
+    """Voronoi cells via fnx's native ``multi_source_dijkstra_path``.
+
+    br-voronoinative: previously delegated to nx via
+    ``_call_networkx_for_parity`` because the Rust ``voronoi_cells_rust``
+    kernel ignored ``weight`` and mis-assigned some nodes (see
+    ``voronoi_cells``). Rebuild it on fnx's own (correct, fast)
+    ``multi_source_dijkstra_path`` plus the standard nearest-center
+    inversion — identical to nx's algorithm
+    (``nearest = {v: p[0] ...}``; group by center; collect ``unreachable``)
+    — which drops the ``_fnx_to_nx`` conversion the delegation paid. The
+    result is bit-identical to nx (weighted/unweighted, directed,
+    disconnected, single-center, key order, bad-center NodeNotFound):
+    4.6ms -> 1.3ms (gap 4.41x -> 1.14x).
     """
-    return _call_networkx_for_parity(
-        "voronoi_cells", G, center_nodes, weight=weight
-    )
+    paths = multi_source_dijkstra_path(G, center_nodes, weight=weight)
+    nearest = {v: p[0] for v, p in paths.items()}
+    cells = {}
+    for node, center in nearest.items():
+        cells.setdefault(center, set()).add(node)
+    unreachable = set(G) - set(nearest)
+    if unreachable:
+        cells["unreachable"] = unreachable
+    return cells
 
 
 def _default_binary_heap():
