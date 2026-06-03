@@ -17110,7 +17110,7 @@ def ego_graph(G, n, radius=1, center=True, undirected=False, distance=None):
                     else:
                         edges_to_add.append((u, v, data))
                 else:
-                    edges_to_add.append((u, v, data))
+                    edges_to_add.append((u, v))
         if edges_to_add:
             graph.add_edges_from(edges_to_add)
     if not center and n in graph:
