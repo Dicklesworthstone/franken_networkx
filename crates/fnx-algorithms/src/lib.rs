@@ -1715,18 +1715,20 @@ pub fn single_source_shortest_path(
     source: &str,
     cutoff: Option<usize>,
 ) -> Vec<(String, Vec<String>)> {
-    if !graph.has_node(source) {
+    let nodes = graph.nodes_ordered();
+    let n = nodes.len();
+
+    let Some(source_idx) = graph.get_node_index(source) else {
         return Vec::new();
-    }
+    };
 
-    // Track paths for lookup (to build child paths from parent paths)
-    let mut paths: HashMap<String, Vec<String>> = HashMap::new();
-    // Track BFS discovery order
-    let mut result: Vec<(String, Vec<String>)> = Vec::new();
+    let mut visited = vec![false; n];
+    let mut predecessors: Vec<Option<usize>> = vec![None; n];
+    let mut discovery_order: Vec<usize> = Vec::with_capacity(n);
 
-    paths.insert(source.to_owned(), vec![source.to_owned()]);
-    result.push((source.to_owned(), vec![source.to_owned()]));
-    let mut frontier: Vec<&str> = vec![source];
+    visited[source_idx] = true;
+    discovery_order.push(source_idx);
+    let mut frontier: Vec<usize> = vec![source_idx];
     let mut level = 0usize;
 
     while !frontier.is_empty() {
@@ -1735,22 +1737,45 @@ pub fn single_source_shortest_path(
         {
             break;
         }
-        let mut next_frontier: Vec<&str> = Vec::new();
-        for &node in &frontier {
-            if let Some(neighbors) = graph.neighbors_iter(node) {
-                for nbr in neighbors {
-                    if !paths.contains_key(nbr) {
-                        let mut path = paths[node].clone();
-                        path.push(nbr.to_owned());
-                        paths.insert(nbr.to_owned(), path.clone());
-                        result.push((nbr.to_owned(), path));
-                        next_frontier.push(nbr);
+        let mut next_frontier: Vec<usize> = Vec::new();
+        for &node_idx in &frontier {
+            if let Some(neighbor_indices) = graph.neighbors_indices(node_idx) {
+                for &nbr_idx in neighbor_indices {
+                    if !visited[nbr_idx] {
+                        visited[nbr_idx] = true;
+                        predecessors[nbr_idx] = Some(node_idx);
+                        discovery_order.push(nbr_idx);
+                        next_frontier.push(nbr_idx);
                     }
                 }
             }
         }
         frontier = next_frontier;
         level += 1;
+    }
+
+    let mut result: Vec<(String, Vec<String>)> = Vec::with_capacity(discovery_order.len());
+    for &target_idx in &discovery_order {
+        let mut path_indices: Vec<usize> = Vec::new();
+        let mut current_idx = target_idx;
+
+        loop {
+            path_indices.push(current_idx);
+            if current_idx == source_idx {
+                break;
+            }
+            let Some(parent_idx) = predecessors[current_idx] else {
+                break;
+            };
+            current_idx = parent_idx;
+        }
+
+        path_indices.reverse();
+        let path = path_indices
+            .iter()
+            .map(|&node_idx| nodes[node_idx].to_owned())
+            .collect();
+        result.push((nodes[target_idx].to_owned(), path));
     }
 
     result

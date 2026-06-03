@@ -1,0 +1,1 @@
+{"graph_seed": 42, "impl": "fnx", "m": 4, "max_seconds": 0.003617391994339414, "mean_seconds": 0.0018424232992401812, "min_seconds": 0.0012422330037225038, "n": 3000, "op": "single_source_shortest_path", "p50_seconds": 0.0015235260070767254, "repeat": 20, "sha256": "d9f9307bf79bc0ba306f70eb31e19b5ccce8943aec3738b95dcfa13dccbd7d9b"}
