@@ -1,0 +1,3 @@
+f9d0ff224f14e3e081cd6b6759e04c61e4f6cb2efe3478619e2228b2072edbbd  tests/artifacts/perf/20260603T-ego-graph-native-filtered-copy/after_fnx.jsonl
+3689c992c85ff9c77349fe7e424dc900994bdccdf17ff70793e9938d046865a0  tests/artifacts/perf/20260603T-ego-graph-native-filtered-copy/profile_after_fnx.jsonl
+3bc77bd119f497cbba110f0a4ba5029317084e2f74baf8cca7b8fe7fc669ec58  tests/artifacts/perf/20260603T-ego-graph-native-filtered-copy/pytest_focused.rch.log
