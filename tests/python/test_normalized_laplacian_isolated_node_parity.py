@@ -43,6 +43,35 @@ def test_isolated_node_diagonal_is_zero():
 
 
 @needs_nx
+def test_default_weight_nodelist_self_loop_and_isolate_match():
+    fnx_graph = fnx.Graph()
+    nx_graph = nx.Graph()
+    for graph in (fnx_graph, nx_graph):
+        graph.add_edge("a", "a")
+        graph.add_edge("a", "b")
+        graph.add_edge("b", "c")
+        graph.add_node("z")
+
+    nodelist = ["z", "c", "a", "b"]
+    fm = fnx.normalized_laplacian_matrix(fnx_graph, nodelist=nodelist).toarray()
+    nm = nx.normalized_laplacian_matrix(nx_graph, nodelist=nodelist).toarray()
+    assert np.allclose(fm, nm, atol=1e-12)
+
+
+@needs_nx
+def test_present_default_weight_attr_uses_weighted_semantics():
+    fnx_graph = fnx.Graph()
+    nx_graph = nx.Graph()
+    for graph in (fnx_graph, nx_graph):
+        graph.add_edge("a", "b", weight=3.5)
+        graph.add_edge("b", "c")
+
+    fm = fnx.normalized_laplacian_matrix(fnx_graph).toarray()
+    nm = nx.normalized_laplacian_matrix(nx_graph).toarray()
+    assert np.allclose(fm, nm, atol=1e-12)
+
+
+@needs_nx
 def test_disconnected_spectrum_has_k_zeros():
     f, n = fnx.Graph(), nx.Graph()
     for g in (f, n):
