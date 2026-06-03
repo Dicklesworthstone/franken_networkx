@@ -1,0 +1,100 @@
+{
+  "results": [
+    {
+      "command": ".venv/bin/python tests/artifacts/perf/20260603T-multigraph-conversion-native/bench_multigraph_conversion.py --mode bench --impl fnx --op mg_to_directed --nodes 160 --edges 800 --repeat 3",
+      "mean": 0.37420828280000007,
+      "stddev": 0.023721945496404762,
+      "median": 0.3871910176,
+      "user": 4.0838211399999995,
+      "system": 0.06651498,
+      "min": 0.34795733560000003,
+      "max": 0.39442786960000004,
+      "times": [
+        0.34795733560000003,
+        0.3488206506,
+        0.39442786960000004,
+        0.3871910176,
+        0.39264454060000004
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": ".venv/bin/python tests/artifacts/perf/20260603T-multigraph-conversion-native/bench_multigraph_conversion.py --mode bench --impl fnx --op mg_to_undirected --nodes 160 --edges 800 --repeat 3",
+      "mean": 0.3488019774000001,
+      "stddev": 0.01851757288968754,
+      "median": 0.3421262466,
+      "user": 3.88082394,
+      "system": 0.06251517999999999,
+      "min": 0.3279490626,
+      "max": 0.3769900876,
+      "times": [
+        0.3414935066,
+        0.3769900876,
+        0.3421262466,
+        0.3554509836,
+        0.3279490626
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": ".venv/bin/python tests/artifacts/perf/20260603T-multigraph-conversion-native/bench_multigraph_conversion.py --mode bench --impl fnx --op mdg_to_directed --nodes 160 --edges 800 --repeat 3",
+      "mean": 0.33338711860000003,
+      "stddev": 0.021619112292775515,
+      "median": 0.3256653946,
+      "user": 3.879325939999999,
+      "system": 0.06373117999999998,
+      "min": 0.3057925086,
+      "max": 0.3572984356,
+      "times": [
+        0.3572984356,
+        0.3057925086,
+        0.3247427066,
+        0.3534365476,
+        0.3256653946
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": ".venv/bin/python tests/artifacts/perf/20260603T-multigraph-conversion-native/bench_multigraph_conversion.py --mode bench --impl fnx --op mdg_to_undirected --nodes 160 --edges 800 --repeat 3",
+      "mean": 0.342098016,
+      "stddev": 0.018080053379476196,
+      "median": 0.33620868260000003,
+      "user": 3.89580834,
+      "system": 0.06356518,
+      "min": 0.3202237736,
+      "max": 0.3634585576,
+      "times": [
+        0.3202237736,
+        0.3579014066,
+        0.3634585576,
+        0.33269765960000003,
+        0.33620868260000003
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

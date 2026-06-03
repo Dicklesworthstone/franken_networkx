@@ -221,6 +221,17 @@ pub(crate) fn py_dict_to_attr_map(attrs: &Bound<'_, PyDict>) -> PyResult<AttrMap
     Ok(rust_attrs)
 }
 
+pub(crate) fn deepcopy_py_dict(
+    py: Python<'_>,
+    deepcopy: &Bound<'_, PyAny>,
+    attrs: &Py<PyDict>,
+) -> PyResult<Py<PyDict>> {
+    Ok(deepcopy
+        .call1((attrs.bind(py),))?
+        .downcast_into::<PyDict>()?
+        .unbind())
+}
+
 use pyo3::IntoPyObjectExt;
 
 pub(crate) fn cgse_value_to_py(py: Python<'_>, val: &CgseValue) -> PyResult<PyObject> {
@@ -1672,9 +1683,10 @@ impl PyMultiGraph {
                 None => PyDict::new(py).unbind(),
             };
             let rust_attrs = py_dict_to_attr_map(py_attrs.bind(py))?;
-            let _ = new_graph
-                .inner
-                .add_edge_with_key_and_attrs(u.clone(), v.clone(), key, rust_attrs);
+            let _ =
+                new_graph
+                    .inner
+                    .add_edge_with_key_and_attrs(u.clone(), v.clone(), key, rust_attrs);
             new_graph
                 .edge_py_attrs
                 .insert((u.clone(), v.clone(), key), py_attrs);
@@ -1689,6 +1701,109 @@ impl PyMultiGraph {
             }
         }
         Ok(new_graph)
+    }
+
+    fn _native_to_undirected_deepcopy(&self, py: Python<'_>) -> PyResult<Self> {
+        let deepcopy = py.import("copy")?.getattr("deepcopy")?;
+        let mut new_graph = Self {
+            inner: MultiGraph::with_runtime_policy(self.inner.runtime_policy().clone()),
+            node_key_map: HashMap::new(),
+            node_py_attrs: HashMap::new(),
+            edge_py_attrs: HashMap::new(),
+            edge_py_keys: HashMap::new(),
+            graph_attrs: deepcopy_py_dict(py, &deepcopy, &self.graph_attrs)?,
+            nodes_seq: 0,
+            edges_seq: 0,
+            edges_dirty: AtomicBool::new(false),
+        };
+        for node in self.inner.nodes_ordered() {
+            let py_attrs = self.node_py_attrs.get(node).map_or_else(
+                || Ok(PyDict::new(py).unbind()),
+                |attrs| deepcopy_py_dict(py, &deepcopy, attrs),
+            )?;
+            let rust_attrs = py_dict_to_attr_map(py_attrs.bind(py))?;
+            new_graph
+                .inner
+                .add_node_with_attrs(node.to_owned(), rust_attrs);
+            new_graph
+                .node_key_map
+                .insert(node.to_owned(), self.py_node_key(py, node));
+            new_graph.node_py_attrs.insert(node.to_owned(), py_attrs);
+        }
+        for snapshot in self.inner.edges_ordered() {
+            let (u, v, key) = (snapshot.left.clone(), snapshot.right.clone(), snapshot.key);
+            let attrs_entry = self
+                .edge_py_attrs
+                .get(&Self::edge_key(&u, &v, key))
+                .or_else(|| self.edge_py_attrs.get(&Self::edge_key(&v, &u, key)));
+            let py_attrs = attrs_entry.map_or_else(
+                || Ok(PyDict::new(py).unbind()),
+                |attrs| deepcopy_py_dict(py, &deepcopy, attrs),
+            )?;
+            let rust_attrs = py_dict_to_attr_map(py_attrs.bind(py))?;
+            let _ = new_graph
+                .inner
+                .add_edge_with_key_and_attrs(u.clone(), v.clone(), key, rust_attrs)
+                .map_err(|e| NetworkXError::new_err(e.to_string()))?;
+            new_graph
+                .edge_py_attrs
+                .insert(Self::edge_key(&u, &v, key), py_attrs);
+            let py_key = self.py_edge_key(py, &u, &v, key);
+            new_graph.remember_edge_key_object(py, &u, &v, key, &py_key);
+        }
+        Ok(new_graph)
+    }
+
+    fn _native_to_directed_deepcopy(
+        &self,
+        py: Python<'_>,
+    ) -> PyResult<crate::digraph::PyMultiDiGraph> {
+        let deepcopy = py.import("copy")?.getattr("deepcopy")?;
+        let mut mdg = crate::digraph::PyMultiDiGraph {
+            inner: fnx_classes::digraph::MultiDiGraph::with_runtime_policy(
+                self.inner.runtime_policy().clone(),
+            ),
+            node_key_map: HashMap::new(),
+            node_py_attrs: HashMap::new(),
+            edge_py_attrs: HashMap::new(),
+            edge_py_keys: HashMap::new(),
+            graph_attrs: deepcopy_py_dict(py, &deepcopy, &self.graph_attrs)?,
+            nodes_seq: 0,
+            edges_seq: 0,
+            edges_dirty: AtomicBool::new(false),
+        };
+        for node in self.inner.nodes_ordered() {
+            let py_attrs = self.node_py_attrs.get(node).map_or_else(
+                || Ok(PyDict::new(py).unbind()),
+                |attrs| deepcopy_py_dict(py, &deepcopy, attrs),
+            )?;
+            let rust_attrs = py_dict_to_attr_map(py_attrs.bind(py))?;
+            mdg.inner.add_node_with_attrs(node.to_owned(), rust_attrs);
+            mdg.node_key_map
+                .insert(node.to_owned(), self.py_node_key(py, node));
+            mdg.node_py_attrs.insert(node.to_owned(), py_attrs);
+        }
+        for source in self.inner.nodes_ordered() {
+            for target in self.inner.neighbors(source).unwrap_or_default() {
+                for key in self.inner.edge_keys(source, target).unwrap_or_default() {
+                    let attrs_entry = self.edge_py_attrs.get(&Self::edge_key(source, target, key));
+                    let py_attrs = attrs_entry.map_or_else(
+                        || Ok(PyDict::new(py).unbind()),
+                        |attrs| deepcopy_py_dict(py, &deepcopy, attrs),
+                    )?;
+                    let rust_attrs = py_dict_to_attr_map(py_attrs.bind(py))?;
+                    let new_key = mdg
+                        .inner
+                        .add_edge_with_attrs(source.to_owned(), target.to_owned(), rust_attrs)
+                        .map_err(|e| NetworkXError::new_err(e.to_string()))?;
+                    mdg.edge_py_attrs
+                        .insert((source.to_owned(), target.to_owned(), new_key), py_attrs);
+                    let py_key = self.py_edge_key(py, source, target, key);
+                    mdg.remember_edge_key_object(py, source, target, new_key, &py_key);
+                }
+            }
+        }
+        Ok(mdg)
     }
 
     /// Return a deep copy of the multigraph.

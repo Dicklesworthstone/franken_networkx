@@ -29857,6 +29857,15 @@ def _graph_to_directed_copy(self):
 
 
 def _multigraph_to_directed_copy(self):
+    if (
+        type(self) is MultiGraph
+        and not _has_networkx_private_storage(self)
+        and self.to_directed_class() is MultiDiGraph
+    ):
+        native = getattr(self, "_native_to_directed_deepcopy", None)
+        if native is not None:
+            return native()
+
     result = self.to_directed_class()()
     result.graph.update(_deepcopy(self.graph))
     result.add_nodes_from((node, _deepcopy(attrs)) for node, attrs in self.nodes(data=True))
@@ -29882,6 +29891,15 @@ def _digraph_to_directed_copy(self):
 
 
 def _multidigraph_to_directed_copy(self):
+    if (
+        type(self) is MultiDiGraph
+        and not _has_networkx_private_storage(self)
+        and self.to_directed_class() is MultiDiGraph
+    ):
+        native = getattr(self, "_native_to_directed_deepcopy", None)
+        if native is not None:
+            return native()
+
     result = self.to_directed_class()()
     result.graph.update(_deepcopy(self.graph))
     result.add_nodes_from((node, _deepcopy(attrs)) for node, attrs in self.nodes(data=True))
@@ -29955,6 +29973,15 @@ def _to_undirected_with_view(to_undirected_impl):
     def to_undirected(self, as_view=False):
         if as_view is True:
             return _generic_undirected_graph_view(self)
+        if (
+            type(self) is MultiGraph
+            and not _has_networkx_private_storage(self)
+            and self.to_undirected_class() is MultiGraph
+        ):
+            native = getattr(self, "_native_to_undirected_deepcopy", None)
+            if native is not None:
+                return native()
+
         result = self.to_undirected_class()()
         result.graph.update(_deepcopy(self.graph))
         result.add_nodes_from(
@@ -29978,8 +30005,17 @@ def _directed_to_undirected_with_view(to_undirected_impl):
     def to_undirected(self, reciprocal=False, as_view=False):
         if as_view is True:
             return _generic_undirected_graph_view(self)
-        if reciprocal is False:
+        if reciprocal is not True:
             if self.is_multigraph():
+                if (
+                    type(self) is MultiDiGraph
+                    and not _has_networkx_private_storage(self)
+                    and self.to_undirected_class() is MultiGraph
+                ):
+                    native = getattr(self, "_native_to_undirected_deepcopy", None)
+                    if native is not None:
+                        return native()
+
                 # Iterate in original-direction order so the undirected
                 # edge orientation matches upstream nx, which preserves
                 # (u, v) as added (the rust to_undirected_impl

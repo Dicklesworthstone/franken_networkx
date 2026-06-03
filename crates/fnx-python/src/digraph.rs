@@ -1203,16 +1203,21 @@ impl PyMultiDiGraph {
             }
         }
         for snapshot in self.inner.edges_ordered() {
-            let (u, v, key) = (snapshot.source.clone(), snapshot.target.clone(), snapshot.key);
+            let (u, v, key) = (
+                snapshot.source.clone(),
+                snapshot.target.clone(),
+                snapshot.key,
+            );
             let attrs_entry = self.edge_py_attrs.get(&(u.clone(), v.clone(), key));
             let py_attrs = match attrs_entry {
                 Some(attrs) => attrs.bind(py).copy()?.unbind(),
                 None => PyDict::new(py).unbind(),
             };
             let rust_attrs = crate::py_dict_to_attr_map(py_attrs.bind(py))?;
-            let _ = new_graph
-                .inner
-                .add_edge_with_key_and_attrs(u.clone(), v.clone(), key, rust_attrs);
+            let _ =
+                new_graph
+                    .inner
+                    .add_edge_with_key_and_attrs(u.clone(), v.clone(), key, rust_attrs);
             new_graph
                 .edge_py_attrs
                 .insert((u.clone(), v.clone(), key), py_attrs);
@@ -1223,6 +1228,124 @@ impl PyMultiDiGraph {
             }
         }
         Ok(new_graph)
+    }
+
+    fn _native_to_directed_deepcopy(&self, py: Python<'_>) -> PyResult<Self> {
+        let deepcopy = py.import("copy")?.getattr("deepcopy")?;
+        let mut new_graph = Self {
+            inner: MultiDiGraph::with_runtime_policy(self.inner.runtime_policy().clone()),
+            node_key_map: HashMap::new(),
+            node_py_attrs: HashMap::new(),
+            edge_py_attrs: HashMap::new(),
+            edge_py_keys: HashMap::new(),
+            graph_attrs: crate::deepcopy_py_dict(py, &deepcopy, &self.graph_attrs)?,
+            nodes_seq: 0,
+            edges_seq: 0,
+            edges_dirty: AtomicBool::new(false),
+        };
+        for node in self.inner.nodes_ordered() {
+            let py_attrs = self.node_py_attrs.get(node).map_or_else(
+                || Ok(PyDict::new(py).unbind()),
+                |attrs| crate::deepcopy_py_dict(py, &deepcopy, attrs),
+            )?;
+            let rust_attrs = py_dict_to_attr_map(py_attrs.bind(py))?;
+            new_graph
+                .inner
+                .add_node_with_attrs(node.to_owned(), rust_attrs);
+            new_graph
+                .node_key_map
+                .insert(node.to_owned(), self.py_node_key(py, node));
+            new_graph.node_py_attrs.insert(node.to_owned(), py_attrs);
+        }
+        for source in self.inner.nodes_ordered() {
+            for target in self.inner.successors(source).unwrap_or_default() {
+                for key in self.inner.edge_keys(source, target).unwrap_or_default() {
+                    let attrs_entry = self.edge_py_attrs.get(&Self::edge_key(source, target, key));
+                    let py_attrs = attrs_entry.map_or_else(
+                        || Ok(PyDict::new(py).unbind()),
+                        |attrs| crate::deepcopy_py_dict(py, &deepcopy, attrs),
+                    )?;
+                    let rust_attrs = py_dict_to_attr_map(py_attrs.bind(py))?;
+                    let new_key = new_graph
+                        .inner
+                        .add_edge_with_attrs(source.to_owned(), target.to_owned(), rust_attrs)
+                        .map_err(|e| NetworkXError::new_err(e.to_string()))?;
+                    new_graph
+                        .edge_py_attrs
+                        .insert((source.to_owned(), target.to_owned(), new_key), py_attrs);
+                    let py_key = self.py_edge_key(py, source, target, key);
+                    new_graph.remember_edge_key_object(py, source, target, new_key, &py_key);
+                }
+            }
+        }
+        Ok(new_graph)
+    }
+
+    fn _native_to_undirected_deepcopy(&self, py: Python<'_>) -> PyResult<crate::PyMultiGraph> {
+        let deepcopy = py.import("copy")?.getattr("deepcopy")?;
+        let mut ug = crate::PyMultiGraph {
+            inner: fnx_classes::MultiGraph::with_runtime_policy(
+                self.inner.runtime_policy().clone(),
+            ),
+            node_key_map: HashMap::new(),
+            node_py_attrs: HashMap::new(),
+            edge_py_attrs: HashMap::new(),
+            edge_py_keys: HashMap::new(),
+            graph_attrs: crate::deepcopy_py_dict(py, &deepcopy, &self.graph_attrs)?,
+            nodes_seq: 0,
+            edges_seq: 0,
+            edges_dirty: AtomicBool::new(false),
+        };
+        for node in self.inner.nodes_ordered() {
+            let py_attrs = self.node_py_attrs.get(node).map_or_else(
+                || Ok(PyDict::new(py).unbind()),
+                |attrs| crate::deepcopy_py_dict(py, &deepcopy, attrs),
+            )?;
+            let rust_attrs = py_dict_to_attr_map(py_attrs.bind(py))?;
+            ug.inner.add_node_with_attrs(node.to_owned(), rust_attrs);
+            ug.node_key_map
+                .insert(node.to_owned(), self.py_node_key(py, node));
+            ug.node_py_attrs.insert(node.to_owned(), py_attrs);
+        }
+        for source in self.inner.nodes_ordered() {
+            for target in self.inner.successors(source).unwrap_or_default() {
+                for key in self.inner.edge_keys(source, target).unwrap_or_default() {
+                    let attrs_entry = self.edge_py_attrs.get(&Self::edge_key(source, target, key));
+                    let py_attrs = attrs_entry.map_or_else(
+                        || Ok(PyDict::new(py).unbind()),
+                        |attrs| crate::deepcopy_py_dict(py, &deepcopy, attrs),
+                    )?;
+                    let rust_attrs = py_dict_to_attr_map(py_attrs.bind(py))?;
+                    let py_key = self.py_edge_key(py, source, target, key);
+                    let actual_key = if let Some(existing_key) =
+                        ug.resolve_internal_edge_key(py, source, target, py_key.bind(py).as_any())?
+                    {
+                        ug.inner
+                            .add_edge_with_key_and_attrs(
+                                source.to_owned(),
+                                target.to_owned(),
+                                existing_key,
+                                rust_attrs,
+                            )
+                            .map_err(|e| NetworkXError::new_err(e.to_string()))?
+                    } else {
+                        ug.inner
+                            .add_edge_with_attrs(source.to_owned(), target.to_owned(), rust_attrs)
+                            .map_err(|e| NetworkXError::new_err(e.to_string()))?
+                    };
+                    let edge_key = crate::PyMultiGraph::edge_key(source, target, actual_key);
+                    if let Some(existing_attrs) = ug.edge_py_attrs.get(&edge_key) {
+                        existing_attrs
+                            .bind(py)
+                            .update(py_attrs.bind(py).as_mapping())?;
+                    } else {
+                        ug.edge_py_attrs.insert(edge_key, py_attrs);
+                    }
+                    ug.remember_edge_key_object(py, source, target, actual_key, &py_key);
+                }
+            }
+        }
+        Ok(ug)
     }
 
     fn copy(&self, py: Python<'_>) -> PyResult<Self> {

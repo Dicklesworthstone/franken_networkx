@@ -163,3 +163,35 @@ def test_to_undirected_reciprocal_false_matches_default(fnx_ctor, nx_ctor):
     assert sorted(sorted(e) for e in fu.edges()) == sorted(
         sorted(e) for e in nu.edges()
     )
+
+
+@pytest.mark.parametrize("reciprocal", [None, 0, 1, "true"])
+@pytest.mark.parametrize(
+    ("fnx_ctor", "nx_ctor"),
+    [
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
+def test_to_undirected_only_literal_true_filters_reciprocal_edges(
+    reciprocal, fnx_ctor, nx_ctor
+):
+    fg = fnx_ctor()
+    ng = nx_ctor()
+    for graph in (fg, ng):
+        if graph.is_multigraph():
+            graph.add_edge("a", "b", key="ab")
+            graph.add_edge("b", "a", key="other")
+            graph.add_edge("c", "d", key="cd")
+        else:
+            graph.add_edge("a", "b")
+            graph.add_edge("b", "a")
+            graph.add_edge("c", "d")
+
+    fu = fg.to_undirected(reciprocal=reciprocal)
+    nu = ng.to_undirected(reciprocal=reciprocal)
+
+    if fu.is_multigraph():
+        assert list(fu.edges(keys=True)) == list(nu.edges(keys=True))
+    else:
+        assert list(fu.edges()) == list(nu.edges())
