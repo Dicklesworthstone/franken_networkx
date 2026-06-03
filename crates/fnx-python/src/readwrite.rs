@@ -18,6 +18,7 @@ use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
 use pyo3::types::PyDict;
+use pyo3::types::PyList;
 use serde_json::Value as JsonValue;
 use std::collections::HashMap;
 use std::sync::atomic::AtomicBool;
@@ -816,8 +817,37 @@ pub fn to_dict_of_dicts_undirected(
     Ok(Some(outer.unbind()))
 }
 
+/// br-r37-c1-6o3wi: native fast path for `to_dict_of_lists` on a simple
+/// undirected `Graph` with no nodelist. Builds `{u: [v, ...]}` with each
+/// neighbor list in adjacency order, bypassing the slow per-node
+/// `G.neighbors(n)` AdjacencyView iteration. Returns `None` for any
+/// non-undirected input (the Python wrapper additionally gates on
+/// `type(G) is Graph` so subclasses / filtered SubgraphViews fall back).
+#[pyfunction]
+pub fn to_dict_of_lists_undirected(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+) -> PyResult<Option<Py<PyDict>>> {
+    let gr = extract_graph(g)?;
+    let GraphRef::Undirected(pg) = &gr else {
+        return Ok(None);
+    };
+    let outer = PyDict::new(py);
+    for u in pg.inner.nodes_ordered() {
+        let neighbors = PyList::empty(py);
+        if let Some(nbrs) = pg.inner.neighbors_iter(u) {
+            for v in nbrs {
+                neighbors.append(pg.py_node_key(py, v))?;
+            }
+        }
+        outer.set_item(pg.py_node_key(py, u), neighbors)?;
+    }
+    Ok(Some(outer.unbind()))
+}
+
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(to_dict_of_dicts_undirected, m)?)?;
+    m.add_function(wrap_pyfunction!(to_dict_of_lists_undirected, m)?)?;
     m.add_function(wrap_pyfunction!(read_edgelist, m)?)?;
     m.add_function(wrap_pyfunction!(write_edgelist, m)?)?;
     m.add_function(wrap_pyfunction!(read_adjlist, m)?)?;

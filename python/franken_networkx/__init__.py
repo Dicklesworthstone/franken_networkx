@@ -38319,6 +38319,15 @@ def to_dict_of_lists(G, nodelist=None):
     d : dict
         ``d[u]`` is the list of neighbors of node u.
     """
+    # br-r37-c1-6o3wi: native fast path for a plain undirected Graph with no
+    # nodelist. Builds {u: [v,...]} in Rust with adjacency-order neighbor lists,
+    # bypassing the slow per-node G.neighbors() AdjacencyView iteration.
+    # ``type(G) is Graph`` (exact) excludes DiGraph/MultiGraph, subclasses, and
+    # filtered SubgraphViews, all of which fall through to the general path.
+    if nodelist is None and type(G) is Graph:
+        _fast = _fnx.to_dict_of_lists_undirected(G)
+        if _fast is not None:
+            return _fast
     if nodelist is None:
         nodelist = G
     return {n: [nb for nb in G.neighbors(n) if nb in nodelist] for n in nodelist}
