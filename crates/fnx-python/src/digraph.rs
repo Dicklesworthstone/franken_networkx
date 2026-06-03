@@ -3525,6 +3525,35 @@ impl PyDiGraph {
         Ok(items.into_pyobject(py)?.into_any().unbind())
     }
 
+    /// br-r37-c1-deg-data: native ordered ``(u, v, attrs)`` materialization for
+    /// the Python _DiGraphEdgeView ``edges(data=True)`` fast path. Same node x
+    /// successor traversal as ``_native_edges_no_data`` (matches nx and the
+    /// Python wrapper), reusing the live ``edge_py_attrs`` dict per edge so the
+    /// yielded data dict is identity-shared with ``G[u][v]`` (nx contract).
+    /// Avoids the per-edge ``succ[source].items()`` AtlasView walk (~58x).
+    fn _native_edges_with_data(&self, py: Python<'_>) -> PyResult<PyObject> {
+        // br-r37-c1-deg-data: we hand back the LIVE edge attr dicts, so a caller
+        // mutating ``(u, v, d)``'s ``d`` (e.g. d['weight'] = x) edits
+        // edge_py_attrs in place. Mark edges dirty so the next weighted-kernel
+        // call re-syncs those dicts into inner (cf reference_edge_attr_sync_
+        // staleness — the succ AtlasView path this replaces did this implicitly).
+        if self.inner.edge_count() > 0 {
+            self.mark_edges_dirty();
+        }
+        let mut items = Vec::with_capacity(self.inner.edge_count());
+        for (u, v, _) in self.inner.edges_ordered_borrowed() {
+            let py_u = self.py_node_key(py, u);
+            let py_v = self.py_node_key(py, v);
+            let ek = Self::edge_key(u, v);
+            let attrs = self
+                .edge_py_attrs
+                .get(&ek)
+                .map_or_else(|| PyDict::new(py).unbind(), |d| d.clone_ref(py));
+            items.push(tuple_object(py, &[py_u, py_v, attrs.into_any()])?);
+        }
+        Ok(items.into_pyobject(py)?.into_any().unbind())
+    }
+
     /// ``G.adj`` / ``G.succ`` — successor adjacency.
     #[getter]
     fn adj(slf: PyRef<'_, Self>) -> PyResult<Py<DiAdjacencyView>> {

@@ -1365,6 +1365,15 @@ class _DiGraphEdgeView:
         # in practice for many of its consumers).
         if nbunch is None and data is False:
             return self
+        # br-r37-c1-deg-data: all-edges data=True routes to the native
+        # (u, v, attrs) builder (same node x successor order, live attr dicts)
+        # instead of the per-source succ[source].items() AtlasView walk (~58x).
+        if nbunch is None and data is True:
+            native = getattr(self._graph, "_native_edges_with_data", None)
+            if native is not None:
+                return _guarded_edge_list(
+                    native(), self._graph, guard_edge_count=True
+                )
         result = []
         for source in self._graph.nbunch_iter(nbunch):
             for target, attrs in self._graph.succ[source].items():
