@@ -1,0 +1,60 @@
+{
+  "results": [
+    {
+      "command": ".venv/bin/python -c \"import sys, franken_networkx as fnx; fnx._native_adjacency_default_order_arrays=None; sys.argv=[\\\"x\\\",\\\"bench\\\",\\\"--case\\\",\\\"to_scipy_weighted_float\\\",\\\"--impl\\\",\\\"fnx\\\",\\\"--n\\\",\\\"8000\\\",\\\"--m\\\",\\\"4\\\",\\\"--repeats\\\",\\\"1\\\"]; exec(compile(open(\\\"tests/artifacts/perf/20260602T-vs-upstream-sweep/bench_vs_upstream.py\\\", encoding=\\\"utf-8\\\").read(), \\\"tests/artifacts/perf/20260602T-vs-upstream-sweep/bench_vs_upstream.py\\\", \\\"exec\\\"), {\\\"__name__\\\":\\\"__main__\\\", \\\"__file__\\\":\\\"tests/artifacts/perf/20260602T-vs-upstream-sweep/bench_vs_upstream.py\\\"})\"",
+      "mean": 0.7722733718885715,
+      "stddev": 0.033660744004454186,
+      "median": 0.77210965346,
+      "user": 4.733227902857142,
+      "system": 0.13848229428571426,
+      "min": 0.7264456634600001,
+      "max": 0.8214203274600002,
+      "times": [
+        0.8214203274600002,
+        0.77210965346,
+        0.7786448684600001,
+        0.7536593754600001,
+        0.7463678684600001,
+        0.8072658464600001,
+        0.7264456634600001
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": ".venv/bin/python tests/artifacts/perf/20260602T-vs-upstream-sweep/bench_vs_upstream.py bench --case to_scipy_weighted_float --impl fnx --n 8000 --m 4 --repeats 1",
+      "mean": 0.7451440798885715,
+      "stddev": 0.023144132358530488,
+      "median": 0.7320565604600001,
+      "user": 4.894819759999999,
+      "system": 0.13189329428571425,
+      "min": 0.7235853384600001,
+      "max": 0.7855011224600001,
+      "times": [
+        0.7855011224600001,
+        0.7235853384600001,
+        0.7610784864600001,
+        0.7568611504600001,
+        0.7276154304600001,
+        0.7320565604600001,
+        0.7293104704600001
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

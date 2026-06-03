@@ -115,6 +115,38 @@ def test_dtype_float_weighted_uses_native_and_matches():
 
 
 @needs_nx
+def test_dtype_float_default_graph_routes_default_order_native(monkeypatch):
+    native_default = getattr(fnx, "_native_adjacency_default_order_arrays", None)
+    if native_default is None:
+        pytest.skip("native sparse helper unavailable")
+
+    graph = fnx.Graph()
+    graph.add_edge(0, 1, weight=2.5)
+    graph.add_edge(1, 2, weight=3.5)
+    calls = []
+
+    def fail_generic(*_args):
+        raise AssertionError("default weighted Graph CSR route should use default helper")
+
+    def wrapped_default(actual_graph, weight_attr, default_weight):
+        calls.append((actual_graph, weight_attr, default_weight))
+        return native_default(actual_graph, weight_attr, default_weight)
+
+    monkeypatch.setattr(fnx, "_native_adjacency_arrays", fail_generic)
+    monkeypatch.setattr(fnx, "_native_adjacency_default_order_arrays", wrapped_default)
+
+    matrix = fnx.to_scipy_sparse_array(graph, dtype=float, weight="weight")
+
+    assert calls == [(graph, "weight", 1.0)]
+    assert matrix.dtype == np.dtype("float64")
+    assert matrix.toarray().tolist() == [
+        [0.0, 2.5, 0.0],
+        [2.5, 0.0, 3.5],
+        [0.0, 3.5, 0.0],
+    ]
+
+
+@needs_nx
 def test_dtype_none_absent_string_weight_routes_native(monkeypatch):
     native_adjacency = getattr(fnx, "_native_adjacency_arrays", None)
     native_index = getattr(fnx, "_native_adjacency_index_arrays", None)

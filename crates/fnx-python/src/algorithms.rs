@@ -2199,6 +2199,53 @@ pub fn adjacency_default_order_index_arrays(
     Ok(Some((rows, cols)))
 }
 
+/// Return weighted COO arrays for an undirected Graph in insertion order.
+///
+/// This is the default-nodelist sibling of ``adjacency_arrays`` for the common
+/// weighted CSR route. It reuses cached neighbor-index slices and synced Rust
+/// edge attrs, avoiding Python nodelist canonicalization plus per-edge node
+/// string-to-index lookups.
+#[pyfunction]
+#[pyo3(signature = (g, weight_attr, default_weight=1.0))]
+pub fn adjacency_default_order_arrays(
+    g: &Bound<'_, PyAny>,
+    weight_attr: Option<&str>,
+    default_weight: f64,
+) -> PyResult<Option<(Vec<usize>, Vec<usize>, Vec<f64>)>> {
+    let gr = extract_graph(g)?;
+    let GraphRef::Undirected(pg) = &gr else {
+        return Ok(None);
+    };
+
+    let inner = &pg.inner;
+    let mut rows = Vec::with_capacity(inner.edge_count() * 2);
+    let mut cols = Vec::with_capacity(inner.edge_count() * 2);
+    let mut data = Vec::with_capacity(inner.edge_count() * 2);
+    for row in 0..inner.node_count() {
+        let Some(row_name) = inner.get_node_name(row) else {
+            continue;
+        };
+        let Some(neighbors) = inner.neighbors_indices(row) else {
+            continue;
+        };
+        for &col in neighbors {
+            let Some(col_name) = inner.get_node_name(col) else {
+                continue;
+            };
+            let w = inner
+                .edge_attrs(row_name, col_name)
+                .and_then(|attrs| {
+                    weight_attr.and_then(|attr| attrs.get(attr).and_then(|val| val.as_f64()))
+                })
+                .unwrap_or(default_weight);
+            rows.push(row);
+            cols.push(col);
+            data.push(w);
+        }
+    }
+    Ok(Some((rows, cols, data)))
+}
+
 /// Bulk per-node adjacency + edge attrs for the `_fnx_to_nx` parity conversion.
 ///
 /// Returns, for each node in node-insertion order, its neighbors in
@@ -14634,6 +14681,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(adjacency_arrays, m)?)?;
     m.add_function(wrap_pyfunction!(adjacency_index_arrays, m)?)?;
     m.add_function(wrap_pyfunction!(adjacency_default_order_index_arrays, m)?)?;
+    m.add_function(wrap_pyfunction!(adjacency_default_order_arrays, m)?)?;
     m.add_function(wrap_pyfunction!(fnx_to_nx_adjacency, m)?)?;
     m.add_function(wrap_pyfunction!(graph_has_edge_attr, m)?)?;
     m.add_function(wrap_pyfunction!(bellman_ford_path, m)?)?;

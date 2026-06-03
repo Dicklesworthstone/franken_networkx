@@ -16402,6 +16402,13 @@ except ImportError:  # pragma: no cover — defensive for partial builds
 
 try:
     from franken_networkx._fnx import (
+        adjacency_default_order_arrays as _native_adjacency_default_order_arrays,
+    )
+except ImportError:  # pragma: no cover — defensive for partial builds
+    _native_adjacency_default_order_arrays = None
+
+try:
+    from franken_networkx._fnx import (
         graph_has_edge_attr as _native_has_edge_attr,
     )
 except ImportError:  # pragma: no cover — defensive for partial builds
@@ -39189,6 +39196,16 @@ def to_scipy_sparse_array(G, nodelist=None, dtype=None, weight="weight", format=
                 native_weight = weight if _use_native_weighted else None
         if _probe_native_missing_default_weight and native_index_result is None:
             native_result = None
+        elif (
+            _use_native_weighted
+            and default_nodelist
+            and format == "csr"
+            and type(G) is Graph
+            and _native_adjacency_default_order_arrays is not None
+        ):
+            native_result = _native_adjacency_default_order_arrays(
+                G, native_weight, 1.0
+            )
         else:
             native_result = _native_adjacency_arrays(G, nodelist, native_weight, 1.0)
         if native_result is not None:
