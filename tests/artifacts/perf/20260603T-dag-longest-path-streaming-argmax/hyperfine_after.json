@@ -1,0 +1,38 @@
+{
+  "results": [
+    {
+      "command": "env PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260603T-dag-longest-path-streaming-argmax/bench_dag_longest_path.py --module fnx --repeat 120",
+      "mean": 0.43717741590000003,
+      "stddev": 0.02623193270321092,
+      "median": 0.4356343601,
+      "user": 3.5625867199999997,
+      "system": 0.06055512,
+      "min": 0.3911178146,
+      "max": 0.46747170460000004,
+      "times": [
+        0.4652891286,
+        0.4316082746,
+        0.4371525076,
+        0.4176679226,
+        0.4341162126,
+        0.4556289586,
+        0.3911178146,
+        0.4075889596,
+        0.46747170460000004,
+        0.4641326756
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

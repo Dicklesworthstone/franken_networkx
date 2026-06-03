@@ -12551,11 +12551,19 @@ def _dag_longest_path_digraph_native(G, weight, default_weight):
 
     dist = {}
     for v in topo_order:
-        us = [
-            (dist[u][0] + edge_weight, u)
-            for u, edge_weight in pred_map[v]
-        ]
-        maxu = max(us, key=lambda x: x[0]) if us else (0, v)
+        preds = pred_map[v]
+        if preds:
+            pred_iter = iter(preds)
+            u, edge_weight = next(pred_iter)
+            best_len = dist[u][0] + edge_weight
+            maxu = (best_len, u)
+            for u, edge_weight in pred_iter:
+                candidate_len = dist[u][0] + edge_weight
+                if candidate_len > best_len:
+                    best_len = candidate_len
+                    maxu = (candidate_len, u)
+        else:
+            maxu = (0, v)
         dist[v] = maxu if maxu[0] >= 0 else (0, v)
 
     u = None
