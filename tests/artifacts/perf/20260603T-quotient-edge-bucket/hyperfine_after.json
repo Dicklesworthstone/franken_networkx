@@ -1,0 +1,24 @@
+{
+  "results": [
+    {
+      "command": ".venv/bin/python tests/artifacts/perf/20260603T-quotient-edge-bucket/bench_quotient_graph.py bench --samples 1 --engines fnx",
+      "mean": 7.548245371766666,
+      "stddev": 0.15910832077723788,
+      "median": 7.5988181231,
+      "user": 10.431111533333334,
+      "system": 0.10834285999999999,
+      "min": 7.369997382099999,
+      "max": 7.6759206100999995,
+      "times": [
+        7.6759206100999995,
+        7.5988181231,
+        7.369997382099999
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

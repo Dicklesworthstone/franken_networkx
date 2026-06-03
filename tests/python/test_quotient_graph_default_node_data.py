@@ -98,3 +98,26 @@ def test_quotient_graph_default_attrs_present():
     assert set(attrs.keys()) >= {"graph", "nnodes", "nedges", "density"}
     assert attrs["nnodes"] == 3
     assert attrs["nedges"] == 2
+
+
+@needs_nx
+def test_quotient_graph_default_unweighted_bucket_path_matches_networkx():
+    graph = fnx.Graph()
+    graph.add_edges_from(
+        [
+            (0, 3),
+            (1, 4),
+            (2, 5),
+            (2, 6),
+            (7, 9),
+            (8, 10),
+        ]
+    )
+    expected_graph = nx.Graph()
+    expected_graph.add_edges_from(graph.edges())
+    partition = [{0, 1, 2}, {3, 4, 5, 6}, {7, 8}, {9, 10}]
+
+    result = fnx.quotient_graph(graph, partition)
+    expected = nx.quotient_graph(expected_graph, partition)
+
+    assert list(result.edges(data=True)) == list(expected.edges(data=True))

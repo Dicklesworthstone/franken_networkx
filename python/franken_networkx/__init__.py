@@ -21622,7 +21622,8 @@ def quotient_graph(
             seen_nodes.add(node)
 
     # Default edge relation: any edge between blocks
-    if edge_relation is None:
+    default_edge_relation = edge_relation is None
+    if default_edge_relation:
 
         def edge_relation(block_u, block_v):
             for u in block_u:
@@ -21662,29 +21663,74 @@ def quotient_graph(
         else:
             H.add_node(node_label, **_default_node_data(block))
 
-    # Add edges between blocks
-    for i, block_u in enumerate(partition):
-        for j, block_v in enumerate(partition):
-            if i >= j and not G.is_directed():
+    def _add_default_undirected_bucketed_edges():
+        if (
+            not default_edge_relation
+            or edge_data is not None
+            or create_using is not None
+            or G.is_directed()
+            or G.is_multigraph()
+        ):
+            return False
+
+        block_index = {}
+        for idx, block in enumerate(partition):
+            for node in block:
+                block_index[node] = idx
+
+        pair_totals = {}
+        for u, v, data in G.edges(data=True):
+            u_idx = block_index.get(u)
+            v_idx = block_index.get(v)
+            if u_idx is None or v_idx is None or u_idx == v_idx:
+                continue
+            if u_idx > v_idx:
+                u_idx, v_idx = v_idx, u_idx
+            key = (u_idx, v_idx)
+            if weight:
+                value = data.get(weight, 1)
+                if not isinstance(value, int):
+                    return False
+                pair_totals[key] = pair_totals.get(key, 0) + value
+            else:
+                pair_totals.setdefault(key, 0)
+
+        for i, block_u in enumerate(partition):
+            for j in range(i + 1, len(partition)):
+                key = (i, j)
+                if key not in pair_totals:
+                    continue
+                block_v = partition[j]
+                if weight:
+                    H.add_edge(block_u, block_v, **{weight: pair_totals[key]})
+                else:
+                    H.add_edge(block_u, block_v)
+        return True
+
+    if not _add_default_undirected_bucketed_edges():
+        # Add edges between blocks
+        for i, block_u in enumerate(partition):
+            for j, block_v in enumerate(partition):
+                if i >= j and not G.is_directed():
+                    if i == j:
+                        continue
                 if i == j:
                     continue
-            if i == j:
-                continue
-            if edge_relation(block_u, block_v):
-                if edge_data is not None:
-                    H.add_edge(block_u, block_v, **edge_data(block_u, block_v))
-                else:
-                    # Sum weights of cross-block edges
-                    total = 0
-                    _count = 0
-                    for u in block_u:
-                        for v in block_v:
-                            if G.has_edge(u, v):
-                                d = G.edges[u, v]
-                                total += d.get(weight, 1) if weight else 1
-                                _count += 1
-                    attrs = {weight: total} if weight and _count else {}
-                    H.add_edge(block_u, block_v, **attrs)
+                if edge_relation(block_u, block_v):
+                    if edge_data is not None:
+                        H.add_edge(block_u, block_v, **edge_data(block_u, block_v))
+                    else:
+                        # Sum weights of cross-block edges
+                        total = 0
+                        _count = 0
+                        for u in block_u:
+                            for v in block_v:
+                                if G.has_edge(u, v):
+                                    d = G.edges[u, v]
+                                    total += d.get(weight, 1) if weight else 1
+                                    _count += 1
+                        attrs = {weight: total} if weight and _count else {}
+                        H.add_edge(block_u, block_v, **attrs)
 
     if relabel:
         mapping = {block: i for i, block in enumerate(partition)}

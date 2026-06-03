@@ -1,0 +1,4 @@
+Benchmark 1: .venv/bin/python tests/artifacts/perf/20260603T-quotient-edge-bucket/bench_quotient_graph.py bench --samples 1 --engines fnx
+  Time (mean ± σ):     14.456 s ±  0.307 s    [User: 17.753 s, System: 0.115 s]
+  Range (min … max):   14.124 s … 14.729 s    3 runs
+ 
