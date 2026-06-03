@@ -1912,6 +1912,24 @@ def generate_adjlist(G, delimiter=" "):
     # expands parallel edges (a neighbour appears once per parallel edge), a
     # semantic the simple neighbour list does not capture.
     if not G.is_multigraph():
+        # br-r37-c1-genadjbulk: pull the whole (node, [neighbour]) adjacency in
+        # a SINGLE native call instead of len(G) per-node ``G.neighbors()`` PyO3
+        # round-trips. ``_native_adjacency_keys`` yields the same source/adjacency
+        # order without building any edge-attr dicts. Gate on EXACT class identity
+        # (not __name__): filtered SubgraphViews subclass Graph and report
+        # ``__name__ == "Graph"`` yet keep an empty native inner (filtering lives
+        # in Python), so they must fall back to the per-node walk that respects
+        # the filter.
+        import franken_networkx as _fnx_mod
+
+        bulk = getattr(G, "_native_adjacency_keys", None)
+        if bulk is not None and type(G) in (_fnx_mod.Graph, _fnx_mod.DiGraph):
+            for node, nbrs in bulk():
+                if not directed:
+                    nbrs = [n for n in nbrs if n not in seen]
+                yield delimiter.join([str(node)] + [str(n) for n in nbrs])
+                seen.add(node)
+            return
         for node in G:
             nbrs = G.neighbors(node)
             if not directed:
@@ -1919,16 +1937,32 @@ def generate_adjlist(G, delimiter=" "):
             yield delimiter.join([str(node)] + [str(n) for n in nbrs])
             seen.add(node)
         return
+    # Multigraph: nx expands parallel edges — neighbour ``t`` is emitted once
+    # per parallel edge (``len(data) > 1`` => ``(str(t),) * len(data)``), matching
+    # networkx.generate_adjlist exactly. The undirected dedup skips a neighbour
+    # only when it has already appeared as a source (``seen``), and ``seen`` is
+    # populated only for undirected graphs. Using ``adj.keys()`` here dropped the
+    # parallel-edge multiplicity (br-r37-c1-genadjmg) — breaking adjlist
+    # round-trip for MultiGraph/MultiDiGraph.
     for node, adj in G.adjacency():
-        if isinstance(adj, dict):
-            nbrs = adj.keys()
+        nodes = [str(node)]
+        if hasattr(adj, "items"):
+            for t, data in adj.items():
+                if t in seen:
+                    continue
+                if hasattr(data, "__len__") and len(data) > 1:
+                    nodes.extend((str(t),) * len(data))
+                else:
+                    nodes.append(str(t))
         else:
-            nbrs = [x[0] if isinstance(x, (list, tuple)) else x for x in adj]
+            for x in adj:
+                t = x[0] if isinstance(x, (list, tuple)) else x
+                if t in seen:
+                    continue
+                nodes.append(str(t))
         if not directed:
-            # Only emit each undirected edge once
-            nbrs = [n for n in nbrs if n not in seen]
-        yield delimiter.join([str(node)] + [str(n) for n in nbrs])
-        seen.add(node)
+            seen.add(node)
+        yield delimiter.join(nodes)
 
 
 def generate_edgelist(G, delimiter=" ", data=True):

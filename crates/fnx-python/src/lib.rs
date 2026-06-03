@@ -3541,6 +3541,19 @@ impl PyGraph {
         Ok(result)
     }
 
+    /// br-r37-c1-genadjbulk: private-named node-major neighbour-KEY snapshot for
+    /// `generate_adjlist`, so it walks the whole graph in ONE native call instead
+    /// of `len(G)` per-node `G.neighbors()` PyO3 round-trips. Same `(node,
+    /// [neighbour, ...])` shape and source/adjacency order as `adjacency()`, but
+    /// under a private name the Python `Graph.adjacency` wrapper (which returns
+    /// nx's `{nbr: attrs}` dict form) does not shadow. No edge-attr dicts built.
+    fn _native_adjacency_keys<'py>(
+        &self,
+        py: Python<'py>,
+    ) -> PyResult<Vec<(PyObject, Vec<PyObject>)>> {
+        self.adjacency(py)
+    }
+
     /// br-r37-c1-gadj: native nested adjacency snapshot ({node: {nbr: attrs}})
     /// so the Python Graph.adjacency (_simple_graph_adjacency) builds it
     /// natively instead of walking ``dict(self.adj[node])`` via the AtlasView
