@@ -955,6 +955,98 @@ pub fn adjacency_data_simple(
     Ok(Some((nodes.unbind(), adjacency.unbind())))
 }
 
+/// Native fast path for `node_link_data` (json_graph) on simple `Graph` and
+/// `DiGraph`. Returns the `(nodes, edges)` pair the Python wrapper places
+/// under the caller's `nodes`/`edges` key names:
+///   - `nodes` = `[{**node_attrs, name: node}, ...]`            (node insertion order)
+///   - `edges` = `[{**edge_attrs, source: u, target: v}, ...]`  (G.edges() order)
+///
+/// Mirrors nx's `{**attrs, name: n}` / `{**attrs, source: u, target: v}`
+/// spreads: each dict is a COPY of the live attr dict with the id/endpoint
+/// fields appended last (so pre-existing same-named keys are overwritten in
+/// place and the stored attr dicts are never mutated). Edge iteration uses
+/// `edges_ordered()` — the same source `to_edgelist_simple` uses — so the
+/// emitted edge order matches nx's `G.edges()` dedup order.
+///
+/// Returns `None` for multigraph inputs (the wrapper falls back); the wrapper
+/// also gates on exact graph type so filtered SubgraphViews / subclasses never
+/// reach here.
+#[pyfunction]
+#[pyo3(signature = (g, name, source, target))]
+pub fn node_link_data_simple(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    name: &str,
+    source: &str,
+    target: &str,
+) -> PyResult<Option<(Py<PyList>, Py<PyList>)>> {
+    let gr = extract_graph(g)?;
+    let nodes = PyList::empty(py);
+    let edges = PyList::empty(py);
+    match &gr {
+        GraphRef::Undirected(pg) => {
+            for u in pg.inner.nodes_ordered() {
+                let node_dict = match pg.node_py_attrs.get(u) {
+                    Some(d) => d.bind(py).copy()?,
+                    None => PyDict::new(py),
+                };
+                node_dict.set_item(name, pg.py_node_key(py, u))?;
+                nodes.append(node_dict)?;
+            }
+            // Match nx `G.edges()` undirected order: for u in node order,
+            // emit (u, v) for each neighbor v whose own adjacency has not yet
+            // been processed (seen-set of finished source nodes). This avoids
+            // `edges_ordered()`, which eagerly clones every edge's AttrMap.
+            let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+            for u in pg.inner.nodes_ordered() {
+                if let Some(neighbors) = pg.inner.neighbors_iter(u) {
+                    for v in neighbors {
+                        if seen.contains(v) {
+                            continue;
+                        }
+                        let ek = PyGraph::edge_key(u, v);
+                        let edge_dict = match pg.edge_py_attrs.get(&ek) {
+                            Some(d) => d.bind(py).copy()?,
+                            None => PyDict::new(py),
+                        };
+                        edge_dict.set_item(source, pg.py_node_key(py, u))?;
+                        edge_dict.set_item(target, pg.py_node_key(py, v))?;
+                        edges.append(edge_dict)?;
+                    }
+                }
+                seen.insert(u.to_owned());
+            }
+        }
+        GraphRef::Directed { dg, .. } => {
+            for u in dg.inner.nodes_ordered() {
+                let node_dict = match dg.node_py_attrs.get(u) {
+                    Some(d) => d.bind(py).copy()?,
+                    None => PyDict::new(py),
+                };
+                node_dict.set_item(name, dg.py_node_key(py, u))?;
+                nodes.append(node_dict)?;
+            }
+            // Directed `G.edges()` order: out-edges in node order (no dedup).
+            for u in dg.inner.nodes_ordered() {
+                if let Some(neighbors) = dg.inner.successors_iter(u) {
+                    for v in neighbors {
+                        let ek = PyDiGraph::edge_key(u, v);
+                        let edge_dict = match dg.edge_py_attrs.get(&ek) {
+                            Some(d) => d.bind(py).copy()?,
+                            None => PyDict::new(py),
+                        };
+                        edge_dict.set_item(source, dg.py_node_key(py, u))?;
+                        edge_dict.set_item(target, dg.py_node_key(py, v))?;
+                        edges.append(edge_dict)?;
+                    }
+                }
+            }
+        }
+        GraphRef::MultiUndirected { .. } | GraphRef::MultiDirected { .. } => return Ok(None),
+    }
+    Ok(Some((nodes.unbind(), edges.unbind())))
+}
+
 /// br-r37-c1-gl3nq: native fast path for `to_edgelist` on exact simple
 /// `Graph` and `DiGraph` with no nodelist. It preserves the existing fnx
 /// materialized list-like return behavior while avoiding Python adjacency
@@ -1134,6 +1226,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(to_dict_of_dicts_undirected, m)?)?;
     m.add_function(wrap_pyfunction!(to_dict_of_lists_undirected, m)?)?;
     m.add_function(wrap_pyfunction!(adjacency_data_simple, m)?)?;
+    m.add_function(wrap_pyfunction!(node_link_data_simple, m)?)?;
     m.add_function(wrap_pyfunction!(to_edgelist_simple, m)?)?;
     m.add_function(wrap_pyfunction!(read_edgelist, m)?)?;
     m.add_function(wrap_pyfunction!(write_edgelist, m)?)?;

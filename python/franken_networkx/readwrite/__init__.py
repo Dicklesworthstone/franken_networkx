@@ -444,6 +444,24 @@ def node_link_data(
     """Return node-link JSON data using fnx's wrapper."""
     import franken_networkx as fnx
 
+    # Native fast path for exact simple Graph / DiGraph: build the node and
+    # edge arrays in Rust, bypassing the per-edge EdgeView Python machinery
+    # that made this ~3.5x slower than nx. Multigraphs and any subclass /
+    # filtered view take the general wrapper.
+    if type(G) in (fnx.Graph, fnx.DiGraph):
+        # Field-name uniqueness (key is multigraph-only, excluded here).
+        if len({source, target, name}) != 3:
+            raise fnx.NetworkXError("Attribute names are not unique.")
+        native = fnx._fnx.node_link_data_simple(G, name, source, target)
+        if native is not None:
+            node_list, edge_list = native
+            return {
+                "directed": G.is_directed(),
+                "multigraph": False,
+                "graph": dict(G.graph),
+                nodes: node_list,
+                edges: edge_list,
+            }
     return fnx.node_link_data(
         G,
         source=source,
