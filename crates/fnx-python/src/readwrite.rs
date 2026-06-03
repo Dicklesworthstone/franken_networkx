@@ -781,66 +781,97 @@ fn write_gml(py: Python<'_>, g: &Bound<'_, PyAny>, path: &Bound<'_, PyAny>) -> P
 // Registration
 // ---------------------------------------------------------------------------
 
-/// br-r37-c1-yl59j: native fast path for `to_dict_of_dicts` on a simple
-/// undirected `Graph`. Builds `{u: {v: edge_attr_dict}}` reusing the LIVE edge
-/// attribute dict objects (the same `Py<PyDict>` references returned by
-/// `G[u][v]`) in adjacency order, bypassing the slow per-access AdjacencyView
-/// Python machinery that makes the pure-Python loop ~233x slower than nx.
+/// br-r37-c1-yl59j/br-r37-c1-nocb2: native fast path for `to_dict_of_dicts`
+/// on simple `Graph` and `DiGraph`. Builds `{u: {v: edge_attr_dict}}` reusing
+/// the LIVE edge attribute dict objects (the same `Py<PyDict>` references
+/// returned by `G[u][v]`) in adjacency order, bypassing the slow per-access
+/// AdjacencyView Python machinery.
 ///
-/// Returns `None` for any non-undirected input so the Python wrapper falls back
-/// to its general implementation; the wrapper also gates on `type(G) is Graph`
-/// so filtered SubgraphViews / subclasses never reach here.
+/// Returns `None` for multigraph inputs so the Python wrapper falls back to its
+/// general implementation; the wrapper also gates on exact graph type so
+/// filtered SubgraphViews / subclasses never reach here.
 #[pyfunction]
 pub fn to_dict_of_dicts_undirected(
     py: Python<'_>,
     g: &Bound<'_, PyAny>,
 ) -> PyResult<Option<Py<PyDict>>> {
     let gr = extract_graph(g)?;
-    let GraphRef::Undirected(pg) = &gr else {
-        return Ok(None);
-    };
     let outer = PyDict::new(py);
-    for u in pg.inner.nodes_ordered() {
-        let inner_dict = PyDict::new(py);
-        if let Some(neighbors) = pg.inner.neighbors_iter(u) {
-            for v in neighbors {
-                let ek = PyGraph::edge_key(u, v);
-                let edge_dict = pg
-                    .edge_py_attrs
-                    .get(&ek)
-                    .map_or_else(|| PyDict::new(py).unbind(), |d| d.clone_ref(py));
-                inner_dict.set_item(pg.py_node_key(py, v), edge_dict.bind(py))?;
+    match &gr {
+        GraphRef::Undirected(pg) => {
+            for u in pg.inner.nodes_ordered() {
+                let inner_dict = PyDict::new(py);
+                if let Some(neighbors) = pg.inner.neighbors_iter(u) {
+                    for v in neighbors {
+                        let ek = PyGraph::edge_key(u, v);
+                        let edge_dict = pg
+                            .edge_py_attrs
+                            .get(&ek)
+                            .map_or_else(|| PyDict::new(py).unbind(), |d| d.clone_ref(py));
+                        inner_dict.set_item(pg.py_node_key(py, v), edge_dict.bind(py))?;
+                    }
+                }
+                outer.set_item(pg.py_node_key(py, u), inner_dict)?;
             }
         }
-        outer.set_item(pg.py_node_key(py, u), inner_dict)?;
+        GraphRef::Directed { dg, .. } => {
+            for u in dg.inner.nodes_ordered() {
+                let inner_dict = PyDict::new(py);
+                if let Some(neighbors) = dg.inner.successors_iter(u) {
+                    for v in neighbors {
+                        let ek = PyDiGraph::edge_key(u, v);
+                        let edge_dict = dg
+                            .edge_py_attrs
+                            .get(&ek)
+                            .map_or_else(|| PyDict::new(py).unbind(), |d| d.clone_ref(py));
+                        inner_dict.set_item(dg.py_node_key(py, v), edge_dict.bind(py))?;
+                    }
+                }
+                outer.set_item(dg.py_node_key(py, u), inner_dict)?;
+            }
+        }
+        GraphRef::MultiUndirected { .. } | GraphRef::MultiDirected { .. } => return Ok(None),
     }
     Ok(Some(outer.unbind()))
 }
 
-/// br-r37-c1-6o3wi: native fast path for `to_dict_of_lists` on a simple
-/// undirected `Graph` with no nodelist. Builds `{u: [v, ...]}` with each
-/// neighbor list in adjacency order, bypassing the slow per-node
-/// `G.neighbors(n)` AdjacencyView iteration. Returns `None` for any
-/// non-undirected input (the Python wrapper additionally gates on
-/// `type(G) is Graph` so subclasses / filtered SubgraphViews fall back).
+/// br-r37-c1-6o3wi/br-r37-c1-nocb2: native fast path for `to_dict_of_lists`
+/// on simple `Graph` and `DiGraph` with no nodelist. Builds `{u: [v, ...]}`
+/// with each neighbor list in adjacency/successor order, bypassing the slow
+/// per-node `G.neighbors(n)` wrapper iteration. Returns `None` for multigraph
+/// inputs; the Python wrapper also gates on exact type so subclasses / filtered
+/// SubgraphViews fall back.
 #[pyfunction]
 pub fn to_dict_of_lists_undirected(
     py: Python<'_>,
     g: &Bound<'_, PyAny>,
 ) -> PyResult<Option<Py<PyDict>>> {
     let gr = extract_graph(g)?;
-    let GraphRef::Undirected(pg) = &gr else {
-        return Ok(None);
-    };
     let outer = PyDict::new(py);
-    for u in pg.inner.nodes_ordered() {
-        let neighbors = PyList::empty(py);
-        if let Some(nbrs) = pg.inner.neighbors_iter(u) {
-            for v in nbrs {
-                neighbors.append(pg.py_node_key(py, v))?;
+    match &gr {
+        GraphRef::Undirected(pg) => {
+            for u in pg.inner.nodes_ordered() {
+                let neighbors = PyList::empty(py);
+                if let Some(nbrs) = pg.inner.neighbors_iter(u) {
+                    for v in nbrs {
+                        neighbors.append(pg.py_node_key(py, v))?;
+                    }
+                }
+                outer.set_item(pg.py_node_key(py, u), neighbors)?;
             }
         }
-        outer.set_item(pg.py_node_key(py, u), neighbors)?;
+        GraphRef::Directed { dg, .. } => {
+            for u in dg.inner.nodes_ordered() {
+                let neighbors = PyList::empty(py);
+                if let Some(nbrs) = dg.inner.successors_iter(u) {
+                    for v in nbrs {
+                        neighbors.append(dg.py_node_key(py, v))?;
+                    }
+                }
+                outer.set_item(dg.py_node_key(py, u), neighbors)?;
+            }
+        }
+        GraphRef::MultiUndirected { .. } | GraphRef::MultiDirected { .. } => return Ok(None),
     }
     Ok(Some(outer.unbind()))
 }

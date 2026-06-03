@@ -1,0 +1,38 @@
+         1849941 function calls in 1.167 seconds
+
+   Ordered by: cumulative time
+   List reduced from 37 to 30 due to restriction <30>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+       20    0.000    0.000    1.167    0.058 bench_digraph_readwrite.py:57(<lambda>)
+       20    0.063    0.003    1.166    0.058 __init__.py:39512(to_dict_of_dicts)
+   196260    0.040    0.000    0.402    0.000 __init__.py:993(<genexpr>)
+   196260    0.036    0.000    0.373    0.000 __init__.py:1041(_atlas)
+   172260    0.044    0.000    0.362    0.000 __init__.py:1050(__getitem__)
+   196260    0.257    0.000    0.337    0.000 __init__.py:1113(<lambda>)
+    24000    0.023    0.000    0.271    0.000 __init__.py:978(_adjacency_view_items)
+    24000    0.018    0.000    0.246    0.000 {built-in method builtins.__build_class__}
+    24000    0.039    0.000    0.216    0.000 <frozen abc>:105(__new__)
+    24000    0.009    0.000    0.212    0.000 __init__.py:1274(_graph_getitem_from_adj)
+    24000    0.155    0.000    0.155    0.000 {built-in method __new__ of type object at 0xa15020}
+    24000    0.129    0.000    0.145    0.000 __init__.py:1103(__getitem__)
+    24000    0.011    0.000    0.114    0.000 __init__.py:992(__iter__)
+    24020    0.102    0.000    0.105    0.000 __init__.py:42923(__iter__)
+    24000    0.046    0.000    0.103    0.000 __init__.py:1047(__iter__)
+   220260    0.038    0.000    0.091    0.000 __init__.py:1085(_atlas)
+    24000    0.006    0.000    0.057    0.000 __init__.py:29399(<lambda>)
+   220260    0.052    0.000    0.052    0.000 __init__.py:1234(<lambda>)
+    24000    0.015    0.000    0.051    0.000 __init__.py:28674(_private_directed_adj_mapping)
+    48020    0.014    0.000    0.025    0.000 __init__.py:28605(_private_override)
+    24000    0.023    0.000    0.023    0.000 {built-in method _abc._abc_init}
+    24000    0.012    0.000    0.012    0.000 __init__.py:988(_AdjItemsView)
+    24000    0.007    0.000    0.012    0.000 __init__.py:1210(_accessor)
+    72040    0.008    0.000    0.008    0.000 {built-in method builtins.vars}
+    72040    0.007    0.000    0.007    0.000 {method 'get' of 'dict' objects}
+    24000    0.003    0.000    0.003    0.000 {built-in method builtins.hash}
+    24000    0.003    0.000    0.003    0.000 {built-in method builtins.iter}
+    24080    0.003    0.000    0.003    0.000 {built-in method builtins.len}
+    24000    0.002    0.000    0.002    0.000 __init__.py:1038(__init__)
+    24000    0.002    0.000    0.002    0.000 __init__.py:989(__init__)
+
+

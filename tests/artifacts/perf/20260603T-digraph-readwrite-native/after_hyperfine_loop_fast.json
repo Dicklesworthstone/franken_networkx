@@ -1,0 +1,52 @@
+{
+  "results": [
+    {
+      "command": ".venv/bin/python tests/artifacts/perf/20260603T-digraph-readwrite-native/bench_digraph_readwrite.py bench --case dicts --impl fast --repeat 100",
+      "mean": 0.55450878054,
+      "stddev": 0.017435464611009165,
+      "median": 0.56028077474,
+      "user": 4.169082939999999,
+      "system": 0.06180542,
+      "min": 0.52847904974,
+      "max": 0.56977856074,
+      "times": [
+        0.52847904974,
+        0.56839382674,
+        0.54561169074,
+        0.56977856074,
+        0.56028077474
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": ".venv/bin/python tests/artifacts/perf/20260603T-digraph-readwrite-native/bench_digraph_readwrite.py bench --case lists --impl fast --repeat 100",
+      "mean": 0.45295812614,
+      "stddev": 0.02359133275217979,
+      "median": 0.44607221674,
+      "user": 4.40506254,
+      "system": 0.06756282,
+      "min": 0.43006641974000004,
+      "max": 0.48911632474,
+      "times": [
+        0.44607221674,
+        0.46255428674,
+        0.43006641974000004,
+        0.43698138274000004,
+        0.48911632474
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

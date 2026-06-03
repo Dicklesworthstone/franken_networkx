@@ -38319,12 +38319,11 @@ def to_dict_of_lists(G, nodelist=None):
     d : dict
         ``d[u]`` is the list of neighbors of node u.
     """
-    # br-r37-c1-6o3wi: native fast path for a plain undirected Graph with no
-    # nodelist. Builds {u: [v,...]} in Rust with adjacency-order neighbor lists,
-    # bypassing the slow per-node G.neighbors() AdjacencyView iteration.
-    # ``type(G) is Graph`` (exact) excludes DiGraph/MultiGraph, subclasses, and
-    # filtered SubgraphViews, all of which fall through to the general path.
-    if nodelist is None and type(G) is Graph:
+    # br-r37-c1-6o3wi/br-r37-c1-nocb2: native fast path for exact simple
+    # Graph/DiGraph with no nodelist. Builds {u: [v,...]} in Rust with
+    # adjacency/successor-order neighbor lists, bypassing the slow per-node
+    # G.neighbors() wrapper iteration.
+    if nodelist is None and (type(G) is Graph or type(G) is DiGraph):
         _fast = _fnx.to_dict_of_lists_undirected(G)
         if _fast is not None:
             return _fast
@@ -39527,13 +39526,11 @@ def to_dict_of_dicts(G, nodelist=None, edge_data=None):
     d : dict
         ``d[u][v]`` is the edge data for (u, v).
     """
-    # br-r37-c1-yl59j: native fast path for a plain undirected Graph with no
-    # nodelist/edge_data override. Builds the nested dict in Rust reusing the
-    # live edge-attr dict objects (same refs as G[u][v]) in adjacency order,
-    # ~233x faster than the per-access AdjacencyView loop below. ``type(G) is
-    # Graph`` (exact) excludes DiGraph/MultiGraph, Python subclasses, and
-    # filtered SubgraphViews, all of which fall through to the general path.
-    if nodelist is None and edge_data is None and type(G) is Graph:
+    # br-r37-c1-yl59j/br-r37-c1-nocb2: native fast path for exact simple
+    # Graph/DiGraph with no nodelist/edge_data override. Builds the nested dict
+    # in Rust reusing live edge-attr dict objects (same refs as G[u][v]) in
+    # adjacency/successor order.
+    if nodelist is None and edge_data is None and (type(G) is Graph or type(G) is DiGraph):
         _fast = _fnx.to_dict_of_dicts_undirected(G)
         if _fast is not None:
             return _fast

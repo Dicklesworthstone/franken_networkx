@@ -364,6 +364,25 @@ class TestDictOfDicts:
         d = fnx.to_dict_of_dicts(G, edge_data=1)
         assert d[0][1] == 1
 
+    def test_directed_default_preserves_successor_order_and_live_attrs(self):
+        graph = fnx.DiGraph()
+        expected = nx.DiGraph()
+        for target, weight in (("b", 1), ("c", 2)):
+            graph.add_edge("a", target, weight=weight)
+            expected.add_edge("a", target, weight=weight)
+        graph.add_edge("b", "a", weight=3)
+        expected.add_edge("b", "a", weight=3)
+
+        result = fnx.to_dict_of_dicts(graph)
+        expected_result = nx.to_dict_of_dicts(expected)
+
+        assert list(result) == list(expected_result)
+        assert list(result["a"]) == list(expected_result["a"])
+        assert result == expected_result
+        assert result["a"]["b"] is graph["a"]["b"]
+        assert result["b"]["a"] is graph["b"]["a"]
+        assert "a" not in result["c"]
+
     @pytest.mark.parametrize(
         ("fnx_cls", "nx_cls"),
         [(fnx.MultiGraph, nx.MultiGraph), (fnx.MultiDiGraph, nx.MultiDiGraph)],
