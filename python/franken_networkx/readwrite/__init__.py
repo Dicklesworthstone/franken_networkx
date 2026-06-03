@@ -1879,6 +1879,23 @@ def generate_adjlist(G, delimiter=" "):
     """
     directed = G.is_directed()
     seen = set()
+    # br-r37-c1-genadj: for simple (non-multi) graphs the only thing needed per
+    # node is its neighbour KEYS, but ``G.adjacency()`` materialises the full
+    # ``{nbr: attrs}`` dict per node by walking the AtlasView lambda chain
+    # (~10x slower than nx). The native ``G.neighbors(node)`` yields the same
+    # neighbour keys in the same adjacency order without building attr dicts —
+    # byte-identical output, verified vs nx across Graph/DiGraph (incl.
+    # self-loops + subgraph views). Multigraphs keep the existing path: nx
+    # expands parallel edges (a neighbour appears once per parallel edge), a
+    # semantic the simple neighbour list does not capture.
+    if not G.is_multigraph():
+        for node in G:
+            nbrs = G.neighbors(node)
+            if not directed:
+                nbrs = [n for n in nbrs if n not in seen]
+            yield delimiter.join([str(node)] + [str(n) for n in nbrs])
+            seen.add(node)
+        return
     for node, adj in G.adjacency():
         if isinstance(adj, dict):
             nbrs = adj.keys()
