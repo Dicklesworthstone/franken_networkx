@@ -29802,6 +29802,18 @@ def _copy_preserving_insertion_order(self, as_view=False):
     if as_view is True:
         return _generic_filtered_graph_view(self)
 
+    # br-r37-c1-8uh84: native insertion-order-preserving clone for exact
+    # MultiGraph/MultiDiGraph. The generic path below walks
+    # self.edges(keys=True, data=True) via the MultiAdjacencyView lambda chain
+    # into add_edges_from (~2100x slower than nx). The native copy reuses the
+    # live edge/node attr dicts (shallow .copy()), preserving node + edge order
+    # and public endpoint orientation. Gated on exact type so subclasses /
+    # filtered views keep the generic rebuild.
+    if type(self) in (MultiGraph, MultiDiGraph):
+        native_copy = getattr(self, "_native_copy", None)
+        if native_copy is not None:
+            return native_copy()
+
     result = type(self)()
     # Shallow: result.graph is a new dict but its values are shared
     # with self.graph (same as nx's G.graph.update(self.graph)).

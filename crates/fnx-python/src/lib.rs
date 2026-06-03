@@ -1619,6 +1619,78 @@ impl PyMultiGraph {
     // Copy / subgraph
     // -----------------------------------------------------------------------
 
+    /// br-r37-c1-8uh84: native insertion-order-preserving copy, so the Python
+    /// MultiGraph.copy (_copy_preserving_insertion_order) can build the clone
+    /// natively instead of walking self.edges(keys=True, data=True) via the
+    /// MultiAdjacencyView lambda chain into add_edges_from (~2100x slower).
+    ///
+    /// Unlike the internal `copy()` (which iterates the `node_key_map` HashMap
+    /// and therefore scrambles node order), this iterates `nodes_ordered()` for
+    /// node insertion order and `edges_ordered()` for edge insertion order +
+    /// public endpoint orientation. Attr dicts are shallow-copied
+    /// (`dict.copy()` — new dict, shared values) to match nx's shallow-copy
+    /// contract (br-r37-c1-3tlkj).
+    fn _native_copy(&self, py: Python<'_>) -> PyResult<Self> {
+        let mut new_graph = Self {
+            inner: MultiGraph::with_runtime_policy(self.inner.runtime_policy().clone()),
+            node_key_map: HashMap::new(),
+            node_py_attrs: HashMap::new(),
+            edge_py_attrs: HashMap::new(),
+            edge_py_keys: HashMap::new(),
+            graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
+            nodes_seq: 0,
+            edges_seq: 0,
+            edges_dirty: AtomicBool::new(false),
+        };
+        for node in self.inner.nodes_ordered() {
+            let rust_attrs = self
+                .node_py_attrs
+                .get(node)
+                .map(|attrs| py_dict_to_attr_map(attrs.bind(py)))
+                .transpose()?
+                .unwrap_or_default();
+            new_graph
+                .inner
+                .add_node_with_attrs(node.to_owned(), rust_attrs);
+            new_graph
+                .node_key_map
+                .insert(node.to_owned(), self.py_node_key(py, node));
+            if let Some(attrs) = self.node_py_attrs.get(node) {
+                new_graph
+                    .node_py_attrs
+                    .insert(node.to_owned(), attrs.bind(py).copy()?.unbind());
+            }
+        }
+        for snapshot in self.inner.edges_ordered() {
+            let (u, v, key) = (snapshot.left.clone(), snapshot.right.clone(), snapshot.key);
+            let attrs_entry = self
+                .edge_py_attrs
+                .get(&(u.clone(), v.clone(), key))
+                .or_else(|| self.edge_py_attrs.get(&(v.clone(), u.clone(), key)));
+            let py_attrs = match attrs_entry {
+                Some(attrs) => attrs.bind(py).copy()?.unbind(),
+                None => PyDict::new(py).unbind(),
+            };
+            let rust_attrs = py_dict_to_attr_map(py_attrs.bind(py))?;
+            let _ = new_graph
+                .inner
+                .add_edge_with_key_and_attrs(u.clone(), v.clone(), key, rust_attrs);
+            new_graph
+                .edge_py_attrs
+                .insert((u.clone(), v.clone(), key), py_attrs);
+            let py_key_slot = self
+                .edge_py_keys
+                .get(&(u.clone(), v.clone(), key))
+                .or_else(|| self.edge_py_keys.get(&(v.clone(), u.clone(), key)));
+            if let Some(py_key) = py_key_slot {
+                new_graph.remember_edge_key_object(py, &u, &v, key, py_key);
+            } else {
+                new_graph.remember_edge_key(py, &u, &v, key, None);
+            }
+        }
+        Ok(new_graph)
+    }
+
     /// Return a deep copy of the multigraph.
     fn copy(&self, py: Python<'_>) -> PyResult<Self> {
         let mut new_graph = Self {
