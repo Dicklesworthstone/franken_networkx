@@ -1,0 +1,2 @@
+67f8231e2189a5c974539d90362b582e3403f630f5b6c073a3df6caa012f8e05  tests/artifacts/perf/20260603T-dijkstra-index-neighbors/baseline_fnx_distances.json
+67f8231e2189a5c974539d90362b582e3403f630f5b6c073a3df6caa012f8e05  tests/artifacts/perf/20260603T-dijkstra-index-neighbors/after_fnx_distances.json
