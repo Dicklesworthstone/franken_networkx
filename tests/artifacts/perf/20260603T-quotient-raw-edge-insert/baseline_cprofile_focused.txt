@@ -1,0 +1,48 @@
+         335762 function calls in 0.197 seconds
+
+   Ordered by: cumulative time
+   List reduced from 94 to 40 due to restriction <40>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.000    0.000    0.197    0.197 /data/projects/franken_networkx/tests/artifacts/perf/20260603T-quotient-raw-edge-insert/bench_quotient_graph.py:91(run_case)
+        1    0.000    0.000    0.118    0.118 /data/projects/franken_networkx/python/franken_networkx/__init__.py:43136(wrapper)
+        1    0.005    0.005    0.118    0.118 /data/projects/franken_networkx/python/franken_networkx/__init__.py:21637(quotient_graph)
+        1    0.005    0.005    0.078    0.078 /data/projects/franken_networkx/tests/artifacts/perf/20260603T-quotient-raw-edge-insert/bench_quotient_graph.py:20(build_graph)
+        1    0.006    0.006    0.077    0.077 /data/projects/franken_networkx/python/franken_networkx/__init__.py:21817(_add_default_undirected_bucketed_edges)
+        1    0.005    0.005    0.070    0.070 /data/projects/franken_networkx/python/franken_networkx/__init__.py:2472(add_edges_from)
+        1    0.062    0.062    0.062    0.062 {function Graph.add_edges_from at 0x7fbbb9043100}
+     9296    0.004    0.000    0.047    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:2208(add_edge)
+     9296    0.041    0.000    0.041    0.000 {function Graph.add_edge at 0x7fbbb9042340}
+    18000    0.006    0.000    0.018    0.000 /usr/lib/python3.13/random.py:295(randrange)
+    18000    0.008    0.000    0.011    0.000 /usr/lib/python3.13/random.py:245(_randbelow_with_getrandbits)
+     9288    0.006    0.000    0.010    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:21749(_record_partition_edge)
+      300    0.000    0.000    0.010    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:21793(_default_node_data)
+        1    0.000    0.000    0.010    0.010 /data/projects/franken_networkx/python/franken_networkx/__init__.py:612(__iter__)
+        1    0.009    0.009    0.009    0.009 /data/projects/franken_networkx/python/franken_networkx/__init__.py:507(_materialize)
+      300    0.000    0.000    0.009    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:30134(subgraph)
+        1    0.001    0.001    0.008    0.008 /data/projects/franken_networkx/python/franken_networkx/__init__.py:2286(add_nodes_from)
+     3300    0.001    0.000    0.008    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:2254(add_node)
+     6300    0.003    0.000    0.006    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:29384(__contains__)
+     3300    0.006    0.000    0.006    0.000 {function Graph.add_node at 0x7fbbb9042660}
+      300    0.001    0.000    0.006    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:35925(_subgraph_filter_from_nbunch)
+    44308    0.004    0.000    0.004    0.000 {method 'get' of 'dict' objects}
+      300    0.001    0.000    0.003    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:30022(_generic_filtered_graph_view)
+    44924    0.003    0.000    0.003    0.000 {built-in method builtins.hash}
+     6613    0.002    0.000    0.003    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:28964(_private_override)
+     9289    0.002    0.000    0.003    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:425(__next__)
+      300    0.001    0.000    0.002    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:28561(__init__)
+    35603    0.002    0.000    0.002    0.000 {built-in method builtins.isinstance}
+    24601    0.002    0.000    0.002    0.000 {method 'getrandbits' of '_random.Random' objects}
+    18000    0.001    0.000    0.001    0.000 {method 'bit_length' of 'int' objects}
+    18000    0.001    0.000    0.001    0.000 {built-in method _operator.index}
+    17337    0.001    0.000    0.001    0.000 {built-in method builtins.len}
+     1233    0.001    0.000    0.001    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:5251(predicate)
+     7514    0.001    0.000    0.001    0.000 {built-in method builtins.vars}
+     9289    0.001    0.000    0.001    0.000 {built-in method builtins.next}
+     6000    0.001    0.000    0.001    0.000 {method 'add' of 'set' objects}
+     8666    0.001    0.000    0.001    0.000 {method 'append' of 'list' objects}
+      300    0.001    0.000    0.001    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:4559(__getitem__)
+      300    0.000    0.000    0.001    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:28281(_filtered_public_adjacency_view)
+      300    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:29397(nodes)
+
+

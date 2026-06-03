@@ -1,0 +1,1 @@
+{"profile": "tests/artifacts/perf/20260603T-quotient-raw-edge-insert/baseline_cprofile_focused.txt", "result": {"edge_count": 8366, "elapsed": 0.11845837798318826, "engine": "fnx", "node_count": 300}}
