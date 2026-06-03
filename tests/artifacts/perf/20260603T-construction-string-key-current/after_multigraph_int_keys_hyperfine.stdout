@@ -1,0 +1,4 @@
+Benchmark 1: RCH_ENV_ALLOWLIST=PYTHONPATH rch exec -- env PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260603T-construction-string-key-current/bench_construction.py bench --case multigraph_int_keys --impl fnx --repeats 3
+  Time (mean ± σ):      2.421 s ±  0.119 s    [User: 3.893 s, System: 0.345 s]
+  Range (min … max):    2.249 s …  2.630 s    8 runs
+ 
