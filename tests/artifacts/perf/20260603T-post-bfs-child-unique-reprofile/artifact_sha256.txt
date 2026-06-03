@@ -1,0 +1,2 @@
+4888f019d1a17e99e7b9d1b8b32df5f8010f32dc9d898f43aeb34e3e7dc9c997  tests/artifacts/perf/20260603T-post-bfs-child-unique-reprofile/traversal_sweep.jsonl
+b24afb1a579415010575d3e62d1db444aee199cbe43b73bc953f8676dd66c88a  tests/artifacts/perf/20260603T-post-bfs-child-unique-reprofile/traversal_sweep.rch.log
