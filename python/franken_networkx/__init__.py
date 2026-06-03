@@ -6068,7 +6068,7 @@ def _should_delegate_dijkstra_to_networkx(G, weight):
     return False
 
 
-def _sync_rust_edge_attrs(G):
+def _sync_rust_edge_attrs(G, *, edge_only=False):
     """br-r37-c1-sjf4t: push Python-visible edge/node attribute dicts
     back into the Rust ``inner`` graph so native algorithms see
     post-creation mutations.
@@ -6107,7 +6107,11 @@ def _sync_rust_edge_attrs(G):
     other thread's sync result, which is correct for the same input
     Python state).
     """
-    sync = getattr(G, "_fnx_sync_attrs_to_inner", None)
+    sync = None
+    if edge_only:
+        sync = getattr(G, "_fnx_sync_edge_attrs_to_inner", None)
+    if not callable(sync):
+        sync = getattr(G, "_fnx_sync_attrs_to_inner", None)
     if not callable(sync):
         return
     # Retry budget: a sync of a 200-node path graph takes well under
@@ -39423,7 +39427,7 @@ def to_scipy_sparse_array(G, nodelist=None, dtype=None, weight="weight", format=
         # direct adjacency mutations can be stale in Rust storage —
         # push them into ``inner`` before the native read.
         if _use_native_weighted:
-            _sync_rust_edge_attrs(G)
+            _sync_rust_edge_attrs(G, edge_only=True)
         native_weight = weight if _use_native_weighted else None
         native_index_result = None
         if native_weight is None and _native_adjacency_index_arrays is not None:
@@ -39469,7 +39473,7 @@ def to_scipy_sparse_array(G, nodelist=None, dtype=None, weight="weight", format=
             # inference. The typed native helper returns conservative dtype
             # metadata; unsupported value kinds still return None and use the
             # exact Python fallback below.
-            _sync_rust_edge_attrs(G)
+            _sync_rust_edge_attrs(G, edge_only=True)
             typed_native_result = _native_adjacency_default_order_typed_arrays(
                 G, weight, 1.0
             )

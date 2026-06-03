@@ -1,0 +1,10 @@
+tests/artifacts/perf/20260603T-sparse-edge-only-sync/baseline_sparse_sweep.jsonl: OK
+tests/artifacts/perf/20260603T-sparse-edge-only-sync/profile_baseline_to_scipy_weighted_float_fnx.txt: OK
+tests/artifacts/perf/20260603T-sparse-edge-only-sync/hyperfine_baseline_to_scipy_weighted_float.json: OK
+tests/artifacts/perf/20260603T-sparse-edge-only-sync/after_sparse_sweep.jsonl: OK
+tests/artifacts/perf/20260603T-sparse-edge-only-sync/after_confirm_to_scipy_weighted_float_fnx.jsonl: OK
+tests/artifacts/perf/20260603T-sparse-edge-only-sync/profile_after_to_scipy_weighted_float_fnx.txt: OK
+tests/artifacts/perf/20260603T-sparse-edge-only-sync/hyperfine_after_to_scipy_weighted_float.json: OK
+tests/artifacts/perf/20260603T-sparse-edge-only-sync/benchmark_report.md: OK
+tests/artifacts/perf/20260603T-sparse-edge-only-sync/isomorphism_proof.md: OK
+tests/artifacts/perf/20260603T-sparse-edge-only-sync/validation_summary.md: OK
