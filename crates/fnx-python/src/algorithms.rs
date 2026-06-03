@@ -5912,11 +5912,9 @@ pub fn bfs_tree(
         .insert(source_s, pyo3::types::PyDict::new(py).unbind());
 
     for (u, v) in &edges {
-        if !tree.node_key_map.contains_key(v) {
-            tree.node_key_map.insert(v.clone(), gr.py_node_key(py, v));
-            tree.node_py_attrs
-                .insert(v.clone(), pyo3::types::PyDict::new(py).unbind());
-        }
+        tree.node_key_map.insert(v.clone(), gr.py_node_key(py, v));
+        tree.node_py_attrs
+            .insert(v.clone(), pyo3::types::PyDict::new(py).unbind());
         tree.edge_py_attrs.insert(
             (u.clone(), v.clone()),
             pyo3::types::PyDict::new(py).unbind(),

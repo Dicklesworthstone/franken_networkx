@@ -1,0 +1,4 @@
+Benchmark 1: env PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260602T-traversal-residual-sweep/bench_traversal.py sample --impl fnx --op bfs_tree --repeat 10 --n 3000 --m 4 --graph-seed 42 >/dev/null
+  Time (mean ± σ):     480.9 ms ±  27.5 ms    [User: 3675.6 ms, System: 100.4 ms]
+  Range (min … max):   449.0 ms … 540.1 ms    15 runs
+ 

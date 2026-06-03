@@ -1,0 +1,4 @@
+tests/artifacts/perf/20260603T-post-ego-raw-edge-batch-reprofile/profile_bfs_tree_fnx.rch.log: OK
+tests/artifacts/perf/20260603T-post-ego-raw-edge-batch-reprofile/profile_bfs_tree_fnx.txt: OK
+tests/artifacts/perf/20260603T-post-ego-raw-edge-batch-reprofile/traversal_sweep.jsonl: OK
+tests/artifacts/perf/20260603T-post-ego-raw-edge-batch-reprofile/traversal_sweep.rch.log: OK

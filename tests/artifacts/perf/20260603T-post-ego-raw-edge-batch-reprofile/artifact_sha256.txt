@@ -1,0 +1,4 @@
+0fc840298e53709c6092faaa930a3d43a14935561bedb70f7538e8e0af0b9bdf  tests/artifacts/perf/20260603T-post-ego-raw-edge-batch-reprofile/profile_bfs_tree_fnx.rch.log
+08130ba654cdb1d1f2de6cffe8d97e36d2d37a101991e0c47859227274327b98  tests/artifacts/perf/20260603T-post-ego-raw-edge-batch-reprofile/profile_bfs_tree_fnx.txt
+6adc778b2774dd979a4f10dde443b9fb7b4ed76a13adb0ee0f0f899af45560c4  tests/artifacts/perf/20260603T-post-ego-raw-edge-batch-reprofile/traversal_sweep.jsonl
+2d3cd5bacc79150614e500a70006e4bcf89bbf3480e1c4db2d6bb2df2f3b8bfc  tests/artifacts/perf/20260603T-post-ego-raw-edge-batch-reprofile/traversal_sweep.rch.log
