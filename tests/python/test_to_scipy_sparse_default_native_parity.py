@@ -85,3 +85,32 @@ def test_default_missing_weight_attr_matches_networkx(directed):
     assert _csr_payload(fnx.laplacian_matrix(fnx_graph)) == _csr_payload(
         nx.laplacian_matrix(nx_graph)
     )
+
+
+@needs_nx
+def test_default_laplacian_nodelist_self_loop_and_isolate_matches_networkx():
+    nx_graph = nx.Graph()
+    fnx_graph = fnx.Graph()
+    for graph in (nx_graph, fnx_graph):
+        graph.add_edge("a", "a")
+        graph.add_edge("a", "b")
+        graph.add_edge("b", "c")
+        graph.add_node("z")
+
+    nodelist = ["z", "c", "a", "b"]
+    assert _csr_payload(fnx.laplacian_matrix(fnx_graph, nodelist=nodelist)) == (
+        _csr_payload(nx.laplacian_matrix(nx_graph, nodelist=nodelist))
+    )
+
+
+@needs_nx
+def test_default_laplacian_present_weight_attr_uses_weighted_semantics():
+    nx_graph = nx.Graph()
+    fnx_graph = fnx.Graph()
+    for graph in (nx_graph, fnx_graph):
+        graph.add_edge("a", "b", weight=3.5)
+        graph.add_edge("b", "c")
+
+    assert _csr_payload(fnx.laplacian_matrix(fnx_graph)) == _csr_payload(
+        nx.laplacian_matrix(nx_graph)
+    )

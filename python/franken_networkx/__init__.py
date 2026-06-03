@@ -17416,6 +17416,64 @@ def laplacian_matrix(G, nodelist=None, weight="weight"):
     import numpy as np
     import scipy.sparse
 
+    if (
+        _native_adjacency_index_arrays is not None
+        and isinstance(G, (Graph, DiGraph))
+        and not G.is_multigraph()
+        and (weight is None or isinstance(weight, str))
+    ):
+        # br-r37-c1-04z53.13: for unit/default-absent weights, assemble
+        # integer D-A directly from native COO indices instead of round-tripping
+        # through a generic adjacency sparse array plus sparse subtraction.
+        if len(G) == 0:
+            raise NetworkXError("Graph has no nodes or edges")
+        if nodelist is None:
+            native_nodelist = list(G)
+        else:
+            native_nodelist = list(nodelist)
+            if len(native_nodelist) == 0:
+                raise NetworkXError("nodelist has no nodes")
+            if len(set(native_nodelist)) != len(native_nodelist):
+                raise NetworkXError("nodelist contains duplicates.")
+            missing = set(native_nodelist) - set(G)
+            if missing:
+                raise NetworkXError(f"Nodes {missing} in nodelist is not in G")
+        native_index_result = _native_adjacency_index_arrays(
+            G,
+            native_nodelist,
+            weight if isinstance(weight, str) else None,
+        )
+        if native_index_result is not None:
+            rows, cols = native_index_result
+            n = len(native_nodelist)
+            rows = np.asarray(rows, dtype=np.intp)
+            cols = np.asarray(cols, dtype=np.intp)
+            degree = np.bincount(rows, minlength=n).astype(np.int64)
+            self_loop_rows = rows[rows == cols]
+            if len(self_loop_rows) == 0:
+                self_loop_counts = np.zeros(n, dtype=np.int64)
+            else:
+                self_loop_counts = np.bincount(self_loop_rows, minlength=n).astype(
+                    np.int64
+                )
+            off_diagonal = rows != cols
+            edge_rows = rows[off_diagonal]
+            edge_cols = cols[off_diagonal]
+            edge_data = np.full(len(edge_rows), -1, dtype=np.int64)
+            diag_laplacian = degree - self_loop_counts
+            diag = np.flatnonzero(diag_laplacian != 0).astype(np.intp)
+            diag_data = diag_laplacian[diag]
+            return scipy.sparse.coo_array(
+                (
+                    np.concatenate((diag_data, edge_data)),
+                    (
+                        np.concatenate((diag, edge_rows)),
+                        np.concatenate((diag, edge_cols)),
+                    ),
+                ),
+                shape=(n, n),
+            ).tocsr()
+
     A = to_scipy_sparse_array(G, nodelist=nodelist, weight=weight)
     # br-r37-c1-vqodq: mirror nx.laplacian_matrix exactly — use
     # dia_array with the row-sum vector so D inherits A's dtype.

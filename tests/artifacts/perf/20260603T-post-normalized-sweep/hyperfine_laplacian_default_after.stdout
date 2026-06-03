@@ -1,0 +1,3 @@
+Benchmark 1: .venv/bin/python tests/artifacts/perf/20260602T-vs-upstream-sweep/bench_vs_upstream.py bench --case laplacian_default --impl fnx --n 8000 --m 4 --repeats 1
+  Time (mean ± σ):     602.3 ms ±  28.7 ms    [User: 4818.6 ms, System: 110.8 ms]
+  Range (min … max):   566.2 ms … 632.1 ms    7 runs
