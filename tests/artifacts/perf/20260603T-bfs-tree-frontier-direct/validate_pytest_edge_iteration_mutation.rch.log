@@ -1,0 +1,5 @@
+  [2m2026-06-03T17:11:00.093482Z[0m [33m WARN[0m [1;33mrch::hook[0m[33m: [33mexec called with non-compilation command: .venv/bin/python -m pytest tests/python/test_review_mode_regression_lock.py -q -k 'edge_view_iteration or edge_data_view_iteration or exhausted_edge_view_iterators'[0m
+    [2;3mat[0m rch/src/hook.rs:402 [2;3mon[0m ThreadId(1)
+
+....                                                                     [100%]
+4 passed, 427 deselected in 0.44s

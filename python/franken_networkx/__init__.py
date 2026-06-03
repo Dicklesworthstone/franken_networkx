@@ -401,23 +401,45 @@ class _FailFastEdgeIterator:
     def __init__(self, graph, iterable, *, guard_edge_count=False):
         self._graph = graph
         self._iterator = iter(iterable)
-        self._expected_node_count = len(graph)
-        self._expected_edge_count = (
-            graph.number_of_edges() if guard_edge_count else None
+        self._use_seq_guard = (
+            hasattr(graph, "nodes_seq")
+            and (not guard_edge_count or hasattr(graph, "edges_seq"))
+            and not _has_networkx_private_storage(graph)
         )
+        if self._use_seq_guard:
+            self._expected_nodes_seq = graph.nodes_seq
+            self._expected_edges_seq = graph.edges_seq if guard_edge_count else None
+            self._expected_node_count = None
+            self._expected_edge_count = None
+        else:
+            self._expected_nodes_seq = None
+            self._expected_edges_seq = None
+            self._expected_node_count = len(graph)
+            self._expected_edge_count = (
+                graph.number_of_edges() if guard_edge_count else None
+            )
 
     def __iter__(self):
         return self
 
     def __next__(self):
         item = next(self._iterator)
-        if len(self._graph) != self._expected_node_count:
-            raise RuntimeError("dictionary changed size during iteration")
-        if (
-            self._expected_edge_count is not None
-            and self._graph.number_of_edges() != self._expected_edge_count
-        ):
-            raise RuntimeError("dictionary changed size during iteration")
+        if self._use_seq_guard:
+            if self._graph.nodes_seq != self._expected_nodes_seq:
+                raise RuntimeError("dictionary changed size during iteration")
+            if (
+                self._expected_edges_seq is not None
+                and self._graph.edges_seq != self._expected_edges_seq
+            ):
+                raise RuntimeError("dictionary changed size during iteration")
+        else:
+            if len(self._graph) != self._expected_node_count:
+                raise RuntimeError("dictionary changed size during iteration")
+            if (
+                self._expected_edge_count is not None
+                and self._graph.number_of_edges() != self._expected_edge_count
+            ):
+                raise RuntimeError("dictionary changed size during iteration")
         return item
 
 
