@@ -3064,6 +3064,19 @@ impl PyDiGraph {
         Ok(result)
     }
 
+    /// br-r37-c1-toposucc: private-named (node, [successor]) snapshot the Python
+    /// ``DiGraph.adjacency`` wrapper (which returns nx's {succ: attrs} dict form)
+    /// does not shadow. Lets topological_sort build the successor map in ONE
+    /// native call and then do O(1) dict lookups in Kahn's loop instead of a
+    /// per-node ``succ[u]`` AtlasView getitem. Successor (out-neighbour) keys in
+    /// node x adjacency order; no edge-attr dicts built.
+    fn _native_adjacency_keys<'py>(
+        &self,
+        py: Python<'py>,
+    ) -> PyResult<Vec<(PyObject, Vec<PyObject>)>> {
+        self.adjacency(py)
+    }
+
     /// br-r37-c1-gadj: native nested adjacency snapshot ({node: {successor:
     /// attrs}}) so the Python DiGraph.adjacency (_simple_graph_adjacency) builds
     /// it natively instead of walking ``dict(self.adj[node])`` via the AtlasView

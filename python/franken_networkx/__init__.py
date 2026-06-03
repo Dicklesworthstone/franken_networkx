@@ -12444,22 +12444,43 @@ def topological_sort(G):
                 if indegree[v] == 0:
                     queue.append(v)
     else:
-        # DiGraph: iterate successor KEYS only — no per-neighbour attr-dict
-        # getitem (``.items()`` would walk the AtlasView lambda chain for data
-        # we never use), in the same adjacency order so the tie-break is exact.
-        for u in G:
-            for v in succ[u]:
-                indegree[v] += 1
-        queue = _deque(v for v in G if indegree[v] == 0)
-        _count = 0
-        while queue:
-            u = queue.popleft()
-            yield u
-            _count += 1
-            for v in succ[u]:
-                indegree[v] -= 1
-                if indegree[v] == 0:
-                    queue.append(v)
+        # DiGraph: pull the whole (node, [successor]) map in ONE native call,
+        # then run Kahn's over O(1) dict lookups — no per-node ``succ[u]``
+        # AtlasView getitem. Gate on EXACT class identity (filtered views
+        # subclass DiGraph but keep an empty native inner); fall back to a
+        # successor-KEY walk otherwise. Same node/adjacency order => exact
+        # FIFO insertion-order tie-break.
+        nak = getattr(G, "_native_adjacency_keys", None)
+        if nak is not None and type(G) is DiGraph:
+            succ_map = dict(nak())
+            indegree = {v: 0 for v in G}
+            for _succs in succ_map.values():
+                for v in _succs:
+                    indegree[v] += 1
+            queue = _deque(v for v in G if indegree[v] == 0)
+            _count = 0
+            while queue:
+                u = queue.popleft()
+                yield u
+                _count += 1
+                for v in succ_map[u]:
+                    indegree[v] -= 1
+                    if indegree[v] == 0:
+                        queue.append(v)
+        else:
+            for u in G:
+                for v in succ[u]:
+                    indegree[v] += 1
+            queue = _deque(v for v in G if indegree[v] == 0)
+            _count = 0
+            while queue:
+                u = queue.popleft()
+                yield u
+                _count += 1
+                for v in succ[u]:
+                    indegree[v] -= 1
+                    if indegree[v] == 0:
+                        queue.append(v)
     if _count != len(G):
         raise NetworkXUnfeasible(
             "Graph contains a cycle or graph changed during iteration"
