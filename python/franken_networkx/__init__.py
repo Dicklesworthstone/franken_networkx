@@ -17230,7 +17230,12 @@ def ego_graph(G, n, radius=1, center=True, undirected=False, distance=None):
                 else:
                     edges_to_add.append((u, v))
         if edges_to_add:
-            graph.add_edges_from(edges_to_add)
+            raw_add_edges_from = (
+                _DIGRAPH_RAW_ADD_EDGES_FROM
+                if graph.is_directed()
+                else _GRAPH_RAW_ADD_EDGES_FROM
+            )
+            raw_add_edges_from(graph, edges_to_add)
     if not center and n in graph:
         graph.remove_node(n)
     # Always return fnx type for consistency.
