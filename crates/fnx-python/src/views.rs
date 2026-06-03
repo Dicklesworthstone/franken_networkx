@@ -386,11 +386,15 @@ impl EdgeView {
             .map(|(left, right, _attrs)| {
                 let py_u = g.py_node_key(py, left);
                 let py_v = g.py_node_key(py, right);
-                let ek = PyGraph::edge_key(left, right);
-                let attrs = g.edge_py_attrs.get(&ek);
+                // br-r37-c1-7gxek: the canonical edge_key + edge_py_attrs lookup
+                // are only needed by the data-bearing variants. Computing them
+                // eagerly cost 2 String clones + a hashmap probe per edge on the
+                // plain `G.edges()` (NoData) hot path where they are discarded;
+                // resolve them lazily inside the branches that use them.
                 match &self.data {
                     NodeViewData::NoData => tuple_object(py, &[py_u, py_v]),
                     NodeViewData::AllData => {
+                        let attrs = g.edge_py_attrs.get(&PyGraph::edge_key(left, right));
                         let a: PyObject = attrs.map_or_else(
                             || PyDict::new(py).into_any().unbind(),
                             |d| d.clone_ref(py).into_any(),
@@ -398,12 +402,14 @@ impl EdgeView {
                         tuple_object(py, &[py_u, py_v, a])
                     }
                     NodeViewData::Attr(attr_name) => {
+                        let attrs = g.edge_py_attrs.get(&PyGraph::edge_key(left, right));
                         let val = attrs
                             .and_then(|d| d.bind(py).get_item(attr_name.as_str()).ok().flatten())
                             .map_or_else(|| py.None(), |v| v.unbind());
                         tuple_object(py, &[py_u, py_v, val])
                     }
                     NodeViewData::AttrWithDefault(attr_name, def_val) => {
+                        let attrs = g.edge_py_attrs.get(&PyGraph::edge_key(left, right));
                         let val = attrs
                             .and_then(|d| d.bind(py).get_item(attr_name.as_str()).ok().flatten())
                             .map_or_else(|| def_val.clone_ref(py), |v| v.unbind());
