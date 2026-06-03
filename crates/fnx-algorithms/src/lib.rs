@@ -13840,10 +13840,12 @@ pub fn dfs_edges(graph: &Graph, source: &str, depth_limit: Option<usize>) -> Vec
     let mut cgse_sink = cgse_begin(CgseReferenceAlgorithm::Dfs);
 
     let max_depth = depth_limit.unwrap_or(usize::MAX);
-    let mut visited: HashSet<&str> = HashSet::new();
-    let mut edges: Vec<(String, String)> = Vec::new();
+    let nodes = graph.nodes_ordered();
+    let n = nodes.len();
+    let mut visited = vec![false; n];
+    let mut edges: Vec<(String, String)> = Vec::with_capacity(n.saturating_sub(1));
 
-    if !graph.has_node(source) {
+    let Some(source_idx) = graph.get_node_index(source) else {
         cgse_publish(
             CgseReferenceAlgorithm::Dfs,
             graph.node_count(),
@@ -13851,39 +13853,37 @@ pub fn dfs_edges(graph: &Graph, source: &str, depth_limit: Option<usize>) -> Vec
             cgse_sink,
         );
         return edges;
-    }
+    };
 
-    // Stack items: (parent, node, depth)
-    // We use (Option<&str>, &str, usize)
-    let mut stack: Vec<(Option<&str>, &str, usize)> = Vec::new();
+    let mut stack: Vec<(usize, usize, usize)> = Vec::with_capacity(n);
 
-    visited.insert(source);
+    visited[source_idx] = true;
     // Push children of source in reverse order for deterministic DFS.
     // NetworkX always visits immediate neighbors at depth 1, regardless of depth_limit.
     // The depth_limit check only affects whether we recurse beyond those neighbors.
-    if let Some(neighbors) = graph.neighbors(source) {
-        for neighbor in neighbors.into_iter().rev() {
-            if !visited.contains(neighbor) {
-                stack.push((Some(source), neighbor, 1));
+    if let Some(neighbors) = graph.neighbors_indices(source_idx) {
+        for &neighbor_idx in neighbors.iter().rev() {
+            if !visited[neighbor_idx] {
+                stack.push((source_idx, neighbor_idx, 1));
             }
         }
     }
 
-    while let Some((parent, node, depth)) = stack.pop() {
-        if visited.contains(node) {
+    while let Some((parent_idx, node_idx, depth)) = stack.pop() {
+        if visited[node_idx] {
             continue;
         }
-        visited.insert(node);
-        if let Some(p) = parent {
-            cgse_record_decision(&mut cgse_sink, node, p);
-            edges.push((p.to_owned(), node.to_owned()));
-        }
+        visited[node_idx] = true;
+        let parent = nodes[parent_idx];
+        let node = nodes[node_idx];
+        cgse_record_decision(&mut cgse_sink, node, parent);
+        edges.push((parent.to_owned(), node.to_owned()));
         if depth < max_depth
-            && let Some(neighbors) = graph.neighbors(node)
+            && let Some(neighbors) = graph.neighbors_indices(node_idx)
         {
-            for neighbor in neighbors.into_iter().rev() {
-                if !visited.contains(neighbor) {
-                    stack.push((Some(node), neighbor, depth + 1));
+            for &neighbor_idx in neighbors.iter().rev() {
+                if !visited[neighbor_idx] {
+                    stack.push((node_idx, neighbor_idx, depth + 1));
                 }
             }
         }
