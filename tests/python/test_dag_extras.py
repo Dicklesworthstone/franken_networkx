@@ -137,6 +137,19 @@ class TestDagLongestPath:
         expected = nx.dag_longest_path(Dn, weight="cost", default_weight=2)
         assert fast == legacy == expected == [0, 1, 3, 4]
 
+    def test_native_fast_path_preserves_python_weight_type_error(self):
+        import networkx as nx
+
+        D = fnx.DiGraph()
+        Dn = nx.DiGraph()
+        D.add_edge(0, 1, cost=None)
+        Dn.add_edge(0, 1, cost=None)
+
+        with pytest.raises(TypeError):
+            fnx.dag_longest_path(D, weight="cost")
+        with pytest.raises(TypeError):
+            nx.dag_longest_path(Dn, weight="cost")
+
     def test_topo_order_param_changes_tie_break(self):
         import networkx as nx
 

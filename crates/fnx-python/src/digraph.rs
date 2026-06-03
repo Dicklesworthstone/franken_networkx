@@ -17,7 +17,7 @@ use pyo3::IntoPyObjectExt;
 use pyo3::exceptions::{PyKeyError, PyRuntimeError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyIterator, PyTuple};
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 // ---------------------------------------------------------------------------
@@ -3635,7 +3635,10 @@ impl PyDiGraph {
                     .edge_py_attrs
                     .get(&ek)
                     .map_or_else(|| PyDict::new(py).unbind(), |d| d.clone_ref(py));
-                items.push(tuple_object(py, &[py_s, py_t.clone_ref(py), attrs.into_any()])?);
+                items.push(tuple_object(
+                    py,
+                    &[py_s, py_t.clone_ref(py), attrs.into_any()],
+                )?);
             }
         }
         Ok(items.into_pyobject(py)?.into_any().unbind())
@@ -3668,6 +3671,92 @@ impl PyDiGraph {
             }
         }
         Ok(items.into_pyobject(py)?.into_any().unbind())
+    }
+
+    /// br-r37-c1-vij0v: exact-DiGraph DAG longest-path snapshot primitive.
+    /// Computes nx/Kahn FIFO topological order and predecessor weight groups
+    /// in one native pass over the Rust adjacency, while leaving arithmetic and
+    /// comparison in Python so custom weights, NaN, and TypeError behavior stay
+    /// byte-compatible with NetworkX.
+    fn _native_dag_topo_pred_data_key(
+        &self,
+        py: Python<'_>,
+        key: &Bound<'_, PyAny>,
+        default: PyObject,
+    ) -> PyResult<PyObject> {
+        let nodes = self.inner.nodes_ordered();
+        let node_count = nodes.len();
+        let mut node_index = HashMap::with_capacity(node_count);
+        for (idx, node) in nodes.iter().copied().enumerate() {
+            node_index.insert(node, idx);
+        }
+
+        let mut indegree = vec![0_usize; node_count];
+        for source in nodes.iter().copied() {
+            for target in self.inner.successors(source).unwrap_or_default() {
+                if let Some(&target_idx) = node_index.get(target) {
+                    indegree[target_idx] += 1;
+                }
+            }
+        }
+
+        let mut queue = VecDeque::with_capacity(node_count);
+        for (idx, degree) in indegree.iter().copied().enumerate() {
+            if degree == 0 {
+                queue.push_back(idx);
+            }
+        }
+
+        let mut topo_indices = Vec::with_capacity(node_count);
+        while let Some(source_idx) = queue.pop_front() {
+            topo_indices.push(source_idx);
+            let source = nodes[source_idx];
+            for target in self.inner.successors(source).unwrap_or_default() {
+                if let Some(&target_idx) = node_index.get(target) {
+                    indegree[target_idx] -= 1;
+                    if indegree[target_idx] == 0 {
+                        queue.push_back(target_idx);
+                    }
+                }
+            }
+        }
+
+        if topo_indices.len() != node_count {
+            return Err(crate::NetworkXUnfeasible::new_err(
+                "Graph contains a cycle or graph changed during iteration",
+            ));
+        }
+
+        let topo_order = topo_indices
+            .iter()
+            .map(|&idx| self.py_node_key(py, nodes[idx]))
+            .collect::<Vec<_>>()
+            .into_pyobject(py)?
+            .into_any()
+            .unbind();
+
+        let mut pred_groups = Vec::with_capacity(node_count);
+        for &target_idx in &topo_indices {
+            let target = nodes[target_idx];
+            let mut preds = Vec::new();
+            for source in self.inner.predecessors(target).unwrap_or_default() {
+                let py_s = self.py_node_key(py, source);
+                let ek = Self::edge_key(source, target);
+                let value = match self.edge_py_attrs.get(&ek) {
+                    Some(d) => d
+                        .bind(py)
+                        .get_item(key)
+                        .ok()
+                        .flatten()
+                        .map_or_else(|| default.clone_ref(py), |val| val.unbind()),
+                    None => default.clone_ref(py),
+                };
+                preds.push(tuple_object(py, &[py_s, value])?);
+            }
+            pred_groups.push(preds.into_pyobject(py)?.into_any().unbind());
+        }
+        let pred_groups = pred_groups.into_pyobject(py)?.into_any().unbind();
+        tuple_object(py, &[topo_order, pred_groups])
     }
 
     /// ``G.adj`` / ``G.succ`` — successor adjacency.

@@ -1,0 +1,4 @@
+  [2m2026-06-03T20:43:35.718127Z[0m [33m WARN[0m [1;33mrch::hook[0m[33m: [33mexec called with non-compilation command: env 'PYTHONPATH=python' .venv/bin/python tests/artifacts/perf/20260603T-dag-longest-path-fused-native/bench_dag_longest_path.py --module nx --repeat 500[0m
+    [2;3mat[0m rch/src/hook.rs:402 [2;3mon[0m ThreadId(1)
+
+{"elapsed_s": 0.6124034190142993, "module": "nx", "n": 400, "p": 0.02, "payload": {"path": [5, 25, 42, 79, 83, 116, 125, 149, 151, 192, 266, 289, 299, 333, 383, 393, 394], "path_types": ["int", "int", "int", "int", "int", "int", "int", "int", "int", "int", "int", "int", "int", "int", "int", "int", "int"]}, "per_call_s": 0.0012248068380285985, "repeat": 500, "seed": 20260603, "sha256": "76214d0b33d25b721eb1437d081b03fcf320e749ed72ceb521a87215d5ebbb7f"}

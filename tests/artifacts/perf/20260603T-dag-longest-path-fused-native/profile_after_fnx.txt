@@ -1,0 +1,35 @@
+  [2m2026-06-03T20:43:35.707776Z[0m [33m WARN[0m [1;33mrch::hook[0m[33m: [33mexec called with non-compilation command: env 'PYTHONPATH=python' .venv/bin/python tests/artifacts/perf/20260603T-dag-longest-path-fused-native/bench_dag_longest_path.py --module fnx --repeat 160 --profile[0m
+    [2;3mat[0m rch/src/hook.rs:402 [2;3mon[0m ThreadId(1)
+
+{"elapsed_s": 0.1426455159962643, "payload": {"path": [5, 25, 42, 79, 83, 116, 125, 149, 151, 192, 266, 289, 299, 333, 383, 393, 394], "path_types": ["int", "int", "int", "int", "int", "int", "int", "int", "int", "int", "int", "int", "int", "int", "int", "int", "int"]}, "repeat": 160, "sha256": "76214d0b33d25b721eb1437d081b03fcf320e749ed72ceb521a87215d5ebbb7f"}
+         179684 function calls in 0.143 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.000    0.000    0.143    0.143 bench_dag_longest_path.py:37(_time_module)
+      160    0.001    0.000    0.143    0.001 bench_dag_longest_path.py:24(_result_payload)
+      160    0.000    0.000    0.142    0.001 __init__.py:43209(wrapper)
+      160    0.004    0.000    0.142    0.001 __init__.py:12584(dag_longest_path)
+      160    0.034    0.000    0.137    0.001 __init__.py:12546(_dag_longest_path_digraph_native)
+      160    0.084    0.001    0.084    0.001 {method '_native_dag_topo_pred_data_key' of 'franken_networkx.DiGraph' objects}
+      160    0.006    0.000    0.011    0.000 {built-in method builtins.max}
+    55040    0.004    0.000    0.004    0.000 {built-in method builtins.iter}
+    64000    0.004    0.000    0.004    0.000 __init__.py:12574(<lambda>)
+    55040    0.004    0.000    0.004    0.000 {built-in method builtins.next}
+      160    0.000    0.000    0.000    0.000 {built-in method builtins.len}
+     2720    0.000    0.000    0.000    0.000 {method 'append' of 'list' objects}
+      160    0.000    0.000    0.000    0.000 __init__.py:29447(__len__)
+      160    0.000    0.000    0.000    0.000 __init__.py:5251(predicate)
+      160    0.000    0.000    0.000    0.000 __init__.py:29037(_private_override)
+      320    0.000    0.000    0.000    0.000 {built-in method builtins.getattr}
+      160    0.000    0.000    0.000    0.000 {function _make_class_safe_predicate.<locals>.predicate at 0x7b03a804aca0}
+      160    0.000    0.000    0.000    0.000 {built-in method builtins.vars}
+      160    0.000    0.000    0.000    0.000 {built-in method builtins.isinstance}
+      160    0.000    0.000    0.000    0.000 __init__.py:19104(_validate_backend_dispatch_keywords)
+      160    0.000    0.000    0.000    0.000 {method 'reverse' of 'list' objects}
+      160    0.000    0.000    0.000    0.000 {method 'get' of 'dict' objects}
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+        2    0.000    0.000    0.000    0.000 {built-in method time.perf_counter}
+
+

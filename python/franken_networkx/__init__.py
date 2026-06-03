@@ -12570,14 +12570,18 @@ def topological_generations(G):
 
 
 def _dag_longest_path_digraph_native(G, weight, default_weight):
-    topo_order = list(topological_sort(G))
-    pred_map = {node: [] for node in topo_order}
-    for u, v, edge_weight in G._native_in_edges_data_key(weight, default_weight):
-        pred_map[v].append((u, edge_weight))
+    topo_pred_snapshot = getattr(G, "_native_dag_topo_pred_data_key", None)
+    if topo_pred_snapshot is not None:
+        topo_order, pred_groups = topo_pred_snapshot(weight, default_weight)
+    else:
+        topo_order = list(topological_sort(G))
+        pred_map = {node: [] for node in topo_order}
+        for u, v, edge_weight in G._native_in_edges_data_key(weight, default_weight):
+            pred_map[v].append((u, edge_weight))
+        pred_groups = [pred_map[node] for node in topo_order]
 
     dist = {}
-    for v in topo_order:
-        preds = pred_map[v]
+    for v, preds in zip(topo_order, pred_groups):
         if preds:
             pred_iter = iter(preds)
             u, edge_weight = next(pred_iter)
@@ -20842,6 +20846,22 @@ def adjacency_data(G, attrs={"id": "id", "key": "key"}):  # noqa: B006
     if id_ == key:
         raise NetworkXError("Attribute names are not unique.")
 
+    # br-r37-c1-9kpev: native fast path for exact simple Graph / DiGraph,
+    # building the nodes + adjacency arrays in Rust (copying live attr dicts +
+    # appending id_) instead of walking the per-edge AdjacencyView. ~6x faster;
+    # multigraphs and any subclass / filtered view fall through to the loop.
+    if type(G) in (Graph, DiGraph):
+        native = _fnx.adjacency_data_simple(G, id_)
+        if native is not None:
+            nodes_list, adjacency_list = native
+            return {
+                "directed": G.is_directed(),
+                "multigraph": multigraph,
+                "graph": list(G.graph.items()),
+                "nodes": nodes_list,
+                "adjacency": adjacency_list,
+            }
+
     data = {
         "directed": G.is_directed(),
         "multigraph": multigraph,
@@ -20887,6 +20907,23 @@ def node_link_data(
         internal_names.append(key)
     if len(set(internal_names)) != len(internal_names):
         raise NetworkXError("Attribute names are not unique.")
+
+    # br-r37-c1-9kpev: native fast path for exact simple Graph / DiGraph,
+    # building the nodes + edges arrays in Rust (copying live attr dicts +
+    # appending name/source/target) instead of walking the per-edge EdgeView.
+    # The edge order matches nx's G.edges() dedup order. Multigraphs and any
+    # subclass / filtered view fall through to the comprehensions below.
+    if type(G) in (Graph, DiGraph):
+        native = _fnx.node_link_data_simple(G, name, source, target)
+        if native is not None:
+            node_list, edge_list = native
+            return {
+                "directed": G.is_directed(),
+                "multigraph": False,
+                "graph": dict(G.graph),
+                nodes: node_list,
+                edges: edge_list,
+            }
 
     payload = {
         "directed": G.is_directed(),

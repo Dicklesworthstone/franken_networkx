@@ -1,0 +1,7 @@
+  [2m2026-06-03T20:43:44.921543Z[0m [33m WARN[0m [1;33mrch::hook[0m[33m: [33mexec called with non-compilation command: hyperfine --warmup 3 --runs 10 --export-json tests/artifacts/perf/20260603T-dag-longest-path-fused-native/hyperfine_after.json 'env PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260603T-dag-longest-path-fused-native/bench_dag_longest_path.py --module fnx --repeat 160'[0m
+    [2;3mat[0m rch/src/hook.rs:402 [2;3mon[0m ThreadId(1)
+
+Benchmark 1: env PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260603T-dag-longest-path-fused-native/bench_dag_longest_path.py --module fnx --repeat 160
+  Time (mean ± σ):     430.4 ms ±  36.2 ms    [User: 3495.1 ms, System: 86.4 ms]
+  Range (min … max):   380.4 ms … 508.1 ms    10 runs
+ 
