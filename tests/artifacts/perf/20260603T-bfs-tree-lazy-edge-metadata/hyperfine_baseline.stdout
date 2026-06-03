@@ -1,0 +1,4 @@
+Benchmark 1: env PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260603T-bfs-tree-raw-construction/bench_bfs_tree_raw.py bench --n 8000 --m 4 --seed 42 --repeat 3 --engines fnx >/dev/null
+  Time (mean ± σ):     755.3 ms ±  23.0 ms    [User: 4010.2 ms, System: 181.0 ms]
+  Range (min … max):   712.7 ms … 791.3 ms    15 runs
+ 

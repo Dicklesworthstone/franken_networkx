@@ -1,0 +1,11 @@
+  [2m2026-06-03T17:47:27.318134Z[0m [33m WARN[0m [1;33mrch::hook[0m[33m: [33mexec called with non-compilation command: env 'PYTHONPATH=python' .venv/bin/python -m pytest tests/python/test_attribute_access_parity.py::test_bfs_tree_returns_fnx_digraph tests/python/test_attribute_access_parity.py::test_bfs_tree_edge_attr_dicts_materialize_with_nx_semantics tests/python/test_traversal.py::TestTraversal::test_bfs_tree tests/python/test_traversal.py::TestTraversal::test_bfs_tree_reverse_on_digraph -q[0m
+    [2;3mat[0m rch/src/hook.rs:402 [2;3mon[0m ThreadId(1)
+
+ERROR: not found: /data/projects/franken_networkx/tests/python/test_traversal.py::TestTraversal::test_bfs_tree
+(no match in any of [<Module test_traversal.py>])
+
+ERROR: not found: /data/projects/franken_networkx/tests/python/test_traversal.py::TestTraversal::test_bfs_tree_reverse_on_digraph
+(no match in any of [<Module test_traversal.py>])
+
+
+no tests ran in 0.55s
