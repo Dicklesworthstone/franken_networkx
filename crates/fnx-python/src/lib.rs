@@ -20,7 +20,7 @@ use fnx_runtime::{CgseValue, CompatibilityMode, RuntimePolicy};
 use pyo3::exceptions::{PyKeyError, PyRuntimeError, PyTypeError, PyValueError};
 use pyo3::marker::Ungil;
 use pyo3::prelude::*;
-use pyo3::types::{PyAny, PyDict, PyFloat, PyInt, PyIterator, PyList, PyString, PyTuple};
+use pyo3::types::{PyAny, PyBool, PyDict, PyFloat, PyInt, PyIterator, PyList, PyString, PyTuple};
 use std::collections::{HashMap, HashSet};
 use std::convert::Infallible;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -1556,6 +1556,69 @@ impl PyMultiGraph {
     /// MultiAdjacencyView lambda chain per element (~30000x slower than nx).
     fn _native_adjacency_dict(&self, py: Python<'_>) -> PyResult<Py<PyDict>> {
         self.adjacency(py)
+    }
+
+    /// br-r37-c1-mgedges: native node-major edge list so the Python
+    /// _MultiGraphEdgeView.__call__ builds the all-edges result natively instead
+    /// of triple-looping over self.adj[source] via the MultiAdjacencyView lambda
+    /// chain (~10000x slower than nx). Matches nx's order EXACTLY: iterate
+    /// nodes_ordered() (source), then neighbors (target, adjacency order), then
+    /// edge_keys (key order), deduping each undirected edge by its canonical
+    /// edge_key (so each parallel edge is emitted once, from its first-iterated
+    /// endpoint). Tuple shape mirrors the Python branches: (u, v[, key][, attr])
+    /// where attr is the live dict (data=True), attrs.get(key, default) (data=
+    /// <key>), or absent (data=False). data=True marks edges dirty (live dict).
+    fn _native_edge_view_list(
+        &self,
+        py: Python<'_>,
+        data: &Bound<'_, PyAny>,
+        keys: bool,
+        default: PyObject,
+    ) -> PyResult<Vec<PyObject>> {
+        let data_is_bool = data.is_instance_of::<PyBool>();
+        let want_dict = data_is_bool && data.extract::<bool>()?;
+        let want_value = !data_is_bool;
+        if want_dict && self.inner.edge_count() > 0 {
+            self.mark_edges_dirty();
+        }
+        let mut seen: HashSet<(String, String, usize)> = HashSet::new();
+        let mut result: Vec<PyObject> = Vec::with_capacity(self.inner.edge_count());
+        for node in self.inner.nodes_ordered() {
+            for neighbor in self.inner.neighbors(node).unwrap_or_default() {
+                for key in self.inner.edge_keys(node, neighbor).unwrap_or_default() {
+                    let ek = Self::edge_key(node, neighbor, key);
+                    if !seen.insert(ek.clone()) {
+                        continue;
+                    }
+                    let mut elems: Vec<PyObject> = Vec::with_capacity(4);
+                    elems.push(self.py_node_key(py, node));
+                    elems.push(self.py_node_key(py, neighbor));
+                    if keys {
+                        elems.push(self.py_edge_key(py, node, neighbor, key));
+                    }
+                    if want_dict {
+                        let attrs = self.edge_py_attrs.get(&ek).map_or_else(
+                            || PyDict::new(py).into_any().unbind(),
+                            |d| d.clone_ref(py).into_any(),
+                        );
+                        elems.push(attrs);
+                    } else if want_value {
+                        let val = match self.edge_py_attrs.get(&ek) {
+                            Some(d) => d
+                                .bind(py)
+                                .get_item(data)
+                                .ok()
+                                .flatten()
+                                .map_or_else(|| default.clone_ref(py), |v| v.unbind()),
+                            None => default.clone_ref(py),
+                        };
+                        elems.push(val);
+                    }
+                    result.push(PyTuple::new(py, &elems)?.into_any().unbind());
+                }
+            }
+        }
+        Ok(result)
     }
 
     /// br-r37-c1-wdeg: native total weighted degree, returning the full

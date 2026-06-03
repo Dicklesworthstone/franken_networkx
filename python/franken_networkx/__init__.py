@@ -1700,6 +1700,28 @@ class _MultiGraphEdgeView:
         # MultiEdgeDataView.
         if nbunch is None and data is False and keys is False:
             return _LiveMultiEdgeCallView(self._graph, directed=False)
+        # br-r37-c1-mgedges: all-edges path builds the result natively
+        # (node-major over adjacency with canonical dedup, matching nx exactly)
+        # instead of triple-looping self.adj[source] via the MultiAdjacencyView
+        # lambda chain (~10000x). Wrap in the same canonical view type so
+        # ``type(MG.edges(...)).__name__`` and set-algebra still match nx.
+        if nbunch is None:
+            native = getattr(self._graph, "_native_edge_view_list", None)
+            if native is not None:
+                result = _EdgeListWithSetAlgebra(native(data, keys, default))
+                if data is not False:
+                    return _guarded_edge_list(
+                        _wrap_edge_data_view(result, _MultiEdgeDataView),
+                        self._graph,
+                        guard_edge_count=True,
+                    )
+                if keys:
+                    return _guarded_edge_list(
+                        _wrap_edge_data_view(result, _MultiEdgeView),
+                        self._graph,
+                        guard_edge_count=True,
+                    )
+                return _guarded_edge_list(result, self._graph, guard_edge_count=True)
         # br-r37-c1-mgcall (cycle 213): when ``data`` is anything
         # other than False, nx returns ``MultiEdgeDataView``
         # (canonical class).  fnx previously returned a generic
