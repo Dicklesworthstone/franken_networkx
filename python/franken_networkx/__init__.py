@@ -39321,7 +39321,15 @@ def to_pandas_edgelist(
         return pd.DataFrame(payload, dtype=dtype)
 
     if nodelist is None:
-        edgelist = list(G.edges(data=True))
+        # br-tpenative: native edge materializer for exact simple Graph /
+        # DiGraph avoids the per-edge EdgeView Python tax. to_edgelist_simple
+        # returns (u, v, attr_dict) tuples (live Python attr dicts, read-only
+        # here) in nx G.edges() order; None for multigraph / unsupported.
+        edgelist = None
+        if type(G) in (Graph, DiGraph):
+            edgelist = _fnx.to_edgelist_simple(G)
+        if edgelist is None:
+            edgelist = list(G.edges(data=True))
     else:
         edgelist = list(G.edges(nodelist, data=True))
     all_attrs = set().union(*(edge_attrs.keys() for _, _, edge_attrs in edgelist))
