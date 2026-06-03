@@ -3219,6 +3219,20 @@ impl PyDiGraph {
         )
     }
 
+    /// br-r37-c1-acuub: native ordered no-data edge materialization for the
+    /// Python _DiGraphEdgeView fast path. This follows the same node-order,
+    /// successor-order traversal as NetworkX and the existing Python wrapper,
+    /// but avoids per-edge AtlasView traversal in Python.
+    fn _native_edges_no_data(&self, py: Python<'_>) -> PyResult<PyObject> {
+        let mut items = Vec::with_capacity(self.inner.edge_count());
+        for (u, v, _) in self.inner.edges_ordered_borrowed() {
+            let py_u = self.py_node_key(py, u);
+            let py_v = self.py_node_key(py, v);
+            items.push(tuple_object(py, &[py_u, py_v])?);
+        }
+        Ok(items.into_pyobject(py)?.into_any().unbind())
+    }
+
     /// ``G.adj`` / ``G.succ`` — successor adjacency.
     #[getter]
     fn adj(slf: PyRef<'_, Self>) -> PyResult<Py<DiAdjacencyView>> {

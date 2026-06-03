@@ -1311,11 +1311,10 @@ class _DiGraphEdgeView:
         self._graph = graph
 
     def _materialize(self):
-        result = []
-        for source in self._graph:
-            for target in self._graph.succ[source]:
-                result.append((source, target))
-        return result
+        # br-r37-c1-acuub: native ordered no-data edge materialization. The
+        # Rust helper walks node order then successor insertion order, matching
+        # the loop this replaces while avoiding Python AtlasView traversal.
+        return self._graph._native_edges_no_data()
 
     def __iter__(self):
         # br-r37-c1-msf5j: walk adj directly so __call__ can return
