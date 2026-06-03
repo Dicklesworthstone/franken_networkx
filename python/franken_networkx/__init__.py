@@ -1550,6 +1550,18 @@ class _LiveMultiEdgeCallView:
                 iter(self._graph._native_edge_view()(None, False, False, None)),
                 guard_edge_count=True,
             )
+        # br-r37-c1-mgedges: undirected MultiGraph MG.edges() materializes the
+        # (u, v) 2-tuples (one per parallel edge, node-major canonical-dedup
+        # order) from the native edge-list builder instead of _walk()'s
+        # pure-Python triple-loop over the adj AtlasView (~7000x slower than nx).
+        if not self._directed:
+            native = getattr(self._graph, "_native_edge_view_list", None)
+            if native is not None:
+                return _FailFastEdgeIterator(
+                    self._graph,
+                    iter(native(False, False, None)),
+                    guard_edge_count=True,
+                )
         return _FailFastEdgeIterator(
             self._graph,
             self._walk(),
