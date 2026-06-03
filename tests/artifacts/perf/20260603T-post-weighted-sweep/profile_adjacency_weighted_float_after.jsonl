@@ -1,0 +1,1 @@
+{"case":"adjacency_weighted_float","digest":"67df0f0442003e5ba6963b28f9aa88837492b8a9953d9e62550cc3c88ece6a77","impl":"fnx","m":4,"n":8000,"profile":"tests/artifacts/perf/20260603T-post-weighted-sweep/profile_adjacency_weighted_float_after.txt","repeats":5}

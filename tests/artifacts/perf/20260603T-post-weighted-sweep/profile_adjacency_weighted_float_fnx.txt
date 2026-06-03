@@ -1,0 +1,56 @@
+         173126 function calls (166313 primitive calls) in 0.309 seconds
+
+   Ordered by: cumulative time
+   List reduced from 1195 to 50 due to restriction <50>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        5    0.000    0.000    0.309    0.062 bench_vs_upstream.py:74(_call_case)
+     10/5    0.005    0.000    0.309    0.062 __init__.py:42600(wrapper)
+        5    0.000    0.000    0.309    0.062 __init__.py:16100(adjacency_matrix)
+        5    0.001    0.000    0.304    0.061 __init__.py:39043(to_scipy_sparse_array)
+       29    0.000    0.000    0.281    0.010 __init__.py:1(<module>)
+        5    0.146    0.029    0.146    0.029 {built-in method franken_networkx._fnx.adjacency_arrays}
+    174/1    0.001    0.000    0.117    0.117 <frozen importlib._bootstrap>:1349(_find_and_load)
+    170/1    0.001    0.000    0.116    0.116 <frozen importlib._bootstrap>:1304(_find_and_load_unlocked)
+    407/3    0.000    0.000    0.116    0.039 <frozen importlib._bootstrap>:480(_call_with_frames_removed)
+    166/2    0.000    0.000    0.116    0.058 <frozen importlib._bootstrap>:911(_load_unlocked)
+    148/2    0.000    0.000    0.116    0.058 <frozen importlib._bootstrap_external>:1020(exec_module)
+    152/2    0.001    0.000    0.116    0.058 {built-in method builtins.exec}
+    60/20    0.000    0.000    0.096    0.005 {built-in method builtins.__import__}
+        2    0.000    0.000    0.095    0.048 _base.py:1(<module>)
+        1    0.000    0.000    0.095    0.095 _sputils.py:1(<module>)
+        1    0.000    0.000    0.094    0.094 _util.py:1(<module>)
+        1    0.000    0.000    0.093    0.093 _array_api.py:1(<module>)
+    96/20    0.000    0.000    0.088    0.004 <frozen importlib._bootstrap>:1390(_handle_fromlist)
+        3    0.000    0.000    0.073    0.024 _internal.py:56(clone_module)
+2259/1709    0.000    0.000    0.072    0.000 {built-in method builtins.hasattr}
+       11    0.000    0.000    0.072    0.007 __init__.py:704(__getattr__)
+        1    0.000    0.000    0.040    0.040 f2py2e.py:1(<module>)
+      217    0.001    0.000    0.034    0.000 __init__.py:330(_compile)
+       75    0.000    0.000    0.033    0.000 __init__.py:287(compile)
+       80    0.000    0.000    0.033    0.000 _compiler.py:743(compile)
+        1    0.000    0.000    0.032    0.032 capi_maps.py:1(<module>)
+        1    0.000    0.000    0.030    0.030 crackfortran.py:1(<module>)
+      148    0.001    0.000    0.022    0.000 <frozen importlib._bootstrap_external>:1093(get_code)
+       80    0.000    0.000    0.021    0.000 _parser.py:970(parse)
+   462/80    0.005    0.000    0.020    0.000 _parser.py:451(_parse_sub)
+   612/80    0.006    0.000    0.020    0.000 _parser.py:511(_parse)
+       45    0.018    0.000    0.018    0.000 {built-in method numpy.asarray}
+      148    0.001    0.000    0.014    0.000 <frozen importlib._bootstrap_external>:782(_compile_bytecode)
+      237    0.002    0.000    0.013    0.000 {built-in method builtins.__build_class__}
+      148    0.013    0.000    0.013    0.000 {built-in method marshal.loads}
+        5    0.000    0.000    0.013    0.003 __init__.py:5915(_sync_rust_edge_attrs)
+        5    0.012    0.002    0.012    0.002 {method '_fnx_sync_attrs_to_inner' of 'franken_networkx.Graph' objects}
+       80    0.000    0.000    0.012    0.000 _compiler.py:576(_code)
+  1124/80    0.005    0.000    0.011    0.000 _compiler.py:37(_compile)
+      170    0.001    0.000    0.009    0.000 <frozen importlib._bootstrap>:1240(_find_spec)
+      166    0.000    0.000    0.008    0.000 <frozen importlib._bootstrap_external>:1551(find_spec)
+      166    0.000    0.000    0.008    0.000 <frozen importlib._bootstrap_external>:1522(_get_spec)
+      196    0.001    0.000    0.007    0.000 <frozen importlib._bootstrap_external>:1624(find_spec)
+        1    0.000    0.000    0.006    0.006 core.py:1(<module>)
+        1    0.000    0.000    0.006    0.006 _docscrape.py:1(<module>)
+        5    0.006    0.001    0.006    0.001 __init__.py:28954(__iter__)
+      221    0.005    0.000    0.005    0.000 {built-in method builtins.eval}
+      104    0.000    0.000    0.005    0.000 inspect.py:3373(signature)
+      104    0.000    0.000    0.005    0.000 inspect.py:3094(from_callable)
+  109/104    0.000    0.000    0.005    0.000 inspect.py:2487(_signature_from_callable)
