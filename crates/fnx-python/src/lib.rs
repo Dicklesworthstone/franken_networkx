@@ -93,7 +93,14 @@ pyo3::import_exception!(networkx.exception, PowerIterationFailedConvergence);
 /// ``1.0`` / ``True`` are equal keys. Prefix strings so text nodes do
 /// not collide with numeric canonical keys.
 fn node_key_to_string(_py: Python<'_>, key: &Bound<'_, PyAny>) -> PyResult<String> {
-    if let Ok(s) = key.extract::<String>() {
+    // br-ctaxkey: `downcast::<PyString>()` is a cheap isinstance check that
+    // builds NO Python exception on a non-string, unlike `extract::<String>()`
+    // which constructs and discards a `PyErr` for every int / float node key.
+    // On the construction hot path (2 node-key conversions per edge, the
+    // overwhelming majority int- or str-keyed) that discarded PyErr dominated.
+    // The produced canonical string ("str:{len}:{s}") is byte-identical.
+    if let Ok(s) = key.downcast::<PyString>() {
+        let s = s.to_str()?;
         return Ok(format!("str:{}:{s}", s.len()));
     }
     // bool is a subclass of int, so extract::<i64>() handles both —
