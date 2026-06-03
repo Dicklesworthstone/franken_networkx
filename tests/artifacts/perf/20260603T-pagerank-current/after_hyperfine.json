@@ -1,0 +1,32 @@
+{
+  "results": [
+    {
+      "command": ".venv/bin/python tests/artifacts/perf/20260602T-public-algo-residual-sweep/bench_pagerank_absent_weight.py --impl fnx --mode new --n 1000 --p 0.05 --seed 42 --repeats 24 >/dev/null",
+      "mean": 2.2784277788942857,
+      "stddev": 0.03913191793937688,
+      "median": 2.28604502918,
+      "user": 6.357709825714285,
+      "system": 0.14109885142857143,
+      "min": 2.2226195501799997,
+      "max": 2.33684237318,
+      "times": [
+        2.29890910618,
+        2.2479761041799997,
+        2.3033628181799997,
+        2.2226195501799997,
+        2.25323947118,
+        2.33684237318,
+        2.28604502918
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

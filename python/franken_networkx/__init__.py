@@ -16457,13 +16457,29 @@ def _pagerank_scipy(G, alpha, max_iter, tol, weight):
         and (weight is None or isinstance(weight, str))
     ):
         native_weight = weight if isinstance(weight, str) else None
-        native_result = _native_adjacency_arrays(G, nodelist, native_weight, 1.0)
+        native_result = None
+        native_index_used = False
+        if native_weight is None and _native_adjacency_index_arrays is not None:
+            native_index_result = _native_adjacency_index_arrays(G, nodelist, None)
+            if native_index_result is not None:
+                rows, cols = native_index_result
+                rows = np.asarray(rows, dtype=np.intp)
+                cols = np.asarray(cols, dtype=np.intp)
+                data = np.ones(len(rows), dtype=float)
+                A = sp.coo_array(
+                    (data, (rows, cols)), shape=(N, N), dtype=float
+                ).tocsr()
+                native_index_used = True
+            else:
+                native_result = _native_adjacency_arrays(G, nodelist, native_weight, 1.0)
+        else:
+            native_result = _native_adjacency_arrays(G, nodelist, native_weight, 1.0)
         if native_result is not None:
             rows, cols, data = native_result
             A = sp.coo_array(
                 (data, (rows, cols)), shape=(N, N), dtype=float
             ).tocsr()
-        else:
+        elif not native_index_used:
             A = to_scipy_sparse_array(G, nodelist=nodelist, weight=weight, dtype=float)
     else:
         A = to_scipy_sparse_array(G, nodelist=nodelist, weight=weight, dtype=float)
