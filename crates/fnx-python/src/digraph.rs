@@ -3288,6 +3288,22 @@ impl PyDiGraph {
         )
     }
 
+    /// br-r37-c1-5670z: O(1) native single-node out-degree, used by the Python
+    /// _DirectedDegreeView fast path for the unweighted simple-graph case. The
+    /// Python `len(self._adjacency[node])` path walks the per-node succ
+    /// AtlasView in pure Python (O(degree)), making `list(G.out_degree())` O(E)
+    /// in slow Python; `inner.out_degree` is `successors.get(node).len()`.
+    fn _native_out_degree(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<usize> {
+        let canonical = node_key_to_string(py, n)?;
+        Ok(self.inner.out_degree(&canonical))
+    }
+
+    /// br-r37-c1-5670z: O(1) native single-node in-degree (see _native_out_degree).
+    fn _native_in_degree(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<usize> {
+        let canonical = node_key_to_string(py, n)?;
+        Ok(self.inner.in_degree(&canonical))
+    }
+
     // ---- Python special methods ----
 
     fn __len__(&self) -> usize {

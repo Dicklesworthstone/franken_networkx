@@ -3189,6 +3189,15 @@ class _DirectedDegreeView:
         return iter(self._nodes)
 
     def _node_degree(self, node, weight):
+        # br-r37-c1-5670z: unweighted simple-DiGraph fast path. The generic path
+        # below does len(self._adjacency[node]), which walks the per-node succ/
+        # pred AtlasView in pure Python (O(degree)); the native O(1)
+        # successors/predecessors .len() gives the identical count.
+        if weight is None and not self._graph.is_multigraph():
+            if self._adjacency_attr == "succ":
+                return self._graph._native_out_degree(node)
+            if self._adjacency_attr == "pred":
+                return self._graph._native_in_degree(node)
         adjacency = self._adjacency[node]
         if self._graph.is_multigraph():
             if weight is None:
