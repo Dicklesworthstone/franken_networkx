@@ -2755,6 +2755,21 @@ def _decode_dict_of_dicts_into(self, data, is_multigraph, multigraph_input=None)
     dedupe_dict_of_list = is_multigraph and not self.is_directed()
     seen_sources = set() if dedupe_dict_of_list else None
 
+    # br-r37-c1-13tp1: nx.from_dict_of_dicts dedupes the symmetric
+    # adjacency of an UNDIRECTED MultiGraph 3-level dict-of-dicts input
+    # (non-multigraph_input). It tracks already-seen (u, v) pairs and adds
+    # each edge exactly once under key=0:
+    #     seen = set()
+    #     for u, nbrs in d.items():
+    #         for v, data in nbrs.items():
+    #             if (u, v) not in seen:
+    #                 G.add_edge(u, v, key=0); G[u][v][0].update(data)
+    #             seen.add((v, u))
+    # Without this, MultiGraph({u: {v: a}, v: {u: a}}) produced two edges
+    # (auto keys 0 and 1) instead of nx's single (u, v, 0).
+    dedupe_pairs = is_multigraph and not multigraph_input and not self.is_directed()
+    seen_pairs = set() if dedupe_pairs else None
+
     for u, nbrs in data.items():
         self.add_node(u)
         if isinstance(nbrs, dict):
@@ -2773,15 +2788,26 @@ def _decode_dict_of_dicts_into(self, data, is_multigraph, multigraph_input=None)
                         # else: empty inner — do NOT add v (matches nx)
                     else:
                         # 3-level: inner IS the edge-attr dict.
-                        self.add_edge(u, v)
-                        if isinstance(inner, dict):
-                            # Apply to the most recently added key
-                            # (auto-incremented). MultiGraph stores edge
-                            # data under the auto key; use the same key
-                            # the add_edge call returned.
-                            keys = list(self[u][v].keys())
-                            if keys:
-                                self[u][v][keys[-1]].update(dict(inner))
+                        if dedupe_pairs:
+                            # Undirected MultiGraph: add each symmetric
+                            # pair once under key=0 (nx parity).
+                            if (u, v) not in seen_pairs:
+                                self.add_edge(u, v, key=0)
+                                if isinstance(inner, dict):
+                                    self[u][v][0].update(dict(inner))
+                            seen_pairs.add((v, u))
+                        else:
+                            # Directed MultiGraph: auto key, no dedup
+                            # (matches nx add_edges_from of (u, v, data)).
+                            self.add_edge(u, v)
+                            if isinstance(inner, dict):
+                                # Apply to the most recently added key
+                                # (auto-incremented). MultiGraph stores edge
+                                # data under the auto key; use the same key
+                                # the add_edge call returned.
+                                keys = list(self[u][v].keys())
+                                if keys:
+                                    self[u][v][keys[-1]].update(dict(inner))
                 else:
                     # Simple graph: inner is the edge-attr dict.
                     self.add_edge(u, v)
