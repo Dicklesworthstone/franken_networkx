@@ -10694,6 +10694,319 @@ fn build_node_split_auxiliary_directed(digraph: &DiGraph) -> HashMap<String, Has
     residual
 }
 
+#[derive(Clone, Debug)]
+struct IndexedResidualEdge {
+    to: usize,
+    reverse: usize,
+    capacity: f64,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+struct IndexedPushRelabelStats {
+    edges_scanned: usize,
+    active_peak: usize,
+}
+
+#[derive(Debug)]
+struct IndexedNodeSplitAuxiliary {
+    node_to_base: HashMap<String, usize>,
+    adjacency: Vec<Vec<usize>>,
+    edges: Vec<IndexedResidualEdge>,
+}
+
+impl IndexedNodeSplitAuxiliary {
+    fn in_index(&self, node: &str) -> Option<usize> {
+        self.node_to_base.get(node).copied()
+    }
+
+    fn out_index(&self, node: &str) -> Option<usize> {
+        self.node_to_base.get(node).map(|index| index + 1)
+    }
+
+    fn push_relabel_cutoff(
+        &self,
+        source: usize,
+        sink: usize,
+        cutoff: usize,
+    ) -> (usize, IndexedPushRelabelStats) {
+        if cutoff == 0 || source == sink {
+            return (0, IndexedPushRelabelStats::default());
+        }
+
+        let node_count = self.adjacency.len();
+        let cutoff_capacity = cutoff as f64;
+        let mut stats = IndexedPushRelabelStats::default();
+        let mut edges = self.edges.clone();
+        let mut height = vec![0_usize; node_count];
+        let mut height_count = vec![0_usize; node_count.saturating_mul(2) + 2];
+        let mut excess = vec![0.0_f64; node_count];
+        let mut current_edge = vec![0_usize; node_count];
+        let mut active = vec![false; node_count];
+        let mut active_heap = BinaryHeap::<(usize, usize)>::new();
+
+        height[source] = node_count;
+        height_count[0] = node_count.saturating_sub(1);
+        height_count[node_count] = 1;
+
+        for &edge_index in &self.adjacency[source] {
+            let capacity = edges[edge_index].capacity;
+            if capacity <= FLOW_EPSILON {
+                continue;
+            }
+            let target = edges[edge_index].to;
+            edges[edge_index].capacity -= capacity;
+            let reverse = edges[edge_index].reverse;
+            edges[reverse].capacity += capacity;
+            excess[source] -= capacity;
+            excess[target] += capacity;
+            if target == sink && excess[sink] >= cutoff_capacity {
+                return (cutoff, stats);
+            }
+            activate_push_relabel_node(
+                &mut active_heap,
+                &mut active,
+                &height,
+                &excess,
+                target,
+                source,
+                sink,
+                &mut stats,
+            );
+        }
+
+        while let Some((queued_height, node)) = active_heap.pop() {
+            if !active[node] {
+                continue;
+            }
+            if queued_height != height[node] {
+                active_heap.push((height[node], node));
+                stats.active_peak = stats.active_peak.max(active_heap.len());
+                continue;
+            }
+            active[node] = false;
+
+            while excess[node] > FLOW_EPSILON {
+                if current_edge[node] == self.adjacency[node].len() {
+                    let Some(new_height) = relabel_indexed_push_relabel_node(
+                        node,
+                        source,
+                        sink,
+                        node_count,
+                        &self.adjacency,
+                        &edges,
+                        &mut height,
+                        &mut height_count,
+                        &mut current_edge,
+                        &mut stats,
+                    ) else {
+                        break;
+                    };
+                    if new_height >= height_count.len() - 1 {
+                        break;
+                    }
+                    continue;
+                }
+
+                let edge_index = self.adjacency[node][current_edge[node]];
+                stats.edges_scanned += 1;
+                let target = edges[edge_index].to;
+                if edges[edge_index].capacity > FLOW_EPSILON
+                    && height[node] == height[target].saturating_add(1)
+                {
+                    let delta = excess[node].min(edges[edge_index].capacity);
+                    if delta <= FLOW_EPSILON {
+                        current_edge[node] += 1;
+                        continue;
+                    }
+                    edges[edge_index].capacity -= delta;
+                    let reverse = edges[edge_index].reverse;
+                    edges[reverse].capacity += delta;
+                    excess[node] -= delta;
+                    excess[target] += delta;
+                    if target == sink && excess[sink] >= cutoff_capacity {
+                        return (cutoff, stats);
+                    }
+                    activate_push_relabel_node(
+                        &mut active_heap,
+                        &mut active,
+                        &height,
+                        &excess,
+                        target,
+                        source,
+                        sink,
+                        &mut stats,
+                    );
+                } else {
+                    current_edge[node] += 1;
+                }
+            }
+
+            activate_push_relabel_node(
+                &mut active_heap,
+                &mut active,
+                &height,
+                &excess,
+                node,
+                source,
+                sink,
+                &mut stats,
+            );
+        }
+
+        (excess[sink].min(cutoff_capacity).round() as usize, stats)
+    }
+}
+
+fn activate_push_relabel_node(
+    active_heap: &mut BinaryHeap<(usize, usize)>,
+    active: &mut [bool],
+    height: &[usize],
+    excess: &[f64],
+    node: usize,
+    source: usize,
+    sink: usize,
+    stats: &mut IndexedPushRelabelStats,
+) {
+    if node != source && node != sink && excess[node] > FLOW_EPSILON && !active[node] {
+        active[node] = true;
+        active_heap.push((height[node], node));
+        stats.active_peak = stats.active_peak.max(active_heap.len());
+    }
+}
+
+fn relabel_indexed_push_relabel_node(
+    node: usize,
+    source: usize,
+    sink: usize,
+    node_count: usize,
+    adjacency: &[Vec<usize>],
+    edges: &[IndexedResidualEdge],
+    height: &mut [usize],
+    height_count: &mut [usize],
+    current_edge: &mut [usize],
+    stats: &mut IndexedPushRelabelStats,
+) -> Option<usize> {
+    let old_height = height[node];
+    let mut next_height = None::<usize>;
+    for &edge_index in &adjacency[node] {
+        stats.edges_scanned += 1;
+        if edges[edge_index].capacity <= FLOW_EPSILON {
+            continue;
+        }
+        let candidate = height[edges[edge_index].to].saturating_add(1);
+        next_height = Some(next_height.map_or(candidate, |current| current.min(candidate)));
+    }
+
+    let new_height = next_height?;
+    let old_height_was_gap = old_height < node_count && height_count[old_height] == 1;
+    height_count[old_height] = height_count[old_height].saturating_sub(1);
+    let bounded_height = new_height.min(height_count.len() - 1);
+    height[node] = bounded_height;
+    height_count[bounded_height] += 1;
+    current_edge[node] = 0;
+
+    if old_height_was_gap {
+        for other in 0..height.len() {
+            if other == source || other == sink {
+                continue;
+            }
+            let other_height = height[other];
+            if other_height > old_height && other_height < node_count {
+                height_count[other_height] = height_count[other_height].saturating_sub(1);
+                height[other] = node_count + 1;
+                height_count[node_count + 1] += 1;
+                current_edge[other] = 0;
+            }
+        }
+    }
+
+    Some(height[node])
+}
+
+fn add_indexed_residual_edge(
+    adjacency: &mut [Vec<usize>],
+    edges: &mut Vec<IndexedResidualEdge>,
+    source: usize,
+    sink: usize,
+    capacity: f64,
+) {
+    let forward = edges.len();
+    let reverse = forward + 1;
+    edges.push(IndexedResidualEdge {
+        to: sink,
+        reverse,
+        capacity,
+    });
+    edges.push(IndexedResidualEdge {
+        to: source,
+        reverse: forward,
+        capacity: 0.0,
+    });
+    adjacency[source].push(forward);
+    adjacency[sink].push(reverse);
+}
+
+fn build_indexed_node_split_auxiliary(graph: &Graph, cutoff: usize) -> IndexedNodeSplitAuxiliary {
+    let nodes = graph.nodes_ordered();
+    let split_node_count = nodes.len() * 2;
+    let mut node_to_base = HashMap::with_capacity(nodes.len());
+    let mut adjacency = vec![Vec::<usize>::new(); split_node_count];
+    let mut edges =
+        Vec::<IndexedResidualEdge>::with_capacity(graph.edge_count() * 4 + nodes.len() * 2);
+    let edge_capacity = cutoff.max(1) as f64;
+
+    for (index, node) in nodes.iter().enumerate() {
+        let base = index * 2;
+        node_to_base.insert((*node).to_owned(), base);
+        add_indexed_residual_edge(&mut adjacency, &mut edges, base, base + 1, 1.0);
+    }
+
+    for node in &nodes {
+        let Some(&base) = node_to_base.get(*node) else {
+            continue;
+        };
+        let source_out = base + 1;
+        if let Some(neighbors) = graph.neighbors_iter(node) {
+            for neighbor in neighbors {
+                if neighbor == *node {
+                    continue;
+                }
+                if let Some(&neighbor_base) = node_to_base.get(neighbor) {
+                    add_indexed_residual_edge(
+                        &mut adjacency,
+                        &mut edges,
+                        source_out,
+                        neighbor_base,
+                        edge_capacity,
+                    );
+                }
+            }
+        }
+    }
+
+    IndexedNodeSplitAuxiliary {
+        node_to_base,
+        adjacency,
+        edges,
+    }
+}
+
+fn indexed_node_connectivity_from_template(
+    template: &IndexedNodeSplitAuxiliary,
+    source: &str,
+    sink: &str,
+    cutoff: usize,
+) -> (usize, usize, usize) {
+    let Some(source_out) = template.out_index(source) else {
+        return (0, 0, 0);
+    };
+    let Some(sink_in) = template.in_index(sink) else {
+        return (0, 0, 0);
+    };
+    let (value, stats) = template.push_relabel_cutoff(source_out, sink_in, cutoff);
+    (value, stats.edges_scanned, stats.active_peak)
+}
+
 /// Compute node connectivity between two specific nodes s and t.
 ///
 /// Uses node-splitting + Edmonds-Karp max-flow on auxiliary graph.
@@ -10732,23 +11045,6 @@ pub fn node_connectivity(graph: &Graph, source: &str, sink: &str) -> NodeConnect
             queue_peak: stats.2,
         },
     }
-}
-
-/// Run local node connectivity from a pre-built node-split residual template.
-/// Cloning the template is equivalent to rebuilding it for each pair because no
-/// pair-specific state exists until `aux_max_flow` mutates the residual clone.
-/// Returns `(connectivity, edges_scanned, queue_peak)`.
-fn node_connectivity_from_template(
-    template: &HashMap<String, HashMap<String, f64>>,
-    source: &str,
-    sink: &str,
-) -> (usize, usize, usize) {
-    let mut residual = template.clone();
-    let s_out = format!("{source}_out");
-    let t_in = format!("{sink}_in");
-    let mut stats = (0_usize, 0_usize, 0_usize);
-    let flow = aux_max_flow(&mut residual, &s_out, &t_in, &mut stats);
-    (flow as usize, stats.1, stats.2)
 }
 
 /// Compute global node connectivity: minimum s-t node connectivity over all pairs.
@@ -10805,25 +11101,29 @@ pub fn global_node_connectivity(graph: &Graph) -> NodeConnectivityResult {
     let mut k = v_neighbors.len();
 
     // The node-split auxiliary depends only on the graph, not the pair.
-    let template = build_node_split_auxiliary(graph);
+    let template = build_indexed_node_split_auxiliary(graph, k);
 
     // Check non-neighbors of v
     for w in &nodes {
         if *w == *v || v_neighbors.contains(*w) {
             continue;
         }
-        let (value, edges_scanned, queue_peak) = node_connectivity_from_template(&template, v, w);
+        let (value, edges_scanned, queue_peak) =
+            indexed_node_connectivity_from_template(&template, v, w, k);
         total_edges_scanned += edges_scanned;
         max_queue_peak = max_queue_peak.max(queue_peak);
         if value < k {
             k = value;
+            if k == 0 {
+                break;
+            }
         }
     }
 
     // Check non-adjacent pairs of neighbors of v (sorted for deterministic witness values)
     let mut v_nbr_vec: Vec<&str> = v_neighbors.iter().copied().collect();
     v_nbr_vec.sort_unstable();
-    for i in 0..v_nbr_vec.len() {
+    'neighbors: for i in 0..v_nbr_vec.len() {
         for j in (i + 1)..v_nbr_vec.len() {
             let x = v_nbr_vec[i];
             let y = v_nbr_vec[j];
@@ -10836,11 +11136,14 @@ pub fn global_node_connectivity(graph: &Graph) -> NodeConnectivityResult {
                 continue;
             }
             let (value, edges_scanned, queue_peak) =
-                node_connectivity_from_template(&template, x, y);
+                indexed_node_connectivity_from_template(&template, x, y, k);
             total_edges_scanned += edges_scanned;
             max_queue_peak = max_queue_peak.max(queue_peak);
             if value < k {
                 k = value;
+                if k == 0 {
+                    break 'neighbors;
+                }
             }
         }
     }
