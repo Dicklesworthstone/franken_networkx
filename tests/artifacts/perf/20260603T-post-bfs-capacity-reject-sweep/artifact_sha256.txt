@@ -1,0 +1,5 @@
+ae78a1ca51ed5c707444dfce92e6094058358aa99887dba22e3acac041ec4547  tests/artifacts/perf/20260603T-post-bfs-capacity-reject-sweep/profile_ego_graph_r2_fnx.txt
+3763fe22f478a1c7b16c759c70b6979d0ce6f62aec3809f9508eae867b0827c1  tests/artifacts/perf/20260603T-post-bfs-capacity-reject-sweep/sweep_profile.rch.log
+ff4b2b9fd1361a1a26f64fc259c934e21689f4c22e6889c94e5278c0cdd7fbe2  tests/artifacts/perf/20260603T-post-bfs-capacity-reject-sweep/target_selection_summary.md
+e4efe824b952bdd123b84e2fa0e40b1f132c69c024aa76e6818a5c507b0b8909  tests/artifacts/perf/20260603T-post-bfs-capacity-reject-sweep/traversal_sweep.jsonl
+af61597d8babf79c7bc63eed6726b589cdeefd5b3aeeff579e3edcaa0643ebc7  tests/artifacts/perf/20260603T-post-bfs-capacity-reject-sweep/ubs_artifacts.log

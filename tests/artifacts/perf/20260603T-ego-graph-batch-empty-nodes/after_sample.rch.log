@@ -1,0 +1,4 @@
+  [2m2026-06-03T15:03:46.961477Z[0m [33m WARN[0m [1;33mrch::hook[0m[33m: [33mexec called with non-compilation command: bash -lc '.venv/bin/python tests/artifacts/perf/20260602T-traversal-residual-sweep/bench_traversal.py sample --impl fnx --op ego_graph_r2 --repeat 50 --n 3000 --m 4 --graph-seed 42 | tee tests/artifacts/perf/20260603T-ego-graph-batch-empty-nodes/after_fnx.jsonl'[0m
+    [2;3mat[0m rch/src/hook.rs:402 [2;3mon[0m ThreadId(1)
+
+{"graph_seed": 42, "impl": "fnx", "m": 4, "max_seconds": 0.035857164999470115, "mean_seconds": 0.02620539966097567, "min_seconds": 0.023774191999109462, "n": 3000, "op": "ego_graph_r2", "p50_seconds": 0.02558465101174079, "repeat": 50, "sha256": "8195242bb15c80fa50c2ad2d1daf43699828f5dadf578d8ac6c22754dddc7849"}
