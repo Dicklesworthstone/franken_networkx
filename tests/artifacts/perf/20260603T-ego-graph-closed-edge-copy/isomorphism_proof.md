@@ -65,6 +65,7 @@ Verdict: productive; source change kept.
 - `rch exec -- .venv/bin/python -m py_compile python/franken_networkx/__init__.py`: passed.
 - `rch exec -- .venv/bin/python -m pytest tests/python/test_quickwin_rewire_parity.py::test_ego_graph_matches_nx tests/python/test_review_mode_regression_lock.py::test_ego_graph_missing_source_and_nan_radius_match_nx -q`: 2 passed.
 - `sha256sum -c tests/artifacts/perf/20260603T-ego-graph-closed-edge-copy/artifact_sha256.txt`: passed.
+- `timeout 120 ubs --only=python python/franken_networkx/__init__.py`: timed out with exit code `124` after detecting Python and starting the scan; see `ubs_timeout.md`.
 - `RCH_ENV_ALLOWLIST=CARGO_TARGET_DIR rch exec -- cargo fmt --package fnx-python --check`: passed.
 - `RCH_ENV_ALLOWLIST=CARGO_TARGET_DIR rch exec -- cargo check -p fnx-python --all-targets`: passed.
 - `timeout 180 ubs python/franken_networkx/__init__.py tests/artifacts/perf/20260603T-ego-graph-edgedataview-materialize/isomorphism_proof.md`: timed out while scanning the large Python wrapper before producing findings.
