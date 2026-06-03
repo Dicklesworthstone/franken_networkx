@@ -1,0 +1,68 @@
+         246654 function calls in 1.336 seconds
+
+   Ordered by: cumulative time
+   List reduced from 113 to 60 due to restriction <60>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.246    0.246    1.336    1.336 /data/projects/franken_networkx/tests/artifacts/perf/20260603T-bfs-tree-raw-construction/bench_bfs_tree_raw.py:33(run_samples)
+       51    0.000    0.000    0.991    0.019 /data/projects/franken_networkx/python/franken_networkx/__init__.py:43026(wrapper)
+       50    0.000    0.000    0.990    0.020 /data/projects/franken_networkx/python/franken_networkx/__init__.py:9646(bfs_tree)
+       50    0.990    0.020    0.990    0.020 {built-in method franken_networkx._fnx.bfs_tree}
+        1    0.000    0.000    0.095    0.095 /data/projects/franken_networkx/tests/artifacts/perf/20260603T-bfs-tree-raw-construction/bench_bfs_tree_raw.py:20(build_graph)
+        1    0.004    0.004    0.095    0.095 /data/projects/franken_networkx/python/franken_networkx/__init__.py:19104(barabasi_albert_graph)
+     2995    0.017    0.000    0.067    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:2458(add_edges_from)
+     2995    0.040    0.000    0.040    0.000 {function Graph.add_edges_from at 0x743ad0e716c0}
+     2995    0.005    0.000    0.022    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:6307(_random_generator_subset)
+    12040    0.006    0.000    0.014    0.000 /usr/lib/python3.13/random.py:345(choice)
+    12040    0.005    0.000    0.007    0.000 /usr/lib/python3.13/random.py:245(_randbelow_with_getrandbits)
+    66083    0.005    0.000    0.005    0.000 {built-in method builtins.len}
+        1    0.000    0.000    0.004    0.004 /data/projects/franken_networkx/tests/artifacts/perf/20260603T-bfs-tree-raw-construction/bench_bfs_tree_raw.py:25(digest_tree)
+    39151    0.003    0.000    0.003    0.000 {built-in method builtins.isinstance}
+    23973    0.002    0.000    0.002    0.000 {built-in method builtins.hash}
+    14975    0.002    0.000    0.002    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:19143(<genexpr>)
+     5990    0.002    0.000    0.002    0.000 {method 'extend' of 'list' objects}
+    17760    0.001    0.000    0.001    0.000 {method 'getrandbits' of '_random.Random' objects}
+    12040    0.001    0.000    0.001    0.000 {method 'add' of 'set' objects}
+    12031    0.001    0.000    0.001    0.000 {method 'append' of 'list' objects}
+    12040    0.001    0.000    0.001    0.000 {method 'bit_length' of 'int' objects}
+     3001    0.001    0.000    0.001    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:43225(__iter__)
+        1    0.000    0.000    0.001    0.001 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1362(__iter__)
+        1    0.000    0.000    0.001    0.001 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1356(_materialize)
+        1    0.001    0.001    0.001    0.001 {method '_native_edges_no_data' of 'franken_networkx.DiGraph' objects}
+     3000    0.001    0.000    0.001    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:425(__next__)
+        1    0.000    0.000    0.001    0.001 /usr/lib/python3.13/json/__init__.py:183(dumps)
+        1    0.000    0.000    0.001    0.001 /usr/lib/python3.13/json/encoder.py:183(encode)
+        1    0.001    0.001    0.001    0.001 /usr/lib/python3.13/json/encoder.py:205(iterencode)
+       50    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:11052(_coerce_arg_to_fnx_graph)
+     3000    0.000    0.000    0.000    0.000 {built-in method builtins.next}
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:15632(star_graph)
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:38841(_add_nodes_in_order)
+        5    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:2240(add_node)
+        5    0.000    0.000    0.000    0.000 {function Graph.add_node at 0x743ad0e70c20}
+      100    0.000    0.000    0.000    0.000 {built-in method time.perf_counter}
+       52    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:18965(_validate_backend_dispatch_keywords)
+        1    0.000    0.000    0.000    0.000 {built-in method _hashlib.openssl_sha256}
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:38727(_checked_create_using)
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:29307(edges)
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:20470(_generator_random_state)
+        4    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:2194(add_edge)
+        1    0.000    0.000    0.000    0.000 /usr/lib/python3.13/logging/__init__.py:2129(getLogger)
+        4    0.000    0.000    0.000    0.000 {function Graph.add_edge at 0x743ad0e70900}
+        1    0.000    0.000    0.000    0.000 /usr/lib/python3.13/weakref.py:164(__setitem__)
+        1    0.000    0.000    0.000    0.000 /usr/lib/python3.13/logging/__init__.py:1362(getLogger)
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:3556(__iter__)
+        2    0.000    0.000    0.000    0.000 {built-in method builtins.iter}
+        4    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:28862(_has_networkx_private_storage)
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:29354(degree)
+       18    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:28854(_private_override)
+        1    0.000    0.000    0.000    0.000 {built-in method builtins.__build_class__}
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:29287(nodes)
+        1    0.000    0.000    0.000    0.000 /usr/lib/python3.13/random.py:119(__init__)
+        1    0.000    0.000    0.000    0.000 /usr/lib/python3.13/statistics.py:494(fmean)
+        5    0.000    0.000    0.000    0.000 /usr/lib/python3.13/logging/__init__.py:1765(isEnabledFor)
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:401(__init__)
+        1    0.000    0.000    0.000    0.000 /usr/lib/python3.13/statistics.py:621(median)
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1372(__len__)
+
+
