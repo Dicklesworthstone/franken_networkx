@@ -422,6 +422,49 @@ impl Graph {
         changed
     }
 
+    /// Bulk node insertion for generated/batched construction paths where
+    /// per-node compatibility evidence would be pure constant-factor overhead.
+    #[must_use]
+    pub fn extend_nodes_unrecorded<I, N>(&mut self, nodes: I) -> usize
+    where
+        I: IntoIterator<Item = N>,
+        N: Into<String>,
+    {
+        let iterator = nodes.into_iter();
+        let (lower_bound, _) = iterator.size_hint();
+        self.nodes.reserve(lower_bound);
+        self.adjacency.reserve(lower_bound);
+        self.adj_indices.reserve(lower_bound);
+
+        let mut inserted = 0usize;
+        for node in iterator {
+            let node = node.into();
+            if self.nodes.contains_key(&node) {
+                continue;
+            }
+            self.nodes.insert(node.clone(), AttrMap::new());
+            self.adjacency.entry(node).or_default();
+            self.adj_indices.push(Vec::new());
+            inserted += 1;
+        }
+        if inserted > 0 {
+            self.revision = self
+                .revision
+                .saturating_add(u64::try_from(inserted).unwrap_or(u64::MAX));
+            self.record_decision(
+                "extend_nodes_unrecorded",
+                0.0,
+                false,
+                vec![EvidenceTerm {
+                    signal: "batch_node_count".to_owned(),
+                    observed_value: inserted.to_string(),
+                    log_likelihood_ratio: -1.0,
+                }],
+            );
+        }
+        inserted
+    }
+
     pub fn apply_node_defaults(&mut self, defaults: &AttrMap) -> bool {
         if defaults.is_empty() {
             return false;
@@ -1782,6 +1825,28 @@ mod tests {
         assert_eq!(
             records.last().map(|record| record.operation.as_str()),
             Some("extend_edges_unrecorded")
+        );
+    }
+
+    #[test]
+    fn extend_nodes_unrecorded_preserves_order_and_records_once() {
+        let mut graph = Graph::strict();
+        graph.add_node("1");
+        let before = graph.evidence_ledger().records().len();
+
+        let inserted =
+            graph.extend_nodes_unrecorded(["0".to_owned(), "1".to_owned(), "2".to_owned()]);
+
+        assert_eq!(inserted, 2);
+        assert_eq!(graph.node_count(), 3);
+        assert_eq!(graph.nodes_ordered(), vec!["1", "0", "2"]);
+        assert_eq!(graph.neighbor_count("0"), 0);
+        assert_eq!(graph.neighbor_count("2"), 0);
+        let records = graph.evidence_ledger().records();
+        assert_eq!(records.len(), before + 1);
+        assert_eq!(
+            records.last().map(|record| record.operation.as_str()),
+            Some("extend_nodes_unrecorded")
         );
     }
 

@@ -3152,6 +3152,33 @@ impl PyGraph {
         Ok(())
     }
 
+    fn _fast_add_int_nodes_range_stop(&mut self, py: Python<'_>, stop: i64) -> PyResult<()> {
+        if stop <= 0 {
+            return Ok(());
+        }
+        let count = usize::try_from(stop).unwrap_or(usize::MAX);
+        self.node_key_map.reserve(count);
+        self.node_py_attrs.reserve(count);
+        let mut canonicals = Vec::with_capacity(count);
+        for node in 0..stop {
+            let canonical = node.to_string();
+            self.node_key_map
+                .entry(canonical.clone())
+                .or_insert_with(|| {
+                    unwrap_infallible(node.into_pyobject(py))
+                        .into_any()
+                        .unbind()
+                });
+            self.node_py_attrs
+                .entry(canonical.clone())
+                .or_insert_with(|| PyDict::new(py).unbind());
+            canonicals.push(canonical);
+            self.bump_nodes_seq();
+        }
+        let _ = self.inner.extend_nodes_unrecorded(canonicals);
+        Ok(())
+    }
+
     /// Remove a single node. Raises ``NetworkXError`` if not present.
     fn remove_node(&mut self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<()> {
         let canonical = node_key_to_string(py, n)?;

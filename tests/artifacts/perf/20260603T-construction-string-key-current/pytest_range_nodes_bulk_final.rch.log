@@ -1,0 +1,6 @@
+  [2m2026-06-03T23:47:30.330087Z[0m [33m WARN[0m [1;33mrch::hook[0m[33m: [33mexec called with non-compilation command: env 'PYTHONPATH=python' .venv/bin/python -m pytest tests/python/test_node_key_canonicalization_parity.py tests/python/test_attribute_access_parity.py tests/python/test_review_mode_regression_lock.py -q -k 'node_key_type_parity or graph_iteration_detects_batch_node_mutations or graph_iteration_detects_add_edge_creating_new_node or attribute'[0m
+    [2;3mat[0m rch/src/hook.rs:402 [2;3mon[0m ThreadId(1)
+
+........................................................................ [ 50%]
+........................................................................ [100%]
+144 passed, 431 deselected in 0.82s

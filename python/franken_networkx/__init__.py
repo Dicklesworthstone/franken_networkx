@@ -2232,6 +2232,9 @@ _GRAPH_ADD_NODE_RAW = Graph.add_node
 _DIGRAPH_ADD_NODE_RAW = DiGraph.add_node
 _MULTIGRAPH_ADD_NODE_RAW = MultiGraph.add_node
 _MULTIDIGRAPH_ADD_NODE_RAW = MultiDiGraph.add_node
+_GRAPH_FAST_ADD_INT_NODES_RANGE_STOP = getattr(
+    Graph, "_fast_add_int_nodes_range_stop", None
+)
 
 
 def _make_none_rejecting_add_node(raw_add_node):
@@ -2272,7 +2275,7 @@ _MULTIGRAPH_ADD_NODE = MultiGraph.add_node
 _MULTIDIGRAPH_ADD_NODE = MultiDiGraph.add_node
 
 
-def _make_add_nodes_from(add_node):
+def _make_add_nodes_from(add_node, fast_add_int_nodes_range_stop=None):
     """Build an ``add_nodes_from`` matching the NetworkX contract.
 
     nx dispatches via hashability: if ``n`` is hashable, it is added as a
@@ -2284,6 +2287,19 @@ def _make_add_nodes_from(add_node):
     """
 
     def add_nodes_from(self, nodes_for_adding, **attr):
+        if (
+            not attr
+            and fast_add_int_nodes_range_stop is not None
+            and type(self) is Graph
+            and type(nodes_for_adding) is range
+            and nodes_for_adding.start == 0
+            and nodes_for_adding.step == 1
+        ):
+            try:
+                fast_add_int_nodes_range_stop(self, nodes_for_adding.stop)
+                return
+            except OverflowError:
+                pass
         bound_add_node = add_node.__get__(self, type(self))
         for n in nodes_for_adding:
             try:
@@ -2298,7 +2314,9 @@ def _make_add_nodes_from(add_node):
     return add_nodes_from
 
 
-Graph.add_nodes_from = _make_add_nodes_from(_GRAPH_ADD_NODE)
+Graph.add_nodes_from = _make_add_nodes_from(
+    _GRAPH_ADD_NODE, _GRAPH_FAST_ADD_INT_NODES_RANGE_STOP
+)
 DiGraph.add_nodes_from = _make_add_nodes_from(_DIGRAPH_ADD_NODE)
 MultiGraph.add_nodes_from = _make_add_nodes_from(_MULTIGRAPH_ADD_NODE)
 MultiDiGraph.add_nodes_from = _make_add_nodes_from(_MULTIDIGRAPH_ADD_NODE)
