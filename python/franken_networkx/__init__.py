@@ -1499,6 +1499,17 @@ class _LiveMultiEdgeCallView:
                         yield (source, target)
 
     def __iter__(self):
+        # br-r37-c1-tmuly: for a MultiDiGraph, materialize the (u, v) 2-tuples
+        # (one per edge incl. parallel, nx node x target x key order) from the
+        # native edge view instead of self._walk()'s pure-Python triple-loop over
+        # the succ AtlasView lambda chain (~3000x slower than nx). Identical
+        # output. Undirected MultiGraph keeps _walk (no native view bound here).
+        if self._directed and hasattr(self._graph, "_native_edge_view"):
+            return _FailFastEdgeIterator(
+                self._graph,
+                iter(self._graph._native_edge_view()(None, False, False, None)),
+                guard_edge_count=True,
+            )
         return _FailFastEdgeIterator(
             self._graph,
             self._walk(),
@@ -1882,22 +1893,31 @@ class _MultiDiGraphEdgeView:
         # _MultiGraphEdgeView.__call__).
         if nbunch is None and data is False and keys is False:
             return _LiveMultiEdgeCallView(self._graph, directed=True)
+        # br-r37-c1-tmuly: build the edge list from the native MultiDiGraphEdgeView
+        # (iterates inner.edges_ordered() in nx order, reusing the live edge attr
+        # dicts) instead of the pure-Python triple-loop over succ[source].items()
+        # — the latter walks the MultiAdjacencyView lambda chain per element
+        # (~3000-7000x slower than nx). The native view only understands
+        # data in {False, True, <str attr>} (parse_view_data); `data=None` (an
+        # explicit attr name None) and other non-str hashable attr names keep the
+        # Python loop, whose attrs.get(data, default) handles any hashable. The
+        # wrapping below (set-algebra list, data/keys view types, count guard) is
+        # unchanged.
         result = _EdgeListWithSetAlgebra()
-        for source in self._graph.nbunch_iter(nbunch):
-            for target, keyed_attrs in self._graph.succ[source].items():
-                for key, attrs in keyed_attrs.items():
-                    if data is True and keys:
-                        result.append((source, target, key, attrs))
-                    elif data is True:
-                        result.append((source, target, attrs))
-                    elif data is False and keys:
-                        result.append((source, target, key))
-                    elif data is False:
-                        result.append((source, target))
-                    elif keys:
-                        result.append((source, target, key, attrs.get(data, default)))
-                    else:
-                        result.append((source, target, attrs.get(data, default)))
+        if data is False or data is True or isinstance(data, str):
+            result.extend(
+                self._graph._native_edge_view()(nbunch, data, keys, default)
+            )
+        else:
+            for source in self._graph.nbunch_iter(nbunch):
+                for target, keyed_attrs in self._graph.succ[source].items():
+                    for key, attrs in keyed_attrs.items():
+                        if keys:
+                            result.append(
+                                (source, target, key, attrs.get(data, default))
+                            )
+                        else:
+                            result.append((source, target, attrs.get(data, default)))
         # br-r37-c1-mgcall (cycle 213): see _MultiGraphEdgeView.__call__
         # — wrap in OutMultiEdgeDataView when data is requested so
         # ``type(MDG.edges(data=True)).__name__`` matches nx.

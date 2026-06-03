@@ -961,6 +961,18 @@ impl PyMultiDiGraph {
         Py::new(py, MultiDiGraphEdgeView { graph: graph_py })
     }
 
+    /// br-r37-c1-tmuly: non-shadowed accessor for the native edge view. The
+    /// Python-side MultiDiGraph.edges is overridden with a property returning a
+    /// pure-Python _MultiDiGraphEdgeView whose __call__ triple-loops over the
+    /// succ AtlasView lambdas (~3000-7000x slower than nx). The Python view now
+    /// materializes its result list from THIS native view (which builds tuples
+    /// from inner.edges_ordered() in nx order, reusing the live edge dicts).
+    fn _native_edge_view(slf: PyRef<'_, Self>) -> PyResult<Py<MultiDiGraphEdgeView>> {
+        let py = slf.py();
+        let graph_py: Py<PyMultiDiGraph> = Py::from(slf);
+        Py::new(py, MultiDiGraphEdgeView { graph: graph_py })
+    }
+
     #[getter]
     fn degree(slf: PyRef<'_, Self>) -> PyResult<Py<MultiDiGraphDegreeView>> {
         let py = slf.py();
