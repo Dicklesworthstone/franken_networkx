@@ -3306,7 +3306,7 @@ impl PyGraph {
                 // dominant construction path: from_dict_of_dicts / list-of-3-tuples).
                 let d = tuple.get_item(2)?;
                 if let Ok(dict_arg) = d.downcast::<PyDict>() {
-                    self.add_edge(py, &u, &v, Some(&dict_arg))?;
+                    self.add_edge(py, &u, &v, Some(dict_arg))?;
                 } else {
                     // Non-dict third element: replicate nx's TypeError shape by
                     // routing through ``dict.update`` (see br-edges3rd below).
