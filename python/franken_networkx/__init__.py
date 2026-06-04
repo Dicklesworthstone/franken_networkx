@@ -2238,6 +2238,9 @@ _GRAPH_FAST_ADD_INT_NODES_RANGE_STOP = getattr(
 _MULTIGRAPH_FAST_ADD_EXPLICIT_INT_EDGE = getattr(
     MultiGraph, "_fast_add_explicit_int_edge", None
 )
+_MULTIGRAPH_FAST_ADD_EXPLICIT_STR_EDGE = getattr(
+    MultiGraph, "_fast_add_explicit_str_edge", None
+)
 
 
 def _make_none_rejecting_add_node(raw_add_node):
@@ -2390,6 +2393,19 @@ def _multi_add_edge_auto_key(raw_add_edge):
             and _MULTIGRAPH_FAST_ADD_EXPLICIT_INT_EDGE is not None
         ):
             fast_key = _MULTIGRAPH_FAST_ADD_EXPLICIT_INT_EDGE(
+                self, u_for_edge, v_for_edge, key
+            )
+            if fast_key is not None:
+                return fast_key
+        if (
+            type(key) is str
+            and not attr
+            and type(u_for_edge) is int
+            and type(v_for_edge) is int
+            and type(self) is MultiGraph
+            and _MULTIGRAPH_FAST_ADD_EXPLICIT_STR_EDGE is not None
+        ):
+            fast_key = _MULTIGRAPH_FAST_ADD_EXPLICIT_STR_EDGE(
                 self, u_for_edge, v_for_edge, key
             )
             if fast_key is not None:

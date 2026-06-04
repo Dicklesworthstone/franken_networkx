@@ -1249,6 +1249,28 @@ impl PyMultiGraph {
         v: &Bound<'_, PyAny>,
         key: &Bound<'_, PyAny>,
     ) -> PyResult<Option<PyObject>> {
+        self.fast_add_explicit_fresh_int_endpoint_edge(py, u, v, key)
+    }
+
+    /// Fast path for ``MultiGraph.add_edge(int, int, key=str)`` when the
+    /// endpoint pair has no existing edge and no attributes are supplied.
+    fn _fast_add_explicit_str_edge(
+        &mut self,
+        py: Python<'_>,
+        u: &Bound<'_, PyAny>,
+        v: &Bound<'_, PyAny>,
+        key: &Bound<'_, PyAny>,
+    ) -> PyResult<Option<PyObject>> {
+        self.fast_add_explicit_fresh_int_endpoint_edge(py, u, v, key)
+    }
+
+    fn fast_add_explicit_fresh_int_endpoint_edge(
+        &mut self,
+        py: Python<'_>,
+        u: &Bound<'_, PyAny>,
+        v: &Bound<'_, PyAny>,
+        key: &Bound<'_, PyAny>,
+    ) -> PyResult<Option<PyObject>> {
         let Ok(u_value) = u.extract::<i64>() else {
             return Ok(None);
         };
