@@ -17849,7 +17849,11 @@ def compose_all(graphs):
         else:
             for u, v, d in H.edges(data=True):
                 R.add_edge(u, v, **d)
-    # br-r37-c1-mmwsw: Always return fnx type for consistency
+    # br-norebuild: skip the redundant _from_nx_graph second construction when R
+    # is already an fnx graph (fnx inputs, the common case); only convert when R
+    # came out as an nx graph (nx-typed inputs).
+    if not isinstance(R, _nx.Graph):
+        return R
     from franken_networkx.readwrite import _from_nx_graph
     return _from_nx_graph(R)
 
@@ -17893,7 +17897,10 @@ def union_all(graphs, rename=()):
         else:
             for u, v, d in G.edges(data=True):
                 R.add_edge(_rename(u), _rename(v), **d)
-    # br-r37-c1-mmwsw: Always return fnx type for consistency
+    # br-norebuild: skip the redundant _from_nx_graph second construction when R
+    # is already an fnx graph; only convert nx-typed results.
+    if not isinstance(R, _nx.Graph):
+        return R
     from franken_networkx.readwrite import _from_nx_graph
     return _from_nx_graph(R)
 
@@ -19151,7 +19158,10 @@ def intersection_all(graphs):
         for u, v in graphs[0].edges():
             if u in R and v in R and all(G.has_edge(u, v) for G in graphs[1:]):
                 R.add_edge(u, v)
-    # br-r37-c1-mmwsw: Always return fnx type for consistency
+    # br-norebuild: skip the redundant _from_nx_graph second construction when R
+    # is already an fnx graph; only convert nx-typed results.
+    if not isinstance(R, _nx.Graph):
+        return R
     from franken_networkx.readwrite import _from_nx_graph
     return _from_nx_graph(R)
 
@@ -39384,9 +39394,11 @@ def relabel_nodes(G, mapping, copy=True):
         else:
             for u, v, d in G.edges(data=True):
                 H.add_edge(_map.get(u, u), _map.get(v, v), **d)
-        # Always return fnx type for consistency
-        from franken_networkx.readwrite import _from_nx_graph
-        return _from_nx_graph(H)
+        # br-norebuild: H was built via _concrete_class_for(G)(), which always
+        # returns the canonical fnx type, so the previous _from_nx_graph(H) was a
+        # redundant SECOND full construction of an already-correct fnx graph
+        # (verified node/edge/adjacency order + attrs identical to networkx).
+        return H
     else:
         mapping_keys = set(_map)
         mapping_values = set(_map.values())
