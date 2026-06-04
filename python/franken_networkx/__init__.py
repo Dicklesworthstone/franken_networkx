@@ -17288,6 +17288,28 @@ def closeness_centrality(
     # br-r37-c1-y77dc: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
 
+    # br-r37-c1-clsingle: a single-node request (u=...) on the standard
+    # unweighted, wf_improved, undirected path previously delegated to networkx,
+    # which paid a full fnx->nx graph conversion (O(V+E)) just to run one BFS --
+    # ~25x SLOWER than nx for one node on n=1500. Compute the single BFS from u
+    # directly instead. The total path length is a sum of INTEGER hop counts, so
+    # the result is byte-identical to nx (and to _raw_closeness_centrality[u]).
+    if (
+        u is not None
+        and distance is None
+        and wf_improved
+        and not G.is_directed()
+        and u in G
+    ):
+        sp = single_source_shortest_path_length(G, u)
+        totsp = sum(sp.values())
+        len_G = len(G)
+        closeness = 0.0
+        if totsp > 0.0 and len_G > 1:
+            closeness = (len(sp) - 1.0) / totsp
+            closeness *= (len(sp) - 1.0) / (len_G - 1)
+        return closeness
+
     # Delegate to NetworkX for unsupported parameters
     if u is not None or distance is not None or not wf_improved:
         return _call_networkx_for_parity(
