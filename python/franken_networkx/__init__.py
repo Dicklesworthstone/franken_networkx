@@ -19248,6 +19248,28 @@ def closeness_vitality(
     float or dict
     """
     _validate_backend_dispatch_keywords("closeness_vitality", backend, backend_kwargs)
+    # br-r37-c1-cvnative: the all-nodes unweighted undirected case previously
+    # called ``G.subgraph(set(G) - {v}).copy()`` once per node — each copy is the
+    # full-graph construction tax (~3.6ms on n=80), so the loop ran ~13x SLOWER
+    # than networkx. Route the CONNECTED case to the native Rust kernel instead (a
+    # single pass that computes every Wiener-index delta over integer adjacency).
+    # The kernel emits values keyed by internal node id, so re-key in ``G``'s node
+    # order to match nx's ``{v: ... for v in G}`` dict. Gate on the exact concrete
+    # ``Graph`` type (the kernel reads the full Rust adjacency, which would bypass
+    # SubgraphView filtering, and only handles undirected simple graphs) and on
+    # connectivity: for a disconnected graph nx's per-node result depends on
+    # whether removing the node reconnects it (``inf`` vs ``nan``), which the
+    # native kernel does not reproduce, so that case keeps the exact Python path.
+    if (
+        node is None
+        and weight is None
+        and wiener_index is None
+        and type(G) is Graph
+        and G.number_of_nodes() >= 2
+        and is_connected(G)
+    ):
+        raw = _rust_closeness_vitality(G)
+        return {v: raw[v] for v in G}
     wi = (
         wiener_index
         if wiener_index is not None
