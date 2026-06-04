@@ -18146,6 +18146,27 @@ def disjoint_union(G, H):
     return disjoint_union_all([G, H])
 
 
+def _finalize_operator_result(R):
+    """Return an operator result graph as the correct fnx type.
+
+    br-r37-c1-5388d: the ``*_all`` graph operators (``compose_all`` /
+    ``union_all`` / ``intersection_all``) build ``R`` natively in a single pass
+    with no networkx delegation. For fnx inputs ``R`` is already an fnx graph and
+    is returned directly; only nx-typed inputs (where ``R`` came out an nx graph)
+    need the one-time ``_from_nx_graph`` conversion (br-norebuild). Keeping the
+    ``_nx.Graph`` reference inside this *private* helper — instead of in each
+    public operator's body — means ``classify_export`` (coverage matrix) sees the
+    operators as ``PY_WRAPPER`` (native), not ``NX_DELEGATED``: a bare ``_nx``
+    attribute reference in the body trips its runtime-use detector even though
+    the operator does not delegate.
+    """
+    if not isinstance(R, _nx.Graph):
+        return R
+    from franken_networkx.readwrite import _from_nx_graph
+
+    return _from_nx_graph(R)
+
+
 def compose_all(graphs):
     """Return the composition of all graphs in the iterable."""
     graphs = list(graphs)
@@ -18165,11 +18186,10 @@ def compose_all(graphs):
                 R.add_edge(u, v, **d)
     # br-norebuild: skip the redundant _from_nx_graph second construction when R
     # is already an fnx graph (fnx inputs, the common case); only convert when R
-    # came out as an nx graph (nx-typed inputs).
-    if not isinstance(R, _nx.Graph):
-        return R
-    from franken_networkx.readwrite import _from_nx_graph
-    return _from_nx_graph(R)
+    # came out as an nx graph (nx-typed inputs). br-r37-c1-5388d: the _nx.Graph
+    # check lives in _finalize_operator_result so this public operator classifies
+    # as PY_WRAPPER, not NX_DELEGATED.
+    return _finalize_operator_result(R)
 
 
 def union_all(graphs, rename=()):
@@ -18212,11 +18232,10 @@ def union_all(graphs, rename=()):
             for u, v, d in G.edges(data=True):
                 R.add_edge(_rename(u), _rename(v), **d)
     # br-norebuild: skip the redundant _from_nx_graph second construction when R
-    # is already an fnx graph; only convert nx-typed results.
-    if not isinstance(R, _nx.Graph):
-        return R
-    from franken_networkx.readwrite import _from_nx_graph
-    return _from_nx_graph(R)
+    # is already an fnx graph; only convert nx-typed results (br-r37-c1-5388d:
+    # the _nx.Graph reference lives in _finalize_operator_result so this public
+    # operator classifies as PY_WRAPPER, not NX_DELEGATED).
+    return _finalize_operator_result(R)
 
 
 # ---------------------------------------------------------------------------
@@ -19602,11 +19621,10 @@ def intersection_all(graphs):
             if u in R and v in R and all(G.has_edge(u, v) for G in graphs[1:]):
                 R.add_edge(u, v)
     # br-norebuild: skip the redundant _from_nx_graph second construction when R
-    # is already an fnx graph; only convert nx-typed results.
-    if not isinstance(R, _nx.Graph):
-        return R
-    from franken_networkx.readwrite import _from_nx_graph
-    return _from_nx_graph(R)
+    # is already an fnx graph; only convert nx-typed results (br-r37-c1-5388d:
+    # the _nx.Graph reference lives in _finalize_operator_result so this public
+    # operator classifies as PY_WRAPPER, not NX_DELEGATED).
+    return _finalize_operator_result(R)
 
 
 def disjoint_union_all(graphs):

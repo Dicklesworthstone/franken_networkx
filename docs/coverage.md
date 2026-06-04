@@ -22,13 +22,13 @@ This ledger separates the broad public-export category from source-visible runti
 | Runtime route | Exports | Helper call sites | Rule |
 |---------------|---------|-------------------|------|
 | RUST_NATIVE | 1 | 0 | native extension export from `franken_networkx._fnx` |
-| PY_WRAPPER | 593 | 0 | Python-defined export with no visible NetworkX route |
-| NETWORKX_HELPER | 139 | 167 | Python-defined export with `_call_networkx_*_for_parity(...)` branches |
+| PY_WRAPPER | 594 | 0 | Python-defined export with no visible NetworkX route |
+| NETWORKX_HELPER | 138 | 168 | Python-defined export with `_call_networkx_*_for_parity(...)` branches |
 | DIRECT_NETWORKX | 0 | 0 | Python-defined export that directly imports or calls NetworkX |
 | CLASS | 28 | 0 | public classes, exceptions, iterators |
 | CONSTANT | 2 | 0 | public non-callable values |
 
-`NETWORKX_HELPER` currently covers 139 public export(s) and 167 parity-helper call site(s).
+`NETWORKX_HELPER` currently covers 138 public export(s) and 168 parity-helper call site(s).
 
 ## Upstream Divergence Ledger
 
@@ -38,7 +38,7 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 |------------------|------|------|
 | native-parity | 1 | public Rust-native export; no Python fallback route detected |
 | wrapper-patched | 24 | public wrapper records a compatibility repair over a lower-level gap |
-| intentionally-delegated | 139 | AST-visible parity helper or direct NetworkX route |
+| intentionally-delegated | 138 | AST-visible parity helper or direct NetworkX route |
 | raw-known-gap | 2 | lower-level raw/native implementation has a documented parity gap |
 | owner-acknowledged-limitation | 2 | documented limitation is intentionally owned until native repair |
 
@@ -100,8 +100,8 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 | `antichains` | 1 | `antichains` |
 | `approximate_current_flow_betweenness_centrality` | 1 | `approximate_current_flow_betweenness_centrality` |
 | `articulation_points` | 1 | `articulation_points` |
-| `astar_path` | 1 | `astar_path` |
-| `astar_path_length` | 1 | `astar_path_length` |
+| `astar_path` | 2 | `astar_path` |
+| `astar_path_length` | 2 | `astar_path_length` |
 | `average_node_connectivity` | 1 | `average_node_connectivity` |
 | `average_shortest_path_length` | 2 | `average_shortest_path_length` |
 | `barycenter` | 1 | `barycenter` |
@@ -153,7 +153,6 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 | `gnm_random_graph` | 1 | `gnm_random_graph` |
 | `goldberg_radzik` | 1 | `goldberg_radzik` |
 | `greedy_color` | 2 | `greedy_color` |
-| `group_degree_centrality` | 1 | `group_degree_centrality` |
 | `harmonic_centrality` | 1 | `harmonic_centrality` |
 | `harmonic_diameter` | 1 | `harmonic_diameter` |
 | `has_eulerian_path` | 3 | `has_eulerian_path` |
