@@ -9296,22 +9296,27 @@ def descendants_at_distance(G, source, distance):
         raise NetworkXError(
             f"The node {source} is not in the graph."
         ) from exc
-    # br-r37-c1-dad-distance: nx returns set() for any non-positive
-    # int distance (the BFS trivially yields nothing) AND for
-    # non-int distances (its range/while loop gracefully degenerates).
-    # The Rust binding raised OverflowError on negative ints (can't
-    # convert to unsigned) and TypeError on non-ints. Match nx's
-    # silently-empty-result contract — but still raise NetworkXError
-    # if the source isn't in the graph (preserved below).
+    # br-r37-c1-dad-distance / br-r37-c1-miu30: nx iterates BFS layers
+    # ``for i, layer in enumerate(bfs_layers(...))`` and returns
+    # ``set(layer)`` only when the *integer* layer index ``i == distance``.
+    # So the result is non-empty ONLY when ``distance`` equals some
+    # non-negative integer: ``2.0`` matches (``2 == 2.0``) and returns
+    # layer 2, but ``0.5``/``1.9``/``-1``/non-numeric never equal any ``i``
+    # and yield ``set()``. The previous code did ``int(distance)`` which
+    # TRUNCATED ``0.5 -> 0`` / ``1.9 -> 1`` and wrongly returned that layer.
+    # The Rust binding instead raised OverflowError/TypeError. Match nx's
+    # silently-empty-result contract — but still raise NetworkXError if the
+    # source isn't in the graph (preserved below).
     try:
         distance_int = int(distance)
-        if distance_int < 0:
-            distance_int = -1  # sentinel: signal "no result"
     except (TypeError, ValueError):
         distance_int = -1  # sentinel: nx-shaped degenerate-empty result
     if source not in G:
         raise NetworkXError(f"The node {source} is not in the graph.")
-    if distance_int < 0:
+    # ``distance != distance_int`` rejects non-integer numerics (0.5, 1.9,
+    # -0.5); ``distance_int < 0`` rejects exact negatives and the non-numeric
+    # sentinel. Both degenerate to nx's empty ``set()``.
+    if distance_int < 0 or distance != distance_int:
         return set()
     # br-r37-c1-dadlocal: the native kernel pays an O(V+E) node-index/adjacency
     # setup even for a local (small-distance) query, making it 30-750x slower
