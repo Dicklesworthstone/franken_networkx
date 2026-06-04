@@ -7484,6 +7484,31 @@ def harmonic_centrality(
     # br-r37-c1-rg8jh: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
 
+    # br-r37-c1-19lrl: harmonic_centrality(G, nbunch=[few]) previously delegated
+    # to networkx, paying a full fnx->nx O(V+E) conversion just to run one BFS per
+    # nbunch node -- ~26x SLOWER than nx (73.9ms vs 2.8ms on n=1500, nbunch=5).
+    # For the standard unweighted, undirected case (distance/sources unset) nx's
+    # algorithm reduces to: for each v in nbunch,
+    #   harmonic(v) = sum over reachable u (d!=0) of 1/d(v, u),
+    # accumulated (running ``+=``) in single_source_shortest_path_length BFS order.
+    # fnx's native single-source BFS emits distances in nx's exact dict order, so
+    # the running float sum is BYTE-IDENTICAL to nx (not merely tolerance). The
+    # result dict is keyed by ``set(G.nbunch_iter(nbunch))`` exactly as nx does.
+    if (
+        nbunch is not None
+        and distance is None
+        and sources is None
+        and not G.is_directed()
+    ):
+        centrality = {u: 0 for u in set(G.nbunch_iter(nbunch))}
+        for v in centrality:
+            cc = 0
+            for u, d_uv in single_source_shortest_path_length(G, v).items():
+                if d_uv != 0:
+                    cc += 1 / d_uv
+            centrality[v] = cc
+        return centrality
+
     if nbunch is not None or distance is not None or sources is not None:
         return _call_networkx_for_parity(
             "harmonic_centrality", G, nbunch=nbunch, distance=distance, sources=sources
