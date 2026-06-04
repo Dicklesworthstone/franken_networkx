@@ -13808,6 +13808,25 @@ class _ApproximationNamespace:
         )
         return _treewidth_min_degree(G)
 
+    def min_weighted_vertex_cover(self, G, weight=None, *, backend=None, **backend_kwargs):
+        # br-vcnative: the generic __getattr__ wrapper round-trips the graph
+        # through ``_networkx_graph_for_parity`` (an O(n^2) fnx->nx conversion)
+        # and runs nx's pure-Python local-ratio loop over the slow fnx views --
+        # ~28x slower than nx at n=1500. The native Rust kernel replicates nx's
+        # edge-order greedy exactly (incl. weight=None => unit weights), so route
+        # straight to it with no conversion.
+        _validate_backend_dispatch_keywords(
+            "min_weighted_vertex_cover", backend, backend_kwargs
+        )
+        G = _coerce_arg_to_fnx_graph(G)
+        if G.is_directed():
+            # networkx iterates the DIRECTED edges of a DiGraph here, so the
+            # greedy order differs from the undirected kernel; delegate to keep
+            # exact parity (the perf-sensitive case is undirected).
+            nx_G = _networkx_graph_for_parity(G)
+            return _nx.approximation.min_weighted_vertex_cover(nx_G, weight=weight)
+        return _raw_min_weighted_vertex_cover(G, weight)
+
     def __getattr__(self, name):
         nx_func = getattr(_nx.approximation, name)
 

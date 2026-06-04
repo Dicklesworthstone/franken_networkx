@@ -18180,34 +18180,57 @@ pub fn degree_histogram(graph: &Graph) -> Vec<usize> {
 /// Guarantees total weight at most twice the optimal.
 ///
 /// Matches `networkx.algorithms.approximation.vertex_cover.min_weighted_vertex_cover`.
-pub fn min_weighted_vertex_cover(graph: &Graph, weight_attr: &str) -> HashMap<String, f64> {
+pub fn min_weighted_vertex_cover(
+    graph: &Graph,
+    weight_attr: Option<&str>,
+) -> HashMap<String, f64> {
+    // Local-ratio greedy 2-approximation, replicated to match networkx EXACTLY.
+    // networkx iterates `G.edges()` (each undirected edge once, yielded from the
+    // endpoint that appears first in node order, oriented smaller-index-first).
+    // We reproduce that by walking the integer adjacency and processing the pair
+    // (u, v) only when `u <= v` (index order) -- this matches networkx's dedup
+    // and orientation, and includes self-loops (u == v), which must put their
+    // node in the cover. `weight_attr = None` means unit weights (networkx
+    // ignores node "weight" attributes then). Pure integer adjacency: no
+    // per-node neighbor-Vec allocation and no string-keyed cost map.
+    //
+    // NOTE: only valid for undirected graphs -- the caller routes DiGraph inputs
+    // (where networkx iterates directed edges) through networkx for parity.
     let nodes = graph.nodes_ordered();
+    let n = nodes.len();
+
+    let mut cost: Vec<f64> = match weight_attr {
+        Some(attr) => nodes
+            .iter()
+            .map(|&nd| {
+                graph
+                    .node_attrs(nd)
+                    .and_then(|a| a.get(attr))
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(1.0)
+            })
+            .collect(),
+        None => vec![1.0; n],
+    };
+
+    let mut covered: Vec<bool> = vec![false; n];
     let mut cover: HashMap<String, f64> = HashMap::new();
-
-    // Mutable cost tracking per node
-    let mut cost: HashMap<&str, f64> = HashMap::new();
-    for &node in &nodes {
-        let w = graph
-            .node_attrs(node)
-            .and_then(|a| a.get(weight_attr))
-            .and_then(|v| v.as_f64())
-            .unwrap_or(1.0);
-        cost.insert(node, w);
-    }
-
-    for &node in &nodes {
-        if let Some(nbrs) = graph.neighbors(node) {
-            for &nbr in &nbrs {
-                if node < nbr && !cover.contains_key(node) && !cover.contains_key(nbr) {
-                    let cu = cost[node];
-                    let cv = cost[nbr];
-                    if cu <= cv {
-                        cover.insert(node.to_owned(), cu);
-                        cost.insert(nbr, cv - cu);
-                    } else {
-                        cover.insert(nbr.to_owned(), cv);
-                        cost.insert(node, cu - cv);
-                    }
+    for u in 0..n {
+        let Some(nbrs) = graph.neighbors_indices(u) else {
+            continue;
+        };
+        for &v in nbrs {
+            if u <= v && !covered[u] && !covered[v] {
+                let cu = cost[u];
+                let cv = cost[v];
+                if cu <= cv {
+                    cover.insert(nodes[u].to_owned(), cu);
+                    covered[u] = true;
+                    cost[v] = cv - cu;
+                } else {
+                    cover.insert(nodes[v].to_owned(), cv);
+                    covered[v] = true;
+                    cost[u] = cu - cv;
                 }
             }
         }
@@ -41597,7 +41620,7 @@ mod tests {
         let _ = g.add_edge("a", "b");
         let _ = g.add_edge("b", "c");
         let _ = g.add_edge("a", "c");
-        let cover = min_weighted_vertex_cover(&g, "weight");
+        let cover = min_weighted_vertex_cover(&g, Some("weight"));
         // Must cover all edges
         for edge in g.edges_ordered() {
             assert!(
@@ -41616,7 +41639,7 @@ mod tests {
         let _ = g.add_edge("center", "b");
         let _ = g.add_edge("center", "c");
         let _ = g.add_edge("center", "d");
-        let cover = min_weighted_vertex_cover(&g, "weight");
+        let cover = min_weighted_vertex_cover(&g, Some("weight"));
         // Every edge has "center" as an endpoint, so center must be in cover
         assert!(cover.contains_key("center"));
         // And all edges must be covered
@@ -41628,7 +41651,7 @@ mod tests {
     #[test]
     fn test_min_weighted_vertex_cover_empty() {
         let g = Graph::strict();
-        let cover = min_weighted_vertex_cover(&g, "weight");
+        let cover = min_weighted_vertex_cover(&g, Some("weight"));
         assert!(cover.is_empty());
     }
 
@@ -41636,7 +41659,7 @@ mod tests {
     fn test_min_weighted_vertex_cover_single_edge() {
         let mut g = Graph::strict();
         let _ = g.add_edge("x", "y");
-        let cover = min_weighted_vertex_cover(&g, "weight");
+        let cover = min_weighted_vertex_cover(&g, Some("weight"));
         // Local-ratio adds only the cheaper endpoint (equal weight → lexicographically first)
         assert_eq!(cover.len(), 1);
         // The edge must be covered

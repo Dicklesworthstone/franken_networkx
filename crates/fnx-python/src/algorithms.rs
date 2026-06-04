@@ -10208,13 +10208,9 @@ fn min_weighted_vertex_cover(
 ) -> PyResult<PyObject> {
     let gr = extract_graph(g)?;
     let inner = gr.undirected();
-    let attr = weight.unwrap_or("weight");
-    let result = py.allow_threads(|| fnx_algorithms::min_weighted_vertex_cover(inner, attr));
-    let dict = pyo3::types::PyDict::new(py);
-    for (node, w) in &result {
-        dict.set_item(gr.py_node_key(py, node), w)?;
-    }
-    // NetworkX returns a set of nodes (ignoring weights), so return just a set.
+    // `weight = None` -> every node weight 1 (networkx ignores node attrs then).
+    let result = py.allow_threads(|| fnx_algorithms::min_weighted_vertex_cover(inner, weight));
+    // NetworkX returns a set of nodes (ignoring weights).
     let pyset = pyo3::types::PySet::new(
         py,
         result
