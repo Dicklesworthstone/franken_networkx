@@ -15,11 +15,61 @@ Current native overrides:
 
 from __future__ import annotations
 
+import networkx as _nx
 from networkx.algorithms.bipartite import *  # noqa: F401,F403
 import networkx.algorithms.bipartite as _nx_bipartite
 
 import franken_networkx as _fnx
 from franken_networkx.readwrite import _from_nx_graph
+
+
+def _matching_nx_view(B):
+    """Lightweight fnx->nx conversion (nodes + edges, no attributes) for the
+    bipartite matching algorithms, which only read adjacency.
+
+    br-r37-c1-bipmatch: the matching functions were re-exported straight from
+    networkx, so calling ``fnx.bipartite.hopcroft_karp_matching(F)`` ran nx's
+    algorithm directly over the fnx graph -- every adjacency access pays the
+    String-keyed PyO3 substrate cost, and Hopcroft-Karp/Eppstein sweep the
+    adjacency many times, so it was 3-6x SLOWER than networkx. Convert ONCE to a
+    plain nx graph (node order + ``B.edges()`` order preserved, so adj[u] matches
+    a directly-built nx graph -> byte-identical matching) and let nx's C-speed
+    adjacency carry the repeated sweeps. nx-typed inputs are returned as-is.
+    """
+    if isinstance(B, _nx.Graph):  # already a networkx graph
+        return B
+    if B.is_multigraph():
+        G = _nx.MultiDiGraph() if B.is_directed() else _nx.MultiGraph()
+        G.add_nodes_from(B)
+        G.add_edges_from(B.edges(keys=True))
+    else:
+        G = _nx.DiGraph() if B.is_directed() else _nx.Graph()
+        G.add_nodes_from(B)
+        G.add_edges_from(B.edges())
+    return G
+
+
+def hopcroft_karp_matching(G, top_nodes=None):
+    """Maximum-cardinality matching of bipartite ``G`` (Hopcroft-Karp).
+
+    br-r37-c1-bipmatch: computed on a one-shot nx view of the fnx graph instead
+    of running nx's algorithm over the fnx substrate (3-6x slower). Result is
+    byte-identical to ``networkx.bipartite.hopcroft_karp_matching``.
+    """
+    return _nx_bipartite.hopcroft_karp_matching(_matching_nx_view(G), top_nodes)
+
+
+def maximum_matching(G, top_nodes=None):
+    """Alias of :func:`hopcroft_karp_matching` (matches networkx)."""
+    return _nx_bipartite.maximum_matching(_matching_nx_view(G), top_nodes)
+
+
+def eppstein_matching(G, top_nodes=None):
+    """Maximum-cardinality matching of bipartite ``G`` (Eppstein).
+
+    br-r37-c1-bipmatch: see :func:`hopcroft_karp_matching`.
+    """
+    return _nx_bipartite.eppstein_matching(_matching_nx_view(G), top_nodes)
 
 
 def collaboration_weighted_projected_graph(B, nodes, *, backend=None, **backend_kwargs):
