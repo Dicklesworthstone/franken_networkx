@@ -1025,6 +1025,38 @@ fn spanning_input_graph(
     Ok(sanitized)
 }
 
+/// br-r37-c1-mstcsr: validate that no edge carries a NaN weight, raising the
+/// exact networkx error (same `edges_ordered()` scan order and message as
+/// `spanning_input_graph`) — but WITHOUT building a sanitized graph copy. For
+/// the common `ignore_nan=false` path this lets the MST kernel run directly on
+/// the original graph (the kernel reads the `weight` attr in place), avoiding
+/// the O(V+E) construction tax that dominated the previous binding.
+fn validate_spanning_no_nan(py: Python<'_>, gr: &GraphRef<'_>, weight: &str) -> PyResult<()> {
+    let inner = gr.undirected();
+    for edge in inner.edges_ordered() {
+        let has_nan_weight = edge
+            .attrs
+            .get(weight)
+            .and_then(|weight_value| weight_value.as_f64())
+            .is_some_and(f64::is_nan);
+        if has_nan_weight {
+            let py_u = gr.py_node_key(py, &edge.left);
+            let py_v = gr.py_node_key(py, &edge.right);
+            let edge_attrs = match gr.edge_attrs_for_undirected(&edge.left, &edge.right) {
+                Some(attrs) => attrs.bind(py).copy()?,
+                None => PyDict::new(py),
+            };
+            return Err(PyValueError::new_err(format!(
+                "NaN found as an edge weight. Edge ({}, {}, {})",
+                py_u.bind(py).repr()?,
+                py_v.bind(py).repr()?,
+                edge_attrs.repr()?,
+            )));
+        }
+    }
+    Ok(())
+}
+
 fn mst_edges_to_python(
     py: Python<'_>,
     gr: &GraphRef<'_>,
@@ -4797,9 +4829,19 @@ pub fn minimum_spanning_edges(
     let _ = keys;
     validate_spanning_algorithm(algorithm)?;
     let gr = extract_graph(g)?;
-    let input = spanning_input_graph(py, &gr, weight, ignore_nan)?;
+    require_undirected(&gr, "spanning_edges")?;
     let w = weight.to_owned();
-    let result = py.allow_threads(move || fnx_algorithms::minimum_spanning_tree(&input, &w));
+    // br-r37-c1-mstcsr: ignore_nan must DROP NaN-weighted edges, which only the
+    // sanitized copy does; the common (ignore_nan=false) path just validates and
+    // runs the kernel directly on the original graph — no copy.
+    let result = if ignore_nan {
+        let input = spanning_input_graph(py, &gr, weight, ignore_nan)?;
+        py.allow_threads(move || fnx_algorithms::minimum_spanning_tree(&input, &w))
+    } else {
+        validate_spanning_no_nan(py, &gr, weight)?;
+        let inner = gr.undirected();
+        fnx_algorithms::minimum_spanning_tree(inner, &w)
+    };
     mst_edges_to_python(py, &gr, &result.edges, data)
 }
 

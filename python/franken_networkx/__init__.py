@@ -8439,12 +8439,18 @@ def minimum_spanning_edges(G, algorithm="kruskal", weight="weight", keys=True, d
         raise NetworkXNotImplemented("not implemented for directed type")
 
     def _gen():
-        # br-mstcallable / br-mstweightwrong: same suboptimal-MST issue
-        # as the tree functions; delegate anything weighted to nx.
+        # br-r37-c1-mstcsr: the native kruskal kernel now reproduces nx's exact
+        # MST — edge set, yield order AND (u, v) orientation — via node-index
+        # edge orientation + a weight-only stable sort (the old kernel
+        # canonicalised endpoints by string, flipping orientation and breaking
+        # ties differently, which is why weighted graphs used to delegate to nx).
+        # Route the weighted *simple-graph* case here too: delegating paid a full
+        # fnx->nx conversion + nx kruskal (~4-5x slower). Multigraphs (parallel-
+        # edge keys), prim/boruvka and callable weights still delegate to nx.
         if (
             algorithm == "kruskal"
             and isinstance(weight, str)
-            and not _mst_has_weight_edge_attr(G, weight)
+            and not G.is_multigraph()
         ):
             yield from _raw_minimum_spanning_edges(G, algorithm=algorithm, weight=weight, keys=keys, data=data, ignore_nan=ignore_nan)
             return

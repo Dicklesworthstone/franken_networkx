@@ -6916,20 +6916,25 @@ pub fn minimum_spanning_tree(graph: &Graph, weight_attr: &str) -> MinimumSpannin
         };
     }
 
-    // Collect all edges with weights
-    let mut edge_list: Vec<(f64, &str, &str)> = Vec::new();
-    let mut seen = HashSet::new();
-    for node in &nodes {
-        if let Some(neighbors) = graph.neighbors_iter(node) {
-            for neighbor in neighbors {
-                let (left, right) = if *node <= neighbor {
-                    (*node, neighbor)
-                } else {
-                    (neighbor, *node)
-                };
-                if seen.insert((left, right)) {
-                    let weight = matching_edge_weight_or_default(graph, left, right, weight_attr);
-                    edge_list.push((weight, left, right));
+    // br-r37-c1-mstcsr: collect edges in networkx's exact `G.edges()` order and
+    // orientation — iterate nodes in index order, emit each undirected edge once
+    // from its smaller-index endpoint (the node nx encounters first), oriented
+    // `(smaller_idx, neighbor)` in neighbour-iteration order. This reproduces
+    // nx's edge sequence, so the weight-only *stable* sort yields nx's exact MST
+    // (edge set, yield order AND (u, v) orientation), which lets the public
+    // wrapper route the weighted case here instead of paying a fnx->nx
+    // conversion + nx kruskal. The old kernel canonicalised to (min, max) by
+    // *string*, which flipped the orientation of any edge whose endpoints sort
+    // differently as strings vs by index (e.g. nodes 4 and 16). Integer
+    // union-find over indices replaces the per-op `HashMap<&str>` String tax.
+    let mut edge_list: Vec<(f64, usize, usize)> = Vec::new();
+    for s in 0..n {
+        if let Some(neighbors) = graph.neighbors_indices(s) {
+            for &v in neighbors {
+                if s < v {
+                    let weight =
+                        matching_edge_weight_or_default(graph, nodes[s], nodes[v], weight_attr);
+                    edge_list.push((weight, s, v));
                 }
             }
         }
@@ -6939,30 +6944,25 @@ pub fn minimum_spanning_tree(graph: &Graph, weight_attr: &str) -> MinimumSpannin
 
     // NetworkX sorts edges by weight ONLY with a *stable* sort, so equal-weight
     // edges retain G.edges() iteration order. `edge_list` was collected in that
-    // same order (node-order x neighbor-order, first-seen), and Rust's `sort_by`
-    // is stable, so weight-only is enough. A lexicographic (left, right)
-    // tie-break would select a *different* (still valid) MST than nx whenever
-    // weights tie — e.g. on unweighted graphs where every weight defaults to 1.
+    // same order, and Rust's `sort_by` is stable, so weight-only is enough.
     edge_list.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
 
-    // Union-Find
-    let mut parent: HashMap<&str, &str> = HashMap::new();
-    let mut rank: HashMap<&str, usize> = HashMap::new();
-    for node in &nodes {
-        parent.insert(node, node);
-        rank.insert(node, 0);
-    }
+    // Integer union-find over node indices (no String hashing). The union
+    // strategy does not affect *which* edges Kruskal accepts (only find()
+    // performance), so the accepted edge sequence is identical to the old
+    // HashMap<&str> version.
+    let mut parent: Vec<usize> = (0..n).collect();
+    let mut rank: Vec<u32> = vec![0; n];
 
-    fn find<'a>(parent: &mut HashMap<&'a str, &'a str>, x: &'a str) -> &'a str {
+    fn find(parent: &mut [usize], x: usize) -> usize {
         let mut root = x;
         while parent[root] != root {
             root = parent[root];
         }
-        // Path compression
         let mut current = x;
         while current != root {
             let next = parent[current];
-            parent.insert(current, root);
+            parent[current] = root;
             current = next;
         }
         root
@@ -6972,27 +6972,24 @@ pub fn minimum_spanning_tree(graph: &Graph, weight_attr: &str) -> MinimumSpannin
     let mut total_weight = 0.0;
     let mut nodes_touched = 0usize;
 
-    for (weight, left, right) in &edge_list {
-        let root_a = find(&mut parent, left);
-        let root_b = find(&mut parent, right);
+    for (weight, a, b) in &edge_list {
+        let root_a = find(&mut parent, *a);
+        let root_b = find(&mut parent, *b);
         if root_a != root_b {
-            // Union by rank
-            let rank_a = rank[root_a];
-            let rank_b = rank[root_b];
-            if rank_a < rank_b {
-                parent.insert(root_a, root_b);
-            } else if rank_a > rank_b {
-                parent.insert(root_b, root_a);
+            if rank[root_a] < rank[root_b] {
+                parent[root_a] = root_b;
+            } else if rank[root_a] > rank[root_b] {
+                parent[root_b] = root_a;
             } else {
-                parent.insert(root_b, root_a);
-                rank.insert(root_a, rank_a + 1);
+                parent[root_b] = root_a;
+                rank[root_a] += 1;
             }
             mst_edges.push(MstEdge {
-                left: left.to_string(),
-                right: right.to_string(),
+                left: nodes[*a].to_string(),
+                right: nodes[*b].to_string(),
                 weight: *weight,
             });
-            cgse_record_decision(&mut cgse_sink, left, right);
+            cgse_record_decision(&mut cgse_sink, nodes[*a], nodes[*b]);
             total_weight += weight;
             nodes_touched += 2;
             if mst_edges.len() == n - 1 {
