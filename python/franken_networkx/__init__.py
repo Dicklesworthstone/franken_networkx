@@ -36920,14 +36920,22 @@ def effective_graph_resistance(G, weight=None, invert_weight=True):
     if not _is_connected_undirected(G):
         return float("inf")
 
-    H = _copy_graph_shallow(G)
+    # br-egrnocopy: only copy when edge weights are actually mutated. nx
+    # inverts weights on a copy when invert_weight is True AND a weight key is
+    # given; for the default weight=None path the shallow copy was pure
+    # construction-tax waste (~5x slower than nx on a 300-node graph; washes
+    # out only once the O(n^3) eigvalsh dominates). Read the spectrum directly
+    # off G when no inversion is needed -- bit-identical result.
     if invert_weight and weight is not None:
+        H = _copy_graph_shallow(G)
         if H.is_multigraph():
             for _, _, _, attrs in H.edges(keys=True, data=True):
                 attrs[weight] = 1 / attrs[weight]
         else:
             for _, _, attrs in H.edges(data=True):
                 attrs[weight] = 1 / attrs[weight]
+    else:
+        H = G
 
     mu = np.sort(laplacian_spectrum(H, weight=weight))
     return float(np.sum(1 / mu[1:]) * H.number_of_nodes())
