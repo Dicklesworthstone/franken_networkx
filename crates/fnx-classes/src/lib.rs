@@ -33,17 +33,6 @@ impl EdgeKey {
             }
         }
     }
-
-    fn from_owned(left: String, right: String) -> Self {
-        if left <= right {
-            Self { left, right }
-        } else {
-            Self {
-                left: right,
-                right: left,
-            }
-        }
-    }
 }
 
 #[derive(Hash, PartialEq, Eq, Clone, Copy)]
@@ -524,55 +513,70 @@ impl Graph {
         L: Into<String>,
         R: Into<String>,
     {
+        let iterator = edges.into_iter();
+        let (lower_bound, _) = iterator.size_hint();
+        self.nodes.reserve(lower_bound);
+        self.adjacency.reserve(lower_bound);
+        self.adj_indices.reserve(lower_bound);
+        self.edges.reserve(lower_bound);
+        self.edge_index_endpoints.reserve(lower_bound);
+
         let mut inserted = 0usize;
         let mut nodes_added = false;
-        for (left, right) in edges {
+        for (left, right) in iterator {
             let left = left.into();
             let right = right.into();
-            if !self.nodes.contains_key(&left) {
-                self.nodes.insert(left.clone(), AttrMap::new());
-                self.adjacency.entry(left.clone()).or_default();
-                self.adj_indices.push(Vec::new());
-                nodes_added = true;
-            }
-            if left != right && !self.nodes.contains_key(&right) {
-                self.nodes.insert(right.clone(), AttrMap::new());
-                self.adjacency.entry(right.clone()).or_default();
-                self.adj_indices.push(Vec::new());
-                nodes_added = true;
-            }
-            let left_idx = self.nodes.get_index_of(&left);
-            let right_idx = self.nodes.get_index_of(&right);
+            let left_idx = match self.nodes.get_index_of(&left) {
+                Some(index) => index,
+                None => {
+                    let index = self.nodes.len();
+                    self.nodes.insert(left.clone(), AttrMap::new());
+                    self.adjacency.insert(left.clone(), IndexSet::new());
+                    self.adj_indices.push(Vec::new());
+                    nodes_added = true;
+                    index
+                }
+            };
+            let right_idx = if left == right {
+                left_idx
+            } else {
+                match self.nodes.get_index_of(&right) {
+                    Some(index) => index,
+                    None => {
+                        let index = self.nodes.len();
+                        self.nodes.insert(right.clone(), AttrMap::new());
+                        self.adjacency.insert(right.clone(), IndexSet::new());
+                        self.adj_indices.push(Vec::new());
+                        nodes_added = true;
+                        index
+                    }
+                }
+            };
             let edge_key = EdgeKeyRef::new(&left, &right);
             if self.edges.contains_key(&edge_key) {
                 continue;
             }
-            let adjacency_left = left.clone();
-            let adjacency_right = right.clone();
-            if let (Some(left_idx), Some(right_idx)) = (left_idx, right_idx) {
-                if adjacency_left <= adjacency_right {
-                    self.edge_index_endpoints.push((left_idx, right_idx));
-                } else {
-                    self.edge_index_endpoints.push((right_idx, left_idx));
-                }
+            if left <= right {
+                self.edge_index_endpoints.push((left_idx, right_idx));
+            } else {
+                self.edge_index_endpoints.push((right_idx, left_idx));
             }
             self.edges
-                .insert(EdgeKey::from_owned(left, right), AttrMap::new());
+                .insert(EdgeKey::new(&left, &right), AttrMap::new());
             self.adjacency
-                .entry(adjacency_left.clone())
-                .or_default()
-                .insert(adjacency_right.clone());
-            self.adjacency
-                .entry(adjacency_right)
-                .or_default()
-                .insert(adjacency_left);
+                .get_mut(&left)
+                .expect("edge endpoint must have an adjacency bucket")
+                .insert(right.clone());
+            if left != right {
+                self.adjacency
+                    .get_mut(&right)
+                    .expect("edge endpoint must have an adjacency bucket")
+                    .insert(left.clone());
+            }
 
-            // Update integer adjacency
-            if let (Some(left_idx), Some(right_idx)) = (left_idx, right_idx) {
-                self.adj_indices[left_idx].push(right_idx);
-                if left_idx != right_idx {
-                    self.adj_indices[right_idx].push(left_idx);
-                }
+            self.adj_indices[left_idx].push(right_idx);
+            if left_idx != right_idx {
+                self.adj_indices[right_idx].push(left_idx);
             }
             inserted += 1;
         }
