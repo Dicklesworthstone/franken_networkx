@@ -24472,10 +24472,31 @@ def all_triads(G):
     nodes = list(G.nodes())
     n = len(nodes)
 
+    # br-ctcg-triaddirect: `G.subgraph([i, j, k]).copy()` per triad routes
+    # through fnx's filtered-view + materialize-copy machinery, ~7x slower than
+    # networkx (1960ms vs 271ms on gnm(40, 200)). Snapshot G's node/edge/graph
+    # attributes once and build each 3-node induced DiGraph directly with
+    # add_nodes_from / add_edges_from — same nodes, induced edges, and
+    # node/edge/graph attribute copies as the subgraph copy, without the
+    # per-triad view overhead. 1960ms -> 171ms (faster than nx).
+    graph_attrs = dict(G.graph)
+    node_attrs = {node: dict(G.nodes[node]) for node in nodes}
+    out_adj = {node: {nbr: dict(data) for nbr, data in G[node].items()} for node in nodes}
+
     for i in range(n):
         for j in range(i + 1, n):
             for k in range(j + 1, n):
-                yield G.subgraph([nodes[i], nodes[j], nodes[k]]).copy()
+                triple = (nodes[i], nodes[j], nodes[k])
+                H = DiGraph()
+                H.graph.update(graph_attrs)
+                H.add_nodes_from((t, dict(node_attrs[t])) for t in triple)
+                H.add_edges_from(
+                    (a, b, dict(out_adj[a][b]))
+                    for a in triple
+                    for b in triple
+                    if a != b and b in out_adj[a]
+                )
+                yield H
 
 
 def triad_type(G):
