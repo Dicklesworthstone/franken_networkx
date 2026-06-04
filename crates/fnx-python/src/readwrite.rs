@@ -1124,11 +1124,7 @@ fn floyd_warshall_dense_inplace(dist: &mut [f64], n: usize) {
 /// 1.0 when the key is absent (matches nx `to_numpy_array`'s `data.get(weight,
 /// 1)`); a present-but-non-numeric value raises (as nx would when assembling the
 /// float matrix).
-fn fw_edge_weight(
-    py: Python<'_>,
-    attrs: Option<&Py<PyDict>>,
-    weight: &str,
-) -> PyResult<f64> {
+fn fw_edge_weight(py: Python<'_>, attrs: Option<&Py<PyDict>>, weight: &str) -> PyResult<f64> {
     match attrs {
         Some(d) => match d.bind(py).get_item(weight)? {
             Some(val) => val.extract::<f64>(),
