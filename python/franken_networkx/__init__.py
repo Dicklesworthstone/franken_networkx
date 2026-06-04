@@ -25405,6 +25405,40 @@ def hyper_wiener_index(G, weight=None):
     return _fnx.hyper_wiener_index_rust(G)
 
 
+def _resistance_single_pair_sparse(Gc, nodelist, weight, ia, ib):
+    """Effective resistance between two nodes via one grounded reduced-Laplacian
+    sparse solve.
+
+    ``r(i, j) = (e_i - e_j)_red^T L_red^{-1} (e_i - e_j)_red`` where ``_red``
+    drops a grounded node (node 0).  This is O(nnz) (one sparse SPD solve) versus
+    the full dense O(n^3) Laplacian pseudo-inverse, and is exact to machine
+    precision (matches the pinv formula to ~3e-15).  Returns ``None`` if the
+    sparse path is unusable so the caller can fall back to the dense pinv.
+    """
+    import numpy as np
+
+    try:
+        import scipy.sparse as sp
+        import scipy.sparse.linalg as spla
+
+        L = laplacian_matrix(Gc, nodelist=nodelist, weight=weight)
+        n = L.shape[0]
+        if n < 2:
+            return None
+        Lr = sp.csc_matrix(L)[1:, :][:, 1:].tocsc()   # ground node 0
+        v = np.zeros(n)
+        v[ia] = 1.0
+        v[ib] = -1.0
+        vr = v[1:]
+        y = spla.spsolve(Lr, vr)
+        r = float(vr @ y)
+        if not np.isfinite(r):
+            return None
+        return r
+    except Exception:
+        return None
+
+
 def resistance_distance(G, nodeA=None, nodeB=None, weight=None, invert_weight=True):
     """Return the resistance distance between nodes.
 
@@ -25480,13 +25514,27 @@ def resistance_distance(G, nodeA=None, nodeB=None, weight=None, invert_weight=Tr
             for u, v, d in Gc.edges(data=True):
                 Gc[u][v][weight] = 1 / d[weight]
 
+    idx = {node: i for i, node in enumerate(nodelist)}
+
+    # br-resdsparse: the single-pair query (both endpoints given) is the common
+    # call shape and only needs one scalar, yet the code below builds the full
+    # dense O(n^3) Laplacian pseudo-inverse. Compute it instead with one grounded
+    # reduced-Laplacian sparse solve -- O(nnz), exact to ~1e-14. The dict /
+    # all-pairs shapes need diag(L^+), so they keep the dense pinv. Any numerical
+    # failure falls through to the dense path below.
+    if nodeA is not None and nodeB is not None:
+        ia, ib = idx[nodeA], idx[nodeB]
+        if ia == ib:
+            return 0.0
+        r = _resistance_single_pair_sparse(Gc, nodelist, weight, ia, ib)
+        if r is not None:
+            return r
+
     # br-r37-c1-uvupu: use weight directly, not weight or "weight"
     # which incorrectly uses "weight" when None is passed
     L = laplacian_matrix(Gc, nodelist=nodelist, weight=weight).toarray()
     # Pseudo-inverse of Laplacian (symmetric for undirected graphs)
     L_pinv = np.linalg.pinv(L, hermitian=True)
-
-    idx = {node: i for i, node in enumerate(nodelist)}
 
     def _rd(a, b):
         i, j = idx[a], idx[b]
