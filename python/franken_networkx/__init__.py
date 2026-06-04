@@ -9229,12 +9229,35 @@ def descendants_at_distance(G, source, distance):
         raise NetworkXError(f"The node {source} is not in the graph.")
     if distance_int < 0:
         return set()
-    try:
-        return set(_raw_descendants_at_distance(G, source, distance_int))
-    except NodeNotFound as exc:
-        raise NetworkXError(
-            f"The node {source} is not in the graph."
-        ) from exc
+    # br-r37-c1-dadlocal: the native kernel pays an O(V+E) node-index/adjacency
+    # setup even for a local (small-distance) query, making it 30-750x slower
+    # than networkx for distance 1-2 (the common k-hop-neighbourhood use). Run
+    # networkx's exact layer BFS directly on the fnx graph for the local case;
+    # if the frontier goes "global" (visited > 64) the Rust BFS over the whole
+    # graph wins, so bail to the native kernel. The result is a set (order-
+    # invariant), so it is byte-identical to networkx and to the native kernel.
+    current = {source}
+    visited = {source}
+    d = 0
+    while d < distance_int:
+        if len(visited) > 64:
+            try:
+                return set(_raw_descendants_at_distance(G, source, distance_int))
+            except NodeNotFound as exc:
+                raise NetworkXError(
+                    f"The node {source} is not in the graph."
+                ) from exc
+        next_layer = set()
+        for node in current:
+            for child in G.neighbors(node):
+                if child not in visited:
+                    visited.add(child)
+                    next_layer.add(child)
+        current = next_layer
+        d += 1
+        if not current:
+            break
+    return current
 
 # Algorithm functions — traversal (DFS) — wrapped for sort_neighbors support
 from franken_networkx._fnx import (
