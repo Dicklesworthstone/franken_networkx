@@ -5192,64 +5192,77 @@ fn compute_max_flow_residual<G: FlowGraphView>(
     }
 
     let ordered_nodes = graph.flow_nodes_ordered();
-    let mut residual: HashMap<String, HashMap<String, f64>> = HashMap::new();
+    let n = ordered_nodes.len();
+
+    // Integer-relabel nodes in lexicographic (string) order so that
+    // ascending-index neighbor iteration reproduces the original
+    // `neighbors.sort_unstable()` traversal order EXACTLY. This preserves
+    // Edmonds-Karp's augmenting-path selection (hence identical flow values,
+    // residual, and min-cut), while replacing per-node String hashing and the
+    // per-BFS-visit re-sort with flat integer arrays and ordered BTreeMaps.
+    let mut sorted_keys: Vec<&str> = ordered_nodes.iter().map(|s| s.as_str()).collect();
+    sorted_keys.sort_unstable();
+    let mut idx_of: HashMap<&str, usize> = HashMap::with_capacity(n);
+    for (i, k) in sorted_keys.iter().enumerate() {
+        idx_of.insert(*k, i);
+    }
+    let key_of: Vec<String> = sorted_keys.iter().map(|s| (*s).to_owned()).collect();
+
+    // residual_i[u]: ordered map (neighbor index -> residual capacity).
+    let mut residual_i: Vec<std::collections::BTreeMap<usize, f64>> =
+        vec![std::collections::BTreeMap::new(); n];
     for node in &ordered_nodes {
-        residual.entry(node.clone()).or_default();
+        let u = idx_of[node.as_str()];
         for neighbor in graph.flow_outgoing_neighbors(node) {
             let capacity = graph.flow_edge_capacity(node, &neighbor, capacity_attr);
-            residual
-                .entry(node.clone())
-                .or_default()
-                .entry(neighbor.clone())
-                .or_insert(capacity);
-            residual.entry(neighbor).or_default();
+            let v = idx_of[neighbor.as_str()];
+            residual_i[u].entry(v).or_insert(capacity);
         }
     }
+
+    let source_idx = idx_of[source];
+    let sink_idx = idx_of[sink];
 
     let mut total_flow = 0.0_f64;
     let mut nodes_touched = 0_usize;
     let mut edges_scanned = 0_usize;
     let mut queue_peak = 0_usize;
 
+    let mut predecessor: Vec<usize> = vec![usize::MAX; n];
+    let mut visited: Vec<bool> = vec![false; n];
+
     loop {
-        let mut predecessor: HashMap<String, String> = HashMap::new();
-        let mut visited: HashSet<String> = HashSet::new();
-        let mut queue: VecDeque<String> = VecDeque::new();
-        let source_owned = source.to_owned();
-        queue.push_back(source_owned.clone());
-        visited.insert(source_owned);
+        for p in predecessor.iter_mut() {
+            *p = usize::MAX;
+        }
+        for vis in visited.iter_mut() {
+            *vis = false;
+        }
+        let mut queue: VecDeque<usize> = VecDeque::new();
+        queue.push_back(source_idx);
+        visited[source_idx] = true;
         nodes_touched += 1;
         queue_peak = queue_peak.max(queue.len());
 
         let mut reached_sink = false;
         while let Some(current) = queue.pop_front() {
-            let mut neighbors = residual
-                .get(&current)
-                .map(|caps| caps.keys().map(|s| s.as_str()).collect::<Vec<&str>>())
-                .unwrap_or_default();
-            neighbors.sort_unstable();
-
-            for neighbor in neighbors {
+            // BTreeMap iterates neighbors in ascending index == string order.
+            for (&neighbor, &capacity) in &residual_i[current] {
                 edges_scanned += 1;
-                if visited.contains(neighbor) {
+                if visited[neighbor] {
                     continue;
                 }
-                let residual_capacity = residual
-                    .get(&current)
-                    .and_then(|caps| caps.get(neighbor))
-                    .copied()
-                    .unwrap_or(0.0);
-                if residual_capacity <= 0.0 {
+                if capacity <= 0.0 {
                     continue;
                 }
-                predecessor.insert(neighbor.to_owned(), current.clone());
-                visited.insert(neighbor.to_owned());
+                predecessor[neighbor] = current;
+                visited[neighbor] = true;
                 nodes_touched += 1;
-                if neighbor == sink {
+                if neighbor == sink_idx {
                     reached_sink = true;
                     break;
                 }
-                queue.push_back(neighbor.to_owned());
+                queue.push_back(neighbor);
                 queue_peak = queue_peak.max(queue.len());
             }
             if reached_sink {
@@ -5262,55 +5275,51 @@ fn compute_max_flow_residual<G: FlowGraphView>(
         }
 
         let mut bottleneck = f64::INFINITY;
-        let mut cursor = sink.to_owned();
-        while cursor != source {
-            let Some(prev) = predecessor.get(&cursor) else {
+        let mut cursor = sink_idx;
+        while cursor != source_idx {
+            let prev = predecessor[cursor];
+            if prev == usize::MAX {
                 bottleneck = 0.0;
                 break;
-            };
-            let available = residual
-                .get(prev)
-                .and_then(|caps| caps.get(&cursor))
-                .copied()
-                .unwrap_or(0.0);
+            }
+            let available = residual_i[prev].get(&cursor).copied().unwrap_or(0.0);
             bottleneck = bottleneck.min(available);
-            cursor = prev.clone();
+            cursor = prev;
         }
 
         if bottleneck <= 0.0 || !bottleneck.is_finite() {
             break;
         }
 
-        let mut cursor = sink.to_owned();
-        while cursor != source {
-            let Some(prev) = predecessor.get(&cursor).cloned() else {
+        let mut cursor = sink_idx;
+        while cursor != source_idx {
+            let prev = predecessor[cursor];
+            if prev == usize::MAX {
                 break;
-            };
-
-            // Forward edge update
-            if let Some(forward_caps) = residual.get_mut(&prev)
-                && let Some(cap) = forward_caps.get_mut(&cursor)
-            {
+            }
+            // Forward edge.
+            if let Some(cap) = residual_i[prev].get_mut(&cursor) {
                 *cap = (*cap - bottleneck).max(0.0);
             }
-
-            // Reverse edge update
-            if let Some(reverse_caps) = residual.get_mut(&cursor) {
-                if let Some(cap) = reverse_caps.get_mut(&prev) {
-                    *cap += bottleneck;
-                } else {
-                    reverse_caps.insert(prev.clone(), bottleneck);
-                }
-            } else {
-                let mut new_map = HashMap::new();
-                new_map.insert(prev.clone(), bottleneck);
-                residual.insert(cursor.clone(), new_map);
-            }
-
+            // Reverse edge (created on demand).
+            let entry = residual_i[cursor].entry(prev).or_insert(0.0);
+            *entry += bottleneck;
             cursor = prev;
         }
 
         total_flow += bottleneck;
+    }
+
+    // Re-materialize the string-keyed residual the result type and the
+    // downstream min-cut / flow-extraction code expect. Values are identical
+    // to the legacy implementation because the augmentation is identical.
+    let mut residual: HashMap<String, HashMap<String, f64>> = HashMap::with_capacity(n);
+    for (u, caps) in residual_i.iter().enumerate() {
+        let mut m: HashMap<String, f64> = HashMap::with_capacity(caps.len());
+        for (&v, &cap) in caps {
+            m.insert(key_of[v].clone(), cap);
+        }
+        residual.insert(key_of[u].clone(), m);
     }
 
     Ok(FlowComputation {

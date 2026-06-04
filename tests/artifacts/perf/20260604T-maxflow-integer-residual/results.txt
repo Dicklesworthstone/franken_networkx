@@ -1,0 +1,15 @@
+=== PARITY (vs networkx) ===
+max_flow_value + min_cut_value: 80/80 graphs (directed+undirected, capacitated)
+golden_fnx = 6fb4252e14290f14d7b79224a75f1744db10c59db624af4d74a6250427e67db6
+golden_nx  = 6fb4252e14290f14d7b79224a75f1744db10c59db624af4d74a6250427e67db6
+VALUE ISOMORPHISM: PASS
+edge+node_connectivity: PASS (60 + 40 graphs)
+
+=== BENCHMARK (warm min-of-4) ===
+edge_connectivity (gnp p=0.04, undirected):
+  n=150  nx=0.0098s  fnx BEFORE=0.0346s (3.29x slower) -> AFTER=0.0200s (2.05x)
+  n=300  nx=0.0425s  fnx BEFORE=0.1971s (4.55x slower) -> AFTER=0.0989s (2.33x)
+  n=500  nx=0.1170s  fnx BEFORE=0.8156s (6.72x slower) -> AFTER=0.3655s (3.12x)
+maximum_flow_value (gnp p=0.05, directed, capacitated):
+  n=200  nx=0.0069s  fnx=0.0034s (0.49x = fnx 2x FASTER)
+  n=400  nx=0.0215s  fnx=0.0166s (0.77x = fnx faster)
