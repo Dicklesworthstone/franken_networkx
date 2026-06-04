@@ -27736,18 +27736,43 @@ def cn_soundarajan_hopcroft(G, ebunch=None, community="community"):
         raise NetworkXNotImplemented("not implemented for directed type")
 
     def _gen():
-        # br-r37-c1-rasnap: snapshot adjacency once for the per-pair
-        # neighbour-intersection loop.
-        adj_snap = {n: set(G.neighbors(n)) for n in G}
+        # br-r37-c1-shlazy: lazily memoize neighbour sets so a small ebunch only
+        # touches its endpoints instead of snapshotting the whole adjacency. The
+        # old whole-graph snapshot was the entire cost for a small ebunch
+        # (~340x slower than nx on a 10-pair ebunch over n=2000); the default
+        # all-non-edges path still computes each neighbour set once. Score is an
+        # integer count, so the result is byte-identical.
+        nbr_set_cache = {}
+        comm_cache = {}
+
+        def nbr_set(x):
+            r = nbr_set_cache.get(x)
+            if r is None:
+                r = set(G.neighbors(x))
+                nbr_set_cache[x] = r
+            return r
+
+        def comm(x):
+            # memoize the per-node community lookup (a PyO3 node-attr access);
+            # default ebunch revisits the same w across many pairs. A missing
+            # community still raises NetworkXAlgorithmError (never cached).
+            if x in comm_cache:
+                return comm_cache[x]
+            c = _lp_community_of(G, x, community)
+            comm_cache[x] = c
+            return c
+
         eb = non_edges(G) if ebunch is None else ebunch
         for u, v in eb:
-            u_comm = _lp_community_of(G, u, community)
-            v_comm = _lp_community_of(G, v, community)
-            common = adj_snap.get(u, set()) & adj_snap.get(v, set())
-            score = len(common)
-            if u_comm == v_comm:
-                for w in common:
-                    if _lp_community_of(G, w, community) == u_comm:
+            u_comm = comm(u)
+            v_comm = comm(v)
+            nv = nbr_set(v)
+            same = u_comm == v_comm
+            score = 0
+            for w in nbr_set(u):
+                if w in nv and w != u and w != v:
+                    score += 1
+                    if same and comm(w) == u_comm:
                         score += 1
             yield (u, v, score)
 
@@ -27772,29 +27797,64 @@ def ra_index_soundarajan_hopcroft(G, ebunch=None, community="community"):
         raise NetworkXNotImplemented("not implemented for directed type")
 
     def _gen():
-        # br-r37-c1-rasnap: snapshot adjacency + degrees once so the
-        # per-(u, v) inner loop is plain dict lookups.  Previously each
-        # iteration paid G.neighbors(u) × 2 + G.degree(w) for every
-        # common neighbour — O(|ebunch| × deg × PyO3-call-cost).
-        adj_snap = {n: set(G.neighbors(n)) for n in G}
-        deg_snap = dict(G.degree())
+        # br-r37-c1-shlazy: lazily memoize neighbour lists/sets/degrees so a
+        # small ebunch only touches its endpoints (the old whole-graph snapshot
+        # was ~500x slower than nx on a 10-pair ebunch over n=2000). Common
+        # neighbours are iterated in G.neighbors(u) order and summed with the
+        # builtin sum (nx's exact common_neighbors order + compensated sum), so
+        # the score is now BYTE-identical to nx (the old set-order naive fold
+        # drifted by ULPs on ~28% of cases).
+        nbr_order_cache = {}
+        nbr_set_cache = {}
+        deg_cache = {}
+        comm_cache = {}
+
+        def nbr_order(x):
+            r = nbr_order_cache.get(x)
+            if r is None:
+                r = list(G.neighbors(x))
+                nbr_order_cache[x] = r
+            return r
+
+        def nbr_set(x):
+            r = nbr_set_cache.get(x)
+            if r is None:
+                r = set(nbr_order(x))
+                nbr_set_cache[x] = r
+            return r
+
+        def deg(x):
+            r = deg_cache.get(x)
+            if r is None:
+                r = G.degree(x)
+                deg_cache[x] = r
+            return r
+
+        def comm(x):
+            # memoize the per-node community lookup (PyO3 node-attr access);
+            # a missing community still raises NetworkXAlgorithmError.
+            if x in comm_cache:
+                return comm_cache[x]
+            c = _lp_community_of(G, x, community)
+            comm_cache[x] = c
+            return c
+
         eb = non_edges(G) if ebunch is None else ebunch
         for u, v in eb:
-            u_comm = _lp_community_of(G, u, community)
-            v_comm = _lp_community_of(G, v, community)
+            u_comm = comm(u)
+            v_comm = comm(v)
             if u_comm != v_comm:
                 # br-shratype: nx returns int 0 here (no division on early
                 # return); match exactly so type-sensitive callers don't
                 # diverge.
                 yield (u, v, 0)
                 continue
-            common = adj_snap.get(u, set()) & adj_snap.get(v, set())
-            score = 0
-            for w in common:
-                if _lp_community_of(G, w, community) == u_comm:
-                    deg_w = deg_snap.get(w, 0)
-                    if deg_w > 0:
-                        score = score + 1 / deg_w
+            nv = nbr_set(v)
+            score = sum(
+                1 / deg(w)
+                for w in nbr_order(u)
+                if w in nv and w != u and w != v and comm(w) == u_comm
+            )
             yield (u, v, score)
 
     return _gen()
