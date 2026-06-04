@@ -2562,13 +2562,13 @@ impl PyDiGraph {
             }
             // Copy from undirected PyGraph — create both directions.
             else if let Ok(other) = data.extract::<PyRef<'_, PyGraph>>() {
-                for (canonical, py_key) in &other.node_key_map {
-                    g.inner.add_node(canonical.clone());
+                for canonical in other.inner.nodes_ordered() {
+                    g.inner.add_node(canonical.to_owned());
                     g.node_key_map
-                        .insert(canonical.clone(), py_key.clone_ref(py));
+                        .insert(canonical.to_owned(), other.py_node_key(py, canonical));
                     if let Some(attrs) = other.node_py_attrs.get(canonical) {
                         g.node_py_attrs
-                            .insert(canonical.clone(), attrs.bind(py).copy()?.unbind());
+                            .insert(canonical.to_owned(), attrs.bind(py).copy()?.unbind());
                     }
                 }
                 // For each undirected edge, add both directions.

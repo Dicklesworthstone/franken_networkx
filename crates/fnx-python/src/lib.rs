@@ -344,6 +344,9 @@ pub(crate) struct PyGraph {
     pub(crate) inner: Graph,
     /// Maps canonical string key -> original Python object for faithful round-trip.
     pub(crate) node_key_map: HashMap<String, PyObject>,
+    /// Range fast path marker: canonical integer nodes in ``0..stop`` can be
+    /// displayed as Python ints even when node_key_map has not materialized them.
+    pub(crate) lazy_int_node_stop: i64,
     /// Per-node Python attribute dicts.
     pub(crate) node_py_attrs: HashMap<String, Py<PyDict>>,
     /// Per-edge Python attribute dicts. Key is (canonical_left, canonical_right).
@@ -381,14 +384,30 @@ impl PyGraph {
 
     /// Return the original Python object for a node key, falling back to string.
     pub(crate) fn py_node_key(&self, py: Python<'_>, canonical: &str) -> PyObject {
-        self.node_key_map.get(canonical).map_or_else(
-            || {
-                unwrap_infallible(canonical.to_owned().into_pyobject(py))
-                    .into_any()
-                    .unbind()
-            },
-            |obj| obj.clone_ref(py),
-        )
+        if let Some(obj) = self.node_key_map.get(canonical) {
+            return obj.clone_ref(py);
+        }
+        if let Some(value) = self.lazy_int_node_value(canonical) {
+            return unwrap_infallible(value.into_pyobject(py))
+                .into_any()
+                .unbind();
+        }
+        unwrap_infallible(canonical.to_owned().into_pyobject(py))
+            .into_any()
+            .unbind()
+    }
+
+    #[inline]
+    fn lazy_int_node_value(&self, canonical: &str) -> Option<i64> {
+        let value = canonical.parse::<i64>().ok()?;
+        (0..self.lazy_int_node_stop)
+            .contains(&value)
+            .then_some(value)
+    }
+
+    #[inline]
+    fn should_store_node_key(&self, canonical: &str, was_new: bool) -> bool {
+        was_new || self.lazy_int_node_value(canonical).is_none()
     }
 
     pub(crate) fn materialize_node_py_attrs(
@@ -419,6 +438,7 @@ impl PyGraph {
         Ok(Self {
             inner: Graph::with_runtime_policy(runtime_policy),
             node_key_map: HashMap::new(),
+            lazy_int_node_stop: 0,
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
             graph_attrs: PyDict::new(py).unbind(),
@@ -479,7 +499,12 @@ impl PyGraph {
     {
         let mut edges = Vec::with_capacity(len);
         let mut new_nodes = Vec::new();
-        let mut seen_nodes: HashSet<String> = self.node_key_map.keys().cloned().collect();
+        let mut seen_nodes: HashSet<String> = self
+            .inner
+            .nodes_ordered()
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
         let mut node_bumps = 0_u64;
 
         for item in items {
@@ -782,19 +807,20 @@ impl PyMultiGraph {
                 g.graph_attrs = other.graph_attrs.bind(py).copy()?.unbind();
             } else if let Ok(other) = data.extract::<PyRef<'_, PyGraph>>() {
                 g.inner = MultiGraph::with_runtime_policy(other.inner.runtime_policy().clone());
-                for (canonical, py_key) in &other.node_key_map {
+                for canonical in other.inner.nodes_ordered() {
                     let rust_attrs = other
                         .node_py_attrs
                         .get(canonical)
                         .map(|attrs| py_dict_to_attr_map(attrs.bind(py)))
                         .transpose()?
                         .unwrap_or_default();
-                    g.inner.add_node_with_attrs(canonical.clone(), rust_attrs);
+                    g.inner
+                        .add_node_with_attrs(canonical.to_owned(), rust_attrs);
                     g.node_key_map
-                        .insert(canonical.clone(), py_key.clone_ref(py));
+                        .insert(canonical.to_owned(), other.py_node_key(py, canonical));
                     if let Some(attrs) = other.node_py_attrs.get(canonical) {
                         g.node_py_attrs
-                            .insert(canonical.clone(), attrs.bind(py).copy()?.unbind());
+                            .insert(canonical.to_owned(), attrs.bind(py).copy()?.unbind());
                     }
                 }
                 for ((u, v), attrs) in &other.edge_py_attrs {
@@ -3021,19 +3047,20 @@ impl PyGraph {
             // If it's another PyGraph, copy it.
             if let Ok(other) = data.extract::<PyRef<'_, PyGraph>>() {
                 g.inner = Graph::with_runtime_policy(other.inner.runtime_policy().clone());
-                for (canonical, py_key) in &other.node_key_map {
+                for canonical in other.inner.nodes_ordered() {
                     let rust_attrs = other
                         .node_py_attrs
                         .get(canonical)
                         .map(|attrs| py_dict_to_attr_map(attrs.bind(py)))
                         .transpose()?
                         .unwrap_or_default();
-                    g.inner.add_node_with_attrs(canonical.clone(), rust_attrs);
+                    g.inner
+                        .add_node_with_attrs(canonical.to_owned(), rust_attrs);
                     g.node_key_map
-                        .insert(canonical.clone(), py_key.clone_ref(py));
+                        .insert(canonical.to_owned(), other.py_node_key(py, canonical));
                     if let Some(attrs) = other.node_py_attrs.get(canonical) {
                         g.node_py_attrs
-                            .insert(canonical.clone(), attrs.bind(py).copy()?.unbind());
+                            .insert(canonical.to_owned(), attrs.bind(py).copy()?.unbind());
                     }
                 }
                 for ((u, v), attrs) in &other.edge_py_attrs {
@@ -3190,6 +3217,7 @@ impl PyGraph {
         attr: Option<&Bound<'_, PyDict>>,
     ) -> PyResult<()> {
         let canonical = node_key_to_string(py, n)?;
+        let was_new = !self.inner.has_node(&canonical);
         // br-r37-c1-firstwins: nx uses dicts for node storage, so the
         // FIRST Python object added under a given canonical key wins
         // (subsequent ``add_node`` calls with hash-equivalent keys are
@@ -3198,9 +3226,11 @@ impl PyGraph {
         // ``entry().or_insert_with`` here so re-adding ``0.0`` after
         // ``0`` doesn't overwrite the displayed Py form. ``add_edge``
         // already uses this pattern at the call site below.
-        self.node_key_map
-            .entry(canonical.clone())
-            .or_insert_with(|| n.clone().unbind());
+        if self.should_store_node_key(&canonical, was_new) {
+            self.node_key_map
+                .entry(canonical.clone())
+                .or_insert_with(|| n.clone().unbind());
+        }
 
         // Build Rust AttrMap from Python kwargs for the inner graph.
         let mut rust_attrs = AttrMap::new();
@@ -3256,22 +3286,15 @@ impl PyGraph {
         Ok(())
     }
 
-    fn _fast_add_int_nodes_range_stop(&mut self, py: Python<'_>, stop: i64) -> PyResult<()> {
+    fn _fast_add_int_nodes_range_stop(&mut self, _py: Python<'_>, stop: i64) -> PyResult<()> {
         if stop <= 0 {
             return Ok(());
         }
         let count = usize::try_from(stop).unwrap_or(usize::MAX);
-        self.node_key_map.reserve(count);
         let mut canonicals = Vec::with_capacity(count);
+        self.lazy_int_node_stop = self.lazy_int_node_stop.max(stop);
         for node in 0..stop {
             let canonical = node.to_string();
-            self.node_key_map
-                .entry(canonical.clone())
-                .or_insert_with(|| {
-                    unwrap_infallible(node.into_pyobject(py))
-                        .into_any()
-                        .unbind()
-                });
             canonicals.push(canonical);
             self.bump_nodes_seq();
         }
@@ -3356,16 +3379,21 @@ impl PyGraph {
 
         // br-r37-c1-39d82: track new-node creation to bump
         // nodes_seq for iterator staleness detection.
-        let __was_new = !self.node_key_map.contains_key(&u_canonical)
-            || !self.node_key_map.contains_key(&v_canonical);
+        let u_was_new = !self.inner.has_node(&u_canonical);
+        let v_was_new = !self.inner.has_node(&v_canonical);
+        let __was_new = u_was_new || v_was_new;
 
         // Ensure nodes exist in our maps.
-        self.node_key_map
-            .entry(u_canonical.clone())
-            .or_insert_with(|| u.clone().unbind());
-        self.node_key_map
-            .entry(v_canonical.clone())
-            .or_insert_with(|| v.clone().unbind());
+        if self.should_store_node_key(&u_canonical, u_was_new) {
+            self.node_key_map
+                .entry(u_canonical.clone())
+                .or_insert_with(|| u.clone().unbind());
+        }
+        if self.should_store_node_key(&v_canonical, v_was_new) {
+            self.node_key_map
+                .entry(v_canonical.clone())
+                .or_insert_with(|| v.clone().unbind());
+        }
         if __was_new {
             self.bump_nodes_seq();
         }
@@ -3504,14 +3532,20 @@ impl PyGraph {
             let v = pair[1];
             let u_s = u.to_string();
             let v_s = v.to_string();
+            let u_was_new = !self.inner.has_node(&u_s);
+            let v_was_new = !self.inner.has_node(&v_s);
 
             // Insert node key maps only if new.
-            self.node_key_map
-                .entry(u_s.clone())
-                .or_insert_with(|| unwrap_infallible(u.into_pyobject(py)).into_any().unbind());
-            self.node_key_map
-                .entry(v_s.clone())
-                .or_insert_with(|| unwrap_infallible(v.into_pyobject(py)).into_any().unbind());
+            if self.should_store_node_key(&u_s, u_was_new) {
+                self.node_key_map
+                    .entry(u_s.clone())
+                    .or_insert_with(|| unwrap_infallible(u.into_pyobject(py)).into_any().unbind());
+            }
+            if self.should_store_node_key(&v_s, v_was_new) {
+                self.node_key_map
+                    .entry(v_s.clone())
+                    .or_insert_with(|| unwrap_infallible(v.into_pyobject(py)).into_any().unbind());
+            }
             self.node_py_attrs
                 .entry(u_s.clone())
                 .or_insert_with(|| PyDict::new(py).unbind());
@@ -3605,6 +3639,7 @@ impl PyGraph {
         // Rebuild from scratch is simpler and correct.
         self.inner = Graph::with_runtime_policy(self.inner.runtime_policy().clone());
         self.node_key_map.clear();
+        self.lazy_int_node_stop = 0;
         self.node_py_attrs.clear();
         self.edge_py_attrs.clear();
         self.graph_attrs = PyDict::new(py).unbind();
@@ -3814,6 +3849,7 @@ impl PyGraph {
         let mut new_graph = Self {
             inner: Graph::with_runtime_policy(self.inner.runtime_policy().clone()),
             node_key_map: HashMap::new(),
+            lazy_int_node_stop: 0,
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
@@ -3822,7 +3858,7 @@ impl PyGraph {
             edges_dirty: AtomicBool::new(false),
         };
         // Copy nodes
-        for (canonical, py_key) in &self.node_key_map {
+        for canonical in self.inner.nodes_ordered() {
             let rust_attrs = self
                 .node_py_attrs
                 .get(canonical)
@@ -3831,14 +3867,14 @@ impl PyGraph {
                 .unwrap_or_default();
             new_graph
                 .inner
-                .add_node_with_attrs(canonical.clone(), rust_attrs);
+                .add_node_with_attrs(canonical.to_owned(), rust_attrs);
             new_graph
                 .node_key_map
-                .insert(canonical.clone(), py_key.clone_ref(py));
+                .insert(canonical.to_owned(), self.py_node_key(py, canonical));
             if let Some(attrs) = self.node_py_attrs.get(canonical) {
                 new_graph
                     .node_py_attrs
-                    .insert(canonical.clone(), attrs.bind(py).copy()?.unbind());
+                    .insert(canonical.to_owned(), attrs.bind(py).copy()?.unbind());
             }
         }
         // Copy edges in the original insertion order (br-copyedgeord).
@@ -3889,6 +3925,7 @@ impl PyGraph {
         let mut new_graph = Self {
             inner: Graph::with_runtime_policy(self.inner.runtime_policy().clone()),
             node_key_map: HashMap::new(),
+            lazy_int_node_stop: 0,
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
@@ -3897,7 +3934,8 @@ impl PyGraph {
             edges_dirty: AtomicBool::new(false),
         };
 
-        // Add kept nodes
+        // Add kept nodes using the existing HashSet iteration behavior; only
+        // node-key materialization changes for sparse range fast-path keys.
         for canonical in &keep {
             let rust_attrs = self
                 .node_py_attrs
@@ -3908,11 +3946,9 @@ impl PyGraph {
             new_graph
                 .inner
                 .add_node_with_attrs(canonical.clone(), rust_attrs);
-            if let Some(py_key) = self.node_key_map.get(canonical) {
-                new_graph
-                    .node_key_map
-                    .insert(canonical.clone(), py_key.clone_ref(py));
-            }
+            new_graph
+                .node_key_map
+                .insert(canonical.clone(), self.py_node_key(py, canonical));
             if let Some(attrs) = self.node_py_attrs.get(canonical) {
                 new_graph
                     .node_py_attrs
@@ -3955,6 +3991,7 @@ impl PyGraph {
         let mut new_graph = Self {
             inner: Graph::with_runtime_policy(self.inner.runtime_policy().clone()),
             node_key_map: HashMap::new(),
+            lazy_int_node_stop: 0,
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
@@ -3970,7 +4007,8 @@ impl PyGraph {
             nodes_needed.insert(v.clone());
         }
 
-        // Add nodes
+        // Add nodes using the existing HashSet iteration behavior; only
+        // node-key materialization changes for sparse range fast-path keys.
         for canonical in &nodes_needed {
             let rust_attrs = self
                 .node_py_attrs
@@ -3981,11 +4019,9 @@ impl PyGraph {
             new_graph
                 .inner
                 .add_node_with_attrs(canonical.clone(), rust_attrs);
-            if let Some(py_key) = self.node_key_map.get(canonical) {
-                new_graph
-                    .node_key_map
-                    .insert(canonical.clone(), py_key.clone_ref(py));
-            }
+            new_graph
+                .node_key_map
+                .insert(canonical.clone(), self.py_node_key(py, canonical));
             if let Some(attrs) = self.node_py_attrs.get(canonical) {
                 new_graph
                     .node_py_attrs
@@ -4026,19 +4062,20 @@ impl PyGraph {
             self.inner.runtime_policy().clone(),
         )?;
 
-        for (canonical, py_key) in &self.node_key_map {
+        for canonical in self.inner.nodes_ordered() {
             let rust_attrs = self
                 .node_py_attrs
                 .get(canonical)
                 .map(|attrs| py_dict_to_attr_map(attrs.bind(py)))
                 .transpose()?
                 .unwrap_or_default();
-            dg.inner.add_node_with_attrs(canonical.clone(), rust_attrs);
+            dg.inner
+                .add_node_with_attrs(canonical.to_owned(), rust_attrs);
             dg.node_key_map
-                .insert(canonical.clone(), py_key.clone_ref(py));
+                .insert(canonical.to_owned(), self.py_node_key(py, canonical));
             if let Some(attrs) = self.node_py_attrs.get(canonical) {
                 dg.node_py_attrs
-                    .insert(canonical.clone(), attrs.bind(py).copy()?.unbind());
+                    .insert(canonical.to_owned(), attrs.bind(py).copy()?.unbind());
             }
         }
 
@@ -4328,6 +4365,7 @@ impl PyGraph {
         let mut new_graph = Self {
             inner: Graph::with_runtime_policy(self.inner.runtime_policy().clone()),
             node_key_map: HashMap::new(),
+            lazy_int_node_stop: 0,
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
             // SHARE the graph attrs dict (shallow copy)
@@ -4337,7 +4375,7 @@ impl PyGraph {
             edges_dirty: AtomicBool::new(self.edges_dirty.load(Ordering::Relaxed)),
         };
         // Copy nodes but SHARE attribute dicts
-        for (canonical, py_key) in &self.node_key_map {
+        for canonical in self.inner.nodes_ordered() {
             let rust_attrs = self
                 .node_py_attrs
                 .get(canonical)
@@ -4346,15 +4384,15 @@ impl PyGraph {
                 .unwrap_or_default();
             new_graph
                 .inner
-                .add_node_with_attrs(canonical.clone(), rust_attrs);
+                .add_node_with_attrs(canonical.to_owned(), rust_attrs);
             new_graph
                 .node_key_map
-                .insert(canonical.clone(), py_key.clone_ref(py));
+                .insert(canonical.to_owned(), self.py_node_key(py, canonical));
             // SHARE the node attrs dict (shallow copy)
             if let Some(attrs) = self.node_py_attrs.get(canonical) {
                 new_graph
                     .node_py_attrs
-                    .insert(canonical.clone(), attrs.clone_ref(py));
+                    .insert(canonical.to_owned(), attrs.clone_ref(py));
             }
         }
         // Copy edges but SHARE attribute dicts
@@ -4428,6 +4466,7 @@ impl PyGraph {
         let mode = compatibility_mode_from_py(state.get_item("mode")?.as_ref())?;
         self.inner = Graph::with_runtime_policy(runtime_policy_from_state(state, mode)?);
         self.node_key_map.clear();
+        self.lazy_int_node_stop = 0;
         self.node_py_attrs.clear();
         self.edge_py_attrs.clear();
         self.graph_attrs = PyDict::new(py).unbind();

@@ -143,6 +143,7 @@ fn report_to_pygraph(py: Python<'_>, report: ReadWriteReport) -> PyResult<PyGrap
     Ok(PyGraph {
         inner,
         node_key_map,
+        lazy_int_node_stop: 0,
         node_py_attrs,
         edge_py_attrs,
         graph_attrs: py_graph_attrs.unbind(),

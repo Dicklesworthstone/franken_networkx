@@ -83,3 +83,31 @@ def test_membership_lookup_parity_large_graph():
     Gf = fnx.Graph(edges)
     for k in [0, 250, 499, 500, "0", 1.0, True, -1, 10**40]:
         assert (k in Gx) == (k in Gf), k
+
+
+def test_range_fast_path_preserves_display_key_parity():
+    Gx = nx.Graph()
+    Gf = fnx.Graph()
+    Gx.add_nodes_from(range(20))
+    Gf.add_nodes_from(range(20))
+
+    # Re-adding hash-equal numeric keys must preserve the first object that
+    # entered the node dict: the int from range(...), not float/bool aliases.
+    for graph in (Gx, Gf):
+        graph.add_node(0.0)
+        graph.add_node(True)
+        graph.nodes[3]["color"] = "red"
+        graph.add_node(3.0, weight=7)
+
+    assert list(Gf.nodes()) == list(Gx.nodes())
+    assert list(Gf.nodes(data=True)) == list(Gx.nodes(data=True))
+
+    Hx = nx.Graph()
+    Hf = fnx.Graph()
+    Hx.add_nodes_from(range(5))
+    Hf.add_nodes_from(range(5))
+    Hx.remove_node(0)
+    Hf.remove_node(0)
+    Hx.add_node(0.0)
+    Hf.add_node(0.0)
+    assert list(Hf.nodes()) == list(Hx.nodes())
