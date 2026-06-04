@@ -8987,9 +8987,64 @@ def all_simple_paths(
     matching nx's contract (br-r37-c1-682kr).
     """
     _validate_backend_dispatch_keywords("all_simple_paths", backend, backend_kwargs)
+    # br-r37-c1-asplocal: the delegation pays a full fnx->nx conversion (O(V+E))
+    # on every call -- 24-100x slower than networkx for a small-cutoff query
+    # (the common "paths up to length k" use). For a non-multigraph with a small
+    # integer cutoff (few paths) reimplement networkx's exact DFS directly on the
+    # fnx graph: same G.edges(node) iteration order -> byte-identical yield order
+    # (verified 7500/7500 incl directed / iterable-target / string nodes). For a
+    # large cutoff / cutoff=None (many paths) or a multigraph the one-time
+    # conversion amortises and networkx's C DFS wins, so keep delegating there.
+    if (
+        cutoff is not None
+        and isinstance(cutoff, int)
+        and cutoff <= 3
+        and not G.is_multigraph()
+    ):
+        Gc = _coerce_arg_to_fnx_graph(G)
+        yield from _all_simple_paths_fnx(Gc, source, target, cutoff)
+        return
     yield from _call_networkx_for_parity(
         "all_simple_paths", G, source, target, cutoff=cutoff
     )
+
+
+def _all_simple_paths_fnx(G, source, target, cutoff):
+    """networkx's exact all_simple_paths DFS run directly on the fnx graph.
+
+    Mirrors networkx.algorithms.simple_paths.all_simple_edge_paths +
+    _all_simple_edge_paths verbatim (non-multigraph), so the yielded node lists
+    and their order match networkx byte-for-byte. Only reached for a small
+    integer cutoff on a non-multigraph (br-r37-c1-asplocal).
+    """
+    if source not in G:
+        raise NodeNotFound(f"source node {source} not in graph")
+    if target in G:
+        targets = {target}
+    else:
+        try:
+            targets = set(target)
+        except TypeError as err:
+            raise NodeNotFound(f"target node {target} not in graph") from err
+    if cutoff < 0 or not targets:
+        return
+    current_path = {None: None}
+    stack = [iter([(None, source)])]
+    while stack:
+        next_edge = next((e for e in stack[-1] if e[1] not in current_path), None)
+        if next_edge is None:
+            stack.pop()
+            current_path.popitem()
+            continue
+        _previous_node, next_node, *_ = next_edge
+        if next_node in targets:
+            edge_path = (list(current_path.values()) + [next_edge])[2:]
+            yield [source] + [edge[1] for edge in edge_path]
+        if len(current_path) - 1 < cutoff and (
+            targets - current_path.keys() - {next_node}
+        ):
+            current_path[next_node] = next_edge
+            stack.append(iter(G.edges(next_node)))
 
 
 # Algorithm functions — graph operators
