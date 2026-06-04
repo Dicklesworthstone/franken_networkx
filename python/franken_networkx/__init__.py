@@ -2334,9 +2334,19 @@ def _make_add_nodes_from(add_node, fast_add_int_nodes_range_stop=None):
     return add_nodes_from
 
 
-Graph.add_nodes_from = _make_add_nodes_from(
-    _GRAPH_ADD_NODE, _GRAPH_FAST_ADD_INT_NODES_RANGE_STOP
-)
+# br-r37-c1-qq6hi: the lazy ``_fast_add_int_nodes_range_stop`` native path
+# (br-r37-c1-17ucl / a09b315e8) stores range nodes WITHOUT registering their
+# original Python int objects in ``node_key_map``, so ``py_node_key`` returns the
+# canonical *string* "5" instead of int 5. That silently breaks EVERY native
+# node-keyed algorithm on any graph built via ``add_nodes_from(range(N))`` —
+# ``karate_club_graph`` and the common ``G.add_nodes_from(range(N))`` idiom:
+# ``all_pairs_shortest_path_length`` returns empty, ``triangles``/``clustering``/
+# centralities raise KeyError, etc. Disable the fast path until the substrate
+# materialises the originals in lib.rs (reserved); eager ``add_node`` is correct
+# and only ~3.6x slower on the 100k-range construction microbench (a price worth
+# paying — the lazy path produces broken graphs). Re-pass
+# ``_GRAPH_FAST_ADD_INT_NODES_RANGE_STOP`` once py_node_key is fixed.
+Graph.add_nodes_from = _make_add_nodes_from(_GRAPH_ADD_NODE)
 DiGraph.add_nodes_from = _make_add_nodes_from(_DIGRAPH_ADD_NODE)
 MultiGraph.add_nodes_from = _make_add_nodes_from(_MULTIGRAPH_ADD_NODE)
 MultiDiGraph.add_nodes_from = _make_add_nodes_from(_MULTIDIGRAPH_ADD_NODE)
