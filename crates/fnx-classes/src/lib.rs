@@ -1247,6 +1247,19 @@ impl MultiGraph {
         left: impl Into<String>,
         right: impl Into<String>,
     ) -> Option<usize> {
+        self.add_fresh_edge_with_key_unrecorded(left, right, 0)
+    }
+
+    /// Insert one attribute-free edge with an explicit key for a pair known to
+    /// have no existing parallel edge bucket. Returns `None` if the pair
+    /// already exists.
+    #[must_use]
+    pub fn add_fresh_edge_with_key_unrecorded(
+        &mut self,
+        left: impl Into<String>,
+        right: impl Into<String>,
+        key: usize,
+    ) -> Option<usize> {
         let left = left.into();
         let right = right.into();
         let edge_key = EdgeKey::new(&left, &right);
@@ -1259,7 +1272,6 @@ impl MultiGraph {
             self.adjacency.entry(right.clone()).or_default();
         }
 
-        let key = 0usize;
         match self.edges.entry(edge_key) {
             indexmap::map::Entry::Occupied(mut edge_bucket) => {
                 if !edge_bucket.get().is_empty() {
@@ -2174,6 +2186,21 @@ mod tests {
         assert_eq!(graph.revision(), revision);
         assert_eq!(graph.edge_count(), edge_count);
         assert_eq!(graph.edge_keys("a", "b"), Some(vec![0]));
+        assert_eq!(graph.nodes_ordered(), vec!["a", "b"]);
+        assert_multigraph_core_invariants(&graph);
+    }
+
+    #[test]
+    fn multigraph_add_fresh_edge_with_key_unrecorded_preserves_key() {
+        let mut graph = MultiGraph::strict();
+
+        assert_eq!(
+            graph.add_fresh_edge_with_key_unrecorded("a", "b", 42),
+            Some(42)
+        );
+
+        assert_eq!(graph.edge_count(), 1);
+        assert_eq!(graph.edge_keys("a", "b"), Some(vec![42]));
         assert_eq!(graph.nodes_ordered(), vec!["a", "b"]);
         assert_multigraph_core_invariants(&graph);
     }

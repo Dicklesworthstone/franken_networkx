@@ -1313,6 +1313,22 @@ impl PyMultiGraph {
             .entry(v_canonical.clone())
             .or_insert_with(|| PyDict::new(py).unbind());
 
+        if !key.is_instance_of::<PyBool>() {
+            if let Ok(explicit_key) = key.extract::<usize>() {
+                let Some(actual_key) = self.inner.add_fresh_edge_with_key_unrecorded(
+                    u_canonical.clone(),
+                    v_canonical.clone(),
+                    explicit_key,
+                ) else {
+                    return Ok(None);
+                };
+                let ek = Self::edge_key(&u_canonical, &v_canonical, actual_key);
+                self.edge_py_attrs.insert(ek, PyDict::new(py).unbind());
+                self.bump_edges_seq();
+                return Ok(Some(key.clone().unbind()));
+            }
+        }
+
         let Some(actual_key) = self
             .inner
             .add_fresh_edge_unrecorded(u_canonical.clone(), v_canonical.clone())
