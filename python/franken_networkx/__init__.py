@@ -9033,6 +9033,10 @@ def all_simple_paths(
         Gc = _coerce_arg_to_fnx_graph(G)
         yield from _all_simple_paths_fnx(Gc, source, target, cutoff)
         return
+    # br-r37-c1-qpykd: multigraphs delegate to networkx; the yield order is now
+    # correct because _fnx_to_nx emits parallel edges in adj-insertion order
+    # (order-preserving multigraph conversion) so the converted graph's
+    # edges(keys=True) iteration matches a directly-built nx multigraph.
     yield from _call_networkx_for_parity(
         "all_simple_paths", G, source, target, cutoff=cutoff
     )
@@ -13375,12 +13379,7 @@ def astar_path(G, source, target, heuristic=None, weight="weight", *, cutoff=Non
     # directed projection (GraphView::neighbors_iter yields successors), so
     # directed A* runs natively and respects edge direction — the prior
     # ``G.is_directed()`` delegation (br-r37-c1-astdir) is removed.
-    if (
-        _should_delegate_astar_to_networkx(weight, cutoff)
-        or _has_negative_edge_weight_for_dijkstra(G, weight)
-        or _has_positive_infinity_edge_weight_for_dijkstra(G, weight)
-        or _has_nonnumeric_edge_weight(G, weight)
-    ):
+    if _should_delegate_astar_to_networkx(weight, cutoff):
         return _call_networkx_for_parity(
             "astar_path",
             G,
@@ -13434,12 +13433,7 @@ def astar_path_length(
     # br-r37-c1-bzio2: same gate update as astar_path.
     # br-r37-c1-astar-strw: non-numeric weight delegation (sibling).
     # br-r37-c1-kp1va: directed A* now runs natively (see astar_path).
-    if (
-        _should_delegate_astar_to_networkx(weight, cutoff)
-        or _has_negative_edge_weight_for_dijkstra(G, weight)
-        or _has_positive_infinity_edge_weight_for_dijkstra(G, weight)
-        or _has_nonnumeric_edge_weight(G, weight)
-    ):
+    if _should_delegate_astar_to_networkx(weight, cutoff):
         return _call_networkx_for_parity(
             "astar_path_length",
             G,
@@ -14629,7 +14623,7 @@ from franken_networkx._fnx import (
     single_source_bellman_ford_path as _raw_single_source_bellman_ford_path,
     single_source_bellman_ford_path_length as _raw_single_source_bellman_ford_path_length,
     single_target_shortest_path,
-    single_target_shortest_path_length,
+    single_target_shortest_path_length as _raw_single_target_shortest_path_length,
     all_pairs_dijkstra_path as _raw_all_pairs_dijkstra_path,
     all_pairs_dijkstra_path_length as _raw_all_pairs_dijkstra_path_length,
     all_pairs_bellman_ford_path as _raw_all_pairs_bellman_ford_path,
@@ -14709,29 +14703,10 @@ def single_target_shortest_path_length(G, target, cutoff=None):
     # (value + key order). Directed graphs need reverse adjacency -> Python path.
     if not G.is_directed():
         return single_source_shortest_path_length(G, target, cutoff=cutoff)
-    if cutoff is None:
-        cutoff = float("inf")
-
-    seen = {target}
-    nextlevel = [target]
-    level = 0
-    lengths = {target: level}
-    node_count = len(G)
-
-    while nextlevel and cutoff > level:
-        level += 1
-        thislevel = nextlevel
-        nextlevel = []
-        for node in thislevel:
-            for neighbor in _single_target_shortest_path_neighbors(G, node):
-                if neighbor not in seen:
-                    seen.add(neighbor)
-                    nextlevel.append(neighbor)
-                    lengths[neighbor] = level
-            if len(seen) == node_count:
-                return lengths
-
-    return lengths
+    # br-r37-c1-a0nl0: directed reverse BFS is now native as well. The raw
+    # binding emits discovery-order pairs, preserving the Python loop's
+    # predecessor tie-breaking while avoiding per-node predecessor wrappers.
+    return _raw_single_target_shortest_path_length(G, target, cutoff=cutoff)
 
 
 def single_target_shortest_path(G, target, cutoff=None):

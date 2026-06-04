@@ -636,18 +636,20 @@ def _fnx_to_nx(fg):
     else:
         G.add_nodes_from(fg)
     if fg.is_multigraph():
-        seen = set()
-        for u in fg:
-            for v, keyed_attrs in fg[u].items():
-                if not fg.is_directed():
-                    edge_id = frozenset((u, v))
-                    if edge_id in seen:
-                        continue
-                    seen.add(edge_id)
-                G.add_edges_from(
-                    (u, v, key, dict(attrs))
-                    for key, attrs in keyed_attrs.items()
-                )
+        # br-r37-c1-qpykd: emit parallel edges in adj-insertion order (the same
+        # per-node-queue topological order used for simple graphs above) so the
+        # converted multigraph's ``edges(u, keys=True)`` iteration is byte-
+        # identical to a directly-built nx multigraph. The previous loop grouped
+        # all of ``u``'s edges together in node-iteration order, which reordered
+        # parallel edges across neighbours and silently diverged the yield order
+        # of every adj-dependent delegated multigraph algorithm (all_simple_paths,
+        # BFS/DFS variants, ...). ``_topo_emit_edges_by_adj`` yields each {u, v}
+        # exactly once (undirected) / each u->v (directed) in adj order; for each
+        # we emit all parallel keys in their stored (insertion) order.
+        for u, v in _topo_emit_edges_by_adj(fg):
+            G.add_edges_from(
+                (u, v, key, dict(attrs)) for key, attrs in fg[u][v].items()
+            )
     else:
         # Use 3-tuple attrs form so attr names that collide with nx's
         # positional ``u_of_edge`` / ``v_of_edge`` parameters don't
