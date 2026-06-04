@@ -6260,6 +6260,21 @@ def _graph_has_nonunit_weight(G, weight):
     return False
 
 
+def _graph_has_explicit_nonunit_weight(G, weight):
+    if not isinstance(weight, str):
+        return True
+    for edge in G.edges(data=True):
+        attrs = edge[-1]
+        if not isinstance(attrs, dict) or weight not in attrs:
+            continue
+        try:
+            if attrs[weight] != 1:
+                return True
+        except Exception:
+            return True
+    return False
+
+
 def _has_nan_or_inf_edge_weight(G, weight):
     """Detect NaN or +/-inf numeric edge weights at ``weight`` key.
 
@@ -12194,15 +12209,19 @@ def all_pairs_dijkstra(G, cutoff=None, weight="weight"):
     Mirrors ``networkx.all_pairs_dijkstra``.
     """
     G = _coerce_arg_to_fnx_graph(G)
-    # br-dijkignoreweight: Rust all_pairs_dijkstra inherits the
-    # single-source weight-ignoring bug; delegate any weighted call.
+    # br-r37-c1-opxj0: explicit non-unit weighted calls need exact nx distance
+    # type/order parity; default-unit graphs keep the native raw path below.
+    if _should_delegate_dijkstra_to_networkx(G, weight) or _graph_has_explicit_nonunit_weight(G, weight):
+        kwargs = {"weight": weight}
+        if cutoff is not None:
+            kwargs["cutoff"] = cutoff
+        yield from _call_networkx_for_parity("all_pairs_dijkstra", G, **kwargs)
+        return
     if cutoff is not None:
         for node in G:
             yield (node, single_source_dijkstra(G, node, cutoff=cutoff, weight=weight))
         return
-    if _should_delegate_dijkstra_to_networkx(G, weight) or _graph_has_nonunit_weight(G, weight):
-        yield from _call_networkx_for_parity("all_pairs_dijkstra", G, weight=weight)
-        return
+    _graph_has_nonunit_weight(G, weight)
     # br-r37-c1-sk5be: iterate outer keys in node-insertion order
     # matching nx (Rust dict yields in arbitrary order).
     raw = _raw_all_pairs_dijkstra(G, weight=weight)

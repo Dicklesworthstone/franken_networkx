@@ -1,0 +1,38 @@
+{
+  "results": [
+    {
+      "command": "env PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260604T-delegation-goldmine-sweep/bench_delegation_goldmines.py --case all_pairs_dijkstra_weighted --repeats 20",
+      "mean": 2.6833750029399996,
+      "stddev": 0.05167924610098425,
+      "median": 2.67335590484,
+      "user": 6.633991159999999,
+      "system": 0.18880187999999998,
+      "min": 2.61464242084,
+      "max": 2.76070112684,
+      "times": [
+        2.62049791484,
+        2.6617943248400002,
+        2.7121343968400002,
+        2.7547033868399997,
+        2.67735598284,
+        2.66935582684,
+        2.64415023884,
+        2.61464242084,
+        2.76070112684,
+        2.71841440984
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}
