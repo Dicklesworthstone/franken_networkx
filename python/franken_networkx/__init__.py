@@ -3639,10 +3639,23 @@ def _add_weighted_edges_from_with_attr(cls):
         """
         for edge in ebunch_to_add:
             u, v, w = edge
-            if u is None or v is None:
+            # br-r37-c1-77ux3 (sibling): nx delegates to
+            # ``add_edges_from((u, v, {weight: w}) for ...)``, which creates
+            # node ``u`` BEFORE it examines ``v`` — so an edge whose ``v`` is
+            # None/unhashable still leaves ``u`` on the graph before raising.
+            # Validating both endpoints up front (the old behaviour) dropped
+            # that partial node.
+            if u is None:
                 raise ValueError("None cannot be a node")
             hash(u)
-            hash(v)
+            if v is None:
+                self.add_node(u)
+                raise ValueError("None cannot be a node")
+            try:
+                hash(v)
+            except TypeError:
+                self.add_node(u)
+                raise
             edge_attrs = dict(attr)
             edge_attrs[weight] = w
             if self.is_multigraph():
