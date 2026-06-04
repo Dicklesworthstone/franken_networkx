@@ -23,12 +23,12 @@ This ledger separates the broad public-export category from source-visible runti
 |---------------|---------|-------------------|------|
 | RUST_NATIVE | 1 | 0 | native extension export from `franken_networkx._fnx` |
 | PY_WRAPPER | 594 | 0 | Python-defined export with no visible NetworkX route |
-| NETWORKX_HELPER | 138 | 168 | Python-defined export with `_call_networkx_*_for_parity(...)` branches |
+| NETWORKX_HELPER | 138 | 167 | Python-defined export with `_call_networkx_*_for_parity(...)` branches |
 | DIRECT_NETWORKX | 0 | 0 | Python-defined export that directly imports or calls NetworkX |
 | CLASS | 28 | 0 | public classes, exceptions, iterators |
 | CONSTANT | 2 | 0 | public non-callable values |
 
-`NETWORKX_HELPER` currently covers 138 public export(s) and 168 parity-helper call site(s).
+`NETWORKX_HELPER` currently covers 138 public export(s) and 167 parity-helper call site(s).
 
 ## Upstream Divergence Ledger
 
@@ -148,7 +148,7 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 | `find_minimal_d_separator` | 1 | `find_minimal_d_separator` |
 | `find_negative_cycle` | 1 | `find_negative_cycle` |
 | `flow_hierarchy` | 1 | `flow_hierarchy` |
-| `floyd_warshall` | 2 | `floyd_warshall` |
+| `floyd_warshall` | 1 | `floyd_warshall` |
 | `floyd_warshall_predecessor_and_distance` | 2 | `floyd_warshall_predecessor_and_distance` |
 | `gnm_random_graph` | 1 | `gnm_random_graph` |
 | `goldberg_radzik` | 1 | `goldberg_radzik` |
