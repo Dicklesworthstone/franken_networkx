@@ -805,11 +805,15 @@ pub fn to_dict_of_dicts_undirected(
                 if let Some(neighbors) = pg.inner.neighbors_iter(u) {
                     for v in neighbors {
                         let ek = PyGraph::edge_key(u, v);
-                        let edge_dict = pg
-                            .edge_py_attrs
-                            .get(&ek)
-                            .map_or_else(|| PyDict::new(py).unbind(), |d| d.clone_ref(py));
-                        inner_dict.set_item(pg.py_node_key(py, v), edge_dict.bind(py))?;
+                        match pg.edge_py_attrs.get(&ek) {
+                            Some(edge_dict) => {
+                                inner_dict.set_item(pg.py_node_key(py, v), edge_dict.bind(py))?;
+                            }
+                            None => {
+                                let edge_dict = PyDict::new(py);
+                                inner_dict.set_item(pg.py_node_key(py, v), edge_dict)?;
+                            }
+                        }
                     }
                 }
                 outer.set_item(pg.py_node_key(py, u), inner_dict)?;
@@ -821,11 +825,15 @@ pub fn to_dict_of_dicts_undirected(
                 if let Some(neighbors) = dg.inner.successors_iter(u) {
                     for v in neighbors {
                         let ek = PyDiGraph::edge_key(u, v);
-                        let edge_dict = dg
-                            .edge_py_attrs
-                            .get(&ek)
-                            .map_or_else(|| PyDict::new(py).unbind(), |d| d.clone_ref(py));
-                        inner_dict.set_item(dg.py_node_key(py, v), edge_dict.bind(py))?;
+                        match dg.edge_py_attrs.get(&ek) {
+                            Some(edge_dict) => {
+                                inner_dict.set_item(dg.py_node_key(py, v), edge_dict.bind(py))?;
+                            }
+                            None => {
+                                let edge_dict = PyDict::new(py);
+                                inner_dict.set_item(dg.py_node_key(py, v), edge_dict)?;
+                            }
+                        }
                     }
                 }
                 outer.set_item(dg.py_node_key(py, u), inner_dict)?;

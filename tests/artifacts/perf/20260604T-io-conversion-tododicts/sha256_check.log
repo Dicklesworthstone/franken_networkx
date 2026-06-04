@@ -1,0 +1,4 @@
+tests/artifacts/perf/20260604T-io-conversion-tododicts/baseline_sweep.jsonl: OK
+tests/artifacts/perf/20260604T-io-conversion-tododicts/baseline_golden.jsonl: OK
+tests/artifacts/perf/20260604T-io-conversion-tododicts/after_sweep.jsonl: OK
+tests/artifacts/perf/20260604T-io-conversion-tododicts/after_golden.jsonl: OK

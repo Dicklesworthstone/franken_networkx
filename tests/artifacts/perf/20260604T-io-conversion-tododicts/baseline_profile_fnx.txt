@@ -1,0 +1,11 @@
+         241 function calls in 0.043 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+       80    0.000    0.000    0.043    0.001 bench_tododicts.py:44(call_case)
+       80    0.000    0.000    0.043    0.001 __init__.py:41351(to_dict_of_dicts)
+       80    0.043    0.001    0.043    0.001 {built-in method franken_networkx._fnx.to_dict_of_dicts_undirected}
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+
+

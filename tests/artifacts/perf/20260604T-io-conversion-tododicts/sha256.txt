@@ -1,0 +1,4 @@
+98469d8fd173ebe0506d834bfab3daf9510837e962e43ea1ddb05e5dfa0baf02  tests/artifacts/perf/20260604T-io-conversion-tododicts/baseline_sweep.jsonl
+0f77d373664120a41cd72a06ff6aeb1f6a64dd1bb560babcd59201403502ec8e  tests/artifacts/perf/20260604T-io-conversion-tododicts/baseline_golden.jsonl
+b7b50c7e5b7af5bf03a7ab10a8bafa65ecd744eaa5710ee3e0037ed80f77e0aa  tests/artifacts/perf/20260604T-io-conversion-tododicts/after_sweep.jsonl
+0f77d373664120a41cd72a06ff6aeb1f6a64dd1bb560babcd59201403502ec8e  tests/artifacts/perf/20260604T-io-conversion-tododicts/after_golden.jsonl

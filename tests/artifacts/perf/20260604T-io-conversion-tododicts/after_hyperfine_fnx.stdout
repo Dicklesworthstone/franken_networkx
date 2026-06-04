@@ -1,0 +1,7 @@
+  [2m2026-06-04T22:19:56.361102Z[0m [33m WARN[0m [1;33mrch::hook[0m[33m: [33mexec called with non-compilation command: hyperfine --warmup 2 --runs 9 --export-json tests/artifacts/perf/20260604T-io-conversion-tododicts/after_hyperfine_fnx.json 'env PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260604T-io-conversion-tododicts/bench_tododicts.py bench --impl fnx --repeats 1'[0m
+    [2;3mat[0m rch/src/hook.rs:402 [2;3mon[0m ThreadId(1)
+
+Benchmark 1: env PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260604T-io-conversion-tododicts/bench_tododicts.py bench --impl fnx --repeats 1
+  Time (mean ± σ):     313.2 ms ±  25.0 ms    [User: 3570.1 ms, System: 64.7 ms]
+  Range (min … max):   283.6 ms … 347.6 ms    9 runs
+ 
