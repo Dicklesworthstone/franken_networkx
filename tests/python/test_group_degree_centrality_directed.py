@@ -32,10 +32,31 @@ def test_group_degree_centrality_digraph_matches_nx():
 
 
 @needs_nx
+def test_group_degree_centrality_digraph_uses_successors_only():
+    g = fnx.DiGraph()
+    gx = nx.DiGraph()
+    for u, v in [(2, 0), (0, 1)]:
+        g.add_edge(u, v)
+        gx.add_edge(u, v)
+    assert fnx.group_degree_centrality(g, {0}) == nx.group_degree_centrality(gx, {0})
+
+
+@needs_nx
+def test_group_degree_centrality_digraph_duplicate_group_entries_match_nx():
+    g = fnx.DiGraph()
+    gx = nx.DiGraph()
+    for u, v in [(0, 1), (1, 2)]:
+        g.add_edge(u, v)
+        gx.add_edge(u, v)
+    group = [0, 0]
+    assert fnx.group_degree_centrality(g, group) == nx.group_degree_centrality(gx, group)
+
+
+@needs_nx
 def test_group_degree_centrality_multidigraph_matches_nx():
     g = fnx.MultiDiGraph()
     gx = nx.MultiDiGraph()
-    for u, v in [(0, 1), (1, 2)]:
+    for u, v in [(0, 1), (0, 1), (1, 2)]:
         g.add_edge(u, v)
         gx.add_edge(u, v)
     assert fnx.group_degree_centrality(g, {0}) == nx.group_degree_centrality(gx, {0})

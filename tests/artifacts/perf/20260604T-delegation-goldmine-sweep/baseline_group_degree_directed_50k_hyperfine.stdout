@@ -1,0 +1,4 @@
+Benchmark 1: env PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260604T-delegation-goldmine-sweep/bench_delegation_goldmines.py --case group_degree_centrality_directed --impl fnx --size 50000 --repeats 1
+  Time (mean ± σ):      1.475 s ±  0.242 s    [User: 4.341 s, System: 0.258 s]
+  Range (min … max):    1.330 s …  1.964 s    6 runs
+ 

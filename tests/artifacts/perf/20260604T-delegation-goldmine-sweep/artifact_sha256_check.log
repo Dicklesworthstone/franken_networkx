@@ -1,0 +1,13 @@
+tests/artifacts/perf/20260604T-delegation-goldmine-sweep/bench_delegation_goldmines.py: OK
+tests/artifacts/perf/20260604T-delegation-goldmine-sweep/baseline_sweep.jsonl: OK
+tests/artifacts/perf/20260604T-delegation-goldmine-sweep/baseline_group_degree_directed_50k.jsonl: OK
+tests/artifacts/perf/20260604T-delegation-goldmine-sweep/baseline_group_degree_directed_50k_hyperfine.json: OK
+tests/artifacts/perf/20260604T-delegation-goldmine-sweep/baseline_group_degree_directed_50k_cprofile.txt: OK
+tests/artifacts/perf/20260604T-delegation-goldmine-sweep/after_group_degree_directed_50k_confirm.jsonl: OK
+tests/artifacts/perf/20260604T-delegation-goldmine-sweep/after_group_degree_directed_50k_hyperfine.json: OK
+tests/artifacts/perf/20260604T-delegation-goldmine-sweep/after_group_degree_directed_50k_cprofile.txt: OK
+tests/artifacts/perf/20260604T-delegation-goldmine-sweep/after_sweep.jsonl: OK
+tests/artifacts/perf/20260604T-delegation-goldmine-sweep/isomorphism_proof.md: OK
+tests/artifacts/perf/20260604T-delegation-goldmine-sweep/validate_pytest_group_degree_confirm.rch.log: OK
+tests/artifacts/perf/20260604T-delegation-goldmine-sweep/cargo_check_fnx_python.rch.log: OK
+tests/artifacts/perf/20260604T-delegation-goldmine-sweep/cargo_clippy_fnx_python.rch.log: OK
