@@ -11392,10 +11392,26 @@ def union(G, H, rename=()):
             "Use `rename` to specify prefixes for the graphs or use\n"
             "disjoint_union(G1, G2, ..., GN).",
         )
-    raw = _raw_union(G, H)
-    rebuilt = _rebuild_operator_output(raw, cls)
-    # Raw Rust union drops node/edge attrs; copy them back from inputs.
-    _copy_attrs_into(rebuilt, G, H)
+    # br-unionsinglepass: build the union in ONE attributed construction pass
+    # instead of native _raw_union (which DROPS every attribute) +
+    # _rebuild_operator_output + a slow _copy_attrs_into walk that re-queried
+    # both inputs per node/edge via has_edge / __getitem__ (the ~11x tax). This
+    # also FIXES a parity bug: the old pipeline dropped the graph-level
+    # attribute dict entirely (`union(G, H).graph == {}` instead of nx's merged
+    # `{**G.graph, **H.graph}`). Node sets are disjoint here, so a plain
+    # add_*_from with data carries every attribute; later graph (H) wins on
+    # any graph-attr key clash, matching networkx's union_all.
+    rebuilt = cls()
+    rebuilt.graph.update(G.graph)
+    rebuilt.graph.update(H.graph)
+    rebuilt.add_nodes_from(G.nodes(data=True))
+    rebuilt.add_nodes_from(H.nodes(data=True))
+    if rebuilt.is_multigraph():
+        rebuilt.add_edges_from(G.edges(keys=True, data=True))
+        rebuilt.add_edges_from(H.edges(keys=True, data=True))
+    else:
+        rebuilt.add_edges_from(G.edges(data=True))
+        rebuilt.add_edges_from(H.edges(data=True))
     return rebuilt
 
 
