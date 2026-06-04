@@ -678,16 +678,35 @@ def _fnx_to_nx(fg):
             else None
         )
         if bulk is not None:
-            adj_neighbors = {node: [nbr for nbr, _a in nbrs] for node, nbrs in bulk}
+            # br-r37-c1-fnx2nx-lazykey: ``_native_fnx_to_nx_adjacency`` returns
+            # the canonical (interned) node keys (e.g. the string "0"), which the
+            # lazy display-key path (br-r37-c1-17ucl) can make DIVERGE from the
+            # original Python node objects yielded by ``for node in fg`` (e.g.
+            # the int 0). Adding nodes from one form and edges from the other
+            # makes networkx treat them as DISTINCT nodes — duplicating the graph
+            # (e.g. karate 34 -> 68 nodes, every original node left at degree 0),
+            # silently breaking every nx-delegated algorithm that converts.
+            # The bulk and ``list(fg)`` iterate nodes in the same order, so zip
+            # them to map each canonical key back to its original object.
+            display_nodes = list(fg)
+            canon_to_obj = {
+                canon: obj for (canon, _nbrs), obj in zip(bulk, display_nodes)
+            }
+            adj_neighbors = {
+                canon_to_obj[node]: [canon_to_obj[nbr] for nbr, _a in nbrs]
+                for node, nbrs in bulk
+            }
             attrs_by_pair = {}
             if directed:
                 for node, nbrs in bulk:
+                    onode = canon_to_obj[node]
                     for nbr, attrs in nbrs:
-                        attrs_by_pair[(node, nbr)] = attrs
+                        attrs_by_pair[(onode, canon_to_obj[nbr])] = attrs
             else:
                 for node, nbrs in bulk:
+                    onode = canon_to_obj[node]
                     for nbr, attrs in nbrs:
-                        attrs_by_pair[frozenset((node, nbr))] = attrs
+                        attrs_by_pair[frozenset((onode, canon_to_obj[nbr]))] = attrs
             edges_in_order = []
             for u, v in _topo_emit_edges_by_adj(fg, adj=adj_neighbors):
                 key = (u, v) if directed else frozenset((u, v))
