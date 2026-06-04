@@ -53,6 +53,59 @@ def test_all_three_match_networkx():
         assert list(nx.nodes_with_selfloops(G)) == list(fnx.nodes_with_selfloops(F)), seed
 
 
+def test_selfloop_edges_data_and_keys_forms():
+    # br-selfloopnative2: the data/keys forms of selfloop_edges previously walked
+    # the entire AdjacencyView (~180x slower than networkx). They now route the
+    # node discovery through nodes_with_selfloops_rust while keeping data/key
+    # materialization exact. Every (data, keys) form must match networkx.
+    for seed in range(120):
+        rnd = random.Random(seed)
+        n = rnd.randint(0, 30)
+        directed = seed % 2 == 0
+        multi = seed % 3 == 0
+        if multi:
+            G = nx.MultiDiGraph() if directed else nx.MultiGraph()
+        else:
+            G = nx.DiGraph() if directed else nx.Graph()
+        nodes = list(range(n))
+        rnd.shuffle(nodes)
+        G.add_nodes_from(nodes)
+        for _ in range(n):
+            if n > 0:
+                G.add_edge(rnd.choice(nodes), rnd.choice(nodes), weight=rnd.random())
+        for _ in range(rnd.randint(0, 5)):
+            if n > 0:
+                x = rnd.choice(nodes)
+                G.add_edge(x, x, weight=rnd.random())
+        F = _cp_data(G, directed, multi)
+        variants = [
+            dict(data=False),
+            dict(data=True),
+            dict(data="weight"),
+            dict(data="weight", default=-1),
+        ]
+        if multi:
+            variants += [
+                dict(keys=True),
+                dict(data=True, keys=True),
+                dict(data="weight", keys=True),
+            ]
+        for v in variants:
+            assert list(nx.selfloop_edges(G, **v)) == list(
+                fnx.selfloop_edges(F, **v)
+            ), (seed, v)
+
+
+def _cp_data(G, directed=False, multi=False):
+    if multi:
+        F = fnx.MultiDiGraph() if directed else fnx.MultiGraph()
+    else:
+        F = fnx.DiGraph() if directed else fnx.Graph()
+    F.add_nodes_from(G.nodes())
+    F.add_edges_from(G.edges(keys=True, data=True) if multi else G.edges(data=True))
+    return F
+
+
 def test_subgraphview_filters_selfloops():
     G = nx.gnp_random_graph(30, 0.2, seed=1)
     for x in (0, 5, 20):

@@ -16256,10 +16256,15 @@ def selfloop_edges(G, data=False, keys=False, default=None):
     _raw_nbrs = _raw_neighbors_dispatch(G)
 
     def adjacency_entries():
-        for node in G.adj:
-            nbrs = G.adj[node]
-            if node in nbrs:
-                yield node, nbrs
+        # br-selfloopnative2: only the self-loop nodes are needed; find them via
+        # the native scan (node-iteration order) instead of walking the entire
+        # AdjacencyView for every node (~180x faster for the data/keys forms).
+        try:
+            sl_nodes = list(_fnx.nodes_with_selfloops_rust(G))
+        except Exception:
+            sl_nodes = [node for node in G.adj if node in G.adj[node]]
+        for node in sl_nodes:
+            yield node, G.adj[node]
 
     # br-r37-c1-61okz: simplest case (data=False, keys=False,
     # non-multigraph) — yield ``(n, n)`` tuples via direct has_edge
