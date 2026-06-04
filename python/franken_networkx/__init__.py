@@ -20609,12 +20609,9 @@ def chain_decomposition(G, root=None):
     list of (u, v) tuples
         Each yielded list is a chain.
 
-    br-chaindec: the Rust binding returned an empty iterator for any
-    graph with cycles (triangle, K4-minus-edge, two triangles) —
-    completely non-functional outside trees. Route through the parity
-    helper so the nx reference implementation drives the output.
-    Downstream algorithms (minimum_cycle_basis, is_chordal helpers)
-    depend on non-empty chain output for cyclic graphs.
+    br-r37-c1-r4gg6: exact native DFS-cycle-forest path for plain fnx
+    Graphs. Unsupported graph-like objects and root-error cases still route
+    through the parity helper so NetworkX owns their observable exceptions.
     """
     # br-r37-c1-scceager: nx is @not_implemented_for('directed','multigraph')
     # and raises EAGERLY on the call. multigraph is checked first so a
@@ -20625,6 +20622,13 @@ def chain_decomposition(G, root=None):
         raise NetworkXNotImplemented("not implemented for directed type")
 
     def _gen():
+        try:
+            use_native = type(G) is Graph and (root is None or root in G)
+        except TypeError:
+            use_native = False
+        if use_native:
+            yield from _fnx.chain_decomposition(G, root)
+            return
         if root is None:
             result = _call_networkx_for_parity("chain_decomposition", G)
         else:

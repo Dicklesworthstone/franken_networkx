@@ -25876,66 +25876,102 @@ pub fn chain_decomposition(graph: &Graph, root: Option<&str>) -> Vec<Vec<(String
         return Vec::new();
     }
 
-    let idx: std::collections::HashMap<&str, usize> =
-        nodes.iter().enumerate().map(|(i, n)| (*n, i)).collect();
+    #[derive(Clone, Copy)]
+    struct ChainArc {
+        to: usize,
+        nontree: bool,
+    }
 
-    // DFS to build tree edges and back edges
-    let start = root.unwrap_or(nodes[0]);
-    let start_idx = match idx.get(start) {
-        Some(&i) => i,
-        None => return Vec::new(),
+    let roots: Vec<usize> = match root {
+        Some(root_node) => match graph.get_node_index(root_node) {
+            Some(idx) => vec![idx],
+            None => return Vec::new(),
+        },
+        None => (0..n).collect(),
     };
 
-    let mut visited = vec![false; n];
+    let mut dfs_visited = vec![false; n];
     let mut parent = vec![None::<usize>; n];
-    let mut depth = vec![0usize; n];
-    let mut back_edges: Vec<(usize, usize)> = Vec::new();
-    let mut dfs_stack = vec![(start_idx, false)];
-    visited[start_idx] = true;
+    let mut dfs_order = Vec::with_capacity(n);
+    let mut cycle_forest: Vec<Vec<ChainArc>> = vec![Vec::new(); n];
 
-    while let Some((v, processed)) = dfs_stack.last_mut() {
-        if *processed {
-            dfs_stack.pop();
+    for start in roots {
+        if dfs_visited[start] {
             continue;
         }
-        *processed = true;
-        let v_idx = *v;
-        if let Some(neighbors) = graph.neighbors(nodes[v_idx]) {
-            for nb in neighbors {
-                let nb_idx = idx[nb];
-                if !visited[nb_idx] {
-                    visited[nb_idx] = true;
-                    parent[nb_idx] = Some(v_idx);
-                    depth[nb_idx] = depth[v_idx] + 1;
-                    dfs_stack.push((nb_idx, false));
-                } else if Some(nb_idx) != parent[v_idx] && depth[nb_idx] < depth[v_idx] {
-                    back_edges.push((v_idx, nb_idx));
+
+        dfs_visited[start] = true;
+        dfs_order.push(start);
+        let mut stack = vec![(start, 0usize)];
+
+        while !stack.is_empty() {
+            let Some((u, v)) = next_dfs_edge(graph, &mut stack) else {
+                continue;
+            };
+
+            if dfs_visited[v] {
+                if !cycle_forest[u].iter().any(|edge| edge.to == v) {
+                    cycle_forest[v].push(ChainArc {
+                        to: u,
+                        nontree: true,
+                    });
                 }
+                continue;
             }
+
+            dfs_visited[v] = true;
+            parent[v] = Some(u);
+            cycle_forest[v].push(ChainArc {
+                to: u,
+                nontree: false,
+            });
+            dfs_order.push(v);
+            stack.push((v, 0));
         }
     }
 
-    // Build chains from back edges
     let mut chains = Vec::new();
-    for (v, u) in &back_edges {
-        let mut chain = Vec::new();
-        chain.push((nodes[*v].to_owned(), nodes[*u].to_owned()));
-        // Walk up from v to u via parent pointers
-        let mut current = *v;
-        while current != *u {
-            if let Some(p) = parent[current] {
-                chain.push((nodes[current].to_owned(), nodes[p].to_owned()));
-                current = p;
-            } else {
-                break;
+    let mut chain_visited = vec![false; n];
+    for u in dfs_order {
+        chain_visited[u] = true;
+        for edge in &cycle_forest[u] {
+            if !edge.nontree {
+                continue;
             }
-        }
-        if !chain.is_empty() {
+
+            let mut chain = Vec::new();
+            let mut left = u;
+            let mut right = edge.to;
+            while !chain_visited[right] {
+                chain.push((nodes[left].to_owned(), nodes[right].to_owned()));
+                chain_visited[right] = true;
+                left = right;
+                let Some(next) = parent[right] else {
+                    break;
+                };
+                right = next;
+            }
+            chain.push((nodes[left].to_owned(), nodes[right].to_owned()));
             chains.push(chain);
         }
     }
 
     chains
+}
+
+fn next_dfs_edge(graph: &Graph, stack: &mut Vec<(usize, usize)>) -> Option<(usize, usize)> {
+    loop {
+        let (node, next_neighbor) = stack.last_mut()?;
+        let neighbors = graph.neighbors_indices(*node).unwrap_or(&[]);
+        if *next_neighbor == neighbors.len() {
+            stack.pop();
+            continue;
+        }
+
+        let edge = (*node, neighbors[*next_neighbor]);
+        *next_neighbor += 1;
+        return Some(edge);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -33925,6 +33961,7 @@ mod tests {
         cartesian_product,
         cartesian_product_directed,
         cgse_witness_schema_version,
+        chain_decomposition,
         chordal_cycle_graph,
         chordal_graph_cliques,
         chordal_graph_treewidth,
@@ -35277,6 +35314,75 @@ mod tests {
 
         let result = bridges(&graph);
         assert!(result.edges.is_empty());
+    }
+
+    #[test]
+    fn chain_decomposition_matches_networkx_triangle_order() {
+        let mut graph = Graph::strict();
+        for (left, right) in [("0", "1"), ("1", "2"), ("2", "0")] {
+            graph
+                .add_edge(left, right)
+                .expect("triangle edge should be accepted");
+        }
+
+        assert_eq!(
+            chain_decomposition(&graph, None),
+            vec![vec![
+                ("0".to_owned(), "2".to_owned()),
+                ("2".to_owned(), "1".to_owned()),
+                ("1".to_owned(), "0".to_owned())
+            ]]
+        );
+    }
+
+    #[test]
+    fn chain_decomposition_walks_all_components_or_root_component() {
+        let mut graph = Graph::strict();
+        for (left, right) in [
+            ("0", "1"),
+            ("1", "2"),
+            ("2", "0"),
+            ("10", "11"),
+            ("11", "12"),
+            ("12", "10"),
+        ] {
+            graph
+                .add_edge(left, right)
+                .expect("cycle edge should be accepted");
+        }
+
+        let all = chain_decomposition(&graph, None);
+        assert_eq!(
+            all,
+            vec![
+                vec![
+                    ("0".to_owned(), "2".to_owned()),
+                    ("2".to_owned(), "1".to_owned()),
+                    ("1".to_owned(), "0".to_owned())
+                ],
+                vec![
+                    ("10".to_owned(), "12".to_owned()),
+                    ("12".to_owned(), "11".to_owned()),
+                    ("11".to_owned(), "10".to_owned())
+                ]
+            ]
+        );
+
+        let rooted = chain_decomposition(&graph, Some("10"));
+        assert_eq!(rooted, vec![all[1].clone()]);
+    }
+
+    #[test]
+    fn chain_decomposition_preserves_self_loop_chain() {
+        let mut graph = Graph::strict();
+        graph
+            .add_edge("0", "0")
+            .expect("self-loop should be accepted");
+
+        assert_eq!(
+            chain_decomposition(&graph, None),
+            vec![vec![("0".to_owned(), "0".to_owned())]]
+        );
     }
 
     #[test]
