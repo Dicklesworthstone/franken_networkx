@@ -21626,6 +21626,43 @@ def load_centrality(
     return betweenness
 
 
+def _degree_xy_pairs_fast(G, x, y, weight, nodes):
+    """Native vectorized ``(deg_x, deg_y)`` degree pairs (one per directed
+    adjacency entry), matching ``node_degree_xy``'s MULTISET for the common case:
+    ``weight is None``, ``nodes is None``, simple non-multigraph, no self-loops.
+
+    Derives the pairs from the native sparse adjacency in a single vectorized pass
+    instead of walking the slow DegreeView/EdgeView wrappers. The result is
+    returned in adjacency order (not networkx's ``set(G)`` traversal order), which
+    is fine for consumers that are invariant to pair order (Pearson's r). Returns
+    ``(du, dv)`` float arrays, or ``None`` when the fast path does not apply.
+    """
+    import numpy as np
+
+    if weight is not None or nodes is not None:
+        return None
+    if G.is_multigraph() or G.number_of_edges() == 0 or number_of_selfloops(G) != 0:
+        return None
+    try:
+        A = to_scipy_sparse_array(G, weight=None, format="coo")
+    except Exception:
+        return None
+    if G.is_directed():
+        sel = {
+            "out": np.asarray(A.sum(axis=1)).ravel(),
+            "in": np.asarray(A.sum(axis=0)).ravel(),
+        }
+        if x not in sel or y not in sel:
+            return None
+        du = sel[x][A.row]
+        dv = sel[y][A.col]
+    else:
+        deg = np.asarray(A.sum(axis=1)).ravel()
+        du = deg[A.row]
+        dv = deg[A.col]
+    return du.astype(float), dv.astype(float)
+
+
 def degree_pearson_correlation_coefficient(G, x="out", y="in", weight=None, nodes=None):
     """Return the degree-degree Pearson correlation coefficient.
 
@@ -21633,6 +21670,17 @@ def degree_pearson_correlation_coefficient(G, x="out", y="in", weight=None, node
     ``degree_assortativity_coefficient``.
     """
     import scipy as sp
+
+    # br-degpearsonfast: the default path materialized every (deg_x, deg_y) pair
+    # through node_degree_xy, which walks the slow DegreeView/EdgeView wrappers
+    # (~6x slower than networkx). Pearson's r is invariant to the ORDER of the
+    # (x, y) pairs, so when no subset/weight/self-loops are in play we can derive
+    # the pairs from the native sparse adjacency in one vectorized pass and get
+    # the same coefficient (to float tolerance, as the assortativity tests use).
+    fast = _degree_xy_pairs_fast(G, x, y, weight, nodes)
+    if fast is not None:
+        du, dv = fast
+        return float(sp.stats.pearsonr(du, dv)[0])
 
     values = list(node_degree_xy(G, x=x, y=y, weight=weight, nodes=nodes))
     left, right = zip(*values)
