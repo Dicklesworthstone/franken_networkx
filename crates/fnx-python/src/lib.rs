@@ -391,6 +391,17 @@ impl PyGraph {
         )
     }
 
+    pub(crate) fn materialize_node_py_attrs(
+        &mut self,
+        py: Python<'_>,
+        canonical: &str,
+    ) -> Py<PyDict> {
+        self.node_py_attrs
+            .entry(canonical.to_owned())
+            .or_insert_with(|| PyDict::new(py).unbind())
+            .clone_ref(py)
+    }
+
     /// Create a new empty PyGraph (no nodes, no edges, empty graph attrs).
     #[allow(dead_code)] // Used by wrapper tests and parity helpers.
     pub(crate) fn new_empty(py: Python<'_>) -> PyResult<Self> {
@@ -3235,7 +3246,6 @@ impl PyGraph {
         }
         let count = usize::try_from(stop).unwrap_or(usize::MAX);
         self.node_key_map.reserve(count);
-        self.node_py_attrs.reserve(count);
         let mut canonicals = Vec::with_capacity(count);
         for node in 0..stop {
             let canonical = node.to_string();
@@ -3246,9 +3256,6 @@ impl PyGraph {
                         .into_any()
                         .unbind()
                 });
-            self.node_py_attrs
-                .entry(canonical.clone())
-                .or_insert_with(|| PyDict::new(py).unbind());
             canonicals.push(canonical);
             self.bump_nodes_seq();
         }

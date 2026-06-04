@@ -11585,20 +11585,23 @@ fn single_target_shortest_path_length(
     let gr = extract_graph(g)?;
     let t = node_key_to_string(py, target)?;
     validate_node_str(&gr, &t, "Target")?;
-    let result = if let Some(dg) = gr.digraph() {
-        py.allow_threads(|| {
+    let dict = PyDict::new(py);
+    if let Some(dg) = gr.digraph() {
+        let result = py.allow_threads(|| {
             fnx_algorithms::single_target_shortest_path_length_directed(dg, &t, cutoff)
-        })
+        });
+        for (node, length) in &result {
+            dict.set_item(gr.py_node_key(py, node), *length)?;
+        }
     } else {
         let __gr_undirected = gr.undirected();
-        py.allow_threads(|| {
+        let result = py.allow_threads(|| {
             fnx_algorithms::single_target_shortest_path_length(__gr_undirected, &t, cutoff)
-        })
+        });
+        for (node, length) in &result {
+            dict.set_item(gr.py_node_key(py, node), *length)?;
+        }
     };
-    let dict = PyDict::new(py);
-    for (node, length) in &result {
-        dict.set_item(gr.py_node_key(py, node), *length)?;
-    }
     Ok(dict.into_any().unbind())
 }
 

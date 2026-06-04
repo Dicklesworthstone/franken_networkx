@@ -56,71 +56,78 @@ impl NodeView {
     }
 
     fn __iter__(&self, py: Python<'_>) -> PyResult<Py<NodeViewIterator>> {
-        let g = self.graph.borrow(py);
-        let nodes: Vec<String> = g
-            .inner
-            .nodes_ordered()
-            .into_iter()
-            .map(str::to_owned)
-            .collect();
+        let nodes: Vec<String> = {
+            let g = self.graph.borrow(py);
+            g.inner
+                .nodes_ordered()
+                .into_iter()
+                .map(str::to_owned)
+                .collect()
+        };
         let items: Vec<PyObject> = match &self.data {
-            NodeViewData::NoData => nodes.iter().map(|n| g.py_node_key(py, n)).collect(),
+            NodeViewData::NoData => {
+                let g = self.graph.borrow(py);
+                nodes.iter().map(|n| g.py_node_key(py, n)).collect()
+            }
             NodeViewData::AllData => nodes
                 .iter()
                 .map(|n| {
+                    let mut g = self.graph.borrow_mut(py);
                     let py_key = g.py_node_key(py, n);
-                    let attrs = g
-                        .node_py_attrs
-                        .get(n)
-                        .map_or_else(|| PyDict::new(py).unbind(), |d| d.clone_ref(py));
+                    let attrs = g.materialize_node_py_attrs(py, n);
                     tuple_object(py, &[py_key, attrs.into_any()])
                 })
                 .collect::<PyResult<Vec<_>>>()?,
-            NodeViewData::Attr(attr) => nodes
-                .iter()
-                .map(|n| {
-                    let py_key = g.py_node_key(py, n);
-                    let val = g
-                        .node_py_attrs
-                        .get(n)
-                        .and_then(|dict| dict.bind(py).get_item(attr.as_str()).ok().flatten())
-                        .map_or_else(|| py.None(), |v| v.unbind());
-                    tuple_object(py, &[py_key, val])
-                })
-                .collect::<PyResult<Vec<_>>>()?,
-            NodeViewData::AttrWithDefault(attr, default) => nodes
-                .iter()
-                .map(|n| {
-                    let py_key = g.py_node_key(py, n);
-                    let val = g
-                        .node_py_attrs
-                        .get(n)
-                        .and_then(|dict| dict.bind(py).get_item(attr.as_str()).ok().flatten())
-                        .map_or_else(|| default.clone_ref(py), |v| v.unbind());
-                    tuple_object(py, &[py_key, val])
-                })
-                .collect::<PyResult<Vec<_>>>()?,
+            NodeViewData::Attr(attr) => {
+                let g = self.graph.borrow(py);
+                nodes
+                    .iter()
+                    .map(|n| {
+                        let py_key = g.py_node_key(py, n);
+                        let val = g
+                            .node_py_attrs
+                            .get(n)
+                            .and_then(|dict| dict.bind(py).get_item(attr.as_str()).ok().flatten())
+                            .map_or_else(|| py.None(), |v| v.unbind());
+                        tuple_object(py, &[py_key, val])
+                    })
+                    .collect::<PyResult<Vec<_>>>()?
+            }
+            NodeViewData::AttrWithDefault(attr, default) => {
+                let g = self.graph.borrow(py);
+                nodes
+                    .iter()
+                    .map(|n| {
+                        let py_key = g.py_node_key(py, n);
+                        let val = g
+                            .node_py_attrs
+                            .get(n)
+                            .and_then(|dict| dict.bind(py).get_item(attr.as_str()).ok().flatten())
+                            .map_or_else(|| default.clone_ref(py), |v| v.unbind());
+                        tuple_object(py, &[py_key, val])
+                    })
+                    .collect::<PyResult<Vec<_>>>()?
+            }
         };
+        let expected_seq = self.graph.borrow(py).nodes_seq;
         Py::new(
             py,
             NodeViewIterator {
                 inner: items.into_iter(),
                 graph: Some(self.graph.clone_ref(py)),
                 expected_count: Some(nodes.len()),
-                expected_seq: Some(g.nodes_seq),
+                expected_seq: Some(expected_seq),
             },
         )
     }
 
     fn __getitem__(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>> {
-        let g = self.graph.borrow(py);
+        let mut g = self.graph.borrow_mut(py);
         let canonical = node_key_to_string(py, n)?;
         if !g.inner.has_node(&canonical) {
             return Err(crate::missing_key_error(n));
         }
-        Ok(g.node_py_attrs
-            .get(&canonical)
-            .map_or_else(|| PyDict::new(py).unbind(), |d| d.clone_ref(py)))
+        Ok(g.materialize_node_py_attrs(py, &canonical))
     }
 
     #[pyo3(signature = (n, default=None))]
@@ -130,15 +137,12 @@ impl NodeView {
         n: &Bound<'_, PyAny>,
         default: Option<PyObject>,
     ) -> PyResult<PyObject> {
-        let g = self.graph.borrow(py);
+        let mut g = self.graph.borrow_mut(py);
         let canonical = node_key_to_string(py, n)?;
         if !g.inner.has_node(&canonical) {
             return Ok(default.unwrap_or_else(|| py.None()));
         }
-        Ok(g.node_py_attrs.get(&canonical).map_or_else(
-            || PyDict::new(py).into_any().unbind(),
-            |d| d.clone_ref(py).into_any(),
-        ))
+        Ok(g.materialize_node_py_attrs(py, &canonical).into_any())
     }
 
     fn __repr__(&self, py: Python<'_>) -> String {
@@ -192,16 +196,20 @@ impl NodeView {
 
     /// Return a list of (node, attrs) pairs (like dict.items()).
     fn items(&self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
-        let g = self.graph.borrow(py);
-        g.inner
-            .nodes_ordered()
+        let nodes: Vec<String> = {
+            let g = self.graph.borrow(py);
+            g.inner
+                .nodes_ordered()
+                .iter()
+                .map(|n| (*n).to_owned())
+                .collect()
+        };
+        let mut g = self.graph.borrow_mut(py);
+        nodes
             .iter()
             .map(|n| {
                 let py_key = g.py_node_key(py, n);
-                let attrs = g.node_py_attrs.get(*n).map_or_else(
-                    || PyDict::new(py).into_any().unbind(),
-                    |d| d.clone_ref(py).into_any(),
-                );
+                let attrs = g.materialize_node_py_attrs(py, n).into_any();
                 tuple_object(py, &[py_key, attrs])
             })
             .collect()
@@ -209,16 +217,18 @@ impl NodeView {
 
     /// Return a list of attr dicts (like dict.values()).
     fn values(&self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
-        let g = self.graph.borrow(py);
-        Ok(g.inner
-            .nodes_ordered()
+        let nodes: Vec<String> = {
+            let g = self.graph.borrow(py);
+            g.inner
+                .nodes_ordered()
+                .iter()
+                .map(|n| (*n).to_owned())
+                .collect()
+        };
+        let mut g = self.graph.borrow_mut(py);
+        Ok(nodes
             .iter()
-            .map(|n| {
-                g.node_py_attrs.get(*n).map_or_else(
-                    || PyDict::new(py).into_any().unbind(),
-                    |d| d.clone_ref(py).into_any(),
-                )
-            })
+            .map(|n| g.materialize_node_py_attrs(py, n).into_any())
             .collect())
     }
 

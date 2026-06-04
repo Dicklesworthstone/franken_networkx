@@ -22366,13 +22366,15 @@ pub fn single_target_shortest_path_length_directed(
     digraph: &DiGraph,
     target: &str,
     cutoff: Option<usize>,
-) -> HashMap<String, usize> {
-    let mut result: HashMap<String, usize> = HashMap::new();
+) -> Vec<(String, usize)> {
+    let mut result = Vec::with_capacity(digraph.node_count());
     if !digraph.has_node(target) {
         return result;
     }
 
-    result.insert(target.to_owned(), 0);
+    let mut seen: HashSet<&str> = HashSet::new();
+    seen.insert(target);
+    result.push((target.to_owned(), 0));
     let mut frontier: Vec<&str> = vec![target];
     let mut level = 0usize;
 
@@ -22386,8 +22388,8 @@ pub fn single_target_shortest_path_length_directed(
         for &node in &frontier {
             if let Some(predecessors) = digraph.predecessors_iter(node) {
                 for pred in predecessors {
-                    if !result.contains_key(pred) {
-                        result.insert(pred.to_owned(), level + 1);
+                    if seen.insert(pred) {
+                        result.push((pred.to_owned(), level + 1));
                         next_frontier.push(pred);
                     }
                 }
@@ -43976,10 +43978,15 @@ mod tests {
         let _ = g.add_edge("b", "c");
         let _ = g.add_edge("d", "c");
         let lengths = single_target_shortest_path_length_directed(&g, "c", Some(1));
-        assert_eq!(lengths["c"], 0);
-        assert_eq!(lengths["b"], 1);
-        assert_eq!(lengths["d"], 1);
-        assert!(!lengths.contains_key("a"));
+        assert_eq!(
+            lengths,
+            vec![
+                ("c".to_owned(), 0),
+                ("b".to_owned(), 1),
+                ("d".to_owned(), 1),
+            ]
+        );
+        assert!(!lengths.iter().any(|(node, _)| node == "a"));
     }
 
     // -----------------------------------------------------------------------
