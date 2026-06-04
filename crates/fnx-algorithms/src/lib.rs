@@ -20116,6 +20116,417 @@ fn planar_edge_bound_with_bcc(n: usize, adj: &[Vec<usize>]) -> bool {
     m <= 3 * n - 6
 }
 
+// ── Exact planarity: Left-Right (de Fraysseix–Rosenstiehl / Brandes) ─────────
+//
+// Boolean-only port of NetworkX's `LRPlanarity` (networkx/algorithms/
+// planarity.py). Two phases — DFS orientation (compute height / lowpt /
+// lowpt2 / nesting-depth / parent edges) and DFS testing (conflict-pair
+// stack with the left-right constraint). The embedding-construction phase is
+// omitted because only the yes/no answer is required. Planarity is a graph
+// invariant, so the result is independent of the DFS root and adjacency order
+// chosen here (we do not need to match NetworkX's node iteration order).
+//
+// All edge-keyed quantities use a directed-edge id assigned during
+// orientation. `Option<edge_id>` / `Option<node>` are encoded as `i64` with
+// `-1` meaning `None` (mirroring NetworkX's `defaultdict(lambda: None)`).
+
+#[derive(Clone, Copy)]
+struct LrPair {
+    // left interval (low, high) and right interval (low, high); -1 == None
+    ll: i64,
+    lh: i64,
+    rl: i64,
+    rh: i64,
+}
+
+impl LrPair {
+    #[inline]
+    fn swap(&mut self) {
+        std::mem::swap(&mut self.ll, &mut self.rl);
+        std::mem::swap(&mut self.lh, &mut self.rh);
+    }
+    #[inline]
+    fn left_empty(&self) -> bool {
+        self.ll == -1 && self.lh == -1
+    }
+    #[inline]
+    fn right_empty(&self) -> bool {
+        self.rl == -1 && self.rh == -1
+    }
+}
+
+struct LrState {
+    n: usize,
+    adj: Vec<Vec<usize>>,
+    // per node
+    height: Vec<i64>,
+    parent_edge: Vec<i64>,
+    out_edges: Vec<Vec<usize>>,
+    ind: Vec<usize>,  // orientation cursor
+    tind: Vec<usize>, // testing cursor
+    // per directed edge (grown as edges are oriented)
+    e_head: Vec<usize>,
+    e_tail: Vec<usize>,
+    lowpt: Vec<i64>,
+    lowpt2: Vec<i64>,
+    nesting: Vec<i64>,
+    ref_: Vec<i64>,
+    side: Vec<i8>,
+    lowpt_edge: Vec<i64>,
+    stack_bottom: Vec<i64>,
+    edge_id: HashMap<(usize, usize), usize>,
+    oriented: HashSet<(usize, usize)>,
+    skip_orient: HashSet<(usize, usize)>,
+    skip_test: HashSet<usize>,
+    roots: Vec<usize>,
+    s: Vec<LrPair>,
+}
+
+impl LrState {
+    fn new(n: usize, adj: Vec<Vec<usize>>) -> Self {
+        LrState {
+            n,
+            adj,
+            height: vec![-1; n],
+            parent_edge: vec![-1; n],
+            out_edges: vec![Vec::new(); n],
+            ind: vec![0; n],
+            tind: vec![0; n],
+            e_head: Vec::new(),
+            e_tail: Vec::new(),
+            lowpt: Vec::new(),
+            lowpt2: Vec::new(),
+            nesting: Vec::new(),
+            ref_: Vec::new(),
+            side: Vec::new(),
+            lowpt_edge: Vec::new(),
+            stack_bottom: Vec::new(),
+            edge_id: HashMap::new(),
+            oriented: HashSet::new(),
+            skip_orient: HashSet::new(),
+            skip_test: HashSet::new(),
+            roots: Vec::new(),
+            s: Vec::new(),
+        }
+    }
+
+    #[inline]
+    fn new_edge(&mut self, v: usize, w: usize) -> usize {
+        let id = self.e_tail.len();
+        self.e_tail.push(v);
+        self.e_head.push(w);
+        self.lowpt.push(0);
+        self.lowpt2.push(0);
+        self.nesting.push(0);
+        self.ref_.push(-1);
+        self.side.push(1);
+        self.lowpt_edge.push(-1);
+        self.stack_bottom.push(-1);
+        id
+    }
+
+    fn run(&mut self) -> bool {
+        for v in 0..self.n {
+            if self.height[v] == -1 {
+                self.height[v] = 0;
+                self.roots.push(v);
+                self.dfs_orientation(v);
+            }
+        }
+        // sort each oriented adjacency list by nesting depth (stable)
+        for v in 0..self.n {
+            let mut oe = std::mem::take(&mut self.out_edges[v]);
+            oe.sort_by_key(|&id| self.nesting[id]);
+            self.out_edges[v] = oe;
+        }
+        for r in 0..self.roots.len() {
+            let root = self.roots[r];
+            if !self.dfs_testing(root) {
+                return false;
+            }
+        }
+        true
+    }
+
+    fn dfs_orientation(&mut self, root: usize) {
+        let mut dfs_stack = vec![root];
+        while let Some(v) = dfs_stack.pop() {
+            let e = self.parent_edge[v];
+            while self.ind[v] < self.adj[v].len() {
+                let w = self.adj[v][self.ind[v]];
+                let vw = (v, w);
+                let mut broke = false;
+                if !self.skip_orient.contains(&vw) {
+                    let key = if v < w { (v, w) } else { (w, v) };
+                    if self.oriented.contains(&key) {
+                        self.ind[v] += 1;
+                        continue; // already oriented from the other endpoint
+                    }
+                    self.oriented.insert(key);
+                    let id = self.new_edge(v, w);
+                    self.edge_id.insert(vw, id);
+                    self.out_edges[v].push(id);
+                    self.lowpt[id] = self.height[v];
+                    self.lowpt2[id] = self.height[v];
+                    if self.height[w] == -1 {
+                        // tree edge: descend into w, revisit v afterwards
+                        self.parent_edge[w] = id as i64;
+                        self.height[w] = self.height[v] + 1;
+                        dfs_stack.push(v);
+                        dfs_stack.push(w);
+                        self.skip_orient.insert(vw);
+                        broke = true;
+                    } else {
+                        // back edge
+                        self.lowpt[id] = self.height[w];
+                    }
+                }
+                if broke {
+                    break;
+                }
+                let id = self.edge_id[&vw];
+                self.nesting[id] = 2 * self.lowpt[id];
+                if self.lowpt2[id] < self.height[v] {
+                    self.nesting[id] += 1; // chordal
+                }
+                if e != -1 {
+                    let e = e as usize;
+                    if self.lowpt[id] < self.lowpt[e] {
+                        self.lowpt2[e] = self.lowpt[e].min(self.lowpt2[id]);
+                        self.lowpt[e] = self.lowpt[id];
+                    } else if self.lowpt[id] > self.lowpt[e] {
+                        self.lowpt2[e] = self.lowpt2[e].min(self.lowpt[id]);
+                    } else {
+                        self.lowpt2[e] = self.lowpt2[e].min(self.lowpt2[id]);
+                    }
+                }
+                self.ind[v] += 1;
+            }
+        }
+    }
+
+    fn dfs_testing(&mut self, root: usize) -> bool {
+        let mut dfs_stack = vec![root];
+        while let Some(v) = dfs_stack.pop() {
+            let e = self.parent_edge[v];
+            let mut skip_final = false;
+            while self.tind[v] < self.out_edges[v].len() {
+                let ei = self.out_edges[v][self.tind[v]];
+                let w = self.e_head[ei];
+                let mut broke = false;
+                if !self.skip_test.contains(&ei) {
+                    self.stack_bottom[ei] = self.s.len() as i64;
+                    if self.parent_edge[w] == ei as i64 {
+                        // tree edge
+                        dfs_stack.push(v);
+                        dfs_stack.push(w);
+                        self.skip_test.insert(ei);
+                        skip_final = true;
+                        broke = true;
+                    } else {
+                        // back edge
+                        self.lowpt_edge[ei] = ei as i64;
+                        self.s.push(LrPair {
+                            ll: -1,
+                            lh: -1,
+                            rl: ei as i64,
+                            rh: ei as i64,
+                        });
+                    }
+                }
+                if broke {
+                    break;
+                }
+                // integrate new return edges
+                if self.lowpt[ei] < self.height[v] {
+                    if ei == self.out_edges[v][0] {
+                        // e_i has a return edge; thread it up to the parent
+                        if e != -1 {
+                            self.lowpt_edge[e as usize] = self.lowpt_edge[ei];
+                        }
+                    } else if !self.add_constraints(ei, e) {
+                        return false; // not planar
+                    }
+                }
+                self.tind[v] += 1;
+            }
+            if !skip_final && e != -1 {
+                self.remove_back_edges(e as usize);
+            }
+        }
+        true
+    }
+
+    fn add_constraints(&mut self, ei: usize, e: i64) -> bool {
+        let e = e as usize;
+        let mut p = LrPair {
+            ll: -1,
+            lh: -1,
+            rl: -1,
+            rh: -1,
+        };
+        // merge return edges of e_i into P.right
+        loop {
+            let mut q = self.s.pop().unwrap();
+            if !q.left_empty() {
+                q.swap();
+            }
+            if !q.left_empty() {
+                return false; // not planar
+            }
+            if self.lowpt[q.rl as usize] > self.lowpt[e] {
+                if p.right_empty() {
+                    p.rh = q.rh; // topmost interval (P.right = Q.right)
+                } else {
+                    self.ref_[p.rl as usize] = q.rh;
+                }
+                p.rl = q.rl;
+            } else {
+                self.ref_[q.rl as usize] = self.lowpt_edge[e];
+            }
+            if self.s.len() as i64 == self.stack_bottom[ei] {
+                break;
+            }
+        }
+        // merge conflicting return edges of e_1..e_{i-1} into P.left
+        while let Some(&top) = self.s.last() {
+            if !(self.left_conflicting(&top, ei) || self.right_conflicting(&top, ei)) {
+                break;
+            }
+            let mut q = self.s.pop().unwrap();
+            if self.right_conflicting(&q, ei) {
+                q.swap();
+            }
+            if self.right_conflicting(&q, ei) {
+                return false; // not planar
+            }
+            // merge interval below lowpt(e_i) into P.right
+            self.ref_[p.rl as usize] = q.rh;
+            if q.rl != -1 {
+                p.rl = q.rl;
+            }
+            if p.left_empty() {
+                p.lh = q.lh; // P.left = Q.left
+            } else {
+                self.ref_[p.ll as usize] = q.lh;
+            }
+            p.ll = q.ll;
+        }
+        if !(p.left_empty() && p.right_empty()) {
+            self.s.push(p);
+        }
+        true
+    }
+
+    #[inline]
+    fn left_conflicting(&self, q: &LrPair, b: usize) -> bool {
+        q.lh != -1 && self.lowpt[q.lh as usize] > self.lowpt[b]
+    }
+    #[inline]
+    fn right_conflicting(&self, q: &LrPair, b: usize) -> bool {
+        q.rh != -1 && self.lowpt[q.rh as usize] > self.lowpt[b]
+    }
+
+    #[inline]
+    fn lowest(&self, p: &LrPair) -> i64 {
+        if p.left_empty() {
+            self.lowpt[p.rl as usize]
+        } else if p.right_empty() {
+            self.lowpt[p.ll as usize]
+        } else {
+            self.lowpt[p.ll as usize].min(self.lowpt[p.rl as usize])
+        }
+    }
+
+    fn remove_back_edges(&mut self, e: usize) {
+        let u = self.e_tail[e];
+        // drop entire conflict pairs whose lowest point returns to u
+        while let Some(top) = self.s.last() {
+            if self.lowest(top) == self.height[u] {
+                let p = self.s.pop().unwrap();
+                if p.ll != -1 {
+                    self.side[p.ll as usize] = -1;
+                }
+            } else {
+                break;
+            }
+        }
+        if let Some(mut p) = self.s.pop() {
+            // trim left interval
+            while p.lh != -1 && self.e_head[p.lh as usize] == u {
+                p.lh = self.ref_[p.lh as usize];
+            }
+            if p.lh == -1 && p.ll != -1 {
+                self.ref_[p.ll as usize] = p.rl;
+                self.side[p.ll as usize] = -1;
+                p.ll = -1;
+            }
+            // trim right interval
+            while p.rh != -1 && self.e_head[p.rh as usize] == u {
+                p.rh = self.ref_[p.rh as usize];
+            }
+            if p.rh == -1 && p.rl != -1 {
+                self.ref_[p.rl as usize] = p.ll;
+                self.side[p.rl as usize] = -1;
+                p.rl = -1;
+            }
+            self.s.push(p);
+        }
+        // side of e is the side of a highest return edge
+        if self.lowpt[e] >= self.height[u] {
+            return; // e has no return edge
+        }
+        if let Some(top) = self.s.last() {
+            let hl = top.lh;
+            let hr = top.rh;
+            self.ref_[e] =
+                if hl != -1 && (hr == -1 || self.lowpt[hl as usize] > self.lowpt[hr as usize]) {
+                    hl
+                } else {
+                    hr
+                };
+        }
+    }
+}
+
+/// Exact planarity test via the Left-Right algorithm (boolean result only).
+///
+/// NetworkX equivalent: `networkx.algorithms.planarity.is_planar` (the
+/// `check_planarity(G)[0]` boolean). Correctly rejects K5, K3,3, the Petersen
+/// graph and every other non-planar input, unlike the necessary-only
+/// [`is_planar`] Euler-bound check. Self-loops and parallel edges are ignored
+/// (they never affect planarity), matching NetworkX's `LRPlanarity` ctor.
+#[must_use]
+pub fn is_planar_lr(graph: &Graph) -> bool {
+    let nodes = graph.nodes_ordered();
+    let n = nodes.len();
+    if n <= 4 {
+        return true; // every simple graph on <= 4 nodes is planar
+    }
+    let idx: HashMap<&str, usize> = nodes.iter().enumerate().map(|(i, &nd)| (nd, i)).collect();
+    let mut seen: HashSet<(usize, usize)> = HashSet::new();
+    let mut adj: Vec<Vec<usize>> = vec![Vec::new(); n];
+    let mut m = 0usize;
+    for edge in graph.edges_ordered() {
+        let i = idx[edge.left.as_str()];
+        let j = idx[edge.right.as_str()];
+        if i == j {
+            continue; // self-loops do not affect planarity
+        }
+        let key = if i < j { (i, j) } else { (j, i) };
+        if seen.insert(key) {
+            adj[i].push(j);
+            adj[j].push(i);
+            m += 1;
+        }
+    }
+    // Euler bound: a simple planar graph with n > 2 has m <= 3n - 6.
+    if n > 2 && m > 3 * n - 6 {
+        return false;
+    }
+    LrState::new(n, adj).run()
+}
+
 // ── Chordality ─────────────────────────────────────────────────────────────
 
 /// Check whether a graph is chordal (every cycle of length 4+ has a chord).
@@ -34317,6 +34728,7 @@ mod tests {
         is_perfect_matching,
         // Planarity
         is_planar,
+        is_planar_lr,
         is_pseudographical,
         is_regular,
         is_semiconnected,
@@ -42152,6 +42564,77 @@ mod tests {
     }
 
     // ── Planarity tests ─────────────────────────────────────────────────────
+
+    fn complete_graph_n(n: usize) -> Graph {
+        let mut g = Graph::strict();
+        for i in 0..n {
+            for j in (i + 1)..n {
+                let _ = g.add_edge(&format!("v{i}"), &format!("v{j}"));
+            }
+        }
+        g
+    }
+
+    fn complete_bipartite(a: usize, b: usize) -> Graph {
+        let mut g = Graph::strict();
+        for i in 0..a {
+            for j in 0..b {
+                let _ = g.add_edge(&format!("a{i}"), &format!("b{j}"));
+            }
+        }
+        g
+    }
+
+    #[test]
+    fn test_is_planar_lr_k5_k33_nonplanar() {
+        // The exact LR kernel must reject the canonical non-planar graphs that
+        // the Euler-bound `is_planar` lets through.
+        assert!(!is_planar_lr(&complete_graph_n(5))); // K5
+        assert!(!is_planar_lr(&complete_bipartite(3, 3))); // K3,3
+        assert!(!is_planar_lr(&complete_graph_n(6)));
+        assert!(!is_planar_lr(&complete_bipartite(4, 4)));
+    }
+
+    #[test]
+    fn test_is_planar_lr_petersen_nonplanar() {
+        // Petersen graph (n=10, m=15): non-planar but passes the Euler bound.
+        let outer = [(0, 1), (1, 2), (2, 3), (3, 4), (4, 0)];
+        let inner = [(5, 7), (7, 9), (9, 6), (6, 8), (8, 5)];
+        let spokes = [(0, 5), (1, 6), (2, 7), (3, 8), (4, 9)];
+        let mut g = Graph::strict();
+        for (u, v) in outer.iter().chain(&inner).chain(&spokes) {
+            let _ = g.add_edge(&format!("v{u}"), &format!("v{v}"));
+        }
+        assert!(!is_planar_lr(&g));
+    }
+
+    #[test]
+    fn test_is_planar_lr_planar_cases() {
+        assert!(is_planar_lr(&complete_graph_n(4))); // K4
+        assert!(is_planar_lr(&complete_bipartite(2, 4)));
+        // 4x4 grid is planar.
+        let mut grid = Graph::strict();
+        for r in 0..4 {
+            for c in 0..4 {
+                if c + 1 < 4 {
+                    let _ = grid.add_edge(&format!("n{r}_{c}"), &format!("n{r}_{}", c + 1));
+                }
+                if r + 1 < 4 {
+                    let _ = grid.add_edge(&format!("n{r}_{c}"), &format!("n{}_{c}", r + 1));
+                }
+            }
+        }
+        assert!(is_planar_lr(&grid));
+    }
+
+    #[test]
+    fn test_is_planar_lr_ignores_selfloops() {
+        // K5 plus self-loops is still non-planar; loops must be ignored.
+        let mut g = complete_graph_n(5);
+        let _ = g.add_edge("v0", "v0");
+        let _ = g.add_edge("v2", "v2");
+        assert!(!is_planar_lr(&g));
+    }
 
     #[test]
     fn test_is_planar_k4() {

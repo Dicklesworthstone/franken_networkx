@@ -12996,8 +12996,16 @@ def is_planar(G, *, backend=None, **backend_kwargs):
         # nx-graph copy + full LR embedding when triggered.
         if m > 2 * n - 4 and _is_triangle_free_with_edges(G, simple_edges):
             return False
-    is_p, _ = check_planarity(G)
-    return is_p
+    # br-r37-c1-native-is-planar-boolean-zuxh1: exact native Left-Right
+    # planarity kernel (de Fraysseix–Rosenstiehl / Brandes), boolean only.
+    # Replaces the O(n^2) fnx->nx conversion + nx's pure-Python LR embedding
+    # that check_planarity pays. Planarity is a graph invariant, so the
+    # boolean is order-independent and matches check_planarity(G)[0] exactly.
+    try:
+        return _fnx.is_planar_lr(G)
+    except Exception:
+        is_p, _ = check_planarity(G)
+        return is_p
 
 # Barycenter
 from franken_networkx._fnx import barycenter as _raw_barycenter
