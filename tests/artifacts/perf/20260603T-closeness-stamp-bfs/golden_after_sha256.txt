@@ -1,0 +1,1 @@
+3d66193c4860fa5be5dc24548d1343d873bf353ea6daa580c891d820e6eb1009  tests/artifacts/perf/20260603T-closeness-stamp-bfs/golden_after.txt

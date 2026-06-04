@@ -1,0 +1,2 @@
+e051da0ae81ffb3e6ab40ccc7d66466f58659bd209081d2141c166167e87e80d  tests/artifacts/perf/20260604T-resistance-distance-single-pair-sparse/golden_before.json
+e051da0ae81ffb3e6ab40ccc7d66466f58659bd209081d2141c166167e87e80d  tests/artifacts/perf/20260604T-resistance-distance-single-pair-sparse/golden_after.json

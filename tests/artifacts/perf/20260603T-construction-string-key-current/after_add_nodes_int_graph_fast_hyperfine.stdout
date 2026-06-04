@@ -1,0 +1,4 @@
+Benchmark 1: RCH_ENV_ALLOWLIST=PYTHONPATH rch exec -- env PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260603T-construction-string-key-current/bench_construction.py bench --case add_nodes_int --impl fnx --repeats 3
+  Time (mean ± σ):      1.418 s ±  0.091 s    [User: 2.875 s, System: 0.234 s]
+  Range (min … max):    1.310 s …  1.537 s    8 runs
+ 

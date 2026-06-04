@@ -1,0 +1,57 @@
+  [2m2026-06-03T16:44:20.034024Z[0m [33m WARN[0m [1;33mrch::hook[0m[33m: [33mexec called with non-compilation command: .venv/bin/python -m pytest tests/python/test_to_scipy_sparse_native_weighted_parity.py -q[0m
+    [2;3mat[0m rch/src/hook.rs:402 [2;3mon[0m ThreadId(1)
+
+........................................................................ [ 24%]
+........................................................................ [ 48%]
+........................................................................ [ 72%]
+........................................................................ [ 96%]
+....F....                                                                [100%]
+=================================== FAILURES ===================================
+__________ test_dtype_none_present_string_weight_uses_edge_only_sync ___________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x724dbafe6be0>
+
+    @needs_nx
+    def test_dtype_none_present_string_weight_uses_edge_only_sync(monkeypatch):
+        ng, fg = nx.Graph(), fnx.Graph()
+        for graph in (ng, fg):
+            graph.add_edge(0, 1, weight=2.0)
+            graph.add_edge(1, 2, weight=3.0)
+    
+        ng[0][1]["weight"] = 7.5
+        fg[0][1]["weight"] = 7.5
+    
+        sync_calls = []
+        original_sync = fnx._sync_rust_edge_attrs
+    
+        def wrapped_sync(graph, *, edge_only=False):
+            sync_calls.append(edge_only)
+            return original_sync(graph, edge_only=edge_only)
+    
+        monkeypatch.setattr(fnx, "_sync_rust_edge_attrs", wrapped_sync)
+    
+        a = nx.to_scipy_sparse_array(ng, dtype=None, weight="weight")
+>       b = fnx.to_scipy_sparse_array(fg, dtype=None, weight="weight")
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/python/test_to_scipy_sparse_native_weighted_parity.py:274: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+python/franken_networkx/__init__.py:42963: in wrapper
+    return raw_fn(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^
+python/franken_networkx/__init__.py:39472: in to_scipy_sparse_array
+    _sync_rust_edge_attrs(G)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+graph = Graph(nodes=3, edges=2)
+
+    def wrapped_sync(graph, *, edge_only=False):
+        sync_calls.append(edge_only)
+>       return original_sync(graph, edge_only=edge_only)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: _sync_rust_edge_attrs() got an unexpected keyword argument 'edge_only'
+
+tests/python/test_to_scipy_sparse_native_weighted_parity.py:269: TypeError
+=========================== short test summary info ============================
+FAILED tests/python/test_to_scipy_sparse_native_weighted_parity.py::test_dtype_none_present_string_weight_uses_edge_only_sync
+1 failed, 296 passed in 1.56s

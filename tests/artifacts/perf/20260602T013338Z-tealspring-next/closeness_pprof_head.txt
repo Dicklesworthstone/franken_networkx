@@ -1,0 +1,13 @@
+{"algo":"closeness","n":1500,"m":6000,"avg_deg":8,"iters":1,"total_ms":55.1276,"per_iter_ms":55.1276,"checksum":400.049919}
+pprof_top_inclusive:
+1	53	__rust_begin_short_backtrace<fn(), ()>
+2	53	_start
+3	53	call_once<fn(), ()>
+4	53	closeness_centrality
+5	53	closeness_centrality_generic<fnx_classes::Graph>
+6	53	main
+7	53	run_once
+8	2	push_back<usize, alloc::alloc::Global>
+9	2	push_back_mut<usize, alloc::alloc::Global>
+10	1	grow<usize, alloc::alloc::Global>
+11	1	grow_one<usize, alloc::alloc::Global>

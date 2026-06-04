@@ -1,0 +1,2 @@
+2b468592f597b5180aed3dd2d5f2b8dcd529cf35d818bb436db21e436bfde22c  tests/artifacts/perf/20260603T-ego-graph-native-empty-copy/after_fnx.jsonl
+697acd3b1152fe8c62aefce4f030ba2e6fa8262eeac25acfb76b742ff0caed46  tests/artifacts/perf/20260603T-ego-graph-native-empty-copy/profile_after_fnx.jsonl

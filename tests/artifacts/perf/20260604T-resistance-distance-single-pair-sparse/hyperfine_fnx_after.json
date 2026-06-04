@@ -1,0 +1,30 @@
+{
+  "results": [
+    {
+      "command": "env PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260604T-resistance-distance-single-pair-sparse/bench_resistance_distance.py bench --case unweighted_sparse_pair --impl fnx --repeats 1 >/dev/null",
+      "mean": 0.45621807057333336,
+      "stddev": 0.046918783683803054,
+      "median": 0.44413170324,
+      "user": 8.208383679999999,
+      "system": 0.09517772666666664,
+      "min": 0.41360004424,
+      "max": 0.54054573324,
+      "times": [
+        0.47541002624,
+        0.43821943724,
+        0.41360004424,
+        0.41948921324,
+        0.54054573324,
+        0.45004396924
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

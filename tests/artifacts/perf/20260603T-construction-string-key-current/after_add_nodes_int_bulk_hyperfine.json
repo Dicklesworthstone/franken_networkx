@@ -1,0 +1,34 @@
+{
+  "results": [
+    {
+      "command": "RCH_ENV_ALLOWLIST=PYTHONPATH rch exec -- env PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260603T-construction-string-key-current/bench_construction.py bench --case add_nodes_int --impl fnx --repeats 3",
+      "mean": 0.610269071815,
+      "stddev": 0.02337866994139154,
+      "median": 0.60138240744,
+      "user": 4.46569459,
+      "system": 0.13298531499999997,
+      "min": 0.58013417594,
+      "max": 0.64594809994,
+      "times": [
+        0.5926737119400001,
+        0.60137466294,
+        0.60139015194,
+        0.58013417594,
+        0.61921524494,
+        0.64594809994,
+        0.64167610294,
+        0.59974042394
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

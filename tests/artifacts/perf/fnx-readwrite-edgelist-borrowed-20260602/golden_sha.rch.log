@@ -1,0 +1,7 @@
+  [2m2026-06-02T08:59:31.536819Z[0m [33m WARN[0m [1;33mrch::hook[0m[33m: [33mexec called with non-compilation command: sh -lc 'cargo run -q -p fnx-readwrite --profile release-perf --bin perf_harness -- --scenario=dump-owned-edgelist --n=20000 --deg=8 --iters=1 --samples=1 > /tmp/fnx_readwrite_owned_golden.txt && cargo run -q -p fnx-readwrite --profile release-perf --bin perf_harness -- --scenario=dump-edgelist --n=20000 --deg=8 --iters=1 --samples=1 > /tmp/fnx_readwrite_current_golden.txt && sha256sum /tmp/fnx_readwrite_owned_golden.txt /tmp/fnx_readwrite_current_golden.txt && cmp -s /tmp/fnx_readwrite_owned_golden.txt /tmp/fnx_readwrite_current_golden.txt && wc -c /tmp/fnx_readwrite_owned_golden.txt /tmp/fnx_readwrite_current_golden.txt'[0m
+    [2;3mat[0m rch/src/hook.rs:402 [2;3mon[0m ThreadId(1)
+
+
+thread 'main' (3310695) panicked at /rustc/14210df0e27ccd7d9e6a05b8085cbd438e4bbc65/library/std/src/io/stdio.rs:1166:9:
+failed printing to stdout: No space left on device (os error 28)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace

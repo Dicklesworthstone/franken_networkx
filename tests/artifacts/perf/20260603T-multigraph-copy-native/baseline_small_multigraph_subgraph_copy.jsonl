@@ -1,0 +1,1 @@
+{"edges": 1200, "graph_type": "MultiGraph", "iters": 2, "library": "fnx", "max_seconds": 7.07416362199001, "mean_seconds": 6.456580240483163, "median_seconds": 6.456580240483163, "min_seconds": 5.838996858976316, "nodes": 250, "operation": "subgraph_copy", "result_edges": 225, "result_nodes": 100, "samples_seconds": [7.07416362199001, 5.838996858976316], "subgraph_size": 100}

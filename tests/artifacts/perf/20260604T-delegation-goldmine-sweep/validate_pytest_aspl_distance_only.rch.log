@@ -1,0 +1,5 @@
+  [2m2026-06-04T02:32:50.568778Z[0m [33m WARN[0m [1;33mrch::hook[0m[33m: [33mexec called with non-compilation command: env 'PYTHONPATH=python' .venv/bin/python -m pytest tests/python/test_shortest_path_algorithms.py tests/python/test_parity_comprehensive.py -q -k 'average_shortest_path_length or single_source_dijkstra_path_length'[0m
+    [2;3mat[0m rch/src/hook.rs:402 [2;3mon[0m ThreadId(1)
+
+
+231 deselected in 0.52s

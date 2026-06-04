@@ -1,0 +1,4 @@
+Benchmark 1: env PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260603T-next-residual-sweep/bench_sparse_dtype_none.py sample --case to_scipy_weighted --impl fnx --n 8000 --m 4 --seed 42 --repeats 5 >/dev/null
+  Time (mean ± σ):      1.103 s ±  0.367 s    [User: 3.704 s, System: 0.302 s]
+  Range (min … max):    0.901 s …  2.714 s    25 runs
+ 

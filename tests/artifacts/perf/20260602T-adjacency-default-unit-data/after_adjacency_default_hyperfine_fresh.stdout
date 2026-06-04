@@ -1,0 +1,4 @@
+Benchmark 1: .venv/bin/python tests/artifacts/perf/20260602T-vs-upstream-sweep/bench_vs_upstream.py bench --case adjacency_default --impl fnx --n 8000 --m 4 --repeats 1
+  Time (mean ± σ):     701.8 ms ±  31.3 ms    [User: 4414.8 ms, System: 124.3 ms]
+  Range (min … max):   660.9 ms … 744.2 ms    10 runs
+ 

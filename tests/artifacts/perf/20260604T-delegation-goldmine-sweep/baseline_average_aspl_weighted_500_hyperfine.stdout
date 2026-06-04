@@ -1,0 +1,4 @@
+Benchmark 1: env PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260604T-delegation-goldmine-sweep/bench_delegation_goldmines.py --case average_shortest_path_length_weighted --impl fnx --size 500 --repeats 1
+  Time (mean ± σ):      2.589 s ±  0.125 s    [User: 5.978 s, System: 0.506 s]
+  Range (min … max):    2.430 s …  2.762 s    5 runs
+ 

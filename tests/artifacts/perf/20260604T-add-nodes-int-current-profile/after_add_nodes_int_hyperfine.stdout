@@ -1,0 +1,11 @@
+Benchmark 1: env PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260603T-construction-string-key-current/bench_construction.py bench --case add_nodes_int --impl fnx --repeats 3 >/dev/null
+  Time (mean ± σ):     497.0 ms ±  14.8 ms    [User: 4539.6 ms, System: 106.9 ms]
+  Range (min … max):   477.2 ms … 522.5 ms    10 runs
+ 
+Benchmark 2: env PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260603T-construction-string-key-current/bench_construction.py bench --case add_nodes_int --impl nx --repeats 3 >/dev/null
+  Time (mean ± σ):     465.2 ms ±  18.3 ms    [User: 4504.1 ms, System: 108.7 ms]
+  Range (min … max):   421.9 ms … 483.9 ms    10 runs
+ 
+Summary
+  env PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260603T-construction-string-key-current/bench_construction.py bench --case add_nodes_int --impl nx --repeats 3 >/dev/null ran
+    1.07 ± 0.05 times faster than env PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260603T-construction-string-key-current/bench_construction.py bench --case add_nodes_int --impl fnx --repeats 3 >/dev/null

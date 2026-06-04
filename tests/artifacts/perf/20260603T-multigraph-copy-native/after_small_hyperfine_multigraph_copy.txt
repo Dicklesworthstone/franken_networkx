@@ -1,0 +1,4 @@
+Benchmark 1: /data/tmp/fnx-venv-br-r37-c1-8uh84/bin/python /data/projects/franken_networkx/tests/artifacts/perf/20260603T-multigraph-copy-native/bench_multigraph_copy.py --library fnx --graph-type MultiGraph --operation copy --nodes 250 --edges 1200 --iters 1
+  Time (mean ± σ):     319.6 ms ±  32.9 ms    [User: 3791.5 ms, System: 65.3 ms]
+  Range (min … max):   298.8 ms … 357.5 ms    3 runs
+ 

@@ -1,0 +1,73 @@
+  [2m2026-06-04T02:26:50.712840Z[0m [33m WARN[0m [1;33mrch::hook[0m[33m: [33mexec called with non-compilation command: maturin develop --features pyo3/abi3-py310[0m
+    [2;3mat[0m rch/src/hook.rs:402 [2;3mon[0m ThreadId(1)
+
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+🍹 Building a mixed python/rust project
+🔗 Found pyo3 bindings with abi3 support
+🐍 Found CPython 3.13 at /data/projects/franken_networkx/.venv/bin/python
+Ignoring numpy: markers 'extra == "all"' don't match your environment
+Ignoring scipy: markers 'extra == "all"' don't match your environment
+Ignoring numpy: markers 'extra == "numpy"' don't match your environment
+Ignoring scipy: markers 'extra == "scipy"' don't match your environment
+Ignoring pytest: markers 'extra == "test"' don't match your environment
+Ignoring hypothesis: markers 'extra == "test"' don't match your environment
+Ignoring networkx: markers 'extra == "test"' don't match your environment
+Requirement already satisfied: networkx>=3.0 in ./.venv/lib/python3.13/site-packages (3.6.1)
+    Blocking waiting for file lock on package cache
+   Compiling quote v1.0.45
+   Compiling unicode-ident v1.0.24
+   Compiling zmij v1.0.21
+   Compiling find-msvc-tools v0.1.9
+   Compiling shlex v1.3.0
+   Compiling rustversion v1.0.22
+   Compiling cc v1.2.61
+   Compiling syn v2.0.117
+   Compiling serde_json v1.0.149
+   Compiling arc-swap v1.9.1
+   Compiling blake3 v1.8.4
+   Compiling pyo3-macros-backend v0.28.3
+   Compiling serde_derive v1.0.228
+error[E0514]: found crate `unicode_ident` compiled by an incompatible version of rustc which `proc_macro2` depends on
+  --> /home/ubuntu/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde_derive-1.0.228/src/lib.rs:69:1
+   |
+69 | extern crate proc_macro2;
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: the following crate versions were found:
+           crate `unicode_ident` compiled by rustc 1.96.0-nightly (362211dc2 2026-03-24): /data/tmp/cargo-target/debug/deps/libunicode_ident-c763a785dc3ccbf7.rmeta
+           crate `unicode_ident` compiled by rustc 1.96.0-nightly (362211dc2 2026-03-24): /data/tmp/cargo-target/debug/deps/libunicode_ident-c763a785dc3ccbf7.rlib
+           crate `unicode_ident` compiled by rustc 1.97.0-nightly (52b6e2c20 2026-04-27): /data/tmp/cargo-target/debug/deps/libunicode_ident-0c46b27f99f74302.rmeta
+           crate `unicode_ident` compiled by rustc 1.97.0-nightly (52b6e2c20 2026-04-27): /data/tmp/cargo-target/debug/deps/libunicode_ident-0c46b27f99f74302.rlib
+           crate `unicode_ident` compiled by rustc 1.97.0-nightly (82bee9650 2026-05-09): /data/tmp/cargo-target/debug/deps/libunicode_ident-40c9f4892bbc7490.rmeta
+           crate `unicode_ident` compiled by rustc 1.97.0-nightly (82bee9650 2026-05-09): /data/tmp/cargo-target/debug/deps/libunicode_ident-40c9f4892bbc7490.rlib
+           crate `unicode_ident` compiled by rustc 1.95.0-nightly (7f99507f5 2026-02-19): /data/tmp/cargo-target/debug/deps/libunicode_ident-6902ff38a5b4acb6.rmeta
+           crate `unicode_ident` compiled by rustc 1.95.0-nightly (7f99507f5 2026-02-19): /data/tmp/cargo-target/debug/deps/libunicode_ident-6902ff38a5b4acb6.rlib
+           crate `unicode_ident` compiled by rustc 1.97.0-nightly (f53b654a8 2026-04-30): /data/tmp/cargo-target/debug/deps/libunicode_ident-758ac6220e4c6d8b.rmeta
+           crate `unicode_ident` compiled by rustc 1.97.0-nightly (f53b654a8 2026-04-30): /data/tmp/cargo-target/debug/deps/libunicode_ident-758ac6220e4c6d8b.rlib
+           crate `unicode_ident` compiled by rustc 1.97.0-nightly (c935696dd 2026-04-29): /data/tmp/cargo-target/debug/deps/libunicode_ident-9117afea7ba034c8.rmeta
+           crate `unicode_ident` compiled by rustc 1.97.0-nightly (c935696dd 2026-04-29): /data/tmp/cargo-target/debug/deps/libunicode_ident-9117afea7ba034c8.rlib
+           crate `unicode_ident` compiled by rustc 1.97.0-nightly (52b6e2c20 2026-04-27): /data/tmp/cargo-target/debug/deps/libunicode_ident-c7d0eb0372f92e46.rmeta
+           crate `unicode_ident` compiled by rustc 1.97.0-nightly (52b6e2c20 2026-04-27): /data/tmp/cargo-target/debug/deps/libunicode_ident-c7d0eb0372f92e46.rlib
+   = help: please recompile that crate using this compiler (rustc 1.98.0-nightly (14210df0e 2026-05-31)) (consider running `cargo clean` first)
+
+error[E0463]: can't find crate for `proc_macro2`
+  --> /home/ubuntu/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde_derive-1.0.228/src/lib.rs:70:1
+   |
+70 | extern crate quote;
+   | ^^^^^^^^^^^^^^^^^^^ can't find crate
+
+error[E0463]: can't find crate for `proc_macro2`
+  --> /home/ubuntu/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde_derive-1.0.228/src/lib.rs:71:1
+   |
+71 | extern crate syn;
+   | ^^^^^^^^^^^^^^^^^ can't find crate
+
+Some errors have detailed explanations: E0463, E0514.
+For more information about an error, try `rustc --explain E0463`.
+error: could not compile `serde_derive` (lib) due to 3 previous errors
+warning: build failed, waiting for other jobs to finish...
+💥 maturin failed
+  Caused by: Failed to build a native library through cargo
+  Caused by: Cargo build finished with "exit status: 101": `env -u CARGO PYO3_BUILD_EXTENSION_MODULE="1" PYO3_ENVIRONMENT_SIGNATURE="cpython-3.13-64bit" PYO3_PYTHON="/data/projects/franken_networkx/.venv/bin/python" PYTHON_SYS_EXECUTABLE="/data/projects/franken_networkx/.venv/bin/python" "cargo" "rustc" "--features" "pyo3/abi3-py310" "--message-format" "json-render-diagnostics" "--manifest-path" "/data/projects/franken_networkx/crates/fnx-python/Cargo.toml" "--lib" "--crate-type" "cdylib"`

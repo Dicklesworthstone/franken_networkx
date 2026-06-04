@@ -1,0 +1,4 @@
+Benchmark 1: env PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260604T-resistance-distance-single-pair-sparse/bench_resistance_distance.py bench --case unweighted_sparse_pair --impl dense_exact --repeats 1 >/dev/null
+  Time (mean ± σ):      3.470 s ±  2.189 s    [User: 146.254 s, System: 0.180 s]
+  Range (min … max):    2.090 s …  7.908 s    6 runs
+ 

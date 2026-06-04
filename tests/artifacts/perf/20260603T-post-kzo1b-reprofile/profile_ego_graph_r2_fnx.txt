@@ -1,0 +1,110 @@
+Wed Jun  3 13:32:16 2026    tests/artifacts/perf/20260603T-post-kzo1b-reprofile/profile_ego_graph_r2_fnx.prof
+
+         3197947 function calls (3191138 primitive calls) in 1.426 seconds
+
+   Ordered by: cumulative time
+   List reduced from 2031 to 100 due to restriction <100>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+    477/1    0.002    0.000    1.427    1.427 {built-in method builtins.exec}
+        1    0.000    0.000    1.427    1.427 bench_traversal.py:1(<module>)
+        1    0.004    0.004    1.122    1.122 bench_traversal.py:90(main)
+        1    0.001    0.001    1.117    1.117 bench_traversal.py:54(sample)
+       47    0.004    0.000    1.057    0.022 __init__.py:1(<module>)
+       20    0.000    0.000    0.801    0.040 bench_traversal.py:37(<lambda>)
+       20    0.005    0.000    0.800    0.040 __init__.py:43026(wrapper)
+       20    0.077    0.004    0.796    0.040 __init__.py:17122(ego_graph)
+       21    0.099    0.005    0.393    0.019 __init__.py:2458(add_edges_from)
+    525/6    0.002    0.000    0.304    0.051 <frozen importlib._bootstrap>:1349(_find_and_load)
+    505/6    0.001    0.000    0.304    0.051 <frozen importlib._bootstrap>:1304(_find_and_load_unlocked)
+    490/6    0.001    0.000    0.303    0.051 <frozen importlib._bootstrap>:911(_load_unlocked)
+    462/5    0.001    0.000    0.303    0.061 <frozen importlib._bootstrap_external>:1020(exec_module)
+  1094/12    0.001    0.000    0.296    0.025 <frozen importlib._bootstrap>:480(_call_with_frames_removed)
+   445/30    0.000    0.000    0.250    0.008 {built-in method builtins.__import__}
+   533/59    0.001    0.000    0.249    0.004 <frozen importlib._bootstrap>:1390(_handle_fromlist)
+       21    0.227    0.011    0.227    0.011 {function Graph.add_edges_from at 0x7d31eec5a840}
+       20    0.156    0.008    0.156    0.008 __init__.py:507(_materialize)
+       20    0.039    0.002    0.151    0.008 bench_traversal.py:41(normalize)
+      9/5    0.000    0.000    0.137    0.027 <frozen importlib._bootstrap_external>:1326(exec_module)
+      9/5    0.011    0.001    0.137    0.027 {built-in method _imp.exec_dynamic}
+        2    0.000    0.000    0.123    0.062 nx_pylab.py:1(<module>)
+        2    0.000    0.000    0.122    0.061 layout.py:1(<module>)
+        1    0.000    0.000    0.117    0.117 bench_traversal.py:17(build_pair)
+      360    0.032    0.000    0.111    0.000 {built-in method builtins.sorted}
+    43360    0.014    0.000    0.071    0.000 __init__.py:2240(add_node)
+        1    0.000    0.000    0.067    0.067 __config__.py:1(<module>)
+      462    0.003    0.000    0.062    0.000 <frozen importlib._bootstrap_external>:1093(get_code)
+    43360    0.055    0.000    0.055    0.000 {function Graph.add_node at 0x7d31eec59da0}
+   145980    0.030    0.000    0.054    0.000 bench_traversal.py:45(<genexpr>)
+      6/1    0.000    0.000    0.053    0.053 decorators.py:783(func)
+      5/2    0.000    0.000    0.052    0.026 backends.py:554(_call_if_any_backends_installed)
+        1    0.000    0.000    0.052    0.052 <class 'networkx.utils.decorators.argmap'> compilation 5:1(argmap_barabasi_albert_graph_1)
+      5/2    0.000    0.000    0.052    0.026 backends.py:1484(_call_with_backend)
+        1    0.004    0.004    0.052    0.052 random_graphs.py:659(barabasi_albert_graph)
+     2997    0.031    0.000    0.044    0.000 graph.py:986(add_edges_from)
+        1    0.000    0.000    0.042    0.042 _arraypad_impl.py:1(<module>)
+        1    0.000    0.000    0.042    0.042 _index_tricks_impl.py:1(<module>)
+    40420    0.016    0.000    0.041    0.000 __init__.py:29287(nodes)
+        1    0.000    0.000    0.036    0.036 defmatrix.py:1(<module>)
+        1    0.000    0.000    0.035    0.035 _linalg.py:1(<module>)
+     4140    0.002    0.000    0.034    0.000 __init__.py:29538(neighbors)
+504173/503959    0.033    0.000    0.033    0.000 {built-in method builtins.len}
+   100400    0.025    0.000    0.033    0.000 __init__.py:43225(__iter__)
+      462    0.002    0.000    0.033    0.000 <frozen importlib._bootstrap_external>:782(_compile_bytecode)
+        2    0.009    0.005    0.032    0.016 __init__.py:183(dumps)
+   523484    0.031    0.000    0.031    0.000 {built-in method builtins.isinstance}
+        1    0.000    0.000    0.031    0.031 multiarray.py:1(<module>)
+      462    0.031    0.000    0.031    0.000 {built-in method marshal.loads}
+      500    0.002    0.000    0.027    0.000 <frozen importlib._bootstrap>:1240(_find_spec)
+      490    0.001    0.000    0.027    0.000 <frozen importlib._bootstrap>:806(module_from_spec)
+    40360    0.024    0.000    0.027    0.000 __init__.py:4545(__getitem__)
+   332283    0.027    0.000    0.027    0.000 {built-in method builtins.repr}
+  265/139    0.002    0.000    0.027    0.000 typing.py:426(inner)
+407423/407345    0.026    0.000    0.026    0.000 {built-in method builtins.hash}
+    40380    0.008    0.000    0.026    0.000 bench_traversal.py:44(<genexpr>)
+        1    0.001    0.001    0.025    0.025 __init__.py:42695(_bulk_add_backend_dispatch_kwargs)
+    57240    0.014    0.000    0.025    0.000 __init__.py:28854(_private_override)
+      481    0.000    0.000    0.023    0.000 <frozen importlib._bootstrap_external>:1551(find_spec)
+        2    0.000    0.000    0.023    0.012 encoder.py:183(encode)
+        2    0.023    0.012    0.023    0.012 encoder.py:205(iterencode)
+      481    0.001    0.000    0.023    0.000 <frozen importlib._bootstrap_external>:1522(_get_spec)
+     4140    0.003    0.000    0.023    0.000 __init__.py:310(neighbors)
+     2995    0.006    0.000    0.022    0.000 random_graphs.py:644(_random_subset)
+      678    0.004    0.000    0.020    0.000 <frozen importlib._bootstrap_external>:1624(find_spec)
+     1333    0.008    0.000    0.020    0.000 backends.py:218(__new__)
+        9    0.000    0.000    0.020    0.002 <frozen importlib._bootstrap_external>:1318(create_module)
+        9    0.020    0.002    0.020    0.002 {built-in method _imp.create_dynamic}
+      462    0.001    0.000    0.019    0.000 <frozen importlib._bootstrap_external>:1214(get_data)
+   208999    0.017    0.000    0.017    0.000 {method 'append' of 'list' objects}
+  579/564    0.006    0.000    0.017    0.000 {built-in method builtins.__build_class__}
+  619/615    0.000    0.000    0.016    0.000 inspect.py:3373(signature)
+  619/615    0.000    0.000    0.016    0.000 inspect.py:3094(from_callable)
+  623/615    0.002    0.000    0.016    0.000 inspect.py:2487(_signature_from_callable)
+     4140    0.015    0.000    0.015    0.000 {function _private_aware_neighbors.<locals>.neighbors at 0x7d31eece3ec0}
+        1    0.000    0.000    0.015    0.015 _add_newdocs.py:1(<module>)
+    12040    0.005    0.000    0.014    0.000 random.py:345(choice)
+      204    0.001    0.000    0.014    0.000 typing.py:1423(__init__)
+      350    0.001    0.000    0.013    0.000 function_base.py:490(add_newdoc)
+        1    0.013    0.013    0.013    0.013 {built-in method gc.collect}
+     1264    0.003    0.000    0.012    0.000 decorators.py:762(__call__)
+      373    0.007    0.000    0.012    0.000 inspect.py:891(cleandoc)
+   128326    0.012    0.000    0.012    0.000 {method 'get' of 'dict' objects}
+      603    0.004    0.000    0.012    0.000 inspect.py:2383(_signature_from_function)
+        1    0.000    0.000    0.012    0.012 backends.py:1(<module>)
+   101/31    0.000    0.000    0.012    0.000 typing.py:1452(__getitem__)
+        1    0.000    0.000    0.011    0.011 _dtype_like.py:1(<module>)
+      509    0.003    0.000    0.011    0.000 __init__.py:43015(_make_wrapper)
+      350    0.000    0.000    0.011    0.000 function_base.py:474(_add_docstring)
+     1119    0.004    0.000    0.011    0.000 <frozen importlib._bootstrap>:304(acquire)
+    73/71    0.000    0.000    0.011    0.000 typing.py:574(__getitem__)
+        1    0.000    0.000    0.011    0.011 _array_like.py:1(<module>)
+       71    0.001    0.000    0.011    0.000 typing.py:753(Union)
+     1889    0.001    0.000    0.010    0.000 <frozen importlib._bootstrap_external>:145(_path_stat)
+        2    0.000    0.000    0.010    0.005 backends.py:45(_get_backends)
+     4200    0.003    0.000    0.010    0.000 __init__.py:28862(_has_networkx_private_storage)
+     1912    0.010    0.000    0.010    0.000 {built-in method posix.stat}
+      462    0.009    0.000    0.009    0.000 {built-in method _io.open_code}
+    98110    0.009    0.000    0.009    0.000 {built-in method builtins.vars}
+      613    0.001    0.000    0.009    0.000 <frozen importlib._bootstrap>:463(_lock_unlock_module)
+
+

@@ -1,0 +1,3 @@
+  [2m2026-06-04T04:16:45.581561Z[0m [33m WARN[0m [1;33mrch::hook[0m[33m: [33mexec called with non-compilation command: hyperfine --warmup 3 --runs 10 --export-json tests/artifacts/perf/20260604T-multigraph-explicit-key-substrate/after_str_only_release_multigraph_int_hyperfine.json 'env PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260603T-construction-string-key-current/bench_construction.py bench --case multigraph_int_keys --impl fnx --repeats 1 >/dev/null'[0m
+    [2;3mat[0m rch/src/hook.rs:402 [2;3mon[0m ThreadId(1)
+

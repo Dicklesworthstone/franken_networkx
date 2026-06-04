@@ -1,0 +1,72 @@
+{
+  "results": [
+    {
+      "command": ".venv/bin/python -c 'import importlib.util; from pathlib import Path; p=Path(\"tests/artifacts/perf/20260602T-vs-upstream-sweep/bench_vs_upstream.py\"); spec=importlib.util.spec_from_file_location(\"bench_vs_upstream\", p); bench=importlib.util.module_from_spec(spec); spec.loader.exec_module(bench); fg,_=bench._build_graphs(8000,4,weighted=True); bench.fnx._native_adjacency_default_order_arrays=None; [bench._call_case(bench.fnx, fg, \"to_scipy_weighted_float\") for _ in range(7)]'",
+      "mean": 0.9773166486600001,
+      "stddev": 0.02642033836539738,
+      "median": 0.9758367383600001,
+      "user": 5.033666139999999,
+      "system": 0.13575510000000002,
+      "min": 0.93635155936,
+      "max": 1.0128536503599999,
+      "times": [
+        0.9723528803600001,
+        0.94374427136,
+        0.9709883933600001,
+        0.96164927736,
+        1.0128536503599999,
+        1.01169424236,
+        0.93635155936,
+        1.00395404436,
+        0.97932059636,
+        0.98025757136
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": ".venv/bin/python -c 'import importlib.util; from pathlib import Path; p=Path(\"tests/artifacts/perf/20260602T-vs-upstream-sweep/bench_vs_upstream.py\"); spec=importlib.util.spec_from_file_location(\"bench_vs_upstream\", p); bench=importlib.util.module_from_spec(spec); spec.loader.exec_module(bench); fg,_=bench._build_graphs(8000,4,weighted=True); [bench._call_case(bench.fnx, fg, \"to_scipy_weighted_float\") for _ in range(7)]'",
+      "mean": 0.93605048566,
+      "stddev": 0.021003644324462077,
+      "median": 0.94099091836,
+      "user": 4.900431139999999,
+      "system": 0.13218639999999998,
+      "min": 0.90489374036,
+      "max": 0.96794095936,
+      "times": [
+        0.90933428136,
+        0.94301550036,
+        0.95433974836,
+        0.96794095936,
+        0.93896633636,
+        0.91835571136,
+        0.9434678943600001,
+        0.95553104036,
+        0.92465964436,
+        0.90489374036
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

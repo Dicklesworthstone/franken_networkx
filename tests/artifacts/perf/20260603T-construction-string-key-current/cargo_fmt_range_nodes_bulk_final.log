@@ -1,0 +1,58 @@
+Diff in /data/projects/franken_networkx/crates/fnx-conformance/tests/metamorphic_relations_gate.rs:13:
+ use fnx_algorithms::{
+     clustering_coefficient, is_connected, number_connected_components, shortest_path_length,
+ };
+[31m-use fnx_classes::digraph::DiGraph;
+[m use fnx_classes::Graph;
+[32m+use fnx_classes::digraph::DiGraph;
+[m use fnx_runtime::CompatibilityMode;
+ use proptest::prelude::*;
+ use std::collections::{HashMap, HashSet};
+Diff in /data/projects/franken_networkx/crates/fnx-readwrite/src/lib.rs:3841:
+                     && tokens[pos + 1] != "["
+                     && tokens[pos + 1] != "]" =>
+                 {
+[31m-                    graph_attrs.insert(
+[m[31m-                        key.to_owned(),
+[m[31m-                        gml_scalar_value(&tokens[pos + 1]),
+[m[31m-                    );
+[m[32m+                    graph_attrs.insert(key.to_owned(), gml_scalar_value(&tokens[pos + 1]));
+[m                     pos += 2;
+                 }
+                 _ => {
+Diff in /data/projects/franken_networkx/crates/fnx-readwrite/src/lib.rs:3978:
+                 }
+                 key => {
+                     if pos + 1 < tokens.len() && tokens[pos + 1] != "[" && tokens[pos + 1] != "]" {
+[31m-                        attrs.insert(
+[m[31m-                            key.to_owned(),
+[m[31m-                            gml_scalar_value(&tokens[pos + 1]),
+[m[31m-                        );
+[m[32m+                        attrs.insert(key.to_owned(), gml_scalar_value(&tokens[pos + 1]));
+[m                         pos += 2;
+                     } else {
+                         pos += 1;
+Diff in /data/projects/franken_networkx/crates/fnx-readwrite/src/lib.rs:4103:
+                 }
+                 key => {
+                     if pos + 1 < tokens.len() && tokens[pos + 1] != "[" && tokens[pos + 1] != "]" {
+[31m-                        attrs.insert(
+[m[31m-                            key.to_owned(),
+[m[31m-                            gml_scalar_value(&tokens[pos + 1]),
+[m[31m-                        );
+[m[32m+                        attrs.insert(key.to_owned(), gml_scalar_value(&tokens[pos + 1]));
+[m                         pos += 2;
+                     } else {
+                         pos += 1;
+Diff in /data/projects/franken_networkx/crates/fnx-readwrite/src/lib.rs:4199:
+     if !tok.quoted {
+         let s = tok.text.as_str();
+         let first = s.as_bytes().first().copied();
+[31m-        if matches!(first, Some(b'0'..=b'9') | Some(b'+') | Some(b'-') | Some(b'.')) {
+[m[32m+        if matches!(
+[m[32m+            first,
+[m[32m+            Some(b'0'..=b'9') | Some(b'+') | Some(b'-') | Some(b'.')
+[m[32m+        ) {
+[m             if let Ok(i) = s.parse::<i64>() {
+                 return CgseValue::Int(i);
+             }

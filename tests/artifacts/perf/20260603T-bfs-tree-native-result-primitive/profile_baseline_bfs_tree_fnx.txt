@@ -1,0 +1,90 @@
+Wed Jun  3 13:22:41 2026    tests/artifacts/perf/20260603T-bfs-tree-native-result-primitive/profile_baseline_bfs_tree_fnx.prof
+
+         2083367 function calls (2076558 primitive calls) in 1.153 seconds
+
+   Ordered by: cumulative time
+   List reduced from 2028 to 80 due to restriction <80>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+    477/1    0.002    0.000    1.153    1.153 {built-in method builtins.exec}
+        1    0.000    0.000    1.153    1.153 bench_traversal.py:1(<module>)
+       47    0.004    0.000    1.086    0.023 __init__.py:1(<module>)
+        1    0.017    0.017    0.840    0.840 bench_traversal.py:90(main)
+        1    0.001    0.001    0.822    0.822 bench_traversal.py:54(sample)
+       50    0.000    0.000    0.337    0.007 bench_traversal.py:36(<lambda>)
+       50    0.000    0.000    0.336    0.007 __init__.py:43026(wrapper)
+       50    0.000    0.000    0.336    0.007 __init__.py:9646(bfs_tree)
+       50    0.336    0.007    0.336    0.007 {built-in method franken_networkx._fnx.bfs_tree}
+    525/6    0.002    0.000    0.312    0.052 <frozen importlib._bootstrap>:1349(_find_and_load)
+    505/6    0.001    0.000    0.312    0.052 <frozen importlib._bootstrap>:1304(_find_and_load_unlocked)
+    490/6    0.001    0.000    0.312    0.052 <frozen importlib._bootstrap>:911(_load_unlocked)
+    462/5    0.001    0.000    0.312    0.062 <frozen importlib._bootstrap_external>:1020(exec_module)
+       50    0.000    0.000    0.305    0.006 bench_traversal.py:41(normalize)
+  1094/12    0.001    0.000    0.304    0.025 <frozen importlib._bootstrap>:480(_call_with_frames_removed)
+      420    0.059    0.000    0.275    0.001 {built-in method builtins.sorted}
+   445/30    0.000    0.000    0.257    0.009 {built-in method builtins.__import__}
+   533/59    0.001    0.000    0.256    0.004 <frozen importlib._bootstrap>:1390(_handle_fromlist)
+      9/5    0.000    0.000    0.138    0.028 <frozen importlib._bootstrap_external>:1326(exec_module)
+      9/5    0.010    0.001    0.138    0.028 {built-in method _imp.exec_dynamic}
+        2    0.000    0.000    0.128    0.064 nx_pylab.py:1(<module>)
+   150000    0.053    0.000    0.128    0.000 bench_traversal.py:45(<genexpr>)
+        2    0.000    0.000    0.127    0.063 layout.py:1(<module>)
+        1    0.000    0.000    0.111    0.111 bench_traversal.py:17(build_pair)
+   150050    0.028    0.000    0.089    0.000 bench_traversal.py:44(<genexpr>)
+        1    0.000    0.000    0.074    0.074 __config__.py:1(<module>)
+      462    0.006    0.000    0.071    0.000 <frozen importlib._bootstrap_external>:1093(get_code)
+        2    0.011    0.006    0.052    0.026 __init__.py:183(dumps)
+      6/1    0.000    0.000    0.048    0.048 decorators.py:783(func)
+      5/2    0.000    0.000    0.048    0.024 backends.py:554(_call_if_any_backends_installed)
+        1    0.000    0.000    0.048    0.048 <class 'networkx.utils.decorators.argmap'> compilation 5:1(argmap_barabasi_albert_graph_1)
+      5/2    0.000    0.000    0.048    0.024 backends.py:1484(_call_with_backend)
+        1    0.003    0.003    0.048    0.048 random_graphs.py:659(barabasi_albert_graph)
+   449903    0.047    0.000    0.047    0.000 {built-in method builtins.repr}
+   150050    0.033    0.000    0.045    0.000 __init__.py:43225(__iter__)
+   150000    0.033    0.000    0.043    0.000 __init__.py:425(__next__)
+     2997    0.029    0.000    0.042    0.000 graph.py:986(add_edges_from)
+        2    0.000    0.000    0.041    0.020 encoder.py:183(encode)
+        2    0.041    0.020    0.041    0.020 encoder.py:205(iterencode)
+        1    0.000    0.000    0.040    0.040 _arraypad_impl.py:1(<module>)
+        1    0.000    0.000    0.040    0.040 _index_tricks_impl.py:1(<module>)
+      462    0.002    0.000    0.036    0.000 <frozen importlib._bootstrap_external>:782(_compile_bytecode)
+        1    0.000    0.000    0.034    0.034 defmatrix.py:1(<module>)
+        1    0.010    0.010    0.034    0.034 __init__.py:2458(add_edges_from)
+      462    0.034    0.000    0.034    0.000 {built-in method marshal.loads}
+        1    0.000    0.000    0.033    0.033 _linalg.py:1(<module>)
+      500    0.002    0.000    0.030    0.000 <frozen importlib._bootstrap>:1240(_find_spec)
+       50    0.000    0.000    0.028    0.001 __init__.py:1362(__iter__)
+        1    0.001    0.001    0.027    0.027 __init__.py:42695(_bulk_add_backend_dispatch_kwargs)
+       50    0.000    0.000    0.027    0.001 __init__.py:1356(_materialize)
+       50    0.027    0.001    0.027    0.001 {method '_native_edges_no_data' of 'franken_networkx.DiGraph' objects}
+      481    0.000    0.000    0.026    0.000 <frozen importlib._bootstrap_external>:1551(find_spec)
+      481    0.001    0.000    0.026    0.000 <frozen importlib._bootstrap_external>:1522(_get_spec)
+  265/139    0.002    0.000    0.025    0.000 typing.py:426(inner)
+      678    0.004    0.000    0.023    0.000 <frozen importlib._bootstrap_external>:1624(find_spec)
+        1    0.000    0.000    0.022    0.022 multiarray.py:1(<module>)
+     2995    0.005    0.000    0.020    0.000 random_graphs.py:644(_random_subset)
+     1333    0.008    0.000    0.020    0.000 backends.py:218(__new__)
+261773/261559    0.020    0.000    0.020    0.000 {built-in method builtins.len}
+        1    0.000    0.000    0.018    0.018 einsumfunc.py:1(<module>)
+  619/615    0.000    0.000    0.017    0.000 inspect.py:3373(signature)
+        1    0.000    0.000    0.017    0.017 numeric.py:1(<module>)
+  619/615    0.000    0.000    0.017    0.000 inspect.py:3094(from_callable)
+  623/615    0.002    0.000    0.017    0.000 inspect.py:2487(_signature_from_callable)
+      490    0.001    0.000    0.017    0.000 <frozen importlib._bootstrap>:806(module_from_spec)
+  579/564    0.005    0.000    0.016    0.000 {built-in method builtins.__build_class__}
+     1889    0.001    0.000    0.016    0.000 <frozen importlib._bootstrap_external>:145(_path_stat)
+        1    0.016    0.016    0.016    0.016 {function Graph.add_edges_from at 0x7a27c515e7a0}
+      462    0.001    0.000    0.016    0.000 <frozen importlib._bootstrap_external>:1214(get_data)
+     1912    0.016    0.000    0.016    0.000 {built-in method posix.stat}
+      264    0.001    0.000    0.014    0.000 overrides.py:145(decorator)
+      373    0.009    0.000    0.014    0.000 inspect.py:891(cleandoc)
+        1    0.013    0.013    0.013    0.013 {built-in method gc.collect}
+    12040    0.005    0.000    0.013    0.000 random.py:345(choice)
+      204    0.001    0.000    0.013    0.000 typing.py:1423(__init__)
+     1264    0.004    0.000    0.013    0.000 decorators.py:762(__call__)
+        1    0.000    0.000    0.013    0.013 _add_newdocs.py:1(<module>)
+      603    0.005    0.000    0.012    0.000 inspect.py:2383(_signature_from_function)
+      509    0.003    0.000    0.012    0.000 __init__.py:43015(_make_wrapper)
+        1    0.000    0.000    0.012    0.012 backends.py:1(<module>)
+
+

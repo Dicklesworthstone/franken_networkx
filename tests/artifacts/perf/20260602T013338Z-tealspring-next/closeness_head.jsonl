@@ -1,0 +1,5 @@
+{"algo":"closeness","n":1500,"m":6000,"avg_deg":8,"iters":1,"total_ms":54.7830,"per_iter_ms":54.7830,"checksum":400.049919}
+{"algo":"closeness","n":1500,"m":6000,"avg_deg":8,"iters":1,"total_ms":55.6177,"per_iter_ms":55.6177,"checksum":400.049919}
+{"algo":"closeness","n":1500,"m":6000,"avg_deg":8,"iters":1,"total_ms":63.0150,"per_iter_ms":63.0150,"checksum":400.049919}
+{"algo":"closeness","n":1500,"m":6000,"avg_deg":8,"iters":1,"total_ms":54.2935,"per_iter_ms":54.2935,"checksum":400.049919}
+{"algo":"closeness","n":1500,"m":6000,"avg_deg":8,"iters":1,"total_ms":57.1360,"per_iter_ms":57.1360,"checksum":400.049919}
