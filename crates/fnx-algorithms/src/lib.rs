@@ -26795,26 +26795,51 @@ fn local_constraint_inner(graph: &Graph, u: &str, v: &str, u_nbrs: &[&str]) -> f
 /// where t(u) is the number of ties among u's neighbors.
 #[must_use]
 pub fn effective_size(graph: &Graph) -> std::collections::HashMap<String, f64> {
+    // br-r37-c1-chq2a: the previous kernel counted ties among each node's
+    // neighbors with an O(deg^2) `graph.has_edge(nbrs[i], nbrs[j])` double loop
+    // — String-keyed substrate lookups that made it up to ~1.6x SLOWER than
+    // NetworkX on dense graphs. Precompute integer adjacency ONCE, then count
+    // ties with a reusable mark-array: mark N(u), and for each w in N(u) tally
+    // the neighbors of w that also lie in N(u). Each intra-ego edge is counted
+    // from both endpoints, so `ties = total / 2`. `ties` is the same exact
+    // integer as before, so `deg - 2*ties/deg` is byte-for-byte identical.
     let nodes = graph.nodes_ordered();
-    let mut result = std::collections::HashMap::new();
+    let n = nodes.len();
+    let idx: std::collections::HashMap<&str, usize> =
+        nodes.iter().enumerate().map(|(i, &s)| (s, i)).collect();
+    let mut adj: Vec<Vec<usize>> = Vec::with_capacity(n);
     for &u in &nodes {
-        let nbrs: Vec<&str> = graph.neighbors(u).unwrap_or_default();
-        let deg = nbrs.len();
+        let nb = graph.neighbors(u).unwrap_or_default();
+        adj.push(nb.iter().map(|w| idx[w]).collect());
+    }
+
+    let mut in_nu = vec![false; n];
+    let mut result = std::collections::HashMap::with_capacity(n);
+    for ui in 0..n {
+        let u_nbrs = &adj[ui];
+        let deg = u_nbrs.len();
         if deg == 0 {
-            result.insert(u.to_owned(), 0.0);
+            result.insert(nodes[ui].to_owned(), 0.0);
             continue;
         }
-        // Count ties among neighbors (redundancy)
-        let mut ties = 0usize;
-        for i in 0..nbrs.len() {
-            for j in (i + 1)..nbrs.len() {
-                if graph.has_edge(nbrs[i], nbrs[j]) {
-                    ties += 1;
+        for &x in u_nbrs {
+            in_nu[x] = true;
+        }
+        // total = sum over w in N(u) of |N(w) ∩ N(u)| = 2 * (ties among N(u))
+        let mut total = 0usize;
+        for &wi in u_nbrs {
+            for &vi in &adj[wi] {
+                if in_nu[vi] {
+                    total += 1;
                 }
             }
         }
+        let ties = total / 2;
         let eff = (deg as f64) - (2.0 * ties as f64) / (deg as f64);
-        result.insert(u.to_owned(), eff);
+        result.insert(nodes[ui].to_owned(), eff);
+        for &x in u_nbrs {
+            in_nu[x] = false;
+        }
     }
     result
 }
