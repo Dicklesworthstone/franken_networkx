@@ -6325,6 +6325,26 @@ def _should_delegate_astar_to_networkx(weight, cutoff=None):
     return not isinstance(weight, str)
 
 
+def _astar_weight_scan_needed(G, weight):
+    """Return True when the negative/inf/nonnumeric weight scans must run.
+
+    br-r37-c1-astgate: those scans are O(|E|) and only meaningful when the graph
+    actually carries the ``weight`` attribute. For a simple graph with no such
+    attribute (the common unweighted case) all three are vacuously False, so a
+    single cheap native attr-presence probe lets A* skip three O(|E|) passes.
+    Multigraphs and (defensively) a missing native binding keep the full scan
+    path. ``inner`` must already be synced before this is called.
+    """
+    if not isinstance(weight, str):
+        return True
+    if G.is_multigraph() or _native_has_edge_attr is None:
+        return True
+    try:
+        return bool(_native_has_edge_attr(G, weight))
+    except Exception:
+        return True
+
+
 def _should_delegate_negative_edge_cycle_to_networkx(G, weight, heuristic):
     # br-r37-c1-f0i2s: route any non-string weight to nx (PyO3
     # binding's ``weight: str`` signature type-rejects ``None`` / ints
@@ -13262,7 +13282,23 @@ def astar_path(G, source, target, heuristic=None, weight="weight", *, cutoff=Non
     # post-creation Python mutations (G[u][v]['weight']=v) need to be
     # synced first — same architectural fix as br-r37-c1-sjf4t for
     # dijkstra/bellman-ford/floyd-warshall.
+    # br-r37-c1-astgate: sync ONCE, and only run the O(|E|) weight scans when
+    # the graph carries the weight attribute (see astar_path_length).
     _sync_rust_edge_attrs(G)
+    if _astar_weight_scan_needed(G, weight) and (
+        _has_negative_edge_weight_for_dijkstra(G, weight, _skip_sync=True)
+        or _has_positive_infinity_edge_weight_for_dijkstra(G, weight, _skip_sync=True)
+        or _has_nonnumeric_edge_weight(G, weight, _skip_sync=True)
+    ):
+        return _call_networkx_for_parity(
+            "astar_path",
+            G,
+            source,
+            target,
+            heuristic=heuristic,
+            weight=weight,
+            cutoff=cutoff,
+        )
     try:
         return _raw_astar_path(
             G, source, target, heuristic=heuristic, weight=weight
@@ -13301,8 +13337,27 @@ def astar_path_length(
             weight=weight,
             cutoff=cutoff,
         )
+    # br-r37-c1-astgate: sync inner ONCE, then only run the O(|E|) negative/
+    # inf/nonnumeric weight scans when the graph actually carries the weight
+    # attribute. Each scan previously re-synced (4x redundant sync) and ran
+    # unconditionally even on unweighted graphs -- ~2.4ms of pure overhead on a
+    # single-pair A* whose native search is ~0.05ms (45x slower than nx -> 7.4x).
     # br-r37-c1-0x9pd: see astar_path.
     _sync_rust_edge_attrs(G)
+    if _astar_weight_scan_needed(G, weight) and (
+        _has_negative_edge_weight_for_dijkstra(G, weight, _skip_sync=True)
+        or _has_positive_infinity_edge_weight_for_dijkstra(G, weight, _skip_sync=True)
+        or _has_nonnumeric_edge_weight(G, weight, _skip_sync=True)
+    ):
+        return _call_networkx_for_parity(
+            "astar_path_length",
+            G,
+            source,
+            target,
+            heuristic=heuristic,
+            weight=weight,
+            cutoff=cutoff,
+        )
     # br-r37-c1-tm1tq: nx pre-checks ``source not in G or target not in G``
     # and raises a single combined-message NodeNotFound rather than
     # the per-side message that ``astar_path``'s translator returns
