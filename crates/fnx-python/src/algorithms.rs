@@ -5386,14 +5386,27 @@ pub fn eulerian_path(
             "Connectivity is undefined for the null graph.",
         ));
     }
-    if gr.is_directed() {
-        return Err(crate::NetworkXNotImplemented::new_err(
-            "not implemented for directed type",
-        ));
-    }
     let src = source.map(|s| node_key_to_string(py, s)).transpose()?;
     if let (Some(src_key), Some(src_obj)) = (&src, source) {
         validate_node(&gr, src_key, src_obj, "Source")?;
+    }
+    if gr.is_directed() {
+        if gr.is_multigraph() {
+            return Err(crate::NetworkXNotImplemented::new_err(
+                "not implemented for multigraph type",
+            ));
+        }
+        let dg = gr.digraph().expect("is_directed checked above");
+        let result =
+            py.allow_threads(|| fnx_algorithms::eulerian_path_directed(dg, src.as_deref()));
+        return match result {
+            Some(r) => Ok(r
+                .edges
+                .iter()
+                .map(|(u, v)| (gr.py_node_key(py, u), gr.py_node_key(py, v)))
+                .collect()),
+            None => Err(NetworkXError::new_err("Graph has no Eulerian paths.")),
+        };
     }
     let inner = gr.undirected();
     if inner.node_count() > 1 && inner.nodes_ordered().iter().any(|n| inner.degree(n) == 0) {

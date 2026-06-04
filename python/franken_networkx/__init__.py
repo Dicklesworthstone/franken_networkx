@@ -8798,12 +8798,16 @@ def eulerian_path(G, source=None, keys=False):
     G = _coerce_arg_to_fnx_graph(G)
     if source is not None and source not in G:
         raise NetworkXError(f"Node {source} is not in the graph.")
-    # br-r37-c1-z4i7f: nx supports directed graphs; the Rust binding
-    # only handles undirected. Delegate the directed case to nx.
+    # br-r37-c1-04z53.51: simple DiGraph now uses the native directed
+    # reversed-Hierholzer path. MultiDiGraph still delegates so key
+    # ordering and parallel-edge handling remain NetworkX-owned.
     if G.is_directed():
-        yield from _call_networkx_for_parity(
-            "eulerian_path", G, source=source, keys=keys,
-        )
+        if G.is_multigraph():
+            yield from _call_networkx_for_parity(
+                "eulerian_path", G, source=source, keys=keys,
+            )
+            return
+        yield from _raw_eulerian_path(G, source=source)
         return
     if keys:
         yield from _call_networkx_for_parity("eulerian_path", G, source=source, keys=keys)

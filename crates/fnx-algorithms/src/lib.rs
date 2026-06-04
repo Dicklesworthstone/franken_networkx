@@ -14079,6 +14079,137 @@ fn hierholzer_traverse(
     edges
 }
 
+fn is_directed_eulerian(digraph: &DiGraph) -> bool {
+    if digraph.node_count() == 0 {
+        return false;
+    }
+    digraph
+        .nodes_ordered()
+        .iter()
+        .all(|node| digraph.in_degree(node) == digraph.out_degree(node))
+        && is_strongly_connected(digraph)
+}
+
+fn has_directed_eulerian_path(digraph: &DiGraph, source: Option<&str>) -> bool {
+    if is_directed_eulerian(digraph) {
+        return true;
+    }
+
+    if let Some(source) = source {
+        let ins = digraph.in_degree(source);
+        let outs = digraph.out_degree(source);
+        if outs != ins.saturating_add(1) {
+            return false;
+        }
+    }
+
+    let mut unbalanced_ins = 0usize;
+    let mut unbalanced_outs = 0usize;
+    for node in digraph.nodes_ordered() {
+        let ins = digraph.in_degree(node);
+        let outs = digraph.out_degree(node);
+        if ins == outs.saturating_add(1) {
+            unbalanced_ins += 1;
+        } else if outs == ins.saturating_add(1) {
+            unbalanced_outs += 1;
+        } else if ins != outs {
+            return false;
+        }
+    }
+
+    unbalanced_ins <= 1 && unbalanced_outs <= 1 && is_weakly_connected(digraph)
+}
+
+fn directed_reverse_eulerian_start<'a>(
+    digraph: &'a DiGraph,
+    source: Option<&'a str>,
+    eulerian: bool,
+) -> Option<&'a str> {
+    if eulerian {
+        return source.or_else(|| digraph.nodes_ordered().into_iter().next());
+    }
+
+    digraph
+        .nodes_ordered()
+        .into_iter()
+        .find(|node| digraph.in_degree(node) == digraph.out_degree(node).saturating_add(1))
+}
+
+/// Finds an Eulerian path in a simple directed graph.
+///
+/// This mirrors NetworkX's directed implementation: reverse the graph in
+/// `G.edges()` order, choose the same start vertex, then run simple
+/// Hierholzer traversal consuming each first remaining outgoing edge.
+#[must_use]
+pub fn eulerian_path_directed(
+    digraph: &DiGraph,
+    source: Option<&str>,
+) -> Option<EulerianPathResult> {
+    if !has_directed_eulerian_path(digraph, source) {
+        return None;
+    }
+
+    let eulerian = is_directed_eulerian(digraph);
+    let start = directed_reverse_eulerian_start(digraph, source, eulerian)?;
+    if digraph.edge_count() == 0 {
+        return Some(EulerianPathResult {
+            edges: Vec::new(),
+            witness: ComplexityWitness {
+                algorithm: "hierholzer_directed_path".to_owned(),
+                complexity_claim: "O(|V| + |E|)".to_owned(),
+                nodes_touched: digraph.node_count(),
+                edges_scanned: 0,
+                queue_peak: 1,
+            },
+        });
+    }
+
+    let nodes = digraph.nodes_ordered();
+    let node_index: HashMap<&str, usize> = nodes
+        .iter()
+        .enumerate()
+        .map(|(idx, &node)| (node, idx))
+        .collect();
+    let mut reverse_adj = vec![Vec::<usize>::new(); nodes.len()];
+    for (source, target, _) in digraph.edges_ordered_borrowed() {
+        let reverse_source = node_index[target];
+        let reverse_target = node_index[source];
+        reverse_adj[reverse_source].push(reverse_target);
+    }
+
+    let mut edge_pos = vec![0usize; nodes.len()];
+    let mut stack = vec![node_index[start]];
+    let mut queue_peak = stack.len();
+    let mut last_vertex = None::<usize>;
+    let mut edges = Vec::<(String, String)>::with_capacity(digraph.edge_count());
+
+    while let Some(&current) = stack.last() {
+        if edge_pos[current] == reverse_adj[current].len() {
+            if let Some(last) = last_vertex {
+                edges.push((nodes[last].to_owned(), nodes[current].to_owned()));
+            }
+            last_vertex = Some(current);
+            stack.pop();
+        } else {
+            let next = reverse_adj[current][edge_pos[current]];
+            edge_pos[current] += 1;
+            stack.push(next);
+            queue_peak = queue_peak.max(stack.len());
+        }
+    }
+
+    Some(EulerianPathResult {
+        edges,
+        witness: ComplexityWitness {
+            algorithm: "hierholzer_directed_path".to_owned(),
+            complexity_claim: "O(|V| + |E|)".to_owned(),
+            nodes_touched: digraph.node_count(),
+            edges_scanned: digraph.edge_count(),
+            queue_peak,
+        },
+    })
+}
+
 // ---------------------------------------------------------------------------
 // DAG Algorithms (DiGraph)
 // ---------------------------------------------------------------------------
@@ -18196,10 +18327,7 @@ pub fn degree_histogram(graph: &Graph) -> Vec<usize> {
 /// Guarantees total weight at most twice the optimal.
 ///
 /// Matches `networkx.algorithms.approximation.vertex_cover.min_weighted_vertex_cover`.
-pub fn min_weighted_vertex_cover(
-    graph: &Graph,
-    weight_attr: Option<&str>,
-) -> HashMap<String, f64> {
+pub fn min_weighted_vertex_cover(graph: &Graph, weight_attr: Option<&str>) -> HashMap<String, f64> {
     // Local-ratio greedy 2-approximation, replicated to match networkx EXACTLY.
     // networkx iterates `G.edges()` (each undirected edge once, yielded from the
     // endpoint that appears first in node order, oriented smaller-index-first).
@@ -26682,7 +26810,13 @@ pub fn constraint(graph: &Graph) -> std::collections::HashMap<String, f64> {
     }
     let inv_deg: Vec<f64> = adj
         .iter()
-        .map(|a| if a.is_empty() { 0.0 } else { 1.0 / a.len() as f64 })
+        .map(|a| {
+            if a.is_empty() {
+                0.0
+            } else {
+                1.0 / a.len() as f64
+            }
+        })
         .collect();
 
     // Reusable scratch: `in_nu` marks N(u) (no per-pair HashSet), `s` holds the
@@ -34846,6 +34980,7 @@ mod tests {
         enumerate_all_cliques,
         eulerian_circuit,
         eulerian_path,
+        eulerian_path_directed,
         fast_could_be_isomorphic,
         faster_could_be_isomorphic,
         find_asteroidal_triple,
@@ -39899,6 +40034,65 @@ mod tests {
     }
 
     #[test]
+    fn eulerian_path_directed_simple_path_order() {
+        let mut graph = DiGraph::strict();
+        graph.add_edge("0", "1").expect("edge add");
+        graph.add_edge("1", "2").expect("edge add");
+        let result = eulerian_path_directed(&graph, None).expect("path");
+        assert_eq!(
+            result.edges,
+            vec![
+                ("0".to_owned(), "1".to_owned()),
+                ("1".to_owned(), "2".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn eulerian_path_directed_branching_circuit_order() {
+        let mut graph = DiGraph::strict();
+        graph.add_edge("0", "1").expect("edge add");
+        graph.add_edge("0", "2").expect("edge add");
+        graph.add_edge("1", "0").expect("edge add");
+        graph.add_edge("2", "0").expect("edge add");
+        let result = eulerian_path_directed(&graph, None).expect("path");
+        assert_eq!(
+            result.edges,
+            vec![
+                ("0".to_owned(), "2".to_owned()),
+                ("2".to_owned(), "0".to_owned()),
+                ("0".to_owned(), "1".to_owned()),
+                ("1".to_owned(), "0".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn eulerian_path_directed_source_on_circuit_order() {
+        let mut graph = DiGraph::strict();
+        graph.add_edge("0", "1").expect("edge add");
+        graph.add_edge("1", "2").expect("edge add");
+        graph.add_edge("2", "0").expect("edge add");
+        let result = eulerian_path_directed(&graph, Some("1")).expect("path");
+        assert_eq!(
+            result.edges,
+            vec![
+                ("1".to_owned(), "2".to_owned()),
+                ("2".to_owned(), "0".to_owned()),
+                ("0".to_owned(), "1".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn eulerian_path_directed_rejects_wrong_source() {
+        let mut graph = DiGraph::strict();
+        graph.add_edge("0", "1").expect("edge add");
+        graph.add_edge("1", "2").expect("edge add");
+        assert!(eulerian_path_directed(&graph, Some("1")).is_none());
+    }
+
+    #[test]
     fn eulerian_circuit_butterfly() {
         // Butterfly / bowtie: two triangles sharing a vertex
         // a-b, b-c, a-c, c-d, c-e, d-e
@@ -42778,7 +42972,7 @@ mod tests {
         let mut g = Graph::strict();
         for i in 0..n {
             for j in (i + 1)..n {
-                let _ = g.add_edge(&format!("v{i}"), &format!("v{j}"));
+                let _ = g.add_edge(format!("v{i}"), format!("v{j}"));
             }
         }
         g
@@ -42788,7 +42982,7 @@ mod tests {
         let mut g = Graph::strict();
         for i in 0..a {
             for j in 0..b {
-                let _ = g.add_edge(&format!("a{i}"), &format!("b{j}"));
+                let _ = g.add_edge(format!("a{i}"), format!("b{j}"));
             }
         }
         g
@@ -42812,7 +43006,7 @@ mod tests {
         let spokes = [(0, 5), (1, 6), (2, 7), (3, 8), (4, 9)];
         let mut g = Graph::strict();
         for (u, v) in outer.iter().chain(&inner).chain(&spokes) {
-            let _ = g.add_edge(&format!("v{u}"), &format!("v{v}"));
+            let _ = g.add_edge(format!("v{u}"), format!("v{v}"));
         }
         assert!(!is_planar_lr(&g));
     }
@@ -42826,10 +43020,10 @@ mod tests {
         for r in 0..4 {
             for c in 0..4 {
                 if c + 1 < 4 {
-                    let _ = grid.add_edge(&format!("n{r}_{c}"), &format!("n{r}_{}", c + 1));
+                    let _ = grid.add_edge(format!("n{r}_{c}"), format!("n{r}_{}", c + 1));
                 }
                 if r + 1 < 4 {
-                    let _ = grid.add_edge(&format!("n{r}_{c}"), &format!("n{}_{c}", r + 1));
+                    let _ = grid.add_edge(format!("n{r}_{c}"), format!("n{}_{c}", r + 1));
                 }
             }
         }
