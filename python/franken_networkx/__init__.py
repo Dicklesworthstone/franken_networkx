@@ -18267,10 +18267,49 @@ def fiedler_vector(
         _validate_fiedler_method(method)
     del tol, method  # accepted for nx parity but not used by the dense solver
 
-    if normalized:
-        L = normalized_laplacian_matrix(G, weight=weight).toarray()
-    else:
-        L = laplacian_matrix(G, weight=weight).toarray()
+    # br-fiedlersparse: same dense O(n^3) np.linalg.eigh tax as
+    # algebraic_connectivity (~6.5x slower than nx, 1.56s @ watts(400,6)). For
+    # a SPARSE graph with a SIMPLE second-smallest eigenvalue, get the Fiedler
+    # eigenpair with shift-invert ARPACK (scipy eigsh, sigma=0) -- ~90x faster.
+    # The Fiedler vector is sign-ambiguous (nx and the dense solver already
+    # disagree on sign), so the sparse vector is canonicalized to a
+    # largest-magnitude-component-positive sign; it then matches nx up to sign
+    # for non-degenerate lambda2. A DEGENERATE eigenspace has no canonical basis
+    # vector, so when lambda2 is not strictly separated from lambda3 -- and on
+    # dense/tiny graphs or any failure -- fall back to the exact dense eigh,
+    # byte-identical to the previous implementation.
+    L_sparse = (
+        normalized_laplacian_matrix(G, weight=weight)
+        if normalized
+        else laplacian_matrix(G, weight=weight)
+    )
+    n = L_sparse.shape[0]
+    nnz = L_sparse.nnz if hasattr(L_sparse, "nnz") else None
+    if n >= 12 and nnz is not None and nnz < 16 * n:
+        try:
+            import scipy.sparse as _sp
+            import scipy.sparse.linalg as _sla
+
+            Lc = _sp.csc_matrix(L_sparse, dtype=float)
+            k = min(5, n - 2)
+            vals, vecs = _sla.eigsh(
+                Lc, k=k, sigma=0, which="LM", return_eigenvectors=True, maxiter=200
+            )
+            order = np.argsort(vals)
+            vals = vals[order]
+            vecs = vecs[:, order]
+            if (
+                abs(vals[0]) < 1e-6
+                and np.all(np.isfinite(vals))
+                and vals[2] - vals[1] > 1e-7 * max(1.0, abs(vals[2]))
+            ):
+                v = np.asarray(vecs[:, 1], dtype=float)
+                j = int(np.argmax(np.abs(v)))
+                return -v if v[j] < 0 else v
+        except Exception:
+            pass
+
+    L = L_sparse.toarray() if hasattr(L_sparse, "toarray") else np.asarray(L_sparse)
     eigenvalues, eigenvectors = np.linalg.eigh(L)
     return eigenvectors[:, 1]
 
