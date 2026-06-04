@@ -57,22 +57,42 @@ def test_directed_falls_back_to_python():
         _match(nx.dispersion(G), fnx.dispersion(_cp(G, directed=True)))
 
 
-def test_selfloops_fall_back_to_python():
-    # Self-loop graphs are gated OFF the native kernel (number_of_selfloops > 0)
-    # and use the Python path. That path has a PRE-EXISTING self-loop divergence
-    # from networkx (selfloop_edge_case_bug_class, filed separately) that this
-    # perf commit does not touch, so we only assert the fall-back runs and is
-    # structurally correct -- and that removing the self-loops restores native
-    # parity with networkx.
-    G = nx.gnp_random_graph(25, 0.2, seed=2)
-    G.add_edge(0, 0)
-    G.add_edge(7, 7)
-    res = fnx.dispersion(_cp(G))
-    assert set(res) == set(G.nodes())
-    for node in res:
-        assert set(res[node]) == set(G[node])
-    G2 = nx.gnp_random_graph(25, 0.2, seed=2)  # same graph, no self-loops
-    _match(nx.dispersion(G2), fnx.dispersion(_cp(G2)))
+def test_selfloops_match_networkx():
+    # br-r37-c1-brlzk: self-loop graphs are gated OFF the native kernel and use
+    # the Python path. dispadj regressed that path by building ``common`` from a
+    # set (set-iteration order) instead of the ordered neighbour list; when a
+    # self-loop puts ``v`` into ``common`` the dispersion predicate is asymmetric
+    # so nx's combinations order matters. Iterating the ordered list restores
+    # parity. Verify across many self-loop graphs.
+    for seed in range(60):
+        rnd = random.Random(seed)
+        n = rnd.randint(4, 40)
+        p = rnd.uniform(0.08, 0.4)
+        G = nx.gnp_random_graph(n, p, seed=seed)
+        for _ in range(rnd.randint(1, 3)):
+            x = rnd.randrange(n)
+            G.add_edge(x, x)
+        _match(nx.dispersion(G), fnx.dispersion(_cp(G)))
+
+
+def test_dict_form_equals_single_pair_form():
+    # The dict form and the single-pair form must agree for every (u, v),
+    # including self-loop graphs -- the invariant dispadj broke.
+    for seed in range(40):
+        rnd = random.Random(seed)
+        n = rnd.randint(4, 35)
+        G = nx.gnp_random_graph(n, rnd.uniform(0.1, 0.4), seed=seed)
+        for _ in range(rnd.randint(0, 2)):
+            x = rnd.randrange(n)
+            G.add_edge(x, x)
+        F = _cp(G)
+        full = fnx.dispersion(F)
+        for node in full:
+            for nbr in full[node]:
+                assert abs(full[node][nbr] - fnx.dispersion(F, node, nbr)) <= 1e-12, (
+                    node,
+                    nbr,
+                )
 
 
 def test_multigraph_falls_back():

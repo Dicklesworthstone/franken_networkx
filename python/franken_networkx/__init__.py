@@ -18815,28 +18815,37 @@ def dispersion(
     # walks its native dict adjacency). Precompute every adjacency set ONCE and
     # reuse it; the set logic is identical and ``disp`` is an order-invariant
     # integer count, so the float results are byte-for-byte unchanged.
-    adj = {n: set(G.neighbors(n)) for n in G}
+    # br-r37-c1-brlzk: keep BOTH the insertion-ordered neighbour list and the
+    # set. The ordered list is required to build ``common`` in nx's exact
+    # iteration order: when a self-loop puts ``v`` (or ``u``) into ``common``
+    # the dispersion predicate is asymmetric, so nx's ``combinations(ST, 2)``
+    # order over ``G[v]`` decides the count. fnx's neighbour order matches nx,
+    # so iterating the ordered list (not the set) reproduces it. The set is
+    # kept for O(1) membership in the inner predicate.
+    nbr_order = {n: list(G.neighbors(n)) for n in G}
+    adj = {n: set(lst) for n, lst in nbr_order.items()}
     nodes = [u] if u is not None else list(G.nodes())
     result = {}
     for node in nodes:
         result[node] = {}
-        for nbr in G.neighbors(node):
+        for nbr in nbr_order[node]:
             result[node][nbr] = _dispersion_pair_cached(
-                adj, node, nbr, normalized, alpha, b, c
+                nbr_order, adj, node, nbr, normalized, alpha, b, c
             )
     if u is not None:
         return result[u]
     return result
 
 
-def _dispersion_pair_cached(adj, u, v, normalized, alpha, b, c):
+def _dispersion_pair_cached(nbr_order, adj, u, v, normalized, alpha, b, c):
     # Identical to ``_dispersion_pair`` but reads from precomputed adjacency
-    # sets (``adj``) instead of calling ``G.neighbors`` per pair. Used by the
-    # dict form of ``dispersion`` where the same neighbour sets are needed
-    # repeatedly. Membership / KeyError contracts are already enforced by the
-    # caller (every node here comes from ``G``).
+    # (``nbr_order`` insertion-ordered lists + ``adj`` membership sets) instead
+    # of calling ``G.neighbors`` per pair. ``common`` is built by iterating the
+    # ordered neighbour list of ``v`` so its set-iteration order matches nx's
+    # ``ST`` (needed for self-loop parity, br-r37-c1-brlzk). Membership /
+    # KeyError contracts are enforced by the caller (every node comes from G).
     u_nbrs = adj[u]
-    common = {n for n in adj[v] if n in u_nbrs}
+    common = {n for n in nbr_order[v] if n in u_nbrs}
     set_uv = {u, v}
 
     disp = 0
