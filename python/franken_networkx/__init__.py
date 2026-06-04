@@ -35344,22 +35344,51 @@ def complete_to_chordal_graph(G):
     chords = set()
     weight = {node: 0 for node in node_order}
     unnumbered_nodes = list(node_order)
+    # br-ctcg-localadj: the MCS-M inner test (is there a y->z path through
+    # strictly-lower-weight nodes?) was implemented as
+    # ``has_path(H.subgraph(lower_nodes + [z, y]).copy(), y, z)``. The
+    # ``.copy()`` — added because fnx's native ``has_path`` rejects filtered
+    # views — pays the full graph-construction tax O(|V|^2) times, which made
+    # this ~77x slower than networkx (49.8s vs 0.64s on
+    # watts_strogatz(200, 6)). ``H`` is unchanged during the loop (chords are
+    # only applied afterward), so snapshot G's adjacency once into plain
+    # Python sets and run the reachability test locally: identical result, no
+    # per-iteration graph construction.
+    adjacency = {node: set(G[node]) for node in node_order}
+
+    def _reachable_through(src, dst, allowed):
+        # BFS from ``src`` to ``dst`` using only edges among ``allowed`` nodes
+        # — i.e. ``has_path(G.subgraph(allowed), src, dst)``.
+        if src == dst:
+            return True
+        seen = {src}
+        stack = [src]
+        while stack:
+            node = stack.pop()
+            for nbr in adjacency[node]:
+                if nbr in allowed and nbr not in seen:
+                    if nbr == dst:
+                        return True
+                    seen.add(nbr)
+                    stack.append(nbr)
+        return False
+
     for i in range(len(node_order), 0, -1):
         z = max(unnumbered_nodes, key=lambda node: weight[node])
         unnumbered_nodes.remove(z)
         alpha[z] = i
         update_nodes = []
         for y in unnumbered_nodes:
-            if G.has_edge(y, z):
+            if z in adjacency[y]:
                 update_nodes.append(y)
             else:
                 y_weight = weight[y]
-                lower_nodes = [
+                allowed = {
                     node for node in unnumbered_nodes if weight[node] < y_weight
-                ]
-                # fnx's native has_path rejects filtered-view types —
-                # materialise the induced subgraph to a concrete Graph.
-                if has_path(H.subgraph(lower_nodes + [z, y]).copy(), y, z):
+                }
+                allowed.add(z)
+                allowed.add(y)
+                if _reachable_through(y, z, allowed):
                     update_nodes.append(y)
                     chords.add((z, y))
         for node in update_nodes:
