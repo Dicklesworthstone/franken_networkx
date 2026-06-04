@@ -40411,15 +40411,15 @@ def to_edgelist(G, nodelist=None):
     edges : EdgeDataView (or similar iterable)
         _Iterable of ``(u, v, data_dict)``.
 
-    br-r37-c1-rsvst: nx returns ``G.edges(data=True)`` directly — an
-    EdgeDataView, not a materialized list. fnx previously materialized
-    the list which broke isinstance checks against
-    ``networkx.EdgeDataView``. Mirror nx by returning the view itself.
+    br-r37-c1-rsvst / br-r37-c1-qwan6: nx returns ``G.edges(data=True)``
+    directly — a live ``EdgeDataView``, not a materialized list. Mirror nx by
+    returning the view itself so ``type(to_edgelist(G)).__name__`` matches nx
+    ("EdgeDataView") for drop-in type/isinstance checks. The former
+    ``_fnx.to_edgelist_simple`` fast path materialized the edges into an
+    ``_EdgeListWithSetAlgebra`` — which broke the type name AND was slower than
+    the lazy view (3611us vs 1.7us to construct, 5103us vs 4290us to fully
+    iterate on a 5k-edge graph), so it is removed.
     """
-    if nodelist is None and (type(G) is Graph or type(G) is DiGraph):
-        _fast = _fnx.to_edgelist_simple(G)
-        if _fast is not None:
-            return _guarded_edge_list(_fast, G, guard_edge_count=True)
     if nodelist is not None:
         return G.edges(nodelist, data=True)
     return G.edges(data=True)
