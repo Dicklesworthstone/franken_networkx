@@ -13177,36 +13177,39 @@ pub fn global_efficiency(graph: &Graph) -> GlobalEfficiencyResult {
     let mut total_edges_scanned = 0usize;
     let mut max_queue_peak = 0usize;
 
-    // BFS from each node to compute all shortest path distances
-    for &source in &nodes {
-        let mut dist: HashMap<&str, usize> = HashMap::new();
-        dist.insert(source, 0);
-        let mut queue: VecDeque<&str> = VecDeque::new();
-        queue.push_back(source);
+    // br-r37-c1-geffcsr: integer-CSR BFS from every source over the graph's
+    // index adjacency, replacing the per-source `HashMap<&str, usize>` +
+    // `nbrs.sort_unstable()` String tax (the same lever that made
+    // average_shortest_path_length / distance_measures ~16x faster). The
+    // neighbour visit order does not change BFS distances, so the sort is
+    // dropped. 1/d is accumulated at discovery for each reached target (d>0);
+    // a disconnected graph contributes only its reachable pairs, exactly like
+    // nx's `all_pairs_shortest_path_length` (which yields only reachable
+    // targets). Same O(|V|*(|V|+|E|)) class, far smaller constant factor.
+    let mut dist = vec![0usize; n];
+    let mut seen_stamp = vec![0u32; n];
+    let mut queue: VecDeque<usize> = VecDeque::new();
+    for s in 0..n {
+        let stamp = (s as u32) + 1;
+        seen_stamp[s] = stamp;
+        dist[s] = 0;
+        queue.clear();
+        queue.push_back(s);
 
-        while let Some(current) = queue.pop_front() {
-            let d = dist[current];
-            let mut nbrs: Vec<&str> = graph
-                .neighbors_iter(current)
-                .map(|iter| iter.collect())
-                .unwrap_or_default();
-            nbrs.sort_unstable();
-
-            for nbr in nbrs {
-                total_edges_scanned += 1;
-                if !dist.contains_key(nbr) {
-                    dist.insert(nbr, d + 1);
-                    queue.push_back(nbr);
-                    max_queue_peak = max_queue_peak.max(queue.len());
+        while let Some(u) = queue.pop_front() {
+            let d = dist[u];
+            if let Some(nbrs) = graph.neighbors_indices(u) {
+                for &v in nbrs {
+                    total_edges_scanned += 1;
+                    if seen_stamp[v] != stamp {
+                        seen_stamp[v] = stamp;
+                        dist[v] = d + 1;
+                        total_eff += 1.0 / (d + 1) as f64;
+                        queue.push_back(v);
+                    }
                 }
             }
-        }
-
-        // Sum inverse distances for this source
-        for (&target, &d) in &dist {
-            if target != source && d > 0 {
-                total_eff += 1.0 / d as f64;
-            }
+            max_queue_peak = max_queue_peak.max(queue.len());
         }
     }
 
@@ -39623,6 +39626,83 @@ mod tests {
             (result.efficiency - expected).abs() < 1e-12,
             "disconnected graph global efficiency should be {expected}, got {}",
             result.efficiency
+        );
+    }
+
+    #[test]
+    fn global_efficiency_matches_networkx_reference() {
+        // br-r37-c1-geffcsr: cross-impl fixtures captured from networkx
+        // (`nx.global_efficiency`) on random gnp graphs — including a
+        // disconnected case (#2, node 1 isolated). The integer-CSR kernel must
+        // match networkx within the public wrapper's established 1e-12 tolerance.
+        fn check_ge(edges: &[(&str, &str)], n: usize, expected: f64) {
+            let mut graph = Graph::strict();
+            for i in 0..n {
+                graph.add_node(&i.to_string());
+            }
+            for &(u, v) in edges {
+                graph.add_edge(u, v).expect("edge add");
+            }
+            let got = global_efficiency(&graph).efficiency;
+            assert!(
+                (got - expected).abs() < 1e-12,
+                "global_efficiency mismatch: got {got}, expected {expected}",
+            );
+        }
+        check_ge(
+            &[
+                ("0", "3"), ("0", "4"), ("0", "6"), ("0", "8"), ("1", "3"),
+                ("1", "6"), ("1", "11"), ("2", "7"), ("3", "6"), ("3", "9"),
+                ("3", "11"), ("4", "7"), ("4", "10"), ("4", "11"), ("5", "7"),
+                ("5", "9"), ("6", "8"), ("6", "9"), ("7", "8"),
+            ],
+            12,
+            5.896_464_646_464_644_19e-01,
+        );
+        check_ge(
+            &[
+                ("0", "1"), ("0", "4"), ("1", "3"), ("1", "4"), ("2", "3"),
+                ("2", "6"), ("3", "5"), ("3", "6"), ("4", "7"), ("5", "7"),
+                ("6", "7"),
+            ],
+            8,
+            6.726_190_476_190_475_61e-01,
+        );
+        // Disconnected: node 1 is isolated (denominator still n*(n-1)).
+        check_ge(
+            &[("0", "3"), ("0", "4"), ("2", "5")],
+            6,
+            2.333_333_333_333_333_37e-01,
+        );
+        check_ge(
+            &[
+                ("0", "1"), ("0", "3"), ("0", "6"), ("0", "7"), ("1", "2"),
+                ("1", "3"), ("2", "3"), ("3", "4"), ("3", "7"), ("3", "8"),
+            ],
+            9,
+            5.138_888_888_888_888_40e-01,
+        );
+        check_ge(
+            &[
+                ("0", "1"), ("0", "2"), ("0", "4"), ("0", "5"), ("1", "3"),
+                ("1", "5"), ("1", "6"), ("1", "7"), ("1", "8"), ("2", "7"),
+                ("3", "8"), ("4", "8"), ("5", "7"),
+            ],
+            9,
+            6.574_074_074_074_074_40e-01,
+        );
+        check_ge(
+            &[
+                ("0", "7"), ("0", "12"), ("0", "14"), ("1", "4"), ("1", "5"),
+                ("1", "9"), ("1", "11"), ("1", "13"), ("1", "14"), ("2", "4"),
+                ("2", "5"), ("2", "12"), ("3", "8"), ("3", "9"), ("3", "10"),
+                ("3", "13"), ("4", "12"), ("4", "14"), ("5", "8"), ("5", "12"),
+                ("5", "13"), ("5", "14"), ("6", "8"), ("7", "9"), ("7", "13"),
+                ("8", "9"), ("9", "13"), ("9", "14"), ("10", "11"), ("10", "14"),
+                ("11", "12"), ("12", "14"),
+            ],
+            15,
+            6.134_920_634_920_633_11e-01,
         );
     }
 
