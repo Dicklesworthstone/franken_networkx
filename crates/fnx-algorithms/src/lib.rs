@@ -26845,6 +26845,128 @@ pub fn effective_size(graph: &Graph) -> std::collections::HashMap<String, f64> {
 }
 
 // ---------------------------------------------------------------------------
+// Dispersion (Backstrom & Kleinberg)
+// ---------------------------------------------------------------------------
+
+/// Native bitset dispersion kernel for the full dict form.
+///
+/// For every node `u` and every neighbour `v` of `u`, returns the normalized
+/// dispersion `(disp + b)^alpha / (embeddedness + c)` (or just `(disp+b)^alpha`
+/// when `embeddedness + c == 0`), where `disp` counts the pairs of common
+/// neighbours `{s, t}` of `u` and `v` that are "dispersed": `s` and `t` are not
+/// adjacent and share no neighbour inside `N(u) \ {u, v}`.
+///
+/// The Python reference iterates `s, t` as ordered list pairs `i < j` using only
+/// `nbrs_s`, but the predicate `t ∉ nbrs_s ∧ nbrs_s ∩ N(t) = ∅` is symmetric in
+/// `s, t` (both reduce to "`s, t` non-adjacent and no `w ∈ N(u)\{u,v}` neighbours
+/// both"), so each unordered pair is counted identically here. `disp` is an
+/// order-invariant integer, so the result is byte-for-byte identical to the
+/// pure-Python path.
+///
+/// Returns `(node, [(neighbour, value), ...])` in `nodes_ordered` /
+/// `neighbors` order.
+#[must_use]
+pub fn dispersion_full(
+    graph: &Graph,
+    alpha: f64,
+    b: f64,
+    c: f64,
+) -> Vec<(String, Vec<(String, f64)>)> {
+    let nodes = graph.nodes_ordered();
+    let n = nodes.len();
+    let idx: HashMap<&str, usize> = nodes.iter().enumerate().map(|(i, &s)| (s, i)).collect();
+    let words = n.div_ceil(64).max(1);
+
+    // Flat adjacency bitsets + ordered neighbour index lists (graph.neighbors
+    // order, preserved so the returned per-node rows match the Python path).
+    let mut adj_bits = vec![0u64; n * words];
+    let mut adj_list: Vec<Vec<usize>> = Vec::with_capacity(n);
+    for &u in &nodes {
+        let ui = idx[u];
+        let nb = graph.neighbors(u).unwrap_or_default();
+        let mut li = Vec::with_capacity(nb.len());
+        for w in &nb {
+            let wi = idx[*w];
+            li.push(wi);
+            adj_bits[ui * words + (wi >> 6)] |= 1u64 << (wi & 63);
+        }
+        adj_list.push(li);
+    }
+
+    let mut result: Vec<(String, Vec<(String, f64)>)> = Vec::with_capacity(n);
+    let mut nbrs_s = vec![0u64; words]; // reusable scratch
+
+    for ui in 0..n {
+        // cn[s] = N(s) ∩ N(u) for every s ∈ N(u); reused across all v.
+        // nbrs_s for an edge (u, v) is cn[s] with bit v cleared (bit u is never
+        // set since u ∉ N(u) for the loop-free undirected graph the wrapper
+        // gates on, matching the Python `(N(s) & N(u)) - {u, v}`).
+        let mut cn: HashMap<usize, Vec<u64>> = HashMap::with_capacity(adj_list[ui].len());
+        {
+            let nu_off = ui * words;
+            for &s in &adj_list[ui] {
+                let s_off = s * words;
+                let mut bits = vec![0u64; words];
+                for w in 0..words {
+                    bits[w] = adj_bits[s_off + w] & adj_bits[nu_off + w];
+                }
+                cn.insert(s, bits);
+            }
+        }
+
+        let mut row: Vec<(String, f64)> = Vec::with_capacity(adj_list[ui].len());
+        let nu_off = ui * words;
+        for &vi in &adj_list[ui] {
+            // common = N(u) ∩ N(v)
+            let v_off = vi * words;
+            let mut common: Vec<usize> = Vec::new();
+            for w in 0..words {
+                let mut bits = adj_bits[nu_off + w] & adj_bits[v_off + w];
+                let base = w * 64;
+                while bits != 0 {
+                    common.push(base + bits.trailing_zeros() as usize);
+                    bits &= bits - 1;
+                }
+            }
+            let emb = common.len();
+
+            let mut disp: u64 = 0;
+            for a in 0..common.len() {
+                let s = common[a];
+                let cns = &cn[&s];
+                nbrs_s.copy_from_slice(cns);
+                nbrs_s[vi >> 6] &= !(1u64 << (vi & 63)); // clear bit v
+                for &t in common.iter().skip(a + 1) {
+                    // t ∉ nbrs_s  (s, t non-adjacent within N(u)\{u,v})
+                    if (nbrs_s[t >> 6] >> (t & 63)) & 1 == 1 {
+                        continue;
+                    }
+                    // nbrs_s ∩ N(t) == ∅
+                    let t_off = t * words;
+                    let mut intersect = false;
+                    for w in 0..words {
+                        if nbrs_s[w] & adj_bits[t_off + w] != 0 {
+                            intersect = true;
+                            break;
+                        }
+                    }
+                    if !intersect {
+                        disp += 1;
+                    }
+                }
+            }
+
+            let numer = (disp as f64 + b).powf(alpha);
+            let denom = emb as f64 + c;
+            let val = if denom != 0.0 { numer / denom } else { numer };
+            row.push((nodes[vi].to_owned(), val));
+        }
+        result.push((nodes[ui].to_owned(), row));
+    }
+    result
+}
+
+// ---------------------------------------------------------------------------
 // Voronoi cells (multi-source shortest path partitioning)
 // ---------------------------------------------------------------------------
 

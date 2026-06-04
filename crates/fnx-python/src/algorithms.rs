@@ -13051,6 +13051,35 @@ pub fn effective_size_rust(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Py<
 }
 
 // ---------------------------------------------------------------------------
+// Dispersion
+// ---------------------------------------------------------------------------
+
+/// Native bitset dispersion (full dict form). Returns {u: {v: value}} with the
+/// normalized dispersion value for every neighbour pair.
+#[pyfunction]
+#[pyo3(signature = (g, alpha, b, c))]
+pub fn dispersion_full_rust(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    alpha: f64,
+    b: f64,
+    c: f64,
+) -> PyResult<Py<PyDict>> {
+    let gr = extract_graph(g)?;
+    let inner = gr.undirected();
+    let result = py.allow_threads(|| fnx_algorithms::dispersion_full(inner, alpha, b, c));
+    let dict = PyDict::new(py);
+    for (node, row) in &result {
+        let inner_dict = PyDict::new(py);
+        for (nbr, val) in row {
+            inner_dict.set_item(gr.py_node_key(py, nbr), val)?;
+        }
+        dict.set_item(gr.py_node_key(py, node), inner_dict)?;
+    }
+    Ok(dict.unbind())
+}
+
+// ---------------------------------------------------------------------------
 // Voronoi cells
 // ---------------------------------------------------------------------------
 
@@ -15141,6 +15170,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(constraint_rust, m)?)?;
     m.add_function(wrap_pyfunction!(local_constraint_rust, m)?)?;
     m.add_function(wrap_pyfunction!(effective_size_rust, m)?)?;
+    m.add_function(wrap_pyfunction!(dispersion_full_rust, m)?)?;
     // Voronoi cells
     m.add_function(wrap_pyfunction!(voronoi_cells_rust, m)?)?;
     // D-separation

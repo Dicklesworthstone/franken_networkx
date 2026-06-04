@@ -18786,6 +18786,28 @@ def dispersion(
     # raises KeyError; fnx's ``G.neighbors(u)`` raised NetworkXError.
     if u is not None and u not in G:
         raise KeyError(u)
+    # br-r37-c1-o53cp: native bitset kernel for the full dict form. The
+    # Backstrom-Kleinberg ``disp`` count is an order-invariant integer and the
+    # predicate is symmetric in the common-neighbour pair, so the result is
+    # byte-identical to the Python path. Gated to undirected simple loop-free
+    # graphs with the normalized formula: the kernel uses an undirected
+    # adjacency (directed dispersion needs successor-only neighbours), assumes
+    # ``u`` is never its own neighbour, and returns floats (normalized=False
+    # yields int ``disp`` values, kept on the Python path).
+    if (
+        u is None
+        and v is None
+        and normalized
+        and not G.is_directed()
+        and not G.is_multigraph()
+        and number_of_selfloops(G) == 0
+    ):
+        try:
+            return _fnx.dispersion_full_rust(
+                _coerce_arg_to_fnx_graph(G), float(alpha), float(b), float(c)
+            )
+        except Exception:
+            pass  # fall through to the Python path on any kernel issue
     # br-r37-c1-dispadj: the dict form recomputed ``set(G.neighbors(x))`` from
     # the String-keyed substrate for every (node, nbr) pair AND every common
     # neighbour ``s``/``t`` inside ``_dispersion_pair`` -- O(E * embeddedness^2)
