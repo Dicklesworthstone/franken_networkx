@@ -1,0 +1,21 @@
+Diff in /data/projects/franken_networkx/crates/fnx-python/src/lib.rs:1307:
+             .entry(v_canonical.clone())
+             .or_insert_with(|| PyDict::new(py).unbind());
+ 
+[31m-        let actual_key = self
+[m[31m-            .inner
+[m[31m-            .add_known_fresh_edge_unrecorded(
+[m[31m-                u_canonical.clone(),
+[m[31m-                v_canonical.clone(),
+[m[31m-                u_existed,
+[m[31m-                v_existed,
+[m[31m-            );
+[m[32m+        let actual_key = self.inner.add_known_fresh_edge_unrecorded(
+[m[32m+            u_canonical.clone(),
+[m[32m+            v_canonical.clone(),
+[m[32m+            u_existed,
+[m[32m+            v_existed,
+[m[32m+        );
+[m         let ek = Self::edge_key(&u_canonical, &v_canonical, actual_key);
+         let py_key = key.clone().unbind();
+         self.edge_py_attrs

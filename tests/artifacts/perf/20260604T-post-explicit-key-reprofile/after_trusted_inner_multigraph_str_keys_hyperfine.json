@@ -1,0 +1,38 @@
+{
+  "results": [
+    {
+      "command": "env PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260603T-construction-string-key-current/bench_construction.py bench --case multigraph_str_keys --impl fnx --repeats 3 >/dev/null",
+      "mean": 1.27107512758,
+      "stddev": 0.0487914397816447,
+      "median": 1.28162275358,
+      "user": 4.991692980000001,
+      "system": 0.18235939999999998,
+      "min": 1.20163159458,
+      "max": 1.35322677658,
+      "times": [
+        1.31777423058,
+        1.27799742058,
+        1.29712367958,
+        1.28524808658,
+        1.2188852215800001,
+        1.29117088558,
+        1.35322677658,
+        1.21327388558,
+        1.20163159458,
+        1.25441949458
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}
