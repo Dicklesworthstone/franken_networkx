@@ -1,6 +1,0 @@
-
-parity: 120/120 graphs match
-golden_sha256_fnx = 145b337b586ff928dffe9eb0408cea204d830ceec73f2cca9649e95a418f5954
-golden_sha256_nx  = 145b337b586ff928dffe9eb0408cea204d830ceec73f2cca9649e95a418f5954
-ISOMORPHISM: PASS
-

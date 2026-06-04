@@ -1,4 +1,0 @@
-golden_sha256_sparse_solve = 7ff4bac57284d6559974c041dc1fd533aec8b41df7fc3530672b46a29e797626
-golden_sha256_dense_pinv   = 7ff4bac57284d6559974c041dc1fd533aec8b41df7fc3530672b46a29e797626
-golden_sha256_networkx     = 7ff4bac57284d6559974c041dc1fd533aec8b41df7fc3530672b46a29e797626
-ISOMORPHISM (sparse==dense==nx): PASS

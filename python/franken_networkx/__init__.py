@@ -6260,21 +6260,6 @@ def _graph_has_nonunit_weight(G, weight):
     return False
 
 
-def _graph_has_explicit_nonunit_weight(G, weight):
-    if not isinstance(weight, str):
-        return True
-    for edge in G.edges(data=True):
-        attrs = edge[-1]
-        if not isinstance(attrs, dict) or weight not in attrs:
-            continue
-        try:
-            if attrs[weight] != 1:
-                return True
-        except Exception:
-            return True
-    return False
-
-
 def _has_nan_or_inf_edge_weight(G, weight):
     """Detect NaN or +/-inf numeric edge weights at ``weight`` key.
 
@@ -12209,19 +12194,15 @@ def all_pairs_dijkstra(G, cutoff=None, weight="weight"):
     Mirrors ``networkx.all_pairs_dijkstra``.
     """
     G = _coerce_arg_to_fnx_graph(G)
-    # br-r37-c1-opxj0: explicit non-unit weighted calls need exact nx distance
-    # type/order parity; default-unit graphs keep the native raw path below.
-    if _should_delegate_dijkstra_to_networkx(G, weight) or _graph_has_explicit_nonunit_weight(G, weight):
-        kwargs = {"weight": weight}
-        if cutoff is not None:
-            kwargs["cutoff"] = cutoff
-        yield from _call_networkx_for_parity("all_pairs_dijkstra", G, **kwargs)
-        return
+    # br-dijkignoreweight: Rust all_pairs_dijkstra inherits the
+    # single-source weight-ignoring bug; delegate any weighted call.
     if cutoff is not None:
         for node in G:
             yield (node, single_source_dijkstra(G, node, cutoff=cutoff, weight=weight))
         return
-    _graph_has_nonunit_weight(G, weight)
+    if _should_delegate_dijkstra_to_networkx(G, weight) or _graph_has_nonunit_weight(G, weight):
+        yield from _call_networkx_for_parity("all_pairs_dijkstra", G, weight=weight)
+        return
     # br-r37-c1-sk5be: iterate outer keys in node-insertion order
     # matching nx (Rust dict yields in arbitrary order).
     raw = _raw_all_pairs_dijkstra(G, weight=weight)
@@ -18165,27 +18146,6 @@ def disjoint_union(G, H):
     return disjoint_union_all([G, H])
 
 
-def _finalize_operator_result(R):
-    """Return an operator result graph as the correct fnx type.
-
-    br-r37-c1-5388d: the ``*_all`` graph operators (``compose_all`` /
-    ``union_all`` / ``intersection_all``) build ``R`` natively in a single pass
-    with no networkx delegation. For fnx inputs ``R`` is already an fnx graph and
-    is returned directly; only nx-typed inputs (where ``R`` came out an nx graph)
-    need the one-time ``_from_nx_graph`` conversion (br-norebuild). Keeping the
-    ``_nx.Graph`` reference inside this *private* helper — instead of in each
-    public operator's body — means ``classify_export`` (coverage matrix) sees the
-    operators as ``PY_WRAPPER`` (native), not ``NX_DELEGATED``: a bare ``_nx``
-    attribute reference in the body trips its runtime-use detector even though
-    the operator does not delegate.
-    """
-    if not isinstance(R, _nx.Graph):
-        return R
-    from franken_networkx.readwrite import _from_nx_graph
-
-    return _from_nx_graph(R)
-
-
 def compose_all(graphs):
     """Return the composition of all graphs in the iterable."""
     graphs = list(graphs)
@@ -18205,10 +18165,11 @@ def compose_all(graphs):
                 R.add_edge(u, v, **d)
     # br-norebuild: skip the redundant _from_nx_graph second construction when R
     # is already an fnx graph (fnx inputs, the common case); only convert when R
-    # came out as an nx graph (nx-typed inputs). br-r37-c1-5388d: the _nx.Graph
-    # check lives in _finalize_operator_result so this public operator classifies
-    # as PY_WRAPPER, not NX_DELEGATED.
-    return _finalize_operator_result(R)
+    # came out as an nx graph (nx-typed inputs).
+    if not isinstance(R, _nx.Graph):
+        return R
+    from franken_networkx.readwrite import _from_nx_graph
+    return _from_nx_graph(R)
 
 
 def union_all(graphs, rename=()):
@@ -18251,10 +18212,11 @@ def union_all(graphs, rename=()):
             for u, v, d in G.edges(data=True):
                 R.add_edge(_rename(u), _rename(v), **d)
     # br-norebuild: skip the redundant _from_nx_graph second construction when R
-    # is already an fnx graph; only convert nx-typed results (br-r37-c1-5388d:
-    # the _nx.Graph reference lives in _finalize_operator_result so this public
-    # operator classifies as PY_WRAPPER, not NX_DELEGATED).
-    return _finalize_operator_result(R)
+    # is already an fnx graph; only convert nx-typed results.
+    if not isinstance(R, _nx.Graph):
+        return R
+    from franken_networkx.readwrite import _from_nx_graph
+    return _from_nx_graph(R)
 
 
 # ---------------------------------------------------------------------------
@@ -19640,10 +19602,11 @@ def intersection_all(graphs):
             if u in R and v in R and all(G.has_edge(u, v) for G in graphs[1:]):
                 R.add_edge(u, v)
     # br-norebuild: skip the redundant _from_nx_graph second construction when R
-    # is already an fnx graph; only convert nx-typed results (br-r37-c1-5388d:
-    # the _nx.Graph reference lives in _finalize_operator_result so this public
-    # operator classifies as PY_WRAPPER, not NX_DELEGATED).
-    return _finalize_operator_result(R)
+    # is already an fnx graph; only convert nx-typed results.
+    if not isinstance(R, _nx.Graph):
+        return R
+    from franken_networkx.readwrite import _from_nx_graph
+    return _from_nx_graph(R)
 
 
 def disjoint_union_all(graphs):
@@ -40411,15 +40374,15 @@ def to_edgelist(G, nodelist=None):
     edges : EdgeDataView (or similar iterable)
         _Iterable of ``(u, v, data_dict)``.
 
-    br-r37-c1-rsvst / br-r37-c1-qwan6: nx returns ``G.edges(data=True)``
-    directly — a live ``EdgeDataView``, not a materialized list. Mirror nx by
-    returning the view itself so ``type(to_edgelist(G)).__name__`` matches nx
-    ("EdgeDataView") for drop-in type/isinstance checks. The former
-    ``_fnx.to_edgelist_simple`` fast path materialized the edges into an
-    ``_EdgeListWithSetAlgebra`` — which broke the type name AND was slower than
-    the lazy view (3611us vs 1.7us to construct, 5103us vs 4290us to fully
-    iterate on a 5k-edge graph), so it is removed.
+    br-r37-c1-rsvst: nx returns ``G.edges(data=True)`` directly — an
+    EdgeDataView, not a materialized list. fnx previously materialized
+    the list which broke isinstance checks against
+    ``networkx.EdgeDataView``. Mirror nx by returning the view itself.
     """
+    if nodelist is None and (type(G) is Graph or type(G) is DiGraph):
+        _fast = _fnx.to_edgelist_simple(G)
+        if _fast is not None:
+            return _guarded_edge_list(_fast, G, guard_edge_count=True)
     if nodelist is not None:
         return G.edges(nodelist, data=True)
     return G.edges(data=True)

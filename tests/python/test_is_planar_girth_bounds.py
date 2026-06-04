@@ -119,14 +119,10 @@ def test_public_is_planar_girth4_rejects_without_lr_fallback(monkeypatch):
     """Mycielski(4) is triangle-free, non-bipartite, and violates 2n-4."""
     g = fnx.mycielski_graph(4)
 
-    def fail_full_planarity(_candidate):
-        raise AssertionError("girth-4 edge bound should reject before any full planarity test")
+    def fail_check_planarity(_candidate):
+        raise AssertionError("girth-4 edge bound should reject before LR fallback")
 
-    # is_planar runs the native Left-Right kernel (_fnx.is_planar_lr) and only
-    # falls back to check_planarity on exception; patch BOTH so the test fails
-    # loudly if the cheap girth-4 bound does not short-circuit first.
-    monkeypatch.setattr(fnx, "check_planarity", fail_full_planarity)
-    monkeypatch.setattr(fnx._fnx, "is_planar_lr", fail_full_planarity)
+    monkeypatch.setattr(fnx, "check_planarity", fail_check_planarity)
 
     assert g.number_of_nodes() == 11
     assert g.number_of_edges() == 20
@@ -138,23 +134,14 @@ def test_public_is_planar_girth4_rejects_without_lr_fallback(monkeypatch):
 def test_public_is_planar_sparse_high_girth_graphs_still_use_lr(
     graph_factory, monkeypatch
 ):
-    # br-r37-c1-vp8j0: is_planar decides graphs that pass the cheap Euler/girth
-    # necessary-condition bounds with the native Left-Right planarity kernel
-    # (_fnx.is_planar_lr, br-r37-c1-...zuxh1; 132159d3a replaced the old
-    # fnx.check_planarity delegation). Petersen (n=10, m=15) and Heawood
-    # (n=14, m=21) both satisfy m <= 3n-6 AND the girth-4 bound m <= 2n-4, so
-    # the cheap bounds cannot rule them out — the full LR kernel MUST run to
-    # return the correct False. Patch the LR kernel to prove it is the path
-    # taken (the previous test patched fnx.check_planarity, which is now only
-    # the exception fallback and is never reached).
     g = graph_factory()
     calls = []
 
-    def fake_is_planar_lr(candidate):
+    def fake_check_planarity(candidate):
         calls.append(candidate)
-        return False
+        return False, None
 
-    monkeypatch.setattr(fnx._fnx, "is_planar_lr", fake_is_planar_lr)
+    monkeypatch.setattr(fnx, "check_planarity", fake_check_planarity)
 
     assert fnx.is_planar(g) is False
     assert calls == [g]

@@ -1,4 +1,0 @@
-Benchmark 1: env PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260604T-delegation-goldmine-sweep/bench_delegation_goldmines.py --case eulerian_path_directed --impl fnx --repeats 3
-  Time (mean ± σ):     540.4 ms ±  67.9 ms    [User: 1883.8 ms, System: 71.2 ms]
-  Range (min … max):   399.5 ms … 633.6 ms    10 runs
- 

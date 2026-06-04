@@ -1,6 +1,0 @@
-  [2m2026-06-04T17:02:36.342565Z[0m [33m WARN[0m [1;33mrch::hook[0m[33m: [33mexec called with non-compilation command: .venv/bin/python -m pytest tests/python/test_eulerian_path_directed_parity.py tests/python/test_eulerian_conformance.py tests/python/test_self_loop_core_eulerian_parity.py -q -k eulerian_path[0m
-    [2;3mat[0m rch/src/hook.rs:402 [2;3mon[0m ThreadId(1)
-
-........................................................................ [ 63%]
-..........................................                               [100%]
-114 passed, 175 deselected in 0.84s
