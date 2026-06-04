@@ -13827,6 +13827,26 @@ class _ApproximationNamespace:
             return _nx.approximation.min_weighted_vertex_cover(nx_G, weight=weight)
         return _raw_min_weighted_vertex_cover(G, weight)
 
+    def min_maximal_matching(self, G, *, backend=None, **backend_kwargs):
+        # br-vcnative: nx's min_maximal_matching(G) IS nx.maximal_matching(G);
+        # the generic wrapper round-trips through an O(n^2) fnx->nx conversion
+        # (~30x slower). Route to the native maximal_matching (parity-exact).
+        _validate_backend_dispatch_keywords(
+            "min_maximal_matching", backend, backend_kwargs
+        )
+        return maximal_matching(G)
+
+    def min_edge_dominating_set(self, G, *, backend=None, **backend_kwargs):
+        # br-vcnative: nx's min_edge_dominating_set(G) returns maximal_matching(G)
+        # (raising ValueError on the empty graph). Same conversion-tax fix.
+        _validate_backend_dispatch_keywords(
+            "min_edge_dominating_set", backend, backend_kwargs
+        )
+        G = _coerce_arg_to_fnx_graph(G)
+        if len(G) == 0:
+            raise ValueError("Expected non-empty NetworkX graph!")
+        return maximal_matching(G)
+
     def __getattr__(self, name):
         nx_func = getattr(_nx.approximation, name)
 

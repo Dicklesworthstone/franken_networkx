@@ -4116,16 +4116,32 @@ fn load_centrality_generic<G: GraphView>(graph: &G, normalized: bool) -> LoadCen
 
 #[must_use]
 pub fn maximal_matching(graph: &Graph) -> MaximalMatchingResult {
-    let mut matched_nodes = HashSet::<String>::new();
+    // Greedy maximal matching, O(|E|), replicating networkx's `G.edges()`-order
+    // selection EXACTLY: each undirected edge is considered once from its
+    // smaller-index endpoint (`u < v`, which also skips self-loops, as networkx
+    // does), in node order then neighbor order -- the same order networkx's
+    // EdgeView yields and the same (smaller, larger) tuple orientation. Walks the
+    // integer adjacency, avoiding the String-cloned edge list and String-keyed
+    // matched-node set of the previous implementation.
+    let nodes = graph.nodes_ordered();
+    let n = nodes.len();
+    let mut matched: Vec<bool> = vec![false; n];
     let mut matching = Vec::<(String, String)>::new();
-    let edges = undirected_edges_in_iteration_order(graph);
-    for (left, right) in &edges {
-        if left == right || matched_nodes.contains(left) || matched_nodes.contains(right) {
+    for u in 0..n {
+        if matched[u] {
             continue;
         }
-        matched_nodes.insert(left.clone());
-        matched_nodes.insert(right.clone());
-        matching.push((left.clone(), right.clone()));
+        let Some(nbrs) = graph.neighbors_indices(u) else {
+            continue;
+        };
+        for &v in nbrs {
+            if u < v && !matched[v] {
+                matched[u] = true;
+                matched[v] = true;
+                matching.push((nodes[u].to_owned(), nodes[v].to_owned()));
+                break;
+            }
+        }
     }
 
     MaximalMatchingResult {
