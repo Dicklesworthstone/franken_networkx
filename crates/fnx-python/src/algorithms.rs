@@ -13308,6 +13308,7 @@ pub fn power_rust(py: Python<'_>, g: &Bound<'_, PyAny>, k: usize) -> PyResult<Py
     let pg = crate::PyGraph {
         inner: result,
         node_key_map: std::collections::HashMap::new(),
+        lazy_int_node_stop: 0,
         node_py_attrs: std::collections::HashMap::new(),
         edge_py_attrs: std::collections::HashMap::new(),
         graph_attrs: PyDict::new(py).unbind(),
@@ -13357,6 +13358,7 @@ pub fn ego_graph_rust(
     let pg = crate::PyGraph {
         inner: result,
         node_key_map: std::collections::HashMap::new(),
+        lazy_int_node_stop: 0,
         node_py_attrs: std::collections::HashMap::new(),
         edge_py_attrs: std::collections::HashMap::new(),
         graph_attrs: PyDict::new(py).unbind(),
@@ -13488,6 +13490,7 @@ pub fn full_join_rust(
     let pg = crate::PyGraph {
         inner: result,
         node_key_map: std::collections::HashMap::new(),
+        lazy_int_node_stop: 0,
         node_py_attrs: std::collections::HashMap::new(),
         edge_py_attrs: std::collections::HashMap::new(),
         graph_attrs: PyDict::new(py).unbind(),
@@ -13518,6 +13521,7 @@ pub fn identified_nodes_rust(
     let pg = crate::PyGraph {
         inner: result,
         node_key_map: std::collections::HashMap::new(),
+        lazy_int_node_stop: 0,
         node_py_attrs: std::collections::HashMap::new(),
         edge_py_attrs: std::collections::HashMap::new(),
         graph_attrs: PyDict::new(py).unbind(),
@@ -13607,6 +13611,7 @@ pub fn dedensify_rust(
     let pg = crate::PyGraph {
         inner: result_graph,
         node_key_map: std::collections::HashMap::new(),
+        lazy_int_node_stop: 0,
         node_py_attrs: std::collections::HashMap::new(),
         edge_py_attrs: std::collections::HashMap::new(),
         graph_attrs: PyDict::new(py).unbind(),
@@ -13718,6 +13723,7 @@ pub fn quotient_graph_rust(
     let pg = crate::PyGraph {
         inner: result,
         node_key_map: std::collections::HashMap::new(),
+        lazy_int_node_stop: 0,
         node_py_attrs: std::collections::HashMap::new(),
         edge_py_attrs: std::collections::HashMap::new(),
         graph_attrs: PyDict::new(py).unbind(),
@@ -13743,6 +13749,7 @@ pub fn moral_graph_rust(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<PyObje
     let pg = crate::PyGraph {
         inner: result,
         node_key_map: std::collections::HashMap::new(),
+        lazy_int_node_stop: 0,
         node_py_attrs: std::collections::HashMap::new(),
         edge_py_attrs: std::collections::HashMap::new(),
         graph_attrs: PyDict::new(py).unbind(),
@@ -14139,6 +14146,7 @@ pub fn gomory_hu_tree_rust(
     let pg = crate::PyGraph {
         inner: result,
         node_key_map: std::collections::HashMap::new(),
+        lazy_int_node_stop: 0,
         node_py_attrs: std::collections::HashMap::new(),
         edge_py_attrs: std::collections::HashMap::new(),
         graph_attrs: PyDict::new(py).unbind(),
@@ -14188,6 +14196,7 @@ pub fn snap_aggregation_rust(
     let pg = crate::PyGraph {
         inner: result,
         node_key_map: std::collections::HashMap::new(),
+        lazy_int_node_stop: 0,
         node_py_attrs: std::collections::HashMap::new(),
         edge_py_attrs: std::collections::HashMap::new(),
         graph_attrs: PyDict::new(py).unbind(),

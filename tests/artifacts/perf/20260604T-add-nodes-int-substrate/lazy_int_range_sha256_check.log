@@ -1,0 +1,2 @@
+tests/artifacts/perf/20260604T-add-nodes-int-substrate/after_lazy_int_range_final_17ucl.jsonl: OK
+tests/artifacts/perf/20260604T-add-nodes-int-substrate/lazy_int_range_semantics_golden_final.jsonl: OK

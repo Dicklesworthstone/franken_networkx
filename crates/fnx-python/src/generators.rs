@@ -53,6 +53,7 @@ fn report_to_pygraph(py: Python<'_>, graph: fnx_classes::Graph) -> PyResult<PyGr
     Ok(PyGraph {
         inner: graph,
         node_key_map,
+        lazy_int_node_stop: 0,
         node_py_attrs,
         edge_py_attrs,
         graph_attrs: PyDict::new(py).unbind(),
