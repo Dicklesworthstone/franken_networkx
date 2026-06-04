@@ -15261,13 +15261,15 @@ def group_degree_centrality(G, S, *, backend=None, **backend_kwargs):
 
     br-r37-c1-gdcdir: the Rust kernel ``_raw_group_degree_centrality``
     has ``require_undirected`` and rejects directed input. nx supports
-    DiGraph for group_degree_centrality (uses combined in+out degree
-    of nodes in S to nodes not in S). Delegate directed input to nx.
+    DiGraph for group_degree_centrality, where ``G.neighbors`` means
+    successors. Rebuild that scalar formula locally to avoid converting
+    the whole graph to NetworkX for directed inputs.
     """
     G = _coerce_arg_to_fnx_graph(G)
     _validate_backend_dispatch_keywords("group_degree_centrality", backend, backend_kwargs)
     if G.is_directed():
-        return _call_networkx_for_parity("group_degree_centrality", G, S)
+        neighbors = set().union(*(set(G.neighbors(node)) for node in S)) - set(S)
+        return len(neighbors) / (len(G.nodes()) - len(S))
     return _raw_group_degree_centrality(G, S)
 
 
