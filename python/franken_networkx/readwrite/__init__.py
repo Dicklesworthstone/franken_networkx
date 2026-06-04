@@ -171,20 +171,42 @@ def _read_adjlist_via_nx(
 
 
 def _write_adjlist_via_nx(G, path, *, comments="#", delimiter=" ", encoding="utf-8"):
-    """Private helper (br-wadjlk): emit an adjacency list via nx.
+    """Private helper (br-wadjlk): emit an adjacency list.
 
     Kept behind an underscore so the public ``write_adjlist`` stays
     PY_WRAPPER in the coverage classifier.
-    """
-    import networkx as nx
 
-    return nx.write_adjlist(
-        _to_nx(G),
-        path,
-        comments=comments,
-        delimiter=delimiter,
-        encoding=encoding,
-    )
+    br-r37-c1-wadjnative: previously this round-tripped the whole graph
+    through ``_fnx_to_nx`` and called ``nx.write_adjlist`` purely to get
+    nx's timestamped comment header + trailing newlines (the reason the
+    old Rust-native writer was abandoned — see ``write_adjlist`` docstring).
+    The conversion dominated the call (~10ms of a ~14ms write on a 4k-edge
+    graph, ~9.7x nx). We now emit nx's exact header format ourselves and
+    stream the already-byte-identical fast ``generate_adjlist`` lines, so
+    output stays byte-for-byte equal to nx (modulo the inherently-varying
+    GMT timestamp, which differs run-to-run for nx too) without the
+    F->nx conversion.
+    """
+    import sys
+    import time
+
+    from networkx.utils import open_file
+
+    @open_file(1, mode="wb")
+    def _emit(G, path):
+        pargs = comments + " ".join(sys.argv) + "\n"
+        header = (
+            pargs
+            + comments
+            + f" GMT {time.asctime(time.gmtime())}\n"
+            + comments
+            + f" {G.name}\n"
+        )
+        path.write(header.encode(encoding))
+        for line in generate_adjlist(G, delimiter):
+            path.write((line + "\n").encode(encoding))
+
+    return _emit(G, path)
 
 
 def _write_graphml_via_nx(
@@ -367,6 +389,22 @@ def adjacency_data(G, attrs={"id": "id", "key": "key"}):  # noqa: B006
     """Return adjacency JSON data using fnx's graph-preserving wrapper."""
     import franken_networkx as fnx
 
+    # Native fast path for exact simple Graph / DiGraph: build the `nodes`
+    # and `adjacency` arrays in Rust, bypassing the per-edge AdjacencyView
+    # Python machinery that made this ~14x slower than nx. Multigraphs and any
+    # subclass / filtered view (SubgraphView etc.) take the general wrapper.
+    if type(G) in (fnx.Graph, fnx.DiGraph):
+        _attrs = {"id": "id", "key": "key"} if attrs is None else attrs
+        native = fnx._fnx.adjacency_data_simple(G, _attrs["id"])
+        if native is not None:
+            nodes, adjacency = native
+            return {
+                "directed": G.is_directed(),
+                "multigraph": False,
+                "graph": list(G.graph.items()),
+                "nodes": nodes,
+                "adjacency": adjacency,
+            }
     return fnx.adjacency_data(G, attrs=attrs)
 
 
@@ -406,6 +444,24 @@ def node_link_data(
     """Return node-link JSON data using fnx's wrapper."""
     import franken_networkx as fnx
 
+    # Native fast path for exact simple Graph / DiGraph: build the node and
+    # edge arrays in Rust, bypassing the per-edge EdgeView Python machinery
+    # that made this ~3.5x slower than nx. Multigraphs and any subclass /
+    # filtered view take the general wrapper.
+    if type(G) in (fnx.Graph, fnx.DiGraph):
+        # Field-name uniqueness (key is multigraph-only, excluded here).
+        if len({source, target, name}) != 3:
+            raise fnx.NetworkXError("Attribute names are not unique.")
+        native = fnx._fnx.node_link_data_simple(G, name, source, target)
+        if native is not None:
+            node_list, edge_list = native
+            return {
+                "directed": G.is_directed(),
+                "multigraph": False,
+                "graph": dict(G.graph),
+                nodes: node_list,
+                edges: edge_list,
+            }
     return fnx.node_link_data(
         G,
         source=source,
@@ -1859,16 +1915,17 @@ def generate_multiline_adjlist(G, delimiter=" "):
                 yield delimiter.join([str(nbr), str(dict(d) if hasattr(d, "items") else d)])
             seen.add(node)
         return
-    for node, adj in G.adjacency():
-        if hasattr(adj, "items"):
-            nbr_items = [(nbr, dict(attrs) if hasattr(attrs, "items") else {}) for nbr, attrs in adj.items()]
-        else:
-            nbr_items = [(x[0] if isinstance(x, (list, tuple)) else x, {}) for x in adj]
-        if not directed:
-            nbr_items = [(n, d) for n, d in nbr_items if n not in seen]
-        yield delimiter.join([str(node), str(len(nbr_items))])
-        for nbr, d in nbr_items:
-            yield delimiter.join([str(nbr), str(d)])
+    # br-r37-c1-genadj: simple-graph fast path. ``G.adjacency()`` materialises
+    # ``dict(self.adj[node])`` per node by walking the AtlasView lambda chain
+    # (~5x slower than nx). Take neighbour keys from the native
+    # ``G.neighbors(node)`` (adjacency order) and the per-edge data dict from
+    # the native ``G.get_edge_data`` — byte-identical output, verified vs nx
+    # across Graph/DiGraph (incl. self-loops, edge attrs, subgraph views).
+    for node in G:
+        nbrs = [n for n in G.neighbors(node) if directed or n not in seen]
+        yield delimiter.join([str(node), str(len(nbrs))])
+        for nbr in nbrs:
+            yield delimiter.join([str(nbr), str(G.get_edge_data(node, nbr))])
         seen.add(node)
 
 
@@ -1889,6 +1946,24 @@ def generate_adjlist(G, delimiter=" "):
     # expands parallel edges (a neighbour appears once per parallel edge), a
     # semantic the simple neighbour list does not capture.
     if not G.is_multigraph():
+        # br-r37-c1-genadjbulk: pull the whole (node, [neighbour]) adjacency in
+        # a SINGLE native call instead of len(G) per-node ``G.neighbors()`` PyO3
+        # round-trips. ``_native_adjacency_keys`` yields the same source/adjacency
+        # order without building any edge-attr dicts. Gate on EXACT class identity
+        # (not __name__): filtered SubgraphViews subclass Graph and report
+        # ``__name__ == "Graph"`` yet keep an empty native inner (filtering lives
+        # in Python), so they must fall back to the per-node walk that respects
+        # the filter.
+        import franken_networkx as _fnx_mod
+
+        bulk = getattr(G, "_native_adjacency_keys", None)
+        if bulk is not None and type(G) in (_fnx_mod.Graph, _fnx_mod.DiGraph):
+            for node, nbrs in bulk():
+                if not directed:
+                    nbrs = [n for n in nbrs if n not in seen]
+                yield delimiter.join([str(node)] + [str(n) for n in nbrs])
+                seen.add(node)
+            return
         for node in G:
             nbrs = G.neighbors(node)
             if not directed:
@@ -1896,16 +1971,32 @@ def generate_adjlist(G, delimiter=" "):
             yield delimiter.join([str(node)] + [str(n) for n in nbrs])
             seen.add(node)
         return
+    # Multigraph: nx expands parallel edges — neighbour ``t`` is emitted once
+    # per parallel edge (``len(data) > 1`` => ``(str(t),) * len(data)``), matching
+    # networkx.generate_adjlist exactly. The undirected dedup skips a neighbour
+    # only when it has already appeared as a source (``seen``), and ``seen`` is
+    # populated only for undirected graphs. Using ``adj.keys()`` here dropped the
+    # parallel-edge multiplicity (br-r37-c1-genadjmg) — breaking adjlist
+    # round-trip for MultiGraph/MultiDiGraph.
     for node, adj in G.adjacency():
-        if isinstance(adj, dict):
-            nbrs = adj.keys()
+        nodes = [str(node)]
+        if hasattr(adj, "items"):
+            for t, data in adj.items():
+                if t in seen:
+                    continue
+                if hasattr(data, "__len__") and len(data) > 1:
+                    nodes.extend((str(t),) * len(data))
+                else:
+                    nodes.append(str(t))
         else:
-            nbrs = [x[0] if isinstance(x, (list, tuple)) else x for x in adj]
+            for x in adj:
+                t = x[0] if isinstance(x, (list, tuple)) else x
+                if t in seen:
+                    continue
+                nodes.append(str(t))
         if not directed:
-            # Only emit each undirected edge once
-            nbrs = [n for n in nbrs if n not in seen]
-        yield delimiter.join([str(node)] + [str(n) for n in nbrs])
-        seen.add(node)
+            seen.add(node)
+        yield delimiter.join(nodes)
 
 
 def generate_edgelist(G, delimiter=" ", data=True):
