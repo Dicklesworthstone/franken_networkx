@@ -12272,52 +12272,144 @@ def _link_prediction_lazy_delegate(name, G, materialized):
     return _gen()
 
 
+def _link_prediction_compute(G, materialized, metric):
+    """Pure-Python link-prediction scorer over the fnx graph.
+
+    br-r37-c1-lpconv: the previous path delegated to networkx, which performed
+    a full fnx->nx graph conversion (O(V+E)) for EVERY call regardless of
+    ebunch size -- so scoring a handful of candidate pairs on an n=2000 graph
+    cost ~114 ms vs networkx's ~0.02 ms (thousands of times slower). This
+    reproduces networkx's exact algorithm directly on the fnx graph:
+
+    * pair order = networkx's ``non_edges`` (``nodes.pop()`` + ``nodes - N(u)``
+      over CPython sets) for the default ebunch;
+    * common neighbours iterate ``G.neighbors(u)`` (networkx's ``G[u]`` order),
+      filtered by membership in ``N(v)`` and ``w not in (u, v)``;
+    * scores use the builtin ``sum`` (same compensated summation as networkx),
+      so the floats are byte-identical, and the empty sum is int ``0``.
+
+    Adjacency sets / degrees are memoized lazily, so a small ebunch only touches
+    its endpoints (no whole-graph materialization) while the default ebunch
+    still computes each neighbour set once.
+    """
+    import math
+
+    nbr_order_cache = {}
+    nbr_set_cache = {}
+    deg_cache = {}
+
+    def nbr_order(n):
+        r = nbr_order_cache.get(n)
+        if r is None:
+            r = list(G.neighbors(n))
+            nbr_order_cache[n] = r
+        return r
+
+    def nbr_set(n):
+        r = nbr_set_cache.get(n)
+        if r is None:
+            r = set(nbr_order(n))
+            nbr_set_cache[n] = r
+        return r
+
+    def deg(n):
+        r = deg_cache.get(n)
+        if r is None:
+            r = G.degree(n)
+            deg_cache[n] = r
+        return r
+
+    if metric == "resource_allocation_index":
+
+        def predict(u, v):
+            nv = nbr_set(v)
+            return sum(1 / deg(w) for w in nbr_order(u) if w in nv and w != u and w != v)
+
+    elif metric == "adamic_adar_index":
+
+        def predict(u, v):
+            nv = nbr_set(v)
+            return sum(
+                1 / math.log(deg(w))
+                for w in nbr_order(u)
+                if w in nv and w != u and w != v
+            )
+
+    elif metric == "jaccard_coefficient":
+
+        def predict(u, v):
+            nu = nbr_set(u)
+            nv = nbr_set(v)
+            union_size = len(nu | nv)
+            if union_size == 0:
+                return 0
+            ncommon = sum(
+                1 for w in nbr_order(u) if w in nv and w != u and w != v
+            )
+            return ncommon / union_size
+
+    else:  # preferential_attachment
+
+        def predict(u, v):
+            return deg(u) * deg(v)
+
+    if materialized is None:
+        nodes = set(G)
+        while nodes:
+            u = nodes.pop()
+            for v in nodes - nbr_set(u):
+                yield (u, v, predict(u, v))
+    else:
+        for u, v in materialized:
+            yield (u, v, predict(u, v))
+
+
 def jaccard_coefficient(G, ebunch=None):
     """Compute the Jaccard coefficient of all node pairs in ebunch.
 
     Matches nx: raises NodeNotFound on missing endpoints and
-    NetworkXNotImplemented on MultiGraph inputs (br-7f0fn).
-
-    br-r37-c1-t3gkj: delegate to nx so pair order matches nx's
-    non_edges iteration order.
+    NetworkXNotImplemented on MultiGraph inputs (br-7f0fn). br-r37-c1-lpconv:
+    computed directly on the fnx graph (no fnx->nx conversion) in nx's exact
+    non_edges order.
     """
+    G = _coerce_arg_to_fnx_graph(G)
     materialized = _link_prediction_validate_ebunch(G, ebunch)
-    return _link_prediction_lazy_delegate("jaccard_coefficient", G, materialized)
+    return _link_prediction_compute(G, materialized, "jaccard_coefficient")
 
 
 def adamic_adar_index(G, ebunch=None):
     """Compute the Adamic-Adar index of all node pairs in ebunch.
 
-    br-r37-c1-t3gkj: delegate to nx so pair order matches nx's
-    non_edges iteration order and zero-score values are int 0 not
-    float -0.0.
+    br-r37-c1-lpconv: computed directly on the fnx graph (no fnx->nx
+    conversion); pair order matches nx's non_edges iteration order and
+    zero-score values are int 0.
     """
+    G = _coerce_arg_to_fnx_graph(G)
     materialized = _link_prediction_validate_ebunch(G, ebunch)
-    return _link_prediction_lazy_delegate("adamic_adar_index", G, materialized)
+    return _link_prediction_compute(G, materialized, "adamic_adar_index")
 
 
 def preferential_attachment(G, ebunch=None):
     """Compute the preferential-attachment score of all node pairs in ebunch.
 
-    br-r37-c1-bctxc: nx returns (u, v, int_score) tuples in nx's
-    non_edges iteration order. The Rust binding returns (u, v, float)
-    with some pairs in reversed order. Delegate to nx for type +
-    pair-order parity — preferential attachment is just deg(u)*deg(v),
-    no Rust-fast-path gain.
+    br-r37-c1-lpconv: ``deg(u) * deg(v)`` computed directly on the fnx graph
+    (no fnx->nx conversion); returns (u, v, int_score) in nx's non_edges order.
     """
+    G = _coerce_arg_to_fnx_graph(G)
     materialized = _link_prediction_validate_ebunch(G, ebunch)
-    return _link_prediction_lazy_delegate("preferential_attachment", G, materialized)
+    return _link_prediction_compute(G, materialized, "preferential_attachment")
 
 
 def resource_allocation_index(G, ebunch=None):
     """Compute the resource-allocation index of all node pairs in ebunch.
 
-    br-r37-c1-t3gkj: delegate to nx so pair order matches nx's
-    non_edges iteration order and zero-score values are int 0 not
-    float -0.0.
+    br-r37-c1-lpconv: computed directly on the fnx graph (no fnx->nx
+    conversion); pair order matches nx's non_edges iteration order and
+    zero-score values are int 0.
     """
+    G = _coerce_arg_to_fnx_graph(G)
     materialized = _link_prediction_validate_ebunch(G, ebunch)
-    return _link_prediction_lazy_delegate("resource_allocation_index", G, materialized)
+    return _link_prediction_compute(G, materialized, "resource_allocation_index")
 
 # Algorithm functions — DAG
 from franken_networkx._fnx import (
