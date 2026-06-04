@@ -1,0 +1,4 @@
+  [2m2026-06-04T05:50:08.757911Z[0m [33m WARN[0m [1;33mrch::hook[0m[33m: [33mexec called with non-compilation command: env 'PYTHONPATH=python' .venv/bin/python -[0m
+    [2;3mat[0m rch/src/hook.rs:402 [2;3mon[0m ThreadId(1)
+
+{"cases": 3, "digests": ["d0b45f5014dcdd5ee7f499ae1b4d4b60f4e7f7e6051e0b0c143df917091ff55f", "d0b45f5014dcdd5ee7f499ae1b4d4b60f4e7f7e6051e0b0c143df917091ff55f"], "status": "ok"}

@@ -1250,14 +1250,6 @@ impl MultiGraph {
         let left = left.into();
         let right = right.into();
         let edge_key = EdgeKey::new(&left, &right);
-        if self
-            .edges
-            .get(&edge_key)
-            .is_some_and(|edge_bucket| !edge_bucket.is_empty())
-        {
-            return None;
-        }
-
         if !self.nodes.contains_key(&left) {
             self.nodes.insert(left.clone(), AttrMap::new());
             self.adjacency.entry(left.clone()).or_default();
@@ -1268,10 +1260,19 @@ impl MultiGraph {
         }
 
         let key = 0usize;
-        self.edges
-            .entry(edge_key)
-            .or_default()
-            .insert(key, AttrMap::new());
+        match self.edges.entry(edge_key) {
+            indexmap::map::Entry::Occupied(mut edge_bucket) => {
+                if !edge_bucket.get().is_empty() {
+                    return None;
+                }
+                edge_bucket.get_mut().insert(key, AttrMap::new());
+            }
+            indexmap::map::Entry::Vacant(edge_bucket) => {
+                let mut bucket = IndexMap::new();
+                bucket.insert(key, AttrMap::new());
+                edge_bucket.insert(bucket);
+            }
+        }
         self.edge_count += 1;
         self.adjacency
             .entry(left.clone())
@@ -2158,6 +2159,22 @@ mod tests {
         assert_ne!(first, second);
         assert_eq!(graph.edge_count(), 2);
         assert_eq!(graph.edge_keys("a", "b"), Some(vec![0, 1]));
+        assert_multigraph_core_invariants(&graph);
+    }
+
+    #[test]
+    fn multigraph_add_fresh_edge_unrecorded_rejects_occupied_bucket() {
+        let mut graph = MultiGraph::strict();
+        assert_eq!(graph.add_fresh_edge_unrecorded("a", "b"), Some(0));
+        let revision = graph.revision();
+        let edge_count = graph.edge_count();
+
+        assert_eq!(graph.add_fresh_edge_unrecorded("b", "a"), None);
+
+        assert_eq!(graph.revision(), revision);
+        assert_eq!(graph.edge_count(), edge_count);
+        assert_eq!(graph.edge_keys("a", "b"), Some(vec![0]));
+        assert_eq!(graph.nodes_ordered(), vec!["a", "b"]);
         assert_multigraph_core_invariants(&graph);
     }
 
