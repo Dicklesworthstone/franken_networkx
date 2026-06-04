@@ -1,0 +1,11 @@
+Benchmark 1: env PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260604T-single-target-directed-reverse-bfs/bench_single_target_directed.py --mode bench --impl fnx --size 5000 --target 4999 --repeats 20
+  Time (mean ± σ):     402.7 ms ±  19.7 ms    [User: 4414.2 ms, System: 81.2 ms]
+  Range (min … max):   369.6 ms … 422.6 ms    5 runs
+ 
+Benchmark 2: env PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260604T-single-target-directed-reverse-bfs/bench_single_target_directed.py --mode bench --impl nx --size 5000 --target 4999 --repeats 20
+  Time (mean ± σ):     339.2 ms ±  12.3 ms    [User: 4354.2 ms, System: 59.9 ms]
+  Range (min … max):   325.0 ms … 351.6 ms    5 runs
+ 
+Summary
+  env PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260604T-single-target-directed-reverse-bfs/bench_single_target_directed.py --mode bench --impl nx --size 5000 --target 4999 --repeats 20 ran
+    1.19 ± 0.07 times faster than env PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260604T-single-target-directed-reverse-bfs/bench_single_target_directed.py --mode bench --impl fnx --size 5000 --target 4999 --repeats 20
