@@ -18786,15 +18786,53 @@ def dispersion(
     # raises KeyError; fnx's ``G.neighbors(u)`` raised NetworkXError.
     if u is not None and u not in G:
         raise KeyError(u)
+    # br-r37-c1-dispadj: the dict form recomputed ``set(G.neighbors(x))`` from
+    # the String-keyed substrate for every (node, nbr) pair AND every common
+    # neighbour ``s``/``t`` inside ``_dispersion_pair`` -- O(E * embeddedness^2)
+    # neighbour materializations that left fnx ~3x SLOWER than networkx (which
+    # walks its native dict adjacency). Precompute every adjacency set ONCE and
+    # reuse it; the set logic is identical and ``disp`` is an order-invariant
+    # integer count, so the float results are byte-for-byte unchanged.
+    adj = {n: set(G.neighbors(n)) for n in G}
     nodes = [u] if u is not None else list(G.nodes())
     result = {}
     for node in nodes:
         result[node] = {}
         for nbr in G.neighbors(node):
-            result[node][nbr] = _dispersion_pair(G, node, nbr, normalized, alpha, b, c)
+            result[node][nbr] = _dispersion_pair_cached(
+                adj, node, nbr, normalized, alpha, b, c
+            )
     if u is not None:
         return result[u]
     return result
+
+
+def _dispersion_pair_cached(adj, u, v, normalized, alpha, b, c):
+    # Identical to ``_dispersion_pair`` but reads from precomputed adjacency
+    # sets (``adj``) instead of calling ``G.neighbors`` per pair. Used by the
+    # dict form of ``dispersion`` where the same neighbour sets are needed
+    # repeatedly. Membership / KeyError contracts are already enforced by the
+    # caller (every node here comes from ``G``).
+    u_nbrs = adj[u]
+    common = {n for n in adj[v] if n in u_nbrs}
+    set_uv = {u, v}
+
+    disp = 0
+    common_list = list(common)
+    for i in range(len(common_list)):
+        for j in range(i + 1, len(common_list)):
+            s, t = common_list[i], common_list[j]
+            nbrs_s = u_nbrs & adj[s] - set_uv
+            if t not in nbrs_s and nbrs_s.isdisjoint(adj[t]):
+                disp += 1
+
+    embeddedness = len(common)
+    if normalized:
+        val = (disp + b) ** alpha
+        if embeddedness + c != 0:
+            val = val / (embeddedness + c)
+        return val
+    return disp
 
 
 def _dispersion_pair(G, u, v, normalized, alpha, b, c):
