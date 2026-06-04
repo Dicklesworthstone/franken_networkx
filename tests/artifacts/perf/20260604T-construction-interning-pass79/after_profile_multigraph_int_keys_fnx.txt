@@ -1,0 +1,48 @@
+         850134 function calls in 1.048 seconds
+
+   Ordered by: cumulative time
+   List reduced from 62 to 40 due to restriction <40>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.121    0.121    1.048    1.048 bench_construction.py:76(_time_case)
+        3    0.031    0.010    0.608    0.203 bench_construction.py:54(build_multigraph_int_keys)
+   150000    0.069    0.000    0.577    0.000 __init__.py:2383(add_edge)
+   150000    0.508    0.000    0.508    0.000 {method '_fast_add_explicit_int_edge' of 'franken_networkx.MultiGraph' objects}
+        1    0.059    0.059    0.319    0.319 bench_construction.py:26(_digest)
+        1    0.004    0.004    0.084    0.084 __init__.py:1743(__call__)
+        1    0.080    0.080    0.080    0.080 {method '_native_edge_view_list' of 'franken_networkx.MultiGraph' objects}
+    50002    0.048    0.000    0.052    0.000 __init__.py:43639(__iter__)
+   200001    0.048    0.000    0.048    0.000 bench_construction.py:22(_token)
+    50001    0.031    0.000    0.034    0.000 {built-in method builtins.sorted}
+    50001    0.015    0.000    0.021    0.000 __init__.py:425(__next__)
+        1    0.000    0.000    0.014    0.014 __init__.py:183(dumps)
+        1    0.000    0.000    0.014    0.014 encoder.py:183(encode)
+        1    0.014    0.014    0.014    0.014 encoder.py:205(iterencode)
+    50001    0.006    0.000    0.006    0.000 {built-in method builtins.next}
+    50000    0.005    0.000    0.005    0.000 {method 'items' of 'dict' objects}
+    50007    0.004    0.000    0.004    0.000 {built-in method builtins.len}
+    50000    0.003    0.000    0.003    0.000 bench_construction.py:30(<genexpr>)
+        1    0.001    0.001    0.001    0.001 {built-in method _hashlib.openssl_sha256}
+        1    0.000    0.000    0.000    0.000 {method 'encode' of 'str' objects}
+        1    0.000    0.000    0.000    0.000 __init__.py:4184(_wrap_edge_data_view)
+        1    0.000    0.000    0.000    0.000 __init__.py:29671(edges)
+        2    0.000    0.000    0.000    0.000 __init__.py:1884(__iter__)
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+        1    0.000    0.000    0.000    0.000 __init__.py:401(__init__)
+        3    0.000    0.000    0.000    0.000 __init__.py:29226(_has_networkx_private_storage)
+        1    0.000    0.000    0.000    0.000 __init__.py:29876(number_of_nodes)
+       14    0.000    0.000    0.000    0.000 __init__.py:29218(_private_override)
+        1    0.000    0.000    0.000    0.000 __init__.py:5311(predicate)
+        3    0.000    0.000    0.000    0.000 __init__.py:2957(__init__)
+        1    0.000    0.000    0.000    0.000 weakref.py:164(__setitem__)
+        8    0.000    0.000    0.000    0.000 {built-in method builtins.isinstance}
+        1    0.000    0.000    0.000    0.000 __init__.py:29885(number_of_edges)
+        1    0.000    0.000    0.000    0.000 statistics.py:494(fmean)
+        1    0.000    0.000    0.000    0.000 __init__.py:29651(nodes)
+        1    0.000    0.000    0.000    0.000 statistics.py:621(median)
+        6    0.000    0.000    0.000    0.000 {built-in method time.perf_counter}
+       16    0.000    0.000    0.000    0.000 {built-in method builtins.vars}
+        1    0.000    0.000    0.000    0.000 weakref.py:347(__new__)
+        1    0.000    0.000    0.000    0.000 __init__.py:932(wrapped)
+
+
