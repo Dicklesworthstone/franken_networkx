@@ -4404,15 +4404,16 @@ pub fn edge_connectivity_edmonds_karp(
     sink: &str,
     capacity_attr: &str,
 ) -> Result<EdgeConnectivityResult, FlowError> {
-    let cut = minimum_cut_edmonds_karp(graph, source, sink, capacity_attr)?;
+    let (value, nodes_touched, edges_scanned, queue_peak) =
+        compute_max_flow_value(graph, source, sink, capacity_attr)?;
     Ok(EdgeConnectivityResult {
-        value: cut.value,
+        value,
         witness: ComplexityWitness {
             algorithm: "edmonds_karp_edge_connectivity".to_owned(),
             complexity_claim: "O(|V| * |E|^2)".to_owned(),
-            nodes_touched: cut.witness.nodes_touched,
-            edges_scanned: cut.witness.edges_scanned,
-            queue_peak: cut.witness.queue_peak,
+            nodes_touched,
+            edges_scanned,
+            queue_peak,
         },
     })
 }
@@ -4423,12 +4424,18 @@ pub fn edge_connectivity_edmonds_karp_directed(
     target: &str,
     capacity_attr: &str,
 ) -> Result<EdgeConnectivityResult, FlowError> {
-    minimum_cut_edmonds_karp_directed(digraph, source, target, capacity_attr).map(|c| {
-        EdgeConnectivityResult {
-            value: c.value,
-            witness: c.witness,
-        }
-    })
+    compute_max_flow_value(digraph, source, target, capacity_attr).map(
+        |(value, nodes_touched, edges_scanned, queue_peak)| EdgeConnectivityResult {
+            value,
+            witness: ComplexityWitness {
+                algorithm: "edmonds_karp_edge_connectivity".to_owned(),
+                complexity_claim: "O(|V| * |E|^2)".to_owned(),
+                nodes_touched,
+                edges_scanned,
+                queue_peak,
+            },
+        },
+    )
 }
 
 fn minimum_undirected_degree(graph: &Graph) -> f64 {
@@ -4556,12 +4563,13 @@ pub fn global_edge_connectivity_edmonds_karp(
 
     for target in dominating {
         // These nodes come from the graph itself, so they MUST exist.
-        let cut = minimum_cut_edmonds_karp(graph, &source, &target, capacity_attr)
-            .expect("nodes should exist in graph");
-        best_value = best_value.min(cut.value);
-        nodes_touched += cut.witness.nodes_touched;
-        edges_scanned += cut.witness.edges_scanned;
-        queue_peak = queue_peak.max(cut.witness.queue_peak);
+        let (value, cut_nodes, cut_edges, cut_queue) =
+            compute_max_flow_value(graph, &source, &target, capacity_attr)
+                .expect("nodes should exist in graph");
+        best_value = best_value.min(value);
+        nodes_touched += cut_nodes;
+        edges_scanned += cut_edges;
+        queue_peak = queue_peak.max(cut_queue);
         if best_value <= 0.0 {
             break;
         }
@@ -4626,11 +4634,13 @@ pub fn global_edge_connectivity_edmonds_karp_directed(
 
     for (index, &source) in nodes.iter().enumerate() {
         let target = nodes.get(index + 1).copied().unwrap_or(nodes[0]);
-        if let Ok(cut) = minimum_cut_edmonds_karp_directed(digraph, source, target, capacity_attr) {
-            best_value = best_value.min(cut.value);
-            nodes_touched += cut.witness.nodes_touched;
-            edges_scanned += cut.witness.edges_scanned;
-            queue_peak = queue_peak.max(cut.witness.queue_peak);
+        if let Ok((value, cut_nodes, cut_edges, cut_queue)) =
+            compute_max_flow_value(digraph, source, target, capacity_attr)
+        {
+            best_value = best_value.min(value);
+            nodes_touched += cut_nodes;
+            edges_scanned += cut_edges;
+            queue_peak = queue_peak.max(cut_queue);
         }
         if best_value <= 0.0 {
             break;
@@ -5334,6 +5344,139 @@ fn compute_max_flow_residual<G: FlowGraphView>(
             queue_peak,
         },
     })
+}
+
+/// Value-only Edmonds-Karp max flow: the SAME integer augmenting search as
+/// `compute_max_flow_residual`, but returns only the flow value (which equals
+/// the minimum s-t cut value by the max-flow/min-cut theorem) together with the
+/// complexity-witness counters. It never materializes the string-keyed residual,
+/// the per-edge flow list, or a cut partition -- used by the edge-connectivity
+/// callers, which discard everything except the value.
+fn compute_max_flow_value<G: FlowGraphView>(
+    graph: &G,
+    source: &str,
+    sink: &str,
+    capacity_attr: &str,
+) -> Result<(f64, usize, usize, usize), FlowError> {
+    if !graph.has_flow_node(source) {
+        return Err(FlowError::NodeNotFound(source.to_owned()));
+    }
+    if !graph.has_flow_node(sink) {
+        return Err(FlowError::NodeNotFound(sink.to_owned()));
+    }
+    if source == sink {
+        return Ok((0.0, 1, 0, 1));
+    }
+
+    let ordered_nodes = graph.flow_nodes_ordered();
+    let n = ordered_nodes.len();
+
+    let mut sorted_keys: Vec<&str> = ordered_nodes.iter().map(|s| s.as_str()).collect();
+    sorted_keys.sort_unstable();
+    let mut idx_of: HashMap<&str, usize> = HashMap::with_capacity(n);
+    for (i, k) in sorted_keys.iter().enumerate() {
+        idx_of.insert(*k, i);
+    }
+
+    let mut residual_i: Vec<std::collections::BTreeMap<usize, f64>> =
+        vec![std::collections::BTreeMap::new(); n];
+    for node in &ordered_nodes {
+        let u = idx_of[node.as_str()];
+        for neighbor in graph.flow_outgoing_neighbors(node) {
+            let capacity = graph.flow_edge_capacity(node, &neighbor, capacity_attr);
+            let v = idx_of[neighbor.as_str()];
+            residual_i[u].entry(v).or_insert(capacity);
+        }
+    }
+
+    let source_idx = idx_of[source];
+    let sink_idx = idx_of[sink];
+
+    let mut total_flow = 0.0_f64;
+    let mut nodes_touched = 0_usize;
+    let mut edges_scanned = 0_usize;
+    let mut queue_peak = 0_usize;
+
+    let mut predecessor: Vec<usize> = vec![usize::MAX; n];
+    let mut visited: Vec<bool> = vec![false; n];
+
+    loop {
+        for p in predecessor.iter_mut() {
+            *p = usize::MAX;
+        }
+        for vis in visited.iter_mut() {
+            *vis = false;
+        }
+        let mut queue: VecDeque<usize> = VecDeque::new();
+        queue.push_back(source_idx);
+        visited[source_idx] = true;
+        nodes_touched += 1;
+        queue_peak = queue_peak.max(queue.len());
+
+        let mut reached_sink = false;
+        while let Some(current) = queue.pop_front() {
+            for (&neighbor, &capacity) in &residual_i[current] {
+                edges_scanned += 1;
+                if visited[neighbor] {
+                    continue;
+                }
+                if capacity <= 0.0 {
+                    continue;
+                }
+                predecessor[neighbor] = current;
+                visited[neighbor] = true;
+                nodes_touched += 1;
+                if neighbor == sink_idx {
+                    reached_sink = true;
+                    break;
+                }
+                queue.push_back(neighbor);
+                queue_peak = queue_peak.max(queue.len());
+            }
+            if reached_sink {
+                break;
+            }
+        }
+
+        if !reached_sink {
+            break;
+        }
+
+        let mut bottleneck = f64::INFINITY;
+        let mut cursor = sink_idx;
+        while cursor != source_idx {
+            let prev = predecessor[cursor];
+            if prev == usize::MAX {
+                bottleneck = 0.0;
+                break;
+            }
+            let available = residual_i[prev].get(&cursor).copied().unwrap_or(0.0);
+            bottleneck = bottleneck.min(available);
+            cursor = prev;
+        }
+
+        if bottleneck <= 0.0 || !bottleneck.is_finite() {
+            break;
+        }
+
+        let mut cursor = sink_idx;
+        while cursor != source_idx {
+            let prev = predecessor[cursor];
+            if prev == usize::MAX {
+                break;
+            }
+            if let Some(cap) = residual_i[prev].get_mut(&cursor) {
+                *cap = (*cap - bottleneck).max(0.0);
+            }
+            let entry = residual_i[cursor].entry(prev).or_insert(0.0);
+            *entry += bottleneck;
+            cursor = prev;
+        }
+
+        total_flow += bottleneck;
+    }
+
+    Ok((total_flow, nodes_touched, edges_scanned, queue_peak))
 }
 
 fn matching_state(
