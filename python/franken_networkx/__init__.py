@@ -26447,15 +26447,60 @@ def edge_load_centrality(G, cutoff=False, *, backend=None, **backend_kwargs):
     if cutoff is False:
         cutoff = None
 
-    betweenness = {}
-    for u, v in G.edges():
-        betweenness[(u, v)] = 0.0
-        betweenness[(v, u)] = 0.0
-    for source in G:
-        source_between = _edge_load_from_source_local(G, source, cutoff=cutoff)
-        for edge, value in source_between.items():
-            betweenness[edge] += value
-    return betweenness
+    # br-elccsr: integer-CSR BFS fast path. The per-source pure-Python BFS
+    # (_edge_load_from_source_local -> _single_source_shortest_path_basic_local)
+    # plus an O(E) (node, node)-keyed `between` dict rebuilt once per source
+    # made this ~3-10x slower than nx (up to 1.25s under load). Relabel nodes to
+    # dense indices once, snapshot a local integer adjacency list, and run all N
+    # BFS + the edge-load accumulation on integer-keyed dicts. Neighbor order is
+    # preserved from G[node] and edge order from G.edges(), so the float result
+    # is BIT-identical to the prior implementation (and matches nx).
+    nodes = list(G)
+    n = len(nodes)
+    index = {node: i for i, node in enumerate(nodes)}
+    adj = [[index[nbr] for nbr in G[node]] for node in nodes]
+    edge_pairs = [(index[u], index[v]) for u, v in G.edges()]
+
+    aggregate = {}
+    for a, b in edge_pairs:
+        aggregate[(a, b)] = 0.0
+        aggregate[(b, a)] = 0.0
+
+    for s in range(n):
+        stack = []
+        pred = [[] for _ in range(n)]
+        dist = [-1] * n
+        dist[s] = 0
+        queue = _deque([s])
+        while queue:
+            v = queue.popleft()
+            stack.append(v)
+            dv = dist[v]
+            if cutoff is not None and dv >= cutoff:
+                continue
+            for w in adj[v]:
+                if dist[w] < 0:
+                    queue.append(w)
+                    dist[w] = dv + 1
+                if dist[w] == dv + 1:
+                    pred[w].append(v)
+        between = {}
+        for a, b in edge_pairs:
+            between[(a, b)] = 1.0
+            between[(b, a)] = 1.0
+        ordered = list(stack)
+        while ordered:
+            node = ordered.pop()
+            for p in pred[node]:
+                if pred[p]:
+                    num_paths = len(pred[p])
+                    for parent in pred[p]:
+                        between[(p, parent)] += between[(node, p)] / num_paths
+                        between[(parent, p)] += between[(p, node)] / num_paths
+        for edge, value in between.items():
+            aggregate[edge] += value
+
+    return {(nodes[a], nodes[b]): value for (a, b), value in aggregate.items()}
 
 
 def laplacian_centrality(
