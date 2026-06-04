@@ -21369,7 +21369,12 @@ pub fn single_source_dijkstra_path_length(
     source: &str,
     weight_attr: &str,
 ) -> Vec<(String, f64)> {
-    single_source_dijkstra_full(graph, source, weight_attr).0
+    let result = multi_source_dijkstra(graph, &[source], weight_attr);
+    result
+        .distances
+        .into_iter()
+        .map(|entry| (entry.node, entry.distance))
+        .collect()
 }
 
 /// Single-source Dijkstra returning paths only for directed graph.
