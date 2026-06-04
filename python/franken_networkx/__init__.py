@@ -2542,6 +2542,9 @@ _MULTIGRAPH_RAW_REMOVE_NODES_FROM = MultiGraph.remove_nodes_from
 _MULTIDIGRAPH_RAW_REMOVE_NODES_FROM = MultiDiGraph.remove_nodes_from
 
 
+_ADD_EDGES_UNSET = object()
+
+
 def _add_edges_from_materialized(raw):
     def add_edges_from(self, ebunch_to_add, **attr):
         # br-r37-c1-aefitexc (cycle 216): nx's add_edges_from iterates
@@ -2589,54 +2592,93 @@ def _add_edges_from_materialized(raw):
         # nx.NetworkXError`` to detect malformed edge inputs.
         # Replicate the len-based gate here so both error contracts
         # match nx exactly before delegating.
+        # br-r37-c1-77ux3: nx.add_edges_from processes edges INLINE — each
+        # edge is validated and added one at a time (see nx.Graph.add_edges_from:
+        # ``for e in ebunch_to_add: ne = len(e); ...``).  So when a malformed
+        # edge raises mid-batch, every VALID edge before it persists on the
+        # graph, AND the failing edge's partial node state persists too: nx
+        # creates node ``u`` *before* it examines ``v``, so an edge like
+        # ``(1, None)`` leaves node 1 in the graph before the ``v is None``
+        # ValueError fires.  fnx historically validated the whole batch up front
+        # (three pre-passes below) and added NOTHING on any error, leaving the
+        # graph empty where nx keeps the good prefix.  Replicate nx's inline
+        # semantics: find the first offending edge, add the valid prefix via the
+        # fast bulk Rust path, reproduce the failing edge's partial node, then
+        # raise the same nx-shaped error.  The error contracts are unchanged:
+        #   * NetworkXError("Edge tuple {e} must be a 2-tuple or 3-tuple.") on
+        #     bad arity for tuples/lists/strings (br-r37-c1-icuqb / aef-tupshape)
+        #   * the canonical ``TypeError`` from ``len(e)`` for len()-less items
+        #     (None, int, ...) (br-r37-c1-aefnone)
+        #   * ValueError("None cannot be a node") for a None endpoint
+        #     (br-r37-c1-83r45)
+        #   * TypeError('unhashable type: ...') for an unhashable endpoint
+        #     (br-r37-c1-m0io3)
+        # and lists are still normalised to tuples for the Rust path
+        # (br-r37-c1-aeflist).
+        _unset = _ADD_EDGES_UNSET
+        first_error = None
+        partial_node = _unset
+        valid_count = len(materialized)
         for i, edge in enumerate(materialized):
             if isinstance(edge, tuple):
-                continue
-            # br-r37-c1-icuqb: strings/bytes are iterables too — nx
-            # gates them with len(e) and raises NetworkXError on bad
-            # arity (e.g. "oops" -> "Edge tuple oops must be a 2-tuple
-            # or 3-tuple."). Pre-fix fnx short-circuited them and let
-            # them fall through to the Rust binding which raised a
-            # generic TypeError, breaking callers using
-            # ``except nx.NetworkXError`` to catch malformed edges.
-            ne = len(edge)
-            if ne not in (2, 3):
-                raise NetworkXError(
+                normalized = edge
+            else:
+                # strings/bytes/lists are sized iterables nx gates with len(e);
+                # a len()-less item raises the canonical TypeError, which nx
+                # propagates only AFTER the valid prefix has been added.
+                try:
+                    len(edge)
+                except TypeError as exc:
+                    first_error = exc
+                    valid_count = i
+                    break
+                normalized = tuple(edge)
+            if len(normalized) not in (2, 3):
+                first_error = NetworkXError(
                     f"Edge tuple {edge} must be a 2-tuple or 3-tuple.",
                 )
-            materialized[i] = tuple(edge)
-        # br-r37-c1-m0io3: validate hashability of each endpoint so
-        # fnx raises TypeError('unhashable type: <type>') matching
-        # nx, instead of silently absorbing list/set/dict-typed
-        # endpoints as Python-id-keyed nodes.
-        for edge in materialized:
-            if isinstance(edge, tuple) and len(edge) >= 2:
-                # br-r37-c1-83r45: nx.Graph.add_edges_from raises
-                # ``ValueError("None cannot be a node")`` when either
-                # endpoint is None. fnx's add_edge already rejects
-                # None (same wording) but add_edges_from skipped the
-                # check — Drop-in code using add_edges_from to absorb
-                # ``(None, X)`` silently corrupted graphs.
-                if edge[0] is None or edge[1] is None:
-                    raise ValueError("None cannot be a node")
-                hash(edge[0])
-                hash(edge[1])
-        # br-r37-c1-aef-tupshape: nx raises NetworkXError("Edge tuple
-        # (X, Y) must be a 2-tuple or 3-tuple.") on bad-arity tuples;
-        # the Rust raw path raises ValueError("edge tuple must have
-        # 2 or 3 elements") instead. Code that catches
-        # nx.NetworkXError to detect malformed edge inputs missed
-        # fnx's ValueError. Pre-validate tuple arity with nx-shaped
-        # error before delegating to Rust.
-        for edge in materialized:
-            if isinstance(edge, tuple) and not (2 <= len(edge) <= 3):
-                raise NetworkXError(
-                    f"Edge tuple {edge} must be a 2-tuple or 3-tuple.",
-                )
-        result = raw(self, materialized, **attr)
-        if iteration_exc is not None:
-            raise iteration_exc
-        return result
+                valid_count = i
+                break
+            u = normalized[0]
+            v = normalized[1]
+            # nx validates+creates u before it looks at v.
+            if u is None:
+                first_error = ValueError("None cannot be a node")
+                valid_count = i
+                break
+            try:
+                hash(u)
+            except TypeError as exc:
+                first_error = exc
+                valid_count = i
+                break
+            if v is None:
+                first_error = ValueError("None cannot be a node")
+                valid_count = i
+                partial_node = u  # nx has already created node u
+                break
+            try:
+                hash(v)
+            except TypeError as exc:
+                first_error = exc
+                valid_count = i
+                partial_node = u
+                break
+            materialized[i] = normalized
+        if first_error is None:
+            result = raw(self, materialized, **attr)
+            if iteration_exc is not None:
+                raise iteration_exc
+            return result
+        # nx-inline parity: persist the valid prefix and the failing edge's
+        # partial node, then raise the same error nx would have raised at that
+        # edge (which also pre-empts any later generator iteration_exc, exactly
+        # as nx stops pulling the ebunch the moment an edge raises).
+        if valid_count:
+            raw(self, materialized[:valid_count], **attr)
+        if partial_node is not _unset:
+            self.add_node(partial_node)
+        raise first_error
 
     return add_edges_from
 
