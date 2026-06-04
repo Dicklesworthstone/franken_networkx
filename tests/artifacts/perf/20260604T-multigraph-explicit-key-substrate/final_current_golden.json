@@ -1,0 +1,38 @@
+[
+  {
+    "case": "multigraph_int_keys",
+    "digests_match": true,
+    "records": [
+      {
+        "impl": "fnx",
+        "nodes": 50001,
+        "edges": 50000,
+        "digest": "6041eefb1e549a77af5c18a4e08ab1dc24e9df42e2e9ef094e810d35bedf58dc"
+      },
+      {
+        "impl": "nx",
+        "nodes": 50001,
+        "edges": 50000,
+        "digest": "6041eefb1e549a77af5c18a4e08ab1dc24e9df42e2e9ef094e810d35bedf58dc"
+      }
+    ]
+  },
+  {
+    "case": "multigraph_str_keys",
+    "digests_match": true,
+    "records": [
+      {
+        "impl": "fnx",
+        "nodes": 50001,
+        "edges": 50000,
+        "digest": "a316d777cf3e4070855b2fca932a4f8f993dee8bbacf6d430f95624dd04d41bf"
+      },
+      {
+        "impl": "nx",
+        "nodes": 50001,
+        "edges": 50000,
+        "digest": "a316d777cf3e4070855b2fca932a4f8f993dee8bbacf6d430f95624dd04d41bf"
+      }
+    ]
+  }
+]

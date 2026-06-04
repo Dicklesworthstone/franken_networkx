@@ -1309,11 +1309,10 @@ impl PyMultiGraph {
             return Ok(None);
         };
         let ek = Self::edge_key(&u_canonical, &v_canonical, actual_key);
-        self.edge_py_attrs
-            .entry(ek)
-            .or_insert_with(|| PyDict::new(py).unbind());
         let py_key = key.clone().unbind();
-        self.remember_edge_key_object(py, &u_canonical, &v_canonical, actual_key, &py_key);
+        self.edge_py_attrs
+            .insert(ek.clone(), PyDict::new(py).unbind());
+        self.edge_py_keys.insert(ek, py_key.clone_ref(py));
         self.bump_edges_seq();
         Ok(Some(py_key))
     }

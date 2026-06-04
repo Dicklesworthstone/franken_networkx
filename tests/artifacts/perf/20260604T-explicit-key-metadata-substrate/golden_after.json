@@ -1,0 +1,18 @@
+{
+  "case": "multigraph_str_keys",
+  "digests_match": true,
+  "records": [
+    {
+      "digest": "a316d777cf3e4070855b2fca932a4f8f993dee8bbacf6d430f95624dd04d41bf",
+      "edges": 50000,
+      "impl": "fnx",
+      "nodes": 50001
+    },
+    {
+      "digest": "a316d777cf3e4070855b2fca932a4f8f993dee8bbacf6d430f95624dd04d41bf",
+      "edges": 50000,
+      "impl": "nx",
+      "nodes": 50001
+    }
+  ]
+}
