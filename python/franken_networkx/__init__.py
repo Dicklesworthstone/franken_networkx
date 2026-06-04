@@ -14612,6 +14612,14 @@ def single_target_shortest_path_length(G, target, cutoff=None):
     """
     if target not in G:
         raise NodeNotFound(f"Target {target} is not in G")
+    # br-r37-c1-sptlen: for undirected graphs the distance from every node TO
+    # target equals the distance FROM target (symmetric), so route to the native
+    # single_source kernel (~2.5x faster than networkx) instead of the per-node
+    # Python reverse-BFS (~6x slower). Hop counts are integers and the dict is
+    # built in BFS-from-target order in both, so the result is byte-identical
+    # (value + key order). Directed graphs need reverse adjacency -> Python path.
+    if not G.is_directed():
+        return single_source_shortest_path_length(G, target, cutoff=cutoff)
     if cutoff is None:
         cutoff = float("inf")
 
