@@ -23705,23 +23705,35 @@ def common_neighbor_centrality(
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
 
+    # br-r37-c1-cncadj: nx scores every node pair with
+    # ``len(nx.common_neighbors(G, u, v))``; the default ebunch is *all* O(V^2)
+    # non-edges, so that wrapper is called ~V^2 times. Each fnx
+    # ``common_neighbors`` call re-walks the String-keyed PyO3 adjacency (~3.8x
+    # slower than nx's native-dict set intersection), making the whole function
+    # ~2.3x SLOWER than nx. Snapshot the adjacency to Python sets ONCE, then take
+    # ``(adj[u] & adj[v]) - {u, v}`` in the hot loop — byte-identical to nx's
+    # ``{w for w in G[u] if w in G[v] and w not in (u, v)}`` (the ``-{u, v}``
+    # reproduces nx's self-loop / existing-edge ebunch exclusion).
+    adj = {node: set(nbrs) for node, nbrs in G.adjacency()}
+
     if alpha == 1:
 
         def predict(u, v):
             if u == v:
                 raise NetworkXAlgorithmError("Self loops are not supported")
-            return len(common_neighbors(G, u, v))
+            return len((adj[u] & adj[v]) - {u, v})
 
     else:
         shortest_path_lengths = dict(shortest_path_length(G))
         infinity = float("inf")
+        num_nodes = len(G)
 
         def predict(u, v):
             if u == v:
                 raise NetworkXAlgorithmError("Self loops are not supported")
             path_length = shortest_path_lengths[u].get(v, infinity)
-            common_neighbor_count = len(common_neighbors(G, u, v))
-            return alpha * common_neighbor_count + (1 - alpha) * len(G) / path_length
+            common_neighbor_count = len((adj[u] & adj[v]) - {u, v})
+            return alpha * common_neighbor_count + (1 - alpha) * num_nodes / path_length
 
     if ebunch is None:
         ebunch = non_edges(G)
