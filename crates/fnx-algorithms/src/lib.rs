@@ -4150,7 +4150,7 @@ pub fn maximal_matching(graph: &Graph) -> MaximalMatchingResult {
             algorithm: "greedy_maximal_matching".to_owned(),
             complexity_claim: "O(|E|)".to_owned(),
             nodes_touched: graph.node_count(),
-            edges_scanned: edges.len(),
+            edges_scanned: graph.edge_count(),
             queue_peak: 0,
         },
     }
