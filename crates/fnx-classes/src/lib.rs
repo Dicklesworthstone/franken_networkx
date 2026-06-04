@@ -1239,58 +1239,6 @@ impl MultiGraph {
         self.add_edge_impl(left, right, Some(key), attrs)
     }
 
-    /// Insert one attribute-free edge for a pair known to have no existing
-    /// parallel edge bucket. Returns `None` if the pair already exists.
-    #[must_use]
-    pub fn add_fresh_edge_unrecorded(
-        &mut self,
-        left: impl Into<String>,
-        right: impl Into<String>,
-    ) -> Option<usize> {
-        let left = left.into();
-        let right = right.into();
-        let edge_key = EdgeKey::new(&left, &right);
-        if self
-            .edges
-            .get(&edge_key)
-            .is_some_and(|edge_bucket| !edge_bucket.is_empty())
-        {
-            return None;
-        }
-
-        if !self.nodes.contains_key(&left) {
-            self.nodes.insert(left.clone(), AttrMap::new());
-            self.adjacency.entry(left.clone()).or_default();
-        }
-        if left != right && !self.nodes.contains_key(&right) {
-            self.nodes.insert(right.clone(), AttrMap::new());
-            self.adjacency.entry(right.clone()).or_default();
-        }
-
-        let key = 0usize;
-        self.edges
-            .entry(edge_key)
-            .or_default()
-            .insert(key, AttrMap::new());
-        self.edge_count += 1;
-        self.adjacency
-            .entry(left.clone())
-            .or_default()
-            .entry(right.clone())
-            .or_default()
-            .insert(key);
-        if left != right {
-            self.adjacency
-                .entry(right)
-                .or_default()
-                .entry(left)
-                .or_default()
-                .insert(key);
-        }
-        self.revision = self.revision.saturating_add(1);
-        Some(key)
-    }
-
     fn add_edge_impl(
         &mut self,
         left: impl Into<String>,

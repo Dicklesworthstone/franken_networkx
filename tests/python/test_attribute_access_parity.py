@@ -238,31 +238,6 @@ def test_non_integer_multigraph_edge_keys_roundtrip_matches_networkx(
     assert list(graph.edges(keys=True, data=True)) == list(expected.edges(keys=True, data=True))
 
 
-def test_multigraph_explicit_int_key_fresh_pairs_match_networkx():
-    graph = fnx.MultiGraph()
-    expected = nx.MultiGraph()
-
-    for u, v, key in [(0, 1, 7), (2, 3, -1), (4, 4, 5)]:
-        assert graph.add_edge(u, v, key=key) == expected.add_edge(u, v, key=key)
-
-    assert list(graph.nodes()) == list(expected.nodes())
-    assert list(graph.edges(keys=True, data=True)) == list(
-        expected.edges(keys=True, data=True)
-    )
-    assert graph.has_edge(0.0, 1.0, key=7.0) == expected.has_edge(0.0, 1.0, key=7.0)
-
-    assert graph.add_edge(0, 1, key=8, weight=3) == expected.add_edge(
-        0,
-        1,
-        key=8,
-        weight=3,
-    )
-    assert graph.get_edge_data(0, 1, key=8) == expected.get_edge_data(0, 1, key=8)
-    assert list(graph.edges(keys=True, data=True)) == list(
-        expected.edges(keys=True, data=True)
-    )
-
-
 def test_matches_networkx_on_mixed_attribute_workflow():
     graph = fnx.Graph()
     graph.add_edges_from([(0, 1), (1, 2), (2, 3)])

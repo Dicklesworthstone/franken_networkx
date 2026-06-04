@@ -1240,62 +1240,6 @@ impl PyMultiGraph {
         Ok(self.remember_edge_key(py, &u_canonical, &v_canonical, actual_key, key))
     }
 
-    /// Fast path for ``MultiGraph.add_edge(int, int, key=int)`` when the
-    /// endpoint pair has no existing edge and no attributes are supplied.
-    fn _fast_add_explicit_int_edge(
-        &mut self,
-        py: Python<'_>,
-        u: &Bound<'_, PyAny>,
-        v: &Bound<'_, PyAny>,
-        key: &Bound<'_, PyAny>,
-    ) -> PyResult<Option<PyObject>> {
-        let Ok(u_value) = u.extract::<i64>() else {
-            return Ok(None);
-        };
-        let Ok(v_value) = v.extract::<i64>() else {
-            return Ok(None);
-        };
-
-        let u_canonical = u_value.to_string();
-        let v_canonical = v_value.to_string();
-        if self.inner.has_edge(&u_canonical, &v_canonical) {
-            return Ok(None);
-        }
-
-        let was_new_node = !self.node_key_map.contains_key(&u_canonical)
-            || !self.node_key_map.contains_key(&v_canonical);
-        self.node_key_map
-            .entry(u_canonical.clone())
-            .or_insert_with(|| u.clone().unbind());
-        self.node_key_map
-            .entry(v_canonical.clone())
-            .or_insert_with(|| v.clone().unbind());
-        if was_new_node {
-            self.bump_nodes_seq();
-        }
-        self.node_py_attrs
-            .entry(u_canonical.clone())
-            .or_insert_with(|| PyDict::new(py).unbind());
-        self.node_py_attrs
-            .entry(v_canonical.clone())
-            .or_insert_with(|| PyDict::new(py).unbind());
-
-        let Some(actual_key) = self
-            .inner
-            .add_fresh_edge_unrecorded(u_canonical.clone(), v_canonical.clone())
-        else {
-            return Ok(None);
-        };
-        let ek = Self::edge_key(&u_canonical, &v_canonical, actual_key);
-        self.edge_py_attrs
-            .entry(ek)
-            .or_insert_with(|| PyDict::new(py).unbind());
-        let py_key = key.clone().unbind();
-        self.remember_edge_key_object(py, &u_canonical, &v_canonical, actual_key, &py_key);
-        self.bump_edges_seq();
-        Ok(Some(py_key))
-    }
-
     #[pyo3(signature = (ebunch_to_add, **attr))]
     fn add_edges_from(
         &mut self,
