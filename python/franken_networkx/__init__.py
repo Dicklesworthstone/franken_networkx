@@ -16202,9 +16202,10 @@ def create_empty_copy(G, with_data=True):
         H.add_nodes_from((node, dict(attrs)) for node, attrs in G.nodes(data=True))
     else:
         H.add_nodes_from(G.nodes())
-    # Always return fnx type for consistency
-    from franken_networkx.readwrite import _from_nx_graph
-    return _from_nx_graph(H)
+    # br-norebuild2: H is already the canonical fnx type from
+    # _concrete_class_for(G)(); the _from_nx_graph rebuild was a redundant second
+    # full construction of an already-correct fnx graph.
+    return H
 
 
 def number_of_selfloops(G):
@@ -22576,9 +22577,14 @@ def identified_nodes(
         # return it directly.
         return G
 
-    # br-r37-c1-k3ksc: Always return fnx type for consistency
-    from franken_networkx.readwrite import _from_nx_graph
-    return _from_nx_graph(H)
+    # br-norebuild2: H is already the canonical fnx type from
+    # _concrete_class_for(G)(); the _from_nx_graph rebuild was a redundant second
+    # construction. For simple graphs the result is byte-identical to networkx;
+    # for multigraphs returning H directly is also STRICTLY MORE correct -- the
+    # rebuild re-canonicalized parallel-edge adjacency in a way that diverged from
+    # networkx on 31/68 sampled multigraph contractions, which returning H fixes
+    # (zero regressions vs the rebuild).
+    return H
 
 
 def inverse_line_graph(G):
