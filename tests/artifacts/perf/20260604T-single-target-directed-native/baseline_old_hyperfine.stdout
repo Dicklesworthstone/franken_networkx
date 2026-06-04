@@ -1,0 +1,4 @@
+Benchmark 1: env PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260604T-single-target-directed-native/bench_single_target_directed.py --mode old --repeats 100 --n 2500 --fanout 4
+  Time (mean ± σ):      1.972 s ±  0.152 s    [User: 5.491 s, System: 0.077 s]
+  Range (min … max):    1.745 s …  2.192 s    10 runs
+ 
