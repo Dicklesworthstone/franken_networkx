@@ -26662,20 +26662,82 @@ fn all_topo_backtrack(
 /// in a single cluster. Returns a map from node name to constraint value.
 #[must_use]
 pub fn constraint(graph: &Graph) -> std::collections::HashMap<String, f64> {
+    // br-constraint-intadj: the previous implementation called
+    // `graph.neighbors(v)` (a String-keyed Vec + HashSet allocation) for every
+    // (u, v) pair and again for every common neighbor `w` — ~2m repeated
+    // neighbor materializations, making it ~3x SLOWER than NetworkX's
+    // lru_cache'd Python path. Precompute integer adjacency, degrees and
+    // neighbor sets ONCE, then run the same double sum with O(1) integer
+    // lookups. The arithmetic (operands, order of summation) is byte-for-byte
+    // identical to the old kernel, so the float results are unchanged.
     let nodes = graph.nodes_ordered();
-    let mut result = std::collections::HashMap::new();
+    let n = nodes.len();
+    let idx: std::collections::HashMap<&str, usize> =
+        nodes.iter().enumerate().map(|(i, &s)| (s, i)).collect();
+    // adjacency in `graph.neighbors()` order (preserved for bit-exact sums)
+    let mut adj: Vec<Vec<usize>> = Vec::with_capacity(n);
     for &u in &nodes {
-        let u_nbrs: Vec<&str> = graph.neighbors(u).unwrap_or_default();
+        let nb = graph.neighbors(u).unwrap_or_default();
+        adj.push(nb.iter().map(|w| idx[w]).collect());
+    }
+    let inv_deg: Vec<f64> = adj
+        .iter()
+        .map(|a| if a.is_empty() { 0.0 } else { 1.0 / a.len() as f64 })
+        .collect();
+
+    // Reusable scratch: `in_nu` marks N(u) (no per-pair HashSet), `s` holds the
+    // indirect-constraint accumulator per target neighbor `v`, `touched` lists
+    // the `v` to reset. Iterating the middle node `w` over N(u) and fanning out
+    // over N(w) visits each common neighbor exactly once with O(1) array probes.
+    let mut in_nu = vec![false; n];
+    let mut s = vec![0.0_f64; n];
+    let mut touched: Vec<usize> = Vec::new();
+
+    let mut result = std::collections::HashMap::with_capacity(n);
+    for ui in 0..n {
+        let u_nbrs = &adj[ui];
         if u_nbrs.is_empty() {
-            result.insert(u.to_owned(), 0.0);
+            result.insert(nodes[ui].to_owned(), 0.0);
             continue;
         }
-        let mut total_constraint = 0.0;
-        for &v in &u_nbrs {
-            let local_c = local_constraint_inner(graph, u, v, &u_nbrs);
-            total_constraint += local_c;
+        // p_uv = p_uw = 1 / deg(u) for the unweighted undirected case.
+        let p = inv_deg[ui];
+        for &x in u_nbrs {
+            in_nu[x] = true;
         }
-        result.insert(u.to_owned(), total_constraint);
+        // For each middle node w in N(u) (in order) accumulate the term
+        // p * (1/deg_w) into s[v] for every v in N(w) that is also in N(u).
+        // For a fixed v this adds the same terms, in the same w-order, as the
+        // old `for w in N(u): if w in N(v): indirect += p*(1/deg_w)` loop, so
+        // the float result is byte-identical.
+        for &wi in u_nbrs {
+            let term = p * inv_deg[wi];
+            for &vi in &adj[wi] {
+                if vi == wi {
+                    continue; // old skipped w == v
+                }
+                if in_nu[vi] {
+                    if s[vi] == 0.0 {
+                        touched.push(vi);
+                    }
+                    s[vi] += term;
+                }
+            }
+        }
+        let mut total_constraint = 0.0;
+        for &vi in u_nbrs {
+            let local_c = p + s[vi];
+            total_constraint += local_c * local_c;
+        }
+        result.insert(nodes[ui].to_owned(), total_constraint);
+
+        for &x in u_nbrs {
+            in_nu[x] = false;
+        }
+        for &vi in &touched {
+            s[vi] = 0.0;
+        }
+        touched.clear();
     }
     result
 }
