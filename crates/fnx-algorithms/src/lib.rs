@@ -27857,169 +27857,114 @@ pub fn connected_dominating_set(graph: &Graph) -> Vec<String> {
 pub fn triadic_census(digraph: &DiGraph) -> std::collections::HashMap<String, usize> {
     use std::collections::{HashMap, HashSet};
 
+    // Batagelj-Mrvar subquadratic triad census: iterate connected triads via
+    // each ordered dyad's shared neighborhood (O(m * d_max)) instead of the
+    // O(n^3) enumeration of every node triple. Census counts are independent of
+    // the node ordering, so the index order used here is a valid total order
+    // and yields the identical 16 cell counts as networkx.
     let triad_names = [
         "003", "012", "102", "021D", "021U", "021C", "111D", "111U", "030T", "030C", "201", "120D",
         "120U", "120C", "210", "300",
     ];
-    let mut census: HashMap<String, usize> =
-        triad_names.iter().map(|&n| (n.to_owned(), 0)).collect();
+    // TRICODES[code] in 1..=16 maps a 6-bit directed-dyad code (the networkx
+    // `_tricode` bit layout) to a 1-based triad-type index.
+    const TRICODES: [u8; 64] = [
+        1, 2, 2, 3, 2, 4, 6, 8, 2, 6, 5, 7, 3, 8, 7, 11, 2, 6, 4, 8, 5, 9, 9, 13, 6, 10, 9, 14, 7,
+        14, 12, 15, 2, 5, 6, 7, 6, 9, 10, 14, 4, 9, 9, 12, 8, 13, 14, 15, 3, 7, 8, 11, 7, 12, 14,
+        15, 8, 14, 13, 15, 11, 15, 15, 16,
+    ];
 
     let nodes = digraph.nodes_ordered();
     let n = nodes.len();
+    // census[t] counts triad-type index t (0 = "003" .. 15 = "300").
+    let mut census = [0usize; 16];
     if n < 3 {
-        // For fewer than 3 nodes, all triads are 003
-        let total_possible = if n < 3 { 0 } else { n * (n - 1) * (n - 2) / 6 };
-        *census.get_mut("003").unwrap() = total_possible;
-        return census;
+        // Fewer than 3 nodes => zero triads of every type (matches networkx).
+        return triad_names
+            .iter()
+            .map(|&nm| (nm.to_owned(), 0usize))
+            .collect();
     }
 
-    let idx: HashMap<&str, usize> = nodes.iter().enumerate().map(|(i, n)| (*n, i)).collect();
+    let idx: HashMap<&str, usize> = nodes.iter().enumerate().map(|(i, nd)| (*nd, i)).collect();
 
-    // Build adjacency sets for fast lookup
-    let mut succ_set: Vec<HashSet<usize>> = vec![HashSet::new(); n];
+    // succ[u] = out-neighbors, pred[u] = in-neighbors.
+    let mut succ: Vec<HashSet<usize>> = vec![HashSet::new(); n];
+    let mut pred: Vec<HashSet<usize>> = vec![HashSet::new(); n];
     for edge in digraph.edges_ordered() {
         let u = idx[edge.left.as_str()];
         let v = idx[edge.right.as_str()];
-        succ_set[u].insert(v);
+        succ[u].insert(v);
+        pred[v].insert(u);
     }
+    // nbrs[u] = succ[u] | pred[u] (neighbors ignoring direction).
+    let nbrs: Vec<HashSet<usize>> = (0..n)
+        .map(|u| succ[u].union(&pred[u]).copied().collect())
+        .collect();
 
-    // Classify each triple
-    for i in 0..n {
-        for j in (i + 1)..n {
-            for k in (j + 1)..n {
-                // Count directed edges among {i, j, k}
-                let ij = succ_set[i].contains(&j);
-                let ji = succ_set[j].contains(&i);
-                let ik = succ_set[i].contains(&k);
-                let ki = succ_set[k].contains(&i);
-                let jk = succ_set[j].contains(&k);
-                let kj = succ_set[k].contains(&j);
+    // 6-bit directed-edge code among the ordered triple (v, u, w).
+    let tricode = |succ: &[HashSet<usize>], v: usize, u: usize, w: usize| -> usize {
+        let mut code = 0usize;
+        if succ[v].contains(&u) {
+            code += 1;
+        }
+        if succ[u].contains(&v) {
+            code += 2;
+        }
+        if succ[v].contains(&w) {
+            code += 4;
+        }
+        if succ[w].contains(&v) {
+            code += 8;
+        }
+        if succ[u].contains(&w) {
+            code += 16;
+        }
+        if succ[w].contains(&u) {
+            code += 32;
+        }
+        code
+    };
 
-                let mutual_count =
-                    usize::from(ij && ji) + usize::from(ik && ki) + usize::from(jk && kj);
-                let asym_count = usize::from(ij ^ ji) + usize::from(ik ^ ki) + usize::from(jk ^ kj);
-                let null_count =
-                    usize::from(!ij && !ji) + usize::from(!ik && !ki) + usize::from(!jk && !kj);
-
-                let triad_type = match (mutual_count, asym_count, null_count) {
-                    (0, 0, 3) => "003",
-                    (0, 1, 2) => "012",
-                    (1, 0, 2) => "102",
-                    (0, 2, 1) => {
-                        // 021D, 021U, or 021C
-                        // Find the two asymmetric dyads
-                        let edges: Vec<(usize, usize)> =
-                            [(i, j, ij, ji), (i, k, ik, ki), (j, k, jk, kj)]
-                                .iter()
-                                .filter_map(|&(a, b, ab, ba)| {
-                                    if ab && !ba {
-                                        Some((a, b))
-                                    } else if ba && !ab {
-                                        Some((b, a))
-                                    } else {
-                                        None
-                                    }
-                                })
-                                .collect();
-                        if edges.len() == 2 {
-                            let (s1, t1) = edges[0];
-                            let (s2, t2) = edges[1];
-                            if s1 == s2 {
-                                "021D" // Same source: diverging
-                            } else if t1 == t2 {
-                                "021U" // Same target: converging
-                            } else {
-                                "021C" // Chain
-                            }
-                        } else {
-                            "021C"
-                        }
-                    }
-                    (1, 1, 1) => {
-                        // 111D or 111U
-                        // Find the mutual pair and the asymmetric edge
-                        let mut mutual_nodes = HashSet::new();
-                        if ij && ji {
-                            mutual_nodes.insert(i);
-                            mutual_nodes.insert(j);
-                        }
-                        if ik && ki {
-                            mutual_nodes.insert(i);
-                            mutual_nodes.insert(k);
-                        }
-                        if jk && kj {
-                            mutual_nodes.insert(j);
-                            mutual_nodes.insert(k);
-                        }
-
-                        // Find asymmetric edge source
-                        let asym_src = [(i, j, ij, ji), (i, k, ik, ki), (j, k, jk, kj)]
-                            .iter()
-                            .find_map(|&(a, b, ab, ba)| {
-                                if ab && !ba {
-                                    Some(a)
-                                } else if ba && !ab {
-                                    Some(b)
-                                } else {
-                                    None
-                                }
-                            });
-
-                        match asym_src {
-                            Some(src) if mutual_nodes.contains(&src) => "111U",
-                            _ => "111D",
-                        }
-                    }
-                    (0, 3, 0) => {
-                        // 030T or 030C
-                        // Check if it's a cycle (030C) or transitive (030T)
-                        let is_cycle = (ij && jk && ki) || (ji && kj && ik);
-                        if is_cycle { "030C" } else { "030T" }
-                    }
-                    (2, 0, 1) => "201",
-                    (1, 2, 0) => {
-                        // 120D, 120U, or 120C
-                        let mut mutual_pair = (0, 0);
-                        if ij && ji {
-                            mutual_pair = (i, j);
-                        } else if ik && ki {
-                            mutual_pair = (i, k);
-                        } else if jk && kj {
-                            mutual_pair = (j, k);
-                        }
-
-                        let (m1, m2) = mutual_pair;
-                        let other = [i, j, k]
-                            .iter()
-                            .find(|&&x| x != m1 && x != m2)
-                            .copied()
-                            .unwrap_or(0);
-
-                        // Two asymmetric edges involve 'other' and the mutual pair
-                        let to_other_from_m1 = succ_set[m1].contains(&other);
-                        let to_other_from_m2 = succ_set[m2].contains(&other);
-                        let from_other_to_m1 = succ_set[other].contains(&m1);
-                        let from_other_to_m2 = succ_set[other].contains(&m2);
-
-                        if to_other_from_m1 && to_other_from_m2 {
-                            "120U" // Both mutual nodes point to other
-                        } else if from_other_to_m1 && from_other_to_m2 {
-                            "120D" // Other points to both mutual nodes
-                        } else {
-                            "120C" // One in each direction
-                        }
-                    }
-                    (2, 1, 0) => "210",
-                    (3, 0, 0) => "300",
-                    _ => "003",
-                };
-
-                *census.get_mut(triad_type).unwrap() += 1;
+    for v in 0..n {
+        for &u in &nbrs[v] {
+            if u <= v {
+                continue;
+            }
+            // neighbors = (nbrs[v] | nbrs[u]) \ {u, v}
+            let neighbors: HashSet<usize> = nbrs[v]
+                .union(&nbrs[u])
+                .copied()
+                .filter(|&w| w != u && w != v)
+                .collect();
+            // Count each connected triad exactly once.
+            for &w in &neighbors {
+                if u < w || (v < w && w < u && !nbrs[w].contains(&v)) {
+                    let code = tricode(&succ, v, u, w);
+                    census[(TRICODES[code] - 1) as usize] += 1;
+                }
+            }
+            // Triads where the third node is unconnected to this dyad.
+            let delta = n - neighbors.len() - 2;
+            let u_mutual_v = succ[v].contains(&u) && pred[v].contains(&u);
+            if u_mutual_v {
+                census[2] += delta; // "102"
+            } else {
+                census[1] += delta; // "012"
             }
         }
     }
 
-    census
+    // "003" = total possible triads - all triads found.
+    let total: usize = n * (n - 1) * (n - 2) / 6;
+    let found: usize = census.iter().sum();
+    census[0] = total - found;
+
+    triad_names
+        .iter()
+        .enumerate()
+        .map(|(t, &nm)| (nm.to_owned(), census[t]))
+        .collect()
 }
 
 // ---------------------------------------------------------------------------
