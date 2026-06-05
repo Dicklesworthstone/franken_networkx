@@ -3578,15 +3578,43 @@ impl PyDiGraph {
                     .insert(canonical.clone(), attrs.bind(py).copy()?.unbind());
             }
         }
-        // Copy edges (merging directions).
-        for ((u, v), attrs) in &self.edge_py_attrs {
-            let rust_attrs = py_dict_to_attr_map(attrs.bind(py))?;
-            let _ = ug
-                .inner
-                .add_edge_with_attrs(u.clone(), v.clone(), rust_attrs);
-            let ek = PyGraph::edge_key(u, v);
-            if let std::collections::hash_map::Entry::Vacant(entry) = ug.edge_py_attrs.entry(ek) {
-                entry.insert(attrs.bind(py).copy()?.unbind());
+        // br-r37-c1-78os5: copy edges in canonical node->successor order
+        // (`edges_ordered`) — NOT `edge_py_attrs` HashMap order — and merge
+        // reciprocal directions with networkx's semantics: for a<->b the
+        // LATER-processed direction's attrs win (dict.update). The previous loop
+        // iterated the `edge_py_attrs` HashMap (non-deterministic order) and kept
+        // the FIRST-seen direction, so the reciprocal-edge winner was random and
+        // diverged from nx depending on the process's hash seed.
+        for snapshot in self.inner.edges_ordered() {
+            let u = snapshot.left;
+            let v = snapshot.right;
+            let ek = PyGraph::edge_key(&u, &v);
+            let src = self.edge_py_attrs.get(&(u.clone(), v.clone()));
+            // Inner: `add_edge_with_attrs` extends (updates) existing edge attrs,
+            // so node->successor order already yields nx's latter-wins merge.
+            let rust_attrs = match src {
+                Some(d) => py_dict_to_attr_map(d.bind(py))?,
+                None => AttrMap::new(),
+            };
+            let _ = ug.inner.add_edge_with_attrs(u, v, rust_attrs);
+            // Python side: latter wins -> update the existing undirected dict;
+            // otherwise insert a fresh copy.
+            match ug.edge_py_attrs.entry(ek) {
+                std::collections::hash_map::Entry::Occupied(existing) => {
+                    if let Some(d) = src {
+                        existing
+                            .get()
+                            .bind(py)
+                            .call_method1("update", (d.bind(py),))?;
+                    }
+                }
+                std::collections::hash_map::Entry::Vacant(entry) => {
+                    let copy = match src {
+                        Some(d) => d.bind(py).copy()?.unbind(),
+                        None => PyDict::new(py).unbind(),
+                    };
+                    entry.insert(copy);
+                }
             }
         }
         ug.graph_attrs = self.graph_attrs.bind(py).copy()?.unbind();
