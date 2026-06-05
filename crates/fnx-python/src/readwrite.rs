@@ -579,7 +579,7 @@ fn read_adjlist_simple(py: Python<'_>, path: &str) -> PyResult<Option<PyGraph>> 
     let mut inner = RustGraph::new(CompatibilityMode::Strict);
     let mut node_key_map: HashMap<String, PyObject> = HashMap::new();
     let mut node_py_attrs: HashMap<String, Py<PyDict>> = HashMap::new();
-    let mut edge_py_attrs: HashMap<(String, String), Py<PyDict>> = HashMap::new();
+    let edge_py_attrs: HashMap<(String, String), Py<PyDict>> = HashMap::new();
     let mut nodes_order: Vec<String> = Vec::new();
     let mut edges: Vec<(String, String)> = Vec::new();
     let mut canon_cache: HashMap<&str, String> = HashMap::new();
@@ -634,9 +634,9 @@ fn read_adjlist_simple(py: Python<'_>, path: &str) -> PyResult<Option<PyGraph>> 
                 &mut node_key_map,
                 &mut node_py_attrs,
             );
-            // Duplicate edges overwrite with an identical fresh empty dict —
-            // same content the delegated path produces.
-            edge_py_attrs.insert(PyGraph::edge_key(&cu, &cv), PyDict::new(py).unbind());
+            // Adjlist carries no edge attributes; keep the mirror sparse and
+            // let `materialize_edge_py_attrs` create the live dict only when
+            // Python asks for edge data or mutates an edge.
             edges.push((cu.clone(), cv));
         }
     }
