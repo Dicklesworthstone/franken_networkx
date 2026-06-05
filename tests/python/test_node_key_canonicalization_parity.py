@@ -111,3 +111,22 @@ def test_range_fast_path_preserves_display_key_parity():
     Hx.add_node(0.0)
     Hf.add_node(0.0)
     assert list(Hf.nodes()) == list(Hx.nodes())
+
+
+def test_range_fast_path_materializes_int_keys_for_native_algorithms():
+    Gx = nx.Graph()
+    Gf = fnx.Graph()
+    for graph in (Gx, Gf):
+        graph.add_nodes_from(range(12))
+        graph.add_edges_from((i, i + 1) for i in range(11))
+
+    assert list(Gf.nodes()) == list(Gx.nodes())
+    assert [type(node) for node in Gf.nodes()] == [type(node) for node in Gx.nodes()]
+    assert list(Gf.neighbors(0)) == list(Gx.neighbors(0))
+    assert list(Gf[0]) == list(Gx[0])
+    assert fnx.triangles(Gf, 0) == nx.triangles(Gx, 0)
+    assert fnx.triangles(Gf) == nx.triangles(Gx)
+    assert fnx.clustering(Gf, 0) == nx.clustering(Gx, 0)
+    assert dict(fnx.all_pairs_shortest_path_length(Gf)) == dict(
+        nx.all_pairs_shortest_path_length(Gx)
+    )
