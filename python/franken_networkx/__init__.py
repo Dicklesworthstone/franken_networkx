@@ -2482,7 +2482,10 @@ def _multi_add_edge_auto_key(raw_add_edge):
     return add_edge
 
 
-MultiGraph.add_edge = _multi_add_edge_auto_key(_MULTIGRAPH_ADD_EDGE)
+# br-r37-c1-kt0vp: PyMultiGraph.add_edge now owns the exact-type no-attr
+# fast path plus key=None auto-allocation, so the extra Python auto-key wrapper
+# only adds dispatch overhead on the measured public add_edge loop.
+MultiGraph.add_edge = _MULTIGRAPH_ADD_EDGE_RAW
 MultiDiGraph.add_edge = _multi_add_edge_auto_key(_MULTIDIGRAPH_ADD_EDGE)
 
 

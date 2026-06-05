@@ -1601,15 +1601,48 @@ impl PyMultiGraph {
         Ok(())
     }
 
-    #[pyo3(signature = (u, v, key=None, **attr))]
+    #[pyo3(signature = (u_for_edge, v_for_edge, key=None, **attr))]
     fn add_edge(
         &mut self,
         py: Python<'_>,
-        u: &Bound<'_, PyAny>,
-        v: &Bound<'_, PyAny>,
+        u_for_edge: &Bound<'_, PyAny>,
+        v_for_edge: &Bound<'_, PyAny>,
         key: Option<&Bound<'_, PyAny>>,
         attr: Option<&Bound<'_, PyDict>>,
     ) -> PyResult<PyObject> {
+        let u = u_for_edge;
+        let v = v_for_edge;
+        if u.is_none() || v.is_none() {
+            return Err(PyValueError::new_err("None cannot be a node"));
+        }
+        u.hash()?;
+        v.hash()?;
+        if let Some(explicit_key) = key
+            && !explicit_key.is_none()
+        {
+            explicit_key.hash()?;
+        }
+
+        let attr_is_empty = attr.is_none_or(|attrs| attrs.is_empty());
+        if attr_is_empty
+            && u.is_exact_instance_of::<PyInt>()
+            && v.is_exact_instance_of::<PyInt>()
+            && let Some(explicit_key) = key
+        {
+            if explicit_key.is_exact_instance_of::<PyInt>() {
+                if let Some(fast_key) =
+                    self.fast_add_explicit_fresh_int_endpoint_edge(py, u, v, explicit_key)?
+                {
+                    return Ok(fast_key);
+                }
+            } else if explicit_key.is_exact_instance_of::<PyString>()
+                && let Some(fast_key) =
+                    self.fast_add_explicit_fresh_int_endpoint_edge(py, u, v, explicit_key)?
+            {
+                return Ok(fast_key);
+            }
+        }
+
         let u_canonical = node_key_to_string(py, u)?;
         let v_canonical = node_key_to_string(py, v)?;
 

@@ -1,0 +1,14 @@
+  [2m2026-06-05T09:11:36.986966Z[0m [33m WARN[0m [1;33mrch::hook[0m[33m: [33mexec called with non-compilation command: hyperfine --warmup 2 --runs 10 --export-json tests/artifacts/perf/20260605T-multigraph-compact-int-substrate-kt0vp/after_native_wrapper_final_hyperfine.json 'env PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260603T-construction-string-key-current/bench_construction.py bench --case multigraph_str_keys --impl fnx --repeats 1' 'env PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260603T-construction-string-key-current/bench_construction.py bench --case multigraph_str_keys --impl nx --repeats 1'[0m
+    [2;3mat[0m rch/src/hook.rs:402 [2;3mon[0m ThreadId(1)
+
+Benchmark 1: env PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260603T-construction-string-key-current/bench_construction.py bench --case multigraph_str_keys --impl fnx --repeats 1
+  Time (mean ± σ):     676.0 ms ±  26.8 ms    [User: 4606.0 ms, System: 126.1 ms]
+  Range (min … max):   613.9 ms … 707.2 ms    10 runs
+ 
+Benchmark 2: env PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260603T-construction-string-key-current/bench_construction.py bench --case multigraph_str_keys --impl nx --repeats 1
+  Time (mean ± σ):     528.2 ms ±  29.5 ms    [User: 4458.8 ms, System: 93.2 ms]
+  Range (min … max):   484.4 ms … 595.4 ms    10 runs
+ 
+Summary
+  env PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260603T-construction-string-key-current/bench_construction.py bench --case multigraph_str_keys --impl nx --repeats 1 ran
+    1.28 ± 0.09 times faster than env PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260603T-construction-string-key-current/bench_construction.py bench --case multigraph_str_keys --impl fnx --repeats 1
