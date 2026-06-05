@@ -1,5 +1,0 @@
-  [2m2026-06-04T22:31:47.826968Z[0m [33m WARN[0m [1;33mrch::hook[0m[33m: [33mexec called with non-compilation command: hyperfine --warmup 2 --runs 12 --export-json tests/artifacts/perf/20260604T-codex-current-fallback-reprofile/baseline_nndbr_hyperfine.json 'python3 -c "import franken_networkx as fnx; G=fnx.Graph(); n=800; G.add_nodes_from(range(n)); G.add_edges_from((i,(i+k)%n) for i in range(n) for k in range(1,5)); [fnx.to_dict_of_dicts(G) for _ in range(2000)]"'[0m
-    [2;3mat[0m rch/src/hook.rs:402 [2;3mon[0m ThreadId(1)
-
-
-  Warning: The first benchmarking run for this command was significantly slower than the rest (6.687 s). This could be caused by (filesystem) caches that were not filled until after the first run. You are already using the '--warmup' option which helps to fill these caches before the actual benchmark. You can either try to increase the warmup count further or re-run this benchmark on a quiet system in case it was a random outlier. Alternatively, consider using the '--prepare' option to clear the caches before each timing run.

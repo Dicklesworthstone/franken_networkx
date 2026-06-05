@@ -1,1 +1,0 @@
-8ad06e408f196b037a68d3bd3111ceb57a00afea41dbefaec722accc1179d2e5  powerlaw_cluster_graph 750-case byte-exact vs nx (n{20,50,100,200,400} x m{1,2,3,4,6} x p{0,.1,.3,.5,.9,1} x 5 seeds), exact edge+node order

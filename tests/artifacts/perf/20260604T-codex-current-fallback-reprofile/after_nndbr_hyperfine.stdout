@@ -1,3 +1,0 @@
-Benchmark 1: python3 -c "import franken_networkx as fnx; G=fnx.Graph(); n=800; G.add_nodes_from(range(n)); G.add_edges_from((i,(i+k)%n) for i in range(n) for k in range(1,5)); [fnx.to_dict_of_dicts(G) for _ in range(2000)]"
-  Time (mean ± σ):      2.179 s ±  0.049 s    [User: 5.890 s, System: 0.393 s]
-  Range (min … max):    2.091 s …  2.281 s    12 runs

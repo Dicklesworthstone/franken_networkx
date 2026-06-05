@@ -1,7 +1,0 @@
-records 5
-all_match_networkx True
-identity_2_3 True
-identity_3_2 True
-mutation_alias_preserved True
-self_loop_identity True
-directed_identity_b_a True
