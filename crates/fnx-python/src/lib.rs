@@ -785,17 +785,10 @@ impl PyGraph {
         for (canonical, node) in new_nodes {
             self.node_key_map.entry(canonical).or_insert(node);
         }
-        for (u, v) in &edges {
-            self.node_py_attrs
-                .entry(u.clone())
-                .or_insert_with(|| PyDict::new(py).unbind());
-            self.node_py_attrs
-                .entry(v.clone())
-                .or_insert_with(|| PyDict::new(py).unbind());
-            self.edge_py_attrs
-                .entry(Self::edge_key(u, v))
-                .or_insert_with(|| PyDict::new(py).unbind());
-        }
+        // br-r37-c1-89kxg: NO eager empty mirror dicts — every reader goes
+        // through materialize_*/ensure_*/entry().or_insert, so absence is
+        // observationally identical to an empty dict. ~6700 PyDict allocs
+        // saved per 5217-edge build.
 
         let _inserted = self.inner.extend_edges_unrecorded(edges);
         self.nodes_seq = self.nodes_seq.wrapping_add(node_bumps);
@@ -937,19 +930,19 @@ impl PyGraph {
         for (canonical, node) in new_nodes {
             self.node_key_map.entry(canonical).or_insert(node);
         }
+        // br-r37-c1-89kxg: mirrors are LAZY — only attributed edges
+        // materialize a dict here (content copy); empty mirrors are
+        // created on first observation by the render paths.
         for (u, v, _, src) in &edges {
-            self.node_py_attrs
-                .entry(u.clone())
-                .or_insert_with(|| PyDict::new(py).unbind());
-            self.node_py_attrs
-                .entry(v.clone())
-                .or_insert_with(|| PyDict::new(py).unbind());
-            let mirror = self
-                .edge_py_attrs
-                .entry(Self::edge_key(u, v))
-                .or_insert_with(|| PyDict::new(py).unbind());
             if let Some(src) = src {
-                mirror.bind(py).update(src.bind(py).as_mapping())?;
+                let bound = src.bind(py);
+                if !bound.is_empty() {
+                    self.edge_py_attrs
+                        .entry(Self::edge_key(u, v))
+                        .or_insert_with(|| PyDict::new(py).unbind())
+                        .bind(py)
+                        .update(bound.as_mapping())?;
+                }
             }
         }
 
@@ -4432,28 +4425,25 @@ impl PyGraph {
                 self.maybe_store_adj_key(py, &v_canonical, &u_canonical, u);
             }
         }
-        self.node_py_attrs
-            .entry(u_canonical.clone())
-            .or_insert_with(|| PyDict::new(py).unbind());
-        self.node_py_attrs
-            .entry(v_canonical.clone())
-            .or_insert_with(|| PyDict::new(py).unbind());
-
+        // br-r37-c1-89kxg: mirrors are LAZY — node dicts and attr-less edge
+        // dicts are created on first observation by the render paths.
         // Build Rust AttrMap.
         let mut rust_attrs = AttrMap::new();
-        let ek = Self::edge_key(&u_canonical, &v_canonical);
-        let py_dict = self
-            .edge_py_attrs
-            .entry(ek)
-            .or_insert_with(|| PyDict::new(py).unbind());
-        if let Some(a) = attr {
+        if let Some(a) = attr
+            && !a.is_empty()
+        {
             rust_attrs = py_dict_to_attr_map(a)?;
+            let ek = Self::edge_key(&u_canonical, &v_canonical);
             // br-r37-c1-aefbatch: a single C-level dict.update copies all items
             // in one call instead of N Rust->Python set_item round-trips, which
             // dominated attributed edge construction (add_edges_from / from_dict
             // build paths were ~7x nx). The edge dict is freshly created for new
             // edges and merged-into for existing ones; update() matches both.
-            py_dict.bind(py).update(a.as_mapping())?;
+            self.edge_py_attrs
+                .entry(ek)
+                .or_insert_with(|| PyDict::new(py).unbind())
+                .bind(py)
+                .update(a.as_mapping())?;
         }
 
         log::debug!(target: "franken_networkx", "add_edge: {u_canonical} -- {v_canonical}");
