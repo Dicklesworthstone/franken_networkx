@@ -353,11 +353,93 @@ impl NodeView {
 // EdgeView — returned by G.edges
 // ---------------------------------------------------------------------------
 
+/// br-r37-c1-2zudj: inlined `PyGraph::py_node_key` for the edge-major
+/// materialization helper below (kept byte-identical to the method) so it can
+/// be called while `edge_py_attrs` is mutably borrowed via field-splitting.
+#[inline]
+fn edgeview_py_node_key(
+    py: Python<'_>,
+    node_key_map: &std::collections::HashMap<String, PyObject>,
+    lazy_int_node_stop: i64,
+    canonical: &str,
+) -> PyObject {
+    if let Some(obj) = node_key_map.get(canonical) {
+        return obj.clone_ref(py);
+    }
+    if let Ok(value) = canonical.parse::<i64>() {
+        if (0..lazy_int_node_stop).contains(&value) {
+            return crate::unwrap_infallible(value.into_pyobject(py))
+                .into_any()
+                .unbind();
+        }
+    }
+    crate::unwrap_infallible(canonical.to_owned().into_pyobject(py))
+        .into_any()
+        .unbind()
+}
+
+/// br-r37-c1-2zudj: one-pass `data=True` edge materialization. The previous
+/// code collected an owned `Vec<(String, String)>` of endpoints (two String
+/// clones per edge) just to release the `inner` borrow before calling the
+/// `&mut materialize_edge_py_attrs`. Field-split PyGraph instead so the
+/// immutable `inner`/`node_key_map` borrow coexists with the `&mut
+/// edge_py_attrs` borrow: iterate `edges_ordered_borrowed()` (nx EdgeView
+/// order) once, reuse/materialize the LIVE per-edge attr-dict handle (so the
+/// yielded dict `is G[u][v]`, matching nx + the prior behaviour), and build the
+/// tuple. `node_filter`, when set, keeps only edges with an endpoint in the set
+/// (the `G.edges(nbunch, data=True)` contract). Caller handles mark_edges_dirty.
+fn edge_alldata_items(
+    py: Python<'_>,
+    g: &mut PyGraph,
+    node_filter: Option<&std::collections::HashSet<String>>,
+) -> PyResult<Vec<PyObject>> {
+    let inner = &g.inner;
+    let edge_py_attrs = &mut g.edge_py_attrs;
+    let node_key_map = &g.node_key_map;
+    let lazy_stop = g.lazy_int_node_stop;
+    let mut items = Vec::with_capacity(inner.edge_count());
+    for (left, right, _attrs) in inner.edges_ordered_borrowed() {
+        if let Some(ns) = node_filter {
+            if !(ns.contains(left) || ns.contains(right)) {
+                continue;
+            }
+        }
+        let py_u = edgeview_py_node_key(py, node_key_map, lazy_stop, left);
+        let py_v = edgeview_py_node_key(py, node_key_map, lazy_stop, right);
+        let dict = edge_py_attrs
+            .entry(PyGraph::edge_key(left, right))
+            .or_insert_with(|| PyDict::new(py).unbind())
+            .clone_ref(py)
+            .into_any();
+        items.push(tuple_object(py, &[py_u, py_v, dict])?);
+    }
+    Ok(items)
+}
+
 /// A view of the graph's edges. Supports ``len``, ``in``, iteration, and ``[]``.
 #[pyclass(module = "franken_networkx")]
 pub struct EdgeView {
     graph: Py<PyGraph>,
     data: NodeViewData,
+}
+
+impl EdgeView {
+    /// br-r37-c1-edgesetborrow: collect (u, v) tuples for the set-algebra
+    /// operators, scoping the graph borrow to this call so it is released
+    /// before the caller iterates the `other` operand (which may borrow_mut the
+    /// same graph when it is a view over it).
+    fn collect_edge_tuples(&self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
+        let g = self.graph.borrow(py);
+        g.inner
+            .edges_ordered_borrowed()
+            .into_iter()
+            .map(|(left, right, _)| {
+                let py_u = g.py_node_key(py, left);
+                let py_v = g.py_node_key(py, right);
+                tuple_object(py, &[py_u, py_v])
+            })
+            .collect()
+    }
 }
 
 #[pymethods]
@@ -383,27 +465,15 @@ impl EdgeView {
     fn __iter__(&self, py: Python<'_>) -> PyResult<Py<NodeViewIterator>> {
         let (items, node_count, nodes_seq) = match &self.data {
             NodeViewData::AllData => {
+                // br-r37-c1-2zudj: one-pass field-split materialization (see
+                // edge_alldata_items) — was a two-pass owned-String collection.
                 let mut g = self.graph.borrow_mut(py);
                 if g.inner.edge_count() > 0 {
                     g.mark_edges_dirty();
                 }
                 let node_count = g.inner.node_count();
                 let nodes_seq = g.nodes_seq;
-                let edges: Vec<(String, String)> = g
-                    .inner
-                    .edges_ordered_borrowed()
-                    .into_iter()
-                    .map(|(left, right, _attrs)| (left.to_owned(), right.to_owned()))
-                    .collect();
-                let items = edges
-                    .iter()
-                    .map(|(left, right)| {
-                        let py_u = g.py_node_key(py, left);
-                        let py_v = g.py_node_key(py, right);
-                        let attrs = g.materialize_edge_py_attrs(py, left, right).into_any();
-                        tuple_object(py, &[py_u, py_v, attrs])
-                    })
-                    .collect::<PyResult<Vec<_>>>()?;
+                let items = edge_alldata_items(py, &mut g, None)?;
                 (items, node_count, nodes_seq)
             }
             _ => {
@@ -509,28 +579,13 @@ impl EdgeView {
                 view_data = NodeViewData::AttrWithDefault(attr.clone(), def.clone().unbind());
             }
             let items: Vec<PyObject> = if matches!(&view_data, NodeViewData::AllData) {
+                // br-r37-c1-2zudj: one-pass field-split materialization with the
+                // nbunch node filter (see edge_alldata_items).
                 let mut g = self.graph.borrow_mut(py);
                 if g.inner.edge_count() > 0 {
                     g.mark_edges_dirty();
                 }
-                let edges: Vec<(String, String)> = g
-                    .inner
-                    .edges_ordered_borrowed()
-                    .into_iter()
-                    .filter(|(left, right, _)| {
-                        node_set.contains(*left) || node_set.contains(*right)
-                    })
-                    .map(|(left, right, _attrs)| (left.to_owned(), right.to_owned()))
-                    .collect();
-                edges
-                    .iter()
-                    .map(|(left, right)| {
-                        let py_u = g.py_node_key(py, left);
-                        let py_v = g.py_node_key(py, right);
-                        let attrs = g.materialize_edge_py_attrs(py, left, right).into_any();
-                        tuple_object(py, &[py_u, py_v, attrs])
-                    })
-                    .collect::<PyResult<Vec<_>>>()?
+                edge_alldata_items(py, &mut g, Some(&node_set))?
             } else {
                 let g = self.graph.borrow(py);
                 // br-r37-c1-eqedg: use edges_ordered_borrowed to avoid string cloning
@@ -586,18 +641,12 @@ impl EdgeView {
 
     /// Union: self | other
     fn __or__(&self, py: Python<'_>, other: &Bound<'_, PyAny>) -> PyResult<PyObject> {
-        let g = self.graph.borrow(py);
-        // br-r37-c1-eqedg: use edges_ordered_borrowed
-        let self_edges: Vec<PyObject> = g
-            .inner
-            .edges_ordered_borrowed()
-            .into_iter()
-            .map(|(left, right, _)| {
-                let py_u = g.py_node_key(py, left);
-                let py_v = g.py_node_key(py, right);
-                tuple_object(py, &[py_u, py_v])
-            })
-            .collect::<PyResult<Vec<_>>>()?;
+        // br-r37-c1-edgesetborrow: collect self's edges and DROP the graph
+        // borrow before iterating `other`. When `other` is a view over the same
+        // graph (e.g. a subgraph view), its iteration borrow_mut's the graph
+        // (AtlasView.__getitem__), which panicked "Already borrowed" while this
+        // method held an immutable borrow across the `other` iteration.
+        let self_edges = self.collect_edge_tuples(py)?;
         let self_set = pyo3::types::PySet::new(py, self_edges.iter())?;
         for item in PyIterator::from_object(other)? {
             self_set.add(item?)?;
@@ -607,17 +656,14 @@ impl EdgeView {
 
     /// Intersection: self & other
     fn __and__(&self, py: Python<'_>, other: &Bound<'_, PyAny>) -> PyResult<PyObject> {
-        let g = self.graph.borrow(py);
+        // br-r37-c1-edgesetborrow: drop the graph borrow before iterating `other`.
+        let self_edges = self.collect_edge_tuples(py)?;
         let other_vec: Vec<PyObject> = PyIterator::from_object(other)?
             .map(|r| r.map(|o| o.unbind()))
             .collect::<PyResult<Vec<_>>>()?;
         let other_set = pyo3::types::PySet::new(py, other_vec.iter())?;
         let mut result = Vec::new();
-        // br-r37-c1-eqedg: use edges_ordered_borrowed
-        for (left, right, _) in g.inner.edges_ordered_borrowed() {
-            let py_u = g.py_node_key(py, left);
-            let py_v = g.py_node_key(py, right);
-            let py_edge = tuple_object(py, &[py_u, py_v])?;
+        for py_edge in self_edges {
             if other_set.contains(&py_edge)? {
                 result.push(py_edge);
             }
@@ -628,17 +674,14 @@ impl EdgeView {
 
     /// Difference: self - other
     fn __sub__(&self, py: Python<'_>, other: &Bound<'_, PyAny>) -> PyResult<PyObject> {
-        let g = self.graph.borrow(py);
+        // br-r37-c1-edgesetborrow: drop the graph borrow before iterating `other`.
+        let self_edges = self.collect_edge_tuples(py)?;
         let other_vec: Vec<PyObject> = PyIterator::from_object(other)?
             .map(|r| r.map(|o| o.unbind()))
             .collect::<PyResult<Vec<_>>>()?;
         let other_set = pyo3::types::PySet::new(py, other_vec.iter())?;
         let mut result = Vec::new();
-        // br-r37-c1-eqedg: use edges_ordered_borrowed
-        for (left, right, _) in g.inner.edges_ordered_borrowed() {
-            let py_u = g.py_node_key(py, left);
-            let py_v = g.py_node_key(py, right);
-            let py_edge = tuple_object(py, &[py_u, py_v])?;
+        for py_edge in self_edges {
             if !other_set.contains(&py_edge)? {
                 result.push(py_edge);
             }
@@ -649,18 +692,8 @@ impl EdgeView {
 
     /// Symmetric difference: self ^ other
     fn __xor__(&self, py: Python<'_>, other: &Bound<'_, PyAny>) -> PyResult<PyObject> {
-        let g = self.graph.borrow(py);
-        // br-r37-c1-eqedg: use edges_ordered_borrowed
-        let self_edges: Vec<PyObject> = g
-            .inner
-            .edges_ordered_borrowed()
-            .into_iter()
-            .map(|(left, right, _)| {
-                let py_u = g.py_node_key(py, left);
-                let py_v = g.py_node_key(py, right);
-                tuple_object(py, &[py_u, py_v])
-            })
-            .collect::<PyResult<Vec<_>>>()?;
+        // br-r37-c1-edgesetborrow: drop the graph borrow before iterating `other`.
+        let self_edges = self.collect_edge_tuples(py)?;
         let self_set = pyo3::types::PySet::new(py, self_edges.iter())?;
         let other_vec: Vec<PyObject> = PyIterator::from_object(other)?
             .map(|r| r.map(|o| o.unbind()))
