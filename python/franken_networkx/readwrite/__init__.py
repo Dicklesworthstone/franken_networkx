@@ -159,6 +159,28 @@ def _read_adjlist_via_nx(
     """Private helper (br-rdedge sibling): parse adjacency list via nx."""
     import networkx as nx
 
+    # br-r37-c1-770mm: default-kwargs fast path — parse straight into the
+    # final Rust graph (single pass, str node keys, empty attrs) instead of
+    # paying nx parse + per-edge _from_nx_graph rebuild (~7.3x nx). The
+    # kernel returns None for anything it can't replicate exactly
+    # (blank/whitespace-only lines raise IndexError in nx, missing or
+    # non-UTF-8 files have nx-defined errors), falling through to the
+    # delegated path below.
+    if (
+        comments == "#"
+        and delimiter is None
+        and nodetype is None
+        and encoding == "utf-8"
+        and isinstance(path, str)
+        and not path.endswith((".gz", ".bz2"))
+    ):
+        import franken_networkx as fnx
+
+        if create_using is None or create_using is fnx.Graph:
+            native = fnx._fnx.read_adjlist_simple(path)
+            if native is not None:
+                return native
+
     nx_graph = nx.read_adjlist(
         path,
         comments=comments,

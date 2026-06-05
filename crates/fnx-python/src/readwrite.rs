@@ -14,11 +14,13 @@ use crate::{
 use fnx_classes::Graph as RustGraph;
 use fnx_classes::digraph::DiGraph as RustDiGraph;
 use fnx_readwrite::{DiReadWriteReport, EdgeListEngine, ReadWriteError, ReadWriteReport};
+use fnx_runtime::CompatibilityMode;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
 use pyo3::types::PyDict;
 use pyo3::types::PyList;
+use pyo3::types::PyString;
 use serde_json::Value as JsonValue;
 use std::collections::HashMap;
 use std::sync::atomic::AtomicBool;
@@ -402,6 +404,142 @@ fn read_adjlist(py: Python<'_>, path: &Bound<'_, PyAny>) -> PyResult<PyGraph> {
         .allow_threads(|| engine.read_adjlist(&input))
         .map_err(rw_error_to_py)?;
     report_to_pygraph(py, report)
+}
+
+/// br-r37-c1-770mm: single-pass native fast path for `read_adjlist` with
+/// default kwargs (comments="#", delimiter=None, nodetype=None,
+/// encoding="utf-8", create_using=None/Graph). Parses the adjacency-list
+/// text directly into the FINAL `PyGraph` — no intermediate engine graph,
+/// no nx round-trip, no per-edge `_from_nx_graph` rebuild (the tax that
+/// made the delegated path ~7.3x slower than nx).
+///
+/// Parity contract (mirrors `nx.parse_adjlist` line-for-line):
+/// - per-line comment strip at the first `#`, then `continue` only when the
+///   strip left an empty string (nx checks `len(line)` BEFORE `.strip()`,
+///   and an uncommented line always retains its `\n`, so a blank or
+///   whitespace-only line reaches `vlist.pop(0)` and raises IndexError in
+///   nx — we return `None` so the wrapper's delegated path raises the
+///   byte-identical error);
+/// - whitespace tokenization == `str.split(None)` (Rust `split_whitespace`
+///   matches: runs of Unicode whitespace, incl. `\t` and `\r`);
+/// - node insertion order = source first, then targets in line order;
+///   duplicate edges keep the first insertion (empty attrs either way);
+/// - `CompatibilityMode::Strict` to match the graph the delegated path
+///   builds via the default `fnx.Graph()` constructor (the older
+///   `read_adjlist` engine kernel above is Hardened-mode and double-builds,
+///   which is why it is NOT the fast path).
+///
+/// Returns `None` (caller falls back to the nx-delegated path) for missing
+/// or non-UTF-8 files so nx defines those error surfaces exactly.
+/// Canonicalize an adjlist token, registering the node (order, Python key,
+/// attr dict) on first appearance. Returns the canonical id; repeated
+/// appearances cost one hash lookup + one String clone.
+fn canon_token<'a>(
+    py: Python<'_>,
+    token: &'a str,
+    cache: &mut HashMap<&'a str, String>,
+    nodes_order: &mut Vec<String>,
+    node_key_map: &mut HashMap<String, PyObject>,
+    node_py_attrs: &mut HashMap<String, Py<PyDict>>,
+) -> String {
+    if let Some(c) = cache.get(token) {
+        return c.clone();
+    }
+    let c = format!("str:{}:{token}", token.len());
+    cache.insert(token, c.clone());
+    nodes_order.push(c.clone());
+    node_key_map.insert(c.clone(), PyString::new(py, token).into_any().unbind());
+    node_py_attrs.insert(c.clone(), PyDict::new(py).unbind());
+    c
+}
+
+#[pyfunction]
+#[pyo3(signature = (path,))]
+fn read_adjlist_simple(py: Python<'_>, path: &str) -> PyResult<Option<PyGraph>> {
+    let Ok(content) = std::fs::read_to_string(path) else {
+        return Ok(None);
+    };
+
+    let mut inner = RustGraph::new(CompatibilityMode::Strict);
+    let mut node_key_map: HashMap<String, PyObject> = HashMap::new();
+    let mut node_py_attrs: HashMap<String, Py<PyDict>> = HashMap::new();
+    let mut edge_py_attrs: HashMap<(String, String), Py<PyDict>> = HashMap::new();
+    let mut nodes_order: Vec<String> = Vec::new();
+    let mut edges: Vec<(String, String)> = Vec::new();
+    let mut canon_cache: HashMap<&str, String> = HashMap::new();
+
+    let mut lines: Vec<&str> = content.split('\n').collect();
+    if content.ends_with('\n') {
+        // `split` yields a synthetic trailing "" that file iteration never
+        // produces; a *real* interior blank line stays in `lines` and bails
+        // below (nx raises IndexError on it).
+        lines.pop();
+    }
+
+    for raw in lines {
+        let (line, had_comment) = match raw.find('#') {
+            Some(p) => (&raw[..p], true),
+            None => (raw, false),
+        };
+        if had_comment && line.is_empty() {
+            // nx: comment at column 0 strips to "" -> `continue`. Without a
+            // comment the nx line keeps its trailing newline so it is never
+            // empty — that case falls through to the bail-out below.
+            continue;
+        }
+        let mut tokens = line.split_whitespace();
+        let Some(u) = tokens.next() else {
+            // Blank/whitespace-only line: nx raises
+            // IndexError("pop from empty list") — delegate for exactness.
+            return Ok(None);
+        };
+        // Canonical node id for a str key is "str:{byte_len}:{s}" — must
+        // match `node_key_to_string` exactly or adjacency lookups KeyError.
+        // Nodes are registered on first appearance (order preserved); edges
+        // are batched and inserted via the unrecorded bulk paths below,
+        // which skip the per-element `record_decision` ledger push
+        // (timestamp syscall + several String allocs each) that dominates
+        // per-edge construction. `canon` caches token -> canonical so each
+        // repeated token costs one hash lookup, not a fresh format!.
+        let cu = canon_token(
+            py,
+            u,
+            &mut canon_cache,
+            &mut nodes_order,
+            &mut node_key_map,
+            &mut node_py_attrs,
+        );
+        for v in tokens {
+            let cv = canon_token(
+                py,
+                v,
+                &mut canon_cache,
+                &mut nodes_order,
+                &mut node_key_map,
+                &mut node_py_attrs,
+            );
+            // Duplicate edges overwrite with an identical fresh empty dict —
+            // same content the delegated path produces.
+            edge_py_attrs.insert(PyGraph::edge_key(&cu, &cv), PyDict::new(py).unbind());
+            edges.push((cu.clone(), cv));
+        }
+    }
+
+    let _ = inner.extend_nodes_unrecorded(nodes_order);
+    let _ = inner.extend_edges_unrecorded(edges);
+
+    Ok(Some(PyGraph {
+        inner,
+        node_key_map,
+        lazy_int_node_stop: 0,
+        node_py_attrs,
+        edge_py_attrs,
+        dict_of_dicts_cache: None,
+        graph_attrs: PyDict::new(py).unbind(),
+        nodes_seq: 0,
+        edges_seq: 0,
+        edges_dirty: AtomicBool::new(false),
+    }))
 }
 
 #[pyfunction]
@@ -1308,6 +1446,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(read_edgelist, m)?)?;
     m.add_function(wrap_pyfunction!(write_edgelist, m)?)?;
     m.add_function(wrap_pyfunction!(read_adjlist, m)?)?;
+    m.add_function(wrap_pyfunction!(read_adjlist_simple, m)?)?;
     m.add_function(wrap_pyfunction!(write_adjlist, m)?)?;
     m.add_function(wrap_pyfunction!(node_link_data, m)?)?;
     m.add_function(wrap_pyfunction!(node_link_graph, m)?)?;
