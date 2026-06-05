@@ -12859,19 +12859,11 @@ def ancestors(G, source):
     hash(source)
     if source not in G:
         raise NetworkXError(_ancestors_descendants_missing_node_msg(G, source))
-    if G.is_directed():
-        return set(_raw_ancestors(G, source))
-    from collections import deque as _deque
-    seen = {source}
-    q = _deque([source])
-    while q:
-        n = q.popleft()
-        for nbr in G[n]:
-            if nbr not in seen:
-                seen.add(nbr)
-                q.append(nbr)
-    seen.discard(source)
-    return seen
+    # br-r37-c1-descbfs: native kernel handles undirected (component BFS) and
+    # directed (predecessor reachability) — see algorithms.rs::ancestors. The
+    # previous undirected Python BFS over G[n] paid the per-neighbor PyO3 tax.
+    # Returns a plain set (order-invariant) matching nx.
+    return set(_raw_ancestors(G, source))
 
 
 def descendants(G, source):
@@ -12888,19 +12880,13 @@ def descendants(G, source):
     hash(source)
     if source not in G:
         raise NetworkXError(_ancestors_descendants_missing_node_msg(G, source))
-    if G.is_directed():
-        return set(_raw_descendants(G, source))
-    from collections import deque as _deque
-    seen = {source}
-    q = _deque([source])
-    while q:
-        n = q.popleft()
-        for nbr in G[n]:
-            if nbr not in seen:
-                seen.add(nbr)
-                q.append(nbr)
-    seen.discard(source)
-    return seen
+    # br-r37-c1-descbfs: the native kernel handles BOTH directed (successor
+    # reachability) and undirected (component BFS via bfs_edges) — see
+    # algorithms.rs::descendants. The previous undirected branch ran a Python
+    # BFS over the lazy AtlasView (per-neighbor PyO3 tax, ~5x slower than nx);
+    # route it through the native kernel too. Returns a plain set (order-
+    # invariant) matching nx.
+    return set(_raw_descendants(G, source))
 
 
 def topological_sort(G):
