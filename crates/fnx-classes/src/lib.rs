@@ -1614,9 +1614,14 @@ impl MultiGraph {
             return false;
         }
 
-        // br-r37-c1-rmnode-di: clean up neighbours' adjacency (O(degree)), then
-        // remove ALL incident edge buckets in ONE O(|distinct pairs|) `retain`
-        // pass — instead of O(degree * |pairs|) per-edge shift_remove.
+        // br-r37-c1-p6bxu: drop each incident edge bucket with O(1) `swap_remove`
+        // (the `edges` IndexMap order is never observed externally — every public
+        // consumer reads via `edges_ordered`, which walks node->neighbor order;
+        // no internal consumer iterates the map order). The incident pairs are
+        // known exactly from this node's adjacency (each distinct neighbor maps
+        // to one canonical bucket, self-loops included), so removal is O(degree)
+        // instead of the O(|distinct pairs|) `retain` scan — matching nx.
+        let mut removed_count = 0usize;
         if let Some(neighbors) = self.adjacency.get(node) {
             let neighbor_names: Vec<String> = neighbors.keys().cloned().collect();
             for neighbor in neighbor_names {
@@ -1625,16 +1630,11 @@ impl MultiGraph {
                 {
                     remote_neighbors.shift_remove(node);
                 }
+                if let Some(bucket) = self.edges.swap_remove(&EdgeKeyRef::new(node, &neighbor)) {
+                    removed_count += bucket.len();
+                }
             }
         }
-        let mut removed_count = 0usize;
-        self.edges.retain(|k, bucket| {
-            let keep = k.left != node && k.right != node;
-            if !keep {
-                removed_count += bucket.len();
-            }
-            keep
-        });
         self.edge_count -= removed_count;
 
         // Remove node from adjacency and nodes maps.
@@ -2128,6 +2128,87 @@ mod tests {
         assert!(graph.remove_node("b"));
         assert_eq!(graph.node_count(), 2);
         assert_eq!(graph.edge_count(), 0);
+    }
+
+    // br-r37-c1-p6bxu: A/B substrate bench for MultiGraph::remove_node
+    // (O(degree) swap_remove vs the old O(|E|) retain). Ignored by default;
+    // run with `cargo test -p fnx-classes --release ab_bench_multigraph_remove_node
+    // -- --ignored --nocapture`. Also asserts byte-exact parity (node_count,
+    // edge_count, edges_ordered) between the two paths.
+    #[test]
+    #[ignore]
+    fn ab_bench_multigraph_remove_node() {
+        use std::time::Instant;
+        const N: usize = 1000;
+        const M: usize = 8000;
+        const ITERS: usize = 500;
+        let build = || {
+            let mut g = MultiGraph::new(CompatibilityMode::Strict);
+            for i in 0..N {
+                let _ = g.add_node(i.to_string());
+            }
+            let mut s: u64 = 0x9E3779B97F4A7C15;
+            let mut next = || {
+                s = s
+                    .wrapping_mul(6364136223846793005)
+                    .wrapping_add(1442695040888963407);
+                (s >> 33) as usize % N
+            };
+            for _ in 0..M {
+                let a = next();
+                let b = next();
+                let _ = g.add_edge(a.to_string(), b.to_string());
+            }
+            g
+        };
+
+        let mut gnew = build();
+        let victims: Vec<String> = gnew.nodes.keys().take(ITERS).cloned().collect();
+        let t = Instant::now();
+        for node in &victims {
+            gnew.remove_node(node);
+        }
+        let new_t = t.elapsed();
+
+        // OLD path: full O(|E|) retain per removal.
+        let mut gold = build();
+        let t = Instant::now();
+        for node in &victims {
+            if !gold.nodes.contains_key(node) {
+                continue;
+            }
+            if let Some(neighbors) = gold.adjacency.get(node) {
+                let names: Vec<String> = neighbors.keys().cloned().collect();
+                for nb in names {
+                    if nb != *node
+                        && let Some(rn) = gold.adjacency.get_mut(&nb)
+                    {
+                        rn.shift_remove(node.as_str());
+                    }
+                }
+            }
+            let mut rc = 0usize;
+            let nd = node.clone();
+            gold.edges.retain(|k, bucket| {
+                let keep = k.left != nd && k.right != nd;
+                if !keep {
+                    rc += bucket.len();
+                }
+                keep
+            });
+            gold.edge_count -= rc;
+            gold.adjacency.shift_remove(node);
+            gold.nodes.shift_remove(node);
+        }
+        let old_t = t.elapsed();
+
+        assert_eq!(gnew.node_count(), gold.node_count());
+        assert_eq!(gnew.edge_count(), gold.edge_count());
+        assert_eq!(gnew.edges_ordered(), gold.edges_ordered());
+        eprintln!(
+            "MultiGraph remove_node x{ITERS}: retain {old_t:?} -> swap_remove {new_t:?} = {:.2}x",
+            old_t.as_secs_f64() / new_t.as_secs_f64()
+        );
     }
 
     #[test]
