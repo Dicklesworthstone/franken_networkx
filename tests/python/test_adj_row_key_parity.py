@@ -282,6 +282,15 @@ def test_multigraph_uniform_unchanged():
         lambda m: (m.add_edge(1, 2, label="a"), m.add_edge(1, 2, label="b"), m.remove_edge(1, 2, key=0), m.add_edge(1, 2)),
         lambda m: (m.add_edge(1, 2, label="y"), m.remove_edges_from([(1, 2)]), m.add_edge(1, 2)),
         lambda m: (m.add_edge(1, 2, label="y"), m.remove_node(2), m.add_edge(1, 2)),
+        # br-r37-c1-0a0uo: NON-emptying removal (parallel key survives) must
+        # also purge the removed key's mirror — re-add resurrected the attrs
+        # (metamorphic fuzz seeds 48/184/203).
+        lambda m: (m.add_edge(4, 3), m.add_edge(4, 3, weight=7), m.remove_edge(4, 3), m.add_edge(4, 3)),
+        lambda m: (m.add_edge(4, 3), m.add_edge(4, 3, weight=7), m.remove_edges_from([(4, 3)]), m.add_edge(4, 3)),
+        # keyed non-last removal leaves a latent stale slot — flush it too
+        lambda m: (m.add_edge(4, 3, weight=9), m.add_edge(4, 3), m.remove_edge(4, 3, key=0), m.add_edge(4, 3), m.add_edge(4, 3)),
+        # reversed-orientation re-add after non-emptying removal
+        lambda m: (m.add_edge(4, 3), m.add_edge(4, 3, weight=7), m.remove_edge(4, 3), m.add_edges_from([(3, 4), (3, 4)]), m.add_edge(4, 3)),
     ],
 )
 def test_multigraph_removal_purges_mirror_entries(build):

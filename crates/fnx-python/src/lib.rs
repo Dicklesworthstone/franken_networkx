@@ -2391,6 +2391,16 @@ impl PyMultiGraph {
                 v.repr()?
             )));
         }
+        if let Some(removed_key) = auto_removal_key {
+            // br-r37-c1-0a0uo: purge the removed key's mirror entries even
+            // when OTHER parallel keys survive — the bucket-emptying purge
+            // below only runs when the pair empties, so a non-emptying
+            // removal left a stale attrs dict that a re-added edge at the
+            // same internal slot silently resurrected (add(4,3); add(4,3,
+            // weight=7); remove_edge(4,3); add(4,3) showed weight=7 again;
+            // metamorphic fuzz seeds 48/184/203).
+            self.remove_edge_metadata(&u_canonical, &v_canonical, removed_key);
+        }
         if !self.inner.has_edge(&u_canonical, &v_canonical) {
             if !self.adj_py_keys.is_empty() {
                 // br-r37-c1-z6uka: the LAST parallel key removed empties the
