@@ -101,6 +101,56 @@ impl PyMultiDiGraph {
             )
     }
 
+    /// br-r37-c1-z6uka: succ-cell display object (see PyDiGraph::py_succ_key;
+    /// a multi cell is created by the FIRST key of a (u, v) pair and parallel
+    /// keys reuse it).
+    pub(crate) fn py_succ_key(&self, py: Python<'_>, owner: &str, nbr: &str) -> PyObject {
+        if !self.succ_py_keys.is_empty()
+            && let Some(obj) = self.succ_py_keys.get(&(owner.to_owned(), nbr.to_owned()))
+        {
+            return obj.clone_ref(py);
+        }
+        self.py_node_key(py, nbr)
+    }
+
+    /// br-r37-c1-z6uka: pred-cell display object.
+    pub(crate) fn py_pred_key(&self, py: Python<'_>, owner: &str, nbr: &str) -> PyObject {
+        if !self.pred_py_keys.is_empty()
+            && let Some(obj) = self.pred_py_keys.get(&(owner.to_owned(), nbr.to_owned()))
+        {
+            return obj.clone_ref(py);
+        }
+        self.py_node_key(py, nbr)
+    }
+
+    /// br-r37-c1-z6uka: record per-cell overrides for a NEWLY created
+    /// (u, v) cell — succ[u][v] keeps v's object, pred[v][u] keeps u's
+    /// (both apply for self-loops: distinct dict cells in nx).
+    fn maybe_store_row_keys(
+        &mut self,
+        py: Python<'_>,
+        u_canonical: &str,
+        v_canonical: &str,
+        u: &Bound<'_, PyAny>,
+        v: &Bound<'_, PyAny>,
+    ) {
+        let differs = |canonical: &str, passed: &Bound<'_, PyAny>| -> bool {
+            self.node_key_map.get(canonical).is_some_and(|stored| {
+                crate::PyGraph::display_objs_conflict(stored.bind(py), passed)
+            })
+        };
+        if differs(v_canonical, v) {
+            self.succ_py_keys
+                .entry((u_canonical.to_owned(), v_canonical.to_owned()))
+                .or_insert_with(|| v.clone().unbind());
+        }
+        if differs(u_canonical, u) {
+            self.pred_py_keys
+                .entry((v_canonical.to_owned(), u_canonical.to_owned()))
+                .or_insert_with(|| u.clone().unbind());
+        }
+    }
+
     fn remember_edge_key(
         &mut self,
         py: Python<'_>,
@@ -234,7 +284,11 @@ impl MultiDiAtlasView {
         };
         let result = PyDict::new(py);
         for neighbor in neighbors {
-            let py_neighbor = g.py_node_key(py, neighbor);
+            let py_neighbor = match self.kind {
+                // br-r37-c1-z6uka
+                MultiDiAdjKind::Successors => g.py_succ_key(py, &self.node, neighbor),
+                MultiDiAdjKind::Predecessors => g.py_pred_key(py, &self.node, neighbor),
+            };
             let (source, target) = self.endpoint_pair(neighbor.to_owned());
             let keydict = MultiDiKeyDictView::new(self.graph.clone_ref(py), source, target)
                 .materialize(py)?;
@@ -290,9 +344,12 @@ impl MultiDiAtlasView {
             MultiDiAdjKind::Successors => g.inner.successors(&self.node).unwrap_or_default(),
             MultiDiAdjKind::Predecessors => g.inner.predecessors(&self.node).unwrap_or_default(),
         };
-        let nodes: Vec<PyObject> = neighbors
+        let nodes: Vec<PyObject> = neighbors // br-r37-c1-z6uka
             .iter()
-            .map(|node| g.py_node_key(py, node))
+            .map(|node| match self.kind {
+                MultiDiAdjKind::Successors => g.py_succ_key(py, &self.node, node),
+                MultiDiAdjKind::Predecessors => g.py_pred_key(py, &self.node, node),
+            })
             .collect();
         Py::new(py, crate::NodeIterator::unguarded(nodes))
     }
@@ -309,7 +366,11 @@ impl MultiDiAtlasView {
         };
         let mut out = Vec::with_capacity(neighbors.len());
         for neighbor in neighbors {
-            let py_neighbor = g.py_node_key(py, neighbor);
+            let py_neighbor = match self.kind {
+                // br-r37-c1-z6uka
+                MultiDiAdjKind::Successors => g.py_succ_key(py, &self.node, neighbor),
+                MultiDiAdjKind::Predecessors => g.py_pred_key(py, &self.node, neighbor),
+            };
             let (source, target) = self.endpoint_pair(neighbor.to_owned());
             out.push((
                 py_neighbor,
@@ -354,7 +415,11 @@ impl MultiDiAtlasView {
         };
         let result = PyDict::new(py);
         for neighbor in neighbors {
-            let py_neighbor = g.py_node_key(py, neighbor);
+            let py_neighbor = match self.kind {
+                // br-r37-c1-z6uka
+                MultiDiAdjKind::Successors => g.py_succ_key(py, &self.node, neighbor),
+                MultiDiAdjKind::Predecessors => g.py_pred_key(py, &self.node, neighbor),
+            };
             let (source, target) = self.endpoint_pair(neighbor.to_owned());
             let keydict =
                 MultiDiKeyDictView::new(self.graph.clone_ref(py), source, target).copy(py)?;
@@ -886,6 +951,11 @@ impl PyMultiDiGraph {
         if __was_new {
             self.bump_nodes_seq();
         }
+        // br-r37-c1-z6uka: a NEW (u, v) cell (no keys yet for this pair)
+        // records both row display objects; parallel keys reuse the cell.
+        if !self.inner.has_edge(&u_canonical, &v_canonical) {
+            self.maybe_store_row_keys(py, &u_canonical, &v_canonical, u, v);
+        }
         self.node_py_attrs
             .entry(u_canonical.clone())
             .or_insert_with(|| PyDict::new(py).unbind());
@@ -1043,6 +1113,15 @@ impl PyMultiDiGraph {
         if let Some(explicit_key) = auto_removal_key {
             self.remove_edge_metadata(&u_canonical, &v_canonical, explicit_key);
         }
+        if (!self.succ_py_keys.is_empty() || !self.pred_py_keys.is_empty())
+            && !self.inner.has_edge(&u_canonical, &v_canonical)
+        {
+            // br-r37-c1-z6uka: the LAST key emptied the (u, v) cell — nx
+            // deletes the row entries, so a re-add creates fresh objects.
+            self.succ_py_keys
+                .remove(&(u_canonical.clone(), v_canonical.clone()));
+            self.pred_py_keys.remove(&(v_canonical, u_canonical));
+        }
         self.bump_edges_seq();
         Ok(())
     }
@@ -1090,6 +1169,13 @@ impl PyMultiDiGraph {
         self.inner.remove_node(&canonical);
         self.node_key_map.remove(&canonical);
         self.node_py_attrs.remove(&canonical);
+        if !self.succ_py_keys.is_empty() || !self.pred_py_keys.is_empty() {
+            // br-r37-c1-z6uka: drop cell overrides touching the removed node.
+            self.succ_py_keys
+                .retain(|(a, b), _| a != &canonical && b != &canonical);
+            self.pred_py_keys
+                .retain(|(a, b), _| a != &canonical && b != &canonical);
+        }
         self.bump_nodes_seq();
         // br-r37-c1-jft0i: removing a node with incident edges also mutates the
         // edge set, so bump edges_seq to invalidate edge-keyed caches.
@@ -1137,6 +1223,13 @@ impl PyMultiDiGraph {
                 self.inner.remove_node(&canonical);
                 self.node_key_map.remove(&canonical);
                 self.node_py_attrs.remove(&canonical);
+                if !self.succ_py_keys.is_empty() || !self.pred_py_keys.is_empty() {
+                    // br-r37-c1-z6uka: drop cell overrides touching removed nodes.
+                    self.succ_py_keys
+                        .retain(|(a, b), _| a != &canonical && b != &canonical);
+                    self.pred_py_keys
+                        .retain(|(a, b), _| a != &canonical && b != &canonical);
+                }
             }
         }
         self.bump_nodes_seq();
@@ -1169,7 +1262,10 @@ impl PyMultiDiGraph {
     fn successors(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<Vec<PyObject>> {
         let canonical = node_key_to_string(py, n)?;
         match self.inner.successors(&canonical) {
-            Some(succs) => Ok(succs.into_iter().map(|s| self.py_node_key(py, s)).collect()),
+            Some(succs) => Ok(succs
+                .into_iter()
+                .map(|s| self.py_succ_key(py, &canonical, s) /* br-r37-c1-z6uka */)
+                .collect()),
             None => Err(NodeNotFound::new_err(format!(
                 "The node {} is not in the graph.",
                 n.repr()?
@@ -1181,7 +1277,10 @@ impl PyMultiDiGraph {
     fn predecessors_method(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<Vec<PyObject>> {
         let canonical = node_key_to_string(py, n)?;
         match self.inner.predecessors(&canonical) {
-            Some(preds) => Ok(preds.into_iter().map(|p| self.py_node_key(py, p)).collect()),
+            Some(preds) => Ok(preds
+                .into_iter()
+                .map(|p| self.py_pred_key(py, &canonical, p) /* br-r37-c1-z6uka */)
+                .collect()),
             None => Err(NodeNotFound::new_err(format!(
                 "The node {} is not in the graph.",
                 n.repr()?
@@ -1198,6 +1297,8 @@ impl PyMultiDiGraph {
         self.node_key_map.clear();
         self.node_py_attrs.clear();
         self.edge_py_attrs.clear();
+        self.succ_py_keys.clear(); // br-r37-c1-z6uka
+        self.pred_py_keys.clear(); // br-r37-c1-z6uka
         self.edge_py_keys.clear();
         self.graph_attrs = PyDict::new(py).unbind();
         self.bump_nodes_seq();
@@ -1236,6 +1337,8 @@ impl PyMultiDiGraph {
             self.inner = fresh;
         });
         self.edge_py_attrs.clear();
+        self.succ_py_keys.clear(); // br-r37-c1-z6uka
+        self.pred_py_keys.clear(); // br-r37-c1-z6uka
         self.edge_py_keys.clear();
         self.bump_edges_seq(); // br-r37-c1-jft0i
     }
@@ -1443,7 +1546,7 @@ impl PyMultiDiGraph {
             let py_node = self.py_node_key(py, node);
             let nbrs_dict = PyDict::new(py);
             for successor in self.inner.successors(node).unwrap_or_default() {
-                let py_succ = self.py_node_key(py, successor);
+                let py_succ = self.py_succ_key(py, node, successor) /* br-r37-c1-z6uka */;
                 let edge_dict = PyDict::new(py);
                 for key in self.inner.edge_keys(node, successor).unwrap_or_default() {
                     let ek = Self::edge_key(node, successor, key);
@@ -1547,7 +1650,7 @@ impl PyMultiDiGraph {
             let py_node = self.py_node_key(py, node);
             let preds_dict = PyDict::new(py);
             for predecessor in self.inner.predecessors(node).unwrap_or_default() {
-                let py_pred = self.py_node_key(py, predecessor);
+                let py_pred = self.py_pred_key(py, node, predecessor) /* br-r37-c1-z6uka */;
                 let edge_dict = PyDict::new(py);
                 for key in self.inner.edge_keys(predecessor, node).unwrap_or_default() {
                     let ek = Self::edge_key(predecessor, node, key);
@@ -1577,8 +1680,10 @@ impl PyMultiDiGraph {
         let mut new_graph = Self {
             inner: MultiDiGraph::with_runtime_policy(self.inner.runtime_policy().clone()),
             node_key_map: HashMap::new(),
-            succ_py_keys: HashMap::new(), // br-r37-c1-z6uka
-            pred_py_keys: HashMap::new(), // br-r37-c1-z6uka
+            // br-r37-c1-z6uka: succ overrides survive nx's u-major copy walk;
+            // pred rows are re-derived with node objects.
+            succ_py_keys: PyDiGraph::clone_row_keys(py, &self.succ_py_keys),
+            pred_py_keys: HashMap::new(),
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
             edge_py_keys: HashMap::new(),
@@ -1769,8 +1874,10 @@ impl PyMultiDiGraph {
         let mut new_graph = Self {
             inner: self.inner.clone(),
             node_key_map: HashMap::with_capacity(self.node_key_map.len()),
-            succ_py_keys: HashMap::new(), // br-r37-c1-z6uka
-            pred_py_keys: HashMap::new(), // br-r37-c1-z6uka
+            // br-r37-c1-z6uka: succ overrides survive nx's u-major copy walk;
+            // pred rows are re-derived with node objects.
+            succ_py_keys: PyDiGraph::clone_row_keys(py, &self.succ_py_keys),
+            pred_py_keys: HashMap::new(),
             node_py_attrs: HashMap::with_capacity(self.node_py_attrs.len()),
             edge_py_attrs: HashMap::with_capacity(self.edge_py_attrs.len()),
             edge_py_keys: HashMap::with_capacity(self.edge_py_keys.len()),
@@ -1859,7 +1966,12 @@ impl PyMultiDiGraph {
     /// Support ``copy.deepcopy(G)`` — returns a deep copy.
     #[pyo3(signature = (_memo=None))]
     fn __deepcopy__(&self, py: Python<'_>, _memo: Option<&Bound<'_, PyAny>>) -> PyResult<Self> {
-        self.copy(py)
+        // br-r37-c1-z6uka: copy.deepcopy clones the dict structure verbatim,
+        // so BOTH row-override maps survive (copy() re-derives pred rows
+        // with node objects per nx's u-major walk — deepcopy must not).
+        let mut new_graph = self.copy(py)?;
+        new_graph.pred_py_keys = PyDiGraph::clone_row_keys(py, &self.pred_py_keys);
+        Ok(new_graph)
     }
 
     fn subgraph(&self, py: Python<'_>, nodes: &Bound<'_, PyAny>) -> PyResult<Self> {
@@ -1930,6 +2042,16 @@ impl PyMultiDiGraph {
             }
         }
 
+        if !self.succ_py_keys.is_empty() {
+            // br-r37-c1-z6uka: succ overrides for surviving cells; pred rows
+            // are re-derived with node objects (nx walk semantics).
+            new_graph.succ_py_keys = self
+                .succ_py_keys
+                .iter()
+                .filter(|((a, b), _)| new_graph.inner.has_edge(a, b))
+                .map(|(k, v)| (k.clone(), v.clone_ref(py)))
+                .collect();
+        }
         Ok(new_graph)
     }
 
@@ -2020,6 +2142,16 @@ impl PyMultiDiGraph {
             }
         }
 
+        if !self.succ_py_keys.is_empty() {
+            // br-r37-c1-z6uka: succ overrides for surviving cells; pred rows
+            // are re-derived with node objects (nx walk semantics).
+            new_graph.succ_py_keys = self
+                .succ_py_keys
+                .iter()
+                .filter(|((a, b), _)| new_graph.inner.has_edge(a, b))
+                .map(|(k, v)| (k.clone(), v.clone_ref(py)))
+                .collect();
+        }
         Ok(new_graph)
     }
 
@@ -2092,8 +2224,11 @@ impl PyMultiDiGraph {
         let mut new_graph = Self {
             inner: MultiDiGraph::with_runtime_policy(self.inner.runtime_policy().clone()),
             node_key_map: HashMap::new(),
-            succ_py_keys: HashMap::new(), // br-r37-c1-z6uka
-            pred_py_keys: HashMap::new(), // br-r37-c1-z6uka
+            // br-r37-c1-z6uka: nx reverse walks edges(keys=True, data=True)
+            // u-major and adds (v, u) — the new succ cells get NODE objects,
+            // the new pred cells get the OLD succ-row objects (transpose).
+            succ_py_keys: HashMap::new(),
+            pred_py_keys: PyDiGraph::clone_row_keys(py, &self.succ_py_keys),
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
             edge_py_keys: HashMap::new(),
@@ -2731,7 +2866,7 @@ impl MultiDiGraphEdgeView {
                 continue;
             }
             let py_u = g.py_node_key(py, &edge.source);
-            let py_v = g.py_node_key(py, &edge.target);
+            let py_v = g.py_succ_key(py, &edge.source, &edge.target) /* br-r37-c1-z6uka */;
             let ek = PyMultiDiGraph::edge_key(&edge.source, &edge.target, edge.key);
             let key_obj = g.py_edge_key(py, &edge.source, &edge.target, edge.key);
             let item = match &view_data {
@@ -4644,7 +4779,12 @@ impl PyDiGraph {
 
     #[pyo3(signature = (_memo=None))]
     fn __deepcopy__(&self, py: Python<'_>, _memo: Option<&Bound<'_, PyAny>>) -> PyResult<Self> {
-        self.copy(py)
+        // br-r37-c1-z6uka: copy.deepcopy clones the dict structure verbatim,
+        // so BOTH row-override maps survive (copy() re-derives pred rows
+        // with node objects per nx's u-major walk — deepcopy must not).
+        let mut new_graph = self.copy(py)?;
+        new_graph.pred_py_keys = Self::clone_row_keys(py, &self.pred_py_keys);
+        Ok(new_graph)
     }
 
     // ---- Pickle ----

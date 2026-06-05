@@ -291,3 +291,113 @@ def test_multigraph_removal_purges_mirror_entries(build):
     assert sorted(map(repr, b.edges(keys=True, data=True))) == sorted(
         map(repr, a.edges(keys=True, data=True))
     )
+
+
+# ---------------------------------------------------------------------------
+# br-r37-c1-z6uka phase 3b: MultiDiGraph succ/pred cell objects
+# ---------------------------------------------------------------------------
+
+
+def _canon_md(m):
+    return (
+        {repr(n): [repr(x) for x in m.succ[n]] for n in m},
+        {repr(n): [repr(x) for x in m.pred[n]] for n in m},
+        [(repr(u), repr(v), repr(k)) for u, v, k in m.edges(keys=True)],
+        [repr(n) for n in m],
+    )
+
+
+def _mdpair(build):
+    mn, mf = nx.MultiDiGraph(), fnx.MultiDiGraph()
+    build(mn)
+    build(mf)
+    return mn, mf
+
+
+def test_multidigraph_succ_pred_cells_and_selfloop_asymmetry():
+    mn, mf = _mdpair(
+        lambda m: (m.add_edge(36, 16.0), m.add_edge("n58", 16), m.add_edge(12.0, 12))
+    )
+    assert _canon_md(mf) == _canon_md(mn)
+    assert [repr(x) for x in mf.successors("n58")] == ["16"]
+    assert [repr(x) for x in mf.succ[12.0]] == ["12"]
+    assert [repr(x) for x in mf.pred[12]] == ["12.0"]
+
+
+def test_multidigraph_parallel_keys_reuse_cell():
+    # the SECOND parallel key must not replace the cell's display object
+    mn, mf = _mdpair(lambda m: (m.add_node(28), m.add_edge(7, 28.0), m.add_edge(7.0, 28)))
+    assert _canon_md(mf) == _canon_md(mn)
+    assert [repr(x) for x in mf.succ[7]] == ["28.0"]
+
+
+def test_multidigraph_keyed_removal_cell_lifetime():
+    # removing one key keeps the cell object; removing the last drops it
+    mn, mf = _mdpair(
+        lambda m: (
+            m.add_node(28),
+            m.add_edge(7, 28.0),
+            m.add_edge(7, 28),
+            m.remove_edge(7, 28),
+        )
+    )
+    assert _canon_md(mf) == _canon_md(mn)
+    mn2, mf2 = _mdpair(
+        lambda m: (
+            m.add_node(28),
+            m.add_edge(7, 28.0),
+            m.remove_edge(7, 28),
+            m.add_edge(7, 28),
+        )
+    )
+    assert _canon_md(mf2) == _canon_md(mn2)
+    assert [repr(x) for x in mf2.succ[7]] == ["28"]
+
+
+def test_multidigraph_reverse_transposes_succ_overrides():
+    mn, mf = _mdpair(lambda m: (m.add_node(28), m.add_edge(7, 28.0), m.add_edge(5, 7)))
+    assert _canon_md(mf.reverse()) == _canon_md(mn.reverse())
+    assert [repr(x) for x in mf.reverse().pred[7]] == ["28.0"]
+
+
+def test_multidigraph_copy_rederives_pred():
+    mn, mf = _mdpair(
+        lambda m: (m.add_node(28), m.add_node(5.0), m.add_edge(7, 28.0), m.add_edge(5, 7))
+    )
+    assert _canon_md(mf.copy()) == _canon_md(mn.copy())
+    # pred rows re-derived with node objects by nx's u-major copy walk
+    assert [repr(x) for x in mf.copy().pred[7]] == ["5.0"]
+
+
+def test_multidigraph_subgraph_and_node_removal():
+    mn, mf = _mdpair(
+        lambda m: (m.add_node(28), m.add_edge(7, 28.0), m.add_edge(28.0, 9), m.add_edge(9, 1))
+    )
+    assert _canon_md(mf.subgraph([7, 28, 9]).copy()) == _canon_md(mn.subgraph([7, 28, 9]).copy())
+    mn.remove_node(28), mf.remove_node(28)
+    mn.add_node(28), mf.add_node(28)
+    mn.add_edge(7, 28), mf.add_edge(7, 28)
+    assert _canon_md(mf) == _canon_md(mn)
+
+
+def test_multidigraph_random_mixed_corpus():
+    rnd = random.Random(20260605)
+    for trial in range(12):
+        a, b = nx.MultiDiGraph(), fnx.MultiDiGraph()
+        for _ in range(rnd.choice([5, 40, 100])):
+            def mk():
+                return rnd.choice(
+                    [rnd.randrange(25), float(rnd.randrange(12)), f"s{rnd.randrange(25)}", bool(rnd.randrange(2))]
+                )
+            uv = (mk(), mk())
+            a.add_edge(*uv)
+            b.add_edge(*uv)
+        assert _canon_md(b) == _canon_md(a), trial
+
+
+def test_multidigraph_uniform_unchanged():
+    a, b = nx.MultiDiGraph(), fnx.MultiDiGraph()
+    for g in (a, b):
+        for i in range(80):
+            g.add_edge(i % 20, (i * 3) % 20)
+    assert _canon_md(b) == _canon_md(a)
