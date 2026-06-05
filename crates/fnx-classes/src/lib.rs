@@ -835,31 +835,80 @@ impl Graph {
     }
 
     pub fn remove_node(&mut self, node: &str) -> bool {
-        if !self.nodes.contains_key(node) {
+        let Some(idx) = self.nodes.get_index_of(node) else {
             return false;
-        }
+        };
 
-        // 1. Remove incident edges and clean up neighbors' adjacency lists.
+        // br-r37-c1-rmnode: incremental index maintenance. The previous version
+        // called `rebuild_adj_indices()` + `rebuild_edge_index_endpoints()` —
+        // two O(|E|) passes that do a `get_index_of` HashMap lookup for EVERY
+        // neighbour of every node and every edge — on EVERY removal, so
+        // `remove_node` was O(|V|+|E|)-with-hashing and `remove_nodes_from` was
+        // O(k*(|V|+|E|)) (~50x slower than nx). Instead: drop all incident edges
+        // in a single O(|E|) retain pass, then repair the integer caches in
+        // place (drop dangling refs to the removed index, decrement indices that
+        // shifted down) — no hashing, no full rebuild.
+
+        // 1a. Drop `node` from each neighbour's string adjacency (O(degree)).
         if let Some(neighbors) = self.adjacency.get(node) {
             let neighbor_names: Vec<String> = neighbors.iter().cloned().collect();
             for neighbor in neighbor_names {
-                // Remove node from neighbor's adjacency list.
                 if neighbor != node
                     && let Some(remote_neighbors) = self.adjacency.get_mut(&neighbor)
                 {
                     remote_neighbors.shift_remove(node);
                 }
-                let _ = self.edges.shift_remove(&EdgeKey::new(node, &neighbor));
             }
         }
+        // 1b. Remove ALL incident edges from `edges` + the parallel
+        // `edge_index_endpoints` in ONE O(|E|) pass (avoids O(degree*|E|) from
+        // per-edge `shift_remove`). The two retains share the same keep-mask so
+        // the vectors stay element-for-element parallel.
+        let incident: HashSet<EdgeKey> = self
+            .adjacency
+            .get(node)
+            .map(|nbrs| nbrs.iter().map(|nb| EdgeKey::new(node, nb)).collect())
+            .unwrap_or_default();
+        if !incident.is_empty() {
+            let keep: Vec<bool> = self.edges.keys().map(|k| !incident.contains(k)).collect();
+            let mut i = 0usize;
+            self.edges.retain(|_, _| {
+                let k = keep[i];
+                i += 1;
+                k
+            });
+            let mut j = 0usize;
+            self.edge_index_endpoints.retain(|_| {
+                let k = keep[j];
+                j += 1;
+                k
+            });
+        }
 
-        // 2. Remove node from adjacency and nodes maps.
+        // 2. Drop the node's own adjacency-index vec (outer Vec shifts to stay
+        // aligned with `nodes`/`adjacency` after their shift_remove below).
+        self.adj_indices.remove(idx);
+        // 3. Remove from the string maps (renumbers indices > idx down by 1).
         self.adjacency.shift_remove(node);
         self.nodes.shift_remove(node);
-
-        // 3. Rebuild integer caches (indices shift after removal).
-        self.rebuild_adj_indices();
-        self.rebuild_edge_index_endpoints();
+        // 4. Repair integer indices in place: drop any remaining reference to the
+        // removed node (`idx`) and decrement every index that shifted down.
+        for nbrs in &mut self.adj_indices {
+            nbrs.retain(|&e| e != idx);
+            for e in nbrs.iter_mut() {
+                if *e > idx {
+                    *e -= 1;
+                }
+            }
+        }
+        for (left, right) in &mut self.edge_index_endpoints {
+            if *left > idx {
+                *left -= 1;
+            }
+            if *right > idx {
+                *right -= 1;
+            }
+        }
 
         self.revision = self.revision.saturating_add(1);
         true
