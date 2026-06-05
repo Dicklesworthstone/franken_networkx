@@ -13,8 +13,8 @@
 use fnx_algorithms::{
     clustering_coefficient, is_connected, number_connected_components, shortest_path_length,
 };
-use fnx_classes::digraph::DiGraph;
 use fnx_classes::Graph;
+use fnx_classes::digraph::DiGraph;
 use fnx_runtime::CompatibilityMode;
 use proptest::prelude::*;
 use std::collections::{HashMap, HashSet};

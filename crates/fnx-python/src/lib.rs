@@ -773,7 +773,7 @@ impl PyGraph {
 
     fn add_plain_edge_batch(
         &mut self,
-        py: Python<'_>,
+        _py: Python<'_>,
         edges: Vec<(String, String)>,
         new_nodes: Vec<(String, PyObject)>,
         node_bumps: u64,

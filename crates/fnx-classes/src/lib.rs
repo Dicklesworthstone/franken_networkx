@@ -315,7 +315,10 @@ impl Graph {
             let mut early: Vec<(usize, usize, String)> = Vec::new();
             let mut late: Vec<String> = Vec::new();
             for v in row {
-                let pv = self.adjacency.get_index_of(v.as_str()).unwrap_or(usize::MAX);
+                let pv = self
+                    .adjacency
+                    .get_index_of(v.as_str())
+                    .unwrap_or(usize::MAX);
                 if pv < pu {
                     let idx = self
                         .adjacency

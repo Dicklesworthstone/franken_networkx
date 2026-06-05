@@ -1264,7 +1264,9 @@ impl PyMultiDiGraph {
         match self.inner.successors(&canonical) {
             Some(succs) => Ok(succs
                 .into_iter()
-                .map(|s| self.py_succ_key(py, &canonical, s) /* br-r37-c1-z6uka */)
+                .map(
+                    |s| self.py_succ_key(py, &canonical, s), /* br-r37-c1-z6uka */
+                )
                 .collect()),
             None => Err(NodeNotFound::new_err(format!(
                 "The node {} is not in the graph.",
@@ -1279,7 +1281,9 @@ impl PyMultiDiGraph {
         match self.inner.predecessors(&canonical) {
             Some(preds) => Ok(preds
                 .into_iter()
-                .map(|p| self.py_pred_key(py, &canonical, p) /* br-r37-c1-z6uka */)
+                .map(
+                    |p| self.py_pred_key(py, &canonical, p), /* br-r37-c1-z6uka */
+                )
                 .collect()),
             None => Err(NodeNotFound::new_err(format!(
                 "The node {} is not in the graph.",
