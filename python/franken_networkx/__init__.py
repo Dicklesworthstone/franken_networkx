@@ -5433,22 +5433,27 @@ for _cls in (Graph, DiGraph, MultiGraph, MultiDiGraph):
 def _graph_deepcopy(self, memo=None):
     """br-dcpy: the Rust __deepcopy__ didn't traverse nested attribute
     values, so _deepcopy(G).nodes[n]['x'].append(...) mutated the
-    original graph's attrs too. Re-implement at Python level by
-    constructing a fresh graph and deep-copying every attrs dict.
+    original graph's attrs too. Start from copy.copy's structure-preserving
+    clone, then deep-copy every attrs dict without rebuilding adjacency rows.
     """
-    from copy import deepcopy as _dc
+    from copy import copy as _copy, deepcopy as _dc
 
-    cls = type(self)
-    out = cls()
-    out.graph.update(_dc(dict(self.graph), memo))
+    out = _copy(self)
+    vars(out)[_GRAPH_ATTR_OVERRIDE] = _dc(dict(self.graph), memo)
     for node, attrs in self.nodes(data=True):
-        out.add_node(node, **_dc(dict(attrs), memo))
+        out_attrs = out.nodes[node]
+        out_attrs.clear()
+        out_attrs.update(_dc(dict(attrs), memo))
     if self.is_multigraph():
         for u, v, key, attrs in self.edges(keys=True, data=True):
-            out.add_edges_from([(u, v, key, _dc(dict(attrs), memo))])
+            out_attrs = out[u][v][key]
+            out_attrs.clear()
+            out_attrs.update(_dc(dict(attrs), memo))
     else:
         for u, v, attrs in self.edges(data=True):
-            out.add_edges_from([(u, v, _dc(dict(attrs), memo))])
+            out_attrs = out[u][v]
+            out_attrs.clear()
+            out_attrs.update(_dc(dict(attrs), memo))
     # br-r37-c1-9e7gd: nx preserves the frozen-graph flag (and its
     # mutator overrides) across deepcopy because it copies the
     # instance __dict__. fnx's _graph_deepcopy constructs a fresh
@@ -30109,13 +30114,39 @@ class _FilteredNeighborMap(_Mapping):
         return self._view._edge_visible(self._node, neighbor, key)
 
     def __iter__(self):
-        for neighbor, edge_data in self._raw_neighbors().items():
-            if not self._view._node_visible(neighbor):
-                continue
-            if self._view.is_multigraph():
+        row = self._raw_neighbors()
+        if self._view.is_multigraph():
+            # br-r37-c1-0ek49: nx's FilterMultiInner.__iter__ receives the
+            # view's NODE_OK (which carries the keep-set as `.nodes`) and
+            # switches to iterating that SET — CPython set order, not row
+            # order — whenever `2 * len(keep) < len(row)`. Simple-graph rows
+            # get a bare closure in nx (no `.nodes`), so only MULTIGRAPH
+            # rows take this branch. Metamorphic seed 1157 diverged on
+            # exactly this (`subgraph([1, 3]).copy()` over a 5-neighbor row).
+            keep = getattr(self._view._filter_node, "nodes", None)
+            node_ok_shorter = False
+            if keep is not None:
+                try:
+                    node_ok_shorter = 2 * len(keep) < len(row)
+                except TypeError:
+                    node_ok_shorter = False
+            if node_ok_shorter:
+                for neighbor in keep:
+                    if neighbor in row and any(
+                        self._edge_visible(neighbor, key) for key in row[neighbor]
+                    ):
+                        yield neighbor
+                return
+            for neighbor, edge_data in row.items():
+                if not self._view._node_visible(neighbor):
+                    continue
                 if any(self._edge_visible(neighbor, key) for key in edge_data):
                     yield neighbor
-            elif self._edge_visible(neighbor):
+            return
+        for neighbor, edge_data in row.items():
+            if not self._view._node_visible(neighbor):
+                continue
+            if self._edge_visible(neighbor):
                 yield neighbor
 
     def __len__(self):

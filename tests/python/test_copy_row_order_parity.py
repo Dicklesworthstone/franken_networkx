@@ -1,12 +1,16 @@
-"""br-r37-c1-0ek49: G.copy() adjacency ROW ORDER must match nx's rebuild walk.
+"""br-r37-c1-0ek49: graph copy/deepcopy adjacency ROW ORDER parity.
 
 nx Graph.copy() rebuilds via ``add_edges_from((u, v, d) for u in _adj
 for v in _adj[u])`` — an unordered pair enters BOTH endpoint rows at its
 first u-major touch, so copies REORDER undirected adjacency rows (and
 directed PRED rows) relative to the source. fnx's bulk inner clone
 preserved the source rows verbatim and diverged (uniform keys too).
+
+copy.deepcopy(G) is different: nx preserves the source dict structure while
+deep-copying graph/node/edge attributes.
 """
 
+import copy
 import random
 
 import networkx as nx
@@ -100,3 +104,50 @@ def test_copy_row_order_random_corpus(cls):
         hn, hf = gn.copy(), gf.copy()
         assert _rows(hf) == _rows(hn), trial
         assert _edges(hf) == _edges(hn), trial
+
+
+@pytest.mark.parametrize("cls", CLASSES)
+def test_deepcopy_preserves_source_rows_like_nx(cls):
+    def build(mod):
+        g = getattr(mod, cls)()
+        g.add_node(28)
+        g.add_node(3)
+        g.add_nodes_from([5, 9])
+        g.add_edge(9, 7, payload=[])
+        g.add_edge(5, 7)
+        g.add_edge(28, 5)
+        g.add_edge(7, 3)
+        g.add_edge(5, 5)
+        return g
+
+    gn_src, gf_src = build(nx), build(fnx)
+    gn, gf = copy.deepcopy(gn_src), copy.deepcopy(gf_src)
+    assert _rows(gf) == _rows(gn)
+    assert _rows(gf) == _rows(gf_src)
+    assert _edges(gf) == _edges(gn)
+
+
+@pytest.mark.parametrize("cls", CLASSES)
+def test_deepcopy_attrs_are_independent(cls):
+    def build(mod):
+        g = getattr(mod, cls)()
+        g.graph["payload"] = []
+        g.add_node(1, payload=[])
+        if g.is_multigraph():
+            g.add_edge(1, 2, key="k", payload=[])
+        else:
+            g.add_edge(1, 2, payload=[])
+        return g
+
+    gn_src, gf_src = build(nx), build(fnx)
+    gn, gf = copy.deepcopy(gn_src), copy.deepcopy(gf_src)
+    assert gf.graph == gn.graph
+    assert gf.nodes[1] == gn.nodes[1]
+    assert gf.graph["payload"] is not gf_src.graph["payload"]
+    assert gf.nodes[1]["payload"] is not gf_src.nodes[1]["payload"]
+    if gf.is_multigraph():
+        assert gf[1][2]["k"] == gn[1][2]["k"]
+        assert gf[1][2]["k"]["payload"] is not gf_src[1][2]["k"]["payload"]
+    else:
+        assert gf[1][2] == gn[1][2]
+        assert gf[1][2]["payload"] is not gf_src[1][2]["payload"]
