@@ -3237,48 +3237,48 @@ impl PyDiGraph {
     }
 
     fn copy(&self, py: Python<'_>) -> PyResult<Self> {
+        // br-r37-c1-copyclone: bulk-clone the inner Rust digraph instead of
+        // rebuilding it edge-by-edge (String hashing + adjacency inserts +
+        // edge_index_endpoints push + a redundant py_dict_to_attr_map re-parse
+        // per edge). `DiGraph::clone` copies the IndexMap/IndexSet/Vec verbatim,
+        // so node + edge insertion order are preserved exactly — which ALSO
+        // fixes the prior non-deterministic copy node order (the previous loop
+        // rebuilt `inner` in `self.node_key_map` HashMap-iteration order, so
+        // `list(G.copy())` could diverge from `list(G)`; project_copy_node_order).
+        // Only the unavoidable deep-copy of the Python attr dicts remains.
         let mut new_graph = Self {
-            inner: DiGraph::with_runtime_policy(self.inner.runtime_policy().clone()),
-            node_key_map: HashMap::new(),
-            node_py_attrs: HashMap::new(),
-            edge_py_attrs: HashMap::new(),
+            inner: self.inner.clone(),
+            node_key_map: HashMap::with_capacity(self.node_key_map.len()),
+            node_py_attrs: HashMap::with_capacity(self.node_py_attrs.len()),
+            edge_py_attrs: HashMap::with_capacity(self.edge_py_attrs.len()),
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,
             edges_seq: 0,
-            edges_dirty: AtomicBool::new(false),
+            edges_dirty: AtomicBool::new(self.edges_dirty.load(Ordering::Relaxed)),
         };
+        // Node-attr mutations are not tracked by `edges_dirty`, so refresh the
+        // cloned inner's node attrs from the authoritative Python dicts.
         for (canonical, py_key) in &self.node_key_map {
-            let rust_attrs = self
-                .node_py_attrs
-                .get(canonical)
-                .map(|attrs| py_dict_to_attr_map(attrs.bind(py)))
-                .transpose()?
-                .unwrap_or_default();
-            new_graph
-                .inner
-                .add_node_with_attrs(canonical.clone(), rust_attrs);
             new_graph
                 .node_key_map
                 .insert(canonical.clone(), py_key.clone_ref(py));
             if let Some(attrs) = self.node_py_attrs.get(canonical) {
+                let bound = attrs.bind(py);
+                new_graph
+                    .inner
+                    .replace_node_attrs(canonical, py_dict_to_attr_map(bound)?);
                 new_graph
                     .node_py_attrs
-                    .insert(canonical.clone(), attrs.bind(py).copy()?.unbind());
+                    .insert(canonical.clone(), bound.copy()?.unbind());
             }
         }
-        // Copy edges in original insertion order (br-copyedgeord).
-        for snapshot in self.inner.edges_ordered() {
-            let (u, v) = (snapshot.left.clone(), snapshot.right.clone());
-            let attrs_entry = self.edge_py_attrs.get(&(u.clone(), v.clone()));
-            let py_attrs = match attrs_entry {
-                Some(attrs) => attrs.bind(py).copy()?.unbind(),
-                None => PyDict::new(py).unbind(),
-            };
-            let rust_attrs = py_dict_to_attr_map(py_attrs.bind(py))?;
-            let _ = new_graph
-                .inner
-                .add_edge_with_attrs(u.clone(), v.clone(), rust_attrs);
-            new_graph.edge_py_attrs.insert((u, v), py_attrs);
+        // Deep-copy the edge attr dicts (key orientation preserved verbatim;
+        // edges() order comes from the cloned inner, so HashMap walk order here
+        // is irrelevant).
+        for (key, attrs) in &self.edge_py_attrs {
+            new_graph
+                .edge_py_attrs
+                .insert(key.clone(), attrs.bind(py).copy()?.unbind());
         }
         Ok(new_graph)
     }
