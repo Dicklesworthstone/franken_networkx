@@ -1,0 +1,28 @@
+{"bead": "br-r37-c1-f0zo8", "profile": {"graph": "multigraph", "library": "fnx", "loops": 20, "neighbors": 720, "observed_len_accumulator": 14400, "operation": "gu", "parallel_edges_per_neighbor": 16}}
+         443 function calls (423 primitive calls) in 0.590 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.000    0.000    0.590    0.590 /data/projects/franken_networkx/tests/artifacts/perf/20260605T-multigraph-lazy-nested-atlasview/multigraph_nested_atlasview_baseline.py:174(run_loops)
+       40    0.000    0.000    0.585    0.015 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1196(_atlas)
+       40    0.585    0.015    0.585    0.015 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1279(<lambda>)
+    40/20    0.000    0.000    0.295    0.015 {built-in method builtins.len}
+       20    0.001    0.000    0.295    0.015 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1145(__len__)
+       20    0.000    0.000    0.294    0.015 /data/projects/franken_networkx/tests/artifacts/perf/20260605T-multigraph-lazy-nested-atlasview/multigraph_nested_atlasview_baseline.py:166(operation)
+       20    0.000    0.000    0.294    0.015 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1331(_graph_getitem_from_adj)
+       20    0.000    0.000    0.294    0.015 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1142(_atlas)
+       20    0.001    0.000    0.294    0.015 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1213(<lambda>)
+       20    0.002    0.000    0.294    0.015 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1206(__getitem__)
+       20    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:31362(<lambda>)
+       20    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:30602(_private_adj_mapping)
+       20    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:30540(_private_override)
+       40    0.000    0.000    0.000    0.000 {built-in method builtins.vars}
+       20    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1267(_accessor)
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+       40    0.000    0.000    0.000    0.000 {method 'get' of 'dict' objects}
+       20    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1139(__init__)
+       20    0.000    0.000    0.000    0.000 {built-in method builtins.hash}
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1193(__init__)
+
+

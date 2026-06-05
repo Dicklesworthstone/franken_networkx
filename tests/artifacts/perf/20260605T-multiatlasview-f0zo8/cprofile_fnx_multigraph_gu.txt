@@ -1,0 +1,30 @@
+{"checksum": 50000, "degree": 500, "graph": "MultiGraph", "keys_per_neighbor": 4, "loops": 100, "mode": "gu", "module": "fnx"}
+
+         2105 function calls (2005 primitive calls) in 0.278 seconds
+
+   Ordered by: internal time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+      200    0.264    0.001    0.264    0.001 __init__.py:1279(<lambda>)
+      100    0.006    0.000    0.138    0.001 __init__.py:1206(__getitem__)
+      100    0.003    0.000    0.136    0.001 __init__.py:1213(<lambda>)
+      100    0.002    0.000    0.138    0.001 __init__.py:1145(__len__)
+        1    0.000    0.000    0.278    0.278 multiatlas_bench.py:44(workload)
+  200/100    0.000    0.000    0.139    0.001 {built-in method builtins.len}
+      100    0.000    0.000    0.001    0.000 __init__.py:30602(_private_adj_mapping)
+      200    0.000    0.000    0.000    0.000 {built-in method builtins.vars}
+      100    0.000    0.000    0.139    0.001 __init__.py:1331(_graph_getitem_from_adj)
+      100    0.000    0.000    0.000    0.000 __init__.py:30540(_private_override)
+      200    0.000    0.000    0.264    0.001 __init__.py:1196(_atlas)
+      100    0.000    0.000    0.001    0.000 __init__.py:31362(<lambda>)
+      200    0.000    0.000    0.000    0.000 {method 'get' of 'dict' objects}
+      100    0.000    0.000    0.000    0.000 __init__.py:1267(_accessor)
+      100    0.000    0.000    0.136    0.001 __init__.py:1142(_atlas)
+      100    0.000    0.000    0.000    0.000 {built-in method builtins.hash}
+      100    0.000    0.000    0.000    0.000 __init__.py:1139(__init__)
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+        1    0.000    0.000    0.000    0.000 multiatlas_bench.py:40(choose_neighbor)
+        1    0.000    0.000    0.000    0.000 __init__.py:1193(__init__)
+        1    0.000    0.000    0.000    0.000 {built-in method builtins.max}
+
+

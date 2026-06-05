@@ -147,19 +147,6 @@ impl PyMultiDiGraph {
         self.edge_py_keys.remove(&ek);
     }
 
-    fn successor_dict(&self, py: Python<'_>, source: &str, target: &str) -> PyResult<Py<PyDict>> {
-        let result = PyDict::new(py);
-        for key in self.inner.edge_keys(source, target).unwrap_or_default() {
-            let ek = Self::edge_key(source, target, key);
-            let attrs = self
-                .edge_py_attrs
-                .get(&ek)
-                .map_or_else(|| PyDict::new(py).unbind(), |d| d.clone_ref(py));
-            result.set_item(self.py_edge_key(py, source, target, key), attrs.bind(py))?;
-        }
-        Ok(result.unbind())
-    }
-
     pub(crate) fn new_empty_with_mode(py: Python<'_>, mode: CompatibilityMode) -> PyResult<Self> {
         Self::new_empty_with_policy(py, RuntimePolicy::new(mode))
     }
@@ -196,6 +183,368 @@ impl PyMultiDiGraph {
     #[inline]
     pub(crate) fn mark_edges_dirty(&self) {
         self.edges_dirty.store(true, Ordering::Relaxed);
+    }
+}
+
+#[derive(Clone, Copy)]
+enum MultiDiAdjKind {
+    Successors,
+    Predecessors,
+}
+
+#[pyclass(module = "franken_networkx", mapping)]
+struct MultiDiAtlasView {
+    graph: Py<PyMultiDiGraph>,
+    node: String,
+    kind: MultiDiAdjKind,
+}
+
+impl MultiDiAtlasView {
+    fn new(graph: Py<PyMultiDiGraph>, node: String, kind: MultiDiAdjKind) -> Self {
+        Self { graph, node, kind }
+    }
+
+    fn endpoint_pair(&self, other: String) -> (String, String) {
+        match self.kind {
+            MultiDiAdjKind::Successors => (self.node.clone(), other),
+            MultiDiAdjKind::Predecessors => (other, self.node.clone()),
+        }
+    }
+
+    fn materialize(&self, py: Python<'_>) -> PyResult<Py<PyDict>> {
+        let g = self.graph.borrow(py);
+        let neighbors = match self.kind {
+            MultiDiAdjKind::Successors => g.inner.successors(&self.node).unwrap_or_default(),
+            MultiDiAdjKind::Predecessors => g.inner.predecessors(&self.node).unwrap_or_default(),
+        };
+        let result = PyDict::new(py);
+        for neighbor in neighbors {
+            let py_neighbor = g.py_node_key(py, neighbor);
+            let (source, target) = self.endpoint_pair(neighbor.to_owned());
+            let keydict = MultiDiKeyDictView::new(self.graph.clone_ref(py), source, target)
+                .materialize(py)?;
+            result.set_item(py_neighbor, keydict.bind(py))?;
+        }
+        Ok(result.unbind())
+    }
+}
+
+#[pymethods]
+impl MultiDiAtlasView {
+    fn __getitem__(
+        &self,
+        py: Python<'_>,
+        v: &Bound<'_, PyAny>,
+    ) -> PyResult<Py<MultiDiKeyDictView>> {
+        let g = self.graph.borrow(py);
+        let v_canon = node_key_to_string(py, v)?;
+        let (source, target) = self.endpoint_pair(v_canon);
+        if !g.inner.has_edge(&source, &target) {
+            return Err(PyKeyError::new_err((v.clone().unbind(),)));
+        }
+        Py::new(
+            py,
+            MultiDiKeyDictView::new(self.graph.clone_ref(py), source, target),
+        )
+    }
+
+    fn __contains__(&self, py: Python<'_>, v: &Bound<'_, PyAny>) -> PyResult<bool> {
+        let g = self.graph.borrow(py);
+        let v_canon = node_key_to_string(py, v)?;
+        let (source, target) = self.endpoint_pair(v_canon);
+        Ok(g.inner.has_edge(&source, &target))
+    }
+
+    fn __len__(&self, py: Python<'_>) -> usize {
+        let g = self.graph.borrow(py);
+        match self.kind {
+            MultiDiAdjKind::Successors => g
+                .inner
+                .successors(&self.node)
+                .map_or(0, |successors| successors.len()),
+            MultiDiAdjKind::Predecessors => g
+                .inner
+                .predecessors(&self.node)
+                .map_or(0, |predecessors| predecessors.len()),
+        }
+    }
+
+    fn __iter__(&self, py: Python<'_>) -> PyResult<Py<crate::NodeIterator>> {
+        let g = self.graph.borrow(py);
+        let neighbors = match self.kind {
+            MultiDiAdjKind::Successors => g.inner.successors(&self.node).unwrap_or_default(),
+            MultiDiAdjKind::Predecessors => g.inner.predecessors(&self.node).unwrap_or_default(),
+        };
+        let nodes: Vec<PyObject> = neighbors
+            .iter()
+            .map(|node| g.py_node_key(py, node))
+            .collect();
+        Py::new(py, crate::NodeIterator::unguarded(nodes))
+    }
+
+    fn keys(&self, py: Python<'_>) -> PyResult<Py<crate::NodeIterator>> {
+        self.__iter__(py)
+    }
+
+    fn items(&self, py: Python<'_>) -> PyResult<Vec<(PyObject, Py<MultiDiKeyDictView>)>> {
+        let g = self.graph.borrow(py);
+        let neighbors = match self.kind {
+            MultiDiAdjKind::Successors => g.inner.successors(&self.node).unwrap_or_default(),
+            MultiDiAdjKind::Predecessors => g.inner.predecessors(&self.node).unwrap_or_default(),
+        };
+        let mut out = Vec::with_capacity(neighbors.len());
+        for neighbor in neighbors {
+            let py_neighbor = g.py_node_key(py, neighbor);
+            let (source, target) = self.endpoint_pair(neighbor.to_owned());
+            out.push((
+                py_neighbor,
+                Py::new(
+                    py,
+                    MultiDiKeyDictView::new(self.graph.clone_ref(py), source, target),
+                )?,
+            ));
+        }
+        Ok(out)
+    }
+
+    fn values(&self, py: Python<'_>) -> PyResult<Vec<Py<MultiDiKeyDictView>>> {
+        Ok(self
+            .items(py)?
+            .into_iter()
+            .map(|(_, value)| value)
+            .collect())
+    }
+
+    #[pyo3(signature = (v, default=None))]
+    fn get(
+        &self,
+        py: Python<'_>,
+        v: &Bound<'_, PyAny>,
+        default: Option<PyObject>,
+    ) -> PyResult<PyObject> {
+        match self.__getitem__(py, v) {
+            Ok(value) => Ok(value.into_any()),
+            Err(e) if e.is_instance_of::<PyKeyError>(py) => {
+                Ok(default.unwrap_or_else(|| py.None()))
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    fn copy(&self, py: Python<'_>) -> PyResult<Py<PyDict>> {
+        let g = self.graph.borrow(py);
+        let neighbors = match self.kind {
+            MultiDiAdjKind::Successors => g.inner.successors(&self.node).unwrap_or_default(),
+            MultiDiAdjKind::Predecessors => g.inner.predecessors(&self.node).unwrap_or_default(),
+        };
+        let result = PyDict::new(py);
+        for neighbor in neighbors {
+            let py_neighbor = g.py_node_key(py, neighbor);
+            let (source, target) = self.endpoint_pair(neighbor.to_owned());
+            let keydict =
+                MultiDiKeyDictView::new(self.graph.clone_ref(py), source, target).copy(py)?;
+            result.set_item(py_neighbor, keydict)?;
+        }
+        Ok(result.unbind())
+    }
+
+    fn __eq__(&self, py: Python<'_>, other: &Bound<'_, PyAny>) -> PyResult<bool> {
+        let materialized = self.materialize(py)?;
+        materialized.bind(py).eq(other)
+    }
+
+    fn __ne__(&self, py: Python<'_>, other: &Bound<'_, PyAny>) -> PyResult<bool> {
+        Ok(!self.__eq__(py, other)?)
+    }
+
+    fn __str__(&self, py: Python<'_>) -> PyResult<String> {
+        let materialized = self.materialize(py)?;
+        Ok(materialized.bind(py).str()?.to_string())
+    }
+
+    fn __repr__(&self, py: Python<'_>) -> PyResult<String> {
+        let materialized = self.materialize(py)?;
+        Ok(format!(
+            "AdjacencyView({})",
+            materialized.bind(py).repr()?.to_str()?
+        ))
+    }
+
+    fn __bool__(&self, py: Python<'_>) -> bool {
+        self.__len__(py) > 0
+    }
+}
+
+#[pyclass(module = "franken_networkx", mapping)]
+struct MultiDiKeyDictView {
+    graph: Py<PyMultiDiGraph>,
+    source: String,
+    target: String,
+}
+
+impl MultiDiKeyDictView {
+    fn new(graph: Py<PyMultiDiGraph>, source: String, target: String) -> Self {
+        Self {
+            graph,
+            source,
+            target,
+        }
+    }
+
+    fn materialize(&self, py: Python<'_>) -> PyResult<Py<PyDict>> {
+        let g = self.graph.borrow(py);
+        let result = PyDict::new(py);
+        for key in g
+            .inner
+            .edge_keys(&self.source, &self.target)
+            .unwrap_or_default()
+        {
+            let edge_key = PyMultiDiGraph::edge_key(&self.source, &self.target, key);
+            let attrs = g
+                .edge_py_attrs
+                .get(&edge_key)
+                .map_or_else(|| PyDict::new(py).unbind(), |d| d.clone_ref(py));
+            result.set_item(g.py_edge_key(py, &self.source, &self.target, key), attrs)?;
+        }
+        Ok(result.unbind())
+    }
+}
+
+#[pymethods]
+impl MultiDiKeyDictView {
+    fn __getitem__(&self, py: Python<'_>, key: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>> {
+        let g = self.graph.borrow(py);
+        let Some(internal_key) =
+            g.resolve_internal_edge_key(py, &self.source, &self.target, key)?
+        else {
+            return Err(PyKeyError::new_err((key.clone().unbind(),)));
+        };
+        g.mark_edges_dirty();
+        let edge_key = PyMultiDiGraph::edge_key(&self.source, &self.target, internal_key);
+        Ok(g.edge_py_attrs
+            .get(&edge_key)
+            .map_or_else(|| PyDict::new(py).unbind(), |d| d.clone_ref(py)))
+    }
+
+    fn __contains__(&self, py: Python<'_>, key: &Bound<'_, PyAny>) -> PyResult<bool> {
+        let g = self.graph.borrow(py);
+        Ok(
+            g.resolve_internal_edge_key(py, &self.source, &self.target, key)?
+                .is_some(),
+        )
+    }
+
+    fn __len__(&self, py: Python<'_>) -> usize {
+        self.graph
+            .borrow(py)
+            .inner
+            .edge_keys(&self.source, &self.target)
+            .map_or(0, |keys| keys.len())
+    }
+
+    fn __iter__(&self, py: Python<'_>) -> PyResult<Py<crate::NodeIterator>> {
+        let g = self.graph.borrow(py);
+        let keys: Vec<PyObject> = g
+            .inner
+            .edge_keys(&self.source, &self.target)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|key| g.py_edge_key(py, &self.source, &self.target, key))
+            .collect();
+        Py::new(py, crate::NodeIterator::unguarded(keys))
+    }
+
+    fn keys(&self, py: Python<'_>) -> PyResult<Py<crate::NodeIterator>> {
+        self.__iter__(py)
+    }
+
+    fn items(&self, py: Python<'_>) -> PyResult<Vec<(PyObject, Py<PyDict>)>> {
+        let g = self.graph.borrow(py);
+        let keys = g
+            .inner
+            .edge_keys(&self.source, &self.target)
+            .unwrap_or_default();
+        if !keys.is_empty() {
+            g.mark_edges_dirty();
+        }
+        let mut out = Vec::with_capacity(keys.len());
+        for key in keys {
+            let edge_key = PyMultiDiGraph::edge_key(&self.source, &self.target, key);
+            let attrs = g
+                .edge_py_attrs
+                .get(&edge_key)
+                .map_or_else(|| PyDict::new(py).unbind(), |d| d.clone_ref(py));
+            out.push((g.py_edge_key(py, &self.source, &self.target, key), attrs));
+        }
+        Ok(out)
+    }
+
+    fn values(&self, py: Python<'_>) -> PyResult<Vec<Py<PyDict>>> {
+        Ok(self
+            .items(py)?
+            .into_iter()
+            .map(|(_, attrs)| attrs)
+            .collect())
+    }
+
+    #[pyo3(signature = (key, default=None))]
+    fn get(
+        &self,
+        py: Python<'_>,
+        key: &Bound<'_, PyAny>,
+        default: Option<PyObject>,
+    ) -> PyResult<PyObject> {
+        match self.__getitem__(py, key) {
+            Ok(value) => Ok(value.into_any()),
+            Err(e) if e.is_instance_of::<PyKeyError>(py) => {
+                Ok(default.unwrap_or_else(|| py.None()))
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    fn copy(&self, py: Python<'_>) -> PyResult<Py<PyDict>> {
+        let g = self.graph.borrow(py);
+        let result = PyDict::new(py);
+        for key in g
+            .inner
+            .edge_keys(&self.source, &self.target)
+            .unwrap_or_default()
+        {
+            let edge_key = PyMultiDiGraph::edge_key(&self.source, &self.target, key);
+            let attrs = match g.edge_py_attrs.get(&edge_key) {
+                Some(attrs) => attrs.bind(py).copy()?.unbind(),
+                None => PyDict::new(py).unbind(),
+            };
+            result.set_item(g.py_edge_key(py, &self.source, &self.target, key), attrs)?;
+        }
+        Ok(result.unbind())
+    }
+
+    fn __eq__(&self, py: Python<'_>, other: &Bound<'_, PyAny>) -> PyResult<bool> {
+        let materialized = self.materialize(py)?;
+        materialized.bind(py).eq(other)
+    }
+
+    fn __ne__(&self, py: Python<'_>, other: &Bound<'_, PyAny>) -> PyResult<bool> {
+        Ok(!self.__eq__(py, other)?)
+    }
+
+    fn __str__(&self, py: Python<'_>) -> PyResult<String> {
+        let materialized = self.materialize(py)?;
+        Ok(materialized.bind(py).str()?.to_string())
+    }
+
+    fn __repr__(&self, py: Python<'_>) -> PyResult<String> {
+        let materialized = self.materialize(py)?;
+        Ok(format!(
+            "AtlasView({})",
+            materialized.bind(py).repr()?.to_str()?
+        ))
+    }
+
+    fn __bool__(&self, py: Python<'_>) -> bool {
+        self.__len__(py) > 0
     }
 }
 
@@ -894,20 +1243,38 @@ impl PyMultiDiGraph {
         )
     }
 
-    fn __getitem__(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>> {
+    fn _native_successor_row(
+        slf: PyRef<'_, Self>,
+        n: &Bound<'_, PyAny>,
+    ) -> PyResult<Py<MultiDiAtlasView>> {
+        let py = slf.py();
         let canonical = node_key_to_string(py, n)?;
-        if !self.inner.has_node(&canonical) {
+        if !slf.inner.has_node(&canonical) {
             return Err(crate::missing_key_error(n));
         }
-        self.mark_edges_dirty();
-        let result = PyDict::new(py);
-        for successor in self.inner.successors(&canonical).unwrap_or_default() {
-            result.set_item(
-                self.py_node_key(py, successor),
-                self.successor_dict(py, &canonical, successor)?.bind(py),
-            )?;
+        Py::new(
+            py,
+            MultiDiAtlasView::new(Py::from(slf), canonical, MultiDiAdjKind::Successors),
+        )
+    }
+
+    fn _native_predecessor_row(
+        slf: PyRef<'_, Self>,
+        n: &Bound<'_, PyAny>,
+    ) -> PyResult<Py<MultiDiAtlasView>> {
+        let py = slf.py();
+        let canonical = node_key_to_string(py, n)?;
+        if !slf.inner.has_node(&canonical) {
+            return Err(crate::missing_key_error(n));
         }
-        Ok(result.unbind())
+        Py::new(
+            py,
+            MultiDiAtlasView::new(Py::from(slf), canonical, MultiDiAdjKind::Predecessors),
+        )
+    }
+
+    fn __getitem__(slf: PyRef<'_, Self>, n: &Bound<'_, PyAny>) -> PyResult<Py<MultiDiAtlasView>> {
+        Self::_native_successor_row(slf, n)
     }
 
     fn __str__(&self) -> String {
@@ -3957,7 +4324,10 @@ impl PyDiGraph {
             return Err(crate::missing_key_error(n));
         }
         let graph_py: Py<PyDiGraph> = Py::from(slf);
-        Py::new(py, DiAtlasView::new(graph_py, canonical, AdjKind::Successors))
+        Py::new(
+            py,
+            DiAtlasView::new(graph_py, canonical, AdjKind::Successors),
+        )
     }
 
     fn __str__(&self) -> String {
@@ -4942,7 +5312,7 @@ pub struct DiAtlasView {
 }
 
 impl DiAtlasView {
-    pub(crate) fn new(graph: Py<PyDiGraph>, node: String, kind: AdjKind) -> Self {
+    fn new(graph: Py<PyDiGraph>, node: String, kind: AdjKind) -> Self {
         Self { graph, node, kind }
     }
 
@@ -4992,8 +5362,7 @@ impl DiAtlasView {
         // Returned dict is the SAME shared Py<PyDict> the graph stores, so
         // `G[u][v]['w'] = x` mutates live edge attrs — flag dirty.
         g.mark_edges_dirty();
-        Ok(g
-            .edge_py_attrs
+        Ok(g.edge_py_attrs
             .get(&ek)
             .map_or_else(|| PyDict::new(py).unbind(), |d| d.clone_ref(py)))
     }
@@ -5190,6 +5559,8 @@ pub fn register_digraph_classes(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<MultiDiGraphNodeView>()?;
     m.add_class::<MultiDiGraphEdgeView>()?;
     m.add_class::<MultiDiGraphDegreeView>()?;
+    m.add_class::<MultiDiAtlasView>()?;
+    m.add_class::<MultiDiKeyDictView>()?;
     Ok(())
 }
 

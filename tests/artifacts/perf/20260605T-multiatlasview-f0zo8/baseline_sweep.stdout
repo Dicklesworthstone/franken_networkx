@@ -1,0 +1,2 @@
+{"checksum": 1000000, "degree": 2000, "graph": "MultiGraph", "keys_per_neighbor": 4, "loops": 500, "mode": "gu", "module": "fnx", "ns_per_loop_max": 22626520.77, "ns_per_loop_mean": 19332650.2032, "ns_per_loop_median": 19761440.424, "ns_per_loop_min": 14680527.246, "rounds": 5}
+{"checksum": 2000, "degree": 2000, "graph": "MultiGraph", "keys_per_neighbor": 4, "loops": 500, "mode": "guv", "module": "fnx", "ns_per_loop_max": 29239665.348, "ns_per_loop_mean": 26528506.4476, "ns_per_loop_median": 28300961.514, "ns_per_loop_min": 23029963.442, "rounds": 5}

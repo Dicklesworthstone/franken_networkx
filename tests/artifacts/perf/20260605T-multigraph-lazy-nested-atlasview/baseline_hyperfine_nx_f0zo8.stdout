@@ -1,0 +1,21 @@
+Benchmark 1: nx-mg-bare
+  Time (mean ± σ):     170.1 ms ±   9.5 ms    [User: 138.8 ms, System: 30.5 ms]
+  Range (min … max):   154.7 ms … 185.8 ms    10 runs
+ 
+Benchmark 2: nx-mg-point
+  Time (mean ± σ):     167.8 ms ±   6.2 ms    [User: 134.2 ms, System: 32.7 ms]
+  Range (min … max):   157.8 ms … 178.1 ms    10 runs
+ 
+Benchmark 3: nx-mdg-bare
+  Time (mean ± σ):     179.1 ms ±  10.9 ms    [User: 146.0 ms, System: 32.1 ms]
+  Range (min … max):   163.8 ms … 202.3 ms    10 runs
+ 
+Benchmark 4: nx-mdg-point
+  Time (mean ± σ):     187.1 ms ±  10.7 ms    [User: 152.3 ms, System: 33.6 ms]
+  Range (min … max):   169.3 ms … 202.1 ms    10 runs
+ 
+Summary
+  nx-mg-point ran
+    1.01 ± 0.07 times faster than nx-mg-bare
+    1.07 ± 0.08 times faster than nx-mdg-bare
+    1.11 ± 0.08 times faster than nx-mdg-point

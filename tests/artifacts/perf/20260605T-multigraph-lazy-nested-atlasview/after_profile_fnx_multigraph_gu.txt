@@ -1,0 +1,19 @@
+{"bead": "br-r37-c1-f0zo8", "profile": {"graph": "multigraph", "library": "fnx", "loops": 200000, "neighbors": 720, "observed_len_accumulator": 144000000, "operation": "gu", "parallel_edges_per_neighbor": 16}}
+         2200002 function calls (2000002 primitive calls) in 0.755 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.076    0.076    0.755    0.755 /data/projects/franken_networkx/tests/artifacts/perf/20260605T-multigraph-lazy-nested-atlasview/multigraph_nested_atlasview_baseline.py:174(run_loops)
+400000/200000    0.217    0.000    0.411    0.000 {built-in method builtins.len}
+   200000    0.070    0.000    0.367    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1148(__len__)
+   200000    0.044    0.000    0.268    0.000 /data/projects/franken_networkx/tests/artifacts/perf/20260605T-multigraph-lazy-nested-atlasview/multigraph_nested_atlasview_baseline.py:166(operation)
+   200000    0.146    0.000    0.224    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1349(_multigraph_getitem_from_native_row)
+   200000    0.040    0.000    0.123    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1145(_atlas)
+   400000    0.095    0.000    0.095    0.000 {method '_native_adjacency_row' of 'franken_networkx.MultiGraph' objects}
+   200000    0.037    0.000    0.084    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1357(<lambda>)
+   200000    0.016    0.000    0.016    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1142(__init__)
+   200000    0.014    0.000    0.014    0.000 {built-in method builtins.hash}
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+
+

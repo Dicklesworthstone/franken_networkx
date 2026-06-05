@@ -879,8 +879,7 @@ impl AtlasView {
         // `G[u]`, which marked dirty unconditionally).
         g.mark_edges_dirty();
         let ek = PyGraph::edge_key(&self.node, &v_canon);
-        Ok(g
-            .edge_py_attrs
+        Ok(g.edge_py_attrs
             .get(&ek)
             .map_or_else(|| PyDict::new(py).unbind(), |d| d.clone_ref(py)))
     }

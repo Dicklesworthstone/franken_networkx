@@ -1,0 +1,2080 @@
+{
+  "digest": "0523652fa10f9dc210f4367d5a582e35313f637b224967739fce853f3f88fb9f",
+  "payload": {
+    "bead": "br-r37-c1-f0zo8",
+    "franken_networkx_file": "/data/projects/franken_networkx/python/franken_networkx/__init__.py",
+    "networkx_version": "3.6.1",
+    "purpose": "current eager nested adjacency golden before lazy MultiGraph/MultiDiGraph views",
+    "python": "3.13.7 (main, Mar  3 2026, 12:19:54) [GCC 15.2.0]",
+    "records": [
+      {
+        "copy_shape": [
+          [
+            {
+              "repr": "'alpha'",
+              "str": "alpha",
+              "type": "str"
+            },
+            {
+              "keys": [
+                {
+                  "repr": "2",
+                  "str": "2",
+                  "type": "int"
+                },
+                {
+                  "repr": "'k0'",
+                  "str": "k0",
+                  "type": "str"
+                },
+                {
+                  "repr": "'late'",
+                  "str": "late",
+                  "type": "str"
+                }
+              ],
+              "repr_prefix": "{2: {'weight': 7, 'tag': 'first', 'via_view': 'franken_networkx'}, 'k0': {'weight': 11, 'tag': 'second'}, 'late': {'weight': 23, 'tag': 'late'}}",
+              "type": "dict"
+            }
+          ],
+          [
+            {
+              "repr": "'beta'",
+              "str": "beta",
+              "type": "str"
+            },
+            {
+              "keys": [
+                {
+                  "repr": "0",
+                  "str": "0",
+                  "type": "int"
+                }
+              ],
+              "repr_prefix": "{0: {'weight': 13, 'tag': 'third'}}",
+              "type": "dict"
+            }
+          ],
+          [
+            {
+              "repr": "'gamma'",
+              "str": "gamma",
+              "type": "str"
+            },
+            {
+              "keys": [
+                {
+                  "repr": "'g'",
+                  "str": "g",
+                  "type": "str"
+                }
+              ],
+              "repr_prefix": "{'g': {'weight': 17, 'tag': 'fourth'}}",
+              "type": "dict"
+            }
+          ],
+          [
+            {
+              "repr": "'omega'",
+              "str": "omega",
+              "type": "str"
+            },
+            {
+              "keys": [
+                {
+                  "repr": "'reverse'",
+                  "str": "reverse",
+                  "type": "str"
+                }
+              ],
+              "repr_prefix": "{'reverse': {'weight': 19, 'tag': 'fifth'}}",
+              "type": "dict"
+            }
+          ],
+          [
+            {
+              "repr": "'delta'",
+              "str": "delta",
+              "type": "str"
+            },
+            {
+              "keys": [
+                {
+                  "repr": "0",
+                  "str": "0",
+                  "type": "int"
+                }
+              ],
+              "repr_prefix": "{0: {'weight': 29, 'tag': 'late-neighbor'}}",
+              "type": "dict"
+            }
+          ]
+        ],
+        "copy_type": "builtins.dict",
+        "dict_shape": [
+          [
+            {
+              "repr": "'alpha'",
+              "str": "alpha",
+              "type": "str"
+            },
+            {
+              "keys": [
+                {
+                  "repr": "2",
+                  "str": "2",
+                  "type": "int"
+                },
+                {
+                  "repr": "'k0'",
+                  "str": "k0",
+                  "type": "str"
+                },
+                {
+                  "repr": "'late'",
+                  "str": "late",
+                  "type": "str"
+                }
+              ],
+              "repr_prefix": "AtlasView({2: {'weight': 7, 'tag': 'first', 'via_view': 'franken_networkx'}, 'k0': {'weight': 11, 'tag': 'second'}, 'late': {'weight': 23, 'tag': 'late'}})",
+              "type": "AtlasView"
+            }
+          ],
+          [
+            {
+              "repr": "'beta'",
+              "str": "beta",
+              "type": "str"
+            },
+            {
+              "keys": [
+                {
+                  "repr": "0",
+                  "str": "0",
+                  "type": "int"
+                }
+              ],
+              "repr_prefix": "AtlasView({0: {'weight': 13, 'tag': 'third'}})",
+              "type": "AtlasView"
+            }
+          ],
+          [
+            {
+              "repr": "'gamma'",
+              "str": "gamma",
+              "type": "str"
+            },
+            {
+              "keys": [
+                {
+                  "repr": "'g'",
+                  "str": "g",
+                  "type": "str"
+                }
+              ],
+              "repr_prefix": "AtlasView({'g': {'weight': 17, 'tag': 'fourth'}})",
+              "type": "AtlasView"
+            }
+          ],
+          [
+            {
+              "repr": "'omega'",
+              "str": "omega",
+              "type": "str"
+            },
+            {
+              "keys": [
+                {
+                  "repr": "'reverse'",
+                  "str": "reverse",
+                  "type": "str"
+                }
+              ],
+              "repr_prefix": "AtlasView({'reverse': {'weight': 19, 'tag': 'fifth'}})",
+              "type": "AtlasView"
+            }
+          ],
+          [
+            {
+              "repr": "'delta'",
+              "str": "delta",
+              "type": "str"
+            },
+            {
+              "keys": [
+                {
+                  "repr": "0",
+                  "str": "0",
+                  "type": "int"
+                }
+              ],
+              "repr_prefix": "AtlasView({0: {'weight': 29, 'tag': 'late-neighbor'}})",
+              "type": "AtlasView"
+            }
+          ]
+        ],
+        "dict_type": "builtins.dict",
+        "edge_key_order_after_mutation": [
+          {
+            "repr": "2",
+            "str": "2",
+            "type": "int"
+          },
+          {
+            "repr": "'k0'",
+            "str": "k0",
+            "type": "str"
+          },
+          {
+            "repr": "'late'",
+            "str": "late",
+            "type": "str"
+          }
+        ],
+        "edge_key_order_before": [
+          {
+            "repr": "2",
+            "str": "2",
+            "type": "int"
+          },
+          {
+            "repr": "'k0'",
+            "str": "k0",
+            "type": "str"
+          },
+          {
+            "repr": "'late'",
+            "str": "late",
+            "type": "str"
+          }
+        ],
+        "graph_kind": "multigraph",
+        "inner_repr": "AtlasView({2: {'weight': 7, 'tag': 'first', 'via_view': 'franken_networkx'}, 'k0': {'weight': 11, 'tag': 'second'}, 'late': {'weight': 23, 'tag': 'late'}})",
+        "inner_type": "franken_networkx.AtlasView",
+        "missing_key": {
+          "args": [
+            "'missing-key'"
+          ],
+          "repr": "KeyError('missing-key')",
+          "str": "'missing-key'",
+          "type": "KeyError"
+        },
+        "missing_neighbor": {
+          "args": [
+            "'missing-neighbor'"
+          ],
+          "repr": "KeyError('missing-neighbor')",
+          "str": "'missing-neighbor'",
+          "type": "KeyError"
+        },
+        "missing_node": {
+          "args": [
+            "'missing-node'"
+          ],
+          "repr": "KeyError('missing-node')",
+          "str": "'missing-node'",
+          "type": "KeyError"
+        },
+        "module": "franken_networkx",
+        "neighbor_order_after_mutation": [
+          {
+            "repr": "'alpha'",
+            "str": "alpha",
+            "type": "str"
+          },
+          {
+            "repr": "'beta'",
+            "str": "beta",
+            "type": "str"
+          },
+          {
+            "repr": "'gamma'",
+            "str": "gamma",
+            "type": "str"
+          },
+          {
+            "repr": "'omega'",
+            "str": "omega",
+            "type": "str"
+          },
+          {
+            "repr": "'delta'",
+            "str": "delta",
+            "type": "str"
+          }
+        ],
+        "neighbor_order_before": [
+          {
+            "repr": "'alpha'",
+            "str": "alpha",
+            "type": "str"
+          },
+          {
+            "repr": "'beta'",
+            "str": "beta",
+            "type": "str"
+          },
+          {
+            "repr": "'gamma'",
+            "str": "gamma",
+            "type": "str"
+          },
+          {
+            "repr": "'omega'",
+            "str": "omega",
+            "type": "str"
+          },
+          {
+            "repr": "'delta'",
+            "str": "delta",
+            "type": "str"
+          }
+        ],
+        "row_repr": "AdjacencyView({'alpha': {2: {'weight': 7, 'tag': 'first', 'via_view': 'franken_networkx'}, 'k0': {'weight': 11, 'tag': 'second'}, 'late': {'weight': 23, 'tag': 'late'}}, 'beta': {0: {'weight': 13, 'tag': 'third'}}, 'gamma': {'g': {'weight': 17, 'tag': 'fourth'}}, 'omega': {'reverse': {'weight': 19, 'tag': 'fifth'}}, 'delta': {0: {'weight': 29, 'tag': 'late-neighbor'}}})",
+        "row_signature_after_mutation": [
+          [
+            {
+              "repr": "'alpha'",
+              "str": "alpha",
+              "type": "str"
+            },
+            [
+              [
+                {
+                  "repr": "2",
+                  "str": "2",
+                  "type": "int"
+                },
+                [
+                  [
+                    {
+                      "repr": "'weight'",
+                      "str": "weight",
+                      "type": "str"
+                    },
+                    7
+                  ],
+                  [
+                    {
+                      "repr": "'tag'",
+                      "str": "tag",
+                      "type": "str"
+                    },
+                    "first"
+                  ],
+                  [
+                    {
+                      "repr": "'via_view'",
+                      "str": "via_view",
+                      "type": "str"
+                    },
+                    "franken_networkx"
+                  ]
+                ]
+              ],
+              [
+                {
+                  "repr": "'k0'",
+                  "str": "k0",
+                  "type": "str"
+                },
+                [
+                  [
+                    {
+                      "repr": "'weight'",
+                      "str": "weight",
+                      "type": "str"
+                    },
+                    11
+                  ],
+                  [
+                    {
+                      "repr": "'tag'",
+                      "str": "tag",
+                      "type": "str"
+                    },
+                    "second"
+                  ]
+                ]
+              ],
+              [
+                {
+                  "repr": "'late'",
+                  "str": "late",
+                  "type": "str"
+                },
+                [
+                  [
+                    {
+                      "repr": "'weight'",
+                      "str": "weight",
+                      "type": "str"
+                    },
+                    23
+                  ],
+                  [
+                    {
+                      "repr": "'tag'",
+                      "str": "tag",
+                      "type": "str"
+                    },
+                    "late"
+                  ]
+                ]
+              ]
+            ]
+          ],
+          [
+            {
+              "repr": "'beta'",
+              "str": "beta",
+              "type": "str"
+            },
+            [
+              [
+                {
+                  "repr": "0",
+                  "str": "0",
+                  "type": "int"
+                },
+                [
+                  [
+                    {
+                      "repr": "'weight'",
+                      "str": "weight",
+                      "type": "str"
+                    },
+                    13
+                  ],
+                  [
+                    {
+                      "repr": "'tag'",
+                      "str": "tag",
+                      "type": "str"
+                    },
+                    "third"
+                  ]
+                ]
+              ]
+            ]
+          ],
+          [
+            {
+              "repr": "'gamma'",
+              "str": "gamma",
+              "type": "str"
+            },
+            [
+              [
+                {
+                  "repr": "'g'",
+                  "str": "g",
+                  "type": "str"
+                },
+                [
+                  [
+                    {
+                      "repr": "'weight'",
+                      "str": "weight",
+                      "type": "str"
+                    },
+                    17
+                  ],
+                  [
+                    {
+                      "repr": "'tag'",
+                      "str": "tag",
+                      "type": "str"
+                    },
+                    "fourth"
+                  ]
+                ]
+              ]
+            ]
+          ],
+          [
+            {
+              "repr": "'omega'",
+              "str": "omega",
+              "type": "str"
+            },
+            [
+              [
+                {
+                  "repr": "'reverse'",
+                  "str": "reverse",
+                  "type": "str"
+                },
+                [
+                  [
+                    {
+                      "repr": "'weight'",
+                      "str": "weight",
+                      "type": "str"
+                    },
+                    19
+                  ],
+                  [
+                    {
+                      "repr": "'tag'",
+                      "str": "tag",
+                      "type": "str"
+                    },
+                    "fifth"
+                  ]
+                ]
+              ]
+            ]
+          ],
+          [
+            {
+              "repr": "'delta'",
+              "str": "delta",
+              "type": "str"
+            },
+            [
+              [
+                {
+                  "repr": "0",
+                  "str": "0",
+                  "type": "int"
+                },
+                [
+                  [
+                    {
+                      "repr": "'weight'",
+                      "str": "weight",
+                      "type": "str"
+                    },
+                    29
+                  ],
+                  [
+                    {
+                      "repr": "'tag'",
+                      "str": "tag",
+                      "type": "str"
+                    },
+                    "late-neighbor"
+                  ]
+                ]
+              ]
+            ]
+          ]
+        ],
+        "row_type": "franken_networkx.AdjacencyView",
+        "view_attr_mutation_visible": "franken_networkx"
+      },
+      {
+        "copy_shape": [
+          [
+            {
+              "repr": "'alpha'",
+              "str": "alpha",
+              "type": "str"
+            },
+            {
+              "keys": [
+                {
+                  "repr": "2",
+                  "str": "2",
+                  "type": "int"
+                },
+                {
+                  "repr": "'k0'",
+                  "str": "k0",
+                  "type": "str"
+                },
+                {
+                  "repr": "'late'",
+                  "str": "late",
+                  "type": "str"
+                }
+              ],
+              "repr_prefix": "{2: {'weight': 7, 'tag': 'first', 'via_view': 'networkx'}, 'k0': {'weight': 11, 'tag': 'second'}, 'late': {'weight': 23, 'tag': 'late'}}",
+              "type": "dict"
+            }
+          ],
+          [
+            {
+              "repr": "'beta'",
+              "str": "beta",
+              "type": "str"
+            },
+            {
+              "keys": [
+                {
+                  "repr": "0",
+                  "str": "0",
+                  "type": "int"
+                }
+              ],
+              "repr_prefix": "{0: {'weight': 13, 'tag': 'third'}}",
+              "type": "dict"
+            }
+          ],
+          [
+            {
+              "repr": "'gamma'",
+              "str": "gamma",
+              "type": "str"
+            },
+            {
+              "keys": [
+                {
+                  "repr": "'g'",
+                  "str": "g",
+                  "type": "str"
+                }
+              ],
+              "repr_prefix": "{'g': {'weight': 17, 'tag': 'fourth'}}",
+              "type": "dict"
+            }
+          ],
+          [
+            {
+              "repr": "'omega'",
+              "str": "omega",
+              "type": "str"
+            },
+            {
+              "keys": [
+                {
+                  "repr": "'reverse'",
+                  "str": "reverse",
+                  "type": "str"
+                }
+              ],
+              "repr_prefix": "{'reverse': {'weight': 19, 'tag': 'fifth'}}",
+              "type": "dict"
+            }
+          ],
+          [
+            {
+              "repr": "'delta'",
+              "str": "delta",
+              "type": "str"
+            },
+            {
+              "keys": [
+                {
+                  "repr": "0",
+                  "str": "0",
+                  "type": "int"
+                }
+              ],
+              "repr_prefix": "{0: {'weight': 29, 'tag': 'late-neighbor'}}",
+              "type": "dict"
+            }
+          ]
+        ],
+        "copy_type": "builtins.dict",
+        "dict_shape": [
+          [
+            {
+              "repr": "'alpha'",
+              "str": "alpha",
+              "type": "str"
+            },
+            {
+              "keys": [
+                {
+                  "repr": "2",
+                  "str": "2",
+                  "type": "int"
+                },
+                {
+                  "repr": "'k0'",
+                  "str": "k0",
+                  "type": "str"
+                },
+                {
+                  "repr": "'late'",
+                  "str": "late",
+                  "type": "str"
+                }
+              ],
+              "repr_prefix": "AtlasView({2: {'weight': 7, 'tag': 'first', 'via_view': 'networkx'}, 'k0': {'weight': 11, 'tag': 'second'}, 'late': {'weight': 23, 'tag': 'late'}})",
+              "type": "AtlasView"
+            }
+          ],
+          [
+            {
+              "repr": "'beta'",
+              "str": "beta",
+              "type": "str"
+            },
+            {
+              "keys": [
+                {
+                  "repr": "0",
+                  "str": "0",
+                  "type": "int"
+                }
+              ],
+              "repr_prefix": "AtlasView({0: {'weight': 13, 'tag': 'third'}})",
+              "type": "AtlasView"
+            }
+          ],
+          [
+            {
+              "repr": "'gamma'",
+              "str": "gamma",
+              "type": "str"
+            },
+            {
+              "keys": [
+                {
+                  "repr": "'g'",
+                  "str": "g",
+                  "type": "str"
+                }
+              ],
+              "repr_prefix": "AtlasView({'g': {'weight': 17, 'tag': 'fourth'}})",
+              "type": "AtlasView"
+            }
+          ],
+          [
+            {
+              "repr": "'omega'",
+              "str": "omega",
+              "type": "str"
+            },
+            {
+              "keys": [
+                {
+                  "repr": "'reverse'",
+                  "str": "reverse",
+                  "type": "str"
+                }
+              ],
+              "repr_prefix": "AtlasView({'reverse': {'weight': 19, 'tag': 'fifth'}})",
+              "type": "AtlasView"
+            }
+          ],
+          [
+            {
+              "repr": "'delta'",
+              "str": "delta",
+              "type": "str"
+            },
+            {
+              "keys": [
+                {
+                  "repr": "0",
+                  "str": "0",
+                  "type": "int"
+                }
+              ],
+              "repr_prefix": "AtlasView({0: {'weight': 29, 'tag': 'late-neighbor'}})",
+              "type": "AtlasView"
+            }
+          ]
+        ],
+        "dict_type": "builtins.dict",
+        "edge_key_order_after_mutation": [
+          {
+            "repr": "2",
+            "str": "2",
+            "type": "int"
+          },
+          {
+            "repr": "'k0'",
+            "str": "k0",
+            "type": "str"
+          },
+          {
+            "repr": "'late'",
+            "str": "late",
+            "type": "str"
+          }
+        ],
+        "edge_key_order_before": [
+          {
+            "repr": "2",
+            "str": "2",
+            "type": "int"
+          },
+          {
+            "repr": "'k0'",
+            "str": "k0",
+            "type": "str"
+          },
+          {
+            "repr": "'late'",
+            "str": "late",
+            "type": "str"
+          }
+        ],
+        "graph_kind": "multigraph",
+        "inner_repr": "AtlasView({2: {'weight': 7, 'tag': 'first', 'via_view': 'networkx'}, 'k0': {'weight': 11, 'tag': 'second'}, 'late': {'weight': 23, 'tag': 'late'}})",
+        "inner_type": "networkx.classes.coreviews.AtlasView",
+        "missing_key": {
+          "args": [
+            "'missing-key'"
+          ],
+          "repr": "KeyError('missing-key')",
+          "str": "'missing-key'",
+          "type": "KeyError"
+        },
+        "missing_neighbor": {
+          "args": [
+            "'missing-neighbor'"
+          ],
+          "repr": "KeyError('missing-neighbor')",
+          "str": "'missing-neighbor'",
+          "type": "KeyError"
+        },
+        "missing_node": {
+          "args": [
+            "'missing-node'"
+          ],
+          "repr": "KeyError('missing-node')",
+          "str": "'missing-node'",
+          "type": "KeyError"
+        },
+        "module": "networkx",
+        "neighbor_order_after_mutation": [
+          {
+            "repr": "'alpha'",
+            "str": "alpha",
+            "type": "str"
+          },
+          {
+            "repr": "'beta'",
+            "str": "beta",
+            "type": "str"
+          },
+          {
+            "repr": "'gamma'",
+            "str": "gamma",
+            "type": "str"
+          },
+          {
+            "repr": "'omega'",
+            "str": "omega",
+            "type": "str"
+          },
+          {
+            "repr": "'delta'",
+            "str": "delta",
+            "type": "str"
+          }
+        ],
+        "neighbor_order_before": [
+          {
+            "repr": "'alpha'",
+            "str": "alpha",
+            "type": "str"
+          },
+          {
+            "repr": "'beta'",
+            "str": "beta",
+            "type": "str"
+          },
+          {
+            "repr": "'gamma'",
+            "str": "gamma",
+            "type": "str"
+          },
+          {
+            "repr": "'omega'",
+            "str": "omega",
+            "type": "str"
+          },
+          {
+            "repr": "'delta'",
+            "str": "delta",
+            "type": "str"
+          }
+        ],
+        "row_repr": "AdjacencyView({'alpha': {2: {'weight': 7, 'tag': 'first', 'via_view': 'networkx'}, 'k0': {'weight': 11, 'tag': 'second'}, 'late': {'weight': 23, 'tag': 'late'}}, 'beta': {0: {'weight': 13, 'tag': 'third'}}, 'gamma': {'g': {'weight': 17, 'tag': 'fourth'}}, 'omega': {'reverse': {'weight': 19, 'tag': 'fifth'}}, 'delta': {0: {'weight': 29, 'tag': 'late-neighbor'}}})",
+        "row_signature_after_mutation": [
+          [
+            {
+              "repr": "'alpha'",
+              "str": "alpha",
+              "type": "str"
+            },
+            [
+              [
+                {
+                  "repr": "2",
+                  "str": "2",
+                  "type": "int"
+                },
+                [
+                  [
+                    {
+                      "repr": "'weight'",
+                      "str": "weight",
+                      "type": "str"
+                    },
+                    7
+                  ],
+                  [
+                    {
+                      "repr": "'tag'",
+                      "str": "tag",
+                      "type": "str"
+                    },
+                    "first"
+                  ],
+                  [
+                    {
+                      "repr": "'via_view'",
+                      "str": "via_view",
+                      "type": "str"
+                    },
+                    "networkx"
+                  ]
+                ]
+              ],
+              [
+                {
+                  "repr": "'k0'",
+                  "str": "k0",
+                  "type": "str"
+                },
+                [
+                  [
+                    {
+                      "repr": "'weight'",
+                      "str": "weight",
+                      "type": "str"
+                    },
+                    11
+                  ],
+                  [
+                    {
+                      "repr": "'tag'",
+                      "str": "tag",
+                      "type": "str"
+                    },
+                    "second"
+                  ]
+                ]
+              ],
+              [
+                {
+                  "repr": "'late'",
+                  "str": "late",
+                  "type": "str"
+                },
+                [
+                  [
+                    {
+                      "repr": "'weight'",
+                      "str": "weight",
+                      "type": "str"
+                    },
+                    23
+                  ],
+                  [
+                    {
+                      "repr": "'tag'",
+                      "str": "tag",
+                      "type": "str"
+                    },
+                    "late"
+                  ]
+                ]
+              ]
+            ]
+          ],
+          [
+            {
+              "repr": "'beta'",
+              "str": "beta",
+              "type": "str"
+            },
+            [
+              [
+                {
+                  "repr": "0",
+                  "str": "0",
+                  "type": "int"
+                },
+                [
+                  [
+                    {
+                      "repr": "'weight'",
+                      "str": "weight",
+                      "type": "str"
+                    },
+                    13
+                  ],
+                  [
+                    {
+                      "repr": "'tag'",
+                      "str": "tag",
+                      "type": "str"
+                    },
+                    "third"
+                  ]
+                ]
+              ]
+            ]
+          ],
+          [
+            {
+              "repr": "'gamma'",
+              "str": "gamma",
+              "type": "str"
+            },
+            [
+              [
+                {
+                  "repr": "'g'",
+                  "str": "g",
+                  "type": "str"
+                },
+                [
+                  [
+                    {
+                      "repr": "'weight'",
+                      "str": "weight",
+                      "type": "str"
+                    },
+                    17
+                  ],
+                  [
+                    {
+                      "repr": "'tag'",
+                      "str": "tag",
+                      "type": "str"
+                    },
+                    "fourth"
+                  ]
+                ]
+              ]
+            ]
+          ],
+          [
+            {
+              "repr": "'omega'",
+              "str": "omega",
+              "type": "str"
+            },
+            [
+              [
+                {
+                  "repr": "'reverse'",
+                  "str": "reverse",
+                  "type": "str"
+                },
+                [
+                  [
+                    {
+                      "repr": "'weight'",
+                      "str": "weight",
+                      "type": "str"
+                    },
+                    19
+                  ],
+                  [
+                    {
+                      "repr": "'tag'",
+                      "str": "tag",
+                      "type": "str"
+                    },
+                    "fifth"
+                  ]
+                ]
+              ]
+            ]
+          ],
+          [
+            {
+              "repr": "'delta'",
+              "str": "delta",
+              "type": "str"
+            },
+            [
+              [
+                {
+                  "repr": "0",
+                  "str": "0",
+                  "type": "int"
+                },
+                [
+                  [
+                    {
+                      "repr": "'weight'",
+                      "str": "weight",
+                      "type": "str"
+                    },
+                    29
+                  ],
+                  [
+                    {
+                      "repr": "'tag'",
+                      "str": "tag",
+                      "type": "str"
+                    },
+                    "late-neighbor"
+                  ]
+                ]
+              ]
+            ]
+          ]
+        ],
+        "row_type": "networkx.classes.coreviews.AdjacencyView",
+        "view_attr_mutation_visible": "networkx"
+      },
+      {
+        "copy_shape": [
+          [
+            {
+              "repr": "'alpha'",
+              "str": "alpha",
+              "type": "str"
+            },
+            {
+              "keys": [
+                {
+                  "repr": "2",
+                  "str": "2",
+                  "type": "int"
+                },
+                {
+                  "repr": "'k0'",
+                  "str": "k0",
+                  "type": "str"
+                },
+                {
+                  "repr": "'late'",
+                  "str": "late",
+                  "type": "str"
+                }
+              ],
+              "repr_prefix": "{2: {'weight': 7, 'tag': 'first', 'via_view': 'franken_networkx'}, 'k0': {'weight': 11, 'tag': 'second'}, 'late': {'weight': 23, 'tag': 'late'}}",
+              "type": "dict"
+            }
+          ],
+          [
+            {
+              "repr": "'beta'",
+              "str": "beta",
+              "type": "str"
+            },
+            {
+              "keys": [
+                {
+                  "repr": "0",
+                  "str": "0",
+                  "type": "int"
+                }
+              ],
+              "repr_prefix": "{0: {'weight': 13, 'tag': 'third'}}",
+              "type": "dict"
+            }
+          ],
+          [
+            {
+              "repr": "'gamma'",
+              "str": "gamma",
+              "type": "str"
+            },
+            {
+              "keys": [
+                {
+                  "repr": "'g'",
+                  "str": "g",
+                  "type": "str"
+                }
+              ],
+              "repr_prefix": "{'g': {'weight': 17, 'tag': 'fourth'}}",
+              "type": "dict"
+            }
+          ],
+          [
+            {
+              "repr": "'delta'",
+              "str": "delta",
+              "type": "str"
+            },
+            {
+              "keys": [
+                {
+                  "repr": "0",
+                  "str": "0",
+                  "type": "int"
+                }
+              ],
+              "repr_prefix": "{0: {'weight': 29, 'tag': 'late-successor'}}",
+              "type": "dict"
+            }
+          ]
+        ],
+        "copy_type": "builtins.dict",
+        "dict_shape": [
+          [
+            {
+              "repr": "'alpha'",
+              "str": "alpha",
+              "type": "str"
+            },
+            {
+              "keys": [
+                {
+                  "repr": "2",
+                  "str": "2",
+                  "type": "int"
+                },
+                {
+                  "repr": "'k0'",
+                  "str": "k0",
+                  "type": "str"
+                },
+                {
+                  "repr": "'late'",
+                  "str": "late",
+                  "type": "str"
+                }
+              ],
+              "repr_prefix": "AtlasView({2: {'weight': 7, 'tag': 'first', 'via_view': 'franken_networkx'}, 'k0': {'weight': 11, 'tag': 'second'}, 'late': {'weight': 23, 'tag': 'late'}})",
+              "type": "AtlasView"
+            }
+          ],
+          [
+            {
+              "repr": "'beta'",
+              "str": "beta",
+              "type": "str"
+            },
+            {
+              "keys": [
+                {
+                  "repr": "0",
+                  "str": "0",
+                  "type": "int"
+                }
+              ],
+              "repr_prefix": "AtlasView({0: {'weight': 13, 'tag': 'third'}})",
+              "type": "AtlasView"
+            }
+          ],
+          [
+            {
+              "repr": "'gamma'",
+              "str": "gamma",
+              "type": "str"
+            },
+            {
+              "keys": [
+                {
+                  "repr": "'g'",
+                  "str": "g",
+                  "type": "str"
+                }
+              ],
+              "repr_prefix": "AtlasView({'g': {'weight': 17, 'tag': 'fourth'}})",
+              "type": "AtlasView"
+            }
+          ],
+          [
+            {
+              "repr": "'delta'",
+              "str": "delta",
+              "type": "str"
+            },
+            {
+              "keys": [
+                {
+                  "repr": "0",
+                  "str": "0",
+                  "type": "int"
+                }
+              ],
+              "repr_prefix": "AtlasView({0: {'weight': 29, 'tag': 'late-successor'}})",
+              "type": "AtlasView"
+            }
+          ]
+        ],
+        "dict_type": "builtins.dict",
+        "edge_key_order_after_mutation": [
+          {
+            "repr": "2",
+            "str": "2",
+            "type": "int"
+          },
+          {
+            "repr": "'k0'",
+            "str": "k0",
+            "type": "str"
+          },
+          {
+            "repr": "'late'",
+            "str": "late",
+            "type": "str"
+          }
+        ],
+        "edge_key_order_before": [
+          {
+            "repr": "2",
+            "str": "2",
+            "type": "int"
+          },
+          {
+            "repr": "'k0'",
+            "str": "k0",
+            "type": "str"
+          },
+          {
+            "repr": "'late'",
+            "str": "late",
+            "type": "str"
+          }
+        ],
+        "graph_kind": "multidigraph",
+        "inner_repr": "AtlasView({2: {'weight': 7, 'tag': 'first', 'via_view': 'franken_networkx'}, 'k0': {'weight': 11, 'tag': 'second'}, 'late': {'weight': 23, 'tag': 'late'}})",
+        "inner_type": "franken_networkx.AtlasView",
+        "missing_key": {
+          "args": [
+            "'missing-key'"
+          ],
+          "repr": "KeyError('missing-key')",
+          "str": "'missing-key'",
+          "type": "KeyError"
+        },
+        "missing_neighbor": {
+          "args": [
+            "'missing-neighbor'"
+          ],
+          "repr": "KeyError('missing-neighbor')",
+          "str": "'missing-neighbor'",
+          "type": "KeyError"
+        },
+        "missing_node": {
+          "args": [
+            "'missing-node'"
+          ],
+          "repr": "KeyError('missing-node')",
+          "str": "'missing-node'",
+          "type": "KeyError"
+        },
+        "module": "franken_networkx",
+        "neighbor_order_after_mutation": [
+          {
+            "repr": "'alpha'",
+            "str": "alpha",
+            "type": "str"
+          },
+          {
+            "repr": "'beta'",
+            "str": "beta",
+            "type": "str"
+          },
+          {
+            "repr": "'gamma'",
+            "str": "gamma",
+            "type": "str"
+          },
+          {
+            "repr": "'delta'",
+            "str": "delta",
+            "type": "str"
+          }
+        ],
+        "neighbor_order_before": [
+          {
+            "repr": "'alpha'",
+            "str": "alpha",
+            "type": "str"
+          },
+          {
+            "repr": "'beta'",
+            "str": "beta",
+            "type": "str"
+          },
+          {
+            "repr": "'gamma'",
+            "str": "gamma",
+            "type": "str"
+          },
+          {
+            "repr": "'delta'",
+            "str": "delta",
+            "type": "str"
+          }
+        ],
+        "row_repr": "AdjacencyView({'alpha': {2: {'weight': 7, 'tag': 'first', 'via_view': 'franken_networkx'}, 'k0': {'weight': 11, 'tag': 'second'}, 'late': {'weight': 23, 'tag': 'late'}}, 'beta': {0: {'weight': 13, 'tag': 'third'}}, 'gamma': {'g': {'weight': 17, 'tag': 'fourth'}}, 'delta': {0: {'weight': 29, 'tag': 'late-successor'}}})",
+        "row_signature_after_mutation": [
+          [
+            {
+              "repr": "'alpha'",
+              "str": "alpha",
+              "type": "str"
+            },
+            [
+              [
+                {
+                  "repr": "2",
+                  "str": "2",
+                  "type": "int"
+                },
+                [
+                  [
+                    {
+                      "repr": "'weight'",
+                      "str": "weight",
+                      "type": "str"
+                    },
+                    7
+                  ],
+                  [
+                    {
+                      "repr": "'tag'",
+                      "str": "tag",
+                      "type": "str"
+                    },
+                    "first"
+                  ],
+                  [
+                    {
+                      "repr": "'via_view'",
+                      "str": "via_view",
+                      "type": "str"
+                    },
+                    "franken_networkx"
+                  ]
+                ]
+              ],
+              [
+                {
+                  "repr": "'k0'",
+                  "str": "k0",
+                  "type": "str"
+                },
+                [
+                  [
+                    {
+                      "repr": "'weight'",
+                      "str": "weight",
+                      "type": "str"
+                    },
+                    11
+                  ],
+                  [
+                    {
+                      "repr": "'tag'",
+                      "str": "tag",
+                      "type": "str"
+                    },
+                    "second"
+                  ]
+                ]
+              ],
+              [
+                {
+                  "repr": "'late'",
+                  "str": "late",
+                  "type": "str"
+                },
+                [
+                  [
+                    {
+                      "repr": "'weight'",
+                      "str": "weight",
+                      "type": "str"
+                    },
+                    23
+                  ],
+                  [
+                    {
+                      "repr": "'tag'",
+                      "str": "tag",
+                      "type": "str"
+                    },
+                    "late"
+                  ]
+                ]
+              ]
+            ]
+          ],
+          [
+            {
+              "repr": "'beta'",
+              "str": "beta",
+              "type": "str"
+            },
+            [
+              [
+                {
+                  "repr": "0",
+                  "str": "0",
+                  "type": "int"
+                },
+                [
+                  [
+                    {
+                      "repr": "'weight'",
+                      "str": "weight",
+                      "type": "str"
+                    },
+                    13
+                  ],
+                  [
+                    {
+                      "repr": "'tag'",
+                      "str": "tag",
+                      "type": "str"
+                    },
+                    "third"
+                  ]
+                ]
+              ]
+            ]
+          ],
+          [
+            {
+              "repr": "'gamma'",
+              "str": "gamma",
+              "type": "str"
+            },
+            [
+              [
+                {
+                  "repr": "'g'",
+                  "str": "g",
+                  "type": "str"
+                },
+                [
+                  [
+                    {
+                      "repr": "'weight'",
+                      "str": "weight",
+                      "type": "str"
+                    },
+                    17
+                  ],
+                  [
+                    {
+                      "repr": "'tag'",
+                      "str": "tag",
+                      "type": "str"
+                    },
+                    "fourth"
+                  ]
+                ]
+              ]
+            ]
+          ],
+          [
+            {
+              "repr": "'delta'",
+              "str": "delta",
+              "type": "str"
+            },
+            [
+              [
+                {
+                  "repr": "0",
+                  "str": "0",
+                  "type": "int"
+                },
+                [
+                  [
+                    {
+                      "repr": "'weight'",
+                      "str": "weight",
+                      "type": "str"
+                    },
+                    29
+                  ],
+                  [
+                    {
+                      "repr": "'tag'",
+                      "str": "tag",
+                      "type": "str"
+                    },
+                    "late-successor"
+                  ]
+                ]
+              ]
+            ]
+          ]
+        ],
+        "row_type": "franken_networkx.AdjacencyView",
+        "view_attr_mutation_visible": "franken_networkx"
+      },
+      {
+        "copy_shape": [
+          [
+            {
+              "repr": "'alpha'",
+              "str": "alpha",
+              "type": "str"
+            },
+            {
+              "keys": [
+                {
+                  "repr": "2",
+                  "str": "2",
+                  "type": "int"
+                },
+                {
+                  "repr": "'k0'",
+                  "str": "k0",
+                  "type": "str"
+                },
+                {
+                  "repr": "'late'",
+                  "str": "late",
+                  "type": "str"
+                }
+              ],
+              "repr_prefix": "{2: {'weight': 7, 'tag': 'first', 'via_view': 'networkx'}, 'k0': {'weight': 11, 'tag': 'second'}, 'late': {'weight': 23, 'tag': 'late'}}",
+              "type": "dict"
+            }
+          ],
+          [
+            {
+              "repr": "'beta'",
+              "str": "beta",
+              "type": "str"
+            },
+            {
+              "keys": [
+                {
+                  "repr": "0",
+                  "str": "0",
+                  "type": "int"
+                }
+              ],
+              "repr_prefix": "{0: {'weight': 13, 'tag': 'third'}}",
+              "type": "dict"
+            }
+          ],
+          [
+            {
+              "repr": "'gamma'",
+              "str": "gamma",
+              "type": "str"
+            },
+            {
+              "keys": [
+                {
+                  "repr": "'g'",
+                  "str": "g",
+                  "type": "str"
+                }
+              ],
+              "repr_prefix": "{'g': {'weight': 17, 'tag': 'fourth'}}",
+              "type": "dict"
+            }
+          ],
+          [
+            {
+              "repr": "'delta'",
+              "str": "delta",
+              "type": "str"
+            },
+            {
+              "keys": [
+                {
+                  "repr": "0",
+                  "str": "0",
+                  "type": "int"
+                }
+              ],
+              "repr_prefix": "{0: {'weight': 29, 'tag': 'late-successor'}}",
+              "type": "dict"
+            }
+          ]
+        ],
+        "copy_type": "builtins.dict",
+        "dict_shape": [
+          [
+            {
+              "repr": "'alpha'",
+              "str": "alpha",
+              "type": "str"
+            },
+            {
+              "keys": [
+                {
+                  "repr": "2",
+                  "str": "2",
+                  "type": "int"
+                },
+                {
+                  "repr": "'k0'",
+                  "str": "k0",
+                  "type": "str"
+                },
+                {
+                  "repr": "'late'",
+                  "str": "late",
+                  "type": "str"
+                }
+              ],
+              "repr_prefix": "AtlasView({2: {'weight': 7, 'tag': 'first', 'via_view': 'networkx'}, 'k0': {'weight': 11, 'tag': 'second'}, 'late': {'weight': 23, 'tag': 'late'}})",
+              "type": "AtlasView"
+            }
+          ],
+          [
+            {
+              "repr": "'beta'",
+              "str": "beta",
+              "type": "str"
+            },
+            {
+              "keys": [
+                {
+                  "repr": "0",
+                  "str": "0",
+                  "type": "int"
+                }
+              ],
+              "repr_prefix": "AtlasView({0: {'weight': 13, 'tag': 'third'}})",
+              "type": "AtlasView"
+            }
+          ],
+          [
+            {
+              "repr": "'gamma'",
+              "str": "gamma",
+              "type": "str"
+            },
+            {
+              "keys": [
+                {
+                  "repr": "'g'",
+                  "str": "g",
+                  "type": "str"
+                }
+              ],
+              "repr_prefix": "AtlasView({'g': {'weight': 17, 'tag': 'fourth'}})",
+              "type": "AtlasView"
+            }
+          ],
+          [
+            {
+              "repr": "'delta'",
+              "str": "delta",
+              "type": "str"
+            },
+            {
+              "keys": [
+                {
+                  "repr": "0",
+                  "str": "0",
+                  "type": "int"
+                }
+              ],
+              "repr_prefix": "AtlasView({0: {'weight': 29, 'tag': 'late-successor'}})",
+              "type": "AtlasView"
+            }
+          ]
+        ],
+        "dict_type": "builtins.dict",
+        "edge_key_order_after_mutation": [
+          {
+            "repr": "2",
+            "str": "2",
+            "type": "int"
+          },
+          {
+            "repr": "'k0'",
+            "str": "k0",
+            "type": "str"
+          },
+          {
+            "repr": "'late'",
+            "str": "late",
+            "type": "str"
+          }
+        ],
+        "edge_key_order_before": [
+          {
+            "repr": "2",
+            "str": "2",
+            "type": "int"
+          },
+          {
+            "repr": "'k0'",
+            "str": "k0",
+            "type": "str"
+          },
+          {
+            "repr": "'late'",
+            "str": "late",
+            "type": "str"
+          }
+        ],
+        "graph_kind": "multidigraph",
+        "inner_repr": "AtlasView({2: {'weight': 7, 'tag': 'first', 'via_view': 'networkx'}, 'k0': {'weight': 11, 'tag': 'second'}, 'late': {'weight': 23, 'tag': 'late'}})",
+        "inner_type": "networkx.classes.coreviews.AtlasView",
+        "missing_key": {
+          "args": [
+            "'missing-key'"
+          ],
+          "repr": "KeyError('missing-key')",
+          "str": "'missing-key'",
+          "type": "KeyError"
+        },
+        "missing_neighbor": {
+          "args": [
+            "'missing-neighbor'"
+          ],
+          "repr": "KeyError('missing-neighbor')",
+          "str": "'missing-neighbor'",
+          "type": "KeyError"
+        },
+        "missing_node": {
+          "args": [
+            "'missing-node'"
+          ],
+          "repr": "KeyError('missing-node')",
+          "str": "'missing-node'",
+          "type": "KeyError"
+        },
+        "module": "networkx",
+        "neighbor_order_after_mutation": [
+          {
+            "repr": "'alpha'",
+            "str": "alpha",
+            "type": "str"
+          },
+          {
+            "repr": "'beta'",
+            "str": "beta",
+            "type": "str"
+          },
+          {
+            "repr": "'gamma'",
+            "str": "gamma",
+            "type": "str"
+          },
+          {
+            "repr": "'delta'",
+            "str": "delta",
+            "type": "str"
+          }
+        ],
+        "neighbor_order_before": [
+          {
+            "repr": "'alpha'",
+            "str": "alpha",
+            "type": "str"
+          },
+          {
+            "repr": "'beta'",
+            "str": "beta",
+            "type": "str"
+          },
+          {
+            "repr": "'gamma'",
+            "str": "gamma",
+            "type": "str"
+          },
+          {
+            "repr": "'delta'",
+            "str": "delta",
+            "type": "str"
+          }
+        ],
+        "row_repr": "AdjacencyView({'alpha': {2: {'weight': 7, 'tag': 'first', 'via_view': 'networkx'}, 'k0': {'weight': 11, 'tag': 'second'}, 'late': {'weight': 23, 'tag': 'late'}}, 'beta': {0: {'weight': 13, 'tag': 'third'}}, 'gamma': {'g': {'weight': 17, 'tag': 'fourth'}}, 'delta': {0: {'weight': 29, 'tag': 'late-successor'}}})",
+        "row_signature_after_mutation": [
+          [
+            {
+              "repr": "'alpha'",
+              "str": "alpha",
+              "type": "str"
+            },
+            [
+              [
+                {
+                  "repr": "2",
+                  "str": "2",
+                  "type": "int"
+                },
+                [
+                  [
+                    {
+                      "repr": "'weight'",
+                      "str": "weight",
+                      "type": "str"
+                    },
+                    7
+                  ],
+                  [
+                    {
+                      "repr": "'tag'",
+                      "str": "tag",
+                      "type": "str"
+                    },
+                    "first"
+                  ],
+                  [
+                    {
+                      "repr": "'via_view'",
+                      "str": "via_view",
+                      "type": "str"
+                    },
+                    "networkx"
+                  ]
+                ]
+              ],
+              [
+                {
+                  "repr": "'k0'",
+                  "str": "k0",
+                  "type": "str"
+                },
+                [
+                  [
+                    {
+                      "repr": "'weight'",
+                      "str": "weight",
+                      "type": "str"
+                    },
+                    11
+                  ],
+                  [
+                    {
+                      "repr": "'tag'",
+                      "str": "tag",
+                      "type": "str"
+                    },
+                    "second"
+                  ]
+                ]
+              ],
+              [
+                {
+                  "repr": "'late'",
+                  "str": "late",
+                  "type": "str"
+                },
+                [
+                  [
+                    {
+                      "repr": "'weight'",
+                      "str": "weight",
+                      "type": "str"
+                    },
+                    23
+                  ],
+                  [
+                    {
+                      "repr": "'tag'",
+                      "str": "tag",
+                      "type": "str"
+                    },
+                    "late"
+                  ]
+                ]
+              ]
+            ]
+          ],
+          [
+            {
+              "repr": "'beta'",
+              "str": "beta",
+              "type": "str"
+            },
+            [
+              [
+                {
+                  "repr": "0",
+                  "str": "0",
+                  "type": "int"
+                },
+                [
+                  [
+                    {
+                      "repr": "'weight'",
+                      "str": "weight",
+                      "type": "str"
+                    },
+                    13
+                  ],
+                  [
+                    {
+                      "repr": "'tag'",
+                      "str": "tag",
+                      "type": "str"
+                    },
+                    "third"
+                  ]
+                ]
+              ]
+            ]
+          ],
+          [
+            {
+              "repr": "'gamma'",
+              "str": "gamma",
+              "type": "str"
+            },
+            [
+              [
+                {
+                  "repr": "'g'",
+                  "str": "g",
+                  "type": "str"
+                },
+                [
+                  [
+                    {
+                      "repr": "'weight'",
+                      "str": "weight",
+                      "type": "str"
+                    },
+                    17
+                  ],
+                  [
+                    {
+                      "repr": "'tag'",
+                      "str": "tag",
+                      "type": "str"
+                    },
+                    "fourth"
+                  ]
+                ]
+              ]
+            ]
+          ],
+          [
+            {
+              "repr": "'delta'",
+              "str": "delta",
+              "type": "str"
+            },
+            [
+              [
+                {
+                  "repr": "0",
+                  "str": "0",
+                  "type": "int"
+                },
+                [
+                  [
+                    {
+                      "repr": "'weight'",
+                      "str": "weight",
+                      "type": "str"
+                    },
+                    29
+                  ],
+                  [
+                    {
+                      "repr": "'tag'",
+                      "str": "tag",
+                      "type": "str"
+                    },
+                    "late-successor"
+                  ]
+                ]
+              ]
+            ]
+          ]
+        ],
+        "row_type": "networkx.classes.coreviews.AdjacencyView",
+        "view_attr_mutation_visible": "networkx"
+      }
+    ]
+  }
+}

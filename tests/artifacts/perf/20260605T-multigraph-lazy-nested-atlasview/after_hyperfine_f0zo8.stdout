@@ -1,0 +1,21 @@
+Benchmark 1: fnx-mg-bare
+  Time (mean ± σ):     425.5 ms ±  31.2 ms    [User: 3950.2 ms, System: 80.4 ms]
+  Range (min … max):   383.5 ms … 474.4 ms    7 runs
+ 
+Benchmark 2: fnx-mg-point
+  Time (mean ± σ):     406.7 ms ±  18.5 ms    [User: 4380.0 ms, System: 70.8 ms]
+  Range (min … max):   374.2 ms … 431.4 ms    7 runs
+ 
+Benchmark 3: fnx-mdg-bare
+  Time (mean ± σ):     405.0 ms ±  26.2 ms    [User: 4327.0 ms, System: 73.4 ms]
+  Range (min … max):   378.4 ms … 454.3 ms    7 runs
+ 
+Benchmark 4: fnx-mdg-point
+  Time (mean ± σ):     411.4 ms ±  27.9 ms    [User: 4152.2 ms, System: 73.1 ms]
+  Range (min … max):   379.4 ms … 456.4 ms    7 runs
+ 
+Summary
+  fnx-mdg-bare ran
+    1.00 ± 0.08 times faster than fnx-mg-point
+    1.02 ± 0.10 times faster than fnx-mdg-point
+    1.05 ± 0.10 times faster than fnx-mg-bare

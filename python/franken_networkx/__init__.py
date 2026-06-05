@@ -1124,7 +1124,10 @@ class AtlasView(_Mapping):
         which crashed on fnx because AtlasView lacked the method. Return
         a plain dict snapshot of the underlying mapping.
         """
-        return {k: dict(v) if hasattr(v, "items") else v for k, v in self._atlas().items()}
+        return {
+            k: v.copy() if hasattr(v, "copy") else dict(v) if hasattr(v, "items") else v
+            for k, v in self._atlas().items()
+        }
 
     def __reduce__(self):
         # br-r37-c1-viewpkl: the `_atlas_getter` is a closure over a
@@ -1182,7 +1185,10 @@ class AdjacencyView(_Mapping):
         adjacency value; AdjacencyView (used for MultiGraph inner) had
         no copy() method. Return a plain dict-of-dicts snapshot.
         """
-        return {k: dict(v) if hasattr(v, "items") else v for k, v in self._atlas().items()}
+        return {
+            k: v.copy() if hasattr(v, "copy") else dict(v) if hasattr(v, "items") else v
+            for k, v in self._atlas().items()
+        }
 
     def __reduce__(self):
         # br-r37-c1-viewpkl: see AtlasView.__reduce__.
@@ -1338,6 +1344,28 @@ def _graph_getitem_from_adj(self, node):
         return self.adj[node]
     except KeyError as exc:
         raise KeyError(node) from exc
+
+
+def _multigraph_getitem_from_native_row(self, node):
+    if type(self) is not MultiGraph:
+        return _graph_getitem_from_adj(self, node)
+    hash(node)
+    try:
+        self._native_adjacency_row(node)
+    except KeyError as exc:
+        raise KeyError(node) from exc
+    return AdjacencyView(lambda: self._native_adjacency_row(node))
+
+
+def _multidigraph_getitem_from_native_row(self, node):
+    if type(self) is not MultiDiGraph:
+        return _graph_getitem_from_adj(self, node)
+    hash(node)
+    try:
+        self._native_successor_row(node)
+    except KeyError as exc:
+        raise KeyError(node) from exc
+    return AdjacencyView(lambda: self._native_successor_row(node))
 
 
 def _to_directed_class(self):
@@ -5038,7 +5066,7 @@ Graph.edge_subgraph = _multigraph_edge_subgraph
 DiGraph.edge_subgraph = _multigraph_edge_subgraph
 MultiGraph.edge_subgraph = _multigraph_edge_subgraph
 MultiGraph.adj = property(_multigraph_adj_view)
-MultiGraph.__getitem__ = _graph_getitem_from_adj
+MultiGraph.__getitem__ = _multigraph_getitem_from_native_row
 MultiGraph.edges = property(_multigraph_edges)
 MultiDiGraph.edges = property(_multidigraph_edges)
 MultiGraph.degree = property(MultiGraphDegreeView)
@@ -5077,7 +5105,7 @@ MultiDiGraph.edge_subgraph = _multigraph_edge_subgraph
 MultiDiGraph.succ = property(_multidigraph_succ_view)
 MultiDiGraph.pred = property(_multidigraph_pred_view)
 MultiDiGraph.adj = property(_multidigraph_adj_view)
-MultiDiGraph.__getitem__ = _graph_getitem_from_adj
+MultiDiGraph.__getitem__ = _multidigraph_getitem_from_native_row
 MultiDiGraph.degree = property(MultiDiGraphDegreeView)
 # br-r37-c1-b3cnf follow-up: cache MultiDiGraph in/out_degree wrappers
 # (Graph.degree + DiGraph.in/out_degree already cache via their

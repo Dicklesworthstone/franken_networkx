@@ -1,0 +1,49 @@
+{"elapsed_s": 0.16449314402416348, "graph_kind": "multidigraph", "keys": 3, "lib": "fnx", "loops": 50, "mean_s": 0.00328986288048327, "neighbors": 1200, "operation": "point", "sink": 150}
+         462942 function calls (456189 primitive calls) in 0.505 seconds
+
+   Ordered by: cumulative time
+   List reduced from 1818 to 40 due to restriction <40>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+       46    0.004    0.000    1.090    0.024 __init__.py:1(<module>)
+        1    0.000    0.000    0.506    0.506 multi_atlasview_bench_f0zo8.py:139(_bench_case)
+        1    0.000    0.000    0.313    0.313 multi_atlasview_bench_f0zo8.py:21(_import_lib)
+    507/1    0.002    0.000    0.313    0.313 <frozen importlib._bootstrap>:1349(_find_and_load)
+    487/1    0.001    0.000    0.313    0.313 <frozen importlib._bootstrap>:1304(_find_and_load_unlocked)
+    472/1    0.001    0.000    0.313    0.313 <frozen importlib._bootstrap>:911(_load_unlocked)
+    451/1    0.001    0.000    0.313    0.313 <frozen importlib._bootstrap_external>:1020(exec_module)
+   1054/2    0.000    0.000    0.306    0.153 <frozen importlib._bootstrap>:480(_call_with_frames_removed)
+    459/1    0.003    0.000    0.306    0.306 {built-in method builtins.exec}
+   444/29    0.000    0.000    0.265    0.009 {built-in method builtins.__import__}
+   532/58    0.001    0.000    0.264    0.005 <frozen importlib._bootstrap>:1390(_handle_fromlist)
+      6/4    0.000    0.000    0.162    0.041 <frozen importlib._bootstrap_external>:1326(exec_module)
+      6/4    0.009    0.002    0.162    0.041 {built-in method _imp.exec_dynamic}
+      150    0.000    0.000    0.159    0.001 __init__.py:1196(_atlas)
+      150    0.159    0.001    0.159    0.001 __init__.py:1298(<lambda>)
+        2    0.000    0.000    0.111    0.056 nx_pylab.py:1(<module>)
+      100    0.000    0.000    0.111    0.001 __init__.py:1142(_atlas)
+      100    0.001    0.000    0.111    0.001 __init__.py:1213(<lambda>)
+        2    0.000    0.000    0.110    0.055 layout.py:1(<module>)
+25339/25082    0.003    0.000    0.067    0.000 {built-in method builtins.len}
+       50    0.000    0.000    0.064    0.001 __init__.py:1101(__len__)
+       50    0.000    0.000    0.064    0.001 __init__.py:1098(_atlas)
+       50    0.001    0.000    0.064    0.001 __init__.py:1170(<lambda>)
+      451    0.002    0.000    0.060    0.000 <frozen importlib._bootstrap_external>:1093(get_code)
+        1    0.000    0.000    0.052    0.052 __config__.py:1(<module>)
+       50    0.000    0.000    0.051    0.001 __init__.py:1331(_graph_getitem_from_adj)
+       50    0.002    0.000    0.051    0.001 __init__.py:1206(__getitem__)
+       50    0.001    0.000    0.049    0.001 __init__.py:1160(__getitem__)
+        1    0.000    0.000    0.045    0.045 _arraypad_impl.py:1(<module>)
+        1    0.000    0.000    0.045    0.045 _index_tricks_impl.py:1(<module>)
+        1    0.000    0.000    0.042    0.042 defmatrix.py:1(<module>)
+        1    0.000    0.000    0.041    0.041 _linalg.py:1(<module>)
+        2    0.000    0.000    0.036    0.018 backends.py:45(_get_backends)
+      451    0.004    0.000    0.035    0.000 <frozen importlib._bootstrap_external>:782(_compile_bytecode)
+  265/139    0.000    0.000    0.034    0.000 typing.py:426(inner)
+        2    0.000    0.000    0.032    0.016 __init__.py:999(entry_points)
+      276    0.000    0.000    0.032    0.000 __init__.py:1008(<genexpr>)
+      451    0.031    0.000    0.031    0.000 {built-in method marshal.loads}
+        1    0.001    0.001    0.028    0.028 multi_atlasview_bench_f0zo8.py:31(_build_graph)
+      482    0.002    0.000    0.027    0.000 <frozen importlib._bootstrap>:1240(_find_spec)
+
+

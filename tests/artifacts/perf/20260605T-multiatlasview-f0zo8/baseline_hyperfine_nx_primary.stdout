@@ -1,0 +1,61 @@
+Benchmark 1: python3 tests/artifacts/perf/20260605T-multiatlasview-f0zo8/multiatlas_bench.py one --module nx --graph MultiGraph --mode gu --degree 500 --keys-per-neighbor 4 --loops 10000
+{"checksum": 5000000, "degree": 500, "graph": "MultiGraph", "keys_per_neighbor": 4, "loops": 10000, "mode": "gu", "module": "nx"}
+{"checksum": 5000000, "degree": 500, "graph": "MultiGraph", "keys_per_neighbor": 4, "loops": 10000, "mode": "gu", "module": "nx"}
+{"checksum": 5000000, "degree": 500, "graph": "MultiGraph", "keys_per_neighbor": 4, "loops": 10000, "mode": "gu", "module": "nx"}
+{"checksum": 5000000, "degree": 500, "graph": "MultiGraph", "keys_per_neighbor": 4, "loops": 10000, "mode": "gu", "module": "nx"}
+{"checksum": 5000000, "degree": 500, "graph": "MultiGraph", "keys_per_neighbor": 4, "loops": 10000, "mode": "gu", "module": "nx"}
+{"checksum": 5000000, "degree": 500, "graph": "MultiGraph", "keys_per_neighbor": 4, "loops": 10000, "mode": "gu", "module": "nx"}
+{"checksum": 5000000, "degree": 500, "graph": "MultiGraph", "keys_per_neighbor": 4, "loops": 10000, "mode": "gu", "module": "nx"}
+{"checksum": 5000000, "degree": 500, "graph": "MultiGraph", "keys_per_neighbor": 4, "loops": 10000, "mode": "gu", "module": "nx"}
+{"checksum": 5000000, "degree": 500, "graph": "MultiGraph", "keys_per_neighbor": 4, "loops": 10000, "mode": "gu", "module": "nx"}
+{"checksum": 5000000, "degree": 500, "graph": "MultiGraph", "keys_per_neighbor": 4, "loops": 10000, "mode": "gu", "module": "nx"}
+  Time (mean ± σ):     313.8 ms ±  18.9 ms    [User: 3958.0 ms, System: 60.6 ms]
+  Range (min … max):   290.5 ms … 345.4 ms    8 runs
+ 
+Benchmark 2: python3 tests/artifacts/perf/20260605T-multiatlasview-f0zo8/multiatlas_bench.py one --module nx --graph MultiGraph --mode guv --degree 500 --keys-per-neighbor 4 --loops 10000
+{"checksum": 40000, "degree": 500, "graph": "MultiGraph", "keys_per_neighbor": 4, "loops": 10000, "mode": "guv", "module": "nx"}
+{"checksum": 40000, "degree": 500, "graph": "MultiGraph", "keys_per_neighbor": 4, "loops": 10000, "mode": "guv", "module": "nx"}
+{"checksum": 40000, "degree": 500, "graph": "MultiGraph", "keys_per_neighbor": 4, "loops": 10000, "mode": "guv", "module": "nx"}
+{"checksum": 40000, "degree": 500, "graph": "MultiGraph", "keys_per_neighbor": 4, "loops": 10000, "mode": "guv", "module": "nx"}
+{"checksum": 40000, "degree": 500, "graph": "MultiGraph", "keys_per_neighbor": 4, "loops": 10000, "mode": "guv", "module": "nx"}
+{"checksum": 40000, "degree": 500, "graph": "MultiGraph", "keys_per_neighbor": 4, "loops": 10000, "mode": "guv", "module": "nx"}
+{"checksum": 40000, "degree": 500, "graph": "MultiGraph", "keys_per_neighbor": 4, "loops": 10000, "mode": "guv", "module": "nx"}
+{"checksum": 40000, "degree": 500, "graph": "MultiGraph", "keys_per_neighbor": 4, "loops": 10000, "mode": "guv", "module": "nx"}
+{"checksum": 40000, "degree": 500, "graph": "MultiGraph", "keys_per_neighbor": 4, "loops": 10000, "mode": "guv", "module": "nx"}
+{"checksum": 40000, "degree": 500, "graph": "MultiGraph", "keys_per_neighbor": 4, "loops": 10000, "mode": "guv", "module": "nx"}
+  Time (mean ± σ):     315.5 ms ±  16.4 ms    [User: 3797.9 ms, System: 56.7 ms]
+  Range (min … max):   295.3 ms … 339.8 ms    8 runs
+ 
+Benchmark 3: python3 tests/artifacts/perf/20260605T-multiatlasview-f0zo8/multiatlas_bench.py one --module nx --graph MultiDiGraph --mode gu --degree 500 --keys-per-neighbor 4 --loops 10000
+{"checksum": 5000000, "degree": 500, "graph": "MultiDiGraph", "keys_per_neighbor": 4, "loops": 10000, "mode": "gu", "module": "nx"}
+{"checksum": 5000000, "degree": 500, "graph": "MultiDiGraph", "keys_per_neighbor": 4, "loops": 10000, "mode": "gu", "module": "nx"}
+{"checksum": 5000000, "degree": 500, "graph": "MultiDiGraph", "keys_per_neighbor": 4, "loops": 10000, "mode": "gu", "module": "nx"}
+{"checksum": 5000000, "degree": 500, "graph": "MultiDiGraph", "keys_per_neighbor": 4, "loops": 10000, "mode": "gu", "module": "nx"}
+{"checksum": 5000000, "degree": 500, "graph": "MultiDiGraph", "keys_per_neighbor": 4, "loops": 10000, "mode": "gu", "module": "nx"}
+{"checksum": 5000000, "degree": 500, "graph": "MultiDiGraph", "keys_per_neighbor": 4, "loops": 10000, "mode": "gu", "module": "nx"}
+{"checksum": 5000000, "degree": 500, "graph": "MultiDiGraph", "keys_per_neighbor": 4, "loops": 10000, "mode": "gu", "module": "nx"}
+{"checksum": 5000000, "degree": 500, "graph": "MultiDiGraph", "keys_per_neighbor": 4, "loops": 10000, "mode": "gu", "module": "nx"}
+{"checksum": 5000000, "degree": 500, "graph": "MultiDiGraph", "keys_per_neighbor": 4, "loops": 10000, "mode": "gu", "module": "nx"}
+{"checksum": 5000000, "degree": 500, "graph": "MultiDiGraph", "keys_per_neighbor": 4, "loops": 10000, "mode": "gu", "module": "nx"}
+  Time (mean ± σ):     353.3 ms ±  40.6 ms    [User: 3580.8 ms, System: 77.7 ms]
+  Range (min … max):   310.5 ms … 404.1 ms    8 runs
+ 
+Benchmark 4: python3 tests/artifacts/perf/20260605T-multiatlasview-f0zo8/multiatlas_bench.py one --module nx --graph MultiDiGraph --mode guv --degree 500 --keys-per-neighbor 4 --loops 10000
+{"checksum": 40000, "degree": 500, "graph": "MultiDiGraph", "keys_per_neighbor": 4, "loops": 10000, "mode": "guv", "module": "nx"}
+{"checksum": 40000, "degree": 500, "graph": "MultiDiGraph", "keys_per_neighbor": 4, "loops": 10000, "mode": "guv", "module": "nx"}
+{"checksum": 40000, "degree": 500, "graph": "MultiDiGraph", "keys_per_neighbor": 4, "loops": 10000, "mode": "guv", "module": "nx"}
+{"checksum": 40000, "degree": 500, "graph": "MultiDiGraph", "keys_per_neighbor": 4, "loops": 10000, "mode": "guv", "module": "nx"}
+{"checksum": 40000, "degree": 500, "graph": "MultiDiGraph", "keys_per_neighbor": 4, "loops": 10000, "mode": "guv", "module": "nx"}
+{"checksum": 40000, "degree": 500, "graph": "MultiDiGraph", "keys_per_neighbor": 4, "loops": 10000, "mode": "guv", "module": "nx"}
+{"checksum": 40000, "degree": 500, "graph": "MultiDiGraph", "keys_per_neighbor": 4, "loops": 10000, "mode": "guv", "module": "nx"}
+{"checksum": 40000, "degree": 500, "graph": "MultiDiGraph", "keys_per_neighbor": 4, "loops": 10000, "mode": "guv", "module": "nx"}
+{"checksum": 40000, "degree": 500, "graph": "MultiDiGraph", "keys_per_neighbor": 4, "loops": 10000, "mode": "guv", "module": "nx"}
+{"checksum": 40000, "degree": 500, "graph": "MultiDiGraph", "keys_per_neighbor": 4, "loops": 10000, "mode": "guv", "module": "nx"}
+  Time (mean ± σ):     322.5 ms ±  35.2 ms    [User: 3464.6 ms, System: 61.8 ms]
+  Range (min … max):   283.3 ms … 388.2 ms    8 runs
+ 
+Summary
+  python3 tests/artifacts/perf/20260605T-multiatlasview-f0zo8/multiatlas_bench.py one --module nx --graph MultiGraph --mode gu --degree 500 --keys-per-neighbor 4 --loops 10000 ran
+    1.01 ± 0.08 times faster than python3 tests/artifacts/perf/20260605T-multiatlasview-f0zo8/multiatlas_bench.py one --module nx --graph MultiGraph --mode guv --degree 500 --keys-per-neighbor 4 --loops 10000
+    1.03 ± 0.13 times faster than python3 tests/artifacts/perf/20260605T-multiatlasview-f0zo8/multiatlas_bench.py one --module nx --graph MultiDiGraph --mode guv --degree 500 --keys-per-neighbor 4 --loops 10000
+    1.13 ± 0.15 times faster than python3 tests/artifacts/perf/20260605T-multiatlasview-f0zo8/multiatlas_bench.py one --module nx --graph MultiDiGraph --mode gu --degree 500 --keys-per-neighbor 4 --loops 10000
