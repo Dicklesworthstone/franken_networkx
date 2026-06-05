@@ -1,0 +1,4 @@
+Benchmark 1: env PYTHONPATH=/data/projects/franken_networkx/python:/data/projects/franken_networkx python3 tests/artifacts/perf/20260605T-subgraph-view-copy-filteratlas/bench.py 2000 50 8000 20
+  Time (mean ± σ):     526.7 ms ±  22.1 ms    [User: 4636.9 ms, System: 69.4 ms]
+  Range (min … max):   496.7 ms … 569.4 ms    10 runs
+ 

@@ -1,0 +1,4 @@
+  [2m2026-06-05T05:41:37.159666Z[0m [33m WARN[0m [1;33mrch::hook[0m[33m: [33mexec called with non-compilation command: env 'PYTHONPATH=/data/projects/franken_networkx/python:/data/projects/franken_networkx' python3 tests/artifacts/perf/20260605T-subgraph-view-copy-filteratlas/parity_proof.py[0m
+    [2;3mat[0m rch/src/hook.rs:402 [2;3mon[0m ThreadId(1)
+
+{"first_mismatch": {"fnx_order_head": [1, 9, 8, 5], "keep_size": 4, "kind": "graph", "n": 12, "nx_order_head": [8, 1, 5, 9], "seed": 0}}
