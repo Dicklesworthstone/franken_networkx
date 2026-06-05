@@ -1659,6 +1659,20 @@ impl PyMultiGraph {
                 }
                 g.graph_attrs = other.graph_attrs.bind(py).copy()?.unbind();
             } else if let Ok(iter) = PyIterator::from_object(data) {
+                // br-r37-c1-fl36h: nx's to_networkx_graph wraps every
+                // from_edgelist failure in NetworkXError("Input is not a
+                // valid edge list"). Unhashable endpoints/keys raise
+                // TypeError from add_edge's hash guard, which must not
+                // leak raw out of the constructor (Graph/DiGraph absorb
+                // by id and translate in the Python __init__ backstop;
+                // MultiGraph's eager hash fires here first).
+                let edge_list_err = |e: PyErr| {
+                    if e.is_instance_of::<PyTypeError>(py) {
+                        NetworkXError::new_err("Input is not a valid edge list")
+                    } else {
+                        e
+                    }
+                };
                 for item in iter {
                     let item = item?;
                     if let Ok(tuple) = item.downcast::<PyTuple>() {
@@ -1671,7 +1685,8 @@ impl PyMultiGraph {
                                     &tuple.get_item(1)?,
                                     None,
                                     Some(&merged),
-                                )?;
+                                )
+                                .map_err(edge_list_err)?;
                             }
                             3 => {
                                 let third = tuple.get_item(2)?;
@@ -1683,7 +1698,8 @@ impl PyMultiGraph {
                                         &tuple.get_item(1)?,
                                         None,
                                         Some(&merged),
-                                    )?;
+                                    )
+                                    .map_err(edge_list_err)?;
                                 } else {
                                     g.add_edge(
                                         py,
@@ -1691,7 +1707,8 @@ impl PyMultiGraph {
                                         &tuple.get_item(1)?,
                                         Some(&third),
                                         Some(&merged),
-                                    )?;
+                                    )
+                                    .map_err(edge_list_err)?;
                                 }
                             }
                             4 => {
@@ -1705,12 +1722,13 @@ impl PyMultiGraph {
                                     &tuple.get_item(1)?,
                                     Some(&edge_key),
                                     Some(&merged),
-                                )?;
+                                )
+                                .map_err(edge_list_err)?;
                             }
-                            _ => g.add_node(py, &item, None)?,
+                            _ => g.add_node(py, &item, None).map_err(edge_list_err)?,
                         }
                     } else {
-                        g.add_node(py, &item, None)?;
+                        g.add_node(py, &item, None).map_err(edge_list_err)?;
                     }
                 }
             }
