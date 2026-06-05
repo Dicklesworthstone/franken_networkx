@@ -41792,7 +41792,22 @@ def from_dict_of_dicts(d, create_using=None, multigraph_input=False):
                         continue
                     _add_json_multiedge(graph, u, v, 0, dict(edge_attrs))
                     seen.add((v, u))
+    elif type(graph) is Graph:
+        # br-r37-c1-nlanb: batch the whole edge set through add_edges_from
+        # (nx does exactly this with a generator of (u, v, data) triples) so
+        # the attributed batch path (br-r37-c1-pr8q6) commits it in one bulk
+        # insertion instead of per-edge Python add_edge + two adjacency-view
+        # __getitem__ + dict.update (~7.8x nx). Semantics are identical for
+        # well-formed input; for a NON-dict attrs value this also corrects a
+        # divergence: the old loop added the edge BEFORE update() raised,
+        # while nx's add_edges_from leaves nodes-but-no-edge (datadict is
+        # only linked into _adj after a successful update).
+        graph.add_edges_from(
+            [(u, v, edge_attrs) for u, nbrs in d.items() for v, edge_attrs in nbrs.items()]
+        )
     else:
+        # Subclasses / DiGraph keep the inline loop: their add_edges_from
+        # raw paths have different malformed-input contracts.
         for u, nbrs in d.items():
             for v, edge_attrs in nbrs.items():
                 graph.add_edge(u, v)
