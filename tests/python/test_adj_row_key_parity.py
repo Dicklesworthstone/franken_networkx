@@ -178,3 +178,85 @@ def test_digraph_uniform_unchanged():
     for g in (a, b):
         g.add_edges_from((i, (i * 3) % 50) for i in range(120))
     assert _canon_d(b) == _canon_d(a)
+
+
+# ---------------------------------------------------------------------------
+# br-r37-c1-z6uka phase 3a: MultiGraph adjacency-cell objects
+# ---------------------------------------------------------------------------
+
+
+def _canon_m(m):
+    return (
+        {repr(n): [repr(x) for x in m[n]] for n in m},
+        [(repr(u), repr(v), k) for u, v, k in m.edges(keys=True)],
+    )
+
+
+def _mpair(build):
+    mn, mf = nx.MultiGraph(), fnx.MultiGraph()
+    build(mn)
+    build(mf)
+    return mn, mf
+
+
+def test_multigraph_cells_parallel_keys_and_selfloop():
+    # parallel key (16, 36) reuses the cell created by (36, 16.0): row
+    # objects unchanged; self-loop keeps v's object.
+    mn, mf = _mpair(
+        lambda m: (m.add_edge(36, 16.0), m.add_edge(16, 36), m.add_edge("n58", 16), m.add_edge(12.0, 12))
+    )
+    assert _canon_m(mf) == _canon_m(mn)
+    assert [repr(x) for x in mf["n58"]] == ["16"]
+    assert [repr(x) for x in mf[12.0]] == ["12"]
+
+
+def test_multigraph_keyed_removal_cell_lifetime():
+    mn, mf = _mpair(
+        lambda m: (m.add_edge(36, 16.0), m.add_edge(16, 36), m.add_edge("n58", 16), m.add_edge(12.0, 12))
+    )
+    for m in (mn, mf):
+        m.remove_edge(36, 16.0, key=0)  # one parallel key: cell survives
+    assert _canon_m(mf) == _canon_m(mn)
+    for m in (mn, mf):
+        m.remove_edge(36, 16)  # last key: cell gone
+        m.add_edge(16, 36.0)  # re-add: fresh cell objects
+    assert _canon_m(mf) == _canon_m(mn)
+
+
+def test_multigraph_copy_and_subgraph_rederive():
+    mn, mf = _mpair(
+        lambda m: (m.add_edge(36, 16.0), m.add_edge(16, 36), m.add_edge("n58", 16))
+    )
+    assert _canon_m(mf.copy()) == _canon_m(mn.copy())
+    assert _canon_m(mf.subgraph([16, 36]).copy()) == _canon_m(mn.subgraph([16, 36]).copy())
+
+
+def test_multigraph_explicit_int_key_fastpath_gated():
+    # the exact-int fast path must bail when a stored display object
+    # conflicts (node "16" stored as 16.0, edge added with int 16).
+    mn, mf = _mpair(lambda m: (m.add_nodes_from([16.0, 36]), m.add_edge(36, 16, key=0)))
+    assert _canon_m(mf) == _canon_m(mn)
+    assert [repr(x) for x in mf[36]] == ["16"]
+
+
+def test_multigraph_random_mixed_corpus():
+    rnd = random.Random(20260605)
+    for trial in range(12):
+        a, b = nx.MultiGraph(), fnx.MultiGraph()
+        for _ in range(rnd.choice([5, 40, 100])):
+            def mk():
+                return rnd.choice(
+                    [rnd.randrange(25), float(rnd.randrange(12)), f"s{rnd.randrange(25)}", bool(rnd.randrange(2))]
+                )
+            a_uv = (mk(), mk())
+            a.add_edge(*a_uv)
+            b.add_edge(*a_uv)
+        assert _canon_m(b) == _canon_m(a), trial
+
+
+def test_multigraph_uniform_unchanged():
+    a, b = nx.MultiGraph(), fnx.MultiGraph()
+    for g in (a, b):
+        for i in range(80):
+            g.add_edge(i % 20, (i * 3) % 20)
+    assert _canon_m(b) == _canon_m(a)

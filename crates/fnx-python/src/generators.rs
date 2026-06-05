@@ -91,6 +91,8 @@ fn report_to_pymultidigraph(
     let mut pg = PyMultiDiGraph {
         inner: graph,
         node_key_map: HashMap::new(),
+        succ_py_keys: HashMap::new(), // br-r37-c1-z6uka
+        pred_py_keys: HashMap::new(), // br-r37-c1-z6uka
         node_py_attrs: HashMap::new(),
         edge_py_attrs: HashMap::new(),
         edge_py_keys: HashMap::new(),

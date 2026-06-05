@@ -60,7 +60,11 @@ pub struct PyDiGraph {
 pub struct PyMultiDiGraph {
     pub(crate) inner: MultiDiGraph,
     pub(crate) node_key_map: HashMap<String, PyObject>,
-    pub(crate) node_py_attrs: HashMap<String, Py<PyDict>>,
+        /// br-r37-c1-z6uka: per-SUCC-row display objects (see PyDiGraph).
+    pub(crate) succ_py_keys: HashMap<(String, String), PyObject>,
+    /// br-r37-c1-z6uka: per-PRED-row display objects.
+    pub(crate) pred_py_keys: HashMap<(String, String), PyObject>,
+pub(crate) node_py_attrs: HashMap<String, Py<PyDict>>,
     pub(crate) edge_py_attrs: HashMap<(String, String, usize), Py<PyDict>>,
     pub(crate) edge_py_keys: HashMap<(String, String, usize), PyObject>,
     pub(crate) graph_attrs: Py<PyDict>,
@@ -167,6 +171,8 @@ impl PyMultiDiGraph {
         Ok(Self {
             inner: MultiDiGraph::with_runtime_policy(runtime_policy),
             node_key_map: HashMap::new(),
+            succ_py_keys: HashMap::new(), // br-r37-c1-z6uka
+            pred_py_keys: HashMap::new(), // br-r37-c1-z6uka
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
             edge_py_keys: HashMap::new(),
@@ -1566,6 +1572,8 @@ impl PyMultiDiGraph {
         let mut new_graph = Self {
             inner: MultiDiGraph::with_runtime_policy(self.inner.runtime_policy().clone()),
             node_key_map: HashMap::new(),
+            succ_py_keys: HashMap::new(), // br-r37-c1-z6uka
+            pred_py_keys: HashMap::new(), // br-r37-c1-z6uka
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
             edge_py_keys: HashMap::new(),
@@ -1626,6 +1634,8 @@ impl PyMultiDiGraph {
         let mut new_graph = Self {
             inner: MultiDiGraph::with_runtime_policy(self.inner.runtime_policy().clone()),
             node_key_map: HashMap::new(),
+            succ_py_keys: HashMap::new(), // br-r37-c1-z6uka
+            pred_py_keys: HashMap::new(), // br-r37-c1-z6uka
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
             edge_py_keys: HashMap::new(),
@@ -1679,6 +1689,7 @@ impl PyMultiDiGraph {
                 self.inner.runtime_policy().clone(),
             ),
             node_key_map: HashMap::new(),
+            adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
             edge_py_keys: HashMap::new(),
@@ -1753,6 +1764,8 @@ impl PyMultiDiGraph {
         let mut new_graph = Self {
             inner: self.inner.clone(),
             node_key_map: HashMap::with_capacity(self.node_key_map.len()),
+            succ_py_keys: HashMap::new(), // br-r37-c1-z6uka
+            pred_py_keys: HashMap::new(), // br-r37-c1-z6uka
             node_py_attrs: HashMap::with_capacity(self.node_py_attrs.len()),
             edge_py_attrs: HashMap::with_capacity(self.edge_py_attrs.len()),
             edge_py_keys: HashMap::with_capacity(self.edge_py_keys.len()),
@@ -1803,6 +1816,8 @@ impl PyMultiDiGraph {
         let mut new_graph = Self {
             inner: MultiDiGraph::with_runtime_policy(self.inner.runtime_policy().clone()),
             node_key_map: HashMap::new(),
+            succ_py_keys: HashMap::new(), // br-r37-c1-z6uka
+            pred_py_keys: HashMap::new(), // br-r37-c1-z6uka
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
             edge_py_keys: HashMap::new(),
@@ -1883,6 +1898,8 @@ impl PyMultiDiGraph {
         let mut new_graph = Self {
             inner: MultiDiGraph::with_runtime_policy(self.inner.runtime_policy().clone()),
             node_key_map: HashMap::new(),
+            succ_py_keys: HashMap::new(), // br-r37-c1-z6uka
+            pred_py_keys: HashMap::new(), // br-r37-c1-z6uka
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
             edge_py_keys: HashMap::new(),
@@ -1944,6 +1961,8 @@ impl PyMultiDiGraph {
         let mut new_graph = Self {
             inner: MultiDiGraph::with_runtime_policy(self.inner.runtime_policy().clone()),
             node_key_map: HashMap::new(),
+            succ_py_keys: HashMap::new(), // br-r37-c1-z6uka
+            pred_py_keys: HashMap::new(), // br-r37-c1-z6uka
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
             edge_py_keys: HashMap::new(),
@@ -2036,6 +2055,7 @@ impl PyMultiDiGraph {
                 self.inner.runtime_policy().clone(),
             ),
             node_key_map: HashMap::new(),
+            adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
             edge_py_keys: HashMap::new(),
@@ -2094,6 +2114,8 @@ impl PyMultiDiGraph {
         let mut new_graph = Self {
             inner: MultiDiGraph::with_runtime_policy(self.inner.runtime_policy().clone()),
             node_key_map: HashMap::new(),
+            succ_py_keys: HashMap::new(), // br-r37-c1-z6uka
+            pred_py_keys: HashMap::new(), // br-r37-c1-z6uka
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
             edge_py_keys: HashMap::new(),

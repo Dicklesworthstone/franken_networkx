@@ -1012,6 +1012,10 @@ type AttrEdgeBatch = (
 pub(crate) struct PyMultiGraph {
     pub(crate) inner: MultiGraph,
     pub(crate) node_key_map: HashMap<String, PyObject>,
+    /// br-r37-c1-z6uka: per-adjacency-CELL display objects (see
+    /// PyGraph::adj_py_keys) — a cell is created by the FIRST key of a
+    /// (u, v) pair; parallel keys reuse it.
+    pub(crate) adj_py_keys: HashMap<(String, String), PyObject>,
     pub(crate) node_py_attrs: HashMap<String, Py<PyDict>>,
     pub(crate) edge_py_attrs: HashMap<(String, String, usize), Py<PyDict>>,
     pub(crate) edge_py_keys: HashMap<(String, String, usize), PyObject>,
@@ -1025,6 +1029,41 @@ pub(crate) struct PyMultiGraph {
 }
 
 impl PyMultiGraph {
+    /// br-r37-c1-z6uka: adjacency-cell display object (see PyGraph::py_adj_key).
+    pub(crate) fn py_adj_key(&self, py: Python<'_>, owner: &str, nbr: &str) -> PyObject {
+        if !self.adj_py_keys.is_empty()
+            && let Some(obj) = self.adj_py_keys.get(&(owner.to_owned(), nbr.to_owned()))
+        {
+            return obj.clone_ref(py);
+        }
+        self.py_node_key(py, nbr)
+    }
+
+    /// br-r37-c1-z6uka: see PyGraph::derive_copy_adj_py_keys — nx's u-major
+    /// copy walk keeps the first-encountered direction's cell object.
+    pub(crate) fn derive_copy_adj_py_keys(
+        &self,
+        py: Python<'_>,
+    ) -> HashMap<(String, String), PyObject> {
+        let mut out = HashMap::new();
+        if self.adj_py_keys.is_empty() {
+            return out;
+        }
+        let mut seen: HashSet<(String, String)> = HashSet::new();
+        for u in self.inner.nodes_ordered() {
+            for v in self.inner.neighbors(u).unwrap_or_default() {
+                if seen.contains(&(u.to_owned(), v.to_owned())) {
+                    continue;
+                }
+                seen.insert((v.to_owned(), u.to_owned()));
+                if let Some(obj) = self.adj_py_keys.get(&(u.to_owned(), v.to_owned())) {
+                    out.insert((u.to_owned(), v.to_owned()), obj.clone_ref(py));
+                }
+            }
+        }
+        out
+    }
+
     pub(crate) fn edge_key(u: &str, v: &str, key: usize) -> (String, String, usize) {
         if u <= v {
             (u.to_owned(), v.to_owned(), key)
@@ -1156,6 +1195,7 @@ impl PyMultiGraph {
         Ok(Self {
             inner: MultiGraph::with_runtime_policy(runtime_policy),
             node_key_map: HashMap::new(),
+            adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
             edge_py_keys: HashMap::new(),
@@ -1199,7 +1239,7 @@ impl MultiAtlasView {
         let g = self.graph.borrow(py);
         let result = PyDict::new(py);
         for neighbor in g.inner.neighbors(&self.node).unwrap_or_default() {
-            let py_neighbor = g.py_node_key(py, neighbor);
+            let py_neighbor = g.py_adj_key(py, &self.node, neighbor) /* br-r37-c1-z6uka */;
             let keydict = MultiKeyDictView::new(
                 self.graph.clone_ref(py),
                 self.node.clone(),
@@ -1247,7 +1287,7 @@ impl MultiAtlasView {
             .neighbors(&self.node)
             .unwrap_or_default()
             .iter()
-            .map(|neighbor| g.py_node_key(py, neighbor))
+            .map(|neighbor| g.py_adj_key(py, &self.node, neighbor) /* br-r37-c1-z6uka */)
             .collect();
         Py::new(py, NodeIterator::unguarded(nodes))
     }
@@ -1262,7 +1302,7 @@ impl MultiAtlasView {
         let mut out = Vec::with_capacity(neighbors.len());
         for neighbor in neighbors {
             out.push((
-                g.py_node_key(py, neighbor),
+                g.py_adj_key(py, &self.node, neighbor) /* br-r37-c1-z6uka */,
                 Py::new(
                     py,
                     MultiKeyDictView::new(
@@ -1304,7 +1344,7 @@ impl MultiAtlasView {
         let g = self.graph.borrow(py);
         let result = PyDict::new(py);
         for neighbor in g.inner.neighbors(&self.node).unwrap_or_default() {
-            let py_neighbor = g.py_node_key(py, neighbor);
+            let py_neighbor = g.py_adj_key(py, &self.node, neighbor) /* br-r37-c1-z6uka */;
             let keydict = MultiKeyDictView::new(
                 self.graph.clone_ref(py),
                 self.node.clone(),
@@ -1948,6 +1988,11 @@ impl PyMultiGraph {
         self.inner.remove_node(&canonical);
         self.node_key_map.remove(&canonical);
         self.node_py_attrs.remove(&canonical);
+        if !self.adj_py_keys.is_empty() {
+            // br-r37-c1-z6uka: drop cell overrides touching the removed node.
+            self.adj_py_keys
+                .retain(|(a, b), _| a != &canonical && b != &canonical);
+        }
         self.bump_nodes_seq();
         // br-r37-c1-jft0i: removing a node with incident edges also mutates the
         // edge set, so bump edges_seq to invalidate edge-keyed caches.
@@ -1981,6 +2026,11 @@ impl PyMultiGraph {
                 self.inner.remove_node(&canonical);
                 self.node_key_map.remove(&canonical);
                 self.node_py_attrs.remove(&canonical);
+                if !self.adj_py_keys.is_empty() {
+                    // br-r37-c1-z6uka: drop cell overrides touching removed nodes.
+                    self.adj_py_keys
+                        .retain(|(a, b), _| a != &canonical && b != &canonical);
+                }
             }
         }
         self.bump_nodes_seq();
@@ -2049,6 +2099,28 @@ impl PyMultiGraph {
         if __was_new {
             self.bump_nodes_seq();
         }
+        // br-r37-c1-z6uka: a NEW adjacency CELL (no keys yet for this
+        // pair) records both row display objects; parallel keys reuse
+        // the cell. Self-loops keep only v's object (nx's reverse
+        // assignment cannot replace the hash-equal dict key).
+        if !self.inner.has_edge(&u_canonical, &v_canonical) {
+            let differs = |canonical: &str, passed: &Bound<'_, PyAny>| -> bool {
+                self.node_key_map.get(canonical).is_some_and(|stored| {
+                    PyGraph::display_objs_conflict(stored.bind(py), passed)
+                })
+            };
+            if differs(&v_canonical, v) {
+                self.adj_py_keys
+                    .entry((u_canonical.clone(), v_canonical.clone()))
+                    .or_insert_with(|| v.clone().unbind());
+            }
+            if u_canonical != v_canonical && differs(&u_canonical, u) {
+                self.adj_py_keys
+                    .entry((v_canonical.clone(), u_canonical.clone()))
+                    .or_insert_with(|| u.clone().unbind());
+            }
+        }
+
         let mut rust_attrs = AttrMap::new();
         if let Some(a) = attr {
             rust_attrs = py_dict_to_attr_map(a)?;
@@ -2169,6 +2241,17 @@ impl PyMultiGraph {
         let u_canonical = u_value.to_string();
         let v_canonical = v_value.to_string();
         if self.inner.has_edge(&u_canonical, &v_canonical) {
+            return Ok(None);
+        }
+        // br-r37-c1-z6uka: if either endpoint's stored display object would
+        // conflict with this exact-int key (e.g. node "16" stored as 16.0),
+        // the slow path must record per-cell row objects — bail.
+        let display_conflict = |canonical: &str, passed: &Bound<'_, PyAny>| -> bool {
+            self.node_key_map.get(canonical).is_some_and(|stored| {
+                PyGraph::display_objs_conflict(stored.bind(py), passed)
+            })
+        };
+        if display_conflict(&u_canonical, u) || display_conflict(&v_canonical, v) {
             return Ok(None);
         }
 
@@ -2314,8 +2397,16 @@ impl PyMultiGraph {
                 v.repr()?
             )));
         }
-        if let Some(explicit_key) = auto_removal_key {
-            self.remove_edge_metadata(&u_canonical, &v_canonical, explicit_key);
+        if !self.adj_py_keys.is_empty()
+            && !self.inner.has_edge(&u_canonical, &v_canonical)
+        {
+            // br-r37-c1-z6uka: the LAST parallel key removed empties the
+            // adjacency cell — drop its row overrides (a re-add creates
+            // fresh cells in nx).
+            self.adj_py_keys
+                .remove(&(u_canonical.clone(), v_canonical.clone()));
+            self.adj_py_keys
+                .remove(&(v_canonical.clone(), u_canonical.clone()));
         }
         self.bump_edges_seq();
         Ok(())
@@ -2326,6 +2417,7 @@ impl PyMultiGraph {
         self.node_key_map.clear();
         self.node_py_attrs.clear();
         self.edge_py_attrs.clear();
+        self.adj_py_keys.clear(); // br-r37-c1-z6uka
         self.edge_py_keys.clear();
         self.graph_attrs = PyDict::new(py).unbind();
         self.bump_nodes_seq();
@@ -2344,7 +2436,9 @@ impl PyMultiGraph {
             .into_iter()
             .map(str::to_owned)
             .collect();
+        let policy = self.inner.runtime_policy().clone();
         Python::attach(|py| {
+            let mut fresh = MultiGraph::with_runtime_policy(policy);
             for canonical in &ordered {
                 let rust_attrs = self
                     .node_py_attrs
@@ -2354,11 +2448,12 @@ impl PyMultiGraph {
                     .ok()
                     .flatten()
                     .unwrap_or_default();
-                self.inner
-                    .add_node_with_attrs(canonical.clone(), rust_attrs);
+                fresh.add_node_with_attrs(canonical.clone(), rust_attrs);
             }
+            self.inner = fresh;
         });
         self.edge_py_attrs.clear();
+        self.adj_py_keys.clear(); // br-r37-c1-z6uka
         self.edge_py_keys.clear();
         self.bump_edges_seq(); // br-r37-c1-jft0i
     }
@@ -2561,7 +2656,7 @@ impl PyMultiGraph {
                 .map(str::to_owned)
                 .collect();
             for neighbor in &neighbors {
-                let py_nbr = self.py_node_key(py, neighbor);
+                let py_nbr = self.py_adj_key(py, node, neighbor) /* br-r37-c1-z6uka */;
                 nbrs_dict.set_item(&py_nbr, self.neighbor_dict(py, node, neighbor)?.bind(py))?;
             }
             result.set_item(py_node, nbrs_dict)?;
@@ -2625,7 +2720,7 @@ impl PyMultiGraph {
                     }
                     let mut elems: Vec<PyObject> = Vec::with_capacity(4);
                     elems.push(self.py_node_key(py, node));
-                    elems.push(self.py_node_key(py, neighbor));
+                    elems.push(self.py_adj_key(py, node, neighbor) /* br-r37-c1-z6uka */);
                     if keys {
                         elems.push(self.py_edge_key(py, node, neighbor, key));
                     }
@@ -2741,6 +2836,7 @@ impl PyMultiGraph {
         let mut new_graph = Self {
             inner: MultiGraph::with_runtime_policy(self.inner.runtime_policy().clone()),
             node_key_map: HashMap::new(),
+            adj_py_keys: self.derive_copy_adj_py_keys(py), // br-r37-c1-z6uka
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
             edge_py_keys: HashMap::new(),
@@ -2804,6 +2900,7 @@ impl PyMultiGraph {
         let mut new_graph = Self {
             inner: MultiGraph::with_runtime_policy(self.inner.runtime_policy().clone()),
             node_key_map: HashMap::new(),
+            adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
             edge_py_keys: HashMap::new(),
@@ -2860,6 +2957,8 @@ impl PyMultiGraph {
                 self.inner.runtime_policy().clone(),
             ),
             node_key_map: HashMap::new(),
+            succ_py_keys: HashMap::new(), // br-r37-c1-z6uka
+            pred_py_keys: HashMap::new(), // br-r37-c1-z6uka
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
             edge_py_keys: HashMap::new(),
@@ -2917,6 +3016,7 @@ impl PyMultiGraph {
         let mut new_graph = Self {
             inner: self.inner.clone(),
             node_key_map: HashMap::with_capacity(self.node_key_map.len()),
+            adj_py_keys: self.derive_copy_adj_py_keys(py), // br-r37-c1-z6uka
             node_py_attrs: HashMap::with_capacity(self.node_py_attrs.len()),
             edge_py_attrs: HashMap::with_capacity(self.edge_py_attrs.len()),
             edge_py_keys: HashMap::with_capacity(self.edge_py_keys.len()),
@@ -2967,6 +3067,7 @@ impl PyMultiGraph {
         let mut new_graph = Self {
             inner: MultiGraph::with_runtime_policy(self.inner.runtime_policy().clone()),
             node_key_map: HashMap::new(),
+            adj_py_keys: crate::digraph::PyDiGraph::clone_row_keys(py, &self.adj_py_keys), // br-r37-c1-z6uka
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
             edge_py_keys: HashMap::new(),
@@ -3051,6 +3152,7 @@ impl PyMultiGraph {
         let mut new_graph = Self {
             inner: MultiGraph::with_runtime_policy(self.inner.runtime_policy().clone()),
             node_key_map: HashMap::new(),
+            adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
             edge_py_keys: HashMap::new(),
@@ -3116,6 +3218,14 @@ impl PyMultiGraph {
             }
         }
 
+        if !self.adj_py_keys.is_empty() {
+            // br-r37-c1-z6uka: cell overrides for surviving cells (nx walk).
+            new_graph.adj_py_keys = self
+                .derive_copy_adj_py_keys(py)
+                .into_iter()
+                .filter(|((a, b), _)| new_graph.inner.has_edge(a, b))
+                .collect();
+        }
         Ok(new_graph)
     }
 
@@ -3142,6 +3252,7 @@ impl PyMultiGraph {
         let mut new_graph = Self {
             inner: MultiGraph::with_runtime_policy(self.inner.runtime_policy().clone()),
             node_key_map: HashMap::new(),
+            adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
             edge_py_keys: HashMap::new(),
@@ -3209,6 +3320,14 @@ impl PyMultiGraph {
             }
         }
 
+        if !self.adj_py_keys.is_empty() {
+            // br-r37-c1-z6uka: cell overrides for surviving cells (nx walk).
+            new_graph.adj_py_keys = self
+                .derive_copy_adj_py_keys(py)
+                .into_iter()
+                .filter(|((a, b), _)| new_graph.inner.has_edge(a, b))
+                .collect();
+        }
         Ok(new_graph)
     }
 
@@ -3228,6 +3347,8 @@ impl PyMultiGraph {
                 self.inner.runtime_policy().clone(),
             ),
             node_key_map: HashMap::new(),
+            succ_py_keys: HashMap::new(), // br-r37-c1-z6uka
+            pred_py_keys: HashMap::new(), // br-r37-c1-z6uka
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
             edge_py_keys: HashMap::new(),
@@ -3402,7 +3523,7 @@ impl PyMultiGraph {
             .into_iter()
             .map(|edge| {
                 let py_u = self.py_node_key(py, &edge.left);
-                let py_v = self.py_node_key(py, &edge.right);
+                let py_v = self.py_adj_key(py, &edge.left, &edge.right) /* br-r37-c1-z6uka */;
                 let py_key = self.py_edge_key(py, &edge.left, &edge.right, edge.key);
                 let attrs = self
                     .edge_py_attrs
