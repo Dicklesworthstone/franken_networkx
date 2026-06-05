@@ -1,0 +1,1 @@
+99977034531a42774811be3648561252a783126dcf2506d2419be75d247561c6  Multi*Graph copy() exactness+isolation+nx-order-parity, 8 cases (parallel edges, custom keys, post-mutation)

@@ -2036,65 +2036,56 @@ impl PyMultiGraph {
 
     /// Return a deep copy of the multigraph.
     fn copy(&self, py: Python<'_>) -> PyResult<Self> {
+        // br-r37-c1-6xe9c: bulk-clone the inner Rust multigraph instead of
+        // rebuilding it edge-by-edge. The previous loop iterated
+        // `self.node_key_map` (a randomized-order HashMap) to re-add nodes, so
+        // `list(G.copy())` came out in hash order — non-deterministic and
+        // diverging from `list(G)` / networkx (project_copy_node_order). It also
+        // re-added every edge via `add_edge_with_key_and_attrs` (String hashing
+        // + adjacency insert) plus a redundant `py_dict_to_attr_map` re-parse.
+        // `MultiGraph::clone` copies the IndexMap/IndexSet/Vec verbatim,
+        // preserving node + edge + parallel-key insertion order exactly; only
+        // the deep-copy of the Python attr dicts / key objects remains.
         let mut new_graph = Self {
-            inner: MultiGraph::with_runtime_policy(self.inner.runtime_policy().clone()),
-            node_key_map: HashMap::new(),
-            node_py_attrs: HashMap::new(),
-            edge_py_attrs: HashMap::new(),
-            edge_py_keys: HashMap::new(),
+            inner: self.inner.clone(),
+            node_key_map: HashMap::with_capacity(self.node_key_map.len()),
+            node_py_attrs: HashMap::with_capacity(self.node_py_attrs.len()),
+            edge_py_attrs: HashMap::with_capacity(self.edge_py_attrs.len()),
+            edge_py_keys: HashMap::with_capacity(self.edge_py_keys.len()),
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,
             edges_seq: 0,
-            edges_dirty: AtomicBool::new(false),
+            edges_dirty: AtomicBool::new(self.edges_dirty.load(Ordering::Relaxed)),
         };
+        // Node-attr mutations are not tracked by `edges_dirty`, so refresh the
+        // cloned inner's node attrs from the authoritative Python dicts.
         for (canonical, py_key) in &self.node_key_map {
-            let rust_attrs = self
-                .node_py_attrs
-                .get(canonical)
-                .map(|attrs| py_dict_to_attr_map(attrs.bind(py)))
-                .transpose()?
-                .unwrap_or_default();
-            new_graph
-                .inner
-                .add_node_with_attrs(canonical.clone(), rust_attrs);
             new_graph
                 .node_key_map
                 .insert(canonical.clone(), py_key.clone_ref(py));
             if let Some(attrs) = self.node_py_attrs.get(canonical) {
-                new_graph
-                    .node_py_attrs
-                    .insert(canonical.clone(), attrs.bind(py).copy()?.unbind());
-            }
-        }
-        // Copy edges in the original insertion order (br-copyedgeord).
-        // See PyGraph::copy above for the rationale.
-        for snapshot in self.inner.edges_ordered() {
-            let (u, v, key) = (snapshot.left.clone(), snapshot.right.clone(), snapshot.key);
-            let attrs_entry = self
-                .edge_py_attrs
-                .get(&(u.clone(), v.clone(), key))
-                .or_else(|| self.edge_py_attrs.get(&(v.clone(), u.clone(), key)));
-            let py_attrs = match attrs_entry {
-                Some(attrs) => attrs.bind(py).copy()?.unbind(),
-                None => PyDict::new(py).unbind(),
-            };
-            let rust_attrs = py_dict_to_attr_map(py_attrs.bind(py))?;
-            let _ =
+                let bound = attrs.bind(py);
                 new_graph
                     .inner
-                    .add_edge_with_key_and_attrs(u.clone(), v.clone(), key, rust_attrs);
+                    .replace_node_attrs(canonical, py_dict_to_attr_map(bound)?);
+                new_graph
+                    .node_py_attrs
+                    .insert(canonical.clone(), bound.copy()?.unbind());
+            }
+        }
+        // Deep-copy the edge attr dicts and the per-edge Python key objects
+        // verbatim (preserving the first-wins key identity). Key orientation is
+        // irrelevant — lookups probe both directions and edges() order comes
+        // from the cloned inner.
+        for (key, attrs) in &self.edge_py_attrs {
             new_graph
                 .edge_py_attrs
-                .insert((u.clone(), v.clone(), key), py_attrs);
-            let py_key_slot = self
+                .insert(key.clone(), attrs.bind(py).copy()?.unbind());
+        }
+        for (key, py_key) in &self.edge_py_keys {
+            new_graph
                 .edge_py_keys
-                .get(&(u.clone(), v.clone(), key))
-                .or_else(|| self.edge_py_keys.get(&(v.clone(), u.clone(), key)));
-            if let Some(py_key) = py_key_slot {
-                new_graph.remember_edge_key_object(py, &u, &v, key, py_key);
-            } else {
-                new_graph.remember_edge_key(py, &u, &v, key, None);
-            }
+                .insert(key.clone(), py_key.clone_ref(py));
         }
         Ok(new_graph)
     }
