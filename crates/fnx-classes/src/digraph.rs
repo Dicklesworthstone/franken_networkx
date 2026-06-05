@@ -578,6 +578,107 @@ impl DiGraph {
         inserted
     }
 
+    /// br-r37-c1-dgctor: bulk-add nodes WITH attrs, one summary ledger
+    /// record — the directed sibling of `Graph::extend_nodes_unrecorded`
+    /// extended with per-node AttrMaps. First insertion wins the order;
+    /// re-inserting an existing node merges attrs (matching
+    /// `add_node_with_attrs`).
+    #[must_use]
+    pub fn extend_nodes_with_attrs_unrecorded<I>(&mut self, nodes: I) -> usize
+    where
+        I: IntoIterator<Item = (String, AttrMap)>,
+    {
+        let mut inserted = 0usize;
+        for (node, attrs) in nodes {
+            if let Some(existing) = self.nodes.get_mut(&node) {
+                existing.extend(attrs);
+                continue;
+            }
+            self.nodes.insert(node.clone(), attrs);
+            self.successors.entry(node.clone()).or_default();
+            self.predecessors.entry(node).or_default();
+            inserted += 1;
+        }
+        if inserted > 0 {
+            self.revision = self
+                .revision
+                .saturating_add(u64::try_from(inserted).unwrap_or(u64::MAX));
+            self.record_decision(
+                "extend_nodes_unrecorded",
+                0.0,
+                false,
+                vec![EvidenceTerm {
+                    signal: "batch_node_count".to_owned(),
+                    observed_value: inserted.to_string(),
+                    log_likelihood_ratio: -1.0,
+                }],
+            );
+        }
+        inserted
+    }
+
+    /// br-r37-c1-dgctor: bulk-add ATTRIBUTED directed edges without
+    /// per-edge ledger records — the directed sibling of
+    /// `Graph::extend_edges_with_attrs_unrecorded`. Insert-or-MERGE
+    /// (duplicate (source, target) extends the existing AttrMap, matching
+    /// `add_edge_with_attrs`); nodes auto-created in first-appearance
+    /// order. Callers must pre-screen "__fnx_incompatible" attr keys.
+    #[must_use]
+    pub fn extend_edges_with_attrs_unrecorded<I>(&mut self, edges: I) -> usize
+    where
+        I: IntoIterator<Item = (String, String, AttrMap)>,
+    {
+        let mut inserted = 0usize;
+        let mut merged_changed = false;
+        for (source, target, attrs) in edges {
+            if !self.nodes.contains_key(&source) {
+                self.nodes.insert(source.clone(), AttrMap::new());
+                self.successors.entry(source.clone()).or_default();
+                self.predecessors.entry(source.clone()).or_default();
+            }
+            if source != target && !self.nodes.contains_key(&target) {
+                self.nodes.insert(target.clone(), AttrMap::new());
+                self.successors.entry(target.clone()).or_default();
+                self.predecessors.entry(target.clone()).or_default();
+            }
+            let edge_key = DirectedEdgeKey::new(&source, &target);
+            if let Some(existing) = self.edges.get_mut(&edge_key) {
+                if !attrs.is_empty()
+                    && attrs
+                        .iter()
+                        .any(|(key, value)| existing.get(key) != Some(value))
+                {
+                    merged_changed = true;
+                }
+                existing.extend(attrs);
+                continue;
+            }
+            self.edges.insert(edge_key, attrs);
+            self.successors
+                .entry(source.clone())
+                .or_default()
+                .insert(target.clone());
+            self.predecessors.entry(target).or_default().insert(source);
+            inserted += 1;
+        }
+        if inserted > 0 || merged_changed {
+            self.revision = self
+                .revision
+                .saturating_add(u64::try_from(inserted.max(1)).unwrap_or(u64::MAX));
+            self.record_decision(
+                "extend_edges_unrecorded",
+                0.0,
+                false,
+                vec![EvidenceTerm {
+                    signal: "batch_edge_count".to_owned(),
+                    observed_value: inserted.to_string(),
+                    log_likelihood_ratio: -1.0,
+                }],
+            );
+        }
+        inserted
+    }
+
     pub fn apply_edge_defaults(&mut self, defaults: &AttrMap) -> bool {
         if defaults.is_empty() {
             return false;

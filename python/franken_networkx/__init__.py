@@ -2999,6 +2999,25 @@ def _copy_constructor_graph_source(self, source, *, is_multigraph, attr):
     second_order_centrality and any other algorithm that depends on
     the bidirected view.
     """
+    # br-r37-c1-dgctor: DiGraph(Graph) fast path — native bidirected
+    # shallow copy in one pass (adjacency-row edge order, matching nx's
+    # from_dict_of_dicts walk; the Python expand loop below emits
+    # u->v,v->u adjacent which DIVERGES from nx succ/pred row order, and
+    # paid per-edge DiGraph.add_edges_from ~9.4x nx). The kernel replaces
+    # ALL of self's state wholesale, which is exactly the clear()+rebuild
+    # this function otherwise performs — including discarding whatever the
+    # Rust __new__ already absorbed from `source` (the old path paid that
+    # absorb AND a full clear() AND the Python rebuild). Exact types only;
+    # the kernel returns False (fall through) on anything else.
+    if (
+        type(self) is DiGraph
+        and type(source) is Graph
+        and _fnx.digraph_absorb_graph_bidirected(self, source)
+    ):
+        if attr:
+            self.graph.update(attr)
+        return
+
     self.clear()
     self.graph.update(dict(getattr(source, "graph", {})))
     if attr:

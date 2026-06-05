@@ -216,6 +216,110 @@ fn di_report_to_pydigraph(py: Python<'_>, report: DiReadWriteReport) -> PyResult
     })
 }
 
+/// br-r37-c1-dgctor: native DiGraph(Graph) copy-constructor body.
+///
+/// Fills `dg` (a FRESH, empty PyDiGraph — the Python gate enforces
+/// emptiness and exact types) with the bidirected shallow copy of `g`,
+/// replicating nx's `from_dict_of_dicts(G.adj) + graph.update +
+/// add_nodes_from(G.nodes(data=True))` contract exactly:
+/// - node order = source node order; edge insertion = adjacency-row walk
+///   (u-major, each row in source adj order) — each undirected edge
+///   yields BOTH directions naturally since adjacency is symmetric, in
+///   nx's exact succ/pred row order (the Python expand loop this replaces
+///   emitted u->v,v->u pairs adjacent, which DIVERGED from nx's row
+///   order);
+/// - copy depth = shallow: fresh per-node / per-edge / graph dicts whose
+///   VALUES are shared with the source (probed vs nx);
+/// - attrs are derived from the live PyDict MIRRORS (not src.inner,
+///   which can lag post-creation mutations until sync);
+/// - inner built in Strict mode via the bulk unrecorded paths (one
+///   summary ledger record each).
+///
+/// Returns false (caller falls back to the Python loop) if either object
+/// isn't the exact native type or any attr dict carries an
+/// "__fnx_incompatible" key (FailClosed contract lives in
+/// add_edge_with_attrs). No mutation of `dg` happens before any bail.
+#[pyfunction]
+fn digraph_absorb_graph_bidirected(
+    py: Python<'_>,
+    dg: &Bound<'_, PyAny>,
+    g: &Bound<'_, PyAny>,
+) -> PyResult<bool> {
+    let Ok(src) = g.extract::<PyRef<'_, PyGraph>>() else {
+        return Ok(false);
+    };
+
+    let gdict = PyDict::new(py);
+    gdict.update(src.graph_attrs.bind(py).as_mapping())?;
+
+    let nodes: Vec<String> = src
+        .inner
+        .nodes_ordered()
+        .into_iter()
+        .map(str::to_owned)
+        .collect();
+    let mut node_key_map: HashMap<String, PyObject> = HashMap::with_capacity(nodes.len());
+    let mut node_py_attrs: HashMap<String, Py<PyDict>> = HashMap::with_capacity(nodes.len());
+    let mut nodes_bulk: Vec<(String, fnx_classes::AttrMap)> = Vec::with_capacity(nodes.len());
+    for nid in &nodes {
+        node_key_map.insert(nid.clone(), src.py_node_key(py, nid));
+        let mirror = PyDict::new(py);
+        let mut amap = fnx_classes::AttrMap::new();
+        if let Some(d) = src.node_py_attrs.get(nid) {
+            let b = d.bind(py);
+            if !b.is_empty() {
+                mirror.update(b.as_mapping())?;
+                amap = py_dict_to_attr_map(b)?;
+                if amap.keys().any(|k| k.starts_with("__fnx_incompatible")) {
+                    return Ok(false);
+                }
+            }
+        }
+        node_py_attrs.insert(nid.clone(), mirror.unbind());
+        nodes_bulk.push((nid.clone(), amap));
+    }
+
+    let mut edge_py_attrs: HashMap<(String, String), Py<PyDict>> = HashMap::new();
+    let mut edges_bulk: Vec<(String, String, fnx_classes::AttrMap)> = Vec::new();
+    for u in &nodes {
+        let Some(nbrs) = src.inner.neighbors(u) else {
+            continue;
+        };
+        for v in nbrs {
+            let mirror = PyDict::new(py);
+            let mut amap = fnx_classes::AttrMap::new();
+            if let Some(d) = src.edge_py_attrs.get(&PyGraph::edge_key(u, v)) {
+                let b = d.bind(py);
+                if !b.is_empty() {
+                    mirror.update(b.as_mapping())?;
+                    amap = py_dict_to_attr_map(b)?;
+                    if amap.keys().any(|k| k.starts_with("__fnx_incompatible")) {
+                        return Ok(false);
+                    }
+                }
+            }
+            edge_py_attrs.insert(PyDiGraph::edge_key(u, v), mirror.unbind());
+            edges_bulk.push((u.clone(), (*v).to_owned(), amap));
+        }
+    }
+
+    let mut inner = RustDiGraph::new(CompatibilityMode::Strict);
+    let _ = inner.extend_nodes_with_attrs_unrecorded(nodes_bulk);
+    let _ = inner.extend_edges_with_attrs_unrecorded(edges_bulk);
+
+    let Ok(mut dst) = dg.extract::<PyRefMut<'_, PyDiGraph>>() else {
+        return Ok(false);
+    };
+    dst.inner = inner;
+    dst.node_key_map = node_key_map;
+    dst.node_py_attrs = node_py_attrs;
+    dst.edge_py_attrs = edge_py_attrs;
+    dst.graph_attrs = gdict.unbind();
+    dst.bump_nodes_seq();
+    dst.bump_edges_seq();
+    Ok(true)
+}
+
 fn rw_error_to_py(e: fnx_readwrite::ReadWriteError) -> PyErr {
     pyo3::exceptions::PyIOError::new_err(format!("{e}"))
 }
@@ -1580,6 +1684,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(read_adjlist, m)?)?;
     m.add_function(wrap_pyfunction!(read_adjlist_simple, m)?)?;
     m.add_function(wrap_pyfunction!(read_edgelist_simple, m)?)?;
+    m.add_function(wrap_pyfunction!(digraph_absorb_graph_bidirected, m)?)?;
     m.add_function(wrap_pyfunction!(write_adjlist, m)?)?;
     m.add_function(wrap_pyfunction!(node_link_data, m)?)?;
     m.add_function(wrap_pyfunction!(node_link_graph, m)?)?;
