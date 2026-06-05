@@ -418,6 +418,15 @@ pub(crate) struct PyGraph {
     /// Range fast path marker: canonical integer nodes in ``0..stop`` can be
     /// displayed as Python ints even when node_key_map has not materialized them.
     pub(crate) lazy_int_node_stop: i64,
+    /// br-r37-c1-z6uka: per-adjacency-ROW display objects. nx's `_adj[u]`
+    /// dict keeps the py object passed in the call that CREATED that cell,
+    /// which can differ from the `_node` (first-wins) object when
+    /// hash-equal keys of different types are mixed (28 vs 28.0 vs True).
+    /// SPARSE: an entry exists ONLY when the cell's object differs from
+    /// what `py_node_key` would render — empty for every uniform-key
+    /// graph, so `py_adj_key` is a free `is_empty()` check on the hot
+    /// render paths. Keyed (owner_canonical, neighbor_canonical).
+    pub(crate) adj_py_keys: HashMap<(String, String), PyObject>,
     /// Per-node Python attribute dicts.
     pub(crate) node_py_attrs: HashMap<String, Py<PyDict>>,
     /// Per-edge Python attribute dicts. Key is (canonical_left, canonical_right).
@@ -468,6 +477,133 @@ impl PyGraph {
         unwrap_infallible(canonical.to_owned().into_pyobject(py))
             .into_any()
             .unbind()
+    }
+
+    /// br-r37-c1-z6uka: the display object for neighbor `nbr` inside
+    /// `owner`'s adjacency row — nx's `_adj[owner]` dict key. Falls back to
+    /// the global node object; the override map is empty for uniform-key
+    /// graphs so this adds one branch to the hot render paths.
+    pub(crate) fn py_adj_key(&self, py: Python<'_>, owner: &str, nbr: &str) -> PyObject {
+        if !self.adj_py_keys.is_empty()
+            && let Some(obj) = self.adj_py_keys.get(&(owner.to_owned(), nbr.to_owned()))
+        {
+            return obj.clone_ref(py);
+        }
+        self.py_node_key(py, nbr)
+    }
+
+    /// br-r37-c1-z6uka: record `passed` as the adjacency-row object for
+    /// (owner -> nbr) iff it would render differently from `py_node_key`
+    /// (identity first; type+value equality rescues un-interned equal
+    /// ints/floats so uniform-key graphs never populate the map). Only
+    /// call for NEWLY created adjacency cells — nx keeps the original
+    /// object for existing cells.
+    fn maybe_store_adj_key(
+        &mut self,
+        py: Python<'_>,
+        owner: &str,
+        nbr_canonical: &str,
+        passed: &Bound<'_, PyAny>,
+    ) {
+        let differs = match self.node_key_map.get(nbr_canonical) {
+            Some(stored) => {
+                let stored = stored.bind(py);
+                !stored.is(passed)
+                    && !(stored.get_type().is(&passed.get_type())
+                        && stored.eq(passed).unwrap_or(false))
+            }
+            None => {
+                // canonical renders via lazy-int (an exact int) or the
+                // canonical string itself; exact ints render identically.
+                self.lazy_int_node_value(nbr_canonical).is_some()
+                    && !passed.is_exact_instance_of::<PyInt>()
+            }
+        };
+        if differs {
+            self.adj_py_keys
+                .entry((owner.to_owned(), nbr_canonical.to_owned()))
+                .or_insert_with(|| passed.clone().unbind());
+        }
+    }
+
+    /// br-r37-c1-z6uka: clone the adjacency-row override map (deep
+    /// `clone_ref` per entry; no-op for the common empty map).
+    pub(crate) fn clone_adj_py_keys(&self, py: Python<'_>) -> HashMap<(String, String), PyObject> {
+        self.adj_py_keys
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone_ref(py)))
+            .collect()
+    }
+
+    /// br-r37-c1-z6uka: the override map a COPY built by nx's u-major
+    /// `add_edges_from((u, v, d) for u, nbrs in adj.items() ...)` walk
+    /// would carry: the FIRST-encountered direction of each edge keeps the
+    /// source row object; the reverse cell is created with the node object
+    /// (no override). `result_inner` scopes the walk (full graph for
+    /// copy(), the filtered graph for subgraphs).
+    pub(crate) fn derive_copy_adj_py_keys(
+        &self,
+        py: Python<'_>,
+        result_inner: &Graph,
+    ) -> HashMap<(String, String), PyObject> {
+        let mut out = HashMap::new();
+        if self.adj_py_keys.is_empty() {
+            return out;
+        }
+        let mut seen: HashSet<(String, String)> = HashSet::new();
+        for u in result_inner.nodes_ordered() {
+            for v in result_inner.neighbors(u).unwrap_or_default() {
+                if seen.contains(&(u.to_owned(), v.to_owned())) {
+                    continue;
+                }
+                seen.insert((v.to_owned(), u.to_owned()));
+                if let Some(obj) = self.adj_py_keys.get(&(u.to_owned(), v.to_owned())) {
+                    out.insert((u.to_owned(), v.to_owned()), obj.clone_ref(py));
+                }
+            }
+        }
+        out
+    }
+
+    /// br-r37-c1-z6uka: would `passed` display differently from `first`
+    /// for the same canonical key (hash-equal mixed types: 28 vs 28.0 vs
+    /// True)? Identity short-circuits; type+value equality rescues
+    /// un-interned equal values so uniform-key batches never trip this.
+    fn display_objs_conflict(a: &Bound<'_, PyAny>, b: &Bound<'_, PyAny>) -> bool {
+        !a.is(b) && !(a.get_type().is(&b.get_type()) && a.eq(b).unwrap_or(false))
+    }
+
+    /// br-r37-c1-z6uka: batch-bail probe — true when adding `passed` under
+    /// `canonical` could need a per-adjacency-row display override (the
+    /// batch paths then fall back to the per-edge add_edge, which records
+    /// it). `batch_first` carries the first object seen per canonical
+    /// within the current batch.
+    fn plain_batch_display_conflict(
+        &self,
+        py: Python<'_>,
+        canonical: &str,
+        passed: &Bound<'_, PyAny>,
+        batch_first: &mut HashMap<String, PyObject>,
+    ) -> bool {
+        if passed.is_exact_instance_of::<PyString>() {
+            // str canonicals ("str:len:s") collide only with equal strings —
+            // no display conflict possible; skips the probe for the dominant
+            // str-keyed batches.
+            return false;
+        }
+        if let Some(stored) = self.node_key_map.get(canonical) {
+            return Self::display_objs_conflict(stored.bind(py), passed);
+        }
+        if let Some(first) = batch_first.get(canonical) {
+            return Self::display_objs_conflict(first.bind(py), passed);
+        }
+        if self.lazy_int_node_value(canonical).is_some()
+            && !passed.is_exact_instance_of::<PyInt>()
+        {
+            return true;
+        }
+        batch_first.insert(canonical.to_owned(), passed.clone().unbind());
+        false
     }
 
     #[inline]
@@ -527,6 +663,7 @@ impl PyGraph {
             lazy_int_node_stop: 0,
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
+            adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
             dict_of_dicts_cache: None,
             graph_attrs: PyDict::new(py).unbind(),
             nodes_seq: 0,
@@ -610,6 +747,14 @@ impl PyGraph {
 
             let u_canonical = node_key_to_string(py, &u)?;
             let v_canonical = node_key_to_string(py, &v)?;
+            // br-r37-c1-z6uka: hash-equal mixed-type keys (28 vs 28.0)
+            // need per-adjacency-row display objects — bail to the
+            // per-edge path, which records them.
+            if self.plain_batch_display_conflict(py, &u_canonical, &u, &mut batch_first)
+                || self.plain_batch_display_conflict(py, &v_canonical, &v, &mut batch_first)
+            {
+                return Ok(None);
+            }
             if !seen_nodes.contains(&u_canonical) || !seen_nodes.contains(&v_canonical) {
                 node_bumps = node_bumps.wrapping_add(1);
             }
@@ -710,6 +855,7 @@ impl PyGraph {
             .map(str::to_owned)
             .collect();
         let mut node_bumps = 0_u64;
+        let mut batch_first: HashMap<String, PyObject> = HashMap::new(); // br-r37-c1-z6uka
 
         for item in items {
             let Ok(tuple) = item.downcast::<PyTuple>() else {
@@ -748,6 +894,13 @@ impl PyGraph {
             let Ok(v_canonical) = node_key_to_string(py, &v) else {
                 return Ok(None);
             };
+            // br-r37-c1-z6uka: see collect_plain_edge_batch — mixed-type
+            // hash-equal keys bail to the per-edge path.
+            if self.plain_batch_display_conflict(py, &u_canonical, &u, &mut batch_first)
+                || self.plain_batch_display_conflict(py, &v_canonical, &v, &mut batch_first)
+            {
+                return Ok(None);
+            }
             if !seen_nodes.contains(&u_canonical) || !seen_nodes.contains(&v_canonical) {
                 node_bumps = node_bumps.wrapping_add(1);
             }
@@ -4061,6 +4214,12 @@ impl PyGraph {
         self.inner.remove_node(&canonical);
         self.node_key_map.remove(&canonical);
         self.node_py_attrs.remove(&canonical);
+        if !self.adj_py_keys.is_empty() {
+            // br-r37-c1-z6uka: drop adjacency-row overrides touching the
+            // removed node.
+            self.adj_py_keys
+                .retain(|(a, b), _| a != &canonical && b != &canonical);
+        }
         self.bump_nodes_seq();
         // br-r37-c1-jft0i: removing a node with incident edges also mutates the
         // edge set, so bump edges_seq to invalidate edge-keyed caches.
@@ -4096,6 +4255,11 @@ impl PyGraph {
         for canonical in &present {
             self.node_key_map.remove(canonical);
             self.node_py_attrs.remove(canonical);
+        }
+        if !self.adj_py_keys.is_empty() {
+            // br-r37-c1-z6uka: drop adjacency-row overrides touching removed nodes.
+            self.adj_py_keys
+                .retain(|(a, b), _| !present.contains(a) && !present.contains(b));
         }
         self.bump_nodes_seq();
         if removed_edges > 0 || removed_py_edge_attrs {
@@ -4138,6 +4302,18 @@ impl PyGraph {
         }
         if __was_new {
             self.bump_nodes_seq();
+        }
+        // br-r37-c1-z6uka: a NEW edge creates both adjacency cells with
+        // the objects passed in THIS call (nx `_adj[u][v] = ...` /
+        // `_adj[v][u] = ...`); existing cells keep their original object.
+        // For a SELF-LOOP both nx assignments hit the same dict cell and
+        // the second cannot replace the hash-equal key — only v's object
+        // applies (shrunk repro: add_edge(12.0, 12) renders (12, 12)).
+        if !self.inner.has_edge(&u_canonical, &v_canonical) {
+            self.maybe_store_adj_key(py, &u_canonical, &v_canonical, v);
+            if u_canonical != v_canonical {
+                self.maybe_store_adj_key(py, &v_canonical, &u_canonical, u);
+            }
         }
         self.node_py_attrs
             .entry(u_canonical.clone())
@@ -4372,6 +4548,13 @@ impl PyGraph {
         }
         let ek = Self::edge_key(&u_canonical, &v_canonical);
         self.edge_py_attrs.remove(&ek);
+        if !self.adj_py_keys.is_empty() {
+            // br-r37-c1-z6uka: re-adding the edge later creates FRESH
+            // adjacency cells (nx deletes the row entries) — drop overrides.
+            self.adj_py_keys
+                .remove(&(u_canonical.clone(), v_canonical.clone()));
+            self.adj_py_keys.remove(&(v_canonical, u_canonical));
+        }
         self.bump_edges_seq();
         Ok(())
     }
@@ -4394,6 +4577,11 @@ impl PyGraph {
             self.inner.remove_edge(&u_c, &v_c);
             let ek = Self::edge_key(&u_c, &v_c);
             self.edge_py_attrs.remove(&ek);
+            if !self.adj_py_keys.is_empty() {
+                // br-r37-c1-z6uka: drop adjacency-row overrides for the removed edge.
+                self.adj_py_keys.remove(&(u_c.clone(), v_c.clone()));
+                self.adj_py_keys.remove(&(v_c.clone(), u_c.clone()));
+            }
         }
         self.bump_edges_seq();
         Ok(())
@@ -4409,6 +4597,7 @@ impl PyGraph {
         self.lazy_int_node_stop = 0;
         self.node_py_attrs.clear();
         self.edge_py_attrs.clear();
+        self.adj_py_keys.clear(); // br-r37-c1-z6uka
         self.graph_attrs = PyDict::new(py).unbind();
         self.bump_nodes_seq();
         self.bump_edges_seq(); // br-r37-c1-jft0i
@@ -4428,6 +4617,7 @@ impl PyGraph {
             self.inner.remove_edge(&u, &v);
         }
         self.edge_py_attrs.clear();
+        self.adj_py_keys.clear(); // br-r37-c1-z6uka
         self.bump_edges_seq(); // br-r37-c1-jft0i
     }
 
@@ -4455,7 +4645,7 @@ impl PyGraph {
         match self.inner.neighbors(&canonical) {
             Some(neighbors) => Ok(neighbors
                 .into_iter()
-                .map(|nb| self.py_node_key(py, nb))
+                .map(|nb| self.py_adj_key(py, &canonical, nb)) // br-r37-c1-z6uka
                 .collect()),
             None => Err(NodeNotFound::new_err(format!(
                 "The node {} is not in the graph.",
@@ -4475,7 +4665,7 @@ impl PyGraph {
                 .neighbors(node)
                 .unwrap_or_default()
                 .into_iter()
-                .map(|nb| self.py_node_key(py, nb))
+                .map(|nb| self.py_adj_key(py, node, nb)) // br-r37-c1-z6uka
                 .collect();
             result.push((py_node, neighbors));
         }
@@ -4641,6 +4831,7 @@ impl PyGraph {
             lazy_int_node_stop: 0,
             node_py_attrs: HashMap::with_capacity(self.node_py_attrs.len()),
             edge_py_attrs: HashMap::with_capacity(self.edge_py_attrs.len()),
+            adj_py_keys: self.derive_copy_adj_py_keys(py, &self.inner), // br-r37-c1-z6uka
             dict_of_dicts_cache: None,
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,
@@ -4711,6 +4902,7 @@ impl PyGraph {
             lazy_int_node_stop: 0,
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
+            adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
             dict_of_dicts_cache: None,
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,
@@ -4760,6 +4952,11 @@ impl PyGraph {
             }
         }
 
+        if !self.adj_py_keys.is_empty() {
+            // br-r37-c1-z6uka: carry adjacency-row overrides for cells that
+            // survived the filter (nx subgraphs keep the original row objects).
+            new_graph.adj_py_keys = self.derive_copy_adj_py_keys(py, &new_graph.inner);
+        }
         Ok(new_graph)
     }
 
@@ -4785,6 +4982,7 @@ impl PyGraph {
             lazy_int_node_stop: 0,
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
+            adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
             dict_of_dicts_cache: None,
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,
@@ -4839,6 +5037,11 @@ impl PyGraph {
             }
         }
 
+        if !self.adj_py_keys.is_empty() {
+            // br-r37-c1-z6uka: carry adjacency-row overrides for cells that
+            // survived the filter (nx subgraphs keep the original row objects).
+            new_graph.adj_py_keys = self.derive_copy_adj_py_keys(py, &new_graph.inner);
+        }
         Ok(new_graph)
     }
 
@@ -5250,6 +5453,7 @@ impl PyGraph {
             lazy_int_node_stop: 0,
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
+            adj_py_keys: self.clone_adj_py_keys(py), // br-r37-c1-z6uka
             dict_of_dicts_cache: None,
             // SHARE the graph attrs dict (shallow copy)
             graph_attrs: self.graph_attrs.clone_ref(py),

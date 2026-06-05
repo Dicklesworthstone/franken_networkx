@@ -13513,6 +13513,7 @@ pub fn power_rust(py: Python<'_>, g: &Bound<'_, PyAny>, k: usize) -> PyResult<Py
         lazy_int_node_stop: 0,
         node_py_attrs: std::collections::HashMap::new(),
         edge_py_attrs: std::collections::HashMap::new(),
+        adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
         dict_of_dicts_cache: None,
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
@@ -13564,6 +13565,7 @@ pub fn ego_graph_rust(
         lazy_int_node_stop: 0,
         node_py_attrs: std::collections::HashMap::new(),
         edge_py_attrs: std::collections::HashMap::new(),
+        adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
         dict_of_dicts_cache: None,
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
@@ -13697,6 +13699,7 @@ pub fn full_join_rust(
         lazy_int_node_stop: 0,
         node_py_attrs: std::collections::HashMap::new(),
         edge_py_attrs: std::collections::HashMap::new(),
+        adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
         dict_of_dicts_cache: None,
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
@@ -13729,6 +13732,7 @@ pub fn identified_nodes_rust(
         lazy_int_node_stop: 0,
         node_py_attrs: std::collections::HashMap::new(),
         edge_py_attrs: std::collections::HashMap::new(),
+        adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
         dict_of_dicts_cache: None,
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
@@ -13820,6 +13824,7 @@ pub fn dedensify_rust(
         lazy_int_node_stop: 0,
         node_py_attrs: std::collections::HashMap::new(),
         edge_py_attrs: std::collections::HashMap::new(),
+        adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
         dict_of_dicts_cache: None,
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
@@ -13933,6 +13938,7 @@ pub fn quotient_graph_rust(
         lazy_int_node_stop: 0,
         node_py_attrs: std::collections::HashMap::new(),
         edge_py_attrs: std::collections::HashMap::new(),
+        adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
         dict_of_dicts_cache: None,
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
@@ -13960,6 +13966,7 @@ pub fn moral_graph_rust(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<PyObje
         lazy_int_node_stop: 0,
         node_py_attrs: std::collections::HashMap::new(),
         edge_py_attrs: std::collections::HashMap::new(),
+        adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
         dict_of_dicts_cache: None,
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
@@ -14373,6 +14380,7 @@ pub fn gomory_hu_tree_rust(
         lazy_int_node_stop: 0,
         node_py_attrs: std::collections::HashMap::new(),
         edge_py_attrs: std::collections::HashMap::new(),
+        adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
         dict_of_dicts_cache: None,
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
@@ -14424,6 +14432,7 @@ pub fn snap_aggregation_rust(
         lazy_int_node_stop: 0,
         node_py_attrs: std::collections::HashMap::new(),
         edge_py_attrs: std::collections::HashMap::new(),
+        adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
         dict_of_dicts_cache: None,
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,

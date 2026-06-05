@@ -405,7 +405,15 @@ fn edge_alldata_items(
             continue;
         }
         let py_u = edgeview_py_node_key(py, node_key_map, lazy_stop, left);
-        let py_v = edgeview_py_node_key(py, node_key_map, lazy_stop, right);
+        // br-r37-c1-z6uka: the v side of an edge tuple is the ADJACENCY-ROW
+        // object of left's row (nx EdgeView walks _adj rows).
+        let py_v = if !adj_py_keys.is_empty()
+            && let Some(obj) = adj_py_keys.get(&(left.to_owned(), right.to_owned()))
+        {
+            obj.clone_ref(py)
+        } else {
+            edgeview_py_node_key(py, node_key_map, lazy_stop, right)
+        };
         let dict = edge_py_attrs
             .entry(PyGraph::edge_key(left, right))
             .or_insert_with(|| PyDict::new(py).unbind())
@@ -435,7 +443,7 @@ impl EdgeView {
             .into_iter()
             .map(|(left, right, _)| {
                 let py_u = g.py_node_key(py, left);
-                let py_v = g.py_node_key(py, right);
+                let py_v = g.py_adj_key(py, left, right); // br-r37-c1-z6uka
                 tuple_object(py, &[py_u, py_v])
             })
             .collect()
@@ -488,7 +496,7 @@ impl EdgeView {
                     .into_iter()
                     .map(|(left, right, _attrs)| {
                         let py_u = g.py_node_key(py, left);
-                        let py_v = g.py_node_key(py, right);
+                        let py_v = g.py_adj_key(py, left, right); // br-r37-c1-z6uka
                         // br-r37-c1-7gxek: the canonical edge_key + edge_py_attrs lookup
                         // are only needed by the data-bearing variants. Computing them
                         // eagerly cost 2 String clones + a hashmap probe per edge on the
@@ -597,7 +605,7 @@ impl EdgeView {
                     })
                     .map(|(left, right, _attrs)| {
                         let py_u = g.py_node_key(py, left);
-                        let py_v = g.py_node_key(py, right);
+                        let py_v = g.py_adj_key(py, left, right); // br-r37-c1-z6uka
                         let attrs = g.edge_py_attrs.get(&PyGraph::edge_key(left, right));
                         match &view_data {
                             NodeViewData::NoData => tuple_object(py, &[py_u, py_v]),
@@ -927,7 +935,7 @@ impl AtlasView {
             .map(str::to_owned)
             .collect();
         for nb in neighbors {
-            let py_nb = g.py_node_key(py, &nb);
+            let py_nb = g.py_adj_key(py, &self.node, &nb); // br-r37-c1-z6uka
             let edge_attrs = g.materialize_edge_py_attrs(py, &self.node, &nb);
             result.set_item(py_nb, edge_attrs.bind(py))?;
         }
@@ -969,7 +977,7 @@ impl AtlasView {
             .neighbors(&self.node)
             .unwrap_or_default()
             .iter()
-            .map(|nb| g.py_node_key(py, nb))
+            .map(|nb| g.py_adj_key(py, &self.node, nb)) // br-r37-c1-z6uka
             .collect();
         Py::new(py, NodeIterator::unguarded(nbrs))
     }
@@ -989,7 +997,7 @@ impl AtlasView {
             .map(str::to_owned)
             .collect();
         for nb in neighbors {
-            let py_nb = g.py_node_key(py, &nb);
+            let py_nb = g.py_adj_key(py, &self.node, &nb); // br-r37-c1-z6uka
             let ed = g.materialize_edge_py_attrs(py, &self.node, &nb);
             out.push((py_nb, ed));
         }
