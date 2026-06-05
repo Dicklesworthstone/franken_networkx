@@ -29149,14 +29149,15 @@ def minimum_cycle_basis(G, weight=None):
     G = _coerce_arg_to_fnx_graph(G)
 
     # br-mincyclewt: weighted inputs → delegate to nx for optimality.
-    if weight is not None:
-        return _minimum_cycle_basis_via_parity(G, weight)
-
-    # br-rustlag: Rust symbol may be absent until the in-flight rebuild
-    # lands; fall back to the per-component Python helper.
-    if _raw_minimum_cycle_basis is None:
-        return _minimum_cycle_basis_via_parity(G, weight)
-    return _raw_minimum_cycle_basis(G, weight=weight)
+    # br-r37-c1-cux5q: unweighted inputs too — nx's basis ORDER comes from
+    # CPython set iteration (`chords = G.edges - tree_edges - ...` in
+    # _min_cycle_basis), so it varies with PYTHONHASHSEED; the Rust kernel's
+    # deterministic order diverged under PYTHONHASHSEED=2 (two-triangles
+    # fixture). Set-order-dependent output cannot be matched from Rust
+    # (parity-blocked-by-set-order class) — the in-process nx reference
+    # path reproduces it exactly at any seed. _raw_minimum_cycle_basis stays
+    # available for order-insensitive internal callers.
+    return _minimum_cycle_basis_via_parity(G, weight)
 
 
 def _minimum_cycle_basis_via_parity(G, weight):

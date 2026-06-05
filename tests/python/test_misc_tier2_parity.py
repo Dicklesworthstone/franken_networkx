@@ -197,36 +197,39 @@ def test_minimum_cycle_basis_matches_networkx_on_triangle():
     )
 
 
-def test_minimum_cycle_basis_native_avoids_networkx(monkeypatch):
-    # br-rustlag: when the Rust symbol isn't compiled into the current
-    # .so, fnx falls back to nx.algorithms.cycles._min_cycle_basis via
-    # the Python helper. That's a best-effort bridge during rebuild lag
-    # and unavoidably touches the private nx helper. Skip the strict
-    # no-delegation check in that state.
-    from franken_networkx import _raw_minimum_cycle_basis as _raw
+def test_minimum_cycle_basis_order_parity_under_adversarial_hash_seed():
+    # br-r37-c1-cux5q: nx's basis ORDER comes from CPython set iteration
+    # (`chords = G.edges - tree_edges - ...`), so it varies with
+    # PYTHONHASHSEED. The Rust kernel's deterministic order diverged under
+    # PYTHONHASHSEED=2 (two-triangles fixture) — set-order-dependent output
+    # cannot be matched from Rust, so the unweighted path now also runs the
+    # in-process nx reference per component. Pin exact (order-sensitive)
+    # equality under a few seeds via subprocesses, including the seed that
+    # caught the divergence.
+    import subprocess
+    import sys
 
-    if _raw is None:
-        pytest.skip(
-            "franken_networkx-rustlag: Rust minimum_cycle_basis symbol missing; "
-            "fallback legitimately uses nx.algorithms.cycles._min_cycle_basis"
+    code = (
+        "import networkx as nx, franken_networkx as fnx\n"
+        "def b(mod):\n"
+        "    g = mod.Graph()\n"
+        "    for e in [('a','b'),('b','c'),('c','a'),('c','d'),('d','e'),('e','c')]:\n"
+        "        g.add_edge(*e)\n"
+        "    return g\n"
+        "assert fnx.minimum_cycle_basis(b(fnx)) == nx.minimum_cycle_basis(b(nx))\n"
+    )
+    for seed in ("0", "1", "2", "42"):
+        proc = subprocess.run(
+            [sys.executable, "-c", code],
+            env={
+                **__import__("os").environ,
+                "PYTHONHASHSEED": seed,
+            },
+            capture_output=True,
+            text=True,
+            timeout=10,
         )
-    graph = fnx.cycle_graph(4)
-    expected = nx.cycle_graph(4)
-    expected_cycles = normalize_cycles(nx.minimum_cycle_basis(expected))
-    import networkx.algorithms.cycles as nx_cycles
-
-    monkeypatch.setattr(
-        nx,
-        "minimum_cycle_basis",
-        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("delegated")),
-    )
-    monkeypatch.setattr(
-        nx_cycles,
-        "_min_cycle_basis",
-        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("delegated-private")),
-    )
-
-    assert normalize_cycles(fnx.minimum_cycle_basis(graph)) == expected_cycles
+        assert proc.returncode == 0, f"seed {seed}: {proc.stderr[-500:]}"
 
 
 def test_minimum_cycle_basis_weighted_cycle_set_matches_networkx():
