@@ -20573,14 +20573,22 @@ def kneser_graph(n, k):
     if k <= 0 or k > n:
         raise NetworkXError("k should be greater than zero and smaller than n")
 
+    # br-r37-c1-jv0h5: replicate nx's construction VERBATIM — node order is
+    # edge-DISCOVERY order (s in combinations order, t drawn from
+    # combinations over the CPython set difference universe - set(s)),
+    # except 2k > n where nodes are pre-added (the graph may have isolated
+    # nodes / no edges). The old all-nodes-first + pairwise-disjoint loop
+    # produced the same node/edge SETS but a different insertion ORDER.
+    # Pure-Python here, so the CPython set-iteration dependence matches nx
+    # exactly.
     G = empty_graph(0)
-    nodes = [tuple(sorted(c)) for c in _combinations(range(n), k)]
-    G.add_nodes_from(nodes)
-    for i, a in enumerate(nodes):
-        sa = set(a)
-        for b in nodes[i + 1 :]:
-            if sa.isdisjoint(b):
-                G.add_edge(a, b)
+    subsets = list(_combinations(range(n), k))
+    if 2 * k > n:
+        G.add_nodes_from(subsets)
+    universe = set(range(n))
+    G.add_edges_from(
+        (s, t) for s in subsets for t in _combinations(universe - set(s), k)
+    )
     return G
 
 
