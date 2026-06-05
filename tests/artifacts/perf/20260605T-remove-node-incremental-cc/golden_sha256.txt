@@ -1,0 +1,1 @@
+5efe6826bac16abc0a8c5a239d2a66a3377f14b909f556d888063f3b988983b1  remove_node 40-trial byte-exact vs nx (random graphs + random node removals; node/edge order + attrs + degrees + native triangles)
