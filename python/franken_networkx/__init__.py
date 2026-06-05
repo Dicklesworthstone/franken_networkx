@@ -14742,7 +14742,25 @@ def dominance_frontiers(G, start):
     G = _coerce_arg_to_fnx_graph(G)
     if start not in G:
         raise NetworkXError("start is not in G")
-    return _raw_dominance_frontiers(G, start)
+    # br-r37-c1-domfront: the native _raw_dominance_frontiers kernel only walked
+    # >=2-predecessor join points and missed nx's start-node special case — nx
+    # processes ``start`` with idom[start]=None so predecessors of start (back
+    # edges) walk all the way to the root, adding ``start`` to their frontiers.
+    # e.g. on 0->1,0->2,1->3,2->3,3->0 nx yields df[3]={0}, df[0]={0}; the kernel
+    # gave empty sets. Reimplement nx's exact algorithm on immediate_dominators
+    # (verified key-order- and value-identical to nx); idom key order drives the
+    # result dict key order.
+    idom = dict(immediate_dominators(G, start))
+    idom[start] = None
+    df = {u: set() for u in idom}
+    for u in idom:
+        if u == start or len(G.pred[u]) >= 2:
+            for v in G.pred[u]:
+                if v in idom:
+                    while v != idom[u]:
+                        df[v].add(u)
+                        v = idom[v]
+    return df
 
 
 def antichains(G, topo_order=None):
