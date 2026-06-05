@@ -659,13 +659,14 @@ impl DiGraph {
             return false;
         }
 
-        // br-r37-c1-rmnode-di: clean up neighbours' predecessor/successor sets
-        // (O(degree)), then remove ALL incident edges (out: node->*, in: *->node)
-        // in ONE O(|E|) `retain` pass. The previous version called
-        // `edges.shift_remove` once per incident edge, and each shift_remove is
-        // O(|E|), so remove_node was O(degree*|E|) and remove_nodes_from was
-        // ~51x slower than nx. (DiGraph keeps no integer CSR cache, so no index
-        // repair is needed — just the retain + the order-preserving map shifts.)
+        // br-r37-c1-rmnode-di2: drop each incident edge with O(1) `swap_remove`
+        // (the `edges` map order is never observed externally — `edges_ordered`,
+        // used by every public consumer, walks node->successor order, and the one
+        // internal map-order use, `to_undirected`, was canonicalised). The
+        // incident edges are known exactly from successors/predecessors, so the
+        // whole removal is O(degree) instead of the O(|E|) `retain` scan (let
+        // alone the original O(degree*|E|) per-edge shift_remove). Matches nx's
+        // O(degree) remove_node.
         if let Some(succs) = self.successors.get(node) {
             let targets: Vec<String> = succs.iter().cloned().collect();
             for target in targets {
@@ -674,6 +675,7 @@ impl DiGraph {
                 {
                     preds.shift_remove(node);
                 }
+                self.edges.swap_remove(&DirectedEdgeKey::new(node, &target));
             }
         }
         if let Some(preds) = self.predecessors.get(node) {
@@ -684,10 +686,9 @@ impl DiGraph {
                 {
                     succs.shift_remove(node);
                 }
+                self.edges.swap_remove(&DirectedEdgeKey::new(&source, node));
             }
         }
-        self.edges
-            .retain(|k, _| k.source != node && k.target != node);
 
         self.successors.shift_remove(node);
         self.predecessors.shift_remove(node);
@@ -767,8 +768,13 @@ impl DiGraph {
         for (node, attrs) in &self.nodes {
             g.add_node_with_attrs(node.clone(), attrs.clone());
         }
-        for (key, attrs) in &self.edges {
-            let _ = g.add_edge_with_attrs(key.source.clone(), key.target.clone(), attrs.clone());
+        // Iterate in canonical node->successor order (`edges_ordered`) rather
+        // than the private `edges` IndexMap order: this matches networkx's
+        // reciprocal-edge merge order (for a<->b the later-processed direction's
+        // attrs win) AND keeps the `edges` map order unobservable, so
+        // `remove_node` can drop incident edges with O(1) swap_remove.
+        for snap in self.edges_ordered() {
+            let _ = g.add_edge_with_attrs(snap.left, snap.right, snap.attrs);
         }
         g
     }
