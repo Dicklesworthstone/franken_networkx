@@ -3673,6 +3673,15 @@ impl PyDiGraph {
         Ok(new_graph)
     }
 
+    /// br-r37-c1-copynative: stable alias exposing the native order-preserving
+    /// `copy` (above) to the Python `_copy_preserving_insertion_order` wrapper
+    /// (which shadows `copy` at the Python class level), so exact-type
+    /// `DiGraph.copy()` uses the bulk `inner.clone()` path instead of the
+    /// ~4x-slower edges(data=True) + add_edges_from rebuild.
+    fn _native_copy(&self, py: Python<'_>) -> PyResult<Self> {
+        self.copy(py)
+    }
+
     fn subgraph(&self, py: Python<'_>, nodes: &Bound<'_, PyAny>) -> PyResult<Self> {
         let iter = PyIterator::from_object(nodes)?;
         let mut keep: std::collections::HashSet<String> = std::collections::HashSet::new();

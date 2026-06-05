@@ -4337,6 +4337,16 @@ impl PyGraph {
         Ok(new_graph)
     }
 
+    /// br-r37-c1-copynative: stable alias exposing the native order-preserving
+    /// `copy` (above) to the Python `_copy_preserving_insertion_order` wrapper,
+    /// which shadows `copy` at the Python class level. Lets exact-type
+    /// `Graph.copy()` use the bulk `inner.clone()` path (order + endpoint
+    /// orientation + shallow attr-dict copy preserved) instead of the ~4x-slower
+    /// rebuild via `self.edges(data=True)` + `add_edges_from`.
+    fn _native_copy(&self, py: Python<'_>) -> PyResult<Self> {
+        self.copy(py)
+    }
+
     /// Return a subgraph view containing only the specified nodes.
     ///
     /// Returns a new graph (not a view) with the specified nodes and all

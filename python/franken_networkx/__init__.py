@@ -31893,7 +31893,7 @@ def _copy_preserving_insertion_order(self, as_view=False):
     # live edge/node attr dicts (shallow .copy()), preserving node + edge order
     # and public endpoint orientation. Gated on exact type so subclasses /
     # filtered views keep the generic rebuild.
-    if type(self) in (MultiGraph, MultiDiGraph):
+    if type(self) in (Graph, DiGraph, MultiGraph, MultiDiGraph):
         native_copy = getattr(self, "_native_copy", None)
         if native_copy is not None:
             return native_copy()
