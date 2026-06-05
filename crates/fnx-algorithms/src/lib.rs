@@ -15848,24 +15848,32 @@ pub fn all_shortest_paths_directed(
         return Vec::new();
     }
 
+    // Enumerate paths in networkx's order (DFS over the predecessor DAG from
+    // `target` back to `source`, matching _build_paths_from_predecessors). The
+    // forward BFS above builds `preds` in nx BFS-discovery order, so this yields
+    // byte-identical path order (br-r37-c1-wjz3x).
     let mut paths: Vec<Vec<String>> = Vec::new();
-    let mut stack: Vec<Vec<&str>> = vec![vec![target]];
-
-    while let Some(partial) = stack.pop() {
-        let last = *partial.last().unwrap();
-        if last == source {
-            let path: Vec<String> = partial.iter().rev().map(|s| (*s).to_owned()).collect();
-            paths.push(path);
-        } else if let Some(pred_list) = preds.get(last) {
-            for &p in pred_list {
-                let mut extended = partial.clone();
-                extended.push(p);
-                stack.push(extended);
+    let empty_preds: Vec<&str> = Vec::new();
+    let mut seen: HashSet<&str> = HashSet::new();
+    seen.insert(target);
+    let mut stack: Vec<(&str, usize)> = vec![(target, 0)];
+    while let Some(&(node, i)) = stack.last() {
+        if node == source {
+            paths.push(stack.iter().rev().map(|(n, _)| (*n).to_owned()).collect());
+        }
+        let pred_list = preds.get(node).unwrap_or(&empty_preds);
+        if pred_list.len() > i {
+            stack.last_mut().unwrap().1 = i + 1;
+            let next = pred_list[i];
+            if !seen.insert(next) {
+                continue;
             }
+            stack.push((next, 0));
+        } else {
+            seen.remove(node);
+            stack.pop();
         }
     }
-
-    paths.sort();
     paths
 }
 

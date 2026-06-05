@@ -9097,16 +9097,15 @@ def all_shortest_paths(
         hash(target)
         if target not in G:
             raise NetworkXNoPath(f"Target {target} cannot be reached from given sources")
-        # br-r37-c1-qiplw: the native undirected ``_raw_all_shortest_paths``
-        # kernel now enumerates paths in nx's BFS-predecessor-DAG order
-        # (matching _build_paths_from_predecessors), so the unweighted case
-        # (weight=None) runs natively instead of paying a full fnx->nx
-        # conversion per call. nx forces method='unweighted' whenever weight is
-        # None. The binding raises NetworkXNoPath with a different message for an
-        # unreachable (but present) target, so re-raise with nx's exact wording.
-        # The directed kernel still has a predecessor-order divergence vs nx
-        # (br-r37-c1-aspdir), so directed unweighted keeps delegating for now.
-        if weight is None and not G.is_directed():
+        # br-r37-c1-qiplw / br-r37-c1-wjz3x: the native ``_raw_all_shortest_paths``
+        # kernel (both undirected and directed) now enumerates paths in nx's
+        # BFS-predecessor-DAG order (matching _build_paths_from_predecessors), so
+        # the unweighted case (weight=None) runs natively instead of paying a
+        # full fnx->nx conversion per call. nx forces method='unweighted'
+        # whenever weight is None. The binding raises NetworkXNoPath with a
+        # different message for an unreachable (but present) target, so re-raise
+        # with nx's exact wording.
+        if weight is None:
             try:
                 paths = _raw_all_shortest_paths(G, source, target, method="unweighted")
             except NetworkXNoPath:
@@ -9114,11 +9113,6 @@ def all_shortest_paths(
                     f"Target {target} cannot be reached from given sources"
                 )
             yield from paths
-            return
-        if weight is None:
-            yield from _call_networkx_for_parity(
-                "all_shortest_paths", G, source, target, method=method,
-            )
             return
         if method == "unweighted":
             # nx accepts method='unweighted' even when weight is supplied;
