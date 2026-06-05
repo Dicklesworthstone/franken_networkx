@@ -201,11 +201,11 @@ def test_minimum_cycle_basis_order_parity_under_adversarial_hash_seed():
     # br-r37-c1-cux5q: nx's basis ORDER comes from CPython set iteration
     # (`chords = G.edges - tree_edges - ...`), so it varies with
     # PYTHONHASHSEED. The Rust kernel's deterministic order diverged under
-    # PYTHONHASHSEED=2 (two-triangles fixture) — set-order-dependent output
-    # cannot be matched from Rust, so the unweighted path now also runs the
-    # in-process nx reference per component. Pin exact (order-sensitive)
-    # equality under a few seeds via subprocesses, including the seed that
-    # caught the divergence.
+    # PYTHONHASHSEED=2 (two-triangles fixture). That order is tied to
+    # CPython's set implementation, so the public parity path uses the
+    # in-process nx reference per component until a native compatible
+    # primitive exists. Pin exact (order-sensitive) equality under a few
+    # seeds via subprocesses, including the seed that caught the divergence.
     import subprocess
     import sys
 

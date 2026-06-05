@@ -29153,10 +29153,10 @@ def minimum_cycle_basis(G, weight=None):
     # CPython set iteration (`chords = G.edges - tree_edges - ...` in
     # _min_cycle_basis), so it varies with PYTHONHASHSEED; the Rust kernel's
     # deterministic order diverged under PYTHONHASHSEED=2 (two-triangles
-    # fixture). Set-order-dependent output cannot be matched from Rust
-    # (parity-blocked-by-set-order class) — the in-process nx reference
-    # path reproduces it exactly at any seed. _raw_minimum_cycle_basis stays
-    # available for order-insensitive internal callers.
+    # fixture). That order is tied to CPython's set implementation, so the
+    # public parity path uses the in-process nx reference until a native
+    # CPython-order-compatible primitive exists. _raw_minimum_cycle_basis
+    # stays available for order-insensitive internal callers.
     return _minimum_cycle_basis_via_parity(G, weight)
 
 
