@@ -800,47 +800,23 @@ pub fn to_dict_of_dicts_undirected(
     let outer = PyDict::new(py);
     match &gr {
         GraphRef::Undirected(pg) => {
-            let nodes = pg.inner.nodes_ordered();
-            let mut node_keys = Vec::with_capacity(nodes.len());
-            let mut node_dicts = Vec::with_capacity(nodes.len());
-            for u in nodes {
-                let py_node = pg.py_node_key(py, u);
+            for u in pg.inner.nodes_ordered() {
                 let inner_dict = PyDict::new(py);
-                outer.set_item(py_node.bind(py), &inner_dict)?;
-                node_keys.push(py_node);
-                node_dicts.push(inner_dict.unbind());
-            }
-            for (u_idx, v_idx, _) in pg.inner.edges_storage_order_index_iter() {
-                let (Some(u), Some(v)) =
-                    (pg.inner.get_node_name(u_idx), pg.inner.get_node_name(v_idx))
-                else {
-                    continue;
-                };
-                let ek = PyGraph::edge_key(u, v);
-                match pg.edge_py_attrs.get(&ek) {
-                    Some(edge_dict) => {
-                        let edge_dict = edge_dict.bind(py);
-                        node_dicts[u_idx]
-                            .bind(py)
-                            .set_item(node_keys[v_idx].bind(py), edge_dict)?;
-                        if u_idx != v_idx {
-                            node_dicts[v_idx]
-                                .bind(py)
-                                .set_item(node_keys[u_idx].bind(py), edge_dict)?;
-                        }
-                    }
-                    None => {
-                        let edge_dict = PyDict::new(py);
-                        node_dicts[u_idx]
-                            .bind(py)
-                            .set_item(node_keys[v_idx].bind(py), &edge_dict)?;
-                        if u_idx != v_idx {
-                            node_dicts[v_idx]
-                                .bind(py)
-                                .set_item(node_keys[u_idx].bind(py), edge_dict)?;
+                if let Some(neighbors) = pg.inner.neighbors_iter(u) {
+                    for v in neighbors {
+                        let ek = PyGraph::edge_key(u, v);
+                        match pg.edge_py_attrs.get(&ek) {
+                            Some(edge_dict) => {
+                                inner_dict.set_item(pg.py_node_key(py, v), edge_dict.bind(py))?;
+                            }
+                            None => {
+                                let edge_dict = PyDict::new(py);
+                                inner_dict.set_item(pg.py_node_key(py, v), edge_dict)?;
+                            }
                         }
                     }
                 }
+                outer.set_item(pg.py_node_key(py, u), inner_dict)?;
             }
         }
         GraphRef::Directed { dg, .. } => {
