@@ -1,0 +1,2 @@
+cases: 96 failures: 18 ['0:DiGraph->MultiGraph', '0:MultiDiGraph->Graph', '0:MultiDiGraph->MultiGraph', '1:DiGraph->MultiGraph', '1:MultiDiGraph->Graph', '1:MultiDiGraph->MultiGraph']
+GOLDEN_CORPUS_SHA256: 0083175475ca5f28566276e40ec72d8b60209941993969cecbed52379efdf18f

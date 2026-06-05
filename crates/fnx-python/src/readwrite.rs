@@ -303,7 +303,11 @@ fn digraph_absorb_graph_bidirected(
         }
     }
 
-    let mut inner = RustDiGraph::new(CompatibilityMode::Strict);
+    // br-r37-c1-ymeml: carry the SOURCE's compatibility mode (the pre-kernel
+    // path preserved it via __new__ absorb + clear's with_runtime_policy;
+    // the kernel originally hard-coded Strict, silently downgrading
+    // DiGraph(hardened_graph)).
+    let mut inner = RustDiGraph::new(src.inner.mode());
     let _ = inner.extend_nodes_with_attrs_unrecorded(nodes_bulk);
     let _ = inner.extend_edges_with_attrs_unrecorded(edges_bulk);
 

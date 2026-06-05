@@ -566,6 +566,12 @@ impl PyMultiDiGraph {
         g.graph_attrs = graph_attrs.unbind();
 
         if let Some(data) = incoming_graph_data {
+            // br-r37-c1-ymeml: see crate::fnx_graph_instance_mode — __init__
+            // owns population for graph-instance inputs; absorb skipped.
+            if let Some(mode) = crate::fnx_graph_instance_mode(data) {
+                g.inner = MultiDiGraph::new(mode);
+                return Ok(g);
+            }
             if let Ok(other) = data.extract::<PyRef<'_, PyMultiDiGraph>>() {
                 g.inner = MultiDiGraph::with_runtime_policy(other.inner.runtime_policy().clone());
                 for (canonical, py_key) in &other.node_key_map {
@@ -2903,6 +2909,12 @@ impl PyDiGraph {
         g.graph_attrs = graph_attrs.unbind();
 
         if let Some(data) = incoming_graph_data {
+            // br-r37-c1-ymeml: see crate::fnx_graph_instance_mode — __init__
+            // owns population for graph-instance inputs; absorb skipped.
+            if let Some(mode) = crate::fnx_graph_instance_mode(data) {
+                g.inner = DiGraph::new(mode);
+                return Ok(g);
+            }
             // Copy from another PyDiGraph.
             if let Ok(other) = data.extract::<PyRef<'_, PyDiGraph>>() {
                 g.inner = DiGraph::with_runtime_policy(other.inner.runtime_policy().clone());
@@ -5723,7 +5735,12 @@ mod tests {
             let copied = PyDiGraph::new(py, Some(source.bind(py).as_any()), None)
                 .expect("copy construction should succeed");
 
-            assert_eq!(copied.inner.runtime_policy(), &expected_policy);
+            // br-r37-c1-ymeml: __new__ no longer absorbs graph-instance
+            // inputs (the Python __init__ owns population and always
+            // rebuilt them anyway) — it returns an EMPTY graph carrying
+            // the source's compatibility mode.
+            assert_eq!(copied.inner.mode(), CompatibilityMode::Hardened);
+            assert_eq!(copied.inner.node_count(), 0);
         });
     }
 

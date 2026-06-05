@@ -123,6 +123,30 @@ fn node_key_to_string(_py: Python<'_>, key: &Bound<'_, PyAny>) -> PyResult<Strin
     Ok(repr.to_string())
 }
 
+/// br-r37-c1-ymeml: detect an fnx-native graph instance and return its
+/// compatibility mode. Graph-instance constructor inputs are ALWAYS
+/// rebuilt by the Python `__init__` (`_copy_constructor_graph_source` /
+/// the dgctor kernel — see br-copyedgeord for why), so the Rust `__new__`
+/// must NOT absorb them: that work was cleared and redone every time
+/// (21.2ms of a 40ms DiGraph(G) at n=1500/E=5217). `__new__` carries only
+/// the source's mode so Strict/Hardened behavior survives the rebuild.
+/// This also matches nx, where data absorption lives in `__init__`.
+pub(crate) fn fnx_graph_instance_mode(data: &Bound<'_, PyAny>) -> Option<CompatibilityMode> {
+    if let Ok(g) = data.extract::<PyRef<'_, PyGraph>>() {
+        return Some(g.inner.mode());
+    }
+    if let Ok(g) = data.extract::<PyRef<'_, crate::digraph::PyDiGraph>>() {
+        return Some(g.inner.mode());
+    }
+    if let Ok(g) = data.extract::<PyRef<'_, PyMultiGraph>>() {
+        return Some(g.inner.mode());
+    }
+    if let Ok(g) = data.extract::<PyRef<'_, crate::digraph::PyMultiDiGraph>>() {
+        return Some(g.inner.mode());
+    }
+    None
+}
+
 pub(crate) fn missing_key_error(key: &Bound<'_, PyAny>) -> PyErr {
     PyKeyError::new_err((key.clone().unbind(),))
 }
@@ -1312,6 +1336,12 @@ impl PyMultiGraph {
         g.graph_attrs = graph_attrs.unbind();
 
         if let Some(data) = incoming_graph_data {
+            // br-r37-c1-ymeml: see fnx_graph_instance_mode — __init__ owns
+            // population for graph-instance inputs; absorb skipped.
+            if let Some(mode) = fnx_graph_instance_mode(data) {
+                g.inner = MultiGraph::new(mode);
+                return Ok(g);
+            }
             if let Ok(other) = data.extract::<PyRef<'_, PyMultiGraph>>() {
                 g.inner = MultiGraph::with_runtime_policy(other.inner.runtime_policy().clone());
                 for (canonical, py_key) in &other.node_key_map {
@@ -3680,6 +3710,14 @@ impl PyGraph {
         g.graph_attrs = graph_attrs.unbind();
 
         if let Some(data) = incoming_graph_data {
+            // br-r37-c1-ymeml: fnx-native graph inputs are rebuilt by the
+            // Python __init__ unconditionally — skip the absorb (the
+            // graph-copy branches below are now dead for native inputs;
+            // cleanup once the shared-file locks lift). Mode carries over.
+            if let Some(mode) = fnx_graph_instance_mode(data) {
+                g.inner = Graph::new(mode);
+                return Ok(g);
+            }
             // If it's another PyGraph, copy it.
             if let Ok(other) = data.extract::<PyRef<'_, PyGraph>>() {
                 g.inner = other.inner.clone();
@@ -5433,7 +5471,12 @@ mod tests {
             let copied = PyGraph::new(py, Some(source.bind(py).as_any()), None)
                 .expect("copy construction should succeed");
 
-            assert_eq!(copied.inner.runtime_policy(), &expected_policy);
+            // br-r37-c1-ymeml: __new__ no longer absorbs graph-instance
+            // inputs (the Python __init__ owns population and always
+            // rebuilt them anyway) — it returns an EMPTY graph carrying
+            // the source's compatibility mode.
+            assert_eq!(copied.inner.mode(), CompatibilityMode::Hardened);
+            assert_eq!(copied.inner.node_count(), 0);
         });
     }
 
