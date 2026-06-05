@@ -18,7 +18,7 @@ use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList, PyTuple};
 use std::cell::OnceCell;
 use std::collections::{HashMap, HashSet};
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 type SpanningEdgeSamples = (Vec<(String, String)>, Vec<f64>);
 const PAGERANK_WEIGHT_ATTR: &str = "__fnx_pagerank_weight__";
@@ -2598,6 +2598,25 @@ pub fn check_dijkstra_edge_weights_fast(
 }
 
 #[pyfunction]
+#[pyo3(signature = (g))]
+pub fn dijkstra_weight_cache_token(g: &Bound<'_, PyAny>) -> PyResult<Option<(u64, u64, bool)>> {
+    let gr = extract_graph(g)?;
+    match &gr {
+        GraphRef::Undirected(pg) => Ok(Some((
+            pg.nodes_seq,
+            pg.edges_seq,
+            pg.edges_dirty.load(Ordering::Relaxed),
+        ))),
+        GraphRef::Directed { dg, .. } => Ok(Some((
+            dg.nodes_seq,
+            dg.edges_seq,
+            dg.edges_dirty.load(Ordering::Relaxed),
+        ))),
+        GraphRef::MultiUndirected { .. } | GraphRef::MultiDirected { .. } => Ok(None),
+    }
+}
+
+#[pyfunction]
 #[pyo3(signature = (g, source, target, weight="weight"))]
 pub fn dijkstra_path(
     py: Python<'_>,
@@ -2825,7 +2844,11 @@ pub fn bidirectional_dijkstra(
     match outcome {
         fnx_algorithms::BidirectionalDijkstraOutcome::Found(length, all_int, path) => {
             let py_path: Vec<PyObject> = path.iter().map(|n| gr.py_node_key(py, n)).collect();
-            Ok((length, all_int, py_path.into_pyobject(py)?.into_any().unbind()))
+            Ok((
+                length,
+                all_int,
+                py_path.into_pyobject(py)?.into_any().unbind(),
+            ))
         }
         fnx_algorithms::BidirectionalDijkstraOutcome::NoPath => Err(NetworkXNoPath::new_err(
             format!("No path between {} and {}.", source_str, target_str),
@@ -2833,9 +2856,12 @@ pub fn bidirectional_dijkstra(
         fnx_algorithms::BidirectionalDijkstraOutcome::Contradiction => Err(PyValueError::new_err(
             "Contradictory paths found: negative weights?",
         )),
-        fnx_algorithms::BidirectionalDijkstraOutcome::NodeMissing => Err(NodeNotFound::new_err(
-            format!("Either source {} or target {} is not in G", source_str, target_str),
-        )),
+        fnx_algorithms::BidirectionalDijkstraOutcome::NodeMissing => {
+            Err(NodeNotFound::new_err(format!(
+                "Either source {} or target {} is not in G",
+                source_str, target_str
+            )))
+        }
     }
 }
 
@@ -14898,6 +14924,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(graph_has_nonnumeric_edge_weight, m)?)?;
     m.add_function(wrap_pyfunction!(graph_edge_weights_all_int, m)?)?;
     m.add_function(wrap_pyfunction!(check_dijkstra_edge_weights_fast, m)?)?;
+    m.add_function(wrap_pyfunction!(dijkstra_weight_cache_token, m)?)?;
     m.add_function(wrap_pyfunction!(adjacency_arrays, m)?)?;
     m.add_function(wrap_pyfunction!(adjacency_index_arrays, m)?)?;
     m.add_function(wrap_pyfunction!(adjacency_default_order_index_arrays, m)?)?;

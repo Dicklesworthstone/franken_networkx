@@ -6033,9 +6033,11 @@ except ImportError:  # pragma: no cover — defensive for partial builds
 try:
     from franken_networkx._fnx import (
         check_dijkstra_edge_weights_fast as _native_check_dijkstra_weights_fast,
+        dijkstra_weight_cache_token as _native_dijkstra_weight_cache_token,
     )
 except ImportError:  # pragma: no cover — defensive for partial builds
     _native_check_dijkstra_weights_fast = None
+    _native_dijkstra_weight_cache_token = None
 
 try:
     from franken_networkx._fnx import (
@@ -6241,14 +6243,30 @@ def _should_delegate_dijkstra_to_networkx(G, weight):
     # nodes) then ran three separate native helpers. The new helper reads directly
     # from edge_py_attrs (the Python dicts), skipping sync entirely. For
     # multigraphs, fall back to the slow path (no native multigraph variant).
+    cache_key = None
     if _native_check_dijkstra_weights_fast is not None and not G.is_multigraph():
+        if _native_dijkstra_weight_cache_token is not None:
+            try:
+                token = _native_dijkstra_weight_cache_token(G)
+            except Exception:
+                token = None
+            if token is not None:
+                nodes_seq, edges_seq, edge_attrs_dirty = token
+                if not edge_attrs_dirty:
+                    cache_key = (weight, nodes_seq, edges_seq)
+                    cached = vars(G).get("_fnx_dijkstra_weight_check_cache")
+                    if cached is not None and cached[0] == cache_key:
+                        return cached[1]
         try:
             fast_result = _native_check_dijkstra_weights_fast(G, weight)
         except Exception:
             fast_result = None
         if fast_result is not None:
             has_negative, has_nonfinite, has_nonnumeric = fast_result
-            return has_negative or has_nonfinite or has_nonnumeric
+            should_delegate = has_negative or has_nonfinite or has_nonnumeric
+            if cache_key is not None:
+                vars(G)["_fnx_dijkstra_weight_check_cache"] = (cache_key, should_delegate)
+            return should_delegate
     # Multigraph or fallback: sync once, then run three gates with _skip_sync.
     if not G.is_multigraph():
         _sync_rust_edge_attrs(G)

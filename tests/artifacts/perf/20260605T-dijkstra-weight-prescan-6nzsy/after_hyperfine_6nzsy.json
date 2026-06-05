@@ -1,0 +1,116 @@
+{
+  "results": [
+    {
+      "command": "env PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260605T-dijkstra-weight-prescan-6nzsy/dijkstra_weight_prescan_bench_6nzsy.py --mode public --loops 100",
+      "mean": 0.6184168014800001,
+      "stddev": 0.06294399801203246,
+      "median": 0.5959441974799999,
+      "user": 1.9949267685714287,
+      "system": 0.08683118857142857,
+      "min": 0.52760814848,
+      "max": 0.71251412748,
+      "times": [
+        0.59483488648,
+        0.71251412748,
+        0.68374385048,
+        0.5959441974799999,
+        0.58381334448,
+        0.52760814848,
+        0.63045905548
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "env PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260605T-dijkstra-weight-prescan-6nzsy/dijkstra_weight_prescan_bench_6nzsy.py --mode native-check --loops 100",
+      "mean": 0.5033068323371429,
+      "stddev": 0.01328458319333402,
+      "median": 0.50318474448,
+      "user": 3.8686033400000004,
+      "system": 0.08294518857142859,
+      "min": 0.48867017448000005,
+      "max": 0.52752482148,
+      "times": [
+        0.50909074948,
+        0.49752067648000003,
+        0.48867017448000005,
+        0.50318474448,
+        0.49002051248000006,
+        0.50713614748,
+        0.52752482148
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "env PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260605T-dijkstra-weight-prescan-6nzsy/dijkstra_weight_prescan_bench_6nzsy.py --mode native-kernel --loops 100",
+      "mean": 0.42546326619428576,
+      "stddev": 0.026374825809363157,
+      "median": 0.41290951448,
+      "user": 4.141891054285714,
+      "system": 0.07563861714285713,
+      "min": 0.39991568548000006,
+      "max": 0.45700800148000004,
+      "times": [
+        0.39991568548000006,
+        0.44879007648,
+        0.40202370648,
+        0.45382442148,
+        0.41290951448,
+        0.40377145748000004,
+        0.45700800148000004
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "env PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260605T-dijkstra-weight-prescan-6nzsy/dijkstra_weight_prescan_bench_6nzsy.py --mode networkx --loops 100",
+      "mean": 0.3926291726228572,
+      "stddev": 0.019924411640972143,
+      "median": 0.38837420648000004,
+      "user": 4.151372482857143,
+      "system": 0.05941876,
+      "min": 0.36058889448000003,
+      "max": 0.41625782548,
+      "times": [
+        0.38447757748000005,
+        0.41625782548,
+        0.41540859748000003,
+        0.36058889448000003,
+        0.38186025048000005,
+        0.40143685648000005,
+        0.38837420648000004
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}
