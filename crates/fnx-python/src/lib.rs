@@ -118,6 +118,47 @@ fn node_key_to_string(_py: Python<'_>, key: &Bound<'_, PyAny>) -> PyResult<Strin
         let repr = key.repr()?;
         return Ok(repr.to_string());
     }
+    // br-r37-c1-y7m24: all-int tuples — the node-key shape of grid_2d /
+    // hypercube / kneser and most relabeled lattices — get their canonical
+    // built in Rust, byte-identical to CPython's tuple repr ("(0, 1)",
+    // singleton "(0,)"). The generic key.repr() below is a full Python
+    // call and dominated tuple-keyed construction (grid_2d_graph spent
+    // 18.7ms of 29.7ms in batch canonicalization at 60x60). Exact-int
+    // elements only: bool is excluded (repr "True" differs) and ints
+    // outside i64 fall back to repr (their canonical already came from
+    // repr, so the formats stay consistent).
+    if let Ok(t) = key.downcast::<PyTuple>() {
+        let n = t.len();
+        if n > 0 {
+            let mut parts: Vec<i64> = Vec::with_capacity(n);
+            let mut all_int = true;
+            for item in t.iter() {
+                if item.is_exact_instance_of::<PyInt>()
+                    && let Ok(v) = item.extract::<i64>()
+                {
+                    parts.push(v);
+                    continue;
+                }
+                all_int = false;
+                break;
+            }
+            if all_int {
+                let mut s = String::with_capacity(n * 6 + 2);
+                s.push('(');
+                for (i, v) in parts.iter().enumerate() {
+                    if i > 0 {
+                        s.push_str(", ");
+                    }
+                    s.push_str(&v.to_string());
+                }
+                if n == 1 {
+                    s.push(',');
+                }
+                s.push(')');
+                return Ok(s);
+            }
+        }
+    }
     // For other hashable types, use repr as the canonical key.
     let repr = key.repr()?;
     Ok(repr.to_string())
