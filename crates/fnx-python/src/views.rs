@@ -366,12 +366,12 @@ fn edgeview_py_node_key(
     if let Some(obj) = node_key_map.get(canonical) {
         return obj.clone_ref(py);
     }
-    if let Ok(value) = canonical.parse::<i64>() {
-        if (0..lazy_int_node_stop).contains(&value) {
-            return crate::unwrap_infallible(value.into_pyobject(py))
-                .into_any()
-                .unbind();
-        }
+    if let Ok(value) = canonical.parse::<i64>()
+        && (0..lazy_int_node_stop).contains(&value)
+    {
+        return crate::unwrap_infallible(value.into_pyobject(py))
+            .into_any()
+            .unbind();
     }
     crate::unwrap_infallible(canonical.to_owned().into_pyobject(py))
         .into_any()
@@ -399,10 +399,10 @@ fn edge_alldata_items(
     let lazy_stop = g.lazy_int_node_stop;
     let mut items = Vec::with_capacity(inner.edge_count());
     for (left, right, _attrs) in inner.edges_ordered_borrowed() {
-        if let Some(ns) = node_filter {
-            if !(ns.contains(left) || ns.contains(right)) {
-                continue;
-            }
+        if let Some(ns) = node_filter
+            && !(ns.contains(left) || ns.contains(right))
+        {
+            continue;
         }
         let py_u = edgeview_py_node_key(py, node_key_map, lazy_stop, left);
         let py_v = edgeview_py_node_key(py, node_key_map, lazy_stop, right);
