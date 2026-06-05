@@ -11,6 +11,7 @@ the batch paths bail to the per-edge add_edge on mixed-display input.
 import random
 
 import networkx as nx
+import pytest
 
 import franken_networkx as fnx
 
@@ -260,3 +261,33 @@ def test_multigraph_uniform_unchanged():
         for i in range(80):
             g.add_edge(i % 20, (i * 3) % 20)
     assert _canon_m(b) == _canon_m(a)
+
+
+# ---------------------------------------------------------------------------
+# br-r37-c1-kuxuc: MultiGraph removal must not leave stale mirror entries
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "build",
+    [
+        # the hypothesis falsifying example: attributed self-loop
+        lambda m: (m.add_edge(0, 0, label="x", weight=0.0), m.remove_edge(0, 0), m.add_edges_from([(0, 0)])),
+        lambda m: (m.add_edge(1, 2, label="y"), m.remove_edge(1, 2), m.add_edge(1, 2)),
+        # string public key removal, int-key fast-path re-add
+        lambda m: (m.add_edge(1, 2, key="K", label="y"), m.remove_edge(1, 2, key="K"), m.add_edge(1, 2, key=0)),
+        # slow-path re-add merges into a FRESH dict, not the stale one
+        lambda m: (m.add_edge(1, 2, key="K", label="y"), m.remove_edge(1, 2, key="K"), m.add_edge(1, 2, key=0, fresh="z")),
+        # removing ONE parallel key keeps the survivor's attrs intact
+        lambda m: (m.add_edge(1, 2, label="a"), m.add_edge(1, 2, label="b"), m.remove_edge(1, 2, key=0), m.add_edge(1, 2)),
+        lambda m: (m.add_edge(1, 2, label="y"), m.remove_edges_from([(1, 2)]), m.add_edge(1, 2)),
+        lambda m: (m.add_edge(1, 2, label="y"), m.remove_node(2), m.add_edge(1, 2)),
+    ],
+)
+def test_multigraph_removal_purges_mirror_entries(build):
+    a, b = nx.MultiGraph(), fnx.MultiGraph()
+    build(a)
+    build(b)
+    assert sorted(map(repr, b.edges(keys=True, data=True))) == sorted(
+        map(repr, a.edges(keys=True, data=True))
+    )

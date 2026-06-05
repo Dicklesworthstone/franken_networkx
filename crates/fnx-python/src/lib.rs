@@ -2398,14 +2398,33 @@ impl PyMultiGraph {
                 v.repr()?
             )));
         }
-        if !self.adj_py_keys.is_empty() && !self.inner.has_edge(&u_canonical, &v_canonical) {
-            // br-r37-c1-z6uka: the LAST parallel key removed empties the
-            // adjacency cell — drop its row overrides (a re-add creates
-            // fresh cells in nx).
-            self.adj_py_keys
-                .remove(&(u_canonical.clone(), v_canonical.clone()));
-            self.adj_py_keys
-                .remove(&(v_canonical.clone(), u_canonical.clone()));
+        if !self.inner.has_edge(&u_canonical, &v_canonical) {
+            if !self.adj_py_keys.is_empty() {
+                // br-r37-c1-z6uka: the LAST parallel key removed empties the
+                // adjacency cell — drop its row overrides (a re-add creates
+                // fresh cells in nx).
+                self.adj_py_keys
+                    .remove(&(u_canonical.clone(), v_canonical.clone()));
+                self.adj_py_keys
+                    .remove(&(v_canonical.clone(), u_canonical.clone()));
+            }
+            // br-r37-c1-kuxuc: purge ALL mirror entries for the emptied
+            // pair. The single-key remove_edge_metadata above can miss the
+            // slot the mirror actually lives under (internal bucket keys vs
+            // the key resolve_internal_edge_key returns), leaving a STALE
+            // attrs/key dict that a re-added edge at the same internal slot
+            // silently resurrects (add(0,0,attrs); remove; re-add showed the
+            // old attrs — hypothesis fuzz catch). Exhaustive-by-pair removal
+            // is exact regardless of which key space the entries used.
+            let (a, b) = if u_canonical <= v_canonical {
+                (u_canonical.clone(), v_canonical.clone())
+            } else {
+                (v_canonical.clone(), u_canonical.clone())
+            };
+            self.edge_py_attrs
+                .retain(|(x, y, _), _| !(x == &a && y == &b));
+            self.edge_py_keys
+                .retain(|(x, y, _), _| !(x == &a && y == &b));
         }
         self.bump_edges_seq();
         Ok(())
