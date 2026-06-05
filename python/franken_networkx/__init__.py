@@ -17025,6 +17025,12 @@ def tensor_product(G, H):
     else:
         h_edges = [(u, v, None, attrs) for u, v, attrs in H.edges(data=True)]
 
+    # br-r37-c1-prodorder: networkx emits tensor-product edges in TWO passes —
+    # all "directed cross" edges (gu,hu)-(gv,hv) first, then (undirected only)
+    # all "undirected cross" edges (gv,hu)-(gu,hv) — see
+    # networkx.algorithms.operators.product._directed_edges_cross_edges /
+    # _undirected_edges_cross_edges. The previous interleaved single loop
+    # diverged from nx's edge iteration order.
     for gu, gv, gk, g_attrs in g_edges:
         for hu, hv, hk, h_attrs in h_edges:
             edge_attrs = _paired_edge_attrs(dict(g_attrs), dict(h_attrs))
@@ -17034,12 +17040,19 @@ def tensor_product(G, H):
                 # collision when edge_attrs contains a 'key' entry
                 # (franken_networkx-uphdr).
                 P.add_edges_from([((gu, hu), (gv, hv), edge_key, dict(edge_attrs))])
-                if not G.is_directed():
-                    P.add_edges_from([((gu, hv), (gv, hu), edge_key, dict(edge_attrs))])
             else:
                 P.add_edge((gu, hu), (gv, hv), **edge_attrs)
-                if not G.is_directed():
-                    P.add_edge((gu, hv), (gv, hu), **edge_attrs)
+    if not G.is_directed():
+        for gu, gv, gk, g_attrs in g_edges:
+            for hu, hv, hk, h_attrs in h_edges:
+                edge_attrs = _paired_edge_attrs(dict(g_attrs), dict(h_attrs))
+                if P.is_multigraph():
+                    edge_key = _cross_product_edge_key(
+                        G.is_multigraph(), H.is_multigraph(), gk, hk
+                    )
+                    P.add_edges_from([((gv, hu), (gu, hv), edge_key, dict(edge_attrs))])
+                else:
+                    P.add_edge((gv, hu), (gu, hv), **edge_attrs)
 
     return P
 
@@ -17050,7 +17063,17 @@ def strong_product(G, H):
     Union of Cartesian and tensor products.
     """
     _validate_product_graph_types(G, H)
-    P = cartesian_product(G, H)
+    # br-r37-c1-prodorder: nx.strong_product orders the two Cartesian passes
+    # OPPOSITE to nx.cartesian_product (it does _nodes_cross_edges THEN
+    # _edges_cross_nodes), so we cannot reuse cartesian_product(). Mirror
+    # networkx's exact edge-pass order: (1) nodes x H-edges, (2) G-edges x nodes,
+    # (3) tensor directed cross (gu,hu)-(gv,hv), (4) undirected-only tensor cross
+    # (gv,hu)-(gu,hv). The previous build-on-cartesian-then-interleave diverged.
+    P = _product_graph_class(G, H)()
+
+    for g, g_attrs in G.nodes(data=True):
+        for h, h_attrs in H.nodes(data=True):
+            P.add_node((g, h), **_product_node_attrs(dict(g_attrs), dict(h_attrs)))
 
     if G.is_multigraph():
         g_edges = list(G.edges(keys=True, data=True))
@@ -17061,21 +17084,41 @@ def strong_product(G, H):
     else:
         h_edges = [(u, v, None, attrs) for u, v, attrs in H.edges(data=True)]
 
+    # 1. _nodes_cross_edges: u == v and (x, y) an edge of H (H's edge attrs).
+    for g in G.nodes():
+        for hu, hv, hk, h_attrs in h_edges:
+            if P.is_multigraph():
+                P.add_edges_from([((g, hu), (g, hv), hk, dict(h_attrs))])
+            else:
+                P.add_edge((g, hu), (g, hv), **dict(h_attrs))
+    # 2. _edges_cross_nodes: x == y and (u, v) an edge of G (G's edge attrs).
+    for gu, gv, gk, g_attrs in g_edges:
+        for h in H.nodes():
+            if P.is_multigraph():
+                P.add_edges_from([((gu, h), (gv, h), gk, dict(g_attrs))])
+            else:
+                P.add_edge((gu, h), (gv, h), **dict(g_attrs))
+    # 3. tensor directed cross.
     for gu, gv, gk, g_attrs in g_edges:
         for hu, hv, hk, h_attrs in h_edges:
             edge_attrs = _paired_edge_attrs(dict(g_attrs), dict(h_attrs))
             if P.is_multigraph():
                 edge_key = _cross_product_edge_key(G.is_multigraph(), H.is_multigraph(), gk, hk)
-                # 4-tuple form avoids `key=edge_key, **edge_attrs`
-                # collision when edge_attrs contains a 'key' entry
-                # (franken_networkx-uphdr).
                 P.add_edges_from([((gu, hu), (gv, hv), edge_key, dict(edge_attrs))])
-                if not G.is_directed():
-                    P.add_edges_from([((gu, hv), (gv, hu), edge_key, dict(edge_attrs))])
             else:
                 P.add_edge((gu, hu), (gv, hv), **edge_attrs)
-                if not G.is_directed():
-                    P.add_edge((gu, hv), (gv, hu), **edge_attrs)
+    # 4. tensor undirected cross (undirected only).
+    if not G.is_directed():
+        for gu, gv, gk, g_attrs in g_edges:
+            for hu, hv, hk, h_attrs in h_edges:
+                edge_attrs = _paired_edge_attrs(dict(g_attrs), dict(h_attrs))
+                if P.is_multigraph():
+                    edge_key = _cross_product_edge_key(
+                        G.is_multigraph(), H.is_multigraph(), gk, hk
+                    )
+                    P.add_edges_from([((gv, hu), (gu, hv), edge_key, dict(edge_attrs))])
+                else:
+                    P.add_edge((gv, hu), (gu, hv), **edge_attrs)
 
     return P
 
