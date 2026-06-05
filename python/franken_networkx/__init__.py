@@ -18021,12 +18021,23 @@ def ego_graph(G, n, radius=1, center=True, undirected=False, distance=None):
             if u in nodes_within and v in nodes_within:
                 graph.add_edge(u, v, key=key, **data)
     else:
-        edge_source = G.edges(data=True)
-        if type(edge_source) is EdgeDataView:
-            edge_source = edge_source._materialize()
+        # br-r37-c1-js9iw: walk ONLY the ego nodes' adjacency (O(E_subgraph))
+        # instead of materializing every edge in G (O(E_total)) and filtering.
+        # Reproduces networkx's subgraph(nodes).copy() edge order exactly:
+        # iterate subgraph nodes in G's node order, and for each its adjacency
+        # order; undirected edges dedup via a `seen` set so each edge is emitted
+        # from the node encountered first (matching nx's EdgeView contract).
+        directed = G.is_directed()
         edges_to_add = []
-        for u, v, data in edge_source:
-            if u in nodes_within and v in nodes_within:
+        seen = set()
+        for u in ordered_nodes:
+            adj_u = G[u]
+            for v in adj_u:
+                if v not in nodes_within:
+                    continue
+                if not directed and v in seen:
+                    continue
+                data = adj_u[v]
                 if data:
                     for attr_key in data:
                         if not isinstance(attr_key, str):
@@ -18036,6 +18047,8 @@ def ego_graph(G, n, radius=1, center=True, undirected=False, distance=None):
                         edges_to_add.append((u, v, data))
                 else:
                     edges_to_add.append((u, v))
+            if not directed:
+                seen.add(u)
         if edges_to_add:
             raw_add_edges_from = (
                 _DIGRAPH_RAW_ADD_EDGES_FROM
