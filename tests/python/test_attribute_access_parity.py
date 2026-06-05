@@ -238,6 +238,55 @@ def test_non_integer_multigraph_edge_keys_roundtrip_matches_networkx(
     assert list(graph.edges(keys=True, data=True)) == list(expected.edges(keys=True, data=True))
 
 
+@pytest.mark.parametrize(
+    ("fnx_factory", "nx_factory", "directed"),
+    [
+        (fnx.MultiGraph, nx.MultiGraph, False),
+        (fnx.MultiDiGraph, nx.MultiDiGraph, True),
+    ],
+)
+def test_multigraph_getitem_row_mapping_matches_networkx(fnx_factory, nx_factory, directed):
+    graph = fnx_factory()
+    expected = nx_factory()
+    for target in (graph, expected):
+        target.add_edge("hub", "alpha", key=2, weight=7)
+        target.add_edge("hub", "alpha", key="k0", weight=11)
+        target.add_edge("hub", "beta", key=0)
+        target.add_edge("omega", "hub", key="incoming", tag="in")
+
+    row = graph["hub"]
+    expected_row = expected["hub"]
+    assert type(row).__name__ == type(expected_row).__name__
+    assert type(row["alpha"]).__name__ == type(expected_row["alpha"]).__name__
+    assert list(row) == list(expected_row)
+    assert list(row["alpha"]) == list(expected_row["alpha"])
+    assert dict(row["alpha"]) == dict(expected_row["alpha"])
+
+    row["alpha"][2]["weight"] = 99
+    expected_row["alpha"][2]["weight"] = 99
+    graph.add_edge("hub", "late", key="z", marker=True)
+    expected.add_edge("hub", "late", key="z", marker=True)
+    assert "late" in row
+    assert list(row) == list(expected_row)
+    assert row["alpha"][2]["weight"] == expected_row["alpha"][2]["weight"] == 99
+
+    row_copy = row.copy()
+    expected_copy = expected_row.copy()
+    row_copy["alpha"][2]["weight"] = -1
+    expected_copy["alpha"][2]["weight"] = -1
+    assert row["alpha"][2]["weight"] == expected_row["alpha"][2]["weight"] == 99
+    assert row_copy == expected_copy
+
+    with pytest.raises(KeyError) as graph_exc:
+        row["missing"]
+    with pytest.raises(KeyError) as expected_exc:
+        expected_row["missing"]
+    assert graph_exc.value.args == expected_exc.value.args
+
+    if directed:
+        assert "omega" not in row
+
+
 def test_multigraph_explicit_int_key_fresh_pairs_match_networkx():
     graph = fnx.MultiGraph()
     expected = nx.MultiGraph()
