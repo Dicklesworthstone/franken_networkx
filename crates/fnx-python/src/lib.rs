@@ -3065,71 +3065,45 @@ impl PyMultiGraph {
     /// attribute dict references (graph, node, edge attrs are `is`, not just `==`).
     /// `G.copy()` returns a deep copy; `copy.copy(G)` returns a shallow copy.
     fn __copy__(&self, py: Python<'_>) -> PyResult<Self> {
-        let mut new_graph = Self {
-            inner: MultiGraph::with_runtime_policy(self.inner.runtime_policy().clone()),
-            node_key_map: HashMap::new(),
+        // br-r37-c1-o1i86: clone the inner Rust graph WHOLESALE.
+        // The old rebuild iterated node_key_map (a HashMap — scrambled
+        // node insertion order) and replayed edges_ordered() (adjacency-
+        // walk order, NOT chronological), so adjacency ROW content order
+        // diverged from the source after remove+re-add sequences. nx's
+        // copy.copy shares _adj outright — rows must be IDENTICAL to the
+        // source. MultiGraph::clone copies the IndexMap/IndexSet
+        // structures verbatim (node order, edge order, row order, key
+        // buckets). Node/edge attr dicts are independent COPIES (fnx's
+        // locked copy.copy contract — see test_adj_mapping_parity).
+        Ok(Self {
+            inner: self.inner.clone(),
+            node_key_map: self
+                .node_key_map
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone_ref(py)))
+                .collect(),
             adj_py_keys: crate::digraph::PyDiGraph::clone_row_keys(py, &self.adj_py_keys), // br-r37-c1-z6uka
-            node_py_attrs: HashMap::new(),
-            edge_py_attrs: HashMap::new(),
-            edge_py_keys: HashMap::new(),
+            node_py_attrs: self
+                .node_py_attrs
+                .iter()
+                .map(|(k, v)| Ok((k.clone(), v.bind(py).copy()?.unbind())))
+                .collect::<PyResult<_>>()?,
+            edge_py_attrs: self
+                .edge_py_attrs
+                .iter()
+                .map(|(k, v)| Ok((k.clone(), v.bind(py).copy()?.unbind())))
+                .collect::<PyResult<_>>()?,
+            edge_py_keys: self
+                .edge_py_keys
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone_ref(py)))
+                .collect(),
             // SHARE the graph attrs dict (shallow copy)
             graph_attrs: self.graph_attrs.clone_ref(py),
             nodes_seq: 0,
             edges_seq: 0,
             edges_dirty: AtomicBool::new(self.edges_dirty.load(Ordering::Relaxed)),
-        };
-        // Copy nodes but SHARE attribute dicts
-        for (canonical, py_key) in &self.node_key_map {
-            let rust_attrs = self
-                .node_py_attrs
-                .get(canonical)
-                .map(|attrs| py_dict_to_attr_map(attrs.bind(py)))
-                .transpose()?
-                .unwrap_or_default();
-            new_graph
-                .inner
-                .add_node_with_attrs(canonical.clone(), rust_attrs);
-            new_graph
-                .node_key_map
-                .insert(canonical.clone(), py_key.clone_ref(py));
-            // SHARE the node attrs dict (shallow copy)
-            if let Some(attrs) = self.node_py_attrs.get(canonical) {
-                new_graph
-                    .node_py_attrs
-                    .insert(canonical.clone(), attrs.clone_ref(py));
-            }
-        }
-        // Copy edges but SHARE attribute dicts
-        for snapshot in self.inner.edges_ordered() {
-            let (u, v, key) = (snapshot.left.clone(), snapshot.right.clone(), snapshot.key);
-            let attrs_entry = self
-                .edge_py_attrs
-                .get(&(u.clone(), v.clone(), key))
-                .or_else(|| self.edge_py_attrs.get(&(v.clone(), u.clone(), key)));
-            // SHARE the edge attrs dict (shallow copy)
-            let py_attrs = match attrs_entry {
-                Some(attrs) => attrs.clone_ref(py),
-                None => PyDict::new(py).unbind(),
-            };
-            let rust_attrs = py_dict_to_attr_map(py_attrs.bind(py))?;
-            let _ =
-                new_graph
-                    .inner
-                    .add_edge_with_key_and_attrs(u.clone(), v.clone(), key, rust_attrs);
-            new_graph
-                .edge_py_attrs
-                .insert((u.clone(), v.clone(), key), py_attrs);
-            let py_key_slot = self
-                .edge_py_keys
-                .get(&(u.clone(), v.clone(), key))
-                .or_else(|| self.edge_py_keys.get(&(v.clone(), u.clone(), key)));
-            if let Some(py_key) = py_key_slot {
-                new_graph.remember_edge_key_object(py, &u, &v, key, py_key);
-            } else {
-                new_graph.remember_edge_key(py, &u, &v, key, None);
-            }
-        }
-        Ok(new_graph)
+        })
     }
 
     /// Support ``copy.deepcopy(G)`` — returns a deep copy.
@@ -5571,60 +5545,39 @@ impl PyGraph {
     /// attribute dict references (graph, node, edge attrs are `is`, not just `==`).
     /// `G.copy()` returns a deep copy; `copy.copy(G)` returns a shallow copy.
     fn __copy__(&self, py: Python<'_>) -> PyResult<Self> {
-        let mut new_graph = Self {
-            inner: Graph::with_runtime_policy(self.inner.runtime_policy().clone()),
-            node_key_map: HashMap::new(),
-            lazy_int_node_stop: 0,
-            node_py_attrs: HashMap::new(),
-            edge_py_attrs: HashMap::new(),
+        // br-r37-c1-o1i86: wholesale inner clone — the old rebuild iterated
+        // node_key_map (HashMap, scrambled node order) and replayed edge
+        // iteration order, diverging adjacency row content order from the
+        // source after remove+re-add. Node/edge attr dicts are independent
+        // COPIES (fnx's locked copy.copy contract — see
+        // test_adj_mapping_parity; structural sharing is impossible across
+        // Rust storages and the override pattern caused write-loss).
+        Ok(Self {
+            inner: self.inner.clone(),
+            node_key_map: self
+                .node_key_map
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone_ref(py)))
+                .collect(),
+            lazy_int_node_stop: self.lazy_int_node_stop,
             adj_py_keys: self.clone_adj_py_keys(py), // br-r37-c1-z6uka
             dict_of_dicts_cache: None,
+            node_py_attrs: self
+                .node_py_attrs
+                .iter()
+                .map(|(k, v)| Ok((k.clone(), v.bind(py).copy()?.unbind())))
+                .collect::<PyResult<_>>()?,
+            edge_py_attrs: self
+                .edge_py_attrs
+                .iter()
+                .map(|(k, v)| Ok((k.clone(), v.bind(py).copy()?.unbind())))
+                .collect::<PyResult<_>>()?,
             // SHARE the graph attrs dict (shallow copy)
             graph_attrs: self.graph_attrs.clone_ref(py),
             nodes_seq: 0,
             edges_seq: 0,
             edges_dirty: AtomicBool::new(self.edges_dirty.load(Ordering::Relaxed)),
-        };
-        // Copy nodes but SHARE attribute dicts
-        for canonical in self.inner.nodes_ordered() {
-            let rust_attrs = self
-                .node_py_attrs
-                .get(canonical)
-                .map(|attrs| py_dict_to_attr_map(attrs.bind(py)))
-                .transpose()?
-                .unwrap_or_default();
-            new_graph
-                .inner
-                .add_node_with_attrs(canonical.to_owned(), rust_attrs);
-            new_graph
-                .node_key_map
-                .insert(canonical.to_owned(), self.py_node_key(py, canonical));
-            // SHARE the node attrs dict (shallow copy)
-            if let Some(attrs) = self.node_py_attrs.get(canonical) {
-                new_graph
-                    .node_py_attrs
-                    .insert(canonical.to_owned(), attrs.clone_ref(py));
-            }
-        }
-        // Copy edges but SHARE attribute dicts
-        for snapshot in self.inner.edges_ordered() {
-            let (u, v) = (snapshot.left.clone(), snapshot.right.clone());
-            let attrs_entry = self
-                .edge_py_attrs
-                .get(&(u.clone(), v.clone()))
-                .or_else(|| self.edge_py_attrs.get(&(v.clone(), u.clone())));
-            // SHARE the edge attrs dict (shallow copy)
-            let py_attrs = match attrs_entry {
-                Some(attrs) => attrs.clone_ref(py),
-                None => PyDict::new(py).unbind(),
-            };
-            let rust_attrs = py_dict_to_attr_map(py_attrs.bind(py))?;
-            let _ = new_graph
-                .inner
-                .add_edge_with_attrs(u.clone(), v.clone(), rust_attrs);
-            new_graph.edge_py_attrs.insert((u, v), py_attrs);
-        }
-        Ok(new_graph)
+        })
     }
 
     /// Support ``copy.deepcopy(G)`` — returns a deep copy.
