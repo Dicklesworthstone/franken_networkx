@@ -13660,16 +13660,31 @@ def astar_path_length(
     return result
 
 
+def _shortest_simple_paths_fallback_generator(G, source, target, weight):
+    import networkx.algorithms.simple_paths as _nx_simple_paths
+
+    try:
+        yield from _nx_simple_paths.shortest_simple_paths.orig_func(
+            G, source, target, weight=weight
+        )
+    except Exception as exc:
+        _raise_translated_networkx_exception(exc)
+
+
 def shortest_simple_paths(G, source, target, weight=None):
     """Yield simple paths from source to target in increasing length order.
 
-    _Generator function so the returned object is a true generator
-    matching nx's contract (br-r37-c1-682kr).
+    Returns a true generator for simple fnx graphs, matching nx's lazy contract
+    while avoiding the old full fnx->nx conversion fallback.
     """
+    if isinstance(G, (Graph, DiGraph)) and not G.is_multigraph():
+        return _shortest_simple_paths_fallback_generator(G, source, target, weight)
+
     # The Rust fast path eagerly returns a capped Vec (1000 paths), but
-    # NetworkX exposes an uncapped lazy generator. Delegate until the native
-    # implementation can preserve both the generator and completeness contract.
-    yield from _call_networkx_for_parity(
+    # NetworkX exposes an uncapped lazy generator. For multigraphs and non-fnx
+    # graph-like inputs, keep the decorated nx fallback so not-implemented and
+    # conversion behavior stays exactly aligned with upstream.
+    return _call_networkx_for_parity(
         "shortest_simple_paths", G, source, target, weight=weight
     )
 

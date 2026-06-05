@@ -1,0 +1,54 @@
+{"case": "path_2000_first1", "impl": "fnx", "loops": 10, "path_nodes": 20000, "paths": 10, "seconds": 0.2611232660128735}
+         622005 function calls (621993 primitive calls) in 0.261 seconds
+
+   Ordered by: cumulative time
+   List reduced from 245 to 45 due to restriction <45>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.000    0.000    0.261    0.261 /data/projects/franken_networkx/tests/artifacts/perf/20260605T-shortest-simple-paths-tealspring/shortest_simple_paths_bench.py:158(bench)
+       10    0.002    0.000    0.261    0.026 /data/projects/franken_networkx/tests/artifacts/perf/20260605T-shortest-simple-paths-tealspring/shortest_simple_paths_bench.py:87(take_paths)
+       20    0.000    0.000    0.224    0.011 /data/projects/franken_networkx/python/franken_networkx/__init__.py:13651(shortest_simple_paths)
+       10    0.000    0.000    0.195    0.020 /data/projects/franken_networkx/python/franken_networkx/__init__.py:6518(_call_networkx_for_parity)
+       10    0.003    0.000    0.194    0.019 /data/projects/franken_networkx/python/franken_networkx/__init__.py:6000(_networkx_graph_for_parity)
+       10    0.034    0.003    0.191    0.019 /data/projects/franken_networkx/python/franken_networkx/backend.py:606(_fnx_to_nx)
+    20000    0.033    0.000    0.065    0.000 /data/projects/franken_networkx/python/franken_networkx/backend.py:490(_topo_emit_edges_by_adj)
+       10    0.023    0.002    0.048    0.005 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/classes/graph.py:584(add_nodes_from)
+       10    0.000    0.000    0.035    0.003 /data/projects/franken_networkx/tests/artifacts/perf/20260605T-shortest-simple-paths-tealspring/shortest_simple_paths_bench.py:54(build_graph)
+       10    0.000    0.000    0.035    0.003 /data/projects/franken_networkx/tests/artifacts/perf/20260605T-shortest-simple-paths-tealspring/shortest_simple_paths_bench.py:26(_path_graph)
+       10    0.000    0.000    0.035    0.003 /data/projects/franken_networkx/python/franken_networkx/__init__.py:16380(path_graph)
+       10    0.034    0.003    0.034    0.003 {built-in method franken_networkx._fnx.path_graph}
+       20    0.000    0.000    0.029    0.001 /data/projects/franken_networkx/python/franken_networkx/__init__.py:6536(_wrapped_iterator)
+       10    0.000    0.000    0.029    0.003 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/algorithms/simple_paths.py:422(shortest_simple_paths)
+       10    0.002    0.000    0.028    0.003 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/algorithms/simple_paths.py:595(_bidirectional_shortest_path)
+       10    0.016    0.002    0.022    0.002 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/classes/graph.py:986(add_edges_from)
+       10    0.012    0.001    0.021    0.002 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/algorithms/simple_paths.py:658(_bidirectional_pred_succ)
+    20010    0.007    0.000    0.019    0.000 /data/projects/franken_networkx/python/franken_networkx/backend.py:635(<genexpr>)
+    59980    0.014    0.000    0.017    0.000 /data/projects/franken_networkx/python/franken_networkx/backend.py:539(_is_ready)
+    20000    0.011    0.000    0.012    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:4737(__getitem__)
+   100022    0.011    0.000    0.011    0.000 {method 'get' of 'dict' objects}
+       10    0.010    0.001    0.010    0.001 {built-in method franken_networkx._fnx.fnx_to_nx_adjacency}
+       30    0.002    0.000    0.009    0.000 /data/projects/franken_networkx/python/franken_networkx/backend.py:549(<genexpr>)
+    80008    0.008    0.000    0.008    0.000 {method 'update' of 'dict' objects}
+    19990    0.005    0.000    0.005    0.000 {method 'insert' of 'list' objects}
+    59980    0.005    0.000    0.005    0.000 {method 'popleft' of 'collections.deque' objects}
+    19990    0.004    0.000    0.005    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/classes/graph.py:1344(neighbors)
+       20    0.001    0.000    0.005    0.000 {built-in method builtins.sum}
+    80048    0.004    0.000    0.004    0.000 {built-in method builtins.len}
+       20    0.004    0.000    0.004    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:30967(__iter__)
+    40031    0.004    0.000    0.004    0.000 {method 'append' of 'list' objects}
+    20010    0.002    0.000    0.003    0.000 /data/projects/franken_networkx/python/franken_networkx/backend.py:554(<genexpr>)
+    20000    0.002    0.000    0.002    0.000 {method 'copy' of 'dict' objects}
+    19980    0.002    0.000    0.002    0.000 {method 'append' of 'collections.deque' objects}
+    20000    0.001    0.000    0.001    0.000 {built-in method builtins.hash}
+    19990    0.001    0.000    0.001    0.000 {built-in method builtins.iter}
+        1    0.000    0.000    0.001    0.001 <frozen importlib._bootstrap>:1349(_find_and_load)
+        1    0.000    0.000    0.001    0.001 <frozen importlib._bootstrap>:1304(_find_and_load_unlocked)
+        2    0.000    0.000    0.001    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/utils/decorators.py:783(func)
+        2    0.000    0.000    0.001    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/utils/decorators.py:715(_lazy_compile)
+        1    0.000    0.000    0.001    0.001 <frozen importlib._bootstrap>:911(_load_unlocked)
+        2    0.000    0.000    0.001    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/utils/decorators.py:869(compile)
+        1    0.000    0.000    0.001    0.001 <frozen importlib._bootstrap_external>:1020(exec_module)
+       20    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/utils/backends.py:554(_call_if_any_backends_installed)
+      3/2    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/utils/decorators.py:917(assemble)
+
+

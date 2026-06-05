@@ -77,4 +77,6 @@ def test_shortest_simple_paths_multigraph_still_not_implemented():
     """Multigraph guard stays in place (br-r37-c1-682kr)."""
     MG = fnx.MultiGraph([(1, 2), (2, 3)])
     with pytest.raises(fnx.NetworkXNotImplemented):
+        fnx.shortest_simple_paths(MG, 1, 3)
+    with pytest.raises(fnx.NetworkXNotImplemented):
         list(fnx.shortest_simple_paths(MG, 1, 3))
