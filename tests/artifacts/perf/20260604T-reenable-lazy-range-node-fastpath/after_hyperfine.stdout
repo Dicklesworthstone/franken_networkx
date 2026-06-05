@@ -1,0 +1,14 @@
+  [2m2026-06-05T00:27:59.351757Z[0m [33m WARN[0m [1;33mrch::hook[0m[33m: [33mexec called with non-compilation command: hyperfine --warmup 3 --runs 10 --export-json tests/artifacts/perf/20260604T-reenable-lazy-range-node-fastpath/after_hyperfine.json 'env PYTHONPATH=python .venv/bin/python -c "import franken_networkx as fnx; G=fnx.Graph(); G.add_nodes_from(range(100000)); assert len(G)==100000"' 'env PYTHONPATH=python .venv/bin/python -c "import networkx as nx; G=nx.Graph(); G.add_nodes_from(range(100000)); assert len(G)==100000"'[0m
+    [2;3mat[0m rch/src/hook.rs:402 [2;3mon[0m ThreadId(1)
+
+Benchmark 1: env PYTHONPATH=python .venv/bin/python -c "import franken_networkx as fnx; G=fnx.Graph(); G.add_nodes_from(range(100000)); assert len(G)==100000"
+  Time (mean ± σ):     321.9 ms ±  23.9 ms    [User: 4174.6 ms, System: 76.6 ms]
+  Range (min … max):   289.9 ms … 366.2 ms    10 runs
+ 
+Benchmark 2: env PYTHONPATH=python .venv/bin/python -c "import networkx as nx; G=nx.Graph(); G.add_nodes_from(range(100000)); assert len(G)==100000"
+  Time (mean ± σ):     206.8 ms ±  17.9 ms    [User: 155.5 ms, System: 50.1 ms]
+  Range (min … max):   185.9 ms … 235.7 ms    10 runs
+ 
+Summary
+  env PYTHONPATH=python .venv/bin/python -c "import networkx as nx; G=nx.Graph(); G.add_nodes_from(range(100000)); assert len(G)==100000" ran
+    1.56 ± 0.18 times faster than env PYTHONPATH=python .venv/bin/python -c "import franken_networkx as fnx; G=fnx.Graph(); G.add_nodes_from(range(100000)); assert len(G)==100000"

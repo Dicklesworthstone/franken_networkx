@@ -1,0 +1,52 @@
+{
+  "results": [
+    {
+      "command": "PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260603T-construction-string-key-current/bench_construction.py bench --case plain_edges_int --impl fnx --repeats 1",
+      "mean": 0.39382776984,
+      "stddev": 0.013433907979221223,
+      "median": 0.39213241484,
+      "user": 4.1773577,
+      "system": 0.07158911999999998,
+      "min": 0.37675197184000003,
+      "max": 0.40982105084000003,
+      "times": [
+        0.39213241484,
+        0.40982105084000003,
+        0.38605758184,
+        0.40437582984000003,
+        0.37675197184000003
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260603T-construction-string-key-current/bench_construction.py bench --case plain_edges_int --impl nx --repeats 1",
+      "mean": 0.34850815424,
+      "stddev": 0.03103293465528054,
+      "median": 0.34205430684,
+      "user": 4.3404407,
+      "system": 0.06645772,
+      "min": 0.31602404584,
+      "max": 0.39977315484000003,
+      "times": [
+        0.33728378284,
+        0.34205430684,
+        0.34740548084,
+        0.39977315484000003,
+        0.31602404584
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

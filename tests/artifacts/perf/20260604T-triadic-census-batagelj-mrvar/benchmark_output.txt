@@ -1,0 +1,9 @@
+warm min-of-4, gnp directed graphs (sparse, avg deg ~6-7):
+     n avgdeg     nx(s)    fnx(s)   speedup
+   200    5.7    0.0414    0.0030     13.7x
+   400    6.0    0.0970    0.0062     15.7x
+   700    7.1    0.2216    0.0162     13.6x
+  1200    7.1    0.3924    0.0266     14.7x
+
+Before this change (old O(n^3) kernel), at n=300 gnp directed p=0.02:
+   fnx OLD = 0.393s vs nx 0.061s  => fnx was 6.43x SLOWER than nx.

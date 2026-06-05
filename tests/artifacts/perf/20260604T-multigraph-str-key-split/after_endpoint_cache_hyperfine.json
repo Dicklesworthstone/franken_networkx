@@ -1,0 +1,52 @@
+{
+  "results": [
+    {
+      "command": "PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260603T-construction-string-key-current/bench_construction.py bench --case multigraph_str_keys --impl fnx --repeats 1",
+      "mean": 0.6938540916799999,
+      "stddev": 0.023049243532935484,
+      "median": 0.6798203738799999,
+      "user": 4.7554647,
+      "system": 0.13189568000000002,
+      "min": 0.67307615288,
+      "max": 0.72395393388,
+      "times": [
+        0.67307615288,
+        0.71322912688,
+        0.67919087088,
+        0.72395393388,
+        0.6798203738799999
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260603T-construction-string-key-current/bench_construction.py bench --case multigraph_str_keys --impl nx --repeats 1",
+      "mean": 0.52663346368,
+      "stddev": 0.035666365456916184,
+      "median": 0.51777055888,
+      "user": 4.5228363,
+      "system": 0.08924488,
+      "min": 0.49361987388000006,
+      "max": 0.56905835388,
+      "times": [
+        0.51777055888,
+        0.56905835388,
+        0.49380247988000003,
+        0.49361987388000006,
+        0.5589160518799999
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

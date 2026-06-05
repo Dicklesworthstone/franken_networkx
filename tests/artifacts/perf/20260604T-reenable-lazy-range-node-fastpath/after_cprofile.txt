@@ -1,0 +1,19 @@
+         47 function calls in 0.154 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.014    0.014    0.154    0.154 <stdin>:7(run)
+        5    0.000    0.000    0.141    0.028 __init__.py:2309(add_nodes_from)
+        5    0.141    0.028    0.141    0.028 {method '_fast_add_int_nodes_range_stop' of 'franken_networkx.Graph' objects}
+        5    0.000    0.000    0.000    0.000 {built-in method builtins.len}
+        5    0.000    0.000    0.000    0.000 __init__.py:30932(__len__)
+        5    0.000    0.000    0.000    0.000 __init__.py:30522(_private_override)
+        5    0.000    0.000    0.000    0.000 __init__.py:3034(__init__)
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+        5    0.000    0.000    0.000    0.000 {built-in method builtins.vars}
+        5    0.000    0.000    0.000    0.000 {built-in method builtins.isinstance}
+        5    0.000    0.000    0.000    0.000 {method 'get' of 'dict' objects}
+
+
+

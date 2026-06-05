@@ -1,0 +1,16 @@
+  [2m2026-06-05T00:20:10.959804Z[0m [33m WARN[0m [1;33mrch::hook[0m[33m: [33mexec called with non-compilation command: hyperfine --warmup 3 --runs 10 --export-json tests/artifacts/perf/20260604T-reenable-lazy-range-node-fastpath/baseline_hyperfine.json 'env PYTHONPATH=python .venv/bin/python -c "import franken_networkx as fnx; G=fnx.Graph(); G.add_nodes_from(range(100000)); assert len(G)==100000"' 'env PYTHONPATH=python .venv/bin/python -c "import networkx as nx; G=nx.Graph(); G.add_nodes_from(range(100000)); assert len(G)==100000"'[0m
+    [2;3mat[0m rch/src/hook.rs:402 [2;3mon[0m ThreadId(1)
+
+Benchmark 1: env PYTHONPATH=python .venv/bin/python -c "import franken_networkx as fnx; G=fnx.Graph(); G.add_nodes_from(range(100000)); assert len(G)==100000"
+  Time (mean ± σ):     621.0 ms ± 151.0 ms    [User: 4501.1 ms, System: 112.0 ms]
+  Range (min … max):   532.1 ms … 1044.2 ms    10 runs
+ 
+  Warning: The first benchmarking run for this command was significantly slower than the rest (1.044 s). This could be caused by (filesystem) caches that were not filled until after the first run. You are already using the '--warmup' option which helps to fill these caches before the actual benchmark. You can either try to increase the warmup count further or re-run this benchmark on a quiet system in case it was a random outlier. Alternatively, consider using the '--prepare' option to clear the caches before each timing run.
+ 
+Benchmark 2: env PYTHONPATH=python .venv/bin/python -c "import networkx as nx; G=nx.Graph(); G.add_nodes_from(range(100000)); assert len(G)==100000"
+  Time (mean ± σ):     196.4 ms ±  10.2 ms    [User: 145.7 ms, System: 50.0 ms]
+  Range (min … max):   181.4 ms … 215.3 ms    10 runs
+ 
+Summary
+  env PYTHONPATH=python .venv/bin/python -c "import networkx as nx; G=nx.Graph(); G.add_nodes_from(range(100000)); assert len(G)==100000" ran
+    3.16 ± 0.79 times faster than env PYTHONPATH=python .venv/bin/python -c "import franken_networkx as fnx; G=fnx.Graph(); G.add_nodes_from(range(100000)); assert len(G)==100000"

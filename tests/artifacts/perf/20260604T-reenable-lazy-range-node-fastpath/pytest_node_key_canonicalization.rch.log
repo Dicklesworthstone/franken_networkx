@@ -1,0 +1,5 @@
+  [2m2026-06-05T00:28:56.473633Z[0m [33m WARN[0m [1;33mrch::hook[0m[33m: [33mexec called with non-compilation command: env 'PYTHONPATH=python' .venv/bin/python -m pytest tests/python/test_node_key_canonicalization_parity.py -q[0m
+    [2;3mat[0m rch/src/hook.rs:402 [2;3mon[0m ThreadId(1)
+
+.......                                                                  [100%]
+7 passed in 1.05s

@@ -1,0 +1,28 @@
+{
+  "results": [
+    {
+      "command": "env PYTHONPATH=/data/projects/franken_networkx/python /data/projects/franken_networkx/.venv/bin/python /data/projects/franken_networkx/tests/artifacts/perf/20260605T-powerlaw-cluster-int-adj-n5c3e/powerlaw_cluster_bench_n5c3e.py --n 1200 --m 4 --p 0.65 --loops 3 --profile-loops 1",
+      "mean": 4.159136944899999,
+      "stddev": 0.09059154124035747,
+      "median": 4.1275483046999994,
+      "user": 8.1360484,
+      "system": 0.11807482,
+      "min": 4.058521594699999,
+      "max": 4.287485043699999,
+      "times": [
+        4.1099505576999995,
+        4.2121792237,
+        4.058521594699999,
+        4.1275483046999994,
+        4.287485043699999
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

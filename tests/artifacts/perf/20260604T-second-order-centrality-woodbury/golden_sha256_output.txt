@@ -1,0 +1,5 @@
+golden_sha256_new_woodbury = ebb79e05aefe62c46e92f1e7cf66554f9449ca56e3aba8433ca9e119a3f02f41
+golden_sha256_old_nsolves  = ebb79e05aefe62c46e92f1e7cf66554f9449ca56e3aba8433ca9e119a3f02f41
+golden_sha256_networkx     = ebb79e05aefe62c46e92f1e7cf66554f9449ca56e3aba8433ca9e119a3f02f41
+ISOMORPHISM (old==new==nx): PASS
+raw max|new-old| = 8.527e-13

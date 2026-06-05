@@ -1,0 +1,65 @@
+         300169 function calls in 1.080 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.106    0.106    1.080    1.080 bench_construction.py:76(_time_case)
+        7    0.000    0.000    0.828    0.118 bench_construction.py:42(build_add_nodes)
+        7    0.000    0.000    0.828    0.118 __init__.py:2309(add_nodes_from)
+        7    0.828    0.118    0.828    0.118 {method '_fast_add_int_nodes_range_stop' of 'franken_networkx.Graph' objects}
+        1    0.029    0.029    0.146    0.146 bench_construction.py:26(_digest)
+   100001    0.049    0.000    0.065    0.000 __init__.py:44742(__iter__)
+   100000    0.036    0.000    0.036    0.000 bench_construction.py:22(_token)
+   100010    0.016    0.000    0.016    0.000 {built-in method builtins.len}
+        1    0.000    0.000    0.007    0.007 __init__.py:183(dumps)
+        1    0.000    0.000    0.007    0.007 encoder.py:183(encode)
+        1    0.007    0.007    0.007    0.007 encoder.py:205(iterencode)
+        1    0.000    0.000    0.007    0.007 __init__.py:612(__iter__)
+        1    0.007    0.007    0.007    0.007 __init__.py:507(_materialize)
+        1    0.001    0.001    0.001    0.001 {built-in method _hashlib.openssl_sha256}
+        1    0.000    0.000    0.000    0.000 {method 'encode' of 'str' objects}
+        7    0.000    0.000    0.000    0.000 __init__.py:2987(__init__)
+        1    0.000    0.000    0.000    0.000 __init__.py:30721(edges)
+        1    0.000    0.000    0.000    0.000 __init__.py:30701(nodes)
+        1    0.000    0.000    0.000    0.000 __init__.py:401(__init__)
+       14    0.000    0.000    0.000    0.000 __init__.py:30268(_private_override)
+        3    0.000    0.000    0.000    0.000 __init__.py:30276(_has_networkx_private_storage)
+        1    0.000    0.000    0.000    0.000 __init__.py:686(wrapped)
+        1    0.000    0.000    0.000    0.000 __init__.py:30926(number_of_nodes)
+        1    0.000    0.000    0.000    0.000 weakref.py:164(__setitem__)
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+        1    0.000    0.000    0.000    0.000 __init__.py:5341(predicate)
+       14    0.000    0.000    0.000    0.000 {built-in method time.perf_counter}
+       11    0.000    0.000    0.000    0.000 {built-in method builtins.isinstance}
+        1    0.000    0.000    0.000    0.000 statistics.py:494(fmean)
+        1    0.000    0.000    0.000    0.000 __init__.py:30935(number_of_edges)
+        1    0.000    0.000    0.000    0.000 statistics.py:621(median)
+        7    0.000    0.000    0.000    0.000 {method 'append' of 'list' objects}
+        1    0.000    0.000    0.000    0.000 __init__.py:468(__init__)
+       16    0.000    0.000    0.000    0.000 {built-in method builtins.vars}
+        1    0.000    0.000    0.000    0.000 weakref.py:347(__new__)
+        1    0.000    0.000    0.000    0.000 __init__.py:425(__next__)
+        1    0.000    0.000    0.000    0.000 __init__.py:932(wrapped)
+        1    0.000    0.000    0.000    0.000 weakref.py:352(__init__)
+        1    0.000    0.000    0.000    0.000 encoder.py:105(__init__)
+       16    0.000    0.000    0.000    0.000 {method 'get' of 'dict' objects}
+        1    0.000    0.000    0.000    0.000 {method 'hexdigest' of '_hashlib.HASH' objects}
+        1    0.000    0.000    0.000    0.000 {built-in method builtins.sorted}
+        1    0.000    0.000    0.000    0.000 __init__.py:295(number_of_edges)
+        1    0.000    0.000    0.000    0.000 {built-in method builtins.hasattr}
+        1    0.000    0.000    0.000    0.000 {built-in method math.fsum}
+        1    0.000    0.000    0.000    0.000 {function _private_aware_number_of_nodes.<locals>.number_of_nodes at 0x7644f88336a0}
+        1    0.000    0.000    0.000    0.000 {function _make_class_safe_predicate.<locals>.predicate at 0x7644f89bd4e0}
+        1    0.000    0.000    0.000    0.000 weakref.py:194(get)
+        1    0.000    0.000    0.000    0.000 {built-in method builtins.next}
+        2    0.000    0.000    0.000    0.000 {built-in method builtins.id}
+        5    0.000    0.000    0.000    0.000 {method 'pop' of 'dict' objects}
+        1    0.000    0.000    0.000    0.000 {built-in method builtins.min}
+        1    0.000    0.000    0.000    0.000 {built-in method __new__ of type object at 0xa15020}
+        1    0.000    0.000    0.000    0.000 {built-in method builtins.max}
+        1    0.000    0.000    0.000    0.000 {function Graph.number_of_edges at 0x7644f8833920}
+        1    0.000    0.000    0.000    0.000 {method 'join' of 'str' objects}
+        1    0.000    0.000    0.000    0.000 {built-in method builtins.iter}
+        1    0.000    0.000    0.000    0.000 __init__.py:422(__iter__)
+
+

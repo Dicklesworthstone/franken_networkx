@@ -1,0 +1,31 @@
+  [2m2026-06-05T00:26:01.060302Z[0m [33m WARN[0m [1;33mrch::hook[0m[33m: [33mexec called with non-compilation command: env 'PYTHONPATH=python' .venv/bin/maturin develop --release --features pyo3/abi3-py310[0m
+    [2;3mat[0m rch/src/hook.rs:402 [2;3mon[0m ThreadId(1)
+
+🍹 Building a mixed python/rust project
+🐍 Found CPython 3.13 at /data/projects/franken_networkx/.venv/bin/python
+🔗 Found pyo3 bindings with abi3 support
+Ignoring numpy: markers 'extra == "all"' don't match your environment
+Ignoring scipy: markers 'extra == "all"' don't match your environment
+Ignoring numpy: markers 'extra == "numpy"' don't match your environment
+Ignoring scipy: markers 'extra == "scipy"' don't match your environment
+Ignoring pytest: markers 'extra == "test"' don't match your environment
+Ignoring hypothesis: markers 'extra == "test"' don't match your environment
+Ignoring networkx: markers 'extra == "test"' don't match your environment
+Requirement already satisfied: networkx>=3.0 in ./.venv/lib/python3.13/site-packages (3.6.1)
+   Compiling fnx-python v0.1.0 (/data/projects/franken_networkx/crates/fnx-python)
+error[E0624]: method `py_node_key` is private
+   --> crates/fnx-python/src/algorithms.rs:112:56
+    |
+112 |             GraphRef::MultiDirected { mdg, .. } => mdg.py_node_key(py, canonical),
+    |                                                        ^^^^^^^^^^^ private method
+    |
+   ::: crates/fnx-python/src/digraph.rs:71:5
+    |
+ 71 |     fn py_node_key(&self, py: Python<'_>, canonical: &str) -> PyObject {
+    |     ------------------------------------------------------------------ private method defined here
+
+For more information about this error, try `rustc --explain E0624`.
+error: could not compile `fnx-python` (lib) due to 1 previous error
+💥 maturin failed
+  Caused by: Failed to build a native library through cargo
+  Caused by: Cargo build finished with "exit status: 101": `env -u CARGO PYO3_BUILD_EXTENSION_MODULE="1" PYO3_ENVIRONMENT_SIGNATURE="cpython-3.13-64bit" PYO3_PYTHON="/data/projects/franken_networkx/.venv/bin/python" PYTHON_SYS_EXECUTABLE="/data/projects/franken_networkx/.venv/bin/python" "cargo" "rustc" "--profile" "release" "--features" "pyo3/abi3-py310" "--message-format" "json-render-diagnostics" "--manifest-path" "/data/projects/franken_networkx/crates/fnx-python/Cargo.toml" "--lib" "--crate-type" "cdylib"`

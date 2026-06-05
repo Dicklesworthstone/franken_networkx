@@ -1,0 +1,3 @@
+  [2m2026-06-04T21:15:11.135723Z[0m [33m WARN[0m [1;33mrch::hook[0m[33m: [33mexec called with non-compilation command: env 'PYTHONPATH=python' .venv/bin/python tests/artifacts/perf/20260603T-construction-string-key-current/bench_construction.py bench --case plain_edges_int --impl both --repeats 11[0m
+    [2;3mat[0m rch/src/hook.rs:402 [2;3mon[0m ThreadId(1)
+

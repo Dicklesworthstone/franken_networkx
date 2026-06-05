@@ -1,0 +1,38 @@
+{
+  "results": [
+    {
+      "command": "env PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260605T-dijkstra-lazy-weight-prescan/bench_dijkstra_lazy_prescan.py --mode bench --reps 400 --disable-cache",
+      "mean": 1.7650883148599998,
+      "stddev": 0.5431496965783,
+      "median": 1.60517554676,
+      "user": 5.45952818,
+      "system": 0.08241180000000001,
+      "min": 1.29143228476,
+      "max": 3.1061801517600003,
+      "times": [
+        2.13379854876,
+        3.1061801517600003,
+        1.77397430576,
+        1.5490872497600001,
+        1.29143228476,
+        1.34956931176,
+        1.43081575576,
+        1.6612638437599998,
+        1.94099555076,
+        1.41376614576
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}
