@@ -914,6 +914,48 @@ impl Graph {
         true
     }
 
+    pub fn remove_nodes_from<'a, I>(&mut self, nodes: I) -> (usize, usize)
+    where
+        I: IntoIterator<Item = &'a str>,
+    {
+        let remove_set: HashSet<&str> = nodes
+            .into_iter()
+            .filter(|node| self.nodes.contains_key(*node))
+            .collect();
+        if remove_set.is_empty() {
+            return (0, 0);
+        }
+
+        let old_node_count = self.nodes.len();
+        let old_edge_count = self.edges.len();
+
+        self.adjacency.retain(|node, neighbors| {
+            if remove_set.contains(node.as_str()) {
+                false
+            } else {
+                neighbors.retain(|neighbor| !remove_set.contains(neighbor.as_str()));
+                true
+            }
+        });
+        self.nodes
+            .retain(|node, _| !remove_set.contains(node.as_str()));
+        self.edges.retain(|edge, _| {
+            !remove_set.contains(edge.left.as_str()) && !remove_set.contains(edge.right.as_str())
+        });
+
+        // Batch compaction: removing many nodes invalidates every shifted index,
+        // so rebuild the integer caches once instead of repairing them per node.
+        self.rebuild_adj_indices();
+        self.rebuild_edge_index_endpoints();
+
+        let removed_nodes = old_node_count - self.nodes.len();
+        let removed_edges = old_edge_count - self.edges.len();
+        self.revision = self
+            .revision
+            .saturating_add(u64::try_from(removed_nodes).unwrap_or(u64::MAX));
+        (removed_nodes, removed_edges)
+    }
+
     /// Rebuild integer adjacency from string adjacency. Called after node
     /// removal since indices shift.
     fn rebuild_adj_indices(&mut self) {
@@ -2086,6 +2128,70 @@ mod tests {
         assert!(graph.remove_node("b"));
         assert_eq!(graph.node_count(), 2);
         assert_eq!(graph.edge_count(), 0);
+    }
+
+    #[test]
+    fn remove_nodes_from_matches_repeated_removal_and_rebuilds_indices() {
+        let edges = [
+            ("0", "1"),
+            ("1", "2"),
+            ("2", "3"),
+            ("3", "4"),
+            ("4", "5"),
+            ("0", "5"),
+            ("1", "4"),
+            ("2", "5"),
+        ];
+        let mut batch = Graph::strict();
+        let mut repeated = Graph::strict();
+        for (left, right) in edges {
+            batch.add_edge(left, right).expect("batch edge add");
+            repeated.add_edge(left, right).expect("repeated edge add");
+        }
+
+        let victims = ["1", "3", "99", "1"];
+        let removed = batch.remove_nodes_from(victims);
+        for victim in victims {
+            let _ = repeated.remove_node(victim);
+        }
+
+        assert_eq!(removed, (2, 5));
+        assert_eq!(batch.snapshot(), repeated.snapshot());
+        let ordered_nodes = batch
+            .nodes_ordered()
+            .into_iter()
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+        for (node_index, node) in ordered_nodes.iter().enumerate() {
+            let names_from_strings = batch.neighbors(node).expect("node should exist");
+            let names_from_indices = batch
+                .neighbors_indices(node_index)
+                .expect("index should exist")
+                .iter()
+                .map(|index| batch.get_node_name(*index).expect("index should resolve"))
+                .collect::<Vec<_>>();
+            assert_eq!(names_from_indices, names_from_strings);
+        }
+        let names_from_edge_indices = batch
+            .edges_storage_order_index_iter()
+            .map(|(left, right, _)| {
+                (
+                    batch
+                        .get_node_name(left)
+                        .expect("left endpoint should resolve")
+                        .to_owned(),
+                    batch
+                        .get_node_name(right)
+                        .expect("right endpoint should resolve")
+                        .to_owned(),
+                )
+            })
+            .collect::<Vec<_>>();
+        let names_from_edge_storage = batch
+            .edges_storage_order_iter()
+            .map(|(left, right, _)| (left.to_owned(), right.to_owned()))
+            .collect::<Vec<_>>();
+        assert_eq!(names_from_edge_indices, names_from_edge_storage);
     }
 
     #[test]

@@ -1524,6 +1524,29 @@ class TestRemoveBunchMaterialized:
         G.remove_nodes_from(n for n in [1, 2] if n in G)
         assert sorted(G.nodes) == [0, 3, 4]
 
+    def test_remove_nodes_from_materialized_matches_nx_after_batch_compaction(self):
+        graph = fnx.Graph()
+        expected = nx.Graph()
+        edges = [
+            (0, 1, {"tag": "a"}),
+            (1, 2, {"tag": "b"}),
+            (2, 3, {"tag": "c"}),
+            (3, 4, {"tag": "d"}),
+            (4, 5, {"tag": "e"}),
+            (0, 5, {"tag": "f"}),
+            (1, 4, {"tag": "g"}),
+            (2, 5, {"tag": "h"}),
+        ]
+        graph.add_edges_from(edges)
+        expected.add_edges_from(edges)
+
+        graph.remove_nodes_from([1, 3, 99, 1])
+        expected.remove_nodes_from([1, 3, 99, 1])
+
+        assert list(graph.nodes()) == list(expected.nodes())
+        assert list(graph.edges(data=True)) == list(expected.edges(data=True))
+        assert dict(graph.degree()) == dict(expected.degree())
+
     def test_nx_girvan_newman_works_on_fnx(self):
         """End-to-end: nx.community.girvan_newman calls
         g.remove_edges_from(nx.selfloop_edges(g)) internally.

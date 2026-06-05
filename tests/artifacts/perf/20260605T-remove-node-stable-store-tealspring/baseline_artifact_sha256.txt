@@ -1,0 +1,4 @@
+753154ae73fd495dbd3c308b161c0cab811f727e46c14ca0a9181e214428bfd3  tests/artifacts/perf/20260605T-remove-node-stable-store-tealspring/baseline_golden.jsonl
+0aadaf3e31bc0996f99673b6b87fbf6c2b3c023dca7e0640b3a0cffec2091386  tests/artifacts/perf/20260605T-remove-node-stable-store-tealspring/baseline_hyperfine.json
+584095fe87f2a04ca5e5a7aeb88bf6c5cf9061513cb0e1968396dea2ab756570  tests/artifacts/perf/20260605T-remove-node-stable-store-tealspring/baseline_profile.json
+88aba4fb547199dc9d38939560bca48d0730797157fd8050ef78207846b74970  tests/artifacts/perf/20260605T-remove-node-stable-store-tealspring/baseline_cprofile.txt

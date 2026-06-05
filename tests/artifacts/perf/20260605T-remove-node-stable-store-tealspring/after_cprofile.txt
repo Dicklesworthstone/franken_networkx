@@ -1,0 +1,27 @@
+         56017 function calls in 0.034 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.000    0.000    0.034    0.034 /data/projects/franken_networkx/tests/artifacts/perf/20260605T-remove-node-stable-store-tealspring/remove_node_batch_bench.py:68(run_once)
+        1    0.000    0.000    0.030    0.030 /data/projects/franken_networkx/tests/artifacts/perf/20260605T-remove-node-stable-store-tealspring/remove_node_batch_bench.py:51(build_graph)
+        1    0.004    0.004    0.020    0.020 /data/projects/franken_networkx/python/franken_networkx/__init__.py:2572(add_edges_from)
+        1    0.014    0.014    0.014    0.014 {function Graph.add_edges_from at 0x7ab8c547a160}
+        1    0.006    0.006    0.009    0.009 /data/projects/franken_networkx/tests/artifacts/perf/20260605T-remove-node-stable-store-tealspring/remove_node_batch_bench.py:22(edge_stream)
+        1    0.000    0.000    0.004    0.004 /data/projects/franken_networkx/python/franken_networkx/__init__.py:2769(remove_nodes_from)
+        1    0.004    0.004    0.004    0.004 {function Graph.remove_nodes_from at 0x7ab8c547a520}
+    16500    0.001    0.000    0.001    0.000 {built-in method builtins.hash}
+     7000    0.001    0.000    0.001    0.000 {method 'add' of 'set' objects}
+    15001    0.001    0.000    0.001    0.000 {built-in method builtins.len}
+     8500    0.001    0.000    0.001    0.000 {method 'append' of 'list' objects}
+     8003    0.001    0.000    0.001    0.000 {built-in method builtins.isinstance}
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:2337(add_nodes_from)
+        1    0.000    0.000    0.000    0.000 {method '_fast_add_int_nodes_range_stop' of 'franken_networkx.Graph' objects}
+        1    0.000    0.000    0.000    0.000 {method 'sort' of 'list' objects}
+      998    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/tests/artifacts/perf/20260605T-remove-node-stable-store-tealspring/remove_node_batch_bench.py:32(<lambda>)
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:3062(__init__)
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/tests/artifacts/perf/20260605T-remove-node-stable-store-tealspring/remove_node_batch_bench.py:58(removal_nodes)
+        2    0.000    0.000    0.000    0.000 {built-in method time.perf_counter}
+
+

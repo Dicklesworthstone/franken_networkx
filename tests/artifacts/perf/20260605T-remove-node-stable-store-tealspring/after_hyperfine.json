@@ -1,0 +1,64 @@
+{
+  "results": [
+    {
+      "command": "./.venv/bin/python tests/artifacts/perf/20260605T-remove-node-stable-store-tealspring/remove_node_batch_bench.py bench --impl fnx --style range --nodes 1000 --edges 8000 --loops 10",
+      "mean": 0.5434789023450001,
+      "stddev": 0.05619994917123336,
+      "median": 0.55155279172,
+      "user": 3.869964595,
+      "system": 0.07344361,
+      "min": 0.45779191972000005,
+      "max": 0.62850344272,
+      "times": [
+        0.45779191972000005,
+        0.62850344272,
+        0.55056418372,
+        0.55254139972,
+        0.5811680317200001,
+        0.58093081372,
+        0.5135863527200001,
+        0.48274507472000006
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "./.venv/bin/python tests/artifacts/perf/20260605T-remove-node-stable-store-tealspring/remove_node_batch_bench.py bench --impl nx --style range --nodes 1000 --edges 8000 --loops 10",
+      "mean": 0.38451809984500007,
+      "stddev": 0.02816727041039179,
+      "median": 0.38165318272000004,
+      "user": 4.218635595,
+      "system": 0.06296036,
+      "min": 0.34556193972000004,
+      "max": 0.43080070472000004,
+      "times": [
+        0.37082595372000005,
+        0.36018577872,
+        0.41439513972,
+        0.37263650372,
+        0.43080070472000004,
+        0.34556193972000004,
+        0.39066986172,
+        0.39106891672000005
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

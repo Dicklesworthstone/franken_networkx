@@ -3653,25 +3653,32 @@ impl PyGraph {
     /// Remove multiple nodes. Silently skips absent nodes.
     fn remove_nodes_from(&mut self, py: Python<'_>, nodes: &Bound<'_, PyAny>) -> PyResult<()> {
         let iter = PyIterator::from_object(nodes)?;
-        let mut had_incident_edges = false;
+        let mut present = HashSet::<String>::new();
         for item in iter {
             let item = item?;
             let canonical = node_key_to_string(py, &item)?;
             if self.inner.has_node(&canonical) {
-                if let Some(neighbors) = self.inner.neighbors(&canonical) {
-                    for nb in neighbors {
-                        let ek = Self::edge_key(&canonical, nb);
-                        self.edge_py_attrs.remove(&ek);
-                        had_incident_edges = true;
-                    }
-                }
-                self.inner.remove_node(&canonical);
-                self.node_key_map.remove(&canonical);
-                self.node_py_attrs.remove(&canonical);
+                present.insert(canonical);
             }
         }
+        let present_refs: HashSet<&str> = present.iter().map(String::as_str).collect();
+        let mut removed_py_edge_attrs = false;
+        self.edge_py_attrs.retain(|(left, right), _| {
+            let keep =
+                !present_refs.contains(left.as_str()) && !present_refs.contains(right.as_str());
+            if !keep {
+                removed_py_edge_attrs = true;
+            }
+            keep
+        });
+        let (_removed_nodes, removed_edges) =
+            self.inner.remove_nodes_from(present_refs.iter().copied());
+        for canonical in &present {
+            self.node_key_map.remove(canonical);
+            self.node_py_attrs.remove(canonical);
+        }
         self.bump_nodes_seq();
-        if had_incident_edges {
+        if removed_edges > 0 || removed_py_edge_attrs {
             self.bump_edges_seq(); // br-r37-c1-jft0i
         }
         Ok(())

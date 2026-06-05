@@ -1,0 +1,3164 @@
+ℹ Preparing shadow workspace for 4 specified file(s)
+ℹ Scanning shadow workspace at /data/tmp/tmp.Sdtv5ME6Fy/files_scan
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║  ██╗   ██╗██╗  ████████╗██╗███╗   ███╗ █████╗ ████████╗███████╗              ║
+║  ██║   ██║██║  ╚══██╔══╝██║████╗ ████║██╔══██╗╚══██╔══╝██╔════╝              ║
+║  ██║   ██║██║     ██║   ██║██╔████╔██║███████║   ██║   █████╗                ║
+║  ██║   ██║██║     ██║   ██║██║╚██╔╝██║██╔══██║   ██║   ██╔══╝                ║
+║  ╚██████╔╝███████╗██║   ██║██║ ╚═╝ ██║██║  ██║   ██║   ███████╗              ║
+║   ╚═════╝ ╚══════╝╚═╝   ╚═╝╚═╝     ╚═╝╚═╝  ╚═╝   ╚═╝   ╚══════╝              ║
+║                                                                              ║
+║  ██████╗ ██╗   ██╗ ██████╗         __       __                               ║
+║  ██╔══██╗██║   ██║██╔════╝         \ `-'"-'` /                               ║
+║  ██████╔╝██║   ██║██║  ███╗        / \_   _/ \                               ║
+║  ██╔══██╗██║   ██║██║   ██║        |  d\_/b  |                               ║
+║  ██████╔╝╚██████╔╝╚██████╔╝       .'\   V   /'.                              ║
+║  ╚═════╝  ╚═════╝  ╚═════╝        /   '-...-'   \                            ║
+║                                  | /         \ |                             ║
+║                                  \/\         /\/                             ║
+║                                  ==(||)---(||)==                             ║
+║                                                                              ║
+║  ███████╗  ██████╗   █████╗ ███╗   ██╗███╗   ██╗███████╗██████╗              ║
+║  ██╔════╝  ██╔═══╝  ██╔══██╗████╗  ██║████╗  ██║██╔════╝██╔══██╗             ║
+║  ███████╗  ██║      ███████║██╔██╗ ██║██╔██╗ ██║█████╗  ██████╔╝             ║
+║  ╚════██║  ██║      ██╔══██║██║╚██╗██║██║╚██╗██║██╔══╝  ██╔══██╗             ║
+║  ███████║  ██████╗  ██║  ██║██║ ╚████║██║ ╚████║███████╗██║  ██║             ║
+║  ╚══════╝  ╚═════╝  ╚═╝╚═╝  ╚═══╝╚═╝  ╚═══╝╚══════╝╚═╝  ╚═╝                  ║
+║                                                                              ║
+║   JS / TS • PYTHON • C / C++ • RUST • GO • JAVA • RUBY                       ║
+║   SWIFT • C# • ELIXIR                                                        ║
+║                    UBS: ULTIMATE BUG SCANNER • SARIF FUSION ☄️               ║
+║                                                                              ║
+║                                                                              ║
+║                     Night Owl QA                                             ║
+║                     “We see bugs before you do.”                             ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+UBS Meta-Runner v5.3.2  2026-06-04 23:51:52
+Project: /data/projects/franken_networkx
+Format:  text
+Detected: python rust
+Scanning python...
+Scanning rust...
+Finished python (8s)
+Finished rust (15s)
+
+──────── python ────────
+
+╔═══════════════════════════════════════════════════════════════════╗
+║  ██╗   ██╗██╗  ████████╗██╗███╗   ███╗ █████╗ ████████╗███████╗   ║
+║  ██║   ██║██║  ╚══██╔══╝██║████╗ ████║██╔══██╗╚══██╔══╝██╔════╝   ║
+║  ██║   ██║██║     ██║   ██║██╔████╔██║███████║   ██║   █████╗     ║
+║  ██║   ██║██║     ██║   ██║██║╚██╔╝██║██╔══██║   ██║   ██╔══╝     ║
+║  ╚██████╔╝███████╗██║   ██║██║ ╚═╝ ██║██║  ██║   ██║   ███████╗   ║
+║   ╚═════╝ ╚══════╝╚═╝   ╚═╝╚═╝     ╚═╝╚═╝  ╚═╝   ╚═╝   ╚══════╝   ║
+║                                                                   ║
+║  ██████╗ ██╗   ██╗ ██████╗                /^\/^\                  ║
+║  ██╔══██╗██║   ██║██╔════╝              _|__|  O|                 ║
+║  ██████╔╝██║   ██║██║  ███╗            /~     \_/ \               ║
+║  ██╔══██╗██║   ██║██║   ██║           |__________/ \              ║
+║  ██████╔╝╚██████╔╝╚██████╔╝            \_______    \              ║
+║  ╚═════╝  ╚═════╝  ╚═════╝                     `\   \             ║
+║                                                  |   |            ║
+║                                                 /   /             ║
+║                                                /   /              ║
+║                                                                   ║
+║  ███████╗  ██████╗   █████╗ ███╗   ██╗███╗   ██╗███████╗██████╗   ║
+║  ██╔════╝  ██╔═══╝  ██╔══██╗████╗  ██║████╗  ██║██╔════╝██╔══██╗  ║
+║  ███████╗  ██║      ███████║██╔██╗ ██║██╔██╗ ██║█████╗  ██████╔╝  ║
+║  ╚════██║  ██║      ██╔══██║██║╚██╗██║██║╚██╗██║██╔══╝  ██╔══██╗  ║
+║  ███████║  ██████╗  ██║  ██║██║ ╚████║██║ ╚████║███████╗██║  ██║  ║
+║  ╚══════╝  ╚═════╝  ╚═╝╚═╝  ╚═══╝╚═╝  ╚═══╝╚══════╝╚═╝  ╚═╝       ║
+║                                                                   ║
+║  Python module • async/await, serialization, venv heuristics      ║
+║  UBS module: python • catches None bugs & async blocking          ║
+║  ASCII homage: classic snake (ASCII Art Archive)                  ║
+║  Run standalone: modules/ubs-python.sh --help                     ║
+║                                                                   ║
+║  Night Owl QA                                                     ║
+║  “We see bugs before you do.”                                     ║
+╚═══════════════════════════════════════════════════════════════════╝
+
+Project:  /data/projects/franken_networkx
+Started:  2026-06-04 23:51:53
+Files:    2 source files (py,pyi,pyx,pxd,pxi,ipynb)
+
+✓ ast-grep available (ast-grep) - full AST analysis enabled
+✓ uv detected - uvx ephemeral analyzers enabled
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. NONE / DEFENSIVE PROGRAMMING
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+▓▓▓ Detects: None equality, truthy confusions, deep attribute chains
+Pythonic checks use 'is (not) None' and safe attribute access patterns.
+
+• == None or != None (should use 'is' / 'is not')
+  ✓ OK No None equality comparisons
+
+• Attribute chains depth (fragile without guards)
+
+• dict.get(key) without default used immediately
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+2. NUMERIC / ARITHMETIC PITFALLS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+▓▓▓ Detects: Division by variable, float equality, modulo hazards
+Silent numeric bugs propagate incorrect results or ZeroDivisionError.
+
+• Division by variable (possible ÷0)
+
+• Floating-point equality (==)
+
+• Modulo by variable (verify non-zero)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+3. COLLECTION SAFETY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+▓▓▓ Detects: Index risks, mutation during iteration, len checks
+Collection misuse leads to IndexError or logical errors.
+
+• Index arithmetic like arr[i±1]
+
+• Mutation during iteration
+
+• len(x) comparisons
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+4. COMPARISON & TYPE CHECKING TRAPS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+▓▓▓ Detects: 'is' with literals, type() equality, truthiness with bools
+Prefer idiomatic Python comparisons and isinstance.
+
+• 'is' with literals
+  ⚠ Warning (15 found)
+    Using 'is' with literals
+    Use '==' (only None uses 'is')
+      /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:759 (https://github.com/Dicklesworthstone/franken_networkx/blob/6c721e9429d15c15255be5ec47b4fa283801f813/tests/python/test_attribute_access_parity.py#L759)
+              assert nxb.is_bipartite_node_set(G, [0, 1, 2]) is True
+      /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:1072 (https://github.com/Dicklesworthstone/franken_networkx/blob/6c721e9429d15c15255be5ec47b4fa283801f813/tests/python/test_attribute_access_parity.py#L1072)
+              assert (G.nodes == {0, 1, 2}) is False
+      /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:1073 (https://github.com/Dicklesworthstone/franken_networkx/blob/6c721e9429d15c15255be5ec47b4fa283801f813/tests/python/test_attribute_access_parity.py#L1073)
+              assert (Gn.nodes == {0, 1, 2}) is False
+      /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:1459 (https://github.com/Dicklesworthstone/franken_networkx/blob/6c721e9429d15c15255be5ec47b4fa283801f813/tests/python/test_attribute_access_parity.py#L1459)
+              assert fnx.Graph.is_directed(None) is False
+      /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:1460 (https://github.com/Dicklesworthstone/franken_networkx/blob/6c721e9429d15c15255be5ec47b4fa283801f813/tests/python/test_attribute_access_parity.py#L1460)
+              assert fnx.DiGraph.is_directed(None) is True
+
+• type(x) == T instead of isinstance
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+5. ASYNC/AWAIT PITFALLS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+▓▓▓ Detects: blocking calls in async, await in loops, floating tasks
+Async bugs cause unpredictable latency and deadlocks.
+  ℹ Info (0 found)
+    Async functions found
+
+• await inside loops (performance)
+
+• Blocking calls in async def
+
+• Async error path coverage
+  ✓ OK All async operations appear protected
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+6. ERROR HANDLING ANTI-PATTERNS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+▓▓▓ Detects: bare except, swallowed errors, poor re-raise
+Proper exception handling simplifies debugging and recovery.
+
+• Bare except
+  ✓ OK No bare except blocks
+
+• except ...: pass
+
+• raise e (loses traceback)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+7. SECURITY VULNERABILITIES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+▓▓▓ Detects: code injection, unsafe deserialization, weak crypto, TLS/CSRF/autoescape off
+Security bugs expose users to attacks and data breaches.
+
+• eval/exec usage
+  ✓ OK No eval/exec detected
+
+• pickle.load/loads
+
+• yaml.load without Loader
+
+• Unsafe deserialization loaders
+  ✓ OK No unsafe Python deserialization loaders detected
+
+• subprocess shell=True / os.system
+  ✓ OK No shell=True / os.system detected
+
+• Command injection dataflow
+  ✓ OK No command injection dataflow detected
+
+• Subprocess calls without timeouts
+  ✓ OK No subprocess calls missing explicit timeouts detected
+
+• Interpolated SQL execution
+  ✓ OK No interpolated SQL execution detected
+
+• NoSQL query injection
+  ✓ OK No request-controlled NoSQL filters detected
+
+• Request-controlled regex patterns
+  ✓ OK No request-controlled regex patterns detected
+
+• Server-side template injection
+  ✓ OK No request-controlled template sources detected
+
+• HTTP response header injection
+  ✓ OK No request-controlled response headers detected
+
+• Email header injection
+  ✓ OK No request-controlled email headers detected
+
+• LDAP filter/DN injection
+  ✓ OK No request-controlled LDAP filters or DNs detected
+
+• requests verify=False (TLS disabled)
+
+• Weak hash algorithms (md5/sha1)
+
+• Password hashing misconfiguration
+  ✓ OK No weak password hashing configurations detected
+
+• Weak or static cryptography configuration
+  ✓ OK No weak crypto modes or static IV/nonces detected
+
+• Timing-safe comparison for secrets
+  ✓ OK No timing-sensitive secret equality comparisons detected
+
+• Security-sensitive assert statements
+  🔥 CRITICAL (1 found)
+    Security-sensitive assert stripped by -O
+    Use explicit if/raise checks for authorization, ownership, CSRF, token, and permission validation
+      tests/python/test_attribute_access_parity.py:159 (https://github.com/Dicklesworthstone/franken_networkx/blob/6c721e9429d15c15255be5ec47b4fa283801f813/tests/python/test_attribute_access_parity.py#L159)
+      assert fnx.get_node_attributes(graph, "role") == nx.get_node_attributes(expected, "role")
+
+• Unsafe filesystem permission modes
+  ✓ OK No world-writable file modes or permissive umasks detected
+
+• Hardcoded secrets
+
+• tempfile.mktemp (insecure)
+
+• Archive extraction path traversal
+  ✓ OK No unvalidated archive extract()/extractall() calls detected
+
+• Open redirect sinks
+  ✓ OK No request-derived open redirect sinks detected
+
+• Host header trusted for absolute URLs
+  ✓ OK No Host-header-derived absolute URLs detected
+
+• SSRF-prone outbound HTTP targets
+  ✓ OK No request-derived outbound HTTP targets detected
+
+• Outbound HTTP calls without timeouts
+  ✓ OK No outbound HTTP calls missing explicit timeouts detected
+
+• Request-derived filesystem paths
+  ✓ OK No request-derived filesystem paths detected
+
+• JWT verification bypass
+  ✓ OK No JWT verification bypass patterns detected
+
+• Credentialed wildcard CORS
+  ✓ OK No wildcard credentialed CORS configurations detected
+
+• Cookie/session security flags
+  ✓ OK No insecure cookie/session flags detected
+
+• CSRF protection disabled
+  ✓ OK No explicit CSRF disable patterns detected
+
+• Template autoescape disabled
+  ✓ OK No explicit template autoescape disables detected
+
+• Request-controlled values marked safe HTML
+  ✓ OK No request-controlled values marked safe HTML detected
+
+• Request-derived mass assignment
+  ✓ OK No request-derived mass assignment patterns detected
+
+• Debug mode and host allow-list
+  ✓ OK No production debug or wildcard host settings detected
+
+• Unsafe XML parser exposure
+  ✓ OK No unsafe XML parser exposure detected
+
+• Security-sensitive random module usage
+  ✓ OK No security-sensitive random module usage detected
+
+• Disabled TLS certificate verification
+  ✓ OK No disabled TLS verification patterns detected
+
+• Lightweight taint analysis
+  ✓ OK No tainted sources reach dangerous sinks
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+8. FUNCTION & SCOPE ISSUES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+▓▓▓ Detects: mutable defaults, many params, nested defs, returns
+Function-level bugs cause subtle state leaks and readability problems.
+
+• Mutable default arguments
+  ✓ OK No mutable default arguments
+
+• Functions with high parameter count (>6)
+
+• Nested function declarations
+
+• Missing returns heuristic
+  ℹ Info (110 found)
+    Some functions may lack return statements
+    Void intended?
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+9. PARSING & TYPE CONVERSION BUGS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+▓▓▓ Detects: json.loads without try, str+num concat, int() edge cases
+Parsing bugs cause runtime exceptions and data corruption.
+
+• json.loads without try/catch
+
+• String concatenation with + adjacent to digits (possible type mix)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+10. CONTROL FLOW GOTCHAS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+▓▓▓ Detects: return/break in finally, nested ternary, unreachable code
+Flow pitfalls cause surprising behavior and lost exceptions.
+
+• return/break/continue inside finally
+
+• Nested conditional expressions
+
+• Unreachable code after return
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+11. DEBUGGING & PRODUCTION CODE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+▓▓▓ Detects: print, breakpoint/pdb, sensitive logs
+Debug artifacts degrade performance and leak information.
+
+• print statements
+  ✓ OK Minimal print usage
+
+• breakpoint() / pdb.set_trace()
+  ✓ OK No debugger calls
+
+• Logging sensitive data
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+12. PERFORMANCE & MEMORY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+▓▓▓ Detects: string concat in loops, regex compile in loops, I/O in loops
+Performance anti-patterns reduce throughput and increase latency.
+
+• String concatenation in loops
+
+• re.compile inside loops
+
+• I/O heavy ops in loops
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+13. VARIABLE & SCOPE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+▓▓▓ Detects: global/nonlocal usage, wildcard imports
+Scope issues cause hard-to-debug conflicts and side effects.
+
+• global/nonlocal statements
+
+• Wildcard imports
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+14. CODE QUALITY MARKERS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+▓▓▓ Detects: TODO, FIXME, HACK, XXX, NOTE
+Technical debt markers indicate incomplete or problematic code.
+  ✓ OK No technical debt markers
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+15. REGEX & STRING SAFETY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+▓▓▓ Detects: ReDoS, dynamic regex with input, escaping issues
+Regex bugs cause performance issues and security vulnerabilities.
+
+• Nested quantifiers (ReDoS risk)
+
+• Dynamic re.compile from variables
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+16. I/O & RESOURCE SAFETY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+▓▓▓ Detects: open without with, missing encoding, rmtree(ignore_errors)
+I/O bugs leak resources and produce nondeterministic behavior.
+
+• open(...) without context manager
+  ✓ OK File usage appears context-managed
+
+• open() without explicit encoding
+
+• shutil.rmtree(ignore_errors=True)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+17. TYPING STRICTNESS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+▓▓▓ Detects: Any usage, type: ignore density
+Type hygiene reduces runtime errors.
+
+• 'Any' usage
+  ℹ Info (3 found)
+    Some 'Any' usage present
+
+• type: ignore comments
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+18. PYTHON I/O & MODULE USAGE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+▓▓▓ Detects: os.system, wildcard imports, dynamic import
+Prefer safer subprocess APIs and explicit imports.
+
+• os.system invocations
+
+• Dynamic imports
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+19. RESOURCE LIFECYCLE CORRELATION
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+▓▓▓ Detects: File handles, subprocesses, and async tasks missing cleanup
+Unreleased resources leak descriptors, zombie processes, and pending tasks
+
+• Resource lifecycle correlation
+  ✓ OK All tracked resource acquisitions have matching cleanups
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+AST-GREP RULE PACK FINDINGS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+• ast-grep rule-pack summary
+  ⚠ Warning (15 found)
+    py.is-literal: Avoid 'is' for literal comparison; use '==' (except None uses 'is')
+      /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:759 (https://github.com/Dicklesworthstone/franken_networkx/blob/6c721e9429d15c15255be5ec47b4fa283801f813/tests/python/test_attribute_access_parity.py#L759)
+      assert nxb.is_bipartite_node_set(G, [0, 1, 2]) is True
+      /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:1072 (https://github.com/Dicklesworthstone/franken_networkx/blob/6c721e9429d15c15255be5ec47b4fa283801f813/tests/python/test_attribute_access_parity.py#L1072)
+      assert (G.nodes == {0, 1, 2}) is False
+      /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:1073 (https://github.com/Dicklesworthstone/franken_networkx/blob/6c721e9429d15c15255be5ec47b4fa283801f813/tests/python/test_attribute_access_parity.py#L1073)
+      assert (Gn.nodes == {0, 1, 2}) is False
+  ℹ Info (9 found)
+    py.any-typing: Use precise types; 'Any' weakens type guarantees
+      /data/projects/franken_networkx/tests/artifacts/perf/20260605T-remove-node-stable-store-tealspring/remove_node_batch_bench.py:16 (https://github.com/Dicklesworthstone/franken_networkx/blob/6c721e9429d15c15255be5ec47b4fa283801f813/tests/artifacts/perf/20260605T-remove-node-stable-store-tealspring/remove_node_batch_bench.py#L16)
+      from typing import Any
+      /data/projects/franken_networkx/tests/artifacts/perf/20260605T-remove-node-stable-store-tealspring/remove_node_batch_bench.py:51 (https://github.com/Dicklesworthstone/franken_networkx/blob/6c721e9429d15c15255be5ec47b4fa283801f813/tests/artifacts/perf/20260605T-remove-node-stable-store-tealspring/remove_node_batch_bench.py#L51)
+      def build_graph(module: Any, n: int, m: int) -> Any:
+      /data/projects/franken_networkx/tests/artifacts/perf/20260605T-remove-node-stable-store-tealspring/remove_node_batch_bench.py:51 (https://github.com/Dicklesworthstone/franken_networkx/blob/6c721e9429d15c15255be5ec47b4fa283801f813/tests/artifacts/perf/20260605T-remove-node-stable-store-tealspring/remove_node_batch_bench.py#L51)
+      def build_graph(module: Any, n: int, m: int) -> Any:
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+20. UV-POWERED EXTRA ANALYZERS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+▓▓▓ Ruff linting, Bandit security, Pip-audit, Mypy, Safety, Detect-secrets
+Uses uvx when available; falls back to system tools if installed.
+
+• ruff (lint)
+[
+  {
+    "cell": null,
+    "code": "E702",
+    "end_location": {
+      "column": 26,
+      "row": 467
+    },
+    "filename": "/data/projects/franken_networkx/tests/python/test_attribute_access_parity.py",
+    "fix": null,
+    "location": {
+      "column": 25,
+      "row": 467
+    },
+    "message": "Multiple statements on one line (semicolon)",
+    "noqa_row": 467,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/multiple-statements-on-one-line-semicolon"
+  },
+  {
+    "cell": null,
+    "code": "E702",
+    "end_location": {
+      "column": 26,
+      "row": 486
+    },
+    "filename": "/data/projects/franken_networkx/tests/python/test_attribute_access_parity.py",
+    "fix": null,
+    "location": {
+      "column": 25,
+      "row": 486
+    },
+    "message": "Multiple statements on one line (semicolon)",
+    "noqa_row": 486,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/multiple-statements-on-one-line-semicolon"
+  }
+]  ℹ Info (2 found)
+    Ruff emitted findings
+    Review ruff output above
+
+• bandit (security)
+Run started:2026-06-05 03:52:00.035613+00:00
+
+Test results:
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:17:4
+16	
+17	    assert dict(graph.nodes(data=True)) == dict(expected.nodes(data=True))
+18	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:30:4
+29	
+30	    assert dict(graph.nodes(data=True)) == dict(expected.nodes(data=True))
+31	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:40:4
+39	
+40	    assert dict(graph.nodes(data=True)) == dict(expected.nodes(data=True))
+41	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:51:4
+50	
+51	    assert fnx.get_node_attributes(graph, "color", default=None) == nx.get_node_attributes(
+52	        expected,
+53	        "color",
+54	        default=None,
+55	    )
+56	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:66:4
+65	
+66	    assert fnx.get_node_attributes(graph, "color", default="missing") == nx.get_node_attributes(
+67	        expected,
+68	        "color",
+69	        default="missing",
+70	    )
+71	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:85:4
+84	
+85	    assert sorted(graph.edges(data=True)) == sorted(expected.edges(data=True))
+86	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:98:4
+97	
+98	    assert sorted(graph.edges(data=True)) == sorted(expected.edges(data=True))
+99	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:108:4
+107	
+108	    assert sorted(graph.edges(data=True)) == sorted(expected.edges(data=True))
+109	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:119:4
+118	
+119	    assert fnx.get_edge_attributes(graph, "weight", default=0) == nx.get_edge_attributes(
+120	        expected,
+121	        "weight",
+122	        default=0,
+123	    )
+124	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:138:4
+137	
+138	    assert sorted(graph.edges(keys=True, data=True)) == sorted(expected.edges(keys=True, data=True))
+139	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:159:4
+158	
+159	    assert fnx.get_node_attributes(graph, "role") == nx.get_node_attributes(expected, "role")
+160	    assert fnx.get_edge_attributes(graph, "weight") == nx.get_edge_attributes(expected, "weight")
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:160:4
+159	    assert fnx.get_node_attributes(graph, "role") == nx.get_node_attributes(expected, "role")
+160	    assert fnx.get_edge_attributes(graph, "weight") == nx.get_edge_attributes(expected, "weight")
+161	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:171:4
+170	
+171	    assert list(graph.edges("a", keys=True)) == list(expected.edges("a", keys=True))
+172	    assert list(graph.edges(nbunch=["a"], keys=True)) == list(
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:172:4
+171	    assert list(graph.edges("a", keys=True)) == list(expected.edges("a", keys=True))
+172	    assert list(graph.edges(nbunch=["a"], keys=True)) == list(
+173	        expected.edges(nbunch=["a"], keys=True)
+174	    )
+175	    assert list(graph.edges(["a"], data=True, keys=True)) == list(
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:175:4
+174	    )
+175	    assert list(graph.edges(["a"], data=True, keys=True)) == list(
+176	        expected.edges(["a"], data=True, keys=True)
+177	    )
+178	    assert list(graph.edges(data="weight", keys=True, default=99)) == list(
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:178:4
+177	    )
+178	    assert list(graph.edges(data="weight", keys=True, default=99)) == list(
+179	        expected.edges(data="weight", keys=True, default=99)
+180	    )
+181	    assert list(graph.edges(["z", "a"], data="weight", keys=True, default=99)) == list(
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:181:4
+180	    )
+181	    assert list(graph.edges(["z", "a"], data="weight", keys=True, default=99)) == list(
+182	        expected.edges(["z", "a"], data="weight", keys=True, default=99)
+183	    )
+184	    assert list(graph.edges(["z"], keys=True)) == list(expected.edges(["z"], keys=True))
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:184:4
+183	    )
+184	    assert list(graph.edges(["z"], keys=True)) == list(expected.edges(["z"], keys=True))
+185	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:213:4
+212	
+213	    assert graph.add_edge("a", "b", key=key, weight=3) == expected.add_edge(
+214	        "a",
+215	        "b",
+216	        key=key,
+217	        weight=3,
+218	    )
+219	    assert graph.has_edge("a", "b", key=key) == expected.has_edge("a", "b", key=key)
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:219:4
+218	    )
+219	    assert graph.has_edge("a", "b", key=key) == expected.has_edge("a", "b", key=key)
+220	    assert graph.get_edge_data("a", "b", key=key) == expected.get_edge_data("a", "b", key=key)
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:220:4
+219	    assert graph.has_edge("a", "b", key=key) == expected.has_edge("a", "b", key=key)
+220	    assert graph.get_edge_data("a", "b", key=key) == expected.get_edge_data("a", "b", key=key)
+221	    assert dict(graph["a"]["b"]) == dict(expected["a"]["b"])
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:221:4
+220	    assert graph.get_edge_data("a", "b", key=key) == expected.get_edge_data("a", "b", key=key)
+221	    assert dict(graph["a"]["b"]) == dict(expected["a"]["b"])
+222	    assert list(graph.edges(keys=True, data=True)) == list(expected.edges(keys=True, data=True))
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:222:4
+221	    assert dict(graph["a"]["b"]) == dict(expected["a"]["b"])
+222	    assert list(graph.edges(keys=True, data=True)) == list(expected.edges(keys=True, data=True))
+223	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:226:4
+225	    expected_copied = expected.copy()
+226	    assert list(copied.edges(keys=True, data=True)) == list(
+227	        expected_copied.edges(keys=True, data=True)
+228	    )
+229	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:232:4
+231	    expected_subgraph = expected.edge_subgraph([("a", "b", key)]).copy()
+232	    assert list(subgraph.edges(keys=True, data=True)) == list(
+233	        expected_subgraph.edges(keys=True, data=True)
+234	    )
+235	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:238:4
+237	    expected.remove_edge("a", "b", key=key)
+238	    assert list(graph.edges(keys=True, data=True)) == list(expected.edges(keys=True, data=True))
+239	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:259:4
+258	    expected_row = expected["hub"]
+259	    assert type(row).__name__ == type(expected_row).__name__
+260	    assert type(row["alpha"]).__name__ == type(expected_row["alpha"]).__name__
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:260:4
+259	    assert type(row).__name__ == type(expected_row).__name__
+260	    assert type(row["alpha"]).__name__ == type(expected_row["alpha"]).__name__
+261	    assert list(row) == list(expected_row)
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:261:4
+260	    assert type(row["alpha"]).__name__ == type(expected_row["alpha"]).__name__
+261	    assert list(row) == list(expected_row)
+262	    assert list(row["alpha"]) == list(expected_row["alpha"])
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:262:4
+261	    assert list(row) == list(expected_row)
+262	    assert list(row["alpha"]) == list(expected_row["alpha"])
+263	    assert dict(row["alpha"]) == dict(expected_row["alpha"])
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:263:4
+262	    assert list(row["alpha"]) == list(expected_row["alpha"])
+263	    assert dict(row["alpha"]) == dict(expected_row["alpha"])
+264	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:269:4
+268	    expected.add_edge("hub", "late", key="z", marker=True)
+269	    assert "late" in row
+270	    assert list(row) == list(expected_row)
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:270:4
+269	    assert "late" in row
+270	    assert list(row) == list(expected_row)
+271	    assert row["alpha"][2]["weight"] == expected_row["alpha"][2]["weight"] == 99
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:271:4
+270	    assert list(row) == list(expected_row)
+271	    assert row["alpha"][2]["weight"] == expected_row["alpha"][2]["weight"] == 99
+272	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:277:4
+276	    expected_copy["alpha"][2]["weight"] = -1
+277	    assert row["alpha"][2]["weight"] == expected_row["alpha"][2]["weight"] == 99
+278	    assert row_copy == expected_copy
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:278:4
+277	    assert row["alpha"][2]["weight"] == expected_row["alpha"][2]["weight"] == 99
+278	    assert row_copy == expected_copy
+279	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:284:4
+283	        expected_row["missing"]
+284	    assert graph_exc.value.args == expected_exc.value.args
+285	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:287:8
+286	    if directed:
+287	        assert "omega" not in row
+288	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:295:8
+294	    for u, v, key in [(0, 1, 7), (2, 3, -1), (4, 4, 5)]:
+295	        assert graph.add_edge(u, v, key=key) == expected.add_edge(u, v, key=key)
+296	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:297:4
+296	
+297	    assert list(graph.nodes()) == list(expected.nodes())
+298	    assert list(graph.edges(keys=True, data=True)) == list(
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:298:4
+297	    assert list(graph.nodes()) == list(expected.nodes())
+298	    assert list(graph.edges(keys=True, data=True)) == list(
+299	        expected.edges(keys=True, data=True)
+300	    )
+301	    assert graph.has_edge(0.0, 1.0, key=7.0) == expected.has_edge(0.0, 1.0, key=7.0)
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:301:4
+300	    )
+301	    assert graph.has_edge(0.0, 1.0, key=7.0) == expected.has_edge(0.0, 1.0, key=7.0)
+302	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:303:4
+302	
+303	    assert graph.add_edge(0, 1, key=8, weight=3) == expected.add_edge(
+304	        0,
+305	        1,
+306	        key=8,
+307	        weight=3,
+308	    )
+309	    assert graph.get_edge_data(0, 1, key=8) == expected.get_edge_data(0, 1, key=8)
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:309:4
+308	    )
+309	    assert graph.get_edge_data(0, 1, key=8) == expected.get_edge_data(0, 1, key=8)
+310	    assert list(graph.edges(keys=True, data=True)) == list(
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:310:4
+309	    assert graph.get_edge_data(0, 1, key=8) == expected.get_edge_data(0, 1, key=8)
+310	    assert list(graph.edges(keys=True, data=True)) == list(
+311	        expected.edges(keys=True, data=True)
+312	    )
+313	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:320:8
+319	    for u, v, key in [(0, 1, "7"), (2, 3, "-1"), (4, 4, "self")]:
+320	        assert graph.add_edge(u, v, key=key) == expected.add_edge(u, v, key=key)
+321	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:322:4
+321	
+322	    assert list(graph.nodes()) == list(expected.nodes())
+323	    assert list(graph.edges(keys=True, data=True)) == list(
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:323:4
+322	    assert list(graph.nodes()) == list(expected.nodes())
+323	    assert list(graph.edges(keys=True, data=True)) == list(
+324	        expected.edges(keys=True, data=True)
+325	    )
+326	    assert graph.has_edge(0, 1, key="7") == expected.has_edge(0, 1, key="7")
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:326:4
+325	    )
+326	    assert graph.has_edge(0, 1, key="7") == expected.has_edge(0, 1, key="7")
+327	    assert graph.has_edge(0, 1, key=7) == expected.has_edge(0, 1, key=7)
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:327:4
+326	    assert graph.has_edge(0, 1, key="7") == expected.has_edge(0, 1, key="7")
+327	    assert graph.has_edge(0, 1, key=7) == expected.has_edge(0, 1, key=7)
+328	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:329:4
+328	
+329	    assert graph.add_edge(0, 1, key="8", weight=3) == expected.add_edge(
+330	        0,
+331	        1,
+332	        key="8",
+333	        weight=3,
+334	    )
+335	    assert graph.get_edge_data(0, 1, key="8") == expected.get_edge_data(
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:335:4
+334	    )
+335	    assert graph.get_edge_data(0, 1, key="8") == expected.get_edge_data(
+336	        0, 1, key="8"
+337	    )
+338	    assert list(graph.edges(keys=True, data=True)) == list(
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:338:4
+337	    )
+338	    assert list(graph.edges(keys=True, data=True)) == list(
+339	        expected.edges(keys=True, data=True)
+340	    )
+341	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:358:4
+357	
+358	    assert dict(graph.nodes(data=True)) == dict(expected.nodes(data=True))
+359	    assert sorted(graph.edges(data=True)) == sorted(expected.edges(data=True))
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:359:4
+358	    assert dict(graph.nodes(data=True)) == dict(expected.nodes(data=True))
+359	    assert sorted(graph.edges(data=True)) == sorted(expected.edges(data=True))
+360	    assert fnx.get_node_attributes(graph, "color", default="missing") == nx.get_node_attributes(
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:360:4
+359	    assert sorted(graph.edges(data=True)) == sorted(expected.edges(data=True))
+360	    assert fnx.get_node_attributes(graph, "color", default="missing") == nx.get_node_attributes(
+361	        expected,
+362	        "color",
+363	        default="missing",
+364	    )
+365	    assert fnx.get_edge_attributes(graph, "weight", default=0) == nx.get_edge_attributes(
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:365:4
+364	    )
+365	    assert fnx.get_edge_attributes(graph, "weight", default=0) == nx.get_edge_attributes(
+366	        expected,
+367	        "weight",
+368	        default=0,
+369	    )
+370	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:392:4
+391	    edges = list(copy.edges(keys=True, data=True))
+392	    assert edges == [("a", "b", 0, {"weight": 10, "key": "stored_value"})]
+393	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:407:4
+406	    edges = list(u.edges(keys=True, data=True))
+407	    assert edges == [("a", "b", 0, {"weight": 5, "key": "stored"})]
+408	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:420:4
+419	    tree = fnx.bfs_tree(g, 0)
+420	    assert isinstance(tree, fnx.DiGraph)
+421	    assert sorted(tree.edges()) == [(0, 1), (1, 2), (2, 3)]
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:421:4
+420	    assert isinstance(tree, fnx.DiGraph)
+421	    assert sorted(tree.edges()) == [(0, 1), (1, 2), (2, 3)]
+422	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:432:4
+431	    tournament = fnx.tournament.random_tournament(5, seed=42)
+432	    assert isinstance(tournament, fnx.DiGraph)
+433	    assert tournament.number_of_nodes() == 5
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:433:4
+432	    assert isinstance(tournament, fnx.DiGraph)
+433	    assert tournament.number_of_nodes() == 5
+434	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:447:4
+446	    combined = fnx.union(g, h, rename=("A-", "B-"))
+447	    assert isinstance(combined, fnx_cls)
+448	    assert sorted(combined.nodes()) == ["A-a", "A-b", "B-c", "B-d"]
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:448:4
+447	    assert isinstance(combined, fnx_cls)
+448	    assert sorted(combined.nodes()) == ["A-a", "A-b", "B-c", "B-d"]
+449	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:470:4
+469	    # Should not have raised; verify the 'key' attribute round-tripped.
+470	    assert any(
+471	        "key" in data and data["key"] == "sentinel"
+472	        for _, _, _, data in product.edges(keys=True, data=True)
+473	    )
+474	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:479:4
+478	    relabeled = fnx.relabel_nodes(g, {"x": "X"}, copy=True)
+479	    assert sorted(relabeled.nodes()) == ["X", "y"]
+480	    edges = list(relabeled.edges(keys=True, data=True))
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:481:4
+480	    edges = list(relabeled.edges(keys=True, data=True))
+481	    assert edges == [("X", "y", 0, {"weight": 1, "key": "sentinel"})]
+482	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:489:4
+488	    product = fnx.tensor_product(a, b)
+489	    assert isinstance(product, (fnx.MultiGraph, fnx.Graph))
+490	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:506:4
+505	    result = _fnx_to_nx(fg)
+506	    assert dict(result.nodes["a"]) == {attr_name: "sentinel"}
+507	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:521:4
+520	    result = _fnx_to_nx(fg)
+521	    assert dict(result["a"]["b"]) == {attr_name: "sentinel"}
+522	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:531:4
+530	    edges = list(result.edges(keys=True, data=True))
+531	    assert edges == [("a", "b", 0, {"u_of_edge": "x", "v_of_edge": "y"})]
+532	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:550:8
+549	            G[99]
+550	        assert exc_info.value.args[0] == 99
+551	        assert isinstance(exc_info.value.args[0], int)
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:551:8
+550	        assert exc_info.value.args[0] == 99
+551	        assert isinstance(exc_info.value.args[0], int)
+552	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:557:8
+556	            G.adj[99]
+557	        assert exc_info.value.args[0] == 99
+558	        assert isinstance(exc_info.value.args[0], int)
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:558:8
+557	        assert exc_info.value.args[0] == 99
+558	        assert isinstance(exc_info.value.args[0], int)
+559	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:564:8
+563	            G.nodes[99]
+564	        assert exc_info.value.args[0] == 99
+565	        assert isinstance(exc_info.value.args[0], int)
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:565:8
+564	        assert exc_info.value.args[0] == 99
+565	        assert isinstance(exc_info.value.args[0], int)
+566	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:571:8
+570	            G[(99, 99)]
+571	        assert exc_info.value.args[0] == (99, 99)
+572	        assert isinstance(exc_info.value.args[0], tuple)
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:572:8
+571	        assert exc_info.value.args[0] == (99, 99)
+572	        assert isinstance(exc_info.value.args[0], tuple)
+573	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:579:8
+578	            G["missing"]
+579	        assert exc_info.value.args[0] == "missing"
+580	        assert isinstance(exc_info.value.args[0], str)
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:580:8
+579	        assert exc_info.value.args[0] == "missing"
+580	        assert isinstance(exc_info.value.args[0], str)
+581	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:587:8
+586	            D.nodes[99]
+587	        assert exc_info.value.args[0] == 99
+588	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:594:8
+593	            MG.nodes[99]
+594	        assert exc_info.value.args[0] == 99
+595	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:601:8
+600	            MD.nodes[99]
+601	        assert exc_info.value.args[0] == 99
+602	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:633:8
+632	
+633	        assert dict(G.nodes(data="color")) == dict(Gn.nodes(data="color"))
+634	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:638:8
+637	        G.nodes[0]["tag"] = "a"
+638	        assert dict(G.nodes(data="tag", default="zz")) == {0: "a", 1: "zz", 2: "zz"}
+639	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:649:8
+648	        )
+649	        assert dict(r.nodes(data="old")) == {0: 0, 1: 1, 2: 2}
+650	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:690:8
+689	            nx_err = type(e).__name__
+690	        assert fnx_err == nx_err, f"fnx raised {fnx_err}, nx raised {nx_err}"
+691	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:701:8
+700	        Gn.add_edge(1, 2, w=2.5)
+701	        assert list(G.edges(data="w")) == list(Gn.edges(data="w"))
+702	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:710:8
+709	        Gn.add_edge(0, 1, w=1.5)
+710	        assert list(G.edges(data=True)) == list(Gn.edges(data=True))
+711	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:728:8
+727	        G = fnx.path_graph(3)
+728	        assert hasattr(G, "_adj")
+729	        assert list(G._adj[0]) == [1]
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:729:8
+728	        assert hasattr(G, "_adj")
+729	        assert list(G._adj[0]) == [1]
+730	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:734:8
+733	        G.nodes[0]["color"] = "red"
+734	        assert hasattr(G, "_node")
+735	        assert G._node[0]["color"] == "red"
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:735:8
+734	        assert hasattr(G, "_node")
+735	        assert G._node[0]["color"] == "red"
+736	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:741:8
+740	        D.add_edge(1, 2)
+741	        assert list(D._succ[0]) == [1]
+742	        assert list(D._pred[2]) == [1]
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:742:8
+741	        assert list(D._succ[0]) == [1]
+742	        assert list(D._pred[2]) == [1]
+743	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:748:8
+747	        MD.add_edge(1, 2)
+748	        assert list(MD._succ[0]) == [1]
+749	        assert list(MD._pred[2]) == [1]
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:749:8
+748	        assert list(MD._succ[0]) == [1]
+749	        assert list(MD._pred[2]) == [1]
+750	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:759:8
+758	        G = fnx.complete_bipartite_graph(3, 4)
+759	        assert nxb.is_bipartite_node_set(G, [0, 1, 2]) is True
+760	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:767:8
+766	        comps = sorted(sorted(c) for c in nx.connected_components(G))
+767	        assert comps == [[0, 1, 2], [3, 4]]
+768	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:791:8
+790	        H.nodes[0]["x"].append(99)
+791	        assert G.nodes[0]["x"] == [1, 2, 3]
+792	        assert H.nodes[0]["x"] == [1, 2, 3, 99]
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:792:8
+791	        assert G.nodes[0]["x"] == [1, 2, 3]
+792	        assert H.nodes[0]["x"] == [1, 2, 3, 99]
+793	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:802:8
+801	        H.graph["names"].append("c")
+802	        assert G.graph["names"] == ["a", "b"]
+803	        assert H.graph["names"] == ["a", "b", "c"]
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:803:8
+802	        assert G.graph["names"] == ["a", "b"]
+803	        assert H.graph["names"] == ["a", "b", "c"]
+804	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:813:8
+812	        MH[0][1]["a"]["data"].append(99)
+813	        assert MG[0][1]["a"]["data"] == [1, 2]
+814	        assert MH[0][1]["a"]["data"] == [1, 2, 99]
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:814:8
+813	        assert MG[0][1]["a"]["data"] == [1, 2]
+814	        assert MH[0][1]["a"]["data"] == [1, 2, 99]
+815	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:848:8
+847	
+848	        assert (H.nodes[1]["payload"] is G.nodes[1]["payload"]) == (
+849	            Hn.nodes[1]["payload"] is Gn.nodes[1]["payload"]
+850	        ), "node-attr container identity must match nx"
+851	        # And nx's contract is sharing — so both sides are True.
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:852:8
+851	        # And nx's contract is sharing — so both sides are True.
+852	        assert H.nodes[1]["payload"] is G.nodes[1]["payload"]
+853	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:866:8
+865	
+866	        assert (H[2][3]["payload"] is G[2][3]["payload"]) == (
+867	            Hn[2][3]["payload"] is Gn[2][3]["payload"]
+868	        )
+869	        assert H[2][3]["payload"] is G[2][3]["payload"]
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:869:8
+868	        )
+869	        assert H[2][3]["payload"] is G[2][3]["payload"]
+870	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:882:8
+881	
+882	        assert (H[2][3]["a"]["payload"] is G[2][3]["a"]["payload"]) == (
+883	            Hn[2][3]["a"]["payload"] is Gn[2][3]["a"]["payload"]
+884	        )
+885	        assert H[2][3]["a"]["payload"] is G[2][3]["a"]["payload"]
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:885:8
+884	        )
+885	        assert H[2][3]["a"]["payload"] is G[2][3]["a"]["payload"]
+886	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:899:8
+898	
+899	        assert (H.graph["names"] is G.graph["names"]) == (
+900	            Hn.graph["names"] is Gn.graph["names"]
+901	        )
+902	        assert H.graph["names"] is G.graph["names"]
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:902:8
+901	        )
+902	        assert H.graph["names"] is G.graph["names"]
+903	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:915:8
+914	
+915	        assert "new_key" not in G.nodes[1]
+916	        assert H.nodes[1]["new_key"] == "added"
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:916:8
+915	        assert "new_key" not in G.nodes[1]
+916	        assert H.nodes[1]["new_key"] == "added"
+917	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:934:8
+933	
+934	        assert G.nodes[1]["payload"] == Gn.nodes[1]["payload"] == [1, 2, 99]
+935	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:953:8
+952	        Gn = nx.path_graph(3)
+953	        assert list(G.degree([0, 1, 99])) == list(Gn.degree([0, 1, 99]))
+954	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:957:8
+956	        G = fnx.path_graph(3)
+957	        assert list(G.degree([99, 100])) == []
+958	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:964:8
+963	        Dn = nx.DiGraph([(0, 1), (1, 2)])
+964	        assert list(D.in_degree([0, 1, 99])) == list(Dn.in_degree([0, 1, 99]))
+965	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:971:8
+970	        Dn = nx.DiGraph([(0, 1), (1, 2)])
+971	        assert list(D.out_degree([0, 1, 99])) == list(Dn.out_degree([0, 1, 99]))
+972	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:995:8
+994	
+995	        assert str(fnx_exc.value) == str(nx_exc.value)
+996	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:1029:8
+1028	            MG.edges[0, 1, "missing"]
+1029	        assert exc_info.value.args[0] == "missing"
+1030	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:1050:8
+1049	        Gn = nx.path_graph(3)
+1050	        assert (G.edges == {(0, 1), (1, 2)}) == (Gn.edges == {(0, 1), (1, 2)})
+1051	        assert G.edges == {(0, 1), (1, 2)}
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:1051:8
+1050	        assert (G.edges == {(0, 1), (1, 2)}) == (Gn.edges == {(0, 1), (1, 2)})
+1051	        assert G.edges == {(0, 1), (1, 2)}
+1052	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:1055:8
+1054	        G = fnx.path_graph(3)
+1055	        assert G.edges != {(0, 1)}
+1056	        assert G.edges != {(5, 6)}
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:1056:8
+1055	        assert G.edges != {(0, 1)}
+1056	        assert G.edges != {(5, 6)}
+1057	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:1060:8
+1059	        G = fnx.path_graph(3)
+1060	        assert G.edges.isdisjoint({(5, 6)})
+1061	        assert not G.edges.isdisjoint({(0, 1), (5, 6)})
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:1061:8
+1060	        assert G.edges.isdisjoint({(5, 6)})
+1061	        assert not G.edges.isdisjoint({(0, 1), (5, 6)})
+1062	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:1072:8
+1071	        Gn = nx.path_graph(3)
+1072	        assert (G.nodes == {0, 1, 2}) is False
+1073	        assert (Gn.nodes == {0, 1, 2}) is False
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:1073:8
+1072	        assert (G.nodes == {0, 1, 2}) is False
+1073	        assert (Gn.nodes == {0, 1, 2}) is False
+1074	        # But set(nodes) does equal the set.
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:1075:8
+1074	        # But set(nodes) does equal the set.
+1075	        assert set(G.nodes) == {0, 1, 2}
+1076	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:1101:8
+1100	        r = nx.convert_node_labels_to_integers(fnx.path_graph(3))
+1101	        assert sorted(r.nodes) == [0, 1, 2]
+1102	        assert sorted(r.edges) == [(0, 1), (1, 2)]
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:1102:8
+1101	        assert sorted(r.nodes) == [0, 1, 2]
+1102	        assert sorted(r.edges) == [(0, 1), (1, 2)]
+1103	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:1108:8
+1107	        r = nx.relabel_nodes(fnx.path_graph(3), {0: "a", 1: "b", 2: "c"})
+1108	        assert sorted(r.nodes, key=str) == ["a", "b", "c"]
+1109	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:1113:8
+1112	        G._node.update(((n, {"tag": n}) for n in range(3)))
+1113	        assert sorted(G.nodes) == [0, 1, 2]
+1114	        assert G.nodes[0] == {"tag": 0}
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:1114:8
+1113	        assert sorted(G.nodes) == [0, 1, 2]
+1114	        assert G.nodes[0] == {"tag": 0}
+1115	        assert G.nodes[2] == {"tag": 2}
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:1115:8
+1114	        assert G.nodes[0] == {"tag": 0}
+1115	        assert G.nodes[2] == {"tag": 2}
+1116	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:1121:8
+1120	        G._node[0] = {"color": "red"}
+1121	        assert G.nodes[0] == {"color": "red"}
+1122	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:1127:8
+1126	        items = list(G._node.items())
+1127	        assert len(items) == 3
+1128	        assert dict(items[1][1]) == {"x": 1}
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:1128:8
+1127	        assert len(items) == 3
+1128	        assert dict(items[1][1]) == {"x": 1}
+1129	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:1150:8
+1149	        G.add_edge(0, 2)
+1150	        assert set(G.edges(0)) == {(0, 1), (0, 2)}
+1151	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:1154:8
+1153	        G = fnx.Graph([("a", "b"), ("b", "c")])
+1154	        assert set(G.edges("a")) == {("a", "b")}
+1155	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:1162:8
+1161	        L = nx.line_graph(G)
+1162	        assert sorted(L.nodes) == [(0, 1), (0, 2), (1, 2), (2, 3)]
+1163	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:1167:8
+1166	        # List + set nbunches remain iterable
+1167	        assert sorted(tuple(sorted(e)) for e in G.edges([0, 1])) == [(0, 1), (1, 2)]
+1168	        assert sorted(tuple(sorted(e)) for e in G.edges({1, 2})) == [(0, 1), (1, 2), (2, 3)]
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:1168:8
+1167	        assert sorted(tuple(sorted(e)) for e in G.edges([0, 1])) == [(0, 1), (1, 2)]
+1168	        assert sorted(tuple(sorted(e)) for e in G.edges({1, 2})) == [(0, 1), (1, 2), (2, 3)]
+1169	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:1190:8
+1189	        Gn.add_edge(0, 2)
+1190	        assert list(G.edges(3)) == list(Gn.edges(3))
+1191	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:1201:12
+1200	        for e in G.edges([0, 3]):
+1201	            assert e[0] in {0, 3}
+1202	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:1214:8
+1213	        Gn.add_edge(0, 2)
+1214	        assert abs(
+1215	            nx.degree_assortativity_coefficient(G)
+1216	            - nx.degree_assortativity_coefficient(Gn)
+1217	        ) < 1e-9
+1218	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:1241:8
+1240	        Gn.add_edge(0, 2)
+1241	        assert list(G.edges(data=None, default=1)) == list(
+1242	            Gn.edges(data=None, default=1)
+1243	        )
+1244	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:1255:12
+1254	        for k in r:
+1255	            assert abs(r[k] - rn[k]) < 1e-6
+1256	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:1264:8
+1263	        Gn.add_edge(0, 2)
+1264	        assert abs(nx.resistance_distance(G, 0, 3) - nx.resistance_distance(Gn, 0, 3)) < 1e-9
+1265	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:1269:8
+1268	        edges = list(G.edges(data=False))
+1269	        assert all(len(e) == 2 for e in edges)
+1270	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:1295:8
+1294	        G.add_edges_from(gen)  # must not raise
+1295	        assert sorted(G.edges) == [(0, 1), (0, 2)]
+1296	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:1302:8
+1301	        r = nx.transitive_closure(D)
+1302	        assert r.number_of_edges() == 12
+1303	        assert sorted(r.edges) == sorted(
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:1303:8
+1302	        assert r.number_of_edges() == 12
+1303	        assert sorted(r.edges) == sorted(
+1304	            nx.transitive_closure(nx.DiGraph([(0, 1), (1, 2), (2, 0), (0, 3)])).edges
+1305	        )
+1306	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:1313:8
+1312	        G.add_edges_from(gen)  # must not raise due to borrow conflict
+1313	        assert G.has_edge(0, 3)
+1314	        assert G.has_edge(2, 0)
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:1314:8
+1313	        assert G.has_edge(0, 3)
+1314	        assert G.has_edge(2, 0)
+1315	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:1333:8
+1332	        diff = G.adj.keys() - {1, 2}
+1333	        assert diff == {0, 3, 4}
+1334	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:1338:8
+1337	        common = G.adj[0].keys() & G.adj[1].keys()
+1338	        assert common == {2, 3, 4}
+1339	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:1344:8
+1343	        G = fnx.path_graph(5)  # 0-1-2-3-4
+1344	        assert sorted(nx.non_neighbors(G, 0)) == [2, 3, 4]
+1345	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:1351:8
+1350	        iset, cliques = nx.approximation.clique_removal(G)
+1351	        assert len(cliques) == 1
+1352	        assert {0, 1, 2, 3, 4} == cliques[0]
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:1352:8
+1351	        assert len(cliques) == 1
+1352	        assert {0, 1, 2, 3, 4} == cliques[0]
+1353	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:1374:8
+1373	        G.graph = {"name": "test", "tag": "x"}
+1374	        assert dict(G.graph) == {"name": "test", "tag": "x"}
+1375	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:1385:8
+1384	        after = G.graph
+1385	        assert before is after
+1386	        assert dict(after) == {"foo": "bar"}
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:1386:8
+1385	        assert before is after
+1386	        assert dict(after) == {"foo": "bar"}
+1387	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:1390:8
+1389	        G = fnx.Graph(name="keep")
+1390	        assert dict(G.graph) == {"name": "keep"}
+1391	        del G.graph
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:1392:8
+1391	        del G.graph
+1392	        assert dict(G.graph) == {}
+1393	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:1398:12
+1397	            G.graph = {"role": "test"}
+1398	            assert dict(G.graph) == {"role": "test"}
+1399	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:1424:8
+1423	        MGn.add_edge(1, 2, key=0, w=3)
+1424	        assert nx.to_dict_of_dicts(MG) == nx.to_dict_of_dicts(MGn)
+1425	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:1430:8
+1429	        MG.add_edge(0, 1, key="b")
+1430	        assert MG.adj[0].copy() == {1: {"a": {}, "b": {}}}
+1431	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:1439:8
+1438	        snapshot = MG.adj.copy()
+1439	        assert snapshot == {0: {1: {0: {"w": 5}}}, 1: {0: {0: {"w": 5}}}}
+1440	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:1459:8
+1458	    def test_class_level_is_directed(self):
+1459	        assert fnx.Graph.is_directed(None) is False
+1460	        assert fnx.DiGraph.is_directed(None) is True
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:1460:8
+1459	        assert fnx.Graph.is_directed(None) is False
+1460	        assert fnx.DiGraph.is_directed(None) is True
+1461	        assert fnx.MultiGraph.is_directed(None) is False
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:1461:8
+1460	        assert fnx.DiGraph.is_directed(None) is True
+1461	        assert fnx.MultiGraph.is_directed(None) is False
+1462	        assert fnx.MultiDiGraph.is_directed(None) is True
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:1462:8
+1461	        assert fnx.MultiGraph.is_directed(None) is False
+1462	        assert fnx.MultiDiGraph.is_directed(None) is True
+1463	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:1465:8
+1464	    def test_class_level_is_multigraph(self):
+1465	        assert fnx.Graph.is_multigraph(None) is False
+1466	        assert fnx.DiGraph.is_multigraph(None) is False
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:1466:8
+1465	        assert fnx.Graph.is_multigraph(None) is False
+1466	        assert fnx.DiGraph.is_multigraph(None) is False
+1467	        assert fnx.MultiGraph.is_multigraph(None) is True
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:1467:8
+1466	        assert fnx.DiGraph.is_multigraph(None) is False
+1467	        assert fnx.MultiGraph.is_multigraph(None) is True
+1468	        assert fnx.MultiDiGraph.is_multigraph(None) is True
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:1468:8
+1467	        assert fnx.MultiGraph.is_multigraph(None) is True
+1468	        assert fnx.MultiDiGraph.is_multigraph(None) is True
+1469	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:1475:8
+1474	        MD = fnx.MultiDiGraph()
+1475	        assert G.is_directed() is False
+1476	        assert D.is_directed() is True
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:1476:8
+1475	        assert G.is_directed() is False
+1476	        assert D.is_directed() is True
+1477	        assert MG.is_multigraph() is True
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:1477:8
+1476	        assert D.is_directed() is True
+1477	        assert MG.is_multigraph() is True
+1478	        assert MD.is_multigraph() is True
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:1478:8
+1477	        assert MG.is_multigraph() is True
+1478	        assert MD.is_multigraph() is True
+1479	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:1484:8
+1483	        g = nx.gnp_random_graph(10, 0.3, seed=42, create_using=fnx.Graph)
+1484	        assert isinstance(g, fnx.Graph)
+1485	        assert g.number_of_nodes() == 10
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:1485:8
+1484	        assert isinstance(g, fnx.Graph)
+1485	        assert g.number_of_nodes() == 10
+1486	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:1491:8
+1490	        g = nx.barabasi_albert_graph(10, 2, seed=42, create_using=fnx.Graph)
+1491	        assert isinstance(g, fnx.Graph)
+1492	        assert g.number_of_nodes() == 10
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:1492:8
+1491	        assert isinstance(g, fnx.Graph)
+1492	        assert g.number_of_nodes() == 10
+1493	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:1498:8
+1497	        g = nx.gnp_random_graph(10, 0.3, seed=42, directed=True, create_using=fnx.DiGraph)
+1498	        assert isinstance(g, fnx.DiGraph)
+1499	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:1520:8
+1519	        G.remove_edges_from(nx.selfloop_edges(G))
+1520	        assert sorted(G.edges) == [(0, 1), (0, 2), (1, 2)]
+1521	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:1525:8
+1524	        G.remove_nodes_from(n for n in [1, 2] if n in G)
+1525	        assert sorted(G.nodes) == [0, 3, 4]
+1526	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:1546:8
+1545	
+1546	        assert list(graph.nodes()) == list(expected.nodes())
+1547	        assert list(graph.edges(data=True)) == list(expected.edges(data=True))
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:1547:8
+1546	        assert list(graph.nodes()) == list(expected.nodes())
+1547	        assert list(graph.edges(data=True)) == list(expected.edges(data=True))
+1548	        assert dict(graph.degree()) == dict(expected.degree())
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:1548:8
+1547	        assert list(graph.edges(data=True)) == list(expected.edges(data=True))
+1548	        assert dict(graph.degree()) == dict(expected.degree())
+1549	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_attribute_access_parity.py:1559:8
+1558	        first_split = next(nx.community.girvan_newman(G))
+1559	        assert len(first_split) == 2  # partition into 2 communities
+
+--------------------------------------------------
+
+Code scanned:
+	Total lines of code: 1299
+	Total lines skipped (#nosec): 0
+	Total potential issues skipped due to specifically being disabled (e.g., #nosec BXXX): 0
+
+Run metrics:
+	Total issues (by severity):
+		Undefined: 0
+		Low: 196
+		Medium: 0
+		High: 0
+	Total issues (by confidence):
+		Undefined: 0
+		Low: 0
+		Medium: 0
+		High: 196
+Files skipped (0):
+  ℹ Info (0 found)
+    Bandit scan completed
+    See output above
+
+• pip-audit (dependencies)
+  ℹ Info (0 found)
+    pip-audit run (if available)
+    Review advisories above
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+21. DEPRECATIONS & PY3.13 MIGRATIONS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+▓▓▓ Detects: deprecated modules/APIs likely to break on newer Python
+Proactive remediation avoids upgrade surprises.
+
+• Deprecated modules/APIs
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+22. PACKAGING & CONFIG HYGIENE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+▓▓▓ Detects: unpinned requirements, editable installs, local paths
+Supply-chain & reproducibility safeguards.
+
+• Requirements without pins
+
+• Editable installs / local paths
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+23. NOTEBOOK HYGIENE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+▓▓▓ Detects: large cell outputs, execution counts, trusted state
+Keeps VCS diffs clean and reproducible.
+
+• Large embedded outputs
+
+═══════════════════════════════════════════════════════════════════════════
+                    🎯 SCAN COMPLETE 🎯                                  
+═══════════════════════════════════════════════════════════════════════════
+
+Summary Statistics:
+  Files scanned:    2
+  Critical issues:  1
+  Warning issues:   30
+  Info items:       124
+
+Priority Actions:
+  🔥 FIX CRITICAL ISSUES IMMEDIATELY
+  These cause crashes, security vulnerabilities, or data corruption
+  ⚠ Review and fix WARNING items
+  These cause bugs, performance issues, or maintenance problems
+  ℹ Consider INFO suggestions
+  Code quality improvements and best practices
+
+Scan completed at: 2026-06-04 23:52:00
+
+Tip: Run with -v/--verbose for more code samples per finding.
+Add to pre-commit: ./ubs --ci --fail-on-warning --summary-json=.ubs-summary.json . > py-bug-scan-report.txt
+
+
+──────── rust ────────
+
+╔═══════════════════════════════════════════════════════════════════╗ 
+║  ██╗   ██╗██╗  ████████╗██╗███╗   ███╗ █████╗ ████████╗███████╗   ║ 
+║  ██║   ██║██║  ╚══██╔══╝██║████╗ ████║██╔══██╗╚══██╔══╝██╔════╝   ║ 
+║  ██║   ██║██║     ██║   ██║██╔████╔██║███████║   ██║   █████╗     ║ 
+║  ██║   ██║██║     ██║   ██║██║╚██╔╝██║██╔══██║   ██║   ██╔══╝     ║ 
+║  ╚██████╔╝███████╗██║   ██║██║ ╚═╝ ██║██║  ██║   ██║   ███████╗   ║ 
+║   ╚═════╝ ╚══════╝╚═╝   ╚═╝╚═╝     ╚═╝╚═╝  ╚═╝   ╚═╝   ╚══════╝   ║ 
+║                                            /\                     ║ 
+║  ██████╗ ██╗   ██╗ ██████╗                ( /   @ @    ()         ║ 
+║  ██╔══██╗██║   ██║██╔════╝                 \  __| |__  /          ║ 
+║  ██████╔╝██║   ██║██║  ███╗                 -/   "   \-           ║ 
+║  ██╔══██╗██║   ██║██║   ██║                /-|       |-\          ║ 
+║  ██████╔╝╚██████╔╝╚██████╔╝               / /-\     /-\ \         ║ 
+║  ╚═════╝  ╚═════╝  ╚═════╝                 / /-`---'-\\ \          ║ 
+║                                             /         \           ║ 
+║                                                                   ║ 
+║  ███████╗  ██████╗   █████╗ ███╗   ██╗███╗   ██╗███████╗██████╗   ║ 
+║  ██╔════╝  ██╔═══╝  ██╔══██╗████╗  ██║████╗  ██║██╔════╝██╔══██╗  ║ 
+║  ███████╗  ██║      ███████║██╔██╗ ██║██╔██╗ ██║█████╗  ██████╔╝  ║ 
+║  ╚════██║  ██║      ██╔══██║██║╚██╗██║██║╚██╗██║██╔══╝  ██╔══██╗  ║ 
+║  ███████║  ██████╗  ██║  ██║██║ ╚████║██║ ╚████║███████╗██║  ██║  ║ 
+║  ╚══════╝  ╚═════╝  ╚═╝╚═╝  ╚═══╝╚═╝  ╚═══╝╚══════╝╚═╝  ╚═╝       ║ 
+║                                                                   ║ 
+║  Rust module • ownership sanity, unsafe & async spotlights        ║ 
+║  UBS module: rust • cargo-aware targeting, low-noise caching      ║ 
+║  ASCII homage: Ferris crab (ASCII Art Archive)                    ║ 
+║  Run standalone: modules/ubs-rust.sh --help                       ║ 
+║                                                                   ║ 
+║  Night Owl QA                                                     ║ 
+║  “We see bugs before you do.”                                     ║ 
+╚═══════════════════════════════════════════════════════════════════╝ 
+                                                                      
+
+Project:  /data/projects/franken_networkx
+Started:  2026-06-04 23:51:53
+Files:    2 source files (rs)
+
+✓ ast-grep available (ast-grep) - full AST analysis enabled
+✓ cargo detected
+  ✓ clippy available
+  ✓ rustfmt available
+  ✓ cargo-audit available
+  ✓ cargo-deny available
+  ⚠ cargo-udeps not installed
+  ⚠ cargo-outdated not installed
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. OWNERSHIP & ERROR HANDLING MACROS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+▓▓▓ Detects: unwrap/expect, panic/unreachable/todo/unimplemented, dbg/println
+Panic-prone and debug macros frequently leak into production and cause crashes
+
+• unwrap()/expect() usage
+  ⚠ Warning (189 found)
+    Potential panics via unwrap/expect
+    Prefer `?` or match to propagate/handle errors
+      /data/projects/franken_networkx/crates/fnx-classes/src/lib.rs:566 (https://github.com/Dicklesworthstone/franken_networkx/blob/6c721e9429d15c15255be5ec47b4fa283801f813/crates/fnx-classes/src/lib.rs#L566)
+                  self.adjacency
+      /data/projects/franken_networkx/crates/fnx-classes/src/lib.rs:567 (https://github.com/Dicklesworthstone/franken_networkx/blob/6c721e9429d15c15255be5ec47b4fa283801f813/crates/fnx-classes/src/lib.rs#L567)
+                      .get_mut(&left)
+      /data/projects/franken_networkx/crates/fnx-classes/src/lib.rs:568 (https://github.com/Dicklesworthstone/franken_networkx/blob/6c721e9429d15c15255be5ec47b4fa283801f813/crates/fnx-classes/src/lib.rs#L568)
+                      .expect("edge endpoint must have an adjacency bucket")
+      /data/projects/franken_networkx/crates/fnx-classes/src/lib.rs:571 (https://github.com/Dicklesworthstone/franken_networkx/blob/6c721e9429d15c15255be5ec47b4fa283801f813/crates/fnx-classes/src/lib.rs#L571)
+                      self.adjacency
+      /data/projects/franken_networkx/crates/fnx-classes/src/lib.rs:572 (https://github.com/Dicklesworthstone/franken_networkx/blob/6c721e9429d15c15255be5ec47b4fa283801f813/crates/fnx-classes/src/lib.rs#L572)
+                          .get_mut(&right)
+
+• panic!/unreachable!/todo!/unimplemented!
+  ✓ OK No panic! macros
+
+• dbg!/println!/eprintln!
+
+• Guard clauses that still unwrap later
+  ✓ OK No guard/unwrap mismatches detected
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+2. UNSAFE & MEMORY OPERATIONS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+▓▓▓ Detects: unsafe blocks, transmute/uninitialized/zeroed/forget, raw ffi hazards
+These patterns may introduce UB, memory leaks, or hard-to-debug crashes
+
+• unsafe { ... } blocks
+  ✓ OK No unsafe blocks detected
+
+• transmute, uninitialized, zeroed, assume_init, forget
+
+• CStr::from_bytes_with_nul_unchecked
+
+• get_unchecked / from_utf8_unchecked / from_raw_parts
+
+• Unsafe Send/Sync impls
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+3. CONCURRENCY & ASYNC PITFALLS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+▓▓▓ Detects: Arc<Mutex>, Rc<RefCell>, blocking ops in async, await-in-loop, spawn misuse
+Concurrency misuse leads to deadlocks, head-of-line blocking, and performance issues
+
+• Arc<Mutex<..>> / Rc<RefCell<..>> / RwLock
+
+• Mutex::lock().unwrap()/expect()
+
+• await inside loops (sequentialism)
+
+• Blocking ops inside async (thread::sleep, std::fs)
+
+• block_on within async context
+
+• std::thread::spawn within async
+
+• tokio::spawn usage (heuristic for detached tasks)
+
+• Async error path coverage
+  ✓ OK No tokio::spawn usage detected
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+4. NUMERIC & FLOATING-POINT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+▓▓▓ Detects: float equality, division/modulo by variable, potential overflow hints
+Numeric bugs cause subtle logic errors or panics in debug builds (overflow)
+
+• Floating-point equality comparisons
+  ℹ Info (3 found)
+    Float equality/inequality check
+    Consider epsilon comparisons
+      /data/projects/franken_networkx/crates/fnx-python/src/lib.rs:115 (https://github.com/Dicklesworthstone/franken_networkx/blob/6c721e9429d15c15255be5ec47b4fa283801f813/crates/fnx-python/src/lib.rs#L115)
+              if f.is_finite() && f.fract() == 0.0 && f >= i64::MIN as f64 && f <= i64::MAX as f64 {
+      /data/projects/franken_networkx/crates/fnx-python/src/lib.rs:157 (https://github.com/Dicklesworthstone/franken_networkx/blob/6c721e9429d15c15255be5ec47b4fa283801f813/crates/fnx-python/src/lib.rs#L157)
+              if f.is_finite() && f.fract() == 0.0 && f >= i64::MIN as f64 && f <= i64::MAX as f64 {
+
+• Division/modulo by variable (verify non-zero)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+5. COLLECTIONS & ITERATORS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+▓▓▓ Detects: clone in loops, collect then iterate, nth(0), length checks
+Iterator misuse often leads to unnecessary allocations or slow paths
+
+• clone() occurrences & clone() in loops
+  ℹ Info (229 found)
+    clone() usages - audit for necessity
+      /data/projects/franken_networkx/crates/fnx-classes/src/lib.rs:191 (https://github.com/Dicklesworthstone/franken_networkx/blob/6c721e9429d15c15255be5ec47b4fa283801f813/crates/fnx-classes/src/lib.rs#L191)
+                  graph.nodes.insert(node.clone(), AttrMap::new());
+      /data/projects/franken_networkx/crates/fnx-classes/src/lib.rs:194 (https://github.com/Dicklesworthstone/franken_networkx/blob/6c721e9429d15c15255be5ec47b4fa283801f813/crates/fnx-classes/src/lib.rs#L194)
+                      .insert(node.clone(), IndexSet::with_capacity(n.saturating_sub(1)));
+      /data/projects/franken_networkx/crates/fnx-classes/src/lib.rs:201 (https://github.com/Dicklesworthstone/franken_networkx/blob/6c721e9429d15c15255be5ec47b4fa283801f813/crates/fnx-classes/src/lib.rs#L201)
+                          left_neighbors.insert(right.clone());
+  ⚠ Warning (132 found)
+    clone() inside loops - potential perf hit
+      /data/projects/franken_networkx/crates/fnx-classes/src/lib.rs:191 (https://github.com/Dicklesworthstone/franken_networkx/blob/6c721e9429d15c15255be5ec47b4fa283801f813/crates/fnx-classes/src/lib.rs#L191)
+      graph.nodes.insert(node.clone(), AttrMap::new());
+      /data/projects/franken_networkx/crates/fnx-classes/src/lib.rs:194 (https://github.com/Dicklesworthstone/franken_networkx/blob/6c721e9429d15c15255be5ec47b4fa283801f813/crates/fnx-classes/src/lib.rs#L194)
+      .insert(node.clone(), IndexSet::with_capacity(n.saturating_sub(1)));
+      /data/projects/franken_networkx/crates/fnx-classes/src/lib.rs:201 (https://github.com/Dicklesworthstone/franken_networkx/blob/6c721e9429d15c15255be5ec47b4fa283801f813/crates/fnx-classes/src/lib.rs#L201)
+      left_neighbors.insert(right.clone());
+
+• collect::<Vec<_>>() then for
+  ℹ Info (82 found)
+    collect::<Vec<_>>() usage - consider streaming
+      /data/projects/franken_networkx/crates/fnx-classes/src/lib.rs:178 (https://github.com/Dicklesworthstone/franken_networkx/blob/6c721e9429d15c15255be5ec47b4fa283801f813/crates/fnx-classes/src/lib.rs#L178)
+              let node_labels = (0..n).map(|node| node.to_string()).collect::<Vec<_>>();
+      /data/projects/franken_networkx/crates/fnx-classes/src/lib.rs:283 (https://github.com/Dicklesworthstone/franken_networkx/blob/6c721e9429d15c15255be5ec47b4fa283801f813/crates/fnx-classes/src/lib.rs#L283)
+                  .map(|neighbors| neighbors.iter().map(String::as_str).collect::<Vec<&str>>())
+      /data/projects/franken_networkx/crates/fnx-classes/src/lib.rs:1206 (https://github.com/Dicklesworthstone/franken_networkx/blob/6c721e9429d15c15255be5ec47b4fa283801f813/crates/fnx-classes/src/lib.rs#L1206)
+                  .map(|neighbors| neighbors.keys().map(String::as_str).collect::<Vec<&str>>())
+
+• nth(0) → next()
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+6. STRING & ALLOCATION SMELLS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+▓▓▓ Detects: needless allocations, format!(literal), to_owned().to_string()
+Unnecessary allocations and conversions reduce performance
+
+• to_owned().to_string() chain
+
+• format!("literal") with no placeholders
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+7. FILESYSTEM & PROCESS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+▓▓▓ Detects: blocking std::fs in async, process::Command usage heuristics
+I/O misuse or command construction from untrusted input can be risky
+
+• std::fs usage (general inventory)
+
+• std::process::Command usage
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+8. SECURITY FINDINGS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+▓▓▓ Detects: TLS verification disabled, weak hash algos, security-sensitive non-crypto randomness, timing-unsafe secret comparisons, JWT verification bypasses, shell command injection, request-derived response headers/open redirects/host-header absolute URLs/outbound URLs/SQL/regex, unbounded request body reads, credentialed CORS, HTTP URLs, secrets
+Security misconfigurations can lead to credential leaks, command injection, and MITM attacks
+
+• Weak hash algorithms (MD5/SHA1)
+  ✓ OK No MD5/SHA1 found
+
+• TLS verification disabled
+
+• Security-sensitive non-crypto randomness
+  ✓ OK No security-sensitive non-crypto randomness detected
+
+• Secret/token comparisons without timing-safe equality
+  ✓ OK No secret comparisons using ==/!= detected
+
+• JWT decode, validation bypass, or missing claim binding
+  ✓ OK No JWT decode/validation bypass patterns detected
+
+• Shell command execution through -c/-lc
+  ✓ OK No shell -c/-lc Command usage detected
+
+• Command::new executable from untrusted-looking value
+
+• Path join/push with untrusted-looking segment
+
+• Archive entry paths joined into extraction destination
+
+• Predictable temp-file writes
+
+• Request-derived open redirects
+  ✓ OK No request-derived open redirect sinks detected
+
+• Host header used for absolute URL construction
+  ✓ OK No Host-header-derived absolute URL construction detected
+
+• Request-derived response headers
+  ✓ OK No request-derived response header values detected
+
+• Request-derived outbound HTTP URLs
+  ✓ OK No request-derived outbound HTTP URL sinks detected
+
+• Request-derived SQL construction
+  ✓ OK No request-derived SQL construction sinks detected
+
+• Request-controlled regex patterns
+  ✓ OK No request-controlled regex compilation detected
+
+• Unbounded request body reads
+  ✓ OK No unbounded request body reads detected
+
+• CORS credential policy
+  ✓ OK No unsafe CORS credential policy detected
+
+• Plain http:// URLs
+
+• Hardcoded secrets/credentials
+  ✓ OK No hardcoded secrets detected
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+9. CODE QUALITY MARKERS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+▓▓▓ Detects: TODO, FIXME, HACK, NOTE
+Technical debt markers indicate incomplete or problematic code
+  ✓ OK No TODO/FIXME/HACK markers found
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+10. MODULE & VISIBILITY ISSUES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+▓▓▓ Detects: pub use wildcards, glob imports, re-exports
+Overly broad visibility complicates API stability and encapsulation
+
+• Wildcard imports (use crate::* or ::*)
+  ℹ Info (3 found)
+    Wildcard imports found; prefer explicit names
+      /data/projects/franken_networkx/crates/fnx-classes/src/lib.rs:1758 (https://github.com/Dicklesworthstone/franken_networkx/blob/6c721e9429d15c15255be5ec47b4fa283801f813/crates/fnx-classes/src/lib.rs#L1758)
+          use proptest::prelude::*;
+      /data/projects/franken_networkx/crates/fnx-python/src/lib.rs:22 (https://github.com/Dicklesworthstone/franken_networkx/blob/6c721e9429d15c15255be5ec47b4fa283801f813/crates/fnx-python/src/lib.rs#L22)
+      use pyo3::prelude::*;
+      /data/projects/franken_networkx/crates/fnx-python/src/lib.rs:4826 (https://github.com/Dicklesworthstone/franken_networkx/blob/6c721e9429d15c15255be5ec47b4fa283801f813/crates/fnx-python/src/lib.rs#L4826)
+          use super::*;
+
+• pub use re-exports (inventory)
+  ℹ Info (1 found)
+    pub use re-exports present - verify API surface
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+11. TESTS & BENCHES HYGIENE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+▓▓▓ Detects: ignored tests, todo! in tests, println!/dbg! in tests
+Ensure tests do not hide failures or produce noisy output
+
+• #[ignore] tests
+
+• todo!/unimplemented! in tests
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+12. LINTS & STYLE (fmt/clippy)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+▓▓▓ Runs: cargo fmt -- --check, cargo clippy
+Formatter and lints help maintain consistent style and catch many issues
+  ✓ OK Formatting is clean
+  ✓ OK No clippy warnings/errors
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+13. BUILD HEALTH (check/test)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+▓▓▓ Runs: cargo check, cargo test --no-run
+Ensures the project compiles and tests build
+  ✓ OK cargo check clean
+  ✓ OK Tests build clean
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+14. DEPENDENCY HYGIENE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+▓▓▓ Runs: cargo audit, cargo deny check, cargo udeps, cargo outdated
+Keeps dependencies safe, minimal, and up-to-date
+  ✓ OK No known advisories (cargo-audit)
+  ✓ OK cargo-deny clean
+  ℹ Info (1 found)
+    cargo-udeps not installed; skipping unused dep scan
+  ℹ Info (1 found)
+    cargo-outdated not installed; skipping update report
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+15. API MISUSE (COMMON)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+▓▓▓ Detects: nth(0), DefaultHasher, expect_err/unwrap_err, Option::unwrap_or_default in hot paths
+Common footguns and readability hazards
+
+• std::collections::hash_map::DefaultHasher
+
+• unwrap_err()/expect_err() usage inventory
+  ℹ Info (1 found)
+    unwrap_err/expect_err present - ensure test-only or justified
+
+• Option::unwrap_or_default inventory
+  ℹ Info (38 found)
+    unwrap_or_default present - validate default semantics
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+16. DOMAIN-SPECIFIC HEURISTICS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+▓▓▓ Detects: reqwest builder, SQL string concatenation (heuristic), serde_json::from_str without context
+Domain patterns that often hint at bugs
+
+• reqwest::ClientBuilder inventory
+
+• serde_json::from_str without error context (heuristic)
+  ℹ Info (1 found)
+    serde_json::from_str uses - ensure error context and validation
+
+• SQL string concatenation (heuristic)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+17. AST-GREP RULE PACK FINDINGS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  ℹ Info (0 found)
+    AST rule pack staged
+    Run with --format=sarif to emit SARIF from the rule pack
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+18. META STATISTICS & INVENTORY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+▓▓▓ Detects: crate counts, bin/lib targets, feature flags (Cargo.toml heuristic)
+High-level view of the project layout
+
+• Cargo.toml features (heuristic count)
+  ℹ Info (1 found)
+    No Cargo.toml at project root (workspace? set PROJECT_DIR accordingly)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+19. RESOURCE LIFECYCLE CORRELATION
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+▓▓▓ Detects: std::thread::spawn without join, tokio::spawn without await, TcpStream without shutdown
+Rust relies on explicit joins/shutdowns even with RAII—leaks create zombie work
+
+• Resource lifecycle correlation
+  ✓ OK All tracked resource acquisitions have matching cleanups
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+20. ASYNC LOCKING ACROSS AWAIT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+▓▓▓ Detects: locks acquired in async fns and potentially held across await
+Holding locks across await can deadlock, starve tasks, and cause latency spikes; std::sync locks can block executor threads
+
+• std::sync lock usage inside async fn (blocking risk)
+  ✓ OK No obvious std::sync lock usage inside async fns
+
+• Potential std::sync guard held across await (heuristic)
+
+• Potential async lock guard held across await (tokio/async locks heuristic)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+21. PANIC SURFACES & UNWINDING
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+▓▓▓ Detects: assert macros, direct indexing, unreachable_unchecked/unwrap_unchecked, panic/unwrap inside Drop
+Panics in destructors or UB hints can crash/abort in subtle ways; these can slip past linting depending on cfg/features
+
+• assert!/assert_eq!/assert_ne! inventory
+  ⚠ Warning (147 found)
+    assert! macros present (panic surface)
+    If these are runtime invariants, consider explicit error handling; ensure not reachable by untrusted input
+
+• unreachable_unchecked / unwrap_unchecked
+
+• direct indexing / slicing panic surfaces
+  ⚠ Warning (16 found)
+    Direct indexing/slicing may panic
+    Use get()/get_mut(), checked ranges, or prior bounds checks when indexes can come from input
+      /data/projects/franken_networkx/crates/fnx-classes/src/lib.rs:198 (https://github.com/Dicklesworthstone/franken_networkx/blob/6c721e9429d15c15255be5ec47b4fa283801f813/crates/fnx-classes/src/lib.rs#L198)
+                  let left = &node_labels[left_index];
+      /data/projects/franken_networkx/crates/fnx-classes/src/lib.rs:207 (https://github.com/Dicklesworthstone/franken_networkx/blob/6c721e9429d15c15255be5ec47b4fa283801f813/crates/fnx-classes/src/lib.rs#L207)
+                      graph.adj_indices[left_index].push(right_index);
+      /data/projects/franken_networkx/crates/fnx-classes/src/lib.rs:208 (https://github.com/Dicklesworthstone/franken_networkx/blob/6c721e9429d15c15255be5ec47b4fa283801f813/crates/fnx-classes/src/lib.rs#L208)
+                      graph.adj_indices[right_index].push(left_index);
+
+• panic!/unwrap/expect inside Drop
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+22. SUSPICIOUS CASTS & TRUNCATION
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+▓▓▓ Detects: pervasive `as` casts, try_into().unwrap, numeric narrowing patterns
+`as` casts can silently truncate or change sign; conversion panics may be missed in uncommon input paths
+
+• `as` cast inventory
+  ℹ Info (5 found)
+    `as` casts present (possible truncation/sign bugs)
+    Prefer TryFrom/TryInto for correctness or document invariants
+      /data/projects/franken_networkx/crates/fnx-python/src/lib.rs:116 (https://github.com/Dicklesworthstone/franken_networkx/blob/6c721e9429d15c15255be5ec47b4fa283801f813/crates/fnx-python/src/lib.rs#L116)
+                  return Ok((f as i64).to_string());
+      /data/projects/franken_networkx/crates/fnx-python/src/lib.rs:115 (https://github.com/Dicklesworthstone/franken_networkx/blob/6c721e9429d15c15255be5ec47b4fa283801f813/crates/fnx-python/src/lib.rs#L115)
+              if f.is_finite() && f.fract() == 0.0 && f >= i64::MIN as f64 && f <= i64::MAX as f64 {
+      /data/projects/franken_networkx/crates/fnx-python/src/lib.rs:157 (https://github.com/Dicklesworthstone/franken_networkx/blob/6c721e9429d15c15255be5ec47b4fa283801f813/crates/fnx-python/src/lib.rs#L157)
+              if f.is_finite() && f.fract() == 0.0 && f >= i64::MIN as f64 && f <= i64::MAX as f64 {
+
+• len()/count() narrowed via `as`
+
+• try_into().unwrap()/expect() (panic on conversion failure)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+23. PARSING & VALIDATION ROBUSTNESS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+▓▓▓ Detects: parse/from_str/env-var unwraps, decode unwraps, missing error context
+Parsing and decoding failures often happen in prod on edge inputs; unwrap/expect turns them into panics
+
+• parse::<T>().unwrap()/expect()
+
+• serde/toml deserialization unwrap()/expect()
+
+• env::var(...).unwrap()/expect()
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+24. PERF/DoS HOTSPOTS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+▓▓▓ Detects: regex compilation in loops, chars().nth(n), format!/allocations in loops
+Some perf pitfalls become DoS risks on large inputs or hot paths; these often evade linting in non-bench builds
+
+• Regex::new occurrences and in-loop compilation
+  ✓ OK No regex::Regex::new detected
+
+• chars().nth(n)/nth_back(n) (O(n))
+
+• format!/to_string/allocations inside loops (heuristic)
+  ⚠ Warning (50 found)
+    String allocation inside loop
+    Consider preallocating buffers, using write!, or restructuring to reduce allocations
+      /data/projects/franken_networkx/crates/fnx-classes/src/lib.rs:1660 (https://github.com/Dicklesworthstone/franken_networkx/blob/6c721e9429d15c15255be5ec47b4fa283801f813/crates/fnx-classes/src/lib.rs#L1660)
+      (pair.left.to_owned(), pair.right.to_owned(), *key);
+      /data/projects/franken_networkx/crates/fnx-classes/src/lib.rs:1665 (https://github.com/Dicklesworthstone/franken_networkx/blob/6c721e9429d15c15255be5ec47b4fa283801f813/crates/fnx-classes/src/lib.rs#L1665)
+      left: pair.left.to_owned(),
+      /data/projects/franken_networkx/crates/fnx-classes/src/lib.rs:1666 (https://github.com/Dicklesworthstone/franken_networkx/blob/6c721e9429d15c15255be5ec47b4fa283801f813/crates/fnx-classes/src/lib.rs#L1666)
+      right: pair.right.to_owned(),
+
+═══════════════════════════════════════════════════════════════════════════
+                    🎯 SCAN COMPLETE 🎯                                  
+═══════════════════════════════════════════════════════════════════════════
+
+Summary Statistics:
+  Files scanned:    2
+  Critical issues:  0
+  Warning issues:   534
+  Info items:       366
+
+Priority Actions:
+  ⚠ Review and fix WARNING items
+  These cause bugs, performance issues, or maintenance problems
+  ℹ Consider INFO suggestions
+  Code quality improvements and best practices
+
+Scan completed at: 2026-06-04 23:52:08
+
+Tip: Run with -v/--verbose for more code samples per finding.
+Add to CI: ./ubs --ci --fail-on-warning . > rust-bug-scan.txt
+
+
+──────── Combined Summary ────────
+Files: 4
+Critical: 1
+Warning: 564
+Info: 490
