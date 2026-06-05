@@ -11840,14 +11840,17 @@ def intersection(G, H):
     br-r37-c1-saf8a: nx implements intersection via Python set
     intersection and ``add_nodes_from(set) / add_edges_from(set)``,
     which produces a hash-based (but stable + deterministic) node and
-    edge iteration order. The Rust binding traversed internal
-    adjacency in a different order, drifting both the node order and
-    the edge tuple direction. Delegate to nx so the resulting graph's
-    ``nodes()`` / ``edges()`` iteration matches its contract exactly.
-    Sister ``difference`` / ``symmetric_difference`` ops were already
-    matching and remain on the Rust path.
+    edge iteration order.
+
+    br-r37-c1-aun4c: intersection_all now replicates nx's set-based
+    construction VERBATIM in pure Python (identical set iteration), so
+    the nx round-trip (_intersection_via_parity: 2x fnx->nx conversion
+    + per-edge rebuild, ~7x nx) is no longer needed — nx's own
+    ``intersection`` is exactly ``intersection_all([G, H])``.
     """
-    return _intersection_via_parity(G, H)
+    G = _coerce_arg_to_fnx_graph(G)
+    H = _coerce_arg_to_fnx_graph(H)
+    return intersection_all([G, H])
 
 
 def _intersection_via_parity(G, H):
@@ -11869,21 +11872,29 @@ def difference(G, H):
     # br-r37-c1-jwdzp: accept nx-typed inputs (sibling of br-r37-c1-i2uub).
     G = _coerce_arg_to_fnx_graph(G)
     H = _coerce_arg_to_fnx_graph(H)
-    # br-diffnodes: nx enforces that G and H have identical node sets and
-    # raises NetworkXError("Node sets of graphs not equal") otherwise. fnx
-    # silently computed an edge-set difference over whatever nodes were
-    # present, silently diverging on any real-world misuse.
-    if set(G.nodes()) != set(H.nodes()):
+    # br-r37-c1-aun4c: replicate installed nx VERBATIM, including the
+    # check SEQUENCE (multigraph mismatch -> create_empty_copy -> node-set
+    # equality — br-diffnodes' early node-set check fired before the
+    # mismatch error, diverging on doubly-invalid inputs).
+    # create_empty_copy(with_data=False) gives G's node order with NO
+    # node/graph attrs; result edges carry NO data. The per-edge add_edge
+    # loop is batched into one add_edges_from (order/dedup-identical).
+    # Replaces both the _raw_difference+rebuild path (~8.4x,
+    # rebuild-tax-bound) and the MultiGraph nx round-trip.
+    if G.is_multigraph() != H.is_multigraph():
+        raise NetworkXError("G and H must both be graphs or multigraphs.")
+    R = create_empty_copy(G, with_data=False)
+    if set(G) != set(H):
         raise NetworkXError("Node sets of graphs not equal")
     if G.is_multigraph():
-        # br-r37-c1-6sgls: the Rust _raw_difference collapses parallel
-        # edges to a simple-graph difference. nx's MultiGraph contract
-        # treats each (u, v, key) as distinct. Delegate to nx so
-        # parallel edges are preserved across the difference.
-        return _multigraph_diff_via_parity("difference", G, H)
-    cls = _operator_output_class(G, H)
-    raw = _raw_difference(G, H)
-    return _rebuild_operator_output(raw, cls)
+        R.add_edges_from(
+            (u, v, key)
+            for u, v, key in G.edges(keys=True)
+            if not H.has_edge(u, v, key)
+        )
+    else:
+        R.add_edges_from(e for e in G.edges() if not H.has_edge(*e))
+    return R
 
 
 def symmetric_difference(G, H):
@@ -11891,16 +11902,34 @@ def symmetric_difference(G, H):
     # br-r37-c1-jwdzp: accept nx-typed inputs (sibling of br-r37-c1-i2uub).
     G = _coerce_arg_to_fnx_graph(G)
     H = _coerce_arg_to_fnx_graph(H)
-    # br-diffnodes: same precondition as ``difference``.
-    if set(G.nodes()) != set(H.nodes()):
+    # br-r37-c1-aun4c: replicate installed nx VERBATIM (see difference) —
+    # check sequence, with_data=False copy depth, the (vestigial under the
+    # equal-node-sets precondition) symmetric-difference node add, and
+    # both directional edge passes, each batched into one add_edges_from.
+    if G.is_multigraph() != H.is_multigraph():
+        raise NetworkXError("G and H must both be graphs or multigraphs.")
+    R = create_empty_copy(G, with_data=False)
+    if set(G) != set(H):
         raise NetworkXError("Node sets of graphs not equal")
+    gnodes = set(G)
+    hnodes = set(H)
+    nodes = gnodes.symmetric_difference(hnodes)
+    R.add_nodes_from(nodes)
     if G.is_multigraph():
-        # br-r37-c1-6sgls: same as difference — delegate MultiGraph
-        # case to nx so parallel edges aren't collapsed.
-        return _multigraph_diff_via_parity("symmetric_difference", G, H)
-    cls = _operator_output_class(G, H)
-    raw = _raw_symmetric_difference(G, H)
-    return _rebuild_operator_output(raw, cls)
+        R.add_edges_from(
+            (u, v, key)
+            for u, v, key in G.edges(keys=True)
+            if not H.has_edge(u, v, key)
+        )
+        R.add_edges_from(
+            (u, v, key)
+            for u, v, key in H.edges(keys=True)
+            if not G.has_edge(u, v, key)
+        )
+    else:
+        R.add_edges_from(e for e in G.edges() if not H.has_edge(*e))
+        R.add_edges_from(e for e in H.edges() if not G.has_edge(*e))
+    return R
 
 
 def _multigraph_diff_via_parity(name, G, H):
@@ -20018,27 +20047,39 @@ def intersection_all(graphs):
 
     The intersection contains nodes and edges present in all graphs.
     """
-    graphs = list(graphs)
-    if not graphs:
-        # br-r37-c1-iall-msg: nx phrases this as "empty list", not
-        # "empty sequence" — match exactly so caller-side string
-        # checks (and parity tests) align.
+    # br-r37-c1-aun4c: replicate installed nx VERBATIM — node and edge
+    # order come from CPython SET iteration (set(G.nodes) / set(G.edges)
+    # with both orientations added for undirected graphs, then in-place
+    # &=), NOT from graphs[0] insertion order. The old G0-order walk
+    # silently diverged on both node and edge order. Pure-Python set ops
+    # over the same values reproduce nx's iteration exactly (the jv0h5
+    # kneser principle); error checks fire in nx's exact sequence.
+    R = None
+    for i, G in enumerate(graphs):
+        G_nodes_set = set(G.nodes)
+        G_edges_set = set(G.edges)
+        if not G.is_directed():
+            if G.is_multigraph():
+                G_edges_set.update((v, u, k) for u, v, k in list(G_edges_set))
+            else:
+                G_edges_set.update((v, u) for u, v in list(G_edges_set))
+        if i == 0:
+            R = G.__class__()
+            node_intersection = G_nodes_set
+            edge_intersection = G_edges_set
+        elif G.is_directed() != R.is_directed():
+            raise NetworkXError("All graphs must be directed or undirected.")
+        elif G.is_multigraph() != R.is_multigraph():
+            raise NetworkXError("All graphs must be graphs or multigraphs.")
+        else:
+            node_intersection &= G_nodes_set
+            edge_intersection &= G_edges_set
+
+    if R is None:
         raise ValueError("cannot apply intersection_all to an empty list")
-    _validate_same_graph_family(graphs)
 
-    R = graphs[0].__class__()
-    for node in graphs[0].nodes():
-        if all(node in G for G in graphs[1:]):
-            R.add_node(node)
-
-    if graphs[0].is_multigraph():
-        for u, v, key in graphs[0].edges(keys=True):
-            if u in R and v in R and all(G.has_edge(u, v, key) for G in graphs[1:]):
-                R.add_edge(u, v, key=key)
-    else:
-        for u, v in graphs[0].edges():
-            if u in R and v in R and all(G.has_edge(u, v) for G in graphs[1:]):
-                R.add_edge(u, v)
+    R.add_nodes_from(node_intersection)
+    R.add_edges_from(edge_intersection)
     # br-norebuild: skip the redundant _from_nx_graph second construction when R
     # is already an fnx graph; only convert nx-typed results (br-r37-c1-5388d:
     # the _nx.Graph reference lives in _finalize_operator_result so this public
