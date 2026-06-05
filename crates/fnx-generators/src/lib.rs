@@ -4658,6 +4658,10 @@ impl GraphGenerator {
         let mut rng = PythonRandom::new(seed);
 
         let mut repeated_nodes: Vec<usize> = (0..m).collect();
+        // Distinct values currently in `repeated_nodes`, maintained in lockstep
+        // so `random_subset_python_cpyset_order` need not rescan O(|repeated|)
+        // each source (br-r37-c1-n5c3e).
+        let mut repeated_unique: std::collections::HashSet<usize> = (0..m).collect();
 
         for source in m..n {
             // nx's `_random_subset` returns a Python `set`; Holme-Kim pops it one
@@ -4666,31 +4670,55 @@ impl GraphGenerator {
             // per-pop target sequence (and therefore the cascading `repeated_nodes`
             // growth and downstream draws) matches nx byte-for-byte. (BA is immune
             // because it links to *all* targets, so it keeps `random_subset_python`.)
-            let mut possible_targets =
-                random_subset_python_cpyset_order(&repeated_nodes, m, &mut rng);
+            let mut possible_targets = random_subset_python_cpyset_order(
+                &repeated_nodes,
+                m,
+                repeated_unique.len(),
+                &mut rng,
+            );
             let Some(mut target) = possible_targets.pop_front() else {
                 continue;
             };
+            // br-r37-c1-n5c3e: `source` is a fresh node whose only edges are the
+            // ones added in this iteration, so a tracked integer set reproduces
+            // `has_edge(source, neighbor)` without the String-keyed lookup. Node
+            // labels equal their node index (nodes are added "0".."n-1" in
+            // order), so the set holds raw indices.
+            let mut source_neighbors: std::collections::HashSet<usize> =
+                std::collections::HashSet::new();
             let _ = graph.add_edge(node_labels[source].clone(), node_labels[target].clone());
+            source_neighbors.insert(target);
             repeated_nodes.push(target);
+            repeated_unique.insert(target);
 
             let mut count = 1;
             while count < m {
                 if rng.random() < p {
-                    let neighborhood = graph.neighbors(&node_labels[target]).unwrap_or_default();
-                    let candidates: Vec<usize> = neighborhood
-                        .into_iter()
-                        .filter_map(|neighbor| neighbor.parse::<usize>().ok())
-                        .filter(|&neighbor| {
-                            neighbor != source
-                                && !graph.has_edge(&node_labels[source], &node_labels[neighbor])
+                    // `neighbors_indices(target)` yields target's neighbours as
+                    // usize labels in the SAME adjacency insertion order that
+                    // `neighbors()` did — preserving the candidate order that
+                    // feeds `rng.choice_index` — while skipping the per-step
+                    // Vec<&str> allocation + `parse::<usize>` and the String-keyed
+                    // `has_edge` probe of the previous implementation.
+                    let candidates: Vec<usize> = graph
+                        .neighbors_indices(target)
+                        .map(|neighbors| {
+                            neighbors
+                                .iter()
+                                .copied()
+                                .filter(|&neighbor| {
+                                    neighbor != source && !source_neighbors.contains(&neighbor)
+                                })
+                                .collect()
                         })
-                        .collect();
+                        .unwrap_or_default();
                     if !candidates.is_empty() {
                         let nbr = candidates[rng.choice_index(candidates.len())];
                         let _ =
                             graph.add_edge(node_labels[source].clone(), node_labels[nbr].clone());
+                        source_neighbors.insert(nbr);
                         repeated_nodes.push(nbr);
+                        repeated_unique.insert(nbr);
                         count += 1;
                         continue;
                     }
@@ -4701,11 +4729,14 @@ impl GraphGenerator {
                 };
                 target = next_target;
                 let _ = graph.add_edge(node_labels[source].clone(), node_labels[target].clone());
+                source_neighbors.insert(target);
                 repeated_nodes.push(target);
+                repeated_unique.insert(target);
                 count += 1;
             }
 
             repeated_nodes.extend(std::iter::repeat_n(source, m));
+            repeated_unique.insert(source);
         }
 
         self.record(
@@ -6449,18 +6480,20 @@ fn cpython_set_pop_order(insertion_order: &[usize]) -> Vec<usize> {
 fn random_subset_python_cpyset_order(
     seq: &[usize],
     count: usize,
+    unique_cap: usize,
     rng: &mut PythonRandom,
 ) -> std::collections::VecDeque<usize> {
+    // br-r37-c1-n5c3e: `unique_cap` (the number of distinct values in `seq`) is
+    // passed in by the caller, maintained incrementally. Previously this scanned
+    // the entire `seq` into a BTreeSet on every call; in powerlaw_cluster `seq`
+    // is the ever-growing `repeated_nodes` (length O(n*m)), so the per-source
+    // rescan made the generator O(n^2 * m * log). The clamp only matters in the
+    // degenerate case where `seq` holds fewer than `count` distinct values
+    // (which would otherwise loop forever); the draw sequence — and thus RNG
+    // parity — is unchanged.
     if seq.is_empty() || count == 0 {
         return std::collections::VecDeque::new();
     }
-    let unique_cap = {
-        let mut tmp: std::collections::BTreeSet<usize> = std::collections::BTreeSet::new();
-        for &v in seq {
-            tmp.insert(v);
-        }
-        tmp.len()
-    };
     let target_count = count.min(unique_cap);
     let mut seen: std::collections::HashSet<usize> = std::collections::HashSet::new();
     let mut insertion: Vec<usize> = Vec::with_capacity(target_count);
