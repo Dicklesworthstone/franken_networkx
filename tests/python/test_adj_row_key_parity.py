@@ -101,3 +101,80 @@ def test_uniform_graphs_unchanged():
             gn.add_edge(u, v, w=1)
             gf.add_edge(u, v, w=1)
         assert _canon(gf) == _canon(gn)
+
+
+# ---------------------------------------------------------------------------
+# br-r37-c1-z6uka phase 2: DiGraph succ/pred row objects
+# ---------------------------------------------------------------------------
+
+
+def _canon_d(d):
+    return (
+        {repr(n): [repr(x) for x in d.succ[n]] for n in d},
+        {repr(n): [repr(x) for x in d.pred[n]] for n in d},
+        [(repr(u), repr(v)) for u, v in d.edges()],
+        [(repr(u), repr(v)) for u, v in d.in_edges()],
+    )
+
+
+def _dpair(build):
+    dn, df = nx.DiGraph(), fnx.DiGraph()
+    build(dn)
+    build(df)
+    return dn, df
+
+
+def test_digraph_succ_pred_rows_and_selfloop_asymmetry():
+    # add_edge(12.0, 12): succ row keeps v (12), pred row keeps u (12.0).
+    dn, df = _dpair(
+        lambda d: (d.add_edge(36, 16.0), d.add_edge("n58", 16), d.add_edge(12.0, 12))
+    )
+    assert _canon_d(df) == _canon_d(dn)
+    assert [repr(x) for x in df.successors("n58")] == ["16"]
+    assert [repr(x) for x in df.succ[12.0]] == ["12"]
+    assert [repr(x) for x in df.pred[12.0]] == ["12.0"]
+
+
+def test_digraph_reverse_transposes_succ_overrides():
+    dn, df = _dpair(lambda d: (d.add_edge(7, 8), d.add_edge(8.0, 9)))
+    assert _canon_d(dn.reverse()) == _canon_d(df.reverse())
+    assert _canon_d(dn.reverse().reverse()) == _canon_d(df.reverse().reverse())
+
+
+def test_digraph_copy_rederives_pred():
+    dn, df = _dpair(lambda d: (d.add_edge(7, 8), d.add_edge(8.0, 9)))
+    assert _canon_d(dn.copy()) == _canon_d(df.copy())
+    assert [repr(x) for x in df.copy().pred[9]] == ["8"]  # node obj, not 8.0
+
+
+def test_digraph_subgraph_removal_readd():
+    dn, df = _dpair(
+        lambda d: (d.add_edge(36, 16.0), d.add_edge("n58", 16), d.add_edge(12.0, 12))
+    )
+    assert _canon_d(dn.subgraph([16, "n58"]).copy()) == _canon_d(df.subgraph([16, "n58"]).copy())
+    for d in (dn, df):
+        d.remove_edge("n58", 16)
+        d.add_edge(16.0, "n58")
+    assert _canon_d(df) == _canon_d(dn)
+
+
+def test_digraph_random_mixed_corpus():
+    rnd = random.Random(20260605)
+    for trial in range(15):
+        a, b = nx.DiGraph(), fnx.DiGraph()
+        for _ in range(rnd.choice([5, 40, 120])):
+            def mk():
+                return rnd.choice(
+                    [rnd.randrange(30), float(rnd.randrange(15)), f"s{rnd.randrange(30)}", bool(rnd.randrange(2))]
+                )
+            u, v = mk(), mk()
+            a.add_edge(u, v, w=1)
+            b.add_edge(u, v, w=1)
+        assert _canon_d(b) == _canon_d(a), trial
+
+
+def test_digraph_uniform_unchanged():
+    a, b = nx.DiGraph(), fnx.DiGraph()
+    for g in (a, b):
+        g.add_edges_from((i, (i * 3) % 50) for i in range(120))
+    assert _canon_d(b) == _canon_d(a)

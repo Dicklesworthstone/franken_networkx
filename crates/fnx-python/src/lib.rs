@@ -569,7 +569,8 @@ impl PyGraph {
     /// for the same canonical key (hash-equal mixed types: 28 vs 28.0 vs
     /// True)? Identity short-circuits; type+value equality rescues
     /// un-interned equal values so uniform-key batches never trip this.
-    fn display_objs_conflict(a: &Bound<'_, PyAny>, b: &Bound<'_, PyAny>) -> bool {
+    // br-r37-c1-z6uka: pub(crate) for the PyDiGraph row-key probes.
+    pub(crate) fn display_objs_conflict(a: &Bound<'_, PyAny>, b: &Bound<'_, PyAny>) -> bool {
         !a.is(b) && !(a.get_type().is(&b.get_type()) && a.eq(b).unwrap_or(false))
     }
 
@@ -730,6 +731,7 @@ impl PyGraph {
             .map(str::to_owned)
             .collect();
         let mut node_bumps = 0_u64;
+        let mut batch_first: HashMap<String, PyObject> = HashMap::new(); // br-r37-c1-z6uka
 
         for item in items {
             let Ok(tuple) = item.downcast::<PyTuple>() else {

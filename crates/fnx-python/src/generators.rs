@@ -54,6 +54,8 @@ fn report_to_pydigraph(
         node_key_map: HashMap::new(),
         node_py_attrs: HashMap::new(),
         edge_py_attrs: HashMap::new(),
+        succ_py_keys: HashMap::new(), // br-r37-c1-z6uka
+        pred_py_keys: HashMap::new(), // br-r37-c1-z6uka
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,

@@ -396,6 +396,7 @@ fn edge_alldata_items(
     let inner = &g.inner;
     let edge_py_attrs = &mut g.edge_py_attrs;
     let node_key_map = &g.node_key_map;
+    let adj_py_keys = &g.adj_py_keys; // br-r37-c1-z6uka
     let lazy_stop = g.lazy_int_node_stop;
     let mut items = Vec::with_capacity(inner.edge_count());
     for (left, right, _attrs) in inner.edges_ordered_borrowed() {

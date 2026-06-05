@@ -210,6 +210,8 @@ fn di_report_to_pydigraph(py: Python<'_>, report: DiReadWriteReport) -> PyResult
         node_key_map,
         node_py_attrs,
         edge_py_attrs,
+        succ_py_keys: HashMap::new(), // br-r37-c1-z6uka
+        pred_py_keys: HashMap::new(), // br-r37-c1-z6uka
         graph_attrs: py_graph_attrs.unbind(),
         nodes_seq: 0,
         edges_seq: 0,
@@ -249,6 +251,11 @@ fn digraph_absorb_graph_bidirected(
     let Ok(src) = g.extract::<PyRef<'_, PyGraph>>() else {
         return Ok(false);
     };
+    if !src.adj_py_keys.is_empty() {
+        // br-r37-c1-z6uka: mixed-display row objects need the per-edge
+        // Python path (which records per-row succ/pred objects).
+        return Ok(false);
+    }
 
     let gdict = PyDict::new(py);
     gdict.update(src.graph_attrs.bind(py).as_mapping())?;
