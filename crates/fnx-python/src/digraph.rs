@@ -1216,7 +1216,12 @@ impl PyMultiDiGraph {
             .into_iter()
             .map(str::to_owned)
             .collect();
+        // br-r37-c1-1uv81: rebuild a FRESH inner (the old code re-added nodes
+        // into the existing graph, leaving every edge in place — clear_edges
+        // was a no-op for MultiDiGraph; the other three classes reset inner).
+        let policy = self.inner.runtime_policy().clone();
         Python::attach(|py| {
+            let mut fresh = MultiDiGraph::with_runtime_policy(policy);
             for canonical in &ordered {
                 let rust_attrs = self
                     .node_py_attrs
@@ -1226,9 +1231,9 @@ impl PyMultiDiGraph {
                     .ok()
                     .flatten()
                     .unwrap_or_default();
-                self.inner
-                    .add_node_with_attrs(canonical.clone(), rust_attrs);
+                fresh.add_node_with_attrs(canonical.clone(), rust_attrs);
             }
+            self.inner = fresh;
         });
         self.edge_py_attrs.clear();
         self.edge_py_keys.clear();
