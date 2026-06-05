@@ -767,6 +767,21 @@ def test_edge_data_view_data_attr_pickle(name, builder):
     assert sorted(list(restored), key=str) == sorted(list(edv), key=str)
 
 
+def test_edge_data_view_len_tracks_live_no_nbunch_graph():
+    builder = _SIMPLE_GRAPH_BUILDERS[0][1]
+    G = builder(fnx)
+    NX = builder(nx)
+    view = G.edges(data=True)
+    nx_view = NX.edges(data=True)
+
+    assert len(view) == len(nx_view) == 2
+    G.add_edge(2, 3, w=3)
+    NX.add_edge(2, 3, w=3)
+
+    assert len(view) == len(nx_view) == 3
+    assert list(view) == list(nx_view)
+
+
 @pytest.mark.parametrize("name,builder", GRAPH_BUILDERS, ids=[b[0] for b in GRAPH_BUILDERS])
 def test_edge_data_view_deepcopy_roundtrips(name, builder):
     G = builder(fnx)

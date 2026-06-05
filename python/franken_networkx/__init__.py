@@ -615,6 +615,12 @@ class EdgeDataView:
         return _FailFastEdgeIterator(self._graph, self._materialize())
 
     def __len__(self):
+        if self._nbunch_list is None and self._graph is not None:
+            try:
+                if not _has_networkx_private_storage(self._graph):
+                    return self._graph.number_of_edges()
+            except (AttributeError, NameError, TypeError):
+                pass
         return len(self._materialize())
 
     def __contains__(self, item):
