@@ -168,6 +168,52 @@ def test_sparse_subgraph_copy_preserves_edge_order_and_attrs(nx_type, fnx_type):
     )
 
 
+def test_sparse_subgraph_copy_empty_int_nodes_matches_nx():
+    node_order = [130, 1155, 7, 1032, 909, 1934, 16, 786]
+    edge_rows = [
+        (130, 7, {"weight": 1}),
+        (7, 909, {"weight": 2}),
+        (909, 16, {"weight": 3}),
+        (1155, 786, {"weight": 4}),
+        (1032, 1934, {"weight": 5}),
+    ]
+    gn = nx.Graph()
+    gf = fnx.Graph()
+    gn.add_nodes_from(node_order)
+    gf.add_nodes_from(node_order)
+    gn.add_edges_from(edge_rows)
+    gf.add_edges_from(edge_rows)
+
+    keep = {130, 7, 909, 16}
+    nx_copy = gn.subgraph(keep).copy()
+    fnx_copy = gf.subgraph(keep).copy()
+    assert _snapshot_copy(fnx_copy) == _snapshot_copy(nx_copy)
+
+    fnx_copy.nodes[130]["payload"] = "copy-only"
+    assert "payload" not in gf.nodes[130]
+
+
+def test_sparse_subgraph_copy_non_exact_int_labels_keep_fallback_parity():
+    large = 1 << 80
+    node_order = [True, large, 3.0, "3", 9]
+    edge_rows = [
+        (True, large, {"weight": 1}),
+        (large, 3.0, {"weight": 2}),
+        ("3", 9, {"weight": 3}),
+    ]
+    gn = nx.Graph()
+    gf = fnx.Graph()
+    gn.add_nodes_from(node_order)
+    gf.add_nodes_from(node_order)
+    gn.add_edges_from(edge_rows)
+    gf.add_edges_from(edge_rows)
+
+    keep = {True, large, 3.0, "3", 9}
+    assert _snapshot_copy(gf.subgraph(keep).copy()) == _snapshot_copy(
+        gn.subgraph(keep).copy()
+    )
+
+
 def test_custom_edge_filter_copy_still_filters_edges():
     gn = _build(nx, 8)
     gf = _build(fnx, 8)

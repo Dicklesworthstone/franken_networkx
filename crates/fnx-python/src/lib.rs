@@ -3638,6 +3638,27 @@ impl PyGraph {
         Ok(())
     }
 
+    fn _fast_add_int_nodes(&mut self, py: Python<'_>, nodes: Vec<i64>) -> PyResult<()> {
+        let empty_attrs = AttrMap::new();
+        for node in nodes {
+            let canonical = node.to_string();
+            self.node_key_map
+                .entry(canonical.clone())
+                .or_insert_with(|| {
+                    unwrap_infallible(node.into_pyobject(py))
+                        .into_any()
+                        .unbind()
+                });
+            self.node_py_attrs
+                .entry(canonical.clone())
+                .or_insert_with(|| PyDict::new(py).unbind());
+            self.inner
+                .add_node_with_attrs(canonical, empty_attrs.clone());
+            self.bump_nodes_seq();
+        }
+        Ok(())
+    }
+
     /// Remove a single node. Raises ``NetworkXError`` if not present.
     fn remove_node(&mut self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<()> {
         let canonical = node_key_to_string(py, n)?;

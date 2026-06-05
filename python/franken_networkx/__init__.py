@@ -30570,13 +30570,23 @@ class _FilteredGraphView:
         result.graph.update(dict(self.graph))
         node_rows = []
         node_attrs_empty = True
+        int_nodes_only = True
         for node in nodes:
+            if type(node) is not int or not -(1 << 63) <= node < (1 << 63):
+                int_nodes_only = False
             attrs = dict(_node_attrs_for_view_graph(self._graph, node))
             if attrs:
                 node_attrs_empty = False
             node_rows.append((node, attrs))
         if node_attrs_empty:
-            result.add_nodes_from(nodes)
+            fast_add_int_nodes = getattr(result, "_fast_add_int_nodes", None)
+            if int_nodes_only and fast_add_int_nodes is not None:
+                try:
+                    fast_add_int_nodes(nodes)
+                except (OverflowError, TypeError):
+                    result.add_nodes_from(nodes)
+            else:
+                result.add_nodes_from(nodes)
         else:
             result.add_nodes_from(node_rows)
 
