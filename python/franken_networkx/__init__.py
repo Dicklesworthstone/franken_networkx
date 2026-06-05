@@ -3036,6 +3036,26 @@ def _copy_constructor_graph_source(self, source, *, is_multigraph, attr):
                     if u != v:
                         edges.append((v, u, key, dict(attrs)))
                 self.add_edges_from(edges)
+            elif source_is_directed and not target_is_directed:
+                # br-r37-c1-bt8m4: collapsing directed -> undirected, nx's
+                # from_dict_of_dicts walks adjacency CELLS with a `seen`
+                # reverse-pair skip: the FIRST direction encountered keeps
+                # ALL its parallel keys; the reverse direction is skipped
+                # ENTIRELY (attrs never merge across directions). The old
+                # flat add_edges_from let the reverse direction's attrs
+                # overwrite (last-wins) — MultiGraph(MultiDiGraph) diverged.
+                groups = {}
+                for u, v, key, attrs in source.edges(keys=True, data=True):
+                    groups.setdefault((u, v), []).append((key, dict(attrs)))
+                seen = set()
+                edges = []
+                for (u, v), items in groups.items():
+                    if (u, v) in seen:
+                        continue
+                    seen.add((v, u))
+                    for key, attrs in items:
+                        edges.append((u, v, key, attrs))
+                self.add_edges_from(edges)
             else:
                 self.add_edges_from(
                     (u, v, key, dict(attrs))
@@ -3049,6 +3069,22 @@ def _copy_constructor_graph_source(self, source, *, is_multigraph, attr):
                     if u != v:
                         edges.append((v, u, dict(attrs)))
                 self.add_edges_from(edges)
+            elif source_is_directed and not target_is_directed:
+                # br-r37-c1-bt8m4: Graph(MultiDiGraph) — same reverse-pair
+                # skip; parallel keys within the kept direction merge in key
+                # order (nx's per-key G[u][v].update inside the cell visit).
+                groups = {}
+                for u, v, _key, attrs in source.edges(keys=True, data=True):
+                    groups.setdefault((u, v), []).append(dict(attrs))
+                seen = set()
+                edges = []
+                for (u, v), datas in groups.items():
+                    if (u, v) in seen:
+                        continue
+                    seen.add((v, u))
+                    for d in datas:
+                        edges.append((u, v, d))
+                self.add_edges_from(edges)
             else:
                 self.add_edges_from(
                     (u, v, dict(attrs))
@@ -3061,6 +3097,18 @@ def _copy_constructor_graph_source(self, source, *, is_multigraph, attr):
                 edges.append((u, v, 0, dict(attrs)))
                 if u != v:
                     edges.append((v, u, 0, dict(attrs)))
+            self.add_edges_from(edges)
+        elif source_is_directed and not target_is_directed:
+            # br-r37-c1-bt8m4: MultiGraph(DiGraph) — reverse-pair skip,
+            # first direction wins (nx keeps ONE key-0 edge, not two
+            # parallels and not last-wins attrs).
+            seen = set()
+            edges = []
+            for u, v, attrs in source.edges(data=True):
+                if (u, v) in seen:
+                    continue
+                seen.add((v, u))
+                edges.append((u, v, 0, dict(attrs)))
             self.add_edges_from(edges)
         else:
             self.add_edges_from(
