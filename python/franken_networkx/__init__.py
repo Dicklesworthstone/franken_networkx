@@ -20341,8 +20341,14 @@ def binomial_tree(n, create_using=None):
 
     N = 1
     for _ in range(n):
+        # br-r37-c1-btorder: mirror networkx exactly — let ``add_edges_from``
+        # introduce the shifted-copy nodes in edge-encounter order rather than
+        # pre-adding range(N, 2*N) in sorted order. nx's node order is NOT
+        # sorted (e.g. node 12 before 11 at n=4) because the shifted edge list
+        # follows G.edges() order; every node N..2N-1 appears in some edge so
+        # none are lost. The prior _add_nodes_in_order forced a sorted order
+        # that diverged from nx for n>=4.
         edges = [(u + N, v + N) for u, v in G.edges()]
-        _add_nodes_in_order(G, range(N, 2 * N))
         G.add_edges_from(edges)
         G.add_edge(0, N)
         N *= 2
