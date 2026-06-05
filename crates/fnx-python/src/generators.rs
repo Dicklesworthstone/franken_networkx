@@ -36,6 +36,7 @@ fn report_to_pygraph(py: Python<'_>, graph: fnx_classes::Graph) -> PyResult<PyGr
         lazy_int_node_stop: 0,
         node_py_attrs: HashMap::new(),
         edge_py_attrs: HashMap::new(),
+        dict_of_dicts_cache: None,
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,

@@ -8,8 +8,8 @@
 use crate::algorithms::{GraphRef, extract_graph};
 use crate::digraph::PyDiGraph;
 use crate::{
-    PyGraph, PyObject, PythonAllowThreadsExt, cgse_value_to_py, node_key_to_string,
-    py_dict_to_attr_map,
+    DictOfDictsCache, PyGraph, PyObject, PythonAllowThreadsExt, cgse_value_to_py,
+    node_key_to_string, py_dict_to_attr_map,
 };
 use fnx_classes::Graph as RustGraph;
 use fnx_classes::digraph::DiGraph as RustDiGraph;
@@ -146,6 +146,7 @@ fn report_to_pygraph(py: Python<'_>, report: ReadWriteReport) -> PyResult<PyGrap
         lazy_int_node_stop: 0,
         node_py_attrs,
         edge_py_attrs,
+        dict_of_dicts_cache: None,
         graph_attrs: py_graph_attrs.unbind(),
         nodes_seq: 0,
         edges_seq: 0,
@@ -796,6 +797,10 @@ pub fn to_dict_of_dicts_undirected(
     py: Python<'_>,
     g: &Bound<'_, PyAny>,
 ) -> PyResult<Option<Py<PyDict>>> {
+    if let Ok(mut pg) = g.extract::<PyRefMut<'_, PyGraph>>() {
+        return to_dict_of_dicts_graph_cached(py, &mut pg).map(Some);
+    }
+
     let gr = extract_graph(g)?;
     let outer = PyDict::new(py);
     match &gr {
@@ -842,6 +847,73 @@ pub fn to_dict_of_dicts_undirected(
         GraphRef::MultiUndirected { .. } | GraphRef::MultiDirected { .. } => return Ok(None),
     }
     Ok(Some(outer.unbind()))
+}
+
+fn to_dict_of_dicts_graph_cached(py: Python<'_>, pg: &mut PyGraph) -> PyResult<Py<PyDict>> {
+    let cache_matches = pg
+        .dict_of_dicts_cache
+        .as_ref()
+        .is_some_and(|cache| cache.nodes_seq == pg.nodes_seq && cache.edges_seq == pg.edges_seq);
+    if !cache_matches {
+        rebuild_dict_of_dicts_cache(py, pg)?;
+    }
+    let Some(cache) = pg.dict_of_dicts_cache.as_ref() else {
+        return Err(PyRuntimeError::new_err(
+            "dict_of_dicts cache missing after rebuild",
+        ));
+    };
+    copy_dict_of_dicts_cache(py, cache)
+}
+
+fn rebuild_dict_of_dicts_cache(py: Python<'_>, pg: &mut PyGraph) -> PyResult<()> {
+    let nodes: Vec<String> = pg
+        .inner
+        .nodes_ordered()
+        .into_iter()
+        .map(ToOwned::to_owned)
+        .collect();
+    let py_node_keys: Vec<PyObject> = nodes.iter().map(|node| pg.py_node_key(py, node)).collect();
+    let mut rows = Vec::with_capacity(nodes.len());
+
+    for (u_idx, u) in nodes.iter().enumerate() {
+        let row = PyDict::new(py);
+        let neighbors = pg
+            .inner
+            .neighbors_indices(u_idx)
+            .map_or_else(Vec::new, <[usize]>::to_vec);
+        for v_idx in neighbors {
+            let Some(v) = nodes.get(v_idx) else {
+                continue;
+            };
+            let Some(v_key) = py_node_keys.get(v_idx) else {
+                continue;
+            };
+            let edge_key = PyGraph::edge_key(u, v);
+            let edge_dict = pg
+                .edge_py_attrs
+                .entry(edge_key)
+                .or_insert_with(|| PyDict::new(py).unbind());
+            row.set_item(v_key.bind(py), edge_dict.bind(py))?;
+        }
+        if let Some(u_key) = py_node_keys.get(u_idx) {
+            rows.push((u_key.clone_ref(py), row.unbind()));
+        }
+    }
+
+    pg.dict_of_dicts_cache = Some(DictOfDictsCache {
+        nodes_seq: pg.nodes_seq,
+        edges_seq: pg.edges_seq,
+        rows,
+    });
+    Ok(())
+}
+
+fn copy_dict_of_dicts_cache(py: Python<'_>, cache: &DictOfDictsCache) -> PyResult<Py<PyDict>> {
+    let outer = PyDict::new(py);
+    for (node_key, row) in &cache.rows {
+        outer.set_item(node_key.bind(py), row.bind(py).copy()?)?;
+    }
+    Ok(outer.unbind())
 }
 
 /// br-r37-c1-6o3wi/br-r37-c1-nocb2: native fast path for `to_dict_of_lists`

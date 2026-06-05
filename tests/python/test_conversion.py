@@ -383,6 +383,32 @@ class TestDictOfDicts:
         assert result["b"]["a"] is graph["b"]["a"]
         assert "a" not in result["c"]
 
+    def test_generated_graph_default_uses_live_cached_edge_attrs(self):
+        graph = fnx.gnp_random_graph(6, 1.0, seed=7)
+        first = fnx.to_dict_of_dicts(graph)
+        u, v = next(iter(graph.edges()))
+
+        assert list(first) == list(graph.nodes())
+        assert list(first[u]) == list(graph[u])
+        assert first[u][v] is graph[u][v]
+        assert first[v][u] is graph[u][v]
+
+        first[u][v]["marker"] = 11
+        second = fnx.to_dict_of_dicts(graph)
+
+        assert second is not first
+        assert second[u] is not first[u]
+        assert second[u][v] is graph[u][v]
+        assert second[v][u] is graph[u][v]
+        assert second[u][v]["marker"] == 11
+
+        graph.add_edge("new", "node")
+        third = fnx.to_dict_of_dicts(graph)
+
+        assert "new" in third
+        assert "node" in third["new"]
+        assert third["new"]["node"] is graph["new"]["node"]
+
     @pytest.mark.parametrize(
         ("fnx_cls", "nx_cls"),
         [(fnx.MultiGraph, nx.MultiGraph), (fnx.MultiDiGraph, nx.MultiDiGraph)],

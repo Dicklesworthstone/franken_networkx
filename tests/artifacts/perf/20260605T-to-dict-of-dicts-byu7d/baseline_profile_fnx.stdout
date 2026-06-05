@@ -1,0 +1,1 @@
+{"alias_pairs": 0, "degree": 4, "digest": "68911148adaa1ecee8bb9a5e0ad549762668eab1633b139f6b31ce688fa3aca3", "directed": false, "edge_rows": 8124, "elapsed": 0.3391962420428172, "mode": "generated", "module": "fnx", "mutation_live": false, "node_count": 2000, "nodes": 2000, "repeats": 200, "returned_is_graph_attr": false, "reverse_alias": false}

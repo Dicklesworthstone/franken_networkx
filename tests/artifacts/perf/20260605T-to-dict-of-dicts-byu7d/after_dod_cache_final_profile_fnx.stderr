@@ -1,0 +1,33 @@
+         397080 function calls (390441 primitive calls) in 0.555 seconds
+
+   Ordered by: cumulative time
+   List reduced from 1818 to 25 due to restriction <25>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+       45    0.005    0.000    1.433    0.032 __init__.py:1(<module>)
+        1    0.023    0.023    0.555    0.555 bench.py:80(run_once)
+        1    0.000    0.000    0.428    0.428 bench.py:25(_module)
+    491/1    0.005    0.000    0.427    0.427 <frozen importlib._bootstrap>:1349(_find_and_load)
+    471/1    0.002    0.000    0.427    0.427 <frozen importlib._bootstrap>:1304(_find_and_load_unlocked)
+    464/1    0.002    0.000    0.426    0.426 <frozen importlib._bootstrap>:911(_load_unlocked)
+    446/1    0.001    0.000    0.426    0.426 <frozen importlib._bootstrap_external>:1020(exec_module)
+   1030/2    0.001    0.000    0.417    0.208 <frozen importlib._bootstrap>:480(_call_with_frames_removed)
+    453/1    0.003    0.000    0.417    0.417 {built-in method builtins.exec}
+   444/29    0.000    0.000    0.352    0.012 {built-in method builtins.__import__}
+   532/58    0.001    0.000    0.351    0.006 <frozen importlib._bootstrap>:1390(_handle_fromlist)
+      6/4    0.000    0.000    0.214    0.053 <frozen importlib._bootstrap_external>:1326(exec_module)
+      6/4    0.013    0.002    0.214    0.053 {built-in method _imp.exec_dynamic}
+        2    0.000    0.000    0.159    0.080 nx_pylab.py:1(<module>)
+        2    0.000    0.000    0.158    0.079 layout.py:1(<module>)
+        1    0.000    0.000    0.099    0.099 __config__.py:1(<module>)
+      446    0.003    0.000    0.088    0.000 <frozen importlib._bootstrap_external>:1093(get_code)
+        1    0.000    0.000    0.058    0.058 multiarray.py:1(<module>)
+      446    0.006    0.000    0.048    0.000 <frozen importlib._bootstrap_external>:782(_compile_bytecode)
+      200    0.003    0.000    0.048    0.000 __init__.py:41784(to_dict_of_dicts)
+      200    0.045    0.000    0.045    0.000 {built-in method franken_networkx._fnx.to_dict_of_dicts_undirected}
+      446    0.042    0.000    0.042    0.000 {built-in method marshal.loads}
+        1    0.001    0.001    0.041    0.041 __init__.py:44663(_bulk_add_backend_dispatch_kwargs)
+        1    0.000    0.000    0.040    0.040 _arraypad_impl.py:1(<module>)
+        1    0.000    0.000    0.040    0.040 _index_tricks_impl.py:1(<module>)
+
+

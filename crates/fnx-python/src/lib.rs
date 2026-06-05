@@ -339,6 +339,12 @@ pub(crate) fn runtime_policy_from_state(
 // ---------------------------------------------------------------------------
 
 /// An undirected graph — a Rust-backed drop-in replacement for ``networkx.Graph``.
+pub(crate) struct DictOfDictsCache {
+    pub(crate) nodes_seq: u64,
+    pub(crate) edges_seq: u64,
+    pub(crate) rows: Vec<(PyObject, Py<PyDict>)>,
+}
+
 #[pyclass(module = "franken_networkx", name = "Graph", dict, weakref, subclass)]
 pub(crate) struct PyGraph {
     pub(crate) inner: Graph,
@@ -351,6 +357,8 @@ pub(crate) struct PyGraph {
     pub(crate) node_py_attrs: HashMap<String, Py<PyDict>>,
     /// Per-edge Python attribute dicts. Key is (canonical_left, canonical_right).
     pub(crate) edge_py_attrs: HashMap<(String, String), Py<PyDict>>,
+    /// Cached NetworkX-style adjacency rows for `to_dict_of_dicts`.
+    pub(crate) dict_of_dicts_cache: Option<DictOfDictsCache>,
     /// Graph-level attribute dict.
     pub(crate) graph_attrs: Py<PyDict>,
     /// Monotonic counter bumped on every node add/remove (br-r37-c1-39d82).
@@ -454,6 +462,7 @@ impl PyGraph {
             lazy_int_node_stop: 0,
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
+            dict_of_dicts_cache: None,
             graph_attrs: PyDict::new(py).unbind(),
             nodes_seq: 0,
             edges_seq: 0,
@@ -4208,6 +4217,7 @@ impl PyGraph {
             lazy_int_node_stop: 0,
             node_py_attrs: HashMap::with_capacity(self.node_py_attrs.len()),
             edge_py_attrs: HashMap::with_capacity(self.edge_py_attrs.len()),
+            dict_of_dicts_cache: None,
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,
             edges_seq: 0,
@@ -4267,6 +4277,7 @@ impl PyGraph {
             lazy_int_node_stop: 0,
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
+            dict_of_dicts_cache: None,
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,
             edges_seq: 0,
@@ -4340,6 +4351,7 @@ impl PyGraph {
             lazy_int_node_stop: 0,
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
+            dict_of_dicts_cache: None,
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,
             edges_seq: 0,
@@ -4736,6 +4748,7 @@ impl PyGraph {
             lazy_int_node_stop: 0,
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
+            dict_of_dicts_cache: None,
             // SHARE the graph attrs dict (shallow copy)
             graph_attrs: self.graph_attrs.clone_ref(py),
             nodes_seq: 0,
