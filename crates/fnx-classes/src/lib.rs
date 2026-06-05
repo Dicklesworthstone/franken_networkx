@@ -584,6 +584,109 @@ impl Graph {
         inserted
     }
 
+    /// br-r37-c1-pr8q6: bulk-add ATTRIBUTED edges without per-edge ledger
+    /// records — the attributed sibling of [`extend_edges_unrecorded`].
+    ///
+    /// Semantics match a sequence of `add_edge_with_attrs` calls exactly:
+    /// nodes auto-created in first-appearance order, duplicate edges MERGE
+    /// their attrs into the existing map (`extend`), adjacency /
+    /// `adj_indices` / `edge_index_endpoints` maintained identically. Only
+    /// the per-edge `record_decision` push (timestamp + String allocs per
+    /// edge, the dominant cost of attributed bulk construction) is replaced
+    /// by one batch summary record.
+    ///
+    /// Callers MUST pre-screen attr keys starting with
+    /// `"__fnx_incompatible"` and route those edges through
+    /// `add_edge_with_attrs`, which owns the FailClosed contract for them.
+    pub fn extend_edges_with_attrs_unrecorded<I>(&mut self, edges: I) -> usize
+    where
+        I: IntoIterator<Item = (String, String, AttrMap)>,
+    {
+        let iterator = edges.into_iter();
+        let (lower_bound, _) = iterator.size_hint();
+        self.nodes.reserve(lower_bound);
+        self.adjacency.reserve(lower_bound);
+        self.adj_indices.reserve(lower_bound);
+        self.edges.reserve(lower_bound);
+        self.edge_index_endpoints.reserve(lower_bound);
+
+        let mut inserted = 0usize;
+        let mut nodes_added = false;
+        let mut merged_changed = false;
+        for (left, right, attrs) in iterator {
+            let left_idx = match self.nodes.get_index_of(&left) {
+                Some(index) => index,
+                None => {
+                    let index = self.nodes.len();
+                    self.nodes.insert(left.clone(), AttrMap::new());
+                    self.adjacency.insert(left.clone(), IndexSet::new());
+                    self.adj_indices.push(Vec::new());
+                    nodes_added = true;
+                    index
+                }
+            };
+            let right_idx = if left == right {
+                left_idx
+            } else {
+                match self.nodes.get_index_of(&right) {
+                    Some(index) => index,
+                    None => {
+                        let index = self.nodes.len();
+                        self.nodes.insert(right.clone(), AttrMap::new());
+                        self.adjacency.insert(right.clone(), IndexSet::new());
+                        self.adj_indices.push(Vec::new());
+                        nodes_added = true;
+                        index
+                    }
+                }
+            };
+            let edge_key = EdgeKeyRef::new(&left, &right);
+            if let Some(existing) = self.edges.get_mut(&edge_key) {
+                // Duplicate edge (pre-existing or earlier in this batch):
+                // merge attrs, matching add_edge_with_attrs' `extend`.
+                if !attrs.is_empty()
+                    && attrs
+                        .iter()
+                        .any(|(key, value)| existing.get(key) != Some(value))
+                {
+                    merged_changed = true;
+                }
+                existing.extend(attrs);
+                continue;
+            }
+            if left <= right {
+                self.edge_index_endpoints.push((left_idx, right_idx));
+            } else {
+                self.edge_index_endpoints.push((right_idx, left_idx));
+            }
+            self.edges.insert(EdgeKey::new(&left, &right), attrs);
+            self.adjacency
+                .get_mut(&left)
+                .expect("edge endpoint must have an adjacency bucket")
+                .insert(right.clone());
+            if left != right {
+                self.adjacency
+                    .get_mut(&right)
+                    .expect("edge endpoint must have an adjacency bucket")
+                    .insert(left.clone());
+            }
+
+            self.adj_indices[left_idx].push(right_idx);
+            if left_idx != right_idx {
+                self.adj_indices[right_idx].push(left_idx);
+            }
+            inserted += 1;
+        }
+        if merged_changed {
+            // Attr-merge on an existing edge mutates observable state even
+            // when no new edge was inserted — bump revision so caches
+            // invalidate (over-invalidation is safe; staleness is not).
+            self.revision = self.revision.saturating_add(1);
+        }
+        self.record_bulk_edge_summary(inserted, nodes_added || merged_changed);
+        inserted
+    }
+
     fn record_bulk_edge_summary(&mut self, inserted: usize, nodes_added: bool) {
         if inserted == 0 && !nodes_added {
             return;
@@ -2000,6 +2103,55 @@ mod tests {
             records.last().map(|record| record.operation.as_str()),
             Some("extend_edges_unrecorded")
         );
+    }
+
+    #[test]
+    fn extend_edges_with_attrs_unrecorded_matches_add_edge_with_attrs() {
+        // br-r37-c1-pr8q6: bulk attributed insertion must be observationally
+        // identical to a sequence of add_edge_with_attrs calls (node order,
+        // adjacency order, attr merge on duplicates) minus the per-edge
+        // ledger records.
+        let mut attrs1 = AttrMap::new();
+        attrs1.insert("w".to_owned(), CgseValue::Int(1));
+        let mut attrs2 = AttrMap::new();
+        attrs2.insert("w".to_owned(), CgseValue::Int(7));
+        attrs2.insert("c".to_owned(), CgseValue::String("x".to_owned()));
+
+        let mut reference = Graph::strict();
+        reference
+            .add_edge_with_attrs("a", "b", attrs1.clone())
+            .unwrap();
+        reference
+            .add_edge_with_attrs("b", "c", AttrMap::new())
+            .unwrap();
+        // duplicate edge: attrs merge
+        reference
+            .add_edge_with_attrs("b", "a", attrs2.clone())
+            .unwrap();
+        // self-loop
+        reference
+            .add_edge_with_attrs("d", "d", attrs1.clone())
+            .unwrap();
+
+        let mut bulk = Graph::strict();
+        let before = bulk.evidence_ledger().records().len();
+        let inserted = bulk.extend_edges_with_attrs_unrecorded([
+            ("a".to_owned(), "b".to_owned(), attrs1.clone()),
+            ("b".to_owned(), "c".to_owned(), AttrMap::new()),
+            ("b".to_owned(), "a".to_owned(), attrs2.clone()),
+            ("d".to_owned(), "d".to_owned(), attrs1.clone()),
+        ]);
+
+        assert_eq!(inserted, 3);
+        assert_eq!(bulk.edge_count(), reference.edge_count());
+        assert_eq!(bulk.nodes_ordered(), reference.nodes_ordered());
+        for node in bulk.nodes_ordered() {
+            assert_eq!(bulk.neighbors(node), reference.neighbors(node));
+        }
+        assert_eq!(bulk.edge_attrs("a", "b"), reference.edge_attrs("a", "b"));
+        assert_eq!(bulk.edge_attrs("d", "d"), reference.edge_attrs("d", "d"));
+        // one summary record, not one per edge
+        assert_eq!(bulk.evidence_ledger().records().len(), before + 1);
     }
 
     #[test]

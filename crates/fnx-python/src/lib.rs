@@ -617,7 +617,171 @@ impl PyGraph {
         }
         Ok(false)
     }
+
+    /// br-r37-c1-pr8q6: collect a batch of attributed edges — a mix of
+    /// (u, v) and (u, v, dict) tuples — for single-commit insertion.
+    /// Pure collect: NO mutation of self. Returns Ok(None) (caller falls
+    /// back to the per-edge loop, which owns every error and
+    /// partial-prefix contract) on ANY item the batch can't replicate
+    /// exactly: non-tuple items, bad arity, non-dict third element,
+    /// non-plain endpoints, attr values `py_dict_to_attr_map` rejects, or
+    /// `"__fnx_incompatible"` attr keys (whose FailClosed contract lives
+    /// in `add_edge_with_attrs`).
+    fn collect_attr_edge_batch<'py, I>(
+        &self,
+        py: Python<'py>,
+        items: I,
+        len: usize,
+    ) -> PyResult<Option<AttrEdgeBatch>>
+    where
+        I: IntoIterator<Item = Bound<'py, PyAny>>,
+    {
+        let mut edges: Vec<(String, String, AttrMap, Option<Py<PyDict>>)> =
+            Vec::with_capacity(len);
+        let mut new_nodes = Vec::new();
+        let mut seen_nodes: HashSet<String> = self
+            .inner
+            .nodes_ordered()
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+        let mut node_bumps = 0_u64;
+
+        for item in items {
+            let Ok(tuple) = item.downcast::<PyTuple>() else {
+                return Ok(None);
+            };
+            let tlen = tuple.len();
+            if !(2..=3).contains(&tlen) {
+                return Ok(None);
+            }
+
+            let u = tuple.get_item(0)?;
+            let v = tuple.get_item(1)?;
+            if !Self::is_plain_batch_node(&u) || !Self::is_plain_batch_node(&v) {
+                return Ok(None);
+            }
+
+            let (rust_attrs, src_dict) = if tlen == 3 {
+                let third = tuple.get_item(2)?;
+                let Ok(d) = third.downcast::<PyDict>() else {
+                    return Ok(None);
+                };
+                let Ok(attrs) = py_dict_to_attr_map(d) else {
+                    return Ok(None);
+                };
+                if attrs.keys().any(|k| k.starts_with("__fnx_incompatible")) {
+                    return Ok(None);
+                }
+                (attrs, Some(d.clone().unbind()))
+            } else {
+                (AttrMap::new(), None)
+            };
+
+            let Ok(u_canonical) = node_key_to_string(py, &u) else {
+                return Ok(None);
+            };
+            let Ok(v_canonical) = node_key_to_string(py, &v) else {
+                return Ok(None);
+            };
+            if !seen_nodes.contains(&u_canonical) || !seen_nodes.contains(&v_canonical) {
+                node_bumps = node_bumps.wrapping_add(1);
+            }
+            if seen_nodes.insert(u_canonical.clone()) {
+                new_nodes.push((u_canonical.clone(), u.clone().unbind()));
+            }
+            if seen_nodes.insert(v_canonical.clone()) {
+                new_nodes.push((v_canonical.clone(), v.clone().unbind()));
+            }
+            edges.push((u_canonical, v_canonical, rust_attrs, src_dict));
+        }
+
+        Ok(Some((edges, new_nodes, node_bumps)))
+    }
+
+    /// Commit a collected attributed-edge batch: PyDict mirrors first
+    /// (entry+update — merges into an existing edge's dict exactly like
+    /// the per-edge `add_edge` does), then ONE
+    /// `extend_edges_with_attrs_unrecorded` call into the inner graph
+    /// (insert-or-merge, no per-edge ledger), then the same seq bumps the
+    /// plain batch performs.
+    fn add_attr_edge_batch(
+        &mut self,
+        py: Python<'_>,
+        edges: Vec<(String, String, AttrMap, Option<Py<PyDict>>)>,
+        new_nodes: Vec<(String, PyObject)>,
+        node_bumps: u64,
+    ) -> PyResult<()> {
+        let edge_bumps = u64::try_from(edges.len())
+            .unwrap_or(u64::MAX)
+            .wrapping_add(1);
+
+        for (canonical, node) in new_nodes {
+            self.node_key_map.entry(canonical).or_insert(node);
+        }
+        for (u, v, _, src) in &edges {
+            self.node_py_attrs
+                .entry(u.clone())
+                .or_insert_with(|| PyDict::new(py).unbind());
+            self.node_py_attrs
+                .entry(v.clone())
+                .or_insert_with(|| PyDict::new(py).unbind());
+            let mirror = self
+                .edge_py_attrs
+                .entry(Self::edge_key(u, v))
+                .or_insert_with(|| PyDict::new(py).unbind());
+            if let Some(src) = src {
+                mirror.bind(py).update(src.bind(py).as_mapping())?;
+            }
+        }
+
+        let _inserted = self
+            .inner
+            .extend_edges_with_attrs_unrecorded(edges.into_iter().map(|(u, v, a, _)| (u, v, a)));
+        self.nodes_seq = self.nodes_seq.wrapping_add(node_bumps);
+        self.edges_seq = self.edges_seq.wrapping_add(edge_bumps);
+        Ok(())
+    }
+
+    /// br-r37-c1-pr8q6: attributed sibling of `try_add_plain_edge_batch`.
+    /// Tried AFTER the plain batch (which is cheaper when every tuple is
+    /// a 2-tuple); accepts mixed 2-/3-tuple lists.
+    fn try_add_attr_edge_batch(
+        &mut self,
+        py: Python<'_>,
+        ebunch_to_add: &Bound<'_, PyAny>,
+    ) -> PyResult<bool> {
+        const ATTR_EDGE_BATCH_MIN: usize = 8;
+        if let Ok(list) = ebunch_to_add.downcast::<PyList>() {
+            if list.len() < ATTR_EDGE_BATCH_MIN {
+                return Ok(false);
+            }
+            if let Some((edges, new_nodes, node_bumps)) =
+                self.collect_attr_edge_batch(py, list.iter(), list.len())?
+            {
+                self.add_attr_edge_batch(py, edges, new_nodes, node_bumps)?;
+                return Ok(true);
+            }
+        } else if let Ok(tuple) = ebunch_to_add.downcast::<PyTuple>()
+            && tuple.len() >= ATTR_EDGE_BATCH_MIN
+            && let Some((edges, new_nodes, node_bumps)) =
+                self.collect_attr_edge_batch(py, tuple.iter(), tuple.len())?
+        {
+            self.add_attr_edge_batch(py, edges, new_nodes, node_bumps)?;
+            return Ok(true);
+        }
+        Ok(false)
+    }
 }
+
+/// br-r37-c1-pr8q6: collected attributed-edge batch —
+/// (edges, new_nodes, node_bumps); each edge carries its converted
+/// `AttrMap` plus the source `PyDict` for the mirror update.
+type AttrEdgeBatch = (
+    Vec<(String, String, AttrMap, Option<Py<PyDict>>)>,
+    Vec<(String, PyObject)>,
+    u64,
+);
 
 #[pyclass(
     module = "franken_networkx",
@@ -3942,6 +4106,15 @@ impl PyGraph {
     ) -> PyResult<()> {
         let has_global_attr = attr.is_some_and(|a| !a.is_empty());
         if !has_global_attr && self.try_add_plain_edge_batch(py, ebunch_to_add)? {
+            return Ok(());
+        }
+        // br-r37-c1-pr8q6: attributed batch — (u, v, dict) tuples (mixed
+        // with plain (u, v)) commit through ONE
+        // extend_edges_with_attrs_unrecorded call instead of the per-edge
+        // add_edge below (whose record_decision ledger push dominated
+        // attributed construction at ~6x nx). Any item the batch can't
+        // replicate exactly falls through to the loop unchanged.
+        if !has_global_attr && self.try_add_attr_edge_batch(py, ebunch_to_add)? {
             return Ok(());
         }
         let iter = PyIterator::from_object(ebunch_to_add)?;
