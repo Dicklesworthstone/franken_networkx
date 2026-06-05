@@ -30550,10 +30550,17 @@ class _FilteredGraphView:
         node_set = set(nodes)
         result = self._copy_type()()
         result.graph.update(dict(self.graph))
-        result.add_nodes_from(
-            (node, dict(_node_attrs_for_view_graph(self._graph, node)))
-            for node in nodes
-        )
+        node_rows = []
+        node_attrs_empty = True
+        for node in nodes:
+            attrs = dict(_node_attrs_for_view_graph(self._graph, node))
+            if attrs:
+                node_attrs_empty = False
+            node_rows.append((node, attrs))
+        if node_attrs_empty:
+            result.add_nodes_from(nodes)
+        else:
+            result.add_nodes_from(node_rows)
 
         edge_rows = []
         get_edge_data = self._graph.get_edge_data

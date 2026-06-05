@@ -1,0 +1,2 @@
+  [2m2026-06-05T06:50:40.054551Z[0m [33m WARN[0m [1;33mrch::hook[0m[33m: [33mexec called with non-compilation command: python3 -m py_compile python/franken_networkx/__init__.py tests/artifacts/perf/20260605T-subgraph-view-copy-construction-2qiyt/bench.py[0m
+    [2;3mat[0m rch/src/hook.rs:402 [2;3mon[0m ThreadId(1)
