@@ -134,6 +134,31 @@ def _read_edgelist_via_nx(
     """
     import networkx as nx
 
+    # br-r37-c1-2vmel: default-kwargs fast path — single-pass native parse
+    # straight into the final Rust graph (see read_adjlist's 770mm sibling).
+    # The kernel returns None for anything it can't replicate exactly
+    # (extra tokens with data=True need literal_eval and an nx-specific
+    # TypeError; missing/non-UTF-8 files have nx-defined errors), falling
+    # through to the delegated path below.
+    if (
+        comments == "#"
+        and delimiter is None
+        and nodetype is None
+        and edgetype is None
+        and encoding == "utf-8"
+        and data in (True, False)
+        and isinstance(path, str)
+        and not path.endswith((".gz", ".bz2"))
+    ):
+        import franken_networkx as fnx
+
+        if create_using is None or create_using is fnx.Graph:
+            native = fnx._fnx.read_edgelist_simple(
+                path, "data_true" if data is True else "data_false"
+            )
+            if native is not None:
+                return native
+
     nx_graph = nx.read_edgelist(
         path,
         comments=comments,
@@ -1860,6 +1885,23 @@ def read_weighted_edgelist(
     fnx._validate_backend_dispatch_keywords(
         "read_weighted_edgelist", backend, backend_kwargs
     )
+    # br-r37-c1-2vmel: default-kwargs fast path (see _read_edgelist_via_nx).
+    # The kernel bails (returns None) on weight tokens Rust can't parse
+    # bit-identically to Python float() (underscore separators), on
+    # length-mismatched lines (nx raises IndexError), and on
+    # missing/non-UTF-8 files.
+    if (
+        comments == "#"
+        and delimiter is None
+        and nodetype is None
+        and encoding == "utf-8"
+        and isinstance(path, str)
+        and not path.endswith((".gz", ".bz2"))
+        and (create_using is None or create_using is fnx.Graph)
+    ):
+        native = fnx._fnx.read_edgelist_simple(path, "weight_float")
+        if native is not None:
+            return native
     if hasattr(path, "read"):
         data = path.read()
         if isinstance(data, bytes):
@@ -1874,7 +1916,10 @@ def read_weighted_edgelist(
         delimiter=delimiter,
         create_using=create_using,
         nodetype=nodetype,
-        data=[("weight", float)],
+        # br-r37-c1-2vmel: nx passes a TUPLE here; the container repr leaks
+        # into the IndexError message on length-mismatched lines ("data_keys
+        # (('weight', <class 'float'>),)" vs "[...]"), so a list diverges.
+        data=(("weight", float),),
     )
 
 

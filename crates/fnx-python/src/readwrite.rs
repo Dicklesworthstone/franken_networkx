@@ -542,6 +542,138 @@ fn read_adjlist_simple(py: Python<'_>, path: &str) -> PyResult<Option<PyGraph>> 
     }))
 }
 
+/// br-r37-c1-2vmel: single-pass native fast path for `read_edgelist` /
+/// `read_weighted_edgelist` with default kwargs (comments="#",
+/// delimiter=None, nodetype=None, encoding="utf-8",
+/// create_using=None/Graph). The delegated path paid nx parse +
+/// per-edge `_from_nx_graph` rebuild (no-data files 5.39x, weighted
+/// 2.81x vs nx). Same recipe as `read_adjlist_simple` above; edges are
+/// committed through the bulk unrecorded paths.
+///
+/// `mode` (validated by the Python wrappers):
+/// - "data_true":  every line must have EXACTLY 2 tokens (extra tokens
+///   need ast.literal_eval and nx raises a specific TypeError) — bail;
+/// - "data_false": first 2 tokens, extras ignored;
+/// - "weight_float": 2 tokens = edge with no attrs (nx leaves `{}` when
+///   the weight column is missing), 3 tokens = weight parsed as float,
+///   anything else bails (nx raises IndexError on length mismatch).
+///
+/// Line semantics mirror `nx.parse_edgelist`: comment strip at the
+/// first `#`, whitespace tokenization (== `str.split(None)`), and
+/// `len(s) < 2 -> continue` — blank, whitespace-only, and single-token
+/// lines are silently skipped (verified against nx; unlike
+/// parse_adjlist, which raises IndexError on those).
+///
+/// Float parity: Rust `f64::from_str` and CPython `float()` agree on
+/// all sign/decimal/exponent/inf/infinity/nan spellings (both
+/// correctly-rounded IEEE-754); Python additionally allows `_`
+/// separators, so any token containing `_` bails to the delegated
+/// path. Returns None (caller falls back to nx) for missing or
+/// non-UTF-8 files so nx defines those error surfaces exactly.
+#[pyfunction]
+#[pyo3(signature = (path, mode))]
+fn read_edgelist_simple(py: Python<'_>, path: &str, mode: &str) -> PyResult<Option<PyGraph>> {
+    let Ok(content) = std::fs::read_to_string(path) else {
+        return Ok(None);
+    };
+
+    let mut node_key_map: HashMap<String, PyObject> = HashMap::new();
+    let mut node_py_attrs: HashMap<String, Py<PyDict>> = HashMap::new();
+    let mut edge_py_attrs: HashMap<(String, String), Py<PyDict>> = HashMap::new();
+    let mut nodes_order: Vec<String> = Vec::new();
+    let mut edges: Vec<(String, String, fnx_classes::AttrMap)> = Vec::new();
+    let mut canon_cache: HashMap<&str, String> = HashMap::new();
+
+    for raw in content.split('\n') {
+        let line = match raw.find('#') {
+            Some(p) => &raw[..p],
+            None => raw,
+        };
+        let mut tokens = line.split_whitespace();
+        let (Some(u), Some(v)) = (tokens.next(), tokens.next()) else {
+            // nx parse_edgelist: `if len(s) < 2: continue` — blank,
+            // whitespace-only, and single-token lines are skipped.
+            continue;
+        };
+        let extra = tokens.next();
+        let mut attrs = fnx_classes::AttrMap::new();
+        match mode {
+            "data_true" => {
+                if extra.is_some() {
+                    // nx: TypeError("Failed to convert edge data ...").
+                    return Ok(None);
+                }
+            }
+            "data_false" => {
+                // extras ignored entirely
+            }
+            "weight_float" => {
+                if let Some(w) = extra {
+                    if tokens.next().is_some() {
+                        // nx: IndexError on data/data_keys length mismatch.
+                        return Ok(None);
+                    }
+                    if w.contains('_') {
+                        // Python float() accepts underscore separators;
+                        // Rust does not — delegate.
+                        return Ok(None);
+                    }
+                    let Ok(parsed) = w.parse::<f64>() else {
+                        // nx raises TypeError on float() failure.
+                        return Ok(None);
+                    };
+                    attrs.insert("weight".to_owned(), fnx_runtime::CgseValue::Float(parsed));
+                }
+                // 2 tokens: nx leaves the edge with empty attrs.
+            }
+            _ => return Ok(None),
+        }
+
+        let cu = canon_token(
+            py,
+            u,
+            &mut canon_cache,
+            &mut nodes_order,
+            &mut node_key_map,
+            &mut node_py_attrs,
+        );
+        let cv = canon_token(
+            py,
+            v,
+            &mut canon_cache,
+            &mut nodes_order,
+            &mut node_key_map,
+            &mut node_py_attrs,
+        );
+        let mirror = edge_py_attrs
+            .entry(PyGraph::edge_key(&cu, &cv))
+            .or_insert_with(|| PyDict::new(py).unbind());
+        // weighted: duplicate edges overwrite, matching nx's per-line
+        // datadict.update on the live edge dict.
+        if let Some((k, fnx_runtime::CgseValue::Float(f))) = attrs.iter().next() {
+            mirror.bind(py).set_item(k, *f)?;
+        }
+        edges.push((cu, cv, attrs));
+    }
+
+    let mut inner = RustGraph::new(CompatibilityMode::Strict);
+    let _ = inner.extend_nodes_unrecorded(nodes_order);
+    let _ = inner.extend_edges_with_attrs_unrecorded(edges);
+
+    Ok(Some(PyGraph {
+        inner,
+        node_key_map,
+        lazy_int_node_stop: 0,
+        node_py_attrs,
+        edge_py_attrs,
+        dict_of_dicts_cache: None,
+        graph_attrs: PyDict::new(py).unbind(),
+        nodes_seq: 0,
+        edges_seq: 0,
+        edges_dirty: AtomicBool::new(false),
+    }))
+}
+
 #[pyfunction]
 #[pyo3(signature = (g, path, comments="#", delimiter=" ", encoding="utf-8"))]
 fn write_adjlist(
@@ -1447,6 +1579,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(write_edgelist, m)?)?;
     m.add_function(wrap_pyfunction!(read_adjlist, m)?)?;
     m.add_function(wrap_pyfunction!(read_adjlist_simple, m)?)?;
+    m.add_function(wrap_pyfunction!(read_edgelist_simple, m)?)?;
     m.add_function(wrap_pyfunction!(write_adjlist, m)?)?;
     m.add_function(wrap_pyfunction!(node_link_data, m)?)?;
     m.add_function(wrap_pyfunction!(node_link_graph, m)?)?;

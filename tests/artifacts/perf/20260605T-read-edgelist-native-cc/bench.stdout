@@ -1,0 +1,4 @@
+n=1500 E: 5217 (interleaved warm min-of-12)
+read_edgelist(nodata)        nx=   6.23ms fnx=   5.21ms ratio= 0.84x
+read_edgelist(data=False)    nx=   5.88ms fnx=   4.54ms ratio= 0.77x
+read_weighted_edgelist       nx=   9.97ms fnx=   6.15ms ratio= 0.62x
