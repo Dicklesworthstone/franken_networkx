@@ -6042,6 +6042,13 @@ try:
 except ImportError:  # pragma: no cover — defensive for partial builds
     _native_check_dijkstra_weights_fast = None
 
+try:
+    from franken_networkx._fnx import (
+        bidirectional_dijkstra as _native_bidirectional_dijkstra,
+    )
+except ImportError:  # pragma: no cover — defensive for partial builds
+    _native_bidirectional_dijkstra = None
+
 
 def _has_negative_edge_weight_for_dijkstra(G, weight, *, _skip_sync=False):
     if not isinstance(weight, str):
@@ -21400,6 +21407,27 @@ def bidirectional_dijkstra(G, source, target, weight="weight"):
         raise NodeNotFound(f"Source {source} is not in G")
     if target not in G:
         raise NodeNotFound(f"Target {target} is not in G")
+    # br-r37-c1-k4p0b: undirected simple graphs run the all-Rust CSR kernel,
+    # which eliminates the per-explored-node Python AdjacencyView/PyDict tax
+    # (~30µs/node) that left the in-process port ~6-10x slower than nx. The
+    # native kernel reproduces nx's bidirectional meeting-node tie-break, shared
+    # FIFO counter, and path reconstruction byte-for-byte. Directed graphs keep
+    # the in-process port (no in-neighbour CSR accessor on the DiGraph kernel).
+    if _native_bidirectional_dijkstra is not None and not G.is_directed():
+        # Push any post-creation edge-attr mutations into the Rust inner graph
+        # (edge-only + dirty-gated: a no-op for graphs that were never mutated
+        # after construction, which keeps the single-pair query fast). We avoid
+        # the heavyweight whole-graph sync, and read the int/float type back
+        # from the kernel (``all_int``) rather than touching ``G[u][v]`` here —
+        # that access would mark the graph attr-dirty and force a resync on the
+        # next call.
+        _sync_rust_edge_attrs(G, edge_only=True)
+        length, all_int, path = _native_bidirectional_dijkstra(G, source, target, weight)
+        # The Rust kernel accumulates in f64 (byte-exact with nx's arithmetic
+        # ORDER); nx preserves Python int arithmetic, so the length is int iff
+        # every weight summed along the path is int/bool (else int + float ->
+        # float). The f64 value is already exact — only the type is matched.
+        return (int(length) if all_int else float(length), path)
     return _bidirectional_dijkstra_local(G, source, target, weight)
 
 

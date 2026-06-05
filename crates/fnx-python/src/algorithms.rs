@@ -2775,6 +2775,67 @@ pub fn multi_source_dijkstra(
     ))
 }
 
+// ---------------------------------------------------------------------------
+// bidirectional_dijkstra (undirected native kernel, br-r37-c1-k4p0b)
+// ---------------------------------------------------------------------------
+
+/// Native undirected bidirectional Dijkstra: returns `(length, path)`
+/// byte-identical to `networkx.bidirectional_dijkstra`. The Python wrapper only
+/// routes simple undirected graphs with a string weight key and non-negative
+/// finite numeric weights here (everything else is delegated / kept on the
+/// in-process port); it also performs the nx `NodeNotFound` / `source == target`
+/// checks before calling, so this kernel assumes both nodes are present.
+#[pyfunction]
+#[pyo3(signature = (g, source, target, weight="weight"))]
+pub fn bidirectional_dijkstra(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    source: &Bound<'_, PyAny>,
+    target: &Bound<'_, PyAny>,
+    weight: &str,
+) -> PyResult<(f64, bool, PyObject)> {
+    // The Python wrapper has already run the edge-only, dirty-gated
+    // `_fnx_sync_edge_attrs_to_inner` (a no-op for unmutated graphs), so the
+    // inner AttrMap weights this kernel reads are current. We deliberately do
+    // NOT call the heavy `_fnx_sync_attrs_to_inner` here: it unconditionally
+    // re-syncs all node attrs (O(n)) on every call, which dominated the
+    // single-pair cost and made the native kernel slower than nx.
+    let gr = extract_graph(g)?;
+    let source_str = node_key_to_string(py, source)?;
+    let target_str = node_key_to_string(py, target)?;
+    validate_node_str(&gr, &source_str, "Source")?;
+    validate_node_str(&gr, &target_str, "Target")?;
+
+    let projection = gr.weighted_undirected_projection(weight);
+    let outcome = {
+        let inner = projection.as_ref();
+        py.allow_threads(|| {
+            fnx_algorithms::bidirectional_dijkstra_undirected(
+                inner,
+                &source_str,
+                &target_str,
+                weight,
+            )
+        })
+    };
+
+    match outcome {
+        fnx_algorithms::BidirectionalDijkstraOutcome::Found(length, all_int, path) => {
+            let py_path: Vec<PyObject> = path.iter().map(|n| gr.py_node_key(py, n)).collect();
+            Ok((length, all_int, py_path.into_pyobject(py)?.into_any().unbind()))
+        }
+        fnx_algorithms::BidirectionalDijkstraOutcome::NoPath => Err(NetworkXNoPath::new_err(
+            format!("No path between {} and {}.", source_str, target_str),
+        )),
+        fnx_algorithms::BidirectionalDijkstraOutcome::Contradiction => Err(PyValueError::new_err(
+            "Contradictory paths found: negative weights?",
+        )),
+        fnx_algorithms::BidirectionalDijkstraOutcome::NodeMissing => Err(NodeNotFound::new_err(
+            format!("Either source {} or target {} is not in G", source_str, target_str),
+        )),
+    }
+}
+
 // ===========================================================================
 // Connectivity algorithms
 // ===========================================================================
@@ -14843,6 +14904,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(graph_has_edge_attr, m)?)?;
     m.add_function(wrap_pyfunction!(bellman_ford_path, m)?)?;
     m.add_function(wrap_pyfunction!(multi_source_dijkstra, m)?)?;
+    m.add_function(wrap_pyfunction!(bidirectional_dijkstra, m)?)?;
     // Connectivity
     m.add_function(wrap_pyfunction!(is_connected, m)?)?;
     m.add_function(wrap_pyfunction!(connected_components, m)?)?;

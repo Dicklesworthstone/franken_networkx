@@ -1542,6 +1542,171 @@ pub fn multi_source_dijkstra_directed(
     )
 }
 
+/// Outcome of [`bidirectional_dijkstra_undirected`].
+pub enum BidirectionalDijkstraOutcome {
+    /// A shortest path was found: `(length, all_int_on_path, path-as-node-names)`.
+    ///
+    /// `all_int_on_path` is `true` iff every edge weight summed along the path
+    /// is integer-typed (`Int`/`Bool`) or absent (defaulting to int `1`) — the
+    /// condition under which nx returns an `int` length rather than a `float`
+    /// (Python `int + float -> float`). Computed here from the inner
+    /// `AttrMap` value variants so the Python wrapper need not re-read the
+    /// edge dicts (which would mark the graph attr-dirty and force a resync).
+    Found(f64, bool, Vec<String>),
+    /// No path exists between source and target.
+    NoPath,
+    /// `vw_length < dists[dir][w]` was observed — nx raises
+    /// `ValueError("Contradictory paths found: negative weights?")`.
+    Contradiction,
+    /// `source` or `target` is not present in the graph (defensive — the
+    /// Python wrapper already raises `NodeNotFound` before calling).
+    NodeMissing,
+}
+
+/// networkx's EXACT bidirectional Dijkstra for an undirected simple graph with a
+/// string weight key and non-negative, finite, numeric (or absent => 1.0) edge
+/// weights — precisely the cases the Python dispatcher routes here (multigraph,
+/// directed, callable / non-string / negative / non-finite / non-numeric / None
+/// weights are all delegated to nx *before* this is reached).
+///
+/// Returns the `(length, path)` byte-identical to
+/// `networkx.bidirectional_dijkstra`, including the bidirectional meeting-node
+/// tie-break (which differs from a plain `dijkstra_path`). The whole search runs
+/// in Rust over integer CSR adjacency (`neighbors_indices`), so it avoids the
+/// per-explored-node Python `AdjacencyView`/`PyDict` construction tax (~30 us
+/// per node) that made the in-process Python fallback ~6-10x slower than nx.
+///
+/// Ports `_bidirectional_dijkstra_local` 1:1: two fringes with a *shared*
+/// monotonic counter for FIFO tie-break, plain `<` distance comparisons (no
+/// epsilon), and the same finaldist/meetnode update + path reconstruction
+/// (forward preds reversed, then backward preds from `preds[1][meet]`).
+/// (br-r37-c1-k4p0b)
+#[must_use]
+pub fn bidirectional_dijkstra_undirected(
+    graph: &Graph,
+    source: &str,
+    target: &str,
+    weight_attr: &str,
+) -> BidirectionalDijkstraOutcome {
+    let (Some(s), Some(t)) = (graph.get_node_index(source), graph.get_node_index(target)) else {
+        return BidirectionalDijkstraOutcome::NodeMissing;
+    };
+    let ordered = graph.nodes_ordered();
+    if s == t {
+        // nx returns int 0 for a zero-length self path (no edges summed).
+        return BidirectionalDijkstraOutcome::Found(0.0, true, vec![ordered[s].to_owned()]);
+    }
+
+    // [forward, backward]
+    let mut dists: [HashMap<usize, f64>; 2] = [HashMap::new(), HashMap::new()];
+    let mut preds: [HashMap<usize, Option<usize>>; 2] = [HashMap::new(), HashMap::new()];
+    preds[0].insert(s, None);
+    preds[1].insert(t, None);
+    let mut seen: [HashMap<usize, f64>; 2] = [HashMap::new(), HashMap::new()];
+    seen[0].insert(s, 0.0);
+    seen[1].insert(t, 0.0);
+    let mut fringe: [BinaryHeap<DijkstraState<usize>>; 2] =
+        [BinaryHeap::new(), BinaryHeap::new()];
+    let mut counter: u64 = 0;
+    fringe[0].push(DijkstraState {
+        dist: 0.0,
+        seq: counter,
+        node: s,
+    });
+    counter += 1;
+    fringe[1].push(DijkstraState {
+        dist: 0.0,
+        seq: counter,
+        node: t,
+    });
+    counter += 1;
+
+    let mut finaldist: Option<f64> = None;
+    let mut meetnode: Option<usize> = None;
+    let mut direction = 1usize;
+
+    while !fringe[0].is_empty() && !fringe[1].is_empty() {
+        direction = 1 - direction;
+        let DijkstraState { dist, node: v, .. } =
+            fringe[direction].pop().expect("fringe checked non-empty");
+        if dists[direction].contains_key(&v) {
+            continue;
+        }
+        dists[direction].insert(v, dist);
+        if dists[1 - direction].contains_key(&v) {
+            // Fringes met: reconstruct the path through `meetnode`.
+            let meet = meetnode.expect("meetnode set before fringes overlap");
+            let mut path: Vec<usize> = Vec::new();
+            let mut curr = Some(meet);
+            while let Some(c) = curr {
+                path.push(c);
+                curr = preds[0][&c];
+            }
+            path.reverse(); // forward: source .. meet
+            let mut curr = preds[1][&meet];
+            while let Some(c) = curr {
+                path.push(c);
+                curr = preds[1][&c];
+            }
+            // nx preserves int arithmetic: the length is int iff every weight
+            // summed along the path is Int/Bool (or absent => default int 1).
+            let mut all_int = true;
+            for pair in path.windows(2) {
+                let kind = graph
+                    .edge_attrs(ordered[pair[0]], ordered[pair[1]])
+                    .and_then(|attrs| attrs.get(weight_attr));
+                match kind {
+                    None => {} // absent => default int 1
+                    Some(CgseValue::Int(_) | CgseValue::Bool(_)) => {}
+                    Some(_) => {
+                        all_int = false;
+                        break;
+                    }
+                }
+            }
+            let names = path.into_iter().map(|i| ordered[i].to_owned()).collect();
+            return BidirectionalDijkstraOutcome::Found(
+                finaldist.expect("finaldist set with meetnode"),
+                all_int,
+                names,
+            );
+        }
+
+        let v_name = ordered[v];
+        if let Some(neighbors) = graph.neighbors_indices(v) {
+            for &w in neighbors {
+                let w_name = ordered[w];
+                let cost = edge_weight_or_default(graph, v_name, w_name, weight_attr);
+                let vw_length = dist + cost;
+                if let Some(&existing) = dists[direction].get(&w) {
+                    if vw_length < existing {
+                        return BidirectionalDijkstraOutcome::Contradiction;
+                    }
+                } else if seen[direction].get(&w).is_none_or(|&sw| vw_length < sw) {
+                    seen[direction].insert(w, vw_length);
+                    let seq = counter;
+                    counter += 1;
+                    fringe[direction].push(DijkstraState {
+                        dist: vw_length,
+                        seq,
+                        node: w,
+                    });
+                    preds[direction].insert(w, Some(v));
+                    if let Some(&other) = seen[1 - direction].get(&w) {
+                        let total = vw_length + other;
+                        if finaldist.is_none_or(|fd| fd > total) {
+                            finaldist = Some(total);
+                            meetnode = Some(w);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    BidirectionalDijkstraOutcome::NoPath
+}
+
 #[must_use]
 pub fn bellman_ford_shortest_paths(
     graph: &Graph,
