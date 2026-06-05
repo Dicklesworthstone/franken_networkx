@@ -11,6 +11,7 @@ use crate::{
     PythonAllowThreadsExt, node_key_to_string,
 };
 use fnx_classes::AttrMap;
+use pyo3::class::basic::CompareOp;
 use pyo3::exceptions::{
     PyIndexError, PyKeyError, PyRuntimeError, PyValueError, PyZeroDivisionError,
 };
@@ -2440,6 +2441,57 @@ pub fn graph_has_edge_attr(
         GraphRef::MultiUndirected { .. } | GraphRef::MultiDirected { .. } => None,
     };
     Ok(has_attr)
+}
+
+/// Return whether any simple-graph edge has a present non-unit weight attr.
+///
+/// This mirrors Python's ``attrs[weight] != 1`` check against the live
+/// ``edge_py_attrs`` dicts without materializing ``G.edges(data=True)``. The
+/// Python edge view marks those dicts dirty because user code may mutate them;
+/// this internal read-only scan must not poison Dijkstra's mutation token.
+#[pyfunction]
+#[pyo3(signature = (g, weight_attr))]
+pub fn graph_has_explicit_nonunit_weight_fast(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    weight_attr: &str,
+) -> PyResult<Option<bool>> {
+    let gr = extract_graph(g)?;
+    let one = 1_i64.into_pyobject(py)?;
+    let dict_has_nonunit = |dict: &Py<PyDict>| -> PyResult<bool> {
+        let bound = dict.bind(py);
+        let Some(value) = bound.get_item(weight_attr)? else {
+            return Ok(false);
+        };
+        match value.rich_compare(one.as_any(), CompareOp::Ne) {
+            Ok(nonunit) => nonunit.is_truthy(),
+            Err(_) => Ok(true),
+        }
+    };
+    let has_nonunit = match &gr {
+        GraphRef::Undirected(pg) => {
+            let mut found = false;
+            for dict in pg.edge_py_attrs.values() {
+                if dict_has_nonunit(dict)? {
+                    found = true;
+                    break;
+                }
+            }
+            Some(found)
+        }
+        GraphRef::Directed { dg, .. } => {
+            let mut found = false;
+            for dict in dg.edge_py_attrs.values() {
+                if dict_has_nonunit(dict)? {
+                    found = true;
+                    break;
+                }
+            }
+            Some(found)
+        }
+        GraphRef::MultiUndirected { .. } | GraphRef::MultiDirected { .. } => None,
+    };
+    Ok(has_nonunit)
 }
 
 /// Native O(|E|) scan for any non-finite or non-numeric edge weight
@@ -15027,6 +15079,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(graph_has_nonnumeric_edge_weight, m)?)?;
     m.add_function(wrap_pyfunction!(graph_edge_weights_all_int, m)?)?;
     m.add_function(wrap_pyfunction!(check_dijkstra_edge_weights_fast, m)?)?;
+    m.add_function(wrap_pyfunction!(graph_has_explicit_nonunit_weight_fast, m)?)?;
     m.add_function(wrap_pyfunction!(dijkstra_weight_cache_token, m)?)?;
     m.add_function(wrap_pyfunction!(adjacency_arrays, m)?)?;
     m.add_function(wrap_pyfunction!(adjacency_index_arrays, m)?)?;

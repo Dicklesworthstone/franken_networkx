@@ -6138,10 +6138,12 @@ try:
     from franken_networkx._fnx import (
         check_dijkstra_edge_weights_fast as _native_check_dijkstra_weights_fast,
         dijkstra_weight_cache_token as _native_dijkstra_weight_cache_token,
+        graph_has_explicit_nonunit_weight_fast as _native_has_explicit_nonunit_weight_fast,
     )
 except ImportError:  # pragma: no cover — defensive for partial builds
     _native_check_dijkstra_weights_fast = None
     _native_dijkstra_weight_cache_token = None
+    _native_has_explicit_nonunit_weight_fast = None
 
 try:
     from franken_networkx._fnx import (
@@ -6383,6 +6385,30 @@ def _should_delegate_dijkstra_to_networkx(G, weight):
     return False
 
 
+def _networkx_graph_for_dijkstra_parity(G):
+    if (
+        type(G) not in (Graph, DiGraph)
+        or _native_dijkstra_weight_cache_token is None
+    ):
+        return _networkx_graph_for_parity(G)
+    try:
+        token = _native_dijkstra_weight_cache_token(G)
+    except Exception:
+        token = None
+    if token is None:
+        return _networkx_graph_for_parity(G)
+    nodes_seq, edges_seq, edge_attrs_dirty = token
+    if edge_attrs_dirty:
+        return _networkx_graph_for_parity(G)
+    cache_key = (type(G), nodes_seq, edges_seq)
+    cached = vars(G).get("_fnx_dijkstra_nx_graph_cache")
+    if cached is not None and cached[0] == cache_key:
+        return cached[1]
+    graph = _networkx_graph_for_parity(G)
+    vars(G)["_fnx_dijkstra_nx_graph_cache"] = (cache_key, graph)
+    return graph
+
+
 def _sync_rust_edge_attrs(G, *, edge_only=False):
     """br-r37-c1-sjf4t: push Python-visible edge/node attribute dicts
     back into the Rust ``inner`` graph so native algorithms see
@@ -6466,6 +6492,16 @@ def _graph_has_nonunit_weight(G, weight):
 def _graph_has_explicit_nonunit_weight(G, weight):
     if not isinstance(weight, str):
         return True
+    if (
+        _native_has_explicit_nonunit_weight_fast is not None
+        and type(G) in (Graph, DiGraph)
+    ):
+        try:
+            native = _native_has_explicit_nonunit_weight_fast(G, weight)
+        except Exception:
+            native = None
+        if native is not None:
+            return bool(native)
     for edge in G.edges(data=True):
         attrs = edge[-1]
         if not isinstance(attrs, dict) or weight not in attrs:
@@ -6605,6 +6641,29 @@ def _call_networkx_for_parity(name, G, /, *args, **kwargs):
     kwargs.setdefault("backend", "networkx")
     try:
         result = getattr(nx, name)(_networkx_graph_for_parity(G), *args, **kwargs)
+    except Exception as exc:
+        _raise_translated_networkx_exception(exc)
+
+    if isinstance(result, _Iterator):
+        def _wrapped_iterator():
+            try:
+                yield from result
+            except Exception as exc:
+                _raise_translated_networkx_exception(exc)
+
+        return _wrapped_iterator()
+
+    return result
+
+
+def _call_networkx_for_dijkstra_parity(name, G, /, *args, **kwargs):
+    import networkx as nx
+
+    kwargs.setdefault("backend", "networkx")
+    try:
+        result = getattr(nx, name)(
+            _networkx_graph_for_dijkstra_parity(G), *args, **kwargs
+        )
     except Exception as exc:
         _raise_translated_networkx_exception(exc)
 
@@ -12448,7 +12507,12 @@ def all_pairs_dijkstra(G, cutoff=None, weight="weight"):
         kwargs = {"weight": weight}
         if cutoff is not None:
             kwargs["cutoff"] = cutoff
-        yield from _call_networkx_for_parity("all_pairs_dijkstra", G, **kwargs)
+        caller = (
+            _call_networkx_for_dijkstra_parity
+            if isinstance(weight, str)
+            else _call_networkx_for_parity
+        )
+        yield from caller("all_pairs_dijkstra", G, **kwargs)
         return
     if cutoff is not None:
         for node in G:
