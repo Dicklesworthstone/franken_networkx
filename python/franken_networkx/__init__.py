@@ -10640,7 +10640,10 @@ def greedy_color(G, strategy="largest_first", interchange=False):
 
 
 # Algorithm functions — condensation (wrapped to match NetworkX API)
-from franken_networkx._fnx import condensation as _condensation_raw
+from franken_networkx._fnx import (
+    condensation as _condensation_raw,
+    condensation_nx_ordered as _condensation_nx_ordered,
+)
 
 
 def condensation(G, scc=None):
@@ -10679,29 +10682,10 @@ def condensation(G, scc=None):
             cond_dg.nodes[idx]["members"] = member_set
         return cond_dg
 
-    # Match NetworkX's labeling: number SCCs in the order returned by
-    # strongly_connected_components (which is reverse topological order,
-    # sinks first). The Rust _condensation_raw uses a different internal
-    # numbering, so rebuild on top of the public SCC iterator to stay
-    # bit-compatible with nx.condensation's node labels and edge tuples.
-    components = [set(component) for component in strongly_connected_components(G)]
-    mapping = {}
-    members = {}
-    for idx, component in enumerate(components):
-        members[idx] = component
-        for node in component:
-            mapping[node] = idx
-    cond_dg = DiGraph()
-    cond_dg.add_nodes_from(range(len(components)))
-    for idx, member_set in members.items():
-        cond_dg.nodes[idx]["members"] = member_set
-    for u, v in G.edges():
-        cu = mapping[u]
-        cv = mapping[v]
-        if cu != cv:
-            cond_dg.add_edge(cu, cv)
-    cond_dg.graph["mapping"] = mapping
-    return cond_dg
+    G = _coerce_arg_to_fnx_graph(G)
+    if not G.is_directed():
+        raise NetworkXNotImplemented("not implemented for undirected type")
+    return _condensation_nx_ordered(G)
 
 
 # Algorithm functions — all-pairs shortest paths

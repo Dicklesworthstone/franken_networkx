@@ -15,7 +15,7 @@ use pyo3::exceptions::{
     PyIndexError, PyKeyError, PyRuntimeError, PyValueError, PyZeroDivisionError,
 };
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyList, PyTuple};
+use pyo3::types::{PyDict, PyList, PySet, PyTuple};
 use std::cell::OnceCell;
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -8678,6 +8678,76 @@ pub fn condensation(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<(PyObject,
     }
 }
 
+/// Build `condensation(G)` with NetworkX-compatible SCC labels in one native pass.
+#[pyfunction]
+pub fn condensation_nx_ordered(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<PyObject> {
+    let gr = extract_graph(g)?;
+    if !gr.is_directed() {
+        return Err(crate::NetworkXNotImplemented::new_err(
+            "condensation is not defined for undirected graphs.",
+        ));
+    }
+
+    let dg_ref = gr.digraph().expect("is_directed checked above");
+    let components = py.allow_threads(|| strongly_connected_components_nx_ordered(dg_ref));
+
+    let mut py_dg = PyDiGraph::new_empty_with_policy(py, dg_ref.runtime_policy().clone())?;
+    let mapping = PyDict::new(py);
+    let mut canonical_to_scc = HashMap::with_capacity(dg_ref.node_count());
+
+    for (idx, component) in components.iter().enumerate() {
+        let label = idx.to_string();
+        let py_nodes: Vec<PyObject> = component
+            .iter()
+            .map(|node| gr.py_node_key(py, node))
+            .collect();
+        let members = PySet::new(py, py_nodes)?;
+        let attrs = PyDict::new(py);
+        attrs.set_item("members", members)?;
+        py_dg
+            .node_key_map
+            .insert(label.clone(), idx.into_pyobject(py)?.into_any().unbind());
+        py_dg.node_py_attrs.insert(label, attrs.unbind());
+
+        for node in component {
+            canonical_to_scc.insert(node.clone(), idx);
+            mapping.set_item(gr.py_node_key(py, node), idx)?;
+        }
+    }
+
+    for idx in 0..components.len() {
+        py_dg.inner.add_node(idx.to_string());
+    }
+
+    let mut seen = HashSet::new();
+    let mut cond_edges = Vec::new();
+    for edge in dg_ref.edges_ordered() {
+        let Some(&left_idx) = canonical_to_scc.get(&edge.left) else {
+            return Err(NetworkXError::new_err(
+                "condensation internal SCC mapping missing source",
+            ));
+        };
+        let Some(&right_idx) = canonical_to_scc.get(&edge.right) else {
+            return Err(NetworkXError::new_err(
+                "condensation internal SCC mapping missing target",
+            ));
+        };
+        if left_idx == right_idx || !seen.insert((left_idx, right_idx)) {
+            continue;
+        }
+        let left = left_idx.to_string();
+        let right = right_idx.to_string();
+        py_dg
+            .edge_py_attrs
+            .insert((left.clone(), right.clone()), PyDict::new(py).unbind());
+        cond_edges.push((left, right));
+    }
+    let _ = py_dg.inner.extend_edges_unrecorded(cond_edges);
+    py_dg.graph_attrs.bind(py).set_item("mapping", mapping)?;
+
+    Ok(py_dg.into_pyobject(py)?.into_any().unbind())
+}
+
 // ===========================================================================
 // Weakly Connected Components
 // ===========================================================================
@@ -15095,6 +15165,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(number_strongly_connected_components, m)?)?;
     m.add_function(wrap_pyfunction!(is_strongly_connected, m)?)?;
     m.add_function(wrap_pyfunction!(condensation, m)?)?;
+    m.add_function(wrap_pyfunction!(condensation_nx_ordered, m)?)?;
     // Weakly connected components
     m.add_function(wrap_pyfunction!(weakly_connected_components, m)?)?;
     m.add_function(wrap_pyfunction!(number_weakly_connected_components, m)?)?;

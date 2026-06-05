@@ -1,0 +1,72 @@
+{
+  "results": [
+    {
+      "command": "PYTHONDONTWRITEBYTECODE=1 python3 tests/artifacts/perf/20260605T-condensation-bulk-yaane/bench_condensation.py bench --impl fnx_old --kind dag --n 3000 --degree 4 --repeat 20",
+      "mean": 1.7042459224600002,
+      "stddev": 0.058158980305426926,
+      "median": 1.7118588810600002,
+      "user": 4.86297086,
+      "system": 0.36460206,
+      "min": 1.61704640606,
+      "max": 1.8068215120600002,
+      "times": [
+        1.73809325906,
+        1.75043931906,
+        1.8068215120600002,
+        1.68340422906,
+        1.73510586806,
+        1.63506900206,
+        1.61704640606,
+        1.71887823306,
+        1.65276186706,
+        1.7048395290600002
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "PYTHONDONTWRITEBYTECODE=1 python3 tests/artifacts/perf/20260605T-condensation-bulk-yaane/bench_condensation.py bench --impl fnx --kind dag --n 3000 --degree 4 --repeat 20",
+      "mean": 1.3182644164600004,
+      "stddev": 0.07329041258696915,
+      "median": 1.31379801906,
+      "user": 4.89650816,
+      "system": 0.11637746,
+      "min": 1.18634293106,
+      "max": 1.40730788806,
+      "times": [
+        1.3005359440600002,
+        1.3020629320600001,
+        1.36573938406,
+        1.4003231100600002,
+        1.37827291406,
+        1.3255331060600002,
+        1.29426891806,
+        1.40730788806,
+        1.22225703706,
+        1.18634293106
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}
