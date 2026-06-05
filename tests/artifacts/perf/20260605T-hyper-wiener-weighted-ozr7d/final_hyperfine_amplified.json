@@ -1,0 +1,60 @@
+{
+  "results": [
+    {
+      "command": "python tests/artifacts/perf/20260605T-hyper-wiener-weighted-ozr7d/bench_hyper_wiener.py --mode bench --impl fnx --weighted --nodes 80 --repeats 25 --warmup 2",
+      "mean": 0.43895152724000003,
+      "stddev": 0.0072631734715853866,
+      "median": 0.44195696724000005,
+      "user": 4.01182798,
+      "system": 0.056668694285714284,
+      "min": 0.42859934924000004,
+      "max": 0.44863503824000006,
+      "times": [
+        0.43512620524000006,
+        0.44379041724000007,
+        0.42859934924000004,
+        0.44863503824000006,
+        0.43166872124000005,
+        0.44195696724000005,
+        0.44288399224
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "python tests/artifacts/perf/20260605T-hyper-wiener-weighted-ozr7d/bench_hyper_wiener.py --mode bench --impl nx --weighted --nodes 80 --repeats 25 --warmup 2",
+      "mean": 0.5418831180971428,
+      "stddev": 0.01992665361897447,
+      "median": 0.54164810924,
+      "user": 4.1232546942857145,
+      "system": 0.055135551428571426,
+      "min": 0.50635389624,
+      "max": 0.56550435924,
+      "times": [
+        0.53548060224,
+        0.54810181624,
+        0.56550435924,
+        0.53379089524,
+        0.56230214824,
+        0.50635389624,
+        0.54164810924
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

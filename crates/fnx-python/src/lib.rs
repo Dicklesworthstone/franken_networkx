@@ -636,8 +636,7 @@ impl PyGraph {
     where
         I: IntoIterator<Item = Bound<'py, PyAny>>,
     {
-        let mut edges: Vec<(String, String, AttrMap, Option<Py<PyDict>>)> =
-            Vec::with_capacity(len);
+        let mut edges: Vec<(String, String, AttrMap, Option<Py<PyDict>>)> = Vec::with_capacity(len);
         let mut new_nodes = Vec::new();
         let mut seen_nodes: HashSet<String> = self
             .inner
@@ -2119,9 +2118,7 @@ impl PyMultiGraph {
             .into_iter()
             .map(str::to_owned)
             .collect();
-        let policy = self.inner.runtime_policy().clone();
         Python::attach(|py| {
-            let mut fresh = MultiGraph::with_runtime_policy(policy);
             for canonical in &ordered {
                 let rust_attrs = self
                     .node_py_attrs

@@ -1,0 +1,72 @@
+{
+  "results": [
+    {
+      "command": "env VIRTUAL_ENV=/data/projects/franken_networkx/.venv PATH=/data/projects/franken_networkx/.venv/bin:$PATH PYTHONPATH=python python tests/artifacts/perf/20260605T-hyper-wiener-weighted-ozr7d/bench_hyper_wiener.py --mode bench --impl fnx --weighted --nodes 80 --repeats 30",
+      "mean": 0.66490266138,
+      "stddev": 0.036636240440030506,
+      "median": 0.67070144078,
+      "user": 4.0032416,
+      "system": 0.06301841999999999,
+      "min": 0.6088538477800001,
+      "max": 0.7138963547800001,
+      "times": [
+        0.6477071737800001,
+        0.70105770578,
+        0.6918105147800001,
+        0.7138963547800001,
+        0.64275587978,
+        0.68027602878,
+        0.66112685278,
+        0.6115876277800001,
+        0.68995462778,
+        0.6088538477800001
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "env VIRTUAL_ENV=/data/projects/franken_networkx/.venv PATH=/data/projects/franken_networkx/.venv/bin:$PATH PYTHONPATH=python python tests/artifacts/perf/20260605T-hyper-wiener-weighted-ozr7d/bench_hyper_wiener.py --mode bench --impl nx --weighted --nodes 80 --repeats 30",
+      "mean": 0.62642640428,
+      "stddev": 0.029780796704322904,
+      "median": 0.63320764078,
+      "user": 4.1093746,
+      "system": 0.05946731999999999,
+      "min": 0.56841891178,
+      "max": 0.66021561378,
+      "times": [
+        0.64677731778,
+        0.6194985497800001,
+        0.6302280677800001,
+        0.6361872137800001,
+        0.5911741287800001,
+        0.6593694587800001,
+        0.56841891178,
+        0.66021561378,
+        0.64316101678,
+        0.60923376378
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

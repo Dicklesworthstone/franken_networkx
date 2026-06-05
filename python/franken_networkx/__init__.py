@@ -26379,9 +26379,10 @@ def hyper_wiener_index(G, weight=None):
 
     (W + sum(dist^2)) / 2 where W is the Wiener index.
 
-    ``weight`` is accepted for networkx signature parity. When set, the
-    calculation delegates to networkx so edge weights are honoured; the
-    native Rust path assumes unit-distance edges.
+    ``weight`` is accepted for networkx signature parity. Clean finite
+    numeric string-weighted simple graphs use a native Dijkstra aggregation;
+    callable/non-string/invalid-weight surfaces still delegate to networkx so
+    edge-weight exceptions and special cases stay byte-compatible.
 
     br-r37-c1-tqimg: nx is @not_implemented_for('directed',
     'multigraph').
@@ -26396,14 +26397,20 @@ def hyper_wiener_index(G, weight=None):
         raise NetworkXNotImplemented("not implemented for multigraph type")
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
-    if weight is not None:
-        return _call_networkx_for_parity("hyper_wiener_index", G, weight=weight)
     if len(G) == 0:
         raise NetworkXPointlessConcept(
             "Connectivity is undefined for the null graph."
         )
     if not is_connected(G):
         return float("inf")
+    if weight is not None:
+        if isinstance(weight, str) and not _should_delegate_dijkstra_to_networkx(
+            G, weight
+        ):
+            native_weighted = getattr(_fnx, "hyper_wiener_index_weighted_rust", None)
+            if native_weighted is not None:
+                return native_weighted(G, weight)
+        return _call_networkx_for_parity("hyper_wiener_index", G, weight=weight)
     return _fnx.hyper_wiener_index_rust(G)
 
 

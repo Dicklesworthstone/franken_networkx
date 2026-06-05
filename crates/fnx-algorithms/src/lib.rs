@@ -1605,8 +1605,7 @@ pub fn bidirectional_dijkstra_undirected(
     let mut seen: [HashMap<usize, f64>; 2] = [HashMap::new(), HashMap::new()];
     seen[0].insert(s, 0.0);
     seen[1].insert(t, 0.0);
-    let mut fringe: [BinaryHeap<DijkstraState<usize>>; 2] =
-        [BinaryHeap::new(), BinaryHeap::new()];
+    let mut fringe: [BinaryHeap<DijkstraState<usize>>; 2] = [BinaryHeap::new(), BinaryHeap::new()];
     let mut counter: u64 = 0;
     fringe[0].push(DijkstraState {
         dist: 0.0,
@@ -30788,6 +30787,39 @@ pub fn hyper_wiener_index(graph: &Graph) -> Option<f64> {
     Some(total)
 }
 
+/// Weighted Hyper-Wiener index over unordered node pairs.
+///
+/// Mirrors ``networkx.hyper_wiener_index(G, weight=...)`` for simple
+/// undirected graphs whose present weight values are finite numeric
+/// nonnegative values. Missing weights default to 1.0, as NetworkX's
+/// Dijkstra helper does. The Python wrapper keeps delegating to NetworkX for
+/// negative, non-finite, non-numeric, callable, directed, and multigraph
+/// surfaces so this kernel only handles the parity-safe fast path.
+#[must_use]
+pub fn hyper_wiener_index_weighted(graph: &Graph, weight_attr: &str) -> Option<f64> {
+    let nodes = graph.nodes_ordered();
+    let n = nodes.len();
+    if n < 2 {
+        return Some(0.0);
+    }
+
+    let mut total = 0.0;
+    for s in 0..n {
+        let result = multi_source_dijkstra(graph, &[nodes[s]], weight_attr);
+        let mut by_node: HashMap<&str, f64> = HashMap::with_capacity(result.distances.len());
+        for entry in &result.distances {
+            by_node.insert(entry.node.as_str(), entry.distance);
+        }
+        for t in (s + 1)..n {
+            match by_node.get(nodes[t]) {
+                Some(d) if d.is_finite() => total += *d + *d * *d,
+                _ => return None,
+            }
+        }
+    }
+    Some(total)
+}
+
 /// Schultz index: sum of (deg(u) + deg(v)) * d(u,v) for all pairs.
 #[must_use]
 pub fn schultz_index(graph: &Graph) -> Option<f64> {
@@ -39817,7 +39849,7 @@ mod tests {
         fn check_ge(edges: &[(&str, &str)], n: usize, expected: f64) {
             let mut graph = Graph::strict();
             for i in 0..n {
-                graph.add_node(&i.to_string());
+                graph.add_node(i.to_string());
             }
             for &(u, v) in edges {
                 graph.add_edge(u, v).expect("edge add");
@@ -39830,58 +39862,124 @@ mod tests {
         }
         check_ge(
             &[
-                ("0", "3"), ("0", "4"), ("0", "6"), ("0", "8"), ("1", "3"),
-                ("1", "6"), ("1", "11"), ("2", "7"), ("3", "6"), ("3", "9"),
-                ("3", "11"), ("4", "7"), ("4", "10"), ("4", "11"), ("5", "7"),
-                ("5", "9"), ("6", "8"), ("6", "9"), ("7", "8"),
+                ("0", "3"),
+                ("0", "4"),
+                ("0", "6"),
+                ("0", "8"),
+                ("1", "3"),
+                ("1", "6"),
+                ("1", "11"),
+                ("2", "7"),
+                ("3", "6"),
+                ("3", "9"),
+                ("3", "11"),
+                ("4", "7"),
+                ("4", "10"),
+                ("4", "11"),
+                ("5", "7"),
+                ("5", "9"),
+                ("6", "8"),
+                ("6", "9"),
+                ("7", "8"),
             ],
             12,
-            5.896_464_646_464_644_19e-01,
+            5.896_464_646_464_644e-1,
         );
         check_ge(
             &[
-                ("0", "1"), ("0", "4"), ("1", "3"), ("1", "4"), ("2", "3"),
-                ("2", "6"), ("3", "5"), ("3", "6"), ("4", "7"), ("5", "7"),
+                ("0", "1"),
+                ("0", "4"),
+                ("1", "3"),
+                ("1", "4"),
+                ("2", "3"),
+                ("2", "6"),
+                ("3", "5"),
+                ("3", "6"),
+                ("4", "7"),
+                ("5", "7"),
                 ("6", "7"),
             ],
             8,
-            6.726_190_476_190_475_61e-01,
+            6.726_190_476_190_476e-1,
         );
         // Disconnected: node 1 is isolated (denominator still n*(n-1)).
         check_ge(
             &[("0", "3"), ("0", "4"), ("2", "5")],
             6,
-            2.333_333_333_333_333_37e-01,
+            2.333_333_333_333_333_4e-1,
         );
         check_ge(
             &[
-                ("0", "1"), ("0", "3"), ("0", "6"), ("0", "7"), ("1", "2"),
-                ("1", "3"), ("2", "3"), ("3", "4"), ("3", "7"), ("3", "8"),
+                ("0", "1"),
+                ("0", "3"),
+                ("0", "6"),
+                ("0", "7"),
+                ("1", "2"),
+                ("1", "3"),
+                ("2", "3"),
+                ("3", "4"),
+                ("3", "7"),
+                ("3", "8"),
             ],
             9,
-            5.138_888_888_888_888_40e-01,
+            5.138_888_888_888_888e-1,
         );
         check_ge(
             &[
-                ("0", "1"), ("0", "2"), ("0", "4"), ("0", "5"), ("1", "3"),
-                ("1", "5"), ("1", "6"), ("1", "7"), ("1", "8"), ("2", "7"),
-                ("3", "8"), ("4", "8"), ("5", "7"),
+                ("0", "1"),
+                ("0", "2"),
+                ("0", "4"),
+                ("0", "5"),
+                ("1", "3"),
+                ("1", "5"),
+                ("1", "6"),
+                ("1", "7"),
+                ("1", "8"),
+                ("2", "7"),
+                ("3", "8"),
+                ("4", "8"),
+                ("5", "7"),
             ],
             9,
-            6.574_074_074_074_074_40e-01,
+            6.574_074_074_074_074e-1,
         );
         check_ge(
             &[
-                ("0", "7"), ("0", "12"), ("0", "14"), ("1", "4"), ("1", "5"),
-                ("1", "9"), ("1", "11"), ("1", "13"), ("1", "14"), ("2", "4"),
-                ("2", "5"), ("2", "12"), ("3", "8"), ("3", "9"), ("3", "10"),
-                ("3", "13"), ("4", "12"), ("4", "14"), ("5", "8"), ("5", "12"),
-                ("5", "13"), ("5", "14"), ("6", "8"), ("7", "9"), ("7", "13"),
-                ("8", "9"), ("9", "13"), ("9", "14"), ("10", "11"), ("10", "14"),
-                ("11", "12"), ("12", "14"),
+                ("0", "7"),
+                ("0", "12"),
+                ("0", "14"),
+                ("1", "4"),
+                ("1", "5"),
+                ("1", "9"),
+                ("1", "11"),
+                ("1", "13"),
+                ("1", "14"),
+                ("2", "4"),
+                ("2", "5"),
+                ("2", "12"),
+                ("3", "8"),
+                ("3", "9"),
+                ("3", "10"),
+                ("3", "13"),
+                ("4", "12"),
+                ("4", "14"),
+                ("5", "8"),
+                ("5", "12"),
+                ("5", "13"),
+                ("5", "14"),
+                ("6", "8"),
+                ("7", "9"),
+                ("7", "13"),
+                ("8", "9"),
+                ("9", "13"),
+                ("9", "14"),
+                ("10", "11"),
+                ("10", "14"),
+                ("11", "12"),
+                ("12", "14"),
             ],
             15,
-            6.134_920_634_920_633_11e-01,
+            6.134_920_634_920_633e-1,
         );
     }
 

@@ -1195,9 +1195,7 @@ impl PyMultiDiGraph {
             .into_iter()
             .map(str::to_owned)
             .collect();
-        let policy = self.inner.runtime_policy().clone();
         Python::attach(|py| {
-            let mut fresh = MultiDiGraph::with_runtime_policy(policy);
             for canonical in &ordered {
                 let rust_attrs = self
                     .node_py_attrs

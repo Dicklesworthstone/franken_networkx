@@ -1,0 +1,11 @@
+Benchmark 1: python tests/artifacts/perf/20260605T-hyper-wiener-weighted-ozr7d/bench_hyper_wiener.py --mode bench --impl fnx --weighted --nodes 80 --repeats 25 --warmup 2
+  Time (mean ± σ):     439.0 ms ±   7.3 ms    [User: 4011.8 ms, System: 56.7 ms]
+  Range (min … max):   428.6 ms … 448.6 ms    7 runs
+ 
+Benchmark 2: python tests/artifacts/perf/20260605T-hyper-wiener-weighted-ozr7d/bench_hyper_wiener.py --mode bench --impl nx --weighted --nodes 80 --repeats 25 --warmup 2
+  Time (mean ± σ):     541.9 ms ±  19.9 ms    [User: 4123.3 ms, System: 55.1 ms]
+  Range (min … max):   506.4 ms … 565.5 ms    7 runs
+ 
+Summary
+  python tests/artifacts/perf/20260605T-hyper-wiener-weighted-ozr7d/bench_hyper_wiener.py --mode bench --impl fnx --weighted --nodes 80 --repeats 25 --warmup 2 ran
+    1.23 ± 0.05 times faster than python tests/artifacts/perf/20260605T-hyper-wiener-weighted-ozr7d/bench_hyper_wiener.py --mode bench --impl nx --weighted --nodes 80 --repeats 25 --warmup 2

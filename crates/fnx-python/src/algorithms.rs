@@ -13991,6 +13991,21 @@ pub fn hyper_wiener_index_rust(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult
         .ok_or_else(|| crate::NetworkXError::new_err("Graph is not connected"))
 }
 
+/// Weighted Hyper-Wiener index for simple undirected graphs.
+#[pyfunction]
+#[pyo3(signature = (g, weight_attr))]
+pub fn hyper_wiener_index_weighted_rust(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    weight_attr: &str,
+) -> PyResult<f64> {
+    sync_rust_attrs_if_available(g)?;
+    let gr = extract_graph(g)?;
+    let inner = gr.undirected();
+    py.allow_threads(|| fnx_algorithms::hyper_wiener_index_weighted(inner, weight_attr))
+        .ok_or_else(|| crate::NetworkXError::new_err("Graph is not connected"))
+}
+
 /// Schultz index.
 #[pyfunction]
 pub fn schultz_index_rust(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<f64> {
@@ -15474,6 +15489,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Distance indices
     m.add_function(wrap_pyfunction!(gutman_index_rust, m)?)?;
     m.add_function(wrap_pyfunction!(hyper_wiener_index_rust, m)?)?;
+    m.add_function(wrap_pyfunction!(hyper_wiener_index_weighted_rust, m)?)?;
     m.add_function(wrap_pyfunction!(schultz_index_rust, m)?)?;
     m.add_function(wrap_pyfunction!(harmonic_diameter_rust, m)?)?;
     // Self-loop functions
