@@ -659,7 +659,13 @@ impl DiGraph {
             return false;
         }
 
-        // 1. Remove outgoing edges and clean up successors' predecessor lists.
+        // br-r37-c1-rmnode-di: clean up neighbours' predecessor/successor sets
+        // (O(degree)), then remove ALL incident edges (out: node->*, in: *->node)
+        // in ONE O(|E|) `retain` pass. The previous version called
+        // `edges.shift_remove` once per incident edge, and each shift_remove is
+        // O(|E|), so remove_node was O(degree*|E|) and remove_nodes_from was
+        // ~51x slower than nx. (DiGraph keeps no integer CSR cache, so no index
+        // repair is needed — just the retain + the order-preserving map shifts.)
         if let Some(succs) = self.successors.get(node) {
             let targets: Vec<String> = succs.iter().cloned().collect();
             for target in targets {
@@ -668,13 +674,8 @@ impl DiGraph {
                 {
                     preds.shift_remove(node);
                 }
-                let _ = self
-                    .edges
-                    .shift_remove(&DirectedEdgeKey::new(node, &target));
             }
         }
-
-        // 2. Remove incoming edges and clean up predecessors' successor lists.
         if let Some(preds) = self.predecessors.get(node) {
             let sources: Vec<String> = preds.iter().cloned().collect();
             for source in sources {
@@ -683,11 +684,10 @@ impl DiGraph {
                 {
                     succs.shift_remove(node);
                 }
-                let _ = self
-                    .edges
-                    .shift_remove(&DirectedEdgeKey::new(&source, node));
             }
         }
+        self.edges
+            .retain(|k, _| k.source != node && k.target != node);
 
         self.successors.shift_remove(node);
         self.predecessors.shift_remove(node);
@@ -1263,7 +1263,9 @@ impl MultiDiGraph {
             return false;
         }
 
-        // 1. Remove outgoing edges and clean up successors' predecessor lists.
+        // br-r37-c1-rmnode-di: clean up neighbours' pred/succ sets (O(degree)),
+        // then remove ALL incident edge buckets in ONE O(|distinct pairs|)
+        // `retain` pass — instead of O(degree * |pairs|) per-edge shift_remove.
         if let Some(succs) = self.successors.get(node) {
             let targets: Vec<String> = succs.keys().cloned().collect();
             for target in targets {
@@ -1272,14 +1274,8 @@ impl MultiDiGraph {
                 {
                     preds.shift_remove(node);
                 }
-                let k = DirectedEdgeKey::new(node, &target);
-                if let Some(removed_bucket) = self.edges.shift_remove(&k) {
-                    self.edge_count -= removed_bucket.len();
-                }
             }
         }
-
-        // 2. Remove incoming edges and clean up predecessors' successor lists.
         if let Some(preds) = self.predecessors.get(node) {
             let sources: Vec<String> = preds.keys().cloned().collect();
             for source in sources {
@@ -1288,12 +1284,17 @@ impl MultiDiGraph {
                 {
                     succs.shift_remove(node);
                 }
-                let k = DirectedEdgeKey::new(&source, node);
-                if let Some(removed_bucket) = self.edges.shift_remove(&k) {
-                    self.edge_count -= removed_bucket.len();
-                }
             }
         }
+        let mut removed_count = 0usize;
+        self.edges.retain(|k, bucket| {
+            let keep = k.source != node && k.target != node;
+            if !keep {
+                removed_count += bucket.len();
+            }
+            keep
+        });
+        self.edge_count -= removed_count;
 
         self.successors.shift_remove(node);
         self.predecessors.shift_remove(node);

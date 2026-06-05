@@ -1572,7 +1572,9 @@ impl MultiGraph {
             return false;
         }
 
-        // 1. Remove incident edges and clean up neighbors' adjacency lists.
+        // br-r37-c1-rmnode-di: clean up neighbours' adjacency (O(degree)), then
+        // remove ALL incident edge buckets in ONE O(|distinct pairs|) `retain`
+        // pass — instead of O(degree * |pairs|) per-edge shift_remove.
         if let Some(neighbors) = self.adjacency.get(node) {
             let neighbor_names: Vec<String> = neighbors.keys().cloned().collect();
             for neighbor in neighbor_names {
@@ -1581,14 +1583,19 @@ impl MultiGraph {
                 {
                     remote_neighbors.shift_remove(node);
                 }
-                let k = EdgeKey::new(node, &neighbor);
-                if let Some(removed_bucket) = self.edges.shift_remove(&k) {
-                    self.edge_count -= removed_bucket.len();
-                }
             }
         }
+        let mut removed_count = 0usize;
+        self.edges.retain(|k, bucket| {
+            let keep = k.left != node && k.right != node;
+            if !keep {
+                removed_count += bucket.len();
+            }
+            keep
+        });
+        self.edge_count -= removed_count;
 
-        // 2. Remove node from adjacency and nodes maps.
+        // Remove node from adjacency and nodes maps.
         self.adjacency.shift_remove(node);
         self.nodes.shift_remove(node);
         self.revision = self.revision.saturating_add(1);
