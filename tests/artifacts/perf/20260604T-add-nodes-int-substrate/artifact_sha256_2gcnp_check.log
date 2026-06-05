@@ -1,0 +1,11 @@
+tests/artifacts/perf/20260604T-add-nodes-int-substrate/baseline_disabled_vs_after_2gcnp.jsonl: OK
+tests/artifacts/perf/20260604T-add-nodes-int-substrate/hyperfine_disabled_vs_after_2gcnp.json: OK
+tests/artifacts/perf/20260604T-add-nodes-int-substrate/hyperfine_disabled_vs_after_2gcnp.stdout: OK
+tests/artifacts/perf/20260604T-add-nodes-int-substrate/lazy_range_native_algorithm_semantics_2gcnp.jsonl: OK
+tests/artifacts/perf/20260604T-add-nodes-int-substrate/lazy_range_native_algorithm_semantics_2gcnp.sha256: OK
+tests/artifacts/perf/20260604T-add-nodes-int-substrate/lazy_range_native_algorithm_semantics_2gcnp_sha256_check.log: OK
+tests/artifacts/perf/20260604T-add-nodes-int-substrate/pytest_lazy_range_2gcnp.rch.log: OK
+tests/artifacts/perf/20260604T-add-nodes-int-substrate/fmt_fnx_python_2gcnp.log: OK
+tests/artifacts/perf/20260604T-add-nodes-int-substrate/check_fnx_python_2gcnp.rch.log: OK
+tests/artifacts/perf/20260604T-add-nodes-int-substrate/clippy_fnx_python_2gcnp.rch.log: OK
+tests/artifacts/perf/20260604T-add-nodes-int-substrate/maturin_current_2gcnp_baseline_retry.rch.log: OK

@@ -1,0 +1,14 @@
+  [2m2026-06-05T00:29:40.309229Z[0m [33m WARN[0m [1;33mrch::hook[0m[33m: [33mexec called with non-compilation command: hyperfine --warmup 2 --runs 10 --export-json tests/artifacts/perf/20260604T-add-nodes-int-substrate/hyperfine_disabled_vs_after_2gcnp.json 'PYTHONPATH=python .venv/bin/python -c "import franken_networkx as fnx; fnx.Graph.add_nodes_from = fnx._make_add_nodes_from(fnx.Graph.add_node); G=fnx.Graph(); G.add_nodes_from(range(100000)); assert len(G)==100000"' 'PYTHONPATH=python .venv/bin/python -c "import franken_networkx as fnx; G=fnx.Graph(); G.add_nodes_from(range(100000)); assert len(G)==100000"'[0m
+    [2;3mat[0m rch/src/hook.rs:402 [2;3mon[0m ThreadId(1)
+
+Benchmark 1: PYTHONPATH=python .venv/bin/python -c "import franken_networkx as fnx; fnx.Graph.add_nodes_from = fnx._make_add_nodes_from(fnx.Graph.add_node); G=fnx.Graph(); G.add_nodes_from(range(100000)); assert len(G)==100000"
+  Time (mean ± σ):     640.6 ms ±  14.9 ms    [User: 3839.4 ms, System: 121.9 ms]
+  Range (min … max):   620.1 ms … 663.5 ms    10 runs
+ 
+Benchmark 2: PYTHONPATH=python .venv/bin/python -c "import franken_networkx as fnx; G=fnx.Graph(); G.add_nodes_from(range(100000)); assert len(G)==100000"
+  Time (mean ± σ):     423.9 ms ±  39.4 ms    [User: 3122.9 ms, System: 80.0 ms]
+  Range (min … max):   373.7 ms … 511.0 ms    10 runs
+ 
+Summary
+  PYTHONPATH=python .venv/bin/python -c "import franken_networkx as fnx; G=fnx.Graph(); G.add_nodes_from(range(100000)); assert len(G)==100000" ran
+    1.51 ± 0.14 times faster than PYTHONPATH=python .venv/bin/python -c "import franken_networkx as fnx; fnx.Graph.add_nodes_from = fnx._make_add_nodes_from(fnx.Graph.add_node); G=fnx.Graph(); G.add_nodes_from(range(100000)); assert len(G)==100000"

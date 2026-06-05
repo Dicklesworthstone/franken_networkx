@@ -105,6 +105,9 @@ impl<'py> GraphRef<'py> {
 
     /// Convert a canonical node key to Python object.
     fn py_node_key(&self, py: Python<'_>, canonical: &str) -> PyObject {
+        if let GraphRef::Undirected(pg) = self {
+            return pg.py_node_key(py, canonical);
+        }
         let key_map = self.node_key_map();
         key_map.get(canonical).map_or_else(
             || {
