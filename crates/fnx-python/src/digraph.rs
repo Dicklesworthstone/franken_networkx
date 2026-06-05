@@ -3943,24 +3943,21 @@ impl PyDiGraph {
     }
 
     /// ``G[n]`` — return dict of successors with edge data.
-    fn __getitem__(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>> {
+    fn __getitem__(
+        slf: PyRef<'_, Self>,
+        py: Python<'_>,
+        n: &Bound<'_, PyAny>,
+    ) -> PyResult<Py<DiAtlasView>> {
+        // br-r37-c1-ozcko: return a LAZY DiAtlasView over successors instead of
+        // eagerly materialising the whole `{successor: edge_attr_dict}` PyDict.
+        // nx's `G[u]` is `self._adj[u]` (an AtlasView); makes `G[u][v]` /
+        // `v in G[u]` O(1) and the view live (reflects later edge additions).
         let canonical = node_key_to_string(py, n)?;
-        if !self.inner.has_node(&canonical) {
+        if !slf.inner.has_node(&canonical) {
             return Err(crate::missing_key_error(n));
         }
-        self.mark_edges_dirty();
-        let succs = self.inner.successors(&canonical).unwrap_or_default();
-        let result = PyDict::new(py);
-        for s in succs {
-            let py_s = self.py_node_key(py, s);
-            let ek = Self::edge_key(&canonical, s);
-            let edge_attrs = self
-                .edge_py_attrs
-                .get(&ek)
-                .map_or_else(|| PyDict::new(py).unbind(), |d| d.clone_ref(py));
-            result.set_item(py_s, edge_attrs.bind(py))?;
-        }
-        Ok(result.unbind())
+        let graph_py: Py<PyDiGraph> = Py::from(slf);
+        Py::new(py, DiAtlasView::new(graph_py, canonical, AdjKind::Successors))
     }
 
     fn __str__(&self) -> String {
@@ -4900,33 +4897,17 @@ impl DiAdjacencyView {
         Ok(g.inner.has_node(&canonical))
     }
 
-    fn __getitem__(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>> {
-        let g = self.graph.borrow(py);
+    fn __getitem__(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<Py<DiAtlasView>> {
+        // br-r37-c1-ozcko: `G.succ[u]` / `G.pred[u]` return the same lazy
+        // DiAtlasView as `G[u]` (was an eager O(degree) PyDict materialisation).
         let canonical = node_key_to_string(py, n)?;
-        if !g.inner.has_node(&canonical) {
+        if !self.graph.borrow(py).inner.has_node(&canonical) {
             return Err(crate::missing_key_error(n));
         }
-        if g.inner.edge_count() > 0 {
-            g.mark_edges_dirty();
-        }
-        let neighbors = match self.kind {
-            AdjKind::Successors => g.inner.successors(&canonical).unwrap_or_default(),
-            AdjKind::Predecessors => g.inner.predecessors(&canonical).unwrap_or_default(),
-        };
-        let result = PyDict::new(py);
-        for nb in neighbors {
-            let py_nb = g.py_node_key(py, nb);
-            let ek = match self.kind {
-                AdjKind::Successors => PyDiGraph::edge_key(&canonical, nb),
-                AdjKind::Predecessors => PyDiGraph::edge_key(nb, &canonical),
-            };
-            let edge_attrs = g
-                .edge_py_attrs
-                .get(&ek)
-                .map_or_else(|| PyDict::new(py).unbind(), |d| d.clone_ref(py));
-            result.set_item(py_nb, edge_attrs.bind(py))?;
-        }
-        Ok(result.unbind())
+        Py::new(
+            py,
+            DiAtlasView::new(self.graph.clone_ref(py), canonical, self.kind),
+        )
     }
 
     fn __iter__(&self, py: Python<'_>) -> PyResult<Py<crate::NodeIterator>> {
@@ -4942,6 +4923,198 @@ impl DiAdjacencyView {
 
     fn __bool__(&self, py: Python<'_>) -> bool {
         self.graph.borrow(py).inner.node_count() > 0
+    }
+}
+
+// ---------------------------------------------------------------------------
+// DiAtlasView — lazy view of ONE node's successor (or predecessor) adjacency
+// ({neighbour: edge_attr_dict}), returned by `G[u]` / `G.succ[u]` / `G.pred[u]`
+// for a DiGraph. Directed analogue of `views::AtlasView` (br-r37-c1-ozcko): the
+// previous `__getitem__` EAGERLY materialised the whole neighbour dict
+// (O(out/in-degree)); this makes `G[u][v]` and `v in G[u]` O(1) and is LIVE
+// (reflects later edge additions) like networkx's AtlasView.
+// ---------------------------------------------------------------------------
+#[pyclass(module = "franken_networkx", mapping)]
+pub struct DiAtlasView {
+    graph: Py<PyDiGraph>,
+    node: String,
+    kind: AdjKind,
+}
+
+impl DiAtlasView {
+    pub(crate) fn new(graph: Py<PyDiGraph>, node: String, kind: AdjKind) -> Self {
+        Self { graph, node, kind }
+    }
+
+    /// Materialise the full `{neighbour: shared_edge_attr_dict}` (O(degree)) —
+    /// only when a materialising method (items/values/==/str/repr) is called.
+    fn materialize(&self, py: Python<'_>) -> PyResult<Py<PyDict>> {
+        let g = self.graph.borrow(py);
+        let neighbors = match self.kind {
+            AdjKind::Successors => g.inner.successors(&self.node).unwrap_or_default(),
+            AdjKind::Predecessors => g.inner.predecessors(&self.node).unwrap_or_default(),
+        };
+        let result = PyDict::new(py);
+        for nb in neighbors {
+            let py_nb = g.py_node_key(py, nb);
+            let ek = match self.kind {
+                AdjKind::Successors => PyDiGraph::edge_key(&self.node, nb),
+                AdjKind::Predecessors => PyDiGraph::edge_key(nb, &self.node),
+            };
+            let edge_attrs = g
+                .edge_py_attrs
+                .get(&ek)
+                .map_or_else(|| PyDict::new(py).unbind(), |d| d.clone_ref(py));
+            result.set_item(py_nb, edge_attrs.bind(py))?;
+        }
+        Ok(result.unbind())
+    }
+}
+
+#[pymethods]
+impl DiAtlasView {
+    fn __getitem__(&self, py: Python<'_>, v: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>> {
+        let g = self.graph.borrow(py);
+        let v_canon = node_key_to_string(py, v)?;
+        let (exists, ek) = match self.kind {
+            AdjKind::Successors => (
+                g.inner.has_edge(&self.node, &v_canon),
+                PyDiGraph::edge_key(&self.node, &v_canon),
+            ),
+            AdjKind::Predecessors => (
+                g.inner.has_edge(&v_canon, &self.node),
+                PyDiGraph::edge_key(&v_canon, &self.node),
+            ),
+        };
+        if !exists {
+            return Err(PyKeyError::new_err((v.clone().unbind(),)));
+        }
+        // Returned dict is the SAME shared Py<PyDict> the graph stores, so
+        // `G[u][v]['w'] = x` mutates live edge attrs — flag dirty.
+        g.mark_edges_dirty();
+        Ok(g
+            .edge_py_attrs
+            .get(&ek)
+            .map_or_else(|| PyDict::new(py).unbind(), |d| d.clone_ref(py)))
+    }
+
+    fn __contains__(&self, py: Python<'_>, v: &Bound<'_, PyAny>) -> PyResult<bool> {
+        let g = self.graph.borrow(py);
+        let v_canon = node_key_to_string(py, v)?;
+        Ok(match self.kind {
+            AdjKind::Successors => g.inner.has_edge(&self.node, &v_canon),
+            AdjKind::Predecessors => g.inner.has_edge(&v_canon, &self.node),
+        })
+    }
+
+    fn __len__(&self, py: Python<'_>) -> usize {
+        let g = self.graph.borrow(py);
+        match self.kind {
+            AdjKind::Successors => g.inner.out_degree(&self.node),
+            AdjKind::Predecessors => g.inner.in_degree(&self.node),
+        }
+    }
+
+    fn __iter__(&self, py: Python<'_>) -> PyResult<Py<crate::NodeIterator>> {
+        let g = self.graph.borrow(py);
+        let neighbors = match self.kind {
+            AdjKind::Successors => g.inner.successors(&self.node).unwrap_or_default(),
+            AdjKind::Predecessors => g.inner.predecessors(&self.node).unwrap_or_default(),
+        };
+        let objs: Vec<PyObject> = neighbors.iter().map(|nb| g.py_node_key(py, nb)).collect();
+        Py::new(py, crate::NodeIterator::unguarded(objs))
+    }
+
+    fn keys(&self, py: Python<'_>) -> PyResult<Py<crate::NodeIterator>> {
+        self.__iter__(py)
+    }
+
+    fn items(&self, py: Python<'_>) -> PyResult<Vec<(PyObject, Py<PyDict>)>> {
+        let g = self.graph.borrow(py);
+        let neighbors = match self.kind {
+            AdjKind::Successors => g.inner.successors(&self.node).unwrap_or_default(),
+            AdjKind::Predecessors => g.inner.predecessors(&self.node).unwrap_or_default(),
+        };
+        let mut out = Vec::with_capacity(neighbors.len());
+        for nb in neighbors {
+            let py_nb = g.py_node_key(py, nb);
+            let ek = match self.kind {
+                AdjKind::Successors => PyDiGraph::edge_key(&self.node, nb),
+                AdjKind::Predecessors => PyDiGraph::edge_key(nb, &self.node),
+            };
+            let ed = g
+                .edge_py_attrs
+                .get(&ek)
+                .map_or_else(|| PyDict::new(py).unbind(), |d| d.clone_ref(py));
+            out.push((py_nb, ed));
+        }
+        Ok(out)
+    }
+
+    fn values(&self, py: Python<'_>) -> PyResult<Vec<Py<PyDict>>> {
+        Ok(self.items(py)?.into_iter().map(|(_, d)| d).collect())
+    }
+
+    #[pyo3(signature = (v, default=None))]
+    fn get(
+        &self,
+        py: Python<'_>,
+        v: &Bound<'_, PyAny>,
+        default: Option<PyObject>,
+    ) -> PyResult<PyObject> {
+        match self.__getitem__(py, v) {
+            Ok(d) => Ok(d.into_any()),
+            Err(e) if e.is_instance_of::<PyKeyError>(py) => {
+                Ok(default.unwrap_or_else(|| py.None()))
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    /// nx ``AtlasView.copy`` -> ``{n: self[n].copy()}``.
+    fn copy(&self, py: Python<'_>) -> PyResult<Py<PyDict>> {
+        let g = self.graph.borrow(py);
+        let neighbors = match self.kind {
+            AdjKind::Successors => g.inner.successors(&self.node).unwrap_or_default(),
+            AdjKind::Predecessors => g.inner.predecessors(&self.node).unwrap_or_default(),
+        };
+        let result = PyDict::new(py);
+        for nb in neighbors {
+            let py_nb = g.py_node_key(py, nb);
+            let ek = match self.kind {
+                AdjKind::Successors => PyDiGraph::edge_key(&self.node, nb),
+                AdjKind::Predecessors => PyDiGraph::edge_key(nb, &self.node),
+            };
+            let copied = match g.edge_py_attrs.get(&ek) {
+                Some(d) => d.bind(py).copy()?.unbind(),
+                None => PyDict::new(py).unbind(),
+            };
+            result.set_item(py_nb, copied)?;
+        }
+        Ok(result.unbind())
+    }
+
+    fn __eq__(&self, py: Python<'_>, other: &Bound<'_, PyAny>) -> PyResult<bool> {
+        let m = self.materialize(py)?;
+        m.bind(py).eq(other)
+    }
+
+    fn __ne__(&self, py: Python<'_>, other: &Bound<'_, PyAny>) -> PyResult<bool> {
+        Ok(!self.__eq__(py, other)?)
+    }
+
+    fn __str__(&self, py: Python<'_>) -> PyResult<String> {
+        let m = self.materialize(py)?;
+        Ok(m.bind(py).str()?.to_string())
+    }
+
+    fn __repr__(&self, py: Python<'_>) -> PyResult<String> {
+        let m = self.materialize(py)?;
+        Ok(format!("AtlasView({})", m.bind(py).repr()?.to_str()?))
+    }
+
+    fn __bool__(&self, py: Python<'_>) -> bool {
+        self.__len__(py) > 0
     }
 }
 
@@ -5011,6 +5184,7 @@ pub fn register_digraph_classes(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<DiEdgeView>()?;
     m.add_class::<DiDegreeView>()?;
     m.add_class::<DiAdjacencyView>()?;
+    m.add_class::<DiAtlasView>()?;
     m.add_class::<DiViewIterator>()?;
     // MultiDiGraph views
     m.add_class::<MultiDiGraphNodeView>()?;
