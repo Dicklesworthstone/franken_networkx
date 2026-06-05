@@ -38729,36 +38729,39 @@ def mycielskian(G, iterations=1):
         raise NetworkXNotImplemented("not implemented for directed type")
     if iterations < 0:
         raise ValueError("iterations must be non-negative")
-    M = G
+    # br-r37-c1-mycorder: mirror networkx exactly. nx relabels nodes to
+    # integers ONCE (convert_node_labels_to_integers) before iterating, then
+    # per step adds the shadow edges in a TWO-PASS order: all (u, v+n) for the
+    # old edges, then all (u+n, v). The previous impl kept the original node
+    # labels (diverging from nx's integer relabel for non-int graphs) and
+    # interleaved the two passes (diverging on edge order even for int graphs).
+    M = convert_node_labels_to_integers(G)
     for _ in range(iterations):
         M = _mycielskian_step(M)
     return M
 
 
-def _mycielskian_step(G):
-    n = G.number_of_nodes()
-    nodes = list(G.nodes())
-    node_to_idx = {v: i for i, v in enumerate(nodes)}
-
-    M = Graph()
-    for node in nodes:
-        M.add_node(node, **dict(G.nodes[node]))
-    for u, v, data in G.edges(data=True):
-        M.add_edge(u, v, **data)
-
+def _mycielskian_step(M):
+    # ``M`` is integer-labeled (0..n-1 contiguous); shadow of node u is u+n,
+    # apex is 2n. Matches networkx's in-place construction order exactly.
+    n = M.number_of_nodes()
+    R = Graph()
+    for node in M.nodes():
+        R.add_node(node, **dict(M.nodes[node]))
+    old_edges = list(M.edges(data=True))
+    for u, v, data in old_edges:
+        R.add_edge(u, v, **data)
     for i in range(n):
-        M.add_node(n + i)
-    for u, v in G.edges():
-        i, j = node_to_idx[u], node_to_idx[v]
-        M.add_edge(n + i, v)
-        M.add_edge(n + j, u)
-
+        R.add_node(n + i)
+    for u, v, _data in old_edges:
+        R.add_edge(u, v + n)
+    for u, v, _data in old_edges:
+        R.add_edge(u + n, v)
     apex = 2 * n
-    M.add_node(apex)
+    R.add_node(apex)
     for i in range(n):
-        M.add_edge(n + i, apex)
-
-    return M
+        R.add_edge(n + i, apex)
+    return R
 
 
 def mycielski_graph(n):

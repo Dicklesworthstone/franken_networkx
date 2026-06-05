@@ -1,0 +1,1 @@
+0107616cccd312a5f5add2565515fce035126565296085a7301b951bcb9cd32d  parity_proof.py (mycielskian/mycielski_graph, 38 cases int/str/mixed bases x iterations 0-3, node+edge order + attrs + errors vs nx, 0 mismatches)
