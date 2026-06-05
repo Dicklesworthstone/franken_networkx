@@ -1665,6 +1665,37 @@ impl PyMultiGraph {
             rust_attrs = py_dict_to_attr_map(a)?;
         }
 
+        // br-r37-c1-mgkey: for an AUTO key (key=None), compute the PUBLIC key as
+        // networkx does — `k = len(G[u][v]); while k in G[u][v]: k += 1` over the
+        // PUBLIC key set. fnx echoes the internal usize key as the public key for
+        // auto-adds, but the internal key space diverges from the public keys
+        // when explicit non-sequential public keys were added (e.g. an explicit
+        // public key 1 mapped to internal key 0), so the auto key would COLLIDE
+        // with an existing public key and silently overwrite that parallel edge.
+        let auto_public_key: Option<PyObject> = if key.is_none() {
+            let existing = self
+                .inner
+                .edge_keys(&u_canonical, &v_canonical)
+                .unwrap_or_default();
+            let mut int_public_keys = std::collections::HashSet::<i64>::new();
+            for &k in &existing {
+                if let Ok(i) = self
+                    .py_edge_key(py, &u_canonical, &v_canonical, k)
+                    .bind(py)
+                    .extract::<i64>()
+                {
+                    int_public_keys.insert(i);
+                }
+            }
+            let mut pk = existing.len() as i64;
+            while int_public_keys.contains(&pk) {
+                pk += 1;
+            }
+            Some(pk.into_pyobject(py)?.into_any().unbind())
+        } else {
+            None
+        };
+
         let actual_key = match key {
             Some(explicit_key) => {
                 if let Some(internal_key) =
@@ -1702,7 +1733,10 @@ impl PyMultiGraph {
         }
         // br-r37-c1-jft0i: bump edges_seq so view-materialization caches invalidate.
         self.bump_edges_seq();
-        Ok(self.remember_edge_key(py, &u_canonical, &v_canonical, actual_key, key))
+        // Prefer the user's explicit key; otherwise echo the nx-computed public
+        // auto key (NOT the internal usize key).
+        let external = key.or_else(|| auto_public_key.as_ref().map(|o| o.bind(py)));
+        Ok(self.remember_edge_key(py, &u_canonical, &v_canonical, actual_key, external))
     }
 
     /// Fast path for ``MultiGraph.add_edge(int, int, key=int)`` when the
