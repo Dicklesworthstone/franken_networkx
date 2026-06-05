@@ -1,0 +1,3 @@
+{"case": "directed_path_2000", "equal": true, "fnx_sha256": "55d6e89b71f957b470c6b51d788f3fd492661e6bd22d231f513fc0916bdcd45a", "length": 1999, "nx_sha256": "55d6e89b71f957b470c6b51d788f3fd492661e6bd22d231f513fc0916bdcd45a"}
+{"case": "directed_branch_circuit", "equal": true, "fnx_sha256": "ad43037a0c6841a85666d5a82773a958e61661896db8d7718188b57b86391175", "length": 5, "nx_sha256": "ad43037a0c6841a85666d5a82773a958e61661896db8d7718188b57b86391175"}
+{"case": "directed_cycle_source", "equal": true, "fnx_sha256": "72509b2acb3589102f382b1e6d8794977a9e0cf7d6bf1936dd204cbe0b1865a1", "length": 3, "nx_sha256": "72509b2acb3589102f382b1e6d8794977a9e0cf7d6bf1936dd204cbe0b1865a1"}

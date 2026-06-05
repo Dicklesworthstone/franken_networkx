@@ -14329,20 +14329,15 @@ pub fn eulerian_path_directed(
     }
 
     let nodes = digraph.nodes_ordered();
-    let node_index: HashMap<&str, usize> = nodes
-        .iter()
-        .enumerate()
-        .map(|(idx, &node)| (node, idx))
-        .collect();
     let mut reverse_adj = vec![Vec::<usize>::new(); nodes.len()];
     for (source, target, _) in digraph.edges_ordered_borrowed() {
-        let reverse_source = node_index[target];
-        let reverse_target = node_index[source];
+        let reverse_source = digraph.get_node_index(target)?;
+        let reverse_target = digraph.get_node_index(source)?;
         reverse_adj[reverse_source].push(reverse_target);
     }
 
     let mut edge_pos = vec![0usize; nodes.len()];
-    let mut stack = vec![node_index[start]];
+    let mut stack = vec![digraph.get_node_index(start)?];
     let mut queue_peak = stack.len();
     let mut last_vertex = None::<usize>;
     let mut edges = Vec::<(String, String)>::with_capacity(digraph.edge_count());
