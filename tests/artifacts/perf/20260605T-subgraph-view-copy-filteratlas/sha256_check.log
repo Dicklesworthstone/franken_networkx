@@ -1,0 +1,12 @@
+bench.py: OK
+parity_proof.py: OK
+report.md: OK
+baseline_bench.json: OK
+baseline_parity.stdout: OK
+after_bench.json: OK
+after_parity.stdout: OK
+focused_hyperfine_legacy_vs_after.json: OK
+pytest_subgraph_views.log: OK
+pytest_view_parity_extra.log: OK
+py_compile.log: OK
+ubs_nonwrapper.log: OK

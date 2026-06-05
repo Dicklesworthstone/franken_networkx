@@ -9,6 +9,22 @@ import networkx as nx
 import franken_networkx as fnx
 
 
+def _install_legacy_fnx_subgraph_filter():
+    def legacy_filter(graph, nbunch):
+        if nbunch is None:
+            return None
+        if nbunch in graph:
+            allowed_nodes = {nbunch}
+        else:
+            allowed_nodes = set()
+            for node in nbunch:
+                if node in graph:
+                    allowed_nodes.add(node)
+        return lambda node: node in allowed_nodes
+
+    fnx._subgraph_filter_from_nbunch = legacy_filter
+
+
 def _build(module, n: int, extra_edges: int):
     graph = module.Graph()
     graph.add_nodes_from(range(n))
@@ -52,14 +68,25 @@ def _time_copy(module, n: int, keep_size: int, extra_edges: int, copies: int):
 
 
 def main() -> None:
-    n = int(sys.argv[1]) if len(sys.argv) > 1 else 2000
-    keep_size = int(sys.argv[2]) if len(sys.argv) > 2 else 50
-    extra_edges = int(sys.argv[3]) if len(sys.argv) > 3 else 8000
-    copies = int(sys.argv[4]) if len(sys.argv) > 4 else 50
-    rows = [
-        _time_copy(nx, n, keep_size, extra_edges, copies),
-        _time_copy(fnx, n, keep_size, extra_edges, copies),
-    ]
+    args = list(sys.argv[1:])
+    module_name = "both"
+    if "--legacy-fnx" in args:
+        args.remove("--legacy-fnx")
+        _install_legacy_fnx_subgraph_filter()
+    if "--module" in args:
+        index = args.index("--module")
+        module_name = args[index + 1]
+        del args[index : index + 2]
+    n = int(args[0]) if len(args) > 0 else 2000
+    keep_size = int(args[1]) if len(args) > 1 else 50
+    extra_edges = int(args[2]) if len(args) > 2 else 8000
+    copies = int(args[3]) if len(args) > 3 else 50
+    modules = {"nx": nx, "fnx": fnx}
+    if module_name == "both":
+        selected = [nx, fnx]
+    else:
+        selected = [modules[module_name]]
+    rows = [_time_copy(module, n, keep_size, extra_edges, copies) for module in selected]
     print(json.dumps(rows, sort_keys=True))
 
 

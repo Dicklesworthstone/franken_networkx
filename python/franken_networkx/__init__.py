@@ -29266,10 +29266,9 @@ class _ReverseDirectedViewBase:
         return _RevDiDegreeViewProxy(self)
 
     def subgraph(self, nodes):
-        visible_nodes = set(self._nbunch(nodes))
         return _generic_filtered_graph_view(
             self,
-            filter_node=lambda node: node in visible_nodes,
+            filter_node=_subgraph_filter_from_nbunch(self, nodes),
         )
 
     def edge_subgraph(self, edges):
@@ -29880,6 +29879,21 @@ class FilterAtlas(_Mapping):
         return self._neighbors[key]
 
 
+class _NodeSetFilter:
+    """Callable node filter carrying the selected set for sparse iteration."""
+
+    __slots__ = ("nodes",)
+
+    def __init__(self, nodes, *, copy_nodes=True):
+        if copy_nodes or not isinstance(nodes, set):
+            self.nodes = set(nodes)
+        else:
+            self.nodes = nodes
+
+    def __call__(self, node):
+        return node in self.nodes
+
+
 class _FilteredAdjacencyView(_Mapping):
     def __init__(self, view, *, reverse=False):
         self._view = view
@@ -30205,11 +30219,28 @@ class _FilteredGraphView:
             self.pred = _filtered_public_adjacency_view(self, reverse=True)
 
     def __iter__(self):
+        filter_nodes = getattr(self._filter_node, "nodes", None)
+        if filter_nodes is not None:
+            try:
+                node_filter_shorter = 2 * len(filter_nodes) < len(self._graph)
+            except TypeError:
+                node_filter_shorter = False
+            if node_filter_shorter:
+                for node in filter_nodes:
+                    if node in self._graph:
+                        yield node
+                return
         for node in self._graph:
             if self._node_visible(node):
                 yield node
 
     def __len__(self):
+        length = getattr(self._filter_node, "length", None)
+        if length is not None:
+            return length
+        filter_nodes = getattr(self._filter_node, "nodes", None)
+        if filter_nodes is not None:
+            return sum(1 for node in filter_nodes if node in self._graph)
         return sum(1 for _ in self)
 
     def __contains__(self, node):
@@ -30291,15 +30322,10 @@ class _FilteredGraphView:
 
     def nodes(self, data=False):
         if data:
-            graph_nodes = self._graph.nodes
-            if callable(graph_nodes):
-                visible = set(self)
-                return [
-                    (node, attrs)
-                    for node, attrs in graph_nodes(data=True)
-                    if node in visible
-                ]
-            return [(node, graph_nodes[node]) for node in self]
+            return [
+                (node, _node_attrs_for_view_graph(self._graph, node))
+                for node in self
+            ]
         return list(self)
 
     def adjacency(self):
@@ -37636,7 +37662,7 @@ def _subgraph_filter_from_nbunch(G, nbunch):
                 raise NetworkXError(f"Node {nbunch} is not in the graph.") from exc
             raise NetworkXError("nbunch is not a node or a sequence of nodes.") from exc
 
-    return lambda node: node in allowed_nodes
+    return _NodeSetFilter(allowed_nodes, copy_nodes=False)
 
 
 def subgraph(G, nbunch):
@@ -37661,9 +37687,6 @@ def edge_subgraph(G, edges):
     nodes = set()
     for edge in edges:
         nodes.update(edge[:2])
-
-    def filter_node(node):
-        return node in nodes
 
     if G.is_multigraph():
         if G.is_directed():
@@ -37693,7 +37716,7 @@ def edge_subgraph(G, edges):
 
     return subgraph_view(
         G,
-        filter_node=filter_node,
+        filter_node=_NodeSetFilter(nodes, copy_nodes=False),
         filter_edge=filter_edge,
     )
 
