@@ -3782,24 +3782,23 @@ impl PyGraph {
     }
 
     /// Get adjacency dict for node (called by ``G[n]``).
-    fn __getitem__(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>> {
+    fn __getitem__(
+        slf: PyRef<'_, Self>,
+        py: Python<'_>,
+        n: &Bound<'_, PyAny>,
+    ) -> PyResult<Py<views::AtlasView>> {
+        // br-r37-c1-njs5g: return a LAZY AtlasView instead of eagerly
+        // materialising the whole `{neighbour: edge_attr_dict}` PyDict. nx's
+        // `G[u]` is `self.adj[u]` (an AtlasView); making `G[u][v]` / `v in G[u]`
+        // O(1) instead of O(degree), and the view is live (reflects later edge
+        // additions) like nx. `mark_edges_dirty` is deferred to actual edge-dict
+        // access (AtlasView::__getitem__), not paid on every bare `G[u]`.
         let canonical = node_key_to_string(py, n)?;
-        if !self.inner.has_node(&canonical) {
+        if !slf.inner.has_node(&canonical) {
             return Err(missing_key_error(n));
         }
-        self.mark_edges_dirty();
-        let neighbors = self.inner.neighbors(&canonical).unwrap_or_default();
-        let result = PyDict::new(py);
-        for nb in neighbors {
-            let py_nb = self.py_node_key(py, nb);
-            let ek = Self::edge_key(&canonical, nb);
-            let edge_attrs = self
-                .edge_py_attrs
-                .get(&ek)
-                .map_or_else(|| PyDict::new(py).unbind(), |d| d.clone_ref(py));
-            result.set_item(py_nb, edge_attrs.bind(py))?;
-        }
-        Ok(result.unbind())
+        let graph_py: Py<PyGraph> = Py::from(slf);
+        Py::new(py, views::AtlasView::new(graph_py, canonical))
     }
 
     fn __str__(&self) -> String {
@@ -4838,6 +4837,7 @@ fn _fnx(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<views::EdgeView>()?;
     m.add_class::<views::DegreeView>()?;
     m.add_class::<views::AdjacencyView>()?;
+    m.add_class::<views::AtlasView>()?;
 
     // MultiGraph view classes
     m.add_class::<MultiGraphNodeView>()?;
