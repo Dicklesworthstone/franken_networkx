@@ -1,0 +1,56 @@
+{
+  "results": [
+    {
+      "command": ".venv/bin/python tests/artifacts/perf/20260605T-report-to-pygraph-lazy-attrs-tealspring/generator_report_bench.py bench --case gnp_700_006 --loops 40",
+      "mean": 2.2498911212733335,
+      "stddev": 0.19368831863696673,
+      "median": 2.1948538059400002,
+      "user": 5.989368733333333,
+      "system": 0.10619328000000001,
+      "min": 2.04314971794,
+      "max": 2.60493322094,
+      "times": [
+        2.19073014294,
+        2.1534602829400002,
+        2.04314971794,
+        2.19897746894,
+        2.30809589394,
+        2.60493322094
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": ".venv/bin/python tests/artifacts/perf/20260605T-report-to-pygraph-lazy-attrs-tealspring/generator_report_bench.py bench --case powerlaw_700_4 --loops 40",
+      "mean": 0.53310381244,
+      "stddev": 0.04144141081226693,
+      "median": 0.52056162994,
+      "user": 4.3951115666666665,
+      "system": 0.06065294666666666,
+      "min": 0.48915670994000005,
+      "max": 0.58640732094,
+      "times": [
+        0.58640732094,
+        0.5802564879400001,
+        0.48915670994000005,
+        0.5325791279400001,
+        0.50854413194,
+        0.50167909594
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

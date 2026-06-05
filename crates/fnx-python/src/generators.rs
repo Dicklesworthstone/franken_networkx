@@ -19,8 +19,6 @@ use std::sync::atomic::AtomicBool;
 /// `G.nodes()` yields `[0, 1, 2, ...]` matching NetworkX.
 fn report_to_pygraph(py: Python<'_>, graph: fnx_classes::Graph) -> PyResult<PyGraph> {
     let mut node_key_map: HashMap<String, PyObject> = HashMap::new();
-    let mut node_py_attrs = HashMap::new();
-    let mut edge_py_attrs = HashMap::new();
 
     // Map string keys to Python int keys.
     for canonical in graph.nodes_ordered() {
@@ -30,32 +28,14 @@ fn report_to_pygraph(py: Python<'_>, graph: fnx_classes::Graph) -> PyResult<PyGr
                 unwrap_infallible(i.into_pyobject(py)).into_any().unbind(),
             );
         }
-        node_py_attrs.insert(canonical.to_owned(), PyDict::new(py).unbind());
-    }
-
-    // br-r37-c1: create an empty edge attr dict per (canonical) edge by
-    // walking adjacency directly. The previous `edges_ordered()` call cloned
-    // every edge's String endpoints AND its AttrMap into a deduped Vec just to
-    // discard the attrs here — ~30ms of the ~45ms conversion for a 300-node
-    // complete graph. `PyGraph::edge_key` canonicalizes (u, v) so both
-    // adjacency directions collapse to the same key via `entry`, yielding the
-    // identical key set with no attr clones and no intermediate snapshot Vec.
-    for u in graph.nodes_ordered() {
-        if let Some(neighbors) = graph.neighbors_iter(u) {
-            for v in neighbors {
-                edge_py_attrs
-                    .entry(PyGraph::edge_key(u, v))
-                    .or_insert_with(|| PyDict::new(py).unbind());
-            }
-        }
     }
 
     Ok(PyGraph {
         inner: graph,
         node_key_map,
         lazy_int_node_stop: 0,
-        node_py_attrs,
-        edge_py_attrs,
+        node_py_attrs: HashMap::new(),
+        edge_py_attrs: HashMap::new(),
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,

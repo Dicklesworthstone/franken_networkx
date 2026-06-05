@@ -1,0 +1,56 @@
+{
+  "results": [
+    {
+      "command": ".venv/bin/python tests/artifacts/perf/20260605T-report-to-pygraph-lazy-attrs-tealspring/generator_report_bench.py bench --case gnp_700_006 --loops 40",
+      "mean": 2.8924763078000004,
+      "stddev": 0.400014033209042,
+      "median": 2.7531095598000004,
+      "user": 6.29043086,
+      "system": 0.09398852666666667,
+      "min": 2.4586891493,
+      "max": 3.6114242263,
+      "times": [
+        3.6114242263,
+        2.7218413693000003,
+        2.7471053143,
+        2.7591138053,
+        2.4586891493,
+        3.0566839823
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": ".venv/bin/python tests/artifacts/perf/20260605T-report-to-pygraph-lazy-attrs-tealspring/generator_report_bench.py bench --case powerlaw_700_4 --loops 40",
+      "mean": 0.6691714269666668,
+      "stddev": 0.03080810660346313,
+      "median": 0.6649951123,
+      "user": 4.136164859999999,
+      "system": 0.061750526666666666,
+      "min": 0.6362595053000001,
+      "max": 0.7201088373000001,
+      "times": [
+        0.6698052903,
+        0.6362595053000001,
+        0.6426561843,
+        0.6601849343,
+        0.6860138103000001,
+        0.7201088373000001
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

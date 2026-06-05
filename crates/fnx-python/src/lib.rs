@@ -421,6 +421,19 @@ impl PyGraph {
             .clone_ref(py)
     }
 
+    pub(crate) fn materialize_edge_py_attrs(
+        &mut self,
+        py: Python<'_>,
+        left: &str,
+        right: &str,
+    ) -> Py<PyDict> {
+        let key = Self::edge_key(left, right);
+        self.edge_py_attrs
+            .entry(key)
+            .or_insert_with(|| PyDict::new(py).unbind())
+            .clone_ref(py)
+    }
+
     /// Create a new empty PyGraph (no nodes, no edges, empty graph attrs).
     #[allow(dead_code)] // Used by wrapper tests and parity helpers.
     pub(crate) fn new_empty(py: Python<'_>) -> PyResult<Self> {
@@ -3361,30 +3374,24 @@ impl PyGraph {
         if let Some(data) = incoming_graph_data {
             // If it's another PyGraph, copy it.
             if let Ok(other) = data.extract::<PyRef<'_, PyGraph>>() {
-                g.inner = Graph::with_runtime_policy(other.inner.runtime_policy().clone());
+                g.inner = other.inner.clone();
+                g.lazy_int_node_stop = other.lazy_int_node_stop;
                 for canonical in other.inner.nodes_ordered() {
-                    let rust_attrs = other
-                        .node_py_attrs
-                        .get(canonical)
-                        .map(|attrs| py_dict_to_attr_map(attrs.bind(py)))
-                        .transpose()?
-                        .unwrap_or_default();
-                    g.inner
-                        .add_node_with_attrs(canonical.to_owned(), rust_attrs);
                     g.node_key_map
                         .insert(canonical.to_owned(), other.py_node_key(py, canonical));
                     if let Some(attrs) = other.node_py_attrs.get(canonical) {
-                        g.node_py_attrs
-                            .insert(canonical.to_owned(), attrs.bind(py).copy()?.unbind());
+                        let copied = attrs.bind(py).copy()?.unbind();
+                        g.inner
+                            .replace_node_attrs(canonical, py_dict_to_attr_map(copied.bind(py))?);
+                        g.node_py_attrs.insert(canonical.to_owned(), copied);
                     }
                 }
                 for ((u, v), attrs) in &other.edge_py_attrs {
-                    let rust_attrs = py_dict_to_attr_map(attrs.bind(py))?;
-                    let _ = g
-                        .inner
-                        .add_edge_with_attrs(u.clone(), v.clone(), rust_attrs);
+                    let copied = attrs.bind(py).copy()?.unbind();
                     g.edge_py_attrs
-                        .insert((u.clone(), v.clone()), attrs.bind(py).copy()?.unbind());
+                        .insert((u.clone(), v.clone()), copied.clone_ref(py));
+                    g.inner
+                        .replace_edge_attrs(u, v, py_dict_to_attr_map(copied.bind(py))?);
                 }
                 g.graph_attrs = other.graph_attrs.bind(py).copy()?.unbind();
             } else if let Ok(iter) = PyIterator::from_object(data) {
@@ -3505,12 +3512,17 @@ impl PyGraph {
             None => Ok(self.inner.edge_count() as f64),
             Some(attr) => {
                 let mut total = 0.0_f64;
-                for dict in self.edge_py_attrs.values() {
-                    let bound = dict.bind(py);
-                    match bound.get_item(attr)? {
-                        Some(val) => {
-                            total += val.extract::<f64>()?;
-                        }
+                for (left, right, _attrs) in self.inner.edges_ordered_borrowed() {
+                    let key = Self::edge_key(left, right);
+                    match self.edge_py_attrs.get(&key) {
+                        Some(dict) => match dict.bind(py).get_item(attr)? {
+                            Some(val) => {
+                                total += val.extract::<f64>()?;
+                            }
+                            None => {
+                                total += 1.0;
+                            }
+                        },
                         None => {
                             total += 1.0;
                         }
@@ -3973,7 +3985,12 @@ impl PyGraph {
     /// Remove all edges but keep nodes and their attributes.
     fn clear_edges(&mut self) {
         // Remove all edges from inner graph.
-        let edges: Vec<(String, String)> = self.edge_py_attrs.keys().cloned().collect();
+        let edges: Vec<(String, String)> = self
+            .inner
+            .edges_ordered_borrowed()
+            .into_iter()
+            .map(|(left, right, _)| (left.to_owned(), right.to_owned()))
+            .collect();
         for (u, v) in edges {
             self.inner.remove_edge(&u, &v);
         }
@@ -4052,21 +4069,30 @@ impl PyGraph {
     /// dicts reuse the live ``edge_py_attrs`` Py<PyDict> references (matching
     /// nx's shared-datadict semantics: ``dict(G.adjacency())[u][v] is
     /// G[u][v]``), in node x neighbour adjacency order.
-    fn _native_adjacency_dict(&self, py: Python<'_>) -> PyResult<Py<PyDict>> {
+    fn _native_adjacency_dict(&mut self, py: Python<'_>) -> PyResult<Py<PyDict>> {
         if self.inner.edge_count() > 0 {
             self.mark_edges_dirty();
         }
         let result = PyDict::new(py);
-        for node in self.inner.nodes_ordered() {
-            let py_node = self.py_node_key(py, node);
+        let nodes: Vec<String> = self
+            .inner
+            .nodes_ordered()
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+        for node in nodes {
+            let py_node = self.py_node_key(py, &node);
             let nbrs_dict = PyDict::new(py);
-            for neighbor in self.inner.neighbors(node).unwrap_or_default() {
-                let py_nbr = self.py_node_key(py, neighbor);
-                let ek = Self::edge_key(node, neighbor);
-                let attrs = self
-                    .edge_py_attrs
-                    .get(&ek)
-                    .map_or_else(|| PyDict::new(py).unbind(), |d| d.clone_ref(py));
+            let neighbors: Vec<String> = self
+                .inner
+                .neighbors(&node)
+                .unwrap_or_default()
+                .into_iter()
+                .map(str::to_owned)
+                .collect();
+            for neighbor in neighbors {
+                let py_nbr = self.py_node_key(py, &neighbor);
+                let attrs = self.materialize_edge_py_attrs(py, &node, &neighbor);
                 nbrs_dict.set_item(&py_nbr, attrs.bind(py))?;
             }
             result.set_item(py_node, nbrs_dict)?;
@@ -4269,16 +4295,23 @@ impl PyGraph {
             }
         }
 
-        // Add edges where both endpoints are in the subgraph
-        for ((u, v), attrs) in &self.edge_py_attrs {
+        // Add edges where both endpoints are in the subgraph.
+        for (u, v, attrs) in self.inner.edges_ordered_borrowed() {
             if keep.contains(u) && keep.contains(v) {
-                let rust_attrs = py_dict_to_attr_map(attrs.bind(py))?;
+                let key = Self::edge_key(u, v);
+                let py_attrs = self.edge_py_attrs.get(&key);
+                let rust_attrs = py_attrs
+                    .map(|attrs| py_dict_to_attr_map(attrs.bind(py)))
+                    .transpose()?
+                    .unwrap_or_else(|| attrs.clone());
                 let _ = new_graph
                     .inner
-                    .add_edge_with_attrs(u.clone(), v.clone(), rust_attrs);
-                new_graph
-                    .edge_py_attrs
-                    .insert((u.clone(), v.clone()), attrs.bind(py).copy()?.unbind());
+                    .add_edge_with_attrs(u.to_owned(), v.to_owned(), rust_attrs);
+                if let Some(attrs) = py_attrs {
+                    new_graph
+                        .edge_py_attrs
+                        .insert(key, attrs.bind(py).copy()?.unbind());
+                }
             }
         }
 
@@ -4464,7 +4497,7 @@ impl PyGraph {
     /// Return attributes of the edge (u, v).
     #[pyo3(signature = (u, v, default=None))]
     fn get_edge_data(
-        &self,
+        &mut self,
         py: Python<'_>,
         u: &Bound<'_, PyAny>,
         v: &Bound<'_, PyAny>,
@@ -4472,14 +4505,11 @@ impl PyGraph {
     ) -> PyResult<PyObject> {
         let u_c = node_key_to_string(py, u)?;
         let v_c = node_key_to_string(py, v)?;
-        let ek = Self::edge_key(&u_c, &v_c);
-        if self.edge_py_attrs.contains_key(&ek) {
-            self.mark_edges_dirty();
+        if !self.inner.has_edge(&u_c, &v_c) {
+            return Ok(default.unwrap_or_else(|| py.None()));
         }
-        Ok(self.edge_py_attrs.get(&ek).map_or_else(
-            || default.unwrap_or_else(|| py.None()),
-            |d| d.clone_ref(py).into_any(),
-        ))
+        self.mark_edges_dirty();
+        Ok(self.materialize_edge_py_attrs(py, &u_c, &v_c).into_any())
     }
 
     /// br-r37-c1-sjf4t: push the per-node and per-edge Python attribute
@@ -4645,23 +4675,48 @@ impl PyGraph {
                         return Ok(false);
                     }
                 }
+                (Some(a), None) => {
+                    if !a.bind(py).is_empty() {
+                        return Ok(false);
+                    }
+                }
+                (None, Some(b)) => {
+                    if !b.bind(py).is_empty() {
+                        return Ok(false);
+                    }
+                }
                 (None, None) => {}
-                _ => return Ok(false),
             }
         }
 
-        // Compare edge sets and attributes
-        if self.edge_py_attrs.len() != other.edge_py_attrs.len() {
+        // Compare edge sets and attributes. `edge_py_attrs` can be sparse for
+        // generator-built graphs; a missing entry is equivalent to an empty
+        // live dict until first materialization.
+        if self.inner.edge_count() != other.inner.edge_count() {
             return Ok(false);
         }
-        for ((u, v), attrs) in &self.edge_py_attrs {
-            match other.edge_py_attrs.get(&(u.clone(), v.clone())) {
-                Some(other_attrs) => {
+        for (u, v, _attrs) in self.inner.edges_ordered_borrowed() {
+            if !other.inner.has_edge(u, v) {
+                return Ok(false);
+            }
+            let key = Self::edge_key(u, v);
+            match (self.edge_py_attrs.get(&key), other.edge_py_attrs.get(&key)) {
+                (Some(attrs), Some(other_attrs)) => {
                     if !attrs.bind(py).eq(other_attrs.bind(py))? {
                         return Ok(false);
                     }
                 }
-                None => return Ok(false),
+                (Some(attrs), None) => {
+                    if !attrs.bind(py).is_empty() {
+                        return Ok(false);
+                    }
+                }
+                (None, Some(other_attrs)) => {
+                    if !other_attrs.bind(py).is_empty() {
+                        return Ok(false);
+                    }
+                }
+                (None, None) => {}
             }
         }
 
@@ -4760,14 +4815,22 @@ impl PyGraph {
             .collect();
         state.set_item("nodes", nodes_list)?;
 
-        // Store edges as list of (u, v, attrs) tuples.
+        // Store edges as list of (u, v, attrs) tuples. Generated graphs keep
+        // edge_py_attrs sparse until the first live attr-dict handout, so the
+        // edge structure must come from inner rather than edge_py_attrs.
         let edges_list: Vec<(PyObject, PyObject, Py<PyDict>)> = self
-            .edge_py_attrs
-            .iter()
-            .map(|((u, v), attrs)| {
+            .inner
+            .edges_ordered_borrowed()
+            .into_iter()
+            .map(|(u, v, _attrs)| {
                 let py_u = self.py_node_key(py, u);
                 let py_v = self.py_node_key(py, v);
-                (py_u, py_v, attrs.clone_ref(py))
+                let key = Self::edge_key(u, v);
+                let attrs = self
+                    .edge_py_attrs
+                    .get(&key)
+                    .map_or_else(|| PyDict::new(py).unbind(), |d| d.clone_ref(py));
+                (py_u, py_v, attrs)
             })
             .collect();
         state.set_item("edges", edges_list)?;
