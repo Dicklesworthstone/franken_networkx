@@ -81,3 +81,17 @@ this lever.
 - `cargo fmt -p fnx-python --check` passed.
 - `python3 -m pytest tests/python/test_attribute_access_parity.py -q` passed
   (`143 passed`).
+
+## Final Helper-Trim Verification
+
+The final source removes the unused eager `_native_*_row_dict` helper methods.
+The rebuilt extension preserved the semantic golden:
+
+- Final golden file: `final_golden_f0zo8.json`
+- Final golden digest:
+  `0523652fa10f9dc210f4367d5a582e35313f637b224967739fce853f3f88fb9f`
+- Final artifact SHA ledger: `final_artifact_sha256_tealspring.txt`
+- `sha256sum -c final_artifact_sha256_tealspring.txt` passed.
+
+No ordering, tie-breaking, floating-point, or RNG behavior changes were added by
+the helper trim.

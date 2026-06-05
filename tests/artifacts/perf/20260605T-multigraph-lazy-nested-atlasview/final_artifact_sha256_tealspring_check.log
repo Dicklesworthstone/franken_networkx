@@ -7,3 +7,5 @@ tests/artifacts/perf/20260605T-multigraph-lazy-nested-atlasview/pytest_attribute
 tests/artifacts/perf/20260605T-multigraph-lazy-nested-atlasview/check_fnx_python_final2_tealspring.rch.log: OK
 tests/artifacts/perf/20260605T-multigraph-lazy-nested-atlasview/clippy_fnx_python_final2_tealspring.rch.log: OK
 tests/artifacts/perf/20260605T-multigraph-lazy-nested-atlasview/maturin_final_tealspring.rch.log: OK
+tests/artifacts/perf/20260605T-multigraph-lazy-nested-atlasview/benchmark_report.md: OK
+tests/artifacts/perf/20260605T-multigraph-lazy-nested-atlasview/isomorphism_proof.md: OK

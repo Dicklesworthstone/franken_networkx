@@ -173,3 +173,27 @@ Score: Impact `5` x Confidence `5` / Effort `2` = `12.5`, keep.
   warning findings (`ubs_artifact_python_after_tealspring.log`). The isolated
   monolithic `python/franken_networkx/__init__.py` UBS scan hung past 90 seconds
   and was terminated with its partial log preserved.
+
+## Final TealSpring Verification
+
+After removing the unused eager helper methods and rebuilding the release
+extension, direct final means on the same `720` neighbor / `16` key workload:
+
+| Graph | Operation | Before FNX ms/op | Final FNX ms/op | Speedup |
+|---|---:|---:|---:|---:|
+| MultiGraph | `G[u]` | 22.375645 | 0.001849 | 12102.98x |
+| MultiGraph | `G[u][v]` | 42.194599 | 0.002160 | 19537.30x |
+| MultiDiGraph | `G[u]` | 8.833513 | 0.002223 | 3973.21x |
+| MultiDiGraph | `G[u][v]` | 19.306632 | 0.002208 | 8742.36x |
+
+Final validation:
+
+- `cargo fmt -p fnx-python --check` passed.
+- `rch exec -- cargo check -p fnx-python --features pyo3/abi3-py310 --all-targets`
+  passed.
+- `rch exec -- cargo clippy -p fnx-python --features pyo3/abi3-py310 --all-targets --no-deps -- -D warnings`
+  passed.
+- `rch exec -- maturin develop --release --features pyo3/abi3-py310` passed.
+- `python3 -m pytest tests/python/test_attribute_access_parity.py -q` passed
+  (`143 passed`).
+- `sha256sum -c final_artifact_sha256_tealspring.txt` passed.
