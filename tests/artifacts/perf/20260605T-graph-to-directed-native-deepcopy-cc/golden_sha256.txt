@@ -1,0 +1,1 @@
+to_directed_parity_proof.py: 1000 cases (attrs/self-loops/nested) vs networkx, 0 mismatches + deepcopy independence

@@ -31931,6 +31931,19 @@ def _subgraph_with_view(subgraph_impl):
 
 
 def _graph_to_directed_copy(self):
+    # br-r37-c1-todirnative: native Rust deep-copying Graph->DiGraph for exact
+    # Graph type (no nx private storage, default to_directed_class). Builds the
+    # DiGraph in Rust in nx's adjacency order, deep-copying attrs — ~4x faster
+    # than the per-arc Python add_edge loop below. Subclasses / nx-private
+    # storage / custom to_directed_class fall through to the generic rebuild.
+    if (
+        type(self) is Graph
+        and not _has_networkx_private_storage(self)
+        and self.to_directed_class() is DiGraph
+    ):
+        native = getattr(self, "_native_to_directed_deepcopy", None)
+        if native is not None:
+            return native()
     result = self.to_directed_class()()
     result.graph.update(_deepcopy(self.graph))
     result.add_nodes_from((node, _deepcopy(attrs)) for node, attrs in self.nodes(data=True))

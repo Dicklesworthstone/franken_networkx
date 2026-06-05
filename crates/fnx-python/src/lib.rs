@@ -4562,6 +4562,74 @@ impl PyGraph {
         Py::new(py, dg)
     }
 
+    /// br-r37-c1-todirnative: native DEEP-copying Graph->DiGraph for the Python
+    /// `_graph_to_directed_copy` wrapper (exact Graph type only). Builds the
+    /// DiGraph in Rust in nx's adjacency-grouped edge order (`for source in
+    /// nodes_ordered, for target in neighbors(source)` — each undirected edge
+    /// emits both directed arcs in nx's `G.adj` iteration order), deep-copying
+    /// attrs via `copy.deepcopy` to honor nx's to_directed deep-copy contract.
+    /// Attr-less nodes/edges get a fresh empty dict (already independent — skips
+    /// the per-element deepcopy). Replaces the Python per-arc adjacency
+    /// materialization + add_edge dispatch (~4.2x slower than nx). Unlike the
+    /// shallow, edge-grouped `to_directed` above, this matches nx's deep-copy
+    /// semantics AND public edge order.
+    fn _native_to_directed_deepcopy(
+        &self,
+        py: Python<'_>,
+    ) -> PyResult<Py<crate::digraph::PyDiGraph>> {
+        let deepcopy = py.import("copy")?.getattr("deepcopy")?;
+        let mut dg = crate::digraph::PyDiGraph::new_empty_with_policy(
+            py,
+            self.inner.runtime_policy().clone(),
+        )?;
+        dg.graph_attrs = deepcopy_py_dict(py, &deepcopy, &self.graph_attrs)?;
+        for node in self.inner.nodes_ordered() {
+            // Attr-less nodes stay lazy (no PyDict / py_dict_to_attr_map) — same
+            // contract as the native copy kernel; the dict materializes on demand.
+            if let Some(attrs) = self.node_py_attrs.get(node) {
+                let py_attrs = deepcopy_py_dict(py, &deepcopy, attrs)?;
+                let rust_attrs = py_dict_to_attr_map(py_attrs.bind(py))?;
+                dg.inner.add_node_with_attrs(node.to_owned(), rust_attrs);
+                dg.node_py_attrs.insert(node.to_owned(), py_attrs);
+            } else {
+                dg.inner
+                    .add_node_with_attrs(node.to_owned(), Default::default());
+            }
+            dg.node_key_map
+                .insert(node.to_owned(), self.py_node_key(py, node));
+        }
+        for source in self.inner.nodes_ordered() {
+            for target in self.inner.neighbors(source).unwrap_or_default() {
+                let entry = self
+                    .edge_py_attrs
+                    .get(&PyGraph::edge_key(source, target))
+                    .or_else(|| self.edge_py_attrs.get(&PyGraph::edge_key(target, source)));
+                match entry {
+                    Some(attrs) => {
+                        let py_attrs = deepcopy_py_dict(py, &deepcopy, attrs)?;
+                        let rust_attrs = py_dict_to_attr_map(py_attrs.bind(py))?;
+                        dg.inner
+                            .add_edge_with_attrs(source.to_owned(), target.to_owned(), rust_attrs)
+                            .map_err(|e| crate::NetworkXError::new_err(e.to_string()))?;
+                        dg.edge_py_attrs
+                            .insert((source.to_owned(), target.to_owned()), py_attrs);
+                    }
+                    None => {
+                        // Attr-less arc stays lazy (no PyDict alloc).
+                        dg.inner
+                            .add_edge_with_attrs(
+                                source.to_owned(),
+                                target.to_owned(),
+                                Default::default(),
+                            )
+                            .map_err(|e| crate::NetworkXError::new_err(e.to_string()))?;
+                    }
+                }
+            }
+        }
+        Py::new(py, dg)
+    }
+
     /// Update the graph from edges and/or nodes.
     #[pyo3(signature = (edges=None, nodes=None))]
     fn update(
