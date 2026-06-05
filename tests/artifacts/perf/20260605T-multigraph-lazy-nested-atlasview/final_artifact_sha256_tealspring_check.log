@@ -1,0 +1,9 @@
+tests/artifacts/perf/20260605T-multigraph-lazy-nested-atlasview/final_fnx_multigraph_gu.json: OK
+tests/artifacts/perf/20260605T-multigraph-lazy-nested-atlasview/final_fnx_multigraph_guv.json: OK
+tests/artifacts/perf/20260605T-multigraph-lazy-nested-atlasview/final_fnx_multidigraph_gu.json: OK
+tests/artifacts/perf/20260605T-multigraph-lazy-nested-atlasview/final_fnx_multidigraph_guv.json: OK
+tests/artifacts/perf/20260605T-multigraph-lazy-nested-atlasview/final_golden_f0zo8.json: OK
+tests/artifacts/perf/20260605T-multigraph-lazy-nested-atlasview/pytest_attribute_access_final_tealspring.log: OK
+tests/artifacts/perf/20260605T-multigraph-lazy-nested-atlasview/check_fnx_python_final2_tealspring.rch.log: OK
+tests/artifacts/perf/20260605T-multigraph-lazy-nested-atlasview/clippy_fnx_python_final2_tealspring.rch.log: OK
+tests/artifacts/perf/20260605T-multigraph-lazy-nested-atlasview/maturin_final_tealspring.rch.log: OK
