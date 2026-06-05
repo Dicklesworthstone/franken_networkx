@@ -1911,9 +1911,20 @@ impl PyMultiGraph {
     }
 
     fn clear_edges(&mut self) {
-        self.inner = MultiGraph::with_runtime_policy(self.inner.runtime_policy().clone());
+        // br-r37-c1-pb8bj: capture node INSERTION order before resetting inner.
+        // The old code re-added nodes by iterating `node_key_map.keys()` (a
+        // HashMap — random order), scrambling node order vs nx, which preserves
+        // insertion order across clear_edges(). `nodes_ordered()` keeps it.
+        let ordered: Vec<String> = self
+            .inner
+            .nodes_ordered()
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+        let policy = self.inner.runtime_policy().clone();
         Python::attach(|py| {
-            for canonical in self.node_key_map.keys() {
+            let mut fresh = MultiGraph::with_runtime_policy(policy);
+            for canonical in &ordered {
                 let rust_attrs = self
                     .node_py_attrs
                     .get(canonical)
