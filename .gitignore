@@ -188,3 +188,9 @@ storage.sqlite3-wal.corrupt-*
 
 # perf rotated profile snapshot (companion to the already-ignored perf.data)
 perf.data.old
+
+# Ephemeral agent/skill scratch (repo-janitor 2026-06-04)
+*.mcp.json
+.beads/.br_recovery/
+fuzz/coverage/
+fuzz/fuzz-*.log
