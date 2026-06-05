@@ -31739,6 +31739,19 @@ MultiDiGraph._node = property(
 )
 
 
+# br-r37-c1-o1i86: capture the raw Rust __copy__ impls BEFORE the Python
+# override below replaces them. The Rust versions clone the inner graph
+# wholesale (node order, edge order, adjacency ROW content order all
+# byte-identical to the source — what nx's shared-_adj copy.copy shows)
+# and clone_ref the per-node/per-edge attr dicts so they stay SHARED.
+_RAW_GRAPH_SHALLOWCOPY = {
+    Graph: Graph.__copy__,
+    DiGraph: DiGraph.__copy__,
+    MultiGraph: MultiGraph.__copy__,
+    MultiDiGraph: MultiDiGraph.__copy__,
+}
+
+
 def _graph_shallowcopy(self):
     # br-r37-c1-5ctpe: copy.copy(G) must share the same attribute dict
     # references (graph attrs are `is`, not just `==`). G.copy() returns
@@ -31749,7 +31762,17 @@ def _graph_shallowcopy(self):
     # to h's separate Rust storage but h.edges still read through the
     # overridden _adj view pointing at g. Create an independent copy of
     # the graph STRUCTURE but share the attribute dicts.
-    result = self.copy()
+    #
+    # br-r37-c1-o1i86: route exact graph types through the raw Rust
+    # __copy__ — self.copy() RE-DERIVES adjacency rows (nx.copy()
+    # semantics), but copy.copy must show the SOURCE's rows (nx shares
+    # _adj outright). The Rust path also shares node/edge attr dicts,
+    # matching nx's shared-storage behavior for attribute mutation.
+    raw = _RAW_GRAPH_SHALLOWCOPY.get(type(self))
+    if raw is not None:
+        result = raw(self)
+    else:
+        result = self.copy()
     # Share graph attrs dict by setting the override directly
     vars(result)[_GRAPH_ATTR_OVERRIDE] = self.graph
     if getattr(self, "frozen", False):
