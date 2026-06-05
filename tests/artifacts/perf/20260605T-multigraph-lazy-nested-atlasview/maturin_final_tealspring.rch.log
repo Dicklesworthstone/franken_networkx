@@ -52,3 +52,8 @@ warning: methods `rebuild_adj_indices` and `rebuild_edge_index_endpoints` are ne
    Compiling fnx-readwrite v0.1.0 (/data/projects/franken_networkx/crates/fnx-readwrite)
 warning: `fnx-classes` (lib) generated 1 warning
    Compiling pyo3-log v0.13.3
+   Compiling fnx-python v0.1.0 (/data/projects/franken_networkx/crates/fnx-python)
+    Finished `release` profile [optimized] target(s) in 1m 08s
+📦 Built wheel for abi3 Python ≥ 3.10 to /data/tmp/.tmpYKOjSH/franken_networkx-0.1.0-cp310-abi3-linux_x86_64.whl
+✏️ Setting installed package as editable
+🛠 Installed franken-networkx-0.1.0
