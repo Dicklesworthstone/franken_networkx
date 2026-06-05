@@ -1,0 +1,1 @@
+d13d5dfb14817f123c6594bb85c69727f265d9a5f554d1e34b25da14ef9cd96c  watts_strogatz 240-case byte-exact vs nx (n in {20,50,100,200} x k{4,6,8} x p{0,.1,.3,.5,1} x 4 seeds), exact edge+node order

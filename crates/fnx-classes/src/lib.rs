@@ -798,11 +798,16 @@ impl Graph {
     }
 
     pub fn remove_edge(&mut self, left: &str, right: &str) -> bool {
-        let removed = self
-            .edges
-            .shift_remove(&EdgeKeyRef::new(left, right))
-            .is_some();
-        if removed {
+        // `shift_remove_full` returns the edge's index in `self.edges` *before*
+        // removal so we can keep `edge_index_endpoints` (maintained strictly
+        // parallel to `self.edges`: one entry per edge, same order — see
+        // `add_edge_with_attrs` / `extend_edges_unrecorded`) in sync by dropping
+        // the single corresponding entry, instead of the O(|E|) hashing
+        // `rebuild_edge_index_endpoints()`. Bit-identical result (the parallel
+        // vector ends up exactly as a full rebuild would leave it), but turns a
+        // remove-heavy build like watts_strogatz from O(|E|^2) into O(|E|·shift).
+        let removed = self.edges.shift_remove_full(&EdgeKeyRef::new(left, right));
+        if let Some((edge_pos, _, _)) = removed {
             if let Some(left_neighbors) = self.adjacency.get_mut(left) {
                 left_neighbors.shift_remove(right);
             }
@@ -821,10 +826,12 @@ impl Graph {
                     self.adj_indices[right_idx].retain(|&i| i != left_idx);
                 }
             }
-            self.rebuild_edge_index_endpoints();
+            self.edge_index_endpoints.remove(edge_pos);
             self.revision = self.revision.saturating_add(1);
+            true
+        } else {
+            false
         }
-        removed
     }
 
     pub fn remove_node(&mut self, node: &str) -> bool {
