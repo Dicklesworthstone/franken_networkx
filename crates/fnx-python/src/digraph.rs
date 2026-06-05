@@ -60,11 +60,11 @@ pub struct PyDiGraph {
 pub struct PyMultiDiGraph {
     pub(crate) inner: MultiDiGraph,
     pub(crate) node_key_map: HashMap<String, PyObject>,
-        /// br-r37-c1-z6uka: per-SUCC-row display objects (see PyDiGraph).
+    /// br-r37-c1-z6uka: per-SUCC-row display objects (see PyDiGraph).
     pub(crate) succ_py_keys: HashMap<(String, String), PyObject>,
     /// br-r37-c1-z6uka: per-PRED-row display objects.
     pub(crate) pred_py_keys: HashMap<(String, String), PyObject>,
-pub(crate) node_py_attrs: HashMap<String, Py<PyDict>>,
+    pub(crate) node_py_attrs: HashMap<String, Py<PyDict>>,
     pub(crate) edge_py_attrs: HashMap<(String, String, usize), Py<PyDict>>,
     pub(crate) edge_py_keys: HashMap<(String, String, usize), PyObject>,
     pub(crate) graph_attrs: Py<PyDict>,
@@ -2903,7 +2903,9 @@ impl PyDiGraph {
         py: Python<'_>,
         m: &HashMap<(String, String), PyObject>,
     ) -> HashMap<(String, String), PyObject> {
-        m.iter().map(|(k, v)| (k.clone(), v.clone_ref(py))).collect()
+        m.iter()
+            .map(|(k, v)| (k.clone(), v.clone_ref(py)))
+            .collect()
     }
 
     /// br-r37-c1-z6uka: record per-row overrides for a NEWLY created
@@ -3299,39 +3301,39 @@ impl PyDiGraph {
 
     fn remove_nodes_from(&mut self, py: Python<'_>, nodes: &Bound<'_, PyAny>) -> PyResult<()> {
         let iter = PyIterator::from_object(nodes)?;
-        let mut had_incident_edges = false;
+        let mut present = HashSet::<String>::new();
         for item in iter {
             let item = item?;
             let canonical = node_key_to_string(py, &item)?;
             if self.inner.has_node(&canonical) {
-                if let Some(succs) = self.inner.successors(&canonical) {
-                    for v in succs {
-                        let ek = Self::edge_key(&canonical, v);
-                        self.edge_py_attrs.remove(&ek);
-                        had_incident_edges = true;
-                    }
-                }
-                if let Some(preds) = self.inner.predecessors(&canonical) {
-                    for u in preds {
-                        let ek = Self::edge_key(u, &canonical);
-                        self.edge_py_attrs.remove(&ek);
-                        had_incident_edges = true;
-                    }
-                }
-                self.inner.remove_node(&canonical);
-                self.node_key_map.remove(&canonical);
-                self.node_py_attrs.remove(&canonical);
-                if !self.succ_py_keys.is_empty() || !self.pred_py_keys.is_empty() {
-                    // br-r37-c1-z6uka: drop row overrides touching removed nodes.
-                    self.succ_py_keys
-                        .retain(|(a, b), _| a != &canonical && b != &canonical);
-                    self.pred_py_keys
-                        .retain(|(a, b), _| a != &canonical && b != &canonical);
-                }
+                present.insert(canonical);
             }
         }
+        let present_refs: HashSet<&str> = present.iter().map(String::as_str).collect();
+        let mut removed_py_edge_attrs = false;
+        self.edge_py_attrs.retain(|(source, target), _| {
+            let keep =
+                !present_refs.contains(source.as_str()) && !present_refs.contains(target.as_str());
+            if !keep {
+                removed_py_edge_attrs = true;
+            }
+            keep
+        });
+        let (_removed_nodes, removed_edges) =
+            self.inner.remove_nodes_from(present_refs.iter().copied());
+        for canonical in &present {
+            self.node_key_map.remove(canonical);
+            self.node_py_attrs.remove(canonical);
+        }
+        if !self.succ_py_keys.is_empty() || !self.pred_py_keys.is_empty() {
+            // br-r37-c1-z6uka: drop row overrides touching removed nodes.
+            self.succ_py_keys
+                .retain(|(a, b), _| !present.contains(a) && !present.contains(b));
+            self.pred_py_keys
+                .retain(|(a, b), _| !present.contains(a) && !present.contains(b));
+        }
         self.bump_nodes_seq();
-        if had_incident_edges {
+        if removed_edges > 0 || removed_py_edge_attrs {
             self.bump_edges_seq(); // br-r37-c1-jft0i
         }
         Ok(())
@@ -3482,7 +3484,8 @@ impl PyDiGraph {
         self.edge_py_attrs.remove(&ek);
         if !self.succ_py_keys.is_empty() || !self.pred_py_keys.is_empty() {
             // br-r37-c1-z6uka: drop row overrides for the removed edge.
-            self.succ_py_keys.remove(&(u_canonical.clone(), v_canonical.clone()));
+            self.succ_py_keys
+                .remove(&(u_canonical.clone(), v_canonical.clone()));
             self.pred_py_keys.remove(&(v_canonical, u_canonical));
         }
         self.bump_edges_seq();
@@ -3522,7 +3525,12 @@ impl PyDiGraph {
     fn successors(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<Vec<PyObject>> {
         let canonical = node_key_to_string(py, n)?;
         match self.inner.successors(&canonical) {
-            Some(succs) => Ok(succs.into_iter().map(|s| self.py_succ_key(py, &canonical, s) /* br-r37-c1-z6uka */).collect()),
+            Some(succs) => Ok(succs
+                .into_iter()
+                .map(
+                    |s| self.py_succ_key(py, &canonical, s), /* br-r37-c1-z6uka */
+                )
+                .collect()),
             None => Err(NodeNotFound::new_err(format!(
                 "The node {} is not in the graph.",
                 n.repr()?
@@ -3535,7 +3543,12 @@ impl PyDiGraph {
     fn predecessors_method(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<Vec<PyObject>> {
         let canonical = node_key_to_string(py, n)?;
         match self.inner.predecessors(&canonical) {
-            Some(preds) => Ok(preds.into_iter().map(|p| self.py_pred_key(py, &canonical, p) /* br-r37-c1-z6uka */).collect()),
+            Some(preds) => Ok(preds
+                .into_iter()
+                .map(
+                    |p| self.py_pred_key(py, &canonical, p), /* br-r37-c1-z6uka */
+                )
+                .collect()),
             None => Err(NodeNotFound::new_err(format!(
                 "The node {} is not in the graph.",
                 n.repr()?
@@ -3787,7 +3800,7 @@ impl PyDiGraph {
             node_py_attrs: HashMap::with_capacity(self.node_py_attrs.len()),
             edge_py_attrs: HashMap::with_capacity(self.edge_py_attrs.len()),
             succ_py_keys: Self::clone_row_keys(py, &self.succ_py_keys), // br-r37-c1-z6uka
-            pred_py_keys: HashMap::new(), // br-r37-c1-z6uka
+            pred_py_keys: HashMap::new(),                               // br-r37-c1-z6uka
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,
             edges_seq: 0,
@@ -5536,9 +5549,10 @@ impl DiAtlasView {
         };
         let result = PyDict::new(py);
         for nb in neighbors {
-            let py_nb = match self.kind { // br-r37-c1-z6uka
-                AdjKind::Successors => g.py_succ_key(py, &self.node, &nb),
-                AdjKind::Predecessors => g.py_pred_key(py, &self.node, &nb),
+            let py_nb = match self.kind {
+                // br-r37-c1-z6uka
+                AdjKind::Successors => g.py_succ_key(py, &self.node, nb),
+                AdjKind::Predecessors => g.py_pred_key(py, &self.node, nb),
             };
             let ek = match self.kind {
                 AdjKind::Successors => PyDiGraph::edge_key(&self.node, nb),
@@ -5625,9 +5639,10 @@ impl DiAtlasView {
         };
         let mut out = Vec::with_capacity(neighbors.len());
         for nb in neighbors {
-            let py_nb = match self.kind { // br-r37-c1-z6uka
-                AdjKind::Successors => g.py_succ_key(py, &self.node, &nb),
-                AdjKind::Predecessors => g.py_pred_key(py, &self.node, &nb),
+            let py_nb = match self.kind {
+                // br-r37-c1-z6uka
+                AdjKind::Successors => g.py_succ_key(py, &self.node, nb),
+                AdjKind::Predecessors => g.py_pred_key(py, &self.node, nb),
             };
             let ek = match self.kind {
                 AdjKind::Successors => PyDiGraph::edge_key(&self.node, nb),
@@ -5671,9 +5686,10 @@ impl DiAtlasView {
         };
         let result = PyDict::new(py);
         for nb in neighbors {
-            let py_nb = match self.kind { // br-r37-c1-z6uka
-                AdjKind::Successors => g.py_succ_key(py, &self.node, &nb),
-                AdjKind::Predecessors => g.py_pred_key(py, &self.node, &nb),
+            let py_nb = match self.kind {
+                // br-r37-c1-z6uka
+                AdjKind::Successors => g.py_succ_key(py, &self.node, nb),
+                AdjKind::Predecessors => g.py_pred_key(py, &self.node, nb),
             };
             let ek = match self.kind {
                 AdjKind::Successors => PyDiGraph::edge_key(&self.node, nb),

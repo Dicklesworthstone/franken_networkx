@@ -798,6 +798,51 @@ impl DiGraph {
         true
     }
 
+    pub fn remove_nodes_from<'a, I>(&mut self, nodes: I) -> (usize, usize)
+    where
+        I: IntoIterator<Item = &'a str>,
+    {
+        let remove_set: std::collections::HashSet<&str> = nodes
+            .into_iter()
+            .filter(|node| self.nodes.contains_key(*node))
+            .collect();
+        if remove_set.is_empty() {
+            return (0, 0);
+        }
+
+        let old_node_count = self.nodes.len();
+        let old_edge_count = self.edges.len();
+
+        self.successors.retain(|node, successors| {
+            if remove_set.contains(node.as_str()) {
+                false
+            } else {
+                successors.retain(|successor| !remove_set.contains(successor.as_str()));
+                true
+            }
+        });
+        self.predecessors.retain(|node, predecessors| {
+            if remove_set.contains(node.as_str()) {
+                false
+            } else {
+                predecessors.retain(|predecessor| !remove_set.contains(predecessor.as_str()));
+                true
+            }
+        });
+        self.nodes
+            .retain(|node, _| !remove_set.contains(node.as_str()));
+        self.edges.retain(|edge, _| {
+            !remove_set.contains(edge.source.as_str()) && !remove_set.contains(edge.target.as_str())
+        });
+
+        let removed_nodes = old_node_count - self.nodes.len();
+        let removed_edges = old_edge_count - self.edges.len();
+        self.revision = self
+            .revision
+            .saturating_add(u64::try_from(removed_nodes).unwrap_or(u64::MAX));
+        (removed_nodes, removed_edges)
+    }
+
     // -----------------------------------------------------------------------
     // Snapshot / ordered iteration
     // -----------------------------------------------------------------------
@@ -1387,8 +1432,9 @@ impl MultiDiGraph {
                 {
                     preds.shift_remove(node);
                 }
-                if let Some(bucket) =
-                    self.edges.swap_remove(&DirectedEdgeKeyRef::new(node, &target))
+                if let Some(bucket) = self
+                    .edges
+                    .swap_remove(&DirectedEdgeKeyRef::new(node, &target))
                 {
                     removed_count += bucket.len();
                 }
@@ -1402,8 +1448,9 @@ impl MultiDiGraph {
                 {
                     succs.shift_remove(node);
                 }
-                if let Some(bucket) =
-                    self.edges.swap_remove(&DirectedEdgeKeyRef::new(&source, node))
+                if let Some(bucket) = self
+                    .edges
+                    .swap_remove(&DirectedEdgeKeyRef::new(&source, node))
                 {
                     removed_count += bucket.len();
                 }

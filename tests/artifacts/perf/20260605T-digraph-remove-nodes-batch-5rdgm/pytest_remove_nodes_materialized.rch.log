@@ -1,0 +1,2 @@
+  [2m2026-06-05T21:07:02.814264Z[0m [33m WARN[0m [1;33mrch::hook[0m[33m: [33mexec called with non-compilation command: env 'PYTHONPATH=python' /data/projects/franken_networkx/.venv/bin/python -m pytest tests/python/test_attribute_access_parity.py::TestRemoveBunchMaterialized::test_remove_nodes_from_generator_reading_self tests/python/test_attribute_access_parity.py::TestRemoveBunchMaterialized::test_remove_nodes_from_materialized_matches_nx_after_batch_compaction -q[0m
+    [2;3mat[0m rch/src/hook.rs:402 [2;3mon[0m ThreadId(1)

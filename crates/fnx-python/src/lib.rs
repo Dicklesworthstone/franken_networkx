@@ -508,8 +508,8 @@ impl PyGraph {
         let differs = match self.node_key_map.get(nbr_canonical) {
             Some(stored) => {
                 let stored = stored.bind(py);
-                !stored.is(passed)
-                    && !(stored.get_type().is(&passed.get_type())
+                !(stored.is(passed)
+                    || stored.get_type().is(passed.get_type())
                         && stored.eq(passed).unwrap_or(false))
             }
             None => {
@@ -571,7 +571,7 @@ impl PyGraph {
     /// un-interned equal values so uniform-key batches never trip this.
     // br-r37-c1-z6uka: pub(crate) for the PyDiGraph row-key probes.
     pub(crate) fn display_objs_conflict(a: &Bound<'_, PyAny>, b: &Bound<'_, PyAny>) -> bool {
-        !a.is(b) && !(a.get_type().is(&b.get_type()) && a.eq(b).unwrap_or(false))
+        !(a.is(b) || a.get_type().is(b.get_type()) && a.eq(b).unwrap_or(false))
     }
 
     /// br-r37-c1-z6uka: batch-bail probe — true when adding `passed` under
@@ -598,8 +598,7 @@ impl PyGraph {
         if let Some(first) = batch_first.get(canonical) {
             return Self::display_objs_conflict(first.bind(py), passed);
         }
-        if self.lazy_int_node_value(canonical).is_some()
-            && !passed.is_exact_instance_of::<PyInt>()
+        if self.lazy_int_node_value(canonical).is_some() && !passed.is_exact_instance_of::<PyInt>()
         {
             return true;
         }
@@ -1287,7 +1286,9 @@ impl MultiAtlasView {
             .neighbors(&self.node)
             .unwrap_or_default()
             .iter()
-            .map(|neighbor| g.py_adj_key(py, &self.node, neighbor) /* br-r37-c1-z6uka */)
+            .map(
+                |neighbor| g.py_adj_key(py, &self.node, neighbor), /* br-r37-c1-z6uka */
+            )
             .collect();
         Py::new(py, NodeIterator::unguarded(nodes))
     }
@@ -1302,7 +1303,7 @@ impl MultiAtlasView {
         let mut out = Vec::with_capacity(neighbors.len());
         for neighbor in neighbors {
             out.push((
-                g.py_adj_key(py, &self.node, neighbor) /* br-r37-c1-z6uka */,
+                g.py_adj_key(py, &self.node, neighbor), /* br-r37-c1-z6uka */
                 Py::new(
                     py,
                     MultiKeyDictView::new(
@@ -2105,9 +2106,9 @@ impl PyMultiGraph {
         // assignment cannot replace the hash-equal dict key).
         if !self.inner.has_edge(&u_canonical, &v_canonical) {
             let differs = |canonical: &str, passed: &Bound<'_, PyAny>| -> bool {
-                self.node_key_map.get(canonical).is_some_and(|stored| {
-                    PyGraph::display_objs_conflict(stored.bind(py), passed)
-                })
+                self.node_key_map
+                    .get(canonical)
+                    .is_some_and(|stored| PyGraph::display_objs_conflict(stored.bind(py), passed))
             };
             if differs(&v_canonical, v) {
                 self.adj_py_keys
@@ -2247,9 +2248,9 @@ impl PyMultiGraph {
         // conflict with this exact-int key (e.g. node "16" stored as 16.0),
         // the slow path must record per-cell row objects — bail.
         let display_conflict = |canonical: &str, passed: &Bound<'_, PyAny>| -> bool {
-            self.node_key_map.get(canonical).is_some_and(|stored| {
-                PyGraph::display_objs_conflict(stored.bind(py), passed)
-            })
+            self.node_key_map
+                .get(canonical)
+                .is_some_and(|stored| PyGraph::display_objs_conflict(stored.bind(py), passed))
         };
         if display_conflict(&u_canonical, u) || display_conflict(&v_canonical, v) {
             return Ok(None);
@@ -2397,9 +2398,7 @@ impl PyMultiGraph {
                 v.repr()?
             )));
         }
-        if !self.adj_py_keys.is_empty()
-            && !self.inner.has_edge(&u_canonical, &v_canonical)
-        {
+        if !self.adj_py_keys.is_empty() && !self.inner.has_edge(&u_canonical, &v_canonical) {
             // br-r37-c1-z6uka: the LAST parallel key removed empties the
             // adjacency cell — drop its row overrides (a re-add creates
             // fresh cells in nx).
@@ -2720,7 +2719,9 @@ impl PyMultiGraph {
                     }
                     let mut elems: Vec<PyObject> = Vec::with_capacity(4);
                     elems.push(self.py_node_key(py, node));
-                    elems.push(self.py_adj_key(py, node, neighbor) /* br-r37-c1-z6uka */);
+                    elems.push(
+                        self.py_adj_key(py, node, neighbor), /* br-r37-c1-z6uka */
+                    );
                     if keys {
                         elems.push(self.py_edge_key(py, node, neighbor, key));
                     }

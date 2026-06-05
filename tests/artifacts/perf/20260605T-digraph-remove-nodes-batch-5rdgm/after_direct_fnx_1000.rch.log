@@ -1,0 +1,2 @@
+  [2m2026-06-05T21:01:54.289354Z[0m [33m WARN[0m [1;33mrch::hook[0m[33m: [33mexec called with non-compilation command: env 'PYTHONPATH=python' /data/projects/franken_networkx/.venv/bin/python tests/artifacts/perf/20260605T-digraph-remove-nodes-batch-5rdgm/digraph_remove_nodes_batch_bench.py bench --impl fnx --style range --nodes 1000 --edges 8000 --loops 10[0m
+    [2;3mat[0m rch/src/hook.rs:402 [2;3mon[0m ThreadId(1)

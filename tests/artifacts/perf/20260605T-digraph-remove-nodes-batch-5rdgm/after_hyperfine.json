@@ -1,0 +1,72 @@
+{
+  "results": [
+    {
+      "command": "env PYTHONPATH=python /data/projects/franken_networkx/.venv/bin/python tests/artifacts/perf/20260605T-digraph-remove-nodes-batch-5rdgm/digraph_remove_nodes_batch_bench.py bench --impl fnx --nodes 2000 --edges 16000 --loops 20",
+      "mean": 3.9265683915800005,
+      "stddev": 0.25175896908691797,
+      "median": 3.84177151348,
+      "user": 6.79775944,
+      "system": 0.40797656,
+      "min": 3.67010443148,
+      "max": 4.3438821464799995,
+      "times": [
+        3.7390568384800003,
+        3.6930885834800002,
+        4.29462423448,
+        3.67010443148,
+        4.3438821464799995,
+        4.01183203948,
+        4.106249292479999,
+        3.91293098848,
+        3.77061203848,
+        3.72330332248
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "env PYTHONPATH=python /data/projects/franken_networkx/.venv/bin/python tests/artifacts/perf/20260605T-digraph-remove-nodes-batch-5rdgm/digraph_remove_nodes_batch_bench.py bench --impl nx --nodes 2000 --edges 16000 --loops 20",
+      "mean": 1.31080935458,
+      "stddev": 0.07307624012287857,
+      "median": 1.31438440048,
+      "user": 5.011304340000001,
+      "system": 0.06956166,
+      "min": 1.17459091448,
+      "max": 1.41428147848,
+      "times": [
+        1.17459091448,
+        1.27390343948,
+        1.23573977148,
+        1.41428147848,
+        1.30550014048,
+        1.40020528648,
+        1.35844598048,
+        1.28502753648,
+        1.3232686604800001,
+        1.33713033748
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

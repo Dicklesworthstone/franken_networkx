@@ -1,0 +1,11 @@
+Benchmark 1: env PYTHONPATH=python /data/projects/franken_networkx/.venv/bin/python tests/artifacts/perf/20260605T-digraph-remove-nodes-batch-5rdgm/digraph_remove_nodes_batch_bench.py bench --impl fnx --style range --nodes 5000 --edges 5000 --loops 3
+  Time (mean ± σ):     626.8 ms ±  78.0 ms    [User: 2112.8 ms, System: 98.9 ms]
+  Range (min … max):   517.9 ms … 780.6 ms    8 runs
+
+Benchmark 2: env PYTHONPATH=python /data/projects/franken_networkx/.venv/bin/python tests/artifacts/perf/20260605T-digraph-remove-nodes-batch-5rdgm/digraph_remove_nodes_batch_bench.py bench --impl nx --style range --nodes 5000 --edges 5000 --loops 3
+  Time (mean ± σ):     546.0 ms ±  57.4 ms    [User: 2225.6 ms, System: 75.9 ms]
+  Range (min … max):   458.6 ms … 627.3 ms    8 runs
+
+Summary
+  env PYTHONPATH=python /data/projects/franken_networkx/.venv/bin/python tests/artifacts/perf/20260605T-digraph-remove-nodes-batch-5rdgm/digraph_remove_nodes_batch_bench.py bench --impl nx --style range --nodes 5000 --edges 5000 --loops 3 ran
+    1.15 ± 0.19 times faster than env PYTHONPATH=python /data/projects/franken_networkx/.venv/bin/python tests/artifacts/perf/20260605T-digraph-remove-nodes-batch-5rdgm/digraph_remove_nodes_batch_bench.py bench --impl fnx --style range --nodes 5000 --edges 5000 --loops 3
