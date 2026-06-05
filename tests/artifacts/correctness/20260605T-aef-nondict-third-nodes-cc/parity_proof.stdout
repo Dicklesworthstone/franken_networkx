@@ -1,0 +1,8 @@
+ok   new-edge-float-third err: ('TypeError', "'float' object is not iterable")
+ok   global-attr-float-third err: ('TypeError', "'float' object is not iterable")
+ok   pairs-third-ok err: None
+ok   pairs-third-global err: None
+ok   short-float-third err: ('TypeError', "'float' object is not iterable")
+ok   string-third err: ('ValueError', 'dictionary update sequence element #0 has length 1; 2 is required')
+GOLDEN_SHA256: 8487d3ae99ee78d1e5032bdb10b7b4fa967afd7979f8e4f6e967b927b90673db
+fails: 0

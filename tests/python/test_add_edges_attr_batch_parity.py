@@ -107,6 +107,8 @@ def test_global_attr_kwargs_still_merge():
         [(1, 2, 3, 4)],  # bad arity
         [(2, None)],  # None endpoint
         [([1, 2], 3)],  # unhashable endpoint
+        [(1, 2, 1.5)],  # br-r37-c1-a4zlp: non-dict third — nx keeps BOTH endpoint nodes
+        [(1, 2, "ab")],  # br-r37-c1-a4zlp: bad iterable third (ValueError shape)
     ],
 )
 def test_partial_prefix_on_error_matches_nx(tail):

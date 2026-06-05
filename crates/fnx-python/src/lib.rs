@@ -4147,6 +4147,15 @@ impl PyGraph {
                 } else {
                     // Non-dict third element: replicate nx's TypeError shape by
                     // routing through ``dict.update`` (see br-edges3rd below).
+                    //
+                    // br-r37-c1-a4zlp: nx adds BOTH endpoint nodes before it
+                    // touches the edge datadict (``if u not in self._node:
+                    // ... if v not in self._node: ... datadict.update(dd)``),
+                    // so when the update raises, u and v persist on the
+                    // graph. Create them first so the partial error state
+                    // matches nx exactly.
+                    self.add_node(py, &u, None)?;
+                    self.add_node(py, &v, None)?;
                     let merged = PyDict::new(py);
                     match merged.call_method1("update", (d,)) {
                         Ok(_) => {}
@@ -4175,6 +4184,13 @@ impl PyGraph {
                         // (key, value) pairs); on failure raise the same
                         // TypeError shape nx surfaces. We cast through
                         // ``PyDict.update`` to get nx-compatible wording.
+                        //
+                        // br-r37-c1-a4zlp: as in the no-global-attr branch
+                        // above, nx creates both endpoint nodes before the
+                        // failing datadict.update — reproduce that partial
+                        // state before raising.
+                        self.add_node(py, &u, None)?;
+                        self.add_node(py, &v, None)?;
                         let throwaway = PyDict::new(py);
                         match throwaway.call_method1("update", (d,)) {
                             Ok(_) => {
