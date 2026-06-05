@@ -1,0 +1,60 @@
+{
+  "results": [
+    {
+      "command": "env VIRTUAL_ENV=/data/projects/franken_networkx/.venv PATH=/data/projects/franken_networkx/.venv/bin:$PATH PYTHONPATH=python python tests/artifacts/perf/20260604T-delegation-goldmine-sweep/bench_delegation_goldmines.py --case all_pairs_dijkstra_weighted --impl fnx --repeats 120",
+      "mean": 6.955712447291428,
+      "stddev": 0.30247009711474404,
+      "median": 6.97848476872,
+      "user": 10.574315960000002,
+      "system": 0.3397253914285714,
+      "min": 6.62408404772,
+      "max": 7.56379222472,
+      "times": [
+        6.97848476872,
+        6.77388407972,
+        6.62408404772,
+        6.77291100072,
+        6.99366260372,
+        6.98316840572,
+        7.56379222472
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "env VIRTUAL_ENV=/data/projects/franken_networkx/.venv PATH=/data/projects/franken_networkx/.venv/bin:$PATH PYTHONPATH=python python tests/artifacts/perf/20260604T-delegation-goldmine-sweep/bench_delegation_goldmines.py --case all_pairs_dijkstra_weighted --impl nx --repeats 120",
+      "mean": 8.540722281148572,
+      "stddev": 1.0015019715766944,
+      "median": 8.05124620972,
+      "user": 11.509604674285715,
+      "system": 0.5254299628571429,
+      "min": 7.7935989467199995,
+      "max": 10.40841949072,
+      "times": [
+        8.05124620972,
+        7.81027577672,
+        7.7935989467199995,
+        8.40391298372,
+        7.89991721572,
+        9.41768534472,
+        10.40841949072
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

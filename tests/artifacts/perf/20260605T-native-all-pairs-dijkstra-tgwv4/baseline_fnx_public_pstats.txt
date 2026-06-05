@@ -1,0 +1,45 @@
+Fri Jun  5 17:31:23 2026    tests/artifacts/perf/20260605T-native-all-pairs-dijkstra-tgwv4/baseline_fnx_public.prof
+
+         92193608 function calls (75519122 primitive calls) in 20.230 seconds
+
+   Ordered by: cumulative time
+   List reduced from 2029 to 35 due to restriction <35>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+    479/1    0.003    0.000   20.230   20.230 {built-in method builtins.exec}
+        1    0.000    0.000   20.230   20.230 bench_delegation_goldmines.py:1(<module>)
+        1    0.001    0.001   19.887   19.887 bench_delegation_goldmines.py:224(main)
+        1    0.082    0.082   19.885   19.885 bench_delegation_goldmines.py:172(bench)
+      120    0.001    0.000   19.801    0.165 bench_delegation_goldmines.py:164(_run_once)
+      120    0.171    0.001   16.760    0.140 bench_delegation_goldmines.py:33(_digest)
+16648200/120   11.177    0.000   15.728    0.131 bench_delegation_goldmines.py:18(_stable)
+ 65023127    4.556    0.000    4.556    0.000 {built-in method builtins.isinstance}
+      120    0.003    0.000    3.039    0.025 bench_delegation_goldmines.py:70(case_all_pairs_dijkstra)
+     9720    0.003    0.000    3.035    0.000 __init__.py:12496(all_pairs_dijkstra)
+     9720    0.002    0.000    3.019    0.000 __init__.py:6671(_wrapped_iterator)
+     9720    0.006    0.000    3.017    0.000 weighted.py:983(all_pairs_dijkstra)
+     9600    0.009    0.000    3.011    0.000 <class 'networkx.utils.decorators.argmap'> compilation 12:1(argmap_single_source_dijkstra_9)
+19321/9721    0.113    0.000    3.004    0.000 backends.py:554(_call_if_any_backends_installed)
+19321/9721    0.009    0.000    2.919    0.000 backends.py:1484(_call_with_backend)
+     9600    0.005    0.000    2.915    0.000 weighted.py:392(single_source_dijkstra)
+     9600    0.010    0.000    2.910    0.000 <class 'networkx.utils.decorators.argmap'> compilation 16:1(argmap_multi_source_dijkstra_13)
+     9600    0.024    0.000    2.823    0.000 weighted.py:650(multi_source_dijkstra)
+     9600    1.730    0.000    2.790    0.000 weighted.py:784(_dijkstra_multisource)
+       47    0.004    0.000    1.221    0.026 __init__.py:1(<module>)
+      121    0.001    0.000    0.769    0.006 __init__.py:183(dumps)
+      121    0.001    0.000    0.768    0.006 encoder.py:183(encode)
+      121    0.767    0.006    0.767    0.006 encoder.py:205(iterencode)
+  3014400    0.411    0.000    0.658    0.000 weighted.py:78(<lambda>)
+    530/7    0.002    0.000    0.344    0.049 <frozen importlib._bootstrap>:1349(_find_and_load)
+    510/7    0.002    0.000    0.344    0.049 <frozen importlib._bootstrap>:1304(_find_and_load_unlocked)
+    495/7    0.001    0.000    0.343    0.049 <frozen importlib._bootstrap>:911(_load_unlocked)
+    466/7    0.001    0.000    0.343    0.049 <frozen importlib._bootstrap_external>:1020(exec_module)
+  1105/14    0.001    0.000    0.334    0.024 <frozen importlib._bootstrap>:480(_call_with_frames_removed)
+   445/30    0.000    0.000    0.284    0.009 {built-in method builtins.__import__}
+   538/65    0.001    0.000    0.283    0.004 <frozen importlib._bootstrap>:1390(_handle_fromlist)
+  3022071    0.248    0.000    0.248    0.000 {method 'get' of 'dict' objects}
+        2    0.000    0.000    0.151    0.075 nx_pylab.py:1(<module>)
+        2    0.000    0.000    0.150    0.075 layout.py:1(<module>)
+     10/6    0.000    0.000    0.145    0.024 <frozen importlib._bootstrap_external>:1326(exec_module)
+
+

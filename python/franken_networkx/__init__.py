@@ -12501,9 +12501,22 @@ def all_pairs_dijkstra(G, cutoff=None, weight="weight"):
     Mirrors ``networkx.all_pairs_dijkstra``.
     """
     G = _coerce_arg_to_fnx_graph(G)
-    # br-r37-c1-opxj0: explicit non-unit weighted calls need exact nx distance
-    # type/order parity; default-unit graphs keep the native raw path below.
-    if _should_delegate_dijkstra_to_networkx(G, weight) or _graph_has_explicit_nonunit_weight(G, weight):
+    should_delegate = _should_delegate_dijkstra_to_networkx(G, weight)
+    has_explicit_nonunit = (
+        False
+        if should_delegate
+        else _graph_has_explicit_nonunit_weight(G, weight)
+    )
+    native_weighted_simple = (
+        cutoff is None
+        and has_explicit_nonunit
+        and isinstance(weight, str)
+        and type(G) in (Graph, DiGraph)
+    )
+    # br-r37-c1-tgwv4: safe simple weighted calls use the packed native
+    # binding below. Keep nx delegation for cutoff/callable/non-string,
+    # multigraph, negative, nonfinite, and nonnumeric cases.
+    if should_delegate or (has_explicit_nonunit and not native_weighted_simple):
         kwargs = {"weight": weight}
         if cutoff is not None:
             kwargs["cutoff"] = cutoff

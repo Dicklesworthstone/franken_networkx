@@ -1,0 +1,81 @@
+  [2m2026-06-05T21:55:19.134612Z[0m [33m WARN[0m [1;33mrch::hook[0m[33m: [33mexec called with non-compilation command: env 'CARGO_TARGET_DIR=/data/tmp/franken_networkx_tgwv4_rebased_target' 'VIRTUAL_ENV=/data/projects/franken_networkx/.venv' 'PATH=/data/projects/franken_networkx/.venv/bin:/home/ubuntu/.codex/tmp/arg0/codex-arg0JFqi1Z:/home/ubuntu/.bun/install/global/node_modules/@openai/codex-linux-x64/vendor/x86_64-unknown-linux-musl/codex-path:/home/ubuntu/.local/bin:/home/ubuntu/.local/bin:/home/ubuntu/.atuin/bin:/home/ubuntu/.bun/bin:/home/ubuntu/go/bin:/home/ubuntu/.cargo/bin:/home/ubuntu/.local/bin:/home/ubuntu/.local/bin:/home/ubuntu/.atuin/bin:/home/ubuntu/.bun/bin:/home/ubuntu/go/bin:/home/ubuntu/.cargo/bin:/home/ubuntu/.local/bin:/home/ubuntu/.nvm/versions/node/v24.14.0/bin:/home/ubuntu/.local/bin:/home/ubuntu/.atuin/bin:/home/ubuntu/.bun/bin:/home/ubuntu/go/bin:/home/ubuntu/.cargo/bin:/home/ubuntu/.local/bin:/home/ubuntu/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin:/home/ubuntu/.claude/plugins/cache/claude-plugins-official/vercel/0.43.0/bin' maturin develop --release --features pyo3/abi3-py310[0m
+    [2;3mat[0m rch/src/hook.rs:402 [2;3mon[0m ThreadId(1)
+
+🍹 Building a mixed python/rust project
+🐍 Found CPython 3.13 at /data/projects/franken_networkx/.venv/bin/python
+🔗 Found pyo3 bindings with abi3 support
+Ignoring numpy: markers 'extra == "all"' don't match your environment
+Ignoring scipy: markers 'extra == "all"' don't match your environment
+Ignoring numpy: markers 'extra == "numpy"' don't match your environment
+Ignoring scipy: markers 'extra == "scipy"' don't match your environment
+Ignoring pytest: markers 'extra == "test"' don't match your environment
+Ignoring hypothesis: markers 'extra == "test"' don't match your environment
+Ignoring networkx: markers 'extra == "test"' don't match your environment
+Requirement already satisfied: networkx>=3.0 in /data/projects/franken_networkx/.venv/lib/python3.13/site-packages (3.6.1)
+   Compiling proc-macro2 v1.0.106
+   Compiling quote v1.0.45
+   Compiling unicode-ident v1.0.24
+   Compiling target-lexicon v0.13.5
+   Compiling serde_core v1.0.228
+   Compiling zmij v1.0.21
+   Compiling memchr v2.8.0
+   Compiling serde v1.0.228
+   Compiling serde_json v1.0.149
+   Compiling itoa v1.0.18
+   Compiling hashbrown v0.17.0
+   Compiling equivalent v1.0.2
+   Compiling cpufeatures v0.3.0
+   Compiling cfg-if v1.0.4
+   Compiling shlex v1.3.0
+   Compiling find-msvc-tools v0.1.9
+   Compiling libc v0.2.186
+   Compiling rand_core v0.10.1
+   Compiling heck v0.5.0
+   Compiling rustversion v1.0.22
+   Compiling arrayvec v0.7.6
+   Compiling constant_time_eq v0.4.2
+   Compiling arrayref v0.3.9
+   Compiling inventory v0.3.24
+   Compiling hex v0.4.3
+   Compiling once_cell v1.21.4
+   Compiling mwmatching v0.1.1
+   Compiling log v0.4.29
+   Compiling mt19937 v3.3.0
+   Compiling chacha20 v0.10.0
+   Compiling cc v1.2.61
+   Compiling rand v0.10.1
+   Compiling quick-xml v0.39.2
+   Compiling pyo3-build-config v0.28.3
+   Compiling arc-swap v1.9.1
+   Compiling indexmap v2.14.0
+   Compiling syn v2.0.117
+   Compiling blake3 v1.8.4
+   Compiling pyo3-ffi v0.28.3
+   Compiling pyo3-macros-backend v0.28.3
+   Compiling pyo3 v0.28.3
+   Compiling serde_derive v1.0.228
+   Compiling pyo3-macros v0.28.3
+   Compiling fnx-runtime v0.1.0 (/data/projects/.scratch/franken_networkx-opt-20260605T204053/crates/fnx-runtime)
+   Compiling fnx-cgse v0.1.0 (/data/projects/.scratch/franken_networkx-opt-20260605T204053/crates/fnx-cgse)
+   Compiling fnx-classes v0.1.0 (/data/projects/.scratch/franken_networkx-opt-20260605T204053/crates/fnx-classes)
+   Compiling fnx-dispatch v0.1.0 (/data/projects/.scratch/franken_networkx-opt-20260605T204053/crates/fnx-dispatch)
+   Compiling fnx-views v0.1.0 (/data/projects/.scratch/franken_networkx-opt-20260605T204053/crates/fnx-views)
+   Compiling fnx-readwrite v0.1.0 (/data/projects/.scratch/franken_networkx-opt-20260605T204053/crates/fnx-readwrite)
+   Compiling fnx-convert v0.1.0 (/data/projects/.scratch/franken_networkx-opt-20260605T204053/crates/fnx-convert)
+   Compiling fnx-algorithms v0.1.0 (/data/projects/.scratch/franken_networkx-opt-20260605T204053/crates/fnx-algorithms)
+   Compiling fnx-generators v0.1.0 (/data/projects/.scratch/franken_networkx-opt-20260605T204053/crates/fnx-generators)
+   Compiling pyo3-log v0.13.3
+   Compiling fnx-python v0.1.0 (/data/projects/.scratch/franken_networkx-opt-20260605T204053/crates/fnx-python)
+warning: unused variable: `py`
+   --> crates/fnx-python/src/lib.rs:776:9
+    |
+776 |         py: Python<'_>,
+    |         ^^ help: if this is intentional, prefix it with an underscore: `_py`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: `fnx-python` (lib) generated 1 warning (run `cargo fix --lib -p fnx-python` to apply 1 suggestion)
+    Finished `release` profile [optimized] target(s) in 49.95s
+📦 Built wheel for abi3 Python ≥ 3.10 to /data/tmp/.tmpntxiS4/franken_networkx-0.1.0-cp310-abi3-linux_x86_64.whl
+✏️ Setting installed package as editable
+🛠 Installed franken-networkx-0.1.0

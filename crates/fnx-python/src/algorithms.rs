@@ -18,11 +18,36 @@ use pyo3::exceptions::{
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList, PySet, PyTuple};
 use std::cell::OnceCell;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BinaryHeap, HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 type SpanningEdgeSamples = (Vec<(String, String)>, Vec<f64>);
 const PAGERANK_WEIGHT_ATTR: &str = "__fnx_pagerank_weight__";
+
+#[derive(Copy, Clone, PartialEq)]
+struct PyDijkstraState {
+    dist: f64,
+    seq: u64,
+    node: usize,
+}
+
+impl Eq for PyDijkstraState {}
+
+impl PartialOrd for PyDijkstraState {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for PyDijkstraState {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        other
+            .dist
+            .partial_cmp(&self.dist)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| other.seq.cmp(&self.seq))
+    }
+}
 
 // ---------------------------------------------------------------------------
 // GraphRef — unified graph access for algorithms accepting both Graph & DiGraph
@@ -13112,11 +13137,196 @@ fn is_k_edge_connected(py: Python<'_>, g: &Bound<'_, PyAny>, k: usize) -> PyResu
     Ok(py.allow_threads(|| fnx_algorithms::is_k_edge_connected(inner, k)))
 }
 
+fn dijkstra_weight_from_attrs(attrs: Option<&AttrMap>, weight: &str) -> f64 {
+    attrs
+        .and_then(|attrs| attrs.get(weight))
+        .and_then(|value| value.as_f64())
+        .filter(|value| value.is_finite() && *value >= 0.0)
+        .unwrap_or(1.0)
+}
+
+fn packed_graph_dijkstra_adjacency(
+    graph: &fnx_classes::Graph,
+    weight: &str,
+) -> Vec<Vec<(usize, f64)>> {
+    let nodes = graph.nodes_ordered();
+    let mut adjacency = vec![Vec::new(); nodes.len()];
+    for (source_idx, source) in nodes.iter().enumerate() {
+        let Some(neighbors) = graph.neighbors_indices(source_idx) else {
+            continue;
+        };
+        adjacency[source_idx].reserve(neighbors.len());
+        for &target_idx in neighbors {
+            let target = nodes[target_idx];
+            let weight_value = dijkstra_weight_from_attrs(graph.edge_attrs(source, target), weight);
+            adjacency[source_idx].push((target_idx, weight_value));
+        }
+    }
+    adjacency
+}
+
+fn packed_digraph_dijkstra_adjacency(
+    digraph: &fnx_classes::digraph::DiGraph,
+    weight: &str,
+) -> Vec<Vec<(usize, f64)>> {
+    let nodes = digraph.nodes_ordered();
+    let mut adjacency = vec![Vec::new(); nodes.len()];
+    for (source_idx, source) in nodes.iter().enumerate() {
+        let Some(successors) = digraph.successors_iter(source) else {
+            continue;
+        };
+        for target in successors {
+            let Some(target_idx) = digraph.get_node_index(target) else {
+                continue;
+            };
+            let weight_value =
+                dijkstra_weight_from_attrs(digraph.edge_attrs(source, target), weight);
+            adjacency[source_idx].push((target_idx, weight_value));
+        }
+    }
+    adjacency
+}
+
+fn set_dijkstra_distance_item(
+    dict: &Bound<'_, PyDict>,
+    key: PyObject,
+    distance: f64,
+    all_int_weights: bool,
+) -> PyResult<()> {
+    if distance == 0.0
+        || (all_int_weights
+            && distance.fract() == 0.0
+            && distance >= i64::MIN as f64
+            && distance <= i64::MAX as f64)
+    {
+        dict.set_item(key, distance as i64)
+    } else {
+        dict.set_item(key, distance)
+    }
+}
+
+fn all_pairs_dijkstra_packed_py(
+    py: Python<'_>,
+    gr: &GraphRef<'_>,
+    nodes: &[&str],
+    adjacency: &[Vec<(usize, f64)>],
+    all_int_weights: bool,
+) -> PyResult<PyObject> {
+    let py_keys: Vec<PyObject> = nodes.iter().map(|node| gr.py_node_key(py, node)).collect();
+    let outer = PyDict::new(py);
+    let mut seen = vec![f64::INFINITY; nodes.len()];
+    let mut predecessors = vec![None::<usize>; nodes.len()];
+    let mut finalized = vec![false; nodes.len()];
+    let mut finalize_order = Vec::<usize>::with_capacity(nodes.len());
+    let mut heap = BinaryHeap::<PyDijkstraState>::new();
+    let mut path_indices = Vec::<usize>::with_capacity(nodes.len());
+
+    for source_idx in 0..nodes.len() {
+        seen.fill(f64::INFINITY);
+        predecessors.fill(None);
+        finalized.fill(false);
+        finalize_order.clear();
+        heap.clear();
+        let mut seq = 0_u64;
+
+        seen[source_idx] = 0.0;
+        heap.push(PyDijkstraState {
+            dist: 0.0,
+            seq,
+            node: source_idx,
+        });
+        seq += 1;
+
+        while let Some(PyDijkstraState {
+            dist,
+            node: current,
+            ..
+        }) = heap.pop()
+        {
+            if finalized[current] {
+                continue;
+            }
+            finalized[current] = true;
+            finalize_order.push(current);
+
+            for &(target, weight) in &adjacency[current] {
+                let next_dist = dist + weight;
+                if finalized[target] {
+                    if next_dist < seen[target] {
+                        return Err(PyValueError::new_err((
+                            "Contradictory paths found:",
+                            "negative weights?",
+                        )));
+                    }
+                    continue;
+                }
+                if next_dist < seen[target] {
+                    seen[target] = next_dist;
+                    predecessors[target] = Some(current);
+                    heap.push(PyDijkstraState {
+                        dist: next_dist,
+                        seq,
+                        node: target,
+                    });
+                    seq += 1;
+                }
+            }
+        }
+
+        let dist_dict = PyDict::new(py);
+        let path_dict = PyDict::new(py);
+        for &target_idx in &finalize_order {
+            set_dijkstra_distance_item(
+                &dist_dict,
+                py_keys[target_idx].clone_ref(py),
+                seen[target_idx],
+                all_int_weights,
+            )?;
+
+            path_indices.clear();
+            let mut cursor = Some(target_idx);
+            while let Some(idx) = cursor {
+                path_indices.push(idx);
+                cursor = predecessors[idx];
+            }
+            let py_path = PyList::empty(py);
+            for &idx in path_indices.iter().rev() {
+                py_path.append(py_keys[idx].clone_ref(py))?;
+            }
+            path_dict.set_item(py_keys[target_idx].clone_ref(py), py_path)?;
+        }
+        let pair = PyTuple::new(py, [dist_dict.as_any(), path_dict.as_any()])?;
+        outer.set_item(py_keys[source_idx].clone_ref(py), pair)?;
+    }
+
+    Ok(outer.into_any().unbind())
+}
+
 /// Return all-pairs Dijkstra distances and paths.
 #[pyfunction]
 #[pyo3(signature = (g, weight="weight"))]
 fn all_pairs_dijkstra(py: Python<'_>, g: &Bound<'_, PyAny>, weight: &str) -> PyResult<PyObject> {
+    sync_rust_attrs_if_available(g)?;
     let gr = extract_graph(g)?;
+    if !gr.is_multigraph() {
+        if gr.is_directed() {
+            let digraph = gr
+                .weighted_digraph_projection(weight)
+                .expect("is_directed checked above");
+            let nodes = digraph.as_ref().nodes_ordered();
+            let adjacency = packed_digraph_dijkstra_adjacency(digraph.as_ref(), weight);
+            let all_int_weights =
+                fnx_algorithms::digraph_edge_weights_all_int(digraph.as_ref(), weight);
+            return all_pairs_dijkstra_packed_py(py, &gr, &nodes, &adjacency, all_int_weights);
+        }
+
+        let graph = gr.weighted_undirected_projection(weight);
+        let nodes = graph.as_ref().nodes_ordered();
+        let adjacency = packed_graph_dijkstra_adjacency(graph.as_ref(), weight);
+        let all_int_weights = fnx_algorithms::graph_edge_weights_all_int(graph.as_ref(), weight);
+        return all_pairs_dijkstra_packed_py(py, &gr, &nodes, &adjacency, all_int_weights);
+    }
+
     let w = weight.to_owned();
     let result = if gr.is_directed() {
         let dg = gr
@@ -15715,6 +15925,7 @@ mod tests {
                 node_key_map: HashMap::new(),
                 node_py_attrs: HashMap::new(),
                 edge_py_attrs: HashMap::new(),
+                adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
                 edge_py_keys: HashMap::new(),
                 graph_attrs: PyDict::new(py).unbind(),
                 nodes_seq: 0,
