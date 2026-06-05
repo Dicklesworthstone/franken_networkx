@@ -11750,7 +11750,12 @@ def union(G, H, rename=()):
     G = _coerce_arg_to_fnx_graph(G)
     H = _coerce_arg_to_fnx_graph(H)
     if rename:
-        return _union_with_rename_via_parity(G, H, rename)
+        # br-r37-c1-kmxke: union_all natively supports rename (nx's own
+        # union IS union_all([G, H], rename)). The old
+        # _union_with_rename_via_parity round-trip (2x fnx->nx conversion
+        # + nx union + per-edge _from_nx_graph rebuild) made
+        # union(rename=...) ~6.4x slower than nx.
+        return union_all([G, H], rename=rename)
     # br-r37-c1-union-order: nx checks the type-mismatch
     # (directed-vs-undirected, graph-vs-multigraph) BEFORE the
     # disjoint-nodes check.  Previously fnx checked
@@ -18606,12 +18611,23 @@ def union_all(graphs, rename=()):
                     "disjoint_union(G1, G2, ..., GN)."
                 )
             R.add_node(new_n, **G.nodes[n])
+        # br-r37-c1-kmxke: ONE batched add_edges_from instead of a Python
+        # add_edge (or singleton-list add_edges_from) per edge — the
+        # per-edge loops made disjoint_union/union ~6-7x nx. Node sets are
+        # disjoint (validated above), so there are no cross-graph edge
+        # merges; content copies via dict(d) match the old **d kwargs.
         if R.is_multigraph():
-            for u, v, key, d in G.edges(keys=True, data=True):
-                R.add_edges_from([(_rename(u), _rename(v), key, dict(d))])
+            R.add_edges_from(
+                (_rename(u), _rename(v), key, dict(d))
+                for u, v, key, d in G.edges(keys=True, data=True)
+            )
         else:
-            for u, v, d in G.edges(data=True):
-                R.add_edge(_rename(u), _rename(v), **d)
+            R.add_edges_from(
+                [
+                    (_rename(u), _rename(v), dict(d))
+                    for u, v, d in G.edges(data=True)
+                ]
+            )
     # br-norebuild: skip the redundant _from_nx_graph second construction when R
     # is already an fnx graph; only convert nx-typed results (br-r37-c1-5388d:
     # the _nx.Graph reference lives in _finalize_operator_result so this public
@@ -40560,8 +40576,16 @@ def relabel_nodes(G, mapping, copy=True):
                 new_edges[index] = (source, target, key, data)
             H.add_edges_from(new_edges)
         else:
-            for u, v, d in G.edges(data=True):
-                H.add_edge(_map.get(u, u), _map.get(v, v), **d)
+            # br-r37-c1-kmxke: batched (see union_all). Node-MERGING
+            # relabels can collapse multiple old edges onto one new pair —
+            # the batch path merges attrs in iteration order, identical to
+            # the per-edge add_edge sequence it replaces.
+            H.add_edges_from(
+                [
+                    (_map.get(u, u), _map.get(v, v), dict(d))
+                    for u, v, d in G.edges(data=True)
+                ]
+            )
         # br-norebuild: H was built via _concrete_class_for(G)(), which always
         # returns the canonical fnx type, so the previous _from_nx_graph(H) was a
         # redundant SECOND full construction of an already-correct fnx graph

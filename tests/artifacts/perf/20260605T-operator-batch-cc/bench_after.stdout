@@ -1,0 +1,4 @@
+(interleaved warm min-of-8, n=1500+800)
+disjoint_union   nx=  15.29ms fnx=  63.16ms ratio= 4.13x
+union(rename)    nx=  16.06ms fnx=  37.38ms ratio= 2.33x
+relabel_nodes    nx=   5.88ms fnx=  22.19ms ratio= 3.78x
