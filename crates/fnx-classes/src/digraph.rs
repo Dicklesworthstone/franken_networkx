@@ -217,6 +217,46 @@ impl DiGraph {
             .map(|p| p.iter().map(String::as_str).collect())
     }
 
+    /// br-r37-c1-0ek49: reorder every PRED row into NetworkX's
+    /// `DiGraph.copy()` walk order. nx copy rebuilds via the u-major
+    /// succ walk (`(u, v, d) for u in _adj for v in _adj[u]`), which
+    /// recreates succ rows in their original order but fills each pred
+    /// row in walk order: `(pos(u), index of v within succ[u])`. Call on
+    /// a fresh clone inside copy-shaped constructors; graph content is
+    /// unchanged, only pred row order moves.
+    pub fn reorder_pred_rows_for_nx_copy_walk(&mut self) {
+        let m = self.predecessors.len();
+        let mut new_rows: Vec<IndexSet<String>> = Vec::with_capacity(m);
+        for (v, row) in &self.predecessors {
+            let mut order: Vec<(usize, usize, String)> = row
+                .iter()
+                .map(|u| {
+                    let pu = self
+                        .successors
+                        .get_index_of(u.as_str())
+                        .unwrap_or(usize::MAX);
+                    let idx = self
+                        .successors
+                        .get(u.as_str())
+                        .and_then(|r| r.get_index_of(v.as_str()))
+                        .unwrap_or(usize::MAX);
+                    (pu, idx, u.clone())
+                })
+                .collect();
+            order.sort_unstable();
+            let mut new_row = IndexSet::with_capacity(row.len());
+            for (_, _, u) in order {
+                new_row.insert(u);
+            }
+            new_rows.push(new_row);
+        }
+        for (i, row) in new_rows.into_iter().enumerate() {
+            if let Some((_, slot)) = self.predecessors.get_index_mut(i) {
+                *slot = row;
+            }
+        }
+    }
+
     #[must_use]
     pub fn predecessors_iter(&self, node: &str) -> Option<impl Iterator<Item = &str> + '_> {
         self.predecessors

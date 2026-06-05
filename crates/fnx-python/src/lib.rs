@@ -4958,6 +4958,10 @@ impl PyGraph {
             // Python dicts on the next native read (same contract as the source).
             edges_dirty: AtomicBool::new(self.edges_dirty.load(Ordering::Relaxed)),
         };
+        // br-r37-c1-0ek49: nx's G.copy() rebuild walk reorders undirected
+        // adjacency rows (a pair enters both rows at its first u-major touch);
+        // the verbatim clone above preserves the source's rows instead.
+        new_graph.inner.reorder_rows_for_nx_copy_walk();
         // Node Python-side maps. Node-attr mutations are NOT tracked by
         // `edges_dirty`, so refresh the cloned inner's node attrs from the
         // authoritative Python dicts here (cheap: nodes << edges) to keep the

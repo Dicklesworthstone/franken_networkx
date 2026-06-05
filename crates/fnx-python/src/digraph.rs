@@ -3919,6 +3919,10 @@ impl PyDiGraph {
             edges_seq: 0,
             edges_dirty: AtomicBool::new(self.edges_dirty.load(Ordering::Relaxed)),
         };
+        // br-r37-c1-0ek49: nx's DiGraph.copy() rebuild walk recreates succ
+        // rows in original order but fills PRED rows in u-major walk order;
+        // the verbatim clone above preserves the source's pred rows instead.
+        new_graph.inner.reorder_pred_rows_for_nx_copy_walk();
         // Node-attr mutations are not tracked by `edges_dirty`, so refresh the
         // cloned inner's node attrs from the authoritative Python dicts.
         for (canonical, py_key) in &self.node_key_map {

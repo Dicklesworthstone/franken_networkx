@@ -298,6 +298,61 @@ impl Graph {
         self.adj_indices.get(node_idx).map(Vec::as_slice)
     }
 
+    /// br-r37-c1-0ek49: reorder every adjacency row into NetworkX's
+    /// `Graph.copy()` walk order. nx copy rebuilds via
+    /// `add_edges_from((u, v, d) for u in _adj for v in _adj[u])`, so an
+    /// unordered pair enters BOTH endpoint rows at its first touch —
+    /// during the earlier endpoint's row scan. Row u therefore lists
+    /// neighbors at a smaller node position first (ordered by that
+    /// neighbor's scan time: `(pos(v), index of u within row v)`),
+    /// followed by its remaining neighbors — self-loops included — in
+    /// row u's original order. Call on a fresh clone inside copy-shaped
+    /// constructors; graph content is unchanged, only row order moves.
+    pub fn reorder_rows_for_nx_copy_walk(&mut self) {
+        let n = self.adjacency.len();
+        let mut new_rows: Vec<IndexSet<String>> = Vec::with_capacity(n);
+        for (pu, (u, row)) in self.adjacency.iter().enumerate() {
+            let mut early: Vec<(usize, usize, String)> = Vec::new();
+            let mut late: Vec<String> = Vec::new();
+            for v in row {
+                let pv = self.adjacency.get_index_of(v.as_str()).unwrap_or(usize::MAX);
+                if pv < pu {
+                    let idx = self
+                        .adjacency
+                        .get(v.as_str())
+                        .and_then(|r| r.get_index_of(u.as_str()))
+                        .unwrap_or(usize::MAX);
+                    early.push((pv, idx, v.clone()));
+                } else {
+                    late.push(v.clone());
+                }
+            }
+            early.sort_unstable();
+            let mut new_row = IndexSet::with_capacity(row.len());
+            for (_, _, v) in early {
+                new_row.insert(v);
+            }
+            for v in late {
+                new_row.insert(v);
+            }
+            new_rows.push(new_row);
+        }
+        // Rebuild the integer mirror in the same order.
+        self.adj_indices = new_rows
+            .iter()
+            .map(|row| {
+                row.iter()
+                    .filter_map(|v| self.nodes.get_index_of(v.as_str()))
+                    .collect()
+            })
+            .collect();
+        for (i, row) in new_rows.into_iter().enumerate() {
+            if let Some((_, slot)) = self.adjacency.get_index_mut(i) {
+                *slot = row;
+            }
+        }
+    }
+
     pub fn edges_storage_order_index_iter(
         &self,
     ) -> impl Iterator<Item = (usize, usize, &AttrMap)> + '_ {
