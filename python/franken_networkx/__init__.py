@@ -30216,6 +30216,9 @@ class _FilteredGraphView:
         # by writing directly to the override slot in vars(self).
         vars(self)[_GRAPH_ATTR_OVERRIDE] = graph.graph
         self._filter_node = filter_node or (lambda node: True)
+        self._filter_edge_is_default = (
+            filter_edge is None or filter_edge is _subgraph_view_no_filter_default
+        )
         self._filter_edge = filter_edge or (lambda *args: True)
         self.frozen = True
         self.nodes = NodeView(self)
@@ -30489,6 +30492,48 @@ class _FilteredGraphView:
             return MultiDiGraph if self.is_multigraph() else DiGraph
         return MultiGraph if self.is_multigraph() else Graph
 
+    def _copy_induced_simple_fast(self):
+        if (
+            self.is_multigraph()
+            or not self._filter_edge_is_default
+            or type(self._graph) not in (Graph, DiGraph)
+        ):
+            return None
+        raw_neighbors = _raw_neighbors_dispatch(self._graph)
+        if raw_neighbors is None:
+            return None
+
+        nodes = list(self)
+        node_set = set(nodes)
+        result = self._copy_type()()
+        result.graph.update(dict(self.graph))
+        result.add_nodes_from(
+            (node, dict(_node_attrs_for_view_graph(self._graph, node)))
+            for node in nodes
+        )
+
+        edge_rows = []
+        get_edge_data = self._graph.get_edge_data
+        if self.is_directed():
+            for source in nodes:
+                for target in raw_neighbors(self._graph, source):
+                    if target in node_set:
+                        edge_rows.append(
+                            (source, target, dict(get_edge_data(source, target)))
+                        )
+        else:
+            seen = set()
+            for source in nodes:
+                for target in raw_neighbors(self._graph, source):
+                    if target in seen or target not in node_set:
+                        continue
+                    edge_rows.append(
+                        (source, target, dict(get_edge_data(source, target)))
+                    )
+                seen.add(source)
+        result.add_edges_from(edge_rows)
+        return result
+
     def to_directed_class(self):
         return MultiDiGraph if self.is_multigraph() else DiGraph
 
@@ -30498,6 +30543,10 @@ class _FilteredGraphView:
     def copy(self, as_view=False):
         if as_view is True:
             return _generic_filtered_graph_view(self)
+
+        fast_copy = self._copy_induced_simple_fast()
+        if fast_copy is not None:
+            return fast_copy
 
         result = self._copy_type()()
         result.graph.update(dict(self.graph))

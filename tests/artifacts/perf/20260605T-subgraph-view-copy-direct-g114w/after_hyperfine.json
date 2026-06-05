@@ -1,0 +1,72 @@
+{
+  "results": [
+    {
+      "command": "env PYTHONPATH=/data/projects/franken_networkx/python:/data/projects/franken_networkx python3 tests/artifacts/perf/20260605T-subgraph-view-copy-direct-g114w/bench.py --module fnx 2000 50 8000 20",
+      "mean": 0.38866209208,
+      "stddev": 0.02038619964537476,
+      "median": 0.39050269078,
+      "user": 4.10494128,
+      "system": 0.07304153999999999,
+      "min": 0.34526006278,
+      "max": 0.42154759178,
+      "times": [
+        0.38960648878,
+        0.39565990678,
+        0.34526006278,
+        0.42154759178,
+        0.38005267178,
+        0.38559046178,
+        0.37290365478,
+        0.39966168178,
+        0.39139889278,
+        0.40493950778
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "env PYTHONPATH=/data/projects/franken_networkx/python:/data/projects/franken_networkx python3 tests/artifacts/perf/20260605T-subgraph-view-copy-direct-g114w/bench.py --module nx 2000 50 8000 20",
+      "mean": 0.36584376498000004,
+      "stddev": 0.03376205773546014,
+      "median": 0.36102960578,
+      "user": 3.7348146799999995,
+      "system": 0.06617503999999999,
+      "min": 0.32667274078,
+      "max": 0.44024912578000003,
+      "times": [
+        0.34726330478,
+        0.44024912578000003,
+        0.36218031978,
+        0.38702265178,
+        0.39427945178,
+        0.34053888278,
+        0.32667274078,
+        0.33593344978,
+        0.36441883078,
+        0.35987889178
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

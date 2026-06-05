@@ -1,0 +1,2 @@
+PASS: rch exec -- cargo clippy -p fnx-python --all-targets -- -D warnings
+Finished dev profile target(s); exit 0.

@@ -37,6 +37,26 @@ def _original_order(g):
     return [n for n in g.nodes() if n in SUBSET_SET]
 
 
+def _snapshot_copy(graph):
+    if graph.is_multigraph():
+        edges = [
+            (u, v, key, tuple(sorted(attrs.items())))
+            for u, v, key, attrs in graph.edges(keys=True, data=True)
+        ]
+    else:
+        edges = [
+            (u, v, tuple(sorted(attrs.items())))
+            for u, v, attrs in graph.edges(data=True)
+        ]
+    return {
+        "nodes": [
+            (node, tuple(sorted(attrs.items())))
+            for node, attrs in graph.nodes(data=True)
+        ],
+        "edges": edges,
+    }
+
+
 @pytest.mark.parametrize("n_extra", [0, 1, 2, 3])  # 2*4 >= total -> nx uses original order
 def test_subgraph_order_matches_nx_when_no_set_shortcut(n_extra):
     gn = _build(nx, n_extra)
@@ -118,4 +138,58 @@ def test_custom_subgraph_view_node_set_and_lambda_order_match_nx():
     assert list(fnx.subgraph_view(gf, filter_node=lambda_fnx).nodes()) == list(
         nx.subgraph_view(gn, filter_node=lambda_nx).nodes()
     )
-    assert list(fnx.subgraph_view(gf, filter_node=lambda_fnx).nodes()) == _original_order(gf)
+    assert list(fnx.subgraph_view(gf, filter_node=lambda_fnx).nodes()) == (
+        _original_order(gf)
+    )
+
+
+@pytest.mark.parametrize(
+    ("nx_type", "fnx_type"),
+    [(nx.Graph, fnx.Graph), (nx.DiGraph, fnx.DiGraph)],
+)
+def test_sparse_subgraph_copy_preserves_edge_order_and_attrs(nx_type, fnx_type):
+    node_order = [5, 3, 8, 1] + list(range(100, 118))
+    edge_rows = [
+        (5, 3, {"weight": 1, "tag": "a"}),
+        (3, 8, {"weight": 2, "tag": "b"}),
+        (8, 1, {"weight": 3, "tag": "c"}),
+        (100, 101, {"weight": 9, "tag": "hidden"}),
+        (1, 5, {"weight": 4, "tag": "d"}),
+    ]
+    gn = nx_type()
+    gf = fnx_type()
+    gn.add_nodes_from((node, {"payload": node % 5}) for node in node_order)
+    gf.add_nodes_from((node, {"payload": node % 5}) for node in node_order)
+    gn.add_edges_from(edge_rows)
+    gf.add_edges_from(edge_rows)
+
+    assert _snapshot_copy(gf.subgraph(SUBSET).copy()) == _snapshot_copy(
+        gn.subgraph(SUBSET).copy()
+    )
+
+
+def test_custom_edge_filter_copy_still_filters_edges():
+    gn = _build(nx, 8)
+    gf = _build(fnx, 8)
+
+    class NodeSetFilter:
+        def __init__(self, nodes):
+            self.nodes = set(nodes)
+
+        def __call__(self, node):
+            return node in self.nodes
+
+    def edge_filter(u, v):
+        return {u, v} != {3, 8}
+
+    nx_view = nx.subgraph_view(
+        gn,
+        filter_node=NodeSetFilter(SUBSET),
+        filter_edge=edge_filter,
+    )
+    fnx_view = fnx.subgraph_view(
+        gf,
+        filter_node=NodeSetFilter(SUBSET),
+        filter_edge=edge_filter,
+    )
+    assert _snapshot_copy(fnx_view.copy()) == _snapshot_copy(nx_view.copy())
