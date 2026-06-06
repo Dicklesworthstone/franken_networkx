@@ -75,3 +75,20 @@ H-wins attr merges, graph attrs, mixed keys, result independence).
 Residual analysis: per-edge String pair seen-sets + first-touch
 py_node_key/py_adj_key clone_refs; skip needs per-part new-node
 tracking (subtle in overlap) — diminishing for this hour, noted.
+
+## Lever 6 (br-r37-c1-l5ve7): union -> native compose + walk optimizations
+- union(rename=()) now routes its build through _native_compose after
+  the disjointness check (nx union_all == compose_all minus that check,
+  statement-identical) and the check itself went native
+  (_native_nodes_disjoint: canonical-key walk, 0.06ms vs ~24ms for the
+  Python set(G).isdisjoint(H)).
+- compose walk optimizations: per-walk edge dedup on (usize, usize)
+  index pairs (no String allocs); first-touch row stores SKIPPED when
+  the part has no row overrides and both endpoints' display objects
+  came from this part (identity makes maybe_store a guaranteed no-op);
+  cross-part first-touch via has_edge on G instead of a String-pair
+  seen-set.
+Interleaved bench (NOISY window — nx itself swung 24-39ms): union
+2.57x -> ~1.9x, compose ~1.9x (was 2.98x at family baseline). Golden
+sha 0606c2bd (union disjoint+attrs+error+rename, compose overlap
+merges, cross-part mixed-key cells), full pytest 21774.

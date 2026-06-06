@@ -11984,7 +11984,15 @@ def union(G, H, rename=()):
     # nodes must be unique" (in nx's docstring; fnx's was missing
     # the same warning). Match nx's raise so callers don't silently
     # lose attribute data when nodes collide.
-    if not set(G).isdisjoint(H):
+    # br-r37-c1-l5ve7: canonical-key disjointness via the native index
+    # for the exact-type case (the Python set(G) built full PyObject
+    # sets — ~24ms on 3k+3k nodes).
+    if type(G) is Graph and type(H) is Graph:
+        _disjoint = getattr(G, "_native_nodes_disjoint", None)
+        disjoint = _disjoint(H) if _disjoint is not None else set(G).isdisjoint(H)
+    else:
+        disjoint = set(G).isdisjoint(H)
+    if not disjoint:
         raise NetworkXError(
             "The node sets of the graphs are not disjoint.\n"
             "Use `rename` to specify prefixes for the graphs or use\n"
@@ -11999,6 +12007,20 @@ def union(G, H, rename=()):
     # `{**G.graph, **H.graph}`). Node sets are disjoint here, so a plain
     # add_*_from with data carries every attribute; later graph (H) wins on
     # any graph-attr key clash, matching networkx's union_all.
+    # br-r37-c1-l5ve7: with disjoint inputs nx's union output is
+    # STATEMENT-IDENTICAL to compose (union_all == compose_all minus the
+    # disjointness check, which already passed above) — reuse the native
+    # single-pass compose binding for the exact Graph x Graph case.
+    if (
+        type(G) is Graph
+        and type(H) is Graph
+        and cls is Graph
+        and not _has_networkx_private_storage(G)
+        and not _has_networkx_private_storage(H)
+    ):
+        native = getattr(G, "_native_compose", None)
+        if native is not None:
+            return native(H)
     rebuilt = cls()
     rebuilt.graph.update(G.graph)
     rebuilt.graph.update(H.graph)

@@ -5441,6 +5441,19 @@ impl PyGraph {
     /// `_graph_to_directed_copy` wrapper (exact Graph type only). Builds the
     /// DiGraph in Rust in nx's adjacency-grouped edge order (`for source in
     /// nodes_ordered, for target in neighbors(source)` — each undirected edge
+    /// br-r37-c1-l5ve7: canonical-key disjointness test for union's
+    /// precondition — the Python `set(G).isdisjoint(H)` built full
+    /// PyObject sets (~24ms on 3k+3k nodes); this walks the smaller
+    /// graph's canonical keys against the larger's index.
+    fn _native_nodes_disjoint(&self, other: PyRef<'_, Self>) -> bool {
+        let (small, large) = if self.inner.node_count() <= other.inner.node_count() {
+            (&self.inner, &other.inner)
+        } else {
+            (&other.inner, &self.inner)
+        };
+        small.nodes_ordered().iter().all(|n| !large.has_node(n))
+    }
+
     /// br-r37-c1-l5ve7: native compose for the exact Graph x Graph case
     /// (also serves union once the wrapper's disjointness check passes —
     /// the outputs coincide on disjoint inputs). nx compose_all
@@ -5456,13 +5469,23 @@ impl PyGraph {
         merged_graph_attrs.update(self.graph_attrs.bind(py).as_mapping())?;
         merged_graph_attrs.update(other.graph_attrs.bind(py).as_mapping())?;
         g.graph_attrs = merged_graph_attrs.unbind();
-        let mut seen_cells: std::collections::HashSet<(String, String)> =
-            std::collections::HashSet::new();
-        for part in [&*self, &*other] {
+        for (part_idx, part) in [&*self, &*other].into_iter().enumerate() {
             let nodes = part.inner.nodes_ordered();
+            // node index map: lets the per-walk edge dedup run on (usize,
+            // usize) pairs instead of allocating String pairs per edge.
+            let index_of: std::collections::HashMap<&str, usize> = nodes
+                .iter()
+                .enumerate()
+                .map(|(i, n)| (*n, i))
+                .collect();
+            // nodes newly inserted by THIS part: their result display
+            // object is THIS part's object by construction, so the
+            // first-touch row store is a guaranteed no-op when the part
+            // carries no row overrides — skip the per-edge PyObject work.
+            let mut new_this_part: Vec<bool> = vec![false; nodes.len()];
             let mut node_batch: Vec<(String, fnx_classes::AttrMap)> =
                 Vec::with_capacity(nodes.len());
-            for node in &nodes {
+            for (i, node) in nodes.iter().enumerate() {
                 if let Some(attrs) = part.node_py_attrs.get(*node) {
                     if let Some(existing) = g.node_py_attrs.get(*node) {
                         // overlap: later graph's values win (dict update)
@@ -5472,29 +5495,42 @@ impl PyGraph {
                             .insert((*node).to_owned(), attrs.bind(py).copy()?.unbind());
                     }
                 }
-                g.node_key_map
-                    .entry((*node).to_owned())
-                    .or_insert_with(|| part.py_node_key(py, node));
+                if let std::collections::hash_map::Entry::Vacant(e) =
+                    g.node_key_map.entry((*node).to_owned())
+                {
+                    e.insert(part.py_node_key(py, node));
+                    new_this_part[i] = true;
+                }
                 node_batch.push((
                     (*node).to_owned(),
                     part.inner.node_attrs(node).cloned().unwrap_or_default(),
                 ));
             }
             g.inner.extend_nodes_with_attrs_unrecorded(node_batch);
+            let part_rows_clean = part.adj_py_keys.is_empty();
             let mut edge_batch: Vec<(String, String, fnx_classes::AttrMap)> = Vec::new();
-            let mut seen_this_walk: std::collections::HashSet<(String, String)> =
+            let mut seen_this_walk: std::collections::HashSet<(usize, usize)> =
                 std::collections::HashSet::new();
             for u in &nodes {
                 for v in part.inner.neighbors(u).unwrap_or_default() {
-                    let pair = if *u <= v {
-                        ((*u).to_owned(), v.to_owned())
-                    } else {
-                        (v.to_owned(), (*u).to_owned())
-                    };
-                    if !seen_this_walk.insert(pair.clone()) {
+                    let ui = index_of[*u];
+                    let vi = index_of[v];
+                    if !seen_this_walk.insert((ui.min(vi), ui.max(vi))) {
                         continue; // each undirected edge once per walk
                     }
-                    if seen_cells.insert(pair) {
+                    // first-touch row store: cells created by the FIRST
+                    // part keep its objects, so the second part only
+                    // stores for cells G does not already have. The store
+                    // is also a guaranteed no-op (skippable) when this
+                    // part has no row overrides AND both endpoints'
+                    // result display objects came from this part
+                    // (identity holds in maybe_store's comparison).
+                    let store_needed = !(part_rows_clean
+                        && new_this_part[ui]
+                        && new_this_part[vi]);
+                    let first_touch =
+                        part_idx == 0 || !self.inner.has_edge(u, v);
+                    if first_touch && store_needed {
                         // first touch ACROSS graphs: store this walk's objects
                         let v_obj = part.py_adj_key(py, u, v);
                         g.maybe_store_adj_key(py, u, v, v_obj.bind(py));
