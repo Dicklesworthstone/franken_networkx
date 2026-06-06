@@ -42,3 +42,20 @@ Kernels now emit the discovering parent for free:
 Remaining on the bead: unweighted shortest_path path-reconstruction
 family (predecessor maps; same kernel addition serves it) and
 descendants_at_distance.
+
+## Batch 3 (this commit)
+Unweighted shortest-path dict family:
+- compute_single_source_shortest_paths{,_directed} now return the
+  kernel's ORDERED Vec — the old `.collect::<HashMap>()` made the
+  user-visible dict KEY ORDER nondeterministic (worse than the object
+  bug: it varied run to run).
+- emit_paths_dict_discovery: discovery objects derived from the paths
+  themselves (a node's discovering parent is its path's second-to-last
+  element — zero extra walks); applied to shortest_path (source-given +
+  all-pairs, both orientations), single_source_shortest_path,
+  all_pairs_shortest_path.
+Residual (filed as its own bead on close): single-pair
+  bidirectional_shortest_path / shortest_path(s, t) objects (nx's
+  bidirectional BFS discovers from BOTH frontiers — succ rows forward,
+  pred rows backward; needs the meet-point object flow replicated) and
+  the target-only branch (reverse-walk discovery + per-node loop).

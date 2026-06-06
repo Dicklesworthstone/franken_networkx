@@ -86,3 +86,43 @@ and unsupported-batch fallback semantics.
   primitive for this workload; the next attempt must change the representation
   and commit strategy rather than substituting one per-edge dict operation for
   another.
+
+## Rejected Candidate 3: Lazy Inner AttrMap Deferral
+
+- Candidate: for attributed `DiGraph.add_edges_from` batches whose attr dicts
+  contain exact string keys and exact bool/float/int/string values, commit the
+  live Python edge-attr mirrors immediately, insert only topology into the Rust
+  inner graph with empty edge attrs, and mark edge caches dirty so weighted
+  kernels sync from the Python mirrors before use.
+- Proof:
+  - Focused add_edges parity: `15 passed`
+  - Golden SHA unchanged:
+    `c6f6227073dc924849e81ae552df913fcfaf278a522aae3abccdca2605eb6f48`
+- Fresh trusted-batch baseline for this candidate:
+  - Direct FNX median: `0.0104194000s`
+  - NetworkX median: `0.0038195670s`
+  - Ratio: `2.7279x`
+  - Hyperfine mean: `0.4766727983s`
+  - cProfile total: `1.784s`
+  - native `_try_add_edges_from_batch`: `1.767s`
+- Candidate result:
+  - Direct FNX median: `0.0124468925s`
+  - NetworkX median: `0.0040948070s`
+  - Ratio: `3.0397x`
+  - Hyperfine mean: `0.5070195913s`
+  - cProfile total: `1.992s`
+  - native `_try_add_edges_from_batch`: `1.977s`
+- Verdict: rejected and source restored. Deferring Rust inner AttrMap
+  materialization increased native batch cost on the target fixture.
+- Source-restored timing sanity artifact:
+  `restored_after_lazy_reject_timing.json`.
+- Score: Impact `0` x Confidence `5` / Effort `2` = `0`; do not keep.
+- Isomorphism proof: node order, successor/predecessor row order, duplicate
+  merge order, tie-breaking, floating-point values, and RNG seed `20260606`
+  were preserved by the proof harness and unchanged golden SHA.
+- Next primitive: do not continue lazy-inner deferral on this fixture. Attack a
+  shared slot descriptor instead: canonical endpoints, directed edge key, live
+  mirror handle, and inner adjacency row handles should be carried in one arena
+  so mirror construction and inner adjacency commit avoid duplicate
+  `String`-pair allocation/probing while preserving `get_edge_data` live dict
+  identity and weighted-kernel synchronization.

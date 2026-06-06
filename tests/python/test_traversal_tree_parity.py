@@ -211,3 +211,52 @@ class TestDiscoveryObjectsKernelEmitted:
         kf = next(iter(fnx.single_source_shortest_path_length(gf, 7)))
         kn = next(iter(nx.single_source_shortest_path_length(gn, 7)))
         assert repr(kf) == repr(kn) == "7"
+
+
+class TestShortestPathDiscoveryObjects:
+    """br-r37-c1-6hpa9 batch 3: unweighted path dicts carry discovery
+    objects (derived from each path's second-to-last element) and keep
+    the kernel's BFS key order (previously scrambled by a HashMap)."""
+
+    def _mixed(self, mod, directed=True):
+        g = (mod.DiGraph if directed else mod.Graph)()
+        g.add_node(28)
+        g.add_edge(7, 28.0)
+        g.add_edge(28.0, 5)
+        g.add_edge(5, 9)
+        return g
+
+    def _rr(self, x):
+        if isinstance(x, (list, tuple)):
+            return [self._rr(i) for i in x]
+        if isinstance(x, dict):
+            return {repr(k): self._rr(v) for k, v in x.items()}
+        return repr(x)
+
+    @pytest.mark.parametrize("directed", [True, False])
+    def test_single_source_paths(self, directed):
+        gf, gn = self._mixed(fnx, directed), self._mixed(nx, directed)
+        assert self._rr(fnx.single_source_shortest_path(gf, 7)) == self._rr(
+            nx.single_source_shortest_path(gn, 7)
+        )
+        assert self._rr(fnx.shortest_path(gf, 7)) == self._rr(nx.shortest_path(gn, 7))
+
+    @pytest.mark.parametrize("directed", [True, False])
+    def test_all_pairs_paths(self, directed):
+        gf, gn = self._mixed(fnx, directed), self._mixed(nx, directed)
+        assert self._rr(dict(fnx.all_pairs_shortest_path(gf))) == self._rr(
+            dict(nx.all_pairs_shortest_path(gn))
+        )
+        assert self._rr(dict(fnx.shortest_path(gf))) == self._rr(dict(nx.shortest_path(gn)))
+
+    def test_key_order_deterministic(self):
+        # previously HashMap-scrambled: repeated calls must agree with nx ORDER
+        import random
+
+        rnd = random.Random(11)
+        e = [(rnd.randrange(40), rnd.randrange(40)) for _ in range(160)]
+        gf, gn = fnx.Graph(e), nx.Graph(e)
+        for _ in range(3):
+            assert [repr(k) for k in fnx.single_source_shortest_path(gf, e[0][0])] == [
+                repr(k) for k in nx.single_source_shortest_path(gn, e[0][0])
+            ]

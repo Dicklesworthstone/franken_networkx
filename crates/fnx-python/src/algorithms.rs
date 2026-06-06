@@ -873,68 +873,98 @@ fn compute_single_shortest_path_directed(
     }
 }
 
+/// br-r37-c1-6hpa9: returns the kernel's ORDERED Vec — the old
+/// `.collect::<HashMap>()` scrambled the user-visible dict key order
+/// (nx emits BFS/finalize order; HashMap iteration was nondeterministic).
 fn compute_single_source_shortest_paths(
     py: Python<'_>,
     inner: &fnx_classes::Graph,
     source: &str,
     weight: Option<&str>,
     method: &str,
-) -> PyResult<std::collections::HashMap<String, Vec<String>>> {
+) -> PyResult<Vec<(String, Vec<String>)>> {
     match weight {
-        None => Ok(py
-            .allow_threads(|| fnx_algorithms::single_source_shortest_path(inner, source, None))
-            .into_iter()
-            .collect()),
-        Some(w) => match method {
-            "dijkstra" => Ok(py
-                .allow_threads(|| fnx_algorithms::single_source_dijkstra_path(inner, source, w))
-                .into_iter()
-                .collect()),
-            "bellman-ford" => {
-                let result = py.allow_threads(|| {
-                    fnx_algorithms::single_source_bellman_ford_path(inner, source, w)
-                });
-                match result {
-                    Some(paths) => Ok(paths.into_iter().collect()),
-                    None => Err(crate::NetworkXUnbounded::new_err(
-                        "Negative cost cycle detected.",
-                    )),
+        None => {
+            Ok(py
+                .allow_threads(|| fnx_algorithms::single_source_shortest_path(inner, source, None)))
+        }
+        Some(w) => {
+            match method {
+                "dijkstra" => Ok(py.allow_threads(|| {
+                    fnx_algorithms::single_source_dijkstra_path(inner, source, w)
+                })),
+                "bellman-ford" => {
+                    let result = py.allow_threads(|| {
+                        fnx_algorithms::single_source_bellman_ford_path(inner, source, w)
+                    });
+                    match result {
+                        Some(paths) => Ok(paths),
+                        None => Err(crate::NetworkXUnbounded::new_err(
+                            "Negative cost cycle detected.",
+                        )),
+                    }
                 }
+                other => Err(NetworkXError::new_err(format!(
+                    "Method {other} not supported for shortest_path."
+                ))),
             }
-            other => Err(NetworkXError::new_err(format!(
-                "Method {other} not supported for shortest_path."
-            ))),
-        },
+        }
     }
 }
 
+/// br-r37-c1-6hpa9: emit a {node: path} dict in kernel order with nx
+/// DISCOVERY objects derived from the paths themselves — a node's
+/// discovering parent is its path's second-to-last element (zero extra
+/// walks).
+fn emit_paths_dict_discovery(
+    py: Python<'_>,
+    gr: &GraphRef<'_>,
+    paths: &[(String, Vec<String>)],
+    source_key: &str,
+    source_obj: PyObject,
+) -> PyResult<pyo3::Py<PyDict>> {
+    let mut disp: std::collections::HashMap<String, PyObject> =
+        std::collections::HashMap::with_capacity(paths.len());
+    disp.insert(source_key.to_owned(), source_obj);
+    for (node, p) in paths {
+        if p.len() >= 2 {
+            let parent = &p[p.len() - 2];
+            disp.insert(node.clone(), gr.py_row_key(py, parent, node));
+        }
+    }
+    let dict = PyDict::new(py);
+    for (node, p) in paths {
+        let py_path: Vec<PyObject> = p
+            .iter()
+            .map(|n| gr.disp_or_node_key(py, &disp, n))
+            .collect();
+        dict.set_item(gr.disp_or_node_key(py, &disp, node), py_path)?;
+    }
+    Ok(dict.unbind())
+}
+
+/// br-r37-c1-6hpa9: ordered Vec — see compute_single_source_shortest_paths.
 fn compute_single_source_shortest_paths_directed(
     py: Python<'_>,
     inner: &fnx_classes::digraph::DiGraph,
     source: &str,
     weight: Option<&str>,
     method: &str,
-) -> PyResult<std::collections::HashMap<String, Vec<String>>> {
+) -> PyResult<Vec<(String, Vec<String>)>> {
     match weight {
-        None => Ok(py
-            .allow_threads(|| {
-                fnx_algorithms::single_source_shortest_path_directed(inner, source, None)
-            })
-            .into_iter()
-            .collect()),
+        None => Ok(py.allow_threads(|| {
+            fnx_algorithms::single_source_shortest_path_directed(inner, source, None)
+        })),
         Some(w) => match method {
-            "dijkstra" => Ok(py
-                .allow_threads(|| {
-                    fnx_algorithms::single_source_dijkstra_path_directed(inner, source, w)
-                })
-                .into_iter()
-                .collect()),
+            "dijkstra" => Ok(py.allow_threads(|| {
+                fnx_algorithms::single_source_dijkstra_path_directed(inner, source, w)
+            })),
             "bellman-ford" => {
                 let result = py.allow_threads(|| {
                     fnx_algorithms::single_source_bellman_ford_path_directed(inner, source, w)
                 });
                 match result {
-                    Some(paths) => Ok(paths.into_iter().collect()),
+                    Some(paths) => Ok(paths),
                     None => Err(crate::NetworkXUnbounded::new_err(
                         "Negative cost cycle detected.",
                     )),
@@ -1598,12 +1628,9 @@ pub fn shortest_path(
                 validate_node(&gr, &s, src, "Source")?;
                 let paths =
                     compute_single_source_shortest_paths_directed(py, inner, &s, None, method)?;
-                let result = PyDict::new(py);
-                for (node, p) in paths {
-                    let py_path: Vec<PyObject> = p.iter().map(|n| gr.py_node_key(py, n)).collect();
-                    result.set_item(gr.py_node_key(py, &node), py_path)?;
-                }
-                Ok(result.into_any().unbind())
+                // br-r37-c1-6hpa9: kernel order + discovery objects.
+                let dict = emit_paths_dict_discovery(py, &gr, &paths, &s, src.clone().unbind())?;
+                Ok(dict.into_any())
             }
             (None, Some(tgt)) => {
                 let t = node_key_to_string(py, tgt)?;
@@ -1623,15 +1650,18 @@ pub fn shortest_path(
             (None, None) => {
                 let result = PyDict::new(py);
                 for src_node in inner.nodes_ordered() {
-                    let inner_dict = PyDict::new(py);
                     let paths = compute_single_source_shortest_paths_directed(
                         py, inner, src_node, None, method,
                     )?;
-                    for (tgt_node, p) in paths {
-                        let py_path: Vec<PyObject> =
-                            p.iter().map(|n| gr.py_node_key(py, n)).collect();
-                        inner_dict.set_item(gr.py_node_key(py, &tgt_node), py_path)?;
-                    }
+                    // br-r37-c1-6hpa9: all-pairs sources keep their node-map
+                    // object (nx iterates G).
+                    let inner_dict = emit_paths_dict_discovery(
+                        py,
+                        &gr,
+                        &paths,
+                        src_node,
+                        gr.py_node_key(py, src_node),
+                    )?;
                     result.set_item(gr.py_node_key(py, src_node), inner_dict)?;
                 }
                 Ok(result.into_any().unbind())
@@ -1666,13 +1696,10 @@ pub fn shortest_path(
                     validate_node(&gr, &s, src, "Source")?;
                     let paths =
                         compute_single_source_shortest_paths_directed(py, inner, &s, None, method)?;
-                    let result = PyDict::new(py);
-                    for (node, p) in paths {
-                        let py_path: Vec<PyObject> =
-                            p.iter().map(|n| gr.py_node_key(py, n)).collect();
-                        result.set_item(gr.py_node_key(py, &node), py_path)?;
-                    }
-                    Ok(result.into_any().unbind())
+                    // br-r37-c1-6hpa9: kernel order + discovery objects.
+                    let dict =
+                        emit_paths_dict_discovery(py, &gr, &paths, &s, src.clone().unbind())?;
+                    Ok(dict.into_any())
                 }
                 (None, Some(tgt)) => {
                     let t = node_key_to_string(py, tgt)?;
@@ -1692,15 +1719,18 @@ pub fn shortest_path(
                 (None, None) => {
                     let result = PyDict::new(py);
                     for src_node in inner.nodes_ordered() {
-                        let inner_dict = PyDict::new(py);
                         let paths = compute_single_source_shortest_paths_directed(
                             py, inner, src_node, None, method,
                         )?;
-                        for (tgt_node, p) in paths {
-                            let py_path: Vec<PyObject> =
-                                p.iter().map(|n| gr.py_node_key(py, n)).collect();
-                            inner_dict.set_item(gr.py_node_key(py, &tgt_node), py_path)?;
-                        }
+                        // br-r37-c1-6hpa9: all-pairs sources keep their
+                        // node-map object (nx iterates G).
+                        let inner_dict = emit_paths_dict_discovery(
+                            py,
+                            &gr,
+                            &paths,
+                            src_node,
+                            gr.py_node_key(py, src_node),
+                        )?;
                         result.set_item(gr.py_node_key(py, src_node), inner_dict)?;
                     }
                     Ok(result.into_any().unbind())
@@ -1733,13 +1763,10 @@ pub fn shortest_path(
                     let s = node_key_to_string(py, src)?;
                     validate_node(&gr, &s, src, "Source")?;
                     let paths = compute_single_source_shortest_paths(py, inner, &s, None, method)?;
-                    let result = PyDict::new(py);
-                    for (node, p) in paths {
-                        let py_path: Vec<PyObject> =
-                            p.iter().map(|n| gr.py_node_key(py, n)).collect();
-                        result.set_item(gr.py_node_key(py, &node), py_path)?;
-                    }
-                    Ok(result.into_any().unbind())
+                    // br-r37-c1-6hpa9: kernel order + discovery objects.
+                    let dict =
+                        emit_paths_dict_discovery(py, &gr, &paths, &s, src.clone().unbind())?;
+                    Ok(dict.into_any())
                 }
                 (None, Some(tgt)) => {
                     let t = node_key_to_string(py, tgt)?;
@@ -1757,15 +1784,18 @@ pub fn shortest_path(
                 (None, None) => {
                     let result = PyDict::new(py);
                     for src_node in inner.nodes_ordered() {
-                        let inner_dict = PyDict::new(py);
                         let paths = compute_single_source_shortest_paths(
                             py, inner, src_node, None, method,
                         )?;
-                        for (tgt_node, p) in paths {
-                            let py_path: Vec<PyObject> =
-                                p.iter().map(|n| gr.py_node_key(py, n)).collect();
-                            inner_dict.set_item(gr.py_node_key(py, &tgt_node), py_path)?;
-                        }
+                        // br-r37-c1-6hpa9: all-pairs sources keep their
+                        // node-map object (nx iterates G).
+                        let inner_dict = emit_paths_dict_discovery(
+                            py,
+                            &gr,
+                            &paths,
+                            src_node,
+                            gr.py_node_key(py, src_node),
+                        )?;
                         result.set_item(gr.py_node_key(py, src_node), inner_dict)?;
                     }
                     Ok(result.into_any().unbind())
@@ -8006,11 +8036,14 @@ pub fn all_pairs_shortest_path(
     };
     let outer_dict = pyo3::types::PyDict::new(py);
     for (source, targets) in &result {
-        let inner_dict = pyo3::types::PyDict::new(py);
-        for (target, path) in targets {
-            let py_path: Vec<PyObject> = path.iter().map(|n| gr.py_node_key(py, n)).collect();
-            inner_dict.set_item(gr.py_node_key(py, target), py_path)?;
-        }
+        // br-r37-c1-6hpa9: discovery objects per source; sources keep their
+        // node-map object (nx iterates G).
+        let target_paths: Vec<(String, Vec<String>)> = targets
+            .iter()
+            .map(|(target, path)| (target.clone(), path.clone()))
+            .collect();
+        let inner_dict =
+            emit_paths_dict_discovery(py, &gr, &target_paths, source, gr.py_node_key(py, source))?;
         outer_dict.set_item(gr.py_node_key(py, source), inner_dict)?;
     }
     Ok(outer_dict.into_any().unbind())
@@ -8733,12 +8766,9 @@ pub fn single_source_shortest_path(
         let inner = gr.undirected();
         py.allow_threads(|| fnx_algorithms::single_source_shortest_path(inner, &source_key, cutoff))
     };
-    let dict = pyo3::types::PyDict::new(py);
-    for (node, path) in &result {
-        let py_path: Vec<PyObject> = path.iter().map(|n| gr.py_node_key(py, n)).collect();
-        dict.set_item(gr.py_node_key(py, node), py_path)?;
-    }
-    Ok(dict.into_any().unbind())
+    // br-r37-c1-6hpa9: kernel (BFS) order + discovery objects.
+    let dict = emit_paths_dict_discovery(py, &gr, &result, &source_key, source.clone().unbind())?;
+    Ok(dict.into_any())
 }
 
 /// Return shortest path lengths from source (unweighted BFS).
