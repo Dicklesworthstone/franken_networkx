@@ -3549,6 +3549,33 @@ impl PyMultiGraph {
             .collect();
         state.set_item("edges", edges_list)?;
         state.set_item("graph", self.graph_attrs.bind(py))?;
+        // br-r37-c1-u3qyn: store adjacency rows + display overrides so the
+        // round-trip preserves row order verbatim (see PyGraph).
+        let adj_rows: Vec<(String, Vec<String>)> = self
+            .inner
+            .nodes_ordered()
+            .into_iter()
+            .map(|n| {
+                (
+                    n.to_owned(),
+                    self.inner
+                        .neighbors(n)
+                        .unwrap_or_default()
+                        .into_iter()
+                        .map(str::to_owned)
+                        .collect(),
+                )
+            })
+            .collect();
+        state.set_item("adj_rows", adj_rows)?;
+        if !self.adj_py_keys.is_empty() {
+            let overrides: Vec<(String, String, PyObject)> = self
+                .adj_py_keys
+                .iter()
+                .map(|((a, b), o)| (a.clone(), b.clone(), o.clone_ref(py)))
+                .collect();
+            state.set_item("adj_py_keys", overrides)?;
+        }
         Ok(state.into_any().unbind())
     }
 
@@ -3558,6 +3585,7 @@ impl PyMultiGraph {
         self.node_key_map.clear();
         self.node_py_attrs.clear();
         self.edge_py_attrs.clear();
+        self.adj_py_keys.clear(); // br-r37-c1-u3qyn
         self.edge_py_keys.clear();
         self.graph_attrs = PyDict::new(py).unbind();
 
@@ -3588,6 +3616,19 @@ impl PyMultiGraph {
                 let attrs = tuple.get_item(3)?;
                 let attrs_dict = attrs.downcast::<PyDict>()?;
                 self.add_edge(py, &u, &v, Some(&key), Some(attrs_dict))?;
+            }
+        }
+
+        // br-r37-c1-u3qyn: restore the source's exact adjacency row order
+        // and display-object overrides when the state carries them.
+        if let Some(rows) = state.get_item("adj_rows")? {
+            let orders: Vec<(String, Vec<String>)> = rows.extract()?;
+            self.inner.apply_row_orders(&orders);
+        }
+        if let Some(overrides) = state.get_item("adj_py_keys")? {
+            let entries: Vec<(String, String, PyObject)> = overrides.extract()?;
+            for (a, b, o) in entries {
+                self.adj_py_keys.insert((a, b), o);
             }
         }
 
@@ -4820,6 +4861,14 @@ impl PyGraph {
         self.adjacency(py)
     }
 
+    /// br-r37-c1-zt6lj: true when the internal canonical node strings are also
+    /// the Python display strings used by `generate_adjlist`. In that shape the
+    /// existing Rust readwrite serializer is byte-body identical and can avoid
+    /// the Python generator path; mixed/custom Python node keys fall back.
+    fn _native_adjlist_canonical_body_safe(&self) -> bool {
+        self.node_key_map.is_empty() && self.adj_py_keys.is_empty()
+    }
+
     /// br-r37-c1-gadj: native nested adjacency snapshot ({node: {nbr: attrs}})
     /// so the Python Graph.adjacency (_simple_graph_adjacency) builds it
     /// natively instead of walking ``dict(self.adj[node])`` via the AtlasView
@@ -5672,6 +5721,37 @@ impl PyGraph {
             .collect();
         state.set_item("edges", edges_list)?;
         state.set_item("graph", self.graph_attrs.bind(py))?;
+        // br-r37-c1-u3qyn: the edges list above is the u-major adjacency
+        // WALK, and rebuilding from it scrambles adjacency row order (nx
+        // pickles the dict structure verbatim). Store the rows explicitly
+        // (canonical keys) plus the sparse display-object overrides so
+        // __setstate__ can restore the structure byte-identically. Both
+        // fields are optional — old pickles keep the legacy rebuild.
+        let adj_rows: Vec<(String, Vec<String>)> = self
+            .inner
+            .nodes_ordered()
+            .into_iter()
+            .map(|n| {
+                (
+                    n.to_owned(),
+                    self.inner
+                        .neighbors(n)
+                        .unwrap_or_default()
+                        .into_iter()
+                        .map(str::to_owned)
+                        .collect(),
+                )
+            })
+            .collect();
+        state.set_item("adj_rows", adj_rows)?;
+        if !self.adj_py_keys.is_empty() {
+            let overrides: Vec<(String, String, PyObject)> = self
+                .adj_py_keys
+                .iter()
+                .map(|((a, b), o)| (a.clone(), b.clone(), o.clone_ref(py)))
+                .collect();
+            state.set_item("adj_py_keys", overrides)?;
+        }
         Ok(state.into_any().unbind())
     }
 
@@ -5682,6 +5762,7 @@ impl PyGraph {
         self.lazy_int_node_stop = 0;
         self.node_py_attrs.clear();
         self.edge_py_attrs.clear();
+        self.adj_py_keys.clear(); // br-r37-c1-u3qyn
         self.graph_attrs = PyDict::new(py).unbind();
 
         if let Some(graph_attrs) = state.get_item("graph")? {
@@ -5710,6 +5791,19 @@ impl PyGraph {
                 let attrs = tuple.get_item(2)?;
                 let attrs_dict = attrs.downcast::<PyDict>()?;
                 self.add_edge(py, &u, &v, Some(attrs_dict))?;
+            }
+        }
+
+        // br-r37-c1-u3qyn: restore the source's exact adjacency row order
+        // and display-object overrides when the state carries them.
+        if let Some(rows) = state.get_item("adj_rows")? {
+            let orders: Vec<(String, Vec<String>)> = rows.extract()?;
+            self.inner.apply_row_orders(&orders);
+        }
+        if let Some(overrides) = state.get_item("adj_py_keys")? {
+            let entries: Vec<(String, String, PyObject)> = overrides.extract()?;
+            for (a, b, o) in entries {
+                self.adj_py_keys.insert((a, b), o);
             }
         }
 

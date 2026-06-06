@@ -2489,6 +2489,41 @@ impl PyMultiDiGraph {
             .collect();
         state.set_item("edges", edges_list)?;
         state.set_item("graph", self.graph_attrs.bind(py))?;
+        // br-r37-c1-u3qyn: store succ/pred rows + display overrides so the
+        // round-trip preserves structure verbatim (see PyGraph).
+        let row_dump = |pred: bool| -> Vec<(String, Vec<String>)> {
+            self.inner
+                .nodes_ordered()
+                .into_iter()
+                .map(|nd| {
+                    let row = if pred {
+                        self.inner.predecessors(nd)
+                    } else {
+                        self.inner.successors(nd)
+                    };
+                    (
+                        nd.to_owned(),
+                        row.unwrap_or_default()
+                            .into_iter()
+                            .map(str::to_owned)
+                            .collect(),
+                    )
+                })
+                .collect()
+        };
+        state.set_item("succ_rows", row_dump(false))?;
+        state.set_item("pred_rows", row_dump(true))?;
+        let dump_overrides = |m: &HashMap<(String, String), PyObject>| {
+            m.iter()
+                .map(|((a, b), o)| (a.clone(), b.clone(), o.clone_ref(py)))
+                .collect::<Vec<(String, String, PyObject)>>()
+        };
+        if !self.succ_py_keys.is_empty() {
+            state.set_item("succ_py_keys", dump_overrides(&self.succ_py_keys))?;
+        }
+        if !self.pred_py_keys.is_empty() {
+            state.set_item("pred_py_keys", dump_overrides(&self.pred_py_keys))?;
+        }
         Ok(state.into_any().unbind())
     }
 
@@ -2498,6 +2533,8 @@ impl PyMultiDiGraph {
         self.node_key_map.clear();
         self.node_py_attrs.clear();
         self.edge_py_attrs.clear();
+        self.succ_py_keys.clear(); // br-r37-c1-u3qyn
+        self.pred_py_keys.clear(); // br-r37-c1-u3qyn
         self.edge_py_keys.clear();
         self.graph_attrs = PyDict::new(py).unbind();
 
@@ -2528,6 +2565,29 @@ impl PyMultiDiGraph {
                 let attrs = tuple.get_item(3)?;
                 let attrs_dict = attrs.downcast::<PyDict>()?;
                 self.add_edge(py, &u, &v, Some(&key), Some(attrs_dict))?;
+            }
+        }
+
+        // br-r37-c1-u3qyn: restore exact succ/pred row order and display
+        // overrides when the state carries them (optional, back-compat).
+        if let Some(rows) = state.get_item("succ_rows")? {
+            let orders: Vec<(String, Vec<String>)> = rows.extract()?;
+            self.inner.apply_row_orders(&orders, false);
+        }
+        if let Some(rows) = state.get_item("pred_rows")? {
+            let orders: Vec<(String, Vec<String>)> = rows.extract()?;
+            self.inner.apply_row_orders(&orders, true);
+        }
+        if let Some(overrides) = state.get_item("succ_py_keys")? {
+            let entries: Vec<(String, String, PyObject)> = overrides.extract()?;
+            for (a, b, o) in entries {
+                self.succ_py_keys.insert((a, b), o);
+            }
+        }
+        if let Some(overrides) = state.get_item("pred_py_keys")? {
+            let entries: Vec<(String, String, PyObject)> = overrides.extract()?;
+            for (a, b, o) in entries {
+                self.pred_py_keys.insert((a, b), o);
             }
         }
 
@@ -3708,6 +3768,13 @@ impl PyDiGraph {
         self.adjacency(py)
     }
 
+    /// br-r37-c1-zt6lj: true when canonical node strings are also the Python
+    /// display strings used by `generate_adjlist`; sparse row-key override maps
+    /// force the generic fallback.
+    fn _native_adjlist_canonical_body_safe(&self) -> bool {
+        self.node_key_map.is_empty() && self.succ_py_keys.is_empty()
+    }
+
     /// br-r37-c1-gadj: native nested adjacency snapshot ({node: {successor:
     /// attrs}}) so the Python DiGraph.adjacency (_simple_graph_adjacency) builds
     /// it natively instead of walking ``dict(self.adj[node])`` via the AtlasView
@@ -4819,17 +4886,61 @@ impl PyDiGraph {
             .collect();
         state.set_item("nodes", nodes_list)?;
 
+        // br-r37-c1-u3qyn: the old edge list iterated the edge_py_attrs
+        // HashMap (RANDOM order — round-trip edge/row order was luck) and
+        // missed attr-less edges with a sparse mirror. Emit from inner's
+        // edge insertion order instead.
         let edges_list: Vec<(PyObject, PyObject, Py<PyDict>)> = self
-            .edge_py_attrs
-            .iter()
-            .map(|((u, v), attrs)| {
-                let py_u = self.py_node_key(py, u);
-                let py_v = self.py_node_key(py, v);
-                (py_u, py_v, attrs.clone_ref(py))
+            .inner
+            .edges_ordered()
+            .into_iter()
+            .map(|edge| {
+                let py_u = self.py_node_key(py, &edge.left);
+                let py_v = self.py_node_key(py, &edge.right);
+                let attrs = self
+                    .edge_py_attrs
+                    .get(&Self::edge_key(&edge.left, &edge.right))
+                    .map_or_else(|| PyDict::new(py).unbind(), |d| d.clone_ref(py));
+                (py_u, py_v, attrs)
             })
             .collect();
         state.set_item("edges", edges_list)?;
         state.set_item("graph", self.graph_attrs.bind(py))?;
+        // br-r37-c1-u3qyn: store succ/pred rows + display overrides so the
+        // round-trip preserves structure verbatim (see PyGraph).
+        let row_dump = |pred: bool| -> Vec<(String, Vec<String>)> {
+            self.inner
+                .nodes_ordered()
+                .into_iter()
+                .map(|nd| {
+                    let row = if pred {
+                        self.inner.predecessors(nd)
+                    } else {
+                        self.inner.successors(nd)
+                    };
+                    (
+                        nd.to_owned(),
+                        row.unwrap_or_default()
+                            .into_iter()
+                            .map(str::to_owned)
+                            .collect(),
+                    )
+                })
+                .collect()
+        };
+        state.set_item("succ_rows", row_dump(false))?;
+        state.set_item("pred_rows", row_dump(true))?;
+        let dump_overrides = |m: &HashMap<(String, String), PyObject>| {
+            m.iter()
+                .map(|((a, b), o)| (a.clone(), b.clone(), o.clone_ref(py)))
+                .collect::<Vec<(String, String, PyObject)>>()
+        };
+        if !self.succ_py_keys.is_empty() {
+            state.set_item("succ_py_keys", dump_overrides(&self.succ_py_keys))?;
+        }
+        if !self.pred_py_keys.is_empty() {
+            state.set_item("pred_py_keys", dump_overrides(&self.pred_py_keys))?;
+        }
         Ok(state.into_any().unbind())
     }
 
@@ -4839,6 +4950,8 @@ impl PyDiGraph {
         self.node_key_map.clear();
         self.node_py_attrs.clear();
         self.edge_py_attrs.clear();
+        self.succ_py_keys.clear(); // br-r37-c1-u3qyn
+        self.pred_py_keys.clear(); // br-r37-c1-u3qyn
         self.graph_attrs = PyDict::new(py).unbind();
 
         if let Some(graph_attrs) = state.get_item("graph")? {
@@ -4867,6 +4980,29 @@ impl PyDiGraph {
                 let attrs = tuple.get_item(2)?;
                 let attrs_dict = attrs.downcast::<PyDict>()?;
                 self.add_edge(py, &u, &v, Some(attrs_dict))?;
+            }
+        }
+
+        // br-r37-c1-u3qyn: restore exact succ/pred row order and display
+        // overrides when the state carries them (optional, back-compat).
+        if let Some(rows) = state.get_item("succ_rows")? {
+            let orders: Vec<(String, Vec<String>)> = rows.extract()?;
+            self.inner.apply_row_orders(&orders, false);
+        }
+        if let Some(rows) = state.get_item("pred_rows")? {
+            let orders: Vec<(String, Vec<String>)> = rows.extract()?;
+            self.inner.apply_row_orders(&orders, true);
+        }
+        if let Some(overrides) = state.get_item("succ_py_keys")? {
+            let entries: Vec<(String, String, PyObject)> = overrides.extract()?;
+            for (a, b, o) in entries {
+                self.succ_py_keys.insert((a, b), o);
+            }
+        }
+        if let Some(overrides) = state.get_item("pred_py_keys")? {
+            let entries: Vec<(String, String, PyObject)> = overrides.extract()?;
+            for (a, b, o) in entries {
+                self.pred_py_keys.insert((a, b), o);
             }
         }
 

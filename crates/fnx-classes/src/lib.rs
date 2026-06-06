@@ -381,6 +381,42 @@ impl Graph {
         self.adj_indices.get(node_idx).map(Vec::as_slice)
     }
 
+    /// br-r37-c1-u3qyn: restore explicit adjacency row orders (pickle
+    /// round-trip). Each entry is (node, neighbor order); rows are
+    /// rebuilt in the given order with any unlisted survivors appended
+    /// in their current order (robust to stale state). The integer
+    /// `adj_indices` mirror is rebuilt to match.
+    pub fn apply_row_orders(&mut self, orders: &[(String, Vec<String>)]) {
+        for (node, order) in orders {
+            let Some(row) = self.adjacency.get(node.as_str()) else {
+                continue;
+            };
+            let mut new_row = IndexSet::with_capacity(row.len());
+            for v in order {
+                if row.contains(v.as_str()) {
+                    new_row.insert(v.clone());
+                }
+            }
+            for v in row {
+                if !new_row.contains(v.as_str()) {
+                    new_row.insert(v.clone());
+                }
+            }
+            if let Some(slot) = self.adjacency.get_mut(node.as_str()) {
+                *slot = new_row;
+            }
+        }
+        self.adj_indices = self
+            .adjacency
+            .values()
+            .map(|row| {
+                row.iter()
+                    .filter_map(|v| self.nodes.get_index_of(v.as_str()))
+                    .collect()
+            })
+            .collect();
+    }
+
     /// br-r37-c1-0ek49: reorder every adjacency row into NetworkX's
     /// `Graph.copy()` walk order. nx copy rebuilds via
     /// `add_edges_from((u, v, d) for u in _adj for v in _adj[u])`, so an
@@ -1355,6 +1391,28 @@ pub struct MultiGraph {
 }
 
 impl MultiGraph {
+    /// br-r37-c1-u3qyn: restore explicit adjacency row orders (pickle
+    /// round-trip) — see Graph::apply_row_orders. Multigraph rows are
+    /// keyed cells (neighbor -> key set); the cells move wholesale.
+    pub fn apply_row_orders(&mut self, orders: &[(String, Vec<String>)]) {
+        for (node, order) in orders {
+            let Some(row) = self.adjacency.get_mut(node.as_str()) else {
+                continue;
+            };
+            let mut old = std::mem::take(row);
+            let mut new_row = IndexMap::with_capacity(old.len());
+            for v in order {
+                if let Some((k, val)) = old.shift_remove_entry(v.as_str()) {
+                    new_row.insert(k, val);
+                }
+            }
+            for (k, val) in old {
+                new_row.insert(k, val);
+            }
+            *row = new_row;
+        }
+    }
+
     #[must_use]
     pub fn new(mode: CompatibilityMode) -> Self {
         Self {

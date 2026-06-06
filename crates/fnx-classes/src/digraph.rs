@@ -217,6 +217,36 @@ impl DiGraph {
             .map(|p| p.iter().map(String::as_str).collect())
     }
 
+    /// br-r37-c1-u3qyn: restore explicit succ/pred row orders (pickle
+    /// round-trip) — see Graph::apply_row_orders. `which` selects the
+    /// adjacency side.
+    pub fn apply_row_orders(&mut self, orders: &[(String, Vec<String>)], pred: bool) {
+        let map = if pred {
+            &mut self.predecessors
+        } else {
+            &mut self.successors
+        };
+        for (node, order) in orders {
+            let Some(row) = map.get(node.as_str()) else {
+                continue;
+            };
+            let mut new_row = IndexSet::with_capacity(row.len());
+            for v in order {
+                if row.contains(v.as_str()) {
+                    new_row.insert(v.clone());
+                }
+            }
+            for v in row {
+                if !new_row.contains(v.as_str()) {
+                    new_row.insert(v.clone());
+                }
+            }
+            if let Some(slot) = map.get_mut(node.as_str()) {
+                *slot = new_row;
+            }
+        }
+    }
+
     /// br-r37-c1-0ek49: reorder every PRED row into NetworkX's
     /// `DiGraph.copy()` walk order. nx copy rebuilds via the u-major
     /// succ walk (`(u, v, d) for u in _adj for v in _adj[u]`), which
@@ -1003,6 +1033,33 @@ pub struct MultiDiGraph {
 }
 
 impl MultiDiGraph {
+    /// br-r37-c1-u3qyn: restore explicit succ/pred row orders (pickle
+    /// round-trip) — see Graph::apply_row_orders. Keyed cells move
+    /// wholesale; `pred` selects the adjacency side.
+    pub fn apply_row_orders(&mut self, orders: &[(String, Vec<String>)], pred: bool) {
+        let map = if pred {
+            &mut self.predecessors
+        } else {
+            &mut self.successors
+        };
+        for (node, order) in orders {
+            let Some(row) = map.get_mut(node.as_str()) else {
+                continue;
+            };
+            let mut old = std::mem::take(row);
+            let mut new_row = IndexMap::with_capacity(old.len());
+            for v in order {
+                if let Some((k, val)) = old.shift_remove_entry(v.as_str()) {
+                    new_row.insert(k, val);
+                }
+            }
+            for (k, val) in old {
+                new_row.insert(k, val);
+            }
+            *row = new_row;
+        }
+    }
+
     #[must_use]
     pub fn new(mode: CompatibilityMode) -> Self {
         Self {
