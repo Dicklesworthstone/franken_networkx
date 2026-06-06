@@ -12187,14 +12187,28 @@ fn single_source_bellman_ford(
     };
     match result {
         Some((dists, paths)) => {
+            // weighted sp batch 2: discovery objects — a node displays as
+            // its path's second-to-last element's row object (the SPFA
+            // relaxation parent); source as passed.
+            let mut disp: std::collections::HashMap<String, PyObject> =
+                std::collections::HashMap::with_capacity(paths.len() + 1);
+            disp.insert(s.clone(), source.clone().unbind());
+            for (node, p) in &paths {
+                if p.len() >= 2 {
+                    disp.insert(node.clone(), gr.py_row_key(py, &p[p.len() - 2], node));
+                }
+            }
             let dist_dict = PyDict::new(py);
             for (node, d) in &dists {
-                dist_dict.set_item(gr.py_node_key(py, node), d)?;
+                dist_dict.set_item(gr.disp_or_node_key(py, &disp, node), d)?;
             }
             let path_dict = PyDict::new(py);
             for (node, path) in &paths {
-                let py_path: Vec<PyObject> = path.iter().map(|n| gr.py_node_key(py, n)).collect();
-                path_dict.set_item(gr.py_node_key(py, node), py_path)?;
+                let py_path: Vec<PyObject> = path
+                    .iter()
+                    .map(|n| gr.disp_or_node_key(py, &disp, n))
+                    .collect();
+                path_dict.set_item(gr.disp_or_node_key(py, &disp, node), py_path)?;
             }
             Ok((dist_dict.into_any().unbind(), path_dict.into_any().unbind()))
         }
@@ -12229,12 +12243,9 @@ fn single_source_bellman_ford_path(
     };
     match result {
         Some(paths) => {
-            let dict = PyDict::new(py);
-            for (node, path) in &paths {
-                let py_path: Vec<PyObject> = path.iter().map(|n| gr.py_node_key(py, n)).collect();
-                dict.set_item(gr.py_node_key(py, node), py_path)?;
-            }
-            Ok(dict.into_any().unbind())
+            // weighted sp batch 2: discovery objects via the paths.
+            let dict = emit_paths_dict_discovery(py, &gr, &paths, &s, source.clone().unbind())?;
+            Ok(dict.into_any())
         }
         None => Err(crate::NetworkXUnbounded::new_err(
             "Negative cycle detected.",
@@ -12255,23 +12266,68 @@ fn single_source_bellman_ford_path_length(
     let gr = extract_graph(g)?;
     let s = node_key_to_string(py, source)?;
     validate_node_str(&gr, &s, "Source")?;
+    // weighted sp batch 2: predecessors give the discovery objects (a
+    // node displays as its SPFA relaxation parent's row object) without
+    // a second walk — use the predecessor-carrying kernels.
     let result = if let Some(weighted_projection) = gr.weighted_digraph_projection(weight) {
-        let __wp = weighted_projection.as_ref();
-        py.allow_threads(|| {
-            fnx_algorithms::single_source_bellman_ford_path_length_directed(__wp, &s, weight)
-        })
+        let bf = {
+            let __wp = weighted_projection.as_ref();
+            py.allow_threads(|| {
+                fnx_algorithms::bellman_ford_shortest_paths_directed(__wp, &s, weight)
+            })
+        };
+        if bf.negative_cycle_detected {
+            None
+        } else {
+            let preds: std::collections::HashMap<String, Option<String>> = bf
+                .predecessors
+                .iter()
+                .map(|e| (e.node.clone(), e.predecessor.clone()))
+                .collect();
+            Some((
+                bf.distances
+                    .iter()
+                    .map(|e| (e.node.clone(), e.distance))
+                    .collect::<Vec<_>>(),
+                preds,
+            ))
+        }
     } else {
-        let weighted_projection = gr.weighted_undirected_projection(weight);
-        let __wp = weighted_projection.as_ref();
-        py.allow_threads(|| {
-            fnx_algorithms::single_source_bellman_ford_path_length(__wp, &s, weight)
-        })
+        let bf = {
+            let weighted_projection = gr.weighted_undirected_projection(weight);
+            let __wp = weighted_projection.as_ref();
+            py.allow_threads(|| fnx_algorithms::bellman_ford_shortest_paths(__wp, &s, weight))
+        };
+        if bf.negative_cycle_detected {
+            None
+        } else {
+            let preds: std::collections::HashMap<String, Option<String>> = bf
+                .predecessors
+                .iter()
+                .map(|e| (e.node.clone(), e.predecessor.clone()))
+                .collect();
+            Some((
+                bf.distances
+                    .iter()
+                    .map(|e| (e.node.clone(), e.distance))
+                    .collect::<Vec<_>>(),
+                preds,
+            ))
+        }
     };
     match result {
-        Some(dists) => {
+        Some((dists, preds)) => {
+            let mut disp: std::collections::HashMap<String, PyObject> =
+                std::collections::HashMap::with_capacity(dists.len() + 1);
+            disp.insert(s.clone(), source.clone().unbind());
+            for (node, _) in &dists {
+                if let Some(Some(p)) = preds.get(node) {
+                    disp.insert(node.clone(), gr.py_row_key(py, p, node));
+                }
+            }
             let dict = PyDict::new(py);
             for (node, d) in &dists {
-                dict.set_item(gr.py_node_key(py, node), d)?;
+                dict.set_item(gr.disp_or_node_key(py, &disp, node), d)?;
             }
             Ok(dict.into_any().unbind())
         }

@@ -106,3 +106,14 @@ G.reverse(copy=False) semantics, ONE walk); 62jy2 re-sort removed;
 single_source_dijkstra binding (feeds the path/length wrappers) and
 all_pairs_dijkstra_path now map discovery objects via the FULL kernel
 (distances+paths in one dijkstra). Probe: 17 divergences -> 0.
+
+## Batch 7 — bellman-ford standalone single-source trio
+single_source_bellman_ford{,_path,_path_length}: discovery objects
+(SPFA relaxation parent via paths/preds-carrying kernels — the length
+binding switched from the lengths-only kernel to the pred-carrying
+one) + int distance coercion for all-int weights (ss_bf, ap_bf_len,
+ap_dij_len wrappers). NOTE: _graph_has_nonunit_weight is a
+sync-then-False shim — the raw path is the INTENDED route for all
+simple weighted graphs; the br-bfignoreweight delegation comments are
+stale. Residual beaded: the four all_pairs_* bindings + multi_source
+seed set-order.

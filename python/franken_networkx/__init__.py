@@ -15648,6 +15648,9 @@ def single_source_bellman_ford(G, source, target=None, weight="weight"):
     # first-discovery order (NOT distance-sorted — e.g. a node at distance 3
     # can precede one at distance 2). Trust that order directly; do not sort.
     dists, paths = _raw_single_source_bellman_ford(G, source, weight=weight)
+    # weighted sp batch 2: nx preserves int distances for all-int weights.
+    if _sp_edge_weights_all_int(G, weight):
+        dists = _sp_coerce_dist_to_int(dists)
     return dists, paths
 
 
@@ -15765,6 +15768,7 @@ def all_pairs_dijkstra_path_length(G, cutoff=None, weight="weight"):
     # br-r37-c1-3dxfn: iterate outer keys in node-insertion order
     # matching nx (Rust dict yields in arbitrary order).
     raw = _raw_all_pairs_dijkstra_path_length(G, weight=weight)
+    _coerce_ints = _sp_edge_weights_all_int(G, weight)
     for node in G.nodes():
         if node in raw:
             # raw[node] is already in nx's Dijkstra finalize order;
@@ -15772,7 +15776,12 @@ def all_pairs_dijkstra_path_length(G, cutoff=None, weight="weight"):
             # kernel's push-seq tie-break (BFS-hop order diverged).
             inner = dict(raw[node])
             order = _reorder_by_distance(inner)
-            yield (node, {k: inner[k] for k in order})
+            inner = {k: inner[k] for k in order}
+            # weighted sp batch 2: nx preserves int distances for
+            # all-int weights.
+            if _coerce_ints:
+                inner = _sp_coerce_dist_to_int(inner)
+            yield (node, inner)
 
 
 def all_pairs_bellman_ford_path(G, weight="weight"):
@@ -15814,11 +15823,16 @@ def all_pairs_bellman_ford_path_length(G, weight="weight"):
     # br-r37-c1-sk5be: iterate outer keys in node-insertion order
     # matching nx (Rust dict yields in arbitrary order).
     raw = _raw_all_pairs_bellman_ford_path_length(G, weight=weight)
+    # weighted sp batch 2: nx preserves int distances for all-int weights.
+    _coerce = _sp_edge_weights_all_int(G, weight)
     for node in G.nodes():
         if node in raw:
             # br-r37-c1-e9rea: the kernel already yields each source's lengths in
             # nx's SPFA first-discovery order (not distance-sorted), so trust it.
-            yield (node, dict(raw[node]))
+            inner = dict(raw[node])
+            if _coerce:
+                inner = _sp_coerce_dist_to_int(inner)
+            yield (node, inner)
 
 
 def floyd_warshall(G, weight="weight"):

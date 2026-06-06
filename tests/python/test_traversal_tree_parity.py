@@ -441,3 +441,56 @@ class TestWeightedShortestPathParity:
         assert self._rr(dict(fnx.all_pairs_dijkstra_path(gf))) == self._rr(
             dict(nx.all_pairs_dijkstra_path(gn))
         )
+
+
+class TestBellmanFordStandaloneParity:
+    """Weighted sp batch 2: bellman-ford single-source trio carries
+    discovery objects (SPFA relaxation parent's row object) and int
+    distances for all-int weights."""
+
+    def _mixed(self, mod, directed=True):
+        import random
+
+        g = (mod.DiGraph if directed else mod.Graph)()
+        g.add_node(28)
+        g.add_edge(7, 28.0, weight=1)
+        g.add_edge(28.0, 5, weight=1)
+        g.add_edge(5, 9, weight=2)
+        g.add_edge(7, 5, weight=2)
+        rnd = random.Random(3)
+        for _ in range(25):
+            u, v = rnd.randrange(10), rnd.randrange(10)
+            if u != v:
+                g.add_edge(u, v, weight=1 + (u * v) % 3)
+        g.add_edge(9, 7, weight=1)
+        return g
+
+    def _rr(self, x, d=0):
+        if d > 5:
+            return repr(x)
+        if isinstance(x, (list, tuple)):
+            return [self._rr(i, d + 1) for i in x]
+        if isinstance(x, dict):
+            return {repr(k): self._rr(v, d + 1) for k, v in x.items()}
+        return repr(x)
+
+    @pytest.mark.parametrize("directed", [True, False])
+    def test_single_source_trio(self, directed):
+        gf, gn = self._mixed(fnx, directed), self._mixed(nx, directed)
+        assert self._rr(fnx.single_source_bellman_ford(gf, 7)) == self._rr(
+            nx.single_source_bellman_ford(gn, 7)
+        )
+        assert self._rr(fnx.single_source_bellman_ford_path(gf, 7)) == self._rr(
+            nx.single_source_bellman_ford_path(gn, 7)
+        )
+        assert self._rr(dict(fnx.single_source_bellman_ford_path_length(gf, 7))) == self._rr(
+            dict(nx.single_source_bellman_ford_path_length(gn, 7))
+        )
+
+    def test_int_distance_types(self):
+        gf, gn = fnx.DiGraph([(1, 2, {"weight": 2})]), nx.DiGraph([(1, 2, {"weight": 2})])
+        df = fnx.single_source_bellman_ford(gf, 1)[0]
+        dn = nx.single_source_bellman_ford(gn, 1)[0]
+        assert {k: (type(v), v) for k, v in df.items()} == {
+            k: (type(v), v) for k, v in dn.items()
+        }
