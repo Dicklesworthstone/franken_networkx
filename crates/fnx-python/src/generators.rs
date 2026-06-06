@@ -208,6 +208,75 @@ pub fn grid_2d_graph_simple(py: Python<'_>, m: usize, n: usize) -> PyResult<PyGr
     })
 }
 
+/// br-r37-c1-edmwo: n-D integer grid/cycle product built natively.
+///
+/// Canonicals use NetworkX's flattened tuple repr (or bare integer for the
+/// one-dimensional case); display keys are Python ints/tuples.
+#[pyfunction]
+pub fn grid_graph_native(
+    py: Python<'_>,
+    dimensions: Vec<usize>,
+    periodic: Vec<bool>,
+) -> PyResult<PyGraph> {
+    let graph = fnx_classes::Graph::grid_nd(CompatibilityMode::Strict, &dimensions, &periodic)
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let output_sizes = dimensions.iter().rev().copied().collect::<Vec<usize>>();
+    let mut node_key_map: HashMap<String, PyObject> = HashMap::with_capacity(graph.node_count());
+
+    fn coords_from_index(mut index: usize, sizes: &[usize]) -> Vec<usize> {
+        let mut coords = vec![0; sizes.len()];
+        for axis in (0..sizes.len()).rev() {
+            let size = sizes[axis];
+            coords[axis] = index % size;
+            index /= size;
+        }
+        coords
+    }
+
+    fn tuple_canonical(coords: &[usize]) -> String {
+        if let [value] = coords {
+            return value.to_string();
+        }
+        let mut s = String::with_capacity(coords.len() * 6 + 2);
+        s.push('(');
+        for (i, value) in coords.iter().enumerate() {
+            if i > 0 {
+                s.push_str(", ");
+            }
+            s.push_str(&value.to_string());
+        }
+        s.push(')');
+        s
+    }
+
+    for index in 0..graph.node_count() {
+        let coords = coords_from_index(index, &output_sizes);
+        let canonical = tuple_canonical(&coords);
+        let py_key = if let [value] = coords.as_slice() {
+            unwrap_infallible((*value).into_pyobject(py))
+                .into_any()
+                .unbind()
+        } else {
+            pyo3::types::PyTuple::new(py, &coords)?.into_any().unbind()
+        };
+        node_key_map.insert(canonical, py_key);
+    }
+
+    Ok(PyGraph {
+        inner: graph,
+        node_key_map,
+        lazy_int_node_stop: 0,
+        node_py_attrs: HashMap::new(),
+        edge_py_attrs: HashMap::new(),
+        adj_py_keys: HashMap::new(),
+        dict_of_dicts_cache: None,
+        graph_attrs: PyDict::new(py).unbind(),
+        nodes_seq: 0,
+        edges_seq: 0,
+        edges_dirty: AtomicBool::new(false),
+    })
+}
+
 /// br-r37-c1-z2eaa: Kneser graph K(n, k) built natively in one call.
 ///
 /// Display keys are Python int tuples (the abandoned br-kneser path's
@@ -597,6 +666,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(star_graph, m)?)?;
     m.add_function(wrap_pyfunction!(complete_graph, m)?)?;
     m.add_function(wrap_pyfunction!(grid_2d_graph_simple, m)?)?;
+    m.add_function(wrap_pyfunction!(grid_graph_native, m)?)?;
     m.add_function(wrap_pyfunction!(kneser_graph_native, m)?)?; // br-r37-c1-z2eaa
     m.add_function(wrap_pyfunction!(gnp_random_graph, m)?)?;
     m.add_function(wrap_pyfunction!(watts_strogatz_graph, m)?)?;

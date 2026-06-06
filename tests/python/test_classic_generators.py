@@ -1163,6 +1163,67 @@ class TestGrid2DNativeKernelParity:
         )
 
 
+class TestGridGraphNDNativeKernelParity:
+    """br-r37-c1-edmwo: native n-D grid/hypercube kernel vs nx."""
+
+    def _canon(self, g):
+        return (
+            [repr(n) for n in g.nodes()],
+            [(repr(u), repr(v)) for u, v in g.edges()],
+            {repr(n): [repr(x) for x in g[n]] for n in g},
+        )
+
+    def test_integer_grid_matrix_matches_networkx(self):
+        import networkx as nx
+
+        cases = [
+            ([0, 3], False),
+            ([1], False),
+            ([2], False),
+            ([2, 3], False),
+            ([3, 2], False),
+            ([2, 2, 2], False),
+            ([2, 3], True),
+            ([3, 4, 2], [True, False, True]),
+        ]
+        for dim, periodic in cases:
+            assert self._canon(fnx.grid_graph(dim, periodic=periodic)) == self._canon(
+                nx.grid_graph(dim, periodic=periodic)
+            ), (dim, periodic)
+
+    def test_hypercube_matches_networkx_and_uses_tuple_keys(self):
+        import networkx as nx
+
+        for n in range(0, 7):
+            graph = fnx.hypercube_graph(n)
+            assert self._canon(graph) == self._canon(nx.hypercube_graph(n)), n
+            if n == 1:
+                assert list(graph.nodes()) == [0, 1]
+            elif n > 1:
+                node = next(iter(graph))
+                assert type(node) is tuple and all(type(value) is int for value in node)
+
+    def test_iterable_axes_stay_on_python_parity_path(self):
+        import networkx as nx
+
+        dim = [range(7, 9), range(3, 6)]
+        assert self._canon(fnx.grid_graph(dim)) == self._canon(nx.grid_graph(dim))
+
+    def test_mutation_and_pickle_after_native_build(self):
+        import pickle
+
+        import networkx as nx
+
+        gf, gn = fnx.grid_graph([3, 4, 2], periodic=[True, False, True]), nx.grid_graph(
+            [3, 4, 2], periodic=[True, False, True]
+        )
+        for graph in (gf, gn):
+            graph.add_edge((0, 0, 0), (1, 3, 2), weight=7)
+            graph.remove_node((0, 1, 1))
+        assert self._canon(gf) == self._canon(gn)
+        assert self._canon(pickle.loads(pickle.dumps(gf))) == self._canon(gn)
+
+
 class TestKneserNativeKernelParity:
     """br-r37-c1-z2eaa: native kneser kernel vs nx (order-exact)."""
 

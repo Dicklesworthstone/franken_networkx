@@ -1,0 +1,31 @@
+Benchmark 1: fnx grid_8_8_8
+  Time (mean ± σ):     310.4 ms ±  18.8 ms    [User: 3341.6 ms, System: 62.4 ms]
+  Range (min … max):   286.0 ms … 331.0 ms    10 runs
+ 
+Benchmark 2: nx grid_8_8_8
+  Time (mean ± σ):     156.3 ms ±   9.9 ms    [User: 125.7 ms, System: 29.6 ms]
+  Range (min … max):   142.0 ms … 175.0 ms    10 runs
+ 
+Benchmark 3: fnx hypercube_10
+  Time (mean ± σ):     349.2 ms ±  31.8 ms    [User: 3403.9 ms, System: 69.2 ms]
+  Range (min … max):   309.4 ms … 412.0 ms    10 runs
+ 
+Benchmark 4: nx hypercube_10
+  Time (mean ± σ):     190.2 ms ±   6.9 ms    [User: 155.8 ms, System: 34.1 ms]
+  Range (min … max):   173.5 ms … 197.3 ms    10 runs
+ 
+Benchmark 5: fnx hypercube_13
+  Time (mean ± σ):     807.7 ms ±  20.0 ms    [User: 4037.6 ms, System: 111.2 ms]
+  Range (min … max):   777.2 ms … 847.7 ms    10 runs
+ 
+Benchmark 6: nx hypercube_13
+  Time (mean ± σ):     833.9 ms ± 102.2 ms    [User: 771.8 ms, System: 58.6 ms]
+  Range (min … max):   743.3 ms … 1050.0 ms    10 runs
+ 
+Summary
+  nx grid_8_8_8 ran
+    1.22 ± 0.09 times faster than nx hypercube_10
+    1.99 ± 0.17 times faster than fnx grid_8_8_8
+    2.23 ± 0.25 times faster than fnx hypercube_10
+    5.17 ± 0.35 times faster than fnx hypercube_13
+    5.34 ± 0.74 times faster than nx hypercube_13
