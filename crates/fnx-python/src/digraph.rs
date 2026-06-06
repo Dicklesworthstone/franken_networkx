@@ -16,7 +16,7 @@ use fnx_runtime::{CompatibilityMode, RuntimePolicy};
 use pyo3::IntoPyObjectExt;
 use pyo3::exceptions::{PyKeyError, PyRuntimeError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyIterator, PyTuple};
+use pyo3::types::{PyDict, PyFloat, PyInt, PyIterator, PyList, PyString, PyTuple};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -3133,6 +3133,297 @@ impl PyDiGraph {
         }
     }
 
+    fn is_plain_batch_node(key: &Bound<'_, PyAny>) -> bool {
+        if key.is_instance_of::<PyString>()
+            || key.is_instance_of::<PyInt>()
+            || key.is_instance_of::<PyFloat>()
+        {
+            return true;
+        }
+        if let Ok(tuple) = key.downcast::<PyTuple>() {
+            return tuple.iter().all(|item| {
+                item.is_instance_of::<PyString>()
+                    || item.is_instance_of::<PyInt>()
+                    || item.is_instance_of::<PyFloat>()
+            });
+        }
+        false
+    }
+
+    fn batch_display_conflict(
+        &self,
+        py: Python<'_>,
+        canonical: &str,
+        passed: &Bound<'_, PyAny>,
+        batch_first: &mut HashMap<String, PyObject>,
+    ) -> bool {
+        if passed.is_exact_instance_of::<PyString>() {
+            return false;
+        }
+        if let Some(stored) = self.node_key_map.get(canonical) {
+            return PyGraph::display_objs_conflict(stored.bind(py), passed);
+        }
+        if let Some(first) = batch_first.get(canonical) {
+            return PyGraph::display_objs_conflict(first.bind(py), passed);
+        }
+        batch_first.insert(canonical.to_owned(), passed.clone().unbind());
+        false
+    }
+
+    fn collect_plain_edge_batch<'py, I>(
+        &self,
+        py: Python<'py>,
+        items: I,
+        len: usize,
+    ) -> PyResult<Option<DiEdgeBatch>>
+    where
+        I: IntoIterator<Item = Bound<'py, PyAny>>,
+    {
+        let mut edges = Vec::with_capacity(len);
+        let mut new_nodes = Vec::new();
+        let mut seen_nodes: HashSet<String> = self
+            .inner
+            .nodes_ordered()
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+        let mut node_bumps = 0_u64;
+        let mut batch_first: HashMap<String, PyObject> = HashMap::new();
+
+        for item in items {
+            let Ok(tuple) = item.downcast::<PyTuple>() else {
+                return Ok(None);
+            };
+            if tuple.len() != 2 {
+                return Ok(None);
+            }
+
+            let u = tuple.get_item(0)?;
+            let v = tuple.get_item(1)?;
+            if !Self::is_plain_batch_node(&u) || !Self::is_plain_batch_node(&v) {
+                return Ok(None);
+            }
+
+            let u_canonical = node_key_to_string(py, &u)?;
+            let v_canonical = node_key_to_string(py, &v)?;
+            if self.batch_display_conflict(py, &u_canonical, &u, &mut batch_first)
+                || self.batch_display_conflict(py, &v_canonical, &v, &mut batch_first)
+            {
+                return Ok(None);
+            }
+
+            if !seen_nodes.contains(&u_canonical) || !seen_nodes.contains(&v_canonical) {
+                node_bumps = node_bumps.wrapping_add(1);
+            }
+            if seen_nodes.insert(u_canonical.clone()) {
+                new_nodes.push((u_canonical.clone(), u.clone().unbind()));
+            }
+            if seen_nodes.insert(v_canonical.clone()) {
+                new_nodes.push((v_canonical.clone(), v.clone().unbind()));
+            }
+            edges.push((u_canonical, v_canonical));
+        }
+
+        Ok(Some((edges, new_nodes, node_bumps)))
+    }
+
+    fn add_plain_edge_batch(
+        &mut self,
+        py: Python<'_>,
+        edges: Vec<(String, String)>,
+        new_nodes: Vec<(String, PyObject)>,
+        node_bumps: u64,
+        final_edge_bump: bool,
+    ) {
+        let edge_bumps = u64::try_from(edges.len())
+            .unwrap_or(u64::MAX)
+            .wrapping_add(u64::from(final_edge_bump));
+
+        for (canonical, node) in new_nodes {
+            self.node_key_map.entry(canonical.clone()).or_insert(node);
+            self.node_py_attrs
+                .entry(canonical)
+                .or_insert_with(|| PyDict::new(py).unbind());
+        }
+        for (u, v) in &edges {
+            self.edge_py_attrs
+                .entry(Self::edge_key(u, v))
+                .or_insert_with(|| PyDict::new(py).unbind());
+        }
+        let _inserted = self.inner.extend_edges_unrecorded(edges);
+        self.nodes_seq = self.nodes_seq.wrapping_add(node_bumps);
+        self.edges_seq = self.edges_seq.wrapping_add(edge_bumps);
+    }
+
+    fn try_add_plain_edge_batch(
+        &mut self,
+        py: Python<'_>,
+        ebunch_to_add: &Bound<'_, PyAny>,
+        final_edge_bump: bool,
+    ) -> PyResult<bool> {
+        const PLAIN_EDGE_BATCH_MIN: usize = 8;
+        if let Ok(list) = ebunch_to_add.downcast::<PyList>() {
+            if list.len() < PLAIN_EDGE_BATCH_MIN {
+                return Ok(false);
+            }
+            if let Some((edges, new_nodes, node_bumps)) =
+                self.collect_plain_edge_batch(py, list.iter(), list.len())?
+            {
+                self.add_plain_edge_batch(py, edges, new_nodes, node_bumps, final_edge_bump);
+                return Ok(true);
+            }
+        } else if let Ok(tuple) = ebunch_to_add.downcast::<PyTuple>()
+            && tuple.len() >= PLAIN_EDGE_BATCH_MIN
+            && let Some((edges, new_nodes, node_bumps)) =
+                self.collect_plain_edge_batch(py, tuple.iter(), tuple.len())?
+        {
+            self.add_plain_edge_batch(py, edges, new_nodes, node_bumps, final_edge_bump);
+            return Ok(true);
+        }
+        Ok(false)
+    }
+
+    fn collect_attr_edge_batch<'py, I>(
+        &self,
+        py: Python<'py>,
+        items: I,
+        len: usize,
+    ) -> PyResult<Option<DiAttrEdgeBatch>>
+    where
+        I: IntoIterator<Item = Bound<'py, PyAny>>,
+    {
+        let mut edges: Vec<(String, String, AttrMap, Option<Py<PyDict>>)> = Vec::with_capacity(len);
+        let mut new_nodes = Vec::new();
+        let mut seen_nodes: HashSet<String> = self
+            .inner
+            .nodes_ordered()
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+        let mut node_bumps = 0_u64;
+        let mut batch_first: HashMap<String, PyObject> = HashMap::new();
+
+        for item in items {
+            let Ok(tuple) = item.downcast::<PyTuple>() else {
+                return Ok(None);
+            };
+            let tlen = tuple.len();
+            if !(2..=3).contains(&tlen) {
+                return Ok(None);
+            }
+
+            let u = tuple.get_item(0)?;
+            let v = tuple.get_item(1)?;
+            if !Self::is_plain_batch_node(&u) || !Self::is_plain_batch_node(&v) {
+                return Ok(None);
+            }
+
+            let (rust_attrs, src_dict) = if tlen == 3 {
+                let third = tuple.get_item(2)?;
+                let Ok(dict) = third.downcast::<PyDict>() else {
+                    return Ok(None);
+                };
+                let Ok(attrs) = py_dict_to_attr_map(dict) else {
+                    return Ok(None);
+                };
+                if attrs
+                    .keys()
+                    .any(|key| key.starts_with("__fnx_incompatible"))
+                {
+                    return Ok(None);
+                }
+                (attrs, Some(dict.clone().unbind()))
+            } else {
+                (AttrMap::new(), None)
+            };
+
+            let u_canonical = node_key_to_string(py, &u)?;
+            let v_canonical = node_key_to_string(py, &v)?;
+            if self.batch_display_conflict(py, &u_canonical, &u, &mut batch_first)
+                || self.batch_display_conflict(py, &v_canonical, &v, &mut batch_first)
+            {
+                return Ok(None);
+            }
+
+            if !seen_nodes.contains(&u_canonical) || !seen_nodes.contains(&v_canonical) {
+                node_bumps = node_bumps.wrapping_add(1);
+            }
+            if seen_nodes.insert(u_canonical.clone()) {
+                new_nodes.push((u_canonical.clone(), u.clone().unbind()));
+            }
+            if seen_nodes.insert(v_canonical.clone()) {
+                new_nodes.push((v_canonical.clone(), v.clone().unbind()));
+            }
+            edges.push((u_canonical, v_canonical, rust_attrs, src_dict));
+        }
+
+        Ok(Some((edges, new_nodes, node_bumps)))
+    }
+
+    fn add_attr_edge_batch(
+        &mut self,
+        py: Python<'_>,
+        edges: Vec<(String, String, AttrMap, Option<Py<PyDict>>)>,
+        new_nodes: Vec<(String, PyObject)>,
+        node_bumps: u64,
+        final_edge_bump: bool,
+    ) -> PyResult<()> {
+        let edge_bumps = u64::try_from(edges.len())
+            .unwrap_or(u64::MAX)
+            .wrapping_add(u64::from(final_edge_bump));
+
+        for (canonical, node) in new_nodes {
+            self.node_key_map.entry(canonical.clone()).or_insert(node);
+            self.node_py_attrs
+                .entry(canonical)
+                .or_insert_with(|| PyDict::new(py).unbind());
+        }
+        for (u, v, _, src) in &edges {
+            let dict = self
+                .edge_py_attrs
+                .entry(Self::edge_key(u, v))
+                .or_insert_with(|| PyDict::new(py).unbind());
+            if let Some(src) = src {
+                dict.bind(py).update(src.bind(py).as_mapping())?;
+            }
+        }
+
+        let _inserted = self
+            .inner
+            .extend_edges_with_attrs_unrecorded(edges.into_iter().map(|(u, v, a, _)| (u, v, a)));
+        self.nodes_seq = self.nodes_seq.wrapping_add(node_bumps);
+        self.edges_seq = self.edges_seq.wrapping_add(edge_bumps);
+        Ok(())
+    }
+
+    fn try_add_attr_edge_batch(
+        &mut self,
+        py: Python<'_>,
+        ebunch_to_add: &Bound<'_, PyAny>,
+        final_edge_bump: bool,
+    ) -> PyResult<bool> {
+        const ATTR_EDGE_BATCH_MIN: usize = 8;
+        if let Ok(list) = ebunch_to_add.downcast::<PyList>() {
+            if list.len() < ATTR_EDGE_BATCH_MIN {
+                return Ok(false);
+            }
+            if let Some((edges, new_nodes, node_bumps)) =
+                self.collect_attr_edge_batch(py, list.iter(), list.len())?
+            {
+                self.add_attr_edge_batch(py, edges, new_nodes, node_bumps, final_edge_bump)?;
+                return Ok(true);
+            }
+        } else if let Ok(tuple) = ebunch_to_add.downcast::<PyTuple>()
+            && tuple.len() >= ATTR_EDGE_BATCH_MIN
+            && let Some((edges, new_nodes, node_bumps)) =
+                self.collect_attr_edge_batch(py, tuple.iter(), tuple.len())?
+        {
+            self.add_attr_edge_batch(py, edges, new_nodes, node_bumps, final_edge_bump)?;
+            return Ok(true);
+        }
+        Ok(false)
+    }
+
     #[allow(dead_code)] // Used by directed algorithm bindings (bd-uode.3).
     pub(crate) fn new_empty(py: Python<'_>) -> PyResult<Self> {
         Self::new_empty_with_mode(py, CompatibilityMode::Strict)
@@ -3177,6 +3468,13 @@ impl PyDiGraph {
         self.edges_dirty.store(true, Ordering::Relaxed);
     }
 }
+
+type DiEdgeBatch = (Vec<(String, String)>, Vec<(String, PyObject)>, u64);
+type DiAttrEdgeBatch = (
+    Vec<(String, String, AttrMap, Option<Py<PyDict>>)>,
+    Vec<(String, PyObject)>,
+    u64,
+);
 
 #[pymethods]
 impl PyDiGraph {
@@ -3255,6 +3553,9 @@ impl PyDiGraph {
                     }
                 }
                 g.graph_attrs = other.graph_attrs.bind(py).copy()?.unbind();
+            } else if g.try_add_plain_edge_batch(py, data, false)?
+                || g.try_add_attr_edge_batch(py, data, false)?
+            {
             } else if let Ok(iter) = PyIterator::from_object(data) {
                 for item in iter {
                     let item = item?;
@@ -3604,6 +3905,13 @@ impl PyDiGraph {
         ebunch_to_add: &Bound<'_, PyAny>,
         attr: Option<&Bound<'_, PyDict>>,
     ) -> PyResult<()> {
+        let has_global_attr = attr.is_some_and(|a| !a.is_empty());
+        if !has_global_attr && self.try_add_plain_edge_batch(py, ebunch_to_add, true)? {
+            return Ok(());
+        }
+        if !has_global_attr && self.try_add_attr_edge_batch(py, ebunch_to_add, true)? {
+            return Ok(());
+        }
         let iter = PyIterator::from_object(ebunch_to_add)?;
         for item in iter {
             let item = item?;

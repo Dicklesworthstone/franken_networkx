@@ -144,3 +144,27 @@ def test_small_batches_below_gate_still_match():
             return g
         a, b = _both(build)
         assert a == b
+
+
+def test_digraph_attr_batch_preserves_direction_and_mirrors():
+    batch = (
+        [(i, i + 1, {"w": i, "label": f"f{i}"}) for i in range(12)]
+        + [(1, 0, {"w": 99, "rev": True}), (0, 1, {"extra": "last"})]
+    )
+
+    def build(mod):
+        g = mod.DiGraph()
+        g.add_edges_from(batch)
+        return g
+
+    a, b = _both(build)
+    assert a == b
+
+    g = build(fnx)
+    assert g.get_edge_data(0, 1) == {"w": 0, "label": "f0", "extra": "last"}
+    assert g.get_edge_data(1, 0) == {"w": 99, "rev": True}
+    assert list(g.successors(0)) == [1]
+    assert list(g.predecessors(0)) == [1]
+
+    ctor = fnx.DiGraph(batch)
+    assert _canon(ctor) == _canon(nx.DiGraph(batch))
