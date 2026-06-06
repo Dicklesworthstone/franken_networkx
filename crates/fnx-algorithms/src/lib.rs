@@ -2021,6 +2021,22 @@ pub fn single_source_shortest_path_length_borrowed<'a>(
     source: &str,
     cutoff: Option<usize>,
 ) -> Vec<(&'a str, usize)> {
+    single_source_shortest_path_length_with_parents_borrowed(graph, source, cutoff)
+        .into_iter()
+        .map(|(node, dist, _parent)| (node, dist))
+        .collect()
+}
+
+/// br-r37-c1-6hpa9: BFS lengths WITH the discovering parent — lets the
+/// Python bindings reproduce nx's discovery-object semantics (each
+/// node's display object is its parent's adjacency-row object) without
+/// a second walk. Parent is `None` for the source.
+#[must_use]
+pub fn single_source_shortest_path_length_with_parents_borrowed<'a>(
+    graph: &'a Graph,
+    source: &str,
+    cutoff: Option<usize>,
+) -> Vec<(&'a str, usize, Option<&'a str>)> {
     let nodes: Vec<&str> = graph.nodes_ordered();
     let n = nodes.len();
 
@@ -2029,10 +2045,10 @@ pub fn single_source_shortest_path_length_borrowed<'a>(
     };
 
     // Track results in BFS order as we discover nodes
-    let mut result: Vec<(&str, usize)> = Vec::with_capacity(n);
+    let mut result: Vec<(&str, usize, Option<&str>)> = Vec::with_capacity(n);
     let mut visited = vec![false; n];
     visited[source_idx] = true;
-    result.push((nodes[source_idx], 0));
+    result.push((nodes[source_idx], 0, None));
 
     let mut frontier: Vec<usize> = vec![source_idx];
     let mut level = 0usize;
@@ -2049,7 +2065,7 @@ pub fn single_source_shortest_path_length_borrowed<'a>(
                 for &nbr_idx in neighbor_indices {
                     if !visited[nbr_idx] {
                         visited[nbr_idx] = true;
-                        result.push((nodes[nbr_idx], level + 1));
+                        result.push((nodes[nbr_idx], level + 1, Some(nodes[node_idx])));
                         next_frontier.push(nbr_idx);
                     }
                 }
@@ -2076,14 +2092,28 @@ pub fn single_source_shortest_path_length_directed(
     // undirected single_source_shortest_path_length_borrowed). The previous
     // HashMap return scrambled the key order, so the public Python dict no
     // longer matched nx's BFS-ordered mapping on directed graphs.
-    let mut result: Vec<(String, usize)> = Vec::new();
+    single_source_shortest_path_length_directed_with_parents(digraph, source, cutoff)
+        .into_iter()
+        .map(|(node, dist, _parent)| (node, dist))
+        .collect()
+}
+
+/// br-r37-c1-6hpa9: directed BFS lengths WITH the discovering parent —
+/// see single_source_shortest_path_length_with_parents_borrowed.
+#[must_use]
+pub fn single_source_shortest_path_length_directed_with_parents(
+    digraph: &DiGraph,
+    source: &str,
+    cutoff: Option<usize>,
+) -> Vec<(String, usize, Option<String>)> {
+    let mut result: Vec<(String, usize, Option<String>)> = Vec::new();
     if !digraph.has_node(source) {
         return result;
     }
 
     let mut visited: HashSet<&str> = HashSet::new();
     visited.insert(source);
-    result.push((source.to_owned(), 0));
+    result.push((source.to_owned(), 0, None));
 
     let mut frontier: Vec<&str> = vec![source];
     let mut level = 0usize;
@@ -2099,7 +2129,7 @@ pub fn single_source_shortest_path_length_directed(
             if let Some(successors) = digraph.successors_iter(node) {
                 for nbr in successors {
                     if visited.insert(nbr) {
-                        result.push((nbr.to_owned(), level + 1));
+                        result.push((nbr.to_owned(), level + 1, Some(node.to_owned())));
                         next_frontier.push(nbr);
                     }
                 }
@@ -15210,6 +15240,86 @@ pub fn bfs_layers_multi(graph: &Graph, sources: &[&str]) -> Vec<Vec<String>> {
                 for neighbor in neighbors {
                     if visited.insert(neighbor) {
                         next_layer.push(neighbor);
+                    }
+                }
+            }
+        }
+        current_layer = next_layer;
+    }
+
+    layers
+}
+
+/// br-r37-c1-6hpa9: multi-source BFS layers WITH the discovering parent
+/// (None for sources) — lets bindings reproduce nx's discovery-object
+/// semantics without a second walk.
+#[must_use]
+pub fn bfs_layers_multi_with_parents(
+    graph: &Graph,
+    sources: &[&str],
+) -> Vec<Vec<(String, Option<String>)>> {
+    let mut layers: Vec<Vec<(String, Option<String>)>> = Vec::new();
+    let mut visited: HashSet<&str> = HashSet::new();
+
+    let mut current_layer: Vec<(&str, Option<&str>)> = Vec::new();
+    for &s in sources {
+        if graph.has_node(s) && visited.insert(s) {
+            current_layer.push((s, None));
+        }
+    }
+
+    while !current_layer.is_empty() {
+        layers.push(
+            current_layer
+                .iter()
+                .map(|&(s, p)| (s.to_owned(), p.map(str::to_owned)))
+                .collect(),
+        );
+        let mut next_layer: Vec<(&str, Option<&str>)> = Vec::new();
+        for &(node, _) in &current_layer {
+            if let Some(neighbors) = graph.neighbors(node) {
+                for neighbor in neighbors {
+                    if visited.insert(neighbor) {
+                        next_layer.push((neighbor, Some(node)));
+                    }
+                }
+            }
+        }
+        current_layer = next_layer;
+    }
+
+    layers
+}
+
+/// br-r37-c1-6hpa9: directed sibling of bfs_layers_multi_with_parents.
+#[must_use]
+pub fn bfs_layers_directed_multi_with_parents(
+    digraph: &DiGraph,
+    sources: &[&str],
+) -> Vec<Vec<(String, Option<String>)>> {
+    let mut layers: Vec<Vec<(String, Option<String>)>> = Vec::new();
+    let mut visited: HashSet<&str> = HashSet::new();
+
+    let mut current_layer: Vec<(&str, Option<&str>)> = Vec::new();
+    for &s in sources {
+        if digraph.has_node(s) && visited.insert(s) {
+            current_layer.push((s, None));
+        }
+    }
+
+    while !current_layer.is_empty() {
+        layers.push(
+            current_layer
+                .iter()
+                .map(|&(s, p)| (s.to_owned(), p.map(str::to_owned)))
+                .collect(),
+        );
+        let mut next_layer: Vec<(&str, Option<&str>)> = Vec::new();
+        for &(node, _) in &current_layer {
+            if let Some(succs) = digraph.successors(node) {
+                for succ in succs {
+                    if visited.insert(succ) {
+                        next_layer.push((succ, Some(node)));
                     }
                 }
             }

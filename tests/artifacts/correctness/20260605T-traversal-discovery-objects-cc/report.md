@@ -25,3 +25,20 @@ single_source_shortest_path_length + unweighted shortest_path (HOT path
 — needs kernel (node, len, parent) output; bolting a second BFS walk
 per call would tax every caller), descendants_at_distance.
 edge_dfs/edge_bfs/generic_bfs_edges verified already matching.
+
+## Batch 2 (this commit)
+Kernels now emit the discovering parent for free:
+- fnx-algorithms: single_source_shortest_path_length{_borrowed,
+  _directed}_with_parents (old fns delegate, parents dropped);
+  bfs_layers{,_directed}_multi_with_parents.
+- sssp_length binding: dict keys = source-as-passed / parent's row
+  object — and key ORDER stays BFS discovery order.
+- bfs_layers binding: single + multi source via the parent-emitting
+  kernels; ALSO two more nx behaviors pinned: layer 0 is
+  `list(set(sources))` — CPython SET iteration order, reproduced
+  exactly by building a real PySet in-process (any hash seed); and
+  missing sources raise NetworkXError (binding previously skipped
+  silently).
+Remaining on the bead: unweighted shortest_path path-reconstruction
+family (predecessor maps; same kernel addition serves it) and
+descendants_at_distance.

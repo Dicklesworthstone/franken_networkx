@@ -162,3 +162,52 @@ class TestDiscoveryObjectFamily:
         assert self._rr(dict(fnx.bfs_successors(gf, 0))) == self._rr(
             dict(nx.bfs_successors(gn, 0))
         )
+
+
+class TestDiscoveryObjectsKernelEmitted:
+    """br-r37-c1-6hpa9 batch 2: kernels emit (node, len, parent) so
+    sssp_length and bfs_layers carry nx discovery objects with no
+    second walk."""
+
+    def _mixed(self, mod, directed=True):
+        g = (mod.DiGraph if directed else mod.Graph)()
+        g.add_node(28)
+        g.add_edge(7, 28.0)
+        g.add_edge(28.0, 5)
+        g.add_edge(5, 9)
+        return g
+
+    @pytest.mark.parametrize("directed", [True, False])
+    def test_sssp_length_keys(self, directed):
+        gf, gn = self._mixed(fnx, directed), self._mixed(nx, directed)
+        df = {repr(k): v for k, v in fnx.single_source_shortest_path_length(gf, 7).items()}
+        dn = {repr(k): v for k, v in nx.single_source_shortest_path_length(gn, 7).items()}
+        assert df == dn
+        # key ORDER too (BFS discovery order)
+        assert [repr(k) for k in fnx.single_source_shortest_path_length(gf, 7)] == [
+            repr(k) for k in nx.single_source_shortest_path_length(gn, 7)
+        ]
+
+    @pytest.mark.parametrize("directed", [True, False])
+    def test_sssp_length_cutoff(self, directed):
+        gf, gn = self._mixed(fnx, directed), self._mixed(nx, directed)
+        df = {repr(k): v for k, v in fnx.single_source_shortest_path_length(gf, 7, cutoff=1).items()}
+        dn = {repr(k): v for k, v in nx.single_source_shortest_path_length(gn, 7, cutoff=1).items()}
+        assert df == dn
+
+    @pytest.mark.parametrize("directed", [True, False])
+    def test_bfs_layers_single_and_multi(self, directed):
+        gf, gn = self._mixed(fnx, directed), self._mixed(nx, directed)
+        assert [[repr(n) for n in layer] for layer in fnx.bfs_layers(gf, 7)] == [
+            [repr(n) for n in layer] for layer in nx.bfs_layers(gn, 7)
+        ]
+        assert [[repr(n) for n in layer] for layer in fnx.bfs_layers(gf, [7, 9])] == [
+            [repr(n) for n in layer] for layer in nx.bfs_layers(gn, [7, 9])
+        ]
+
+    def test_source_object_passes_through(self):
+        # nx returns the SOURCE exactly as passed
+        gf, gn = self._mixed(fnx), self._mixed(nx)
+        kf = next(iter(fnx.single_source_shortest_path_length(gf, 7)))
+        kn = next(iter(nx.single_source_shortest_path_length(gn, 7)))
+        assert repr(kf) == repr(kn) == "7"

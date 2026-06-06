@@ -6407,63 +6407,82 @@ pub fn bfs_layers(
     sources: &Bound<'_, PyAny>,
 ) -> PyResult<Vec<Vec<PyObject>>> {
     let gr = extract_graph(g)?;
+    // br-r37-c1-6hpa9: nx layer members carry DISCOVERY objects — sources
+    // as passed, every other node as its discovering parent's
+    // adjacency-row object. The _with_parents kernels emit the parent for
+    // free; seeds map canonical -> passed object.
+    let emit = |layers: Vec<Vec<(String, Option<String>)>>,
+                seeds: &std::collections::HashMap<String, PyObject>|
+     -> Vec<Vec<PyObject>> {
+        layers
+            .into_iter()
+            .map(|layer| {
+                layer
+                    .into_iter()
+                    .map(|(n, parent)| match parent {
+                        Some(p) => gr.py_row_key(py, &p, &n),
+                        None => seeds
+                            .get(n.as_str())
+                            .map_or_else(|| gr.py_node_key(py, &n), |o| o.clone_ref(py)),
+                    })
+                    .collect()
+            })
+            .collect()
+    };
     // sources can be a single node or iterable of nodes
     let source_key = node_key_to_string(py, sources)?;
     if gr.has_node(&source_key) {
         // Single source
-        let layers = match &gr {
-            GraphRef::Directed { dg, .. } => {
-                let __dg_inner = &dg.inner;
-                py.allow_threads(|| fnx_algorithms::bfs_layers_directed(__dg_inner, &source_key))
-            }
-
-            GraphRef::Undirected(pg) => {
-                let inner = &pg.inner;
-
-                py.allow_threads(|| fnx_algorithms::bfs_layers(inner, &source_key))
-            }
-            _ => {
-                if gr.is_directed() {
-                    {
-                        let __gr_digraph = gr.digraph().expect("is_directed checked above");
-                        py.allow_threads(|| {
-                            fnx_algorithms::bfs_layers_directed(__gr_digraph, &source_key)
-                        })
-                    }
-                } else {
-                    let inner = gr.undirected();
-
-                    py.allow_threads(|| fnx_algorithms::bfs_layers(inner, &source_key))
-                }
-            }
+        let source_refs = [source_key.as_str()];
+        let layers = if gr.is_directed() {
+            let __gr_digraph = gr.digraph().expect("is_directed checked above");
+            py.allow_threads(|| {
+                fnx_algorithms::bfs_layers_directed_multi_with_parents(__gr_digraph, &source_refs)
+            })
+        } else {
+            let inner = gr.undirected();
+            py.allow_threads(|| fnx_algorithms::bfs_layers_multi_with_parents(inner, &source_refs))
         };
-        return Ok(layers
-            .into_iter()
-            .map(|layer| layer.iter().map(|n| gr.py_node_key(py, n)).collect())
-            .collect());
+        let mut seeds = std::collections::HashMap::new();
+        seeds.insert(source_key, sources.clone().unbind());
+        return Ok(emit(layers, &seeds));
     }
 
     // Try as iterable of source nodes
     if let Ok(iter) = sources.try_iter() {
-        let source_keys: Vec<String> = iter
-            .map(|item| node_key_to_string(py, &item?))
-            .collect::<PyResult<Vec<_>>>()?;
+        // br-r37-c1-6hpa9: nx does `visited = set(sources);
+        // current_layer = list(visited)` — layer 0 (and therefore the
+        // whole traversal seed order) is CPython SET iteration order.
+        // Build a real PySet in-process so the order matches nx exactly
+        // at any hash seed.
+        let items: Vec<Bound<'_, PyAny>> = iter.collect::<PyResult<Vec<_>>>()?;
+        let py_set = pyo3::types::PySet::new(py, &items)?;
+        let mut source_keys: Vec<String> = Vec::new();
+        let mut seeds: std::collections::HashMap<String, PyObject> =
+            std::collections::HashMap::new();
+        for item in py_set.iter() {
+            let k = node_key_to_string(py, &item)?;
+            if !gr.has_node(&k) {
+                // nx raises NetworkXError (not NodeNotFound) here.
+                return Err(NetworkXError::new_err(format!(
+                    "The node {} is not in the graph.",
+                    item.repr()?
+                )));
+            }
+            seeds.entry(k.clone()).or_insert_with(|| item.unbind());
+            source_keys.push(k);
+        }
         let source_refs: Vec<&str> = source_keys.iter().map(String::as_str).collect();
         let layers = if gr.is_directed() {
-            {
-                let __gr_digraph = gr.digraph().expect("is_directed checked above");
-                py.allow_threads(|| {
-                    fnx_algorithms::bfs_layers_directed_multi(__gr_digraph, &source_refs)
-                })
-            }
+            let __gr_digraph = gr.digraph().expect("is_directed checked above");
+            py.allow_threads(|| {
+                fnx_algorithms::bfs_layers_directed_multi_with_parents(__gr_digraph, &source_refs)
+            })
         } else {
             let inner = gr.undirected();
-            py.allow_threads(|| fnx_algorithms::bfs_layers_multi(inner, &source_refs))
+            py.allow_threads(|| fnx_algorithms::bfs_layers_multi_with_parents(inner, &source_refs))
         };
-        return Ok(layers
-            .into_iter()
-            .map(|layer| layer.iter().map(|n| gr.py_node_key(py, n)).collect())
-            .collect());
+        return Ok(emit(layers, &seeds));
     }
 
     Err(NodeNotFound::new_err(format!(
@@ -8734,21 +8753,41 @@ pub fn single_source_shortest_path_length(
     let gr = extract_graph(g)?;
     let source_key = node_key_to_string(py, source)?;
     let dict = pyo3::types::PyDict::new(py);
+    // br-r37-c1-6hpa9: nx's dict keys carry DISCOVERY objects — the source
+    // as passed, every other node as its discovering parent's
+    // adjacency-row object. The _with_parents kernels emit the parent for
+    // free (no second walk).
     if gr.is_directed() {
         let inner = gr.digraph().expect("is_directed checked above");
         let result = py.allow_threads(|| {
-            fnx_algorithms::single_source_shortest_path_length_directed(inner, &source_key, cutoff)
+            fnx_algorithms::single_source_shortest_path_length_directed_with_parents(
+                inner,
+                &source_key,
+                cutoff,
+            )
         });
-        for (node, length) in &result {
-            dict.set_item(gr.py_node_key(py, node), *length)?;
+        for (node, length, parent) in &result {
+            let key = match parent {
+                Some(p) => gr.py_row_key(py, p, node),
+                None => source.clone().unbind(),
+            };
+            dict.set_item(key, *length)?;
         }
     } else {
         let inner = gr.undirected();
         let result = py.allow_threads(|| {
-            fnx_algorithms::single_source_shortest_path_length(inner, &source_key, cutoff)
+            fnx_algorithms::single_source_shortest_path_length_with_parents_borrowed(
+                inner,
+                &source_key,
+                cutoff,
+            )
         });
-        for (node, length) in &result {
-            dict.set_item(gr.py_node_key(py, node), *length)?;
+        for (node, length, parent) in &result {
+            let key = match parent {
+                Some(p) => gr.py_row_key(py, p, node),
+                None => source.clone().unbind(),
+            };
+            dict.set_item(key, *length)?;
         }
     };
     Ok(dict.into_any().unbind())
