@@ -1,0 +1,106 @@
+{
+  "results": [
+    {
+      "command": "PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260606T-connectivity-disconnected-shortcircuit-cod/connectivity_shortcircuit.py --mode before-node --iterations 20",
+      "mean": 0.47502398732,
+      "stddev": 0.04119709885995741,
+      "median": 0.47706693022,
+      "user": 3.8305666599999997,
+      "system": 0.06032588000000001,
+      "min": 0.41992975322000003,
+      "max": 0.54864547822,
+      "times": [
+        0.41992975322000003,
+        0.47704993322000006,
+        0.42671738822000005,
+        0.44631362122,
+        0.44983033222,
+        0.47936436622,
+        0.47708392722000004,
+        0.54864547822,
+        0.50349352522,
+        0.5218115482200001
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260606T-connectivity-disconnected-shortcircuit-cod/connectivity_shortcircuit.py --mode after-node --iterations 20",
+      "mean": 0.35461051252,
+      "stddev": 0.038741852741166254,
+      "median": 0.35170942022,
+      "user": 3.54415546,
+      "system": 0.06227298,
+      "min": 0.27164472422,
+      "max": 0.40200156922,
+      "times": [
+        0.39387321422000005,
+        0.34663527022,
+        0.34377686622000003,
+        0.27164472422,
+        0.32804217622000004,
+        0.34054706022000003,
+        0.40200156922,
+        0.39390723922000004,
+        0.36889343522,
+        0.35678357022
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260606T-connectivity-disconnected-shortcircuit-cod/connectivity_shortcircuit.py --mode nx-node --iterations 20",
+      "mean": 0.44872308962000007,
+      "stddev": 0.1215207783490627,
+      "median": 0.39271546722000006,
+      "user": 3.25967286,
+      "system": 0.06562428000000001,
+      "min": 0.32768286622000004,
+      "max": 0.6670984992200001,
+      "times": [
+        0.36980667522000005,
+        0.32768286622000004,
+        0.34569501922,
+        0.34889378822,
+        0.41562425922,
+        0.35493168322,
+        0.5701582832200001,
+        0.6670984992200001,
+        0.5203246422200001,
+        0.5670151802200001
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

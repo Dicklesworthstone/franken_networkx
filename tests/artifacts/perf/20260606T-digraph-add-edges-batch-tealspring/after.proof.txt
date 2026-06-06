@@ -1,0 +1,1 @@
+{"cases": 7, "golden_sha256": "c26ab33288789e025ffed65fcc5b16944599b308cb1bdf8895e2870f2528b6eb", "known_nonparity_cases": 1, "parity_cases": 6}

@@ -1,0 +1,58 @@
+         267004 function calls (266994 primitive calls) in 0.181 seconds
+
+   Ordered by: cumulative time
+   List reduced from 115 to 50 due to restriction <50>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.010    0.010    0.181    0.181 /data/projects/franken_networkx/tests/artifacts/perf/20260606T-grid-2d-graph-tealspring/grid_2d_perf.py:87(bench)
+     10/5    0.000    0.000    0.171    0.034 /data/projects/.scratch/franken_networkx-grid-baseline-tealspring-20260606T0029/python/franken_networkx/__init__.py:45354(wrapper)
+        5    0.004    0.001    0.171    0.034 /data/projects/.scratch/franken_networkx-grid-baseline-tealspring-20260606T0029/python/franken_networkx/__init__.py:20681(grid_2d_graph)
+       10    0.022    0.002    0.119    0.012 /data/projects/.scratch/franken_networkx-grid-baseline-tealspring-20260606T0029/python/franken_networkx/__init__.py:2581(add_edges_from)
+       10    0.081    0.008    0.081    0.008 {function Graph.add_edges_from at 0x71a0e9e4fb00}
+    18000    0.008    0.000    0.047    0.000 /data/projects/.scratch/franken_networkx-grid-baseline-tealspring-20260606T0029/python/franken_networkx/__init__.py:2311(add_node)
+    18000    0.037    0.000    0.037    0.000 {function Graph.add_node at 0x71a0e9e4f100}
+    88800    0.007    0.000    0.007    0.000 {built-in method builtins.hash}
+    35416    0.003    0.000    0.003    0.000 {method 'append' of 'list' objects}
+    17705    0.003    0.000    0.003    0.000 /data/projects/.scratch/franken_networkx-grid-baseline-tealspring-20260606T0029/python/franken_networkx/__init__.py:20694(<genexpr>)
+    35420    0.002    0.000    0.002    0.000 {built-in method builtins.len}
+    35461    0.002    0.000    0.002    0.000 {built-in method builtins.isinstance}
+    17705    0.002    0.000    0.002    0.000 /data/projects/.scratch/franken_networkx-grid-baseline-tealspring-20260606T0029/python/franken_networkx/__init__.py:20695(<genexpr>)
+        5    0.000    0.000    0.001    0.000 /data/projects/.scratch/franken_networkx-grid-baseline-tealspring-20260606T0029/python/franken_networkx/__init__.py:16615(empty_graph)
+        5    0.000    0.000    0.001    0.000 /data/projects/.scratch/franken_networkx-grid-baseline-tealspring-20260606T0029/python/franken_networkx/__init__.py:41105(_classic_default_graph_type)
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/utils/decorators.py:783(func)
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/utils/decorators.py:715(_lazy_compile)
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/utils/decorators.py:869(compile)
+        5    0.000    0.000    0.000    0.000 <class 'networkx.utils.decorators.argmap'> compilation 4:1(argmap___new___1)
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/utils/decorators.py:917(assemble)
+        5    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/utils/backends.py:554(_call_if_any_backends_installed)
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/utils/decorators.py:1059(signature)
+      2/1    0.000    0.000    0.000    0.000 /usr/lib/python3.13/inspect.py:3373(signature)
+      2/1    0.000    0.000    0.000    0.000 /usr/lib/python3.13/inspect.py:3094(from_callable)
+      2/1    0.000    0.000    0.000    0.000 /usr/lib/python3.13/inspect.py:2487(_signature_from_callable)
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/utils/backends.py:503(__signature__)
+        1    0.000    0.000    0.000    0.000 {built-in method builtins.compile}
+        5    0.000    0.000    0.000    0.000 {built-in method franken_networkx._fnx.empty_graph}
+        5    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/classes/graph.py:349(__init__)
+        1    0.000    0.000    0.000    0.000 /usr/lib/python3.13/inspect.py:2383(_signature_from_function)
+        5    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-grid-baseline-tealspring-20260606T0029/python/franken_networkx/__init__.py:31687(number_of_edges)
+        5    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-grid-baseline-tealspring-20260606T0029/python/franken_networkx/__init__.py:31678(number_of_nodes)
+        5    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-grid-baseline-tealspring-20260606T0029/python/franken_networkx/__init__.py:5510(predicate)
+       25    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-grid-baseline-tealspring-20260606T0029/python/franken_networkx/__init__.py:31020(_private_override)
+        5    0.000    0.000    0.000    0.000 <frozen abc>:117(__instancecheck__)
+        3    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/utils/decorators.py:849(_name)
+        5    0.000    0.000    0.000    0.000 {built-in method _abc._abc_instancecheck}
+       15    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-grid-baseline-tealspring-20260606T0029/python/franken_networkx/__init__.py:41070(_nodes_or_number_local)
+        1    0.000    0.000    0.000    0.000 /usr/lib/python3.13/logging/__init__.py:2129(getLogger)
+        5    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-grid-baseline-tealspring-20260606T0029/python/franken_networkx/__init__.py:31028(_has_networkx_private_storage)
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+        3    0.000    0.000    0.000    0.000 /usr/lib/python3.13/re/__init__.py:183(sub)
+        3    0.000    0.000    0.000    0.000 {method 'join' of 'str' objects}
+        1    0.000    0.000    0.000    0.000 /usr/lib/python3.13/logging/__init__.py:1362(getLogger)
+        4    0.000    0.000    0.000    0.000 /usr/lib/python3.13/inspect.py:2754(__init__)
+        5    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/utils/backends.py:1484(_call_with_backend)
+        5    0.000    0.000    0.000    0.000 <frozen abc>:121(__subclasscheck__)
+        4    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/utils/decorators.py:1195(_indent)
+        5    0.000    0.000    0.000    0.000 /usr/lib/python3.13/logging/__init__.py:1765(isEnabledFor)
+        5    0.000    0.000    0.000    0.000 {built-in method _abc._abc_subclasscheck}
+
+

@@ -1,0 +1,38 @@
+         1067291 function calls (1067266 primitive calls) in 0.871 seconds
+
+   Ordered by: cumulative time
+   List reduced from 118 to 30 due to restriction <30>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.058    0.058    0.871    0.871 grid_2d_native.py:56(bench)
+       20    0.000    0.000    0.813    0.041 grid_2d_native.py:46(make_graph)
+    40/20    0.000    0.000    0.813    0.041 __init__.py:45369(wrapper)
+       20    0.026    0.001    0.812    0.041 __init__.py:20681(grid_2d_graph)
+       40    0.110    0.003    0.600    0.015 __init__.py:2581(add_edges_from)
+       40    0.417    0.010    0.417    0.010 {function Graph.add_edges_from at 0x7c2337147740}
+    72000    0.030    0.000    0.183    0.000 __init__.py:2311(add_node)
+    72000    0.147    0.000    0.147    0.000 {function Graph.add_node at 0x7c2337146d40}
+   355200    0.030    0.000    0.030    0.000 {built-in method builtins.hash}
+    70820    0.013    0.000    0.013    0.000 __init__.py:20709(<genexpr>)
+   141631    0.011    0.000    0.011    0.000 {method 'append' of 'list' objects}
+   141680    0.010    0.000    0.010    0.000 {built-in method builtins.len}
+   141773    0.008    0.000    0.009    0.000 {built-in method builtins.isinstance}
+    70820    0.008    0.000    0.008    0.000 __init__.py:20710(<genexpr>)
+       20    0.000    0.000    0.002    0.000 __init__.py:16615(empty_graph)
+       20    0.000    0.000    0.002    0.000 __init__.py:41120(_classic_default_graph_type)
+       20    0.000    0.000    0.001    0.000 <class 'networkx.utils.decorators.argmap'> compilation 4:1(argmap___new___1)
+       20    0.001    0.000    0.001    0.000 backends.py:554(_call_if_any_backends_installed)
+        1    0.000    0.000    0.000    0.000 decorators.py:783(func)
+        1    0.000    0.000    0.000    0.000 decorators.py:715(_lazy_compile)
+        1    0.000    0.000    0.000    0.000 decorators.py:869(compile)
+       20    0.000    0.000    0.000    0.000 __init__.py:31702(number_of_edges)
+       20    0.000    0.000    0.000    0.000 graph.py:349(__init__)
+       20    0.000    0.000    0.000    0.000 __init__.py:5510(predicate)
+       20    0.000    0.000    0.000    0.000 {built-in method franken_networkx._fnx.empty_graph}
+       20    0.000    0.000    0.000    0.000 __init__.py:31043(_has_networkx_private_storage)
+        1    0.000    0.000    0.000    0.000 decorators.py:917(assemble)
+       20    0.000    0.000    0.000    0.000 <frozen abc>:117(__instancecheck__)
+        1    0.000    0.000    0.000    0.000 decorators.py:1059(signature)
+       20    0.000    0.000    0.000    0.000 {built-in method _abc._abc_instancecheck}
+
+

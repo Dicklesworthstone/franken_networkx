@@ -1,0 +1,26 @@
+         140 function calls in 0.033 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.006    0.006    0.033    0.033 /data/projects/franken_networkx/tests/artifacts/perf/20260606T-grid-2d-graph-tealspring/grid_2d_perf.py:87(bench)
+        5    0.000    0.000    0.028    0.006 /data/projects/franken_networkx/python/franken_networkx/__init__.py:45369(wrapper)
+        5    0.000    0.000    0.028    0.006 /data/projects/franken_networkx/python/franken_networkx/__init__.py:20681(grid_2d_graph)
+        5    0.027    0.005    0.027    0.005 {built-in method franken_networkx._fnx.grid_2d_graph_simple}
+        5    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:31693(number_of_nodes)
+       25    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:31035(_private_override)
+        5    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:31702(number_of_edges)
+        5    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:31043(_has_networkx_private_storage)
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+       25    0.000    0.000    0.000    0.000 {built-in method builtins.vars}
+        5    0.000    0.000    0.000    0.000 {function _private_aware_number_of_nodes.<locals>.number_of_nodes at 0x7aeff98c5580}
+       25    0.000    0.000    0.000    0.000 {method 'get' of 'dict' objects}
+        5    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:295(number_of_edges)
+        5    0.000    0.000    0.000    0.000 {built-in method builtins.hasattr}
+        5    0.000    0.000    0.000    0.000 {built-in method builtins.isinstance}
+        5    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:20379(_validate_backend_dispatch_keywords)
+        5    0.000    0.000    0.000    0.000 {function Graph.number_of_edges at 0x7aeff98c5800}
+        2    0.000    0.000    0.000    0.000 {built-in method time.perf_counter}
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/tests/artifacts/perf/20260606T-grid-2d-graph-tealspring/grid_2d_perf.py:18(_impl)
+
+

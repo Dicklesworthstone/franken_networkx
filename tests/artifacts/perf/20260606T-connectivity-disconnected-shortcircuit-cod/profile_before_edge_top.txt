@@ -1,0 +1,120 @@
+{
+  "bead": "br-r37-c1-c1gz0",
+  "elapsed_seconds": 0.7315602180315182,
+  "iterations": 20,
+  "mode": "before-edge",
+  "result": 0,
+  "seconds_per_call": 0.036578010901575905
+}
+         2116203 function calls (2109117 primitive calls) in 1.134 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+       47    0.006    0.000    1.292    0.027 __init__.py:1(<module>)
+    479/1    0.003    0.000    1.134    1.134 {built-in method builtins.exec}
+        1    0.000    0.000    1.134    1.134 connectivity_shortcircuit.py:1(<module>)
+        1    0.000    0.000    0.740    0.740 connectivity_shortcircuit.py:102(main)
+        1    0.000    0.000    0.732    0.732 connectivity_shortcircuit.py:33(time_loop)
+       20    0.000    0.000    0.732    0.037 connectivity_shortcircuit.py:113(<lambda>)
+       20    0.000    0.000    0.731    0.037 connectivity_shortcircuit.py:51(old_delegated_edge)
+       20    0.000    0.000    0.731    0.037 __init__.py:6635(_call_networkx_for_parity)
+   160/40    0.002    0.000    0.433    0.011 backends.py:554(_call_if_any_backends_installed)
+       20    0.000    0.000    0.433    0.022 <class 'networkx.utils.decorators.argmap'> compilation 8:1(argmap_edge_connectivity_5)
+   160/40    0.008    0.000    0.433    0.011 backends.py:1484(_call_with_backend)
+       20    0.000    0.000    0.426    0.021 connectivity.py:646(edge_connectivity)
+    524/9    0.002    0.000    0.394    0.044 <frozen importlib._bootstrap>:1349(_find_and_load)
+    504/9    0.002    0.000    0.393    0.044 <frozen importlib._bootstrap>:1304(_find_and_load_unlocked)
+    490/9    0.001    0.000    0.392    0.044 <frozen importlib._bootstrap>:911(_load_unlocked)
+    463/9    0.001    0.000    0.392    0.044 <frozen importlib._bootstrap_external>:1020(exec_module)
+  1093/18    0.001    0.000    0.382    0.021 <frozen importlib._bootstrap>:480(_call_with_frames_removed)
+   444/39    0.000    0.000    0.323    0.008 {built-in method builtins.__import__}
+  557/104    0.001    0.000    0.322    0.003 <frozen importlib._bootstrap>:1390(_handle_fromlist)
+       20    0.005    0.000    0.297    0.015 __init__.py:6081(_networkx_graph_for_parity)
+       20    0.054    0.003    0.292    0.015 backend.py:606(_fnx_to_nx)
+       20    0.000    0.000    0.285    0.014 <class 'networkx.utils.decorators.argmap'> compilation 20:1(argmap_build_residual_network_17)
+       20    0.058    0.003    0.284    0.014 utils.py:80(build_residual_network)
+        2    0.000    0.000    0.192    0.096 nx_pylab.py:1(<module>)
+        2    0.000    0.000    0.191    0.095 layout.py:1(<module>)
+       20    0.000    0.000    0.138    0.007 <class 'networkx.utils.decorators.argmap'> compilation 12:1(argmap_build_auxiliary_edge_connectivity_9)
+       20    0.011    0.001    0.137    0.007 utils.py:63(build_auxiliary_edge_connectivity)
+        1    0.000    0.000    0.128    0.128 __config__.py:1(<module>)
+        1    0.000    0.000    0.098    0.098 multiarray.py:1(<module>)
+    24020    0.048    0.000    0.095    0.000 backend.py:490(_topo_emit_edges_by_adj)
+       40    0.088    0.002    0.095    0.002 digraph.py:500(add_nodes_from)
+    24000    0.059    0.000    0.088    0.000 digraph.py:748(add_edges_from)
+    47880    0.055    0.000    0.082    0.000 digraph.py:677(add_edge)
+       20    0.039    0.002    0.078    0.004 graph.py:584(add_nodes_from)
+      463    0.003    0.000    0.067    0.000 <frozen importlib._bootstrap_external>:1093(get_code)
+      490    0.001    0.000    0.058    0.000 <frozen importlib._bootstrap>:806(module_from_spec)
+        1    0.000    0.000    0.050    0.050 _arraypad_impl.py:1(<module>)
+        9    0.000    0.000    0.050    0.006 <frozen importlib._bootstrap_external>:1318(create_module)
+        1    0.000    0.000    0.050    0.050 _index_tricks_impl.py:1(<module>)
+        9    0.050    0.006    0.050    0.006 {built-in method _imp.create_dynamic}
+      9/8    0.000    0.000    0.049    0.006 <frozen importlib._bootstrap_external>:1326(exec_module)
+      9/8    0.046    0.005    0.049    0.006 {built-in method _imp.exec_dynamic}
+        1    0.000    0.000    0.047    0.047 defmatrix.py:1(<module>)
+        1    0.000    0.000    0.047    0.047 _linalg.py:1(<module>)
+   316282    0.042    0.000    0.042    0.000 {method 'update' of 'dict' objects}
+   320510    0.041    0.000    0.041    0.000 {method 'get' of 'dict' objects}
+      463    0.005    0.000    0.040    0.000 <frozen importlib._bootstrap_external>:782(_compile_bytecode)
+  265/139    0.002    0.000    0.040    0.000 typing.py:426(inner)
+      463    0.035    0.000    0.035    0.000 {built-in method marshal.loads}
+       20    0.026    0.001    0.034    0.002 graph.py:986(add_edges_from)
+    30020    0.009    0.000    0.029    0.000 backend.py:635(<genexpr>)
+      500    0.002    0.000    0.029    0.000 <frozen importlib._bootstrap>:1240(_find_spec)
+      204    0.001    0.000    0.027    0.000 typing.py:1423(__init__)
+        1    0.001    0.001    0.025    0.025 __init__.py:45016(_bulk_add_backend_dispatch_kwargs)
+      482    0.000    0.000    0.025    0.000 <frozen importlib._bootstrap_external>:1551(find_spec)
+      482    0.001    0.000    0.024    0.000 <frozen importlib._bootstrap_external>:1522(_get_spec)
+    77940    0.019    0.000    0.024    0.000 backend.py:539(_is_ready)
+    47960    0.016    0.000    0.022    0.000 reportviews.py:799(<genexpr>)
+      679    0.005    0.000    0.022    0.000 <frozen importlib._bootstrap_external>:1624(find_spec)
+        1    0.000    0.000    0.021    0.021 _char_codes.py:1(<module>)
+       50    0.000    0.000    0.021    0.000 typing.py:580(__getitem__)
+      7/2    0.000    0.000    0.021    0.010 decorators.py:783(func)
+       50    0.000    0.000    0.021    0.000 typing.py:812(Literal)
+      208    0.017    0.000    0.021    0.000 typing.py:260(_collect_type_parameters)
+    30000    0.018    0.000    0.020    0.000 __init__.py:4813(__getitem__)
+     1333    0.007    0.000    0.019    0.000 backends.py:218(__new__)
+        1    0.000    0.000    0.019    0.019 backends.py:1(<module>)
+    71960    0.012    0.000    0.018    0.000 misc.py:645(_clear_cache)
+  584/569    0.006    0.000    0.017    0.000 {built-in method builtins.__build_class__}
+       40    0.005    0.000    0.016    0.000 {built-in method builtins.sum}
+      463    0.001    0.000    0.016    0.000 <frozen importlib._bootstrap_external>:1214(get_data)
+  623/616    0.000    0.000    0.016    0.000 inspect.py:3373(signature)
+       20    0.016    0.001    0.016    0.001 {built-in method franken_networkx._fnx.fnx_to_nx_adjacency}
+  623/616    0.000    0.000    0.016    0.000 inspect.py:3094(from_callable)
+  627/616    0.002    0.000    0.016    0.000 inspect.py:2487(_signature_from_callable)
+    23940    0.005    0.000    0.015    0.000 graph.py:509(__getitem__)
+    14160    0.004    0.000    0.014    0.000 backend.py:549(<genexpr>)
+     1264    0.003    0.000    0.013    0.000 decorators.py:762(__call__)
+    24020    0.012    0.000    0.012    0.000 reportviews.py:1274(__iter__)
+    99425    0.011    0.000    0.012    0.000 {built-in method builtins.getattr}
+      604    0.004    0.000    0.012    0.000 inspect.py:2383(_signature_from_function)
+      509    0.003    0.000    0.011    0.000 __init__.py:45336(_make_wrapper)
+     1118    0.004    0.000    0.011    0.000 <frozen importlib._bootstrap>:304(acquire)
+        1    0.000    0.000    0.011    0.011 _dtype_like.py:1(<module>)
+        2    0.000    0.000    0.011    0.005 backends.py:45(_get_backends)
+     1892    0.001    0.000    0.011    0.000 <frozen importlib._bootstrap_external>:145(_path_stat)
+   101/31    0.000    0.000    0.010    0.000 typing.py:1452(__getitem__)
+    73/71    0.000    0.000    0.010    0.000 typing.py:574(__getitem__)
+       71    0.001    0.000    0.010    0.000 typing.py:753(Union)
+    23940    0.009    0.000    0.010    0.000 coreviews.py:81(__getitem__)
+     1915    0.010    0.000    0.010    0.000 {built-in method posix.stat}
+        1    0.000    0.000    0.010    0.010 _array_like.py:1(<module>)
+        1    0.000    0.000    0.010    0.010 einsumfunc.py:1(<module>)
+        1    0.000    0.000    0.009    0.009 _add_newdocs.py:1(<module>)
+        1    0.000    0.000    0.009    0.009 numeric.py:1(<module>)
+126982/126733    0.009    0.000    0.009    0.000 {built-in method builtins.len}
+      613    0.001    0.000    0.009    0.000 <frozen importlib._bootstrap>:463(_lock_unlock_module)
+        1    0.000    0.000    0.008    0.008 backends.py:118(_set_configs_from_environment)
+      350    0.000    0.000    0.008    0.000 function_base.py:490(add_newdoc)
+      373    0.005    0.000    0.008    0.000 inspect.py:891(cleandoc)
+        1    0.000    0.000    0.008    0.008 traveling_salesman.py:1(<module>)
+      294    0.000    0.000    0.008    0.000 __init__.py:330(_compile)
+        1    0.001    0.001    0.008    0.008 connectivity_shortcircuit.py:20(disconnected_selfloop_graph)
+    47880    0.007    0.000    0.007    0.000 graph.py:1303(has_edge)
+      505    0.000    0.000    0.007    0.000 <frozen importlib._bootstrap>:416(__enter__)
+    79000    0.007    0.000    0.007    0.000 {method 'popleft' of 'collections.deque' objects}
+       40    0.000    0.000    0.007    0.000 _compiler.py:743(compile)

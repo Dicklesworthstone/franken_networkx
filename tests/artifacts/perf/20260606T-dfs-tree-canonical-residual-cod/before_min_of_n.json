@@ -1,0 +1,29 @@
+{
+  "benchmark": "dfs_tree_residual",
+  "fnx_dfs_tree": {
+    "max_ms": 1.642158,
+    "median_ms": 0.61539,
+    "min_ms": 0.559028,
+    "p95_ms": 0.765759,
+    "p99_ms": 0.945018
+  },
+  "graph": {
+    "directed": true,
+    "edges": 2000,
+    "fixture": "networkx.gnm_random_graph(n=400, m=2000, directed=True)",
+    "nodes": 400,
+    "seed": 20260606,
+    "source": 0
+  },
+  "networkx_dfs_tree": {
+    "max_ms": 1.029448,
+    "median_ms": 0.539796,
+    "min_ms": 0.492422,
+    "p95_ms": 0.769898,
+    "p99_ms": 0.989223
+  },
+  "ratio_fnx_over_networkx_median": 1.1400417935664584,
+  "ratio_fnx_over_networkx_min": 1.1352620313470965,
+  "runs": 2000,
+  "warmup": 200
+}

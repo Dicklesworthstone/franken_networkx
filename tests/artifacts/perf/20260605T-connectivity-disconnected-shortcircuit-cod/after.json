@@ -1,0 +1,24 @@
+{
+  "best_seconds_per_call": 1.0659200294564167e-05,
+  "case": "node_selfloop",
+  "edges": 1200,
+  "loops": 30,
+  "mean_seconds_per_call": 1.1339172488078475e-05,
+  "median_seconds_per_call": 1.0853198667367299e-05,
+  "mode": "after",
+  "nodes": 1500,
+  "repeat": 11,
+  "values": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+  ]
+}

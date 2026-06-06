@@ -1,0 +1,1 @@
+{"cases": 128, "fnx_golden_sha256": "5afe6f5456b3c15cabadc8f778525ebfcde49103e989dc44d39295d8f249de5e", "known_nonparity_cases": 8, "parity_cases": 120}
