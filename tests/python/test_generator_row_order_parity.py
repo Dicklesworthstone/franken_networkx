@@ -41,3 +41,39 @@ GENS = [
 @pytest.mark.parametrize("name,fn", GENS)
 def test_generator_rows_match_nx(name, fn):
     assert _rows(fn(fnx)) == _rows(fn(nx)), name
+
+
+class TestMultigraphProjectionRowOrder:
+    """Generators-matrix follow-up: the MultiGraph->simple projections
+    (used by every algorithm running on Multi classes via GraphRef)
+    rebuilt from edges_ordered() — a u-major adjacency walk that HOISTS
+    reverse-orientation cells, scrambling row order and diverging
+    BFS/DFS tie-breaks from nx. Projections now restore the source's
+    row orders."""
+
+    @pytest.mark.parametrize("cls", ["MultiGraph", "MultiDiGraph"])
+    def test_traversal_from_hoisted_node(self, cls):
+        gn, gf = getattr(nx, cls)(), getattr(fnx, cls)()
+        for g in (gn, gf):
+            for e in [(0, 1), (1, 2), (2, 3), (3, 0), (3, 4)]:
+                g.add_edge(*e)
+        assert list(fnx.bfs_tree(gf, 3)) == list(nx.bfs_tree(gn, 3))
+        assert list(fnx.dfs_preorder_nodes(gf, 3)) == list(nx.dfs_preorder_nodes(gn, 3))
+
+    def test_random_multigraph_traversal_corpus(self):
+        import random
+
+        rnd = random.Random(7)
+        for trial in range(15):
+            cls = "MultiGraph" if trial % 2 else "MultiDiGraph"
+            gn, gf = getattr(nx, cls)(), getattr(fnx, cls)()
+            for _ in range(rnd.randrange(5, 40)):
+                u, v = rnd.randrange(9), rnd.randrange(9)
+                if u != v:
+                    gn.add_edge(u, v)
+                    gf.add_edge(u, v)
+            s = next(iter(gn))
+            assert list(fnx.bfs_tree(gf, s)) == list(nx.bfs_tree(gn, s)), trial
+            assert list(fnx.single_source_shortest_path_length(gf, s)) == list(
+                nx.single_source_shortest_path_length(gn, s)
+            ), trial

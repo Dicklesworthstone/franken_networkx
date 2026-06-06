@@ -488,6 +488,63 @@ fn sync_rust_attrs_if_available(g: &Bound<'_, PyAny>) -> PyResult<()> {
     }
 }
 
+/// generators-matrix follow-up 2026-06-06: every projection below builds
+/// its simple graph from `edges_ordered()` — a u-major adjacency walk
+/// that HOISTS reverse-orientation cells to the u side, scrambling the
+/// projection's row order vs the source multigraph (observable: BFS/DFS
+/// tie-breaks on MultiGraphs diverged from nx when traversing from a
+/// node whose row held a hoisted back-edge). Restore the source's row
+/// orders after building.
+fn mg_row_orders(mg: &fnx_classes::MultiGraph) -> Vec<(String, Vec<String>)> {
+    mg.nodes_ordered()
+        .iter()
+        .map(|n| {
+            (
+                (*n).to_owned(),
+                mg.neighbors(n)
+                    .unwrap_or_default()
+                    .iter()
+                    .map(|s| (*s).to_owned())
+                    .collect(),
+            )
+        })
+        .collect()
+}
+
+fn mdg_row_orders(
+    mdg: &fnx_classes::digraph::MultiDiGraph,
+) -> (Vec<(String, Vec<String>)>, Vec<(String, Vec<String>)>) {
+    let succ = mdg
+        .nodes_ordered()
+        .iter()
+        .map(|n| {
+            (
+                (*n).to_owned(),
+                mdg.successors(n)
+                    .unwrap_or_default()
+                    .iter()
+                    .map(|s| (*s).to_owned())
+                    .collect(),
+            )
+        })
+        .collect();
+    let pred = mdg
+        .nodes_ordered()
+        .iter()
+        .map(|n| {
+            (
+                (*n).to_owned(),
+                mdg.predecessors(n)
+                    .unwrap_or_default()
+                    .iter()
+                    .map(|s| (*s).to_owned())
+                    .collect(),
+            )
+        })
+        .collect();
+    (succ, pred)
+}
+
 /// Convert a MultiGraph to a simple Graph by collapsing parallel edges.
 /// Edge attributes from the first parallel edge (key 0) are kept.
 fn multigraph_to_simple_graph(mg: &fnx_classes::MultiGraph) -> fnx_classes::Graph {
@@ -503,6 +560,7 @@ fn multigraph_to_simple_graph(mg: &fnx_classes::MultiGraph) -> fnx_classes::Grap
             let _ = g.add_edge_with_attrs(edge.left, edge.right, edge.attrs);
         }
     }
+    g.apply_row_orders(&mg_row_orders(mg)); // restore source row orders (u-major walk hoists)
     g.set_runtime_policy(runtime_policy);
     g
 }
@@ -554,6 +612,7 @@ fn multigraph_to_pagerank_simple_graph(
         let _ = g.add_edge_with_attrs(left, right, pagerank_weight_attrs(weight));
     }
 
+    g.apply_row_orders(&mg_row_orders(mg)); // restore source row orders (u-major walk hoists)
     g.set_runtime_policy(runtime_policy);
     g
 }
@@ -580,6 +639,11 @@ fn multidigraph_to_pagerank_simple_digraph(
         let _ = dg.add_edge_with_attrs(source, target, pagerank_weight_attrs(weight));
     }
 
+    {
+        let (succ_orders, pred_orders) = mdg_row_orders(mdg);
+        dg.apply_row_orders(&succ_orders, false);
+        dg.apply_row_orders(&pred_orders, true);
+    } // restore source row orders (u-major walk hoists)
     dg.set_runtime_policy(runtime_policy);
     dg
 }
@@ -624,6 +688,7 @@ fn multigraph_to_weighted_simple_graph(
         }
     }
 
+    g.apply_row_orders(&mg_row_orders(mg)); // restore source row orders (u-major walk hoists)
     g.set_runtime_policy(runtime_policy);
     g
 }
@@ -643,6 +708,11 @@ fn multidigraph_to_simple_digraph(
             let _ = dg.add_edge_with_attrs(edge.source, edge.target, edge.attrs);
         }
     }
+    {
+        let (succ_orders, pred_orders) = mdg_row_orders(mdg);
+        dg.apply_row_orders(&succ_orders, false);
+        dg.apply_row_orders(&pred_orders, true);
+    } // restore source row orders (u-major walk hoists)
     dg.set_runtime_policy(runtime_policy);
     dg
 }
@@ -687,6 +757,11 @@ fn multidigraph_to_weighted_simple_digraph(
         }
     }
 
+    {
+        let (succ_orders, pred_orders) = mdg_row_orders(mdg);
+        dg.apply_row_orders(&succ_orders, false);
+        dg.apply_row_orders(&pred_orders, true);
+    } // restore source row orders (u-major walk hoists)
     dg.set_runtime_policy(runtime_policy);
     dg
 }
@@ -9814,14 +9889,15 @@ fn rust_graph_to_py_with_source_edge_attrs(
 /// Convert a Rust Graph to a Python Graph using NetworkX-style integer labels
 /// when the canonical keys are numeric.
 fn rust_graph_to_py_standalone(py: Python<'_>, result: &fnx_classes::Graph) -> PyResult<PyObject> {
-    // generators-matrix 2026-06-06: clone the inner graph WHOLESALE
-    // instead of rebuilding from edges_ordered() — that iteration is
-    // canonical-key sorted, so any kernel whose insertion order isn't
-    // already sorted came out with SCRAMBLED adjacency rows (tadpole's
-    // cycle-closing edge, sudoku's three passes; the old wheel_graph
-    // Python-path workaround br-r37-c1-o97vk was this same bug class).
-    // The clone preserves row structure exactly and skips the rebuild;
-    // attr mirrors stay lazy (l5ve7 lever-7 convention).
+    // generators-matrix 2026-06-06 (mechanism corrected in follow-up):
+    // clone the inner graph WHOLESALE instead of rebuilding from
+    // edges_ordered() — that iteration is a U-MAJOR ADJACENCY WALK that
+    // HOISTS reverse-orientation cells to the u side (NOT a sort), so
+    // any kernel with hoistable insertions came out with SCRAMBLED
+    // adjacency rows (tadpole's cycle-closing edge, sudoku's three
+    // passes; the old wheel_graph Python-path workaround br-r37-c1-o97vk
+    // was this same bug class). The clone preserves row structure
+    // exactly and skips the rebuild; attr mirrors stay lazy.
     let mut py_graph =
         PyGraph::new_empty_with_policy(py, fnx_runtime::RuntimePolicy::new(result.mode()))?;
     py_graph.inner = result.clone_with_fresh_policy();
@@ -9845,24 +9921,21 @@ fn rust_digraph_to_py_standalone(
     py: Python<'_>,
     result: &fnx_classes::digraph::DiGraph,
 ) -> PyResult<PyObject> {
-    let mut py_graph =
-        crate::digraph::PyDiGraph::new_empty_with_policy(py, result.runtime_policy().clone())?;
+    // generators-matrix follow-up 2026-06-06: clone the inner digraph
+    // WHOLESALE — the old edges_ordered() rebuild (a succ-major walk)
+    // preserved succ rows but scrambled PRED rows (the w7nn3 class);
+    // the Graph sibling had the adj-row version of this bug. Lazy
+    // mirrors, fresh ledger.
+    let mut py_graph = crate::digraph::PyDiGraph::new_empty_with_policy(
+        py,
+        fnx_runtime::RuntimePolicy::new(result.mode()),
+    )?;
+    py_graph.inner = result.clone_with_fresh_policy();
     for node in result.nodes_ordered() {
         let py_key = crate::unwrap_infallible(node.to_owned().into_pyobject(py))
             .into_any()
             .unbind();
         py_graph.node_key_map.insert(node.to_owned(), py_key);
-        py_graph
-            .node_py_attrs
-            .insert(node.to_owned(), pyo3::types::PyDict::new(py).unbind());
-        py_graph.inner.add_node(node);
-    }
-    for edge in result.edges_ordered() {
-        let _ = py_graph.inner.add_edge(&edge.left, &edge.right);
-        py_graph.edge_py_attrs.insert(
-            (edge.left.clone(), edge.right.clone()),
-            pyo3::types::PyDict::new(py).unbind(),
-        );
     }
     Ok(py_graph.into_pyobject(py)?.into_any().unbind())
 }

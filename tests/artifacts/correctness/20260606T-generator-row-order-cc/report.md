@@ -25,3 +25,20 @@ full_rary_tree binomial_tree balanced_tree path(0) null trivial
 tadpole complete/cycle(DiGraph) path/star(iterables) hypercube
 triangular_lattice hexagonal_lattice sudoku chvatal petersen
 mycielski. Full pytest 21776 passed, 0 failed.
+
+## Follow-up: the u-major-hoist class generalized (same session arc)
+MECHANISM CORRECTED: edges_ordered() is NOT sorted — it is a u-major
+adjacency walk that HOISTS reverse-orientation cells to the u side
+(same family as the copy()-walk and w7nn3 conversion classes). Swept
+the remaining rebuild sites:
+- rust_digraph_to_py_standalone: succ rows survived the rebuild but
+  PRED rows scrambled — now wholesale clone_with_fresh_policy.
+- ALL SIX MultiGraph/MultiDiGraph -> simple projections (used by every
+  algorithm on Multi classes via GraphRef): rebuilt rows hoisted —
+  OBSERVABLE bug: BFS/DFS tie-breaks on MultiGraphs diverged from nx
+  when traversing from a node holding a hoisted back-edge (probe
+  needed the right shape: from-the-hoisted-node; the first probe from
+  elsewhere passed because the hoisted neighbor was already visited).
+  Projections now apply_row_orders from the source.
+Battery sha db7a82ae (repro + 25-trial random multigraph traversal
+corpus); full pytest 21790 passed.
