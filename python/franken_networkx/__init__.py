@@ -355,6 +355,11 @@ def _remove_edge_with_networkx_missing_edge_error(
                 if not self.has_edge(u, v):
                     raise NetworkXError(missing_edge_message.format(u=u, v=v))
             elif not self.has_edge(u, v, key):
+                # mutation-matrix r3: nx's `self._adj[u][v]` KeyError fires
+                # BEFORE key handling — a missing PAIR reports without the
+                # key; only a present pair with a missing KEY mentions it.
+                if not self.has_edge(u, v):
+                    raise NetworkXError(missing_edge_message.format(u=u, v=v))
                 raise NetworkXError(f"The edge {u}-{v} with key {key} is not in the graph.")
             return remove_edge_impl(self, u, v, key)
 

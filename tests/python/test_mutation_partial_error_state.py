@@ -75,3 +75,35 @@ def test_add_edge_creates_u_before_v_error(cls, args):
     except Exception as e:
         ef = type(e).__name__
     assert (en, sorted(map(repr, gn))) == (ef, sorted(map(repr, gf)))
+
+
+@pytest.mark.parametrize("cls", ["MultiGraph", "MultiDiGraph"])
+def test_remove_edge_missing_pair_message_omits_key(cls):
+    """Mutation matrix r3: nx's `self._adj[u][v]` KeyError fires BEFORE
+    key handling — a missing PAIR reports without the key; only a
+    present pair with a missing KEY mentions it."""
+    gn, gf = getattr(nx, cls)(), getattr(fnx, cls)()
+    for g in (gn, gf):
+        g.add_edge(0, 1, key="k")
+    # missing pair WITH explicit key: no key in message
+    try:
+        gn.remove_edge(5, 6, key=0)
+    except Exception as e:
+        en = (type(e).__name__, str(e))
+    try:
+        gf.remove_edge(5, 6, key=0)
+    except Exception as e:
+        ef = (type(e).__name__, str(e))
+    assert en == ef
+    assert "with key" not in en[1]
+    # present pair, missing key: key in message
+    try:
+        gn.remove_edge(0, 1, key="zz")
+    except Exception as e:
+        en = (type(e).__name__, str(e))
+    try:
+        gf.remove_edge(0, 1, key="zz")
+    except Exception as e:
+        ef = (type(e).__name__, str(e))
+    assert en == ef
+    assert "with key zz" in en[1]
