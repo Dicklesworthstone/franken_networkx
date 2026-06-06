@@ -1431,6 +1431,102 @@ impl MultiDiGraph {
         self.add_edge_impl(source, target, None, AttrMap::new())
     }
 
+    /// br-r37-c1-l5ve7: bulk node insert WITH attrs, one ledger record —
+    /// MultiDiGraph mirror of DiGraph::extend_nodes_with_attrs_unrecorded.
+    /// Existing nodes merge attrs (extend).
+    pub fn extend_nodes_with_attrs_unrecorded<I>(&mut self, nodes: I) -> usize
+    where
+        I: IntoIterator<Item = (String, AttrMap)>,
+    {
+        let mut inserted = 0usize;
+        for (node, attrs) in nodes {
+            if let Some(existing) = self.nodes.get_mut(&node) {
+                existing.extend(attrs);
+                continue;
+            }
+            self.nodes.insert(node.clone(), attrs);
+            self.successors.entry(node.clone()).or_default();
+            self.predecessors.entry(node).or_default();
+            inserted += 1;
+        }
+        if inserted > 0 {
+            self.revision = self
+                .revision
+                .saturating_add(u64::try_from(inserted).unwrap_or(u64::MAX));
+            self.record_decision(
+                "extend_nodes_with_attrs_unrecorded",
+                0.0,
+                false,
+                vec![EvidenceTerm {
+                    signal: "batch_node_count".to_owned(),
+                    observed_value: inserted.to_string(),
+                    log_likelihood_ratio: -1.0,
+                }],
+            );
+        }
+        inserted
+    }
+
+    /// br-r37-c1-l5ve7: bulk KEYED edge insert WITH attrs, one ledger
+    /// record — for native copy/convert paths that replicate a source
+    /// multigraph's exact internal keys (add_edge_impl pays TWO
+    /// record_decision calls per edge). Endpoint nodes are created on
+    /// demand; an existing (u, v, key) cell merges attrs (extend),
+    /// matching add_edge_with_key_and_attrs.
+    pub fn extend_keyed_edges_with_attrs_unrecorded<I>(&mut self, edges: I) -> usize
+    where
+        I: IntoIterator<Item = (String, String, usize, AttrMap)>,
+    {
+        let mut inserted = 0usize;
+        for (source, target, key, attrs) in edges {
+            if !self.nodes.contains_key(&source) {
+                self.nodes.insert(source.clone(), AttrMap::new());
+                self.successors.entry(source.clone()).or_default();
+                self.predecessors.entry(source.clone()).or_default();
+            }
+            if source != target && !self.nodes.contains_key(&target) {
+                self.nodes.insert(target.clone(), AttrMap::new());
+                self.successors.entry(target.clone()).or_default();
+                self.predecessors.entry(target.clone()).or_default();
+            }
+            let edge_key = DirectedEdgeKey::new(&source, &target);
+            let bucket = self.edges.entry(edge_key).or_default();
+            if !bucket.contains_key(&key) {
+                self.edge_count += 1;
+                inserted += 1;
+            }
+            bucket.entry(key).or_default().extend(attrs);
+            self.successors
+                .entry(source.clone())
+                .or_default()
+                .entry(target.clone())
+                .or_default()
+                .insert(key);
+            self.predecessors
+                .entry(target)
+                .or_default()
+                .entry(source)
+                .or_default()
+                .insert(key);
+        }
+        if inserted > 0 {
+            self.revision = self
+                .revision
+                .saturating_add(u64::try_from(inserted).unwrap_or(u64::MAX));
+            self.record_decision(
+                "extend_keyed_edges_with_attrs_unrecorded",
+                0.0,
+                false,
+                vec![EvidenceTerm {
+                    signal: "batch_edge_count".to_owned(),
+                    observed_value: inserted.to_string(),
+                    log_likelihood_ratio: -1.0,
+                }],
+            );
+        }
+        inserted
+    }
+
     pub fn add_edge_with_attrs(
         &mut self,
         source: impl Into<String>,

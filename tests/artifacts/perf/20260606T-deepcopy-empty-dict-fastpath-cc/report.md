@@ -105,3 +105,20 @@ exists yet). Battery sha e125d1ed (16 MG<->MDG round-trips with
 parallel/explicit keys + deepcopy independence + mixed keys); host
 load 25+ so timing deferred to the quiet-host re-bench with
 union/compose.
+
+## Lever 8 (br-r37-c1-l5ve7): Multi keyed bulk-unrecorded API
+New MultiDiGraph::extend_nodes_with_attrs_unrecorded +
+extend_keyed_edges_with_attrs_unrecorded (add_edge_impl paid TWO
+record_decision calls per edge); PyMultiGraph::_native_to_directed_
+deepcopy routes through them with the SOURCE's internal keys preserved
+(the old path auto-keyed and re-mapped). MG.to_directed (12k edges):
+~110ms (1.4-1.7x) -> ~92ms (0.90-1.08x ~ parity). Golden sha
+IDENTICAL to lever 7 (e125d1ed) — bit-exact structure incl.
+explicit-key fidelity through removal.
+
+## Quiet-host scoreboard (load ~13, min-of-9, interleaved)
+to_directed 0.80x | to_undirected 0.90x | disjoint_union ~1.0x |
+union 1.4-1.9x | compose 1.5-2.3x | MG.to_directed ~1.0x.
+Remaining: union/compose residual (jittery 1.4-2.3x even quiet —
+profile the actual split next), MultiDiGraph.to_undirected bulk
+(needs a MultiGraph keyed bulk API, same recipe).

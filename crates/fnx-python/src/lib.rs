@@ -3129,6 +3129,8 @@ impl PyMultiGraph {
             edges_seq: 0,
             edges_dirty: AtomicBool::new(false),
         };
+        let mut node_batch: Vec<(String, fnx_classes::AttrMap)> =
+            Vec::with_capacity(self.inner.node_count());
         for node in self.inner.nodes_ordered() {
             let rust_attrs = if let Some(attrs) = self.node_py_attrs.get(node) {
                 let py_attrs = deepcopy_py_dict(py, &deepcopy, attrs)?;
@@ -3138,39 +3140,37 @@ impl PyMultiGraph {
             } else {
                 Default::default()
             };
-            mdg.inner.add_node_with_attrs(node.to_owned(), rust_attrs);
             mdg.node_key_map
                 .insert(node.to_owned(), self.py_node_key(py, node));
+            node_batch.push((node.to_owned(), rust_attrs));
         }
+        mdg.inner.extend_nodes_with_attrs_unrecorded(node_batch);
+        // br-r37-c1-l5ve7 lever 8: bulk KEYED inserts preserve the
+        // SOURCE's internal keys (the old per-edge add_edge_with_attrs
+        // auto-keyed and paid two ledger records per edge), keeping the
+        // display-key mapping 1:1 with the source.
+        let mut edge_batch: Vec<(String, String, usize, fnx_classes::AttrMap)> = Vec::new();
         for source in self.inner.nodes_ordered() {
             for target in self.inner.neighbors(source).unwrap_or_default() {
                 for key in self.inner.edge_keys(source, target).unwrap_or_default() {
                     let attrs_entry = self.edge_py_attrs.get(&Self::edge_key(source, target, key));
-                    let rust_attrs;
-                    let mirror = match attrs_entry {
+                    let rust_attrs = match attrs_entry {
                         Some(attrs) => {
                             let py_attrs = deepcopy_py_dict(py, &deepcopy, attrs)?;
-                            rust_attrs = py_dict_to_attr_map(py_attrs.bind(py))?;
-                            Some(py_attrs)
+                            let rust_attrs = py_dict_to_attr_map(py_attrs.bind(py))?;
+                            mdg.edge_py_attrs
+                                .insert((source.to_owned(), target.to_owned(), key), py_attrs);
+                            rust_attrs
                         }
-                        None => {
-                            rust_attrs = Default::default();
-                            None
-                        }
+                        None => Default::default(),
                     };
-                    let new_key = mdg
-                        .inner
-                        .add_edge_with_attrs(source.to_owned(), target.to_owned(), rust_attrs)
-                        .map_err(|e| NetworkXError::new_err(e.to_string()))?;
-                    if let Some(py_attrs) = mirror {
-                        mdg.edge_py_attrs
-                            .insert((source.to_owned(), target.to_owned(), new_key), py_attrs);
-                    }
                     let py_key = self.py_edge_key(py, source, target, key);
-                    mdg.remember_edge_key_object(py, source, target, new_key, &py_key);
+                    mdg.remember_edge_key_object(py, source, target, key, &py_key);
+                    edge_batch.push((source.to_owned(), target.to_owned(), key, rust_attrs));
                 }
             }
         }
+        mdg.inner.extend_keyed_edges_with_attrs_unrecorded(edge_batch);
         Ok(mdg)
     }
 
