@@ -2875,7 +2875,10 @@ impl PyMultiGraph {
     /// contract (br-r37-c1-3tlkj).
     fn _native_copy(&self, py: Python<'_>) -> PyResult<Self> {
         let mut new_graph = Self {
-            inner: MultiGraph::with_runtime_policy(self.inner.runtime_policy().clone()),
+            // br-r37-c1-7dpyg: fresh ledger, mode only (skip ledger clone)
+            inner: MultiGraph::with_runtime_policy(fnx_runtime::RuntimePolicy::new(
+                self.inner.mode(),
+            )),
             node_key_map: HashMap::new(),
             adj_py_keys: self.derive_copy_adj_py_keys(py), // br-r37-c1-z6uka
             node_py_attrs: HashMap::new(),
@@ -3068,7 +3071,7 @@ impl PyMultiGraph {
         // preserving node + edge + parallel-key insertion order exactly; only
         // the deep-copy of the Python attr dicts / key objects remains.
         let mut new_graph = Self {
-            inner: self.inner.clone(),
+            inner: self.inner.clone_with_fresh_policy(), // br-r37-c1-7dpyg: skip ledger
             node_key_map: HashMap::with_capacity(self.node_key_map.len()),
             adj_py_keys: self.derive_copy_adj_py_keys(py), // br-r37-c1-z6uka
             node_py_attrs: HashMap::with_capacity(self.node_py_attrs.len()),
@@ -3133,7 +3136,7 @@ impl PyMultiGraph {
         // buckets). Node/edge attr dicts are independent COPIES (fnx's
         // locked copy.copy contract — see test_adj_mapping_parity).
         Ok(Self {
-            inner: self.inner.clone(),
+            inner: self.inner.clone_with_fresh_policy(), // br-r37-c1-7dpyg: skip ledger
             node_key_map: self
                 .node_key_map
                 .iter()
@@ -5037,7 +5040,7 @@ impl PyGraph {
         // preserving node + edge insertion order exactly, so the only remaining
         // per-element work is the unavoidable deep-copy of the Python attr dicts.
         let mut new_graph = Self {
-            inner: self.inner.clone(),
+            inner: self.inner.clone_with_fresh_policy(), // br-r37-c1-7dpyg: skip ledger
             node_key_map: HashMap::with_capacity(self.node_key_map.len()),
             lazy_int_node_stop: 0,
             node_py_attrs: HashMap::with_capacity(self.node_py_attrs.len()),
@@ -5670,7 +5673,7 @@ impl PyGraph {
         // test_adj_mapping_parity; structural sharing is impossible across
         // Rust storages and the override pattern caused write-loss).
         Ok(Self {
-            inner: self.inner.clone(),
+            inner: self.inner.clone_with_fresh_policy(), // br-r37-c1-7dpyg: skip ledger
             node_key_map: self
                 .node_key_map
                 .iter()
