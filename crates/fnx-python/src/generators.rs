@@ -7,6 +7,7 @@ use crate::digraph::{PyDiGraph, PyMultiDiGraph};
 use crate::{PyGraph, PyObject, unwrap_infallible};
 use fnx_algorithms::stochastic_block_model as rust_stochastic_block_model;
 use fnx_generators::GraphGenerator;
+use fnx_runtime::CompatibilityMode;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
@@ -176,6 +177,35 @@ pub fn star_graph(py: Python<'_>, n: usize) -> PyResult<PyGraph> {
         .star_graph(n)
         .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e:?}")))?;
     report_to_pygraph(py, report.graph)
+}
+
+/// Build the default non-periodic 2-D grid graph in one native call.
+///
+/// Display keys are Python `(i, j)` int tuples while canonical keys use the
+/// same row-major tuple-string form as `Graph::grid_2d`.
+#[pyfunction]
+pub fn grid_2d_graph_simple(py: Python<'_>, m: usize, n: usize) -> PyResult<PyGraph> {
+    let graph = fnx_classes::Graph::grid_2d(CompatibilityMode::Strict, m, n);
+    let mut node_key_map: HashMap<String, PyObject> = HashMap::with_capacity(m * n);
+    for i in 0..m {
+        for j in 0..n {
+            let tuple = pyo3::types::PyTuple::new(py, [i, j])?;
+            node_key_map.insert(format!("({i}, {j})"), tuple.into_any().unbind());
+        }
+    }
+    Ok(PyGraph {
+        inner: graph,
+        node_key_map,
+        lazy_int_node_stop: 0,
+        node_py_attrs: HashMap::new(),
+        edge_py_attrs: HashMap::new(),
+        adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
+        dict_of_dicts_cache: None,
+        graph_attrs: PyDict::new(py).unbind(),
+        nodes_seq: 0,
+        edges_seq: 0,
+        edges_dirty: AtomicBool::new(false),
+    })
 }
 
 /// Return the complete graph K_n with ``n`` nodes.
@@ -504,6 +534,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(cycle_graph, m)?)?;
     m.add_function(wrap_pyfunction!(star_graph, m)?)?;
     m.add_function(wrap_pyfunction!(complete_graph, m)?)?;
+    m.add_function(wrap_pyfunction!(grid_2d_graph_simple, m)?)?;
     m.add_function(wrap_pyfunction!(gnp_random_graph, m)?)?;
     m.add_function(wrap_pyfunction!(watts_strogatz_graph, m)?)?;
     m.add_function(wrap_pyfunction!(barabasi_albert_graph, m)?)?;

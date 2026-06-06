@@ -226,6 +226,89 @@ impl Graph {
         graph
     }
 
+    /// Build a non-periodic 2-D grid with NetworkX's node and edge insertion
+    /// sequence. Canonical node keys are row-major all-int tuple strings like
+    /// "(i, j)".
+    #[must_use]
+    pub fn grid_2d(mode: CompatibilityMode, m: usize, n: usize) -> Self {
+        let node_count = m.saturating_mul(n);
+        let edge_capacity = m
+            .saturating_sub(1)
+            .saturating_mul(n)
+            .saturating_add(n.saturating_sub(1).saturating_mul(m));
+        let revision = u64::try_from(node_count)
+            .unwrap_or(u64::MAX)
+            .saturating_add(u64::try_from(edge_capacity).unwrap_or(u64::MAX));
+        let label = |i: usize, j: usize| format!("({i}, {j})");
+        let idx = |i: usize, j: usize| i * n + j;
+        let mut graph = Self {
+            mode,
+            revision,
+            nodes: IndexMap::with_capacity(node_count),
+            adjacency: IndexMap::with_capacity(node_count),
+            adj_indices: vec![Vec::with_capacity(4); node_count],
+            edge_index_endpoints: Vec::with_capacity(edge_capacity),
+            edges: IndexMap::with_capacity(edge_capacity),
+            runtime_policy: RuntimePolicy::new(mode),
+        };
+        for i in 0..m {
+            for j in 0..n {
+                let key = label(i, j);
+                graph.nodes.insert(key.clone(), AttrMap::new());
+                graph.adjacency.insert(key, IndexSet::with_capacity(4));
+            }
+        }
+        fn add_grid_edge(graph: &mut Graph, u: String, v: String, u_idx: usize, v_idx: usize) {
+            // add_edge appends v to row[u] first, then u to row[v].
+            let ek = EdgeKey::new(&u, &v);
+            if let Some(row) = graph.adjacency.get_mut(&u) {
+                row.insert(v.clone());
+            }
+            if let Some(row) = graph.adjacency.get_mut(&v) {
+                row.insert(u);
+            }
+            graph.adj_indices[u_idx].push(v_idx);
+            graph.adj_indices[v_idx].push(u_idx);
+            graph.edge_index_endpoints.push((u_idx, v_idx));
+            graph.edges.insert(ek, AttrMap::new());
+        }
+        // Phase 1: for (pi, i) in pairwise(rows), for j in cols.
+        for i in 1..m {
+            for j in 0..n {
+                add_grid_edge(
+                    &mut graph,
+                    label(i, j),
+                    label(i - 1, j),
+                    idx(i, j),
+                    idx(i - 1, j),
+                );
+            }
+        }
+        // Phase 2: for i in rows, for (pj, j) in pairwise(cols).
+        for i in 0..m {
+            for j in 1..n {
+                add_grid_edge(
+                    &mut graph,
+                    label(i, j),
+                    label(i, j - 1),
+                    idx(i, j),
+                    idx(i, j - 1),
+                );
+            }
+        }
+        graph.record_decision(
+            "grid_2d_bulk",
+            0.0,
+            false,
+            vec![EvidenceTerm {
+                signal: "nodes".to_owned(),
+                observed_value: node_count.to_string(),
+                log_likelihood_ratio: 0.0,
+            }],
+        );
+        graph
+    }
+
     #[must_use]
     pub fn hardened() -> Self {
         Self::new(CompatibilityMode::Hardened)

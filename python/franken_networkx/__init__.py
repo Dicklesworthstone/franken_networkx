@@ -20680,6 +20680,21 @@ def complete_bipartite_graph(n1, n2, create_using=None):
 
 def grid_2d_graph(m, n, periodic=False, create_using=None):
     """Return the two-dimensional grid graph."""
+    # Native one-call kernel for the default plain undirected, integer-sized,
+    # non-periodic surface. Other surfaces stay on the Python parity path.
+    if (
+        create_using is None
+        and type(m) is int
+        and type(n) is int
+        and m >= 0
+        and n >= 0
+        and not isinstance(periodic, tuple)
+        and not periodic
+        and _fnx is not None
+        and hasattr(_fnx, "grid_2d_graph_simple")
+    ):
+        return _fnx.grid_2d_graph_simple(m, n)
+
     m_value, rows = _nodes_or_number_local(m)
     n_value, cols = _nodes_or_number_local(n)
 

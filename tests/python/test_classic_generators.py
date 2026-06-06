@@ -208,6 +208,17 @@ class TestParametricGenerators:
         g = fnx.grid_2d_graph(3, 4)
         assert g.number_of_nodes() == 12
         assert g.number_of_edges() == 17
+        assert hasattr(fnx._fnx, "grid_2d_graph_simple")
+
+        import networkx as nx
+
+        expected = nx.grid_2d_graph(3, 4)
+        assert list(g.nodes()) == list(expected.nodes())
+        assert list(g.edges()) == list(expected.edges())
+        assert {
+            node: list(g[node])
+            for node in g.nodes()
+        } == {node: list(expected[node]) for node in expected.nodes()}
 
     def test_null_graph(self):
         g = fnx.null_graph()
@@ -1100,3 +1111,53 @@ class TestGeneratorErrorPathParity:
         fg = fnx.connected_watts_strogatz_graph(5, 5, 0.5, tries=10, seed=1)
         ng = nx.connected_watts_strogatz_graph(5, 5, 0.5, tries=10, seed=1)
         assert fg.number_of_edges() == ng.number_of_edges() == 10  # K_5
+
+
+class TestGrid2DNativeKernelParity:
+    """br-r37-c1-dnv8g: native grid_2d kernel vs nx and vs the fallback path."""
+
+    def _canon(self, g):
+        return (
+            [repr(n) for n in g.nodes()],
+            [(repr(u), repr(v)) for u, v in g.edges()],
+            {repr(n): [repr(x) for x in g[n]] for n in g},
+        )
+
+    def test_shapes_match_networkx(self):
+        import networkx as nx
+
+        for m, n in [(0, 0), (1, 1), (1, 6), (6, 1), (2, 2), (4, 3), (10, 10)]:
+            assert self._canon(fnx.grid_2d_graph(m, n)) == self._canon(
+                nx.grid_2d_graph(m, n)
+            ), (m, n)
+
+    def test_native_equals_fallback_path(self):
+        # create_using=fnx.Graph forces the Python fallback; outputs must be
+        # indistinguishable.
+        native = fnx.grid_2d_graph(5, 7)
+        fallback = fnx.grid_2d_graph(5, 7, create_using=fnx.Graph)
+        assert self._canon(native) == self._canon(fallback)
+
+    def test_node_keys_are_int_tuples(self):
+        k = next(iter(fnx.grid_2d_graph(3, 3)))
+        assert type(k) is tuple and all(type(x) is int for x in k)
+
+    def test_mutation_after_native_build(self):
+        import networkx as nx
+
+        gf, gn = fnx.grid_2d_graph(3, 3), nx.grid_2d_graph(3, 3)
+        for g in (gf, gn):
+            g.add_edge((0, 0), (2, 2), weight=5)
+            g.remove_node((1, 1))
+        assert self._canon(gf) == self._canon(gn)
+        assert dict(gf[(0, 0)][(2, 2)]) == dict(gn[(0, 0)][(2, 2)])
+
+    def test_periodic_and_bool_dims_use_fallback(self):
+        import networkx as nx
+
+        assert self._canon(fnx.grid_2d_graph(4, 5, periodic=True)) == self._canon(
+            nx.grid_2d_graph(4, 5, periodic=True)
+        )
+        assert self._canon(fnx.grid_2d_graph(True, 3)) == self._canon(
+            nx.grid_2d_graph(True, 3)
+        )
