@@ -26,10 +26,14 @@
   - FNX median: `0.012568845006171614s`
   - NetworkX median: `0.004415657982463017s`
   - Ratio: `2.8464262984337427x`
-- Hyperfine mean: `0.62525667418s`
-- Hyperfine median: `0.6375743217800001s`
+- Direct timing rerun:
+  - FNX median: `0.013103206467349082s`
+  - NetworkX median: `0.004526231961790472s`
+  - Ratio: `2.894948066728281x`
+- Hyperfine mean: `0.60463029102s`
+- Hyperfine median: `0.58709206232s`
 - cProfile, 200 FNX builds:
-  - native `_try_add_edges_from_batch`: `2.212s`
+  - native `_try_add_edges_from_batch`: `1.809s`
 
 ## Proof
 
@@ -52,8 +56,8 @@
 
 - Rejected.
 - Direct FNX median regressed `0.00863380846567452s -> 0.012568845006171614s`.
-- Hyperfine mean regressed `0.4241101131000001s -> 0.62525667418s`.
-- cProfile native time regressed `1.697s -> 2.212s`.
+- Hyperfine mean regressed `0.4241101131000001s -> 0.60463029102s`.
+- cProfile native time regressed `1.697s -> 1.809s`.
 - Score: Impact `0` x Confidence `5` / Effort `1` = `0.0`.
 - Source change was removed; only this rejection artifact remains.
 
