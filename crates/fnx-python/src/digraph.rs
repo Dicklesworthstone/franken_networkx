@@ -1935,13 +1935,21 @@ impl PyMultiDiGraph {
             node_batch.push((node.to_owned(), rust_attrs));
         }
         ug.inner.extend_nodes_with_attrs_unrecorded(node_batch);
-        // NOTE(br-r37-c1-l5ve7): the edge loop stays on per-edge adds —
-        // the reciprocal-arc merge resolves by PYTHON key identity
-        // (resolve_internal_edge_key), which a raw internal-key bulk
-        // insert cannot replicate when py keys coincide across
-        // orientations but internal keys differ. Needs a resolve-aware
-        // bulk routing (next lever) — don't swap without pinning that
-        // case.
+        // br-r37-c1-l5ve7 lever 10: RESOLVE-AWARE bulk — the reciprocal
+        // merge resolves arcs by their key's canonical lookup STRING
+        // (resolve_internal_edge_key compares edge_key_lookup_string).
+        // A local shadow map replicates that resolution against the
+        // accumulating result (the old per-edge path queried the result
+        // graph and paid two ledger records per arc); the miss path
+        // replicates the kernel's len-then-probe auto-key allocation.
+        let mut pair_keys: std::collections::HashMap<
+            (String, String),
+            (
+                std::collections::HashMap<String, usize>,
+                std::collections::HashSet<usize>,
+            ),
+        > = std::collections::HashMap::new();
+        let mut edge_batch: Vec<(String, String, usize, fnx_classes::AttrMap)> = Vec::new();
         for source in self.inner.nodes_ordered() {
             for target in self.inner.successors(source).unwrap_or_default() {
                 for key in self.inner.edge_keys(source, target).unwrap_or_default() {
@@ -1959,28 +1967,38 @@ impl PyMultiDiGraph {
                         }
                     };
                     let py_key = self.py_edge_key(py, source, target, key);
-                    let actual_key = if let Some(existing_key) =
-                        ug.resolve_internal_edge_key(py, source, target, py_key.bind(py).as_any())?
-                    {
-                        ug.inner
-                            .add_edge_with_key_and_attrs(
-                                source.to_owned(),
-                                target.to_owned(),
-                                existing_key,
-                                rust_attrs,
-                            )
-                            .map_err(|e| NetworkXError::new_err(e.to_string()))?
+                    let lookup = crate::edge_key_lookup_string(py, py_key.bind(py).as_any())?;
+                    let pair = if *source <= *target {
+                        (source.to_owned(), target.to_owned())
                     } else {
-                        ug.inner
-                            .add_edge_with_attrs(source.to_owned(), target.to_owned(), rust_attrs)
-                            .map_err(|e| NetworkXError::new_err(e.to_string()))?
+                        (target.to_owned(), source.to_owned())
+                    };
+                    let entry = pair_keys.entry(pair).or_default();
+                    let actual_key = match entry.0.get(&lookup) {
+                        Some(&existing) => existing,
+                        None => {
+                            // kernel auto-key: start at bucket len, probe up
+                            let mut k = entry.1.len();
+                            while entry.1.contains(&k) {
+                                k += 1;
+                            }
+                            entry.0.insert(lookup, k);
+                            entry.1.insert(k);
+                            k
+                        }
                     };
                     // lazy mirror: only materialize/merge when the source
                     // arc actually carries attrs (an empty dict's update
                     // is a no-op; absent entries are tolerated).
                     if let Some(py_attrs) = mirror {
                         let edge_key = crate::PyMultiGraph::edge_key(source, target, actual_key);
-                        if let Some(existing_attrs) = ug.edge_py_attrs.get(&edge_key) {
+                        let edge_key_rev =
+                            crate::PyMultiGraph::edge_key(target, source, actual_key);
+                        if let Some(existing_attrs) = ug
+                            .edge_py_attrs
+                            .get(&edge_key)
+                            .or_else(|| ug.edge_py_attrs.get(&edge_key_rev))
+                        {
                             existing_attrs
                                 .bind(py)
                                 .update(py_attrs.bind(py).as_mapping())?;
@@ -1989,9 +2007,11 @@ impl PyMultiDiGraph {
                         }
                     }
                     ug.remember_edge_key_object(py, source, target, actual_key, &py_key);
+                    edge_batch.push((source.to_owned(), target.to_owned(), actual_key, rust_attrs));
                 }
             }
         }
+        ug.inner.extend_keyed_edges_with_attrs_unrecorded(edge_batch);
         Ok(ug)
     }
 

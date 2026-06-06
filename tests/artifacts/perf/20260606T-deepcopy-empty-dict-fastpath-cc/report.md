@@ -134,3 +134,17 @@ coincide across orientations but internal keys differ; a resolve-aware
 bulk routing is the follow-on (in-code NOTE marks it). Battery sha
 f77b9bbb incl. reciprocal same-key arcs (the merge subtlety). Host
 load 41-61: timing deferred.
+
+## Lever 10 (br-r37-c1-l5ve7): resolve-aware MDG->MG edge bulk
+The lever-9 blocker resolved: resolve_internal_edge_key compares keys
+by canonical lookup STRING (edge_key_lookup_string), so a local shadow
+map ((unordered pair) -> lookup-string -> internal key, plus the
+kernel's len-then-probe auto-key allocation) replicates the
+reciprocal-arc merge exactly WITHOUT querying the accumulating result
+graph — enabling one bulk keyed insert (the old path paid two ledger
+records per arc). Battery sha bf4093b4: 20 trials with reciprocal
+SAME-key arcs (merge), reciprocal DIFF-key arcs (parallel), explicit
+string keys, and an MG<->MDG round-trip with int key 5 + auto keys.
+Host load 57-66: timing deferred (third hostile window in a row —
+quiet-host scoreboard refresh owed for union/compose + all Multi
+paths).
