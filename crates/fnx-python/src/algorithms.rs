@@ -6117,15 +6117,20 @@ pub fn bfs_tree(
         }
     };
 
-    let tree_policy = if gr.is_directed() {
-        gr.digraph()
-            .expect("is_directed checked above")
-            .runtime_policy()
-            .clone()
+    // br-r37-c1-wvbzw: do NOT clone the source's RuntimePolicy — its
+    // decision ledger is unbounded (one entry per recorded op, e.g. E
+    // entries after a per-edge ctor), and the old
+    // `runtime_policy().clone()` + `set_runtime_policy(tree_policy)`
+    // pair cloned it TWICE per call: bfs_tree on a ctor-built source was
+    // 5.3x slower than on an identical native-built one. The tree only
+    // needs the MODE; start a fresh ledger
+    // (reference_runtime_policy_clone_tax).
+    let tree_mode = if gr.is_directed() {
+        gr.digraph().expect("is_directed checked above").mode()
     } else {
-        gr.undirected().runtime_policy().clone()
+        gr.undirected().mode()
     };
-    let mut tree = crate::digraph::PyDiGraph::new_empty_with_policy(py, tree_policy.clone())?;
+    let mut tree = crate::digraph::PyDiGraph::new_empty_with_mode(py, tree_mode)?;
     let source_py = source.clone().unbind();
     let source_s = source_key.clone();
     tree.inner.add_node(&source_s);
@@ -6144,7 +6149,6 @@ pub fn bfs_tree(
     }
     let _inserted = tree.inner.extend_edges_unrecorded(edges);
 
-    tree.inner.set_runtime_policy(tree_policy);
     Ok(tree)
 }
 
@@ -6692,15 +6696,14 @@ pub fn dfs_tree(
     let edge_list = dfs_edges(py, g, source, depth_limit, None)?;
 
     let gr = extract_graph(g)?;
-    let tree_policy = if gr.is_directed() {
-        gr.digraph()
-            .expect("is_directed checked above")
-            .runtime_policy()
-            .clone()
+    // br-r37-c1-wvbzw: fresh ledger, mode only — see bfs_tree above
+    // (the double RuntimePolicy ledger clone dominated tree assembly).
+    let tree_mode = if gr.is_directed() {
+        gr.digraph().expect("is_directed checked above").mode()
     } else {
-        gr.undirected().runtime_policy().clone()
+        gr.undirected().mode()
     };
-    let mut tree = crate::digraph::PyDiGraph::new_empty_with_policy(py, tree_policy.clone())?;
+    let mut tree = crate::digraph::PyDiGraph::new_empty_with_mode(py, tree_mode)?;
 
     if let Some(s) = source {
         let sk = node_key_to_string(py, s)?;
@@ -6732,7 +6735,6 @@ pub fn dfs_tree(
             .insert((u_key, v_key), pyo3::types::PyDict::new(py).unbind());
     }
 
-    tree.inner.set_runtime_policy(tree_policy);
     Ok(tree)
 }
 
