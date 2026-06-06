@@ -3110,9 +3110,13 @@ impl PyMultiGraph {
         py: Python<'_>,
     ) -> PyResult<crate::digraph::PyMultiDiGraph> {
         let deepcopy = py.import("copy")?.getattr("deepcopy")?;
+        // br-r37-c1-l5ve7: fresh ledger (the policy clone deep-copied the
+        // source's unbounded decision ledger) + LAZY attr mirrors (the
+        // old loop allocated an empty PyDict per attr-less node/edge —
+        // the bindings tolerate absent entries throughout).
         let mut mdg = crate::digraph::PyMultiDiGraph {
             inner: fnx_classes::digraph::MultiDiGraph::with_runtime_policy(
-                self.inner.runtime_policy().clone(),
+                fnx_runtime::RuntimePolicy::new(self.inner.mode()),
             ),
             node_key_map: HashMap::new(),
             succ_py_keys: HashMap::new(), // br-r37-c1-z6uka
@@ -3126,31 +3130,42 @@ impl PyMultiGraph {
             edges_dirty: AtomicBool::new(false),
         };
         for node in self.inner.nodes_ordered() {
-            let py_attrs = self.node_py_attrs.get(node).map_or_else(
-                || Ok(PyDict::new(py).unbind()),
-                |attrs| deepcopy_py_dict(py, &deepcopy, attrs),
-            )?;
-            let rust_attrs = py_dict_to_attr_map(py_attrs.bind(py))?;
+            let rust_attrs = if let Some(attrs) = self.node_py_attrs.get(node) {
+                let py_attrs = deepcopy_py_dict(py, &deepcopy, attrs)?;
+                let rust_attrs = py_dict_to_attr_map(py_attrs.bind(py))?;
+                mdg.node_py_attrs.insert(node.to_owned(), py_attrs);
+                rust_attrs
+            } else {
+                Default::default()
+            };
             mdg.inner.add_node_with_attrs(node.to_owned(), rust_attrs);
             mdg.node_key_map
                 .insert(node.to_owned(), self.py_node_key(py, node));
-            mdg.node_py_attrs.insert(node.to_owned(), py_attrs);
         }
         for source in self.inner.nodes_ordered() {
             for target in self.inner.neighbors(source).unwrap_or_default() {
                 for key in self.inner.edge_keys(source, target).unwrap_or_default() {
                     let attrs_entry = self.edge_py_attrs.get(&Self::edge_key(source, target, key));
-                    let py_attrs = attrs_entry.map_or_else(
-                        || Ok(PyDict::new(py).unbind()),
-                        |attrs| deepcopy_py_dict(py, &deepcopy, attrs),
-                    )?;
-                    let rust_attrs = py_dict_to_attr_map(py_attrs.bind(py))?;
+                    let rust_attrs;
+                    let mirror = match attrs_entry {
+                        Some(attrs) => {
+                            let py_attrs = deepcopy_py_dict(py, &deepcopy, attrs)?;
+                            rust_attrs = py_dict_to_attr_map(py_attrs.bind(py))?;
+                            Some(py_attrs)
+                        }
+                        None => {
+                            rust_attrs = Default::default();
+                            None
+                        }
+                    };
                     let new_key = mdg
                         .inner
                         .add_edge_with_attrs(source.to_owned(), target.to_owned(), rust_attrs)
                         .map_err(|e| NetworkXError::new_err(e.to_string()))?;
-                    mdg.edge_py_attrs
-                        .insert((source.to_owned(), target.to_owned(), new_key), py_attrs);
+                    if let Some(py_attrs) = mirror {
+                        mdg.edge_py_attrs
+                            .insert((source.to_owned(), target.to_owned(), new_key), py_attrs);
+                    }
                     let py_key = self.py_edge_key(py, source, target, key);
                     mdg.remember_edge_key_object(py, source, target, new_key, &py_key);
                 }

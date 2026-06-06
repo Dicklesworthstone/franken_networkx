@@ -92,3 +92,16 @@ Interleaved bench (NOISY window — nx itself swung 24-39ms): union
 2.57x -> ~1.9x, compose ~1.9x (was 2.98x at family baseline). Golden
 sha 0606c2bd (union disjoint+attrs+error+rename, compose overlap
 merges, cross-part mixed-key cells), full pytest 21774.
+
+## Lever 7 (br-r37-c1-l5ve7): Multi deepcopy variants — fresh ledger + lazy mirrors
+PyMultiGraph::_native_to_directed_deepcopy and
+PyMultiDiGraph::_native_to_undirected_deepcopy still cloned the
+source's unbounded decision ledger AND allocated an empty PyDict
+mirror per attr-less node/edge. Both now use RuntimePolicy::new(mode)
++ lazy mirrors (the reciprocal-merge path skips no-op empty-dict
+updates). Per-edge recorded adds REMAIN — the keyed bulk-unrecorded
+API for Multi classes is the next lever (no MultiDiGraph::extend_*
+exists yet). Battery sha e125d1ed (16 MG<->MDG round-trips with
+parallel/explicit keys + deepcopy independence + mixed keys); host
+load 25+ so timing deferred to the quiet-host re-bench with
+union/compose.
