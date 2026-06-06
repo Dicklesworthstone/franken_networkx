@@ -9814,7 +9814,17 @@ fn rust_graph_to_py_with_source_edge_attrs(
 /// Convert a Rust Graph to a Python Graph using NetworkX-style integer labels
 /// when the canonical keys are numeric.
 fn rust_graph_to_py_standalone(py: Python<'_>, result: &fnx_classes::Graph) -> PyResult<PyObject> {
-    let mut py_graph = PyGraph::new_empty_with_policy(py, result.runtime_policy().clone())?;
+    // generators-matrix 2026-06-06: clone the inner graph WHOLESALE
+    // instead of rebuilding from edges_ordered() — that iteration is
+    // canonical-key sorted, so any kernel whose insertion order isn't
+    // already sorted came out with SCRAMBLED adjacency rows (tadpole's
+    // cycle-closing edge, sudoku's three passes; the old wheel_graph
+    // Python-path workaround br-r37-c1-o97vk was this same bug class).
+    // The clone preserves row structure exactly and skips the rebuild;
+    // attr mirrors stay lazy (l5ve7 lever-7 convention).
+    let mut py_graph =
+        PyGraph::new_empty_with_policy(py, fnx_runtime::RuntimePolicy::new(result.mode()))?;
+    py_graph.inner = result.clone_with_fresh_policy();
     for node in result.nodes_ordered() {
         let py_key = if let Ok(i) = node.parse::<i64>() {
             crate::unwrap_infallible(i.into_pyobject(py))
@@ -9826,17 +9836,6 @@ fn rust_graph_to_py_standalone(py: Python<'_>, result: &fnx_classes::Graph) -> P
                 .unbind()
         };
         py_graph.node_key_map.insert(node.to_owned(), py_key);
-        py_graph
-            .node_py_attrs
-            .insert(node.to_owned(), pyo3::types::PyDict::new(py).unbind());
-        py_graph.inner.add_node(node);
-    }
-    for edge in result.edges_ordered() {
-        let _ = py_graph.inner.add_edge(&edge.left, &edge.right);
-        let ek = PyGraph::edge_key(&edge.left, &edge.right);
-        py_graph
-            .edge_py_attrs
-            .insert(ek, pyo3::types::PyDict::new(py).unbind());
     }
     Ok(py_graph.into_pyobject(py)?.into_any().unbind())
 }

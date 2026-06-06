@@ -25124,7 +25124,32 @@ pub fn pappus_graph() -> Graph {
 /// Return the Petersen graph (10 nodes, 15 edges).
 #[must_use]
 pub fn petersen_graph() -> Graph {
-    generalized_petersen_graph(5, 2).expect("petersen graph failed")
+    // generators-matrix 2026-06-06: nx builds petersen from its
+    // small-graph adjacency DESCRIPTION (make_small_undirected_graph),
+    // emitting (v, u) per vertex in list order — reproduce that walk so
+    // adjacency rows match nx exactly. generalized_petersen_graph(5, 2)
+    // is isomorphic but row-order-divergent (masked before by the
+    // sorted edges_ordered rebuild in rust_graph_to_py_standalone).
+    let adj: [[usize; 3]; 10] = [
+        [2, 5, 6],
+        [1, 3, 7],
+        [2, 4, 8],
+        [3, 5, 9],
+        [4, 1, 10],
+        [1, 8, 9],
+        [2, 9, 10],
+        [3, 6, 10],
+        [4, 6, 7],
+        [5, 7, 8],
+    ];
+    let mut g = Graph::strict();
+    gen_nodes(&mut g, 10);
+    for (v, row) in adj.iter().enumerate() {
+        for &u in row {
+            gen_edge(&mut g, v, u - 1);
+        }
+    }
+    g
 }
 
 /// Return the Sedgewick maze graph (8 nodes, 10 edges).
@@ -25902,31 +25927,48 @@ pub fn sudoku_graph(n: usize) -> Graph {
     }
 
     let n2 = n * n; // grid dimension (e.g., 9 for standard Sudoku)
-    let total = n2 * n2; // total cells (e.g., 81 for standard Sudoku)
+    let n3 = n2 * n;
+    let n4 = n2 * n2; // total cells (e.g., 81 for standard Sudoku)
 
     let mut g = Graph::strict();
-    gen_nodes(&mut g, total);
+    gen_nodes(&mut g, n4);
+    if n < 2 {
+        return g;
+    }
 
-    // Add edges between cells in the same row, column, or box
-    for cell1 in 0..total {
-        let row1 = cell1 / n2;
-        let col1 = cell1 % n2;
-        let box_row1 = row1 / n;
-        let box_col1 = col1 / n;
-
-        for cell2 in (cell1 + 1)..total {
-            let row2 = cell2 / n2;
-            let col2 = cell2 % n2;
-            let box_row2 = row2 / n;
-            let box_col2 = col2 / n;
-
-            // Same row, same column, or same n×n box
-            let same_row = row1 == row2;
-            let same_col = col1 == col2;
-            let same_box = box_row1 == box_row2 && box_col1 == box_col2;
-
-            if same_row || same_col || same_box {
-                gen_edge(&mut g, cell1, cell2);
+    // generators-matrix 2026-06-06: mirror nx's THREE-PASS construction
+    // (rows, then columns, then boxes) — the old all-pairs cell1<cell2
+    // scan produced the same edge SET but numerically-sorted adjacency
+    // rows (nx row 0 of sudoku(2) ends [..., 8, 12, 5]: the box pass
+    // adds 5 LAST). Also O(n^4 · n^2) instead of the O(n^8) pair scan.
+    for row_no in 0..n2 {
+        let row_start = row_no * n2;
+        for j in 1..n2 {
+            for i in 0..j {
+                gen_edge(&mut g, row_start + i, row_start + j);
+            }
+        }
+    }
+    for col_no in 0..n2 {
+        let mut j = col_no;
+        while j < n4 {
+            let mut i = col_no;
+            while i < j {
+                gen_edge(&mut g, i, j);
+                i += n2;
+            }
+            j += n2;
+        }
+    }
+    for band in 0..n {
+        for stack in 0..n {
+            let box_start = n3 * band + n * stack;
+            for j in 1..n2 {
+                for i in 0..j {
+                    let u = box_start + (i % n) + n2 * (i / n);
+                    let v = box_start + (j % n) + n2 * (j / n);
+                    gen_edge(&mut g, u, v);
+                }
             }
         }
     }
