@@ -7413,6 +7413,13 @@ def edge_connectivity(G, s=None, t=None, flow_func=None, cutoff=None):
         if G.is_directed():
             if not is_weakly_connected(G):
                 return 0
+            if len(G) == 1:
+                # br-r37-c1-0d8y3: nx's Algorithm 8 wraps around on the
+                # last node — a single-node digraph (with or without
+                # self-loops, multi or simple) hits
+                # local_edge_connectivity(G, n, n) and raises. The Rust
+                # path silently returned 0; mirror nx's error verbatim.
+                raise NetworkXError("source and sink are the same node")
         elif not is_connected(G):
             return 0
     if flow_func is not None:

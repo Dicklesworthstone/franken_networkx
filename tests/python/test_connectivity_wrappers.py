@@ -88,3 +88,24 @@ def test_edge_connectivity_cutoff_disconnected():
 def test_null_graph_still_raises(fn):
     with pytest.raises(fnx.NetworkXPointlessConcept):
         getattr(fnx, fn)(fnx.Graph())
+
+
+@pytest.mark.parametrize("multi", [False, True])
+@pytest.mark.parametrize("selfloop", [False, True])
+def test_edge_connectivity_single_node_digraph_raises_like_nx(multi, selfloop):
+    # br-r37-c1-0d8y3: nx's Algorithm 8 wraps to local_edge_connectivity(
+    # G, n, n) on a single-node digraph and raises; the Rust path
+    # silently returned 0.
+    gf = fnx.MultiDiGraph() if multi else fnx.DiGraph()
+    gn = nx.MultiDiGraph() if multi else nx.DiGraph()
+    gf.add_node(0)
+    gn.add_node(0)
+    if selfloop:
+        gf.add_edge(0, 0)
+        gn.add_edge(0, 0)
+    with pytest.raises(nx.NetworkXError, match="source and sink are the same node"):
+        nx.edge_connectivity(gn)
+    with pytest.raises(fnx.NetworkXError, match="source and sink are the same node"):
+        fnx.edge_connectivity(gf)
+    # node_connectivity is NOT affected (0 plain, 2 with self-loop)
+    assert fnx.node_connectivity(gf) == nx.node_connectivity(gn)
