@@ -12131,8 +12131,7 @@ fn single_source_dijkstra_path_length(
     // dijkstra — paths feed the discovery-object map (a node displays as
     // its path's second-to-last element's row object), distances keep
     // finalize order.
-    let (dists, paths) = if let Some(weighted_projection) = gr.weighted_digraph_projection(weight)
-    {
+    let (dists, paths) = if let Some(weighted_projection) = gr.weighted_digraph_projection(weight) {
         let __wp = weighted_projection.as_ref();
         py.allow_threads(|| fnx_algorithms::single_source_dijkstra_full_directed(__wp, &s, weight))
     } else {
@@ -13960,7 +13959,10 @@ fn all_pairs_dijkstra(py: Python<'_>, g: &Bound<'_, PyAny>, weight: &str) -> PyR
                 .iter()
                 .map(|n| gr.disp_or_node_key(py, &disp, n))
                 .collect();
-            path_dict.set_item(gr.disp_or_node_key(py, &disp, target), PyList::new(py, &py_path)?)?;
+            path_dict.set_item(
+                gr.disp_or_node_key(py, &disp, target),
+                PyList::new(py, &py_path)?,
+            )?;
         }
         let pair = PyTuple::new(py, [dist_dict.as_any(), path_dict.as_any()])?;
         outer.set_item(gr.py_node_key(py, source), pair)?;
