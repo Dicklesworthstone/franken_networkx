@@ -75,3 +75,24 @@ def test_tree_result_is_mutable_and_independent():
     t.nodes[0]["a"] = 1
     assert ("x", "y") in t.edges() and "x" not in gf
     assert t.nodes[0]["a"] == 1 and "a" not in gf.nodes[0]
+
+
+def test_dfs_discovery_objects_match_nx_mixed_keys():
+    # br-r37-c1-wvbzw lever 2: nx traversal yields DISCOVERY objects —
+    # the source as passed, every other node as its parent's
+    # adjacency-ROW object (z6uka overrides for mixed hash-equal keys).
+    for cls in ("DiGraph", "Graph"):
+        gf, gn = getattr(fnx, cls)(), getattr(nx, cls)()
+        for h in (gf, gn):
+            h.add_node(28)
+            h.add_edge(7, 28.0)
+            h.add_edge(28.0, 5)
+            h.add_edge(5, 7)
+        assert [(repr(u), repr(v)) for u, v in fnx.dfs_edges(gf, 7)] == [
+            (repr(u), repr(v)) for u, v in nx.dfs_edges(gn, 7)
+        ], cls
+        tf, tn = fnx.dfs_tree(gf, 7), nx.dfs_tree(gn, 7)
+        assert [repr(n) for n in tf] == [repr(n) for n in tn], cls
+        assert _canon(fnx.dfs_tree(fnx.DiGraph([(7, 28.0)]))) == _canon(
+            nx.dfs_tree(nx.DiGraph([(7, 28.0)]))
+        )

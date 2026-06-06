@@ -145,6 +145,19 @@ impl<'py> GraphRef<'py> {
         )
     }
 
+    /// br-r37-c1-wvbzw: adjacency-ROW display object — nx traversal
+    /// iterators yield neighbors as the objects stored in `G.adj[u]`
+    /// (the z6uka per-row overrides for mixed hash-equal keys), not the
+    /// node-map object. Directed rows are succ rows.
+    fn py_row_key(&self, py: Python<'_>, owner: &str, nbr: &str) -> PyObject {
+        match self {
+            GraphRef::Undirected(pg) => pg.py_adj_key(py, owner, nbr),
+            GraphRef::Directed { dg, .. } => dg.py_succ_key(py, owner, nbr),
+            GraphRef::MultiUndirected { mg, .. } => mg.py_adj_key(py, owner, nbr),
+            GraphRef::MultiDirected { mdg, .. } => mdg.py_succ_key(py, owner, nbr),
+        }
+    }
+
     /// Check if a node exists.
     fn has_node(&self, canonical: &str) -> bool {
         match self {
@@ -6623,8 +6636,41 @@ pub fn dfs_edges(
         None => None,
     };
 
-    let edges = match source_key {
-        Some(source_key) => match &gr {
+    let edges = dfs_edges_canonical(py, &gr, source_key.clone(), depth_limit);
+
+    // br-r37-c1-wvbzw: nx yields DISCOVERY objects — the source as passed,
+    // every other node as its parent's adjacency-ROW object (z6uka row
+    // overrides for mixed hash-equal keys). Propagate along the walk.
+    let mut disp: std::collections::HashMap<String, PyObject> = std::collections::HashMap::new();
+    if let (Some(k), Some(s)) = (source_key, source) {
+        disp.insert(k, s.clone().unbind());
+    }
+    let mut out = Vec::with_capacity(edges.len());
+    for (u, v) in edges {
+        let u_obj = disp
+            .get(u.as_str())
+            .map_or_else(|| gr.py_node_key(py, &u), |o| o.clone_ref(py));
+        let v_obj = gr.py_row_key(py, &u, &v);
+        disp.entry(u).or_insert_with(|| u_obj.clone_ref(py));
+        disp.insert(v, v_obj.clone_ref(py));
+        out.push((u_obj, v_obj));
+    }
+    Ok(out)
+}
+
+/// br-r37-c1-wvbzw: canonical-STRING DFS edge stream shared by dfs_edges
+/// (which converts to PyObjects for Python) and dfs_tree (which previously
+/// consumed the PyObject list and re-canonicalized EVERY endpoint via
+/// node_key_to_string — a per-edge Python round-trip that kept dfs_tree at
+/// 2x nx after the ledger fix).
+fn dfs_edges_canonical(
+    py: Python<'_>,
+    gr: &GraphRef<'_>,
+    source_key: Option<String>,
+    depth_limit: Option<usize>,
+) -> Vec<(String, String)> {
+    match source_key {
+        Some(source_key) => match gr {
             GraphRef::Directed { dg, .. } => {
                 let __dg_inner = &dg.inner;
                 py.allow_threads(|| {
@@ -6653,9 +6699,9 @@ pub fn dfs_edges(
         None => {
             let nodes = gr.nodes_ordered();
             if nodes.is_empty() {
-                return Ok(Vec::new());
+                return Vec::new();
             }
-            match &gr {
+            match gr {
                 GraphRef::Directed { dg, .. } => {
                     let __dg_inner = &dg.inner;
                     py.allow_threads(|| dfs_forest_directed(__dg_inner, &nodes, depth_limit).0)
@@ -6677,12 +6723,7 @@ pub fn dfs_edges(
                 }
             }
         }
-    };
-
-    Ok(edges
-        .into_iter()
-        .map(|(u, v)| (gr.py_node_key(py, &u), gr.py_node_key(py, &v)))
-        .collect())
+    }
 }
 
 /// Return an oriented tree constructed from a depth-first search from source.
@@ -6696,11 +6737,28 @@ pub fn dfs_tree(
     sort_neighbors: Option<&Bound<'_, PyAny>>,
 ) -> PyResult<crate::digraph::PyDiGraph> {
     let _ = sort_neighbors;
-    let edge_list = dfs_edges(py, g, source, depth_limit, None)?;
-
     let gr = extract_graph(g)?;
-    // br-r37-c1-wvbzw: fresh ledger, mode only — see bfs_tree above
-    // (the double RuntimePolicy ledger clone dominated tree assembly).
+    // br-r37-c1-wvbzw lever 2: consume the kernel's canonical STRINGS
+    // directly. The old path called dfs_edges (strings -> PyObjects) and
+    // then re-canonicalized every endpoint via node_key_to_string — a
+    // per-edge Python round-trip that kept dfs_tree at ~2x nx after the
+    // ledger fix. Display keys come from the source's node_key_map.
+    let source_key = match source {
+        Some(s) => {
+            let k = node_key_to_string(py, s)?;
+            if !gr.has_node(&k) {
+                return Err(NodeNotFound::new_err(format!(
+                    "The node {} is not in the graph.",
+                    s.repr()?
+                )));
+            }
+            Some(k)
+        }
+        None => None,
+    };
+    let edge_list = dfs_edges_canonical(py, &gr, source_key.clone(), depth_limit);
+
+    // fresh ledger, mode only (lever 1) — see bfs_tree above.
     let tree_mode = if gr.is_directed() {
         gr.digraph().expect("is_directed checked above").mode()
     } else {
@@ -6708,35 +6766,47 @@ pub fn dfs_tree(
     };
     let mut tree = crate::digraph::PyDiGraph::new_empty_with_mode(py, tree_mode)?;
 
-    if let Some(s) = source {
-        let sk = node_key_to_string(py, s)?;
+    if let Some(sk) = source_key {
         tree.inner.add_node(&sk);
-        tree.node_key_map.insert(sk.clone(), s.clone().unbind());
+        tree.node_key_map.insert(
+            sk.clone(),
+            source.expect("source_key implies source").clone().unbind(),
+        );
         tree.node_py_attrs
             .insert(sk, pyo3::types::PyDict::new(py).unbind());
     } else {
         for node in gr.nodes_ordered() {
-            tree.inner.add_node(node);
             tree.node_key_map
                 .insert(node.to_owned(), gr.py_node_key(py, node));
             tree.node_py_attrs
                 .insert(node.to_owned(), pyo3::types::PyDict::new(py).unbind());
         }
+        let _ = tree.inner.extend_nodes_with_attrs_unrecorded(
+            gr.nodes_ordered()
+                .into_iter()
+                .map(|n| (n.to_owned(), fnx_classes::AttrMap::new())),
+        );
     }
 
-    for (u_py, v_py) in &edge_list {
-        let u_key = node_key_to_string(py, u_py.bind(py))?;
-        let v_key = node_key_to_string(py, v_py.bind(py))?;
-        if !tree.inner.has_node(&v_key) {
-            tree.inner.add_node(&v_key);
-            tree.node_key_map.insert(v_key.clone(), v_py.clone_ref(py));
+    for (u, v) in &edge_list {
+        // mirrors for the v endpoints created by the edge walk (u is
+        // always already present: it is the source or a previous v).
+        // br-r37-c1-wvbzw: nx's tree nodes carry DISCOVERY objects — the
+        // parent's adjacency-ROW object (z6uka row overrides), not the
+        // node-map object.
+        if !tree.node_key_map.contains_key(v) {
+            tree.node_key_map.insert(v.clone(), gr.py_row_key(py, u, v));
             tree.node_py_attrs
-                .insert(v_key.clone(), pyo3::types::PyDict::new(py).unbind());
+                .insert(v.clone(), pyo3::types::PyDict::new(py).unbind());
         }
-        let _ = tree.inner.add_edge(&u_key, &v_key);
-        tree.edge_py_attrs
-            .insert((u_key, v_key), pyo3::types::PyDict::new(py).unbind());
+        tree.edge_py_attrs.insert(
+            (u.clone(), v.clone()),
+            pyo3::types::PyDict::new(py).unbind(),
+        );
     }
+    // node first-touch creation (u then v) matches the old per-edge
+    // add_node sequence; one ledger record for the whole batch.
+    let _inserted = tree.inner.extend_edges_unrecorded(edge_list);
 
     Ok(tree)
 }
