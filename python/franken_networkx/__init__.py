@@ -12016,6 +12016,18 @@ def union(G, H, rename=()):
 def compose(G, H):
     """Return the composition of G and H — G ∪ H with H's attrs winning on overlap."""
     cls = _operator_output_class(G, H)
+    # br-r37-c1-l5ve7: native single-pass for the exact Graph x Graph
+    # case (the Python loop below pays per-node/edge interpreter calls).
+    if (
+        type(G) is Graph
+        and type(H) is Graph
+        and cls is Graph
+        and not _has_networkx_private_storage(G)
+        and not _has_networkx_private_storage(H)
+    ):
+        native = getattr(G, "_native_compose", None)
+        if native is not None:
+            return native(H)
     # Build directly in Python so edge insertion/orientation follows
     # nx.compose exactly: graph G first, then H with H attrs winning.
     # This also keeps the multigraph path away from the Rust edge-view

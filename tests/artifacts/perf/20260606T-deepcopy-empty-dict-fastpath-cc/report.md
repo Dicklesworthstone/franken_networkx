@@ -63,3 +63,15 @@ vs nx (FASTER; was 2.99x slower). Note: a genexpr->list materialization
 micro-lever was MEASURED AND REJECTED first (list build cost exceeded
 the batch-path win). Golden sha f033b4e0 (16 attr/iso/graph-attr
 trials + node types + result mutability), full pytest 21774.
+
+## Lever 5 (br-r37-c1-l5ve7): native compose
+PyGraph::_native_compose mirrors nx compose_all per-graph semantics
+(graph.update / nodes / edges with H-wins datadict.update merges,
+first-insert display objects, H's new neighbors appended to existing
+rows) in one native pass with the construction-tax recipe + an
+attr-less mirror-lookup fast path. compose: 60.8ms -> 31.2ms = 1.56x
+vs nx (was 2.98x). Golden sha 9598fb0d (16 OVERLAPPING-node trials w/
+H-wins attr merges, graph attrs, mixed keys, result independence).
+Residual analysis: per-edge String pair seen-sets + first-touch
+py_node_key/py_adj_key clone_refs; skip needs per-part new-node
+tracking (subtle in overlap) — diminishing for this hour, noted.

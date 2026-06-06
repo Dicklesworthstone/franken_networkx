@@ -5441,6 +5441,99 @@ impl PyGraph {
     /// `_graph_to_directed_copy` wrapper (exact Graph type only). Builds the
     /// DiGraph in Rust in nx's adjacency-grouped edge order (`for source in
     /// nodes_ordered, for target in neighbors(source)` — each undirected edge
+    /// br-r37-c1-l5ve7: native compose for the exact Graph x Graph case
+    /// (also serves union once the wrapper's disjointness check passes —
+    /// the outputs coincide on disjoint inputs). nx compose_all
+    /// semantics: per graph, graph.update / add_nodes_from(data) /
+    /// add_edges_from(data) — H's attr values WIN on overlap via
+    /// datadict.update; first-insert keeps G's display objects; H's new
+    /// neighbors append to existing rows. Construction-tax recipe
+    /// throughout (bulk extend_* merge on duplicates == nx update).
+    fn _native_compose(&self, py: Python<'_>, other: PyRef<'_, Self>) -> PyResult<Py<Self>> {
+        let mut g =
+            Self::new_empty_with_policy(py, fnx_runtime::RuntimePolicy::new(self.inner.mode()))?;
+        let merged_graph_attrs = PyDict::new(py);
+        merged_graph_attrs.update(self.graph_attrs.bind(py).as_mapping())?;
+        merged_graph_attrs.update(other.graph_attrs.bind(py).as_mapping())?;
+        g.graph_attrs = merged_graph_attrs.unbind();
+        let mut seen_cells: std::collections::HashSet<(String, String)> =
+            std::collections::HashSet::new();
+        for part in [&*self, &*other] {
+            let nodes = part.inner.nodes_ordered();
+            let mut node_batch: Vec<(String, fnx_classes::AttrMap)> =
+                Vec::with_capacity(nodes.len());
+            for node in &nodes {
+                if let Some(attrs) = part.node_py_attrs.get(*node) {
+                    if let Some(existing) = g.node_py_attrs.get(*node) {
+                        // overlap: later graph's values win (dict update)
+                        existing.bind(py).update(attrs.bind(py).as_mapping())?;
+                    } else {
+                        g.node_py_attrs
+                            .insert((*node).to_owned(), attrs.bind(py).copy()?.unbind());
+                    }
+                }
+                g.node_key_map
+                    .entry((*node).to_owned())
+                    .or_insert_with(|| part.py_node_key(py, node));
+                node_batch.push((
+                    (*node).to_owned(),
+                    part.inner.node_attrs(node).cloned().unwrap_or_default(),
+                ));
+            }
+            g.inner.extend_nodes_with_attrs_unrecorded(node_batch);
+            let mut edge_batch: Vec<(String, String, fnx_classes::AttrMap)> = Vec::new();
+            let mut seen_this_walk: std::collections::HashSet<(String, String)> =
+                std::collections::HashSet::new();
+            for u in &nodes {
+                for v in part.inner.neighbors(u).unwrap_or_default() {
+                    let pair = if *u <= v {
+                        ((*u).to_owned(), v.to_owned())
+                    } else {
+                        (v.to_owned(), (*u).to_owned())
+                    };
+                    if !seen_this_walk.insert(pair.clone()) {
+                        continue; // each undirected edge once per walk
+                    }
+                    if seen_cells.insert(pair) {
+                        // first touch ACROSS graphs: store this walk's objects
+                        let v_obj = part.py_adj_key(py, u, v);
+                        g.maybe_store_adj_key(py, u, v, v_obj.bind(py));
+                        let u_obj = part.py_node_key(py, u);
+                        g.maybe_store_adj_key(py, v, u, u_obj.bind(py));
+                    }
+                    // attr-less fast path: no mirror lookups or edge_key
+                    // String allocs when the source carries no edge mirrors.
+                    if !part.edge_py_attrs.is_empty()
+                        && let Some(attrs) = part
+                            .edge_py_attrs
+                            .get(&Self::edge_key(u, v))
+                            .or_else(|| part.edge_py_attrs.get(&Self::edge_key(v, u)))
+                    {
+                        let ek_fwd = Self::edge_key(u, v);
+                        let ek_rev = Self::edge_key(v, u);
+                        if let Some(existing) = g
+                            .edge_py_attrs
+                            .get(&ek_fwd)
+                            .or_else(|| g.edge_py_attrs.get(&ek_rev))
+                        {
+                            existing.bind(py).update(attrs.bind(py).as_mapping())?;
+                        } else {
+                            g.edge_py_attrs
+                                .insert(ek_fwd, attrs.bind(py).copy()?.unbind());
+                        }
+                    }
+                    edge_batch.push((
+                        (*u).to_owned(),
+                        v.to_owned(),
+                        part.inner.edge_attrs(u, v).cloned().unwrap_or_default(),
+                    ));
+                }
+            }
+            g.inner.extend_edges_with_attrs_unrecorded(edge_batch);
+        }
+        Py::new(py, g)
+    }
+
     /// br-r37-c1-l5ve7: fused native disjoint_union for the exact
     /// Graph x Graph case — nx's pipeline is convert_node_labels_to_
     /// integers(G) + convert(H, first_label=n1) + union_all, i.e. THREE
