@@ -65,3 +65,24 @@ descriptor with fewer per-edge map transitions. Target ratio: move the current
 `2.52x` direct median vs NetworkX toward `<=2.0x` while preserving live
 `get_edge_data` dict identity, duplicate merge order, display-key overrides,
 and unsupported-batch fallback semantics.
+
+## Rejected Candidate 2: Source PyDict Copy for New Mirrors
+
+- Candidate: when an attributed edge mirror key was vacant, insert
+  `src_dict.copy()` directly instead of creating an empty `PyDict` and updating
+  it. Occupied mirrors still updated in place.
+- Proof: golden SHA unchanged and focused add_edges parity remained `15 passed`.
+- Direct timing regressed in absolute FNX time:
+  - baseline FNX median: `0.0087127320s`
+  - candidate FNX median: `0.0089030605s`
+- Hyperfine was effectively flat:
+  - baseline mean: `0.4344s`
+  - candidate mean: `0.4310s`
+- cProfile rejected the lever:
+  - baseline total: `1.397s`
+  - candidate total: `1.908s`
+  - native `_try_add_edges_from_batch`: `1.386s -> 1.886s`
+- Verdict: rejected and reverted. `PyDict.copy()` is not the right deeper
+  primitive for this workload; the next attempt must change the representation
+  and commit strategy rather than substituting one per-edge dict operation for
+  another.
