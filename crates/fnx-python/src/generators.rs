@@ -208,6 +208,68 @@ pub fn grid_2d_graph_simple(py: Python<'_>, m: usize, n: usize) -> PyResult<PyGr
     })
 }
 
+/// br-r37-c1-z2eaa: Kneser graph K(n, k) built natively in one call.
+///
+/// Display keys are Python int tuples (the abandoned br-kneser path's
+/// string labels were the parity blocker). The Python wrapper validates
+/// n/k and gates on the CPython set-iteration safety condition before
+/// calling this; node/edge sequence matches NetworkX exactly (see
+/// fnx_classes::Graph::kneser).
+#[pyfunction]
+pub fn kneser_graph_native(py: Python<'_>, n: usize, k: usize) -> PyResult<PyGraph> {
+    let graph = fnx_classes::Graph::kneser(CompatibilityMode::Strict, n, k);
+    let mut node_key_map: HashMap<String, PyObject> = HashMap::with_capacity(graph.node_count());
+    // enumerate k-subsets in lex order, mirroring the kernel's canonicals
+    if k <= n {
+        let mut cur: Vec<usize> = (0..k).collect();
+        loop {
+            let tuple = pyo3::types::PyTuple::new(py, &cur)?;
+            let mut s = String::with_capacity(k * 6 + 2);
+            s.push('(');
+            for (i, v) in cur.iter().enumerate() {
+                if i > 0 {
+                    s.push_str(", ");
+                }
+                s.push_str(&v.to_string());
+            }
+            if k == 1 {
+                s.push(',');
+            }
+            s.push(')');
+            node_key_map.insert(s, tuple.into_any().unbind());
+            let mut advanced = false;
+            let mut i = k;
+            while i > 0 {
+                i -= 1;
+                if cur[i] != i + n - k {
+                    cur[i] += 1;
+                    for j in (i + 1)..k {
+                        cur[j] = cur[j - 1] + 1;
+                    }
+                    advanced = true;
+                    break;
+                }
+            }
+            if !advanced {
+                break;
+            }
+        }
+    }
+    Ok(PyGraph {
+        inner: graph,
+        node_key_map,
+        lazy_int_node_stop: 0,
+        node_py_attrs: HashMap::new(),
+        edge_py_attrs: HashMap::new(),
+        adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
+        dict_of_dicts_cache: None,
+        graph_attrs: PyDict::new(py).unbind(),
+        nodes_seq: 0,
+        edges_seq: 0,
+        edges_dirty: AtomicBool::new(false),
+    })
+}
+
 /// Return the complete graph K_n with ``n`` nodes.
 #[pyfunction]
 pub fn complete_graph(py: Python<'_>, n: usize) -> PyResult<PyGraph> {
@@ -535,6 +597,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(star_graph, m)?)?;
     m.add_function(wrap_pyfunction!(complete_graph, m)?)?;
     m.add_function(wrap_pyfunction!(grid_2d_graph_simple, m)?)?;
+    m.add_function(wrap_pyfunction!(kneser_graph_native, m)?)?; // br-r37-c1-z2eaa
     m.add_function(wrap_pyfunction!(gnp_random_graph, m)?)?;
     m.add_function(wrap_pyfunction!(watts_strogatz_graph, m)?)?;
     m.add_function(wrap_pyfunction!(barabasi_albert_graph, m)?)?;

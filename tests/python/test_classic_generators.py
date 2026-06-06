@@ -1161,3 +1161,58 @@ class TestGrid2DNativeKernelParity:
         assert self._canon(fnx.grid_2d_graph(True, 3)) == self._canon(
             nx.grid_2d_graph(True, 3)
         )
+
+
+class TestKneserNativeKernelParity:
+    """br-r37-c1-z2eaa: native kneser kernel vs nx (order-exact)."""
+
+    def _canon(self, g):
+        return (
+            [repr(n) for n in g.nodes()],
+            [(repr(u), repr(v)) for u, v in g.edges()],
+            {repr(n): [repr(x) for x in g[n]] for n in g},
+        )
+
+    def test_small_matrix_matches_networkx(self):
+        import networkx as nx
+
+        for n in range(1, 9):
+            for k in range(1, n + 1):
+                assert self._canon(fnx.kneser_graph(n, k)) == self._canon(
+                    nx.kneser_graph(n, k)
+                ), (n, k)
+
+    def test_petersen_isomorphic_and_tuple_keys(self):
+        g = fnx.kneser_graph(5, 2)
+        node = next(iter(g))
+        assert type(node) is tuple and all(type(x) is int for x in node)
+        assert fnx.is_isomorphic(g, fnx.petersen_graph())
+
+    def test_isolated_nodes_when_2k_exceeds_n(self):
+        import networkx as nx
+
+        g, e = fnx.kneser_graph(5, 3), nx.kneser_graph(5, 3)
+        assert list(g.nodes()) == list(e.nodes())
+        assert g.number_of_edges() == e.number_of_edges() == 0
+
+    def test_validation_messages(self):
+        import pytest as _pytest
+
+        with _pytest.raises(fnx.NetworkXError, match="n should be greater than zero"):
+            fnx.kneser_graph(0, 1)
+        with _pytest.raises(
+            fnx.NetworkXError, match="k should be greater than zero and smaller than n"
+        ):
+            fnx.kneser_graph(5, 6)
+
+    def test_mutation_and_pickle_after_native_build(self):
+        import pickle
+
+        import networkx as nx
+
+        gn, gf = nx.kneser_graph(6, 2), fnx.kneser_graph(6, 2)
+        for h in (gn, gf):
+            h.add_edge((0, 1), (0, 2), w=1)
+            h.remove_node((1, 2))
+        assert self._canon(gf) == self._canon(gn)
+        assert self._canon(pickle.loads(pickle.dumps(gf))) == self._canon(gn)

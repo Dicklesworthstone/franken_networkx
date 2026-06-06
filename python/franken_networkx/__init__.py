@@ -20759,6 +20759,41 @@ def kneser_graph(n, k):
     if k <= 0 or k > n:
         raise NetworkXError("k should be greater than zero and smaller than n")
 
+    # br-r37-c1-z2eaa: native kernel for shapes where nx's set-iteration
+    # order is PROVABLY ascending. ``universe - set(s)`` iterates ascending
+    # iff every member value lands in its exact CPython set slot, i.e.
+    # max value (n-1) < the set's final table capacity. Capacity follows
+    # CPython's growth rule (resize when fill*5 >= (cap-1)*3, to the
+    # smallest power of two > used*4). When both the universe (n adds) and
+    # every complement (n-k adds) satisfy it, the Rust kernel's
+    # lexicographic combinations over the sorted complement reproduce nx
+    # byte-for-byte; otherwise fall through to the pure-Python build whose
+    # set order matches nx by construction. 2k > n has no edges, so set
+    # order is irrelevant and the kernel is always safe there.
+    def _cpython_set_capacity_after(m_adds):
+        cap, used = 8, 0
+        for _ in range(m_adds):
+            used += 1
+            if used * 5 >= (cap - 1) * 3:
+                target = used * 4 if used <= 50000 else used * 2
+                newcap = 8
+                while newcap <= target:
+                    newcap <<= 1
+                cap = newcap
+        return cap
+
+    _set_order_safe = (2 * k > n) or (
+        (n - 1) < _cpython_set_capacity_after(n)
+        and (n - 1) < _cpython_set_capacity_after(n - k)
+    )
+    if (
+        _set_order_safe
+        and type(n) is int
+        and type(k) is int
+        and hasattr(_fnx, "kneser_graph_native")
+    ):
+        return _fnx.kneser_graph_native(n, k)
+
     # br-r37-c1-jv0h5: replicate nx's construction VERBATIM — node order is
     # edge-DISCOVERY order (s in combinations order, t drawn from
     # combinations over the CPython set difference universe - set(s)),

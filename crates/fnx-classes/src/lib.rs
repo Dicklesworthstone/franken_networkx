@@ -309,6 +309,167 @@ impl Graph {
         graph
     }
 
+    /// br-r37-c1-z2eaa: Kneser graph K(n, k) replicating NetworkX's exact
+    /// construction sequence. Nodes are k-subsets of 0..n as all-int-tuple
+    /// canonicals "(a, b, ...)" (br-r37-c1-y7m24). nx builds via
+    /// `add_edges_from((s, t) for s in subsets for t in
+    /// combinations(universe - set(s), k))` — node order is edge-DISCOVERY
+    /// order (u then v per new edge) and each unordered edge is offered
+    /// twice (the second add is a structural no-op). The complement
+    /// `universe - set(s)` iterates ASCENDING whenever every value fits its
+    /// exact CPython set slot — the Python wrapper gates this kernel on
+    /// that condition, so lexicographic combinations over the sorted
+    /// complement reproduce nx byte-for-byte. For `2k > n` nodes are
+    /// pre-added in subset order and no edges exist.
+    #[must_use]
+    pub fn kneser(mode: CompatibilityMode, n: usize, k: usize) -> Self {
+        fn tuple_canonical(c: &[usize]) -> String {
+            let mut s = String::with_capacity(c.len() * 6 + 2);
+            s.push('(');
+            for (i, v) in c.iter().enumerate() {
+                if i > 0 {
+                    s.push_str(", ");
+                }
+                s.push_str(&v.to_string());
+            }
+            if c.len() == 1 {
+                s.push(',');
+            }
+            s.push(')');
+            s
+        }
+        fn lex_combinations(m: usize, k: usize) -> Vec<Vec<usize>> {
+            let mut out = Vec::new();
+            if k > m {
+                return out;
+            }
+            let mut cur: Vec<usize> = (0..k).collect();
+            loop {
+                out.push(cur.clone());
+                let mut advanced = false;
+                let mut i = k;
+                while i > 0 {
+                    i -= 1;
+                    if cur[i] != i + m - k {
+                        cur[i] += 1;
+                        for j in (i + 1)..k {
+                            cur[j] = cur[j - 1] + 1;
+                        }
+                        advanced = true;
+                        break;
+                    }
+                }
+                if !advanced {
+                    break;
+                }
+            }
+            out
+        }
+        let subsets = lex_combinations(n, k);
+        let canonicals: Vec<String> = subsets.iter().map(|c| tuple_canonical(c)).collect();
+        let total = subsets.len();
+        let mut graph = Self {
+            mode,
+            revision: u64::try_from(total).unwrap_or(u64::MAX),
+            nodes: IndexMap::with_capacity(total),
+            adjacency: IndexMap::with_capacity(total),
+            adj_indices: Vec::new(),
+            edge_index_endpoints: Vec::new(),
+            edges: IndexMap::new(),
+            runtime_policy: RuntimePolicy::new(mode),
+        };
+        if 2 * k > n {
+            // No disjoint pairs exist — nx pre-adds all subsets as nodes.
+            for canonical in &canonicals {
+                graph.nodes.insert(canonical.clone(), AttrMap::new());
+                graph.adjacency.insert(canonical.clone(), IndexSet::new());
+            }
+            graph.adj_indices = vec![Vec::new(); total];
+            return graph;
+        }
+        // Binomial table for lexicographic combination ranking.
+        let mut binom = vec![vec![0usize; k + 1]; n + 1];
+        for i in 0..=n {
+            binom[i][0] = 1;
+            for j in 1..=k.min(i) {
+                binom[i][j] = if i == j {
+                    1
+                } else {
+                    binom[i - 1][j - 1].saturating_add(binom[i - 1][j])
+                };
+            }
+        }
+        let lex_rank = |c: &[usize]| -> usize {
+            let mut r = 0usize;
+            let mut prev = 0usize;
+            for (i, &ci) in c.iter().enumerate() {
+                for j in prev..ci {
+                    r = r.saturating_add(binom[n - 1 - j][k - 1 - i]);
+                }
+                prev = ci + 1;
+            }
+            r
+        };
+        let mut seen = HashSet::<(usize, usize)>::with_capacity(total * 2);
+        // node first-touch insertion mirroring nx add_edge (u then v)
+        let mut node_idx: Vec<usize> = vec![usize::MAX; total];
+        let mut in_s = vec![false; n];
+        let m = n - k;
+        let picks = lex_combinations(m, k);
+        for (s_idx, s) in subsets.iter().enumerate() {
+            for &v in s {
+                in_s[v] = true;
+            }
+            let complement: Vec<usize> = (0..n).filter(|&v| !in_s[v]).collect();
+            for pick in &picks {
+                let t: Vec<usize> = pick.iter().map(|&i| complement[i]).collect();
+                let t_idx = lex_rank(&t);
+                let pair = (s_idx.min(t_idx), s_idx.max(t_idx));
+                if seen.insert(pair) {
+                    for idx in [s_idx, t_idx] {
+                        if node_idx[idx] == usize::MAX {
+                            let entry = graph
+                                .nodes
+                                .insert_full(canonicals[idx].clone(), AttrMap::new())
+                                .0;
+                            graph
+                                .adjacency
+                                .insert(canonicals[idx].clone(), IndexSet::new());
+                            node_idx[idx] = entry;
+                        }
+                    }
+                    if let Some(row) = graph.adjacency.get_mut(canonicals[s_idx].as_str()) {
+                        row.insert(canonicals[t_idx].clone());
+                    }
+                    if let Some(row) = graph.adjacency.get_mut(canonicals[t_idx].as_str()) {
+                        row.insert(canonicals[s_idx].clone());
+                    }
+                    graph
+                        .edge_index_endpoints
+                        .push((node_idx[s_idx], node_idx[t_idx]));
+                    graph.edges.insert(
+                        EdgeKey::new(&canonicals[s_idx], &canonicals[t_idx]),
+                        AttrMap::new(),
+                    );
+                }
+            }
+            for &v in s {
+                in_s[v] = false;
+            }
+        }
+        graph.adj_indices = graph
+            .adjacency
+            .values()
+            .map(|row| {
+                row.iter()
+                    .filter_map(|v| graph.nodes.get_index_of(v.as_str()))
+                    .collect()
+            })
+            .collect();
+        graph.revision = u64::try_from(graph.nodes.len() + graph.edges.len()).unwrap_or(u64::MAX);
+        graph
+    }
+
     #[must_use]
     pub fn hardened() -> Self {
         Self::new(CompatibilityMode::Hardened)
