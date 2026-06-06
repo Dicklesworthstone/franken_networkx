@@ -524,7 +524,7 @@ impl PyGraph {
     /// ints/floats so uniform-key graphs never populate the map). Only
     /// call for NEWLY created adjacency cells — nx keeps the original
     /// object for existing cells.
-    fn maybe_store_adj_key(
+    pub(crate) fn maybe_store_adj_key(
         &mut self,
         py: Python<'_>,
         owner: &str,

@@ -32627,6 +32627,18 @@ def _directed_to_undirected_with_view(to_undirected_impl):
                 )
                 return result
 
+            # br-r37-c1-l5ve7: native bulk path for the exact-type case —
+            # the Python add_edges_from walk paid ~1.1M interpreter calls
+            # on a 12k-edge graph.
+            if (
+                type(self) is DiGraph
+                and not _has_networkx_private_storage(self)
+                and self.to_undirected_class() is Graph
+            ):
+                native = getattr(self, "_native_to_undirected_deepcopy", None)
+                if native is not None:
+                    return native()
+
             result = self.to_undirected_class()()
             result.graph.update(_deepcopy(self.graph))
             result.add_nodes_from(

@@ -37,3 +37,16 @@ attrs/isolates/pred-rows/mixed-keys/mutation-independence), 0
 failures; full pytest 21774. Recipe proven — remaining family members
 (to_undirected 3.1x, union 2.8x, compose 2.8x, disjoint_union 3.1x)
 stay on the bead.
+
+## Lever 3 (br-r37-c1-l5ve7): native DiGraph->Graph to_undirected
+The DiGraph case had NO native binding — the Python add_edges_from
+walk paid ~1.1M interpreter calls on 12k edges (the MultiDiGraph case
+had one since earlier work). New PyDiGraph::_native_to_undirected_
+deepcopy: u-major succ walk, reciprocal (v,u) MERGES via dict update
+(nx add_edges_from semantics, exercised by the (1,2,w=1,a=5)+(2,1,w=2)
+pin), first-touch row display objects (forward = succ-row object,
+reverse = iteration object), fresh ledger + bulk unrecorded inserts
+(added Graph::extend_nodes_with_attrs_unrecorded, mirror of the
+DiGraph one). to_undirected: 56.0ms -> 27.3ms = 1.14x vs nx (was
+2.92x). Golden sha 7c4264e7 (16 graphs + merge + mixed keys + rows +
+mutation independence), full pytest 21774.

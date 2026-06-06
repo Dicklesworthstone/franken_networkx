@@ -4434,6 +4434,85 @@ impl PyDiGraph {
     /// edges+data, adjacency/pred rows, graph attrs, shallow attr-dict
     /// copying, all four classes). The Python ctor wrapper routes the
     /// exact-same-type case here instead of the per-edge rebuild walk.
+    /// br-r37-c1-l5ve7: native DiGraph -> Graph deepcopy for
+    /// to_undirected(reciprocal=False), replacing the pure-Python
+    /// add_edges_from walk (1.1M Python calls on 12k edges). nx
+    /// semantics mirrored: u-major succ walk; a reciprocal (v, u) edge
+    /// MERGES (dict update) into the first cell; adjacency cells keep
+    /// FIRST-TOUCH objects (forward cell = the succ-row object, reverse
+    /// cell = the u iteration object). Construction-tax recipe: fresh
+    /// ledger + bulk unrecorded inserts + lazy attr mirrors.
+    fn _native_to_undirected_deepcopy(&self, py: Python<'_>) -> PyResult<Py<crate::PyGraph>> {
+        let deepcopy = py.import("copy")?.getattr("deepcopy")?;
+        let mut g = crate::PyGraph::new_empty_with_policy(
+            py,
+            fnx_runtime::RuntimePolicy::new(self.inner.mode()),
+        )?;
+        g.graph_attrs = crate::deepcopy_py_dict(py, &deepcopy, &self.graph_attrs)?;
+        let mut node_batch: Vec<(String, fnx_classes::AttrMap)> =
+            Vec::with_capacity(self.inner.node_count());
+        for node in self.inner.nodes_ordered() {
+            let rust_attrs = if let Some(attrs) = self.node_py_attrs.get(node) {
+                let py_attrs = crate::deepcopy_py_dict(py, &deepcopy, attrs)?;
+                let rust_attrs = py_dict_to_attr_map(py_attrs.bind(py))?;
+                g.node_py_attrs.insert(node.to_owned(), py_attrs);
+                rust_attrs
+            } else {
+                Default::default()
+            };
+            g.node_key_map
+                .insert(node.to_owned(), self.py_node_key(py, node));
+            node_batch.push((node.to_owned(), rust_attrs));
+        }
+        g.inner.extend_nodes_with_attrs_unrecorded(node_batch);
+        let mut edge_batch: Vec<(String, String, fnx_classes::AttrMap)> =
+            Vec::with_capacity(self.inner.edge_count());
+        let mut seen: std::collections::HashSet<(String, String)> =
+            std::collections::HashSet::with_capacity(self.inner.edge_count());
+        for source in self.inner.nodes_ordered() {
+            for target in self.inner.successors(source).unwrap_or_default() {
+                let unordered = if source <= target {
+                    (source.to_owned(), target.to_owned())
+                } else {
+                    (target.to_owned(), source.to_owned())
+                };
+                if seen.insert(unordered) {
+                    // first touch of this undirected cell: nx keeps the
+                    // objects from THIS add (succ-row v, iteration u).
+                    let v_obj = self.py_succ_key(py, source, target);
+                    g.maybe_store_adj_key(py, source, target, v_obj.bind(py));
+                    let u_obj = self.py_node_key(py, source);
+                    g.maybe_store_adj_key(py, target, source, u_obj.bind(py));
+                }
+                let rust_attrs =
+                    match self.edge_py_attrs.get(&(source.to_owned(), target.to_owned())) {
+                        Some(attrs) => {
+                            let py_attrs = crate::deepcopy_py_dict(py, &deepcopy, attrs)?;
+                            let rust_attrs = py_dict_to_attr_map(py_attrs.bind(py))?;
+                            let ek_fwd = crate::PyGraph::edge_key(source, target);
+                            let ek_rev = crate::PyGraph::edge_key(target, source);
+                            if let Some(existing) = g
+                                .edge_py_attrs
+                                .get(&ek_fwd)
+                                .or_else(|| g.edge_py_attrs.get(&ek_rev))
+                            {
+                                // reciprocal edge: nx's datadict.update merge.
+                                existing.bind(py).update(py_attrs.bind(py).as_mapping())?;
+                            } else {
+                                g.edge_py_attrs.insert(ek_fwd, py_attrs);
+                            }
+                            rust_attrs
+                        }
+                        // attr-less edge stays lazy (no PyDict alloc)
+                        None => Default::default(),
+                    };
+                edge_batch.push((source.to_owned(), target.to_owned(), rust_attrs));
+            }
+        }
+        g.inner.extend_edges_with_attrs_unrecorded(edge_batch);
+        Py::new(py, g)
+    }
+
     fn _fnx_absorb_copy(&mut self, py: Python<'_>, other: PyRef<'_, Self>) -> PyResult<()> {
         *self = other.copy(py)?;
         Ok(())

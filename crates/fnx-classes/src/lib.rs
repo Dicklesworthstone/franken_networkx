@@ -1034,6 +1034,48 @@ impl Graph {
         inserted
     }
 
+    /// br-r37-c1-l5ve7: bulk node insert WITH attrs, one ledger record —
+    /// mirror of DiGraph::extend_nodes_with_attrs_unrecorded. Existing
+    /// nodes merge attrs (extend), matching add_node_with_attrs.
+    pub fn extend_nodes_with_attrs_unrecorded<I>(&mut self, nodes: I) -> usize
+    where
+        I: IntoIterator<Item = (String, AttrMap)>,
+    {
+        let iterator = nodes.into_iter();
+        let (lower_bound, _) = iterator.size_hint();
+        self.nodes.reserve(lower_bound);
+        self.adjacency.reserve(lower_bound);
+        self.adj_indices.reserve(lower_bound);
+
+        let mut inserted = 0usize;
+        for (node, attrs) in iterator {
+            if let Some(existing) = self.nodes.get_mut(&node) {
+                existing.extend(attrs);
+                continue;
+            }
+            self.nodes.insert(node.clone(), attrs);
+            self.adjacency.entry(node).or_default();
+            self.adj_indices.push(Vec::new());
+            inserted += 1;
+        }
+        if inserted > 0 {
+            self.revision = self
+                .revision
+                .saturating_add(u64::try_from(inserted).unwrap_or(u64::MAX));
+            self.record_decision(
+                "extend_nodes_with_attrs_unrecorded",
+                0.0,
+                false,
+                vec![EvidenceTerm {
+                    signal: "batch_node_count".to_owned(),
+                    observed_value: inserted.to_string(),
+                    log_likelihood_ratio: -1.0,
+                }],
+            );
+        }
+        inserted
+    }
+
     pub fn apply_node_defaults(&mut self, defaults: &AttrMap) -> bool {
         if defaults.is_empty() {
             return false;
