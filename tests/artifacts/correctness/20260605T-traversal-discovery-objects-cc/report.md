@@ -117,3 +117,15 @@ sync-then-False shim — the raw path is the INTENDED route for all
 simple weighted graphs; the br-bfignoreweight delegation comments are
 stale. Residual beaded: the four all_pairs_* bindings + multi_source
 seed set-order.
+
+## Batch 8 (br-r37-c1-7hsew) — all-pairs weighted + multi-source
+all_pairs_bellman_ford_path (emit_paths per source),
+all_pairs_bellman_ford_path_length (binding loops the PRED-carrying
+kernels), all_pairs_dijkstra_path_length + all_pairs_dijkstra
+multigraph fallback (FULL kernels: paths feed disp),
+all_pairs_dijkstra PACKED fast path (integer predecessors -> row
+objects), multi_source_dijkstra (seeds display AS PASSED, iterating
+the caller's set in-process = nx seed order at any hash seed;
+finalized nodes via predecessor row objects). Probe 10 -> 0; the
+ENTIRE weighted-standalone matrix from batch 7 is now clean. Golden
+sha 81471ad9 incl. set/list/single seed shapes.

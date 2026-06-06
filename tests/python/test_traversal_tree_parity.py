@@ -494,3 +494,59 @@ class TestBellmanFordStandaloneParity:
         assert {k: (type(v), v) for k, v in df.items()} == {
             k: (type(v), v) for k, v in dn.items()
         }
+
+
+class TestAllPairsWeightedDiscoveryObjects:
+    """br-r37-c1-7hsew: the four all_pairs_* weighted bindings + the
+    packed fast path + multi_source_dijkstra carry discovery objects;
+    multi-source seeds display AS PASSED in the caller's set order."""
+
+    def _mixed(self, mod, directed=True):
+        import random
+
+        g = (mod.DiGraph if directed else mod.Graph)()
+        g.add_node(28)
+        g.add_edge(7, 28.0, weight=1)
+        g.add_edge(28.0, 5, weight=1)
+        g.add_edge(5, 9, weight=2)
+        g.add_edge(7, 5, weight=2)
+        rnd = random.Random(3)
+        for _ in range(25):
+            u, v = rnd.randrange(10), rnd.randrange(10)
+            if u != v:
+                g.add_edge(u, v, weight=1 + (u * v) % 3)
+        g.add_edge(9, 7, weight=1)
+        return g
+
+    def _rr(self, x, d=0):
+        if d > 5:
+            return repr(x)
+        if isinstance(x, (list, tuple)):
+            return [self._rr(i, d + 1) for i in x]
+        if isinstance(x, dict):
+            return {repr(k): self._rr(v, d + 1) for k, v in x.items()}
+        return repr(x)
+
+    @pytest.mark.parametrize("directed", [True, False])
+    def test_all_pairs_family(self, directed):
+        gf, gn = self._mixed(fnx, directed), self._mixed(nx, directed)
+        assert self._rr(dict(fnx.all_pairs_bellman_ford_path(gf))) == self._rr(
+            dict(nx.all_pairs_bellman_ford_path(gn))
+        )
+        assert self._rr(
+            {k: dict(v) for k, v in fnx.all_pairs_bellman_ford_path_length(gf)}
+        ) == self._rr({k: dict(v) for k, v in nx.all_pairs_bellman_ford_path_length(gn)})
+        assert self._rr(
+            {k: (dict(v[0]), v[1]) for k, v in fnx.all_pairs_dijkstra(gf)}
+        ) == self._rr({k: (dict(v[0]), v[1]) for k, v in nx.all_pairs_dijkstra(gn)})
+        assert self._rr(
+            {k: dict(v) for k, v in fnx.all_pairs_dijkstra_path_length(gf)}
+        ) == self._rr({k: dict(v) for k, v in nx.all_pairs_dijkstra_path_length(gn)})
+
+    @pytest.mark.parametrize("directed", [True, False])
+    @pytest.mark.parametrize("seeds", [{7, 9}, [9, 7], [7]], ids=["set", "list", "single"])
+    def test_multi_source_seed_order_and_objects(self, directed, seeds):
+        gf, gn = self._mixed(fnx, directed), self._mixed(nx, directed)
+        assert self._rr(fnx.multi_source_dijkstra(gf, seeds)) == self._rr(
+            nx.multi_source_dijkstra(gn, seeds)
+        )

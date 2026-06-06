@@ -3004,10 +3004,17 @@ pub fn multi_source_dijkstra(
     let gr = extract_graph(g)?;
     let iter = pyo3::types::PyIterator::from_object(sources)?;
     let mut source_strs = Vec::new();
+    // br-r37-c1-7hsew: keep the PASSED source objects — nx seeds
+    // `{source: [source] for source in sources}`, so sources display AS
+    // PASSED (iterating the caller's set object in-process also gives
+    // nx's exact seed order at any hash seed).
+    let mut seed_objs: std::collections::HashMap<String, PyObject> =
+        std::collections::HashMap::new();
     for item in iter {
         let item = item?;
         let s = node_key_to_string(py, &item)?;
         validate_node_str(&gr, &s, "Source")?;
+        seed_objs.entry(s.clone()).or_insert_with(|| item.unbind());
         source_strs.push(s);
     }
     let source_refs: Vec<&str> = source_strs.iter().map(String::as_str).collect();
@@ -3027,16 +3034,26 @@ pub fn multi_source_dijkstra(
         }
     };
 
-    let dist_dict = PyDict::new(py);
-    for entry in &result.distances {
-        dist_dict.set_item(gr.py_node_key(py, &entry.node), entry.distance)?;
-    }
-
     let pred_map: std::collections::HashMap<&str, Option<&str>> = result
         .predecessors
         .iter()
         .map(|e| (e.node.as_str(), e.predecessor.as_deref()))
         .collect();
+
+    // br-r37-c1-7hsew: discovery objects — seeds as passed, every other
+    // node as its finalizing predecessor's row object.
+    let mut disp: std::collections::HashMap<String, PyObject> = seed_objs;
+    for entry in &result.distances {
+        if let Some(Some(p)) = pred_map.get(entry.node.as_str()) {
+            disp.entry(entry.node.clone())
+                .or_insert_with(|| gr.py_row_key(py, p, &entry.node));
+        }
+    }
+
+    let dist_dict = PyDict::new(py);
+    for entry in &result.distances {
+        dist_dict.set_item(gr.disp_or_node_key(py, &disp, &entry.node), entry.distance)?;
+    }
 
     let paths_dict = PyDict::new(py);
     for entry in &result.distances {
@@ -3047,8 +3064,11 @@ pub fn multi_source_dijkstra(
             current = prev;
         }
         path.reverse();
-        let py_path: Vec<PyObject> = path.iter().map(|n| gr.py_node_key(py, n)).collect();
-        paths_dict.set_item(gr.py_node_key(py, &entry.node), py_path)?;
+        let py_path: Vec<PyObject> = path
+            .iter()
+            .map(|n| gr.disp_or_node_key(py, &disp, n))
+            .collect();
+        paths_dict.set_item(gr.disp_or_node_key(py, &disp, &entry.node), py_path)?;
     }
 
     Ok((
@@ -12407,25 +12427,32 @@ fn all_pairs_dijkstra_path_length(
 ) -> PyResult<PyObject> {
     sync_rust_attrs_if_available(g)?;
     let gr = extract_graph(g)?;
+    // br-r37-c1-7hsew: the FULL kernels give paths alongside distances —
+    // paths feed the per-source discovery-object map.
     let result = if gr.is_directed() {
         let dg = gr
             .weighted_digraph_projection(weight)
             .expect("is_directed checked above");
-        py.allow_threads(|| {
-            fnx_algorithms::all_pairs_dijkstra_path_length_directed(dg.as_ref(), weight)
-        })
+        py.allow_threads(|| fnx_algorithms::all_pairs_dijkstra_directed(dg.as_ref(), weight))
     } else {
         let weighted_projection = gr.weighted_undirected_projection(weight);
         {
             let __wp = weighted_projection.as_ref();
-            py.allow_threads(|| fnx_algorithms::all_pairs_dijkstra_path_length(__wp, weight))
+            py.allow_threads(|| fnx_algorithms::all_pairs_dijkstra(__wp, weight))
         }
     };
     let outer_dict = PyDict::new(py);
-    for (source, targets) in &result {
+    for (source, (dists, paths)) in &result {
+        let mut disp: std::collections::HashMap<String, PyObject> =
+            std::collections::HashMap::with_capacity(paths.len());
+        for (node, p) in paths {
+            if p.len() >= 2 {
+                disp.insert(node.clone(), gr.py_row_key(py, &p[p.len() - 2], node));
+            }
+        }
         let inner_dict = PyDict::new(py);
-        for (target, d) in targets {
-            inner_dict.set_item(gr.py_node_key(py, target), d)?;
+        for (target, d) in dists {
+            inner_dict.set_item(gr.disp_or_node_key(py, &disp, target), d)?;
         }
         outer_dict.set_item(gr.py_node_key(py, source), inner_dict)?;
     }
@@ -12478,43 +12505,61 @@ fn all_pairs_bellman_ford_path_length(
 ) -> PyResult<PyObject> {
     sync_rust_attrs_if_available(g)?;
     let gr = extract_graph(g)?;
-    let result = if let Some(weighted_projection) = gr.weighted_digraph_projection(weight) {
+    // br-r37-c1-7hsew: loop the PRED-carrying kernels so each source's
+    // length dict gets discovery objects (the SPFA relaxation parent's
+    // row object) without extra walks.
+    let outer_dict = PyDict::new(py);
+    if let Some(weighted_projection) = gr.weighted_digraph_projection(weight) {
         let __wp = weighted_projection.as_ref();
-        let mut all_distances = Vec::new();
         for source in __wp.nodes_ordered() {
-            let Some(distances) = py.allow_threads(|| {
-                fnx_algorithms::single_source_bellman_ford_path_length_directed(
-                    __wp, source, weight,
-                )
-            }) else {
+            let bf = py.allow_threads(|| {
+                fnx_algorithms::bellman_ford_shortest_paths_directed(__wp, source, weight)
+            });
+            if bf.negative_cycle_detected {
                 return Err(crate::NetworkXUnbounded::new_err(
                     "Negative cycle detected.",
                 ));
-            };
-            all_distances.push((source.to_owned(), distances));
+            }
+            let mut disp: std::collections::HashMap<String, PyObject> =
+                std::collections::HashMap::with_capacity(bf.distances.len());
+            for e in &bf.predecessors {
+                if let Some(p) = &e.predecessor {
+                    disp.insert(e.node.clone(), gr.py_row_key(py, p, &e.node));
+                }
+            }
+            let inner_dict = PyDict::new(py);
+            for e in &bf.distances {
+                inner_dict.set_item(gr.disp_or_node_key(py, &disp, &e.node), e.distance)?;
+            }
+            outer_dict.set_item(gr.py_node_key(py, source), inner_dict)?;
         }
-        Some(all_distances)
     } else {
         let weighted_projection = gr.weighted_undirected_projection(weight);
         let __wp = weighted_projection.as_ref();
-        py.allow_threads(|| fnx_algorithms::all_pairs_bellman_ford_path_length(__wp, weight))
-    };
-    match result {
-        Some(data) => {
-            let outer_dict = PyDict::new(py);
-            for (source, targets) in &data {
-                let inner_dict = PyDict::new(py);
-                for (target, d) in targets {
-                    inner_dict.set_item(gr.py_node_key(py, target), d)?;
-                }
-                outer_dict.set_item(gr.py_node_key(py, source), inner_dict)?;
+        for source in __wp.nodes_ordered() {
+            let bf = py.allow_threads(|| {
+                fnx_algorithms::bellman_ford_shortest_paths(__wp, source, weight)
+            });
+            if bf.negative_cycle_detected {
+                return Err(crate::NetworkXUnbounded::new_err(
+                    "Negative cycle detected.",
+                ));
             }
-            Ok(outer_dict.into_any().unbind())
+            let mut disp: std::collections::HashMap<String, PyObject> =
+                std::collections::HashMap::with_capacity(bf.distances.len());
+            for e in &bf.predecessors {
+                if let Some(p) = &e.predecessor {
+                    disp.insert(e.node.clone(), gr.py_row_key(py, p, &e.node));
+                }
+            }
+            let inner_dict = PyDict::new(py);
+            for e in &bf.distances {
+                inner_dict.set_item(gr.disp_or_node_key(py, &disp, &e.node), e.distance)?;
+            }
+            outer_dict.set_item(gr.py_node_key(py, source), inner_dict)?;
         }
-        None => Err(crate::NetworkXUnbounded::new_err(
-            "Negative cycle detected.",
-        )),
     }
+    Ok(outer_dict.into_any().unbind())
 }
 
 /// Return all-pairs shortest paths using Bellman-Ford.
@@ -12550,12 +12595,15 @@ fn all_pairs_bellman_ford_path(
         Some(data) => {
             let outer_dict = PyDict::new(py);
             for (source, targets) in &data {
-                let inner_dict = PyDict::new(py);
-                for (target, path) in targets {
-                    let py_path: Vec<PyObject> =
-                        path.iter().map(|n| gr.py_node_key(py, n)).collect();
-                    inner_dict.set_item(gr.py_node_key(py, target), py_path)?;
-                }
+                // br-r37-c1-7hsew: discovery objects per source; sources
+                // keep their node-map object (nx iterates G).
+                let inner_dict = emit_paths_dict_discovery(
+                    py,
+                    &gr,
+                    targets,
+                    source,
+                    gr.py_node_key(py, source),
+                )?;
                 outer_dict.set_item(gr.py_node_key(py, source), inner_dict)?;
             }
             Ok(outer_dict.into_any().unbind())
@@ -13813,12 +13861,27 @@ fn all_pairs_dijkstra_packed_py(
             }
         }
 
+        // br-r37-c1-7hsew: discovery objects — a node displays as its
+        // finalizing predecessor's row object; sources keep their
+        // node-map object (nx iterates G).
+        let mut disp_keys: Vec<Option<PyObject>> = (0..nodes.len()).map(|_| None).collect();
+        for &target_idx in &finalize_order {
+            disp_keys[target_idx] = Some(match predecessors[target_idx] {
+                Some(p) => gr.py_row_key(py, nodes[p], nodes[target_idx]),
+                None => py_keys[target_idx].clone_ref(py),
+            });
+        }
+        let disp = |idx: usize| -> PyObject {
+            disp_keys[idx]
+                .as_ref()
+                .map_or_else(|| py_keys[idx].clone_ref(py), |o| o.clone_ref(py))
+        };
         let dist_dict = PyDict::new(py);
         let path_dict = PyDict::new(py);
         for &target_idx in &finalize_order {
             set_dijkstra_distance_item(
                 &dist_dict,
-                py_keys[target_idx].clone_ref(py),
+                disp(target_idx),
                 seen[target_idx],
                 all_int_weights,
             )?;
@@ -13831,9 +13894,9 @@ fn all_pairs_dijkstra_packed_py(
             }
             let py_path = PyList::empty(py);
             for &idx in path_indices.iter().rev() {
-                py_path.append(py_keys[idx].clone_ref(py))?;
+                py_path.append(disp(idx))?;
             }
-            path_dict.set_item(py_keys[target_idx].clone_ref(py), py_path)?;
+            path_dict.set_item(disp(target_idx), py_path)?;
         }
         let pair = PyTuple::new(py, [dist_dict.as_any(), path_dict.as_any()])?;
         outer.set_item(py_keys[source_idx].clone_ref(py), pair)?;
@@ -13879,14 +13942,25 @@ fn all_pairs_dijkstra(py: Python<'_>, g: &Bound<'_, PyAny>, weight: &str) -> PyR
     };
     let outer = PyDict::new(py);
     for (source, (dists, paths)) in &result {
+        // br-r37-c1-7hsew: per-source discovery objects via the paths.
+        let mut disp: std::collections::HashMap<String, PyObject> =
+            std::collections::HashMap::with_capacity(paths.len());
+        for (node, p) in paths {
+            if p.len() >= 2 {
+                disp.insert(node.clone(), gr.py_row_key(py, &p[p.len() - 2], node));
+            }
+        }
         let dist_dict = PyDict::new(py);
         for (target, dist) in dists {
-            dist_dict.set_item(gr.py_node_key(py, target), *dist)?;
+            dist_dict.set_item(gr.disp_or_node_key(py, &disp, target), *dist)?;
         }
         let path_dict = PyDict::new(py);
         for (target, path) in paths {
-            let py_path: Vec<PyObject> = path.iter().map(|n| gr.py_node_key(py, n)).collect();
-            path_dict.set_item(gr.py_node_key(py, target), PyList::new(py, &py_path)?)?;
+            let py_path: Vec<PyObject> = path
+                .iter()
+                .map(|n| gr.disp_or_node_key(py, &disp, n))
+                .collect();
+            path_dict.set_item(gr.disp_or_node_key(py, &disp, target), PyList::new(py, &py_path)?)?;
         }
         let pair = PyTuple::new(py, [dist_dict.as_any(), path_dict.as_any()])?;
         outer.set_item(gr.py_node_key(py, source), pair)?;
