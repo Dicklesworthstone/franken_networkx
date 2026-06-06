@@ -13857,6 +13857,54 @@ pub fn stoer_wagner(
     Ok((result.cut_value, (part_a, part_b)))
 }
 
+/// br-r37-c1-35oum: nx-exact Stoer-Wagner phases. Returns
+/// (cut_value, contractions, best_phase, copy_nodes) — the Python
+/// wrapper runs nx's set-order-dependent partition recovery tail with
+/// real CPython sets. Display objects follow nx's working copy: a node
+/// first touched in v-position carries the (u, v) row object.
+#[pyfunction]
+#[pyo3(signature = (g, weight="weight"))]
+pub fn stoer_wagner_phases(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    weight: &str,
+) -> PyResult<(f64, Vec<(PyObject, PyObject)>, usize, Vec<PyObject>)> {
+    let gr = extract_graph(g)?;
+    let inner = gr.undirected();
+    let result = py.allow_threads(|| fnx_algorithms::stoer_wagner_nx(inner, weight));
+    match result {
+        Ok((cut_value, contractions, best_phase, copy_nodes)) => {
+            let mut disp: std::collections::HashMap<String, PyObject> =
+                std::collections::HashMap::with_capacity(copy_nodes.len());
+            let mut nodes_py: Vec<PyObject> = Vec::with_capacity(copy_nodes.len());
+            for (node, parent) in &copy_nodes {
+                let obj = match parent {
+                    Some(p) => gr.py_row_key(py, p, node),
+                    None => gr.py_node_key(py, node),
+                };
+                disp.insert(node.clone(), obj.clone_ref(py));
+                nodes_py.push(obj);
+            }
+            let pairs: Vec<(PyObject, PyObject)> = contractions
+                .iter()
+                .map(|(a, b)| {
+                    (
+                        gr.disp_or_node_key(py, &disp, a),
+                        gr.disp_or_node_key(py, &disp, b),
+                    )
+                })
+                .collect();
+            Ok((cut_value, pairs, best_phase, nodes_py))
+        }
+        Err("negative") => Err(crate::NetworkXError::new_err(
+            "graph has a negative-weighted edge.",
+        )),
+        Err(_) => Err(crate::NetworkXError::new_err(
+            "graph has less than two nodes.",
+        )),
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Chain decomposition
 // ---------------------------------------------------------------------------
@@ -16116,6 +16164,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(global_node_connectivity, m)?)?;
     // Stoer-Wagner min cut
     m.add_function(wrap_pyfunction!(stoer_wagner, m)?)?;
+    m.add_function(wrap_pyfunction!(stoer_wagner_phases, m)?)?;
     // Chain decomposition
     m.add_function(wrap_pyfunction!(chain_decomposition, m)?)?;
     // All topological sorts

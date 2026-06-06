@@ -26831,6 +26831,227 @@ pub struct StoerWagnerResult {
 /// Returns the cut value and a partition (S, T) of the node set.
 /// The graph must be connected and undirected with non-negative edge weights.
 #[must_use]
+/// br-r37-c1-35oum: nx-exact Stoer-Wagner phases. Mirrors
+/// networkx.algorithms.connectivity.stoerwagner line by line: working
+/// copy built from the u-major edge stream, per-phase
+/// lazy-deletion min-heap with an INSERTION-COUNTER tie-break
+/// (networkx.utils.heaps.BinaryHeap), arbitrary_element = first node in
+/// copy order, contraction merges in G[v] row order. Returns
+/// (cut_value, contractions, best_phase, copy_nodes) — the
+/// set-order-dependent partition recovery tail runs in the Python
+/// wrapper with real CPython sets. copy_nodes pairs each node with its
+/// first-touch parent (None for u-positions) so the binding can map
+/// nx's display objects (v-positions carry the row object).
+pub fn stoer_wagner_nx(
+    graph: &Graph,
+    weight_attr: &str,
+) -> Result<
+    (
+        f64,
+        Vec<(String, String)>,
+        usize,
+        Vec<(String, Option<String>)>,
+    ),
+    &'static str,
+> {
+    // --- working copy: u-major first-touch edge stream (nx G.edges(data=True)) ---
+    let mut pair_weight: HashMap<(usize, usize), f64> = HashMap::new();
+    {
+        let node_idx: HashMap<&str, usize> = graph
+            .nodes_ordered()
+            .iter()
+            .enumerate()
+            .map(|(i, n)| (*n, i))
+            .collect();
+        for edge in graph.edges_ordered() {
+            let i = node_idx[edge.left.as_str()];
+            let j = node_idx[edge.right.as_str()];
+            let wt = edge
+                .attrs
+                .get(weight_attr)
+                .and_then(|val| val.as_f64())
+                .unwrap_or(1.0);
+            pair_weight.insert((i.min(j), i.max(j)), wt);
+        }
+    }
+    let nodes = graph.nodes_ordered();
+    let node_idx: HashMap<&str, usize> = nodes.iter().enumerate().map(|(i, n)| (*n, i)).collect();
+    let mut copy_id: HashMap<usize, u32> = HashMap::new();
+    let mut copy_nodes: Vec<(String, Option<String>)> = Vec::new();
+    let mut rows: Vec<Vec<(u32, f64)>> = Vec::new();
+    let mut seen_pair: HashSet<(usize, usize)> = HashSet::new();
+    for (ui, &u) in nodes.iter().enumerate() {
+        let Some(nbrs) = graph.neighbors(u) else {
+            continue;
+        };
+        for v in nbrs {
+            let vi = node_idx[v];
+            if ui == vi {
+                continue;
+            }
+            let key = (ui.min(vi), ui.max(vi));
+            if !seen_pair.insert(key) {
+                continue;
+            }
+            let wt = pair_weight[&key];
+            if wt < 0.0 {
+                return Err("negative");
+            }
+            let a = *copy_id.entry(ui).or_insert_with(|| {
+                copy_nodes.push((u.to_owned(), None));
+                rows.push(Vec::new());
+                (copy_nodes.len() - 1) as u32
+            });
+            let b = *copy_id.entry(vi).or_insert_with(|| {
+                copy_nodes.push((v.to_owned(), Some(u.to_owned())));
+                rows.push(Vec::new());
+                (copy_nodes.len() - 1) as u32
+            });
+            rows[a as usize].push((b, wt));
+            rows[b as usize].push((a, wt));
+        }
+    }
+    let n = copy_nodes.len();
+    if n < 2 {
+        return Err("too_small");
+    }
+
+    // --- nx BinaryHeap: lazy deletion, (value, counter, key) min-tuples ---
+    struct NxHeap {
+        heap: std::collections::BinaryHeap<std::cmp::Reverse<(HeapVal, u64, u32)>>,
+        dict: HashMap<u32, f64>,
+        count: u64,
+    }
+    #[derive(PartialEq, Clone, Copy)]
+    struct HeapVal(f64);
+    impl Eq for HeapVal {}
+    impl PartialOrd for HeapVal {
+        fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+            Some(self.cmp(other))
+        }
+    }
+    impl Ord for HeapVal {
+        fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+            // Python float compare: -0.0 == 0.0 (counter breaks the tie),
+            // values are never NaN here (finite weight sums).
+            self.0.partial_cmp(&other.0).expect("finite heap values")
+        }
+    }
+    impl NxHeap {
+        fn new() -> Self {
+            Self {
+                heap: std::collections::BinaryHeap::new(),
+                dict: HashMap::new(),
+                count: 0,
+            }
+        }
+        fn get(&self, key: u32) -> Option<f64> {
+            self.dict.get(&key).copied()
+        }
+        fn insert(&mut self, key: u32, value: f64) {
+            match self.dict.get(&key) {
+                Some(&old) if value >= old => {}
+                _ => {
+                    self.dict.insert(key, value);
+                    self.heap
+                        .push(std::cmp::Reverse((HeapVal(value), self.count, key)));
+                    self.count += 1;
+                }
+            }
+        }
+        fn pop(&mut self) -> (u32, f64) {
+            loop {
+                let std::cmp::Reverse((val, _, key)) =
+                    self.heap.pop().expect("heap non-empty");
+                if self.dict.get(&key) == Some(&val.0) {
+                    self.dict.remove(&key);
+                    return (key, val.0);
+                }
+            }
+        }
+        fn min(&mut self) -> (u32, f64) {
+            loop {
+                let &std::cmp::Reverse((val, _, key)) =
+                    self.heap.peek().expect("heap non-empty");
+                if self.dict.get(&key) == Some(&val.0) {
+                    return (key, val.0);
+                }
+                self.heap.pop();
+            }
+        }
+    }
+
+    let mut active: Vec<bool> = vec![true; n];
+    let mut cut_value = f64::INFINITY;
+    let mut best_phase = 0usize;
+    let mut contractions: Vec<(u32, u32)> = Vec::new();
+
+    for i in 0..n - 1 {
+        // arbitrary_element(G) = first node in (remaining) copy order
+        let mut u = (0..n).find(|&x| active[x]).expect("nonempty") as u32;
+        let mut in_a: Vec<bool> = vec![false; n];
+        in_a[u as usize] = true;
+        let mut h = NxHeap::new();
+        for &(v, w) in &rows[u as usize] {
+            h.insert(v, -w);
+        }
+        for _ in 0..(n - i).saturating_sub(2) {
+            u = h.pop().0;
+            in_a[u as usize] = true;
+            for &(v, w) in &rows[u as usize] {
+                if !in_a[v as usize] {
+                    h.insert(v, h.get(v).unwrap_or(0.0) - w);
+                }
+            }
+        }
+        let (v, neg_w) = h.min();
+        let w = -neg_w;
+        if w < cut_value {
+            cut_value = w;
+            best_phase = i;
+        }
+        contractions.push((u, v));
+        // contract v into u, preserving nx dict-row semantics
+        let v_row = rows[v as usize].clone();
+        for (x, wt) in v_row {
+            if x == u {
+                continue;
+            }
+            let existing = rows[u as usize].iter().position(|&(y, _)| y == x);
+            match existing {
+                Some(pos) => {
+                    rows[u as usize][pos].1 += wt;
+                    if let Some(back) = rows[x as usize].iter().position(|&(y, _)| y == u) {
+                        rows[x as usize][back].1 += wt;
+                    }
+                }
+                None => {
+                    rows[u as usize].push((x, wt));
+                    rows[x as usize].push((u, wt));
+                }
+            }
+        }
+        // remove_node(v): order-preserving deletion from every neighbor row
+        let v_nbrs: Vec<u32> = rows[v as usize].iter().map(|&(x, _)| x).collect();
+        for x in v_nbrs {
+            rows[x as usize].retain(|&(y, _)| y != v);
+        }
+        rows[v as usize].clear();
+        active[v as usize] = false;
+    }
+
+    let named: Vec<(String, String)> = contractions
+        .iter()
+        .map(|&(a, b)| {
+            (
+                copy_nodes[a as usize].0.clone(),
+                copy_nodes[b as usize].0.clone(),
+            )
+        })
+        .collect();
+    Ok((cut_value, named, best_phase, copy_nodes))
+}
+
 pub fn stoer_wagner(graph: &Graph, weight_attr: &str) -> Option<StoerWagnerResult> {
     let nodes = graph.nodes_ordered();
     let n = nodes.len();

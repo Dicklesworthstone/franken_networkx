@@ -23154,7 +23154,36 @@ def stoer_wagner(G, weight="weight", heap=_BINARY_HEAP_DEFAULT):
             kwargs["heap"] = heap
         return _call_networkx_for_parity("stoer_wagner", G, **kwargs)
 
-    cut_value, partition = _rust_stoer_wagner(G, weight=weight)
+    # br-r37-c1-35oum: the kernel mirrors nx's phases exactly (per-phase
+    # lazy-deletion heap with insertion-counter tie-breaks, copy-order
+    # arbitrary_element, row-order contraction merges) and returns the
+    # contraction sequence; the partition recovery below is nx's tail run
+    # VERBATIM with real CPython sets — its list order is set-iteration
+    # order, unreplicable in Rust but exact by construction here.
+    from franken_networkx._fnx import stoer_wagner_phases as _rust_stoer_wagner_phases
+
+    cut_value, contractions, best_phase, copy_nodes = _rust_stoer_wagner_phases(
+        G, weight=weight
+    )
+    adj = {}
+    for u, v in contractions[:best_phase]:
+        adj.setdefault(u, {})[v] = 1
+        adj.setdefault(v, {})[u] = 1
+    v = contractions[best_phase][1]
+    adj.setdefault(v, {})
+    # networkx _single_shortest_path_length walk (sets and all)
+    seen = {}
+    nextlevel = {v}
+    while nextlevel:
+        thislevel = nextlevel
+        nextlevel = set()
+        for x in thislevel:
+            if x not in seen:
+                seen[x] = 1
+                nextlevel.update(adj.get(x, {}))
+    reachable = set(seen)
+    nodes = set(copy_nodes)
+    partition = (list(reachable), list(nodes - reachable))
     if _stoer_wagner_weights_all_integral(G, weight):
         cut_value = (
             int(cut_value)
