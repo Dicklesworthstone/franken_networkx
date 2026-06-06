@@ -77,3 +77,12 @@ class TestMultigraphProjectionRowOrder:
             assert list(fnx.single_source_shortest_path_length(gf, s)) == list(
                 nx.single_source_shortest_path_length(gn, s)
             ), trial
+
+
+def test_wheel_native_fast_path_reenabled():
+    """br-r37-c1-o97vk resolved by the u-major-hoist converter fix: the
+    rust wheel kernel was never wrong — native route re-enabled."""
+    for n in range(0, 12):
+        a = {repr(x): [repr(y) for y in fnx.wheel_graph(n)[x]] for x in fnx.wheel_graph(n)}
+        b = {repr(x): [repr(y) for y in nx.wheel_graph(n)[x]] for x in nx.wheel_graph(n)}
+        assert a == b, n

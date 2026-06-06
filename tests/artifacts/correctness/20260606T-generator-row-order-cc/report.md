@@ -42,3 +42,17 @@ the remaining rebuild sites:
   Projections now apply_row_orders from the source.
 Battery sha db7a82ae (repro + 25-trial random multigraph traversal
 corpus); full pytest 21790 passed.
+
+## Workaround re-enablement audit (post converter fix)
+Probed every "route Python always / order drift" workaround against
+the now-faithful converters:
+- wheel_graph (o97vk): kernel was NEVER wrong — converter hoisting was
+  the whole bug. Native fast path RE-ENABLED (n=0..14 + iterable +
+  create_using validated).
+- transitive_reduction (utmy6): 4-node probe matched but a 40-DAG
+  corpus shows the KERNEL's own edge emission order diverges (succ-row
+  order within result rows) — delegation STAYS. Lesson: one-shape
+  probes lie; corpus before re-enabling.
+- cycle/dodecahedral/frucht (o97vk/iw2hz): kernels genuinely diverge
+  (petersen-class wrong emission) — workarounds stay; kernel emission
+  fixes are future candidates.

@@ -21152,13 +21152,17 @@ def tadpole_graph(m, n, create_using=None):
 def wheel_graph(n, create_using=None):
     """Return the wheel graph.
 
-    br-r37-c1-o97vk: the _rust_wheel_graph fast path produced a graph
-    whose adj of the rim's last node drifted from nx (e.g. wheel(5)
-    fnx adj[4] = [0, 1, 3] vs nx adj[4] = [0, 3, 1] — the closing rim
-    edge wraps differently). The Python construction path already
-    matches nx — route through it always.
+    br-r37-c1-o97vk RESOLVED (u-major-hoist arc, 1123e2bf8): the rim
+    drift was never the kernel's fault — rust_graph_to_py_standalone's
+    edges_ordered() rebuild hoisted the closing rim edge. With the
+    converter now cloning wholesale, the rust path matches nx at all
+    sizes (verified n=5,6,7,10) — restore the native fast path.
     """
     n_value, nodes = _nodes_or_number_local(n)
+    if create_using is None and isinstance(n_value, _numbers.Integral) and n_value >= 0:
+        from franken_networkx._fnx import wheel_graph as _rust_wheel_graph
+
+        return _rust_wheel_graph(n_value)
     G = empty_graph(nodes, create_using)
     if G.is_directed():
         raise NetworkXError("Directed Graph not supported")
