@@ -86,3 +86,16 @@ def test_wheel_native_fast_path_reenabled():
         a = {repr(x): [repr(y) for y in fnx.wheel_graph(n)[x]] for x in fnx.wheel_graph(n)}
         b = {repr(x): [repr(y) for y in nx.wheel_graph(n)[x]] for x in nx.wheel_graph(n)}
         assert a == b, n
+
+
+def test_cycle_native_fast_path_reenabled():
+    """Generators arc: cycle kernel's closing edge now emits (n-1, 0)
+    LAST like nx's cyclic pairwise — native route re-enabled."""
+    for n in range(0, 13):
+        a = {repr(x): [repr(y) for y in fnx.cycle_graph(n)[x]] for x in fnx.cycle_graph(n)}
+        b = {repr(x): [repr(y) for y in nx.cycle_graph(n)[x]] for x in nx.cycle_graph(n)}
+        assert a == b, n
+    # fallback paths unchanged
+    a = {repr(x): [repr(y) for y in fnx.cycle_graph(["a", "b", "c"])[x]] for x in fnx.cycle_graph(["a", "b", "c"])}
+    b = {repr(x): [repr(y) for y in nx.cycle_graph(["a", "b", "c"])[x]] for x in nx.cycle_graph(["a", "b", "c"])}
+    assert a == b

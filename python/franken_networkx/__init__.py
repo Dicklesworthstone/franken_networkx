@@ -16760,13 +16760,17 @@ def complete_graph(n, create_using=None, *, backend=None, **backend_kwargs):
 def cycle_graph(n, create_using=None):
     """Return the cycle graph C_n.
 
-    br-r37-c1-o97vk: the _rust_cycle_graph fast path produced a graph
-    whose adj[n-1] was [0, n-2] but nx's contract is [n-2, 0] (the
-    closing edge appends 0 to adj[n-1] *after* the (n-2, n-1) edge).
-    The Python construction path already matches nx — route through
-    it always.
+    br-r37-c1-o97vk RESOLVED (generators arc): the kernel's closing
+    edge now emits (n-1, 0) LAST like nx's cyclic pairwise — native
+    fast path re-enabled for the int/default case (verified
+    n=1,2,3,4,5,8,12).
     """
-    n, nodes = _nodes_or_number_local(n)
+    n_value, nodes = _nodes_or_number_local(n)
+    if create_using is None and isinstance(n_value, _numbers.Integral) and n_value >= 0:
+        from franken_networkx._fnx import cycle_graph as _rust_cycle_graph
+
+        return _rust_cycle_graph(n_value)
+    n = n_value
     graph = _classic_graph_from_create_using(create_using)
     _add_nodes_in_order(graph, nodes)
     if nodes:

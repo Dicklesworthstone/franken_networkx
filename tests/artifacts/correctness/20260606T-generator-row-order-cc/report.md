@@ -56,3 +56,14 @@ the now-faithful converters:
 - cycle/dodecahedral/frucht (o97vk/iw2hz): kernels genuinely diverge
   (petersen-class wrong emission) — workarounds stay; kernel emission
   fixes are future candidates.
+
+## cycle_graph kernel fix + re-enablement
+The cycle kernel emitted the closing edge SECOND as (0, n-1); nx's
+cyclic pairwise emits it LAST as (n-1, 0) — row n-1 was [0, n-2] vs
+nx [n-2, 0]. Kernel loop is now the modular (i, i+1) walk; the
+kernel's own unit test was rewritten to assert ADJACENCY ROWS (the old
+expectation codified the u-major snapshot order, masking the bug).
+Native route re-enabled (n=0..12, iterable, create_using, and the
+cycle-composing builders tadpole/circular_ladder/lollipop validated).
+dodecahedral/frucht remain on Python paths (LCF/named constructions —
+separate kernels, future fixes).

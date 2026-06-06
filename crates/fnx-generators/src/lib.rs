@@ -522,21 +522,15 @@ impl GraphGenerator {
                     reason: err.to_string(),
                 })?;
         } else if n >= 3 {
-            graph
-                .add_edge(node_labels[0].clone(), node_labels[1].clone())
-                .map_err(|err| GenerationError::FailClosed {
-                    operation: "cycle_graph",
-                    reason: err.to_string(),
-                })?;
-            graph
-                .add_edge(node_labels[0].clone(), node_labels[n - 1].clone())
-                .map_err(|err| GenerationError::FailClosed {
-                    operation: "cycle_graph",
-                    reason: err.to_string(),
-                })?;
-            for i in 1..(n - 1) {
+            // generators-arc 2026-06-06: nx cycle_graph emits
+            // pairwise(nodes, cyclic) — (0,1)..(n-2,n-1) then the closing
+            // (n-1, 0) LAST in that orientation. The old emission added
+            // (0, n-1) second, putting 0 before n-2's entry in the last
+            // node's adjacency row (cycle(5) row 4 was [0, 3] vs nx
+            // [3, 0]).
+            for i in 0..n {
                 graph
-                    .add_edge(node_labels[i].clone(), node_labels[i + 1].clone())
+                    .add_edge(node_labels[i].clone(), node_labels[(i + 1) % n].clone())
                     .map_err(|err| GenerationError::FailClosed {
                         operation: "cycle_graph",
                         reason: err.to_string(),
@@ -7136,23 +7130,29 @@ mod tests {
 
     #[test]
     fn cycle_graph_edge_order_matches_networkx_for_n_five() {
+        // generators-arc 2026-06-06: assert ADJACENCY ROWS, not the
+        // snapshot edge list (the old expectation codified the u-major
+        // walk order, masking the closing-edge orientation bug —
+        // nx cycle(5) row 4 is [3, 0], the closing (4, 0) arriving LAST).
         let mut generator = GraphGenerator::strict();
         let report = generator
             .cycle_graph(5)
             .expect("cycle graph generation should succeed");
-        let edges = report.graph.snapshot().edges;
-        let got = edges
+        let g = &report.graph;
+        let rows: Vec<Vec<&str>> = ["0", "1", "2", "3", "4"]
             .iter()
-            .map(|edge| (edge.left.clone(), edge.right.clone()))
-            .collect::<Vec<(String, String)>>();
-        let expected = vec![
-            ("0".to_owned(), "1".to_owned()),
-            ("0".to_owned(), "4".to_owned()),
-            ("1".to_owned(), "2".to_owned()),
-            ("2".to_owned(), "3".to_owned()),
-            ("3".to_owned(), "4".to_owned()),
-        ];
-        assert_eq!(got, expected);
+            .map(|n| g.neighbors(n).unwrap_or_default())
+            .collect();
+        assert_eq!(
+            rows,
+            vec![
+                vec!["1", "4"],
+                vec!["0", "2"],
+                vec!["1", "3"],
+                vec!["2", "4"],
+                vec!["3", "0"],
+            ]
+        );
     }
 
     #[test]
