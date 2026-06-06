@@ -766,6 +766,24 @@ impl Graph {
         self.adj_indices.get(node_idx).map(Vec::as_slice)
     }
 
+    /// br-r37-c1-7dpyg: structural clone with a FRESH RuntimePolicy —
+    /// `Clone` deep-copies the unbounded decision ledger (copy() measured
+    /// 2.3-2.8x slower on per-edge-ctor sources with identical structure);
+    /// result graphs carry the MODE, not the history.
+    #[must_use]
+    pub fn clone_with_fresh_policy(&self) -> Self {
+        Self {
+            mode: self.mode,
+            revision: self.revision,
+            nodes: self.nodes.clone(),
+            adjacency: self.adjacency.clone(),
+            adj_indices: self.adj_indices.clone(),
+            edge_index_endpoints: self.edge_index_endpoints.clone(),
+            edges: self.edges.clone(),
+            runtime_policy: RuntimePolicy::new(self.mode),
+        }
+    }
+
     /// br-r37-c1-u3qyn: restore explicit adjacency row orders (pickle
     /// round-trip). Each entry is (node, neighbor order); rows are
     /// rebuilt in the given order with any unlisted survivors appended
@@ -1776,6 +1794,21 @@ pub struct MultiGraph {
 }
 
 impl MultiGraph {
+    /// br-r37-c1-7dpyg: structural clone with a FRESH RuntimePolicy —
+    /// see Graph::clone_with_fresh_policy.
+    #[must_use]
+    pub fn clone_with_fresh_policy(&self) -> Self {
+        Self {
+            mode: self.mode,
+            revision: self.revision,
+            nodes: self.nodes.clone(),
+            adjacency: self.adjacency.clone(),
+            edges: self.edges.clone(),
+            runtime_policy: RuntimePolicy::new(self.mode),
+            edge_count: self.edge_count,
+        }
+    }
+
     /// br-r37-c1-s0d4x: reorder every adjacency row into NetworkX's
     /// `MultiGraph.copy()` walk order — the multigraph counterpart of
     /// Graph::reorder_rows_for_nx_copy_walk (cells move wholesale). A
