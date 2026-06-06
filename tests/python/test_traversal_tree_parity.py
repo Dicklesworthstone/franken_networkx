@@ -380,3 +380,64 @@ class TestSingleTargetPathsParity:
             assert self._rr(fnx.shortest_path(gf, target=t)) == self._rr(
                 nx.shortest_path(gn, target=t)
             ), trial
+
+
+class TestWeightedShortestPathParity:
+    """Weighted sp batch: the weighted shortest_path dict family carries
+    discovery objects + kernel dict order (dijkstra finalize / bellman
+    SPFA discovery); target-only = nx's reverse-view single-source with
+    flipped paths (ONE walk, pred-row objects); the old wrapper
+    distance-re-sort (62jy2) actively broke bellman-ford order."""
+
+    def _mixed(self, mod, directed=True):
+        import random
+
+        g = (mod.DiGraph if directed else mod.Graph)()
+        g.add_node(28)
+        g.add_edge(7, 28.0, weight=1)
+        g.add_edge(28.0, 5, weight=1)
+        g.add_edge(5, 9, weight=2)
+        g.add_edge(7, 5, weight=2)
+        rnd = random.Random(3)
+        for _ in range(25):
+            u, v = rnd.randrange(10), rnd.randrange(10)
+            if u != v:
+                g.add_edge(u, v, weight=1 + (u * v) % 3)
+        g.add_edge(9, 7, weight=1)
+        return g
+
+    def _rr(self, x, d=0):
+        if d > 5:
+            return repr(x)
+        if isinstance(x, (list, tuple)):
+            return [self._rr(i, d + 1) for i in x]
+        if isinstance(x, dict):
+            return {repr(k): self._rr(v, d + 1) for k, v in x.items()}
+        return repr(x)
+
+    @pytest.mark.parametrize("directed", [True, False])
+    @pytest.mark.parametrize("method", ["dijkstra", "bellman-ford"])
+    def test_source_given_and_target_only(self, directed, method):
+        gf, gn = self._mixed(fnx, directed), self._mixed(nx, directed)
+        assert self._rr(fnx.shortest_path(gf, 7, weight="weight", method=method)) == self._rr(
+            nx.shortest_path(gn, 7, weight="weight", method=method)
+        )
+        assert self._rr(
+            fnx.shortest_path(gf, target=9, weight="weight", method=method)
+        ) == self._rr(nx.shortest_path(gn, target=9, weight="weight", method=method))
+
+    @pytest.mark.parametrize("directed", [True, False])
+    def test_all_pairs_and_standalone(self, directed):
+        gf, gn = self._mixed(fnx, directed), self._mixed(nx, directed)
+        assert self._rr(dict(fnx.shortest_path(gf, weight="weight"))) == self._rr(
+            dict(nx.shortest_path(gn, weight="weight"))
+        )
+        assert self._rr(fnx.single_source_dijkstra_path(gf, 7)) == self._rr(
+            nx.single_source_dijkstra_path(gn, 7)
+        )
+        assert self._rr(dict(fnx.single_source_dijkstra_path_length(gf, 7))) == self._rr(
+            dict(nx.single_source_dijkstra_path_length(gn, 7))
+        )
+        assert self._rr(dict(fnx.all_pairs_dijkstra_path(gf))) == self._rr(
+            dict(nx.all_pairs_dijkstra_path(gn))
+        )

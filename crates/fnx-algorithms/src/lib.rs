@@ -22396,11 +22396,40 @@ pub fn single_source_dijkstra_path_length(
     source: &str,
     weight_attr: &str,
 ) -> Vec<(String, f64)> {
+    single_source_dijkstra_path_length_with_pred(graph, source, weight_attr)
+        .into_iter()
+        .map(|(node, dist, _)| (node, dist))
+        .collect()
+}
+
+/// weighted sp batch: distances WITH the finalizing predecessor — lets
+/// the binding map nx's discovery objects (a node displays as its
+/// predecessor's row object) without a second dijkstra.
+#[must_use]
+pub fn single_source_dijkstra_path_length_with_pred(
+    graph: &Graph,
+    source: &str,
+    weight_attr: &str,
+) -> Vec<(String, f64, Option<String>)> {
     let result = multi_source_dijkstra(graph, &[source], weight_attr);
+    let pred: HashMap<&str, Option<&str>> = result
+        .predecessors
+        .iter()
+        .map(|e| (e.node.as_str(), e.predecessor.as_deref()))
+        .collect();
     result
         .distances
-        .into_iter()
-        .map(|entry| (entry.node, entry.distance))
+        .iter()
+        .map(|entry| {
+            (
+                entry.node.clone(),
+                entry.distance,
+                pred.get(entry.node.as_str())
+                    .copied()
+                    .flatten()
+                    .map(str::to_owned),
+            )
+        })
         .collect()
 }
 

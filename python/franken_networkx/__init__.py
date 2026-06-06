@@ -7052,18 +7052,11 @@ def shortest_path(
         # endpoints are omitted (dispatches to all_pairs_*). The Rust native
         # path materializes the full dict-of-dicts; convert to match contract.
         return ((src, paths) for src, paths in result.items())
-    if source is not None and target is None and isinstance(result, dict):
-        # br-r37-c1-62jy2: nx returns the dict in distance-order (BFS
-        # for unweighted, Dijkstra for weighted) from source. Reorder.
-        try:
-            lengths = shortest_path_length(
-                G, source=source, target=None, weight=weight, method=method,
-            )
-            if isinstance(lengths, dict):
-                order = _reorder_by_distance(dict(lengths), G=G, source=source)
-                result = {k: result[k] for k in order if k in result}
-        except Exception:
-            pass
+    # weighted sp batch (supersedes br-r37-c1-62jy2): the binding now
+    # emits dicts in the KERNEL's order — BFS discovery (unweighted),
+    # dijkstra finalize order, bellman-ford SPFA discovery order — which
+    # is nx's exact contract. The old distance-re-sort here actively
+    # BROKE bellman-ford parity (nx does NOT distance-sort SPFA output).
     return result
 
 

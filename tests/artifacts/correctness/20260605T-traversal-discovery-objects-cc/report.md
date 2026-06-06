@@ -93,3 +93,16 @@ pred-row discovery objects. Perf side-effect: directed 3k-node
 sp(target) now one walk, 4.6ms vs nx 2.1ms (was V bidirectional
 searches). FAMILY PROBE NOW FULLY CLEAN: 0 divergences across all 18
 original probe shapes + path family + target-only.
+
+## Batch 6 — WEIGHTED shortest-path dict family (Phase B probe)
+13-form matrix (dij+bf, both orientations) found the weighted family
+untouched by batches 3-5: discovery objects everywhere, bellman-ford
+key order CLOBBERED by the wrapper's 62jy2 distance-re-sort (nx does
+NOT sort SPFA output), and the weighted target-only branch was an O(V)
+per-pair loop with non-nx tie-breaks. Fixes: emit_paths_dict_discovery
+on all weighted source-given/all-pairs branches;
+emit_reversed_target_paths_dict + reverse_digraph for target-only (nx
+G.reverse(copy=False) semantics, ONE walk); 62jy2 re-sort removed;
+single_source_dijkstra binding (feeds the path/length wrappers) and
+all_pairs_dijkstra_path now map discovery objects via the FULL kernel
+(distances+paths in one dijkstra). Probe: 17 divergences -> 0.

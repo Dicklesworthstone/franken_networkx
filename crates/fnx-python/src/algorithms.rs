@@ -992,6 +992,40 @@ fn emit_single_target_paths_dict(
     Ok(dict.unbind())
 }
 
+/// weighted sp(target) batch: nx runs single_source dijkstra/bellman on
+/// `G.reverse(copy=False)` from the target, then flips each path. Keys
+/// stay in the single-source dict order; discovery objects come from
+/// PRED rows (the reverse view's adjacency). `paths` are the
+/// reverse-orientation paths BEFORE flipping (target ... node order is
+/// [target, ..., node] reversed at emission).
+fn emit_reversed_target_paths_dict(
+    py: Python<'_>,
+    gr: &GraphRef<'_>,
+    paths: &[(String, Vec<String>)],
+    target_key: &str,
+    target_obj: PyObject,
+) -> PyResult<pyo3::Py<PyDict>> {
+    let mut disp: std::collections::HashMap<String, PyObject> =
+        std::collections::HashMap::with_capacity(paths.len() + 1);
+    disp.insert(target_key.to_owned(), target_obj);
+    for (node, p) in paths {
+        if p.len() >= 2 {
+            let parent = &p[p.len() - 2];
+            disp.insert(node.clone(), gr.py_pred_row_key(py, parent, node));
+        }
+    }
+    let dict = PyDict::new(py);
+    for (node, p) in paths {
+        let py_path: Vec<PyObject> = p
+            .iter()
+            .rev()
+            .map(|n| gr.disp_or_node_key(py, &disp, n))
+            .collect();
+        dict.set_item(gr.disp_or_node_key(py, &disp, node), py_path)?;
+    }
+    Ok(dict.unbind())
+}
+
 /// br-r37-c1-6hpa9: ordered Vec — see compute_single_source_shortest_paths.
 fn compute_single_source_shortest_paths_directed(
     py: Python<'_>,
@@ -1517,38 +1551,37 @@ pub fn shortest_path(
                         Some(weight_attr),
                         method,
                     )?;
-                    let result = PyDict::new(py);
-                    for (node, p) in paths {
-                        let py_path: Vec<PyObject> =
-                            p.iter().map(|n| gr.py_node_key(py, n)).collect();
-                        result.set_item(gr.py_node_key(py, &node), py_path)?;
-                    }
-                    Ok(result.into_any().unbind())
+                    // weighted sp batch: kernel dict order (dijkstra
+                    // finalize / bellman SPFA discovery) + discovery
+                    // objects (a node's parent is its path's
+                    // second-to-last element — same trick as unweighted).
+                    let dict =
+                        emit_paths_dict_discovery(py, &gr, &paths, &s, src.clone().unbind())?;
+                    Ok(dict.into_any())
                 }
                 (None, Some(tgt)) => {
                     let t = node_key_to_string(py, tgt)?;
                     validate_node(&gr, &t, tgt, "Target")?;
-                    let result = PyDict::new(py);
-                    for node in inner.nodes_ordered() {
-                        if let Some(p) = compute_single_shortest_path_directed(
-                            py,
-                            inner,
-                            node,
-                            &t,
-                            Some(weight_attr),
-                            method,
-                        )? {
-                            let py_path: Vec<PyObject> =
-                                p.iter().map(|n| gr.py_node_key(py, n)).collect();
-                            result.set_item(gr.py_node_key(py, node), py_path)?;
-                        }
-                    }
-                    Ok(result.into_any().unbind())
+                    // weighted sp batch: nx runs single_source on
+                    // G.reverse(copy=False) from the target and flips
+                    // each path — ONE walk (the old per-node loop was
+                    // O(V) single-pair searches AND different
+                    // tie-breaks), pred-row discovery objects.
+                    let reversed = py.allow_threads(|| fnx_algorithms::reverse_digraph(inner));
+                    let paths = compute_single_source_shortest_paths_directed(
+                        py,
+                        &reversed,
+                        &t,
+                        Some(weight_attr),
+                        method,
+                    )?;
+                    let dict =
+                        emit_reversed_target_paths_dict(py, &gr, &paths, &t, tgt.clone().unbind())?;
+                    Ok(dict.into_any())
                 }
                 (None, None) => {
                     let result = PyDict::new(py);
                     for src_node in inner.nodes_ordered() {
-                        let inner_dict = PyDict::new(py);
                         let paths = compute_single_source_shortest_paths_directed(
                             py,
                             inner,
@@ -1556,11 +1589,15 @@ pub fn shortest_path(
                             Some(weight_attr),
                             method,
                         )?;
-                        for (tgt_node, p) in paths {
-                            let py_path: Vec<PyObject> =
-                                p.iter().map(|n| gr.py_node_key(py, n)).collect();
-                            inner_dict.set_item(gr.py_node_key(py, &tgt_node), py_path)?;
-                        }
+                        // weighted sp batch: all-pairs sources keep their
+                        // node-map object (nx iterates G).
+                        let inner_dict = emit_paths_dict_discovery(
+                            py,
+                            &gr,
+                            &paths,
+                            src_node,
+                            gr.py_node_key(py, src_node),
+                        )?;
                         result.set_item(gr.py_node_key(py, src_node), inner_dict)?;
                     }
                     Ok(result.into_any().unbind())
@@ -1601,13 +1638,10 @@ pub fn shortest_path(
                         Some(weight_attr),
                         method,
                     )?;
-                    let result = PyDict::new(py);
-                    for (node, p) in paths {
-                        let py_path: Vec<PyObject> =
-                            p.iter().map(|n| gr.py_node_key(py, n)).collect();
-                        result.set_item(gr.py_node_key(py, &node), py_path)?;
-                    }
-                    Ok(result.into_any().unbind())
+                    // weighted sp batch: kernel order + discovery objects.
+                    let dict =
+                        emit_paths_dict_discovery(py, &gr, &paths, &s, src.clone().unbind())?;
+                    Ok(dict.into_any())
                 }
                 (None, Some(tgt)) => {
                     let t = node_key_to_string(py, tgt)?;
@@ -1619,19 +1653,16 @@ pub fn shortest_path(
                         Some(weight_attr),
                         method,
                     )?;
-                    let result = PyDict::new(py);
-                    for (node, mut p) in paths {
-                        p.reverse();
-                        let py_path: Vec<PyObject> =
-                            p.iter().map(|n| gr.py_node_key(py, n)).collect();
-                        result.set_item(gr.py_node_key(py, &node), py_path)?;
-                    }
-                    Ok(result.into_any().unbind())
+                    // weighted sp batch: undirected target-only = same
+                    // graph from target, paths flipped, adj-row discovery
+                    // (py_pred_row_key == py_adj_key for undirected).
+                    let dict =
+                        emit_reversed_target_paths_dict(py, &gr, &paths, &t, tgt.clone().unbind())?;
+                    Ok(dict.into_any())
                 }
                 (None, None) => {
                     let result = PyDict::new(py);
                     for src_node in inner.nodes_ordered() {
-                        let inner_dict = PyDict::new(py);
                         let paths = compute_single_source_shortest_paths(
                             py,
                             inner,
@@ -1639,11 +1670,15 @@ pub fn shortest_path(
                             Some(weight_attr),
                             method,
                         )?;
-                        for (tgt_node, p) in paths {
-                            let py_path: Vec<PyObject> =
-                                p.iter().map(|n| gr.py_node_key(py, n)).collect();
-                            inner_dict.set_item(gr.py_node_key(py, &tgt_node), py_path)?;
-                        }
+                        // weighted sp batch: all-pairs sources keep their
+                        // node-map object (nx iterates G).
+                        let inner_dict = emit_paths_dict_discovery(
+                            py,
+                            &gr,
+                            &paths,
+                            src_node,
+                            gr.py_node_key(py, src_node),
+                        )?;
                         result.set_item(gr.py_node_key(py, src_node), inner_dict)?;
                     }
                     Ok(result.into_any().unbind())
@@ -12007,14 +12042,28 @@ fn single_source_dijkstra(
         let __wp = weighted_projection.as_ref();
         py.allow_threads(|| fnx_algorithms::single_source_dijkstra_full(__wp, &s, weight))
     };
+    // weighted sp batch: discovery objects (a node displays as its
+    // path's second-to-last element's row object; source as passed)
+    // for BOTH the distance and path dicts, in kernel finalize order.
+    let mut disp: std::collections::HashMap<String, PyObject> =
+        std::collections::HashMap::with_capacity(paths.len() + 1);
+    disp.insert(s.clone(), source.clone().unbind());
+    for (node, p) in &paths {
+        if p.len() >= 2 {
+            disp.insert(node.clone(), gr.py_row_key(py, &p[p.len() - 2], node));
+        }
+    }
     let dist_dict = PyDict::new(py);
     for (node, d) in &dists {
-        dist_dict.set_item(gr.py_node_key(py, node), d)?;
+        dist_dict.set_item(gr.disp_or_node_key(py, &disp, node), d)?;
     }
     let path_dict = PyDict::new(py);
     for (node, path) in &paths {
-        let py_path: Vec<PyObject> = path.iter().map(|n| gr.py_node_key(py, n)).collect();
-        path_dict.set_item(gr.py_node_key(py, node), py_path)?;
+        let py_path: Vec<PyObject> = path
+            .iter()
+            .map(|n| gr.disp_or_node_key(py, &disp, n))
+            .collect();
+        path_dict.set_item(gr.disp_or_node_key(py, &disp, node), py_path)?;
     }
     Ok((dist_dict.into_any().unbind(), path_dict.into_any().unbind()))
 }
@@ -12040,12 +12089,9 @@ fn single_source_dijkstra_path(
         let __wp = weighted_projection.as_ref();
         py.allow_threads(|| fnx_algorithms::single_source_dijkstra_path(__wp, &s, weight))
     };
-    let dict = PyDict::new(py);
-    for (node, path) in &paths {
-        let py_path: Vec<PyObject> = path.iter().map(|n| gr.py_node_key(py, n)).collect();
-        dict.set_item(gr.py_node_key(py, node), py_path)?;
-    }
-    Ok(dict.into_any().unbind())
+    // weighted sp batch: discovery objects from the paths themselves.
+    let dict = emit_paths_dict_discovery(py, &gr, &paths, &s, source.clone().unbind())?;
+    Ok(dict.into_any())
 }
 
 /// Return distances from a single source using Dijkstra.
@@ -12061,19 +12107,30 @@ fn single_source_dijkstra_path_length(
     let gr = extract_graph(g)?;
     let s = node_key_to_string(py, source)?;
     validate_node_str(&gr, &s, "Source")?;
-    let dists = if let Some(weighted_projection) = gr.weighted_digraph_projection(weight) {
+    // weighted sp batch: the FULL kernel gives distances AND paths in one
+    // dijkstra — paths feed the discovery-object map (a node displays as
+    // its path's second-to-last element's row object), distances keep
+    // finalize order.
+    let (dists, paths) = if let Some(weighted_projection) = gr.weighted_digraph_projection(weight)
+    {
         let __wp = weighted_projection.as_ref();
-        py.allow_threads(|| {
-            fnx_algorithms::single_source_dijkstra_path_length_directed(__wp, &s, weight)
-        })
+        py.allow_threads(|| fnx_algorithms::single_source_dijkstra_full_directed(__wp, &s, weight))
     } else {
         let weighted_projection = gr.weighted_undirected_projection(weight);
         let __wp = weighted_projection.as_ref();
-        py.allow_threads(|| fnx_algorithms::single_source_dijkstra_path_length(__wp, &s, weight))
+        py.allow_threads(|| fnx_algorithms::single_source_dijkstra_full(__wp, &s, weight))
     };
+    let mut disp: std::collections::HashMap<String, PyObject> =
+        std::collections::HashMap::with_capacity(paths.len() + 1);
+    disp.insert(s.clone(), source.clone().unbind());
+    for (node, p) in &paths {
+        if p.len() >= 2 {
+            disp.insert(node.clone(), gr.py_row_key(py, &p[p.len() - 2], node));
+        }
+    }
     let dict = PyDict::new(py);
     for (node, d) in &dists {
-        dict.set_item(gr.py_node_key(py, node), d)?;
+        dict.set_item(gr.disp_or_node_key(py, &disp, node), d)?;
     }
     Ok(dict.into_any().unbind())
 }
@@ -12346,11 +12403,10 @@ fn all_pairs_dijkstra_path(
     };
     let outer_dict = PyDict::new(py);
     for (source, targets) in &result {
-        let inner_dict = PyDict::new(py);
-        for (target, path) in targets {
-            let py_path: Vec<PyObject> = path.iter().map(|n| gr.py_node_key(py, n)).collect();
-            inner_dict.set_item(gr.py_node_key(py, target), py_path)?;
-        }
+        // weighted sp batch: discovery objects per source; sources keep
+        // their node-map object (nx iterates G).
+        let inner_dict =
+            emit_paths_dict_discovery(py, &gr, targets, source, gr.py_node_key(py, source))?;
         outer_dict.set_item(gr.py_node_key(py, source), inner_dict)?;
     }
     Ok(outer_dict.into_any().unbind())
