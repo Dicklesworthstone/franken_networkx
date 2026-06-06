@@ -2232,14 +2232,24 @@ def _make_none_rejecting_add_edge(raw_add_edge, is_multigraph=False):
 
     if is_multigraph:
         def add_edge(self, u_for_edge, v_for_edge, key=None, **attr):
-            if u_for_edge is None or v_for_edge is None:
+            # br-r37-c1 mutation-state batch 2: nx creates node u BEFORE
+            # examining v (``if u not in self._adj`` precedes the v
+            # checks), so a bad v leaves u on the graph.
+            if u_for_edge is None:
                 raise ValueError("None cannot be a node")
             # br-r37-c1-m0io3: validate hashability so fnx surfaces the
             # nx-shaped TypeError ('unhashable type: <type>') for
             # list/set/dict endpoints instead of silently absorbing
             # the unhashable as a Python-id-keyed node.
             hash(u_for_edge)
-            hash(v_for_edge)
+            if v_for_edge is None:
+                self.add_node(u_for_edge)
+                raise ValueError("None cannot be a node")
+            try:
+                hash(v_for_edge)
+            except TypeError:
+                self.add_node(u_for_edge)
+                raise
             # br-r37-c1-mae-keyhash: nx raises TypeError when the
             # multigraph ``key`` arg is unhashable (the underlying
             # ``self._adj[u][v][key] = data`` dict assignment
@@ -2262,11 +2272,19 @@ def _make_none_rejecting_add_edge(raw_add_edge, is_multigraph=False):
             return raw_add_edge(self, u_for_edge, v_for_edge, key=key, **attr)
     else:
         def add_edge(self, u_of_edge, v_of_edge, **attr):
-            if u_of_edge is None or v_of_edge is None:
+            # br-r37-c1 mutation-state batch 2: u before v (see above).
+            if u_of_edge is None:
                 raise ValueError("None cannot be a node")
             # br-r37-c1-m0io3: validate hashability (see above).
             hash(u_of_edge)
-            hash(v_of_edge)
+            if v_of_edge is None:
+                self.add_node(u_of_edge)
+                raise ValueError("None cannot be a node")
+            try:
+                hash(v_of_edge)
+            except TypeError:
+                self.add_node(u_of_edge)
+                raise
             return raw_add_edge(self, u_of_edge, v_of_edge, **attr)
 
     return add_edge
@@ -2479,7 +2497,13 @@ def _multi_add_edge_auto_key(raw_add_edge):
             # (e.g. from_dict_of_dicts of 8k edges took 137s). Same gap-aware
             # key (nx.MultiGraph.new_edge_key: key = len(keydict); while key in
             # keydict: key += 1), so explicit/auto key mixes still match nx.
-            existing = self.get_edge_data(u_for_edge, v_for_edge)
+            try:
+                existing = self.get_edge_data(u_for_edge, v_for_edge)
+            except TypeError:
+                # br-r37-c1 mutation-state batch 2: unhashable endpoint —
+                # fall through so raw_add_edge raises with nx's
+                # partial-state semantics (u created before v's error).
+                existing = None
             if existing:
                 candidate = len(existing)
                 while candidate in existing:
@@ -2771,7 +2795,46 @@ def _remove_edges_from_materialized(raw):
                     materialized.append(_e)
             except BaseException as _exc:
                 iteration_exc = _exc
+        # br-r37-c1 mutation-state batch 2: nx removes INLINE — a
+        # malformed element mid-bunch raises nx's exact error AFTER the
+        # valid prefix has been removed. Simple graphs do ``u, v = e[:2]``
+        # (None -> 'not subscriptable' TypeError, short tuple -> unpack
+        # ValueError, unhashable -> TypeError from the adjacency probe);
+        # multigraphs do ``self.remove_edge(*e[:3])`` (short tuple ->
+        # the remove_edge missing-argument TypeError). fnx previously
+        # screened/normalized the whole bunch and silently DROPPED
+        # malformed elements while removing everything else.
+        is_multi = self.is_multigraph()
+        first_error = None
+        valid_count = len(materialized)
         for i, edge in enumerate(materialized):
+            try:
+                sliced = edge[:3] if is_multi else edge[:2]
+            except TypeError as exc:
+                first_error = exc
+                valid_count = i
+                break
+            if len(sliced) < 2:
+                if is_multi:
+                    first_error = TypeError(
+                        f"{type(self).__name__}.remove_edge() missing 1 "
+                        "required positional argument: 'v'"
+                    )
+                else:
+                    first_error = ValueError(
+                        f"not enough values to unpack (expected 2, got {len(sliced)})"
+                    )
+                valid_count = i
+                break
+            try:
+                hash(sliced[0])
+                hash(sliced[1])
+                if is_multi and len(sliced) > 2:
+                    hash(sliced[2])
+            except TypeError as exc:
+                first_error = exc
+                valid_count = i
+                break
             if (
                 not isinstance(edge, tuple)
                 and not isinstance(edge, (str, bytes))
@@ -2779,10 +2842,14 @@ def _remove_edges_from_materialized(raw):
                 and 2 <= len(edge) <= 3
             ):
                 materialized[i] = tuple(edge)
-        result = raw(self, materialized)
-        if iteration_exc is not None:
-            raise iteration_exc
-        return result
+        if first_error is None:
+            result = raw(self, materialized)
+            if iteration_exc is not None:
+                raise iteration_exc
+            return result
+        if valid_count:
+            raw(self, materialized[:valid_count])
+        raise first_error
 
     return remove_edges_from
 
@@ -2813,12 +2880,28 @@ def _remove_nodes_from_materialized(raw):
                     materialized.append(_n)
             except BaseException as _exc:
                 iteration_exc = _exc
-        for n in materialized:
-            hash(n)
-        result = raw(self, materialized)
-        if iteration_exc is not None:
-            raise iteration_exc
-        return result
+        # br-r37-c1 mutation-state batch 2: nx removes INLINE — the
+        # unhashable TypeError (from ``del self._node[n]``) fires AFTER
+        # the valid prefix has been removed. The old whole-bunch hash
+        # gate (br-r37-c1-i9whv) raised before removing anything,
+        # leaving nx-divergent state.
+        first_error = None
+        valid_count = len(materialized)
+        for i, n in enumerate(materialized):
+            try:
+                hash(n)
+            except TypeError as exc:
+                first_error = exc
+                valid_count = i
+                break
+        if first_error is None:
+            result = raw(self, materialized)
+            if iteration_exc is not None:
+                raise iteration_exc
+            return result
+        if valid_count:
+            raw(self, materialized[:valid_count])
+        raise first_error
 
     return remove_nodes_from
 

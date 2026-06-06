@@ -2118,11 +2118,20 @@ impl PyMultiGraph {
     ) -> PyResult<PyObject> {
         let u = u_for_edge;
         let v = v_for_edge;
-        if u.is_none() || v.is_none() {
+        // br-r37-c1 mutation-state batch 2: nx creates node u BEFORE
+        // examining v, so a bad v leaves u on the graph.
+        if u.is_none() {
             return Err(PyValueError::new_err("None cannot be a node"));
         }
         u.hash()?;
-        v.hash()?;
+        if v.is_none() {
+            self.add_node(py, u, None)?;
+            return Err(PyValueError::new_err("None cannot be a node"));
+        }
+        if v.hash().is_err() {
+            self.add_node(py, u, None)?;
+            v.hash()?;
+        }
         if let Some(explicit_key) = key
             && !explicit_key.is_none()
             && explicit_key.hash().is_err()
