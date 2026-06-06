@@ -59,3 +59,26 @@ Residual (filed as its own bead on close): single-pair
   bidirectional BFS discovers from BOTH frontiers — succ rows forward,
   pred rows backward; needs the meet-point object flow replicated) and
   the target-only branch (reverse-walk discovery + per-node loop).
+
+## Batch 4 (k4wsy) — bidirectional single-pair
+TWO bugs, one fix:
+- VALUE: fnx's unweighted single-pair kernels were UNIDIRECTIONAL BFS;
+  nx routes through bidirectional (smaller-fringe alternation) which
+  selects a different equal-length path on tie-breaks (diamond probe:
+  directed nx [s,b,t] vs fnx [s,a,t]). Worse, the directed
+  bidirectional route DELEGATED to nx over _fnx_to_nx — whose
+  succ-major walk REORDERS pred rows, poisoning the reverse-frontier
+  tie-break (filed br-r37-c1-w7nn3, blast radius = all pred-order-
+  sensitive directed delegations).
+- OBJECTS: discovery parity (succ rows forward, pred rows backward,
+  endpoints as passed, meet node from the returning frontier).
+Fix: bidirectional_shortest_path{,_directed}_meta kernels mirroring
+networkx _bidirectional_pred_succ line by line, emitting
+(node, display-parent, side); binding maps objects and now handles
+directed natively (delegation + conversion tax removed);
+compute_single_shortest_path{,_directed} unweighted branches switched
+for value parity everywhere.
+Golden battery sha 59ffd8b7 (tie diamonds, mixed keys, 30-trial random
+tie-rich corpus, no-path/self-target errors): 0 failures.
+Residual on bead: the target-only branch (reverse single-target walk:
+key order + objects + the O(V) per-node bidirectional loop).

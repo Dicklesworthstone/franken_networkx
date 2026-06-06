@@ -22956,6 +22956,129 @@ pub fn floyd_warshall_predecessor_and_distance(
 
 /// Bidirectional shortest path (unweighted BFS from both ends).
 /// Matches `networkx.bidirectional_shortest_path(G, source, target)`.
+/// br-r37-c1-k4wsy: nx-faithful bidirectional BFS with discovery
+/// metadata. Mirrors networkx `_bidirectional_pred_succ` LINE BY LINE:
+/// per-round expansion of the smaller fringe (forward over succ/adj
+/// rows, reverse over pred/adj rows, row order), `pred`/`succ`
+/// membership checks in nx's exact sequence (the meet check runs for
+/// EVERY scanned w, even already-visited ones), early return mid-level.
+/// Returns the nx path as (node, parent_used_for_display, from_reverse)
+/// triples: endpoints have parent None; the meet node records the
+/// RETURNING iteration's v (which can differ from its stored parent).
+pub fn bidirectional_shortest_path_meta(
+    graph: &Graph,
+    source: &str,
+    target: &str,
+) -> Option<Vec<(String, Option<String>, bool)>> {
+    bidirectional_meta_impl(
+        source,
+        target,
+        graph.has_node(source) && graph.has_node(target),
+        |v| graph.neighbors(v).unwrap_or_default(),
+        |v| graph.neighbors(v).unwrap_or_default(),
+    )
+}
+
+/// br-r37-c1-k4wsy: directed sibling — forward over succ rows, reverse
+/// over pred rows. The old single-pair path used a UNIDIRECTIONAL BFS,
+/// which picks a different (equal-length) path than nx on tie-breaks
+/// (probe: diamond s->{a,b}->t gave fnx [s,a,t] vs nx [s,b,t]).
+pub fn bidirectional_shortest_path_directed_meta(
+    digraph: &DiGraph,
+    source: &str,
+    target: &str,
+) -> Option<Vec<(String, Option<String>, bool)>> {
+    bidirectional_meta_impl(
+        source,
+        target,
+        digraph.has_node(source) && digraph.has_node(target),
+        |v| digraph.successors(v).unwrap_or_default(),
+        |v| digraph.predecessors(v).unwrap_or_default(),
+    )
+}
+
+fn bidirectional_meta_impl<'g>(
+    source: &str,
+    target: &str,
+    nodes_present: bool,
+    succ_row: impl Fn(&str) -> Vec<&'g str>,
+    pred_row: impl Fn(&str) -> Vec<&'g str>,
+) -> Option<Vec<(String, Option<String>, bool)>> {
+    if !nodes_present {
+        return None;
+    }
+    if source == target {
+        return Some(vec![(source.to_owned(), None, false)]);
+    }
+    let mut pred: HashMap<String, Option<String>> = HashMap::new();
+    let mut succ: HashMap<String, Option<String>> = HashMap::new();
+    pred.insert(source.to_owned(), None);
+    succ.insert(target.to_owned(), None);
+    let mut forward: Vec<String> = vec![source.to_owned()];
+    let mut reverse: Vec<String> = vec![target.to_owned()];
+    let mut meet: Option<(String, String, bool)> = None; // (w, returning v, from_reverse)
+
+    'outer: while !forward.is_empty() && !reverse.is_empty() {
+        if forward.len() <= reverse.len() {
+            let this_level = std::mem::take(&mut forward);
+            for v in &this_level {
+                for w in succ_row(v) {
+                    if !pred.contains_key(w) {
+                        forward.push(w.to_owned());
+                        pred.insert(w.to_owned(), Some(v.clone()));
+                    }
+                    if succ.contains_key(w) {
+                        meet = Some((w.to_owned(), v.clone(), false));
+                        break 'outer;
+                    }
+                }
+            }
+        } else {
+            let this_level = std::mem::take(&mut reverse);
+            for v in &this_level {
+                for w in pred_row(v) {
+                    if !succ.contains_key(w) {
+                        succ.insert(w.to_owned(), Some(v.clone()));
+                        reverse.push(w.to_owned());
+                    }
+                    if pred.contains_key(w) {
+                        meet = Some((w.to_owned(), v.clone(), true));
+                        break 'outer;
+                    }
+                }
+            }
+        }
+    }
+
+    let (w, returning_v, from_reverse) = meet?;
+    // nx reconstruction: pred-chain back to source, then succ-chain to target.
+    let mut back: Vec<String> = Vec::new();
+    let mut cur = Some(w.clone());
+    while let Some(c) = cur {
+        back.push(c.clone());
+        cur = pred.get(&c).cloned().flatten();
+    }
+    back.reverse(); // source ... w
+    let mut out: Vec<(String, Option<String>, bool)> = Vec::with_capacity(back.len() + 4);
+    for node in &back {
+        if node == &w {
+            // the meet node's display comes from the RETURNING iteration
+            out.push((node.clone(), Some(returning_v.clone()), from_reverse));
+        } else {
+            out.push((node.clone(), pred.get(node).cloned().flatten(), false));
+        }
+    }
+    let mut cur = succ.get(&w).cloned().flatten();
+    while let Some(c) = cur {
+        out.push((c.clone(), succ.get(&c).cloned().flatten(), true));
+        cur = succ.get(&c).cloned().flatten();
+    }
+    // succ-side nodes' display parents are their succ-dict values, but the
+    // direction is the REVERSE walk (pred rows). The trailing target keeps
+    // parent None... it already does (succ[target] = None).
+    Some(out)
+}
+
 pub fn bidirectional_shortest_path(
     graph: &Graph,
     source: &str,

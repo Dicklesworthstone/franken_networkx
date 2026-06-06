@@ -758,9 +758,13 @@ fn compute_single_shortest_path(
 ) -> PyResult<Option<Vec<String>>> {
     match weight {
         None => {
-            let result = py
-                .allow_threads(|| fnx_algorithms::shortest_path_unweighted(inner, source, target));
-            Ok(result.path)
+            // br-r37-c1-k4wsy: nx routes single-pair unweighted through
+            // BIDIRECTIONAL BFS — the unidirectional kernel picked a
+            // different (equal-length) path on tie-breaks.
+            let result = py.allow_threads(|| {
+                fnx_algorithms::bidirectional_shortest_path_meta(inner, source, target)
+            });
+            Ok(result.map(|p| p.into_iter().map(|(n, _, _)| n).collect()))
         }
         Some(w) => match method {
             "dijkstra" => {
@@ -820,10 +824,12 @@ fn compute_single_shortest_path_directed(
 ) -> PyResult<Option<Vec<String>>> {
     match weight {
         None => {
+            // br-r37-c1-k4wsy: nx tie-break parity needs the bidirectional
+            // walk (see compute_single_shortest_path).
             let result = py.allow_threads(|| {
-                fnx_algorithms::shortest_path_unweighted_directed(inner, source, target)
+                fnx_algorithms::bidirectional_shortest_path_directed_meta(inner, source, target)
             });
-            Ok(result.path)
+            Ok(result.map(|p| p.into_iter().map(|(n, _, _)| n).collect()))
         }
         Some(w) => match method {
             "dijkstra" => {
@@ -12461,17 +12467,45 @@ fn bidirectional_shortest_path(
     target: &Bound<'_, PyAny>,
 ) -> PyResult<Vec<PyObject>> {
     let gr = extract_graph(g)?;
-    require_undirected(&gr, "bidirectional_shortest_path")?;
     let s = node_key_to_string(py, source)?;
     let t = node_key_to_string(py, target)?;
     validate_node(&gr, &s, source, "Source")?;
     validate_node(&gr, &t, target, "Target")?;
-    let result = {
-        let __gr_undirected = gr.undirected();
-        py.allow_threads(|| fnx_algorithms::bidirectional_shortest_path(__gr_undirected, &s, &t))
+    // br-r37-c1-k4wsy: nx-faithful bidirectional meta kernel — exact
+    // tie-break path VALUES (the old directed route delegated to nx over
+    // a conversion whose succ-major walk REORDERS pred rows, poisoning
+    // the tie-break: br-r37-c1-w7nn3) and exact DISCOVERY objects
+    // (forward = succ-row, reverse = pred-row, endpoints as passed,
+    // meet node from the returning frontier).
+    let result = if gr.is_directed() {
+        let inner = gr.digraph().expect("is_directed checked above");
+        py.allow_threads(|| {
+            fnx_algorithms::bidirectional_shortest_path_directed_meta(inner, &s, &t)
+        })
+    } else {
+        let inner = gr.undirected();
+        py.allow_threads(|| fnx_algorithms::bidirectional_shortest_path_meta(inner, &s, &t))
     };
     match result {
-        Some(path) => Ok(path.iter().map(|n| gr.py_node_key(py, n)).collect()),
+        Some(path) => Ok(path
+            .iter()
+            .map(|(node, parent, from_reverse)| match parent {
+                Some(p) => {
+                    if *from_reverse {
+                        gr.py_pred_row_key(py, p, node)
+                    } else {
+                        gr.py_row_key(py, p, node)
+                    }
+                }
+                None => {
+                    if *from_reverse {
+                        target.clone().unbind()
+                    } else {
+                        source.clone().unbind()
+                    }
+                }
+            })
+            .collect()),
         None => Err(NetworkXNoPath::new_err(format!(
             "No path between {} and {}.",
             s, t

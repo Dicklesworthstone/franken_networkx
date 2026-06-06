@@ -15047,16 +15047,14 @@ from franken_networkx._fnx import (
 def bidirectional_shortest_path(G, source, target):
     """Return the shortest path between source and target via two-way BFS.
 
-    br-r37-c1-t2gyx: the Rust kernel ``_raw_bidirectional_shortest_path``
-    has ``require_undirected`` and rejects directed input. nx supports
-    DiGraph (forward BFS from source + backward BFS from target, meeting
-    in the middle). Delegate directed input to nx.
+    br-r37-c1-k4wsy: the Rust binding now runs nx's exact bidirectional
+    walk for BOTH orientations with discovery-object parity. The old
+    directed delegation (br-r37-c1-t2gyx) was actually WRONG:
+    ``_fnx_to_nx``'s succ-major walk reorders pred rows, poisoning nx's
+    reverse-frontier tie-break (br-r37-c1-w7nn3) — and it paid the
+    conversion tax on every call.
     """
     G = _coerce_arg_to_fnx_graph(G)
-    if G.is_directed():
-        return _call_networkx_for_parity(
-            "bidirectional_shortest_path", G, source, target
-        )
     return _raw_bidirectional_shortest_path(G, source, target)
 
 

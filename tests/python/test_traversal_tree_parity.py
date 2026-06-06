@@ -260,3 +260,71 @@ class TestShortestPathDiscoveryObjects:
             assert [repr(k) for k in fnx.single_source_shortest_path(gf, e[0][0])] == [
                 repr(k) for k in nx.single_source_shortest_path(gn, e[0][0])
             ]
+
+
+class TestBidirectionalShortestPathParity:
+    """br-r37-c1-k4wsy: nx routes single-pair unweighted shortest_path
+    through BIDIRECTIONAL BFS. The old fnx kernel was unidirectional
+    (different equal-length path on tie-breaks) and the directed route
+    delegated over a conversion whose succ-major walk REORDERS pred rows
+    (br-r37-c1-w7nn3) — poisoning nx's reverse-frontier tie-break."""
+
+    @pytest.mark.parametrize("cls", ["Graph", "DiGraph"])
+    def test_diamond_tie_break(self, cls):
+        gn, gf = getattr(nx, cls)(), getattr(fnx, cls)()
+        for g in (gn, gf):
+            g.add_edge("s", "a")
+            g.add_edge("s", "b")
+            g.add_edge("b", "t")
+            g.add_edge("a", "t")
+        assert fnx.shortest_path(gf, "s", "t") == nx.shortest_path(gn, "s", "t")
+        assert fnx.bidirectional_shortest_path(gf, "s", "t") == nx.bidirectional_shortest_path(
+            gn, "s", "t"
+        )
+
+    @pytest.mark.parametrize("cls", ["Graph", "DiGraph"])
+    def test_mixed_key_discovery_objects(self, cls):
+        gn, gf = getattr(nx, cls)(), getattr(fnx, cls)()
+        for g in (gn, gf):
+            g.add_node(28)
+            g.add_edge(7, 28.0)
+            g.add_edge(28.0, 5)
+            g.add_edge(5, 9)
+        for s, t in [(7, 5), (7, 9)]:
+            assert [repr(x) for x in fnx.shortest_path(gf, s, t)] == [
+                repr(x) for x in nx.shortest_path(gn, s, t)
+            ], (cls, s, t)
+
+    def test_random_tie_rich_corpus(self):
+        import random
+
+        rnd = random.Random(13)
+        for trial in range(20):
+            directed = trial % 2 == 0
+            gn = (nx.DiGraph if directed else nx.Graph)()
+            gf = (fnx.DiGraph if directed else fnx.Graph)()
+            for _ in range(45):
+                u, v = rnd.randrange(14), rnd.randrange(14)
+                if u != v:
+                    gn.add_edge(u, v)
+                    gf.add_edge(u, v)
+            for s, t in [(0, 13), (1, 12)]:
+                try:
+                    expected = nx.shortest_path(gn, s, t)
+                except Exception as e:
+                    expected = type(e).__name__
+                try:
+                    got = fnx.shortest_path(gf, s, t)
+                except Exception as e:
+                    got = type(e).__name__
+                assert got == expected, (trial, s, t)
+
+    def test_no_path_and_self_target_errors(self):
+        gn, gf = nx.DiGraph([(1, 2)]), fnx.DiGraph([(1, 2)])
+        assert fnx.bidirectional_shortest_path(gf, 1, 1) == nx.bidirectional_shortest_path(
+            gn, 1, 1
+        )
+        with pytest.raises(nx.NetworkXNoPath):
+            nx.bidirectional_shortest_path(gn, 2, 1)
+        with pytest.raises(fnx.NetworkXNoPath):
+            fnx.bidirectional_shortest_path(gf, 2, 1)
