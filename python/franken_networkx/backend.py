@@ -692,10 +692,11 @@ def _fnx_to_nx(fg):
             canon_to_obj = {
                 canon: obj for (canon, _nbrs), obj in zip(bulk, display_nodes)
             }
-            adj_neighbors = {
-                canon_to_obj[node]: [canon_to_obj[nbr] for nbr, _a in nbrs]
-                for node, nbrs in bulk
-            }
+            # br-r37-c1-w7nn3: neighbor objects must be the ROW display
+            # objects (z6uka overrides for mixed hash-equal keys), not the
+            # node-map objects — nx-native adj rows carry the objects the
+            # creating add_edge passed. ``fg[obj]`` iteration yields them.
+            adj_neighbors = {obj: list(fg[obj]) for obj in display_nodes}
             attrs_by_pair = {}
             if directed:
                 for node, nbrs in bulk:
@@ -723,6 +724,30 @@ def _fnx_to_nx(fg):
                 key = (u, v) if directed else frozenset((u, v))
                 edges_in_order.append((u, v, dict(attrs_by_pair.get(key, {}))))
         G.add_edges_from(edges_in_order)
+    # br-r37-c1-w7nn3: edge-sequence emission cannot reproduce every row
+    # family of the source at once — the succ-major walk fills directed
+    # PRED rows in walk order (an nx-native graph's pred rows follow edge
+    # insertion; the mismatch made delegated bidirectional searches pick
+    # the WRONG tie-break path), and reverse-direction cells take the
+    # emitted endpoint object instead of the source's row display object
+    # (z6uka overrides for mixed hash-equal keys). Rebuild every adjacency
+    # inner dict in the source's row order with the source's row objects.
+    # The inner datadicts are REUSED (hash-equal lookup), so nx's
+    # _adj/_succ/_pred sharing invariant holds.
+    def _align_rows(nx_rows, fg_rows):
+        for x in fg:
+            src = list(fg_rows[x])
+            row = nx_rows[x]
+            if len(row) != len(src) or any(
+                a is not b for a, b in zip(row, src)
+            ):
+                nx_rows[x] = {o: row[o] for o in src}
+
+    if fg.is_directed():
+        _align_rows(G._succ, fg.adj)
+        _align_rows(G._pred, fg.pred)
+    else:
+        _align_rows(G._adj, fg.adj)
     G.graph.update(dict(fg.graph))
     return G
 

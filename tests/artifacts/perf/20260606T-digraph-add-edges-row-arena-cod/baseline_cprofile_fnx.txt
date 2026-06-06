@@ -1,0 +1,12 @@
+         1401 function calls in 2.981 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+      200    0.003    0.000    2.981    0.015 /data/projects/franken_networkx/tests/artifacts/perf/20260606T-digraph-add-edges-batch-cod/digraph_add_edges_batch_harness.py:50(build_fnx)
+      200    0.019    0.000    2.976    0.015 /data/projects/franken_networkx/python/franken_networkx/__init__.py:2581(add_edges_from)
+      200    2.957    0.015    2.957    0.015 {method '_try_add_edges_from_batch' of 'franken_networkx.DiGraph' objects}
+      200    0.001    0.000    0.002    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:3160(__init__)
+      400    0.001    0.000    0.001    0.000 {built-in method builtins.isinstance}
+      200    0.000    0.000    0.000    0.000 {built-in method builtins.getattr}
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}

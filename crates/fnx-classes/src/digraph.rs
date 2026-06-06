@@ -764,6 +764,88 @@ impl DiGraph {
         inserted
     }
 
+    /// Bulk-add ATTRIBUTED directed edges when the caller has already
+    /// identified newly-created nodes. This keeps edge-map insertion in global
+    /// input order, then stages successor and predecessor row commits by row so
+    /// adjacency maps are probed once per touched row rather than once per edge.
+    #[must_use]
+    pub fn extend_prepared_edges_with_attrs_row_staged_unrecorded<I, N>(
+        &mut self,
+        new_nodes: N,
+        edges: I,
+    ) -> usize
+    where
+        I: IntoIterator<Item = (String, String, AttrMap)>,
+        N: IntoIterator<Item = String>,
+    {
+        for node in new_nodes {
+            if self.nodes.contains_key(&node) {
+                continue;
+            }
+            self.nodes.insert(node.clone(), AttrMap::new());
+            self.successors.entry(node.clone()).or_default();
+            self.predecessors.entry(node).or_default();
+        }
+
+        let mut inserted = 0usize;
+        let mut merged_changed = false;
+        let mut successor_rows: IndexMap<String, Vec<String>> = IndexMap::new();
+        let mut predecessor_rows: IndexMap<String, Vec<String>> = IndexMap::new();
+
+        for (source, target, attrs) in edges {
+            let edge_key = DirectedEdgeKey::new(&source, &target);
+            if let Some(existing) = self.edges.get_mut(&edge_key) {
+                if !attrs.is_empty()
+                    && attrs
+                        .iter()
+                        .any(|(key, value)| existing.get(key) != Some(value))
+                {
+                    merged_changed = true;
+                }
+                existing.extend(attrs);
+                continue;
+            }
+
+            successor_rows
+                .entry(source.clone())
+                .or_default()
+                .push(target.clone());
+            predecessor_rows
+                .entry(target.clone())
+                .or_default()
+                .push(source.clone());
+            self.edges.insert(edge_key, attrs);
+            inserted += 1;
+        }
+
+        for (source, targets) in successor_rows {
+            let row = self.successors.entry(source).or_default();
+            row.extend(targets);
+        }
+        for (target, sources) in predecessor_rows {
+            let row = self.predecessors.entry(target).or_default();
+            row.extend(sources);
+        }
+
+        if inserted > 0 || merged_changed {
+            self.revision = self
+                .revision
+                .saturating_add(u64::try_from(inserted.max(1)).unwrap_or(u64::MAX));
+            self.record_decision(
+                "extend_edges_unrecorded",
+                0.0,
+                false,
+                vec![EvidenceTerm {
+                    signal: "batch_edge_count".to_owned(),
+                    observed_value: inserted.to_string(),
+                    log_likelihood_ratio: -1.0,
+                }],
+            );
+        }
+
+        inserted
+    }
+
     pub fn apply_edge_defaults(&mut self, defaults: &AttrMap) -> bool {
         if defaults.is_empty() {
             return false;
@@ -2119,6 +2201,51 @@ mod tests {
         assert!(g.has_edge("a", "b"));
         assert!(g.has_edge("b", "a"));
         assert!(!g.has_edge("a", "c"));
+        let records = g.evidence_ledger().records();
+        assert_eq!(records.len(), before + 1);
+        assert_eq!(
+            records.last().map(|record| record.operation.as_str()),
+            Some("extend_edges_unrecorded")
+        );
+    }
+
+    #[test]
+    fn row_staged_attr_edges_preserve_orders_and_duplicate_merges() {
+        let mut g = DiGraph::strict();
+        let before = g.evidence_ledger().records().len();
+
+        let inserted = g.extend_prepared_edges_with_attrs_row_staged_unrecorded(
+            ["b", "x", "a", "t"]
+                .into_iter()
+                .map(std::borrow::ToOwned::to_owned),
+            vec![
+                ("b".to_owned(), "x".to_owned(), single_attr("first", "bx")),
+                ("a".to_owned(), "t".to_owned(), single_attr("first", "at")),
+                ("b".to_owned(), "t".to_owned(), single_attr("first", "bt")),
+                (
+                    "a".to_owned(),
+                    "t".to_owned(),
+                    single_attr("second", "merge"),
+                ),
+                ("t".to_owned(), "t".to_owned(), single_attr("loop", "yes")),
+            ],
+        );
+
+        assert_eq!(inserted, 4);
+        assert_eq!(g.nodes_ordered(), vec!["b", "x", "a", "t"]);
+        assert_eq!(
+            g.edges_ordered_borrowed()
+                .into_iter()
+                .map(|(u, v, _)| (u, v))
+                .collect::<Vec<_>>(),
+            vec![("b", "x"), ("b", "t"), ("a", "t"), ("t", "t")]
+        );
+        assert_eq!(g.successors("b"), Some(vec!["x", "t"]));
+        assert_eq!(g.predecessors("t"), Some(vec!["a", "b", "t"]));
+        let merged = g.edge_attrs("a", "t").expect("merged edge should exist");
+        assert_eq!(merged.get("first"), Some(&CgseValue::from("at")));
+        assert_eq!(merged.get("second"), Some(&CgseValue::from("merge")));
+        assert_digraph_core_invariants(&g);
         let records = g.evidence_ledger().records();
         assert_eq!(records.len(), before + 1);
         assert_eq!(

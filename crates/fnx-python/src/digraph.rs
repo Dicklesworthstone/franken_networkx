@@ -3373,33 +3373,37 @@ impl PyDiGraph {
             .unwrap_or(u64::MAX)
             .wrapping_add(u64::from(final_edge_bump));
 
+        let mut inner_new_nodes = Vec::with_capacity(new_nodes.len());
         for (canonical, node) in new_nodes {
+            inner_new_nodes.push(canonical.clone());
             self.node_key_map.entry(canonical.clone()).or_insert(node);
             self.node_py_attrs
                 .entry(canonical)
                 .or_insert_with(|| PyDict::new(py).unbind());
         }
-        for (u, v, _, src) in &edges {
+        let mut inner_edges = Vec::with_capacity(edges.len());
+        for (u, v, attrs, src) in edges {
             match src {
-                Some(src) => match self.edge_py_attrs.entry(Self::edge_key(u, v)) {
+                Some(src) => match self.edge_py_attrs.entry(Self::edge_key(&u, &v)) {
                     std::collections::hash_map::Entry::Occupied(entry) => {
                         entry.get().bind(py).update(src.bind(py).as_mapping())?;
                     }
                     std::collections::hash_map::Entry::Vacant(entry) => {
-                        entry.insert(src.clone_ref(py));
+                        entry.insert(src);
                     }
                 },
                 None => {
                     self.edge_py_attrs
-                        .entry(Self::edge_key(u, v))
+                        .entry(Self::edge_key(&u, &v))
                         .or_insert_with(|| PyDict::new(py).unbind());
                 }
             }
+            inner_edges.push((u, v, attrs));
         }
 
         let _inserted = self
             .inner
-            .extend_edges_with_attrs_unrecorded(edges.into_iter().map(|(u, v, a, _)| (u, v, a)));
+            .extend_prepared_edges_with_attrs_row_staged_unrecorded(inner_new_nodes, inner_edges);
         self.nodes_seq = self.nodes_seq.wrapping_add(node_bumps);
         self.edges_seq = self.edges_seq.wrapping_add(edge_bumps);
         Ok(())
