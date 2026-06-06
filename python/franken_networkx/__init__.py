@@ -2250,7 +2250,15 @@ def _make_none_rejecting_add_edge(raw_add_edge, is_multigraph=False):
             # opaque ``TypeError: unhashable type: 'list'`` from a
             # call site unrelated to the original add_edge.
             if key is not None:
-                hash(key)
+                try:
+                    hash(key)
+                except TypeError:
+                    # br-r37-c1-baqyi: nx creates BOTH endpoint nodes
+                    # before the unhashable key raises (the key is
+                    # first used after node insertion in nx add_edge).
+                    self.add_node(u_for_edge)
+                    self.add_node(v_for_edge)
+                    raise
             return raw_add_edge(self, u_for_edge, v_for_edge, key=key, **attr)
     else:
         def add_edge(self, u_of_edge, v_of_edge, **attr):
@@ -2522,18 +2530,29 @@ def _multi_add_edges_from(self, ebunch_to_add, **attr):
         if ne == 4:
             u, v, key, dd = e
         elif ne == 3:
-            u, v, third = e
-            if isinstance(third, dict):
-                key, dd = None, third
-            else:
-                key, dd = third, {}
+            u, v, dd = e
+            key = None
         elif ne == 2:
             u, v = e
-            key, dd = None, {}
+            dd = {}
+            key = None
         else:
             raise NetworkXError(
                 f"Edge tuple {e} must be a 2-tuple, 3-tuple or 4-tuple."
             )
+        # br-r37-c1-baqyi: mirror nx exactly — build the datadict BEFORE
+        # add_edge (a non-dict 4th element raises with NOTHING created),
+        # and a 3-tuple third becomes the KEY only when dict.update
+        # raises TypeError/ValueError (dict-able iterables of pairs are
+        # DATA; ddd keeps any pairs merged before the raise, like nx).
+        ddd = {}
+        ddd.update(attr)
+        try:
+            ddd.update(dd)
+        except (TypeError, ValueError):
+            if ne != 3:
+                raise
+            key = dd  # ne == 3 with non-dict-able third: it's the key
         actual_key = key
         if actual_key is None:
             existing = self.get_edge_data(u, v)
@@ -2543,10 +2562,8 @@ def _multi_add_edges_from(self, ebunch_to_add, **attr):
                     actual_key += 1
         # native add_edge returns the key actually used (auto-assigns when None)
         actual_key = _add_edge(u, v, key=actual_key)
-        merged = dict(attr)
-        merged.update(dd)
-        if merged:
-            self.get_edge_data(u, v, actual_key).update(merged)
+        if ddd:
+            self.get_edge_data(u, v, actual_key).update(ddd)
 
 
 MultiGraph.add_edges_from = _multi_add_edges_from
