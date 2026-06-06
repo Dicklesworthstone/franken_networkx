@@ -344,10 +344,18 @@ pub(crate) fn deepcopy_py_dict(
     deepcopy: &Bound<'_, PyAny>,
     attrs: &Py<PyDict>,
 ) -> PyResult<Py<PyDict>> {
-    Ok(deepcopy
-        .call1((attrs.bind(py),))?
-        .downcast_into::<PyDict>()?
-        .unbind())
+    let bound = attrs.bind(py);
+    // perf (to_directed/to_undirected/copy family): an EMPTY attr dict —
+    // the overwhelmingly common case for attr-less graphs, since mirrors
+    // are created eagerly per node/edge — needs no recursive Python
+    // deepcopy. A fresh dict is semantically identical (deepcopy({}) ==
+    // {}; the memo cannot matter for an empty dict) and skips an
+    // interpreter round-trip per node/edge (~12k calls on a 12k-edge
+    // graph were the dominant cost of to_directed).
+    if bound.is_empty() {
+        return Ok(PyDict::new(py).unbind());
+    }
+    Ok(deepcopy.call1((bound,))?.downcast_into::<PyDict>()?.unbind())
 }
 
 use pyo3::IntoPyObjectExt;
