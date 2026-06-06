@@ -100,6 +100,21 @@ pub struct DiGraph {
 }
 
 impl DiGraph {
+    /// br-r37-c1-7dpyg: structural clone with a FRESH RuntimePolicy —
+    /// see Graph::clone_with_fresh_policy.
+    #[must_use]
+    pub fn clone_with_fresh_policy(&self) -> Self {
+        Self {
+            mode: self.mode,
+            revision: self.revision,
+            nodes: self.nodes.clone(),
+            successors: self.successors.clone(),
+            predecessors: self.predecessors.clone(),
+            edges: self.edges.clone(),
+            runtime_policy: RuntimePolicy::new(self.mode),
+        }
+    }
+
     // -----------------------------------------------------------------------
     // Constructors
     // -----------------------------------------------------------------------
@@ -1033,6 +1048,22 @@ pub struct MultiDiGraph {
 }
 
 impl MultiDiGraph {
+    /// br-r37-c1-7dpyg: structural clone with a FRESH RuntimePolicy —
+    /// see Graph::clone_with_fresh_policy.
+    #[must_use]
+    pub fn clone_with_fresh_policy(&self) -> Self {
+        Self {
+            mode: self.mode,
+            revision: self.revision,
+            nodes: self.nodes.clone(),
+            successors: self.successors.clone(),
+            predecessors: self.predecessors.clone(),
+            edges: self.edges.clone(),
+            runtime_policy: RuntimePolicy::new(self.mode),
+            edge_count: self.edge_count,
+        }
+    }
+
     /// br-r37-c1-s0d4x: reorder every PRED row into NetworkX's
     /// `MultiDiGraph.copy()` walk order — the multigraph counterpart of
     /// DiGraph::reorder_pred_rows_for_nx_copy_walk: each pred row's cells

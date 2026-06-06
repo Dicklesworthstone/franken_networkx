@@ -4951,10 +4951,14 @@ pub fn minimum_spanning_tree(
 ) -> PyResult<PyGraph> {
     let gr = extract_graph(g)?;
     let inner = gr.undirected();
-    let runtime_policy = inner.runtime_policy().clone();
+    // br-r37-c1-7dpyg: fresh ledger, mode only — the old triple
+    // runtime-policy clone (clone + clone-into-ctor + set) copied the
+    // source's unbounded decision ledger and made MST 2.45x slower on
+    // ctor-built sources with identical structure.
+    let tree_mode = inner.mode();
     let w = weight.to_owned();
     let result = py.allow_threads(move || fnx_algorithms::minimum_spanning_tree(inner, &w));
-    let mut new_graph = PyGraph::new_empty_with_policy(py, runtime_policy.clone())?;
+    let mut new_graph = PyGraph::new_empty_with_mode(py, tree_mode)?;
 
     // Add all nodes from original graph
     for node in inner.nodes_ordered() {
@@ -4977,7 +4981,6 @@ pub fn minimum_spanning_tree(
                 .insert(ek, attrs.bind(py).copy()?.unbind());
         }
     }
-    new_graph.inner.set_runtime_policy(runtime_policy);
     Ok(new_graph)
 }
 
