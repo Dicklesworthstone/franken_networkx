@@ -1906,9 +1906,9 @@ impl PyMultiDiGraph {
         // br-r37-c1-l5ve7: fresh ledger + lazy attr mirrors (see the
         // PyMultiGraph::_native_to_directed_deepcopy sibling).
         let mut ug = crate::PyMultiGraph {
-            inner: fnx_classes::MultiGraph::with_runtime_policy(
-                fnx_runtime::RuntimePolicy::new(self.inner.mode()),
-            ),
+            inner: fnx_classes::MultiGraph::with_runtime_policy(fnx_runtime::RuntimePolicy::new(
+                self.inner.mode(),
+            )),
             node_key_map: HashMap::new(),
             adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
             node_py_attrs: HashMap::new(),
@@ -1919,6 +1919,8 @@ impl PyMultiDiGraph {
             edges_seq: 0,
             edges_dirty: AtomicBool::new(false),
         };
+        let mut node_batch: Vec<(String, fnx_classes::AttrMap)> =
+            Vec::with_capacity(self.inner.node_count());
         for node in self.inner.nodes_ordered() {
             let rust_attrs = if let Some(attrs) = self.node_py_attrs.get(node) {
                 let py_attrs = crate::deepcopy_py_dict(py, &deepcopy, attrs)?;
@@ -1928,10 +1930,18 @@ impl PyMultiDiGraph {
             } else {
                 Default::default()
             };
-            ug.inner.add_node_with_attrs(node.to_owned(), rust_attrs);
             ug.node_key_map
                 .insert(node.to_owned(), self.py_node_key(py, node));
+            node_batch.push((node.to_owned(), rust_attrs));
         }
+        ug.inner.extend_nodes_with_attrs_unrecorded(node_batch);
+        // NOTE(br-r37-c1-l5ve7): the edge loop stays on per-edge adds —
+        // the reciprocal-arc merge resolves by PYTHON key identity
+        // (resolve_internal_edge_key), which a raw internal-key bulk
+        // insert cannot replicate when py keys coincide across
+        // orientations but internal keys differ. Needs a resolve-aware
+        // bulk routing (next lever) — don't swap without pinning that
+        // case.
         for source in self.inner.nodes_ordered() {
             for target in self.inner.successors(source).unwrap_or_default() {
                 for key in self.inner.edge_keys(source, target).unwrap_or_default() {
@@ -4500,28 +4510,30 @@ impl PyDiGraph {
                     let u_obj = self.py_node_key(py, source);
                     g.maybe_store_adj_key(py, target, source, u_obj.bind(py));
                 }
-                let rust_attrs =
-                    match self.edge_py_attrs.get(&(source.to_owned(), target.to_owned())) {
-                        Some(attrs) => {
-                            let py_attrs = crate::deepcopy_py_dict(py, &deepcopy, attrs)?;
-                            let rust_attrs = py_dict_to_attr_map(py_attrs.bind(py))?;
-                            let ek_fwd = crate::PyGraph::edge_key(source, target);
-                            let ek_rev = crate::PyGraph::edge_key(target, source);
-                            if let Some(existing) = g
-                                .edge_py_attrs
-                                .get(&ek_fwd)
-                                .or_else(|| g.edge_py_attrs.get(&ek_rev))
-                            {
-                                // reciprocal edge: nx's datadict.update merge.
-                                existing.bind(py).update(py_attrs.bind(py).as_mapping())?;
-                            } else {
-                                g.edge_py_attrs.insert(ek_fwd, py_attrs);
-                            }
-                            rust_attrs
+                let rust_attrs = match self
+                    .edge_py_attrs
+                    .get(&(source.to_owned(), target.to_owned()))
+                {
+                    Some(attrs) => {
+                        let py_attrs = crate::deepcopy_py_dict(py, &deepcopy, attrs)?;
+                        let rust_attrs = py_dict_to_attr_map(py_attrs.bind(py))?;
+                        let ek_fwd = crate::PyGraph::edge_key(source, target);
+                        let ek_rev = crate::PyGraph::edge_key(target, source);
+                        if let Some(existing) = g
+                            .edge_py_attrs
+                            .get(&ek_fwd)
+                            .or_else(|| g.edge_py_attrs.get(&ek_rev))
+                        {
+                            // reciprocal edge: nx's datadict.update merge.
+                            existing.bind(py).update(py_attrs.bind(py).as_mapping())?;
+                        } else {
+                            g.edge_py_attrs.insert(ek_fwd, py_attrs);
                         }
-                        // attr-less edge stays lazy (no PyDict alloc)
-                        None => Default::default(),
-                    };
+                        rust_attrs
+                    }
+                    // attr-less edge stays lazy (no PyDict alloc)
+                    None => Default::default(),
+                };
                 edge_batch.push((source.to_owned(), target.to_owned(), rust_attrs));
             }
         }

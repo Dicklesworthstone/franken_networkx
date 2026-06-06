@@ -122,3 +122,15 @@ union 1.4-1.9x | compose 1.5-2.3x | MG.to_directed ~1.0x.
 Remaining: union/compose residual (jittery 1.4-2.3x even quiet —
 profile the actual split next), MultiDiGraph.to_undirected bulk
 (needs a MultiGraph keyed bulk API, same recipe).
+
+## Lever 9 (br-r37-c1-l5ve7): MultiGraph keyed bulk API + MDG node bulk
+MultiGraph::extend_nodes_with_attrs_unrecorded +
+extend_keyed_edges_with_attrs_unrecorded added (mirror of the
+MultiDiGraph pair). MDG->MG to_undirected routes its NODE loop through
+bulk; the EDGE loop deliberately stays per-edge — the reciprocal-arc
+merge resolves by PYTHON key identity (resolve_internal_edge_key),
+which a raw internal-key bulk insert cannot replicate when py keys
+coincide across orientations but internal keys differ; a resolve-aware
+bulk routing is the follow-on (in-code NOTE marks it). Battery sha
+f77b9bbb incl. reciprocal same-key arcs (the merge subtlety). Host
+load 41-61: timing deferred.

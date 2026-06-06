@@ -2206,6 +2206,101 @@ impl MultiGraph {
         Some(key)
     }
 
+    /// br-r37-c1-l5ve7: bulk node insert WITH attrs, one ledger record —
+    /// MultiGraph mirror of MultiDiGraph::extend_nodes_with_attrs_unrecorded.
+    /// Existing nodes merge attrs (extend).
+    pub fn extend_nodes_with_attrs_unrecorded<I>(&mut self, nodes: I) -> usize
+    where
+        I: IntoIterator<Item = (String, AttrMap)>,
+    {
+        let mut inserted = 0usize;
+        for (node, attrs) in nodes {
+            if let Some(existing) = self.nodes.get_mut(&node) {
+                existing.extend(attrs);
+                continue;
+            }
+            self.nodes.insert(node.clone(), attrs);
+            self.adjacency.entry(node).or_default();
+            inserted += 1;
+        }
+        if inserted > 0 {
+            self.revision = self
+                .revision
+                .saturating_add(u64::try_from(inserted).unwrap_or(u64::MAX));
+            self.record_decision(
+                "extend_nodes_with_attrs_unrecorded",
+                0.0,
+                false,
+                vec![EvidenceTerm {
+                    signal: "batch_node_count".to_owned(),
+                    observed_value: inserted.to_string(),
+                    log_likelihood_ratio: -1.0,
+                }],
+            );
+        }
+        inserted
+    }
+
+    /// br-r37-c1-l5ve7: bulk KEYED edge insert WITH attrs, one ledger
+    /// record — MultiGraph mirror of
+    /// MultiDiGraph::extend_keyed_edges_with_attrs_unrecorded
+    /// (add_edge_impl pays TWO record_decision calls per edge). Endpoint
+    /// nodes are created on demand; an existing (u, v, key) cell merges
+    /// attrs (extend), matching add_edge_with_key_and_attrs.
+    pub fn extend_keyed_edges_with_attrs_unrecorded<I>(&mut self, edges: I) -> usize
+    where
+        I: IntoIterator<Item = (String, String, usize, AttrMap)>,
+    {
+        let mut inserted = 0usize;
+        for (left, right, key, attrs) in edges {
+            if !self.nodes.contains_key(&left) {
+                self.nodes.insert(left.clone(), AttrMap::new());
+                self.adjacency.entry(left.clone()).or_default();
+            }
+            if left != right && !self.nodes.contains_key(&right) {
+                self.nodes.insert(right.clone(), AttrMap::new());
+                self.adjacency.entry(right.clone()).or_default();
+            }
+            let edge_key = EdgeKey::new(&left, &right);
+            let bucket = self.edges.entry(edge_key).or_default();
+            if !bucket.contains_key(&key) {
+                self.edge_count += 1;
+                inserted += 1;
+            }
+            bucket.entry(key).or_default().extend(attrs);
+            self.adjacency
+                .entry(left.clone())
+                .or_default()
+                .entry(right.clone())
+                .or_default()
+                .insert(key);
+            if left != right {
+                self.adjacency
+                    .entry(right)
+                    .or_default()
+                    .entry(left)
+                    .or_default()
+                    .insert(key);
+            }
+        }
+        if inserted > 0 {
+            self.revision = self
+                .revision
+                .saturating_add(u64::try_from(inserted).unwrap_or(u64::MAX));
+            self.record_decision(
+                "extend_keyed_edges_with_attrs_unrecorded",
+                0.0,
+                false,
+                vec![EvidenceTerm {
+                    signal: "batch_edge_count".to_owned(),
+                    observed_value: inserted.to_string(),
+                    log_likelihood_ratio: -1.0,
+                }],
+            );
+        }
+        inserted
+    }
+
     fn add_edge_impl(
         &mut self,
         left: impl Into<String>,
