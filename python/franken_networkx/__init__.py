@@ -7319,6 +7319,20 @@ def node_connectivity(G, s=None, t=None, flow_func=None):
         raise NetworkXError(f"node {s} not in graph")
     if t is not None and t not in G:
         raise NetworkXError(f"node {t} not in graph")
+    # br-r37-c1-c1gz0: nx's GLOBAL branch short-circuits disconnected
+    # graphs to 0 before any flow computation (is_weakly_connected for
+    # directed, is_connected for undirected). Mirror it natively BEFORE
+    # the delegation branches below, so disconnected inputs that would
+    # delegate (flow_func / self-loops / multigraph) don't pay the full
+    # _fnx_to_nx conversion tax just to learn the answer is 0 (562x on
+    # a disconnected self-loop graph). nx never calls flow_func on a
+    # disconnected graph either, so the surface is unchanged.
+    if s is None:
+        if G.is_directed():
+            if not is_weakly_connected(G):
+                return 0
+        elif not is_connected(G):
+            return 0
     if flow_func is not None:
         return _call_networkx_for_parity(
             "node_connectivity",
@@ -7390,6 +7404,17 @@ def edge_connectivity(G, s=None, t=None, flow_func=None, cutoff=None):
         raise NetworkXError(f"node {s} not in graph")
     if t is not None and t not in G:
         raise NetworkXError(f"node {t} not in graph")
+    # br-r37-c1-c1gz0: nx's GLOBAL branch short-circuits disconnected
+    # graphs to 0 (is_weakly_connected for directed, is_connected for
+    # undirected) before any flow computation — mirror natively before
+    # the delegation branches (see node_connectivity above). nx never
+    # consults flow_func or cutoff on a disconnected graph either.
+    if s is None:
+        if G.is_directed():
+            if not is_weakly_connected(G):
+                return 0
+        elif not is_connected(G):
+            return 0
     if flow_func is not None:
         return _call_networkx_for_parity(
             "edge_connectivity",
