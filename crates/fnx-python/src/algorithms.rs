@@ -949,6 +949,49 @@ fn emit_paths_dict_discovery(
     Ok(dict.unbind())
 }
 
+/// br-r37-c1-k4wsy: nx `shortest_path(G, target=t)` runs ONE level-BFS
+/// from the target over pred rows (directed) / adj rows (undirected),
+/// `paths[w] = [w] + paths[v]`, dict keys in discovery order (target
+/// first), every node displayed as its reverse-walk discovery object.
+/// `edges` is the reverse-BFS tree stream (parent = closer to target).
+/// The old branch looped per-node bidirectional searches — O(V) walks
+/// AND a different tie-break than nx's reverse tree.
+fn emit_single_target_paths_dict(
+    py: Python<'_>,
+    gr: &GraphRef<'_>,
+    edges: &[(String, String)],
+    target_key: &str,
+    target_obj: PyObject,
+    directed: bool,
+) -> PyResult<pyo3::Py<PyDict>> {
+    let mut paths: std::collections::HashMap<String, Vec<String>> =
+        std::collections::HashMap::with_capacity(edges.len() + 1);
+    paths.insert(target_key.to_owned(), vec![target_key.to_owned()]);
+    let mut disp: std::collections::HashMap<String, PyObject> =
+        std::collections::HashMap::with_capacity(edges.len() + 1);
+    disp.insert(target_key.to_owned(), target_obj.clone_ref(py));
+    let dict = PyDict::new(py);
+    dict.set_item(target_obj.clone_ref(py), vec![target_obj])?;
+    for (parent, child) in edges {
+        let mut p = Vec::with_capacity(paths[parent.as_str()].len() + 1);
+        p.push(child.clone());
+        p.extend_from_slice(&paths[parent.as_str()]);
+        let child_obj = if directed {
+            gr.py_pred_row_key(py, parent, child)
+        } else {
+            gr.py_row_key(py, parent, child)
+        };
+        disp.insert(child.clone(), child_obj);
+        let py_path: Vec<PyObject> = p
+            .iter()
+            .map(|n| gr.disp_or_node_key(py, &disp, n))
+            .collect();
+        dict.set_item(gr.disp_or_node_key(py, &disp, child), py_path)?;
+        paths.insert(child.clone(), p);
+    }
+    Ok(dict.unbind())
+}
+
 /// br-r37-c1-6hpa9: ordered Vec — see compute_single_source_shortest_paths.
 fn compute_single_source_shortest_paths_directed(
     py: Python<'_>,
@@ -1641,17 +1684,15 @@ pub fn shortest_path(
             (None, Some(tgt)) => {
                 let t = node_key_to_string(py, tgt)?;
                 validate_node(&gr, &t, tgt, "Target")?;
-                let result = PyDict::new(py);
-                for node in inner.nodes_ordered() {
-                    if let Some(p) =
-                        compute_single_shortest_path_directed(py, inner, node, &t, None, method)?
-                    {
-                        let py_path: Vec<PyObject> =
-                            p.iter().map(|n| gr.py_node_key(py, n)).collect();
-                        result.set_item(gr.py_node_key(py, node), py_path)?;
-                    }
-                }
-                Ok(result.into_any().unbind())
+                // br-r37-c1-k4wsy: ONE reverse level-BFS like nx's
+                // single_target_shortest_path (key order, tie-breaks,
+                // pred-row discovery objects) — replaces the O(V)
+                // per-node bidirectional loop.
+                let edges = py
+                    .allow_threads(|| fnx_algorithms::bfs_edges_directed_reverse(inner, &t, None));
+                let dict =
+                    emit_single_target_paths_dict(py, &gr, &edges, &t, tgt.clone().unbind(), true)?;
+                Ok(dict.into_any())
             }
             (None, None) => {
                 let result = PyDict::new(py);
@@ -1710,17 +1751,19 @@ pub fn shortest_path(
                 (None, Some(tgt)) => {
                     let t = node_key_to_string(py, tgt)?;
                     validate_node(&gr, &t, tgt, "Target")?;
-                    let result = PyDict::new(py);
-                    for node in inner.nodes_ordered() {
-                        if let Some(p) = compute_single_shortest_path_directed(
-                            py, inner, node, &t, None, method,
-                        )? {
-                            let py_path: Vec<PyObject> =
-                                p.iter().map(|n| gr.py_node_key(py, n)).collect();
-                            result.set_item(gr.py_node_key(py, node), py_path)?;
-                        }
-                    }
-                    Ok(result.into_any().unbind())
+                    // br-r37-c1-k4wsy: see the fast-path branch above.
+                    let edges = py.allow_threads(|| {
+                        fnx_algorithms::bfs_edges_directed_reverse(inner, &t, None)
+                    });
+                    let dict = emit_single_target_paths_dict(
+                        py,
+                        &gr,
+                        &edges,
+                        &t,
+                        tgt.clone().unbind(),
+                        true,
+                    )?;
+                    Ok(dict.into_any())
                 }
                 (None, None) => {
                     let result = PyDict::new(py);
@@ -1777,15 +1820,18 @@ pub fn shortest_path(
                 (None, Some(tgt)) => {
                     let t = node_key_to_string(py, tgt)?;
                     validate_node(&gr, &t, tgt, "Target")?;
-                    let paths = compute_single_source_shortest_paths(py, inner, &t, None, method)?;
-                    let result = PyDict::new(py);
-                    for (node, mut p) in paths {
-                        p.reverse();
-                        let py_path: Vec<PyObject> =
-                            p.iter().map(|n| gr.py_node_key(py, n)).collect();
-                        result.set_item(gr.py_node_key(py, &node), py_path)?;
-                    }
-                    Ok(result.into_any().unbind())
+                    // br-r37-c1-k4wsy: nx single_target semantics — one
+                    // reverse level-BFS over adj rows, discovery objects.
+                    let edges = py.allow_threads(|| fnx_algorithms::bfs_edges(inner, &t, None));
+                    let dict = emit_single_target_paths_dict(
+                        py,
+                        &gr,
+                        &edges,
+                        &t,
+                        tgt.clone().unbind(),
+                        false,
+                    )?;
+                    Ok(dict.into_any())
                 }
                 (None, None) => {
                     let result = PyDict::new(py);

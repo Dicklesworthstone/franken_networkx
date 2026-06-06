@@ -82,3 +82,14 @@ Golden battery sha 59ffd8b7 (tie diamonds, mixed keys, 30-trial random
 tie-rich corpus, no-path/self-target errors): 0 failures.
 Residual on bead: the target-only branch (reverse single-target walk:
 key order + objects + the O(V) per-node bidirectional loop).
+
+## Batch 5 (k4wsy close-out) — target-only branch
+shortest_path(G, target=t) now runs nx's exact single_target walk: ONE
+reverse level-BFS (bfs_edges_directed_reverse / bfs_edges stream) via
+emit_single_target_paths_dict — key order target-first in discovery
+order, reverse-tree tie-breaks (the old O(V) per-node bidirectional
+loop could pick different equal-length paths AND was ~O(V·walk)),
+pred-row discovery objects. Perf side-effect: directed 3k-node
+sp(target) now one walk, 4.6ms vs nx 2.1ms (was V bidirectional
+searches). FAMILY PROBE NOW FULLY CLEAN: 0 divergences across all 18
+original probe shapes + path family + target-only.

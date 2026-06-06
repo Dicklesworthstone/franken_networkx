@@ -328,3 +328,55 @@ class TestBidirectionalShortestPathParity:
             nx.bidirectional_shortest_path(gn, 2, 1)
         with pytest.raises(fnx.NetworkXNoPath):
             fnx.bidirectional_shortest_path(gf, 2, 1)
+
+
+class TestSingleTargetPathsParity:
+    """br-r37-c1-k4wsy close-out: shortest_path(G, target=t) = nx's ONE
+    reverse level-BFS (key order target-first in discovery order,
+    reverse-tree tie-breaks, pred-row discovery objects) — replacing the
+    O(V) per-node bidirectional loop."""
+
+    def _rr(self, x):
+        if isinstance(x, (list, tuple)):
+            return [self._rr(i) for i in x]
+        if isinstance(x, dict):
+            return {repr(k): self._rr(v) for k, v in x.items()}
+        return repr(x)
+
+    @pytest.mark.parametrize("directed", [True, False])
+    def test_mixed_keys_ties_isolates(self, directed):
+        gf = (fnx.DiGraph if directed else fnx.Graph)()
+        gn = (nx.DiGraph if directed else nx.Graph)()
+        for g in (gf, gn):
+            g.add_node(28)
+            g.add_edge(7, 28.0)
+            g.add_edge(28.0, 5)
+            g.add_edge(5, 9)
+            g.add_node("iso")
+            g.add_edge("s", "a")
+            g.add_edge("s", "b")
+            g.add_edge("b", 5)
+            g.add_edge("a", 5)
+        assert self._rr(fnx.shortest_path(gf, target=5)) == self._rr(
+            nx.shortest_path(gn, target=5)
+        )
+
+    def test_random_corpus_strict_key_order(self):
+        import random
+
+        rnd = random.Random(23)
+        for trial in range(20):
+            directed = trial % 2 == 0
+            gf = (fnx.DiGraph if directed else fnx.Graph)()
+            gn = (nx.DiGraph if directed else nx.Graph)()
+            for _ in range(rnd.randrange(3, 60)):
+                u, v = rnd.randrange(13), rnd.randrange(13)
+                if u != v:
+                    gf.add_edge(u, v)
+                    gn.add_edge(u, v)
+            t = rnd.randrange(13)
+            if t not in gn:
+                continue
+            assert self._rr(fnx.shortest_path(gf, target=t)) == self._rr(
+                nx.shortest_path(gn, target=t)
+            ), trial
