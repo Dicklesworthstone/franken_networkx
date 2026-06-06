@@ -5453,55 +5453,57 @@ impl PyGraph {
         py: Python<'_>,
     ) -> PyResult<Py<crate::digraph::PyDiGraph>> {
         let deepcopy = py.import("copy")?.getattr("deepcopy")?;
+        // br-r37-c1-l5ve7: fresh ledger (the policy clone deep-copied the
+        // source's unbounded decision ledger — the 7dpyg result-ctor class)
+        // + BULK unrecorded inserts (the per-edge recorded add_* pushed a
+        // ledger record per node/edge — the dominant residual after the
+        // empty-dict fast path).
         let mut dg = crate::digraph::PyDiGraph::new_empty_with_policy(
             py,
-            self.inner.runtime_policy().clone(),
+            fnx_runtime::RuntimePolicy::new(self.inner.mode()),
         )?;
         dg.graph_attrs = deepcopy_py_dict(py, &deepcopy, &self.graph_attrs)?;
+        let mut node_batch: Vec<(String, fnx_classes::AttrMap)> =
+            Vec::with_capacity(self.inner.node_count());
         for node in self.inner.nodes_ordered() {
             // Attr-less nodes stay lazy (no PyDict / py_dict_to_attr_map) — same
             // contract as the native copy kernel; the dict materializes on demand.
-            if let Some(attrs) = self.node_py_attrs.get(node) {
+            let rust_attrs = if let Some(attrs) = self.node_py_attrs.get(node) {
                 let py_attrs = deepcopy_py_dict(py, &deepcopy, attrs)?;
                 let rust_attrs = py_dict_to_attr_map(py_attrs.bind(py))?;
-                dg.inner.add_node_with_attrs(node.to_owned(), rust_attrs);
                 dg.node_py_attrs.insert(node.to_owned(), py_attrs);
+                rust_attrs
             } else {
-                dg.inner
-                    .add_node_with_attrs(node.to_owned(), Default::default());
-            }
+                Default::default()
+            };
             dg.node_key_map
                 .insert(node.to_owned(), self.py_node_key(py, node));
+            node_batch.push((node.to_owned(), rust_attrs));
         }
+        dg.inner.extend_nodes_with_attrs_unrecorded(node_batch);
+        let mut edge_batch: Vec<(String, String, fnx_classes::AttrMap)> =
+            Vec::with_capacity(self.inner.edge_count() * 2);
         for source in self.inner.nodes_ordered() {
             for target in self.inner.neighbors(source).unwrap_or_default() {
                 let entry = self
                     .edge_py_attrs
                     .get(&PyGraph::edge_key(source, target))
                     .or_else(|| self.edge_py_attrs.get(&PyGraph::edge_key(target, source)));
-                match entry {
+                let rust_attrs = match entry {
                     Some(attrs) => {
                         let py_attrs = deepcopy_py_dict(py, &deepcopy, attrs)?;
                         let rust_attrs = py_dict_to_attr_map(py_attrs.bind(py))?;
-                        dg.inner
-                            .add_edge_with_attrs(source.to_owned(), target.to_owned(), rust_attrs)
-                            .map_err(|e| crate::NetworkXError::new_err(e.to_string()))?;
                         dg.edge_py_attrs
                             .insert((source.to_owned(), target.to_owned()), py_attrs);
+                        rust_attrs
                     }
-                    None => {
-                        // Attr-less arc stays lazy (no PyDict alloc).
-                        dg.inner
-                            .add_edge_with_attrs(
-                                source.to_owned(),
-                                target.to_owned(),
-                                Default::default(),
-                            )
-                            .map_err(|e| crate::NetworkXError::new_err(e.to_string()))?;
-                    }
-                }
+                    // Attr-less arc stays lazy (no PyDict alloc).
+                    None => Default::default(),
+                };
+                edge_batch.push((source.to_owned(), target.to_owned(), rust_attrs));
             }
         }
+        dg.inner.extend_edges_with_attrs_unrecorded(edge_batch);
         Py::new(py, dg)
     }
 

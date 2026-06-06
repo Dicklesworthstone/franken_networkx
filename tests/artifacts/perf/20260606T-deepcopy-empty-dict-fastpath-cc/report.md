@@ -24,3 +24,16 @@ to_directed 2.41x = per-edge RECORDED add_edge_with_attrs (ledger
 record per edge — the known ~5x construction-tax class) +
 py_dict_to_attr_map; to_undirected/union/compose/disjoint_union
 (~2.8-3.1x) have their own non-deepcopy_py_dict paths.
+
+## Lever 2 (br-r37-c1-l5ve7): bulk unrecorded + fresh ledger
+PyGraph::_native_to_directed_deepcopy: per-node/edge RECORDED add_*
+(ledger record each) -> extend_nodes_with_attrs_unrecorded +
+extend_edges_with_attrs_unrecorded (identical structural insert
+sequence, unrecorded); runtime_policy().clone() (deep-copies the
+unbounded decision ledger — 7dpyg class) -> RuntimePolicy::new(mode).
+to_directed: 81.3ms -> 19.1ms = 0.53x vs nx (~2x FASTER; was 3.02x
+slower at baseline). Golden battery sha 7d49a488 (16 graphs,
+attrs/isolates/pred-rows/mixed-keys/mutation-independence), 0
+failures; full pytest 21774. Recipe proven — remaining family members
+(to_undirected 3.1x, union 2.8x, compose 2.8x, disjoint_union 3.1x)
+stay on the bead.
