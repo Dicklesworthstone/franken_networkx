@@ -5441,6 +5441,90 @@ impl PyGraph {
     /// `_graph_to_directed_copy` wrapper (exact Graph type only). Builds the
     /// DiGraph in Rust in nx's adjacency-grouped edge order (`for source in
     /// nodes_ordered, for target in neighbors(source)` — each undirected edge
+    /// br-r37-c1-l5ve7: fused native disjoint_union for the exact
+    /// Graph x Graph case — nx's pipeline is convert_node_labels_to_
+    /// integers(G) + convert(H, first_label=n1) + union_all, i.e. THREE
+    /// full Python rebuilds. One native pass replicates the composite:
+    /// nodes 0..n1-1 then n1.., int display objects, rows = the u-major
+    /// edge-stream walk per graph (the pipeline's stable fixed point),
+    /// graph attrs G-then-H update, node/edge attr dicts SHALLOW-copied
+    /// (fresh dicts, shared values — nx add_*_from datadict.update
+    /// semantics). Construction-tax recipe: fresh ledger + bulk
+    /// unrecorded inserts + lazy mirrors.
+    fn _native_disjoint_union(
+        &self,
+        py: Python<'_>,
+        other: PyRef<'_, Self>,
+    ) -> PyResult<Py<Self>> {
+        let mut g =
+            Self::new_empty_with_policy(py, fnx_runtime::RuntimePolicy::new(self.inner.mode()))?;
+        let merged_graph_attrs = PyDict::new(py);
+        merged_graph_attrs.update(self.graph_attrs.bind(py).as_mapping())?;
+        merged_graph_attrs.update(other.graph_attrs.bind(py).as_mapping())?;
+        g.graph_attrs = merged_graph_attrs.unbind();
+        let n1 = self.inner.node_count();
+        for (part, offset) in [(&*self, 0usize), (&*other, n1)] {
+            let nodes = part.inner.nodes_ordered();
+            let index_of: std::collections::HashMap<&str, usize> = nodes
+                .iter()
+                .enumerate()
+                .map(|(i, n)| (*n, i + offset))
+                .collect();
+            let mut node_batch: Vec<(String, fnx_classes::AttrMap)> =
+                Vec::with_capacity(nodes.len());
+            for (i, node) in nodes.iter().enumerate() {
+                let canonical = (i + offset).to_string();
+                if let Some(attrs) = part.node_py_attrs.get(*node) {
+                    // shallow copy: fresh dict, shared values (nx semantics)
+                    g.node_py_attrs
+                        .insert(canonical.clone(), attrs.bind(py).copy()?.unbind());
+                }
+                g.node_key_map.insert(
+                    canonical.clone(),
+                    crate::unwrap_infallible((i + offset).into_pyobject(py))
+                        .into_any()
+                        .unbind(),
+                );
+                node_batch.push((
+                    canonical,
+                    part.inner.node_attrs(node).cloned().unwrap_or_default(),
+                ));
+            }
+            g.inner.extend_nodes_with_attrs_unrecorded(node_batch);
+            let mut edge_batch: Vec<(String, String, fnx_classes::AttrMap)> = Vec::new();
+            let mut seen: std::collections::HashSet<(usize, usize)> = std::collections::HashSet::new();
+            for u in &nodes {
+                for v in part.inner.neighbors(u).unwrap_or_default() {
+                    let ui = index_of[*u];
+                    let vi = index_of[v];
+                    let pair = (ui.min(vi), ui.max(vi));
+                    if !seen.insert(pair) {
+                        continue; // u-major edge stream emits each undirected edge once
+                    }
+                    let uc = ui.to_string();
+                    let vc = vi.to_string();
+                    if let Some(attrs) = part
+                        .edge_py_attrs
+                        .get(&Self::edge_key(u, v))
+                        .or_else(|| part.edge_py_attrs.get(&Self::edge_key(v, u)))
+                    {
+                        g.edge_py_attrs.insert(
+                            Self::edge_key(&uc, &vc),
+                            attrs.bind(py).copy()?.unbind(),
+                        );
+                    }
+                    edge_batch.push((
+                        uc,
+                        vc,
+                        part.inner.edge_attrs(u, v).cloned().unwrap_or_default(),
+                    ));
+                }
+            }
+            g.inner.extend_edges_with_attrs_unrecorded(edge_batch);
+        }
+        Py::new(py, g)
+    }
+
     /// emits both directed arcs in nx's `G.adj` iteration order), deep-copying
     /// attrs via `copy.deepcopy` to honor nx's to_directed deep-copy contract.
     /// Attr-less nodes/edges get a fresh empty dict (already independent — skips

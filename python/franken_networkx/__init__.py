@@ -18799,6 +18799,19 @@ def power(G, k):
 
 def disjoint_union(G, H):
     """Return the disjoint union of *G* and *H*."""
+    # br-r37-c1-l5ve7: fused native pass for the exact Graph x Graph case —
+    # nx's pipeline (int-relabel G, int-relabel H, union_all) is THREE
+    # full Python rebuilds; the binding replicates the composite output
+    # (int labels, row orders, shallow-copied attr dicts) in one walk.
+    if (
+        type(G) is Graph
+        and type(H) is Graph
+        and not _has_networkx_private_storage(G)
+        and not _has_networkx_private_storage(H)
+    ):
+        native = getattr(G, "_native_disjoint_union", None)
+        if native is not None:
+            return native(H)
     return disjoint_union_all([G, H])
 
 

@@ -50,3 +50,16 @@ reverse = iteration object), fresh ledger + bulk unrecorded inserts
 DiGraph one). to_undirected: 56.0ms -> 27.3ms = 1.14x vs nx (was
 2.92x). Golden sha 7c4264e7 (16 graphs + merge + mixed keys + rows +
 mutation independence), full pytest 21774.
+
+## Lever 4 (br-r37-c1-l5ve7): fused native disjoint_union
+nx's pipeline = int-relabel G + int-relabel H + union_all — THREE full
+Python rebuilds (and fnx paid them all through Python wrappers). New
+PyGraph::_native_disjoint_union replicates the composite output in ONE
+walk: int node labels/display objects, u-major edge-stream row orders
+(the pipeline's stable fixed point), G-then-H graph-attr update,
+shallow-copied attr dicts (fresh dicts, shared values — nx
+datadict.update semantics). disjoint_union: 152.9ms -> 41.3ms = 0.76x
+vs nx (FASTER; was 2.99x slower). Note: a genexpr->list materialization
+micro-lever was MEASURED AND REJECTED first (list build cost exceeded
+the batch-path win). Golden sha f033b4e0 (16 attr/iso/graph-attr
+trials + node types + result mutability), full pytest 21774.
