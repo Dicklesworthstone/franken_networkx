@@ -158,6 +158,59 @@ impl<'py> GraphRef<'py> {
         }
     }
 
+    /// br-r37-c1-6hpa9: PRED-row display object — reverse traversals
+    /// iterate `G.pred[u]` in nx, so discovered nodes carry the pred-row
+    /// override. Undirected graphs have a single row space.
+    fn py_pred_row_key(&self, py: Python<'_>, owner: &str, nbr: &str) -> PyObject {
+        match self {
+            GraphRef::Undirected(pg) => pg.py_adj_key(py, owner, nbr),
+            GraphRef::Directed { dg, .. } => dg.py_pred_key(py, owner, nbr),
+            GraphRef::MultiUndirected { mg, .. } => mg.py_adj_key(py, owner, nbr),
+            GraphRef::MultiDirected { mdg, .. } => mdg.py_pred_key(py, owner, nbr),
+        }
+    }
+
+    /// br-r37-c1-6hpa9: build the DISCOVERY-object map from a canonical
+    /// tree-edge stream — the seed as passed, every discovered node as
+    /// its parent's row object (pred rows when `reverse`). Roots not in
+    /// the map fall back to the node-map object via `disp_or_node_key`.
+    fn discovery_map(
+        &self,
+        py: Python<'_>,
+        edges: &[(String, String)],
+        seed: Option<(&str, PyObject)>,
+        reverse: bool,
+    ) -> std::collections::HashMap<String, PyObject> {
+        let mut disp: std::collections::HashMap<String, PyObject> =
+            std::collections::HashMap::with_capacity(edges.len() + 1);
+        if let Some((k, s)) = seed {
+            disp.insert(k.to_owned(), s);
+        }
+        for (u, v) in edges {
+            if !disp.contains_key(u.as_str()) {
+                disp.insert(u.clone(), self.py_node_key(py, u));
+            }
+            let v_obj = if reverse {
+                self.py_pred_row_key(py, u, v)
+            } else {
+                self.py_row_key(py, u, v)
+            };
+            disp.insert(v.clone(), v_obj);
+        }
+        disp
+    }
+
+    /// br-r37-c1-6hpa9: discovery object with node-map fallback.
+    fn disp_or_node_key(
+        &self,
+        py: Python<'_>,
+        disp: &std::collections::HashMap<String, PyObject>,
+        key: &str,
+    ) -> PyObject {
+        disp.get(key)
+            .map_or_else(|| self.py_node_key(py, key), |o| o.clone_ref(py))
+    }
+
     /// Check if a node exists.
     fn has_node(&self, canonical: &str) -> bool {
         match self {
@@ -6067,9 +6120,23 @@ pub fn bfs_edges(
         }
     };
 
+    // br-r37-c1-6hpa9: nx yields DISCOVERY objects (source as passed,
+    // children as their parent's adjacency-row object; pred rows when
+    // reverse).
+    let disp = gr.discovery_map(
+        py,
+        &edges,
+        Some((&source_key, source.clone().unbind())),
+        reverse,
+    );
     Ok(edges
-        .into_iter()
-        .map(|(u, v)| (gr.py_node_key(py, &u), gr.py_node_key(py, &v)))
+        .iter()
+        .map(|(u, v)| {
+            (
+                gr.disp_or_node_key(py, &disp, u),
+                gr.disp_or_node_key(py, &disp, v),
+            )
+        })
         .collect())
 }
 
@@ -6155,7 +6222,14 @@ pub fn bfs_tree(
         .insert(source_s, pyo3::types::PyDict::new(py).unbind());
 
     for (u, v) in &edges {
-        tree.node_key_map.insert(v.clone(), gr.py_node_key(py, v));
+        // br-r37-c1-6hpa9: discovery object — the parent's row override
+        // (pred rows when reverse), not the node-map object.
+        let v_obj = if reverse {
+            gr.py_pred_row_key(py, u, v)
+        } else {
+            gr.py_row_key(py, u, v)
+        };
+        tree.node_key_map.insert(v.clone(), v_obj);
         tree.node_py_attrs
             .insert(v.clone(), pyo3::types::PyDict::new(py).unbind());
         tree.edge_py_attrs.insert(
@@ -6223,9 +6297,26 @@ pub fn bfs_predecessors(
         }
     };
 
+    // br-r37-c1-6hpa9: the (child, parent) pairs ARE the BFS tree edges
+    // in discovery order — derive nx's discovery objects from them.
+    let stream: Vec<(String, String)> = preds
+        .iter()
+        .map(|(child, parent)| (parent.clone(), child.clone()))
+        .collect();
+    let disp = gr.discovery_map(
+        py,
+        &stream,
+        Some((&source_key, source.clone().unbind())),
+        false,
+    );
     Ok(preds
         .into_iter()
-        .map(|(child, parent)| (gr.py_node_key(py, &child), gr.py_node_key(py, &parent)))
+        .map(|(child, parent)| {
+            (
+                gr.disp_or_node_key(py, &disp, &child),
+                gr.disp_or_node_key(py, &disp, &parent),
+            )
+        })
         .collect())
 }
 
@@ -6282,12 +6373,26 @@ pub fn bfs_successors(
         }
     };
 
+    // br-r37-c1-6hpa9: flatten (parent, [children]) into the BFS tree
+    // edge stream (discovery order) and map through discovery objects.
+    let stream: Vec<(String, String)> = succs
+        .iter()
+        .flat_map(|(parent, children)| children.iter().map(move |c| (parent.clone(), c.clone())))
+        .collect();
+    let disp = gr.discovery_map(
+        py,
+        &stream,
+        Some((&source_key, source.clone().unbind())),
+        false,
+    );
     Ok(succs
         .into_iter()
         .map(|(parent, children)| {
-            let py_parent = gr.py_node_key(py, &parent);
-            let py_children: Vec<PyObject> =
-                children.iter().map(|c| gr.py_node_key(py, c)).collect();
+            let py_parent = gr.disp_or_node_key(py, &disp, &parent);
+            let py_children: Vec<PyObject> = children
+                .iter()
+                .map(|c| gr.disp_or_node_key(py, &disp, c))
+                .collect();
             (py_parent, py_children)
         })
         .collect())
@@ -7060,6 +7165,7 @@ pub fn dfs_preorder_nodes(
         None => None,
     };
 
+    let source_key_for_disp = source_key.clone(); // br-r37-c1-6hpa9
     let nodes = match source_key {
         Some(source_key) => match &gr {
             GraphRef::Directed { dg, .. } => {
@@ -7128,7 +7234,18 @@ pub fn dfs_preorder_nodes(
         }
     };
 
-    Ok(nodes.iter().map(|n| gr.py_node_key(py, n)).collect())
+    // br-r37-c1-6hpa9: nx yields DISCOVERY objects — derive the map from
+    // the DFS tree-edge stream (roots fall back to node-map objects).
+    let tree_edges = dfs_edges_canonical(py, &gr, source_key_for_disp.clone(), depth_limit);
+    let seed = source_key_for_disp
+        .as_deref()
+        .zip(source)
+        .map(|(k, s)| (k, s.clone().unbind()));
+    let disp = gr.discovery_map(py, &tree_edges, seed, false);
+    Ok(nodes
+        .iter()
+        .map(|n| gr.disp_or_node_key(py, &disp, n))
+        .collect())
 }
 
 /// Generate nodes in a depth-first-search post-ordering starting at source.
@@ -7158,6 +7275,7 @@ pub fn dfs_postorder_nodes(
         None => None,
     };
 
+    let source_key_for_disp = source_key.clone(); // br-r37-c1-6hpa9
     let nodes = match source_key {
         Some(source_key) => match &gr {
             GraphRef::Directed { dg, .. } => {
@@ -7232,7 +7350,18 @@ pub fn dfs_postorder_nodes(
         }
     };
 
-    Ok(nodes.iter().map(|n| gr.py_node_key(py, n)).collect())
+    // br-r37-c1-6hpa9: nx yields DISCOVERY objects — derive the map from
+    // the DFS tree-edge stream (roots fall back to node-map objects).
+    let tree_edges = dfs_edges_canonical(py, &gr, source_key_for_disp.clone(), depth_limit);
+    let seed = source_key_for_disp
+        .as_deref()
+        .zip(source)
+        .map(|(k, s)| (k, s.clone().unbind()));
+    let disp = gr.discovery_map(py, &tree_edges, seed, false);
+    Ok(nodes
+        .iter()
+        .map(|n| gr.disp_or_node_key(py, &disp, n))
+        .collect())
 }
 
 // ===========================================================================
@@ -7427,6 +7556,13 @@ pub fn ancestors(
     if !gr.is_directed() {
         let inner = gr.undirected();
         let edges = py.allow_threads(|| fnx_algorithms::bfs_edges(inner, &source_key, None));
+        // br-r37-c1-6hpa9: nx's set members carry DISCOVERY objects.
+        let disp = gr.discovery_map(
+            py,
+            &edges,
+            Some((&source_key, source.clone().unbind())),
+            false,
+        );
         let mut result: HashSet<String> = HashSet::new();
         for (u, v) in edges {
             if u != source_key {
@@ -7436,14 +7572,40 @@ pub fn ancestors(
                 result.insert(v);
             }
         }
-        let py_nodes: Vec<PyObject> = result.iter().map(|n| gr.py_node_key(py, n)).collect();
+        let py_nodes: Vec<PyObject> = result
+            .iter()
+            .map(|n| gr.disp_or_node_key(py, &disp, n))
+            .collect();
         return pyo3::types::PyFrozenSet::new(py, &py_nodes).map(|s| s.unbind());
     }
 
     {
+        // br-r37-c1-6hpa9: nx ancestors walks the REVERSE bfs — members
+        // carry pred-row discovery objects. Derive from the reverse tree
+        // stream instead of the set-returning kernel.
         let dg_ref = gr.digraph().expect("is_directed checked above");
-        let result = py.allow_threads(|| fnx_algorithms::ancestors(dg_ref, &source_key));
-        let py_nodes: Vec<PyObject> = result.iter().map(|n| gr.py_node_key(py, n)).collect();
+        let edges = py.allow_threads(|| {
+            fnx_algorithms::bfs_edges_directed_reverse(dg_ref, &source_key, None)
+        });
+        let disp = gr.discovery_map(
+            py,
+            &edges,
+            Some((&source_key, source.clone().unbind())),
+            true,
+        );
+        let mut result: HashSet<String> = HashSet::new();
+        for (u, v) in &edges {
+            if u != &source_key {
+                result.insert(u.clone());
+            }
+            if v != &source_key {
+                result.insert(v.clone());
+            }
+        }
+        let py_nodes: Vec<PyObject> = result
+            .iter()
+            .map(|n| gr.disp_or_node_key(py, &disp, n))
+            .collect();
         pyo3::types::PyFrozenSet::new(py, &py_nodes).map(|s| s.unbind())
     }
 }
@@ -7469,6 +7631,13 @@ pub fn descendants(
     if !gr.is_directed() {
         let inner = gr.undirected();
         let edges = py.allow_threads(|| fnx_algorithms::bfs_edges(inner, &source_key, None));
+        // br-r37-c1-6hpa9: nx's set members carry DISCOVERY objects.
+        let disp = gr.discovery_map(
+            py,
+            &edges,
+            Some((&source_key, source.clone().unbind())),
+            false,
+        );
         let mut result: HashSet<String> = HashSet::new();
         for (u, v) in edges {
             if u != source_key {
@@ -7478,14 +7647,37 @@ pub fn descendants(
                 result.insert(v);
             }
         }
-        let py_nodes: Vec<PyObject> = result.iter().map(|n| gr.py_node_key(py, n)).collect();
+        let py_nodes: Vec<PyObject> = result
+            .iter()
+            .map(|n| gr.disp_or_node_key(py, &disp, n))
+            .collect();
         return pyo3::types::PyFrozenSet::new(py, &py_nodes).map(|s| s.unbind());
     }
 
     {
+        // br-r37-c1-6hpa9: forward-BFS discovery objects for the members.
         let dg_ref = gr.digraph().expect("is_directed checked above");
-        let result = py.allow_threads(|| fnx_algorithms::descendants(dg_ref, &source_key));
-        let py_nodes: Vec<PyObject> = result.iter().map(|n| gr.py_node_key(py, n)).collect();
+        let edges =
+            py.allow_threads(|| fnx_algorithms::bfs_edges_directed(dg_ref, &source_key, None));
+        let disp = gr.discovery_map(
+            py,
+            &edges,
+            Some((&source_key, source.clone().unbind())),
+            false,
+        );
+        let mut result: HashSet<String> = HashSet::new();
+        for (u, v) in &edges {
+            if u != &source_key {
+                result.insert(u.clone());
+            }
+            if v != &source_key {
+                result.insert(v.clone());
+            }
+        }
+        let py_nodes: Vec<PyObject> = result
+            .iter()
+            .map(|n| gr.disp_or_node_key(py, &disp, n))
+            .collect();
         pyo3::types::PyFrozenSet::new(py, &py_nodes).map(|s| s.unbind())
     }
 }

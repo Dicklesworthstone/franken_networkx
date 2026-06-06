@@ -96,3 +96,69 @@ def test_dfs_discovery_objects_match_nx_mixed_keys():
         assert _canon(fnx.dfs_tree(fnx.DiGraph([(7, 28.0)]))) == _canon(
             nx.dfs_tree(nx.DiGraph([(7, 28.0)]))
         )
+
+
+class TestDiscoveryObjectFamily:
+    """br-r37-c1-6hpa9: nx traversal results carry DISCOVERY objects —
+    the source as passed, every discovered node as its parent's
+    adjacency-row object (pred rows for reverse walks)."""
+
+    def _mixed(self, mod, directed=True):
+        g = (mod.DiGraph if directed else mod.Graph)()
+        g.add_node(28)
+        g.add_edge(7, 28.0)
+        g.add_edge(28.0, 5)
+        g.add_edge(5, 7)
+        g.add_edge(5, 9)
+        return g
+
+    def _rr(self, x):
+        if isinstance(x, tuple):
+            return tuple(self._rr(i) for i in x)
+        if isinstance(x, frozenset) or isinstance(x, set):
+            return sorted(self._rr(i) for i in x)
+        if isinstance(x, list):
+            return [self._rr(i) for i in x]
+        if isinstance(x, dict):
+            return {self._rr(k): self._rr(v) for k, v in x.items()}
+        if hasattr(x, "nodes"):
+            return [repr(n) for n in x]
+        return repr(x)
+
+    @pytest.mark.parametrize("directed", [True, False])
+    @pytest.mark.parametrize(
+        "fn",
+        [
+            lambda m, g: list(m.bfs_edges(g, 7)),
+            lambda m, g: list(m.bfs_tree(g, 7)),
+            lambda m, g: list(m.dfs_edges(g, 7)),
+            lambda m, g: list(m.dfs_tree(g, 7)),
+            lambda m, g: list(m.dfs_preorder_nodes(g, 7)),
+            lambda m, g: list(m.dfs_postorder_nodes(g, 7)),
+            lambda m, g: dict(m.bfs_predecessors(g, 7)),
+            lambda m, g: dict(m.bfs_successors(g, 7)),
+            lambda m, g: m.ancestors(g, 9),
+            lambda m, g: m.descendants(g, 7),
+        ],
+    )
+    def test_discovery_objects_match_nx(self, fn, directed):
+        assert self._rr(fn(fnx, self._mixed(fnx, directed))) == self._rr(
+            fn(nx, self._mixed(nx, directed))
+        )
+
+    def test_reverse_bfs_uses_pred_row_objects(self):
+        gf, gn = self._mixed(fnx), self._mixed(nx)
+        assert self._rr(list(fnx.bfs_edges(gf, 9, reverse=True))) == self._rr(
+            list(nx.bfs_edges(gn, 9, reverse=True))
+        )
+        assert self._rr(fnx.bfs_tree(gf, 9, reverse=True)) == self._rr(
+            nx.bfs_tree(gn, 9, reverse=True)
+        )
+
+    def test_uniform_keys_unchanged(self):
+        e = _edges(seed=9, n=60, m=200)
+        gf, gn = fnx.DiGraph(e), nx.DiGraph(e)
+        assert self._rr(list(fnx.bfs_edges(gf, 0))) == self._rr(list(nx.bfs_edges(gn, 0)))
+        assert self._rr(dict(fnx.bfs_successors(gf, 0))) == self._rr(
+            dict(nx.bfs_successors(gn, 0))
+        )
