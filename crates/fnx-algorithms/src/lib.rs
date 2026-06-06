@@ -14413,7 +14413,11 @@ pub struct TopologicalSortResult {
 /// Result of topological generations.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TopologicalGenerationsResult {
-    pub generations: Vec<Vec<String>>,
+    /// Per generation: (node, zeroing parent). Generation 0 has parent
+    /// None; later members carry the parent whose scan dropped their
+    /// indegree to zero (nx displays them as that parent's succ-row
+    /// object).
+    pub generations: Vec<Vec<(String, Option<String>)>>,
     pub witness: ComplexityWitness,
 }
 
@@ -14588,21 +14592,24 @@ pub fn topological_generations(digraph: &DiGraph) -> Option<TopologicalGeneratio
         in_degree.insert(node, digraph.in_degree(node));
     }
 
-    // Collect zero-in-degree nodes as generation 0 (sorted for determinism)
-    let mut current_gen: Vec<&str> = in_degree
+    // re-audit 2026-06-06: nx emits generation 0 in NODE ITERATION order
+    // and every later generation in ZERO-REACH order (the order children's
+    // indegree hits zero while scanning the previous generation). The old
+    // lexicographic sort_unstable diverged on both (and string-sorted
+    // "10" before "2").
+    let mut current_gen: Vec<(&str, Option<&str>)> = nodes
         .iter()
-        .filter(|(_, deg)| **deg == 0)
-        .map(|(node, _)| *node)
+        .filter(|&&node| in_degree.get(node) == Some(&0))
+        .map(|&node| (node, None))
         .collect();
-    current_gen.sort_unstable();
 
-    let mut generations: Vec<Vec<String>> = Vec::new();
+    let mut generations: Vec<Vec<(String, Option<String>)>> = Vec::new();
     let mut total_processed = 0usize;
     let mut edges_scanned = 0usize;
 
     while !current_gen.is_empty() {
-        let mut next_gen: Vec<&str> = Vec::new();
-        for &node in &current_gen {
+        let mut next_gen: Vec<(&str, Option<&str>)> = Vec::new();
+        for &(node, _) in &current_gen {
             total_processed += 1;
             if let Some(succs) = digraph.successors(node) {
                 for succ in succs {
@@ -14610,16 +14617,20 @@ pub fn topological_generations(digraph: &DiGraph) -> Option<TopologicalGeneratio
                     if let Some(deg) = in_degree.get_mut(succ) {
                         *deg -= 1;
                         if *deg == 0 {
-                            next_gen.push(succ);
+                            next_gen.push((succ, Some(node)));
                         }
                     }
                 }
             }
         }
 
-        generations.push(current_gen.iter().map(|&s| s.to_owned()).collect());
+        generations.push(
+            current_gen
+                .iter()
+                .map(|&(s, p)| (s.to_owned(), p.map(str::to_owned)))
+                .collect(),
+        );
 
-        next_gen.sort_unstable();
         current_gen = next_gen;
     }
 
@@ -40829,12 +40840,20 @@ mod tests {
         let g = make_dag();
         let result = topological_generations(&g).expect("DAG");
         assert_eq!(result.generations.len(), 3);
-        assert_eq!(result.generations[0], vec!["a"]);
-        // b and c in generation 1 (sorted)
-        let mut gen1 = result.generations[1].clone();
-        gen1.sort();
+        let names: Vec<Vec<&str>> = result
+            .generations
+            .iter()
+            .map(|generation| generation.iter().map(|(n, _)| n.as_str()).collect())
+            .collect();
+        assert_eq!(names[0], vec!["a"]);
+        // generation 1 in zero-reach order (a's succ row order)
+        let mut gen1 = names[1].clone();
+        gen1.sort_unstable();
         assert_eq!(gen1, vec!["b", "c"]);
-        assert_eq!(result.generations[2], vec!["d"]);
+        assert_eq!(names[2], vec!["d"]);
+        // generation 0 has no zeroing parent; later generations do
+        assert!(result.generations[0].iter().all(|(_, p)| p.is_none()));
+        assert!(result.generations[1].iter().all(|(_, p)| p.is_some()));
     }
 
     #[test]

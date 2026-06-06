@@ -7511,10 +7511,22 @@ pub fn topological_generations(
         let dg_ref = gr.digraph().expect("is_directed checked above");
         match py.allow_threads(|| fnx_algorithms::topological_generations(dg_ref)) {
             Some(result) => {
+                // re-audit 2026-06-06: generation 0 carries node-map
+                // objects (nx reads G.in_degree()); later members carry
+                // the ZEROING parent's succ-row object (nx appends the
+                // child from the parent's adjacency scan).
                 let gens: Vec<Vec<PyObject>> = result
                     .generations
                     .iter()
-                    .map(|g| g.iter().map(|n| gr.py_node_key(py, n)).collect())
+                    .map(|generation| {
+                        generation
+                            .iter()
+                            .map(|(n, parent)| match parent {
+                                Some(p) => gr.py_row_key(py, p, n),
+                                None => gr.py_node_key(py, n),
+                            })
+                            .collect()
+                    })
                     .collect();
                 Ok(gens)
             }
