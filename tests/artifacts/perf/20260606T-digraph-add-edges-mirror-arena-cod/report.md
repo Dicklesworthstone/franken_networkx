@@ -126,3 +126,46 @@ and unsupported-batch fallback semantics.
   so mirror construction and inner adjacency commit avoid duplicate
   `String`-pair allocation/probing while preserving `get_edge_data` live dict
   identity and weighted-kernel synchronization.
+
+## Rejected Candidate 4: Prechecked Inner Edge Slots
+
+- Candidate: reuse the Python-side precomputed new-node list in a hidden
+  `DiGraph` bulk insertion path, reserve known capacities, probe duplicate
+  inner edges with borrowed directed keys, and skip repeated endpoint existence
+  checks during the inner edge loop.
+- Proof:
+  - `cargo check -p fnx-python --all-targets`: passed via rch
+  - `cargo clippy -p fnx-python --all-targets -- -D warnings`: passed via rch
+  - `cargo test -p fnx-classes prechecked_attr_edge_batch_matches_generic_bulk_order_and_merges`: passed
+  - Focused add_edges parity: `15 passed`
+  - Golden SHA unchanged:
+    `c6f6227073dc924849e81ae552df913fcfaf278a522aae3abccdca2605eb6f48`
+- Fresh slot-descriptor baseline:
+  - Direct FNX median: `0.0160504880s`
+  - NetworkX median: `0.0055196155s`
+  - Ratio: `2.9079x`
+  - Hyperfine mean: `0.5491196056s`
+  - cProfile total: `2.537s`
+  - native `_try_add_edges_from_batch`: `2.513s`
+- Candidate result:
+  - Direct FNX median: `0.0166370440s`
+  - NetworkX median: `0.0062379005s`
+  - Ratio: `2.6671x`
+  - Hyperfine mean: `0.7217507590s`
+  - cProfile total: `2.635s`
+  - native `_try_add_edges_from_batch`: `2.607s`
+- Verdict: rejected and source restored. The borrowed-key/prechecked-node inner
+  path did not remove the dominant native batch cost and worsened process
+  timing.
+- Score: Impact `0` x Confidence `5` / Effort `2` = `0`; do not keep.
+- Isomorphism proof: node order, edge insertion order, duplicate merge order,
+  successor/predecessor row order, tie-breaking, floating-point values, and RNG
+  seed `20260606` were preserved by the Rust unit, focused parity, and unchanged
+  golden SHA.
+- Next primitive: do not continue capacity/prechecked-node variants. Attack a
+  fused Python-dict decode/mirror primitive: one pass over each source attr
+  dict should populate both the Rust `AttrMap` and the graph-owned Python mirror
+  slot for new edges, while duplicate edges update the live slot in NetworkX
+  order. Target is to remove the current double attr-dict walk
+  (`py_dict_to_attr_map` then `PyDict.update`) without aliasing the caller's
+  input dict.
