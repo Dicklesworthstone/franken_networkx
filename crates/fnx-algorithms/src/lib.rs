@@ -24873,41 +24873,22 @@ pub fn diamond_graph() -> Graph {
 /// Return the dodecahedral graph (20 nodes, 30 edges).
 #[must_use]
 pub fn dodecahedral_graph() -> Graph {
+    // generators-arc 2026-06-06: mirror nx's construction EXACTLY —
+    // LCF_graph(20, [10,7,4,-4,-7,10,-4,7,-7,4], 2): the 20-cycle
+    // (modular walk, closing (19, 0) last) then 40 shift edges in LCF
+    // order (duplicates no-op). The old sorted-pair list gave the same
+    // edge SET with divergent adjacency-row order (11 rows differed).
     let mut g = Graph::strict();
     gen_nodes(&mut g, 20);
-    for &(u, v) in &[
-        (0, 1),
-        (0, 10),
-        (0, 19),
-        (1, 2),
-        (1, 8),
-        (2, 3),
-        (2, 6),
-        (3, 4),
-        (3, 19),
-        (4, 5),
-        (4, 17),
-        (5, 6),
-        (5, 15),
-        (6, 7),
-        (7, 8),
-        (7, 14),
-        (8, 9),
-        (9, 10),
-        (9, 13),
-        (10, 11),
-        (11, 12),
-        (11, 18),
-        (12, 13),
-        (12, 16),
-        (13, 14),
-        (14, 15),
-        (15, 16),
-        (16, 17),
-        (17, 18),
-        (18, 19),
-    ] {
-        gen_edge(&mut g, u, v);
+    for i in 0..20 {
+        gen_edge(&mut g, i, (i + 1) % 20);
+    }
+    let shifts: [i64; 10] = [10, 7, 4, -4, -7, 10, -4, 7, -7, 4];
+    for i in 0..40usize {
+        let shift = shifts[i % 10];
+        let v1 = i % 20;
+        let v2 = ((i as i64 + shift).rem_euclid(20)) as usize;
+        gen_edge(&mut g, v1, v2);
     }
     g
 }
@@ -24915,26 +24896,26 @@ pub fn dodecahedral_graph() -> Graph {
 /// Return the Frucht graph (12 nodes, 18 edges) — smallest cubic graph with no automorphism.
 #[must_use]
 pub fn frucht_graph() -> Graph {
+    // generators-arc 2026-06-06: mirror nx's construction EXACTLY —
+    // cycle_graph(7) (modular walk, closing (6, 0) last) then nx's
+    // explicit 11-edge list in ITS order. The old sorted-pair list gave
+    // the same edge SET with divergent adjacency-row order.
     let mut g = Graph::strict();
     gen_nodes(&mut g, 12);
+    for i in 0..7 {
+        gen_edge(&mut g, i, (i + 1) % 7);
+    }
     for &(u, v) in &[
-        (0, 1),
-        (0, 6),
         (0, 7),
-        (1, 2),
         (1, 7),
-        (2, 3),
         (2, 8),
-        (3, 4),
         (3, 9),
-        (4, 5),
         (4, 9),
-        (5, 6),
         (5, 10),
         (6, 10),
         (7, 11),
-        (8, 9),
         (8, 11),
+        (8, 9),
         (10, 11),
     ] {
         gen_edge(&mut g, u, v);

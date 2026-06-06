@@ -21312,10 +21312,16 @@ def desargues_graph(create_using=None):
 def dodecahedral_graph(create_using=None):
     """Return the dodecahedral graph.
 
-    br-r37-c1-iw2hz: always use the LCF construction path; the Rust
-    fast-path produced adj orderings that drifted from nx (e.g.
-    adj[0] = [1,10,19] vs nx [1,19,10]).
+    br-r37-c1-iw2hz RESOLVED (generators arc): the kernel now emits
+    nx's exact LCF sequence — native route re-enabled for the default
+    case.
     """
+    if create_using is None:
+        from franken_networkx._fnx import dodecahedral_graph as _rust_dodecahedral
+
+        graph = _rust_dodecahedral()
+        graph.graph["name"] = "Dodecahedral Graph"
+        return graph
     graph = LCF_graph(
         20,
         [10, 7, 4, -4, -7, 10, -4, 7, -7, 4],
@@ -21437,9 +21443,16 @@ def chvatal_graph(create_using=None):
 def frucht_graph(create_using=None):
     """Return the Frucht graph.
 
-    br-r37-c1-iw2hz: always use the Python construction path; the
-    Rust fast-path produced adj orderings that drifted from nx.
+    br-r37-c1-iw2hz RESOLVED (generators arc): the kernel now emits
+    nx's exact construction (cycle(7) + nx's edge list in its order) —
+    native route re-enabled for the default case.
     """
+    if create_using is None:
+        from franken_networkx._fnx import frucht_graph as _rust_frucht
+
+        graph = _rust_frucht()
+        graph.graph["name"] = "Frucht Graph"
+        return graph
     graph = cycle_graph(7, create_using=create_using)
     graph.add_edges_from(
         [

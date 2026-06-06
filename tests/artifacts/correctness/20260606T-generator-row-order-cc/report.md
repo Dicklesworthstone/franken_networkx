@@ -67,3 +67,14 @@ Native route re-enabled (n=0..12, iterable, create_using, and the
 cycle-composing builders tadpole/circular_ladder/lollipop validated).
 dodecahedral/frucht remain on Python paths (LCF/named constructions —
 separate kernels, future fixes).
+
+## dodecahedral + frucht kernels fixed; ALL generator workarounds retired
+Both kernels used sorted-pair edge lists (same edge SET, divergent
+rows — dodecahedral had 11 divergent rows). Rewritten to nx's exact
+sequences: dodecahedral = LCF 20-cycle + 40 shift edges in LCF order;
+frucht = cycle(7) modular walk + nx's 11-edge list in its order.
+Native routes re-enabled (default case; create_using keeps Python).
+The generators arc is COMPLETE: 29/29 matrix clean, zero remaining
+'route Python always' workarounds for row drift (wheel, cycle,
+tadpole, dodecahedral, frucht all native; transitive_reduction stays
+delegated on corpus evidence).

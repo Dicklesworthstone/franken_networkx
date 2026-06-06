@@ -99,3 +99,15 @@ def test_cycle_native_fast_path_reenabled():
     a = {repr(x): [repr(y) for y in fnx.cycle_graph(["a", "b", "c"])[x]] for x in fnx.cycle_graph(["a", "b", "c"])}
     b = {repr(x): [repr(y) for y in nx.cycle_graph(["a", "b", "c"])[x]] for x in nx.cycle_graph(["a", "b", "c"])}
     assert a == b
+
+
+@pytest.mark.parametrize("name", ["dodecahedral_graph", "frucht_graph"])
+def test_named_small_graph_native_routes(name):
+    """Generators arc: kernels now emit nx's exact construction
+    sequences (LCF / cycle+edge-list) — native routes re-enabled."""
+    a = getattr(fnx, name)()
+    b = getattr(nx, name)()
+    assert {repr(n): [repr(x) for x in a[n]] for n in a} == {
+        repr(n): [repr(x) for x in b[n]] for n in b
+    }
+    assert dict(a.graph) == dict(b.graph)
