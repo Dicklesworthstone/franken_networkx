@@ -1033,6 +1033,35 @@ pub struct MultiDiGraph {
 }
 
 impl MultiDiGraph {
+    /// br-r37-c1-s0d4x: reorder every PRED row into NetworkX's
+    /// `MultiDiGraph.copy()` walk order — the multigraph counterpart of
+    /// DiGraph::reorder_pred_rows_for_nx_copy_walk: each pred row's cells
+    /// sort by `(pos(u), index of v within succ[u])`; succ rows are
+    /// recreated in their original order by the u-major walk.
+    pub fn reorder_pred_rows_for_nx_copy_walk(&mut self) {
+        let mut orders: Vec<(String, Vec<String>)> = Vec::with_capacity(self.predecessors.len());
+        for (v, row) in &self.predecessors {
+            let mut order: Vec<(usize, usize, String)> = row
+                .keys()
+                .map(|u| {
+                    let pu = self
+                        .successors
+                        .get_index_of(u.as_str())
+                        .unwrap_or(usize::MAX);
+                    let idx = self
+                        .successors
+                        .get(u.as_str())
+                        .and_then(|r| r.get_index_of(v.as_str()))
+                        .unwrap_or(usize::MAX);
+                    (pu, idx, u.clone())
+                })
+                .collect();
+            order.sort_unstable();
+            orders.push((v.clone(), order.into_iter().map(|(_, _, u)| u).collect()));
+        }
+        self.apply_row_orders(&orders, true);
+    }
+
     /// br-r37-c1-u3qyn: restore explicit succ/pred row orders (pickle
     /// round-trip) — see Graph::apply_row_orders. Keyed cells move
     /// wholesale; `pred` selects the adjacency side.

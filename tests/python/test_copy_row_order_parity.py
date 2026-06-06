@@ -151,3 +151,50 @@ def test_deepcopy_attrs_are_independent(cls):
     else:
         assert gf[1][2] == gn[1][2]
         assert gf[1][2]["payload"] is not gf_src[1][2]["payload"]
+
+
+@pytest.mark.parametrize("cls", ["MultiGraph", "MultiDiGraph"])
+def test_multi_copy_cell_walk_order_adversarial(cls):
+    # br-r37-c1-s0d4x: the 0ek49 fix covered Graph/DiGraph; multi-class
+    # copies kept verbatim insertion-order cells where nx's copy walk
+    # reorders them (u-major first-touch). Adversarial shape: mixed
+    # str/int nodes, parallel keys, self-loops, dense enough that walk
+    # order != insertion order.
+    import random
+
+    rnd = random.Random(5)
+    gn, gf = getattr(nx, cls)(), getattr(fnx, cls)()
+    for g in (gn, gf):
+        g.add_node("iso", t=1)
+    for _ in range(60):
+        u, v = rnd.randrange(10), rnd.randrange(10)
+        gn.add_edge(u, v, w=u + v)
+        gf.add_edge(u, v, w=u + v)
+    assert _rows(gf.copy()) == _rows(gn.copy())
+    assert _rows(gf.copy().copy()) == _rows(gn.copy().copy())
+
+
+@pytest.mark.parametrize("cls", CLASSES)
+def test_same_type_constructor_equals_nx(cls):
+    # br-r37-c1-s0d4x: cls(G) routes to the native copy absorb; structure
+    # and graph-attr semantics must equal nx's ctor exactly.
+    import random
+
+    rnd = random.Random(7)
+    gn, gf = getattr(nx, cls)(), getattr(fnx, cls)()
+    for g in (gn, gf):
+        g.graph["gname"] = "x"
+        g.add_node("iso")
+    for _ in range(40):
+        u, v = rnd.randrange(9), rnd.randrange(9)
+        gn.add_edge(u, v, w=u)
+        gf.add_edge(u, v, w=u)
+    cn, cf = getattr(nx, cls)(gn, extra=1), getattr(fnx, cls)(gf, extra=1)
+    assert _rows(cf) == _rows(cn)
+    assert [tuple(map(repr, e)) for e in cf.edges(data=True)] == [
+        tuple(map(repr, e)) for e in cn.edges(data=True)
+    ]
+    assert dict(cf.graph) == dict(cn.graph) == {"gname": "x", "extra": 1}
+    # independence from the source
+    cf.add_edge(99, 100)
+    assert 99 not in gf

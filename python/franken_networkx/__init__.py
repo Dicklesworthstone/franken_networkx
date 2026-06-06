@@ -3018,6 +3018,24 @@ def _copy_constructor_graph_source(self, source, *, is_multigraph, attr):
             self.graph.update(attr)
         return
 
+    # br-r37-c1-s0d4x: same-exact-type ctor — nx's cls(G) structure is
+    # identical to G.copy() (probed all four classes: nodes, edges+data,
+    # adjacency/pred rows, graph attrs, shallow attr-dict copying).
+    # Wholesale-absorb the native copy instead of the Python re-add walk
+    # (DiGraph(DiGraph) was 4.4-5.0x slower than nx).
+    if type(self) is type(source) and type(self) in (
+        Graph,
+        DiGraph,
+        MultiGraph,
+        MultiDiGraph,
+    ):
+        absorb = getattr(self, "_fnx_absorb_copy", None)
+        if absorb is not None:
+            absorb(source)
+            if attr:
+                self.graph.update(attr)
+            return
+
     self.clear()
     self.graph.update(dict(getattr(source, "graph", {})))
     if attr:
@@ -43233,6 +43251,22 @@ def grid_graph(dim, periodic=False):
         return Graph()
 
     dimensions = list(dim)
+    native_dimensions = []
+    native_periods = None
+    if _fnx is not None and hasattr(_fnx, "grid_graph_native"):
+        if type(periodic) is bool:
+            native_periods = [periodic] * len(dimensions)
+        elif isinstance(periodic, (list, tuple)) and len(periodic) >= len(dimensions):
+            native_periods = [bool(value) for value in periodic[: len(dimensions)]]
+        if native_periods is not None:
+            for axis in dimensions:
+                if type(axis) is not int or axis < 0:
+                    native_dimensions = []
+                    break
+                native_dimensions.append(axis)
+            else:
+                return _fnx.grid_graph_native(native_dimensions, native_periods)
+
     periodic_flags = (
         iter(periodic) if isinstance(periodic, _Iterable) else _itertools.repeat(periodic)
     )

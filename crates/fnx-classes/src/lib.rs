@@ -309,6 +309,230 @@ impl Graph {
         graph
     }
 
+    /// Build NetworkX's n-dimensional integer grid graph in one bulk pass.
+    ///
+    /// NetworkX constructs this as repeated cartesian products of path/cycle
+    /// graphs, then flattens the nested tuple labels. The product order matters:
+    /// periodic axes use cycle edge-view order, not a simple coordinate loop.
+    pub fn grid_nd(
+        mode: CompatibilityMode,
+        dimensions: &[usize],
+        periodic: &[bool],
+    ) -> Result<Self, GraphError> {
+        if dimensions.len() != periodic.len() {
+            return Err(GraphError::FailClosed {
+                operation: "grid_nd",
+                reason: format!(
+                    "periodic flag count {} does not match dimension count {}",
+                    periodic.len(),
+                    dimensions.len()
+                ),
+            });
+        }
+        if dimensions.is_empty() {
+            return Ok(Self::new(mode));
+        }
+
+        #[derive(Clone)]
+        struct ProductState {
+            node_count: usize,
+            adjacency: Vec<Vec<usize>>,
+            edge_set: HashSet<(usize, usize)>,
+        }
+
+        impl ProductState {
+            fn empty() -> Self {
+                Self {
+                    node_count: 0,
+                    adjacency: Vec::new(),
+                    edge_set: HashSet::new(),
+                }
+            }
+
+            fn axis(size: usize, periodic: bool) -> Self {
+                let mut state = Self {
+                    node_count: size,
+                    adjacency: vec![Vec::new(); size],
+                    edge_set: HashSet::new(),
+                };
+                if size == 0 {
+                    return state;
+                }
+                if periodic {
+                    if size == 1 {
+                        state.add_edge(0, 0);
+                    } else {
+                        for node in 0..(size - 1) {
+                            state.add_edge(node, node + 1);
+                        }
+                        state.add_edge(size - 1, 0);
+                    }
+                } else {
+                    for node in 0..size.saturating_sub(1) {
+                        state.add_edge(node, node + 1);
+                    }
+                }
+                state
+            }
+
+            fn product(axis: &Self, old: &Self) -> Result<Self, GraphError> {
+                let Some(node_count) = axis.node_count.checked_mul(old.node_count) else {
+                    return Err(GraphError::FailClosed {
+                        operation: "grid_nd",
+                        reason: "node count overflow during cartesian product".to_owned(),
+                    });
+                };
+                if node_count == 0 {
+                    return Ok(Self::empty());
+                }
+
+                let axis_edges = axis.edges_view();
+                let old_edges = old.edges_view();
+                let mut state = Self {
+                    node_count,
+                    adjacency: vec![Vec::new(); node_count],
+                    edge_set: HashSet::with_capacity(
+                        axis_edges
+                            .len()
+                            .saturating_mul(old.node_count)
+                            .saturating_add(old_edges.len().saturating_mul(axis.node_count)),
+                    ),
+                };
+
+                for (axis_left, axis_right) in axis_edges {
+                    let left_base = axis_left * old.node_count;
+                    let right_base = axis_right * old.node_count;
+                    for old_index in 0..old.node_count {
+                        state.add_edge(left_base + old_index, right_base + old_index);
+                    }
+                }
+                for axis_index in 0..axis.node_count {
+                    let base = axis_index * old.node_count;
+                    for &(old_left, old_right) in &old_edges {
+                        state.add_edge(base + old_left, base + old_right);
+                    }
+                }
+                Ok(state)
+            }
+
+            fn add_edge(&mut self, left: usize, right: usize) {
+                let key = if left <= right {
+                    (left, right)
+                } else {
+                    (right, left)
+                };
+                if !self.edge_set.insert(key) {
+                    return;
+                }
+                self.adjacency[left].push(right);
+                if left != right {
+                    self.adjacency[right].push(left);
+                }
+            }
+
+            fn edges_view(&self) -> Vec<(usize, usize)> {
+                let mut edges = Vec::with_capacity(self.edge_set.len());
+                let mut seen = vec![false; self.node_count];
+                for left in 0..self.node_count {
+                    for &right in &self.adjacency[left] {
+                        if !seen[right] {
+                            edges.push((left, right));
+                        }
+                    }
+                    seen[left] = true;
+                }
+                edges
+            }
+        }
+
+        fn coords_from_index(mut index: usize, sizes: &[usize]) -> Vec<usize> {
+            let mut coords = vec![0; sizes.len()];
+            for axis in (0..sizes.len()).rev() {
+                let size = sizes[axis];
+                coords[axis] = index % size;
+                index /= size;
+            }
+            coords
+        }
+
+        fn tuple_canonical(coords: &[usize]) -> String {
+            if let [value] = coords {
+                return value.to_string();
+            }
+            let mut s = String::with_capacity(coords.len() * 6 + 2);
+            s.push('(');
+            for (i, value) in coords.iter().enumerate() {
+                if i > 0 {
+                    s.push_str(", ");
+                }
+                s.push_str(&value.to_string());
+            }
+            s.push(')');
+            s
+        }
+
+        let mut state = ProductState::axis(dimensions[0], periodic[0]);
+        for (&size, &periodic_axis) in dimensions.iter().zip(periodic).skip(1) {
+            let axis = ProductState::axis(size, periodic_axis);
+            state = ProductState::product(&axis, &state)?;
+        }
+
+        let output_sizes = dimensions.iter().rev().copied().collect::<Vec<_>>();
+        let labels = (0..state.node_count)
+            .map(|index| tuple_canonical(&coords_from_index(index, &output_sizes)))
+            .collect::<Vec<_>>();
+        let edge_view = state.edges_view();
+        let mut final_adjacency = vec![Vec::new(); state.node_count];
+        for &(left, right) in &edge_view {
+            final_adjacency[left].push(right);
+            if left != right {
+                final_adjacency[right].push(left);
+            }
+        }
+        let revision = u64::try_from(state.node_count)
+            .unwrap_or(u64::MAX)
+            .saturating_add(u64::try_from(edge_view.len()).unwrap_or(u64::MAX));
+        let mut graph = Self {
+            mode,
+            revision,
+            nodes: IndexMap::with_capacity(state.node_count),
+            adjacency: IndexMap::with_capacity(state.node_count),
+            adj_indices: Vec::with_capacity(state.node_count),
+            edge_index_endpoints: Vec::with_capacity(edge_view.len()),
+            edges: IndexMap::with_capacity(edge_view.len()),
+            runtime_policy: RuntimePolicy::new(mode),
+        };
+
+        for (index, label) in labels.iter().enumerate() {
+            graph.nodes.insert(label.clone(), AttrMap::new());
+            let mut row = IndexSet::with_capacity(final_adjacency[index].len());
+            for &neighbor in &final_adjacency[index] {
+                row.insert(labels[neighbor].clone());
+            }
+            graph.adjacency.insert(label.clone(), row);
+            graph.adj_indices.push(final_adjacency[index].clone());
+        }
+
+        for (left, right) in edge_view {
+            graph.edge_index_endpoints.push((left, right));
+            graph
+                .edges
+                .insert(EdgeKey::new(&labels[left], &labels[right]), AttrMap::new());
+        }
+
+        graph.record_decision(
+            "grid_nd_bulk",
+            0.0,
+            false,
+            vec![EvidenceTerm {
+                signal: "nodes".to_owned(),
+                observed_value: state.node_count.to_string(),
+                log_likelihood_ratio: 0.0,
+            }],
+        );
+        Ok(graph)
+    }
+
     /// br-r37-c1-z2eaa: Kneser graph K(n, k) replicating NetworkX's exact
     /// construction sequence. Nodes are k-subsets of 0..n as all-int-tuple
     /// canonicals "(a, b, ...)" (br-r37-c1-y7m24). nx builds via
@@ -1552,6 +1776,44 @@ pub struct MultiGraph {
 }
 
 impl MultiGraph {
+    /// br-r37-c1-s0d4x: reorder every adjacency row into NetworkX's
+    /// `MultiGraph.copy()` walk order — the multigraph counterpart of
+    /// Graph::reorder_rows_for_nx_copy_walk (cells move wholesale). A
+    /// pair's cells enter both rows at the first u-major touch: row u =
+    /// earlier-position neighbors sorted by (pos(v), index of u within
+    /// row v), then the rest (self-loops included) in original order.
+    pub fn reorder_rows_for_nx_copy_walk(&mut self) {
+        let n = self.adjacency.len();
+        let mut new_orders: Vec<Vec<String>> = Vec::with_capacity(n);
+        for (pu, (u, row)) in self.adjacency.iter().enumerate() {
+            let mut early: Vec<(usize, usize, String)> = Vec::new();
+            let mut late: Vec<String> = Vec::new();
+            for v in row.keys() {
+                let pv = self
+                    .adjacency
+                    .get_index_of(v.as_str())
+                    .unwrap_or(usize::MAX);
+                if pv < pu {
+                    let idx = self
+                        .adjacency
+                        .get(v.as_str())
+                        .and_then(|r| r.get_index_of(u.as_str()))
+                        .unwrap_or(usize::MAX);
+                    early.push((pv, idx, v.clone()));
+                } else {
+                    late.push(v.clone());
+                }
+            }
+            early.sort_unstable();
+            let mut order: Vec<String> = early.into_iter().map(|(_, _, v)| v).collect();
+            order.extend(late);
+            new_orders.push(order);
+        }
+        let keys: Vec<String> = self.adjacency.keys().cloned().collect();
+        let orders: Vec<(String, Vec<String>)> = keys.into_iter().zip(new_orders).collect();
+        self.apply_row_orders(&orders);
+    }
+
     /// br-r37-c1-u3qyn: restore explicit adjacency row orders (pickle
     /// round-trip) — see Graph::apply_row_orders. Multigraph rows are
     /// keyed cells (neighbor -> key set); the cells move wholesale.

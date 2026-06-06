@@ -2933,6 +2933,9 @@ impl PyMultiGraph {
                 new_graph.remember_edge_key(py, &u, &v, key, None);
             }
         }
+        // br-r37-c1-s0d4x: cells in nx's u-major copy-walk order (the
+        // edges_ordered rebuild above is edge INSERTION order).
+        new_graph.inner.reorder_rows_for_nx_copy_walk();
         Ok(new_graph)
     }
 
@@ -3042,6 +3045,16 @@ impl PyMultiGraph {
         Ok(mdg)
     }
 
+    /// br-r37-c1-s0d4x: wholesale same-type constructor absorb — nx's
+    /// ``cls(G)`` structure is identical to ``G.copy()`` (probed: nodes,
+    /// edges+data, adjacency/pred rows, graph attrs, shallow attr-dict
+    /// copying, all four classes). The Python ctor wrapper routes the
+    /// exact-same-type case here instead of the per-edge rebuild walk.
+    fn _fnx_absorb_copy(&mut self, py: Python<'_>, other: PyRef<'_, Self>) -> PyResult<()> {
+        *self = other.copy(py)?;
+        Ok(())
+    }
+
     /// Return a deep copy of the multigraph.
     fn copy(&self, py: Python<'_>) -> PyResult<Self> {
         // br-r37-c1-6xe9c: bulk-clone the inner Rust multigraph instead of
@@ -3066,6 +3079,10 @@ impl PyMultiGraph {
             edges_seq: 0,
             edges_dirty: AtomicBool::new(self.edges_dirty.load(Ordering::Relaxed)),
         };
+        // br-r37-c1-s0d4x: nx's MultiGraph.copy() rebuild walk reorders
+        // adjacency CELLS (u-major first-touch) just like simple Graph
+        // (42bb1a8f8); the verbatim clone preserved source rows instead.
+        new_graph.inner.reorder_rows_for_nx_copy_walk();
         // Node-attr mutations are not tracked by `edges_dirty`, so refresh the
         // cloned inner's node attrs from the authoritative Python dicts.
         for (canonical, py_key) in &self.node_key_map {
@@ -4997,6 +5014,16 @@ impl PyGraph {
     }
 
     // ---- Graph utility methods ----
+
+    /// br-r37-c1-s0d4x: wholesale same-type constructor absorb — nx's
+    /// ``cls(G)`` structure is identical to ``G.copy()`` (probed: nodes,
+    /// edges+data, adjacency/pred rows, graph attrs, shallow attr-dict
+    /// copying, all four classes). The Python ctor wrapper routes the
+    /// exact-same-type case here instead of the per-edge rebuild walk.
+    fn _fnx_absorb_copy(&mut self, py: Python<'_>, other: PyRef<'_, Self>) -> PyResult<()> {
+        *self = other.copy(py)?;
+        Ok(())
+    }
 
     /// Return a deep copy of the graph.
     fn copy(&self, py: Python<'_>) -> PyResult<Self> {
