@@ -1,4 +1,4 @@
-# br-r37-c1-blgry Rejected Probe-Collapse Report
+# br-r37-c1-blgry DiGraph Add Edges Mirror Arena Report
 
 ## Target
 
@@ -169,3 +169,53 @@ and unsupported-batch fallback semantics.
   order. Target is to remove the current double attr-dict walk
   (`py_dict_to_attr_map` then `PyDict.update`) without aliasing the caller's
   input dict.
+
+## Kept Candidate 5: Fused Attr Dict Decode and Mirror Build
+
+- Candidate: while collecting each attributed edge tuple, walk the source
+  Python attr dict once to build both the Rust `AttrMap` and a graph-owned
+  Python mirror dict. During commit, insert that mirror directly for newly seen
+  edge keys; only duplicate edges update the existing live mirror in NetworkX
+  order.
+- Proof:
+  - `cargo fmt --check`: passed
+  - `cargo check -p fnx-python --all-targets`: passed via rch
+  - `cargo clippy -p fnx-python --all-targets -- -D warnings`: passed via rch
+  - Focused add_edges parity: `15 passed`
+  - Golden SHA unchanged:
+    `c6f6227073dc924849e81ae552df913fcfaf278a522aae3abccdca2605eb6f48`
+- Fresh fused-attr baseline:
+  - Direct FNX median: `0.0232293395s`
+  - NetworkX median: `0.0080360980s`
+  - Ratio: `2.8906x`
+  - Hyperfine mean: `0.7745943685s`
+  - Hyperfine median: `0.7483216764s`
+  - cProfile total: `3.366s`
+  - native `_try_add_edges_from_batch`: `3.330s`
+- Candidate result:
+  - Direct FNX median: `0.0105919740s`
+  - NetworkX median: `0.0039616340s`
+  - Ratio: `2.6736x`
+  - Hyperfine mean: `0.6256977856s`
+  - Hyperfine median: `0.6210688030s`
+  - cProfile total: `2.304s`
+  - native `_try_add_edges_from_batch`: `2.284s`
+- Verdict: kept. Direct FNX median improved `54.4%`, cProfile native time
+  improved `31.4%`, and hyperfine mean improved `19.2%` with behavior
+  unchanged.
+- Score: Impact `4` x Confidence `5` / Effort `2` = `10`; keep.
+- Isomorphism proof: node order, edge insertion order, duplicate merge order,
+  successor/predecessor row order, live `get_edge_data` dict identity,
+  tie-breaking, floating-point values, and RNG seed `20260606` are preserved.
+  The candidate copies caller attr dict entries into a new graph-owned mirror,
+  so caller input dict aliasing remains absent while duplicate edges still
+  update the existing graph-owned mirror in insertion order.
+- Next primitive: the residual cProfile remains native-dominated at
+  `_try_add_edges_from_batch` `2.284s` over 200 builds and direct ratio
+  `2.6736x` vs NetworkX. The next profile-backed attack should replace
+  per-edge directed-key and row-map transitions with a row-local directed
+  staging arena: group canonicalized endpoints by source row once, carry mirror
+  handles and Rust attrs in contiguous row batches, then commit successor and
+  predecessor rows from those batches while preserving global edge order for
+  sequence bumps and duplicate merges. Target ratio: `<=2.0x` vs NetworkX on
+  this fixture.

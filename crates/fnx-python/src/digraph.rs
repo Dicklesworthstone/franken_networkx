@@ -8,7 +8,8 @@
 use crate::{
     NetworkXError, NodeNotFound, PyGraph, PyObject, compatibility_mode_from_py,
     compatibility_mode_name, edge_key_lookup_string, node_key_to_string, py_dict_to_attr_map,
-    runtime_policy_from_state, runtime_policy_json, unwrap_infallible, weighted_edge_triplet,
+    py_dict_to_attr_map_with_mirror, runtime_policy_from_state, runtime_policy_json,
+    unwrap_infallible, weighted_edge_triplet,
 };
 use fnx_classes::AttrMap;
 use fnx_classes::digraph::{DiGraph, MultiDiGraph};
@@ -3323,7 +3324,7 @@ impl PyDiGraph {
                 let Ok(dict) = third.downcast::<PyDict>() else {
                     return Ok(None);
                 };
-                let Ok(attrs) = py_dict_to_attr_map(dict) else {
+                let Ok((attrs, mirror)) = py_dict_to_attr_map_with_mirror(py, dict) else {
                     return Ok(None);
                 };
                 if attrs
@@ -3332,7 +3333,7 @@ impl PyDiGraph {
                 {
                     return Ok(None);
                 }
-                (attrs, Some(dict.clone().unbind()))
+                (attrs, Some(mirror))
             } else {
                 (AttrMap::new(), None)
             };
@@ -3379,12 +3380,20 @@ impl PyDiGraph {
                 .or_insert_with(|| PyDict::new(py).unbind());
         }
         for (u, v, _, src) in &edges {
-            let dict = self
-                .edge_py_attrs
-                .entry(Self::edge_key(u, v))
-                .or_insert_with(|| PyDict::new(py).unbind());
-            if let Some(src) = src {
-                dict.bind(py).update(src.bind(py).as_mapping())?;
+            match src {
+                Some(src) => match self.edge_py_attrs.entry(Self::edge_key(u, v)) {
+                    std::collections::hash_map::Entry::Occupied(entry) => {
+                        entry.get().bind(py).update(src.bind(py).as_mapping())?;
+                    }
+                    std::collections::hash_map::Entry::Vacant(entry) => {
+                        entry.insert(src.clone_ref(py));
+                    }
+                },
+                None => {
+                    self.edge_py_attrs
+                        .entry(Self::edge_key(u, v))
+                        .or_insert_with(|| PyDict::new(py).unbind());
+                }
             }
         }
 

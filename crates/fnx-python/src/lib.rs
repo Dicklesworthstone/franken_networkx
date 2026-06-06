@@ -278,6 +278,24 @@ pub(crate) fn py_dict_to_attr_map(attrs: &Bound<'_, PyDict>) -> PyResult<AttrMap
     Ok(rust_attrs)
 }
 
+pub(crate) fn py_dict_to_attr_map_with_mirror(
+    py: Python<'_>,
+    attrs: &Bound<'_, PyDict>,
+) -> PyResult<(AttrMap, Py<PyDict>)> {
+    let mut rust_attrs = AttrMap::new();
+    let mirror = PyDict::new(py);
+    for (k, v) in attrs.iter() {
+        let key: String = if let Ok(s) = k.extract::<String>() {
+            s
+        } else {
+            k.str()?.to_string_lossy().into_owned()
+        };
+        rust_attrs.insert(key, py_value_to_cgse(&v)?);
+        mirror.set_item(&k, &v)?;
+    }
+    Ok((rust_attrs, mirror.unbind()))
+}
+
 /// Convert a Python attribute value to a `CgseValue`.
 ///
 /// br-r37-c1-aefbatch: a leading exact-type dispatch handles the overwhelmingly
