@@ -1641,6 +1641,47 @@ def test_write_adjlist_byte_parity_with_nx():
     assert buf_f.getvalue().endswith(b"\n")
 
 
+def test_write_adjlist_empty_graph_has_no_extra_body_line():
+    """br-r37-c1-zt6lj: native body fast path must not add a blank line."""
+    import io
+
+    G_f = fnx.Graph()
+    G_n = nx.Graph()
+
+    buf_f = io.BytesIO()
+    buf_n = io.BytesIO()
+    fnx.write_adjlist(G_f, buf_f)
+    nx.write_adjlist(G_n, buf_n)
+
+    def strip_ts(b):
+        return b"\n".join(l for l in b.split(b"\n") if not l.startswith(b"# GMT"))
+
+    assert strip_ts(buf_f.getvalue()) == strip_ts(buf_n.getvalue())
+
+
+def test_write_adjlist_custom_python_key_fallback_parity():
+    """br-r37-c1-zt6lj: custom display keys keep the generic parity path."""
+    import io
+
+    G_f = fnx.Graph()
+    G_n = nx.Graph()
+    edges = [("1", 1), ((2, 3), "1")]
+    G_f.add_edges_from(edges)
+    G_n.add_edges_from(edges)
+
+    buf_f = io.BytesIO()
+    buf_n = io.BytesIO()
+    fnx.write_adjlist(G_f, buf_f)
+    nx.write_adjlist(G_n, buf_n)
+
+    def strip_comments(b):
+        return b"".join(
+            line for line in b.splitlines(keepends=True) if not line.startswith(b"#")
+        )
+
+    assert strip_comments(buf_f.getvalue()) == strip_comments(buf_n.getvalue())
+
+
 # --- View pickle / iter / equality regression locks
 # (br-r37-c1-{z42ez, 7gej0, oww5k, k1xn4}) -----------------------------
 import pickle

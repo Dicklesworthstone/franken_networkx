@@ -250,6 +250,24 @@ def _write_adjlist_via_nx(G, path, *, comments="#", delimiter=" ", encoding="utf
             + f" {G.name}\n"
         )
         path.write(header.encode(encoding))
+
+        import franken_networkx as _fnx_mod
+
+        canonical_body_safe = getattr(G, "_native_adjlist_canonical_body_safe", None)
+        if (
+            canonical_body_safe is not None
+            and comments == "#"
+            and delimiter == " "
+            and encoding == "utf-8"
+            and type(G) in (_fnx_mod.Graph, _fnx_mod.DiGraph)
+            and not G.is_multigraph()
+            and canonical_body_safe()
+        ):
+            _fnx_mod._rust_write_adjlist(G, path)
+            if len(G) > 0:
+                path.write(b"\n")
+            return
+
         for line in generate_adjlist(G, delimiter):
             path.write((line + "\n").encode(encoding))
 
