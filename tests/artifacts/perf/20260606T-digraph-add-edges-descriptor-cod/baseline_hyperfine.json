@@ -1,0 +1,38 @@
+{
+  "results": [
+    {
+      "command": ".venv/bin/python tests/artifacts/perf/20260606T-digraph-add-edges-batch-cod/digraph_add_edges_batch_harness.py timing --loops 8 --warmups 2 --output tests/artifacts/perf/20260606T-digraph-add-edges-descriptor-cod/baseline_hyperfine_timing.json",
+      "mean": 0.51556367684,
+      "stddev": 0.03568056900004432,
+      "median": 0.5224527236400001,
+      "user": 3.6434150400000007,
+      "system": 0.06217324,
+      "min": 0.47271863514000007,
+      "max": 0.5832688541400001,
+      "times": [
+        0.5298130991400001,
+        0.5832688541400001,
+        0.5263503851400001,
+        0.47285083714000004,
+        0.50121858714,
+        0.51855506214,
+        0.47575094214,
+        0.47271863514000007,
+        0.5295734511400001,
+        0.54553691514
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

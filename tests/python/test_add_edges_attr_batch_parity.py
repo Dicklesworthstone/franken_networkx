@@ -168,3 +168,35 @@ def test_digraph_attr_batch_preserves_direction_and_mirrors():
 
     ctor = fnx.DiGraph(batch)
     assert _canon(ctor) == _canon(nx.DiGraph(batch))
+
+
+def test_digraph_batch_probe_falls_back_for_list_edges():
+    batch = [[i, i + 1, {"w": i}] for i in range(12)]
+
+    def build(mod):
+        g = mod.DiGraph()
+        g.add_edges_from(batch)
+        return g
+
+    a, b = _both(build)
+    assert a == b
+
+
+def test_digraph_batch_probe_preserves_partial_error_prefix():
+    tail_cases = [
+        [(1, 2, 3, 4)],
+        [(2, None)],
+        [([1, 2], 3)],
+    ]
+
+    for tail in tail_cases:
+        def build(mod, tail=tail):
+            g = mod.DiGraph()
+            try:
+                g.add_edges_from([(0, 1, {"w": 1})] * 10 + tail)
+            except Exception:
+                pass
+            return g
+
+        a, b = _both(build)
+        assert a == b

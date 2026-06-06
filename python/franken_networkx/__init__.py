@@ -2579,6 +2579,10 @@ _ADD_EDGES_UNSET = object()
 
 def _add_edges_from_materialized(raw):
     def add_edges_from(self, ebunch_to_add, **attr):
+        if not attr and isinstance(ebunch_to_add, (list, tuple)):
+            native_batch = getattr(self, "_try_add_edges_from_batch", None)
+            if native_batch is not None and native_batch(ebunch_to_add):
+                return None
         # br-r37-c1-aefitexc (cycle 216): nx's add_edges_from iterates
         # the ebunch and adds each edge inline.  When the input is a
         # generator (or any iterator) that raises mid-stream, edges

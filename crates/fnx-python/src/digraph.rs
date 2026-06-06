@@ -3950,6 +3950,20 @@ impl PyDiGraph {
         Ok(())
     }
 
+    fn _try_add_edges_from_batch(
+        &mut self,
+        py: Python<'_>,
+        ebunch_to_add: &Bound<'_, PyAny>,
+    ) -> PyResult<bool> {
+        if self.try_add_plain_edge_batch(py, ebunch_to_add, true)? {
+            return Ok(true);
+        }
+        if self.try_add_attr_edge_batch(py, ebunch_to_add, true)? {
+            return Ok(true);
+        }
+        Ok(false)
+    }
+
     #[pyo3(signature = (ebunch_to_add, weight="weight"))]
     fn add_weighted_edges_from(
         &mut self,
