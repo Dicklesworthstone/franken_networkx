@@ -217,6 +217,76 @@ impl DiGraph {
             .map(|p| p.iter().map(String::as_str).collect())
     }
 
+    /// br-r37-c1-u3qyn: restore explicit succ/pred row orders (pickle
+    /// round-trip) — see Graph::apply_row_orders. `which` selects the
+    /// adjacency side.
+    pub fn apply_row_orders(&mut self, orders: &[(String, Vec<String>)], pred: bool) {
+        let map = if pred {
+            &mut self.predecessors
+        } else {
+            &mut self.successors
+        };
+        for (node, order) in orders {
+            let Some(row) = map.get(node.as_str()) else {
+                continue;
+            };
+            let mut new_row = IndexSet::with_capacity(row.len());
+            for v in order {
+                if row.contains(v.as_str()) {
+                    new_row.insert(v.clone());
+                }
+            }
+            for v in row {
+                if !new_row.contains(v.as_str()) {
+                    new_row.insert(v.clone());
+                }
+            }
+            if let Some(slot) = map.get_mut(node.as_str()) {
+                *slot = new_row;
+            }
+        }
+    }
+
+    /// br-r37-c1-0ek49: reorder every PRED row into NetworkX's
+    /// `DiGraph.copy()` walk order. nx copy rebuilds via the u-major
+    /// succ walk (`(u, v, d) for u in _adj for v in _adj[u]`), which
+    /// recreates succ rows in their original order but fills each pred
+    /// row in walk order: `(pos(u), index of v within succ[u])`. Call on
+    /// a fresh clone inside copy-shaped constructors; graph content is
+    /// unchanged, only pred row order moves.
+    pub fn reorder_pred_rows_for_nx_copy_walk(&mut self) {
+        let m = self.predecessors.len();
+        let mut new_rows: Vec<IndexSet<String>> = Vec::with_capacity(m);
+        for (v, row) in &self.predecessors {
+            let mut order: Vec<(usize, usize, String)> = row
+                .iter()
+                .map(|u| {
+                    let pu = self
+                        .successors
+                        .get_index_of(u.as_str())
+                        .unwrap_or(usize::MAX);
+                    let idx = self
+                        .successors
+                        .get(u.as_str())
+                        .and_then(|r| r.get_index_of(v.as_str()))
+                        .unwrap_or(usize::MAX);
+                    (pu, idx, u.clone())
+                })
+                .collect();
+            order.sort_unstable();
+            let mut new_row = IndexSet::with_capacity(row.len());
+            for (_, _, u) in order {
+                new_row.insert(u);
+            }
+            new_rows.push(new_row);
+        }
+        for (i, row) in new_rows.into_iter().enumerate() {
+            if let Some((_, slot)) = self.predecessors.get_index_mut(i) {
+                *slot = row;
+            }
+        }
+    }
+
     #[must_use]
     pub fn predecessors_iter(&self, node: &str) -> Option<impl Iterator<Item = &str> + '_> {
         self.predecessors
@@ -578,6 +648,107 @@ impl DiGraph {
         inserted
     }
 
+    /// br-r37-c1-dgctor: bulk-add nodes WITH attrs, one summary ledger
+    /// record — the directed sibling of `Graph::extend_nodes_unrecorded`
+    /// extended with per-node AttrMaps. First insertion wins the order;
+    /// re-inserting an existing node merges attrs (matching
+    /// `add_node_with_attrs`).
+    #[must_use]
+    pub fn extend_nodes_with_attrs_unrecorded<I>(&mut self, nodes: I) -> usize
+    where
+        I: IntoIterator<Item = (String, AttrMap)>,
+    {
+        let mut inserted = 0usize;
+        for (node, attrs) in nodes {
+            if let Some(existing) = self.nodes.get_mut(&node) {
+                existing.extend(attrs);
+                continue;
+            }
+            self.nodes.insert(node.clone(), attrs);
+            self.successors.entry(node.clone()).or_default();
+            self.predecessors.entry(node).or_default();
+            inserted += 1;
+        }
+        if inserted > 0 {
+            self.revision = self
+                .revision
+                .saturating_add(u64::try_from(inserted).unwrap_or(u64::MAX));
+            self.record_decision(
+                "extend_nodes_unrecorded",
+                0.0,
+                false,
+                vec![EvidenceTerm {
+                    signal: "batch_node_count".to_owned(),
+                    observed_value: inserted.to_string(),
+                    log_likelihood_ratio: -1.0,
+                }],
+            );
+        }
+        inserted
+    }
+
+    /// br-r37-c1-dgctor: bulk-add ATTRIBUTED directed edges without
+    /// per-edge ledger records — the directed sibling of
+    /// `Graph::extend_edges_with_attrs_unrecorded`. Insert-or-MERGE
+    /// (duplicate (source, target) extends the existing AttrMap, matching
+    /// `add_edge_with_attrs`); nodes auto-created in first-appearance
+    /// order. Callers must pre-screen "__fnx_incompatible" attr keys.
+    #[must_use]
+    pub fn extend_edges_with_attrs_unrecorded<I>(&mut self, edges: I) -> usize
+    where
+        I: IntoIterator<Item = (String, String, AttrMap)>,
+    {
+        let mut inserted = 0usize;
+        let mut merged_changed = false;
+        for (source, target, attrs) in edges {
+            if !self.nodes.contains_key(&source) {
+                self.nodes.insert(source.clone(), AttrMap::new());
+                self.successors.entry(source.clone()).or_default();
+                self.predecessors.entry(source.clone()).or_default();
+            }
+            if source != target && !self.nodes.contains_key(&target) {
+                self.nodes.insert(target.clone(), AttrMap::new());
+                self.successors.entry(target.clone()).or_default();
+                self.predecessors.entry(target.clone()).or_default();
+            }
+            let edge_key = DirectedEdgeKey::new(&source, &target);
+            if let Some(existing) = self.edges.get_mut(&edge_key) {
+                if !attrs.is_empty()
+                    && attrs
+                        .iter()
+                        .any(|(key, value)| existing.get(key) != Some(value))
+                {
+                    merged_changed = true;
+                }
+                existing.extend(attrs);
+                continue;
+            }
+            self.edges.insert(edge_key, attrs);
+            self.successors
+                .entry(source.clone())
+                .or_default()
+                .insert(target.clone());
+            self.predecessors.entry(target).or_default().insert(source);
+            inserted += 1;
+        }
+        if inserted > 0 || merged_changed {
+            self.revision = self
+                .revision
+                .saturating_add(u64::try_from(inserted.max(1)).unwrap_or(u64::MAX));
+            self.record_decision(
+                "extend_edges_unrecorded",
+                0.0,
+                false,
+                vec![EvidenceTerm {
+                    signal: "batch_edge_count".to_owned(),
+                    observed_value: inserted.to_string(),
+                    log_likelihood_ratio: -1.0,
+                }],
+            );
+        }
+        inserted
+    }
+
     pub fn apply_edge_defaults(&mut self, defaults: &AttrMap) -> bool {
         if defaults.is_empty() {
             return false;
@@ -659,7 +830,14 @@ impl DiGraph {
             return false;
         }
 
-        // 1. Remove outgoing edges and clean up successors' predecessor lists.
+        // br-r37-c1-rmnode-di2: drop each incident edge with O(1) `swap_remove`
+        // (the `edges` map order is never observed externally — `edges_ordered`,
+        // used by every public consumer, walks node->successor order, and the one
+        // internal map-order use, `to_undirected`, was canonicalised). The
+        // incident edges are known exactly from successors/predecessors, so the
+        // whole removal is O(degree) instead of the O(|E|) `retain` scan (let
+        // alone the original O(degree*|E|) per-edge shift_remove). Matches nx's
+        // O(degree) remove_node.
         if let Some(succs) = self.successors.get(node) {
             let targets: Vec<String> = succs.iter().cloned().collect();
             for target in targets {
@@ -668,13 +846,9 @@ impl DiGraph {
                 {
                     preds.shift_remove(node);
                 }
-                let _ = self
-                    .edges
-                    .shift_remove(&DirectedEdgeKey::new(node, &target));
+                self.edges.swap_remove(&DirectedEdgeKey::new(node, &target));
             }
         }
-
-        // 2. Remove incoming edges and clean up predecessors' successor lists.
         if let Some(preds) = self.predecessors.get(node) {
             let sources: Vec<String> = preds.iter().cloned().collect();
             for source in sources {
@@ -683,9 +857,7 @@ impl DiGraph {
                 {
                     succs.shift_remove(node);
                 }
-                let _ = self
-                    .edges
-                    .shift_remove(&DirectedEdgeKey::new(&source, node));
+                self.edges.swap_remove(&DirectedEdgeKey::new(&source, node));
             }
         }
 
@@ -694,6 +866,51 @@ impl DiGraph {
         self.nodes.shift_remove(node);
         self.revision = self.revision.saturating_add(1);
         true
+    }
+
+    pub fn remove_nodes_from<'a, I>(&mut self, nodes: I) -> (usize, usize)
+    where
+        I: IntoIterator<Item = &'a str>,
+    {
+        let remove_set: std::collections::HashSet<&str> = nodes
+            .into_iter()
+            .filter(|node| self.nodes.contains_key(*node))
+            .collect();
+        if remove_set.is_empty() {
+            return (0, 0);
+        }
+
+        let old_node_count = self.nodes.len();
+        let old_edge_count = self.edges.len();
+
+        self.successors.retain(|node, successors| {
+            if remove_set.contains(node.as_str()) {
+                false
+            } else {
+                successors.retain(|successor| !remove_set.contains(successor.as_str()));
+                true
+            }
+        });
+        self.predecessors.retain(|node, predecessors| {
+            if remove_set.contains(node.as_str()) {
+                false
+            } else {
+                predecessors.retain(|predecessor| !remove_set.contains(predecessor.as_str()));
+                true
+            }
+        });
+        self.nodes
+            .retain(|node, _| !remove_set.contains(node.as_str()));
+        self.edges.retain(|edge, _| {
+            !remove_set.contains(edge.source.as_str()) && !remove_set.contains(edge.target.as_str())
+        });
+
+        let removed_nodes = old_node_count - self.nodes.len();
+        let removed_edges = old_edge_count - self.edges.len();
+        self.revision = self
+            .revision
+            .saturating_add(u64::try_from(removed_nodes).unwrap_or(u64::MAX));
+        (removed_nodes, removed_edges)
     }
 
     // -----------------------------------------------------------------------
@@ -767,8 +984,13 @@ impl DiGraph {
         for (node, attrs) in &self.nodes {
             g.add_node_with_attrs(node.clone(), attrs.clone());
         }
-        for (key, attrs) in &self.edges {
-            let _ = g.add_edge_with_attrs(key.source.clone(), key.target.clone(), attrs.clone());
+        // Iterate in canonical node->successor order (`edges_ordered`) rather
+        // than the private `edges` IndexMap order: this matches networkx's
+        // reciprocal-edge merge order (for a<->b the later-processed direction's
+        // attrs win) AND keeps the `edges` map order unobservable, so
+        // `remove_node` can drop incident edges with O(1) swap_remove.
+        for snap in self.edges_ordered() {
+            let _ = g.add_edge_with_attrs(snap.left, snap.right, snap.attrs);
         }
         g
     }
@@ -811,6 +1033,33 @@ pub struct MultiDiGraph {
 }
 
 impl MultiDiGraph {
+    /// br-r37-c1-u3qyn: restore explicit succ/pred row orders (pickle
+    /// round-trip) — see Graph::apply_row_orders. Keyed cells move
+    /// wholesale; `pred` selects the adjacency side.
+    pub fn apply_row_orders(&mut self, orders: &[(String, Vec<String>)], pred: bool) {
+        let map = if pred {
+            &mut self.predecessors
+        } else {
+            &mut self.successors
+        };
+        for (node, order) in orders {
+            let Some(row) = map.get_mut(node.as_str()) else {
+                continue;
+            };
+            let mut old = std::mem::take(row);
+            let mut new_row = IndexMap::with_capacity(old.len());
+            for v in order {
+                if let Some((k, val)) = old.shift_remove_entry(v.as_str()) {
+                    new_row.insert(k, val);
+                }
+            }
+            for (k, val) in old {
+                new_row.insert(k, val);
+            }
+            *row = new_row;
+        }
+    }
+
     #[must_use]
     pub fn new(mode: CompatibilityMode) -> Self {
         Self {
@@ -1263,7 +1512,15 @@ impl MultiDiGraph {
             return false;
         }
 
-        // 1. Remove outgoing edges and clean up successors' predecessor lists.
+        // br-r37-c1-p6bxu: drop each incident edge bucket with O(1) `swap_remove`
+        // (the `edges` IndexMap order is never observed externally — every public
+        // consumer reads via `edges_ordered`, which walks node->successor order;
+        // no internal consumer iterates the map order). Out-edges are known from
+        // `successors`, in-edges from `predecessors`; a self-loop's (node,node)
+        // bucket appears in both but `swap_remove` returns it only once, so it is
+        // counted exactly once. Removal is O(degree) instead of the
+        // O(|distinct pairs|) `retain` scan — matching nx.
+        let mut removed_count = 0usize;
         if let Some(succs) = self.successors.get(node) {
             let targets: Vec<String> = succs.keys().cloned().collect();
             for target in targets {
@@ -1272,14 +1529,14 @@ impl MultiDiGraph {
                 {
                     preds.shift_remove(node);
                 }
-                let k = DirectedEdgeKey::new(node, &target);
-                if let Some(removed_bucket) = self.edges.shift_remove(&k) {
-                    self.edge_count -= removed_bucket.len();
+                if let Some(bucket) = self
+                    .edges
+                    .swap_remove(&DirectedEdgeKeyRef::new(node, &target))
+                {
+                    removed_count += bucket.len();
                 }
             }
         }
-
-        // 2. Remove incoming edges and clean up predecessors' successor lists.
         if let Some(preds) = self.predecessors.get(node) {
             let sources: Vec<String> = preds.keys().cloned().collect();
             for source in sources {
@@ -1288,12 +1545,15 @@ impl MultiDiGraph {
                 {
                     succs.shift_remove(node);
                 }
-                let k = DirectedEdgeKey::new(&source, node);
-                if let Some(removed_bucket) = self.edges.shift_remove(&k) {
-                    self.edge_count -= removed_bucket.len();
+                if let Some(bucket) = self
+                    .edges
+                    .swap_remove(&DirectedEdgeKeyRef::new(&source, node))
+                {
+                    removed_count += bucket.len();
                 }
             }
         }
+        self.edge_count -= removed_count;
 
         self.successors.shift_remove(node);
         self.predecessors.shift_remove(node);
@@ -1664,6 +1924,98 @@ mod tests {
         assert!(!g.has_edge("d", "b"));
         assert!(g.has_edge("c", "a")); // not incident to b
         assert_digraph_core_invariants(&g);
+    }
+
+    // br-r37-c1-p6bxu: A/B substrate bench for MultiDiGraph::remove_node
+    // (O(degree) swap_remove vs the old O(|E|) retain). Ignored by default; run
+    // with `cargo test -p fnx-classes --release ab_bench_multidigraph_remove_node
+    // -- --ignored --nocapture`. Also asserts byte-exact parity (node_count,
+    // edge_count, edges_ordered, incl. self-loops) between the two paths.
+    #[test]
+    #[ignore]
+    fn ab_bench_multidigraph_remove_node() {
+        use std::time::Instant;
+        const N: usize = 1000;
+        const M: usize = 8000;
+        const ITERS: usize = 500;
+        let build = || {
+            let mut g = MultiDiGraph::new(CompatibilityMode::Strict);
+            for i in 0..N {
+                let _ = g.add_node(i.to_string());
+            }
+            let mut s: u64 = 0x9E3779B97F4A7C15;
+            let mut next = || {
+                s = s
+                    .wrapping_mul(6364136223846793005)
+                    .wrapping_add(1442695040888963407);
+                (s >> 33) as usize % N
+            };
+            for _ in 0..M {
+                let a = next();
+                let b = next();
+                let _ = g.add_edge(a.to_string(), b.to_string());
+            }
+            g
+        };
+
+        let mut gnew = build();
+        let victims: Vec<String> = gnew.nodes.keys().take(ITERS).cloned().collect();
+        let t = Instant::now();
+        for node in &victims {
+            gnew.remove_node(node);
+        }
+        let new_t = t.elapsed();
+
+        // OLD path: full O(|E|) retain per removal.
+        let mut gold = build();
+        let t = Instant::now();
+        for node in &victims {
+            if !gold.nodes.contains_key(node) {
+                continue;
+            }
+            if let Some(succs) = gold.successors.get(node) {
+                let targets: Vec<String> = succs.keys().cloned().collect();
+                for target in targets {
+                    if target != *node
+                        && let Some(preds) = gold.predecessors.get_mut(&target)
+                    {
+                        preds.shift_remove(node.as_str());
+                    }
+                }
+            }
+            if let Some(preds) = gold.predecessors.get(node) {
+                let sources: Vec<String> = preds.keys().cloned().collect();
+                for source in sources {
+                    if source != *node
+                        && let Some(succs) = gold.successors.get_mut(&source)
+                    {
+                        succs.shift_remove(node.as_str());
+                    }
+                }
+            }
+            let mut rc = 0usize;
+            let nd = node.clone();
+            gold.edges.retain(|k, bucket| {
+                let keep = k.source != nd && k.target != nd;
+                if !keep {
+                    rc += bucket.len();
+                }
+                keep
+            });
+            gold.edge_count -= rc;
+            gold.successors.shift_remove(node);
+            gold.predecessors.shift_remove(node);
+            gold.nodes.shift_remove(node);
+        }
+        let old_t = t.elapsed();
+
+        assert_eq!(gnew.node_count(), gold.node_count());
+        assert_eq!(gnew.edge_count(), gold.edge_count());
+        assert_eq!(gnew.edges_ordered(), gold.edges_ordered());
+        eprintln!(
+            "MultiDiGraph remove_node x{ITERS}: retain {old_t:?} -> swap_remove {new_t:?} = {:.2}x",
+            old_t.as_secs_f64() / new_t.as_secs_f64()
+        );
     }
 
     #[test]

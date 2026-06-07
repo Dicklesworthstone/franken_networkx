@@ -1,0 +1,3 @@
+path: COMPREHENSIVE_SPEC_FOR_FRANKENNETWORKX_V1.md
+blob_sha: be9a46b4e294744544558b53748525b8b2904684
+last_commit: cb447433a 2026-02-16 14:55:44 -0500 Dicklesworthstone feat(conformance): add machine-checkable CI gate topology contract (G1..G8)

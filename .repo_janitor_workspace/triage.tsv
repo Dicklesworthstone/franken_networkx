@@ -1,0 +1,26 @@
+path	verdict	category	refs_from_staying_files	rationale
+TODO_DOC_PASS00_EXECUTION_TRACKER_2026-02-14.md	delete	A-ephemeral-tracker	0	"Ephemeral execution tracker", already matched by .gitignore TODO_*.md, committed by mistake
+TODO_DOC_PASS01_EXECUTION_TRACKER_2026-02-14.md	delete	A-ephemeral-tracker	0	same
+TODO_DOC_PASS02_EXECUTION_TRACKER_2026-02-14.md	delete	A-ephemeral-tracker	0	same
+TODO_DOC_PASS03_EXECUTION_TRACKER_2026-02-14.md	delete	A-ephemeral-tracker	0	same
+TODO_PHASE2C_BD3151_EXECUTION_TRACKER_2026-02-14.md	delete	A-ephemeral-tracker	0	same
+TODO_PHASE3_EXECUTION_TRACKER_2026-02-13.md	delete	A-ephemeral-tracker	0	same
+TODO_PHASE4_EXECUTION_TRACKER_2026-02-13.md	delete	A-ephemeral-tracker	0	same
+TODO_PHASE5_EXECUTION_TRACKER_2026-02-13.md	delete	A-ephemeral-tracker	0	same
+TODO_PHASE6_EXECUTION_TRACKER_2026-02-13.md	delete	A-ephemeral-tracker	0	same
+TODO_PORTING_EXECUTION_TRACKER_2026-02-13.md	delete	A-ephemeral-tracker	0	same
+.skill-loop-progress.md	delete-and-gitignore	B-skill-leakage	0	271KB skill-output leakage; add .skill-loop-progress.md to .gitignore
+FRANKENSQLITE_CROSSWALK.md	move:docs/history/	C-history-doc	0	historical crosswalk, no inbound refs
+PARITY-COVERAGE.md	move:docs/history/	C-history-doc	0	historical coverage snapshot
+PHASE2C_EXTRACTION_PACKET.md	move:docs/history/	C-history-doc	0	historical extraction packet
+REALITY_CHECK.md	move:docs/history/	C-history-doc	0	historical reality-check
+REALITY_CHECK_BRIDGE_PLAN_2026-04-08.md	move:docs/history/	C-history-doc	0	dated bridge plan
+audit_networkx_fuzz.md	move:docs/history/	C-history-doc	0	historical audit
+audit_networkx_reality.md	move:docs/history/	C-history-doc	0	ref only from REALITY_CHECK.md (co-moves)
+UPGRADE_LOG.md	move:docs/history/	C-history-doc	0	ref only from REALITY_CHECK* (co-move)
+PLAN_TO_PORT_NETWORKX_TO_RUST.md	surface	C-history-doc	2	prose refs from COMPREHENSIVE_SPEC + EXHAUSTIVE (both stay)
+FEATURE_PARITY.md	keep-in-place	D-load-bearing	3	CI gate G0 hardcodes root path (.github/workflows/ci.yml:33); README links
+EXHAUSTIVE_LEGACY_ANALYSIS.md	keep-in-place	D-load-bearing	3	hardcoded in conformance test doc_pass00_gap_matrix_gate.rs:62 + 2 scripts
+EXISTING_NETWORKX_STRUCTURE.md	keep-in-place	D-load-bearing	4	hardcoded in conformance test + scripts + SECURITY.md threat model
+COMPREHENSIVE_SPEC_FOR_FRANKENNETWORKX_V1.md	keep-in-place	D-load-bearing	2	README links it (V1 spec, legit root doc)
+PROPOSED_ARCHITECTURE.md	keep-in-place	D-load-bearing	8	referenced 3x by reference_specs/ spec

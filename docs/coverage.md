@@ -22,13 +22,13 @@ This ledger separates the broad public-export category from source-visible runti
 | Runtime route | Exports | Helper call sites | Rule |
 |---------------|---------|-------------------|------|
 | RUST_NATIVE | 1 | 0 | native extension export from `franken_networkx._fnx` |
-| PY_WRAPPER | 594 | 0 | Python-defined export with no visible NetworkX route |
-| NETWORKX_HELPER | 138 | 167 | Python-defined export with `_call_networkx_*_for_parity(...)` branches |
+| PY_WRAPPER | 595 | 0 | Python-defined export with no visible NetworkX route |
+| NETWORKX_HELPER | 137 | 165 | Python-defined export with `_call_networkx_*_for_parity(...)` branches |
 | DIRECT_NETWORKX | 0 | 0 | Python-defined export that directly imports or calls NetworkX |
 | CLASS | 28 | 0 | public classes, exceptions, iterators |
 | CONSTANT | 2 | 0 | public non-callable values |
 
-`NETWORKX_HELPER` currently covers 138 public export(s) and 167 parity-helper call site(s).
+`NETWORKX_HELPER` currently covers 137 public export(s) and 165 parity-helper call site(s).
 
 ## Upstream Divergence Ledger
 
@@ -38,7 +38,7 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 |------------------|------|------|
 | native-parity | 1 | public Rust-native export; no Python fallback route detected |
 | wrapper-patched | 24 | public wrapper records a compatibility repair over a lower-level gap |
-| intentionally-delegated | 138 | AST-visible parity helper or direct NetworkX route |
+| intentionally-delegated | 137 | AST-visible parity helper or direct NetworkX route |
 | raw-known-gap | 2 | lower-level raw/native implementation has a documented parity gap |
 | owner-acknowledged-limitation | 2 | documented limitation is intentionally owned until native repair |
 
@@ -89,11 +89,10 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 | `all_pairs_all_shortest_paths` | 1 | `all_pairs_all_shortest_paths` |
 | `all_pairs_bellman_ford_path` | 1 | `all_pairs_bellman_ford_path` |
 | `all_pairs_bellman_ford_path_length` | 1 | `all_pairs_bellman_ford_path_length` |
-| `all_pairs_dijkstra` | 1 | `all_pairs_dijkstra` |
 | `all_pairs_dijkstra_path` | 1 | `all_pairs_dijkstra_path` |
 | `all_pairs_dijkstra_path_length` | 1 | `all_pairs_dijkstra_path_length` |
 | `all_pairs_node_connectivity` | 1 | `all_pairs_node_connectivity` |
-| `all_shortest_paths` | 5 | `all_shortest_paths` |
+| `all_shortest_paths` | 4 | `all_shortest_paths` |
 | `all_simple_edge_paths` | 2 | `all_simple_edge_paths` |
 | `all_simple_paths` | 1 | `all_simple_paths` |
 | `all_topological_sorts` | 1 | `all_topological_sorts` |

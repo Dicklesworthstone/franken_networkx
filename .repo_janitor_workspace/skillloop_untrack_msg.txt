@@ -1,0 +1,10 @@
+chore(repo): untrack .skill-loop-progress.md (now gitignored)
+
+Removes leaked slash-skill loop output from version control while leaving the
+on-disk file for the running loop. Now that .gitignore lists it, bulk add will
+no longer re-track it. Landed via a private-index compare-and-swap update
+because the file is concurrently written by a running loop whose background
+`git add -A` kept re-staging the tracked content during a normal pathspec
+commit.
+
+Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>

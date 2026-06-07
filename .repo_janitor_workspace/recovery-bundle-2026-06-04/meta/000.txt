@@ -1,0 +1,3 @@
+path: .skill-loop-progress.md
+blob_sha: 54dae903ba1cddae491a8cafd76058d176a26868
+last_commit: ee470424f 2026-06-04 16:39:34 -0400 Dicklesworthstone tests(perf): stop tracking superseded perf-run evidence dirs

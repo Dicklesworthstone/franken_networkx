@@ -7,6 +7,7 @@ use crate::digraph::{PyDiGraph, PyMultiDiGraph};
 use crate::{PyGraph, PyObject, unwrap_infallible};
 use fnx_algorithms::stochastic_block_model as rust_stochastic_block_model;
 use fnx_generators::GraphGenerator;
+use fnx_runtime::CompatibilityMode;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
@@ -19,8 +20,6 @@ use std::sync::atomic::AtomicBool;
 /// `G.nodes()` yields `[0, 1, 2, ...]` matching NetworkX.
 fn report_to_pygraph(py: Python<'_>, graph: fnx_classes::Graph) -> PyResult<PyGraph> {
     let mut node_key_map: HashMap<String, PyObject> = HashMap::new();
-    let mut node_py_attrs = HashMap::new();
-    let mut edge_py_attrs = HashMap::new();
 
     // Map string keys to Python int keys.
     for canonical in graph.nodes_ordered() {
@@ -30,32 +29,16 @@ fn report_to_pygraph(py: Python<'_>, graph: fnx_classes::Graph) -> PyResult<PyGr
                 unwrap_infallible(i.into_pyobject(py)).into_any().unbind(),
             );
         }
-        node_py_attrs.insert(canonical.to_owned(), PyDict::new(py).unbind());
-    }
-
-    // br-r37-c1: create an empty edge attr dict per (canonical) edge by
-    // walking adjacency directly. The previous `edges_ordered()` call cloned
-    // every edge's String endpoints AND its AttrMap into a deduped Vec just to
-    // discard the attrs here — ~30ms of the ~45ms conversion for a 300-node
-    // complete graph. `PyGraph::edge_key` canonicalizes (u, v) so both
-    // adjacency directions collapse to the same key via `entry`, yielding the
-    // identical key set with no attr clones and no intermediate snapshot Vec.
-    for u in graph.nodes_ordered() {
-        if let Some(neighbors) = graph.neighbors_iter(u) {
-            for v in neighbors {
-                edge_py_attrs
-                    .entry(PyGraph::edge_key(u, v))
-                    .or_insert_with(|| PyDict::new(py).unbind());
-            }
-        }
     }
 
     Ok(PyGraph {
         inner: graph,
         node_key_map,
         lazy_int_node_stop: 0,
-        node_py_attrs,
-        edge_py_attrs,
+        node_py_attrs: HashMap::new(),
+        edge_py_attrs: HashMap::new(),
+        adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
+        dict_of_dicts_cache: None,
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,
@@ -72,6 +55,8 @@ fn report_to_pydigraph(
         node_key_map: HashMap::new(),
         node_py_attrs: HashMap::new(),
         edge_py_attrs: HashMap::new(),
+        succ_py_keys: HashMap::new(), // br-r37-c1-z6uka
+        pred_py_keys: HashMap::new(), // br-r37-c1-z6uka
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,
@@ -107,6 +92,8 @@ fn report_to_pymultidigraph(
     let mut pg = PyMultiDiGraph {
         inner: graph,
         node_key_map: HashMap::new(),
+        succ_py_keys: HashMap::new(), // br-r37-c1-z6uka
+        pred_py_keys: HashMap::new(), // br-r37-c1-z6uka
         node_py_attrs: HashMap::new(),
         edge_py_attrs: HashMap::new(),
         edge_py_keys: HashMap::new(),
@@ -190,6 +177,97 @@ pub fn star_graph(py: Python<'_>, n: usize) -> PyResult<PyGraph> {
         .star_graph(n)
         .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e:?}")))?;
     report_to_pygraph(py, report.graph)
+}
+
+/// Build the default non-periodic 2-D grid graph in one native call.
+///
+/// Display keys are Python `(i, j)` int tuples while canonical keys use the
+/// same row-major tuple-string form as `Graph::grid_2d`.
+#[pyfunction]
+pub fn grid_2d_graph_simple(py: Python<'_>, m: usize, n: usize) -> PyResult<PyGraph> {
+    let graph = fnx_classes::Graph::grid_2d(CompatibilityMode::Strict, m, n);
+    let mut node_key_map: HashMap<String, PyObject> = HashMap::with_capacity(m * n);
+    for i in 0..m {
+        for j in 0..n {
+            let tuple = pyo3::types::PyTuple::new(py, [i, j])?;
+            node_key_map.insert(format!("({i}, {j})"), tuple.into_any().unbind());
+        }
+    }
+    Ok(PyGraph {
+        inner: graph,
+        node_key_map,
+        lazy_int_node_stop: 0,
+        node_py_attrs: HashMap::new(),
+        edge_py_attrs: HashMap::new(),
+        adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
+        dict_of_dicts_cache: None,
+        graph_attrs: PyDict::new(py).unbind(),
+        nodes_seq: 0,
+        edges_seq: 0,
+        edges_dirty: AtomicBool::new(false),
+    })
+}
+
+/// br-r37-c1-z2eaa: Kneser graph K(n, k) built natively in one call.
+///
+/// Display keys are Python int tuples (the abandoned br-kneser path's
+/// string labels were the parity blocker). The Python wrapper validates
+/// n/k and gates on the CPython set-iteration safety condition before
+/// calling this; node/edge sequence matches NetworkX exactly (see
+/// fnx_classes::Graph::kneser).
+#[pyfunction]
+pub fn kneser_graph_native(py: Python<'_>, n: usize, k: usize) -> PyResult<PyGraph> {
+    let graph = fnx_classes::Graph::kneser(CompatibilityMode::Strict, n, k);
+    let mut node_key_map: HashMap<String, PyObject> = HashMap::with_capacity(graph.node_count());
+    // enumerate k-subsets in lex order, mirroring the kernel's canonicals
+    if k <= n {
+        let mut cur: Vec<usize> = (0..k).collect();
+        loop {
+            let tuple = pyo3::types::PyTuple::new(py, &cur)?;
+            let mut s = String::with_capacity(k * 6 + 2);
+            s.push('(');
+            for (i, v) in cur.iter().enumerate() {
+                if i > 0 {
+                    s.push_str(", ");
+                }
+                s.push_str(&v.to_string());
+            }
+            if k == 1 {
+                s.push(',');
+            }
+            s.push(')');
+            node_key_map.insert(s, tuple.into_any().unbind());
+            let mut advanced = false;
+            let mut i = k;
+            while i > 0 {
+                i -= 1;
+                if cur[i] != i + n - k {
+                    cur[i] += 1;
+                    for j in (i + 1)..k {
+                        cur[j] = cur[j - 1] + 1;
+                    }
+                    advanced = true;
+                    break;
+                }
+            }
+            if !advanced {
+                break;
+            }
+        }
+    }
+    Ok(PyGraph {
+        inner: graph,
+        node_key_map,
+        lazy_int_node_stop: 0,
+        node_py_attrs: HashMap::new(),
+        edge_py_attrs: HashMap::new(),
+        adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
+        dict_of_dicts_cache: None,
+        graph_attrs: PyDict::new(py).unbind(),
+        nodes_seq: 0,
+        edges_seq: 0,
+        edges_dirty: AtomicBool::new(false),
+    })
 }
 
 /// Return the complete graph K_n with ``n`` nodes.
@@ -518,6 +596,8 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(cycle_graph, m)?)?;
     m.add_function(wrap_pyfunction!(star_graph, m)?)?;
     m.add_function(wrap_pyfunction!(complete_graph, m)?)?;
+    m.add_function(wrap_pyfunction!(grid_2d_graph_simple, m)?)?;
+    m.add_function(wrap_pyfunction!(kneser_graph_native, m)?)?; // br-r37-c1-z2eaa
     m.add_function(wrap_pyfunction!(gnp_random_graph, m)?)?;
     m.add_function(wrap_pyfunction!(watts_strogatz_graph, m)?)?;
     m.add_function(wrap_pyfunction!(barabasi_albert_graph, m)?)?;

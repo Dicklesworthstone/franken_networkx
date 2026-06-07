@@ -1212,6 +1212,40 @@ class TestShortestPath:
             ),
         )
 
+    def test_weighted_all_pairs_dijkstra_cache_preserves_mutation_parity(self, fnx, nx):
+        from franken_networkx._fnx import dijkstra_weight_cache_token
+
+        G_fnx = fnx.Graph()
+        G_nx = nx.Graph()
+        edges = [
+            ("a", "b", 1.5),
+            ("b", "c", 2.0),
+            ("a", "c", 10.0),
+            ("c", "d", 1.0),
+        ]
+        for graph in (G_fnx, G_nx):
+            graph.add_weighted_edges_from(edges)
+
+        assert dijkstra_weight_cache_token(G_fnx)[2] is False
+        assert fnx._graph_has_explicit_nonunit_weight(G_fnx, "weight") is True
+        assert dijkstra_weight_cache_token(G_fnx)[2] is False
+
+        first_fnx = dict(fnx.all_pairs_dijkstra(G_fnx, weight="weight"))
+        first_nx = dict(nx.all_pairs_dijkstra(G_nx, weight="weight"))
+        assert first_fnx == first_nx
+
+        # Repeating the delegated call may reuse the cached nx snapshot.
+        assert dict(fnx.all_pairs_dijkstra(G_fnx, weight="weight")) == first_nx
+
+        # Handing out and mutating an edge-attr dict marks the fnx graph dirty,
+        # so the stale cached snapshot must be bypassed.
+        G_fnx["a"]["c"]["weight"] = 1.0
+        G_nx["a"]["c"]["weight"] = 1.0
+        assert dijkstra_weight_cache_token(G_fnx)[2] is True
+        assert dict(fnx.all_pairs_dijkstra(G_fnx, weight="weight")) == dict(
+            nx.all_pairs_dijkstra(G_nx, weight="weight")
+        )
+
     def test_all_pairs_dijkstra_cutoff_matches_networkx(self, fnx, nx):
         G_fnx = fnx.Graph()
         G_nx = nx.Graph()

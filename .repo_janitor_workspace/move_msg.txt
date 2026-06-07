@@ -1,0 +1,19 @@
+chore(repo): relocate 8 historical planning/audit docs to docs/history/
+
+Tidy the project root by relocating stale root-level history docs into
+docs/history/. All 8 had zero inbound references from any retained
+source/CI/test/script file (verified via repo-wide git-grep). The relative
+markdown link in REALITY_CHECK.md to audit_networkx_reality.md stays valid
+since both relocate together into docs/history/.
+
+Relocated (rename-preserving): FRANKENSQLITE_CROSSWALK.md, PARITY-COVERAGE.md,
+PHASE2C_EXTRACTION_PACKET.md, REALITY_CHECK.md,
+REALITY_CHECK_BRIDGE_PLAN_2026-04-08.md, audit_networkx_fuzz.md,
+audit_networkx_reality.md, UPGRADE_LOG.md
+
+Load-bearing root docs (FEATURE_PARITY.md, EXHAUSTIVE_LEGACY_ANALYSIS.md,
+EXISTING_NETWORKX_STRUCTURE.md, COMPREHENSIVE_SPEC_FOR_FRANKENNETWORKX_V1.md,
+PROPOSED_ARCHITECTURE.md) deliberately kept in place (CI gate G0 / conformance
+doc-gap test / README / reference_specs hardcode their root paths).
+
+Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>

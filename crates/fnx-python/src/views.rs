@@ -353,11 +353,102 @@ impl NodeView {
 // EdgeView — returned by G.edges
 // ---------------------------------------------------------------------------
 
+/// br-r37-c1-2zudj: inlined `PyGraph::py_node_key` for the edge-major
+/// materialization helper below (kept byte-identical to the method) so it can
+/// be called while `edge_py_attrs` is mutably borrowed via field-splitting.
+#[inline]
+fn edgeview_py_node_key(
+    py: Python<'_>,
+    node_key_map: &std::collections::HashMap<String, PyObject>,
+    lazy_int_node_stop: i64,
+    canonical: &str,
+) -> PyObject {
+    if let Some(obj) = node_key_map.get(canonical) {
+        return obj.clone_ref(py);
+    }
+    if let Ok(value) = canonical.parse::<i64>()
+        && (0..lazy_int_node_stop).contains(&value)
+    {
+        return crate::unwrap_infallible(value.into_pyobject(py))
+            .into_any()
+            .unbind();
+    }
+    crate::unwrap_infallible(canonical.to_owned().into_pyobject(py))
+        .into_any()
+        .unbind()
+}
+
+/// br-r37-c1-2zudj: one-pass `data=True` edge materialization. The previous
+/// code collected an owned `Vec<(String, String)>` of endpoints (two String
+/// clones per edge) just to release the `inner` borrow before calling the
+/// `&mut materialize_edge_py_attrs`. Field-split PyGraph instead so the
+/// immutable `inner`/`node_key_map` borrow coexists with the `&mut
+/// edge_py_attrs` borrow: iterate `edges_ordered_borrowed()` (nx EdgeView
+/// order) once, reuse/materialize the LIVE per-edge attr-dict handle (so the
+/// yielded dict `is G[u][v]`, matching nx + the prior behaviour), and build the
+/// tuple. `node_filter`, when set, keeps only edges with an endpoint in the set
+/// (the `G.edges(nbunch, data=True)` contract). Caller handles mark_edges_dirty.
+fn edge_alldata_items(
+    py: Python<'_>,
+    g: &mut PyGraph,
+    node_filter: Option<&std::collections::HashSet<String>>,
+) -> PyResult<Vec<PyObject>> {
+    let inner = &g.inner;
+    let edge_py_attrs = &mut g.edge_py_attrs;
+    let node_key_map = &g.node_key_map;
+    let adj_py_keys = &g.adj_py_keys; // br-r37-c1-z6uka
+    let lazy_stop = g.lazy_int_node_stop;
+    let mut items = Vec::with_capacity(inner.edge_count());
+    for (left, right, _attrs) in inner.edges_ordered_borrowed() {
+        if let Some(ns) = node_filter
+            && !(ns.contains(left) || ns.contains(right))
+        {
+            continue;
+        }
+        let py_u = edgeview_py_node_key(py, node_key_map, lazy_stop, left);
+        // br-r37-c1-z6uka: the v side of an edge tuple is the ADJACENCY-ROW
+        // object of left's row (nx EdgeView walks _adj rows).
+        let py_v = if !adj_py_keys.is_empty()
+            && let Some(obj) = adj_py_keys.get(&(left.to_owned(), right.to_owned()))
+        {
+            obj.clone_ref(py)
+        } else {
+            edgeview_py_node_key(py, node_key_map, lazy_stop, right)
+        };
+        let dict = edge_py_attrs
+            .entry(PyGraph::edge_key(left, right))
+            .or_insert_with(|| PyDict::new(py).unbind())
+            .clone_ref(py)
+            .into_any();
+        items.push(tuple_object(py, &[py_u, py_v, dict])?);
+    }
+    Ok(items)
+}
+
 /// A view of the graph's edges. Supports ``len``, ``in``, iteration, and ``[]``.
 #[pyclass(module = "franken_networkx")]
 pub struct EdgeView {
     graph: Py<PyGraph>,
     data: NodeViewData,
+}
+
+impl EdgeView {
+    /// br-r37-c1-edgesetborrow: collect (u, v) tuples for the set-algebra
+    /// operators, scoping the graph borrow to this call so it is released
+    /// before the caller iterates the `other` operand (which may borrow_mut the
+    /// same graph when it is a view over it).
+    fn collect_edge_tuples(&self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
+        let g = self.graph.borrow(py);
+        g.inner
+            .edges_ordered_borrowed()
+            .into_iter()
+            .map(|(left, right, _)| {
+                let py_u = g.py_node_key(py, left);
+                let py_v = g.py_adj_key(py, left, right); // br-r37-c1-z6uka
+                tuple_object(py, &[py_u, py_v])
+            })
+            .collect()
+    }
 }
 
 #[pymethods]
@@ -381,53 +472,64 @@ impl EdgeView {
     }
 
     fn __iter__(&self, py: Python<'_>) -> PyResult<Py<NodeViewIterator>> {
-        let g = self.graph.borrow(py);
-        if matches!(&self.data, NodeViewData::AllData) && g.inner.edge_count() > 0 {
-            g.mark_edges_dirty();
-        }
-        // br-r37-c1-eqedg: use O(1) node_count() instead of allocating nodes_ordered() Vec
-        let node_count = g.inner.node_count();
-        let nodes_seq = g.nodes_seq;
-        // br-r37-c1-eqedg: use edges_ordered_borrowed to avoid string cloning in Rust
-        let items: Vec<PyObject> = g
-            .inner
-            .edges_ordered_borrowed()
-            .into_iter()
-            .map(|(left, right, _attrs)| {
-                let py_u = g.py_node_key(py, left);
-                let py_v = g.py_node_key(py, right);
-                // br-r37-c1-7gxek: the canonical edge_key + edge_py_attrs lookup
-                // are only needed by the data-bearing variants. Computing them
-                // eagerly cost 2 String clones + a hashmap probe per edge on the
-                // plain `G.edges()` (NoData) hot path where they are discarded;
-                // resolve them lazily inside the branches that use them.
-                match &self.data {
-                    NodeViewData::NoData => tuple_object(py, &[py_u, py_v]),
-                    NodeViewData::AllData => {
-                        let attrs = g.edge_py_attrs.get(&PyGraph::edge_key(left, right));
-                        let a: PyObject = attrs.map_or_else(
-                            || PyDict::new(py).into_any().unbind(),
-                            |d| d.clone_ref(py).into_any(),
-                        );
-                        tuple_object(py, &[py_u, py_v, a])
-                    }
-                    NodeViewData::Attr(attr_name) => {
-                        let attrs = g.edge_py_attrs.get(&PyGraph::edge_key(left, right));
-                        let val = attrs
-                            .and_then(|d| d.bind(py).get_item(attr_name.as_str()).ok().flatten())
-                            .map_or_else(|| py.None(), |v| v.unbind());
-                        tuple_object(py, &[py_u, py_v, val])
-                    }
-                    NodeViewData::AttrWithDefault(attr_name, def_val) => {
-                        let attrs = g.edge_py_attrs.get(&PyGraph::edge_key(left, right));
-                        let val = attrs
-                            .and_then(|d| d.bind(py).get_item(attr_name.as_str()).ok().flatten())
-                            .map_or_else(|| def_val.clone_ref(py), |v| v.unbind());
-                        tuple_object(py, &[py_u, py_v, val])
-                    }
+        let (items, node_count, nodes_seq) = match &self.data {
+            NodeViewData::AllData => {
+                // br-r37-c1-2zudj: one-pass field-split materialization (see
+                // edge_alldata_items) — was a two-pass owned-String collection.
+                let mut g = self.graph.borrow_mut(py);
+                if g.inner.edge_count() > 0 {
+                    g.mark_edges_dirty();
                 }
-            })
-            .collect::<PyResult<Vec<_>>>()?;
+                let node_count = g.inner.node_count();
+                let nodes_seq = g.nodes_seq;
+                let items = edge_alldata_items(py, &mut g, None)?;
+                (items, node_count, nodes_seq)
+            }
+            _ => {
+                let g = self.graph.borrow(py);
+                // br-r37-c1-eqedg: use O(1) node_count() instead of allocating nodes_ordered() Vec
+                let node_count = g.inner.node_count();
+                let nodes_seq = g.nodes_seq;
+                // br-r37-c1-eqedg: use edges_ordered_borrowed to avoid string cloning in Rust
+                let items: Vec<PyObject> = g
+                    .inner
+                    .edges_ordered_borrowed()
+                    .into_iter()
+                    .map(|(left, right, _attrs)| {
+                        let py_u = g.py_node_key(py, left);
+                        let py_v = g.py_adj_key(py, left, right); // br-r37-c1-z6uka
+                        // br-r37-c1-7gxek: the canonical edge_key + edge_py_attrs lookup
+                        // are only needed by the data-bearing variants. Computing them
+                        // eagerly cost 2 String clones + a hashmap probe per edge on the
+                        // plain `G.edges()` (NoData) hot path where they are discarded;
+                        // resolve them lazily inside the branches that use them.
+                        match &self.data {
+                            NodeViewData::NoData => tuple_object(py, &[py_u, py_v]),
+                            NodeViewData::Attr(attr_name) => {
+                                let attrs = g.edge_py_attrs.get(&PyGraph::edge_key(left, right));
+                                let val = attrs
+                                    .and_then(|d| {
+                                        d.bind(py).get_item(attr_name.as_str()).ok().flatten()
+                                    })
+                                    .map_or_else(|| py.None(), |v| v.unbind());
+                                tuple_object(py, &[py_u, py_v, val])
+                            }
+                            NodeViewData::AttrWithDefault(attr_name, def_val) => {
+                                let attrs = g.edge_py_attrs.get(&PyGraph::edge_key(left, right));
+                                let val = attrs
+                                    .and_then(|d| {
+                                        d.bind(py).get_item(attr_name.as_str()).ok().flatten()
+                                    })
+                                    .map_or_else(|| def_val.clone_ref(py), |v| v.unbind());
+                                tuple_object(py, &[py_u, py_v, val])
+                            }
+                            NodeViewData::AllData => unreachable!(),
+                        }
+                    })
+                    .collect::<PyResult<Vec<_>>>()?;
+                (items, node_count, nodes_seq)
+            }
+        };
         Py::new(
             py,
             NodeViewIterator {
@@ -445,15 +547,12 @@ impl EdgeView {
         })?;
         let u = node_key_to_string(py, &tuple.get_item(0)?)?;
         let v = node_key_to_string(py, &tuple.get_item(1)?)?;
-        let g = self.graph.borrow(py);
-        let ek = PyGraph::edge_key(&u, &v);
+        let mut g = self.graph.borrow_mut(py);
         if !g.inner.has_edge(&u, &v) {
             return Err(PyKeyError::new_err(format!("({}, {})", u, v)));
         }
         g.mark_edges_dirty();
-        Ok(g.edge_py_attrs
-            .get(&ek)
-            .map_or_else(|| PyDict::new(py).unbind(), |d| d.clone_ref(py)))
+        Ok(g.materialize_edge_py_attrs(py, &u, &v))
     }
 
     fn __repr__(&self, py: Python<'_>) -> String {
@@ -479,7 +578,6 @@ impl EdgeView {
         // If nbunch is provided, filter edges
         if let Some(nb) = nbunch {
             let iter = PyIterator::from_object(nb)?;
-            let g = self.graph.borrow(py);
             let mut node_set: std::collections::HashSet<String> = std::collections::HashSet::new();
             for item in iter {
                 let item = item?;
@@ -489,48 +587,50 @@ impl EdgeView {
             if let (Some(def), NodeViewData::Attr(attr)) = (default, &view_data) {
                 view_data = NodeViewData::AttrWithDefault(attr.clone(), def.clone().unbind());
             }
-            if matches!(&view_data, NodeViewData::AllData) && g.inner.edge_count() > 0 {
-                g.mark_edges_dirty();
-            }
-            // br-r37-c1-eqedg: use edges_ordered_borrowed to avoid string cloning
-            let items: Vec<PyObject> = g
-                .inner
-                .edges_ordered_borrowed()
-                .into_iter()
-                .filter(|(left, right, _)| node_set.contains(*left) || node_set.contains(*right))
-                .map(|(left, right, _attrs)| {
-                    let py_u = g.py_node_key(py, left);
-                    let py_v = g.py_node_key(py, right);
-                    let ek = PyGraph::edge_key(left, right);
-                    let attrs = g.edge_py_attrs.get(&ek);
-                    match &view_data {
-                        NodeViewData::NoData => tuple_object(py, &[py_u, py_v]),
-                        NodeViewData::AllData => {
-                            let a: PyObject = attrs.map_or_else(
-                                || PyDict::new(py).into_any().unbind(),
-                                |d| d.clone_ref(py).into_any(),
-                            );
-                            tuple_object(py, &[py_u, py_v, a])
+            let items: Vec<PyObject> = if matches!(&view_data, NodeViewData::AllData) {
+                // br-r37-c1-2zudj: one-pass field-split materialization with the
+                // nbunch node filter (see edge_alldata_items).
+                let mut g = self.graph.borrow_mut(py);
+                if g.inner.edge_count() > 0 {
+                    g.mark_edges_dirty();
+                }
+                edge_alldata_items(py, &mut g, Some(&node_set))?
+            } else {
+                let g = self.graph.borrow(py);
+                // br-r37-c1-eqedg: use edges_ordered_borrowed to avoid string cloning
+                g.inner
+                    .edges_ordered_borrowed()
+                    .into_iter()
+                    .filter(|(left, right, _)| {
+                        node_set.contains(*left) || node_set.contains(*right)
+                    })
+                    .map(|(left, right, _attrs)| {
+                        let py_u = g.py_node_key(py, left);
+                        let py_v = g.py_adj_key(py, left, right); // br-r37-c1-z6uka
+                        let attrs = g.edge_py_attrs.get(&PyGraph::edge_key(left, right));
+                        match &view_data {
+                            NodeViewData::NoData => tuple_object(py, &[py_u, py_v]),
+                            NodeViewData::Attr(attr_name) => {
+                                let val = attrs
+                                    .and_then(|d| {
+                                        d.bind(py).get_item(attr_name.as_str()).ok().flatten()
+                                    })
+                                    .map_or_else(|| py.None(), |v| v.unbind());
+                                tuple_object(py, &[py_u, py_v, val])
+                            }
+                            NodeViewData::AttrWithDefault(attr_name, def_val) => {
+                                let val = attrs
+                                    .and_then(|d| {
+                                        d.bind(py).get_item(attr_name.as_str()).ok().flatten()
+                                    })
+                                    .map_or_else(|| def_val.clone_ref(py), |v| v.unbind());
+                                tuple_object(py, &[py_u, py_v, val])
+                            }
+                            NodeViewData::AllData => unreachable!(),
                         }
-                        NodeViewData::Attr(attr_name) => {
-                            let val = attrs
-                                .and_then(|d| {
-                                    d.bind(py).get_item(attr_name.as_str()).ok().flatten()
-                                })
-                                .map_or_else(|| py.None(), |v| v.unbind());
-                            tuple_object(py, &[py_u, py_v, val])
-                        }
-                        NodeViewData::AttrWithDefault(attr_name, def_val) => {
-                            let val = attrs
-                                .and_then(|d| {
-                                    d.bind(py).get_item(attr_name.as_str()).ok().flatten()
-                                })
-                                .map_or_else(|| def_val.clone_ref(py), |v| v.unbind());
-                            tuple_object(py, &[py_u, py_v, val])
-                        }
-                    }
-                })
-                .collect::<PyResult<Vec<_>>>()?;
+                    })
+                    .collect::<PyResult<Vec<_>>>()?
+            };
             Ok(items.into_pyobject(py)?.into_any().unbind())
         } else {
             let mut view_data = parse_data_param(data)?;
@@ -550,18 +650,12 @@ impl EdgeView {
 
     /// Union: self | other
     fn __or__(&self, py: Python<'_>, other: &Bound<'_, PyAny>) -> PyResult<PyObject> {
-        let g = self.graph.borrow(py);
-        // br-r37-c1-eqedg: use edges_ordered_borrowed
-        let self_edges: Vec<PyObject> = g
-            .inner
-            .edges_ordered_borrowed()
-            .into_iter()
-            .map(|(left, right, _)| {
-                let py_u = g.py_node_key(py, left);
-                let py_v = g.py_node_key(py, right);
-                tuple_object(py, &[py_u, py_v])
-            })
-            .collect::<PyResult<Vec<_>>>()?;
+        // br-r37-c1-edgesetborrow: collect self's edges and DROP the graph
+        // borrow before iterating `other`. When `other` is a view over the same
+        // graph (e.g. a subgraph view), its iteration borrow_mut's the graph
+        // (AtlasView.__getitem__), which panicked "Already borrowed" while this
+        // method held an immutable borrow across the `other` iteration.
+        let self_edges = self.collect_edge_tuples(py)?;
         let self_set = pyo3::types::PySet::new(py, self_edges.iter())?;
         for item in PyIterator::from_object(other)? {
             self_set.add(item?)?;
@@ -571,17 +665,14 @@ impl EdgeView {
 
     /// Intersection: self & other
     fn __and__(&self, py: Python<'_>, other: &Bound<'_, PyAny>) -> PyResult<PyObject> {
-        let g = self.graph.borrow(py);
+        // br-r37-c1-edgesetborrow: drop the graph borrow before iterating `other`.
+        let self_edges = self.collect_edge_tuples(py)?;
         let other_vec: Vec<PyObject> = PyIterator::from_object(other)?
             .map(|r| r.map(|o| o.unbind()))
             .collect::<PyResult<Vec<_>>>()?;
         let other_set = pyo3::types::PySet::new(py, other_vec.iter())?;
         let mut result = Vec::new();
-        // br-r37-c1-eqedg: use edges_ordered_borrowed
-        for (left, right, _) in g.inner.edges_ordered_borrowed() {
-            let py_u = g.py_node_key(py, left);
-            let py_v = g.py_node_key(py, right);
-            let py_edge = tuple_object(py, &[py_u, py_v])?;
+        for py_edge in self_edges {
             if other_set.contains(&py_edge)? {
                 result.push(py_edge);
             }
@@ -592,17 +683,14 @@ impl EdgeView {
 
     /// Difference: self - other
     fn __sub__(&self, py: Python<'_>, other: &Bound<'_, PyAny>) -> PyResult<PyObject> {
-        let g = self.graph.borrow(py);
+        // br-r37-c1-edgesetborrow: drop the graph borrow before iterating `other`.
+        let self_edges = self.collect_edge_tuples(py)?;
         let other_vec: Vec<PyObject> = PyIterator::from_object(other)?
             .map(|r| r.map(|o| o.unbind()))
             .collect::<PyResult<Vec<_>>>()?;
         let other_set = pyo3::types::PySet::new(py, other_vec.iter())?;
         let mut result = Vec::new();
-        // br-r37-c1-eqedg: use edges_ordered_borrowed
-        for (left, right, _) in g.inner.edges_ordered_borrowed() {
-            let py_u = g.py_node_key(py, left);
-            let py_v = g.py_node_key(py, right);
-            let py_edge = tuple_object(py, &[py_u, py_v])?;
+        for py_edge in self_edges {
             if !other_set.contains(&py_edge)? {
                 result.push(py_edge);
             }
@@ -613,18 +701,8 @@ impl EdgeView {
 
     /// Symmetric difference: self ^ other
     fn __xor__(&self, py: Python<'_>, other: &Bound<'_, PyAny>) -> PyResult<PyObject> {
-        let g = self.graph.borrow(py);
-        // br-r37-c1-eqedg: use edges_ordered_borrowed
-        let self_edges: Vec<PyObject> = g
-            .inner
-            .edges_ordered_borrowed()
-            .into_iter()
-            .map(|(left, right, _)| {
-                let py_u = g.py_node_key(py, left);
-                let py_v = g.py_node_key(py, right);
-                tuple_object(py, &[py_u, py_v])
-            })
-            .collect::<PyResult<Vec<_>>>()?;
+        // br-r37-c1-edgesetborrow: drop the graph borrow before iterating `other`.
+        let self_edges = self.collect_edge_tuples(py)?;
         let self_set = pyo3::types::PySet::new(py, self_edges.iter())?;
         let other_vec: Vec<PyObject> = PyIterator::from_object(other)?
             .map(|r| r.map(|o| o.unbind()))
@@ -848,18 +926,19 @@ impl AtlasView {
     /// Materialise the full `{neighbour: shared_edge_attr_dict}` (O(degree)) —
     /// only when a materialising method (items/values/==/str/repr) is called.
     fn materialize(&self, py: Python<'_>) -> PyResult<Py<PyDict>> {
-        let g = self.graph.borrow(py);
+        let mut g = self.graph.borrow_mut(py);
         let result = PyDict::new(py);
-        if let Some(neighbors) = g.inner.neighbors(&self.node) {
-            for nb in neighbors {
-                let py_nb = g.py_node_key(py, nb);
-                let ek = PyGraph::edge_key(&self.node, nb);
-                let edge_attrs = g
-                    .edge_py_attrs
-                    .get(&ek)
-                    .map_or_else(|| PyDict::new(py).unbind(), |d| d.clone_ref(py));
-                result.set_item(py_nb, edge_attrs.bind(py))?;
-            }
+        let neighbors: Vec<String> = g
+            .inner
+            .neighbors(&self.node)
+            .unwrap_or_default()
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+        for nb in neighbors {
+            let py_nb = g.py_adj_key(py, &self.node, &nb); // br-r37-c1-z6uka
+            let edge_attrs = g.materialize_edge_py_attrs(py, &self.node, &nb);
+            result.set_item(py_nb, edge_attrs.bind(py))?;
         }
         Ok(result.unbind())
     }
@@ -868,7 +947,7 @@ impl AtlasView {
 #[pymethods]
 impl AtlasView {
     fn __getitem__(&self, py: Python<'_>, v: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>> {
-        let g = self.graph.borrow(py);
+        let mut g = self.graph.borrow_mut(py);
         let v_canon = node_key_to_string(py, v)?;
         if !g.inner.has_edge(&self.node, &v_canon) {
             return Err(PyKeyError::new_err((v.clone().unbind(),)));
@@ -878,11 +957,7 @@ impl AtlasView {
         // dirty so a later native read reconciles it (matches the old eager
         // `G[u]`, which marked dirty unconditionally).
         g.mark_edges_dirty();
-        let ek = PyGraph::edge_key(&self.node, &v_canon);
-        Ok(g
-            .edge_py_attrs
-            .get(&ek)
-            .map_or_else(|| PyDict::new(py).unbind(), |d| d.clone_ref(py)))
+        Ok(g.materialize_edge_py_attrs(py, &self.node, &v_canon))
     }
 
     fn __contains__(&self, py: Python<'_>, v: &Bound<'_, PyAny>) -> PyResult<bool> {
@@ -903,7 +978,7 @@ impl AtlasView {
             .neighbors(&self.node)
             .unwrap_or_default()
             .iter()
-            .map(|nb| g.py_node_key(py, nb))
+            .map(|nb| g.py_adj_key(py, &self.node, nb)) // br-r37-c1-z6uka
             .collect();
         Py::new(py, NodeIterator::unguarded(nbrs))
     }
@@ -913,34 +988,36 @@ impl AtlasView {
     }
 
     fn items(&self, py: Python<'_>) -> PyResult<Vec<(PyObject, Py<PyDict>)>> {
-        let g = self.graph.borrow(py);
+        let mut g = self.graph.borrow_mut(py);
         let mut out = Vec::with_capacity(g.inner.neighbor_count(&self.node));
-        if let Some(neighbors) = g.inner.neighbors(&self.node) {
-            for nb in neighbors {
-                let py_nb = g.py_node_key(py, nb);
-                let ek = PyGraph::edge_key(&self.node, nb);
-                let ed = g
-                    .edge_py_attrs
-                    .get(&ek)
-                    .map_or_else(|| PyDict::new(py).unbind(), |d| d.clone_ref(py));
-                out.push((py_nb, ed));
-            }
+        let neighbors: Vec<String> = g
+            .inner
+            .neighbors(&self.node)
+            .unwrap_or_default()
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+        for nb in neighbors {
+            let py_nb = g.py_adj_key(py, &self.node, &nb); // br-r37-c1-z6uka
+            let ed = g.materialize_edge_py_attrs(py, &self.node, &nb);
+            out.push((py_nb, ed));
         }
         Ok(out)
     }
 
     fn values(&self, py: Python<'_>) -> PyResult<Vec<Py<PyDict>>> {
-        let g = self.graph.borrow(py);
+        let mut g = self.graph.borrow_mut(py);
         let mut out = Vec::with_capacity(g.inner.neighbor_count(&self.node));
-        if let Some(neighbors) = g.inner.neighbors(&self.node) {
-            for nb in neighbors {
-                let ek = PyGraph::edge_key(&self.node, nb);
-                let ed = g
-                    .edge_py_attrs
-                    .get(&ek)
-                    .map_or_else(|| PyDict::new(py).unbind(), |d| d.clone_ref(py));
-                out.push(ed);
-            }
+        let neighbors: Vec<String> = g
+            .inner
+            .neighbors(&self.node)
+            .unwrap_or_default()
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+        for nb in neighbors {
+            let ed = g.materialize_edge_py_attrs(py, &self.node, &nb);
+            out.push(ed);
         }
         Ok(out)
     }

@@ -1,0 +1,16 @@
+chore(repo): drop committed-by-mistake ephemeral trackers from the tree
+
+The 11 TODO_*.md execution trackers are ephemeral status files already
+covered by the existing .gitignore rule `TODO_*.md` ("Ephemeral execution
+tracker files"); they were committed before that rule existed. Zero inbound
+references from any retained file. Removed with git rm.
+
+.skill-loop-progress.md (271 KB) is leaked slash-skill loop output. It is
+being actively appended by a running loop, so it is untracked via
+`git rm --cached` (kept on disk for the live process) and added to .gitignore
+in a follow-up commit, rather than force-deleted.
+
+Recovery: refs/repo-janitor-backup/2026-06-04-pre-cleanup @ fb14e5468 and the
+byte-verified recovery bundle under .repo_janitor_workspace/.
+
+Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>

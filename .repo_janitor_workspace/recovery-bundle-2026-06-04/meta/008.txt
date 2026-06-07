@@ -1,0 +1,3 @@
+path: PLAN_TO_PORT_NETWORKX_TO_RUST.md
+blob_sha: 5c6319af7662b8d1f29e81ed5f93b25acfd89c60
+last_commit: cebdcbad1 2026-02-17 09:32:51 -0500 Dicklesworthstone docs: expand Pass-B behavioral contracts, update legacy analysis with corrected file counts, and refresh Phase 2C fixture manifest and risk documentation

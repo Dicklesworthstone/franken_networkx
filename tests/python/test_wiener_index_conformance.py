@@ -279,6 +279,42 @@ def test_wiener_index_weighted_matches_networkx(name, edges_with_w):
     assert _equiv(fr, nr), f"{name}: fnx={fr} nx={nr}"
 
 
+@pytest.mark.parametrize(
+    "name,edges_with_w",
+    [
+        ("triangle_w",
+         [(0, 1, 1.0), (1, 2, 2.0), (2, 0, 3.0)]),
+        ("path_4_w",
+         [(0, 1, 1.0), (1, 2, 2.0), (2, 3, 3.0)]),
+        ("K_4_w",
+         [(u, v, float(u + v + 1))
+          for u, v in itertools.combinations(range(4), 2)]),
+    ],
+)
+def test_hyper_wiener_index_weighted_matches_networkx(name, edges_with_w):
+    fg = fnx.Graph(); ng = nx.Graph()
+    for u, v, w in edges_with_w:
+        fg.add_edge(u, v, weight=w)
+        ng.add_edge(u, v, weight=w)
+    fr = fnx.hyper_wiener_index(fg, weight="weight")
+    nr = nx.hyper_wiener_index(ng, weight="weight")
+    assert _equiv(fr, nr), f"{name}: fnx={fr} nx={nr}"
+
+
+def test_hyper_wiener_index_weighted_invalid_value_still_matches_networkx():
+    fg = fnx.Graph(); ng = nx.Graph()
+    for graph in (fg, ng):
+        graph.add_edge(0, 1, weight=1)
+        graph.add_edge(1, 2, weight="bad")
+        graph.add_edge(0, 2, weight=10)
+
+    with pytest.raises(TypeError) as fnx_err:
+        fnx.hyper_wiener_index(fg, weight="weight")
+    with pytest.raises(TypeError) as nx_err:
+        nx.hyper_wiener_index(ng, weight="weight")
+    assert str(fnx_err.value) == str(nx_err.value)
+
+
 # ---------------------------------------------------------------------------
 # Edge cases — single node, two nodes, disconnected
 # ---------------------------------------------------------------------------

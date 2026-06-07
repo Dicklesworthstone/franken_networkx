@@ -1,0 +1,9 @@
+AUTHORIZATION RECORD — git-repo-janitor Phase 7 (deletes)
+date_utc: 2026-06-04
+authorizing_user: jeff2718281@gmail.com (repo owner Dicklesworthstone)
+mechanism: AskUserQuestion (Category A+B)
+verbatim_answer: "Yes, git rm all 12"
+scope: git rm the 11 TODO_*.md ephemeral execution trackers + .skill-loop-progress.md
+recovery: refs/repo-janitor-backup/2026-06-04-pre-cleanup @ fb14e5468
+          + .repo_janitor_workspace/recovery-bundle-2026-06-04/ (byte-verified)
+follow-up message: "we DO want the cleaned version to be main ... no other branches besides main/master"

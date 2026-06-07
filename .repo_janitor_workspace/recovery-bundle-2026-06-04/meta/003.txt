@@ -1,0 +1,3 @@
+path: EXISTING_NETWORKX_STRUCTURE.md
+blob_sha: 173cdc883984104ca9c1f020c7eb765e226abf9e
+last_commit: b122d1388 2026-02-19 01:13:25 -0500 Dicklesworthstone feat(algorithms, conformance): add deterministic minimum-cut surface with Edmonds-Karp residual reachability

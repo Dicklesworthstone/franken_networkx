@@ -1,0 +1,44 @@
+{
+  "primary_branch": "main",
+  "archetype": "polyglot-monorepo",
+  "test_command": "cargo test --workspace",
+  "typecheck_command": "cargo check --workspace",
+  "lint_command": "cargo clippy --workspace -- -D warnings",
+  "build_command": "cargo build --workspace --release",
+  "formatter": "cargo fmt",
+  "ci_gates": [
+    "dcg"
+  ],
+  "existing_dest_dirs": [
+    "docs",
+    "scripts"
+  ],
+  "branch_synonyms": [
+    "master"
+  ],
+  "protected_globs": [
+    "README.md",
+    "LICENSE*",
+    "AGENTS.md",
+    "CHANGELOG.md",
+    ".gitignore",
+    ".gitattributes",
+    ".gitmodules",
+    "Cargo.toml",
+    "Cargo.lock",
+    "rust-toolchain.toml",
+    "build.rs",
+    "deny.toml",
+    ".ubsignore",
+    "src/**",
+    "tests/**",
+    "benches/**"
+  ],
+  "origin_url": "https://github.com/Dicklesworthstone/franken_networkx.git",
+  "third_party_fork": false,
+  "git_version": "2.51.0",
+  "core_autocrlf": "",
+  "has_lfs": "true",
+  "has_filter_repo": "false",
+  "has_shallow": "false"
+}

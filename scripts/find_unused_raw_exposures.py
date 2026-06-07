@@ -40,6 +40,11 @@ DOCS_DIR = REPO_ROOT / "docs"
 # the dict for future review.
 TRIAGE = {
     # ---- keep-public-api: wrapper uses a different path on purpose ----
+    "_raw_symmetric_difference": ("keep-public-api",
+        "br-r37-c1-aun4c: wrapper replicates installed nx verbatim in "
+        "Python (check sequence, with_data=False copy depth, batched "
+        "edge passes) — the Rust kernel collapsed multigraph parallel "
+        "edges and its rebuild was ~8x nx"),
     "_raw_topological_sort": ("keep-public-api",
         "wrapper re-implements Kahn's in Python for byte-identical nx "
         "tie-break order (br-codtrav)"),

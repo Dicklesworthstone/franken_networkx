@@ -1,0 +1,184 @@
+/target
+/target-codex
+target-codex-*/
+**/*.rs.bk
+
+# rch (remote cargo helper) per-job artifact directories — accidentally
+# committed in 4372cf30; gitignored to prevent recurrence.
+.rch-target-*/
+
+# Python cache artifacts
+__pycache__/
+*.py[cod]
+
+# Python native extension build artifacts
+*.so
+*.abi3.so
+*.pyd
+
+# Hypothesis test framework state
+.hypothesis/
+
+# Editor and OS noise
+.DS_Store
+._*
+*.swp
+*.swo
+perf.data
+
+# Local source image (converted to committed WebP artifact)
+franken_networkx_illustration.png
+
+# Local agent/task metadata
+.bv/
+
+# Ephemeral agent/runtime artifacts
+storage.sqlite3
+storage.sqlite3-*
+rustc-ice-*.txt
+a.out
+--graph-format.svg
+target_*/
+
+# Ephemeral execution tracker files
+TODO_*.md
+
+# Generated runtime artifacts
+artifacts/conformance/latest/
+artifacts/conformance/oracle_capture/
+artifacts/conformance/decisions/
+artifacts/perf/latest/
+artifacts/last_known_good/
+artifacts/fuzz/
+artifacts/phase2c/latest_*.json
+artifacts/phase2c/latest/
+artifacts/docs/latest/
+
+# Build output directories
+dist/
+fuzz/target/
+.venv/
+venv/
+.benchmarks/
+.pytest_cache/
+.ruff_cache/
+
+# Generic backup files
+*.bak
+
+# Agent dump artifacts (UBS reports, clippy output, error logs)
+*ubs*.txt
+errors.json
+clippy_output.txt
+rust-bug-scan.txt
+
+# Root-level agent scratch outputs
+/all_beads.txt
+/br_out.txt
+/br_ready.json
+/bv_out.json
+/check_out.txt
+/daemon_status.txt
+/final_remote.txt
+/git_log_slo.txt
+/git_out.txt
+/hello.txt
+/local_timeout.txt
+/ls_remote.txt
+/next_bead.txt
+/out.txt
+/pytest_version.txt
+/rch_check.txt
+/simple_remote.txt
+/single_test.txt
+/test_out.txt
+/test_results.txt
+/test_results_remote.txt
+/uname_remote.txt
+
+# Root-level probe scripts/results
+/bead_*.json
+/probe_*.py
+/probe_results*.txt
+/replace_*.py
+/strip_nx_compat.py
+/test_*.py
+
+# Agent helper scripts
+/scripts/close_bead_*.py
+/scripts/close_beads.py
+
+# Ephemeral files (agent-generated, build artifacts, test detritus)
+ci-artifacts/
+proptest-regressions/
+test_meminfo
+
+# Per-test E2E pipeline log artifacts (regenerated each run)
+tests/python/test_e2e_pipeline_logs/
+
+# Agent session ephemeral files
+SESSION_TODO.md
+SESSION_REPORT.md
+SESSION_*.md
+verify_*.sh
+newfile.txt
+repro_*.rs
+
+# Nested crate build artifacts
+crates/*/target/
+
+# FastEmbed model caches
+.fastembed_cache/
+
+# Agent coordination config
+.agent-mail.yaml
+
+# Beads history snapshots
+.beads/.br_history/
+
+# Claude local settings + agent scratch dir (scheduled_tasks.lock,
+# settings.local.json, etc. are machine-local Claude Code state)
+.claude/
+
+# ACFS ephemeral patterns (auto-generated agent artifacts)
+.ntm/
+core
+core.*
+cline.mcp.json
+codex.mcp.json
+cursor.mcp.json
+gemini.mcp.json
+opencode.json
+windsurf.mcp.json
+*.mcp.json.*.bak
+.opencode.json.*.bak
+.windsurf.mcp.json.*.bak
+.agent-mail-project-id
+*.sqlite3.bak
+*.sqlite3.corrupt*
+storage.sqlite3.corrupt-*
+storage.sqlite3-shm.corrupt-*
+storage.sqlite3-wal.corrupt-*
+.beads/*.corrupt*
+.beads/*.pre_repair_*
+.beads/*.repair_candidate_*
+.beads/*.bak-corrupt
+
+# Beads ephemeral artifacts (recovery, bad/rebuild snapshots)
+.beads/*.bad_*
+.beads/*.backup_*
+.beads/*.rebuild_*
+.beads/recovery*/
+.beads_recovery/
+
+# Root-level agent scratch output
+/*.txt
+/*.log
+/*.json
+!package.json
+/*.out
+/*.py
+/*.sh
+/*.patch
+.env
+.claude/settings.local.json

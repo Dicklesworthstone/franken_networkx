@@ -1,4 +1,4 @@
-"""Documented divergence + behavior lock for subgraph/edge_subgraph node order.
+"""Behavior lock for subgraph/edge_subgraph node order.
 
 NetworkX's ``G.subgraph(nbunch)`` / ``edge_subgraph`` return a view whose node
 iteration order is produced by ``FilterAtlas.__iter__``. That iterator has a
@@ -9,18 +9,10 @@ node order of a small induced subgraph is whatever CPython's ``set`` iteration
 happens to be (e.g. ``list({8,3,1,5}) == [8, 1, 3, 5]``); on a small graph
 (``2*|sub| >= |G|``) it falls back to original-graph order.
 
-franken_networkx's SubgraphView always iterates in stable original-graph
-(insertion-filtered) order. That is:
-  * **identical to networkx whenever nx does NOT take the set-order shortcut**
-    (the common ``2*|sub| >= |G|`` regime), and
-  * a deliberate, defensible divergence in the shortcut regime — replicating
-    CPython's ``set`` hash-ordering in the Rust-backed view is impractical
-    (it varies by node hash / Python build) and depends on ``set`` ordering
-    that is explicitly undocumented and not part of nx's API contract.
-
-This test locks fnx's deterministic order and documents the nx divergence so a
-future probe doesn't re-file it as a bug, and so a regression in fnx's stable
-ordering is caught. See the intentional-divergences ledger.
+franken_networkx mirrors that size-adaptive order: parent insertion order for
+large induced sets, and CPython set iteration for small induced sets. This is
+both parity-critical and performance-critical because small subgraph views can
+iterate the selected node set instead of scanning every parent node.
 """
 
 import networkx as nx
@@ -45,6 +37,26 @@ def _original_order(g):
     return [n for n in g.nodes() if n in SUBSET_SET]
 
 
+def _snapshot_copy(graph):
+    if graph.is_multigraph():
+        edges = [
+            (u, v, key, tuple(sorted(attrs.items())))
+            for u, v, key, attrs in graph.edges(keys=True, data=True)
+        ]
+    else:
+        edges = [
+            (u, v, tuple(sorted(attrs.items())))
+            for u, v, attrs in graph.edges(data=True)
+        ]
+    return {
+        "nodes": [
+            (node, tuple(sorted(attrs.items())))
+            for node, attrs in graph.nodes(data=True)
+        ],
+        "edges": edges,
+    }
+
+
 @pytest.mark.parametrize("n_extra", [0, 1, 2, 3])  # 2*4 >= total -> nx uses original order
 def test_subgraph_order_matches_nx_when_no_set_shortcut(n_extra):
     gn = _build(nx, n_extra)
@@ -54,11 +66,8 @@ def test_subgraph_order_matches_nx_when_no_set_shortcut(n_extra):
     assert list(gf.subgraph(SUBSET).nodes()) == _original_order(gf)
 
 
-@pytest.mark.parametrize("n_extra", [0, 1, 2, 3, 5, 8])
-def test_fnx_subgraph_order_is_always_stable_original_order(n_extra):
-    # fnx's contract: subgraph node order is independent of graph size and of
-    # the nbunch argument's order — always the original-graph insertion order
-    # filtered to the induced set.
+@pytest.mark.parametrize("n_extra", [0, 1, 2, 3])
+def test_fnx_subgraph_order_uses_original_order_without_set_shortcut(n_extra):
     gf = _build(fnx, n_extra)
     expected = _original_order(gf)
     assert list(gf.subgraph(SUBSET).nodes()) == expected
@@ -66,17 +75,167 @@ def test_fnx_subgraph_order_is_always_stable_original_order(n_extra):
     assert list(gf.edge_subgraph([(5, 3), (3, 8), (8, 1)]).nodes()) == expected
 
 
-def test_set_shortcut_regime_is_a_known_divergence():
+def test_set_shortcut_regime_matches_networkx():
     # In the shortcut regime (2*|sub| < |G|) nx iterates the induced set in
-    # CPython hash order; fnx keeps stable original order. We assert the
-    # *shape* of the divergence (fnx stays original-order; the two contain the
-    # same nodes) without hard-coding CPython's set order, which is not a
-    # stable contract.
+    # CPython hash order. fnx deliberately mirrors that behavior because it is
+    # observable through list(view.nodes()) and avoids O(parent) scans.
     gn = _build(nx, 8)   # total 12, subset 4 -> 8 < 12 -> shortcut on
     gf = _build(fnx, 8)
     nx_order = list(gn.subgraph(SUBSET).nodes())
     fnx_order = list(gf.subgraph(SUBSET).nodes())
-    assert set(nx_order) == set(fnx_order) == SUBSET_SET  # same membership
-    assert fnx_order == _original_order(gf)               # fnx stays original-order
-    # Document that nx took its set-order shortcut here (order != original).
-    assert nx_order == list(SUBSET_SET)  # nx == CPython set iteration of induced nodes
+    assert set(nx_order) == set(fnx_order) == SUBSET_SET
+    assert fnx_order == nx_order == list(SUBSET_SET)
+    assert list(gf.subgraph(SUBSET).copy().nodes()) == list(
+        gn.subgraph(SUBSET).copy().nodes()
+    )
+    assert fnx_order != _original_order(gf)
+
+
+def test_edge_subgraph_set_shortcut_regime_matches_networkx():
+    gn = _build(nx, 8)
+    gf = _build(fnx, 8)
+    edges = [(5, 3), (3, 8), (8, 1)]
+    assert list(gf.edge_subgraph(edges).nodes()) == list(
+        gn.edge_subgraph(edges).nodes()
+    )
+
+
+def test_subgraph_set_shortcut_still_tracks_parent_mutations():
+    gn = _build(nx, 8)
+    gf = _build(fnx, 8)
+    sn = gn.subgraph(SUBSET)
+    sf = gf.subgraph(SUBSET)
+    gn.remove_node(8)
+    gf.remove_node(8)
+    assert list(sf.nodes()) == list(sn.nodes())
+    gn.add_node(8)
+    gf.add_node(8)
+    assert list(sf.nodes()) == list(sn.nodes())
+    gn.add_node(999)
+    gf.add_node(999)
+    assert list(sf.nodes()) == list(sn.nodes())
+
+
+def test_custom_subgraph_view_node_set_and_lambda_order_match_nx():
+    gn = _build(nx, 8)
+    gf = _build(fnx, 8)
+
+    class NodeSetFilter:
+        def __init__(self, nodes):
+            self.nodes = set(nodes)
+
+        def __call__(self, node):
+            return node in self.nodes
+
+    node_filter_nx = NodeSetFilter(SUBSET)
+    node_filter_fnx = NodeSetFilter(SUBSET)
+    assert list(fnx.subgraph_view(gf, filter_node=node_filter_fnx).nodes()) == list(
+        nx.subgraph_view(gn, filter_node=node_filter_nx).nodes()
+    )
+
+    lambda_nx = lambda node: node in SUBSET_SET
+    lambda_fnx = lambda node: node in SUBSET_SET
+    assert list(fnx.subgraph_view(gf, filter_node=lambda_fnx).nodes()) == list(
+        nx.subgraph_view(gn, filter_node=lambda_nx).nodes()
+    )
+    assert list(fnx.subgraph_view(gf, filter_node=lambda_fnx).nodes()) == (
+        _original_order(gf)
+    )
+
+
+@pytest.mark.parametrize(
+    ("nx_type", "fnx_type"),
+    [(nx.Graph, fnx.Graph), (nx.DiGraph, fnx.DiGraph)],
+)
+def test_sparse_subgraph_copy_preserves_edge_order_and_attrs(nx_type, fnx_type):
+    node_order = [5, 3, 8, 1] + list(range(100, 118))
+    edge_rows = [
+        (5, 3, {"weight": 1, "tag": "a"}),
+        (3, 8, {"weight": 2, "tag": "b"}),
+        (8, 1, {"weight": 3, "tag": "c"}),
+        (100, 101, {"weight": 9, "tag": "hidden"}),
+        (1, 5, {"weight": 4, "tag": "d"}),
+    ]
+    gn = nx_type()
+    gf = fnx_type()
+    gn.add_nodes_from((node, {"payload": node % 5}) for node in node_order)
+    gf.add_nodes_from((node, {"payload": node % 5}) for node in node_order)
+    gn.add_edges_from(edge_rows)
+    gf.add_edges_from(edge_rows)
+
+    assert _snapshot_copy(gf.subgraph(SUBSET).copy()) == _snapshot_copy(
+        gn.subgraph(SUBSET).copy()
+    )
+
+
+def test_sparse_subgraph_copy_empty_int_nodes_matches_nx():
+    node_order = [130, 1155, 7, 1032, 909, 1934, 16, 786]
+    edge_rows = [
+        (130, 7, {"weight": 1}),
+        (7, 909, {"weight": 2}),
+        (909, 16, {"weight": 3}),
+        (1155, 786, {"weight": 4}),
+        (1032, 1934, {"weight": 5}),
+    ]
+    gn = nx.Graph()
+    gf = fnx.Graph()
+    gn.add_nodes_from(node_order)
+    gf.add_nodes_from(node_order)
+    gn.add_edges_from(edge_rows)
+    gf.add_edges_from(edge_rows)
+
+    keep = {130, 7, 909, 16}
+    nx_copy = gn.subgraph(keep).copy()
+    fnx_copy = gf.subgraph(keep).copy()
+    assert _snapshot_copy(fnx_copy) == _snapshot_copy(nx_copy)
+
+    fnx_copy.nodes[130]["payload"] = "copy-only"
+    assert "payload" not in gf.nodes[130]
+
+
+def test_sparse_subgraph_copy_non_exact_int_labels_keep_fallback_parity():
+    large = 1 << 80
+    node_order = [True, large, 3.0, "3", 9]
+    edge_rows = [
+        (True, large, {"weight": 1}),
+        (large, 3.0, {"weight": 2}),
+        ("3", 9, {"weight": 3}),
+    ]
+    gn = nx.Graph()
+    gf = fnx.Graph()
+    gn.add_nodes_from(node_order)
+    gf.add_nodes_from(node_order)
+    gn.add_edges_from(edge_rows)
+    gf.add_edges_from(edge_rows)
+
+    keep = {True, large, 3.0, "3", 9}
+    assert _snapshot_copy(gf.subgraph(keep).copy()) == _snapshot_copy(
+        gn.subgraph(keep).copy()
+    )
+
+
+def test_custom_edge_filter_copy_still_filters_edges():
+    gn = _build(nx, 8)
+    gf = _build(fnx, 8)
+
+    class NodeSetFilter:
+        def __init__(self, nodes):
+            self.nodes = set(nodes)
+
+        def __call__(self, node):
+            return node in self.nodes
+
+    def edge_filter(u, v):
+        return {u, v} != {3, 8}
+
+    nx_view = nx.subgraph_view(
+        gn,
+        filter_node=NodeSetFilter(SUBSET),
+        filter_edge=edge_filter,
+    )
+    fnx_view = fnx.subgraph_view(
+        gf,
+        filter_node=NodeSetFilter(SUBSET),
+        filter_edge=edge_filter,
+    )
+    assert _snapshot_copy(fnx_view.copy()) == _snapshot_copy(nx_view.copy())

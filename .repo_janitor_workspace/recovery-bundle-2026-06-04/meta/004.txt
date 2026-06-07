@@ -1,0 +1,3 @@
+path: FEATURE_PARITY.md
+blob_sha: 6d5a185199f0328d6b2aba9a7096a668e73ee186
+last_commit: cd3874e3e 2026-04-23 17:30:15 +0000 Dicklesworthstone docs(readme): list MultiGraph/MultiDiGraph + drop stale Current State numbers (br-4pc88, br-m1g5j)

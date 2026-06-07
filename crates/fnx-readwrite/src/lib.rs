@@ -3841,10 +3841,7 @@ impl EdgeListEngine {
                     && tokens[pos + 1] != "["
                     && tokens[pos + 1] != "]" =>
                 {
-                    graph_attrs.insert(
-                        key.to_owned(),
-                        gml_scalar_value(&tokens[pos + 1]),
-                    );
+                    graph_attrs.insert(key.to_owned(), gml_scalar_value(&tokens[pos + 1]));
                     pos += 2;
                 }
                 _ => {
@@ -3978,10 +3975,7 @@ impl EdgeListEngine {
                 }
                 key => {
                     if pos + 1 < tokens.len() && tokens[pos + 1] != "[" && tokens[pos + 1] != "]" {
-                        attrs.insert(
-                            key.to_owned(),
-                            gml_scalar_value(&tokens[pos + 1]),
-                        );
+                        attrs.insert(key.to_owned(), gml_scalar_value(&tokens[pos + 1]));
                         pos += 2;
                     } else {
                         pos += 1;
@@ -4103,10 +4097,7 @@ impl EdgeListEngine {
                 }
                 key => {
                     if pos + 1 < tokens.len() && tokens[pos + 1] != "[" && tokens[pos + 1] != "]" {
-                        attrs.insert(
-                            key.to_owned(),
-                            gml_scalar_value(&tokens[pos + 1]),
-                        );
+                        attrs.insert(key.to_owned(), gml_scalar_value(&tokens[pos + 1]));
                         pos += 2;
                     } else {
                         pos += 1;
@@ -4199,7 +4190,10 @@ fn gml_scalar_value(tok: &GmlTok) -> CgseValue {
     if !tok.quoted {
         let s = tok.text.as_str();
         let first = s.as_bytes().first().copied();
-        if matches!(first, Some(b'0'..=b'9') | Some(b'+') | Some(b'-') | Some(b'.')) {
+        if matches!(
+            first,
+            Some(b'0'..=b'9') | Some(b'+') | Some(b'-') | Some(b'.')
+        ) {
             if let Ok(i) = s.parse::<i64>() {
                 return CgseValue::Int(i);
             }

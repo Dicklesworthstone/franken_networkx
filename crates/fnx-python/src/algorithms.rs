@@ -11,17 +11,43 @@ use crate::{
     PythonAllowThreadsExt, node_key_to_string,
 };
 use fnx_classes::AttrMap;
+use pyo3::class::basic::CompareOp;
 use pyo3::exceptions::{
     PyIndexError, PyKeyError, PyRuntimeError, PyValueError, PyZeroDivisionError,
 };
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyList, PyTuple};
+use pyo3::types::{PyDict, PyList, PySet, PyTuple};
 use std::cell::OnceCell;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BinaryHeap, HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 type SpanningEdgeSamples = (Vec<(String, String)>, Vec<f64>);
 const PAGERANK_WEIGHT_ATTR: &str = "__fnx_pagerank_weight__";
+
+#[derive(Copy, Clone, PartialEq)]
+struct PyDijkstraState {
+    dist: f64,
+    seq: u64,
+    node: usize,
+}
+
+impl Eq for PyDijkstraState {}
+
+impl PartialOrd for PyDijkstraState {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for PyDijkstraState {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        other
+            .dist
+            .partial_cmp(&self.dist)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| other.seq.cmp(&self.seq))
+    }
+}
 
 // ---------------------------------------------------------------------------
 // GraphRef — unified graph access for algorithms accepting both Graph & DiGraph
@@ -2440,6 +2466,57 @@ pub fn graph_has_edge_attr(
         GraphRef::MultiUndirected { .. } | GraphRef::MultiDirected { .. } => None,
     };
     Ok(has_attr)
+}
+
+/// Return whether any simple-graph edge has a present non-unit weight attr.
+///
+/// This mirrors Python's ``attrs[weight] != 1`` check against the live
+/// ``edge_py_attrs`` dicts without materializing ``G.edges(data=True)``. The
+/// Python edge view marks those dicts dirty because user code may mutate them;
+/// this internal read-only scan must not poison Dijkstra's mutation token.
+#[pyfunction]
+#[pyo3(signature = (g, weight_attr))]
+pub fn graph_has_explicit_nonunit_weight_fast(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    weight_attr: &str,
+) -> PyResult<Option<bool>> {
+    let gr = extract_graph(g)?;
+    let one = 1_i64.into_pyobject(py)?;
+    let dict_has_nonunit = |dict: &Py<PyDict>| -> PyResult<bool> {
+        let bound = dict.bind(py);
+        let Some(value) = bound.get_item(weight_attr)? else {
+            return Ok(false);
+        };
+        match value.rich_compare(one.as_any(), CompareOp::Ne) {
+            Ok(nonunit) => nonunit.is_truthy(),
+            Err(_) => Ok(true),
+        }
+    };
+    let has_nonunit = match &gr {
+        GraphRef::Undirected(pg) => {
+            let mut found = false;
+            for dict in pg.edge_py_attrs.values() {
+                if dict_has_nonunit(dict)? {
+                    found = true;
+                    break;
+                }
+            }
+            Some(found)
+        }
+        GraphRef::Directed { dg, .. } => {
+            let mut found = false;
+            for dict in dg.edge_py_attrs.values() {
+                if dict_has_nonunit(dict)? {
+                    found = true;
+                    break;
+                }
+            }
+            Some(found)
+        }
+        GraphRef::MultiUndirected { .. } | GraphRef::MultiDirected { .. } => None,
+    };
+    Ok(has_nonunit)
 }
 
 /// Native O(|E|) scan for any non-finite or non-numeric edge weight
@@ -8678,6 +8755,76 @@ pub fn condensation(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<(PyObject,
     }
 }
 
+/// Build `condensation(G)` with NetworkX-compatible SCC labels in one native pass.
+#[pyfunction]
+pub fn condensation_nx_ordered(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<PyObject> {
+    let gr = extract_graph(g)?;
+    if !gr.is_directed() {
+        return Err(crate::NetworkXNotImplemented::new_err(
+            "condensation is not defined for undirected graphs.",
+        ));
+    }
+
+    let dg_ref = gr.digraph().expect("is_directed checked above");
+    let components = py.allow_threads(|| strongly_connected_components_nx_ordered(dg_ref));
+
+    let mut py_dg = PyDiGraph::new_empty_with_policy(py, dg_ref.runtime_policy().clone())?;
+    let mapping = PyDict::new(py);
+    let mut canonical_to_scc = HashMap::with_capacity(dg_ref.node_count());
+
+    for (idx, component) in components.iter().enumerate() {
+        let label = idx.to_string();
+        let py_nodes: Vec<PyObject> = component
+            .iter()
+            .map(|node| gr.py_node_key(py, node))
+            .collect();
+        let members = PySet::new(py, py_nodes)?;
+        let attrs = PyDict::new(py);
+        attrs.set_item("members", members)?;
+        py_dg
+            .node_key_map
+            .insert(label.clone(), idx.into_pyobject(py)?.into_any().unbind());
+        py_dg.node_py_attrs.insert(label, attrs.unbind());
+
+        for node in component {
+            canonical_to_scc.insert(node.clone(), idx);
+            mapping.set_item(gr.py_node_key(py, node), idx)?;
+        }
+    }
+
+    for idx in 0..components.len() {
+        py_dg.inner.add_node(idx.to_string());
+    }
+
+    let mut seen = HashSet::new();
+    let mut cond_edges = Vec::new();
+    for edge in dg_ref.edges_ordered() {
+        let Some(&left_idx) = canonical_to_scc.get(&edge.left) else {
+            return Err(NetworkXError::new_err(
+                "condensation internal SCC mapping missing source",
+            ));
+        };
+        let Some(&right_idx) = canonical_to_scc.get(&edge.right) else {
+            return Err(NetworkXError::new_err(
+                "condensation internal SCC mapping missing target",
+            ));
+        };
+        if left_idx == right_idx || !seen.insert((left_idx, right_idx)) {
+            continue;
+        }
+        let left = left_idx.to_string();
+        let right = right_idx.to_string();
+        py_dg
+            .edge_py_attrs
+            .insert((left.clone(), right.clone()), PyDict::new(py).unbind());
+        cond_edges.push((left, right));
+    }
+    let _ = py_dg.inner.extend_edges_unrecorded(cond_edges);
+    py_dg.graph_attrs.bind(py).set_item("mapping", mapping)?;
+
+    Ok(py_dg.into_pyobject(py)?.into_any().unbind())
+}
+
 // ===========================================================================
 // Weakly Connected Components
 // ===========================================================================
@@ -12990,11 +13137,196 @@ fn is_k_edge_connected(py: Python<'_>, g: &Bound<'_, PyAny>, k: usize) -> PyResu
     Ok(py.allow_threads(|| fnx_algorithms::is_k_edge_connected(inner, k)))
 }
 
+fn dijkstra_weight_from_attrs(attrs: Option<&AttrMap>, weight: &str) -> f64 {
+    attrs
+        .and_then(|attrs| attrs.get(weight))
+        .and_then(|value| value.as_f64())
+        .filter(|value| value.is_finite() && *value >= 0.0)
+        .unwrap_or(1.0)
+}
+
+fn packed_graph_dijkstra_adjacency(
+    graph: &fnx_classes::Graph,
+    weight: &str,
+) -> Vec<Vec<(usize, f64)>> {
+    let nodes = graph.nodes_ordered();
+    let mut adjacency = vec![Vec::new(); nodes.len()];
+    for (source_idx, source) in nodes.iter().enumerate() {
+        let Some(neighbors) = graph.neighbors_indices(source_idx) else {
+            continue;
+        };
+        adjacency[source_idx].reserve(neighbors.len());
+        for &target_idx in neighbors {
+            let target = nodes[target_idx];
+            let weight_value = dijkstra_weight_from_attrs(graph.edge_attrs(source, target), weight);
+            adjacency[source_idx].push((target_idx, weight_value));
+        }
+    }
+    adjacency
+}
+
+fn packed_digraph_dijkstra_adjacency(
+    digraph: &fnx_classes::digraph::DiGraph,
+    weight: &str,
+) -> Vec<Vec<(usize, f64)>> {
+    let nodes = digraph.nodes_ordered();
+    let mut adjacency = vec![Vec::new(); nodes.len()];
+    for (source_idx, source) in nodes.iter().enumerate() {
+        let Some(successors) = digraph.successors_iter(source) else {
+            continue;
+        };
+        for target in successors {
+            let Some(target_idx) = digraph.get_node_index(target) else {
+                continue;
+            };
+            let weight_value =
+                dijkstra_weight_from_attrs(digraph.edge_attrs(source, target), weight);
+            adjacency[source_idx].push((target_idx, weight_value));
+        }
+    }
+    adjacency
+}
+
+fn set_dijkstra_distance_item(
+    dict: &Bound<'_, PyDict>,
+    key: PyObject,
+    distance: f64,
+    all_int_weights: bool,
+) -> PyResult<()> {
+    if distance == 0.0
+        || (all_int_weights
+            && distance.fract() == 0.0
+            && distance >= i64::MIN as f64
+            && distance <= i64::MAX as f64)
+    {
+        dict.set_item(key, distance as i64)
+    } else {
+        dict.set_item(key, distance)
+    }
+}
+
+fn all_pairs_dijkstra_packed_py(
+    py: Python<'_>,
+    gr: &GraphRef<'_>,
+    nodes: &[&str],
+    adjacency: &[Vec<(usize, f64)>],
+    all_int_weights: bool,
+) -> PyResult<PyObject> {
+    let py_keys: Vec<PyObject> = nodes.iter().map(|node| gr.py_node_key(py, node)).collect();
+    let outer = PyDict::new(py);
+    let mut seen = vec![f64::INFINITY; nodes.len()];
+    let mut predecessors = vec![None::<usize>; nodes.len()];
+    let mut finalized = vec![false; nodes.len()];
+    let mut finalize_order = Vec::<usize>::with_capacity(nodes.len());
+    let mut heap = BinaryHeap::<PyDijkstraState>::new();
+    let mut path_indices = Vec::<usize>::with_capacity(nodes.len());
+
+    for source_idx in 0..nodes.len() {
+        seen.fill(f64::INFINITY);
+        predecessors.fill(None);
+        finalized.fill(false);
+        finalize_order.clear();
+        heap.clear();
+        let mut seq = 0_u64;
+
+        seen[source_idx] = 0.0;
+        heap.push(PyDijkstraState {
+            dist: 0.0,
+            seq,
+            node: source_idx,
+        });
+        seq += 1;
+
+        while let Some(PyDijkstraState {
+            dist,
+            node: current,
+            ..
+        }) = heap.pop()
+        {
+            if finalized[current] {
+                continue;
+            }
+            finalized[current] = true;
+            finalize_order.push(current);
+
+            for &(target, weight) in &adjacency[current] {
+                let next_dist = dist + weight;
+                if finalized[target] {
+                    if next_dist < seen[target] {
+                        return Err(PyValueError::new_err((
+                            "Contradictory paths found:",
+                            "negative weights?",
+                        )));
+                    }
+                    continue;
+                }
+                if next_dist < seen[target] {
+                    seen[target] = next_dist;
+                    predecessors[target] = Some(current);
+                    heap.push(PyDijkstraState {
+                        dist: next_dist,
+                        seq,
+                        node: target,
+                    });
+                    seq += 1;
+                }
+            }
+        }
+
+        let dist_dict = PyDict::new(py);
+        let path_dict = PyDict::new(py);
+        for &target_idx in &finalize_order {
+            set_dijkstra_distance_item(
+                &dist_dict,
+                py_keys[target_idx].clone_ref(py),
+                seen[target_idx],
+                all_int_weights,
+            )?;
+
+            path_indices.clear();
+            let mut cursor = Some(target_idx);
+            while let Some(idx) = cursor {
+                path_indices.push(idx);
+                cursor = predecessors[idx];
+            }
+            let py_path = PyList::empty(py);
+            for &idx in path_indices.iter().rev() {
+                py_path.append(py_keys[idx].clone_ref(py))?;
+            }
+            path_dict.set_item(py_keys[target_idx].clone_ref(py), py_path)?;
+        }
+        let pair = PyTuple::new(py, [dist_dict.as_any(), path_dict.as_any()])?;
+        outer.set_item(py_keys[source_idx].clone_ref(py), pair)?;
+    }
+
+    Ok(outer.into_any().unbind())
+}
+
 /// Return all-pairs Dijkstra distances and paths.
 #[pyfunction]
 #[pyo3(signature = (g, weight="weight"))]
 fn all_pairs_dijkstra(py: Python<'_>, g: &Bound<'_, PyAny>, weight: &str) -> PyResult<PyObject> {
+    sync_rust_attrs_if_available(g)?;
     let gr = extract_graph(g)?;
+    if !gr.is_multigraph() {
+        if gr.is_directed() {
+            let digraph = gr
+                .weighted_digraph_projection(weight)
+                .expect("is_directed checked above");
+            let nodes = digraph.as_ref().nodes_ordered();
+            let adjacency = packed_digraph_dijkstra_adjacency(digraph.as_ref(), weight);
+            let all_int_weights =
+                fnx_algorithms::digraph_edge_weights_all_int(digraph.as_ref(), weight);
+            return all_pairs_dijkstra_packed_py(py, &gr, &nodes, &adjacency, all_int_weights);
+        }
+
+        let graph = gr.weighted_undirected_projection(weight);
+        let nodes = graph.as_ref().nodes_ordered();
+        let adjacency = packed_graph_dijkstra_adjacency(graph.as_ref(), weight);
+        let all_int_weights = fnx_algorithms::graph_edge_weights_all_int(graph.as_ref(), weight);
+        return all_pairs_dijkstra_packed_py(py, &gr, &nodes, &adjacency, all_int_weights);
+    }
+
     let w = weight.to_owned();
     let result = if gr.is_directed() {
         let dg = gr
@@ -13443,6 +13775,8 @@ pub fn power_rust(py: Python<'_>, g: &Bound<'_, PyAny>, k: usize) -> PyResult<Py
         lazy_int_node_stop: 0,
         node_py_attrs: std::collections::HashMap::new(),
         edge_py_attrs: std::collections::HashMap::new(),
+        adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
+        dict_of_dicts_cache: None,
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,
@@ -13493,6 +13827,8 @@ pub fn ego_graph_rust(
         lazy_int_node_stop: 0,
         node_py_attrs: std::collections::HashMap::new(),
         edge_py_attrs: std::collections::HashMap::new(),
+        adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
+        dict_of_dicts_cache: None,
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,
@@ -13625,6 +13961,8 @@ pub fn full_join_rust(
         lazy_int_node_stop: 0,
         node_py_attrs: std::collections::HashMap::new(),
         edge_py_attrs: std::collections::HashMap::new(),
+        adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
+        dict_of_dicts_cache: None,
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,
@@ -13656,6 +13994,8 @@ pub fn identified_nodes_rust(
         lazy_int_node_stop: 0,
         node_py_attrs: std::collections::HashMap::new(),
         edge_py_attrs: std::collections::HashMap::new(),
+        adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
+        dict_of_dicts_cache: None,
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,
@@ -13746,6 +14086,8 @@ pub fn dedensify_rust(
         lazy_int_node_stop: 0,
         node_py_attrs: std::collections::HashMap::new(),
         edge_py_attrs: std::collections::HashMap::new(),
+        adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
+        dict_of_dicts_cache: None,
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,
@@ -13858,6 +14200,8 @@ pub fn quotient_graph_rust(
         lazy_int_node_stop: 0,
         node_py_attrs: std::collections::HashMap::new(),
         edge_py_attrs: std::collections::HashMap::new(),
+        adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
+        dict_of_dicts_cache: None,
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,
@@ -13884,6 +14228,8 @@ pub fn moral_graph_rust(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<PyObje
         lazy_int_node_stop: 0,
         node_py_attrs: std::collections::HashMap::new(),
         edge_py_attrs: std::collections::HashMap::new(),
+        adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
+        dict_of_dicts_cache: None,
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,
@@ -13911,6 +14257,21 @@ pub fn hyper_wiener_index_rust(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult
     let gr = extract_graph(g)?;
     let inner = gr.undirected();
     py.allow_threads(|| fnx_algorithms::hyper_wiener_index(inner))
+        .ok_or_else(|| crate::NetworkXError::new_err("Graph is not connected"))
+}
+
+/// Weighted Hyper-Wiener index for simple undirected graphs.
+#[pyfunction]
+#[pyo3(signature = (g, weight_attr))]
+pub fn hyper_wiener_index_weighted_rust(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    weight_attr: &str,
+) -> PyResult<f64> {
+    sync_rust_attrs_if_available(g)?;
+    let gr = extract_graph(g)?;
+    let inner = gr.undirected();
+    py.allow_threads(|| fnx_algorithms::hyper_wiener_index_weighted(inner, weight_attr))
         .ok_or_else(|| crate::NetworkXError::new_err("Graph is not connected"))
 }
 
@@ -14281,6 +14642,8 @@ pub fn gomory_hu_tree_rust(
         lazy_int_node_stop: 0,
         node_py_attrs: std::collections::HashMap::new(),
         edge_py_attrs: std::collections::HashMap::new(),
+        adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
+        dict_of_dicts_cache: None,
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,
@@ -14331,6 +14694,8 @@ pub fn snap_aggregation_rust(
         lazy_int_node_stop: 0,
         node_py_attrs: std::collections::HashMap::new(),
         edge_py_attrs: std::collections::HashMap::new(),
+        adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
+        dict_of_dicts_cache: None,
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,
@@ -14924,6 +15289,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(graph_has_nonnumeric_edge_weight, m)?)?;
     m.add_function(wrap_pyfunction!(graph_edge_weights_all_int, m)?)?;
     m.add_function(wrap_pyfunction!(check_dijkstra_edge_weights_fast, m)?)?;
+    m.add_function(wrap_pyfunction!(graph_has_explicit_nonunit_weight_fast, m)?)?;
     m.add_function(wrap_pyfunction!(dijkstra_weight_cache_token, m)?)?;
     m.add_function(wrap_pyfunction!(adjacency_arrays, m)?)?;
     m.add_function(wrap_pyfunction!(adjacency_index_arrays, m)?)?;
@@ -15086,6 +15452,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(number_strongly_connected_components, m)?)?;
     m.add_function(wrap_pyfunction!(is_strongly_connected, m)?)?;
     m.add_function(wrap_pyfunction!(condensation, m)?)?;
+    m.add_function(wrap_pyfunction!(condensation_nx_ordered, m)?)?;
     // Weakly connected components
     m.add_function(wrap_pyfunction!(weakly_connected_components, m)?)?;
     m.add_function(wrap_pyfunction!(number_weakly_connected_components, m)?)?;
@@ -15394,6 +15761,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Distance indices
     m.add_function(wrap_pyfunction!(gutman_index_rust, m)?)?;
     m.add_function(wrap_pyfunction!(hyper_wiener_index_rust, m)?)?;
+    m.add_function(wrap_pyfunction!(hyper_wiener_index_weighted_rust, m)?)?;
     m.add_function(wrap_pyfunction!(schultz_index_rust, m)?)?;
     m.add_function(wrap_pyfunction!(harmonic_diameter_rust, m)?)?;
     // Self-loop functions
@@ -15557,6 +15925,7 @@ mod tests {
                 node_key_map: HashMap::new(),
                 node_py_attrs: HashMap::new(),
                 edge_py_attrs: HashMap::new(),
+                adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
                 edge_py_keys: HashMap::new(),
                 graph_attrs: PyDict::new(py).unbind(),
                 nodes_seq: 0,

@@ -1,0 +1,3 @@
+path: PHASE2C_EXTRACTION_PACKET.md
+blob_sha: 73998ce627e8dd71585efeb4e6d7138ba4e4d427
+last_commit: f49a48232 2026-02-14 03:05:26 -0500 Dicklesworthstone docs(phase2c): add P2C-001 through P2C-009 extraction packets, isomorphism proofs, and essence ledger
