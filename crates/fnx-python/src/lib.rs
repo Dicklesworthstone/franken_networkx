@@ -2059,14 +2059,20 @@ impl PyMultiGraph {
         }
     }
 
-    #[pyo3(signature = (n, **attr))]
+    // br-r37-c1-addnoden: the node param must be named like nx's public
+    // ``add_node(node_for_adding, **attr)`` — a bare ``n`` collides with
+    // a node attribute literally keyed "n" (e.g. read_graphml of a graph
+    // with an 'n' attr: add_node(node, n=7) -> "multiple values for n").
+    // nx has the same collision only for an attr keyed "node_for_adding",
+    // so matching the name gives exact drop-in parity.
+    #[pyo3(signature = (node_for_adding, **attr))]
     fn add_node(
         &mut self,
         py: Python<'_>,
-        n: &Bound<'_, PyAny>,
+        node_for_adding: &Bound<'_, PyAny>,
         attr: Option<&Bound<'_, PyDict>>,
     ) -> PyResult<()> {
-        let canonical = node_key_to_string(py, n)?;
+        let canonical = node_key_to_string(py, node_for_adding)?;
         // br-r37-c1-firstwins: nx uses dicts for node storage, so the
         // FIRST Python object added under a given canonical key wins
         // (subsequent ``add_node`` calls with hash-equivalent keys are
@@ -2077,7 +2083,7 @@ impl PyMultiGraph {
         // already uses this pattern at the call site below.
         self.node_key_map
             .entry(canonical.clone())
-            .or_insert_with(|| n.clone().unbind());
+            .or_insert_with(|| node_for_adding.clone().unbind());
 
         let rust_attrs = if let Some(a) = attr {
             let rust_attrs = py_dict_to_attr_map(a)?;
@@ -4597,14 +4603,20 @@ impl PyGraph {
     // ---- Node mutation ----
 
     /// Add a single node with optional attributes.
-    #[pyo3(signature = (n, **attr))]
+    // br-r37-c1-addnoden: the node param must be named like nx's public
+    // ``add_node(node_for_adding, **attr)`` — a bare ``n`` collides with
+    // a node attribute literally keyed "n" (e.g. read_graphml of a graph
+    // with an 'n' attr: add_node(node, n=7) -> "multiple values for n").
+    // nx has the same collision only for an attr keyed "node_for_adding",
+    // so matching the name gives exact drop-in parity.
+    #[pyo3(signature = (node_for_adding, **attr))]
     fn add_node(
         &mut self,
         py: Python<'_>,
-        n: &Bound<'_, PyAny>,
+        node_for_adding: &Bound<'_, PyAny>,
         attr: Option<&Bound<'_, PyDict>>,
     ) -> PyResult<()> {
-        let canonical = node_key_to_string(py, n)?;
+        let canonical = node_key_to_string(py, node_for_adding)?;
         let was_new = !self.inner.has_node(&canonical);
         // br-r37-c1-firstwins: nx uses dicts for node storage, so the
         // FIRST Python object added under a given canonical key wins
@@ -4617,7 +4629,7 @@ impl PyGraph {
         if self.should_store_node_key(&canonical, was_new) {
             self.node_key_map
                 .entry(canonical.clone())
-                .or_insert_with(|| n.clone().unbind());
+                .or_insert_with(|| node_for_adding.clone().unbind());
         }
 
         // Build Rust AttrMap from Python kwargs for the inner graph.
