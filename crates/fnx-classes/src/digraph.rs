@@ -378,24 +378,53 @@ impl DiGraph {
     /// Successors of `node` (outgoing neighbors). Returns `None` if node absent.
     #[must_use]
     pub fn successors(&self, node: &str) -> Option<Vec<&str>> {
-        self.successors
-            .get(node)
-            .map(|s| s.iter().map(String::as_str).collect())
+        // br-r37-c1-d58s8 DiGraph flip P2: serve from the eager index
+        // rows + name table (order-faithful; oracle-validated in P1).
+        let idx = self.nodes.get_index_of(node)?;
+        Some(
+            self.succ_indices[idx]
+                .iter()
+                .map(|&i| {
+                    self.nodes
+                        .get_index(i)
+                        .expect("index rows hold valid node indices")
+                        .0
+                        .as_str()
+                })
+                .collect(),
+        )
     }
 
     #[must_use]
     pub fn successors_iter(&self, node: &str) -> Option<impl Iterator<Item = &str> + '_> {
-        self.successors
-            .get(node)
-            .map(|s| s.iter().map(String::as_str))
+        // br-r37-c1-d58s8 DiGraph flip P2: index-backed.
+        let idx = self.nodes.get_index_of(node)?;
+        Some(self.succ_indices[idx].iter().map(move |&i| {
+            self.nodes
+                .get_index(i)
+                .expect("index rows hold valid node indices")
+                .0
+                .as_str()
+        }))
     }
 
     /// Predecessors of `node` (incoming neighbors). Returns `None` if node absent.
     #[must_use]
     pub fn predecessors(&self, node: &str) -> Option<Vec<&str>> {
-        self.predecessors
-            .get(node)
-            .map(|p| p.iter().map(String::as_str).collect())
+        // br-r37-c1-d58s8 DiGraph flip P2: index-backed.
+        let idx = self.nodes.get_index_of(node)?;
+        Some(
+            self.pred_indices[idx]
+                .iter()
+                .map(|&i| {
+                    self.nodes
+                        .get_index(i)
+                        .expect("index rows hold valid node indices")
+                        .0
+                        .as_str()
+                })
+                .collect(),
+        )
     }
 
     /// br-r37-c1-u3qyn: restore explicit succ/pred row orders (pickle
@@ -499,9 +528,15 @@ impl DiGraph {
 
     #[must_use]
     pub fn predecessors_iter(&self, node: &str) -> Option<impl Iterator<Item = &str> + '_> {
-        self.predecessors
-            .get(node)
-            .map(|p| p.iter().map(String::as_str))
+        // br-r37-c1-d58s8 DiGraph flip P2: index-backed.
+        let idx = self.nodes.get_index_of(node)?;
+        Some(self.pred_indices[idx].iter().map(move |&i| {
+            self.nodes
+                .get_index(i)
+                .expect("index rows hold valid node indices")
+                .0
+                .as_str()
+        }))
     }
 
     /// Neighbors = successors (matches NetworkX `DiGraph.neighbors()` convention).
@@ -517,19 +552,26 @@ impl DiGraph {
 
     #[must_use]
     pub fn neighbor_count(&self, node: &str) -> usize {
-        self.successors.get(node).map_or(0, IndexSet::len)
+        // br-r37-c1-d58s8 DiGraph flip P2: index-backed.
+        self.nodes
+            .get_index_of(node)
+            .map_or(0, |i| self.succ_indices[i].len())
     }
 
     /// Out-degree: number of successors.
     #[must_use]
     pub fn out_degree(&self, node: &str) -> usize {
-        self.successors.get(node).map_or(0, IndexSet::len)
+        self.nodes
+            .get_index_of(node)
+            .map_or(0, |i| self.succ_indices[i].len())
     }
 
     /// In-degree: number of predecessors.
     #[must_use]
     pub fn in_degree(&self, node: &str) -> usize {
-        self.predecessors.get(node).map_or(0, IndexSet::len)
+        self.nodes
+            .get_index_of(node)
+            .map_or(0, |i| self.pred_indices[i].len())
     }
 
     /// Total degree: in_degree + out_degree.
@@ -541,16 +583,42 @@ impl DiGraph {
     /// Outgoing edges from `node` as (source, target) pairs.
     #[must_use]
     pub fn out_edges<'a>(&'a self, node: &'a str) -> Vec<(&'a str, &'a str)> {
-        self.successors.get(node).map_or_else(Vec::new, |succs| {
-            succs.iter().map(|t| (node, t.as_str())).collect()
+        // br-r37-c1-d58s8 DiGraph flip P2: index-backed.
+        self.nodes.get_index_of(node).map_or_else(Vec::new, |idx| {
+            self.succ_indices[idx]
+                .iter()
+                .map(|&i| {
+                    (
+                        node,
+                        self.nodes
+                            .get_index(i)
+                            .expect("index rows hold valid node indices")
+                            .0
+                            .as_str(),
+                    )
+                })
+                .collect()
         })
     }
 
     /// Incoming edges to `node` as (source, target) pairs.
     #[must_use]
     pub fn in_edges<'a>(&'a self, node: &'a str) -> Vec<(&'a str, &'a str)> {
-        self.predecessors.get(node).map_or_else(Vec::new, |preds| {
-            preds.iter().map(|s| (s.as_str(), node)).collect()
+        // br-r37-c1-d58s8 DiGraph flip P2: index-backed.
+        self.nodes.get_index_of(node).map_or_else(Vec::new, |idx| {
+            self.pred_indices[idx]
+                .iter()
+                .map(|&i| {
+                    (
+                        self.nodes
+                            .get_index(i)
+                            .expect("index rows hold valid node indices")
+                            .0
+                            .as_str(),
+                        node,
+                    )
+                })
+                .collect()
         })
     }
 
