@@ -132,3 +132,28 @@ def test_dijkstra_directed_csr_port():
         assert [(repr(k), [repr(x) for x in p]) for k, p in pa.items()] == [
             (repr(k), [repr(x) for x in p]) for k, p in pb.items()
         ], trial
+
+
+def test_multi_source_dijkstra_directed_finalize_order():
+    """br-r37-c1-86xx9: the directed multi-source kernel emitted
+    node-index order (the undirected twin had the k9q6q finalize
+    treatment; this one was missed) — equal-distance tie groups came
+    out in insertion order instead of nx's heap push-seq order."""
+    rnd = random.Random(5)
+    for trial in range(25):
+        n = rnd.randrange(3, 20)
+        gn, gf = (nx.DiGraph(), fnx.DiGraph()) if trial % 3 else (nx.Graph(), fnx.Graph())
+        for _ in range(rnd.randrange(2, 50)):
+            u, v = rnd.randrange(n), rnd.randrange(n)
+            if u == v:
+                continue
+            w = rnd.randrange(1, 9) if trial % 2 == 0 else rnd.choice([1, 2.5, 3])
+            gn.add_edge(u, v, weight=w)
+            gf.add_edge(u, v, weight=w)
+        if not len(gn):
+            continue
+        s = next(iter(gn))
+        for srcs in ({s}, [s, list(gn)[-1]]):
+            a = [(repr(k), v, type(v).__name__) for k, v in fnx.multi_source_dijkstra_path_length(gf, srcs).items()]
+            b = [(repr(k), v, type(v).__name__) for k, v in nx.multi_source_dijkstra_path_length(gn, srcs).items()]
+            assert a == b, (trial, srcs)
