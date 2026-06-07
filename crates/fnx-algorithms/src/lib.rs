@@ -1766,16 +1766,44 @@ pub fn bellman_ford_shortest_paths(
     // equal-distance ties SPFA and textbook BF pick different (but equal-length)
     // shortest paths. Mirror nx's deque order so single_source/all_pairs path
     // outputs match exactly. (br-r37-c1-wloxg)
-    let (negative_cycle_detected, queue_peak) = bellman_ford_spfa(
-        source,
+    // br-r37-c1-d58s8 P1: integer-CSR walk — offsets/targets from the
+    // eager adj_indices rows (same insertion order as the String rows),
+    // weights resolved once per edge before the loop.
+    let names = graph.nodes_ordered();
+    let n = names.len();
+    let mut offsets = Vec::with_capacity(n + 1);
+    let mut targets: Vec<u32> = Vec::new();
+    offsets.push(0);
+    for (u, name_u) in names.iter().enumerate() {
+        if let Some(row) = graph.neighbors_indices(u) {
+            for &v in row {
+                targets.push(u32::try_from(v).unwrap_or(u32::MAX));
+            }
+        }
+        let _ = name_u;
+        offsets.push(targets.len());
+    }
+    let mut weights: Vec<f64> = Vec::with_capacity(targets.len());
+    for (u, name_u) in names.iter().enumerate() {
+        for k in offsets[u]..offsets[u + 1] {
+            weights.push(signed_edge_weight_or_default(
+                graph,
+                name_u,
+                names[targets[k] as usize],
+                weight_attr,
+            ));
+        }
+    }
+    let source_idx = graph
+        .get_node_index(source)
+        .expect("has_node checked above");
+    let (negative_cycle_detected, queue_peak) = bellman_ford_spfa_csr(
+        source_idx,
+        &names,
+        &offsets,
+        &targets,
+        &weights,
         node_count,
-        |node| {
-            graph
-                .neighbors_iter(node)
-                .map(|it| it.map(str::to_owned).collect::<Vec<String>>())
-                .unwrap_or_default()
-        },
-        |from, to| signed_edge_weight_or_default(graph, from, to, weight_attr),
         &mut distances,
         &mut predecessors,
         &mut discovery_order,
@@ -1844,16 +1872,31 @@ pub fn bellman_ford_shortest_paths_directed(
 
     // Match networkx's SPFA (FIFO deque) processing order so equal-distance path
     // tie-breaks agree with nx for directed graphs too. (br-r37-c1-wloxg)
-    let (negative_cycle_detected, queue_peak) = bellman_ford_spfa(
-        source,
+    // br-r37-c1-d58s8 P1: integer-CSR walk via the revision-keyed
+    // DiGraph::csr() cache; weights resolved once per edge.
+    let csr = digraph.csr();
+    let names = digraph.nodes_ordered();
+    let mut weights: Vec<f64> = Vec::with_capacity(csr.succ_targets.len());
+    for (u, name_u) in names.iter().enumerate() {
+        for &v in csr.successors(u) {
+            weights.push(signed_digraph_edge_weight_or_default(
+                digraph,
+                name_u,
+                names[v as usize],
+                weight_attr,
+            ));
+        }
+    }
+    let source_idx = digraph
+        .get_node_index(source)
+        .expect("has_node checked above");
+    let (negative_cycle_detected, queue_peak) = bellman_ford_spfa_csr(
+        source_idx,
+        &names,
+        &csr.succ_offsets,
+        &csr.succ_targets,
+        &weights,
         node_count,
-        |node| {
-            digraph
-                .successors_iter(node)
-                .map(|it| it.map(str::to_owned).collect::<Vec<String>>())
-                .unwrap_or_default()
-        },
-        |from, to| signed_digraph_edge_weight_or_default(digraph, from, to, weight_attr),
         &mut distances,
         &mut predecessors,
         &mut discovery_order,
@@ -5835,93 +5878,112 @@ fn weighted_paths_result(
 /// `(negative_cycle_detected, queue_peak)`; `distances` and `predecessors` are
 /// filled in place. (br-r37-c1-wloxg)
 #[allow(clippy::too_many_arguments)]
-fn bellman_ford_spfa<N, W>(
-    source: &str,
+/// br-r37-c1-d58s8 P1: integer-CSR SPFA core. Replicates nx's
+/// _inner_bellman_ford exactly — FIFO deque, pred LISTS (strict
+/// improvement resets, EXACT-equality appends), and the pred-in-queue
+/// SKIP heuristic (86xx9 part 2) — on index arrays; String maps are
+/// flushed once at the end in first-discovery order.
+#[allow(clippy::too_many_arguments)]
+fn bellman_ford_spfa_csr(
+    source_idx: usize,
+    names: &[&str],
+    offsets: &[usize],
+    targets: &[u32],
+    weights: &[f64],
     node_count: usize,
-    mut neighbors_of: N,
-    mut edge_weight: W,
     distances: &mut HashMap<String, f64>,
     predecessors: &mut HashMap<String, Option<String>>,
     discovery_order: &mut Vec<String>,
     cgse_sink: &mut Option<CgseWitnessSink>,
     nodes_touched: &mut usize,
     edges_scanned: &mut usize,
-) -> (bool, usize)
-where
-    N: FnMut(&str) -> Vec<String>,
-    W: FnMut(&str, &str) -> f64,
-{
-    let mut queue = VecDeque::<String>::new();
-    let mut in_queue = HashSet::<String>::new();
-    let mut enqueue_count = HashMap::<String, usize>::new();
-    // br-r37-c1-86xx9 part 2: nx's SPFA keeps pred LISTS (strict
-    // improvement resets to [u]; EXACT-equality appends u) and SKIPS a
-    // popped node's relaxations entirely while any of its current
-    // predecessors is still queued ("Skip relaxations if any of the
-    // predecessors of u is in the queue"). Both shape the relaxation
-    // schedule and therefore nx's first-discovery dict key order —
-    // without them, deferred relaxations fire early (e.g. discovering a
-    // node at a stale distance nx never materializes). The
-    // recent_update/pred_edge negative-cycle ACCELERATOR is not
-    // replicated; the count==n backstop below detects the same cycles.
-    let mut pred_lists = HashMap::<String, Vec<String>>::new();
-    pred_lists.insert(source.to_owned(), Vec::new());
-    queue.push_back(source.to_owned());
-    in_queue.insert(source.to_owned());
-    // networkx builds the dist/pred dicts in first-discovery (first-relaxation)
-    // order during SPFA; the source is inserted first. Record that order so the
-    // leaf path/length functions can emit Python dicts with nx's key order.
-    // (br-r37-c1-e9rea)
-    discovery_order.push(source.to_owned());
+) -> (bool, usize) {
+    let n = names.len();
+    let mut dist: Vec<f64> = vec![f64::INFINITY; n];
+    let mut pred: Vec<u32> = vec![u32::MAX; n];
+    let mut pred_lists: Vec<Vec<u32>> = vec![Vec::new(); n];
+    let mut discovered: Vec<u32> = Vec::new();
+    let mut in_queue = vec![false; n];
+    let mut enqueue_count: Vec<u32> = vec![0; n];
+    let mut queue = VecDeque::<u32>::new();
+
+    dist[source_idx] = 0.0;
+    discovered.push(u32::try_from(source_idx).unwrap_or(u32::MAX));
+    queue.push_back(u32::try_from(source_idx).unwrap_or(u32::MAX));
+    in_queue[source_idx] = true;
     let mut queue_peak = 1usize;
 
-    while let Some(u) = queue.pop_front() {
-        in_queue.remove(&u);
-        if let Some(preds) = pred_lists.get(&u)
-            && preds.iter().any(|p| in_queue.contains(p))
+    let mut negative_cycle = false;
+    'outer: while let Some(u) = queue.pop_front() {
+        in_queue[u as usize] = false;
+        // nx SPFA skip heuristic: defer u's relaxations while any of its
+        // current predecessors is still queued.
+        if pred_lists[u as usize]
+            .iter()
+            .any(|&p| in_queue[p as usize])
         {
             continue;
         }
-        let Some(base_distance) = distances.get(&u).copied() else {
-            continue;
-        };
-        for v in neighbors_of(&u) {
+        let base = dist[u as usize];
+        let (row_start, row_end) = (offsets[u as usize], offsets[u as usize + 1]);
+        for k in row_start..row_end {
+            let v = targets[k] as usize;
             *edges_scanned += 1;
-            let candidate = base_distance + edge_weight(&u, &v);
-            let improves = match distances.get(&v) {
-                Some(existing) => candidate + DISTANCE_COMPARISON_EPSILON < *existing,
-                None => true,
+            let candidate = base + weights[k];
+            let existing = dist[v];
+            let improves = if existing.is_infinite() {
+                true
+            } else {
+                candidate + DISTANCE_COMPARISON_EPSILON < existing
             };
             if !improves {
-                if let Some(existing) = distances.get(&v)
-                    && candidate == *existing
-                {
-                    pred_lists.entry(v.clone()).or_default().push(u.clone());
+                if !existing.is_infinite() && candidate == existing {
+                    pred_lists[v].push(u);
                 }
                 continue;
             }
-            if distances.insert(v.clone(), candidate).is_none() {
+            if existing.is_infinite() {
                 *nodes_touched += 1;
-                discovery_order.push(v.clone());
+                discovered.push(targets[k]);
             }
-            predecessors.insert(v.clone(), Some(u.clone()));
-            pred_lists.insert(v.clone(), vec![u.clone()]);
-            cgse_record_decision(cgse_sink, &v, &u);
-            if !in_queue.contains(&v) {
-                let count = enqueue_count.get(&v).copied().unwrap_or(0) + 1;
-                if count >= node_count {
-                    return (true, queue_peak);
+            dist[v] = candidate;
+            pred[v] = u;
+            pred_lists[v].clear();
+            pred_lists[v].push(u);
+            cgse_record_decision(cgse_sink, names[v], names[u as usize]);
+            if !in_queue[v] {
+                let count = enqueue_count[v] + 1;
+                if count as usize >= node_count {
+                    negative_cycle = true;
+                    break 'outer;
                 }
-                enqueue_count.insert(v.clone(), count);
-                queue.push_back(v.clone());
-                in_queue.insert(v);
+                enqueue_count[v] = count;
+                queue.push_back(targets[k]);
+                in_queue[v] = true;
                 queue_peak = queue_peak.max(queue.len());
             }
         }
     }
 
-    (false, queue_peak)
+    // Flush index results into the String-keyed outputs in
+    // first-discovery order (the e9rea emission contract).
+    for &i in &discovered {
+        let name = names[i as usize];
+        distances.insert(name.to_owned(), dist[i as usize]);
+        predecessors.insert(
+            name.to_owned(),
+            if pred[i as usize] == u32::MAX {
+                None
+            } else {
+                Some(names[pred[i as usize] as usize].to_owned())
+            },
+        );
+        discovery_order.push(name.to_owned());
+    }
+
+    (negative_cycle, queue_peak)
 }
+
 
 fn relax_weighted_edge(
     from: &str,

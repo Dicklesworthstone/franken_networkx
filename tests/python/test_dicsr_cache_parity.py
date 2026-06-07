@@ -211,3 +211,25 @@ def test_tree_lazy_mirrors_write_through():
     a = fnx.single_source_dijkstra_path_length(t, 1, weight="w")
     b = _nx.single_source_dijkstra_path_length(tn, 1, weight="w")
     assert [(repr(k), v) for k, v in a.items()] == [(repr(k), v) for k, v in b.items()]
+
+
+def test_bellman_csr_negative_weights_and_cycle():
+    """P1: SPFA on CSR — negatives still correct, cycle still raises."""
+    gf, gn = fnx.DiGraph(), nx.DiGraph()
+    for g in (gf, gn):
+        g.add_edge(1, 2, weight=4)
+        g.add_edge(1, 3, weight=1)
+        g.add_edge(3, 2, weight=-2)
+        g.add_edge(2, 4, weight=2)
+    a = [(repr(k), v) for k, v in fnx.single_source_bellman_ford_path_length(gf, 1).items()]
+    b = [(repr(k), v) for k, v in nx.single_source_bellman_ford_path_length(gn, 1).items()]
+    assert a == b
+    for g in (gf, gn):
+        g.add_edge(4, 3, weight=-5)
+    import pytest as _pytest
+
+    with _pytest.raises(Exception) as ea:
+        fnx.single_source_bellman_ford_path_length(gf, 1)
+    with _pytest.raises(Exception) as eb:
+        nx.single_source_bellman_ford_path_length(gn, 1)
+    assert type(ea.value).__name__ == type(eb.value).__name__
