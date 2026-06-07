@@ -2321,6 +2321,7 @@ def read_gexf(path, node_type=None, relabel=False, version="1.2draft", *, backen
     else:
         graph = _fnx.read_gexf(_BytesIO(raw))
         _restore_gexf_node_metadata(graph, raw)
+        _restore_gexf_graph_metadata(graph, raw)
 
     graph = _apply_gexf_node_type(graph, node_type)
     if relabel:
@@ -2528,6 +2529,107 @@ def _gexf_document_has_hierarchy(raw_bytes):
 
 def _xml_local_name(name):
     return name.rsplit("}", 1)[-1].rsplit(":", 1)[-1]
+
+
+def _restore_gexf_graph_metadata(graph, raw_bytes):
+    """readwrite-matrix 2026-06-06: mirror nx GEXFReader.make_graph's
+    GRAPH-level attrs for the native simple-GEXF path (the Rust parser
+    dropped them all): name/start/end when present; ``mode`` always
+    ('dynamic' only when declared, else 'static'); ``node_default``
+    only when a class=node <attributes> element exists; ``edge_default``
+    ALWAYS (nx's Gephi-0.7beta weight hack sets it unconditionally,
+    last). Defaults are typed per the attribute's declared type."""
+    from xml.parsers import expat
+
+    state = {
+        "graph_seen": False,
+        "mode": "static",
+        "name": None,
+        "start": None,
+        "end": None,
+        "node_default": None,
+        "edge_default": {},
+        "cur_class": None,
+        "cur_attr": None,
+        "in_default": False,
+        "text": "",
+    }
+    bool_map = {"true": True, "false": False, "0": False, "1": True}
+
+    def typed(atype, text):
+        if atype in ("integer", "long", "int"):
+            return int(text)
+        if atype in ("float", "double"):
+            return float(text)
+        if atype == "boolean":
+            return bool_map.get(text.strip().lower(), text)
+        return text
+
+    def start_element(name, attrs):
+        tag = _xml_local_name(name)
+        if tag == "graph" and not state["graph_seen"]:
+            state["graph_seen"] = True
+            if attrs.get("name"):
+                state["name"] = attrs["name"]
+            if attrs.get("start") is not None:
+                state["start"] = attrs["start"]
+            if attrs.get("end") is not None:
+                state["end"] = attrs["end"]
+            state["mode"] = "dynamic" if attrs.get("mode") == "dynamic" else "static"
+        elif tag == "attributes":
+            state["cur_class"] = attrs.get("class")
+            if state["cur_class"] == "node" and state["node_default"] is None:
+                state["node_default"] = {}
+        elif tag == "attribute":
+            state["cur_attr"] = (
+                attrs.get("title") or attrs.get("id"),
+                attrs.get("type", "string"),
+            )
+        elif tag == "default":
+            state["in_default"] = True
+            state["text"] = ""
+
+    def char_data(data):
+        if state["in_default"]:
+            state["text"] += data
+
+    def end_element(name):
+        tag = _xml_local_name(name)
+        if tag == "default" and state["in_default"]:
+            state["in_default"] = False
+            if state["cur_attr"] and state["cur_class"] in ("node", "edge"):
+                title, atype = state["cur_attr"]
+                try:
+                    val = typed(atype, state["text"])
+                except (TypeError, ValueError):
+                    val = state["text"]
+                if state["cur_class"] == "node":
+                    state["node_default"][title] = val
+                else:
+                    state["edge_default"][title] = val
+        elif tag == "attribute":
+            state["cur_attr"] = None
+        elif tag == "attributes":
+            state["cur_class"] = None
+
+    parser = expat.ParserCreate(namespace_separator="}")
+    parser.StartElementHandler = start_element
+    parser.EndElementHandler = end_element
+    parser.CharacterDataHandler = char_data
+    try:
+        parser.Parse(raw_bytes, True)
+    except expat.ExpatError:
+        return
+    if state["name"]:
+        graph.graph["name"] = state["name"]
+    if state["start"] is not None:
+        graph.graph["start"] = state["start"]
+    if state["end"] is not None:
+        graph.graph["end"] = state["end"]
+    graph.graph["mode"] = state["mode"]
+    if state["node_default"] is not None:
+        graph.graph["node_default"] = state["node_default"]
+    graph.graph["edge_default"] = state["edge_default"]
 
 
 def _restore_gexf_node_metadata(graph, raw_bytes):
