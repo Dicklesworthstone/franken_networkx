@@ -2800,6 +2800,38 @@ impl PyMultiGraph {
     /// — one Rust loop over the values dict (mirror is authoritative;
     /// inner refreshed at copy/export; missing nodes skipped per nx).
 
+    /// br-r37-c1-seabulk-multi: native bulk set_edge_attributes for
+    /// multigraphs — keys are (u, v, key) 3-tuples. Resolves the
+    /// internal edge key, sets the edge_py_attrs mirror, marks dirty
+    /// once (lazy inner flush reaches kernels). Non-3-tuples skipped
+    /// (nx ValueError-on-unpack swallow); missing edge/key skipped.
+    fn _native_set_edge_attribute_scalar_multi(
+        &mut self,
+        py: Python<'_>,
+        values: &Bound<'_, PyDict>,
+        name: &str,
+    ) -> PyResult<()> {
+        for (k, val) in values.iter() {
+            let Ok(len) = k.len() else { continue };
+            if len != 3 {
+                continue;
+            }
+            let u = node_key_to_string(py, &k.get_item(0)?)?;
+            let v = node_key_to_string(py, &k.get_item(1)?)?;
+            let key_obj = k.get_item(2)?;
+            if let Some(internal_key) = self.resolve_internal_edge_key(py, &u, &v, &key_obj)? {
+                let ek = Self::edge_key(&u, &v, internal_key);
+                let dict = self
+                    .edge_py_attrs
+                    .entry(ek)
+                    .or_insert_with(|| PyDict::new(py).unbind());
+                dict.bind(py).set_item(name, &val)?;
+            }
+        }
+        self.mark_edges_dirty();
+        Ok(())
+    }
+
     fn _native_set_node_attribute_scalar(
         &mut self,
         py: Python<'_>,
