@@ -22246,62 +22246,76 @@ pub fn single_source_dijkstra_directed(
     source: &str,
     weight_attr: &str,
 ) -> Vec<(String, f64)> {
-    if !digraph.has_node(source) {
+    // br-r37-c1-d58s8 P1: integer-CSR dijkstra — distances/finalized
+    // become index arrays, the heap carries u32 nodes, and edge weights
+    // are resolved ONCE per edge into a CSR-aligned vec before the relax
+    // loop (one String-keyed lookup per edge, zero in the hot loop).
+    // Identical epsilon comparisons + FIFO seq tie-breaks preserve the
+    // k9q6q finalize order byte-for-byte.
+    let Some(source_idx) = digraph.get_node_index(source) else {
         return Vec::new();
+    };
+    let csr = digraph.csr();
+    let names = digraph.nodes_ordered();
+    let n = names.len();
+    let mut weights: Vec<f64> = Vec::with_capacity(csr.succ_targets.len());
+    for (u, name_u) in names.iter().enumerate() {
+        for &v in csr.successors(u) {
+            weights.push(digraph_edge_weight_or_default(
+                digraph,
+                name_u,
+                names[v as usize],
+                weight_attr,
+            ));
+        }
     }
 
-    let mut distances: HashMap<String, f64> = HashMap::new();
+    let mut distances: Vec<f64> = vec![f64::INFINITY; n];
     let mut pq = BinaryHeap::new();
     let mut seq_counter: u64 = 0;
     // Finalize (heap-pop) order, matching nx key order. (br-r37-c1-k9q6q)
-    let mut finalize_order: Vec<String> = Vec::new();
-    let mut finalized: HashSet<String> = HashSet::new();
+    let mut finalize_order: Vec<u32> = Vec::new();
+    let mut finalized = vec![false; n];
 
-    distances.insert(source.to_owned(), 0.0);
+    distances[source_idx] = 0.0;
     seq_counter += 1;
     pq.push(DijkstraState {
         dist: 0.0,
         seq: seq_counter,
-        node: source,
+        node: u32::try_from(source_idx).unwrap_or(u32::MAX),
     });
 
     while let Some(DijkstraState {
         dist: d, node: u, ..
     }) = pq.pop()
     {
-        if d > *distances.get(u).unwrap_or(&f64::INFINITY) + DISTANCE_COMPARISON_EPSILON {
+        if d > distances[u as usize] + DISTANCE_COMPARISON_EPSILON {
             continue;
         }
-        if !finalized.contains(u) {
-            finalized.insert(u.to_owned());
-            finalize_order.push(u.to_owned());
+        if !finalized[u as usize] {
+            finalized[u as usize] = true;
+            finalize_order.push(u);
         }
 
-        if let Some(successors) = digraph.successors_iter(u) {
-            for v in successors {
-                let weight = digraph_edge_weight_or_default(digraph, u, v, weight_attr);
-                let next_dist = d + weight;
-                let current_dist_v = *distances.get(v).unwrap_or(&f64::INFINITY);
-
-                if next_dist < current_dist_v - DISTANCE_COMPARISON_EPSILON {
-                    distances.insert(v.to_owned(), next_dist);
-                    seq_counter += 1;
-                    pq.push(DijkstraState {
-                        dist: next_dist,
-                        seq: seq_counter,
-                        node: v,
-                    });
-                }
+        let row_start = csr.succ_offsets[u as usize];
+        for (offset, &v) in csr.successors(u as usize).iter().enumerate() {
+            let weight = weights[row_start + offset];
+            let next_dist = d + weight;
+            if next_dist < distances[v as usize] - DISTANCE_COMPARISON_EPSILON {
+                distances[v as usize] = next_dist;
+                seq_counter += 1;
+                pq.push(DijkstraState {
+                    dist: next_dist,
+                    seq: seq_counter,
+                    node: v,
+                });
             }
         }
     }
 
     finalize_order
         .into_iter()
-        .map(|node| {
-            let dist = distances[&node];
-            (node, dist)
-        })
+        .map(|idx| (names[idx as usize].to_owned(), distances[idx as usize]))
         .collect()
 }
 
@@ -22312,71 +22326,91 @@ pub fn single_source_dijkstra_full_directed(
     source: &str,
     weight_attr: &str,
 ) -> DijkstraFull {
-    let mut distances: HashMap<String, f64> = HashMap::new();
-    let mut predecessors: HashMap<String, Option<String>> = HashMap::new();
-    if !digraph.has_node(source) {
+    // br-r37-c1-d58s8 P1: integer-CSR dijkstra (full variant — the one
+    // the shared single_source_dijkstra binding actually calls).
+    // Index-array distances/predecessors/finalized, u32 heap, weights
+    // resolved once per edge into a CSR-aligned vec. Identical epsilon
+    // + FIFO seq tie-breaks preserve the k9q6q finalize order; paths
+    // reconstructed from the integer predecessor chain at the end.
+    let Some(source_idx) = digraph.get_node_index(source) else {
         return (Vec::new(), Vec::new());
+    };
+    let csr = digraph.csr();
+    let names = digraph.nodes_ordered();
+    let n = names.len();
+    let mut weights: Vec<f64> = Vec::with_capacity(csr.succ_targets.len());
+    for (u, name_u) in names.iter().enumerate() {
+        for &v in csr.successors(u) {
+            weights.push(digraph_edge_weight_or_default(
+                digraph,
+                name_u,
+                names[v as usize],
+                weight_attr,
+            ));
+        }
     }
 
+    let mut distances: Vec<f64> = vec![f64::INFINITY; n];
+    let mut predecessors: Vec<u32> = vec![u32::MAX; n];
     let mut pq = BinaryHeap::new();
     let mut seq_counter: u64 = 0;
     // Finalize (heap-pop) order, matching nx key order. (br-r37-c1-k9q6q)
-    let mut finalize_order: Vec<String> = Vec::new();
-    let mut finalized: HashSet<String> = HashSet::new();
+    let mut finalize_order: Vec<u32> = Vec::new();
+    let mut finalized = vec![false; n];
 
-    distances.insert(source.to_owned(), 0.0);
-    predecessors.insert(source.to_owned(), None);
+    distances[source_idx] = 0.0;
     seq_counter += 1;
     pq.push(DijkstraState {
         dist: 0.0,
         seq: seq_counter,
-        node: source,
+        node: u32::try_from(source_idx).unwrap_or(u32::MAX),
     });
 
     while let Some(DijkstraState {
         dist: d, node: u, ..
     }) = pq.pop()
     {
-        if d > *distances.get(u).unwrap_or(&f64::INFINITY) + DISTANCE_COMPARISON_EPSILON {
+        if d > distances[u as usize] + DISTANCE_COMPARISON_EPSILON {
             continue;
         }
-        if !finalized.contains(u) {
-            finalized.insert(u.to_owned());
-            finalize_order.push(u.to_owned());
+        if !finalized[u as usize] {
+            finalized[u as usize] = true;
+            finalize_order.push(u);
         }
 
-        if let Some(successors) = digraph.successors_iter(u) {
-            for v in successors {
-                let weight = digraph_edge_weight_or_default(digraph, u, v, weight_attr);
-                let next_dist = d + weight;
-                let current_dist_v = *distances.get(v).unwrap_or(&f64::INFINITY);
-
-                if next_dist < current_dist_v - DISTANCE_COMPARISON_EPSILON {
-                    distances.insert(v.to_owned(), next_dist);
-                    predecessors.insert(v.to_owned(), Some(u.to_owned()));
-                    seq_counter += 1;
-                    pq.push(DijkstraState {
-                        dist: next_dist,
-                        seq: seq_counter,
-                        node: v,
-                    });
-                }
+        let row_start = csr.succ_offsets[u as usize];
+        for (offset, &v) in csr.successors(u as usize).iter().enumerate() {
+            let weight = weights[row_start + offset];
+            let next_dist = d + weight;
+            if next_dist < distances[v as usize] - DISTANCE_COMPARISON_EPSILON {
+                distances[v as usize] = next_dist;
+                predecessors[v as usize] = u;
+                seq_counter += 1;
+                pq.push(DijkstraState {
+                    dist: next_dist,
+                    seq: seq_counter,
+                    node: v,
+                });
             }
         }
     }
 
     let mut dist_entries = Vec::with_capacity(finalize_order.len());
     let mut paths = Vec::with_capacity(finalize_order.len());
-    for node in &finalize_order {
-        dist_entries.push((node.clone(), distances[node]));
-        let mut path = vec![node.clone()];
-        let mut cur = node.as_str();
-        while let Some(Some(prev)) = predecessors.get(cur) {
-            path.push(prev.clone());
-            cur = prev;
+    for &idx in &finalize_order {
+        dist_entries.push((names[idx as usize].to_owned(), distances[idx as usize]));
+        let mut chain: Vec<u32> = vec![idx];
+        let mut cur = idx;
+        while predecessors[cur as usize] != u32::MAX {
+            cur = predecessors[cur as usize];
+            chain.push(cur);
         }
-        path.reverse();
-        paths.push((node.clone(), path));
+        let path: Vec<String> = chain
+            .into_iter()
+            .rev()
+            .map(|i| names[i as usize].to_owned())
+            .collect();
+        paths.push((names[idx as usize].to_owned(), path));
     }
 
     (dist_entries, paths)

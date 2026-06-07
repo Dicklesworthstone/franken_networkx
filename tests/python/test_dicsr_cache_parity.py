@@ -103,3 +103,32 @@ def test_dfs_edges_directed_csr_port():
         assert [repr(x) for x in fnx.dfs_postorder_nodes(gf, s)] == [
             repr(x) for x in nx.dfs_postorder_nodes(gn, s)
         ], trial
+
+
+def test_dijkstra_directed_csr_port():
+    """P1(d): both directed dijkstra kernels (length-only + the FULL
+    variant the shared binding calls) on CSR — finalize order (k9q6q),
+    tie-breaks, and path reconstruction byte-identical."""
+    rnd = random.Random(3)
+    for trial in range(15):
+        n = rnd.randrange(3, 30)
+        gn, gf = nx.DiGraph(), fnx.DiGraph()
+        for _ in range(rnd.randrange(2, 80)):
+            u, v = rnd.randrange(n), rnd.randrange(n)
+            if u == v:
+                continue
+            w = rnd.choice([1, 2.5, 0.1, 7, 1])
+            gn.add_edge(u, v, weight=w)
+            gf.add_edge(u, v, weight=w)
+        if not len(gn):
+            continue
+        s = next(iter(gn))
+        a = [(repr(k), v) for k, v in fnx.single_source_dijkstra_path_length(gf, s).items()]
+        b = [(repr(k), v) for k, v in nx.single_source_dijkstra_path_length(gn, s).items()]
+        assert a == b, trial
+        da, pa = fnx.single_source_dijkstra(gf, s)
+        db, pb = nx.single_source_dijkstra(gn, s)
+        assert [(repr(k), v) for k, v in da.items()] == [(repr(k), v) for k, v in db.items()], trial
+        assert [(repr(k), [repr(x) for x in p]) for k, p in pa.items()] == [
+            (repr(k), [repr(x) for x in p]) for k, p in pb.items()
+        ], trial
