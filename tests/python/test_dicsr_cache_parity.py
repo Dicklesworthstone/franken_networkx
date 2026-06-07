@@ -189,3 +189,25 @@ def test_bellman_spfa_skip_heuristic():
         a = [(repr(k), v, type(v).__name__) for k, v in fnx.single_source_bellman_ford_path_length(gf, s).items()]
         b = [(repr(k), v, type(v).__name__) for k, v in nx.single_source_bellman_ford_path_length(gn, s).items()]
         assert a == b, trial
+
+
+def test_tree_lazy_mirrors_write_through():
+    """d58s8 tree-assembly tier: trees are built with LAZY attr mirrors;
+    the DiGraph view accessors must MATERIALIZE absent mirrors on access
+    (a fresh unstored dict silently loses `t.nodes[n]['x'] = 1`)."""
+    t = fnx.bfs_tree(fnx.DiGraph([(1, 2), (2, 3)]), 1)
+    t.nodes[2]["x"] = 9
+    assert dict(t.nodes[2]) == {"x": 9}
+    t[1][2]["w"] = 5
+    assert dict(t[1][2]) == {"w": 5}
+    assert t.nodes.get(3) == {}
+    t.nodes.get(3)["y"] = 4
+    assert dict(t.nodes[3]) == {"y": 4}
+    # weighted algorithm sees the write (mirror -> inner sync)
+    import networkx as _nx
+
+    tn = _nx.bfs_tree(_nx.DiGraph([(1, 2), (2, 3)]), 1)
+    tn[1][2]["w"] = 5
+    a = fnx.single_source_dijkstra_path_length(t, 1, weight="w")
+    b = _nx.single_source_dijkstra_path_length(tn, 1, weight="w")
+    assert [(repr(k), v) for k, v in a.items()] == [(repr(k), v) for k, v in b.items()]

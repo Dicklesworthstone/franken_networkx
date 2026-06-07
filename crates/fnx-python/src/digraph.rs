@@ -2844,15 +2844,17 @@ impl MultiDiGraphNodeView {
         n: &Bound<'_, PyAny>,
         default: Option<PyObject>,
     ) -> PyResult<PyObject> {
-        let g = self.graph.borrow(py);
+        let mut g = self.graph.borrow_mut(py);
         let canonical = node_key_to_string(py, n)?;
         if !g.inner.has_node(&canonical) {
             return Ok(default.unwrap_or_else(|| py.None()));
         }
-        Ok(g.node_py_attrs.get(&canonical).map_or_else(
-            || PyDict::new(py).into_any().unbind(),
-            |d| d.clone_ref(py).into_any(),
-        ))
+        // br-r37-c1-d58s8: materialize absent mirrors (write-through).
+        Ok(g.node_py_attrs
+            .entry(canonical)
+            .or_insert_with(|| PyDict::new(py).unbind())
+            .clone_ref(py)
+            .into_any())
     }
 
     /// Return a list of node keys (like dict.keys()).
@@ -5788,14 +5790,17 @@ impl DiNodeView {
     }
 
     fn __getitem__(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>> {
-        let g = self.graph.borrow(py);
+        let mut g = self.graph.borrow_mut(py);
         let canonical = node_key_to_string(py, n)?;
         if !g.inner.has_node(&canonical) {
             return Err(crate::missing_key_error(n));
         }
+        // br-r37-c1-d58s8: MATERIALIZE absent mirrors (lazy-mirror paths
+        // produce none) — a fresh unstored dict silently loses writes.
         Ok(g.node_py_attrs
-            .get(&canonical)
-            .map_or_else(|| PyDict::new(py).unbind(), |d| d.clone_ref(py)))
+            .entry(canonical)
+            .or_insert_with(|| PyDict::new(py).unbind())
+            .clone_ref(py))
     }
 
     #[pyo3(signature = (n, default=None))]
@@ -5805,15 +5810,17 @@ impl DiNodeView {
         n: &Bound<'_, PyAny>,
         default: Option<PyObject>,
     ) -> PyResult<PyObject> {
-        let g = self.graph.borrow(py);
+        let mut g = self.graph.borrow_mut(py);
         let canonical = node_key_to_string(py, n)?;
         if !g.inner.has_node(&canonical) {
             return Ok(default.unwrap_or_else(|| py.None()));
         }
-        Ok(g.node_py_attrs.get(&canonical).map_or_else(
-            || PyDict::new(py).into_any().unbind(),
-            |d| d.clone_ref(py).into_any(),
-        ))
+        // br-r37-c1-d58s8: materialize absent mirrors (write-through).
+        Ok(g.node_py_attrs
+            .entry(canonical)
+            .or_insert_with(|| PyDict::new(py).unbind())
+            .clone_ref(py)
+            .into_any())
     }
 
     fn __bool__(&self, py: Python<'_>) -> bool {
@@ -6430,10 +6437,15 @@ impl DiAtlasView {
         }
         // Returned dict is the SAME shared Py<PyDict> the graph stores, so
         // `G[u][v]['w'] = x` mutates live edge attrs — flag dirty.
+        // br-r37-c1-d58s8: MATERIALIZE absent mirrors (lazy-mirror paths
+        // produce none) — a fresh unstored dict silently loses writes.
         g.mark_edges_dirty();
+        drop(g);
+        let mut g = self.graph.borrow_mut(py);
         Ok(g.edge_py_attrs
-            .get(&ek)
-            .map_or_else(|| PyDict::new(py).unbind(), |d| d.clone_ref(py)))
+            .entry(ek)
+            .or_insert_with(|| PyDict::new(py).unbind())
+            .clone_ref(py))
     }
 
     fn __contains__(&self, py: Python<'_>, v: &Bound<'_, PyAny>) -> PyResult<bool> {

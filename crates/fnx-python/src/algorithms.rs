@@ -6429,10 +6429,12 @@ pub fn bfs_tree(
     let source_py = source.clone().unbind();
     let source_s = source_key.clone();
     tree.inner.add_node(&source_s);
-    tree.node_key_map.insert(source_s.clone(), source_py);
-    tree.node_py_attrs
-        .insert(source_s, pyo3::types::PyDict::new(py).unbind());
+    tree.node_key_map.insert(source_s, source_py);
 
+    // br-r37-c1-d58s8 tree-assembly tier: mirrors stay LAZY — absent
+    // node/edge attr-dict entries are tolerated everywhere (proven by
+    // the wholesale-clone converters, which produce none). The old
+    // eager empty-PyDict inserts cost three allocations per edge.
     for (u, v) in &edges {
         // br-r37-c1-6hpa9: discovery object — the parent's row override
         // (pred rows when reverse), not the node-map object.
@@ -6442,12 +6444,6 @@ pub fn bfs_tree(
             gr.py_row_key(py, u, v)
         };
         tree.node_key_map.insert(v.clone(), v_obj);
-        tree.node_py_attrs
-            .insert(v.clone(), pyo3::types::PyDict::new(py).unbind());
-        tree.edge_py_attrs.insert(
-            (u.clone(), v.clone()),
-            pyo3::types::PyDict::new(py).unbind(),
-        );
     }
     let _inserted = tree.inner.extend_edges_unrecorded(edges);
 
@@ -7102,20 +7098,19 @@ pub fn dfs_tree(
     };
     let mut tree = crate::digraph::PyDiGraph::new_empty_with_mode(py, tree_mode)?;
 
+    // br-r37-c1-d58s8 tree-assembly tier: mirrors stay LAZY — absent
+    // node/edge attr-dict entries are tolerated everywhere (proven by
+    // the wholesale-clone converters, which produce none).
     if let Some(sk) = source_key {
         tree.inner.add_node(&sk);
         tree.node_key_map.insert(
-            sk.clone(),
+            sk,
             source.expect("source_key implies source").clone().unbind(),
         );
-        tree.node_py_attrs
-            .insert(sk, pyo3::types::PyDict::new(py).unbind());
     } else {
         for node in gr.nodes_ordered() {
             tree.node_key_map
                 .insert(node.to_owned(), gr.py_node_key(py, node));
-            tree.node_py_attrs
-                .insert(node.to_owned(), pyo3::types::PyDict::new(py).unbind());
         }
         let _ = tree.inner.extend_nodes_with_attrs_unrecorded(
             gr.nodes_ordered()
@@ -7132,13 +7127,7 @@ pub fn dfs_tree(
         // node-map object.
         if !tree.node_key_map.contains_key(v) {
             tree.node_key_map.insert(v.clone(), gr.py_row_key(py, u, v));
-            tree.node_py_attrs
-                .insert(v.clone(), pyo3::types::PyDict::new(py).unbind());
         }
-        tree.edge_py_attrs.insert(
-            (u.clone(), v.clone()),
-            pyo3::types::PyDict::new(py).unbind(),
-        );
     }
     // node first-touch creation (u then v) matches the old per-edge
     // add_node sequence; one ledger record for the whole batch.
