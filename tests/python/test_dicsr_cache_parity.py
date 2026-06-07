@@ -364,3 +364,35 @@ def test_add_edges_from_global_attr_batch():
         assert [(repr(u), repr(v), sorted(d.items())) for u, v, d in gf.edges(data=True)] == [
             (repr(u), repr(v), sorted(d.items())) for u, v, d in gn.edges(data=True)
         ], (data, gattr)
+
+
+def test_integer_side_removal_parity():
+    """P2(c) slice 1: remove_node/remove_nodes_from filter edges via
+    endpoint INDICES and rebuild adj_indices through an old->new remap
+    (no String hashing). Rows, attrs, and post-removal traversal must
+    survive the renumbering."""
+    import networkx as _nx
+
+    rnd = random.Random(31)
+    for trial in range(15):
+        n = rnd.randrange(4, 30)
+        gn, gf = _nx.Graph(), fnx.Graph()
+        for _ in range(rnd.randrange(3, 80)):
+            u, v = rnd.randrange(n), rnd.randrange(n)
+            gn.add_edge(u, v, w=u)
+            gf.add_edge(u, v, w=u)
+        if len(gn) < 3:
+            continue
+        nodes = list(gn)
+        gf.remove_node(nodes[0])
+        gn.remove_node(nodes[0])
+        batch = nodes[1 : len(nodes) // 2] + [99999]
+        gf.remove_nodes_from(batch)
+        gn.remove_nodes_from(batch)
+        assert [repr(x) for x in gf] == [repr(x) for x in gn], trial
+        assert [(repr(u), repr(v), dict(d)) for u, v, d in gf.edges(data=True)] == [
+            (repr(u), repr(v), dict(d)) for u, v, d in gn.edges(data=True)
+        ], trial
+        assert {repr(x): [repr(y) for y in gf[x]] for x in gf} == {
+            repr(x): [repr(y) for y in gn[x]] for x in gn
+        }, trial

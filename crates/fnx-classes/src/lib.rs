@@ -1624,13 +1624,18 @@ impl Graph {
         // `edge_index_endpoints` in ONE O(|E|) pass (avoids O(degree*|E|) from
         // per-edge `shift_remove`). The two retains share the same keep-mask so
         // the vectors stay element-for-element parallel.
-        let incident: HashSet<EdgeKey> = self
-            .adjacency
-            .get(node)
-            .map(|nbrs| nbrs.iter().map(|nb| EdgeKey::new(node, nb)).collect())
-            .unwrap_or_default();
-        if !incident.is_empty() {
-            let keep: Vec<bool> = self.edges.keys().map(|k| !incident.contains(k)).collect();
+        // br-r37-c1-d58s8 P2(c) slice 1: the keep-mask is a pure INTEGER
+        // test — an edge is incident iff either endpoint index == idx
+        // (edge_index_endpoints is element-parallel with edges). The old
+        // version built a HashSet<EdgeKey> from the String row and hashed
+        // every edge key against it.
+        let has_incident = self.adj_indices.get(idx).is_some_and(|row| !row.is_empty());
+        if has_incident {
+            let keep: Vec<bool> = self
+                .edge_index_endpoints
+                .iter()
+                .map(|&(l, r)| l != idx && r != idx)
+                .collect();
             let mut i = 0usize;
             self.edges.retain(|_, _| {
                 let k = keep[i];
@@ -1689,6 +1694,30 @@ impl Graph {
         let old_node_count = self.nodes.len();
         let old_edge_count = self.edges.len();
 
+        // br-r37-c1-d58s8 P2(c) slice 1: integer-side removal. Compute the
+        // removed-index mask + old->new remap BEFORE any map shifts, then
+        // filter edges via endpoint indices (no String hashing) and
+        // rebuild adj_indices through the remap from the OLD integer rows
+        // (the old rebuild_adj_indices re-hashed every neighbor String).
+        let removed_mask: Vec<bool> = self
+            .nodes
+            .keys()
+            .map(|k| remove_set.contains(k.as_str()))
+            .collect();
+        let mut remap: Vec<usize> = Vec::with_capacity(old_node_count);
+        let mut next = 0usize;
+        for &gone in &removed_mask {
+            remap.push(next);
+            if !gone {
+                next += 1;
+            }
+        }
+        let keep_edges: Vec<bool> = self
+            .edge_index_endpoints
+            .iter()
+            .map(|&(l, r)| !removed_mask[l] && !removed_mask[r])
+            .collect();
+
         self.adjacency.retain(|node, neighbors| {
             if remove_set.contains(node.as_str()) {
                 false
@@ -1699,14 +1728,34 @@ impl Graph {
         });
         self.nodes
             .retain(|node, _| !remove_set.contains(node.as_str()));
-        self.edges.retain(|edge, _| {
-            !remove_set.contains(edge.left.as_str()) && !remove_set.contains(edge.right.as_str())
+        let mut i = 0usize;
+        self.edges.retain(|_, _| {
+            let k = keep_edges[i];
+            i += 1;
+            k
         });
-
-        // Batch compaction: removing many nodes invalidates every shifted index,
-        // so rebuild the integer caches once instead of repairing them per node.
-        self.rebuild_adj_indices();
-        self.rebuild_edge_index_endpoints();
+        let mut j = 0usize;
+        self.edge_index_endpoints.retain(|_| {
+            let k = keep_edges[j];
+            j += 1;
+            k
+        });
+        for endpoints in &mut self.edge_index_endpoints {
+            endpoints.0 = remap[endpoints.0];
+            endpoints.1 = remap[endpoints.1];
+        }
+        let old_rows = std::mem::take(&mut self.adj_indices);
+        self.adj_indices = old_rows
+            .into_iter()
+            .enumerate()
+            .filter(|(old_idx, _)| !removed_mask[*old_idx])
+            .map(|(_, row)| {
+                row.into_iter()
+                    .filter(|&nbr| !removed_mask[nbr])
+                    .map(|nbr| remap[nbr])
+                    .collect()
+            })
+            .collect();
 
         let removed_nodes = old_node_count - self.nodes.len();
         let removed_edges = old_edge_count - self.edges.len();
@@ -1718,6 +1767,7 @@ impl Graph {
 
     /// Rebuild integer adjacency from string adjacency. Called after node
     /// removal since indices shift.
+    #[allow(dead_code)]
     fn rebuild_adj_indices(&mut self) {
         let n = self.nodes.len();
         self.adj_indices = vec![Vec::new(); n];
@@ -1732,6 +1782,7 @@ impl Graph {
         }
     }
 
+    #[allow(dead_code)]
     fn rebuild_edge_index_endpoints(&mut self) {
         self.edge_index_endpoints.clear();
         self.edge_index_endpoints.reserve(self.edges.len());
@@ -1745,7 +1796,6 @@ impl Graph {
         }
     }
 
-    #[must_use]
     /// br-r37-c1-d58s8: revision-keyed memo of "every edge's `attr`
     /// value is an integer (missing = default 1 = int)".
     #[must_use]
@@ -1791,18 +1841,8 @@ impl Graph {
                 }
                 if let Some(attrs) = pair_attrs.get(&pair) {
                     ordered.push(EdgeSnapshot {
-                        left: self
-                            .nodes
-                            .get_index(u)
-                            .expect("valid node index")
-                            .0
-                            .clone(),
-                        right: self
-                            .nodes
-                            .get_index(v)
-                            .expect("valid node index")
-                            .0
-                            .clone(),
+                        left: self.nodes.get_index(u).expect("valid node index").0.clone(),
+                        right: self.nodes.get_index(v).expect("valid node index").0.clone(),
                         attrs: (*attrs).clone(),
                     });
                 }
