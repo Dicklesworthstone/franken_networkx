@@ -906,6 +906,20 @@ impl Graph {
         }
     }
 
+    /// br-r37-c1-degidx: degree by node INDEX — O(1), zero String
+    /// hashing (the &str path costs 2 hashes/node: neighbor_count's
+    /// get_index_of + the self-loop has_edge). Used by the DegreeView
+    /// iterator which already walks nodes in index order.
+    #[must_use]
+    pub fn degree_by_index(&self, idx: usize) -> usize {
+        let row = &self.adj_indices[idx];
+        let mut count = row.len();
+        if row.contains(&idx) {
+            count += 1; // self-loop contributes 2 to total degree
+        }
+        count
+    }
+
     #[must_use]
     pub fn node_attrs(&self, node: &str) -> Option<&AttrMap> {
         self.nodes.get(node)

@@ -743,14 +743,16 @@ impl DegreeView {
 
     fn __iter__(&self, py: Python<'_>) -> PyResult<Py<NodeViewIterator>> {
         let g = self.graph.borrow(py);
-        let items: Vec<PyObject> = g
-            .inner
-            .nodes_ordered()
+        // br-r37-c1-degidx: walk by index — degree_by_index is O(1)
+        // with no String hashing (the &str degree path cost 2 hashes
+        // per node). Node names still come from the ordered list.
+        let names = g.inner.nodes_ordered();
+        let items: Vec<PyObject> = names
             .iter()
-            .map(|n| {
+            .enumerate()
+            .map(|(i, n)| {
                 let py_key = g.py_node_key(py, n);
-                let deg = g.inner.degree(n);
-                let py_degree = deg.into_pyobject(py)?.into_any().unbind();
+                let py_degree = g.inner.degree_by_index(i).into_pyobject(py)?.into_any().unbind();
                 tuple_object(py, &[py_key, py_degree])
             })
             .collect::<PyResult<Vec<_>>>()?;
