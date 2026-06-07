@@ -1,0 +1,38 @@
+         2668781 function calls in 6.653 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+       60    4.223    0.070    5.213    0.087 /data/projects/franken_networkx/tests/artifacts/perf/20260607T-multigraph-index-rows-tealspring/multigraph_index_rows.py:68(build_ctor)
+       20    0.108    0.005    1.440    0.072 /data/projects/franken_networkx/tests/artifacts/perf/20260607T-multigraph-index-rows-tealspring/multigraph_index_rows.py:78(build_add_loop)
+   280000    1.200    0.000    1.200    0.000 {method 'add_edge' of 'franken_networkx.MultiGraph' objects}
+       20    0.154    0.008    0.644    0.032 /data/projects/franken_networkx/tests/artifacts/perf/20260607T-multigraph-index-rows-tealspring/multigraph_index_rows.py:23(plain_edges)
+   360040    0.143    0.000    0.447    0.000 /usr/lib/python3.13/random.py:295(randrange)
+   360040    0.177    0.000    0.273    0.000 /usr/lib/python3.13/random.py:245(_randbelow_with_getrandbits)
+       40    0.214    0.005    0.214    0.005 /data/projects/franken_networkx/tests/artifacts/perf/20260607T-multigraph-index-rows-tealspring/multigraph_index_rows.py:33(keyed_edges)
+       20    0.157    0.008    0.157    0.008 /data/projects/franken_networkx/tests/artifacts/perf/20260607T-multigraph-index-rows-tealspring/multigraph_index_rows.py:37(attr_edges)
+       80    0.002    0.000    0.107    0.001 /data/projects/franken_networkx/python/franken_networkx/__init__.py:3265(__init__)
+       60    0.103    0.002    0.103    0.002 {built-in method franken_networkx._fnx.validate_ctor_edge_list}
+   586900    0.054    0.000    0.054    0.000 {method 'getrandbits' of '_random.Random' objects}
+   360040    0.042    0.000    0.042    0.000 {method 'bit_length' of 'int' objects}
+   360040    0.031    0.000    0.031    0.000 {built-in method _operator.index}
+   180040    0.023    0.000    0.023    0.000 {built-in method builtins.len}
+   180020    0.020    0.000    0.020    0.000 {method 'append' of 'list' objects}
+       60    0.001    0.000    0.001    0.000 {built-in method builtins.locals}
+       20    0.000    0.000    0.000    0.000 /usr/lib/python3.13/random.py:119(__init__)
+      420    0.000    0.000    0.000    0.000 {built-in method builtins.isinstance}
+       60    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:5639(predicate)
+       20    0.000    0.000    0.000    0.000 /usr/lib/python3.13/random.py:128(seed)
+       20    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:5444(__get__)
+       60    0.000    0.000    0.000    0.000 {function _make_class_safe_predicate.<locals>.predicate at 0x7097738cfb00}
+      360    0.000    0.000    0.000    0.000 {method 'startswith' of 'str' objects}
+       20    0.000    0.000    0.000    0.000 {function Random.seed at 0x709774b99120}
+      180    0.000    0.000    0.000    0.000 {built-in method builtins.hasattr}
+       20    0.000    0.000    0.000    0.000 {built-in method builtins.vars}
+       80    0.000    0.000    0.000    0.000 {method 'get' of 'dict' objects}
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+       20    0.000    0.000    0.000    0.000 {method 'update' of 'dict' objects}
+       20    0.000    0.000    0.000    0.000 {built-in method builtins.getattr}
+
+
+

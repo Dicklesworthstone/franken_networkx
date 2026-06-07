@@ -1,0 +1,19 @@
+  [2m2026-06-07T18:19:15.989186Z[0m [33m WARN[0m [1;33mrch::hook[0m[33m: [33mexec called with non-compilation command: hyperfine --warmup 2 --runs 9 --export-json tests/artifacts/perf/20260607T-multigraph-index-rows-tealspring/baseline_hyperfine_ctor.json '.venv/bin/python tests/artifacts/perf/20260607T-multigraph-index-rows-tealspring/multigraph_index_rows.py fnx-loop --mode ctor --case plain --loops 12' '.venv/bin/python tests/artifacts/perf/20260607T-multigraph-index-rows-tealspring/multigraph_index_rows.py fnx-loop --mode ctor --case keyed --loops 12' '.venv/bin/python tests/artifacts/perf/20260607T-multigraph-index-rows-tealspring/multigraph_index_rows.py fnx-loop --mode ctor --case attr --loops 8'[0m
+    [2;3mat[0m rch/src/hook.rs:402 [2;3mon[0m ThreadId(1)
+
+Benchmark 1: .venv/bin/python tests/artifacts/perf/20260607T-multigraph-index-rows-tealspring/multigraph_index_rows.py fnx-loop --mode ctor --case plain --loops 12
+  Time (mean ± σ):      1.755 s ±  0.178 s    [User: 4.324 s, System: 0.096 s]
+  Range (min … max):    1.379 s …  1.951 s    9 runs
+ 
+Benchmark 2: .venv/bin/python tests/artifacts/perf/20260607T-multigraph-index-rows-tealspring/multigraph_index_rows.py fnx-loop --mode ctor --case keyed --loops 12
+  Time (mean ± σ):      1.413 s ±  0.148 s    [User: 4.340 s, System: 0.158 s]
+  Range (min … max):    1.240 s …  1.685 s    9 runs
+ 
+Benchmark 3: .venv/bin/python tests/artifacts/perf/20260607T-multigraph-index-rows-tealspring/multigraph_index_rows.py fnx-loop --mode ctor --case attr --loops 8
+  Time (mean ± σ):     912.5 ms ±  52.2 ms    [User: 4240.1 ms, System: 87.4 ms]
+  Range (min … max):   843.4 ms … 993.9 ms    9 runs
+ 
+Summary
+  .venv/bin/python tests/artifacts/perf/20260607T-multigraph-index-rows-tealspring/multigraph_index_rows.py fnx-loop --mode ctor --case attr --loops 8 ran
+    1.55 ± 0.18 times faster than .venv/bin/python tests/artifacts/perf/20260607T-multigraph-index-rows-tealspring/multigraph_index_rows.py fnx-loop --mode ctor --case keyed --loops 12
+    1.92 ± 0.22 times faster than .venv/bin/python tests/artifacts/perf/20260607T-multigraph-index-rows-tealspring/multigraph_index_rows.py fnx-loop --mode ctor --case plain --loops 12

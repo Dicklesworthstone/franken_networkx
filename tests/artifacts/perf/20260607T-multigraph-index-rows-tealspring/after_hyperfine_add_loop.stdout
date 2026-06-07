@@ -1,0 +1,7 @@
+  [2m2026-06-07T18:31:25.704033Z[0m [33m WARN[0m [1;33mrch::hook[0m[33m: [33mexec called with non-compilation command: hyperfine --warmup 2 --runs 9 --export-json tests/artifacts/perf/20260607T-multigraph-index-rows-tealspring/after_hyperfine_add_loop.json '.venv/bin/python tests/artifacts/perf/20260607T-multigraph-index-rows-tealspring/multigraph_index_rows.py fnx-loop --mode add_loop --case keyed --loops 10'[0m
+    [2;3mat[0m rch/src/hook.rs:402 [2;3mon[0m ThreadId(1)
+
+Benchmark 1: .venv/bin/python tests/artifacts/perf/20260607T-multigraph-index-rows-tealspring/multigraph_index_rows.py fnx-loop --mode add_loop --case keyed --loops 10
+  Time (mean ± σ):      1.091 s ±  0.073 s    [User: 4.112 s, System: 0.143 s]
+  Range (min … max):    0.988 s …  1.220 s    9 runs
+ 

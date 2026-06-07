@@ -1,0 +1,2 @@
+/data/projects/franken_networkx/python/franken_networkx/__init__.py
+/data/projects/franken_networkx/python/franken_networkx/_fnx.abi3.so
