@@ -50,6 +50,12 @@ TRIAGE = {
         "tie-break order (br-codtrav)"),
     "_raw_lexicographic_topological_sort": ("keep-public-api",
         "called from lexicographic_topological_sort wrapper after preflight"),
+    "_raw_find_cycle": ("keep-public-api",
+        "br-r37-c1-fcdir: find_cycle delegates ALL cases to nx — the "
+        "native directed kernel checks a node's successors for an "
+        "on-stack target before recursing, returning a valid but "
+        "different DFS cycle than nx's edge_dfs (which is the parity "
+        "contract). Undirected already delegated (br-r37-c1-2hrfs)"),
     "_raw_single_source_dijkstra_path_length": ("keep-public-api",
         "wrapper composes from _raw_single_source_dijkstra (more general — "
         "yields dists+paths in one pass)"),

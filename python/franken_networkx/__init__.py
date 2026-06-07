@@ -14794,19 +14794,18 @@ def find_cycle(G, source=None, orientation=None):
     """
     # br-r37-c1-nwkg0: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
-    if (
-        G.is_multigraph()
-        or source is not None
-        or orientation is not None
-        or not G.is_directed()
-    ):
-        return _call_networkx_for_parity(
-            "find_cycle",
-            G,
-            source=source,
-            orientation=orientation,
-        )
-    return _raw_find_cycle(G)
+    # br-r37-c1-fcdir: the native directed kernel checks a node's
+    # successors for an active (on-stack) target before recursing into
+    # the first unvisited one, so it can report a back-edge cycle that
+    # nx's edge_dfs reaches only later — both valid, but nx's specific
+    # DFS cycle is the parity contract. Delegate ALL cases to nx (the
+    # undirected case already did, br-r37-c1-2hrfs).
+    return _call_networkx_for_parity(
+        "find_cycle",
+        G,
+        source=source,
+        orientation=orientation,
+    )
 
 
 def _make_list_of_ints(sequence):
