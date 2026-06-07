@@ -22,3 +22,18 @@ single_source_bellman_ford(+_path_length), multi_source_dijkstra.
 multi_source + one bellman shape diverge in dict KEY ORDER only
 (values+types match) — kernel emission order vs nx push-seq tie-break;
 k9q6q-class treatment needed for the multi-source kernel. Filed.
+
+## 86xx9 part 2: SPFA skip heuristic (root cause traced, fixed)
+nx's _inner_bellman_ford (heuristic=True default) SKIPS a popped
+node's relaxations entirely while ANY of its current predecessors is
+still in the queue, and keeps pred LISTS (strict improvement resets to
+[u]; EXACT-equality appends) feeding that check. Without the skip, the
+kernel fired deferred relaxations early — discovering nodes at stale
+distances nx never materializes (pinned 9-edge repro: 0 discovered at
+15 via 5@11, but nx skips 5@11 because its pred 11 was re-queued; 0
+only materializes later at 13, AFTER 6). Fixed in the shared
+bellman_ford_spfa helper (both graph classes). The
+recent_update/pred_edge negative-cycle ACCELERATOR is deliberately not
+replicated — count==n backstop detects the same cycles (documented
+in-code). 60-trial corpus incl. negative weights + dup-add overwrite
+shapes: sha 8dea3edc.

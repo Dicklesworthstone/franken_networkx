@@ -5854,6 +5854,18 @@ where
     let mut queue = VecDeque::<String>::new();
     let mut in_queue = HashSet::<String>::new();
     let mut enqueue_count = HashMap::<String, usize>::new();
+    // br-r37-c1-86xx9 part 2: nx's SPFA keeps pred LISTS (strict
+    // improvement resets to [u]; EXACT-equality appends u) and SKIPS a
+    // popped node's relaxations entirely while any of its current
+    // predecessors is still queued ("Skip relaxations if any of the
+    // predecessors of u is in the queue"). Both shape the relaxation
+    // schedule and therefore nx's first-discovery dict key order —
+    // without them, deferred relaxations fire early (e.g. discovering a
+    // node at a stale distance nx never materializes). The
+    // recent_update/pred_edge negative-cycle ACCELERATOR is not
+    // replicated; the count==n backstop below detects the same cycles.
+    let mut pred_lists = HashMap::<String, Vec<String>>::new();
+    pred_lists.insert(source.to_owned(), Vec::new());
     queue.push_back(source.to_owned());
     in_queue.insert(source.to_owned());
     // networkx builds the dist/pred dicts in first-discovery (first-relaxation)
@@ -5865,6 +5877,11 @@ where
 
     while let Some(u) = queue.pop_front() {
         in_queue.remove(&u);
+        if let Some(preds) = pred_lists.get(&u)
+            && preds.iter().any(|p| in_queue.contains(p))
+        {
+            continue;
+        }
         let Some(base_distance) = distances.get(&u).copied() else {
             continue;
         };
@@ -5876,6 +5893,11 @@ where
                 None => true,
             };
             if !improves {
+                if let Some(existing) = distances.get(&v)
+                    && candidate == *existing
+                {
+                    pred_lists.entry(v.clone()).or_default().push(u.clone());
+                }
                 continue;
             }
             if distances.insert(v.clone(), candidate).is_none() {
@@ -5883,6 +5905,7 @@ where
                 discovery_order.push(v.clone());
             }
             predecessors.insert(v.clone(), Some(u.clone()));
+            pred_lists.insert(v.clone(), vec![u.clone()]);
             cgse_record_decision(cgse_sink, &v, &u);
             if !in_queue.contains(&v) {
                 let count = enqueue_count.get(&v).copied().unwrap_or(0) + 1;

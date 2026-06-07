@@ -157,3 +157,35 @@ def test_multi_source_dijkstra_directed_finalize_order():
             a = [(repr(k), v, type(v).__name__) for k, v in fnx.multi_source_dijkstra_path_length(gf, srcs).items()]
             b = [(repr(k), v, type(v).__name__) for k, v in nx.multi_source_dijkstra_path_length(gn, srcs).items()]
             assert a == b, (trial, srcs)
+
+
+def test_bellman_spfa_skip_heuristic():
+    """br-r37-c1-86xx9 part 2: nx's SPFA skips a popped node's
+    relaxations while any of its current predecessors is still queued,
+    and keeps pred LISTS (equality appends) feeding that check. The
+    pinned minimal repro: without the skip, node 0 was discovered at a
+    stale distance nx never materializes, scrambling dict key order."""
+    gf, gn = fnx.DiGraph(), nx.DiGraph()
+    for u, v, w in [(3, 11, 1), (5, 0, 4), (3, 10, 4), (10, 11, 1), (2, 6, 1), (3, 1, 3), (11, 5, 4), (1, 2, 4), (3, 11, 7)]:
+        gf.add_edge(u, v, weight=w)
+        gn.add_edge(u, v, weight=w)
+    a = list(dict(fnx.single_source_bellman_ford_path_length(gf, 3)).items())
+    b = list(dict(nx.single_source_bellman_ford_path_length(gn, 3)).items())
+    assert a == b
+
+    rnd = random.Random(13)
+    for trial in range(25):
+        n = rnd.randrange(3, 22)
+        gf, gn = (fnx.DiGraph(), nx.DiGraph()) if trial % 2 else (fnx.Graph(), nx.Graph())
+        for _ in range(rnd.randrange(2, 60)):
+            u, v = rnd.randrange(n), rnd.randrange(n)
+            if u != v:
+                w = rnd.choice([1, 2, 2.5, 3, 7])
+                gf.add_edge(u, v, weight=w)
+                gn.add_edge(u, v, weight=w)
+        if not len(gn):
+            continue
+        s = next(iter(gn))
+        a = [(repr(k), v, type(v).__name__) for k, v in fnx.single_source_bellman_ford_path_length(gf, s).items()]
+        b = [(repr(k), v, type(v).__name__) for k, v in nx.single_source_bellman_ford_path_length(gn, s).items()]
+        assert a == b, trial
