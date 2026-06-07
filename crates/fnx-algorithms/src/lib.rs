@@ -15433,13 +15433,22 @@ pub fn bfs_layers_directed_multi_with_parents(
     digraph: &DiGraph,
     sources: &[&str],
 ) -> Vec<Vec<(String, Option<String>)>> {
+    // br-r37-c1-d58s8 P1 (final port): integer-CSR layered BFS — seed
+    // dedup and layer expansion on index arrays; CSR rows preserve
+    // String-row order so layer membership order is byte-identical.
+    let csr = digraph.csr();
+    let names = digraph.nodes_ordered();
+    let n = names.len();
     let mut layers: Vec<Vec<(String, Option<String>)>> = Vec::new();
-    let mut visited: HashSet<&str> = HashSet::new();
+    let mut visited = vec![false; n];
 
-    let mut current_layer: Vec<(&str, Option<&str>)> = Vec::new();
+    let mut current_layer: Vec<(u32, u32)> = Vec::new(); // (node, parent|MAX)
     for &s in sources {
-        if digraph.has_node(s) && visited.insert(s) {
-            current_layer.push((s, None));
+        if let Some(idx) = digraph.get_node_index(s)
+            && !visited[idx]
+        {
+            visited[idx] = true;
+            current_layer.push((u32::try_from(idx).unwrap_or(u32::MAX), u32::MAX));
         }
     }
 
@@ -15447,16 +15456,24 @@ pub fn bfs_layers_directed_multi_with_parents(
         layers.push(
             current_layer
                 .iter()
-                .map(|&(s, p)| (s.to_owned(), p.map(str::to_owned)))
+                .map(|&(s, p)| {
+                    (
+                        names[s as usize].to_owned(),
+                        if p == u32::MAX {
+                            None
+                        } else {
+                            Some(names[p as usize].to_owned())
+                        },
+                    )
+                })
                 .collect(),
         );
-        let mut next_layer: Vec<(&str, Option<&str>)> = Vec::new();
+        let mut next_layer: Vec<(u32, u32)> = Vec::new();
         for &(node, _) in &current_layer {
-            if let Some(succs) = digraph.successors(node) {
-                for succ in succs {
-                    if visited.insert(succ) {
-                        next_layer.push((succ, Some(node)));
-                    }
+            for &succ in csr.successors(node as usize) {
+                if !visited[succ as usize] {
+                    visited[succ as usize] = true;
+                    next_layer.push((succ, node));
                 }
             }
         }

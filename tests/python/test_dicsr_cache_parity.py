@@ -233,3 +233,27 @@ def test_bellman_csr_negative_weights_and_cycle():
     with _pytest.raises(Exception) as eb:
         nx.single_source_bellman_ford_path_length(gn, 1)
     assert type(ea.value).__name__ == type(eb.value).__name__
+
+
+def test_bfs_layers_directed_csr_port():
+    """P1 final port: layered multi-source BFS on CSR — layer membership
+    order byte-identical; descendants_at_distance rides it."""
+    rnd = random.Random(3)
+    for trial in range(15):
+        n = rnd.randrange(3, 30)
+        gn, gf = nx.DiGraph(), fnx.DiGraph()
+        for _ in range(rnd.randrange(2, 80)):
+            u, v = rnd.randrange(n), rnd.randrange(n)
+            if u != v:
+                gn.add_edge(u, v)
+                gf.add_edge(u, v)
+        if not len(gn):
+            continue
+        s = next(iter(gn))
+        for srcs in ([s], [s, list(gn)[-1]]):
+            a = [[repr(x) for x in layer] for layer in fnx.bfs_layers(gf, srcs)]
+            b = [[repr(x) for x in layer] for layer in nx.bfs_layers(gn, srcs)]
+            assert a == b, (trial, srcs)
+        assert sorted(map(repr, fnx.descendants_at_distance(gf, s, 2))) == sorted(
+            map(repr, nx.descendants_at_distance(gn, s, 2))
+        ), trial

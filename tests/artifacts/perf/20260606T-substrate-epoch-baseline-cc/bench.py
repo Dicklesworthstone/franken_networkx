@@ -43,3 +43,8 @@ json.dump(out, open(sys.argv[1] if len(sys.argv) > 1 else "/dev/stdout", "w"), i
 # P1 landed 2026-06-06: DiGraph::csr() revision-keyed CSR cache + first
 # kernel port (sssp_len directed w/ parents). Loaded-host directional
 # signal: 0.47x vs nx (~2x faster). Quiet-host run still owed.
+# P1 COMPLETE 2026-06-07 (br-r37-c1-d58s8): every directed traversal /
+# shortest-path kernel on integer CSR. Loaded-host directional ratios:
+# sssp 0.47x, bfs_edges 0.62x, dfs_edges 0.51x, dijkstra -40% kernel,
+# bellman 0.67x, bfs_layers 0.28x, bfs/dfs_tree 0.74x/0.72x.
+# Quiet-host formal baseline still owed. P2 next: NodeId edge side-table.
