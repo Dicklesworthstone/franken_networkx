@@ -15681,11 +15681,11 @@ def single_source_dijkstra_path_length(G, source, cutoff=None, weight="weight"):
     # br-r37-c1-ybw1s: nx-shaped TypeError on unhashable source.
     hash(source)
     # br-gauntlet-perf1: ``single_source_dijkstra`` runs the IDENTICAL
-    # delegation gate + edge-weight scans. Pre-gating here ran those O(E)
-    # Python edge scans a SECOND time per call (PERF-1: weighted SSSP was
-    # 80-374x slower than nx, dominated by redundant EdgeView materialization).
-    # Delegate straight through — distances are identical
-    # (nx.single_source_dijkstra(...)[0] == nx.single_source_dijkstra_path_length).
+    # delegation gate + edge-weight scans + cutoff semantics. Delegate
+    # straight through — distances are identical. (br-r37-c1-1l8s0: a
+    # raw-binding fast path was tried and REVERTED — its post-hoc
+    # cutoff filter diverged from nx's in-search cutoff on NaN/inf
+    # edges; the win lives in the kernel index-fetches instead.)
     dists, _ = single_source_dijkstra(G, source, cutoff=cutoff, weight=weight)
     return dists
 

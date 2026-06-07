@@ -330,6 +330,20 @@ impl DiGraph {
         ))
     }
 
+    /// br-r37-c1-1l8s0: direct slice access to the eager succ index row.
+    #[must_use]
+    #[inline]
+    pub fn successors_indices(&self, idx: usize) -> Option<&[usize]> {
+        self.succ_indices.get(idx).map(Vec::as_slice)
+    }
+
+    /// Direct slice access to the eager pred index row.
+    #[must_use]
+    #[inline]
+    pub fn predecessors_indices(&self, idx: usize) -> Option<&[usize]> {
+        self.pred_indices.get(idx).map(Vec::as_slice)
+    }
+
     pub fn has_edge(&self, source: &str, target: &str) -> bool {
         self.edge_pair_key(source, target)
             .is_some_and(|k| self.edges.contains_key(&k))

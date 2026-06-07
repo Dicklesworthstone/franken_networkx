@@ -64,3 +64,16 @@ P1 adj_idx + writers + oracle (one session)
 P2 readers (one session)
 P3 delete String rows + edges-key flip + rekey (one session)
 MultiDiGraph: repeat with succ/pred split + ORIENTED edge keys.
+
+## REVISION (post TealSpring Pass-12 rejection, ed3113a6f)
+The phased rows-first sequencing is WRONG for Multi: TealSpring's
+candidate (index rows + String buckets kept) regressed every scenario
+(ctor 0.088->0.161s, hyperfine 0.66x, cProfile 4.4->6.7s). Multi's
+per-edge work funnels through the BUCKET table (key resolution per
+edge); index rows add dual-write cost without removing the bucket tax,
+and Multi's readers are bucket-centric so P2 reader wins don't offset.
+EITHER flip rows+buckets ATOMICALLY (readers migrated same-arc) OR the
+batch-local constructor kernel route — which TealSpring has claimed
+(progress file Pass 12 next target: intern endpoints once, commit
+rows+buckets without per-edge probes, target keyed ctor <=1.50x).
+LANE YIELDED to TealSpring; cc pivots to 1l8s0 (dijkstra residual).

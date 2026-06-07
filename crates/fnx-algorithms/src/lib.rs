@@ -1376,7 +1376,14 @@ pub fn multi_source_dijkstra(
             for &v_idx in neighbors {
                 edges_scanned += 1;
                 let v_name = ordered_nodes[v_idx];
-                let edge_weight = edge_weight_or_default(graph, u_name, v_name, weight_attr);
+                // br-r37-c1-1l8s0: index-keyed fetch (accessor audit —
+                // the per-relaxation name lookup paid 2 node probes).
+                let edge_weight = graph
+                    .edge_attrs_by_indices(u_idx, v_idx)
+                    .and_then(|attrs| attrs.get(weight_attr))
+                    .and_then(|val| val.as_f64())
+                    .filter(|value| value.is_finite() && *value >= 0.0)
+                    .unwrap_or(1.0);
                 let next_dist = d + edge_weight;
 
                 if next_dist < distances[v_idx] - DISTANCE_COMPARISON_EPSILON {
@@ -1496,16 +1503,22 @@ pub fn multi_source_dijkstra_directed(
             finalize_order.push(u_idx);
         }
 
-        if let Some(successors) = digraph.successors_iter(ordered_nodes[u_idx]) {
-            for v_name in successors {
+        {
+            // br-r37-c1-1l8s0: walk the eager succ index row directly —
+            // no successors_iter name iteration, no get_node_index per
+            // edge, index-keyed weight fetch.
+            let row: Vec<usize> = digraph
+                .successors_indices(u_idx)
+                .map(<[usize]>::to_vec)
+                .unwrap_or_default();
+            for v_idx in row {
                 edges_scanned += 1;
-                let v_idx = digraph.get_node_index(v_name).unwrap();
-                let edge_weight = digraph_edge_weight_or_default(
-                    digraph,
-                    ordered_nodes[u_idx],
-                    v_name,
-                    weight_attr,
-                );
+                let edge_weight = digraph
+                    .edge_attrs_by_indices(u_idx, v_idx)
+                    .and_then(|attrs| attrs.get(weight_attr))
+                    .and_then(|val| val.as_f64())
+                    .filter(|value| value.is_finite() && *value >= 0.0)
+                    .unwrap_or(1.0);
                 let next_dist = d + edge_weight;
 
                 if next_dist < distances[v_idx] - DISTANCE_COMPARISON_EPSILON {
