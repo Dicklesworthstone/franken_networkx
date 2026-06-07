@@ -75,3 +75,31 @@ def test_bfs_edges_directed_csr_port():
                 (repr(u), repr(v)) for u, v in nx.bfs_edges(gn, s, **kw)
             ], (trial, kw)
         assert [repr(x) for x in fnx.bfs_tree(gf, s)] == [repr(x) for x in nx.bfs_tree(gn, s)], trial
+
+
+def test_dfs_edges_directed_csr_port():
+    """P1(c): dfs_edges_directed on CSR — reverse-push stack discipline
+    preserved; consumers (tree/preorder/postorder/preds/succs)
+    byte-identical."""
+    rnd = random.Random(3)
+    for trial in range(15):
+        n = rnd.randrange(3, 30)
+        gn, gf = nx.DiGraph(), fnx.DiGraph()
+        for _ in range(rnd.randrange(2, 80)):
+            u, v = rnd.randrange(n), rnd.randrange(n)
+            if u != v:
+                gn.add_edge(u, v)
+                gf.add_edge(u, v)
+        if not len(gn):
+            continue
+        s = next(iter(gn))
+        for kw in ({}, {"depth_limit": 2}, {"depth_limit": 1}):
+            assert [(repr(u), repr(v)) for u, v in fnx.dfs_edges(gf, s, **kw)] == [
+                (repr(u), repr(v)) for u, v in nx.dfs_edges(gn, s, **kw)
+            ], (trial, kw)
+        assert [repr(x) for x in fnx.dfs_preorder_nodes(gf, s)] == [
+            repr(x) for x in nx.dfs_preorder_nodes(gn, s)
+        ], trial
+        assert [repr(x) for x in fnx.dfs_postorder_nodes(gf, s)] == [
+            repr(x) for x in nx.dfs_postorder_nodes(gn, s)
+        ], trial

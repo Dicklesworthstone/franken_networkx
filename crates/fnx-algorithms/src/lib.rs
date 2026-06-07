@@ -14751,13 +14751,15 @@ pub fn dfs_edges_directed(
     source: &str,
     depth_limit: Option<usize>,
 ) -> Vec<(String, String)> {
+    // br-r37-c1-d58s8 P1: integer-CSR DFS via DiGraph::csr() — same
+    // reverse-push stack discipline, byte-identical edge sequence, no
+    // per-visit String hashing.
     let mut cgse_sink = cgse_begin(CgseReferenceAlgorithm::Dfs);
 
     let max_depth = depth_limit.unwrap_or(usize::MAX);
-    let mut visited: HashSet<&str> = HashSet::new();
     let mut edges: Vec<(String, String)> = Vec::new();
 
-    if !digraph.has_node(source) {
+    let Some(source_idx) = digraph.get_node_index(source) else {
         cgse_publish(
             CgseReferenceAlgorithm::Dfs,
             digraph.node_count(),
@@ -14765,36 +14767,36 @@ pub fn dfs_edges_directed(
             cgse_sink,
         );
         return edges;
-    }
-
-    visited.insert(source);
-    let mut stack: Vec<(Option<&str>, &str, usize)> = Vec::new();
+    };
+    let csr = digraph.csr();
+    let names = digraph.nodes_ordered();
+    let mut visited = vec![false; names.len()];
+    visited[source_idx] = true;
+    let mut stack: Vec<(u32, u32, usize)> = Vec::new();
 
     // NetworkX always visits immediate successors at depth 1, regardless of depth_limit.
     // The depth_limit check only affects whether we recurse beyond those successors.
-    if let Some(succs) = digraph.successors(source) {
-        for succ in succs.into_iter().rev() {
-            if !visited.contains(succ) {
-                stack.push((Some(source), succ, 1));
-            }
+    let src = u32::try_from(source_idx).unwrap_or(u32::MAX);
+    for &succ in csr.successors(source_idx).iter().rev() {
+        if !visited[succ as usize] {
+            stack.push((src, succ, 1));
         }
     }
 
     while let Some((parent, node, depth)) = stack.pop() {
-        if visited.contains(node) {
+        if visited[node as usize] {
             continue;
         }
-        visited.insert(node);
-        if let Some(p) = parent {
-            cgse_record_decision(&mut cgse_sink, node, p);
-            edges.push((p.to_owned(), node.to_owned()));
-        }
-        if depth < max_depth
-            && let Some(succs) = digraph.successors(node)
-        {
-            for succ in succs.into_iter().rev() {
-                if !visited.contains(succ) {
-                    stack.push((Some(node), succ, depth + 1));
+        visited[node as usize] = true;
+        cgse_record_decision(&mut cgse_sink, names[node as usize], names[parent as usize]);
+        edges.push((
+            names[parent as usize].to_owned(),
+            names[node as usize].to_owned(),
+        ));
+        if depth < max_depth {
+            for &succ in csr.successors(node as usize).iter().rev() {
+                if !visited[succ as usize] {
+                    stack.push((node, succ, depth + 1));
                 }
             }
         }
