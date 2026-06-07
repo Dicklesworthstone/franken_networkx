@@ -1,0 +1,38 @@
+{
+  "results": [
+    {
+      "command": "PYTHONPATH=/data/projects/franken_networkx/python:/data/projects/franken_networkx python3 tests/artifacts/perf/20260607T-ctor-digraph-bulk-absorb-tealspring/digraph_ctor_bulk_absorb.py fnx-loop-plain --loops 40",
+      "mean": 0.9495698945400003,
+      "stddev": 0.11170565204313451,
+      "median": 0.9064138946400001,
+      "user": 3.6418180199999997,
+      "system": 0.16671259999999996,
+      "min": 0.8611958886400001,
+      "max": 1.2309533296400001,
+      "times": [
+        1.0400249376400001,
+        1.2309533296400001,
+        0.8877668726400001,
+        0.8611958886400001,
+        0.9025873996400001,
+        0.9378407316400001,
+        0.90144379364,
+        0.8656844346400001,
+        0.95796116764,
+        0.9102403896400001
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

@@ -1,0 +1,37 @@
+         1799892 function calls in 3.299 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.000    0.000    3.299    3.299 /data/projects/franken_networkx/tests/artifacts/perf/20260607T-ctor-digraph-bulk-absorb-tealspring/digraph_ctor_bulk_absorb.py:199(profile_body)
+      160    2.998    0.019    3.256    0.020 /data/projects/franken_networkx/tests/artifacts/perf/20260607T-ctor-digraph-bulk-absorb-tealspring/digraph_ctor_bulk_absorb.py:77(build_ctor)
+      160    0.043    0.000    0.167    0.001 /data/projects/franken_networkx/python/franken_networkx/__init__.py:3265(__init__)
+   240160    0.080    0.000    0.101    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:45905(__iter__)
+   960160    0.092    0.000    0.092    0.000 /data/projects/franken_networkx/tests/artifacts/perf/20260607T-ctor-digraph-bulk-absorb-tealspring/digraph_ctor_bulk_absorb.py:50(generator_from)
+        2    0.010    0.005    0.036    0.018 /data/projects/franken_networkx/tests/artifacts/perf/20260607T-ctor-digraph-bulk-absorb-tealspring/digraph_ctor_bulk_absorb.py:22(plain_edges)
+        1    0.006    0.006    0.025    0.025 /data/projects/franken_networkx/tests/artifacts/perf/20260607T-ctor-digraph-bulk-absorb-tealspring/digraph_ctor_bulk_absorb.py:33(attr_edges)
+    18012    0.008    0.000    0.023    0.000 /usr/lib/python3.13/random.py:295(randrange)
+   249648    0.023    0.000    0.023    0.000 {built-in method builtins.len}
+   240000    0.018    0.000    0.018    0.000 {built-in method builtins.hash}
+    18012    0.008    0.000    0.014    0.000 /usr/lib/python3.13/random.py:245(_randbelow_with_getrandbits)
+    24541    0.004    0.000    0.004    0.000 {method 'getrandbits' of '_random.Random' objects}
+    18012    0.002    0.000    0.002    0.000 {method 'bit_length' of 'int' objects}
+      160    0.002    0.000    0.002    0.000 {built-in method builtins.locals}
+    18012    0.002    0.000    0.002    0.000 {built-in method _operator.index}
+      160    0.001    0.000    0.002    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:31777(nodes)
+     9000    0.001    0.000    0.001    0.000 {method 'append' of 'list' objects}
+      804    0.001    0.000    0.001    0.000 {built-in method builtins.isinstance}
+      160    0.000    0.000    0.001    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:943(wrapped)
+      960    0.000    0.000    0.000    0.000 {method 'startswith' of 'str' objects}
+      320    0.000    0.000    0.000    0.000 {built-in method builtins.vars}
+      160    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:31344(_private_override)
+      480    0.000    0.000    0.000    0.000 {method 'get' of 'dict' objects}
+      480    0.000    0.000    0.000    0.000 {built-in method builtins.hasattr}
+      320    0.000    0.000    0.000    0.000 {method 'pop' of 'dict' objects}
+        2    0.000    0.000    0.000    0.000 /usr/lib/python3.13/random.py:119(__init__)
+        2    0.000    0.000    0.000    0.000 /usr/lib/python3.13/random.py:128(seed)
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+        2    0.000    0.000    0.000    0.000 {function Random.seed at 0x7c9aebc1b420}
+
+
+
