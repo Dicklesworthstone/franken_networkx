@@ -135,7 +135,12 @@ pub struct Graph {
     /// DiGraph::all_int_cache).
     all_int_cache: std::sync::Arc<std::sync::RwLock<Option<(u64, String, bool)>>>,
     edge_index_endpoints: Vec<(usize, usize)>,
-    edges: IndexMap<EdgeKey, AttrMap>,
+    // br-r37-c1-d58s8 edges-map flip: keyed by the INDEX-CANONICAL
+    // (min_idx, max_idx) node pair — zero String allocs/hashes per
+    // insert (the profiled remaining store tax). Node removal REKEYS
+    // via the same remap as the row repair. edge_index_endpoints keeps
+    // the string-canonical orientation for snapshot derivation.
+    edges: IndexMap<(usize, usize), AttrMap>,
     runtime_policy: RuntimePolicy,
 }
 
@@ -205,7 +210,7 @@ impl Graph {
                 graph.edge_index_endpoints.push((left_index, right_index));
                 graph
                     .edges
-                    .insert(EdgeKey::new(left, right), AttrMap::new());
+                    .insert(Graph::canon_pair(left_index, right_index), AttrMap::new());
             }
         }
 
@@ -255,11 +260,12 @@ impl Graph {
         }
         fn add_grid_edge(graph: &mut Graph, u: String, v: String, u_idx: usize, v_idx: usize) {
             // add_edge appends v to row[u] first, then u to row[v].
-            let ek = EdgeKey::new(&u, &v);
             graph.adj_indices[u_idx].push(v_idx);
             graph.adj_indices[v_idx].push(u_idx);
             graph.edge_index_endpoints.push((u_idx, v_idx));
-            graph.edges.insert(ek, AttrMap::new());
+            graph
+                .edges
+                .insert(Graph::canon_pair(u_idx, v_idx), AttrMap::new());
         }
         // Phase 1: for (pi, i) in pairwise(rows), for j in cols.
         for i in 1..m {
@@ -501,7 +507,7 @@ impl Graph {
             graph.edge_index_endpoints.push((left, right));
             graph
                 .edges
-                .insert(EdgeKey::new(&labels[left], &labels[right]), AttrMap::new());
+                .insert(Graph::canon_pair(left, right), AttrMap::new());
         }
 
         graph.record_decision(
@@ -655,7 +661,7 @@ impl Graph {
                         .edge_index_endpoints
                         .push((node_idx[s_idx], node_idx[t_idx]));
                     graph.edges.insert(
-                        EdgeKey::new(&canonicals[s_idx], &canonicals[t_idx]),
+                        Graph::canon_pair(node_idx[s_idx], node_idx[t_idx]),
                         AttrMap::new(),
                     );
                 }
@@ -699,9 +705,24 @@ impl Graph {
         self.nodes.contains_key(node)
     }
 
+    /// br-r37-c1-d58s8 edges-map flip: resolve a String pair to the
+    /// index-canonical (min, max) key. None if either node is absent.
+    #[inline]
+    fn edge_pair_key(&self, left: &str, right: &str) -> Option<(usize, usize)> {
+        let l = self.nodes.get_index_of(left)?;
+        let r = self.nodes.get_index_of(right)?;
+        Some(if l <= r { (l, r) } else { (r, l) })
+    }
+
+    #[inline]
+    fn canon_pair(l: usize, r: usize) -> (usize, usize) {
+        if l <= r { (l, r) } else { (r, l) }
+    }
+
     #[must_use]
     pub fn has_edge(&self, left: &str, right: &str) -> bool {
-        self.edges.contains_key(&EdgeKeyRef::new(left, right))
+        self.edge_pair_key(left, right)
+            .is_some_and(|k| self.edges.contains_key(&k))
     }
 
     #[must_use]
@@ -892,7 +913,7 @@ impl Graph {
 
     #[must_use]
     pub fn edge_attrs(&self, left: &str, right: &str) -> Option<&AttrMap> {
-        self.edges.get(&EdgeKeyRef::new(left, right))
+        self.edges.get(&self.edge_pair_key(left, right)?)
     }
 
     #[must_use]
@@ -1145,7 +1166,7 @@ impl Graph {
                     }
                 }
             };
-            let edge_key = EdgeKeyRef::new(&left, &right);
+            let edge_key = Self::canon_pair(left_idx, right_idx);
             if self.edges.contains_key(&edge_key) {
                 continue;
             }
@@ -1154,8 +1175,7 @@ impl Graph {
             } else {
                 self.edge_index_endpoints.push((right_idx, left_idx));
             }
-            self.edges
-                .insert(EdgeKey::new(&left, &right), AttrMap::new());
+            self.edges.insert(edge_key, AttrMap::new());
 
             self.adj_indices[left_idx].push(right_idx);
             if left_idx != right_idx {
@@ -1220,7 +1240,7 @@ impl Graph {
                     }
                 }
             };
-            let edge_key = EdgeKeyRef::new(&left, &right);
+            let edge_key = Self::canon_pair(left_idx, right_idx);
             if let Some(existing) = self.edges.get_mut(&edge_key) {
                 // Duplicate edge (pre-existing or earlier in this batch):
                 // merge attrs, matching add_edge_with_attrs' `extend`.
@@ -1239,7 +1259,7 @@ impl Graph {
             } else {
                 self.edge_index_endpoints.push((right_idx, left_idx));
             }
-            self.edges.insert(EdgeKey::new(&left, &right), attrs);
+            self.edges.insert(edge_key, attrs);
 
             self.adj_indices[left_idx].push(right_idx);
             if left_idx != right_idx {
@@ -1330,7 +1350,9 @@ impl Graph {
             right_autocreated = true;
         }
 
-        let edge_key = EdgeKey::new(&left, &right);
+        let left_key_idx = self.nodes.get_index_of(&left).expect("autocreated above");
+        let right_key_idx = self.nodes.get_index_of(&right).expect("autocreated above");
+        let edge_key = Self::canon_pair(left_key_idx, right_key_idx);
         let self_loop = left == right;
         let new_edge = !self.edges.contains_key(&edge_key);
         let mut changed = new_edge;
@@ -1436,7 +1458,9 @@ impl Graph {
     /// `add_edge_with_attrs` which extends, this replaces. Returns
     /// `true` if the edge existed and was updated, `false` otherwise.
     pub fn replace_edge_attrs(&mut self, left: &str, right: &str, attrs: AttrMap) -> bool {
-        let edge_key = EdgeKey::new(left, right);
+        let Some(edge_key) = self.edge_pair_key(left, right) else {
+            return false;
+        };
         if let Some(slot) = self.edges.get_mut(&edge_key) {
             if *slot != attrs {
                 *slot = attrs;
@@ -1470,7 +1494,10 @@ impl Graph {
         // `rebuild_edge_index_endpoints()`. Bit-identical result (the parallel
         // vector ends up exactly as a full rebuild would leave it), but turns a
         // remove-heavy build like watts_strogatz from O(|E|^2) into O(|E|·shift).
-        let removed = self.edges.shift_remove_full(&EdgeKeyRef::new(left, right));
+        let Some(pair) = self.edge_pair_key(left, right) else {
+            return false;
+        };
+        let removed = self.edges.shift_remove_full(&pair);
         if let Some((edge_pos, _, _)) = removed {
             // br-r37-c1-d58s8 P2(c) slice 2: integer rows are the single
             // row store — drop the pair entries there.
@@ -1560,6 +1587,20 @@ impl Graph {
                 *right -= 1;
             }
         }
+        // br-r37-c1-d58s8 edges-map flip: REKEY surviving edges (integer
+        // rehash; order preserved by the in-order rebuild).
+        self.edges = std::mem::take(&mut self.edges)
+            .into_iter()
+            .map(|((l, r), attrs)| {
+                (
+                    (
+                        if l > idx { l - 1 } else { l },
+                        if r > idx { r - 1 } else { r },
+                    ),
+                    attrs,
+                )
+            })
+            .collect();
 
         self.revision = self.revision.saturating_add(1);
         true
@@ -1622,6 +1663,11 @@ impl Graph {
             endpoints.0 = remap[endpoints.0];
             endpoints.1 = remap[endpoints.1];
         }
+        // br-r37-c1-d58s8 edges-map flip: rekey survivors through the remap.
+        self.edges = std::mem::take(&mut self.edges)
+            .into_iter()
+            .map(|((l, r), attrs)| ((remap[l], remap[r]), attrs))
+            .collect();
         let old_rows = std::mem::take(&mut self.adj_indices);
         self.adj_indices = old_rows
             .into_iter()
@@ -1647,19 +1693,6 @@ impl Graph {
     /// removal since indices shift.
     #[allow(dead_code)]
 
-    #[allow(dead_code)]
-    fn rebuild_edge_index_endpoints(&mut self) {
-        self.edge_index_endpoints.clear();
-        self.edge_index_endpoints.reserve(self.edges.len());
-        for key in self.edges.keys() {
-            if let (Some(left_idx), Some(right_idx)) = (
-                self.nodes.get_index_of(&key.left),
-                self.nodes.get_index_of(&key.right),
-            ) {
-                self.edge_index_endpoints.push((left_idx, right_idx));
-            }
-        }
-    }
 
     /// br-r37-c1-d58s8: revision-keyed memo of "every edge's `attr`
     /// value is an integer (missing = default 1 = int)".
@@ -1730,7 +1763,6 @@ impl Graph {
         }
         let mut ordered = Vec::with_capacity(self.edges.len());
         let mut seen_pairs = HashSet::<(usize, usize)>::with_capacity(self.edges.len());
-        let mut seen = HashSet::<EdgeKeyRef>::with_capacity(self.edges.len());
         for (u, row) in self.adj_indices.iter().enumerate() {
             for &v in row {
                 let pair = if u <= v { (u, v) } else { (v, u) };
@@ -1740,20 +1772,17 @@ impl Graph {
                 if let Some(attrs) = pair_attrs.get(&pair) {
                     let left = self.nodes.get_index(u).expect("valid node index").0;
                     let right = self.nodes.get_index(v).expect("valid node index").0;
-                    seen.insert(EdgeKeyRef::new(left, right));
                     ordered.push((left.as_str(), right.as_str(), *attrs));
                 }
             }
         }
 
         if ordered.len() < self.edges.len() {
-            for (key, attrs) in &self.edges {
-                let rkey = EdgeKeyRef {
-                    left: &key.left,
-                    right: &key.right,
-                };
-                if seen.insert(rkey) {
-                    ordered.push((&key.left, &key.right, attrs));
+            for (&(l, r), attrs) in &self.edges {
+                if seen_pairs.insert((l, r)) {
+                    let left = self.nodes.get_index(l).expect("valid index").0;
+                    let right = self.nodes.get_index(r).expect("valid index").0;
+                    ordered.push((left.as_str(), right.as_str(), attrs));
                 }
             }
         }
@@ -1763,16 +1792,32 @@ impl Graph {
 
     #[must_use]
     pub fn edges_storage_order_borrowed(&self) -> Vec<(&str, &str, &AttrMap)> {
-        self.edges
+        // orientation from edge_index_endpoints (string-canonical, kept
+        // element-parallel with edges).
+        self.edge_index_endpoints
             .iter()
-            .map(|(key, attrs)| (key.left.as_str(), key.right.as_str(), attrs))
+            .zip(self.edges.values())
+            .map(|(&(l, r), attrs)| {
+                (
+                    self.nodes.get_index(l).expect("valid index").0.as_str(),
+                    self.nodes.get_index(r).expect("valid index").0.as_str(),
+                    attrs,
+                )
+            })
             .collect()
     }
 
     pub fn edges_storage_order_iter(&self) -> impl Iterator<Item = (&str, &str, &AttrMap)> + '_ {
-        self.edges
+        self.edge_index_endpoints
             .iter()
-            .map(|(key, attrs)| (key.left.as_str(), key.right.as_str(), attrs))
+            .zip(self.edges.values())
+            .map(|(&(l, r), attrs)| {
+                (
+                    self.nodes.get_index(l).expect("valid index").0.as_str(),
+                    self.nodes.get_index(r).expect("valid index").0.as_str(),
+                    attrs,
+                )
+            })
     }
 
     #[must_use]

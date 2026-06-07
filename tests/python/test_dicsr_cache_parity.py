@@ -425,3 +425,39 @@ def test_digraph_eager_index_rows_oracle():
         assert pickle.loads(pickle.dumps(gf))._debug_index_rows_consistent(), trial
         assert gf.copy()._debug_index_rows_consistent(), trial
         assert gf.reverse(copy=True)._debug_index_rows_consistent(), trial
+
+
+def test_edges_map_index_keys_rekey_on_removal():
+    """d58s8 edges-map flip: Graph.edges keyed by index-canonical
+    (min,max) pairs — node removal REKEYS survivors. has_edge/attrs/
+    weighted-algo correctness through heavy renumbering."""
+    import networkx as _nx
+
+    rnd = random.Random(61)
+    for trial in range(12):
+        n = rnd.randrange(4, 25)
+        gf, gn = fnx.Graph(), _nx.Graph()
+        for _ in range(rnd.randrange(10, 90)):
+            r = rnd.random()
+            if r < 0.5:
+                u, v = rnd.randrange(n), rnd.randrange(n)
+                gf.add_edge(u, v, w=u + v)
+                gn.add_edge(u, v, w=u + v)
+            elif r < 0.7 and len(gn) > 2:
+                x = rnd.choice(list(gn))
+                gf.remove_node(x)
+                gn.remove_node(x)
+            elif r < 0.85:
+                batch = [rnd.randrange(n) for _ in range(3)]
+                gf.remove_nodes_from(batch)
+                gn.remove_nodes_from(batch)
+            elif gn.number_of_edges() > 1:
+                e = rnd.choice(list(gn.edges()))
+                gf.remove_edge(*e)
+                gn.remove_edge(*e)
+        assert [(repr(u), repr(v), dict(d)) for u, v, d in gf.edges(data=True)] == [
+            (repr(u), repr(v), dict(d)) for u, v, d in gn.edges(data=True)
+        ], trial
+        for u in list(gn)[:5]:
+            for v in list(gn)[:5]:
+                assert gf.has_edge(u, v) == gn.has_edge(u, v), (trial, u, v)
