@@ -5877,7 +5877,6 @@ fn weighted_paths_result(
 /// `node_count` times implies a reachable negative cycle. Returns
 /// `(negative_cycle_detected, queue_peak)`; `distances` and `predecessors` are
 /// filled in place. (br-r37-c1-wloxg)
-#[allow(clippy::too_many_arguments)]
 /// br-r37-c1-d58s8 P1: integer-CSR SPFA core. Replicates nx's
 /// _inner_bellman_ford exactly — FIFO deque, pred LISTS (strict
 /// improvement resets, EXACT-equality appends), and the pred-in-queue
@@ -5918,10 +5917,7 @@ fn bellman_ford_spfa_csr(
         in_queue[u as usize] = false;
         // nx SPFA skip heuristic: defer u's relaxations while any of its
         // current predecessors is still queued.
-        if pred_lists[u as usize]
-            .iter()
-            .any(|&p| in_queue[p as usize])
-        {
+        if pred_lists[u as usize].iter().any(|&p| in_queue[p as usize]) {
             continue;
         }
         let base = dist[u as usize];
@@ -5983,7 +5979,6 @@ fn bellman_ford_spfa_csr(
 
     (negative_cycle, queue_peak)
 }
-
 
 fn relax_weighted_edge(
     from: &str,
@@ -27054,11 +27049,17 @@ pub struct StoerWagnerResult {
     pub partition: (Vec<String>, Vec<String>),
 }
 
+pub type StoerWagnerNxTrace = (
+    f64,
+    Vec<(String, String)>,
+    usize,
+    Vec<(String, Option<String>)>,
+);
+
 /// Compute a minimum cut using the Stoer-Wagner algorithm.
 ///
 /// Returns the cut value and a partition (S, T) of the node set.
 /// The graph must be connected and undirected with non-negative edge weights.
-#[must_use]
 /// br-r37-c1-35oum: nx-exact Stoer-Wagner phases. Mirrors
 /// networkx.algorithms.connectivity.stoerwagner line by line: working
 /// copy built from the u-major edge stream, per-phase
@@ -27073,15 +27074,7 @@ pub struct StoerWagnerResult {
 pub fn stoer_wagner_nx(
     graph: &Graph,
     weight_attr: &str,
-) -> Result<
-    (
-        f64,
-        Vec<(String, String)>,
-        usize,
-        Vec<(String, Option<String>)>,
-    ),
-    &'static str,
-> {
+) -> Result<StoerWagnerNxTrace, &'static str> {
     // --- working copy: u-major first-touch edge stream (nx G.edges(data=True)) ---
     let mut pair_weight: HashMap<(usize, usize), f64> = HashMap::new();
     {
@@ -27189,8 +27182,7 @@ pub fn stoer_wagner_nx(
         }
         fn pop(&mut self) -> (u32, f64) {
             loop {
-                let std::cmp::Reverse((val, _, key)) =
-                    self.heap.pop().expect("heap non-empty");
+                let std::cmp::Reverse((val, _, key)) = self.heap.pop().expect("heap non-empty");
                 if self.dict.get(&key) == Some(&val.0) {
                     self.dict.remove(&key);
                     return (key, val.0);
@@ -27199,8 +27191,7 @@ pub fn stoer_wagner_nx(
         }
         fn min(&mut self) -> (u32, f64) {
             loop {
-                let &std::cmp::Reverse((val, _, key)) =
-                    self.heap.peek().expect("heap non-empty");
+                let &std::cmp::Reverse((val, _, key)) = self.heap.peek().expect("heap non-empty");
                 if self.dict.get(&key) == Some(&val.0) {
                     return (key, val.0);
                 }

@@ -109,6 +109,9 @@ impl DiCsr {
     }
 }
 
+type DiCsrCache = std::sync::Arc<std::sync::RwLock<Option<(u64, std::sync::Arc<DiCsr>)>>>;
+type DiAllIntCache = std::sync::Arc<std::sync::RwLock<Option<(u64, String, bool)>>>;
+
 #[derive(Debug, Clone)]
 pub struct DiGraph {
     mode: CompatibilityMode,
@@ -126,11 +129,11 @@ pub struct DiGraph {
     /// renumbering hazard cannot apply); shared across clones safely
     /// because entries are revision-checked before use. Mutations
     /// invalidate implicitly by bumping `revision`.
-    csr_cache: std::sync::Arc<std::sync::RwLock<Option<(u64, std::sync::Arc<DiCsr>)>>>,
+    csr_cache: DiCsrCache,
     /// br-r37-c1-d58s8: revision-keyed all-int weights memo (the
     /// shortest-path int-coercion pre-scan walked every edge attr per
     /// call). Single entry keyed by (revision, attr).
-    all_int_cache: std::sync::Arc<std::sync::RwLock<Option<(u64, String, bool)>>>,
+    all_int_cache: DiAllIntCache,
 }
 
 impl DiGraph {
@@ -250,9 +253,10 @@ impl DiGraph {
         {
             return *v;
         }
-        let v = self.edges.values().all(|attrs| {
-            attrs.get(attr).is_none_or(fnx_runtime::CgseValue::is_int)
-        });
+        let v = self
+            .edges
+            .values()
+            .all(|attrs| attrs.get(attr).is_none_or(fnx_runtime::CgseValue::is_int));
         if let Ok(mut guard) = self.all_int_cache.write() {
             *guard = Some((self.revision, attr.to_owned(), v));
         }

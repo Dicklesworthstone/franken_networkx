@@ -5678,7 +5678,7 @@ impl PyGraph {
         merged_graph_attrs.update(self.graph_attrs.bind(py).as_mapping())?;
         merged_graph_attrs.update(other.graph_attrs.bind(py).as_mapping())?;
         g.graph_attrs = merged_graph_attrs.unbind();
-        for (part_idx, part) in [&*self, &*other].into_iter().enumerate() {
+        for (part_idx, part) in [self, &*other].into_iter().enumerate() {
             let nodes = part.inner.nodes_ordered();
             // node index map: lets the per-walk edge dedup run on (usize,
             // usize) pairs instead of allocating String pairs per edge.
@@ -5791,7 +5791,7 @@ impl PyGraph {
         merged_graph_attrs.update(other.graph_attrs.bind(py).as_mapping())?;
         g.graph_attrs = merged_graph_attrs.unbind();
         let n1 = self.inner.node_count();
-        for (part, offset) in [(&*self, 0usize), (&*other, n1)] {
+        for (part, offset) in [(self, 0usize), (&*other, n1)] {
             let nodes = part.inner.nodes_ordered();
             let index_of: std::collections::HashMap<&str, usize> = nodes
                 .iter()

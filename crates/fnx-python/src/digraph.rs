@@ -2011,7 +2011,8 @@ impl PyMultiDiGraph {
                 }
             }
         }
-        ug.inner.extend_keyed_edges_with_attrs_unrecorded(edge_batch);
+        ug.inner
+            .extend_keyed_edges_with_attrs_unrecorded(edge_batch);
         Ok(ug)
     }
 
@@ -3756,18 +3757,16 @@ impl PyDiGraph {
                             if tuple_len == 2 || dict3.is_some() {
                                 let u = tuple.get_item(0)?;
                                 let v = tuple.get_item(1)?;
-                                if let (Ok(u_canonical), Ok(v_canonical)) = (
-                                    node_key_to_string(py, &u),
-                                    node_key_to_string(py, &v),
-                                ) {
+                                if let (Ok(u_canonical), Ok(v_canonical)) =
+                                    (node_key_to_string(py, &u), node_key_to_string(py, &v))
+                                {
                                     g.node_key_map
                                         .entry(u_canonical.clone())
                                         .or_insert_with(|| u.clone().unbind());
                                     g.node_key_map
                                         .entry(v_canonical.clone())
                                         .or_insert_with(|| v.clone().unbind());
-                                    let cell =
-                                        (u_canonical.clone(), v_canonical.clone());
+                                    let cell = (u_canonical.clone(), v_canonical.clone());
                                     if !g.inner.has_edge(&u_canonical, &v_canonical)
                                         && !pending_cells.contains(&cell)
                                     {
@@ -3785,8 +3784,7 @@ impl PyDiGraph {
                                         && !d.is_empty()
                                     {
                                         rust_attrs = py_dict_to_attr_map(d)?;
-                                        let ek =
-                                            Self::edge_key(&u_canonical, &v_canonical);
+                                        let ek = Self::edge_key(&u_canonical, &v_canonical);
                                         g.edge_py_attrs
                                             .entry(ek)
                                             .or_insert_with(|| PyDict::new(py).unbind())
@@ -3914,9 +3912,13 @@ impl PyDiGraph {
             None => Ok(self.inner.edge_count() as f64),
             Some(attr) => {
                 let mut total = 0.0_f64;
-                for dict in self.edge_py_attrs.values() {
-                    let bound = dict.bind(py);
-                    match bound.get_item(attr)? {
+                for (source, target, _) in self.inner.edges_ordered_borrowed() {
+                    let ek = Self::edge_key(source, target);
+                    match self
+                        .edge_py_attrs
+                        .get(&ek)
+                        .and_then(|dict| dict.bind(py).get_item(attr).ok().flatten())
+                    {
                         Some(val) => {
                             total += val.extract::<f64>()?;
                         }
@@ -5010,7 +5012,7 @@ impl PyDiGraph {
     /// Python wrapper), reusing the live ``edge_py_attrs`` dict per edge so the
     /// yielded data dict is identity-shared with ``G[u][v]`` (nx contract).
     /// Avoids the per-edge ``succ[source].items()`` AtlasView walk (~58x).
-    fn _native_edges_with_data(&self, py: Python<'_>) -> PyResult<PyObject> {
+    fn _native_edges_with_data(&mut self, py: Python<'_>) -> PyResult<PyObject> {
         // br-r37-c1-deg-data: we hand back the LIVE edge attr dicts, so a caller
         // mutating ``(u, v, d)``'s ``d`` (e.g. d['weight'] = x) edits
         // edge_py_attrs in place. Mark edges dirty so the next weighted-kernel
@@ -5026,8 +5028,9 @@ impl PyDiGraph {
             let ek = Self::edge_key(u, v);
             let attrs = self
                 .edge_py_attrs
-                .get(&ek)
-                .map_or_else(|| PyDict::new(py).unbind(), |d| d.clone_ref(py));
+                .entry(ek)
+                .or_insert_with(|| PyDict::new(py).unbind())
+                .clone_ref(py);
             items.push(tuple_object(py, &[py_u, py_v, attrs.into_any()])?);
         }
         Ok(items.into_pyobject(py)?.into_any().unbind())
@@ -5087,7 +5090,7 @@ impl PyDiGraph {
     /// br-r37-c1-inedges: in_edges(data=True). Reuses the live edge attr dict
     /// per edge (identity-shared with G[s][t]); marks edges dirty so a weight
     /// mutation through the yielded dict re-syncs to the weighted kernel.
-    fn _native_in_edges_with_data(&self, py: Python<'_>) -> PyResult<PyObject> {
+    fn _native_in_edges_with_data(&mut self, py: Python<'_>) -> PyResult<PyObject> {
         if self.inner.edge_count() > 0 {
             self.mark_edges_dirty();
         }
@@ -5099,8 +5102,9 @@ impl PyDiGraph {
                 let ek = Self::edge_key(source, target);
                 let attrs = self
                     .edge_py_attrs
-                    .get(&ek)
-                    .map_or_else(|| PyDict::new(py).unbind(), |d| d.clone_ref(py));
+                    .entry(ek)
+                    .or_insert_with(|| PyDict::new(py).unbind())
+                    .clone_ref(py);
                 items.push(tuple_object(
                     py,
                     &[py_s, py_t.clone_ref(py), attrs.into_any()],
