@@ -188,6 +188,66 @@ pub(crate) fn fnx_graph_instance_mode(data: &Bound<'_, PyAny>) -> Option<Compati
     None
 }
 
+/// br-r37-c1-d58s8 ctor lever: one native pass over a ctor edge-list
+/// candidate replacing the Python per-item validation walk (the cProfile
+/// split showed 46% of Graph(edges) inside the wrapper loop — 10
+/// Python ops per edge). Returns (valid, needs_tuple_conversion) with
+/// EXACTLY the wrapper's semantics: str/bytes items invalid; items
+/// without len() invalid; len outside {2,3} (+4 for multigraphs)
+/// invalid; multigraph 4-tuples must carry a dict 4th element;
+/// non-tuple items flag conversion.
+#[pyfunction]
+pub fn validate_ctor_edge_list(
+    _py: Python<'_>,
+    data: &Bound<'_, PyAny>,
+    is_multi: bool,
+) -> PyResult<(bool, bool, bool)> {
+    let mut needs_tuple_conversion = false;
+    let mut endpoints_hashable = true;
+    for item in data.try_iter()? {
+        let item = item?;
+        if item.is_instance_of::<pyo3::types::PyString>()
+            || item.is_instance_of::<pyo3::types::PyBytes>()
+        {
+            return Ok((false, false, true));
+        }
+        let Ok(item_len) = item.len() else {
+            return Ok((false, false, true));
+        };
+        let valid_len = if is_multi {
+            (2..=4).contains(&item_len)
+        } else {
+            (2..=3).contains(&item_len)
+        };
+        if !valid_len {
+            return Ok((false, false, true));
+        }
+        if is_multi && item_len == 4 && !item.get_item(3)?.is_instance_of::<PyDict>() {
+            return Ok((false, false, true));
+        }
+        if !item.is_instance_of::<pyo3::types::PyTuple>() {
+            needs_tuple_conversion = true;
+        }
+        // Fold the post-absorb endpoint-hashability walk (a full Python
+        // NodeIterator pass) into this same native pass. The old walk
+        // also caught non-multi 3-tuples whose NON-DICT third element
+        // the Rust __new__ mis-absorbs as a node (e.g. (1, 2, [3])) —
+        // mirror that by hashing such third elements too.
+        if endpoints_hashable
+            && (item.get_item(0)?.hash().is_err() || item.get_item(1)?.hash().is_err())
+        {
+            endpoints_hashable = false;
+        }
+        if endpoints_hashable && !is_multi && item_len == 3 {
+            let third = item.get_item(2)?;
+            if !third.is_instance_of::<PyDict>() && third.hash().is_err() {
+                endpoints_hashable = false;
+            }
+        }
+    }
+    Ok((true, needs_tuple_conversion, endpoints_hashable))
+}
+
 pub(crate) fn missing_key_error(key: &Bound<'_, PyAny>) -> PyErr {
     PyKeyError::new_err((key.clone().unbind(),))
 }
@@ -6524,6 +6584,8 @@ fn _fnx(m: &Bound<'_, PyModule>) -> PyResult<()> {
     pyo3_log::init();
 
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
+
+    m.add_function(wrap_pyfunction!(validate_ctor_edge_list, m)?)?;
 
     // Graph class
     m.add_class::<PyGraph>()?;

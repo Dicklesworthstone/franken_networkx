@@ -3328,26 +3328,28 @@ def _init_absorbing_dict_of_dicts(raw_init, is_multigraph):
             # ``(u, v, key, data_dict)`` 4-tuples; the 4th element
             # must be a dict per nx's ``add_edges_from`` contract.
             is_multi = self.is_multigraph()
-            valid_lengths = (2, 3, 4) if is_multi else (2, 3)
-            needs_tuple_conversion = False
-            for item in incoming_graph_data:
-                # str/bytes elements (chars / int) are scalars without
-                # a sized-iterable shape; non-iterable scalars all
-                # fail the 2/3-len contract.
-                if isinstance(item, (str, bytes)) or not hasattr(item, "__len__"):
-                    self.clear()
-                    raise NetworkXError("Input is not a valid edge list")
-                if len(item) not in valid_lengths:
-                    self.clear()
-                    raise NetworkXError("Input is not a valid edge list")
-                if is_multi and len(item) == 4 and not isinstance(item[3], dict):
-                    # nx's add_edges_from requires the 4th element be a
-                    # data dict; non-dict 4-tuples like (u, v, k, w) hit
-                    # ``NetworkXError("Input is not a valid edge list")``.
-                    self.clear()
-                    raise NetworkXError("Input is not a valid edge list")
-                if not isinstance(item, tuple):
-                    needs_tuple_conversion = True
+            # br-r37-c1-d58s8 ctor lever: the per-item Python walk
+            # (isinstance/hasattr/len per edge) was 46% of
+            # Graph(edges) — replaced by ONE native pass with
+            # identical semantics (str/bytes invalid, no-len invalid,
+            # bad lengths invalid, multi 4-tuple needs dict, non-tuple
+            # flags conversion).
+            from franken_networkx._fnx import (
+                validate_ctor_edge_list as _validate_ctor_edge_list,
+            )
+
+            valid, needs_tuple_conversion, _endpoints_hashable = (
+                _validate_ctor_edge_list(incoming_graph_data, is_multi)
+            )
+            if not valid:
+                self.clear()
+                raise NetworkXError("Input is not a valid edge list")
+            if not _endpoints_hashable:
+                # br-r37-c1-g438p semantics, native: unhashable
+                # endpoints are not a valid edge list.
+                self.clear()
+                raise NetworkXError("Input is not a valid edge list")
+            _skip_hash_walk = True
             if needs_tuple_conversion:
                 # Rust __new__ already absorbed list items as
                 # unhashable nodes-by-id.  Reset and rebuild from a
@@ -3391,7 +3393,7 @@ def _init_absorbing_dict_of_dicts(raw_init, is_multigraph):
                 and callable(getattr(incoming_graph_data, "is_multigraph", None))
             )
         )
-        if not is_special_input:
+        if not is_special_input and not locals().get("_skip_hash_walk"):
             try:
                 for node in list(self.nodes()):
                     hash(node)
