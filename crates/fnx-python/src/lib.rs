@@ -4805,14 +4805,19 @@ impl PyGraph {
 
     /// Add an edge between u and v with optional attributes.
     /// Nodes are created automatically if not present.
-    #[pyo3(signature = (u, v, **attr))]
+    // br-r37-c1-addnoden follow-up: nx names these u_of_edge/v_of_edge;
+    // a bare u/v collides with an edge attr keyed 'u' or 'v'
+    // (add_edge(0, 1, u=5)). Match nx's names; alias to u/v for the body.
+    #[pyo3(signature = (u_of_edge, v_of_edge, **attr))]
     fn add_edge(
         &mut self,
         py: Python<'_>,
-        u: &Bound<'_, PyAny>,
-        v: &Bound<'_, PyAny>,
+        u_of_edge: &Bound<'_, PyAny>,
+        v_of_edge: &Bound<'_, PyAny>,
         attr: Option<&Bound<'_, PyDict>>,
     ) -> PyResult<()> {
+        let u = u_of_edge;
+        let v = v_of_edge;
         let u_canonical = node_key_to_string(py, u)?;
         let v_canonical = node_key_to_string(py, v)?;
 
