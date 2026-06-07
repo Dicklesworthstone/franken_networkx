@@ -124,7 +124,9 @@ pub struct Graph {
     mode: CompatibilityMode,
     revision: u64,
     nodes: IndexMap<String, AttrMap>,
-    adjacency: IndexMap<String, IndexSet<String>>,
+    // br-r37-c1-d58s8 P2(c) slice 2: the String adjacency rows are GONE —
+    // adj_indices (order-faithful integer rows) is the single row store;
+    // String views derive through the nodes name table.
     /// Integer-indexed adjacency list for O(1) traversal. Each entry
     /// `adj_indices[i]` contains the node indices of neighbors of node i.
     /// This mirrors `adjacency` but avoids string hashing during BFS/CC.
@@ -144,7 +146,6 @@ impl Graph {
             mode,
             revision: 0,
             nodes: IndexMap::new(),
-            adjacency: IndexMap::new(),
             adj_indices: Vec::new(),
             all_int_cache: std::sync::Arc::default(),
             edge_index_endpoints: Vec::new(),
@@ -160,7 +161,6 @@ impl Graph {
             mode,
             revision: 0,
             nodes: IndexMap::new(),
-            adjacency: IndexMap::new(),
             adj_indices: Vec::new(),
             all_int_cache: std::sync::Arc::default(),
             edge_index_endpoints: Vec::new(),
@@ -185,7 +185,6 @@ impl Graph {
             mode,
             revision,
             nodes: IndexMap::with_capacity(n),
-            adjacency: IndexMap::with_capacity(n),
             adj_indices: vec![Vec::with_capacity(n.saturating_sub(1)); n],
             all_int_cache: std::sync::Arc::default(),
             edge_index_endpoints: Vec::with_capacity(edge_capacity),
@@ -195,20 +194,11 @@ impl Graph {
 
         for node in &node_labels {
             graph.nodes.insert(node.clone(), AttrMap::new());
-            graph
-                .adjacency
-                .insert(node.clone(), IndexSet::with_capacity(n.saturating_sub(1)));
         }
 
         for left_index in 0..n {
             let left = &node_labels[left_index];
             for (right_index, right) in node_labels.iter().enumerate().skip(left_index + 1) {
-                if let Some(left_neighbors) = graph.adjacency.get_mut(left) {
-                    left_neighbors.insert(right.clone());
-                }
-                if let Some(right_neighbors) = graph.adjacency.get_mut(right) {
-                    right_neighbors.insert(left.clone());
-                }
                 // Maintain integer adjacency
                 graph.adj_indices[left_index].push(right_index);
                 graph.adj_indices[right_index].push(left_index);
@@ -251,7 +241,6 @@ impl Graph {
             mode,
             revision,
             nodes: IndexMap::with_capacity(node_count),
-            adjacency: IndexMap::with_capacity(node_count),
             adj_indices: vec![Vec::with_capacity(4); node_count],
             all_int_cache: std::sync::Arc::default(),
             edge_index_endpoints: Vec::with_capacity(edge_capacity),
@@ -262,18 +251,11 @@ impl Graph {
             for j in 0..n {
                 let key = label(i, j);
                 graph.nodes.insert(key.clone(), AttrMap::new());
-                graph.adjacency.insert(key, IndexSet::with_capacity(4));
             }
         }
         fn add_grid_edge(graph: &mut Graph, u: String, v: String, u_idx: usize, v_idx: usize) {
             // add_edge appends v to row[u] first, then u to row[v].
             let ek = EdgeKey::new(&u, &v);
-            if let Some(row) = graph.adjacency.get_mut(&u) {
-                row.insert(v.clone());
-            }
-            if let Some(row) = graph.adjacency.get_mut(&v) {
-                row.insert(u);
-            }
             graph.adj_indices[u_idx].push(v_idx);
             graph.adj_indices[v_idx].push(u_idx);
             graph.edge_index_endpoints.push((u_idx, v_idx));
@@ -503,7 +485,6 @@ impl Graph {
             mode,
             revision,
             nodes: IndexMap::with_capacity(state.node_count),
-            adjacency: IndexMap::with_capacity(state.node_count),
             adj_indices: Vec::with_capacity(state.node_count),
             all_int_cache: std::sync::Arc::default(),
             edge_index_endpoints: Vec::with_capacity(edge_view.len()),
@@ -513,11 +494,6 @@ impl Graph {
 
         for (index, label) in labels.iter().enumerate() {
             graph.nodes.insert(label.clone(), AttrMap::new());
-            let mut row = IndexSet::with_capacity(final_adjacency[index].len());
-            for &neighbor in &final_adjacency[index] {
-                row.insert(labels[neighbor].clone());
-            }
-            graph.adjacency.insert(label.clone(), row);
             graph.adj_indices.push(final_adjacency[index].clone());
         }
 
@@ -604,7 +580,6 @@ impl Graph {
             mode,
             revision: u64::try_from(total).unwrap_or(u64::MAX),
             nodes: IndexMap::with_capacity(total),
-            adjacency: IndexMap::with_capacity(total),
             adj_indices: Vec::new(),
             all_int_cache: std::sync::Arc::default(),
             edge_index_endpoints: Vec::new(),
@@ -615,7 +590,6 @@ impl Graph {
             // No disjoint pairs exist — nx pre-adds all subsets as nodes.
             for canonical in &canonicals {
                 graph.nodes.insert(canonical.clone(), AttrMap::new());
-                graph.adjacency.insert(canonical.clone(), IndexSet::new());
             }
             graph.adj_indices = vec![Vec::new(); total];
             return graph;
@@ -665,17 +639,17 @@ impl Graph {
                                 .nodes
                                 .insert_full(canonicals[idx].clone(), AttrMap::new())
                                 .0;
-                            graph
-                                .adjacency
-                                .insert(canonicals[idx].clone(), IndexSet::new());
                             node_idx[idx] = entry;
+                            graph.adj_indices.push(Vec::new());
                         }
                     }
-                    if let Some(row) = graph.adjacency.get_mut(canonicals[s_idx].as_str()) {
-                        row.insert(canonicals[t_idx].clone());
+                    if !graph.adj_indices[node_idx[s_idx]].contains(&node_idx[t_idx]) {
+                        graph.adj_indices[node_idx[s_idx]].push(node_idx[t_idx]);
                     }
-                    if let Some(row) = graph.adjacency.get_mut(canonicals[t_idx].as_str()) {
-                        row.insert(canonicals[s_idx].clone());
+                    if node_idx[s_idx] != node_idx[t_idx]
+                        && !graph.adj_indices[node_idx[t_idx]].contains(&node_idx[s_idx])
+                    {
+                        graph.adj_indices[node_idx[t_idx]].push(node_idx[s_idx]);
                     }
                     graph
                         .edge_index_endpoints
@@ -690,15 +664,7 @@ impl Graph {
                 in_s[v] = false;
             }
         }
-        graph.adj_indices = graph
-            .adjacency
-            .values()
-            .map(|row| {
-                row.iter()
-                    .filter_map(|v| graph.nodes.get_index_of(v.as_str()))
-                    .collect()
-            })
-            .collect();
+        // adj_indices maintained inline above (P2(c) slice 2).
         graph.revision = u64::try_from(graph.nodes.len() + graph.edges.len()).unwrap_or(u64::MAX);
         graph
     }
@@ -807,7 +773,6 @@ impl Graph {
             mode: self.mode,
             revision: self.revision,
             nodes: self.nodes.clone(),
-            adjacency: self.adjacency.clone(),
             adj_indices: self.adj_indices.clone(),
             all_int_cache: std::sync::Arc::default(),
             edge_index_endpoints: self.edge_index_endpoints.clone(),
@@ -822,34 +787,30 @@ impl Graph {
     /// in their current order (robust to stale state). The integer
     /// `adj_indices` mirror is rebuilt to match.
     pub fn apply_row_orders(&mut self, orders: &[(String, Vec<String>)]) {
+        // br-r37-c1-d58s8 P2(c) slice 2: reorder the integer rows directly.
         for (node, order) in orders {
-            let Some(row) = self.adjacency.get(node.as_str()) else {
+            let Some(idx) = self.nodes.get_index_of(node.as_str()) else {
                 continue;
             };
-            let mut new_row = IndexSet::with_capacity(row.len());
+            let row = &self.adj_indices[idx];
+            let row_set: std::collections::HashSet<usize> = row.iter().copied().collect();
+            let mut new_row: Vec<usize> = Vec::with_capacity(row.len());
+            let mut placed: std::collections::HashSet<usize> = std::collections::HashSet::new();
             for v in order {
-                if row.contains(v.as_str()) {
-                    new_row.insert(v.clone());
+                if let Some(v_idx) = self.nodes.get_index_of(v.as_str())
+                    && row_set.contains(&v_idx)
+                    && placed.insert(v_idx)
+                {
+                    new_row.push(v_idx);
                 }
             }
-            for v in row {
-                if !new_row.contains(v.as_str()) {
-                    new_row.insert(v.clone());
+            for &v_idx in row {
+                if placed.insert(v_idx) {
+                    new_row.push(v_idx);
                 }
             }
-            if let Some(slot) = self.adjacency.get_mut(node.as_str()) {
-                *slot = new_row;
-            }
+            self.adj_indices[idx] = new_row;
         }
-        self.adj_indices = self
-            .adjacency
-            .values()
-            .map(|row| {
-                row.iter()
-                    .filter_map(|v| self.nodes.get_index_of(v.as_str()))
-                    .collect()
-            })
-            .collect();
     }
 
     /// br-r37-c1-0ek49: reorder every adjacency row into NetworkX's
@@ -863,51 +824,34 @@ impl Graph {
     /// row u's original order. Call on a fresh clone inside copy-shaped
     /// constructors; graph content is unchanged, only row order moves.
     pub fn reorder_rows_for_nx_copy_walk(&mut self) {
-        let n = self.adjacency.len();
-        let mut new_rows: Vec<IndexSet<String>> = Vec::with_capacity(n);
-        for (pu, (u, row)) in self.adjacency.iter().enumerate() {
-            let mut early: Vec<(usize, usize, String)> = Vec::new();
-            let mut late: Vec<String> = Vec::new();
-            for v in row {
-                let pv = self
-                    .adjacency
-                    .get_index_of(v.as_str())
-                    .unwrap_or(usize::MAX);
-                if pv < pu {
-                    let idx = self
-                        .adjacency
-                        .get(v.as_str())
-                        .and_then(|r| r.get_index_of(u.as_str()))
+        // br-r37-c1-d58s8 P2(c) slice 2: pure integer-row reorder. Early
+        // neighbors (pos(v) < pu) sort by (pos(v), index of u within row
+        // v); late neighbors keep row order.
+        let n = self.adj_indices.len();
+        let mut new_rows: Vec<Vec<usize>> = Vec::with_capacity(n);
+        for (pu, row) in self.adj_indices.iter().enumerate() {
+            let mut early: Vec<(usize, usize, usize)> = Vec::new();
+            let mut late: Vec<usize> = Vec::new();
+            for &v in row {
+                if v < pu {
+                    let pos_in_v = self.adj_indices[v]
+                        .iter()
+                        .position(|&w| w == pu)
                         .unwrap_or(usize::MAX);
-                    early.push((pv, idx, v.clone()));
+                    early.push((v, pos_in_v, v));
                 } else {
-                    late.push(v.clone());
+                    late.push(v);
                 }
             }
-            early.sort_unstable();
-            let mut new_row = IndexSet::with_capacity(row.len());
+            early.sort_by_key(|&(pos_v, pos_in_v, _)| (pos_v, pos_in_v));
+            let mut new_row: Vec<usize> = Vec::with_capacity(row.len());
             for (_, _, v) in early {
-                new_row.insert(v);
+                new_row.push(v);
             }
-            for v in late {
-                new_row.insert(v);
-            }
+            new_row.extend(late);
             new_rows.push(new_row);
         }
-        // Rebuild the integer mirror in the same order.
-        self.adj_indices = new_rows
-            .iter()
-            .map(|row| {
-                row.iter()
-                    .filter_map(|v| self.nodes.get_index_of(v.as_str()))
-                    .collect()
-            })
-            .collect();
-        for (i, row) in new_rows.into_iter().enumerate() {
-            if let Some((_, slot)) = self.adjacency.get_index_mut(i) {
-                *slot = row;
-            }
-        }
+        self.adj_indices = new_rows;
     }
 
     pub fn edges_storage_order_index_iter(
@@ -998,7 +942,6 @@ impl Graph {
             bucket.extend(attrs);
             bucket.len()
         };
-        self.adjacency.entry(node.clone()).or_default();
         // Extend integer adjacency list for new nodes
         if !existed {
             self.adj_indices.push(Vec::new());
@@ -1037,7 +980,6 @@ impl Graph {
         let iterator = nodes.into_iter();
         let (lower_bound, _) = iterator.size_hint();
         self.nodes.reserve(lower_bound);
-        self.adjacency.reserve(lower_bound);
         self.adj_indices.reserve(lower_bound);
 
         let mut inserted = 0usize;
@@ -1047,7 +989,6 @@ impl Graph {
                 continue;
             }
             self.nodes.insert(node.clone(), AttrMap::new());
-            self.adjacency.entry(node).or_default();
             self.adj_indices.push(Vec::new());
             inserted += 1;
         }
@@ -1079,7 +1020,6 @@ impl Graph {
         let iterator = nodes.into_iter();
         let (lower_bound, _) = iterator.size_hint();
         self.nodes.reserve(lower_bound);
-        self.adjacency.reserve(lower_bound);
         self.adj_indices.reserve(lower_bound);
 
         let mut inserted = 0usize;
@@ -1089,7 +1029,6 @@ impl Graph {
                 continue;
             }
             self.nodes.insert(node.clone(), attrs);
-            self.adjacency.entry(node).or_default();
             self.adj_indices.push(Vec::new());
             inserted += 1;
         }
@@ -1173,7 +1112,6 @@ impl Graph {
         let iterator = edges.into_iter();
         let (lower_bound, _) = iterator.size_hint();
         self.nodes.reserve(lower_bound);
-        self.adjacency.reserve(lower_bound);
         self.adj_indices.reserve(lower_bound);
         self.edges.reserve(lower_bound);
         self.edge_index_endpoints.reserve(lower_bound);
@@ -1188,7 +1126,6 @@ impl Graph {
                 None => {
                     let index = self.nodes.len();
                     self.nodes.insert(left.clone(), AttrMap::new());
-                    self.adjacency.insert(left.clone(), IndexSet::new());
                     self.adj_indices.push(Vec::new());
                     nodes_added = true;
                     index
@@ -1202,7 +1139,6 @@ impl Graph {
                     None => {
                         let index = self.nodes.len();
                         self.nodes.insert(right.clone(), AttrMap::new());
-                        self.adjacency.insert(right.clone(), IndexSet::new());
                         self.adj_indices.push(Vec::new());
                         nodes_added = true;
                         index
@@ -1220,16 +1156,6 @@ impl Graph {
             }
             self.edges
                 .insert(EdgeKey::new(&left, &right), AttrMap::new());
-            self.adjacency
-                .get_mut(&left)
-                .expect("edge endpoint must have an adjacency bucket")
-                .insert(right.clone());
-            if left != right {
-                self.adjacency
-                    .get_mut(&right)
-                    .expect("edge endpoint must have an adjacency bucket")
-                    .insert(left.clone());
-            }
 
             self.adj_indices[left_idx].push(right_idx);
             if left_idx != right_idx {
@@ -1262,7 +1188,6 @@ impl Graph {
         let iterator = edges.into_iter();
         let (lower_bound, _) = iterator.size_hint();
         self.nodes.reserve(lower_bound);
-        self.adjacency.reserve(lower_bound);
         self.adj_indices.reserve(lower_bound);
         self.edges.reserve(lower_bound);
         self.edge_index_endpoints.reserve(lower_bound);
@@ -1276,7 +1201,6 @@ impl Graph {
                 None => {
                     let index = self.nodes.len();
                     self.nodes.insert(left.clone(), AttrMap::new());
-                    self.adjacency.insert(left.clone(), IndexSet::new());
                     self.adj_indices.push(Vec::new());
                     nodes_added = true;
                     index
@@ -1290,7 +1214,6 @@ impl Graph {
                     None => {
                         let index = self.nodes.len();
                         self.nodes.insert(right.clone(), AttrMap::new());
-                        self.adjacency.insert(right.clone(), IndexSet::new());
                         self.adj_indices.push(Vec::new());
                         nodes_added = true;
                         index
@@ -1317,16 +1240,6 @@ impl Graph {
                 self.edge_index_endpoints.push((right_idx, left_idx));
             }
             self.edges.insert(EdgeKey::new(&left, &right), attrs);
-            self.adjacency
-                .get_mut(&left)
-                .expect("edge endpoint must have an adjacency bucket")
-                .insert(right.clone());
-            if left != right {
-                self.adjacency
-                    .get_mut(&right)
-                    .expect("edge endpoint must have an adjacency bucket")
-                    .insert(left.clone());
-            }
 
             self.adj_indices[left_idx].push(right_idx);
             if left_idx != right_idx {
@@ -1433,15 +1346,6 @@ impl Graph {
             edge_attrs.extend(attrs);
             edge_attrs.len()
         };
-
-        self.adjacency
-            .entry(left.clone())
-            .or_default()
-            .insert(right.clone());
-        self.adjacency
-            .entry(right.clone())
-            .or_default()
-            .insert(left.clone());
 
         // Update integer adjacency (only for new edges, avoid duplicates)
         if changed {
@@ -1568,15 +1472,8 @@ impl Graph {
         // remove-heavy build like watts_strogatz from O(|E|^2) into O(|E|·shift).
         let removed = self.edges.shift_remove_full(&EdgeKeyRef::new(left, right));
         if let Some((edge_pos, _, _)) = removed {
-            if let Some(left_neighbors) = self.adjacency.get_mut(left) {
-                left_neighbors.shift_remove(right);
-            }
-            if left != right
-                && let Some(right_neighbors) = self.adjacency.get_mut(right)
-            {
-                right_neighbors.shift_remove(left);
-            }
-            // Update integer adjacency
+            // br-r37-c1-d58s8 P2(c) slice 2: integer rows are the single
+            // row store — drop the pair entries there.
             if let (Some(left_idx), Some(right_idx)) = (
                 self.nodes.get_index_of(left),
                 self.nodes.get_index_of(right),
@@ -1609,17 +1506,7 @@ impl Graph {
         // place (drop dangling refs to the removed index, decrement indices that
         // shifted down) — no hashing, no full rebuild.
 
-        // 1a. Drop `node` from each neighbour's string adjacency (O(degree)).
-        if let Some(neighbors) = self.adjacency.get(node) {
-            let neighbor_names: Vec<String> = neighbors.iter().cloned().collect();
-            for neighbor in neighbor_names {
-                if neighbor != node
-                    && let Some(remote_neighbors) = self.adjacency.get_mut(&neighbor)
-                {
-                    remote_neighbors.shift_remove(node);
-                }
-            }
-        }
+        // 1a: String rows gone (P2(c) slice 2) — index repair below covers it.
         // 1b. Remove ALL incident edges from `edges` + the parallel
         // `edge_index_endpoints` in ONE O(|E|) pass (avoids O(degree*|E|) from
         // per-edge `shift_remove`). The two retains share the same keep-mask so
@@ -1654,7 +1541,6 @@ impl Graph {
         // aligned with `nodes`/`adjacency` after their shift_remove below).
         self.adj_indices.remove(idx);
         // 3. Remove from the string maps (renumbers indices > idx down by 1).
-        self.adjacency.shift_remove(node);
         self.nodes.shift_remove(node);
         // 4. Repair integer indices in place: drop any remaining reference to the
         // removed node (`idx`) and decrement every index that shifted down.
@@ -1718,14 +1604,6 @@ impl Graph {
             .map(|&(l, r)| !removed_mask[l] && !removed_mask[r])
             .collect();
 
-        self.adjacency.retain(|node, neighbors| {
-            if remove_set.contains(node.as_str()) {
-                false
-            } else {
-                neighbors.retain(|neighbor| !remove_set.contains(neighbor.as_str()));
-                true
-            }
-        });
         self.nodes
             .retain(|node, _| !remove_set.contains(node.as_str()));
         let mut i = 0usize;
@@ -1768,19 +1646,6 @@ impl Graph {
     /// Rebuild integer adjacency from string adjacency. Called after node
     /// removal since indices shift.
     #[allow(dead_code)]
-    fn rebuild_adj_indices(&mut self) {
-        let n = self.nodes.len();
-        self.adj_indices = vec![Vec::new(); n];
-        for (node, neighbors) in &self.adjacency {
-            if let Some(node_idx) = self.nodes.get_index_of(node) {
-                for neighbor in neighbors {
-                    if let Some(nbr_idx) = self.nodes.get_index_of(neighbor) {
-                        self.adj_indices[node_idx].push(nbr_idx);
-                    }
-                }
-            }
-        }
-    }
 
     #[allow(dead_code)]
     fn rebuild_edge_index_endpoints(&mut self) {
@@ -2216,7 +2081,6 @@ impl MultiGraph {
             bucket.extend(attrs);
             bucket.len()
         };
-        self.adjacency.entry(node.clone()).or_default();
         if changed {
             self.revision = self.revision.saturating_add(1);
         }
@@ -2346,7 +2210,6 @@ impl MultiGraph {
                 continue;
             }
             self.nodes.insert(node.clone(), attrs);
-            self.adjacency.entry(node).or_default();
             inserted += 1;
         }
         if inserted > 0 {
@@ -2659,7 +2522,6 @@ impl MultiGraph {
         self.edge_count -= removed_count;
 
         // Remove node from adjacency and nodes maps.
-        self.adjacency.shift_remove(node);
         self.nodes.shift_remove(node);
         self.revision = self.revision.saturating_add(1);
         true
