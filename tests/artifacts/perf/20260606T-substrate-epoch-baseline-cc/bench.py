@@ -48,3 +48,9 @@ json.dump(out, open(sys.argv[1] if len(sys.argv) > 1 else "/dev/stdout", "w"), i
 # sssp 0.47x, bfs_edges 0.62x, dfs_edges 0.51x, dijkstra -40% kernel,
 # bellman 0.67x, bfs_layers 0.28x, bfs/dfs_tree 0.74x/0.72x.
 # Quiet-host formal baseline still owed. P2 next: NodeId edge side-table.
+# POST-P1 BASELINE CAPTURED 2026-06-07, load ~15-17 (lowest window in 16
+# sessions; re-run if a <10 window appears): see
+# baseline_post_p1_load15.json. P1 confirmed (sssp 0.41x, bfs_tree 0.69x,
+# pagerank 0.73x, betweenness 0.99x, closeness 0.06x). REMAINING GAPS =
+# construction family: Graph(edges) ctor 3.77x, union 2.13x, compose
+# 1.71x, copy 1.17x, dijkstra-weighted 1.20x -> P2 priority confirmed.

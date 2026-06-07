@@ -755,16 +755,38 @@ impl Graph {
 
     #[must_use]
     pub fn neighbors(&self, node: &str) -> Option<Vec<&str>> {
-        self.adjacency
-            .get(node)
-            .map(|neighbors| neighbors.iter().map(String::as_str).collect::<Vec<&str>>())
+        // br-r37-c1-d58s8 P2(a): serve from the integer rows + node-name
+        // table — adj_indices is order-faithful through every mutator
+        // (extends push in row order; remove_node repairs in place;
+        // apply_row_orders and reorder_rows_for_nx_copy_walk both
+        // resync). Migrating readers off the String rows is the
+        // prerequisite for dropping their eager maintenance (P2(c)).
+        let idx = self.nodes.get_index_of(node)?;
+        Some(
+            self.adj_indices[idx]
+                .iter()
+                .map(|&i| {
+                    self.nodes
+                        .get_index(i)
+                        .expect("adj_indices entries are valid node indices")
+                        .0
+                        .as_str()
+                })
+                .collect::<Vec<&str>>(),
+        )
     }
 
     #[must_use]
     pub fn neighbors_iter(&self, node: &str) -> Option<impl Iterator<Item = &str> + '_> {
-        self.adjacency
-            .get(node)
-            .map(|neighbors| neighbors.iter().map(String::as_str))
+        // br-r37-c1-d58s8 P2(a): index-backed (see neighbors()).
+        let idx = self.nodes.get_index_of(node)?;
+        Some(self.adj_indices[idx].iter().map(move |&i| {
+            self.nodes
+                .get_index(i)
+                .expect("adj_indices entries are valid node indices")
+                .0
+                .as_str()
+        }))
     }
 
     /// Return neighbor indices for O(1) traversal. Avoids string hashing
@@ -900,7 +922,10 @@ impl Graph {
 
     #[must_use]
     pub fn neighbor_count(&self, node: &str) -> usize {
-        self.adjacency.get(node).map_or(0, IndexSet::len)
+        // br-r37-c1-d58s8 P2(a): index-backed.
+        self.nodes
+            .get_index_of(node)
+            .map_or(0, |idx| self.adj_indices[idx].len())
     }
 
     /// Return the degree of a node.
