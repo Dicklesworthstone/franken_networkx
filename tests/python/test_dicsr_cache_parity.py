@@ -396,3 +396,32 @@ def test_integer_side_removal_parity():
         assert {repr(x): [repr(y) for y in gf[x]] for x in gf} == {
             repr(x): [repr(y) for y in gn[x]] for x in gn
         }, trial
+
+
+def test_digraph_eager_index_rows_oracle():
+    """DiGraph flip P1: eager succ/pred index rows maintained by every
+    writer; the oracle compares them against the String rows (order
+    included) through mixed mutation sequences + copy/pickle/reverse/
+    round-trip."""
+    import pickle
+
+    rnd = random.Random(41)
+    for trial in range(15):
+        n = rnd.randrange(4, 25)
+        gf = fnx.DiGraph()
+        for _ in range(rnd.randrange(10, 80)):
+            r = rnd.random()
+            if r < 0.5:
+                gf.add_edge(rnd.randrange(n), rnd.randrange(n))
+            elif r < 0.62 and len(gf) > 2:
+                gf.remove_node(rnd.choice(list(gf)))
+            elif r < 0.75 and gf.number_of_edges() > 1:
+                gf.remove_edge(*rnd.choice(list(gf.edges())))
+            elif r < 0.85:
+                gf.remove_nodes_from([rnd.randrange(n) for _ in range(3)])
+            else:
+                gf.add_node(rnd.randrange(n, n + 5))
+        assert gf._debug_index_rows_consistent(), trial
+        assert pickle.loads(pickle.dumps(gf))._debug_index_rows_consistent(), trial
+        assert gf.copy()._debug_index_rows_consistent(), trial
+        assert gf.reverse(copy=True)._debug_index_rows_consistent(), trial

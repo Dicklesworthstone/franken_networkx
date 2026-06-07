@@ -4906,6 +4906,13 @@ impl PyDiGraph {
         }
     }
 
+    /// br-r37-c1-d58s8: test-only consistency oracle for the eager
+    /// index rows (DiGraph flip P1).
+    #[doc(hidden)]
+    fn _debug_index_rows_consistent(&self) -> bool {
+        self.inner.debug_index_rows_consistent()
+    }
+
     /// Return attributes of the edge (u, v).
     #[pyo3(signature = (u, v, default=None))]
     fn get_edge_data(
