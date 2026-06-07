@@ -535,6 +535,25 @@ impl DiGraph {
         self.in_degree(node) + self.out_degree(node)
     }
 
+    /// br-r37-c1-degidx: index-based degree accessors — O(1), zero
+    /// String hashing (the &str path costs get_index_of per call;
+    /// degree pays it twice). Used by the directed DegreeView iterator
+    /// which walks nodes in index order.
+    #[must_use]
+    pub fn out_degree_by_index(&self, idx: usize) -> usize {
+        self.succ_indices[idx].len()
+    }
+
+    #[must_use]
+    pub fn in_degree_by_index(&self, idx: usize) -> usize {
+        self.pred_indices[idx].len()
+    }
+
+    #[must_use]
+    pub fn degree_by_index(&self, idx: usize) -> usize {
+        self.succ_indices[idx].len() + self.pred_indices[idx].len()
+    }
+
     /// Outgoing edges from `node` as (source, target) pairs.
     #[must_use]
     pub fn out_edges<'a>(&'a self, node: &'a str) -> Vec<(&'a str, &'a str)> {

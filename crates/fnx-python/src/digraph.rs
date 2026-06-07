@@ -1646,6 +1646,26 @@ impl PyMultiDiGraph {
         Ok(self.inner.in_degree(&canonical))
     }
 
+    /// br-r37-c1-degidx: bulk (node, in/out-degree) pairs — one Rust
+    /// loop instead of N per-node PyO3 round-trips. Multi rows are still
+    /// String-keyed (s2teo unflipped), so this sums IndexSet lens per
+    /// node, but in a single native pass.
+    fn _native_out_degree_pairs(&self, py: Python<'_>) -> PyResult<Vec<(PyObject, usize)>> {
+        let names: Vec<String> = self.inner.nodes_ordered().iter().map(|s| (*s).to_owned()).collect();
+        Ok(names
+            .iter()
+            .map(|n| (self.py_node_key(py, n), self.inner.out_degree(n)))
+            .collect())
+    }
+
+    fn _native_in_degree_pairs(&self, py: Python<'_>) -> PyResult<Vec<(PyObject, usize)>> {
+        let names: Vec<String> = self.inner.nodes_ordered().iter().map(|s| (*s).to_owned()).collect();
+        Ok(names
+            .iter()
+            .map(|n| (self.py_node_key(py, n), self.inner.in_degree(n)))
+            .collect())
+    }
+
     #[getter]
     fn adj(&self, py: Python<'_>) -> PyResult<Py<PyDict>> {
         self.adjacency(py)
@@ -5408,6 +5428,27 @@ impl PyDiGraph {
         Ok(self.inner.in_degree(&canonical))
     }
 
+    /// br-r37-c1-degidx: bulk (node, in/out-degree) pairs for the
+    /// unweighted _DirectedDegreeView.__iter__ — one Rust loop by index
+    /// (zero String hashing) instead of N per-node PyO3 round-trips.
+    fn _native_out_degree_pairs(&self, py: Python<'_>) -> PyResult<Vec<(PyObject, usize)>> {
+        let names = self.inner.nodes_ordered();
+        Ok(names
+            .iter()
+            .enumerate()
+            .map(|(i, n)| (self.py_node_key(py, n), self.inner.out_degree_by_index(i)))
+            .collect())
+    }
+
+    fn _native_in_degree_pairs(&self, py: Python<'_>) -> PyResult<Vec<(PyObject, usize)>> {
+        let names = self.inner.nodes_ordered();
+        Ok(names
+            .iter()
+            .enumerate()
+            .map(|(i, n)| (self.py_node_key(py, n), self.inner.in_degree_by_index(i)))
+            .collect())
+    }
+
     // ---- Python special methods ----
 
     fn __len__(&self) -> usize {
@@ -6332,6 +6373,15 @@ impl DiDegreeView {
             DegreeKind::Out => g.inner.out_degree(node),
         }
     }
+
+    // br-r37-c1-degidx: O(1) by-index, no String hashing.
+    fn node_degree_by_index(&self, g: &PyDiGraph, idx: usize) -> usize {
+        match self.kind {
+            DegreeKind::Total => g.inner.degree_by_index(idx),
+            DegreeKind::In => g.inner.in_degree_by_index(idx),
+            DegreeKind::Out => g.inner.out_degree_by_index(idx),
+        }
+    }
 }
 
 #[pymethods]
@@ -6346,9 +6396,10 @@ impl DiDegreeView {
             .inner
             .nodes_ordered()
             .iter()
-            .map(|n| {
+            .enumerate()
+            .map(|(i, n)| {
                 let py_key = g.py_node_key(py, n);
-                let deg = self.node_degree(&g, n);
+                let deg = self.node_degree_by_index(&g, i);
                 let py_degree = unwrap_infallible(deg.into_pyobject(py)).into_any().unbind();
                 tuple_object(py, &[py_key, py_degree])
             })

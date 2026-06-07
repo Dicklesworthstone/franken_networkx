@@ -3760,6 +3760,19 @@ class _DirectedDegreeView:
         return len(self._nodes)
 
     def __iter__(self):
+        # br-r37-c1-degidx: unweighted full-graph iteration uses a single
+        # native bulk call (one Rust loop) instead of N per-node
+        # _native_*_degree PyO3 round-trips (each hashing the node key).
+        if self._nodes is None and self._weight is None:
+            if self._adjacency_attr == "succ":
+                pairs = getattr(self._graph, "_native_out_degree_pairs", None)
+            elif self._adjacency_attr == "pred":
+                pairs = getattr(self._graph, "_native_in_degree_pairs", None)
+            else:
+                pairs = None
+            if pairs is not None:
+                yield from pairs()
+                return
         for node in self._iter_nodes():
             yield (node, self[node])
 

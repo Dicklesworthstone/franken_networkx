@@ -110,3 +110,38 @@ def test_node_view_iteration_parity_and_staleness():
             return "RuntimeError"
 
     assert mut(gf) == mut(gn) == "RuntimeError"
+
+
+@pytest.mark.parametrize("cls", ["DiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("view", ["in_degree", "out_degree", "degree"])
+def test_directed_degree_views_index_path(cls, view):
+    """br-r37-c1-degidx: directed degree views iterate via a single
+    native bulk call (index-based for DiGraph). Order + values must
+    match nx across weighted / nbunch / self-loop."""
+    r = random.Random(7)
+    for trial in range(10):
+        ed = [(r.randrange(15), r.randrange(15)) for _ in range(r.randrange(3, 50))]
+        df, dn = getattr(fnx, cls)(ed), getattr(nx, cls)(ed)
+        assert [(repr(k), v) for k, v in getattr(df, view)()] == [
+            (repr(k), v) for k, v in getattr(dn, view)()
+        ], trial
+        if ed:
+            s = list(dn)[0]
+            assert getattr(df, view)(s) == getattr(dn, view)(s), ("single", trial)
+        nb = list(dn)[:3]
+        assert [(repr(k), v) for k, v in getattr(df, view)(nb)] == [
+            (repr(k), v) for k, v in getattr(dn, view)(nb)
+        ], ("nbunch", trial)
+
+
+def test_directed_degree_weighted_and_selfloop():
+    wf, wn = fnx.DiGraph(), nx.DiGraph()
+    for i, (u, v) in enumerate([(0, 1), (1, 2), (2, 0), (0, 0)]):
+        wf.add_edge(u, v, weight=1 + i)
+        wn.add_edge(u, v, weight=1 + i)
+    assert [(repr(k), v) for k, v in wf.in_degree(weight="weight")] == [
+        (repr(k), v) for k, v in wn.in_degree(weight="weight")
+    ]
+    assert [(repr(k), v) for k, v in wf.degree()] == [
+        (repr(k), v) for k, v in wn.degree()
+    ]
