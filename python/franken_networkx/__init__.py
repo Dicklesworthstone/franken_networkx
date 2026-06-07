@@ -45953,44 +45953,6 @@ def _bulk_coerce_negative_depth_to_zero():
 _bulk_coerce_negative_depth_to_zero()
 
 
-def _install_mutation_detection_on_node_views():
-    """br-mutiter: nx detects mutation during ``for n in G.nodes(): ...``
-    and raises ``RuntimeError('dictionary changed size during iteration')``.
-    fnx's Rust NodeView iterator snapshots the node list at iter() time
-    and quietly yields the snapshot even if the graph has been mutated.
-
-    Wrap __iter__ on each NodeView variant with a size-checker: snapshot
-    len(self) at iter() time and, on each yield, compare to current
-    len(self). If they differ, raise RuntimeError with nx-exact wording.
-    This works without access to the underlying graph because the view's
-    __len__ queries the graph directly.
-    """
-    from franken_networkx import _fnx as _raw
-
-    def _make_iter(raw_iter):
-        def __iter__(self):
-            initial_len = len(self)
-            for node in raw_iter(self):
-                if len(self) != initial_len:
-                    raise RuntimeError(
-                        "dictionary changed size during iteration"
-                    )
-                yield node
-        return __iter__
-
-    targets = [
-        _raw.NodeView,
-        _raw.DiNodeView,
-        _raw.MultiGraphNodeView,
-        _raw.MultiDiGraphNodeView,
-    ]
-    for cls in targets:
-        cls.__iter__ = _make_iter(cls.__iter__)
-
-
-_install_mutation_detection_on_node_views()
-
-
 def __getattr__(name):
     """Fallback to the NetworkX top-level namespace for missing public attrs."""
     # br-r37-c1-rt-removed: nx 3.4 removed ``random_tree`` and now

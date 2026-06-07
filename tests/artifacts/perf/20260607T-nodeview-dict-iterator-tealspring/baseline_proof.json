@@ -1,0 +1,89 @@
+{
+  "payload": {
+    "add_edge_new_node_error": "{'type': 'int', 'repr': '0'}|RuntimeError|dictionary changed size during iteration",
+    "clear_error": "{'type': 'int', 'repr': '0'}|RuntimeError|dictionary changed size during iteration",
+    "edges_seq": 1,
+    "existing_edge_no_error": [
+      {
+        "repr": "0",
+        "type": "int"
+      },
+      {
+        "repr": "1",
+        "type": "int"
+      },
+      {
+        "repr": "2",
+        "type": "int"
+      }
+    ],
+    "mixed_edges": [
+      [
+        {
+          "repr": "0",
+          "type": "int"
+        },
+        {
+          "repr": "'0'",
+          "type": "str"
+        }
+      ]
+    ],
+    "mixed_node_count": 3,
+    "mixed_node_order": [
+      {
+        "repr": "0",
+        "type": "int"
+      },
+      {
+        "repr": "True",
+        "type": "bool"
+      },
+      {
+        "repr": "'0'",
+        "type": "str"
+      }
+    ],
+    "mutation_keys_error": "{'type': 'int', 'repr': '0'}|RuntimeError|dictionary keys changed during iteration",
+    "mutation_size_error": "{'type': 'int', 'repr': '0'}|RuntimeError|dictionary changed size during iteration",
+    "nodes_attr_default": [
+      [
+        {
+          "repr": "'a'",
+          "type": "str"
+        },
+        "red"
+      ],
+      [
+        {
+          "repr": "'b'",
+          "type": "str"
+        },
+        "missing"
+      ]
+    ],
+    "nodes_data": [
+      [
+        {
+          "repr": "'a'",
+          "type": "str"
+        },
+        [
+          [
+            "color",
+            "red"
+          ]
+        ]
+      ],
+      [
+        {
+          "repr": "'b'",
+          "type": "str"
+        },
+        []
+      ]
+    ],
+    "nodes_seq": 4
+  },
+  "sha256": "f4f9df319125a62746af325ffaba898359ad2470b9a2edd6de0abb2ba84f08c4"
+}
