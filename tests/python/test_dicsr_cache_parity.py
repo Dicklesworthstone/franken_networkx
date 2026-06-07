@@ -53,3 +53,25 @@ def test_mixed_key_discovery_objects_preserved():
     a = [(repr(k), v) for k, v in fnx.single_source_shortest_path_length(gm, 7).items()]
     b = [(repr(k), v) for k, v in nx.single_source_shortest_path_length(gx, 7).items()]
     assert a == b
+
+
+def test_bfs_edges_directed_csr_port():
+    """P1(b): bfs_edges_directed/_reverse on CSR — consumers
+    (bfs_tree, descendants, sp(target)) byte-identical."""
+    rnd = random.Random(3)
+    for trial in range(15):
+        n = rnd.randrange(3, 30)
+        gn, gf = nx.DiGraph(), fnx.DiGraph()
+        for _ in range(rnd.randrange(2, 80)):
+            u, v = rnd.randrange(n), rnd.randrange(n)
+            if u != v:
+                gn.add_edge(u, v)
+                gf.add_edge(u, v)
+        if not len(gn):
+            continue
+        s = next(iter(gn))
+        for kw in ({}, {"depth_limit": 2}, {"reverse": True}):
+            assert [(repr(u), repr(v)) for u, v in fnx.bfs_edges(gf, s, **kw)] == [
+                (repr(u), repr(v)) for u, v in nx.bfs_edges(gn, s, **kw)
+            ], (trial, kw)
+        assert [repr(x) for x in fnx.bfs_tree(gf, s)] == [repr(x) for x in nx.bfs_tree(gn, s)], trial

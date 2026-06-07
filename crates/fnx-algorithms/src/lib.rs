@@ -15057,13 +15057,15 @@ pub fn bfs_edges_directed(
     source: &str,
     depth_limit: Option<usize>,
 ) -> Vec<(String, String)> {
+    // br-r37-c1-d58s8 P1: integer-CSR walk via DiGraph::csr() —
+    // row order preserved, so the emitted edge sequence is
+    // byte-identical to the String walk without per-visit hashing.
     let mut cgse_sink = cgse_begin(CgseReferenceAlgorithm::Bfs);
 
     let max_depth = depth_limit.unwrap_or(usize::MAX);
-    let mut visited: HashSet<&str> = HashSet::new();
     let mut edges: Vec<(String, String)> = Vec::new();
 
-    if !digraph.has_node(source) {
+    let Some(source_idx) = digraph.get_node_index(source) else {
         cgse_publish(
             CgseReferenceAlgorithm::Bfs,
             digraph.node_count(),
@@ -15071,23 +15073,27 @@ pub fn bfs_edges_directed(
             cgse_sink,
         );
         return edges;
-    }
-
-    visited.insert(source);
-    let mut queue: VecDeque<(&str, usize)> = VecDeque::new();
-    queue.push_back((source, 0));
+    };
+    let csr = digraph.csr();
+    let names = digraph.nodes_ordered();
+    let mut visited = vec![false; names.len()];
+    visited[source_idx] = true;
+    let mut queue: VecDeque<(u32, usize)> = VecDeque::new();
+    queue.push_back((u32::try_from(source_idx).unwrap_or(u32::MAX), 0));
 
     while let Some((node, depth)) = queue.pop_front() {
         if depth >= max_depth {
             continue;
         }
-        if let Some(succs) = digraph.successors(node) {
-            for succ in succs {
-                if visited.insert(succ) {
-                    cgse_record_decision(&mut cgse_sink, succ, node);
-                    edges.push((node.to_owned(), succ.to_owned()));
-                    queue.push_back((succ, depth + 1));
-                }
+        for &nbr in csr.successors(node as usize) {
+            if !visited[nbr as usize] {
+                visited[nbr as usize] = true;
+                cgse_record_decision(&mut cgse_sink, names[nbr as usize], names[node as usize]);
+                edges.push((
+                    names[node as usize].to_owned(),
+                    names[nbr as usize].to_owned(),
+                ));
+                queue.push_back((nbr, depth + 1));
             }
         }
     }
@@ -15110,13 +15116,15 @@ pub fn bfs_edges_directed_reverse(
     source: &str,
     depth_limit: Option<usize>,
 ) -> Vec<(String, String)> {
+    // br-r37-c1-d58s8 P1: integer-CSR walk via DiGraph::csr() —
+    // row order preserved, so the emitted edge sequence is
+    // byte-identical to the String walk without per-visit hashing.
     let mut cgse_sink = cgse_begin(CgseReferenceAlgorithm::Bfs);
 
     let max_depth = depth_limit.unwrap_or(usize::MAX);
-    let mut visited: HashSet<&str> = HashSet::new();
     let mut edges: Vec<(String, String)> = Vec::new();
 
-    if !digraph.has_node(source) {
+    let Some(source_idx) = digraph.get_node_index(source) else {
         cgse_publish(
             CgseReferenceAlgorithm::Bfs,
             digraph.node_count(),
@@ -15124,23 +15132,27 @@ pub fn bfs_edges_directed_reverse(
             cgse_sink,
         );
         return edges;
-    }
-
-    visited.insert(source);
-    let mut queue: VecDeque<(&str, usize)> = VecDeque::new();
-    queue.push_back((source, 0));
+    };
+    let csr = digraph.csr();
+    let names = digraph.nodes_ordered();
+    let mut visited = vec![false; names.len()];
+    visited[source_idx] = true;
+    let mut queue: VecDeque<(u32, usize)> = VecDeque::new();
+    queue.push_back((u32::try_from(source_idx).unwrap_or(u32::MAX), 0));
 
     while let Some((node, depth)) = queue.pop_front() {
         if depth >= max_depth {
             continue;
         }
-        if let Some(preds) = digraph.predecessors(node) {
-            for pred in preds {
-                if visited.insert(pred) {
-                    cgse_record_decision(&mut cgse_sink, pred, node);
-                    edges.push((node.to_owned(), pred.to_owned()));
-                    queue.push_back((pred, depth + 1));
-                }
+        for &nbr in csr.predecessors(node as usize) {
+            if !visited[nbr as usize] {
+                visited[nbr as usize] = true;
+                cgse_record_decision(&mut cgse_sink, names[nbr as usize], names[node as usize]);
+                edges.push((
+                    names[node as usize].to_owned(),
+                    names[nbr as usize].to_owned(),
+                ));
+                queue.push_back((nbr, depth + 1));
             }
         }
     }
