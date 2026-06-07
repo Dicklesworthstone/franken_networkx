@@ -311,8 +311,7 @@ impl DiGraph {
         // br-r37-c1-d58s8 P3: the String rows this oracle compared
         // against are GONE; the index rows are the single store. Length
         // sanity only (parity batteries cover content).
-        self.succ_indices.len() == self.nodes.len()
-            && self.pred_indices.len() == self.nodes.len()
+        self.succ_indices.len() == self.nodes.len() && self.pred_indices.len() == self.nodes.len()
     }
 
     #[must_use]
@@ -577,6 +576,14 @@ impl DiGraph {
         self.edges.get(&self.edge_pair_key(source, target)?)
     }
 
+    /// br-r37-c1-d58s8: index-keyed attr access (oriented). Zero
+    /// node-map probes for callers already holding indices.
+    #[must_use]
+    #[inline]
+    pub fn edge_attrs_by_indices(&self, source_idx: usize, target_idx: usize) -> Option<&AttrMap> {
+        self.edges.get(&(source_idx, target_idx))
+    }
+
     #[must_use]
     pub fn evidence_ledger(&self) -> &EvidenceLedger {
         self.runtime_policy.decision_log()
@@ -767,7 +774,10 @@ impl DiGraph {
         // br-r37-c1-d58s8 DiGraph flip P1: eager index rows (dup-guarded
         // by edge newness; the IndexSet inserts above are idempotent).
         if new_edge {
-            let s_idx = self.nodes.get_index_of(&source).expect("source node exists");
+            let s_idx = self
+                .nodes
+                .get_index_of(&source)
+                .expect("source node exists");
             let t_idx = self
                 .nodes
                 .get_index_of(&target)
@@ -851,7 +861,10 @@ impl DiGraph {
             }
 
             self.edges.insert(edge_key, AttrMap::new());
-            let s_idx = self.nodes.get_index_of(&source).expect("source node exists");
+            let s_idx = self
+                .nodes
+                .get_index_of(&source)
+                .expect("source node exists");
             let t_idx = self
                 .nodes
                 .get_index_of(&target)
@@ -959,7 +972,10 @@ impl DiGraph {
                 continue;
             }
             self.edges.insert(edge_key, attrs);
-            let s_idx = self.nodes.get_index_of(&source).expect("source node exists");
+            let s_idx = self
+                .nodes
+                .get_index_of(&source)
+                .expect("source node exists");
             let t_idx = self
                 .nodes
                 .get_index_of(&target)
@@ -1039,7 +1055,10 @@ impl DiGraph {
                 .entry(target.clone())
                 .or_default()
                 .push(source.clone());
-            let s_idx = self.nodes.get_index_of(&source).expect("source node exists");
+            let s_idx = self
+                .nodes
+                .get_index_of(&source)
+                .expect("source node exists");
             let t_idx = self
                 .nodes
                 .get_index_of(&target)
@@ -2213,34 +2232,44 @@ mod tests {
 
     fn assert_digraph_core_invariants(g: &DiGraph) {
         // Every edge in the edge map must be reflected in successors/predecessors.
-        for (key, _attrs) in &g.edges {
+        for (&(source_idx, target_idx), _attrs) in &g.edges {
+            let source = g
+                .nodes
+                .get_index(source_idx)
+                .map(|(name, _)| name.as_str())
+                .expect("edge source index should be a node");
+            let target = g
+                .nodes
+                .get_index(target_idx)
+                .map(|(name, _)| name.as_str())
+                .expect("edge target index should be a node");
             assert!(
-                g.has_node(&key.source),
+                g.has_node(source),
                 "edge source {} should be a node",
-                key.source
+                source
             );
             assert!(
-                g.has_node(&key.target),
+                g.has_node(target),
                 "edge target {} should be a node",
-                key.target
+                target
             );
             let succs = g
-                .successors(&key.source)
+                .successors(source)
                 .expect("source should have successors bucket");
             assert!(
-                succs.contains(&key.target.as_str()),
+                succs.contains(&target),
                 "{} should be in successors of {}",
-                key.target,
-                key.source
+                target,
+                source
             );
             let preds = g
-                .predecessors(&key.target)
+                .predecessors(target)
                 .expect("target should have predecessors bucket");
             assert!(
-                preds.contains(&key.source.as_str()),
+                preds.contains(&source),
                 "{} should be in predecessors of {}",
-                key.source,
-                key.target
+                source,
+                target
             );
         }
 

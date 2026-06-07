@@ -916,6 +916,15 @@ impl Graph {
         self.edges.get(&self.edge_pair_key(left, right)?)
     }
 
+    /// br-r37-c1-d58s8: index-keyed attr access — a DIRECT map get for
+    /// callers that already hold node indices (kernels, CSR weight
+    /// builders, compose walks). Zero node-map probes.
+    #[must_use]
+    #[inline]
+    pub fn edge_attrs_by_indices(&self, left_idx: usize, right_idx: usize) -> Option<&AttrMap> {
+        self.edges.get(&Self::canon_pair(left_idx, right_idx))
+    }
+
     #[must_use]
     pub fn evidence_ledger(&self) -> &EvidenceLedger {
         self.runtime_policy.decision_log()
@@ -1693,7 +1702,6 @@ impl Graph {
     /// removal since indices shift.
     #[allow(dead_code)]
 
-
     /// br-r37-c1-d58s8: revision-keyed memo of "every edge's `attr`
     /// value is an integer (missing = default 1 = int)".
     #[must_use]
@@ -2037,9 +2045,18 @@ impl MultiGraph {
 
     #[must_use]
     pub fn neighbors(&self, node: &str) -> Option<Vec<&str>> {
-        self.adjacency
-            .get(node)
-            .map(|neighbors| neighbors.keys().map(String::as_str).collect::<Vec<&str>>())
+        let idx = self.nodes.get_index_of(node)?;
+        self.adj_indices.get(idx).map(|neighbors| {
+            neighbors
+                .keys()
+                .map(|&neighbor_idx| {
+                    self.nodes
+                        .get_index(neighbor_idx)
+                        .map(|(name, _)| name.as_str())
+                        .expect("adj_indices entries are valid node indices")
+                })
+                .collect::<Vec<&str>>()
+        })
     }
 
     #[must_use]
@@ -2091,11 +2108,14 @@ impl MultiGraph {
     /// Self-loops contribute 2 to the degree each (NetworkX convention).
     #[must_use]
     pub fn degree(&self, node: &str) -> usize {
-        self.adjacency.get(node).map_or(0, |neighbors| {
+        let Some(idx) = self.nodes.get_index_of(node) else {
+            return 0;
+        };
+        self.adj_indices.get(idx).map_or(0, |neighbors| {
             let mut deg = 0;
-            for (neighbor, keys) in neighbors {
+            for (&neighbor, keys) in neighbors {
                 let count = keys.len();
-                if neighbor == node {
+                if neighbor == idx {
                     // Self-loops count double (NetworkX convention)
                     deg += count * 2;
                 } else {
@@ -2126,7 +2146,9 @@ impl MultiGraph {
             bucket.extend(attrs);
             bucket.len()
         };
-        self.adjacency.entry(node.clone()).or_default();
+        if !existed {
+            self.adj_indices.push(IndexMap::new());
+        }
         if changed {
             self.revision = self.revision.saturating_add(1);
         }
@@ -2201,14 +2223,12 @@ impl MultiGraph {
         let left = left.into();
         let right = right.into();
         let edge_key = EdgeKey::new(&left, &right);
-        if !self.nodes.contains_key(&left) {
-            self.nodes.insert(left.clone(), AttrMap::new());
-            self.adjacency.entry(left.clone()).or_default();
-        }
-        if left != right && !self.nodes.contains_key(&right) {
-            self.nodes.insert(right.clone(), AttrMap::new());
-            self.adjacency.entry(right.clone()).or_default();
-        }
+        let left_idx = self.ensure_node_index_unrecorded(&left);
+        let right_idx = if left == right {
+            left_idx
+        } else {
+            self.ensure_node_index_unrecorded(&right)
+        };
 
         match self.edges.entry(edge_key) {
             indexmap::map::Entry::Occupied(mut edge_bucket) => {
@@ -2224,20 +2244,7 @@ impl MultiGraph {
             }
         }
         self.edge_count += 1;
-        self.adjacency
-            .entry(left.clone())
-            .or_default()
-            .entry(right.clone())
-            .or_default()
-            .insert(key);
-        if left != right {
-            self.adjacency
-                .entry(right)
-                .or_default()
-                .entry(left)
-                .or_default()
-                .insert(key);
-        }
+        self.insert_adj_key(left_idx, right_idx, key);
         self.revision = self.revision.saturating_add(1);
         Some(key)
     }
@@ -2256,6 +2263,7 @@ impl MultiGraph {
                 continue;
             }
             self.nodes.insert(node.clone(), attrs);
+            self.adj_indices.push(IndexMap::new());
             inserted += 1;
         }
         if inserted > 0 {
@@ -2288,14 +2296,12 @@ impl MultiGraph {
     {
         let mut inserted = 0usize;
         for (left, right, key, attrs) in edges {
-            if !self.nodes.contains_key(&left) {
-                self.nodes.insert(left.clone(), AttrMap::new());
-                self.adjacency.entry(left.clone()).or_default();
-            }
-            if left != right && !self.nodes.contains_key(&right) {
-                self.nodes.insert(right.clone(), AttrMap::new());
-                self.adjacency.entry(right.clone()).or_default();
-            }
+            let left_idx = self.ensure_node_index_unrecorded(&left);
+            let right_idx = if left == right {
+                left_idx
+            } else {
+                self.ensure_node_index_unrecorded(&right)
+            };
             let edge_key = EdgeKey::new(&left, &right);
             let bucket = self.edges.entry(edge_key).or_default();
             if !bucket.contains_key(&key) {
@@ -2303,20 +2309,7 @@ impl MultiGraph {
                 inserted += 1;
             }
             bucket.entry(key).or_default().extend(attrs);
-            self.adjacency
-                .entry(left.clone())
-                .or_default()
-                .entry(right.clone())
-                .or_default()
-                .insert(key);
-            if left != right {
-                self.adjacency
-                    .entry(right)
-                    .or_default()
-                    .entry(left)
-                    .or_default()
-                    .insert(key);
-            }
+            self.insert_adj_key(left_idx, right_idx, key);
         }
         if inserted > 0 {
             self.revision = self
@@ -2387,6 +2380,14 @@ impl MultiGraph {
             let _ = self.add_node(right.clone());
             right_autocreated = true;
         }
+        let left_idx = self
+            .nodes
+            .get_index_of(&left)
+            .expect("left endpoint exists after add_node");
+        let right_idx = self
+            .nodes
+            .get_index_of(&right)
+            .expect("right endpoint exists after add_node");
 
         let edge_key = EdgeKey::new(&left, &right);
         let key = explicit_key.unwrap_or_else(|| {
@@ -2419,20 +2420,7 @@ impl MultiGraph {
             edge_bucket.len()
         };
 
-        self.adjacency
-            .entry(left.clone())
-            .or_default()
-            .entry(right.clone())
-            .or_default()
-            .insert(key);
-        if left != right {
-            self.adjacency
-                .entry(right.clone())
-                .or_default()
-                .entry(left.clone())
-                .or_default()
-                .insert(key);
-        }
+        self.insert_adj_key(left_idx, right_idx, key);
         if changed {
             self.revision = self.revision.saturating_add(1);
         }
@@ -2531,9 +2519,11 @@ impl MultiGraph {
         if !removed {
             return false;
         }
-        self.remove_adjacency_key(left, right, removal_key);
-        if left != right {
-            self.remove_adjacency_key(right, left, removal_key);
+        if let Some((left_idx, right_idx)) = self.node_pair_indices(left, right) {
+            self.remove_adjacency_key_by_indices(left_idx, right_idx, removal_key);
+            if left_idx != right_idx {
+                self.remove_adjacency_key_by_indices(right_idx, left_idx, removal_key);
+            }
         }
         self.revision = self.revision.saturating_add(1);
         true
@@ -2551,14 +2541,23 @@ impl MultiGraph {
         // known exactly from this node's adjacency (each distinct neighbor maps
         // to one canonical bucket, self-loops included), so removal is O(degree)
         // instead of the O(|distinct pairs|) `retain` scan — matching nx.
+        let idx = self
+            .nodes
+            .get_index_of(node)
+            .expect("node exists after contains_key");
         let mut removed_count = 0usize;
-        if let Some(neighbors) = self.adjacency.get(node) {
-            let neighbor_names: Vec<String> = neighbors.keys().cloned().collect();
-            for neighbor in neighbor_names {
-                if neighbor != node
-                    && let Some(remote_neighbors) = self.adjacency.get_mut(&neighbor)
+        if let Some(neighbors) = self.adj_indices.get(idx) {
+            let neighbor_indices: Vec<usize> = neighbors.keys().copied().collect();
+            for neighbor_idx in neighbor_indices {
+                let neighbor = self
+                    .nodes
+                    .get_index(neighbor_idx)
+                    .map(|(name, _)| name.clone())
+                    .expect("adj_indices entries are valid node indices");
+                if neighbor_idx != idx
+                    && let Some(remote_neighbors) = self.adj_indices.get_mut(neighbor_idx)
                 {
-                    remote_neighbors.shift_remove(node);
+                    remote_neighbors.shift_remove(&idx);
                 }
                 if let Some(bucket) = self.edges.swap_remove(&EdgeKeyRef::new(node, &neighbor)) {
                     removed_count += bucket.len();
@@ -2567,9 +2566,26 @@ impl MultiGraph {
         }
         self.edge_count -= removed_count;
 
-        // Remove node from adjacency and nodes maps.
-        self.adjacency.shift_remove(node);
+        // Remove node row and repair every stored neighbor index after the
+        // node IndexMap shift.
+        self.adj_indices.remove(idx);
         self.nodes.shift_remove(node);
+        for row in &mut self.adj_indices {
+            let old = std::mem::take(row);
+            let mut repaired = IndexMap::with_capacity(old.len());
+            for (neighbor_idx, keys) in old {
+                if neighbor_idx == idx {
+                    continue;
+                }
+                let adjusted = if neighbor_idx > idx {
+                    neighbor_idx - 1
+                } else {
+                    neighbor_idx
+                };
+                repaired.insert(adjusted, keys);
+            }
+            *row = repaired;
+        }
         self.revision = self.revision.saturating_add(1);
         true
     }
@@ -2577,17 +2593,24 @@ impl MultiGraph {
     #[must_use]
     pub fn edges_ordered(&self) -> Vec<MultiEdgeSnapshot> {
         let mut ordered = Vec::with_capacity(self.edge_count());
-        let mut seen = HashSet::<(String, String, usize)>::with_capacity(self.edge_count());
+        let mut seen = HashSet::<(usize, usize, usize)>::with_capacity(self.edge_count());
 
-        for node in self.nodes.keys() {
-            if let Some(neighbors) = self.adjacency.get(node) {
-                for neighbor in neighbors.keys() {
+        for (node_idx, (node, _)) in self.nodes.iter().enumerate() {
+            if let Some(neighbors) = self.adj_indices.get(node_idx) {
+                for &neighbor_idx in neighbors.keys() {
+                    let neighbor = self
+                        .nodes
+                        .get_index(neighbor_idx)
+                        .map(|(name, _)| name.as_str())
+                        .expect("adj_indices entries are valid node indices");
                     let pair = EdgeKeyRef::new(node, neighbor);
                     if let Some(edge_bucket) = self.edges.get(&pair) {
                         for (key, attrs) in edge_bucket {
-                            // Track using the canonical sorted pair to deduplicate correctly
-                            let canonical_instance =
-                                (pair.left.to_owned(), pair.right.to_owned(), *key);
+                            let canonical_instance = if node_idx <= neighbor_idx {
+                                (node_idx, neighbor_idx, *key)
+                            } else {
+                                (neighbor_idx, node_idx, *key)
+                            };
                             if !seen.insert(canonical_instance) {
                                 continue;
                             }
@@ -2609,15 +2632,25 @@ impl MultiGraph {
     #[must_use]
     pub fn edges_ordered_borrowed(&self) -> Vec<(&str, &str, usize, &AttrMap)> {
         let mut ordered = Vec::with_capacity(self.edge_count());
-        let mut seen = HashSet::<(EdgeKeyRef, usize)>::with_capacity(self.edge_count());
+        let mut seen = HashSet::<(usize, usize, usize)>::with_capacity(self.edge_count());
 
-        for node in self.nodes.keys() {
-            if let Some(neighbors) = self.adjacency.get(node) {
-                for neighbor in neighbors.keys() {
+        for (node_idx, (node, _)) in self.nodes.iter().enumerate() {
+            if let Some(neighbors) = self.adj_indices.get(node_idx) {
+                for &neighbor_idx in neighbors.keys() {
+                    let neighbor = self
+                        .nodes
+                        .get_index(neighbor_idx)
+                        .map(|(name, _)| name.as_str())
+                        .expect("adj_indices entries are valid node indices");
                     let pair = EdgeKeyRef::new(node, neighbor);
                     if let Some(edge_bucket) = self.edges.get(&pair) {
                         for (key, attrs) in edge_bucket {
-                            if !seen.insert((pair, *key)) {
+                            let canonical_instance = if node_idx <= neighbor_idx {
+                                (node_idx, neighbor_idx, *key)
+                            } else {
+                                (neighbor_idx, node_idx, *key)
+                            };
+                            if !seen.insert(canonical_instance) {
                                 continue;
                             }
                             ordered.push((pair.left, pair.right, *key, attrs));
@@ -2647,16 +2680,21 @@ impl MultiGraph {
         }
     }
 
-    fn remove_adjacency_key(&mut self, source: &str, target: &str, key: usize) {
+    fn remove_adjacency_key_by_indices(
+        &mut self,
+        source_idx: usize,
+        target_idx: usize,
+        key: usize,
+    ) {
         let mut drop_neighbor = false;
-        if let Some(neighbors) = self.adjacency.get_mut(source)
-            && let Some(keys) = neighbors.get_mut(target)
+        if let Some(neighbors) = self.adj_indices.get_mut(source_idx)
+            && let Some(keys) = neighbors.get_mut(&target_idx)
         {
             keys.shift_remove(&key);
             drop_neighbor = keys.is_empty();
         }
-        if drop_neighbor && let Some(neighbors) = self.adjacency.get_mut(source) {
-            neighbors.shift_remove(target);
+        if drop_neighbor && let Some(neighbors) = self.adj_indices.get_mut(source_idx) {
+            neighbors.shift_remove(&target_idx);
         }
     }
 
@@ -2685,6 +2723,7 @@ impl MultiGraph {
 mod tests {
     use super::{AttrMap, Graph, GraphError, MultiGraph};
     use fnx_runtime::{CgseValue, CompatibilityMode, DecisionAction, DecisionRecord};
+    use indexmap::IndexMap;
     use proptest::prelude::*;
     use std::collections::BTreeSet;
 
@@ -3156,13 +3195,14 @@ mod tests {
             if !gold.nodes.contains_key(node) {
                 continue;
             }
-            if let Some(neighbors) = gold.adjacency.get(node) {
-                let names: Vec<String> = neighbors.keys().cloned().collect();
+            let idx = gold.nodes.get_index_of(node).expect("victim exists");
+            if let Some(neighbors) = gold.adj_indices.get(idx) {
+                let names: Vec<usize> = neighbors.keys().copied().collect();
                 for nb in names {
-                    if nb != *node
-                        && let Some(rn) = gold.adjacency.get_mut(&nb)
+                    if nb != idx
+                        && let Some(rn) = gold.adj_indices.get_mut(nb)
                     {
-                        rn.shift_remove(node.as_str());
+                        rn.shift_remove(&idx);
                     }
                 }
             }
@@ -3176,8 +3216,24 @@ mod tests {
                 keep
             });
             gold.edge_count -= rc;
-            gold.adjacency.shift_remove(node);
+            gold.adj_indices.remove(idx);
             gold.nodes.shift_remove(node);
+            for row in &mut gold.adj_indices {
+                let old = std::mem::take(row);
+                let mut repaired = IndexMap::with_capacity(old.len());
+                for (neighbor_idx, keys) in old {
+                    if neighbor_idx == idx {
+                        continue;
+                    }
+                    let adjusted = if neighbor_idx > idx {
+                        neighbor_idx - 1
+                    } else {
+                        neighbor_idx
+                    };
+                    repaired.insert(adjusted, keys);
+                }
+                *row = repaired;
+            }
         }
         let old_t = t.elapsed();
 

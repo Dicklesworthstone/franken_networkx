@@ -1877,12 +1877,12 @@ pub fn bellman_ford_shortest_paths_directed(
     let csr = digraph.csr();
     let names = digraph.nodes_ordered();
     let mut weights: Vec<f64> = Vec::with_capacity(csr.succ_targets.len());
-    for (u, name_u) in names.iter().enumerate() {
+    for u in 0..names.len() {
         for &v in csr.successors(u) {
-            weights.push(signed_digraph_edge_weight_or_default(
+            weights.push(signed_digraph_edge_weight_or_default_idx(
                 digraph,
-                name_u,
-                names[v as usize],
+                u,
+                v as usize,
                 weight_attr,
             ));
         }
@@ -22361,12 +22361,12 @@ pub fn single_source_dijkstra_directed(
     let names = digraph.nodes_ordered();
     let n = names.len();
     let mut weights: Vec<f64> = Vec::with_capacity(csr.succ_targets.len());
-    for (u, name_u) in names.iter().enumerate() {
+    for u in 0..names.len() {
         for &v in csr.successors(u) {
-            weights.push(digraph_edge_weight_or_default(
+            weights.push(digraph_edge_weight_or_default_idx(
                 digraph,
-                name_u,
-                names[v as usize],
+                u,
+                v as usize,
                 weight_attr,
             ));
         }
@@ -22441,12 +22441,12 @@ pub fn single_source_dijkstra_full_directed(
     let names = digraph.nodes_ordered();
     let n = names.len();
     let mut weights: Vec<f64> = Vec::with_capacity(csr.succ_targets.len());
-    for (u, name_u) in names.iter().enumerate() {
+    for u in 0..names.len() {
         for &v in csr.successors(u) {
-            weights.push(digraph_edge_weight_or_default(
+            weights.push(digraph_edge_weight_or_default_idx(
                 digraph,
-                name_u,
-                names[v as usize],
+                u,
+                v as usize,
                 weight_attr,
             ));
         }
@@ -22583,6 +22583,35 @@ pub fn single_source_dijkstra_path_length_with_pred(
     weight_attr: &str,
 ) -> Vec<(String, f64, Option<String>)> {
     let result = multi_source_dijkstra(graph, &[source], weight_attr);
+    let pred: HashMap<&str, Option<&str>> = result
+        .predecessors
+        .iter()
+        .map(|e| (e.node.as_str(), e.predecessor.as_deref()))
+        .collect();
+    result
+        .distances
+        .iter()
+        .map(|entry| {
+            (
+                entry.node.clone(),
+                entry.distance,
+                pred.get(entry.node.as_str())
+                    .copied()
+                    .flatten()
+                    .map(str::to_owned),
+            )
+        })
+        .collect()
+}
+
+/// Directed twin of single_source_dijkstra_path_length_with_pred.
+#[must_use]
+pub fn single_source_dijkstra_path_length_with_pred_directed(
+    digraph: &DiGraph,
+    source: &str,
+    weight_attr: &str,
+) -> Vec<(String, f64, Option<String>)> {
+    let result = multi_source_dijkstra_directed(digraph, &[source], weight_attr);
     let pred: HashMap<&str, Option<&str>> = result
         .predecessors
         .iter()
@@ -23522,6 +23551,43 @@ fn directed_edge_weight_with_default(
         .and_then(|val| val.as_f64())
         .filter(|value| value.is_finite())
         .unwrap_or(default_weight)
+}
+
+/// br-r37-c1-d58s8: index-keyed twin — zero node-map probes (the
+/// String version pays edge_pair_key's two probes per call, which the
+/// quiet-host scoreboard showed regressing the CSR weight builders to
+/// ~1.9x).
+fn digraph_edge_weight_or_default_idx(
+    digraph: &DiGraph,
+    source_idx: usize,
+    target_idx: usize,
+    weight_attr: &str,
+) -> f64 {
+    let weight = digraph
+        .edge_attrs_by_indices(source_idx, target_idx)
+        .and_then(|attrs| attrs.get(weight_attr))
+        .and_then(|val| val.as_f64())
+        .filter(|value| value.is_finite())
+        .unwrap_or(1.0);
+    if weight.is_finite() && weight >= 0.0 {
+        weight
+    } else {
+        1.0
+    }
+}
+
+fn signed_digraph_edge_weight_or_default_idx(
+    digraph: &DiGraph,
+    source_idx: usize,
+    target_idx: usize,
+    weight_attr: &str,
+) -> f64 {
+    digraph
+        .edge_attrs_by_indices(source_idx, target_idx)
+        .and_then(|attrs| attrs.get(weight_attr))
+        .and_then(|val| val.as_f64())
+        .filter(|value| value.is_finite())
+        .unwrap_or(1.0)
 }
 
 /// Helper to get a non-negative edge weight from DiGraph.

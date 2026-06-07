@@ -12188,28 +12188,32 @@ fn single_source_dijkstra_path_length(
     let gr = extract_graph(g)?;
     let s = node_key_to_string(py, source)?;
     validate_node_str(&gr, &s, "Source")?;
-    // weighted sp batch: the FULL kernel gives distances AND paths in one
-    // dijkstra — paths feed the discovery-object map (a node displays as
-    // its path's second-to-last element's row object), distances keep
-    // finalize order.
-    let (dists, paths) = if let Some(weighted_projection) = gr.weighted_digraph_projection(weight) {
+    // br-r37-c1-d58s8 scoreboard fix: length-only queries no longer
+    // build full path Vecs — the with_pred kernels give the finalizing
+    // PREDECESSOR (== path[-2], the discovery-object parent) alongside
+    // finalize-ordered distances.
+    let entries = if let Some(weighted_projection) = gr.weighted_digraph_projection(weight) {
         let __wp = weighted_projection.as_ref();
-        py.allow_threads(|| fnx_algorithms::single_source_dijkstra_full_directed(__wp, &s, weight))
+        py.allow_threads(|| {
+            fnx_algorithms::single_source_dijkstra_path_length_with_pred_directed(__wp, &s, weight)
+        })
     } else {
         let weighted_projection = gr.weighted_undirected_projection(weight);
         let __wp = weighted_projection.as_ref();
-        py.allow_threads(|| fnx_algorithms::single_source_dijkstra_full(__wp, &s, weight))
+        py.allow_threads(|| {
+            fnx_algorithms::single_source_dijkstra_path_length_with_pred(__wp, &s, weight)
+        })
     };
     let mut disp: std::collections::HashMap<String, PyObject> =
-        std::collections::HashMap::with_capacity(paths.len() + 1);
+        std::collections::HashMap::with_capacity(entries.len() + 1);
     disp.insert(s.clone(), source.clone().unbind());
-    for (node, p) in &paths {
-        if p.len() >= 2 {
-            disp.insert(node.clone(), gr.py_row_key(py, &p[p.len() - 2], node));
+    for (node, _, pred) in &entries {
+        if let Some(p) = pred {
+            disp.insert(node.clone(), gr.py_row_key(py, p, node));
         }
     }
     let dict = PyDict::new(py);
-    for (node, d) in &dists {
+    for (node, d, _) in &entries {
         dict.set_item(gr.disp_or_node_key(py, &disp, node), d)?;
     }
     Ok(dict.into_any().unbind())
