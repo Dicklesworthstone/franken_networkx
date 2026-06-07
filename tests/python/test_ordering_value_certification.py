@@ -145,3 +145,29 @@ def test_directed_degree_weighted_and_selfloop():
     assert [(repr(k), v) for k, v in wf.degree()] == [
         (repr(k), v) for k, v in wn.degree()
     ]
+
+
+def test_set_node_attributes_bulk_parity():
+    """br-r37-c1-snabulk: native bulk set_node_attributes(dict, name)
+    must match nx — missing nodes skipped, copy refreshes inner from
+    the mirror, get_node_attributes reads it back, scalar broadcast."""
+    r = random.Random(5)
+    for trial in range(12):
+        ed = [(r.randrange(12), r.randrange(12)) for _ in range(r.randrange(2, 40))]
+        af, an = fnx.Graph(ed), nx.Graph(ed)
+        vv = {k: (k * 2 if trial % 2 else f"s{k}") for k in range(0, 18, 2)}
+        fnx.set_node_attributes(af, vv, "attr")
+        nx.set_node_attributes(an, vv, "attr")
+        ref = sorted((repr(n), repr(d.get("attr"))) for n, d in an.nodes(data=True))
+        assert sorted((repr(n), repr(d.get("attr"))) for n, d in af.nodes(data=True)) == ref, trial
+        assert sorted(
+            (repr(n), repr(d.get("attr"))) for n, d in af.copy().nodes(data=True)
+        ) == ref, ("copy", trial)
+        assert sorted(
+            (repr(k), repr(v)) for k, v in fnx.get_node_attributes(af, "attr").items()
+        ) == sorted((repr(k), repr(v)) for k, v in nx.get_node_attributes(an, "attr").items()), trial
+
+    gf2, gn2 = fnx.Graph([(0, 1)]), nx.Graph([(0, 1)])
+    fnx.set_node_attributes(gf2, 5, "z")
+    nx.set_node_attributes(gn2, 5, "z")
+    assert dict(gf2.nodes(data=True)) == dict(gn2.nodes(data=True))

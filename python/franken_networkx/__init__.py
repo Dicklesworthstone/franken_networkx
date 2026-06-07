@@ -17028,6 +17028,13 @@ def set_node_attributes(G, values, name=None):
     """
     if isinstance(values, _Mapping):
         if name is not None:
+            # br-r37-c1-snabulk: one native pass over the values dict
+            # (was 3 PyO3 round-trips/node: has_node + G.nodes[n] +
+            # setitem). node_py_attrs is the authoritative store.
+            native = getattr(G, "_native_set_node_attribute_scalar", None)
+            if native is not None and isinstance(values, dict):
+                native(values, name)
+                return
             for node, value in values.items():
                 if G.has_node(node):
                     G.nodes[node][name] = value

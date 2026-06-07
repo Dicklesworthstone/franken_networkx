@@ -5191,6 +5191,32 @@ impl PyGraph {
         }
     }
 
+    /// br-r37-c1-snabulk: bulk set_node_attributes(values, name) — one
+    /// Rust loop over the values dict instead of the Python wrapper's
+    /// per-node has_node + G.nodes[n] materialization + setitem (3 PyO3
+    /// round-trips/node). node_py_attrs is the authoritative node-attr
+    /// store (inner is refreshed from it at copy/export), so updating
+    /// the mirror dict matches the single-set path exactly. Missing
+    /// nodes are skipped (nx catches the KeyError).
+    fn _native_set_node_attribute_scalar(
+        &mut self,
+        py: Python<'_>,
+        values: &Bound<'_, PyDict>,
+        name: &str,
+    ) -> PyResult<()> {
+        for (k, v) in values.iter() {
+            let canonical = node_key_to_string(py, &k)?;
+            if self.inner.has_node(&canonical) {
+                let dict = self
+                    .node_py_attrs
+                    .entry(canonical)
+                    .or_insert_with(|| PyDict::new(py).unbind());
+                dict.bind(py).set_item(name, &v)?;
+            }
+        }
+        Ok(())
+    }
+
     /// Return adjacency list as list of (node, [neighbors]) pairs.
     fn adjacency<'py>(&self, py: Python<'py>) -> PyResult<Vec<(PyObject, Vec<PyObject>)>> {
         let nodes = self.inner.nodes_ordered();
