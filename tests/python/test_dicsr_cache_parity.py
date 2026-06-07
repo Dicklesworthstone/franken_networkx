@@ -461,3 +461,40 @@ def test_edges_map_index_keys_rekey_on_removal():
         for u in list(gn)[:5]:
             for v in list(gn)[:5]:
                 assert gf.has_edge(u, v) == gn.has_edge(u, v), (trial, u, v)
+
+
+def test_digraph_edges_map_index_keys_rekey():
+    """Directed edges-map flip: ORIENTED (source_idx, target_idx) keys;
+    both removal paths rekey survivors. Asymmetric arcs + heavy
+    renumbering."""
+    import networkx as _nx
+
+    rnd = random.Random(67)
+    for trial in range(12):
+        n = rnd.randrange(4, 25)
+        gf, gn = fnx.DiGraph(), _nx.DiGraph()
+        for _ in range(rnd.randrange(10, 90)):
+            r = rnd.random()
+            if r < 0.5:
+                u, v = rnd.randrange(n), rnd.randrange(n)
+                gf.add_edge(u, v, w=u)
+                gn.add_edge(u, v, w=u)
+            elif r < 0.7 and len(gn) > 2:
+                x = rnd.choice(list(gn))
+                gf.remove_node(x)
+                gn.remove_node(x)
+            elif r < 0.85:
+                batch = [rnd.randrange(n) for _ in range(3)]
+                gf.remove_nodes_from(batch)
+                gn.remove_nodes_from(batch)
+            elif gn.number_of_edges() > 1:
+                e = rnd.choice(list(gn.edges()))
+                gf.remove_edge(*e)
+                gn.remove_edge(*e)
+        assert [(repr(u), repr(v), dict(d)) for u, v, d in gf.edges(data=True)] == [
+            (repr(u), repr(v), dict(d)) for u, v, d in gn.edges(data=True)
+        ], trial
+        for u in list(gn)[:5]:
+            for v in list(gn)[:5]:
+                # ORIENTATION matters for directed has_edge
+                assert gf.has_edge(u, v) == gn.has_edge(u, v), (trial, u, v)

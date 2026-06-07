@@ -126,8 +126,11 @@ pub struct DiGraph {
     /// readers here; phase 3 deletes the String rows above.
     succ_indices: Vec<Vec<usize>>,
     pred_indices: Vec<Vec<usize>>,
-    /// Directed edges keyed by (source, target) — order matters.
-    edges: IndexMap<DirectedEdgeKey, AttrMap>,
+    // br-r37-c1-d58s8 edges-map flip (directed twin): keyed by the
+    // ORIENTED (source_idx, target_idx) pair — NOT canonicalized
+    // (direction IS identity for directed edges). Zero String
+    // allocs/hashes per insert; node removal REKEYS via the remap.
+    edges: IndexMap<(usize, usize), AttrMap>,
     runtime_policy: RuntimePolicy,
     /// br-r37-c1-d58s8 P1: revision-keyed CSR cache. Derived from the
     /// String maps on demand (never eagerly maintained — the I5
@@ -319,9 +322,18 @@ impl DiGraph {
 
     /// Check for directed edge source→target.
     #[must_use]
+    /// br-r37-c1-d58s8: resolve a String pair to the ORIENTED index key.
+    #[inline]
+    fn edge_pair_key(&self, source: &str, target: &str) -> Option<(usize, usize)> {
+        Some((
+            self.nodes.get_index_of(source)?,
+            self.nodes.get_index_of(target)?,
+        ))
+    }
+
     pub fn has_edge(&self, source: &str, target: &str) -> bool {
-        self.edges
-            .contains_key(&DirectedEdgeKeyRef::new(source, target))
+        self.edge_pair_key(source, target)
+            .is_some_and(|k| self.edges.contains_key(&k))
     }
 
     #[must_use]
@@ -562,7 +574,7 @@ impl DiGraph {
     /// Attributes of directed edge source→target.
     #[must_use]
     pub fn edge_attrs(&self, source: &str, target: &str) -> Option<&AttrMap> {
-        self.edges.get(&DirectedEdgeKeyRef::new(source, target))
+        self.edges.get(&self.edge_pair_key(source, target)?)
     }
 
     #[must_use]
@@ -734,7 +746,10 @@ impl DiGraph {
             target_autocreated = true;
         }
 
-        let edge_key = DirectedEdgeKey::new(&source, &target);
+        let edge_key = (
+            self.nodes.get_index_of(&source).expect("autocreated above"),
+            self.nodes.get_index_of(&target).expect("autocreated above"),
+        );
         let new_edge = !self.edges.contains_key(&edge_key);
         let mut changed = new_edge;
         let edge_attr_count = {
@@ -827,7 +842,10 @@ impl DiGraph {
                 self.succ_indices.push(Vec::new());
                 self.pred_indices.push(Vec::new());
             }
-            let edge_key = DirectedEdgeKey::new(&source, &target);
+            let edge_key = (
+                self.nodes.get_index_of(&source).expect("created above"),
+                self.nodes.get_index_of(&target).expect("created above"),
+            );
             if self.edges.contains_key(&edge_key) {
                 continue;
             }
@@ -925,7 +943,10 @@ impl DiGraph {
                 self.succ_indices.push(Vec::new());
                 self.pred_indices.push(Vec::new());
             }
-            let edge_key = DirectedEdgeKey::new(&source, &target);
+            let edge_key = (
+                self.nodes.get_index_of(&source).expect("created above"),
+                self.nodes.get_index_of(&target).expect("created above"),
+            );
             if let Some(existing) = self.edges.get_mut(&edge_key) {
                 if !attrs.is_empty()
                     && attrs
@@ -994,7 +1015,10 @@ impl DiGraph {
         let mut predecessor_rows: IndexMap<String, Vec<String>> = IndexMap::new();
 
         for (source, target, attrs) in edges {
-            let edge_key = DirectedEdgeKey::new(&source, &target);
+            let edge_key = (
+                self.nodes.get_index_of(&source).expect("created above"),
+                self.nodes.get_index_of(&target).expect("created above"),
+            );
             if let Some(existing) = self.edges.get_mut(&edge_key) {
                 if !attrs.is_empty()
                     && attrs
@@ -1077,7 +1101,9 @@ impl DiGraph {
 
     /// br-r37-c1-sjf4t: overwrite the attribute map for an existing edge.
     pub fn replace_edge_attrs(&mut self, source: &str, target: &str, attrs: AttrMap) -> bool {
-        let edge_key = DirectedEdgeKey::new(source, target);
+        let Some(edge_key) = self.edge_pair_key(source, target) else {
+            return false;
+        };
         if let Some(slot) = self.edges.get_mut(&edge_key) {
             if *slot != attrs {
                 *slot = attrs;
@@ -1104,10 +1130,10 @@ impl DiGraph {
 
     /// Remove directed edge source→target. Returns `true` if it existed.
     pub fn remove_edge(&mut self, source: &str, target: &str) -> bool {
-        let removed = self
-            .edges
-            .shift_remove(&DirectedEdgeKeyRef::new(source, target))
-            .is_some();
+        let Some(pair) = self.edge_pair_key(source, target) else {
+            return false;
+        };
+        let removed = self.edges.shift_remove(&pair).is_some();
         if removed {
             if let (Some(s_idx), Some(t_idx)) = (
                 self.nodes.get_index_of(source),
@@ -1142,19 +1168,13 @@ impl DiGraph {
             .nodes
             .get_index_of(node)
             .expect("node existence checked above");
-        let targets: Vec<String> = self.succ_indices[node_idx]
-            .iter()
-            .map(|&i| self.nodes.get_index(i).expect("valid index").0.clone())
-            .collect();
-        for target in targets {
-            self.edges.swap_remove(&DirectedEdgeKey::new(node, &target));
+        let targets: Vec<usize> = self.succ_indices[node_idx].clone();
+        for t in targets {
+            self.edges.swap_remove(&(node_idx, t));
         }
-        let sources: Vec<String> = self.pred_indices[node_idx]
-            .iter()
-            .map(|&i| self.nodes.get_index(i).expect("valid index").0.clone())
-            .collect();
-        for source in sources {
-            self.edges.swap_remove(&DirectedEdgeKey::new(&source, node));
+        let sources: Vec<usize> = self.pred_indices[node_idx].clone();
+        for s in sources {
+            self.edges.swap_remove(&(s, node_idx));
         }
 
         // br-r37-c1-d58s8 DiGraph flip P1: I5 repair on both index
@@ -1177,6 +1197,20 @@ impl DiGraph {
                 }
             }
         }
+        // br-r37-c1-d58s8 edges-map flip: REKEY surviving edges past the
+        // removed index (integer rehash, order preserved).
+        self.edges = std::mem::take(&mut self.edges)
+            .into_iter()
+            .map(|((s, t), attrs)| {
+                (
+                    (
+                        if s > idx { s - 1 } else { s },
+                        if t > idx { t - 1 } else { t },
+                    ),
+                    attrs,
+                )
+            })
+            .collect();
         self.revision = self.revision.saturating_add(1);
         true
     }
@@ -1228,9 +1262,13 @@ impl DiGraph {
         }
         self.nodes
             .retain(|node, _| !remove_set.contains(node.as_str()));
-        self.edges.retain(|edge, _| {
-            !remove_set.contains(edge.source.as_str()) && !remove_set.contains(edge.target.as_str())
-        });
+        self.edges
+            .retain(|&(s, t), _| !removed_mask[s] && !removed_mask[t]);
+        // br-r37-c1-d58s8 edges-map flip: rekey survivors through the remap.
+        self.edges = std::mem::take(&mut self.edges)
+            .into_iter()
+            .map(|((s, t), attrs)| ((remap[s], remap[t]), attrs))
+            .collect();
 
         let removed_nodes = old_node_count - self.nodes.len();
         let removed_edges = old_edge_count - self.edges.len();
@@ -1254,8 +1292,7 @@ impl DiGraph {
             let node = self.nodes.get_index(u).expect("valid index").0;
             for &t in row {
                 let target = self.nodes.get_index(t).expect("valid index").0;
-                let key = DirectedEdgeKeyRef::new(node, target);
-                if let Some(attrs) = self.edges.get(&key) {
+                if let Some(attrs) = self.edges.get(&(u, t)) {
                     ordered.push(EdgeSnapshot {
                         left: node.clone(),
                         right: target.clone(),
@@ -1276,8 +1313,7 @@ impl DiGraph {
             let node = self.nodes.get_index(u).expect("valid index").0;
             for &t in row {
                 let target = self.nodes.get_index(t).expect("valid index").0;
-                let key = DirectedEdgeKeyRef::new(node, target);
-                if let Some(attrs) = self.edges.get(&key) {
+                if let Some(attrs) = self.edges.get(&(u, t)) {
                     ordered.push((node.as_str(), target.as_str(), attrs));
                 }
             }
