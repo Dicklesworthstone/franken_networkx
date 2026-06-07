@@ -3716,8 +3716,95 @@ impl PyDiGraph {
                 || g.try_add_attr_edge_batch(py, data, false)?
             {
             } else if let Ok(iter) = PyIterator::from_object(data) {
+                // br-r37-c1-d58s8 ctor lever 2 (directed twin): batch the
+                // edge-tuple stream through ONE
+                // extend_edges_with_attrs_unrecorded call, replicating
+                // add_edge's display semantics inline (as-passed node
+                // keys, z6uka succ/pred row objects on new cells, LAZY
+                // mirrors — attr-ful edges only, C-level update merge).
+                // Pending-state sets stand in for has_node/has_edge until
+                // the flush; slow items flush-then-fallback verbatim.
+                let mut edge_batch: Vec<(String, String, fnx_classes::AttrMap)> = Vec::new();
+                let mut pending_nodes: std::collections::HashSet<String> =
+                    std::collections::HashSet::new();
+                let mut pending_cells: std::collections::HashSet<(String, String)> =
+                    std::collections::HashSet::new();
+                macro_rules! flush_batch {
+                    () => {
+                        if !edge_batch.is_empty() {
+                            let drained: Vec<(String, String, fnx_classes::AttrMap)> =
+                                std::mem::take(&mut edge_batch);
+                            let _ = g.inner.extend_edges_with_attrs_unrecorded(drained);
+                            pending_nodes.clear();
+                            pending_cells.clear();
+                            g.bump_nodes_seq();
+                            g.bump_edges_seq();
+                        }
+                    };
+                }
                 for item in iter {
                     let item = item?;
+                    let mut batched = false;
+                    if let Ok(tuple) = item.downcast::<PyTuple>() {
+                        let tuple_len = tuple.len();
+                        if tuple_len == 2 || tuple_len == 3 {
+                            let dict3 = if tuple_len == 3 {
+                                tuple.get_item(2)?.downcast::<PyDict>().ok().cloned()
+                            } else {
+                                None
+                            };
+                            if tuple_len == 2 || dict3.is_some() {
+                                let u = tuple.get_item(0)?;
+                                let v = tuple.get_item(1)?;
+                                if let (Ok(u_canonical), Ok(v_canonical)) = (
+                                    node_key_to_string(py, &u),
+                                    node_key_to_string(py, &v),
+                                ) {
+                                    g.node_key_map
+                                        .entry(u_canonical.clone())
+                                        .or_insert_with(|| u.clone().unbind());
+                                    g.node_key_map
+                                        .entry(v_canonical.clone())
+                                        .or_insert_with(|| v.clone().unbind());
+                                    let cell =
+                                        (u_canonical.clone(), v_canonical.clone());
+                                    if !g.inner.has_edge(&u_canonical, &v_canonical)
+                                        && !pending_cells.contains(&cell)
+                                    {
+                                        g.maybe_store_row_keys(
+                                            py,
+                                            &u_canonical,
+                                            &v_canonical,
+                                            &u,
+                                            &v,
+                                        );
+                                        pending_cells.insert(cell);
+                                    }
+                                    let mut rust_attrs = fnx_classes::AttrMap::new();
+                                    if let Some(d) = &dict3
+                                        && !d.is_empty()
+                                    {
+                                        rust_attrs = py_dict_to_attr_map(d)?;
+                                        let ek =
+                                            Self::edge_key(&u_canonical, &v_canonical);
+                                        g.edge_py_attrs
+                                            .entry(ek)
+                                            .or_insert_with(|| PyDict::new(py).unbind())
+                                            .bind(py)
+                                            .update(d.as_mapping())?;
+                                    }
+                                    pending_nodes.insert(u_canonical.clone());
+                                    pending_nodes.insert(v_canonical.clone());
+                                    edge_batch.push((u_canonical, v_canonical, rust_attrs));
+                                    batched = true;
+                                }
+                            }
+                        }
+                    }
+                    if batched {
+                        continue;
+                    }
+                    flush_batch!();
                     if let Ok(tuple) = item.downcast::<PyTuple>() {
                         let merged = PyDict::new(py);
                         match tuple.len() {
@@ -3748,6 +3835,7 @@ impl PyDiGraph {
                         g.add_node(py, &item, None)?;
                     }
                 }
+                flush_batch!();
             }
         }
 
@@ -4822,7 +4910,7 @@ impl PyDiGraph {
     /// Return attributes of the edge (u, v).
     #[pyo3(signature = (u, v, default=None))]
     fn get_edge_data(
-        &self,
+        &mut self,
         py: Python<'_>,
         u: &Bound<'_, PyAny>,
         v: &Bound<'_, PyAny>,
@@ -4830,14 +4918,21 @@ impl PyDiGraph {
     ) -> PyResult<PyObject> {
         let u_c = node_key_to_string(py, u)?;
         let v_c = node_key_to_string(py, v)?;
-        let ek = (u_c, v_c);
-        if self.edge_py_attrs.contains_key(&ek) {
-            self.mark_edges_dirty();
+        // br-r37-c1-d58s8: gate on the INNER edge, not mirror presence —
+        // lazy-mirror paths (ctor bulk absorb, clone converters) create
+        // no mirrors for attr-less edges; an existing edge must return
+        // its (materialized) dict, not the default.
+        if !self.inner.has_edge(&u_c, &v_c) {
+            return Ok(default.unwrap_or_else(|| py.None()));
         }
-        Ok(self.edge_py_attrs.get(&ek).map_or_else(
-            || default.unwrap_or_else(|| py.None()),
-            |d| d.clone_ref(py).into_any(),
-        ))
+        self.mark_edges_dirty();
+        let ek = (u_c, v_c);
+        Ok(self
+            .edge_py_attrs
+            .entry(ek)
+            .or_insert_with(|| PyDict::new(py).unbind())
+            .clone_ref(py)
+            .into_any())
     }
 
     /// br-r37-c1-sjf4t: push the per-node and per-edge Python attribute

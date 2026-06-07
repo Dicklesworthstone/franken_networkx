@@ -303,3 +303,33 @@ def test_ctor_bulk_absorb_parity():
         assert {repr(n): [repr(x) for x in gf[n]] for n in gf} == {
             repr(n): [repr(x) for x in gn[n]] for n in gn
         }, data
+
+
+def test_digraph_ctor_bulk_absorb_and_get_edge_data_lazy():
+    """Directed twin of the ctor bulk absorb + the lazy-mirror contract
+    hole it exposed: get_edge_data gated on MIRROR presence, returning
+    the default for existing attr-less edges (broke subgraph-view
+    copy). Now gates on the inner edge and materializes."""
+    import networkx as _nx
+
+    for data in (
+        [(0, 1), (1, 2), (2, 0)],
+        [(0, 1, {"w": 2}), (1, 2, {"w": 3})],
+        [(0, 1), (1, 0)],
+        [(28.0, 7), (7, "s")],
+    ):
+        gf, gn = fnx.DiGraph(data), _nx.DiGraph(data)
+        assert [repr(x) for x in gf] == [repr(x) for x in gn], data
+        assert [(repr(u), repr(v), dict(d)) for u, v, d in gf.edges(data=True)] == [
+            (repr(u), repr(v), dict(d)) for u, v, d in gn.edges(data=True)
+        ], data
+        assert {repr(n): [repr(x) for x in gf.pred[n]] for n in gf} == {
+            repr(n): [repr(x) for x in gn.pred[n]] for n in gn
+        }, data
+    g = fnx.DiGraph([(1, 2)])
+    assert g.get_edge_data(1, 2) == {}
+    assert g.get_edge_data(2, 1) is None
+    import copy
+
+    sv = g.subgraph([1, 2])
+    assert sorted(map(repr, copy.copy(sv))) == ["1", "2"]
