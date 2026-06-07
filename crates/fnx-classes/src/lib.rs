@@ -1768,23 +1768,43 @@ impl Graph {
     }
 
     pub fn edges_ordered(&self) -> Vec<EdgeSnapshot> {
+        // br-r37-c1-d58s8 P2(b): index-native u-major walk — integer
+        // pair dedup + an integer (min,max)->attr map built once from
+        // edge_index_endpoints; zero String hashing in the loop. Walk
+        // order (u-major over adj_indices rows) is identical to the
+        // String-row walk (rows are order-faithful mirrors).
+        let mut pair_attrs: std::collections::HashMap<(usize, usize), &AttrMap> =
+            std::collections::HashMap::with_capacity(self.edges.len());
+        for ((l, r), attrs) in self.edge_index_endpoints.iter().zip(self.edges.values()) {
+            // endpoints are stored STRING-canonical; normalize to
+            // index-canonical (min, max) for the walk's dedup pairs.
+            let pair = if l <= r { (*l, *r) } else { (*r, *l) };
+            pair_attrs.insert(pair, attrs);
+        }
         let mut ordered = Vec::with_capacity(self.edges.len());
-        let mut seen = HashSet::<EdgeKey>::with_capacity(self.edges.len());
-
-        for node in self.nodes.keys() {
-            if let Some(neighbors) = self.adjacency.get(node) {
-                for neighbor in neighbors {
-                    let key = EdgeKey::new(node, neighbor);
-                    if !seen.insert(key.clone()) {
-                        continue;
-                    }
-                    if let Some(attrs) = self.edges.get(&key) {
-                        ordered.push(EdgeSnapshot {
-                            left: node.clone(),
-                            right: neighbor.clone(),
-                            attrs: attrs.clone(),
-                        });
-                    }
+        let mut seen = HashSet::<(usize, usize)>::with_capacity(self.edges.len());
+        for (u, row) in self.adj_indices.iter().enumerate() {
+            for &v in row {
+                let pair = if u <= v { (u, v) } else { (v, u) };
+                if !seen.insert(pair) {
+                    continue;
+                }
+                if let Some(attrs) = pair_attrs.get(&pair) {
+                    ordered.push(EdgeSnapshot {
+                        left: self
+                            .nodes
+                            .get_index(u)
+                            .expect("valid node index")
+                            .0
+                            .clone(),
+                        right: self
+                            .nodes
+                            .get_index(v)
+                            .expect("valid node index")
+                            .0
+                            .clone(),
+                        attrs: (*attrs).clone(),
+                    });
                 }
             }
         }
@@ -1794,19 +1814,29 @@ impl Graph {
 
     #[must_use]
     pub fn edges_ordered_borrowed(&self) -> Vec<(&str, &str, &AttrMap)> {
+        // br-r37-c1-d58s8 P2(b): index-native (see edges_ordered).
+        let mut pair_attrs: std::collections::HashMap<(usize, usize), &AttrMap> =
+            std::collections::HashMap::with_capacity(self.edges.len());
+        for ((l, r), attrs) in self.edge_index_endpoints.iter().zip(self.edges.values()) {
+            // endpoints are stored STRING-canonical; normalize to
+            // index-canonical (min, max) for the walk's dedup pairs.
+            let pair = if l <= r { (*l, *r) } else { (*r, *l) };
+            pair_attrs.insert(pair, attrs);
+        }
         let mut ordered = Vec::with_capacity(self.edges.len());
+        let mut seen_pairs = HashSet::<(usize, usize)>::with_capacity(self.edges.len());
         let mut seen = HashSet::<EdgeKeyRef>::with_capacity(self.edges.len());
-
-        for node in self.nodes.keys() {
-            if let Some(neighbors) = self.adjacency.get(node) {
-                for neighbor in neighbors {
-                    let key = EdgeKeyRef::new(node, neighbor);
-                    if !seen.insert(key) {
-                        continue;
-                    }
-                    if let Some(attrs) = self.edges.get(&key) {
-                        ordered.push((node.as_str(), neighbor.as_str(), attrs));
-                    }
+        for (u, row) in self.adj_indices.iter().enumerate() {
+            for &v in row {
+                let pair = if u <= v { (u, v) } else { (v, u) };
+                if !seen_pairs.insert(pair) {
+                    continue;
+                }
+                if let Some(attrs) = pair_attrs.get(&pair) {
+                    let left = self.nodes.get_index(u).expect("valid node index").0;
+                    let right = self.nodes.get_index(v).expect("valid node index").0;
+                    seen.insert(EdgeKeyRef::new(left, right));
+                    ordered.push((left.as_str(), right.as_str(), *attrs));
                 }
             }
         }

@@ -257,3 +257,23 @@ def test_bfs_layers_directed_csr_port():
         assert sorted(map(repr, fnx.descendants_at_distance(gf, s, 2))) == sorted(
             map(repr, nx.descendants_at_distance(gn, s, 2))
         ), trial
+
+
+def test_edges_walk_index_native_orientation():
+    """P2(b): edges_ordered walks adj_indices with integer dedup; the
+    endpoint store is STRING-canonical while walk pairs are
+    index-canonical — the normalization mismatch silently DROPPED
+    edges whose orientations disagreed (e.g. '10' < '9' string-wise).
+    Pin multi-digit node names + post-remove renumbering."""
+    import networkx as _nx
+
+    gn, gf = _nx.Graph(), fnx.Graph()
+    for u, v in [(10, 9), (9, 2), (2, 10), (1, 10), (11, 3)]:
+        gn.add_edge(u, v, w=u + v)
+        gf.add_edge(u, v, w=u + v)
+    a = [(repr(u), repr(v), dict(d)) for u, v, d in gf.edges(data=True)]
+    b = [(repr(u), repr(v), dict(d)) for u, v, d in gn.edges(data=True)]
+    assert a == b
+    gn.remove_node(9)
+    gf.remove_node(9)
+    assert [(repr(u), repr(v)) for u, v in gf.edges()] == [(repr(u), repr(v)) for u, v in gn.edges()]
