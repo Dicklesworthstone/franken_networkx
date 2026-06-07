@@ -31186,11 +31186,11 @@ class _FilteredGraphView:
         return MultiGraph if self.is_multigraph() else Graph
 
     def _copy_induced_simple_fast(self):
-        if (
-            self.is_multigraph()
-            or not self._filter_edge_is_default
-            or type(self._graph) not in (Graph, DiGraph)
-        ):
+        # br-r37-c1-esgfast: handle a non-default filter_edge too (e.g.
+        # edge_subgraph) — apply the edge predicate directly in the
+        # native raw_neighbors loop below instead of falling to the
+        # O(parent) FilterAdjacency chain (~970k _node_visible calls).
+        if self.is_multigraph() or type(self._graph) not in (Graph, DiGraph):
             return None
         raw_neighbors = _raw_neighbors_dispatch(self._graph)
         if raw_neighbors is None:
@@ -31224,10 +31224,14 @@ class _FilteredGraphView:
 
         edge_rows = []
         get_edge_data = self._graph.get_edge_data
+        edge_default = self._filter_edge_is_default
+        filter_edge = self._filter_edge
         if self.is_directed():
             for source in nodes:
                 for target in raw_neighbors(self._graph, source):
-                    if target in node_set:
+                    if target in node_set and (
+                        edge_default or filter_edge(source, target)
+                    ):
                         edge_rows.append(
                             (source, target, dict(get_edge_data(source, target)))
                         )
@@ -31236,6 +31240,13 @@ class _FilteredGraphView:
             for source in nodes:
                 for target in raw_neighbors(self._graph, source):
                     if target in seen or target not in node_set:
+                        continue
+                    # Match the slow path's _edge_visible orientation
+                    # exactly: it calls filter_edge(source, target) for
+                    # the edge as iterated (single orientation). An OR
+                    # over both would break exclusion filters like
+                    # restricted_view.
+                    if not edge_default and not filter_edge(source, target):
                         continue
                     edge_rows.append(
                         (source, target, dict(get_edge_data(source, target)))

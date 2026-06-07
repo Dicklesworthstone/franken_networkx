@@ -213,3 +213,36 @@ def test_set_edge_attributes_bulk_parity(cls):
             assert {repr(k): round(v, 6) for k, v in da.items()} == {
                 repr(k): round(v, 6) for k, v in db.items()
             }, ("dijkstra inner-sync", trial)
+
+
+@pytest.mark.parametrize("cls", ["Graph", "DiGraph"])
+def test_edge_subgraph_and_filtered_copy_fast_path(cls):
+    """br-r37-c1-esgfast: _copy_induced_simple_fast now handles a
+    non-default filter_edge (edge_subgraph, restricted_view) via the
+    native raw_neighbors loop + direct edge predicate — O(subgraph),
+    not O(parent). Must match nx exactly (nodes, edges, attrs)."""
+    r = random.Random(5)
+    for trial in range(15):
+        ed = [(u, v, r.randrange(1, 9)) for u, v in ((r.randrange(15), r.randrange(15)) for _ in range(r.randrange(5, 50))) if u != v]
+        gf, gn = getattr(fnx, cls)(), getattr(nx, cls)()
+        for u, v, w in ed:
+            gf.add_edge(u, v, weight=w)
+            gn.add_edge(u, v, weight=w)
+        el = list(gn.edges())
+        sub = el[: max(1, len(el) // 2)]
+        # edge_subgraph
+        cf, cn = gf.edge_subgraph(sub).copy(), gn.edge_subgraph(sub).copy()
+        assert (sorted(repr(n) for n in cf), sorted((repr(u), repr(v), sorted(d.items())) for u, v, d in cf.edges(data=True))) == (
+            sorted(repr(n) for n in cn), sorted((repr(u), repr(v), sorted(d.items())) for u, v, d in cn.edges(data=True))
+        ), ("edge_subgraph", trial)
+        # node-induced subgraph (original fast path must still hold)
+        ns = sorted(gn)[: max(1, gn.number_of_nodes() // 2)]
+        assert sorted((repr(u), repr(v)) for u, v in gf.subgraph(ns).copy().edges()) == sorted(
+            (repr(u), repr(v)) for u, v in gn.subgraph(ns).copy().edges()
+        ), ("subgraph", trial)
+        # restricted_view (exclusion filter_edge)
+        rn, re_ = list(gn)[:2], el[:3]
+        rf, rnv = fnx.restricted_view(gf, rn, re_).copy(), nx.restricted_view(gn, rn, re_).copy()
+        assert sorted((repr(u), repr(v), sorted(d.items())) for u, v, d in rf.edges(data=True)) == sorted(
+            (repr(u), repr(v), sorted(d.items())) for u, v, d in rnv.edges(data=True)
+        ), ("restricted_view", trial)
