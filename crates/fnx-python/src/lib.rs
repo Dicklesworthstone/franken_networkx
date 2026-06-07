@@ -5683,8 +5683,6 @@ impl PyGraph {
             let nodes = part.inner.nodes_ordered();
             // node index map: lets the per-walk edge dedup run on (usize,
             // usize) pairs instead of allocating String pairs per edge.
-            let index_of: std::collections::HashMap<&str, usize> =
-                nodes.iter().enumerate().map(|(i, n)| (*n, i)).collect();
             // nodes newly inserted by THIS part: their result display
             // object is THIS part's object by construction, so the
             // first-touch row store is a guaranteed no-op when the part
@@ -5718,10 +5716,18 @@ impl PyGraph {
             let mut edge_batch: Vec<(String, String, fnx_classes::AttrMap)> = Vec::new();
             let mut seen_this_walk: std::collections::HashSet<(usize, usize)> =
                 std::collections::HashSet::new();
-            for u in &nodes {
-                for v in part.inner.neighbors(u).unwrap_or_default() {
-                    let ui = index_of[*u];
-                    let vi = index_of[v];
+            // br-r37-c1-d58s8 accessor audit: walk the part's INTEGER rows
+            // (part-local indices from enumeration; zero String hashing
+            // per edge) and pre-resolve each part node's index in SELF
+            // once (the per-edge has_edge(u, v) paid two node probes
+            // post-flip).
+            let self_idx: Vec<Option<usize>> = nodes
+                .iter()
+                .map(|n| self.inner.get_node_index(n))
+                .collect();
+            for (ui, u) in nodes.iter().enumerate() {
+                for &vi in part.inner.neighbors_indices(ui).unwrap_or(&[]) {
+                    let v = nodes[vi];
                     if !seen_this_walk.insert((ui.min(vi), ui.max(vi))) {
                         continue; // each undirected edge once per walk
                     }
@@ -5733,7 +5739,13 @@ impl PyGraph {
                     // result display objects came from this part
                     // (identity holds in maybe_store's comparison).
                     let store_needed = !(part_rows_clean && new_this_part[ui] && new_this_part[vi]);
-                    let first_touch = part_idx == 0 || !self.inner.has_edge(u, v);
+                    let first_touch = part_idx == 0
+                        || match (self_idx[ui], self_idx[vi]) {
+                            (Some(si), Some(ti)) => {
+                                self.inner.edge_attrs_by_indices(si, ti).is_none()
+                            }
+                            _ => true,
+                        };
                     if first_touch && store_needed {
                         // first touch ACROSS graphs: store this walk's objects
                         let v_obj = part.py_adj_key(py, u, v);
@@ -5765,7 +5777,10 @@ impl PyGraph {
                     edge_batch.push((
                         (*u).to_owned(),
                         v.to_owned(),
-                        part.inner.edge_attrs(u, v).cloned().unwrap_or_default(),
+                        part.inner
+                            .edge_attrs_by_indices(ui, vi)
+                            .cloned()
+                            .unwrap_or_default(),
                     ));
                 }
             }

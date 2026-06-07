@@ -498,3 +498,31 @@ def test_digraph_edges_map_index_keys_rekey():
             for v in list(gn)[:5]:
                 # ORIENTATION matters for directed has_edge
                 assert gf.has_edge(u, v) == gn.has_edge(u, v), (trial, u, v)
+
+
+def test_compose_index_walk_parity():
+    """Accessor-audit fix: _native_compose walks part INTEGER rows
+    (part-local enumeration) with edge_attrs_by_indices both sides and
+    pre-resolved self-indices for the first-touch gate."""
+    import networkx as _nx
+
+    rnd = random.Random(71)
+    for trial in range(10):
+        n = rnd.randrange(4, 22)
+        g1f, g1n, g2f, g2n = fnx.Graph(), _nx.Graph(), fnx.Graph(), _nx.Graph()
+        for _ in range(rnd.randrange(4, 50)):
+            u, v = rnd.randrange(n), rnd.randrange(n)
+            g1f.add_edge(u, v, a=u)
+            g1n.add_edge(u, v, a=u)
+        for _ in range(rnd.randrange(4, 50)):
+            u, v = rnd.randrange(n // 2, n + n // 2), rnd.randrange(n // 2, n + n // 2)
+            g2f.add_edge(u, v, b=v)
+            g2n.add_edge(u, v, b=v)
+        cf, cn = fnx.compose(g1f, g2f), _nx.compose(g1n, g2n)
+        assert [repr(x) for x in cf] == [repr(x) for x in cn], trial
+        assert [(repr(u), repr(v), sorted(d.items())) for u, v, d in cf.edges(data=True)] == [
+            (repr(u), repr(v), sorted(d.items())) for u, v, d in cn.edges(data=True)
+        ], trial
+        assert {repr(x): [repr(y) for y in cf[x]] for x in cf} == {
+            repr(x): [repr(y) for y in cn[x]] for x in cn
+        }, trial
