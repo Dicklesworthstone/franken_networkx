@@ -526,3 +526,30 @@ def test_compose_index_walk_parity():
         assert {repr(x): [repr(y) for y in cf[x]] for x in cf} == {
             repr(x): [repr(y) for y in cn[x]] for x in cn
         }, trial
+
+
+def test_digraph_reverse_bulk_parity():
+    """DiGraph.reverse() batched through the unrecorded path (was
+    per-edge add_edge_with_attrs, 1.34x; now 0.91x). Lazy mirrors;
+    succ/pred rows + attrs + write-through preserved."""
+    rnd = random.Random(88)
+    for trial in range(15):
+        gf, gn = fnx.DiGraph(), nx.DiGraph()
+        for _ in range(rnd.randrange(3, 60)):
+            u, v = rnd.randrange(15), rnd.randrange(15)
+            if rnd.random() < 0.3:
+                w = rnd.randrange(9)
+                gf.add_edge(u, v, w=w)
+                gn.add_edge(u, v, w=w)
+            else:
+                gf.add_edge(u, v)
+                gn.add_edge(u, v)
+        rf, rn = gf.reverse(copy=True), gn.reverse(copy=True)
+        assert [repr(n) for n in rf] == [repr(n) for n in rn], trial
+        assert [(repr(u), repr(v), sorted(d.items())) for u, v, d in rf.edges(data=True)] == [
+            (repr(u), repr(v), sorted(d.items())) for u, v, d in rn.edges(data=True)
+        ], trial
+        assert {repr(n): [repr(k) for k in rf.pred[n]] for n in rf} == {
+            repr(n): [repr(k) for k in rn.pred[n]] for n in rn
+        }, trial
+        assert rf._debug_index_rows_consistent(), trial

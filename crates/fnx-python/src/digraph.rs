@@ -4478,7 +4478,12 @@ impl PyDiGraph {
             edges_seq: 0,
             edges_dirty: AtomicBool::new(false),
         };
-        // Copy nodes in graph insertion order to preserve NetworkX iteration.
+        // br-r37-c1-revbulk: node + edge BATCHES through the unrecorded
+        // path (one ledger record vs per-edge add_edge_with_attrs +
+        // record_decision). Node order = source insertion order; edge
+        // order = source edge order with endpoints transposed — both
+        // preserve nx iteration. Mirrors stay lazy.
+        let mut node_batch: Vec<(String, fnx_classes::AttrMap)> = Vec::new();
         for canonical in self.inner.nodes_ordered() {
             let rust_attrs = self
                 .node_py_attrs
@@ -4486,36 +4491,31 @@ impl PyDiGraph {
                 .map(|attrs| py_dict_to_attr_map(attrs.bind(py)))
                 .transpose()?
                 .unwrap_or_default();
-            rev.inner
-                .add_node_with_attrs(canonical.to_owned(), rust_attrs);
             rev.node_key_map
                 .insert(canonical.to_owned(), self.py_node_key(py, canonical));
             if let Some(attrs) = self.node_py_attrs.get(canonical) {
                 rev.node_py_attrs
                     .insert(canonical.to_owned(), attrs.bind(py).copy()?.unbind());
             }
+            node_batch.push((canonical.to_owned(), rust_attrs));
         }
-        // Reverse edges in source graph edge-iteration order.
+        rev.inner.extend_nodes_with_attrs_unrecorded(node_batch);
+        let mut edge_batch: Vec<(String, String, fnx_classes::AttrMap)> = Vec::new();
         for edge in self.inner.edges_ordered() {
             let u = &edge.left;
             let v = &edge.right;
             let edge_key = Self::edge_key(u, v);
             let rust_attrs = if let Some(attrs) = self.edge_py_attrs.get(&edge_key) {
-                py_dict_to_attr_map(attrs.bind(py))?
+                let copied = attrs.bind(py).copy()?.unbind();
+                let am = py_dict_to_attr_map(copied.bind(py))?;
+                rev.edge_py_attrs.insert((v.clone(), u.clone()), copied);
+                am
             } else {
                 edge.attrs.clone()
             };
-            let _ = rev
-                .inner
-                .add_edge_with_attrs(v.clone(), u.clone(), rust_attrs);
-            let copied_attrs = if let Some(attrs) = self.edge_py_attrs.get(&edge_key) {
-                attrs.bind(py).copy()?.unbind()
-            } else {
-                PyDict::new(py).unbind()
-            };
-            rev.edge_py_attrs
-                .insert((v.clone(), u.clone()), copied_attrs);
+            edge_batch.push((v.clone(), u.clone(), rust_attrs));
         }
+        rev.inner.extend_edges_with_attrs_unrecorded(edge_batch);
         Ok(rev)
     }
 
