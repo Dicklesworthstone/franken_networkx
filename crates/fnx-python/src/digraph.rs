@@ -1646,6 +1646,28 @@ impl PyMultiDiGraph {
         Ok(self.inner.in_degree(&canonical))
     }
 
+    /// br-r37-c1-snabulk: native bulk set_node_attributes(values, name)
+    /// — one Rust loop over the values dict (mirror is authoritative;
+    /// inner refreshed at copy/export; missing nodes skipped per nx).
+    fn _native_set_node_attribute_scalar(
+        &mut self,
+        py: Python<'_>,
+        values: &Bound<'_, PyDict>,
+        name: &str,
+    ) -> PyResult<()> {
+        for (k, v) in values.iter() {
+            let canonical = node_key_to_string(py, &k)?;
+            if self.inner.has_node(&canonical) {
+                let dict = self
+                    .node_py_attrs
+                    .entry(canonical)
+                    .or_insert_with(|| PyDict::new(py).unbind());
+                dict.bind(py).set_item(name, &v)?;
+            }
+        }
+        Ok(())
+    }
+
     /// br-r37-c1-degidx: bulk (node, in/out-degree) pairs — one Rust
     /// loop instead of N per-node PyO3 round-trips. Multi rows are still
     /// String-keyed (s2teo unflipped), so this sums IndexSet lens per
@@ -5426,6 +5448,28 @@ impl PyDiGraph {
     fn _native_in_degree(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<usize> {
         let canonical = node_key_to_string(py, n)?;
         Ok(self.inner.in_degree(&canonical))
+    }
+
+    /// br-r37-c1-snabulk: native bulk set_node_attributes(values, name)
+    /// — one Rust loop over the values dict (mirror is authoritative;
+    /// inner refreshed at copy/export; missing nodes skipped per nx).
+    fn _native_set_node_attribute_scalar(
+        &mut self,
+        py: Python<'_>,
+        values: &Bound<'_, PyDict>,
+        name: &str,
+    ) -> PyResult<()> {
+        for (k, v) in values.iter() {
+            let canonical = node_key_to_string(py, &k)?;
+            if self.inner.has_node(&canonical) {
+                let dict = self
+                    .node_py_attrs
+                    .entry(canonical)
+                    .or_insert_with(|| PyDict::new(py).unbind());
+                dict.bind(py).set_item(name, &v)?;
+            }
+        }
+        Ok(())
     }
 
     /// br-r37-c1-degidx: bulk (node, in/out-degree) pairs for the

@@ -147,14 +147,15 @@ def test_directed_degree_weighted_and_selfloop():
     ]
 
 
-def test_set_node_attributes_bulk_parity():
-    """br-r37-c1-snabulk: native bulk set_node_attributes(dict, name)
-    must match nx — missing nodes skipped, copy refreshes inner from
-    the mirror, get_node_attributes reads it back, scalar broadcast."""
+@pytest.mark.parametrize("cls", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+def test_set_node_attributes_bulk_parity(cls):
+    """br-r37-c1-snabulk + 8wj2: native bulk set_node_attributes(dict,
+    name) on ALL FOUR classes — missing nodes skipped, copy refreshes
+    inner from the mirror, get_node_attributes reads it back."""
     r = random.Random(5)
     for trial in range(12):
         ed = [(r.randrange(12), r.randrange(12)) for _ in range(r.randrange(2, 40))]
-        af, an = fnx.Graph(ed), nx.Graph(ed)
+        af, an = getattr(fnx, cls)(ed), getattr(nx, cls)(ed)
         vv = {k: (k * 2 if trial % 2 else f"s{k}") for k in range(0, 18, 2)}
         fnx.set_node_attributes(af, vv, "attr")
         nx.set_node_attributes(an, vv, "attr")

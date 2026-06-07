@@ -2796,6 +2796,28 @@ impl PyMultiGraph {
         )
     }
 
+    /// br-r37-c1-snabulk: native bulk set_node_attributes(values, name)
+    /// — one Rust loop over the values dict (mirror is authoritative;
+    /// inner refreshed at copy/export; missing nodes skipped per nx).
+    fn _native_set_node_attribute_scalar(
+        &mut self,
+        py: Python<'_>,
+        values: &Bound<'_, PyDict>,
+        name: &str,
+    ) -> PyResult<()> {
+        for (k, v) in values.iter() {
+            let canonical = node_key_to_string(py, &k)?;
+            if self.inner.has_node(&canonical) {
+                let dict = self
+                    .node_py_attrs
+                    .entry(canonical)
+                    .or_insert_with(|| PyDict::new(py).unbind());
+                dict.bind(py).set_item(name, &v)?;
+            }
+        }
+        Ok(())
+    }
+
     fn _native_adjacency_row(
         slf: PyRef<'_, Self>,
         n: &Bound<'_, PyAny>,
