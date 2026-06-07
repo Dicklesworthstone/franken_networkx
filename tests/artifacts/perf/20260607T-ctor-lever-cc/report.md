@@ -23,3 +23,18 @@ to the constructor itself). Target: ctor 3.8x -> ~1.5x or better.
 tuples/lists/mixed/sets/ranges/scalars/long/4-nondict/empty/unhashable
 u/v/third. Pre-existing str-items divergence FILED as ewtd1 (nx accepts
 ['ab','cd'] as 2-char edge specs).
+
+## ctor lever 2: __new__ bulk absorb — 3.85x -> 1.74x
+The edge-tuple stream now batches through ONE
+extend_edges_with_attrs_unrecorded call (one ledger record vs two
+record_decision per edge), with add_edge's display semantics
+replicated inline: as-passed node keys via should_store_node_key,
+z6uka row objects on new cells (pending-cell set stands in for
+has_edge until flush), lazy mirrors (attr-ful edges only, C-level
+dict update merge). Slow items (non-edge tuples, unstringifiable
+endpoints) flush the batch first then run the original per-item
+branch verbatim — insertion order preserved.
+Battery sha f97b14eb (display/dup-merge/mixed-key/self-loop corpus +
+20 random trials + post-ctor mutation). Filed: non-dict HASHABLE
+third absorbs as node vs nx raise (pre-existing, verified on
+pre-lever build).

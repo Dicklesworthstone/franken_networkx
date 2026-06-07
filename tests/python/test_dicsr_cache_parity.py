@@ -277,3 +277,29 @@ def test_edges_walk_index_native_orientation():
     gn.remove_node(9)
     gf.remove_node(9)
     assert [(repr(u), repr(v)) for u, v in gf.edges()] == [(repr(u), repr(v)) for u, v in gn.edges()]
+
+
+def test_ctor_bulk_absorb_parity():
+    """d58s8 ctor lever 2: __new__ batches the edge-tuple stream through
+    extend_edges_with_attrs_unrecorded — display objects (as-passed
+    keys, z6uka row objects), dup attr merges, mixed keys, self-loop
+    float/int display, interleaved-flush order all preserved."""
+    import networkx as _nx
+
+    for data in (
+        [(0, 1), (1, 2), (2, 0)],
+        [(0, 1, {"w": 2}), (1, 2, {"w": 3})],
+        [(0, 1, {"a": 1}), (0, 1, {"b": 2}), (1, 0, {"a": 9})],
+        [(28.0, 7), (7, "s"), ("s", 28)],
+        [(12.0, 12), (12, 13)],
+        [(0, 1, {}), (1, 2, {})],
+        [("a", "b"), ("b", "c")],
+    ):
+        gf, gn = fnx.Graph(data), _nx.Graph(data)
+        assert [repr(x) for x in gf] == [repr(x) for x in gn], data
+        assert [(repr(u), repr(v), dict(d)) for u, v, d in gf.edges(data=True)] == [
+            (repr(u), repr(v), dict(d)) for u, v, d in gn.edges(data=True)
+        ], data
+        assert {repr(n): [repr(x) for x in gf[n]] for n in gf} == {
+            repr(n): [repr(x) for x in gn[n]] for n in gn
+        }, data

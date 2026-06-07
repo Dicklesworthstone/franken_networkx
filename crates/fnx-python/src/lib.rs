@@ -4320,8 +4320,116 @@ impl PyGraph {
                 }
                 g.graph_attrs = other.graph_attrs.bind(py).copy()?.unbind();
             } else if let Ok(iter) = PyIterator::from_object(data) {
+                // br-r37-c1-d58s8 ctor lever 2: batch the edge-tuple stream
+                // through ONE extend_edges_with_attrs_unrecorded call (one
+                // ledger record for the batch vs two record_decision per
+                // edge) while replicating add_edge's display semantics
+                // inline (as-passed node keys via should_store_node_key,
+                // z6uka row objects on new cells, lazy mirrors, attr-dict
+                // C-level merge). Pending-state sets stand in for
+                // inner.has_node/has_edge until the flush; non-edge items
+                // flush first so interleaved node insertion order holds.
+                let mut edge_batch: Vec<(String, String, AttrMap)> = Vec::new();
+                let mut pending_nodes: std::collections::HashSet<String> =
+                    std::collections::HashSet::new();
+                let mut pending_cells: std::collections::HashSet<(String, String)> =
+                    std::collections::HashSet::new();
+                macro_rules! flush_batch {
+                    () => {
+                        if !edge_batch.is_empty() {
+                            let drained: Vec<(String, String, AttrMap)> =
+                                std::mem::take(&mut edge_batch);
+                            let _ = g.inner.extend_edges_with_attrs_unrecorded(drained);
+                            pending_nodes.clear();
+                            pending_cells.clear();
+                            g.bump_nodes_seq();
+                            g.bump_edges_seq();
+                        }
+                    };
+                }
                 for item in iter {
                     let item = item?;
+                    let mut batched = false;
+                    if let Ok(tuple) = item.downcast::<PyTuple>() {
+                        let tuple_len = tuple.len();
+                        if tuple_len == 2 || tuple_len == 3 {
+                            let dict3 = if tuple_len == 3 {
+                                tuple.get_item(2)?.downcast::<PyDict>().ok().cloned()
+                            } else {
+                                None
+                            };
+                            if tuple_len == 2 || dict3.is_some() {
+                                let u = tuple.get_item(0)?;
+                                let v = tuple.get_item(1)?;
+                                if let (Ok(u_canonical), Ok(v_canonical)) = (
+                                    node_key_to_string(py, &u),
+                                    node_key_to_string(py, &v),
+                                ) {
+                                    let u_was_new = !g.inner.has_node(&u_canonical)
+                                        && !pending_nodes.contains(&u_canonical);
+                                    let v_was_new = !g.inner.has_node(&v_canonical)
+                                        && !pending_nodes.contains(&v_canonical);
+                                    if g.should_store_node_key(&u_canonical, u_was_new) {
+                                        g.node_key_map
+                                            .entry(u_canonical.clone())
+                                            .or_insert_with(|| u.clone().unbind());
+                                    }
+                                    if g.should_store_node_key(&v_canonical, v_was_new) {
+                                        g.node_key_map
+                                            .entry(v_canonical.clone())
+                                            .or_insert_with(|| v.clone().unbind());
+                                    }
+                                    let cell = if u_canonical <= v_canonical {
+                                        (u_canonical.clone(), v_canonical.clone())
+                                    } else {
+                                        (v_canonical.clone(), u_canonical.clone())
+                                    };
+                                    if !g.inner.has_edge(&u_canonical, &v_canonical)
+                                        && !pending_cells.contains(&cell)
+                                    {
+                                        g.maybe_store_adj_key(
+                                            py,
+                                            &u_canonical,
+                                            &v_canonical,
+                                            &v,
+                                        );
+                                        if u_canonical != v_canonical {
+                                            g.maybe_store_adj_key(
+                                                py,
+                                                &v_canonical,
+                                                &u_canonical,
+                                                &u,
+                                            );
+                                        }
+                                        pending_cells.insert(cell);
+                                    }
+                                    let mut rust_attrs = AttrMap::new();
+                                    if let Some(d) = &dict3
+                                        && !d.is_empty()
+                                    {
+                                        rust_attrs = py_dict_to_attr_map(d)?;
+                                        let ek =
+                                            Self::edge_key(&u_canonical, &v_canonical);
+                                        g.edge_py_attrs
+                                            .entry(ek)
+                                            .or_insert_with(|| PyDict::new(py).unbind())
+                                            .bind(py)
+                                            .update(d.as_mapping())?;
+                                    }
+                                    pending_nodes.insert(u_canonical.clone());
+                                    pending_nodes.insert(v_canonical.clone());
+                                    edge_batch.push((u_canonical, v_canonical, rust_attrs));
+                                    batched = true;
+                                }
+                            }
+                        }
+                    }
+                    if batched {
+                        continue;
+                    }
+                    // Slow item: flush so node insertion ORDER is preserved,
+                    // then run the original per-item semantics verbatim.
+                    flush_batch!();
                     if let Ok(tuple) = item.downcast::<PyTuple>() {
                         let merged = PyDict::new(py);
                         match tuple.len() {
@@ -4352,6 +4460,7 @@ impl PyGraph {
                         g.add_node(py, &item, None)?;
                     }
                 }
+                flush_batch!();
             }
         }
 
