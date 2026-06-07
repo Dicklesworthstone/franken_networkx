@@ -34479,10 +34479,16 @@ def to_nested_tuple(T, root, canonical_form=False):
         raise NotATree("provided graph is not a tree")
 
     def _recurse(node, parent):
-        children = [n for n in T.neighbors(node) if n != parent]
+        # br-r37-c1-nestedtup: nx uses ``set(T[root]) - {parent}`` — the
+        # non-canonical child order is CPython set-iteration order, NOT
+        # str-sorted (the old ``sorted(children, key=str)`` diverged for
+        # int nodes, e.g. children {2,10} -> nx [2,10] vs fnx [10,2]).
+        # Building a real PySet here reproduces nx's order exactly at any
+        # hash seed; the canonical form then sorts the nested tuples.
+        children = set(T[node]) - {parent}
         if not children:
             return ()
-        subtrees = [_recurse(child, node) for child in sorted(children, key=str)]
+        subtrees = [_recurse(child, node) for child in children]
         if canonical_form:
             subtrees.sort()
         return tuple(subtrees)
