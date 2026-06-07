@@ -34846,17 +34846,31 @@ def lexicographical_topological_sort(G, key=None):
             "Topological sort not defined on undirected graphs."
         )
 
+    # br-r37-c1-lextopo: nx's default tie-break is the NODE ITSELF
+    # (identity), not str(node) — so integer nodes order numerically
+    # (2 < 10), not lexicographically ('10' < '2'). nx also threads an
+    # insertion-index as the secondary heap key so the node object is
+    # never compared on a key tie (and mixed-type nodes raise TypeError
+    # only when two such nodes are simultaneously ready — exactly as nx).
     if key is None:
-        key = str
+
+        def key(node):
+            return node
+
+    nodeid_map = {n: i for i, n in enumerate(G.nodes())}
+
+    def create_tuple(node):
+        return key(node), nodeid_map[node], node
+
     in_deg = {n: 0 for n in G.nodes()}
     for u, v in G.edges():
         in_deg[v] = in_deg.get(v, 0) + 1
-    heap = [(key(n), n) for n in G.nodes() if in_deg[n] == 0]
+    heap = [create_tuple(n) for n in G.nodes() if in_deg[n] == 0]
     heapq.heapify(heap)
     yielded = 0
     total = G.number_of_nodes()
     while heap:
-        _, node = heapq.heappop(heap)
+        _, _, node = heapq.heappop(heap)
         yield node
         yielded += 1
         succs = (
@@ -34867,7 +34881,7 @@ def lexicographical_topological_sort(G, key=None):
         for s in succs:
             in_deg[s] -= 1
             if in_deg[s] == 0:
-                heapq.heappush(heap, (key(s), s))
+                heapq.heappush(heap, create_tuple(s))
     if yielded != total:
         raise NetworkXUnfeasible(
             "Graph contains a cycle or graph changed during iteration"
