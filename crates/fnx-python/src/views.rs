@@ -56,6 +56,32 @@ impl NodeView {
     }
 
     fn __iter__(&self, py: Python<'_>) -> PyResult<Py<NodeViewIterator>> {
+        // br-r37-c1-nodeiter: the NoData path (list(G.nodes()) /
+        // list(G)) is by far the hottest; serve it WITHOUT the
+        // intermediate Vec<String> clone of every node name — iterate
+        // the borrowed canonical names directly in one borrow scope
+        // (was ~28x nx on 20k nodes; the clone Vec was pure waste).
+        if matches!(self.data, NodeViewData::NoData) {
+            let g = self.graph.borrow(py);
+            let items: Vec<PyObject> = g
+                .inner
+                .nodes_ordered()
+                .iter()
+                .map(|n| g.py_node_key(py, n))
+                .collect();
+            let expected_seq = g.nodes_seq;
+            let count = items.len();
+            drop(g);
+            return Py::new(
+                py,
+                NodeViewIterator {
+                    inner: items.into_iter(),
+                    graph: Some(self.graph.clone_ref(py)),
+                    expected_count: Some(count),
+                    expected_seq: Some(expected_seq),
+                },
+            );
+        }
         let nodes: Vec<String> = {
             let g = self.graph.borrow(py);
             g.inner

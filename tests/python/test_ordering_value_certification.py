@@ -80,3 +80,33 @@ def test_assortativity_value_and_type():
     a = fnx.degree_assortativity_coefficient(gf)
     b = nx.degree_assortativity_coefficient(gn)
     assert (round(a, 9), type(a).__name__) == (round(b, 9), type(b).__name__)
+
+
+def test_node_view_iteration_parity_and_staleness():
+    """br-r37-c1-nodeiter: NoData NodeView iteration (list(G.nodes()) /
+    list(G)) fast path must preserve node order, data variants, and the
+    mutation-during-iteration RuntimeError contract."""
+    rnd = random.Random(3)
+    for trial in range(10):
+        E = [(rnd.randrange(12), rnd.randrange(12)) for _ in range(rnd.randrange(3, 40))]
+        gf, gn = fnx.Graph(E), nx.Graph(E)
+        for n in list(gf)[:4]:
+            gf.nodes[n]["c"] = n
+            gn.nodes[n]["c"] = n
+        assert [repr(n) for n in gf.nodes()] == [repr(n) for n in gn.nodes()], trial
+        assert [repr(n) for n in gf] == [repr(n) for n in gn], trial
+        assert [(repr(n), dict(d)) for n, d in gf.nodes(data=True)] == [
+            (repr(n), dict(d)) for n, d in gn.nodes(data=True)
+        ], trial
+
+    gf, gn = fnx.Graph([(0, 1), (1, 2), (2, 3)]), nx.Graph([(0, 1), (1, 2), (2, 3)])
+
+    def mut(g):
+        try:
+            for n in g.nodes():
+                g.add_node(99 + n)
+            return "no-raise"
+        except RuntimeError:
+            return "RuntimeError"
+
+    assert mut(gf) == mut(gn) == "RuntimeError"
