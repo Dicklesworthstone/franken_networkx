@@ -31,3 +31,20 @@ the String rows build-on-demand behind a revision cache (the csr_cache
 pattern), (c) drop the eager String-row maintenance from the write
 paths — extend_edges then writes ONE row store, killing the 70% slice.
 Each step hour-sized; readers first so the flip is mechanical.
+
+## P2(c) slice 2 SHIPPED: the String adjacency rows are GONE
+Graph's `adjacency: IndexMap<String, IndexSet<String>>` field DELETED;
+adj_indices (order-faithful integer rows) is the single row store.
+All write paths (add_node/add_edge/extends/removes/ctors/pickle),
+both reorderers (now pure integer-row algorithms), and
+rebuild_adj_indices (deleted) migrated. MultiGraph untouched (its
+String rows remain; three regex-overreach damages found by the suite
+and repaired).
+
+## Verdict vs the load-15 post-P1 baseline (same-window min-of-9):
+copy   1.17x -> 0.33x (3x FASTER than nx)
+union  2.13x -> 1.23x
+aef    1.87x -> 1.27x
+ctor   1.74x -> 1.64x (Python-parse-bound now)
+compose 1.71x -> 1.75x (flat — its cost is in the BINDING walk's
+  per-edge mirror/display work, not fnx-classes storage; next target)

@@ -2081,6 +2081,7 @@ impl MultiGraph {
             bucket.extend(attrs);
             bucket.len()
         };
+        self.adjacency.entry(node.clone()).or_default();
         if changed {
             self.revision = self.revision.saturating_add(1);
         }
@@ -2522,6 +2523,7 @@ impl MultiGraph {
         self.edge_count -= removed_count;
 
         // Remove node from adjacency and nodes maps.
+        self.adjacency.shift_remove(node);
         self.nodes.shift_remove(node);
         self.revision = self.revision.saturating_add(1);
         true
