@@ -355,6 +355,36 @@ fn run_once(algo: &str, g: &Graph, n: usize) -> f64 {
             }
             acc as f64
         }
+        "graph_build" => {
+            // br-r37-c1-d58s8 P2 scoping: replicate the storage workload of
+            // _native_compose / the operator family — rebuild the graph from
+            // its own parts via the bulk unrecorded path. PPROF the interior
+            // to split EdgeKey String allocs vs IndexMap hashing vs adjacency
+            // IndexSet inserts BEFORE designing the NodeId side-table.
+            let names = g.nodes_ordered();
+            let mut out = Graph::strict();
+            let _ = out.extend_nodes_with_attrs_unrecorded(
+                names
+                    .iter()
+                    .map(|n2| ((*n2).to_owned(), fnx_classes::AttrMap::new())),
+            );
+            let mut batch: Vec<(String, String, fnx_classes::AttrMap)> = Vec::new();
+            for (u, name_u) in names.iter().enumerate() {
+                if let Some(row) = g.neighbors_indices(u) {
+                    for &v in row {
+                        if u <= v {
+                            batch.push((
+                                (*name_u).to_owned(),
+                                names[v].to_owned(),
+                                fnx_classes::AttrMap::new(),
+                            ));
+                        }
+                    }
+                }
+            }
+            let inserted = out.extend_edges_with_attrs_unrecorded(batch);
+            inserted as f64
+        }
         "dijkstra_ssp" => {
             // Single-source unweighted shortest path to the far node.
             let r = shortest_path_unweighted(g, "0", &(n - 1).to_string());
