@@ -1,0 +1,1 @@
+{"digest": "db958afd21fe5c6d65690ce8246332123e7917e0dd3acae4a471ffe558beb735", "edges": 36000, "impl": "fnx", "max_s": 0.0012699959916062653, "mean_s": 0.0010841912007890642, "median_s": 0.001095295010600239, "min_s": 0.0008780339849181473, "mode": "single_hot", "nodes": 3000, "samples": 10}
