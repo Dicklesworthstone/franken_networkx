@@ -28,17 +28,18 @@ Process-envelope `hyperfine`:
 
 | Scenario | Baseline Mean | After Mean | Speedup |
 | --- | ---: | ---: | ---: |
-| `loop --mode half --loops 5` | 1.782 s | 1.007 s | 1.77x |
+| `loop --mode half --loops 5` | 1.782 s | 1.030 s | 1.73x |
 | `loop --mode single_hot --loops 5` | 1.538 s | 1.059 s | 1.45x |
 
 ## Validation
 
 - `after_proof.json`: pass, golden SHA unchanged.
-- `cargo fmt -p fnx-algorithms -p fnx-classes -p fnx-python --check`: pass.
-- `rch exec -- cargo check -p fnx-python --all-targets --features pyo3/abi3-py310`: pass.
-- `rch exec -- cargo clippy -p fnx-python --all-targets --features pyo3/abi3-py310 -- -D warnings`: pass.
-- `cargo test -p fnx-classes remove_nodes_from_matches_repeated_removal_and_rebuilds_indices`: pass. `rch` fell open locally because no worker had admissible slots.
-- Focused Python parity: `34 passed`.
+- `rustfmt --edition 2024 --check crates/fnx-classes/src/lib.rs`: pass.
+- `git diff --check -- crates/fnx-classes/src/lib.rs tests/artifacts/perf/20260607T-graph-remove-p2c-tealspring/graph_remove_p2c.py`: pass.
+- `rch exec -- cargo check -p fnx-classes --all-targets`: pass.
+- `rch exec -- cargo test -p fnx-classes remove_nodes_from_matches_repeated_removal_and_rebuilds_indices -- --nocapture`: pass.
+- `rch exec -- cargo clippy -p fnx-classes --all-targets -- -D warnings`: pass on retry; the first worker failed before compiling with `No space left on device`.
+- Focused Python parity: `3 passed`.
 
 ## Score
 
