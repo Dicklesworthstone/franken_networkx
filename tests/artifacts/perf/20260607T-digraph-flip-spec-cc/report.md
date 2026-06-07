@@ -38,3 +38,16 @@ P3: delete String rows (Graph-flip recipe: delete field, compiler
 ## csr() after P1: build offsets/targets straight from the eager rows
 (no String hashing); after P3 maybe csr cache becomes redundant
 (slices serve directly) — measure then.
+
+## P3 SHIPPED: DiGraph String rows DELETED
+successors/predecessors IndexMap fields gone; succ_indices/
+pred_indices = single row store. Reorderers + apply_row_orders pure
+integer; remove_node incident walk from index rows; edges_ordered x2
+index-native; the P1 oracle retired to a length sanity (parity
+batteries own content now).
+VERDICT (same-window min-of-11, load ~50):
+  ctor 2.09-2.29x (mid-flip) -> 1.75x
+  copy 0.44x (2.3x FASTER than nx)
+  to_undirected 0.78x
+30-trial mutation battery x copy/pickle/reverse/deepcopy + traversal
+parity: clean. Full pytest 21817.
