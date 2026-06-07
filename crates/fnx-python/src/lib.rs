@@ -206,11 +206,11 @@ pub fn validate_ctor_edge_list(
     let mut endpoints_hashable = true;
     for item in data.try_iter()? {
         let item = item?;
-        if item.is_instance_of::<pyo3::types::PyString>()
-            || item.is_instance_of::<pyo3::types::PyBytes>()
-        {
-            return Ok((false, false, true));
-        }
+        // br-r37-c1-ewtd1: str/bytes ITEMS are valid 2/3-element edge
+        // specs in nx (it iterates them: 'ab' -> ('a','b'),
+        // b'xy' -> (120, 121)). They have len()/get_item(), so they flow
+        // through the same length+3rd-element rules below and just need
+        // tuple() conversion in the absorb.
         let Ok(item_len) = item.len() else {
             return Ok((false, false, true));
         };
@@ -223,6 +223,14 @@ pub fn validate_ctor_edge_list(
             return Ok((false, false, true));
         }
         if is_multi && item_len == 4 && !item.get_item(3)?.is_instance_of::<PyDict>() {
+            return Ok((false, false, true));
+        }
+        // br-r37-c1-ft8c0: a NON-multi 3-tuple's third element is the
+        // edge data dict (nx does datadict.update(e[2])); a non-dict
+        // third makes the whole input invalid, matching nx's
+        // "Input is not a valid edge list". (For multigraphs the third
+        // element is the edge KEY — any hashable is fine.)
+        if !is_multi && item_len == 3 && !item.get_item(2)?.is_instance_of::<PyDict>() {
             return Ok((false, false, true));
         }
         if !item.is_instance_of::<pyo3::types::PyTuple>() {
@@ -238,12 +246,7 @@ pub fn validate_ctor_edge_list(
         {
             endpoints_hashable = false;
         }
-        if endpoints_hashable && !is_multi && item_len == 3 {
-            let third = item.get_item(2)?;
-            if !third.is_instance_of::<PyDict>() && third.hash().is_err() {
-                endpoints_hashable = false;
-            }
-        }
+        // (non-multi non-dict-third already rejected above)
     }
     Ok((true, needs_tuple_conversion, endpoints_hashable))
 }
