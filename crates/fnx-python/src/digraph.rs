@@ -250,6 +250,115 @@ impl PyMultiDiGraph {
     pub(crate) fn mark_edges_dirty(&self) {
         self.edges_dirty.store(true, Ordering::Relaxed);
     }
+
+    fn try_absorb_exact_int_str_keyed_ctor_edges(
+        &mut self,
+        py: Python<'_>,
+        data: &Bound<'_, PyAny>,
+    ) -> PyResult<bool> {
+        let items: Vec<Bound<'_, PyAny>> = if let Ok(list) = data.downcast::<PyList>() {
+            list.iter().collect()
+        } else if let Ok(tuple) = data.downcast::<PyTuple>() {
+            tuple.iter().collect()
+        } else {
+            return Ok(false);
+        };
+
+        let mut edge_batch: Vec<(String, String, usize, AttrMap)> = Vec::with_capacity(items.len());
+        let mut node_seen: HashSet<String> = HashSet::new();
+        let mut node_entries: Vec<(String, PyObject)> = Vec::new();
+        let mut occupied_keys: HashMap<(String, String), HashSet<usize>> = HashMap::new();
+        let mut public_to_internal: HashMap<(String, String, String), usize> = HashMap::new();
+        let mut edge_attrs: HashMap<(String, String, usize), Py<PyDict>> = HashMap::new();
+        let mut edge_keys: HashMap<(String, String, usize), PyObject> = HashMap::new();
+
+        for item in items {
+            let Ok(tuple) = item.downcast::<PyTuple>() else {
+                return Ok(false);
+            };
+            let tuple_len = tuple.len();
+            if tuple_len != 3 && tuple_len != 4 {
+                return Ok(false);
+            }
+            let u = tuple.get_item(0)?;
+            let v = tuple.get_item(1)?;
+            let key = tuple.get_item(2)?;
+            if !u.is_exact_instance_of::<PyInt>()
+                || !v.is_exact_instance_of::<PyInt>()
+                || !key.is_exact_instance_of::<PyString>()
+            {
+                return Ok(false);
+            }
+            let Ok(u_value) = u.extract::<i64>() else {
+                return Ok(false);
+            };
+            let Ok(v_value) = v.extract::<i64>() else {
+                return Ok(false);
+            };
+            let u_canonical = u_value.to_string();
+            let v_canonical = v_value.to_string();
+            if node_seen.insert(u_canonical.clone()) {
+                node_entries.push((u_canonical.clone(), u.clone().unbind()));
+            }
+            if node_seen.insert(v_canonical.clone()) {
+                node_entries.push((v_canonical.clone(), v.clone().unbind()));
+            }
+
+            let pair = (u_canonical.clone(), v_canonical.clone());
+            let public_lookup = edge_key_lookup_string(py, &key)?;
+            let lookup_key = (pair.0.clone(), pair.1.clone(), public_lookup);
+            let internal_key = if let Some(existing) = public_to_internal.get(&lookup_key) {
+                *existing
+            } else {
+                let occupied = occupied_keys.entry(pair).or_default();
+                let mut candidate = occupied.len();
+                while occupied.contains(&candidate) {
+                    candidate += 1;
+                }
+                occupied.insert(candidate);
+                public_to_internal.insert(lookup_key, candidate);
+                candidate
+            };
+
+            let edge_key = Self::edge_key(&u_canonical, &v_canonical, internal_key);
+            let py_attrs = edge_attrs
+                .entry(edge_key.clone())
+                .or_insert_with(|| PyDict::new(py).unbind());
+            let rust_attrs = if tuple_len == 4 {
+                let fourth = tuple.get_item(3)?;
+                let Ok(dict) = fourth.downcast::<PyDict>() else {
+                    return Ok(false);
+                };
+                py_attrs.bind(py).update(dict.as_mapping())?;
+                py_dict_to_attr_map(dict)?
+            } else {
+                AttrMap::new()
+            };
+            edge_keys
+                .entry(edge_key)
+                .or_insert_with(|| key.clone().unbind());
+            edge_batch.push((u_canonical, v_canonical, internal_key, rust_attrs));
+        }
+
+        for (canonical, node) in node_entries {
+            self.node_key_map.entry(canonical.clone()).or_insert(node);
+            self.node_py_attrs
+                .entry(canonical)
+                .or_insert_with(|| PyDict::new(py).unbind());
+        }
+        let inserted_edges = self
+            .inner
+            .extend_keyed_edges_with_attrs_unrecorded(edge_batch);
+        self.edge_py_attrs.extend(edge_attrs);
+        self.edge_py_keys.extend(edge_keys);
+        if !node_seen.is_empty() {
+            self.bump_nodes_seq();
+        }
+        if inserted_edges > 0 {
+            self.bump_edges_seq();
+        }
+        Ok(true)
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -714,6 +823,8 @@ impl PyMultiDiGraph {
                     g.remember_edge_key(py, u, v, key, None);
                 }
                 g.graph_attrs = other.graph_attrs.bind(py).copy()?.unbind();
+            } else if g.try_absorb_exact_int_str_keyed_ctor_edges(py, data)? {
+                // Constructor-only batch path for exact int endpoints + exact str keys.
             } else if let Ok(iter) = PyIterator::from_object(data) {
                 // br-r37-c1-baqyi: nx's to_networkx_graph wraps every
                 // from_edgelist failure in NetworkXError("Input is not a
@@ -1646,9 +1757,9 @@ impl PyMultiDiGraph {
         Ok(self.inner.in_degree(&canonical))
     }
 
-    /// br-r37-c1-snabulk: native bulk set_node_attributes(values, name)
-    /// — one Rust loop over the values dict (mirror is authoritative;
-    /// inner refreshed at copy/export; missing nodes skipped per nx).
+    // br-r37-c1-snabulk: native bulk set_node_attributes(values, name)
+    // — one Rust loop over the values dict (mirror is authoritative;
+    // inner refreshed at copy/export; missing nodes skipped per nx).
 
     /// br-r37-c1-seabulk-multi: native bulk set_edge_attributes for
     /// multigraphs — keys are (u, v, key) 3-tuples. Resolves the
@@ -1706,7 +1817,12 @@ impl PyMultiDiGraph {
     /// String-keyed (s2teo unflipped), so this sums IndexSet lens per
     /// node, but in a single native pass.
     fn _native_out_degree_pairs(&self, py: Python<'_>) -> PyResult<Vec<(PyObject, usize)>> {
-        let names: Vec<String> = self.inner.nodes_ordered().iter().map(|s| (*s).to_owned()).collect();
+        let names: Vec<String> = self
+            .inner
+            .nodes_ordered()
+            .iter()
+            .map(|s| (*s).to_owned())
+            .collect();
         Ok(names
             .iter()
             .map(|n| (self.py_node_key(py, n), self.inner.out_degree(n)))
@@ -1714,7 +1830,12 @@ impl PyMultiDiGraph {
     }
 
     fn _native_in_degree_pairs(&self, py: Python<'_>) -> PyResult<Vec<(PyObject, usize)>> {
-        let names: Vec<String> = self.inner.nodes_ordered().iter().map(|s| (*s).to_owned()).collect();
+        let names: Vec<String> = self
+            .inner
+            .nodes_ordered()
+            .iter()
+            .map(|s| (*s).to_owned())
+            .collect();
         Ok(names
             .iter()
             .map(|n| (self.py_node_key(py, n), self.inner.in_degree(n)))
@@ -4574,7 +4695,7 @@ impl PyDiGraph {
             }
             node_batch.push((canonical.to_owned(), rust_attrs));
         }
-        rev.inner.extend_nodes_with_attrs_unrecorded(node_batch);
+        let _ = rev.inner.extend_nodes_with_attrs_unrecorded(node_batch);
         let mut edge_batch: Vec<(String, String, fnx_classes::AttrMap)> = Vec::new();
         for edge in self.inner.edges_ordered() {
             let u = &edge.left;
@@ -4590,7 +4711,7 @@ impl PyDiGraph {
             };
             edge_batch.push((v.clone(), u.clone(), rust_attrs));
         }
-        rev.inner.extend_edges_with_attrs_unrecorded(edge_batch);
+        let _ = rev.inner.extend_edges_with_attrs_unrecorded(edge_batch);
         Ok(rev)
     }
 

@@ -1,0 +1,172 @@
+{
+  "results": [
+    {
+      "command": ".venv/bin/python tests/artifacts/perf/20260607T-multigraph-ctor-batch-tealspring/multigraph_ctor_batch.py fnx-loop --kind multi --mode ctor --case keyed --loops 12",
+      "mean": 1.5055425619828569,
+      "stddev": 0.21383776600977286,
+      "median": 1.36017884984,
+      "user": 4.184102451428571,
+      "system": 0.16352706857142857,
+      "min": 1.29599278984,
+      "max": 1.80051704984,
+      "times": [
+        1.66626516784,
+        1.80051704984,
+        1.72089779484,
+        1.33952453784,
+        1.36017884984,
+        1.35542174384,
+        1.29599278984
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": ".venv/bin/python tests/artifacts/perf/20260607T-multigraph-ctor-batch-tealspring/multigraph_ctor_batch.py fnx-loop --kind multi --mode ctor --case attr --loops 10",
+      "mean": 1.0725929384114286,
+      "stddev": 0.020544817453961705,
+      "median": 1.07083120884,
+      "user": 4.836260879999999,
+      "system": 0.08262978285714284,
+      "min": 1.0415928538399999,
+      "max": 1.09754057584,
+      "times": [
+        1.06549218484,
+        1.09643657384,
+        1.05614436584,
+        1.07083120884,
+        1.09754057584,
+        1.0415928538399999,
+        1.08011280584
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": ".venv/bin/python tests/artifacts/perf/20260607T-multigraph-ctor-batch-tealspring/multigraph_ctor_batch.py fnx-loop --kind multi --mode ctor --case mixed --loops 8",
+      "mean": 1.2784359304114286,
+      "stddev": 0.05775862774459309,
+      "median": 1.29329671784,
+      "user": 5.2273387371428575,
+      "system": 0.10950963999999999,
+      "min": 1.19812594584,
+      "max": 1.35409496984,
+      "times": [
+        1.3012998308400001,
+        1.25242691584,
+        1.29329671784,
+        1.33146037684,
+        1.35409496984,
+        1.21834675584,
+        1.19812594584
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": ".venv/bin/python tests/artifacts/perf/20260607T-multigraph-ctor-batch-tealspring/multigraph_ctor_batch.py fnx-loop --kind multidirected --mode ctor --case keyed --loops 12",
+      "mean": 1.6656107241257145,
+      "stddev": 0.05888540649499664,
+      "median": 1.66099597184,
+      "user": 5.199440165714285,
+      "system": 0.27924892571428567,
+      "min": 1.5826424488400002,
+      "max": 1.7509339378400002,
+      "times": [
+        1.60477112184,
+        1.66099597184,
+        1.68300941884,
+        1.71649156284,
+        1.6604306068399999,
+        1.7509339378400002,
+        1.5826424488400002
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": ".venv/bin/python tests/artifacts/perf/20260607T-multigraph-ctor-batch-tealspring/multigraph_ctor_batch.py fnx-loop --kind multidirected --mode ctor --case attr --loops 10",
+      "mean": 1.1846577248399999,
+      "stddev": 0.18964596000295114,
+      "median": 1.13503824784,
+      "user": 4.7882178799999995,
+      "system": 0.09167878285714284,
+      "min": 1.01013829084,
+      "max": 1.59701639184,
+      "times": [
+        1.01013829084,
+        1.59701639184,
+        1.10278842884,
+        1.13503824784,
+        1.17955054884,
+        1.11188908384,
+        1.15618308184
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": ".venv/bin/python tests/artifacts/perf/20260607T-multigraph-ctor-batch-tealspring/multigraph_ctor_batch.py fnx-loop --kind multidirected --mode ctor --case mixed --loops 8",
+      "mean": 1.3829326172685714,
+      "stddev": 0.09596330196922834,
+      "median": 1.3722024988400001,
+      "user": 5.1561778799999995,
+      "system": 0.10427678285714284,
+      "min": 1.28486902384,
+      "max": 1.55812430484,
+      "times": [
+        1.55812430484,
+        1.45570165484,
+        1.3722024988400001,
+        1.3076786548400001,
+        1.38121737184,
+        1.28486902384,
+        1.32073481184
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}
