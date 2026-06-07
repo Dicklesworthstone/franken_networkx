@@ -15471,6 +15471,37 @@ def _sp_edge_weights_all_int(G, weight):
     return True
 
 
+def _sp_propagate_int_types(G, weight, dists, paths):
+    """br-r37-c1-srczero generalized: nx never coerces — each distance's
+    TYPE follows the Python sum along the chosen shortest path
+    (int+int=int, any float taints). With all-int graphs the blanket
+    coercion fast path applies; this handles MIXED graphs by re-deriving
+    int-ness along each returned path (the fnx kernel reproduces nx's
+    traversal exactly, so the path IS nx's path). Source (path of one
+    node, no edges) becomes int 0 — subsumes the literal-int-0 seed."""
+    import numbers as _numbers
+
+    multi = G.is_multigraph()
+    out = {}
+    for node, d in dists.items():
+        p = paths.get(node)
+        if p is None or d != int(d):
+            out[node] = d
+            continue
+        all_int = True
+        for u, v in zip(p, p[1:]):
+            if multi:
+                cands = [dd.get(weight, 1) for dd in G[u][v].values()]
+                w = min(cands)
+            else:
+                w = G[u][v].get(weight, 1)
+            if not isinstance(w, _numbers.Integral) or isinstance(w, bool):
+                all_int = False
+                break
+        out[node] = int(d) if all_int else d
+    return out
+
+
 def _sp_coerce_dist_to_int(dists):
     """Coerce integer-valued floats in a distance dict back to int."""
     return {k: (int(v) if isinstance(v, float) and v.is_integer() else v)
@@ -15605,6 +15636,9 @@ def single_source_dijkstra(G, source, target=None, cutoff=None, weight="weight")
     # weight is int, distances are ints.
     if _sp_edge_weights_all_int(G, weight):
         dists = _sp_coerce_dist_to_int(dists)
+    else:
+        # br-r37-c1-srczero: per-path int-type propagation (see helper).
+        dists = _sp_propagate_int_types(G, weight, dists, paths)
     if target is not None:
         if target not in dists:
             raise NetworkXNoPath(f"No path to {target}.")
@@ -15690,6 +15724,9 @@ def single_source_bellman_ford(G, source, target=None, weight="weight"):
     # weighted sp batch 2: nx preserves int distances for all-int weights.
     if _sp_edge_weights_all_int(G, weight):
         dists = _sp_coerce_dist_to_int(dists)
+    else:
+        # br-r37-c1-srczero: per-path int-type propagation (see helper).
+        dists = _sp_propagate_int_types(G, weight, dists, paths)
     return dists, paths
 
 
@@ -15745,7 +15782,10 @@ def single_source_bellman_ford_path_length(G, source, weight="weight"):
     # (dict comprehension keeps insertion/discovery order).
     if _sp_edge_weights_all_int(G, weight):
         return _sp_coerce_dist_to_int(dict(result))
-    return dict(result)
+    # br-r37-c1-srczero: mixed graphs need per-path int-type propagation;
+    # fetch paths from the full kernel (same traversal).
+    dists, paths = _raw_single_source_bellman_ford(G, source, weight=weight)
+    return _sp_propagate_int_types(G, weight, dict(result), dict(paths))
 
 
 def all_pairs_dijkstra_path(G, cutoff=None, weight="weight"):
@@ -25020,6 +25060,9 @@ def multi_source_dijkstra(G, sources, target=None, cutoff=None, weight="weight")
     # source).
     if _sp_edge_weights_all_int(G, weight):
         dists = _sp_coerce_dist_to_int(dists)
+    else:
+        # br-r37-c1-srczero: per-path int-type propagation (see helper).
+        dists = _sp_propagate_int_types(G, weight, dists, paths)
     # br-r37-c1-msd-order: nx's Dijkstra emits nodes in pop
     # order from the priority queue → ascending distance.  fnx's
     # Rust binding returns a dict in adjacency-walk order.

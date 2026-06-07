@@ -129,6 +129,9 @@ pub struct Graph {
     /// `adj_indices[i]` contains the node indices of neighbors of node i.
     /// This mirrors `adjacency` but avoids string hashing during BFS/CC.
     adj_indices: Vec<Vec<usize>>,
+    /// br-r37-c1-d58s8: revision-keyed all-int weights memo (see
+    /// DiGraph::all_int_cache).
+    all_int_cache: std::sync::Arc<std::sync::RwLock<Option<(u64, String, bool)>>>,
     edge_index_endpoints: Vec<(usize, usize)>,
     edges: IndexMap<EdgeKey, AttrMap>,
     runtime_policy: RuntimePolicy,
@@ -143,6 +146,7 @@ impl Graph {
             nodes: IndexMap::new(),
             adjacency: IndexMap::new(),
             adj_indices: Vec::new(),
+            all_int_cache: std::sync::Arc::default(),
             edge_index_endpoints: Vec::new(),
             edges: IndexMap::new(),
             runtime_policy: RuntimePolicy::new(mode),
@@ -158,6 +162,7 @@ impl Graph {
             nodes: IndexMap::new(),
             adjacency: IndexMap::new(),
             adj_indices: Vec::new(),
+            all_int_cache: std::sync::Arc::default(),
             edge_index_endpoints: Vec::new(),
             edges: IndexMap::new(),
             runtime_policy,
@@ -182,6 +187,7 @@ impl Graph {
             nodes: IndexMap::with_capacity(n),
             adjacency: IndexMap::with_capacity(n),
             adj_indices: vec![Vec::with_capacity(n.saturating_sub(1)); n],
+            all_int_cache: std::sync::Arc::default(),
             edge_index_endpoints: Vec::with_capacity(edge_capacity),
             edges: IndexMap::with_capacity(edge_capacity),
             runtime_policy: RuntimePolicy::new(mode),
@@ -247,6 +253,7 @@ impl Graph {
             nodes: IndexMap::with_capacity(node_count),
             adjacency: IndexMap::with_capacity(node_count),
             adj_indices: vec![Vec::with_capacity(4); node_count],
+            all_int_cache: std::sync::Arc::default(),
             edge_index_endpoints: Vec::with_capacity(edge_capacity),
             edges: IndexMap::with_capacity(edge_capacity),
             runtime_policy: RuntimePolicy::new(mode),
@@ -498,6 +505,7 @@ impl Graph {
             nodes: IndexMap::with_capacity(state.node_count),
             adjacency: IndexMap::with_capacity(state.node_count),
             adj_indices: Vec::with_capacity(state.node_count),
+            all_int_cache: std::sync::Arc::default(),
             edge_index_endpoints: Vec::with_capacity(edge_view.len()),
             edges: IndexMap::with_capacity(edge_view.len()),
             runtime_policy: RuntimePolicy::new(mode),
@@ -598,6 +606,7 @@ impl Graph {
             nodes: IndexMap::with_capacity(total),
             adjacency: IndexMap::with_capacity(total),
             adj_indices: Vec::new(),
+            all_int_cache: std::sync::Arc::default(),
             edge_index_endpoints: Vec::new(),
             edges: IndexMap::new(),
             runtime_policy: RuntimePolicy::new(mode),
@@ -778,6 +787,7 @@ impl Graph {
             nodes: self.nodes.clone(),
             adjacency: self.adjacency.clone(),
             adj_indices: self.adj_indices.clone(),
+            all_int_cache: std::sync::Arc::default(),
             edge_index_endpoints: self.edge_index_endpoints.clone(),
             edges: self.edges.clone(),
             runtime_policy: RuntimePolicy::new(self.mode),
@@ -1711,6 +1721,27 @@ impl Graph {
     }
 
     #[must_use]
+    /// br-r37-c1-d58s8: revision-keyed memo of "every edge's `attr`
+    /// value is an integer (missing = default 1 = int)".
+    #[must_use]
+    pub fn edge_weights_all_int(&self, attr: &str) -> bool {
+        if let Ok(guard) = self.all_int_cache.read()
+            && let Some((rev, a, v)) = guard.as_ref()
+            && *rev == self.revision
+            && a == attr
+        {
+            return *v;
+        }
+        let v = self
+            .edges
+            .values()
+            .all(|attrs| attrs.get(attr).is_none_or(fnx_runtime::CgseValue::is_int));
+        if let Ok(mut guard) = self.all_int_cache.write() {
+            *guard = Some((self.revision, attr.to_owned(), v));
+        }
+        v
+    }
+
     pub fn edges_ordered(&self) -> Vec<EdgeSnapshot> {
         let mut ordered = Vec::with_capacity(self.edges.len());
         let mut seen = HashSet::<EdgeKey>::with_capacity(self.edges.len());

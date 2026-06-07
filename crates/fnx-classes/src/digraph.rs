@@ -127,6 +127,10 @@ pub struct DiGraph {
     /// because entries are revision-checked before use. Mutations
     /// invalidate implicitly by bumping `revision`.
     csr_cache: std::sync::Arc<std::sync::RwLock<Option<(u64, std::sync::Arc<DiCsr>)>>>,
+    /// br-r37-c1-d58s8: revision-keyed all-int weights memo (the
+    /// shortest-path int-coercion pre-scan walked every edge attr per
+    /// call). Single entry keyed by (revision, attr).
+    all_int_cache: std::sync::Arc<std::sync::RwLock<Option<(u64, String, bool)>>>,
 }
 
 impl DiGraph {
@@ -143,6 +147,7 @@ impl DiGraph {
             edges: self.edges.clone(),
             runtime_policy: RuntimePolicy::new(self.mode),
             csr_cache: self.csr_cache.clone(),
+            all_int_cache: self.all_int_cache.clone(),
         }
     }
 
@@ -161,6 +166,7 @@ impl DiGraph {
             edges: IndexMap::new(),
             runtime_policy: RuntimePolicy::new(mode),
             csr_cache: std::sync::Arc::default(),
+            all_int_cache: std::sync::Arc::default(),
         }
     }
 
@@ -176,6 +182,7 @@ impl DiGraph {
             edges: IndexMap::new(),
             runtime_policy,
             csr_cache: std::sync::Arc::default(),
+            all_int_cache: std::sync::Arc::default(),
         }
     }
 
@@ -230,6 +237,26 @@ impl DiGraph {
             *guard = Some((self.revision, built.clone()));
         }
         built
+    }
+
+    /// br-r37-c1-d58s8: revision-keyed memo of "every edge's `attr`
+    /// value is an integer (missing = default 1 = int)".
+    #[must_use]
+    pub fn edge_weights_all_int(&self, attr: &str) -> bool {
+        if let Ok(guard) = self.all_int_cache.read()
+            && let Some((rev, a, v)) = guard.as_ref()
+            && *rev == self.revision
+            && a == attr
+        {
+            return *v;
+        }
+        let v = self.edges.values().all(|attrs| {
+            attrs.get(attr).is_none_or(fnx_runtime::CgseValue::is_int)
+        });
+        if let Ok(mut guard) = self.all_int_cache.write() {
+            *guard = Some((self.revision, attr.to_owned(), v));
+        }
+        v
     }
 
     fn build_csr(&self) -> DiCsr {

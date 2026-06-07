@@ -6222,27 +6222,18 @@ pub fn digraph_has_nonnumeric_edge_weight(digraph: &DiGraph, weight_attr: &str) 
 /// the Python `_sp_edge_weights_all_int` gate, replacing its O(E) EdgeView scan.
 #[must_use]
 pub fn graph_edge_weights_all_int(graph: &Graph, weight_attr: &str) -> bool {
-    for (_, _, attrs) in graph.edges_ordered_borrowed() {
-        if let Some(raw) = attrs.get(weight_attr)
-            && !raw.is_int()
-        {
-            return false;
-        }
-    }
-    true
+    // br-r37-c1-d58s8: delegated to the revision-keyed memo on the
+    // graph — the per-call O(E) attr scan equalled the dijkstra kernel
+    // itself (21ms/call at 12k edges) and is a pure fn of
+    // (revision, attr).
+    graph.edge_weights_all_int(weight_attr)
 }
 
 /// `DiGraph` counterpart to [`graph_edge_weights_all_int`].
 #[must_use]
 pub fn digraph_edge_weights_all_int(digraph: &DiGraph, weight_attr: &str) -> bool {
-    for (_, _, attrs) in digraph.edges_ordered_borrowed() {
-        if let Some(raw) = attrs.get(weight_attr)
-            && !raw.is_int()
-        {
-            return false;
-        }
-    }
-    true
+    // br-r37-c1-d58s8: see graph_edge_weights_all_int.
+    digraph.edge_weights_all_int(weight_attr)
 }
 
 fn matching_edge_weight_or_default(
