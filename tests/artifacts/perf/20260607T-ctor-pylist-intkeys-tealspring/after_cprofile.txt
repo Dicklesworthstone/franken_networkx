@@ -1,0 +1,38 @@
+         1886871 function calls in 6.296 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.542    0.542    6.296    6.296 /data/projects/franken_networkx/tests/artifacts/perf/20260607T-ctor-pylist-intkeys-tealspring/graph_ctor_pylist_extract.py:250(profile_body)
+      320    5.198    0.016    5.680    0.018 /data/projects/franken_networkx/tests/artifacts/perf/20260607T-ctor-pylist-intkeys-tealspring/graph_ctor_pylist_extract.py:86(build_ctor)
+      320    0.058    0.000    0.385    0.001 /data/projects/.scratch/franken_networkx_pylist_after_tealspring_20260607T1423/python/franken_networkx/__init__.py:3265(__init__)
+      240    0.194    0.001    0.194    0.001 {built-in method franken_networkx._fnx.validate_ctor_edge_list}
+   240080    0.078    0.000    0.105    0.000 /data/projects/.scratch/franken_networkx_pylist_after_tealspring_20260607T1423/python/franken_networkx/__init__.py:45905(__iter__)
+   960080    0.069    0.000    0.069    0.000 /data/projects/franken_networkx/tests/artifacts/perf/20260607T-ctor-pylist-intkeys-tealspring/graph_ctor_pylist_extract.py:50(generator_from)
+        2    0.015    0.008    0.057    0.029 /data/projects/franken_networkx/tests/artifacts/perf/20260607T-ctor-pylist-intkeys-tealspring/graph_ctor_pylist_extract.py:22(plain_edges)
+        1    0.016    0.016    0.041    0.041 /data/projects/franken_networkx/tests/artifacts/perf/20260607T-ctor-pylist-intkeys-tealspring/graph_ctor_pylist_extract.py:33(attr_edges)
+    30810    0.013    0.000    0.038    0.000 /usr/lib/python3.13/random.py:295(randrange)
+   255727    0.029    0.000    0.029    0.000 {built-in method builtins.len}
+      320    0.028    0.000    0.028    0.000 /data/projects/franken_networkx/tests/artifacts/perf/20260607T-ctor-pylist-intkeys-tealspring/graph_ctor_pylist_extract.py:76(input_for_kind)
+    30810    0.014    0.000    0.022    0.000 /usr/lib/python3.13/random.py:245(_randbelow_with_getrandbits)
+   240000    0.021    0.000    0.021    0.000 {built-in method builtins.hash}
+    44569    0.004    0.000    0.004    0.000 {method 'getrandbits' of '_random.Random' objects}
+    30810    0.004    0.000    0.004    0.000 {method 'bit_length' of 'int' objects}
+    30810    0.003    0.000    0.003    0.000 {built-in method _operator.index}
+      320    0.003    0.000    0.003    0.000 {built-in method builtins.locals}
+    15400    0.002    0.000    0.002    0.000 {method 'append' of 'list' objects}
+      240    0.001    0.000    0.002    0.000 /data/projects/.scratch/franken_networkx_pylist_after_tealspring_20260607T1423/python/franken_networkx/__init__.py:5639(predicate)
+     1844    0.001    0.000    0.001    0.000 {built-in method builtins.isinstance}
+       80    0.001    0.000    0.001    0.000 /data/projects/.scratch/franken_networkx_pylist_after_tealspring_20260607T1423/python/franken_networkx/__init__.py:31777(nodes)
+     1920    0.001    0.000    0.001    0.000 {method 'startswith' of 'str' objects}
+      240    0.000    0.000    0.000    0.000 {function _make_class_safe_predicate.<locals>.predicate at 0x7985f0d616c0}
+       80    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx_pylist_after_tealspring_20260607T1423/python/franken_networkx/__init__.py:943(wrapped)
+      960    0.000    0.000    0.000    0.000 {built-in method builtins.hasattr}
+      160    0.000    0.000    0.000    0.000 {built-in method builtins.vars}
+      480    0.000    0.000    0.000    0.000 {method 'get' of 'dict' objects}
+       80    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx_pylist_after_tealspring_20260607T1423/python/franken_networkx/__init__.py:31344(_private_override)
+      160    0.000    0.000    0.000    0.000 {method 'pop' of 'dict' objects}
+        2    0.000    0.000    0.000    0.000 /usr/lib/python3.13/random.py:119(__init__)
+        2    0.000    0.000    0.000    0.000 /usr/lib/python3.13/random.py:128(seed)
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+        2    0.000    0.000    0.000    0.000 {function Random.seed at 0x7985f0f27380}
