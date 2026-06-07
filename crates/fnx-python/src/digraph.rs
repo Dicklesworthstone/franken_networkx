@@ -3726,8 +3726,8 @@ impl PyDiGraph {
                 // Pending-state sets stand in for has_node/has_edge until
                 // the flush; slow items flush-then-fallback verbatim.
                 let mut edge_batch: Vec<(String, String, fnx_classes::AttrMap)> = Vec::new();
-                let mut pending_nodes: std::collections::HashSet<String> =
-                    std::collections::HashSet::new();
+                // br-r37-c1-d58s8: node_key_map doubles as the pending-node
+                // oracle; no separate pending set (see PyGraph::new).
                 let mut pending_cells: std::collections::HashSet<(String, String)> =
                     std::collections::HashSet::new();
                 macro_rules! flush_batch {
@@ -3736,7 +3736,6 @@ impl PyDiGraph {
                             let drained: Vec<(String, String, fnx_classes::AttrMap)> =
                                 std::mem::take(&mut edge_batch);
                             let _ = g.inner.extend_edges_with_attrs_unrecorded(drained);
-                            pending_nodes.clear();
                             pending_cells.clear();
                             g.bump_nodes_seq();
                             g.bump_edges_seq();
@@ -3791,8 +3790,6 @@ impl PyDiGraph {
                                             .bind(py)
                                             .update(d.as_mapping())?;
                                     }
-                                    pending_nodes.insert(u_canonical.clone());
-                                    pending_nodes.insert(v_canonical.clone());
                                     edge_batch.push((u_canonical, v_canonical, rust_attrs));
                                     batched = true;
                                 }

@@ -4360,8 +4360,12 @@ impl PyGraph {
                 // inner.has_node/has_edge until the flush; non-edge items
                 // flush first so interleaved node insertion order holds.
                 let mut edge_batch: Vec<(String, String, AttrMap)> = Vec::new();
-                let mut pending_nodes: std::collections::HashSet<String> =
-                    std::collections::HashSet::new();
+                // br-r37-c1-d58s8: node_key_map doubles as the pending-node
+                // oracle (entries land inline below), so no separate
+                // pending_nodes set — two String clones+hashes per edge
+                // saved. pending_cells stays: the z6uka first-touch gate is
+                // call-order-sensitive (maybe_store's `differs` check can
+                // store a LATER object on dup edges if invoked again).
                 let mut pending_cells: std::collections::HashSet<(String, String)> =
                     std::collections::HashSet::new();
                 macro_rules! flush_batch {
@@ -4370,7 +4374,6 @@ impl PyGraph {
                             let drained: Vec<(String, String, AttrMap)> =
                                 std::mem::take(&mut edge_batch);
                             let _ = g.inner.extend_edges_with_attrs_unrecorded(drained);
-                            pending_nodes.clear();
                             pending_cells.clear();
                             g.bump_nodes_seq();
                             g.bump_edges_seq();
@@ -4395,9 +4398,9 @@ impl PyGraph {
                                     (node_key_to_string(py, &u), node_key_to_string(py, &v))
                                 {
                                     let u_was_new = !g.inner.has_node(&u_canonical)
-                                        && !pending_nodes.contains(&u_canonical);
+                                        && !g.node_key_map.contains_key(&u_canonical);
                                     let v_was_new = !g.inner.has_node(&v_canonical)
-                                        && !pending_nodes.contains(&v_canonical);
+                                        && !g.node_key_map.contains_key(&v_canonical);
                                     if g.should_store_node_key(&u_canonical, u_was_new) {
                                         g.node_key_map
                                             .entry(u_canonical.clone())
@@ -4439,8 +4442,6 @@ impl PyGraph {
                                             .bind(py)
                                             .update(d.as_mapping())?;
                                     }
-                                    pending_nodes.insert(u_canonical.clone());
-                                    pending_nodes.insert(v_canonical.clone());
                                     edge_batch.push((u_canonical, v_canonical, rust_attrs));
                                     batched = true;
                                 }
