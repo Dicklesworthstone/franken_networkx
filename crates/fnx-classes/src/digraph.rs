@@ -85,6 +85,30 @@ pub struct MultiDiGraphSnapshot {
 // DiGraph
 // ---------------------------------------------------------------------------
 
+/// br-r37-c1-d58s8 P1: integer CSR view of a DiGraph's adjacency —
+/// succ/pred targets are node INDICES (IndexMap insertion order) with
+/// per-row slices in ROW order, so index walks reproduce the String
+/// walks exactly. Built once per revision via `DiGraph::csr()`.
+#[derive(Debug)]
+pub struct DiCsr {
+    pub succ_offsets: Vec<usize>,
+    pub succ_targets: Vec<u32>,
+    pub pred_offsets: Vec<usize>,
+    pub pred_targets: Vec<u32>,
+}
+
+impl DiCsr {
+    #[must_use]
+    pub fn successors(&self, idx: usize) -> &[u32] {
+        &self.succ_targets[self.succ_offsets[idx]..self.succ_offsets[idx + 1]]
+    }
+
+    #[must_use]
+    pub fn predecessors(&self, idx: usize) -> &[u32] {
+        &self.pred_targets[self.pred_offsets[idx]..self.pred_offsets[idx + 1]]
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct DiGraph {
     mode: CompatibilityMode,
@@ -97,6 +121,12 @@ pub struct DiGraph {
     /// Directed edges keyed by (source, target) — order matters.
     edges: IndexMap<DirectedEdgeKey, AttrMap>,
     runtime_policy: RuntimePolicy,
+    /// br-r37-c1-d58s8 P1: revision-keyed CSR cache. Derived from the
+    /// String maps on demand (never eagerly maintained — the I5
+    /// renumbering hazard cannot apply); shared across clones safely
+    /// because entries are revision-checked before use. Mutations
+    /// invalidate implicitly by bumping `revision`.
+    csr_cache: std::sync::Arc<std::sync::RwLock<Option<(u64, std::sync::Arc<DiCsr>)>>>,
 }
 
 impl DiGraph {
@@ -112,6 +142,7 @@ impl DiGraph {
             predecessors: self.predecessors.clone(),
             edges: self.edges.clone(),
             runtime_policy: RuntimePolicy::new(self.mode),
+            csr_cache: self.csr_cache.clone(),
         }
     }
 
@@ -129,6 +160,7 @@ impl DiGraph {
             predecessors: IndexMap::new(),
             edges: IndexMap::new(),
             runtime_policy: RuntimePolicy::new(mode),
+            csr_cache: std::sync::Arc::default(),
         }
     }
 
@@ -143,6 +175,7 @@ impl DiGraph {
             predecessors: IndexMap::new(),
             edges: IndexMap::new(),
             runtime_policy,
+            csr_cache: std::sync::Arc::default(),
         }
     }
 
@@ -178,6 +211,59 @@ impl DiGraph {
     #[must_use]
     pub fn revision(&self) -> u64 {
         self.revision
+    }
+
+    /// br-r37-c1-d58s8 P1: revision-keyed integer CSR of both row
+    /// families. O(V+E) rebuild only when the graph changed since the
+    /// cached build; kernels get index walks identical to the String
+    /// walks (per-row order preserved).
+    #[must_use]
+    pub fn csr(&self) -> std::sync::Arc<DiCsr> {
+        if let Ok(guard) = self.csr_cache.read()
+            && let Some((rev, csr)) = guard.as_ref()
+            && *rev == self.revision
+        {
+            return csr.clone();
+        }
+        let built = std::sync::Arc::new(self.build_csr());
+        if let Ok(mut guard) = self.csr_cache.write() {
+            *guard = Some((self.revision, built.clone()));
+        }
+        built
+    }
+
+    fn build_csr(&self) -> DiCsr {
+        let n = self.nodes.len();
+        let mut succ_offsets = Vec::with_capacity(n + 1);
+        let mut pred_offsets = Vec::with_capacity(n + 1);
+        let mut succ_targets = Vec::new();
+        let mut pred_targets = Vec::new();
+        succ_offsets.push(0);
+        pred_offsets.push(0);
+        for node in self.nodes.keys() {
+            if let Some(row) = self.successors.get(node) {
+                for nbr in row {
+                    if let Some(i) = self.nodes.get_index_of(nbr) {
+                        succ_targets.push(u32::try_from(i).unwrap_or(u32::MAX));
+                    }
+                }
+            }
+            succ_offsets.push(succ_targets.len());
+            if let Some(row) = self.predecessors.get(node) {
+                for nbr in row {
+                    if let Some(i) = self.nodes.get_index_of(nbr) {
+                        pred_targets.push(u32::try_from(i).unwrap_or(u32::MAX));
+                    }
+                }
+            }
+            pred_offsets.push(pred_targets.len());
+        }
+        DiCsr {
+            succ_offsets,
+            succ_targets,
+            pred_offsets,
+            pred_targets,
+        }
     }
 
     #[must_use]

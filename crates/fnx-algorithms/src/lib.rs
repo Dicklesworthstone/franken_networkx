@@ -2106,32 +2106,39 @@ pub fn single_source_shortest_path_length_directed_with_parents(
     source: &str,
     cutoff: Option<usize>,
 ) -> Vec<(String, usize, Option<String>)> {
-    let mut result: Vec<(String, usize, Option<String>)> = Vec::new();
-    if !digraph.has_node(source) {
-        return result;
-    }
+    // br-r37-c1-d58s8 P1 proof kernel: integer-CSR BFS via the
+    // revision-keyed DiGraph::csr() cache — CSR rows preserve String-row
+    // order, so the discovery sequence (and therefore the nx-parity
+    // output) is byte-identical to the old HashSet<&str> walk while
+    // skipping per-visit String hashing entirely.
+    let Some(source_idx) = digraph.get_node_index(source) else {
+        return Vec::new();
+    };
+    let csr = digraph.csr();
+    let names = digraph.nodes_ordered();
+    let n = names.len();
+    let mut visited = vec![false; n];
+    let mut parent: Vec<u32> = vec![u32::MAX; n];
+    let mut order: Vec<(u32, usize)> = Vec::with_capacity(n);
+    visited[source_idx] = true;
+    order.push((u32::try_from(source_idx).unwrap_or(u32::MAX), 0));
 
-    let mut visited: HashSet<&str> = HashSet::new();
-    visited.insert(source);
-    result.push((source.to_owned(), 0, None));
-
-    let mut frontier: Vec<&str> = vec![source];
+    let mut frontier: Vec<u32> = vec![u32::try_from(source_idx).unwrap_or(u32::MAX)];
     let mut level = 0usize;
-
     while !frontier.is_empty() {
         if let Some(c) = cutoff
             && level >= c
         {
             break;
         }
-        let mut next_frontier: Vec<&str> = Vec::new();
+        let mut next_frontier: Vec<u32> = Vec::new();
         for &node in &frontier {
-            if let Some(successors) = digraph.successors_iter(node) {
-                for nbr in successors {
-                    if visited.insert(nbr) {
-                        result.push((nbr.to_owned(), level + 1, Some(node.to_owned())));
-                        next_frontier.push(nbr);
-                    }
+            for &nbr in csr.successors(node as usize) {
+                if !visited[nbr as usize] {
+                    visited[nbr as usize] = true;
+                    parent[nbr as usize] = node;
+                    order.push((nbr, level + 1));
+                    next_frontier.push(nbr);
                 }
             }
         }
@@ -2139,7 +2146,21 @@ pub fn single_source_shortest_path_length_directed_with_parents(
         level += 1;
     }
 
-    result
+    order
+        .into_iter()
+        .map(|(idx, dist)| {
+            let p = parent[idx as usize];
+            (
+                names[idx as usize].to_owned(),
+                dist,
+                if p == u32::MAX {
+                    None
+                } else {
+                    Some(names[p as usize].to_owned())
+                },
+            )
+        })
+        .collect()
 }
 
 #[must_use]

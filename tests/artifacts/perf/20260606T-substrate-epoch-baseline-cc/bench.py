@@ -40,3 +40,6 @@ for name, ff, fn_ in ROWS:
     out[name] = {"fnx_ms": round(a * 1000, 2), "nx_ms": round(b * 1000, 2), "ratio": round(a / b, 3)}
     print(f"{name:22s} fnx {a*1000:8.1f}ms  nx {b*1000:7.1f}ms  {a/b:5.2f}x")
 json.dump(out, open(sys.argv[1] if len(sys.argv) > 1 else "/dev/stdout", "w"), indent=1)
+# P1 landed 2026-06-06: DiGraph::csr() revision-keyed CSR cache + first
+# kernel port (sssp_len directed w/ parents). Loaded-host directional
+# signal: 0.47x vs nx (~2x faster). Quiet-host run still owed.
