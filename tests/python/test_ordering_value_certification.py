@@ -172,3 +172,32 @@ def test_set_node_attributes_bulk_parity(cls):
     fnx.set_node_attributes(gf2, 5, "z")
     nx.set_node_attributes(gn2, 5, "z")
     assert dict(gf2.nodes(data=True)) == dict(gn2.nodes(data=True))
+
+
+@pytest.mark.parametrize("cls", ["Graph", "DiGraph"])
+def test_set_edge_attributes_bulk_parity(cls):
+    """br-r37-c1-seabulk: native bulk set_edge_attributes(dict, name)
+    must match nx AND remain visible to native kernels (the mirror is
+    flushed to inner via the edges-dirty flag). Covers reversed key
+    (undirected), missing edge skip, and dijkstra inner-sync."""
+    r = random.Random(5)
+    for trial in range(12):
+        ed = [(u, v) for u, v in ((r.randrange(10), r.randrange(10)) for _ in range(r.randrange(3, 30))) if u != v]
+        gf, gn = getattr(fnx, cls)(ed), getattr(nx, cls)(ed)
+        el = list(gn.edges())
+        vals = {e: (i + 1) * 1.5 for i, e in enumerate(el)}
+        if not gn.is_directed() and el:
+            vals[(el[0][1], el[0][0])] = 99.0  # reversed key (undirected)
+        vals[(999, 998)] = 7.0  # missing edge -> skipped
+        fnx.set_edge_attributes(gf, vals, "weight")
+        nx.set_edge_attributes(gn, vals, "weight")
+        assert sorted((repr(u), repr(v), d.get("weight")) for u, v, d in gf.edges(data=True)) == sorted(
+            (repr(u), repr(v), d.get("weight")) for u, v, d in gn.edges(data=True)
+        ), trial
+        if el and gn.number_of_nodes() > 2:
+            s = list(gn)[0]
+            da = fnx.single_source_dijkstra_path_length(gf, s)
+            db = nx.single_source_dijkstra_path_length(gn, s)
+            assert {repr(k): round(v, 6) for k, v in da.items()} == {
+                repr(k): round(v, 6) for k, v in db.items()
+            }, ("dijkstra inner-sync", trial)

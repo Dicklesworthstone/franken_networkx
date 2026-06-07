@@ -17094,6 +17094,15 @@ def set_edge_attributes(G, values, name=None):
     """
     if isinstance(values, _Mapping):
         if name is not None:
+            # br-r37-c1-seabulk: one native pass over the {(u,v): value}
+            # dict (was per-edge G[u][v] resolve + setitem). Native sets
+            # the edge_py_attrs mirror + marks edges dirty so the lazy
+            # inner flush reaches the kernels. Simple graphs only (Multi
+            # edge keys are 3-tuples); others fall back.
+            native = getattr(G, "_native_set_edge_attribute_scalar", None)
+            if native is not None and isinstance(values, dict) and not G.is_multigraph():
+                native(values, name)
+                return
             for edge, value in values.items():
                 try:
                     _edge_attribute_dict(G, edge)[name] = value

@@ -2799,6 +2799,7 @@ impl PyMultiGraph {
     /// br-r37-c1-snabulk: native bulk set_node_attributes(values, name)
     /// — one Rust loop over the values dict (mirror is authoritative;
     /// inner refreshed at copy/export; missing nodes skipped per nx).
+
     fn _native_set_node_attribute_scalar(
         &mut self,
         py: Python<'_>,
@@ -5220,6 +5221,35 @@ impl PyGraph {
     /// store (inner is refreshed from it at copy/export), so updating
     /// the mirror dict matches the single-set path exactly. Missing
     /// nodes are skipped (nx catches the KeyError).
+    /// br-r37-c1-seabulk: native bulk set_edge_attributes(values, name)
+    /// — one Rust loop over the {(u,v): value} dict instead of the
+    /// Python wrapper per-edge G[u][v] resolve + setitem. Mirrors the
+    /// single-edge path: has_edge gate, materialize the edge_py_attrs
+    /// mirror (edge_key canonicalizes), set the key, mark_edges_dirty
+    /// ONCE so the lazy _fnx_sync_attrs_to_inner flush reaches the Rust
+    /// kernels. Non-2-tuple keys skipped (nx ValueError-unpack swallow).
+    fn _native_set_edge_attribute_scalar(
+        &mut self,
+        py: Python<'_>,
+        values: &Bound<'_, PyDict>,
+        name: &str,
+    ) -> PyResult<()> {
+        for (k, val) in values.iter() {
+            let Ok(len) = k.len() else { continue };
+            if len != 2 {
+                continue;
+            }
+            let u = node_key_to_string(py, &k.get_item(0)?)?;
+            let v = node_key_to_string(py, &k.get_item(1)?)?;
+            if self.inner.has_edge(&u, &v) {
+                let dict = self.materialize_edge_py_attrs(py, &u, &v);
+                dict.bind(py).set_item(name, &val)?;
+            }
+        }
+        self.mark_edges_dirty();
+        Ok(())
+    }
+
     fn _native_set_node_attribute_scalar(
         &mut self,
         py: Python<'_>,
