@@ -333,3 +333,34 @@ def test_digraph_ctor_bulk_absorb_and_get_edge_data_lazy():
 
     sv = g.subgraph([1, 2])
     assert sorted(map(repr, copy.copy(sv))) == ["1", "2"]
+
+    generator_graph = fnx.DiGraph(iter([(0, 1), (1, 2)]))
+    assert generator_graph.size(weight="w") == 2.0
+    out_edge = next(iter(generator_graph.edges(data=True)))
+    out_edge[2]["out"] = 7
+    assert dict(generator_graph[0][1]) == {"out": 7}
+    assert generator_graph.size(weight="out") == 8.0
+    in_edge = next(iter(generator_graph.in_edges(data=True)))
+    in_edge[2]["in"] = 11
+    assert dict(generator_graph.get_edge_data(0, 1)) == {"out": 7, "in": 11}
+
+
+def test_add_edges_from_global_attr_batch():
+    """d58s8: global **attr now batches (was the 7x residual). nx merge
+    order: datadict.update(attr) FIRST, per-edge dd overrides; existing
+    edges update."""
+    import networkx as _nx
+
+    for data, gattr in (
+        ([(0, 1), (1, 2)], {"weight": 5}),
+        ([(0, 1, {"weight": 9}), (1, 2)], {"weight": 5}),
+        ([(0, 1, {"a": 1}), (1, 2, {"b": 2})], {"c": 3}),
+        ([(0, 1, {"a": 1}), (0, 1, {"b": 2})], {"c": 3}),
+    ):
+        gf, gn = fnx.Graph(), _nx.Graph()
+        for g in (gf, gn):
+            g.add_edge(0, 1, pre=1)
+            g.add_edges_from(data, **gattr)
+        assert [(repr(u), repr(v), sorted(d.items())) for u, v, d in gf.edges(data=True)] == [
+            (repr(u), repr(v), sorted(d.items())) for u, v, d in gn.edges(data=True)
+        ], (data, gattr)

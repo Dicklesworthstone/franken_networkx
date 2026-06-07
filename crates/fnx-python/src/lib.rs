@@ -415,7 +415,10 @@ pub(crate) fn deepcopy_py_dict(
     if bound.is_empty() {
         return Ok(PyDict::new(py).unbind());
     }
-    Ok(deepcopy.call1((bound,))?.downcast_into::<PyDict>()?.unbind())
+    Ok(deepcopy
+        .call1((bound,))?
+        .downcast_into::<PyDict>()?
+        .unbind())
 }
 
 use pyo3::IntoPyObjectExt;
@@ -922,10 +925,20 @@ impl PyGraph {
         py: Python<'py>,
         items: I,
         len: usize,
+        global_attr: Option<&Bound<'py, PyDict>>,
     ) -> PyResult<Option<AttrEdgeBatch>>
     where
         I: IntoIterator<Item = Bound<'py, PyAny>>,
     {
+        // br-r37-c1-d58s8: global **attr support — nx applies
+        // datadict.update(attr) FIRST, then the per-edge dd overrides.
+        let global_map: AttrMap = match global_attr {
+            Some(a) if !a.is_empty() => match py_dict_to_attr_map(a) {
+                Ok(m) if !m.keys().any(|k| k.starts_with("__fnx_incompatible")) => m,
+                _ => return Ok(None),
+            },
+            _ => AttrMap::new(),
+        };
         let mut edges: Vec<(String, String, AttrMap, Option<Py<PyDict>>)> = Vec::with_capacity(len);
         let mut new_nodes = Vec::new();
         let mut seen_nodes: HashSet<String> = self
@@ -963,9 +976,24 @@ impl PyGraph {
                 if attrs.keys().any(|k| k.starts_with("__fnx_incompatible")) {
                     return Ok(None);
                 }
-                (attrs, Some(d.clone().unbind()))
-            } else {
+                if global_map.is_empty() {
+                    (attrs, Some(d.clone().unbind()))
+                } else {
+                    let mut merged_map = global_map.clone();
+                    merged_map.extend(attrs);
+                    let merged = global_attr
+                        .expect("non-empty global_map implies global_attr")
+                        .copy()?;
+                    merged.update(d.as_mapping())?;
+                    (merged_map, Some(merged.unbind()))
+                }
+            } else if global_map.is_empty() {
                 (AttrMap::new(), None)
+            } else {
+                let merged = global_attr
+                    .expect("non-empty global_map implies global_attr")
+                    .copy()?;
+                (global_map.clone(), Some(merged.unbind()))
             };
 
             let Ok(u_canonical) = node_key_to_string(py, &u) else {
@@ -1047,6 +1075,7 @@ impl PyGraph {
         &mut self,
         py: Python<'_>,
         ebunch_to_add: &Bound<'_, PyAny>,
+        global_attr: Option<&Bound<'_, PyDict>>,
     ) -> PyResult<bool> {
         const ATTR_EDGE_BATCH_MIN: usize = 8;
         if let Ok(list) = ebunch_to_add.downcast::<PyList>() {
@@ -1054,7 +1083,7 @@ impl PyGraph {
                 return Ok(false);
             }
             if let Some((edges, new_nodes, node_bumps)) =
-                self.collect_attr_edge_batch(py, list.iter(), list.len())?
+                self.collect_attr_edge_batch(py, list.iter(), list.len(), global_attr)?
             {
                 self.add_attr_edge_batch(py, edges, new_nodes, node_bumps)?;
                 return Ok(true);
@@ -1062,7 +1091,7 @@ impl PyGraph {
         } else if let Ok(tuple) = ebunch_to_add.downcast::<PyTuple>()
             && tuple.len() >= ATTR_EDGE_BATCH_MIN
             && let Some((edges, new_nodes, node_bumps)) =
-                self.collect_attr_edge_batch(py, tuple.iter(), tuple.len())?
+                self.collect_attr_edge_batch(py, tuple.iter(), tuple.len(), global_attr)?
         {
             self.add_attr_edge_batch(py, edges, new_nodes, node_bumps)?;
             return Ok(true);
@@ -3230,7 +3259,8 @@ impl PyMultiGraph {
                 }
             }
         }
-        mdg.inner.extend_keyed_edges_with_attrs_unrecorded(edge_batch);
+        mdg.inner
+            .extend_keyed_edges_with_attrs_unrecorded(edge_batch);
         Ok(mdg)
     }
 
@@ -4361,10 +4391,9 @@ impl PyGraph {
                             if tuple_len == 2 || dict3.is_some() {
                                 let u = tuple.get_item(0)?;
                                 let v = tuple.get_item(1)?;
-                                if let (Ok(u_canonical), Ok(v_canonical)) = (
-                                    node_key_to_string(py, &u),
-                                    node_key_to_string(py, &v),
-                                ) {
+                                if let (Ok(u_canonical), Ok(v_canonical)) =
+                                    (node_key_to_string(py, &u), node_key_to_string(py, &v))
+                                {
                                     let u_was_new = !g.inner.has_node(&u_canonical)
                                         && !pending_nodes.contains(&u_canonical);
                                     let v_was_new = !g.inner.has_node(&v_canonical)
@@ -4387,12 +4416,7 @@ impl PyGraph {
                                     if !g.inner.has_edge(&u_canonical, &v_canonical)
                                         && !pending_cells.contains(&cell)
                                     {
-                                        g.maybe_store_adj_key(
-                                            py,
-                                            &u_canonical,
-                                            &v_canonical,
-                                            &v,
-                                        );
+                                        g.maybe_store_adj_key(py, &u_canonical, &v_canonical, &v);
                                         if u_canonical != v_canonical {
                                             g.maybe_store_adj_key(
                                                 py,
@@ -4408,8 +4432,7 @@ impl PyGraph {
                                         && !d.is_empty()
                                     {
                                         rust_attrs = py_dict_to_attr_map(d)?;
-                                        let ek =
-                                            Self::edge_key(&u_canonical, &v_canonical);
+                                        let ek = Self::edge_key(&u_canonical, &v_canonical);
                                         g.edge_py_attrs
                                             .entry(ek)
                                             .or_insert_with(|| PyDict::new(py).unbind())
@@ -4857,7 +4880,9 @@ impl PyGraph {
         // add_edge below (whose record_decision ledger push dominated
         // attributed construction at ~6x nx). Any item the batch can't
         // replicate exactly falls through to the loop unchanged.
-        if !has_global_attr && self.try_add_attr_edge_batch(py, ebunch_to_add)? {
+        // br-r37-c1-d58s8: global **attr now batches too (was the 7x
+        // residual: nx merge order = global first, per-edge overrides).
+        if self.try_add_attr_edge_batch(py, ebunch_to_add, attr)? {
             return Ok(());
         }
         let iter = PyIterator::from_object(ebunch_to_add)?;
@@ -5657,11 +5682,8 @@ impl PyGraph {
             let nodes = part.inner.nodes_ordered();
             // node index map: lets the per-walk edge dedup run on (usize,
             // usize) pairs instead of allocating String pairs per edge.
-            let index_of: std::collections::HashMap<&str, usize> = nodes
-                .iter()
-                .enumerate()
-                .map(|(i, n)| (*n, i))
-                .collect();
+            let index_of: std::collections::HashMap<&str, usize> =
+                nodes.iter().enumerate().map(|(i, n)| (*n, i)).collect();
             // nodes newly inserted by THIS part: their result display
             // object is THIS part's object by construction, so the
             // first-touch row store is a guaranteed no-op when the part
@@ -5709,11 +5731,8 @@ impl PyGraph {
                     // part has no row overrides AND both endpoints'
                     // result display objects came from this part
                     // (identity holds in maybe_store's comparison).
-                    let store_needed = !(part_rows_clean
-                        && new_this_part[ui]
-                        && new_this_part[vi]);
-                    let first_touch =
-                        part_idx == 0 || !self.inner.has_edge(u, v);
+                    let store_needed = !(part_rows_clean && new_this_part[ui] && new_this_part[vi]);
+                    let first_touch = part_idx == 0 || !self.inner.has_edge(u, v);
                     if first_touch && store_needed {
                         // first touch ACROSS graphs: store this walk's objects
                         let v_obj = part.py_adj_key(py, u, v);
@@ -5764,11 +5783,7 @@ impl PyGraph {
     /// (fresh dicts, shared values — nx add_*_from datadict.update
     /// semantics). Construction-tax recipe: fresh ledger + bulk
     /// unrecorded inserts + lazy mirrors.
-    fn _native_disjoint_union(
-        &self,
-        py: Python<'_>,
-        other: PyRef<'_, Self>,
-    ) -> PyResult<Py<Self>> {
+    fn _native_disjoint_union(&self, py: Python<'_>, other: PyRef<'_, Self>) -> PyResult<Py<Self>> {
         let mut g =
             Self::new_empty_with_policy(py, fnx_runtime::RuntimePolicy::new(self.inner.mode()))?;
         let merged_graph_attrs = PyDict::new(py);
@@ -5805,7 +5820,8 @@ impl PyGraph {
             }
             g.inner.extend_nodes_with_attrs_unrecorded(node_batch);
             let mut edge_batch: Vec<(String, String, fnx_classes::AttrMap)> = Vec::new();
-            let mut seen: std::collections::HashSet<(usize, usize)> = std::collections::HashSet::new();
+            let mut seen: std::collections::HashSet<(usize, usize)> =
+                std::collections::HashSet::new();
             for u in &nodes {
                 for v in part.inner.neighbors(u).unwrap_or_default() {
                     let ui = index_of[*u];
@@ -5821,10 +5837,8 @@ impl PyGraph {
                         .get(&Self::edge_key(u, v))
                         .or_else(|| part.edge_py_attrs.get(&Self::edge_key(v, u)))
                     {
-                        g.edge_py_attrs.insert(
-                            Self::edge_key(&uc, &vc),
-                            attrs.bind(py).copy()?.unbind(),
-                        );
+                        g.edge_py_attrs
+                            .insert(Self::edge_key(&uc, &vc), attrs.bind(py).copy()?.unbind());
                     }
                     edge_batch.push((
                         uc,
@@ -5877,7 +5891,7 @@ impl PyGraph {
                 .insert(node.to_owned(), self.py_node_key(py, node));
             node_batch.push((node.to_owned(), rust_attrs));
         }
-        dg.inner.extend_nodes_with_attrs_unrecorded(node_batch);
+        let _ = dg.inner.extend_nodes_with_attrs_unrecorded(node_batch);
         let mut edge_batch: Vec<(String, String, fnx_classes::AttrMap)> =
             Vec::with_capacity(self.inner.edge_count() * 2);
         for source in self.inner.nodes_ordered() {
@@ -5900,7 +5914,7 @@ impl PyGraph {
                 edge_batch.push((source.to_owned(), target.to_owned(), rust_attrs));
             }
         }
-        dg.inner.extend_edges_with_attrs_unrecorded(edge_batch);
+        let _ = dg.inner.extend_edges_with_attrs_unrecorded(edge_batch);
         Py::new(py, dg)
     }
 
