@@ -22,17 +22,25 @@ That profile keeps the optimization target inside native constructor absorption,
 
 ## Behavior Proof
 
-Golden proof SHA stayed unchanged:
+The original core proof surface stayed unchanged:
 
 - `baseline_proof.json`: `0cca4791c50613c0e42ab19376089edee5ebc441a657cc1263cedd28a209df2d`
-- `after_proof.json`: `0cca4791c50613c0e42ab19376089edee5ebc441a657cc1263cedd28a209df2d`
-- `final_proof.json`: `0cca4791c50613c0e42ab19376089edee5ebc441a657cc1263cedd28a209df2d`
+- pre-addendum core diff: unchanged after removing only the newly added fast-path fields.
+
+The final proof bundle adds explicit exact-int endpoint + exact-string-key constructor
+surfaces that trigger the new batch path for both `MultiGraph` and `MultiDiGraph`.
+The expanded final SHA is:
+
+- `after_proof.json`: `1e2307714d33f155f34378b7d6e76c3d8d6b62cb4be4f16b9242711fed894531`
+- `final_proof.json`: `1e2307714d33f155f34378b7d6e76c3d8d6b62cb4be4f16b9242711fed894531`
 
 Isomorphism surface covered node order, successor/predecessor/neighbor order, edge key order, duplicate explicit-key update order, graph attrs, edge attrs, self-loops, copy, pickle round-trip, and auto-key controls. `MultiGraph` numeric/bool display-conflict parity remains the known current mismatch and did not change; `MultiDiGraph` display-conflict parity remains true. No floating-point algorithm output was introduced. RNG is only fixture generation with a fixed seed.
 
 Focused constructor parity:
 
 - `rch exec -- .venv/bin/pytest tests/python/test_dicsr_cache_parity.py::test_ctor_bulk_absorb_parity tests/python/test_dicsr_cache_parity.py::test_digraph_ctor_bulk_absorb_and_get_edge_data_lazy tests/python/test_ctor_str_and_third_element_parity.py -q`
+- Result: `19 passed`
+- Re-run after the proof-surface addendum: `.venv/bin/python -m pytest ... -q`
 - Result: `19 passed`
 
 ## Benchmark Gate
@@ -52,10 +60,12 @@ Direct timing means:
 
 | Scenario | Baseline FNX | After FNX | Speedup |
 |---|---:|---:|---:|
-| `MultiGraph` keyed ctor | `0.076541s` | `0.064039s` | `1.195x` |
-| `MultiGraph` attr ctor | `0.080318s` | `0.073699s` | `1.090x` |
-| `MultiGraph` mixed ctor | `0.133266s` | `0.127213s` | `1.048x` |
-| `MultiDiGraph` keyed ctor | `0.105479s` | `0.087483s` | `1.206x` |
+| `MultiGraph` keyed ctor | `0.076541s` | `0.061901s` | `1.236x` |
+| `MultiGraph` attr ctor | `0.080318s` | `0.067751s` | `1.185x` |
+| `MultiGraph` mixed ctor | `0.133266s` | `0.120549s` | `1.105x` |
+| `MultiDiGraph` keyed ctor | `0.105479s` | `0.067586s` | `1.561x` |
+| `MultiDiGraph` attr ctor | `0.091440s` | `0.072718s` | `1.257x` |
+| `MultiDiGraph` mixed ctor | `0.136921s` | `0.129268s` | `1.059x` |
 
 cProfile shifted:
 
@@ -67,6 +77,7 @@ cProfile shifted:
 
 - rch `maturin develop --release --features pyo3/abi3-py310`: passed for baseline, after, and final source.
 - rch `cargo check -p fnx-python --all-targets --features pyo3/abi3-py310`: passed.
+- rch `cargo check -p fnx-python --all-targets --features pyo3/abi3-py310`: re-run after the proof-surface addendum, passed.
 - rch `cargo clippy -p fnx-python --all-targets --features pyo3/abi3-py310 -- -D warnings`: passed after converting two orphan doc comments to regular comments and acknowledging two `must_use` return values.
 - `cargo fmt --check`: passed.
 - `ubs crates/fnx-python/src/lib.rs crates/fnx-python/src/digraph.rs tests/artifacts/perf/20260607T-multigraph-ctor-batch-tealspring/multigraph_ctor_batch.py`: exit `0`; broad heuristic warnings only.
