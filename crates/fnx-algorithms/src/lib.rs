@@ -1454,6 +1454,13 @@ pub fn multi_source_dijkstra_directed(
     let mut pq = BinaryHeap::new();
     let mut seq_counter: u64 = 0;
 
+    // br-r37-c1-86xx9: the undirected kernel got the k9q6q finalize-order
+    // treatment; this directed twin was missed and emitted node-index
+    // order — equal-distance tie groups came out in insertion order
+    // instead of nx's heap push-seq order.
+    let mut finalize_order: Vec<usize> = Vec::with_capacity(n);
+    let mut finalized = vec![false; n];
+
     let mut nodes_touched = 0usize;
     let mut edges_scanned = 0usize;
     let mut queue_peak = 0usize;
@@ -1483,6 +1490,10 @@ pub fn multi_source_dijkstra_directed(
     {
         if d > distances[u_idx] {
             continue;
+        }
+        if !finalized[u_idx] {
+            finalized[u_idx] = true;
+            finalize_order.push(u_idx);
         }
 
         if let Some(successors) = digraph.successors_iter(ordered_nodes[u_idx]) {
@@ -1527,8 +1538,11 @@ pub fn multi_source_dijkstra_directed(
         }
     }
 
+    // Emit entries in finalize (heap-pop) order to match networkx key order.
+    let finalize_names: Vec<&str> = finalize_order.iter().map(|&i| ordered_nodes[i]).collect();
+
     weighted_paths_result(
-        &ordered_nodes,
+        &finalize_names,
         dist_map,
         pred_map,
         false,
