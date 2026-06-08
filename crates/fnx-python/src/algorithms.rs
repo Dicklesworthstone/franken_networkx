@@ -7215,12 +7215,25 @@ fn bfs_edges_indexed(
     edges
 }
 
-fn dfs_postorder_forest_undirected(
-    graph: &fnx_classes::Graph,
-    nodes: &[&str],
+// br-r37-c1-ijgj4: forest DFS postorder mirroring nx's `dfs_labeled_edges`
+// EXACTLY (the source via `iter(G[node])` per-frame). The old version had two
+// bugs vs nx when `depth_limit` was set on the forest (source=None) path:
+//   1. off-by-one depth — nx's `depth_now` is the STACK DEPTH (the start frame
+//      is depth 1, so its children are pushed only when `depth_now < limit`);
+//      the old code used a 0-based `depth` so it descended one level too far.
+//   2. at the depth boundary nx still MARKS a node's immediate neighbors visited
+//      (yields them "forward") even though it does not descend into them, so
+//      they do NOT become separate forest roots and are NOT post-ordered. The
+//      old code skipped the neighbors entirely, leaving them to be revisited as
+//      roots. Only nodes that receive a stack frame (start + descended nodes)
+//      are post-ordered. `depth_limit=None` -> usize::MAX is equivalent to nx's
+//      `len(G)` (a component is never deeper than its node count).
+fn dfs_postorder_forest_walk<'a>(
+    nodes: &[&'a str],
+    neighbors_of: impl Fn(&str) -> Vec<&'a str>,
     depth_limit: Option<usize>,
 ) -> Vec<String> {
-    let max_depth = depth_limit.unwrap_or(usize::MAX);
+    let depth_limit = depth_limit.unwrap_or(usize::MAX);
     let mut visited: HashSet<&str> = HashSet::new();
     let mut postorder: Vec<String> = Vec::new();
 
@@ -7228,25 +7241,32 @@ fn dfs_postorder_forest_undirected(
         if visited.contains(start) {
             continue;
         }
-        let mut stack: Vec<(&str, bool, usize)> = vec![(start, false, 0)];
-        while let Some((node, backtrack, depth)) = stack.pop() {
-            if backtrack {
-                postorder.push(node.to_owned());
-                continue;
-            }
-            if visited.contains(node) {
-                continue;
-            }
-            visited.insert(node);
-            stack.push((node, true, depth));
-            if depth < max_depth
-                && let Some(neighbors) = graph.neighbors(node)
-            {
-                for neighbor in neighbors.into_iter().rev() {
-                    if !visited.contains(neighbor) {
-                        stack.push((neighbor, false, depth + 1));
+        visited.insert(start);
+        // Each frame: (node, its neighbor list, next-child index). The stack
+        // length is nx's `depth_now` (start frame => 1).
+        let mut stack: Vec<(&str, Vec<&'a str>, usize)> =
+            vec![(start, neighbors_of(start), 0)];
+        while !stack.is_empty() {
+            let depth_now = stack.len();
+            let (_, children, idx) = stack.last_mut().expect("stack non-empty");
+            let mut descended = false;
+            while *idx < children.len() {
+                let child = children[*idx];
+                *idx += 1;
+                if !visited.contains(child) {
+                    visited.insert(child);
+                    if depth_now < depth_limit {
+                        let child_nbrs = neighbors_of(child);
+                        stack.push((child, child_nbrs, 0));
+                        descended = true;
+                        break;
                     }
+                    // boundary: marked visited but not descended / not post-ordered
                 }
+            }
+            if !descended {
+                let (node, _, _) = stack.pop().expect("stack non-empty");
+                postorder.push(node.to_owned());
             }
         }
     }
@@ -7254,43 +7274,28 @@ fn dfs_postorder_forest_undirected(
     postorder
 }
 
+fn dfs_postorder_forest_undirected(
+    graph: &fnx_classes::Graph,
+    nodes: &[&str],
+    depth_limit: Option<usize>,
+) -> Vec<String> {
+    dfs_postorder_forest_walk(
+        nodes,
+        |n| graph.neighbors(n).unwrap_or_default(),
+        depth_limit,
+    )
+}
+
 fn dfs_postorder_forest_directed(
     digraph: &fnx_classes::digraph::DiGraph,
     nodes: &[&str],
     depth_limit: Option<usize>,
 ) -> Vec<String> {
-    let max_depth = depth_limit.unwrap_or(usize::MAX);
-    let mut visited: HashSet<&str> = HashSet::new();
-    let mut postorder: Vec<String> = Vec::new();
-
-    for &start in nodes {
-        if visited.contains(start) {
-            continue;
-        }
-        let mut stack: Vec<(&str, bool, usize)> = vec![(start, false, 0)];
-        while let Some((node, backtrack, depth)) = stack.pop() {
-            if backtrack {
-                postorder.push(node.to_owned());
-                continue;
-            }
-            if visited.contains(node) {
-                continue;
-            }
-            visited.insert(node);
-            stack.push((node, true, depth));
-            if depth < max_depth
-                && let Some(succs) = digraph.successors(node)
-            {
-                for succ in succs.into_iter().rev() {
-                    if !visited.contains(succ) {
-                        stack.push((succ, false, depth + 1));
-                    }
-                }
-            }
-        }
-    }
-
-    postorder
+    dfs_postorder_forest_walk(
+        nodes,
+        |n| digraph.successors(n).unwrap_or_default(),
+        depth_limit,
+    )
 }
 
 /// Iterate over edges in a depth-first search starting at source.
