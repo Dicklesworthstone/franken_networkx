@@ -30742,11 +30742,22 @@ class _FilteredNeighborMap(_Mapping):
         self._reverse = reverse
 
     def _raw_neighbors(self):
+        # br-r37-c1-subadjrow: use the parent graph's native per-node
+        # __getitem__ (G[node]) instead of G.adj[node] / G.succ[node].
+        # The latter go through the (Multi)AdjacencyView whose _atlas()
+        # RE-MATERIALISES the entire parent adjacency on EVERY call
+        # (~22ms for a 2k-node multigraph), so a filtered subgraph copy
+        # — which hits this once per visible (node, neighbour) — was
+        # O(E * (N+E)) (MultiGraph subgraph().copy() was 16305x nx /
+        # timed out >8s). G[node] is the native O(deg) row accessor
+        # (~0.001ms) and returns the identical neighbour mapping. The
+        # reverse (predecessor) direction has no native getitem
+        # equivalent, so it keeps pred[node] (slower; see follow-up).
         if self._view.is_directed():
             if self._reverse:
                 return self._view._graph.pred[self._node]
-            return self._view._graph.succ[self._node]
-        return self._view._graph.adj[self._node]
+            return self._view._graph[self._node]
+        return self._view._graph[self._node]
 
     def _edge_visible(self, neighbor, key=None):
         if self._reverse:
