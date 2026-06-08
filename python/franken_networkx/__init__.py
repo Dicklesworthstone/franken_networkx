@@ -19215,6 +19215,19 @@ def compose_all(graphs):
     if not graphs:
         raise ValueError("cannot apply compose_all to an empty list")
     _validate_same_graph_family(graphs)
+    # br-r37-c1-composeall: fold with the NATIVE _native_compose kernel for
+    # the all-undirected-Graph case (compose chains left-to-right, later graph
+    # wins on overlap — exactly _native_compose's contract, see fnx.compose
+    # br-r37-c1-l5ve7). Skips the per-node add_node AND per-edge add_edge
+    # interpreter loops (~1.8x nx -> faster). Other classes / nx-private
+    # storage keep the Python loop below.
+    if all(type(g) is Graph for g in graphs) and not any(
+        _has_networkx_private_storage(g) for g in graphs
+    ):
+        R = graphs[0]._native_copy()
+        for H in graphs[1:]:
+            R = R._native_compose(H)
+        return _finalize_operator_result(R)
     R = graphs[0].copy()
     for H in graphs[1:]:
         R.graph.update(H.graph)
