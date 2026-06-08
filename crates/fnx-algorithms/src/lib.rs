@@ -15986,28 +15986,46 @@ pub fn transitive_closure(digraph: &DiGraph, reflexive: Option<bool>) -> DiGraph
         let _ = result.add_node(node);
     }
 
-    // For each node, find all reachable nodes via BFS and add edges
+    // For each node, find all nodes reachable via a path of length >= 1 and add
+    // edges (source, w). br-r37-c1-tc-cyclic: seed the BFS from `source`'s
+    // direct successors instead of pre-marking `source` visited, so `source` is
+    // rediscovered exactly when it lies on a non-trivial cycle (or has an
+    // explicit self-loop). That is precisely when nx (reflexive=False) emits the
+    // (source, source) self-loop — the case the old kernel dropped, forcing the
+    // Python wrapper to delegate every cyclic graph to networkx. Discovery order
+    // is recorded in `order` so the edge emission is deterministic (the result
+    // edge SET is the contract; nx's exact edge_bfs order is not pinned).
     for &source in &nodes {
-        // Preserve existing self-loops or add new ones if reflexive=true
-        if add_all_self_loops || digraph.has_edge(source, source) {
-            let _ = result.add_edge(source, source);
-        }
-
-        // BFS from source to find all reachable nodes
         let mut visited: HashSet<&str> = HashSet::new();
+        let mut order: Vec<&str> = Vec::new();
         let mut queue: VecDeque<&str> = VecDeque::new();
-        visited.insert(source);
-        queue.push_back(source);
 
+        if let Some(succs) = digraph.successors_iter(source) {
+            for s in succs {
+                if visited.insert(s) {
+                    queue.push_back(s);
+                    order.push(s);
+                }
+            }
+        }
         while let Some(current) = queue.pop_front() {
             if let Some(succs) = digraph.successors_iter(current) {
                 for s in succs {
                     if visited.insert(s) {
                         queue.push_back(s);
-                        let _ = result.add_edge(source, s);
+                        order.push(s);
                     }
                 }
             }
+        }
+
+        // reflexive=true forces the trivial (length-0) self-loop on every node.
+        if add_all_self_loops && visited.insert(source) {
+            order.push(source);
+        }
+
+        for &w in &order {
+            let _ = result.add_edge(source, w);
         }
     }
 

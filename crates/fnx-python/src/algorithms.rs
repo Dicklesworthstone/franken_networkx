@@ -9874,22 +9874,32 @@ pub fn transitive_closure(
         let dg_ref = gr.digraph().expect("is_directed checked above");
         let result =
             py.allow_threads(|| fnx_algorithms::transitive_closure(dg_ref, Some(reflexive)));
-        let mut py_dg = PyDiGraph::new_empty_with_policy(py, dg_ref.runtime_policy().clone())?;
+        // br-r37-c1-tc-cyclic: move the kernel's closure DiGraph straight into
+        // the PyDiGraph instead of re-walking its (often dense, ~n^2) edge set
+        // via edges_ordered() and allocating a PyDict per edge. Edge attr dicts
+        // are lazy (a missing edge_py_attrs entry reads back as an empty dict),
+        // and the Python wrapper copies the original edges' attrs afterward, so
+        // dropping the per-edge alloc + the second O(E) construction is sound.
+        let mut node_key_map = HashMap::with_capacity(result.node_count());
+        let mut node_py_attrs = HashMap::with_capacity(result.node_count());
         for node in result.nodes_ordered() {
-            let py_key = gr.py_node_key(py, node);
-            py_dg.node_key_map.insert(node.to_owned(), py_key);
-            py_dg
-                .node_py_attrs
-                .insert(node.to_owned(), pyo3::types::PyDict::new(py).unbind());
-            py_dg.inner.add_node(node);
+            node_key_map.insert(node.to_owned(), gr.py_node_key(py, node));
+            node_py_attrs.insert(node.to_owned(), pyo3::types::PyDict::new(py).unbind());
         }
-        for edge in result.edges_ordered() {
-            let _ = py_dg.inner.add_edge(&edge.left, &edge.right);
-            py_dg.edge_py_attrs.insert(
-                (edge.left, edge.right),
-                pyo3::types::PyDict::new(py).unbind(),
-            );
-        }
+        let py_dg = PyDiGraph {
+            inner: result,
+            node_key_map,
+            node_py_attrs,
+            edge_py_attrs: HashMap::new(),
+            succ_py_keys: HashMap::new(),
+            pred_py_keys: HashMap::new(),
+            succ_row_py: HashMap::new(),
+            pred_row_py: HashMap::new(),
+            graph_attrs: pyo3::types::PyDict::new(py).unbind(),
+            nodes_seq: 0,
+            edges_seq: 0,
+            edges_dirty: std::sync::atomic::AtomicBool::new(false),
+        };
         Ok(py_dg.into_pyobject(py)?.into_any().unbind())
     }
 }

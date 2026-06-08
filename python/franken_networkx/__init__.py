@@ -12442,13 +12442,16 @@ def transitive_closure(G, reflexive=False):
     # False before the fast-path branch; nx still receives the original
     # value when delegating.
     # Delegate for: multigraphs (class preservation), undirected
-    # (Rust binding doesn't accept them), cyclic directed (cycle
-    # self-loops), and reflexive in {True, None} (non-default).
+    # (Rust binding doesn't accept them), and reflexive in {True, None}
+    # (non-default). br-r37-c1-tc-cyclic: cyclic directed graphs no longer
+    # delegate — the native kernel now emits cycle-induced (v, v) self-loops
+    # (reachable-back BFS seeding), so it matches nx for reflexive=False on any
+    # DiGraph. This drops both nx's Python compute AND the _from_nx_graph
+    # rebuild of the (often dense) closure.
     if (
         G.is_multigraph()
         or not G.is_directed()
         or reflexive is not False
-        or (G.is_directed() and not is_directed_acyclic_graph(G))
     ):
         # br-r37-c1-8q79a: convert nx result to fnx type
         from franken_networkx.readwrite import _from_nx_graph
