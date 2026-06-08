@@ -33165,10 +33165,32 @@ def _copy_preserving_insertion_order(self, as_view=False):
 def _subgraph_with_view(subgraph_impl):
     @_wraps(subgraph_impl)
     def subgraph(self, nodes):
-        return _generic_filtered_graph_view(
-            self,
-            filter_node=_subgraph_filter_from_nbunch(self, nodes),
-        )
+        filt = _subgraph_filter_from_nbunch(self, nodes)
+        # br-r37-c1-7en5i: nx COMPOSES a subgraph-of-a-subgraph onto the
+        # ORIGINAL graph (a nested view's ._graph is the root), so node
+        # iteration uses the ROOT length for the node_ok_shorter threshold
+        # (2*len(keep) < len(root)) and yields keep-set order. fnx CHAINED
+        # (._graph = the outer VIEW, length = outer) so it took the other
+        # branch -> divergent node order + edge orientation, and missed the
+        # native-row fast paths. Collapse a pure node-set / default-edge
+        # chain onto its concrete root: filt already only holds nodes visible
+        # all the way up self, so a root view filtered by filt IS the nested
+        # subgraph.
+        if (
+            filt is not None
+            and getattr(self, "_filter_edge_is_default", False)
+            and isinstance(getattr(self, "_filter_node", None), _NodeSetFilter)
+        ):
+            root = self._graph
+            while (
+                isinstance(root, _FilteredGraphView)
+                and getattr(root, "_filter_edge_is_default", False)
+                and isinstance(getattr(root, "_filter_node", None), _NodeSetFilter)
+            ):
+                root = root._graph
+            if type(root) in (Graph, DiGraph, MultiGraph, MultiDiGraph):
+                return _generic_filtered_graph_view(root, filter_node=filt)
+        return _generic_filtered_graph_view(self, filter_node=filt)
 
     return subgraph
 
