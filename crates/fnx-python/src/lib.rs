@@ -4427,7 +4427,7 @@ impl PyMultiGraph {
 // ---------------------------------------------------------------------------
 
 impl PyMultiGraph {
-    pub(crate) fn py_node_key(&self, py: Python<'_>, canonical: &str) -> PyObject {
+    fn py_node_key(&self, py: Python<'_>, canonical: &str) -> PyObject {
         self.node_key_map.get(canonical).map_or_else(
             || {
                 unwrap_infallible(canonical.to_owned().into_pyobject(py))

@@ -9647,7 +9647,14 @@ pub fn is_strongly_connected(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<b
         ));
     }
     {
-        let dg_ref = gr.digraph().expect("is_directed checked above");
+        let owned = match &gr {
+            GraphRef::MultiDirected { mdg, .. } => {
+                Some(multidigraph_to_simple_digraph_structure_only(&mdg.inner))
+            }
+            _ => None,
+        };
+        let dg_ref =
+            owned.as_ref().unwrap_or_else(|| gr.digraph().expect("is_directed checked above"));
         if dg_ref.node_count() == 0 {
             return Err(crate::NetworkXPointlessConcept::new_err(
                 "Connectivity is undefined for the null graph.",
@@ -12651,14 +12658,13 @@ fn single_source_dijkstra_path_length(
     let dict = PyDict::new(py);
     for (node, d, all_int, _) in &entries {
         let key = gr.disp_or_node_key(py, &disp, node);
-        if *all_int && d.is_finite() && d.fract() == 0.0 {
-            const I64_MAX_EXCLUSIVE_F64: f64 = 9_223_372_036_854_775_808.0;
-            if *d >= 0.0 && *d < I64_MAX_EXCLUSIVE_F64 {
-                dict.set_item(key, *d as i64)?;
-            } else {
-                let py_int = py.import("builtins")?.getattr("int")?.call1((*d,))?;
-                dict.set_item(key, py_int)?;
-            }
+        if *all_int
+            && d.is_finite()
+            && d.fract() == 0.0
+            && *d >= i64::MIN as f64
+            && *d <= i64::MAX as f64
+        {
+            dict.set_item(key, *d as i64)?;
         } else {
             dict.set_item(key, d)?;
         }

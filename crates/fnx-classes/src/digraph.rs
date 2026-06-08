@@ -1060,6 +1060,9 @@ impl DiGraph {
 
         let mut inserted = 0usize;
         let mut merged_changed = false;
+        let mut successor_rows: IndexMap<String, Vec<String>> = IndexMap::new();
+        let mut predecessor_rows: IndexMap<String, Vec<String>> = IndexMap::new();
+
         for (source, target, attrs) in edges {
             let edge_key = (
                 self.nodes.get_index_of(&source).expect("created above"),
@@ -1077,6 +1080,14 @@ impl DiGraph {
                 continue;
             }
 
+            successor_rows
+                .entry(source.clone())
+                .or_default()
+                .push(target.clone());
+            predecessor_rows
+                .entry(target.clone())
+                .or_default()
+                .push(source.clone());
             let s_idx = self
                 .nodes
                 .get_index_of(&source)
@@ -1736,71 +1747,6 @@ impl MultiDiGraph {
         target: impl Into<String>,
     ) -> Result<usize, GraphError> {
         self.add_edge_impl(source, target, None, AttrMap::new())
-    }
-
-    /// Insert one attribute-free edge for a pair known to have no existing
-    /// parallel edge bucket. Returns `None` if the directed pair already exists.
-    #[must_use]
-    pub fn add_fresh_edge_unrecorded(
-        &mut self,
-        source: impl Into<String>,
-        target: impl Into<String>,
-    ) -> Option<usize> {
-        self.add_fresh_edge_with_key_unrecorded(source, target, 0)
-    }
-
-    /// Insert one attribute-free edge with an explicit key for a pair known to
-    /// have no existing parallel edge bucket. Returns `None` if the directed
-    /// pair already exists.
-    #[must_use]
-    pub fn add_fresh_edge_with_key_unrecorded(
-        &mut self,
-        source: impl Into<String>,
-        target: impl Into<String>,
-        key: usize,
-    ) -> Option<usize> {
-        let source = source.into();
-        let target = target.into();
-        let edge_key = DirectedEdgeKey::new(&source, &target);
-        if !self.nodes.contains_key(&source) {
-            self.nodes.insert(source.clone(), AttrMap::new());
-            self.successors.entry(source.clone()).or_default();
-            self.predecessors.entry(source.clone()).or_default();
-        }
-        if source != target && !self.nodes.contains_key(&target) {
-            self.nodes.insert(target.clone(), AttrMap::new());
-            self.successors.entry(target.clone()).or_default();
-            self.predecessors.entry(target.clone()).or_default();
-        }
-
-        match self.edges.entry(edge_key) {
-            indexmap::map::Entry::Occupied(mut edge_bucket) => {
-                if !edge_bucket.get().is_empty() {
-                    return None;
-                }
-                edge_bucket.get_mut().insert(key, AttrMap::new());
-            }
-            indexmap::map::Entry::Vacant(edge_bucket) => {
-                let mut bucket = IndexMap::new();
-                bucket.insert(key, AttrMap::new());
-                edge_bucket.insert(bucket);
-            }
-        }
-        self.edge_count += 1;
-        self.successors
-            .entry(source.clone())
-            .or_default()
-            .entry(target.clone())
-            .or_default()
-            .insert(key);
-        self.predecessors
-            .entry(target)
-            .or_default()
-            .entry(source)
-            .or_default()
-            .insert(key);
-        self.revision = self.revision.saturating_add(1);
-        Some(key)
     }
 
     /// br-r37-c1-l5ve7: bulk node insert WITH attrs, one ledger record —

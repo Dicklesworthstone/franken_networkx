@@ -1309,12 +1309,12 @@ fn copy_dict_of_dicts_cache(py: Python<'_>, cache: &DictOfDictsCache) -> PyResul
     Ok(outer.unbind())
 }
 
-/// br-r37-c1-6o3wi/br-r37-c1-nocb2/br-r37-c1-mexh6: native fast path for
-/// `to_dict_of_lists` on exact graph classes with no nodelist. Builds
-/// `{u: [v, ...]}` with each neighbor list in adjacency/successor order,
-/// bypassing the slow per-node `G.neighbors(n)` wrapper iteration. The Python
-/// wrapper gates on exact type so subclasses / filtered SubgraphViews fall
-/// back.
+/// br-r37-c1-6o3wi/br-r37-c1-nocb2: native fast path for `to_dict_of_lists`
+/// on simple `Graph` and `DiGraph` with no nodelist. Builds `{u: [v, ...]}`
+/// with each neighbor list in adjacency/successor order, bypassing the slow
+/// per-node `G.neighbors(n)` wrapper iteration. Returns `None` for multigraph
+/// inputs; the Python wrapper also gates on exact type so subclasses / filtered
+/// SubgraphViews fall back.
 #[pyfunction]
 pub fn to_dict_of_lists_undirected(
     py: Python<'_>,
@@ -1345,24 +1345,7 @@ pub fn to_dict_of_lists_undirected(
                 outer.set_item(dg.py_node_key(py, u), neighbors)?;
             }
         }
-        GraphRef::MultiUndirected { mg, .. } => {
-            for u in mg.inner.nodes_ordered() {
-                let neighbors = PyList::empty(py);
-                for v in mg.inner.neighbors(u).unwrap_or_default() {
-                    neighbors.append(mg.py_adj_key(py, u, v))?;
-                }
-                outer.set_item(mg.py_node_key(py, u), neighbors)?;
-            }
-        }
-        GraphRef::MultiDirected { mdg, .. } => {
-            for u in mdg.inner.nodes_ordered() {
-                let neighbors = PyList::empty(py);
-                for v in mdg.inner.successors(u).unwrap_or_default() {
-                    neighbors.append(mdg.py_succ_key(py, u, v))?;
-                }
-                outer.set_item(mdg.py_node_key(py, u), neighbors)?;
-            }
-        }
+        GraphRef::MultiUndirected { .. } | GraphRef::MultiDirected { .. } => return Ok(None),
     }
     Ok(Some(outer.unbind()))
 }
@@ -1832,10 +1815,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(to_dict_of_dicts_undirected, m)?)?;
     m.add_function(wrap_pyfunction!(to_dict_of_lists_undirected, m)?)?;
     m.add_function(wrap_pyfunction!(adjacency_arrays_multigraph, m)?)?;
-    m.add_function(wrap_pyfunction!(
-        graph_has_nonfinite_edge_weight_multigraph,
-        m
-    )?)?;
+    m.add_function(wrap_pyfunction!(graph_has_nonfinite_edge_weight_multigraph, m)?)?;
     m.add_function(wrap_pyfunction!(adjacency_data_simple, m)?)?;
     m.add_function(wrap_pyfunction!(node_link_data_simple, m)?)?;
     m.add_function(wrap_pyfunction!(to_edgelist_simple, m)?)?;
