@@ -39534,6 +39534,20 @@ def non_neighbors(graph, node):
     # wrapper-bypass family as find_cliques (lgyq8), square_clustering
     # (7t95c), dominating_set (02djy).
     _raw_nbrs = _raw_neighbors_dispatch(graph)
+    # br-r37-c1-nodekeys: enumerate ALL node display objects in ONE native call
+    # (Graph/MultiGraph have _native_node_keys) instead of set(graph) crossing
+    # PyO3 per node, and crucially instead of set(graph.adj) which
+    # re-materialises every node's AdjacencyView row (MultiGraph was ~700x nx).
+    native_keys = getattr(graph, "_native_node_keys", None)
+    if native_keys is not None:
+        if _raw_nbrs is not None:
+            nbrs = set(_raw_nbrs(graph, node))
+        else:
+            # multigraph: G[node] is the native O(deg) adjacency row;
+            # G.adj[node] would re-materialise the whole AdjacencyView
+            # (~900x slower on a 2k-node MultiGraph).
+            nbrs = set(graph[node])
+        return set(native_keys()) - nbrs - {node}
     if _raw_nbrs is not None:
         return set(graph) - set(_raw_nbrs(graph, node)) - {node}
     return set(graph.adj) - set(graph.adj[node]) - {node}

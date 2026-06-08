@@ -2057,6 +2057,19 @@ impl PyMultiGraph {
         self.graph_attrs.bind(py).set_item("name", value)
     }
 
+    /// br-r37-c1-nodekeys: all node DISPLAY objects as a flat Python list in
+    /// ONE call. Python ``set(graph)`` / ``set(graph.nodes())`` cross PyO3 per
+    /// node (~5x nx on node-set construction); building the Vec in Rust lets
+    /// callers like ``non_neighbors`` enumerate every node in a single
+    /// boundary crossing. Order = node insertion order (``nodes_ordered``).
+    fn _native_node_keys(&self, py: Python<'_>) -> Vec<PyObject> {
+        self.inner
+            .nodes_ordered()
+            .into_iter()
+            .map(|n| self.py_node_key(py, n))
+            .collect()
+    }
+
     /// Monotonic node-mutation counter (br-r37-c1-39d82 / jft0i).
     /// Exposed to Python so view-materialization caches can key on
     /// ``(nodes_seq, edges_seq)`` without scanning for changes.
@@ -4726,6 +4739,19 @@ impl PyGraph {
     #[setter]
     fn set_name(&self, py: Python<'_>, value: String) -> PyResult<()> {
         self.graph_attrs.bind(py).set_item("name", value)
+    }
+
+    /// br-r37-c1-nodekeys: all node DISPLAY objects as a flat Python list in
+    /// ONE call. Python ``set(graph)`` / ``set(graph.nodes())`` cross PyO3 per
+    /// node (~5x nx on node-set construction); building the Vec in Rust lets
+    /// callers like ``non_neighbors`` enumerate every node in a single
+    /// boundary crossing. Order = node insertion order (``nodes_ordered``).
+    fn _native_node_keys(&self, py: Python<'_>) -> Vec<PyObject> {
+        self.inner
+            .nodes_ordered()
+            .into_iter()
+            .map(|n| self.py_node_key(py, n))
+            .collect()
     }
 
     /// Monotonic node-mutation counter (br-r37-c1-39d82 / jft0i).
