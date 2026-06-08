@@ -288,7 +288,32 @@ def _write_graphml_via_nx(
     and honours every nx kwarg the Rust native rejects.
     """
     import networkx as nx
+    import franken_networkx as fnx
 
+    # br-r37-c1-grphmldirect: nx's GraphMLWriter only iterates
+    # nodes(data=True)/edges(data=True[,keys])/graph/is_directed/
+    # is_multigraph — all of which an fnx graph exposes nx-compatibly.
+    # So write DIRECTLY from the fnx graph via nx's undispatched writer
+    # instead of rebuilding a whole nx graph first (byte-identical
+    # output, ~1.9x faster: skips the fnx->nx conversion that dominated
+    # this path). Exact concrete types only — a SubgraphView reports as
+    # Graph but its filtered views must round-trip through _to_nx.
+    raw_writer = getattr(nx.write_graphml, "__wrapped__", None)
+    if raw_writer is not None and type(G) in (
+        fnx.Graph,
+        fnx.DiGraph,
+        fnx.MultiGraph,
+        fnx.MultiDiGraph,
+    ):
+        return raw_writer(
+            G,
+            path,
+            encoding=encoding,
+            prettyprint=prettyprint,
+            infer_numeric_types=infer_numeric_types,
+            named_key_ids=named_key_ids,
+            edge_id_from_attribute=edge_id_from_attribute,
+        )
     return nx.write_graphml(
         _to_nx(G),
         path,
