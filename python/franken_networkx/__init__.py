@@ -30747,6 +30747,16 @@ _ReverseDirectedView.__name__ = "DiGraph"
 _ReverseMultiDirectedView.__name__ = "MultiDiGraph"
 
 
+def _fast_pred_row(graph, node):
+    # br-r37-c1-r3gjb: G.pred[node] re-materialises the whole predecessor
+    # adjacency (O(N+E)); the native per-node row accessor is O(deg). Used
+    # by filtered/subgraph in-degree + reverse edge/adjacency walks.
+    native = getattr(graph, "_native_predecessor_row", None)
+    if native is not None:
+        return native(node)
+    return graph.pred[node]
+
+
 class _FilteredNeighborMap(_Mapping):
     def __init__(self, view, node, *, reverse=False):
         self._view = view
@@ -30767,7 +30777,7 @@ class _FilteredNeighborMap(_Mapping):
         # equivalent, so it keeps pred[node] (slower; see follow-up).
         if self._view.is_directed():
             if self._reverse:
-                return self._view._graph.pred[self._node]
+                return _fast_pred_row(self._view._graph, self._node)
             return self._view._graph[self._node]
         return self._view._graph[self._node]
 
