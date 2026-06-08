@@ -16812,27 +16812,33 @@ pub fn reciprocity(digraph: &DiGraph, nodes: &[&str]) -> HashMap<String, f64> {
 /// Returns `f64::INFINITY` if the graph is disconnected.
 #[must_use]
 pub fn wiener_index(graph: &Graph) -> f64 {
-    let nodes = graph.nodes_ordered();
-    let n = nodes.len();
+    // br-r37-c1-wiener-csr: integer-CSR BFS. The old kernel walked
+    // `graph.neighbors(name)` + `get_node_index(name)` — a String hash lookup
+    // per edge per source (the String-keyed adjacency tax that left this at
+    // parity with nx's Python). `neighbors_indices(u)` gives the integer
+    // adjacency row directly, so the BFS is pure index work. BFS distances are
+    // independent of neighbour visit order, so the summed scalar is byte-exact.
+    let n = graph.node_count();
     if n <= 1 {
         return 0.0;
     }
 
     let mut total: f64 = 0.0;
+    let mut dist = vec![usize::MAX; n];
+    let mut queue = VecDeque::with_capacity(n);
 
     for s in 0..n {
-        let mut dist = vec![None; n];
-        let mut queue = VecDeque::new();
-        dist[s] = Some(0usize);
+        dist.iter_mut().for_each(|d| *d = usize::MAX);
+        dist[s] = 0;
+        queue.clear();
         queue.push_back(s);
 
         while let Some(u) = queue.pop_front() {
-            let d = dist[u].unwrap();
-            if let Some(nbrs) = graph.neighbors(nodes[u]) {
-                for nbr_name in nbrs {
-                    let v = graph.get_node_index(nbr_name).unwrap();
-                    if dist[v].is_none() {
-                        dist[v] = Some(d + 1);
+            let d = dist[u];
+            if let Some(nbrs) = graph.neighbors_indices(u) {
+                for &v in nbrs {
+                    if dist[v] == usize::MAX {
+                        dist[v] = d + 1;
                         queue.push_back(v);
                     }
                 }
@@ -16840,10 +16846,10 @@ pub fn wiener_index(graph: &Graph) -> f64 {
         }
 
         for v in (s + 1)..n {
-            match dist[v] {
-                Some(d) => total += d as f64,
-                None => return f64::INFINITY,
+            if dist[v] == usize::MAX {
+                return f64::INFINITY;
             }
+            total += dist[v] as f64;
         }
     }
 
@@ -16855,27 +16861,29 @@ pub fn wiener_index(graph: &Graph) -> f64 {
 /// Returns `f64::INFINITY` if the graph is not strongly connected.
 #[must_use]
 pub fn wiener_index_directed(digraph: &DiGraph) -> f64 {
-    let nodes = digraph.nodes_ordered();
-    let n = nodes.len();
+    // br-r37-c1-wiener-csr: integer-CSR BFS over the eager successor index rows
+    // (`successors_indices`), dropping the per-edge `get_node_index(name)` hash.
+    let n = digraph.node_count();
     if n <= 1 {
         return 0.0;
     }
 
     let mut total: f64 = 0.0;
+    let mut dist = vec![usize::MAX; n];
+    let mut queue = VecDeque::with_capacity(n);
 
     for s in 0..n {
-        let mut dist = vec![None; n];
-        let mut queue = VecDeque::new();
-        dist[s] = Some(0usize);
+        dist.iter_mut().for_each(|d| *d = usize::MAX);
+        dist[s] = 0;
+        queue.clear();
         queue.push_back(s);
 
         while let Some(u) = queue.pop_front() {
-            let d = dist[u].unwrap();
-            if let Some(succs) = digraph.successors(nodes[u]) {
-                for v_name in succs {
-                    let v = digraph.get_node_index(v_name).unwrap();
-                    if dist[v].is_none() {
-                        dist[v] = Some(d + 1);
+            let d = dist[u];
+            if let Some(succs) = digraph.successors_indices(u) {
+                for &v in succs {
+                    if dist[v] == usize::MAX {
+                        dist[v] = d + 1;
                         queue.push_back(v);
                     }
                 }
@@ -16886,10 +16894,10 @@ pub fn wiener_index_directed(digraph: &DiGraph) -> f64 {
             if s == v {
                 continue;
             }
-            match dist[v] {
-                Some(d) => total += d as f64,
-                None => return f64::INFINITY,
+            if dist[v] == usize::MAX {
+                return f64::INFINITY;
             }
+            total += dist[v] as f64;
         }
     }
 
