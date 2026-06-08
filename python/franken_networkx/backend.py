@@ -635,6 +635,7 @@ def _fnx_to_nx(fg):
         G.add_nodes_from((node, dict(node_view[node])) for node in fg)
     else:
         G.add_nodes_from(fg)
+    bulk_row_order = None
     if fg.is_multigraph():
         # br-r37-c1-qpykd: emit parallel edges in adj-insertion order (the same
         # per-node-queue topological order used for simple graphs above) so the
@@ -702,6 +703,10 @@ def _fnx_to_nx(fg):
             # of a ~30ms / 600-node conversion) makes check_planarity and every
             # cheap-nx-compute delegated function ~2.5x faster. Undirected edges
             # appear in both endpoints' bulk rows; ``seen`` emits each once.
+            bulk_row_order = {
+                canon_to_obj[node]: [canon_to_obj[nbr] for nbr, _attrs in nbrs]
+                for node, nbrs in bulk
+            }
             edges_in_order = []
             if directed:
                 for node, nbrs in bulk:
@@ -741,9 +746,14 @@ def _fnx_to_nx(fg):
     # inner dict in the source's row order with the source's row objects.
     # The inner datadicts are REUSED (hash-equal lookup), so nx's
     # _adj/_succ/_pred sharing invariant holds.
-    def _align_rows(nx_rows, fg_rows):
+    def _align_rows(nx_rows, fg_rows, source_rows=None):
         for x in fg:
-            src = list(fg_rows[x])
+            if source_rows is None:
+                src = list(fg_rows[x])
+            else:
+                src = source_rows.get(x)
+                if src is None:
+                    src = list(fg_rows[x])
             row = nx_rows[x]
             if len(row) != len(src) or any(
                 a is not b for a, b in zip(row, src)
@@ -751,10 +761,26 @@ def _fnx_to_nx(fg):
                 nx_rows[x] = {o: row[o] for o in src}
 
     if fg.is_directed():
-        _align_rows(G._succ, fg.adj)
+        succ_source_rows = None
+        has_succ_overrides = getattr(fg, "_native_has_succ_py_keys", None)
+        if (
+            bulk_row_order is not None
+            and has_succ_overrides is not None
+            and not has_succ_overrides()
+        ):
+            succ_source_rows = bulk_row_order
+        _align_rows(G._succ, fg.adj, succ_source_rows)
         _align_rows(G._pred, fg.pred)
     else:
-        _align_rows(G._adj, fg.adj)
+        adj_source_rows = None
+        has_adj_overrides = getattr(fg, "_native_has_adj_py_keys", None)
+        if (
+            bulk_row_order is not None
+            and has_adj_overrides is not None
+            and not has_adj_overrides()
+        ):
+            adj_source_rows = bulk_row_order
+        _align_rows(G._adj, fg.adj, adj_source_rows)
     G.graph.update(dict(fg.graph))
     return G
 

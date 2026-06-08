@@ -1344,7 +1344,11 @@ impl PyMultiDiGraph {
     /// re-keyed sequentially per pair on the fresh result, carrying G's display
     /// key object. Returns `None` (so the wrapper falls back) when H is not an
     /// exact MultiDiGraph. The caller validates node-set equality first.
-    fn _native_difference(slf: PyRef<'_, Self>, py: Python<'_>, h: &Bound<'_, PyAny>) -> PyResult<Option<Py<Self>>> {
+    fn _native_difference(
+        slf: PyRef<'_, Self>,
+        py: Python<'_>,
+        h: &Bound<'_, PyAny>,
+    ) -> PyResult<Option<Py<Self>>> {
         let Ok(h_ref) = h.extract::<PyRef<'_, Self>>() else {
             return Ok(None);
         };
@@ -1374,7 +1378,9 @@ impl PyMultiDiGraph {
             r.node_key_map.insert(node.clone(), g.py_node_key(py, node));
         }
         let _ = r.inner.extend_nodes_with_attrs_unrecorded(
-            g_nodes.iter().map(|n| (n.clone(), fnx_classes::AttrMap::new())),
+            g_nodes
+                .iter()
+                .map(|n| (n.clone(), fnx_classes::AttrMap::new())),
         );
 
         let mut edges: Vec<(String, String, usize, fnx_classes::AttrMap)> = Vec::new();
@@ -1399,7 +1405,9 @@ impl PyMultiDiGraph {
         let n_edges = edges.len();
         let _ = r.inner.extend_keyed_edges_with_attrs_unrecorded(edges);
         for (u, v, key, obj) in display {
-            r.edge_py_keys.entry(Self::edge_key(&u, &v, key)).or_insert(obj);
+            r.edge_py_keys
+                .entry(Self::edge_key(&u, &v, key))
+                .or_insert(obj);
         }
         r.nodes_seq = u64::try_from(g_nodes.len()).unwrap_or(u64::MAX);
         r.edges_seq = u64::try_from(n_edges).unwrap_or(u64::MAX);
@@ -5098,6 +5106,14 @@ impl PyDiGraph {
     /// force the generic fallback.
     fn _native_adjlist_canonical_body_safe(&self) -> bool {
         self.node_key_map.is_empty() && self.succ_py_keys.is_empty()
+    }
+
+    fn _native_has_succ_py_keys(&self) -> bool {
+        !self.succ_py_keys.is_empty()
+    }
+
+    fn _native_has_pred_py_keys(&self) -> bool {
+        !self.pred_py_keys.is_empty()
     }
 
     /// br-r37-c1-gadj: native nested adjacency snapshot ({node: {successor:
