@@ -30783,6 +30783,15 @@ def _fast_succ_row(graph, node):
     return graph[node]
 
 
+def _fast_adj_row(graph, node):
+    # br-r37-c1-r3gjb: plain dict-of-dicts adjacency row (O(deg), O(1)
+    # per-neighbour lookup) vs G[node] (AtlasView, ~15x slower per fetch).
+    native_dict = getattr(graph, "_native_adjacency_row_dict", None)
+    if native_dict is not None:
+        return native_dict(node)
+    return graph[node]
+
+
 class _FilteredNeighborMap(_Mapping):
     def __init__(self, view, node, *, reverse=False):
         self._view = view
@@ -31344,6 +31353,41 @@ class _FilteredGraphView:
 
     def _edges(self, nbunch=None, data=False, keys=False):
         nodes = self._nbunch(nbunch)
+        # br-r37-c1-r3gjb: simple-graph subgraph edge enumeration (default edge
+        # filter) walks the native parent PLAIN-dict row in order, gating
+        # targets with `target in keep` (O(1)) instead of the per-neighbour
+        # _node_visible/_edge_visible loop (~7x nx). Row order preserved ->
+        # edge order matches nx. Multigraph keeps slow path (set-order switch).
+        keep = getattr(self._filter_node, "nodes", None)
+        if (
+            keep is not None
+            and self._filter_edge_is_default
+            and not isinstance(data, str)
+            and data is not None
+            # only when the underlying graph is a CONCRETE simple graph with
+            # native plain-dict rows — not a view (reverse/nested subgraph),
+            # whose rows would not match this row-order walk.
+            and type(self._graph) in (Graph, DiGraph)
+        ):
+            parent = self._graph
+            fast = []
+            if self.is_directed():
+                for source in nodes:
+                    row = _fast_succ_row(parent, source)
+                    for target in row:
+                        if target not in keep:
+                            continue
+                        fast.append((source, target, row[target]) if data else (source, target))
+            else:
+                seen = set()
+                for source in nodes:
+                    row = _fast_adj_row(parent, source)
+                    for target in row:
+                        if target not in keep or target in seen:
+                            continue
+                        fast.append((source, target, row[target]) if data else (source, target))
+                    seen.add(source)
+            return fast
         result = []
         if self.is_directed():
             for source in nodes:
