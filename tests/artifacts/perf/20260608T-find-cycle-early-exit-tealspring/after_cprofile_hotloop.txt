@@ -1,0 +1,66 @@
+         618007 function calls (611007 primitive calls) in 0.308 seconds
+
+   Ordered by: internal time
+   List reduced from 67 to 60 due to restriction <60>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+     1000    0.106    0.000    0.106    0.000 {built-in method fromkeys}
+    31000    0.018    0.000    0.048    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1129(__getitem__)
+     3000    0.017    0.000    0.124    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1485(__call__)
+    53000    0.014    0.000    0.025    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:31611(_private_override)
+    31000    0.011    0.000    0.024    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1198(<lambda>)
+     1000    0.011    0.000    0.303    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:14940(_fnx_find_cycle)
+    34000    0.008    0.000    0.008    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1349(<lambda>)
+    34000    0.007    0.000    0.056    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1050(<genexpr>)
+     3000    0.007    0.000    0.179    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:14861(_fnx_edge_dfs)
+    35000    0.007    0.000    0.016    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1169(_atlas)
+    67000    0.007    0.000    0.007    0.000 {method 'get' of 'dict' objects}
+    64000    0.007    0.000    0.007    0.000 {built-in method builtins.vars}
+    31000    0.006    0.000    0.031    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1112(_atlas)
+     9000    0.006    0.000    0.023    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:31619(_has_networkx_private_storage)
+     3000    0.005    0.000    0.015    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:31704(_cached_adj_row_key_iter)
+    37000    0.005    0.000    0.005    0.000 {method 'append' of 'list' objects}
+     3000    0.004    0.000    0.007    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1187(__getitem__)
+     5000    0.003    0.000    0.129    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:245(_graph_nbunch_iter)
+     5000    0.003    0.000    0.011    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:31680(_private_directed_adj_mapping)
+     3000    0.003    0.000    0.017    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:32105(edges)
+     3000    0.003    0.000    0.162    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:14875(edges_from)
+     3000    0.003    0.000    0.012    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:406(__init__)
+     3000    0.003    0.000    0.016    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1971(__iter__)
+15000/11000    0.003    0.000    0.126    0.000 {built-in method builtins.iter}
+     8000    0.003    0.000    0.004    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1302(_accessor)
+     3000    0.003    0.000    0.006    0.000 /usr/lib/python3.13/weakref.py:164(__setitem__)
+     4000    0.002    0.000    0.004    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:32072(__contains__)
+     4000    0.002    0.000    0.003    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:5686(predicate)
+    17000    0.002    0.000    0.002    0.000 {built-in method builtins.isinstance}
+     3000    0.002    0.000    0.017    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1118(__iter__)
+     3000    0.002    0.000    0.002    0.000 /usr/lib/python3.13/weakref.py:352(__init__)
+     3000    0.001    0.000    0.019    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1048(__iter__)
+     5000    0.001    0.000    0.013    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:32454(<lambda>)
+     3000    0.001    0.000    0.002    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:430(__next__)
+     3000    0.001    0.000    0.002    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:4554(_wrap_edge_data_view)
+6000/3000    0.001    0.000    0.003    0.000 {built-in method builtins.next}
+     3000    0.001    0.000    0.004    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:31690(_private_succ_mapping)
+     1000    0.001    0.000    0.307    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:14833(find_cycle)
+     1000    0.001    0.000    0.308    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:46050(wrapper)
+     9000    0.001    0.000    0.001    0.000 {built-in method builtins.getattr}
+     3000    0.001    0.000    0.001    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:451(_guarded_edge_list)
+     3000    0.001    0.000    0.001    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1097(_adjacency_view_items)
+    10000    0.001    0.000    0.001    0.000 {method 'add' of 'set' objects}
+     3000    0.001    0.000    0.001    0.000 {method '_native_successor_row_dict' of 'franken_networkx.DiGraph' objects}
+     1000    0.001    0.000    0.108    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1175(__iter__)
+     3000    0.001    0.000    0.002    0.000 /usr/lib/python3.13/weakref.py:347(__new__)
+     6000    0.001    0.000    0.001    0.000 {built-in method builtins.hasattr}
+     3000    0.001    0.000    0.005    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:32462(<lambda>)
+     1000    0.001    0.000    0.001    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:11785(_coerce_arg_to_fnx_graph)
+     6000    0.001    0.000    0.001    0.000 {built-in method builtins.hash}
+     4000    0.001    0.000    0.001    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:14944(tailhead)
+     3000    0.001    0.000    0.001    0.000 {built-in method __new__ of type object at 0xa15020}
+     3000    0.001    0.000    0.001    0.000 {function _make_class_safe_predicate.<locals>.predicate at 0x72fdfb71b420}
+     3000    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1106(__init__)
+     3000    0.000    0.000    0.000    0.000 {built-in method builtins.id}
+     1000    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1331(<lambda>)
+     3000    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:14903(edge_id)
+     3000    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1045(__init__)
+     1000    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:20832(_validate_backend_dispatch_keywords)
+     1000    0.000    0.000    0.000    0.000 {function _make_class_safe_predicate.<locals>.predicate at 0x72fdfb71b4c0}

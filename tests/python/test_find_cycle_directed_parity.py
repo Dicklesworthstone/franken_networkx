@@ -45,3 +45,44 @@ def test_source_and_orientation(kw):
     assert [(repr(u), repr(v)) for u, v, *_ in fnx.find_cycle(gf, **kw)] == [
         (repr(u), repr(v)) for u, v, *_ in nx.find_cycle(gn, **kw)
     ]
+
+
+def _make_directed_pair(multigraph):
+    if multigraph:
+        gf, gn = fnx.MultiDiGraph(), nx.MultiDiGraph()
+        for idx, (u, v) in enumerate(
+            [(0, 1), (1, 2), (2, 0), (1, 3), (3, 1), (2, 4), (4, 2)]
+        ):
+            key = f"k{idx % 3}"
+            gf.add_edge(u, v, key=key)
+            gn.add_edge(u, v, key=key)
+        return gf, gn
+    edges = [(0, 1), (1, 2), (2, 0), (1, 3), (3, 1), (2, 4), (4, 2)]
+    return fnx.DiGraph(edges), nx.DiGraph(edges)
+
+
+def _repr_edges(edges):
+    return [tuple(repr(item) for item in edge) for edge in edges]
+
+
+@pytest.mark.parametrize("multigraph", [False, True])
+@pytest.mark.parametrize("orientation", [None, "original", "reverse", "ignore"])
+def test_directed_edge_dfs_and_find_cycle_order_contract(multigraph, orientation):
+    gf, gn = _make_directed_pair(multigraph)
+    assert _repr_edges(fnx.edge_dfs(gf, orientation=orientation)) == _repr_edges(
+        nx.edge_dfs(gn, orientation=orientation)
+    )
+    assert _repr_edges(fnx.find_cycle(gf, orientation=orientation)) == _repr_edges(
+        nx.find_cycle(gn, orientation=orientation)
+    )
+
+
+def test_directed_find_cycle_avoids_fnx_to_nx_conversion(monkeypatch):
+    import franken_networkx.backend as backend
+
+    def fail_conversion(_graph):
+        raise AssertionError("directed find_cycle must not convert the whole graph")
+
+    monkeypatch.setattr(backend, "_fnx_to_nx", fail_conversion)
+    graph = fnx.DiGraph([(0, 1), (1, 2), (2, 0), (2, 3)])
+    assert list(fnx.find_cycle(graph)) == [(0, 1), (1, 2), (2, 0)]
