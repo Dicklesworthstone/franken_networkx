@@ -11514,25 +11514,56 @@ def enumerate_all_cliques(G):
 def find_cliques_recursive(G, nodes=None):
     """Yield all maximal cliques in an undirected graph (recursive).
 
-    _Generator function so the returned object is a true generator
-    matching nx's contract (br-r37-c1-682kr).
+    Returns a true iterator matching nx's contract (br-r37-c1-682kr).
 
-    br-r37-c1-g71v3: same iteration-order drift as find_cliques —
-    delegate the ``nodes=None`` case to nx for parity.
+    br-r37-c1-fcrnative: port nx's exact recursive Bron-Kerbosch in PYTHON
+    in-process instead of delegating (br-r37-c1-g71v3) or borrowing the iterative
+    find_cliques order (br-r37-c1-scceager). Building ``adj`` from ``G[u]`` the
+    same way nx does makes the CPython set-iteration tie-breaks (the pivot
+    ``max(subg, ...)`` and ``cand - adj[u]``) identical to nx, so the clique
+    SEQUENCE byte-matches. This also restores nx's EAGER ``ValueError`` for a
+    ``nodes`` argument that is not a clique (the old generator-wrapped version
+    raised lazily / not at all), and drops the per-call fnx->nx conversion.
     """
-    # br-r37-c1-scceager: nx is @not_implemented_for('directed') — eager raise
-    # (sibling of find_cliques). Return an inner generator.
+    # br-r37-c1-scceager: nx is @not_implemented_for('directed') — eager raise.
     G = _coerce_arg_to_fnx_graph(G)
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
 
-    def _gen():
-        if nodes is None:
-            yield from _call_networkx_for_parity("find_cliques_recursive", G)
-            return
-        yield from find_cliques(G, nodes=nodes)
+    # --- eager part (runs on call, exactly like nx's function body) ---
+    if len(G) == 0:
+        return iter([])
 
-    return _gen()
+    adj = {u: {v for v in G[u] if v != u} for u in G}
+
+    Q = nodes[:] if nodes is not None else []
+    cand_init = set(G)
+    for node in Q:
+        if node not in cand_init:
+            raise ValueError(f"The given `nodes` {nodes} do not form a clique")
+        cand_init &= adj[node]
+
+    if not cand_init:
+        return iter([Q])
+
+    subg_init = cand_init.copy()
+
+    def expand(subg, cand):
+        u = max(subg, key=lambda u: len(cand & adj[u]))
+        for q in cand - adj[u]:
+            cand.remove(q)
+            Q.append(q)
+            adj_q = adj[q]
+            subg_q = subg & adj_q
+            if not subg_q:
+                yield Q[:]
+            else:
+                cand_q = cand & adj_q
+                if cand_q:
+                    yield from expand(subg_q, cand_q)
+            Q.pop()
+
+    return expand(subg_init, cand_init)
 
 
 def number_of_cliques(G, nodes=None, cliques=None):
