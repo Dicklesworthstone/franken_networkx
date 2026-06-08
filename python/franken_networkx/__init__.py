@@ -43492,6 +43492,28 @@ def to_dict_of_dicts(G, nodelist=None, edge_data=None):
 
     d = {}
     is_multigraph = G.is_multigraph()
+    # br-r37-c1-mexh6: for MultiGraph/MultiDiGraph the value at d[u][v] is a
+    # _LiveMultiEdgeDataView built from (G, u, v) — the ``data`` AtlasView that
+    # ``G[u].items()`` materializes per neighbor (AdjacencyView.__getitem__ ->
+    # AtlasView construction) is DISCARDED. Iterating neighbor KEYS only (the
+    # native adjacency/successor row) skips that wasted per-edge value build
+    # (MultiGraph ~2.7x, MultiDiGraph ~4x). Order is identical: ``G[u]`` already
+    # iterates ``dict.fromkeys(native_row)``.
+    if is_multigraph and edge_data is None:
+        if type(G) is MultiGraph:
+            _row = G._native_adjacency_row
+        elif type(G) is MultiDiGraph:
+            _row = G._native_successor_row
+        else:
+            _row = None
+        for u in nodelist:
+            row = {}
+            neighbors = _row(u) if _row is not None else G[u]
+            for v in neighbors:
+                if v in nodeset:
+                    row[v] = _LiveMultiEdgeDataView(G, u, v)
+            d[u] = row
+        return d
     for u in nodelist:
         d[u] = {}
         for v, data in G[u].items():
