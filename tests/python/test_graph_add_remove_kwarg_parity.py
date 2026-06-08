@@ -132,6 +132,31 @@ def test_add_edge_kwarg_form_multi():
 
 
 @needs_nx
+def test_multidigraph_add_edge_exact_key_order_matches_networkx():
+    fnx_graph = fnx.MultiDiGraph()
+    nx_graph = nx.MultiDiGraph()
+    operations = [
+        (0, 1, "a", {}),
+        (1, 2, 7, {}),
+        (2, 0, "c", {}),
+        (0, 1, "a", {"weight": 5}),
+        (3, 3, "loop", {}),
+        (4, 5, -1, {}),
+    ]
+    for u, v, key, attrs in operations:
+        assert fnx_graph.add_edge(u, v, key=key, **attrs) == nx_graph.add_edge(
+            u, v, key=key, **attrs
+        )
+
+    assert list(fnx_graph.nodes()) == list(nx_graph.nodes())
+    assert list(fnx_graph.edges(keys=True, data=True)) == list(
+        nx_graph.edges(keys=True, data=True)
+    )
+    assert list(fnx_graph.successors(0)) == list(nx_graph.successors(0))
+    assert list(fnx_graph.predecessors(1)) == list(nx_graph.predecessors(1))
+
+
+@needs_nx
 def test_add_node_kwarg_form():
     G = fnx.Graph()
     G.add_node(node_for_adding=42, color="red")

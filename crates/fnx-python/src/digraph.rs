@@ -271,6 +271,80 @@ impl PyMultiDiGraph {
         self.edges_dirty.store(true, Ordering::Relaxed);
     }
 
+    fn fast_add_explicit_fresh_int_endpoint_edge(
+        &mut self,
+        py: Python<'_>,
+        u: &Bound<'_, PyAny>,
+        v: &Bound<'_, PyAny>,
+        key: &Bound<'_, PyAny>,
+    ) -> PyResult<Option<PyObject>> {
+        let Ok(u_value) = u.extract::<i64>() else {
+            return Ok(None);
+        };
+        let Ok(v_value) = v.extract::<i64>() else {
+            return Ok(None);
+        };
+
+        let u_canonical = u_value.to_string();
+        let v_canonical = v_value.to_string();
+        if self.inner.has_edge(&u_canonical, &v_canonical) {
+            return Ok(None);
+        }
+        let display_conflict = |canonical: &str, passed: &Bound<'_, PyAny>| -> bool {
+            self.node_key_map.get(canonical).is_some_and(|stored| {
+                crate::PyGraph::display_objs_conflict(stored.bind(py), passed)
+            })
+        };
+        if display_conflict(&u_canonical, u) || display_conflict(&v_canonical, v) {
+            return Ok(None);
+        }
+
+        let was_new_node = !self.node_key_map.contains_key(&u_canonical)
+            || !self.node_key_map.contains_key(&v_canonical);
+        self.node_key_map
+            .entry(u_canonical.clone())
+            .or_insert_with(|| u.clone().unbind());
+        self.node_key_map
+            .entry(v_canonical.clone())
+            .or_insert_with(|| v.clone().unbind());
+        self.node_py_attrs
+            .entry(u_canonical.clone())
+            .or_insert_with(|| PyDict::new(py).unbind());
+        self.node_py_attrs
+            .entry(v_canonical.clone())
+            .or_insert_with(|| PyDict::new(py).unbind());
+        if was_new_node {
+            self.bump_nodes_seq();
+        }
+
+        if key.is_exact_instance_of::<PyInt>() {
+            let Ok(explicit_key) = key.extract::<usize>() else {
+                return Ok(None);
+            };
+            let Some(_actual_key) = self.inner.add_fresh_edge_with_key_unrecorded(
+                u_canonical.clone(),
+                v_canonical.clone(),
+                explicit_key,
+            ) else {
+                return Ok(None);
+            };
+            self.bump_edges_seq();
+            return Ok(Some(key.clone().unbind()));
+        }
+
+        let Some(actual_key) = self
+            .inner
+            .add_fresh_edge_unrecorded(u_canonical.clone(), v_canonical.clone())
+        else {
+            return Ok(None);
+        };
+        let edge_key = Self::edge_key(&u_canonical, &v_canonical, actual_key);
+        let py_key = key.clone().unbind();
+        self.edge_py_keys.insert(edge_key, py_key.clone_ref(py));
+        self.bump_edges_seq();
+        Ok(Some(py_key))
+    }
+
     fn try_absorb_exact_int_str_keyed_ctor_edges(
         &mut self,
         py: Python<'_>,
@@ -1131,6 +1205,19 @@ impl PyMultiDiGraph {
     ) -> PyResult<PyObject> {
         let u = u_for_edge;
         let v = v_for_edge;
+        let attr_is_empty = attr.is_none_or(|attrs| attrs.is_empty());
+        if attr_is_empty
+            && u.is_exact_instance_of::<PyInt>()
+            && v.is_exact_instance_of::<PyInt>()
+            && let Some(explicit_key) = key
+            && (explicit_key.is_exact_instance_of::<PyInt>()
+                || explicit_key.is_exact_instance_of::<PyString>())
+            && let Some(fast_key) =
+                self.fast_add_explicit_fresh_int_endpoint_edge(py, u, v, explicit_key)?
+        {
+            return Ok(fast_key);
+        }
+
         let u_canonical = node_key_to_string(py, u)?;
         let v_canonical = node_key_to_string(py, v)?;
 

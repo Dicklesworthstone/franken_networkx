@@ -1,0 +1,40 @@
+         8829921 function calls in 11.037 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+      120    6.034    0.050    8.039    0.067 /data/projects/.scratch/franken_networkx_perf_tealspring_20260608T0853_c9d2/tests/artifacts/perf/20260607T-multigraph-ctor-batch-tealspring/multigraph_ctor_batch.py:85(build_ctor)
+       40    0.218    0.005    2.998    0.075 /data/projects/.scratch/franken_networkx_perf_tealspring_20260608T0853_c9d2/tests/artifacts/perf/20260607T-multigraph-ctor-batch-tealspring/multigraph_ctor_batch.py:96(build_add_loop)
+   280000    0.190    0.000    1.601    0.000 /data/projects/.scratch/franken_networkx_perf_tealspring_20260608T0853_c9d2/python/franken_networkx/__init__.py:2504(add_edge)
+       40    0.442    0.011    1.453    0.036 /data/projects/.scratch/franken_networkx_perf_tealspring_20260608T0853_c9d2/tests/artifacts/perf/20260607T-multigraph-ctor-batch-tealspring/multigraph_ctor_batch.py:39(mixed_edges)
+   280000    0.151    0.000    1.411    0.000 /data/projects/.scratch/franken_networkx_perf_tealspring_20260608T0853_c9d2/python/franken_networkx/__init__.py:2273(add_edge)
+   280000    1.191    0.000    1.191    0.000 {function MultiDiGraph.add_edge at 0x77c29a7c84a0}
+   280000    1.050    0.000    1.050    0.000 {method 'add_edge' of 'franken_networkx.MultiGraph' objects}
+  1120000    0.306    0.000    0.962    0.000 /usr/lib/python3.13/random.py:295(randrange)
+  1120000    0.381    0.000    0.591    0.000 /usr/lib/python3.13/random.py:245(_randbelow_with_getrandbits)
+       80    0.262    0.003    0.262    0.003 /data/projects/.scratch/franken_networkx_perf_tealspring_20260608T0853_c9d2/tests/artifacts/perf/20260607T-multigraph-ctor-batch-tealspring/multigraph_ctor_batch.py:23(keyed_edges)
+       40    0.231    0.006    0.231    0.006 /data/projects/.scratch/franken_networkx_perf_tealspring_20260608T0853_c9d2/tests/artifacts/perf/20260607T-multigraph-ctor-batch-tealspring/multigraph_ctor_batch.py:27(attr_edges)
+      160    0.004    0.000    0.190    0.001 /data/projects/.scratch/franken_networkx_perf_tealspring_20260608T0853_c9d2/python/franken_networkx/__init__.py:3299(__init__)
+      120    0.182    0.002    0.182    0.002 {built-in method franken_networkx._fnx.validate_ctor_edge_list}
+  1826240    0.126    0.000    0.126    0.000 {method 'getrandbits' of '_random.Random' objects}
+  1120000    0.084    0.000    0.084    0.000 {method 'bit_length' of 'int' objects}
+   840000    0.070    0.000    0.070    0.000 {built-in method builtins.hash}
+  1120000    0.065    0.000    0.065    0.000 {built-in method _operator.index}
+   560000    0.048    0.000    0.048    0.000 {method 'append' of 'list' objects}
+      120    0.001    0.000    0.001    0.000 {built-in method builtins.locals}
+      120    0.001    0.000    0.001    0.000 /data/projects/.scratch/franken_networkx_perf_tealspring_20260608T0853_c9d2/python/franken_networkx/__init__.py:5703(predicate)
+      840    0.001    0.000    0.001    0.000 {built-in method builtins.isinstance}
+       40    0.000    0.000    0.001    0.000 /usr/lib/python3.13/random.py:119(__init__)
+       40    0.000    0.000    0.001    0.000 /usr/lib/python3.13/random.py:128(seed)
+       80    0.000    0.000    0.001    0.000 /data/projects/.scratch/franken_networkx_perf_tealspring_20260608T0853_c9d2/python/franken_networkx/__init__.py:5508(__get__)
+      160    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx_perf_tealspring_20260608T0853_c9d2/tests/artifacts/perf/20260607T-multigraph-ctor-batch-tealspring/multigraph_ctor_batch.py:77(graph_class)
+      720    0.000    0.000    0.000    0.000 {method 'startswith' of 'str' objects}
+       40    0.000    0.000    0.000    0.000 {function Random.seed at 0x77c29bb65300}
+       60    0.000    0.000    0.000    0.000 {function _make_class_safe_predicate.<locals>.predicate at 0x77c29a7d8180}
+       60    0.000    0.000    0.000    0.000 {function _make_class_safe_predicate.<locals>.predicate at 0x77c29a7d82c0}
+      360    0.000    0.000    0.000    0.000 {built-in method builtins.hasattr}
+       80    0.000    0.000    0.000    0.000 {built-in method builtins.vars}
+      200    0.000    0.000    0.000    0.000 {method 'get' of 'dict' objects}
+      80    0.000    0.000    0.000    0.000 {method 'update' of 'dict' objects}
+      80    0.000    0.000    0.000    0.000 {built-in method builtins.getattr}
+       1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
