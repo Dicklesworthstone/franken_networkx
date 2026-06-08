@@ -32047,16 +32047,18 @@ class _AssignedPrivateDegreeView:
         return attrs.get(self._weight, 1)
 
     def _filtered_set_count(self, node, *, reverse=False):
-        # br-r37-c1-r3gjb: for unweighted simple subgraphs with the default
-        # edge filter, the visible neighbours of a (visible) node are exactly
-        # parent_row & keep — count them in C (set intersection over the
-        # native parent row) instead of the per-neighbour _node_visible /
-        # _edge_visible Python loop. Returns None when the fast path does not
-        # apply (weighted / multigraph / non-set filter / node not visible).
+        # br-r37-c1-r3gjb: unweighted degree on a node-set subgraph with the
+        # DEFAULT edge filter is a set intersection over the native parent
+        # row — the visible neighbours of a (visible) node are exactly
+        # parent_row & keep, every edge being visible. Count them in C instead
+        # of the per-neighbour _node_visible / _edge_visible Python loop.
+        # Simple graphs count neighbours; multigraphs sum parallel-edge
+        # multiplicity (len of each keydict). Undirected total degree counts
+        # a self-loop's edges twice. Returns None -> slow path for weighted /
+        # non-default edge filter / non-set node filter / non-visible node.
         view = self._graph
         if (
             self._weight is not None
-            or view.is_multigraph()
             or not getattr(view, "_filter_edge_is_default", False)
             or not isinstance(view, _FilteredGraphView)
         ):
@@ -32070,18 +32072,23 @@ class _AssignedPrivateDegreeView:
         else:
             row = parent[node]
         try:
-            return len(keep.intersection(row))
+            visible = keep.intersection(row)
         except TypeError:
             return None
+        multi = view.is_multigraph()
+        if multi:
+            total = sum(len(row[nbr]) for nbr in visible)
+        else:
+            total = len(visible)
+        # undirected total degree double-counts a (visible) self-loop
+        if not reverse and not view.is_directed() and node in row:
+            total += len(row[node]) if multi else 1
+        return total
 
     def _out_degree(self, node):
         fast = self._filtered_set_count(node)
         if fast is not None:
-            total = fast
-            # undirected counts a self-loop's contribution twice
-            if not self._graph.is_directed() and node in self._graph._graph[node]:
-                total += 1
-            return total
+            return fast
         total = 0
         for nbr, edge_data in self._graph.adj[node].items():
             if self._graph.is_multigraph():
