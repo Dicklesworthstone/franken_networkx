@@ -10592,6 +10592,182 @@ fn tensor_product(
     }
 }
 
+// br-r37-c1-prodnative: native cartesian/tensor product for the no-attr,
+// non-multigraph, self-loop-free case (the common one). The Python wrapper
+// builds the product tuple node `(g, h)` and adds ~|V_g||V_h| + cross edges one
+// PyO3 call at a time, re-canonicalizing the tuple endpoints on EVERY edge
+// (~1.8us/edge dominated cartesian_product 4x / tensor_product 3.6x vs nx).
+// Here every product node's tuple is canonicalized exactly ONCE; the product
+// edges are then assembled in pure Rust by integer index over the source
+// graphs' CSR adjacency and bulk-inserted via extend_*_unrecorded. Returns
+// `None` so the wrapper falls back to the Python path on any unhandled shape
+// (mixed directedness is rejected there with nx's message).
+fn product_node_tuples(
+    py: Python<'_>,
+    gr1: &GraphRef<'_>,
+    gr2: &GraphRef<'_>,
+    g_names: &[String],
+    h_names: &[String],
+) -> PyResult<(Vec<String>, HashMap<String, PyObject>)> {
+    let nh = h_names.len();
+    let g_py: Vec<PyObject> = g_names.iter().map(|n| gr1.py_node_key(py, n)).collect();
+    let h_py: Vec<PyObject> = h_names.iter().map(|n| gr2.py_node_key(py, n)).collect();
+    let np = g_names.len() * nh;
+    let mut canon: Vec<String> = Vec::with_capacity(np);
+    let mut node_key_map: HashMap<String, PyObject> = HashMap::with_capacity(np);
+    for gp in &g_py {
+        for hp in &h_py {
+            let tup = PyTuple::new(py, [gp.clone_ref(py), hp.clone_ref(py)])?;
+            let ck = crate::node_key_to_string(py, tup.as_any())?;
+            node_key_map.insert(ck.clone(), tup.into_any().unbind());
+            canon.push(ck);
+        }
+    }
+    Ok((canon, node_key_map))
+}
+
+fn graph_product_fast(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    h: &Bound<'_, PyAny>,
+    tensor: bool,
+) -> PyResult<Option<PyObject>> {
+    let gr1 = extract_graph(g)?;
+    let gr2 = extract_graph(h)?;
+    if gr1.is_directed() != gr2.is_directed() {
+        return Ok(None);
+    }
+
+    if gr1.is_directed() {
+        let dg1 = gr1.digraph().expect("directed");
+        let dg2 = gr2.digraph().expect("directed");
+        let g_names: Vec<String> = dg1.nodes_ordered().iter().map(|s| (*s).to_owned()).collect();
+        let h_names: Vec<String> = dg2.nodes_ordered().iter().map(|s| (*s).to_owned()).collect();
+        let ng = g_names.len();
+        let nh = h_names.len();
+        let (canon, node_key_map) = product_node_tuples(py, &gr1, &gr2, &g_names, &h_names)?;
+
+        let mut edges: Vec<(String, String)> = Vec::new();
+        if tensor {
+            // (gu,hu)->(gv,hv) for each G-edge gu->gv and H-edge hu->hv.
+            for gu in 0..ng {
+                let gsucc = dg1.successors_indices(gu).unwrap_or(&[]);
+                for hu in 0..nh {
+                    let hsucc = dg2.successors_indices(hu).unwrap_or(&[]);
+                    for &gv in gsucc {
+                        for &hv in hsucc {
+                            edges.push((canon[gu * nh + hu].clone(), canon[gv * nh + hv].clone()));
+                        }
+                    }
+                }
+            }
+        } else {
+            // cartesian: same G-node, H-edge; and same H-node, G-edge.
+            for gi in 0..ng {
+                for hu in 0..nh {
+                    for &hv in dg2.successors_indices(hu).unwrap_or(&[]) {
+                        edges.push((canon[gi * nh + hu].clone(), canon[gi * nh + hv].clone()));
+                    }
+                }
+            }
+            for gu in 0..ng {
+                for &gv in dg1.successors_indices(gu).unwrap_or(&[]) {
+                    for hi in 0..nh {
+                        edges.push((canon[gu * nh + hi].clone(), canon[gv * nh + hi].clone()));
+                    }
+                }
+            }
+        }
+
+        let mut inner =
+            fnx_classes::digraph::DiGraph::with_runtime_policy(dg1.runtime_policy().clone());
+        let _ = inner
+            .extend_nodes_with_attrs_unrecorded(canon.iter().map(|c| (c.clone(), AttrMap::new())));
+        let _ = inner.extend_edges_unrecorded(edges);
+        let mut py_dg = PyDiGraph::new_empty_with_policy(py, dg1.runtime_policy().clone())?;
+        py_dg.inner = inner;
+        py_dg.node_key_map = node_key_map;
+        Ok(Some(py_dg.into_pyobject(py)?.into_any().unbind()))
+    } else {
+        let g1 = gr1.undirected();
+        let g2 = gr2.undirected();
+        let g_names: Vec<String> = g1.nodes_ordered().iter().map(|s| (*s).to_owned()).collect();
+        let h_names: Vec<String> = g2.nodes_ordered().iter().map(|s| (*s).to_owned()).collect();
+        let ng = g_names.len();
+        let nh = h_names.len();
+        let (canon, node_key_map) = product_node_tuples(py, &gr1, &gr2, &g_names, &h_names)?;
+
+        // Undirected edges of each factor, each unordered pair once (u <= v).
+        let undirected_edges = |graph: &fnx_classes::Graph, n: usize| -> Vec<(usize, usize)> {
+            let mut es = Vec::new();
+            for u in 0..n {
+                for &v in graph.neighbors_indices(u).unwrap_or(&[]) {
+                    if v >= u {
+                        es.push((u, v));
+                    }
+                }
+            }
+            es
+        };
+        let g_edges = undirected_edges(g1, ng);
+        let h_edges = undirected_edges(g2, nh);
+
+        let mut edges: Vec<(String, String)> = Vec::new();
+        if tensor {
+            // {(gu,hu),(gv,hv)} and {(gu,hv),(gv,hu)} for each pair of edges.
+            for &(gu, gv) in &g_edges {
+                for &(hu, hv) in &h_edges {
+                    edges.push((canon[gu * nh + hu].clone(), canon[gv * nh + hv].clone()));
+                    edges.push((canon[gu * nh + hv].clone(), canon[gv * nh + hu].clone()));
+                }
+            }
+        } else {
+            // cartesian: same G-node + H-edge; same H-node + G-edge.
+            for gi in 0..ng {
+                for &(hu, hv) in &h_edges {
+                    edges.push((canon[gi * nh + hu].clone(), canon[gi * nh + hv].clone()));
+                }
+            }
+            for &(gu, gv) in &g_edges {
+                for hi in 0..nh {
+                    edges.push((canon[gu * nh + hi].clone(), canon[gv * nh + hi].clone()));
+                }
+            }
+        }
+
+        let mut inner = fnx_classes::Graph::with_runtime_policy(g1.runtime_policy().clone());
+        let _ = inner.extend_nodes_unrecorded(canon.iter().cloned());
+        let _ = inner.extend_edges_unrecorded(edges);
+        let mut py_graph = PyGraph::new_empty_with_policy(py, g1.runtime_policy().clone())?;
+        py_graph.inner = inner;
+        py_graph.node_key_map = node_key_map;
+        Ok(Some(py_graph.into_pyobject(py)?.into_any().unbind()))
+    }
+}
+
+/// br-r37-c1-prodnative: native Cartesian product fast path (returns None on
+/// unsupported shapes so the Python wrapper falls back).
+#[pyfunction]
+#[pyo3(signature = (g, h))]
+fn cartesian_product_fast(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    h: &Bound<'_, PyAny>,
+) -> PyResult<Option<PyObject>> {
+    graph_product_fast(py, g, h, false)
+}
+
+/// br-r37-c1-prodnative: native tensor product fast path.
+#[pyfunction]
+#[pyo3(signature = (g, h))]
+fn tensor_product_fast(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    h: &Bound<'_, PyAny>,
+) -> PyResult<Option<PyObject>> {
+    graph_product_fast(py, g, h, true)
+}
+
 #[pyfunction]
 #[pyo3(signature = (g,))]
 fn degree_histogram(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Vec<usize>> {
@@ -16799,6 +16975,8 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(line_graph, m)?)?;
     m.add_function(wrap_pyfunction!(cartesian_product, m)?)?;
     m.add_function(wrap_pyfunction!(tensor_product, m)?)?;
+    m.add_function(wrap_pyfunction!(cartesian_product_fast, m)?)?;
+    m.add_function(wrap_pyfunction!(tensor_product_fast, m)?)?;
     m.add_function(wrap_pyfunction!(degree_histogram, m)?)?;
     // A* shortest path
     m.add_function(wrap_pyfunction!(astar_path, m)?)?;

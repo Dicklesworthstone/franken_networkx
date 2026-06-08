@@ -17803,6 +17803,36 @@ def _cross_product_edge_key(g_is_multigraph, h_is_multigraph, g_key, h_key):
     return None
 
 
+def _graph_has_any_attrs(G):
+    """True if any node or edge of *G* carries a non-empty attribute dict."""
+    if any(d for _n, d in G.nodes(data=True)):
+        return True
+    if G.is_multigraph():
+        return any(d for *_e, d in G.edges(keys=True, data=True))
+    return any(d for *_e, d in G.edges(data=True))
+
+
+def _native_graph_product(G, H, *, tensor):
+    """br-r37-c1-prodnative: native product fast path, or None to fall back.
+
+    Gated to the case the native kernel reproduces exactly: simple (non-multi)
+    graphs of matching directedness, with no node/edge attributes to pair and no
+    self-loops (self-loops would need attr pairing / tensor de-duplication that
+    the Python path handles). Result node tuples and the empty-attr edges are
+    byte-identical to the Python construction; only the build path differs.
+    """
+    if G.is_multigraph() or H.is_multigraph():
+        return None
+    if G.is_directed() != H.is_directed():
+        return None
+    if number_of_selfloops(G) or number_of_selfloops(H):
+        return None
+    if _graph_has_any_attrs(G) or _graph_has_any_attrs(H):
+        return None
+    fast = _fnx.tensor_product_fast if tensor else _fnx.cartesian_product_fast
+    return fast(G, H)
+
+
 def cartesian_product(G, H):
     """Return the Cartesian product of *G* and *H*.
 
@@ -17812,6 +17842,12 @@ def cartesian_product(G, H):
     is an edge in *G*.
     """
     _validate_product_graph_types(G, H)
+    # br-r37-c1-prodnative: native fast path for the no-attr, non-multigraph,
+    # self-loop-free case (canonicalizes each product tuple once, assembles edges
+    # in Rust). Falls back to the Python construction below for any other shape.
+    _fast = _native_graph_product(G, H, tensor=False)
+    if _fast is not None:
+        return _fast
     P = _product_graph_class(G, H)()
 
     for g, g_attrs in G.nodes(data=True):
@@ -17848,6 +17884,9 @@ def tensor_product(G, H):
     ``(u1, u2)`` is an edge in *G* AND ``(v1, v2)`` is an edge in *H*.
     """
     _validate_product_graph_types(G, H)
+    _fast = _native_graph_product(G, H, tensor=True)
+    if _fast is not None:
+        return _fast
     P = _product_graph_class(G, H)()
 
     for g, g_attrs in G.nodes(data=True):
