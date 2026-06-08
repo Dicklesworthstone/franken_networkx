@@ -26033,7 +26033,12 @@ def attr_matrix(
             return M
 
     seen = set()
-    for u, nbrdict in G._adj.items():
+    # br-r37-c1-nodekeys: per-node native O(deg) rows (G[u]) instead of
+    # G._adj.items() — the AdjacencyView's .items() re-materialises the whole
+    # adjacency per node on a MultiGraph (O(N*(N+E)) -> TIMEOUT). Node order
+    # (== G._adj order) is preserved; the matrix is endpoint-order-invariant.
+    for u in G:
+        nbrdict = G[u]
         for v in nbrdict:
             try:
                 i, j = index[node_value(u)], index[node_value(v)]
