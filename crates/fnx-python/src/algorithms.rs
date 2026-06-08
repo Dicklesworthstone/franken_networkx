@@ -565,6 +565,33 @@ fn multigraph_to_simple_graph(mg: &fnx_classes::MultiGraph) -> fnx_classes::Grap
     g
 }
 
+/// br-r37-c1-ccmulti: structure-only undirected simplification of a MultiGraph
+/// for CONNECTIVITY (is_connected / connected_components /
+/// number_connected_components). The full `multigraph_to_simple_graph` clones
+/// every node/edge AttrMap and pays the per-element ledger tax via
+/// add_*_with_attrs — ~24x nx, since extract_graph builds a fresh GraphRef per
+/// call so the simple-graph OnceCell never persists. Connectivity needs only
+/// the STRUCTURE, so build with the ledger-free bulk unrecorded inserts and no
+/// attrs. Node order (nodes_ordered) is preserved so the connected_components
+/// component ORDER matches nx; self-loops are kept (harmless for connectivity).
+fn multigraph_to_simple_graph_structure_only(mg: &fnx_classes::MultiGraph) -> fnx_classes::Graph {
+    let mut g = fnx_classes::Graph::with_runtime_policy(mg.runtime_policy().clone());
+    let nodes = mg.nodes_ordered();
+    let _ = g.extend_nodes_unrecorded(nodes.iter().map(|n| (*n).to_owned()));
+    let mut edges: Vec<(String, String)> = Vec::new();
+    for u in &nodes {
+        if let Some(nbrs) = mg.neighbors(u) {
+            for v in nbrs {
+                if **u <= *v {
+                    edges.push(((*u).to_owned(), v.to_owned()));
+                }
+            }
+        }
+    }
+    let _ = g.extend_edges_unrecorded(edges);
+    g
+}
+
 fn projected_weight(attrs: &AttrMap, weight_attr: &str) -> f64 {
     attrs
         .get(weight_attr)
@@ -3244,7 +3271,13 @@ pub fn bidirectional_dijkstra(
 pub fn is_connected(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<bool> {
     let gr = extract_graph(g)?;
     require_undirected(&gr, "is_connected")?;
-    let inner = gr.undirected();
+    let owned_simple = match &gr {
+        GraphRef::MultiUndirected { mg, .. } => {
+            Some(multigraph_to_simple_graph_structure_only(&mg.inner))
+        }
+        _ => None,
+    };
+    let inner = owned_simple.as_ref().unwrap_or_else(|| gr.undirected());
     if inner.node_count() == 0 {
         return Err(crate::NetworkXPointlessConcept::new_err(
             "Connectivity is undefined for the null graph.",
@@ -3311,8 +3344,13 @@ pub fn density(_py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<f64> {
 pub fn connected_components(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Vec<PyObject>> {
     let gr = extract_graph(g)?;
     require_undirected(&gr, "connected_components")?;
-    let inner = gr.undirected();
-    log::info!(target: "franken_networkx", "connected_components: nodes={} edges={}", inner.node_count(), inner.edge_count());
+    let owned_simple = match &gr {
+        GraphRef::MultiUndirected { mg, .. } => {
+            Some(multigraph_to_simple_graph_structure_only(&mg.inner))
+        }
+        _ => None,
+    };
+    let inner = owned_simple.as_ref().unwrap_or_else(|| gr.undirected());
     // br-r37-c1-anace: route through the borrowed BFS variant -- skips
     // the ~|V| String::to_owned allocations the public
     // ``connected_components`` API performs to wrap the result in
@@ -3341,7 +3379,13 @@ pub fn connected_components(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Ve
 pub fn number_connected_components(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<usize> {
     let gr = extract_graph(g)?;
     require_undirected(&gr, "number_connected_components")?;
-    let inner = gr.undirected();
+    let owned_simple = match &gr {
+        GraphRef::MultiUndirected { mg, .. } => {
+            Some(multigraph_to_simple_graph_structure_only(&mg.inner))
+        }
+        _ => None,
+    };
+    let inner = owned_simple.as_ref().unwrap_or_else(|| gr.undirected());
     Ok(py.allow_threads(|| fnx_algorithms::number_connected_components(inner).count))
 }
 
