@@ -1,0 +1,3 @@
+  [2m2026-06-08T08:37:28.048348Z[0m [33m WARN[0m [1;33mrch::hook[0m[33m: [33mexec called with non-compilation command: python3 -m pytest tests/python/test_view_pickle_parity.py::test_subgraph_view_multigraph_edges_iter_yields_keys tests/python/test_view_pickle_parity.py::test_subgraph_view_edges_set_protocol tests/python/test_review_mode_regression_lock.py::test_subgraph_view_edges_class_names_match_nx -q[0m
+    [2;3mat[0m rch/src/hook.rs:402 [2;3mon[0m ThreadId(1)
+

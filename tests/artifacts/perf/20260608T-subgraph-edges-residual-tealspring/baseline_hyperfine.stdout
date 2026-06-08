@@ -1,0 +1,21 @@
+Benchmark 1: python3 tests/artifacts/perf/20260608T-subgraph-edges-residual-tealspring/subgraph_edges_residual.py bench --impl fnx --case graph_nested --n 2500 --loops 25
+  Time (mean ± σ):      2.127 s ±  0.062 s    [User: 6.143 s, System: 0.067 s]
+  Range (min … max):    2.038 s …  2.187 s    5 runs
+ 
+Benchmark 2: python3 tests/artifacts/perf/20260608T-subgraph-edges-residual-tealspring/subgraph_edges_residual.py bench --impl nx --case graph_nested --n 2500 --loops 25
+  Time (mean ± σ):     557.3 ms ±  17.0 ms    [User: 4539.0 ms, System: 52.7 ms]
+  Range (min … max):   531.7 ms … 570.8 ms    5 runs
+ 
+Benchmark 3: python3 tests/artifacts/perf/20260608T-subgraph-edges-residual-tealspring/subgraph_edges_residual.py bench --impl fnx --case multigraph_nested --n 1800 --loops 10
+  Time (mean ± σ):      7.850 s ±  0.084 s    [User: 11.713 s, System: 0.064 s]
+  Range (min … max):    7.729 s …  7.963 s    5 runs
+ 
+Benchmark 4: python3 tests/artifacts/perf/20260608T-subgraph-edges-residual-tealspring/subgraph_edges_residual.py bench --impl nx --case multigraph_nested --n 1800 --loops 10
+  Time (mean ± σ):     497.9 ms ±  25.6 ms    [User: 4347.8 ms, System: 60.1 ms]
+  Range (min … max):   471.0 ms … 529.7 ms    5 runs
+ 
+Summary
+  python3 tests/artifacts/perf/20260608T-subgraph-edges-residual-tealspring/subgraph_edges_residual.py bench --impl nx --case multigraph_nested --n 1800 --loops 10 ran
+    1.12 ± 0.07 times faster than python3 tests/artifacts/perf/20260608T-subgraph-edges-residual-tealspring/subgraph_edges_residual.py bench --impl nx --case graph_nested --n 2500 --loops 25
+    4.27 ± 0.25 times faster than python3 tests/artifacts/perf/20260608T-subgraph-edges-residual-tealspring/subgraph_edges_residual.py bench --impl fnx --case graph_nested --n 2500 --loops 25
+   15.76 ± 0.83 times faster than python3 tests/artifacts/perf/20260608T-subgraph-edges-residual-tealspring/subgraph_edges_residual.py bench --impl fnx --case multigraph_nested --n 1800 --loops 10

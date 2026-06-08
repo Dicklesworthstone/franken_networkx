@@ -1,0 +1,3 @@
+  [2m2026-06-08T08:32:18.357379Z[0m [33m WARN[0m [1;33mrch::hook[0m[33m: [33mexec called with non-compilation command: python3 tests/artifacts/perf/20260608T-subgraph-edges-residual-tealspring/subgraph_edges_residual.py sample --impl fnx --case multigraph_nested --n 1800 --loops 10 --repeats 5 --out tests/artifacts/perf/20260608T-subgraph-edges-residual-tealspring/baseline/multigraph_nested_fnx_sample.json[0m
+    [2;3mat[0m rch/src/hook.rs:402 [2;3mon[0m ThreadId(1)
+
