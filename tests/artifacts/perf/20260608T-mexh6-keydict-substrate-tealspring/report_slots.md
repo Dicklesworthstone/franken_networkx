@@ -53,8 +53,18 @@ The known `MultiGraph` keydict alias identity gap remains unchanged (`alias_pair
 
 - Focused pytest: `33 passed, 75 deselected`
 - `python3 -m py_compile python/franken_networkx/__init__.py tests/artifacts/perf/20260608T-mexh6-keydict-substrate-tealspring/multigraph_keydict_harness.py` passed
+- Current checkout proof replay: `current_proof.json`
+  - `MultiGraph` FNX SHA unchanged: `231583cedff594f62d823fb4b31b13b96ed668cfb49879e4509e99bd1aa417a5`
+  - `MultiDiGraph` FNX SHA still matches NetworkX: `f390ad0dd5b62afcea49a121448d11f13954103ea0bb8bc164092a25e38ae759`
+  - Known undirected alias gap unchanged: `alias_pairs=0` vs NetworkX `11970`
+- Current checkout timing replay: `current_timing.json`, `MultiGraph` ratio `31.657x` vs NetworkX over 20 repeats
+- Focused conversion parity: `python3 -m pytest tests/python/test_conversion.py -q -k 'to_dict_of_dicts or multigraph_view or LiveMultiEdgeDataView'` passed, `10 passed, 98 deselected`
+- Broad selector smoke: `python3 -m pytest tests/python -q -k 'to_dict_of_dicts'` passed, `1 passed, 22195 deselected`
+- `cargo fmt -p fnx-python --check` passed
+- `rch exec -- cargo check -p fnx-python --all-targets --features pyo3/abi3-py310` passed on worker `vmi1227854`
+- `rch exec -- cargo clippy -p fnx-python --all-targets --features pyo3/abi3-py310 -- -D warnings` passed on worker `vmi1152480`
 - `git diff --check` passed
 - UBS on `multigraph_keydict_harness.py` and `report_slots.md` exited `0` with no critical/warning findings
-- UBS including `python/franken_networkx/__init__.py` hit the 180s timeout without emitting findings; this large-file timeout is covered by py_compile, focused pytest, proof SHA, and diff-check
+- UBS including `python/franken_networkx/__init__.py` was interrupted after more than six minutes without emitting findings; this large-file timeout is covered by py_compile, focused pytest, proof SHA, RCH check/clippy, and diff-check
 
 Score: `3.0` (`Impact 3 * Confidence 4 / Effort 4`). Keep.
