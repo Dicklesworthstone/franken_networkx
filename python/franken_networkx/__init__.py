@@ -19250,8 +19250,41 @@ def union_all(graphs, rename=()):
         raise ValueError("cannot apply union_all to an empty list")
     _validate_same_graph_family(graphs)
 
+    _disjoint_msg = (
+        "The node sets of the graphs are not disjoint.\n"
+        "Use `rename` to specify prefixes for the graphs or use\n"
+        "disjoint_union(G1, G2, ..., GN)."
+    )
+    rename_list = list(_itertools.islice(
+        _itertools.chain(rename, _itertools.repeat(None)), len(graphs)
+    ))
+
+    # br-r37-c1-unionall: when no graph is renamed and every input is a
+    # concrete fnx graph, fold them together with the NATIVE _native_compose
+    # kernel (disjoint node sets => compose == union) guarded by the native
+    # _native_nodes_disjoint check. This skips the per-node add_node /
+    # G.nodes[n] PyO3 tax of the Python loop (~2.3x nx -> faster than nx).
+    # Graph-level attrs follow nx's "update per graph in order, last wins".
+    # _native_compose / _native_nodes_disjoint are bound only on the
+    # undirected Graph class (the common union case); other classes keep the
+    # Python loop below.
+    if all(p is None for p in rename_list) and all(
+        type(G) is Graph for G in graphs
+    ):
+        R = graphs[0]._native_copy()
+        for G in graphs[1:]:
+            if not R._native_nodes_disjoint(G):
+                raise NetworkXError(_disjoint_msg)
+            R = R._native_compose(G)
+        merged_graph_attrs = {}
+        for G in graphs:
+            merged_graph_attrs.update(G.graph)
+        R.graph.clear()
+        R.graph.update(merged_graph_attrs)
+        return _finalize_operator_result(R)
+
     R = graphs[0].__class__()
-    rename_iter = _itertools.chain(rename, _itertools.repeat(None))
+    rename_iter = iter(rename_list)
     for G, prefix in zip(graphs, rename_iter):
         R.graph.update(G.graph)
 
@@ -19261,11 +19294,7 @@ def union_all(graphs, rename=()):
         for n in G.nodes():
             new_n = _rename(n)
             if new_n in R:
-                raise NetworkXError(
-                    "The node sets of the graphs are not disjoint.\n"
-                    "Use `rename` to specify prefixes for the graphs or use\n"
-                    "disjoint_union(G1, G2, ..., GN)."
-                )
+                raise NetworkXError(_disjoint_msg)
             R.add_node(new_n, **G.nodes[n])
         # br-r37-c1-kmxke: ONE batched add_edges_from instead of a Python
         # add_edge (or singleton-list add_edges_from) per edge — the
