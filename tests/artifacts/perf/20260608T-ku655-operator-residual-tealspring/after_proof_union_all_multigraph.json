@@ -1,0 +1,14 @@
+{
+  "class": "MultiGraph",
+  "equal": true,
+  "floating_point": "none",
+  "fnx_counts": {
+    "edges": 11169,
+    "nodes": 2800
+  },
+  "fnx_sha256": "7e98a2c7737d32d01248bbeddc3e6e0fae47ccb5c788619db3ca97ea7d9a5cf4",
+  "networkx_sha256": "7e98a2c7737d32d01248bbeddc3e6e0fae47ccb5c788619db3ca97ea7d9a5cf4",
+  "op": "union_all",
+  "ordering": "exact list(result.nodes()) and exact edge list",
+  "rng": "none"
+}

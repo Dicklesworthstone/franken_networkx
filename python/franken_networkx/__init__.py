@@ -19668,6 +19668,34 @@ def union_all(graphs, rename=()):
         R.graph.update(merged_graph_attrs)
         return _finalize_operator_result(R)
 
+    if all(p is None for p in rename_list) and (
+        all(type(G) is MultiGraph for G in graphs)
+        or all(type(G) is MultiDiGraph for G in graphs)
+    ) and not any(_has_networkx_private_storage(G) for G in graphs):
+        seen_nodes = set()
+        keyed_edges = []
+        can_batch = True
+        for G in graphs:
+            for n in G.nodes():
+                if n in seen_nodes:
+                    raise NetworkXError(_disjoint_msg)
+                seen_nodes.add(n)
+            for u, v, key, data in G.edges(keys=True, data=True):
+                if data:
+                    can_batch = False
+                    break
+                keyed_edges.append((u, v, key))
+            if not can_batch:
+                break
+        if can_batch:
+            R = graphs[0].__class__()
+            for G in graphs:
+                R.graph.update(G.graph)
+                R.add_nodes_from(G.nodes(data=True))
+            native = getattr(R, "_native_add_keyed_edges_no_data", None)
+            if native is not None and native(keyed_edges):
+                return _finalize_operator_result(R)
+
     R = graphs[0].__class__()
     rename_iter = iter(rename_list)
     for G, prefix in zip(graphs, rename_iter):

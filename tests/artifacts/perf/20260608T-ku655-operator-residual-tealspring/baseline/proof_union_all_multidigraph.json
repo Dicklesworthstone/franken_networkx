@@ -1,0 +1,14 @@
+{
+  "class": "MultiDiGraph",
+  "equal": true,
+  "floating_point": "none",
+  "fnx_counts": {
+    "edges": 11169,
+    "nodes": 2800
+  },
+  "fnx_sha256": "e2b55dd9fbee9b55811a7b45c6bd4ebef012dd46968730f4c07acc6b368a3d9b",
+  "networkx_sha256": "e2b55dd9fbee9b55811a7b45c6bd4ebef012dd46968730f4c07acc6b368a3d9b",
+  "op": "union_all",
+  "ordering": "exact list(result.nodes()) and exact edge list",
+  "rng": "none"
+}

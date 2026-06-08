@@ -1,0 +1,51 @@
+         1016029 function calls in 1.009 seconds
+
+   Ordered by: cumulative time
+   List reduced from 60 to 45 due to restriction <45>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+       20    0.006    0.000    1.009    0.050 __init__.py:47186(wrapper)
+       20    0.100    0.005    1.002    0.050 __init__.py:19622(union_all)
+       20    0.423    0.021    0.423    0.021 {method '_native_add_keyed_edges_no_data' of 'franken_networkx.MultiDiGraph' objects}
+       80    0.195    0.002    0.207    0.003 __init__.py:2088(__call__)
+       80    0.039    0.000    0.174    0.002 __init__.py:2408(add_nodes_from)
+    56000    0.015    0.000    0.102    0.000 __init__.py:2376(add_node)
+    56000    0.083    0.000    0.083    0.000 {function MultiDiGraph.add_node at 0x74bc19562520}
+   223460    0.049    0.000    0.063    0.000 __init__.py:430(__next__)
+   223380    0.018    0.000    0.018    0.000 {method 'append' of 'list' objects}
+   112000    0.017    0.000    0.017    0.000 {built-in method builtins.hash}
+       80    0.000    0.000    0.014    0.000 __init__.py:844(__iter__)
+       80    0.014    0.000    0.014    0.000 __init__.py:833(_materialize)
+   223460    0.014    0.000    0.014    0.000 {built-in method builtins.next}
+    56000    0.012    0.000    0.012    0.000 {method 'add' of 'set' objects}
+       80    0.012    0.000    0.012    0.000 {method 'extend' of 'list' objects}
+    56080    0.006    0.000    0.006    0.000 {method 'update' of 'dict' objects}
+       80    0.000    0.000    0.001    0.000 __init__.py:32991(edges)
+       80    0.001    0.000    0.001    0.000 __init__.py:4580(_wrap_edge_data_view)
+      260    0.000    0.000    0.001    0.000 __init__.py:32452(_has_networkx_private_storage)
+      160    0.000    0.000    0.001    0.000 __init__.py:1971(__iter__)
+     1200    0.000    0.000    0.001    0.000 __init__.py:32444(_private_override)
+       80    0.000    0.000    0.001    0.000 weakref.py:164(__setitem__)
+       80    0.000    0.000    0.000    0.000 __init__.py:406(__init__)
+      160    0.000    0.000    0.000    0.000 __init__.py:943(wrapped)
+       20    0.000    0.000    0.000    0.000 __init__.py:42905(_validate_same_graph_family)
+      160    0.000    0.000    0.000    0.000 __init__.py:5517(__get__)
+       20    0.000    0.000    0.000    0.000 __init__.py:33205(number_of_edges)
+      160    0.000    0.000    0.000    0.000 __init__.py:32971(nodes)
+     1600    0.000    0.000    0.000    0.000 {built-in method builtins.vars}
+       20    0.000    0.000    0.000    0.000 {built-in method builtins.any}
+      100    0.000    0.000    0.000    0.000 __init__.py:19674(<genexpr>)
+     1600    0.000    0.000    0.000    0.000 {method 'get' of 'dict' objects}
+       80    0.000    0.000    0.000    0.000 weakref.py:352(__init__)
+      160    0.000    0.000    0.000    0.000 __init__.py:5712(predicate)
+      440    0.000    0.000    0.000    0.000 {built-in method builtins.isinstance}
+      100    0.000    0.000    0.000    0.000 {built-in method builtins.all}
+       80    0.000    0.000    0.000    0.000 weakref.py:347(__new__)
+      440    0.000    0.000    0.000    0.000 {built-in method builtins.getattr}
+       20    0.000    0.000    0.000    0.000 __init__.py:19563(_finalize_operator_result)
+       80    0.000    0.000    0.000    0.000 __init__.py:451(_guarded_edge_list)
+      500    0.000    0.000    0.000    0.000 {built-in method builtins.len}
+       20    0.000    0.000    0.000    0.000 __init__.py:3308(__init__)
+      160    0.000    0.000    0.000    0.000 {built-in method builtins.hasattr}
+       80    0.000    0.000    0.000    0.000 {built-in method __new__ of type object at 0xa15020}
+       80    0.000    0.000    0.000    0.000 {method '_native_edge_view' of 'franken_networkx.MultiDiGraph' objects}
