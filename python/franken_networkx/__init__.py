@@ -15831,11 +15831,16 @@ def dijkstra_path_length(G, source, target, weight="weight"):
     hash(target)
     if target not in G:
         raise NetworkXNoPath(f"Node {target} not reachable from {source}")
+    # br-r37-c1-djkpathlen2x: previously this ran the native Dijkstra TWICE — once
+    # via `_raw_dijkstra_path_length` (result discarded, used only as the no-path
+    # probe) and again via the public `dijkstra_path` wrapper (which re-coerces,
+    # re-runs the delegation scan, re-hashes and re-checks node membership). Call
+    # the raw single-pair path kernel directly (every guard above already ran):
+    # one Dijkstra, then sum the path preserving nx's int-vs-float length type.
     try:
-        _raw_dijkstra_path_length(G, source, target, weight=weight)
+        path = _raw_dijkstra_path(G, source, target, weight=weight)
     except NetworkXNoPath as exc:
         raise NetworkXNoPath(f"Node {target} not reachable from {source}") from exc
-    path = dijkstra_path(G, source, target, weight=weight)
     return _path_length_preserving_weight_type(G, path, weight)
 
 
@@ -15846,11 +15851,35 @@ def bellman_ford_path_length(G, source, target, weight="weight"):
     Raises ``NetworkXUnbounded`` on negative cycles reachable from ``source``,
     ``NetworkXNoPath`` if ``target`` is unreachable.
     """
-    # br-r37-c1-9axrp: The Rust bellman_ford implementation returns
-    # incorrect paths/lengths. Always delegate to nx until fixed.
-    return _call_networkx_for_parity(
-        "bellman_ford_path_length", G, source, target, weight=weight
-    )
+    # br-r37-c1-bfpathnative: the native single-pair Bellman-Ford kernel returns
+    # nx-identical paths (the old br-r37-c1-9axrp "incorrect paths/lengths" note
+    # is stale — see bellman_ford_path), so compute the path natively and sum it
+    # preserving nx's int-vs-float length type instead of paying the fnx->nx
+    # conversion. The wrapper owns nx's error contract (same as bellman_ford_path,
+    # but the no-path message and the source==target value differ for the *length*
+    # variant): NodeNotFound("Source ... not in G"); NetworkXNoPath("node ... not
+    # reachable from ...") for unreachable OR missing target; NetworkXUnbounded
+    # ("Negative cycle detected."); source == target -> 0 (before relaxation, so
+    # no negative-cycle detection in that case). Callable/non-str/NaN/inf/
+    # non-numeric weight delegate (negatives are valid for Bellman-Ford).
+    G = _coerce_arg_to_fnx_graph(G)
+    hash(source)
+    hash(target)
+    if _should_delegate_bellman_ford_path_to_networkx(G, weight):
+        return _call_networkx_for_parity(
+            "bellman_ford_path_length", G, source, target, weight=weight
+        )
+    if source not in G:
+        raise NodeNotFound(f"Source {source} not in G")
+    if source == target:
+        return 0
+    try:
+        path = _raw_bellman_ford_path(G, source, target, weight=weight)
+    except NetworkXUnbounded:
+        raise NetworkXUnbounded("Negative cycle detected.")
+    except (NetworkXNoPath, NodeNotFound):
+        raise NetworkXNoPath(f"node {target} not reachable from {source}")
+    return _path_length_preserving_weight_type(G, path, weight)
 
 
 def negative_edge_cycle(G, weight="weight", heuristic=True):
