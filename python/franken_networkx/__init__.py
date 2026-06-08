@@ -24766,6 +24766,10 @@ def identified_nodes(
     # Build a new graph preserving node order from G (skip v)
     # br-r37-c1-s8w2p: SubgraphView class can't be empty-constructed.
     H = _concrete_class_for(G)()
+    # br-r37-c1-mstminattr (sibling): nx contracts via ``H = G.copy()`` which
+    # carries the graph-level attrs; building a fresh H drops them. Restore.
+    if G.graph:
+        H.graph.update(dict(G.graph))
     v_data = dict(G.nodes[v])
 
     def add_node_with_deferred_contraction(graph, node, attrs):
