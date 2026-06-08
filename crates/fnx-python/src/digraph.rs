@@ -17,7 +17,7 @@ use fnx_runtime::{CompatibilityMode, RuntimePolicy};
 use pyo3::IntoPyObjectExt;
 use pyo3::exceptions::{PyKeyError, PyRuntimeError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyFloat, PyInt, PyIterator, PyList, PyString, PyTuple};
+use pyo3::types::{PyAny, PyDict, PyFloat, PyInt, PyIterator, PyList, PyString, PyTuple};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -1933,6 +1933,46 @@ impl PyMultiDiGraph {
             py,
             MultiDiAtlasView::new(Py::from(slf), canonical, MultiDiAdjKind::Successors),
         )
+    }
+
+    fn _native_to_dict_of_dicts_live(
+        slf: PyRef<'_, Self>,
+        view_cls: &Bound<'_, PyAny>,
+        cache: &Bound<'_, PyDict>,
+    ) -> PyResult<Py<PyDict>> {
+        let py = slf.py();
+        let graph = Py::from(slf);
+        let g = graph.borrow(py);
+        let result = PyDict::new(py);
+        for node in g.inner.nodes_ordered() {
+            let py_node = g.py_node_key(py, node);
+            let row = PyDict::new(py);
+            let row_cache: Py<PyDict> = match cache.get_item(py_node.bind(py))? {
+                Some(existing) => existing.downcast::<PyDict>()?.clone().unbind(),
+                None => {
+                    let created = PyDict::new(py);
+                    cache.set_item(py_node.bind(py), &created)?;
+                    created.unbind()
+                }
+            };
+            let row_cache = row_cache.bind(py);
+            for neighbor in g.inner.successors(node).unwrap_or_default() {
+                let py_neighbor = g.py_succ_key(py, node, neighbor);
+                if let Some(view) = row_cache.get_item(py_neighbor.bind(py))? {
+                    row.set_item(py_neighbor.bind(py), &view)?;
+                } else {
+                    let view = view_cls.call1((
+                        graph.clone_ref(py),
+                        py_node.clone_ref(py),
+                        py_neighbor.clone_ref(py),
+                    ))?;
+                    row_cache.set_item(py_neighbor.bind(py), &view)?;
+                    row.set_item(py_neighbor.bind(py), &view)?;
+                }
+            }
+            result.set_item(py_node.bind(py), row)?;
+        }
+        Ok(result.unbind())
     }
 
     fn _native_predecessor_row(

@@ -1,0 +1,56 @@
+{
+  "contracts": {
+    "MultiDiGraph": {
+      "copy_omits_cache": true,
+      "invalidated_after_mutation": true,
+      "live_attr_update": true,
+      "mutation_guard": true,
+      "pickle_omits_cache": true,
+      "proxy_type": "_LiveMultiEdgeDataView",
+      "removed_edge_visible": true,
+      "reused": true
+    },
+    "MultiGraph": {
+      "copy_omits_cache": true,
+      "invalidated_after_mutation": true,
+      "live_attr_update": true,
+      "mutation_guard": true,
+      "pickle_omits_cache": true,
+      "proxy_type": "_LiveMultiEdgeDataView",
+      "removed_edge_visible": true,
+      "reused": true
+    }
+  },
+  "floating_point": "N/A: attributes are serialized only",
+  "hash_equal_display": {
+    "MultiDiGraph": {
+      "alias_delta": 0,
+      "default_sha": "d5ef87be41fcfc5b937f685b4947c0285570fbf71ce1b9347b1f8edeb5e832da",
+      "edge_data_sha": "9da1d5f3442bf8b0aee1acf9590a6ce0a3ad92c112a60ce57c492ccdd9b661b5",
+      "nodelist_sha": "00c6884861c9ea071950bd56a410163d975244bc9d00836562566a86b082ddb4"
+    },
+    "MultiGraph": {
+      "alias_delta": -6,
+      "default_sha": "fbae7e64be71fe0d112453259b6cd60d385e87b530a5e8a98dade101e4110e0b",
+      "edge_data_sha": "db9292b34b5d44631c31fb1dd6e1b795dc0c3f90a0da848c059e6cd76bce177e",
+      "nodelist_sha": "fc3e5836963a752eab6164bf4c4542e214623fde9b9740b14e68180b52569c8e"
+    }
+  },
+  "regular": {
+    "MultiDiGraph": {
+      "alias_delta": 0,
+      "default_sha": "fefb189a705ae6114e5efd99a3cf255a757ca927a2e0d10c2027509b9b07d03a",
+      "edge_data_sha": "336731cf55bb460b8d11647c6d9d3353be00ea39c47bf6f2ee53db46ca70542d",
+      "nodelist_sha": "ef05b206d940df0ebaf7eef21e746cc9eccd9fe5b317e3aefbefa5c8463e83a4"
+    },
+    "MultiGraph": {
+      "alias_delta": -144,
+      "default_sha": "29db6c089043f73f125be0ce1fd79a44a29a8a57e86acd8e4a27003452467e75",
+      "edge_data_sha": "d909c18b0b4fd0b1a7196218e69ae94ecddbc001417b841713f6ff46a24498e3",
+      "nodelist_sha": "d265248935d5c231e14f818dd4f21b3da7c92abdd0a93f3fc7171a61b0a33adf"
+    }
+  },
+  "rng": "N/A: deterministic synthetic graphs",
+  "sha256": "6d4ca0dcb1016f6a5ff02c2140f02a236eeff7f0bdabebe19ec09cf0f9bc26c8",
+  "tie_breaking": "N/A: no algorithmic tie-break path; insertion order/dict payload SHA checked"
+}

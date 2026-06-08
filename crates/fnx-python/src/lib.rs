@@ -3351,6 +3351,46 @@ impl PyMultiGraph {
         Py::new(py, MultiAtlasView::new(Py::from(slf), canonical))
     }
 
+    fn _native_to_dict_of_dicts_live(
+        slf: PyRef<'_, Self>,
+        view_cls: &Bound<'_, PyAny>,
+        cache: &Bound<'_, PyDict>,
+    ) -> PyResult<Py<PyDict>> {
+        let py = slf.py();
+        let graph = Py::from(slf);
+        let g = graph.borrow(py);
+        let result = PyDict::new(py);
+        for node in g.inner.nodes_ordered() {
+            let py_node = g.py_node_key(py, node);
+            let row = PyDict::new(py);
+            let row_cache: Py<PyDict> = match cache.get_item(py_node.bind(py))? {
+                Some(existing) => existing.downcast::<PyDict>()?.clone().unbind(),
+                None => {
+                    let created = PyDict::new(py);
+                    cache.set_item(py_node.bind(py), &created)?;
+                    created.unbind()
+                }
+            };
+            let row_cache = row_cache.bind(py);
+            for neighbor in g.inner.neighbors(node).unwrap_or_default() {
+                let py_neighbor = g.py_adj_key(py, node, neighbor);
+                if let Some(view) = row_cache.get_item(py_neighbor.bind(py))? {
+                    row.set_item(py_neighbor.bind(py), &view)?;
+                } else {
+                    let view = view_cls.call1((
+                        graph.clone_ref(py),
+                        py_node.clone_ref(py),
+                        py_neighbor.clone_ref(py),
+                    ))?;
+                    row_cache.set_item(py_neighbor.bind(py), &view)?;
+                    row.set_item(py_neighbor.bind(py), &view)?;
+                }
+            }
+            result.set_item(py_node.bind(py), row)?;
+        }
+        Ok(result.unbind())
+    }
+
     fn __getitem__(slf: PyRef<'_, Self>, n: &Bound<'_, PyAny>) -> PyResult<Py<MultiAtlasView>> {
         Self::_native_adjacency_row(slf, n)
     }

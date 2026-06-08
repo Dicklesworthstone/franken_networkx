@@ -43691,7 +43691,8 @@ def to_dict_of_dicts(G, nodelist=None, edge_data=None):
         _fast = _fnx.to_dict_of_dicts_undirected(G)
         if _fast is not None:
             return _fast
-    if nodelist is None:
+    default_nodelist = nodelist is None
+    if default_nodelist:
         nodelist = list(G.nodes())
     nodeset = set(nodelist)
 
@@ -43711,6 +43712,10 @@ def to_dict_of_dicts(G, nodelist=None, edge_data=None):
             _row = G._native_successor_row
         else:
             _row = None
+        if default_nodelist and _row is not None:
+            native_dict = getattr(G, "_native_to_dict_of_dicts_live", None)
+            if native_dict is not None:
+                return native_dict(_LiveMultiEdgeDataView, _live_multi_edge_view_row_cache(G))
         view_cache = _live_multi_edge_view_row_cache(G) if _row is not None else None
         for u in nodelist:
             row = {}

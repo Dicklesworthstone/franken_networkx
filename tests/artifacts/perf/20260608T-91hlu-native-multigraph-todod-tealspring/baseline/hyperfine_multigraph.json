@@ -1,0 +1,28 @@
+{
+  "results": [
+    {
+      "command": "python3 -c \"import franken_networkx as fnx; N=1200; D=5; P=3; G=fnx.MultiGraph(); G.add_nodes_from(range(N)); [G.add_edge(u,(u+off)%N,key=(off,k),weight=(u*17+((u+off)%N)*31+k)%97) for u in range(N) for off in range(1,D+1) for k in range(P)]; [fnx.to_dict_of_dicts(G) for _ in range(80)]\"",
+      "mean": 0.6615761184400001,
+      "stddev": 0.024260927805730973,
+      "median": 0.65651911604,
+      "user": 4.544747239999999,
+      "system": 0.09270576,
+      "min": 0.62848339604,
+      "max": 0.68647263704,
+      "times": [
+        0.68647263704,
+        0.65651911604,
+        0.65198531504,
+        0.62848339604,
+        0.6844201280400001
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}
