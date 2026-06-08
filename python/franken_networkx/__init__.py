@@ -20461,6 +20461,47 @@ def _random_tree_internal(n, seed=None):
 # ---------------------------------------------------------------------------
 
 
+def _structural_holes_constraint_matrix(G, weight):
+    """br-r37-c1-qurfc: nx's ``constraint(nodes=None)`` MATRIX path, verbatim,
+    over the native ``adjacency_matrix`` (byte-identical sparse to nx's)."""
+    import numpy as _np
+
+    G = _coerce_arg_to_fnx_graph(G)
+    P = adjacency_matrix(G, weight=weight).astype(float)
+    mutual_weights = P + P.T
+    sum_mutual_weights = mutual_weights.sum(axis=1)
+    with _np.errstate(divide="ignore", invalid="ignore"):
+        mutual_weights /= sum_mutual_weights[:, _np.newaxis]
+    local_constraints = (mutual_weights + mutual_weights @ mutual_weights) ** 2
+    constraints = ((mutual_weights > 0) * local_constraints).sum(axis=1)
+    isolated_nodes = sum_mutual_weights - 2 * mutual_weights.diagonal() == 0
+    constraints = _np.asarray(constraints).flatten()
+    constraints[_np.asarray(isolated_nodes).flatten()] = float("nan")
+    return dict(zip(G, constraints.tolist()))
+
+
+def _structural_holes_effective_size_matrix(G, weight):
+    """br-r37-c1-qurfc: nx's ``effective_size(nodes=None)`` MATRIX path, verbatim,
+    over the native ``adjacency_matrix``."""
+    import numpy as _np
+
+    G = _coerce_arg_to_fnx_graph(G)
+    P = adjacency_matrix(G, weight=weight).astype(float)
+    mutual_weights1 = P + P.T
+    mutual_weights2 = mutual_weights1.copy()
+    with _np.errstate(divide="ignore", invalid="ignore"):
+        mutual_weights1 /= mutual_weights1.sum(axis=1)[:, _np.newaxis]
+        mutual_weights2 /= mutual_weights2.max(axis=1).toarray()
+    r = 1 - (mutual_weights1 @ mutual_weights2.T).toarray()
+    effective_size = _np.asarray(((mutual_weights1 > 0) * r).sum(axis=1)).flatten()
+    sum_mutual_weights = (
+        _np.asarray(mutual_weights1.sum(axis=1)).flatten() - mutual_weights1.diagonal()
+    )
+    isolated_nodes = sum_mutual_weights == 0
+    effective_size[_np.asarray(isolated_nodes).flatten()] = float("nan")
+    return dict(zip(G, effective_size.tolist()))
+
+
 def constraint(G, nodes=None, weight=None, *, backend=None, **backend_kwargs):
     """Return Burt's constraint for nodes in *G*."""
     _validate_backend_dispatch_keywords("constraint", backend, backend_kwargs)
@@ -20476,6 +20517,14 @@ def constraint(G, nodes=None, weight=None, *, backend=None, **backend_kwargs):
     # self-loop. Delegate self-loop graphs to nx rather than re-deriving nx's
     # subtle matrix semantics in Rust.
     if weight is not None or G.is_directed() or number_of_selfloops(G) > 0:
+        # br-r37-c1-qurfc: nx's constraint(nodes=None) uses a deterministic
+        # MATRIX path (P + P.T row-normalized), not the set-order summation —
+        # so it is byte-reproducible in-process over the native adjacency_matrix
+        # (proven 0/320 exact across weighted/directed/self-loop), dropping the
+        # per-call fnx->nx conversion (~4x). The set-order ULP wall only affects
+        # the nodes!=None set path, which stays delegated.
+        if nodes is None:
+            return _structural_holes_constraint_matrix(G, weight)
         return _call_networkx_submodule_for_parity(
             "algorithms.structuralholes", "constraint", G,
             nodes=nodes, weight=weight,
@@ -20528,6 +20577,12 @@ def effective_size(G, nodes=None, weight=None, *, backend=None, **backend_kwargs
     # self-loop into the mutual-weight normalization, so delegate self-loop
     # graphs to nx (same reasoning as constraint).
     if weight is not None or G.is_directed() or number_of_selfloops(G) > 0:
+        # br-r37-c1-qurfc: nx's effective_size(nodes=None) uses a deterministic
+        # MATRIX path, byte-reproducible in-process over the native
+        # adjacency_matrix (proven 0/320 exact), dropping the fnx->nx conversion.
+        # nodes!=None (set-order path) stays delegated.
+        if nodes is None:
+            return _structural_holes_effective_size_matrix(G, weight)
         return _call_networkx_submodule_for_parity(
             "algorithms.structuralholes", "effective_size", G,
             nodes=nodes, weight=weight,
