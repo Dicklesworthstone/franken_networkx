@@ -12273,7 +12273,9 @@ def difference(G, H):
     # per-edge add_edge, no wasted empty-copy). The node-set check moves ahead of
     # the (skipped) create_empty_copy, which never raises, so error order is
     # unchanged. Falls back to the snapshot path below if the native path declines.
-    if type(G) is MultiDiGraph and type(H) is MultiDiGraph:
+    if (type(G) is MultiDiGraph and type(H) is MultiDiGraph) or (
+        type(G) is MultiGraph and type(H) is MultiGraph
+    ):
         if set(G) != set(H):
             raise NetworkXError("Node sets of graphs not equal")
         _native_R = G._native_difference(H)
