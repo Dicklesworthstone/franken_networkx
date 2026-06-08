@@ -22577,22 +22577,56 @@ def attribute_mixing_dict(G, attribute, nodes=None, normalized=False):
         ``result[a][b]`` counts edges between nodes with attribute
         values a and b.
     """
-    if nodes is None:
-        nodes = set(G)
-    else:
-        nodes = set(nodes)
-
-    # br-r37-c1-amdsnap: two PyO3 round-trip removals:
-    #  (1) per-node attribute lookup ``G.nodes[u].get(attribute, None)``
-    #      replaced by a single ``get_node_attributes`` bulk call
-    #      (~0.4ms vs 200 individual ~5µs calls = ~1ms).
-    #  (2) ``G.adjacency()`` iter (~7.7ms for n=200, m=1000) replaced
-    #      by ``G._adj.items()`` (~0.6ms) — same yield shape but
-    #      iterates the IndexMap directly without the per-pair
-    #      AdjacencyView wrapper.  Total ~10ms → ~1ms (~10× faster on
-    #      the helper, ~13× on the full attribute_assortativity).
     attr_map = get_node_attributes(G, attribute)
     is_multigraph = G.is_multigraph()
+
+    # br-r37-c1-amdcount: for the full-graph case (nodes=None) count attribute
+    # pairs over the native G.edges() ONCE instead of the attribute_pairs()
+    # generator -> mixing_dict two-pass over ~2*|E| tuples (~2.1x nx). An
+    # undirected non-loop edge contributes (a,b) and (b,a); a self-loop (a,a)
+    # once; a directed edge (a,b) once; a multigraph parallel edge once per
+    # key -- identical to nx's per-(u, neighbour) G.adjacency() enumeration.
+    # Inner dicts are created only when an edge produces a pair, so attribute
+    # values of edge-less nodes are absent (matching the generator + the
+    # matrix mapping's key set).
+    if nodes is None:
+        directed = G.is_directed()
+        result: dict = {}
+
+        def _add(a, b):
+            # nx's mixing_dict creates an (empty) row for BOTH endpoints of
+            # every pair, so an attribute value appearing only as a TARGET
+            # still gets a key. Mirror that for matrix-mapping parity.
+            inner = result.get(a)
+            if inner is None:
+                inner = result[a] = {}
+            if b not in result:
+                result[b] = {}
+            inner[b] = inner.get(b, 0) + 1
+
+        if is_multigraph:
+            for u, v in G.edges():
+                a = attr_map.get(u)
+                b = attr_map.get(v)
+                _add(a, b)
+                if not directed and u != v:
+                    _add(b, a)
+        else:
+            for u, v in G.edges():
+                a = attr_map.get(u)
+                b = attr_map.get(v)
+                _add(a, b)
+                if not directed and u != v:
+                    _add(b, a)
+        if normalized:
+            total = sum(sum(row.values()) for row in result.values())
+            if total:
+                for row in result.values():
+                    for key in row:
+                        row[key] /= total
+        return result
+
+    nodes = set(nodes)
 
     def attribute_pairs():
         for u, nbrsdict in G._adj.items():
