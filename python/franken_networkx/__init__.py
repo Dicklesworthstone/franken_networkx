@@ -30787,30 +30787,38 @@ def _fast_pred_row(graph, node):
     # dict-of-dicts identical to nx's exposed type; fall back to the
     # AtlasView-returning _native_predecessor_row (MultiDiGraph) for the
     # count-only callers (subgraph degree), else the slow view.
-    native_dict = getattr(graph, "_native_predecessor_row_dict", None)
-    if native_dict is not None:
-        return native_dict(node)
-    native = getattr(graph, "_native_predecessor_row", None)
-    if native is not None:
-        return native(node)
+    # br-r37-c1-kum9v: only call the native row accessors on a CONCRETE
+    # graph. A filtered/reverse VIEW inherits these methods from its base
+    # class but has an EMPTY Rust base, so native_dict(node) raises KeyError
+    # for a nested subgraph's view parent. type() (not getattr) gates it; the
+    # view falls through to graph.pred[node] (the filter-aware adjacency).
+    if type(graph) in (DiGraph, MultiDiGraph):
+        native_dict = getattr(graph, "_native_predecessor_row_dict", None)
+        if native_dict is not None:
+            return native_dict(node)
+        native = getattr(graph, "_native_predecessor_row", None)
+        if native is not None:
+            return native(node)
     return graph.pred[node]
 
 
 def _fast_succ_row(graph, node):
     # br-r37-c1-gchm1: type-correct O(deg) successor row (plain dict-of-dicts)
     # for reverse/filtered views; falls back to G[node] (native succ).
-    native_dict = getattr(graph, "_native_successor_row_dict", None)
-    if native_dict is not None:
-        return native_dict(node)
+    if type(graph) in (DiGraph, MultiDiGraph):  # br-r37-c1-kum9v: views -> G[node]
+        native_dict = getattr(graph, "_native_successor_row_dict", None)
+        if native_dict is not None:
+            return native_dict(node)
     return graph[node]
 
 
 def _fast_adj_row(graph, node):
     # br-r37-c1-r3gjb: plain dict-of-dicts adjacency row (O(deg), O(1)
     # per-neighbour lookup) vs G[node] (AtlasView, ~15x slower per fetch).
-    native_dict = getattr(graph, "_native_adjacency_row_dict", None)
-    if native_dict is not None:
-        return native_dict(node)
+    if type(graph) in (Graph, MultiGraph):  # br-r37-c1-kum9v: views -> G[node]
+        native_dict = getattr(graph, "_native_adjacency_row_dict", None)
+        if native_dict is not None:
+            return native_dict(node)
     return graph[node]
 
 
@@ -32229,10 +32237,18 @@ class _AssignedPrivateDegreeView:
             or not isinstance(view, _FilteredGraphView)
         ):
             return None
+        # br-r37-c1-kum9v: the fast path reads native parent rows
+        # (_fast_pred_row / parent[node]); a NESTED subgraph's parent is
+        # another _FilteredGraphView whose Rust base is EMPTY, so the inherited
+        # _native_predecessor_row_dict raises KeyError. Only fast-path when the
+        # parent is a CONCRETE graph; nested views fall to the slow filtered
+        # walk (correct — that path was not actually fast for a view parent).
+        parent = view._graph
+        if type(parent) not in (Graph, DiGraph, MultiGraph, MultiDiGraph):
+            return None
         keep = getattr(getattr(view, "_filter_node", None), "nodes", None)
         if keep is None or node not in keep:
             return None
-        parent = view._graph
         if reverse:
             row = _fast_pred_row(parent, node)
         else:
