@@ -1,0 +1,21 @@
+         726 function calls in 0.215 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+       25    0.000    0.000    0.215    0.009 <stdin>:101(<lambda>)
+       25    0.000    0.000    0.215    0.009 __init__.py:46999(wrapper)
+       25    0.004    0.000    0.215    0.009 __init__.py:12255(difference)
+       25    0.196    0.008    0.196    0.008 {method '_native_difference' of 'franken_networkx.MultiDiGraph' objects}
+       50    0.014    0.000    0.015    0.000 __init__.py:32751(__iter__)
+       50    0.000    0.000    0.000    0.000 __init__.py:11871(_coerce_arg_to_fnx_graph)
+       50    0.000    0.000    0.000    0.000 __init__.py:5712(predicate)
+       50    0.000    0.000    0.000    0.000 __init__.py:32257(_private_override)
+      250    0.000    0.000    0.000    0.000 {built-in method builtins.isinstance}
+       50    0.000    0.000    0.000    0.000 {built-in method builtins.vars}
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+       25    0.000    0.000    0.000    0.000 __init__.py:21220(_validate_backend_dispatch_keywords)
+       50    0.000    0.000    0.000    0.000 {function _make_class_safe_predicate.<locals>.predicate at 0x73d7a49de0c0}
+       50    0.000    0.000    0.000    0.000 {method 'get' of 'dict' objects}
+
+
