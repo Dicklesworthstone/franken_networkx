@@ -32046,7 +32046,42 @@ class _AssignedPrivateDegreeView:
             return 1
         return attrs.get(self._weight, 1)
 
+    def _filtered_set_count(self, node, *, reverse=False):
+        # br-r37-c1-r3gjb: for unweighted simple subgraphs with the default
+        # edge filter, the visible neighbours of a (visible) node are exactly
+        # parent_row & keep — count them in C (set intersection over the
+        # native parent row) instead of the per-neighbour _node_visible /
+        # _edge_visible Python loop. Returns None when the fast path does not
+        # apply (weighted / multigraph / non-set filter / node not visible).
+        view = self._graph
+        if (
+            self._weight is not None
+            or view.is_multigraph()
+            or not getattr(view, "_filter_edge_is_default", False)
+            or not isinstance(view, _FilteredGraphView)
+        ):
+            return None
+        keep = getattr(getattr(view, "_filter_node", None), "nodes", None)
+        if keep is None or node not in keep:
+            return None
+        parent = view._graph
+        if reverse:
+            row = _fast_pred_row(parent, node)
+        else:
+            row = parent[node]
+        try:
+            return len(keep.intersection(row))
+        except TypeError:
+            return None
+
     def _out_degree(self, node):
+        fast = self._filtered_set_count(node)
+        if fast is not None:
+            total = fast
+            # undirected counts a self-loop's contribution twice
+            if not self._graph.is_directed() and node in self._graph._graph[node]:
+                total += 1
+            return total
         total = 0
         for nbr, edge_data in self._graph.adj[node].items():
             if self._graph.is_multigraph():
@@ -32063,6 +32098,9 @@ class _AssignedPrivateDegreeView:
     def _in_degree(self, node):
         if not self._graph.is_directed():
             return 0
+        fast = self._filtered_set_count(node, reverse=True)
+        if fast is not None:
+            return fast
         total = 0
         for edge_data in self._graph.pred[node].values():
             if self._graph.is_multigraph():
