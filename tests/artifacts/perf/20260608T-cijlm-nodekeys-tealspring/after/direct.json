@@ -1,0 +1,20 @@
+{
+  "rows": [
+    {
+      "case": "digraph",
+      "fnx_seconds": 0.00906043709255755,
+      "fnx_total": 127744,
+      "nx_seconds": 0.005453787976875901,
+      "nx_total": 127744,
+      "ratio_fnx_to_nx": 1.6613108413773814
+    },
+    {
+      "case": "multidigraph",
+      "fnx_seconds": 0.00877087702974677,
+      "fnx_total": 127744,
+      "nx_seconds": 0.0034972820430994034,
+      "nx_total": 127744,
+      "ratio_fnx_to_nx": 2.5079124078805317
+    }
+  ]
+}

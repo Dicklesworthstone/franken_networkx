@@ -1,0 +1,38 @@
+{
+  "results": [
+    {
+      "command": "python tests/artifacts/perf/20260608T-cijlm-nodekeys-tealspring/harness_cijlm.py hyperfine --library fnx --case multidigraph --nodes 2000 --fanout 3 --calls 64",
+      "mean": 0.31710568264,
+      "stddev": 0.017092180920799414,
+      "median": 0.31455071544,
+      "user": 4.1398885,
+      "system": 0.06332626,
+      "min": 0.29214232444,
+      "max": 0.35004326444,
+      "times": [
+        0.35004326444,
+        0.31767852044,
+        0.30438676844,
+        0.33218859744,
+        0.32465800544,
+        0.30738110444,
+        0.29214232444,
+        0.31142291044000003,
+        0.30248055744,
+        0.32867477344
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

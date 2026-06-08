@@ -1011,6 +1011,16 @@ impl PyMultiDiGraph {
         self.graph_attrs.bind(py).set_item("name", value)
     }
 
+    /// br-r37-c1-cijlm: directed parity for PyGraph::_native_node_keys.
+    /// Returns node display objects in insertion order with one PyO3 crossing.
+    fn _native_node_keys(&self, py: Python<'_>) -> Vec<PyObject> {
+        self.inner
+            .nodes_ordered()
+            .into_iter()
+            .map(|n| self.py_node_key(py, n))
+            .collect()
+    }
+
     /// Monotonic node-mutation counter (br-r37-c1-39d82 / jft0i).
     /// Exposed to Python so view-materialization caches can key on
     /// ``(nodes_seq, edges_seq)`` without scanning for changes.
@@ -4703,6 +4713,16 @@ impl PyDiGraph {
     #[setter]
     fn set_name(&self, py: Python<'_>, value: String) -> PyResult<()> {
         self.graph_attrs.bind(py).set_item("name", value)
+    }
+
+    /// br-r37-c1-cijlm: directed parity for PyGraph::_native_node_keys.
+    /// Returns node display objects in insertion order with one PyO3 crossing.
+    fn _native_node_keys(&self, py: Python<'_>) -> Vec<PyObject> {
+        self.inner
+            .nodes_ordered()
+            .into_iter()
+            .map(|n| self.py_node_key(py, n))
+            .collect()
     }
 
     /// Monotonic node-mutation counter (br-r37-c1-39d82 / jft0i).
