@@ -35479,6 +35479,46 @@ def weisfeiler_lehman_subgraph_hashes(
     initial-label inclusion; fnx was missing that kwarg entirely. Match
     nx by delegating.
     """
+    # br-r37-c1-wlnative: attribute-free undirected simple fast path — run
+    # nx's exact per-node WL on a native adjacency snapshot (G.adjacency(),
+    # one native pass) instead of delegating (full fnx->nx conversion) or
+    # walking fnx's slow neighbour views. Byte-identical: the aggregate sorts
+    # the neighbour labels, so order is irrelevant; the result-dict key order
+    # follows G's node order (== adjacency()/degree() order). edge_attr /
+    # node_attr / directed / multigraph / non-concrete-Graph delegate.
+    if edge_attr is None and node_attr is None and type(G) is Graph:
+        if iterations <= 0:
+            raise ValueError(
+                "The WL algorithm requires that `iterations` be positive"
+            )
+        from collections import defaultdict as _defaultdict
+        from hashlib import blake2b as _blake2b
+
+        def _h(label):
+            return _blake2b(
+                label.encode("ascii"), digest_size=digest_size
+            ).hexdigest()
+
+        adj = {node: list(nbrs) for node, nbrs in G.adjacency()}
+        labels = {node: str(deg) for node, deg in G.degree()}
+        if include_initial_labels:
+            result = {k: [_h(v)] for k, v in labels.items()}
+        else:
+            result = _defaultdict(list)
+        # attribute-free: the degree-seed counts as one WL iteration.
+        for node in adj:
+            result[node].append(_h(labels[node]))
+        for _ in range(iterations - 1):
+            new_labels = {}
+            for node in adj:
+                hashed = _h(
+                    labels[node]
+                    + "".join(sorted(labels[m] for m in adj[node]))
+                )
+                new_labels[node] = hashed
+                result[node].append(hashed)
+            labels = new_labels
+        return dict(result)
     return _call_networkx_for_parity(
         "weisfeiler_lehman_subgraph_hashes",
         G,
