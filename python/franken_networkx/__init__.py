@@ -12268,6 +12268,17 @@ def difference(G, H):
     # rebuild-tax-bound) and the MultiGraph nx round-trip.
     if G.is_multigraph() != H.is_multigraph():
         raise NetworkXError("G and H must both be graphs or multigraphs.")
+    # br-r37-c1-natdiff: fully-native MultiDiGraph difference — builds the result
+    # in Rust (no Python EdgeView materialization of either graph's edges, no
+    # per-edge add_edge, no wasted empty-copy). The node-set check moves ahead of
+    # the (skipped) create_empty_copy, which never raises, so error order is
+    # unchanged. Falls back to the snapshot path below if the native path declines.
+    if type(G) is MultiDiGraph and type(H) is MultiDiGraph:
+        if set(G) != set(H):
+            raise NetworkXError("Node sets of graphs not equal")
+        _native_R = G._native_difference(H)
+        if _native_R is not None:
+            return _native_R
     R = create_empty_copy(G, with_data=False)
     if set(G) != set(H):
         raise NetworkXError("Node sets of graphs not equal")

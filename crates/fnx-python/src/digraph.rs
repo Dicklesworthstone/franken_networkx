@@ -84,6 +84,17 @@ impl PyMultiDiGraph {
         (u.to_owned(), v.to_owned(), key)
     }
 
+    /// br-r37-c1-natdiff: canonical lookup string of the DISPLAY edge key for
+    /// `(u, v, internal_key)` — the form nx compares in set-ops. With no
+    /// `edge_py_keys` entry the display key is the internal usize as an int, so
+    /// `edge_key_lookup_string` of it is `"int:{key}"`.
+    fn display_key_lookup(&self, py: Python<'_>, u: &str, v: &str, key: usize) -> PyResult<String> {
+        match self.edge_py_keys.get(&Self::edge_key(u, v, key)) {
+            Some(obj) => crate::edge_key_lookup_string(py, obj.bind(py)),
+            None => Ok(format!("int:{key}")),
+        }
+    }
+
     /// br-r37-c1-urle5: display-conflict guard for the plain-edge batch (mirrors
     /// `PyDiGraph::batch_display_conflict`).
     fn batch_display_conflict(
@@ -1395,6 +1406,78 @@ impl PyMultiDiGraph {
         self.nodes_seq = self.nodes_seq.wrapping_add(node_bumps);
         self.edges_seq = self.edges_seq.wrapping_add(edge_bumps);
         Ok(true)
+    }
+
+    /// br-r37-c1-natdiff: fully-native `difference(G, H)` for MultiDiGraph — builds
+    /// the result entirely in Rust (G's nodes, no data; G's edges whose DISPLAY
+    /// `(u, v, key)` is not in H), eliminating BOTH the per-edge `add_edge`
+    /// construction tax AND the Python `set(*.edges(keys=True))` EdgeView
+    /// materialization the wrapper otherwise pays twice. H's display edges are
+    /// hashed into a canonical `(u, v, key_lookup)` set; G is walked in
+    /// `edges(keys=True)` order (node-major / successor / key) and kept edges are
+    /// re-keyed sequentially per pair on the fresh result, carrying G's display
+    /// key object. Returns `None` (so the wrapper falls back) when H is not an
+    /// exact MultiDiGraph. The caller validates node-set equality first.
+    fn _native_difference(slf: PyRef<'_, Self>, py: Python<'_>, h: &Bound<'_, PyAny>) -> PyResult<Option<Py<Self>>> {
+        let Ok(h_ref) = h.extract::<PyRef<'_, Self>>() else {
+            return Ok(None);
+        };
+        let g = &*slf;
+        let hh = &*h_ref;
+
+        // H's display-edge canonical set.
+        let mut h_set: std::collections::HashSet<(String, String, String)> =
+            std::collections::HashSet::new();
+        for u in hh.inner.nodes_ordered() {
+            for v in hh.inner.successors(u).unwrap_or_default() {
+                for key in hh.inner.edge_keys(u, v).unwrap_or_default() {
+                    let kl = hh.display_key_lookup(py, u, v, key)?;
+                    h_set.insert((u.to_owned(), v.to_owned(), kl));
+                }
+            }
+        }
+
+        let mut r = Self::new_empty_with_mode(py, g.inner.mode())?;
+        let g_nodes: Vec<String> = g
+            .inner
+            .nodes_ordered()
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+        for node in &g_nodes {
+            r.node_key_map.insert(node.clone(), g.py_node_key(py, node));
+        }
+        let _ = r.inner.extend_nodes_with_attrs_unrecorded(
+            g_nodes.iter().map(|n| (n.clone(), fnx_classes::AttrMap::new())),
+        );
+
+        let mut edges: Vec<(String, String, usize, fnx_classes::AttrMap)> = Vec::new();
+        let mut display: Vec<(String, String, usize, PyObject)> = Vec::new();
+        let mut pair_count: HashMap<(String, String), usize> = HashMap::new();
+        for u in &g_nodes {
+            for v in g.inner.successors(u).unwrap_or_default() {
+                let vk = v.to_owned();
+                for key in g.inner.edge_keys(u, &vk).unwrap_or_default() {
+                    let kl = g.display_key_lookup(py, u, &vk, key)?;
+                    if !h_set.contains(&(u.clone(), vk.clone(), kl)) {
+                        let counter = pair_count.entry((u.clone(), vk.clone())).or_insert(0);
+                        let internal = *counter;
+                        *counter += 1;
+                        let disp = g.py_edge_key(py, u, &vk, key);
+                        edges.push((u.clone(), vk.clone(), internal, fnx_classes::AttrMap::new()));
+                        display.push((u.clone(), vk.clone(), internal, disp));
+                    }
+                }
+            }
+        }
+        let n_edges = edges.len();
+        let _ = r.inner.extend_keyed_edges_with_attrs_unrecorded(edges);
+        for (u, v, key, obj) in display {
+            r.edge_py_keys.entry(Self::edge_key(&u, &v, key)).or_insert(obj);
+        }
+        r.nodes_seq = u64::try_from(g_nodes.len()).unwrap_or(u64::MAX);
+        r.edges_seq = u64::try_from(n_edges).unwrap_or(u64::MAX);
+        Py::new(py, r).map(Some)
     }
 
     #[pyo3(signature = (u_for_edge, v_for_edge, key=None, **attr))]
