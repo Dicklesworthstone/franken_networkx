@@ -6024,29 +6024,76 @@ fn watts_strogatz_graph_core(
     p: f64,
     rng: &mut PythonRandom,
 ) -> Graph {
+    // br-r37-c1-mdff1: the rewire loop's per-rewire Graph.remove_edge is
+    // O(E) (edges IndexMap shift_remove_full), making the whole loop
+    // O(E^2) (19.4x nx at p=0.5). Do the rewire on LOCAL adjacency rows
+    // instead — retain (O(deg)) for removal, push for append, HashSet for
+    // O(1) membership — replicating the exact rng-draw order AND the
+    // remove-then-append row order. Then build the graph once and
+    // apply_row_orders to reproduce that exact adjacency, so output is
+    // byte-identical to the old per-edge path (== nx).
     let (mut graph, node_labels) = graph_with_n_nodes(mode, n);
     let ring_edges = ring_lattice_edges(n, half_k);
+
+    let mut rows: Vec<Vec<usize>> = vec![Vec::new(); n];
+    let mut edge_set: std::collections::HashSet<(usize, usize)> =
+        std::collections::HashSet::with_capacity(ring_edges.len());
+    #[inline]
+    fn canon(a: usize, b: usize) -> (usize, usize) {
+        if a <= b {
+            (a, b)
+        } else {
+            (b, a)
+        }
+    }
     for &(u, v) in &ring_edges {
-        let _ = graph.add_edge(node_labels[u].clone(), node_labels[v].clone());
+        rows[u].push(v);
+        rows[v].push(u);
+        edge_set.insert(canon(u, v));
     }
 
     for &(u, v) in &ring_edges {
         if rng.random() < p {
             let mut new_target = rng.randrange(n);
             let mut skip_rewire = false;
-            while new_target == u || graph.has_edge(&node_labels[u], &node_labels[new_target]) {
+            // rows[u].len() == graph.degree(u) here: ws has no self-loops
+            // and (u, v) is still present (removal happens after the loop).
+            while new_target == u || edge_set.contains(&canon(u, new_target)) {
                 new_target = rng.randrange(n);
-                if graph.degree(&node_labels[u]) >= n - 1 {
+                if rows[u].len() >= n - 1 {
                     skip_rewire = true;
                     break;
                 }
             }
             if !skip_rewire {
-                let _ = graph.remove_edge(&node_labels[u], &node_labels[v]);
-                let _ = graph.add_edge(node_labels[u].clone(), node_labels[new_target].clone());
+                rows[u].retain(|&x| x != v);
+                rows[v].retain(|&x| x != u);
+                edge_set.remove(&canon(u, v));
+                rows[u].push(new_target);
+                rows[new_target].push(u);
+                edge_set.insert(canon(u, new_target));
             }
         }
     }
+
+    // Build all final edges once (each undirected pair from the lower
+    // endpoint's row), then fix every node's row to the local order.
+    for u in 0..n {
+        for &v in &rows[u] {
+            if u < v {
+                let _ = graph.add_edge(node_labels[u].clone(), node_labels[v].clone());
+            }
+        }
+    }
+    let orders: Vec<(String, Vec<String>)> = (0..n)
+        .map(|u| {
+            (
+                node_labels[u].clone(),
+                rows[u].iter().map(|&v| node_labels[v].clone()).collect(),
+            )
+        })
+        .collect();
+    graph.apply_row_orders(&orders);
 
     graph
 }
