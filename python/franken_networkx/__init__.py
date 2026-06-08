@@ -26404,10 +26404,20 @@ def double_edge_swap(G, nswap=1, max_tries=100, seed=None):
                 f"before desired swaps achieved ({nswap})."
             )
         tries += 1
-        e1 = edges[rng.randint(0, len(edges) - 1)]
-        e2 = edges[rng.randint(0, len(edges) - 1)]
-        u, v = e1
-        x, y = e2
+        # br-r37-c1-vbwpl: keep the edge list current with O(1) in-place
+        # slot updates instead of rebuilding `list(G.edges())` after every
+        # successful swap (which was O(|E|)/swap -> O(nswap*|E|), ~167x nx
+        # at nswap=2000). The two picked slots are the only edges that
+        # change; both new edges are fresh (has_edge gate) and the list
+        # keeps exactly one entry per edge. Same rng-draw pattern and the
+        # documented uniform-edge-pick + degree-preservation contract;
+        # the exact edge sequence is an implementation detail (fnx's
+        # uniform-pick is an intentional divergence from nx's degree-CDF
+        # algorithm, so no exact-output parity is owed — only degree seq).
+        i1 = rng.randint(0, len(edges) - 1)
+        i2 = rng.randint(0, len(edges) - 1)
+        u, v = edges[i1]
+        x, y = edges[i2]
         if len({u, v, x, y}) < 4:
             continue
         # Try swap: (u,v), (x,y) → (u,x), (v,y)
@@ -26416,7 +26426,8 @@ def double_edge_swap(G, nswap=1, max_tries=100, seed=None):
             G.remove_edge(x, y)
             G.add_edge(u, x)
             G.add_edge(v, y)
-            edges = list(G.edges())
+            edges[i1] = (u, x)
+            edges[i2] = (v, y)
             swaps_done += 1
 
     return G
