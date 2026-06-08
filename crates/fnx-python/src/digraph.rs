@@ -95,6 +95,24 @@ impl PyMultiDiGraph {
         )
     }
 
+    fn multi_row_keydict(
+        &self,
+        py: Python<'_>,
+        source: &str,
+        target: &str,
+    ) -> PyResult<Py<PyDict>> {
+        let kd = PyDict::new(py);
+        for key in self.inner.edge_keys(source, target).unwrap_or_default() {
+            let edge_key = PyMultiDiGraph::edge_key(source, target, key);
+            let attrs = self
+                .edge_py_attrs
+                .get(&edge_key)
+                .map_or_else(|| PyDict::new(py).unbind(), |d| d.clone_ref(py));
+            kd.set_item(self.py_edge_key(py, source, target, key), attrs.bind(py))?;
+        }
+        Ok(kd.unbind())
+    }
+
     fn py_edge_key(&self, py: Python<'_>, u: &str, v: &str, key: usize) -> PyObject {
         self.edge_py_keys
             .get(&Self::edge_key(u, v, key))
@@ -1636,6 +1654,63 @@ impl PyMultiDiGraph {
             py,
             MultiDiAtlasView::new(Py::from(slf), canonical, MultiDiAdjKind::Predecessors),
         )
+    }
+
+    // br-r37-c1-gchm1: plain dict-of-dicts row accessors mirroring
+    // PyDiGraph's. Unlike _native_*_row (which returns a lazy
+    // MultiDiAtlasView whose inner values are MultiDiKeyDictView), these
+    // materialise to a PLAIN {neighbor: {key: attrs}} dict — the exact
+    // type nx exposes for .succ/.pred rows — so reverse/filtered views can
+    // read them at O(deg) without breaking deep snapshot/type parity.
+    fn _native_successor_row_dict(
+        &self,
+        py: Python<'_>,
+        n: &Bound<'_, PyAny>,
+    ) -> PyResult<Py<PyDict>> {
+        let canonical = node_key_to_string(py, n)?;
+        if !self.inner.has_node(&canonical) {
+            return Err(crate::missing_key_error(n));
+        }
+        let row = PyDict::new(py);
+        let neighbors: Vec<String> = self
+            .inner
+            .successors(&canonical)
+            .unwrap_or_default()
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+        for neighbor in &neighbors {
+            let py_neighbor = self.py_succ_key(py, &canonical, neighbor);
+            let keydict = self.multi_row_keydict(py, &canonical, neighbor)?;
+            row.set_item(py_neighbor, keydict.bind(py))?;
+        }
+        Ok(row.unbind())
+    }
+
+    fn _native_predecessor_row_dict(
+        &self,
+        py: Python<'_>,
+        n: &Bound<'_, PyAny>,
+    ) -> PyResult<Py<PyDict>> {
+        let canonical = node_key_to_string(py, n)?;
+        if !self.inner.has_node(&canonical) {
+            return Err(crate::missing_key_error(n));
+        }
+        let row = PyDict::new(py);
+        let neighbors: Vec<String> = self
+            .inner
+            .predecessors(&canonical)
+            .unwrap_or_default()
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+        for neighbor in &neighbors {
+            let py_neighbor = self.py_pred_key(py, &canonical, neighbor);
+            // pred edge is (neighbor -> canonical): source=neighbor, target=canonical
+            let keydict = self.multi_row_keydict(py, neighbor, &canonical)?;
+            row.set_item(py_neighbor, keydict.bind(py))?;
+        }
+        Ok(row.unbind())
     }
 
     fn __getitem__(slf: PyRef<'_, Self>, n: &Bound<'_, PyAny>) -> PyResult<Py<MultiDiAtlasView>> {

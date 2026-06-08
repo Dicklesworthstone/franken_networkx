@@ -30522,9 +30522,15 @@ class _ReverseNeighborMap(_Mapping):
         self._reverse = reverse
 
     def _raw_neighbors(self):
+        # br-r37-c1-gchm1: native O(deg) PLAIN-dict rows (type-correct for
+        # the exposed .succ/.pred snapshot) instead of G.succ[node]/
+        # G.pred[node] which re-materialise the whole parent adjacency
+        # (O(N+E)) — MultiDiGraph reverse().degree() timed out >8s.
+        # reverse view succ (reverse=False) = parent PREDECESSORS;
+        # reverse view pred (reverse=True) = parent SUCCESSORS.
         if self._reverse:
-            return self._view._graph.succ[self._node]
-        return self._view._graph.pred[self._node]
+            return _fast_succ_row(self._view._graph, self._node)
+        return _fast_pred_row(self._view._graph, self._node)
 
     def __iter__(self):
         return iter(self._raw_neighbors())
@@ -30753,13 +30759,28 @@ _ReverseMultiDirectedView.__name__ = "MultiDiGraph"
 
 
 def _fast_pred_row(graph, node):
-    # br-r37-c1-r3gjb: G.pred[node] re-materialises the whole predecessor
-    # adjacency (O(N+E)); the native per-node row accessor is O(deg). Used
-    # by filtered/subgraph in-degree + reverse edge/adjacency walks.
+    # br-r37-c1-r3gjb/gchm1: G.pred[node] re-materialises the whole
+    # predecessor adjacency (O(N+E)); the native per-node row accessor is
+    # O(deg). Prefer the *_dict variant (DiGraph) which returns a PLAIN
+    # dict-of-dicts identical to nx's exposed type; fall back to the
+    # AtlasView-returning _native_predecessor_row (MultiDiGraph) for the
+    # count-only callers (subgraph degree), else the slow view.
+    native_dict = getattr(graph, "_native_predecessor_row_dict", None)
+    if native_dict is not None:
+        return native_dict(node)
     native = getattr(graph, "_native_predecessor_row", None)
     if native is not None:
         return native(node)
     return graph.pred[node]
+
+
+def _fast_succ_row(graph, node):
+    # br-r37-c1-gchm1: type-correct O(deg) successor row (plain dict-of-dicts)
+    # for reverse/filtered views; falls back to G[node] (native succ).
+    native_dict = getattr(graph, "_native_successor_row_dict", None)
+    if native_dict is not None:
+        return native_dict(node)
+    return graph[node]
 
 
 class _FilteredNeighborMap(_Mapping):
