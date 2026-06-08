@@ -12436,6 +12436,14 @@ def symmetric_difference(G, H):
     # both directional edge passes, each batched into one add_edges_from.
     if G.is_multigraph() != H.is_multigraph():
         raise NetworkXError("G and H must both be graphs or multigraphs.")
+    if (type(G) is MultiDiGraph and type(H) is MultiDiGraph) or (
+        type(G) is MultiGraph and type(H) is MultiGraph
+    ):
+        if set(G) != set(H):
+            raise NetworkXError("Node sets of graphs not equal")
+        _native_R = G._native_symmetric_difference(H)
+        if _native_R is not None:
+            return _native_R
     R = create_empty_copy(G, with_data=False)
     if set(G) != set(H):
         raise NetworkXError("Node sets of graphs not equal")

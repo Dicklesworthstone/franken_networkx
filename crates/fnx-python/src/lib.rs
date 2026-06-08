@@ -2876,6 +2876,144 @@ impl PyMultiGraph {
         Py::new(py, r).map(Some)
     }
 
+    /// br-r37-c1-y0xps: fully-native `symmetric_difference(G, H)` for
+    /// MultiGraph. This is the two-sided sibling of `_native_difference`: build
+    /// display-edge membership sets for both operands, then emit G-only edges
+    /// followed by H-only edges, matching the Python wrapper's two list
+    /// comprehensions exactly. Set-op outputs carry no edge attrs and preserve
+    /// original display key objects. Falls back for z6uka row-display overrides.
+    fn _native_symmetric_difference(
+        slf: PyRef<'_, Self>,
+        py: Python<'_>,
+        h: &Bound<'_, PyAny>,
+    ) -> PyResult<Option<Py<Self>>> {
+        let Ok(h_ref) = h.extract::<PyRef<'_, Self>>() else {
+            return Ok(None);
+        };
+        let g = &*slf;
+        let hh = &*h_ref;
+        if !g.adj_py_keys.is_empty() || !hh.adj_py_keys.is_empty() {
+            return Ok(None);
+        }
+
+        let mut h_set: HashSet<(String, String, String)> = HashSet::new();
+        let mut h_seen: HashSet<(String, String, usize)> = HashSet::new();
+        for u in hh.inner.nodes_ordered() {
+            for v in hh.inner.neighbors(u).unwrap_or_default() {
+                for key in hh.inner.edge_keys(u, v).unwrap_or_default() {
+                    if !h_seen.insert(Self::edge_key(u, v, key)) {
+                        continue;
+                    }
+                    let kl = hh.display_key_lookup(py, u, v, key)?;
+                    h_set.insert((u.to_owned(), v.to_owned(), kl.clone()));
+                    h_set.insert((v.to_owned(), u.to_owned(), kl));
+                }
+            }
+        }
+
+        let mut g_set: HashSet<(String, String, String)> = HashSet::new();
+        let mut g_seen_for_set: HashSet<(String, String, usize)> = HashSet::new();
+        for u in g.inner.nodes_ordered() {
+            for v in g.inner.neighbors(u).unwrap_or_default() {
+                for key in g.inner.edge_keys(u, v).unwrap_or_default() {
+                    if !g_seen_for_set.insert(Self::edge_key(u, v, key)) {
+                        continue;
+                    }
+                    let kl = g.display_key_lookup(py, u, v, key)?;
+                    g_set.insert((u.to_owned(), v.to_owned(), kl.clone()));
+                    g_set.insert((v.to_owned(), u.to_owned(), kl));
+                }
+            }
+        }
+
+        let mut r = Self::new_empty_with_mode(py, g.inner.mode())?;
+        let g_nodes: Vec<String> = g
+            .inner
+            .nodes_ordered()
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+        for node in &g_nodes {
+            r.node_key_map.insert(node.clone(), g.py_node_key(py, node));
+        }
+        let _ = r.inner.extend_nodes_with_attrs_unrecorded(
+            g_nodes.iter().map(|n| (n.clone(), AttrMap::new())),
+        );
+
+        let mut edges: Vec<(String, String, usize, AttrMap)> = Vec::new();
+        let mut display: Vec<(String, String, usize, PyObject)> = Vec::new();
+        let mut pair_count: HashMap<(String, String), usize> = HashMap::new();
+
+        let mut g_seen: HashSet<(String, String, usize)> = HashSet::new();
+        for u in &g_nodes {
+            for v in g.inner.neighbors(u).unwrap_or_default() {
+                let vk = v.to_owned();
+                for key in g.inner.edge_keys(u, &vk).unwrap_or_default() {
+                    if !g_seen.insert(Self::edge_key(u, &vk, key)) {
+                        continue;
+                    }
+                    let kl = g.display_key_lookup(py, u, &vk, key)?;
+                    if !h_set.contains(&(u.clone(), vk.clone(), kl)) {
+                        let pair = if *u <= vk {
+                            (u.clone(), vk.clone())
+                        } else {
+                            (vk.clone(), u.clone())
+                        };
+                        let counter = pair_count.entry(pair).or_insert(0);
+                        let internal = *counter;
+                        *counter += 1;
+                        let disp = g.py_edge_key(py, u, &vk, key);
+                        edges.push((u.clone(), vk.clone(), internal, AttrMap::new()));
+                        display.push((u.clone(), vk.clone(), internal, disp));
+                    }
+                }
+            }
+        }
+
+        let h_nodes: Vec<String> = hh
+            .inner
+            .nodes_ordered()
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+        let mut h_seen_for_emit: HashSet<(String, String, usize)> = HashSet::new();
+        for u in &h_nodes {
+            for v in hh.inner.neighbors(u).unwrap_or_default() {
+                let vk = v.to_owned();
+                for key in hh.inner.edge_keys(u, &vk).unwrap_or_default() {
+                    if !h_seen_for_emit.insert(Self::edge_key(u, &vk, key)) {
+                        continue;
+                    }
+                    let kl = hh.display_key_lookup(py, u, &vk, key)?;
+                    if !g_set.contains(&(u.clone(), vk.clone(), kl)) {
+                        let pair = if *u <= vk {
+                            (u.clone(), vk.clone())
+                        } else {
+                            (vk.clone(), u.clone())
+                        };
+                        let counter = pair_count.entry(pair).or_insert(0);
+                        let internal = *counter;
+                        *counter += 1;
+                        let disp = hh.py_edge_key(py, u, &vk, key);
+                        edges.push((u.clone(), vk.clone(), internal, AttrMap::new()));
+                        display.push((u.clone(), vk.clone(), internal, disp));
+                    }
+                }
+            }
+        }
+
+        let n_edges = edges.len();
+        let _ = r.inner.extend_keyed_edges_with_attrs_unrecorded(edges);
+        for (u, v, key, obj) in display {
+            r.edge_py_keys
+                .entry(Self::edge_key(&u, &v, key))
+                .or_insert(obj);
+        }
+        r.nodes_seq = u64::try_from(g_nodes.len()).unwrap_or(u64::MAX);
+        r.edges_seq = u64::try_from(n_edges).unwrap_or(u64::MAX);
+        Py::new(py, r).map(Some)
+    }
+
     /// Fast path for ``MultiGraph.add_edge(int, int, key=int)`` when the
     /// endpoint pair has no existing edge and no attributes are supplied.
     fn _fast_add_explicit_int_edge(

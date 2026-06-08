@@ -1,0 +1,26 @@
+         344625 function calls in 0.281 seconds
+
+   Ordered by: cumulative time
+   List reduced from 48 to 20 due to restriction <20>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+       10    0.004    0.000    0.281    0.028 __init__.py:47108(wrapper)
+       10    0.020    0.002    0.277    0.028 __init__.py:12428(symmetric_difference)
+       40    0.097    0.002    0.101    0.003 __init__.py:2088(__call__)
+       10    0.076    0.008    0.076    0.008 {method '_native_add_keyed_edges_no_data' of 'franken_networkx.MultiDiGraph' objects}
+   134960    0.028    0.000    0.036    0.000 __init__.py:430(__next__)
+       10    0.000    0.000    0.033    0.003 __init__.py:17634(create_empty_copy)
+       20    0.009    0.000    0.033    0.002 __init__.py:2408(add_nodes_from)
+    18000    0.005    0.000    0.022    0.000 __init__.py:2376(add_node)
+    18000    0.016    0.000    0.016    0.000 {function MultiDiGraph.add_node at 0x7e8f2fb7dda0}
+       40    0.009    0.000    0.009    0.000 __init__.py:32860(__iter__)
+   134960    0.008    0.000    0.008    0.000 {built-in method builtins.next}
+       40    0.004    0.000    0.004    0.000 {method 'extend' of 'list' objects}
+    36000    0.002    0.000    0.002    0.000 {built-in method builtins.hash}
+       40    0.001    0.000    0.001    0.000 __init__.py:4580(_wrap_edge_data_view)
+       40    0.000    0.000    0.001    0.000 __init__.py:32913(edges)
+       80    0.000    0.000    0.000    0.000 __init__.py:1971(__iter__)
+       10    0.000    0.000    0.000    0.000 {method 'symmetric_difference' of 'set' objects}
+       40    0.000    0.000    0.000    0.000 weakref.py:164(__setitem__)
+       80    0.000    0.000    0.000    0.000 __init__.py:32374(_has_networkx_private_storage)
+       40    0.000    0.000    0.000    0.000 __init__.py:406(__init__)
