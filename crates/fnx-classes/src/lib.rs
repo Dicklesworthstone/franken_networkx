@@ -1520,7 +1520,17 @@ impl Graph {
         let Some(pair) = self.edge_pair_key(left, right) else {
             return false;
         };
-        let removed = self.edges.shift_remove_full(&pair);
+        // br-r37-c1-vbwpl: swap_remove (O(1)) instead of shift_remove
+        // (O(|E|)) — turns remove-heavy algos (double_edge_swap 188x,
+        // watts) from O(k*|E|) into O(k). The edge's slot is filled by
+        // the LAST edge; edge_index_endpoints does the SAME swap_remove
+        // so the two vectors stay element-parallel. Output is unaffected:
+        // edges_ordered() and all user-visible iteration order off
+        // ADJACENCY (adj_indices), not edges-map storage order; the only
+        // storage-order consumer is the COO matrix builder, where triple
+        // order is irrelevant (scipy CSR canonicalises). Edge keys are
+        // (node_idx,node_idx) so no key rekey is needed on edge removal.
+        let removed = self.edges.swap_remove_full(&pair);
         if let Some((edge_pos, _, _)) = removed {
             // br-r37-c1-d58s8 P2(c) slice 2: integer rows are the single
             // row store — drop the pair entries there.
@@ -1533,7 +1543,7 @@ impl Graph {
                     self.adj_indices[right_idx].retain(|&i| i != left_idx);
                 }
             }
-            self.edge_index_endpoints.remove(edge_pos);
+            self.edge_index_endpoints.swap_remove(edge_pos);
             self.revision = self.revision.saturating_add(1);
             true
         } else {
