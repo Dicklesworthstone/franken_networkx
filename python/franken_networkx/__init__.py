@@ -26484,10 +26484,14 @@ def directed_edge_swap(G, *, nswap=1, max_tries=100, seed=None):
                 f"Maximum number of swap attempts ({tries}) exceeded "
                 f"before desired swaps achieved ({nswap})."
             )
-        e1 = edges[rng.randint(0, len(edges) - 1)]
-        e2 = edges[rng.randint(0, len(edges) - 1)]
-        u, v = e1
-        x, y = e2
+        # br-r37-c1-vbwpl: O(1) in-place slot update instead of the
+        # O(|E|)/swap `edges = list(G.edges())` rebuild (-> O(nswap*|E|),
+        # same pattern as double_edge_swap). Same uniform-pick rng draws;
+        # in/out-degree-sequence + max_tries/exception contracts intact.
+        i1 = rng.randint(0, len(edges) - 1)
+        i2 = rng.randint(0, len(edges) - 1)
+        u, v = edges[i1]
+        x, y = edges[i2]
         if u == x or v == y:
             continue
         if u == y or x == v:
@@ -26498,7 +26502,8 @@ def directed_edge_swap(G, *, nswap=1, max_tries=100, seed=None):
             G.remove_edge(x, y)
             G.add_edge(u, y)
             G.add_edge(x, v)
-            edges = list(G.edges())
+            edges[i1] = (u, y)
+            edges[i2] = (x, v)
             swaps_done += 1
 
     return G
