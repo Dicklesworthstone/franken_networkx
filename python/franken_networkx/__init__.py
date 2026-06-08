@@ -10176,61 +10176,61 @@ def edge_bfs(G, source=None, orientation=None):
         if G.is_multigraph():
 
             def edges_from(node):
-                for nbr, keydict in G.adj[node].items():
+                for nbr, keydict in G[node].items():
                     for key in keydict:
                         yield (node, nbr, key)
 
         else:
 
             def edges_from(node):
-                for nbr in G.adj[node]:
+                for nbr in G[node]:
                     yield (node, nbr)
 
     elif not directed or orientation == "original":
         if G.is_multigraph():
 
             def edges_from(node):
-                for nbr, keydict in G.adj[node].items():
+                for nbr, keydict in G[node].items():
                     for key in keydict:
                         yield (node, nbr, key, _EDGE_TRAVERSAL_FORWARD)
 
         else:
 
             def edges_from(node):
-                for nbr in G.adj[node]:
+                for nbr in G[node]:
                     yield (node, nbr, _EDGE_TRAVERSAL_FORWARD)
 
     elif orientation == "reverse":
         if G.is_multigraph():
 
             def edges_from(node):
-                for nbr, keydict in G.pred[node].items():
+                for nbr, keydict in G._native_predecessor_row_dict(node).items():
                     for key in keydict:
                         yield (nbr, node, key, _EDGE_TRAVERSAL_REVERSE)
 
         else:
 
             def edges_from(node):
-                for nbr in G.pred[node]:
+                for nbr in G._native_predecessor_row_dict(node):
                     yield (nbr, node, _EDGE_TRAVERSAL_REVERSE)
 
     elif orientation == "ignore":
         if G.is_multigraph():
 
             def edges_from(node):
-                for nbr, keydict in G.adj[node].items():
+                for nbr, keydict in G[node].items():
                     for key in keydict:
                         yield (node, nbr, key, _EDGE_TRAVERSAL_FORWARD)
-                for nbr, keydict in G.pred[node].items():
+                for nbr, keydict in G._native_predecessor_row_dict(node).items():
                     for key in keydict:
                         yield (nbr, node, key, _EDGE_TRAVERSAL_REVERSE)
 
         else:
 
             def edges_from(node):
-                for nbr in G.adj[node]:
+                for nbr in G[node]:
                     yield (node, nbr, _EDGE_TRAVERSAL_FORWARD)
-                for nbr in G.pred[node]:
+                for nbr in G._native_predecessor_row_dict(node):
                     yield (nbr, node, _EDGE_TRAVERSAL_REVERSE)
 
     else:
@@ -10276,61 +10276,61 @@ def edge_dfs(G, source=None, orientation=None):
         if G.is_multigraph():
 
             def edges_from(node):
-                for nbr, keydict in G.adj[node].items():
+                for nbr, keydict in G[node].items():
                     for key in keydict:
                         yield (node, nbr, key)
 
         else:
 
             def edges_from(node):
-                for nbr in G.adj[node]:
+                for nbr in G[node]:
                     yield (node, nbr)
 
     elif not directed or orientation == "original":
         if G.is_multigraph():
 
             def edges_from(node):
-                for nbr, keydict in G.adj[node].items():
+                for nbr, keydict in G[node].items():
                     for key in keydict:
                         yield (node, nbr, key, _EDGE_TRAVERSAL_FORWARD)
 
         else:
 
             def edges_from(node):
-                for nbr in G.adj[node]:
+                for nbr in G[node]:
                     yield (node, nbr, _EDGE_TRAVERSAL_FORWARD)
 
     elif orientation == "reverse":
         if G.is_multigraph():
 
             def edges_from(node):
-                for nbr, keydict in G.pred[node].items():
+                for nbr, keydict in G._native_predecessor_row_dict(node).items():
                     for key in keydict:
                         yield (nbr, node, key, _EDGE_TRAVERSAL_REVERSE)
 
         else:
 
             def edges_from(node):
-                for nbr in G.pred[node]:
+                for nbr in G._native_predecessor_row_dict(node):
                     yield (nbr, node, _EDGE_TRAVERSAL_REVERSE)
 
     elif orientation == "ignore":
         if G.is_multigraph():
 
             def edges_from(node):
-                for nbr, keydict in G.adj[node].items():
+                for nbr, keydict in G[node].items():
                     for key in keydict:
                         yield (node, nbr, key, _EDGE_TRAVERSAL_FORWARD)
-                for nbr, keydict in G.pred[node].items():
+                for nbr, keydict in G._native_predecessor_row_dict(node).items():
                     for key in keydict:
                         yield (nbr, node, key, _EDGE_TRAVERSAL_REVERSE)
 
         else:
 
             def edges_from(node):
-                for nbr in G.adj[node]:
+                for nbr in G[node]:
                     yield (node, nbr, _EDGE_TRAVERSAL_FORWARD)
-                for nbr in G.pred[node]:
+                for nbr in G._native_predecessor_row_dict(node):
                     yield (nbr, node, _EDGE_TRAVERSAL_REVERSE)
 
     else:
