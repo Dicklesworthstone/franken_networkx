@@ -770,6 +770,67 @@ fn multidigraph_to_simple_digraph(
     dg
 }
 
+/// br-r37-c1-mexh6-dir: structure-only MultiDiGraph -> simple DiGraph for
+/// order-INVARIANT directed algorithms (is_strongly_connected etc.). Skips the
+/// attr clones + per-element ledger of multidigraph_to_simple_digraph (~61x nx
+/// on is_strongly_connected). No apply_row_orders (callers are order-invariant).
+fn multidigraph_to_simple_digraph_structure_only(
+    mdg: &fnx_classes::digraph::MultiDiGraph,
+) -> fnx_classes::digraph::DiGraph {
+    let mut dg =
+        fnx_classes::digraph::DiGraph::with_runtime_policy(mdg.runtime_policy().clone());
+    let nodes = mdg.nodes_ordered();
+    let _ = dg.extend_nodes_with_attrs_unrecorded(
+        nodes
+            .iter()
+            .map(|n| ((*n).to_owned(), fnx_classes::AttrMap::new())),
+    );
+    let mut edges: Vec<(String, String)> = Vec::new();
+    for u in &nodes {
+        if let Some(succs) = mdg.successors(u) {
+            for v in succs {
+                edges.push(((*u).to_owned(), v.to_owned()));
+            }
+        }
+    }
+    let _ = dg.extend_edges_unrecorded(edges);
+    dg
+}
+
+/// br-r37-c1-mexh6-dirtree: structure-only MultiDiGraph -> simple DiGraph that
+/// ALSO restores each node's successor AND predecessor row order
+/// (apply_row_orders), so DFS/BFS traversal order matches nx's direct
+/// multidigraph walk. Directed sibling of
+/// `multigraph_to_simple_graph_structure_only_ordered`: skips the attr clones +
+/// per-edge `has_edge` ledger of the full `multidigraph_to_simple_digraph`
+/// (which kept dfs_tree/bfs_tree ~14-16x nx on MultiDiGraph). `successors(u)`
+/// already yields DISTINCT targets, so no parallel-edge dedup is needed.
+fn multidigraph_to_simple_digraph_structure_only_ordered(
+    mdg: &fnx_classes::digraph::MultiDiGraph,
+) -> fnx_classes::digraph::DiGraph {
+    let mut dg =
+        fnx_classes::digraph::DiGraph::with_runtime_policy(mdg.runtime_policy().clone());
+    let nodes = mdg.nodes_ordered();
+    let _ = dg.extend_nodes_with_attrs_unrecorded(
+        nodes
+            .iter()
+            .map(|n| ((*n).to_owned(), fnx_classes::AttrMap::new())),
+    );
+    let mut edges: Vec<(String, String)> = Vec::new();
+    for u in &nodes {
+        if let Some(succs) = mdg.successors(u) {
+            for v in succs {
+                edges.push(((*u).to_owned(), v.to_owned()));
+            }
+        }
+    }
+    let _ = dg.extend_edges_unrecorded(edges);
+    let (succ_orders, pred_orders) = mdg_row_orders(mdg);
+    dg.apply_row_orders(&succ_orders, false);
+    dg.apply_row_orders(&pred_orders, true);
+    dg
+}
+
 /// Convert a MultiDiGraph to a simple DiGraph by choosing the minimum-weight
 /// parallel edge for each directed edge, matching NetworkX shortest-path semantics.
 fn multidigraph_to_weighted_simple_digraph(
@@ -6383,7 +6444,21 @@ pub fn bfs_edges(
             py.allow_threads(|| fnx_algorithms::bfs_edges(inner, &source_key, depth_limit))
         }
         _ => {
-            if gr.is_directed() {
+            if let GraphRef::MultiDirected { mdg, .. } = &gr {
+                // br-r37-c1-mexh6-dirtree: structure-only ordered conversion (no
+                // attr clones / ledger) instead of gr.digraph()'s full clone;
+                // succ/pred row orders preserve BFS order.
+                let owned = multidigraph_to_simple_digraph_structure_only_ordered(&mdg.inner);
+                if reverse {
+                    py.allow_threads(|| {
+                        fnx_algorithms::bfs_edges_directed_reverse(&owned, &source_key, depth_limit)
+                    })
+                } else {
+                    py.allow_threads(|| {
+                        fnx_algorithms::bfs_edges_directed(&owned, &source_key, depth_limit)
+                    })
+                }
+            } else if gr.is_directed() {
                 let inner = gr.digraph().expect("is_directed checked above");
                 if reverse {
                     py.allow_threads(|| {
@@ -6467,7 +6542,21 @@ pub fn bfs_tree(
             py.allow_threads(|| fnx_algorithms::bfs_edges(inner, &source_key, depth_limit))
         }
         _ => {
-            if gr.is_directed() {
+            if let GraphRef::MultiDirected { mdg, .. } = &gr {
+                // br-r37-c1-mexh6-dirtree: structure-only ordered conversion (no
+                // attr clones / ledger) instead of gr.digraph()'s full clone;
+                // succ/pred row orders preserve BFS order.
+                let owned = multidigraph_to_simple_digraph_structure_only_ordered(&mdg.inner);
+                if reverse {
+                    py.allow_threads(|| {
+                        fnx_algorithms::bfs_edges_directed_reverse(&owned, &source_key, depth_limit)
+                    })
+                } else {
+                    py.allow_threads(|| {
+                        fnx_algorithms::bfs_edges_directed(&owned, &source_key, depth_limit)
+                    })
+                }
+            } else if gr.is_directed() {
                 let inner = gr.digraph().expect("is_directed checked above");
                 if reverse {
                     py.allow_threads(|| {
@@ -6498,16 +6587,15 @@ pub fn bfs_tree(
     // 5.3x slower than on an identical native-built one. The tree only
     // needs the MODE; start a fresh ledger
     // (reference_runtime_policy_clone_tax).
-    let tree_mode = if gr.is_directed() {
-        gr.digraph().expect("is_directed checked above").mode()
-    } else {
-        // br-r37-c1-mexh6-dfs: read the mode straight off the MultiGraph instead
-        // of gr.undirected() (which would build the full simple-graph conversion
-        // just for the RuntimePolicy mode).
-        match &gr {
-            GraphRef::MultiUndirected { mg, .. } => mg.inner.mode(),
-            _ => gr.undirected().mode(),
-        }
+    let tree_mode = match &gr {
+        // br-r37-c1-mexh6-dfs/-dirtree: read the mode straight off the
+        // Multi(Di)Graph instead of gr.undirected()/gr.digraph() (which would
+        // build the full simple-graph conversion just for the RuntimePolicy
+        // mode — defeating the structure-only-ordered edge path above).
+        GraphRef::MultiUndirected { mg, .. } => mg.inner.mode(),
+        GraphRef::MultiDirected { mdg, .. } => mdg.inner.mode(),
+        _ if gr.is_directed() => gr.digraph().expect("is_directed checked above").mode(),
+        _ => gr.undirected().mode(),
     };
     let mut tree = crate::digraph::PyDiGraph::new_empty_with_mode(py, tree_mode)?;
     let source_py = source.clone().unbind();
@@ -7100,7 +7188,16 @@ fn dfs_edges_canonical(
                 py.allow_threads(|| fnx_algorithms::dfs_edges(inner, &source_key, depth_limit))
             }
             _ => {
-                if gr.is_directed() {
+                if let GraphRef::MultiDirected { mdg, .. } = gr {
+                    // br-r37-c1-mexh6-dirtree: structure-only ordered conversion
+                    // (no attr clones / per-edge ledger) instead of gr.digraph()'s
+                    // full multidigraph_to_simple_digraph; row orders preserve
+                    // DFS order.
+                    let owned = multidigraph_to_simple_digraph_structure_only_ordered(&mdg.inner);
+                    py.allow_threads(|| {
+                        fnx_algorithms::dfs_edges_directed(&owned, &source_key, depth_limit)
+                    })
+                } else if gr.is_directed() {
                     let __gr_digraph = gr.digraph().expect("is_directed checked above");
                     py.allow_threads(|| {
                         fnx_algorithms::dfs_edges_directed(__gr_digraph, &source_key, depth_limit)
@@ -7129,11 +7226,22 @@ fn dfs_edges_canonical(
                     py.allow_threads(|| dfs_forest_undirected(inner, &nodes, depth_limit).0)
                 }
                 _ => {
-                    if gr.is_directed() {
+                    if let GraphRef::MultiDirected { mdg, .. } = gr {
+                        // br-r37-c1-mexh6-dirtree: forest arm — structure-only
+                        // ordered conversion instead of gr.digraph()'s full clone.
+                        let owned =
+                            multidigraph_to_simple_digraph_structure_only_ordered(&mdg.inner);
+                        py.allow_threads(|| dfs_forest_directed(&owned, &nodes, depth_limit).0)
+                    } else if gr.is_directed() {
                         let __gr_digraph = gr.digraph().expect("is_directed checked above");
                         py.allow_threads(|| {
                             dfs_forest_directed(__gr_digraph, &nodes, depth_limit).0
                         })
+                    } else if let GraphRef::MultiUndirected { mg, .. } = gr {
+                        // br-r37-c1-mexh6-dirtree: forest arm — structure-only
+                        // ordered conversion instead of gr.undirected()'s full clone.
+                        let owned = multigraph_to_simple_graph_structure_only_ordered(&mg.inner);
+                        py.allow_threads(|| dfs_forest_undirected(&owned, &nodes, depth_limit).0)
                     } else {
                         let inner = gr.undirected();
                         py.allow_threads(|| dfs_forest_undirected(inner, &nodes, depth_limit).0)
@@ -7177,16 +7285,15 @@ pub fn dfs_tree(
     let edge_list = dfs_edges_canonical(py, &gr, source_key.clone(), depth_limit);
 
     // fresh ledger, mode only (lever 1) — see bfs_tree above.
-    let tree_mode = if gr.is_directed() {
-        gr.digraph().expect("is_directed checked above").mode()
-    } else {
-        // br-r37-c1-mexh6-dfs: read the mode straight off the MultiGraph instead
-        // of gr.undirected() (which would build the full simple-graph conversion
-        // just for the RuntimePolicy mode).
-        match &gr {
-            GraphRef::MultiUndirected { mg, .. } => mg.inner.mode(),
-            _ => gr.undirected().mode(),
-        }
+    let tree_mode = match &gr {
+        // br-r37-c1-mexh6-dfs/-dirtree: read the mode straight off the
+        // Multi(Di)Graph instead of gr.undirected()/gr.digraph() (which would
+        // build the full simple-graph conversion just for the RuntimePolicy
+        // mode — defeating the structure-only-ordered edge path above).
+        GraphRef::MultiUndirected { mg, .. } => mg.inner.mode(),
+        GraphRef::MultiDirected { mdg, .. } => mdg.inner.mode(),
+        _ if gr.is_directed() => gr.digraph().expect("is_directed checked above").mode(),
+        _ => gr.undirected().mode(),
     };
     let mut tree = crate::digraph::PyDiGraph::new_empty_with_mode(py, tree_mode)?;
 
