@@ -352,7 +352,23 @@ def _write_gml_via_nx(G, path, *, stringizer=None):
       - undirected graphs don't emit a spurious ``directed 0`` field
     """
     import networkx as nx
+    import franken_networkx as fnx
+    from networkx.utils import open_file
 
+    # br-r37-c1-gmldirect: nx's generate_gml only iterates nodes(data=
+    # True)/edges(data=True)/graph, all exposed nx-compatibly by fnx, so
+    # write DIRECTLY from the fnx graph (skip the fnx->nx rebuild that
+    # was 4.9x). Re-apply nx's @open_file to the undispatched writer so
+    # path + .gz/.bz2 compression handling is preserved. Exact concrete
+    # types only; views/subclasses keep the _to_nx fallback.
+    raw_writer = getattr(nx.write_gml, "__wrapped__", None)
+    if raw_writer is not None and type(G) in (
+        fnx.Graph,
+        fnx.DiGraph,
+        fnx.MultiGraph,
+        fnx.MultiDiGraph,
+    ):
+        return open_file(1, mode="wb")(raw_writer)(G, path, stringizer=stringizer)
     return nx.write_gml(_to_nx(G), path, stringizer=stringizer)
 
 
