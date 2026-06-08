@@ -9727,7 +9727,10 @@ pub fn condensation_nx_ordered(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult
 
     let mut py_dg = PyDiGraph::new_empty_with_policy(py, dg_ref.runtime_policy().clone())?;
     let mapping = PyDict::new(py);
-    let mut canonical_to_scc = HashMap::with_capacity(dg_ref.node_count());
+    // br-r37-c1-cond-csr: index the SCC map by integer node index (Vec) instead
+    // of hashing the String endpoints per edge.
+    let n = dg_ref.node_count();
+    let mut scc_of = vec![usize::MAX; n];
 
     for (idx, component) in components.iter().enumerate() {
         let label = idx.to_string();
@@ -9744,7 +9747,9 @@ pub fn condensation_nx_ordered(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult
         py_dg.node_py_attrs.insert(label, attrs.unbind());
 
         for node in component {
-            canonical_to_scc.insert(node.clone(), idx);
+            if let Some(ni) = dg_ref.get_node_index(node) {
+                scc_of[ni] = idx;
+            }
             mapping.set_item(gr.py_node_key(py, node), idx)?;
         }
     }
@@ -9753,28 +9758,29 @@ pub fn condensation_nx_ordered(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult
         py_dg.inner.add_node(idx.to_string());
     }
 
+    // br-r37-c1-cond-csr: walk the integer successor rows in source-major order
+    // (exactly nx's ``for u, v in G.edges()`` order) instead of
+    // ``edges_ordered()``, which clones every edge's AttrMap. Same edge set,
+    // same first-seen dedup, same order -> byte-identical condensation DAG.
     let mut seen = HashSet::new();
     let mut cond_edges = Vec::new();
-    for edge in dg_ref.edges_ordered() {
-        let Some(&left_idx) = canonical_to_scc.get(&edge.left) else {
-            return Err(NetworkXError::new_err(
-                "condensation internal SCC mapping missing source",
-            ));
-        };
-        let Some(&right_idx) = canonical_to_scc.get(&edge.right) else {
-            return Err(NetworkXError::new_err(
-                "condensation internal SCC mapping missing target",
-            ));
-        };
-        if left_idx == right_idx || !seen.insert((left_idx, right_idx)) {
+    for u_idx in 0..n {
+        let cu = scc_of[u_idx];
+        let Some(succs) = dg_ref.successors_indices(u_idx) else {
             continue;
+        };
+        for &v_idx in succs {
+            let cv = scc_of[v_idx];
+            if cu == cv || !seen.insert((cu, cv)) {
+                continue;
+            }
+            let left = cu.to_string();
+            let right = cv.to_string();
+            py_dg
+                .edge_py_attrs
+                .insert((left.clone(), right.clone()), PyDict::new(py).unbind());
+            cond_edges.push((left, right));
         }
-        let left = left_idx.to_string();
-        let right = right_idx.to_string();
-        py_dg
-            .edge_py_attrs
-            .insert((left.clone(), right.clone()), PyDict::new(py).unbind());
-        cond_edges.push((left, right));
     }
     let _ = py_dg.inner.extend_edges_unrecorded(cond_edges);
     py_dg.graph_attrs.bind(py).set_item("mapping", mapping)?;
