@@ -22,13 +22,13 @@ This ledger separates the broad public-export category from source-visible runti
 | Runtime route | Exports | Helper call sites | Rule |
 |---------------|---------|-------------------|------|
 | RUST_NATIVE | 1 | 0 | native extension export from `franken_networkx._fnx` |
-| PY_WRAPPER | 596 | 0 | Python-defined export with no visible NetworkX route |
-| NETWORKX_HELPER | 136 | 164 | Python-defined export with `_call_networkx_*_for_parity(...)` branches |
+| PY_WRAPPER | 595 | 0 | Python-defined export with no visible NetworkX route |
+| NETWORKX_HELPER | 137 | 165 | Python-defined export with `_call_networkx_*_for_parity(...)` branches |
 | DIRECT_NETWORKX | 0 | 0 | Python-defined export that directly imports or calls NetworkX |
 | CLASS | 28 | 0 | public classes, exceptions, iterators |
 | CONSTANT | 2 | 0 | public non-callable values |
 
-`NETWORKX_HELPER` currently covers 136 public export(s) and 164 parity-helper call site(s).
+`NETWORKX_HELPER` currently covers 137 public export(s) and 165 parity-helper call site(s).
 
 ## Upstream Divergence Ledger
 
@@ -38,7 +38,7 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 |------------------|------|------|
 | native-parity | 1 | public Rust-native export; no Python fallback route detected |
 | wrapper-patched | 24 | public wrapper records a compatibility repair over a lower-level gap |
-| intentionally-delegated | 136 | AST-visible parity helper or direct NetworkX route |
+| intentionally-delegated | 137 | AST-visible parity helper or direct NetworkX route |
 | raw-known-gap | 2 | lower-level raw/native implementation has a documented parity gap |
 | owner-acknowledged-limitation | 2 | documented limitation is intentionally owned until native repair |
 
@@ -211,6 +211,7 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 | `single_source_bellman_ford_path` | 1 | `single_source_bellman_ford_path` |
 | `single_source_bellman_ford_path_length` | 1 | `single_source_bellman_ford_path_length` |
 | `single_source_dijkstra` | 1 | `single_source_dijkstra` |
+| `single_source_dijkstra_path_length` | 1 | `single_source_dijkstra_path_length` |
 | `spectral_ordering` | 1 | `spectral_ordering` |
 | `stoer_wagner` | 1 | `stoer_wagner` |
 | `transitive_closure` | 1 | `transitive_closure` |
