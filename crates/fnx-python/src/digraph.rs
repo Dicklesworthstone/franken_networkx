@@ -3759,16 +3759,15 @@ impl PyDiGraph {
             .wrapping_add(u64::from(final_edge_bump));
 
         for (canonical, node) in new_nodes {
-            self.node_key_map.entry(canonical.clone()).or_insert(node);
-            self.node_py_attrs
-                .entry(canonical)
-                .or_insert_with(|| PyDict::new(py).unbind());
+            self.node_key_map.entry(canonical).or_insert(node);
         }
-        for (u, v) in &edges {
-            self.edge_py_attrs
-                .entry(Self::edge_key(u, v))
-                .or_insert_with(|| PyDict::new(py).unbind());
-        }
+        // br-r37-c1-89kxg (DiGraph parity): NO eager empty mirror dicts — the
+        // simple PyGraph batch already dropped these; every node/edge attr
+        // reader goes through materialize_*/ensure_*/entry().or_insert, so an
+        // absent mirror is observationally identical to an empty dict. Saves one
+        // PyDict::new per new node + one per edge during bulk construction
+        // (add_edges_from / set-ops / copy on DiGraph).
+        let _ = py;
         let _inserted = self.inner.extend_edges_unrecorded(edges);
         self.nodes_seq = self.nodes_seq.wrapping_add(node_bumps);
         self.edges_seq = self.edges_seq.wrapping_add(edge_bumps);
