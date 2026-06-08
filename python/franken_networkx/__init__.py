@@ -10965,7 +10965,19 @@ def minimum_spanning_tree(G, weight="weight", algorithm="kruskal", ignore_nan=Fa
                 return _minimum_spanning_tree_via_parity(G, weight, algorithm, ignore_nan)
     elif _has_nan_or_inf_edge_weight(G, weight):
         return _minimum_spanning_tree_via_parity(G, weight, algorithm, ignore_nan)
-    return _raw_minimum_spanning_tree(G, weight=weight)
+    result = _raw_minimum_spanning_tree(G, weight=weight)
+    # br-r37-c1-mstminattr: the native binding preserves edge attrs + node
+    # identity but NOT graph-level or node attributes; nx's minimum_spanning_tree
+    # copies G.graph and every node's data (and the _from_nx_graph parity path it
+    # replaces did too). Sibling of the maximum_spanning_tree fix
+    # (br-r37-c1-mstmaxnative) — minimum was left dropping them. Restore so the
+    # native fast path stays byte-identical to nx.
+    if G.graph:
+        result.graph.update(dict(G.graph))
+    for _node, _attrs in G.nodes(data=True):
+        if _attrs:
+            result.nodes[_node].update(_attrs)
+    return result
 
 
 def _minimum_spanning_tree_via_parity(G, weight, algorithm, ignore_nan):
