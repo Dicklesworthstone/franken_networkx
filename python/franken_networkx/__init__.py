@@ -12217,14 +12217,33 @@ def difference(G, H):
     R = create_empty_copy(G, with_data=False)
     if set(G) != set(H):
         raise NetworkXError("Node sets of graphs not equal")
+    # br-r37-c1-diffset: snapshot H's edges into a Python set ONCE and filter
+    # with C membership tests, instead of a per-edge H.has_edge() call (each a
+    # PyO3 / view-machinery crossing — ~55% of the time, 1.8x nx). For
+    # undirected graphs an edge is present in either orientation, so both
+    # (u, v) and (v, u) go into the set. G.edges() iteration order is
+    # preserved, so the result is byte-identical to the has_edge filter.
+    directed = G.is_directed()
     if G.is_multigraph():
+        if directed:
+            h_set = set(H.edges(keys=True))
+        else:
+            h_set = set()
+            for u, v, key in H.edges(keys=True):
+                h_set.add((u, v, key))
+                h_set.add((v, u, key))
         R.add_edges_from(
-            (u, v, key)
-            for u, v, key in G.edges(keys=True)
-            if not H.has_edge(u, v, key)
+            e for e in G.edges(keys=True) if e not in h_set
         )
     else:
-        R.add_edges_from(e for e in G.edges() if not H.has_edge(*e))
+        if directed:
+            h_set = set(H.edges())
+        else:
+            h_set = set()
+            for u, v in H.edges():
+                h_set.add((u, v))
+                h_set.add((v, u))
+        R.add_edges_from(e for e in G.edges() if e not in h_set)
     return R
 
 
@@ -12246,20 +12265,34 @@ def symmetric_difference(G, H):
     hnodes = set(H)
     nodes = gnodes.symmetric_difference(hnodes)
     R.add_nodes_from(nodes)
+    # br-r37-c1-diffset: snapshot each graph's edges into a Python set once
+    # and filter with C membership, instead of per-edge has_edge() (two passes
+    # here, so double the saved PyO3/view crossings). Undirected edges are
+    # present in either orientation, so both (u, v) and (v, u) go in the set.
     if G.is_multigraph():
-        R.add_edges_from(
-            (u, v, key)
-            for u, v, key in G.edges(keys=True)
-            if not H.has_edge(u, v, key)
-        )
-        R.add_edges_from(
-            (u, v, key)
-            for u, v, key in H.edges(keys=True)
-            if not G.has_edge(u, v, key)
-        )
+        if G.is_directed():
+            g_set = set(G.edges(keys=True))
+            h_set = set(H.edges(keys=True))
+        else:
+            g_set, h_set = set(), set()
+            for u, v, key in G.edges(keys=True):
+                g_set.add((u, v, key)); g_set.add((v, u, key))
+            for u, v, key in H.edges(keys=True):
+                h_set.add((u, v, key)); h_set.add((v, u, key))
+        R.add_edges_from(e for e in G.edges(keys=True) if e not in h_set)
+        R.add_edges_from(e for e in H.edges(keys=True) if e not in g_set)
     else:
-        R.add_edges_from(e for e in G.edges() if not H.has_edge(*e))
-        R.add_edges_from(e for e in H.edges() if not G.has_edge(*e))
+        if G.is_directed():
+            g_set = set(G.edges())
+            h_set = set(H.edges())
+        else:
+            g_set, h_set = set(), set()
+            for u, v in G.edges():
+                g_set.add((u, v)); g_set.add((v, u))
+            for u, v in H.edges():
+                h_set.add((u, v)); h_set.add((v, u))
+        R.add_edges_from(e for e in G.edges() if e not in h_set)
+        R.add_edges_from(e for e in H.edges() if e not in g_set)
     return R
 
 
