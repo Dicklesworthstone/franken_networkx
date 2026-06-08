@@ -13422,8 +13422,11 @@ def topological_sort(G):
     indegree = {v: 0 for v in G}
     if G.is_multigraph():
         # MultiDiGraph: a successor with k parallel edges contributes k.
+        # br-r37-c1-mexh6: G[u] is the native O(deg) successor row; succ[u]
+        # (MultiAdjacencyView) re-materialises the whole adjacency per access
+        # (~1800x slower per row) -> topological_sort was O(N*(N+E)) / ~1746x nx.
         for u in G:
-            for v, keydict in succ[u].items():
+            for v, keydict in G[u].items():
                 indegree[v] += len(keydict)
         queue = _deque(v for v in G if indegree[v] == 0)
         _count = 0
@@ -13431,7 +13434,7 @@ def topological_sort(G):
             u = queue.popleft()
             yield u
             _count += 1
-            for v, keydict in succ[u].items():
+            for v, keydict in G[u].items():
                 indegree[v] -= len(keydict)
                 if indegree[v] == 0:
                     queue.append(v)
