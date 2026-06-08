@@ -6821,8 +6821,7 @@ pub fn average_shortest_path_length(graph: &Graph) -> AverageShortestPathLengthR
 /// Returns `f64::INFINITY` if the graph is not strongly connected.
 #[must_use]
 pub fn average_shortest_path_length_directed(digraph: &DiGraph) -> AverageShortestPathLengthResult {
-    let nodes = digraph.nodes_ordered();
-    let n = nodes.len();
+    let n = digraph.node_count();
     if n <= 1 {
         return AverageShortestPathLengthResult {
             average_shortest_path_length: 0.0,
@@ -6836,27 +6835,33 @@ pub fn average_shortest_path_length_directed(digraph: &DiGraph) -> AverageShorte
         };
     }
 
+    // br-r37-c1-wiener-csr (sibling): integer-CSR BFS over `successors_indices`
+    // + reused dist/queue buffers, dropping the per-edge `get_node_index(name)`
+    // String hash. Witness counts (edges_scanned/queue_peak/nodes_touched) stay
+    // byte-identical because the integer successor row has the same order and
+    // length as `successors(name)`, and BFS distances are order-invariant.
     let mut total_distance = 0usize;
     let mut total_nodes_touched = 0usize;
     let mut total_edges_scanned = 0usize;
     let mut max_queue_peak = 0usize;
+    let mut dist = vec![usize::MAX; n];
+    let mut queue = VecDeque::with_capacity(n);
 
     for s in 0..n {
-        let mut dist = vec![None; n];
-        let mut queue = VecDeque::new();
-        dist[s] = Some(0usize);
+        dist.iter_mut().for_each(|d| *d = usize::MAX);
+        dist[s] = 0;
+        queue.clear();
         queue.push_back(s);
         let mut reached = 0usize;
 
         while let Some(u) = queue.pop_front() {
             reached += 1;
-            let d = dist[u].unwrap();
-            if let Some(succs) = digraph.successors(nodes[u]) {
-                for v_name in succs {
+            let d = dist[u];
+            if let Some(succs) = digraph.successors_indices(u) {
+                for &v in succs {
                     total_edges_scanned += 1;
-                    let v = digraph.get_node_index(v_name).unwrap();
-                    if dist[v].is_none() {
-                        dist[v] = Some(d + 1);
+                    if dist[v] == usize::MAX {
+                        dist[v] = d + 1;
                         queue.push_back(v);
                     }
                 }
@@ -6877,7 +6882,7 @@ pub fn average_shortest_path_length_directed(digraph: &DiGraph) -> AverageShorte
             };
         }
 
-        total_distance += dist.into_iter().flatten().sum::<usize>();
+        total_distance += dist.iter().filter(|&&d| d != usize::MAX).sum::<usize>();
         total_nodes_touched += reached;
     }
 
