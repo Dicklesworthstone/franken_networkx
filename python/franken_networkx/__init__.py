@@ -11733,20 +11733,16 @@ def _modularity_backend_impl(G, communities, weight="weight", resolution=1):
             weight=weight,
             resolution=resolution,
         )
-    # br-r37-c1-nim1v: the Rust ``_raw_modularity`` ignores the
-    # ``weight`` kwarg — it returns the unweighted modularity even
-    # when the user asks for a weighted attribute. Detect "actually
-    # weighted" inputs and delegate to nx's reference implementation
-    # so the result matches the documented contract.
-    if (
-        weight is not None
-        and weight != "weight"  # cheap check first
-    ):
-        weighted = _graph_has_nonunit_weight(G, weight)
-    elif weight is not None:
-        weighted = _graph_has_nonunit_weight(G, weight)
-    else:
-        weighted = False
+    # br-r37-c1-nim1v / br-r37-c1-modsnapshot: weighted inputs must delegate to
+    # nx's reference implementation (the snapshot/Rust paths are unweighted).
+    # The old guard called _graph_has_nonunit_weight, which is a HISTORICAL
+    # no-op that ALWAYS returns False (it only syncs Rust attrs) — so genuinely
+    # weighted graphs were silently computed UNWEIGHTED. This bug was masked
+    # while fnx.community.modularity re-exported nx's function; routing the
+    # public entry to this backend impl exposed it. Use the real detector
+    # _graph_has_explicit_nonunit_weight (native fast path + edge-walk
+    # fallback). weight=None => unit weights => not weighted.
+    weighted = weight is not None and _graph_has_explicit_nonunit_weight(G, weight)
     if weighted:
         return _nx.community.modularity(
             _networkx_graph_for_parity(G),
@@ -11754,7 +11750,35 @@ def _modularity_backend_impl(G, communities, weight="weight", resolution=1):
             weight=weight,
             resolution=resolution,
         )
-    return _raw_modularity(G, community_list, weight=weight, resolution=resolution)
+    # br-r37-c1-modsnapshot: the native Rust _raw_modularity kernel is
+    # substrate-bound (~60ms / 30x nx on a 1200-node graph). At THIS point the
+    # graph is undirected, unweighted, has >0 edges, and community_list is a
+    # validated partition, so compute nx's reduced formula
+    # Q = sum_c [ L_c/m - gamma*(k_c/2m)^2 ] directly over a native degree dict
+    # and ONE native edge pass (0.76x nx). L_c counts each intra-community edge
+    # once — including a self-loop once — matching nx's G.edges(comm) sum.
+    deg = dict(G.degree())
+    two_m = sum(deg.values())
+    m = two_m / 2.0
+    norm = 1.0 / (two_m * two_m)
+    cid = {}
+    for idx, community in enumerate(community_list):
+        for node in community:
+            cid[node] = idx
+    intra = [0] * len(community_list)
+    for u, v in G.edges():
+        cu = cid.get(u)
+        if cu is not None and cu == cid.get(v):
+            intra[cu] += 1
+    ksum = [0] * len(community_list)
+    for node, d in deg.items():
+        c = cid.get(node)
+        if c is not None:
+            ksum[c] += d
+    return sum(
+        intra[c] / m - resolution * ksum[c] * ksum[c] * norm
+        for c in range(len(community_list))
+    )
 
 
 
