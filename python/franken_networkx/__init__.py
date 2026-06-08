@@ -18205,6 +18205,13 @@ except ImportError:  # pragma: no cover — defensive for partial builds
 
 try:
     from franken_networkx._fnx import (
+        adjacency_arrays_multigraph as _native_adjacency_arrays_multigraph,
+    )
+except ImportError:  # pragma: no cover — defensive for partial builds
+    _native_adjacency_arrays_multigraph = None
+
+try:
+    from franken_networkx._fnx import (
         adjacency_default_order_index_arrays as _native_adjacency_default_order_index_arrays,
     )
 except ImportError:  # pragma: no cover — defensive for partial builds
@@ -43234,6 +43241,54 @@ def to_scipy_sparse_array(G, nodelist=None, dtype=None, weight="weight", format=
                     )
             else:
                 if _use_native_weighted:
+                    rows = _np.asarray(rows, dtype=_np.intp)
+                    cols = _np.asarray(cols, dtype=_np.intp)
+                    data = _np.asarray(data, dtype=dtype)
+                matrix = scipy.sparse.coo_array(
+                    (data, (rows, cols)),
+                    shape=(len(nodelist), len(nodelist)),
+                    dtype=dtype,
+                )
+            return matrix.asformat(format)
+
+    # br-r37-c1-mexh6: native COO builder for MultiGraph / MultiDiGraph.
+    # Emits one COO entry per parallel edge (symmetric for undirected
+    # non-self-loops); scipy sums duplicate coordinates at format conversion,
+    # producing a matrix identical to the pre-accumulated Python path below
+    # (and to nx, which likewise emits per-edge duplicates). Gated like the
+    # simple weighted path: weight=None (unit weights) or a string weight key
+    # with a pinned dtype — a pinned dtype removes nx's int/float inference
+    # ambiguity that the f64-returning native helper cannot reproduce. The
+    # native helper reads the Rust inner AttrMap, stale after G[u][v][k]=v
+    # mutations, so sync edge attrs first when a weight key is used.
+    if (
+        _native_adjacency_arrays_multigraph is not None
+        and G.is_multigraph()
+        and isinstance(G, (MultiGraph, MultiDiGraph))
+        and (weight is None or (isinstance(weight, str) and dtype is not None))
+    ):
+        if weight is not None:
+            _sync_rust_edge_attrs(G, edge_only=True)
+        _mg_native = _native_adjacency_arrays_multigraph(
+            G, nodelist, weight if isinstance(weight, str) else None, 1.0
+        )
+        if _mg_native is not None:
+            import numpy as _np
+            rows, cols, data = _mg_native
+            if dtype is None and data:
+                data_arr = _np.asarray(data)
+                if _np.array_equal(data_arr, data_arr.astype(_np.int64)):
+                    matrix = scipy.sparse.coo_array(
+                        (data_arr.astype(_np.int64), (rows, cols)),
+                        shape=(len(nodelist), len(nodelist)),
+                    )
+                else:
+                    matrix = scipy.sparse.coo_array(
+                        (data_arr, (rows, cols)),
+                        shape=(len(nodelist), len(nodelist)),
+                    )
+            else:
+                if dtype is not None:
                     rows = _np.asarray(rows, dtype=_np.intp)
                     cols = _np.asarray(cols, dtype=_np.intp)
                     data = _np.asarray(data, dtype=dtype)

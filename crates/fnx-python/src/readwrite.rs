@@ -1350,6 +1350,80 @@ pub fn to_dict_of_lists_undirected(
     Ok(Some(outer.unbind()))
 }
 
+/// br-r37-c1-mexh6: native COO builder for `to_scipy_sparse_array` on
+/// MultiGraph / MultiDiGraph. Emits ONE `(ui, vi, w)` entry per parallel edge
+/// (plus the symmetric `(vi, ui)` for undirected non-self-loops), iterating the
+/// inner multigraph adjacency in node/neighbor/key order. scipy sums duplicate
+/// coordinates at format conversion, so the resulting matrix is identical to
+/// the pre-accumulated Python path (and to nx, which likewise emits one entry
+/// per parallel edge). `w` is the `weight_attr` value coerced to f64, or
+/// `default_weight` when the key is absent / non-numeric (weight=None passes
+/// `weight_attr=None`, giving unit weights). Returns `None` for non-multigraph
+/// inputs so the Python wrapper falls through to its simple-graph native paths.
+#[pyfunction]
+pub fn adjacency_arrays_multigraph(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    nodelist: &Bound<'_, PyAny>,
+    weight_attr: Option<&str>,
+    default_weight: f64,
+) -> PyResult<Option<(Vec<u32>, Vec<u32>, Vec<f64>)>> {
+    let nodes_iter = pyo3::types::PyIterator::from_object(nodelist)?;
+    let mut index: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
+    for (count, item) in (0_u32..).zip(nodes_iter) {
+        let item = item?;
+        let canonical = node_key_to_string(py, &item)?;
+        index.entry(canonical).or_insert(count);
+    }
+
+    let gr = extract_graph(g)?;
+    let (rows, cols, data) = match &gr {
+        GraphRef::MultiUndirected { mg, .. } => {
+            let inner = &mg.inner;
+            let edge_count = inner.edge_count();
+            let mut rows: Vec<u32> = Vec::with_capacity(edge_count * 2);
+            let mut cols: Vec<u32> = Vec::with_capacity(edge_count * 2);
+            let mut data: Vec<f64> = Vec::with_capacity(edge_count * 2);
+            for (u, v, _key, attrs) in inner.edges_ordered_borrowed() {
+                let Some(&ui) = index.get(u) else { continue };
+                let Some(&vi) = index.get(v) else { continue };
+                let w = weight_attr
+                    .and_then(|attr| attrs.get(attr).and_then(|val| val.as_f64()))
+                    .unwrap_or(default_weight);
+                rows.push(ui);
+                cols.push(vi);
+                data.push(w);
+                if ui != vi {
+                    rows.push(vi);
+                    cols.push(ui);
+                    data.push(w);
+                }
+            }
+            (rows, cols, data)
+        }
+        GraphRef::MultiDirected { mdg, .. } => {
+            let inner = &mdg.inner;
+            let edge_count = inner.edge_count();
+            let mut rows: Vec<u32> = Vec::with_capacity(edge_count);
+            let mut cols: Vec<u32> = Vec::with_capacity(edge_count);
+            let mut data: Vec<f64> = Vec::with_capacity(edge_count);
+            for (u, v, _key, attrs) in inner.edges_ordered_borrowed() {
+                let Some(&ui) = index.get(u) else { continue };
+                let Some(&vi) = index.get(v) else { continue };
+                let w = weight_attr
+                    .and_then(|attr| attrs.get(attr).and_then(|val| val.as_f64()))
+                    .unwrap_or(default_weight);
+                rows.push(ui);
+                cols.push(vi);
+                data.push(w);
+            }
+            (rows, cols, data)
+        }
+        GraphRef::Undirected(_) | GraphRef::Directed { .. } => return Ok(None),
+    };
+    Ok(Some((rows, cols, data)))
+}
+
 /// Native fast path for `adjacency_data` (json_graph) on simple `Graph` and
 /// `DiGraph`. Returns the `(nodes, adjacency)` pair that the Python wrapper
 /// assembles into the full payload:
@@ -1695,6 +1769,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(floyd_warshall_dense, m)?)?;
     m.add_function(wrap_pyfunction!(to_dict_of_dicts_undirected, m)?)?;
     m.add_function(wrap_pyfunction!(to_dict_of_lists_undirected, m)?)?;
+    m.add_function(wrap_pyfunction!(adjacency_arrays_multigraph, m)?)?;
     m.add_function(wrap_pyfunction!(adjacency_data_simple, m)?)?;
     m.add_function(wrap_pyfunction!(node_link_data_simple, m)?)?;
     m.add_function(wrap_pyfunction!(to_edgelist_simple, m)?)?;
