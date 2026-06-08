@@ -20559,6 +20559,39 @@ def degree_mixing_dict(G, x="out", y="in", weight=None, nodes=None, normalized=F
         ``result[d1][d2]`` is the _count of edges between nodes of
         degree d1 and degree d2.
     """
+    # br-r37-c1-mixfast: vectorize the common undirected / unweighted /
+    # full-graph count. node_degree_xy walks G.edges(u) per node AND
+    # re-looks-up each neighbour's degree through the DegreeView (~4.8x nx).
+    # Here count degree pairs over the native edge list once against a native
+    # degree dict. The resulting counts are IDENTICAL (an undirected non-loop
+    # edge contributes (du,dv) and (dv,du); a self-loop contributes (du,du)
+    # once — exactly nx's per-node G.edges(u) enumeration). Directed /
+    # weighted / multigraph / nodes-subset keep the generator path (in/out
+    # semantics, parallel-edge tuples, weights, node filtering).
+    if (
+        weight is None
+        and nodes is None
+        and not G.is_directed()
+        and not G.is_multigraph()
+        and type(G) is Graph
+    ):
+        deg = dict(G.degree())
+        result = {}
+        for u, v in G.edges():
+            du = deg[u]
+            dv = deg[v]
+            inner = result.setdefault(du, {})
+            inner[dv] = inner.get(dv, 0) + 1
+            if u != v:
+                inner2 = result.setdefault(dv, {})
+                inner2[du] = inner2.get(du, 0) + 1
+        if normalized:
+            total = sum(sum(inner.values()) for inner in result.values())
+            if total:
+                for inner in result.values():
+                    for key in inner:
+                        inner[key] /= total
+        return result
     return mixing_dict(
         node_degree_xy(G, x=x, y=y, weight=weight, nodes=nodes),
         normalized=normalized,
