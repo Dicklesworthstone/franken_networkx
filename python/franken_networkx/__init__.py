@@ -30845,7 +30845,35 @@ class _FilteredNeighborMap(_Mapping):
 
     def __iter__(self):
         row = self._raw_neighbors()
-        if self._view.is_multigraph():
+        view = self._view
+        # br-r37-c1-ag2sx: DEFAULT edge filter + set node filter — a neighbour
+        # is visible iff BOTH endpoints are in the keep-set. self._node is
+        # constant here, so check it once, then gate each neighbour with a C
+        # `in keep` membership instead of the per-neighbour _node_visible /
+        # _edge_visible Python method calls (MultiGraph subgraph copy/edges
+        # walk this once per (node, neighbour) — ~6.8x nx). Row/keep iteration
+        # ORDER is preserved exactly (same node_ok_shorter branch as nx's
+        # FilterMultiInner), so edge order is unchanged.
+        keep = getattr(view._filter_node, "nodes", None)
+        if keep is not None and view._filter_edge_is_default:
+            if self._node not in keep:
+                return
+            if view.is_multigraph():
+                node_ok_shorter = 2 * len(keep) < len(row)
+                if node_ok_shorter:
+                    for neighbor in keep:
+                        if neighbor in row:
+                            yield neighbor
+                    return
+                for neighbor in row:
+                    if neighbor in keep:
+                        yield neighbor
+                return
+            for neighbor in row:
+                if neighbor in keep:
+                    yield neighbor
+            return
+        if view.is_multigraph():
             # br-r37-c1-0ek49: nx's FilterMultiInner.__iter__ receives the
             # view's NODE_OK (which carries the keep-set as `.nodes`) and
             # switches to iterating that SET — CPython set order, not row
@@ -30853,7 +30881,7 @@ class _FilteredNeighborMap(_Mapping):
             # get a bare closure in nx (no `.nodes`), so only MULTIGRAPH
             # rows take this branch. Metamorphic seed 1157 diverged on
             # exactly this (`subgraph([1, 3]).copy()` over a 5-neighbor row).
-            keep = getattr(self._view._filter_node, "nodes", None)
+            keep = getattr(view._filter_node, "nodes", None)
             node_ok_shorter = False
             if keep is not None:
                 try:
@@ -30868,13 +30896,13 @@ class _FilteredNeighborMap(_Mapping):
                         yield neighbor
                 return
             for neighbor, edge_data in row.items():
-                if not self._view._node_visible(neighbor):
+                if not view._node_visible(neighbor):
                     continue
                 if any(self._edge_visible(neighbor, key) for key in edge_data):
                     yield neighbor
             return
         for neighbor, edge_data in row.items():
-            if not self._view._node_visible(neighbor):
+            if not view._node_visible(neighbor):
                 continue
             if self._edge_visible(neighbor):
                 yield neighbor
@@ -31408,6 +31436,54 @@ class _FilteredGraphView:
                         if target not in keep or target in seen:
                             continue
                         fast.append((source, target, row[target]) if data else (source, target))
+                    seen.add(source)
+            return fast
+        if (
+            keep is not None
+            and self._filter_edge_is_default
+            and not isinstance(data, str)
+            and data is not None
+            and type(self._graph) in (MultiGraph, MultiDiGraph)
+        ):
+            # br-r37-c1-ag2sx: multigraph variant of the edge fast path. Walks
+            # the native parent PLAIN-dict {nbr: keydict} row once per source
+            # (vs re-materialising self.adj[source][target] per target), in the
+            # SAME node_ok_shorter order nx's FilterMultiInner uses (keep order
+            # when 2*len(keep) < len(row), else row order), then iterates the
+            # keydict for parallel edges. Gating on `target in keep` (O(1)).
+            parent = self._graph
+            fast = []
+            directed = self.is_directed()
+
+            def _targets(row):
+                if 2 * len(keep) < len(row):
+                    return (t for t in keep if t in row)
+                return (t for t in row if t in keep)
+
+            def _emit_keys(out, source, target, keydict):
+                for key, attrs in keydict.items():
+                    if data and keys:
+                        out.append((source, target, key, attrs))
+                    elif data:
+                        out.append((source, target, attrs))
+                    elif keys:
+                        out.append((source, target, key))
+                    else:
+                        out.append((source, target))
+
+            if directed:
+                for source in nodes:
+                    row = _fast_succ_row(parent, source)
+                    for target in _targets(row):
+                        _emit_keys(fast, source, target, row[target])
+            else:
+                seen = set()
+                for source in nodes:
+                    row = _fast_adj_row(parent, source)
+                    for target in _targets(row):
+                        if target in seen:
+                            continue
+                        _emit_keys(fast, source, target, row[target])
                     seen.add(source)
             return fast
         result = []
