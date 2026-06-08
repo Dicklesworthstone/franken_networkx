@@ -2785,18 +2785,29 @@ fn katz_centrality_generic<G: GraphView>(graph: &G) -> (KatzCentralityResult, bo
         .map(|(idx, node)| (*node, idx))
         .collect::<HashMap<&str, usize>>();
 
-    // Pre-calculate canonical neighbors for deterministic summation
+    // Pre-calculate canonical neighbor INDICES once for deterministic
+    // summation. br-r37-c1-91ioe: previously this held Vec<Vec<&str>> and the
+    // power-iteration hot loop did an index_by_node.get(neighbor) String-hash
+    // lookup per neighbor per iteration (k * |E| hashes — why the native
+    // kernel lost 2.4x to nx's pure-Python power iteration). Resolve each
+    // neighbor to its integer index HERE (|E| lookups total), then the loop is
+    // pure integer indexing. Index order == String order (index_by_node is
+    // built from the String-sorted canonical_nodes), so sorting the indices
+    // ascending reproduces the exact neighbor summation order — bit-identical.
     let canonical_neighbors = canonical_nodes
         .iter()
         .map(|&v| {
-            let mut nbrs: Vec<&str> = graph
+            let mut nbrs: Vec<usize> = graph
                 .neighbors_iter(v)
-                .map(|iter| iter.collect())
+                .map(|iter| {
+                    iter.filter_map(|nbr| index_by_node.get(nbr).copied())
+                        .collect()
+                })
                 .unwrap_or_default();
             nbrs.sort_unstable();
             nbrs
         })
-        .collect::<Vec<Vec<&str>>>();
+        .collect::<Vec<Vec<usize>>>();
 
     let mut scores = vec![0.0_f64; n];
     let mut next_scores = vec![0.0_f64; n];
@@ -2815,10 +2826,7 @@ fn katz_centrality_generic<G: GraphView>(graph: &G) -> (KatzCentralityResult, bo
             let neighbors = &canonical_neighbors[source_idx];
             edges_scanned += neighbors.len();
 
-            for &neighbor in neighbors {
-                let Some(&target_idx) = index_by_node.get(neighbor) else {
-                    continue;
-                };
+            for &target_idx in neighbors {
                 next_scores[target_idx] += source_score;
             }
         }
@@ -6210,6 +6218,32 @@ fn edge_weight_or_default(graph: &Graph, left: &str, right: &str, weight_attr: &
         .and_then(|val| val.as_f64())
         .filter(|value| value.is_finite() && *value >= 0.0)
         .unwrap_or(1.0)
+}
+
+fn weight_value_or_default_typed(raw: Option<&CgseValue>) -> (f64, bool) {
+    match raw {
+        None => (1.0, true),
+        Some(CgseValue::Int(value)) if *value >= 0 => (*value as f64, true),
+        Some(CgseValue::Bool(value)) => (if *value { 1.0 } else { 0.0 }, true),
+        Some(CgseValue::Float(value)) if value.is_finite() && *value >= 0.0 => (*value, false),
+        Some(value) => value
+            .as_f64()
+            .filter(|weight| weight.is_finite() && *weight >= 0.0)
+            .map_or((1.0, false), |weight| (weight, false)),
+    }
+}
+
+fn graph_edge_weight_or_default_idx_typed(
+    graph: &Graph,
+    source_idx: usize,
+    target_idx: usize,
+    weight_attr: &str,
+) -> (f64, bool) {
+    weight_value_or_default_typed(
+        graph
+            .edge_attrs_by_indices(source_idx, target_idx)
+            .and_then(|attrs| attrs.get(weight_attr)),
+    )
 }
 
 fn signed_edge_weight_or_default(graph: &Graph, left: &str, right: &str, weight_attr: &str) -> f64 {
@@ -22352,6 +22386,8 @@ type OrderedDistances = Vec<(String, f64)>;
 type OrderedPaths = Vec<(String, Vec<String>)>;
 /// `(distances, paths)` pair returned by single-source Dijkstra, both ordered.
 type DijkstraFull = (OrderedDistances, OrderedPaths);
+/// Ordered `(node, distance, all-int-distance, predecessor)` entries.
+type OrderedTypedPredDistances = Vec<(String, f64, bool, Option<String>)>;
 
 /// Single-source Dijkstra returning distances only (directed graph).
 /// Returns `(node, distance)` pairs in networkx finalize order.
@@ -22595,26 +22631,56 @@ pub fn single_source_dijkstra_path_length_with_pred(
     source: &str,
     weight_attr: &str,
 ) -> Vec<(String, f64, Option<String>)> {
-    let result = multi_source_dijkstra(graph, &[source], weight_attr);
-    let pred: HashMap<&str, Option<&str>> = result
-        .predecessors
-        .iter()
-        .map(|e| (e.node.as_str(), e.predecessor.as_deref()))
-        .collect();
-    result
-        .distances
-        .iter()
-        .map(|entry| {
-            (
-                entry.node.clone(),
-                entry.distance,
-                pred.get(entry.node.as_str())
-                    .copied()
-                    .flatten()
-                    .map(str::to_owned),
-            )
-        })
+    single_source_dijkstra_path_length_typed_with_pred(graph, source, weight_attr, None)
+        .into_iter()
+        .map(|(node, dist, _, pred)| (node, dist, pred))
         .collect()
+}
+
+/// Length-only Dijkstra with NetworkX-observable distance type metadata.
+///
+/// `all_int` is true iff the selected path's summed edge weights are all
+/// Python integer arithmetic inputs (`Int`/`Bool`/missing-default), so the PyO3
+/// layer can emit `int` directly without reconstructing paths in Python.
+#[must_use]
+pub fn single_source_dijkstra_path_length_typed_with_pred(
+    graph: &Graph,
+    source: &str,
+    weight_attr: &str,
+    cutoff: Option<f64>,
+) -> OrderedTypedPredDistances {
+    let Some(source_idx) = graph.get_node_index(source) else {
+        return Vec::new();
+    };
+    let names = graph.nodes_ordered();
+    let n = names.len();
+    let mut offsets = Vec::with_capacity(n + 1);
+    let mut targets: Vec<u32> = Vec::new();
+    let mut weights: Vec<f64> = Vec::new();
+    let mut weight_is_int: Vec<bool> = Vec::new();
+    offsets.push(0);
+    for u in 0..n {
+        if let Some(row) = graph.neighbors_indices(u) {
+            for &v in row {
+                let (weight, is_int) =
+                    graph_edge_weight_or_default_idx_typed(graph, u, v, weight_attr);
+                targets.push(u32::try_from(v).unwrap_or(u32::MAX));
+                weights.push(weight);
+                weight_is_int.push(is_int);
+            }
+        }
+        offsets.push(targets.len());
+    }
+
+    single_source_dijkstra_typed_csr(
+        source_idx,
+        &names,
+        &offsets,
+        &targets,
+        &weights,
+        &weight_is_int,
+        cutoff,
+    )
 }
 
 /// Directed twin of single_source_dijkstra_path_length_with_pred.
@@ -22624,23 +22690,120 @@ pub fn single_source_dijkstra_path_length_with_pred_directed(
     source: &str,
     weight_attr: &str,
 ) -> Vec<(String, f64, Option<String>)> {
-    let result = multi_source_dijkstra_directed(digraph, &[source], weight_attr);
-    let pred: HashMap<&str, Option<&str>> = result
-        .predecessors
-        .iter()
-        .map(|e| (e.node.as_str(), e.predecessor.as_deref()))
-        .collect();
-    result
-        .distances
-        .iter()
-        .map(|entry| {
+    single_source_dijkstra_path_length_typed_with_pred_directed(digraph, source, weight_attr, None)
+        .into_iter()
+        .map(|(node, dist, _, pred)| (node, dist, pred))
+        .collect()
+}
+
+/// Directed twin of [`single_source_dijkstra_path_length_typed_with_pred`].
+#[must_use]
+pub fn single_source_dijkstra_path_length_typed_with_pred_directed(
+    digraph: &DiGraph,
+    source: &str,
+    weight_attr: &str,
+    cutoff: Option<f64>,
+) -> OrderedTypedPredDistances {
+    let Some(source_idx) = digraph.get_node_index(source) else {
+        return Vec::new();
+    };
+    let csr = digraph.csr();
+    let names = digraph.nodes_ordered();
+    let mut weights: Vec<f64> = Vec::with_capacity(csr.succ_targets.len());
+    let mut weight_is_int: Vec<bool> = Vec::with_capacity(csr.succ_targets.len());
+    for u in 0..names.len() {
+        for &v in csr.successors(u) {
+            let (weight, is_int) =
+                digraph_edge_weight_or_default_idx_typed(digraph, u, v as usize, weight_attr);
+            weights.push(weight);
+            weight_is_int.push(is_int);
+        }
+    }
+
+    single_source_dijkstra_typed_csr(
+        source_idx,
+        &names,
+        &csr.succ_offsets,
+        &csr.succ_targets,
+        &weights,
+        &weight_is_int,
+        cutoff,
+    )
+}
+
+fn single_source_dijkstra_typed_csr(
+    source_idx: usize,
+    names: &[&str],
+    offsets: &[usize],
+    targets: &[u32],
+    weights: &[f64],
+    weight_is_int: &[bool],
+    cutoff: Option<f64>,
+) -> OrderedTypedPredDistances {
+    let n = names.len();
+    let mut distances: Vec<f64> = vec![f64::INFINITY; n];
+    let mut predecessors: Vec<u32> = vec![u32::MAX; n];
+    let mut all_int_paths = vec![false; n];
+    let mut pq = BinaryHeap::new();
+    let mut seq_counter: u64 = 0;
+    let mut finalize_order: Vec<u32> = Vec::new();
+    let mut finalized = vec![false; n];
+
+    distances[source_idx] = 0.0;
+    all_int_paths[source_idx] = true;
+    seq_counter += 1;
+    pq.push(DijkstraState {
+        dist: 0.0,
+        seq: seq_counter,
+        node: u32::try_from(source_idx).unwrap_or(u32::MAX),
+    });
+
+    while let Some(DijkstraState {
+        dist: d, node: u, ..
+    }) = pq.pop()
+    {
+        let u_usize = u as usize;
+        if d > distances[u_usize] + DISTANCE_COMPARISON_EPSILON {
+            continue;
+        }
+        if !finalized[u_usize] {
+            finalized[u_usize] = true;
+            finalize_order.push(u);
+        }
+
+        for edge_offset in offsets[u_usize]..offsets[u_usize + 1] {
+            let v = targets[edge_offset];
+            let v_usize = v as usize;
+            let next_dist = d + weights[edge_offset];
+            if let Some(limit) = cutoff
+                && next_dist > limit
+            {
+                continue;
+            }
+            if next_dist < distances[v_usize] - DISTANCE_COMPARISON_EPSILON {
+                distances[v_usize] = next_dist;
+                predecessors[v_usize] = u;
+                all_int_paths[v_usize] = all_int_paths[u_usize] && weight_is_int[edge_offset];
+                seq_counter += 1;
+                pq.push(DijkstraState {
+                    dist: next_dist,
+                    seq: seq_counter,
+                    node: v,
+                });
+            }
+        }
+    }
+
+    finalize_order
+        .into_iter()
+        .map(|idx| {
+            let idx_usize = idx as usize;
+            let pred = predecessors[idx_usize];
             (
-                entry.node.clone(),
-                entry.distance,
-                pred.get(entry.node.as_str())
-                    .copied()
-                    .flatten()
-                    .map(str::to_owned),
+                names[idx_usize].to_owned(),
+                distances[idx_usize],
+                all_int_paths[idx_usize],
+                (pred != u32::MAX).then(|| names[pred as usize].to_owned()),
             )
         })
         .collect()
@@ -23587,6 +23750,19 @@ fn digraph_edge_weight_or_default_idx(
     } else {
         1.0
     }
+}
+
+fn digraph_edge_weight_or_default_idx_typed(
+    digraph: &DiGraph,
+    source_idx: usize,
+    target_idx: usize,
+    weight_attr: &str,
+) -> (f64, bool) {
+    weight_value_or_default_typed(
+        digraph
+            .edge_attrs_by_indices(source_idx, target_idx)
+            .and_then(|attrs| attrs.get(weight_attr)),
+    )
 }
 
 fn signed_digraph_edge_weight_or_default_idx(

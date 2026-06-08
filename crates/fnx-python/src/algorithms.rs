@@ -12177,12 +12177,13 @@ fn single_source_dijkstra_path(
 
 /// Return distances from a single source using Dijkstra.
 #[pyfunction]
-#[pyo3(signature = (g, source, weight="weight"))]
+#[pyo3(signature = (g, source, weight="weight", cutoff=None))]
 fn single_source_dijkstra_path_length(
     py: Python<'_>,
     g: &Bound<'_, PyAny>,
     source: &Bound<'_, PyAny>,
     weight: &str,
+    cutoff: Option<f64>,
 ) -> PyResult<PyObject> {
     sync_rust_attrs_if_available(g)?;
     let gr = extract_graph(g)?;
@@ -12195,26 +12196,40 @@ fn single_source_dijkstra_path_length(
     let entries = if let Some(weighted_projection) = gr.weighted_digraph_projection(weight) {
         let __wp = weighted_projection.as_ref();
         py.allow_threads(|| {
-            fnx_algorithms::single_source_dijkstra_path_length_with_pred_directed(__wp, &s, weight)
+            fnx_algorithms::single_source_dijkstra_path_length_typed_with_pred_directed(
+                __wp, &s, weight, cutoff,
+            )
         })
     } else {
         let weighted_projection = gr.weighted_undirected_projection(weight);
         let __wp = weighted_projection.as_ref();
         py.allow_threads(|| {
-            fnx_algorithms::single_source_dijkstra_path_length_with_pred(__wp, &s, weight)
+            fnx_algorithms::single_source_dijkstra_path_length_typed_with_pred(
+                __wp, &s, weight, cutoff,
+            )
         })
     };
     let mut disp: std::collections::HashMap<String, PyObject> =
         std::collections::HashMap::with_capacity(entries.len() + 1);
     disp.insert(s.clone(), source.clone().unbind());
-    for (node, _, pred) in &entries {
+    for (node, _, _, pred) in &entries {
         if let Some(p) = pred {
             disp.insert(node.clone(), gr.py_row_key(py, p, node));
         }
     }
     let dict = PyDict::new(py);
-    for (node, d, _) in &entries {
-        dict.set_item(gr.disp_or_node_key(py, &disp, node), d)?;
+    for (node, d, all_int, _) in &entries {
+        let key = gr.disp_or_node_key(py, &disp, node);
+        if *all_int
+            && d.is_finite()
+            && d.fract() == 0.0
+            && *d >= i64::MIN as f64
+            && *d <= i64::MAX as f64
+        {
+            dict.set_item(key, *d as i64)?;
+        } else {
+            dict.set_item(key, d)?;
+        }
     }
     Ok(dict.into_any().unbind())
 }

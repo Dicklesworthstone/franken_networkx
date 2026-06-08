@@ -15900,14 +15900,26 @@ def single_source_dijkstra_path_length(G, source, cutoff=None, weight="weight"):
     """
     # br-r37-c1-ybw1s: nx-shaped TypeError on unhashable source.
     hash(source)
-    # br-gauntlet-perf1: ``single_source_dijkstra`` runs the IDENTICAL
-    # delegation gate + edge-weight scans + cutoff semantics. Delegate
-    # straight through — distances are identical. (br-r37-c1-1l8s0: a
-    # raw-binding fast path was tried and REVERTED — its post-hoc
-    # cutoff filter diverged from nx's in-search cutoff on NaN/inf
-    # edges; the win lives in the kernel index-fetches instead.)
-    dists, _ = single_source_dijkstra(G, source, cutoff=cutoff, weight=weight)
-    return dists
+    G = _coerce_arg_to_fnx_graph(G)
+    if _should_delegate_dijkstra_to_networkx(G, weight):
+        return _call_networkx_for_parity(
+            "single_source_dijkstra_path_length",
+            G,
+            source,
+            cutoff=cutoff,
+            weight=weight,
+        )
+    if source not in G:
+        raise NodeNotFound(f"Node {source} not found in graph")
+    # br-r37-c1-1kor1: the raw length-only kernel now preserves nx's
+    # integer-vs-float distance types and applies cutoff during relaxation, so
+    # this API no longer needs to materialize full paths just to repair types.
+    return _raw_single_source_dijkstra_path_length(
+        G,
+        source,
+        weight=weight,
+        cutoff=cutoff,
+    )
 
 
 def single_source_bellman_ford(G, source, target=None, weight="weight"):

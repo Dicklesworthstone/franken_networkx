@@ -1,0 +1,21 @@
+Benchmark 1: python3 tests/artifacts/perf/20260608T-dijkstra-length-int-tealspring/dijkstra_length_loop.py old 50
+  Time (mean ± σ):      1.354 s ±  0.136 s    [User: 2.872 s, System: 0.085 s]
+  Range (min … max):    1.169 s …  1.614 s    10 runs
+
+Benchmark 2: python3 tests/artifacts/perf/20260608T-dijkstra-length-int-tealspring/dijkstra_length_loop.py new 50
+  Time (mean ± σ):      1.176 s ±  0.277 s    [User: 2.322 s, System: 0.087 s]
+  Range (min … max):    0.908 s …  1.862 s    10 runs
+
+Benchmark 3: python3 tests/artifacts/perf/20260608T-dijkstra-length-int-tealspring/dijkstra_length_loop.py raw 50
+  Time (mean ± σ):     993.6 ms ± 173.2 ms    [User: 2401.5 ms, System: 87.4 ms]
+  Range (min … max):   768.2 ms … 1365.4 ms    10 runs
+
+Benchmark 4: python3 tests/artifacts/perf/20260608T-dijkstra-length-int-tealspring/dijkstra_length_loop.py nx 50
+  Time (mean ± σ):      1.591 s ±  0.237 s    [User: 2.872 s, System: 0.089 s]
+  Range (min … max):    1.332 s …  1.931 s    10 runs
+
+Summary
+  python3 tests/artifacts/perf/20260608T-dijkstra-length-int-tealspring/dijkstra_length_loop.py raw 50 ran
+    1.18 ± 0.35 times faster than python3 tests/artifacts/perf/20260608T-dijkstra-length-int-tealspring/dijkstra_length_loop.py new 50
+    1.36 ± 0.27 times faster than python3 tests/artifacts/perf/20260608T-dijkstra-length-int-tealspring/dijkstra_length_loop.py old 50
+    1.60 ± 0.37 times faster than python3 tests/artifacts/perf/20260608T-dijkstra-length-int-tealspring/dijkstra_length_loop.py nx 50

@@ -1,0 +1,3 @@
+Benchmark 1: python3 tests/artifacts/perf/20260608T-dijkstra-length-int-tealspring/dijkstra_length_once.py
+  Time (mean ± σ):     384.9 ms ±  16.4 ms    [User: 4351.4 ms, System: 72.3 ms]
+  Range (min … max):   368.0 ms … 428.3 ms    20 runs

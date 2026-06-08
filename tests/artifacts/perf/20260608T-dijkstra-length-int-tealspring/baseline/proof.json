@@ -1,0 +1,1538 @@
+{
+  "cases": {
+    "ba_public": [
+      [
+        "0",
+        "int",
+        0
+      ],
+      [
+        "123",
+        "int",
+        1
+      ],
+      [
+        "960",
+        "int",
+        1
+      ],
+      [
+        "1425",
+        "int",
+        1
+      ],
+      [
+        "2325",
+        "int",
+        1
+      ],
+      [
+        "1804",
+        "int",
+        1
+      ],
+      [
+        "886",
+        "int",
+        2
+      ],
+      [
+        "631",
+        "int",
+        2
+      ],
+      [
+        "790",
+        "int",
+        2
+      ],
+      [
+        "2545",
+        "int",
+        2
+      ],
+      [
+        "374",
+        "int",
+        2
+      ],
+      [
+        "1572",
+        "int",
+        2
+      ],
+      [
+        "2984",
+        "int",
+        2
+      ],
+      [
+        "1590",
+        "int",
+        2
+      ],
+      [
+        "777",
+        "int",
+        2
+      ],
+      [
+        "930",
+        "int",
+        2
+      ],
+      [
+        "96",
+        "int",
+        2
+      ],
+      [
+        "1924",
+        "int",
+        2
+      ],
+      [
+        "1805",
+        "int",
+        2
+      ],
+      [
+        "461",
+        "int",
+        2
+      ],
+      [
+        "2907",
+        "int",
+        2
+      ],
+      [
+        "2053",
+        "int",
+        2
+      ],
+      [
+        "2604",
+        "int",
+        2
+      ],
+      [
+        "22",
+        "int",
+        2
+      ]
+    ],
+    "ba_nx": [
+      [
+        "0",
+        "int",
+        0
+      ],
+      [
+        "123",
+        "int",
+        1
+      ],
+      [
+        "960",
+        "int",
+        1
+      ],
+      [
+        "1425",
+        "int",
+        1
+      ],
+      [
+        "2325",
+        "int",
+        1
+      ],
+      [
+        "1804",
+        "int",
+        1
+      ],
+      [
+        "886",
+        "int",
+        2
+      ],
+      [
+        "631",
+        "int",
+        2
+      ],
+      [
+        "790",
+        "int",
+        2
+      ],
+      [
+        "2545",
+        "int",
+        2
+      ],
+      [
+        "374",
+        "int",
+        2
+      ],
+      [
+        "1572",
+        "int",
+        2
+      ],
+      [
+        "2984",
+        "int",
+        2
+      ],
+      [
+        "1590",
+        "int",
+        2
+      ],
+      [
+        "777",
+        "int",
+        2
+      ],
+      [
+        "930",
+        "int",
+        2
+      ],
+      [
+        "96",
+        "int",
+        2
+      ],
+      [
+        "1924",
+        "int",
+        2
+      ],
+      [
+        "1805",
+        "int",
+        2
+      ],
+      [
+        "461",
+        "int",
+        2
+      ],
+      [
+        "2907",
+        "int",
+        2
+      ],
+      [
+        "2053",
+        "int",
+        2
+      ],
+      [
+        "2604",
+        "int",
+        2
+      ],
+      [
+        "22",
+        "int",
+        2
+      ]
+    ],
+    "ba_raw": [
+      [
+        "0",
+        "float",
+        0.0
+      ],
+      [
+        "123",
+        "float",
+        1.0
+      ],
+      [
+        "960",
+        "float",
+        1.0
+      ],
+      [
+        "1425",
+        "float",
+        1.0
+      ],
+      [
+        "2325",
+        "float",
+        1.0
+      ],
+      [
+        "1804",
+        "float",
+        1.0
+      ],
+      [
+        "886",
+        "float",
+        2.0
+      ],
+      [
+        "631",
+        "float",
+        2.0
+      ],
+      [
+        "790",
+        "float",
+        2.0
+      ],
+      [
+        "2545",
+        "float",
+        2.0
+      ],
+      [
+        "374",
+        "float",
+        2.0
+      ],
+      [
+        "1572",
+        "float",
+        2.0
+      ],
+      [
+        "2984",
+        "float",
+        2.0
+      ],
+      [
+        "1590",
+        "float",
+        2.0
+      ],
+      [
+        "777",
+        "float",
+        2.0
+      ],
+      [
+        "930",
+        "float",
+        2.0
+      ],
+      [
+        "96",
+        "float",
+        2.0
+      ],
+      [
+        "1924",
+        "float",
+        2.0
+      ],
+      [
+        "1805",
+        "float",
+        2.0
+      ],
+      [
+        "461",
+        "float",
+        2.0
+      ],
+      [
+        "2907",
+        "float",
+        2.0
+      ],
+      [
+        "2053",
+        "float",
+        2.0
+      ],
+      [
+        "2604",
+        "float",
+        2.0
+      ],
+      [
+        "22",
+        "float",
+        2.0
+      ]
+    ],
+    "ba_public_sha256": "fbad62d38556c3e346ac8cc54b38078b5a400ad944ed2784647f637ecfb88cc5",
+    "ba_nx_sha256": "fbad62d38556c3e346ac8cc54b38078b5a400ad944ed2784647f637ecfb88cc5",
+    "ba_raw_sha256": "b99bf55f47386413df0c96d7cc79d00a5cad7af9122548a3037f1cb6ec75f09b",
+    "ba_public_matches_nx": true,
+    "ba_raw_matches_nx": false,
+    "undirected_cutoff_none": {
+      "fnx": {
+        "ok": true,
+        "sha256": "5c7b27f5eed263b5779065ba0292bb2b03b4d95b8a9e66b68aa435e10d3fec91",
+        "rows": [
+          [
+            "'s'",
+            "int",
+            0
+          ],
+          [
+            "'a'",
+            "int",
+            1
+          ],
+          [
+            "'b'",
+            "int",
+            1
+          ],
+          [
+            "'float'",
+            "float",
+            1.5
+          ],
+          [
+            "'c'",
+            "int",
+            2
+          ],
+          [
+            "'d'",
+            "int",
+            2
+          ],
+          [
+            "'z'",
+            "int",
+            3
+          ],
+          [
+            "'mix'",
+            "float",
+            3.5
+          ]
+        ]
+      },
+      "nx": {
+        "ok": true,
+        "sha256": "5c7b27f5eed263b5779065ba0292bb2b03b4d95b8a9e66b68aa435e10d3fec91",
+        "rows": [
+          [
+            "'s'",
+            "int",
+            0
+          ],
+          [
+            "'a'",
+            "int",
+            1
+          ],
+          [
+            "'b'",
+            "int",
+            1
+          ],
+          [
+            "'float'",
+            "float",
+            1.5
+          ],
+          [
+            "'c'",
+            "int",
+            2
+          ],
+          [
+            "'d'",
+            "int",
+            2
+          ],
+          [
+            "'z'",
+            "int",
+            3
+          ],
+          [
+            "'mix'",
+            "float",
+            3.5
+          ]
+        ]
+      },
+      "raw": {
+        "ok": true,
+        "sha256": "7e2fc4dd2a57feff57e7c1edacbc7fe315ace0334152eef6c70f3fd73819c1e0",
+        "rows": [
+          [
+            "'s'",
+            "float",
+            0.0
+          ],
+          [
+            "'a'",
+            "float",
+            1.0
+          ],
+          [
+            "'b'",
+            "float",
+            1.0
+          ],
+          [
+            "'float'",
+            "float",
+            1.5
+          ],
+          [
+            "'c'",
+            "float",
+            2.0
+          ],
+          [
+            "'d'",
+            "float",
+            2.0
+          ],
+          [
+            "'z'",
+            "float",
+            3.0
+          ],
+          [
+            "'mix'",
+            "float",
+            3.5
+          ]
+        ]
+      }
+    },
+    "undirected_cutoff_1": {
+      "fnx": {
+        "ok": true,
+        "sha256": "5209fc7101c2c3a4e00cfd89ee051bfe3aae56f771b2f792da4adeff811dd407",
+        "rows": [
+          [
+            "'s'",
+            "int",
+            0
+          ],
+          [
+            "'a'",
+            "int",
+            1
+          ],
+          [
+            "'b'",
+            "int",
+            1
+          ]
+        ]
+      },
+      "nx": {
+        "ok": true,
+        "sha256": "5209fc7101c2c3a4e00cfd89ee051bfe3aae56f771b2f792da4adeff811dd407",
+        "rows": [
+          [
+            "'s'",
+            "int",
+            0
+          ],
+          [
+            "'a'",
+            "int",
+            1
+          ],
+          [
+            "'b'",
+            "int",
+            1
+          ]
+        ]
+      },
+      "raw": {
+        "ok": false,
+        "type": "TypeError",
+        "message": "single_source_dijkstra_path_length() got an unexpected keyword argument 'cutoff'"
+      }
+    },
+    "undirected_cutoff_2": {
+      "fnx": {
+        "ok": true,
+        "sha256": "157655e032472ce5801620db2444a031ac155500452f995931cdbaed3f6edb0f",
+        "rows": [
+          [
+            "'s'",
+            "int",
+            0
+          ],
+          [
+            "'a'",
+            "int",
+            1
+          ],
+          [
+            "'b'",
+            "int",
+            1
+          ],
+          [
+            "'float'",
+            "float",
+            1.5
+          ],
+          [
+            "'c'",
+            "int",
+            2
+          ],
+          [
+            "'d'",
+            "int",
+            2
+          ]
+        ]
+      },
+      "nx": {
+        "ok": true,
+        "sha256": "157655e032472ce5801620db2444a031ac155500452f995931cdbaed3f6edb0f",
+        "rows": [
+          [
+            "'s'",
+            "int",
+            0
+          ],
+          [
+            "'a'",
+            "int",
+            1
+          ],
+          [
+            "'b'",
+            "int",
+            1
+          ],
+          [
+            "'float'",
+            "float",
+            1.5
+          ],
+          [
+            "'c'",
+            "int",
+            2
+          ],
+          [
+            "'d'",
+            "int",
+            2
+          ]
+        ]
+      },
+      "raw": {
+        "ok": false,
+        "type": "TypeError",
+        "message": "single_source_dijkstra_path_length() got an unexpected keyword argument 'cutoff'"
+      }
+    },
+    "undirected_cutoff_-1": {
+      "fnx": {
+        "ok": true,
+        "sha256": "ecf5361c811e94843838e1217e2668612dde8e8e6307a72ded1a04e1e6d3dfc4",
+        "rows": [
+          [
+            "'s'",
+            "int",
+            0
+          ]
+        ]
+      },
+      "nx": {
+        "ok": true,
+        "sha256": "ecf5361c811e94843838e1217e2668612dde8e8e6307a72ded1a04e1e6d3dfc4",
+        "rows": [
+          [
+            "'s'",
+            "int",
+            0
+          ]
+        ]
+      },
+      "raw": {
+        "ok": false,
+        "type": "TypeError",
+        "message": "single_source_dijkstra_path_length() got an unexpected keyword argument 'cutoff'"
+      }
+    },
+    "undirected_cutoff_nan": {
+      "fnx": {
+        "ok": true,
+        "sha256": "5c7b27f5eed263b5779065ba0292bb2b03b4d95b8a9e66b68aa435e10d3fec91",
+        "rows": [
+          [
+            "'s'",
+            "int",
+            0
+          ],
+          [
+            "'a'",
+            "int",
+            1
+          ],
+          [
+            "'b'",
+            "int",
+            1
+          ],
+          [
+            "'float'",
+            "float",
+            1.5
+          ],
+          [
+            "'c'",
+            "int",
+            2
+          ],
+          [
+            "'d'",
+            "int",
+            2
+          ],
+          [
+            "'z'",
+            "int",
+            3
+          ],
+          [
+            "'mix'",
+            "float",
+            3.5
+          ]
+        ]
+      },
+      "nx": {
+        "ok": true,
+        "sha256": "5c7b27f5eed263b5779065ba0292bb2b03b4d95b8a9e66b68aa435e10d3fec91",
+        "rows": [
+          [
+            "'s'",
+            "int",
+            0
+          ],
+          [
+            "'a'",
+            "int",
+            1
+          ],
+          [
+            "'b'",
+            "int",
+            1
+          ],
+          [
+            "'float'",
+            "float",
+            1.5
+          ],
+          [
+            "'c'",
+            "int",
+            2
+          ],
+          [
+            "'d'",
+            "int",
+            2
+          ],
+          [
+            "'z'",
+            "int",
+            3
+          ],
+          [
+            "'mix'",
+            "float",
+            3.5
+          ]
+        ]
+      },
+      "raw": {
+        "ok": false,
+        "type": "TypeError",
+        "message": "single_source_dijkstra_path_length() got an unexpected keyword argument 'cutoff'"
+      }
+    },
+    "undirected_cutoff_inf": {
+      "fnx": {
+        "ok": true,
+        "sha256": "5c7b27f5eed263b5779065ba0292bb2b03b4d95b8a9e66b68aa435e10d3fec91",
+        "rows": [
+          [
+            "'s'",
+            "int",
+            0
+          ],
+          [
+            "'a'",
+            "int",
+            1
+          ],
+          [
+            "'b'",
+            "int",
+            1
+          ],
+          [
+            "'float'",
+            "float",
+            1.5
+          ],
+          [
+            "'c'",
+            "int",
+            2
+          ],
+          [
+            "'d'",
+            "int",
+            2
+          ],
+          [
+            "'z'",
+            "int",
+            3
+          ],
+          [
+            "'mix'",
+            "float",
+            3.5
+          ]
+        ]
+      },
+      "nx": {
+        "ok": true,
+        "sha256": "5c7b27f5eed263b5779065ba0292bb2b03b4d95b8a9e66b68aa435e10d3fec91",
+        "rows": [
+          [
+            "'s'",
+            "int",
+            0
+          ],
+          [
+            "'a'",
+            "int",
+            1
+          ],
+          [
+            "'b'",
+            "int",
+            1
+          ],
+          [
+            "'float'",
+            "float",
+            1.5
+          ],
+          [
+            "'c'",
+            "int",
+            2
+          ],
+          [
+            "'d'",
+            "int",
+            2
+          ],
+          [
+            "'z'",
+            "int",
+            3
+          ],
+          [
+            "'mix'",
+            "float",
+            3.5
+          ]
+        ]
+      },
+      "raw": {
+        "ok": false,
+        "type": "TypeError",
+        "message": "single_source_dijkstra_path_length() got an unexpected keyword argument 'cutoff'"
+      }
+    },
+    "directed_cutoff_none": {
+      "fnx": {
+        "ok": true,
+        "sha256": "5c7b27f5eed263b5779065ba0292bb2b03b4d95b8a9e66b68aa435e10d3fec91",
+        "rows": [
+          [
+            "'s'",
+            "int",
+            0
+          ],
+          [
+            "'a'",
+            "int",
+            1
+          ],
+          [
+            "'b'",
+            "int",
+            1
+          ],
+          [
+            "'float'",
+            "float",
+            1.5
+          ],
+          [
+            "'c'",
+            "int",
+            2
+          ],
+          [
+            "'d'",
+            "int",
+            2
+          ],
+          [
+            "'z'",
+            "int",
+            3
+          ],
+          [
+            "'mix'",
+            "float",
+            3.5
+          ]
+        ]
+      },
+      "nx": {
+        "ok": true,
+        "sha256": "5c7b27f5eed263b5779065ba0292bb2b03b4d95b8a9e66b68aa435e10d3fec91",
+        "rows": [
+          [
+            "'s'",
+            "int",
+            0
+          ],
+          [
+            "'a'",
+            "int",
+            1
+          ],
+          [
+            "'b'",
+            "int",
+            1
+          ],
+          [
+            "'float'",
+            "float",
+            1.5
+          ],
+          [
+            "'c'",
+            "int",
+            2
+          ],
+          [
+            "'d'",
+            "int",
+            2
+          ],
+          [
+            "'z'",
+            "int",
+            3
+          ],
+          [
+            "'mix'",
+            "float",
+            3.5
+          ]
+        ]
+      },
+      "raw": {
+        "ok": true,
+        "sha256": "7e2fc4dd2a57feff57e7c1edacbc7fe315ace0334152eef6c70f3fd73819c1e0",
+        "rows": [
+          [
+            "'s'",
+            "float",
+            0.0
+          ],
+          [
+            "'a'",
+            "float",
+            1.0
+          ],
+          [
+            "'b'",
+            "float",
+            1.0
+          ],
+          [
+            "'float'",
+            "float",
+            1.5
+          ],
+          [
+            "'c'",
+            "float",
+            2.0
+          ],
+          [
+            "'d'",
+            "float",
+            2.0
+          ],
+          [
+            "'z'",
+            "float",
+            3.0
+          ],
+          [
+            "'mix'",
+            "float",
+            3.5
+          ]
+        ]
+      }
+    },
+    "directed_cutoff_1": {
+      "fnx": {
+        "ok": true,
+        "sha256": "5209fc7101c2c3a4e00cfd89ee051bfe3aae56f771b2f792da4adeff811dd407",
+        "rows": [
+          [
+            "'s'",
+            "int",
+            0
+          ],
+          [
+            "'a'",
+            "int",
+            1
+          ],
+          [
+            "'b'",
+            "int",
+            1
+          ]
+        ]
+      },
+      "nx": {
+        "ok": true,
+        "sha256": "5209fc7101c2c3a4e00cfd89ee051bfe3aae56f771b2f792da4adeff811dd407",
+        "rows": [
+          [
+            "'s'",
+            "int",
+            0
+          ],
+          [
+            "'a'",
+            "int",
+            1
+          ],
+          [
+            "'b'",
+            "int",
+            1
+          ]
+        ]
+      },
+      "raw": {
+        "ok": false,
+        "type": "TypeError",
+        "message": "single_source_dijkstra_path_length() got an unexpected keyword argument 'cutoff'"
+      }
+    },
+    "directed_cutoff_2": {
+      "fnx": {
+        "ok": true,
+        "sha256": "157655e032472ce5801620db2444a031ac155500452f995931cdbaed3f6edb0f",
+        "rows": [
+          [
+            "'s'",
+            "int",
+            0
+          ],
+          [
+            "'a'",
+            "int",
+            1
+          ],
+          [
+            "'b'",
+            "int",
+            1
+          ],
+          [
+            "'float'",
+            "float",
+            1.5
+          ],
+          [
+            "'c'",
+            "int",
+            2
+          ],
+          [
+            "'d'",
+            "int",
+            2
+          ]
+        ]
+      },
+      "nx": {
+        "ok": true,
+        "sha256": "157655e032472ce5801620db2444a031ac155500452f995931cdbaed3f6edb0f",
+        "rows": [
+          [
+            "'s'",
+            "int",
+            0
+          ],
+          [
+            "'a'",
+            "int",
+            1
+          ],
+          [
+            "'b'",
+            "int",
+            1
+          ],
+          [
+            "'float'",
+            "float",
+            1.5
+          ],
+          [
+            "'c'",
+            "int",
+            2
+          ],
+          [
+            "'d'",
+            "int",
+            2
+          ]
+        ]
+      },
+      "raw": {
+        "ok": false,
+        "type": "TypeError",
+        "message": "single_source_dijkstra_path_length() got an unexpected keyword argument 'cutoff'"
+      }
+    },
+    "directed_cutoff_-1": {
+      "fnx": {
+        "ok": true,
+        "sha256": "ecf5361c811e94843838e1217e2668612dde8e8e6307a72ded1a04e1e6d3dfc4",
+        "rows": [
+          [
+            "'s'",
+            "int",
+            0
+          ]
+        ]
+      },
+      "nx": {
+        "ok": true,
+        "sha256": "ecf5361c811e94843838e1217e2668612dde8e8e6307a72ded1a04e1e6d3dfc4",
+        "rows": [
+          [
+            "'s'",
+            "int",
+            0
+          ]
+        ]
+      },
+      "raw": {
+        "ok": false,
+        "type": "TypeError",
+        "message": "single_source_dijkstra_path_length() got an unexpected keyword argument 'cutoff'"
+      }
+    },
+    "directed_cutoff_nan": {
+      "fnx": {
+        "ok": true,
+        "sha256": "5c7b27f5eed263b5779065ba0292bb2b03b4d95b8a9e66b68aa435e10d3fec91",
+        "rows": [
+          [
+            "'s'",
+            "int",
+            0
+          ],
+          [
+            "'a'",
+            "int",
+            1
+          ],
+          [
+            "'b'",
+            "int",
+            1
+          ],
+          [
+            "'float'",
+            "float",
+            1.5
+          ],
+          [
+            "'c'",
+            "int",
+            2
+          ],
+          [
+            "'d'",
+            "int",
+            2
+          ],
+          [
+            "'z'",
+            "int",
+            3
+          ],
+          [
+            "'mix'",
+            "float",
+            3.5
+          ]
+        ]
+      },
+      "nx": {
+        "ok": true,
+        "sha256": "5c7b27f5eed263b5779065ba0292bb2b03b4d95b8a9e66b68aa435e10d3fec91",
+        "rows": [
+          [
+            "'s'",
+            "int",
+            0
+          ],
+          [
+            "'a'",
+            "int",
+            1
+          ],
+          [
+            "'b'",
+            "int",
+            1
+          ],
+          [
+            "'float'",
+            "float",
+            1.5
+          ],
+          [
+            "'c'",
+            "int",
+            2
+          ],
+          [
+            "'d'",
+            "int",
+            2
+          ],
+          [
+            "'z'",
+            "int",
+            3
+          ],
+          [
+            "'mix'",
+            "float",
+            3.5
+          ]
+        ]
+      },
+      "raw": {
+        "ok": false,
+        "type": "TypeError",
+        "message": "single_source_dijkstra_path_length() got an unexpected keyword argument 'cutoff'"
+      }
+    },
+    "directed_cutoff_inf": {
+      "fnx": {
+        "ok": true,
+        "sha256": "5c7b27f5eed263b5779065ba0292bb2b03b4d95b8a9e66b68aa435e10d3fec91",
+        "rows": [
+          [
+            "'s'",
+            "int",
+            0
+          ],
+          [
+            "'a'",
+            "int",
+            1
+          ],
+          [
+            "'b'",
+            "int",
+            1
+          ],
+          [
+            "'float'",
+            "float",
+            1.5
+          ],
+          [
+            "'c'",
+            "int",
+            2
+          ],
+          [
+            "'d'",
+            "int",
+            2
+          ],
+          [
+            "'z'",
+            "int",
+            3
+          ],
+          [
+            "'mix'",
+            "float",
+            3.5
+          ]
+        ]
+      },
+      "nx": {
+        "ok": true,
+        "sha256": "5c7b27f5eed263b5779065ba0292bb2b03b4d95b8a9e66b68aa435e10d3fec91",
+        "rows": [
+          [
+            "'s'",
+            "int",
+            0
+          ],
+          [
+            "'a'",
+            "int",
+            1
+          ],
+          [
+            "'b'",
+            "int",
+            1
+          ],
+          [
+            "'float'",
+            "float",
+            1.5
+          ],
+          [
+            "'c'",
+            "int",
+            2
+          ],
+          [
+            "'d'",
+            "int",
+            2
+          ],
+          [
+            "'z'",
+            "int",
+            3
+          ],
+          [
+            "'mix'",
+            "float",
+            3.5
+          ]
+        ]
+      },
+      "raw": {
+        "ok": false,
+        "type": "TypeError",
+        "message": "single_source_dijkstra_path_length() got an unexpected keyword argument 'cutoff'"
+      }
+    },
+    "delegation": {
+      "negative_should_delegate": true,
+      "negative_fnx": {
+        "ok": false,
+        "type": "ValueError",
+        "message": "('Contradictory paths found:', 'negative weights?')"
+      },
+      "negative_nx": {
+        "ok": false,
+        "type": "ValueError",
+        "message": "('Contradictory paths found:', 'negative weights?')"
+      },
+      "nonnumeric_should_delegate": true,
+      "nonnumeric_fnx": {
+        "ok": false,
+        "type": "TypeError",
+        "message": "unsupported operand type(s) for +: 'int' and 'dict'"
+      },
+      "nonnumeric_nx": {
+        "ok": false,
+        "type": "TypeError",
+        "message": "unsupported operand type(s) for +: 'int' and 'dict'"
+      },
+      "infinite_should_delegate": true,
+      "infinite_fnx": {
+        "ok": true,
+        "sha256": "166fb61fbc63fd02e8b8bd8ab02bef642286873fc1db278d6b1b28131d68114b",
+        "rows": [
+          [
+            "'s'",
+            "int",
+            0
+          ],
+          [
+            "'a'",
+            "float",
+            Infinity
+          ]
+        ]
+      },
+      "infinite_nx": {
+        "ok": true,
+        "sha256": "166fb61fbc63fd02e8b8bd8ab02bef642286873fc1db278d6b1b28131d68114b",
+        "rows": [
+          [
+            "'s'",
+            "int",
+            0
+          ],
+          [
+            "'a'",
+            "float",
+            Infinity
+          ]
+        ]
+      }
+    }
+  },
+  "bench": {
+    "fnx_public": {
+      "checksum": 90000,
+      "mean_s": 0.011283117975108326,
+      "median_s": 0.011694925022311509,
+      "min_s": 0.007914173067547381,
+      "samples_s": [
+        0.012652129051275551,
+        0.0122490250505507,
+        0.010395703953690827,
+        0.012312535080127418,
+        0.012449184083379805,
+        0.011707899044267833,
+        0.010409269016236067,
+        0.011158719076775014,
+        0.010832071071490645,
+        0.009235466015525162,
+        0.009855050011537969,
+        0.010638353996910155,
+        0.012422382947988808,
+        0.012766154017299414,
+        0.01259659300558269,
+        0.012853309977799654,
+        0.012346670031547546,
+        0.010591674945317209,
+        0.01244028692599386,
+        0.012035761028528214,
+        0.011965096928179264,
+        0.010593287996016443,
+        0.007914173067547381,
+        0.009107572957873344,
+        0.011285590007901192,
+        0.011694925022311509,
+        0.011282062972895801,
+        0.011928627965971828,
+        0.009337860043160617,
+        0.011436103959567845
+      ]
+    },
+    "raw_native": {
+      "checksum": 90000,
+      "mean_s": 0.007235832617152482,
+      "median_s": 0.007603294099681079,
+      "min_s": 0.0044328669318929315,
+      "samples_s": [
+        0.007603294099681079,
+        0.007687643053941429,
+        0.005034006084315479,
+        0.006179756950587034,
+        0.006523758987896144,
+        0.005312513909302652,
+        0.004817837034352124,
+        0.0047686140751466155,
+        0.004671709961257875,
+        0.005000864039175212,
+        0.005301534081809223,
+        0.004487421014346182,
+        0.0046094420831650496,
+        0.004621225059963763,
+        0.0044328669318929315,
+        0.008235491928644478,
+        0.009050174034200609,
+        0.00916199607308954,
+        0.01056741806678474,
+        0.009952474036253989,
+        0.007391041959635913,
+        0.00655419600661844,
+        0.007853177026845515,
+        0.00982610508799553,
+        0.014735786011442542,
+        0.01109634106978774,
+        0.007628039922565222,
+        0.007901648990809917,
+        0.008184103993698955,
+        0.007884496939368546
+      ]
+    },
+    "nx_public": {
+      "checksum": 90000,
+      "mean_s": 0.009473288835336765,
+      "median_s": 0.009089258965104818,
+      "min_s": 0.006368504022248089,
+      "samples_s": [
+        0.010925396927632391,
+        0.014391502947546542,
+        0.01131843205075711,
+        0.009872792987152934,
+        0.009383445954881608,
+        0.012131021008826792,
+        0.01026602799538523,
+        0.009089258965104818,
+        0.011716546025127172,
+        0.014940523076802492,
+        0.012047583004459739,
+        0.009016831987537444,
+        0.006539998925291002,
+        0.007043602992780507,
+        0.009689696016721427,
+        0.012591111939400434,
+        0.011759025976061821,
+        0.009628630941733718,
+        0.00798847305122763,
+        0.006368504022248089,
+        0.006921421969309449,
+        0.008210103027522564,
+        0.008874571998603642,
+        0.007586813066154718,
+        0.006905992981046438,
+        0.006830940023064613,
+        0.006680494989268482,
+        0.007913632085546851,
+        0.008656509104184806,
+        0.008909779018722475
+      ]
+    }
+  }
+}
