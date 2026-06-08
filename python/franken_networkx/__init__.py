@@ -7721,6 +7721,7 @@ from franken_networkx._fnx import (
     closeness_centrality as _raw_closeness_centrality,
     closeness_vitality as _rust_closeness_vitality,
     degree_assortativity_coefficient as _raw_degree_assortativity_coefficient,
+    degree_assortativity_coefficient_directed as _raw_degree_assortativity_coefficient_directed,
     degree_centrality as _raw_degree_centrality,
     edge_betweenness_centrality as _raw_edge_betweenness_centrality,
     edge_betweenness_centrality_subset_rust as _edge_betweenness_centrality_subset_rust,
@@ -7774,6 +7775,26 @@ def degree_assortativity_coefficient(G, x="out", y="in", weight=None, nodes=None
         if G.number_of_edges() == 0:
             return float("nan")
         return _raw_degree_assortativity_coefficient(G)
+    # br-r37-c1-d7etr: native directed degree assortativity for the default
+    # (out, in) contract on a simple DiGraph — nx pairs (out_deg(src),
+    # in_deg(tgt)) per directed edge. Self-loops are fine for directed (a loop
+    # adds 1 to BOTH out- and in-degree, exactly nx's mixing-matrix accounting),
+    # unlike the undirected case. Replaces the ~5x fnx->nx delegation.
+    if (
+        x == "out" and y == "in" and weight is None and nodes is None
+        and not G.is_multigraph() and G.is_directed()
+    ):
+        if G.number_of_edges() == 0:
+            return float("nan")
+        _directed = _raw_degree_assortativity_coefficient_directed(G)
+        # Degenerate inputs (one degree column constant) make the native kernel
+        # return nan (covariance is exactly 0). nx's mixing-matrix path divides a
+        # float-rounded near-zero covariance by a zero variance and can yield
+        # ±inf — a value-less artifact we can't reproduce without its float path.
+        # Delegate those rare non-finite cases to nx for exact parity; the common
+        # finite case stays native.
+        if _directed is not None and _math.isfinite(_directed):
+            return _directed
     return _call_networkx_for_parity(
         "degree_assortativity_coefficient",
         G,

@@ -10758,6 +10758,84 @@ pub fn degree_assortativity_coefficient(graph: &Graph) -> DegreeAssortativityRes
     }
 }
 
+/// br-r37-c1-d7etr: directed degree assortativity for the default `(x="out",
+/// y="in")` contract. nx pairs `(out_degree(src), in_degree(tgt))` per DIRECTED
+/// edge (a single pair per edge, NOT both orientations) and runs the same
+/// Pearson over those pairs. Integer successor-CSR walk + precomputed out/in
+/// degree vecs; the five running sums are exact f64 for any realistic graph, so
+/// the result is byte-stable regardless of edge order and matches nx's
+/// mixing-matrix `numeric_ac` to f64 tolerance (nx normalises the matrix first,
+/// so the two paths differ only at ULP — same situation as the undirected
+/// kernel). Degenerate inputs (no variance in either column) yield NaN via the
+/// zero denominator, matching nx's `invalid value` divide.
+#[must_use]
+pub fn degree_assortativity_coefficient_directed(digraph: &DiGraph) -> DegreeAssortativityResult {
+    let nodes = digraph.nodes_ordered();
+    let n = nodes.len();
+    let out_deg: Vec<f64> = (0..n).map(|i| digraph.out_degree_by_index(i) as f64).collect();
+    let in_deg: Vec<f64> = (0..n).map(|i| digraph.in_degree_by_index(i) as f64).collect();
+
+    let mut edges_scanned = 0usize;
+    let mut sum_x = 0.0_f64;
+    let mut sum_y = 0.0_f64;
+    let mut sum_xy = 0.0_f64;
+    let mut sum_x2 = 0.0_f64;
+    let mut sum_y2 = 0.0_f64;
+    let mut m: usize = 0;
+
+    for u in 0..n {
+        let xu = out_deg[u]; // x = out-degree of the source
+        if let Some(succs) = digraph.successors_indices(u) {
+            for &v in succs {
+                let yv = in_deg[v]; // y = in-degree of the target
+                m += 1;
+                edges_scanned += 1;
+                sum_x += xu;
+                sum_y += yv;
+                sum_xy += xu * yv;
+                sum_x2 += xu * xu;
+                sum_y2 += yv * yv;
+            }
+        }
+    }
+
+    if m == 0 {
+        return DegreeAssortativityResult {
+            coefficient: f64::NAN,
+            witness: ComplexityWitness {
+                algorithm: "degree_assortativity_directed".to_owned(),
+                complexity_claim: "O(|E|)".to_owned(),
+                nodes_touched: n,
+                edges_scanned,
+                queue_peak: 0,
+            },
+        };
+    }
+
+    let mf = m as f64;
+    let numerator = mf * sum_xy - sum_x * sum_y;
+    let denom_x = (mf * sum_x2 - sum_x * sum_x).sqrt();
+    let denom_y = (mf * sum_y2 - sum_y * sum_y).sqrt();
+    let denominator = denom_x * denom_y;
+
+    // br-r37-c1-d7etr: direct IEEE division (NO eps→NaN guard) — unlike the
+    // undirected case, a DiGraph can have variance in one degree column but not
+    // the other, where nx's `numeric_ac` divides a non-zero covariance by a zero
+    // sqrt and yields ±inf (RuntimeWarning: invalid value). 0/0 still yields NaN.
+    let coefficient = numerator / denominator;
+
+    DegreeAssortativityResult {
+        coefficient,
+        witness: ComplexityWitness {
+            algorithm: "degree_assortativity_directed".to_owned(),
+            complexity_claim: "O(|E|)".to_owned(),
+            nodes_touched: n,
+            edges_scanned,
+            queue_peak: 0,
+        },
+    }
+}
+
 /// Computes VoteRank centrality — iterative voting to find influential spreaders.
 ///
 /// Each round: every node votes for its best unranked neighbor (vote power

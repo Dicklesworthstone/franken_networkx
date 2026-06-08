@@ -4310,6 +4310,26 @@ pub fn degree_assortativity_coefficient(py: Python<'_>, g: &Bound<'_, PyAny>) ->
     Ok(py.allow_threads(|| fnx_algorithms::degree_assortativity_coefficient(inner).coefficient))
 }
 
+/// br-r37-c1-d7etr: native directed degree assortativity ((out, in) pairs) for
+/// simple DiGraphs — replaces the fnx->nx delegation (~5x). Returns `None` for
+/// non-DiGraph inputs so the Python wrapper keeps its existing path.
+#[pyfunction]
+pub fn degree_assortativity_coefficient_directed(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+) -> PyResult<Option<f64>> {
+    let gr = extract_graph(g)?;
+    match &gr {
+        GraphRef::Directed { dg, .. } => {
+            let inner = &dg.inner;
+            Ok(Some(py.allow_threads(|| {
+                fnx_algorithms::degree_assortativity_coefficient_directed(inner).coefficient
+            })))
+        }
+        _ => Ok(None),
+    }
+}
+
 /// Return a list of nodes in decreasing voterank order.
 #[pyfunction]
 #[pyo3(signature = (g, number_of_nodes=None))]
@@ -16494,6 +16514,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(hits, m)?)?;
     m.add_function(wrap_pyfunction!(average_neighbor_degree, m)?)?;
     m.add_function(wrap_pyfunction!(degree_assortativity_coefficient, m)?)?;
+    m.add_function(wrap_pyfunction!(degree_assortativity_coefficient_directed, m)?)?;
     m.add_function(wrap_pyfunction!(voterank, m)?)?;
     // Clustering
     m.add_function(wrap_pyfunction!(clustering, m)?)?;
