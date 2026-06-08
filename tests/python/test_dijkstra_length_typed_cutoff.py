@@ -51,3 +51,28 @@ def test_single_source_dijkstra_path_length_raw_matches_nx_types_and_cutoff(
 
     assert _rows(public) == _rows(expected)
     assert _rows(raw) == _rows(expected)
+
+
+@pytest.mark.parametrize(
+    ("fnx_factory", "nx_factory"),
+    [(fnx.Graph, nx.Graph), (fnx.DiGraph, nx.DiGraph)],
+)
+def test_single_source_dijkstra_path_length_large_int_sum_does_not_saturate(
+    fnx_factory, nx_factory
+):
+    weight = 1 << 62
+    expected_distance = 1 << 63
+    gf = fnx_factory()
+    gn = nx_factory()
+    for graph in (gf, gn):
+        graph.add_edge("s", "a", weight=weight)
+        graph.add_edge("a", "z", weight=weight)
+
+    public = fnx.single_source_dijkstra_path_length(gf, "s", weight="weight")
+    raw = fnx._raw_single_source_dijkstra_path_length(gf, "s", weight="weight")
+    expected = nx.single_source_dijkstra_path_length(gn, "s", weight="weight")
+
+    assert public["z"] == expected_distance
+    assert raw["z"] == expected_distance
+    assert _rows(public) == _rows(expected)
+    assert _rows(raw) == _rows(expected)
