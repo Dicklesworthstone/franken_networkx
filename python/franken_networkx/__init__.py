@@ -27772,14 +27772,23 @@ def connected_double_edge_swap(G, nswap=1, _window_threshold=3, seed=None):
     if G.number_of_edges() < 2:
         return 0
     swaps_done = 0
+    # br-r37-c1-vbwpl: build the edge list ONCE and maintain it in place.
+    # The previous per-iteration `edges = list(G.edges())` rebuild was
+    # O(|E|)/iter -> O(nswap*|E|) (18x nx here; is_connected is native and
+    # cheap, the rebuild was the cost). A swap changes exactly the two
+    # picked slots; a reverted (would-disconnect) swap restores the
+    # original edges, so its slots are left unchanged. Same uniform-pick
+    # rng-draw pattern; degree-seq + connectivity + return-count contract
+    # intact (fnx uniform-pick is an intentional divergence from nx's
+    # degree-CDF/window algorithm, so only those invariants are owed).
+    edges = list(G.edges())
     for _ in range(nswap * 100):
         if swaps_done >= nswap:
             break
-        edges = list(G.edges())
-        e1 = edges[rng.randint(0, len(edges) - 1)]
-        e2 = edges[rng.randint(0, len(edges) - 1)]
-        u, v = e1
-        x, y = e2
+        i1 = rng.randint(0, len(edges) - 1)
+        i2 = rng.randint(0, len(edges) - 1)
+        u, v = edges[i1]
+        x, y = edges[i2]
         if len({u, v, x, y}) < 4 or G.has_edge(u, x) or G.has_edge(v, y):
             continue
         G.remove_edge(u, v)
@@ -27791,7 +27800,10 @@ def connected_double_edge_swap(G, nswap=1, _window_threshold=3, seed=None):
             G.remove_edge(v, y)
             G.add_edge(u, v)
             G.add_edge(x, y)
+            # swap reverted: edges[i1]/[i2] still (u,v)/(x,y), back in G
         else:
+            edges[i1] = (u, x)
+            edges[i2] = (v, y)
             swaps_done += 1
     return swaps_done
 
