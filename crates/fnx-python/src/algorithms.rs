@@ -597,6 +597,7 @@ fn multigraph_to_simple_graph_structure_only(mg: &fnx_classes::MultiGraph) -> fn
 /// order matches nx's direct multigraph walk. Skips the attr clones + per-edge
 /// ledger of the full `multigraph_to_simple_graph` (used by dfs_tree etc., ~14x
 /// nx). apply_row_orders fixes the row order regardless of edge-insertion order.
+#[allow(dead_code)] // br-r37-c1-86c7r: superseded by direct multigraph DFS/BFS walk; retained as a reusable order-preserving conversion
 fn multigraph_to_simple_graph_structure_only_ordered(
     mg: &fnx_classes::MultiGraph,
 ) -> fnx_classes::Graph {
@@ -805,6 +806,7 @@ fn multidigraph_to_simple_digraph_structure_only(
 /// per-edge `has_edge` ledger of the full `multidigraph_to_simple_digraph`
 /// (which kept dfs_tree/bfs_tree ~14-16x nx on MultiDiGraph). `successors(u)`
 /// already yields DISTINCT targets, so no parallel-edge dedup is needed.
+#[allow(dead_code)] // br-r37-c1-86c7r: superseded by direct multigraph DFS/BFS walk; retained as a reusable order-preserving conversion
 fn multidigraph_to_simple_digraph_structure_only_ordered(
     mdg: &fnx_classes::digraph::MultiDiGraph,
 ) -> fnx_classes::digraph::DiGraph {
@@ -6445,19 +6447,23 @@ pub fn bfs_edges(
         }
         _ => {
             if let GraphRef::MultiDirected { mdg, .. } = &gr {
-                // br-r37-c1-mexh6-dirtree: structure-only ordered conversion (no
-                // attr clones / ledger) instead of gr.digraph()'s full clone;
-                // succ/pred row orders preserve BFS order.
-                let owned = multidigraph_to_simple_digraph_structure_only_ordered(&mdg.inner);
-                if reverse {
-                    py.allow_threads(|| {
-                        fnx_algorithms::bfs_edges_directed_reverse(&owned, &source_key, depth_limit)
-                    })
-                } else {
-                    py.allow_threads(|| {
-                        fnx_algorithms::bfs_edges_directed(&owned, &source_key, depth_limit)
-                    })
-                }
+                // br-r37-c1-86c7r: walk the MultiDiGraph successor (or predecessor,
+                // for reverse) adjacency DIRECTLY — no conversion.
+                let inner = &mdg.inner;
+                py.allow_threads(|| {
+                    let nodes = inner.nodes_ordered();
+                    let Some(src) = nodes.iter().position(|&n| n == source_key) else {
+                        return Vec::new();
+                    };
+                    let adj = build_index_adjacency(&nodes, |u| {
+                        if reverse {
+                            inner.predecessors(u).unwrap_or_default()
+                        } else {
+                            inner.successors(u).unwrap_or_default()
+                        }
+                    });
+                    bfs_edges_indexed(&adj, &nodes, src, depth_limit)
+                })
             } else if gr.is_directed() {
                 let inner = gr.digraph().expect("is_directed checked above");
                 if reverse {
@@ -6470,10 +6476,19 @@ pub fn bfs_edges(
                     })
                 }
             } else if let GraphRef::MultiUndirected { mg, .. } = &gr {
-                // br-r37-c1-mexh6-dfs: structure-only ordered conversion (no
-                // attr clones / ledger); apply_row_orders preserves BFS order.
-                let owned = multigraph_to_simple_graph_structure_only_ordered(&mg.inner);
-                py.allow_threads(|| fnx_algorithms::bfs_edges(&owned, &source_key, depth_limit))
+                // br-r37-c1-86c7r: walk the MultiGraph neighbor adjacency
+                // DIRECTLY — no conversion.
+                let inner = &mg.inner;
+                py.allow_threads(|| {
+                    let nodes = inner.nodes_ordered();
+                    let Some(src) = nodes.iter().position(|&n| n == source_key) else {
+                        return Vec::new();
+                    };
+                    let adj = build_index_adjacency(&nodes, |u| {
+                        inner.neighbors(u).unwrap_or_default()
+                    });
+                    bfs_edges_indexed(&adj, &nodes, src, depth_limit)
+                })
             } else {
                 let inner = gr.undirected();
                 py.allow_threads(|| fnx_algorithms::bfs_edges(inner, &source_key, depth_limit))
@@ -6543,19 +6558,23 @@ pub fn bfs_tree(
         }
         _ => {
             if let GraphRef::MultiDirected { mdg, .. } = &gr {
-                // br-r37-c1-mexh6-dirtree: structure-only ordered conversion (no
-                // attr clones / ledger) instead of gr.digraph()'s full clone;
-                // succ/pred row orders preserve BFS order.
-                let owned = multidigraph_to_simple_digraph_structure_only_ordered(&mdg.inner);
-                if reverse {
-                    py.allow_threads(|| {
-                        fnx_algorithms::bfs_edges_directed_reverse(&owned, &source_key, depth_limit)
-                    })
-                } else {
-                    py.allow_threads(|| {
-                        fnx_algorithms::bfs_edges_directed(&owned, &source_key, depth_limit)
-                    })
-                }
+                // br-r37-c1-86c7r: walk the MultiDiGraph successor (or predecessor,
+                // for reverse) adjacency DIRECTLY — no conversion.
+                let inner = &mdg.inner;
+                py.allow_threads(|| {
+                    let nodes = inner.nodes_ordered();
+                    let Some(src) = nodes.iter().position(|&n| n == source_key) else {
+                        return Vec::new();
+                    };
+                    let adj = build_index_adjacency(&nodes, |u| {
+                        if reverse {
+                            inner.predecessors(u).unwrap_or_default()
+                        } else {
+                            inner.successors(u).unwrap_or_default()
+                        }
+                    });
+                    bfs_edges_indexed(&adj, &nodes, src, depth_limit)
+                })
             } else if gr.is_directed() {
                 let inner = gr.digraph().expect("is_directed checked above");
                 if reverse {
@@ -6568,10 +6587,19 @@ pub fn bfs_tree(
                     })
                 }
             } else if let GraphRef::MultiUndirected { mg, .. } = &gr {
-                // br-r37-c1-mexh6-dfs: structure-only ordered conversion (no
-                // attr clones / ledger); apply_row_orders preserves BFS order.
-                let owned = multigraph_to_simple_graph_structure_only_ordered(&mg.inner);
-                py.allow_threads(|| fnx_algorithms::bfs_edges(&owned, &source_key, depth_limit))
+                // br-r37-c1-86c7r: walk the MultiGraph neighbor adjacency
+                // DIRECTLY — no conversion.
+                let inner = &mg.inner;
+                py.allow_threads(|| {
+                    let nodes = inner.nodes_ordered();
+                    let Some(src) = nodes.iter().position(|&n| n == source_key) else {
+                        return Vec::new();
+                    };
+                    let adj = build_index_adjacency(&nodes, |u| {
+                        inner.neighbors(u).unwrap_or_default()
+                    });
+                    bfs_edges_indexed(&adj, &nodes, src, depth_limit)
+                })
             } else {
                 let inner = gr.undirected();
                 py.allow_threads(|| fnx_algorithms::bfs_edges(inner, &source_key, depth_limit))
@@ -7035,6 +7063,156 @@ fn dfs_forest_directed(
     (edges, preorder)
 }
 
+// ---------------------------------------------------------------------------
+// br-r37-c1-86c7r: integer-indexed DFS/BFS walks over a precomputed adjacency
+// slice `adj[i] = neighbor indices of node i in adjacency order`. These let the
+// multigraph DFS/BFS tree paths walk the MultiGraph/MultiDiGraph inner's
+// DISTINCT-neighbor index rows (neighbors_indices / successors_indices /
+// predecessors_indices) DIRECTLY — eliminating the
+// multigraph->simple-graph-structure-only-ordered conversion (build a whole new
+// Graph + apply_row_orders) that was ~100% of the dfs_tree/bfs_tree multigraph
+// runtime (~12ms @ N=1200/m=6000). The walk discipline is byte-identical to the
+// simple-graph kernels: `mg.neighbors_indices(i)` order == the converted
+// graph's row order (the conversion is BUILT from that same adjacency +
+// apply_row_orders), so the emitted edge sequence is unchanged.
+
+/// Build `(nodes, adj)` where `adj[i]` is the DISTINCT-neighbor index row of node
+/// `i` in adjacency order, straight from the multigraph inner's string adjacency
+/// (`neighbors` / `successors` / `predecessors`). One O(V+E) pass — no
+/// simple-graph materialization, no `apply_row_orders`. The IndexMap-backed
+/// `neighbors(u)` order is exactly the order the structure-only-ordered
+/// conversion restored, so the emitted DFS/BFS edge sequence is unchanged.
+fn build_index_adjacency<'a>(
+    nodes: &[&'a str],
+    str_neighbors: impl Fn(&str) -> Vec<&'a str>,
+) -> Vec<Vec<usize>> {
+    let mut index: std::collections::HashMap<&str, usize> =
+        std::collections::HashMap::with_capacity(nodes.len());
+    for (i, &n) in nodes.iter().enumerate() {
+        index.insert(n, i);
+    }
+    nodes
+        .iter()
+        .map(|&u| {
+            str_neighbors(u)
+                .into_iter()
+                .filter_map(|v| index.get(v).copied())
+                .collect()
+        })
+        .collect()
+}
+
+/// Single-source DFS — mirrors `fnx_algorithms::dfs_edges` / `dfs_edges_directed`
+/// (reverse-push stack; immediate neighbors always pushed at depth 1 regardless
+/// of `depth_limit`, deeper descent gated on `depth < max_depth`).
+fn dfs_edges_indexed(
+    adj: &[Vec<usize>],
+    nodes: &[&str],
+    source_idx: usize,
+    depth_limit: Option<usize>,
+) -> Vec<(String, String)> {
+    let max_depth = depth_limit.unwrap_or(usize::MAX);
+    let n = nodes.len();
+    let mut visited = vec![false; n];
+    let mut edges: Vec<(String, String)> = Vec::new();
+    visited[source_idx] = true;
+    let mut stack: Vec<(usize, usize, usize)> = Vec::new();
+    for &nbr in adj[source_idx].iter().rev() {
+        if !visited[nbr] {
+            stack.push((source_idx, nbr, 1));
+        }
+    }
+    while let Some((parent, node, depth)) = stack.pop() {
+        if visited[node] {
+            continue;
+        }
+        visited[node] = true;
+        edges.push((nodes[parent].to_owned(), nodes[node].to_owned()));
+        if depth < max_depth {
+            for &nbr in adj[node].iter().rev() {
+                if !visited[nbr] {
+                    stack.push((node, nbr, depth + 1));
+                }
+            }
+        }
+    }
+    edges
+}
+
+/// Forest DFS (no source) — mirrors `dfs_forest_undirected` / `dfs_forest_directed`
+/// EXACTLY, including the `max_depth > 0` guard before pushing a root's depth-1
+/// neighbors (so `depth_limit=0` yields an empty forest, preserving current
+/// behavior — the separate dl=0 parity bug is tracked elsewhere).
+fn dfs_forest_indexed(
+    adj: &[Vec<usize>],
+    nodes: &[&str],
+    depth_limit: Option<usize>,
+) -> Vec<(String, String)> {
+    let max_depth = depth_limit.unwrap_or(usize::MAX);
+    let n = nodes.len();
+    let mut visited = vec![false; n];
+    let mut edges: Vec<(String, String)> = Vec::new();
+    for start in 0..n {
+        if visited[start] {
+            continue;
+        }
+        visited[start] = true;
+        let mut stack: Vec<(usize, usize, usize)> = Vec::new();
+        if max_depth > 0 {
+            for &nbr in adj[start].iter().rev() {
+                if !visited[nbr] {
+                    stack.push((start, nbr, 1));
+                }
+            }
+        }
+        while let Some((parent, node, depth)) = stack.pop() {
+            if visited[node] {
+                continue;
+            }
+            visited[node] = true;
+            edges.push((nodes[parent].to_owned(), nodes[node].to_owned()));
+            if depth < max_depth {
+                for &nbr in adj[node].iter().rev() {
+                    if !visited[nbr] {
+                        stack.push((node, nbr, depth + 1));
+                    }
+                }
+            }
+        }
+    }
+    edges
+}
+
+/// Single-source BFS — mirrors `fnx_algorithms::bfs_edges` / `bfs_edges_directed`
+/// (FIFO queue; `depth >= max_depth` short-circuits descent).
+fn bfs_edges_indexed(
+    adj: &[Vec<usize>],
+    nodes: &[&str],
+    source_idx: usize,
+    depth_limit: Option<usize>,
+) -> Vec<(String, String)> {
+    let max_depth = depth_limit.unwrap_or(usize::MAX);
+    let n = nodes.len();
+    let mut visited = vec![false; n];
+    let mut edges: Vec<(String, String)> = Vec::new();
+    visited[source_idx] = true;
+    let mut queue: std::collections::VecDeque<(usize, usize)> = std::collections::VecDeque::new();
+    queue.push_back((source_idx, 0));
+    while let Some((node, depth)) = queue.pop_front() {
+        if depth >= max_depth {
+            continue;
+        }
+        for &nbr in &adj[node] {
+            if !visited[nbr] {
+                visited[nbr] = true;
+                edges.push((nodes[node].to_owned(), nodes[nbr].to_owned()));
+                queue.push_back((nbr, depth + 1));
+            }
+        }
+    }
+    edges
+}
+
 fn dfs_postorder_forest_undirected(
     graph: &fnx_classes::Graph,
     nodes: &[&str],
@@ -7189,13 +7367,18 @@ fn dfs_edges_canonical(
             }
             _ => {
                 if let GraphRef::MultiDirected { mdg, .. } = gr {
-                    // br-r37-c1-mexh6-dirtree: structure-only ordered conversion
-                    // (no attr clones / per-edge ledger) instead of gr.digraph()'s
-                    // full multidigraph_to_simple_digraph; row orders preserve
-                    // DFS order.
-                    let owned = multidigraph_to_simple_digraph_structure_only_ordered(&mdg.inner);
+                    // br-r37-c1-86c7r: walk the MultiDiGraph successor adjacency
+                    // DIRECTLY — no multidigraph->simple-digraph conversion.
+                    let inner = &mdg.inner;
                     py.allow_threads(|| {
-                        fnx_algorithms::dfs_edges_directed(&owned, &source_key, depth_limit)
+                        let nodes = inner.nodes_ordered();
+                        let Some(src) = nodes.iter().position(|&n| n == source_key) else {
+                            return Vec::new();
+                        };
+                        let adj = build_index_adjacency(&nodes, |u| {
+                            inner.successors(u).unwrap_or_default()
+                        });
+                        dfs_edges_indexed(&adj, &nodes, src, depth_limit)
                     })
                 } else if gr.is_directed() {
                     let __gr_digraph = gr.digraph().expect("is_directed checked above");
@@ -7203,8 +7386,19 @@ fn dfs_edges_canonical(
                         fnx_algorithms::dfs_edges_directed(__gr_digraph, &source_key, depth_limit)
                     })
                 } else if let GraphRef::MultiUndirected { mg, .. } = gr {
-                    let owned = multigraph_to_simple_graph_structure_only_ordered(&mg.inner);
-                    py.allow_threads(|| fnx_algorithms::dfs_edges(&owned, &source_key, depth_limit))
+                    // br-r37-c1-86c7r: walk the MultiGraph neighbor adjacency
+                    // DIRECTLY — no multigraph->simple-graph conversion.
+                    let inner = &mg.inner;
+                    py.allow_threads(|| {
+                        let nodes = inner.nodes_ordered();
+                        let Some(src) = nodes.iter().position(|&n| n == source_key) else {
+                            return Vec::new();
+                        };
+                        let adj = build_index_adjacency(&nodes, |u| {
+                            inner.neighbors(u).unwrap_or_default()
+                        });
+                        dfs_edges_indexed(&adj, &nodes, src, depth_limit)
+                    })
                 } else {
                     let inner = gr.undirected();
                     py.allow_threads(|| fnx_algorithms::dfs_edges(inner, &source_key, depth_limit))
@@ -7227,21 +7421,32 @@ fn dfs_edges_canonical(
                 }
                 _ => {
                     if let GraphRef::MultiDirected { mdg, .. } = gr {
-                        // br-r37-c1-mexh6-dirtree: forest arm — structure-only
-                        // ordered conversion instead of gr.digraph()'s full clone.
-                        let owned =
-                            multidigraph_to_simple_digraph_structure_only_ordered(&mdg.inner);
-                        py.allow_threads(|| dfs_forest_directed(&owned, &nodes, depth_limit).0)
+                        // br-r37-c1-86c7r: forest walk over the MultiDiGraph
+                        // successor adjacency DIRECTLY — no conversion.
+                        let inner = &mdg.inner;
+                        py.allow_threads(|| {
+                            let mnodes = inner.nodes_ordered();
+                            let adj = build_index_adjacency(&mnodes, |u| {
+                                inner.successors(u).unwrap_or_default()
+                            });
+                            dfs_forest_indexed(&adj, &mnodes, depth_limit)
+                        })
                     } else if gr.is_directed() {
                         let __gr_digraph = gr.digraph().expect("is_directed checked above");
                         py.allow_threads(|| {
                             dfs_forest_directed(__gr_digraph, &nodes, depth_limit).0
                         })
                     } else if let GraphRef::MultiUndirected { mg, .. } = gr {
-                        // br-r37-c1-mexh6-dirtree: forest arm — structure-only
-                        // ordered conversion instead of gr.undirected()'s full clone.
-                        let owned = multigraph_to_simple_graph_structure_only_ordered(&mg.inner);
-                        py.allow_threads(|| dfs_forest_undirected(&owned, &nodes, depth_limit).0)
+                        // br-r37-c1-86c7r: forest walk over the MultiGraph
+                        // neighbor adjacency DIRECTLY — no conversion.
+                        let inner = &mg.inner;
+                        py.allow_threads(|| {
+                            let mnodes = inner.nodes_ordered();
+                            let adj = build_index_adjacency(&mnodes, |u| {
+                                inner.neighbors(u).unwrap_or_default()
+                            });
+                            dfs_forest_indexed(&adj, &mnodes, depth_limit)
+                        })
                     } else {
                         let inner = gr.undirected();
                         py.allow_threads(|| dfs_forest_undirected(inner, &nodes, depth_limit).0)
