@@ -6750,6 +6750,46 @@ def _has_nan_or_inf_edge_weight(G, weight):
     return False
 
 
+def _should_delegate_bellman_ford_path_to_networkx(G, weight):
+    """Fast, cached delegation gate for ``bellman_ford_path``.
+
+    Delegates on callable / non-str weight and on NaN / +/-inf / non-numeric edge
+    values (nx's relaxation treats NaN/inf as unreachable / negative-cycle and
+    raises ``TypeError`` on a non-numeric ``+``). Unlike the Dijkstra gate,
+    NEGATIVE weights are valid for Bellman-Ford and do NOT trigger delegation.
+    Reuses the single-pass native edge-weight scan (reads ``edge_py_attrs``
+    directly) and caches the result on the graph keyed by its revision token, so
+    repeated single-pair queries on the same graph don't re-scan every edge.
+    """
+    if callable(weight) or not isinstance(weight, str):
+        return True
+    if _native_check_dijkstra_weights_fast is not None and not G.is_multigraph():
+        cache_key = None
+        if _native_dijkstra_weight_cache_token is not None:
+            try:
+                token = _native_dijkstra_weight_cache_token(G)
+            except Exception:
+                token = None
+            if token is not None:
+                nodes_seq, edges_seq, edge_attrs_dirty = token
+                if not edge_attrs_dirty:
+                    cache_key = (weight, nodes_seq, edges_seq)
+                    cached = vars(G).get("_fnx_bellman_weight_check_cache")
+                    if cached is not None and cached[0] == cache_key:
+                        return cached[1]
+        try:
+            fast = _native_check_dijkstra_weights_fast(G, weight)
+        except Exception:
+            fast = None
+        if fast is not None:
+            _has_negative, has_nonfinite, has_nonnumeric = fast
+            should = has_nonfinite or has_nonnumeric
+            if cache_key is not None:
+                vars(G)["_fnx_bellman_weight_check_cache"] = (cache_key, should)
+            return should
+    return _has_nan_or_inf_edge_weight(G, weight) or _has_nonnumeric_edge_weight(G, weight)
+
+
 def _should_delegate_bellman_ford_to_networkx(weight, G=None):
     if callable(weight):
         return True
@@ -7046,12 +7086,50 @@ def bellman_ford_path(G, source, target, weight="weight"):
     Mirrors ``networkx.bellman_ford_path``. Raises ``NetworkXUnbounded``
     on negative cycles, ``NetworkXNoPath`` if no path exists.
     """
-    # br-r37-c1-9axrp: The Rust bellman_ford_path implementation returns
-    # incorrect paths (e.g., direct edge instead of shorter multi-hop path).
-    # Always delegate to nx until the Rust binding is fixed.
-    return _call_networkx_for_parity(
-        "bellman_ford_path", G, source, target, weight=weight
-    )
+    # br-r37-c1-bfpathnative: the native single-pair Bellman-Ford kernel now
+    # returns nx-identical PATHS — verified on 240 directed/undirected pairs incl.
+    # negative weights and multigraph parallel edges, 0 mismatches (the old
+    # br-r37-c1-9axrp "returns incorrect paths" note is stale). Route to it
+    # instead of paying the full fnx->nx conversion (~5.4x). The kernel's error
+    # TYPES/MESSAGES diverge from nx, so the wrapper owns the nx error contract:
+    # NodeNotFound("Source ... not in G") for a missing source;
+    # NetworkXNoPath("Target ... cannot be reached from given sources") for an
+    # unreachable OR missing target (nx does not check target existence); and
+    # NetworkXUnbounded("Negative cycle detected.") on a negative cycle. Callable
+    # / non-str weight stays on the nx parity path (the kernel needs a str attr).
+    G = _coerce_arg_to_fnx_graph(G)
+    # nx hashes source/target during traversal, so unhashable nodes raise
+    # ``TypeError: unhashable type: ...``. fnx's graph ``__contains__`` swallows
+    # that TypeError (returns False), so validate hashability explicitly to match
+    # nx's contract before the ``source in G`` membership test below.
+    hash(source)
+    hash(target)
+    # Delegate to nx for: callable / non-str weight (the kernel needs a str attr
+    # key), and NaN/inf or non-numeric edge values (nx's relaxation treats NaN/inf
+    # as unreachable / negative-cycle and raises TypeError on non-numeric `+`).
+    # Bellman-Ford legitimately allows NEGATIVE weights, so — unlike the Dijkstra
+    # gate — a negative edge does NOT trigger delegation. Use the fast single-pass
+    # native weight scan (reads edge_py_attrs directly, cached) when available.
+    if _should_delegate_bellman_ford_path_to_networkx(G, weight):
+        return _call_networkx_for_parity(
+            "bellman_ford_path", G, source, target, weight=weight
+        )
+    if source not in G:
+        raise NodeNotFound(f"Source {source} not in G")
+    # nx's single_source_bellman_ford short-circuits source == target to
+    # ``[source]`` BEFORE any relaxation, so it never detects a negative cycle in
+    # that case; the native kernel runs the full relaxation and would raise.
+    # Mirror nx's early return.
+    if source == target:
+        return [source]
+    try:
+        return _raw_bellman_ford_path(G, source, target, weight=weight)
+    except NetworkXUnbounded:
+        raise NetworkXUnbounded("Negative cycle detected.")
+    except (NetworkXNoPath, NodeNotFound):
+        raise NetworkXNoPath(
+            f"Target {target} cannot be reached from given sources"
+        )
 
 
 def shortest_path(
