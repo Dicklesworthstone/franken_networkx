@@ -14741,6 +14741,32 @@ pub fn dispersion_full_rust(
     Ok(dict.unbind())
 }
 
+/// br-r37-c1-dispego: single-node (ego) dispersion. Returns the inner dict
+/// `{neighbour: value}` for `dispersion(G, u)` in `G.neighbors(u)` order,
+/// computed in the local `N(u)` universe (no whole-graph allocation).
+#[pyfunction]
+pub fn dispersion_node_rust(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    u: &Bound<'_, PyAny>,
+    alpha: f64,
+    b: f64,
+    c: f64,
+) -> PyResult<Option<Py<PyDict>>> {
+    let gr = extract_graph(g)?;
+    let inner = gr.undirected();
+    let key = node_key_to_string(py, u)?;
+    let result = py.allow_threads(|| fnx_algorithms::dispersion_node(inner, &key, alpha, b, c));
+    let Some(row) = result else {
+        return Ok(None);
+    };
+    let dict = PyDict::new(py);
+    for (nbr, val) in &row {
+        dict.set_item(gr.py_node_key(py, nbr), val)?;
+    }
+    Ok(Some(dict.unbind()))
+}
+
 // ---------------------------------------------------------------------------
 // Voronoi cells
 // ---------------------------------------------------------------------------
@@ -16912,6 +16938,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(local_constraint_rust, m)?)?;
     m.add_function(wrap_pyfunction!(effective_size_rust, m)?)?;
     m.add_function(wrap_pyfunction!(dispersion_full_rust, m)?)?;
+    m.add_function(wrap_pyfunction!(dispersion_node_rust, m)?)?;
     // Voronoi cells
     m.add_function(wrap_pyfunction!(voronoi_cells_rust, m)?)?;
     // D-separation

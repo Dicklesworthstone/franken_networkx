@@ -20352,9 +20352,43 @@ def dispersion(
     # order over ``G[v]`` decides the count. fnx's neighbour order matches nx,
     # so iterating the ordered list (not the set) reproduces it. The set is
     # kept for O(1) membership in the inner predicate.
-    nbr_order = {n: list(G.neighbors(n)) for n in G}
-    adj = {n: set(lst) for n, lst in nbr_order.items()}
-    nodes = [u] if u is not None else list(G.nodes())
+    # br-r37-c1-dispego: the single-node ego form (``dispersion(G, u)`` — the
+    # canonical Backstrom-Kleinberg "find the partner" usage) only ever touches
+    # the adjacency of ``u`` and of u's neighbours: every ``common`` neighbour
+    # s/t lies in N(u), and the predicate reads adj[v]/adj[s]/adj[t] for v,s,t in
+    # N(u). Building the whole-graph adjacency snapshot to answer about one node
+    # was an O(V+E) tax (~138x slower than nx, which walks ``G[x]`` lazily).
+    # Restrict the snapshot to ``{u} ∪ N(u)``; the set logic and iteration order
+    # are unchanged, so results are byte-for-byte identical.
+    if u is not None:
+        # br-r37-c1-dispego: native local-universe kernel for the ego form on
+        # undirected/simple/loop-free graphs with the normalized formula (same
+        # gate as the full-dict kernel). Falls through to the Python path on any
+        # kernel issue (e.g. the gate not met or a directed/multi graph).
+        if (
+            normalized
+            and not G.is_directed()
+            and not G.is_multigraph()
+            and number_of_selfloops(G) == 0
+        ):
+            try:
+                _row = _fnx.dispersion_node_rust(
+                    _coerce_arg_to_fnx_graph(G), u, float(alpha), float(b), float(c)
+                )
+                if _row is not None:
+                    return _row
+            except Exception:
+                pass
+        nbr_order = {u: list(G.neighbors(u))}
+        for _nbr in nbr_order[u]:
+            if _nbr not in nbr_order:
+                nbr_order[_nbr] = list(G.neighbors(_nbr))
+        adj = {n: set(lst) for n, lst in nbr_order.items()}
+        nodes = [u]
+    else:
+        nbr_order = {n: list(G.neighbors(n)) for n in G}
+        adj = {n: set(lst) for n, lst in nbr_order.items()}
+        nodes = list(G.nodes())
     result = {}
     for node in nodes:
         result[node] = {}

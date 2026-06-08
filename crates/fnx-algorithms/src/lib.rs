@@ -28294,6 +28294,99 @@ pub fn dispersion_full(
     result
 }
 
+/// br-r37-c1-dispego: single-node (ego) Backstrom-Kleinberg dispersion.
+///
+/// Computes `dispersion(G, u)` — the canonical "find the partner" query — in a
+/// LOCAL universe restricted to `N(u)`, avoiding the whole-graph bitset
+/// allocation of [`dispersion_full`] (an O(|V|) tax to answer about one node).
+/// Every set in the predicate is a subset of `N(u)`: `common = N(u) ∩ N(v)` is
+/// `cn[v]`, and `nbrs_s ∩ N(t)` equals `nbrs_s ∩ (N(t) ∩ N(u)) = nbrs_s ∩
+/// cn[t]` because `nbrs_s ⊆ N(u)`. `disp` is the same order-invariant integer
+/// proven byte-identical to the Python path in [`dispersion_full`], so the
+/// `(disp+b)^alpha / (emb+c)` values match exactly. Returns `(neighbour, value)`
+/// pairs in `graph.neighbors(u)` order. Caller gates to undirected, simple,
+/// loop-free graphs with the normalized formula (matching `dispersion_full`).
+#[must_use]
+pub fn dispersion_node(
+    graph: &Graph,
+    u: &str,
+    alpha: f64,
+    b: f64,
+    c: f64,
+) -> Option<Vec<(String, f64)>> {
+    let ui = graph.get_node_index(u)?;
+    let nu = graph.neighbors_indices(ui)?; // adjacency order == G.neighbors(u)
+    let d = nu.len();
+    let words = d.div_ceil(64).max(1);
+
+    // Map each global neighbour index to its local position within N(u).
+    let mut local: HashMap<usize, usize> = HashMap::with_capacity(d);
+    for (pos, &g) in nu.iter().enumerate() {
+        local.insert(g, pos);
+    }
+
+    // cn[s_pos] = N(s) ∩ N(u) as a d-bit local bitset, for every s ∈ N(u).
+    let mut cn = vec![0u64; d * words];
+    for (s_pos, &sg) in nu.iter().enumerate() {
+        if let Some(sn) = graph.neighbors_indices(sg) {
+            let off = s_pos * words;
+            for &wg in sn {
+                if let Some(&wl) = local.get(&wg) {
+                    cn[off + (wl >> 6)] |= 1u64 << (wl & 63);
+                }
+            }
+        }
+    }
+
+    let mut nbrs_s = vec![0u64; words]; // reusable scratch
+    let mut result: Vec<(String, f64)> = Vec::with_capacity(d);
+    for (v_pos, &vg) in nu.iter().enumerate() {
+        // common = N(u) ∩ N(v) == cn[v_pos]
+        let v_off = v_pos * words;
+        let mut common: Vec<usize> = Vec::new();
+        for w in 0..words {
+            let mut bits = cn[v_off + w];
+            let base = w * 64;
+            while bits != 0 {
+                common.push(base + bits.trailing_zeros() as usize);
+                bits &= bits - 1;
+            }
+        }
+        let emb = common.len();
+
+        let mut disp: u64 = 0;
+        for a in 0..common.len() {
+            let s = common[a];
+            let s_off = s * words;
+            nbrs_s.copy_from_slice(&cn[s_off..s_off + words]);
+            nbrs_s[v_pos >> 6] &= !(1u64 << (v_pos & 63)); // (N(s)∩N(u)) \ {v}
+            for &t in common.iter().skip(a + 1) {
+                if (nbrs_s[t >> 6] >> (t & 63)) & 1 == 1 {
+                    continue;
+                }
+                let t_off = t * words;
+                let mut intersect = false;
+                for w in 0..words {
+                    if nbrs_s[w] & cn[t_off + w] != 0 {
+                        intersect = true;
+                        break;
+                    }
+                }
+                if !intersect {
+                    disp += 1;
+                }
+            }
+        }
+
+        let numer = (disp as f64 + b).powf(alpha);
+        let denom = emb as f64 + c;
+        let val = if denom != 0.0 { numer / denom } else { numer };
+        let vname = graph.get_node_name(vg)?.to_owned();
+        result.push((vname, val));
+    }
+    Some(result)
+}
+
 // ---------------------------------------------------------------------------
 // Voronoi cells (multi-source shortest path partitioning)
 // ---------------------------------------------------------------------------
