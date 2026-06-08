@@ -1011,8 +1011,12 @@ impl PyMultiDiGraph {
         self.graph_attrs.bind(py).set_item("name", value)
     }
 
-    /// br-r37-c1-cijlm: directed parity for PyGraph::_native_node_keys.
-    /// Returns node display objects in insertion order with one PyO3 crossing.
+    /// All node display objects in ONE PyO3 call (br-r37-c1-cijlm). Mirrors the
+    /// simple-graph binding (lib.rs): Python ``set(graph)`` crosses the PyO3
+    /// boundary per node (~2x nx on node-set construction), and ``set(graph.adj)``
+    /// re-materialises every AdjacencyView row; building the Vec in Rust lets
+    /// callers like ``non_neighbors`` enumerate every node in one crossing.
+    /// Order = node insertion order (``nodes_ordered``).
     fn _native_node_keys(&self, py: Python<'_>) -> Vec<PyObject> {
         self.inner
             .nodes_ordered()
@@ -4715,8 +4719,12 @@ impl PyDiGraph {
         self.graph_attrs.bind(py).set_item("name", value)
     }
 
-    /// br-r37-c1-cijlm: directed parity for PyGraph::_native_node_keys.
-    /// Returns node display objects in insertion order with one PyO3 crossing.
+    /// All node display objects in ONE PyO3 call (br-r37-c1-cijlm). Mirrors the
+    /// simple-graph binding (lib.rs): Python ``set(graph)`` crosses the PyO3
+    /// boundary per node (~2x nx on node-set construction), and ``set(graph.adj)``
+    /// re-materialises every AdjacencyView row; building the Vec in Rust lets
+    /// callers like ``non_neighbors`` enumerate every node in one crossing.
+    /// Order = node insertion order (``nodes_ordered``).
     fn _native_node_keys(&self, py: Python<'_>) -> Vec<PyObject> {
         self.inner
             .nodes_ordered()
