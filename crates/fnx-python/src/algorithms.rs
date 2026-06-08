@@ -6394,9 +6394,13 @@ pub fn bfs_edges(
                         fnx_algorithms::bfs_edges_directed(inner, &source_key, depth_limit)
                     })
                 }
+            } else if let GraphRef::MultiUndirected { mg, .. } = &gr {
+                // br-r37-c1-mexh6-dfs: structure-only ordered conversion (no
+                // attr clones / ledger); apply_row_orders preserves BFS order.
+                let owned = multigraph_to_simple_graph_structure_only_ordered(&mg.inner);
+                py.allow_threads(|| fnx_algorithms::bfs_edges(&owned, &source_key, depth_limit))
             } else {
                 let inner = gr.undirected();
-
                 py.allow_threads(|| fnx_algorithms::bfs_edges(inner, &source_key, depth_limit))
             }
         }
@@ -6474,9 +6478,13 @@ pub fn bfs_tree(
                         fnx_algorithms::bfs_edges_directed(inner, &source_key, depth_limit)
                     })
                 }
+            } else if let GraphRef::MultiUndirected { mg, .. } = &gr {
+                // br-r37-c1-mexh6-dfs: structure-only ordered conversion (no
+                // attr clones / ledger); apply_row_orders preserves BFS order.
+                let owned = multigraph_to_simple_graph_structure_only_ordered(&mg.inner);
+                py.allow_threads(|| fnx_algorithms::bfs_edges(&owned, &source_key, depth_limit))
             } else {
                 let inner = gr.undirected();
-
                 py.allow_threads(|| fnx_algorithms::bfs_edges(inner, &source_key, depth_limit))
             }
         }
