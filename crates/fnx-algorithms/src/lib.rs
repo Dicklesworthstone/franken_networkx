@@ -29717,6 +29717,114 @@ pub fn square_clustering_map(graph: &Graph) -> std::collections::HashMap<String,
         .collect()
 }
 
+/// br-r37-c1-sqclfast: integer-CSR realization of NetworkX's optimized
+/// (Lind/Zhang two-hop) square-clustering algorithm.
+///
+/// Returns, for each node in node-index (insertion) order, the exact integer
+/// pair `(squares, potential)`. The Python caller reproduces nx's
+/// `squares / potential if potential > 0 else 0` byte-for-byte — including
+/// the int-`0` vs float distinction — so this is a pure substrate swap of the
+/// String-keyed `HashSet` neighbor algebra for stamp-array membership over the
+/// integer adjacency rows. Self-loops are ignored, matching nx's
+/// `set(G._adj[v]).discard(v)`.
+///
+/// Complexity matches nx: O(sum_v sum_{u in N(v)} deg(u)) for the two-hop
+/// scan, with O(1) set-membership via monotonic stamp arrays (no per-node
+/// O(|V|) clears).
+#[must_use]
+pub fn square_clustering_pairs(graph: &Graph) -> Vec<(u64, i64)> {
+    let n = graph.node_count();
+    let mut out: Vec<(u64, i64)> = Vec::with_capacity(n);
+    if n == 0 {
+        return out;
+    }
+
+    // Per-node neighbor index rows with self-loops removed. A simple graph
+    // has no parallel edges, so each neighbor appears exactly once.
+    let mut adj: Vec<Vec<u32>> = Vec::with_capacity(n);
+    for v in 0..n {
+        let row = graph.neighbors_indices(v).unwrap_or(&[]);
+        let mut nb: Vec<u32> = Vec::with_capacity(row.len());
+        for &x in row {
+            if x != v {
+                nb.push(x as u32);
+            }
+        }
+        adj.push(nb);
+    }
+
+    // Monotonic stamp arrays: `vmark` flags membership of the current node's
+    // neighbor set; `seen` dedups two-hop opposite corners. A shared counter
+    // keeps the two stamps distinct and strictly increasing across nodes, so
+    // stale marks never collide with the current iteration.
+    let mut vmark: Vec<u32> = vec![0; n];
+    let mut seen: Vec<u32> = vec![0; n];
+    let mut stamp: u32 = 0;
+
+    for v in 0..n {
+        let nv = &adj[v];
+        let k = nv.len();
+        if k < 2 {
+            out.push((0, 0));
+            continue;
+        }
+        let v_deg_m1 = (k - 1) as i64;
+
+        stamp += 1;
+        let vstamp = stamp;
+        for &x in nv {
+            vmark[x as usize] = vstamp;
+        }
+
+        let mut uw_degrees: i64 = 0;
+        let uw_count: i64 = (k as i64) * v_deg_m1;
+        let mut triangles: i64 = 0;
+        let mut squares: i64 = 0;
+
+        for &u in nv {
+            let nu = &adj[u as usize];
+            uw_degrees += (nu.len() as i64) * v_deg_m1;
+            // p2 = |N(u) ∩ N(v)|
+            let mut p2: i64 = 0;
+            for &x in nu {
+                if vmark[x as usize] == vstamp {
+                    p2 += 1;
+                }
+            }
+            triangles += p2;
+            squares += p2 * (p2 - 1);
+        }
+
+        // Two-hop opposite corners: neighbors-of-neighbors that are not in
+        // N(v) and are not v itself, each visited once.
+        stamp += 1;
+        let tstamp = stamp;
+        for &u in nv {
+            for &w in &adj[u as usize] {
+                let wi = w as usize;
+                if vmark[wi] == vstamp || wi == v || seen[wi] == tstamp {
+                    continue;
+                }
+                seen[wi] = tstamp;
+                // p2 = |N(v) ∩ N(w)|
+                let mut p2: i64 = 0;
+                for &y in &adj[wi] {
+                    if vmark[y as usize] == vstamp {
+                        p2 += 1;
+                    }
+                }
+                squares += p2 * (p2 - 1);
+            }
+        }
+
+        squares /= 2;
+        let potential = uw_degrees - uw_count - triangles - squares;
+        out.push((squares as u64, potential));
+    }
+
+    out
+}
+
 // ---------------------------------------------------------------------------
 // Ego graph
 // ---------------------------------------------------------------------------

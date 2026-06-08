@@ -14985,6 +14985,28 @@ pub fn square_clustering_rust(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<
     Ok(dict.unbind())
 }
 
+/// br-r37-c1-sqclfast: fast whole-graph square clustering for simple
+/// undirected graphs. Runs the integer-CSR two-hop kernel and builds the
+/// node-keyed result in insertion order, reproducing nx's
+/// `squares / potential if potential > 0 else 0` exactly (int-`0` vs float).
+#[pyfunction]
+pub fn square_clustering_fast(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>> {
+    let gr = extract_graph(g)?;
+    let inner = gr.undirected();
+    let pairs = py.allow_threads(|| fnx_algorithms::square_clustering_pairs(inner));
+    let nodes = inner.nodes_ordered();
+    let dict = PyDict::new(py);
+    for (i, &node) in nodes.iter().enumerate() {
+        let (squares, potential) = pairs[i];
+        if potential > 0 {
+            dict.set_item(gr.py_node_key(py, node), squares as f64 / potential as f64)?;
+        } else {
+            dict.set_item(gr.py_node_key(py, node), 0i64)?;
+        }
+    }
+    Ok(dict.unbind())
+}
+
 // ---------------------------------------------------------------------------
 // Ego graph
 // ---------------------------------------------------------------------------
@@ -16911,6 +16933,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(power_rust, m)?)?;
     // Square clustering
     m.add_function(wrap_pyfunction!(square_clustering_rust, m)?)?;
+    m.add_function(wrap_pyfunction!(square_clustering_fast, m)?)?;
     // Ego graph
     m.add_function(wrap_pyfunction!(ego_graph_rust, m)?)?;
     // Degree mixing

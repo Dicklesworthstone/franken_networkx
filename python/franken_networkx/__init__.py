@@ -35050,6 +35050,15 @@ def transitivity(G):
 def square_clustering(G, nodes=None):
     """Compute the squares clustering coefficient for nodes."""
     G = _coerce_arg_to_fnx_graph(G)
+    # br-r37-c1-sqclfast: whole-graph simple undirected case runs the native
+    # integer-CSR two-hop kernel (stamp-array set algebra over integer
+    # adjacency rows) instead of the Python neighbor-set port. Gated on the
+    # exact `Graph` type (no SubgraphView/multigraph) so filtered views and
+    # parallel-edge collapsing keep the Python path. Result is byte-identical:
+    # the kernel returns exact integer (squares, potential) pairs and the
+    # binding reproduces nx's `squares/potential if potential>0 else 0`.
+    if nodes is None and type(G) is Graph:
+        return _fnx.square_clustering_fast(G)
     single_node = False
     if nodes is None:
         node_iter = G
