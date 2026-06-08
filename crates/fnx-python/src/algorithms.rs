@@ -6978,10 +6978,13 @@ fn dfs_forest_undirected(
         visited.insert(start);
         preorder.push(start.to_owned());
         let mut stack: Vec<(Option<&str>, &str, usize)> = Vec::new();
-        // Only push if we can actually visit depth 1 (max_depth > 0)
-        if max_depth > 0
-            && let Some(neighbors) = graph.neighbors(start)
-        {
+        // br-r37-c1-br12g: nx ALWAYS yields a root's depth-1 edges, even when
+        // depth_limit <= 0 (the limit only gates descent BEYOND depth 1). The
+        // old `max_depth > 0` guard suppressed the entire depth-1 star at dl=0,
+        // so dfs_edges/dfs_predecessors/dfs_successors(source=None, depth_limit=0)
+        // returned an empty forest instead of nx's star. Push depth-1
+        // unconditionally; `depth < max_depth` below still blocks deeper descent.
+        if let Some(neighbors) = graph.neighbors(start) {
             for neighbor in neighbors.into_iter().rev() {
                 if !visited.contains(neighbor) {
                     stack.push((Some(start), neighbor, 1));
@@ -7029,10 +7032,9 @@ fn dfs_forest_directed(
         visited.insert(start);
         preorder.push(start.to_owned());
         let mut stack: Vec<(Option<&str>, &str, usize)> = Vec::new();
-        // Only push if we can actually visit depth 1 (max_depth > 0)
-        if max_depth > 0
-            && let Some(succs) = digraph.successors(start)
-        {
+        // br-r37-c1-br12g: see dfs_forest_undirected — push depth-1 successors
+        // unconditionally so dl=0 yields nx's depth-1 star, not an empty forest.
+        if let Some(succs) = digraph.successors(start) {
             for succ in succs.into_iter().rev() {
                 if !visited.contains(succ) {
                     stack.push((Some(start), succ, 1));
@@ -7158,11 +7160,11 @@ fn dfs_forest_indexed(
         }
         visited[start] = true;
         let mut stack: Vec<(usize, usize, usize)> = Vec::new();
-        if max_depth > 0 {
-            for &nbr in adj[start].iter().rev() {
-                if !visited[nbr] {
-                    stack.push((start, nbr, 1));
-                }
+        // br-r37-c1-br12g: push depth-1 unconditionally (nx yields the depth-1
+        // star even at dl=0); `depth < max_depth` below still gates descent.
+        for &nbr in adj[start].iter().rev() {
+            if !visited[nbr] {
+                stack.push((start, nbr, 1));
             }
         }
         while let Some((parent, node, depth)) = stack.pop() {
