@@ -29474,11 +29474,67 @@ def trophic_levels(G, weight="weight"):
     to compute). This is the project-wide convention for vacuous
     inputs.
     """
+    G = _coerce_arg_to_fnx_graph(G)
     if not G.is_directed():
         raise NetworkXNotImplemented("not implemented for undirected type")
     if G.number_of_nodes() == 0:
         return {}
-    return _call_networkx_for_parity("trophic_levels", G, weight=weight)
+    return _trophic_levels_compute(G, weight)
+
+
+def _trophic_levels_compute(G, weight):
+    """br-r37-c1-trophnative: nx's Levine trophic-level method, computed
+    in-process from the NATIVE adjacency matrix + numpy, replacing the
+    per-call fnx->nx conversion. Byte-exact: the native ``adjacency_matrix``
+    matches nx's, and the remaining `(I - p)^-1 . 1` solve is identical numpy.
+    Strict (no empty-graph shortcut): empty / no-basal / unreachable raise nx's
+    exact messages — so trophic_differences/incoherence keep nx's error contract
+    on degenerate inputs. Callable weight has no native analogue -> delegate.
+    """
+    if callable(weight):
+        return _call_networkx_for_parity("trophic_levels", G, weight=weight)
+    import numpy as _np
+
+    in_deg = list(G.in_degree())
+    basal_nodes = [nid for nid, deg in in_deg if deg == 0]
+    if not basal_nodes:
+        raise NetworkXError(
+            "This graph has no basal nodes (nodes with no incoming edges)."
+            "Trophic levels are not defined without at least one basal node."
+        )
+    reachable_nodes = set()
+    for layer in bfs_layers(G, basal_nodes):
+        reachable_nodes.update(layer)
+    if len(reachable_nodes) != G.number_of_nodes():
+        raise NetworkXError(
+            "Trophic levels are only defined for graphs where every node has a path "
+            "from a basal node (basal nodes are nodes with no incoming edges)."
+        )
+
+    a = adjacency_matrix(G, weight=weight).T.toarray()
+    rowsum = _np.sum(a, axis=1)
+    p = a[rowsum != 0][:, rowsum != 0]
+    p = p / rowsum[rowsum != 0][:, _np.newaxis]
+    nn = p.shape[0]
+    i = _np.eye(nn)
+    try:
+        n = _np.linalg.inv(i - p)
+    except _np.linalg.LinAlgError as err:
+        raise NetworkXError(
+            "Trophic levels are only defined for graphs where every "
+            "node has a path from a basal node (basal nodes are nodes "
+            "with no incoming edges)."
+        ) from err
+    y = n.sum(axis=1) + 1
+
+    levels = {}
+    for nid, deg in in_deg:
+        if deg == 0:
+            levels[nid] = 1
+    nonzero_nodes = [nid for nid, deg in in_deg if deg != 0]
+    for idx, nid in enumerate(nonzero_nodes):
+        levels[nid] = y.item(idx)
+    return levels
 
 
 def trophic_differences(G, weight="weight"):
@@ -29487,9 +29543,23 @@ def trophic_differences(G, weight="weight"):
     br-trophdir: see trophic_levels; reject undirected input.
     Default ``weight='weight'`` matches nx (br-r37-c1-rygbm).
     """
+    G = _coerce_arg_to_fnx_graph(G)
     if not G.is_directed():
         raise NetworkXNotImplemented("not implemented for undirected type")
-    return _call_networkx_for_parity("trophic_differences", G, weight=weight)
+    if callable(weight):
+        return _call_networkx_for_parity("trophic_differences", G, weight=weight)
+    # br-r37-c1-trophnative: nx computes levels then diffs[(u,v)] = s_v - s_u over
+    # G.edges; do the same natively (strict levels match nx's degenerate-input
+    # errors). MultiDiGraph: G.edges yields (u, v) per parallel edge and the
+    # dict last-write-wins, identical to nx (the value is the same for parallels).
+    levels = _trophic_levels_compute(G, weight)
+    diffs = {}
+    # Iterate the edge VIEW (not edges()) exactly like nx: on a MultiDiGraph this
+    # yields 3-tuples and raises ValueError("too many values to unpack"), matching
+    # nx's own (multigraph-unsupported) behavior; on a DiGraph it yields (u, v).
+    for u, v in G.edges:
+        diffs[(u, v)] = levels[v] - levels[u]
+    return diffs
 
 
 def trophic_incoherence_parameter(G, weight="weight", cannibalism=False):
@@ -29498,11 +29568,28 @@ def trophic_incoherence_parameter(G, weight="weight", cannibalism=False):
     br-trophdir: see trophic_levels; reject undirected input.
     Default ``weight='weight'`` matches nx (br-r37-c1-rygbm).
     """
+    G = _coerce_arg_to_fnx_graph(G)
     if not G.is_directed():
         raise NetworkXNotImplemented("not implemented for undirected type")
-    return _call_networkx_for_parity(
-        "trophic_incoherence_parameter", G, weight=weight, cannibalism=cannibalism,
-    )
+    if callable(weight):
+        return _call_networkx_for_parity(
+            "trophic_incoherence_parameter", G, weight=weight, cannibalism=cannibalism,
+        )
+    import numpy as _np
+
+    # br-r37-c1-trophnative: nx removes self-loops (unless cannibalism), then
+    # returns float(np.std(trophic_differences.values())). Mirror exactly.
+    if cannibalism:
+        diffs = trophic_differences(G, weight=weight)
+    else:
+        self_loops = list(selfloop_edges(G))
+        if self_loops:
+            G_2 = G.copy()
+            G_2.remove_edges_from(self_loops)
+        else:
+            G_2 = G
+        diffs = trophic_differences(G_2, weight=weight)
+    return float(_np.std(list(diffs.values())))
 
 
 def group_betweenness_centrality(
