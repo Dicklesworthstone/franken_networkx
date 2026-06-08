@@ -3769,7 +3769,13 @@ class _DirectedDegreeView:
         # for multi (O(degree)). The native out_degree/in_degree gives the
         # identical count (distinct-successor count for simple, edge-multiplicity
         # sum for multi). Both PyDiGraph and PyMultiDiGraph expose the methods.
-        if weight is None:
+        if weight is None and not isinstance(self._graph, _FilteredGraphView):
+            # br-r37-c1-vfytj: the native _native_*_degree paths read the
+            # graph's Rust base, which is EMPTY for a filtered/subgraph view
+            # (super().__new__ empty base) — so they returned 0 / {} for
+            # subgraph in_degree/out_degree. On a filtered view fall through
+            # to the generic self._adjacency[node] path, which reads the
+            # FILTER-AWARE succ/pred adjacency views.
             if self._adjacency_attr == "succ":
                 return self._graph._native_out_degree(node)
             if self._adjacency_attr == "pred":
@@ -3797,7 +3803,13 @@ class _DirectedDegreeView:
         # br-r37-c1-degidx: unweighted full-graph iteration uses a single
         # native bulk call (one Rust loop) instead of N per-node
         # _native_*_degree PyO3 round-trips (each hashing the node key).
-        if self._nodes is None and self._weight is None:
+        if (
+            self._nodes is None
+            and self._weight is None
+            and not isinstance(self._graph, _FilteredGraphView)
+        ):
+            # br-r37-c1-vfytj: native bulk pairs read the (empty) Rust base
+            # of a filtered view — skip for filtered/subgraph views.
             if self._adjacency_attr == "succ":
                 pairs = getattr(self._graph, "_native_out_degree_pairs", None)
             elif self._adjacency_attr == "pred":
