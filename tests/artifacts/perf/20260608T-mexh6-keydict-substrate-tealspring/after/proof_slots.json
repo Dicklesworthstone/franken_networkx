@@ -1,0 +1,77 @@
+{
+  "cases": [
+    {
+      "directed": false,
+      "fnx": {
+        "alias_pairs": 0,
+        "degree": 5,
+        "directed": false,
+        "edge_count": 17956,
+        "elapsed": 0.006100937956944108,
+        "live_mutations": 35911,
+        "module": "fnx",
+        "node_count": 1200,
+        "nodes": 1200,
+        "parallel": 3,
+        "repeats": 1,
+        "row_count": 11971,
+        "sha256": "231583cedff594f62d823fb4b31b13b96ed668cfb49879e4509e99bd1aa417a5"
+      },
+      "matches_nx": false,
+      "nx": {
+        "alias_pairs": 11970,
+        "degree": 5,
+        "directed": false,
+        "edge_count": 17956,
+        "elapsed": 0.00040170096326619387,
+        "live_mutations": 35911,
+        "module": "nx",
+        "node_count": 1200,
+        "nodes": 1200,
+        "parallel": 3,
+        "repeats": 1,
+        "row_count": 11971,
+        "sha256": "5a55bbcd4cb59516aeba251c246aff4bb85b1e13903cfd7c4f3648635b1e23ba"
+      }
+    },
+    {
+      "directed": true,
+      "fnx": {
+        "alias_pairs": 0,
+        "degree": 5,
+        "directed": true,
+        "edge_count": 18001,
+        "elapsed": 0.0036849910393357277,
+        "live_mutations": 18001,
+        "module": "fnx",
+        "node_count": 1200,
+        "nodes": 1200,
+        "parallel": 3,
+        "repeats": 1,
+        "row_count": 6001,
+        "sha256": "f390ad0dd5b62afcea49a121448d11f13954103ea0bb8bc164092a25e38ae759"
+      },
+      "matches_nx": true,
+      "nx": {
+        "alias_pairs": 0,
+        "degree": 5,
+        "directed": true,
+        "edge_count": 18001,
+        "elapsed": 0.0003465469926595688,
+        "live_mutations": 18001,
+        "module": "nx",
+        "node_count": 1200,
+        "nodes": 1200,
+        "parallel": 3,
+        "repeats": 1,
+        "row_count": 6001,
+        "sha256": "f390ad0dd5b62afcea49a121448d11f13954103ea0bb8bc164092a25e38ae759"
+      }
+    }
+  ],
+  "floating_point": "N/A: attributes are serialized only",
+  "ordering_preserved": false,
+  "rng": "N/A: deterministic synthetic graph",
+  "sha256": "1cef3a7ef93d10e2a178b103bf5a0f26108a7f345d5c6a8b5f7bdaaba3dfd505",
+  "tie_breaking": "N/A: no algorithmic tie-break path"
+}

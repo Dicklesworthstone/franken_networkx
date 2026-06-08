@@ -42389,6 +42389,8 @@ def _empty_graph_from_create_using(create_using, default=Graph):
 
 
 class _LiveMultiEdgeDataView(dict):
+    __slots__ = ("_graph", "_u", "_v")
+
     def __init__(self, graph, u, v):
         super().__init__()
         self._graph = graph

@@ -1,0 +1,38 @@
+{
+  "results": [
+    {
+      "command": "env PYTHONPATH=python python3 tests/artifacts/perf/20260608T-mexh6-keydict-substrate-tealspring/multigraph_keydict_harness.py timing --output tests/artifacts/perf/20260608T-mexh6-keydict-substrate-tealspring/baseline/hyperfine_inner_multigraph.json",
+      "mean": 1.7076729814,
+      "stddev": 0.08255547538848816,
+      "median": 1.7024963384,
+      "user": 5.43748088,
+      "system": 0.12017773999999999,
+      "min": 1.5211052239,
+      "max": 1.8226820878999999,
+      "times": [
+        1.7348357899,
+        1.6815427839000001,
+        1.6647761379,
+        1.7876804669,
+        1.7649581878999998,
+        1.5211052239,
+        1.6941564589,
+        1.8226820878999999,
+        1.7103769189,
+        1.6946157579
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}
