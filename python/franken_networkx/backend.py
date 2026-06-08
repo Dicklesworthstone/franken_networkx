@@ -692,26 +692,33 @@ def _fnx_to_nx(fg):
             canon_to_obj = {
                 canon: obj for (canon, _nbrs), obj in zip(bulk, display_nodes)
             }
-            # br-r37-c1-w7nn3: neighbor objects must be the ROW display
-            # objects (z6uka overrides for mixed hash-equal keys), not the
-            # node-map objects — nx-native adj rows carry the objects the
-            # creating add_edge passed. ``fg[obj]`` iteration yields them.
-            adj_neighbors = {obj: list(fg[obj]) for obj in display_nodes}
-            attrs_by_pair = {}
+            # br-r37-c1-fnx2nx-fastemit: emit edges in plain node-major (bulk)
+            # order. The previous path rebuilt ``adj_neighbors`` via a per-node
+            # ``fg[obj]`` AdjacencyView pass AND ran the ``_topo_emit_edges_by_adj``
+            # topological walk solely to make the INITIAL nx adjacency-row order
+            # match fg — but ``_align_rows`` below unconditionally reorders every
+            # row into fg's exact order (reusing the datadicts via hash-equal
+            # lookup), so the emission order is irrelevant. Dropping both (~14ms
+            # of a ~30ms / 600-node conversion) makes check_planarity and every
+            # cheap-nx-compute delegated function ~2.5x faster. Undirected edges
+            # appear in both endpoints' bulk rows; ``seen`` emits each once.
+            edges_in_order = []
             if directed:
                 for node, nbrs in bulk:
                     onode = canon_to_obj[node]
                     for nbr, attrs in nbrs:
-                        attrs_by_pair[(onode, canon_to_obj[nbr])] = attrs
+                        edges_in_order.append((onode, canon_to_obj[nbr], dict(attrs)))
             else:
+                seen_undirected = set()
                 for node, nbrs in bulk:
                     onode = canon_to_obj[node]
                     for nbr, attrs in nbrs:
-                        attrs_by_pair[frozenset((onode, canon_to_obj[nbr]))] = attrs
-            edges_in_order = []
-            for u, v in _topo_emit_edges_by_adj(fg, adj=adj_neighbors):
-                key = (u, v) if directed else frozenset((u, v))
-                edges_in_order.append((u, v, dict(attrs_by_pair.get(key, {}))))
+                        onbr = canon_to_obj[nbr]
+                        pair = frozenset((onode, onbr))
+                        if pair in seen_undirected:
+                            continue
+                        seen_undirected.add(pair)
+                        edges_in_order.append((onode, onbr, dict(attrs)))
         else:
             # Defensive fallback (e.g. native helper unavailable): the
             # per-node AtlasView path.
