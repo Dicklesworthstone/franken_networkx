@@ -778,7 +778,12 @@ impl DegreeView {
             .enumerate()
             .map(|(i, n)| {
                 let py_key = g.py_node_key(py, n);
-                let py_degree = g.inner.degree_by_index(i).into_pyobject(py)?.into_any().unbind();
+                let py_degree = g
+                    .inner
+                    .degree_by_index(i)
+                    .into_pyobject(py)?
+                    .into_any()
+                    .unbind();
                 tuple_object(py, &[py_key, py_degree])
             })
             .collect::<PyResult<Vec<_>>>()?;

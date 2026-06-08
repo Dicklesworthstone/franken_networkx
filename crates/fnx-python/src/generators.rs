@@ -39,6 +39,7 @@ fn report_to_pygraph(py: Python<'_>, graph: fnx_classes::Graph) -> PyResult<PyGr
         edge_py_attrs: HashMap::new(),
         adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
         dict_of_dicts_cache: None,
+        adj_row_py: HashMap::new(),
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,
@@ -57,6 +58,8 @@ fn report_to_pydigraph(
         edge_py_attrs: HashMap::new(),
         succ_py_keys: HashMap::new(), // br-r37-c1-z6uka
         pred_py_keys: HashMap::new(), // br-r37-c1-z6uka
+        succ_row_py: HashMap::new(),
+        pred_row_py: HashMap::new(),
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,
@@ -201,6 +204,7 @@ pub fn grid_2d_graph_simple(py: Python<'_>, m: usize, n: usize) -> PyResult<PyGr
         edge_py_attrs: HashMap::new(),
         adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
         dict_of_dicts_cache: None,
+        adj_row_py: HashMap::new(),
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,
@@ -270,6 +274,7 @@ pub fn grid_graph_native(
         edge_py_attrs: HashMap::new(),
         adj_py_keys: HashMap::new(),
         dict_of_dicts_cache: None,
+        adj_row_py: HashMap::new(),
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,
@@ -332,6 +337,7 @@ pub fn kneser_graph_native(py: Python<'_>, n: usize, k: usize) -> PyResult<PyGra
         edge_py_attrs: HashMap::new(),
         adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
         dict_of_dicts_cache: None,
+        adj_row_py: HashMap::new(),
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,

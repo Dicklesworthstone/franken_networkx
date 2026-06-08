@@ -1103,8 +1103,11 @@ def _adjacency_view_values(self):
 
 
 class AtlasView(_Mapping):
-    def __init__(self, atlas_getter):
+    def __init__(self, atlas_getter, *, owner=None, row_node=None, row_kind="adj"):
         self._atlas_getter = atlas_getter
+        self._fnx_owner = owner
+        self._fnx_row_node = row_node
+        self._fnx_row_kind = row_kind
 
     def _atlas(self):
         return self._atlas_getter()
@@ -1113,6 +1116,14 @@ class AtlasView(_Mapping):
         return len(self._atlas())
 
     def __iter__(self):
+        cached = _cached_adj_row_key_iter(
+            self._fnx_owner,
+            self._fnx_row_kind,
+            self._fnx_row_node,
+            self._atlas,
+        )
+        if cached is not None:
+            return cached
         return iter(self._atlas())
 
     def __getitem__(self, node):
@@ -1150,8 +1161,10 @@ class AtlasView(_Mapping):
 
 
 class AdjacencyView(_Mapping):
-    def __init__(self, atlas_getter):
+    def __init__(self, atlas_getter, *, owner=None, row_kind="adj"):
         self._atlas_getter = atlas_getter
+        self._fnx_owner = owner
+        self._fnx_row_kind = row_kind
 
     def _atlas(self):
         return self._atlas_getter()
@@ -1181,7 +1194,12 @@ class AdjacencyView(_Mapping):
             # br-keystr: preserve the original key type (int/tuple/...)
             # in the KeyError args instead of the Rust side's str repr.
             raise KeyError(node) from exc
-        return AtlasView(lambda: self._atlas()[node])
+        return AtlasView(
+            lambda: self._atlas()[node],
+            owner=self._fnx_owner,
+            row_node=node,
+            row_kind=self._fnx_row_kind,
+        )
 
     def __repr__(self):
         # br-r37-c1-k147g: print the underlying mapping like nx does.
@@ -1299,13 +1317,21 @@ _multigraph_adj_view = _cached_view(
 
 _graph_adj_view = _cached_view(
     "_fnx_view_adj",
-    lambda self: AdjacencyView(lambda: _GRAPH_ADJ_DESCRIPTOR.__get__(self, Graph)),
+    lambda self: AdjacencyView(
+        lambda: _GRAPH_ADJ_DESCRIPTOR.__get__(self, Graph),
+        owner=self,
+        row_kind="adj",
+    ),
 )
 
 
 _digraph_adj_view = _cached_view(
     "_fnx_view_adj",
-    lambda self: AdjacencyView(lambda: _DIGRAPH_ADJ_DESCRIPTOR.__get__(self, DiGraph)),
+    lambda self: AdjacencyView(
+        lambda: _DIGRAPH_ADJ_DESCRIPTOR.__get__(self, DiGraph),
+        owner=self,
+        row_kind="succ",
+    ),
 )
 
 
@@ -1319,13 +1345,21 @@ _multidigraph_adj_view = _cached_view(
 
 _digraph_succ_view = _cached_view(
     "_fnx_view_succ",
-    lambda self: AdjacencyView(lambda: _DIGRAPH_SUCC_DESCRIPTOR.__get__(self, DiGraph)),
+    lambda self: AdjacencyView(
+        lambda: _DIGRAPH_SUCC_DESCRIPTOR.__get__(self, DiGraph),
+        owner=self,
+        row_kind="succ",
+    ),
 )
 
 
 _digraph_pred_view = _cached_view(
     "_fnx_view_pred",
-    lambda self: AdjacencyView(lambda: _DIGRAPH_PRED_DESCRIPTOR.__get__(self, DiGraph)),
+    lambda self: AdjacencyView(
+        lambda: _DIGRAPH_PRED_DESCRIPTOR.__get__(self, DiGraph),
+        owner=self,
+        row_kind="pred",
+    ),
 )
 
 
@@ -31480,6 +31514,47 @@ def _private_pred_mapping(self, fallback):
     return fallback(self)
 
 
+def _cached_adj_row_key_iter(owner, row_kind, row_node, row_getter):
+    if owner is None or row_node is None:
+        return None
+    if not isinstance(owner, (Graph, DiGraph)):
+        return None
+    if _has_networkx_private_storage(owner):
+        return None
+    try:
+        hash(row_node)
+        token = (owner.nodes_seq, owner.edges_seq)
+    except (AttributeError, TypeError):
+        return None
+
+    native_name = {
+        "adj": "_native_adjacency_row_dict",
+        "succ": "_native_successor_row_dict",
+        "pred": "_native_predecessor_row_dict",
+    }.get(row_kind)
+    if native_name is not None:
+        native_row = getattr(owner, native_name, None)
+        if native_row is not None:
+            try:
+                return iter(native_row(row_node))
+            except KeyError:
+                return None
+
+    state_name = "_fnx_adj_row_keydict_cache_state"
+    cache_name = "_fnx_adj_row_keydict_cache"
+    owner_vars = vars(owner)
+    if owner_vars.get(state_name) != token:
+        owner_vars[state_name] = token
+        owner_vars[cache_name] = {}
+    cache = owner_vars[cache_name]
+    cache_key = (row_kind, row_node)
+    keydict = cache.get(cache_key)
+    if keydict is None:
+        keydict = dict.fromkeys(row_getter())
+        cache[cache_key] = keydict
+    return iter(keydict)
+
+
 class _AssignedPrivateNodeView(_Mapping):
     def __init__(self, graph):
         self._graph = graph
@@ -32078,6 +32153,14 @@ def _private_aware_neighbors(raw_neighbors, *, attr_name="adj"):
             if n not in self:
                 raise NetworkXError(f"The node {n} is not in the graph.")
             return iter(adjacency[n])
+        cached = _cached_adj_row_key_iter(
+            self,
+            attr_name,
+            n,
+            lambda: raw_neighbors(self, n),
+        )
+        if cached is not None:
+            return cached
         return raw_neighbors(self, n)
 
     return neighbors

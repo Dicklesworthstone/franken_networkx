@@ -525,6 +525,8 @@ pub(crate) struct PyGraph {
     pub(crate) edge_py_attrs: HashMap<(String, String), Py<PyDict>>,
     /// Cached NetworkX-style adjacency rows for `to_dict_of_dicts`.
     pub(crate) dict_of_dicts_cache: Option<DictOfDictsCache>,
+    /// Live NetworkX-style adjacency row mirrors for simple Graph view iteration.
+    pub(crate) adj_row_py: HashMap<String, Py<PyDict>>,
     /// Graph-level attribute dict.
     pub(crate) graph_attrs: Py<PyDict>,
     /// Monotonic counter bumped on every node add/remove (br-r37-c1-39d82).
@@ -757,6 +759,7 @@ impl PyGraph {
             edge_py_attrs: HashMap::new(),
             adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
             dict_of_dicts_cache: None,
+            adj_row_py: HashMap::new(),
             graph_attrs: PyDict::new(py).unbind(),
             nodes_seq: 0,
             edges_seq: 0,
@@ -785,6 +788,31 @@ impl PyGraph {
     #[inline]
     pub(crate) fn mark_edges_dirty(&self) {
         self.edges_dirty.store(true, Ordering::Relaxed);
+    }
+
+    fn cached_adj_set_edge(&mut self, py: Python<'_>, owner: &str, nbr: &str) -> PyResult<()> {
+        let Some(row) = self.adj_row_py.get(owner).map(|row| row.clone_ref(py)) else {
+            return Ok(());
+        };
+        let py_nbr = self.py_adj_key(py, owner, nbr);
+        let attrs = self.materialize_edge_py_attrs(py, owner, nbr);
+        row.bind(py).set_item(py_nbr, attrs.bind(py))?;
+        Ok(())
+    }
+
+    fn cached_adj_remove_key(&self, py: Python<'_>, owner: &str, nbr: &str) -> PyResult<()> {
+        if let Some(row) = self.adj_row_py.get(owner) {
+            let py_nbr = self.py_adj_key(py, owner, nbr);
+            let _ = row.bind(py).del_item(py_nbr);
+        }
+        Ok(())
+    }
+
+    fn cached_adj_clear_edges_in_place(&self, py: Python<'_>) -> PyResult<()> {
+        for row in self.adj_row_py.values() {
+            row.bind(py).call_method0("clear")?;
+        }
+        Ok(())
     }
 
     fn is_plain_batch_node(key: &Bound<'_, PyAny>) -> bool {
@@ -893,6 +921,9 @@ impl PyGraph {
         ebunch_to_add: &Bound<'_, PyAny>,
     ) -> PyResult<bool> {
         const PLAIN_EDGE_BATCH_MIN: usize = 8;
+        if !self.adj_row_py.is_empty() {
+            return Ok(false);
+        }
         if let Ok(list) = ebunch_to_add.downcast::<PyList>() {
             if list.len() < PLAIN_EDGE_BATCH_MIN {
                 return Ok(false);
@@ -1081,6 +1112,9 @@ impl PyGraph {
         global_attr: Option<&Bound<'_, PyDict>>,
     ) -> PyResult<bool> {
         const ATTR_EDGE_BATCH_MIN: usize = 8;
+        if !self.adj_row_py.is_empty() {
+            return Ok(false);
+        }
         if let Ok(list) = ebunch_to_add.downcast::<PyList>() {
             if list.len() < ATTR_EDGE_BATCH_MIN {
                 return Ok(false);
@@ -4903,10 +4937,15 @@ impl PyGraph {
 
         // surgically remove attributes for incident edges before removing node from inner graph
         let mut had_incident_edges = false;
-        if let Some(neighbors) = self.inner.neighbors(&canonical) {
+        let neighbors = self
+            .inner
+            .neighbors(&canonical)
+            .map(|neighbors| neighbors.into_iter().map(str::to_owned).collect::<Vec<_>>());
+        if let Some(neighbors) = &neighbors {
             for nb in neighbors {
                 let ek = Self::edge_key(&canonical, nb);
                 self.edge_py_attrs.remove(&ek);
+                self.cached_adj_remove_key(py, nb, &canonical)?;
                 had_incident_edges = true;
             }
         }
@@ -4920,6 +4959,7 @@ impl PyGraph {
             self.adj_py_keys
                 .retain(|(a, b), _| a != &canonical && b != &canonical);
         }
+        self.adj_row_py.remove(&canonical);
         self.bump_nodes_seq();
         // br-r37-c1-jft0i: removing a node with incident edges also mutates the
         // edge set, so bump edges_seq to invalidate edge-keyed caches.
@@ -4942,6 +4982,17 @@ impl PyGraph {
         }
         let present_refs: HashSet<&str> = present.iter().map(String::as_str).collect();
         let mut removed_py_edge_attrs = false;
+        for canonical in &present {
+            if let Some(neighbors) = self
+                .inner
+                .neighbors(canonical)
+                .map(|neighbors| neighbors.into_iter().map(str::to_owned).collect::<Vec<_>>())
+            {
+                for nb in neighbors {
+                    self.cached_adj_remove_key(py, &nb, canonical)?;
+                }
+            }
+        }
         self.edge_py_attrs.retain(|(left, right), _| {
             let keep =
                 !present_refs.contains(left.as_str()) && !present_refs.contains(right.as_str());
@@ -4955,6 +5006,7 @@ impl PyGraph {
         for canonical in &present {
             self.node_key_map.remove(canonical);
             self.node_py_attrs.remove(canonical);
+            self.adj_row_py.remove(canonical);
         }
         if !self.adj_py_keys.is_empty() {
             // br-r37-c1-z6uka: drop adjacency-row overrides touching removed nodes.
@@ -5014,7 +5066,8 @@ impl PyGraph {
         // For a SELF-LOOP both nx assignments hit the same dict cell and
         // the second cannot replace the hash-equal key — only v's object
         // applies (shrunk repro: add_edge(12.0, 12) renders (12, 12)).
-        if !self.inner.has_edge(&u_canonical, &v_canonical) {
+        let was_new_edge = !self.inner.has_edge(&u_canonical, &v_canonical);
+        if was_new_edge {
             self.maybe_store_adj_key(py, &u_canonical, &v_canonical, v);
             if u_canonical != v_canonical {
                 self.maybe_store_adj_key(py, &v_canonical, &u_canonical, u);
@@ -5043,8 +5096,14 @@ impl PyGraph {
 
         log::debug!(target: "franken_networkx", "add_edge: {u_canonical} -- {v_canonical}");
         self.inner
-            .add_edge_with_attrs(u_canonical, v_canonical, rust_attrs)
+            .add_edge_with_attrs(u_canonical.clone(), v_canonical.clone(), rust_attrs)
             .map_err(|e| NetworkXError::new_err(e.to_string()))?;
+        if was_new_edge {
+            self.cached_adj_set_edge(py, &u_canonical, &v_canonical)?;
+            if u_canonical != v_canonical {
+                self.cached_adj_set_edge(py, &v_canonical, &u_canonical)?;
+            }
+        }
         // br-r37-c1-jft0i: bump edges_seq so view-materialization caches invalidate.
         self.bump_edges_seq();
         Ok(())
@@ -5205,9 +5264,16 @@ impl PyGraph {
                 .entry(ek)
                 .or_insert_with(|| PyDict::new(py).unbind());
 
+            let was_new_edge = !self.inner.has_edge(&u_s, &v_s);
             let _ = self
                 .inner
-                .add_edge_with_attrs(u_s, v_s, empty_attrs.clone());
+                .add_edge_with_attrs(u_s.clone(), v_s.clone(), empty_attrs.clone());
+            if was_new_edge {
+                self.cached_adj_set_edge(py, &u_s, &v_s)?;
+                if u_s != v_s {
+                    self.cached_adj_set_edge(py, &v_s, &u_s)?;
+                }
+            }
         }
         Ok(())
     }
@@ -5241,6 +5307,8 @@ impl PyGraph {
     ) -> PyResult<()> {
         let u_canonical = node_key_to_string(py, u)?;
         let v_canonical = node_key_to_string(py, v)?;
+        let py_u_key = self.py_adj_key(py, &v_canonical, &u_canonical);
+        let py_v_key = self.py_adj_key(py, &u_canonical, &v_canonical);
         log::debug!(target: "franken_networkx", "remove_edge: {u_canonical} -- {v_canonical}");
         let removed = self.inner.remove_edge(&u_canonical, &v_canonical);
         if !removed {
@@ -5252,6 +5320,14 @@ impl PyGraph {
         }
         let ek = Self::edge_key(&u_canonical, &v_canonical);
         self.edge_py_attrs.remove(&ek);
+        if let Some(row) = self.adj_row_py.get(&u_canonical) {
+            let _ = row.bind(py).del_item(py_v_key);
+        }
+        if u_canonical != v_canonical
+            && let Some(row) = self.adj_row_py.get(&v_canonical)
+        {
+            let _ = row.bind(py).del_item(py_u_key);
+        }
         if !self.adj_py_keys.is_empty() {
             // br-r37-c1-z6uka: re-adding the edge later creates FRESH
             // adjacency cells (nx deletes the row entries) — drop overrides.
@@ -5278,9 +5354,19 @@ impl PyGraph {
             let v = tuple.get_item(1)?;
             let u_c = node_key_to_string(py, &u)?;
             let v_c = node_key_to_string(py, &v)?;
+            let py_u_key = self.py_adj_key(py, &v_c, &u_c);
+            let py_v_key = self.py_adj_key(py, &u_c, &v_c);
             self.inner.remove_edge(&u_c, &v_c);
             let ek = Self::edge_key(&u_c, &v_c);
             self.edge_py_attrs.remove(&ek);
+            if let Some(row) = self.adj_row_py.get(&u_c) {
+                let _ = row.bind(py).del_item(py_v_key);
+            }
+            if u_c != v_c
+                && let Some(row) = self.adj_row_py.get(&v_c)
+            {
+                let _ = row.bind(py).del_item(py_u_key);
+            }
             if !self.adj_py_keys.is_empty() {
                 // br-r37-c1-z6uka: drop adjacency-row overrides for the removed edge.
                 self.adj_py_keys.remove(&(u_c.clone(), v_c.clone()));
@@ -5302,6 +5388,7 @@ impl PyGraph {
         self.node_py_attrs.clear();
         self.edge_py_attrs.clear();
         self.adj_py_keys.clear(); // br-r37-c1-z6uka
+        self.adj_row_py.clear();
         self.graph_attrs = PyDict::new(py).unbind();
         self.bump_nodes_seq();
         self.bump_edges_seq(); // br-r37-c1-jft0i
@@ -5309,7 +5396,7 @@ impl PyGraph {
     }
 
     /// Remove all edges but keep nodes and their attributes.
-    fn clear_edges(&mut self) {
+    fn clear_edges(&mut self, py: Python<'_>) -> PyResult<()> {
         // Remove all edges from inner graph.
         let edges: Vec<(String, String)> = self
             .inner
@@ -5322,7 +5409,9 @@ impl PyGraph {
         }
         self.edge_py_attrs.clear();
         self.adj_py_keys.clear(); // br-r37-c1-z6uka
+        self.cached_adj_clear_edges_in_place(py)?;
         self.bump_edges_seq(); // br-r37-c1-jft0i
+        Ok(())
     }
 
     /// Return True if graph has node n.
@@ -5442,6 +5531,40 @@ impl PyGraph {
         py: Python<'py>,
     ) -> PyResult<Vec<(PyObject, Vec<PyObject>)>> {
         self.adjacency(py)
+    }
+
+    #[pyo3(name = "_native_adjacency_row_dict")]
+    fn native_adjacency_row_dict(
+        &mut self,
+        py: Python<'_>,
+        node: &Bound<'_, PyAny>,
+    ) -> PyResult<Py<PyDict>> {
+        let canonical = node_key_to_string(py, node)?;
+        if !self.inner.has_node(&canonical) {
+            return Err(missing_key_error(node));
+        }
+        if let Some(row) = self.adj_row_py.get(&canonical) {
+            return Ok(row.clone_ref(py));
+        }
+        let row = PyDict::new(py);
+        let neighbors: Vec<String> = self
+            .inner
+            .neighbors(&canonical)
+            .unwrap_or_default()
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+        if !neighbors.is_empty() {
+            self.mark_edges_dirty();
+        }
+        for neighbor in neighbors {
+            let py_neighbor = self.py_adj_key(py, &canonical, &neighbor);
+            let attrs = self.materialize_edge_py_attrs(py, &canonical, &neighbor);
+            row.set_item(py_neighbor, attrs.bind(py))?;
+        }
+        let row = row.unbind();
+        self.adj_row_py.insert(canonical, row.clone_ref(py));
+        Ok(row)
     }
 
     /// br-r37-c1-zt6lj: true when the internal canonical node strings are also
@@ -5610,6 +5733,7 @@ impl PyGraph {
             edge_py_attrs: HashMap::with_capacity(self.edge_py_attrs.len()),
             adj_py_keys: self.derive_copy_adj_py_keys(py, &self.inner), // br-r37-c1-z6uka
             dict_of_dicts_cache: None,
+            adj_row_py: HashMap::new(),
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,
             edges_seq: 0,
@@ -5685,6 +5809,7 @@ impl PyGraph {
             edge_py_attrs: HashMap::new(),
             adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
             dict_of_dicts_cache: None,
+            adj_row_py: HashMap::new(),
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,
             edges_seq: 0,
@@ -5765,6 +5890,7 @@ impl PyGraph {
             edge_py_attrs: HashMap::new(),
             adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
             dict_of_dicts_cache: None,
+            adj_row_py: HashMap::new(),
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,
             edges_seq: 0,
@@ -6462,6 +6588,7 @@ impl PyGraph {
             lazy_int_node_stop: self.lazy_int_node_stop,
             adj_py_keys: self.clone_adj_py_keys(py), // br-r37-c1-z6uka
             dict_of_dicts_cache: None,
+            adj_row_py: HashMap::new(),
             node_py_attrs: self
                 .node_py_attrs
                 .iter()

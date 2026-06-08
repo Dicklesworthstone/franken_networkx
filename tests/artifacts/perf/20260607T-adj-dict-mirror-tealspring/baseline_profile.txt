@@ -1,0 +1,41 @@
+         34652 function calls in 0.073 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.000    0.000    0.073    0.073 /data/projects/franken_networkx/tests/artifacts/perf/20260607T-adj-dict-mirror-tealspring/bench_and_proof.py:145(run_case)
+        1    0.000    0.000    0.040    0.040 /data/projects/franken_networkx/tests/artifacts/perf/20260607T-adj-dict-mirror-tealspring/bench_and_proof.py:137(make_bench_graph)
+        1    0.002    0.002    0.040    0.040 /data/projects/franken_networkx/tests/artifacts/perf/20260607T-adj-dict-mirror-tealspring/bench_and_proof.py:35(make_graph)
+     8320    0.004    0.000    0.038    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:2279(add_edge)
+        1    0.003    0.003    0.033    0.033 /data/projects/franken_networkx/tests/artifacts/perf/20260607T-adj-dict-mirror-tealspring/bench_and_proof.py:149(graph_neighbors)
+     8320    0.033    0.000    0.033    0.000 {function Graph.add_edge at 0x7deaaaabf6a0}
+       64    0.000    0.000    0.030    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:32074(neighbors)
+       64    0.000    0.000    0.029    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:310(neighbors)
+       64    0.022    0.000    0.022    0.000 {function _private_aware_neighbors.<locals>.neighbors at 0x7deaaa946a20}
+       64    0.008    0.000    0.008    0.000 {built-in method fromkeys}
+    16705    0.001    0.000    0.001    0.000 {built-in method builtins.hash}
+       64    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:31398(_has_networkx_private_storage)
+      257    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:31390(_private_override)
+      258    0.000    0.000    0.000    0.000 {built-in method builtins.vars}
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1348(_graph_getitem_from_adj)
+      258    0.000    0.000    0.000    0.000 {method 'get' of 'dict' objects}
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:32172(<lambda>)
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:31452(_private_adj_mapping)
+       64    0.000    0.000    0.000    0.000 {built-in method builtins.iter}
+       64    0.000    0.000    0.000    0.000 {built-in method builtins.len}
+       65    0.000    0.000    0.000    0.000 {built-in method builtins.isinstance}
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1174(__getitem__)
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1284(_accessor)
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1118(__getitem__)
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:3265(__init__)
+        2    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1156(_atlas)
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1109(_atlas)
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1302(<lambda>)
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1184(<lambda>)
+        1    0.000    0.000    0.000    0.000 {method 'split' of 'str' objects}
+        1    0.000    0.000    0.000    0.000 {built-in method builtins.min}
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1153(__init__)
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1106(__init__)
+
+

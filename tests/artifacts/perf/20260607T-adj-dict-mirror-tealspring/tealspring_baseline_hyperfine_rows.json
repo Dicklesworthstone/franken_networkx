@@ -1,0 +1,140 @@
+{
+  "results": [
+    {
+      "command": "/data/projects/franken_networkx/.venv/bin/python /data/projects/franken_networkx/tests/artifacts/perf/20260607T-adj-dict-mirror-tealspring/adj_dict_mirror_harness.py loop --case getitem_row_list --degree 20000 --loops 50",
+      "mean": 0.4125154104199999,
+      "stddev": 0.021625239495192128,
+      "median": 0.40799495772000005,
+      "user": 4.44129948,
+      "system": 0.08081292000000001,
+      "min": 0.38346071321999997,
+      "max": 0.45158255622,
+      "times": [
+        0.39751335522,
+        0.41195153222,
+        0.44678829722,
+        0.40245942122,
+        0.41202104422,
+        0.41811536222,
+        0.39722343922,
+        0.45158255622,
+        0.38346071321999997,
+        0.40403838322
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "/data/projects/franken_networkx/.venv/bin/python /data/projects/franken_networkx/tests/artifacts/perf/20260607T-adj-dict-mirror-tealspring/adj_dict_mirror_harness.py loop --case adj_row_list --degree 20000 --loops 50",
+      "mean": 0.41465934781999997,
+      "stddev": 0.01847784100582179,
+      "median": 0.41680985022,
+      "user": 4.562555379999999,
+      "system": 0.07240452,
+      "min": 0.38420656022,
+      "max": 0.43300820522,
+      "times": [
+        0.41261760722,
+        0.40701768622,
+        0.43223657322,
+        0.43178633022,
+        0.42100209322,
+        0.43007613322,
+        0.43300820522,
+        0.38581392322,
+        0.40882836622,
+        0.38420656022
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "/data/projects/franken_networkx/.venv/bin/python /data/projects/franken_networkx/tests/artifacts/perf/20260607T-adj-dict-mirror-tealspring/adj_dict_mirror_harness.py loop --case neighbors_list --degree 20000 --loops 50",
+      "mean": 0.43770671541999995,
+      "stddev": 0.020038955068712856,
+      "median": 0.43861243172,
+      "user": 4.632841180000001,
+      "system": 0.07833992,
+      "min": 0.40078794622,
+      "max": 0.47675907722,
+      "times": [
+        0.42523881822,
+        0.42410116522,
+        0.40078794622,
+        0.44189887322,
+        0.44879157322,
+        0.44005476222,
+        0.43717010122,
+        0.43074793222,
+        0.45151690522,
+        0.47675907722
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "/data/projects/franken_networkx/.venv/bin/python /data/projects/franken_networkx/tests/artifacts/perf/20260607T-adj-dict-mirror-tealspring/adj_dict_mirror_harness.py loop --case row_items --degree 20000 --loops 10",
+      "mean": 0.57261146182,
+      "stddev": 0.017616902381343336,
+      "median": 0.57329524422,
+      "user": 4.79015628,
+      "system": 0.07667041999999999,
+      "min": 0.55141502622,
+      "max": 0.60754533422,
+      "times": [
+        0.55141502622,
+        0.57760489322,
+        0.56898559522,
+        0.56751316822,
+        0.55378352422,
+        0.58443939622,
+        0.57877110522,
+        0.60754533422,
+        0.58360255522,
+        0.55245402022
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

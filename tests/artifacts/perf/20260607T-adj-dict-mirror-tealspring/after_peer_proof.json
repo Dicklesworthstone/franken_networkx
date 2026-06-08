@@ -1,0 +1,1214 @@
+{
+  "fnx_iterator_types": {
+    "adj_iter": "dict_keyiterator",
+    "adj_row_iter": "dict_keyiterator",
+    "getitem_row_iter": "dict_keyiterator",
+    "neighbors": "dict_keyiterator"
+  },
+  "fnx_semantic": {
+    "adj_outer_keys": [
+      {
+        "repr": "0",
+        "type": "int"
+      },
+      {
+        "repr": "1",
+        "type": "int"
+      },
+      {
+        "repr": "2",
+        "type": "int"
+      },
+      {
+        "repr": "3",
+        "type": "int"
+      },
+      {
+        "repr": "4",
+        "type": "int"
+      },
+      {
+        "repr": "5",
+        "type": "int"
+      },
+      {
+        "repr": "6",
+        "type": "int"
+      },
+      {
+        "repr": "7",
+        "type": "int"
+      },
+      {
+        "repr": "8",
+        "type": "int"
+      }
+    ],
+    "hub_row": {
+      "adj_row_keys": [
+        {
+          "repr": "1",
+          "type": "int"
+        },
+        {
+          "repr": "2",
+          "type": "int"
+        },
+        {
+          "repr": "3",
+          "type": "int"
+        },
+        {
+          "repr": "4",
+          "type": "int"
+        },
+        {
+          "repr": "5",
+          "type": "int"
+        },
+        {
+          "repr": "6",
+          "type": "int"
+        },
+        {
+          "repr": "7",
+          "type": "int"
+        },
+        {
+          "repr": "8",
+          "type": "int"
+        }
+      ],
+      "contains_first": true,
+      "copy_items": [
+        [
+          {
+            "repr": "1",
+            "type": "int"
+          },
+          [
+            [
+              "tag",
+              "n1"
+            ],
+            [
+              "weight",
+              1
+            ]
+          ]
+        ],
+        [
+          {
+            "repr": "2",
+            "type": "int"
+          },
+          [
+            [
+              "tag",
+              "n2"
+            ],
+            [
+              "weight",
+              2
+            ]
+          ]
+        ],
+        [
+          {
+            "repr": "3",
+            "type": "int"
+          },
+          [
+            [
+              "tag",
+              "n3"
+            ],
+            [
+              "weight",
+              3
+            ]
+          ]
+        ],
+        [
+          {
+            "repr": "4",
+            "type": "int"
+          },
+          [
+            [
+              "tag",
+              "n4"
+            ],
+            [
+              "weight",
+              4
+            ]
+          ]
+        ],
+        [
+          {
+            "repr": "5",
+            "type": "int"
+          },
+          [
+            [
+              "tag",
+              "n0"
+            ],
+            [
+              "weight",
+              5
+            ]
+          ]
+        ],
+        [
+          {
+            "repr": "6",
+            "type": "int"
+          },
+          [
+            [
+              "tag",
+              "n1"
+            ],
+            [
+              "weight",
+              6
+            ]
+          ]
+        ],
+        [
+          {
+            "repr": "7",
+            "type": "int"
+          },
+          [
+            [
+              "tag",
+              "n2"
+            ],
+            [
+              "weight",
+              7
+            ]
+          ]
+        ],
+        [
+          {
+            "repr": "8",
+            "type": "int"
+          },
+          [
+            [
+              "tag",
+              "n3"
+            ],
+            [
+              "weight",
+              8
+            ]
+          ]
+        ]
+      ],
+      "dict_keys": [
+        {
+          "repr": "1",
+          "type": "int"
+        },
+        {
+          "repr": "2",
+          "type": "int"
+        },
+        {
+          "repr": "3",
+          "type": "int"
+        },
+        {
+          "repr": "4",
+          "type": "int"
+        },
+        {
+          "repr": "5",
+          "type": "int"
+        },
+        {
+          "repr": "6",
+          "type": "int"
+        },
+        {
+          "repr": "7",
+          "type": "int"
+        },
+        {
+          "repr": "8",
+          "type": "int"
+        }
+      ],
+      "live_attr_alias": "live",
+      "missing_default": "fallback",
+      "row_items": [
+        [
+          {
+            "repr": "1",
+            "type": "int"
+          },
+          [
+            [
+              "tag",
+              "n1"
+            ],
+            [
+              "weight",
+              1
+            ]
+          ]
+        ],
+        [
+          {
+            "repr": "2",
+            "type": "int"
+          },
+          [
+            [
+              "tag",
+              "n2"
+            ],
+            [
+              "weight",
+              2
+            ]
+          ]
+        ],
+        [
+          {
+            "repr": "3",
+            "type": "int"
+          },
+          [
+            [
+              "tag",
+              "n3"
+            ],
+            [
+              "weight",
+              3
+            ]
+          ]
+        ],
+        [
+          {
+            "repr": "4",
+            "type": "int"
+          },
+          [
+            [
+              "tag",
+              "n4"
+            ],
+            [
+              "weight",
+              4
+            ]
+          ]
+        ],
+        [
+          {
+            "repr": "5",
+            "type": "int"
+          },
+          [
+            [
+              "tag",
+              "n0"
+            ],
+            [
+              "weight",
+              5
+            ]
+          ]
+        ],
+        [
+          {
+            "repr": "6",
+            "type": "int"
+          },
+          [
+            [
+              "tag",
+              "n1"
+            ],
+            [
+              "weight",
+              6
+            ]
+          ]
+        ],
+        [
+          {
+            "repr": "7",
+            "type": "int"
+          },
+          [
+            [
+              "tag",
+              "n2"
+            ],
+            [
+              "weight",
+              7
+            ]
+          ]
+        ],
+        [
+          {
+            "repr": "8",
+            "type": "int"
+          },
+          [
+            [
+              "tag",
+              "n3"
+            ],
+            [
+              "weight",
+              8
+            ]
+          ]
+        ]
+      ],
+      "row_keys": [
+        {
+          "repr": "1",
+          "type": "int"
+        },
+        {
+          "repr": "2",
+          "type": "int"
+        },
+        {
+          "repr": "3",
+          "type": "int"
+        },
+        {
+          "repr": "4",
+          "type": "int"
+        },
+        {
+          "repr": "5",
+          "type": "int"
+        },
+        {
+          "repr": "6",
+          "type": "int"
+        },
+        {
+          "repr": "7",
+          "type": "int"
+        },
+        {
+          "repr": "8",
+          "type": "int"
+        }
+      ]
+    },
+    "mixed_edges": [
+      [
+        {
+          "repr": "0",
+          "type": "int"
+        },
+        {
+          "repr": "'0'",
+          "type": "str"
+        }
+      ],
+      [
+        {
+          "repr": "0",
+          "type": "int"
+        },
+        {
+          "repr": "2",
+          "type": "int"
+        }
+      ],
+      [
+        {
+          "repr": "True",
+          "type": "bool"
+        },
+        {
+          "repr": "3",
+          "type": "int"
+        }
+      ],
+      [
+        {
+          "repr": "'0'",
+          "type": "str"
+        },
+        {
+          "repr": "4",
+          "type": "int"
+        }
+      ]
+    ],
+    "mixed_nodes": [
+      {
+        "repr": "0",
+        "type": "int"
+      },
+      {
+        "repr": "True",
+        "type": "bool"
+      },
+      {
+        "repr": "'0'",
+        "type": "str"
+      },
+      {
+        "repr": "2",
+        "type": "int"
+      },
+      {
+        "repr": "3",
+        "type": "int"
+      },
+      {
+        "repr": "4",
+        "type": "int"
+      }
+    ],
+    "mixed_row_zero": {
+      "adj_row_keys": [
+        {
+          "repr": "'0'",
+          "type": "str"
+        },
+        {
+          "repr": "2",
+          "type": "int"
+        }
+      ],
+      "contains_first": true,
+      "copy_items": [
+        [
+          {
+            "repr": "'0'",
+            "type": "str"
+          },
+          [
+            [
+              "weight",
+              7
+            ]
+          ]
+        ],
+        [
+          {
+            "repr": "2",
+            "type": "int"
+          },
+          [
+            [
+              "weight",
+              11
+            ]
+          ]
+        ]
+      ],
+      "dict_keys": [
+        {
+          "repr": "'0'",
+          "type": "str"
+        },
+        {
+          "repr": "2",
+          "type": "int"
+        }
+      ],
+      "live_attr_alias": "live",
+      "missing_default": "fallback",
+      "row_items": [
+        [
+          {
+            "repr": "'0'",
+            "type": "str"
+          },
+          [
+            [
+              "weight",
+              7
+            ]
+          ]
+        ],
+        [
+          {
+            "repr": "2",
+            "type": "int"
+          },
+          [
+            [
+              "weight",
+              11
+            ]
+          ]
+        ]
+      ],
+      "row_keys": [
+        {
+          "repr": "'0'",
+          "type": "str"
+        },
+        {
+          "repr": "2",
+          "type": "int"
+        }
+      ]
+    },
+    "neighbors_zero": [
+      {
+        "repr": "1",
+        "type": "int"
+      },
+      {
+        "repr": "2",
+        "type": "int"
+      },
+      {
+        "repr": "3",
+        "type": "int"
+      },
+      {
+        "repr": "4",
+        "type": "int"
+      },
+      {
+        "repr": "5",
+        "type": "int"
+      },
+      {
+        "repr": "6",
+        "type": "int"
+      },
+      {
+        "repr": "7",
+        "type": "int"
+      },
+      {
+        "repr": "8",
+        "type": "int"
+      }
+    ],
+    "row_clear_error": "{'repr': '1', 'type': 'int'}|NO_ERROR",
+    "row_keys_error": "{'repr': '1', 'type': 'int'}|NO_ERROR",
+    "row_size_error": "{'repr': '1', 'type': 'int'}|NO_ERROR"
+  },
+  "fnx_semantic_sha256": "b6656d13db4f45c1177b3930f84e0db2befba0aeaefb3bc2e2ef290864f61d01",
+  "nx_iterator_types": {
+    "adj_iter": "dict_keyiterator",
+    "adj_row_iter": "dict_keyiterator",
+    "getitem_row_iter": "dict_keyiterator",
+    "neighbors": "dict_keyiterator"
+  },
+  "nx_semantic": {
+    "adj_outer_keys": [
+      {
+        "repr": "0",
+        "type": "int"
+      },
+      {
+        "repr": "1",
+        "type": "int"
+      },
+      {
+        "repr": "2",
+        "type": "int"
+      },
+      {
+        "repr": "3",
+        "type": "int"
+      },
+      {
+        "repr": "4",
+        "type": "int"
+      },
+      {
+        "repr": "5",
+        "type": "int"
+      },
+      {
+        "repr": "6",
+        "type": "int"
+      },
+      {
+        "repr": "7",
+        "type": "int"
+      },
+      {
+        "repr": "8",
+        "type": "int"
+      }
+    ],
+    "hub_row": {
+      "adj_row_keys": [
+        {
+          "repr": "1",
+          "type": "int"
+        },
+        {
+          "repr": "2",
+          "type": "int"
+        },
+        {
+          "repr": "3",
+          "type": "int"
+        },
+        {
+          "repr": "4",
+          "type": "int"
+        },
+        {
+          "repr": "5",
+          "type": "int"
+        },
+        {
+          "repr": "6",
+          "type": "int"
+        },
+        {
+          "repr": "7",
+          "type": "int"
+        },
+        {
+          "repr": "8",
+          "type": "int"
+        }
+      ],
+      "contains_first": true,
+      "copy_items": [
+        [
+          {
+            "repr": "1",
+            "type": "int"
+          },
+          [
+            [
+              "tag",
+              "n1"
+            ],
+            [
+              "weight",
+              1
+            ]
+          ]
+        ],
+        [
+          {
+            "repr": "2",
+            "type": "int"
+          },
+          [
+            [
+              "tag",
+              "n2"
+            ],
+            [
+              "weight",
+              2
+            ]
+          ]
+        ],
+        [
+          {
+            "repr": "3",
+            "type": "int"
+          },
+          [
+            [
+              "tag",
+              "n3"
+            ],
+            [
+              "weight",
+              3
+            ]
+          ]
+        ],
+        [
+          {
+            "repr": "4",
+            "type": "int"
+          },
+          [
+            [
+              "tag",
+              "n4"
+            ],
+            [
+              "weight",
+              4
+            ]
+          ]
+        ],
+        [
+          {
+            "repr": "5",
+            "type": "int"
+          },
+          [
+            [
+              "tag",
+              "n0"
+            ],
+            [
+              "weight",
+              5
+            ]
+          ]
+        ],
+        [
+          {
+            "repr": "6",
+            "type": "int"
+          },
+          [
+            [
+              "tag",
+              "n1"
+            ],
+            [
+              "weight",
+              6
+            ]
+          ]
+        ],
+        [
+          {
+            "repr": "7",
+            "type": "int"
+          },
+          [
+            [
+              "tag",
+              "n2"
+            ],
+            [
+              "weight",
+              7
+            ]
+          ]
+        ],
+        [
+          {
+            "repr": "8",
+            "type": "int"
+          },
+          [
+            [
+              "tag",
+              "n3"
+            ],
+            [
+              "weight",
+              8
+            ]
+          ]
+        ]
+      ],
+      "dict_keys": [
+        {
+          "repr": "1",
+          "type": "int"
+        },
+        {
+          "repr": "2",
+          "type": "int"
+        },
+        {
+          "repr": "3",
+          "type": "int"
+        },
+        {
+          "repr": "4",
+          "type": "int"
+        },
+        {
+          "repr": "5",
+          "type": "int"
+        },
+        {
+          "repr": "6",
+          "type": "int"
+        },
+        {
+          "repr": "7",
+          "type": "int"
+        },
+        {
+          "repr": "8",
+          "type": "int"
+        }
+      ],
+      "live_attr_alias": "live",
+      "missing_default": "fallback",
+      "row_items": [
+        [
+          {
+            "repr": "1",
+            "type": "int"
+          },
+          [
+            [
+              "tag",
+              "n1"
+            ],
+            [
+              "weight",
+              1
+            ]
+          ]
+        ],
+        [
+          {
+            "repr": "2",
+            "type": "int"
+          },
+          [
+            [
+              "tag",
+              "n2"
+            ],
+            [
+              "weight",
+              2
+            ]
+          ]
+        ],
+        [
+          {
+            "repr": "3",
+            "type": "int"
+          },
+          [
+            [
+              "tag",
+              "n3"
+            ],
+            [
+              "weight",
+              3
+            ]
+          ]
+        ],
+        [
+          {
+            "repr": "4",
+            "type": "int"
+          },
+          [
+            [
+              "tag",
+              "n4"
+            ],
+            [
+              "weight",
+              4
+            ]
+          ]
+        ],
+        [
+          {
+            "repr": "5",
+            "type": "int"
+          },
+          [
+            [
+              "tag",
+              "n0"
+            ],
+            [
+              "weight",
+              5
+            ]
+          ]
+        ],
+        [
+          {
+            "repr": "6",
+            "type": "int"
+          },
+          [
+            [
+              "tag",
+              "n1"
+            ],
+            [
+              "weight",
+              6
+            ]
+          ]
+        ],
+        [
+          {
+            "repr": "7",
+            "type": "int"
+          },
+          [
+            [
+              "tag",
+              "n2"
+            ],
+            [
+              "weight",
+              7
+            ]
+          ]
+        ],
+        [
+          {
+            "repr": "8",
+            "type": "int"
+          },
+          [
+            [
+              "tag",
+              "n3"
+            ],
+            [
+              "weight",
+              8
+            ]
+          ]
+        ]
+      ],
+      "row_keys": [
+        {
+          "repr": "1",
+          "type": "int"
+        },
+        {
+          "repr": "2",
+          "type": "int"
+        },
+        {
+          "repr": "3",
+          "type": "int"
+        },
+        {
+          "repr": "4",
+          "type": "int"
+        },
+        {
+          "repr": "5",
+          "type": "int"
+        },
+        {
+          "repr": "6",
+          "type": "int"
+        },
+        {
+          "repr": "7",
+          "type": "int"
+        },
+        {
+          "repr": "8",
+          "type": "int"
+        }
+      ]
+    },
+    "mixed_edges": [
+      [
+        {
+          "repr": "0",
+          "type": "int"
+        },
+        {
+          "repr": "'0'",
+          "type": "str"
+        }
+      ],
+      [
+        {
+          "repr": "0",
+          "type": "int"
+        },
+        {
+          "repr": "2",
+          "type": "int"
+        }
+      ],
+      [
+        {
+          "repr": "True",
+          "type": "bool"
+        },
+        {
+          "repr": "3",
+          "type": "int"
+        }
+      ],
+      [
+        {
+          "repr": "'0'",
+          "type": "str"
+        },
+        {
+          "repr": "4",
+          "type": "int"
+        }
+      ]
+    ],
+    "mixed_nodes": [
+      {
+        "repr": "0",
+        "type": "int"
+      },
+      {
+        "repr": "True",
+        "type": "bool"
+      },
+      {
+        "repr": "'0'",
+        "type": "str"
+      },
+      {
+        "repr": "2",
+        "type": "int"
+      },
+      {
+        "repr": "3",
+        "type": "int"
+      },
+      {
+        "repr": "4",
+        "type": "int"
+      }
+    ],
+    "mixed_row_zero": {
+      "adj_row_keys": [
+        {
+          "repr": "'0'",
+          "type": "str"
+        },
+        {
+          "repr": "2",
+          "type": "int"
+        }
+      ],
+      "contains_first": true,
+      "copy_items": [
+        [
+          {
+            "repr": "'0'",
+            "type": "str"
+          },
+          [
+            [
+              "weight",
+              7
+            ]
+          ]
+        ],
+        [
+          {
+            "repr": "2",
+            "type": "int"
+          },
+          [
+            [
+              "weight",
+              11
+            ]
+          ]
+        ]
+      ],
+      "dict_keys": [
+        {
+          "repr": "'0'",
+          "type": "str"
+        },
+        {
+          "repr": "2",
+          "type": "int"
+        }
+      ],
+      "live_attr_alias": "live",
+      "missing_default": "fallback",
+      "row_items": [
+        [
+          {
+            "repr": "'0'",
+            "type": "str"
+          },
+          [
+            [
+              "weight",
+              7
+            ]
+          ]
+        ],
+        [
+          {
+            "repr": "2",
+            "type": "int"
+          },
+          [
+            [
+              "weight",
+              11
+            ]
+          ]
+        ]
+      ],
+      "row_keys": [
+        {
+          "repr": "'0'",
+          "type": "str"
+        },
+        {
+          "repr": "2",
+          "type": "int"
+        }
+      ]
+    },
+    "neighbors_zero": [
+      {
+        "repr": "1",
+        "type": "int"
+      },
+      {
+        "repr": "2",
+        "type": "int"
+      },
+      {
+        "repr": "3",
+        "type": "int"
+      },
+      {
+        "repr": "4",
+        "type": "int"
+      },
+      {
+        "repr": "5",
+        "type": "int"
+      },
+      {
+        "repr": "6",
+        "type": "int"
+      },
+      {
+        "repr": "7",
+        "type": "int"
+      },
+      {
+        "repr": "8",
+        "type": "int"
+      }
+    ],
+    "row_clear_error": "{'repr': '1', 'type': 'int'}|NO_ERROR",
+    "row_keys_error": "{'repr': '1', 'type': 'int'}|NO_ERROR",
+    "row_size_error": "{'repr': '1', 'type': 'int'}|RuntimeError|dictionary changed size during iteration"
+  },
+  "semantic_match_networkx": false
+}
