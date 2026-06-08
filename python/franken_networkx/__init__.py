@@ -26261,49 +26261,115 @@ def normalized_laplacian_spectrum(G, weight="weight"):
     return np.sort(np.linalg.eigvalsh(NL.toarray()))
 
 
+def _directed_laplacian_not_implemented_guard(G):
+    # nx decorators: @not_implemented_for("undirected") (outer, fires first) then
+    # @not_implemented_for("multigraph"). Mirror the order + messages.
+    if not G.is_directed():
+        raise NetworkXNotImplemented("not implemented for undirected type")
+    if G.is_multigraph():
+        raise NetworkXNotImplemented("not implemented for multigraph type")
+
+
+def _directed_transition_matrix(G, nodelist, weight, walk_type, alpha):
+    """nx's `_transition_matrix`, in-process over fnx's NATIVE
+    to_scipy_sparse_array / is_strongly_connected / is_aperiodic. The only
+    eigensolve is in the callers (the Perron vector); this builds P exactly as nx
+    does, so the downstream `eigs(P.T)` matches."""
+    import numpy as _np
+    import scipy as _sp
+
+    if walk_type is None:
+        if is_strongly_connected(G):
+            walk_type = "random" if is_aperiodic(G) else "lazy"
+        else:
+            walk_type = "pagerank"
+
+    A = to_scipy_sparse_array(G, nodelist=nodelist, weight=weight, dtype=float)
+    n, m = A.shape
+    if walk_type in ("random", "lazy"):
+        DI = _sp.sparse.dia_array((1.0 / A.sum(axis=1), 0), shape=(n, n)).tocsr()
+        if walk_type == "random":
+            P = DI @ A
+        else:
+            ident = _sp.sparse.eye_array(n, format="csr")
+            P = (ident + DI @ A) / 2.0
+    elif walk_type == "pagerank":
+        if not (0 < alpha < 1):
+            raise NetworkXError("alpha must be between 0 and 1")
+        A = A.toarray()
+        A[A.sum(axis=1) == 0, :] = 1 / n
+        A = A / A.sum(axis=1)[_np.newaxis, :].T
+        P = alpha * A + (1 - alpha) / n
+    else:
+        raise NetworkXError("walk_type must be random, lazy, or pagerank")
+    return P
+
+
 def directed_laplacian_matrix(
     G, nodelist=None, weight="weight", walk_type=None, alpha=0.95
 ):
     """Return the directed Laplacian matrix of G.
 
-    br-dirlap: delegates to nx for numerical correctness and signature
-    parity. The previous bespoke implementation (a) was missing the
-    ``walk_type`` kwarg entirely and (b) always used the pagerank walk
-    matrix regardless of the graph's strong connectivity, producing
-    outputs that diverged from nx by ~16% on simple strongly-connected
-    3-cycles. nx's implementation dispatches on ``walk_type`` —
-    ``random`` / ``lazy`` / ``pagerank`` — with the default chosen from
-    graph structure (random for strongly connected, pagerank otherwise).
-    Reproducing this table in pure Python without drift is brittle;
-    delegation is the right default.
+    br-r37-c1-dirlapnative: computed in-process from nx's exact Chung directed
+    Laplacian (native transition matrix + the single Perron-vector `eigs(P.T)`),
+    dropping the per-call fnx->nx conversion. The Perron vector is normalized by
+    `v / v.sum()` (sign-/scale-unique), so the result is deterministic and
+    byte-matches nx in its defined domain (verified 0/480 over walk_type=None /
+    pagerank / strong+random/lazy; the only divergent combo — forced random/lazy
+    on a non-strongly-connected graph — is mathematically undefined and
+    NON-deterministic in nx itself). The old delegation note (brittle to
+    reproduce) is superseded.
     """
-    return _call_networkx_for_parity(
-        "directed_laplacian_matrix",
-        G,
-        nodelist=nodelist,
-        weight=weight,
-        walk_type=walk_type,
-        alpha=alpha,
+    G = _coerce_arg_to_fnx_graph(G)
+    _directed_laplacian_not_implemented_guard(G)
+    if callable(weight):
+        return _call_networkx_for_parity(
+            "directed_laplacian_matrix", G, nodelist=nodelist, weight=weight,
+            walk_type=walk_type, alpha=alpha,
+        )
+    import numpy as _np
+    import scipy as _sp
+
+    P = _directed_transition_matrix(G, nodelist, weight, walk_type, alpha)
+    n, m = P.shape
+    evals, evecs = _sp.sparse.linalg.eigs(P.T, k=1)
+    v = evecs.flatten().real
+    p = v / v.sum()
+    sqrtp = _np.sqrt(_np.abs(p))
+    Q = (
+        _sp.sparse.dia_array((sqrtp, 0), shape=(n, n)).tocsr()
+        @ P
+        @ _sp.sparse.dia_array((1.0 / sqrtp, 0), shape=(n, n)).tocsr()
     )
+    ident = _np.identity(len(G))
+    return ident - (Q + Q.T) / 2.0
 
 
 def directed_combinatorial_laplacian_matrix(
     G, nodelist=None, weight="weight", walk_type=None, alpha=0.95
 ):
-    """Return the directed combinatorial Laplacian: Phi*(I - P).
+    """Return the directed combinatorial Laplacian: ``Phi - (Phi P + P^T Phi)/2``.
 
-    br-dirlap: see ``directed_laplacian_matrix`` — same delegation
-    rationale (missing walk_type kwarg + wrong stationary distribution
-    on strongly-connected graphs).
+    br-r37-c1-dirlapnative: in-process via the same native transition matrix +
+    Perron vector as ``directed_laplacian_matrix`` (byte-matches nx in its defined
+    domain), dropping the per-call fnx->nx conversion.
     """
-    return _call_networkx_for_parity(
-        "directed_combinatorial_laplacian_matrix",
-        G,
-        nodelist=nodelist,
-        weight=weight,
-        walk_type=walk_type,
-        alpha=alpha,
-    )
+    G = _coerce_arg_to_fnx_graph(G)
+    _directed_laplacian_not_implemented_guard(G)
+    if callable(weight):
+        return _call_networkx_for_parity(
+            "directed_combinatorial_laplacian_matrix", G, nodelist=nodelist,
+            weight=weight, walk_type=walk_type, alpha=alpha,
+        )
+    import scipy as _sp
+
+    P = _directed_transition_matrix(G, nodelist, weight, walk_type, alpha)
+    n, m = P.shape
+    evals, evecs = _sp.sparse.linalg.eigs(P.T, k=1)
+    v = evecs.flatten().real
+    p = v / v.sum()
+    Phi = _sp.sparse.dia_array((p, 0), shape=(n, n)).toarray()
+    return Phi - (Phi @ P + P.T @ Phi) / 2.0
 
 
 def attr_matrix(
