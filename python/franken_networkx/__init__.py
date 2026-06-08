@@ -29169,15 +29169,57 @@ def laplacian_centrality(
 ):
     """Laplacian centrality: drop in Laplacian energy when node is removed."""
     _validate_backend_dispatch_keywords("laplacian_centrality", backend, backend_kwargs)
-    return _call_networkx_for_parity(
-        "laplacian_centrality",
-        G,
-        normalized=normalized,
-        nodelist=nodelist,
-        weight=weight,
-        walk_type=walk_type,
-        alpha=alpha,
-    )
+    G = _coerce_arg_to_fnx_graph(G)
+    # br-r37-c1-lapcentnative: the UNDIRECTED case is just `laplacian_matrix`
+    # (D - A) + a deterministic numpy energy loop — no eigenvalues. Compute it
+    # in-process from the NATIVE laplacian_matrix (byte-identical to nx's) and the
+    # same numpy, dropping the per-call fnx->nx conversion. The DIRECTED case uses
+    # directed_laplacian_matrix (Perron-vector / PageRank), and callable weight
+    # has no native matrix path, so both keep delegating.
+    if G.is_directed() or callable(weight):
+        return _call_networkx_for_parity(
+            "laplacian_centrality",
+            G,
+            normalized=normalized,
+            nodelist=nodelist,
+            weight=weight,
+            walk_type=walk_type,
+            alpha=alpha,
+        )
+    import numpy as _np
+
+    if len(G) == 0:
+        raise NetworkXPointlessConcept("null graph has no centrality defined")
+    if G.size(weight=weight) == 0:
+        if normalized:
+            raise ZeroDivisionError("graph with no edges has zero full energy")
+        return {n: 0 for n in G}
+
+    if nodelist is not None:
+        nodeset = set(G.nbunch_iter(nodelist))
+        if len(nodeset) != len(nodelist):
+            raise NetworkXError("nodelist has duplicate nodes or nodes not in G")
+        nodes = nodelist + [n for n in G if n not in nodeset]
+    else:
+        nodelist = nodes = list(G)
+
+    lap_matrix = laplacian_matrix(G, nodes, weight).toarray()
+    full_energy = _np.sum(lap_matrix**2)
+
+    laplace_centralities_dict = {}
+    for i, node in enumerate(nodelist):
+        all_but_i = list(_np.arange(lap_matrix.shape[0]))
+        all_but_i.remove(i)
+        A_2 = lap_matrix[all_but_i, :][:, all_but_i]
+        new_diag = lap_matrix.diagonal() - abs(lap_matrix[:, i])
+        _np.fill_diagonal(A_2, new_diag[all_but_i])
+        new_energy = _np.sum(A_2**2) if len(all_but_i) > 0 else 0.0
+        lapl_cent = full_energy - new_energy
+        if normalized:
+            lapl_cent = lapl_cent / full_energy
+        laplace_centralities_dict[node] = float(lapl_cent)
+
+    return laplace_centralities_dict
 
 
 def percolation_centrality(
