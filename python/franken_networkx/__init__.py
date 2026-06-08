@@ -29861,19 +29861,92 @@ def bfs_labeled_edges(G, sources):
 
     Signature matches networkx: ``sources`` is required and may be a single
     node or an iterable of nodes.
+
+    br-r37-c1-bfslabnative: ported nx's exact generator in-process (BFS over the
+    native adjacency, which iterates in nx's `G._adj` order) instead of paying a
+    full fnx->nx conversion per call. Labels: 'tree' (first discovery), 'forward'
+    (u shallower than already-seen v), 'level' (same layer), 'reverse' (directed,
+    u deeper). Byte-exact triple order verified vs nx.
     """
-    yield from _call_networkx_for_parity("bfs_labeled_edges", G, sources)
+    G = _coerce_arg_to_fnx_graph(G)
+    if sources in G:
+        sources = [sources]
+    directed = G.is_directed()
+    visited = set()
+    # nx trick: undirected uses visited.add (so 'level' edges fire once on first
+    # occurrence); directed uses visited.discard (a no-op keeping visited empty).
+    visit = visited.discard if directed else visited.add
+    depth = {s: 0 for s in sources}
+    queue = _deque(depth.items())
+    while queue:
+        u, du = queue.popleft()
+        for v in G[u]:
+            if v not in depth:
+                depth[v] = dv = du + 1
+                queue.append((v, dv))
+                yield u, v, "tree"
+            else:
+                dv = depth[v]
+                if du == dv:
+                    if v not in visited:
+                        yield u, v, "level"
+                elif du < dv:
+                    yield u, v, "forward"
+                elif directed:
+                    yield u, v, "reverse"
+        visit(u)
 
 
 def dfs_labeled_edges(G, source=None, depth_limit=None, *, sort_neighbors=None):
-    """DFS yielding NetworkX-style traversal event triples."""
-    yield from _call_networkx_for_parity(
-        "dfs_labeled_edges",
-        G,
-        source=source,
-        depth_limit=depth_limit,
-        sort_neighbors=sort_neighbors,
-    )
+    """DFS yielding NetworkX-style traversal event triples.
+
+    br-r37-c1-bfslabnative: ported nx's exact stack-based generator in-process
+    (DFS over native `G.neighbors`, a stateful iterator resumed via the stack, in
+    nx's order) instead of a full fnx->nx conversion per call. ``sort_neighbors``
+    (a user-supplied reordering callable) keeps delegating. Byte-exact triple
+    order verified vs nx.
+    """
+    G = _coerce_arg_to_fnx_graph(G)
+    if sort_neighbors is not None:
+        yield from _call_networkx_for_parity(
+            "dfs_labeled_edges",
+            G,
+            source=source,
+            depth_limit=depth_limit,
+            sort_neighbors=sort_neighbors,
+        )
+        return
+    nodes = G if source is None else [source]
+    if depth_limit is None:
+        depth_limit = len(G)
+    visited = set()
+    for start in nodes:
+        if start in visited:
+            continue
+        yield start, start, "forward"
+        visited.add(start)
+        stack = [(start, iter(G.neighbors(start)))]
+        depth_now = 1
+        while stack:
+            parent, children = stack[-1]
+            for child in children:
+                if child in visited:
+                    yield parent, child, "nontree"
+                else:
+                    yield parent, child, "forward"
+                    visited.add(child)
+                    if depth_now < depth_limit:
+                        stack.append((child, iter(G.neighbors(child))))
+                        depth_now += 1
+                        break
+                    else:
+                        yield parent, child, "reverse-depth_limit"
+            else:
+                stack.pop()
+                depth_now -= 1
+                if stack:
+                    yield stack[-1][0], parent, "reverse"
+        yield start, start, "reverse"
 
 
 def generic_bfs_edges(G, source, neighbors=None, depth_limit=None):
