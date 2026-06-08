@@ -17539,15 +17539,24 @@ def selfloop_edges(G, data=False, keys=False, default=None):
     _raw_nbrs = _raw_neighbors_dispatch(G)
 
     def adjacency_entries():
-        # br-selfloopnative2: only the self-loop nodes are needed; find them via
-        # the native scan (node-iteration order) instead of walking the entire
-        # AdjacencyView for every node (~180x faster for the data/keys forms).
-        try:
-            sl_nodes = list(_fnx.nodes_with_selfloops_rust(G))
-        except Exception:
-            sl_nodes = [node for node in G.adj if node in G.adj[node]]
+        # br-r37-c1-nodekeys: find the self-loop nodes in node-iteration order,
+        # then yield (node, G[node]) — G[node] is the native O(deg) row;
+        # G.adj[node] re-materialises the whole (Multi)AdjacencyView per access
+        # (data/keys forms TIMED OUT on a MultiGraph). For SIMPLE graphs the
+        # native nodes_with_selfloops_rust scan is fast; for MULTIGRAPHS it is
+        # slow/wrong (~29ms), so probe has_edge(n, n) (native O(1)) over the
+        # bulk node-key list instead.
+        if not G.is_multigraph():
+            try:
+                sl_nodes = list(_fnx.nodes_with_selfloops_rust(G))
+            except Exception:
+                sl_nodes = [n for n in G if G.has_edge(n, n)]
+        else:
+            native_keys = getattr(G, "_native_node_keys", None)
+            source = native_keys() if native_keys is not None else G
+            sl_nodes = [n for n in source if G.has_edge(n, n)]
         for node in sl_nodes:
-            yield node, G.adj[node]
+            yield node, G[node]
 
     # br-r37-c1-61okz: simplest case (data=False, keys=False,
     # non-multigraph) — yield ``(n, n)`` tuples via direct has_edge
