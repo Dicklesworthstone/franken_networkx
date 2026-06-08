@@ -10682,39 +10682,45 @@ pub fn degree_assortativity_coefficient(graph: &Graph) -> DegreeAssortativityRes
     let nodes = graph.nodes_ordered();
     let n = nodes.len();
 
-    // Collect degree pairs for each edge — both directions per undirected edge
-    // (matches NetworkX's mixing-matrix approach for undirected graphs)
-    let mut degree_pairs: Vec<(f64, f64)> = Vec::new();
-    let mut seen = HashSet::new();
+    // br-r37-c1-degassort-intcsr: integer-CSR Pearson over per-edge degree pairs.
+    // The previous version materialized a `Vec<(f64,f64)>` of 2·|E| pairs and
+    // deduped undirected edges via a `HashSet<(&str,&str)>` (a string-pair hash
+    // per edge — the dominant cost, ~3.7x nx). Walk `neighbors_indices` instead
+    // (integer rows, no string hashing) and dedup with `u <= v` on indices.
+    // The five running sums are accumulated directly (no pair buffer). Because
+    // degrees are small integers, every sum (and every product) is an EXACT f64
+    // for any realistic graph (|sum| well under 2^53), so the result is
+    // byte-identical to the old kernel regardless of edge-iteration order; the
+    // final Pearson arithmetic (incl. the two separate sqrt calls) is unchanged.
+    let degrees: Vec<f64> = nodes.iter().map(|&node| graph.degree(node) as f64).collect();
     let mut edges_scanned = 0usize;
+    let mut sum_x = 0.0_f64;
+    let mut sum_y = 0.0_f64;
+    let mut sum_xy = 0.0_f64;
+    let mut sum_x2 = 0.0_f64;
+    let mut sum_y2 = 0.0_f64;
+    let mut m: usize = 0;
 
-    // Precompute degrees
-    let degrees: HashMap<&str, usize> = nodes
-        .iter()
-        .map(|&node| (node, graph.degree(node)))
-        .collect();
-
-    for &node in &nodes {
-        if let Some(neighbors) = graph.neighbors_iter(node) {
-            let deg_u = degrees[node];
-            for neighbor in neighbors {
-                let (left, right) = if node <= neighbor {
-                    (node, neighbor)
-                } else {
-                    (neighbor, node)
-                };
-                if seen.insert((left, right)) {
+    for u in 0..n {
+        let du = degrees[u];
+        if let Some(nbrs) = graph.neighbors_indices(u) {
+            for &v in nbrs {
+                if u <= v {
                     edges_scanned += 1;
-                    let deg_v = degrees[neighbor];
-                    // Both directions for undirected edge
-                    degree_pairs.push((deg_u as f64, deg_v as f64));
-                    degree_pairs.push((deg_v as f64, deg_u as f64));
+                    let dv = degrees[v];
+                    // Both orientations of the undirected edge, matching the old
+                    // `push((du,dv)); push((dv,du))`.
+                    m += 2;
+                    sum_x += du + dv;
+                    sum_y += dv + du;
+                    sum_xy += du * dv + dv * du;
+                    sum_x2 += du * du + dv * dv;
+                    sum_y2 += dv * dv + du * du;
                 }
             }
         }
     }
 
-    let m = degree_pairs.len();
     if m < 2 {
         return DegreeAssortativityResult {
             coefficient: 0.0,
@@ -10728,14 +10734,7 @@ pub fn degree_assortativity_coefficient(graph: &Graph) -> DegreeAssortativityRes
         };
     }
 
-    // Pearson correlation of (deg_u, deg_v) across edges
     let mf = m as f64;
-    let sum_x: f64 = degree_pairs.iter().map(|(x, _)| x).sum();
-    let sum_y: f64 = degree_pairs.iter().map(|(_, y)| y).sum();
-    let sum_xy: f64 = degree_pairs.iter().map(|(x, y)| x * y).sum();
-    let sum_x2: f64 = degree_pairs.iter().map(|(x, _)| x * x).sum();
-    let sum_y2: f64 = degree_pairs.iter().map(|(_, y)| y * y).sum();
-
     let numerator = mf * sum_xy - sum_x * sum_y;
     let denom_x = (mf * sum_x2 - sum_x * sum_x).sqrt();
     let denom_y = (mf * sum_y2 - sum_y * sum_y).sqrt();
