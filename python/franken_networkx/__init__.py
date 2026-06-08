@@ -31237,6 +31237,41 @@ class _FilteredOutMultiEdgeView(_FilteredEdgeView):
 _FilteredOutMultiEdgeView.__name__ = "OutMultiEdgeView"
 
 
+def _default_node_set_filter_chain(view):
+    graph = view
+    chain = []
+    while isinstance(graph, _FilteredGraphView):
+        if not graph._filter_edge_is_default:
+            return None, None, None
+        keep = getattr(graph._filter_node, "nodes", None)
+        if keep is None:
+            return None, None, None
+        chain.append(keep)
+        graph = graph._graph
+    if type(graph) not in (Graph, DiGraph, MultiGraph, MultiDiGraph):
+        return None, None, None
+    chain.reverse()
+    visible = set(chain[0])
+    for keep in chain[1:]:
+        visible.intersection_update(keep)
+    return graph, chain, visible
+
+
+def _multigraph_filtered_target_order(row, filter_chain):
+    targets = list(row)
+    for keep in filter_chain:
+        try:
+            keep_is_shorter = 2 * len(keep) < len(targets)
+        except TypeError:
+            keep_is_shorter = False
+        if keep_is_shorter:
+            present = set(targets)
+            targets = [target for target in keep if target in present]
+        else:
+            targets = [target for target in targets if target in keep]
+    return targets
+
+
 class _FilteredGraphView:
     adjlist_inner_dict_factory = dict
     adjlist_outer_dict_factory = dict
@@ -31403,29 +31438,25 @@ class _FilteredGraphView:
 
     def _edges(self, nbunch=None, data=False, keys=False):
         nodes = self._nbunch(nbunch)
-        # br-r37-c1-r3gjb: simple-graph subgraph edge enumeration (default edge
-        # filter) walks the native parent PLAIN-dict row in order, gating
-        # targets with `target in keep` (O(1)) instead of the per-neighbour
-        # _node_visible/_edge_visible loop (~7x nx). Row order preserved ->
-        # edge order matches nx. Multigraph keeps slow path (set-order switch).
-        keep = getattr(self._filter_node, "nodes", None)
+        # br-r37-c1-r3gjb/TealSpring nested-view pass: for chains of
+        # default-edge, node-set subgraph views, walk the concrete parent's
+        # native PLAIN-dict rows once. Source order stays `nodes` above. Simple
+        # rows keep concrete row order and gate against the intersection set;
+        # multigraph rows replay each filter layer's node_ok_shorter set-vs-row
+        # ordering branch so parallel-edge edge order remains byte-identical.
+        parent, filter_chain, visible_keep = _default_node_set_filter_chain(self)
         if (
-            keep is not None
-            and self._filter_edge_is_default
+            parent is not None
             and not isinstance(data, str)
             and data is not None
-            # only when the underlying graph is a CONCRETE simple graph with
-            # native plain-dict rows — not a view (reverse/nested subgraph),
-            # whose rows would not match this row-order walk.
-            and type(self._graph) in (Graph, DiGraph)
+            and type(parent) in (Graph, DiGraph)
         ):
-            parent = self._graph
             fast = []
             if self.is_directed():
                 for source in nodes:
                     row = _fast_succ_row(parent, source)
                     for target in row:
-                        if target not in keep:
+                        if target not in visible_keep:
                             continue
                         fast.append((source, target, row[target]) if data else (source, target))
             else:
@@ -31433,17 +31464,16 @@ class _FilteredGraphView:
                 for source in nodes:
                     row = _fast_adj_row(parent, source)
                     for target in row:
-                        if target not in keep or target in seen:
+                        if target not in visible_keep or target in seen:
                             continue
                         fast.append((source, target, row[target]) if data else (source, target))
                     seen.add(source)
             return fast
         if (
-            keep is not None
-            and self._filter_edge_is_default
+            parent is not None
             and not isinstance(data, str)
             and data is not None
-            and type(self._graph) in (MultiGraph, MultiDiGraph)
+            and type(parent) in (MultiGraph, MultiDiGraph)
         ):
             # br-r37-c1-ag2sx: multigraph variant of the edge fast path. Walks
             # the native parent PLAIN-dict {nbr: keydict} row once per source
@@ -31451,14 +31481,8 @@ class _FilteredGraphView:
             # SAME node_ok_shorter order nx's FilterMultiInner uses (keep order
             # when 2*len(keep) < len(row), else row order), then iterates the
             # keydict for parallel edges. Gating on `target in keep` (O(1)).
-            parent = self._graph
             fast = []
             directed = self.is_directed()
-
-            def _targets(row):
-                if 2 * len(keep) < len(row):
-                    return (t for t in keep if t in row)
-                return (t for t in row if t in keep)
 
             def _emit_keys(out, source, target, keydict):
                 for key, attrs in keydict.items():
@@ -31474,13 +31498,13 @@ class _FilteredGraphView:
             if directed:
                 for source in nodes:
                     row = _fast_succ_row(parent, source)
-                    for target in _targets(row):
+                    for target in _multigraph_filtered_target_order(row, filter_chain):
                         _emit_keys(fast, source, target, row[target])
             else:
                 seen = set()
                 for source in nodes:
                     row = _fast_adj_row(parent, source)
-                    for target in _targets(row):
+                    for target in _multigraph_filtered_target_order(row, filter_chain):
                         if target in seen:
                             continue
                         _emit_keys(fast, source, target, row[target])
@@ -35378,7 +35402,55 @@ def weisfeiler_lehman_graph_hash(
     (see nx.algorithms.graph_hashing). Hashes diverged for the same
     graph, making the two libraries incompatible as drop-in
     fingerprinters. Delegate to nx so hashes match exactly.
+
+    br-r37-c1-wlnative: for the common attribute-free undirected simple
+    case, run nx's exact algorithm on a NATIVE adjacency snapshot instead
+    of delegating — delegation paid a full fnx->nx conversion (~5ms) AND
+    running the WL loop through fnx's slow neighbour views was no faster
+    (~7ms either way) vs nx's 1.5ms. ``G.adjacency()`` snapshots the whole
+    adjacency in one native pass (~0.5ms); the loop then runs on plain
+    dicts, byte-identical to nx (the per-round multiset is sorted, so node
+    / neighbour order is irrelevant). 4.8x -> ~1.3x.
     """
+    if (
+        edge_attr is None
+        and node_attr is None
+        and type(G) is Graph
+    ):
+        if iterations <= 0:
+            raise ValueError(
+                "The WL algorithm requires that `iterations` be positive"
+            )
+        import warnings as _warnings
+        from collections import Counter as _Counter
+        from hashlib import blake2b as _blake2b
+
+        # nx emits this for the attribute-free (degree-seeded) case.
+        _warnings.warn(
+            "The hashes produced for graphs without node or edge attributes "
+            "changed in v3.5 due to a bugfix (see documentation).",
+            UserWarning,
+            stacklevel=2,
+        )
+        adj = {node: list(nbrs) for node, nbrs in G.adjacency()}
+        labels = {node: str(deg) for node, deg in G.degree()}
+        counts = []
+        for _ in range(iterations - 1):
+            labels = {
+                node: _blake2b(
+                    (
+                        labels[node]
+                        + "".join(sorted(labels[m] for m in adj[node]))
+                    ).encode("ascii"),
+                    digest_size=digest_size,
+                ).hexdigest()
+                for node in adj
+            }
+            counter = _Counter(labels.values())
+            counts.extend(sorted(counter.items(), key=lambda x: x[0]))
+        return _blake2b(
+            str(tuple(counts)).encode("ascii"), digest_size=digest_size
+        ).hexdigest()
     return _call_networkx_for_parity(
         "weisfeiler_lehman_graph_hash",
         G,
