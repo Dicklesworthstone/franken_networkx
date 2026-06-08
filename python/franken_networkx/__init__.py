@@ -42227,6 +42227,17 @@ def to_dict_of_lists(G, nodelist=None):
         if _fast is not None:
             return _fast
     if nodelist is None:
+        # br-r37-c1-mexh6: MultiGraph/MultiDiGraph distinct-neighbor lists come
+        # straight from the native adjacency/successor row keys (adjacency order,
+        # matching G.neighbors()). With nodelist None the slow path's
+        # ``if nb in nodelist`` filter is vacuous (every neighbor is already a
+        # node) — skip it AND the private-storage-aware G.neighbors() wrapper
+        # (the ``nb in G`` __contains__ check was ~half the runtime; MultiGraph
+        # ~3.4x, MultiDiGraph ~3.6x).
+        if type(G) is MultiGraph:
+            return {u: list(G._native_adjacency_row(u)) for u in G}
+        if type(G) is MultiDiGraph:
+            return {u: list(G._native_successor_row(u)) for u in G}
         nodelist = G
     return {n: [nb for nb in G.neighbors(n) if nb in nodelist] for n in nodelist}
 
