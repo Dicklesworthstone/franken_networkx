@@ -22975,7 +22975,10 @@ def adjacency_data(G, attrs={"id": "id", "key": "key"}):  # noqa: B006
     for node, node_attrs in G.nodes(data=True):
         data["nodes"].append({**node_attrs, id_: node})
         neighbors = []
-        nbrdict = G.adj[node]
+        # br-r37-c1-nodekeys: G[node] is the native O(deg) row; G.adj[node]
+        # re-materialises the whole (Multi)AdjacencyView per node -> TIMEOUT on
+        # a MultiGraph. Same {nbr: keydict}/{nbr: attrs} shape + order.
+        nbrdict = G[node]
         if multigraph:
             for nbr, keydict in nbrdict.items():
                 for edge_key, edge_attrs in keydict.items():
