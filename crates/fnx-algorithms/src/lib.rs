@@ -35142,34 +35142,84 @@ pub fn current_flow_betweenness_centrality(
         }
     }
 
-    // Compute current-flow betweenness
-    let mut bc = HashMap::new();
-    for &node in &nodes {
-        bc.insert(node.to_owned(), 0.0);
-    }
+    // Compute current-flow betweenness.
+    // br-r37-c1-cfbpar: the source-sink triple loop is O(n^2 * m) and
+    // dominates (>> the O(n^3) inversion). It is parallel over the source
+    // s, and bit-IDENTICAL if we (a) accumulate each s's full contribution
+    // into a private per-s vector (summing t in order, exactly the old
+    // contiguous s-block), then (b) reduce per_s[0]+per_s[1]+... in s-index
+    // order — the identical left-associative addition sequence the
+    // sequential loop performs. Also precompute integer adjacency once so
+    // the hot loop drops the per-(s,t,v) String idx[nb] lookup.
+    let adj_idx: Vec<Vec<usize>> = nodes
+        .iter()
+        .map(|&v| {
+            graph
+                .neighbors_iter(v)
+                .map(|it| it.map(|nb| idx[nb]).collect())
+                .unwrap_or_default()
+        })
+        .collect();
 
-    for s in 0..n {
+    let compute_s = |s: usize| -> Vec<f64> {
+        let mut local = vec![0.0_f64; n];
         for t in (s + 1)..n {
-            // Current vector for source s, sink t
-            // p = L_pinv * b where b[s]=1, b[t]=-1
-            // p[i] = L_pinv[i][s] - L_pinv[i][t]
             for v in 0..n {
                 if v == s || v == t {
                     continue;
                 }
                 let p_v = l_pinv[v * n + s] - l_pinv[v * n + t];
-                // Flow through v = sum |p_v - p_nb| / 2 over neighbors
                 let mut flow = 0.0;
-                if let Some(nbrs) = graph.neighbors_iter(nodes[v]) {
-                    for nb in nbrs {
-                        let j = idx[nb];
-                        let p_nb = l_pinv[j * n + s] - l_pinv[j * n + t];
-                        flow += (p_v - p_nb).abs();
-                    }
+                for &j in &adj_idx[v] {
+                    let p_nb = l_pinv[j * n + s] - l_pinv[j * n + t];
+                    flow += (p_v - p_nb).abs();
                 }
-                *bc.get_mut(nodes[v]).unwrap() += flow / 2.0;
+                local[v] += flow / 2.0;
             }
         }
+        local
+    };
+
+    const CFB_PARALLEL_MIN_N: usize = 24;
+    let per_s: Vec<Vec<f64>> = if n < CFB_PARALLEL_MIN_N {
+        (0..n).map(compute_s).collect()
+    } else {
+        let num_threads = std::thread::available_parallelism()
+            .map(|x| x.get())
+            .unwrap_or(4)
+            .min(n);
+        let chunk = n.div_ceil(num_threads);
+        let compute_s = &compute_s;
+        std::thread::scope(|scope| {
+            let handles: Vec<_> = (0..num_threads)
+                .map(|tt| {
+                    let start = tt * chunk;
+                    let end = ((tt + 1) * chunk).min(n);
+                    scope.spawn(move || {
+                        (start..end).map(|s| (s, compute_s(s))).collect::<Vec<_>>()
+                    })
+                })
+                .collect();
+            let mut slots: Vec<Vec<f64>> = vec![Vec::new(); n];
+            for h in handles {
+                for (s, local) in h.join().expect("cfb worker panicked") {
+                    slots[s] = local;
+                }
+            }
+            slots
+        })
+    };
+
+    // Reduce in s-index order (matches the sequential accumulation order).
+    let mut bc_arr = vec![0.0_f64; n];
+    for per in &per_s {
+        for v in 0..n {
+            bc_arr[v] += per[v];
+        }
+    }
+    let mut bc: HashMap<String, f64> = HashMap::new();
+    for (v, &node) in nodes.iter().enumerate() {
+        bc.insert(node.to_owned(), bc_arr[v]);
     }
 
     if normalized {
