@@ -15145,25 +15145,19 @@ def simple_cycles(G, length_bound=None):
 def find_cycle(G, source=None, orientation=None):
     """Find a cycle reachable from a source node.
 
-    br-r37-c1-2hrfs: on an undirected graph the Rust binding emitted
-    edges in algorithm-canonical orientation, but nx emits edges in
-    DFS-traversal direction (which depends on adj-iteration order).
-    Delegate undirected cases to nx so the cycle's edge tuples and
-    traversal direction match.
+    br-r37-c1-fcyclnative: run nx's edge_dfs + find_cycle algorithm directly on
+    fnx graph views (``_fnx_find_cycle``) for BOTH directed and undirected,
+    instead of paying a full fnx->nx conversion for a function that early-exits
+    on the first cycle. The old undirected delegation (br-r37-c1-2hrfs) existed
+    only because the Rust binding emitted algorithm-canonical orientation; the
+    Python port emits edges in nx's DFS-traversal direction via ``_fnx_edge_dfs``
+    (whose adjacency order matches nx), so the cycle edge tuples + orientation
+    match exactly (verified 0/800 over directed/undirected x multigraph x all
+    orientation modes x sources).
     """
     # br-r37-c1-nwkg0: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
-    if G.is_directed():
-        # br-r37-c1-57dlh: run nx's edge_dfs + find_cycle algorithm directly
-        # on directed fnx graph views instead of delegating, which paid a full
-        # _fnx_to_nx conversion for a function that can early-exit.
-        return _fnx_find_cycle(G, source, orientation)
-    return _call_networkx_for_parity(
-        "find_cycle",
-        G,
-        source=source,
-        orientation=orientation,
-    )
+    return _fnx_find_cycle(G, source, orientation)
 
 
 _FC_FORWARD = "forward"
