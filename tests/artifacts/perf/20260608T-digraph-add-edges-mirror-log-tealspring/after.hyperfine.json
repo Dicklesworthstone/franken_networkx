@@ -1,0 +1,34 @@
+{
+  "results": [
+    {
+      "command": "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/data/projects/.scratch/franken_networkx_perf_tealspring_20260608T0853_c9d2/python /data/projects/franken_networkx/.venv/bin/python tests/artifacts/perf/20260606T-digraph-add-edges-batch-cod/digraph_add_edges_batch_harness.py timing --loops 8 --warmups 2 --output tests/artifacts/perf/20260608T-digraph-add-edges-mirror-log-tealspring/after.hyperfine_timing.json",
+      "mean": 0.6811046180650001,
+      "stddev": 0.02737261560789091,
+      "median": 0.6731771119400001,
+      "user": 4.687940715,
+      "system": 0.09514671499999999,
+      "min": 0.65098071044,
+      "max": 0.72112919344,
+      "times": [
+        0.67486774944,
+        0.6521333334400001,
+        0.6714864744400001,
+        0.66308094244,
+        0.71193784144,
+        0.65098071044,
+        0.72112919344,
+        0.7032206994400001
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

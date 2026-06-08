@@ -1,0 +1,11 @@
+af8a267d482788e2554a99b54999ac8cad330715b4187aa729948653c92941bf  tests/artifacts/perf/20260608T-digraph-add-edges-mirror-log-tealspring/after.bench.json
+57f7ccd37d54b531d4e6e3996a92070f87673f584de5c0b2f66bb2d862f73fd5  tests/artifacts/perf/20260608T-digraph-add-edges-mirror-log-tealspring/after.cprofile.txt
+251d58ae4da62d848425c101591e19e20b4debae4d027ff523446453f6e61c88  tests/artifacts/perf/20260608T-digraph-add-edges-mirror-log-tealspring/after.hyperfine.json
+df7881ef65cf0ba738d84467fee97e6745afeca638e8e32ef9131ab38011899b  tests/artifacts/perf/20260608T-digraph-add-edges-mirror-log-tealspring/after.hyperfine_timing.json
+966c450d25e5258bd81ee8ab0a4a04669cdd503fcc3322416b9e0a9481fc4ace  tests/artifacts/perf/20260608T-digraph-add-edges-mirror-log-tealspring/after.proof.json
+6934e861d4d3e7f6af46b07e89886dbe083426b5fc77b3bcceecc96584887653  tests/artifacts/perf/20260608T-digraph-add-edges-mirror-log-tealspring/baseline.bench.json
+03abea812328ed549aeb637b061160fda9efd72c19d0753836f4399f92140644  tests/artifacts/perf/20260608T-digraph-add-edges-mirror-log-tealspring/baseline.cprofile.txt
+e058e6d0e82d6f07125d23e591105279828bff3868ff7baecba356478563b749  tests/artifacts/perf/20260608T-digraph-add-edges-mirror-log-tealspring/baseline.hyperfine.json
+c257ea4d2777c6b74eb17a893efb4629659fcb69e02c33e6e4e13cfbd8570e32  tests/artifacts/perf/20260608T-digraph-add-edges-mirror-log-tealspring/baseline.hyperfine_timing.json
+966c450d25e5258bd81ee8ab0a4a04669cdd503fcc3322416b9e0a9481fc4ace  tests/artifacts/perf/20260608T-digraph-add-edges-mirror-log-tealspring/baseline.proof.json
+7d746291c006992802076f75be0c0ff3ecdf03f9ab0891079cc41f2ba212b599  tests/artifacts/perf/20260608T-digraph-add-edges-mirror-log-tealspring/report.md

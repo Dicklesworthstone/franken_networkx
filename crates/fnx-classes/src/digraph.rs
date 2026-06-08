@@ -1060,9 +1060,6 @@ impl DiGraph {
 
         let mut inserted = 0usize;
         let mut merged_changed = false;
-        let mut successor_rows: IndexMap<String, Vec<String>> = IndexMap::new();
-        let mut predecessor_rows: IndexMap<String, Vec<String>> = IndexMap::new();
-
         for (source, target, attrs) in edges {
             let edge_key = (
                 self.nodes.get_index_of(&source).expect("created above"),
@@ -1080,14 +1077,6 @@ impl DiGraph {
                 continue;
             }
 
-            successor_rows
-                .entry(source.clone())
-                .or_default()
-                .push(target.clone());
-            predecessor_rows
-                .entry(target.clone())
-                .or_default()
-                .push(source.clone());
             let s_idx = self
                 .nodes
                 .get_index_of(&source)
