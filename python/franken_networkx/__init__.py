@@ -42307,16 +42307,11 @@ def to_dict_of_lists(G, nodelist=None):
     d : dict
         ``d[u]`` is the list of neighbors of node u.
     """
-    # br-r37-c1-6o3wi/br-r37-c1-nocb2/br-r37-c1-mexh6: native fast path
-    # for exact graph classes with no nodelist. Builds {u: [v,...]} in Rust
-    # with adjacency/successor-order neighbor lists, bypassing the slow
-    # per-node G.neighbors() wrapper iteration.
-    if nodelist is None and (
-        type(G) is Graph
-        or type(G) is DiGraph
-        or type(G) is MultiGraph
-        or type(G) is MultiDiGraph
-    ):
+    # br-r37-c1-6o3wi/br-r37-c1-nocb2: native fast path for exact simple
+    # Graph/DiGraph with no nodelist. Builds {u: [v,...]} in Rust with
+    # adjacency/successor-order neighbor lists, bypassing the slow per-node
+    # G.neighbors() wrapper iteration.
+    if nodelist is None and (type(G) is Graph or type(G) is DiGraph):
         _fast = _fnx.to_dict_of_lists_undirected(G)
         if _fast is not None:
             return _fast
