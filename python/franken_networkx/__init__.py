@@ -42467,6 +42467,15 @@ class _LiveMultiEdgeDataView(dict):
         return (dict, (dict(self.items()),))
 
 
+def _live_multi_edge_view_row_cache(graph):
+    stamp = (graph.nodes_seq, graph.edges_seq)
+    state = getattr(graph, "_fnx_live_multi_edge_view_row_cache", None)
+    if state is None or state[0] != stamp:
+        state = (stamp, {})
+        setattr(graph, "_fnx_live_multi_edge_view_row_cache", state)
+    return state[1]
+
+
 def _checked_create_using(create_using=None, *, directed=None, multigraph=None, default=Graph):
     """Validate and clear ``create_using`` using NetworkX's contract."""
     default_graph_type = _classic_default_graph_type(default)
@@ -43699,12 +43708,21 @@ def to_dict_of_dicts(G, nodelist=None, edge_data=None):
             _row = G._native_successor_row
         else:
             _row = None
+        view_cache = _live_multi_edge_view_row_cache(G) if _row is not None else None
         for u in nodelist:
             row = {}
             neighbors = _row(u) if _row is not None else G[u]
+            row_cache = None if view_cache is None else view_cache.setdefault(u, {})
             for v in neighbors:
                 if v in nodeset:
-                    row[v] = _LiveMultiEdgeDataView(G, u, v)
+                    if row_cache is None:
+                        row[v] = _LiveMultiEdgeDataView(G, u, v)
+                    else:
+                        view = row_cache.get(v)
+                        if view is None:
+                            view = _LiveMultiEdgeDataView(G, u, v)
+                            row_cache[v] = view
+                        row[v] = view
             d[u] = row
         return d
     for u in nodelist:
