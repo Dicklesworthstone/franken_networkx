@@ -34967,16 +34967,21 @@ pub fn communicability_betweenness_centrality(
 
     let exp_a = matrix_exp_symmetric(&a, n);
 
-    let mut cbc = HashMap::new();
-    for (r, &node) in nodes.iter().enumerate() {
-        // Build A with row r and col r zeroed out
+    // br-r37-c1-lv4to: the n per-node passes each recompute a full
+    // O(n^3) symmetric matrix-exponential (A with row/col r zeroed) and
+    // are INDEPENDENT — embarrassingly parallel. nx's reference is a
+    // single-threaded O(n^4) Python loop. Spread the per-node expm's
+    // across threads (std::thread::scope, safe; the PyO3 binding already
+    // released the GIL). Each task computes the same per-node arithmetic
+    // (bit-identical), so the result is byte-for-byte the sequential one.
+    // Small graphs stay sequential — thread setup would dominate.
+    let compute_node = |r: usize| -> f64 {
         let mut a_mod = a.clone();
         for j in 0..n {
             a_mod[r * n + j] = 0.0;
             a_mod[j * n + r] = 0.0;
         }
         let exp_a_mod = matrix_exp_symmetric(&a_mod, n);
-
         let mut total = 0.0;
         for p in 0..n {
             for q in (p + 1)..n {
@@ -34992,7 +34997,42 @@ pub fn communicability_betweenness_centrality(
         if normalized {
             total /= ((n - 1) * (n - 2)) as f64 / 2.0;
         }
-        cbc.insert(node.to_owned(), total);
+        total
+    };
+
+    const CBC_PARALLEL_MIN_N: usize = 24;
+    let totals: Vec<f64> = if n < CBC_PARALLEL_MIN_N {
+        (0..n).map(compute_node).collect()
+    } else {
+        let num_threads = std::thread::available_parallelism()
+            .map(|x| x.get())
+            .unwrap_or(4)
+            .min(n);
+        let chunk = n.div_ceil(num_threads);
+        let compute_node = &compute_node;
+        std::thread::scope(|scope| {
+            let handles: Vec<_> = (0..num_threads)
+                .map(|t| {
+                    let start = t * chunk;
+                    let end = ((t + 1) * chunk).min(n);
+                    scope.spawn(move || {
+                        (start..end).map(|r| (r, compute_node(r))).collect::<Vec<_>>()
+                    })
+                })
+                .collect();
+            let mut out = vec![0.0_f64; n];
+            for h in handles {
+                for (r, v) in h.join().expect("cbc worker panicked") {
+                    out[r] = v;
+                }
+            }
+            out
+        })
+    };
+
+    let mut cbc = HashMap::new();
+    for (r, &node) in nodes.iter().enumerate() {
+        cbc.insert(node.to_owned(), totals[r]);
     }
     cbc
 }
