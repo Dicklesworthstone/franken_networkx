@@ -19242,6 +19242,25 @@ def line_graph(G, create_using=None):
 
     br-r37-c1-cfcls: Always use fnx type as default, not G.__class__.
     """
+    # br-r37-c1-lgnative: native fast path for the DIRECTED simple case. L(G)'s
+    # nodes are tuple-keyed edges; the native kernel canonicalizes each tuple
+    # once and assembles the L-edges in Rust by integer index (vs the per-edge
+    # tuple re-canonicalization below). Directed only: the directed L-edge
+    # orientation is intrinsic (from-edge -> to-edge), so it is byte-identical to
+    # nx. The UNDIRECTED case is NOT routed here — nx orients each undirected
+    # L-edge by its result node-insertion order, which derives from CPython
+    # set-iteration order of the edge set (unmatchable without replicating nx's
+    # exact construction), so it stays on the Python path that mirrors nx.
+    if (
+        create_using is None
+        and G.is_directed()
+        and not G.is_multigraph()
+        and number_of_selfloops(G) == 0
+    ):
+        _fast = _fnx.line_graph_fast(_coerce_arg_to_fnx_graph(G))
+        if _fast is not None:
+            return _fast
+
     graph = _empty_graph_from_create_using(create_using, default=_concrete_class_for(G))
 
     if G.is_directed():

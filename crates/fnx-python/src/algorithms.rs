@@ -10768,6 +10768,69 @@ fn tensor_product_fast(
     graph_product_fast(py, g, h, true)
 }
 
+// br-r37-c1-lgnative: native line graph for the simple (non-multi),
+// no-create_using, self-loop-free case. L(G)'s nodes are G's EDGES, represented
+// as Python tuples `(u, v)`; the Python path adds them one PyO3 call at a time
+// and re-canonicalizes both tuple endpoints on every L-edge (the same
+// tuple-key construction tax as the products, 2-3.3x slower than nx). Here each
+// L-node tuple is canonicalized exactly ONCE, then the L-edges are assembled in
+// Rust by integer edge index over the source CSR adjacency. Returns None on any
+// unsupported shape so the wrapper falls back to the Python construction.
+#[pyfunction]
+#[pyo3(signature = (g,))]
+fn line_graph_fast(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Option<PyObject>> {
+    let gr = extract_graph(g)?;
+    if gr.is_directed() {
+        let dg = gr.digraph().expect("directed");
+        let n = dg.node_count();
+        let names: Vec<String> = dg.nodes_ordered().iter().map(|s| (*s).to_owned()).collect();
+        let g_py: Vec<PyObject> = names.iter().map(|s| gr.py_node_key(py, s)).collect();
+
+        // Directed edges in (source-major, successor-order) = nx's edge order.
+        let mut edge_pairs: Vec<(usize, usize)> = Vec::new();
+        let mut edge_id: HashMap<(usize, usize), usize> = HashMap::new();
+        for u in 0..n {
+            for &v in dg.successors_indices(u).unwrap_or(&[]) {
+                edge_id.insert((u, v), edge_pairs.len());
+                edge_pairs.push((u, v));
+            }
+        }
+        let ne = edge_pairs.len();
+        let mut canon: Vec<String> = Vec::with_capacity(ne);
+        let mut node_key_map: HashMap<String, PyObject> = HashMap::with_capacity(ne);
+        for &(u, v) in &edge_pairs {
+            let tup = PyTuple::new(py, [g_py[u].clone_ref(py), g_py[v].clone_ref(py)])?;
+            let ck = crate::node_key_to_string(py, tup.as_any())?;
+            node_key_map.insert(ck.clone(), tup.into_any().unbind());
+            canon.push(ck);
+        }
+        // L-edge (u,v) -> (v,w) for each successor w of the head v.
+        let mut ledges: Vec<(String, String)> = Vec::new();
+        for (eid, &(_u, v)) in edge_pairs.iter().enumerate() {
+            for &w in dg.successors_indices(v).unwrap_or(&[]) {
+                if let Some(&e2) = edge_id.get(&(v, w)) {
+                    ledges.push((canon[eid].clone(), canon[e2].clone()));
+                }
+            }
+        }
+        let mut inner =
+            fnx_classes::digraph::DiGraph::with_runtime_policy(dg.runtime_policy().clone());
+        let _ = inner
+            .extend_nodes_with_attrs_unrecorded(canon.iter().map(|c| (c.clone(), AttrMap::new())));
+        let _ = inner.extend_edges_unrecorded(ledges);
+        let mut py_dg = PyDiGraph::new_empty_with_policy(py, dg.runtime_policy().clone())?;
+        py_dg.inner = inner;
+        py_dg.node_key_map = node_key_map;
+        Ok(Some(py_dg.into_pyobject(py)?.into_any().unbind()))
+    } else {
+        // Undirected L(G) is NOT handled natively: nx orients each undirected
+        // L-edge by the result's node-insertion order, which comes from CPython
+        // set-iteration order of the edge set — unmatchable here. Fall back to
+        // the Python construction (which mirrors nx's exact algorithm).
+        Ok(None)
+    }
+}
+
 #[pyfunction]
 #[pyo3(signature = (g,))]
 fn degree_histogram(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Vec<usize>> {
@@ -16977,6 +17040,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(tensor_product, m)?)?;
     m.add_function(wrap_pyfunction!(cartesian_product_fast, m)?)?;
     m.add_function(wrap_pyfunction!(tensor_product_fast, m)?)?;
+    m.add_function(wrap_pyfunction!(line_graph_fast, m)?)?;
     m.add_function(wrap_pyfunction!(degree_histogram, m)?)?;
     // A* shortest path
     m.add_function(wrap_pyfunction!(astar_path, m)?)?;
