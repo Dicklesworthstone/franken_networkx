@@ -5456,10 +5456,14 @@ pub fn maximum_spanning_tree(
 ) -> PyResult<PyGraph> {
     let gr = extract_graph(g)?;
     let inner = gr.undirected();
-    let runtime_policy = inner.runtime_policy().clone();
+    // br-r37-c1-mstmaxnative: mirror minimum_spanning_tree — a fresh
+    // mode-only policy. The old triple runtime-policy clone (clone +
+    // new_empty_with_policy + set_runtime_policy) deep-copied the source's
+    // unbounded decision ledger and was ~2x slower (reference_runtime_policy_clone_tax).
+    let tree_mode = inner.mode();
     let w = weight.to_owned();
     let result = py.allow_threads(move || fnx_algorithms::maximum_spanning_tree(inner, &w));
-    let mut new_graph = PyGraph::new_empty_with_policy(py, runtime_policy.clone())?;
+    let mut new_graph = PyGraph::new_empty_with_mode(py, tree_mode)?;
 
     for node in inner.nodes_ordered() {
         new_graph.inner.add_node(node.to_owned());
@@ -5480,7 +5484,6 @@ pub fn maximum_spanning_tree(
                 .insert(ek, attrs.bind(py).copy()?.unbind());
         }
     }
-    new_graph.inner.set_runtime_policy(runtime_policy);
     Ok(new_graph)
 }
 

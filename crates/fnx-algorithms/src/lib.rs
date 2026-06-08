@@ -7520,20 +7520,24 @@ pub fn maximum_spanning_tree(graph: &Graph, weight_attr: &str) -> MinimumSpannin
         };
     }
 
-    // Collect all edges with weights (same as MST)
-    let mut edge_list: Vec<(f64, &str, &str)> = Vec::new();
-    let mut seen = HashSet::new();
-    for node in &nodes {
-        if let Some(neighbors) = graph.neighbors_iter(node) {
-            for neighbor in neighbors {
-                let (left, right) = if *node <= neighbor {
-                    (*node, neighbor)
-                } else {
-                    (neighbor, *node)
-                };
-                if seen.insert((left, right)) {
-                    let weight = matching_edge_weight_or_default(graph, left, right, weight_attr);
-                    edge_list.push((weight, left, right));
+    // br-r37-c1-mstmaxnative: mirror the minimum_spanning_tree kernel
+    // (br-r37-c1-mstcsr) — integer-CSR edge collection in nx's exact `G.edges()`
+    // order/orientation (iterate nodes by index, emit each undirected edge once
+    // from its smaller-index endpoint, oriented `(s, neighbor)`), a DESCENDING
+    // *stable* weight sort (== nx's `sorted(..., reverse=True)`, which keeps
+    // G.edges() order for equal weights), and integer union-find over indices.
+    // The previous version used String `(min, max)` orientation (which FLIPPED
+    // the (u, v) orientation of any edge whose endpoints sort differently as
+    // strings vs by index, diverging from nx) and a `HashMap<&str>` union-find
+    // (the String tax that made it ~6x slower than the minimum kernel).
+    let mut edge_list: Vec<(f64, usize, usize)> = Vec::new();
+    for s in 0..n {
+        if let Some(neighbors) = graph.neighbors_indices(s) {
+            for &v in neighbors {
+                if s < v {
+                    let weight =
+                        matching_edge_weight_or_default(graph, nodes[s], nodes[v], weight_attr);
+                    edge_list.push((weight, s, v));
                 }
             }
         }
@@ -7541,21 +7545,12 @@ pub fn maximum_spanning_tree(graph: &Graph, weight_attr: &str) -> MinimumSpannin
 
     let edges_scanned = edge_list.len();
 
-    // Sort by DESCENDING weight for maximum spanning tree. As in
-    // minimum_spanning_tree, nx uses a *stable* sort by weight only
-    // (`sorted(..., reverse=True)`, which preserves G.edges() order for equal
-    // weights), so we must not add a lexicographic (left, right) tie-break.
     edge_list.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
 
-    // Union-Find (same as MST)
-    let mut parent: HashMap<&str, &str> = HashMap::new();
-    let mut rank: HashMap<&str, usize> = HashMap::new();
-    for node in &nodes {
-        parent.insert(node, node);
-        rank.insert(node, 0);
-    }
+    let mut parent: Vec<usize> = (0..n).collect();
+    let mut rank: Vec<u32> = vec![0; n];
 
-    fn find<'a>(parent: &mut HashMap<&'a str, &'a str>, x: &'a str) -> &'a str {
+    fn find(parent: &mut [usize], x: usize) -> usize {
         let mut root = x;
         while parent[root] != root {
             root = parent[root];
@@ -7563,7 +7558,7 @@ pub fn maximum_spanning_tree(graph: &Graph, weight_attr: &str) -> MinimumSpannin
         let mut current = x;
         while current != root {
             let next = parent[current];
-            parent.insert(current, root);
+            parent[current] = root;
             current = next;
         }
         root
@@ -7573,23 +7568,21 @@ pub fn maximum_spanning_tree(graph: &Graph, weight_attr: &str) -> MinimumSpannin
     let mut total_weight = 0.0;
     let mut nodes_touched = 0usize;
 
-    for (weight, left, right) in &edge_list {
-        let root_a = find(&mut parent, left);
-        let root_b = find(&mut parent, right);
+    for (weight, a, b) in &edge_list {
+        let root_a = find(&mut parent, *a);
+        let root_b = find(&mut parent, *b);
         if root_a != root_b {
-            let rank_a = rank[root_a];
-            let rank_b = rank[root_b];
-            if rank_a < rank_b {
-                parent.insert(root_a, root_b);
-            } else if rank_a > rank_b {
-                parent.insert(root_b, root_a);
+            if rank[root_a] < rank[root_b] {
+                parent[root_a] = root_b;
+            } else if rank[root_a] > rank[root_b] {
+                parent[root_b] = root_a;
             } else {
-                parent.insert(root_b, root_a);
-                rank.insert(root_a, rank_a + 1);
+                parent[root_b] = root_a;
+                rank[root_a] += 1;
             }
             mst_edges.push(MstEdge {
-                left: left.to_string(),
-                right: right.to_string(),
+                left: nodes[*a].to_string(),
+                right: nodes[*b].to_string(),
                 weight: *weight,
             });
             total_weight += weight;
