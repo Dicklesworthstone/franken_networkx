@@ -4498,8 +4498,12 @@ impl PyDiGraph {
         self.inner
             .add_edge_with_attrs(u_canonical.clone(), v_canonical.clone(), rust_attrs)
             .map_err(|e| NetworkXError::new_err(e.to_string()))?;
-        self.cached_succ_set_edge(py, &u_canonical, &v_canonical)?;
-        self.cached_pred_set_edge(py, &v_canonical, &u_canonical)?;
+        if !self.succ_row_py.is_empty() {
+            self.cached_succ_set_edge(py, &u_canonical, &v_canonical)?;
+        }
+        if !self.pred_row_py.is_empty() {
+            self.cached_pred_set_edge(py, &v_canonical, &u_canonical)?;
+        }
         // br-r37-c1-jft0i: bump edges_seq so view-materialization caches invalidate.
         self.bump_edges_seq();
         Ok(())

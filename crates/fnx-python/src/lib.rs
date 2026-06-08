@@ -5098,7 +5098,7 @@ impl PyGraph {
         self.inner
             .add_edge_with_attrs(u_canonical.clone(), v_canonical.clone(), rust_attrs)
             .map_err(|e| NetworkXError::new_err(e.to_string()))?;
-        if was_new_edge {
+        if was_new_edge && !self.adj_row_py.is_empty() {
             self.cached_adj_set_edge(py, &u_canonical, &v_canonical)?;
             if u_canonical != v_canonical {
                 self.cached_adj_set_edge(py, &v_canonical, &u_canonical)?;
@@ -5268,7 +5268,7 @@ impl PyGraph {
             let _ = self
                 .inner
                 .add_edge_with_attrs(u_s.clone(), v_s.clone(), empty_attrs.clone());
-            if was_new_edge {
+            if was_new_edge && !self.adj_row_py.is_empty() {
                 self.cached_adj_set_edge(py, &u_s, &v_s)?;
                 if u_s != v_s {
                     self.cached_adj_set_edge(py, &v_s, &u_s)?;

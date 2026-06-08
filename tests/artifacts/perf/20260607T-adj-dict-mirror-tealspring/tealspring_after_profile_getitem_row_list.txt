@@ -1,40 +1,40 @@
 800000
-         121725 function calls in 0.095 seconds
+         121725 function calls in 0.086 seconds
 
    Ordered by: internal time
    List reduced from 47 to 30 due to restriction <30>
 
    ncalls  tottime  percall  cumtime  percall filename:lineno(function)
-        1    0.047    0.047    0.047    0.047 {function Graph.add_edges_from at 0x7579e528e980}
-        1    0.016    0.016    0.078    0.078 __init__.py:2670(add_edges_from)
-       40    0.010    0.000    0.010    0.000 {method '_native_adjacency_row_dict' of 'franken_networkx.Graph' objects}
+        1    0.040    0.040    0.040    0.040 {function Graph.add_edges_from at 0x765b4228a8e0}
+        1    0.014    0.014    0.068    0.068 __init__.py:2661(add_edges_from)
+       40    0.009    0.000    0.009    0.000 {method '_native_adjacency_row_dict' of 'franken_networkx.Graph' objects}
     20001    0.008    0.000    0.008    0.000 adj_dict_mirror_harness.py:27(<genexpr>)
-        1    0.005    0.005    0.095    0.095 adj_dict_mirror_harness.py:184(run_loop)
-    40081    0.003    0.000    0.003    0.000 {built-in method builtins.hash}
+        1    0.006    0.006    0.086    0.086 adj_dict_mirror_harness.py:184(run_loop)
+    40081    0.002    0.000    0.002    0.000 {built-in method builtins.hash}
     20000    0.002    0.000    0.002    0.000 {method 'append' of 'list' objects}
-    20081    0.001    0.000    0.001    0.000 {built-in method builtins.len}
     20046    0.001    0.000    0.001    0.000 {built-in method builtins.isinstance}
-        1    0.001    0.001    0.079    0.079 adj_dict_mirror_harness.py:24(build_hub_graph)
-       40    0.000    0.000    0.011    0.000 __init__.py:31526(_cached_adj_row_key_iter)
-       40    0.000    0.000    0.000    0.000 __init__.py:1196(__getitem__)
-      200    0.000    0.000    0.000    0.000 __init__.py:31433(_private_override)
-       80    0.000    0.000    0.000    0.000 __init__.py:1330(<lambda>)
-        1    0.000    0.000    0.000    0.000 {function Graph.add_node at 0x7579e528df80}
-       80    0.000    0.000    0.000    0.000 __init__.py:1178(_atlas)
-       40    0.000    0.000    0.000    0.000 __init__.py:31441(_has_networkx_private_storage)
-      240    0.000    0.000    0.000    0.000 {built-in method builtins.vars}
+    20081    0.001    0.000    0.001    0.000 {built-in method builtins.len}
+        1    0.001    0.001    0.069    0.069 adj_dict_mirror_harness.py:24(build_hub_graph)
+       40    0.000    0.000    0.000    0.000 __init__.py:1187(__getitem__)
+       40    0.000    0.000    0.010    0.000 __init__.py:31517(_cached_adj_row_key_iter)
+      200    0.000    0.000    0.000    0.000 __init__.py:31424(_private_override)
+        1    0.000    0.000    0.000    0.000 {function Graph.add_node at 0x765b42289ee0}
+       80    0.000    0.000    0.000    0.000 __init__.py:1321(<lambda>)
       280    0.000    0.000    0.000    0.000 {method 'get' of 'dict' objects}
-       40    0.000    0.000    0.000    0.000 __init__.py:1391(_graph_getitem_from_adj)
-       40    0.000    0.000    0.000    0.000 __init__.py:31495(_private_adj_mapping)
-       40    0.000    0.000    0.011    0.000 __init__.py:1127(__iter__)
-       40    0.000    0.000    0.000    0.000 __init__.py:1207(<lambda>)
-       40    0.000    0.000    0.000    0.000 __init__.py:1124(__len__)
-       40    0.000    0.000    0.000    0.000 __init__.py:1311(_accessor)
-       40    0.000    0.000    0.000    0.000 __init__.py:32264(<lambda>)
-       40    0.000    0.000    0.000    0.000 __init__.py:1115(__init__)
+      240    0.000    0.000    0.000    0.000 {built-in method builtins.vars}
+       40    0.000    0.000    0.000    0.000 __init__.py:31432(_has_networkx_private_storage)
+       40    0.000    0.000    0.000    0.000 __init__.py:1382(_graph_getitem_from_adj)
+       40    0.000    0.000    0.000    0.000 __init__.py:31486(_private_adj_mapping)
+       40    0.000    0.000    0.010    0.000 __init__.py:1118(__iter__)
+       40    0.000    0.000    0.000    0.000 __init__.py:1198(<lambda>)
+       80    0.000    0.000    0.000    0.000 __init__.py:1169(_atlas)
+       40    0.000    0.000    0.000    0.000 __init__.py:1115(__len__)
+       40    0.000    0.000    0.000    0.000 __init__.py:32255(<lambda>)
+       40    0.000    0.000    0.000    0.000 __init__.py:1302(_accessor)
         1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
-       40    0.000    0.000    0.000    0.000 __init__.py:1121(_atlas)
+       40    0.000    0.000    0.000    0.000 __init__.py:1112(_atlas)
         5    0.000    0.000    0.000    0.000 __init__.py:1765(isEnabledFor)
+       40    0.000    0.000    0.000    0.000 {built-in method builtins.getattr}
 
 
 
