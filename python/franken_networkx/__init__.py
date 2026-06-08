@@ -18212,6 +18212,13 @@ except ImportError:  # pragma: no cover — defensive for partial builds
 
 try:
     from franken_networkx._fnx import (
+        graph_has_nonfinite_edge_weight_multigraph as _native_has_nonfinite_edge_weight_multigraph,
+    )
+except ImportError:  # pragma: no cover — defensive for partial builds
+    _native_has_nonfinite_edge_weight_multigraph = None
+
+try:
+    from franken_networkx._fnx import (
         adjacency_default_order_index_arrays as _native_adjacency_default_order_index_arrays,
     )
 except ImportError:  # pragma: no cover — defensive for partial builds
@@ -18253,6 +18260,19 @@ def _pagerank_needs_networkx_weight_parity(G, weight):
     if _native_has_nonfinite_edge_weight is not None and not G.is_multigraph():
         try:
             native = _native_has_nonfinite_edge_weight(G, weight)
+        except Exception:
+            native = None
+        if native is not None:
+            return bool(native)
+
+    # br-r37-c1-fb9td: native O(|E|) scan for multigraph too — avoids
+    # materializing the whole G.edges(keys=True, data=True) view (per-edge
+    # tuples + attr-dict clones) just to check for a non-finite weight value.
+    # Same semantics as the simple kernel (absent key skipped; present key is
+    # non-finite when not a finite float).
+    if _native_has_nonfinite_edge_weight_multigraph is not None and G.is_multigraph():
+        try:
+            native = _native_has_nonfinite_edge_weight_multigraph(G, weight)
         except Exception:
             native = None
         if native is not None:

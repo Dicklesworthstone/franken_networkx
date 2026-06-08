@@ -1424,6 +1424,51 @@ pub fn adjacency_arrays_multigraph(
     Ok(Some((rows, cols, data)))
 }
 
+/// br-r37-c1-fb9td: native O(|E|) non-finite-weight scan for MultiGraph /
+/// MultiDiGraph — the multigraph sibling of `graph_has_nonfinite_edge_weight`
+/// (which returns `None` for multigraphs, forcing `pagerank`'s weight-parity
+/// gate to materialize the entire `G.edges(keys=True, data=True)` view). Mirrors
+/// the simple-graph kernel exactly: for each parallel edge, an absent weight key
+/// is skipped; a present key is "non-finite" when `as_f64()` is `None`
+/// (non-numeric) or a non-finite float. Returns `None` for non-multigraph inputs
+/// so the wrapper keeps the existing simple-graph native path.
+#[pyfunction]
+pub fn graph_has_nonfinite_edge_weight_multigraph(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    weight_attr: &str,
+) -> PyResult<Option<bool>> {
+    let gr = extract_graph(g)?;
+    let result = match &gr {
+        GraphRef::MultiUndirected { mg, .. } => {
+            let inner = &mg.inner;
+            Some(py.allow_threads(|| {
+                inner
+                    .edges_ordered_borrowed()
+                    .iter()
+                    .any(|(_, _, _, attrs)| match attrs.get(weight_attr) {
+                        Some(raw) => !matches!(raw.as_f64(), Some(v) if v.is_finite()),
+                        None => false,
+                    })
+            }))
+        }
+        GraphRef::MultiDirected { mdg, .. } => {
+            let inner = &mdg.inner;
+            Some(py.allow_threads(|| {
+                inner
+                    .edges_ordered_borrowed()
+                    .iter()
+                    .any(|(_, _, _, attrs)| match attrs.get(weight_attr) {
+                        Some(raw) => !matches!(raw.as_f64(), Some(v) if v.is_finite()),
+                        None => false,
+                    })
+            }))
+        }
+        GraphRef::Undirected(_) | GraphRef::Directed { .. } => None,
+    };
+    Ok(result)
+}
+
 /// Native fast path for `adjacency_data` (json_graph) on simple `Graph` and
 /// `DiGraph`. Returns the `(nodes, adjacency)` pair that the Python wrapper
 /// assembles into the full payload:
@@ -1770,6 +1815,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(to_dict_of_dicts_undirected, m)?)?;
     m.add_function(wrap_pyfunction!(to_dict_of_lists_undirected, m)?)?;
     m.add_function(wrap_pyfunction!(adjacency_arrays_multigraph, m)?)?;
+    m.add_function(wrap_pyfunction!(graph_has_nonfinite_edge_weight_multigraph, m)?)?;
     m.add_function(wrap_pyfunction!(adjacency_data_simple, m)?)?;
     m.add_function(wrap_pyfunction!(node_link_data_simple, m)?)?;
     m.add_function(wrap_pyfunction!(to_edgelist_simple, m)?)?;
