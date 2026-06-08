@@ -84,7 +84,29 @@ impl PyMultiDiGraph {
         (u.to_owned(), v.to_owned(), key)
     }
 
-    pub(crate) fn py_node_key(&self, py: Python<'_>, canonical: &str) -> PyObject {
+    /// br-r37-c1-urle5: display-conflict guard for the plain-edge batch (mirrors
+    /// `PyDiGraph::batch_display_conflict`).
+    fn batch_display_conflict(
+        &self,
+        py: Python<'_>,
+        canonical: &str,
+        passed: &Bound<'_, PyAny>,
+        batch_first: &mut HashMap<String, PyObject>,
+    ) -> bool {
+        if passed.is_exact_instance_of::<PyString>() {
+            return false;
+        }
+        if let Some(stored) = self.node_key_map.get(canonical) {
+            return crate::PyGraph::display_objs_conflict(stored.bind(py), passed);
+        }
+        if let Some(first) = batch_first.get(canonical) {
+            return crate::PyGraph::display_objs_conflict(first.bind(py), passed);
+        }
+        batch_first.insert(canonical.to_owned(), passed.clone().unbind());
+        false
+    }
+
+    fn py_node_key(&self, py: Python<'_>, canonical: &str) -> PyObject {
         self.node_key_map.get(canonical).map_or_else(
             || {
                 unwrap_infallible(canonical.to_owned().into_pyobject(py))
@@ -1194,6 +1216,94 @@ impl PyMultiDiGraph {
     // br-r37-c1-addnoden follow-up: nx multigraph names are
     // u_for_edge/v_for_edge; bare u/v collide with edge attrs keyed
     // 'u'/'v'. Match nx; alias for the body.
+    /// br-r37-c1-urle5: native plain-edge batch for `add_edges_from([(u, v), ...])`
+    /// on a FRESH MultiDiGraph (no existing edges). See
+    /// `PyMultiGraph::_try_add_edges_from_batch` — directed edges are NOT
+    /// canonicalized, so the per-pair sequential auto-key tracks `(u, v)` in
+    /// order. Returns `false` (no mutation) for anything outside the fast shape.
+    fn _try_add_edges_from_batch(
+        &mut self,
+        py: Python<'_>,
+        ebunch_to_add: &Bound<'_, PyAny>,
+    ) -> PyResult<bool> {
+        const PLAIN_EDGE_BATCH_MIN: usize = 8;
+        if self.inner.edge_count() != 0
+            || !self.succ_py_keys.is_empty()
+            || !self.pred_py_keys.is_empty()
+        {
+            return Ok(false);
+        }
+        let items: Vec<Bound<'_, PyAny>> = if let Ok(list) = ebunch_to_add.downcast::<PyList>() {
+            if list.len() < PLAIN_EDGE_BATCH_MIN {
+                return Ok(false);
+            }
+            list.iter().collect()
+        } else if let Ok(tuple) = ebunch_to_add.downcast::<PyTuple>() {
+            if tuple.len() < PLAIN_EDGE_BATCH_MIN {
+                return Ok(false);
+            }
+            tuple.iter().collect()
+        } else {
+            return Ok(false);
+        };
+
+        let mut edges: Vec<(String, String, usize, fnx_classes::AttrMap)> =
+            Vec::with_capacity(items.len());
+        let mut new_nodes: Vec<(String, PyObject)> = Vec::new();
+        let mut seen_nodes: std::collections::HashSet<String> = self
+            .inner
+            .nodes_ordered()
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+        let mut batch_first: HashMap<String, PyObject> = HashMap::new();
+        let mut pair_count: HashMap<(String, String), usize> = HashMap::new();
+        let mut node_bumps = 0_u64;
+
+        for item in &items {
+            let Ok(tuple) = item.downcast::<PyTuple>() else {
+                return Ok(false);
+            };
+            if tuple.len() != 2 {
+                return Ok(false);
+            }
+            let u = tuple.get_item(0)?;
+            let v = tuple.get_item(1)?;
+            if !PyDiGraph::is_plain_batch_node(&u) || !PyDiGraph::is_plain_batch_node(&v) {
+                return Ok(false);
+            }
+            let uc = node_key_to_string(py, &u)?;
+            let vc = node_key_to_string(py, &v)?;
+            if self.batch_display_conflict(py, &uc, &u, &mut batch_first)
+                || self.batch_display_conflict(py, &vc, &v, &mut batch_first)
+            {
+                return Ok(false);
+            }
+            if !seen_nodes.contains(&uc) || !seen_nodes.contains(&vc) {
+                node_bumps = node_bumps.wrapping_add(1);
+            }
+            if seen_nodes.insert(uc.clone()) {
+                new_nodes.push((uc.clone(), u.clone().unbind()));
+            }
+            if seen_nodes.insert(vc.clone()) {
+                new_nodes.push((vc.clone(), v.clone().unbind()));
+            }
+            let counter = pair_count.entry((uc.clone(), vc.clone())).or_insert(0);
+            let key = *counter;
+            *counter += 1;
+            edges.push((uc, vc, key, fnx_classes::AttrMap::new()));
+        }
+
+        let edge_bumps = u64::try_from(edges.len()).unwrap_or(u64::MAX);
+        for (canonical, node) in new_nodes {
+            self.node_key_map.entry(canonical).or_insert(node);
+        }
+        self.inner.extend_keyed_edges_with_attrs_unrecorded(edges);
+        self.nodes_seq = self.nodes_seq.wrapping_add(node_bumps);
+        self.edges_seq = self.edges_seq.wrapping_add(edge_bumps);
+        Ok(true)
+    }
+
     #[pyo3(signature = (u_for_edge, v_for_edge, key=None, **attr))]
     fn add_edge(
         &mut self,

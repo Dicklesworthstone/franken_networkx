@@ -2584,6 +2584,15 @@ def _multi_add_edges_from(self, ebunch_to_add, **attr):
     # v)`` keydict (1us even on a 20k-edge graph): same gap-aware key (so mixed
     # explicit/auto keys still match nx), and route the attr mutation through the
     # O(1) ``get_edge_data(u, v, key)`` (live dict) instead of ``self[u][v]``.
+    # br-r37-c1-urle5: native plain-edge fast path for the common
+    # ``add_edges_from([(u, v), ...])`` shape (no **attr, all 2-tuples) on a
+    # FRESH multigraph — sequential per-pair auto-keys, one bulk insert. Returns
+    # False (no mutation) for any other shape, so the per-edge loop below still
+    # handles 3/4-tuples, data dicts, and non-fresh graphs.
+    if not attr and isinstance(ebunch_to_add, (list, tuple)):
+        _native_batch = getattr(self, "_try_add_edges_from_batch", None)
+        if _native_batch is not None and _native_batch(ebunch_to_add):
+            return
     if isinstance(self, MultiGraph) and not self.is_directed():
         _add_edge = _MULTIGRAPH_ADD_EDGE.__get__(self)
     else:

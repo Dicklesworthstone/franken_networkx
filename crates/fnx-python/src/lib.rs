@@ -1173,6 +1173,30 @@ pub(crate) struct PyMultiGraph {
 }
 
 impl PyMultiGraph {
+    /// br-r37-c1-urle5: display-conflict guard for the plain-edge batch (mirrors
+    /// `PyDiGraph::batch_display_conflict`) — bail if a node's passed display
+    /// object would conflict with an already-stored one for the same canonical
+    /// key (hash-equal int/float/bool collisions).
+    fn batch_display_conflict(
+        &self,
+        py: Python<'_>,
+        canonical: &str,
+        passed: &Bound<'_, PyAny>,
+        batch_first: &mut HashMap<String, PyObject>,
+    ) -> bool {
+        if passed.is_exact_instance_of::<PyString>() {
+            return false;
+        }
+        if let Some(stored) = self.node_key_map.get(canonical) {
+            return PyGraph::display_objs_conflict(stored.bind(py), passed);
+        }
+        if let Some(first) = batch_first.get(canonical) {
+            return PyGraph::display_objs_conflict(first.bind(py), passed);
+        }
+        batch_first.insert(canonical.to_owned(), passed.clone().unbind());
+        false
+    }
+
     /// br-r37-c1-z6uka: adjacency-cell display object (see PyGraph::py_adj_key).
     pub(crate) fn py_adj_key(&self, py: Python<'_>, owner: &str, nbr: &str) -> PyObject {
         if !self.adj_py_keys.is_empty()
@@ -2545,6 +2569,101 @@ impl PyMultiGraph {
         // auto key (NOT the internal usize key).
         let external = key.or_else(|| auto_public_key.as_ref().map(|o| o.bind(py)));
         Ok(self.remember_edge_key(py, &u_canonical, &v_canonical, actual_key, external))
+    }
+
+    /// br-r37-c1-urle5: native plain-edge batch for `add_edges_from([(u, v), ...])`
+    /// on a FRESH MultiGraph (no existing edges). The multigraph path otherwise
+    /// falls to per-edge Python `_multi_add_edges_from` → `add_edge` (~4x nx on
+    /// bulk construction). Restricting to `edge_count == 0` makes every auto-key
+    /// SEQUENTIAL per pair (0, 1, 2, …) — no gap-aware public-key computation is
+    /// needed, the internal key equals the public key, and plain nodes need no
+    /// z6uka adj-cell display objects. Returns `false` (no mutation performed) for
+    /// anything outside this fast shape so the Python path handles it. Mirrors
+    /// `PyGraph::collect_plain_edge_batch` + lazy attr mirrors, with one bulk
+    /// `extend_keyed_edges_with_attrs_unrecorded` (one ledger record).
+    fn _try_add_edges_from_batch(
+        &mut self,
+        py: Python<'_>,
+        ebunch_to_add: &Bound<'_, PyAny>,
+    ) -> PyResult<bool> {
+        const PLAIN_EDGE_BATCH_MIN: usize = 8;
+        if self.inner.edge_count() != 0 || !self.adj_py_keys.is_empty() {
+            return Ok(false);
+        }
+        let items: Vec<Bound<'_, PyAny>> = if let Ok(list) = ebunch_to_add.downcast::<PyList>() {
+            if list.len() < PLAIN_EDGE_BATCH_MIN {
+                return Ok(false);
+            }
+            list.iter().collect()
+        } else if let Ok(tuple) = ebunch_to_add.downcast::<PyTuple>() {
+            if tuple.len() < PLAIN_EDGE_BATCH_MIN {
+                return Ok(false);
+            }
+            tuple.iter().collect()
+        } else {
+            return Ok(false);
+        };
+
+        let mut edges: Vec<(String, String, usize, AttrMap)> = Vec::with_capacity(items.len());
+        let mut new_nodes: Vec<(String, PyObject)> = Vec::new();
+        let mut seen_nodes: HashSet<String> = self
+            .inner
+            .nodes_ordered()
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+        let mut batch_first: HashMap<String, PyObject> = HashMap::new();
+        let mut pair_count: HashMap<(String, String), usize> = HashMap::new();
+        let mut node_bumps = 0_u64;
+
+        for item in &items {
+            let Ok(tuple) = item.downcast::<PyTuple>() else {
+                return Ok(false);
+            };
+            if tuple.len() != 2 {
+                return Ok(false);
+            }
+            let u = tuple.get_item(0)?;
+            let v = tuple.get_item(1)?;
+            if !PyGraph::is_plain_batch_node(&u) || !PyGraph::is_plain_batch_node(&v) {
+                return Ok(false);
+            }
+            let uc = node_key_to_string(py, &u)?;
+            let vc = node_key_to_string(py, &v)?;
+            if self.batch_display_conflict(py, &uc, &u, &mut batch_first)
+                || self.batch_display_conflict(py, &vc, &v, &mut batch_first)
+            {
+                return Ok(false);
+            }
+            if !seen_nodes.contains(&uc) || !seen_nodes.contains(&vc) {
+                node_bumps = node_bumps.wrapping_add(1);
+            }
+            if seen_nodes.insert(uc.clone()) {
+                new_nodes.push((uc.clone(), u.clone().unbind()));
+            }
+            if seen_nodes.insert(vc.clone()) {
+                new_nodes.push((vc.clone(), v.clone().unbind()));
+            }
+            // Undirected pair key matches `EdgeKey::new` (string-ordered).
+            let pair = if uc <= vc {
+                (uc.clone(), vc.clone())
+            } else {
+                (vc.clone(), uc.clone())
+            };
+            let counter = pair_count.entry(pair).or_insert(0);
+            let key = *counter;
+            *counter += 1;
+            edges.push((uc, vc, key, AttrMap::new()));
+        }
+
+        let edge_bumps = u64::try_from(edges.len()).unwrap_or(u64::MAX);
+        for (canonical, node) in new_nodes {
+            self.node_key_map.entry(canonical).or_insert(node);
+        }
+        self.inner.extend_keyed_edges_with_attrs_unrecorded(edges);
+        self.nodes_seq = self.nodes_seq.wrapping_add(node_bumps);
+        self.edges_seq = self.edges_seq.wrapping_add(edge_bumps);
+        Ok(true)
     }
 
     /// Fast path for ``MultiGraph.add_edge(int, int, key=int)`` when the
