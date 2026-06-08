@@ -18662,6 +18662,22 @@ def hits(
     matches nx at machine precision. A full fix requires aligning
     fnx's karate_club_graph output exactly with nx. Queued as
     br-karateorder.
+
+    br-r37-c1-hitsdegen: this implementation is byte-for-byte nx's
+    algorithm — ``svds(A, k=1, v0=nstart)`` on the adjacency matrix,
+    then ``A @ a`` for hubs.  When the top singular value of ``A`` is
+    DEGENERATE (multiplicity > 1 — typical for disconnected directed
+    graphs), ``svds`` returns an ARBITRARY vector from the multi-
+    dimensional top singular subspace, selected by ARPACK's random
+    ``v0``.  Both fnx and nx are then non-deterministic and can return
+    negative / sign-flipped components that vary run-to-run with the
+    global numpy RNG state (verified: nx.hits on such a graph gives
+    different values on repeated calls).  This is an inherent property
+    of HITS on ill-conditioned (degenerate) inputs, NOT an fnx/nx
+    divergence — do not "fix" it to a deterministic vector, which would
+    DIVERGE from nx's documented random-v0 behavior.  HITS is well-
+    defined only when the dominant singular value is simple (e.g. a
+    strongly/weakly connected graph).
     """
     _validate_backend_dispatch_keywords("hits", backend, backend_kwargs)
 
