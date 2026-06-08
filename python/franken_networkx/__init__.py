@@ -12590,6 +12590,10 @@ def transitive_closure(G, reflexive=False):
     # br-r37-c1-gtkxs: the Rust kernel returns a DiGraph stripped of
     # node and edge attributes. nx's transitive_closure preserves
     # them. Copy attrs from G onto the result for parity.
+    # br-r37-c1-mstminattr (sibling): nx's ``TC = G.copy()`` ALSO carries the
+    # graph-level attrs; the kernel drops them, so restore here too.
+    if G.graph:
+        result.graph.update(dict(G.graph))
     for node, attrs in G.nodes(data=True):
         if attrs and node in result:
             result.nodes[node].update(attrs)
