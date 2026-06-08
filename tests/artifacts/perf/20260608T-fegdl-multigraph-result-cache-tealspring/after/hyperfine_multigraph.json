@@ -1,0 +1,72 @@
+{
+  "results": [
+    {
+      "command": "PYTHONPATH=/data/projects/franken_networkx/python:/data/projects/franken_networkx python3 tests/artifacts/perf/20260608T-91hlu-multigraph-native-todod-tealspring/harness.py run --module fnx --directed false --repeats 80",
+      "mean": 0.8523647876400002,
+      "stddev": 0.025750458866110396,
+      "median": 0.8457173311400001,
+      "user": 4.906120639999999,
+      "system": 0.11699675999999999,
+      "min": 0.8146660986400001,
+      "max": 0.8914532846400001,
+      "times": [
+        0.8310375386400001,
+        0.88184452164,
+        0.8914532846400001,
+        0.84181292064,
+        0.8487309326400001,
+        0.8590280106400001,
+        0.8826740146400001,
+        0.82969682464,
+        0.8427037296400001,
+        0.8146660986400001
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "PYTHONPATH=/data/projects/franken_networkx/python:/data/projects/franken_networkx python3 tests/artifacts/perf/20260608T-91hlu-multigraph-native-todod-tealspring/harness.py run --module nx --directed false --repeats 80",
+      "mean": 0.5617799426400001,
+      "stddev": 0.02066538672729044,
+      "median": 0.56563720414,
+      "user": 4.6624956399999995,
+      "system": 0.09410406000000002,
+      "min": 0.53379291064,
+      "max": 0.59517937964,
+      "times": [
+        0.5387707676400001,
+        0.59517937964,
+        0.53379291064,
+        0.56264126664,
+        0.58217250064,
+        0.5698674636400001,
+        0.57400155964,
+        0.56863314164,
+        0.5578167376400001,
+        0.53492369864
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

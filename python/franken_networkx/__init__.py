@@ -42537,6 +42537,17 @@ def _live_multi_edge_view_row_cache(graph):
     return state[1]
 
 
+def _live_multi_edge_todod_rows(graph, native_dict):
+    stamp = (graph.nodes_seq, graph.edges_seq)
+    state = getattr(graph, "_fnx_live_multi_edge_todod_rows", None)
+    if state is None or state[0] != stamp:
+        result = native_dict(_LiveMultiEdgeDataView, _live_multi_edge_view_row_cache(graph))
+        rows = tuple((node, row.copy()) for node, row in result.items())
+        setattr(graph, "_fnx_live_multi_edge_todod_rows", (stamp, rows))
+        return result
+    return {node: row.copy() for node, row in state[1]}
+
+
 def _checked_create_using(create_using=None, *, directed=None, multigraph=None, default=Graph):
     """Validate and clear ``create_using`` using NetworkX's contract."""
     default_graph_type = _classic_default_graph_type(default)
@@ -43773,7 +43784,7 @@ def to_dict_of_dicts(G, nodelist=None, edge_data=None):
         if default_nodelist and _row is not None:
             native_dict = getattr(G, "_native_to_dict_of_dicts_live", None)
             if native_dict is not None:
-                return native_dict(_LiveMultiEdgeDataView, _live_multi_edge_view_row_cache(G))
+                return _live_multi_edge_todod_rows(G, native_dict)
         view_cache = _live_multi_edge_view_row_cache(G) if _row is not None else None
         for u in nodelist:
             row = {}

@@ -1,0 +1,73 @@
+{
+  "cases": [
+    {
+      "directed": false,
+      "fnx": {
+        "alias_pairs": 0,
+        "degree": 5,
+        "directed": false,
+        "edge_count": 17994,
+        "elapsed": 0.007192112039774656,
+        "live_mutations": 64,
+        "module": "fnx",
+        "nodes": 1200,
+        "parallel": 3,
+        "repeats": 1,
+        "row_count": 11978,
+        "sha256": "f3f618435f124c2651b2a5f55f587102ae83f147033c0d6aa485eaaa42eb37e3"
+      },
+      "matches_nx": true,
+      "nx": {
+        "alias_pairs": 11978,
+        "degree": 5,
+        "directed": false,
+        "edge_count": 17994,
+        "elapsed": 0.00041878491174429655,
+        "live_mutations": 64,
+        "module": "nx",
+        "nodes": 1200,
+        "parallel": 3,
+        "repeats": 1,
+        "row_count": 11978,
+        "sha256": "f3f618435f124c2651b2a5f55f587102ae83f147033c0d6aa485eaaa42eb37e3"
+      }
+    },
+    {
+      "directed": true,
+      "fnx": {
+        "alias_pairs": 0,
+        "degree": 5,
+        "directed": true,
+        "edge_count": 18000,
+        "elapsed": 0.0034473439445719123,
+        "live_mutations": 64,
+        "module": "fnx",
+        "nodes": 1200,
+        "parallel": 3,
+        "repeats": 1,
+        "row_count": 6000,
+        "sha256": "b3162fd60c2d4fe801bf2586bfd3b2bdf67b8b38a9c7036d7e233a477f077b42"
+      },
+      "matches_nx": true,
+      "nx": {
+        "alias_pairs": 0,
+        "degree": 5,
+        "directed": true,
+        "edge_count": 18000,
+        "elapsed": 0.00039835600182414055,
+        "live_mutations": 64,
+        "module": "nx",
+        "nodes": 1200,
+        "parallel": 3,
+        "repeats": 1,
+        "row_count": 6000,
+        "sha256": "b3162fd60c2d4fe801bf2586bfd3b2bdf67b8b38a9c7036d7e233a477f077b42"
+      }
+    }
+  ],
+  "floating_point": "N/A: integer attributes are serialized only",
+  "ordering_preserved": "baseline/candidate FNX digest equality is the commit gate",
+  "rng": "N/A: deterministic arithmetic graph fixture",
+  "sha256": "720f51fcdb543932b29336966309e8fe00562c1c5aeb1a4e3e59d89f5ffda3d2",
+  "tie_breaking": "N/A: deterministic to_dict row/key order, no algorithmic tie break"
+}

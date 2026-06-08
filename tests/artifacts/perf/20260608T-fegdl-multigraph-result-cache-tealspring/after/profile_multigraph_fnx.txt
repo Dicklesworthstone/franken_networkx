@@ -1,0 +1,48 @@
+{"alias_pairs": 0, "degree": 5, "directed": false, "edge_count": 17994, "elapsed": 0.01946176402270794, "live_mutations": 64, "module": "fnx", "nodes": 1200, "parallel": 3, "repeats": 20, "row_count": 11978, "sha256": "f3f618435f124c2651b2a5f55f587102ae83f147033c0d6aa485eaaa42eb37e3"}
+
+         1630086 function calls in 0.859 seconds
+
+   Ordered by: cumulative time
+   List reduced from 68 to 40 due to restriction <40>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.174    0.174    0.859    0.859 harness.py:68(summarize)
+    95932    0.022    0.000    0.191    0.000 __init__.py:1050(<genexpr>)
+    72040    0.080    0.000    0.169    0.000 __init__.py:1129(__getitem__)
+    23956    0.010    0.000    0.119    0.000 __init__.py:42479(items)
+    95996    0.018    0.000    0.119    0.000 __init__.py:1112(_atlas)
+        1    0.014    0.014    0.103    0.103 harness.py:35(build_graph)
+    95996    0.040    0.000    0.101    0.000 __init__.py:1198(<lambda>)
+    23956    0.011    0.000    0.100    0.000 __init__.py:42464(_current)
+    23956    0.011    0.000    0.096    0.000 __init__.py:1048(__iter__)
+   193374    0.062    0.000    0.088    0.000 harness.py:31(_canon)
+    18000    0.086    0.000    0.086    0.000 {method 'add_edge' of 'franken_networkx.MultiGraph' objects}
+    23956    0.016    0.000    0.085    0.000 __init__.py:1118(__iter__)
+   120016    0.023    0.000    0.076    0.000 __init__.py:1169(_atlas)
+    24020    0.036    0.000    0.056    0.000 __init__.py:1187(__getitem__)
+   120016    0.024    0.000    0.054    0.000 __init__.py:1402(<lambda>)
+        1    0.000    0.000    0.050    0.050 __init__.py:183(dumps)
+        1    0.000    0.000    0.050    0.050 encoder.py:183(encode)
+        1    0.050    0.050    0.050    0.050 encoder.py:205(iterencode)
+   144036    0.036    0.000    0.036    0.000 {method '_native_adjacency_row' of 'franken_networkx.MultiGraph' objects}
+    23956    0.036    0.000    0.036    0.000 {built-in method builtins.iter}
+    24020    0.021    0.000    0.033    0.000 __init__.py:1394(_multigraph_getitem_from_native_row)
+   193374    0.026    0.000    0.026    0.000 {built-in method builtins.repr}
+       20    0.001    0.000    0.018    0.001 __init__.py:43740(to_dict_of_dicts)
+       20    0.003    0.000    0.017    0.001 __init__.py:42543(_live_multi_edge_todod_rows)
+        1    0.006    0.006    0.010    0.010 {method '_native_to_dict_of_dicts_live' of 'franken_networkx.MultiGraph' objects}
+    23956    0.007    0.000    0.009    0.000 __init__.py:1097(_adjacency_view_items)
+    49166    0.006    0.000    0.006    0.000 {method 'append' of 'list' objects}
+    39592    0.005    0.000    0.005    0.000 {method 'items' of 'dict' objects}
+    50440    0.004    0.000    0.004    0.000 {built-in method builtins.hash}
+    24000    0.004    0.000    0.004    0.000 {method 'copy' of 'dict' objects}
+        1    0.003    0.003    0.004    0.004 harness.py:56(_alias_pairs)
+    11978    0.003    0.000    0.003    0.000 __init__.py:42458(__init__)
+    24020    0.003    0.000    0.003    0.000 __init__.py:1106(__init__)
+    24020    0.003    0.000    0.003    0.000 __init__.py:1164(__init__)
+        1    0.000    0.000    0.003    0.003 __init__.py:2408(add_nodes_from)
+    23956    0.002    0.000    0.002    0.000 __init__.py:1045(__init__)
+    23956    0.002    0.000    0.002    0.000 __init__.py:32353(_cached_adj_row_key_iter)
+     1200    0.000    0.000    0.002    0.000 __init__.py:2376(add_node)
+        1    0.002    0.002    0.002    0.002 {built-in method _hashlib.openssl_sha256}
+        1    0.002    0.002    0.002    0.002 {method 'encode' of 'str' objects}
