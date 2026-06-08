@@ -29236,13 +29236,13 @@ def laplacian_centrality(
     """Laplacian centrality: drop in Laplacian energy when node is removed."""
     _validate_backend_dispatch_keywords("laplacian_centrality", backend, backend_kwargs)
     G = _coerce_arg_to_fnx_graph(G)
-    # br-r37-c1-lapcentnative: the UNDIRECTED case is just `laplacian_matrix`
-    # (D - A) + a deterministic numpy energy loop — no eigenvalues. Compute it
-    # in-process from the NATIVE laplacian_matrix (byte-identical to nx's) and the
-    # same numpy, dropping the per-call fnx->nx conversion. The DIRECTED case uses
-    # directed_laplacian_matrix (Perron-vector / PageRank), and callable weight
-    # has no native matrix path, so both keep delegating.
-    if G.is_directed() or callable(weight):
+    # br-r37-c1-lapcentnative / br-r37-c1-dirlapnative: laplacian_centrality is a
+    # laplacian matrix (undirected: D - A; directed: the Chung directed Laplacian)
+    # + a deterministic numpy energy loop — no extra eigenvalues. Both matrices
+    # are now native (laplacian_matrix / directed_laplacian_matrix), so compute
+    # in-process with the same numpy, dropping the per-call fnx->nx conversion.
+    # Callable weight has no native matrix path and keeps delegating.
+    if callable(weight):
         return _call_networkx_for_parity(
             "laplacian_centrality",
             G,
@@ -29269,7 +29269,10 @@ def laplacian_centrality(
     else:
         nodelist = nodes = list(G)
 
-    lap_matrix = laplacian_matrix(G, nodes, weight).toarray()
+    if G.is_directed():
+        lap_matrix = directed_laplacian_matrix(G, nodes, weight, walk_type, alpha)
+    else:
+        lap_matrix = laplacian_matrix(G, nodes, weight).toarray()
     full_energy = _np.sum(lap_matrix**2)
 
     laplace_centralities_dict = {}
