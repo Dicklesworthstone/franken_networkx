@@ -30196,12 +30196,15 @@ class _ReverseDirectedViewBase:
 
     @property
     def degree(self):
-        # br-r37-c1-revview: see out_edges/in_edges above. Wrap the
-        # _degree_compute method so list(R.degree) and R.degree[node]
-        # work as nx exposes them.
-        if self._graph.is_multigraph():
-            return _RevDiMultiDegreeViewProxy(self)
-        return _RevDiDegreeViewProxy(self)
+        # br-r37-c1-r3gjb: a node's TOTAL degree is invariant under edge
+        # reversal (in + out is the same edge set), so route straight to the
+        # parent's native degree view — same nodes, same totals, same view
+        # class (DiDegreeView / DiMultiDegreeView) — instead of recomputing
+        # through the per-neighbour _degree_compute / _ReverseNeighborMap walk
+        # (reverse().degree() was 54x nx). in_degree / out_degree keep the
+        # swapped reverse path: their view class NAME must read In/Out, which
+        # the parent's swapped views would not provide.
+        return self._graph.degree
 
     def subgraph(self, nodes):
         return _generic_filtered_graph_view(
@@ -30528,9 +30531,19 @@ class _ReverseNeighborMap(_Mapping):
         # (O(N+E)) — MultiDiGraph reverse().degree() timed out >8s.
         # reverse view succ (reverse=False) = parent PREDECESSORS;
         # reverse view pred (reverse=True) = parent SUCCESSORS.
-        if self._reverse:
-            return _fast_succ_row(self._view._graph, self._node)
-        return _fast_pred_row(self._view._graph, self._node)
+        # br-r37-c1-r3gjb: memoise the built row on the (transient) instance —
+        # the native *_row_dict builds a fresh dict per call, and degree/edges
+        # hit _raw_neighbors once per iter PLUS once per __getitem__, so the
+        # row was rebuilt ~deg times per node (reverse degree ~54x). One build
+        # per neighbour-map instance instead.
+        cached = self.__dict__.get("_fnx_row")
+        if cached is None:
+            if self._reverse:
+                cached = _fast_succ_row(self._view._graph, self._node)
+            else:
+                cached = _fast_pred_row(self._view._graph, self._node)
+            self.__dict__["_fnx_row"] = cached
+        return cached
 
     def __iter__(self):
         return iter(self._raw_neighbors())
@@ -30540,6 +30553,15 @@ class _ReverseNeighborMap(_Mapping):
 
     def __getitem__(self, neighbor):
         return self._raw_neighbors()[neighbor]
+
+    def items(self):
+        return self._raw_neighbors().items()
+
+    def keys(self):
+        return self._raw_neighbors().keys()
+
+    def values(self):
+        return self._raw_neighbors().values()
 
 
 class _ReverseAdjacencyView(_Mapping):
