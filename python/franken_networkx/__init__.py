@@ -14841,18 +14841,177 @@ def find_cycle(G, source=None, orientation=None):
     """
     # br-r37-c1-nwkg0: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
-    # br-r37-c1-fcdir: the native directed kernel checks a node's
-    # successors for an active (on-stack) target before recursing into
-    # the first unvisited one, so it can report a back-edge cycle that
-    # nx's edge_dfs reaches only later — both valid, but nx's specific
-    # DFS cycle is the parity contract. Delegate ALL cases to nx (the
-    # undirected case already did, br-r37-c1-2hrfs).
+    if G.is_directed():
+        # br-r37-c1-57dlh: run nx's edge_dfs + find_cycle algorithm directly
+        # on directed fnx graph views instead of delegating, which paid a full
+        # _fnx_to_nx conversion for a function that can early-exit.
+        return _fnx_find_cycle(G, source, orientation)
     return _call_networkx_for_parity(
         "find_cycle",
         G,
         source=source,
         orientation=orientation,
     )
+
+
+_FC_FORWARD = "forward"
+_FC_REVERSE = "reverse"
+
+
+def _fnx_edge_dfs(G, source=None, orientation=None):
+    """Verbatim port of networkx.edge_dfs, run on an fnx graph's views
+    (no fnx->nx conversion). See find_cycle (br-r37-c1-57dlh)."""
+    nodes = list(G.nbunch_iter(source))
+    if not nodes:
+        return
+
+    directed = G.is_directed()
+    kwds = {"data": False}
+    if G.is_multigraph() is True:
+        kwds["keys"] = True
+
+    if orientation is None:
+
+        def edges_from(node):
+            return iter(G.edges(node, **kwds))
+
+    elif not directed or orientation == "original":
+
+        def edges_from(node):
+            for e in G.edges(node, **kwds):
+                yield e + (_FC_FORWARD,)
+
+    elif orientation == "reverse":
+
+        def edges_from(node):
+            for e in G.in_edges(node, **kwds):
+                yield e + (_FC_REVERSE,)
+
+    elif orientation == "ignore":
+
+        def edges_from(node):
+            for e in G.edges(node, **kwds):
+                yield e + (_FC_FORWARD,)
+            for e in G.in_edges(node, **kwds):
+                yield e + (_FC_REVERSE,)
+
+    else:
+        raise NetworkXError("invalid orientation argument.")
+
+    if directed:
+
+        def edge_id(edge):
+            return edge[:-1] if orientation is not None else edge
+
+    else:
+
+        def edge_id(edge):
+            return (frozenset(edge[:2]),) + edge[2:]
+
+    check_reverse = directed and orientation in ("reverse", "ignore")
+
+    visited_edges = set()
+    visited_nodes = set()
+    edges = {}
+
+    for start_node in nodes:
+        stack = [start_node]
+        while stack:
+            current_node = stack[-1]
+            if current_node not in visited_nodes:
+                edges[current_node] = edges_from(current_node)
+                visited_nodes.add(current_node)
+
+            try:
+                edge = next(edges[current_node])
+            except StopIteration:
+                stack.pop()
+            else:
+                edgeid = edge_id(edge)
+                if edgeid not in visited_edges:
+                    visited_edges.add(edgeid)
+                    if check_reverse and edge[-1] == _FC_REVERSE:
+                        stack.append(edge[0])
+                    else:
+                        stack.append(edge[1])
+                    yield edge
+
+
+def _fnx_find_cycle(G, source=None, orientation=None):
+    """Verbatim port of networkx.find_cycle's loop, on fnx views."""
+    if not G.is_directed() or orientation in (None, "original"):
+
+        def tailhead(edge):
+            return edge[:2]
+
+    elif orientation == "reverse":
+
+        def tailhead(edge):
+            return edge[1], edge[0]
+
+    elif orientation == "ignore":
+
+        def tailhead(edge):
+            if edge[-1] == _FC_REVERSE:
+                return edge[1], edge[0]
+            return edge[:2]
+
+    explored = set()
+    cycle = []
+    final_node = None
+    for start_node in G.nbunch_iter(source):
+        if start_node in explored:
+            continue
+
+        edges = []
+        seen = {start_node}
+        active_nodes = {start_node}
+        previous_head = None
+
+        for edge in _fnx_edge_dfs(G, start_node, orientation):
+            tail, head = tailhead(edge)
+            if head in explored:
+                continue
+            if previous_head is not None and tail != previous_head:
+                while True:
+                    try:
+                        popped_edge = edges.pop()
+                    except IndexError:
+                        edges = []
+                        active_nodes = {tail}
+                        break
+                    else:
+                        popped_head = tailhead(popped_edge)[1]
+                        active_nodes.remove(popped_head)
+
+                    if edges:
+                        last_head = tailhead(edges[-1])[1]
+                        if tail == last_head:
+                            break
+            edges.append(edge)
+
+            if head in active_nodes:
+                cycle.extend(edges)
+                final_node = head
+                break
+            else:
+                seen.add(head)
+                active_nodes.add(head)
+                previous_head = head
+
+        if cycle:
+            break
+        else:
+            explored.update(seen)
+
+    if not cycle:
+        raise NetworkXNoCycle("No cycle found.")
+
+    for i, edge in enumerate(cycle):
+        tail, head = tailhead(edge)
+        if tail == final_node:
+            break
+    return cycle[i:]
 
 
 def _make_list_of_ints(sequence):
