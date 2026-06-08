@@ -12265,9 +12265,14 @@ def difference(G, H):
             for u, v, key in H.edges(keys=True):
                 h_set.add((u, v, key))
                 h_set.add((v, u, key))
-        R.add_edges_from(
-            e for e in G.edges(keys=True) if e not in h_set
-        )
+        # br-r37-c1-urle5b: native (u, v, key) no-data batch on the fresh
+        # result — set-op edges carry no data and the keys come straight from
+        # G.edges(keys=True). Falls back to add_edges_from if the fast path
+        # declines (e.g. non-fresh R / display conflict).
+        _kept = [e for e in G.edges(keys=True) if e not in h_set]
+        _native = getattr(R, "_native_add_keyed_edges_no_data", None)
+        if _native is None or not _native(_kept):
+            R.add_edges_from(_kept)
     else:
         if directed:
             h_set = set(H.edges())
@@ -12312,8 +12317,16 @@ def symmetric_difference(G, H):
                 g_set.add((u, v, key)); g_set.add((v, u, key))
             for u, v, key in H.edges(keys=True):
                 h_set.add((u, v, key)); h_set.add((v, u, key))
-        R.add_edges_from(e for e in G.edges(keys=True) if e not in h_set)
-        R.add_edges_from(e for e in H.edges(keys=True) if e not in g_set)
+        # br-r37-c1-urle5b: both directional passes carry no data and produce
+        # DISJOINT (u, v, key) edges (an edge in both G and H is in neither
+        # pass), so they can be added in ONE native batch on the fresh result
+        # (G's edges first, matching the two-pass order). Falls back otherwise.
+        _kept = [e for e in G.edges(keys=True) if e not in h_set]
+        _kept += [e for e in H.edges(keys=True) if e not in g_set]
+        _native = getattr(R, "_native_add_keyed_edges_no_data", None)
+        if _native is None or not _native(_kept):
+            R.add_edges_from(e for e in G.edges(keys=True) if e not in h_set)
+            R.add_edges_from(e for e in H.edges(keys=True) if e not in g_set)
     else:
         if G.is_directed():
             g_set = set(G.edges())
@@ -20886,7 +20899,13 @@ def intersection_all(graphs):
         raise ValueError("cannot apply intersection_all to an empty list")
 
     R.add_nodes_from(node_intersection)
-    R.add_edges_from(edge_intersection)
+    # br-r37-c1-urle5b: nx intersects multigraph edges by (u, v) WITHOUT keys
+    # (``set(G.edges)`` yields 2-tuples), so the result edges are plain 2-tuples
+    # with auto-keys — feed a LIST (not the set) so the native plain-edge batch
+    # (_try_add_edges_from_batch) fires on the fresh result. ``list(...)``
+    # preserves the exact CPython set-iteration order ``add_edges_from(set)``
+    # would consume, leaving the inserted-edge order unchanged.
+    R.add_edges_from(list(edge_intersection))
     # br-norebuild: skip the redundant _from_nx_graph second construction when R
     # is already an fnx graph; only convert nx-typed results (br-r37-c1-5388d:
     # the _nx.Graph reference lives in _finalize_operator_result so this public

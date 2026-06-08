@@ -1304,6 +1304,99 @@ impl PyMultiDiGraph {
         Ok(true)
     }
 
+    /// br-r37-c1-urle5b: native `(u, v, key)` no-data batch on a FRESH
+    /// MultiDiGraph — see `PyMultiGraph::_native_add_keyed_edges_no_data`.
+    /// Directed edges are NOT canonicalized, so the per-pair auto-key counter
+    /// and the duplicate guard track `(u, v)` in order.
+    fn _native_add_keyed_edges_no_data(
+        &mut self,
+        py: Python<'_>,
+        ebunch_to_add: &Bound<'_, PyAny>,
+    ) -> PyResult<bool> {
+        if self.inner.edge_count() != 0
+            || !self.succ_py_keys.is_empty()
+            || !self.pred_py_keys.is_empty()
+        {
+            return Ok(false);
+        }
+        let Ok(list) = ebunch_to_add.downcast::<PyList>() else {
+            return Ok(false);
+        };
+        let mut edges: Vec<(String, String, usize, fnx_classes::AttrMap)> =
+            Vec::with_capacity(list.len());
+        let mut display_keys: Vec<(String, String, usize, PyObject)> =
+            Vec::with_capacity(list.len());
+        let mut new_nodes: Vec<(String, PyObject)> = Vec::new();
+        let mut seen_nodes: std::collections::HashSet<String> = self
+            .inner
+            .nodes_ordered()
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+        let mut batch_first: HashMap<String, PyObject> = HashMap::new();
+        let mut pair_count: HashMap<(String, String), usize> = HashMap::new();
+        let mut seen_edges: std::collections::HashSet<(String, String, String)> =
+            std::collections::HashSet::new();
+        let mut node_bumps = 0_u64;
+
+        for item in list.iter() {
+            let Ok(tuple) = item.downcast::<PyTuple>() else {
+                return Ok(false);
+            };
+            if tuple.len() != 3 {
+                return Ok(false);
+            }
+            let u = tuple.get_item(0)?;
+            let v = tuple.get_item(1)?;
+            let k = tuple.get_item(2)?;
+            if !PyDiGraph::is_plain_batch_node(&u) || !PyDiGraph::is_plain_batch_node(&v) {
+                return Ok(false);
+            }
+            if k.hash().is_err() {
+                return Ok(false);
+            }
+            let uc = node_key_to_string(py, &u)?;
+            let vc = node_key_to_string(py, &v)?;
+            if self.batch_display_conflict(py, &uc, &u, &mut batch_first)
+                || self.batch_display_conflict(py, &vc, &v, &mut batch_first)
+            {
+                return Ok(false);
+            }
+            let key_lookup = crate::edge_key_lookup_string(py, &k)?;
+            if !seen_edges.insert((uc.clone(), vc.clone(), key_lookup)) {
+                return Ok(false);
+            }
+            if !seen_nodes.contains(&uc) || !seen_nodes.contains(&vc) {
+                node_bumps = node_bumps.wrapping_add(1);
+            }
+            if seen_nodes.insert(uc.clone()) {
+                new_nodes.push((uc.clone(), u.clone().unbind()));
+            }
+            if seen_nodes.insert(vc.clone()) {
+                new_nodes.push((vc.clone(), v.clone().unbind()));
+            }
+            let counter = pair_count.entry((uc.clone(), vc.clone())).or_insert(0);
+            let internal_key = *counter;
+            *counter += 1;
+            display_keys.push((uc.clone(), vc.clone(), internal_key, k.clone().unbind()));
+            edges.push((uc, vc, internal_key, fnx_classes::AttrMap::new()));
+        }
+
+        let edge_bumps = u64::try_from(edges.len()).unwrap_or(u64::MAX);
+        for (canonical, node) in new_nodes {
+            self.node_key_map.entry(canonical).or_insert(node);
+        }
+        self.inner.extend_keyed_edges_with_attrs_unrecorded(edges);
+        for (u, v, key, obj) in display_keys {
+            self.edge_py_keys
+                .entry(Self::edge_key(&u, &v, key))
+                .or_insert(obj);
+        }
+        self.nodes_seq = self.nodes_seq.wrapping_add(node_bumps);
+        self.edges_seq = self.edges_seq.wrapping_add(edge_bumps);
+        Ok(true)
+    }
+
     #[pyo3(signature = (u_for_edge, v_for_edge, key=None, **attr))]
     fn add_edge(
         &mut self,
