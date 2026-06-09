@@ -722,6 +722,71 @@ def test_k_components_hypercube_missing_edge_delegates_and_matches_networkx():
 
 
 @pytest.mark.parametrize(
+    "builder",
+    [
+        lambda mod: mod.petersen_graph(),
+        lambda mod: mod.generalized_petersen_graph(7, 2),
+        lambda mod: mod.generalized_petersen_graph(8, 3),
+        lambda mod: mod.generalized_petersen_graph(10, 2),
+    ],
+)
+def test_k_components_cubic_three_connected_family_matches_networkx(builder):
+    fg = builder(fnx)
+    ng = builder(nx)
+
+    fr = fnx.k_components(fg)
+    nr = nx.k_components(ng)
+
+    assert list(fr.keys()) == [3, 2, 1]
+    assert list(fr.keys()) == list(nr.keys())
+    assert [[set(component) for component in fr[k]] for k in fr] == [
+        [set(component) for component in nr[k]] for k in nr
+    ]
+
+
+def test_k_components_cubic_three_connected_custom_flow_delegates_like_networkx():
+    fg = fnx.generalized_petersen_graph(7, 2)
+    ng = nx.generalized_petersen_graph(7, 2)
+
+    def fail_flow(*args, **kwargs):
+        raise RuntimeError("flow called")
+
+    with pytest.raises(RuntimeError, match="flow called"):
+        fnx.k_components(fg, flow_func=fail_flow)
+    with pytest.raises(RuntimeError, match="flow called"):
+        nx.k_components(ng, flow_func=fail_flow)
+
+
+def _cubic_two_cut_graph(mod):
+    graph = mod.Graph()
+    graph.add_edges_from(
+        [
+            (0, 1),
+            (0, 2),
+            (0, 3),
+            (1, 2),
+            (1, 3),
+            (4, 6),
+            (4, 7),
+            (5, 6),
+            (5, 7),
+            (6, 7),
+            (2, 4),
+            (3, 5),
+        ]
+    )
+    return graph
+
+
+def test_k_components_cubic_two_cut_delegates_and_matches_networkx():
+    fg = _cubic_two_cut_graph(fnx)
+    ng = _cubic_two_cut_graph(nx)
+
+    assert all(degree == 3 for _, degree in fg.degree())
+    assert fnx.k_components(fg) == nx.k_components(ng)
+
+
+@pytest.mark.parametrize(
     "name,builder,k",
     [
         ("complete_4_k2", lambda L: L.complete_graph(4), 2),

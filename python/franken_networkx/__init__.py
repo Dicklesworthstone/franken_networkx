@@ -42914,6 +42914,61 @@ def _two_degenerate_biconnected_k_components(G):
     }
 
 
+def _is_connected_after_removing(nodes, adjacency, removed):
+    start = None
+    for node in nodes:
+        if node not in removed:
+            start = node
+            break
+
+    if start is None:
+        return True
+
+    seen = {start}
+    pending = [start]
+    while pending:
+        node = pending.pop()
+        for neighbor in adjacency[node]:
+            if neighbor not in removed and neighbor not in seen:
+                seen.add(neighbor)
+                pending.append(neighbor)
+
+    return len(seen) == len(nodes) - len(removed)
+
+
+def _cubic_three_connected_k_components(G):
+    nodes = list(G)
+    node_count = len(nodes)
+    if node_count < 5 or node_count > 128:
+        return None
+    if G.number_of_edges() * 2 != 3 * node_count:
+        return None
+
+    adjacency = {}
+    for node in nodes:
+        neighbors = set(G[node])
+        if len(neighbors) != 3:
+            return None
+        adjacency[node] = neighbors
+
+    if not _is_connected_after_removing(nodes, adjacency, set()):
+        return None
+
+    for index, first in enumerate(nodes):
+        if not _is_connected_after_removing(nodes, adjacency, {first}):
+            return None
+        for second in nodes[index + 1:]:
+            if not _is_connected_after_removing(nodes, adjacency, {first, second}):
+                return None
+
+    nodes_set = set(nodes)
+    return {
+        3: [set(nodes_set)],
+        2: [set(nodes_set)],
+        1: [set(nodes_set)],
+    }
+
+
 def _ordered_prism_k_components(G):
     node_count = len(G)
     if node_count < 6 or node_count % 2 != 0:
@@ -43051,10 +43106,11 @@ def k_components(G, flow_func=None):
     simple-cycle components, forests, clique-block graphs, complete
     multipartite components, certified 2-degenerate biconnected components,
     ordered prism components, wheel components, and tuple-label hypercube
-    components are the safe exceptions: their k-component lattices are closed
-    form. Complete multipartite, 2-degenerate, prism, wheel, and hypercube
-    residual components still delegate when a custom ``flow_func`` is supplied
-    because nx calls it there.
+    components, plus bounded simple cubic components whose 3-connectivity is
+    certified by pair-removal BFS, are the safe exceptions: their k-component
+    lattices are closed form. Complete multipartite, 2-degenerate, prism,
+    wheel, hypercube, and cubic residual components still delegate when a
+    custom ``flow_func`` is supplied because nx calls it there.
     """
     if type(G) is Graph:
         node_count = len(G)
@@ -43095,6 +43151,9 @@ def k_components(G, flow_func=None):
             hypercube_result = _hypercube_k_components(G)
             if hypercube_result is not None:
                 return hypercube_result
+            cubic_result = _cubic_three_connected_k_components(G)
+            if cubic_result is not None:
+                return cubic_result
             multipartite_result = _complete_multipartite_k_components(G)
             if multipartite_result is not None:
                 return multipartite_result
