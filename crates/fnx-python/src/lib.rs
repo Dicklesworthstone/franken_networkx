@@ -5636,6 +5636,31 @@ impl PyGraph {
         Ok(())
     }
 
+    /// br-r37-c1-u2jod: wrapper-facing batch entry for `add_nodes_from`'s sister
+    /// `add_edges_from`. DiGraph/MultiGraph already expose this; PyGraph did not,
+    /// so the Python wrapper's batch short-circuit never fired for a plain Graph
+    /// and EVERY `add_edges_from(list/tuple)` paid the per-edge Python validation
+    /// loop before reaching the (already fast) native batch via `raw(...)`.
+    ///
+    /// Chains the two proven collect-then-commit batches the native
+    /// `add_edges_from` uses: the plain (u, v) batch first (cheapest), then the
+    /// attributed (u, v, dict) batch. Returns `true` only when the batch fully
+    /// replicated valid input — so the wrapper safely skips its validation loop;
+    /// any item the batch can't replicate exactly leaves `false` and the wrapper
+    /// runs its per-edge loop unchanged (owning all error / partial-prefix
+    /// contracts). Byte-identical to the existing path: the wrapper's valid-input
+    /// case already routed through these same batches via `raw(materialized)`.
+    fn _try_add_edges_from_batch(
+        &mut self,
+        py: Python<'_>,
+        ebunch_to_add: &Bound<'_, PyAny>,
+    ) -> PyResult<bool> {
+        if self.try_add_plain_edge_batch(py, ebunch_to_add)? {
+            return Ok(true);
+        }
+        self.try_add_attr_edge_batch(py, ebunch_to_add, None)
+    }
+
     /// Remove a single node. Raises ``NetworkXError`` if not present.
     fn remove_node(&mut self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<()> {
         let canonical = node_key_to_string(py, n)?;
