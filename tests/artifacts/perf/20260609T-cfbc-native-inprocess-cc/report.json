@@ -1,0 +1,13 @@
+{
+  "target": "current_flow_betweenness_centrality",
+  "lever": "de-delegate node version to in-process nx-exact algorithm via shared _flow_matrix_row (the edge variant already does this); drops per-call fnx->nx conversion and nx-backend-dispatch dependency",
+  "golden": {
+    "max_rel_err_vs_nx": 5.69839852703132e-15,
+    "corpus_sha256": "f0396ae0d957cd10da549d31325d9f986da71f6ba8e20ee17c7d088063899985",
+    "corpus_graphs": 14,
+    "within_tol_1e-6": true,
+    "np_float_leak_check": "passed (all python float)"
+  },
+  "bench_notes": "host is noisy (rch swarm). warm min-of-N, two windows: window A new 375.5ms vs genuine nx 379.0ms (parity); window B old-delegated 281.7ms -> new-inprocess 263.2ms (1.07x self). The de-delegation removes the fnx->nx conversion; the residual vs-nx delta lives in the shared dense _FullInverseLaplacian (np.linalg.inv, O(n^3)) which is numpy/LAPACK-bound and identical to nx's path.",
+  "next_target": "_FullInverseLaplacian dense inverse / matrix_exp_symmetric eigensolver — shared current-flow + spectral primitive; needs a safe-Rust blocked LU/eigensolver to beat LAPACK constant factor"
+}

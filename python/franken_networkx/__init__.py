@@ -29300,17 +29300,42 @@ def current_flow_betweenness_centrality(
 
 
 def _current_flow_betweenness_impl(G, *, normalized, weight, dtype, solver):
-    """Private delegation so public current_flow_betweenness stays
-    PY_WRAPPER (br-cflowbetw).
+    """Compute current-flow (random-walk) betweenness in-process.
+
+    br-cflowbetw-native: previously delegated to nx via a full fnx->nx
+    conversion on every call (the old Rust kernel used a wrong
+    normalization, so delegation was the safe default).  But the
+    sibling ``edge_current_flow_betweenness_centrality`` already runs
+    nx's exact algorithm in-process on the shared ``_flow_matrix_row``
+    machinery — so the node version can too, dropping the per-call
+    conversion tax.  This is a byte-for-byte transcription of nx's
+    ``current_flow_betweenness_centrality`` (RCM relabel, per-edge flow
+    rows, ``(i - pos[i])`` / ``(N - i - 1 - pos[i])`` accumulation,
+    ``(b - key) * 2 / nb`` rescale), so outputs are identical to the
+    delegated path while skipping the fnx->nx graph rebuild.
     """
-    return _call_networkx_for_parity(
-        "current_flow_betweenness_centrality",
-        G,
-        normalized=normalized,
-        weight=weight,
-        dtype=dtype,
-        solver=solver,
-    )
+    G = _coerce_arg_to_fnx_graph(G)
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
+    if not is_connected(G):
+        raise NetworkXError("Graph not connected.")
+
+    n = G.number_of_nodes()
+    ordering = list(_reverse_cuthill_mckee_ordering(G))
+    # integer-relabel by RCM ordering (matches nx's H exactly)
+    H = relabel_nodes(G, dict(zip(ordering, range(n))), copy=True)
+    betweenness = dict.fromkeys(H, 0.0)
+    for row, (s, t) in _flow_matrix_row(H, weight=weight, dtype=dtype, solver=solver):
+        pos = dict(zip(row.argsort()[::-1], range(n)))
+        for i in range(n):
+            betweenness[s] += (i - pos[i]) * row.item(i)
+            betweenness[t] += (n - i - 1 - pos[i]) * row.item(i)
+    if normalized:
+        nb = (n - 1.0) * (n - 2.0)  # normalization factor
+    else:
+        nb = 2.0
+    # nx subtracts the integer key (the relabelled node id) from each tally.
+    return {ordering[key]: (b - key) * 2.0 / nb for key, b in betweenness.items()}
 
 
 def edge_current_flow_betweenness_centrality(
