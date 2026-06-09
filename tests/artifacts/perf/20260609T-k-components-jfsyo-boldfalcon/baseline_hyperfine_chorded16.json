@@ -1,0 +1,52 @@
+{
+  "results": [
+    {
+      "command": "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/data/projects/.scratch/franken_networkx_jfsyo_boldfalcon_20260609/python:/data/projects/.scratch/franken_networkx_jfsyo_boldfalcon_20260609 python3 tests/artifacts/perf/20260609T-k-components-jfsyo-boldfalcon/harness_kcomponents_residual.py time --which fnx --family chorded_cycle --size 16 --repeats 1",
+      "mean": 1.06349540524,
+      "stddev": 0.10390716554892747,
+      "median": 1.00315459184,
+      "user": 4.218426720000001,
+      "system": 0.07054958,
+      "min": 0.9724527918400001,
+      "max": 1.21600476584,
+      "times": [
+        1.1261672628400001,
+        0.9724527918400001,
+        1.00315459184,
+        0.99969761384,
+        1.21600476584
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/data/projects/.scratch/franken_networkx_jfsyo_boldfalcon_20260609/python:/data/projects/.scratch/franken_networkx_jfsyo_boldfalcon_20260609 python3 tests/artifacts/perf/20260609T-k-components-jfsyo-boldfalcon/harness_kcomponents_residual.py time --which nx --family chorded_cycle --size 16 --repeats 1",
+      "mean": 0.96698904724,
+      "stddev": 0.02550030106765744,
+      "median": 0.95961950884,
+      "user": 4.19179632,
+      "system": 0.05731718,
+      "min": 0.93529293684,
+      "max": 1.00435931484,
+      "times": [
+        1.00435931484,
+        0.95934751384,
+        0.95961950884,
+        0.9763259618400001,
+        0.93529293684
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

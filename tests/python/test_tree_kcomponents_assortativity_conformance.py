@@ -435,6 +435,91 @@ def test_k_components_block_graph_fast_path_rejects_non_clique_block():
     assert fnx.k_components(fg) == nx.k_components(ng)
 
 
+def _complete_multipartite(library, *sizes):
+    graph = library.Graph()
+    parts = []
+    offset = 0
+    for size in sizes:
+        part = list(range(offset, offset + size))
+        graph.add_nodes_from(part)
+        parts.append(part)
+        offset += size
+    for index, left in enumerate(parts):
+        for right in parts[index + 1:]:
+            graph.add_edges_from((u, v) for u in left for v in right)
+    return graph
+
+
+def _disjoint_complete_multipartite(library, *families):
+    graph = library.Graph()
+    offset = 0
+    for sizes in families:
+        component = _complete_multipartite(library, *sizes)
+        mapping = {node: node + offset for node in component.nodes()}
+        graph.add_nodes_from(mapping.values())
+        graph.add_edges_from((mapping[u], mapping[v]) for u, v in component.edges())
+        offset += sum(sizes)
+    return graph
+
+
+@pytest.mark.parametrize("sizes", [
+    (2, 3),
+    (3, 3, 3),
+    (2, 4, 5),
+])
+def test_k_components_complete_multipartite_family_raw_shape_matches_networkx(
+    sizes,
+):
+    fg = _complete_multipartite(fnx, *sizes)
+    ng = _complete_multipartite(nx, *sizes)
+
+    fr = fnx.k_components(fg)
+    nr = nx.k_components(ng)
+
+    assert list(fr.keys()) == list(nr.keys())
+    assert {k: [set(c) for c in v] for k, v in fr.items()} == {
+        k: [set(c) for c in v] for k, v in nr.items()
+    }
+    assert {k: [type(c).__name__ for c in v] for k, v in fr.items()} == {
+        k: [type(c).__name__ for c in v] for k, v in nr.items()
+    }
+
+
+def test_k_components_complete_multipartite_mixed_connectivity_order_matches_networkx():
+    fg = _disjoint_complete_multipartite(fnx, (2, 2, 2), (2, 3), (1, 2, 3))
+    ng = _disjoint_complete_multipartite(nx, (2, 2, 2), (2, 3), (1, 2, 3))
+
+    fr = fnx.k_components(fg)
+    nr = nx.k_components(ng)
+
+    assert list(fr.keys()) == list(nr.keys())
+    assert [[set(component) for component in fr[k]] for k in fr] == [
+        [set(component) for component in nr[k]] for k in nr
+    ]
+
+
+def test_k_components_complete_multipartite_custom_flow_func_delegates_like_networkx():
+    fg = _complete_multipartite(fnx, 3, 4, 5)
+    ng = _complete_multipartite(nx, 3, 4, 5)
+
+    def fail_flow(*args, **kwargs):
+        raise RuntimeError("flow called")
+
+    with pytest.raises(RuntimeError, match="flow called"):
+        fnx.k_components(fg, flow_func=fail_flow)
+    with pytest.raises(RuntimeError, match="flow called"):
+        nx.k_components(ng, flow_func=fail_flow)
+
+
+def test_k_components_complete_multipartite_fast_path_rejects_missing_cross_edge():
+    fg = _complete_multipartite(fnx, 3, 4)
+    ng = _complete_multipartite(nx, 3, 4)
+    fg.remove_edge(0, 3)
+    ng.remove_edge(0, 3)
+
+    assert fnx.k_components(fg) == nx.k_components(ng)
+
+
 @pytest.mark.parametrize(
     "name,builder,k",
     [

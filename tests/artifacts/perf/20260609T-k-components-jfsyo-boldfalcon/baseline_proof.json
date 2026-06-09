@@ -1,0 +1,1293 @@
+{
+  "all_match": true,
+  "all_residual_flow_called": true,
+  "bead": "br-r37-c1-jfsyo",
+  "cases": [
+    {
+      "edges": 5,
+      "family": "square_with_diagonal",
+      "flow_probe": {
+        "fnx": {
+          "called": true,
+          "exception": "ResidualFlowProbe",
+          "message": "flow_func reached residual connectivity path"
+        },
+        "nx": {
+          "called": true,
+          "exception": "ResidualFlowProbe",
+          "message": "flow_func reached residual connectivity path"
+        }
+      },
+      "fnx": [
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "2",
+                "3"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 2,
+          "value_type": "list"
+        },
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "2",
+                "3"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 1,
+          "value_type": "list"
+        }
+      ],
+      "graph_sha256": "6373b1cdd48748acfc24ae62938282d62721eb600e6526e63832d5c7472ebf84",
+      "key_order": [
+        2,
+        1
+      ],
+      "match": true,
+      "nodes": 4,
+      "nx": [
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "2",
+                "3"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 2,
+          "value_type": "list"
+        },
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "2",
+                "3"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 1,
+          "value_type": "list"
+        }
+      ],
+      "result_sha256": "b74686ef28c51c59bc5911289122723fe778b894b7fbd6afd930ec2f48c85462",
+      "size": 0
+    },
+    {
+      "edges": 15,
+      "family": "chorded_cycle",
+      "flow_probe": {
+        "fnx": {
+          "called": true,
+          "exception": "ResidualFlowProbe",
+          "message": "flow_func reached residual connectivity path"
+        },
+        "nx": {
+          "called": true,
+          "exception": "ResidualFlowProbe",
+          "message": "flow_func reached residual connectivity path"
+        }
+      },
+      "fnx": [
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "10",
+                "11",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "7",
+                "8",
+                "9"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 2,
+          "value_type": "list"
+        },
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "10",
+                "11",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "7",
+                "8",
+                "9"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 1,
+          "value_type": "list"
+        }
+      ],
+      "graph_sha256": "7bfa772b18620998564aae31657e8e56eded585904404a24c481ee03d81a4bbc",
+      "key_order": [
+        2,
+        1
+      ],
+      "match": true,
+      "nodes": 12,
+      "nx": [
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "10",
+                "11",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "7",
+                "8",
+                "9"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 2,
+          "value_type": "list"
+        },
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "10",
+                "11",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "7",
+                "8",
+                "9"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 1,
+          "value_type": "list"
+        }
+      ],
+      "result_sha256": "0994c6151bd3f809184ac5a6977abcd76e90e7d83a0e10599b98d2ededc027d8",
+      "size": 12
+    },
+    {
+      "edges": 20,
+      "family": "chorded_cycle",
+      "flow_probe": {
+        "fnx": {
+          "called": true,
+          "exception": "ResidualFlowProbe",
+          "message": "flow_func reached residual connectivity path"
+        },
+        "nx": {
+          "called": true,
+          "exception": "ResidualFlowProbe",
+          "message": "flow_func reached residual connectivity path"
+        }
+      },
+      "fnx": [
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "10",
+                "11",
+                "12",
+                "13",
+                "14",
+                "15",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "7",
+                "8",
+                "9"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 2,
+          "value_type": "list"
+        },
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "10",
+                "11",
+                "12",
+                "13",
+                "14",
+                "15",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "7",
+                "8",
+                "9"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 1,
+          "value_type": "list"
+        }
+      ],
+      "graph_sha256": "8a5b15fd2519e719ce8bf8291a9c41f60cfa72874c390e7a3ee19e6fa75b463d",
+      "key_order": [
+        2,
+        1
+      ],
+      "match": true,
+      "nodes": 16,
+      "nx": [
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "10",
+                "11",
+                "12",
+                "13",
+                "14",
+                "15",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "7",
+                "8",
+                "9"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 2,
+          "value_type": "list"
+        },
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "10",
+                "11",
+                "12",
+                "13",
+                "14",
+                "15",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "7",
+                "8",
+                "9"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 1,
+          "value_type": "list"
+        }
+      ],
+      "result_sha256": "f546ac56e7b627d76539490728c9bd9f3f163ab8907fb3b223990a3c36db7b5d",
+      "size": 16
+    },
+    {
+      "edges": 58,
+      "family": "paired_clique_barbell",
+      "flow_probe": {
+        "fnx": {
+          "called": true,
+          "exception": "ResidualFlowProbe",
+          "message": "flow_func reached residual connectivity path"
+        },
+        "nx": {
+          "called": true,
+          "exception": "ResidualFlowProbe",
+          "message": "flow_func reached residual connectivity path"
+        }
+      },
+      "fnx": [
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "7"
+              ],
+              "type": "set"
+            },
+            {
+              "nodes": [
+                "10",
+                "11",
+                "12",
+                "13",
+                "14",
+                "15",
+                "8",
+                "9"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 7,
+          "value_type": "list"
+        },
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "7"
+              ],
+              "type": "set"
+            },
+            {
+              "nodes": [
+                "10",
+                "11",
+                "12",
+                "13",
+                "14",
+                "15",
+                "8",
+                "9"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 6,
+          "value_type": "list"
+        },
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "7"
+              ],
+              "type": "set"
+            },
+            {
+              "nodes": [
+                "10",
+                "11",
+                "12",
+                "13",
+                "14",
+                "15",
+                "8",
+                "9"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 5,
+          "value_type": "list"
+        },
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "7"
+              ],
+              "type": "set"
+            },
+            {
+              "nodes": [
+                "10",
+                "11",
+                "12",
+                "13",
+                "14",
+                "15",
+                "8",
+                "9"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 4,
+          "value_type": "list"
+        },
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "7"
+              ],
+              "type": "set"
+            },
+            {
+              "nodes": [
+                "10",
+                "11",
+                "12",
+                "13",
+                "14",
+                "15",
+                "8",
+                "9"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 3,
+          "value_type": "list"
+        },
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "10",
+                "11",
+                "12",
+                "13",
+                "14",
+                "15",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "7",
+                "8",
+                "9"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 2,
+          "value_type": "list"
+        },
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "10",
+                "11",
+                "12",
+                "13",
+                "14",
+                "15",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "7",
+                "8",
+                "9"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 1,
+          "value_type": "list"
+        }
+      ],
+      "graph_sha256": "a6a93e37930d7561184e197fea22fc53a924ca7bce524ac2d04582695f6d2bae",
+      "key_order": [
+        7,
+        6,
+        5,
+        4,
+        3,
+        2,
+        1
+      ],
+      "match": true,
+      "nodes": 16,
+      "nx": [
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "7"
+              ],
+              "type": "set"
+            },
+            {
+              "nodes": [
+                "10",
+                "11",
+                "12",
+                "13",
+                "14",
+                "15",
+                "8",
+                "9"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 7,
+          "value_type": "list"
+        },
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "7"
+              ],
+              "type": "set"
+            },
+            {
+              "nodes": [
+                "10",
+                "11",
+                "12",
+                "13",
+                "14",
+                "15",
+                "8",
+                "9"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 6,
+          "value_type": "list"
+        },
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "7"
+              ],
+              "type": "set"
+            },
+            {
+              "nodes": [
+                "10",
+                "11",
+                "12",
+                "13",
+                "14",
+                "15",
+                "8",
+                "9"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 5,
+          "value_type": "list"
+        },
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "7"
+              ],
+              "type": "set"
+            },
+            {
+              "nodes": [
+                "10",
+                "11",
+                "12",
+                "13",
+                "14",
+                "15",
+                "8",
+                "9"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 4,
+          "value_type": "list"
+        },
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "7"
+              ],
+              "type": "set"
+            },
+            {
+              "nodes": [
+                "10",
+                "11",
+                "12",
+                "13",
+                "14",
+                "15",
+                "8",
+                "9"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 3,
+          "value_type": "list"
+        },
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "10",
+                "11",
+                "12",
+                "13",
+                "14",
+                "15",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "7",
+                "8",
+                "9"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 2,
+          "value_type": "list"
+        },
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "10",
+                "11",
+                "12",
+                "13",
+                "14",
+                "15",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "7",
+                "8",
+                "9"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 1,
+          "value_type": "list"
+        }
+      ],
+      "result_sha256": "a5701ad4e863ba769bc7ce0890bb71fb3f4cd1035a1d1e52ea4aaff8e9c96caf",
+      "size": 8
+    },
+    {
+      "edges": 59,
+      "family": "near_barbell_bypass",
+      "flow_probe": {
+        "fnx": {
+          "called": true,
+          "exception": "ResidualFlowProbe",
+          "message": "flow_func reached residual connectivity path"
+        },
+        "nx": {
+          "called": true,
+          "exception": "ResidualFlowProbe",
+          "message": "flow_func reached residual connectivity path"
+        }
+      },
+      "fnx": [
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "7"
+              ],
+              "type": "set"
+            },
+            {
+              "nodes": [
+                "10",
+                "11",
+                "12",
+                "13",
+                "14",
+                "15",
+                "16",
+                "9"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 7,
+          "value_type": "list"
+        },
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "7"
+              ],
+              "type": "set"
+            },
+            {
+              "nodes": [
+                "10",
+                "11",
+                "12",
+                "13",
+                "14",
+                "15",
+                "16",
+                "9"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 6,
+          "value_type": "list"
+        },
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "7"
+              ],
+              "type": "set"
+            },
+            {
+              "nodes": [
+                "10",
+                "11",
+                "12",
+                "13",
+                "14",
+                "15",
+                "16",
+                "9"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 5,
+          "value_type": "list"
+        },
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "7"
+              ],
+              "type": "set"
+            },
+            {
+              "nodes": [
+                "10",
+                "11",
+                "12",
+                "13",
+                "14",
+                "15",
+                "16",
+                "9"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 4,
+          "value_type": "list"
+        },
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "7"
+              ],
+              "type": "set"
+            },
+            {
+              "nodes": [
+                "10",
+                "11",
+                "12",
+                "13",
+                "14",
+                "15",
+                "16",
+                "9"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 3,
+          "value_type": "list"
+        },
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "10",
+                "11",
+                "12",
+                "13",
+                "14",
+                "15",
+                "16",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "7",
+                "8",
+                "9"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 2,
+          "value_type": "list"
+        },
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "10",
+                "11",
+                "12",
+                "13",
+                "14",
+                "15",
+                "16",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "7",
+                "8",
+                "9"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 1,
+          "value_type": "list"
+        }
+      ],
+      "graph_sha256": "017ef6e87d94a12924c728e3ed16bccd7ac29182b2966b47817abdf4870b6e05",
+      "key_order": [
+        7,
+        6,
+        5,
+        4,
+        3,
+        2,
+        1
+      ],
+      "match": true,
+      "nodes": 17,
+      "nx": [
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "7"
+              ],
+              "type": "set"
+            },
+            {
+              "nodes": [
+                "10",
+                "11",
+                "12",
+                "13",
+                "14",
+                "15",
+                "16",
+                "9"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 7,
+          "value_type": "list"
+        },
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "7"
+              ],
+              "type": "set"
+            },
+            {
+              "nodes": [
+                "10",
+                "11",
+                "12",
+                "13",
+                "14",
+                "15",
+                "16",
+                "9"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 6,
+          "value_type": "list"
+        },
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "7"
+              ],
+              "type": "set"
+            },
+            {
+              "nodes": [
+                "10",
+                "11",
+                "12",
+                "13",
+                "14",
+                "15",
+                "16",
+                "9"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 5,
+          "value_type": "list"
+        },
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "7"
+              ],
+              "type": "set"
+            },
+            {
+              "nodes": [
+                "10",
+                "11",
+                "12",
+                "13",
+                "14",
+                "15",
+                "16",
+                "9"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 4,
+          "value_type": "list"
+        },
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "7"
+              ],
+              "type": "set"
+            },
+            {
+              "nodes": [
+                "10",
+                "11",
+                "12",
+                "13",
+                "14",
+                "15",
+                "16",
+                "9"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 3,
+          "value_type": "list"
+        },
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "10",
+                "11",
+                "12",
+                "13",
+                "14",
+                "15",
+                "16",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "7",
+                "8",
+                "9"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 2,
+          "value_type": "list"
+        },
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "10",
+                "11",
+                "12",
+                "13",
+                "14",
+                "15",
+                "16",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "7",
+                "8",
+                "9"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 1,
+          "value_type": "list"
+        }
+      ],
+      "result_sha256": "7e95f6875d1682b0e16b81a858df6dec2ff66d0d8b2238dbdeb4e2e608b8a95d",
+      "size": 8
+    }
+  ],
+  "commit": "b5d463fc14dbd04a89494df6b8be3bb68d8a289b",
+  "fnx_file": "/data/projects/.scratch/franken_networkx_jfsyo_boldfalcon_20260609/python/franken_networkx/__init__.py",
+  "genuine_networkx": "nx.k_components.orig_func",
+  "isomorphism": {
+    "floating_point": "N/A: k_components emits integer node-set structures only",
+    "ordering_preserved": "golden records k insertion order and component order; FNX matches genuine NetworkX orig_func for every residual case",
+    "rng": "N/A: graph builders are deterministic and unseeded randomness is unused",
+    "tie_breaking_unchanged": "no new tie-break policy is introduced; all tested cases delegate to the Moody-White/Kanevsky residual path"
+  },
+  "nx_file": "/home/ubuntu/.local/lib/python3.13/site-packages/networkx/__init__.py",
+  "nx_version": "3.6.1"
+}

@@ -42715,6 +42715,67 @@ def make_clique_bipartite(G, fpos=None, create_using=None, name=None):
     return B
 
 
+def _complete_multipartite_k_components(G):
+    component_rows = []
+    max_connectivity = 0
+    for component in connected_components(G):
+        nodes = list(component)
+        if len(nodes) < 2:
+            continue
+
+        component_set = set(nodes)
+        parts = {}
+        for node in nodes:
+            neighbors = set(G[node])
+            neighbors.intersection_update(component_set)
+            part = frozenset(component_set - neighbors)
+            if node not in part:
+                return None
+            parts.setdefault(part, []).append(node)
+
+        covered = set()
+        max_part_size = 0
+        for part, members in parts.items():
+            member_set = set(members)
+            part_set = set(part)
+            if member_set != part_set or covered.intersection(member_set):
+                return None
+            covered.update(member_set)
+            max_part_size = max(max_part_size, len(part_set))
+
+        if covered != component_set or len(parts) < 2:
+            return None
+        connectivity = len(nodes) - max_part_size
+        if connectivity < 1:
+            return None
+        component_rows.append((connectivity, component_set))
+        max_connectivity = max(max_connectivity, connectivity)
+
+    if not component_rows:
+        return {}
+
+    result = {}
+    higher_components = []
+    for k in range(max_connectivity, 2, -1):
+        exact_components = [
+            component for connectivity, component in component_rows if connectivity == k
+        ]
+        level = [set(component) for component in exact_components]
+        level.extend(set(component) for component in higher_components)
+        if level:
+            result[k] = level
+        higher_components = exact_components + higher_components
+
+    if max_connectivity >= 2:
+        result[2] = [
+            set(component)
+            for connectivity, component in component_rows
+            if connectivity >= 2
+        ]
+    result[1] = [set(component) for _, component in component_rows]
+    return result
+
+
 def k_components(G, flow_func=None):
     """Return k-connected component structure.
 
@@ -42722,9 +42783,10 @@ def k_components(G, flow_func=None):
     fast paths. The previous bespoke Python implementation treated
     ``k_components`` as ``{k: components_with_node_connectivity_at_least_k(G)}``
     and missed Moody-White recursive substructures. Complete graphs,
-    simple-cycle components, and forests are the safe exceptions: their
-    k-component lattices are closed form and nx ignores ``flow_func`` on
-    those branches.
+    simple-cycle components, forests, clique-block graphs, and complete
+    multipartite components are the safe exceptions: their k-component
+    lattices are closed form. Complete multipartite components still delegate
+    when a custom ``flow_func`` is supplied because nx calls it there.
     """
     if type(G) is Graph:
         node_count = len(G)
@@ -42755,6 +42817,10 @@ def k_components(G, flow_func=None):
                 if non_singletons:
                     return {1: non_singletons}
                 return {}
+        if flow_func is None and self_loop_count == 0:
+            multipartite_result = _complete_multipartite_k_components(G)
+            if multipartite_result is not None:
+                return multipartite_result
         if self_loop_count == 0:
             clique_blocks = []
             is_block_graph = True

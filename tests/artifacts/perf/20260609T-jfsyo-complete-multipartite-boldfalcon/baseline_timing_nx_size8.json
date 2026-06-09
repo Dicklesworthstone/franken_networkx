@@ -1,0 +1,1 @@
+{"edges": 192, "family": "complete_multipartite_equal3", "nodes": 24, "repeats": 1, "result_sha256": "fd1a922fef03b8f8375d1e573d153a1f123bef9655a2fd688bc60924365a1dc9", "seconds": 13.071490640053526, "seconds_per_call": 13.071490640053526, "size_per_part": 8, "which": "nx"}
