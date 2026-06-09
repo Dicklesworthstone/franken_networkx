@@ -12254,8 +12254,76 @@ fn barycenter(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Vec<PyObject>> {
             return Err(NetworkXNoPath::new_err(msg));
         }
     }
-    let result = py.allow_threads(|| fnx_algorithms::barycenter(inner));
-    Ok(result.iter().map(|n| gr.py_node_key(py, n)).collect())
+    // br-r37-c1-baryidx: the lib.rs kernel runs a String-keyed
+    // HashMap<&str,usize> BFS from every source (re-resolving neighbor names
+    // and allocating a Vec per visit) — O(V*(V+E)) but with a heavy per-op
+    // constant, ~23-80x slower than nx. Replay the graph's integer adjacency
+    // instead (same node-index iteration order, integer distance sums), which
+    // matches nx's argmin tie-set exactly while dropping the string tax.
+    let nodes = inner.nodes_ordered();
+    let adjacency = graph_shortest_path_adjacency_indices(inner, &nodes);
+    let result = py.allow_threads(|| barycenter_from_adjacency(&adjacency));
+    Ok(result
+        .iter()
+        .map(|&idx| gr.py_node_key(py, nodes[idx]))
+        .collect())
+}
+
+/// Barycenter over an integer adjacency list: BFS from every source, sum the
+/// (unweighted) distances, and return the node indices whose total is minimal,
+/// in ascending node-index order. Mirrors `fnx_algorithms::barycenter` (which
+/// iterates `nodes_ordered` and keeps the min-total tie set) but in integer
+/// index space. Distance sums are exact integers, so the min/tie comparison is
+/// byte-identical to the kernel's f64-EPSILON test.
+fn barycenter_from_adjacency(adjacency: &[Vec<usize>]) -> Vec<usize> {
+    let node_count = adjacency.len();
+    if node_count == 0 {
+        return Vec::new();
+    }
+    let mut seen_stamp = vec![0u32; node_count];
+    let mut dist = vec![0usize; node_count];
+    let mut queue: std::collections::VecDeque<usize> = std::collections::VecDeque::new();
+    let mut totals: Vec<(usize, usize)> = Vec::with_capacity(node_count);
+    let mut min_total = usize::MAX;
+
+    for source in 0..node_count {
+        let stamp = (source as u32) + 1;
+        seen_stamp[source] = stamp;
+        dist[source] = 0;
+        queue.clear();
+        queue.push_back(source);
+        let mut reached = 0usize;
+        let mut total = 0usize;
+
+        while let Some(u) = queue.pop_front() {
+            reached += 1;
+            let d = dist[u];
+            total += d;
+            for &v in &adjacency[u] {
+                if seen_stamp[v] != stamp {
+                    seen_stamp[v] = stamp;
+                    dist[v] = d + 1;
+                    queue.push_back(v);
+                }
+            }
+        }
+
+        // Disconnected source (shouldn't happen — binding gates on connected —
+        // but keep the kernel's skip for parity).
+        if reached != node_count {
+            continue;
+        }
+        if total < min_total {
+            min_total = total;
+        }
+        totals.push((source, total));
+    }
+
+    totals
+        .into_iter()
+        .filter(|&(_, total)| total == min_total)
+        .map(|(index, _)| index)
+        .collect()
 }
 
 // ===========================================================================
