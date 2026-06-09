@@ -5992,9 +5992,43 @@ pub fn has_eulerian_path(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<bool>
         ));
     }
     if gr.is_directed() {
-        return Err(crate::NetworkXNotImplemented::new_err(
-            "not implemented for directed type",
-        ));
+        // br-r37-c1-eulerpathdir: native directed has-Eulerian-path. nx's exact
+        // contract: if is_eulerian (all in==out AND strongly connected) -> True;
+        // else at most one node with in-out==1, at most one with out-in==1, every
+        // other node balanced, AND weakly connected. Integer O(1) in/out-degree
+        // (in_degree_by_index/out_degree_by_index) + early exit on |in-out| > 1 ==
+        // nx's short-circuit, so random (non-path) digraphs return without the
+        // strongly/weakly-connected walk. The previous code raised here and the
+        // wrapper paid a full fnx->nx conversion (~20ms / 3600 edges, 2714x).
+        // MultiDiGraph parallel-edge degrees stay on the Python/nx path.
+        let GraphRef::Directed { dg, .. } = &gr else {
+            return Err(crate::NetworkXNotImplemented::new_err(
+                "not implemented for multidigraph type",
+            ));
+        };
+        let dg = &dg.inner;
+        let n = dg.node_count();
+        let all_balanced =
+            (0..n).all(|i| dg.in_degree_by_index(i) == dg.out_degree_by_index(i));
+        if all_balanced && py.allow_threads(|| fnx_algorithms::is_strongly_connected(dg)) {
+            return Ok(true); // is_eulerian -> has an Eulerian path
+        }
+        let mut unbalanced_ins = 0usize;
+        let mut unbalanced_outs = 0usize;
+        for i in 0..n {
+            let ind = dg.in_degree_by_index(i);
+            let outd = dg.out_degree_by_index(i);
+            if ind == outd + 1 {
+                unbalanced_ins += 1;
+            } else if outd == ind + 1 {
+                unbalanced_outs += 1;
+            } else if ind != outd {
+                return Ok(false);
+            }
+        }
+        return Ok(unbalanced_ins <= 1
+            && unbalanced_outs <= 1
+            && py.allow_threads(|| fnx_algorithms::is_weakly_connected(dg)));
     }
     let inner = gr.undirected();
     if inner.node_count() > 1 && inner.nodes_ordered().iter().any(|n| inner.degree(n) == 0) {

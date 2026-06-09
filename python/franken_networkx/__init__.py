@@ -9504,21 +9504,23 @@ def has_eulerian_path(G, source=None):
     """
     # br-r37-c1-rg8jh: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
-    # br-r37-c1-bf1wb: nx supports directed graphs here (a digraph has
-    # an Eulerian path iff at most one node has out-in=1, at most one
-    # has in-out=1, all others have equal in/out, and the underlying
-    # graph is connected). The Rust binding only handles undirected,
-    # so delegate the directed case to nx.
-    if G.is_directed():
-        return _call_networkx_for_parity("has_eulerian_path", G, source=source)
+    # The ``source`` variant has extra start-node conditions; keep it on nx.
     if source is not None:
         return _call_networkx_for_parity("has_eulerian_path", G, source=source)
-    # br-r37-c1-792dv: the Rust _raw_has_eulerian_path mishandles
-    # self-loops (each self-loop adds 2 to degree, keeping parity
-    # even). On graphs with self-loops the Rust path returns False
-    # where nx returns True (e.g. K3 + self-loop, single-node
-    # self-loop, self-loop attached to a chain). Delegate any
-    # graph with at least one self-loop to nx.
+    # br-r37-c1-eulerpathdir: the native binding now implements nx's directed
+    # contract (in/out-degree balance with <=1 unbalanced each way + weak
+    # connectivity), handling directed self-loops correctly (a directed self-loop
+    # is +1 in AND +1 out, so it stays balanced). MultiDiGraph parallel-edge
+    # degrees stay on nx. This drops the full fnx->nx conversion the old directed
+    # delegation paid (~20ms / 3600 edges, 2714x slower than nx).
+    if G.is_directed():
+        if not G.is_multigraph():
+            return _raw_has_eulerian_path(G)
+        return _call_networkx_for_parity("has_eulerian_path", G, source=source)
+    # br-r37-c1-792dv: the UNDIRECTED Rust _raw_has_eulerian_path mishandles
+    # self-loops (each self-loop adds 2 to degree, keeping parity even). On
+    # undirected graphs with self-loops the Rust path returns False where nx
+    # returns True (e.g. K3 + self-loop). Delegate undirected self-loop graphs.
     if number_of_selfloops(G) > 0:  # br-r37-c1-5i5gb: native O(|V|) check, not O(|E|) EdgeView pass
         return _call_networkx_for_parity("has_eulerian_path", G, source=source)
     return _raw_has_eulerian_path(G)
