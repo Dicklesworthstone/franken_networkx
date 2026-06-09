@@ -19270,25 +19270,20 @@ def core_number(G):
     G = _coerce_arg_to_fnx_graph(G)
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
-    # br-gauntlet-perf4: the prior ``any(G.has_edge(u, u) for u in G)`` probe
-    # called the Python ``has_edge`` wrapper once per node; on graphs with
-    # private attribute storage that wrapper takes a slow path
-    # (``u not in self`` + ``self.adj[u]``) which chains into the NodeView
-    # ``__iter__`` length-guard, so the "O(|V|)" guard ballooned to ~1.77s of a
-    # 1.95s core_number call at n=20000. ``number_of_selfloops`` is a single
-    # native O(|E|) pass over the adjacency. (Same NetworkXNotImplemented wording.)
-    if number_of_selfloops(G) > 0:
-        raise NetworkXNotImplemented(
-            "Input graph has self loops which is not permitted; "
-            "Consider using G.remove_edges_from(nx.selfloop_edges(G))."
-        )
     if G.is_directed():
         return _call_networkx_for_parity("core_number", G)
-    raw = _raw_core_number(G)
-    # br-r37-c1-9fa26: the Rust binding returns the dict with keys
-    # sorted; nx iterates in node-insertion order. Reorder so
-    # ``for node, core in result.items():`` matches nx's contract.
-    return {node: raw[node] for node in G if node in raw}  # br-gauntlet-perf4: `for node in G` (fast native Graph.__iter__) not `G.nodes()` (NodeView iterator is ~350x slower; identical order)
+    # br-r37-c1-corenum: the native binding ``_raw_core_number`` already performs
+    # the self-loop guard (raising the identical NetworkXNotImplemented wording),
+    # so the wrapper's separate ``number_of_selfloops`` O(|E|) pass was a
+    # redundant scan (~0.30ms of a 0.53ms n=400 call). Directed self-loop graphs
+    # delegate to nx above, which raises the same error.
+    # br-r37-c1-corenum: the native kernel now emits core numbers in node-
+    # insertion order (integer-CSR rewrite), so the binding's dict already
+    # matches nx's contract — return it directly. The previous re-key
+    # ``{node: raw[node] for node in G}`` (added when the kernel sorted keys
+    # lexicographically) DOUBLED wall time (0.50ms->1.0ms @n=400); dropping it
+    # makes core_number faster than nx.
+    return _raw_core_number(G)
 
 
 def _self_loop_guard_for_core_family():

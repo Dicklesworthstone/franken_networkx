@@ -9891,28 +9891,28 @@ pub fn core_number(graph: &Graph) -> CoreNumberResult {
         };
     }
 
-    // Compute initial degrees
-    let mut degree: HashMap<&str, usize> = HashMap::new();
-    for &node in &nodes {
-        let deg = graph.degree(node);
-        degree.insert(node, deg);
+    // br-r37-c1-corenum: integer-CSR Batagelj-Zaversnik. The previous version
+    // keyed degree/pos/core on `HashMap<&str>` and did SEVERAL String-hash
+    // lookups/inserts PER EDGE in the peeling loop (degree[u], pos[u], inserts)
+    // — the String-adjacency tax, ~8.8x slower than nx. Everything is now indexed
+    // by node INDEX (Vec, O(1), no hashing). A stable sort by degree matches nx's
+    // `sorted(G, key=G.degree)` tie-break; core numbers are tie-break-invariant
+    // anyway. Result is emitted in node-insertion order (the wrapper re-keys in
+    // `G` order regardless).
+    let mut degree: Vec<usize> = (0..n).map(|i| graph.degree_by_index(i)).collect();
+
+    let mut vert: Vec<usize> = (0..n).collect();
+    vert.sort_by_key(|&v| degree[v]);
+
+    let mut pos: Vec<usize> = vec![0; n];
+    for (i, &v) in vert.iter().enumerate() {
+        pos[v] = i;
     }
 
-    // Sort nodes by degree (ascending), with lexicographic tie-break
-    let mut sorted: Vec<&str> = nodes.clone();
-    sorted.sort_by(|a, b| degree[a].cmp(&degree[b]).then_with(|| a.cmp(b)));
-
-    // Build position map for bin-sort update
-    let mut pos: HashMap<&str, usize> = HashMap::new();
-    for (i, &node) in sorted.iter().enumerate() {
-        pos.insert(node, i);
-    }
-
-    // Bin boundaries
-    let max_deg = sorted.iter().map(|n| degree[n]).max().unwrap_or(0);
+    let max_deg = degree.iter().copied().max().unwrap_or(0);
     let mut bin_start: Vec<usize> = vec![0; max_deg + 1];
-    for &node in &sorted {
-        bin_start[degree[node]] += 1;
+    for &d in &degree {
+        bin_start[d] += 1;
     }
     let mut cumsum = 0;
     for start in &mut bin_start {
@@ -9921,44 +9921,42 @@ pub fn core_number(graph: &Graph) -> CoreNumberResult {
         cumsum += count;
     }
 
-    let mut core: HashMap<&str, usize> = HashMap::new();
+    let mut core: Vec<usize> = vec![0; n];
     let mut edges_scanned = 0usize;
 
-    // Peeling: process nodes in order of current degree
+    // Peeling: process nodes in order of current (bucketed) degree.
     for i in 0..n {
-        let v = sorted[i];
-        core.insert(v, degree[v]);
-        if let Some(neighbors) = graph.neighbors_iter(v) {
-            for u in neighbors {
+        let v = vert[i];
+        core[v] = degree[v];
+        if let Some(neighbors) = graph.neighbors_indices(v) {
+            for &u in neighbors {
                 edges_scanned += 1;
                 if degree[u] > degree[v] {
-                    // Move u earlier in sorted order (decrease its effective degree)
                     let du = degree[u];
                     let pu = pos[u];
                     let pw = bin_start[du];
-                    let w = sorted[pw];
+                    let w = vert[pw];
                     if u != w {
-                        // Swap positions of u and w
-                        sorted[pu] = w;
-                        sorted[pw] = u;
-                        pos.insert(u, pw);
-                        pos.insert(w, pu);
+                        vert[pu] = w;
+                        vert[pw] = u;
+                        pos[u] = pw;
+                        pos[w] = pu;
                     }
                     bin_start[du] += 1;
-                    degree.insert(u, du - 1);
+                    degree[u] = du - 1;
                 }
             }
         }
     }
 
-    let mut result: Vec<NodeCoreNumber> = core
-        .into_iter()
-        .map(|(node, c)| NodeCoreNumber {
+    let result: Vec<NodeCoreNumber> = nodes
+        .iter()
+        .enumerate()
+        .map(|(idx, &node)| NodeCoreNumber {
             node: node.to_owned(),
-            core: c,
+            core: core[idx],
         })
         .collect();
-    result.sort_by(|a, b| a.node.cmp(&b.node));
 
     CoreNumberResult {
         core_numbers: result,
