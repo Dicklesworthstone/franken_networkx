@@ -17840,7 +17840,41 @@ pub fn weakly_connected_components(digraph: &DiGraph) -> Vec<Vec<String>> {
 /// Return the number of weakly connected components.
 #[must_use]
 pub fn number_weakly_connected_components(digraph: &DiGraph) -> usize {
-    weakly_connected_components(digraph).len()
+    // br-r37-c1-weakcount: count components with an integer BFS over the
+    // UNDIRECTED projection (successors ∪ predecessors, by index). The previous
+    // `weakly_connected_components(..).len()` materialised EVERY component as a
+    // Vec of String node names (+ a String-keyed visited set) just to count them.
+    let n = digraph.node_count();
+    let mut visited = vec![false; n];
+    let mut count = 0usize;
+    let mut stack: Vec<usize> = Vec::new();
+    for start in 0..n {
+        if visited[start] {
+            continue;
+        }
+        count += 1;
+        visited[start] = true;
+        stack.push(start);
+        while let Some(u) = stack.pop() {
+            if let Some(succ) = digraph.successors_indices(u) {
+                for &v in succ {
+                    if !visited[v] {
+                        visited[v] = true;
+                        stack.push(v);
+                    }
+                }
+            }
+            if let Some(pred) = digraph.predecessors_indices(u) {
+                for &v in pred {
+                    if !visited[v] {
+                        visited[v] = true;
+                        stack.push(v);
+                    }
+                }
+            }
+        }
+    }
+    count
 }
 
 /// Return whether the directed graph is weakly connected.
