@@ -21717,12 +21717,20 @@ def barabasi_albert_graph(
         node for node, degree_value in graph.degree for _ in range(degree_value)
     ]
     source = len(graph)
+    # br-r37-c1-bagen: the BA loop never READS the graph — the degree state lives
+    # entirely in ``repeated_nodes`` — so accumulate every edge and add them in a
+    # SINGLE add_edges_from at the end. The previous per-step add_edges_from paid
+    # ~(n - m) native binding round-trips (the dominant cost). Edge + node
+    # insertion order is preserved (sources processed in increasing order), so the
+    # result is identical to networkx's incremental build.
+    new_edges = []
     while source < n:
         targets = _random_generator_subset(repeated_nodes, m, rng)
-        graph.add_edges_from((source, target) for target in targets)
+        new_edges.extend((source, target) for target in targets)
         repeated_nodes.extend(targets)
         repeated_nodes.extend([source] * m)
         source += 1
+    graph.add_edges_from(new_edges)
     return graph
 
 
