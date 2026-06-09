@@ -42914,6 +42914,39 @@ def _two_degenerate_biconnected_k_components(G):
     }
 
 
+def _ordered_prism_k_components(G):
+    node_count = len(G)
+    if node_count < 6 or node_count % 2 != 0:
+        return None
+
+    half = node_count // 2
+    if G.number_of_edges() != 3 * half:
+        return None
+
+    nodes = list(G)
+    if any(degree != 3 for _, degree in G.degree()):
+        return None
+
+    for index in range(half):
+        upper = nodes[index]
+        next_upper = nodes[(index + 1) % half]
+        lower = nodes[half + index]
+        next_lower = nodes[half + ((index + 1) % half)]
+        if (
+            not G.has_edge(upper, next_upper)
+            or not G.has_edge(lower, next_lower)
+            or not G.has_edge(upper, lower)
+        ):
+            return None
+
+    nodes_set = set(nodes)
+    return {
+        3: [set(nodes_set)],
+        2: [set(nodes_set)],
+        1: [set(nodes_set)],
+    }
+
+
 def k_components(G, flow_func=None):
     """Return k-connected component structure.
 
@@ -42922,10 +42955,11 @@ def k_components(G, flow_func=None):
     ``k_components`` as ``{k: components_with_node_connectivity_at_least_k(G)}``
     and missed Moody-White recursive substructures. Complete graphs,
     simple-cycle components, forests, clique-block graphs, complete
-    multipartite components, and certified 2-degenerate biconnected
-    components are the safe exceptions: their k-component lattices are closed
-    form. Complete multipartite and 2-degenerate residual components still
-    delegate when a custom ``flow_func`` is supplied because nx calls it there.
+    multipartite components, certified 2-degenerate biconnected components,
+    and ordered prism components are the safe exceptions: their k-component
+    lattices are closed form. Complete multipartite, 2-degenerate, and prism
+    residual components still delegate when a custom ``flow_func`` is supplied
+    because nx calls it there.
     """
     if type(G) is Graph:
         node_count = len(G)
@@ -42957,6 +42991,9 @@ def k_components(G, flow_func=None):
                     return {1: non_singletons}
                 return {}
         if flow_func is None and self_loop_count == 0:
+            prism_result = _ordered_prism_k_components(G)
+            if prism_result is not None:
+                return prism_result
             multipartite_result = _complete_multipartite_k_components(G)
             if multipartite_result is not None:
                 return multipartite_result

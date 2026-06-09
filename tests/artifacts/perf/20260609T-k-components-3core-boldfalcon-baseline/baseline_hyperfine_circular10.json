@@ -1,0 +1,52 @@
+{
+  "results": [
+    {
+      "command": "/data/projects/franken_networkx/.venv/bin/python tests/artifacts/perf/20260609T-kpsns-two-degenerate-boldfalcon/harness_kpsns.py time --which fnx --family circular_ladder --size 10 --repeats 1",
+      "mean": 0.56164894388,
+      "stddev": 0.01411423178689505,
+      "median": 0.56498341408,
+      "user": 4.4940941599999995,
+      "system": 0.05617312,
+      "min": 0.53820834308,
+      "max": 0.57632391708,
+      "times": [
+        0.53820834308,
+        0.56498341408,
+        0.56611981808,
+        0.56260922708,
+        0.57632391708
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "/data/projects/franken_networkx/.venv/bin/python tests/artifacts/perf/20260609T-kpsns-two-degenerate-boldfalcon/harness_kpsns.py time --which nx --family circular_ladder --size 10 --repeats 1",
+      "mean": 0.56075231788,
+      "stddev": 0.013184980545873226,
+      "median": 0.56516055108,
+      "user": 4.38866716,
+      "system": 0.059672119999999995,
+      "min": 0.54288975208,
+      "max": 0.57645930408,
+      "times": [
+        0.56696167208,
+        0.57645930408,
+        0.54288975208,
+        0.56516055108,
+        0.55229031008
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

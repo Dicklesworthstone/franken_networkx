@@ -607,6 +607,43 @@ def test_k_components_two_degenerate_fast_path_rejects_three_core_graph():
     assert fnx.k_components(fg) == nx.k_components(ng)
 
 
+@pytest.mark.parametrize("size", [3, 4, 6, 10])
+def test_k_components_ordered_prism_fast_path_matches_networkx(size):
+    fg = fnx.circular_ladder_graph(size)
+    ng = nx.circular_ladder_graph(size)
+
+    fr = fnx.k_components(fg)
+    nr = nx.k_components(ng)
+
+    assert list(fr.keys()) == [3, 2, 1]
+    assert list(fr.keys()) == list(nr.keys())
+    assert [[set(component) for component in fr[k]] for k in fr] == [
+        [set(component) for component in nr[k]] for k in nr
+    ]
+
+
+def test_k_components_ordered_prism_custom_flow_func_delegates_like_networkx():
+    fg = fnx.circular_ladder_graph(6)
+    ng = nx.circular_ladder_graph(6)
+
+    def fail_flow(*args, **kwargs):
+        raise RuntimeError("flow called")
+
+    with pytest.raises(RuntimeError, match="flow called"):
+        fnx.k_components(fg, flow_func=fail_flow)
+    with pytest.raises(RuntimeError, match="flow called"):
+        nx.k_components(ng, flow_func=fail_flow)
+
+
+def test_k_components_ordered_prism_missing_rung_delegates_and_matches_networkx():
+    fg = fnx.circular_ladder_graph(6)
+    ng = nx.circular_ladder_graph(6)
+    fg.remove_edge(0, 6)
+    ng.remove_edge(0, 6)
+
+    assert fnx.k_components(fg) == nx.k_components(ng)
+
+
 @pytest.mark.parametrize(
     "name,builder,k",
     [
