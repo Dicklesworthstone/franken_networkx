@@ -29717,18 +29717,23 @@ pub fn is_strongly_regular(graph: &Graph) -> bool {
 /// Fraction of edges not in any cycle. Uses SCC decomposition.
 #[must_use]
 pub fn flow_hierarchy_directed(digraph: &DiGraph) -> f64 {
+    // br-r37-c1-flowhier: integer-CSR Tarjan + integer edge scan. The previous
+    // version allocated a `Vec<&str>` per node via `successors(name)` and did an
+    // `idx.get` String lookup per edge in BOTH the DFS and the counting loop, and
+    // the counting loop ran over `edges_ordered()` which CLONES every edge's
+    // endpoints + AttrMap. This walks the integer out-adjacency directly.
+    //
+    // Also matches networkx EXACTLY on self-loops: an edge is "in a cycle" iff
+    // both endpoints share an SCC (== sum over SCCs of subgraph.size()),
+    // INCLUDING a self-loop on a singleton SCC — the previous `scc_sizes > 1`
+    // guard wrongly dropped those (a self-loop is a cycle; nx counts it).
     let m = digraph.edge_count();
     if m == 0 {
         return 1.0;
     }
+    let n = digraph.node_count();
 
-    // Find strongly connected components
-    let nodes = digraph.nodes_ordered();
-    let n = nodes.len();
-    let idx: std::collections::HashMap<&str, usize> =
-        nodes.iter().enumerate().map(|(i, n)| (*n, i)).collect();
-
-    // Tarjan's SCC
+    // Tarjan's SCC over integer node indices.
     let mut scc_id = vec![usize::MAX; n];
     let mut scc_count = 0usize;
     let mut stack: Vec<usize> = Vec::new();
@@ -29740,8 +29745,6 @@ pub fn flow_hierarchy_directed(digraph: &DiGraph) -> f64 {
     fn tarjan_dfs(
         v: usize,
         digraph: &DiGraph,
-        nodes: &[&str],
-        idx: &std::collections::HashMap<&str, usize>,
         disc: &mut [usize],
         low: &mut [usize],
         on_stack: &mut [bool],
@@ -29756,18 +29759,13 @@ pub fn flow_hierarchy_directed(digraph: &DiGraph) -> f64 {
         stack.push(v);
         on_stack[v] = true;
 
-        if let Some(succs) = digraph.successors(nodes[v]) {
-            for s in succs {
-                if let Some(&si) = idx.get(s) {
-                    if disc[si] == usize::MAX {
-                        tarjan_dfs(
-                            si, digraph, nodes, idx, disc, low, on_stack, stack, scc_id, scc_count,
-                            timer,
-                        );
-                        low[v] = low[v].min(low[si]);
-                    } else if on_stack[si] {
-                        low[v] = low[v].min(disc[si]);
-                    }
+        if let Some(succs) = digraph.successors_indices(v) {
+            for &si in succs {
+                if disc[si] == usize::MAX {
+                    tarjan_dfs(si, digraph, disc, low, on_stack, stack, scc_id, scc_count, timer);
+                    low[v] = low[v].min(low[si]);
+                } else if on_stack[si] {
+                    low[v] = low[v].min(disc[si]);
                 }
             }
         }
@@ -29787,37 +29785,23 @@ pub fn flow_hierarchy_directed(digraph: &DiGraph) -> f64 {
     for i in 0..n {
         if disc[i] == usize::MAX {
             tarjan_dfs(
-                i,
-                digraph,
-                &nodes,
-                &idx,
-                &mut disc,
-                &mut low,
-                &mut on_stack,
-                &mut stack,
-                &mut scc_id,
-                &mut scc_count,
-                &mut timer,
+                i, digraph, &mut disc, &mut low, &mut on_stack, &mut stack, &mut scc_id,
+                &mut scc_count, &mut timer,
             );
         }
     }
 
-    // Count SCC sizes
-    let mut scc_sizes = vec![0usize; scc_count];
-    for &id in &scc_id {
-        if id < scc_count {
-            scc_sizes[id] += 1;
-        }
-    }
-
-    // Edge is in a cycle iff both endpoints in same SCC of size > 1
+    // An edge u->v lies in a cycle iff u and v share an SCC. Count directly over
+    // the integer out-adjacency (each directed edge once) == nx's
+    // sum(subgraph(c).size()).
     let mut cycle_edges = 0usize;
-    for edge in digraph.edges_ordered() {
-        if let (Some(&ui), Some(&vi)) = (idx.get(edge.left.as_str()), idx.get(edge.right.as_str()))
-            && scc_id[ui] == scc_id[vi]
-            && scc_sizes[scc_id[ui]] > 1
-        {
-            cycle_edges += 1;
+    for u in 0..n {
+        if let Some(succs) = digraph.successors_indices(u) {
+            for &v in succs {
+                if scc_id[u] == scc_id[v] {
+                    cycle_edges += 1;
+                }
+            }
         }
     }
 
