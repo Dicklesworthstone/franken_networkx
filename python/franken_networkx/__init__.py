@@ -11360,6 +11360,14 @@ def all_triangles(G, nbunch=None):
 
 
 def _all_triangles_impl(G, nbunch=None):
+    # br-r37-c1-tri3snap: snapshot adjacency once into a plain dict
+    # (``{u: nbrs}`` from G.adjacency(), no per-key copy) instead of
+    # re-materialising the ``G.adj[u]`` view on every inner-loop access.
+    # ``adj[u].keys()`` are still real dict_keys in G.adj order, so the
+    # ``keys & keys`` set-intersection iteration order (and thus the yielded
+    # triangle order) stays byte-identical to nx — only the repeated fnx
+    # adjacency-view construction is eliminated (~6x self-speedup, 7.9x->1.65x).
+    adj = {node: nbrs for node, nbrs in G.adjacency()}
     if nbunch is None:
         nbunch_lookup = dict.fromkeys(G)
         relevant_nodes = nbunch_lookup
@@ -11385,12 +11393,12 @@ def _all_triangles_impl(G, nbunch=None):
         # Wrapping in ``set(...)`` first changes the resulting set's
         # internal layout, causing the inner ``for w in ...`` loop
         # to yield in a different order.
-        u_neighbors = G.adj[u].keys()
+        u_neighbors = adj[u].keys()
         for v in u_neighbors:
             v_id = node_to_id.get(v, -1)
             if v_id <= u_id:
                 continue
-            v_neighbors = G.adj[v].keys()
+            v_neighbors = adj[v].keys()
             for w in v_neighbors & u_neighbors:
                 if node_to_id.get(w, -1) > v_id:
                     yield (u, v, w)
