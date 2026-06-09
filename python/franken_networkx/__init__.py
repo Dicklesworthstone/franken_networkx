@@ -35453,8 +35453,26 @@ def _triangles_and_degree_iter_local(G, nodes=None):
     # br-r37-c1-undtriclus: snapshot adjacency once so the inner
     # ``set(G[neighbor])`` calls become plain dict lookups, not PyO3
     # round-trips.  Cuts ~10ms off a 100-node 1k-edge transitivity call.
-    adj_snapshot = {u: set(G[u]) - {u} for u in G}
-    node_iter = G if nodes is None else nodes
+    # br-r37-c1-triloc: for nbunch / single-node calls, only snapshot the
+    # LOCAL universe (the queried nodes + their neighbors) instead of the
+    # whole graph — single-node clustering/triangles was O(V+E) (78-408x
+    # slower than nx); now O(deg). Whole-graph (nodes=None) keeps the full
+    # snapshot. Results are identical: counting triangles through node u
+    # only ever touches N(u) and the adjacency of each w in N(u).
+    if nodes is None:
+        adj_snapshot = {u: set(G[u]) - {u} for u in G}
+        node_iter = list(G)
+    else:
+        node_iter = list(nodes)
+        adj_snapshot = {}
+        for node in node_iter:
+            neighbors = adj_snapshot.get(node)
+            if neighbors is None:
+                neighbors = set(G[node]) - {node}
+                adj_snapshot[node] = neighbors
+            for neighbor in neighbors:
+                if neighbor not in adj_snapshot:
+                    adj_snapshot[neighbor] = set(G[neighbor]) - {neighbor}
 
     for node in node_iter:
         neighbor_set = adj_snapshot.get(node, set())
@@ -35844,12 +35862,24 @@ def triangles(G, nodes=None):
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
 
+    # br-r37-c1-triloc: a single node / nbunch only needs the local triangle
+    # count, not a whole-graph _raw_triangles(G) (was O(V+E), 12-46x slower
+    # than nx for one node). _triangles_and_degree_iter_local now snapshots
+    # only the local universe; triangles(n) == its triangle_count // 2.
     if nodes in G:
-        return _raw_triangles(G)[nodes]
+        for _node, _degree, triangle_count, _gd in _triangles_and_degree_iter_local(
+            G, [nodes]
+        ):
+            return triangle_count // 2
+        return 0
 
-    triangle_counts = _raw_triangles(G)
     nbunch_nodes = _global_nbunch_nodes(G, nodes)
-    return {node: triangle_counts[node] for node in nbunch_nodes}
+    return {
+        node: triangle_count // 2
+        for node, _degree, triangle_count, _gd in _triangles_and_degree_iter_local(
+            G, nbunch_nodes
+        )
+    }
 
 
 def edges(G, nbunch=None):
