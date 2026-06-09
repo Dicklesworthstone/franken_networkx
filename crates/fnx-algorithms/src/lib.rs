@@ -9759,10 +9759,47 @@ pub fn greedy_color_with_strategy(graph: &Graph, strategy: &str) -> GreedyColorR
 /// disjoint sets where every edge connects a node from one set to the other.
 #[must_use]
 pub fn is_bipartite(graph: &Graph) -> IsBipartiteResult {
-    let result = bipartite_sets(graph);
+    // br-r37-c1-bipartidx: integer 2-coloring over the CSR adjacency. Bipartite-
+    // ness is a yes/no, traversal-order-invariant property, so this skips
+    // everything bipartite_sets does for the sets: the String-keyed color map,
+    // the node-NAME sort, and the two Vec<String> partition outputs. A self-loop
+    // colors a node adjacent to itself -> not bipartite (matches nx's odd cycle).
+    let n = graph.node_count();
+    let mut color = vec![-1i8; n];
+    let mut stack: Vec<usize> = Vec::new();
+    let mut edges_scanned = 0usize;
+    let mut is_bipartite = true;
+    'outer: for start in 0..n {
+        if color[start] != -1 {
+            continue;
+        }
+        color[start] = 0;
+        stack.push(start);
+        while let Some(u) = stack.pop() {
+            let cu = color[u];
+            if let Some(nbrs) = graph.neighbors_indices(u) {
+                for &v in nbrs {
+                    edges_scanned += 1;
+                    if color[v] == -1 {
+                        color[v] = 1 - cu;
+                        stack.push(v);
+                    } else if color[v] == cu {
+                        is_bipartite = false;
+                        break 'outer;
+                    }
+                }
+            }
+        }
+    }
     IsBipartiteResult {
-        is_bipartite: result.is_bipartite,
-        witness: result.witness,
+        is_bipartite,
+        witness: ComplexityWitness {
+            algorithm: "bipartite_2coloring".to_owned(),
+            complexity_claim: "O(|V| + |E|)".to_owned(),
+            nodes_touched: n,
+            edges_scanned,
+            queue_peak: 0,
+        },
     }
 }
 
