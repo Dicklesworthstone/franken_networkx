@@ -5135,21 +5135,14 @@ fn dfs_connectivity_analysis(graph: &Graph) -> DfsConnectivityAnalysis {
         return analysis;
     }
 
-    let index_of: HashMap<&str, usize> = ordered_nodes
-        .iter()
-        .enumerate()
-        .map(|(i, name)| (*name, i))
+    // br-r37-c1-articidx: borrow the integer CSR rows directly. The previous
+    // build called neighbors_iter(name) (index -> name) then index_of.get(name)
+    // (name -> index) for EVERY edge — a String round-trip + HashMap probe per
+    // edge that dominated dense graphs (~29ms at n=3000/deg8). neighbors_indices
+    // returns the same insertion-ordered row, so the DFS order is byte-identical.
+    let adj: Vec<&[usize]> = (0..n)
+        .map(|i| graph.neighbors_indices(i).unwrap_or(&[]))
         .collect();
-
-    // Per-node neighbor lists in insertion order (no sort).
-    let mut adj: Vec<Vec<usize>> = Vec::with_capacity(n);
-    for &name in &ordered_nodes {
-        let nbrs: Vec<usize> = graph
-            .neighbors_iter(name)
-            .map(|iter| iter.filter_map(|nb| index_of.get(nb).copied()).collect())
-            .unwrap_or_default();
-        adj.push(nbrs);
-    }
 
     let mut discovery = vec![usize::MAX; n];
     let mut low = vec![usize::MAX; n];
@@ -5269,6 +5262,14 @@ fn dfs_connectivity_analysis(graph: &Graph) -> DfsConnectivityAnalysis {
         .collect();
     let mut bridge_edges: Vec<(String, String)> = Vec::new();
     if !bridge_set.is_empty() {
+        // br-r37-c1-articidx: the name->index map is only needed to re-orient
+        // bridge endpoints, so build it lazily here instead of up front (a
+        // biconnected / bridgeless graph never pays for it).
+        let index_of: HashMap<&str, usize> = ordered_nodes
+            .iter()
+            .enumerate()
+            .map(|(i, name)| (*name, i))
+            .collect();
         for edge in graph.edges_ordered_borrowed() {
             let (lhs, rhs, _) = edge;
             let li = match index_of.get(lhs) {
@@ -24430,15 +24431,18 @@ pub fn node_connected_component(graph: &Graph, node: &str) -> Vec<String> {
 /// Matches `networkx.is_biconnected(G)`.
 #[must_use]
 pub fn is_biconnected(graph: &Graph) -> bool {
+    // br-r37-c1-biconidx: connectivity via the single-BFS is_connected (integer
+    // CSR) rather than connected_components(..).components.len() == 1, which
+    // materialised EVERY component as a Vec<String> of node names just to count
+    // them. A graph has exactly one component iff it is connected, so this is
+    // byte-identical. The Tarjan articulation analysis is the only remaining work.
     if graph.node_count() < 2 {
         return false;
     }
-    let cc = connected_components(graph);
-    if cc.components.len() != 1 {
+    if !is_connected(graph).is_connected {
         return false;
     }
-    let ap = articulation_points(graph);
-    ap.nodes.is_empty()
+    articulation_points(graph).nodes.is_empty()
 }
 
 /// Return the biconnected components of the graph.
