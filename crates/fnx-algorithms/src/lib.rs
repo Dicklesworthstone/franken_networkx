@@ -4611,6 +4611,108 @@ pub fn load_centrality_directed_normalized(
     load_centrality_generic(graph, normalized)
 }
 
+/// Reusable per-worker scratch for one Newman-load single-source pass.
+struct LoadScratch {
+    distance: Vec<usize>,
+    predecessors: Vec<Vec<usize>>,
+    stack: Vec<usize>,
+    queue: VecDeque<usize>,
+}
+
+impl LoadScratch {
+    fn new(n: usize) -> Self {
+        Self {
+            distance: vec![usize::MAX; n],
+            predecessors: std::iter::repeat_with(Vec::new).take(n).collect(),
+            stack: Vec::with_capacity(n),
+            queue: VecDeque::new(),
+        }
+    }
+}
+
+/// Newman-load contribution of a single source `s` as a dense `between` delta
+/// vector (length `n`): `delta[v]` is exactly the value the sequential loop adds
+/// to the global `load[v]` for this source (`delta[s] == 0.0` by construction).
+/// The per-source BFS + equal-share back-propagation is self-contained; callers
+/// reduce the deltas in STRICT SOURCE ORDER so the global float summation order
+/// is byte-identical to the sequential accumulation.
+/// `adjacency[v]` lists neighbor indices in the graph's neighbor-iteration order.
+/// Returns `(delta, nodes_touched, edges_scanned, queue_peak)`.
+fn load_source(
+    scratch: &mut LoadScratch,
+    adjacency: &[Vec<usize>],
+    n: usize,
+    s: usize,
+) -> (Vec<f64>, usize, usize, usize) {
+    let LoadScratch {
+        distance,
+        predecessors,
+        stack,
+        queue,
+    } = scratch;
+
+    distance.fill(usize::MAX);
+    for predecessor_list in predecessors.iter_mut() {
+        predecessor_list.clear();
+    }
+    stack.clear();
+    queue.clear();
+
+    let mut edges_scanned = 0usize;
+    let mut queue_peak = 0usize;
+
+    distance[s] = 0;
+    queue.push_back(s);
+    queue_peak = queue_peak.max(queue.len());
+
+    while let Some(v) = queue.pop_front() {
+        stack.push(v);
+        let dist_v = distance[v];
+        for &w in &adjacency[v] {
+            edges_scanned += 1;
+            if distance[w] == usize::MAX {
+                distance[w] = dist_v + 1;
+                queue.push_back(w);
+                queue_peak = queue_peak.max(queue.len());
+            }
+            if distance[w] == dist_v + 1 {
+                predecessors[w].push(v);
+            }
+        }
+    }
+
+    let nodes_touched = stack.len();
+
+    // Newman's load: seed 1.0 at every reached node, distribute weight EQUALLY
+    // across predecessors farthest-first, then subtract the seed. `between[s]`
+    // resolves to exactly 0.0, so reducing the whole vector reproduces the
+    // sequential `if v != s { load[v] += between[v] }` (adding 0.0 is identity).
+    let mut between = vec![0.0_f64; n];
+    for &v in stack.iter() {
+        between[v] = 1.0;
+    }
+    while let Some(v) = stack.pop() {
+        if predecessors[v].is_empty() {
+            continue;
+        }
+        let num_paths = predecessors[v].len() as f64;
+        let share = between[v] / num_paths;
+        for &x in &predecessors[v] {
+            if x == s {
+                break;
+            }
+            between[x] += share;
+        }
+    }
+    for (v, between_v) in between.iter_mut().enumerate() {
+        if distance[v] != usize::MAX {
+            *between_v -= 1.0;
+        }
+    }
+
+    (between, nodes_touched, edges_scanned, queue_peak)
+}
+
 fn load_centrality_generic<G: GraphView>(graph: &G, normalized: bool) -> LoadCentralityResult {
     // br-r37-c1-3wzcj: native Newman load centrality (matches
     // ``networkx.algorithms.centrality.load._node_betweenness``). The
@@ -4639,87 +4741,66 @@ fn load_centrality_generic<G: GraphView>(graph: &G, normalized: bool) -> LoadCen
 
     let node_idx: HashMap<&str, usize> = nodes.iter().enumerate().map(|(i, n)| (*n, i)).collect();
 
+    // Integer adjacency in neighbor-iteration order, built once — the hot loop
+    // then has no per-edge string lookup.
+    let adjacency: Vec<Vec<usize>> = (0..n)
+        .map(|v| {
+            let mut row = Vec::with_capacity(graph.neighbor_count(nodes[v]));
+            if let Some(neighbors) = graph.neighbors_iter(nodes[v]) {
+                for w_name in neighbors {
+                    row.push(*node_idx.get(w_name).unwrap());
+                }
+            }
+            row
+        })
+        .collect();
+
     let mut load = vec![0.0_f64; n];
     let mut total_nodes_touched = 0usize;
     let mut edges_scanned = 0usize;
     let mut queue_peak = 0usize;
 
-    for s in 0..n {
-        // BFS from s; track pred[v] = list of immediate predecessors on
-        // shortest paths from s, and dist[v] = shortest-path distance.
-        let mut distance = vec![usize::MAX; n];
-        let mut predecessors: Vec<Vec<usize>> = vec![Vec::new(); n];
+    // Parallel Newman load over sources, reduced in STRICT SOURCE ORDER for
+    // byte-exact float parity with the sequential path. Sources chunked to cap
+    // peak delta memory (~64 MiB); order preserved within and across chunks.
+    const LOAD_PARALLEL_THRESHOLD: usize = 500;
+    if n >= LOAD_PARALLEL_THRESHOLD {
+        use rayon::prelude::*;
 
-        distance[s] = 0;
+        let bytes_per_delta = n.max(1).saturating_mul(std::mem::size_of::<f64>());
+        let chunk = (64 * 1024 * 1024 / bytes_per_delta).clamp(1, n);
 
-        let mut queue = VecDeque::<usize>::new();
-        queue.push_back(s);
-        queue_peak = queue_peak.max(queue.len());
-
-        // Track BFS-discovery order so we can iterate by descending
-        // distance later (popping the stack gives farthest-first
-        // — same as nx ``onodes.sort()`` on (length, vert)).
-        let mut stack = Vec::<usize>::with_capacity(n);
-
-        while let Some(v) = queue.pop_front() {
-            stack.push(v);
-            let dist_v = distance[v];
-
-            if let Some(neighbors) = graph.neighbors_iter(nodes[v]) {
-                for w_name in neighbors {
-                    edges_scanned += 1;
-                    let w = *node_idx.get(w_name).unwrap();
-
-                    if distance[w] == usize::MAX {
-                        distance[w] = dist_v + 1;
-                        queue.push_back(w);
-                        queue_peak = queue_peak.max(queue.len());
-                    }
-                    if distance[w] == dist_v + 1 {
-                        predecessors[w].push(v);
-                    }
+        let mut start = 0usize;
+        while start < n {
+            let end = (start + chunk).min(n);
+            let chunk_results: Vec<(Vec<f64>, usize, usize, usize)> = (start..end)
+                .into_par_iter()
+                .map_init(
+                    || LoadScratch::new(n),
+                    |scratch, s| load_source(scratch, &adjacency, n, s),
+                )
+                .collect();
+            for (delta, src_touched, src_edges, src_peak) in chunk_results {
+                for (acc, contribution) in load.iter_mut().zip(delta.iter()) {
+                    *acc += *contribution;
                 }
+                total_nodes_touched += src_touched;
+                edges_scanned += src_edges;
+                queue_peak = queue_peak.max(src_peak);
             }
+            start = end;
         }
-
-        total_nodes_touched += stack.len();
-
-        // Newman's load: between[v] starts at 1 for every reached node.
-        // Iterate from farthest-first; each node distributes its
-        // accumulated weight EQUALLY across its predecessors
-        // (between[x] += between[v] / len(pred[v])). At the end,
-        // subtract 1 from each between[v] (the initial seed).
-        let mut between = vec![0.0_f64; n];
-        for &v in &stack {
-            between[v] = 1.0;
-        }
-
-        while let Some(v) = stack.pop() {
-            if predecessors[v].is_empty() {
-                continue;
+    } else {
+        let mut scratch = LoadScratch::new(n);
+        for s in 0..n {
+            let (delta, src_touched, src_edges, src_peak) =
+                load_source(&mut scratch, &adjacency, n, s);
+            for (acc, contribution) in load.iter_mut().zip(delta.iter()) {
+                *acc += *contribution;
             }
-            let num_paths = predecessors[v].len() as f64;
-            let share = between[v] / num_paths;
-            for &x in &predecessors[v] {
-                if x == s {
-                    // nx ``if x == source: break`` — all remaining
-                    // predecessors at this level are also the source on
-                    // distance-1 nodes, so terminate the inner loop.
-                    break;
-                }
-                between[x] += share;
-            }
-        }
-
-        for v in 0..n {
-            if distance[v] != usize::MAX {
-                between[v] -= 1.0;
-            }
-        }
-        for v in 0..n {
-            if v != s {
-                load[v] += between[v];
-            }
+            total_nodes_touched += src_touched;
+            edges_scanned += src_edges;
+            queue_peak = queue_peak.max(src_peak);
         }
     }
 

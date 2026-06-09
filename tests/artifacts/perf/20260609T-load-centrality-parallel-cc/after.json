@@ -1,0 +1,16 @@
+{
+  "n1500": {
+    "n": 1500,
+    "ms": 18.46632396336645,
+    "sha": "d7f89d7ea83cbec276f1c44cac3b440928a84fe44d37bdb1e4483b8a0baedbda",
+    "dir_ms": 25.92620300129056,
+    "dir_sha": "debe307171b2d0cce99c89c5b7b876af06a8d4cd5fa17ef3bf340ae6c9fa6c8a"
+  },
+  "n2500": {
+    "n": 2500,
+    "ms": 33.491060021333396,
+    "sha": "ba69d233957e3850a143220bd913cd21c36ce021789046b65c09710797582455",
+    "dir_ms": 29.706161934882402,
+    "dir_sha": "debe307171b2d0cce99c89c5b7b876af06a8d4cd5fa17ef3bf340ae6c9fa6c8a"
+  }
+}
