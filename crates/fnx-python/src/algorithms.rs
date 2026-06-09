@@ -5943,9 +5943,16 @@ pub fn is_eulerian(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<bool> {
                 }
             }
         } else {
+            // br-r37-c1-euleridx: O(1)/node integer in/out-degree (slice lengths)
+            // instead of dg.in_degree(name)/out_degree(name), which resolve a
+            // String key (and the in-degree path can scan edges). nx short-circuits
+            // on the first in!=out node, so this matters most for the common
+            // not-Eulerian case (returns before the strongly-connected check).
             let dg = gr.digraph().expect("is_directed checked above");
-            for node in dg.nodes_ordered() {
-                if dg.in_degree(node) != dg.out_degree(node) {
+            for i in 0..dg.node_count() {
+                let out_d = dg.successors_indices(i).map_or(0, <[usize]>::len);
+                let in_d = dg.predecessors_indices(i).map_or(0, <[usize]>::len);
+                if in_d != out_d {
                     return Ok(false);
                 }
             }
@@ -15872,6 +15879,21 @@ pub fn number_of_selfloops_rust(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResul
 #[pyfunction]
 pub fn nodes_with_selfloops_rust(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Vec<PyObject>> {
     let gr = extract_graph(g)?;
+    // br-r37-c1-selfloopdir: a DiGraph must NOT be projected to its undirected
+    // form just to find self-loops — `gr.undirected()` builds the whole O(|V|+|E|)
+    // undirected copy, which was the ENTIRE cost of number_of_selfloops on a
+    // DiGraph (~24ms at 3600 edges, and number_of_selfloops has many internal
+    // callers, e.g. the is_eulerian self-loop guard). Scan the digraph's own
+    // (i, i) edges in O(|V|) with O(1) index-pair lookups, in node-insertion
+    // order (== networkx node order).
+    if let GraphRef::Directed { dg, .. } = &gr {
+        let inner = &dg.inner;
+        let names: Vec<String> = (0..inner.node_count())
+            .filter(|&i| inner.edge_attrs_by_indices(i, i).is_some())
+            .filter_map(|i| inner.get_node_name(i).map(str::to_owned))
+            .collect();
+        return Ok(names.iter().map(|n| gr.py_node_key(py, n)).collect());
+    }
     let inner = gr.undirected();
     let result = py.allow_threads(|| fnx_algorithms::nodes_with_selfloops(inner));
     Ok(result.iter().map(|n| gr.py_node_key(py, n)).collect())

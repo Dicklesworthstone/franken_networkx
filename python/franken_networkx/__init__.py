@@ -9391,7 +9391,13 @@ def is_eulerian(G):
     # vertex remains Eulerian per nx but the Rust path returns
     # False). Delegate to nx whenever any self-loop is present so
     # both predicates carry the same self-loop semantics.
-    if number_of_selfloops(G) > 0:  # br-r37-c1-5i5gb: native O(|V|) check, not O(|E|) EdgeView pass
+    # br-r37-c1-euleridx: only the UNDIRECTED native kernel mishandles self-loops.
+    # The directed path (integer in/out-degree balance + is_strongly_connected)
+    # already matches nx on self-loops — a directed self-loop adds +1 to both in-
+    # and out-degree and does not affect strong connectivity (verified 0/66 on
+    # self-loop digraphs) — so directed skips the number_of_selfloops scan
+    # entirely (nx never checks it either).
+    if not G.is_directed() and number_of_selfloops(G) > 0:  # br-r37-c1-5i5gb: native O(|V|) check
         return _call_networkx_for_parity("is_eulerian", G)
     return _raw_is_eulerian(G)
 
