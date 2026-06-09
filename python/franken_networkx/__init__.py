@@ -13213,14 +13213,24 @@ def average_node_connectivity(G, flow_func=None):
     float
         The average node connectivity of G.
     """
-    # br-r37-c1-qz40o: Rust BFS-based local_node_connectivity uses a
-    # heuristic that doesn't give correct values in all cases. Always
-    # delegate to nx which uses proper max-flow on an auxiliary graph.
-    return _call_networkx_for_parity(
-        "average_node_connectivity",
-        G,
-        flow_func=flow_func,
-    )
+    # br-r37-c1-qz40o: the standalone Rust BFS local_node_connectivity is a
+    # heuristic that misvalues some pairs. But the bulk
+    # ``all_pairs_node_connectivity`` (native undirected, byte-correct vs nx;
+    # directed delegates) already computes the per-pair max-flow connectivity
+    # ~2x faster than nx's pure-Python O(n^2) loop. nx's average is just the
+    # mean of those per-pair values over combinations (undirected) /
+    # permutations (directed), so average over that result instead of
+    # re-delegating the whole O(n^2)-flow computation to nx (br-anc-allpairs).
+    G = _coerce_arg_to_fnx_graph(G)
+    apnc = all_pairs_node_connectivity(G, flow_func=flow_func)
+    iter_func = _itertools.permutations if G.is_directed() else _itertools.combinations
+    num = den = 0
+    for u, v in iter_func(G, 2):
+        num += apnc[u][v]
+        den += 1
+    if den == 0:
+        return 0
+    return num / den
 
 def all_pairs_dijkstra(G, cutoff=None, weight="weight"):
     """_Iterator of ``(source, (distances, paths))`` pairs via Dijkstra.
