@@ -43034,6 +43034,33 @@ def _quartic_four_connected_k_components(G):
     }
 
 
+def _quintic_five_connected_k_components(G):
+    nodes = list(G)
+    node_count = len(nodes)
+    if node_count < 8 or node_count > 32:
+        return None
+    if G.number_of_edges() * 2 != 5 * node_count:
+        return None
+
+    adjacency = {}
+    for node in nodes:
+        neighbors = set(G[node])
+        if len(neighbors) != 5:
+            return None
+        adjacency[node] = neighbors
+
+    if not _is_connected_after_removing(nodes, adjacency, set()):
+        return None
+
+    for cut_size in range(1, 5):
+        for removed in _combinations(nodes, cut_size):
+            if not _is_connected_after_removing(nodes, adjacency, set(removed)):
+                return None
+
+    nodes_set = set(nodes)
+    return {k: [set(nodes_set)] for k in range(5, 0, -1)}
+
+
 def _ordered_prism_k_components(G):
     node_count = len(G)
     if node_count < 6 or node_count % 2 != 0:
@@ -43248,11 +43275,11 @@ def k_components(G, flow_func=None):
     multipartite components, certified 2-degenerate biconnected components,
     ordered prism components, wheel components, tuple-label hypercube
     components, ordered two-clique bridge components, plus bounded simple
-    cubic/quartic components whose connectivity is certified by vertex-removal
-    BFS, are the safe exceptions: their k-component lattices are closed form.
-    Complete multipartite, 2-degenerate, prism, wheel, hypercube, two-clique
-    bridge, cubic, and quartic residual components still delegate when a custom
-    ``flow_func`` is supplied because nx calls it there.
+    cubic/quartic/quintic components whose connectivity is certified by
+    vertex-removal BFS, are the safe exceptions: their k-component lattices are
+    closed form. Complete multipartite, 2-degenerate, prism, wheel, hypercube,
+    two-clique bridge, cubic, quartic, and quintic residual components still
+    delegate when a custom ``flow_func`` is supplied because nx calls it there.
     """
     if type(G) is Graph:
         node_count = len(G)
@@ -43299,6 +43326,9 @@ def k_components(G, flow_func=None):
             quartic_result = _quartic_four_connected_k_components(G)
             if quartic_result is not None:
                 return quartic_result
+            quintic_result = _quintic_five_connected_k_components(G)
+            if quintic_result is not None:
+                return quintic_result
             two_clique_bridge_result = _ordered_two_clique_bridge_k_components(G)
             if two_clique_bridge_result is not None:
                 return two_clique_bridge_result
