@@ -7177,6 +7177,125 @@ pub fn distance_measures(graph: &Graph) -> DistanceMeasuresResult {
     }
 }
 
+/// Reusable per-worker scratch for one all-pairs BFS source.
+struct AsplScratch {
+    dist: Vec<usize>,
+    queue: VecDeque<usize>,
+}
+
+impl AsplScratch {
+    fn new(n: usize) -> Self {
+        Self {
+            dist: vec![usize::MAX; n],
+            queue: VecDeque::with_capacity(n),
+        }
+    }
+}
+
+/// BFS from `s` over integer adjacency, returning `(sum_of_distances, reached,
+/// edges_scanned, queue_peak)`. `sum_of_distances` is only meaningful when
+/// `reached == n` (a connected component covers the whole graph); otherwise the
+/// caller treats the graph as disconnected. The distance sum is an integer, so
+/// reducing per-source sums in any order is byte-identical to the sequential
+/// accumulation — each source's BFS is fully self-contained.
+fn aspl_bfs_source(
+    scratch: &mut AsplScratch,
+    adjacency: &[&[usize]],
+    n: usize,
+    s: usize,
+) -> (usize, usize, usize, usize) {
+    let dist = &mut scratch.dist;
+    let queue = &mut scratch.queue;
+    dist.iter_mut().for_each(|d| *d = usize::MAX);
+    queue.clear();
+
+    dist[s] = 0;
+    queue.push_back(s);
+    let mut reached = 0usize;
+    let mut edges_scanned = 0usize;
+    let mut queue_peak = 0usize;
+
+    while let Some(u) = queue.pop_front() {
+        reached += 1;
+        let d = dist[u];
+        for &v in adjacency[u] {
+            edges_scanned += 1;
+            if dist[v] == usize::MAX {
+                dist[v] = d + 1;
+                queue.push_back(v);
+            }
+        }
+        queue_peak = queue_peak.max(queue.len());
+    }
+
+    let sum = if reached == n {
+        dist.iter().filter(|&&d| d != usize::MAX).sum()
+    } else {
+        0
+    };
+    (sum, reached, edges_scanned, queue_peak)
+}
+
+/// Reduce per-source `(sum, reached, edges, peak)` tuples into an
+/// `AverageShortestPathLengthResult`, returning `INFINITY` if any source failed
+/// to reach all `n` nodes (disconnected). Shared by the undirected/directed
+/// parallel paths.
+fn aspl_finalize(
+    per_source: Vec<(usize, usize, usize, usize)>,
+    n: usize,
+    algorithm: &str,
+) -> AverageShortestPathLengthResult {
+    let mut total_distance = 0usize;
+    let mut total_nodes_touched = 0usize;
+    let mut total_edges_scanned = 0usize;
+    let mut max_queue_peak = 0usize;
+    let mut disconnected = false;
+    for (sum, reached, edges, peak) in per_source {
+        total_distance += sum;
+        total_nodes_touched += reached;
+        total_edges_scanned += edges;
+        max_queue_peak = max_queue_peak.max(peak);
+        if reached < n {
+            disconnected = true;
+        }
+    }
+    let average = if disconnected {
+        f64::INFINITY
+    } else {
+        total_distance as f64 / (n * (n - 1)) as f64
+    };
+    AverageShortestPathLengthResult {
+        average_shortest_path_length: average,
+        witness: ComplexityWitness {
+            algorithm: algorithm.to_owned(),
+            complexity_claim: "O(|V| * (|V| + |E|))".to_owned(),
+            nodes_touched: total_nodes_touched,
+            edges_scanned: total_edges_scanned,
+            queue_peak: max_queue_peak,
+        },
+    }
+}
+
+/// Run `aspl_bfs_source` over all `n` sources, parallel for large graphs.
+fn aspl_run_sources(adjacency: &[&[usize]], n: usize) -> Vec<(usize, usize, usize, usize)> {
+    const ASPL_PARALLEL_THRESHOLD: usize = 500;
+    if n >= ASPL_PARALLEL_THRESHOLD {
+        use rayon::prelude::*;
+        (0..n)
+            .into_par_iter()
+            .map_init(
+                || AsplScratch::new(n),
+                |scratch, s| aspl_bfs_source(scratch, adjacency, n, s),
+            )
+            .collect()
+    } else {
+        let mut scratch = AsplScratch::new(n);
+        (0..n)
+            .map(|s| aspl_bfs_source(&mut scratch, adjacency, n, s))
+            .collect()
+    }
+}
+
 /// Computes the average shortest path length of an undirected graph.
 ///
 /// Returns `sum(d(u,v)) / (n*(n-1))` for all pairs `u != v` where `d(u,v)` is
@@ -7198,71 +7317,16 @@ pub fn average_shortest_path_length(graph: &Graph) -> AverageShortestPathLengthR
         };
     }
 
-    let mut total_distance = 0usize;
-    let mut total_nodes_touched = 0usize;
-    let mut total_edges_scanned = 0usize;
-    let mut max_queue_peak = 0usize;
-
-    // br-r37-c1-ga0ow: replay the graph's integer adjacency for each BFS
-    // source instead of resolving neighbor names back through the node
-    // hashmap. The final distance sum remains in node-index order, matching
-    // the old `dist.into_iter().flatten().sum()` order exactly.
-    let mut dist = vec![0usize; n];
-    let mut seen_stamp = vec![0u32; n];
-    let mut queue: VecDeque<usize> = VecDeque::new();
-    for s in 0..n {
-        let stamp = (s as u32) + 1;
-        seen_stamp[s] = stamp;
-        dist[s] = 0;
-        queue.clear();
-        queue.push_back(s);
-        let mut reached = 0usize;
-
-        while let Some(u) = queue.pop_front() {
-            reached += 1;
-            let d = dist[u];
-            if let Some(nbrs) = graph.neighbors_indices(u) {
-                for &v in nbrs {
-                    total_edges_scanned += 1;
-                    if seen_stamp[v] != stamp {
-                        seen_stamp[v] = stamp;
-                        dist[v] = d + 1;
-                        queue.push_back(v);
-                    }
-                }
-            }
-            max_queue_peak = max_queue_peak.max(queue.len());
-        }
-
-        if reached < n {
-            return AverageShortestPathLengthResult {
-                average_shortest_path_length: f64::INFINITY,
-                witness: ComplexityWitness {
-                    algorithm: "bfs_average_shortest_path_length".to_owned(),
-                    complexity_claim: "O(|V| * (|V| + |E|))".to_owned(),
-                    nodes_touched: total_nodes_touched + reached,
-                    edges_scanned: total_edges_scanned,
-                    queue_peak: max_queue_peak,
-                },
-            };
-        }
-
-        total_distance += dist.iter().sum::<usize>();
-        total_nodes_touched += reached;
-    }
-
-    let avg = total_distance as f64 / (n * (n - 1)) as f64;
-
-    AverageShortestPathLengthResult {
-        average_shortest_path_length: avg,
-        witness: ComplexityWitness {
-            algorithm: "bfs_average_shortest_path_length".to_owned(),
-            complexity_claim: "O(|V| * (|V| + |E|))".to_owned(),
-            nodes_touched: total_nodes_touched,
-            edges_scanned: total_edges_scanned,
-            queue_peak: max_queue_peak,
-        },
-    }
+    // Each source's BFS is independent; fan them out over rayon workers (the
+    // distance SUM is an integer, so order of reduction is irrelevant — the
+    // result is byte-identical to the sequential accumulation). Disconnected
+    // graphs (any source not reaching all n nodes) yield INFINITY exactly as
+    // before.
+    let adjacency: Vec<&[usize]> = (0..n)
+        .map(|u| graph.neighbors_indices(u).unwrap_or(&[]))
+        .collect();
+    let per_source = aspl_run_sources(&adjacency, n);
+    aspl_finalize(per_source, n, "bfs_average_shortest_path_length")
 }
 
 /// Average shortest path length for directed graphs.
@@ -7284,69 +7348,16 @@ pub fn average_shortest_path_length_directed(digraph: &DiGraph) -> AverageShorte
         };
     }
 
-    // br-r37-c1-wiener-csr (sibling): integer-CSR BFS over `successors_indices`
-    // + reused dist/queue buffers, dropping the per-edge `get_node_index(name)`
-    // String hash. Witness counts (edges_scanned/queue_peak/nodes_touched) stay
-    // byte-identical because the integer successor row has the same order and
-    // length as `successors(name)`, and BFS distances are order-invariant.
-    let mut total_distance = 0usize;
-    let mut total_nodes_touched = 0usize;
-    let mut total_edges_scanned = 0usize;
-    let mut max_queue_peak = 0usize;
-    let mut dist = vec![usize::MAX; n];
-    let mut queue = VecDeque::with_capacity(n);
-
-    for s in 0..n {
-        dist.iter_mut().for_each(|d| *d = usize::MAX);
-        dist[s] = 0;
-        queue.clear();
-        queue.push_back(s);
-        let mut reached = 0usize;
-
-        while let Some(u) = queue.pop_front() {
-            reached += 1;
-            let d = dist[u];
-            if let Some(succs) = digraph.successors_indices(u) {
-                for &v in succs {
-                    total_edges_scanned += 1;
-                    if dist[v] == usize::MAX {
-                        dist[v] = d + 1;
-                        queue.push_back(v);
-                    }
-                }
-            }
-            max_queue_peak = max_queue_peak.max(queue.len());
-        }
-
-        if reached < n {
-            return AverageShortestPathLengthResult {
-                average_shortest_path_length: f64::INFINITY,
-                witness: ComplexityWitness {
-                    algorithm: "bfs_average_shortest_path_length_directed".to_owned(),
-                    complexity_claim: "O(|V| * (|V| + |E|))".to_owned(),
-                    nodes_touched: total_nodes_touched + reached,
-                    edges_scanned: total_edges_scanned,
-                    queue_peak: max_queue_peak,
-                },
-            };
-        }
-
-        total_distance += dist.iter().filter(|&&d| d != usize::MAX).sum::<usize>();
-        total_nodes_touched += reached;
-    }
-
-    let avg = total_distance as f64 / (n * (n - 1)) as f64;
-
-    AverageShortestPathLengthResult {
-        average_shortest_path_length: avg,
-        witness: ComplexityWitness {
-            algorithm: "bfs_average_shortest_path_length_directed".to_owned(),
-            complexity_claim: "O(|V| * (|V| + |E|))".to_owned(),
-            nodes_touched: total_nodes_touched,
-            edges_scanned: total_edges_scanned,
-            queue_peak: max_queue_peak,
-        },
-    }
+    // br-r37-c1-wiener-csr (sibling): integer-CSR BFS over `successors_indices`.
+    // Each source's BFS is independent and the distance SUM is an integer, so
+    // fanning sources out over rayon and reducing the per-source sums is
+    // byte-identical to the sequential accumulation. Not-strongly-connected
+    // graphs (any source not reaching all n nodes) yield INFINITY as before.
+    let adjacency: Vec<&[usize]> = (0..n)
+        .map(|u| digraph.successors_indices(u).unwrap_or(&[]))
+        .collect();
+    let per_source = aspl_run_sources(&adjacency, n);
+    aspl_finalize(per_source, n, "bfs_average_shortest_path_length_directed")
 }
 
 // Note: average_shortest_path_length for undirected graphs is handled by
