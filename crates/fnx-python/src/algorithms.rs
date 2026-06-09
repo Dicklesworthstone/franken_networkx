@@ -2816,6 +2816,114 @@ pub fn adjacency_default_order_typed_arrays(
     }
 }
 
+/// Weighted COO arrays + dtype metadata for an EXPLICIT nodelist (Graph or
+/// DiGraph). br-r37-c1-pmqhz-nl: dtype-preserving sibling of
+/// `adjacency_default_order_typed_arrays` for the non-default node order — remaps
+/// each edge's endpoints (storage order -> node key -> nodelist position) so the
+/// dtype=None weighted to_scipy fast path covers explicit nodelists too (was a
+/// per-edge G[u][v] Python fallback, ~3.5-4.2x slower than nx). Edges with an
+/// endpoint outside `nodelist` are skipped (subset nodelists, matching nx).
+#[pyfunction]
+#[pyo3(signature = (g, nodelist, weight_attr, default_weight=1.0))]
+pub fn adjacency_nodelist_typed_arrays(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    nodelist: &Bound<'_, PyAny>,
+    weight_attr: &str,
+    default_weight: f64,
+) -> PyResult<Option<(Vec<usize>, Vec<usize>, Vec<f64>, bool)>> {
+    let gr = extract_graph(g)?;
+    const MAX_EXACT_F64_INT: i64 = 9_007_199_254_740_992;
+    let mut needs_float_dtype = default_weight.fract() != 0.0;
+    // Convert each Python node object to its canonical string key (matching
+    // inner.nodes_ordered()), so the endpoint remap works for int/str/any nodes.
+    let mut keys: Vec<String> = Vec::new();
+    for item in nodelist.try_iter()? {
+        keys.push(node_key_to_string(py, &item?)?);
+    }
+    let pos: std::collections::HashMap<&str, usize> = keys
+        .iter()
+        .enumerate()
+        .map(|(i, n)| (n.as_str(), i))
+        .collect();
+    match &gr {
+        GraphRef::Undirected(pg) => {
+            let inner = &pg.inner;
+            let order = inner.nodes_ordered();
+            let mut rows = Vec::with_capacity(inner.edge_count() * 2);
+            let mut cols = Vec::with_capacity(inner.edge_count() * 2);
+            let mut data = Vec::with_capacity(inner.edge_count() * 2);
+            for (r, c, attrs) in inner.edges_storage_order_index_iter() {
+                let (Some(&ri), Some(&ci)) = (pos.get(order[r]), pos.get(order[c])) else {
+                    continue;
+                };
+                let value = match attrs.get(weight_attr) {
+                    Some(fnx_runtime::CgseValue::Int(i)) => {
+                        if *i < -MAX_EXACT_F64_INT || *i > MAX_EXACT_F64_INT {
+                            return Ok(None);
+                        }
+                        *i as f64
+                    }
+                    Some(fnx_runtime::CgseValue::Float(f)) => {
+                        needs_float_dtype = true;
+                        *f
+                    }
+                    None => default_weight,
+                    Some(
+                        fnx_runtime::CgseValue::Bool(_)
+                        | fnx_runtime::CgseValue::String(_)
+                        | fnx_runtime::CgseValue::Map(_),
+                    ) => return Ok(None),
+                };
+                rows.push(ri);
+                cols.push(ci);
+                data.push(value);
+                if ri != ci {
+                    rows.push(ci);
+                    cols.push(ri);
+                    data.push(value);
+                }
+            }
+            Ok(Some((rows, cols, data, needs_float_dtype)))
+        }
+        GraphRef::Directed { dg, .. } => {
+            let inner = &dg.inner;
+            let order = inner.nodes_ordered();
+            let mut rows = Vec::with_capacity(inner.edge_count());
+            let mut cols = Vec::with_capacity(inner.edge_count());
+            let mut data = Vec::with_capacity(inner.edge_count());
+            for ((r, c), attrs) in inner.edges_indexed() {
+                let (Some(&ri), Some(&ci)) = (pos.get(order[r]), pos.get(order[c])) else {
+                    continue;
+                };
+                let value = match attrs.get(weight_attr) {
+                    Some(fnx_runtime::CgseValue::Int(i)) => {
+                        if *i < -MAX_EXACT_F64_INT || *i > MAX_EXACT_F64_INT {
+                            return Ok(None);
+                        }
+                        *i as f64
+                    }
+                    Some(fnx_runtime::CgseValue::Float(f)) => {
+                        needs_float_dtype = true;
+                        *f
+                    }
+                    None => default_weight,
+                    Some(
+                        fnx_runtime::CgseValue::Bool(_)
+                        | fnx_runtime::CgseValue::String(_)
+                        | fnx_runtime::CgseValue::Map(_),
+                    ) => return Ok(None),
+                };
+                rows.push(ri);
+                cols.push(ci);
+                data.push(value);
+            }
+            Ok(Some((rows, cols, data, needs_float_dtype)))
+        }
+        _ => Ok(None),
+    }
+}
+
 /// Bulk per-node adjacency + edge attrs for the `_fnx_to_nx` parity conversion.
 ///
 /// Returns, for each node in node-insertion order, its neighbors in
@@ -17486,6 +17594,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(adjacency_default_order_index_arrays, m)?)?;
     m.add_function(wrap_pyfunction!(adjacency_default_order_arrays, m)?)?;
     m.add_function(wrap_pyfunction!(adjacency_default_order_typed_arrays, m)?)?;
+    m.add_function(wrap_pyfunction!(adjacency_nodelist_typed_arrays, m)?)?;
     m.add_function(wrap_pyfunction!(fnx_to_nx_adjacency, m)?)?;
     m.add_function(wrap_pyfunction!(graph_has_edge_attr, m)?)?;
     m.add_function(wrap_pyfunction!(bellman_ford_path, m)?)?;

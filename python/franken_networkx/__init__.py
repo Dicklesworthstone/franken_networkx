@@ -18743,6 +18743,13 @@ except ImportError:  # pragma: no cover — defensive for partial builds
 
 try:
     from franken_networkx._fnx import (
+        adjacency_nodelist_typed_arrays as _native_adjacency_nodelist_typed_arrays,
+    )
+except ImportError:  # pragma: no cover — defensive for partial builds
+    _native_adjacency_nodelist_typed_arrays = None
+
+try:
+    from franken_networkx._fnx import (
         graph_has_edge_attr as _native_has_edge_attr,
     )
 except ImportError:  # pragma: no cover — defensive for partial builds
@@ -44245,7 +44252,12 @@ def to_scipy_sparse_array(G, nodelist=None, dtype=None, weight="weight", format=
             if native_index_result is not None:
                 rows, cols = native_index_result
                 import numpy as _np
-                unit_dtype = _np.int64 if dtype is None else dtype
+                # br-r37-c1-pmqhz-nl: nx infers float64 for an EMPTY edge set
+                # (empty data list), int64 for unit weights otherwise.
+                if dtype is None:
+                    unit_dtype = _np.float64 if len(rows) == 0 else _np.int64
+                else:
+                    unit_dtype = dtype
                 data = _np.ones(len(rows), dtype=unit_dtype)
                 matrix = scipy.sparse.coo_array(
                     (data, (rows, cols)),
@@ -44282,7 +44294,50 @@ def to_scipy_sparse_array(G, nodelist=None, dtype=None, weight="weight", format=
             if typed_native_result is not None:
                 rows, cols, data, needs_float_dtype = typed_native_result
                 import numpy as _np
-                data_dtype = _np.float64 if needs_float_dtype else _np.int64
+                # br-r37-c1-pmqhz-nl: an empty edge set (e.g. a subset nodelist
+                # with no internal edges) must be float64 — nx infers float64
+                # from the empty data list, not int64.
+                data_dtype = (
+                    _np.float64 if (needs_float_dtype or len(data) == 0) else _np.int64
+                )
+                matrix = scipy.sparse.coo_array(
+                    (
+                        _np.asarray(data, dtype=data_dtype),
+                        (
+                            _np.asarray(rows, dtype=_np.intp),
+                            _np.asarray(cols, dtype=_np.intp),
+                        ),
+                    ),
+                    shape=(len(nodelist), len(nodelist)),
+                )
+                return matrix.asformat(format)
+
+        if (
+            _probe_native_missing_default_weight
+            and native_index_result is None
+            and not default_nodelist
+            and type(G) in (Graph, DiGraph)
+            and _native_adjacency_nodelist_typed_arrays is not None
+        ):
+            # br-r37-c1-pmqhz-nl: explicit (non-default) nodelist with present
+            # string weights and dtype=None used to fall back to per-edge
+            # G[u][v] Python reads (~3.5-4.2x slower). The nodelist typed helper
+            # remaps endpoints (storage order -> key -> nodelist position),
+            # skipping edges outside a subset nodelist, with the same type-based
+            # dtype metadata as the default-order helper.
+            _sync_rust_edge_attrs(G, edge_only=True)
+            typed_native_result = _native_adjacency_nodelist_typed_arrays(
+                G, nodelist, weight, 1.0
+            )
+            if typed_native_result is not None:
+                rows, cols, data, needs_float_dtype = typed_native_result
+                import numpy as _np
+                # br-r37-c1-pmqhz-nl: an empty edge set (e.g. a subset nodelist
+                # with no internal edges) must be float64 — nx infers float64
+                # from the empty data list, not int64.
+                data_dtype = (
+                    _np.float64 if (needs_float_dtype or len(data) == 0) else _np.int64
+                )
                 matrix = scipy.sparse.coo_array(
                     (
                         _np.asarray(data, dtype=data_dtype),
