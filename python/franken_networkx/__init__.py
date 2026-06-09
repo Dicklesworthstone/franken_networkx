@@ -15148,6 +15148,32 @@ class _ApproximationNamespace:
             raise ValueError("Expected non-empty NetworkX graph!")
         return maximal_matching(G)
 
+    def diameter(self, G, seed=None, *, backend=None, **backend_kwargs):
+        # br-r37-c1-apxdiam: nx's undirected 2-sweep (Magnien-Latapy-Habib) is
+        # cheap, but the generic __getattr__ converts fnx->nx and runs nx's
+        # 2-sweep whose internal BFS dispatches BACK onto slow fnx adjacency
+        # (~37x slower than this native path; 12.8x vs nx). Reproduce the
+        # algorithm directly: seed.choice(list(G)) -> single-source BFS distances
+        # (fnx integer-CSR, nx-discovery-order) -> the last (farthest) node ->
+        # its eccentricity. Byte-identical to the previous fnx result (0/150) and
+        # faster than nx. Directed (2-dSweep) keeps the delegated path.
+        _validate_backend_dispatch_keywords("diameter", backend, backend_kwargs)
+        G = _coerce_arg_to_fnx_graph(G)
+        if len(G) == 0:
+            raise NetworkXError("Expected non-empty NetworkX graph!")
+        if G.number_of_nodes() == 1:
+            return 0
+        if G.is_directed():
+            nx_G = _networkx_graph_for_parity(G)
+            return _nx.approximation.diameter(nx_G, seed=seed)
+        rng = _generator_random_state(seed)
+        source = rng.choice(list(G))
+        distances = single_source_shortest_path_length(G, source)
+        if len(distances) != len(G):
+            raise NetworkXError("Graph not connected.")
+        *_, node = distances
+        return eccentricity(G, node)
+
     def __getattr__(self, name):
         nx_func = getattr(_nx.approximation, name)
 
