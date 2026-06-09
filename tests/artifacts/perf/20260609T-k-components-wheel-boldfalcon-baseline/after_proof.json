@@ -1,0 +1,456 @@
+{
+  "all_match": true,
+  "bead": "br-r37-c1-04z53.62",
+  "cases": [
+    {
+      "edges": 8,
+      "family": "wheel",
+      "flow_probe": {
+        "fnx": {
+          "called": true,
+          "exception": "FlowProbe",
+          "message": "flow called"
+        },
+        "nx": {
+          "called": true,
+          "exception": "FlowProbe",
+          "message": "flow called"
+        }
+      },
+      "fnx": [
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "2",
+                "3",
+                "4"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 3,
+          "value_type": "list"
+        },
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "2",
+                "3",
+                "4"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 2,
+          "value_type": "list"
+        },
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "2",
+                "3",
+                "4"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 1,
+          "value_type": "list"
+        }
+      ],
+      "graph_sha256": "ac6fc836fd4b5a1d9ea5a270539dc45cfbff4829a7b28ffccdf9a845d8d0aede",
+      "key_order": [
+        3,
+        2,
+        1
+      ],
+      "match": true,
+      "nodes": 5,
+      "nx": [
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "2",
+                "3",
+                "4"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 3,
+          "value_type": "list"
+        },
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "2",
+                "3",
+                "4"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 2,
+          "value_type": "list"
+        },
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "2",
+                "3",
+                "4"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 1,
+          "value_type": "list"
+        }
+      ],
+      "result_sha256": "74d3f8207f3ddb54df36db6eb611b7d2a6c2ef66ec45c92f20117d657fba94e3",
+      "size": 5
+    },
+    {
+      "edges": 14,
+      "family": "wheel",
+      "flow_probe": {
+        "fnx": {
+          "called": true,
+          "exception": "FlowProbe",
+          "message": "flow called"
+        },
+        "nx": {
+          "called": true,
+          "exception": "FlowProbe",
+          "message": "flow called"
+        }
+      },
+      "fnx": [
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "7"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 3,
+          "value_type": "list"
+        },
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "7"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 2,
+          "value_type": "list"
+        },
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "7"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 1,
+          "value_type": "list"
+        }
+      ],
+      "graph_sha256": "7acf8f1d0d7901b913ce247ed044937c2c4fbd21ae09710e96c6b441d200feeb",
+      "key_order": [
+        3,
+        2,
+        1
+      ],
+      "match": true,
+      "nodes": 8,
+      "nx": [
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "7"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 3,
+          "value_type": "list"
+        },
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "7"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 2,
+          "value_type": "list"
+        },
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "7"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 1,
+          "value_type": "list"
+        }
+      ],
+      "result_sha256": "5a482ec83da0861e84eb03d66c13d374244b4bbabf914e0b94cbcd09f5fa59cc",
+      "size": 8
+    },
+    {
+      "edges": 22,
+      "family": "wheel",
+      "flow_probe": {
+        "fnx": {
+          "called": true,
+          "exception": "FlowProbe",
+          "message": "flow called"
+        },
+        "nx": {
+          "called": true,
+          "exception": "FlowProbe",
+          "message": "flow called"
+        }
+      },
+      "fnx": [
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "10",
+                "11",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "7",
+                "8",
+                "9"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 3,
+          "value_type": "list"
+        },
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "10",
+                "11",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "7",
+                "8",
+                "9"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 2,
+          "value_type": "list"
+        },
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "10",
+                "11",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "7",
+                "8",
+                "9"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 1,
+          "value_type": "list"
+        }
+      ],
+      "graph_sha256": "07a48929c1721558b2cf0fbd8ea0c40e7b559196b44041d7cf140659b4d40142",
+      "key_order": [
+        3,
+        2,
+        1
+      ],
+      "match": true,
+      "nodes": 12,
+      "nx": [
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "10",
+                "11",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "7",
+                "8",
+                "9"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 3,
+          "value_type": "list"
+        },
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "10",
+                "11",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "7",
+                "8",
+                "9"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 2,
+          "value_type": "list"
+        },
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "10",
+                "11",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "7",
+                "8",
+                "9"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 1,
+          "value_type": "list"
+        }
+      ],
+      "result_sha256": "0b7b69a03fcd53ab02f112b7ce7d384aa5fb3ec73890415579a9fa1ce853a818",
+      "size": 12
+    }
+  ],
+  "fnx_file": "/data/projects/.scratch/franken_networkx_beads_0e9ey_boldfalcon_20260609/python/franken_networkx/__init__.py",
+  "genuine_networkx": "nx.k_components.orig_func",
+  "isomorphism": {
+    "custom_flow": "flow_func sentinel must still be observed by FNX and genuine NX",
+    "floating_point": "N/A: output is integer node-set structure",
+    "ordering_preserved": "golden records k order and component order",
+    "rng": "N/A: graph builders are deterministic",
+    "tie_breaking_unchanged": "accepted wheel cases have one all-node component at k=3, k=2, and k=1"
+  },
+  "nx_file": "/data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/__init__.py",
+  "nx_version": "3.6.1",
+  "python": "/data/projects/franken_networkx/.venv/bin/python"
+}

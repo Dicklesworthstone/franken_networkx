@@ -42947,6 +42947,54 @@ def _ordered_prism_k_components(G):
     }
 
 
+def _wheel_k_components(G):
+    node_count = len(G)
+    if node_count < 5:
+        return None
+
+    rim_count = node_count - 1
+    if G.number_of_edges() != 2 * rim_count:
+        return None
+
+    degrees = dict(G.degree())
+    hubs = [node for node, degree in degrees.items() if degree == rim_count]
+    if len(hubs) != 1:
+        return None
+
+    hub = hubs[0]
+    rim_nodes = [node for node in G if node != hub]
+    rim_set = set(rim_nodes)
+    rim_edge_degree_sum = 0
+    for node in rim_nodes:
+        if degrees[node] != 3 or not G.has_edge(hub, node):
+            return None
+        rim_degree = sum(1 for neighbor in G[node] if neighbor in rim_set)
+        if rim_degree != 2:
+            return None
+        rim_edge_degree_sum += rim_degree
+
+    if rim_edge_degree_sum // 2 != rim_count:
+        return None
+
+    pending = [rim_nodes[0]]
+    seen = {rim_nodes[0]}
+    while pending:
+        node = pending.pop()
+        for neighbor in G[node]:
+            if neighbor in rim_set and neighbor not in seen:
+                seen.add(neighbor)
+                pending.append(neighbor)
+    if len(seen) != rim_count:
+        return None
+
+    nodes_set = set(G)
+    return {
+        3: [set(nodes_set)],
+        2: [set(nodes_set)],
+        1: [set(nodes_set)],
+    }
+
+
 def k_components(G, flow_func=None):
     """Return k-connected component structure.
 
@@ -42956,10 +43004,10 @@ def k_components(G, flow_func=None):
     and missed Moody-White recursive substructures. Complete graphs,
     simple-cycle components, forests, clique-block graphs, complete
     multipartite components, certified 2-degenerate biconnected components,
-    and ordered prism components are the safe exceptions: their k-component
-    lattices are closed form. Complete multipartite, 2-degenerate, and prism
-    residual components still delegate when a custom ``flow_func`` is supplied
-    because nx calls it there.
+    ordered prism components, and wheel components are the safe exceptions:
+    their k-component lattices are closed form. Complete multipartite,
+    2-degenerate, prism, and wheel residual components still delegate when a
+    custom ``flow_func`` is supplied because nx calls it there.
     """
     if type(G) is Graph:
         node_count = len(G)
@@ -42994,6 +43042,9 @@ def k_components(G, flow_func=None):
             prism_result = _ordered_prism_k_components(G)
             if prism_result is not None:
                 return prism_result
+            wheel_result = _wheel_k_components(G)
+            if wheel_result is not None:
+                return wheel_result
             multipartite_result = _complete_multipartite_k_components(G)
             if multipartite_result is not None:
                 return multipartite_result

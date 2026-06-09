@@ -1,0 +1,52 @@
+{
+  "results": [
+    {
+      "command": "/data/projects/franken_networkx/.venv/bin/python tests/artifacts/perf/20260609T-k-components-wheel-boldfalcon-baseline/harness_wheel.py time --which fnx --size 12 --repeats 1",
+      "mean": 0.59772013388,
+      "stddev": 0.022766955749078426,
+      "median": 0.59985875328,
+      "user": 4.83121548,
+      "system": 0.05530568,
+      "min": 0.57076567828,
+      "max": 0.6318207022800001,
+      "times": [
+        0.57076567828,
+        0.6318207022800001,
+        0.59985875328,
+        0.5848234102800001,
+        0.60133212528
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "/data/projects/franken_networkx/.venv/bin/python tests/artifacts/perf/20260609T-k-components-wheel-boldfalcon-baseline/harness_wheel.py time --which nx --size 12 --repeats 1",
+      "mean": 0.5937192224800001,
+      "stddev": 0.015958458533888286,
+      "median": 0.5891028272800001,
+      "user": 4.886188280000001,
+      "system": 0.050873480000000006,
+      "min": 0.5755418572800001,
+      "max": 0.61620691328,
+      "times": [
+        0.5848939832800001,
+        0.61620691328,
+        0.5755418572800001,
+        0.5891028272800001,
+        0.60285053128
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

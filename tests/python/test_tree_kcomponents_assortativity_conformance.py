@@ -644,6 +644,45 @@ def test_k_components_ordered_prism_missing_rung_delegates_and_matches_networkx(
     assert fnx.k_components(fg) == nx.k_components(ng)
 
 
+@pytest.mark.parametrize("size", [5, 8, 12])
+def test_k_components_wheel_fast_path_matches_networkx(size):
+    fg = fnx.wheel_graph(size)
+    ng = nx.wheel_graph(size)
+
+    fr = fnx.k_components(fg)
+    nr = nx.k_components(ng)
+
+    assert list(fr.keys()) == [3, 2, 1]
+    assert list(fr.keys()) == list(nr.keys())
+    assert [[set(component) for component in fr[k]] for k in fr] == [
+        [set(component) for component in nr[k]] for k in nr
+    ]
+
+
+def test_k_components_wheel_custom_flow_func_delegates_like_networkx():
+    fg = fnx.wheel_graph(8)
+    ng = nx.wheel_graph(8)
+
+    def fail_flow(*args, **kwargs):
+        raise RuntimeError("flow called")
+
+    with pytest.raises(RuntimeError, match="flow called"):
+        fnx.k_components(fg, flow_func=fail_flow)
+    with pytest.raises(RuntimeError, match="flow called"):
+        nx.k_components(ng, flow_func=fail_flow)
+
+
+def test_k_components_wheel_disconnected_rim_delegates_and_matches_networkx():
+    fg = fnx.Graph()
+    ng = nx.Graph()
+    spokes = [(0, node) for node in range(1, 7)]
+    rim_edges = [(1, 2), (2, 3), (3, 1), (4, 5), (5, 6), (6, 4)]
+    fg.add_edges_from(spokes + rim_edges)
+    ng.add_edges_from(spokes + rim_edges)
+
+    assert fnx.k_components(fg) == nx.k_components(ng)
+
+
 @pytest.mark.parametrize(
     "name,builder,k",
     [
