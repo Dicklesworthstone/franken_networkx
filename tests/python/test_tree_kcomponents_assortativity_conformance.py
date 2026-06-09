@@ -721,6 +721,77 @@ def test_k_components_hypercube_missing_edge_delegates_and_matches_networkx():
     assert fnx.k_components(fg) == nx.k_components(ng)
 
 
+def _paired_clique_barbell(L, size):
+    graph = L.Graph()
+    left = list(range(size))
+    right = list(range(size, 2 * size))
+    graph.add_nodes_from(left)
+    graph.add_nodes_from(right)
+    for group in (left, right):
+        for index, source in enumerate(group):
+            for target in group[index + 1:]:
+                graph.add_edge(source, target)
+    graph.add_edge(left[0], right[0])
+    graph.add_edge(left[1], right[1])
+    return graph
+
+
+def _near_barbell_bypass(L, size):
+    graph = L.barbell_graph(size, 1)
+    graph.add_edge(1, size + 2)
+    return graph
+
+
+@pytest.mark.parametrize(
+    "name,builder,size",
+    [
+        ("paired_clique_barbell", _paired_clique_barbell, 5),
+        ("paired_clique_barbell", _paired_clique_barbell, 8),
+        ("near_barbell_bypass", _near_barbell_bypass, 5),
+        ("near_barbell_bypass", _near_barbell_bypass, 8),
+    ],
+)
+def test_k_components_ordered_two_clique_bridge_matches_networkx(
+    name,
+    builder,
+    size,
+):
+    fg = builder(fnx, size)
+    ng = builder(nx, size)
+    fr = fnx.k_components(fg)
+    nr = nx.k_components(ng)
+    assert list(fr.keys()) == list(nr.keys()), name
+    assert fr == nr, name
+
+
+def test_k_components_ordered_two_clique_bridge_custom_flow_delegates_like_networkx():
+    fg = _paired_clique_barbell(fnx, 5)
+    ng = _paired_clique_barbell(nx, 5)
+
+    def fail_flow(*_args, **_kwargs):
+        raise RuntimeError("flow reached")
+
+    with pytest.raises(RuntimeError, match="flow reached"):
+        fnx.k_components(fg, flow_func=fail_flow)
+    with pytest.raises(RuntimeError, match="flow reached"):
+        nx.k_components(ng, flow_func=fail_flow)
+
+
+def test_k_components_ordered_two_clique_bridge_shared_endpoint_delegates():
+    fg = fnx.Graph()
+    ng = nx.Graph()
+    for graph in (fg, ng):
+        graph.add_nodes_from(range(8))
+        for group in (range(4), range(4, 8)):
+            group = list(group)
+            for index, source in enumerate(group):
+                for target in group[index + 1:]:
+                    graph.add_edge(source, target)
+        graph.add_edge(0, 4)
+        graph.add_edge(0, 5)
+    assert fnx.k_components(fg) == nx.k_components(ng)
+
+
 @pytest.mark.parametrize(
     "builder",
     [

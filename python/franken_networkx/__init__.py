@@ -43096,6 +43096,82 @@ def _hypercube_k_components(G):
     return {k: [set(nodes_set)] for k in range(dimension, 0, -1)}
 
 
+def _ordered_two_clique_bridge_k_components(G):
+    nodes = list(G)
+    low_nodes = [node for node in nodes if G.degree(node) == 2]
+    if len(low_nodes) > 1:
+        return None
+
+    core_nodes = [node for node in nodes if node not in low_nodes]
+    if len(core_nodes) < 8 or len(core_nodes) % 2 != 0:
+        return None
+
+    clique_size = len(core_nodes) // 2
+    if clique_size < 4:
+        return None
+
+    left = core_nodes[:clique_size]
+    right = core_nodes[clique_size:]
+    left_set = set(left)
+    right_set = set(right)
+    if left_set & right_set:
+        return None
+
+    adjacency = {node: set(G[node]) for node in nodes}
+    if not _is_biconnected_component_adjacency(nodes, adjacency):
+        return None
+
+    def is_clique(group, group_set):
+        return all(group_set - {node} <= adjacency[node] for node in group)
+
+    if not is_clique(left, left_set) or not is_clique(right, right_set):
+        return None
+
+    direct_edges = []
+    for left_node in left:
+        for right_node in right:
+            if right_node in adjacency[left_node]:
+                direct_edges.append((left_node, right_node))
+
+    if low_nodes:
+        low_node = low_nodes[0]
+        low_neighbors = adjacency[low_node]
+        left_neighbors = [node for node in left if node in low_neighbors]
+        right_neighbors = [node for node in right if node in low_neighbors]
+        if len(left_neighbors) != 1 or len(right_neighbors) != 1:
+            return None
+        if len(direct_edges) != 1:
+            return None
+        direct_left, direct_right = direct_edges[0]
+        if direct_left == left_neighbors[0] or direct_right == right_neighbors[0]:
+            return None
+    else:
+        if len(direct_edges) != 2:
+            return None
+        if (
+            len({edge[0] for edge in direct_edges}) != 2
+            or len({edge[1] for edge in direct_edges}) != 2
+        ):
+            return None
+
+    expected_edges = (
+        clique_size * (clique_size - 1)
+        + len(direct_edges)
+        + (2 if low_nodes else 0)
+    )
+    if G.number_of_edges() != expected_edges:
+        return None
+
+    whole = set(nodes)
+    result = {
+        k: [set(left_set), set(right_set)]
+        for k in range(clique_size - 1, 2, -1)
+    }
+    result[2] = [set(whole)]
+    result[1] = [set(whole)]
+    return result
+
+
 def k_components(G, flow_func=None):
     """Return k-connected component structure.
 
@@ -43105,12 +43181,13 @@ def k_components(G, flow_func=None):
     and missed Moody-White recursive substructures. Complete graphs,
     simple-cycle components, forests, clique-block graphs, complete
     multipartite components, certified 2-degenerate biconnected components,
-    ordered prism components, wheel components, and tuple-label hypercube
-    components, plus bounded simple cubic components whose 3-connectivity is
-    certified by pair-removal BFS, are the safe exceptions: their k-component
-    lattices are closed form. Complete multipartite, 2-degenerate, prism,
-    wheel, hypercube, and cubic residual components still delegate when a
-    custom ``flow_func`` is supplied because nx calls it there.
+    ordered prism components, wheel components, tuple-label hypercube
+    components, ordered two-clique bridge components, plus bounded simple
+    cubic components whose 3-connectivity is certified by pair-removal BFS, are
+    the safe exceptions: their k-component lattices are closed form. Complete
+    multipartite, 2-degenerate, prism, wheel, hypercube, two-clique bridge, and
+    cubic residual components still delegate when a custom ``flow_func`` is
+    supplied because nx calls it there.
     """
     if type(G) is Graph:
         node_count = len(G)
@@ -43154,6 +43231,9 @@ def k_components(G, flow_func=None):
             cubic_result = _cubic_three_connected_k_components(G)
             if cubic_result is not None:
                 return cubic_result
+            two_clique_bridge_result = _ordered_two_clique_bridge_k_components(G)
+            if two_clique_bridge_result is not None:
+                return two_clique_bridge_result
             multipartite_result = _complete_multipartite_k_components(G)
             if multipartite_result is not None:
                 return multipartite_result

@@ -1,0 +1,65 @@
+profile which=fnx family=paired_clique_barbell size=8 repeats=5
+fnx_file=/data/projects/franken_networkx_cod_kcomponents_61/python/franken_networkx/__init__.py
+nx_file=/data/projects/.scratch/venvs/fnx-kcomponents61-boldfalcon/lib/python3.13/site-packages/networkx/__init__.py
+nx_version=3.6.1
+
+Tue Jun  9 17:03:39 2026    /data/tmp/tmps7u6qc8j
+
+         6260 function calls (6180 primitive calls) in 0.002 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+     10/5    0.000    0.000    0.002    0.000 /data/projects/franken_networkx_cod_kcomponents_61/python/franken_networkx/__init__.py:48486(wrapper)
+        5    0.000    0.000    0.002    0.000 /data/projects/franken_networkx_cod_kcomponents_61/python/franken_networkx/__init__.py:43120(k_components)
+        5    0.000    0.000    0.002    0.000 /data/projects/franken_networkx_cod_kcomponents_61/python/franken_networkx/__init__.py:43044(_ordered_two_clique_bridge_k_components)
+       80    0.000    0.000    0.001    0.000 /data/projects/franken_networkx_cod_kcomponents_61/python/franken_networkx/__init__.py:1118(__iter__)
+       80    0.000    0.000    0.001    0.000 /data/projects/franken_networkx_cod_kcomponents_61/python/franken_networkx/__init__.py:33265(_cached_adj_row_key_iter)
+      180    0.000    0.000    0.000    0.000 /data/projects/franken_networkx_cod_kcomponents_61/python/franken_networkx/__init__.py:33180(_has_networkx_private_storage)
+      835    0.000    0.000    0.000    0.000 /data/projects/franken_networkx_cod_kcomponents_61/python/franken_networkx/__init__.py:33172(_private_override)
+       80    0.000    0.000    0.000    0.000 /data/projects/franken_networkx_cod_kcomponents_61/python/franken_networkx/__init__.py:1382(_graph_getitem_from_adj)
+        5    0.000    0.000    0.000    0.000 /data/projects/franken_networkx_cod_kcomponents_61/python/franken_networkx/__init__.py:42835(_is_biconnected_component_adjacency)
+     80/5    0.000    0.000    0.000    0.000 /data/projects/franken_networkx_cod_kcomponents_61/python/franken_networkx/__init__.py:42847(visit)
+       80    0.000    0.000    0.000    0.000 /data/projects/franken_networkx_cod_kcomponents_61/python/franken_networkx/__init__.py:33766(degree)
+       80    0.000    0.000    0.000    0.000 /data/projects/franken_networkx_cod_kcomponents_61/python/franken_networkx/__init__.py:1187(__getitem__)
+       80    0.000    0.000    0.000    0.000 /data/projects/franken_networkx_cod_kcomponents_61/python/franken_networkx/__init__.py:34056(<lambda>)
+     1580    0.000    0.000    0.000    0.000 {method 'get' of 'dict' objects}
+       80    0.000    0.000    0.000    0.000 /data/projects/franken_networkx_cod_kcomponents_61/python/franken_networkx/__init__.py:33234(_private_adj_mapping)
+      995    0.000    0.000    0.000    0.000 {built-in method builtins.vars}
+       80    0.000    0.000    0.000    0.000 /data/projects/franken_networkx_cod_kcomponents_61/python/franken_networkx/__init__.py:4142(__call__)
+       20    0.000    0.000    0.000    0.000 /data/projects/franken_networkx_cod_kcomponents_61/python/franken_networkx/__init__.py:33933(number_of_edges)
+       80    0.000    0.000    0.000    0.000 {method '_native_adjacency_row_dict' of 'franken_networkx.Graph' objects}
+       10    0.000    0.000    0.000    0.000 /data/projects/franken_networkx_cod_kcomponents_61/python/franken_networkx/__init__.py:43069(is_clique)
+       10    0.000    0.000    0.000    0.000 {built-in method builtins.all}
+        5    0.000    0.000    0.000    0.000 /data/projects/franken_networkx_cod_kcomponents_61/python/franken_networkx/__init__.py:17961(number_of_selfloops)
+       80    0.000    0.000    0.000    0.000 /data/projects/franken_networkx_cod_kcomponents_61/python/franken_networkx/__init__.py:1302(_accessor)
+       80    0.000    0.000    0.000    0.000 /data/projects/franken_networkx_cod_kcomponents_61/python/franken_networkx/__init__.py:1169(_atlas)
+       90    0.000    0.000    0.000    0.000 /data/projects/franken_networkx_cod_kcomponents_61/python/franken_networkx/__init__.py:43070(<genexpr>)
+      505    0.000    0.000    0.000    0.000 {built-in method builtins.min}
+       80    0.000    0.000    0.000    0.000 {built-in method builtins.len}
+       25    0.000    0.000    0.000    0.000 /data/projects/franken_networkx_cod_kcomponents_61/python/franken_networkx/__init__.py:33676(__len__)
+        5    0.000    0.000    0.000    0.000 /data/projects/franken_networkx_cod_kcomponents_61/python/franken_networkx/__init__.py:42917(_ordered_prism_k_components)
+      190    0.000    0.000    0.000    0.000 {built-in method builtins.isinstance}
+        5    0.000    0.000    0.000    0.000 /data/projects/franken_networkx_cod_kcomponents_61/python/franken_networkx/__init__.py:42998(_hypercube_k_components)
+       80    0.000    0.000    0.000    0.000 /data/projects/franken_networkx_cod_kcomponents_61/python/franken_networkx/__init__.py:1321(<lambda>)
+        5    0.000    0.000    0.000    0.000 /data/projects/franken_networkx_cod_kcomponents_61/python/franken_networkx/__init__.py:42950(_wheel_k_components)
+        5    0.000    0.000    0.000    0.000 {built-in method franken_networkx._fnx.nodes_with_selfloops_rust}
+       20    0.000    0.000    0.000    0.000 /data/projects/franken_networkx_cod_kcomponents_61/python/franken_networkx/__init__.py:295(number_of_edges)
+       10    0.000    0.000    0.000    0.000 /data/projects/franken_networkx_cod_kcomponents_61/python/franken_networkx/__init__.py:33666(__iter__)
+      160    0.000    0.000    0.000    0.000 {built-in method builtins.hash}
+       80    0.000    0.000    0.000    0.000 /data/projects/franken_networkx_cod_kcomponents_61/python/franken_networkx/__init__.py:1106(__init__)
+        5    0.000    0.000    0.000    0.000 /data/projects/franken_networkx_cod_kcomponents_61/python/franken_networkx/__init__.py:12038(_coerce_arg_to_fnx_graph)
+       80    0.000    0.000    0.000    0.000 {built-in method builtins.getattr}
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+       80    0.000    0.000    0.000    0.000 {built-in method builtins.iter}
+       80    0.000    0.000    0.000    0.000 {built-in method builtins.hasattr}
+       20    0.000    0.000    0.000    0.000 {function Graph.number_of_edges at 0x7e7ada444ea0}
+        5    0.000    0.000    0.000    0.000 /data/projects/franken_networkx_cod_kcomponents_61/python/franken_networkx/__init__.py:5712(predicate)
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx_cod_kcomponents_61/python/franken_networkx/__init__.py:4329(_graph_degree)
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx_cod_kcomponents_61/python/franken_networkx/__init__.py:1320(<lambda>)
+       80    0.000    0.000    0.000    0.000 {built-in method builtins.callable}
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx_cod_kcomponents_61/python/franken_networkx/__init__.py:1164(__init__)
+       10    0.000    0.000    0.000    0.000 {method 'append' of 'list' objects}
+       10    0.000    0.000    0.000    0.000 /data/projects/franken_networkx_cod_kcomponents_61/python/franken_networkx/__init__.py:21728(_validate_backend_dispatch_keywords)
+        5    0.000    0.000    0.000    0.000 {function _make_class_safe_predicate.<locals>.predicate at 0x7e7ada5d1300}
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx_cod_kcomponents_61/python/franken_networkx/__init__.py:4021(__init__)

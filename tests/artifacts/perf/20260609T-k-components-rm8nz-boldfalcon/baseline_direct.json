@@ -1,0 +1,104 @@
+{
+  "bead": "br-r37-c1-jfsyo",
+  "fnx_file": "/data/projects/franken_networkx_cod_kcomponents_61/python/franken_networkx/__init__.py",
+  "genuine_networkx": "nx.k_components.orig_func",
+  "kind": "direct_baseline",
+  "nx_file": "/data/projects/.scratch/venvs/fnx-kcomponents61-boldfalcon/lib/python3.13/site-packages/networkx/__init__.py",
+  "nx_version": "3.6.1",
+  "python": "/data/projects/.scratch/venvs/fnx-kcomponents61-boldfalcon/bin/python",
+  "repeats": 3,
+  "rows": [
+    {
+      "edges": 15,
+      "family": "chorded_cycle",
+      "fnx_mean": 0.00029807464064409334,
+      "fnx_median": 0.0002292440040037036,
+      "fnx_samples": [
+        0.0004562640096992254,
+        0.0002292440040037036,
+        0.00020871590822935104
+      ],
+      "nodes": 12,
+      "nx_mean": 0.09122102265246212,
+      "nx_median": 0.057429539039731026,
+      "nx_samples": [
+        0.16496771690435708,
+        0.057429539039731026,
+        0.05126581201329827
+      ],
+      "ratio_fnx_over_nx_mean": 0.0032676090661657156,
+      "ratio_fnx_over_nx_median": 0.003991743758296711,
+      "result_sha256": "0994c6151bd3f809184ac5a6977abcd76e90e7d83a0e10599b98d2ededc027d8",
+      "size": 12
+    },
+    {
+      "edges": 20,
+      "family": "chorded_cycle",
+      "fnx_mean": 0.0002743629738688469,
+      "fnx_median": 0.0002468180609866977,
+      "fnx_samples": [
+        0.00023990392219275236,
+        0.00033636693842709064,
+        0.0002468180609866977
+      ],
+      "nodes": 16,
+      "nx_mean": 0.6963620577007532,
+      "nx_median": 0.6978848050348461,
+      "nx_samples": [
+        0.7050413020187989,
+        0.6978848050348461,
+        0.6861600660486147
+      ],
+      "ratio_fnx_over_nx_mean": 0.0003939947198943291,
+      "ratio_fnx_over_nx_median": 0.00035366590475397126,
+      "result_sha256": "f546ac56e7b627d76539490728c9bd9f3f163ab8907fb3b223990a3c36db7b5d",
+      "size": 16
+    },
+    {
+      "edges": 58,
+      "family": "paired_clique_barbell",
+      "fnx_mean": 0.015877930369849007,
+      "fnx_median": 0.015384302008897066,
+      "fnx_samples": [
+        0.016982139088213444,
+        0.015384302008897066,
+        0.015267350012436509
+      ],
+      "nodes": 16,
+      "nx_mean": 0.01581744271485756,
+      "nx_median": 0.015383711084723473,
+      "nx_samples": [
+        0.015383711084723473,
+        0.014497172087430954,
+        0.01757144497241825
+      ],
+      "ratio_fnx_over_nx_mean": 1.0038241108933892,
+      "ratio_fnx_over_nx_median": 1.0000384123291408,
+      "result_sha256": "a5701ad4e863ba769bc7ce0890bb71fb3f4cd1035a1d1e52ea4aaff8e9c96caf",
+      "size": 8
+    },
+    {
+      "edges": 59,
+      "family": "near_barbell_bypass",
+      "fnx_mean": 0.0248402546858415,
+      "fnx_median": 0.02438521198928356,
+      "fnx_samples": [
+        0.025825181044638157,
+        0.02438521198928356,
+        0.024310371023602784
+      ],
+      "nodes": 17,
+      "nx_mean": 0.023588589974679053,
+      "nx_median": 0.02345290593802929,
+      "nx_samples": [
+        0.02424516703467816,
+        0.023067696951329708,
+        0.02345290593802929
+      ],
+      "ratio_fnx_over_nx_mean": 1.053062294630838,
+      "ratio_fnx_over_nx_median": 1.0397522615627142,
+      "result_sha256": "7e95f6875d1682b0e16b81a858df6dec2ff66d0d8b2238dbdeb4e2e608b8a95d",
+      "size": 8
+    }
+  ]
+}

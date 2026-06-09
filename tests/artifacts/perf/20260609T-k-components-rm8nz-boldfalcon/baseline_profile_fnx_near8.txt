@@ -1,0 +1,93 @@
+profile which=fnx family=near_barbell_bypass size=8 repeats=5
+fnx_file=/data/projects/franken_networkx_cod_kcomponents_61/python/franken_networkx/__init__.py
+nx_file=/data/projects/.scratch/venvs/fnx-kcomponents61-boldfalcon/lib/python3.13/site-packages/networkx/__init__.py
+nx_version=3.6.1
+
+Tue Jun  9 17:00:13 2026    /data/tmp/tmp2sayg6ng
+
+         1274164 function calls (1268880 primitive calls) in 0.437 seconds
+
+   Ordered by: cumulative time
+   List reduced from 471 to 80 due to restriction <80>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+     15/5    0.000    0.000    0.437    0.087 /data/projects/franken_networkx_cod_kcomponents_61/python/franken_networkx/__init__.py:48407(wrapper)
+        5    0.000    0.000    0.437    0.087 /data/projects/franken_networkx_cod_kcomponents_61/python/franken_networkx/__init__.py:43044(k_components)
+        5    0.000    0.000    0.430    0.086 /data/projects/franken_networkx_cod_kcomponents_61/python/franken_networkx/__init__.py:6877(_call_networkx_for_parity)
+  2080/10    0.018    0.000    0.426    0.043 /data/projects/.scratch/venvs/fnx-kcomponents61-boldfalcon/lib/python3.13/site-packages/networkx/utils/backends.py:554(_call_if_any_backends_installed)
+        5    0.000    0.000    0.426    0.085 <class 'networkx.utils.decorators.argmap'> compilation 9:1(argmap_k_components_5)
+  2080/10    0.002    0.000    0.426    0.043 /data/projects/.scratch/venvs/fnx-kcomponents61-boldfalcon/lib/python3.13/site-packages/networkx/utils/backends.py:1484(_call_with_backend)
+        5    0.001    0.000    0.426    0.085 /data/projects/.scratch/venvs/fnx-kcomponents61-boldfalcon/lib/python3.13/site-packages/networkx/algorithms/connectivity/kcomponents.py:20(k_components)
+       50    0.007    0.000    0.365    0.007 /data/projects/.scratch/venvs/fnx-kcomponents61-boldfalcon/lib/python3.13/site-packages/networkx/algorithms/connectivity/kcutsets.py:25(all_node_cuts)
+       25    0.000    0.000    0.270    0.011 <class 'networkx.utils.decorators.argmap'> compilation 64:1(argmap_transitive_closure_61)
+       25    0.001    0.000    0.270    0.011 /data/projects/.scratch/venvs/fnx-kcomponents61-boldfalcon/lib/python3.13/site-packages/networkx/algorithms/dag.py:717(transitive_closure)
+     1140    0.028    0.000    0.268    0.000 /data/projects/.scratch/venvs/fnx-kcomponents61-boldfalcon/lib/python3.13/site-packages/networkx/classes/digraph.py:748(add_edges_from)
+    10940    0.026    0.000    0.225    0.000 /data/projects/.scratch/venvs/fnx-kcomponents61-boldfalcon/lib/python3.13/site-packages/networkx/algorithms/dag.py:804(<genexpr>)
+    49720    0.052    0.000    0.151    0.000 /data/projects/.scratch/venvs/fnx-kcomponents61-boldfalcon/lib/python3.13/site-packages/networkx/algorithms/traversal/edgebfs.py:20(edge_bfs)
+     25/2    0.000    0.000    0.096    0.048 /data/projects/.scratch/venvs/fnx-kcomponents61-boldfalcon/lib/python3.13/site-packages/networkx/utils/decorators.py:783(func)
+      155    0.000    0.000    0.059    0.000 <class 'networkx.utils.decorators.argmap'> compilation 56:1(argmap_edmonds_karp_53)
+      155    0.000    0.000    0.057    0.000 /data/projects/.scratch/venvs/fnx-kcomponents61-boldfalcon/lib/python3.13/site-packages/networkx/algorithms/flow/edmondskarp.py:120(edmonds_karp)
+      155    0.008    0.000    0.057    0.000 /data/projects/.scratch/venvs/fnx-kcomponents61-boldfalcon/lib/python3.13/site-packages/networkx/algorithms/flow/edmondskarp.py:94(edmonds_karp_impl)
+    13525    0.009    0.000    0.055    0.000 /data/projects/.scratch/venvs/fnx-kcomponents61-boldfalcon/lib/python3.13/site-packages/networkx/algorithms/traversal/edgebfs.py:127(edges_from)
+       15    0.000    0.000    0.051    0.003 <class 'networkx.utils.decorators.argmap'> compilation 27:1(argmap_node_connectivity_24)
+       15    0.001    0.000    0.051    0.003 /data/projects/.scratch/venvs/fnx-kcomponents61-boldfalcon/lib/python3.13/site-packages/networkx/algorithms/connectivity/connectivity.py:209(node_connectivity)
+    56025    0.013    0.000    0.036    0.000 /data/projects/.scratch/venvs/fnx-kcomponents61-boldfalcon/lib/python3.13/site-packages/networkx/classes/graph.py:509(__getitem__)
+    13640    0.009    0.000    0.032    0.000 /data/projects/.scratch/venvs/fnx-kcomponents61-boldfalcon/lib/python3.13/site-packages/networkx/classes/reportviews.py:1102(__call__)
+    78355    0.023    0.000    0.031    0.000 /data/projects/.scratch/venvs/fnx-kcomponents61-boldfalcon/lib/python3.13/site-packages/networkx/classes/reportviews.py:799(<genexpr>)
+      155    0.001    0.000    0.030    0.000 /data/projects/.scratch/venvs/fnx-kcomponents61-boldfalcon/lib/python3.13/site-packages/networkx/algorithms/flow/edmondskarp.py:11(edmonds_karp_core)
+       75    0.000    0.000    0.028    0.000 <class 'networkx.utils.decorators.argmap'> compilation 48:1(argmap_local_node_connectivity_45)
+       75    0.000    0.000    0.027    0.000 /data/projects/.scratch/venvs/fnx-kcomponents61-boldfalcon/lib/python3.13/site-packages/networkx/algorithms/connectivity/connectivity.py:35(local_node_connectivity)
+    64110    0.021    0.000    0.026    0.000 /data/projects/.scratch/venvs/fnx-kcomponents61-boldfalcon/lib/python3.13/site-packages/networkx/classes/coreviews.py:81(__getitem__)
+       75    0.000    0.000    0.026    0.000 <class 'networkx.utils.decorators.argmap'> compilation 52:1(argmap_maximum_flow_value_49)
+       75    0.000    0.000    0.025    0.000 /data/projects/.scratch/venvs/fnx-kcomponents61-boldfalcon/lib/python3.13/site-packages/networkx/algorithms/flow/maxflow.py:171(maximum_flow_value)
+      445    0.010    0.000    0.024    0.000 /data/projects/.scratch/venvs/fnx-kcomponents61-boldfalcon/lib/python3.13/site-packages/networkx/algorithms/flow/edmondskarp.py:40(bidirectional_bfs)
+    13595    0.011    0.000    0.024    0.000 /data/projects/.scratch/venvs/fnx-kcomponents61-boldfalcon/lib/python3.13/site-packages/networkx/classes/reportviews.py:771(__init__)
+    50905    0.012    0.000    0.019    0.000 <frozen _collections_abc>:815(__contains__)
+39950/39865    0.007    0.000    0.017    0.000 {built-in method builtins.iter}
+      560    0.001    0.000    0.016    0.000 /data/projects/.scratch/venvs/fnx-kcomponents61-boldfalcon/lib/python3.13/site-packages/networkx/algorithms/dag.py:939(antichains)
+   126865    0.013    0.000    0.013    0.000 /data/projects/.scratch/venvs/fnx-kcomponents61-boldfalcon/lib/python3.13/site-packages/networkx/classes/coreviews.py:53(__getitem__)
+    48220    0.008    0.000    0.013    0.000 <frozen _collections_abc>:916(__iter__)
+       20    0.000    0.000    0.013    0.001 <class 'networkx.utils.decorators.argmap'> compilation 44:1(argmap_build_residual_network_41)
+       20    0.003    0.000    0.013    0.001 /data/projects/.scratch/venvs/fnx-kcomponents61-boldfalcon/lib/python3.13/site-packages/networkx/algorithms/flow/utils.py:80(build_residual_network)
+       50    0.000    0.000    0.012    0.000 /data/projects/.scratch/venvs/fnx-kcomponents61-boldfalcon/lib/python3.13/site-packages/networkx/classes/graph.py:1592(copy)
+       25    0.000    0.000    0.012    0.000 <class 'networkx.utils.decorators.argmap'> compilation 100:1(argmap_transitive_closure_dag_96)
+       20    0.000    0.000    0.012    0.001 <class 'networkx.utils.decorators.argmap'> compilation 36:1(argmap_build_auxiliary_node_connectivity_33)
+       25    0.000    0.000    0.011    0.000 /data/projects/.scratch/venvs/fnx-kcomponents61-boldfalcon/lib/python3.13/site-packages/networkx/algorithms/dag.py:809(transitive_closure_dag)
+       20    0.002    0.000    0.011    0.001 /data/projects/.scratch/venvs/fnx-kcomponents61-boldfalcon/lib/python3.13/site-packages/networkx/algorithms/connectivity/utils.py:10(build_auxiliary_node_connectivity)
+    14395    0.007    0.000    0.011    0.000 /data/projects/.scratch/venvs/fnx-kcomponents61-boldfalcon/lib/python3.13/site-packages/networkx/classes/graph.py:2013(nbunch_iter)
+    33135    0.006    0.000    0.010    0.000 <frozen _collections_abc>:897(__iter__)
+      850    0.001    0.000    0.010    0.000 <class 'networkx.utils.decorators.argmap'> compilation 68:1(argmap_edge_bfs_65)
+    13595    0.006    0.000    0.010    0.000 /data/projects/.scratch/venvs/fnx-kcomponents61-boldfalcon/lib/python3.13/site-packages/networkx/classes/reportviews.py:798(__iter__)
+       25    0.000    0.000    0.010    0.000 <class 'networkx.utils.decorators.argmap'> compilation 73:1(argmap_condensation_69)
+       25    0.001    0.000    0.009    0.000 /data/projects/.scratch/venvs/fnx-kcomponents61-boldfalcon/lib/python3.13/site-packages/networkx/algorithms/components/strongly_connected.py:277(condensation)
+    65634    0.009    0.000    0.009    0.000 {method 'add' of 'set' objects}
+      170    0.000    0.000    0.009    0.000 <class 'networkx.utils.decorators.argmap'> compilation 104:1(argmap_descendants_at_distance_101)
+    48494    0.008    0.000    0.008    0.000 {method 'update' of 'dict' objects}
+32880/32600    0.004    0.000    0.008    0.000 {built-in method builtins.len}
+     4380    0.005    0.000    0.007    0.000 /data/projects/.scratch/venvs/fnx-kcomponents61-boldfalcon/lib/python3.13/site-packages/networkx/classes/digraph.py:677(add_edge)
+  800/635    0.001    0.000    0.007    0.000 {built-in method builtins.sum}
+       25    0.000    0.000    0.006    0.000 /data/projects/.scratch/venvs/fnx-kcomponents61-boldfalcon/lib/python3.13/site-packages/networkx/utils/decorators.py:715(_lazy_compile)
+       25    0.000    0.000    0.006    0.000 /data/projects/.scratch/venvs/fnx-kcomponents61-boldfalcon/lib/python3.13/site-packages/networkx/utils/decorators.py:869(compile)
+      860    0.001    0.000    0.006    0.000 /data/projects/.scratch/venvs/fnx-kcomponents61-boldfalcon/lib/python3.13/site-packages/networkx/classes/coreviews.py:284(__len__)
+      540    0.001    0.000    0.006    0.000 /data/projects/.scratch/venvs/fnx-kcomponents61-boldfalcon/lib/python3.13/site-packages/networkx/classes/reportviews.py:531(__iter__)
+     1455    0.000    0.000    0.006    0.000 {built-in method builtins.next}
+    64230    0.005    0.000    0.005    0.000 /data/projects/.scratch/venvs/fnx-kcomponents61-boldfalcon/lib/python3.13/site-packages/networkx/classes/coreviews.py:44(__init__)
+     9185    0.004    0.000    0.005    0.000 /data/projects/.scratch/venvs/fnx-kcomponents61-boldfalcon/lib/python3.13/site-packages/networkx/classes/coreviews.py:354(new_node_ok)
+      890    0.001    0.000    0.005    0.000 /data/projects/.scratch/venvs/fnx-kcomponents61-boldfalcon/lib/python3.13/site-packages/networkx/classes/reportviews.py:1274(__iter__)
+    48870    0.005    0.000    0.005    0.000 /data/projects/.scratch/venvs/fnx-kcomponents61-boldfalcon/lib/python3.13/site-packages/networkx/classes/reportviews.py:787(<lambda>)
+      365    0.002    0.000    0.004    0.000 /data/projects/.scratch/venvs/fnx-kcomponents61-boldfalcon/lib/python3.13/site-packages/networkx/algorithms/flow/edmondskarp.py:19(augment)
+     6130    0.001    0.000    0.004    0.000 /data/projects/.scratch/venvs/fnx-kcomponents61-boldfalcon/lib/python3.13/site-packages/networkx/classes/coreviews.py:291(<genexpr>)
+    30973    0.004    0.000    0.004    0.000 {method 'get' of 'dict' objects}
+    48870    0.004    0.000    0.004    0.000 /data/projects/.scratch/venvs/fnx-kcomponents61-boldfalcon/lib/python3.13/site-packages/networkx/algorithms/traversal/edgebfs.py:156(edge_id)
+    13525    0.004    0.000    0.004    0.000 /data/projects/.scratch/venvs/fnx-kcomponents61-boldfalcon/lib/python3.13/site-packages/networkx/classes/reportviews.py:779(<lambda>)
+        5    0.000    0.000    0.004    0.001 /data/projects/franken_networkx_cod_kcomponents_61/python/franken_networkx/__init__.py:6283(_networkx_graph_for_parity)
+    33/25    0.000    0.000    0.004    0.000 /data/projects/.scratch/venvs/fnx-kcomponents61-boldfalcon/lib/python3.13/site-packages/networkx/utils/decorators.py:917(assemble)
+      195    0.003    0.000    0.004    0.000 /data/projects/.scratch/venvs/fnx-kcomponents61-boldfalcon/lib/python3.13/site-packages/networkx/algorithms/components/strongly_connected.py:15(strongly_connected_components)
+       35    0.000    0.000    0.004    0.000 <class 'networkx.utils.decorators.argmap'> compilation 32:1(argmap_is_connected_28)
+       95    0.002    0.000    0.003    0.000 /data/projects/.scratch/venvs/fnx-kcomponents61-boldfalcon/lib/python3.13/site-packages/networkx/classes/digraph.py:500(add_nodes_from)
+      170    0.000    0.000    0.003    0.000 /data/projects/.scratch/venvs/fnx-kcomponents61-boldfalcon/lib/python3.13/site-packages/networkx/algorithms/traversal/breadth_first_search.py:539(descendants_at_distance)
+4855/4610    0.001    0.000    0.003    0.000 /data/projects/.scratch/venvs/fnx-kcomponents61-boldfalcon/lib/python3.13/site-packages/networkx/classes/coreviews.py:300(<genexpr>)
+      170    0.000    0.000    0.003    0.000 /data/projects/.scratch/venvs/fnx-kcomponents61-boldfalcon/lib/python3.13/site-packages/networkx/algorithms/components/connected.py:16(connected_components)
+       35    0.000    0.000    0.003    0.000 /data/projects/.scratch/venvs/fnx-kcomponents61-boldfalcon/lib/python3.13/site-packages/networkx/algorithms/components/connected.py:152(is_connected)
+       15    0.000    0.000    0.003    0.000 /data/projects/.scratch/venvs/fnx-kcomponents61-boldfalcon/lib/python3.13/site-packages/networkx/algorithms/connectivity/kcomponents.py:181(_generate_partition)
+       25    0.000    0.000    0.003    0.000 /data/projects/.scratch/venvs/fnx-kcomponents61-boldfalcon/lib/python3.13/site-packages/networkx/utils/decorators.py:1059(signature)
