@@ -25846,36 +25846,43 @@ def prefix_tree(paths):
     tree.add_node(root, source=None)
     NIL = -1
     tree.add_node(NIL, source="NIL")
-    nodes_count = 1
 
-    # br-r37-c1-vuzc5: index each parent's existing children by their ``source``
-    # value (``{parent: {source_value: child_id}}``) so the per-path-step child
-    # lookup is O(1). The previous code scanned ``tree.successors(parent)`` and
-    # did a PyO3 ``tree.nodes[succ].get("source")`` read for EVERY candidate —
-    # O(path_len * fanout) with a Rust crossing per candidate (~16x slower than
-    # nx, which keeps the same children map). Output graph (nodes, edges,
-    # ``source`` attrs, NIL terminals) is byte-identical; a trie never has two
-    # children of one parent sharing a ``source`` value, so the map is exact.
-    children = {root: {}}
-    for path in paths:
-        parent = root
-        for node in path:
-            kids = children[parent]
-            found = kids.get(node)
-            if found is None:
-                new_node = nodes_count
-                nodes_count += 1
-                tree.add_node(new_node, source=node)
-                tree.add_edge(parent, new_node)
-                kids[node] = new_node
-                children[new_node] = {}
-                parent = new_node
-            else:
-                parent = found
-        # Terminal edge to NIL marks path end. Same path added twice is
-        # idempotent (has_edge check avoids parallel edges in the DiGraph).
-        if not tree.has_edge(parent, NIL):
-            tree.add_edge(parent, NIL)
+    # br-r37-c1-6y9sr / br-r37-c1-vuzc5: mirror nx's algorithm EXACTLY — group
+    # each parent's remaining paths by their first element (insertion order) and
+    # expand depth-first, naming each new node ``len(tree) - 1``. The previous
+    # path-by-path numbering produced trees ISOMORPHIC to nx's but with
+    # different integer node ids (nx assigns ids in DFS-subtree order, not
+    # path-arrival order), a real parity divergence on shared-prefix path sets.
+    # This get_children/DFS form is the same O(total path length) cost (still
+    # O(1) child grouping via the dict) AND byte-identical to nx: node ids,
+    # edges, ``source`` attrs, and NIL terminals all match.
+    def _get_children(parent, child_paths):
+        children = _defaultdict(list)
+        for path in child_paths:
+            if not path:
+                # Empty path: this prefix ends here -> edge to NIL terminal.
+                tree.add_edge(parent, NIL)
+                continue
+            child, *rest = path
+            children[child].append(rest)
+        return children
+
+    children = _get_children(root, paths)
+    stack = [(root, iter(children.items()))]
+    while stack:
+        parent, remaining_children = stack[-1]
+        try:
+            child, remaining_paths = next(remaining_children)
+        except StopIteration:
+            stack.pop()
+            continue
+        # Relabel each child with the next unused integer name (NIL at -1 is
+        # always counted, so ``len(tree) - 1`` yields 1, 2, 3, ... in DFS order).
+        new_name = len(tree) - 1
+        tree.add_node(new_name, source=child)
+        tree.add_edge(parent, new_name)
+        grandchildren = _get_children(new_name, remaining_paths)
+        stack.append((new_name, iter(grandchildren.items())))
     return tree
 
 
