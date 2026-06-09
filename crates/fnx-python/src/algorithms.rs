@@ -9902,6 +9902,7 @@ pub fn transitive_closure(
             nodes_seq: 0,
             edges_seq: 0,
             edges_dirty: std::sync::atomic::AtomicBool::new(false),
+            node_keys_cache: std::sync::Mutex::new(None),
         };
         Ok(py_dg.into_pyobject(py)?.into_any().unbind())
     }
@@ -15248,6 +15249,7 @@ pub fn power_rust(py: Python<'_>, g: &Bound<'_, PyAny>, k: usize) -> PyResult<Py
         nodes_seq: 0,
         edges_seq: 0,
         edges_dirty: AtomicBool::new(false),
+        node_keys_cache: std::sync::Mutex::new(None),
     };
     Ok(pg.into_pyobject(py)?.into_any().unbind())
 }
@@ -15323,6 +15325,7 @@ pub fn ego_graph_rust(
         nodes_seq: 0,
         edges_seq: 0,
         edges_dirty: AtomicBool::new(false),
+        node_keys_cache: std::sync::Mutex::new(None),
     };
     Ok(pg.into_pyobject(py)?.into_any().unbind())
 }
@@ -15458,6 +15461,7 @@ pub fn full_join_rust(
         nodes_seq: 0,
         edges_seq: 0,
         edges_dirty: AtomicBool::new(false),
+        node_keys_cache: std::sync::Mutex::new(None),
     };
     Ok(pg.into_pyobject(py)?.into_any().unbind())
 }
@@ -15492,6 +15496,7 @@ pub fn identified_nodes_rust(
         nodes_seq: 0,
         edges_seq: 0,
         edges_dirty: AtomicBool::new(false),
+        node_keys_cache: std::sync::Mutex::new(None),
     };
     Ok(pg.into_pyobject(py)?.into_any().unbind())
 }
@@ -15585,6 +15590,7 @@ pub fn dedensify_rust(
         nodes_seq: 0,
         edges_seq: 0,
         edges_dirty: AtomicBool::new(false),
+        node_keys_cache: std::sync::Mutex::new(None),
     };
     Ok((pg.into_pyobject(py)?.into_any().unbind(), compressors))
 }
@@ -15700,6 +15706,7 @@ pub fn quotient_graph_rust(
         nodes_seq: 0,
         edges_seq: 0,
         edges_dirty: AtomicBool::new(false),
+        node_keys_cache: std::sync::Mutex::new(None),
     };
     Ok(pg.into_pyobject(py)?.into_any().unbind())
 }
@@ -15729,6 +15736,7 @@ pub fn moral_graph_rust(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<PyObje
         nodes_seq: 0,
         edges_seq: 0,
         edges_dirty: AtomicBool::new(false),
+        node_keys_cache: std::sync::Mutex::new(None),
     };
     Ok(pg.into_pyobject(py)?.into_any().unbind())
 }
@@ -16144,6 +16152,7 @@ pub fn gomory_hu_tree_rust(
         nodes_seq: 0,
         edges_seq: 0,
         edges_dirty: AtomicBool::new(false),
+        node_keys_cache: std::sync::Mutex::new(None),
     };
     Ok(pg.into_pyobject(py)?.into_any().unbind())
 }
@@ -16197,6 +16206,7 @@ pub fn snap_aggregation_rust(
         nodes_seq: 0,
         edges_seq: 0,
         edges_dirty: AtomicBool::new(false),
+        node_keys_cache: std::sync::Mutex::new(None),
     };
     Ok(pg.into_pyobject(py)?.into_any().unbind())
 }
@@ -17435,6 +17445,7 @@ mod tests {
                 nodes_seq: 0,
                 edges_seq: 0,
                 edges_dirty: AtomicBool::new(false),
+                node_keys_cache: std::sync::Mutex::new(None),
             };
             let mut weighted_attrs = AttrMap::new();
             weighted_attrs.insert("weight".to_owned(), 1.0.into());

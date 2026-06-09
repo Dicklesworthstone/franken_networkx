@@ -155,6 +155,7 @@ fn report_to_pygraph(py: Python<'_>, report: ReadWriteReport) -> PyResult<PyGrap
         nodes_seq: 0,
         edges_seq: 0,
         edges_dirty: AtomicBool::new(false),
+        node_keys_cache: std::sync::Mutex::new(None),
     })
 }
 
@@ -219,6 +220,7 @@ fn di_report_to_pydigraph(py: Python<'_>, report: DiReadWriteReport) -> PyResult
         nodes_seq: 0,
         edges_seq: 0,
         edges_dirty: AtomicBool::new(false),
+        node_keys_cache: std::sync::Mutex::new(None),
     })
 }
 
@@ -660,6 +662,7 @@ fn read_adjlist_simple(py: Python<'_>, path: &str) -> PyResult<Option<PyGraph>> 
         nodes_seq: 0,
         edges_seq: 0,
         edges_dirty: AtomicBool::new(false),
+        node_keys_cache: std::sync::Mutex::new(None),
     }))
 }
 
@@ -794,6 +797,7 @@ fn read_edgelist_simple(py: Python<'_>, path: &str, mode: &str) -> PyResult<Opti
         nodes_seq: 0,
         edges_seq: 0,
         edges_dirty: AtomicBool::new(false),
+        node_keys_cache: std::sync::Mutex::new(None),
     }))
 }
 

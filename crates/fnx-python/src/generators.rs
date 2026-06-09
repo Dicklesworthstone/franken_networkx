@@ -44,6 +44,7 @@ fn report_to_pygraph(py: Python<'_>, graph: fnx_classes::Graph) -> PyResult<PyGr
         nodes_seq: 0,
         edges_seq: 0,
         edges_dirty: AtomicBool::new(false),
+        node_keys_cache: std::sync::Mutex::new(None),
     })
 }
 
@@ -64,6 +65,7 @@ fn report_to_pydigraph(
         nodes_seq: 0,
         edges_seq: 0,
         edges_dirty: AtomicBool::new(false),
+        node_keys_cache: std::sync::Mutex::new(None),
     };
 
     for canonical in pg.inner.nodes_ordered() {
@@ -104,6 +106,7 @@ fn report_to_pymultidigraph(
         nodes_seq: 0,
         edges_seq: 0,
         edges_dirty: AtomicBool::new(false),
+        node_keys_cache: std::sync::Mutex::new(None),
     };
 
     for canonical in pg.inner.nodes_ordered() {
@@ -209,6 +212,7 @@ pub fn grid_2d_graph_simple(py: Python<'_>, m: usize, n: usize) -> PyResult<PyGr
         nodes_seq: 0,
         edges_seq: 0,
         edges_dirty: AtomicBool::new(false),
+        node_keys_cache: std::sync::Mutex::new(None),
     })
 }
 
@@ -279,6 +283,7 @@ pub fn grid_graph_native(
         nodes_seq: 0,
         edges_seq: 0,
         edges_dirty: AtomicBool::new(false),
+        node_keys_cache: std::sync::Mutex::new(None),
     })
 }
 
@@ -342,6 +347,7 @@ pub fn kneser_graph_native(py: Python<'_>, n: usize, k: usize) -> PyResult<PyGra
         nodes_seq: 0,
         edges_seq: 0,
         edges_dirty: AtomicBool::new(false),
+        node_keys_cache: std::sync::Mutex::new(None),
     })
 }
 

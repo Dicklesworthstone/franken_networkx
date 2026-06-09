@@ -51,6 +51,7 @@ pub struct PyDiGraph {
     pub(crate) edges_seq: u64,
     /// See PyGraph::edges_dirty.
     pub(crate) edges_dirty: AtomicBool,
+    pub(crate) node_keys_cache: std::sync::Mutex<Option<(u64, Py<pyo3::types::PyTuple>)>>,
 }
 
 #[pyclass(
@@ -77,6 +78,7 @@ pub struct PyMultiDiGraph {
     pub(crate) edges_seq: u64,
     /// See PyGraph::edges_dirty.
     pub(crate) edges_dirty: AtomicBool,
+    pub(crate) node_keys_cache: std::sync::Mutex<Option<(u64, Py<pyo3::types::PyTuple>)>>,
 }
 
 impl PyMultiDiGraph {
@@ -284,6 +286,7 @@ impl PyMultiDiGraph {
             nodes_seq: 0,
             edges_seq: 0,
             edges_dirty: AtomicBool::new(false),
+            node_keys_cache: std::sync::Mutex::new(None),
         })
     }
 
@@ -1017,12 +1020,27 @@ impl PyMultiDiGraph {
     /// re-materialises every AdjacencyView row; building the Vec in Rust lets
     /// callers like ``non_neighbors`` enumerate every node in one crossing.
     /// Order = node insertion order (``nodes_ordered``).
-    fn _native_node_keys(&self, py: Python<'_>) -> Vec<PyObject> {
-        self.inner
+    fn _native_node_keys(&self, py: Python<'_>) -> PyObject {
+        let seq = self.nodes_seq;
+        {
+            let guard = self.node_keys_cache.lock().unwrap();
+            if let Some((cached_seq, tup)) = guard.as_ref() {
+                if *cached_seq == seq {
+                    return tup.clone_ref(py).into_any();
+                }
+            }
+        }
+        let keys: Vec<PyObject> = self
+            .inner
             .nodes_ordered()
             .into_iter()
             .map(|n| self.py_node_key(py, n))
-            .collect()
+            .collect();
+        let tup = pyo3::types::PyTuple::new(py, keys)
+            .expect("node-keys tuple")
+            .unbind();
+        *self.node_keys_cache.lock().unwrap() = Some((seq, tup.clone_ref(py)));
+        tup.into_any()
     }
 
     /// Monotonic node-mutation counter (br-r37-c1-39d82 / jft0i).
@@ -2536,6 +2554,7 @@ impl PyMultiDiGraph {
             nodes_seq: 0,
             edges_seq: 0,
             edges_dirty: AtomicBool::new(false),
+            node_keys_cache: std::sync::Mutex::new(None),
         };
         for node in self.inner.nodes_ordered() {
             let rust_attrs = self
@@ -2601,6 +2620,7 @@ impl PyMultiDiGraph {
             nodes_seq: 0,
             edges_seq: 0,
             edges_dirty: AtomicBool::new(false),
+            node_keys_cache: std::sync::Mutex::new(None),
         };
         for node in self.inner.nodes_ordered() {
             let py_attrs = self.node_py_attrs.get(node).map_or_else(
@@ -2657,6 +2677,7 @@ impl PyMultiDiGraph {
             nodes_seq: 0,
             edges_seq: 0,
             edges_dirty: AtomicBool::new(false),
+            node_keys_cache: std::sync::Mutex::new(None),
         };
         let mut node_batch: Vec<(String, fnx_classes::AttrMap)> =
             Vec::with_capacity(self.inner.node_count());
@@ -2790,6 +2811,7 @@ impl PyMultiDiGraph {
             nodes_seq: 0,
             edges_seq: 0,
             edges_dirty: AtomicBool::new(self.edges_dirty.load(Ordering::Relaxed)),
+            node_keys_cache: std::sync::Mutex::new(None),
         };
         // br-r37-c1-s0d4x: nx's MultiDiGraph.copy() walk fills PRED rows
         // in u-major order (succ rows keep original order); the verbatim
@@ -2869,6 +2891,7 @@ impl PyMultiDiGraph {
             nodes_seq: 0,
             edges_seq: 0,
             edges_dirty: AtomicBool::new(self.edges_dirty.load(Ordering::Relaxed)),
+            node_keys_cache: std::sync::Mutex::new(None),
         })
     }
 
@@ -2906,6 +2929,7 @@ impl PyMultiDiGraph {
             nodes_seq: 0,
             edges_seq: 0,
             edges_dirty: AtomicBool::new(false),
+            node_keys_cache: std::sync::Mutex::new(None),
         };
 
         for canonical in &keep {
@@ -2979,6 +3003,7 @@ impl PyMultiDiGraph {
             nodes_seq: 0,
             edges_seq: 0,
             edges_dirty: AtomicBool::new(false),
+            node_keys_cache: std::sync::Mutex::new(None),
         };
 
         for item in iter {
@@ -3082,6 +3107,7 @@ impl PyMultiDiGraph {
             nodes_seq: 0,
             edges_seq: 0,
             edges_dirty: AtomicBool::new(false),
+            node_keys_cache: std::sync::Mutex::new(None),
         };
 
         for (canonical, py_key) in &self.node_key_map {
@@ -3145,6 +3171,7 @@ impl PyMultiDiGraph {
             nodes_seq: 0,
             edges_seq: 0,
             edges_dirty: AtomicBool::new(false),
+            node_keys_cache: std::sync::Mutex::new(None),
         };
         for canonical in self.inner.nodes_ordered() {
             let rust_attrs = self
@@ -4354,6 +4381,7 @@ impl PyDiGraph {
             nodes_seq: 0,
             edges_seq: 0,
             edges_dirty: AtomicBool::new(false),
+            node_keys_cache: std::sync::Mutex::new(None),
         })
     }
 
@@ -4725,12 +4753,27 @@ impl PyDiGraph {
     /// re-materialises every AdjacencyView row; building the Vec in Rust lets
     /// callers like ``non_neighbors`` enumerate every node in one crossing.
     /// Order = node insertion order (``nodes_ordered``).
-    fn _native_node_keys(&self, py: Python<'_>) -> Vec<PyObject> {
-        self.inner
+    fn _native_node_keys(&self, py: Python<'_>) -> PyObject {
+        let seq = self.nodes_seq;
+        {
+            let guard = self.node_keys_cache.lock().unwrap();
+            if let Some((cached_seq, tup)) = guard.as_ref() {
+                if *cached_seq == seq {
+                    return tup.clone_ref(py).into_any();
+                }
+            }
+        }
+        let keys: Vec<PyObject> = self
+            .inner
             .nodes_ordered()
             .into_iter()
             .map(|n| self.py_node_key(py, n))
-            .collect()
+            .collect();
+        let tup = pyo3::types::PyTuple::new(py, keys)
+            .expect("node-keys tuple")
+            .unbind();
+        *self.node_keys_cache.lock().unwrap() = Some((seq, tup.clone_ref(py)));
+        tup.into_any()
     }
 
     /// Monotonic node-mutation counter (br-r37-c1-39d82 / jft0i).
@@ -5412,6 +5455,7 @@ impl PyDiGraph {
             nodes_seq: 0,
             edges_seq: 0,
             edges_dirty: AtomicBool::new(false),
+            node_keys_cache: std::sync::Mutex::new(None),
         };
         // br-r37-c1-revbulk: node + edge BATCHES through the unrecorded
         // path (one ledger record vs per-edge add_edge_with_attrs +
@@ -5635,6 +5679,7 @@ impl PyDiGraph {
             nodes_seq: 0,
             edges_seq: 0,
             edges_dirty: AtomicBool::new(self.edges_dirty.load(Ordering::Relaxed)),
+            node_keys_cache: std::sync::Mutex::new(None),
         };
         // br-r37-c1-0ek49: nx's DiGraph.copy() rebuild walk recreates succ
         // rows in original order but fills PRED rows in u-major walk order;
@@ -5700,6 +5745,7 @@ impl PyDiGraph {
             nodes_seq: 0,
             edges_seq: 0,
             edges_dirty: AtomicBool::new(false),
+            node_keys_cache: std::sync::Mutex::new(None),
         };
 
         for canonical in &keep {
@@ -5777,6 +5823,7 @@ impl PyDiGraph {
             nodes_seq: 0,
             edges_seq: 0,
             edges_dirty: AtomicBool::new(false),
+            node_keys_cache: std::sync::Mutex::new(None),
         };
 
         let mut nodes_needed: std::collections::HashSet<String> = std::collections::HashSet::new();
@@ -6592,6 +6639,7 @@ impl PyDiGraph {
             nodes_seq: 0,
             edges_seq: 0,
             edges_dirty: AtomicBool::new(self.edges_dirty.load(Ordering::Relaxed)),
+            node_keys_cache: std::sync::Mutex::new(None),
         })
     }
 
