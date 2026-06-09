@@ -5,14 +5,14 @@
 //! Internally delegates to `fnx_readwrite::EdgeListEngine` where the native
 //! engine format matches the public NetworkX surface.
 
-use crate::algorithms::{GraphRef, extract_graph};
+use crate::algorithms::{extract_graph, GraphRef};
 use crate::digraph::PyDiGraph;
 use crate::{
-    DictOfDictsCache, PyGraph, PyObject, PythonAllowThreadsExt, cgse_value_to_py,
-    node_key_to_string, py_dict_to_attr_map,
+    cgse_value_to_py, node_key_to_string, py_dict_to_attr_map, DictOfDictsCache, PyGraph, PyObject,
+    PythonAllowThreadsExt,
 };
-use fnx_classes::Graph as RustGraph;
 use fnx_classes::digraph::DiGraph as RustDiGraph;
+use fnx_classes::Graph as RustGraph;
 use fnx_readwrite::{DiReadWriteReport, EdgeListEngine, ReadWriteError, ReadWriteReport};
 use fnx_runtime::CompatibilityMode;
 use pyo3::exceptions::PyRuntimeError;
@@ -24,6 +24,17 @@ use pyo3::types::PyString;
 use serde_json::Value as JsonValue;
 use std::collections::HashMap;
 use std::sync::atomic::AtomicBool;
+
+fn cached_node_key(
+    node_keys: &HashMap<&str, PyObject>,
+    py: Python<'_>,
+    canonical: &str,
+) -> PyObject {
+    node_keys
+        .get(canonical)
+        .expect("node key cache is built from graph nodes")
+        .clone_ref(py)
+}
 
 /// Read the file content from a path-like or file-like Python object.
 fn read_input(py: Python<'_>, source: &Bound<'_, PyAny>) -> PyResult<String> {
@@ -1503,12 +1514,17 @@ pub fn adjacency_data_simple(
     let adjacency = PyList::empty(py);
     match &gr {
         GraphRef::Undirected(pg) => {
-            for u in pg.inner.nodes_ordered() {
+            let node_order = pg.inner.nodes_ordered();
+            let mut node_keys = HashMap::with_capacity(node_order.len());
+            for &u in &node_order {
+                node_keys.insert(u, pg.py_node_key(py, u));
+            }
+            for &u in &node_order {
                 let node_dict = match pg.node_py_attrs.get(u) {
                     Some(d) => d.bind(py).copy()?,
                     None => PyDict::new(py),
                 };
-                node_dict.set_item(id_, pg.py_node_key(py, u))?;
+                node_dict.set_item(id_, cached_node_key(&node_keys, py, u))?;
                 nodes.append(node_dict)?;
 
                 let nbr_list = PyList::empty(py);
@@ -1519,7 +1535,7 @@ pub fn adjacency_data_simple(
                             Some(d) => d.bind(py).copy()?,
                             None => PyDict::new(py),
                         };
-                        edge_dict.set_item(id_, pg.py_node_key(py, v))?;
+                        edge_dict.set_item(id_, cached_node_key(&node_keys, py, v))?;
                         nbr_list.append(edge_dict)?;
                     }
                 }
@@ -1527,12 +1543,17 @@ pub fn adjacency_data_simple(
             }
         }
         GraphRef::Directed { dg, .. } => {
-            for u in dg.inner.nodes_ordered() {
+            let node_order = dg.inner.nodes_ordered();
+            let mut node_keys = HashMap::with_capacity(node_order.len());
+            for &u in &node_order {
+                node_keys.insert(u, dg.py_node_key(py, u));
+            }
+            for &u in &node_order {
                 let node_dict = match dg.node_py_attrs.get(u) {
                     Some(d) => d.bind(py).copy()?,
                     None => PyDict::new(py),
                 };
-                node_dict.set_item(id_, dg.py_node_key(py, u))?;
+                node_dict.set_item(id_, cached_node_key(&node_keys, py, u))?;
                 nodes.append(node_dict)?;
 
                 let nbr_list = PyList::empty(py);
@@ -1543,7 +1564,7 @@ pub fn adjacency_data_simple(
                             Some(d) => d.bind(py).copy()?,
                             None => PyDict::new(py),
                         };
-                        edge_dict.set_item(id_, dg.py_node_key(py, v))?;
+                        edge_dict.set_item(id_, cached_node_key(&node_keys, py, v))?;
                         nbr_list.append(edge_dict)?;
                     }
                 }
@@ -1822,7 +1843,10 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(to_dict_of_dicts_undirected, m)?)?;
     m.add_function(wrap_pyfunction!(to_dict_of_lists_undirected, m)?)?;
     m.add_function(wrap_pyfunction!(adjacency_arrays_multigraph, m)?)?;
-    m.add_function(wrap_pyfunction!(graph_has_nonfinite_edge_weight_multigraph, m)?)?;
+    m.add_function(wrap_pyfunction!(
+        graph_has_nonfinite_edge_weight_multigraph,
+        m
+    )?)?;
     m.add_function(wrap_pyfunction!(adjacency_data_simple, m)?)?;
     m.add_function(wrap_pyfunction!(node_link_data_simple, m)?)?;
     m.add_function(wrap_pyfunction!(to_edgelist_simple, m)?)?;

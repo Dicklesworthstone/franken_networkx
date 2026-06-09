@@ -1,0 +1,20 @@
+Tue Jun  9 15:06:07 2026    /data/tmp/tmpr7jeik7o
+
+         76 function calls in 0.027 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        5    0.000    0.000    0.027    0.005 /data/projects/.scratch/franken_networkx_0e9ey_boldfalcon_20260609/tests/artifacts/perf/20260609T-0e9ey-edge-attr-boldfalcon-baseline/harness_edge_attr_exporters.py:88(operation_payload)
+        5    0.001    0.000    0.027    0.005 /data/projects/.scratch/franken_networkx_0e9ey_boldfalcon_20260609/python/franken_networkx/__init__.py:23696(node_link_data)
+        5    0.027    0.005    0.027    0.005 {built-in method franken_networkx._fnx.node_link_data_simple}
+       10    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx_0e9ey_boldfalcon_20260609/python/franken_networkx/__init__.py:5712(predicate)
+        5    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx_0e9ey_boldfalcon_20260609/python/franken_networkx/__init__.py:5517(__get__)
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+       10    0.000    0.000    0.000    0.000 {built-in method builtins.isinstance}
+        5    0.000    0.000    0.000    0.000 {built-in method builtins.vars}
+        5    0.000    0.000    0.000    0.000 {function _make_class_safe_predicate.<locals>.predicate at 0x7cf2c03a6660}
+        5    0.000    0.000    0.000    0.000 {function _make_class_safe_predicate.<locals>.predicate at 0x7cf2c03a65c0}
+       10    0.000    0.000    0.000    0.000 {built-in method builtins.len}
+        5    0.000    0.000    0.000    0.000 {built-in method builtins.getattr}
+        5    0.000    0.000    0.000    0.000 {method 'get' of 'dict' objects}

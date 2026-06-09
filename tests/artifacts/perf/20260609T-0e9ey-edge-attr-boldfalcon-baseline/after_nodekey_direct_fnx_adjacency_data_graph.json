@@ -1,0 +1,1 @@
+{"case": "graph", "edges": 12000, "fanout": 4, "lib": "fnx", "mean_s": 0.014465464214380417, "median_s": 0.014135248959064484, "min_s": 0.0119328279979527, "nodes": 3000, "operation": "adjacency_data", "repeats": 9, "sha256": "c6d3b3769d04997423ef53f46ffda7eab920e1a2e2fc79462fb899430db9c5a1"}

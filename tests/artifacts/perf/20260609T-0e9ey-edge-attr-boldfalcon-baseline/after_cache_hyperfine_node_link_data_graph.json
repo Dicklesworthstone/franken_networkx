@@ -1,0 +1,60 @@
+{
+  "results": [
+    {
+      "command": "PYTHONPATH=python /data/projects/franken_networkx/.venv/bin/python tests/artifacts/perf/20260609T-0e9ey-edge-attr-boldfalcon-baseline/harness_edge_attr_exporters.py time --lib fnx --op node_link_data --nodes 3000 --fanout 4 --repeats 5",
+      "mean": 0.6964985554885715,
+      "stddev": 0.04071001189441427,
+      "median": 0.68765087406,
+      "user": 2.388405582857143,
+      "system": 0.07815852285714286,
+      "min": 0.6322507740600001,
+      "max": 0.7490537390600001,
+      "times": [
+        0.7490537390600001,
+        0.6799104970600001,
+        0.7451397820600001,
+        0.68765087406,
+        0.67915940206,
+        0.7023248200600001,
+        0.6322507740600001
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "PYTHONPATH=python /data/projects/franken_networkx/.venv/bin/python tests/artifacts/perf/20260609T-0e9ey-edge-attr-boldfalcon-baseline/harness_edge_attr_exporters.py time --lib nx --op node_link_data --nodes 3000 --fanout 4 --repeats 5",
+      "mean": 0.7239433030600001,
+      "stddev": 0.08434184829474536,
+      "median": 0.7161316720600001,
+      "user": 2.4349854400000006,
+      "system": 0.07188709428571428,
+      "min": 0.62194343206,
+      "max": 0.8515328990600001,
+      "times": [
+        0.8515328990600001,
+        0.7161316720600001,
+        0.6369503790600001,
+        0.7939098360600001,
+        0.62194343206,
+        0.6818912180600001,
+        0.7652436850600001
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

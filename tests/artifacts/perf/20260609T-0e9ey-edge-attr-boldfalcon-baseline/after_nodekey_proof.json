@@ -1,0 +1,75 @@
+{
+  "all_match": true,
+  "bead": "br-r37-c1-0e9ey",
+  "fanout": 4,
+  "identity_rows": [
+    {
+      "case": "graph",
+      "fnx_live_dict_identity": true,
+      "fnx_mutation_visible": true,
+      "nx_live_dict_identity": true,
+      "nx_mutation_visible": true
+    },
+    {
+      "case": "digraph",
+      "fnx_live_dict_identity": true,
+      "fnx_mutation_visible": true,
+      "nx_live_dict_identity": true,
+      "nx_mutation_visible": true
+    }
+  ],
+  "isomorphism": {
+    "floating_point": "integer-valued weights/capacities; pandas NaN normalization is available but not exercised by this full-attr fixture",
+    "ordering": "node insertion order, adjacency-row order, and G.edges() order are compared directly against genuine NetworkX payloads",
+    "rng": "N/A; graph fixture is deterministic arithmetic",
+    "tie_breaking": "N/A; deterministic fixture has no algorithmic tie choice beyond insertion order"
+  },
+  "nodes": 48,
+  "rows": [
+    {
+      "case": "graph",
+      "fnx_sha256": "99e4457147393beb26879c7e8bfb363d22c0c7063c2ec9f0750fca32588255bf",
+      "match": true,
+      "nx_sha256": "99e4457147393beb26879c7e8bfb363d22c0c7063c2ec9f0750fca32588255bf",
+      "operation": "adjacency_data"
+    },
+    {
+      "case": "graph",
+      "fnx_sha256": "ce96a30f1756a8f8f73733b5c164ac89f763b6fad6b6265c8a8279e16670c2ca",
+      "match": true,
+      "nx_sha256": "ce96a30f1756a8f8f73733b5c164ac89f763b6fad6b6265c8a8279e16670c2ca",
+      "operation": "node_link_data"
+    },
+    {
+      "case": "graph",
+      "fnx_sha256": "195590ed92739058a52a1e070c69b46ea694009740031826250b3309ef2d0f90",
+      "match": true,
+      "nx_sha256": "195590ed92739058a52a1e070c69b46ea694009740031826250b3309ef2d0f90",
+      "operation": "edges_data"
+    },
+    {
+      "case": "digraph",
+      "fnx_sha256": "8dd8caa989ec98cb9fc83d8d27ecabc46e9bb09af584314e5691e39953f43fcd",
+      "match": true,
+      "nx_sha256": "8dd8caa989ec98cb9fc83d8d27ecabc46e9bb09af584314e5691e39953f43fcd",
+      "operation": "adjacency_data"
+    },
+    {
+      "case": "digraph",
+      "fnx_sha256": "26d3774c1ce4568bdab2bcff8e23097ad64873c7cf8e0153aec3456cf3cb314e",
+      "match": true,
+      "nx_sha256": "26d3774c1ce4568bdab2bcff8e23097ad64873c7cf8e0153aec3456cf3cb314e",
+      "operation": "node_link_data"
+    },
+    {
+      "case": "digraph",
+      "fnx_sha256": "240f369d5197c75b5c02a835686737227b76bd19e1ea6052a3a5e26946af7304",
+      "match": true,
+      "nx_sha256": "240f369d5197c75b5c02a835686737227b76bd19e1ea6052a3a5e26946af7304",
+      "operation": "edges_data"
+    }
+  ],
+  "skipped_ops": [
+    "to_pandas_edgelist"
+  ]
+}
