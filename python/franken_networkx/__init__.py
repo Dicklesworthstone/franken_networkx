@@ -25848,21 +25848,27 @@ def prefix_tree(paths):
     tree.add_node(NIL, source="NIL")
     nodes_count = 1
 
+    # br-r37-c1-vuzc5: index each parent's existing children by their ``source``
+    # value (``{parent: {source_value: child_id}}``) so the per-path-step child
+    # lookup is O(1). The previous code scanned ``tree.successors(parent)`` and
+    # did a PyO3 ``tree.nodes[succ].get("source")`` read for EVERY candidate —
+    # O(path_len * fanout) with a Rust crossing per candidate (~16x slower than
+    # nx, which keeps the same children map). Output graph (nodes, edges,
+    # ``source`` attrs, NIL terminals) is byte-identical; a trie never has two
+    # children of one parent sharing a ``source`` value, so the map is exact.
+    children = {root: {}}
     for path in paths:
         parent = root
         for node in path:
-            found = None
-            for succ in tree.successors(parent):
-                if succ == NIL:
-                    continue
-                if tree.nodes[succ].get("source") == node:
-                    found = succ
-                    break
+            kids = children[parent]
+            found = kids.get(node)
             if found is None:
                 new_node = nodes_count
                 nodes_count += 1
                 tree.add_node(new_node, source=node)
                 tree.add_edge(parent, new_node)
+                kids[node] = new_node
+                children[new_node] = {}
                 parent = new_node
             else:
                 parent = found
