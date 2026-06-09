@@ -17317,18 +17317,28 @@ pub fn rich_club_coefficient(graph: &Graph) -> HashMap<usize, f64> {
 /// Matches `networkx.s_metric(G)`.
 #[must_use]
 pub fn s_metric(graph: &Graph) -> f64 {
-    let mut total: f64 = 0.0;
-    for node in graph.nodes_ordered() {
-        let u_deg = graph.neighbor_count(node);
-        if let Some(nbrs) = graph.neighbors(node) {
-            for nbr in nbrs {
-                let v_deg = graph.neighbor_count(nbr);
-                total += (u_deg * v_deg) as f64;
+    // br-r37-c1-yxmdc: integer-CSR rewrite. The previous version did a
+    // String-keyed `neighbor_count(nbr)` HashMap lookup PER EDGE (2|E| hashes)
+    // and used `neighbor_count` (self-loop counted ONCE) + a blanket `/2`,
+    // which both mishandled self-loops (nx's `degree` counts a self-loop twice)
+    // and paid the String-adjacency tax. Now: precompute degrees by INDEX once
+    // (`degree_by_index` = nx's self-loop-aware degree), then sum deg[u]*deg[v]
+    // over each undirected edge EXACTLY ONCE via the `v >= u` filter (a
+    // self-loop u==u is counted once, matching `G.edges()`). Integer (u128)
+    // accumulation is exact and order-invariant — equals nx's int sum.
+    let n = graph.node_count();
+    let deg: Vec<u128> = (0..n).map(|i| graph.degree_by_index(i) as u128).collect();
+    let mut total: u128 = 0;
+    for u in 0..n {
+        if let Some(nbrs) = graph.neighbors_indices(u) {
+            for &v in nbrs {
+                if v >= u {
+                    total += deg[u] * deg[v];
+                }
             }
         }
     }
-    // Each undirected edge counted twice
-    total / 2.0
+    total as f64
 }
 
 // ===========================================================================

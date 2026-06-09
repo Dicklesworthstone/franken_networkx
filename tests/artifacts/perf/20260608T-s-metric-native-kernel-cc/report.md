@@ -1,27 +1,25 @@
-# s_metric: route to the unused native kernel (br-r37-c1-yxmdc)
+# s_metric: integer-CSR native kernel — 11.5x FASTER than nx (br-r37-c1-yxmdc)
 
 ## Problem
-nx.s_metric is PURE PYTHON (sum deg(u)*deg(v) over edges) yet fnx's Python loop
-was 3.4x SLOWER (6.33ms vs 1.87ms @n=1500) because fnx's per-edge G.edges()
-dispatch is much slower than nx's C-dict edge iteration. A native _fnx.s_metric
-kernel (sums over CSR adjacency, no Python iteration) was registered+exposed but
-UNUSED by the wrapper.
+nx.s_metric is pure Python (sum deg(u)*deg(v) over edges). fnx's Python loop was
+3.4x SLOWER (slow per-edge G.edges() dispatch). The native _fnx.s_metric kernel
+existed but (a) was UNUSED, (b) was itself SLOWER than nx (2.57ms vs 1.87ms) and
+(c) mishandled self-loops.
 
-## Lever (ONE)
-Route the wrapper to _fnx.s_metric. The kernel is undirected-only and its degree
-convention counts a self-loop once where nx counts it twice, so gate to
-undirected / simple / self-loop-free; keep the Python loop (correct everywhere)
-otherwise.
+## Root cause + lever (ONE)
+The kernel did a String-keyed `neighbor_count(nbr)` HashMap lookup PER EDGE
+(2|E| hashes — the String-adjacency tax) and used `neighbor_count` (self-loop
+once) + a blanket `/2`. Rewrote to integer-CSR: precompute degrees by INDEX once
+(`degree_by_index` = nx's self-loop-aware degree, counts self-loop twice), then
+sum deg[u]*deg[v] over each undirected edge EXACTLY ONCE via a `v >= u` filter
+(self-loop u==u counted once). u128 accumulation is exact + order-invariant.
+This fixes self-loops (gate dropped to undirected/simple) AND kills the tax.
 
 ## Proof
-- Parity: 0/160 mismatches across Graph/DiGraph/MultiGraph/MultiDiGraph x
-  self-loop on/off x 20 seeds (directed/multi/self-loop all take the Python path;
-  error contracts match).
-- pytest -k s_metric: 64 passed.
-- Speed n=1500 undirected: 6.33ms -> 3.70ms (1.7x self), gap vs nx 3.4x -> 1.96x.
+- Parity 0/240 (Graph/DiGraph/MultiGraph/MultiDiGraph x self-loop[0,1,7,25] x 15
+  seeds); empty graphs match; golden fnx==nx. pytest -k s_metric 64 passed.
+- Speed n=1500 (with 50 self-loops): native kernel 2.57ms -> 0.171ms (15x self);
+  vs nx 1.96ms -> ratio 0.09x = 11.5x FASTER than nx (was 3.4x slower).
 
-## Residual
-Still 1.96x nx: the native kernel itself is ~2.57ms (slower than nx's 1.87ms
-Python loop -- anomalous for a native O(E) sum) + the self-loop gate adds
-number_of_selfloops overhead. The kernel's internals (extract_graph / degree
-build) are the next lever to actually BEAT nx (filed under yxmdc).
+The 0.09x ratio is unambiguous under host load (load ~20 this window); the win is
+structural (integer-CSR eliminates 2|E| String hashes, the canonical fnx tax).
