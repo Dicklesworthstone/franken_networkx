@@ -8967,6 +8967,7 @@ from franken_networkx._fnx import (
     core_number as _raw_core_number,
     greedy_color as _raw_greedy_color,
     is_bipartite as _raw_is_bipartite,
+    is_regular as _raw_is_regular,
     is_forest as _raw_is_forest,
     is_tree as _raw_is_tree,
     maximum_branching as _raw_maximum_branching,
@@ -15477,6 +15478,18 @@ def is_regular(G):
     """Determines whether a graph is regular."""
     if len(G) == 0:
         raise NetworkXPointlessConcept("Graph has no nodes.")
+
+    # br-r37-c1-regidx: native O(|V|) integer degree-equality check (short-
+    # circuit) for simple graphs. Multigraph degree counts parallel-edge
+    # multiplicity (which the simple-graph projection collapses), so those stay
+    # on the Python degree-view path below.
+    if not G.is_multigraph():
+        try:
+            return _raw_is_regular(G)
+        except NetworkXPointlessConcept:
+            raise
+        except Exception:
+            pass
 
     node = next(iter(G))
     degree_view = G.degree

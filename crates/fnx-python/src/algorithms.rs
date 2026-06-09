@@ -14101,10 +14101,34 @@ pub fn is_pseudographical(py: Python<'_>, sequence: Vec<usize>) -> bool {
 #[pyfunction]
 #[pyo3(signature = (g,))]
 pub fn is_regular(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<bool> {
+    // br-r37-c1-regidx: native O(|V|) integer degree-equality check with short-
+    // circuit. Undirected: all nodes share one degree. Directed: all share one
+    // in-degree AND one out-degree (nx's definition). Uses degree_by_index /
+    // in/out_degree_by_index (O(1)/node, no String key resolution and no
+    // DegreeView Python round-trip per node). Multigraphs (parallel-edge degree
+    // multiplicity) stay on the Python degree-view path in the wrapper.
     let gr = extract_graph(g)?;
-    require_undirected(&gr, "is_regular")?;
-    let inner = gr.undirected();
-    Ok(py.allow_threads(|| fnx_algorithms::is_regular(inner)))
+    if gr.node_count_original() == 0 {
+        return Err(crate::NetworkXPointlessConcept::new_err(
+            "Graph has no nodes.",
+        ));
+    }
+    if let GraphRef::Directed { dg, .. } = &gr {
+        let dg = &dg.inner;
+        Ok(py.allow_threads(|| {
+            let n = dg.node_count();
+            let in0 = dg.in_degree_by_index(0);
+            let out0 = dg.out_degree_by_index(0);
+            (1..n).all(|i| dg.in_degree_by_index(i) == in0 && dg.out_degree_by_index(i) == out0)
+        }))
+    } else {
+        let inner = gr.undirected();
+        Ok(py.allow_threads(|| {
+            let n = inner.node_count();
+            let d0 = inner.degree_by_index(0);
+            (1..n).all(|i| inner.degree_by_index(i) == d0)
+        }))
+    }
 }
 
 #[pyfunction]
