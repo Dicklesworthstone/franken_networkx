@@ -16,7 +16,7 @@ use pyo3::exceptions::{
     PyIndexError, PyKeyError, PyRuntimeError, PyValueError, PyZeroDivisionError,
 };
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyList, PySet, PyTuple};
+use pyo3::types::{PyDict, PyInt, PyList, PySet, PyTuple};
 use std::cell::OnceCell;
 use std::collections::{BinaryHeap, HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -778,8 +778,7 @@ fn multidigraph_to_simple_digraph(
 fn multidigraph_to_simple_digraph_structure_only(
     mdg: &fnx_classes::digraph::MultiDiGraph,
 ) -> fnx_classes::digraph::DiGraph {
-    let mut dg =
-        fnx_classes::digraph::DiGraph::with_runtime_policy(mdg.runtime_policy().clone());
+    let mut dg = fnx_classes::digraph::DiGraph::with_runtime_policy(mdg.runtime_policy().clone());
     let nodes = mdg.nodes_ordered();
     let _ = dg.extend_nodes_with_attrs_unrecorded(
         nodes
@@ -810,8 +809,7 @@ fn multidigraph_to_simple_digraph_structure_only(
 fn multidigraph_to_simple_digraph_structure_only_ordered(
     mdg: &fnx_classes::digraph::MultiDiGraph,
 ) -> fnx_classes::digraph::DiGraph {
-    let mut dg =
-        fnx_classes::digraph::DiGraph::with_runtime_policy(mdg.runtime_policy().clone());
+    let mut dg = fnx_classes::digraph::DiGraph::with_runtime_policy(mdg.runtime_policy().clone());
     let nodes = mdg.nodes_ordered();
     let _ = dg.extend_nodes_with_attrs_unrecorded(
         nodes
@@ -2694,7 +2692,8 @@ pub fn adjacency_default_order_arrays(
                     let w = inner
                         .edge_attrs_by_indices(row, col)
                         .and_then(|attrs| {
-                            weight_attr.and_then(|attr| attrs.get(attr).and_then(|val| val.as_f64()))
+                            weight_attr
+                                .and_then(|attr| attrs.get(attr).and_then(|val| val.as_f64()))
                         })
                         .unwrap_or(default_weight);
                     rows.push(row);
@@ -6560,9 +6559,8 @@ pub fn bfs_edges(
                     let Some(src) = nodes.iter().position(|&n| n == source_key) else {
                         return Vec::new();
                     };
-                    let adj = build_index_adjacency(&nodes, |u| {
-                        inner.neighbors(u).unwrap_or_default()
-                    });
+                    let adj =
+                        build_index_adjacency(&nodes, |u| inner.neighbors(u).unwrap_or_default());
                     bfs_edges_indexed(&adj, &nodes, src, depth_limit)
                 })
             } else {
@@ -6671,9 +6669,8 @@ pub fn bfs_tree(
                     let Some(src) = nodes.iter().position(|&n| n == source_key) else {
                         return Vec::new();
                     };
-                    let adj = build_index_adjacency(&nodes, |u| {
-                        inner.neighbors(u).unwrap_or_default()
-                    });
+                    let adj =
+                        build_index_adjacency(&nodes, |u| inner.neighbors(u).unwrap_or_default());
                     bfs_edges_indexed(&adj, &nodes, src, depth_limit)
                 })
             } else {
@@ -7320,8 +7317,7 @@ fn dfs_postorder_forest_walk<'a>(
         visited.insert(start);
         // Each frame: (node, its neighbor list, next-child index). The stack
         // length is nx's `depth_now` (start frame => 1).
-        let mut stack: Vec<(&str, Vec<&'a str>, usize)> =
-            vec![(start, neighbors_of(start), 0)];
+        let mut stack: Vec<(&str, Vec<&'a str>, usize)> = vec![(start, neighbors_of(start), 0)];
         while !stack.is_empty() {
             let depth_now = stack.len();
             let (_, children, idx) = stack.last_mut().expect("stack non-empty");
@@ -9709,8 +9705,9 @@ pub fn is_strongly_connected(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<b
             }
             _ => None,
         };
-        let dg_ref =
-            owned.as_ref().unwrap_or_else(|| gr.digraph().expect("is_directed checked above"));
+        let dg_ref = owned
+            .as_ref()
+            .unwrap_or_else(|| gr.digraph().expect("is_directed checked above"));
         if dg_ref.node_count() == 0 {
             return Err(crate::NetworkXPointlessConcept::new_err(
                 "Connectivity is undefined for the null graph.",
@@ -10698,8 +10695,16 @@ fn graph_product_fast(
     if gr1.is_directed() {
         let dg1 = gr1.digraph().expect("directed");
         let dg2 = gr2.digraph().expect("directed");
-        let g_names: Vec<String> = dg1.nodes_ordered().iter().map(|s| (*s).to_owned()).collect();
-        let h_names: Vec<String> = dg2.nodes_ordered().iter().map(|s| (*s).to_owned()).collect();
+        let g_names: Vec<String> = dg1
+            .nodes_ordered()
+            .iter()
+            .map(|s| (*s).to_owned())
+            .collect();
+        let h_names: Vec<String> = dg2
+            .nodes_ordered()
+            .iter()
+            .map(|s| (*s).to_owned())
+            .collect();
         let ng = g_names.len();
         let nh = h_names.len();
         let (canon, node_key_map) = product_node_tuples(py, &gr1, &gr2, &g_names, &h_names)?;
@@ -12973,10 +12978,10 @@ fn single_source_dijkstra_path_length(
         if *all_int
             && d.is_finite()
             && d.fract() == 0.0
-            && *d >= i64::MIN as f64
-            && *d <= i64::MAX as f64
+            && *d >= i128::MIN as f64
+            && *d <= i128::MAX as f64
         {
-            dict.set_item(key, *d as i64)?;
+            dict.set_item(key, PyInt::new(py, *d as i128))?;
         } else {
             dict.set_item(key, d)?;
         }
@@ -13256,31 +13261,33 @@ fn all_pairs_dijkstra_path_length(
 ) -> PyResult<PyObject> {
     sync_rust_attrs_if_available(g)?;
     let gr = extract_graph(g)?;
-    // br-r37-c1-7hsew: the FULL kernels give paths alongside distances —
-    // paths feed the per-source discovery-object map.
     let result = if gr.is_directed() {
         let dg = gr
             .weighted_digraph_projection(weight)
             .expect("is_directed checked above");
-        py.allow_threads(|| fnx_algorithms::all_pairs_dijkstra_directed(dg.as_ref(), weight))
+        py.allow_threads(|| {
+            fnx_algorithms::all_pairs_dijkstra_path_length_with_pred_directed(dg.as_ref(), weight)
+        })
     } else {
         let weighted_projection = gr.weighted_undirected_projection(weight);
         {
             let __wp = weighted_projection.as_ref();
-            py.allow_threads(|| fnx_algorithms::all_pairs_dijkstra(__wp, weight))
+            py.allow_threads(|| {
+                fnx_algorithms::all_pairs_dijkstra_path_length_with_pred(__wp, weight)
+            })
         }
     };
     let outer_dict = PyDict::new(py);
-    for (source, (dists, paths)) in &result {
+    for (source, dists) in &result {
         let mut disp: std::collections::HashMap<String, PyObject> =
-            std::collections::HashMap::with_capacity(paths.len());
-        for (node, p) in paths {
-            if p.len() >= 2 {
-                disp.insert(node.clone(), gr.py_row_key(py, &p[p.len() - 2], node));
+            std::collections::HashMap::with_capacity(dists.len());
+        for (node, _distance, _all_int, predecessor) in dists {
+            if let Some(pred) = predecessor {
+                disp.insert(node.clone(), gr.py_row_key(py, pred, node));
             }
         }
         let inner_dict = PyDict::new(py);
-        for (target, d) in dists {
+        for (target, d, _all_int, _predecessor) in dists {
             inner_dict.set_item(gr.disp_or_node_key(py, &disp, target), d)?;
         }
         outer_dict.set_item(gr.py_node_key(py, source), inner_dict)?;
@@ -16904,7 +16911,10 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(hits, m)?)?;
     m.add_function(wrap_pyfunction!(average_neighbor_degree, m)?)?;
     m.add_function(wrap_pyfunction!(degree_assortativity_coefficient, m)?)?;
-    m.add_function(wrap_pyfunction!(degree_assortativity_coefficient_directed, m)?)?;
+    m.add_function(wrap_pyfunction!(
+        degree_assortativity_coefficient_directed,
+        m
+    )?)?;
     m.add_function(wrap_pyfunction!(voterank, m)?)?;
     // Clustering
     m.add_function(wrap_pyfunction!(clustering, m)?)?;

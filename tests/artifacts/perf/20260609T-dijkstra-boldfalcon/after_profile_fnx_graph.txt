@@ -1,0 +1,36 @@
+         153660 function calls (153655 primitive calls) in 0.081 seconds
+
+   Ordered by: cumulative time
+   List reduced from 119 to 30 due to restriction <30>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        5    0.000    0.000    0.081    0.016 harness_all_pairs_length.py:158(<lambda>)
+        5    0.001    0.000    0.081    0.016 harness_all_pairs_length.py:47(public_result)
+      485    0.007    0.000    0.070    0.000 __init__.py:16401(all_pairs_dijkstra_path_length)
+      480    0.020    0.000    0.029    0.000 __init__.py:16070(_sp_coerce_dist_to_int)
+        5    0.023    0.005    0.023    0.005 {built-in method franken_networkx._fnx.all_pairs_dijkstra_path_length}
+        5    0.001    0.000    0.011    0.002 harness_all_pairs_length.py:21(build_pair)
+      480    0.000    0.000    0.010    0.000 __init__.py:16076(_reorder_by_distance)
+      480    0.006    0.000    0.010    0.000 {built-in method builtins.sorted}
+    46080    0.005    0.000    0.005    0.000 {method 'is_integer' of 'float' objects}
+      955    0.001    0.000    0.004    0.000 __init__.py:2313(add_edge)
+    46161    0.004    0.000    0.004    0.000 {built-in method builtins.isinstance}
+    46080    0.004    0.000    0.004    0.000 __init__.py:16091(<lambda>)
+      955    0.004    0.000    0.004    0.000 {function Graph.add_edge at 0x74eef41b1f80}
+      955    0.001    0.000    0.002    0.000 graph.py:917(add_edge)
+      480    0.000    0.000    0.001    0.000 __init__.py:2376(add_node)
+      480    0.001    0.000    0.001    0.000 {function Graph.add_node at 0x74eef41b22a0}
+      480    0.001    0.000    0.001    0.000 graph.py:535(add_node)
+     1435    0.000    0.000    0.001    0.000 misc.py:645(_clear_cache)
+        1    0.000    0.000    0.001    0.001 decorators.py:783(func)
+        1    0.000    0.000    0.000    0.000 decorators.py:715(_lazy_compile)
+        1    0.000    0.000    0.000    0.000 decorators.py:869(compile)
+     1442    0.000    0.000    0.000    0.000 {method 'update' of 'dict' objects}
+        5    0.000    0.000    0.000    0.000 __init__.py:6685(_graph_has_nonunit_weight)
+        5    0.000    0.000    0.000    0.000 __init__.py:6619(_sync_rust_edge_attrs)
+        5    0.000    0.000    0.000    0.000 {method '_fnx_sync_attrs_to_inner' of 'franken_networkx.Graph' objects}
+        5    0.000    0.000    0.000    0.000 <class 'networkx.utils.decorators.argmap'> compilation 4:1(argmap___new___1)
+     2390    0.000    0.000    0.000    0.000 {built-in method builtins.hash}
+        1    0.000    0.000    0.000    0.000 decorators.py:917(assemble)
+        1    0.000    0.000    0.000    0.000 {built-in method builtins.compile}
+        5    0.000    0.000    0.000    0.000 backends.py:554(_call_if_any_backends_installed)

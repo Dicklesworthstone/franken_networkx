@@ -6472,15 +6472,15 @@ pub fn clustering_coefficient(graph: &Graph) -> ClusteringCoefficientResult {
             }
         }
         for &v in nbrs_u {
-            if v > u {
-                if let Some(nbrs_v) = graph.neighbors_indices(v) {
-                    for &w in nbrs_v {
-                        if w > v && in_neighborhood[w] {
-                            edges_scanned += 1;
-                            tri[u] += 1;
-                            tri[v] += 1;
-                            tri[w] += 1;
-                        }
+            if v > u
+                && let Some(nbrs_v) = graph.neighbors_indices(v)
+            {
+                for &w in nbrs_v {
+                    if w > v && in_neighborhood[w] {
+                        edges_scanned += 1;
+                        tri[u] += 1;
+                        tri[v] += 1;
+                        tri[w] += 1;
                     }
                 }
             }
@@ -23314,6 +23314,87 @@ pub fn all_pairs_dijkstra_path_length_directed(
         .collect()
 }
 
+/// All-pairs Dijkstra returning distance rows plus predecessor metadata.
+#[must_use]
+pub fn all_pairs_dijkstra_path_length_with_pred(
+    graph: &Graph,
+    weight_attr: &str,
+) -> Vec<(String, OrderedTypedPredDistances)> {
+    let names = graph.nodes_ordered();
+    let n = names.len();
+    let mut offsets = Vec::with_capacity(n + 1);
+    let mut targets: Vec<u32> = Vec::new();
+    let mut weights: Vec<f64> = Vec::new();
+    let mut weight_is_int: Vec<bool> = Vec::new();
+    offsets.push(0);
+    for u in 0..n {
+        if let Some(row) = graph.neighbors_indices(u) {
+            for &v in row {
+                let (weight, is_int) =
+                    graph_edge_weight_or_default_idx_typed(graph, u, v, weight_attr);
+                targets.push(u32::try_from(v).unwrap_or(u32::MAX));
+                weights.push(weight);
+                weight_is_int.push(is_int);
+            }
+        }
+        offsets.push(targets.len());
+    }
+
+    (0..n)
+        .map(|source_idx| {
+            (
+                names[source_idx].to_owned(),
+                single_source_dijkstra_typed_csr(
+                    source_idx,
+                    &names,
+                    &offsets,
+                    &targets,
+                    &weights,
+                    &weight_is_int,
+                    None,
+                ),
+            )
+        })
+        .collect()
+}
+
+/// Directed all-pairs Dijkstra returning distance rows plus predecessor metadata.
+#[must_use]
+pub fn all_pairs_dijkstra_path_length_with_pred_directed(
+    digraph: &DiGraph,
+    weight_attr: &str,
+) -> Vec<(String, OrderedTypedPredDistances)> {
+    let csr = digraph.csr();
+    let names = digraph.nodes_ordered();
+    let mut weights: Vec<f64> = Vec::with_capacity(csr.succ_targets.len());
+    let mut weight_is_int: Vec<bool> = Vec::with_capacity(csr.succ_targets.len());
+    for u in 0..names.len() {
+        for &v in csr.successors(u) {
+            let (weight, is_int) =
+                digraph_edge_weight_or_default_idx_typed(digraph, u, v as usize, weight_attr);
+            weights.push(weight);
+            weight_is_int.push(is_int);
+        }
+    }
+
+    (0..names.len())
+        .map(|source_idx| {
+            (
+                names[source_idx].to_owned(),
+                single_source_dijkstra_typed_csr(
+                    source_idx,
+                    &names,
+                    &csr.succ_offsets,
+                    &csr.succ_targets,
+                    &weights,
+                    &weight_is_int,
+                    None,
+                ),
+            )
+        })
+        .collect()
+}
+
 /// All-pairs Dijkstra returning paths only.
 /// Matches `networkx.all_pairs_dijkstra_path(G, weight=weight)`.
 #[must_use]
@@ -29763,7 +29844,9 @@ pub fn flow_hierarchy_directed(digraph: &DiGraph) -> f64 {
         if let Some(succs) = digraph.successors_indices(v) {
             for &si in succs {
                 if disc[si] == usize::MAX {
-                    tarjan_dfs(si, digraph, disc, low, on_stack, stack, scc_id, scc_count, timer);
+                    tarjan_dfs(
+                        si, digraph, disc, low, on_stack, stack, scc_id, scc_count, timer,
+                    );
                     low[v] = low[v].min(low[si]);
                 } else if on_stack[si] {
                     low[v] = low[v].min(disc[si]);
@@ -29786,8 +29869,15 @@ pub fn flow_hierarchy_directed(digraph: &DiGraph) -> f64 {
     for i in 0..n {
         if disc[i] == usize::MAX {
             tarjan_dfs(
-                i, digraph, &mut disc, &mut low, &mut on_stack, &mut stack, &mut scc_id,
-                &mut scc_count, &mut timer,
+                i,
+                digraph,
+                &mut disc,
+                &mut low,
+                &mut on_stack,
+                &mut stack,
+                &mut scc_id,
+                &mut scc_count,
+                &mut timer,
             );
         }
     }

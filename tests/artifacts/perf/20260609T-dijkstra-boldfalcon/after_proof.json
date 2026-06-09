@@ -1,0 +1,21 @@
+{
+  "cases": [
+    {
+      "case": "graph",
+      "fnx_sha256": "03a4a893de6779b33ebb361ccc63784fbfef0a3014bea7d5347fc677876996d1",
+      "matches_networkx": true,
+      "nx_sha256": "03a4a893de6779b33ebb361ccc63784fbfef0a3014bea7d5347fc677876996d1"
+    },
+    {
+      "case": "digraph",
+      "fnx_sha256": "20c07f990cd4ce29b6a450fefbbf4e7c36a39016e5e43b8047075882376dba02",
+      "matches_networkx": true,
+      "nx_sha256": "20c07f990cd4ce29b6a450fefbbf4e7c36a39016e5e43b8047075882376dba02"
+    }
+  ],
+  "floating_point": "missing weights are integer default 1; public output keeps int distances",
+  "n": 96,
+  "ordering": "outer node insertion order; inner Dijkstra finalize order",
+  "rng": "N/A; graph fixture is deterministic arithmetic",
+  "tie_breaking": "NetworkX heap-pop order preserved by public output"
+}

@@ -1,0 +1,60 @@
+{
+  "results": [
+    {
+      "command": "python tests/artifacts/perf/20260609T-dijkstra-boldfalcon/harness_all_pairs_length.py --mode command --impl fnx --graph graph --nodes 96 --iters 5",
+      "mean": 0.6489371836428572,
+      "stddev": 0.049444945948772974,
+      "median": 0.6417307025000001,
+      "user": 2.1945652,
+      "system": 0.0847514257142857,
+      "min": 0.5867333205,
+      "max": 0.7478249315000001,
+      "times": [
+        0.6420195005,
+        0.6367662785,
+        0.6247845795000001,
+        0.7478249315000001,
+        0.5867333205,
+        0.6627009725,
+        0.6417307025000001
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "python tests/artifacts/perf/20260609T-dijkstra-boldfalcon/harness_all_pairs_length.py --mode command --impl nx --graph graph --nodes 96 --iters 5",
+      "mean": 0.6501567752142857,
+      "stddev": 0.046238258112383974,
+      "median": 0.6477054785,
+      "user": 2.2480597714285713,
+      "system": 0.07381642571428572,
+      "min": 0.5697099415000001,
+      "max": 0.7271132455,
+      "times": [
+        0.6371690715,
+        0.6472397335000001,
+        0.6635331955,
+        0.6586267605,
+        0.6477054785,
+        0.7271132455,
+        0.5697099415000001
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}
