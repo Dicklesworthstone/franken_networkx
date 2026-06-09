@@ -10712,7 +10712,10 @@ pub fn degree_assortativity_coefficient(graph: &Graph) -> DegreeAssortativityRes
     // for any realistic graph (|sum| well under 2^53), so the result is
     // byte-identical to the old kernel regardless of edge-iteration order; the
     // final Pearson arithmetic (incl. the two separate sqrt calls) is unchanged.
-    let degrees: Vec<f64> = nodes.iter().map(|&node| graph.degree(node) as f64).collect();
+    let degrees: Vec<f64> = nodes
+        .iter()
+        .map(|&node| graph.degree(node) as f64)
+        .collect();
     let mut edges_scanned = 0usize;
     let mut sum_x = 0.0_f64;
     let mut sum_y = 0.0_f64;
@@ -10792,8 +10795,12 @@ pub fn degree_assortativity_coefficient(graph: &Graph) -> DegreeAssortativityRes
 pub fn degree_assortativity_coefficient_directed(digraph: &DiGraph) -> DegreeAssortativityResult {
     let nodes = digraph.nodes_ordered();
     let n = nodes.len();
-    let out_deg: Vec<f64> = (0..n).map(|i| digraph.out_degree_by_index(i) as f64).collect();
-    let in_deg: Vec<f64> = (0..n).map(|i| digraph.in_degree_by_index(i) as f64).collect();
+    let out_deg: Vec<f64> = (0..n)
+        .map(|i| digraph.out_degree_by_index(i) as f64)
+        .collect();
+    let in_deg: Vec<f64> = (0..n)
+        .map(|i| digraph.in_degree_by_index(i) as f64)
+        .collect();
 
     let mut edges_scanned = 0usize;
     let mut sum_x = 0.0_f64;
@@ -35350,7 +35357,9 @@ pub fn communicability_betweenness_centrality(
                     let start = t * chunk;
                     let end = ((t + 1) * chunk).min(n);
                     scope.spawn(move || {
-                        (start..end).map(|r| (r, compute_node(r))).collect::<Vec<_>>()
+                        (start..end)
+                            .map(|r| (r, compute_node(r)))
+                            .collect::<Vec<_>>()
                     })
                 })
                 .collect();
@@ -35529,9 +35538,7 @@ pub fn current_flow_betweenness_centrality(
                 .map(|tt| {
                     let start = tt * chunk;
                     let end = ((tt + 1) * chunk).min(n);
-                    scope.spawn(move || {
-                        (start..end).map(|s| (s, compute_s(s))).collect::<Vec<_>>()
-                    })
+                    scope.spawn(move || (start..end).map(|s| (s, compute_s(s))).collect::<Vec<_>>())
                 })
                 .collect();
             let mut slots: Vec<Vec<f64>> = vec![Vec::new(); n];
