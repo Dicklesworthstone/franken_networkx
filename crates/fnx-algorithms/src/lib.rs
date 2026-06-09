@@ -2500,6 +2500,115 @@ pub fn closeness_centrality_directed(graph: &DiGraph) -> ClosenessCentralityResu
     closeness_centrality_generic(graph)
 }
 
+/// Reusable per-worker scratch for one reverse-BFS pass (closeness/harmonic).
+/// `distance` uses `-1` as the unreached sentinel and is cleared per source.
+struct CentralityBfsScratch {
+    distance: Vec<i64>,
+    queue: VecDeque<usize>,
+}
+
+impl CentralityBfsScratch {
+    fn new(n: usize) -> Self {
+        Self {
+            distance: vec![-1i64; n],
+            queue: VecDeque::new(),
+        }
+    }
+}
+
+/// Closeness contribution of a single source `s` (NX reverse-BFS convention).
+/// The score is a pure function of this source's own BFS — no cross-source
+/// state — so sources may run in any order and the result is byte-identical to
+/// the sequential loop. Returns `(score, reached, edges_scanned, queue_peak)`.
+fn closeness_source(
+    scratch: &mut CentralityBfsScratch,
+    reverse_adjacency: &[Vec<Option<usize>>],
+    n: usize,
+    s: usize,
+) -> (f64, usize, usize, usize) {
+    let distance = &mut scratch.distance;
+    let queue = &mut scratch.queue;
+    distance.fill(-1);
+    queue.clear();
+
+    queue.push_back(s);
+    distance[s] = 0;
+    let mut queue_peak = queue.len();
+    let mut reached = 0usize;
+    let mut sum_dist = 0usize;
+    let mut edges_scanned = 0usize;
+
+    while let Some(v) = queue.pop_front() {
+        reached += 1;
+        let d = distance[v];
+        sum_dist += d as usize;
+        for maybe_w in &reverse_adjacency[v] {
+            edges_scanned += 1;
+            if let Some(w) = *maybe_w
+                && distance[w] < 0
+            {
+                distance[w] = d + 1;
+                queue.push_back(w);
+                queue_peak = queue_peak.max(queue.len());
+            }
+        }
+    }
+
+    let score = if reached <= 1 || sum_dist == 0 {
+        0.0
+    } else {
+        let reachable_minus_one = (reached - 1) as f64;
+        let mut closeness = reachable_minus_one / (sum_dist as f64);
+        if n > 1 {
+            closeness *= reachable_minus_one / ((n - 1) as f64);
+        }
+        closeness
+    };
+
+    (score, reached, edges_scanned, queue_peak)
+}
+
+/// Harmonic contribution of a single source `s` (NX reverse-BFS convention).
+/// `harmonic += 1/d` is summed in BFS pop order, identical per source regardless
+/// of how sources are scheduled, so the result is byte-identical to sequential.
+/// Returns `(score, reached, edges_scanned, queue_peak)`.
+fn harmonic_source(
+    scratch: &mut CentralityBfsScratch,
+    reverse_adjacency: &[Vec<Option<usize>>],
+    s: usize,
+) -> (f64, usize, usize, usize) {
+    let distance = &mut scratch.distance;
+    let queue = &mut scratch.queue;
+    distance.fill(-1);
+    queue.clear();
+
+    queue.push_back(s);
+    distance[s] = 0;
+    let mut queue_peak = queue.len();
+    let mut reached = 0usize;
+    let mut harmonic = 0.0_f64;
+    let mut edges_scanned = 0usize;
+
+    while let Some(u) = queue.pop_front() {
+        reached += 1;
+        let d = distance[u];
+        if d > 0 {
+            harmonic += 1.0 / (d as f64);
+        }
+        for maybe_v in &reverse_adjacency[u] {
+            edges_scanned += 1;
+            let v = maybe_v.expect("graph in-neighbor must exist in canonical node index");
+            if distance[v] < 0 {
+                distance[v] = d + 1;
+                queue.push_back(v);
+                queue_peak = queue_peak.max(queue.len());
+            }
+        }
+    }
+
+    (harmonic, reached, edges_scanned, queue_peak)
+}
+
 fn closeness_centrality_generic<G: GraphView>(graph: &G) -> ClosenessCentralityResult {
     let nodes = graph.nodes_ordered();
     let n = nodes.len();
@@ -2521,6 +2630,9 @@ fn closeness_centrality_generic<G: GraphView>(graph: &G) -> ClosenessCentralityR
     let mut total_edges_scanned = 0usize;
     let mut global_queue_peak = 0usize;
 
+    // For directed graphs, in_neighbors_iter returns predecessors, giving the
+    // reverse BFS NX's closeness convention needs (sum of distances from all
+    // nodes TO s). For undirected graphs, in_neighbors_iter == neighbors_iter.
     let reverse_adjacency = nodes
         .iter()
         .map(|&node| {
@@ -2534,51 +2646,30 @@ fn closeness_centrality_generic<G: GraphView>(graph: &G) -> ClosenessCentralityR
         })
         .collect::<Vec<Vec<Option<usize>>>>();
 
-    for s in 0..n {
-        let mut queue = VecDeque::<usize>::new();
-        let mut distance = vec![None; n];
+    // Each source's score is independent (no cross-source accumulation), so the
+    // per-source reverse-BFS fans out over rayon workers with no ordering or
+    // float-summation-order concern; results collect in source order.
+    const CENTRALITY_PARALLEL_THRESHOLD: usize = 500;
+    let per_source: Vec<(f64, usize, usize, usize)> = if n >= CENTRALITY_PARALLEL_THRESHOLD {
+        use rayon::prelude::*;
+        (0..n)
+            .into_par_iter()
+            .map_init(
+                || CentralityBfsScratch::new(n),
+                |scratch, s| closeness_source(scratch, &reverse_adjacency, n, s),
+            )
+            .collect()
+    } else {
+        let mut scratch = CentralityBfsScratch::new(n);
+        (0..n)
+            .map(|s| closeness_source(&mut scratch, &reverse_adjacency, n, s))
+            .collect()
+    };
 
-        queue.push_back(s);
-        distance[s] = Some(0usize);
-        global_queue_peak = global_queue_peak.max(queue.len());
-
-        let mut reached = 0usize;
-        let mut sum_dist = 0usize;
-
-        while let Some(v) = queue.pop_front() {
-            reached += 1;
-            let d = distance[v].unwrap();
-            sum_dist += d;
-
-            // For directed graphs, in_neighbors_iter returns predecessors,
-            // which gives us the reverse BFS needed by NX's closeness
-            // centrality convention (sum of distances from all nodes TO s).
-            // For undirected graphs, in_neighbors_iter == neighbors_iter.
-            for maybe_w in &reverse_adjacency[v] {
-                total_edges_scanned += 1;
-                if let Some(w) = *maybe_w
-                    && distance[w].is_none()
-                {
-                    distance[w] = Some(d + 1);
-                    queue.push_back(w);
-                    global_queue_peak = global_queue_peak.max(queue.len());
-                }
-            }
-        }
-
+    for (s, (score, reached, edges_scanned, queue_peak)) in per_source.into_iter().enumerate() {
         total_nodes_touched += reached;
-
-        let score = if reached <= 1 || sum_dist == 0 {
-            0.0
-        } else {
-            let reachable_minus_one = (reached - 1) as f64;
-            let mut closeness = reachable_minus_one / (sum_dist as f64);
-            if n > 1 {
-                closeness *= reachable_minus_one / ((n - 1) as f64);
-            }
-            closeness
-        };
-
+        total_edges_scanned += edges_scanned;
+        global_queue_peak = global_queue_peak.max(queue_peak);
         scores.push(CentralityScore {
             node: nodes[s].to_owned(),
             score,
@@ -2641,39 +2732,33 @@ fn harmonic_centrality_generic<G: GraphView>(graph: &G) -> HarmonicCentralityRes
         })
         .collect::<Vec<Vec<Option<usize>>>>();
 
-    let unreached = usize::MAX;
-    for (s, source) in nodes.iter().enumerate() {
-        let mut queue: VecDeque<usize> = VecDeque::new();
-        let mut distances: Vec<usize> = vec![unreached; n];
-        queue.push_back(s);
-        distances[s] = 0usize;
-        queue_peak = queue_peak.max(queue.len());
+    // Each source's harmonic sum is independent; fan the per-source reverse-BFS
+    // out over rayon workers (per-source 1/d additions stay in BFS pop order, so
+    // byte-identical to sequential), results collect in source order.
+    const CENTRALITY_PARALLEL_THRESHOLD: usize = 500;
+    let per_source: Vec<(f64, usize, usize, usize)> = if n >= CENTRALITY_PARALLEL_THRESHOLD {
+        use rayon::prelude::*;
+        (0..n)
+            .into_par_iter()
+            .map_init(
+                || CentralityBfsScratch::new(n),
+                |scratch, s| harmonic_source(scratch, &reverse_adjacency, s),
+            )
+            .collect()
+    } else {
+        let mut scratch = CentralityBfsScratch::new(n);
+        (0..n)
+            .map(|s| harmonic_source(&mut scratch, &reverse_adjacency, s))
+            .collect()
+    };
 
-        let mut reached_count = 0usize;
-        let mut harmonic = 0.0_f64;
-
-        while let Some(u) = queue.pop_front() {
-            reached_count += 1;
-            let d = distances[u];
-            if d > 0 {
-                harmonic += 1.0 / (d as f64);
-            }
-
-            for maybe_v in &reverse_adjacency[u] {
-                edges_scanned += 1;
-                let v = maybe_v.expect("graph in-neighbor must exist in canonical node index");
-                if distances[v] == unreached {
-                    distances[v] = d + 1;
-                    queue.push_back(v);
-                    queue_peak = queue_peak.max(queue.len());
-                }
-            }
-        }
-
-        nodes_touched += reached_count;
+    for (s, (score, reached, src_edges, src_peak)) in per_source.into_iter().enumerate() {
+        nodes_touched += reached;
+        edges_scanned += src_edges;
+        queue_peak = queue_peak.max(src_peak);
         scores.push(CentralityScore {
-            node: (*source).to_owned(),
-            score: harmonic,
+            node: nodes[s].to_owned(),
+            score,
         });
     }
 
