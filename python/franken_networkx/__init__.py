@@ -26507,9 +26507,21 @@ def bethe_hessian_matrix(G, r=None, nodelist=None):
     # A and D come from the weighted adjacency (weight='weight'), but the
     # default regularizer r is computed from unweighted node degrees via
     # nx.degree(G). Match that mix exactly.
-    if nodelist is None:
+    default_nodelist = nodelist is None
+    if default_nodelist:
         nodelist = list(G.nodes())
-    A = to_scipy_sparse_array(G, nodelist=nodelist, format="csr")
+    # br-r37-c1-betheadj: pin dtype=float and, for the default node order, pass
+    # nodelist=None so to_scipy_sparse_array takes its NATIVE weighted COO fast
+    # path (the str-weight + dtype=None default falls back to per-edge G[u][v]
+    # Python reads — ~2x of bethe's runtime). The matrix is byte-identical:
+    # default order == G.nodes() order, and the H formula's ``r * A`` is float
+    # regardless of A's dtype. ~2x faster.
+    A = to_scipy_sparse_array(
+        G,
+        nodelist=None if default_nodelist else nodelist,
+        dtype=float,
+        format="csr",
+    )
     n = A.shape[0]
     d = np.asarray(A.sum(axis=1)).flatten()
     # Use sparse *arrays* throughout (not legacy matrices) so the final
