@@ -12963,6 +12963,119 @@ def _rich_club_double_edge_swap(G, nswap=1, max_tries=100, seed=None):
     return G
 
 
+def _rich_club_rc_from_adjacency(adj, nodes, idx):
+    """Rich-club coefficient by degree threshold computed directly from an
+    ordered-dict adjacency snapshot (no graph object). Identical formula and
+    accumulation order to ``_compute_rich_club_coefficients``."""
+    deg = {n: len(adj[n]) for n in nodes}
+    max_deg = max(deg.values()) if deg else 0
+    deghist = [0] * (max_deg + 1)
+    for node in nodes:
+        deghist[deg[node]] += 1
+    total = sum(deghist)
+    nks = (total - cs for cs in _itertools.accumulate(deghist) if total - cs > 1)
+    edge_degrees = sorted(
+        (
+            (deg[u], deg[v]) if deg[u] <= deg[v] else (deg[v], deg[u])
+            for u in nodes
+            for v in adj[u]
+            if idx[v] > idx[u]
+        ),
+        reverse=True,
+    )
+    ek = len(edge_degrees)
+    if ek == 0:
+        return {}
+    k1, k2 = edge_degrees.pop()
+    rc = {}
+    for d, nk in enumerate(nks):
+        while k1 <= d:
+            if not edge_degrees:
+                ek = 0
+                break
+            k1, k2 = edge_degrees.pop()
+            ek -= 1
+        rc[d] = 2 * ek / (nk * (nk - 1))
+    return rc
+
+
+def _rich_club_randomized_coefficients(G, Q, seed):
+    """br-r37-c1-richclubswap: run nx's `double_edge_swap` loop (Q*m swaps) on a
+    LOCAL ordered-dict adjacency snapshot instead of mutating the fnx graph.
+
+    The previous normalization path copied G then did per-swap
+    ``list(G[u])`` + ``x in G[u]`` + 4 ``add/remove_edge`` calls — many PyO3
+    round-trips per attempt over ~Q*m attempts (~10x slower than nx). A
+    ``dict.fromkeys`` snapshot preserves ``G[u]`` iteration order, so
+    ``rng.choice`` selects the same neighbors and the swap sequence — hence the
+    randomized graph — is byte-identical for a given seed. Rich-club is then
+    computed straight from the final adjacency. No per-swap PyO3.
+    """
+    import bisect
+
+    edge_count = G.number_of_edges()
+    nswap = Q * edge_count
+    max_tries = Q * edge_count * 10
+    if nswap > max_tries:
+        raise NetworkXError("Number of swaps > number of tries allowed.")
+    if len(G) < 4:
+        raise NetworkXError("Graph has fewer than four nodes.")
+    if edge_count < 2:
+        raise NetworkXError("Graph has fewer than 2 edges")
+
+    nodes = list(G)
+    idx = {node: i for i, node in enumerate(nodes)}
+    adj = {node: dict.fromkeys(G[node]) for node in nodes}
+
+    rng = _generator_random_state(seed)
+
+    def choice(seq):
+        if hasattr(rng, "choice"):
+            return rng.choice(seq)
+        return seq[rng.randint(0, len(seq) - 1)]
+
+    degree_view = G.degree
+    degree_items = degree_view() if callable(degree_view) else degree_view
+    keys, degrees = zip(*degree_items)
+    total_degree = sum(degrees)
+    cumulative = 0.0
+    cdf = []
+    for degree in degrees:
+        cumulative += degree
+        cdf.append(cumulative / total_degree)
+
+    n = 0
+    swapcount = 0
+    while swapcount < nswap:
+        ui = bisect.bisect_left(cdf, rng.random())
+        xi = bisect.bisect_left(cdf, rng.random())
+        if ui == xi:
+            continue
+        u = keys[ui]
+        x = keys[xi]
+        v = choice(list(adj[u]))
+        y = choice(list(adj[x]))
+        if v == y:
+            continue
+        if (x not in adj[u]) and (y not in adj[v]):
+            adj[u][x] = None
+            adj[x][u] = None
+            adj[v][y] = None
+            adj[y][v] = None
+            del adj[u][v]
+            del adj[v][u]
+            del adj[x][y]
+            del adj[y][x]
+            swapcount += 1
+        if n >= max_tries:
+            raise NetworkXAlgorithmError(
+                f"Maximum number of swap attempts ({n}) exceeded "
+                f"before desired swaps achieved ({nswap})."
+            )
+        n += 1
+    return _rich_club_rc_from_adjacency(adj, nodes, idx)
+
+
 def rich_club_coefficient(
     G, normalized=True, Q=100, seed=None, *, backend=None, **backend_kwargs
 ):
@@ -12981,15 +13094,10 @@ def rich_club_coefficient(
 
     rc = _compute_rich_club_coefficients(G)
     if normalized:
-        randomized = G.copy()
-        edge_count = randomized.number_of_edges()
-        _rich_club_double_edge_swap(
-            randomized,
-            Q * edge_count,
-            max_tries=Q * edge_count * 10,
-            seed=seed,
-        )
-        randomized_rc = _compute_rich_club_coefficients(randomized)
+        # br-r37-c1-richclubswap: Q*m edge swaps run on a local adjacency
+        # snapshot (byte-identical randomized graph per seed) — no per-swap
+        # graph mutation, ~10x faster than the old copy+mutate path.
+        randomized_rc = _rich_club_randomized_coefficients(G, Q, seed)
         rc = {k: v / randomized_rc[k] for k, v in rc.items()}
     return rc
 
