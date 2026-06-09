@@ -14636,10 +14636,8 @@ pub fn eulerian_path_directed(
 
     let nodes = digraph.nodes_ordered();
     let mut reverse_adj = vec![Vec::<usize>::new(); nodes.len()];
-    for (source, target, _) in digraph.edges_ordered_borrowed() {
-        let reverse_source = digraph.get_node_index(target)?;
-        let reverse_target = digraph.get_node_index(source)?;
-        reverse_adj[reverse_source].push(reverse_target);
+    for (source_idx, target_idx) in digraph.edges_ordered_indices() {
+        reverse_adj[target_idx].push(source_idx);
     }
 
     let mut edge_pos = vec![0usize; nodes.len()];

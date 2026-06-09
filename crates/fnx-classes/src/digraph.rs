@@ -1383,6 +1383,22 @@ impl DiGraph {
         ordered
     }
 
+    /// Directed edge endpoints in the same order as `edges_ordered_borrowed`.
+    #[must_use]
+    pub fn edges_ordered_indices(&self) -> Vec<(usize, usize)> {
+        let mut ordered = Vec::with_capacity(self.edges.len());
+
+        for (u, row) in self.succ_indices.iter().enumerate() {
+            for &t in row {
+                if self.edges.contains_key(&(u, t)) {
+                    ordered.push((u, t));
+                }
+            }
+        }
+
+        ordered
+    }
+
     #[must_use]
     pub fn snapshot(&self) -> DiGraphSnapshot {
         let node_attrs: std::collections::BTreeMap<String, AttrMap> = self
@@ -2672,6 +2688,10 @@ mod tests {
                 .map(|(u, v, _)| (u, v))
                 .collect::<Vec<_>>(),
             vec![("b", "x"), ("b", "t"), ("a", "t"), ("t", "t")]
+        );
+        assert_eq!(
+            g.edges_ordered_indices(),
+            vec![(0, 1), (0, 3), (2, 3), (3, 3)]
         );
         assert_eq!(g.successors("b"), Some(vec!["x", "t"]));
         assert_eq!(g.predecessors("t"), Some(vec!["a", "b", "t"]));
