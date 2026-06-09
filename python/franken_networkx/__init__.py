@@ -18623,7 +18623,15 @@ def _pagerank_scipy(G, alpha, max_iter, tol, weight):
         native_result = None
         native_index_used = False
         if native_weight is None and _native_adjacency_index_arrays is not None:
-            native_index_result = _native_adjacency_index_arrays(G, nodelist, None)
+            # br-r37-c1-prdir: prefer the default-order index COO (directed +
+            # undirected) — it skips the Python nodelist canonicalisation; nodelist
+            # == list(G) so the index-ordered (rows, cols) align. Fall back to the
+            # nodelist builder if unavailable.
+            native_index_result = None
+            if _native_adjacency_default_order_index_arrays is not None:
+                native_index_result = _native_adjacency_default_order_index_arrays(G, None)
+            if native_index_result is None:
+                native_index_result = _native_adjacency_index_arrays(G, nodelist, None)
             if native_index_result is not None:
                 rows, cols = native_index_result
                 rows = np.asarray(rows, dtype=np.intp)
@@ -18636,12 +18644,14 @@ def _pagerank_scipy(G, alpha, max_iter, tol, weight):
             else:
                 native_result = _native_adjacency_arrays(G, nodelist, native_weight, 1.0)
         else:
-            # br-r37-c1-coowt: undirected default-order -> integer-CSR weighted COO
-            # (edge weights read by index pair, skipping the Python nodelist
-            # canonicalisation + per-edge node-string->index lookups of
-            # adjacency_arrays). nodelist == list(G) here so the index-ordered COO
-            # matches; matrix assembly is order-independent regardless.
-            if not G.is_directed() and _native_adjacency_default_order_arrays is not None:
+            # br-r37-c1-coowt/prdir: default-order integer-CSR weighted COO for
+            # BOTH undirected and directed graphs (the builder now emits the
+            # row-major out-adjacency for a DiGraph). Reads weights by index pair,
+            # skipping the Python nodelist canonicalisation + per-edge node
+            # string->index lookups of adjacency_arrays. nodelist == list(G) here
+            # so the index-ordered COO matches; matrix assembly is order-
+            # independent regardless.
+            if _native_adjacency_default_order_arrays is not None:
                 native_result = _native_adjacency_default_order_arrays(G, native_weight, 1.0)
             if native_result is None:
                 native_result = _native_adjacency_arrays(G, nodelist, native_weight, 1.0)

@@ -617,6 +617,15 @@ impl DiGraph {
         self.edges.get(&(source_idx, target_idx))
     }
 
+    /// br-r37-c1-prdir: iterate every directed edge as
+    /// `((source_idx, target_idx), &AttrMap)` straight from the index-keyed edge
+    /// store, in insertion order. Lets COO/CSR exporters read each edge's weight
+    /// with ONE attr lookup instead of the per-edge `edges.get(&(u,v))` hash that
+    /// the successors-then-`edge_attrs_by_indices` path pays.
+    pub fn edges_indexed(&self) -> impl Iterator<Item = ((usize, usize), &AttrMap)> + '_ {
+        self.edges.iter().map(|(&pair, attrs)| (pair, attrs))
+    }
+
     #[must_use]
     pub fn evidence_ledger(&self) -> &EvidenceLedger {
         self.runtime_policy.decision_log()

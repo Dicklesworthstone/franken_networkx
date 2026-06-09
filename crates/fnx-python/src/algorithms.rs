@@ -2608,30 +2608,55 @@ pub fn adjacency_default_order_index_arrays(
     absent_weight_attr: Option<&str>,
 ) -> PyResult<Option<(Vec<usize>, Vec<usize>)>> {
     let gr = extract_graph(g)?;
-    let GraphRef::Undirected(pg) = &gr else {
-        return Ok(None);
-    };
-    if let Some(attr) = absent_weight_attr {
-        for dict in pg.edge_py_attrs.values() {
-            if dict.bind(py).contains(attr)? {
-                return Ok(None);
+    // br-r37-c1-prdir: directed graphs build the row-major out-adjacency COO
+    // (rows=source, cols=target, each edge once) from successors_indices.
+    match &gr {
+        GraphRef::Undirected(pg) => {
+            if let Some(attr) = absent_weight_attr {
+                for dict in pg.edge_py_attrs.values() {
+                    if dict.bind(py).contains(attr)? {
+                        return Ok(None);
+                    }
+                }
             }
+            let inner = &pg.inner;
+            let mut rows = Vec::with_capacity(inner.edge_count() * 2);
+            let mut cols = Vec::with_capacity(inner.edge_count() * 2);
+            for row in 0..inner.node_count() {
+                let Some(neighbors) = inner.neighbors_indices(row) else {
+                    continue;
+                };
+                for &col in neighbors {
+                    rows.push(row);
+                    cols.push(col);
+                }
+            }
+            Ok(Some((rows, cols)))
         }
-    }
-
-    let inner = &pg.inner;
-    let mut rows = Vec::with_capacity(inner.edge_count() * 2);
-    let mut cols = Vec::with_capacity(inner.edge_count() * 2);
-    for row in 0..inner.node_count() {
-        let Some(neighbors) = inner.neighbors_indices(row) else {
-            continue;
-        };
-        for &col in neighbors {
-            rows.push(row);
-            cols.push(col);
+        GraphRef::Directed { dg, .. } => {
+            if let Some(attr) = absent_weight_attr {
+                for dict in dg.edge_py_attrs.values() {
+                    if dict.bind(py).contains(attr)? {
+                        return Ok(None);
+                    }
+                }
+            }
+            let inner = &dg.inner;
+            let mut rows = Vec::with_capacity(inner.edge_count());
+            let mut cols = Vec::with_capacity(inner.edge_count());
+            for row in 0..inner.node_count() {
+                let Some(succ) = inner.successors_indices(row) else {
+                    continue;
+                };
+                for &col in succ {
+                    rows.push(row);
+                    cols.push(col);
+                }
+            }
+            Ok(Some((rows, cols)))
         }
+        _ => Ok(None),
     }
-    Ok(Some((rows, cols)))
 }
 
 /// Return weighted COO arrays for an undirected Graph in insertion order.
@@ -2648,36 +2673,58 @@ pub fn adjacency_default_order_arrays(
     default_weight: f64,
 ) -> PyResult<Option<(Vec<usize>, Vec<usize>, Vec<f64>)>> {
     let gr = extract_graph(g)?;
-    let GraphRef::Undirected(pg) = &gr else {
-        return Ok(None);
-    };
-
     // br-r37-c1-coowt: read each edge's weight by INTEGER index pair
     // (edge_attrs_by_indices) instead of get_node_name(row)+get_node_name(col)+
     // edge_attrs(&str,&str) — that paid two index->String resolutions plus a
     // String->index round-trip per edge (the String-adjacency tax on the
     // weighted CSR export used by to_scipy_sparse_array / adjacency_matrix).
-    let inner = &pg.inner;
-    let mut rows = Vec::with_capacity(inner.edge_count() * 2);
-    let mut cols = Vec::with_capacity(inner.edge_count() * 2);
-    let mut data = Vec::with_capacity(inner.edge_count() * 2);
-    for row in 0..inner.node_count() {
-        let Some(neighbors) = inner.neighbors_indices(row) else {
-            continue;
-        };
-        for &col in neighbors {
-            let w = inner
-                .edge_attrs_by_indices(row, col)
-                .and_then(|attrs| {
-                    weight_attr.and_then(|attr| attrs.get(attr).and_then(|val| val.as_f64()))
-                })
-                .unwrap_or(default_weight);
-            rows.push(row);
-            cols.push(col);
-            data.push(w);
+    // br-r37-c1-prdir: directed graphs build the row-major out-adjacency COO
+    // (rows=source, cols=target, each edge ONCE) from successors_indices.
+    match &gr {
+        GraphRef::Undirected(pg) => {
+            let inner = &pg.inner;
+            let mut rows = Vec::with_capacity(inner.edge_count() * 2);
+            let mut cols = Vec::with_capacity(inner.edge_count() * 2);
+            let mut data = Vec::with_capacity(inner.edge_count() * 2);
+            for row in 0..inner.node_count() {
+                let Some(neighbors) = inner.neighbors_indices(row) else {
+                    continue;
+                };
+                for &col in neighbors {
+                    let w = inner
+                        .edge_attrs_by_indices(row, col)
+                        .and_then(|attrs| {
+                            weight_attr.and_then(|attr| attrs.get(attr).and_then(|val| val.as_f64()))
+                        })
+                        .unwrap_or(default_weight);
+                    rows.push(row);
+                    cols.push(col);
+                    data.push(w);
+                }
+            }
+            Ok(Some((rows, cols, data)))
         }
+        GraphRef::Directed { dg, .. } => {
+            let inner = &dg.inner;
+            let ecount = inner.edge_count();
+            let mut rows = Vec::with_capacity(ecount);
+            let mut cols = Vec::with_capacity(ecount);
+            let mut data = Vec::with_capacity(ecount);
+            // Iterate the index-keyed edge store directly: one attr lookup per
+            // edge, no per-edge `edges.get(&(u,v))` hash. Order is edge-insertion;
+            // COO assembly is order-independent.
+            for ((u, v), attrs) in inner.edges_indexed() {
+                let w = weight_attr
+                    .and_then(|attr| attrs.get(attr).and_then(|val| val.as_f64()))
+                    .unwrap_or(default_weight);
+                rows.push(u);
+                cols.push(v);
+                data.push(w);
+            }
+            Ok(Some((rows, cols, data)))
+        }
+        _ => Ok(None),
     }
-    Ok(Some((rows, cols, data)))
 }
 
 /// Return weighted COO arrays plus dtype metadata for a default-order Graph.
