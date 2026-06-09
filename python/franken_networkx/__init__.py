@@ -42710,13 +42710,22 @@ def k_components(G, flow_func=None):
         node_count = len(G)
         if node_count < 2:
             return {}
+        edge_count = G.number_of_edges()
+        self_loop_count = number_of_selfloops(G)
         complete_edge_count = node_count * (node_count - 1) // 2
         if (
-            G.number_of_edges() == complete_edge_count
-            and number_of_selfloops(G) == 0
+            edge_count == complete_edge_count
+            and self_loop_count == 0
         ):
             nodes = set(G)
             return {k: [set(nodes)] for k in range(node_count - 1, 0, -1)}
+        if node_count >= 3 and edge_count == node_count and self_loop_count == 0:
+            if all(degree == 2 for _, degree in G.degree()):
+                components = [set(component) for component in connected_components(G)]
+                return {
+                    2: [set(component) for component in components],
+                    1: [set(component) for component in components],
+                }
     return _call_networkx_for_parity("k_components", G, flow_func=flow_func)
 
 

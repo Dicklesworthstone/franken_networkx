@@ -1,0 +1,353 @@
+{
+  "all_match": true,
+  "cases": [
+    {
+      "case": "cycle4",
+      "fnx": [
+        {
+          "component_types": [
+            "set"
+          ],
+          "components": [
+            [
+              "0",
+              "1",
+              "2",
+              "3"
+            ]
+          ],
+          "k": 2,
+          "value_type": "list"
+        },
+        {
+          "component_types": [
+            "set"
+          ],
+          "components": [
+            [
+              "0",
+              "1",
+              "2",
+              "3"
+            ]
+          ],
+          "k": 1,
+          "value_type": "list"
+        }
+      ],
+      "key_order": [
+        2,
+        1
+      ],
+      "match": true,
+      "nx": [
+        {
+          "component_types": [
+            "set"
+          ],
+          "components": [
+            [
+              "0",
+              "1",
+              "2",
+              "3"
+            ]
+          ],
+          "k": 2,
+          "value_type": "list"
+        },
+        {
+          "component_types": [
+            "set"
+          ],
+          "components": [
+            [
+              "0",
+              "1",
+              "2",
+              "3"
+            ]
+          ],
+          "k": 1,
+          "value_type": "list"
+        }
+      ]
+    },
+    {
+      "case": "cycle10",
+      "fnx": [
+        {
+          "component_types": [
+            "set"
+          ],
+          "components": [
+            [
+              "0",
+              "1",
+              "2",
+              "3",
+              "4",
+              "5",
+              "6",
+              "7",
+              "8",
+              "9"
+            ]
+          ],
+          "k": 2,
+          "value_type": "list"
+        },
+        {
+          "component_types": [
+            "set"
+          ],
+          "components": [
+            [
+              "0",
+              "1",
+              "2",
+              "3",
+              "4",
+              "5",
+              "6",
+              "7",
+              "8",
+              "9"
+            ]
+          ],
+          "k": 1,
+          "value_type": "list"
+        }
+      ],
+      "key_order": [
+        2,
+        1
+      ],
+      "match": true,
+      "nx": [
+        {
+          "component_types": [
+            "set"
+          ],
+          "components": [
+            [
+              "0",
+              "1",
+              "2",
+              "3",
+              "4",
+              "5",
+              "6",
+              "7",
+              "8",
+              "9"
+            ]
+          ],
+          "k": 2,
+          "value_type": "list"
+        },
+        {
+          "component_types": [
+            "set"
+          ],
+          "components": [
+            [
+              "0",
+              "1",
+              "2",
+              "3",
+              "4",
+              "5",
+              "6",
+              "7",
+              "8",
+              "9"
+            ]
+          ],
+          "k": 1,
+          "value_type": "list"
+        }
+      ]
+    },
+    {
+      "case": "two_cycles",
+      "fnx": [
+        {
+          "component_types": [
+            "set",
+            "set"
+          ],
+          "components": [
+            [
+              "0",
+              "1",
+              "2",
+              "3"
+            ],
+            [
+              "4",
+              "5",
+              "6",
+              "7",
+              "8"
+            ]
+          ],
+          "k": 2,
+          "value_type": "list"
+        },
+        {
+          "component_types": [
+            "set",
+            "set"
+          ],
+          "components": [
+            [
+              "0",
+              "1",
+              "2",
+              "3"
+            ],
+            [
+              "4",
+              "5",
+              "6",
+              "7",
+              "8"
+            ]
+          ],
+          "k": 1,
+          "value_type": "list"
+        }
+      ],
+      "key_order": [
+        2,
+        1
+      ],
+      "match": true,
+      "nx": [
+        {
+          "component_types": [
+            "set",
+            "set"
+          ],
+          "components": [
+            [
+              "0",
+              "1",
+              "2",
+              "3"
+            ],
+            [
+              "4",
+              "5",
+              "6",
+              "7",
+              "8"
+            ]
+          ],
+          "k": 2,
+          "value_type": "list"
+        },
+        {
+          "component_types": [
+            "set",
+            "set"
+          ],
+          "components": [
+            [
+              "0",
+              "1",
+              "2",
+              "3"
+            ],
+            [
+              "4",
+              "5",
+              "6",
+              "7",
+              "8"
+            ]
+          ],
+          "k": 1,
+          "value_type": "list"
+        }
+      ]
+    },
+    {
+      "case": "selfloop_degree_two",
+      "fnx": [
+        {
+          "component_types": [
+            "set"
+          ],
+          "components": [
+            [
+              "1",
+              "2",
+              "3"
+            ]
+          ],
+          "k": 2,
+          "value_type": "list"
+        },
+        {
+          "component_types": [
+            "set"
+          ],
+          "components": [
+            [
+              "1",
+              "2",
+              "3"
+            ]
+          ],
+          "k": 1,
+          "value_type": "list"
+        }
+      ],
+      "key_order": [
+        2,
+        1
+      ],
+      "match": true,
+      "nx": [
+        {
+          "component_types": [
+            "set"
+          ],
+          "components": [
+            [
+              "1",
+              "2",
+              "3"
+            ]
+          ],
+          "k": 2,
+          "value_type": "list"
+        },
+        {
+          "component_types": [
+            "set"
+          ],
+          "components": [
+            [
+              "1",
+              "2",
+              "3"
+            ]
+          ],
+          "k": 1,
+          "value_type": "list"
+        }
+      ]
+    }
+  ],
+  "fnx_module": "franken_networkx",
+  "isomorphism": {
+    "floating_point": "N/A",
+    "ordering_preserved": "2-regular components use connected-component order for k=2 and k=1",
+    "rng": "N/A",
+    "tie_breaking_unchanged": "each simple-cycle component has one maximal k=2 component"
+  },
+  "nx_version": "3.6.1"
+}

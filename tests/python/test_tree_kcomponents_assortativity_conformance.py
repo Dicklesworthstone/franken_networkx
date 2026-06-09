@@ -304,6 +304,37 @@ def test_k_components_directed_guard_still_matches_networkx():
         nx.k_components(ng)
 
 
+@pytest.mark.parametrize("builder", [
+    lambda L: L.cycle_graph(5),
+    lambda L: L.disjoint_union(L.cycle_graph(4), L.cycle_graph(5)),
+])
+def test_k_components_cycle_family_raw_shape_matches_networkx(builder):
+    fg = builder(fnx)
+    ng = builder(nx)
+
+    fr = fnx.k_components(fg)
+    nr = nx.k_components(ng)
+
+    assert list(fr.keys()) == list(nr.keys()) == [2, 1]
+    assert {k: [set(c) for c in v] for k, v in fr.items()} == {
+        k: [set(c) for c in v] for k, v in nr.items()
+    }
+    assert {k: [type(c).__name__ for c in v] for k, v in fr.items()} == {
+        k: [type(c).__name__ for c in v] for k, v in nr.items()
+    }
+
+
+def test_k_components_cycle_fast_path_rejects_selfloop_degree_two_case():
+    fg = fnx.Graph()
+    ng = nx.Graph()
+    for graph in (fg, ng):
+        graph.add_nodes_from([0, 1, 2, 3])
+        graph.add_edges_from([(0, 0), (1, 2), (2, 3), (3, 1)])
+
+    assert all(degree == 2 for _, degree in fg.degree())
+    assert fnx.k_components(fg) == nx.k_components(ng)
+
+
 @pytest.mark.parametrize(
     "name,builder,k",
     [
