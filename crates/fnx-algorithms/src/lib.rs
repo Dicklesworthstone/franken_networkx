@@ -10646,38 +10646,36 @@ pub fn average_neighbor_degree(graph: &Graph) -> AverageNeighborDegreeResult {
         };
     }
 
-    // Precompute degrees
-    let degrees: HashMap<&str, usize> = nodes
-        .iter()
-        .map(|&node| (node, graph.degree(node)))
-        .collect();
+    // br-r37-c1-anbrdeg: integer-CSR rewrite. The previous version kept degrees
+    // in a HashMap<&str> and did a String-hash lookup `degrees[neighbor]` PER
+    // EDGE (the String-adjacency tax), plus a lexicographic sort that forced the
+    // Python wrapper to re-key. Index degrees by node INDEX (Vec, O(1)) and emit
+    // scores in node-insertion order so the wrapper returns them directly. The
+    // per-node sum is over integers (order-invariant), so values are bit-identical.
+    let degrees: Vec<usize> = (0..n).map(|i| graph.degree_by_index(i)).collect();
 
     let mut edges_scanned = 0usize;
     let mut scores: Vec<NodeAvgNeighborDegree> = Vec::with_capacity(n);
 
-    for &node in &nodes {
-        let deg = degrees[node];
-        if deg == 0 {
-            scores.push(NodeAvgNeighborDegree {
-                node: node.to_owned(),
-                avg_neighbor_degree: 0.0,
-            });
-            continue;
-        }
-        let mut sum_deg = 0usize;
-        if let Some(neighbors) = graph.neighbors_iter(node) {
-            for neighbor in neighbors {
-                edges_scanned += 1;
-                sum_deg += degrees[neighbor];
+    for (idx, &node) in nodes.iter().enumerate() {
+        let deg = degrees[idx];
+        let avg_neighbor_degree = if deg == 0 {
+            0.0
+        } else {
+            let mut sum_deg = 0usize;
+            if let Some(neighbors) = graph.neighbors_indices(idx) {
+                for &nbr in neighbors {
+                    edges_scanned += 1;
+                    sum_deg += degrees[nbr];
+                }
             }
-        }
+            sum_deg as f64 / deg as f64
+        };
         scores.push(NodeAvgNeighborDegree {
             node: node.to_owned(),
-            avg_neighbor_degree: sum_deg as f64 / deg as f64,
+            avg_neighbor_degree,
         });
     }
-
-    scores.sort_by(|a, b| a.node.cmp(&b.node));
 
     AverageNeighborDegreeResult {
         scores,

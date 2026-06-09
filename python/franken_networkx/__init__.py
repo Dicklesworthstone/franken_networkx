@@ -7916,10 +7916,11 @@ def average_neighbor_degree(
         and nodes is None
         and weight is None
     ):
-        raw = _raw_average_neighbor_degree(G)
-        # br-r37-c1-h1kf2: reorder dict in node-insertion order
-        # matching nx (Rust binding returns sorted-key order).
-        return {node: raw[node] for node in G if node in raw}  # br-gauntlet-perf4: `for node in G` (fast native Graph.__iter__) not `G.nodes()` (NodeView iterator is ~350x slower; identical order)
+        # br-r37-c1-anbrdeg: the native kernel now emits scores in node-insertion
+        # order (integer-CSR rewrite), so the binding's dict already matches nx's
+        # contract — return it directly. The previous re-key
+        # ``{node: raw[node] for node in G}`` was a redundant rebuild.
+        return _raw_average_neighbor_degree(G)
 
     if G.is_directed():
         if source == "in":
