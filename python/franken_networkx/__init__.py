@@ -12961,6 +12961,23 @@ def rich_club_coefficient(
 def s_metric(G, *, backend=None, **backend_kwargs):
     """Return the s-metric of the graph."""
     _validate_backend_dispatch_keywords("s_metric", backend, backend_kwargs)
+    G = _coerce_arg_to_fnx_graph(G)
+    # br-r37-c1-yxmdc: route to the (previously UNUSED) native Rust kernel
+    # ``_fnx.s_metric`` — it sums deg(u)*deg(v) over the CSR adjacency with NO
+    # Python edge iteration (~2.5x faster than the loop below, which paid fnx's
+    # slow per-edge ``G.edges()`` dispatch). The kernel is undirected-only and
+    # its degree convention counts a self-loop once where nx counts it twice, so
+    # gate to undirected / simple / self-loop-free and keep the Python loop
+    # (correct for every case) otherwise.
+    if (
+        not G.is_directed()
+        and not G.is_multigraph()
+        and number_of_selfloops(G) == 0
+    ):
+        try:
+            return _fnx.s_metric(G)
+        except Exception:
+            pass
     # br-r37-c1-smetricdegcache: snapshot degrees once into a plain
     # dict; the previous per-edge ``degree_of(u)``/``degree_of(v)``
     # calls were ~2× as many PyO3 round-trips as edges, dominating
