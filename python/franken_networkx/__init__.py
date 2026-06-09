@@ -18636,7 +18636,15 @@ def _pagerank_scipy(G, alpha, max_iter, tol, weight):
             else:
                 native_result = _native_adjacency_arrays(G, nodelist, native_weight, 1.0)
         else:
-            native_result = _native_adjacency_arrays(G, nodelist, native_weight, 1.0)
+            # br-r37-c1-coowt: undirected default-order -> integer-CSR weighted COO
+            # (edge weights read by index pair, skipping the Python nodelist
+            # canonicalisation + per-edge node-string->index lookups of
+            # adjacency_arrays). nodelist == list(G) here so the index-ordered COO
+            # matches; matrix assembly is order-independent regardless.
+            if not G.is_directed() and _native_adjacency_default_order_arrays is not None:
+                native_result = _native_adjacency_default_order_arrays(G, native_weight, 1.0)
+            if native_result is None:
+                native_result = _native_adjacency_arrays(G, nodelist, native_weight, 1.0)
         if native_result is not None:
             rows, cols, data = native_result
             A = sp.coo_array(

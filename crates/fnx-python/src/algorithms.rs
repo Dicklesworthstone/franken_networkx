@@ -2652,23 +2652,22 @@ pub fn adjacency_default_order_arrays(
         return Ok(None);
     };
 
+    // br-r37-c1-coowt: read each edge's weight by INTEGER index pair
+    // (edge_attrs_by_indices) instead of get_node_name(row)+get_node_name(col)+
+    // edge_attrs(&str,&str) — that paid two index->String resolutions plus a
+    // String->index round-trip per edge (the String-adjacency tax on the
+    // weighted CSR export used by to_scipy_sparse_array / adjacency_matrix).
     let inner = &pg.inner;
     let mut rows = Vec::with_capacity(inner.edge_count() * 2);
     let mut cols = Vec::with_capacity(inner.edge_count() * 2);
     let mut data = Vec::with_capacity(inner.edge_count() * 2);
     for row in 0..inner.node_count() {
-        let Some(row_name) = inner.get_node_name(row) else {
-            continue;
-        };
         let Some(neighbors) = inner.neighbors_indices(row) else {
             continue;
         };
         for &col in neighbors {
-            let Some(col_name) = inner.get_node_name(col) else {
-                continue;
-            };
             let w = inner
-                .edge_attrs(row_name, col_name)
+                .edge_attrs_by_indices(row, col)
                 .and_then(|attrs| {
                     weight_attr.and_then(|attr| attrs.get(attr).and_then(|val| val.as_f64()))
                 })
