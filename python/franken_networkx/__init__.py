@@ -11229,15 +11229,15 @@ def all_pairs_shortest_path(G, cutoff=None, *, backend=None, **backend_kwargs):
         "all_pairs_shortest_path", backend, backend_kwargs
     )
     paths = _raw_all_pairs_shortest_path(G, cutoff)
+    # br-r37-c1-cfsoi: the Rust binding now emits each per-source inner dict in
+    # BFS-visit-from-source order (matching nx's single_source_shortest_path
+    # key order), so no Python-side re-BFS / reordering is needed — yield the
+    # native dicts directly. (Previously this paid a full _bfs_visit_order BFS
+    # per source: an 8-10x tax over the whole all-pairs result.)
     # Preserve graph node insertion order for the source axis.
     for source in G:
         if source in paths:
-            # br-r37-c1-5ur50: each per-source inner dict iterates in
-            # BFS-visit-from-source order matching nx (Rust dict yields
-            # in arbitrary internal order).
-            inner = paths[source]
-            ordered = {n: inner[n] for n in _bfs_visit_order(G, source) if n in inner}
-            yield source, ordered
+            yield source, paths[source]
 
 
 def all_pairs_shortest_path_length(G, cutoff=None, *, backend=None, **backend_kwargs):

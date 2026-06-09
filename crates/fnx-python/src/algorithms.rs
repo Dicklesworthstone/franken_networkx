@@ -8726,27 +8726,130 @@ pub fn all_pairs_shortest_path(
     g: &Bound<'_, PyAny>,
     cutoff: Option<usize>,
 ) -> PyResult<PyObject> {
+    // br-r37-c1-cfsoi: build per-source paths over integer adjacency in
+    // BFS-discovery order natively (mirrors all_pairs_shortest_path_length's
+    // ordered path). The previous binding collected the kernel's
+    // `HashMap<String, HashMap<String, _>>`, which loses BFS-visit order, and
+    // the Python wrapper paid a full re-BFS (`_bfs_visit_order`) per source to
+    // recover nx's inner-dict key order — an 8-10x tax. Emitting in discovery
+    // order here lets the wrapper yield directly.
     let gr = extract_graph(g)?;
-    let result = if gr.is_directed() {
+    let (nodes, result) = if gr.is_directed() {
         let inner = gr.digraph().expect("is_directed checked above");
-        py.allow_threads(|| fnx_algorithms::all_pairs_shortest_path_directed(inner, cutoff))
+        let nodes = inner.nodes_ordered();
+        let adjacency = digraph_shortest_path_adjacency_indices(inner, &nodes);
+        let result =
+            py.allow_threads(|| all_pairs_shortest_path_from_adjacency(&adjacency, cutoff));
+        (nodes, result)
     } else {
         let inner = gr.undirected();
-        py.allow_threads(|| fnx_algorithms::all_pairs_shortest_path(inner, cutoff))
+        let nodes = inner.nodes_ordered();
+        let adjacency = graph_shortest_path_adjacency_indices(inner, &nodes);
+        let result =
+            py.allow_threads(|| all_pairs_shortest_path_from_adjacency(&adjacency, cutoff));
+        (nodes, result)
     };
     let outer_dict = pyo3::types::PyDict::new(py);
-    for (source, targets) in &result {
+    for (source, paths) in &result {
         // br-r37-c1-6hpa9: discovery objects per source; sources keep their
-        // node-map object (nx iterates G).
-        let target_paths: Vec<(String, Vec<String>)> = targets
+        // node-map object (nx iterates G). `paths` is already in BFS-visit
+        // order, so emit_paths_dict_discovery preserves nx's inner key order.
+        let target_paths: Vec<(String, Vec<String>)> = paths
             .iter()
-            .map(|(target, path)| (target.clone(), path.clone()))
+            .map(|(target, path)| {
+                (
+                    nodes[*target].to_owned(),
+                    path.iter().map(|&idx| nodes[idx].to_owned()).collect(),
+                )
+            })
             .collect();
-        let inner_dict =
-            emit_paths_dict_discovery(py, &gr, &target_paths, source, gr.py_node_key(py, source))?;
-        outer_dict.set_item(gr.py_node_key(py, source), inner_dict)?;
+        let source_key = nodes[*source];
+        let inner_dict = emit_paths_dict_discovery(
+            py,
+            &gr,
+            &target_paths,
+            source_key,
+            gr.py_node_key(py, source_key),
+        )?;
+        outer_dict.set_item(gr.py_node_key(py, source_key), inner_dict)?;
     }
     Ok(outer_dict.into_any().unbind())
+}
+
+/// BFS from every source over an integer adjacency list, returning per-source
+/// `(source, [(target, path)])` with targets in BFS-discovery order (matching
+/// `networkx.single_source_shortest_path`'s dict-insertion order). Paths are
+/// reconstructed from a predecessor array so each target's path is the BFS-tree
+/// path (the first predecessor that discovers it), identical to nx's
+/// `paths[w] = paths[v] + [w]`.
+fn all_pairs_shortest_path_from_adjacency(
+    adjacency: &[Vec<usize>],
+    cutoff: Option<usize>,
+) -> Vec<(usize, Vec<(usize, Vec<usize>)>)> {
+    let node_count = adjacency.len();
+    let mut result = Vec::with_capacity(node_count);
+    let mut seen_epoch = vec![0usize; node_count];
+    let mut pred = vec![0usize; node_count];
+    let mut frontier = Vec::with_capacity(node_count);
+    let mut next_frontier = Vec::with_capacity(node_count);
+    let mut epoch = 1usize;
+
+    for source in 0..node_count {
+        let mut order: Vec<usize> = Vec::with_capacity(node_count);
+        frontier.clear();
+        next_frontier.clear();
+        seen_epoch[source] = epoch;
+        pred[source] = source;
+        frontier.push(source);
+        order.push(source);
+
+        let mut level = 0usize;
+        while !frontier.is_empty() {
+            if let Some(c) = cutoff
+                && level >= c
+            {
+                break;
+            }
+            next_frontier.clear();
+            for &node in &frontier {
+                for &neighbor in &adjacency[node] {
+                    if seen_epoch[neighbor] != epoch {
+                        seen_epoch[neighbor] = epoch;
+                        pred[neighbor] = node;
+                        order.push(neighbor);
+                        next_frontier.push(neighbor);
+                    }
+                }
+            }
+            std::mem::swap(&mut frontier, &mut next_frontier);
+            level += 1;
+        }
+
+        // Reconstruct each target's path in discovery order via the pred chain.
+        let mut paths = Vec::with_capacity(order.len());
+        for &target in &order {
+            let mut rev = Vec::new();
+            let mut cur = target;
+            loop {
+                rev.push(cur);
+                if cur == source {
+                    break;
+                }
+                cur = pred[cur];
+            }
+            rev.reverse();
+            paths.push((target, rev));
+        }
+
+        result.push((source, paths));
+        epoch = epoch.saturating_add(1);
+        if epoch == usize::MAX {
+            seen_epoch.fill(0);
+            epoch = 1;
+        }
+    }
+
+    result
 }
 
 /// Return shortest path lengths between all pairs of nodes.
