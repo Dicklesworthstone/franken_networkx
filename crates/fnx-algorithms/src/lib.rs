@@ -17848,10 +17848,40 @@ pub fn number_weakly_connected_components(digraph: &DiGraph) -> usize {
 /// Return whether the directed graph is weakly connected.
 #[must_use]
 pub fn is_weakly_connected(digraph: &DiGraph) -> bool {
-    if digraph.node_count() == 0 {
+    // br-r37-c1-weakconn: a single integer BFS over the UNDIRECTED projection
+    // (successors ∪ predecessors, by index) — connected iff it reaches all nodes.
+    // The previous `number_weakly_connected_components(..) == 1` built EVERY
+    // component as a Vec of String node names (O(|V|) String allocs) just to test
+    // for a single component.
+    let n = digraph.node_count();
+    if n == 0 {
         return false;
     }
-    number_weakly_connected_components(digraph) == 1
+    let mut visited = vec![false; n];
+    let mut stack = vec![0usize];
+    visited[0] = true;
+    let mut count = 1usize;
+    while let Some(u) = stack.pop() {
+        if let Some(succ) = digraph.successors_indices(u) {
+            for &v in succ {
+                if !visited[v] {
+                    visited[v] = true;
+                    count += 1;
+                    stack.push(v);
+                }
+            }
+        }
+        if let Some(pred) = digraph.predecessors_indices(u) {
+            for &v in pred {
+                if !visited[v] {
+                    visited[v] = true;
+                    count += 1;
+                    stack.push(v);
+                }
+            }
+        }
+    }
+    count == n
 }
 
 // ===========================================================================
