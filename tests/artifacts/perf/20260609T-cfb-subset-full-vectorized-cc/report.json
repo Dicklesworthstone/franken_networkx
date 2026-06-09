@@ -1,0 +1,16 @@
+{
+  "target": "current_flow_betweenness_centrality_subset + edge_current_flow_betweenness_centrality_subset",
+  "lever": "de-delegate to in-process; route default lu->dense full solver (one O(n^3) inverse vs O(m) sparse solves; current-flow value is solver-independent) + numpy-vectorize the sources x targets accumulation",
+  "golden": {
+    "max_rel_err_vs_nx": 2.1e-14,
+    "within_tol_1e-6": true,
+    "corpus_sha256": "15d1e4996590a78dcb1e6d8279344a162ad22831a1f6155f1f15588e27c8916d",
+    "corpus": "path/cycle/karate(weighted)/wheel/gnp40 x3/weighted35; node+edge variants, normalized+unnormalized, weighted. nx test uses pytest.approx (rel ~1e-6); ours is 2e-14 (full-vs-lu + vectorized-sum ULP)."
+  },
+  "bench_ws300_sub40_ms_warm_min": {
+    "new_inprocess": 370.7,
+    "genuine_nx": 3756.0,
+    "faster_than_nx": 10.13
+  },
+  "notes": "n=200: ~5.9x; n=300: 10.13x (grows with n: nx lu does O(m) per-edge sparse solves, full does one dense inverse). cg solver and n>4000 honor the requested sparse solver to bound memory. unknown solver still raises KeyError via _flow_matrix_row. directed -> NetworkXNotImplemented; disconnected -> NetworkXError, matching nx. 54 centrality pytest pass. Pure-Python, no rebuild. NOTE: site-packages copy is stale vs source/python — bench MUST run with PYTHONPATH=python or via pytest, not bare python3 -c."
+}
