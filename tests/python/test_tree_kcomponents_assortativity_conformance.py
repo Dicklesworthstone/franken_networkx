@@ -858,6 +858,63 @@ def test_k_components_cubic_two_cut_delegates_and_matches_networkx():
 
 
 @pytest.mark.parametrize(
+    "builder",
+    [
+        lambda mod: mod.random_regular_graph(4, 18, seed=3),
+        lambda mod: mod.random_regular_graph(4, 24, seed=5),
+    ],
+)
+def test_k_components_four_regular_four_connected_family_matches_networkx(builder):
+    fg = builder(fnx)
+    ng = builder(nx)
+
+    fr = fnx.k_components(fg)
+    nr = nx.k_components(ng)
+
+    assert list(fr.keys()) == [4, 3, 2, 1]
+    assert list(fr.keys()) == list(nr.keys())
+    assert [[set(component) for component in fr[k]] for k in fr] == [
+        [set(component) for component in nr[k]] for k in nr
+    ]
+
+
+def test_k_components_four_regular_custom_flow_delegates_like_networkx():
+    fg = fnx.random_regular_graph(4, 18, seed=3)
+    ng = nx.random_regular_graph(4, 18, seed=3)
+
+    def fail_flow(*args, **kwargs):
+        raise RuntimeError("flow called")
+
+    with pytest.raises(RuntimeError, match="flow called"):
+        fnx.k_components(fg, flow_func=fail_flow)
+    with pytest.raises(RuntimeError, match="flow called"):
+        nx.k_components(ng, flow_func=fail_flow)
+
+
+def _four_regular_two_cut_graph(mod):
+    graph = mod.complete_graph(5)
+    graph.add_nodes_from(range(5, 10))
+    graph.add_edges_from(
+        (u, v)
+        for u in range(5, 10)
+        for v in range(u + 1, 10)
+    )
+    graph.remove_edge(0, 1)
+    graph.remove_edge(5, 6)
+    graph.add_edge(0, 5)
+    graph.add_edge(1, 6)
+    return graph
+
+
+def test_k_components_four_regular_two_cut_delegates_and_matches_networkx():
+    fg = _four_regular_two_cut_graph(fnx)
+    ng = _four_regular_two_cut_graph(nx)
+
+    assert all(degree == 4 for _, degree in fg.degree())
+    assert fnx.k_components(fg) == nx.k_components(ng)
+
+
+@pytest.mark.parametrize(
     "name,builder,k",
     [
         ("complete_4_k2", lambda L: L.complete_graph(4), 2),
