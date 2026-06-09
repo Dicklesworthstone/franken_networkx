@@ -3600,6 +3600,114 @@ pub fn betweenness_centrality_directed_with_params(
     betweenness_centrality_generic(graph, normalized, endpoints)
 }
 
+/// Reusable per-worker scratch buffers for one Brandes single-source pass.
+/// Allocated once per rayon worker (via `map_init`) and cleared per source so
+/// the parallel path matches the sequential path's allocation profile.
+struct BrandesScratch {
+    predecessors: Vec<Vec<usize>>,
+    sigma: Vec<f64>,
+    distance: Vec<i64>,
+    dependency: Vec<f64>,
+    stack: Vec<usize>,
+    queue: Vec<usize>,
+}
+
+impl BrandesScratch {
+    fn new(n: usize) -> Self {
+        Self {
+            predecessors: std::iter::repeat_with(Vec::<usize>::new).take(n).collect(),
+            sigma: vec![0.0; n],
+            distance: vec![-1i64; n],
+            dependency: vec![0.0; n],
+            stack: Vec::with_capacity(n),
+            queue: Vec::with_capacity(n),
+        }
+    }
+}
+
+/// Compute the betweenness contribution of a single source `s` as a dense delta
+/// vector (length `n`). This is the embarrassingly-parallel O(|E|) core of
+/// Brandes; the caller reduces these per-source deltas into the global score in
+/// strict source order so the float summation order is byte-identical to the
+/// sequential accumulation. Returns `(delta, edges_scanned, nodes_touched,
+/// queue_peak)`.
+fn brandes_source_delta(
+    scratch: &mut BrandesScratch,
+    adjacency: &[Vec<usize>],
+    s: usize,
+    endpoints: bool,
+    n: usize,
+) -> (Vec<f64>, usize, usize, usize) {
+    let BrandesScratch {
+        predecessors,
+        sigma,
+        distance,
+        dependency,
+        stack,
+        queue,
+    } = scratch;
+
+    stack.clear();
+    for predecessor_list in predecessors.iter_mut() {
+        predecessor_list.clear();
+    }
+    sigma.fill(0.0);
+    distance.fill(-1);
+    dependency.fill(0.0);
+    queue.clear();
+
+    let mut edges_scanned = 0usize;
+    let mut queue_peak = 0usize;
+
+    sigma[s] = 1.0;
+    distance[s] = 0;
+
+    let mut queue_head = 0usize;
+    queue.push(s);
+    queue_peak = queue_peak.max(queue.len());
+
+    while queue_head < queue.len() {
+        let v = queue[queue_head];
+        queue_head += 1;
+        stack.push(v);
+        let next_dist = distance[v] + 1;
+        let sigma_v = sigma[v];
+        for &w in &adjacency[v] {
+            edges_scanned += 1;
+            if distance[w] < 0 {
+                distance[w] = next_dist;
+                queue.push(w);
+                queue_peak = queue_peak.max(queue.len() - queue_head);
+                sigma[w] += sigma_v;
+                predecessors[w].push(v);
+            } else if distance[w] == next_dist {
+                sigma[w] += sigma_v;
+                predecessors[w].push(v);
+            }
+        }
+    }
+
+    let nodes_touched = stack.len();
+    let mut delta = vec![0.0f64; n];
+    if endpoints {
+        delta[s] += stack.len().saturating_sub(1) as f64;
+    }
+    while let Some(w) = stack.pop() {
+        let sigma_w = sigma[w];
+        let delta_w = dependency[w];
+        if sigma_w > 0.0 {
+            for &v in &predecessors[w] {
+                dependency[v] += (sigma[v] / sigma_w) * (1.0 + delta_w);
+            }
+        }
+        if w != s {
+            delta[w] += if endpoints { delta_w + 1.0 } else { delta_w };
+        }
+    }
+
+    (delta, edges_scanned, nodes_touched, queue_peak)
+}
+
 fn betweenness_centrality_generic<G: GraphView>(
     graph: &G,
     normalized: bool,
@@ -3650,16 +3758,53 @@ fn betweenness_centrality_generic<G: GraphView>(
         })
         .collect::<Vec<Vec<usize>>>();
 
-    let mut stack = Vec::<usize>::with_capacity(n);
-    let mut predecessors = std::iter::repeat_with(Vec::<usize>::new)
-        .take(n)
-        .collect::<Vec<_>>();
-    let mut sigma = vec![0.0; n];
-    let mut distance = vec![-1i64; n];
-    let mut dependency = vec![0.0; n];
-    let mut queue = Vec::<usize>::with_capacity(n);
+    // Parallel Brandes: for large graphs, fan the per-source O(|E|) passes out
+    // over rayon workers, then reduce the per-source delta vectors into the
+    // global score in STRICT SOURCE ORDER. nx accumulates `centrality[w] +=
+    // delta` over sources `s = 0..n`; replaying the reduction in that exact
+    // order keeps the float summation order — and thus the result — byte-for-byte
+    // identical to the sequential path. Sources are chunked to cap peak delta
+    // memory (~64 MiB), so the order is preserved both within and across chunks.
+    const BRANDES_PARALLEL_THRESHOLD: usize = 500;
+    if n >= BRANDES_PARALLEL_THRESHOLD {
+        use rayon::prelude::*;
 
-    for s in 0..n {
+        let bytes_per_delta = n.max(1).saturating_mul(std::mem::size_of::<f64>());
+        let chunk = (64 * 1024 * 1024 / bytes_per_delta).clamp(1, n);
+
+        let mut start = 0usize;
+        while start < n {
+            let end = (start + chunk).min(n);
+            let chunk_results: Vec<(Vec<f64>, usize, usize, usize)> = (start..end)
+                .into_par_iter()
+                .map_init(
+                    || BrandesScratch::new(n),
+                    |scratch, s| brandes_source_delta(scratch, &adjacency, s, endpoints, n),
+                )
+                .collect();
+
+            // Reduce in source order (the collected Vec is already ordered by s).
+            for (delta, src_edges, src_touched, src_peak) in chunk_results {
+                for (acc, contribution) in centrality.iter_mut().zip(delta.iter()) {
+                    *acc += *contribution;
+                }
+                edges_scanned += src_edges;
+                total_nodes_touched += src_touched;
+                queue_peak = queue_peak.max(src_peak);
+            }
+            start = end;
+        }
+    } else {
+        let mut stack = Vec::<usize>::with_capacity(n);
+        let mut predecessors = std::iter::repeat_with(Vec::<usize>::new)
+            .take(n)
+            .collect::<Vec<_>>();
+        let mut sigma = vec![0.0; n];
+        let mut distance = vec![-1i64; n];
+        let mut dependency = vec![0.0; n];
+        let mut queue = Vec::<usize>::with_capacity(n);
+
+        for s in 0..n {
         let alloc_t = if perf_spans {
             Some(std::time::Instant::now())
         } else {
@@ -3738,6 +3883,7 @@ fn betweenness_centrality_generic<G: GraphView>(
         }
         if let Some(t) = accum_t {
             accum_ns += t.elapsed().as_nanos();
+        }
         }
     }
 

@@ -1,0 +1,22 @@
+{
+  "n2000_m4": {
+    "n": 2000,
+    "m": 4,
+    "time_ms": 233.13955299090594,
+    "time_ep_ms": 231.87866096850485,
+    "time_un_ms": 237.97477094922215,
+    "sha_norm": "a584a758bd174d9f751c1162f4016545cfa7827b509a22a519bfdca98fc94a27",
+    "sha_ep": "fe28088b947799567f684cfda44abd3a6ceda77c7810e49150e3e97758c7d77f",
+    "sha_un": "990ec22b08b5fe2ed3d8a41af949a094a274d186a8ce876c604ac744d8a7574d"
+  },
+  "n3000_m4": {
+    "n": 3000,
+    "m": 4,
+    "time_ms": 547.7075949311256,
+    "time_ep_ms": 548.0152539676055,
+    "time_un_ms": 561.8306390242651,
+    "sha_norm": "f5869953b31390f5cbc11d8170c671edd1293f826cb3be024689daaf374462e7",
+    "sha_ep": "448cc999beb49f1072f2eb849f45ffef43e1f3433c0c4c4bca83c0bb23024f17",
+    "sha_un": "483564bcb75d4b8bfcd3721febd1687e04708891b03ba05a807244f08b0aa2d2"
+  }
+}

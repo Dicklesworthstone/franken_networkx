@@ -823,6 +823,7 @@ dependencies = [
  "pprof",
  "proptest",
  "rand_core 0.10.1",
+ "rayon",
  "serde",
 ]
 
