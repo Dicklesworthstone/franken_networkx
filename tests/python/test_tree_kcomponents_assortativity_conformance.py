@@ -388,6 +388,53 @@ def test_k_components_forest_fast_path_rejects_non_forest_boundaries(builder):
     assert fnx.k_components(fg) == nx.k_components(ng)
 
 
+@pytest.mark.parametrize("builder", [
+    lambda L: L.barbell_graph(4, 1),
+    lambda L: _graph_with_nodes_edges(
+        L, [], [(0, 1), (1, 2), (2, 0), (2, 3), (3, 4), (4, 2)]
+    ),
+    lambda L: _graph_with_nodes_edges(
+        L,
+        [],
+        [(0, 1), (0, 2), (0, 3), (1, 2), (1, 3), (2, 3), (3, 4), (4, 5), (5, 3)],
+    ),
+])
+def test_k_components_block_graph_family_raw_shape_matches_networkx(builder):
+    fg = builder(fnx)
+    ng = builder(nx)
+
+    fr = fnx.k_components(fg)
+    nr = nx.k_components(ng)
+
+    assert list(fr.keys()) == list(nr.keys())
+    assert {k: [set(c) for c in v] for k, v in fr.items()} == {
+        k: [set(c) for c in v] for k, v in nr.items()
+    }
+    assert {k: [type(c).__name__ for c in v] for k, v in fr.items()} == {
+        k: [type(c).__name__ for c in v] for k, v in nr.items()
+    }
+
+
+def test_k_components_block_graph_fast_path_ignores_flow_func_like_networkx():
+    fg = fnx.barbell_graph(4, 1)
+    ng = nx.barbell_graph(4, 1)
+
+    def fail_flow(*args, **kwargs):
+        raise AssertionError("block-graph k_components should not call flow_func")
+
+    assert fnx.k_components(fg, flow_func=fail_flow) == nx.k_components(
+        ng, flow_func=fail_flow
+    )
+
+
+def test_k_components_block_graph_fast_path_rejects_non_clique_block():
+    edges = [(0, 1), (1, 2), (2, 3), (3, 0), (0, 2)]
+    fg = _graph_with_nodes_edges(fnx, [], edges)
+    ng = _graph_with_nodes_edges(nx, [], edges)
+
+    assert fnx.k_components(fg) == nx.k_components(ng)
+
+
 @pytest.mark.parametrize(
     "name,builder,k",
     [

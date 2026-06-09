@@ -42736,6 +42736,36 @@ def k_components(G, flow_func=None):
                 if non_singletons:
                     return {1: non_singletons}
                 return {}
+        if self_loop_count == 0:
+            clique_blocks = []
+            is_block_graph = True
+            for component in biconnected_components(G):
+                block = set(component)
+                block_size = len(block)
+                if block_size < 3:
+                    continue
+                if (
+                    G.subgraph(block).number_of_edges()
+                    != block_size * (block_size - 1) // 2
+                ):
+                    is_block_graph = False
+                    break
+                clique_blocks.append(block)
+            if is_block_graph and clique_blocks:
+                result = {}
+                max_k = max(len(block) - 1 for block in clique_blocks)
+                for k in range(max_k, 1, -1):
+                    level = [set(block) for block in clique_blocks if len(block) > k]
+                    if level:
+                        result[k] = level
+                components = [
+                    set(component)
+                    for component in connected_components(G)
+                    if len(component) > 1
+                ]
+                if components:
+                    result[1] = components
+                return result
     return _call_networkx_for_parity("k_components", G, flow_func=flow_func)
 
 
