@@ -40329,6 +40329,19 @@ def non_neighbors(graph, node):
 def non_edges(graph):
     """Returns the nonexistent edges in the graph."""
     if graph.is_directed():
+        native_keys = getattr(graph, "_native_node_keys", None)
+        if native_keys is not None:
+            nodes = set(native_keys())
+            _raw_nbrs = _raw_neighbors_dispatch(graph)
+            if _raw_nbrs is not None:
+                for u in graph:
+                    for v in nodes - set(_raw_nbrs(graph, u)) - {u}:
+                        yield (u, v)
+                return
+            for u in graph:
+                for v in nodes - set(graph[u]) - {u}:
+                    yield (u, v)
+            return
         for u in graph:
             for v in non_neighbors(graph, u):
                 yield (u, v)

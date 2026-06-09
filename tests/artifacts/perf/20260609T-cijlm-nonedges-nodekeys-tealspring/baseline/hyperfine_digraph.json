@@ -1,0 +1,72 @@
+{
+  "results": [
+    {
+      "command": "python3 tests/artifacts/perf/20260609T-cijlm-nonedges-nodekeys-tealspring/harness_cijlm_pass33.py bench --impl fnx --graph-type DiGraph --n 750 --step 17 --loops 3 --quiet",
+      "mean": 0.42588575201999995,
+      "stddev": 0.028020043628803896,
+      "median": 0.41753703292,
+      "user": 3.7910555,
+      "system": 0.06001540000000001,
+      "min": 0.38402199942,
+      "max": 0.47828997042,
+      "times": [
+        0.41593124542,
+        0.40787499142,
+        0.44445714042,
+        0.38402199942,
+        0.41914282042,
+        0.41339875742,
+        0.47828997042,
+        0.44373569342,
+        0.40071496642,
+        0.45128993542
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "python3 tests/artifacts/perf/20260609T-cijlm-nonedges-nodekeys-tealspring/harness_cijlm_pass33.py bench --impl nx --graph-type DiGraph --n 750 --step 17 --loops 3 --quiet",
+      "mean": 0.41191833742000006,
+      "stddev": 0.021568818962809183,
+      "median": 0.41286367242,
+      "user": 3.6188636,
+      "system": 0.059153500000000005,
+      "min": 0.37460039842,
+      "max": 0.43897180842,
+      "times": [
+        0.40975585442,
+        0.42712492142,
+        0.42584045842,
+        0.43897180842,
+        0.40716867342,
+        0.41597149042000003,
+        0.39148802342,
+        0.43828132842,
+        0.38998041742,
+        0.37460039842
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}
