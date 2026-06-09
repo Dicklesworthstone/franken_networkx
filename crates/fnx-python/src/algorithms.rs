@@ -13337,23 +13337,124 @@ fn single_target_shortest_path(
     target: &Bound<'_, PyAny>,
     cutoff: Option<usize>,
 ) -> PyResult<PyObject> {
+    // br-r37-c1-stsp: reverse-BFS from `target` over integer adjacency
+    // (undirected: neighbors, directed: predecessors), emitting `{node: path}`
+    // with keys in BFS-discovery-from-target order — matching nx's
+    // single_target_shortest_path dict-insertion order. The old kernel
+    // collected results into a HashMap, losing that order, which forced a
+    // pure-Python reverse-BFS wrapper (~4-5x slower than nx).
     let gr = extract_graph(g)?;
     let t = node_key_to_string(py, target)?;
     validate_node_str(&gr, &t, "Target")?;
-    let result = if let Some(dg) = gr.digraph() {
-        py.allow_threads(|| fnx_algorithms::single_target_shortest_path_directed(dg, &t, cutoff))
+    let (nodes, result) = if let Some(dg) = gr.digraph() {
+        let nodes = dg.nodes_ordered();
+        let adjacency = digraph_predecessor_adjacency_indices(dg, &nodes);
+        let target_idx = nodes
+            .iter()
+            .position(|&n| n == t)
+            .expect("target validated above");
+        let result = py.allow_threads(|| {
+            single_target_shortest_path_from_adjacency(&adjacency, target_idx, cutoff)
+        });
+        (nodes, result)
     } else {
-        let __gr_undirected = gr.undirected();
-        py.allow_threads(|| {
-            fnx_algorithms::single_target_shortest_path(__gr_undirected, &t, cutoff)
-        })
+        let inner = gr.undirected();
+        let nodes = inner.nodes_ordered();
+        let adjacency = graph_shortest_path_adjacency_indices(inner, &nodes);
+        let target_idx = nodes
+            .iter()
+            .position(|&n| n == t)
+            .expect("target validated above");
+        let result = py.allow_threads(|| {
+            single_target_shortest_path_from_adjacency(&adjacency, target_idx, cutoff)
+        });
+        (nodes, result)
     };
     let dict = PyDict::new(py);
     for (node, path) in &result {
-        let py_path: Vec<PyObject> = path.iter().map(|n| gr.py_node_key(py, n)).collect();
-        dict.set_item(gr.py_node_key(py, node), py_path)?;
+        let py_path: Vec<PyObject> = path.iter().map(|&i| gr.py_node_key(py, nodes[i])).collect();
+        dict.set_item(gr.py_node_key(py, nodes[*node]), py_path)?;
     }
     Ok(dict.into_any().unbind())
+}
+
+/// Reverse adjacency (predecessor rows) for a directed graph in node-index
+/// space, preserving each node's `predecessors_iter` order.
+fn digraph_predecessor_adjacency_indices(
+    digraph: &fnx_classes::digraph::DiGraph,
+    nodes: &[&str],
+) -> Vec<Vec<usize>> {
+    let node_indices: HashMap<&str, usize> = nodes
+        .iter()
+        .copied()
+        .enumerate()
+        .map(|(index, node)| (node, index))
+        .collect();
+    nodes
+        .iter()
+        .map(|&node| {
+            digraph
+                .predecessors_iter(node)
+                .map_or_else(Vec::new, |preds| {
+                    preds
+                        .filter_map(|pred| node_indices.get(pred).copied())
+                        .collect()
+                })
+        })
+        .collect()
+}
+
+/// Reverse BFS from `target` over `adjacency`, returning `(node, path)` pairs in
+/// BFS-discovery order. Each path runs node -> ... -> target (matching nx's
+/// `paths[w] = [w] + paths[v]`), reconstructed via a successor-toward-target
+/// array recorded when each node is first reached.
+fn single_target_shortest_path_from_adjacency(
+    adjacency: &[Vec<usize>],
+    target: usize,
+    cutoff: Option<usize>,
+) -> Vec<(usize, Vec<usize>)> {
+    let node_count = adjacency.len();
+    let mut seen = vec![false; node_count];
+    let mut succ = vec![0usize; node_count];
+    let mut order: Vec<usize> = Vec::with_capacity(node_count);
+    let mut frontier = vec![target];
+    let mut next_frontier = Vec::new();
+    seen[target] = true;
+    succ[target] = target;
+    order.push(target);
+
+    let cutoff = cutoff.unwrap_or(usize::MAX);
+    let mut level = 0usize;
+    while !frontier.is_empty() && level < cutoff {
+        next_frontier.clear();
+        for &node in &frontier {
+            for &neighbor in &adjacency[node] {
+                if !seen[neighbor] {
+                    seen[neighbor] = true;
+                    succ[neighbor] = node;
+                    order.push(neighbor);
+                    next_frontier.push(neighbor);
+                }
+            }
+        }
+        std::mem::swap(&mut frontier, &mut next_frontier);
+        level += 1;
+    }
+
+    let mut result = Vec::with_capacity(order.len());
+    for &node in &order {
+        let mut path = Vec::new();
+        let mut cur = node;
+        loop {
+            path.push(cur);
+            if cur == target {
+                break;
+            }
+            cur = succ[cur];
+        }
+        result.push((node, path));
+    }
+    result
 }
 
 /// Return shortest path lengths from all nodes to a single target (unweighted BFS).

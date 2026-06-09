@@ -15718,7 +15718,7 @@ from franken_networkx._fnx import (
     single_source_bellman_ford as _raw_single_source_bellman_ford,
     single_source_bellman_ford_path as _raw_single_source_bellman_ford_path,
     single_source_bellman_ford_path_length as _raw_single_source_bellman_ford_path_length,
-    single_target_shortest_path,
+    single_target_shortest_path as _raw_single_target_shortest_path,
     single_target_shortest_path_length as _raw_single_target_shortest_path_length,
     all_pairs_dijkstra_path as _raw_all_pairs_dijkstra_path,
     all_pairs_dijkstra_path_length as _raw_all_pairs_dijkstra_path_length,
@@ -15775,12 +15775,6 @@ def is_aperiodic(G):
     return gcd_cycle == 1
 
 
-def _single_target_shortest_path_neighbors(G, node):
-    if G.is_directed():
-        return G.predecessors(node)
-    return G.neighbors(node)
-
-
 def single_target_shortest_path_length(G, target, cutoff=None):
     """Reverse BFS lengths to ``target`` from every other node.
 
@@ -15811,27 +15805,14 @@ def single_target_shortest_path(G, target, cutoff=None):
     """
     if target not in G:
         raise NodeNotFound(f"Target {target} not in G")
-    if cutoff is None:
-        cutoff = float("inf")
-
-    nextlevel = [target]
-    paths = {target: [target]}
-    level = 0
-    node_count = len(G)
-
-    while nextlevel and cutoff > level:
-        thislevel = nextlevel
-        nextlevel = []
-        for node in thislevel:
-            for neighbor in _single_target_shortest_path_neighbors(G, node):
-                if neighbor not in paths:
-                    paths[neighbor] = [neighbor] + paths[node]
-                    nextlevel.append(neighbor)
-            if len(paths) == node_count:
-                return paths
-        level += 1
-
-    return paths
+    # br-r37-c1-stsp: the native binding now emits {node: path} keyed in
+    # BFS-discovery-from-target order (reverse BFS over integer adjacency:
+    # neighbors for undirected, predecessors for directed), matching nx's
+    # dict-insertion order. This replaces the per-node pure-Python reverse
+    # BFS (~4-5x slower than nx, scaling with |V|+|E|).
+    if cutoff is not None and cutoff < 0:
+        cutoff = 0
+    return _raw_single_target_shortest_path(G, target, cutoff)
 
 
 def _ordered_predecessor_nodes_and_levels(G, source, predecessor_map):
