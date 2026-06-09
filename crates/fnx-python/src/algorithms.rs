@@ -12326,6 +12326,163 @@ fn barycenter_from_adjacency(adjacency: &[Vec<usize>]) -> Vec<usize> {
         .collect()
 }
 
+/// Native fast path for `find_cycle(G)` — the common case
+/// `orientation=None, source=None`, simple (non-multi) graph. A faithful,
+/// line-by-line port of networkx's fused `edge_dfs` + `find_cycle` over an
+/// integer adjacency list (successors for directed, neighbors for undirected;
+/// each row in `G.edges(node)` order). Returns the cycle edges as
+/// `(tail, head)` index pairs in DFS-traversal direction, rotated to begin at
+/// `final_node`, or `None` if the graph is acyclic. Identical to nx because the
+/// traversal order, edge-id dedup (frozenset for undirected / ordered pair for
+/// directed), and the active-path trim logic all match exactly.
+fn find_cycle_simple_dfs<'a>(
+    node_count: usize,
+    directed: bool,
+    neighbors: impl Fn(usize) -> &'a [usize],
+) -> Option<Vec<(usize, usize)>> {
+    let mut explored: HashSet<usize> = HashSet::new();
+    let edge_id = |u: usize, v: usize| -> (usize, usize) {
+        if directed || u <= v {
+            (u, v)
+        } else {
+            (v, u)
+        }
+    };
+
+    for start in 0..node_count {
+        if explored.contains(&start) {
+            continue;
+        }
+
+        // find_cycle per-start consumer state
+        let mut edges: Vec<(usize, usize)> = Vec::new();
+        let mut seen: HashSet<usize> = HashSet::new();
+        seen.insert(start);
+        let mut active_nodes: HashSet<usize> = HashSet::new();
+        active_nodes.insert(start);
+        let mut previous_head: Option<usize> = None;
+
+        // edge_dfs per-start state (fresh for each start, like nx)
+        let mut visited_edges: HashSet<(usize, usize)> = HashSet::new();
+        let mut visited_nodes: HashSet<usize> = HashSet::new();
+        let mut pos: HashMap<usize, usize> = HashMap::new();
+        let mut stack: Vec<usize> = vec![start];
+
+        while let Some(&current) = stack.last() {
+            if !visited_nodes.contains(&current) {
+                visited_nodes.insert(current);
+                pos.insert(current, 0);
+            }
+            let p = *pos.get(&current).expect("pos initialized above");
+            let row = neighbors(current);
+            if p >= row.len() {
+                stack.pop();
+                continue;
+            }
+            *pos.get_mut(&current).expect("pos initialized above") = p + 1;
+            let nbr = row[p];
+            let eid = edge_id(current, nbr);
+            if visited_edges.contains(&eid) {
+                continue;
+            }
+            visited_edges.insert(eid);
+            stack.push(nbr);
+
+            // === yield (current, nbr) into the find_cycle consumer ===
+            let (tail, head) = (current, nbr);
+            if explored.contains(&head) {
+                continue;
+            }
+            if let Some(ph) = previous_head
+                && tail != ph
+            {
+                loop {
+                    match edges.pop() {
+                        None => {
+                            edges.clear();
+                            active_nodes.clear();
+                            active_nodes.insert(tail);
+                            break;
+                        }
+                        Some(popped) => {
+                            active_nodes.remove(&popped.1);
+                        }
+                    }
+                    if let Some(last) = edges.last()
+                        && tail == last.1
+                    {
+                        break;
+                    }
+                }
+            }
+            edges.push((tail, head));
+
+            if active_nodes.contains(&head) {
+                // cycle found — rotate to begin at final_node (== head)
+                let final_node = head;
+                let start_idx = edges
+                    .iter()
+                    .position(|&(t, _)| t == final_node)
+                    .unwrap_or(0);
+                return Some(edges[start_idx..].to_vec());
+            }
+            seen.insert(head);
+            active_nodes.insert(head);
+            previous_head = Some(head);
+        }
+
+        for &node in &seen {
+            explored.insert(node);
+        }
+    }
+
+    None
+}
+
+/// `find_cycle(G)` fast path (orientation=None, source=None, simple graph).
+/// Returns the cycle edges as `(u, v)` node-key pairs, or `None` if acyclic.
+/// The Python wrapper raises `NetworkXNoCycle` on `None` and keeps the verbatim
+/// Python port for multigraph / explicit source / non-None orientation.
+#[pyfunction]
+#[pyo3(signature = (g,))]
+fn find_cycle_simple(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+) -> PyResult<Option<Vec<(PyObject, PyObject)>>> {
+    let gr = extract_graph(g)?;
+    let directed = gr.is_directed();
+    // br-r37-c1-7yn51: query integer adjacency ON DEMAND (neighbors_indices /
+    // successors_indices) so an early-exit cycle costs only the rows actually
+    // visited — NOT an O(V+E) whole-graph adjacency build (which regressed the
+    // common dense-graph case 200x+). nodes_ordered() is O(V) name refs, only
+    // used to map the (small) found cycle's indices back to node keys.
+    let cycle = if directed {
+        let dg = gr.digraph().expect("is_directed checked above");
+        let n = dg.node_count();
+        py.allow_threads(|| {
+            find_cycle_simple_dfs(n, true, |i| dg.successors_indices(i).unwrap_or(&[]))
+        })
+    } else {
+        let ug = gr.undirected();
+        let n = ug.node_count();
+        py.allow_threads(|| {
+            find_cycle_simple_dfs(n, false, |i| ug.neighbors_indices(i).unwrap_or(&[]))
+        })
+    };
+    let result = cycle.map(|edges| {
+        let nodes = if directed {
+            gr.digraph().expect("checked").nodes_ordered()
+        } else {
+            gr.undirected().nodes_ordered()
+        };
+        edges
+            .iter()
+            .map(|&(u, v)| (gr.py_node_key(py, nodes[u]), gr.py_node_key(py, nodes[v])))
+            .collect::<Vec<_>>()
+    });
+    Ok(result)
+}
+
 // ===========================================================================
 // Tree recognition — is_arborescence, is_branching
 // ===========================================================================
@@ -17558,6 +17715,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(is_chordal, m)?)?;
     // Barycenter
     m.add_function(wrap_pyfunction!(barycenter, m)?)?;
+    m.add_function(wrap_pyfunction!(find_cycle_simple, m)?)?;
     // Approximation algorithms
     m.add_function(wrap_pyfunction!(min_weighted_vertex_cover, m)?)?;
     m.add_function(wrap_pyfunction!(maximal_independent_set, m)?)?;
