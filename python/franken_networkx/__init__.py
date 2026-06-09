@@ -36955,14 +36955,33 @@ def _k_truss_via_parity(G, k):
     res = _fnx.k_truss_rust(G, k)
     node_set = set(res["nodes"])
     edge_set = {frozenset(e) for e in res["edges"]}
+    # br-r37-c1-at6zf: adaptive rebuild. The old path rebuilt the whole
+    # result edge-by-edge via ``R.add_edge(u, v, **data)`` -- for low ``k``
+    # (e.g. k=2, where most/all edges survive) that pays the per-edge
+    # construction tax over the FULL edge set and ran ~2.1x slower than
+    # genuine nx. When most edges survive, mirror nx's own structure
+    # (``H = G.copy()`` then drop the few non-truss edges and the
+    # resulting isolated nodes) which preserves G's node/edge order and
+    # all attributes byte-for-byte; only fall back to a fresh batch build
+    # when most edges are dropped (where building the small survivor set
+    # is cheaper than copy-then-prune). Byte-identical to nx in both
+    # branches (shuffled node order + node/edge/graph attrs, k=2..6).
+    total = G.number_of_edges()
+    if len(edge_set) * 2 >= total:
+        R = G.copy()
+        R.remove_edges_from(
+            [(u, v) for u, v in R.edges() if frozenset((u, v)) not in edge_set]
+        )
+        R.remove_nodes_from([n for n in list(R) if n not in node_set])
+        return R
     R = Graph()
     R.graph.update(G.graph)
-    for node in G:
-        if node in node_set:
-            R.add_node(node, **G.nodes[node])
-    for u, v, data in G.edges(data=True):
-        if frozenset((u, v)) in edge_set:
-            R.add_edge(u, v, **data)
+    R.add_nodes_from((node, G.nodes[node]) for node in G if node in node_set)
+    R.add_edges_from(
+        (u, v, data)
+        for u, v, data in G.edges(data=True)
+        if frozenset((u, v)) in edge_set
+    )
     return R
 
 
