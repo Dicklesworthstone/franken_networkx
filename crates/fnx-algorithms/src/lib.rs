@@ -14703,36 +14703,37 @@ pub struct TopologicalGenerationsResult {
 /// Matches `networkx.is_directed_acyclic_graph`.
 #[must_use]
 pub fn is_directed_acyclic_graph(digraph: &DiGraph) -> bool {
-    // Use Kahn's algorithm: compute in-degrees, BFS from zero-in-degree nodes.
-    // If all nodes are consumed, the graph is acyclic.
-    let nodes = digraph.nodes_ordered();
-    let n = nodes.len();
+    // Kahn's algorithm: peel zero-in-degree nodes; acyclic iff all are consumed.
+    // br-r37-c1-isdagidx: integer-CSR — in-degrees accumulated from the integer
+    // out-adjacency and the peel walks successors_indices. The previous version
+    // keyed in_degree on HashMap<&str>, called digraph.in_degree(name) per node,
+    // and digraph.successors(name) (allocating a Vec<&str> + a String lookup per
+    // edge) — the String-adjacency tax. The result (count == n) is queue-order-
+    // invariant, so this is byte-identical.
+    let n = digraph.node_count();
     if n == 0 {
         return true;
     }
 
-    let mut in_degree: HashMap<&str, usize> = HashMap::with_capacity(n);
-    for node in &nodes {
-        in_degree.insert(node, digraph.in_degree(node));
-    }
-
-    let mut queue: VecDeque<&str> = VecDeque::new();
-    for (&node, &deg) in &in_degree {
-        if deg == 0 {
-            queue.push_back(node);
+    let mut in_degree = vec![0usize; n];
+    for u in 0..n {
+        if let Some(succs) = digraph.successors_indices(u) {
+            for &v in succs {
+                in_degree[v] += 1;
+            }
         }
     }
 
+    let mut queue: VecDeque<usize> = (0..n).filter(|&i| in_degree[i] == 0).collect();
+
     let mut count = 0usize;
-    while let Some(node) = queue.pop_front() {
+    while let Some(u) = queue.pop_front() {
         count += 1;
-        if let Some(succs) = digraph.successors(node) {
-            for succ in succs {
-                if let Some(deg) = in_degree.get_mut(succ) {
-                    *deg -= 1;
-                    if *deg == 0 {
-                        queue.push_back(succ);
-                    }
+        if let Some(succs) = digraph.successors_indices(u) {
+            for &v in succs {
+                in_degree[v] -= 1;
+                if in_degree[v] == 0 {
+                    queue.push_back(v);
                 }
             }
         }
