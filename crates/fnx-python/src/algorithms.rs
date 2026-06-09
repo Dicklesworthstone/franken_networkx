@@ -14119,18 +14119,94 @@ pub fn biconnected_component_edges(
     py: Python<'_>,
     g: &Bound<'_, PyAny>,
 ) -> PyResult<Vec<Vec<(PyObject, PyObject)>>> {
+    // br-r37-c1-bcedfs: port nx's iterative DFS edge-stack algorithm
+    // (`_biconnected_dfs`) so edges come out in DFS-traversal order WITH nx's
+    // discovery direction (e.g. (4, 2) back edge, not canonical (2, 4)). The
+    // previous kernel emitted sorted canonical edges, which forced the Python
+    // wrapper to delegate to nx via a full fnx->nx conversion (~3x slower).
     let gr = extract_graph(g)?;
     require_undirected(&gr, "biconnected_component_edges")?;
     let inner = gr.undirected();
-    let result = py.allow_threads(|| fnx_algorithms::biconnected_component_edges(inner));
+    let nodes = inner.nodes_ordered();
+    let adjacency = graph_shortest_path_adjacency_indices(inner, &nodes);
+    let result = py.allow_threads(|| biconnected_component_edges_dfs(&adjacency));
     Ok(result
         .iter()
         .map(|comp| {
             comp.iter()
-                .map(|(u, v)| (gr.py_node_key(py, u), gr.py_node_key(py, v)))
+                .map(|&(u, v)| (gr.py_node_key(py, nodes[u]), gr.py_node_key(py, nodes[v])))
                 .collect()
         })
         .collect())
+}
+
+/// Iterative DFS that yields each biconnected component's edges in nx's
+/// edge-stack order and discovery direction. Direct port of networkx's
+/// `_biconnected_dfs(G, components=True)` over an integer adjacency list (each
+/// row in `iter(G[node])` order), so results are byte-identical to nx including
+/// edge tuple orientation and intra-component ordering.
+fn biconnected_component_edges_dfs(adjacency: &[Vec<usize>]) -> Vec<Vec<(usize, usize)>> {
+    let n = adjacency.len();
+    let mut visited = vec![false; n];
+    let mut discovery = vec![0usize; n];
+    let mut low = vec![0usize; n];
+    let mut out: Vec<Vec<(usize, usize)>> = Vec::new();
+
+    for start in 0..n {
+        if visited[start] {
+            continue;
+        }
+        discovery[start] = 0;
+        low[start] = 0;
+        let mut disc_counter = 1usize; // == len(discovery) in nx
+        visited[start] = true;
+        let mut edge_stack: Vec<(usize, usize)> = Vec::new();
+        let mut edge_index: HashMap<(usize, usize), usize> = HashMap::new();
+        // (grandparent, parent, next-child-cursor into adjacency[parent])
+        let mut stack: Vec<(usize, usize, usize)> = vec![(start, start, 0)];
+
+        while let Some(&(grandparent, parent, pos)) = stack.last() {
+            if pos < adjacency[parent].len() {
+                stack.last_mut().expect("non-empty").2 = pos + 1;
+                let child = adjacency[parent][pos];
+                if grandparent == child {
+                    continue;
+                }
+                if visited[child] {
+                    if discovery[child] <= discovery[parent] {
+                        // back edge
+                        low[parent] = low[parent].min(discovery[child]);
+                        edge_index.insert((parent, child), edge_stack.len());
+                        edge_stack.push((parent, child));
+                    }
+                } else {
+                    discovery[child] = disc_counter;
+                    low[child] = disc_counter;
+                    disc_counter += 1;
+                    visited[child] = true;
+                    stack.push((parent, child, 0));
+                    edge_index.insert((parent, child), edge_stack.len());
+                    edge_stack.push((parent, child));
+                }
+            } else {
+                stack.pop();
+                if stack.len() > 1 {
+                    if low[parent] >= discovery[grandparent] {
+                        let ind = edge_index[&(grandparent, parent)];
+                        out.push(edge_stack[ind..].to_vec());
+                        edge_stack.truncate(ind);
+                    }
+                    low[grandparent] = low[parent].min(low[grandparent]);
+                } else if !stack.is_empty() {
+                    // grandparent is the DFS root
+                    let ind = edge_index[&(grandparent, parent)];
+                    out.push(edge_stack[ind..].to_vec());
+                    edge_stack.truncate(ind);
+                }
+            }
+        }
+    }
+    out
 }
 
 /// Return True if the directed graph is semiconnected.

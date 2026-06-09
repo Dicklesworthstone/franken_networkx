@@ -16913,16 +16913,18 @@ def biconnected_component_edges(G):
     ``next(biconnected_component_edges(huge_graph))`` don't pay for
     full materialisation.
 
-    br-r37-c1-9kyjl: nx yields edges in DFS-traversal direction within
-    each component (e.g. ('b', 'a') instead of canonical ('a', 'b')).
-    Delegate so edge tuples match nx's algorithm-specific orientation.
+    br-r37-c1-bcedfs: the native binding now ports nx's DFS edge-stack
+    algorithm directly (edges in DFS-traversal order with nx's discovery
+    direction, e.g. ('b', 'a') not canonical ('a', 'b')), so we no longer
+    delegate through a full fnx->nx conversion (~3x faster).
     """
     # br-r37-c1-scceager: nx is @not_implemented_for('directed') — eager raise.
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
+    G = _coerce_arg_to_fnx_graph(G)
 
     def _gen():
-        yield from _call_networkx_for_parity("biconnected_component_edges", G)
+        yield from _raw_biconnected_component_edges(G)
 
     return _gen()
 
