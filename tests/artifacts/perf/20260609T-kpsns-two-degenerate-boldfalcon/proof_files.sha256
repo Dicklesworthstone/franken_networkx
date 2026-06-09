@@ -1,0 +1,3 @@
+d5397f273ab25206f23db86538fb9fab1dd5c40e3f927525951c01be7b9772f0  tests/artifacts/perf/20260609T-kpsns-two-degenerate-boldfalcon/after_proof.json
+f2c8a1c91c49a1b2356a43129452dd497136e23c59c25e74cb05b1c4a1fb2a6f  tests/artifacts/perf/20260609T-kpsns-two-degenerate-boldfalcon/after_hyperfine_chorded16.json
+2ef1392bd143c7f153209bf13d22ba9938938ab35e5016f0dc5e89f9e2ba96a6  tests/artifacts/perf/20260609T-kpsns-two-degenerate-boldfalcon/after_direct.json

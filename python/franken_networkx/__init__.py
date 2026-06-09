@@ -42776,6 +42776,88 @@ def _complete_multipartite_k_components(G):
     return result
 
 
+def _is_biconnected_component_adjacency(nodes, adjacency):
+    if len(nodes) < 3:
+        return False
+
+    root = nodes[0]
+    discovery = {}
+    low = {}
+    parent = {}
+    time = 0
+    root_children = 0
+    has_articulation = False
+
+    def visit(node):
+        nonlocal time, root_children, has_articulation
+        discovery[node] = time
+        low[node] = time
+        time += 1
+        for neighbor in adjacency[node]:
+            if neighbor not in discovery:
+                parent[neighbor] = node
+                if node == root:
+                    root_children += 1
+                visit(neighbor)
+                low[node] = min(low[node], low[neighbor])
+                if node != root and low[neighbor] >= discovery[node]:
+                    has_articulation = True
+            elif parent.get(node) != neighbor:
+                low[node] = min(low[node], discovery[neighbor])
+
+    visit(root)
+    return len(discovery) == len(nodes) and root_children <= 1 and not has_articulation
+
+
+def _is_two_degenerate_component(nodes, adjacency):
+    remaining = set(nodes)
+    degrees = {node: len(adjacency[node]) for node in nodes}
+    stack = [node for node in nodes if degrees[node] <= 2]
+    removed = 0
+
+    while stack:
+        node = stack.pop()
+        if node not in remaining or degrees[node] > 2:
+            continue
+        remaining.remove(node)
+        removed += 1
+        for neighbor in adjacency[node]:
+            if neighbor in remaining:
+                degrees[neighbor] -= 1
+                if degrees[neighbor] <= 2:
+                    stack.append(neighbor)
+
+    return removed == len(nodes)
+
+
+def _two_degenerate_biconnected_k_components(G):
+    components = []
+    for component in connected_components(G):
+        nodes = list(component)
+        if len(nodes) < 3:
+            return None
+        component_set = set(nodes)
+        adjacency = {}
+        for node in nodes:
+            neighbors = set(G[node])
+            neighbors.intersection_update(component_set)
+            if len(neighbors) < 2:
+                return None
+            adjacency[node] = neighbors
+        if not _is_biconnected_component_adjacency(nodes, adjacency):
+            return None
+        if not _is_two_degenerate_component(nodes, adjacency):
+            return None
+        components.append(component_set)
+
+    if not components:
+        return {}
+    return {
+        2: [set(component) for component in components],
+        1: [set(component) for component in components],
+    }
+
+
 def k_components(G, flow_func=None):
     """Return k-connected component structure.
 
@@ -42783,10 +42865,11 @@ def k_components(G, flow_func=None):
     fast paths. The previous bespoke Python implementation treated
     ``k_components`` as ``{k: components_with_node_connectivity_at_least_k(G)}``
     and missed Moody-White recursive substructures. Complete graphs,
-    simple-cycle components, forests, clique-block graphs, and complete
-    multipartite components are the safe exceptions: their k-component
-    lattices are closed form. Complete multipartite components still delegate
-    when a custom ``flow_func`` is supplied because nx calls it there.
+    simple-cycle components, forests, clique-block graphs, complete
+    multipartite components, and certified 2-degenerate biconnected
+    components are the safe exceptions: their k-component lattices are closed
+    form. Complete multipartite and 2-degenerate residual components still
+    delegate when a custom ``flow_func`` is supplied because nx calls it there.
     """
     if type(G) is Graph:
         node_count = len(G)
@@ -42821,6 +42904,9 @@ def k_components(G, flow_func=None):
             multipartite_result = _complete_multipartite_k_components(G)
             if multipartite_result is not None:
                 return multipartite_result
+            two_degenerate_result = _two_degenerate_biconnected_k_components(G)
+            if two_degenerate_result is not None:
+                return two_degenerate_result
         if self_loop_count == 0:
             clique_blocks = []
             is_block_graph = True

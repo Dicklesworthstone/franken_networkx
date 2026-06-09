@@ -520,6 +520,93 @@ def test_k_components_complete_multipartite_fast_path_rejects_missing_cross_edge
     assert fnx.k_components(fg) == nx.k_components(ng)
 
 
+def _chorded_cycle(library, n):
+    graph = library.cycle_graph(n)
+    for node in range(0, n, 4):
+        graph.add_edge(node, (node + 2) % n)
+    return graph
+
+
+def _disjoint_union_builders(library, *builders):
+    graph = library.Graph()
+    offset = 0
+    for builder in builders:
+        component = builder(library)
+        mapping = {node: node + offset for node in component.nodes()}
+        graph.add_nodes_from(mapping.values())
+        graph.add_edges_from((mapping[u], mapping[v]) for u, v in component.edges())
+        offset += component.number_of_nodes()
+    return graph
+
+
+@pytest.mark.parametrize("builder", [
+    lambda L: _graph_with_nodes_edges(
+        L, [], [(0, 1), (1, 2), (2, 3), (3, 0), (0, 2)]
+    ),
+    lambda L: _chorded_cycle(L, 12),
+    lambda L: _chorded_cycle(L, 16),
+])
+def test_k_components_two_degenerate_biconnected_family_matches_networkx(builder):
+    fg = builder(fnx)
+    ng = builder(nx)
+
+    fr = fnx.k_components(fg)
+    nr = nx.k_components(ng)
+
+    assert list(fr.keys()) == list(nr.keys())
+    assert {k: [set(c) for c in v] for k, v in fr.items()} == {
+        k: [set(c) for c in v] for k, v in nr.items()
+    }
+    assert {k: [type(c).__name__ for c in v] for k, v in fr.items()} == {
+        k: [type(c).__name__ for c in v] for k, v in nr.items()
+    }
+
+
+def test_k_components_two_degenerate_disconnected_order_matches_networkx():
+    fg = _disjoint_union_builders(
+        fnx,
+        lambda L: _chorded_cycle(L, 8),
+        lambda L: _graph_with_nodes_edges(
+            L, [], [(0, 1), (1, 2), (2, 3), (3, 0), (0, 2)]
+        ),
+    )
+    ng = _disjoint_union_builders(
+        nx,
+        lambda L: _chorded_cycle(L, 8),
+        lambda L: _graph_with_nodes_edges(
+            L, [], [(0, 1), (1, 2), (2, 3), (3, 0), (0, 2)]
+        ),
+    )
+
+    fr = fnx.k_components(fg)
+    nr = nx.k_components(ng)
+
+    assert list(fr.keys()) == list(nr.keys())
+    assert [[set(component) for component in fr[k]] for k in fr] == [
+        [set(component) for component in nr[k]] for k in nr
+    ]
+
+
+def test_k_components_two_degenerate_custom_flow_func_delegates_like_networkx():
+    fg = _chorded_cycle(fnx, 12)
+    ng = _chorded_cycle(nx, 12)
+
+    def fail_flow(*args, **kwargs):
+        raise RuntimeError("flow called")
+
+    with pytest.raises(RuntimeError, match="flow called"):
+        fnx.k_components(fg, flow_func=fail_flow)
+    with pytest.raises(RuntimeError, match="flow called"):
+        nx.k_components(ng, flow_func=fail_flow)
+
+
+def test_k_components_two_degenerate_fast_path_rejects_three_core_graph():
+    fg = fnx.circular_ladder_graph(6)
+    ng = nx.circular_ladder_graph(6)
+
+    assert fnx.k_components(fg) == nx.k_components(ng)
+
+
 @pytest.mark.parametrize(
     "name,builder,k",
     [
