@@ -12837,6 +12837,15 @@ def average_degree_connectivity(
 
 def _compute_rich_club_coefficients(G):
     """Return the rich-club coefficient by degree threshold."""
+    # br-r37-c1-richclub: the native kernel now does nx's exact O(|V|+|E|) sweep
+    # in Rust (no Python G.edges() iteration + sort). Use it for simple undirected
+    # fnx graphs; fall back to the Python port below otherwise.
+    try:
+        Gc = _coerce_arg_to_fnx_graph(G)
+        if not Gc.is_directed() and not Gc.is_multigraph():
+            return _fnx.rich_club_coefficient(Gc)
+    except Exception:
+        pass
     deghist = degree_histogram(G)
     total = sum(deghist)
     nks = (total - cs for cs in _itertools.accumulate(deghist) if total - cs > 1)

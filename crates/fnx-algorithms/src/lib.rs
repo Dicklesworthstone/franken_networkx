@@ -17276,59 +17276,59 @@ pub fn average_degree_connectivity(graph: &Graph) -> HashMap<usize, f64> {
 /// with degree greater than `k`. Returns a map from `k` to `phi(k)`.
 /// Matches `networkx.rich_club_coefficient(G, normalized=False)`.
 #[must_use]
-pub fn rich_club_coefficient(graph: &Graph) -> HashMap<usize, f64> {
-    let nodes = graph.nodes_ordered();
-    let mut degrees: Vec<(usize, &str)> = nodes
-        .iter()
-        .map(|&n| (graph.neighbor_count(n), n))
-        .collect();
-    degrees.sort_unstable_by_key(|b| std::cmp::Reverse(b.0)); // Sort descending by degree
-
-    // Get all unique degrees
-    let mut unique_degrees: Vec<usize> = degrees.iter().map(|(d, _)| *d).collect();
-    unique_degrees.sort_unstable();
-    unique_degrees.dedup();
-
-    let mut result = HashMap::new();
-
-    for &k in &unique_degrees {
-        // Nodes with degree > k
-        let rich_nodes: HashSet<&str> = degrees
-            .iter()
-            .filter(|(d, _)| *d > k)
-            .map(|(_, n)| *n)
-            .collect();
-
-        let n_rich = rich_nodes.len();
-        if n_rich < 2 {
-            result.insert(k, 0.0);
-            continue;
-        }
-
-        // Count edges among rich nodes
-        let mut edge_count = 0usize;
-        for &node in &rich_nodes {
-            if let Some(nbrs) = graph.neighbors(node) {
-                for nbr in nbrs {
-                    if rich_nodes.contains(nbr) {
-                        edge_count += 1;
-                    }
+pub fn rich_club_coefficient(graph: &Graph) -> Vec<(usize, f64)> {
+    // br-r37-c1-richclub: O(|V|+|E|) sweep matching networkx's _compute_rc
+    // EXACTLY. The previous O(D*|E|) version rebuilt a String HashSet of "rich"
+    // nodes and re-scanned all edges PER UNIQUE DEGREE, AND keyed on the distinct
+    // degree VALUES — a correctness BUG (e.g. it returned {3:0.0} for K4 where nx
+    // returns {0:1,1:1,2:1}), which is why the Python wrapper bypassed it with a
+    // pure-Python port. phi(d) = 2*E_d / (N_d*(N_d-1)) for each degree d where
+    // N_d = #nodes with degree > d exceeds 1, and E_d = #edges with BOTH endpoints
+    // of degree > d. Returned as (d, phi) pairs in ascending-d order (nx's keys).
+    let n = graph.node_count();
+    if n == 0 {
+        return Vec::new();
+    }
+    let deg: Vec<usize> = (0..n).map(|i| graph.degree_by_index(i)).collect();
+    let max_deg = deg.iter().copied().max().unwrap_or(0);
+    let mut deghist = vec![0usize; max_deg + 1];
+    for &d in &deg {
+        deghist[d] += 1;
+    }
+    // Smaller-endpoint degree of each undirected edge (self-loops are rejected by
+    // the wrapper; `u < v` also skips them).
+    let mut edge_min_deg: Vec<usize> = Vec::with_capacity(graph.edge_count());
+    for u in 0..n {
+        if let Some(nbrs) = graph.neighbors_indices(u) {
+            for &v in nbrs {
+                if u < v {
+                    edge_min_deg.push(deg[u].min(deg[v]));
                 }
             }
         }
-        // Each undirected edge counted twice
-        edge_count /= 2;
-
-        let max_possible = n_rich * (n_rich - 1) / 2;
-        let phi = if max_possible == 0 {
-            0.0
-        } else {
-            edge_count as f64 / max_possible as f64
-        };
-        result.insert(k, phi);
     }
+    let mut ek = edge_min_deg.len();
+    if ek == 0 {
+        return Vec::new();
+    }
+    edge_min_deg.sort_unstable();
 
-    result
+    let mut out: Vec<(usize, f64)> = Vec::new();
+    let mut ptr = 0usize;
+    let mut prefix = 0usize;
+    for d in 0..=max_deg {
+        prefix += deghist[d];
+        let nk = n - prefix; // nodes with degree > d
+        if nk <= 1 {
+            break;
+        }
+        while ptr < edge_min_deg.len() && edge_min_deg[ptr] <= d {
+            ek -= 1;
+            ptr += 1;
+        }
+        out.push((d, 2.0 * ek as f64 / (nk * (nk - 1)) as f64));
+    }
+    out
 }
 
 // ===========================================================================
@@ -43060,10 +43060,13 @@ mod tests {
         let _ = g.add_edge("1", "2");
         let _ = g.add_edge("1", "3");
         let _ = g.add_edge("2", "3");
-        let rc = rich_club_coefficient(&g);
-        // Only degree present is 3
-        // k=3: no nodes with deg>3 → 0.0
-        assert!((rc[&3] - 0.0).abs() < TEST_TOLERANCE);
+        let rc: HashMap<usize, f64> = rich_club_coefficient(&g).into_iter().collect();
+        // nx: keys 0,1,2 (degrees d where >1 node has degree > d); all edges are
+        // among the deg-3 nodes so phi=1.0. There is NO key 3 (no node deg > 3).
+        assert!((rc[&0] - 1.0).abs() < TEST_TOLERANCE);
+        assert!((rc[&1] - 1.0).abs() < TEST_TOLERANCE);
+        assert!((rc[&2] - 1.0).abs() < TEST_TOLERANCE);
+        assert!(!rc.contains_key(&3));
     }
 
     #[test]
@@ -43073,11 +43076,12 @@ mod tests {
         let _ = g.add_edge("c", "a");
         let _ = g.add_edge("c", "b");
         let _ = g.add_edge("c", "d");
-        let rc = rich_club_coefficient(&g);
-        // k=1: nodes with deg>1 = {c (deg 3)}, only 1 node → phi=0.0
-        assert!((rc[&1] - 0.0).abs() < TEST_TOLERANCE);
-        // k=3: no nodes with deg>3 → 0.0
-        assert!((rc[&3] - 0.0).abs() < TEST_TOLERANCE);
+        let rc: HashMap<usize, f64> = rich_club_coefficient(&g).into_iter().collect();
+        // nx: only key 0 (d=1 leaves nk=1, not >1). phi(0) = 3 edges among the 4
+        // deg>0 nodes / C(4,2)=6 = 0.5.
+        assert!((rc[&0] - 0.5).abs() < TEST_TOLERANCE);
+        assert!(!rc.contains_key(&1));
+        assert!(!rc.contains_key(&3));
     }
 
     // -----------------------------------------------------------------------

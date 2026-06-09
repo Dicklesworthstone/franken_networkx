@@ -8610,8 +8610,8 @@ pub fn rich_club_coefficient(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<P
     let inner = gr.undirected();
     let result = py.allow_threads(|| fnx_algorithms::rich_club_coefficient(inner));
     let dict = pyo3::types::PyDict::new(py);
-    for (k, v) in &result {
-        dict.set_item(*k, *v)?;
+    for &(k, v) in &result {
+        dict.set_item(k, v)?;
     }
     Ok(dict.into_any().unbind())
 }
