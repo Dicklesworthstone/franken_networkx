@@ -1,0 +1,28 @@
+{
+  "results": [
+    {
+      "command": "python tests/artifacts/perf/20260609T-k-components-forest-boldfalcon/harness_forest_k_components.py time --kind star --n 5000 --repeats 20 --which nx",
+      "mean": 5.22263012266,
+      "stddev": 2.207393283773019,
+      "median": 6.06582352486,
+      "user": 2.6922909399999995,
+      "system": 0.06946382,
+      "min": 2.2848118508599997,
+      "max": 7.45107977586,
+      "times": [
+        6.06582352486,
+        7.45107977586,
+        3.5473572718599997,
+        2.2848118508599997,
+        6.76407818986
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

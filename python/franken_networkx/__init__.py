@@ -42702,9 +42702,10 @@ def k_components(G, flow_func=None):
     br-kcompalgo: delegated to nx for correctness outside narrow exact
     fast paths. The previous bespoke Python implementation treated
     ``k_components`` as ``{k: components_with_node_connectivity_at_least_k(G)}``
-    and missed Moody-White recursive substructures. Complete simple graphs are
-    the safe exception: every k from n - 1 down to 1 has exactly one component,
-    all nodes, and nx ignores ``flow_func`` on that branch.
+    and missed Moody-White recursive substructures. Complete graphs,
+    simple-cycle components, and forests are the safe exceptions: their
+    k-component lattices are closed form and nx ignores ``flow_func`` on
+    those branches.
     """
     if type(G) is Graph:
         node_count = len(G)
@@ -42726,6 +42727,15 @@ def k_components(G, flow_func=None):
                     2: [set(component) for component in components],
                     1: [set(component) for component in components],
                 }
+        if edge_count <= node_count - 1 and self_loop_count == 0:
+            components = [set(component) for component in connected_components(G)]
+            if edge_count == node_count - len(components):
+                non_singletons = [
+                    set(component) for component in components if len(component) > 1
+                ]
+                if non_singletons:
+                    return {1: non_singletons}
+                return {}
     return _call_networkx_for_parity("k_components", G, flow_func=flow_func)
 
 

@@ -50,6 +50,13 @@ def _build_pair(builder):
     return builder(fnx), builder(nx)
 
 
+def _graph_with_nodes_edges(library, nodes, edges):
+    graph = library.Graph()
+    graph.add_nodes_from(nodes)
+    graph.add_edges_from(edges)
+    return graph
+
+
 # ---------------------------------------------------------------------------
 # tree.recognition
 # ---------------------------------------------------------------------------
@@ -332,6 +339,52 @@ def test_k_components_cycle_fast_path_rejects_selfloop_degree_two_case():
         graph.add_edges_from([(0, 0), (1, 2), (2, 3), (3, 1)])
 
     assert all(degree == 2 for _, degree in fg.degree())
+    assert fnx.k_components(fg) == nx.k_components(ng)
+
+
+@pytest.mark.parametrize("builder", [
+    lambda L: L.empty_graph(2),
+    lambda L: L.path_graph(5),
+    lambda L: L.star_graph(7),
+    lambda L: L.disjoint_union(L.path_graph(3), L.empty_graph(1)),
+    lambda L: L.disjoint_union(L.path_graph(3), L.path_graph(2)),
+])
+def test_k_components_forest_family_raw_shape_matches_networkx(builder):
+    fg = builder(fnx)
+    ng = builder(nx)
+
+    fr = fnx.k_components(fg)
+    nr = nx.k_components(ng)
+
+    assert list(fr.keys()) == list(nr.keys())
+    assert {k: [set(c) for c in v] for k, v in fr.items()} == {
+        k: [set(c) for c in v] for k, v in nr.items()
+    }
+    assert {k: [type(c).__name__ for c in v] for k, v in fr.items()} == {
+        k: [type(c).__name__ for c in v] for k, v in nr.items()
+    }
+
+
+def test_k_components_forest_fast_path_ignores_flow_func_like_networkx():
+    fg = fnx.star_graph(6)
+    ng = nx.star_graph(6)
+
+    def fail_flow(*args, **kwargs):
+        raise AssertionError("forest k_components should not call flow_func")
+
+    assert fnx.k_components(fg, flow_func=fail_flow) == nx.k_components(
+        ng, flow_func=fail_flow
+    )
+
+
+@pytest.mark.parametrize("builder", [
+    lambda L: L.Graph([(0, 1), (1, 2), (2, 0), (2, 3)]),
+    lambda L: _graph_with_nodes_edges(L, [0, 1, 2], [(0, 1), (1, 2), (0, 0)]),
+])
+def test_k_components_forest_fast_path_rejects_non_forest_boundaries(builder):
+    fg = builder(fnx)
+    ng = builder(nx)
+
     assert fnx.k_components(fg) == nx.k_components(ng)
 
 
