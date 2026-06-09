@@ -45,6 +45,7 @@ fn report_to_pygraph(py: Python<'_>, graph: fnx_classes::Graph) -> PyResult<PyGr
         edges_seq: 0,
         edges_dirty: AtomicBool::new(false),
         node_keys_cache: std::sync::Mutex::new(None),
+        node_iter_mirror: std::sync::Mutex::new(None),
     })
 }
 
@@ -213,6 +214,7 @@ pub fn grid_2d_graph_simple(py: Python<'_>, m: usize, n: usize) -> PyResult<PyGr
         edges_seq: 0,
         edges_dirty: AtomicBool::new(false),
         node_keys_cache: std::sync::Mutex::new(None),
+        node_iter_mirror: std::sync::Mutex::new(None),
     })
 }
 
@@ -284,6 +286,7 @@ pub fn grid_graph_native(
         edges_seq: 0,
         edges_dirty: AtomicBool::new(false),
         node_keys_cache: std::sync::Mutex::new(None),
+        node_iter_mirror: std::sync::Mutex::new(None),
     })
 }
 
@@ -348,6 +351,7 @@ pub fn kneser_graph_native(py: Python<'_>, n: usize, k: usize) -> PyResult<PyGra
         edges_seq: 0,
         edges_dirty: AtomicBool::new(false),
         node_keys_cache: std::sync::Mutex::new(None),
+        node_iter_mirror: std::sync::Mutex::new(None),
     })
 }
 

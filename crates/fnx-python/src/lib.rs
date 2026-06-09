@@ -547,6 +547,7 @@ pub(crate) struct PyGraph {
     /// Monotonic dirty marker for Python-visible edge attr dict handouts.
     pub(crate) edges_dirty: AtomicBool,
     pub(crate) node_keys_cache: std::sync::Mutex<Option<(u64, Py<pyo3::types::PyTuple>)>>,
+    node_iter_mirror: std::sync::Mutex<Option<Py<PyDict>>>,
 }
 
 impl PyGraph {
@@ -578,6 +579,7 @@ impl PyGraph {
     /// nodes_seq-keyed tuple cache (clone_ref of cached elements) instead of
     /// rebuilding via py_node_key per node. Backs the graph node iterator
     /// (`set(G)` / `for n in G`), which keeps its per-next nodes_seq guard.
+    #[allow(dead_code)]
     pub(crate) fn cached_node_key_vec(&self, py: Python<'_>) -> Vec<PyObject> {
         let seq = self.nodes_seq;
         {
@@ -599,6 +601,67 @@ impl PyGraph {
             .unbind();
         *self.node_keys_cache.lock().unwrap() = Some((seq, tup.clone_ref(py)));
         keys
+    }
+
+    fn node_iter_mirror_or_init(&self, py: Python<'_>) -> PyResult<Py<PyDict>> {
+        if let Some(dict) = self
+            .node_iter_mirror
+            .lock()
+            .unwrap()
+            .as_ref()
+            .map(|dict| dict.clone_ref(py))
+        {
+            return Ok(dict);
+        }
+
+        let dict = PyDict::new(py);
+        for canonical in self.inner.nodes_ordered() {
+            dict.set_item(self.py_node_key(py, canonical), py.None())?;
+        }
+        let owned = dict.unbind();
+        *self.node_iter_mirror.lock().unwrap() = Some(owned.clone_ref(py));
+        Ok(owned)
+    }
+
+    fn node_iter_mirror_insert(&self, py: Python<'_>, canonical: &str) -> PyResult<()> {
+        let Some(dict) = self
+            .node_iter_mirror
+            .lock()
+            .unwrap()
+            .as_ref()
+            .map(|dict| dict.clone_ref(py))
+        else {
+            return Ok(());
+        };
+        dict.bind(py)
+            .set_item(self.py_node_key(py, canonical), py.None())
+    }
+
+    fn node_iter_mirror_remove_key(&self, py: Python<'_>, key: &Bound<'_, PyAny>) {
+        let Some(dict) = self
+            .node_iter_mirror
+            .lock()
+            .unwrap()
+            .as_ref()
+            .map(|dict| dict.clone_ref(py))
+        else {
+            return;
+        };
+        let _ = dict.bind(py).del_item(key);
+    }
+
+    fn node_iter_mirror_clear(&self, py: Python<'_>) -> PyResult<()> {
+        let Some(dict) = self
+            .node_iter_mirror
+            .lock()
+            .unwrap()
+            .as_ref()
+            .map(|dict| dict.clone_ref(py))
+        else {
+            return Ok(());
+        };
+        dict.bind(py).call_method0("clear")?;
+        Ok(())
     }
 
     /// br-r37-c1-z6uka: the display object for neighbor `nbr` inside
@@ -793,6 +856,7 @@ impl PyGraph {
             edges_seq: 0,
             edges_dirty: AtomicBool::new(false),
             node_keys_cache: std::sync::Mutex::new(None),
+            node_iter_mirror: std::sync::Mutex::new(None),
         })
     }
 
@@ -922,17 +986,18 @@ impl PyGraph {
 
     fn add_plain_edge_batch(
         &mut self,
-        _py: Python<'_>,
+        py: Python<'_>,
         edges: Vec<(String, String)>,
         new_nodes: Vec<(String, PyObject)>,
         node_bumps: u64,
-    ) {
+    ) -> PyResult<()> {
         let edge_bumps = u64::try_from(edges.len())
             .unwrap_or(u64::MAX)
             .wrapping_add(1);
 
         for (canonical, node) in new_nodes {
-            self.node_key_map.entry(canonical).or_insert(node);
+            self.node_key_map.entry(canonical.clone()).or_insert(node);
+            self.node_iter_mirror_insert(py, &canonical)?;
         }
         // br-r37-c1-89kxg: NO eager empty mirror dicts — every reader goes
         // through materialize_*/ensure_*/entry().or_insert, so absence is
@@ -942,6 +1007,7 @@ impl PyGraph {
         let _inserted = self.inner.extend_edges_unrecorded(edges);
         self.nodes_seq = self.nodes_seq.wrapping_add(node_bumps);
         self.edges_seq = self.edges_seq.wrapping_add(edge_bumps);
+        Ok(())
     }
 
     fn try_add_plain_edge_batch(
@@ -960,7 +1026,7 @@ impl PyGraph {
             if let Some((edges, new_nodes, node_bumps)) =
                 self.collect_plain_edge_batch(py, list.iter(), list.len())?
             {
-                self.add_plain_edge_batch(py, edges, new_nodes, node_bumps);
+                self.add_plain_edge_batch(py, edges, new_nodes, node_bumps)?;
                 return Ok(true);
             }
         } else if let Ok(tuple) = ebunch_to_add.downcast::<PyTuple>()
@@ -968,7 +1034,7 @@ impl PyGraph {
             && let Some((edges, new_nodes, node_bumps)) =
                 self.collect_plain_edge_batch(py, tuple.iter(), tuple.len())?
         {
-            self.add_plain_edge_batch(py, edges, new_nodes, node_bumps);
+            self.add_plain_edge_batch(py, edges, new_nodes, node_bumps)?;
             return Ok(true);
         }
         Ok(false)
@@ -1105,7 +1171,8 @@ impl PyGraph {
             .wrapping_add(1);
 
         for (canonical, node) in new_nodes {
-            self.node_key_map.entry(canonical).or_insert(node);
+            self.node_key_map.entry(canonical.clone()).or_insert(node);
+            self.node_iter_mirror_insert(py, &canonical)?;
         }
         // br-r37-c1-89kxg: mirrors are LAZY — only attributed edges
         // materialize a dict here (content copy); empty mirrors are
@@ -5462,6 +5529,9 @@ impl PyGraph {
         self.inner
             .add_node_with_attrs(canonical.clone(), rust_attrs);
         log::debug!(target: "franken_networkx", "add_node: {canonical}");
+        if was_new {
+            self.node_iter_mirror_insert(py, &canonical)?;
+        }
         self.bump_nodes_seq();
         Ok(())
     }
@@ -5500,7 +5570,7 @@ impl PyGraph {
         Ok(())
     }
 
-    fn _fast_add_int_nodes_range_stop(&mut self, _py: Python<'_>, stop: i64) -> PyResult<()> {
+    fn _fast_add_int_nodes_range_stop(&mut self, py: Python<'_>, stop: i64) -> PyResult<()> {
         if stop <= 0 {
             return Ok(());
         }
@@ -5512,6 +5582,9 @@ impl PyGraph {
             canonicals.push(canonical);
             self.bump_nodes_seq();
         }
+        for canonical in &canonicals {
+            self.node_iter_mirror_insert(py, canonical)?;
+        }
         let _ = self.inner.extend_nodes_unrecorded(canonicals);
         Ok(())
     }
@@ -5520,6 +5593,7 @@ impl PyGraph {
         let empty_attrs = AttrMap::new();
         for node in nodes {
             let canonical = node.to_string();
+            let was_new = !self.inner.has_node(&canonical);
             self.node_key_map
                 .entry(canonical.clone())
                 .or_insert_with(|| {
@@ -5531,7 +5605,10 @@ impl PyGraph {
                 .entry(canonical.clone())
                 .or_insert_with(|| PyDict::new(py).unbind());
             self.inner
-                .add_node_with_attrs(canonical, empty_attrs.clone());
+                .add_node_with_attrs(canonical.clone(), empty_attrs.clone());
+            if was_new {
+                self.node_iter_mirror_insert(py, &canonical)?;
+            }
             self.bump_nodes_seq();
         }
         Ok(())
@@ -5547,6 +5624,7 @@ impl PyGraph {
             )));
         }
         log::debug!(target: "franken_networkx", "remove_node: {canonical}");
+        let mirror_key = self.py_node_key(py, &canonical);
 
         // surgically remove attributes for incident edges before removing node from inner graph
         let mut had_incident_edges = false;
@@ -5564,6 +5642,7 @@ impl PyGraph {
         }
 
         self.inner.remove_node(&canonical);
+        self.node_iter_mirror_remove_key(py, mirror_key.bind(py));
         self.node_key_map.remove(&canonical);
         self.node_py_attrs.remove(&canonical);
         if !self.adj_py_keys.is_empty() {
@@ -5617,6 +5696,8 @@ impl PyGraph {
         let (_removed_nodes, removed_edges) =
             self.inner.remove_nodes_from(present_refs.iter().copied());
         for canonical in &present {
+            let mirror_key = self.py_node_key(py, canonical);
+            self.node_iter_mirror_remove_key(py, mirror_key.bind(py));
             self.node_key_map.remove(canonical);
             self.node_py_attrs.remove(canonical);
             self.adj_row_py.remove(canonical);
@@ -5671,6 +5752,12 @@ impl PyGraph {
                 .or_insert_with(|| v.clone().unbind());
         }
         if __was_new {
+            if u_was_new {
+                self.node_iter_mirror_insert(py, &u_canonical)?;
+            }
+            if v_was_new {
+                self.node_iter_mirror_insert(py, &v_canonical)?;
+            }
             self.bump_nodes_seq();
         }
         // br-r37-c1-z6uka: a NEW edge creates both adjacency cells with
@@ -6003,6 +6090,7 @@ impl PyGraph {
         self.adj_py_keys.clear(); // br-r37-c1-z6uka
         self.adj_row_py.clear();
         self.graph_attrs = PyDict::new(py).unbind();
+        self.node_iter_mirror_clear(py)?;
         self.bump_nodes_seq();
         self.bump_edges_seq(); // br-r37-c1-jft0i
         Ok(())
@@ -6244,16 +6332,10 @@ impl PyGraph {
     }
 
     /// Iterate over nodes (called by ``for n in G``).
-    fn __iter__(slf: PyRef<'_, Self>) -> PyResult<Py<NodeIterator>> {
+    fn __iter__(slf: PyRef<'_, Self>) -> PyResult<PyObject> {
         let py = slf.py();
-        // br-r37-c1-fpssi: source node objects from the cached tuple.
-        let nodes = slf.cached_node_key_vec(py);
-        let count = nodes.len();
-        let graph = Py::from(slf);
-        Py::new(
-            py,
-            NodeIterator::with_graph_guard(py, nodes, NodeIteratorGuard::Graph(graph), count),
-        )
+        let mirror = slf.node_iter_mirror_or_init(py)?;
+        Ok(mirror.bind(py).call_method0("__iter__")?.unbind())
     }
 
     /// Get adjacency dict for node (called by ``G[n]``).
@@ -6347,6 +6429,7 @@ impl PyGraph {
             // Python dicts on the next native read (same contract as the source).
             edges_dirty: AtomicBool::new(self.edges_dirty.load(Ordering::Relaxed)),
             node_keys_cache: std::sync::Mutex::new(None),
+            node_iter_mirror: std::sync::Mutex::new(None),
         };
         // br-r37-c1-0ek49: nx's G.copy() rebuild walk reorders undirected
         // adjacency rows (a pair enters both rows at its first u-major touch);
@@ -6421,6 +6504,7 @@ impl PyGraph {
             edges_seq: 0,
             edges_dirty: AtomicBool::new(false),
             node_keys_cache: std::sync::Mutex::new(None),
+            node_iter_mirror: std::sync::Mutex::new(None),
         };
 
         // Add kept nodes using the existing HashSet iteration behavior; only
@@ -6503,6 +6587,7 @@ impl PyGraph {
             edges_seq: 0,
             edges_dirty: AtomicBool::new(false),
             node_keys_cache: std::sync::Mutex::new(None),
+            node_iter_mirror: std::sync::Mutex::new(None),
         };
 
         // Collect nodes from kept edges
@@ -7213,6 +7298,7 @@ impl PyGraph {
             edges_seq: 0,
             edges_dirty: AtomicBool::new(self.edges_dirty.load(Ordering::Relaxed)),
             node_keys_cache: std::sync::Mutex::new(None),
+            node_iter_mirror: std::sync::Mutex::new(None),
         })
     }
 
@@ -7558,6 +7644,7 @@ pub(crate) struct NodeIterator {
 }
 
 pub(crate) enum NodeIteratorGuard {
+    #[allow(dead_code)]
     Graph(Py<PyGraph>),
     MultiGraph(Py<PyMultiGraph>),
     DiGraph(Py<digraph::PyDiGraph>),

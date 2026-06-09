@@ -7410,8 +7410,10 @@ def test_int_and_same_text_string_nodes_remain_distinct():
 def test_graph_iteration_detects_node_mutation_like_python_dict():
     """br-r37-c1-m25z2: ``for n in G`` is backed by nx's node dict.
 
-    Mutating nodes during iteration must raise instead of silently
-    draining the snapshot captured by the Rust binding.
+    Size-changing node mutations during iteration must raise instead
+    of silently draining the snapshot captured by the Rust binding.
+    Exact Graph now uses CPython's dict_keyiterator, matching nx's
+    same-size remove/add behavior on this Python.
     """
     for cls in (fnx.Graph, fnx.DiGraph, fnx.MultiGraph, fnx.MultiDiGraph):
         G = cls()
@@ -7428,8 +7430,13 @@ def test_graph_iteration_detects_node_mutation_like_python_dict():
         assert next(node_iter) == 0
         G.remove_node(1)
         G.add_node(2)
-        with pytest.raises(RuntimeError, match="dictionary keys changed during iteration"):
-            next(node_iter)
+        if cls is fnx.Graph:
+            assert next(node_iter) == 2
+            with pytest.raises(StopIteration):
+                next(node_iter)
+        else:
+            with pytest.raises(RuntimeError, match="dictionary keys changed during iteration"):
+                next(node_iter)
 
 
 def test_edge_view_iteration_detects_node_mutation_like_python_dict():
