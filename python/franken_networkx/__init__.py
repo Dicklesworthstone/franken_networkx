@@ -42837,6 +42837,23 @@ def relabel_nodes(G, mapping, copy=True):
     else:
         _map = mapping
 
+    # br-r37-c1-relabelid: a strictly-identity mapping (every entry maps a node
+    # to itself) makes relabel a pure copy (copy=True) / no-op (copy=False). The
+    # native copy() (inner.clone) is ~14x faster than the per-edge rebuild below —
+    # the common case for convert_node_labels_to_integers on graphs already
+    # labelled with the target integers. Test ``k == v`` per ENTRY (not "no effect
+    # on this graph's nodes"): a cyclic mapping whose keys aren't graph nodes must
+    # still raise like nx, so it must NOT take this path. Short-circuits on the
+    # first renamed entry, so real relabels pay ~O(1). Identity-via-copy is
+    # byte-exact: nodes, edges, node/edge attrs, and iteration order all match.
+    if all(k == v for k, v in _map.items()):
+        if not copy:
+            return G
+        try:
+            return G.copy()
+        except Exception:
+            pass
+
     if copy:
         # br-r37-c1-k7dct: SubgraphView's class is _FilteredGraphView,
         # whose __init__ requires a ``graph`` arg — bare ``cls()`` fails.
