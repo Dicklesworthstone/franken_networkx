@@ -528,14 +528,14 @@ impl GraphGenerator {
             // (0, n-1) second, putting 0 before n-2's entry in the last
             // node's adjacency row (cycle(5) row 4 was [0, 3] vs nx
             // [3, 0]).
-            for i in 0..n {
-                graph
-                    .add_edge(node_labels[i].clone(), node_labels[(i + 1) % n].clone())
-                    .map_err(|err| GenerationError::FailClosed {
-                        operation: "cycle_graph",
-                        reason: err.to_string(),
-                    })?;
-            }
+            // br-r37-c1-cyclebulk: one bulk extend_edges_unrecorded instead of n
+            // per-edge add_edge (each records a RuntimePolicy decision).
+            // extend_edges_unrecorded appends in iteration order, so the emission
+            // order — and thus every node's adjacency row — is byte-identical.
+            let edges: Vec<(String, String)> = (0..n)
+                .map(|i| (node_labels[i].clone(), node_labels[(i + 1) % n].clone()))
+                .collect();
+            graph.extend_edges_unrecorded(edges);
         }
 
         self.record(
@@ -603,32 +603,22 @@ impl GraphGenerator {
         let (n, warnings) = self.validate_n("ladder_graph", n, MAX_N_GENERIC / 2)?;
         let (mut graph, node_labels) = graph_with_n_nodes(self.mode, n * 2);
 
+        // br-r37-c1-cyclebulk: bulk edge construction (see cycle_graph) — push
+        // edges in the exact same emission order, so every adjacency row is
+        // byte-identical, then one extend_edges_unrecorded instead of per-edge
+        // add_edge (each records a RuntimePolicy decision).
+        let mut edges: Vec<(String, String)> = Vec::with_capacity(3 * n);
         for index in 0..n.saturating_sub(1) {
-            graph
-                .add_edge(node_labels[index].clone(), node_labels[index + 1].clone())
-                .map_err(|err| GenerationError::FailClosed {
-                    operation: "ladder_graph",
-                    reason: err.to_string(),
-                })?;
-            graph
-                .add_edge(
-                    node_labels[n + index].clone(),
-                    node_labels[n + index + 1].clone(),
-                )
-                .map_err(|err| GenerationError::FailClosed {
-                    operation: "ladder_graph",
-                    reason: err.to_string(),
-                })?;
+            edges.push((node_labels[index].clone(), node_labels[index + 1].clone()));
+            edges.push((
+                node_labels[n + index].clone(),
+                node_labels[n + index + 1].clone(),
+            ));
         }
-
         for index in 0..n {
-            graph
-                .add_edge(node_labels[index].clone(), node_labels[index + n].clone())
-                .map_err(|err| GenerationError::FailClosed {
-                    operation: "ladder_graph",
-                    reason: err.to_string(),
-                })?;
+            edges.push((node_labels[index].clone(), node_labels[index + n].clone()));
         }
+        graph.extend_edges_unrecorded(edges);
 
         self.record(
             "ladder_graph",
@@ -657,45 +647,24 @@ impl GraphGenerator {
         let (n, warnings) = self.validate_n("circular_ladder_graph", n, MAX_N_GENERIC / 2)?;
         let (mut graph, node_labels) = graph_with_n_nodes(self.mode, n * 2);
 
+        // br-r37-c1-cyclebulk: bulk edge construction (see cycle_graph) — push
+        // edges in the exact same emission order (rails interleaved, then the two
+        // wrap-around closing edges, then the rungs), so every adjacency row is
+        // byte-identical, then one extend_edges_unrecorded.
+        let mut edges: Vec<(String, String)> = Vec::with_capacity(3 * n + 2);
         for index in 0..n.saturating_sub(1) {
-            graph
-                .add_edge(node_labels[index].clone(), node_labels[index + 1].clone())
-                .map_err(|err| GenerationError::FailClosed {
-                    operation: "circular_ladder_graph",
-                    reason: err.to_string(),
-                })?;
-            graph
-                .add_edge(
-                    node_labels[n + index].clone(),
-                    node_labels[n + index + 1].clone(),
-                )
-                .map_err(|err| GenerationError::FailClosed {
-                    operation: "circular_ladder_graph",
-                    reason: err.to_string(),
-                })?;
+            edges.push((node_labels[index].clone(), node_labels[index + 1].clone()));
+            edges.push((
+                node_labels[n + index].clone(),
+                node_labels[n + index + 1].clone(),
+            ));
         }
-
-        graph
-            .add_edge(node_labels[0].clone(), node_labels[n - 1].clone())
-            .map_err(|err| GenerationError::FailClosed {
-                operation: "circular_ladder_graph",
-                reason: err.to_string(),
-            })?;
-        graph
-            .add_edge(node_labels[n].clone(), node_labels[(2 * n) - 1].clone())
-            .map_err(|err| GenerationError::FailClosed {
-                operation: "circular_ladder_graph",
-                reason: err.to_string(),
-            })?;
-
+        edges.push((node_labels[0].clone(), node_labels[n - 1].clone()));
+        edges.push((node_labels[n].clone(), node_labels[(2 * n) - 1].clone()));
         for index in 0..n {
-            graph
-                .add_edge(node_labels[index].clone(), node_labels[index + n].clone())
-                .map_err(|err| GenerationError::FailClosed {
-                    operation: "circular_ladder_graph",
-                    reason: err.to_string(),
-                })?;
+            edges.push((node_labels[index].clone(), node_labels[index + n].clone()));
         }
+        graph.extend_edges_unrecorded(edges);
 
         self.record(
             "circular_ladder_graph",
@@ -6624,13 +6593,11 @@ fn degree_state_from_graph(graph: &MultiDiGraph, out_degree: bool) -> Vec<usize>
 }
 
 fn graph_with_n_nodes(mode: CompatibilityMode, n: usize) -> (Graph, Vec<String>) {
+    // br-r37-c1-cyclebulk: bulk extend_nodes_unrecorded instead of per-node
+    // add_node (each records a RuntimePolicy decision). Same 0..n insertion order.
     let mut graph = Graph::new(mode);
-    let mut node_labels = Vec::with_capacity(n);
-    for i in 0..n {
-        let node_label = i.to_string();
-        let _ = graph.add_node(node_label.clone());
-        node_labels.push(node_label);
-    }
+    let node_labels: Vec<String> = (0..n).map(|i| i.to_string()).collect();
+    graph.extend_nodes_unrecorded(node_labels.iter().cloned());
     (graph, node_labels)
 }
 
