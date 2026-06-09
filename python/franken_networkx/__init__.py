@@ -2348,6 +2348,7 @@ _MULTIDIGRAPH_ADD_NODE_RAW = MultiDiGraph.add_node
 _GRAPH_FAST_ADD_INT_NODES_RANGE_STOP = getattr(
     Graph, "_fast_add_int_nodes_range_stop", None
 )
+_GRAPH_FAST_ADD_INT_NODES = getattr(Graph, "_fast_add_int_nodes", None)
 _MULTIGRAPH_FAST_ADD_EXPLICIT_INT_EDGE = getattr(
     MultiGraph, "_fast_add_explicit_int_edge", None
 )
@@ -2394,7 +2395,9 @@ _MULTIGRAPH_ADD_NODE = MultiGraph.add_node
 _MULTIDIGRAPH_ADD_NODE = MultiDiGraph.add_node
 
 
-def _make_add_nodes_from(add_node, fast_add_int_nodes_range_stop=None):
+def _make_add_nodes_from(
+    add_node, fast_add_int_nodes_range_stop=None, fast_add_int_nodes=None
+):
     """Build an ``add_nodes_from`` matching the NetworkX contract.
 
     nx dispatches via hashability: if ``n`` is hashable, it is added as a
@@ -2419,6 +2422,25 @@ def _make_add_nodes_from(add_node, fast_add_int_nodes_range_stop=None):
                 return
             except OverflowError:
                 pass
+        # br-r37-c1-u2jod: bulk native fast path for a concrete list/tuple of
+        # plain ints (the common ``add_nodes_from(list(range(n)))`` /
+        # ``add_nodes_from(other_int_graph)`` shape) — one PyO3 crossing + a Rust
+        # loop instead of a per-element Python loop. The native binding validates
+        # atomically and raises ``TypeError`` (non-int / bool element) or
+        # ``OverflowError`` (out of i64) BEFORE mutating, so we fall through to
+        # the general loop with no partial state. Restricted to list/tuple so a
+        # one-shot iterable (generator) is never half-consumed.
+        if (
+            not attr
+            and fast_add_int_nodes is not None
+            and type(self) is Graph
+            and type(nodes_for_adding) in (list, tuple)
+        ):
+            try:
+                fast_add_int_nodes(self, nodes_for_adding)
+                return
+            except (TypeError, OverflowError):
+                pass
         bound_add_node = add_node.__get__(self, type(self))
         for n in nodes_for_adding:
             try:
@@ -2440,6 +2462,7 @@ def _make_add_nodes_from(add_node, fast_add_int_nodes_range_stop=None):
 Graph.add_nodes_from = _make_add_nodes_from(
     _GRAPH_ADD_NODE,
     _GRAPH_FAST_ADD_INT_NODES_RANGE_STOP,
+    _GRAPH_FAST_ADD_INT_NODES,
 )
 DiGraph.add_nodes_from = _make_add_nodes_from(_DIGRAPH_ADD_NODE)
 MultiGraph.add_nodes_from = _make_add_nodes_from(_MULTIGRAPH_ADD_NODE)

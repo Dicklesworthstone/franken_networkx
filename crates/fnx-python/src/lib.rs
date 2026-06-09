@@ -5589,28 +5589,50 @@ impl PyGraph {
         Ok(())
     }
 
-    fn _fast_add_int_nodes(&mut self, py: Python<'_>, nodes: Vec<i64>) -> PyResult<()> {
-        let empty_attrs = AttrMap::new();
-        for node in nodes {
+    fn _fast_add_int_nodes(&mut self, py: Python<'_>, nodes: &Bound<'_, PyAny>) -> PyResult<()> {
+        // br-r37-c1-u2jod: bulk fast path for `add_nodes_from(list_of_ints)`,
+        // mirroring `_fast_add_int_nodes_range_stop` (lazy attrs + a single
+        // unrecorded bulk inner insert) instead of the eager per-node path.
+        // Drops (a) the eager `node_py_attrs` PyDict alloc — attrs materialize
+        // lazily via `ensure_node_py_attrs` on first access, exactly like the
+        // no-attr `add_node` branch — and (b) the per-node recorded
+        // `add_node_with_attrs` ledger push, batching the structural insert
+        // through `extend_nodes_unrecorded`.
+        //
+        // Atomic validate-then-mutate: every element must be an EXACT `int`
+        // (`is_exact_instance_of::<PyInt>` excludes `bool` — `True`/`1` share a
+        // node but the general path keeps the `True` Py object for display, so a
+        // bool here must fall back) and fit in i64.  Any other element raises
+        // (the Python wrapper then falls back to the general loop) before a
+        // single node is touched.  First-occurrence order and first-wins are
+        // preserved by keying dedup on `node_key_map`; Py int objects are stored
+        // (not lazy keys) to avoid the lazy int canonical/display divergence.
+        let iter = PyIterator::from_object(nodes)?;
+        let mut ints: Vec<i64> = Vec::new();
+        for item in iter {
+            let item = item?;
+            if !item.is_exact_instance_of::<PyInt>() {
+                return Err(PyTypeError::new_err(
+                    "fast int-node path requires exact int elements",
+                ));
+            }
+            ints.push(item.extract::<i64>()?);
+        }
+        let mut fresh_canonicals = Vec::with_capacity(ints.len());
+        for node in ints {
             let canonical = node.to_string();
-            let was_new = !self.inner.has_node(&canonical);
-            self.node_key_map
-                .entry(canonical.clone())
-                .or_insert_with(|| {
-                    unwrap_infallible(node.into_pyobject(py))
-                        .into_any()
-                        .unbind()
-                });
-            self.node_py_attrs
-                .entry(canonical.clone())
-                .or_insert_with(|| PyDict::new(py).unbind());
-            self.inner
-                .add_node_with_attrs(canonical.clone(), empty_attrs.clone());
-            if was_new {
+            let was_absent =
+                !self.node_key_map.contains_key(&canonical) && !self.inner.has_node(&canonical);
+            self.node_key_map.entry(canonical.clone()).or_insert_with(|| {
+                unwrap_infallible(node.into_pyobject(py)).into_any().unbind()
+            });
+            if was_absent {
                 self.node_iter_mirror_insert(py, &canonical)?;
+                fresh_canonicals.push(canonical);
             }
             self.bump_nodes_seq();
         }
+        let _ = self.inner.extend_nodes_unrecorded(fresh_canonicals);
         Ok(())
     }
 
