@@ -35880,38 +35880,91 @@ pub fn second_order_centrality(graph: &Graph) -> HashMap<String, f64> {
 // ---------------------------------------------------------------------------
 
 /// Matrix exponential via eigendecomposition (for symmetric matrices).
-fn matrix_exp_symmetric(a: &[f64], n: usize) -> Vec<f64> {
-    // For small n, use naive series expansion: exp(A) ≈ I + A + A²/2! + A³/3! + ...
-    let mut result = vec![0.0_f64; n * n];
-    let mut term = vec![0.0_f64; n * n]; // current term A^k / k!
-    // term = I
+/// Dense row-major matrix multiply `C = A·B` (both `n×n`) using a cache-friendly
+/// i-k-j traversal: `B` and `C` are walked by rows, and a zero `A[i,k]` skips a
+/// whole row update. The textbook i-j-l order strides down a column of `B` for
+/// every inner dot product, thrashing cache. Used by `matrix_exp_symmetric`.
+fn matmul_rowmajor(a: &[f64], b: &[f64], n: usize) -> Vec<f64> {
+    let mut c = vec![0.0_f64; n * n];
     for i in 0..n {
-        term[i * n + i] = 1.0;
-        result[i * n + i] = 1.0;
+        let a_row = &a[i * n..i * n + n];
+        let c_row = &mut c[i * n..i * n + n];
+        for k in 0..n {
+            let aik = a_row[k];
+            if aik == 0.0 {
+                continue;
+            }
+            let b_row = &b[k * n..k * n + n];
+            for j in 0..n {
+                c_row[j] += aik * b_row[j];
+            }
+        }
     }
+    c
+}
 
-    for k in 1..=60 {
-        // term = term * A / k
-        let prev = term.clone();
-        for i in 0..n {
-            for j in 0..n {
-                let mut s = 0.0;
-                for l in 0..n {
-                    s += prev[i * n + l] * a[l * n + j];
-                }
-                term[i * n + j] = s / k as f64;
-            }
+/// `exp(A)` for a dense row-major (symmetric) matrix via **scaling-and-squaring**
+/// with a truncated-Taylor core (Higham-style): pick `s` so that `‖A·2⁻ˢ‖ ≤ ½`,
+/// Taylor-expand the scaled matrix (converges in ~12 terms at that norm), then
+/// square the result `s` times since `exp(A) = exp(A·2⁻ˢ)^(2ˢ)`.
+///
+/// Replaces a naive 60-term Taylor where every term was a full O(n³) matmul —
+/// that was both slow (≈40 matmuls for a degree-~10 adjacency) and numerically
+/// unstable for large-norm matrices (intermediate `Aᵏ/k!` blows up before the
+/// factorial dominates). Scaling first caps the working norm at ½, so the series
+/// is short and well-conditioned; the matmuls use the cache-friendly kernel
+/// above. Deterministic and bit-reproducible run to run.
+fn matrix_exp_symmetric(a: &[f64], n: usize) -> Vec<f64> {
+    if n == 0 {
+        return Vec::new();
+    }
+    // ∞-norm (max abs row sum) bounds the spectral radius; choose the smallest
+    // s with ‖A·2⁻ˢ‖∞ ≤ 1/2 so the Taylor core converges in a handful of terms.
+    let mut norm = 0.0_f64;
+    for i in 0..n {
+        let mut row = 0.0_f64;
+        for j in 0..n {
+            row += a[i * n + j].abs();
         }
+        norm = norm.max(row);
+    }
+    let s: u32 = if norm > 0.5 {
+        (norm / 0.5).log2().ceil() as u32
+    } else {
+        0
+    };
+    let scale = 2.0_f64.powi(-(s as i32)); // exact: 2⁻ˢ is representable in f64
+
+    // Scaled matrix B = A·2⁻ˢ (same sparsity as A).
+    let b: Vec<f64> = a.iter().map(|&x| x * scale).collect();
+
+    // Taylor: result = Σ Bᵏ/k! with term recurrence term ← term·B/k.
+    let mut result = vec![0.0_f64; n * n];
+    let mut term = vec![0.0_f64; n * n];
+    for i in 0..n {
+        result[i * n + i] = 1.0;
+        term[i * n + i] = 1.0;
+    }
+    for k in 1..=30_u32 {
+        let mut next = matmul_rowmajor(&term, &b, n);
+        let inv_k = 1.0 / f64::from(k);
         let mut max_term = 0.0_f64;
-        for i in 0..n {
-            for j in 0..n {
-                result[i * n + j] += term[i * n + j];
-                max_term = max_term.max(term[i * n + j].abs());
-            }
+        for x in next.iter_mut() {
+            *x *= inv_k;
+            max_term = max_term.max(x.abs());
         }
+        for idx in 0..n * n {
+            result[idx] += next[idx];
+        }
+        term = next;
         if max_term < 1e-15 {
             break;
         }
+    }
+
+    // Undo the scaling: square s times -> exp(A·2⁻ˢ)^(2ˢ) = exp(A).
+    for _ in 0..s {
+        result = matmul_rowmajor(&result, &result, n);
     }
     result
 }
