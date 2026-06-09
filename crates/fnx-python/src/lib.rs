@@ -574,6 +574,33 @@ impl PyGraph {
             .unbind()
     }
 
+    /// br-r37-c1-fpssi: all node display objects as a Vec, reusing the
+    /// nodes_seq-keyed tuple cache (clone_ref of cached elements) instead of
+    /// rebuilding via py_node_key per node. Backs the graph node iterator
+    /// (`set(G)` / `for n in G`), which keeps its per-next nodes_seq guard.
+    pub(crate) fn cached_node_key_vec(&self, py: Python<'_>) -> Vec<PyObject> {
+        let seq = self.nodes_seq;
+        {
+            let guard = self.node_keys_cache.lock().unwrap();
+            if let Some((cached_seq, tup)) = guard.as_ref() {
+                if *cached_seq == seq {
+                    return tup.bind(py).iter().map(|o| o.unbind()).collect();
+                }
+            }
+        }
+        let keys: Vec<PyObject> = self
+            .inner
+            .nodes_ordered()
+            .into_iter()
+            .map(|n| self.py_node_key(py, n))
+            .collect();
+        let tup = pyo3::types::PyTuple::new(py, &keys)
+            .expect("node-keys tuple")
+            .unbind();
+        *self.node_keys_cache.lock().unwrap() = Some((seq, tup.clone_ref(py)));
+        keys
+    }
+
     /// br-r37-c1-z6uka: the display object for neighbor `nbr` inside
     /// `owner`'s adjacency row — nx's `_adj[owner]` dict key. Falls back to
     /// the global node object; the override map is empty for uniform-key
@@ -3410,25 +3437,9 @@ impl PyMultiGraph {
 
     fn __iter__(slf: PyRef<'_, Self>) -> PyResult<Py<NodeIterator>> {
         let py = slf.py();
-        let expected_nodes: Vec<String> = slf
-            .inner
-            .nodes_ordered()
-            .into_iter()
-            .map(str::to_owned)
-            .collect();
-        let nodes: Vec<PyObject> = expected_nodes
-            .iter()
-            .map(|n| {
-                slf.node_key_map.get(n).map_or_else(
-                    || {
-                        unwrap_infallible(n.to_owned().into_pyobject(py))
-                            .into_any()
-                            .unbind()
-                    },
-                    |obj| obj.clone_ref(py),
-                )
-            })
-            .collect();
+        // br-r37-c1-fpssi: source node objects from the cached tuple.
+        let nodes = slf.cached_node_key_vec(py);
+        let count = nodes.len();
         let graph = Py::from(slf);
         Py::new(
             py,
@@ -3436,7 +3447,7 @@ impl PyMultiGraph {
                 py,
                 nodes,
                 NodeIteratorGuard::MultiGraph(graph),
-                expected_nodes.len(),
+                count,
             ),
         )
     }
@@ -4643,6 +4654,33 @@ impl PyMultiGraph {
             },
             |obj| obj.clone_ref(py),
         )
+    }
+
+    /// br-r37-c1-fpssi: all node display objects as a Vec, reusing the
+    /// nodes_seq-keyed tuple cache (clone_ref of cached elements) instead of
+    /// rebuilding via py_node_key per node. Backs the graph node iterator
+    /// (`set(G)` / `for n in G`), which keeps its per-next nodes_seq guard.
+    pub(crate) fn cached_node_key_vec(&self, py: Python<'_>) -> Vec<PyObject> {
+        let seq = self.nodes_seq;
+        {
+            let guard = self.node_keys_cache.lock().unwrap();
+            if let Some((cached_seq, tup)) = guard.as_ref() {
+                if *cached_seq == seq {
+                    return tup.bind(py).iter().map(|o| o.unbind()).collect();
+                }
+            }
+        }
+        let keys: Vec<PyObject> = self
+            .inner
+            .nodes_ordered()
+            .into_iter()
+            .map(|n| self.py_node_key(py, n))
+            .collect();
+        let tup = pyo3::types::PyTuple::new(py, &keys)
+            .expect("node-keys tuple")
+            .unbind();
+        *self.node_keys_cache.lock().unwrap() = Some((seq, tup.clone_ref(py)));
+        keys
     }
 }
 
@@ -6208,25 +6246,13 @@ impl PyGraph {
     /// Iterate over nodes (called by ``for n in G``).
     fn __iter__(slf: PyRef<'_, Self>) -> PyResult<Py<NodeIterator>> {
         let py = slf.py();
-        let expected_nodes: Vec<String> = slf
-            .inner
-            .nodes_ordered()
-            .into_iter()
-            .map(str::to_owned)
-            .collect();
-        let nodes: Vec<PyObject> = expected_nodes
-            .iter()
-            .map(|n| slf.py_node_key(py, n))
-            .collect();
+        // br-r37-c1-fpssi: source node objects from the cached tuple.
+        let nodes = slf.cached_node_key_vec(py);
+        let count = nodes.len();
         let graph = Py::from(slf);
         Py::new(
             py,
-            NodeIterator::with_graph_guard(
-                py,
-                nodes,
-                NodeIteratorGuard::Graph(graph),
-                expected_nodes.len(),
-            ),
+            NodeIterator::with_graph_guard(py, nodes, NodeIteratorGuard::Graph(graph), count),
         )
     }
 

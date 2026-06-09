@@ -130,6 +130,34 @@ impl PyMultiDiGraph {
         )
     }
 
+    /// br-r37-c1-fpssi: all node display objects as a Vec, reusing the
+    /// nodes_seq-keyed tuple cache (clone_ref of cached elements) instead of
+    /// rebuilding via py_node_key per node. Backs the graph node iterator
+    /// (`set(G)` / `for n in G`), which keeps its per-next nodes_seq guard.
+    pub(crate) fn cached_node_key_vec(&self, py: Python<'_>) -> Vec<PyObject> {
+        let seq = self.nodes_seq;
+        {
+            let guard = self.node_keys_cache.lock().unwrap();
+            if let Some((cached_seq, tup)) = guard.as_ref() {
+                if *cached_seq == seq {
+                    return tup.bind(py).iter().map(|o| o.unbind()).collect();
+                }
+            }
+        }
+        let keys: Vec<PyObject> = self
+            .inner
+            .nodes_ordered()
+            .into_iter()
+            .map(|n| self.py_node_key(py, n))
+            .collect();
+        let tup = pyo3::types::PyTuple::new(py, &keys)
+            .expect("node-keys tuple")
+            .unbind();
+        *self.node_keys_cache.lock().unwrap() = Some((seq, tup.clone_ref(py)));
+        keys
+    }
+
+
     fn multi_row_keydict(
         &self,
         py: Python<'_>,
@@ -2037,16 +2065,9 @@ impl PyMultiDiGraph {
 
     fn __iter__(slf: PyRef<'_, Self>) -> PyResult<Py<crate::NodeIterator>> {
         let py = slf.py();
-        let expected_nodes: Vec<String> = slf
-            .inner
-            .nodes_ordered()
-            .into_iter()
-            .map(str::to_owned)
-            .collect();
-        let nodes: Vec<PyObject> = expected_nodes
-            .iter()
-            .map(|n| slf.py_node_key(py, n))
-            .collect();
+        // br-r37-c1-fpssi: source node objects from the cached tuple.
+        let nodes = slf.cached_node_key_vec(py);
+        let count = nodes.len();
         let graph = Py::from(slf);
         Py::new(
             py,
@@ -2054,7 +2075,7 @@ impl PyMultiDiGraph {
                 py,
                 nodes,
                 crate::NodeIteratorGuard::MultiDiGraph(graph),
-                expected_nodes.len(),
+                count,
             ),
         )
     }
@@ -3988,6 +4009,34 @@ impl PyDiGraph {
             |obj| obj.clone_ref(py),
         )
     }
+
+    /// br-r37-c1-fpssi: all node display objects as a Vec, reusing the
+    /// nodes_seq-keyed tuple cache (clone_ref of cached elements) instead of
+    /// rebuilding via py_node_key per node. Backs the graph node iterator
+    /// (`set(G)` / `for n in G`), which keeps its per-next nodes_seq guard.
+    pub(crate) fn cached_node_key_vec(&self, py: Python<'_>) -> Vec<PyObject> {
+        let seq = self.nodes_seq;
+        {
+            let guard = self.node_keys_cache.lock().unwrap();
+            if let Some((cached_seq, tup)) = guard.as_ref() {
+                if *cached_seq == seq {
+                    return tup.bind(py).iter().map(|o| o.unbind()).collect();
+                }
+            }
+        }
+        let keys: Vec<PyObject> = self
+            .inner
+            .nodes_ordered()
+            .into_iter()
+            .map(|n| self.py_node_key(py, n))
+            .collect();
+        let tup = pyo3::types::PyTuple::new(py, &keys)
+            .expect("node-keys tuple")
+            .unbind();
+        *self.node_keys_cache.lock().unwrap() = Some((seq, tup.clone_ref(py)));
+        keys
+    }
+
 
     /// br-r37-c1-z6uka: succ-row display object (see PyGraph::py_adj_key).
     pub(crate) fn py_succ_key(&self, py: Python<'_>, owner: &str, nbr: &str) -> PyObject {
@@ -6484,16 +6533,9 @@ impl PyDiGraph {
 
     fn __iter__(slf: PyRef<'_, Self>) -> PyResult<Py<crate::NodeIterator>> {
         let py = slf.py();
-        let expected_nodes: Vec<String> = slf
-            .inner
-            .nodes_ordered()
-            .into_iter()
-            .map(str::to_owned)
-            .collect();
-        let nodes: Vec<PyObject> = expected_nodes
-            .iter()
-            .map(|n| slf.py_node_key(py, n))
-            .collect();
+        // br-r37-c1-fpssi: source node objects from the cached tuple.
+        let nodes = slf.cached_node_key_vec(py);
+        let count = nodes.len();
         let graph = Py::from(slf);
         Py::new(
             py,
@@ -6501,7 +6543,7 @@ impl PyDiGraph {
                 py,
                 nodes,
                 crate::NodeIteratorGuard::DiGraph(graph),
-                expected_nodes.len(),
+                count,
             ),
         )
     }
