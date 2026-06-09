@@ -15148,6 +15148,37 @@ class _ApproximationNamespace:
             raise ValueError("Expected non-empty NetworkX graph!")
         return maximal_matching(G)
 
+    def average_clustering(self, G, trials=1000, seed=None, *, backend=None, **backend_kwargs):
+        # br-r37-c1-2poe6: nx's Schank-Wagner sampler is cheap, but the generic
+        # __getattr__ converted fnx->nx and ran the trials loop's per-trial
+        # list(G[node]) / u in G[v] on slow fnx adjacency (~3x slower). Snapshot
+        # adjacency once via the bulk native G.adjacency() (order-preserving),
+        # then run nx's EXACT sampler — all int(seed.random()*n) indices first,
+        # then per-trial seed.sample(nbrs, 2) + membership — on local dicts.
+        # Byte-identical to the previous fnx result (0/60); parity with nx at
+        # common sizes. (Snapshot is O(V+E); for trials << |E| on huge graphs nx
+        # samples adjacency lazily — residual there, see bead.)
+        _validate_backend_dispatch_keywords(
+            "average_clustering", backend, backend_kwargs
+        )
+        G = _coerce_arg_to_fnx_graph(G)
+        if G.is_directed():
+            raise NetworkXNotImplemented("not implemented for directed type")
+        rng = _generator_random_state(seed)
+        nodes = list(G)
+        n = len(nodes)
+        adj = {u: list(nbrs) for u, nbrs in G.adjacency()}
+        adjset = {u: set(a) for u, a in adj.items()}
+        triangles = 0
+        for i in [int(rng.random() * n) for _ in range(trials)]:
+            nbrs = adj[nodes[i]]
+            if len(nbrs) < 2:
+                continue
+            u, v = rng.sample(nbrs, 2)
+            if u in adjset[v]:
+                triangles += 1
+        return triangles / trials
+
     def diameter(self, G, seed=None, *, backend=None, **backend_kwargs):
         # br-r37-c1-apxdiam: nx's undirected 2-sweep (Magnien-Latapy-Habib) is
         # cheap, but the generic __getattr__ converts fnx->nx and runs nx's
@@ -47361,6 +47392,12 @@ import networkx as _nx
 # helper function shape from this module.
 config = _nx.config
 approximation = _ApproximationNamespace()
+# br-r37-c1-2poe6: the concrete native ``average_clustering`` method bypasses the
+# __getattr__ wrapper's functools.wraps, so mirror nx's docstring/name for
+# introspection parity (test_approximation_wrapper_carries_nx_docstring).
+_ApproximationNamespace.average_clustering.__doc__ = (
+    _nx.approximation.average_clustering.__doc__
+)
 
 # Capture the NetworkX AmbiguousSolution exception class under a
 # fnx-internal name so PY_WRAPPER functions defined earlier in this
