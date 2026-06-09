@@ -1,0 +1,48 @@
+Tue Jun  9 12:10:12 2026    /data/tmp/tmplga7uhfj
+
+         3476600 function calls (3474733 primitive calls) in 1.064 seconds
+
+   Ordered by: cumulative time
+   List reduced from 324 to 40 due to restriction <40>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.000    0.000    1.064    1.064 /data/projects/.scratch/franken_networkx-boldfalcon-lnrxj-20260609/python/franken_networkx/__init__.py:47889(wrapper)
+        1    0.000    0.000    1.064    1.064 /data/projects/.scratch/franken_networkx-boldfalcon-lnrxj-20260609/python/franken_networkx/__init__.py:42649(k_components)
+        1    0.000    0.000    1.064    1.064 /data/projects/.scratch/franken_networkx-boldfalcon-lnrxj-20260609/python/franken_networkx/__init__.py:6877(_call_networkx_for_parity)
+     11/2    0.000    0.000    0.955    0.478 /data/projects/.scratch/venvs/fnx-lnrxj-boldfalcon/lib/python3.13/site-packages/networkx/utils/decorators.py:783(func)
+    517/2    0.003    0.000    0.955    0.477 /data/projects/.scratch/venvs/fnx-lnrxj-boldfalcon/lib/python3.13/site-packages/networkx/utils/backends.py:554(_call_if_any_backends_installed)
+        1    0.000    0.000    0.955    0.955 <class 'networkx.utils.decorators.argmap'> compilation 9:1(argmap_k_components_5)
+    517/2    0.020    0.000    0.955    0.477 /data/projects/.scratch/venvs/fnx-lnrxj-boldfalcon/lib/python3.13/site-packages/networkx/utils/backends.py:1484(_call_with_backend)
+        1    0.000    0.000    0.955    0.955 /data/projects/.scratch/venvs/fnx-lnrxj-boldfalcon/lib/python3.13/site-packages/networkx/algorithms/connectivity/kcomponents.py:20(k_components)
+        1    0.000    0.000    0.787    0.787 <class 'networkx.utils.decorators.argmap'> compilation 27:1(argmap_node_connectivity_24)
+        1    0.013    0.013    0.771    0.771 /data/projects/.scratch/venvs/fnx-lnrxj-boldfalcon/lib/python3.13/site-packages/networkx/algorithms/connectivity/connectivity.py:209(node_connectivity)
+        1    0.000    0.000    0.401    0.401 <class 'networkx.utils.decorators.argmap'> compilation 44:1(argmap_build_residual_network_41)
+        1    0.086    0.086    0.398    0.398 /data/projects/.scratch/venvs/fnx-lnrxj-boldfalcon/lib/python3.13/site-packages/networkx/algorithms/flow/utils.py:80(build_residual_network)
+   125250    0.160    0.000    0.235    0.000 /data/projects/.scratch/venvs/fnx-lnrxj-boldfalcon/lib/python3.13/site-packages/networkx/classes/digraph.py:677(add_edge)
+        1    0.000    0.000    0.229    0.229 <class 'networkx.utils.decorators.argmap'> compilation 36:1(argmap_build_auxiliary_node_connectivity_33)
+        1    0.027    0.027    0.228    0.228 /data/projects/.scratch/venvs/fnx-lnrxj-boldfalcon/lib/python3.13/site-packages/networkx/algorithms/connectivity/utils.py:10(build_auxiliary_node_connectivity)
+ 1002/752    0.022    0.000    0.199    0.000 {built-in method builtins.sum}
+     1007    0.001    0.000    0.181    0.000 /data/projects/.scratch/venvs/fnx-lnrxj-boldfalcon/lib/python3.13/site-packages/networkx/classes/coreviews.py:284(__len__)
+   343122    0.123    0.000    0.164    0.000 /data/projects/.scratch/venvs/fnx-lnrxj-boldfalcon/lib/python3.13/site-packages/networkx/classes/coreviews.py:354(new_node_ok)
+   250000    0.046    0.000    0.162    0.000 /data/projects/.scratch/venvs/fnx-lnrxj-boldfalcon/lib/python3.13/site-packages/networkx/classes/coreviews.py:291(<genexpr>)
+128606/128342    0.008    0.000    0.143    0.000 {built-in method builtins.len}
+      753    0.001    0.000    0.138    0.000 /data/projects/.scratch/venvs/fnx-lnrxj-boldfalcon/lib/python3.13/site-packages/networkx/classes/reportviews.py:531(__iter__)
+        1    0.006    0.006    0.109    0.109 /data/projects/.scratch/franken_networkx-boldfalcon-lnrxj-20260609/python/franken_networkx/__init__.py:6283(_networkx_graph_for_parity)
+        1    0.042    0.042    0.102    0.102 /data/projects/.scratch/franken_networkx-boldfalcon-lnrxj-20260609/python/franken_networkx/backend.py:606(_fnx_to_nx)
+    31126    0.010    0.000    0.099    0.000 /data/projects/.scratch/venvs/fnx-lnrxj-boldfalcon/lib/python3.13/site-packages/networkx/classes/reportviews.py:1274(__iter__)
+        1    0.064    0.064    0.095    0.095 /data/projects/.scratch/venvs/fnx-lnrxj-boldfalcon/lib/python3.13/site-packages/networkx/classes/digraph.py:748(add_edges_from)
+        2    0.002    0.001    0.057    0.029 /data/projects/.scratch/venvs/fnx-lnrxj-boldfalcon/lib/python3.13/site-packages/networkx/algorithms/components/biconnected.py:170(biconnected_components)
+   343927    0.057    0.000    0.057    0.000 {method 'get' of 'dict' objects}
+    62503    0.004    0.000    0.056    0.000 {built-in method builtins.next}
+        2    0.044    0.022    0.056    0.028 /data/projects/.scratch/venvs/fnx-lnrxj-boldfalcon/lib/python3.13/site-packages/networkx/algorithms/components/biconnected.py:338(_biconnected_dfs)
+        1    0.000    0.000    0.052    0.052 /data/projects/.scratch/venvs/fnx-lnrxj-boldfalcon/lib/python3.13/site-packages/networkx/algorithms/connectivity/kcomponents.py:181(_generate_partition)
+   314031    0.051    0.000    0.051    0.000 {method 'update' of 'dict' objects}
+    93625    0.008    0.000    0.049    0.000 {built-in method builtins.min}
+    31126    0.007    0.000    0.048    0.000 /data/projects/.scratch/venvs/fnx-lnrxj-boldfalcon/lib/python3.13/site-packages/networkx/classes/graph.py:509(__getitem__)
+        1    0.000    0.000    0.047    0.047 /data/projects/.scratch/venvs/fnx-lnrxj-boldfalcon/lib/python3.13/site-packages/networkx/algorithms/connectivity/kcutsets.py:25(all_node_cuts)
+        1    0.000    0.000    0.046    0.046 /data/projects/.scratch/venvs/fnx-lnrxj-boldfalcon/lib/python3.13/site-packages/networkx/classes/function.py:106(density)
+        1    0.000    0.000    0.046    0.046 /data/projects/.scratch/venvs/fnx-lnrxj-boldfalcon/lib/python3.13/site-packages/networkx/classes/function.py:98(number_of_edges)
+        1    0.000    0.000    0.046    0.046 /data/projects/.scratch/venvs/fnx-lnrxj-boldfalcon/lib/python3.13/site-packages/networkx/classes/graph.py:1961(number_of_edges)
+        1    0.000    0.000    0.046    0.046 /data/projects/.scratch/venvs/fnx-lnrxj-boldfalcon/lib/python3.13/site-packages/networkx/classes/graph.py:1918(size)
+      251    0.000    0.000    0.046    0.000 /data/projects/.scratch/venvs/fnx-lnrxj-boldfalcon/lib/python3.13/site-packages/networkx/classes/graph.py:1954(<genexpr>)
+    64506    0.012    0.000    0.042    0.000 /data/projects/.scratch/venvs/fnx-lnrxj-boldfalcon/lib/python3.13/site-packages/networkx/classes/coreviews.py:300(<genexpr>)

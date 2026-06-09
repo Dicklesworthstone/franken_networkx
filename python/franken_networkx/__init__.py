@@ -42699,18 +42699,24 @@ def make_clique_bipartite(G, fpos=None, create_using=None, name=None):
 def k_components(G, flow_func=None):
     """Return k-connected component structure.
 
-    br-kcompalgo: delegated to nx for correctness. The previous bespoke
-    Python implementation treated ``k_components`` as
-    ``{k: components_with_node_connectivity_at_least_k(G)}`` — it
-    filtered global connected components by the graph's overall
-    node-connectivity at each k. On karate_club that gives only
-    {1: [all 34 nodes]} because the graph has articulation points
-    (node_connectivity = 1). nx's algorithm is finer: it identifies
-    the maximum k-connected subgraphs via Moody-White recursion on
-    (k-1)-connected substructures. Reproducing that correctly in
-    Python is not in the round's scope; delegation is the right
-    default here. Also adds ``flow_func=`` parity.
+    br-kcompalgo: delegated to nx for correctness outside narrow exact
+    fast paths. The previous bespoke Python implementation treated
+    ``k_components`` as ``{k: components_with_node_connectivity_at_least_k(G)}``
+    and missed Moody-White recursive substructures. Complete simple graphs are
+    the safe exception: every k from n - 1 down to 1 has exactly one component,
+    all nodes, and nx ignores ``flow_func`` on that branch.
     """
+    if type(G) is Graph:
+        node_count = len(G)
+        if node_count < 2:
+            return {}
+        complete_edge_count = node_count * (node_count - 1) // 2
+        if (
+            G.number_of_edges() == complete_edge_count
+            and number_of_selfloops(G) == 0
+        ):
+            nodes = set(G)
+            return {k: [set(nodes)] for k in range(node_count - 1, 0, -1)}
     return _call_networkx_for_parity("k_components", G, flow_func=flow_func)
 
 

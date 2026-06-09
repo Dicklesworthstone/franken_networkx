@@ -251,6 +251,59 @@ def test_k_components_matches_networkx(name, builder):
             f"{name}: k={k}"
 
 
+@pytest.mark.parametrize("n", [0, 1, 2, 5])
+def test_k_components_complete_graph_raw_shape_matches_networkx(n):
+    fg = fnx.complete_graph(n)
+    ng = nx.complete_graph(n)
+
+    fr = fnx.k_components(fg)
+    nr = nx.k_components(ng)
+
+    assert list(fr.keys()) == list(nr.keys())
+    assert {k: type(v).__name__ for k, v in fr.items()} == {
+        k: type(v).__name__ for k, v in nr.items()
+    }
+    assert {k: [type(c).__name__ for c in v] for k, v in fr.items()} == {
+        k: [type(c).__name__ for c in v] for k, v in nr.items()
+    }
+    assert {k: [set(c) for c in v] for k, v in fr.items()} == {
+        k: [set(c) for c in v] for k, v in nr.items()
+    }
+
+
+def test_k_components_complete_graph_ignores_flow_func_like_networkx():
+    def fail_if_called(*_args, **_kwargs):
+        raise AssertionError("complete graph should not call flow_func")
+
+    fg = fnx.complete_graph(5)
+    ng = nx.complete_graph(5)
+
+    assert fnx.k_components(fg, flow_func=fail_if_called) == nx.k_components(
+        ng, flow_func=fail_if_called
+    )
+
+
+def test_k_components_complete_fast_path_rejects_density_one_selfloop_case():
+    fg = fnx.Graph()
+    ng = nx.Graph()
+    for graph in (fg, ng):
+        graph.add_nodes_from([0, 1, 2])
+        graph.add_edges_from([(0, 1), (1, 2), (0, 0)])
+
+    assert fnx.density(fg) == nx.density(ng) == 1
+    assert fnx.k_components(fg) == nx.k_components(ng) == {1: [{0, 1, 2}]}
+
+
+def test_k_components_directed_guard_still_matches_networkx():
+    fg = fnx.complete_graph(3, create_using=fnx.DiGraph)
+    ng = nx.complete_graph(3, create_using=nx.DiGraph)
+
+    with pytest.raises(nx.NetworkXNotImplemented):
+        fnx.k_components(fg)
+    with pytest.raises(nx.NetworkXNotImplemented):
+        nx.k_components(ng)
+
+
 @pytest.mark.parametrize(
     "name,builder,k",
     [
