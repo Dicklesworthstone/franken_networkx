@@ -12482,7 +12482,11 @@ def difference(G, H):
             for u, v in H.edges():
                 h_set.add((u, v))
                 h_set.add((v, u))
-        R.add_edges_from(e for e in G.edges() if e not in h_set)
+        # br-r37-c1-bgqqc: materialize the filtered edge batch so Graph's
+        # native list/tuple add_edges_from fast path can build the fresh
+        # result in one Rust bulk insert instead of walking a generator
+        # through the Python wrapper edge by edge.
+        R.add_edges_from([e for e in G.edges() if e not in h_set])
     return R
 
 
@@ -12546,8 +12550,13 @@ def symmetric_difference(G, H):
                 g_set.add((u, v)); g_set.add((v, u))
             for u, v in H.edges():
                 h_set.add((u, v)); h_set.add((v, u))
-        R.add_edges_from(e for e in G.edges() if e not in h_set)
-        R.add_edges_from(e for e in H.edges() if e not in g_set)
+        # br-r37-c1-bgqqc: keep the wrapper's G-only then H-only order, but
+        # pass one concrete batch to the native simple-Graph construction
+        # fast path.
+        R.add_edges_from(
+            [e for e in G.edges() if e not in h_set]
+            + [e for e in H.edges() if e not in g_set]
+        )
     return R
 
 
