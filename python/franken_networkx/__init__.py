@@ -44261,10 +44261,15 @@ def to_scipy_sparse_array(G, nodelist=None, dtype=None, weight="weight", format=
             _probe_native_missing_default_weight
             and native_index_result is None
             and default_nodelist
-            and format == "csr"
-            and type(G) is Graph
+            and type(G) in (Graph, DiGraph)
             and _native_adjacency_default_order_typed_arrays is not None
         ):
+            # br-r37-c1-pmqhz: extended from Graph+csr-only to DiGraph and any
+            # output format. The typed helper now handles directed default-order
+            # graphs (out-edges); the result is COO-format-agnostic (the final
+            # matrix.asformat(format) applies the requested format), so dropping
+            # the format=="csr" gate is safe and closes the DiGraph (~3.3x) +
+            # non-csr (~4.2x) weighted dtype=None gaps.
             # br-r37-c1-04z53.20: dtype=None with present string weights used
             # to fall back to Python edge iteration solely to preserve nx dtype
             # inference. The typed native helper returns conservative dtype

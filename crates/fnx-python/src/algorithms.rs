@@ -2739,45 +2739,81 @@ pub fn adjacency_default_order_typed_arrays(
     default_weight: f64,
 ) -> PyResult<Option<(Vec<usize>, Vec<usize>, Vec<f64>, bool)>> {
     let gr = extract_graph(g)?;
-    let GraphRef::Undirected(pg) = &gr else {
-        return Ok(None);
-    };
-
-    let inner = &pg.inner;
-    let mut rows = Vec::with_capacity(inner.edge_count() * 2);
-    let mut cols = Vec::with_capacity(inner.edge_count() * 2);
-    let mut data = Vec::with_capacity(inner.edge_count() * 2);
-    let mut needs_float_dtype = default_weight.fract() != 0.0;
     const MAX_EXACT_F64_INT: i64 = 9_007_199_254_740_992;
-    for (row, col, attrs) in inner.edges_storage_order_index_iter() {
-        let value = match attrs.get(weight_attr) {
-            Some(fnx_runtime::CgseValue::Int(i)) => {
-                if *i < -MAX_EXACT_F64_INT || *i > MAX_EXACT_F64_INT {
-                    return Ok(None);
+    let mut needs_float_dtype = default_weight.fract() != 0.0;
+    match &gr {
+        GraphRef::Undirected(pg) => {
+            let inner = &pg.inner;
+            let mut rows = Vec::with_capacity(inner.edge_count() * 2);
+            let mut cols = Vec::with_capacity(inner.edge_count() * 2);
+            let mut data = Vec::with_capacity(inner.edge_count() * 2);
+            for (row, col, attrs) in inner.edges_storage_order_index_iter() {
+                let value = match attrs.get(weight_attr) {
+                    Some(fnx_runtime::CgseValue::Int(i)) => {
+                        if *i < -MAX_EXACT_F64_INT || *i > MAX_EXACT_F64_INT {
+                            return Ok(None);
+                        }
+                        *i as f64
+                    }
+                    Some(fnx_runtime::CgseValue::Float(f)) => {
+                        needs_float_dtype = true;
+                        *f
+                    }
+                    None => default_weight,
+                    Some(
+                        fnx_runtime::CgseValue::Bool(_)
+                        | fnx_runtime::CgseValue::String(_)
+                        | fnx_runtime::CgseValue::Map(_),
+                    ) => return Ok(None),
+                };
+                rows.push(row);
+                cols.push(col);
+                data.push(value);
+                if row != col {
+                    rows.push(col);
+                    cols.push(row);
+                    data.push(value);
                 }
-                *i as f64
             }
-            Some(fnx_runtime::CgseValue::Float(f)) => {
-                needs_float_dtype = true;
-                *f
-            }
-            None => default_weight,
-            Some(
-                fnx_runtime::CgseValue::Bool(_)
-                | fnx_runtime::CgseValue::String(_)
-                | fnx_runtime::CgseValue::Map(_),
-            ) => return Ok(None),
-        };
-        rows.push(row);
-        cols.push(col);
-        data.push(value);
-        if row != col {
-            rows.push(col);
-            cols.push(row);
-            data.push(value);
+            Ok(Some((rows, cols, data, needs_float_dtype)))
         }
+        // br-r37-c1-pmqhz: directed default-order typed COO — out-edges only (no
+        // symmetric duplication), storage index == default node order. Lets the
+        // dtype=None weighted to_scipy fast path cover DiGraphs (was per-edge
+        // Python fallback, ~3.3x slower than nx).
+        GraphRef::Directed { dg, .. } => {
+            let inner = &dg.inner;
+            let mut rows = Vec::with_capacity(inner.edge_count());
+            let mut cols = Vec::with_capacity(inner.edge_count());
+            let mut data = Vec::with_capacity(inner.edge_count());
+            for ((row, col), attrs) in inner.edges_indexed() {
+                let value = match attrs.get(weight_attr) {
+                    Some(fnx_runtime::CgseValue::Int(i)) => {
+                        if *i < -MAX_EXACT_F64_INT || *i > MAX_EXACT_F64_INT {
+                            return Ok(None);
+                        }
+                        *i as f64
+                    }
+                    Some(fnx_runtime::CgseValue::Float(f)) => {
+                        needs_float_dtype = true;
+                        *f
+                    }
+                    None => default_weight,
+                    Some(
+                        fnx_runtime::CgseValue::Bool(_)
+                        | fnx_runtime::CgseValue::String(_)
+                        | fnx_runtime::CgseValue::Map(_),
+                    ) => return Ok(None),
+                };
+                rows.push(row);
+                cols.push(col);
+                data.push(value);
+            }
+            Ok(Some((rows, cols, data, needs_float_dtype)))
+        }
+        // Multigraphs keep the Python path (caller already gates this out).
+        _ => Ok(None),
     }
-    Ok(Some((rows, cols, data, needs_float_dtype)))
 }
 
 /// Bulk per-node adjacency + edge attrs for the `_fnx_to_nx` parity conversion.
