@@ -6076,15 +6076,19 @@ fn watts_strogatz_graph_core(
         }
     }
 
-    // Build all final edges once (each undirected pair from the lower
-    // endpoint's row), then fix every node's row to the local order.
+    // br-r37-c1-wsbulk: build all final edges in ONE bulk extend_edges_unrecorded
+    // instead of per-edge graph.add_edge (each records a RuntimePolicy decision +
+    // does its own reserve). apply_row_orders below fixes each row to the local
+    // order, so the bulk-insert order is irrelevant — output is identical.
+    let mut edge_batch: Vec<(String, String)> = Vec::new();
     for u in 0..n {
         for &v in &rows[u] {
             if u < v {
-                let _ = graph.add_edge(node_labels[u].clone(), node_labels[v].clone());
+                edge_batch.push((node_labels[u].clone(), node_labels[v].clone()));
             }
         }
     }
+    graph.extend_edges_unrecorded(edge_batch);
     let orders: Vec<(String, Vec<String>)> = (0..n)
         .map(|u| {
             (
