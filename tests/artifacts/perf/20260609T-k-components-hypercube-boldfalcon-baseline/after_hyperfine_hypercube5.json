@@ -1,0 +1,52 @@
+{
+  "results": [
+    {
+      "command": "/data/projects/franken_networkx/.venv/bin/python tests/artifacts/perf/20260609T-k-components-hypercube-boldfalcon-baseline/harness_hypercube.py time --which fnx --dim 5 --repeats 1",
+      "mean": 0.29565876869999996,
+      "stddev": 0.025628452332371574,
+      "median": 0.28714733470000003,
+      "user": 4.23058946,
+      "system": 0.05190531999999999,
+      "min": 0.26639066870000006,
+      "max": 0.3283969077,
+      "times": [
+        0.2806621817,
+        0.31569675070000003,
+        0.3283969077,
+        0.28714733470000003,
+        0.26639066870000006
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "/data/projects/franken_networkx/.venv/bin/python tests/artifacts/perf/20260609T-k-components-hypercube-boldfalcon-baseline/harness_hypercube.py time --which nx --dim 5 --repeats 1",
+      "mean": 4.600956033699999,
+      "stddev": 0.12708803072274175,
+      "median": 4.5683587676999995,
+      "user": 8.346434859999999,
+      "system": 0.06030891999999999,
+      "min": 4.4719923797,
+      "max": 4.8125035507,
+      "times": [
+        4.5972885707,
+        4.554636899699999,
+        4.5683587676999995,
+        4.8125035507,
+        4.4719923797
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

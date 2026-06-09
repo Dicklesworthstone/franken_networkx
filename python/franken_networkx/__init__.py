@@ -42995,6 +42995,52 @@ def _wheel_k_components(G):
     }
 
 
+def _hypercube_k_components(G):
+    nodes = list(G)
+    node_count = len(nodes)
+    if node_count < 8:
+        return None
+
+    first = nodes[0]
+    if not isinstance(first, tuple):
+        return None
+    dimension = len(first)
+    if dimension < 3 or node_count != 1 << dimension:
+        return None
+
+    expected_nodes = {()}
+    for _ in range(dimension):
+        expected_nodes = {
+            prefix + (bit,)
+            for prefix in expected_nodes
+            for bit in (0, 1)
+        }
+    node_set = set(nodes)
+    if node_set != expected_nodes:
+        return None
+
+    if G.number_of_edges() != dimension * (node_count // 2):
+        return None
+
+    for node in nodes:
+        if (
+            not isinstance(node, tuple)
+            or len(node) != dimension
+            or any(bit not in (0, 1) for bit in node)
+            or G.degree(node) != dimension
+        ):
+            return None
+        expected_neighbors = {
+            node[:index] + (1 - node[index],) + node[index + 1:]
+            for index in range(dimension)
+        }
+        if set(G[node]) != expected_neighbors:
+            return None
+
+    nodes_set = set(nodes)
+    return {k: [set(nodes_set)] for k in range(dimension, 0, -1)}
+
+
 def k_components(G, flow_func=None):
     """Return k-connected component structure.
 
@@ -43004,10 +43050,11 @@ def k_components(G, flow_func=None):
     and missed Moody-White recursive substructures. Complete graphs,
     simple-cycle components, forests, clique-block graphs, complete
     multipartite components, certified 2-degenerate biconnected components,
-    ordered prism components, and wheel components are the safe exceptions:
-    their k-component lattices are closed form. Complete multipartite,
-    2-degenerate, prism, and wheel residual components still delegate when a
-    custom ``flow_func`` is supplied because nx calls it there.
+    ordered prism components, wheel components, and tuple-label hypercube
+    components are the safe exceptions: their k-component lattices are closed
+    form. Complete multipartite, 2-degenerate, prism, wheel, and hypercube
+    residual components still delegate when a custom ``flow_func`` is supplied
+    because nx calls it there.
     """
     if type(G) is Graph:
         node_count = len(G)
@@ -43045,6 +43092,9 @@ def k_components(G, flow_func=None):
             wheel_result = _wheel_k_components(G)
             if wheel_result is not None:
                 return wheel_result
+            hypercube_result = _hypercube_k_components(G)
+            if hypercube_result is not None:
+                return hypercube_result
             multipartite_result = _complete_multipartite_k_components(G)
             if multipartite_result is not None:
                 return multipartite_result

@@ -683,6 +683,44 @@ def test_k_components_wheel_disconnected_rim_delegates_and_matches_networkx():
     assert fnx.k_components(fg) == nx.k_components(ng)
 
 
+@pytest.mark.parametrize("dimension", [3, 4])
+def test_k_components_hypercube_fast_path_matches_networkx(dimension):
+    fg = fnx.hypercube_graph(dimension)
+    ng = nx.hypercube_graph(dimension)
+
+    fr = fnx.k_components(fg)
+    nr = nx.k_components(ng)
+
+    assert list(fr.keys()) == list(range(dimension, 0, -1))
+    assert list(fr.keys()) == list(nr.keys())
+    assert [[set(component) for component in fr[k]] for k in fr] == [
+        [set(component) for component in nr[k]] for k in nr
+    ]
+
+
+def test_k_components_hypercube_custom_flow_func_delegates_like_networkx():
+    fg = fnx.hypercube_graph(4)
+    ng = nx.hypercube_graph(4)
+
+    def fail_flow(*args, **kwargs):
+        raise RuntimeError("flow called")
+
+    with pytest.raises(RuntimeError, match="flow called"):
+        fnx.k_components(fg, flow_func=fail_flow)
+    with pytest.raises(RuntimeError, match="flow called"):
+        nx.k_components(ng, flow_func=fail_flow)
+
+
+def test_k_components_hypercube_missing_edge_delegates_and_matches_networkx():
+    fg = fnx.hypercube_graph(3)
+    ng = nx.hypercube_graph(3)
+    edge = ((0, 0, 0), (1, 0, 0))
+    fg.remove_edge(*edge)
+    ng.remove_edge(*edge)
+
+    assert fnx.k_components(fg) == nx.k_components(ng)
+
+
 @pytest.mark.parametrize(
     "name,builder,k",
     [
