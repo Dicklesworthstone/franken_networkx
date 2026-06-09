@@ -10269,17 +10269,15 @@ pub fn onion_layers(graph: &Graph) -> OnionLayersResult {
         };
     }
 
-    // Build adjacency and track degrees incrementally
-    let node_to_idx: HashMap<&str, usize> =
-        nodes.iter().enumerate().map(|(i, &nd)| (nd, i)).collect();
+    // br-r37-c1-onionidx: integer-CSR adjacency — neighbors_indices is already
+    // index-keyed, so this drops the String node_to_idx map + per-edge String
+    // lookups the previous version paid.
     let mut adj: Vec<Vec<usize>> = vec![Vec::new(); n];
     let mut edges_scanned = 0_usize;
-    for (i, &node) in nodes.iter().enumerate() {
-        if let Some(nbrs) = graph.neighbors_iter(node) {
-            for nb in nbrs {
-                if let Some(&j) = node_to_idx.get(nb)
-                    && j != i
-                {
+    for i in 0..n {
+        if let Some(nbrs) = graph.neighbors_indices(i) {
+            for &j in nbrs {
+                if j != i {
                     adj[i].push(j);
                 }
             }
@@ -10290,14 +10288,9 @@ pub fn onion_layers(graph: &Graph) -> OnionLayersResult {
     let mut degree: Vec<usize> = adj.iter().map(|a| a.len()).collect();
     let mut alive: Vec<bool> = vec![true; n];
     let mut result: Vec<NodeOnionLayer> = Vec::with_capacity(n);
-    let mut remaining_count = n;
     // br-r37-c1-l5es6: mirror networkx's onion decomposition exactly. nx tracks
     // ``current_core`` as a high-water mark of the minimum degree and peels ALL
-    // nodes with ``degree <= current_core`` in each layer — not just the
-    // current-minimum-degree nodes. (The previous kernel peeled only
-    // ``degree == min_deg`` nodes, splitting a layer into several and diverging
-    // on e.g. the karate club graph; that bug is why the Python wrapper had to
-    // delegate to nx and pay the full graph-conversion cost.)
+    // nodes with ``degree <= current_core`` in each layer.
     let mut current_core = 1_usize;
     let mut layer = 1_usize;
 
@@ -10308,7 +10301,6 @@ pub fn onion_layers(graph: &Graph) -> OnionLayersResult {
     if !isolated.is_empty() {
         for &i in &isolated {
             alive[i] = false;
-            remaining_count -= 1;
             result.push(NodeOnionLayer {
                 node: nodes[i].to_owned(),
                 layer: 1,
@@ -10317,31 +10309,58 @@ pub fn onion_layers(graph: &Graph) -> OnionLayersResult {
         layer = 2;
     }
 
-    while remaining_count > 0 {
-        // Minimum degree among the remaining (alive) nodes.
-        let min_deg = (0..n)
-            .filter(|&i| alive[i])
-            .map(|i| degree[i])
-            .min()
-            .unwrap_or(0);
-        if min_deg > current_core {
-            current_core = min_deg;
+    // br-r37-c1-onionbucket: O(|V|+|E|) bucket-queue peel. The prior versions
+    // (and networkx) re-`sorted(degrees, key=...)` ALL survivors every layer ->
+    // O(|V|^2 log) on many-layer graphs (a path of 2000 nodes = ~45ms). Here a
+    // lazy degree-bucket gives O(1) min-degree + O(1) decrement moves; per layer
+    // we only TOUCH (and sort) the nodes actually peeled, so within-layer order
+    // stays nx's exact (degree asc, insertion-index ties) while the total is
+    // O(|V| log d_layer + |E|).
+    let max_deg = degree.iter().copied().max().unwrap_or(0);
+    let mut by_degree: Vec<Vec<usize>> = vec![Vec::new(); max_deg + 2];
+    let mut remaining = 0usize;
+    let mut min_d = max_deg + 1;
+    for i in 0..n {
+        if alive[i] {
+            by_degree[degree[i]].push(i);
+            remaining += 1;
+            if degree[i] < min_d {
+                min_d = degree[i];
+            }
         }
-
-        // This layer = every alive node with degree <= current_core, ordered by
-        // (degree asc, insertion index) to reproduce nx's stable
-        // ``sorted(degrees, key=degrees.get)`` key order in the result dict. The
-        // ordering does not affect which survivors remain (the degree updates
-        // below skip already-dead this-layer neighbours, so within-layer edges
-        // never decrement a survivor — commutative with nx).
-        let mut this_layer: Vec<usize> = (0..n)
-            .filter(|&i| alive[i] && degree[i] <= current_core)
-            .collect();
+    }
+    while remaining > 0 {
+        // Advance min_d to the lowest degree holding a currently-valid node
+        // (lazy buckets: pop entries whose degree has since dropped).
+        while min_d <= max_deg {
+            while let Some(&node) = by_degree[min_d].last() {
+                if alive[node] && degree[node] == min_d {
+                    break;
+                }
+                by_degree[min_d].pop();
+            }
+            if !by_degree[min_d].is_empty() {
+                break;
+            }
+            min_d += 1;
+        }
+        if min_d > current_core {
+            current_core = min_d;
+        }
+        // This layer = every alive node with degree in [min_d, current_core].
+        let mut this_layer: Vec<usize> = Vec::new();
+        for d in min_d..=current_core {
+            for node in std::mem::take(&mut by_degree[d]) {
+                if alive[node] && degree[node] == d {
+                    this_layer.push(node);
+                }
+            }
+        }
         this_layer.sort_by(|&a, &b| degree[a].cmp(&degree[b]).then_with(|| a.cmp(&b)));
 
         for &i in &this_layer {
             alive[i] = false;
-            remaining_count -= 1;
+            remaining -= 1;
             result.push(NodeOnionLayer {
                 node: nodes[i].to_owned(),
                 layer,
@@ -10351,7 +10370,11 @@ pub fn onion_layers(graph: &Graph) -> OnionLayersResult {
             for &nb in &adj[i] {
                 if alive[nb] {
                     edges_scanned += 1;
-                    degree[nb] = degree[nb].saturating_sub(1);
+                    degree[nb] -= 1;
+                    by_degree[degree[nb]].push(nb);
+                    if degree[nb] < min_d {
+                        min_d = degree[nb];
+                    }
                 }
             }
         }
