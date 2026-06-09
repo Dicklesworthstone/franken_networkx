@@ -43061,6 +43061,62 @@ def _quintic_five_connected_k_components(G):
     return {k: [set(nodes_set)] for k in range(5, 0, -1)}
 
 
+def _six_regular_six_connected_k_components(G):
+    nodes = list(G)
+    node_count = len(nodes)
+    if node_count < 8 or node_count > 24:
+        return None
+    if G.number_of_edges() * 2 != 6 * node_count:
+        return None
+
+    node_to_index = {node: index for index, node in enumerate(nodes)}
+    adjacency_masks = []
+    for node in nodes:
+        neighbors = list(G[node])
+        if len(neighbors) != 6:
+            return None
+        mask = 0
+        for neighbor in neighbors:
+            index = node_to_index.get(neighbor)
+            if index is None:
+                return None
+            mask |= 1 << index
+        adjacency_masks.append(mask)
+
+    all_nodes_mask = (1 << node_count) - 1
+
+    def connected_after_removing(removed_mask):
+        remaining_mask = all_nodes_mask & ~removed_mask
+        if remaining_mask == 0:
+            return True
+
+        first = remaining_mask & -remaining_mask
+        seen = first
+        pending = first
+        while pending:
+            bit = pending & -pending
+            pending ^= bit
+            node_index = bit.bit_length() - 1
+            new_neighbors = adjacency_masks[node_index] & remaining_mask & ~seen
+            seen |= new_neighbors
+            pending |= new_neighbors
+        return seen == remaining_mask
+
+    if not connected_after_removing(0):
+        return None
+
+    for cut_size in range(1, 6):
+        for removed_indices in _combinations(range(node_count), cut_size):
+            removed_mask = 0
+            for index in removed_indices:
+                removed_mask |= 1 << index
+            if not connected_after_removing(removed_mask):
+                return None
+
+    nodes_set = set(nodes)
+    return {k: [set(nodes_set)] for k in range(6, 0, -1)}
+
+
 def _ordered_prism_k_components(G):
     node_count = len(G)
     if node_count < 6 or node_count % 2 != 0:
@@ -43275,11 +43331,12 @@ def k_components(G, flow_func=None):
     multipartite components, certified 2-degenerate biconnected components,
     ordered prism components, wheel components, tuple-label hypercube
     components, ordered two-clique bridge components, plus bounded simple
-    cubic/quartic/quintic components whose connectivity is certified by
+    cubic/quartic/quintic/six-regular components whose connectivity is certified by
     vertex-removal BFS, are the safe exceptions: their k-component lattices are
     closed form. Complete multipartite, 2-degenerate, prism, wheel, hypercube,
-    two-clique bridge, cubic, quartic, and quintic residual components still
-    delegate when a custom ``flow_func`` is supplied because nx calls it there.
+    two-clique bridge, cubic, quartic, quintic, and six-regular residual
+    components still delegate when a custom ``flow_func`` is supplied because
+    nx calls it there.
     """
     if type(G) is Graph:
         node_count = len(G)
@@ -43329,6 +43386,9 @@ def k_components(G, flow_func=None):
             quintic_result = _quintic_five_connected_k_components(G)
             if quintic_result is not None:
                 return quintic_result
+            six_regular_result = _six_regular_six_connected_k_components(G)
+            if six_regular_result is not None:
+                return six_regular_result
             two_clique_bridge_result = _ordered_two_clique_bridge_k_components(G)
             if two_clique_bridge_result is not None:
                 return two_clique_bridge_result
