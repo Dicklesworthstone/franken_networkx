@@ -10988,11 +10988,15 @@ fn product_node_tuples(
     Ok((canon, node_key_map))
 }
 
+// br-r37-c1-prodstronglex product kind: 0=cartesian, 1=tensor, 2=strong,
+// 3=lexicographic. Edge SET is byte-identical to nx (the product parity tests
+// compare canonicalised/sorted edges); insertion order is not preserved (same as
+// the shipped cartesian/tensor fast paths).
 fn graph_product_fast(
     py: Python<'_>,
     g: &Bound<'_, PyAny>,
     h: &Bound<'_, PyAny>,
-    tensor: bool,
+    kind: u8,
 ) -> PyResult<Option<PyObject>> {
     let gr1 = extract_graph(g)?;
     let gr2 = extract_graph(h)?;
@@ -11018,21 +11022,8 @@ fn graph_product_fast(
         let (canon, node_key_map) = product_node_tuples(py, &gr1, &gr2, &g_names, &h_names)?;
 
         let mut edges: Vec<(String, String)> = Vec::new();
-        if tensor {
-            // (gu,hu)->(gv,hv) for each G-edge gu->gv and H-edge hu->hv.
-            for gu in 0..ng {
-                let gsucc = dg1.successors_indices(gu).unwrap_or(&[]);
-                for hu in 0..nh {
-                    let hsucc = dg2.successors_indices(hu).unwrap_or(&[]);
-                    for &gv in gsucc {
-                        for &hv in hsucc {
-                            edges.push((canon[gu * nh + hu].clone(), canon[gv * nh + hv].clone()));
-                        }
-                    }
-                }
-            }
-        } else {
-            // cartesian: same G-node, H-edge; and same H-node, G-edge.
+        // cartesian edges (same G-node x H-edge, same H-node x G-edge)
+        let push_cartesian = |edges: &mut Vec<(String, String)>| {
             for gi in 0..ng {
                 for hu in 0..nh {
                     for &hv in dg2.successors_indices(hu).unwrap_or(&[]) {
@@ -11047,6 +11038,53 @@ fn graph_product_fast(
                     }
                 }
             }
+        };
+        // tensor edges ((gu,hu)->(gv,hv) for G-edge gu->gv and H-edge hu->hv)
+        let push_tensor = |edges: &mut Vec<(String, String)>| {
+            for gu in 0..ng {
+                let gsucc = dg1.successors_indices(gu).unwrap_or(&[]);
+                for hu in 0..nh {
+                    let hsucc = dg2.successors_indices(hu).unwrap_or(&[]);
+                    for &gv in gsucc {
+                        for &hv in hsucc {
+                            edges.push((canon[gu * nh + hu].clone(), canon[gv * nh + hv].clone()));
+                        }
+                    }
+                }
+            }
+        };
+        match kind {
+            0 => push_cartesian(&mut edges),
+            1 => push_tensor(&mut edges),
+            2 => {
+                // strong = cartesian ∪ tensor
+                push_cartesian(&mut edges);
+                push_tensor(&mut edges);
+            }
+            3 => {
+                // lexicographic: G-edge gu->gv connects (gu,hu)->(gv,hv) for ALL
+                // hu, hv in H; plus same G-node x H-edge.
+                for gu in 0..ng {
+                    for &gv in dg1.successors_indices(gu).unwrap_or(&[]) {
+                        for hu in 0..nh {
+                            for hv in 0..nh {
+                                edges.push((
+                                    canon[gu * nh + hu].clone(),
+                                    canon[gv * nh + hv].clone(),
+                                ));
+                            }
+                        }
+                    }
+                }
+                for gi in 0..ng {
+                    for hu in 0..nh {
+                        for &hv in dg2.successors_indices(hu).unwrap_or(&[]) {
+                            edges.push((canon[gi * nh + hu].clone(), canon[gi * nh + hv].clone()));
+                        }
+                    }
+                }
+            }
+            _ => return Ok(None),
         }
 
         let mut inner =
@@ -11083,16 +11121,8 @@ fn graph_product_fast(
         let h_edges = undirected_edges(g2, nh);
 
         let mut edges: Vec<(String, String)> = Vec::new();
-        if tensor {
-            // {(gu,hu),(gv,hv)} and {(gu,hv),(gv,hu)} for each pair of edges.
-            for &(gu, gv) in &g_edges {
-                for &(hu, hv) in &h_edges {
-                    edges.push((canon[gu * nh + hu].clone(), canon[gv * nh + hv].clone()));
-                    edges.push((canon[gu * nh + hv].clone(), canon[gv * nh + hu].clone()));
-                }
-            }
-        } else {
-            // cartesian: same G-node + H-edge; same H-node + G-edge.
+        // cartesian: same G-node + H-edge; same H-node + G-edge.
+        let push_cartesian = |edges: &mut Vec<(String, String)>| {
             for gi in 0..ng {
                 for &(hu, hv) in &h_edges {
                     edges.push((canon[gi * nh + hu].clone(), canon[gi * nh + hv].clone()));
@@ -11103,6 +11133,41 @@ fn graph_product_fast(
                     edges.push((canon[gu * nh + hi].clone(), canon[gv * nh + hi].clone()));
                 }
             }
+        };
+        // tensor: {(gu,hu),(gv,hv)} and {(gu,hv),(gv,hu)} for each edge pair.
+        let push_tensor = |edges: &mut Vec<(String, String)>| {
+            for &(gu, gv) in &g_edges {
+                for &(hu, hv) in &h_edges {
+                    edges.push((canon[gu * nh + hu].clone(), canon[gv * nh + hv].clone()));
+                    edges.push((canon[gu * nh + hv].clone(), canon[gv * nh + hu].clone()));
+                }
+            }
+        };
+        match kind {
+            0 => push_cartesian(&mut edges),
+            1 => push_tensor(&mut edges),
+            2 => {
+                push_cartesian(&mut edges);
+                push_tensor(&mut edges);
+            }
+            3 => {
+                // lexicographic: each G-edge {gu,gv} fully connects gu's and gv's
+                // H-copies — (gu,hu)-(gv,hv) for ALL hu, hv in H — plus same
+                // G-node + H-edge.
+                for &(gu, gv) in &g_edges {
+                    for hu in 0..nh {
+                        for hv in 0..nh {
+                            edges.push((canon[gu * nh + hu].clone(), canon[gv * nh + hv].clone()));
+                        }
+                    }
+                }
+                for gi in 0..ng {
+                    for &(hu, hv) in &h_edges {
+                        edges.push((canon[gi * nh + hu].clone(), canon[gi * nh + hv].clone()));
+                    }
+                }
+            }
+            _ => return Ok(None),
         }
 
         let mut inner = fnx_classes::Graph::with_runtime_policy(g1.runtime_policy().clone());
@@ -11124,7 +11189,7 @@ fn cartesian_product_fast(
     g: &Bound<'_, PyAny>,
     h: &Bound<'_, PyAny>,
 ) -> PyResult<Option<PyObject>> {
-    graph_product_fast(py, g, h, false)
+    graph_product_fast(py, g, h, 0)
 }
 
 /// br-r37-c1-prodnative: native tensor product fast path.
@@ -11135,7 +11200,29 @@ fn tensor_product_fast(
     g: &Bound<'_, PyAny>,
     h: &Bound<'_, PyAny>,
 ) -> PyResult<Option<PyObject>> {
-    graph_product_fast(py, g, h, true)
+    graph_product_fast(py, g, h, 1)
+}
+
+/// br-r37-c1-prodstronglex: native strong product fast path (cartesian ∪ tensor).
+#[pyfunction]
+#[pyo3(signature = (g, h))]
+fn strong_product_fast(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    h: &Bound<'_, PyAny>,
+) -> PyResult<Option<PyObject>> {
+    graph_product_fast(py, g, h, 2)
+}
+
+/// br-r37-c1-prodstronglex: native lexicographic product fast path.
+#[pyfunction]
+#[pyo3(signature = (g, h))]
+fn lexicographic_product_fast(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    h: &Bound<'_, PyAny>,
+) -> PyResult<Option<PyObject>> {
+    graph_product_fast(py, g, h, 3)
 }
 
 // br-r37-c1-lgnative: native line graph for the simple (non-multi),
@@ -18013,6 +18100,8 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(tensor_product, m)?)?;
     m.add_function(wrap_pyfunction!(cartesian_product_fast, m)?)?;
     m.add_function(wrap_pyfunction!(tensor_product_fast, m)?)?;
+    m.add_function(wrap_pyfunction!(strong_product_fast, m)?)?;
+    m.add_function(wrap_pyfunction!(lexicographic_product_fast, m)?)?;
     m.add_function(wrap_pyfunction!(line_graph_fast, m)?)?;
     m.add_function(wrap_pyfunction!(degree_histogram, m)?)?;
     // A* shortest path
