@@ -18269,46 +18269,52 @@ pub fn condensation(digraph: &DiGraph) -> (DiGraph, HashMap<String, usize>) {
 /// by smallest element.
 #[must_use]
 pub fn weakly_connected_components(digraph: &DiGraph) -> Vec<Vec<String>> {
-    let nodes = digraph.nodes_ordered();
-    let mut visited: HashSet<&str> = HashSet::new();
+    // br-r37-c1-wccint: integer-CSR BFS over the UNDIRECTED projection
+    // (successors ∪ predecessors, by index) instead of a String-keyed
+    // HashSet<&str> walk with per-node String hashing. Components are emitted
+    // in NetworkX discovery order (outer scan over node index 0..n, one
+    // component per first-unvisited node) — matching nx's `for v in G`
+    // component generation — and each node name is materialised ONCE at the
+    // end. The previous version additionally `sort_unstable()`d every component
+    // AND the component list (lexicographic by node name): wasted work, since
+    // the Python wrapper wraps each component in `set(...)` (intra-component
+    // order irrelevant) and the nx contract yields components in discovery
+    // order, not sorted order.
+    let n = digraph.node_count();
+    let names = digraph.nodes_ordered();
+    let mut visited = vec![false; n];
     let mut components: Vec<Vec<String>> = Vec::new();
+    let mut stack: Vec<usize> = Vec::new();
 
-    for &start in &nodes {
-        if visited.contains(start) {
+    for start in 0..n {
+        if visited[start] {
             continue;
         }
-
-        // BFS ignoring direction
-        let mut queue: VecDeque<&str> = VecDeque::new();
-        let mut component: Vec<&str> = Vec::new();
-        queue.push_back(start);
-        visited.insert(start);
-
-        while let Some(current) = queue.pop_front() {
-            component.push(current);
-            // Follow both successors and predecessors (undirected traversal)
-            if let Some(succs) = digraph.successors_iter(current) {
-                for s in succs {
-                    if visited.insert(s) {
-                        queue.push_back(s);
+        visited[start] = true;
+        let mut comp: Vec<usize> = Vec::new();
+        stack.push(start);
+        while let Some(u) = stack.pop() {
+            comp.push(u);
+            if let Some(succ) = digraph.successors_indices(u) {
+                for &v in succ {
+                    if !visited[v] {
+                        visited[v] = true;
+                        stack.push(v);
                     }
                 }
             }
-            if let Some(preds) = digraph.predecessors_iter(current) {
-                for p in preds {
-                    if visited.insert(p) {
-                        queue.push_back(p);
+            if let Some(pred) = digraph.predecessors_indices(u) {
+                for &v in pred {
+                    if !visited[v] {
+                        visited[v] = true;
+                        stack.push(v);
                     }
                 }
             }
         }
-
-        let mut comp: Vec<String> = component.into_iter().map(str::to_owned).collect();
-        comp.sort_unstable();
-        components.push(comp);
+        components.push(comp.into_iter().map(|i| names[i].to_owned()).collect());
     }
 
-    components.sort_unstable();
     components
 }
 
