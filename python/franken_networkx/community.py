@@ -49,6 +49,21 @@ def label_propagation_communities(G, *, backend=None, **backend_kwargs):
     _fnx._validate_backend_dispatch_keywords(
         "label_propagation_communities", backend, backend_kwargs
     )
+    # br-r37-c1-lpstruct: label_propagation is unweighted and structure-only
+    # (the semi-synchronous algorithm reads only node iteration order + the
+    # neighbour SET via greedy_color + a Counter of neighbour labels). The full
+    # `_networkx_graph_for_parity` faithful conversion (node/edge/graph attrs)
+    # was ~17ms of the ~31ms call (55%); a structural nx.Graph built from G's
+    # nodes (G's order) + edges (G's edge order) reproduces the same node and
+    # adjacency iteration order — so greedy_color and the labeling are
+    # byte-identical — for ~half the conversion cost. Gate to a plain simple
+    # Graph; multigraph / views keep the faithful path.
+    import networkx as _nx
+    if type(G) is _fnx.Graph:
+        structural = _nx.Graph()
+        structural.add_nodes_from(G)
+        structural.add_edges_from(G.edges())
+        return _nx_community.label_propagation_communities(structural)
     return _nx_community.label_propagation_communities(
         _fnx._networkx_graph_for_parity(G)
     )
