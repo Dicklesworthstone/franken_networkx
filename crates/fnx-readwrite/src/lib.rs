@@ -3360,6 +3360,77 @@ impl EdgeListEngine {
         self.write_gml_impl(graph, graph_attrs, false)
     }
 
+    pub fn write_networkx_int_noattr_gml(
+        &mut self,
+        graph: &Graph,
+    ) -> Result<String, ReadWriteError> {
+        let nodes = graph.nodes_ordered();
+        let edges = graph.edges_ordered_borrowed();
+        let mut out = String::with_capacity(16 + nodes.len() * 48 + edges.len() * 48);
+        out.push_str("graph [\n");
+
+        let mut node_ids: HashMap<&str, usize> = HashMap::with_capacity(nodes.len());
+        for (node_id, &node_name) in nodes.iter().enumerate() {
+            if node_name.parse::<i64>().is_err() {
+                return Err(ReadWriteError::FailClosed {
+                    operation: "write_gml",
+                    reason: format!("node '{node_name}' is not an integer label"),
+                });
+            }
+            node_ids.insert(node_name, node_id);
+            out.push_str("  node [\n");
+            out.push_str("    id ");
+            out.push_str(&node_id.to_string());
+            out.push('\n');
+            out.push_str("    label \"");
+            out.push_str(&gml_escape(node_name));
+            out.push_str("\"\n");
+            out.push_str("  ]\n");
+        }
+
+        for (left, right, attrs) in edges {
+            if !attrs.is_empty() {
+                return Err(ReadWriteError::FailClosed {
+                    operation: "write_gml",
+                    reason: "edge attributes are not supported by int/noattr fast path".to_owned(),
+                });
+            }
+            let source = node_ids
+                .get(left)
+                .copied()
+                .ok_or_else(|| ReadWriteError::FailClosed {
+                    operation: "write_gml",
+                    reason: format!("edge source node '{left}' missing from node mapping"),
+                })?;
+            let target =
+                node_ids
+                    .get(right)
+                    .copied()
+                    .ok_or_else(|| ReadWriteError::FailClosed {
+                        operation: "write_gml",
+                        reason: format!("edge target node '{right}' missing from node mapping"),
+                    })?;
+            out.push_str("  edge [\n");
+            out.push_str("    source ");
+            out.push_str(&source.to_string());
+            out.push('\n');
+            out.push_str("    target ");
+            out.push_str(&target.to_string());
+            out.push('\n');
+            out.push_str("  ]\n");
+        }
+
+        out.push_str("]\n");
+
+        self.record(
+            "write_gml",
+            DecisionAction::Allow,
+            "networkx-compatible int/noattr gml write completed",
+            0.04,
+        );
+        Ok(out)
+    }
+
     /// Write a directed graph to GML format.
     pub fn write_digraph_gml(&mut self, graph: &DiGraph) -> Result<String, ReadWriteError> {
         self.write_digraph_gml_with_graph_attrs(graph, &AttrMap::new())

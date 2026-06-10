@@ -19,6 +19,7 @@ use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
 use pyo3::types::PyDict;
+use pyo3::types::PyInt;
 use pyo3::types::PyList;
 use pyo3::types::PyString;
 use serde_json::Value as JsonValue;
@@ -441,6 +442,30 @@ fn reject_multigraph_write(gr: &GraphRef<'_>, operation: &str) -> PyResult<()> {
         }
         _ => Ok(()),
     }
+}
+
+fn can_write_gml_nx_int_noattr(py: Python<'_>, graph: &PyGraph) -> PyResult<bool> {
+    if !graph.graph_attrs.bind(py).is_empty() {
+        return Ok(false);
+    }
+    if !graph.node_py_attrs.is_empty() || !graph.edge_py_attrs.is_empty() {
+        return Ok(false);
+    }
+    for node in graph.inner.nodes_ordered() {
+        let Ok(expected) = node.parse::<i64>() else {
+            return Ok(false);
+        };
+        let py_key = graph.py_node_key(py, node);
+        let bound = py_key.bind(py);
+        if !bound.is_exact_instance_of::<PyInt>() {
+            return Ok(false);
+        }
+        let actual = bound.extract::<i64>()?;
+        if actual != expected {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }
 
 fn edge_attr_dict_repr(py: Python<'_>, attrs: &fnx_classes::AttrMap) -> PyResult<String> {
@@ -1190,6 +1215,27 @@ fn write_gml(py: Python<'_>, g: &Bound<'_, PyAny>, path: &Bound<'_, PyAny>) -> P
     write_output_bytes(py, path, &content)
 }
 
+#[pyfunction]
+fn write_gml_nx_int_noattr(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    path: &Bound<'_, PyAny>,
+) -> PyResult<bool> {
+    let gr = extract_graph(g)?;
+    let GraphRef::Undirected(pg) = gr else {
+        return Ok(false);
+    };
+    if !can_write_gml_nx_int_noattr(py, &pg)? {
+        return Ok(false);
+    }
+    let mut engine = EdgeListEngine::hardened();
+    let content = engine
+        .write_networkx_int_noattr_gml(&pg.inner)
+        .map_err(rw_error_to_py)?;
+    write_output_bytes(py, path, &content)?;
+    Ok(true)
+}
+
 // ---------------------------------------------------------------------------
 // Registration
 // ---------------------------------------------------------------------------
@@ -1866,5 +1912,6 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(write_gexf_string_rust, m)?)?;
     m.add_function(wrap_pyfunction!(read_gml, m)?)?;
     m.add_function(wrap_pyfunction!(write_gml, m)?)?;
+    m.add_function(wrap_pyfunction!(write_gml_nx_int_noattr, m)?)?;
     Ok(())
 }

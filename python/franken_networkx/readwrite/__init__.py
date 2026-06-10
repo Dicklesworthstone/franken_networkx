@@ -351,8 +351,17 @@ def _write_gml_via_nx(G, path, *, stringizer=None):
       - ``stringizer`` kwarg is honoured
       - undirected graphs don't emit a spurious ``directed 0`` field
     """
-    import networkx as nx
     import franken_networkx as fnx
+
+    if (
+        stringizer is None
+        and G.__class__ is fnx.Graph
+        and _write_gml_native_plain_path_ok(path)
+        and fnx._fnx.write_gml_nx_int_noattr(G, path)
+    ):
+        return None
+
+    import networkx as nx
     from networkx.utils import open_file
 
     # br-r37-c1-gmldirect: nx's generate_gml only iterates nodes(data=
@@ -370,6 +379,16 @@ def _write_gml_via_nx(G, path, *, stringizer=None):
     ):
         return open_file(1, mode="wb")(raw_writer)(G, path, stringizer=stringizer)
     return nx.write_gml(_to_nx(G), path, stringizer=stringizer)
+
+
+def _write_gml_native_plain_path_ok(path):
+    if hasattr(path, "write"):
+        return True
+    try:
+        suffix = _Path(path).suffix
+    except TypeError:
+        return False
+    return suffix not in {".gz", ".bz2"}
 
 
 def _read_gml_via_nx(path, *, label="label", destringizer=None):

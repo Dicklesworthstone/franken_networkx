@@ -1,0 +1,13 @@
+{
+  "cases": 9,
+  "failures": [],
+  "golden_sha256": "94928cdc4a1fe6bded4d6af013273b0a4311b1f9d78f04ae20e7423dff19317e",
+  "mode": "proof",
+  "ordering_tie_rng_fp": {
+    "floating_point": "none; GML proof is byte-for-byte text output",
+    "node_order": "cases construct nodes deterministically; proof compares exact bytes",
+    "rng": "random-int-noattr uses deterministic seed=11",
+    "tie_breaks": "no algorithmic tie-breaking; edge and node emission order are byte-checked"
+  },
+  "tmp": "/data/tmp/fnx_zk204_proof_2235758_n9zhrn_h"
+}

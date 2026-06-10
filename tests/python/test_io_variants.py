@@ -379,6 +379,47 @@ def test_write_gml_matches_networkx_bytes(tmp_path: Path):
     assert sorted(parsed.edges()) == [("0", "1"), ("1", "2"), ("2", "3")]
 
 
+def test_write_gml_int_noattr_native_route_matches_networkx_bytes(tmp_path: Path):
+    graph = fnx.Graph([(10, 9), (9, 11), (42, 9)])
+    nx_graph = nx.Graph([(10, 9), (9, 11), (42, 9)])
+    path = tmp_path / "graph.gml"
+    nx_path = tmp_path / "graph_nx.gml"
+
+    fnx.write_gml(graph, path)
+    nx.write_gml(nx_graph, nx_path)
+
+    assert path.read_bytes() == nx_path.read_bytes()
+
+
+def test_write_gml_int_noattr_native_route_does_not_delegate(monkeypatch, tmp_path: Path):
+    graph = fnx.Graph([(10, 9)])
+    path = tmp_path / "graph.gml"
+
+    def fail(*args, **kwargs):
+        raise AssertionError("native int/noattr GML route should not call NetworkX")
+
+    monkeypatch.setattr(nx, "write_gml", fail)
+
+    fnx.write_gml(graph, path)
+
+    assert path.read_text(encoding="utf-8") == (
+        "graph [\n"
+        "  node [\n"
+        "    id 0\n"
+        "    label \"10\"\n"
+        "  ]\n"
+        "  node [\n"
+        "    id 1\n"
+        "    label \"9\"\n"
+        "  ]\n"
+        "  edge [\n"
+        "    source 0\n"
+        "    target 1\n"
+        "  ]\n"
+        "]\n"
+    )
+
+
 def test_write_gml_stringizer_stays_delegated(monkeypatch, tmp_path: Path):
     observed = {}
 
