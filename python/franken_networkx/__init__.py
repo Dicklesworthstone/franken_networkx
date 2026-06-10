@@ -18890,67 +18890,100 @@ def _pagerank_scipy(G, alpha, max_iter, tol, weight):
     if N == 0:
         return {}
 
-    nodelist = list(G)
-    # br-r37-c1-raqel: build COO directly for pagerank to skip dtype
-    # checks in to_scipy_sparse_array. Native path returns (rows, cols, data).
+    cache_key = None
+    cached = None
     if (
-        _native_adjacency_arrays is not None
-        and not G.is_multigraph()
+        type(G) in (Graph, DiGraph)
+        and _native_dijkstra_weight_cache_token is not None
         and (weight is None or isinstance(weight, str))
     ):
-        native_weight = weight if isinstance(weight, str) else None
-        native_result = None
-        native_index_used = False
-        if native_weight is None and _native_adjacency_index_arrays is not None:
-            # br-r37-c1-prdir: prefer the default-order index COO (directed +
-            # undirected) — it skips the Python nodelist canonicalisation; nodelist
-            # == list(G) so the index-ordered (rows, cols) align. Fall back to the
-            # nodelist builder if unavailable.
-            native_index_result = None
-            if _native_adjacency_default_order_index_arrays is not None:
-                native_index_result = _native_adjacency_default_order_index_arrays(G, None)
-            if native_index_result is None:
-                native_index_result = _native_adjacency_index_arrays(G, nodelist, None)
-            if native_index_result is not None:
-                rows, cols = native_index_result
-                rows = np.asarray(rows, dtype=np.intp)
-                cols = np.asarray(cols, dtype=np.intp)
-                data = np.ones(len(rows), dtype=float)
+        try:
+            token = _native_dijkstra_weight_cache_token(G)
+        except Exception:
+            token = None
+        if token is not None:
+            nodes_seq, edges_seq, edge_attrs_dirty = token
+            if not edge_attrs_dirty:
+                cache_key = (type(G), weight, nodes_seq, edges_seq)
+                cached = vars(G).get("_fnx_pagerank_scipy_matrix_cache")
+                if cached is not None and cached[0] != cache_key:
+                    cached = None
+
+    if cached is not None:
+        nodelist, A, is_dangling = cached[1]
+    else:
+        nodelist = list(G)
+        # br-r37-c1-raqel: build COO directly for pagerank to skip dtype
+        # checks in to_scipy_sparse_array. Native path returns (rows, cols, data).
+        if (
+            _native_adjacency_arrays is not None
+            and not G.is_multigraph()
+            and (weight is None or isinstance(weight, str))
+        ):
+            native_weight = weight if isinstance(weight, str) else None
+            native_result = None
+            native_index_used = False
+            if native_weight is None and _native_adjacency_index_arrays is not None:
+                # br-r37-c1-prdir: prefer the default-order index COO (directed +
+                # undirected) — it skips the Python nodelist canonicalisation; nodelist
+                # == list(G) so the index-ordered (rows, cols) align. Fall back to the
+                # nodelist builder if unavailable.
+                native_index_result = None
+                if _native_adjacency_default_order_index_arrays is not None:
+                    native_index_result = _native_adjacency_default_order_index_arrays(G, None)
+                if native_index_result is None:
+                    native_index_result = _native_adjacency_index_arrays(G, nodelist, None)
+                if native_index_result is not None:
+                    rows, cols = native_index_result
+                    rows = np.asarray(rows, dtype=np.intp)
+                    cols = np.asarray(cols, dtype=np.intp)
+                    data = np.ones(len(rows), dtype=float)
+                    A = sp.coo_array(
+                        (data, (rows, cols)), shape=(N, N), dtype=float
+                    ).tocsr()
+                    native_index_used = True
+                else:
+                    native_result = _native_adjacency_arrays(
+                        G, nodelist, native_weight, 1.0
+                    )
+            else:
+                # br-r37-c1-coowt/prdir: default-order integer-CSR weighted COO for
+                # BOTH undirected and directed graphs (the builder now emits the
+                # row-major out-adjacency for a DiGraph). Reads weights by index pair,
+                # skipping the Python nodelist canonicalisation + per-edge node
+                # string->index lookups of adjacency_arrays. nodelist == list(G) here
+                # so the index-ordered COO matches; matrix assembly is order-
+                # independent regardless.
+                if _native_adjacency_default_order_arrays is not None:
+                    native_result = _native_adjacency_default_order_arrays(
+                        G, native_weight, 1.0
+                    )
+                if native_result is None:
+                    native_result = _native_adjacency_arrays(
+                        G, nodelist, native_weight, 1.0
+                    )
+            if native_result is not None:
+                rows, cols, data = native_result
                 A = sp.coo_array(
                     (data, (rows, cols)), shape=(N, N), dtype=float
                 ).tocsr()
-                native_index_used = True
-            else:
-                native_result = _native_adjacency_arrays(G, nodelist, native_weight, 1.0)
+            elif not native_index_used:
+                A = to_scipy_sparse_array(G, nodelist=nodelist, weight=weight, dtype=float)
         else:
-            # br-r37-c1-coowt/prdir: default-order integer-CSR weighted COO for
-            # BOTH undirected and directed graphs (the builder now emits the
-            # row-major out-adjacency for a DiGraph). Reads weights by index pair,
-            # skipping the Python nodelist canonicalisation + per-edge node
-            # string->index lookups of adjacency_arrays. nodelist == list(G) here
-            # so the index-ordered COO matches; matrix assembly is order-
-            # independent regardless.
-            if _native_adjacency_default_order_arrays is not None:
-                native_result = _native_adjacency_default_order_arrays(G, native_weight, 1.0)
-            if native_result is None:
-                native_result = _native_adjacency_arrays(G, nodelist, native_weight, 1.0)
-        if native_result is not None:
-            rows, cols, data = native_result
-            A = sp.coo_array(
-                (data, (rows, cols)), shape=(N, N), dtype=float
-            ).tocsr()
-        elif not native_index_used:
             A = to_scipy_sparse_array(G, nodelist=nodelist, weight=weight, dtype=float)
-    else:
-        A = to_scipy_sparse_array(G, nodelist=nodelist, weight=weight, dtype=float)
-    S = np.asarray(A.sum(axis=1)).flatten()
-    S[S != 0] = 1.0 / S[S != 0]
-    Q = sp.dia_array((S, 0), shape=A.shape).tocsr()
-    A = Q @ A
+        S = np.asarray(A.sum(axis=1)).flatten()
+        S[S != 0] = 1.0 / S[S != 0]
+        Q = sp.dia_array((S, 0), shape=A.shape).tocsr()
+        A = Q @ A
+        is_dangling = np.where(S == 0)[0]
+        if cache_key is not None:
+            vars(G)["_fnx_pagerank_scipy_matrix_cache"] = (
+                cache_key,
+                (nodelist, A, is_dangling),
+            )
 
     x = np.full(N, 1.0 / N)
     p = np.full(N, 1.0 / N)
-    is_dangling = np.where(S == 0)[0]
 
     for _ in range(max_iter):
         xlast = x

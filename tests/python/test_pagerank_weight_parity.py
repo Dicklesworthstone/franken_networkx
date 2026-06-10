@@ -95,9 +95,9 @@ def test_pagerank_absent_string_weight_routes_as_unweighted(monkeypatch):
         calls.append(("scipy", weight))
         return original_scipy(graph, alpha, max_iter, tol, weight)
 
-    def wrapped_sync(graph):
-        calls.append(("sync", None))
-        return original_sync(graph)
+    def wrapped_sync(graph, *args, **kwargs):
+        calls.append(("sync", kwargs.get("edge_only")))
+        return original_sync(graph, *args, **kwargs)
 
     monkeypatch.setattr(fnx, "_pagerank_scipy", wrapped_scipy)
     monkeypatch.setattr(fnx, "_sync_rust_edge_attrs", wrapped_sync)
@@ -129,9 +129,9 @@ def test_pagerank_present_string_weight_keeps_weighted_route(monkeypatch):
         calls.append(("scipy", weight))
         return original_scipy(graph, alpha, max_iter, tol, weight)
 
-    def wrapped_sync(graph):
-        calls.append(("sync", None))
-        return original_sync(graph)
+    def wrapped_sync(graph, *args, **kwargs):
+        calls.append(("sync", kwargs.get("edge_only")))
+        return original_sync(graph, *args, **kwargs)
 
     monkeypatch.setattr(fnx, "_pagerank_scipy", wrapped_scipy)
     monkeypatch.setattr(fnx, "_sync_rust_edge_attrs", wrapped_sync)
@@ -140,7 +140,7 @@ def test_pagerank_present_string_weight_keeps_weighted_route(monkeypatch):
     r_nx = nx.pagerank(nx_graph, weight="weight")
 
     assert _max_pagerank_diff(r_fnx, r_nx) < 1e-9
-    assert ("sync", None) in calls
+    assert ("sync", True) in calls
     assert ("scipy", "weight") in calls
 
 
