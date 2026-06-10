@@ -80,13 +80,14 @@ fn report_to_pydigraph(
             .insert(canonical.to_owned(), PyDict::new(py).unbind());
     }
 
-    for source in pg.inner.nodes_ordered() {
-        for target in pg.inner.successors(source).unwrap_or_default() {
-            pg.edge_py_attrs
-                .entry((source.to_owned(), target.to_owned()))
-                .or_insert_with(|| PyDict::new(py).unbind());
-        }
-    }
+    // br-r37-c1-genlazy: do NOT eagerly allocate an empty PyDict per edge.
+    // Generator output carries no edge data, and PyDiGraph materialises edge
+    // attr dicts lazily (or_insert_with(PyDict::new)) on first G[u][v] /
+    // edges(data=True) / to_dict_of_dicts access, returning the same shared
+    // object thereafter (identity preserved). The eager loop allocated O(E)
+    // PyDicts + endpoint String tuples — the dominant construction tax for
+    // dense directed generators (fast_gnp/gnp directed ~2x slower than nx).
+    // Matches the already-lazy `report_to_pygraph`. Byte-identical.
 
     Ok(pg)
 }
@@ -121,6 +122,10 @@ fn report_to_pymultidigraph(
             .insert(canonical.to_owned(), PyDict::new(py).unbind());
     }
 
+    // NOTE: MultiDiGraph KEEPS the eager edge dict population — unlike simple
+    // PyGraph/PyDiGraph, its keyed-edge attr access does not store the lazily
+    // materialised dict, so dropping this would break `G[u][v][k] is G[u][v][k]`
+    // identity (verified). Only the simple-DiGraph converter is made lazy.
     for source in pg.inner.nodes_ordered() {
         for target in pg.inner.successors(source).unwrap_or_default() {
             for key in pg.inner.edge_keys(source, target).unwrap_or_default() {
