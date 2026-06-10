@@ -28256,6 +28256,24 @@ def corona_product(G, H):
         raise NetworkXNotImplemented("not implemented for directed type")
     _validate_product_graph_types(G, H, allow_multigraph=True)
 
+    # br-r37-c1-prodrooted: native fast path (simple, no-attr, self-loop-free).
+    # corona's result mixes G's original nodes with (g, h) tuples; the native
+    # kernel builds that node table + the edge set in Rust (canonicalising each
+    # product tuple once) instead of the per-edge Python construction. Same edge
+    # set (parity tests canonicalise edges); H-multigraph / attrs / self-loops
+    # fall back to the Python build below.
+    if (
+        not H.is_directed()
+        and not H.is_multigraph()
+        and not _graph_has_any_attrs(G)
+        and not _graph_has_any_attrs(H)
+        and not number_of_selfloops(G)
+        and not number_of_selfloops(H)
+    ):
+        _fast = _fnx.corona_product_fast(G, H)
+        if _fast is not None:
+            return _fast
+
     P = _product_graph_class(G, H)()
     P.add_nodes_from(G.nodes())
 
@@ -28344,6 +28362,24 @@ def rooted_product(G, H, root):
         raise NetworkXNotImplemented("not implemented for multigraph type")
     if root not in H:
         raise NodeNotFound("root must be a vertex in H")
+
+    # br-r37-c1-prodrooted: native fast path (simple, no-attr, self-loop-free).
+    # The rooted product carries no attrs; the Python build pays the per-edge
+    # tuple-key construction tax. The native kernel canonicalises each product
+    # tuple once and assembles the edge set in Rust. Same edge set (parity tests
+    # canonicalise edges); other shapes fall back to the Python build below.
+    if (
+        not G.is_directed()
+        and not H.is_directed()
+        and not H.is_multigraph()
+        and not _graph_has_any_attrs(G)
+        and not _graph_has_any_attrs(H)
+        and not number_of_selfloops(G)
+        and not number_of_selfloops(H)
+    ):
+        _fast = _fnx.rooted_product_fast(G, H, root)
+        if _fast is not None:
+            return _fast
 
     P = Graph()
     for g in G.nodes():

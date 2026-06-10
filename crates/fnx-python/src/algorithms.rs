@@ -11290,6 +11290,134 @@ fn modular_product_fast(
     Ok(Some(py_graph.into_pyobject(py)?.into_any().unbind()))
 }
 
+/// br-r37-c1-prodrooted: native rooted product fast path. Each node v of G is
+/// replaced by a copy of H; v's copy of `root` is joined to v's neighbours'
+/// root-copies. Result nodes are all (g, h) tuples. Returns None on any
+/// unsupported shape so the Python wrapper falls back.
+#[pyfunction]
+#[pyo3(signature = (g, h, root))]
+fn rooted_product_fast(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    h: &Bound<'_, PyAny>,
+    root: &Bound<'_, PyAny>,
+) -> PyResult<Option<PyObject>> {
+    let gr1 = extract_graph(g)?;
+    let gr2 = extract_graph(h)?;
+    if gr1.is_directed() || gr2.is_directed() {
+        return Ok(None);
+    }
+    let g1 = gr1.undirected();
+    let g2 = gr2.undirected();
+    let g_names: Vec<String> = g1.nodes_ordered().iter().map(|s| (*s).to_owned()).collect();
+    let h_names: Vec<String> = g2.nodes_ordered().iter().map(|s| (*s).to_owned()).collect();
+    let ng = g_names.len();
+    let nh = h_names.len();
+    let root_canon = crate::node_key_to_string(py, root)?;
+    let Some(root_idx) = h_names.iter().position(|n| *n == root_canon) else {
+        return Ok(None);
+    };
+    let (canon, node_key_map) = product_node_tuples(py, &gr1, &gr2, &g_names, &h_names)?;
+
+    let mut edges: Vec<(String, String)> = Vec::new();
+    // H-copy edges within each G-node's copy.
+    for gi in 0..ng {
+        for hu in 0..nh {
+            for &hv in g2.neighbors_indices(hu).unwrap_or(&[]) {
+                if hv > hu {
+                    edges.push((canon[gi * nh + hu].clone(), canon[gi * nh + hv].clone()));
+                }
+            }
+        }
+    }
+    // G-edges connecting the root-copies.
+    for gu in 0..ng {
+        for &gv in g1.neighbors_indices(gu).unwrap_or(&[]) {
+            if gv > gu {
+                edges.push((
+                    canon[gu * nh + root_idx].clone(),
+                    canon[gv * nh + root_idx].clone(),
+                ));
+            }
+        }
+    }
+
+    let mut inner = fnx_classes::Graph::with_runtime_policy(g1.runtime_policy().clone());
+    let _ = inner.extend_nodes_unrecorded(canon.iter().cloned());
+    let _ = inner.extend_edges_unrecorded(edges);
+    let mut py_graph = PyGraph::new_empty_with_policy(py, g1.runtime_policy().clone())?;
+    py_graph.inner = inner;
+    py_graph.node_key_map = node_key_map;
+    Ok(Some(py_graph.into_pyobject(py)?.into_any().unbind()))
+}
+
+/// br-r37-c1-prodrooted: native corona product fast path. Result nodes are G's
+/// ORIGINAL nodes plus, per G-node v, a copy of H as (v, u) tuples; each v is
+/// joined to all of its H-copy nodes. Mixed node identities (G nodes + tuples)
+/// so the node table is built explicitly. Returns None on unsupported shapes.
+#[pyfunction]
+#[pyo3(signature = (g, h))]
+fn corona_product_fast(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    h: &Bound<'_, PyAny>,
+) -> PyResult<Option<PyObject>> {
+    let gr1 = extract_graph(g)?;
+    let gr2 = extract_graph(h)?;
+    if gr1.is_directed() || gr2.is_directed() || gr1.is_multigraph() || gr2.is_multigraph() {
+        return Ok(None);
+    }
+    let g1 = gr1.undirected();
+    let g2 = gr2.undirected();
+    let g_names: Vec<String> = g1.nodes_ordered().iter().map(|s| (*s).to_owned()).collect();
+    let h_names: Vec<String> = g2.nodes_ordered().iter().map(|s| (*s).to_owned()).collect();
+    let ng = g_names.len();
+    let nh = h_names.len();
+    let (tup_canon, mut node_key_map) =
+        product_node_tuples(py, &gr1, &gr2, &g_names, &h_names)?;
+    // Add G's original nodes to the key map (their display objects).
+    for gname in &g_names {
+        node_key_map
+            .entry(gname.clone())
+            .or_insert_with(|| gr1.py_node_key(py, gname));
+    }
+    // Node order: G's original nodes first, then the (g, h) tuples (g-major).
+    let mut all_nodes: Vec<String> = Vec::with_capacity(ng + ng * nh);
+    all_nodes.extend(g_names.iter().cloned());
+    all_nodes.extend(tup_canon.iter().cloned());
+
+    let mut edges: Vec<(String, String)> = Vec::new();
+    // G's original edges.
+    for gu in 0..ng {
+        for &gv in g1.neighbors_indices(gu).unwrap_or(&[]) {
+            if gv > gu {
+                edges.push((g_names[gu].clone(), g_names[gv].clone()));
+            }
+        }
+    }
+    // Per G-node: H-copy edges + join G-node to each H-copy node.
+    for gi in 0..ng {
+        for hu in 0..nh {
+            for &hv in g2.neighbors_indices(hu).unwrap_or(&[]) {
+                if hv > hu {
+                    edges.push((tup_canon[gi * nh + hu].clone(), tup_canon[gi * nh + hv].clone()));
+                }
+            }
+        }
+        for hi in 0..nh {
+            edges.push((g_names[gi].clone(), tup_canon[gi * nh + hi].clone()));
+        }
+    }
+
+    let mut inner = fnx_classes::Graph::with_runtime_policy(g1.runtime_policy().clone());
+    let _ = inner.extend_nodes_unrecorded(all_nodes.iter().cloned());
+    let _ = inner.extend_edges_unrecorded(edges);
+    let mut py_graph = PyGraph::new_empty_with_policy(py, g1.runtime_policy().clone())?;
+    py_graph.inner = inner;
+    py_graph.node_key_map = node_key_map;
+    Ok(Some(py_graph.into_pyobject(py)?.into_any().unbind()))
+}
+
 // br-r37-c1-lgnative: native line graph for the simple (non-multi),
 // no-create_using, self-loop-free case. L(G)'s nodes are G's EDGES, represented
 // as Python tuples `(u, v)`; the Python path adds them one PyO3 call at a time
@@ -18168,6 +18296,8 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(strong_product_fast, m)?)?;
     m.add_function(wrap_pyfunction!(lexicographic_product_fast, m)?)?;
     m.add_function(wrap_pyfunction!(modular_product_fast, m)?)?;
+    m.add_function(wrap_pyfunction!(rooted_product_fast, m)?)?;
+    m.add_function(wrap_pyfunction!(corona_product_fast, m)?)?;
     m.add_function(wrap_pyfunction!(line_graph_fast, m)?)?;
     m.add_function(wrap_pyfunction!(degree_histogram, m)?)?;
     // A* shortest path
