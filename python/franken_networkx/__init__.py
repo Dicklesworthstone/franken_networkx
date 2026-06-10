@@ -29382,16 +29382,28 @@ def _current_flow_betweenness_impl(G, *, normalized, weight, dtype, solver):
     if not is_connected(G):
         raise NetworkXError("Graph not connected.")
 
+    import numpy as np
+
     n = G.number_of_nodes()
     ordering = list(_reverse_cuthill_mckee_ordering(G))
     # integer-relabel by RCM ordering (matches nx's H exactly)
     H = relabel_nodes(G, dict(zip(ordering, range(n))), copy=True)
     betweenness = dict.fromkeys(H, 0.0)
+    # br-cfb-vec: vectorize nx's per-edge O(n) Python accumulation
+    # (``for i in range(n): betweenness[s] += (i - pos[i]) * row[i]``) into two
+    # numpy dot products per flow row — the same lever the subset sibling
+    # (br-cfbsubset-fast) already carries. ``pos`` is built from the identical
+    # ``row.argsort()[::-1]`` ranking nx uses, so the integer rank assignment is
+    # bit-identical to nx; only the float summation order shifts (~1e-12), well
+    # inside the current-flow conformance bar (rel 1e-5 / abs 1e-7).
+    idx = np.arange(n)
+    s_coef = idx.astype(np.float64)            # (i)      source-tally weight
+    t_coef = (n - 1 - idx).astype(np.float64)  # (n-1-i)  target-tally weight
     for row, (s, t) in _flow_matrix_row(H, weight=weight, dtype=dtype, solver=solver):
-        pos = dict(zip(row.argsort()[::-1], range(n)))
-        for i in range(n):
-            betweenness[s] += (i - pos[i]) * row.item(i)
-            betweenness[t] += (n - i - 1 - pos[i]) * row.item(i)
+        pos = np.empty(n, dtype=np.float64)
+        pos[row.argsort()[::-1]] = idx          # pos[node] = descending rank
+        betweenness[s] += float(np.dot(s_coef - pos, row))
+        betweenness[t] += float(np.dot(t_coef - pos, row))
     if normalized:
         nb = (n - 1.0) * (n - 2.0)  # normalization factor
     else:
@@ -29419,6 +29431,8 @@ def edge_current_flow_betweenness_centrality(
     if not is_connected(G):
         raise NetworkXError("Graph not connected.")
 
+    import numpy as np
+
     n = G.number_of_nodes()
     ordering = list(_reverse_cuthill_mckee_ordering(G))
     H = relabel_nodes(G, dict(zip(ordering, range(n))), copy=True)
@@ -29430,12 +29444,20 @@ def edge_current_flow_betweenness_centrality(
     else:
         normalization = 2.0
 
+    # br-cfb-vec: vectorize nx's per-edge O(n) Python tally. The two summed
+    # terms ``(i+1-pos[i]) + (n-i-pos[i])`` collapse to ``(n+1) - 2*pos[i]``
+    # over the SAME 1-indexed ``row.argsort()[::-1]`` ranks nx assigns, so the
+    # rank weighting is bit-identical; only float summation order shifts (~1e-12,
+    # inside the rel 1e-5 / abs 1e-7 conformance bar).
+    ranks = np.arange(1, n + 1, dtype=np.float64)
     for row, edge in _flow_matrix_row(H, weight=weight, dtype=dtype, solver=solver):
-        pos = dict(zip(row.argsort()[::-1], range(1, n + 1)))
-        for i in range(n):
-            betweenness[edge] += (i + 1 - pos[i]) * row.item(i)
-            betweenness[edge] += (n - i - pos[i]) * row.item(i)
-        betweenness[edge] /= normalization
+        pos = np.empty(n, dtype=np.float64)
+        pos[row.argsort()[::-1]] = ranks         # pos[node] = 1-indexed rank
+        # Replicate nx's per-row ``betweenness[e] += contrib; betweenness[e] /=
+        # normalization`` EXACTLY (incl. the multigraph quirk where a repeated
+        # edge key divides earlier contributions again): new = (old + c) / norm.
+        contrib = float(np.dot((n + 1.0) - 2.0 * pos, row))
+        betweenness[edge] = (betweenness[edge] + contrib) / normalization
 
     return {(ordering[s], ordering[t]): value for (s, t), value in betweenness.items()}
 
