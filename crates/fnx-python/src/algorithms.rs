@@ -17497,6 +17497,26 @@ pub fn communicability_betweenness_centrality_rust(
 }
 
 // ---------------------------------------------------------------------------
+// Subgraph centrality
+// ---------------------------------------------------------------------------
+
+/// Subgraph centrality via native safe-Rust matrix exponential diagonal.
+#[pyfunction]
+pub fn subgraph_centrality_expdiag_rust(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+) -> PyResult<PyObject> {
+    let gr = extract_graph(g)?;
+    let inner = gr.undirected();
+    let result = py.allow_threads(|| fnx_algorithms::subgraph_centrality_expdiag(inner));
+    let dict = PyDict::new(py);
+    for score in &result {
+        dict.set_item(gr.py_node_key(py, &score.node), score.score)?;
+    }
+    Ok(dict.into_any().unbind())
+}
+
+// ---------------------------------------------------------------------------
 // Current-flow betweenness centrality
 // ---------------------------------------------------------------------------
 
@@ -18124,6 +18144,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(simrank_similarity_rust, m)?)?;
     m.add_function(wrap_pyfunction!(google_matrix_rust, m)?)?;
     m.add_function(wrap_pyfunction!(second_order_centrality_rust, m)?)?;
+    m.add_function(wrap_pyfunction!(subgraph_centrality_expdiag_rust, m)?)?;
     m.add_function(wrap_pyfunction!(
         communicability_betweenness_centrality_rust,
         m

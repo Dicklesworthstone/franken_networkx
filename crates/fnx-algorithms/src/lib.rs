@@ -35969,6 +35969,38 @@ fn matrix_exp_symmetric(a: &[f64], n: usize) -> Vec<f64> {
     result
 }
 
+/// Subgraph centrality for a simple undirected graph.
+///
+/// `subgraph_centrality(v)` is the diagonal entry `exp(A)[v,v]` of the
+/// unweighted adjacency matrix exponential.  Reuse the existing safe-Rust
+/// scaling-and-squaring kernel and return scores in node insertion order.
+pub fn subgraph_centrality_expdiag(graph: &Graph) -> Vec<CentralityScore> {
+    let nodes = graph.nodes_ordered();
+    let n = nodes.len();
+    if n == 0 {
+        return Vec::new();
+    }
+
+    let idx: HashMap<&str, usize> = nodes.iter().enumerate().map(|(i, &nd)| (nd, i)).collect();
+    let mut a = vec![0.0_f64; n * n];
+    for edge in graph.edges_ordered() {
+        let i = idx[edge.left.as_str()];
+        let j = idx[edge.right.as_str()];
+        a[i * n + j] = 1.0;
+        a[j * n + i] = 1.0;
+    }
+
+    let exp_a = matrix_exp_symmetric(&a, n);
+    nodes
+        .iter()
+        .enumerate()
+        .map(|(i, &node)| CentralityScore {
+            node: node.to_owned(),
+            score: exp_a[i * n + i],
+        })
+        .collect()
+}
+
 /// Communicability betweenness centrality.
 ///
 /// For each node v, measures how much removing v reduces the communicability

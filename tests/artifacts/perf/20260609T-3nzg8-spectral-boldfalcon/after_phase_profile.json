@@ -1,0 +1,12 @@
+{
+  "digest_sha256": "95bd0633202cd200d6bb911fb6576cdd3ca5d8fdf017d2599bd1882ac95f7a35",
+  "phase_min_ms": {
+    "binarize": 0.27,
+    "eigh": 318.157,
+    "nodelist": 0.076,
+    "post": 0.209,
+    "to_numpy_array": 0.564
+  },
+  "runs": 9,
+  "size": 260
+}

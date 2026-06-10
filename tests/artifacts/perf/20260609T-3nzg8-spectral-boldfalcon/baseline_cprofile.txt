@@ -1,0 +1,38 @@
+         79 function calls in 4.046 seconds
+
+   Ordered by: cumulative time
+   List reduced from 47 to 30 due to restriction <30>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.011    0.011    4.046    4.046 /data/projects/franken_networkx_cod_linalg_3nzg8/python/franken_networkx/__init__.py:21248(subgraph_centrality)
+        1    4.034    4.034    4.034    4.034 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/numpy/linalg/_linalg.py:1514(eigh)
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx_cod_linalg_3nzg8/python/franken_networkx/__init__.py:48614(wrapper)
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx_cod_linalg_3nzg8/python/franken_networkx/__init__.py:44589(to_numpy_array)
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/numpy/_core/fromnumeric.py:1993(nonzero)
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/numpy/_core/fromnumeric.py:48(_wrapfunc)
+        1    0.000    0.000    0.000    0.000 {method 'nonzero' of 'numpy.ndarray' objects}
+        1    0.000    0.000    0.000    0.000 {built-in method franken_networkx._fnx.adjacency_arrays}
+        5    0.000    0.000    0.000    0.000 {built-in method numpy.asarray}
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/numpy/_core/numeric.py:323(full)
+        1    0.000    0.000    0.000    0.000 {built-in method numpy.array}
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/numpy/_core/_ufunc_config.py:488(__exit__)
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx_cod_linalg_3nzg8/python/franken_networkx/__init__.py:33689(__iter__)
+        2    0.000    0.000    0.000    0.000 {method 'astype' of 'numpy.ndarray' objects}
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/numpy/_core/_ufunc_config.py:472(__enter__)
+        3    0.000    0.000    0.000    0.000 /data/projects/franken_networkx_cod_linalg_3nzg8/python/franken_networkx/__init__.py:5735(predicate)
+        1    0.000    0.000    0.000    0.000 <string>:1(<lambda>)
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/numpy/linalg/_linalg.py:188(_commonType)
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx_cod_linalg_3nzg8/python/franken_networkx/__init__.py:33722(nodes)
+        1    0.000    0.000    0.000    0.000 {method 'reset' of '_contextvars.ContextVar' objects}
+        1    0.000    0.000    0.000    0.000 {built-in method numpy._core._multiarray_umath._make_extobj}
+        2    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/numpy/linalg/_linalg.py:182(_realType)
+        2    0.000    0.000    0.000    0.000 /data/projects/franken_networkx_cod_linalg_3nzg8/python/franken_networkx/__init__.py:33195(_private_override)
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx_cod_linalg_3nzg8/python/franken_networkx/__init__.py:943(wrapped)
+        1    0.000    0.000    0.000    0.000 {built-in method numpy.empty}
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/numpy/linalg/_linalg.py:237(_assert_stacked_square)
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/numpy/_core/_ufunc_config.py:462(__init__)
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/numpy/linalg/_linalg.py:163(_makearray)
+        5    0.000    0.000    0.000    0.000 {method 'get' of 'dict' objects}
+
+

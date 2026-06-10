@@ -1,0 +1,15 @@
+         10 function calls in 0.203 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.000    0.000    0.203    0.203 /data/projects/franken_networkx_cod_linalg_3nzg8/python/franken_networkx/__init__.py:21248(subgraph_centrality)
+        1    0.203    0.203    0.203    0.203 {built-in method franken_networkx._fnx.subgraph_centrality_expdiag_rust}
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+        2    0.000    0.000    0.000    0.000 /data/projects/franken_networkx_cod_linalg_3nzg8/python/franken_networkx/__init__.py:5735(predicate)
+        1    0.000    0.000    0.000    0.000 {function _make_class_safe_predicate.<locals>.predicate at 0x7a8a27848ae0}
+        2    0.000    0.000    0.000    0.000 {built-in method builtins.isinstance}
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx_cod_linalg_3nzg8/python/franken_networkx/__init__.py:21754(_validate_backend_dispatch_keywords)
+        1    0.000    0.000    0.000    0.000 {function _make_class_safe_predicate.<locals>.predicate at 0x7a8a27848a40}
+
+

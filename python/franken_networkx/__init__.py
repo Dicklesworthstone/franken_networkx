@@ -21272,12 +21272,15 @@ def subgraph_centrality(G, *, normalized=False, backend=None, **backend_kwargs):
         backend_kwargs,
     )
 
-    import numpy as np
-
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
+
+    if not normalized and G.__class__ is Graph:
+        return _fnx.subgraph_centrality_expdiag_rust(G)
+
+    import numpy as np
 
     nodelist = list(G.nodes())
     A = to_numpy_array(G, nodelist=nodelist, weight=None)
