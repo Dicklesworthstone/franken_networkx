@@ -37082,7 +37082,17 @@ def weisfeiler_lehman_graph_hash(
             UserWarning,
             stacklevel=2,
         )
-        adj = {node: list(nbrs) for node, nbrs in G.adjacency()}
+        # br-r37-c1-wlnak: snapshot key-only adjacency rows via
+        # _native_adjacency_keys (~0.6ms) instead of G.adjacency() (~2.6ms,
+        # ~36% of WL runtime), which materialises an attr-bearing {nbr: attrs}
+        # dict per node. The WL neighbour aggregate sorts the neighbour labels,
+        # so adjacency/row order is irrelevant — byte-identical hash. Falls back
+        # to G.adjacency() if the native binding is absent.
+        _nak = getattr(G, "_native_adjacency_keys", None)
+        if _nak is not None:
+            adj = {node: nbrs for node, nbrs in _nak()}
+        else:
+            adj = {node: list(nbrs) for node, nbrs in G.adjacency()}
         labels = {node: str(deg) for node, deg in G.degree()}
         counts = []
         for _ in range(iterations - 1):
@@ -37149,7 +37159,17 @@ def weisfeiler_lehman_subgraph_hashes(
                 label.encode("ascii"), digest_size=digest_size
             ).hexdigest()
 
-        adj = {node: list(nbrs) for node, nbrs in G.adjacency()}
+        # br-r37-c1-wlnak: snapshot key-only adjacency rows via
+        # _native_adjacency_keys (~0.6ms) instead of G.adjacency() (~2.6ms,
+        # ~36% of WL runtime), which materialises an attr-bearing {nbr: attrs}
+        # dict per node. The WL neighbour aggregate sorts the neighbour labels,
+        # so adjacency/row order is irrelevant — byte-identical hash. Falls back
+        # to G.adjacency() if the native binding is absent.
+        _nak = getattr(G, "_native_adjacency_keys", None)
+        if _nak is not None:
+            adj = {node: nbrs for node, nbrs in _nak()}
+        else:
+            adj = {node: list(nbrs) for node, nbrs in G.adjacency()}
         labels = {node: str(deg) for node, deg in G.degree()}
         if include_initial_labels:
             result = {k: [_h(v)] for k, v in labels.items()}
