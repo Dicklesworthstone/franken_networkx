@@ -799,6 +799,44 @@ def test_edge_current_flow_betweenness_centrality_invalid_solver_matches_network
     assert actual.value.args == expected.value.args
 
 
+def test_current_flow_betweenness_default_uses_native_ordered_kernel(monkeypatch):
+    graph = fnx.watts_strogatz_graph(12, 4, 0.2, seed=7)
+    expected_graph = nx.watts_strogatz_graph(12, 4, 0.2, seed=7)
+    expected = nx.current_flow_betweenness_centrality(expected_graph)
+
+    monkeypatch.setattr(
+        fnx,
+        "_flow_matrix_row",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("default path should use native ordered kernel")
+        ),
+    )
+
+    actual = fnx.current_flow_betweenness_centrality(graph)
+    _assert_mapping_close(actual, expected, tol=1e-6)
+
+
+def test_edge_current_flow_betweenness_default_uses_native_ordered_kernel(monkeypatch):
+    graph = fnx.watts_strogatz_graph(12, 4, 0.2, seed=7)
+    expected_graph = nx.watts_strogatz_graph(12, 4, 0.2, seed=7)
+    expected = nx.edge_current_flow_betweenness_centrality(expected_graph)
+
+    monkeypatch.setattr(
+        fnx,
+        "_flow_matrix_row",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("default path should use native ordered kernel")
+        ),
+    )
+
+    actual = fnx.edge_current_flow_betweenness_centrality(graph)
+    _assert_mapping_close(
+        {frozenset(k): v for k, v in actual.items()},
+        {frozenset(k): v for k, v in expected.items()},
+        tol=1e-6,
+    )
+
+
 def test_information_centrality_matches_networkx_without_fallback(monkeypatch):
     graph = fnx.Graph()
     graph.add_edge(0, 1, weight=2.0)

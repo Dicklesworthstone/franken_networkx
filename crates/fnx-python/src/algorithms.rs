@@ -17542,6 +17542,40 @@ pub fn current_flow_betweenness_centrality_rust(
     Ok(dict.into_any().unbind())
 }
 
+/// NetworkX-compatible current-flow betweenness for the default full-solver path.
+#[pyfunction]
+#[pyo3(signature = (g, ordering, normalized=true, weight=None))]
+pub fn current_flow_betweenness_centrality_nx_ordered_rust(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    ordering: &Bound<'_, PyAny>,
+    normalized: bool,
+    weight: Option<&str>,
+) -> PyResult<PyObject> {
+    let gr = extract_graph(g)?;
+    let inner = gr.undirected();
+    let mut canonical_ordering = Vec::with_capacity(inner.node_count());
+    for item in PyIterator::from_object(ordering)? {
+        let node = item?;
+        canonical_ordering.push(node_key_to_string(py, &node)?);
+    }
+    let result = py
+        .allow_threads(|| {
+            fnx_algorithms::current_flow_betweenness_centrality_nx_ordered(
+                inner,
+                &canonical_ordering,
+                normalized,
+                weight,
+            )
+        })
+        .ok_or_else(|| PyRuntimeError::new_err("singular grounded Laplacian"))?;
+    let dict = PyDict::new(py);
+    for score in &result {
+        dict.set_item(gr.py_node_key(py, &score.node), score.score)?;
+    }
+    Ok(dict.into_any().unbind())
+}
+
 /// Current-flow closeness centrality for the default unweighted LU path.
 #[pyfunction]
 #[pyo3(signature = (g, ordering, weight=None))]
@@ -17622,6 +17656,44 @@ pub fn edge_current_flow_betweenness_centrality_rust(
     for ((u, v), val) in &result {
         let key = (gr.py_node_key(py, u), gr.py_node_key(py, v));
         dict.set_item(key, val)?;
+    }
+    Ok(dict.into_any().unbind())
+}
+
+/// NetworkX-compatible edge current-flow betweenness for the default full-solver path.
+#[pyfunction]
+#[pyo3(signature = (g, ordering, normalized=true, weight=None))]
+pub fn edge_current_flow_betweenness_centrality_nx_ordered_rust(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    ordering: &Bound<'_, PyAny>,
+    normalized: bool,
+    weight: Option<&str>,
+) -> PyResult<PyObject> {
+    let gr = extract_graph(g)?;
+    let inner = gr.undirected();
+    let mut canonical_ordering = Vec::with_capacity(inner.node_count());
+    for item in PyIterator::from_object(ordering)? {
+        let node = item?;
+        canonical_ordering.push(node_key_to_string(py, &node)?);
+    }
+    let result = py
+        .allow_threads(|| {
+            fnx_algorithms::edge_current_flow_betweenness_centrality_nx_ordered(
+                inner,
+                &canonical_ordering,
+                normalized,
+                weight,
+            )
+        })
+        .ok_or_else(|| PyRuntimeError::new_err("singular grounded Laplacian"))?;
+    let dict = PyDict::new(py);
+    for score in &result {
+        let key = (
+            gr.py_node_key(py, &score.left),
+            gr.py_node_key(py, &score.right),
+        );
+        dict.set_item(key, score.score)?;
     }
     Ok(dict.into_any().unbind())
 }
@@ -18185,10 +18257,18 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
         current_flow_betweenness_centrality_rust,
         m
     )?)?;
+    m.add_function(wrap_pyfunction!(
+        current_flow_betweenness_centrality_nx_ordered_rust,
+        m
+    )?)?;
     m.add_function(wrap_pyfunction!(current_flow_closeness_centrality_rust, m)?)?;
     m.add_function(wrap_pyfunction!(k_clique_communities_rust, m)?)?;
     m.add_function(wrap_pyfunction!(
         edge_current_flow_betweenness_centrality_rust,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        edge_current_flow_betweenness_centrality_nx_ordered_rust,
         m
     )?)?;
     Ok(())

@@ -1,0 +1,86 @@
+         33168 function calls (33160 primitive calls) in 0.012 seconds
+
+   Ordered by: cumulative time
+   List reduced from 126 to 80 due to restriction <80>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.000    0.000    0.012    0.012 /data/projects/.scratch/franken_networkx-t105o-closeout-boldfalcon/tests/artifacts/perf/20260610T-pyun7-current-flow-betweenness-boldfalcon/harness_current_flow_betweenness.py:52(_call)
+        1    0.000    0.000    0.009    0.009 /data/projects/.scratch/franken_networkx-t105o-closeout-boldfalcon/python/franken_networkx/__init__.py:29427(edge_current_flow_betweenness_centrality)
+        1    0.000    0.000    0.006    0.006 /data/projects/.scratch/franken_networkx-t105o-closeout-boldfalcon/python/franken_networkx/__init__.py:29205(_reverse_cuthill_mckee_ordering)
+      181    0.000    0.000    0.006    0.000 /data/projects/.scratch/franken_networkx-t105o-closeout-boldfalcon/python/franken_networkx/__init__.py:29189(_connected_cuthill_mckee_ordering)
+        1    0.000    0.000    0.004    0.004 /data/projects/.scratch/franken_networkx-t105o-closeout-boldfalcon/python/franken_networkx/__init__.py:29157(_current_flow_pseudo_peripheral_node)
+        2    0.000    0.000    0.004    0.002 /data/projects/.scratch/franken_networkx-t105o-closeout-boldfalcon/python/franken_networkx/__init__.py:29159(_ordered_path_lengths)
+        1    0.003    0.003    0.003    0.003 {built-in method franken_networkx._fnx.edge_current_flow_betweenness_centrality_nx_ordered_rust}
+      540    0.000    0.000    0.003    0.000 /data/projects/.scratch/franken_networkx-t105o-closeout-boldfalcon/python/franken_networkx/__init__.py:1118(__iter__)
+        1    0.000    0.000    0.003    0.003 /data/projects/.scratch/franken_networkx-t105o-closeout-boldfalcon/tests/artifacts/perf/20260610T-pyun7-current-flow-betweenness-boldfalcon/harness_current_flow_betweenness.py:45(_graph)
+      540    0.001    0.000    0.003    0.000 /data/projects/.scratch/franken_networkx-t105o-closeout-boldfalcon/python/franken_networkx/__init__.py:33382(_cached_adj_row_key_iter)
+      540    0.000    0.000    0.002    0.000 /data/projects/.scratch/franken_networkx-t105o-closeout-boldfalcon/python/franken_networkx/__init__.py:1382(_graph_getitem_from_adj)
+      720    0.000    0.000    0.002    0.000 /data/projects/.scratch/franken_networkx-t105o-closeout-boldfalcon/python/franken_networkx/__init__.py:33297(_has_networkx_private_storage)
+      5/2    0.000    0.000    0.002    0.001 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/utils/backends.py:554(_call_if_any_backends_installed)
+      5/2    0.000    0.000    0.002    0.001 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/utils/backends.py:1484(_call_with_backend)
+        1    0.000    0.000    0.001    0.001 /data/projects/.scratch/franken_networkx-t105o-closeout-boldfalcon/tests/artifacts/perf/20260610T-pyun7-current-flow-betweenness-boldfalcon/harness_current_flow_betweenness.py:22(_nx_graph)
+        1    0.000    0.000    0.001    0.001 <class 'networkx.utils.decorators.argmap'> compilation 5:1(argmap_watts_strogatz_graph_1)
+     3421    0.001    0.000    0.001    0.000 /data/projects/.scratch/franken_networkx-t105o-closeout-boldfalcon/python/franken_networkx/__init__.py:33289(_private_override)
+        1    0.000    0.000    0.001    0.001 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/generators/random_graphs.py:388(watts_strogatz_graph)
+        1    0.000    0.000    0.001    0.001 /data/projects/.scratch/franken_networkx-t105o-closeout-boldfalcon/tests/artifacts/perf/20260610T-pyun7-current-flow-betweenness-boldfalcon/harness_current_flow_betweenness.py:38(_fnx_graph)
+      540    0.001    0.000    0.001    0.000 /data/projects/.scratch/franken_networkx-t105o-closeout-boldfalcon/python/franken_networkx/__init__.py:1187(__getitem__)
+      540    0.000    0.000    0.001    0.000 /data/projects/.scratch/franken_networkx-t105o-closeout-boldfalcon/python/franken_networkx/__init__.py:34173(<lambda>)
+        1    0.000    0.000    0.001    0.001 /data/projects/.scratch/franken_networkx-t105o-closeout-boldfalcon/python/franken_networkx/__init__.py:2693(add_edges_from)
+      180    0.000    0.000    0.001    0.000 {built-in method builtins.sorted}
+      540    0.000    0.000    0.001    0.000 /data/projects/.scratch/franken_networkx-t105o-closeout-boldfalcon/python/franken_networkx/__init__.py:33351(_private_adj_mapping)
+      179    0.000    0.000    0.001    0.000 /data/projects/.scratch/franken_networkx-t105o-closeout-boldfalcon/python/franken_networkx/__init__.py:29199(<lambda>)
+        3    0.000    0.000    0.001    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/classes/graph.py:986(add_edges_from)
+      180    0.000    0.000    0.001    0.000 /data/projects/.scratch/franken_networkx-t105o-closeout-boldfalcon/python/franken_networkx/__init__.py:33883(degree)
+     5328    0.000    0.000    0.000    0.000 {method 'get' of 'dict' objects}
+      540    0.000    0.000    0.000    0.000 {method '_native_adjacency_row_dict' of 'franken_networkx.Graph' objects}
+     4141    0.000    0.000    0.000    0.000 {built-in method builtins.vars}
+        1    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-t105o-closeout-boldfalcon/python/franken_networkx/__init__.py:2411(add_nodes_from)
+      540    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-t105o-closeout-boldfalcon/python/franken_networkx/__init__.py:1169(_atlas)
+      540    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-t105o-closeout-boldfalcon/python/franken_networkx/__init__.py:1302(_accessor)
+      180    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-t105o-closeout-boldfalcon/python/franken_networkx/__init__.py:2377(add_node)
+        1    0.000    0.000    0.000    0.000 {function Graph.add_edges_from at 0x768afec5ad40}
+     2700    0.000    0.000    0.000    0.000 {built-in method builtins.hash}
+      180    0.000    0.000    0.000    0.000 {function Graph.add_node at 0x768afec5a340}
+        1    0.000    0.000    0.000    0.000 <class 'networkx.utils.decorators.argmap'> compilation 22:1(argmap_is_connected_18)
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/algorithms/components/connected.py:152(is_connected)
+      540    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-t105o-closeout-boldfalcon/python/franken_networkx/__init__.py:1321(<lambda>)
+        1    0.000    0.000    0.000    0.000 <class 'networkx.utils.decorators.argmap'> compilation 9:1(argmap_empty_graph_6)
+      104    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/classes/graph.py:917(add_edge)
+        2    0.000    0.000    0.000    0.000 {built-in method builtins.next}
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/algorithms/components/connected.py:16(connected_components)
+        1    0.000    0.000    0.000    0.000 <class 'networkx.utils.decorators.argmap'> compilation 13:1(argmap_empty_graph_10)
+      109    0.000    0.000    0.000    0.000 /usr/lib/python3.13/random.py:345(choice)
+     1365    0.000    0.000    0.000    0.000 {method 'update' of 'dict' objects}
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/algorithms/components/connected.py:267(_plain_bfs)
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/generators/classic.py:564(empty_graph)
+      541    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/classes/reportviews.py:1274(__iter__)
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/classes/graph.py:584(add_nodes_from)
+      180    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-t105o-closeout-boldfalcon/python/franken_networkx/__init__.py:4055(__getitem__)
+1479/1477    0.000    0.000    0.000    0.000 {built-in method builtins.len}
+     1100    0.000    0.000    0.000    0.000 {built-in method builtins.isinstance}
+      543    0.000    0.000    0.000    0.000 {built-in method builtins.iter}
+      759    0.000    0.000    0.000    0.000 {built-in method builtins.getattr}
+      109    0.000    0.000    0.000    0.000 /usr/lib/python3.13/random.py:245(_randbelow_with_getrandbits)
+      104    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/classes/graph.py:1118(remove_edge)
+      724    0.000    0.000    0.000    0.000 {method 'append' of 'list' objects}
+      540    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-t105o-closeout-boldfalcon/python/franken_networkx/__init__.py:1106(__init__)
+      540    0.000    0.000    0.000    0.000 {method 'popleft' of 'collections.deque' objects}
+      212    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/utils/misc.py:645(_clear_cache)
+      540    0.000    0.000    0.000    0.000 {method 'random' of '_random.Random' objects}
+      358    0.000    0.000    0.000    0.000 {method 'append' of 'collections.deque' objects}
+      181    0.000    0.000    0.000    0.000 {method 'update' of 'set' objects}
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/utils/misc.py:449(create_py_random_state)
+      180    0.000    0.000    0.000    0.000 {method 'extend' of 'collections.deque' objects}
+        3    0.000    0.000    0.000    0.000 /usr/lib/python3.13/functools.py:1010(__get__)
+        1    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-t105o-closeout-boldfalcon/python/franken_networkx/__init__.py:33783(__iter__)
+        1    0.000    0.000    0.000    0.000 {built-in method builtins.min}
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+        1    0.000    0.000    0.000    0.000 /usr/lib/python3.13/random.py:119(__init__)
+      184    0.000    0.000    0.000    0.000 {method 'add' of 'set' objects}
+      109    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/classes/graph.py:1303(has_edge)
+        1    0.000    0.000    0.000    0.000 <class 'networkx.utils.decorators.argmap'> compilation 17:1(argmap___new___14)
+        1    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-t105o-closeout-boldfalcon/python/franken_networkx/__init__.py:29185(<lambda>)
+        1    0.000    0.000    0.000    0.000 /usr/lib/python3.13/random.py:128(seed)
+        1    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-t105o-closeout-boldfalcon/python/franken_networkx/__init__.py:7357(is_connected)
+        1    0.000    0.000    0.000    0.000 <class 'networkx.utils.decorators.argmap'> compilation 27:1(argmap_connected_components_23)
+      162    0.000    0.000    0.000    0.000 {method 'getrandbits' of '_random.Random' objects}

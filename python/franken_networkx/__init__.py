@@ -29382,6 +29382,18 @@ def _current_flow_betweenness_impl(G, *, normalized, weight, dtype, solver):
     if not is_connected(G):
         raise NetworkXError("Graph not connected.")
 
+    if (
+        solver == "full"
+        and weight is None
+        and dtype is float
+        and type(G) is Graph
+        and hasattr(_fnx, "current_flow_betweenness_centrality_nx_ordered_rust")
+    ):
+        ordering = list(_reverse_cuthill_mckee_ordering(G))
+        return _fnx.current_flow_betweenness_centrality_nx_ordered_rust(
+            G, ordering, normalized, None
+        )
+
     import numpy as np
 
     n = G.number_of_nodes()
@@ -29430,6 +29442,18 @@ def edge_current_flow_betweenness_centrality(
         raise NetworkXNotImplemented("not implemented for directed type")
     if not is_connected(G):
         raise NetworkXError("Graph not connected.")
+
+    if (
+        solver == "full"
+        and weight is None
+        and dtype is float
+        and type(G) is Graph
+        and hasattr(_fnx, "edge_current_flow_betweenness_centrality_nx_ordered_rust")
+    ):
+        ordering = list(_reverse_cuthill_mckee_ordering(G))
+        return _fnx.edge_current_flow_betweenness_centrality_nx_ordered_rust(
+            G, ordering, normalized, None
+        )
 
     import numpy as np
 

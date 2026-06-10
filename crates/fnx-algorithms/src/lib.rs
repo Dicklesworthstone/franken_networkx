@@ -36491,6 +36491,215 @@ pub fn current_flow_betweenness_centrality(
     bc
 }
 
+fn grounded_laplacian_inverse_ordered(
+    graph: &Graph,
+    ordering: &[String],
+    weight_attr: Option<&str>,
+) -> Option<Vec<f64>> {
+    let n = ordering.len();
+    if n <= 1 {
+        return Some(Vec::new());
+    }
+    let relabel: HashMap<&str, usize> = ordering
+        .iter()
+        .enumerate()
+        .map(|(idx, node)| (node.as_str(), idx))
+        .collect();
+    let reduced_n = n - 1;
+    let mut laplacian = vec![0.0_f64; reduced_n * reduced_n];
+    for edge in graph.edges_ordered() {
+        let i = *relabel.get(edge.left.as_str())?;
+        let j = *relabel.get(edge.right.as_str())?;
+        if i == j {
+            continue;
+        }
+        let weight = weight_attr
+            .and_then(|attr| edge.attrs.get(attr))
+            .and_then(|value| value.as_f64())
+            .unwrap_or(1.0);
+        if i > 0 {
+            let ii = i - 1;
+            laplacian[ii * reduced_n + ii] += weight;
+        }
+        if j > 0 {
+            let jj = j - 1;
+            laplacian[jj * reduced_n + jj] += weight;
+        }
+        if i > 0 && j > 0 {
+            let ii = i - 1;
+            let jj = j - 1;
+            laplacian[ii * reduced_n + jj] -= weight;
+            laplacian[jj * reduced_n + ii] -= weight;
+        }
+    }
+    dense_lu_inverse(laplacian, reduced_n)
+}
+
+fn grounded_inverse_value(inverse: &[f64], reduced_n: usize, row: usize, col: usize) -> f64 {
+    if row == 0 || col == 0 {
+        0.0
+    } else {
+        inverse[(row - 1) * reduced_n + (col - 1)]
+    }
+}
+
+fn sorted_current_flow_edges_ordered(
+    graph: &Graph,
+    ordering: &[String],
+    weight_attr: Option<&str>,
+) -> Option<Vec<(usize, usize, f64)>> {
+    let relabel: HashMap<&str, usize> = ordering
+        .iter()
+        .enumerate()
+        .map(|(idx, node)| (node.as_str(), idx))
+        .collect();
+    let mut edges = Vec::with_capacity(graph.edge_count());
+    for edge in graph.edges_ordered() {
+        let i = *relabel.get(edge.left.as_str())?;
+        let j = *relabel.get(edge.right.as_str())?;
+        if i == j {
+            continue;
+        }
+        let weight = weight_attr
+            .and_then(|attr| edge.attrs.get(attr))
+            .and_then(|value| value.as_f64())
+            .unwrap_or(1.0);
+        let (left, right) = if i <= j { (i, j) } else { (j, i) };
+        edges.push((left, right, weight));
+    }
+    edges.sort_by_key(|&(left, right, _)| (left, right));
+    Some(edges)
+}
+
+fn descending_argsort_positions(row: &[f64], one_indexed: bool) -> Vec<f64> {
+    let mut order: Vec<usize> = (0..row.len()).collect();
+    order.sort_by(|&left, &right| {
+        row[left]
+            .partial_cmp(&row[right])
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    order.reverse();
+    let offset = if one_indexed { 1.0 } else { 0.0 };
+    let mut positions = vec![0.0_f64; row.len()];
+    for (rank, &node) in order.iter().enumerate() {
+        positions[node] = rank as f64 + offset;
+    }
+    positions
+}
+
+/// NetworkX-compatible current-flow betweenness for an already-RCM-ordered
+/// simple graph and the default full-solver path.
+pub fn current_flow_betweenness_centrality_nx_ordered(
+    graph: &Graph,
+    ordering: &[String],
+    normalized: bool,
+    weight_attr: Option<&str>,
+) -> Option<Vec<CentralityScore>> {
+    let n = ordering.len();
+    if n <= 2 {
+        return Some(
+            graph
+                .nodes_ordered()
+                .iter()
+                .map(|&node| CentralityScore {
+                    node: node.to_owned(),
+                    score: 0.0,
+                })
+                .collect(),
+        );
+    }
+    let inverse = grounded_laplacian_inverse_ordered(graph, ordering, weight_attr)?;
+    let reduced_n = n - 1;
+    let edges = sorted_current_flow_edges_ordered(graph, ordering, weight_attr)?;
+    let mut betweenness = vec![0.0_f64; n];
+    let source_coefficients: Vec<f64> = (0..n).map(|idx| idx as f64).collect();
+    let target_coefficients: Vec<f64> = (0..n).map(|idx| (n - 1 - idx) as f64).collect();
+
+    for (source, target, weight) in edges {
+        let mut row = vec![0.0_f64; n];
+        for idx in 0..n {
+            row[idx] = weight
+                * (grounded_inverse_value(&inverse, reduced_n, source, idx)
+                    - grounded_inverse_value(&inverse, reduced_n, target, idx));
+        }
+        let positions = descending_argsort_positions(&row, false);
+        let mut source_total = 0.0;
+        let mut target_total = 0.0;
+        for idx in 0..n {
+            source_total += (source_coefficients[idx] - positions[idx]) * row[idx];
+            target_total += (target_coefficients[idx] - positions[idx]) * row[idx];
+        }
+        betweenness[source] += source_total;
+        betweenness[target] += target_total;
+    }
+
+    let normalization = if normalized {
+        (n - 1) as f64 * (n - 2) as f64
+    } else {
+        2.0
+    };
+    let relabel: HashMap<&str, usize> = ordering
+        .iter()
+        .enumerate()
+        .map(|(idx, node)| (node.as_str(), idx))
+        .collect();
+    Some(
+        graph
+            .nodes_ordered()
+            .iter()
+            .map(|&node| {
+                let idx = relabel[node];
+                CentralityScore {
+                    node: node.to_owned(),
+                    score: (betweenness[idx] - idx as f64) * 2.0 / normalization,
+                }
+            })
+            .collect(),
+    )
+}
+
+/// NetworkX-compatible edge current-flow betweenness for an already-RCM-ordered
+/// simple graph and the default full-solver path.
+pub fn edge_current_flow_betweenness_centrality_nx_ordered(
+    graph: &Graph,
+    ordering: &[String],
+    normalized: bool,
+    weight_attr: Option<&str>,
+) -> Option<Vec<EdgeCentralityScore>> {
+    let n = ordering.len();
+    if n <= 1 {
+        return Some(Vec::new());
+    }
+    let inverse = grounded_laplacian_inverse_ordered(graph, ordering, weight_attr)?;
+    let reduced_n = n - 1;
+    let edges = sorted_current_flow_edges_ordered(graph, ordering, weight_attr)?;
+    let normalization = if normalized {
+        (n - 1) as f64 * (n - 2) as f64
+    } else {
+        2.0
+    };
+    let mut scores = Vec::with_capacity(edges.len());
+    for (source, target, weight) in edges {
+        let mut row = vec![0.0_f64; n];
+        for idx in 0..n {
+            row[idx] = weight
+                * (grounded_inverse_value(&inverse, reduced_n, source, idx)
+                    - grounded_inverse_value(&inverse, reduced_n, target, idx));
+        }
+        let positions = descending_argsort_positions(&row, true);
+        let mut contrib = 0.0;
+        for idx in 0..n {
+            contrib += ((n + 1) as f64 - 2.0 * positions[idx]) * row[idx];
+        }
+        scores.push(EdgeCentralityScore {
+            left: ordering[source].clone(),
+            right: ordering[target].clone(),
+            score: contrib / normalization,
+        });
+    }
+    Some(scores)
+}
+
 fn dense_lu_inverse(mut a: Vec<f64>, n: usize) -> Option<Vec<f64>> {
     if n == 0 {
         return Some(Vec::new());
