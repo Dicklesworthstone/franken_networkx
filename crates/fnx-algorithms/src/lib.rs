@@ -36491,6 +36491,109 @@ pub fn current_flow_betweenness_centrality(
     bc
 }
 
+fn dense_lu_inverse(mut a: Vec<f64>, n: usize) -> Option<Vec<f64>> {
+    if n == 0 {
+        return Some(Vec::new());
+    }
+    let pivots = lu_factor(&mut a, n)?;
+    let mut inverse = vec![0.0_f64; n * n];
+    for i in 0..n {
+        inverse[i * n + i] = 1.0;
+    }
+    lu_solve(&a, &pivots, &mut inverse, n, n);
+    Some(inverse)
+}
+
+/// Current-flow closeness centrality for an already-RCM-ordered simple graph.
+///
+/// The Python wrapper owns NetworkX-visible preconditions and ordering.  This
+/// kernel keeps the numerical work in safe Rust: build the grounded reduced
+/// Laplacian, factor it with dense LU + partial pivoting, materialize the
+/// inverse columns, then apply the same vectorized centrality identity used by
+/// the Python path.
+pub fn current_flow_closeness_centrality_ordered(
+    graph: &Graph,
+    ordering: &[String],
+    weight_attr: Option<&str>,
+) -> Option<Vec<CentralityScore>> {
+    let n = ordering.len();
+    if n == 0 {
+        return Some(Vec::new());
+    }
+    if n == 1 {
+        return Some(vec![CentralityScore {
+            node: ordering[0].clone(),
+            score: f64::INFINITY,
+        }]);
+    }
+
+    let relabel: HashMap<&str, usize> = ordering
+        .iter()
+        .enumerate()
+        .map(|(idx, node)| (node.as_str(), idx))
+        .collect();
+    let reduced_n = n - 1;
+    let mut laplacian = vec![0.0_f64; reduced_n * reduced_n];
+    for edge in graph.edges_ordered() {
+        let i = relabel[edge.left.as_str()];
+        let j = relabel[edge.right.as_str()];
+        if i == j {
+            continue;
+        }
+        let weight = weight_attr
+            .and_then(|attr| edge.attrs.get(attr))
+            .and_then(|value| value.as_f64())
+            .unwrap_or(1.0);
+        if i > 0 {
+            let ii = i - 1;
+            laplacian[ii * reduced_n + ii] += weight;
+        }
+        if j > 0 {
+            let jj = j - 1;
+            laplacian[jj * reduced_n + jj] += weight;
+        }
+        if i > 0 && j > 0 {
+            let ii = i - 1;
+            let jj = j - 1;
+            laplacian[ii * reduced_n + jj] -= weight;
+            laplacian[jj * reduced_n + ii] -= weight;
+        }
+    }
+
+    let inverse = dense_lu_inverse(laplacian, reduced_n)?;
+    let mut diag = vec![0.0_f64; n];
+    let mut row_sums = vec![0.0_f64; n];
+    for node in 1..n {
+        let row = node - 1;
+        diag[node] = inverse[row * reduced_n + row];
+        let mut sum = 0.0;
+        for col in 0..reduced_n {
+            sum += inverse[row * reduced_n + col];
+        }
+        row_sums[node] = sum;
+    }
+
+    let mut centrality = vec![0.0_f64; n];
+    for node in 0..n {
+        let d = diag[node];
+        centrality[node] += n as f64 * d - 2.0 * row_sums[node];
+        for value in &mut centrality {
+            *value += d;
+        }
+    }
+
+    Some(
+        ordering
+            .iter()
+            .enumerate()
+            .map(|(idx, node)| CentralityScore {
+                node: node.clone(),
+                score: 1.0 / centrality[idx],
+            })
+            .collect(),
+    )
+}
+
 // ---------------------------------------------------------------------------
 // GraphML writer (Rust string generation)
 // ---------------------------------------------------------------------------

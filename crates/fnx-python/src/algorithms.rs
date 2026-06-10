@@ -16,7 +16,7 @@ use pyo3::exceptions::{
     PyIndexError, PyKeyError, PyRuntimeError, PyValueError, PyZeroDivisionError,
 };
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyInt, PyList, PySet, PyTuple};
+use pyo3::types::{PyDict, PyInt, PyIterator, PyList, PySet, PyTuple};
 use std::cell::OnceCell;
 use std::collections::{BinaryHeap, HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -17542,6 +17542,38 @@ pub fn current_flow_betweenness_centrality_rust(
     Ok(dict.into_any().unbind())
 }
 
+/// Current-flow closeness centrality for the default unweighted LU path.
+#[pyfunction]
+#[pyo3(signature = (g, ordering, weight=None))]
+pub fn current_flow_closeness_centrality_rust(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    ordering: &Bound<'_, PyAny>,
+    weight: Option<&str>,
+) -> PyResult<PyObject> {
+    let gr = extract_graph(g)?;
+    let inner = gr.undirected();
+    let mut canonical_ordering = Vec::with_capacity(inner.node_count());
+    for item in PyIterator::from_object(ordering)? {
+        let node = item?;
+        canonical_ordering.push(node_key_to_string(py, &node)?);
+    }
+    let result = py
+        .allow_threads(|| {
+            fnx_algorithms::current_flow_closeness_centrality_ordered(
+                inner,
+                &canonical_ordering,
+                weight,
+            )
+        })
+        .ok_or_else(|| PyRuntimeError::new_err("singular grounded Laplacian"))?;
+    let dict = PyDict::new(py);
+    for score in &result {
+        dict.set_item(gr.py_node_key(py, &score.node), score.score)?;
+    }
+    Ok(dict.into_any().unbind())
+}
+
 // ---------------------------------------------------------------------------
 // k-clique communities
 // ---------------------------------------------------------------------------
@@ -18153,6 +18185,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
         current_flow_betweenness_centrality_rust,
         m
     )?)?;
+    m.add_function(wrap_pyfunction!(current_flow_closeness_centrality_rust, m)?)?;
     m.add_function(wrap_pyfunction!(k_clique_communities_rust, m)?)?;
     m.add_function(wrap_pyfunction!(
         edge_current_flow_betweenness_centrality_rust,

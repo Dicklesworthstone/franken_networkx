@@ -29477,6 +29477,15 @@ def current_flow_closeness_centrality(
     import numpy as np
     node_count = G.number_of_nodes()
     ordering = list(_reverse_cuthill_mckee_ordering(G))
+    if (
+        solver == "lu"
+        and weight is None
+        and dtype is float
+        and type(G) is Graph
+        and hasattr(_fnx, "current_flow_closeness_centrality_rust")
+    ):
+        return _fnx.current_flow_closeness_centrality_rust(G, ordering)
+
     relabeled = relabel_nodes(G, dict(zip(ordering, range(node_count))))
 
     laplacian = laplacian_matrix(

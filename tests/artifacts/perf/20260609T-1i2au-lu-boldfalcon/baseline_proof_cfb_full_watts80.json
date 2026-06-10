@@ -1,0 +1,23 @@
+{
+  "comparison": {
+    "fnx_sha256": "3362b57edbfe599539885c6b9441bdaf00f4b9dc680a84324a9e07ce27009e1b",
+    "keys_match": true,
+    "max_abs": 0.0,
+    "max_rel": 0.0,
+    "nx_sha256": "3362b57edbfe599539885c6b9441bdaf00f4b9dc680a84324a9e07ce27009e1b",
+    "worst_key": null
+  },
+  "fnx_seconds": 0.131555408,
+  "func": "cfb",
+  "graph": "watts",
+  "mode": "proof",
+  "n": 80,
+  "nx_seconds": 0.021909248,
+  "ordering_tie_rng_fp": {
+    "floating_point": "baseline records numerical drift against genuine NetworkX for later equality envelope",
+    "node_order": "nodes are inserted as range(n); RCM/relabel order follows each implementation's public algorithm",
+    "rng": "graph generation is deterministic; watts uses seed=37",
+    "tie_breaks": "proof compares final keyed outputs; no new tie-breaking lever is active in baseline"
+  },
+  "solver": "full"
+}
