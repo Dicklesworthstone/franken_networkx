@@ -15200,10 +15200,36 @@ class _ApproximationNamespace:
         rng = _generator_random_state(seed)
         nodes = list(G)
         n = len(nodes)
+        trial_indices = [int(rng.random() * n) for _ in range(trials)]
+        raw_neighbors = _raw_neighbors_dispatch(G)
+        if raw_neighbors is not None and trials <= n:
+            sampled_neighbors = {}
+            sampled_neighbor_sets = {}
+            triangles = 0
+            for i in trial_indices:
+                node = nodes[i]
+                nbrs = sampled_neighbors.get(node)
+                if nbrs is None:
+                    nbrs = list(raw_neighbors(G, node))
+                    sampled_neighbors[node] = nbrs
+                if len(nbrs) < 2:
+                    continue
+                u, v = rng.sample(nbrs, 2)
+                v_nbrs = sampled_neighbor_sets.get(v)
+                if v_nbrs is None:
+                    v_cached = sampled_neighbors.get(v)
+                    if v_cached is None:
+                        v_cached = list(raw_neighbors(G, v))
+                        sampled_neighbors[v] = v_cached
+                    v_nbrs = set(v_cached)
+                    sampled_neighbor_sets[v] = v_nbrs
+                if u in v_nbrs:
+                    triangles += 1
+            return triangles / trials
         adj = {u: list(nbrs) for u, nbrs in G.adjacency()}
         adjset = {u: set(a) for u, a in adj.items()}
         triangles = 0
-        for i in [int(rng.random() * n) for _ in range(trials)]:
+        for i in trial_indices:
             nbrs = adj[nodes[i]]
             if len(nbrs) < 2:
                 continue

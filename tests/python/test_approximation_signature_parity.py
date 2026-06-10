@@ -98,6 +98,46 @@ def test_approximation_call_still_works():
 
 
 @needs_nx
+def test_average_clustering_sampled_native_branch_seed_order():
+    """The sampled-neighborhood path preserves NetworkX's RNG order."""
+    edges = [
+        (0, 1),
+        (1, 2),
+        (2, 0),
+        (2, 3),
+        (3, 4),
+        (4, 2),
+        (4, 5),
+        (5, 6),
+        (6, 4),
+        (6, 7),
+        (7, 8),
+        (8, 6),
+        (8, 9),
+        (9, 10),
+        (10, 8),
+        (10, 11),
+        (11, 0),
+        (0, 10),
+        (1, 4),
+        (3, 6),
+        (5, 8),
+        (7, 10),
+    ]
+    graph = fnx.Graph()
+    nx_graph = nx.Graph()
+    graph.add_nodes_from(range(12))
+    nx_graph.add_nodes_from(range(12))
+    graph.add_edges_from(edges)
+    nx_graph.add_edges_from(edges)
+
+    for seed in range(8):
+        assert fnx.approximation.average_clustering(
+            graph, trials=12, seed=seed
+        ) == nx.approximation.average_clustering(nx_graph, trials=12, seed=seed)
+
+
+@needs_nx
 def test_approximation_treewidth_min_degree_overrides_dispatch():
     """treewidth_min_degree was overridden in fnx (not delegated). Its
     signature must still match upstream so introspection is honest."""
