@@ -1262,6 +1262,34 @@ fn centrality_to_dict(
     Ok(dict.unbind())
 }
 
+fn graph_degree_centrality_to_dict(py: Python<'_>, pg: &PyGraph) -> PyResult<Py<PyDict>> {
+    let inner = &pg.inner;
+    let n = inner.node_count();
+    let dict = PyDict::new(py);
+    if n == 0 {
+        return Ok(dict.unbind());
+    }
+    if n <= 1 {
+        for idx in 0..n {
+            let node = inner
+                .get_node_name(idx)
+                .expect("degree centrality index must resolve to node");
+            dict.set_item(pg.py_node_key(py, node), 1.0)?;
+        }
+        return Ok(dict.unbind());
+    }
+
+    let reciprocal = 1.0 / ((n - 1) as f64);
+    for idx in 0..n {
+        let node = inner
+            .get_node_name(idx)
+            .expect("degree centrality index must resolve to node");
+        let score = (inner.degree_by_index(idx) as f64) * reciprocal;
+        dict.set_item(pg.py_node_key(py, node), score)?;
+    }
+    Ok(dict.unbind())
+}
+
 fn tuple_object(py: Python<'_>, elements: &[PyObject]) -> PyResult<PyObject> {
     Ok(PyTuple::new(py, elements)?.into_any().unbind())
 }
@@ -3859,8 +3887,7 @@ pub fn degree_centrality(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Py<Py
     let gr = extract_graph(g)?;
     let result = match &gr {
         GraphRef::Undirected(pg) => {
-            let inner = &pg.inner;
-            py.allow_threads(|| fnx_algorithms::degree_centrality(inner))
+            return graph_degree_centrality_to_dict(py, pg);
         }
         GraphRef::Directed { dg, .. } => {
             let inner = &dg.inner;
