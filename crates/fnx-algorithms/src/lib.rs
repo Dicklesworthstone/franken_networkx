@@ -35903,23 +35903,227 @@ fn matmul_rowmajor(a: &[f64], b: &[f64], n: usize) -> Vec<f64> {
     c
 }
 
-/// `exp(A)` for a dense row-major (symmetric) matrix via **scaling-and-squaring**
-/// with a truncated-Taylor core (Higham-style): pick `s` so that `‖A·2⁻ˢ‖ ≤ ½`,
-/// Taylor-expand the scaled matrix (converges in ~12 terms at that norm), then
-/// square the result `s` times since `exp(A) = exp(A·2⁻ˢ)^(2ˢ)`.
+/// In-place LU factorization with **partial (row) pivoting** of an `n×n`
+/// row-major matrix `a` (our own safe-Rust LAPACK `dgetrf`, no C BLAS).
 ///
-/// Replaces a naive 60-term Taylor where every term was a full O(n³) matmul —
-/// that was both slow (≈40 matmuls for a degree-~10 adjacency) and numerically
-/// unstable for large-norm matrices (intermediate `Aᵏ/k!` blows up before the
-/// factorial dominates). Scaling first caps the working norm at ½, so the series
-/// is short and well-conditioned; the matmuls use the cache-friendly kernel
-/// above. Deterministic and bit-reproducible run to run.
+/// On return `a` holds the compact factors: the strictly-lower triangle is the
+/// unit-lower `L` (multipliers), the upper triangle (incl. diagonal) is `U`.
+/// `ipiv[k]` is the row index swapped into position `k` at step `k` (LAPACK
+/// `ipiv` convention) — replayed verbatim by [`lu_solve`]. Returns `None` if a
+/// column is exactly singular (zero pivot), so callers can fall back.
+///
+/// The rank-1 trailing-submatrix update (`a[i,j] -= L[i,k]·U[k,j]`) is the
+/// O(n³) GEMM-shaped hot loop; it is walked row-major so the inner `j` sweep is
+/// contiguous, mirroring [`matmul_rowmajor`]'s cache discipline.
+fn lu_factor(a: &mut [f64], n: usize) -> Option<Vec<usize>> {
+    let mut ipiv = vec![0_usize; n];
+    for k in 0..n {
+        // Partial pivot: largest-magnitude entry in column k at/below the diagonal.
+        let mut p = k;
+        let mut maxv = a[k * n + k].abs();
+        for i in (k + 1)..n {
+            let v = a[i * n + k].abs();
+            if v > maxv {
+                maxv = v;
+                p = i;
+            }
+        }
+        if maxv == 0.0 {
+            return None; // singular
+        }
+        ipiv[k] = p;
+        if p != k {
+            for j in 0..n {
+                a.swap(k * n + j, p * n + j);
+            }
+        }
+        let inv_pivot = 1.0 / a[k * n + k];
+        for i in (k + 1)..n {
+            let f = a[i * n + k] * inv_pivot;
+            a[i * n + k] = f;
+            if f != 0.0 {
+                let (head, tail) = a.split_at_mut(i * n);
+                let u_row = &head[k * n..k * n + n];
+                let l_row = &mut tail[k..n];
+                for j in (k + 1)..n {
+                    l_row[j - k] -= f * u_row[j];
+                }
+            }
+        }
+    }
+    Some(ipiv)
+}
+
+/// Solve `A·X = B` in place on `B` (`n×m`, row-major) given the LU factors and
+/// pivots from [`lu_factor`]: apply `P`, forward-substitute the unit-lower `L`,
+/// then back-substitute `U`. With `B = I` this yields `A⁻¹`; with `m` RHS
+/// columns it is one shared factorization amortized over all solves.
+fn lu_solve(a: &[f64], ipiv: &[usize], b: &mut [f64], n: usize, m: usize) {
+    // P·B — replay the factorization's row swaps in order.
+    for k in 0..n {
+        let p = ipiv[k];
+        if p != k {
+            for j in 0..m {
+                b.swap(k * m + j, p * m + j);
+            }
+        }
+    }
+    // Forward: L·Y = P·B (L unit-lower; axpy/column form).
+    for k in 0..n {
+        let (head, tail) = b.split_at_mut((k + 1) * m);
+        let y_row = &head[k * m..k * m + m];
+        for i in (k + 1)..n {
+            let lik = a[i * n + k];
+            if lik != 0.0 {
+                let row = &mut tail[(i - k - 1) * m..(i - k) * m];
+                for j in 0..m {
+                    row[j] -= lik * y_row[j];
+                }
+            }
+        }
+    }
+    // Back: U·X = Y.
+    for k in (0..n).rev() {
+        let inv_ukk = 1.0 / a[k * n + k];
+        {
+            let x_row = &mut b[k * m..k * m + m];
+            for x in x_row.iter_mut() {
+                *x *= inv_ukk;
+            }
+        }
+        let (head, tail) = b.split_at_mut(k * m);
+        let x_row = &tail[0..m];
+        for i in 0..k {
+            let uik = a[i * n + k];
+            if uik != 0.0 {
+                let row = &mut head[i * m..i * m + m];
+                for j in 0..m {
+                    row[j] -= uik * x_row[j];
+                }
+            }
+        }
+    }
+}
+
+/// `exp(A)` for a dense row-major matrix via **scaling-and-squaring with the
+/// degree-13 diagonal Padé approximant** (Higham, *Functions of Matrices* 2005,
+/// Alg. 10.20 — the same algorithm SciPy's `linalg.expm` uses, so the result
+/// tracks NetworkX's `scipy.linalg.expm` reference to machine precision).
+///
+/// Padé[13] forms `exp ≈ (V−U)⁻¹(V+U)` from the even/odd polynomial split of the
+/// numerator, costing **6 matmuls + 1 LU solve** versus the previous truncated
+/// Taylor core's ~13 matmuls at `‖A‖≤½` — roughly half the O(n³) work for the
+/// same accuracy, and it reuses our own [`lu_factor`]/[`lu_solve`] rather than
+/// any C LAPACK. Falls back to the Taylor core only if the (well-conditioned by
+/// construction) `V−U` ever factors singular. Deterministic run to run.
 fn matrix_exp_symmetric(a: &[f64], n: usize) -> Vec<f64> {
     if n == 0 {
         return Vec::new();
     }
-    // ∞-norm (max abs row sum) bounds the spectral radius; choose the smallest
-    // s with ‖A·2⁻ˢ‖∞ ≤ 1/2 so the Taylor core converges in a handful of terms.
+
+    // 1-norm (max abs column sum); for the symmetric inputs here this equals the
+    // ∞-norm and bounds the spectral radius. Scale so ‖A·2⁻ˢ‖₁ ≤ θ₁₃ (Higham's
+    // degree-13 bound), keeping the Padé approximant in its accurate regime.
+    const THETA13: f64 = 5.371920351148152;
+    let mut norm = 0.0_f64;
+    for j in 0..n {
+        let mut col = 0.0_f64;
+        for i in 0..n {
+            col += a[i * n + j].abs();
+        }
+        norm = norm.max(col);
+    }
+    let s: u32 = if norm > THETA13 {
+        (norm / THETA13).log2().ceil().max(0.0) as u32
+    } else {
+        0
+    };
+    let scale = 2.0_f64.powi(-(s as i32)); // exact: 2⁻ˢ representable in f64
+    let a_scaled: Vec<f64> = a.iter().map(|&x| x * scale).collect();
+
+    // Degree-13 Padé numerator coefficients (Higham); shared by numerator and
+    // denominator of the diagonal approximant. Written as the same decimal
+    // literals SciPy uses so the f64 rounding matches.
+    const B: [f64; 14] = [
+        64764752532480000.0,
+        32382376266240000.0,
+        7771770303897600.0,
+        1187353796428800.0,
+        129060195264000.0,
+        10559470521600.0,
+        670442572800.0,
+        33522128640.0,
+        1323241920.0,
+        40840800.0,
+        960960.0,
+        16380.0,
+        182.0,
+        1.0,
+    ];
+
+    let a2 = matmul_rowmajor(&a_scaled, &a_scaled, n);
+    let a4 = matmul_rowmajor(&a2, &a2, n);
+    let a6 = matmul_rowmajor(&a4, &a2, n);
+
+    let nn = n * n;
+    // U = A · (A6·(b13·A6 + b11·A4 + b9·A2) + b7·A6 + b5·A4 + b3·A2 + b1·I)
+    let mut w = vec![0.0_f64; nn];
+    for idx in 0..nn {
+        w[idx] = B[13] * a6[idx] + B[11] * a4[idx] + B[9] * a2[idx];
+    }
+    let mut u_inner = matmul_rowmajor(&a6, &w, n);
+    for idx in 0..nn {
+        u_inner[idx] += B[7] * a6[idx] + B[5] * a4[idx] + B[3] * a2[idx];
+    }
+    for i in 0..n {
+        u_inner[i * n + i] += B[1];
+    }
+    let u = matmul_rowmajor(&a_scaled, &u_inner, n);
+
+    // V = A6·(b12·A6 + b10·A4 + b8·A2) + b6·A6 + b4·A4 + b2·A2 + b0·I
+    let mut wv = vec![0.0_f64; nn];
+    for idx in 0..nn {
+        wv[idx] = B[12] * a6[idx] + B[10] * a4[idx] + B[8] * a2[idx];
+    }
+    let mut v = matmul_rowmajor(&a6, &wv, n);
+    for idx in 0..nn {
+        v[idx] += B[6] * a6[idx] + B[4] * a4[idx] + B[2] * a2[idx];
+    }
+    for i in 0..n {
+        v[i * n + i] += B[0];
+    }
+
+    // Solve (V − U)·R = (V + U). LU-factor the denominator once.
+    let mut denom = vec![0.0_f64; nn];
+    let mut rhs = vec![0.0_f64; nn];
+    for idx in 0..nn {
+        denom[idx] = v[idx] - u[idx];
+        rhs[idx] = v[idx] + u[idx];
+    }
+
+    let mut result = match lu_factor(&mut denom, n) {
+        Some(ipiv) => {
+            lu_solve(&denom, &ipiv, &mut rhs, n, n);
+            rhs
+        }
+        // Denominator singular (does not happen for valid expm inputs): fall
+        // back to the scaling-and-squaring Taylor core to guarantee an answer.
+        None => return matrix_exp_taylor(a, n),
+    };
+
+    // Undo the scaling: square s times -> exp(A·2⁻ˢ)^(2ˢ) = exp(A).
+    for _ in 0..s {
+        result = matmul_rowmajor(&result, &result, n);
+    }
+    result
+}
+
+/// Scaling-and-squaring with a truncated-Taylor core (`‖A·2⁻ˢ‖ ≤ ½`, ~12 terms):
+/// retained as the singular-denominator fallback for [`matrix_exp_symmetric`].
+fn matrix_exp_taylor(a: &[f64], n: usize) -> Vec<f64> {
+    if n == 0 {
+        return Vec::new();
+    }
     let mut norm = 0.0_f64;
     for i in 0..n {
         let mut row = 0.0_f64;
@@ -35933,12 +36137,9 @@ fn matrix_exp_symmetric(a: &[f64], n: usize) -> Vec<f64> {
     } else {
         0
     };
-    let scale = 2.0_f64.powi(-(s as i32)); // exact: 2⁻ˢ is representable in f64
-
-    // Scaled matrix B = A·2⁻ˢ (same sparsity as A).
+    let scale = 2.0_f64.powi(-(s as i32));
     let b: Vec<f64> = a.iter().map(|&x| x * scale).collect();
 
-    // Taylor: result = Σ Bᵏ/k! with term recurrence term ← term·B/k.
     let mut result = vec![0.0_f64; n * n];
     let mut term = vec![0.0_f64; n * n];
     for i in 0..n {
@@ -35961,8 +36162,6 @@ fn matrix_exp_symmetric(a: &[f64], n: usize) -> Vec<f64> {
             break;
         }
     }
-
-    // Undo the scaling: square s times -> exp(A·2⁻ˢ)^(2ˢ) = exp(A).
     for _ in 0..s {
         result = matmul_rowmajor(&result, &result, n);
     }
@@ -50664,5 +50863,179 @@ mod tests {
             err,
             "Prüfer sequence undefined for trees with fewer than two nodes"
         );
+    }
+}
+
+#[cfg(test)]
+mod lu_pade_tests {
+    use super::{lu_factor, lu_solve, matmul_rowmajor, matrix_exp_symmetric, matrix_exp_taylor};
+
+    // Deterministic LCG so tests are reproducible without an RNG dependency.
+    struct Lcg(u64);
+    impl Lcg {
+        fn next_f64(&mut self) -> f64 {
+            self.0 = self.0.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            ((self.0 >> 11) as f64) / ((1u64 << 53) as f64) // [0,1)
+        }
+    }
+
+    fn matvec(a: &[f64], x: &[f64], n: usize) -> Vec<f64> {
+        let mut y = vec![0.0; n];
+        for i in 0..n {
+            let mut s = 0.0;
+            for j in 0..n {
+                s += a[i * n + j] * x[j];
+            }
+            y[i] = s;
+        }
+        y
+    }
+
+    #[test]
+    fn lu_solve_matches_dense_system_to_1e10() {
+        let mut rng = Lcg(0x1234_5678_9abc_def0);
+        for &n in &[1usize, 2, 3, 5, 8, 16, 37] {
+            // Diagonally dominant => well conditioned, guaranteed nonsingular.
+            let mut a = vec![0.0; n * n];
+            for i in 0..n {
+                let mut rowsum = 0.0;
+                for j in 0..n {
+                    let v = rng.next_f64() * 2.0 - 1.0;
+                    a[i * n + j] = v;
+                    if i != j {
+                        rowsum += v.abs();
+                    }
+                }
+                a[i * n + i] = rowsum + 1.0 + rng.next_f64();
+            }
+            let x_true: Vec<f64> = (0..n).map(|_| rng.next_f64() * 10.0 - 5.0).collect();
+            let b = matvec(&a, &x_true, n);
+
+            let mut fac = a.clone();
+            let ipiv = lu_factor(&mut fac, n).expect("nonsingular");
+            let mut x = b.clone();
+            lu_solve(&fac, &ipiv, &mut x, n, 1);
+
+            for i in 0..n {
+                assert!(
+                    (x[i] - x_true[i]).abs() < 1e-10,
+                    "n={n} i={i} got {} want {}",
+                    x[i],
+                    x_true[i]
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn lu_inverse_times_a_is_identity() {
+        let mut rng = Lcg(0xdead_beef_cafe_1357);
+        for &n in &[2usize, 4, 9, 20] {
+            let mut a = vec![0.0; n * n];
+            for i in 0..n {
+                let mut rowsum = 0.0;
+                for j in 0..n {
+                    let v = rng.next_f64() * 2.0 - 1.0;
+                    a[i * n + j] = v;
+                    if i != j {
+                        rowsum += v.abs();
+                    }
+                }
+                a[i * n + i] = rowsum + 1.0;
+            }
+            let mut fac = a.clone();
+            let ipiv = lu_factor(&mut fac, n).expect("nonsingular");
+            let mut inv = vec![0.0; n * n];
+            for i in 0..n {
+                inv[i * n + i] = 1.0;
+            }
+            lu_solve(&fac, &ipiv, &mut inv, n, n);
+            let prod = matmul_rowmajor(&a, &inv, n);
+            for i in 0..n {
+                for j in 0..n {
+                    let want = if i == j { 1.0 } else { 0.0 };
+                    assert!(
+                        (prod[i * n + j] - want).abs() < 1e-9,
+                        "n={n} ({i},{j}) = {}",
+                        prod[i * n + j]
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn lu_factor_reports_singular() {
+        // Rank-deficient: row 2 == 2*row 0.
+        let n = 3;
+        let a = vec![1.0, 2.0, 3.0, 0.0, 1.0, 4.0, 2.0, 4.0, 6.0];
+        let mut fac = a;
+        assert!(lu_factor(&mut fac, n).is_none());
+    }
+
+    #[test]
+    fn pade_expm_known_nilpotent() {
+        // exp([[0,1],[0,0]]) = [[1,1],[0,1]] exactly.
+        let a = vec![0.0, 1.0, 0.0, 0.0];
+        let e = matrix_exp_symmetric(&a, 2);
+        let want = [1.0, 1.0, 0.0, 1.0];
+        for k in 0..4 {
+            assert!((e[k] - want[k]).abs() < 1e-12, "k={k} {} vs {}", e[k], want[k]);
+        }
+    }
+
+    #[test]
+    fn pade_expm_diagonal_is_elementwise_exp() {
+        let a = vec![0.5, 0.0, 0.0, 0.0, -1.3, 0.0, 0.0, 0.0, 2.0];
+        let e = matrix_exp_symmetric(&a, 3);
+        for (i, &lam) in [0.5_f64, -1.3, 2.0].iter().enumerate() {
+            assert!((e[i * 3 + i] - lam.exp()).abs() < 1e-12);
+        }
+    }
+
+    #[test]
+    fn pade_matches_taylor_on_symmetric_matrices() {
+        // Padé[13] and the scaling-squaring Taylor core both approximate the
+        // true matrix exponential; agreement to ~1e-10 cross-validates Padé.
+        let mut rng = Lcg(0x0f0f_0f0f_1111_2222);
+        for &n in &[2usize, 3, 6, 12, 25] {
+            let mut a = vec![0.0; n * n];
+            for i in 0..n {
+                for j in i..n {
+                    let v = rng.next_f64() * 2.0 - 1.0;
+                    a[i * n + j] = v;
+                    a[j * n + i] = v;
+                }
+            }
+            let p = matrix_exp_symmetric(&a, n);
+            let t = matrix_exp_taylor(&a, n);
+            let mut maxrel = 0.0_f64;
+            for k in 0..n * n {
+                let denom = t[k].abs().max(1.0);
+                maxrel = maxrel.max((p[k] - t[k]).abs() / denom);
+            }
+            assert!(maxrel < 1e-10, "n={n} maxrel={maxrel}");
+        }
+    }
+
+    #[test]
+    fn pade_expm_large_norm_adjacencyish() {
+        // High-norm integer adjacency (forces scaling s>0): exp must still match
+        // the Taylor reference, exercising the squaring path.
+        let n = 10;
+        let mut a = vec![0.0; n * n];
+        for i in 0..n {
+            for j in 0..n {
+                if i != j {
+                    a[i * n + j] = 1.0; // complete graph K10, 1-norm = 9
+                }
+            }
+        }
+        let p = matrix_exp_symmetric(&a, n);
+        let t = matrix_exp_taylor(&a, n);
+        for k in 0..n * n {
+            let denom = t[k].abs().max(1.0);
+            assert!((p[k] - t[k]).abs() / denom < 1e-9, "k={k} {} vs {}", p[k], t[k]);
+        }
     }
 }
