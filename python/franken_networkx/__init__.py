@@ -11390,7 +11390,22 @@ def _all_triangles_impl(G, nbunch=None):
     # ``keys & keys`` set-intersection iteration order (and thus the yielded
     # triangle order) stays byte-identical to nx — only the repeated fnx
     # adjacency-view construction is eliminated (~6x self-speedup, 7.9x->1.65x).
-    adj = {node: nbrs for node, nbrs in G.adjacency()}
+    #
+    # br-r37-c1-iowms: for an exact simple FNX ``Graph``, build the snapshot
+    # from key-only rows (``_native_adjacency_keys`` -> ``{node: [nbr, ...]}``)
+    # instead of ``G.adjacency()`` (which materialises an attr-bearing
+    # ``{nbr: attrs}`` dict per node). ``dict.fromkeys(nbrs).keys()`` is a real
+    # dict_keys whose hash-table layout depends only on the neighbour KEY
+    # objects and their insertion order — identical to the attr-bearing dict's
+    # keys — so the ``keys & keys`` set-intersection iteration order (and thus
+    # the yielded triangle stream + tuple orientation) is byte-identical to nx.
+    # Multigraph / filtered views (where the native key snapshot can diverge
+    # from the live adjacency) fall back to the attr-bearing ``G.adjacency()``.
+    _nak = getattr(G, "_native_adjacency_keys", None) if type(G) is Graph else None
+    if _nak is not None:
+        adj = {node: dict.fromkeys(nbrs) for node, nbrs in _nak()}
+    else:
+        adj = {node: nbrs for node, nbrs in G.adjacency()}
     if nbunch is None:
         nbunch_lookup = dict.fromkeys(G)
         relevant_nodes = nbunch_lookup
