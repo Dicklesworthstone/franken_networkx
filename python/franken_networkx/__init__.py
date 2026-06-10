@@ -11199,6 +11199,20 @@ def greedy_color(G, strategy="largest_first", interchange=False):
             pass
     # br-r37-c1-vevfq: other strategies still delegate (Rust ordering
     # diverges from nx).
+    # br-r37-c1-gcstruct: greedy_color is structure-only (no node/edge attrs or
+    # weights affect the coloring), so run nx's strategy on a cheap STRUCTURAL
+    # nx.Graph (G's nodes in order + edges) instead of the faithful
+    # _networkx_graph_for_parity conversion (~half of the call). The node +
+    # adjacency iteration order is preserved, so the order-sensitive coloring
+    # (these strategies pop nodes from degree buckets in CPython set order) is
+    # byte-identical — verified struct==faithful for every str strategy.
+    # Multigraph / directed keep the faithful path (structural would drop
+    # parallel edges / direction).
+    if not G.is_multigraph() and not G.is_directed():
+        _H = _nx.Graph()
+        _H.add_nodes_from(G)
+        _H.add_edges_from(G.edges())
+        return _nx.greedy_color(_H, strategy=strategy, interchange=interchange)
     return _call_networkx_for_parity(
         "greedy_color",
         G,
