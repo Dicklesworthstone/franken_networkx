@@ -15302,6 +15302,26 @@ class _ApproximationNamespace:
         *_, node = distances
         return eccentricity(G, node)
 
+    def local_node_connectivity(self, G, source, target, cutoff=None, *, backend=None, **backend_kwargs):
+        # br-r37-c1-apxlnc: the generic __getattr__ wrapper round-tripped the
+        # graph through ``_networkx_graph_for_parity`` (an O(V+E) conversion)
+        # before running White & Newman's greedy approximation — but the
+        # algorithm itself only touches the O(kappa) augmenting-path nodes, so
+        # the conversion dominated (~25x slower than nx on a single pair). Run
+        # the algorithm IN-PROCESS using the raw neighbour binding (no
+        # conversion, no AtlasView per-access tax). Directed / multigraph /
+        # nx-private-storage graphs keep the delegation path.
+        _validate_backend_dispatch_keywords(
+            "local_node_connectivity", backend, backend_kwargs
+        )
+        raw = _raw_neighbors_dispatch(G)
+        if raw is not None and not G.is_directed() and not G.is_multigraph():
+            return _approx_local_node_connectivity_undirected(
+                G, raw, source, target, cutoff
+            )
+        nx_G = _networkx_graph_for_parity(G)
+        return _nx.approximation.local_node_connectivity(nx_G, source, target, cutoff)
+
     def __getattr__(self, name):
         nx_func = getattr(_nx.approximation, name)
 
@@ -15331,6 +15351,91 @@ class _ApproximationNamespace:
 
     def __dir__(self):
         return sorted(set(dir(_nx.approximation)) | {"treewidth_min_degree"})
+
+
+def _approx_local_node_connectivity_undirected(G, raw, source, target, cutoff):
+    """In-process White & Newman greedy node-connectivity approximation for an
+    undirected simple graph, mirroring
+    ``networkx.algorithms.approximation.connectivity.local_node_connectivity``
+    EXACTLY (same level-alternating bidirectional BFS, same neighbour iteration
+    order via the raw binding, same exclude-set update) so the returned count is
+    byte-identical. ``raw(G, v)`` yields v's neighbours in G's adjacency order.
+    """
+    if target == source:
+        raise NetworkXError("source and target have to be different nodes.")
+    # Maximum possible node independent paths (undirected: min of the degrees).
+    possible = min(G.degree(source), G.degree(target))
+    if not possible:
+        return 0
+    if cutoff is None:
+        cutoff = float("inf")
+    exclude = set()
+    k = 0
+    for _i in range(min(possible, cutoff)):
+        path = _approx_bidirectional_shortest_path_excl(G, raw, source, target, exclude)
+        if path is None:
+            break
+        exclude.update(path)
+        k += 1
+    return k
+
+
+def _approx_bidirectional_shortest_path_excl(G, raw, source, target, exclude):
+    """Bidirectional BFS shortest path avoiding ``exclude`` nodes; returns the
+    path list or ``None`` (nx raises NetworkXNoPath). Level-alternates forward /
+    reverse exactly as nx's ``_bidirectional_pred_succ``."""
+    pred = {source: None}
+    succ = {target: None}
+    forward_fringe = [source]
+    reverse_fringe = [target]
+    level = 0
+    found = None
+    while forward_fringe and reverse_fringe and found is None:
+        level += 1
+        if level % 2 != 0:
+            this_level = forward_fringe
+            forward_fringe = []
+            for v in this_level:
+                for w in raw(G, v):
+                    if w in exclude:
+                        continue
+                    if w not in pred:
+                        forward_fringe.append(w)
+                        pred[w] = v
+                    if w in succ:
+                        found = w
+                        break
+                if found is not None:
+                    break
+        else:
+            this_level = reverse_fringe
+            reverse_fringe = []
+            for v in this_level:
+                for w in raw(G, v):
+                    if w in exclude:
+                        continue
+                    if w not in succ:
+                        succ[w] = v
+                        reverse_fringe.append(w)
+                    if w in pred:
+                        found = w
+                        break
+                if found is not None:
+                    break
+    if found is None:
+        return None
+    w = found
+    path = []
+    while w is not None:
+        path.append(w)
+        w = pred[w]
+    path.reverse()
+    w = succ[path[-1]]
+    while w is not None:
+        path.append(w)
+        w = succ[w]
+    return path
+
 
 # Algorithm functions — cycles
 from franken_networkx._fnx import (
