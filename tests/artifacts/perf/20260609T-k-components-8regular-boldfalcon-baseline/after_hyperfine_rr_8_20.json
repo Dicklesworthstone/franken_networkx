@@ -1,0 +1,28 @@
+{
+  "results": [
+    {
+      "command": "PYTHONPATH=python python3 tests/artifacts/perf/20260609T-k-components-8regular-boldfalcon-baseline/harness_8regular.py --mode time-one --which fnx --case rr_8_20_seed53 --repeats 1",
+      "mean": 0.65611116746,
+      "stddev": 0.06084694524871338,
+      "median": 0.64383749386,
+      "user": 3.9879881399999997,
+      "system": 0.0563693,
+      "min": 0.59154479786,
+      "max": 0.75587891886,
+      "times": [
+        0.64383749386,
+        0.59154479786,
+        0.63295330386,
+        0.75587891886,
+        0.65634132286
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}
