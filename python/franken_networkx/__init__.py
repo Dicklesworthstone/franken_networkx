@@ -26244,7 +26244,65 @@ def transitive_closure_dag(G, topo_order=None):
         # raises NetworkXNotImplemented; fnx silently ran. Surface the
         # standard message for drop-in parity.
         raise NetworkXNotImplemented("not implemented for undirected type")
+    # br-r37-c1-tcddedeleg: run nx's exact algorithm IN-PROCESS on the fnx
+    # graph for a plain DiGraph, instead of round-tripping through nx
+    # (_networkx_graph_for_parity built a full nx copy AND _from_nx_graph
+    # rebuilt the larger closure graph — ~59% of the time was these two
+    # O(V+E) conversions). nx appends each adj[v]'s transitive edges in
+    # CPython set-iteration order; we reproduce that natively by using real
+    # Python sets with identical insertion order, so the output graph's
+    # adj iteration is byte-identical (ordered edges == nx). Multigraph /
+    # views / nx-private-storage graphs keep the proven delegation path.
+    if type(G) is DiGraph:
+        result = _transitive_closure_dag_inproc(G, topo_order)
+        if result is not None:
+            return result
     return _transitive_closure_dag_via_parity(G, topo_order)
+
+
+def _transitive_closure_dag_inproc(G, topo_order):
+    """In-process nx-exact transitive_closure_dag for a plain DiGraph.
+
+    Mirrors networkx.algorithms.dag.transitive_closure_dag verbatim:
+    ``TC = G.copy(); for v in reversed(topo_order): TC.add_edges_from(
+    (v, u) for u in descendants_at_distance(TC, v, 2))``. The distance-2
+    BFS is inlined with the raw Rust successor accessor (skipping the
+    AtlasView per-access tax) but builds the SAME Python sets in the SAME
+    insertion order, so CPython set-iteration order — and thus the appended
+    transitive-edge order in every adj[v] — matches nx exactly. Returns
+    ``None`` to signal the caller to fall back (raw accessor unavailable).
+    """
+    if topo_order is None:
+        topo_order = list(topological_sort(G))
+    TC = G.copy()
+    succ = _raw_neighbors_dispatch(TC)
+    if succ is None:
+        return None
+    for v in reversed(topo_order):
+        # descendants_at_distance(TC, v, 2) == set(bfs_layers(TC, v)[2]).
+        # bfs_layers builds each layer as a LIST in BFS discovery order
+        # (next_layer.append), so the distance-2 layer's element order — and
+        # hence the iteration order of set(layer) consumed by add_edges_from —
+        # is deterministic and matches nx EXACTLY. (Building the layer as a set
+        # directly would scramble that insertion order.)
+        current_layer = [v]
+        visited = {v}
+        descendants = []
+        i = 0
+        while current_layer:
+            if i == 2:
+                descendants = current_layer
+                break
+            next_layer = []
+            for node in current_layer:
+                for child in succ(TC, node):
+                    if child not in visited:
+                        visited.add(child)
+                        next_layer.append(child)
+            current_layer = next_layer
+            i += 1
+        TC.add_edges_from((v, u) for u in set(descendants))
+    return TC
 
 
 def _transitive_closure_dag_via_parity(G, topo_order):
