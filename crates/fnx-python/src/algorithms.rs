@@ -11225,6 +11225,71 @@ fn lexicographic_product_fast(
     graph_product_fast(py, g, h, 3)
 }
 
+/// br-r37-c1-prodmodular: native modular product fast path (undirected only).
+/// Two distinct product nodes (g1,h1),(g2,h2) are adjacent iff g1!=g2, h1!=h2,
+/// and G-adjacency(g1,g2) == H-adjacency(h1,h2) (both edges, or both non-edges).
+/// nx iterates all O((VW)^2) node pairs; here adjacency is precomputed into flat
+/// bitmatrices and the same edge set is assembled in Rust. Returns None on any
+/// unsupported shape so the Python wrapper falls back.
+#[pyfunction]
+#[pyo3(signature = (g, h))]
+fn modular_product_fast(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    h: &Bound<'_, PyAny>,
+) -> PyResult<Option<PyObject>> {
+    let gr1 = extract_graph(g)?;
+    let gr2 = extract_graph(h)?;
+    if gr1.is_directed() || gr2.is_directed() {
+        return Ok(None);
+    }
+    let g1 = gr1.undirected();
+    let g2 = gr2.undirected();
+    let g_names: Vec<String> = g1.nodes_ordered().iter().map(|s| (*s).to_owned()).collect();
+    let h_names: Vec<String> = g2.nodes_ordered().iter().map(|s| (*s).to_owned()).collect();
+    let ng = g_names.len();
+    let nh = h_names.len();
+    let (canon, node_key_map) = product_node_tuples(py, &gr1, &gr2, &g_names, &h_names)?;
+
+    // Flat adjacency bitmatrices (ng, nh are small — modular_product is O(V^2 W^2)).
+    let mut g_adj = vec![false; ng * ng];
+    for u in 0..ng {
+        for &v in g1.neighbors_indices(u).unwrap_or(&[]) {
+            g_adj[u * ng + v] = true;
+        }
+    }
+    let mut h_adj = vec![false; nh * nh];
+    for u in 0..nh {
+        for &v in g2.neighbors_indices(u).unwrap_or(&[]) {
+            h_adj[u * nh + v] = true;
+        }
+    }
+
+    let mut edges: Vec<(String, String)> = Vec::new();
+    for gl in 0..ng {
+        for gr in (gl + 1)..ng {
+            let ga = g_adj[gl * ng + gr];
+            for hl in 0..nh {
+                for hr in (hl + 1)..nh {
+                    if ga != h_adj[hl * nh + hr] {
+                        continue;
+                    }
+                    edges.push((canon[gl * nh + hl].clone(), canon[gr * nh + hr].clone()));
+                    edges.push((canon[gl * nh + hr].clone(), canon[gr * nh + hl].clone()));
+                }
+            }
+        }
+    }
+
+    let mut inner = fnx_classes::Graph::with_runtime_policy(g1.runtime_policy().clone());
+    let _ = inner.extend_nodes_unrecorded(canon.iter().cloned());
+    let _ = inner.extend_edges_unrecorded(edges);
+    let mut py_graph = PyGraph::new_empty_with_policy(py, g1.runtime_policy().clone())?;
+    py_graph.inner = inner;
+    py_graph.node_key_map = node_key_map;
+    Ok(Some(py_graph.into_pyobject(py)?.into_any().unbind()))
+}
+
 // br-r37-c1-lgnative: native line graph for the simple (non-multi),
 // no-create_using, self-loop-free case. L(G)'s nodes are G's EDGES, represented
 // as Python tuples `(u, v)`; the Python path adds them one PyO3 call at a time
@@ -18102,6 +18167,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(tensor_product_fast, m)?)?;
     m.add_function(wrap_pyfunction!(strong_product_fast, m)?)?;
     m.add_function(wrap_pyfunction!(lexicographic_product_fast, m)?)?;
+    m.add_function(wrap_pyfunction!(modular_product_fast, m)?)?;
     m.add_function(wrap_pyfunction!(line_graph_fast, m)?)?;
     m.add_function(wrap_pyfunction!(degree_histogram, m)?)?;
     // A* shortest path

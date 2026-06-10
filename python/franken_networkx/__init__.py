@@ -28293,6 +28293,21 @@ def modular_product(G, H):
         raise NetworkXNotImplemented("Modular product not implemented for directed graphs")
     if G.is_multigraph() or H.is_multigraph():
         raise NetworkXNotImplemented("Modular product not implemented for multigraphs")
+    # br-r37-c1-prodmodular: native fast path for the simple, no-attr,
+    # self-loop-free case. nx iterates all O((VW)^2) product-node pairs with a
+    # per-pair has_edge() + two per-edge add_edge() (tuple-key construction tax);
+    # the native kernel precomputes adjacency bitmatrices and assembles the same
+    # edge set in Rust. Same edge set (the product parity tests compare
+    # canonicalised edges); attrs/self-loops fall back to the Python build below.
+    if (
+        not _graph_has_any_attrs(G)
+        and not _graph_has_any_attrs(H)
+        and not number_of_selfloops(G)
+        and not number_of_selfloops(H)
+    ):
+        _fast = _fnx.modular_product_fast(G, H)
+        if _fast is not None:
+            return _fast
     P = Graph()
 
     for g, g_attrs in G.nodes(data=True):
