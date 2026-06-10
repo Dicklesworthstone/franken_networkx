@@ -8782,12 +8782,14 @@ pub fn complement(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<PyObject> {
             .inner
             .extend_edges_unrecorded(edges.iter().map(|(l, r)| (l.as_str(), r.as_str())));
         debug_assert_eq!(inserted, edges.len());
-        for (left, right) in &edges {
-            let ek = PyGraph::edge_key(left, right);
-            py_graph
-                .edge_py_attrs
-                .insert(ek, pyo3::types::PyDict::new(py).unbind());
-        }
+        // br-r37-c1-complazy: do NOT eagerly allocate an empty PyDict per
+        // complement edge — the complement carries no edge data, and
+        // `materialize_edge_py_attrs` (used by every `G[u][v]` / edges(data=True)
+        // / to_dict_of_dicts path) lazily `or_insert_with(PyDict::new)` on first
+        // access, returning the same shared object thereafter (so `G[u][v] is
+        // G[u][v]` identity holds). The eager loop allocated O(V^2) PyDicts +
+        // edge-key String tuples for the dense complement result — the dominant
+        // construction tax. Lazy materialisation is byte-identical.
 
         Ok(py_graph.into_pyobject(py)?.into_any().unbind())
     } else if let Ok(dg) = g.extract::<PyRef<'_, PyDiGraph>>() {
@@ -8816,11 +8818,9 @@ pub fn complement(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<PyObject> {
             .inner
             .extend_edges_unrecorded(edges.iter().map(|(l, r)| (l.as_str(), r.as_str())));
         debug_assert_eq!(inserted, edges.len());
-        for (left, right) in edges {
-            py_dg
-                .edge_py_attrs
-                .insert((left, right), pyo3::types::PyDict::new(py).unbind());
-        }
+        // br-r37-c1-complazy: skip the O(V^2) eager empty-PyDict-per-edge
+        // allocation — lazy `materialize_edge_py_attrs` covers every attr access
+        // path byte-identically (see the Graph branch above).
 
         Ok(py_dg.into_pyobject(py)?.into_any().unbind())
     } else {
