@@ -22170,25 +22170,53 @@ pub fn node_boundary_directed(
     nbunch: &[&str],
     nbunch2: Option<&[&str]>,
 ) -> Vec<String> {
-    let set: HashSet<&str> = nbunch.iter().copied().collect();
-    let set2: Option<HashSet<&str>> = nbunch2.map(|s| s.iter().copied().collect());
-    let mut boundary: BTreeMap<&str, ()> = BTreeMap::new();
+    // br-r37-c1-nbdint: integer-CSR boundary scan (directed sibling of
+    // node_boundary). graph.successors(node) ALLOCATES a Vec<&str> of successor
+    // names per nbunch node + per-name String hashing into HashSet<&str>, and
+    // the BTreeMap sorts output the Python set() wrapper discards. Resolve
+    // nbunch/nbunch2 to indices once, walk successors_indices (&[usize], no
+    // alloc), gate membership with Vec<bool> stamp arrays, dedup with a stamp
+    // array, materialise names ONCE at the end.
+    let n = graph.node_count();
+    let mut in_nbunch = vec![false; n];
+    let mut nbunch_idx: Vec<usize> = Vec::with_capacity(nbunch.len());
     for &node in nbunch {
-        if let Some(succs) = graph.successors(node) {
-            for &succ in &succs {
-                if set.contains(succ) {
+        if let Some(i) = graph.get_node_index(node)
+            && !in_nbunch[i]
+        {
+            in_nbunch[i] = true;
+            nbunch_idx.push(i);
+        }
+    }
+    let set2: Option<Vec<bool>> = nbunch2.map(|s2| {
+        let mut v = vec![false; n];
+        for &node in s2 {
+            if let Some(i) = graph.get_node_index(node) {
+                v[i] = true;
+            }
+        }
+        v
+    });
+    let names = graph.nodes_ordered();
+    let mut seen = vec![false; n];
+    let mut boundary: Vec<usize> = Vec::new();
+    for &u in &nbunch_idx {
+        if let Some(succs) = graph.successors_indices(u) {
+            for &v in succs {
+                if in_nbunch[v] || seen[v] {
                     continue;
                 }
                 if let Some(ref s2) = set2
-                    && !s2.contains(succ)
+                    && !s2[v]
                 {
                     continue;
                 }
-                boundary.insert(succ, ());
+                seen[v] = true;
+                boundary.push(v);
             }
         }
     }
-    boundary.keys().map(|k| k.to_string()).collect()
+    boundary.into_iter().map(|i| names[i].to_owned()).collect()
 }
 
 /// Return the size of the cut between two node sets in an undirected graph.
