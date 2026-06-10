@@ -19018,7 +19018,7 @@ def pagerank(
     # returned the *unweighted* PageRank while nx returned the weighted one).
     # Push Python attrs down only when a real string weight attr can be read.
     if isinstance(pagerank_weight, str):
-        _sync_rust_edge_attrs(G)
+        _sync_rust_edge_attrs(G, edge_only=True)
 
     if (
         personalization is None

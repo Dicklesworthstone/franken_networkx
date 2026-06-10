@@ -1,0 +1,64 @@
+{
+  "results": [
+    {
+      "command": "python tests/artifacts/perf/20260610T-pagerank-edge-sync-boldfalcon/harness_pagerank_edge_sync.py bench --impl fnx --n 1400 --loops 80",
+      "mean": 1.200341204775,
+      "stddev": 0.22069892514794756,
+      "median": 1.1416828239,
+      "user": 4.61083097,
+      "system": 0.09231584,
+      "min": 0.9410812974,
+      "max": 1.5379330944,
+      "times": [
+        0.9410812974,
+        0.9729457464000001,
+        1.0730208654,
+        1.3632162384,
+        1.4311667484000001,
+        1.5379330944,
+        1.1924895294,
+        1.0908761184
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "python tests/artifacts/perf/20260610T-pagerank-edge-sync-boldfalcon/harness_pagerank_edge_sync.py bench --impl nx --n 1400 --loops 80",
+      "mean": 0.81724497265,
+      "stddev": 0.06145414558565525,
+      "median": 0.8039448524,
+      "user": 4.51317322,
+      "system": 0.080058715,
+      "min": 0.7508114074000001,
+      "max": 0.9578660354,
+      "times": [
+        0.7933110164,
+        0.9578660354,
+        0.8245222094,
+        0.7952074174,
+        0.8196398374,
+        0.8126822874,
+        0.7508114074000001,
+        0.7839195704
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

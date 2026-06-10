@@ -6027,6 +6027,22 @@ impl PyDiGraph {
         Ok(())
     }
 
+    /// Edge-only sibling for kernels that read weights but never node attrs.
+    fn _fnx_sync_edge_attrs_to_inner(&mut self, py: Python<'_>) -> PyResult<()> {
+        if !self.edges_dirty.load(Ordering::Relaxed) {
+            return Ok(());
+        }
+        let edges: Vec<(String, String, AttrMap)> = self
+            .edge_py_attrs
+            .iter()
+            .map(|((u, v), dict)| Ok((u.clone(), v.clone(), py_dict_to_attr_map(dict.bind(py))?)))
+            .collect::<PyResult<_>>()?;
+        for (u, v, attrs) in edges {
+            self.inner.replace_edge_attrs(&u, &v, attrs);
+        }
+        Ok(())
+    }
+
     // ---- Views (properties) ----
 
     #[getter]
