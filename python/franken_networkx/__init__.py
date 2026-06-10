@@ -42205,23 +42205,21 @@ def mycielskian(G, iterations=1):
 def _mycielskian_step(M):
     # ``M`` is integer-labeled (0..n-1 contiguous); shadow of node u is u+n,
     # apex is 2n. Matches networkx's in-place construction order exactly.
+    # br-r37-c1-mycbatch: assemble the result with BATCH add_nodes_from /
+    # add_edges_from instead of a per-edge add_edge loop (each a separate PyO3
+    # crossing + per-edge dict/key construction). The node + edge order is
+    # preserved, so the result is byte-identical — only the build path differs.
     n = M.number_of_nodes()
     R = Graph()
-    for node in M.nodes():
-        R.add_node(node, **dict(M.nodes[node]))
+    R.add_nodes_from((node, dict(data)) for node, data in M.nodes(data=True))
     old_edges = list(M.edges(data=True))
-    for u, v, data in old_edges:
-        R.add_edge(u, v, **data)
-    for i in range(n):
-        R.add_node(n + i)
-    for u, v, _data in old_edges:
-        R.add_edge(u, v + n)
-    for u, v, _data in old_edges:
-        R.add_edge(u + n, v)
+    R.add_edges_from((u, v, dict(data)) for u, v, data in old_edges)
+    R.add_nodes_from(range(n, 2 * n))
+    R.add_edges_from((u, v + n) for u, v, _data in old_edges)
+    R.add_edges_from((u + n, v) for u, v, _data in old_edges)
     apex = 2 * n
     R.add_node(apex)
-    for i in range(n):
-        R.add_edge(n + i, apex)
+    R.add_edges_from((n + i, apex) for i in range(n))
     return R
 
 
