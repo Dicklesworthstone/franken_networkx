@@ -245,6 +245,23 @@ def projected_graph(B, nodes, multigraph=False, *, backend=None, **backend_kwarg
     _fnx._validate_backend_dispatch_keywords(
         "projected_graph", backend, backend_kwargs
     )
+    # br-r37-c1-bpproj: de-delegate the common case (simple undirected fnx Graph,
+    # no multigraph). The delegated path ran nx's algorithm THROUGH fnx's slow
+    # per-access adjacency views AND rebuilt the result via _from_nx_graph (~61%
+    # of the time). Instead snapshot B's adjacency once via the native key-only
+    # binding and build the fnx projection directly — same edge set (two nodes
+    # are joined iff they share a common neighbour; the parity tests compare
+    # sorted edges). Directed / multigraph / nx-typed B keep the delegation path.
+    nak = getattr(B, "_native_adjacency_keys", None)
+    if not multigraph and type(B) is _fnx.Graph and nak is not None:
+        adj = {node: nbrs for node, nbrs in nak()}
+        G = _fnx.Graph()
+        G.graph.update(B.graph)
+        G.add_nodes_from((n, B.nodes[n]) for n in nodes)
+        for u in nodes:
+            nbrs2 = {v for nbr in adj[u] for v in adj[nbr] if v != u}
+            G.add_edges_from((u, n) for n in nbrs2)
+        return G
     nx_result = _nx_bipartite.projected_graph(B, nodes, multigraph=multigraph)
     return _from_nx_graph(nx_result)
 
