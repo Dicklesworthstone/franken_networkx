@@ -29207,6 +29207,15 @@ def _reverse_cuthill_mckee_ordering(G, heuristic=None):
     return reversed(list(_connected_cuthill_mckee_ordering(G, heuristic=heuristic)))
 
 
+def _current_flow_rcm_ordering(G):
+    """Return current-flow RCM ordering, using the native start heuristic when safe."""
+    native_start = getattr(_fnx, "current_flow_pseudo_peripheral_node_rust", None)
+    if native_start is None or type(G) is not Graph:
+        return list(_reverse_cuthill_mckee_ordering(G))
+    start = native_start(G)
+    return list(_reverse_cuthill_mckee_ordering(G, heuristic=lambda _graph: start))
+
+
 class _InverseLaplacian:
     def __init__(self, L, width=None, dtype=None):
         import numpy as np
@@ -29389,7 +29398,7 @@ def _current_flow_betweenness_impl(G, *, normalized, weight, dtype, solver):
         and type(G) is Graph
         and hasattr(_fnx, "current_flow_betweenness_centrality_nx_ordered_rust")
     ):
-        ordering = list(_reverse_cuthill_mckee_ordering(G))
+        ordering = _current_flow_rcm_ordering(G)
         return _fnx.current_flow_betweenness_centrality_nx_ordered_rust(
             G, ordering, normalized, None
         )
@@ -29397,7 +29406,7 @@ def _current_flow_betweenness_impl(G, *, normalized, weight, dtype, solver):
     import numpy as np
 
     n = G.number_of_nodes()
-    ordering = list(_reverse_cuthill_mckee_ordering(G))
+    ordering = _current_flow_rcm_ordering(G)
     # integer-relabel by RCM ordering (matches nx's H exactly)
     H = relabel_nodes(G, dict(zip(ordering, range(n))), copy=True)
     betweenness = dict.fromkeys(H, 0.0)
@@ -29450,7 +29459,7 @@ def edge_current_flow_betweenness_centrality(
         and type(G) is Graph
         and hasattr(_fnx, "edge_current_flow_betweenness_centrality_nx_ordered_rust")
     ):
-        ordering = list(_reverse_cuthill_mckee_ordering(G))
+        ordering = _current_flow_rcm_ordering(G)
         return _fnx.edge_current_flow_betweenness_centrality_nx_ordered_rust(
             G, ordering, normalized, None
         )
@@ -29458,7 +29467,7 @@ def edge_current_flow_betweenness_centrality(
     import numpy as np
 
     n = G.number_of_nodes()
-    ordering = list(_reverse_cuthill_mckee_ordering(G))
+    ordering = _current_flow_rcm_ordering(G)
     H = relabel_nodes(G, dict(zip(ordering, range(n))), copy=True)
 
     edges = (tuple(sorted((u, v))) for u, v in H.edges())

@@ -17542,6 +17542,20 @@ pub fn current_flow_betweenness_centrality_rust(
     Ok(dict.into_any().unbind())
 }
 
+/// Pseudo-peripheral start node for the current-flow RCM ordering.
+#[pyfunction]
+pub fn current_flow_pseudo_peripheral_node_rust(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+) -> PyResult<PyObject> {
+    let gr = extract_graph(g)?;
+    let inner = gr.undirected();
+    let result = py
+        .allow_threads(|| fnx_algorithms::current_flow_pseudo_peripheral_node(inner))
+        .ok_or_else(|| PyRuntimeError::new_err("empty graph has no pseudo-peripheral node"))?;
+    Ok(gr.py_node_key(py, &result))
+}
+
 /// NetworkX-compatible current-flow betweenness for the default full-solver path.
 #[pyfunction]
 #[pyo3(signature = (g, ordering, normalized=true, weight=None))]
@@ -18259,6 +18273,10 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     )?)?;
     m.add_function(wrap_pyfunction!(
         current_flow_betweenness_centrality_nx_ordered_rust,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        current_flow_pseudo_peripheral_node_rust,
         m
     )?)?;
     m.add_function(wrap_pyfunction!(current_flow_closeness_centrality_rust, m)?)?;

@@ -36571,6 +36571,69 @@ fn sorted_current_flow_edges_ordered(
     Some(edges)
 }
 
+/// NetworkX-compatible pseudo-peripheral start node for current-flow RCM.
+///
+/// This intentionally stops at the start-node heuristic. The following
+/// Cuthill-McKee child ordering in Python uses CPython set iteration for
+/// equal-degree ties, so the Python phase remains authoritative for that
+/// parity-sensitive surface.
+pub fn current_flow_pseudo_peripheral_node(graph: &Graph) -> Option<String> {
+    let n = graph.node_count();
+    if n == 0 {
+        return None;
+    }
+    let degrees: Vec<usize> = (0..n)
+        .map(|idx| graph.neighbors_indices(idx).map_or(0, <[usize]>::len))
+        .collect();
+    let mut peripheral = 0usize;
+    let mut longest_path = 0usize;
+    let mut distances = vec![usize::MAX; n];
+    let mut queue = VecDeque::with_capacity(n);
+    let mut visit_order = Vec::with_capacity(n);
+
+    loop {
+        distances.fill(usize::MAX);
+        queue.clear();
+        visit_order.clear();
+        distances[peripheral] = 0;
+        queue.push_back(peripheral);
+        visit_order.push(peripheral);
+
+        while let Some(parent) = queue.pop_front() {
+            let next_distance = distances[parent] + 1;
+            let neighbors = graph.neighbors_indices(parent)?;
+            for &child in neighbors {
+                if distances[child] == usize::MAX {
+                    distances[child] = next_distance;
+                    queue.push_back(child);
+                    visit_order.push(child);
+                }
+            }
+        }
+
+        let eccentricity = visit_order
+            .iter()
+            .map(|&node| distances[node])
+            .max()
+            .unwrap_or(0);
+        if eccentricity <= longest_path {
+            break;
+        }
+        longest_path = eccentricity;
+        let mut best = peripheral;
+        let mut best_degree = usize::MAX;
+        for &candidate in &visit_order {
+            if distances[candidate] == eccentricity && degrees[candidate] < best_degree {
+                best = candidate;
+                best_degree = degrees[candidate];
+            }
+        }
+        peripheral = best;
+    }
+
+    graph.get_node_name(peripheral).map(str::to_owned)
+}
+
 fn descending_argsort_positions(row: &[f64], one_indexed: bool) -> Vec<f64> {
     let mut order: Vec<usize> = (0..row.len()).collect();
     order.sort_by(|&left, &right| {

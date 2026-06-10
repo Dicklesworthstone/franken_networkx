@@ -1,0 +1,47 @@
+         3736901 function calls in 0.974 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+      100    0.000    0.000    0.974    0.010 /data/projects/.scratch/franken_networkx-t105o-closeout-boldfalcon/tests/artifacts/perf/20260610T-bsb16-current-flow-rcm-boldfalcon/harness_current_flow_rcm.py:63(_call)
+      100    0.000    0.000    0.974    0.010 /data/projects/.scratch/franken_networkx-t105o-closeout-boldfalcon/tests/artifacts/perf/20260610T-bsb16-current-flow-rcm-boldfalcon/harness_current_flow_rcm.py:52(_ordering)
+      100    0.003    0.000    0.973    0.010 /data/projects/.scratch/franken_networkx-t105o-closeout-boldfalcon/python/franken_networkx/__init__.py:29205(_reverse_cuthill_mckee_ordering)
+    18100    0.030    0.000    0.970    0.000 /data/projects/.scratch/franken_networkx-t105o-closeout-boldfalcon/python/franken_networkx/__init__.py:29189(_connected_cuthill_mckee_ordering)
+      100    0.001    0.000    0.698    0.007 /data/projects/.scratch/franken_networkx-t105o-closeout-boldfalcon/python/franken_networkx/__init__.py:29157(_current_flow_pseudo_peripheral_node)
+      400    0.070    0.000    0.691    0.002 /data/projects/.scratch/franken_networkx-t105o-closeout-boldfalcon/python/franken_networkx/__init__.py:29159(_ordered_path_lengths)
+    90000    0.033    0.000    0.432    0.000 /data/projects/.scratch/franken_networkx-t105o-closeout-boldfalcon/python/franken_networkx/__init__.py:1118(__iter__)
+    90000    0.118    0.000    0.400    0.000 /data/projects/.scratch/franken_networkx-t105o-closeout-boldfalcon/python/franken_networkx/__init__.py:33382(_cached_adj_row_key_iter)
+    90000    0.031    0.000    0.331    0.000 /data/projects/.scratch/franken_networkx-t105o-closeout-boldfalcon/python/franken_networkx/__init__.py:1382(_graph_getitem_from_adj)
+   108400    0.066    0.000    0.252    0.000 /data/projects/.scratch/franken_networkx-t105o-closeout-boldfalcon/python/franken_networkx/__init__.py:33297(_has_networkx_private_storage)
+   523700    0.131    0.000    0.229    0.000 /data/projects/.scratch/franken_networkx-t105o-closeout-boldfalcon/python/franken_networkx/__init__.py:33289(_private_override)
+    90000    0.100    0.000    0.161    0.000 /data/projects/.scratch/franken_networkx-t105o-closeout-boldfalcon/python/franken_networkx/__init__.py:1187(__getitem__)
+    90000    0.020    0.000    0.139    0.000 /data/projects/.scratch/franken_networkx-t105o-closeout-boldfalcon/python/franken_networkx/__init__.py:34173(<lambda>)
+    90000    0.034    0.000    0.118    0.000 /data/projects/.scratch/franken_networkx-t105o-closeout-boldfalcon/python/franken_networkx/__init__.py:33351(_private_adj_mapping)
+    18000    0.007    0.000    0.077    0.000 {built-in method builtins.sorted}
+    17900    0.006    0.000    0.070    0.000 /data/projects/.scratch/franken_networkx-t105o-closeout-boldfalcon/python/franken_networkx/__init__.py:29199(<lambda>)
+   722100    0.066    0.000    0.066    0.000 {method 'get' of 'dict' objects}
+   632100    0.061    0.000    0.061    0.000 {built-in method builtins.vars}
+    18400    0.009    0.000    0.055    0.000 /data/projects/.scratch/franken_networkx-t105o-closeout-boldfalcon/python/franken_networkx/__init__.py:33883(degree)
+    90000    0.020    0.000    0.044    0.000 /data/projects/.scratch/franken_networkx-t105o-closeout-boldfalcon/python/franken_networkx/__init__.py:1169(_atlas)
+    90000    0.026    0.000    0.042    0.000 /data/projects/.scratch/franken_networkx-t105o-closeout-boldfalcon/python/franken_networkx/__init__.py:1302(_accessor)
+    90000    0.027    0.000    0.027    0.000 {method '_native_adjacency_row_dict' of 'franken_networkx.Graph' objects}
+    90000    0.024    0.000    0.024    0.000 /data/projects/.scratch/franken_networkx-t105o-closeout-boldfalcon/python/franken_networkx/__init__.py:1321(<lambda>)
+   198400    0.016    0.000    0.016    0.000 {built-in method builtins.hash}
+    18400    0.009    0.000    0.011    0.000 /data/projects/.scratch/franken_networkx-t105o-closeout-boldfalcon/python/franken_networkx/__init__.py:4055(__getitem__)
+    90000    0.010    0.000    0.010    0.000 /data/projects/.scratch/franken_networkx-t105o-closeout-boldfalcon/python/franken_networkx/__init__.py:1106(__init__)
+    90000    0.010    0.000    0.010    0.000 {built-in method builtins.getattr}
+    90100    0.010    0.000    0.010    0.000 {built-in method builtins.iter}
+    90000    0.010    0.000    0.010    0.000 {method 'popleft' of 'collections.deque' objects}
+    90000    0.009    0.000    0.009    0.000 {built-in method builtins.isinstance}
+    71600    0.007    0.000    0.007    0.000 {method 'append' of 'collections.deque' objects}
+      300    0.000    0.000    0.004    0.000 {built-in method builtins.min}
+    18000    0.003    0.000    0.003    0.000 {method 'update' of 'set' objects}
+    18000    0.003    0.000    0.003    0.000 {method 'extend' of 'collections.deque' objects}
+      500    0.000    0.000    0.002    0.000 /data/projects/.scratch/franken_networkx-t105o-closeout-boldfalcon/python/franken_networkx/__init__.py:29185(<lambda>)
+      800    0.001    0.000    0.001    0.000 /data/projects/.scratch/franken_networkx-t105o-closeout-boldfalcon/python/franken_networkx/__init__.py:29180(<genexpr>)
+      400    0.001    0.000    0.001    0.000 {built-in method builtins.max}
+      100    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-t105o-closeout-boldfalcon/python/franken_networkx/__init__.py:33783(__iter__)
+      400    0.000    0.000    0.000    0.000 {method 'values' of 'dict' objects}
+      300    0.000    0.000    0.000    0.000 {method 'items' of 'dict' objects}
+      100    0.000    0.000    0.000    0.000 {built-in method builtins.next}
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}

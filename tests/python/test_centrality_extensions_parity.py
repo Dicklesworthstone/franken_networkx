@@ -837,6 +837,31 @@ def test_edge_current_flow_betweenness_default_uses_native_ordered_kernel(monkey
     )
 
 
+def test_current_flow_rcm_ordering_uses_native_start_without_changing_order(monkeypatch):
+    if not hasattr(fnx._fnx, "current_flow_pseudo_peripheral_node_rust"):
+        pytest.skip("native pseudo-peripheral route not built")
+
+    graph = fnx.watts_strogatz_graph(18, 4, 0.2, seed=13)
+    expected_ordering = list(fnx._reverse_cuthill_mckee_ordering(graph))
+
+    monkeypatch.setattr(
+        fnx,
+        "_current_flow_pseudo_peripheral_node",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("current-flow RCM should use native start")
+        ),
+    )
+
+    actual_ordering = fnx._current_flow_rcm_ordering(graph)
+    if actual_ordering != expected_ordering:
+        raise AssertionError("native-start RCM ordering changed Python RCM order")
+
+    expected_graph = nx.watts_strogatz_graph(18, 4, 0.2, seed=13)
+    expected = nx.current_flow_betweenness_centrality(expected_graph)
+    actual = fnx.current_flow_betweenness_centrality(graph)
+    _assert_mapping_close(actual, expected, tol=1e-6)
+
+
 def test_information_centrality_matches_networkx_without_fallback(monkeypatch):
     graph = fnx.Graph()
     graph.add_edge(0, 1, weight=2.0)
