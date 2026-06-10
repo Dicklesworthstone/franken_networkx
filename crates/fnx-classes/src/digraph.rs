@@ -1383,6 +1383,56 @@ impl DiGraph {
         ordered
     }
 
+    /// br-r37-c1-revborrow: O(V+E) directed transpose. The reverse of a
+    /// `DiGraph` keeps the SAME node table (identical insertion order, identical
+    /// indices), so reversing is a pure topology flip — no String hashing, no
+    /// per-edge node-index lookups, no re-insertion through the name table (the
+    /// edge-iterate + `edges_ordered()` clone + `extend_edges_with_attrs_*`
+    /// re-hash path is O(E) String/hash work this avoids entirely).
+    ///
+    /// Successor rows are rebuilt by walking the ORIGINAL successor rows in
+    /// node-major (ascending source index) order and appending the reversed
+    /// endpoint, so the reversed graph's `edges_ordered()` stream is
+    /// byte-identical to NetworkX's `reverse()`, which walks `self.edges()`
+    /// (u-major successor order) and adds each `(v, u)`. `pred_indices[u]` ends
+    /// up equal to the original `succ_indices[u]`, matching NetworkX's reversed
+    /// `pred` order as well. Node + edge attribute maps are cloned verbatim.
+    #[must_use]
+    pub fn reversed(&self) -> Self {
+        let n = self.nodes.len();
+        let mut succ_indices: Vec<Vec<usize>> = vec![Vec::new(); n];
+        let mut pred_indices: Vec<Vec<usize>> = vec![Vec::new(); n];
+        for i in 0..n {
+            // reversed succ row = original pred row; reversed pred row = original
+            // succ row — pre-size so neither row reallocates.
+            succ_indices[i].reserve(self.pred_indices[i].len());
+            pred_indices[i].reserve(self.succ_indices[i].len());
+        }
+        let mut edges: IndexMap<(usize, usize), AttrMap> =
+            IndexMap::with_capacity(self.edges.len());
+        for u in 0..n {
+            for &t in &self.succ_indices[u] {
+                // original edge u -> t becomes t -> u in the reverse
+                succ_indices[t].push(u);
+                pred_indices[u].push(t);
+                if let Some(attrs) = self.edges.get(&(u, t)) {
+                    edges.insert((t, u), attrs.clone());
+                }
+            }
+        }
+        Self {
+            mode: self.mode,
+            revision: 0,
+            nodes: self.nodes.clone(),
+            succ_indices,
+            pred_indices,
+            edges,
+            runtime_policy: self.runtime_policy.clone(),
+            csr_cache: std::sync::Arc::default(),
+            all_int_cache: std::sync::Arc::default(),
+        }
+    }
+
     /// Directed edge endpoints in the same order as `edges_ordered_borrowed`.
     #[must_use]
     pub fn edges_ordered_indices(&self) -> Vec<(usize, usize)> {

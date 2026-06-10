@@ -5491,6 +5491,50 @@ impl PyDiGraph {
 
     /// Return a reversed copy of the digraph.
     fn reverse(&self, py: Python<'_>) -> PyResult<Self> {
+        // br-r37-c1-revborrow: FAST PATH for the common case where no Python
+        // attribute mirror dicts have been materialised (the inner Rust attr
+        // maps are then the sole source of truth — true for every generator /
+        // bulk-built graph and any graph whose attrs were never fetched via
+        // ``G[u][v]`` / ``G.nodes[n]``). ``DiGraph::reversed`` transposes the
+        // topology in pure integer index space (O(V+E), zero String hashing /
+        // re-insertion), which is identical to walking ``edges_ordered`` and
+        // re-adding every edge through the name table — but ~10x cheaper at
+        // scale. ``pred_py_keys`` (z6uka display overrides) still transpose
+        // exactly as the slow path. ``add_node``/``add_edge`` eagerly create
+        // EMPTY ``node_py_attrs`` dicts for every endpoint, so a non-empty map
+        // does NOT imply real attrs — gate on every mirror dict being empty.
+        // Then the inner Rust attr map is authoritative and ``reversed``
+        // reproduces the slow path exactly (edges read inner attrs; a node is
+        // empty iff its mirror dict is empty). Any non-empty mirror dict (a real
+        // attr, possibly an unsynced post-creation mutation) falls back to the
+        // proven per-edge rebuild below.
+        let mirrors_all_empty = self
+            .node_py_attrs
+            .values()
+            .all(|d| d.bind(py).is_empty())
+            && self.edge_py_attrs.values().all(|d| d.bind(py).is_empty());
+        if mirrors_all_empty {
+            let mut rev = Self {
+                inner: self.inner.reversed(),
+                node_key_map: HashMap::with_capacity(self.node_key_map.len()),
+                node_py_attrs: HashMap::new(),
+                edge_py_attrs: HashMap::new(),
+                succ_py_keys: HashMap::new(),
+                pred_py_keys: Self::clone_row_keys(py, &self.succ_py_keys),
+                succ_row_py: HashMap::new(),
+                pred_row_py: HashMap::new(),
+                graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
+                nodes_seq: 0,
+                edges_seq: 0,
+                edges_dirty: AtomicBool::new(false),
+                node_keys_cache: std::sync::Mutex::new(None),
+            };
+            for canonical in self.inner.nodes_ordered() {
+                rev.node_key_map
+                    .insert(canonical.to_owned(), self.py_node_key(py, canonical));
+            }
+            return Ok(rev);
+        }
         let mut rev = Self {
             inner: DiGraph::with_runtime_policy(self.inner.runtime_policy().clone()),
             node_key_map: HashMap::new(),
