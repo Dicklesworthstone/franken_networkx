@@ -3726,6 +3726,61 @@ impl GraphGenerator {
         Ok(self.finish_graph_report(graph, warnings))
     }
 
+    /// Directed Erdős–Rényi G(n, p): the directed sibling of
+    /// [`Self::gnp_random_graph`]. Reproduces NetworkX's
+    /// `gnp_random_graph(n, p, directed=True)` EXACTLY: it walks
+    /// `itertools.permutations(range(n), 2)` (for each source `u` in `0..n`,
+    /// every target `v != u` in ascending order), drawing one
+    /// `random.Random.random()` per ordered pair and adding the edge when the
+    /// draw is `< p`. `PythonRandom` is the same MT19937/gen_res53 generator the
+    /// undirected path uses, so the draw sequence — and thus the exact edge set
+    /// — is byte-identical to nx for a given seed.
+    pub fn gnp_random_digraph(
+        &mut self,
+        n: usize,
+        p: f64,
+        seed: u64,
+    ) -> Result<DiGenerationReport, GenerationError> {
+        let (n, mut warnings) = self.validate_n("gnp_random_digraph", n, MAX_N_GNP)?;
+        let (p, p_warning) = self.validate_probability("gnp_random_digraph", p)?;
+        if let Some(warning) = p_warning {
+            warnings.push(warning);
+        }
+
+        let (mut graph, node_labels) = digraph_with_n_nodes(self.mode, n);
+        let mut rng = PythonRandom::new(seed);
+        // permutations(range(n), 2): source-major, every target != source.
+        // The (u, u) pair is skipped WITHOUT a draw — matching itertools.
+        for u in 0..n {
+            for v in 0..n {
+                if u == v {
+                    continue;
+                }
+                let draw: f64 = rng.random();
+                if draw < p {
+                    graph
+                        .add_edge(node_labels[u].clone(), node_labels[v].clone())
+                        .map_err(|err| GenerationError::FailClosed {
+                            operation: "gnp_random_digraph",
+                            reason: err.to_string(),
+                        })?;
+                }
+            }
+        }
+
+        self.record(
+            "gnp_random_digraph",
+            if warnings.is_empty() {
+                DecisionAction::Allow
+            } else {
+                DecisionAction::FullValidate
+            },
+            if warnings.is_empty() { 0.08 } else { 0.35 },
+            format!("generated gnp digraph with n={n}, p={p}, seed={seed}"),
+        );
+        Ok(self.finish_digraph_report(graph, warnings))
+    }
+
     /// Generate a uniformly sampled undirected graph with exactly `m` edges.
     ///
     /// Matches NetworkX's sparse `gnm_random_graph(..., directed=False)`

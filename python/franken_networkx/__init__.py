@@ -17317,6 +17317,7 @@ from franken_networkx._fnx import (
 
 # Graph generators — random
 from franken_networkx._fnx import gnp_random_graph as _rust_gnp_random_graph
+from franken_networkx._fnx import gnp_random_digraph as _rust_gnp_random_digraph
 from franken_networkx._fnx import watts_strogatz_graph as _rust_watts_strogatz_graph
 from franken_networkx._fnx import barabasi_albert_graph as _rust_barabasi_albert_graph
 from franken_networkx._fnx import erdos_renyi_graph as _rust_erdos_renyi_graph
@@ -21897,6 +21898,22 @@ def gnp_random_graph(n, p, seed=None, directed=False, *, create_using=None, back
     # out-of-range p through the Python path for parity.
     if not directed and create_using is None and 0.0 <= p <= 1.0 and (seed is None or isinstance(seed, int)):
         return _rust_gnp_random_graph(n, p, seed=_native_random_seed(seed))
+    # br-r37-c1-gnpdinative: native directed G(n,p). The previous directed path
+    # ran a pure-Python O(V^2) `permutations` loop with a per-edge PyO3
+    # `add_edge` (~2.5-3.5x slower than nx). The native `gnp_random_digraph`
+    # reproduces nx's exact draw sequence (PythonRandom over permutations
+    # order, same as the proven undirected native path), so the edge set is
+    # byte-identical. Restrict to strict 0<p<1 (p<=0 -> empty, p>=1 -> complete
+    # handled below without consuming the RNG, matching nx).
+    if (
+        directed
+        and create_using is None
+        and 0.0 < p < 1.0
+        and isinstance(seed, int)
+        and not isinstance(seed, bool)
+        and seed >= 0
+    ):
+        return _rust_gnp_random_digraph(n, p, seed=_native_random_seed(seed))
 
     rng = _generator_random_state(seed)
     default = DiGraph if directed else Graph

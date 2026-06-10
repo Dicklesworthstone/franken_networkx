@@ -396,6 +396,17 @@ pub fn gnp_random_graph(py: Python<'_>, n: usize, p: f64, seed: u64) -> PyResult
     report_to_pygraph(py, report.graph)
 }
 
+/// Return a directed Erdős–Rényi G(n, p) digraph (native; nx-exact for a given
+/// seed — same PythonRandom draw sequence over permutations(range(n), 2)).
+#[pyfunction]
+pub fn gnp_random_digraph(py: Python<'_>, n: usize, p: f64, seed: u64) -> PyResult<Py<PyDiGraph>> {
+    let mut gg = GraphGenerator::strict();
+    let report = gg
+        .gnp_random_digraph(n, p, seed)
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e:?}")))?;
+    Py::new(py, report_to_pydigraph(py, report.graph)?)
+}
+
 /// Return a Watts-Strogatz small-world graph.
 ///
 /// Parameters
@@ -690,6 +701,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(grid_graph_native, m)?)?;
     m.add_function(wrap_pyfunction!(kneser_graph_native, m)?)?; // br-r37-c1-z2eaa
     m.add_function(wrap_pyfunction!(gnp_random_graph, m)?)?;
+    m.add_function(wrap_pyfunction!(gnp_random_digraph, m)?)?;
     m.add_function(wrap_pyfunction!(watts_strogatz_graph, m)?)?;
     m.add_function(wrap_pyfunction!(barabasi_albert_graph, m)?)?;
     m.add_function(wrap_pyfunction!(erdos_renyi_graph, m)?)?;
