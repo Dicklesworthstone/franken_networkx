@@ -24849,25 +24849,32 @@ pub fn group_out_degree_centrality(digraph: &DiGraph, group: &[&str]) -> f64 {
 /// Matches `networkx.node_connected_component(G, n)`.
 #[must_use]
 pub fn node_connected_component(graph: &Graph, node: &str) -> Vec<String> {
-    if !graph.has_node(node) {
+    // br-r37-c1-nccint: integer-CSR BFS instead of a String-keyed
+    // HashSet<&str> walk over neighbors_iter (per-node String hashing) plus a
+    // final sort_unstable() of the node names. The Python wrapper wraps the
+    // result in set(), so intra-component order is irrelevant and the sort was
+    // pure waste; names are materialised ONCE at the end. Same String-keyed-BFS
+    // -> integer-CSR lever that took weakly_connected_components 15x->parity.
+    let Some(start) = graph.get_node_index(node) else {
         return Vec::new();
-    }
-    let mut visited = HashSet::<&str>::new();
-    let mut queue = VecDeque::new();
-    visited.insert(node);
-    queue.push_back(node);
-    while let Some(current) = queue.pop_front() {
-        if let Some(neighbors) = graph.neighbors_iter(current) {
-            for nbr in neighbors {
-                if visited.insert(nbr) {
-                    queue.push_back(nbr);
+    };
+    let names = graph.nodes_ordered();
+    let mut visited = vec![false; graph.node_count()];
+    let mut stack: Vec<usize> = vec![start];
+    visited[start] = true;
+    let mut comp: Vec<usize> = Vec::new();
+    while let Some(u) = stack.pop() {
+        comp.push(u);
+        if let Some(neighbors) = graph.neighbors_indices(u) {
+            for &v in neighbors {
+                if !visited[v] {
+                    visited[v] = true;
+                    stack.push(v);
                 }
             }
         }
     }
-    let mut result: Vec<String> = visited.iter().map(|s| (*s).to_owned()).collect();
-    result.sort_unstable();
-    result
+    comp.into_iter().map(|i| names[i].to_owned()).collect()
 }
 
 /// Return True if the graph is biconnected (connected and no articulation points).
