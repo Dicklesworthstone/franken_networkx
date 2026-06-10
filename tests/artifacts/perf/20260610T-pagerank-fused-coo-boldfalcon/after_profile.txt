@@ -1,0 +1,49 @@
+         323441 function calls in 0.339 seconds
+
+   Ordered by: cumulative time
+   List reduced from 162 to 40 due to restriction <40>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+       80    0.008    0.000    0.339    0.004 /data/projects/.scratch/franken_networkx_opt_boldfalcon_20260610T181157Z/tests/artifacts/perf/20260610T-pagerank-edge-sync-boldfalcon/harness_pagerank_edge_sync.py:66(pagerank_call)
+       80    0.001    0.000    0.331    0.004 /data/projects/.scratch/franken_networkx_opt_boldfalcon_20260610T181157Z/python/franken_networkx/__init__.py:18973(pagerank)
+       80    0.042    0.001    0.302    0.004 /data/projects/.scratch/franken_networkx_opt_boldfalcon_20260610T181157Z/python/franken_networkx/__init__.py:18886(_pagerank_scipy)
+     2160    0.001    0.000    0.125    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/sparse/_base.py:925(__rmatmul__)
+     2160    0.003    0.000    0.117    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/sparse/_base.py:901(_rmatmul_dispatch)
+     2480    0.010    0.000    0.081    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/sparse/_compressed.py:30(__init__)
+     2160    0.004    0.000    0.079    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/sparse/_csr.py:22(transpose)
+       80    0.001    0.000    0.076    0.001 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/sparse/_coo.py:32(__init__)
+     3040    0.004    0.000    0.048    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/sparse/_base.py:1525(_get_index_dtype)
+     3040    0.018    0.000    0.042    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/sparse/_sputils.py:264(get_index_dtype)
+     2240    0.002    0.000    0.041    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/sparse/_base.py:788(_matmul_dispatch)
+     7600    0.039    0.000    0.039    0.000 {built-in method numpy.array}
+     4080    0.031    0.000    0.031    0.000 {built-in method numpy.asarray}
+       80    0.026    0.000    0.026    0.000 {built-in method franken_networkx._fnx.pagerank_default_order_arrays_checked}
+     2160    0.005    0.000    0.026    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/sparse/_compressed.py:387(_matmul_vector)
+      240    0.000    0.000    0.024    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/sparse/_coo.py:62(<genexpr>)
+     2480    0.007    0.000    0.023    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/sparse/_compressed.py:166(check_format)
+     2560    0.001    0.000    0.016    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/sparse/_sputils.py:372(isshape)
+     2160    0.015    0.000    0.015    0.000 {built-in method scipy.sparse._sparsetools.csc_matvec}
+     2560    0.007    0.000    0.015    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/sparse/_compressed.py:1118(prune)
+      160    0.000    0.000    0.015    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/sparse/_sputils.py:350(isintlike)
+      160    0.000    0.000    0.014    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/numpy/_core/fromnumeric.py:3482(ndim)
+       80    0.000    0.000    0.014    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/sparse/_sputils.py:142(getdata)
+       80    0.001    0.000    0.013    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/sparse/_coo.py:349(tocsr)
+     4480    0.002    0.000    0.013    0.000 {method 'sum' of 'numpy.ndarray' objects}
+     7120    0.005    0.000    0.012    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/numpy/_core/numeric.py:1975(isscalar)
+     4480    0.003    0.000    0.012    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/sparse/_sputils.py:345(isscalarlike)
+       80    0.000    0.000    0.012    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/sparse/_base.py:919(__matmul__)
+     2560    0.006    0.000    0.011    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/sparse/_sputils.py:444(check_shape)
+       80    0.001    0.000    0.011    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/sparse/_compressed.py:415(_matmul_sparse)
+     4480    0.001    0.000    0.011    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/numpy/_core/_methods.py:47(_sum)
+     4800    0.011    0.000    0.011    0.000 {method 'reduce' of 'numpy.ufunc' objects}
+    33280    0.006    0.000    0.010    0.000 {built-in method builtins.isinstance}
+       80    0.001    0.000    0.009    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/sparse/_dia.py:407(tocsr)
+     2640    0.001    0.000    0.008    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/sparse/_data.py:21(__init__)
+    10560    0.003    0.000    0.007    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/sparse/_base.py:365(nnz)
+     2640    0.002    0.000    0.007    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/sparse/_base.py:138(__init__)
+       80    0.001    0.000    0.006    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/sparse/_compressed.py:492(sum)
+       80    0.001    0.000    0.005    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/sparse/_coo.py:383(_coo_to_compressed)
+     6080    0.005    0.000    0.005    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/numpy/_core/getlimits.py:412(__init__)
+
+
+
