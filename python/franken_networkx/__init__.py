@@ -12198,14 +12198,19 @@ def _materialize_filtered_view(view):
     cls = _concrete_class_for(view)
     out = cls()
     out.graph.update(dict(view.graph))
-    for n in view.nodes():
-        out.add_node(n, **dict(view.nodes[n]))
+    # br-r37-c1-matbatch: assemble with BATCH add_nodes_from / add_edges_from
+    # instead of a per-node/per-edge add_node/add_edge loop (each a separate
+    # PyO3 crossing). Node + edge iteration order is the view's order (preserved),
+    # so the materialized graph is byte-identical — only the build path differs.
+    # This helper is coerced from every SubgraphView, so the build speedup
+    # cascades to every algorithm called on a filtered view.
+    out.add_nodes_from((n, dict(d)) for n, d in view.nodes(data=True))
     if view.is_multigraph():
-        for u, v, k, d in view.edges(keys=True, data=True):
-            out.add_edge(u, v, key=k, **dict(d))
+        out.add_edges_from(
+            (u, v, k, dict(d)) for u, v, k, d in view.edges(keys=True, data=True)
+        )
     else:
-        for u, v, d in view.edges(data=True):
-            out.add_edge(u, v, **dict(d))
+        out.add_edges_from((u, v, dict(d)) for u, v, d in view.edges(data=True))
 
     if cache_key is not None:
         try:
