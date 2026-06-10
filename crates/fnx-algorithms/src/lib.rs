@@ -22083,25 +22083,54 @@ pub fn edge_boundary(
 /// are considered for the boundary.
 #[must_use]
 pub fn node_boundary(graph: &Graph, nbunch: &[&str], nbunch2: Option<&[&str]>) -> Vec<String> {
-    let set: HashSet<&str> = nbunch.iter().copied().collect();
-    let set2: Option<HashSet<&str>> = nbunch2.map(|s| s.iter().copied().collect());
-    let mut boundary: BTreeMap<&str, ()> = BTreeMap::new();
+    // br-r37-c1-nbint: integer-CSR boundary scan. The previous version called
+    // graph.neighbors(node) (which allocates a Vec<&str> of neighbour *names*
+    // per nbunch node + per-name String hashing into a HashSet<&str>) and
+    // collected into a BTreeMap (sorted output). The Python wrapper wraps the
+    // result in set(), so the BTreeMap ordering was wasted. Resolve nbunch to
+    // node indices once, walk neighbors_indices (&[usize], no allocation),
+    // gate membership with Vec<bool> stamp arrays, dedup the boundary with a
+    // stamp array, and materialise names ONCE at the end.
+    let n = graph.node_count();
+    let mut in_nbunch = vec![false; n];
+    let mut nbunch_idx: Vec<usize> = Vec::with_capacity(nbunch.len());
     for &node in nbunch {
-        if let Some(nbrs) = graph.neighbors(node) {
-            for &nbr in &nbrs {
-                if set.contains(nbr) {
+        if let Some(i) = graph.get_node_index(node)
+            && !in_nbunch[i]
+        {
+            in_nbunch[i] = true;
+            nbunch_idx.push(i);
+        }
+    }
+    let set2: Option<Vec<bool>> = nbunch2.map(|s2| {
+        let mut v = vec![false; n];
+        for &node in s2 {
+            if let Some(i) = graph.get_node_index(node) {
+                v[i] = true;
+            }
+        }
+        v
+    });
+    let names = graph.nodes_ordered();
+    let mut seen = vec![false; n];
+    let mut boundary: Vec<usize> = Vec::new();
+    for &u in &nbunch_idx {
+        if let Some(nbrs) = graph.neighbors_indices(u) {
+            for &v in nbrs {
+                if in_nbunch[v] || seen[v] {
                     continue;
                 }
                 if let Some(ref s2) = set2
-                    && !s2.contains(nbr)
+                    && !s2[v]
                 {
                     continue;
                 }
-                boundary.insert(nbr, ());
+                seen[v] = true;
+                boundary.push(v);
             }
         }
     }
-    boundary.keys().map(|k| k.to_string()).collect()
+    boundary.into_iter().map(|i| names[i].to_owned()).collect()
 }
 
 /// Return the set of edges on the boundary in a directed graph.
