@@ -17270,16 +17270,31 @@ pub fn complement_directed(digraph: &DiGraph) -> DiGraph {
 /// Matches `networkx.overall_reciprocity(G)`.
 #[must_use]
 pub fn overall_reciprocity(digraph: &DiGraph) -> f64 {
+    // br-r37-c1-recipint: integer-CSR. An edge (u, v) is reciprocated iff its
+    // reverse (v, u) exists, i.e. v is a predecessor of u. The previous version
+    // allocated a Vec<&str> of successor names per node (`successors`) and did a
+    // String-keyed `has_edge(succ, node)` lookup per edge (two name hashes
+    // each). Mark u's predecessor indices in a reusable generation stamp, then
+    // count its successor indices that are stamped — O(E), zero String
+    // hashing/allocation.
+    let n = digraph.node_count();
     let mut total_edges = 0usize;
     let mut reciprocated = 0usize;
-
-    for node in digraph.nodes_ordered() {
-        if let Some(succs) = digraph.successors(node) {
-            for succ in succs {
-                total_edges += 1;
-                if digraph.has_edge(succ, node) {
-                    reciprocated += 1;
-                }
+    let mut stamp = vec![usize::MAX; n];
+    for u in 0..n {
+        let succs = digraph.successors_indices(u).unwrap_or(&[]);
+        total_edges += succs.len();
+        if succs.is_empty() {
+            continue;
+        }
+        if let Some(preds) = digraph.predecessors_indices(u) {
+            for &p in preds {
+                stamp[p] = u;
+            }
+        }
+        for &v in succs {
+            if stamp[v] == u {
+                reciprocated += 1;
             }
         }
     }
@@ -17298,36 +17313,35 @@ pub fn overall_reciprocity(digraph: &DiGraph) -> f64 {
 /// Matches `networkx.reciprocity(G, nodes)`.
 #[must_use]
 pub fn reciprocity(digraph: &DiGraph, nodes: &[&str]) -> HashMap<String, f64> {
+    // br-r37-c1-recipint: integer-CSR. reciprocity(u) = 2*|succ(u) ∩ pred(u)| /
+    // (|succ(u)| + |pred(u)|) — a reciprocated edge is counted once in the out
+    // pass and once in the in pass, so the numerator is 2*|overlap|. The
+    // previous version allocated Vec<&str> for both rows and did a String-keyed
+    // has_edge per incident edge. Mark predecessor indices in a reusable
+    // generation stamp, count stamped successors for the overlap — O(deg) per
+    // node, no String hashing/allocation.
+    let n = digraph.node_count();
     let mut result = HashMap::with_capacity(nodes.len());
-
+    let mut stamp = vec![usize::MAX; n];
+    let mut generation = 0usize;
     for &node in nodes {
-        let mut total = 0usize;
-        let mut reciprocated = 0usize;
-
-        // Count outgoing edges
-        if let Some(succs) = digraph.successors(node) {
-            for succ in succs {
-                total += 1;
-                if digraph.has_edge(succ, node) {
-                    reciprocated += 1;
-                }
-            }
-        }
-
-        // Count incoming edges (that are not already counted as reciprocated)
-        if let Some(preds) = digraph.predecessors(node) {
-            for pred in preds {
-                total += 1;
-                if digraph.has_edge(node, pred) {
-                    reciprocated += 1;
-                }
-            }
-        }
-
+        let Some(u) = digraph.get_node_index(node) else {
+            // missing node: successors/predecessors were None -> total 0 -> 0.0
+            result.insert(node.to_owned(), 0.0);
+            continue;
+        };
+        let succs = digraph.successors_indices(u).unwrap_or(&[]);
+        let preds = digraph.predecessors_indices(u).unwrap_or(&[]);
+        let total = succs.len() + preds.len();
         let r = if total == 0 {
             0.0
         } else {
-            reciprocated as f64 / total as f64
+            generation += 1;
+            for &p in preds {
+                stamp[p] = generation;
+            }
+            let overlap = succs.iter().filter(|&&s| stamp[s] == generation).count();
+            (2 * overlap) as f64 / total as f64
         };
         result.insert(node.to_owned(), r);
     }

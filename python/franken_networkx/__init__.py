@@ -10808,6 +10808,29 @@ def reciprocity(G, nodes=None, *, backend=None, **backend_kwargs):
     except TypeError:
         raise NetworkXError(f"Node {nodes} is not in the graph.") from None
 
+    # br-r37-c1-recipbatch: run the integer-CSR kernel over ALL requested nodes
+    # in ONE native call instead of a per-node Python loop (each iteration did
+    # 2 raw predecessor/successor binding calls + 2 set() builds — ~2x slower
+    # than nx on large node sets). The native kernel returns 0.0 for an isolated
+    # node, but nx's contract is None; convert 0.0 -> None only for nodes with
+    # zero total degree (an O(1) check, indistinguishable from a real 0.0
+    # otherwise). Gated to a plain DiGraph with no nx-private storage so the
+    # returned dict's node-key objects hash-match the requested nodes; any other
+    # shape keeps the proven per-node path.
+    if type(G) is DiGraph and not _has_networkx_private_storage(G):
+        valid = [node for node in iterator if node in G]
+        if not valid:
+            return {}
+        batch = _fnx.reciprocity(G, valid)
+        result = {}
+        for node in valid:
+            v = batch[node]
+            if v == 0.0 and G.in_degree(node) == 0 and G.out_degree(node) == 0:
+                result[node] = None
+            else:
+                result[node] = v
+        return result
+
     result = {}
     for node in iterator:
         if node not in G:
