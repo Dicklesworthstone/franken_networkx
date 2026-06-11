@@ -167,6 +167,26 @@ def test_intersection_identical_graphs():
 
 
 @needs_nx
+def test_intersection_hash_equal_display_objects_match_nx():
+    fg = fnx.Graph()
+    fh = fnx.Graph()
+    ng = nx.Graph()
+    nh = nx.Graph()
+    for graph in (fg, ng):
+        graph.add_edge(0, True)
+        graph.add_edge(2, 3.0)
+        graph.add_edge(4.0, 5)
+    for graph in (fh, nh):
+        graph.add_edge(0.0, 1)
+        graph.add_edge(2.0, 3)
+        graph.add_edge(4, 5.0)
+    f = fnx.intersection(fg, fh)
+    n = nx.intersection(ng, nh)
+    assert list(f.nodes()) == list(n.nodes())
+    assert list(f.edges()) == list(n.edges())
+
+
+@needs_nx
 def test_intersection_returns_fnx_graph_not_nx_graph():
     """Regression: must return fnx.Graph (drop-in contract)."""
     fg = fnx.Graph([(0, 1)])
