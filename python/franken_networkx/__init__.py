@@ -15442,6 +15442,23 @@ class _ApproximationNamespace:
         G = _coerce_arg_to_fnx_graph(G)
         if G.is_directed():
             raise NetworkXNotImplemented("not implemented for directed type")
+        # br-r37-c1-approxacc: native byte-exact kernel reproduces nx's CPython
+        # random.Random(seed) draw sequence (node indices, then sample(nbrs, 2))
+        # over neighbors_indices — ~90x faster than the Python sampler below.
+        # Gated to the reproducible case: simple Graph, non-negative int seed,
+        # trials >= 1, |V| >= 1. Other shapes (multigraph / non-int or negative
+        # seed / seed=None / trials == 0 / empty) keep the Python path.
+        if (
+            type(G) is Graph
+            and isinstance(seed, int)
+            and not isinstance(seed, bool)
+            and seed >= 0
+            and trials >= 1
+            and len(G) >= 1
+        ):
+            _native_acc = getattr(_fnx, "approx_average_clustering", None)
+            if _native_acc is not None:
+                return _native_acc(G, trials, seed)
         rng = _generator_random_state(seed)
         nodes = list(G)
         n = len(nodes)

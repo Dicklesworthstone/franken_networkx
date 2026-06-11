@@ -11657,6 +11657,125 @@ pub fn greedy_color_with_strategy(graph: &Graph, strategy: &str) -> GreedyColorR
     }
 }
 
+/// CPython-compatible `random.Random` for byte-exact reproduction of nx's
+/// `seed.random()` / `seed.sample(...)` draw sequence (br-r37-c1-approxacc).
+/// Mirrors `random.Random(seed)`: MT19937 seeded via `init_by_array`, 53-bit
+/// `random()` via `gen_res53`, and `_randbelow_with_getrandbits`.
+struct ApproxRandom {
+    inner: MT19937,
+}
+
+impl ApproxRandom {
+    fn new(seed: u64) -> Self {
+        let words = if seed <= u64::from(u32::MAX) {
+            vec![seed as u32]
+        } else {
+            vec![seed as u32, (seed >> 32) as u32]
+        };
+        Self {
+            inner: MT19937::new_with_slice_seed(&words),
+        }
+    }
+
+    fn random(&mut self) -> f64 {
+        gen_res53(&mut self.inner)
+    }
+
+    fn getrandbits(&mut self, bit_count: u32) -> usize {
+        if bit_count == 0 {
+            return 0;
+        }
+        let mut remaining = bit_count;
+        let mut result: usize = 0;
+        while remaining >= 32 {
+            result = (result << 32) | self.inner.next_u32() as usize;
+            remaining -= 32;
+        }
+        if remaining > 0 {
+            let word = self.inner.next_u32() >> (32 - remaining);
+            result = (result << remaining) | word as usize;
+        }
+        result
+    }
+
+    /// CPython `_randbelow_with_getrandbits`: `k = n.bit_length()`, draw
+    /// `getrandbits(k)` rejecting values `>= n`.
+    fn randbelow(&mut self, upper: usize) -> usize {
+        if upper == 0 {
+            return 0;
+        }
+        let bit_count = usize::BITS - upper.leading_zeros();
+        loop {
+            let candidate = self.getrandbits(bit_count);
+            if candidate < upper {
+                return candidate;
+            }
+        }
+    }
+}
+
+/// CPython `random.sample(population, 2)` over a slice, returning the two chosen
+/// elements. Reproduces both branches: the pool method for small `n` (`<= 21`)
+/// and the set-based selection for larger `n`, matching the exact `randbelow`
+/// draw sequence. The caller guarantees `nbrs.len() >= 2`.
+fn approx_sample2(rng: &mut ApproxRandom, nbrs: &[usize]) -> (usize, usize) {
+    let n = nbrs.len();
+    const SETSIZE: usize = 21;
+    if n <= SETSIZE {
+        // Pool method without the per-call ``list(population)`` copy: the only
+        // mutation CPython makes is ``pool[j0] = pool[n-1]`` before reading
+        // ``pool[j1]`` (with ``j1 < n-1``), so the second pick is ``nbrs[n-1]``
+        // exactly when ``j1 == j0`` and ``nbrs[j1]`` otherwise.
+        let j0 = rng.randbelow(n);
+        let r0 = nbrs[j0];
+        let j1 = rng.randbelow(n - 1);
+        let r1 = if j1 == j0 { nbrs[n - 1] } else { nbrs[j1] };
+        (r0, r1)
+    } else {
+        let j0 = rng.randbelow(n);
+        let r0 = nbrs[j0];
+        let mut j1 = rng.randbelow(n);
+        while j1 == j0 {
+            j1 = rng.randbelow(n);
+        }
+        (r0, nbrs[j1])
+    }
+}
+
+/// Byte-exact native reimplementation of
+/// `networkx.approximation.average_clustering(G, trials, seed)` for an integer
+/// `seed` (br-r37-c1-approxacc). nx samples `trials` random nodes, picks two
+/// random neighbours of each, and counts how many are adjacent — all over a
+/// CPython `random.Random(seed)`. The node indices are drawn FIRST (the list
+/// comprehension), then `sample(nbrs, 2)` interleaves with the loop exactly as
+/// nx does, so the `ApproxRandom` draw order is identical. Runs over
+/// `neighbors_indices` (== nx's `list(G[node])` order). Caller gates `n >= 1`
+/// and `trials >= 1`.
+#[must_use]
+pub fn approx_average_clustering(graph: &Graph, trials: usize, seed: u64) -> f64 {
+    let n = graph.node_count();
+    let mut rng = ApproxRandom::new(seed);
+    // `[int(seed.random() * n) for _ in range(trials)]` is fully evaluated
+    // before the loop body runs — draw every node index up front.
+    let indices: Vec<usize> = (0..trials)
+        .map(|_| (rng.random() * n as f64) as usize)
+        .collect();
+    let mut triangles = 0usize;
+    for &i in &indices {
+        let nbrs = graph.neighbors_indices(i).unwrap_or(&[]);
+        if nbrs.len() < 2 {
+            continue;
+        }
+        let (u, v) = approx_sample2(&mut rng, nbrs);
+        if let Some(vn) = graph.neighbors_indices(v)
+            && vn.contains(&u)
+        {
+            triangles += 1;
+        }
+    }
+    triangles as f64 / trials as f64
+}
+
 /// Checks whether the graph is bipartite.
 ///
 /// Uses BFS 2-coloring. Returns true if the graph can be divided into two

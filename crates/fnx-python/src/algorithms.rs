@@ -6123,6 +6123,26 @@ pub fn minimum_spanning_tree(
     Ok(new_graph)
 }
 
+/// br-r37-c1-approxacc: byte-exact native
+/// ``approximation.average_clustering(G, trials, seed)`` for an integer seed.
+/// The kernel reproduces nx's CPython ``random.Random(seed)`` draw sequence
+/// (node indices via ``random()``, neighbour pairs via ``sample``) over
+/// ``neighbors_indices``. The Python wrapper gates eligibility (simple Graph,
+/// non-negative int seed, trials >= 1, |V| >= 1).
+#[pyfunction]
+#[pyo3(signature = (g, trials, seed))]
+pub fn approx_average_clustering(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    trials: usize,
+    seed: u64,
+) -> PyResult<f64> {
+    let gr = extract_graph(g)?;
+    require_undirected(&gr, "approx_average_clustering")?;
+    let inner = gr.undirected();
+    Ok(py.allow_threads(|| fnx_algorithms::approx_average_clustering(inner, trials, seed)))
+}
+
 /// br-r37-c1-bngez: byte-exact bipartite Hopcroft-Karp maximum matching,
 /// returning the result dict (node -> matched partner). ``left`` / ``right`` are
 /// the node indices of the two bipartite sets in nx's ``bipartite_sets``
@@ -18751,6 +18771,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(minimum_spanning_edges, m)?)?;
     m.add_function(wrap_pyfunction!(prim_spanning_edges, m)?)?;
     m.add_function(wrap_pyfunction!(bipartite_hopcroft_karp_matching, m)?)?;
+    m.add_function(wrap_pyfunction!(approx_average_clustering, m)?)?;
     m.add_function(wrap_pyfunction!(maximum_branching, m)?)?;
     m.add_function(wrap_pyfunction!(minimum_branching, m)?)?;
     m.add_function(wrap_pyfunction!(maximum_spanning_arborescence, m)?)?;
