@@ -85,6 +85,7 @@ _FNX_OVERRIDE_SUBMODULES = {
     "planarity",
     "components",
     "bridges",
+    "centrality",
 }
 
 
@@ -199,6 +200,17 @@ clique = _fnx_clique  # Override in module globals
 _fnx_cluster = _importlib.import_module("franken_networkx.cluster")
 _sys.modules[f"{__name__}.cluster"] = _fnx_cluster
 cluster = _fnx_cluster  # Override in module globals
+
+# br-r37-c1-1s6cb: route nx.algorithms.centrality through the fnx-native
+# top-level implementations (nx aliased it verbatim, so fnx.algorithms.
+# centrality.betweenness_centrality ran nx's pure-Python Brandes on fnx
+# views — 33x slower than fnx.betweenness_centrality).
+import franken_networkx.centrality as _fnx_centrality
+_sys.modules[f"{__name__}.centrality"] = _fnx_centrality
+centrality = _fnx_centrality  # Override in module globals
+_alias_nx_child_modules(
+    "networkx.algorithms.centrality", f"{__name__}.centrality"
+)
 
 import franken_networkx.summarization as _fnx_summarization
 _sys.modules[f"{__name__}.summarization"] = _fnx_summarization

@@ -1,0 +1,87 @@
+{
+  "routing": {
+    "betweenness_centrality": true,
+    "closeness_centrality": true,
+    "harmonic_centrality": true,
+    "load_centrality": true,
+    "degree_centrality": true,
+    "subgraph_centrality": true,
+    "eigenvector_centrality": true,
+    "katz_centrality": true,
+    "second_order_centrality": true
+  },
+  "parity": {
+    "betweenness_centrality_n200": {
+      "sha_fnx": "b594f32ce6874f70ee042df973016048a030f2377da72d34397aca70d588875f",
+      "sha_nx": "b594f32ce6874f70ee042df973016048a030f2377da72d34397aca70d588875f",
+      "sha_match": true,
+      "maxdiff": 1.734723475976807e-18
+    },
+    "load_centrality_n200": {
+      "sha_fnx": "0aa31f5ea03fbbce3fe99b5d2dd435d3049533a0e50a3f68f09e450ed798106a",
+      "sha_nx": "0aa31f5ea03fbbce3fe99b5d2dd435d3049533a0e50a3f68f09e450ed798106a",
+      "sha_match": true,
+      "maxdiff": 6.938893903907228e-18
+    },
+    "closeness_centrality_n200": {
+      "sha_fnx": "dc958d4f80e85ce6a486e0f4560c33ffa57799228e13322e9a4585342f8ff31a",
+      "sha_nx": "dc958d4f80e85ce6a486e0f4560c33ffa57799228e13322e9a4585342f8ff31a",
+      "sha_match": true,
+      "maxdiff": 0.0
+    },
+    "harmonic_centrality_n200": {
+      "sha_fnx": "fa46569c7c1e4fa27684c0230da10db67e989b7cb3e8b9dee7f775162386a2b3",
+      "sha_nx": "fa46569c7c1e4fa27684c0230da10db67e989b7cb3e8b9dee7f775162386a2b3",
+      "sha_match": true,
+      "maxdiff": 3.694822225952521e-13
+    },
+    "degree_centrality_n200": {
+      "sha_fnx": "97dcda5939964e6c75eb606a06202003224e4b48fb918fb0918be0771cbedb03",
+      "sha_nx": "97dcda5939964e6c75eb606a06202003224e4b48fb918fb0918be0771cbedb03",
+      "sha_match": true,
+      "maxdiff": 0.0
+    },
+    "betweenness_centrality_n400": {
+      "sha_fnx": "ed195a12bc0151ad63035789f233f8674000459c09716092923d1361d31ae2d8",
+      "sha_nx": "ed195a12bc0151ad63035789f233f8674000459c09716092923d1361d31ae2d8",
+      "sha_match": true,
+      "maxdiff": 8.673617379884035e-19
+    },
+    "load_centrality_n400": {
+      "sha_fnx": "34f52bc599bb3b966f2022b0fe449e1fd86c2bdfefb1da7467a3037b295b245a",
+      "sha_nx": "34f52bc599bb3b966f2022b0fe449e1fd86c2bdfefb1da7467a3037b295b245a",
+      "sha_match": true,
+      "maxdiff": 3.469446951953614e-18
+    },
+    "closeness_centrality_n400": {
+      "sha_fnx": "b9579f29919150145d13a4ceed191f759cc77983259a80dbc553e8864ef50ed6",
+      "sha_nx": "b9579f29919150145d13a4ceed191f759cc77983259a80dbc553e8864ef50ed6",
+      "sha_match": true,
+      "maxdiff": 0.0
+    },
+    "harmonic_centrality_n400": {
+      "sha_fnx": "5410e37ac7b29f8bd76bf371bba3a63f877d5e8443a2e870af4b5b8cccf08d97",
+      "sha_nx": "5410e37ac7b29f8bd76bf371bba3a63f877d5e8443a2e870af4b5b8cccf08d97",
+      "sha_match": true,
+      "maxdiff": 1.3926637620897964e-12
+    },
+    "degree_centrality_n400": {
+      "sha_fnx": "401d1e0d1b73243f8676349731aa695f17e46d7826bb13d4345c11587f422a96",
+      "sha_nx": "401d1e0d1b73243f8676349731aa695f17e46d7826bb13d4345c11587f422a96",
+      "sha_match": true,
+      "maxdiff": 0.0
+    }
+  },
+  "speedup": {
+    "betweenness_centrality": {
+      "routed_ms": 11.1,
+      "before_raw_nx_ms": 360.68,
+      "speedup": 32.5
+    },
+    "load_centrality": {
+      "routed_ms": 10.55,
+      "before_raw_nx_ms": 337.18,
+      "speedup": 32.0
+    }
+  }
+}
