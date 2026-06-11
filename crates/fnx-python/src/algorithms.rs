@@ -9736,11 +9736,26 @@ pub fn enumerate_all_cliques(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<V
     let gr = extract_graph(g)?;
     require_undirected(&gr, "enumerate_all_cliques")?;
     let inner = gr.undirected();
-    let result = py.allow_threads(|| fnx_algorithms::enumerate_all_cliques(inner));
-    Ok(result
-        .iter()
-        .map(|clique| clique.iter().map(|n| gr.py_node_key(py, n)).collect())
-        .collect())
+    // br-r37-c1-eaclidx: the core returns cliques as node INDICES. Each node
+    // appears in many cliques, so resolve every Python node object exactly once
+    // (then a refcount bump per clique membership) instead of re-running
+    // ``py_node_key`` for every node of every clique and materializing a
+    // ``String`` per clique-node in the kernel.
+    let idx_cliques = py.allow_threads(|| fnx_algorithms::enumerate_all_cliques_index(inner));
+    let names = inner.nodes_ordered();
+    let mut cache: Vec<Option<PyObject>> = (0..names.len()).map(|_| None).collect();
+    let mut out: Vec<Vec<PyObject>> = Vec::with_capacity(idx_cliques.len());
+    for clique in &idx_cliques {
+        let mut row: Vec<PyObject> = Vec::with_capacity(clique.len());
+        for &i in clique {
+            if cache[i].is_none() {
+                cache[i] = Some(gr.py_node_key(py, names[i]));
+            }
+            row.push(cache[i].as_ref().expect("cached above").clone_ref(py));
+        }
+        out.push(row);
+    }
+    Ok(out)
 }
 
 /// Find all maximal cliques using a recursive Bron-Kerbosch algorithm.

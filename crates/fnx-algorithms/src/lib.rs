@@ -27055,35 +27055,29 @@ pub fn node_clique_number(graph: &Graph) -> HashMap<String, usize> {
 /// Enumerate all cliques (not just maximal) in a graph.
 /// Returns all cliques starting from size 1 up.
 #[must_use]
-pub fn enumerate_all_cliques(graph: &Graph) -> Vec<Vec<String>> {
-    let nodes = graph.nodes_ordered();
-    let n = nodes.len();
+/// Index-space core of [`enumerate_all_cliques`] (br-r37-c1-eaclidx). Returns the
+/// cliques as node-INDEX vectors. The algorithm was already index-native; this
+/// just stops materializing a `String` per clique-node (every node appears in
+/// many cliques, so the binding resolves each Python object once and reuses it).
+#[must_use]
+pub fn enumerate_all_cliques_index(graph: &Graph) -> Vec<Vec<usize>> {
+    let n = graph.node_count();
     if n == 0 {
         return vec![];
     }
 
-    let node_to_idx: HashMap<&str, usize> =
-        nodes.iter().enumerate().map(|(i, &nd)| (nd, i)).collect();
-
-    // Build adjacency set
+    // Adjacency sets over node indices (``neighbors_indices`` — no String hashing
+    // and no node_to_idx map). Membership only, so neighbour order is irrelevant.
     let mut adj = vec![HashSet::new(); n];
-    for (i, &u) in nodes.iter().enumerate() {
-        if let Some(neighbors) = graph.neighbors_iter(u) {
-            for v in neighbors {
-                let j = node_to_idx[v];
-                adj[i].insert(j);
-            }
+    for (i, set) in adj.iter_mut().enumerate() {
+        if let Some(neighbors) = graph.neighbors_indices(i) {
+            set.extend(neighbors.iter().copied());
         }
     }
 
-    let mut result = Vec::new();
+    let mut result: Vec<Vec<usize>> = (0..n).map(|i| vec![i]).collect();
 
-    // Start with single nodes
-    for &node in &nodes {
-        result.push(vec![node.to_string()]);
-    }
-
-    // BFS-like expansion: for each clique, try extending with a node that has higher index
+    // BFS-like expansion: extend each clique with a higher-index common neighbour.
     let mut current_level: Vec<Vec<usize>> = (0..n).map(|i| vec![i]).collect();
     while !current_level.is_empty() {
         let mut next_level = Vec::new();
@@ -27093,7 +27087,7 @@ pub fn enumerate_all_cliques(graph: &Graph) -> Vec<Vec<String>> {
                 if clique.iter().all(|&c| adj[c].contains(&candidate)) {
                     let mut new_clique = clique.clone();
                     new_clique.push(candidate);
-                    result.push(new_clique.iter().map(|&i| nodes[i].to_string()).collect());
+                    result.push(new_clique.clone());
                     next_level.push(new_clique);
                 }
             }
@@ -27102,6 +27096,14 @@ pub fn enumerate_all_cliques(graph: &Graph) -> Vec<Vec<String>> {
     }
 
     result
+}
+
+pub fn enumerate_all_cliques(graph: &Graph) -> Vec<Vec<String>> {
+    let nodes = graph.nodes_ordered();
+    enumerate_all_cliques_index(graph)
+        .into_iter()
+        .map(|clique| clique.into_iter().map(|i| nodes[i].to_string()).collect())
+        .collect()
 }
 
 /// Find all maximal cliques using a recursive Bron-Kerbosch algorithm.
