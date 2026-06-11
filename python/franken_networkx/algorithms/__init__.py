@@ -87,6 +87,7 @@ _FNX_OVERRIDE_SUBMODULES = {
     "bridges",
     "centrality",
     "distance_measures",
+    "link_analysis",
 }
 
 
@@ -221,6 +222,15 @@ _sys.modules[f"{__name__}.distance_measures"] = _fnx_distance_measures
 distance_measures = _fnx_distance_measures  # Override in module globals
 _alias_nx_child_modules(
     "networkx.algorithms.distance_measures", f"{__name__}.distance_measures"
+)
+
+# br-r37-c1-muhsi: route nx.algorithms.link_analysis through fnx-native
+# top-level (google_matrix ~1.4x; pagerank/hits already dispatch, neutral).
+import franken_networkx.link_analysis as _fnx_link_analysis
+_sys.modules[f"{__name__}.link_analysis"] = _fnx_link_analysis
+link_analysis = _fnx_link_analysis  # Override in module globals
+_alias_nx_child_modules(
+    "networkx.algorithms.link_analysis", f"{__name__}.link_analysis"
 )
 
 import franken_networkx.summarization as _fnx_summarization
