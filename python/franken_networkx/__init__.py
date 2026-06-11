@@ -7838,6 +7838,7 @@ from franken_networkx._fnx import (
     average_neighbor_degree as _raw_average_neighbor_degree,
     betweenness_centrality as _raw_betweenness_centrality,
     betweenness_centrality_subset_rust as _betweenness_centrality_subset_rust,
+    betweenness_centrality_subset_weighted_rust as _betweenness_centrality_subset_weighted_rust,
     closeness_centrality as _raw_closeness_centrality,
     closeness_vitality as _rust_closeness_vitality,
     degree_assortativity_coefficient as _raw_degree_assortativity_coefficient,
@@ -30141,6 +30142,23 @@ def betweenness_centrality_subset(
             G, sources, targets, normalized
         )
         return {node: scores.get(node, 0.0) for node in G}
+    # br-r37-c1-664w5: weighted subset betweenness ran a pure-Python per-source
+    # Dijkstra + accumulation loop (~3.2x SLOWER than nx). Route to the native
+    # weighted subset Brandes kernel (Dijkstra SSSP, byte-exact) for the
+    # common simple-graph string-weight case with finite/non-negative/numeric
+    # weights; callable/non-string weight, multigraph, or bad weights fall
+    # through to the parity path.
+    if isinstance(weight, str) and not G.is_multigraph():
+        _sync_rust_edge_attrs(G)
+        if not (
+            _has_negative_edge_weight_for_dijkstra(G, weight, _skip_sync=True)
+            or _has_positive_infinity_edge_weight_for_dijkstra(G, weight, _skip_sync=True)
+            or _has_nonnumeric_edge_weight(G, weight, _skip_sync=True)
+        ):
+            scores = _betweenness_centrality_subset_weighted_rust(
+                G, sources, targets, weight, normalized
+            )
+            return {node: scores.get(node, 0.0) for node in G}
     betweenness = dict.fromkeys(G, 0.0)
     for source in sources:
         if weight is None:
