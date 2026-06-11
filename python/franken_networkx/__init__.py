@@ -17899,12 +17899,27 @@ def complete_graph(n, create_using=None, *, backend=None, **backend_kwargs):
     if create_using is None and isinstance(n, _numbers.Integral):
         return _rust_complete_graph(int(n))
 
+    # br-r37-c1-completelist: a consecutive-int node list [0..k-1] is exactly
+    # K_k on the default labels, so route it to the native _rust_complete_graph
+    # kernel (the int fast path) — this is the shape lollipop_graph /
+    # barbell_graph pass for their (integer-m) bell, and it makes them faster
+    # than nx. Byte-identical: complete_graph(list(range(k))) and
+    # complete_graph(k) are the same K_k. O(V) check, cheap vs the O(V^2) edges.
+    if create_using is None and list(nodes) == list(range(len(nodes))):
+        return _rust_complete_graph(len(nodes))
+
     graph = _classic_graph_from_create_using(create_using)
     _add_nodes_in_order(graph, nodes)
     if len(nodes) > 1:
         edges = _itertools.permutations(nodes, 2) if graph.is_directed() else _combinations(nodes, 2)
-        for u, v in edges:
-            graph.add_edge(u, v)
+        # br-r37-c1-completelist: the non-int / create_using path added the
+        # O(V^2) clique edges one at a time (~125k per-edge add_edge PyO3 calls
+        # for K500 = ~6x slower than nx, which uses a single G.add_edges_from).
+        # Mirror nx: one bulk add_edges_from over the same combinations/
+        # permutations stream — byte-identical edge enumeration, hits the native
+        # batch path. Fixes complete_graph(list/create_using) and its callers
+        # (lollipop_graph, barbell_graph, ...).
+        graph.add_edges_from(edges)
     return graph
 
 
