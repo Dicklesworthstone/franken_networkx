@@ -11293,6 +11293,31 @@ def minimum_spanning_tree(G, weight="weight", algorithm="kruskal", ignore_nan=Fa
     # ``weight(u, v, d) -> float``.  Route non-str weight values
     # through nx.  Same for algorithm != kruskal and ignore_nan
     # (Rust impl doesn't model NaN-skipping yet).
+    # br-r37-c1-6vq1m: prim/boruvka used to delegate the whole tree to nx
+    # (full fnx->nx conversion + nx's algorithm), but fnx's own
+    # ``minimum_spanning_edges`` already has byte-exact native Prim / in-process
+    # Borůvka kernels. nx's ``minimum_spanning_tree`` is literally "build a graph
+    # from ``minimum_spanning_edges``", so assemble the tree from fnx's edge
+    # generator instead — same construction, no conversion tax. Simple Graph +
+    # str weight + ignore_nan=False only (NaN / callable-weight / multigraph still
+    # delegate, exactly as ``minimum_spanning_edges`` itself falls back).
+    if (
+        algorithm in ("prim", "boruvka")
+        and isinstance(weight, str)
+        and not ignore_nan
+        and not G.is_multigraph()
+    ):
+        T = Graph()
+        if G.graph:
+            T.graph.update(dict(G.graph))
+        T.add_nodes_from(G.nodes(data=True))
+        T.add_edges_from(
+            minimum_spanning_edges(
+                G, algorithm=algorithm, weight=weight,
+                keys=True, data=True, ignore_nan=ignore_nan,
+            )
+        )
+        return T
     if algorithm != "kruskal" or ignore_nan or not isinstance(weight, str):
         return _minimum_spanning_tree_via_parity(G, weight, algorithm, ignore_nan)
     # MultiGraph inputs must come back as MultiGraph (parallel edges,
