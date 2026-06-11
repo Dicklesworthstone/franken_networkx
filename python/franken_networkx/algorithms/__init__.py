@@ -86,6 +86,7 @@ _FNX_OVERRIDE_SUBMODULES = {
     "components",
     "bridges",
     "centrality",
+    "distance_measures",
 }
 
 
@@ -210,6 +211,16 @@ _sys.modules[f"{__name__}.centrality"] = _fnx_centrality
 centrality = _fnx_centrality  # Override in module globals
 _alias_nx_child_modules(
     "networkx.algorithms.centrality", f"{__name__}.centrality"
+)
+
+# br-r37-c1-muhsi: route nx.algorithms.distance_measures through fnx-native
+# top-level (harmonic_diameter ran nx pure-Python on fnx views — 7.6x slower;
+# the rest are 14-16x faster than genuine nx).
+import franken_networkx.distance_measures as _fnx_distance_measures
+_sys.modules[f"{__name__}.distance_measures"] = _fnx_distance_measures
+distance_measures = _fnx_distance_measures  # Override in module globals
+_alias_nx_child_modules(
+    "networkx.algorithms.distance_measures", f"{__name__}.distance_measures"
 )
 
 import franken_networkx.summarization as _fnx_summarization
