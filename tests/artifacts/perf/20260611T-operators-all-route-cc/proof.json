@@ -1,0 +1,42 @@
+{
+  "parity": {
+    "union_all": {
+      "checks": 30,
+      "fails": 0
+    },
+    "union_all_rename": {
+      "checks": 30,
+      "fails": 0
+    },
+    "disjoint_union_all": {
+      "checks": 30,
+      "fails": 0
+    },
+    "compose_all": {
+      "checks": 30,
+      "fails": 0
+    },
+    "intersection_all": {
+      "checks": 30,
+      "fails": 0
+    }
+  },
+  "speedup": {
+    "union_all": {
+      "routed_ms": 3.69,
+      "genuine_nx_ms": 2.97
+    },
+    "disjoint_union_all": {
+      "routed_ms": 5.85,
+      "genuine_nx_ms": 6.3
+    },
+    "compose_all": {
+      "routed_ms": 3.28,
+      "genuine_nx_ms": 3.27
+    },
+    "intersection_all": {
+      "routed_ms": 1.8,
+      "genuine_nx_ms": 1.6
+    }
+  }
+}

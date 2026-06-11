@@ -32,11 +32,8 @@ equivalent result; the contract (returns the fnx-graph product) is unchanged.
 from __future__ import annotations
 
 from networkx.algorithms.operators import *  # noqa: F401,F403
-import networkx.algorithms.operators.product as _nx_product
-import networkx.algorithms.operators.all as _nx_all
 
 import franken_networkx as _fnx
-from franken_networkx.readwrite import _from_nx_graph
 
 
 def disjoint_union(G, H, *, backend=None, **backend_kwargs):
@@ -142,8 +139,7 @@ def union_all(graphs, rename=(), *, backend=None, **backend_kwargs):
     the result to an fnx graph type for drop-in compatibility.
     """
     _fnx._validate_backend_dispatch_keywords("union_all", backend, backend_kwargs)
-    nx_result = _nx_all.union_all(graphs, rename=rename)
-    return _from_nx_graph(nx_result)
+    return _fnx.union_all(graphs, rename=rename)
 
 
 def intersection_all(graphs, *, backend=None, **backend_kwargs):
@@ -153,8 +149,7 @@ def intersection_all(graphs, *, backend=None, **backend_kwargs):
     the result to an fnx graph type for drop-in compatibility.
     """
     _fnx._validate_backend_dispatch_keywords("intersection_all", backend, backend_kwargs)
-    nx_result = _nx_all.intersection_all(graphs)
-    return _from_nx_graph(nx_result)
+    return _fnx.intersection_all(graphs)
 
 
 def compose_all(graphs, *, backend=None, **backend_kwargs):
@@ -164,8 +159,7 @@ def compose_all(graphs, *, backend=None, **backend_kwargs):
     the result to an fnx graph type for drop-in compatibility.
     """
     _fnx._validate_backend_dispatch_keywords("compose_all", backend, backend_kwargs)
-    nx_result = _nx_all.compose_all(graphs)
-    return _from_nx_graph(nx_result)
+    return _fnx.compose_all(graphs)
 
 
 def disjoint_union_all(graphs, *, backend=None, **backend_kwargs):
@@ -175,5 +169,4 @@ def disjoint_union_all(graphs, *, backend=None, **backend_kwargs):
     the result to an fnx graph type for drop-in compatibility.
     """
     _fnx._validate_backend_dispatch_keywords("disjoint_union_all", backend, backend_kwargs)
-    nx_result = _nx_all.disjoint_union_all(graphs)
-    return _from_nx_graph(nx_result)
+    return _fnx.disjoint_union_all(graphs)
