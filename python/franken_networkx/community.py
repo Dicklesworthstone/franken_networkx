@@ -238,6 +238,91 @@ def asyn_lpa_communities(G, weight=None, seed=None):
     return _gen()
 
 
+def fast_label_propagation_communities(G, *, weight=None, seed=None):
+    """Communities via fast label propagation (Traag & Šubelj 2023).
+
+    br-r37-c1-0gjy3: same ``import *`` re-export tax as
+    ``asyn_lpa_communities`` (~2x nx) — nx's queue-driven LPA ran against the
+    fnx Graph, rebuilding adjacency views. ``seed`` is a real CPython
+    ``random.Random`` (``py_random_state``) so a Python in-process impl is
+    byte-exact. Same three levers (key-only snapshot + index space + reusable
+    mark-array), plus one extra: nx shuffles a ``deque`` (``deque[i]`` is
+    O(n), so its initial shuffle is O(n^2)); shuffling a plain list of indices
+    yields the IDENTICAL permutation (Fisher-Yates draws depend only on
+    ``len``, not the container) in O(n), then seeds the work deque.
+
+    Only the concrete simple unweighted ``Graph`` takes the fast path;
+    everything else (weighted / directed / multigraph / view / non-fnx)
+    delegates to nx (directed uses pred+succ and in_edges; weighted reads
+    edge data — different code paths).
+    """
+    from collections import deque
+
+    from networkx.utils import create_py_random_state, groups
+
+    if (
+        type(G) is not _fnx.Graph
+        or weight is not None
+        or getattr(G, "_native_adjacency_keys", None) is None
+    ):
+        if isinstance(
+            G, (_fnx.Graph, _fnx.DiGraph, _fnx.MultiGraph, _fnx.MultiDiGraph)
+        ):
+            return _nx_community.fast_label_propagation_communities(
+                _fnx._networkx_graph_for_parity(G), weight=weight, seed=seed
+            )
+        return _nx_community.fast_label_propagation_communities(
+            G, weight=weight, seed=seed
+        )
+
+    node_list = list(G)
+    n = len(node_list)
+    idx = {u: i for i, u in enumerate(node_list)}
+    adj = [None] * n
+    for node, nbrs in G._native_adjacency_keys():
+        adj[idx[node]] = [idx[v] for v in nbrs]
+
+    rng = create_py_random_state(seed)
+
+    def _gen():
+        comms = list(range(n))
+        perm = list(range(n))
+        rng.shuffle(perm)  # O(n); identical permutation to nx's deque shuffle
+        queue = deque(perm)
+        in_queue = [True] * n  # bool array mirrors nx's nodes_set membership
+        freq = [0] * n
+        while queue:
+            node = queue.popleft()
+            in_queue[node] = False
+            nbrs = adj[node]
+            if not nbrs:
+                continue
+            touched = []
+            for v in nbrs:
+                lab = comms[v]
+                if freq[lab] == 0:
+                    touched.append(lab)
+                freq[lab] += 1
+            max_freq = freq[touched[0]]
+            for lab in touched:
+                if freq[lab] > max_freq:
+                    max_freq = freq[lab]
+            best_labels = [lab for lab in touched if freq[lab] == max_freq]
+            for lab in touched:
+                freq[lab] = 0
+            comm = rng.choice(best_labels)
+            if comms[node] != comm:
+                comms[node] = comm
+                for v in nbrs:
+                    if comms[v] != comm and not in_queue[v]:
+                        queue.append(v)
+                        in_queue[v] = True
+        label_by_node = {node_list[i]: comms[i] for i in range(n)}
+        yield from groups(label_by_node).values()
+
+    return _gen()
+
+
 _UPSTREAM_PUBLIC = getattr(
     _nx_community,
     "__all__",
@@ -245,7 +330,12 @@ _UPSTREAM_PUBLIC = getattr(
 )
 __all__ = sorted(
     set(_UPSTREAM_PUBLIC)
-    | {"label_propagation_communities", "louvain_communities", "asyn_lpa_communities"}
+    | {
+        "label_propagation_communities",
+        "louvain_communities",
+        "asyn_lpa_communities",
+        "fast_label_propagation_communities",
+    }
 )
 
 
