@@ -40,33 +40,103 @@ def modularity(G, communities, weight="weight", resolution=1, *, backend=None, *
 
 
 def label_propagation_communities(G, *, backend=None, **backend_kwargs):
-    """Yield community sets determined by asynchronous label propagation.
+    """Community sets via the semi-synchronous label-propagation method.
 
-    br-r37-c1-cy2me: re-routes to nx's algorithm against the converted
-    graph. Previously called ``_fnx.label_propagation_communities``
-    (top-level), which was hidden in br-r37-c1-02sx1.
+    br-r37-c1-0upl7: the previous override (br-r37-c1-lpstruct) still built a
+    structural ``nx.Graph`` and ran nx's pure-Python algorithm on it (~1.8x
+    nx). Fully de-delegate for the simple ``Graph``: the algorithm only reads
+    a graph colouring (native ``greedy_color``, already byte-exact with nx)
+    plus per-node neighbour-label frequencies, so run it in index space over a
+    one-time key-only adjacency snapshot with a reusable mark-array.
+
+    Byte-identical to nx: colour classes are processed in nx's exact order
+    (``greedy_color`` dict-iteration order, mirroring ``_color_network``);
+    within a colour class the update order is irrelevant (a proper colouring
+    makes each class an independent set, so updates don't see each other);
+    labels are the same 0..n-1 ints; the Prec-Max tie-break (``max`` of the
+    most-frequent label set) and the final node-order grouping all match.
+
+    Directed graphs raise (nx is ``@not_implemented_for('directed')``);
+    multigraph / view / non-fnx graphs delegate to nx.
     """
     _fnx._validate_backend_dispatch_keywords(
         "label_propagation_communities", backend, backend_kwargs
     )
-    # br-r37-c1-lpstruct: label_propagation is unweighted and structure-only
-    # (the semi-synchronous algorithm reads only node iteration order + the
-    # neighbour SET via greedy_color + a Counter of neighbour labels). The full
-    # `_networkx_graph_for_parity` faithful conversion (node/edge/graph attrs)
-    # was ~17ms of the ~31ms call (55%); a structural nx.Graph built from G's
-    # nodes (G's order) + edges (G's edge order) reproduces the same node and
-    # adjacency iteration order — so greedy_color and the labeling are
-    # byte-identical — for ~half the conversion cost. Gate to a plain simple
-    # Graph; multigraph / views keep the faithful path.
-    import networkx as _nx
-    if type(G) is _fnx.Graph:
-        structural = _nx.Graph()
-        structural.add_nodes_from(G)
-        structural.add_edges_from(G.edges())
-        return _nx_community.label_propagation_communities(structural)
-    return _nx_community.label_propagation_communities(
-        _fnx._networkx_graph_for_parity(G)
-    )
+    if type(G) is not _fnx.Graph:
+        return _nx_community.label_propagation_communities(
+            _fnx._networkx_graph_for_parity(G)
+        )
+
+    from collections import defaultdict
+
+    node_list = list(G)
+    n = len(node_list)
+    idx = {u: i for i, u in enumerate(node_list)}
+    adj = [None] * n
+    _nak = getattr(G, "_native_adjacency_keys", None)
+    if _nak is not None:
+        for node, nbrs in _nak():
+            adj[idx[node]] = [idx[v] for v in nbrs]
+    else:
+        for u in node_list:
+            adj[idx[u]] = [idx[v] for v in G._adj[u]]
+
+    # Colour classes in nx's exact order (greedy_color dict order).
+    colors = _fnx.coloring.greedy_color(G)
+    color_buckets = {}
+    color_order = []
+    for node, color in colors.items():
+        bucket = color_buckets.get(color)
+        if bucket is None:
+            bucket = []
+            color_buckets[color] = bucket
+            color_order.append(color)
+        bucket.append(idx[node])
+
+    labels = list(range(n))
+    freq = [0] * n
+
+    def _most_frequent(node):
+        # Returns the list of max-frequency neighbour labels (order-immaterial:
+        # callers use only membership, length and max).
+        touched = []
+        for v in adj[node]:
+            lab = labels[v]
+            if freq[lab] == 0:
+                touched.append(lab)
+            freq[lab] += 1
+        max_freq = freq[touched[0]]
+        for lab in touched:
+            if freq[lab] > max_freq:
+                max_freq = freq[lab]
+        best = [lab for lab in touched if freq[lab] == max_freq]
+        for lab in touched:
+            freq[lab] = 0
+        return best
+
+    def _complete():
+        for v in range(n):
+            if not adj[v]:
+                continue
+            if labels[v] not in _most_frequent(v):
+                return False
+        return True
+
+    while not _complete():
+        for color in color_order:
+            for node in color_buckets[color]:
+                if not adj[node]:
+                    continue
+                best = _most_frequent(node)
+                if len(best) == 1:
+                    labels[node] = best[0]
+                elif len(best) > 1 and labels[node] not in best:
+                    labels[node] = max(best)  # Prec-Max tie-break
+
+    clusters = defaultdict(set)
+    for i in range(n):
+        clusters[labels[i]].add(node_list[i])
+    return clusters.values()
 
 
 def louvain_communities(
