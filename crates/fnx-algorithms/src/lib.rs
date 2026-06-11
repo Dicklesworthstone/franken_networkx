@@ -4660,6 +4660,223 @@ fn edge_betweenness_centrality_generic<G: GraphView>(graph: &G) -> EdgeBetweenne
     }
 }
 
+/// One weighted edge-Brandes single-source pass (Dijkstra SSSP). Returns this
+/// source's contribution to every canonical edge id, byte-for-byte mirroring
+/// networkx's `_single_source_dijkstra_path_basic` + `_accumulate_edges`.
+/// `adjacency[v]` lists `(neighbor_index, edge_index, weight)` in the graph's
+/// neighbour-iteration order (so the heap push counter — and therefore the
+/// finalisation order and predecessor lists — match nx's `G[v].items()` order).
+fn weighted_edge_brandes_source(
+    adjacency: &[Vec<(usize, usize, f64)>],
+    n: usize,
+    n_edges: usize,
+    s: usize,
+) -> Vec<f64> {
+    use std::collections::BinaryHeap;
+
+    let mut sigma = vec![0.0f64; n];
+    let mut seen = vec![f64::INFINITY; n];
+    let mut finalized = vec![false; n];
+    let mut preds: Vec<Vec<(usize, usize)>> = vec![Vec::new(); n];
+    let mut stack: Vec<usize> = Vec::with_capacity(n);
+    let mut heap: BinaryHeap<WeightedBrandesHeapEntry> = BinaryHeap::new();
+    let mut counter: u64 = 0;
+
+    sigma[s] = 1.0;
+    seen[s] = 0.0;
+    heap.push(WeightedBrandesHeapEntry {
+        dist: 0.0,
+        counter,
+        pred: s,
+        v: s,
+    });
+    counter += 1;
+
+    while let Some(entry) = heap.pop() {
+        let v = entry.v;
+        if finalized[v] {
+            continue;
+        }
+        sigma[v] += sigma[entry.pred];
+        stack.push(v);
+        finalized[v] = true;
+        let dist_v = entry.dist;
+        let sigma_v = sigma[v];
+        for &(w, eidx, wt) in &adjacency[v] {
+            let vw_dist = dist_v + wt;
+            if !finalized[w] && vw_dist < seen[w] {
+                seen[w] = vw_dist;
+                heap.push(WeightedBrandesHeapEntry {
+                    dist: vw_dist,
+                    counter,
+                    pred: v,
+                    v: w,
+                });
+                counter += 1;
+                sigma[w] = 0.0;
+                preds[w] = vec![(v, eidx)];
+            } else if vw_dist == seen[w] {
+                sigma[w] += sigma_v;
+                preds[w].push((v, eidx));
+            }
+        }
+    }
+
+    let mut delta_edge = vec![0.0f64; n_edges];
+    let mut dependency = vec![0.0f64; n];
+    while let Some(w) = stack.pop() {
+        // nx `_accumulate_edges` float order: coeff once, then `c = sigma[v]*coeff`,
+        // `betweenness[edge] += c`, `delta[v] += c`.
+        let coeff = (1.0 + dependency[w]) / sigma[w];
+        for &(v, eidx) in &preds[w] {
+            let c = sigma[v] * coeff;
+            delta_edge[eidx] += c;
+            dependency[v] += c;
+        }
+    }
+    delta_edge
+}
+
+/// Weighted edge betweenness centrality (Dijkstra SSSP), byte-exact with
+/// networkx's `edge_betweenness_centrality(weight=..., normalized=True)`. Edge
+/// canonicalisation, edge-id assignment and the final `(left, right)` sort match
+/// the unweighted `edge_betweenness_centrality_generic` exactly, so the Python
+/// wrapper's existing re-key-to-`G.edges()`-order step works unchanged.
+/// Per-source contributions are reduced in strict source order `0..n`
+/// (parallelised over sources with a chunked, source-ordered reduction for large
+/// graphs), keeping the float summation order — and result — bit-identical.
+fn edge_betweenness_centrality_weighted_generic<G: GraphView>(
+    graph: &G,
+    weight_attr: Option<&str>,
+) -> EdgeBetweennessCentralityResult {
+    let nodes = graph.nodes_ordered();
+    let n = nodes.len();
+    if n == 0 {
+        return EdgeBetweennessCentralityResult {
+            scores: Vec::new(),
+            witness: ComplexityWitness {
+                algorithm: "brandes_edge_betweenness_centrality_weighted".to_owned(),
+                complexity_claim: "O(|V| * (|E| + |V| log |V|))".to_owned(),
+                nodes_touched: 0,
+                edges_scanned: 0,
+                queue_peak: 0,
+            },
+        };
+    }
+
+    let is_directed = graph.is_directed();
+    let canon = |a: usize, b: usize| -> (usize, usize) {
+        if is_directed || nodes[a] <= nodes[b] {
+            (a, b)
+        } else {
+            (b, a)
+        }
+    };
+
+    let mut edge_index: HashMap<(usize, usize), usize> = HashMap::new();
+    let mut edge_endpoints: Vec<(usize, usize)> = Vec::new();
+    let mut adjacency: Vec<Vec<(usize, usize, f64)>> = Vec::with_capacity(n);
+    for u in 0..n {
+        let mut row = Vec::with_capacity(graph.neighbor_count(nodes[u]));
+        if let Some(neighbors) = graph.neighbors_iter(nodes[u]) {
+            for w_name in neighbors {
+                let w = graph
+                    .get_node_index(w_name)
+                    .expect("graph neighbor must exist in node index");
+                let key = canon(u, w);
+                let eidx = *edge_index.entry(key).or_insert_with(|| {
+                    let e = edge_endpoints.len();
+                    edge_endpoints.push(key);
+                    e
+                });
+                row.push((w, eidx, graph.edge_weight(nodes[u], w_name, weight_attr)));
+            }
+        }
+        adjacency.push(row);
+    }
+    let n_edges = edge_endpoints.len();
+
+    let mut edge_total = vec![0.0f64; n_edges];
+
+    const WEIGHTED_EDGE_BRANDES_PARALLEL_THRESHOLD: usize = 400;
+    if n >= WEIGHTED_EDGE_BRANDES_PARALLEL_THRESHOLD {
+        use rayon::prelude::*;
+        let bytes_per_delta = n_edges.max(1).saturating_mul(std::mem::size_of::<f64>());
+        let chunk = (64 * 1024 * 1024 / bytes_per_delta).clamp(1, n);
+        let mut start = 0usize;
+        while start < n {
+            let end = (start + chunk).min(n);
+            let chunk_results: Vec<Vec<f64>> = (start..end)
+                .into_par_iter()
+                .map(|s| weighted_edge_brandes_source(&adjacency, n, n_edges, s))
+                .collect();
+            for delta in chunk_results {
+                for (acc, contribution) in edge_total.iter_mut().zip(delta.iter()) {
+                    *acc += *contribution;
+                }
+            }
+            start = end;
+        }
+    } else {
+        for s in 0..n {
+            let delta = weighted_edge_brandes_source(&adjacency, n, n_edges, s);
+            for (acc, contribution) in edge_total.iter_mut().zip(delta.iter()) {
+                *acc += *contribution;
+            }
+        }
+    }
+
+    let scale = if n > 1 {
+        1.0 / ((n * (n - 1)) as f64)
+    } else {
+        0.0
+    };
+    let mut scores = (0..n_edges)
+        .map(|e| {
+            let (left_idx, right_idx) = edge_endpoints[e];
+            EdgeCentralityScore {
+                left: nodes[left_idx].to_owned(),
+                right: nodes[right_idx].to_owned(),
+                score: edge_total[e] * scale,
+            }
+        })
+        .collect::<Vec<EdgeCentralityScore>>();
+    scores.sort_unstable_by(|left, right| {
+        left.left
+            .cmp(&right.left)
+            .then_with(|| left.right.cmp(&right.right))
+    });
+
+    EdgeBetweennessCentralityResult {
+        scores,
+        witness: ComplexityWitness {
+            algorithm: "brandes_edge_betweenness_centrality_weighted".to_owned(),
+            complexity_claim: "O(|V| * (|E| + |V| log |V|))".to_owned(),
+            nodes_touched: 0,
+            edges_scanned: 0,
+            queue_peak: 0,
+        },
+    }
+}
+
+/// Weighted edge betweenness for an undirected `Graph` (normalized).
+#[must_use]
+pub fn edge_betweenness_centrality_weighted(
+    graph: &Graph,
+    weight_attr: Option<&str>,
+) -> EdgeBetweennessCentralityResult {
+    edge_betweenness_centrality_weighted_generic(graph, weight_attr)
+}
+
+/// Weighted edge betweenness for a directed `DiGraph` (normalized, out-edges).
+#[must_use]
+pub fn edge_betweenness_centrality_weighted_directed(
+    graph: &DiGraph,
+    weight_attr: Option<&str>,
+) -> EdgeBetweennessCentralityResult {
+    edge_betweenness_centrality_weighted_generic(graph, weight_attr)
+}
+
 #[must_use]
 pub fn edge_betweenness_centrality_subset(
     graph: &Graph,

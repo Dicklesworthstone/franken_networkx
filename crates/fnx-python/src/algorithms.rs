@@ -4144,6 +4144,58 @@ pub fn edge_betweenness_centrality(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyRe
     Ok(dict.unbind())
 }
 
+/// Weighted edge betweenness centrality (normalized). br-r37-c1-4v1mt: native
+/// weighted Brandes (Dijkstra SSSP, parallel, byte-exact) for a string `weight`
+/// key; returns a canonical-keyed dict that the Python wrapper re-keys into
+/// `G.edges()` order, exactly like the unweighted path.
+#[pyfunction]
+pub fn edge_betweenness_centrality_weighted(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    weight: &str,
+) -> PyResult<Py<PyDict>> {
+    let gr = extract_graph(g)?;
+    let result = match &gr {
+        GraphRef::Undirected(pg) => {
+            let inner = &pg.inner;
+            py.allow_threads(|| {
+                fnx_algorithms::edge_betweenness_centrality_weighted(inner, Some(weight))
+            })
+        }
+        GraphRef::Directed { dg, .. } => {
+            let inner = &dg.inner;
+            py.allow_threads(|| {
+                fnx_algorithms::edge_betweenness_centrality_weighted_directed(inner, Some(weight))
+            })
+        }
+        _ => {
+            if gr.is_directed() {
+                let inner = gr.digraph().expect("is_directed checked above");
+                py.allow_threads(|| {
+                    fnx_algorithms::edge_betweenness_centrality_weighted_directed(
+                        inner,
+                        Some(weight),
+                    )
+                })
+            } else {
+                let inner = gr.undirected();
+                py.allow_threads(|| {
+                    fnx_algorithms::edge_betweenness_centrality_weighted(inner, Some(weight))
+                })
+            }
+        }
+    };
+    let dict = PyDict::new(py);
+    for s in &result.scores {
+        let key = pyo3::types::PyTuple::new(
+            py,
+            &[gr.py_node_key(py, &s.left), gr.py_node_key(py, &s.right)],
+        )?;
+        dict.set_item(key, s.score)?;
+    }
+    Ok(dict.unbind())
+}
+
 /// Betweenness centrality restricted to source/target node subsets (unweighted).
 #[pyfunction]
 #[pyo3(signature = (g, sources, targets, normalized=false))]
@@ -18118,6 +18170,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(katz_centrality, m)?)?;
     m.add_function(wrap_pyfunction!(betweenness_centrality, m)?)?;
     m.add_function(wrap_pyfunction!(edge_betweenness_centrality, m)?)?;
+    m.add_function(wrap_pyfunction!(edge_betweenness_centrality_weighted, m)?)?;
     m.add_function(wrap_pyfunction!(betweenness_centrality_subset_rust, m)?)?;
     m.add_function(wrap_pyfunction!(
         edge_betweenness_centrality_subset_rust,

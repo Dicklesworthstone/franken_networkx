@@ -7843,6 +7843,7 @@ from franken_networkx._fnx import (
     degree_assortativity_coefficient_directed as _raw_degree_assortativity_coefficient_directed,
     degree_centrality as _raw_degree_centrality,
     edge_betweenness_centrality as _raw_edge_betweenness_centrality,
+    edge_betweenness_centrality_weighted as _raw_edge_betweenness_centrality_weighted,
     edge_betweenness_centrality_subset_rust as _edge_betweenness_centrality_subset_rust,
     eigenvector_centrality as _raw_eigenvector_centrality,
     harmonic_centrality as _raw_harmonic_centrality,
@@ -19472,6 +19473,37 @@ def edge_betweenness_centrality(
     _validate_backend_dispatch_keywords(
         "edge_betweenness_centrality", backend, backend_kwargs
     )
+
+    # br-r37-c1-4v1mt: weighted edge betweenness (a string `weight` key,
+    # normalized) previously delegated to networkx's single-threaded Python
+    # Brandes (~595ms n=400). Run the native weighted edge-Brandes kernel
+    # (Dijkstra SSSP, parallel, byte-exact) and re-key into G.edges() order,
+    # exactly like the unweighted path. Mirror the dijkstra/astar family's
+    # weight contract: native only for a simple Graph/DiGraph whose `weight`
+    # values are all finite, non-negative and numeric; callable/non-string
+    # weight, multigraph, negative/+inf/non-numeric weight, non-normalized, and
+    # k/seed sampling all delegate to nx for exact parity.
+    if (
+        k is None
+        and seed is None
+        and normalized
+        and isinstance(weight, str)
+        and not G.is_multigraph()
+    ):
+        _sync_rust_edge_attrs(G)
+        if not (
+            _has_negative_edge_weight_for_dijkstra(G, weight, _skip_sync=True)
+            or _has_positive_infinity_edge_weight_for_dijkstra(G, weight, _skip_sync=True)
+            or _has_nonnumeric_edge_weight(G, weight, _skip_sync=True)
+        ):
+            raw = _raw_edge_betweenness_centrality_weighted(G, weight)
+            reordered = {}
+            for u, v in G.edges():
+                if (u, v) in raw:
+                    reordered[(u, v)] = raw[(u, v)]
+                elif (v, u) in raw:
+                    reordered[(u, v)] = raw[(v, u)]
+            return reordered
 
     # Delegate to NetworkX for unsupported parameters
     if k is not None or not normalized or weight is not None or seed is not None:
