@@ -1952,7 +1952,29 @@ pub fn single_source_shortest_path(
     cutoff: Option<usize>,
 ) -> Vec<(String, Vec<String>)> {
     let nodes = graph.nodes_ordered();
-    let n = nodes.len();
+    single_source_shortest_path_index(graph, source, cutoff)
+        .into_iter()
+        .map(|(target, path)| {
+            (
+                nodes[target].to_owned(),
+                path.into_iter().map(|i| nodes[i].to_owned()).collect(),
+            )
+        })
+        .collect()
+}
+
+/// Index-space core of [`single_source_shortest_path`] (br-r37-c1-ssspidx).
+/// Returns `(target_idx, path_indices)` pairs in BFS discovery order; the binding
+/// maps the indices to Python node objects, skipping the per-path-node `String`
+/// materialization (O(|V|·depth) allocations) the `String` wrapper does for Rust
+/// callers.
+#[must_use]
+pub fn single_source_shortest_path_index(
+    graph: &Graph,
+    source: &str,
+    cutoff: Option<usize>,
+) -> Vec<(usize, Vec<usize>)> {
+    let n = graph.node_count();
 
     let Some(source_idx) = graph.get_node_index(source) else {
         return Vec::new();
@@ -1990,7 +2012,7 @@ pub fn single_source_shortest_path(
         level += 1;
     }
 
-    let mut result: Vec<(String, Vec<String>)> = Vec::with_capacity(discovery_order.len());
+    let mut result: Vec<(usize, Vec<usize>)> = Vec::with_capacity(discovery_order.len());
     for &target_idx in &discovery_order {
         let mut path_indices: Vec<usize> = Vec::new();
         let mut current_idx = target_idx;
@@ -2007,11 +2029,7 @@ pub fn single_source_shortest_path(
         }
 
         path_indices.reverse();
-        let path = path_indices
-            .iter()
-            .map(|&node_idx| nodes[node_idx].to_owned())
-            .collect();
-        result.push((nodes[target_idx].to_owned(), path));
+        result.push((target_idx, path_indices));
     }
 
     result

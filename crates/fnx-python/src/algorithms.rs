@@ -1138,6 +1138,48 @@ fn emit_paths_dict_discovery(
     Ok(dict.unbind())
 }
 
+/// br-r37-c1-ssspidx: index-space variant of [`emit_paths_dict_discovery`].
+/// `paths` carries `(target_idx, path_indices)`; node names come from `nodes`
+/// (no `String` allocation in the kernel). Display objects are deduped in
+/// `disp` exactly as the String version, so the emitted dict is byte-identical.
+fn emit_paths_dict_discovery_index(
+    py: Python<'_>,
+    gr: &GraphRef<'_>,
+    paths: &[(usize, Vec<usize>)],
+    nodes: &[&str],
+    source_idx: usize,
+    source_obj: PyObject,
+) -> PyResult<pyo3::Py<PyDict>> {
+    let mut disp: std::collections::HashMap<usize, PyObject> =
+        std::collections::HashMap::with_capacity(paths.len());
+    disp.insert(source_idx, source_obj);
+    for (node_idx, p) in paths {
+        if p.len() >= 2 {
+            let parent_idx = p[p.len() - 2];
+            disp.insert(
+                *node_idx,
+                gr.py_row_key(py, nodes[parent_idx], nodes[*node_idx]),
+            );
+        }
+    }
+    let dict = PyDict::new(py);
+    for (node_idx, p) in paths {
+        let py_path: Vec<PyObject> = p
+            .iter()
+            .map(|&i| match disp.get(&i) {
+                Some(o) => o.clone_ref(py),
+                None => gr.py_node_key(py, nodes[i]),
+            })
+            .collect();
+        let key = match disp.get(node_idx) {
+            Some(o) => o.clone_ref(py),
+            None => gr.py_node_key(py, nodes[*node_idx]),
+        };
+        dict.set_item(key, py_path)?;
+    }
+    Ok(dict.unbind())
+}
+
 /// br-r37-c1-k4wsy: nx `shortest_path(G, target=t)` runs ONE level-BFS
 /// from the target over pred rows (directed) / adj rows (undirected),
 /// `paths[w] = [w] + paths[v]`, dict keys in discovery order (target
@@ -10251,17 +10293,32 @@ pub fn single_source_shortest_path(
 ) -> PyResult<PyObject> {
     let gr = extract_graph(g)?;
     let source_key = node_key_to_string(py, source)?;
-    let result = if gr.is_directed() {
-        let inner = gr.digraph().expect("is_directed checked above");
-        py.allow_threads(|| {
-            fnx_algorithms::single_source_shortest_path_directed(inner, &source_key, cutoff)
-        })
-    } else {
-        let inner = gr.undirected();
-        py.allow_threads(|| fnx_algorithms::single_source_shortest_path(inner, &source_key, cutoff))
-    };
     // br-r37-c1-6hpa9: kernel (BFS) order + discovery objects.
-    let dict = emit_paths_dict_discovery(py, &gr, &result, &source_key, source.clone().unbind())?;
+    if gr.is_directed() {
+        let inner = gr.digraph().expect("is_directed checked above");
+        let result = py.allow_threads(|| {
+            fnx_algorithms::single_source_shortest_path_directed(inner, &source_key, cutoff)
+        });
+        let dict =
+            emit_paths_dict_discovery(py, &gr, &result, &source_key, source.clone().unbind())?;
+        return Ok(dict.into_any());
+    }
+    // br-r37-c1-ssspidx: undirected path returns node INDICES from the kernel and
+    // resolves them once here, skipping the per-path-node String materialization.
+    let inner = gr.undirected();
+    let idx_paths = py.allow_threads(|| {
+        fnx_algorithms::single_source_shortest_path_index(inner, &source_key, cutoff)
+    });
+    let nodes = inner.nodes_ordered();
+    let source_idx = inner.get_node_index(&source_key).unwrap_or(usize::MAX);
+    let dict = emit_paths_dict_discovery_index(
+        py,
+        &gr,
+        &idx_paths,
+        &nodes,
+        source_idx,
+        source.clone().unbind(),
+    )?;
     Ok(dict.into_any())
 }
 
