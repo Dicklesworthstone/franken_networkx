@@ -6123,6 +6123,43 @@ pub fn minimum_spanning_tree(
     Ok(new_graph)
 }
 
+/// br-r37-c1-bngez: byte-exact bipartite Hopcroft-Karp maximum matching,
+/// returning the result dict (node -> matched partner). ``left`` / ``right`` are
+/// the node indices of the two bipartite sets in nx's ``bipartite_sets``
+/// iteration order (CPython set order, computed in Python). The native kernel
+/// runs the BFS/DFS matching over ``neighbors_indices``; the dict is built in
+/// nx's order (matched left nodes in ``left`` order, then matched right nodes in
+/// ``right`` order), each node object resolved once.
+#[pyfunction]
+#[pyo3(signature = (g, left, right))]
+pub fn bipartite_hopcroft_karp_matching(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    left: Vec<usize>,
+    right: Vec<usize>,
+) -> PyResult<pyo3::Py<PyDict>> {
+    let gr = extract_graph(g)?;
+    require_undirected(&gr, "bipartite_hopcroft_karp_matching")?;
+    let inner = gr.undirected();
+    let pairs = py.allow_threads(|| fnx_algorithms::bipartite_hopcroft_karp(inner, &left, &right));
+    let names = inner.nodes_ordered();
+    let mut cache: Vec<Option<PyObject>> = (0..names.len()).map(|_| None).collect();
+    let dict = PyDict::new(py);
+    for (a, b) in pairs {
+        if cache[a].is_none() {
+            cache[a] = Some(gr.py_node_key(py, names[a]));
+        }
+        if cache[b].is_none() {
+            cache[b] = Some(gr.py_node_key(py, names[b]));
+        }
+        dict.set_item(
+            cache[a].as_ref().expect("cached").clone_ref(py),
+            cache[b].as_ref().expect("cached").clone_ref(py),
+        )?;
+    }
+    Ok(dict.unbind())
+}
+
 /// br-r37-c1-primidx: byte-exact Prim MST edges as (u, v) node-object pairs.
 /// ``start_order`` is the CPython ``set(G).pop()`` sequence (node indices),
 /// computed in Python because it depends on CPython set iteration order that
@@ -18713,6 +18750,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(minimum_spanning_tree, m)?)?;
     m.add_function(wrap_pyfunction!(minimum_spanning_edges, m)?)?;
     m.add_function(wrap_pyfunction!(prim_spanning_edges, m)?)?;
+    m.add_function(wrap_pyfunction!(bipartite_hopcroft_karp_matching, m)?)?;
     m.add_function(wrap_pyfunction!(maximum_branching, m)?)?;
     m.add_function(wrap_pyfunction!(minimum_branching, m)?)?;
     m.add_function(wrap_pyfunction!(maximum_spanning_arborescence, m)?)?;

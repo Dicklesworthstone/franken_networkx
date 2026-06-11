@@ -11707,6 +11707,134 @@ pub fn is_bipartite(graph: &Graph) -> IsBipartiteResult {
     }
 }
 
+const HK_NONE: usize = usize::MAX;
+const HK_INF: i64 = 1 << 60;
+
+/// Saturating `+1` that mirrors nx's `float('inf') + 1 == inf`, so the
+/// distance comparisons in the DFS phase stay byte-identical for unreachable
+/// (INF-distance) nodes.
+#[inline]
+fn hk_add1(d: i64) -> i64 {
+    if d >= HK_INF { HK_INF } else { d + 1 }
+}
+
+/// Recursive augmenting-path DFS for [`bipartite_hopcroft_karp`]. Mirrors nx's
+/// `depth_first_search`: iterate `v`'s right neighbours in adjacency order, and
+/// for any whose matched left node sits on the next BFS layer, recurse; on
+/// success rematch and return. `neighbors_indices` is the same order as nx's
+/// `G[v]`, so the augmenting path chosen is identical.
+fn hk_dfs(
+    v: usize,
+    graph: &Graph,
+    leftmatch: &mut [usize],
+    rightmatch: &mut [usize],
+    dist: &mut [i64],
+    dist_none: i64,
+) -> bool {
+    if let Some(neighbors) = graph.neighbors_indices(v) {
+        let target = hk_add1(dist[v]);
+        for &u in neighbors {
+            let rm = rightmatch[u];
+            let d_rm = if rm == HK_NONE { dist_none } else { dist[rm] };
+            if d_rm == target {
+                let augmented =
+                    rm == HK_NONE || hk_dfs(rm, graph, leftmatch, rightmatch, dist, dist_none);
+                if augmented {
+                    rightmatch[u] = v;
+                    leftmatch[v] = u;
+                    return true;
+                }
+            }
+        }
+    }
+    dist[v] = HK_INF;
+    false
+}
+
+/// Byte-exact index-space Hopcroft-Karp maximum bipartite matching matching
+/// `networkx.bipartite.hopcroft_karp_matching` (br-r37-c1-bngez).
+///
+/// `left` / `right` are the node indices of the two bipartite sets in the exact
+/// iteration order of nx's `bipartite_sets` result sets (CPython set order,
+/// un-reproducible in Rust, so the caller passes them). The BFS layering + DFS
+/// augmentation run over `neighbors_indices` (== nx's `G[v]` order), so the
+/// matching found is identical. Returns the matched pairs in nx's result-dict
+/// order: every matched left node (in `left` order) `(v, leftmatch[v])`, then
+/// every matched right node (in `right` order) `(u, rightmatch[u])`.
+#[must_use]
+pub fn bipartite_hopcroft_karp(
+    graph: &Graph,
+    left: &[usize],
+    right: &[usize],
+) -> Vec<(usize, usize)> {
+    let n = graph.node_count();
+    let mut leftmatch = vec![HK_NONE; n];
+    let mut rightmatch = vec![HK_NONE; n];
+    let mut dist = vec![0i64; n];
+    let mut queue: VecDeque<usize> = VecDeque::new();
+
+    loop {
+        // Breadth-first search builds the layered graph; `dist_none` is the
+        // distance to the free-right "sink" (nx's `distances[None]`).
+        queue.clear();
+        for &v in left {
+            if leftmatch[v] == HK_NONE {
+                dist[v] = 0;
+                queue.push_back(v);
+            } else {
+                dist[v] = HK_INF;
+            }
+        }
+        let mut dist_none = HK_INF;
+        while let Some(v) = queue.pop_front() {
+            if dist[v] < dist_none {
+                if let Some(neighbors) = graph.neighbors_indices(v) {
+                    for &u in neighbors {
+                        let rm = rightmatch[u];
+                        let d_rm = if rm == HK_NONE { dist_none } else { dist[rm] };
+                        if d_rm == HK_INF {
+                            if rm == HK_NONE {
+                                dist_none = hk_add1(dist[v]);
+                            } else {
+                                dist[rm] = hk_add1(dist[v]);
+                                queue.push_back(rm);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if dist_none == HK_INF {
+            break;
+        }
+        for &v in left {
+            if leftmatch[v] == HK_NONE {
+                hk_dfs(
+                    v,
+                    graph,
+                    &mut leftmatch,
+                    &mut rightmatch,
+                    &mut dist,
+                    dist_none,
+                );
+            }
+        }
+    }
+
+    let mut pairs: Vec<(usize, usize)> = Vec::new();
+    for &v in left {
+        if leftmatch[v] != HK_NONE {
+            pairs.push((v, leftmatch[v]));
+        }
+    }
+    for &u in right {
+        if rightmatch[u] != HK_NONE {
+            pairs.push((u, rightmatch[u]));
+        }
+    }
+    pairs
+}
+
 /// Computes the two sets of a bipartite graph via BFS 2-coloring.
 ///
 /// If the graph is not bipartite, returns `is_bipartite: false` with empty sets.

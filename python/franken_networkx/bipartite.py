@@ -49,18 +49,58 @@ def _matching_nx_view(B):
     return G
 
 
+def _native_hopcroft_karp(G, top_nodes):
+    """br-r37-c1-bngez: byte-exact native Hopcroft-Karp for an fnx simple Graph.
+
+    nx's algorithm starts from ``bipartite_sets(G, top_nodes)`` whose left/right
+    SET iteration order (CPython set order) drives both which augmenting paths
+    are found and the result-dict key order — un-reproducible in Rust. When
+    ``top_nodes`` is supplied we replicate nx's ``X = set(top_nodes);
+    Y = set(G) - X`` directly (cheap, no BFS), then the native kernel does the
+    matching over ``neighbors_indices``. Returns ``None`` (caller delegates) for
+    any shape the fast path can't own: nx-typed / multigraph / directed inputs,
+    or ``top_nodes is None`` (that path needs nx's BFS 2-colouring, whose set
+    order we don't reconstruct here).
+    """
+    if isinstance(G, _nx.Graph) or top_nodes is None:
+        return None
+    if G.is_multigraph() or G.is_directed():
+        return None
+    native = getattr(_fnx._fnx, "bipartite_hopcroft_karp_matching", None)
+    if native is None:
+        return None
+    node_list = list(G)
+    index = {node: i for i, node in enumerate(node_list)}
+    try:
+        left_set = set(top_nodes)
+        # Mirror nx.bipartite.sets: X = set(top_nodes); Y = set(G) - X. An unknown
+        # top node KeyErrors in the index lookup -> fall back to nx (its own error).
+        left_idx = [index[x] for x in left_set]
+        right_idx = [index[y] for y in (set(G) - left_set)]
+    except (KeyError, TypeError):
+        return None
+    return native(G, left_idx, right_idx)
+
+
 def hopcroft_karp_matching(G, top_nodes=None):
     """Maximum-cardinality matching of bipartite ``G`` (Hopcroft-Karp).
 
-    br-r37-c1-bipmatch: computed on a one-shot nx view of the fnx graph instead
-    of running nx's algorithm over the fnx substrate (3-6x slower). Result is
-    byte-identical to ``networkx.bipartite.hopcroft_karp_matching``.
+    br-r37-c1-bngez: native byte-exact kernel for the ``top_nodes``-given simple
+    Graph case (no fnx->nx conversion + no nx Python sweeps); other shapes use a
+    one-shot nx view. Result is byte-identical to
+    ``networkx.bipartite.hopcroft_karp_matching``.
     """
+    result = _native_hopcroft_karp(G, top_nodes)
+    if result is not None:
+        return result
     return _nx_bipartite.hopcroft_karp_matching(_matching_nx_view(G), top_nodes)
 
 
 def maximum_matching(G, top_nodes=None):
     """Alias of :func:`hopcroft_karp_matching` (matches networkx)."""
+    result = _native_hopcroft_karp(G, top_nodes)
+    if result is not None:
+        return result
     return _nx_bipartite.maximum_matching(_matching_nx_view(G), top_nodes)
 
 
