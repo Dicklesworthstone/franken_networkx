@@ -24636,6 +24636,27 @@ def load_centrality(
                     G, weight, value_rank, normalized
                 )
 
+    # br-r37-c1-u84bo: nx's load centrality uses dijkstra, which raises
+    # ValueError(('Contradictory paths found:', 'negative weights?')) on a
+    # negative edge weight (and honours its weight contract for +inf /
+    # non-numeric values). The pure-Python fallback below silently returned a
+    # result instead. For a string ``weight`` with negative / +inf / non-numeric
+    # values, delegate the whole computation to nx so the error (or result)
+    # matches exactly — mirrors the dijkstra/astar family's weight contract.
+    if isinstance(weight, str) and (
+        _has_negative_edge_weight_for_dijkstra(G, weight)
+        or _has_positive_infinity_edge_weight_for_dijkstra(G, weight)
+        or _has_nonnumeric_edge_weight(G, weight)
+    ):
+        return _call_networkx_for_parity(
+            "load_centrality",
+            G,
+            v=v,
+            cutoff=cutoff,
+            normalized=normalized,
+            weight=weight,
+        )
+
     if v is not None:
         betweenness = 0.0
         for source in G:
