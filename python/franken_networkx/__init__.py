@@ -15672,6 +15672,48 @@ class _ApproximationNamespace:
         nx_G = _networkx_graph_for_parity(G)
         return _nx.approximation.local_node_connectivity(nx_G, source, target, cutoff)
 
+    def large_clique_size(self, G, *, backend=None, **backend_kwargs):
+        # br-r37-c1-eg2bz: the generic __getattr__ wrapper round-trips the graph
+        # through ``_networkx_graph_for_parity`` (a full O(V+E) fnx->nx build)
+        # before running nx's Pattabiraman degree-greedy heuristic — ~2x slower
+        # than nx, dominated by that conversion. The algorithm only needs a
+        # degree map + adjacency SETS, so run nx's EXACT heuristic in-process
+        # over a cheap key-only native snapshot (``_native_adjacency_keys``).
+        # It is set-iteration-order dependent (``max(U, key=degree)`` ties), so
+        # the snapshot is keyed by the original node OBJECTS — the CPython set
+        # order then matches nx's exactly, making the result byte-identical.
+        # Directed / multigraph keep nx's @not_implemented_for raise via delegation.
+        _validate_backend_dispatch_keywords(
+            "large_clique_size", backend, backend_kwargs
+        )
+        G = _coerce_arg_to_fnx_graph(G)
+        nak = getattr(G, "_native_adjacency_keys", None)
+        if G.is_directed() or G.is_multigraph() or nak is None or type(G) is not Graph:
+            return _nx.approximation.large_clique_size(_networkx_graph_for_parity(G))
+
+        adj = {node: set(nbrs) for node, nbrs in nak()}
+        degrees = {u: len(nbrs) for u, nbrs in adj.items()}
+        deg_get = degrees.__getitem__
+
+        def _clique_heuristic(candidates, size, best_size):
+            # Faithful iterative form of nx's tail recursion: pick the highest-
+            # degree candidate (set-order tie-break), intersect with its high-
+            # degree neighbourhood, repeat. best_size is fixed within a call.
+            while candidates:
+                u = max(candidates, key=deg_get)
+                candidates.remove(u)
+                n_prime = {v for v in adj[u] if degrees[v] >= best_size}
+                candidates = candidates & n_prime
+                size += 1
+            return max(best_size, size)
+
+        best_size = 0
+        for u in G:
+            if degrees[u] >= best_size:
+                neighbors = {v for v in adj[u] if degrees[v] >= best_size}
+                best_size = _clique_heuristic(neighbors, 1, best_size)
+        return best_size
+
     def __getattr__(self, name):
         nx_func = getattr(_nx.approximation, name)
 
