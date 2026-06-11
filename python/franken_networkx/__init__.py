@@ -20212,6 +20212,59 @@ def ego_graph(G, n, radius=1, center=True, undirected=False, distance=None):
     return graph
 
 
+def _directed_core_number(G):
+    """In-process Batagelj-Zaversnik core decomposition for directed graphs.
+
+    Byte-exact reproduction of ``networkx.core_number`` for the directed
+    contract (degree = in-degree + out-degree, antiparallel arcs counted
+    separately) — see ``core_number``'s ``br-r37-c1-4i0ad`` note. Reads
+    adjacency via fnx's native row accessors (``_native_predecessor_row_dict`` /
+    ``_native_successor_row_dict``) which yield the IDENTICAL order as
+    ``G.predecessors`` / ``G.successors`` (so ``all_neighbors`` ==
+    ``chain(predecessors, successors)``) at a fraction of the AdjacencyView
+    wrapper cost; nx-typed graphs fall back to the public API.
+    """
+    # nx rejects self-loops with NetworkXNotImplemented; use the native O(|E|)
+    # check that already powers the undirected path.
+    if number_of_selfloops(G) > 0:
+        raise NetworkXNotImplemented(_self_loop_guard_for_core_family())
+
+    nodes_list = list(G)
+    _pred_row = getattr(G, "_native_predecessor_row_dict", None)
+    _succ_row = getattr(G, "_native_successor_row_dict", None)
+    if _pred_row is not None and _succ_row is not None:
+        nbrs = {v: list(_pred_row(v)) + list(_succ_row(v)) for v in nodes_list}
+    else:
+        nbrs = {
+            v: list(G.predecessors(v)) + list(G.successors(v))
+            for v in nodes_list
+        }
+
+    # core starts as the degree dict (keyed in G-node order == nx's), mutated
+    # in place; the alias mirrors nx's ``core = degrees`` exactly.
+    core = {v: len(nbrs[v]) for v in nodes_list}
+    nodes = sorted(core, key=core.get)
+    bin_boundaries = [0]
+    curr_degree = 0
+    for i, v in enumerate(nodes):
+        if core[v] > curr_degree:
+            bin_boundaries.extend([i] * (core[v] - curr_degree))
+            curr_degree = core[v]
+    node_pos = {v: pos for pos, v in enumerate(nodes)}
+    for v in nodes:
+        for u in nbrs[v]:
+            if core[u] > core[v]:
+                nbrs[u].remove(v)
+                pos = node_pos[u]
+                bin_start = bin_boundaries[core[u]]
+                node_pos[u] = bin_start
+                node_pos[nodes[bin_start]] = pos
+                nodes[bin_start], nodes[pos] = nodes[pos], nodes[bin_start]
+                bin_boundaries[core[u]] += 1
+                core[u] -= 1
+    return core
+
+
 def core_number(G):
     """Return the core number for each node of ``G``.
 
@@ -20240,7 +20293,15 @@ def core_number(G):
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
     if G.is_directed():
-        return _call_networkx_for_parity("core_number", G)
+        # br-r37-c1-4i0ad: de-delegate. The k-core number is a UNIQUE graph
+        # invariant (independent of the Batagelj-Zaversnik tie-break order), so
+        # reproducing nx's exact algorithm in-process on the fnx graph is
+        # byte-exact while skipping the full fnx->nx conversion (~2ms at n=250 =
+        # the whole ~6x gap, also paid by every directed k_core/k_shell/k_crust/
+        # k_corona call which routes through here). Directed degree is in+out with
+        # antiparallel arcs counted twice, matching nx's ``dict(G.degree())`` and
+        # ``all_neighbors = chain(predecessors, successors)``.
+        return _directed_core_number(G)
     # br-r37-c1-corenum: the native binding ``_raw_core_number`` already performs
     # the self-loop guard (raising the identical NetworkXNotImplemented wording),
     # so the wrapper's separate ``number_of_selfloops`` O(|E|) pass was a
