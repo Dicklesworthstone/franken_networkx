@@ -36551,10 +36551,12 @@ def reverse(G, copy=True):
     if not G.is_directed():
         raise NetworkXError("Cannot reverse an undirected graph.")
     if copy:
-        result = G.reverse()
-        # Always return fnx type for consistency
-        from franken_networkx.readwrite import _from_nx_graph
-        return _from_nx_graph(result)
+        # br-r37-c1-revdbl: ``G.reverse()`` already returns a fully materialized
+        # fnx DiGraph (native integer-space transpose). The previous
+        # ``_from_nx_graph(result)`` re-converted that fnx graph end-to-end — the
+        # "double build" antipattern — for byte-identical output (~5x slower).
+        # Return the native result directly.
+        return G.reverse()
     return _reverse_directed_view_for(G)
 
 
