@@ -1,0 +1,106 @@
+{
+  "results": [
+    {
+      "command": "PYTHONPATH=python /data/projects/franken_networkx/.venv/bin/python tests/artifacts/perf/20260611T-vtmci-spanner-native-boldfalcon/harness_spanner_native.py --mode single --algo raw --n 1500 --p 0.01 --stretch 3 --seed 42",
+      "mean": 0.43716999914,
+      "stddev": 0.012931627545754703,
+      "median": 0.43408167944000003,
+      "user": 4.522428979999999,
+      "system": 0.06907896,
+      "min": 0.41884044294,
+      "max": 0.45717043794,
+      "times": [
+        0.45717043794,
+        0.43242455694000004,
+        0.45549730494,
+        0.43235115894000004,
+        0.42645106294,
+        0.44696621394,
+        0.43573880194000003,
+        0.44155227694000004,
+        0.41884044294,
+        0.42470773394
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "PYTHONPATH=python /data/projects/franken_networkx/.venv/bin/python tests/artifacts/perf/20260611T-vtmci-spanner-native-boldfalcon/harness_spanner_native.py --mode single --algo nx --n 1500 --p 0.01 --stretch 3 --seed 42",
+      "mean": 0.46083573084000007,
+      "stddev": 0.016525706528227782,
+      "median": 0.45665699994000003,
+      "user": 4.548409379999999,
+      "system": 0.06344675999999999,
+      "min": 0.44396185394000004,
+      "max": 0.50128024094,
+      "times": [
+        0.45468269394000005,
+        0.46440133994000005,
+        0.45708654194000004,
+        0.50128024094,
+        0.44566157694,
+        0.45622745794,
+        0.46502589594000004,
+        0.44995556594,
+        0.47007414094000005,
+        0.44396185394000004
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "PYTHONPATH=python /data/projects/franken_networkx/.venv/bin/python tests/artifacts/perf/20260611T-vtmci-spanner-native-boldfalcon/harness_spanner_native.py --mode single --algo public --n 1500 --p 0.01 --stretch 3 --seed 42",
+      "mean": 0.53827753914,
+      "stddev": 0.13940860117349954,
+      "median": 0.5080893929400001,
+      "user": 3.5252647799999997,
+      "system": 0.07394205999999999,
+      "min": 0.42122591294,
+      "max": 0.8815404949400001,
+      "times": [
+        0.42509724194000004,
+        0.45669037594,
+        0.42122591294,
+        0.48027995694000003,
+        0.43952488094000003,
+        0.5358988289400001,
+        0.55961500594,
+        0.63984751094,
+        0.8815404949400001,
+        0.54305518194
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

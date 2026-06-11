@@ -1,0 +1,24 @@
+{
+  "contracts": {
+    "public_directed": "NetworkXNotImplemented",
+    "public_empty": "ValueError",
+    "public_multigraph": "NetworkXNotImplemented",
+    "public_stretch0": "ValueError",
+    "public_submodule_routed": true
+  },
+  "sha256": "2f2dc34620a0f9e01d3e638601cbbe2e7d6e975f2fc7efd118fafaf1ddc4c665",
+  "validity": {
+    "nx": {
+      "checks": 116,
+      "invalid": 0
+    },
+    "public": {
+      "checks": 116,
+      "invalid": 0
+    },
+    "raw": {
+      "checks": 116,
+      "invalid": 0
+    }
+  }
+}

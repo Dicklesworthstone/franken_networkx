@@ -1,0 +1,8 @@
+         41 function calls in 1.867 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+       20    0.001    0.000    1.867    0.093 harness_spanner_native.py:107(run_algo_on_graph)
+       20    1.866    0.093    1.866    0.093 {built-in method franken_networkx._fnx.spanner}
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}

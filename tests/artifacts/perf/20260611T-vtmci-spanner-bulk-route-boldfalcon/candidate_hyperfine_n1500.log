@@ -1,0 +1,19 @@
+  [2m2026-06-11T19:48:24.813988Z[0m [33m WARN[0m [1;33mrch::hook[0m[33m: [33mexec called with non-compilation command: hyperfine --warmup 2 --runs 10 --export-json tests/artifacts/perf/20260611T-vtmci-spanner-native-boldfalcon/candidate_hyperfine_n1500.json 'PYTHONPATH=python /data/projects/franken_networkx/.venv/bin/python tests/artifacts/perf/20260611T-vtmci-spanner-native-boldfalcon/harness_spanner_native.py --mode single --algo raw --n 1500 --p 0.01 --stretch 3 --seed 42' 'PYTHONPATH=python /data/projects/franken_networkx/.venv/bin/python tests/artifacts/perf/20260611T-vtmci-spanner-native-boldfalcon/harness_spanner_native.py --mode single --algo nx --n 1500 --p 0.01 --stretch 3 --seed 42' 'PYTHONPATH=python /data/projects/franken_networkx/.venv/bin/python tests/artifacts/perf/20260611T-vtmci-spanner-native-boldfalcon/harness_spanner_native.py --mode single --algo public --n 1500 --p 0.01 --stretch 3 --seed 42'[0m
+    [2;3mat[0m rch/src/hook.rs:402 [2;3mon[0m ThreadId(1)
+
+Benchmark 1: PYTHONPATH=python /data/projects/franken_networkx/.venv/bin/python tests/artifacts/perf/20260611T-vtmci-spanner-native-boldfalcon/harness_spanner_native.py --mode single --algo raw --n 1500 --p 0.01 --stretch 3 --seed 42
+  Time (mean ± σ):     437.2 ms ±  12.9 ms    [User: 4522.4 ms, System: 69.1 ms]
+  Range (min … max):   418.8 ms … 457.2 ms    10 runs
+
+Benchmark 2: PYTHONPATH=python /data/projects/franken_networkx/.venv/bin/python tests/artifacts/perf/20260611T-vtmci-spanner-native-boldfalcon/harness_spanner_native.py --mode single --algo nx --n 1500 --p 0.01 --stretch 3 --seed 42
+  Time (mean ± σ):     460.8 ms ±  16.5 ms    [User: 4548.4 ms, System: 63.4 ms]
+  Range (min … max):   444.0 ms … 501.3 ms    10 runs
+
+Benchmark 3: PYTHONPATH=python /data/projects/franken_networkx/.venv/bin/python tests/artifacts/perf/20260611T-vtmci-spanner-native-boldfalcon/harness_spanner_native.py --mode single --algo public --n 1500 --p 0.01 --stretch 3 --seed 42
+  Time (mean ± σ):     538.3 ms ± 139.4 ms    [User: 3525.3 ms, System: 73.9 ms]
+  Range (min … max):   421.2 ms … 881.5 ms    10 runs
+
+Summary
+  PYTHONPATH=python /data/projects/franken_networkx/.venv/bin/python tests/artifacts/perf/20260611T-vtmci-spanner-native-boldfalcon/harness_spanner_native.py --mode single --algo raw --n 1500 --p 0.01 --stretch 3 --seed 42 ran
+    1.05 ± 0.05 times faster than PYTHONPATH=python /data/projects/franken_networkx/.venv/bin/python tests/artifacts/perf/20260611T-vtmci-spanner-native-boldfalcon/harness_spanner_native.py --mode single --algo nx --n 1500 --p 0.01 --stretch 3 --seed 42
+    1.23 ± 0.32 times faster than PYTHONPATH=python /data/projects/franken_networkx/.venv/bin/python tests/artifacts/perf/20260611T-vtmci-spanner-native-boldfalcon/harness_spanner_native.py --mode single --algo public --n 1500 --p 0.01 --stretch 3 --seed 42
