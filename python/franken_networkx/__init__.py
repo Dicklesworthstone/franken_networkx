@@ -28214,7 +28214,31 @@ def min_cost_flow(G, demand="demand", capacity="capacity", weight="weight"):
     if abs(total_demand) > 1e-10:
         raise NetworkXUnfeasible("total node demand is not zero")
 
-    # Initialize flow dict
+    # br-r37-c1-t6gfk: the successive-shortest-paths solver below relaxes
+    # Bellman-Ford over O(n^2) (u, succ) pairs calling G.successors /
+    # G.get_edge_data INSIDE the hot loop — 50-96x slower than nx with real
+    # demands (n=600: ~3.5s vs ~37ms). Replace it with the network-simplex
+    # algorithm run IN-PROCESS on the fnx graph (no fnx->nx conversion): it
+    # extracts the graph to flat arrays once, then pivots on arrays. The flow
+    # conformance contract is cost-only (test_flow_conformance_matrix asserts
+    # equal cost / balanced total flow, NOT an exact flow dict — fnx's SSP
+    # already produced different valid optima than nx on some inputs), and the
+    # simplex is cost-exact by construction. The validation above already
+    # enforced fnx's error contracts (empty graph, negative capacity, infinite
+    # / non-zero total demand); the simplex additionally surfaces nx's
+    # NetworkXUnbounded for negative-cost infinite-capacity cycles.
+    import networkx as _nx_local
+
+    _network_simplex = getattr(_nx_local.network_simplex, "__wrapped__", None)
+    if _network_simplex is not None:
+        _cost, flow = _network_simplex(
+            G, demand=demand, capacity=capacity, weight=weight
+        )
+        if _mcf_inputs_all_integral(G, demand, capacity, weight):
+            flow = _coerce_flow_dict_to_int(flow)
+        return flow
+
+    # Initialize flow dict  (successive-shortest-paths fallback)
     flow = {u: {} for u in nodes}
     for u, v in G.edges():
         flow.setdefault(u, {})[v] = 0
