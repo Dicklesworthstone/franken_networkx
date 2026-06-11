@@ -5516,6 +5516,204 @@ pub fn load_centrality_weighted_directed(
     load_centrality_weighted_generic(graph, weight_attr, value_rank, normalized)
 }
 
+/// One weighted percolation single-source pass (Dijkstra SSSP). Returns this
+/// source's per-node percolation contribution, byte-for-byte mirroring
+/// networkx's `percolation._accumulate_percolation` weighted path: identical
+/// Brandes sigma/delta recurrence as betweenness, but each node `w != s`
+/// contributes `delta[w] * states[s] / (state_sum - states[w])`.
+fn weighted_percolation_source(
+    adjacency: &[Vec<(usize, f64)>],
+    states: &[f64],
+    state_sum: f64,
+    n: usize,
+    s: usize,
+) -> Vec<f64> {
+    use std::collections::BinaryHeap;
+
+    let mut sigma = vec![0.0f64; n];
+    let mut seen = vec![f64::INFINITY; n];
+    let mut finalized = vec![false; n];
+    let mut preds: Vec<Vec<usize>> = vec![Vec::new(); n];
+    let mut stack: Vec<usize> = Vec::with_capacity(n);
+    let mut heap: BinaryHeap<WeightedBrandesHeapEntry> = BinaryHeap::new();
+    let mut counter: u64 = 0;
+
+    sigma[s] = 1.0;
+    seen[s] = 0.0;
+    heap.push(WeightedBrandesHeapEntry {
+        dist: 0.0,
+        counter,
+        pred: s,
+        v: s,
+    });
+    counter += 1;
+
+    while let Some(entry) = heap.pop() {
+        let v = entry.v;
+        if finalized[v] {
+            continue;
+        }
+        sigma[v] += sigma[entry.pred];
+        stack.push(v);
+        finalized[v] = true;
+        let dist_v = entry.dist;
+        let sigma_v = sigma[v];
+        for &(w, wt) in &adjacency[v] {
+            let vw_dist = dist_v + wt;
+            if !finalized[w] && vw_dist < seen[w] {
+                seen[w] = vw_dist;
+                heap.push(WeightedBrandesHeapEntry {
+                    dist: vw_dist,
+                    counter,
+                    pred: v,
+                    v: w,
+                });
+                counter += 1;
+                sigma[w] = 0.0;
+                preds[w] = vec![v];
+            } else if vw_dist == seen[w] {
+                sigma[w] += sigma_v;
+                preds[w].push(v);
+            }
+        }
+    }
+
+    let mut contribution = vec![0.0f64; n];
+    let mut delta = vec![0.0f64; n];
+    let state_s = states[s];
+    while let Some(w) = stack.pop() {
+        let coeff = (1.0 + delta[w]) / sigma[w];
+        for &v in &preds[w] {
+            delta[v] += sigma[v] * coeff;
+        }
+        if w != s {
+            // nx float order: pw = states[s] / (state_sum - states[w]); += delta[w]*pw.
+            let pw = state_s / (state_sum - states[w]);
+            contribution[w] += delta[w] * pw;
+        }
+    }
+    contribution
+}
+
+/// Weighted percolation centrality (Dijkstra SSSP), byte-exact with networkx's
+/// `percolation_centrality(weight=...)`. `states[i]` is node `i`'s percolation
+/// state (aligned to node-iteration order); `state_sum` is summed in node order
+/// (matching nx). Per-source contributions reduced in strict source order `0..n`
+/// (parallelised over sources, rayon chunked, source-ordered reduction above
+/// n>=400); final scale `1/(n-2)`.
+fn percolation_centrality_weighted_generic<G: GraphView>(
+    graph: &G,
+    weight_attr: Option<&str>,
+    states: &[f64],
+) -> LoadCentralityResult {
+    let nodes = graph.nodes_ordered();
+    let n = nodes.len();
+    if n == 0 {
+        return LoadCentralityResult {
+            scores: Vec::new(),
+            witness: ComplexityWitness {
+                algorithm: "percolation_centrality_weighted".to_owned(),
+                complexity_claim: "O(|V| * (|E| + |V| log |V|))".to_owned(),
+                nodes_touched: 0,
+                edges_scanned: 0,
+                queue_peak: 0,
+            },
+        };
+    }
+
+    let node_idx: HashMap<&str, usize> = nodes.iter().enumerate().map(|(i, n)| (*n, i)).collect();
+    let adjacency: Vec<Vec<(usize, f64)>> = (0..n)
+        .map(|v| {
+            let mut row = Vec::with_capacity(graph.neighbor_count(nodes[v]));
+            if let Some(neighbors) = graph.neighbors_iter(nodes[v]) {
+                for w_name in neighbors {
+                    let w = *node_idx.get(w_name).unwrap();
+                    row.push((w, graph.edge_weight(nodes[v], w_name, weight_attr)));
+                }
+            }
+            row
+        })
+        .collect();
+
+    // sum states in node order (matches nx `for v in states.values()`).
+    let mut state_sum = 0.0f64;
+    for &st in states.iter() {
+        state_sum += st;
+    }
+
+    let mut perc = vec![0.0f64; n];
+
+    const WEIGHTED_PERC_PARALLEL_THRESHOLD: usize = 400;
+    if n >= WEIGHTED_PERC_PARALLEL_THRESHOLD {
+        use rayon::prelude::*;
+        let bytes_per_delta = n.max(1).saturating_mul(std::mem::size_of::<f64>());
+        let chunk = (64 * 1024 * 1024 / bytes_per_delta).clamp(1, n);
+        let mut start = 0usize;
+        while start < n {
+            let end = (start + chunk).min(n);
+            let chunk_results: Vec<Vec<f64>> = (start..end)
+                .into_par_iter()
+                .map(|s| weighted_percolation_source(&adjacency, states, state_sum, n, s))
+                .collect();
+            for delta in chunk_results {
+                for (acc, contribution) in perc.iter_mut().zip(delta.iter()) {
+                    *acc += *contribution;
+                }
+            }
+            start = end;
+        }
+    } else {
+        for s in 0..n {
+            let delta = weighted_percolation_source(&adjacency, states, state_sum, n, s);
+            for (acc, contribution) in perc.iter_mut().zip(delta.iter()) {
+                *acc += *contribution;
+            }
+        }
+    }
+
+    // nx: percolation[v] *= 1 / (n - 2) for every node.
+    let scale = 1.0 / ((n as i64 - 2) as f64);
+    let ordered_scores = nodes
+        .iter()
+        .enumerate()
+        .map(|(i, node)| CentralityScore {
+            node: (*node).to_owned(),
+            score: perc[i] * scale,
+        })
+        .collect();
+
+    LoadCentralityResult {
+        scores: ordered_scores,
+        witness: ComplexityWitness {
+            algorithm: "percolation_centrality_weighted".to_owned(),
+            complexity_claim: "O(|V| * (|E| + |V| log |V|))".to_owned(),
+            nodes_touched: 0,
+            edges_scanned: 0,
+            queue_peak: 0,
+        },
+    }
+}
+
+/// Weighted percolation centrality for an undirected `Graph`.
+#[must_use]
+pub fn percolation_centrality_weighted(
+    graph: &Graph,
+    weight_attr: Option<&str>,
+    states: &[f64],
+) -> LoadCentralityResult {
+    percolation_centrality_weighted_generic(graph, weight_attr, states)
+}
+
+/// Weighted percolation centrality for a directed `DiGraph` (out-edges).
+#[must_use]
+pub fn percolation_centrality_weighted_directed(
+    graph: &DiGraph,
+    weight_attr: Option<&str>,
+    states: &[f64],
+) -> LoadCentralityResult {
+    percolation_centrality_weighted_generic(graph, weight_attr, states)
+}
+
 #[must_use]
 pub fn maximal_matching(graph: &Graph) -> MaximalMatchingResult {
     // Greedy maximal matching, O(|E|), replicating networkx's `G.edges()`-order

@@ -7852,6 +7852,7 @@ from franken_networkx._fnx import (
     katz_centrality as _raw_katz_centrality,
     load_centrality as _raw_load_centrality,
     load_centrality_weighted as _raw_load_centrality_weighted,
+    percolation_centrality_weighted as _raw_percolation_centrality_weighted,
     pagerank as _raw_pagerank,
     voterank as _raw_voterank,
 )
@@ -30388,6 +30389,35 @@ def percolation_centrality(
         }
 
     state_sum = sum(states.values())
+
+    # br-r37-c1-percw: weighted percolation centrality previously ran a
+    # pure-Python per-source Dijkstra + accumulation loop (~1.8s n=400, 3.2x
+    # SLOWER than nx). Route to the native weighted percolation kernel (Dijkstra
+    # SSSP, parallel, byte-exact) — the same Brandes recurrence as the native
+    # weighted betweenness, with each w!=s weighted by
+    # states[s]/(state_sum - states[w]) and a final 1/(n-2) scale. Pass the
+    # per-node states aligned to G's node-iteration order. Mirror the
+    # dijkstra/astar weight contract; callable/non-string weight, multigraph,
+    # negative/+inf/non-numeric weight, n<=2, or non-float states fall through
+    # to the parity path / nx.
+    if (
+        weight is not None
+        and isinstance(weight, str)
+        and len(G) > 2
+        and not G.is_multigraph()
+    ):
+        _sync_rust_edge_attrs(G)
+        if not (
+            _has_negative_edge_weight_for_dijkstra(G, weight, _skip_sync=True)
+            or _has_positive_infinity_edge_weight_for_dijkstra(G, weight, _skip_sync=True)
+            or _has_nonnumeric_edge_weight(G, weight, _skip_sync=True)
+        ):
+            try:
+                states_list = [float(states[node]) for node in G]
+            except (TypeError, ValueError, KeyError):
+                states_list = None
+            if states_list is not None:
+                return _raw_percolation_centrality_weighted(G, weight, states_list)
 
     # br-perccsr: integer-CSR BFS fast-path for the unweighted case. The
     # per-source pure-Python Brandes BFS (_single_source_shortest_path_basic_

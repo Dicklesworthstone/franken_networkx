@@ -4434,6 +4434,56 @@ pub fn load_centrality(
     centrality_to_dict(py, &gr, &result.scores)
 }
 
+/// Weighted percolation centrality. br-r37-c1-percw: native weighted percolation
+/// (Dijkstra SSSP, parallel, byte-exact). `states` holds each node's percolation
+/// state aligned to the graph's node-iteration order (the Python wrapper extracts
+/// it from the node attribute / `states` dict).
+#[pyfunction]
+pub fn percolation_centrality_weighted(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    weight: &str,
+    states: Vec<f64>,
+) -> PyResult<Py<PyDict>> {
+    let gr = extract_graph(g)?;
+    let result = match &gr {
+        GraphRef::Undirected(pg) => {
+            let inner = &pg.inner;
+            py.allow_threads(|| {
+                fnx_algorithms::percolation_centrality_weighted(inner, Some(weight), &states)
+            })
+        }
+        GraphRef::Directed { dg, .. } => {
+            let inner = &dg.inner;
+            py.allow_threads(|| {
+                fnx_algorithms::percolation_centrality_weighted_directed(
+                    inner,
+                    Some(weight),
+                    &states,
+                )
+            })
+        }
+        _ => {
+            if gr.is_directed() {
+                let inner = gr.digraph().expect("is_directed checked above");
+                py.allow_threads(|| {
+                    fnx_algorithms::percolation_centrality_weighted_directed(
+                        inner,
+                        Some(weight),
+                        &states,
+                    )
+                })
+            } else {
+                let inner = gr.undirected();
+                py.allow_threads(|| {
+                    fnx_algorithms::percolation_centrality_weighted(inner, Some(weight), &states)
+                })
+            }
+        }
+    };
+    centrality_to_dict(py, &gr, &result.scores)
+}
+
 /// Weighted Newman load centrality. br-r37-c1-loadw: native weighted load
 /// (Dijkstra SSSP, parallel, byte-exact) for the whole-graph case. `value_rank`
 /// is the position of each node in `sorted(G.nodes())` (computed by the Python
@@ -18307,6 +18357,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     )?)?;
     m.add_function(wrap_pyfunction!(load_centrality, m)?)?;
     m.add_function(wrap_pyfunction!(load_centrality_weighted, m)?)?;
+    m.add_function(wrap_pyfunction!(percolation_centrality_weighted, m)?)?;
     m.add_function(wrap_pyfunction!(closeness_vitality, m)?)?;
     m.add_function(wrap_pyfunction!(eigenvector_centrality, m)?)?;
     m.add_function(wrap_pyfunction!(pagerank, m)?)?;
