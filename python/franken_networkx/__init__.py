@@ -21087,11 +21087,19 @@ def caveman_graph(l, k):
     # empty graph because the edge loop only added endpoints — nx adds
     # the `l` singletons.
     G.add_nodes_from(range(l * k))
-    for i in range(l):
-        base = i * k
-        for u in range(k):
-            for v in range(u + 1, k):
-                G.add_edge(base + u, base + v)
+    # br-r37-c1-caveman-bulk: the previous triple-nested loop added each clique
+    # edge with a per-edge add_edge (~l*C(k,2) PyO3 calls = ~61k for caveman(50,50),
+    # 4.4x slower than nx). Emit every clique's combinations through ONE bulk
+    # add_edges_from on the fresh graph (hits the native batch path). Byte-exact:
+    # clique 0 edges then clique 1 ... in combinations order — the identical
+    # stream to nx's per-clique combinations(range(start,start+k),2), and edges()
+    # is node-iteration-determined.
+    if k > 1:
+        G.add_edges_from(
+            (start + u, start + v)
+            for start in range(0, l * k, k)
+            for u, v in _combinations(range(k), 2)
+        )
     return G
 
 
