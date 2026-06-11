@@ -5071,6 +5071,204 @@ pub fn edge_betweenness_centrality_subset_directed(
     edge_betweenness_centrality_subset_generic(graph, sources, targets, normalized)
 }
 
+/// Weighted subset edge betweenness (Dijkstra SSSP), byte-exact with networkx's
+/// `edge_betweenness_centrality_subset(weight=...)`. Same corrected
+/// `_accumulate_edges_subset` as the unweighted kernel (target branch
+/// `(sigma[v]/sigma[w])*(1+delta[w])`; non-target equal-split `delta[w]/len(P[w])`),
+/// swapping BFS for a Dijkstra SSSP with nx's exact heap tie-break. Edge canon /
+/// final sort match the unweighted kernel so the wrapper's re-key-to-G.edges()
+/// step works unchanged. Loops over sources in their given order.
+fn edge_betweenness_centrality_subset_weighted_generic<G: GraphView>(
+    graph: &G,
+    sources: &[&str],
+    targets: &[&str],
+    weight_attr: Option<&str>,
+    normalized: bool,
+) -> EdgeBetweennessCentralityResult {
+    use std::collections::BinaryHeap;
+
+    let nodes = graph.nodes_ordered();
+    let n = nodes.len();
+    let witness = || ComplexityWitness {
+        algorithm: "brandes_edge_betweenness_centrality_subset_weighted".to_owned(),
+        complexity_claim: "O(|S| * (|E| + |V| log |V|))".to_owned(),
+        nodes_touched: 0,
+        edges_scanned: 0,
+        queue_peak: 0,
+    };
+    if n == 0 {
+        return EdgeBetweennessCentralityResult {
+            scores: Vec::new(),
+            witness: witness(),
+        };
+    }
+
+    let is_directed = graph.is_directed();
+    let canonical_edge_key = |left: &str, right: &str| -> (String, String) {
+        if is_directed || left <= right {
+            (left.to_owned(), right.to_owned())
+        } else {
+            (right.to_owned(), left.to_owned())
+        }
+    };
+
+    let node_idx: HashMap<&str, usize> = nodes.iter().enumerate().map(|(i, n)| (*n, i)).collect();
+    let adjacency: Vec<Vec<(usize, f64)>> = (0..n)
+        .map(|v| {
+            let mut row = Vec::with_capacity(graph.neighbor_count(nodes[v]));
+            if let Some(neighbors) = graph.neighbors_iter(nodes[v]) {
+                for w_name in neighbors {
+                    let w = *node_idx.get(w_name).unwrap();
+                    row.push((w, graph.edge_weight(nodes[v], w_name, weight_attr)));
+                }
+            }
+            row
+        })
+        .collect();
+
+    let mut edge_scores = HashMap::<(String, String), f64>::new();
+    for node in &nodes {
+        if let Some(neighbors) = graph.neighbors_iter(node) {
+            for neighbor in neighbors {
+                edge_scores
+                    .entry(canonical_edge_key(node, neighbor))
+                    .or_insert(0.0);
+            }
+        }
+    }
+
+    let source_idx: Vec<usize> = sources.iter().filter_map(|s| node_idx.get(*s).copied()).collect();
+    let mut target_bitmap = vec![false; n];
+    for t in targets {
+        if let Some(i) = node_idx.get(*t) {
+            target_bitmap[*i] = true;
+        }
+    }
+
+    for &s in &source_idx {
+        let mut sigma = vec![0.0f64; n];
+        let mut seen = vec![f64::INFINITY; n];
+        let mut finalized = vec![false; n];
+        let mut preds: Vec<Vec<usize>> = vec![Vec::new(); n];
+        let mut stack: Vec<usize> = Vec::with_capacity(n);
+        let mut heap: BinaryHeap<WeightedBrandesHeapEntry> = BinaryHeap::new();
+        let mut counter: u64 = 0;
+        sigma[s] = 1.0;
+        seen[s] = 0.0;
+        heap.push(WeightedBrandesHeapEntry {
+            dist: 0.0,
+            counter,
+            pred: s,
+            v: s,
+        });
+        counter += 1;
+        while let Some(entry) = heap.pop() {
+            let v = entry.v;
+            if finalized[v] {
+                continue;
+            }
+            sigma[v] += sigma[entry.pred];
+            stack.push(v);
+            finalized[v] = true;
+            let dist_v = entry.dist;
+            let sigma_v = sigma[v];
+            for &(w, wt) in &adjacency[v] {
+                let vw_dist = dist_v + wt;
+                if !finalized[w] && vw_dist < seen[w] {
+                    seen[w] = vw_dist;
+                    heap.push(WeightedBrandesHeapEntry {
+                        dist: vw_dist,
+                        counter,
+                        pred: v,
+                        v: w,
+                    });
+                    counter += 1;
+                    sigma[w] = 0.0;
+                    preds[w] = vec![v];
+                } else if vw_dist == seen[w] {
+                    sigma[w] += sigma_v;
+                    preds[w].push(v);
+                }
+            }
+        }
+
+        let mut dependency = vec![0.0f64; n];
+        while let Some(w) = stack.pop() {
+            let num_preds = preds[w].len() as f64;
+            for &v in &preds[w] {
+                let c = if target_bitmap[w] {
+                    (sigma[v] / sigma[w]) * (1.0 + dependency[w])
+                } else {
+                    dependency[w] / num_preds
+                };
+                let key = canonical_edge_key(nodes[v], nodes[w]);
+                *edge_scores.entry(key).or_insert(0.0) += c;
+                dependency[v] += c;
+            }
+        }
+    }
+
+    let scale_opt = if normalized {
+        if n > 1 {
+            Some(1.0 / ((n * (n - 1)) as f64))
+        } else {
+            None
+        }
+    } else if is_directed {
+        None
+    } else {
+        Some(0.5)
+    };
+    if let Some(scale) = scale_opt {
+        for v in edge_scores.values_mut() {
+            *v *= scale;
+        }
+    }
+
+    let mut scores = edge_scores
+        .into_iter()
+        .map(|((left, right), score)| EdgeCentralityScore { left, right, score })
+        .collect::<Vec<EdgeCentralityScore>>();
+    scores.sort_unstable_by(|left, right| {
+        left.left
+            .cmp(&right.left)
+            .then_with(|| left.right.cmp(&right.right))
+    });
+
+    EdgeBetweennessCentralityResult {
+        scores,
+        witness: witness(),
+    }
+}
+
+/// Weighted subset edge betweenness for an undirected `Graph`.
+#[must_use]
+pub fn edge_betweenness_centrality_subset_weighted(
+    graph: &Graph,
+    sources: &[&str],
+    targets: &[&str],
+    weight_attr: Option<&str>,
+    normalized: bool,
+) -> EdgeBetweennessCentralityResult {
+    edge_betweenness_centrality_subset_weighted_generic(
+        graph, sources, targets, weight_attr, normalized,
+    )
+}
+
+/// Weighted subset edge betweenness for a directed `DiGraph` (out-edges).
+#[must_use]
+pub fn edge_betweenness_centrality_subset_weighted_directed(
+    graph: &DiGraph,
+    sources: &[&str],
+    targets: &[&str],
+    weight_attr: Option<&str>,
+    normalized: bool,
+) -> EdgeBetweennessCentralityResult {
+    edge_betweenness_centrality_subset_weighted_generic(
+        graph, sources, targets, weight_attr, normalized,
+    )
+}
+
 fn edge_betweenness_centrality_subset_generic<G: GraphView>(
     graph: &G,
     sources: &[&str],
@@ -5164,17 +5362,27 @@ fn edge_betweenness_centrality_subset_generic<G: GraphView>(
         }
         nodes_touched += stack.len();
 
+        // br-r37-c1-gqgds: mirror nx `_accumulate_edges_subset` EXACTLY. The
+        // target branch is sigma-weighted `(sigma[v]/sigma[w])*(1+delta[w])`,
+        // but the NON-target branch splits `delta[w]` EQUALLY among the
+        // predecessors (`delta[w]/len(P[w])`) — the previous code used the
+        // sigma-weighted form for both, which diverged from nx whenever
+        // sources != targets (it only matched when every node is a target).
+        // `target_set = set(targets)` (NOT minus s, unlike the node-subset
+        // variant); the node-accumulation `betweenness[w] += delta[w]` is dead
+        // (nx deletes node keys before returning), so it is omitted.
         let mut dependency = vec![0.0; n];
         while let Some(w) = stack.pop() {
-            if sigma[w] > 0.0 {
-                let extra = if target_bitmap[w] && w != s { 1.0 } else { 0.0 };
-                let coeff = (extra + dependency[w]) / sigma[w];
-                for &v in &predecessors[w] {
-                    let contribution = sigma[v] * coeff;
-                    let key = canonical_edge_key(nodes[v], nodes[w]);
-                    *edge_scores.entry(key).or_insert(0.0) += contribution;
-                    dependency[v] += contribution;
-                }
+            let num_preds = predecessors[w].len() as f64;
+            for &v in &predecessors[w] {
+                let c = if target_bitmap[w] {
+                    (sigma[v] / sigma[w]) * (1.0 + dependency[w])
+                } else {
+                    dependency[w] / num_preds
+                };
+                let key = canonical_edge_key(nodes[v], nodes[w]);
+                *edge_scores.entry(key).or_insert(0.0) += c;
+                dependency[v] += c;
             }
         }
     }

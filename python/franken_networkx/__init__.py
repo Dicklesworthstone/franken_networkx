@@ -7847,6 +7847,7 @@ from franken_networkx._fnx import (
     edge_betweenness_centrality as _raw_edge_betweenness_centrality,
     edge_betweenness_centrality_weighted as _raw_edge_betweenness_centrality_weighted,
     edge_betweenness_centrality_subset_rust as _edge_betweenness_centrality_subset_rust,
+    edge_betweenness_centrality_subset_weighted_rust as _edge_betweenness_centrality_subset_weighted_rust,
     eigenvector_centrality as _raw_eigenvector_centrality,
     harmonic_centrality as _raw_harmonic_centrality,
     hits,
@@ -30226,6 +30227,30 @@ def edge_betweenness_centrality_subset(
             elif not is_directed and (v, u) in betweenness:
                 betweenness[(v, u)] = score
         return betweenness
+    # br-r37-c1-gqgds: weighted subset edge betweenness ran a pure-Python
+    # per-source Dijkstra + accumulation loop (~3x SLOWER than nx). Route to the
+    # native weighted subset edge-Brandes kernel (Dijkstra SSSP, byte-exact) for
+    # the simple-graph string-weight case with finite/non-negative/numeric
+    # weights; callable/non-string weight, multigraph, or bad weights fall
+    # through to the parity path.
+    if isinstance(weight, str) and not G.is_multigraph():
+        _sync_rust_edge_attrs(G)
+        if not (
+            _has_negative_edge_weight_for_dijkstra(G, weight, _skip_sync=True)
+            or _has_positive_infinity_edge_weight_for_dijkstra(G, weight, _skip_sync=True)
+            or _has_nonnumeric_edge_weight(G, weight, _skip_sync=True)
+        ):
+            rust_scores = _edge_betweenness_centrality_subset_weighted_rust(
+                G, sources, targets, weight, normalized
+            )
+            betweenness = dict.fromkeys(G.edges(), 0.0)
+            is_directed = G.is_directed()
+            for (u, v), score in rust_scores.items():
+                if (u, v) in betweenness:
+                    betweenness[(u, v)] = score
+                elif not is_directed and (v, u) in betweenness:
+                    betweenness[(v, u)] = score
+            return betweenness
     betweenness = dict.fromkeys(G, 0.0)
     betweenness.update(dict.fromkeys(G.edges(), 0.0))
     for source in sources:
