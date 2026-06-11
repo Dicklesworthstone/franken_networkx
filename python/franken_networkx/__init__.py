@@ -23439,20 +23439,30 @@ def complete_multipartite_graph(*subset_sizes):
                 ) from err
 
     if int_sizes is not None:
-        graph = _rust_complete_multipartite_graph(int_sizes)
         offset = 0
-        for partition_index, size in enumerate(int_sizes):
-            for node_id in range(offset, offset + size):
-                graph.nodes[node_id]["subset"] = partition_index
+        subsets = []
+        for size in int_sizes:
+            subsets.append(range(offset, offset + size))
             offset += size
-        return graph
+    else:
+        subsets = [list(item) for item in subset_sizes]
 
-    subsets = [list(item) for item in subset_sizes]
+    # br-r37-c1-multipartite-bulk: the native _rust_complete_multipartite_graph
+    # kernel is ~2.3x SLOWER than this Python build for the int path (its
+    # dual-rep PyGraph construction substrate exceeds nx's add_edges_from on the
+    # dense cross-partition edge set; the per-node subset loop was negligible).
+    # Build it exactly like nx: subset-attributed nodes per block, then ONE bulk
+    # add_edges_from over every cross-partition pair (a single native batch
+    # instead of per-pair calls). Byte-exact — same node/edge stream as nx and
+    # edges() is node-iteration-determined.
     graph = Graph()
     for partition_index, subset in enumerate(subsets):
         graph.add_nodes_from(subset, subset=partition_index)
-    for left, right in _itertools.combinations(subsets, 2):
-        graph.add_edges_from(_itertools.product(left, right))
+    graph.add_edges_from(
+        edge
+        for left, right in _itertools.combinations(subsets, 2)
+        for edge in _itertools.product(left, right)
+    )
     return graph
 
 
