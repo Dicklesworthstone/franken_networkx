@@ -4012,41 +4012,98 @@ pub fn betweenness_centrality(
     endpoints: bool,
     seed: Option<Bound<'_, PyAny>>,
 ) -> PyResult<Py<PyDict>> {
-    if k.is_some() || weight.is_some() || seed.is_some() {
+    if k.is_some() || seed.is_some() {
         return Err(crate::NetworkXNotImplemented::new_err(
-            "franken_networkx currently only supports k=None, weight=None, and seed=None for betweenness_centrality",
+            "franken_networkx currently only supports k=None and seed=None for betweenness_centrality",
         ));
     }
     let gr = extract_graph(g)?;
     log::info!(target: "franken_networkx", "betweenness_centrality: nodes={}", gr.undirected().node_count());
-    let result = match &gr {
-        GraphRef::Undirected(pg) => {
-            let inner = &pg.inner;
-            py.allow_threads(|| {
-                fnx_algorithms::betweenness_centrality_with_params(inner, normalized, endpoints)
-            })
+    // br-r37-c1-7iiky: weighted betweenness (a string `weight` key) runs the
+    // native weighted Brandes (Dijkstra SSSP, parallel, byte-exact with nx)
+    // instead of delegating to networkx's single-threaded Python. The Python
+    // wrapper only reaches here for finite, non-negative numeric weights on a
+    // simple Graph/DiGraph; everything else delegates to nx for parity.
+    let result = if let Some(weight_attr) = weight {
+        match &gr {
+            GraphRef::Undirected(pg) => {
+                let inner = &pg.inner;
+                py.allow_threads(|| {
+                    fnx_algorithms::betweenness_centrality_weighted(
+                        inner,
+                        Some(weight_attr),
+                        normalized,
+                        endpoints,
+                    )
+                })
+            }
+            GraphRef::Directed { dg, .. } => {
+                let inner = &dg.inner;
+                py.allow_threads(|| {
+                    fnx_algorithms::betweenness_centrality_weighted_directed(
+                        inner,
+                        Some(weight_attr),
+                        normalized,
+                        endpoints,
+                    )
+                })
+            }
+            _ => {
+                if gr.is_directed() {
+                    let inner = gr.digraph().expect("is_directed checked above");
+                    py.allow_threads(|| {
+                        fnx_algorithms::betweenness_centrality_weighted_directed(
+                            inner,
+                            Some(weight_attr),
+                            normalized,
+                            endpoints,
+                        )
+                    })
+                } else {
+                    let inner = gr.undirected();
+                    py.allow_threads(|| {
+                        fnx_algorithms::betweenness_centrality_weighted(
+                            inner,
+                            Some(weight_attr),
+                            normalized,
+                            endpoints,
+                        )
+                    })
+                }
+            }
         }
-        GraphRef::Directed { dg, .. } => {
-            let inner = &dg.inner;
-            py.allow_threads(|| {
-                fnx_algorithms::betweenness_centrality_directed_with_params(
-                    inner, normalized, endpoints,
-                )
-            })
-        }
-        _ => {
-            if gr.is_directed() {
-                let inner = gr.digraph().expect("is_directed checked above");
+    } else {
+        match &gr {
+            GraphRef::Undirected(pg) => {
+                let inner = &pg.inner;
+                py.allow_threads(|| {
+                    fnx_algorithms::betweenness_centrality_with_params(inner, normalized, endpoints)
+                })
+            }
+            GraphRef::Directed { dg, .. } => {
+                let inner = &dg.inner;
                 py.allow_threads(|| {
                     fnx_algorithms::betweenness_centrality_directed_with_params(
                         inner, normalized, endpoints,
                     )
                 })
-            } else {
-                let inner = gr.undirected();
-                py.allow_threads(|| {
-                    fnx_algorithms::betweenness_centrality_with_params(inner, normalized, endpoints)
-                })
+            }
+            _ => {
+                if gr.is_directed() {
+                    let inner = gr.digraph().expect("is_directed checked above");
+                    py.allow_threads(|| {
+                        fnx_algorithms::betweenness_centrality_directed_with_params(
+                            inner, normalized, endpoints,
+                        )
+                    })
+                } else {
+                    let inner = gr.undirected();
+                    py.allow_threads(|| {
+                        fnx_algorithms::betweenness_centrality_with_params(
+                            inner, normalized, endpoints,
+                        )
+                    })
+                }
             }
         }
     };

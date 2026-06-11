@@ -8230,6 +8230,31 @@ def betweenness_centrality(
     # br-r37-c1-y77dc: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
 
+    # br-r37-c1-7iiky: weighted betweenness (a string `weight` key) previously
+    # delegated to networkx's single-threaded Python Brandes (~540ms on n=400).
+    # Run the native weighted Brandes kernel (Dijkstra SSSP, parallel,
+    # byte-exact) instead. Mirror the dijkstra/astar family's weight contract:
+    # only the native path for a simple Graph/DiGraph whose `weight` values are
+    # all finite, non-negative and numeric (nx requires weights > 0 for
+    # betweenness); a callable/non-string weight, a multigraph, or any
+    # negative / +inf / non-numeric weight delegates to nx for exact parity.
+    # `k`/`seed` always delegate (sampling estimator).
+    if k is None and seed is None and isinstance(weight, str) and not G.is_multigraph():
+        _sync_rust_edge_attrs(G)
+        if not (
+            _has_negative_edge_weight_for_dijkstra(G, weight, _skip_sync=True)
+            or _has_positive_infinity_edge_weight_for_dijkstra(G, weight, _skip_sync=True)
+            or _has_nonnumeric_edge_weight(G, weight, _skip_sync=True)
+        ):
+            return _raw_betweenness_centrality(
+                G,
+                k=None,
+                normalized=normalized,
+                weight=weight,
+                endpoints=endpoints,
+                seed=None,
+            )
+
     if k is not None or weight is not None or seed is not None:
         return _call_networkx_for_parity(
             "betweenness_centrality",

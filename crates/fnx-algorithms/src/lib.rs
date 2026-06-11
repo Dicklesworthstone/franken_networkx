@@ -4013,6 +4013,260 @@ fn betweenness_centrality_generic<G: GraphView>(
     }
 }
 
+/// Min-heap entry for weighted Brandes (Dijkstra SSSP). Ordered so the smallest
+/// `(dist, counter)` pops first from `BinaryHeap` (a max-heap), reproducing
+/// networkx's `heapq` over `(dist, c, pred, v)` tuples where `c` is a strictly
+/// increasing push counter (FIFO tie-break among equal distances). Distances are
+/// finite (the weighted Brandes path is only taken for finite, non-negative
+/// numeric weights — the Python wrapper delegates everything else to nx), so
+/// `partial_cmp` is total here.
+#[derive(Clone, Copy)]
+struct WeightedBrandesHeapEntry {
+    dist: f64,
+    counter: u64,
+    pred: usize,
+    v: usize,
+}
+impl PartialEq for WeightedBrandesHeapEntry {
+    fn eq(&self, other: &Self) -> bool {
+        self.dist == other.dist && self.counter == other.counter
+    }
+}
+impl Eq for WeightedBrandesHeapEntry {}
+impl Ord for WeightedBrandesHeapEntry {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        // Reverse so the BinaryHeap (max-heap) yields the smallest dist, then the
+        // smallest counter, first — matching networkx's heappop order exactly.
+        other
+            .dist
+            .partial_cmp(&self.dist)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| other.counter.cmp(&self.counter))
+    }
+}
+impl PartialOrd for WeightedBrandesHeapEntry {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+/// One weighted Brandes single-source pass. Returns this source's contribution to
+/// every node's betweenness (un-scaled), byte-for-byte mirroring networkx's
+/// `_single_source_dijkstra_path_basic` + `_accumulate_basic` /
+/// `_accumulate_endpoints`. `adjacency[v]` lists `(neighbor_index, weight)` in the
+/// graph's neighbour-iteration order (so the heap push counter — and therefore the
+/// finalisation order and predecessor lists — match nx's `G[v].items()` order).
+fn weighted_brandes_source_delta(
+    adjacency: &[Vec<(usize, f64)>],
+    s: usize,
+    n: usize,
+    endpoints: bool,
+) -> Vec<f64> {
+    use std::collections::BinaryHeap;
+
+    let mut sigma = vec![0.0f64; n];
+    // seen[w] == +inf encodes "w not yet seen"; collapses nx's
+    // `(w not in seen or vw_dist < seen[w])` into `vw_dist < seen[w]` because a
+    // finite vw_dist is always < inf. Real distances are finite (inf weights are
+    // delegated), so the sentinel never collides with a genuine distance.
+    let mut seen = vec![f64::INFINITY; n];
+    let mut finalized = vec![false; n];
+    let mut preds: Vec<Vec<usize>> = vec![Vec::new(); n];
+    let mut stack: Vec<usize> = Vec::with_capacity(n);
+    let mut heap: BinaryHeap<WeightedBrandesHeapEntry> = BinaryHeap::new();
+    let mut counter: u64 = 0;
+
+    sigma[s] = 1.0;
+    seen[s] = 0.0;
+    heap.push(WeightedBrandesHeapEntry {
+        dist: 0.0,
+        counter,
+        pred: s,
+        v: s,
+    });
+    counter += 1;
+
+    while let Some(entry) = heap.pop() {
+        let v = entry.v;
+        if finalized[v] {
+            continue;
+        }
+        sigma[v] += sigma[entry.pred];
+        stack.push(v);
+        finalized[v] = true;
+        let dist_v = entry.dist;
+        let sigma_v = sigma[v];
+        for &(w, wt) in &adjacency[v] {
+            let vw_dist = dist_v + wt;
+            if !finalized[w] && vw_dist < seen[w] {
+                seen[w] = vw_dist;
+                heap.push(WeightedBrandesHeapEntry {
+                    dist: vw_dist,
+                    counter,
+                    pred: v,
+                    v: w,
+                });
+                counter += 1;
+                sigma[w] = 0.0;
+                preds[w] = vec![v];
+            } else if vw_dist == seen[w] {
+                sigma[w] += sigma_v;
+                preds[w].push(v);
+            }
+        }
+    }
+
+    let mut contribution = vec![0.0f64; n];
+    let mut delta = vec![0.0f64; n];
+    if endpoints {
+        contribution[s] += stack.len().saturating_sub(1) as f64;
+    }
+    while let Some(w) = stack.pop() {
+        // nx float order: coeff computed once, then `delta[v] += sigma[v]*coeff`.
+        let coeff = (1.0 + delta[w]) / sigma[w];
+        for &v in &preds[w] {
+            delta[v] += sigma[v] * coeff;
+        }
+        if w != s {
+            contribution[w] += if endpoints { delta[w] + 1.0 } else { delta[w] };
+        }
+    }
+    contribution
+}
+
+/// Weighted Brandes betweenness centrality (Dijkstra SSSP). Byte-exact with
+/// networkx's `betweenness_centrality(weight=...)`: per-source contributions are
+/// reduced in strict source order `0..n` (matching nx's `for s in nodes`
+/// accumulation), then `_rescale` is applied with the same factors as the
+/// unweighted kernel. Parallelised over sources for large graphs with a chunked,
+/// source-ordered reduction (identical float summation order to the sequential
+/// path, so the result is bit-identical regardless of thread count).
+fn betweenness_centrality_weighted_generic<G: GraphView>(
+    graph: &G,
+    weight_attr: Option<&str>,
+    normalized: bool,
+    endpoints: bool,
+) -> BetweennessCentralityResult {
+    let nodes = graph.nodes_ordered();
+    let n = nodes.len();
+    if n == 0 {
+        return BetweennessCentralityResult {
+            scores: Vec::new(),
+            witness: ComplexityWitness {
+                algorithm: "brandes_betweenness_centrality_weighted".to_owned(),
+                complexity_claim: "O(|V| * (|E| + |V| log |V|))".to_owned(),
+                nodes_touched: 0,
+                edges_scanned: 0,
+                queue_peak: 0,
+            },
+        };
+    }
+
+    let index: std::collections::HashMap<&str, usize> = nodes
+        .iter()
+        .enumerate()
+        .map(|(i, &node)| (node, i))
+        .collect();
+    let adjacency: Vec<Vec<(usize, f64)>> = nodes
+        .iter()
+        .map(|&node| {
+            let mut row = Vec::with_capacity(graph.neighbor_count(node));
+            if let Some(neighbors) = graph.neighbors_iter(node) {
+                for neighbor in neighbors {
+                    let j = *index
+                        .get(neighbor)
+                        .expect("graph neighbor must exist in node index");
+                    row.push((j, graph.edge_weight(node, neighbor, weight_attr)));
+                }
+            }
+            row
+        })
+        .collect();
+
+    let mut centrality = vec![0.0f64; n];
+
+    const WEIGHTED_BRANDES_PARALLEL_THRESHOLD: usize = 400;
+    if n >= WEIGHTED_BRANDES_PARALLEL_THRESHOLD {
+        use rayon::prelude::*;
+        let bytes_per_delta = n.max(1).saturating_mul(std::mem::size_of::<f64>());
+        let chunk = (64 * 1024 * 1024 / bytes_per_delta).clamp(1, n);
+        let mut start = 0usize;
+        while start < n {
+            let end = (start + chunk).min(n);
+            let chunk_results: Vec<Vec<f64>> = (start..end)
+                .into_par_iter()
+                .map(|s| weighted_brandes_source_delta(&adjacency, s, n, endpoints))
+                .collect();
+            for delta in chunk_results {
+                for (acc, contribution) in centrality.iter_mut().zip(delta.iter()) {
+                    *acc += *contribution;
+                }
+            }
+            start = end;
+        }
+    } else {
+        for s in 0..n {
+            let delta = weighted_brandes_source_delta(&adjacency, s, n, endpoints);
+            for (acc, contribution) in centrality.iter_mut().zip(delta.iter()) {
+                *acc += *contribution;
+            }
+        }
+    }
+
+    let pair_base = if endpoints { n } else { n.saturating_sub(1) };
+    let scale = if pair_base < 2 {
+        1.0
+    } else if normalized {
+        1.0 / ((pair_base * (pair_base - 1)) as f64)
+    } else if graph.is_directed() {
+        1.0
+    } else {
+        0.5
+    };
+
+    let ordered_scores = nodes
+        .iter()
+        .enumerate()
+        .map(|(i, node)| CentralityScore {
+            node: (*node).to_owned(),
+            score: centrality[i] * scale,
+        })
+        .collect();
+
+    BetweennessCentralityResult {
+        scores: ordered_scores,
+        witness: ComplexityWitness {
+            algorithm: "brandes_betweenness_centrality_weighted".to_owned(),
+            complexity_claim: "O(|V| * (|E| + |V| log |V|))".to_owned(),
+            nodes_touched: 0,
+            edges_scanned: 0,
+            queue_peak: 0,
+        },
+    }
+}
+
+/// Weighted Brandes betweenness for an undirected `Graph`.
+#[must_use]
+pub fn betweenness_centrality_weighted(
+    graph: &Graph,
+    weight_attr: Option<&str>,
+    normalized: bool,
+    endpoints: bool,
+) -> BetweennessCentralityResult {
+    betweenness_centrality_weighted_generic(graph, weight_attr, normalized, endpoints)
+}
+
+/// Weighted Brandes betweenness for a directed `DiGraph` (out-edge projection).
+#[must_use]
+pub fn betweenness_centrality_weighted_directed(
+    graph: &DiGraph,
+    weight_attr: Option<&str>,
+    normalized: bool,
+    endpoints: bool,
+) -> BetweennessCentralityResult {
+    betweenness_centrality_weighted_generic(graph, weight_attr, normalized, endpoints)
+}
+
 #[must_use]
 pub fn betweenness_centrality_subset(
     graph: &Graph,
