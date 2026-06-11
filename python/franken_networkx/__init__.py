@@ -7860,6 +7860,56 @@ from franken_networkx._fnx import (
 )
 
 
+def _multigraph_degree_assortativity_coefficient(G, weight):
+    """Byte-exact in-process degree assortativity for multigraphs.
+
+    br-r37-c1-6pdq6: the multigraph case used to convert fnx->nx (the
+    AtlasView per-edge / ``_align_rows`` conversion path is pathologically slow
+    for multigraphs — ~540ms / 239x vs nx for a 200-node MultiGraph, with the nx
+    algorithm itself only ~2ms). degree_assortativity is an order-invariant
+    scalar, so reproduce nx's exact pipeline directly on the fnx graph: build the
+    degree-pair iterator with nx's ``node_degree_xy`` semantics from fast BULK
+    reads (``dict(G.degree())`` + ``list(G.edges())`` — both native, vs the
+    per-node ``G.edges(u)`` round-trips that made even the in-process version
+    slow), then feed nx's own ``mixing_dict`` / ``dict_to_numpy_array`` /
+    ``_numeric_ac`` (graph-agnostic numpy) so the float result is byte-identical.
+    Only the default (x="out", y="in", nodes=None) contract is routed here.
+    """
+    from networkx.algorithms.assortativity.correlation import _numeric_ac
+    from networkx.algorithms.assortativity.mixing import mixing_dict
+    from networkx.utils import dict_to_numpy_array
+
+    if G.is_directed():
+        outdeg = dict(G.out_degree(weight=weight))
+        indeg = dict(G.in_degree(weight=weight))
+        degrees = set(outdeg.values()) | set(indeg.values())
+
+        def _xy():
+            # nx node_degree_xy (x="out", y="in"): one (out_src, in_tgt) pair
+            # per directed edge.
+            for u, v in G.edges():
+                yield outdeg[u], indeg[v]
+    else:
+        deg = dict(G.degree(weight=weight))
+        degrees = set(deg.values())
+
+        def _xy():
+            # nx node_degree_xy (undirected): each edge contributes BOTH
+            # (deg_u, deg_v) and (deg_v, deg_u); self-loops only once.
+            for u, v in G.edges():
+                du = deg[u]
+                dv = deg[v]
+                yield du, dv
+                if u != v:
+                    yield dv, du
+
+    mapping = {d: i for i, d in enumerate(degrees)}
+    mix = mixing_dict(_xy(), normalized=False)
+    matrix = dict_to_numpy_array(mix, mapping=mapping)
+    matrix = matrix / matrix.sum()
+    return _numeric_ac(matrix, mapping=mapping)
+
+
 def degree_assortativity_coefficient(G, x="out", y="in", weight=None, nodes=None):
     """Compute degree assortativity of graph.
 
@@ -7920,6 +7970,18 @@ def degree_assortativity_coefficient(G, x="out", y="in", weight=None, nodes=None
         # finite case stays native.
         if _directed is not None and _math.isfinite(_directed):
             return _directed
+    # br-r37-c1-6pdq6: multigraph UNWEIGHTED default contract — compute
+    # in-process (byte-exact) instead of the ~239x-slower fnx->nx multigraph
+    # conversion. Weighted multigraphs stay delegated: the weighted degree is a
+    # float sum whose accumulation order (fnx adj order vs nx's) differs, so the
+    # directed weighted result diverges in the last ULPs — not byte-exact.
+    # Unweighted degrees are exact integers, so the in-process result matches nx
+    # bit-for-bit.
+    if (
+        x == "out" and y == "in" and nodes is None and weight is None
+        and G.is_multigraph()
+    ):
+        return _multigraph_degree_assortativity_coefficient(G, weight)
     return _call_networkx_for_parity(
         "degree_assortativity_coefficient",
         G,
