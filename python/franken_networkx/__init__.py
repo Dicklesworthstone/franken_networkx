@@ -38930,28 +38930,49 @@ def random_geometric_graph(n, radius, dim=2, pos=None, p=2, seed=None, *, pos_na
     rng = _random.Random(normalized)
     G = Graph()
     positions: dict = {}
+    # Draw positions in node order (preserves nx's rng-consumption sequence),
+    # then add all nodes+pos in ONE bulk add_nodes_from instead of n per-node
+    # add_node PyO3 calls (br-r37-c1-rgg-kdtree: the per-node construction was
+    # the residual gap once the O(n^2) edge scan was replaced).
     for i in range(n):
         if pos is not None:
             positions[i] = pos[i]
         else:
             positions[i] = [rng.random() for _ in range(dim)]
-        G.add_node(i, **{pos_name: positions[i]})
+    G.add_nodes_from((i, {pos_name: positions[i]}) for i in range(n))
 
-    if p == float("inf"):
-        def _dist(pu, pv):
-            return max(abs(a - b) for a, b in zip(pu, pv))
+    # br-r37-c1-rgg-kdtree: the previous O(n^2) brute-force pairwise distance
+    # scan (~318ms / 20x slower than nx at n=1000) is replaced by networkx's
+    # exact edge construction: a scipy ``cKDTree.query_pairs(radius, p)`` radius
+    # query (O(n log n + |E|)) over the same positions, then ``sorted`` index
+    # pairs into one bulk ``add_edges_from``. Positions already match nx (same
+    # rng sequence), query_pairs is the identical scipy call nx uses, and
+    # edges() order is node-iteration-determined (nodes 0..n-1 added up front),
+    # so the result is byte-identical to nx and to the prior brute-force path.
+    # The brute-force fallback runs only when scipy is unavailable (matching
+    # nx's _geometric_edges fallback).
+    if n >= 2:
+        try:
+            import scipy as _sp
 
-        def _within(pu, pv):
-            return _dist(pu, pv) <= radius
-    else:
-        radius_p = radius ** p
-        def _within(pu, pv):
-            return sum(abs(a - b) ** p for a, b in zip(pu, pv)) <= radius_p
+            coords = [positions[i] for i in range(n)]
+            kdtree = _sp.spatial.cKDTree(coords)
+            edge_indexes = kdtree.query_pairs(radius, p)
+            G.add_edges_from(sorted(edge_indexes))
+        except ImportError:
+            if p == float("inf"):
+                def _within(pu, pv):
+                    return max(abs(a - b) for a, b in zip(pu, pv)) <= radius
+            else:
+                radius_p = radius ** p
 
-    for i in range(n):
-        for j in range(i + 1, n):
-            if _within(positions[i], positions[j]):
-                G.add_edge(i, j)
+                def _within(pu, pv):
+                    return sum(abs(a - b) ** p for a, b in zip(pu, pv)) <= radius_p
+
+            for i in range(n):
+                for j in range(i + 1, n):
+                    if _within(positions[i], positions[j]):
+                        G.add_edge(i, j)
     return G
 
 
