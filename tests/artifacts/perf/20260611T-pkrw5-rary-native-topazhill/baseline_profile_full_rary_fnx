@@ -1,0 +1,15 @@
+         81 function calls in 0.138 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+       10    0.000    0.000    0.138    0.014 harness_generators.py:69(build)
+       10    0.000    0.000    0.138    0.014 harness_generators.py:26(<lambda>)
+       10    0.000    0.000    0.138    0.014 __init__.py:50163(wrapper)
+       10    0.000    0.000    0.138    0.014 __init__.py:22682(full_rary_tree)
+       10    0.138    0.014    0.138    0.014 {built-in method franken_networkx._fnx.full_rary_tree}
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+       10    0.000    0.000    0.000    0.000 __init__.py:22445(_validate_backend_dispatch_keywords)
+       20    0.000    0.000    0.000    0.000 {built-in method builtins.isinstance}
+
+

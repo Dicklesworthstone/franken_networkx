@@ -1,0 +1,1 @@
+{"digest": "c22a5febbe363b33eaad5df75b24b8c29435d05ce70f5f7eb281ec4d3e5bc6d4", "engine": "fnx", "label": "full_rary_tree(2, 8191)", "mean_s": 0.016868633423776678, "median_s": 0.01610237645218149, "min_s": 0.013398039038293064, "p95_s": 0.020183660904876888, "samples": 30, "scenario": "full_rary_2_8191"}

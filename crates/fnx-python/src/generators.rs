@@ -14,6 +14,8 @@ use pyo3::types::PyDict;
 use std::collections::HashMap;
 use std::sync::atomic::AtomicBool;
 
+const MAX_NATIVE_RARY_N: usize = 100_000;
+
 /// Build a PyGraph from a Rust Graph returned by a generator.
 ///
 /// Converts string node keys ("0", "1", ...) to Python int keys so that
@@ -420,6 +422,66 @@ pub fn caveman_graph_native(py: Python<'_>, l: usize, k: usize) -> PyResult<PyGr
     })
 }
 
+/// Build ``full_rary_tree(r, n)`` natively for exact non-negative int arguments.
+///
+/// This uses the same BFS edge stream as NetworkX's ``_tree_edges`` helper, but
+/// returns a lazy-int ``PyGraph`` directly instead of remapping generic string
+/// nodes through ``report_to_pygraph``.
+#[pyfunction]
+pub fn full_rary_tree_native(py: Python<'_>, r: usize, n: usize) -> PyResult<PyGraph> {
+    if n > MAX_NATIVE_RARY_N {
+        return Err(PyValueError::new_err(format!(
+            "FailClosed {{ operation: \"full_rary_tree\", reason: \"n={n} exceeds max_allowed={MAX_NATIVE_RARY_N}\" }}"
+        )));
+    }
+
+    let lazy_int_node_stop =
+        i64::try_from(n).map_err(|_| PyValueError::new_err(format!("n {n} exceeds i64")))?;
+    let edge_count = if n == 0 { 0 } else { n - 1 };
+
+    let mut graph = fnx_classes::Graph::new(CompatibilityMode::Strict);
+    let node_labels: Vec<String> = (0..n).map(|node| node.to_string()).collect();
+    let _ = graph.extend_nodes_unrecorded(node_labels.iter().cloned());
+
+    if r > 0 && edge_count > 0 {
+        let mut edges = Vec::with_capacity(edge_count);
+        let mut next_child = 1usize;
+        let mut parent = 0usize;
+        while next_child < n {
+            for _ in 0..r {
+                if next_child == n {
+                    break;
+                }
+                edges.push((
+                    node_labels[parent].as_str(),
+                    node_labels[next_child].as_str(),
+                ));
+                next_child += 1;
+            }
+            parent += 1;
+        }
+        let inserted = graph.extend_edges_unrecorded(edges);
+        debug_assert_eq!(inserted, edge_count);
+    }
+
+    Ok(PyGraph {
+        inner: graph,
+        node_key_map: HashMap::new(),
+        lazy_int_node_stop,
+        node_py_attrs: HashMap::new(),
+        edge_py_attrs: HashMap::new(),
+        adj_py_keys: HashMap::new(),
+        dict_of_dicts_cache: None,
+        adj_row_py: HashMap::new(),
+        graph_attrs: PyDict::new(py).unbind(),
+        nodes_seq: 0,
+        edges_seq: 0,
+        edges_dirty: AtomicBool::new(false),
+        node_keys_cache: std::sync::Mutex::new(None),
+        node_iter_mirror: std::sync::Mutex::new(None),
+    })
+}
+
 /// Return the complete graph K_n with ``n`` nodes.
 #[pyfunction]
 pub fn complete_graph(py: Python<'_>, n: usize) -> PyResult<PyGraph> {
@@ -761,6 +823,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(grid_graph_native, m)?)?;
     m.add_function(wrap_pyfunction!(kneser_graph_native, m)?)?; // br-r37-c1-z2eaa
     m.add_function(wrap_pyfunction!(caveman_graph_native, m)?)?;
+    m.add_function(wrap_pyfunction!(full_rary_tree_native, m)?)?;
     m.add_function(wrap_pyfunction!(gnp_random_graph, m)?)?;
     m.add_function(wrap_pyfunction!(gnp_random_digraph, m)?)?;
     m.add_function(wrap_pyfunction!(watts_strogatz_graph, m)?)?;

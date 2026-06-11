@@ -12002,12 +12002,15 @@ from franken_networkx._fnx import (
     trivial_graph as _rust_trivial_graph,
     binomial_tree as _rust_binomial_tree,
     full_rary_tree as _rust_full_rary_tree,
+    full_rary_tree_native as _rust_full_rary_tree_native,
     circulant_graph as _rust_circulant_graph,
     kneser_graph as _rust_kneser_graph,
     paley_graph as _rust_paley_graph,
     chordal_cycle_graph as _rust_chordal_cycle_graph,
     sudoku_graph as _rust_sudoku_graph,
 )
+
+_RUST_GENERATOR_MAX_N_GENERIC = 100_000
 
 # Algorithm functions — single-source shortest paths
 from franken_networkx._fnx import (
@@ -22671,6 +22674,11 @@ def balanced_tree(r, h, create_using=None):
         and r >= 0
         and h >= 0
     ):
+        n = h + 1 if r == 1 else (1 - r ** (h + 1)) // (1 - r)
+        if type(r) is int and type(h) is int:
+            if n > _RUST_GENERATOR_MAX_N_GENERIC:
+                return _rust_balanced_tree(r, h)
+            return _rust_full_rary_tree_native(r, n)
         return _rust_balanced_tree(r, h)
     if r == 1:
         n = h + 1
@@ -22695,6 +22703,10 @@ def full_rary_tree(r, n, create_using=None):
     if isinstance(r, int) and r < 0:
         return empty_graph(n, create_using)
     if create_using is None:
+        if type(r) is int and type(n) is int and r >= 0 and n >= 0:
+            if n > _RUST_GENERATOR_MAX_N_GENERIC:
+                return _rust_full_rary_tree(r, n)
+            return _rust_full_rary_tree_native(r, n)
         return _rust_full_rary_tree(r, n)
 
     G = empty_graph(n, create_using)
