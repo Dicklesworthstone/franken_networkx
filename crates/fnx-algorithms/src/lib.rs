@@ -20217,7 +20217,11 @@ pub fn adamic_adar_index(graph: &Graph, ebunch: &[(String, String)]) -> Vec<(Str
                 graph.neighbors(u).unwrap_or_default().into_iter().collect();
             let v_nbrs: HashSet<&str> =
                 graph.neighbors(v).unwrap_or_default().into_iter().collect();
-            let score: f64 = u_nbrs
+            // HashSet iteration order is randomized per process and float addition is
+            // non-associative, so summing in set order makes the last ULP of the score
+            // vary run-to-run. Sort the terms before summing so identical inputs always
+            // produce bit-identical scores.
+            let mut terms: Vec<f64> = u_nbrs
                 .intersection(&v_nbrs)
                 .map(|&w| {
                     let deg = graph.neighbor_count(w);
@@ -20227,7 +20231,9 @@ pub fn adamic_adar_index(graph: &Graph, ebunch: &[(String, String)]) -> Vec<(Str
                         0.0
                     }
                 })
-                .sum();
+                .collect();
+            terms.sort_unstable_by(f64::total_cmp);
+            let score: f64 = terms.iter().sum();
             (u.clone(), v.clone(), score)
         })
         .collect()
@@ -20269,13 +20275,16 @@ pub fn resource_allocation_index(
                 graph.neighbors(u).unwrap_or_default().into_iter().collect();
             let v_nbrs: HashSet<&str> =
                 graph.neighbors(v).unwrap_or_default().into_iter().collect();
-            let score: f64 = u_nbrs
+            // Sorted-term summation for run-to-run bit determinism; see adamic_adar_index.
+            let mut terms: Vec<f64> = u_nbrs
                 .intersection(&v_nbrs)
                 .map(|&w| {
                     let deg = graph.neighbor_count(w);
                     if deg > 0 { 1.0 / deg as f64 } else { 0.0 }
                 })
-                .sum();
+                .collect();
+            terms.sort_unstable_by(f64::total_cmp);
+            let score: f64 = terms.iter().sum();
             (u.clone(), v.clone(), score)
         })
         .collect()
@@ -45842,6 +45851,41 @@ mod tests {
         // deg(0) = 2, deg(1) = 2 => PA = 4.0
         let (_, _, score) = &result[0];
         assert!((score - 4.0).abs() < TEST_TOLERANCE);
+    }
+
+    #[test]
+    fn link_prediction_float_sums_are_bit_deterministic() {
+        // Many common neighbors with varied degrees: the per-neighbor terms
+        // (1/ln(deg), 1/deg) are all different, so any summation-order change
+        // shifts the last ULP. Each call builds fresh randomly-seeded HashSets,
+        // so before the sorted-term fix this drifted even within one process.
+        let mut g = Graph::strict();
+        for i in 0..24 {
+            let w = format!("w{i}");
+            let _ = g.add_edge("u", &w);
+            let _ = g.add_edge("v", &w);
+            // Vary deg(w) by attaching i extra spokes.
+            for j in 0..i {
+                let _ = g.add_edge(&w, &format!("s{i}_{j}"));
+            }
+        }
+        let pairs = vec![("u".to_owned(), "v".to_owned())];
+        let aa_first = adamic_adar_index(&g, &pairs)[0].2;
+        let ra_first = resource_allocation_index(&g, &pairs)[0].2;
+        for _ in 0..64 {
+            let aa = adamic_adar_index(&g, &pairs)[0].2;
+            let ra = resource_allocation_index(&g, &pairs)[0].2;
+            assert_eq!(
+                aa.to_bits(),
+                aa_first.to_bits(),
+                "adamic_adar must be bit-identical across repeated runs"
+            );
+            assert_eq!(
+                ra.to_bits(),
+                ra_first.to_bits(),
+                "resource_allocation must be bit-identical across repeated runs"
+            );
+        }
     }
 
     #[test]
