@@ -17979,15 +17979,17 @@ def star_graph(n, create_using=None):
     n, nodes = _nodes_or_number_local(n)
     if isinstance(n, _numbers.Integral):
         nodes.append(int(n))
-        if create_using is None:
-            return _rust_star_graph(int(n))
 
     graph = _classic_graph_from_create_using(create_using)
     _add_nodes_in_order(graph, nodes)
     if len(nodes) > 1:
-        hub, *spokes = nodes
-        for node in spokes:
-            graph.add_edge(hub, node)
+        hub = nodes[0]
+        # br-r37-c1-starwheel-bulk: the native _rust_star_graph kernel was ~2x
+        # SLOWER than this single bulk add_edges_from (its dual-rep PyGraph
+        # construction substrate exceeds the batch path on the n-edge star).
+        # Drop it; emit all hub spokes through ONE add_edges_from. Byte-exact:
+        # node order [0..n] and edge order ((hub,1),(hub,2),...) match nx.
+        graph.add_edges_from((hub, node) for node in nodes[1:])
     return graph
 
 
@@ -22853,20 +22855,24 @@ def wheel_graph(n, create_using=None):
     sizes (verified n=5,6,7,10) — restore the native fast path.
     """
     n_value, nodes = _nodes_or_number_local(n)
-    if create_using is None and isinstance(n_value, _numbers.Integral) and n_value >= 0:
-        from franken_networkx._fnx import wheel_graph as _rust_wheel_graph
-
-        return _rust_wheel_graph(n_value)
     G = empty_graph(nodes, create_using)
     if G.is_directed():
         raise NetworkXError("Directed Graph not supported")
 
+    # br-r37-c1-starwheel-bulk: the native _rust_wheel_graph kernel was ~2x
+    # SLOWER than this single bulk build (its dual-rep PyGraph construction
+    # substrate exceeds the batch path). Drop it; collect hub spokes + the rim
+    # cycle into ONE add_edges_from. Byte-exact: hub edges ((hub,rim[0]),...)
+    # then the cyclic rim ((rim[0],rim[1]),...,(rim[-1],rim[0])) match nx's
+    # add_edges_from((hub,node)..) + pairwise(rim, cyclic=True), and edges() is
+    # node-iteration-determined.
     if len(nodes) > 1:
         hub, *rim = nodes
-        G.add_edges_from((hub, node) for node in rim)
+        edges = [(hub, node) for node in rim]
         if len(rim) > 1:
-            G.add_edges_from(_itertools.pairwise(rim))
-            G.add_edge(rim[-1], rim[0])
+            edges.extend(_itertools.pairwise(rim))
+            edges.append((rim[-1], rim[0]))
+        G.add_edges_from(edges)
     return G
 
 
@@ -45506,9 +45512,18 @@ def _classic_graph_from_create_using(create_using=None, default=Graph):
 
 
 def _add_nodes_in_order(graph, nodes):
-    """Add nodes one-by-one to preserve NetworkX insertion-order semantics."""
-    for node in nodes:
-        graph.add_node(node)
+    """Add nodes preserving NetworkX insertion-order semantics.
+
+    br-r37-c1-nodesbulk: the per-node ``add_node`` loop was ~4.6ms for 5k nodes
+    (the construction tax behind many generators). ``add_nodes_from`` adds in the
+    same iteration order (hitting the native int-list bulk fast path), ~3x faster.
+    Byte-identical for every valid input: plain scalar nodes, tuple-nodes like
+    ``(0, 1)`` (a 2-tuple whose 2nd element is NOT a dict is a node under both),
+    and adjacency-dict keys. The only divergent shape — a ``(node, dict)`` pair —
+    is unhashable and already raised in the old loop, so it is never a valid node
+    container here.
+    """
+    graph.add_nodes_from(nodes)
 
 
 def _classic_named_graph_from_adjlist(
