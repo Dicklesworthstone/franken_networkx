@@ -15102,12 +15102,13 @@ def spanner(G, stretch, weight=None, seed=None):
         raise ValueError("stretch must be at least 1")
     if G.number_of_nodes() == 0:
         raise ValueError("math domain error")
-    # br-r37-c1-dt6du: nx's @py_random_state decorator converts int seeds
-    # to random.Random objects, but Rust binding expects int. Extract seed.
-    import random as _random
-    if isinstance(seed, _random.Random):
-        seed = seed.randint(0, 2**63 - 1)
-    return _raw_spanner(G, stretch, weight=weight, seed=seed)
+    # br-r37-c1-fe1k0: the native ``_raw_spanner`` Rust kernel is ~1.5x SLOWER
+    # than nx; the in-process Baswana-Sen (plain-dict residual adjacency, fnx
+    # result built directly) is 1.6x FASTER than nx (and ~2.3x vs the kernel).
+    # Spanner is randomized + node-identity-tie-broken, so parity is structural
+    # (a valid spanner with the requested stretch — assert_valid_spanner).
+    from franken_networkx.sparsifiers import _spanner_inproc
+    return _spanner_inproc(G, stretch, weight=weight, seed=seed)
 
 
 # Algorithm functions — tree recognition
