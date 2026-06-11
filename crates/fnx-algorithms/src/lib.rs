@@ -15069,86 +15069,118 @@ fn minimum_cycle_basis_edge_weight(attrs: &AttrMap, weight_attr: Option<&str>) -
 /// can be expressed as a symmetric difference (XOR) of cycles from the basis.
 /// Each cycle is returned as a list of node names.
 #[must_use]
-pub fn cycle_basis(graph: &Graph, root: Option<&str>) -> CycleBasisResult {
+/// Index-space core of [`cycle_basis`] (br-r37-c1-cbcsr). Returns the cycles as
+/// node-INDEX vectors plus the `(nodes_touched, edges_scanned, stack_peak)`
+/// witness counters. The PyO3 binding maps the indices straight to cached Python
+/// node objects, skipping the per-cycle-node `String` materialization the public
+/// `cycle_basis` wrapper performs for Rust callers/tests.
+#[must_use]
+pub fn cycle_basis_index_cycles(
+    graph: &Graph,
+    root: Option<&str>,
+) -> (Vec<Vec<usize>>, usize, usize, usize) {
     let all_nodes = graph.nodes_ordered();
     let n = all_nodes.len();
+    let mut cycles: Vec<Vec<usize>> = Vec::new();
     if n == 0 {
-        return CycleBasisResult {
-            cycles: Vec::new(),
-            witness: ComplexityWitness {
-                algorithm: "cycle_basis".to_owned(),
-                complexity_claim: "O(|V| + |E|)".to_owned(),
-                nodes_touched: 0,
-                edges_scanned: 0,
-                queue_peak: 0,
-            },
-        };
+        return (cycles, 0, 0, 0);
     }
 
-    let mut gnodes = all_nodes;
-    let mut cycles: Vec<Vec<String>> = Vec::new();
+    // Paton's spanning-tree cycle basis in node-INDEX space. The previous version
+    // kept ``pred`` / ``used`` as String-keyed HashMaps and *cloned* the whole
+    // ``used[z]`` HashSet<&str> on every popped node — ~1.9x slower than nx's
+    // dict/set ops (18.9ms vs 9.9ms at n=1000). Run the whole traversal over
+    // ``neighbors_indices`` with integer ``pred``/``used`` and a ``discovered``
+    // bool array; the branch structure, neighbour iteration order, and LIFO
+    // stack are byte-identical to the old kernel, so cycle order + node order
+    // within each cycle are preserved (golden SHA unchanged).
     let mut nodes_touched = 0usize;
     let mut edges_scanned = 0usize;
     let mut stack_peak = 0usize;
 
-    let mut current_root: Option<&str> = root;
+    // ``gnodes`` as the index stack: nx's dict-backed ``gnodes.popitem()`` pops
+    // the last remaining inserted node, so a plain Vec popped from the end (then
+    // filtered by ``discovered``) reproduces the component start order exactly.
+    let mut gnodes: Vec<usize> = (0..n).collect();
+    let mut discovered = vec![false; n];
+    let mut pred = vec![usize::MAX; n];
+    // ``used[v]`` holds v's tree parent plus any chord endpoints already paired
+    // with v — always tiny in a cycle basis, so a Vec with a linear scan beats a
+    // SipHash HashSet (no per-edge hashing on the O(|E|) membership probe).
+    let mut used: Vec<Vec<usize>> = vec![Vec::new(); n];
 
-    while !gnodes.is_empty() {
-        // Match NetworkX's dict-backed ``gnodes.popitem()``: with no explicit
-        // root, each new component starts from the last remaining inserted node.
+    // An explicit ``root`` (already validated to be in the graph by the caller)
+    // selects the start index for the first component.
+    let mut current_root: Option<usize> = match root {
+        Some(name) => all_nodes.iter().position(|&node| node == name),
+        None => None,
+    };
+
+    while let Some(&last) = gnodes.last() {
         let r = if let Some(r) = current_root.take() {
             r
         } else {
-            gnodes.pop().expect("gnodes is non-empty")
+            gnodes.pop();
+            last
         };
 
-        let mut stack: Vec<&str> = vec![r];
-        let mut pred: HashMap<&str, &str> = HashMap::new();
-        pred.insert(r, r);
-        let mut used: HashMap<&str, HashSet<&str>> = HashMap::new();
-        used.insert(r, HashSet::new());
+        let mut stack: Vec<usize> = vec![r];
+        discovered[r] = true;
+        pred[r] = r;
+        used[r].clear();
+        // ``r`` has no tree parent, so its used-set stays empty.
 
         while let Some(z) = stack.pop() {
             nodes_touched += 1;
             stack_peak = stack_peak.max(stack.len() + 1);
-            let z_used = used[z].clone();
 
-            let nbrs: Vec<&str> = graph
-                .neighbors_iter(z)
-                .map(|iter| iter.collect())
-                .unwrap_or_default();
-
-            for nbr in nbrs {
+            for &nbr in graph.neighbors_indices(z).unwrap_or(&[]) {
                 edges_scanned += 1;
-                if !used.contains_key(nbr) {
+                if !discovered[nbr] {
                     // New node — extend spanning tree
-                    pred.insert(nbr, z);
+                    discovered[nbr] = true;
+                    pred[nbr] = z;
                     stack.push(nbr);
-                    let mut nbr_used = HashSet::new();
-                    nbr_used.insert(z);
-                    used.insert(nbr, nbr_used);
+                    used[nbr].clear();
+                    used[nbr].push(z);
                 } else if nbr == z {
                     // Self loop — single-node cycle
-                    cycles.push(vec![z.to_owned()]);
-                } else if !z_used.contains(nbr) {
-                    // Found a cycle — trace back through predecessors
-                    let pn = used[nbr].clone();
-                    let mut cycle: Vec<&str> = vec![nbr, z];
-                    let mut p = pred[z];
-                    while !pn.contains(p) {
+                    cycles.push(vec![z]);
+                } else if !used[z].contains(&nbr) {
+                    // Found a cycle — trace back through predecessors. ``pn`` is
+                    // an immutable borrow of ``used[nbr]`` released before the
+                    // ``used[nbr].push`` below (z != nbr in this branch).
+                    let mut cycle: Vec<usize> = vec![nbr, z];
+                    {
+                        let pn = &used[nbr];
+                        let mut p = pred[z];
+                        while !pn.contains(&p) {
+                            cycle.push(p);
+                            p = pred[p];
+                        }
                         cycle.push(p);
-                        p = pred[p];
                     }
-                    cycle.push(p);
-                    cycles.push(cycle.iter().map(|s| (*s).to_owned()).collect());
-                    used.get_mut(nbr).unwrap().insert(z);
+                    cycles.push(cycle);
+                    used[nbr].push(z);
                 }
             }
         }
 
-        // Remove all visited nodes from gnodes
-        gnodes.retain(|node| !pred.contains_key(*node));
+        // Drop this component's (now discovered) nodes from the start stack.
+        gnodes.retain(|&node| !discovered[node]);
     }
+
+    (cycles, nodes_touched, edges_scanned, stack_peak)
+}
+
+pub fn cycle_basis(graph: &Graph, root: Option<&str>) -> CycleBasisResult {
+    let all_nodes = graph.nodes_ordered();
+    let (idx_cycles, nodes_touched, edges_scanned, stack_peak) =
+        cycle_basis_index_cycles(graph, root);
+    let cycles = idx_cycles
+        .into_iter()
+        .map(|cycle| cycle.into_iter().map(|i| all_nodes[i].to_owned()).collect())
+        .collect();
 
     CycleBasisResult {
         cycles,

@@ -6844,11 +6844,20 @@ pub fn cycle_basis(
     require_undirected(&gr, "cycle_basis")?;
     let r = root.map(|r| node_key_to_string(py, r)).transpose()?;
     let inner = gr.undirected();
-    let result = py.allow_threads(|| fnx_algorithms::cycle_basis(inner, r.as_deref()));
-    Ok(result
-        .cycles
+    // br-r37-c1-cbcsr: the core returns cycles as node INDICES, so map each one
+    // straight to a cached Python node object (one ``py_node_key`` lookup per
+    // node, then a refcount bump per cycle membership) instead of materializing
+    // a ``String`` per cycle-node in the kernel and re-resolving it here.
+    let (idx_cycles, _touched, _scanned, _peak) =
+        py.allow_threads(|| fnx_algorithms::cycle_basis_index_cycles(inner, r.as_deref()));
+    let node_objs: Vec<PyObject> = inner
+        .nodes_ordered()
         .iter()
-        .map(|cycle| cycle.iter().map(|n| gr.py_node_key(py, n)).collect())
+        .map(|n| gr.py_node_key(py, n))
+        .collect();
+    Ok(idx_cycles
+        .iter()
+        .map(|cycle| cycle.iter().map(|&i| node_objs[i].clone_ref(py)).collect())
         .collect())
 }
 
