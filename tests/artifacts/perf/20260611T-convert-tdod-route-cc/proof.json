@@ -1,0 +1,34 @@
+{
+  "routed": true,
+  "parity": {
+    "default_weighted": {
+      "checks": 80,
+      "fails": 0
+    },
+    "nodelist": {
+      "fails": 0
+    },
+    "edge_data": {
+      "fails": 0
+    },
+    "digraph": {
+      "fails": 0
+    }
+  },
+  "speedup": {
+    "n1000": {
+      "routed_ms": 0.132,
+      "old_submodule_ms": 1.959,
+      "genuine_nx_ms": 0.152,
+      "vs_old": 14.9,
+      "vs_nx": 1.16
+    },
+    "n2000": {
+      "routed_ms": 0.276,
+      "old_submodule_ms": 4.39,
+      "genuine_nx_ms": 0.322,
+      "vs_old": 15.9,
+      "vs_nx": 1.17
+    }
+  }
+}
