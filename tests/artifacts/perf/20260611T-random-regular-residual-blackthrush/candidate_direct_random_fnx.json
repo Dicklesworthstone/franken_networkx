@@ -1,0 +1,1 @@
+{"digest": "cac80aef6f181434007d93ef151d69b54867433c4b54c30c76a3c24f3e55bf24", "engine": "fnx", "label": "random_regular_graph(8, 1500, seed=12345)", "mean_s": 0.017892373917857186, "median_s": 0.01538271241588518, "min_s": 0.011959864059463143, "p95_s": 0.05009582301136106, "samples": 40, "scenario": "random_regular_8_1500"}
