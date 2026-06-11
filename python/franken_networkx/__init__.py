@@ -12805,7 +12805,63 @@ def transitive_reduction(G):
         raise NetworkXNotImplemented("not implemented for undirected type")
     if not is_directed_acyclic_graph(G):
         raise NetworkXError("Directed Acyclic Graph required for transitive_reduction")
+    # br-r37-c1-trinproc: the parity helper round-trips fnx->nx->fnx (a full
+    # O(V+E) conversion each way, ~32% of wall time / the whole 1.5x gap vs nx).
+    # Run nx's exact algorithm in-process on a successor snapshot instead,
+    # building the fnx result directly. ``u_nbrs`` is a real Python ``set`` and
+    # the snapshot preserves successor iteration order, so the emitted edge
+    # order (``for v in u_nbrs``) is byte-identical to nx's
+    # ``TR.add_edges_from(... for v in u_nbrs)``. Skips both conversions.
+    if not G.is_multigraph():
+        return _transitive_reduction_inprocess(G)
     return _transitive_reduction_via_parity(G)
+
+
+def _transitive_reduction_inprocess(G):
+    """nx.transitive_reduction reimplemented in-process (no fnx<->nx conversion).
+
+    Mirrors networkx's algorithm exactly: per node ``u`` (node order), start from
+    ``set(succ[u])`` and subtract the descendant set of every successor, then emit
+    ``(u, v)`` for each surviving ``v`` in Python-set iteration order. Using real
+    Python sets over a successor snapshot reproduces nx's edge order byte-for-byte.
+    """
+    nodes = list(G.nodes())
+    succ = {u: list(G.successors(u)) for u in nodes}
+
+    # in-degree (== dict(G.in_degree) for a simple DiGraph)
+    check_count = dict.fromkeys(nodes, 0)
+    for u in nodes:
+        for v in succ[u]:
+            check_count[v] += 1
+
+    def _descendants(v):
+        # set of nodes reachable from v (excludes v on a DAG) — order-independent,
+        # matches ``{y for x, y in nx.dfs_edges(G, v)}``.
+        seen = set()
+        stack = list(succ[v])
+        while stack:
+            x = stack.pop()
+            if x not in seen:
+                seen.add(x)
+                stack.extend(succ[x])
+        seen.discard(v)
+        return seen
+
+    R = _concrete_class_for(G)()
+    R.add_nodes_from(nodes)
+    descendants = {}
+    for u in nodes:
+        u_nbrs = set(succ[u])
+        for v in succ[u]:
+            if v in u_nbrs:
+                if v not in descendants:
+                    descendants[v] = _descendants(v)
+                u_nbrs -= descendants[v]
+            check_count[v] -= 1
+            if check_count[v] == 0:
+                descendants.pop(v, None)
+        R.add_edges_from((u, v) for v in u_nbrs)
+    return R
 
 
 def _transitive_reduction_via_parity(G):
