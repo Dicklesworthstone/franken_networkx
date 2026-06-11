@@ -11285,22 +11285,71 @@ pub fn greedy_color_with_strategy(graph: &Graph, strategy: &str) -> GreedyColorR
 
     let ordered_nodes: Vec<&str> = match strategy {
         "largest_first" => {
-            // br-r37-c1-fki5h: nx uses ``sorted(G, key=G.degree,
-            // reverse=True)`` — Python's stable sort breaks ties by
-            // *insertion order*, not alphabetical. Mirror that here by
-            // (a) keying on (-degree, index) so the descending sort
-            // preserves the original ``nodes_ordered`` order on ties,
-            // and (b) using ``sort_by`` (stable) over ``sort_unstable_by``
-            // to be safe against any future tie that survives the key.
-            let nodes_with_idx: Vec<(usize, &str)> = nodes.iter().copied().enumerate().collect();
-            let mut by_degree = nodes_with_idx;
-            by_degree.sort_by(|(ia, a), (ib, b)| {
-                graph
-                    .degree(b)
-                    .cmp(&graph.degree(a))
-                    .then_with(|| ia.cmp(ib))
-            });
-            by_degree.into_iter().map(|(_, n)| n).collect()
+            // br-r37-c1-gclfcsr: integer-CSR rewrite of the default strategy.
+            // nx uses ``sorted(G, key=G.degree, reverse=True)`` (stable sort,
+            // insertion-order ties) then greedily assigns the smallest color
+            // absent from already-colored neighbors. The previous version
+            // produced the same order but then ran the shared coloring loop
+            // over a ``HashMap<&str, usize>`` color map + ``neighbors_iter``
+            // String walk — ~1.75x SLOWER than nx's C-level dict/set ops
+            // (raw kernel 3.92ms vs nx 2.24ms at n=2000). Run the whole thing
+            // in node-index space over ``neighbors_indices`` with a
+            // generation-stamped neighbor-color mark array — zero String
+            // hashing in the hot loop. ``deg`` mirrors ``Graph::degree``
+            // exactly (a self-loop, stored once in the index row, counts
+            // twice) so the degree sort order is byte-identical to nx.
+            let deg: Vec<usize> = (0..n)
+                .map(|i| {
+                    let nbrs = graph.neighbors_indices(i).unwrap_or(&[]);
+                    nbrs.len() + usize::from(nbrs.contains(&i))
+                })
+                .collect();
+            let mut order: Vec<usize> = (0..n).collect();
+            order.sort_by(|&a, &b| deg[b].cmp(&deg[a]).then_with(|| a.cmp(&b)));
+
+            let mut color_of = vec![usize::MAX; n];
+            // ``seen[c] == stamp`` iff color ``c`` is used by an already-colored
+            // neighbour of the node at position ``stamp`` — no per-node clear.
+            let mut seen = vec![usize::MAX; n];
+            for (stamp, &node) in order.iter().enumerate() {
+                let nbrs = graph.neighbors_indices(node).unwrap_or(&[]);
+                edges_scanned += nbrs.len();
+                for &v in nbrs {
+                    let c = color_of[v];
+                    if c != usize::MAX {
+                        seen[c] = stamp;
+                    }
+                }
+                // A node has < n neighbours, so a free color < n always exists.
+                let mut color = 0usize;
+                while seen[color] == stamp {
+                    color += 1;
+                }
+                color_of[node] = color;
+                if color > max_color {
+                    max_color = color;
+                }
+            }
+
+            let coloring: Vec<NodeColor> = order
+                .iter()
+                .map(|&i| NodeColor {
+                    node: nodes[i].to_owned(),
+                    color: color_of[i],
+                })
+                .collect();
+            let num_colors = if n == 0 { 0 } else { max_color + 1 };
+            return GreedyColorResult {
+                coloring,
+                num_colors,
+                witness: ComplexityWitness {
+                    algorithm: "greedy_color".to_owned(),
+                    complexity_claim: "O(|V| log |V| + |E|)".to_owned(),
+                    nodes_touched: n,
+                    edges_scanned,
+                    queue_peak: 0,
+                },
+            };
         }
         "smallest_last" => {
             // Iteratively remove the smallest-degree node, then reverse
