@@ -7851,6 +7851,7 @@ from franken_networkx._fnx import (
     hits,
     katz_centrality as _raw_katz_centrality,
     load_centrality as _raw_load_centrality,
+    load_centrality_weighted as _raw_load_centrality_weighted,
     pagerank as _raw_pagerank,
     voterank as _raw_voterank,
 )
@@ -24598,6 +24599,39 @@ def load_centrality(
     # cutoff=None case.
     if v is None and cutoff is None and weight is None and not G.is_multigraph():
         return _raw_load_centrality(G, normalized=normalized)
+
+    # br-r37-c1-loadw: weighted load centrality (a string `weight` key,
+    # whole-graph, no cutoff) ran a pure-Python per-source Newman loop
+    # (~1.8s n=400, 4.4x SLOWER than nx). Route to the native weighted Newman
+    # kernel (Dijkstra SSSP, parallel, byte-exact). nx orders its per-source
+    # `onodes` by `(length, vert)` using node VALUES, so pass the value rank
+    # (`sorted(G.nodes())` position) to reproduce that tie-break exactly.
+    # Mirror the dijkstra/astar weight contract; callable/non-string weight,
+    # multigraph, cutoff, negative/+inf/non-numeric weight, or nodes that are
+    # not mutually sortable all fall through to the parity path / nx.
+    if (
+        v is None
+        and cutoff is None
+        and isinstance(weight, str)
+        and not G.is_multigraph()
+    ):
+        _sync_rust_edge_attrs(G)
+        if not (
+            _has_negative_edge_weight_for_dijkstra(G, weight, _skip_sync=True)
+            or _has_positive_infinity_edge_weight_for_dijkstra(G, weight, _skip_sync=True)
+            or _has_nonnumeric_edge_weight(G, weight, _skip_sync=True)
+        ):
+            node_list = list(G.nodes())
+            try:
+                order = sorted(node_list)
+            except TypeError:
+                order = None
+            if order is not None:
+                rank = {node: i for i, node in enumerate(order)}
+                value_rank = [rank[node] for node in node_list]
+                return _raw_load_centrality_weighted(
+                    G, weight, value_rank, normalized
+                )
 
     if v is not None:
         betweenness = 0.0

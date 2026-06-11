@@ -4434,6 +4434,71 @@ pub fn load_centrality(
     centrality_to_dict(py, &gr, &result.scores)
 }
 
+/// Weighted Newman load centrality. br-r37-c1-loadw: native weighted load
+/// (Dijkstra SSSP, parallel, byte-exact) for the whole-graph case. `value_rank`
+/// is the position of each node in `sorted(G.nodes())` (computed by the Python
+/// wrapper from the real node objects) — aligned to the graph's node-iteration
+/// order — so the `onodes` `(length, vert)` tie-break matches nx's node-value
+/// ordering exactly.
+#[pyfunction]
+pub fn load_centrality_weighted(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    weight: &str,
+    value_rank: Vec<usize>,
+    normalized: bool,
+) -> PyResult<Py<PyDict>> {
+    let gr = extract_graph(g)?;
+    let result = match &gr {
+        GraphRef::Undirected(pg) => {
+            let inner = &pg.inner;
+            py.allow_threads(|| {
+                fnx_algorithms::load_centrality_weighted(
+                    inner,
+                    Some(weight),
+                    &value_rank,
+                    normalized,
+                )
+            })
+        }
+        GraphRef::Directed { dg, .. } => {
+            let inner = &dg.inner;
+            py.allow_threads(|| {
+                fnx_algorithms::load_centrality_weighted_directed(
+                    inner,
+                    Some(weight),
+                    &value_rank,
+                    normalized,
+                )
+            })
+        }
+        _ => {
+            if gr.is_directed() {
+                let inner = gr.digraph().expect("is_directed checked above");
+                py.allow_threads(|| {
+                    fnx_algorithms::load_centrality_weighted_directed(
+                        inner,
+                        Some(weight),
+                        &value_rank,
+                        normalized,
+                    )
+                })
+            } else {
+                let inner = gr.undirected();
+                py.allow_threads(|| {
+                    fnx_algorithms::load_centrality_weighted(
+                        inner,
+                        Some(weight),
+                        &value_rank,
+                        normalized,
+                    )
+                })
+            }
+        }
+    };
+    centrality_to_dict(py, &gr, &result.scores)
+}
+
 /// Return the closeness vitality of nodes.
 ///
 /// Closeness vitality of a node is the change in the Wiener index
@@ -18241,6 +18306,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
         m
     )?)?;
     m.add_function(wrap_pyfunction!(load_centrality, m)?)?;
+    m.add_function(wrap_pyfunction!(load_centrality_weighted, m)?)?;
     m.add_function(wrap_pyfunction!(closeness_vitality, m)?)?;
     m.add_function(wrap_pyfunction!(eigenvector_centrality, m)?)?;
     m.add_function(wrap_pyfunction!(pagerank, m)?)?;

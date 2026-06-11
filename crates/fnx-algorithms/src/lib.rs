@@ -5304,6 +5304,218 @@ fn load_centrality_generic<G: GraphView>(graph: &G, normalized: bool) -> LoadCen
     }
 }
 
+/// One weighted Newman-load single-source pass (Dijkstra SSSP). Returns this
+/// source's per-node load contribution, byte-for-byte mirroring networkx's
+/// `load._node_betweenness` weighted path: `dijkstra_predecessor_and_distance`
+/// then `onodes` sorted by `(length, vert)` and processed farthest-first,
+/// splitting each node's accumulated load EQUALLY among its predecessors.
+/// `value_rank[v]` is `v`'s position in `sorted(G.nodes())` so the `(length,
+/// vert)` tie-break matches nx's node-VALUE ordering exactly (not index/string
+/// order — those diverge at ULP level on graphs with distance ties).
+fn weighted_load_source(
+    adjacency: &[Vec<(usize, f64)>],
+    value_rank: &[usize],
+    n: usize,
+    s: usize,
+) -> Vec<f64> {
+    use std::collections::BinaryHeap;
+
+    let mut seen = vec![f64::INFINITY; n];
+    let mut finalized = vec![false; n];
+    let mut length = vec![f64::INFINITY; n];
+    let mut preds: Vec<Vec<usize>> = vec![Vec::new(); n];
+    let mut heap: BinaryHeap<WeightedBrandesHeapEntry> = BinaryHeap::new();
+    let mut counter: u64 = 0;
+    let mut reached: Vec<usize> = Vec::new();
+
+    seen[s] = 0.0;
+    heap.push(WeightedBrandesHeapEntry {
+        dist: 0.0,
+        counter,
+        pred: s,
+        v: s,
+    });
+    counter += 1;
+
+    while let Some(entry) = heap.pop() {
+        let v = entry.v;
+        if finalized[v] {
+            continue;
+        }
+        finalized[v] = true;
+        length[v] = entry.dist;
+        reached.push(v);
+        let dist_v = entry.dist;
+        for &(w, wt) in &adjacency[v] {
+            let vw_dist = dist_v + wt;
+            if !finalized[w] && vw_dist < seen[w] {
+                seen[w] = vw_dist;
+                heap.push(WeightedBrandesHeapEntry {
+                    dist: vw_dist,
+                    counter,
+                    pred: v,
+                    v: w,
+                });
+                counter += 1;
+                preds[w] = vec![v];
+            } else if vw_dist == seen[w] {
+                preds[w].push(v);
+            }
+        }
+    }
+
+    // onodes: reached nodes with length > 0, sorted ASCENDING by (length, vert);
+    // processed farthest-first (iterate reversed) — exactly nx's `onodes.sort();
+    // onodes.pop()`.
+    let mut onodes: Vec<usize> = reached.iter().copied().filter(|&v| length[v] > 0.0).collect();
+    onodes.sort_by(|&a, &b| {
+        length[a]
+            .partial_cmp(&length[b])
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| value_rank[a].cmp(&value_rank[b]))
+    });
+
+    let mut between = vec![0.0f64; n];
+    for &v in &reached {
+        between[v] = 1.0;
+    }
+    for &v in onodes.iter().rev() {
+        if preds[v].is_empty() {
+            continue;
+        }
+        let num_paths = preds[v].len() as f64;
+        let share = between[v] / num_paths;
+        for &x in &preds[v] {
+            if x == s {
+                break;
+            }
+            between[x] += share;
+        }
+    }
+    for &v in &reached {
+        between[v] -= 1.0;
+    }
+    between
+}
+
+/// Weighted Newman load centrality (Dijkstra SSSP), byte-exact with networkx's
+/// `load_centrality(weight=...)`. Per-source contributions reduced in strict
+/// source order `0..n` (parallelised over sources, rayon chunked, source-ordered
+/// reduction above n>=400) so the float summation order — and result — is
+/// bit-identical regardless of thread count.
+fn load_centrality_weighted_generic<G: GraphView>(
+    graph: &G,
+    weight_attr: Option<&str>,
+    value_rank: &[usize],
+    normalized: bool,
+) -> LoadCentralityResult {
+    let nodes = graph.nodes_ordered();
+    let n = nodes.len();
+    if n == 0 {
+        return LoadCentralityResult {
+            scores: Vec::new(),
+            witness: ComplexityWitness {
+                algorithm: "newman_load_centrality_weighted".to_owned(),
+                complexity_claim: "O(|V| * (|E| + |V| log |V|))".to_owned(),
+                nodes_touched: 0,
+                edges_scanned: 0,
+                queue_peak: 0,
+            },
+        };
+    }
+
+    let node_idx: HashMap<&str, usize> = nodes.iter().enumerate().map(|(i, n)| (*n, i)).collect();
+    let adjacency: Vec<Vec<(usize, f64)>> = (0..n)
+        .map(|v| {
+            let mut row = Vec::with_capacity(graph.neighbor_count(nodes[v]));
+            if let Some(neighbors) = graph.neighbors_iter(nodes[v]) {
+                for w_name in neighbors {
+                    let w = *node_idx.get(w_name).unwrap();
+                    row.push((w, graph.edge_weight(nodes[v], w_name, weight_attr)));
+                }
+            }
+            row
+        })
+        .collect();
+
+    let mut load = vec![0.0f64; n];
+
+    const WEIGHTED_LOAD_PARALLEL_THRESHOLD: usize = 400;
+    if n >= WEIGHTED_LOAD_PARALLEL_THRESHOLD {
+        use rayon::prelude::*;
+        let bytes_per_delta = n.max(1).saturating_mul(std::mem::size_of::<f64>());
+        let chunk = (64 * 1024 * 1024 / bytes_per_delta).clamp(1, n);
+        let mut start = 0usize;
+        while start < n {
+            let end = (start + chunk).min(n);
+            let chunk_results: Vec<Vec<f64>> = (start..end)
+                .into_par_iter()
+                .map(|s| weighted_load_source(&adjacency, value_rank, n, s))
+                .collect();
+            for delta in chunk_results {
+                for (acc, contribution) in load.iter_mut().zip(delta.iter()) {
+                    *acc += *contribution;
+                }
+            }
+            start = end;
+        }
+    } else {
+        for s in 0..n {
+            let delta = weighted_load_source(&adjacency, value_rank, n, s);
+            for (acc, contribution) in load.iter_mut().zip(delta.iter()) {
+                *acc += *contribution;
+            }
+        }
+    }
+
+    let scale = if normalized && n > 2 {
+        1.0 / ((n - 1) * (n - 2)) as f64
+    } else {
+        1.0
+    };
+    let ordered_scores = nodes
+        .iter()
+        .enumerate()
+        .map(|(i, node)| CentralityScore {
+            node: (*node).to_owned(),
+            score: load[i] * scale,
+        })
+        .collect();
+
+    LoadCentralityResult {
+        scores: ordered_scores,
+        witness: ComplexityWitness {
+            algorithm: "newman_load_centrality_weighted".to_owned(),
+            complexity_claim: "O(|V| * (|E| + |V| log |V|))".to_owned(),
+            nodes_touched: 0,
+            edges_scanned: 0,
+            queue_peak: 0,
+        },
+    }
+}
+
+/// Weighted Newman load centrality for an undirected `Graph`.
+#[must_use]
+pub fn load_centrality_weighted(
+    graph: &Graph,
+    weight_attr: Option<&str>,
+    value_rank: &[usize],
+    normalized: bool,
+) -> LoadCentralityResult {
+    load_centrality_weighted_generic(graph, weight_attr, value_rank, normalized)
+}
+
+/// Weighted Newman load centrality for a directed `DiGraph` (out-edges).
+#[must_use]
+pub fn load_centrality_weighted_directed(
+    graph: &DiGraph,
+    weight_attr: Option<&str>,
+    value_rank: &[usize],
+    normalized: bool,
+) -> LoadCentralityResult {
+    load_centrality_weighted_generic(graph, weight_attr, value_rank, normalized)
+}
+
 #[must_use]
 pub fn maximal_matching(graph: &Graph) -> MaximalMatchingResult {
     // Greedy maximal matching, O(|E|), replicating networkx's `G.edges()`-order
