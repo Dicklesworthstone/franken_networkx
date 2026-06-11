@@ -1,0 +1,43 @@
+{
+  "cases": {
+    "equal_node_intersection": {
+      "fnx": {
+        "best": 0.0002724049845710397,
+        "median": 0.0002724049845710397,
+        "samples": [
+          0.0002724049845710397
+        ]
+      },
+      "fnx_vs_nx_best_ratio": 1.7860508961011206,
+      "fnx_vs_nx_median_ratio": 1.7860508961011206,
+      "nx": {
+        "best": 0.00015251804143190384,
+        "median": 0.00015251804143190384,
+        "samples": [
+          0.00015251804143190384
+        ]
+      }
+    },
+    "sparse_intersection": {
+      "fnx": {
+        "best": 0.013030827045440674,
+        "median": 0.013030827045440674,
+        "samples": [
+          0.013030827045440674
+        ]
+      },
+      "fnx_vs_nx_best_ratio": 0.9554178898359357,
+      "fnx_vs_nx_median_ratio": 0.9554178898359357,
+      "nx": {
+        "best": 0.013638876960612833,
+        "median": 0.013638876960612833,
+        "samples": [
+          0.013638876960612833
+        ]
+      }
+    }
+  },
+  "label": "candidate_blackthrush_hf_direct",
+  "n": 1800,
+  "samples": 1
+}

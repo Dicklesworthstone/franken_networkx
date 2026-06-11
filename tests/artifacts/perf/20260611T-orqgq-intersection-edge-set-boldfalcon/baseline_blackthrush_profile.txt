@@ -1,0 +1,38 @@
+         1011002 function calls (1010802 primitive calls) in 0.920 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.011    0.011    0.920    0.920 harness_intersection_edge_set.py:165(run)
+  400/200    0.019    0.000    0.908    0.005 __init__.py:49802(wrapper)
+      200    0.000    0.000    0.908    0.005 __init__.py:12518(intersection)
+      200    0.441    0.002    0.889    0.004 __init__.py:21954(intersection_all)
+      400    0.187    0.000    0.285    0.001 {method 'update' of 'set' objects}
+      200    0.000    0.000    0.112    0.001 __init__.py:2694(add_edges_from)
+      200    0.112    0.001    0.112    0.001 {method '_try_add_edges_from_batch' of 'franken_networkx.Graph' objects}
+   989800    0.098    0.000    0.098    0.000 __init__.py:21974(<genexpr>)
+      200    0.000    0.000    0.043    0.000 __init__.py:2411(add_nodes_from)
+      200    0.043    0.000    0.043    0.000 {method '_fast_add_int_nodes' of 'franken_networkx.Graph' objects}
+      400    0.001    0.000    0.004    0.000 __init__.py:34531(edges)
+     1600    0.001    0.000    0.002    0.000 __init__.py:5754(predicate)
+      400    0.001    0.000    0.001    0.000 weakref.py:164(__setitem__)
+      400    0.000    0.000    0.001    0.000 __init__.py:33992(_has_networkx_private_storage)
+     2000    0.001    0.000    0.001    0.000 __init__.py:33984(_private_override)
+      400    0.000    0.000    0.001    0.000 __init__.py:34511(nodes)
+     3800    0.001    0.000    0.001    0.000 {built-in method builtins.isinstance}
+      400    0.000    0.000    0.000    0.000 __init__.py:12162(_coerce_arg_to_fnx_graph)
+     2800    0.000    0.000    0.000    0.000 {built-in method builtins.vars}
+      200    0.000    0.000    0.000    0.000 __init__.py:3350(__init__)
+      400    0.000    0.000    0.000    0.000 weakref.py:352(__init__)
+     2800    0.000    0.000    0.000    0.000 {method 'get' of 'dict' objects}
+      400    0.000    0.000    0.000    0.000 weakref.py:347(__new__)
+      800    0.000    0.000    0.000    0.000 {function _make_class_safe_predicate.<locals>.predicate at 0x7b434b73a840}
+      200    0.000    0.000    0.000    0.000 __init__.py:20278(_finalize_operator_result)
+      400    0.000    0.000    0.000    0.000 {built-in method __new__ of type object at 0xa15020}
+      800    0.000    0.000    0.000    0.000 {function _make_class_safe_predicate.<locals>.predicate at 0x7b434b73a8e0}
+      400    0.000    0.000    0.000    0.000 {built-in method builtins.id}
+      400    0.000    0.000    0.000    0.000 __init__.py:22180(_validate_backend_dispatch_keywords)
+      200    0.000    0.000    0.000    0.000 {built-in method builtins.getattr}
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+
+

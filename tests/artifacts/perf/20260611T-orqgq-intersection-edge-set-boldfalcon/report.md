@@ -65,3 +65,65 @@ membership against the second graph while replaying the first graph's
 NetworkX-equivalent set order, or build the output graph directly from a
 compact ordered edge witness. That route needs a fresh proof because CPython set
 iteration order is the contract.
+
+---
+
+# br-r37-c1-0pn4p compact ordered witness keep
+
+## Target
+
+Follow the rejected native PySet route with a Python-level Graph-only fast path
+for the profiled two-graph `intersection` case. The target is the doubled
+undirected edge-set construction inside `intersection_all`, not graph
+construction or NetworkX comparison overhead.
+
+## Lever Kept
+
+For exact simple `Graph` inputs, build the output directly from:
+
+- the node intersection,
+- the original left-edge set for membership,
+- a compact right-hand ordered edge witness containing right edges plus their
+  reversed aliases.
+
+This preserves the same display objects, edge tuple direction, and CPython
+set-order behavior observed from the old two-graph `intersection_all` path while
+avoiding the doubled left-side edge set.
+
+Directed graphs, multigraphs, subclasses, and `intersection_all` stay on the
+original implementation.
+
+## Proof
+
+`candidate_blackthrush_proof.json` compares FrankenNetworkX against NetworkX and
+against the current-main golden output:
+
+- `sparse_intersection`: `a8ad08618e39d836fcdff54f962a7b4bfb8fe7c4b5942247ea9a0dbb0aaea13a`
+- `equal_node_intersection`: `52b3d4e1dc170964728fa0281d3a0232004b5079aee74fc60684256a958bedde`
+
+An additional randomized probe checked 250 undirected `Graph` intersection cases
+against NetworkX with identical insertion sequences.
+
+No floating-point or RNG surface is involved.
+
+## Performance
+
+Baseline artifacts were captured on current `main` before the lever:
+
+- cProfile prebuilt sparse graph, 200 calls: `0.920s`
+- broad hyperfine mean: `0.36373667296000006s`
+
+Candidate artifacts:
+
+- cProfile prebuilt sparse graph, 200 calls: `0.663s`
+- broad hyperfine mean: `0.35360194965999997s`
+- focused A/B `n=1800`: median `3.154788ms -> 2.712851ms`, `1.16x`
+- focused A/B `n=5000`: median `14.435411ms -> 11.432219ms`, `1.26x`
+
+The broad whole-process benchmark remains noisy because it includes graph
+construction and NetworkX timing; the focused A/B isolates the profiled residual.
+
+## Verdict
+
+KEPT. Score `3.0`: moderate target impact, high confidence from golden parity
+and two focused sizes, low implementation complexity.

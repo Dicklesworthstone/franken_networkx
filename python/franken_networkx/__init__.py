@@ -12531,6 +12531,22 @@ def intersection(G, H):
     """
     G = _coerce_arg_to_fnx_graph(G)
     H = _coerce_arg_to_fnx_graph(H)
+    if type(G) is Graph and type(H) is Graph:
+        R = Graph()
+        node_intersection = set(G.nodes)
+        node_intersection &= set(H.nodes)
+        R.add_nodes_from(node_intersection)
+
+        g_edges = set(G.edges)
+        edge_witness = set(H.edges)
+        edge_witness.update((v, u) for u, v in list(edge_witness))
+        edge_intersection = {
+            edge
+            for edge in edge_witness
+            if edge in g_edges or (edge[1], edge[0]) in g_edges
+        }
+        R.add_edges_from(list(edge_intersection))
+        return _finalize_operator_result(R)
     return intersection_all([G, H])
 
 

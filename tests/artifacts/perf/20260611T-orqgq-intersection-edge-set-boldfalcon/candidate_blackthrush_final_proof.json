@@ -1,0 +1,20 @@
+{
+  "cases": {
+    "equal_node_intersection": {
+      "baseline_fnx_sha256": "52b3d4e1dc170964728fa0281d3a0232004b5079aee74fc60684256a958bedde",
+      "baseline_fnx_sha256_equal": true,
+      "fnx_matches_nx": true,
+      "fnx_sha256": "52b3d4e1dc170964728fa0281d3a0232004b5079aee74fc60684256a958bedde",
+      "nx_sha256": "52b3d4e1dc170964728fa0281d3a0232004b5079aee74fc60684256a958bedde"
+    },
+    "sparse_intersection": {
+      "baseline_fnx_sha256": "a8ad08618e39d836fcdff54f962a7b4bfb8fe7c4b5942247ea9a0dbb0aaea13a",
+      "baseline_fnx_sha256_equal": true,
+      "fnx_matches_nx": true,
+      "fnx_sha256": "a8ad08618e39d836fcdff54f962a7b4bfb8fe7c4b5942247ea9a0dbb0aaea13a",
+      "nx_sha256": "a8ad08618e39d836fcdff54f962a7b4bfb8fe7c4b5942247ea9a0dbb0aaea13a"
+    }
+  },
+  "label": "candidate_blackthrush_final",
+  "n": 1800
+}

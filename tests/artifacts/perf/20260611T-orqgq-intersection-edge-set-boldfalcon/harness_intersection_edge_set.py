@@ -174,9 +174,70 @@ def profile(label: str, n: int, reps: int) -> None:
         pstats.Stats(profiler, stream=fh).strip_dirs().sort_stats("cumtime").print_stats(80)
 
 
+def _old_two_graph_intersection(left, right):
+    R = fnx.Graph()
+
+    node_intersection = set(left.nodes)
+    edge_intersection = set(left.edges)
+    edge_intersection.update((v, u) for u, v in list(edge_intersection))
+
+    right_nodes = set(right.nodes)
+    right_edges = set(right.edges)
+    right_edges.update((v, u) for u, v in list(right_edges))
+
+    node_intersection &= right_nodes
+    edge_intersection &= right_edges
+
+    R.add_nodes_from(node_intersection)
+    R.add_edges_from(list(edge_intersection))
+    return fnx._finalize_operator_result(R)
+
+
+def ab(label: str, n: int, samples: int, reps: int) -> None:
+    left, right = _build_sparse_pair(fnx, n)
+    old_sig = _graph_signature(_old_two_graph_intersection(left, right))
+    new_sig = _graph_signature(fnx.intersection(left, right))
+    if old_sig != new_sig:
+        raise AssertionError("old and new signatures differ")
+
+    out = {
+        "label": label,
+        "n": n,
+        "reps_per_sample": reps,
+        "samples": samples,
+        "signature_sha256": _digest(new_sig),
+        "cases": {},
+    }
+    for case_name, func in (
+        ("old_intersection_all_two_graphs", lambda: _old_two_graph_intersection(left, right)),
+        ("new_intersection_graph_fast_path", lambda: fnx.intersection(left, right)),
+    ):
+        values = []
+        for _ in range(samples):
+            start = time.perf_counter()
+            for _ in range(reps):
+                func()
+            values.append(time.perf_counter() - start)
+        out["cases"][case_name] = {
+            "best_total": min(values),
+            "median_total": statistics.median(values),
+            "best_per_call": min(values) / reps,
+            "median_per_call": statistics.median(values) / reps,
+            "samples": values,
+        }
+
+    old_case = out["cases"]["old_intersection_all_two_graphs"]
+    new_case = out["cases"]["new_intersection_graph_fast_path"]
+    out["new_vs_old_best_ratio"] = new_case["best_per_call"] / old_case["best_per_call"]
+    out["new_vs_old_median_ratio"] = new_case["median_per_call"] / old_case["median_per_call"]
+    out["speedup_best"] = old_case["best_per_call"] / new_case["best_per_call"]
+    out["speedup_median"] = old_case["median_per_call"] / new_case["median_per_call"]
+    (ROOT / f"{label}_ab.json").write_text(json.dumps(out, indent=2, sort_keys=True) + "\n")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("command", choices=["proof", "bench", "profile"])
+    parser.add_argument("command", choices=["proof", "bench", "profile", "ab"])
     parser.add_argument("--label", required=True)
     parser.add_argument("--n", type=int, default=1800)
     parser.add_argument("--samples", type=int, default=9)
@@ -187,8 +248,10 @@ def main() -> None:
         proof(args.label, args.n, args.compare)
     elif args.command == "bench":
         bench(args.label, args.n, args.samples)
-    else:
+    elif args.command == "profile":
         profile(args.label, args.n, args.profile_reps)
+    else:
+        ab(args.label, args.n, args.samples, args.profile_reps)
 
 
 if __name__ == "__main__":
