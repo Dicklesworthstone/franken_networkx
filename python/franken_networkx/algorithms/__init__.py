@@ -88,6 +88,7 @@ _FNX_OVERRIDE_SUBMODULES = {
     "centrality",
     "distance_measures",
     "link_analysis",
+    "assortativity",
 }
 
 
@@ -231,6 +232,16 @@ _sys.modules[f"{__name__}.link_analysis"] = _fnx_link_analysis
 link_analysis = _fnx_link_analysis  # Override in module globals
 _alias_nx_child_modules(
     "networkx.algorithms.link_analysis", f"{__name__}.link_analysis"
+)
+
+# br-r37-c1-asrt: route nx.algorithms.assortativity through fnx-native top-level
+# (degree_pearson 5.8x, attribute/degree mixing matrices 4-7x — these did not
+# dispatch to the fnx backend, so the submodule ran nx pure-Python on fnx views).
+import franken_networkx.assortativity as _fnx_assortativity
+_sys.modules[f"{__name__}.assortativity"] = _fnx_assortativity
+assortativity = _fnx_assortativity  # Override in module globals
+_alias_nx_child_modules(
+    "networkx.algorithms.assortativity", f"{__name__}.assortativity"
 )
 
 import franken_networkx.summarization as _fnx_summarization
