@@ -27075,24 +27075,35 @@ pub fn enumerate_all_cliques_index(graph: &Graph) -> Vec<Vec<usize>> {
         }
     }
 
-    let mut result: Vec<Vec<usize>> = (0..n).map(|i| vec![i]).collect();
+    // br-r37-c1-j9pwo: nx-style incremental candidate-set BFS. Each queue entry
+    // carries (clique, cnbrs) where ``cnbrs`` is the ascending list of
+    // higher-index common neighbours that can still extend the clique. Extending
+    // the clique with ``cnbrs[i]`` produces the child candidate set
+    // ``cnbrs[i+1..] ∩ N(cnbrs[i])`` — O(|cnbrs|) per extension, versus the old
+    // O(|clique| · n) re-scan that tested every node in ``(last+1)..n`` against
+    // every clique member. The yield order is identical to the old level-order
+    // kernel (singles in node order, then each level in generation order), so the
+    // emitted clique sequence is byte-for-byte unchanged.
+    let mut result: Vec<Vec<usize>> = Vec::new();
+    let mut queue: VecDeque<(Vec<usize>, Vec<usize>)> = VecDeque::with_capacity(n);
+    for u in 0..n {
+        let mut cnbrs: Vec<usize> = adj[u].iter().copied().filter(|&v| v > u).collect();
+        cnbrs.sort_unstable();
+        queue.push_back((vec![u], cnbrs));
+    }
 
-    // BFS-like expansion: extend each clique with a higher-index common neighbour.
-    let mut current_level: Vec<Vec<usize>> = (0..n).map(|i| vec![i]).collect();
-    while !current_level.is_empty() {
-        let mut next_level = Vec::new();
-        for clique in &current_level {
-            let last = *clique.last().unwrap();
-            for candidate in (last + 1)..n {
-                if clique.iter().all(|&c| adj[c].contains(&candidate)) {
-                    let mut new_clique = clique.clone();
-                    new_clique.push(candidate);
-                    result.push(new_clique.clone());
-                    next_level.push(new_clique);
-                }
-            }
+    while let Some((base, cnbrs)) = queue.pop_front() {
+        for (i, &u) in cnbrs.iter().enumerate() {
+            let mut base_u = base.clone();
+            base_u.push(u);
+            let cnbrs_u: Vec<usize> = cnbrs[i + 1..]
+                .iter()
+                .copied()
+                .filter(|&v| adj[u].contains(&v))
+                .collect();
+            queue.push_back((base_u, cnbrs_u));
         }
-        current_level = next_level;
+        result.push(base);
     }
 
     result
