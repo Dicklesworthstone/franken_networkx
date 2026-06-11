@@ -108,6 +108,136 @@ def louvain_communities(
     )
 
 
+def asyn_lpa_communities(G, weight=None, seed=None):
+    """Communities via asynchronous label propagation.
+
+    br-r37-c1-h4bad: the ``from networkx.algorithms.community import *``
+    re-export ran nx's pure-Python LPA directly against the fnx Graph,
+    rebuilding an adjacency view (``G[node]``) for every node on every
+    round (~2.6x nx on a 400-node graph). nx's ``seed`` is already a real
+    CPython ``random.Random`` (via ``py_random_state``), so the algorithm
+    stays in Python and is byte-exact; the fix is two-fold:
+
+    1. Snapshot the fnx adjacency ONCE via a single native crossing
+       (``fnx_to_nx_adjacency``) instead of an ``O(rounds*V)`` view rebuild.
+    2. Run the whole label-propagation loop in INDEX space (node -> 0..n-1):
+       labels, the shuffle permutation, and the neighbour lists are all
+       plain ints, so the hot inner loop never touches a Python node object
+       or a dict-of-objects. This is byte-exact because Fisher-Yates
+       ``shuffle`` draws depend only on ``len`` (not element values), nx's
+       labels are themselves the same 0..n-1 ints, and the final
+       ``groups`` mapping is rebuilt in node order.
+
+    asyn_lpa supports directed graphs (unlike ``label_propagation_communities``);
+    only the concrete simple undirected ``Graph`` takes the native fast path.
+    Non-fnx graphs, directed / multigraph / subgraph-view fnx graphs fall
+    through to nx for safety (directed/multigraph adjacency & weight
+    semantics differ from the simple-graph fast path).
+    """
+    from networkx.utils import create_py_random_state, groups
+
+    if not isinstance(
+        G, (_fnx.Graph, _fnx.DiGraph, _fnx.MultiGraph, _fnx.MultiDiGraph)
+    ):
+        return _nx_community.asyn_lpa_communities(G, weight=weight, seed=seed)
+    # Only the concrete simple Graph gets the native fast path: the native
+    # key/adjacency helpers read the underlying Rust adjacency (bypassing
+    # subgraph-view filtering), and directed / multigraph semantics differ.
+    if type(G) is not _fnx.Graph:
+        return _nx_community.asyn_lpa_communities(
+            _fnx._networkx_graph_for_parity(G), weight=weight, seed=seed
+        )
+
+    node_list = list(G)
+    n = len(node_list)
+    idx = {u: i for i, u in enumerate(node_list)}
+
+    if weight is None:
+        # Unweighted (the default): key-only native rows — ``_native_adjacency_keys``
+        # is ~4x cheaper than the attr-bearing crossing (no per-edge attr dict
+        # materialised). Build the index adjacency keyed by node index so row
+        # order is irrelevant.
+        _nak = getattr(G, "_native_adjacency_keys", None)
+        adj = [None] * n
+        if _nak is not None:
+            for node, nbrs in _nak():
+                adj[idx[node]] = [idx[v] for v in nbrs]
+        else:  # defensive: native helper unavailable
+            for u in node_list:
+                adj[idx[u]] = [idx[v] for v in G._adj[u]]
+    else:
+        from franken_networkx.backend import (
+            _native_fnx_to_nx_adjacency as _bulk_adjacency,
+        )
+
+        if _bulk_adjacency is not None:
+            bulk = _bulk_adjacency(G)
+            canon_to_idx = {canon: i for i, (canon, _nbrs) in enumerate(bulk)}
+            adj = [
+                [(canon_to_idx[nbr], attrs.get(weight, 1)) for nbr, attrs in nbrs]
+                for _canon, nbrs in bulk
+            ]
+        else:  # defensive: native helper unavailable
+            adj = [
+                [(idx[v], dd.get(weight, 1)) for v, dd in G._adj[u].items()]
+                for u in node_list
+            ]
+
+    rng = create_py_random_state(seed)
+    unweighted = weight is None
+
+    def _gen():
+        labels = list(range(n))
+        order = list(range(n))
+        # Reusable mark-array keyed by label (labels live in 0..n-1): avoids
+        # nx's per-node Counter/defaultdict (hashing + an ABC instancecheck
+        # per node per round — ~half the runtime in cProfile). ``freq`` is
+        # zeroed only at the touched entries, so reuse is O(degree) not O(n).
+        # ``touched`` preserves first-seen label order, matching Counter /
+        # defaultdict insertion order exactly, so the best-label tie set and
+        # thus every ``seed.choice`` draw is byte-identical to nx.
+        freq = [0] * n
+        cont = True
+        while cont:
+            cont = False
+            perm = order[:]
+            rng.shuffle(perm)
+            for node in perm:
+                nbrs = adj[node]
+                if not nbrs:
+                    continue
+                touched = []
+                if unweighted:
+                    for v in nbrs:
+                        lab = labels[v]
+                        if freq[lab] == 0:
+                            touched.append(lab)
+                        freq[lab] += 1
+                else:
+                    for v, wt in nbrs:
+                        lab = labels[v]
+                        if freq[lab] == 0:
+                            touched.append(lab)
+                        freq[lab] += wt
+                max_freq = freq[touched[0]]
+                for lab in touched:
+                    if freq[lab] > max_freq:
+                        max_freq = freq[lab]
+                cur = labels[node]
+                best_labels = [lab for lab in touched if freq[lab] == max_freq]
+                for lab in touched:
+                    freq[lab] = 0
+                if cur not in best_labels:
+                    labels[node] = rng.choice(best_labels)
+                    cont = True
+        # Rebuild node-keyed labels in node order so groups() yields the
+        # exact communities (sets of node objects) nx would.
+        label_by_node = {node_list[i]: labels[i] for i in range(n)}
+        yield from groups(label_by_node).values()
+
+    return _gen()
+
+
 _UPSTREAM_PUBLIC = getattr(
     _nx_community,
     "__all__",
@@ -115,7 +245,7 @@ _UPSTREAM_PUBLIC = getattr(
 )
 __all__ = sorted(
     set(_UPSTREAM_PUBLIC)
-    | {"label_propagation_communities", "louvain_communities"}
+    | {"label_propagation_communities", "louvain_communities", "asyn_lpa_communities"}
 )
 
 
