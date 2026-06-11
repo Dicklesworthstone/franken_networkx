@@ -160,3 +160,93 @@ Score formula: `(Impact * Confidence) / Effort`; implement only Score >= 2.0.
 Recommended next pass: one lever only, starting with a residual adjacency/edge-state
 working set that keeps deterministic final edge order and reuses this proof
 harness before/after.
+
+## Candidate: Indexed Residual Working Set
+
+Lever: replace the cloned mutable residual `Graph` with a compact indexed
+working set: residual edge table, incident edge lists, active-edge bits,
+active-node bits, indexed clustering arrays, sampled-center bits, and reusable
+lightest-edge scratch.
+
+The public `franken_networkx.spanner` route is unchanged in this pass. The
+candidate improves only the private raw Rust binding exercised by
+`franken_networkx._raw_spanner` / `franken_networkx._fnx.spanner`.
+
+### Candidate Direct Benchmark
+
+Prebuilt graph objects; fixture construction excluded; 7 runs per path.
+
+| Case | Baseline raw median | Candidate raw median | Raw speedup | Candidate raw vs NetworkX | Candidate raw vs public fnx |
+|---|---:|---:|---:|---:|---:|
+| `unweighted_n400_p004_s3` | 19.60 ms | 12.36 ms | 1.59x | 1.13x | 0.71x |
+| `unweighted_n800_p002_s3` | 52.37 ms | 24.49 ms | 2.14x | 2.22x | 1.39x |
+| `unweighted_n1500_p001_s3` | 100.77 ms | 54.32 ms | 1.86x | 1.63x | 1.00x |
+| `weighted_n600_p0025_s4` | 41.84 ms | 24.28 ms | 1.72x | 1.81x | 1.37x |
+
+The main `unweighted_n800_p002_s3` fixture moved from slower than NetworkX and
+public fnx to faster than both in the prebuilt-object timing scope.
+
+### Candidate Hyperfine
+
+Process-level timing on `unweighted_n800_p002_s3`, 10 runs, 3 warmups:
+
+| Command | Baseline mean | Candidate mean | Delta |
+|---|---:|---:|---:|
+| `raw_native` | 563.3 ms | 486.5 ms | 1.16x faster |
+| `public_fnx` | 504.8 ms | 471.4 ms | reference path |
+| `networkx` | 511.6 ms | 511.9 ms | reference path |
+
+Candidate raw native is now about `1.05x` faster than NetworkX in this
+process-level envelope.
+
+### Candidate Profile
+
+`cProfile` over 30 raw-native calls on `unweighted_n800_p002_s3`:
+
+| Frame | Baseline cumulative | Candidate cumulative |
+|---|---:|---:|
+| `{built-in method franken_networkx._fnx.spanner}` | 1.512 s | 0.666 s |
+| Total target | 1.617 s | 0.781 s |
+
+### Candidate Proof
+
+Status: PASS, 10/10 cases.
+
+Proof SHA:
+
+```text
+3c708d6540a00290554611b8ea92290f580f598b2495020df77f16e5976cab98  candidate_proof.json
+```
+
+Proof contract is unchanged from baseline:
+
+- Exact spanner edge identity is not required for randomized Baswana-Sen.
+- Deterministic graph seeds and spanner seeds are recorded.
+- Raw output node set equals input node set.
+- Raw output is an undirected simple graph.
+- Every raw output edge exists in the input graph.
+- Weighted raw output preserves the requested edge weight attribute.
+- All-pairs distances satisfy `candidate_distance <= stretch * original_distance`.
+
+### Candidate Gates
+
+- `git diff --check`: PASS
+- `rch exec -- cargo check -p fnx-algorithms --all-targets`: PASS
+- `rch exec -- cargo test -p fnx-algorithms spanner --lib`: PASS, `2 passed`
+- `rch exec -- maturin develop --release --features pyo3/abi3-py310`: PASS
+- `pytest tests/python/test_approximation.py -q -k spanner`: PASS, `5 passed, 56 deselected`
+- `python .../harness_spanner_native.py proof --output candidate_proof.json`: PASS
+
+Known unrelated gate blockers retained for audit:
+
+- `rustfmt --edition 2024 --check crates/fnx-algorithms/src/lib.rs` reports
+  pre-existing formatting drift outside this spanner hunk.
+- Strict clippy is blocked before touched code by a pre-existing
+  `fnx-classes/src/digraph.rs` `needless_range_loop` finding.
+- UBS reported a pre-existing false-positive/non-secret comparison outside the
+  spanner hunk; its shadow build/check/test stages were otherwise clean for the
+  touched Rust file.
+
+Verdict: PRODUCTIVE / kept, Score `5.33`. The single lever removed residual
+graph cloning and mutation from native Baswana-Sen while preserving the
+structural spanner contract and golden proof artifact.

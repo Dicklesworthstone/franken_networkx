@@ -1,0 +1,192 @@
+{
+  "benchmark_notes": {
+    "paths": {
+      "networkx": "networkx.algorithms.sparsifiers.spanner",
+      "public_fnx": "franken_networkx.spanner, currently _spanner_inproc",
+      "raw": "franken_networkx._raw_spanner / franken_networkx._fnx.spanner"
+    },
+    "runs_per_path": 7,
+    "timing_scope": "prebuilt graph objects; fixture construction excluded"
+  },
+  "cases": [
+    {
+      "graph_seed": 7,
+      "input_edge_count": 3219,
+      "n": 400,
+      "name": "unweighted_n400_p004_s3",
+      "networkx": {
+        "best_ms": 13.426378020085394,
+        "last_digest": "7c7440f809c12264252f6ccd40c5924a4ea8e5892d756c70146edfaf635333e0",
+        "last_edge_count": 3163,
+        "mean_ms": 13.889044007685568,
+        "median_ms": 13.962373021058738,
+        "p95_ms": 14.26223001908511,
+        "runs": 7
+      },
+      "p": 0.04,
+      "public_fnx": {
+        "best_ms": 8.294182945974171,
+        "last_digest": "8cd62db770f02425ef360876d51cb916e093d2d2d13a86e278b8b6b4d274f98f",
+        "last_edge_count": 3163,
+        "mean_ms": 10.63397784517812,
+        "median_ms": 8.753872010856867,
+        "p95_ms": 22.37042097840458,
+        "runs": 7
+      },
+      "ratios": {
+        "public_fnx_vs_networkx_median": 1.5949939642414352,
+        "raw_vs_networkx_median": 1.1300614011743773,
+        "raw_vs_public_fnx_median": 0.7085051269844925
+      },
+      "raw": {
+        "best_ms": 10.45695599168539,
+        "last_digest": "3dad25e9494bd86fd45ecdc688f445f960153918144f9d6c57f1bbbc460415d8",
+        "last_edge_count": 3173,
+        "mean_ms": 12.838807439298503,
+        "median_ms": 12.3554109595716,
+        "p95_ms": 15.289014088921249,
+        "runs": 7
+      },
+      "spanner_seed": 42,
+      "stretch": 3,
+      "weight": null
+    },
+    {
+      "graph_seed": 7,
+      "input_edge_count": 6395,
+      "n": 800,
+      "name": "unweighted_n800_p002_s3",
+      "networkx": {
+        "best_ms": 49.37136801891029,
+        "last_digest": "a5597201cb5a4eae2c58fa15753b7bcbedf48e3df66aab0a2a04b85f02fc1811",
+        "last_edge_count": 6374,
+        "mean_ms": 62.0315655500495,
+        "median_ms": 54.37400902155787,
+        "p95_ms": 105.67040089517832,
+        "runs": 7
+      },
+      "p": 0.02,
+      "public_fnx": {
+        "best_ms": 28.690214967355132,
+        "last_digest": "a5597201cb5a4eae2c58fa15753b7bcbedf48e3df66aab0a2a04b85f02fc1811",
+        "last_edge_count": 6374,
+        "mean_ms": 42.81867701294167,
+        "median_ms": 34.08986807335168,
+        "p95_ms": 92.32939395587891,
+        "runs": 7
+      },
+      "ratios": {
+        "public_fnx_vs_networkx_median": 1.5950196376401486,
+        "raw_vs_networkx_median": 2.2203186240535815,
+        "raw_vs_public_fnx_median": 1.392032155377454
+      },
+      "raw": {
+        "best_ms": 19.105960964225233,
+        "last_digest": "34e9cc3d2a6611670fb117fcbfd618ab1040d7b8b1515d02e25f10ff8f8d309b",
+        "last_edge_count": 6351,
+        "mean_ms": 25.89597529731691,
+        "median_ms": 24.48928204830736,
+        "p95_ms": 31.7184180021286,
+        "runs": 7
+      },
+      "spanner_seed": 42,
+      "stretch": 3,
+      "weight": null
+    },
+    {
+      "graph_seed": 7,
+      "input_edge_count": 11342,
+      "n": 1500,
+      "name": "unweighted_n1500_p001_s3",
+      "networkx": {
+        "best_ms": 71.21859805192798,
+        "last_digest": "a5bffa68792a8f24777403cc7e408133d2554202927bd83cd1c22ee805372127",
+        "last_edge_count": 11329,
+        "mean_ms": 96.22731701737004,
+        "median_ms": 88.62606296315789,
+        "p95_ms": 146.65817806962878,
+        "runs": 7
+      },
+      "p": 0.01,
+      "public_fnx": {
+        "best_ms": 45.32516794279218,
+        "last_digest": "a5bffa68792a8f24777403cc7e408133d2554202927bd83cd1c22ee805372127",
+        "last_edge_count": 11329,
+        "mean_ms": 55.24263743843351,
+        "median_ms": 54.37609308864921,
+        "p95_ms": 71.46063703112304,
+        "runs": 7
+      },
+      "ratios": {
+        "public_fnx_vs_networkx_median": 1.629871841264341,
+        "raw_vs_networkx_median": 1.6315691497528502,
+        "raw_vs_public_fnx_median": 1.0010413754293668
+      },
+      "raw": {
+        "best_ms": 49.525890965014696,
+        "last_digest": "a3941824d1d253c26f26e3e6d40d25d049fa7d99c55c7dc0eb9de1a088ccf6da",
+        "last_edge_count": 11324,
+        "mean_ms": 55.90501615578042,
+        "median_ms": 54.31952606886625,
+        "p95_ms": 66.1198659799993,
+        "runs": 7
+      },
+      "spanner_seed": 42,
+      "stretch": 3,
+      "weight": null
+    },
+    {
+      "graph_seed": 11,
+      "input_edge_count": 4418,
+      "n": 600,
+      "name": "weighted_n600_p0025_s4",
+      "networkx": {
+        "best_ms": 38.24921208433807,
+        "last_digest": "68940422f6efeb136f3f286bb55741e7ca76c65141bc3214e955429192e4d38f",
+        "last_edge_count": 4406,
+        "mean_ms": 45.75522930826992,
+        "median_ms": 43.95061498507857,
+        "p95_ms": 63.11936606653035,
+        "runs": 7
+      },
+      "p": 0.025,
+      "public_fnx": {
+        "best_ms": 30.171749996952713,
+        "last_digest": "68940422f6efeb136f3f286bb55741e7ca76c65141bc3214e955429192e4d38f",
+        "last_edge_count": 4406,
+        "mean_ms": 36.61186645539211,
+        "median_ms": 33.220651908777654,
+        "p95_ms": 58.11492109205574,
+        "runs": 7
+      },
+      "ratios": {
+        "public_fnx_vs_networkx_median": 1.3229907440036064,
+        "raw_vs_networkx_median": 1.810489171146909,
+        "raw_vs_public_fnx_median": 1.3684821147486228
+      },
+      "raw": {
+        "best_ms": 20.900188013911247,
+        "last_digest": "3ca6aec5fff52c8da2700408467ff7c3375319d134620621f6c0c2950294387b",
+        "last_edge_count": 4411,
+        "mean_ms": 23.808420286513865,
+        "median_ms": 24.27554700989276,
+        "p95_ms": 25.768243009224534,
+        "runs": 7
+      },
+      "spanner_seed": 99,
+      "stretch": 4,
+      "weight": "weight"
+    }
+  ],
+  "metadata": {
+    "executable": "/data/projects/franken_networkx/.venv/bin/python",
+    "fnx_file": "/data/projects/.scratch/franken_networkx-vtmci-boldfalcon-20260611T1910/python/franken_networkx/__init__.py",
+    "git_sha": "000b382b5eefcf17f4f77a6d5ae672d6e5090a5a",
+    "networkx_version": "3.6.1",
+    "platform": "Linux-6.17.0-29-generic-x86_64-with-glibc2.42",
+    "python": "3.13.7 (main, Mar  3 2026, 12:19:54) [GCC 15.2.0]",
+    "raw_binding_is_extension_spanner": true,
+    "raw_extension_file": "/data/projects/.scratch/franken_networkx-vtmci-boldfalcon-20260611T1910/python/franken_networkx/_fnx.abi3.so",
+    "virtual_env": "/data/projects/franken_networkx/.venv"
+  }
+}

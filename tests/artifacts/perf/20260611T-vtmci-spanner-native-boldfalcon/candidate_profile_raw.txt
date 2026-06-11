@@ -13,7 +13,7 @@
   "metadata": {
     "executable": "/data/projects/franken_networkx/.venv/bin/python",
     "fnx_file": "/data/projects/.scratch/franken_networkx-vtmci-boldfalcon-20260611T1910/python/franken_networkx/__init__.py",
-    "git_sha": "208882e4d37fdf6238060c01a3aa669e8f15bf52",
+    "git_sha": "000b382b5eefcf17f4f77a6d5ae672d6e5090a5a",
     "networkx_version": "3.6.1",
     "platform": "Linux-6.17.0-29-generic-x86_64-with-glibc2.42",
     "python": "3.13.7 (main, Mar  3 2026, 12:19:54) [GCC 15.2.0]",
@@ -25,12 +25,12 @@
   "profile_scope": "prebuilt fnx.Graph; repeated calls to fnx._raw_spanner"
 }
 
-         62 function calls in 1.617 seconds
+         62 function calls in 0.781 seconds
 
    Ordered by: cumulative time
 
    ncalls  tottime  percall  cumtime  percall filename:lineno(function)
-        1    0.104    0.104    1.617    1.617 harness_spanner_native.py:359(target)
-       30    0.000    0.000    1.512    0.050 harness_spanner_native.py:282(run_one)
-       30    1.512    0.050    1.512    0.050 {built-in method franken_networkx._fnx.spanner}
+        1    0.115    0.115    0.781    0.781 harness_spanner_native.py:359(target)
+       30    0.000    0.000    0.666    0.022 harness_spanner_native.py:282(run_one)
+       30    0.666    0.022    0.666    0.022 {built-in method franken_networkx._fnx.spanner}
         1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}

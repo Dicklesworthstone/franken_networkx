@@ -21691,28 +21691,49 @@ impl fmt::Display for SpannerError {
 
 impl std::error::Error for SpannerError {}
 
-fn canonical_edge(left: &str, right: &str) -> (String, String) {
+#[derive(Debug, Clone, Copy)]
+struct SpannerResidualEdge {
+    left: usize,
+    right: usize,
+    weight: SpannerEdgeWeight,
+}
+
+impl SpannerResidualEdge {
+    #[inline]
+    fn other(self, node: usize) -> usize {
+        if self.left == node {
+            self.right
+        } else {
+            self.left
+        }
+    }
+}
+
+#[inline]
+fn spanner_index_pair(left: usize, right: usize) -> (usize, usize) {
     if left <= right {
-        (left.to_owned(), right.to_owned())
+        (left, right)
     } else {
-        (right.to_owned(), left.to_owned())
+        (right, left)
     }
 }
 
 fn spanner_weight_for_edge(
     graph: &Graph,
-    left: &str,
-    right: &str,
+    nodes: &[&str],
+    left_idx: usize,
+    right_idx: usize,
     weight_attr: Option<&str>,
-    node_rank: &HashMap<String, usize>,
 ) -> SpannerEdgeWeight {
-    let (canon_left, canon_right) = canonical_edge(left, right);
-    let left_rank = *node_rank.get(&canon_left).unwrap_or(&usize::MAX);
-    let right_rank = *node_rank.get(&canon_right).unwrap_or(&usize::MAX);
+    let (left_rank, right_rank) = if nodes[left_idx] <= nodes[right_idx] {
+        (left_idx, right_idx)
+    } else {
+        (right_idx, left_idx)
+    };
     let primary = weight_attr
         .and_then(|attr| {
             graph
-                .edge_attrs(left, right)
+                .edge_attrs_by_indices(left_idx, right_idx)
                 .and_then(|attrs| attrs.get(attr))
         })
         .and_then(|raw| raw.as_f64())
@@ -21735,37 +21756,81 @@ fn add_original_edge(
     target.add_edge_with_attrs(left.to_owned(), right.to_owned(), attrs)
 }
 
-fn lightest_edge_dicts(
-    residual_graph: &Graph,
-    residual_weights: &HashMap<(String, String), SpannerEdgeWeight>,
-    clustering: &HashMap<String, String>,
-    node: &str,
-) -> (HashMap<String, String>, HashMap<String, SpannerEdgeWeight>) {
-    let mut lightest_edge_neighbor = HashMap::new();
-    let mut lightest_edge_weight = HashMap::new();
+fn spanner_residual_edges(
+    graph: &Graph,
+    nodes: &[&str],
+    weight_attr: Option<&str>,
+) -> (Vec<SpannerResidualEdge>, Vec<Vec<usize>>) {
+    let mut edge_by_pair = HashMap::with_capacity(graph.edge_count());
+    let mut edges = Vec::with_capacity(graph.edge_count());
 
-    if let Some(neighbors) = residual_graph.neighbors_iter(node) {
-        for neighbor in neighbors {
-            let Some(center) = clustering.get(neighbor) else {
-                continue;
-            };
-            let weight = residual_weights
-                .get(&canonical_edge(node, neighbor))
-                .copied()
-                .unwrap_or(SpannerEdgeWeight {
-                    primary: 1.0,
-                    secondary: usize::MAX,
-                    tertiary: usize::MAX,
+    for left in 0..nodes.len() {
+        if let Some(neighbors) = graph.neighbors_indices(left) {
+            for &right in neighbors {
+                let pair = spanner_index_pair(left, right);
+                if edge_by_pair.contains_key(&pair) {
+                    continue;
+                }
+                if graph.edge_attrs_by_indices(left, right).is_none() {
+                    continue;
+                }
+                let edge_id = edges.len();
+                edge_by_pair.insert(pair, edge_id);
+                edges.push(SpannerResidualEdge {
+                    left,
+                    right,
+                    weight: spanner_weight_for_edge(graph, nodes, left, right, weight_attr),
                 });
-            let entry = lightest_edge_weight.get(center);
-            if entry.is_none_or(|current| weight < *current) {
-                lightest_edge_weight.insert(center.clone(), weight);
-                lightest_edge_neighbor.insert(center.clone(), neighbor.to_owned());
             }
         }
     }
 
-    (lightest_edge_neighbor, lightest_edge_weight)
+    let mut incident_edges = vec![Vec::new(); nodes.len()];
+    for left in 0..nodes.len() {
+        if let Some(neighbors) = graph.neighbors_indices(left) {
+            for &right in neighbors {
+                if let Some(&edge_id) = edge_by_pair.get(&spanner_index_pair(left, right)) {
+                    incident_edges[left].push(edge_id);
+                }
+            }
+        }
+    }
+
+    (edges, incident_edges)
+}
+
+fn collect_spanner_lightest_edges(
+    node: usize,
+    residual_edges: &[SpannerResidualEdge],
+    incident_edges: &[Vec<usize>],
+    active_edges: &[bool],
+    clustering: &[Option<usize>],
+    lightest_edge_by_center: &mut [Option<usize>],
+    lightest_weight_by_center: &mut [Option<SpannerEdgeWeight>],
+    touched_centers: &mut Vec<usize>,
+) {
+    for center in touched_centers.drain(..) {
+        lightest_edge_by_center[center] = None;
+        lightest_weight_by_center[center] = None;
+    }
+
+    for &edge_id in &incident_edges[node] {
+        if !active_edges[edge_id] {
+            continue;
+        }
+        let edge = residual_edges[edge_id];
+        let neighbor = edge.other(node);
+        let Some(center) = clustering[neighbor] else {
+            continue;
+        };
+        if lightest_weight_by_center[center].is_none_or(|current| edge.weight < current) {
+            if lightest_edge_by_center[center].is_none() {
+                touched_centers.push(center);
+            }
+            lightest_edge_by_center[center] = Some(edge_id);
+            lightest_weight_by_center[center] = Some(edge.weight);
+        }
+    }
 }
 
 /// Return a spanner of an undirected simple graph.
@@ -21782,8 +21847,9 @@ pub fn spanner(
         return Err(SpannerError::InvalidStretch);
     }
 
+    let nodes = graph.nodes_ordered();
     let mut result = Graph::with_runtime_policy(graph.runtime_policy().clone());
-    for node in graph.nodes_ordered() {
+    for &node in &nodes {
         result.add_node(node);
     }
 
@@ -21799,113 +21865,115 @@ pub fn spanner(
         return Ok(result);
     }
 
-    let node_rank: HashMap<String, usize> = graph
-        .nodes_ordered()
-        .into_iter()
-        .enumerate()
-        .map(|(index, node)| (node.to_owned(), index))
-        .collect();
-    let mut residual_graph = graph.clone();
-    let mut residual_weights: HashMap<(String, String), SpannerEdgeWeight> = graph
-        .edges_ordered()
-        .into_iter()
-        .map(|edge| {
-            let weight =
-                spanner_weight_for_edge(graph, &edge.left, &edge.right, weight_attr, &node_rank);
-            (canonical_edge(&edge.left, &edge.right), weight)
-        })
-        .collect();
-    let mut clustering: HashMap<String, String> = graph
-        .nodes_ordered()
-        .into_iter()
-        .map(|node| (node.to_owned(), node.to_owned()))
-        .collect();
-    let node_count = graph.node_count().max(1);
+    let (residual_edges, incident_edges) = spanner_residual_edges(graph, &nodes, weight_attr);
+    let mut active_edges = vec![true; residual_edges.len()];
+    let mut residual_node_active = vec![true; nodes.len()];
+    let mut clustering: Vec<Option<usize>> = (0..nodes.len()).map(Some).collect();
+    let node_count = nodes.len().max(1);
     let sample_prob = (node_count as f64).powf(-1.0 / (k as f64));
     let size_limit = 2.0 * (node_count as f64).powf(1.0 + 1.0 / (k as f64));
     let mut rng_state = seed.unwrap_or_else(|| deterministic_graph_seed(graph));
     let mut iteration = 0_usize;
+    let mut sampled_centers = vec![false; nodes.len()];
+    let mut lightest_edge_by_center = vec![None; nodes.len()];
+    let mut lightest_weight_by_center = vec![None; nodes.len()];
+    let mut touched_centers = Vec::new();
 
     while iteration < k.saturating_sub(1) {
-        let mut centers: Vec<String> = clustering.values().cloned().collect();
-        centers.sort_by_key(|center| *node_rank.get(center).unwrap_or(&usize::MAX));
+        let mut centers: Vec<usize> = clustering.iter().filter_map(|&center| center).collect();
+        centers.sort_unstable();
         centers.dedup();
 
-        let sampled_centers: HashSet<String> = centers
-            .into_iter()
-            .filter(|_| next_random_unit(&mut rng_state) < sample_prob)
-            .collect();
+        sampled_centers.fill(false);
+        for center in centers {
+            if next_random_unit(&mut rng_state) < sample_prob {
+                sampled_centers[center] = true;
+            }
+        }
 
         let mut edges_to_add = BTreeSet::new();
         let mut edges_to_remove = BTreeSet::new();
-        let mut new_clustering = HashMap::new();
+        let mut new_clustering = vec![None; nodes.len()];
 
-        for node in residual_graph
-            .nodes_ordered()
-            .into_iter()
-            .map(str::to_owned)
-        {
-            if clustering
-                .get(&node)
-                .is_some_and(|center| sampled_centers.contains(center))
-            {
+        for node in 0..nodes.len() {
+            if !residual_node_active[node] {
+                continue;
+            }
+            if clustering[node].is_some_and(|center| sampled_centers[center]) {
                 continue;
             }
 
-            let (lightest_edge_neighbor, lightest_edge_weight) =
-                lightest_edge_dicts(&residual_graph, &residual_weights, &clustering, &node);
-            let mut neighboring_sampled_centers: Vec<&String> = lightest_edge_weight
-                .keys()
-                .filter(|center| sampled_centers.contains(*center))
-                .collect();
-            neighboring_sampled_centers
-                .sort_by_key(|center| *node_rank.get(center.as_str()).unwrap_or(&usize::MAX));
+            collect_spanner_lightest_edges(
+                node,
+                &residual_edges,
+                &incident_edges,
+                &active_edges,
+                &clustering,
+                &mut lightest_edge_by_center,
+                &mut lightest_weight_by_center,
+                &mut touched_centers,
+            );
 
-            if neighboring_sampled_centers.is_empty() {
-                edges_to_add.extend(
-                    lightest_edge_neighbor
-                        .values()
-                        .map(|neighbor| canonical_edge(&node, neighbor)),
-                );
-                if let Some(neighbors) = residual_graph.neighbors_iter(&node) {
-                    edges_to_remove
-                        .extend(neighbors.map(|neighbor| canonical_edge(&node, neighbor)));
+            let mut closest_center_and_weight = None;
+            for &center in &touched_centers {
+                if !sampled_centers[center] {
+                    continue;
                 }
-                continue;
-            }
-
-            let closest_center = neighboring_sampled_centers
-                .into_iter()
-                .min_by(|left, right| {
-                    lightest_edge_weight[*left]
-                        .cmp(&lightest_edge_weight[*right])
-                        .then_with(|| node_rank[left.as_str()].cmp(&node_rank[right.as_str()]))
-                })
-                .expect("neighboring sampled centers is non-empty");
-            let closest_weight = lightest_edge_weight[closest_center];
-            let closest_neighbor = lightest_edge_neighbor[closest_center].clone();
-            edges_to_add.insert(canonical_edge(&node, &closest_neighbor));
-            new_clustering.insert(node.clone(), closest_center.clone());
-
-            for (center, edge_weight) in &lightest_edge_weight {
-                if *edge_weight < closest_weight
-                    && let Some(neighbor) = lightest_edge_neighbor.get(center)
-                {
-                    edges_to_add.insert(canonical_edge(&node, neighbor));
+                let edge_weight =
+                    lightest_weight_by_center[center].expect("touched center has weight");
+                if closest_center_and_weight.is_none_or(
+                    |(current_center, current_weight): (usize, SpannerEdgeWeight)| {
+                        edge_weight
+                            .cmp(&current_weight)
+                            .then_with(|| center.cmp(&current_center))
+                            .is_lt()
+                    },
+                ) {
+                    closest_center_and_weight = Some((center, edge_weight));
                 }
             }
 
-            if let Some(neighbors) = residual_graph.neighbors_iter(&node) {
-                for neighbor in neighbors {
-                    let Some(cluster) = clustering.get(neighbor) else {
-                        continue;
-                    };
-                    let Some(neighbor_weight) = lightest_edge_weight.get(cluster) else {
-                        continue;
-                    };
-                    if cluster == closest_center || *neighbor_weight < closest_weight {
-                        edges_to_remove.insert(canonical_edge(&node, neighbor));
+            let Some((closest_center, closest_weight)) = closest_center_and_weight else {
+                for &center in &touched_centers {
+                    if let Some(edge_id) = lightest_edge_by_center[center] {
+                        edges_to_add.insert(edge_id);
                     }
+                }
+                for &edge_id in &incident_edges[node] {
+                    if active_edges[edge_id] {
+                        edges_to_remove.insert(edge_id);
+                    }
+                }
+                continue;
+            };
+
+            let closest_edge =
+                lightest_edge_by_center[closest_center].expect("closest center has edge");
+            edges_to_add.insert(closest_edge);
+            new_clustering[node] = Some(closest_center);
+
+            for &center in &touched_centers {
+                if let Some(edge_weight) = lightest_weight_by_center[center]
+                    && edge_weight < closest_weight
+                    && let Some(edge_id) = lightest_edge_by_center[center]
+                {
+                    edges_to_add.insert(edge_id);
+                }
+            }
+
+            for &edge_id in &incident_edges[node] {
+                if !active_edges[edge_id] {
+                    continue;
+                }
+                let neighbor = residual_edges[edge_id].other(node);
+                let Some(cluster) = clustering[neighbor] else {
+                    continue;
+                };
+                let Some(neighbor_weight) = lightest_weight_by_center[cluster] else {
+                    continue;
+                };
+                if cluster == closest_center || neighbor_weight < closest_weight {
+                    edges_to_remove.insert(edge_id);
                 }
             }
         }
@@ -21915,59 +21983,69 @@ pub fn spanner(
         }
 
         iteration += 1;
-        for (left, right) in &edges_to_add {
-            let _ = add_original_edge(graph, &mut result, left, right);
+        for &edge_id in &edges_to_add {
+            let edge = residual_edges[edge_id];
+            let _ = add_original_edge(graph, &mut result, nodes[edge.left], nodes[edge.right]);
         }
-        for (left, right) in &edges_to_remove {
-            residual_graph.remove_edge(left, right);
-            residual_weights.remove(&(left.clone(), right.clone()));
+        for &edge_id in &edges_to_remove {
+            active_edges[edge_id] = false;
         }
 
-        for (node, center) in &clustering {
-            if sampled_centers.contains(center) {
-                new_clustering.insert(node.clone(), center.clone());
+        for node in 0..nodes.len() {
+            if let Some(center) = clustering[node]
+                && sampled_centers[center]
+            {
+                new_clustering[node] = Some(center);
             }
         }
         clustering = new_clustering;
-        if clustering.is_empty() {
+        if clustering.iter().all(Option::is_none) {
             break;
         }
 
-        for edge in residual_graph.edges_ordered() {
-            let Some(left_center) = clustering.get(&edge.left) else {
+        for (edge_id, edge) in residual_edges.iter().enumerate() {
+            if !active_edges[edge_id] {
                 continue;
-            };
-            let Some(right_center) = clustering.get(&edge.right) else {
+            }
+            let (Some(left_center), Some(right_center)) =
+                (clustering[edge.left], clustering[edge.right])
+            else {
                 continue;
             };
             if left_center == right_center {
-                let key = canonical_edge(&edge.left, &edge.right);
-                residual_graph.remove_edge(&edge.left, &edge.right);
-                residual_weights.remove(&key);
+                active_edges[edge_id] = false;
             }
         }
 
-        let residual_nodes: Vec<String> = residual_graph
-            .nodes_ordered()
-            .into_iter()
-            .map(str::to_owned)
-            .collect();
-        for node in residual_nodes {
-            if !clustering.contains_key(&node) {
-                residual_graph.remove_node(&node);
+        for node in 0..nodes.len() {
+            if residual_node_active[node] && clustering[node].is_none() {
+                residual_node_active[node] = false;
+                for &edge_id in &incident_edges[node] {
+                    active_edges[edge_id] = false;
+                }
             }
         }
     }
 
-    for node in residual_graph
-        .nodes_ordered()
-        .into_iter()
-        .map(str::to_owned)
-    {
-        let (lightest_edge_neighbor, _) =
-            lightest_edge_dicts(&residual_graph, &residual_weights, &clustering, &node);
-        for neighbor in lightest_edge_neighbor.values() {
-            let _ = add_original_edge(graph, &mut result, &node, neighbor);
+    for node in 0..nodes.len() {
+        if !residual_node_active[node] {
+            continue;
+        }
+        collect_spanner_lightest_edges(
+            node,
+            &residual_edges,
+            &incident_edges,
+            &active_edges,
+            &clustering,
+            &mut lightest_edge_by_center,
+            &mut lightest_weight_by_center,
+            &mut touched_centers,
+        );
+        for &center in &touched_centers {
+            if let Some(edge_id) = lightest_edge_by_center[center] {
+                let edge = residual_edges[edge_id];
+                let _ = add_original_edge(graph, &mut result, nodes[edge.left], nodes[edge.right]);
+            }
         }
     }
 
