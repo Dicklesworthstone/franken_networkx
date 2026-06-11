@@ -1,31 +1,18 @@
-         1393 function calls in 0.001 seconds
+         16 function calls in 0.000 seconds
 
    Ordered by: cumulative time
 
    ncalls  tottime  percall  cumtime  percall filename:lineno(function)
-        1    0.000    0.000    0.001    0.001 residual_sweep.py:107(<lambda>)
-      451    0.001    0.000    0.001    0.000 __init__.py:13970(topological_sort)
-        1    0.000    0.000    0.000    0.000 {method '_native_adjacency_keys' of 'franken_networkx.DiGraph' objects}
-      449    0.000    0.000    0.000    0.000 {method 'append' of 'collections.deque' objects}
-      450    0.000    0.000    0.000    0.000 {method 'popleft' of 'collections.deque' objects}
-        2    0.000    0.000    0.000    0.000 __init__.py:14027(<genexpr>)
-        3    0.000    0.000    0.000    0.000 __init__.py:34478(__iter__)
-        2    0.000    0.000    0.000    0.000 __init__.py:5754(predicate)
+        1    0.000    0.000    0.000    0.000 residual_sweep.py:109(<lambda>)
+        1    0.000    0.000    0.000    0.000 __init__.py:49840(wrapper)
+        1    0.000    0.000    0.000    0.000 __init__.py:13963(descendants)
+        1    0.000    0.000    0.000    0.000 {built-in method franken_networkx._fnx.descendants}
         1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
-        5    0.000    0.000    0.000    0.000 __init__.py:33984(_private_override)
-        1    0.000    0.000    0.000    0.000 __init__.py:34888(<lambda>)
-        1    0.000    0.000    0.000    0.000 __init__.py:34063(_private_succ_mapping)
-        1    0.000    0.000    0.000    0.000 {built-in method builtins.len}
-        1    0.000    0.000    0.000    0.000 __init__.py:49802(wrapper)
-        1    0.000    0.000    0.000    0.000 <frozen importlib._bootstrap>:1390(_handle_fromlist)
-        1    0.000    0.000    0.000    0.000 __init__.py:34488(__len__)
-        6    0.000    0.000    0.000    0.000 {built-in method builtins.vars}
-        6    0.000    0.000    0.000    0.000 {method 'get' of 'dict' objects}
-        1    0.000    0.000    0.000    0.000 __init__.py:1302(_accessor)
-        3    0.000    0.000    0.000    0.000 {built-in method builtins.isinstance}
-        1    0.000    0.000    0.000    0.000 {function _make_class_safe_predicate.<locals>.predicate at 0x761fe567eb60}
-        1    0.000    0.000    0.000    0.000 __init__.py:22180(_validate_backend_dispatch_keywords)
-        1    0.000    0.000    0.000    0.000 {function _make_class_safe_predicate.<locals>.predicate at 0x761fe567ec00}
-        1    0.000    0.000    0.000    0.000 {method 'values' of 'dict' objects}
-        1    0.000    0.000    0.000    0.000 {built-in method builtins.getattr}
-        1    0.000    0.000    0.000    0.000 {built-in method builtins.hasattr}
+        1    0.000    0.000    0.000    0.000 __init__.py:34523(__contains__)
+        1    0.000    0.000    0.000    0.000 __init__.py:34009(_private_override)
+        1    0.000    0.000    0.000    0.000 __init__.py:12162(_coerce_arg_to_fnx_graph)
+        4    0.000    0.000    0.000    0.000 {built-in method builtins.isinstance}
+        1    0.000    0.000    0.000    0.000 {built-in method builtins.vars}
+        1    0.000    0.000    0.000    0.000 {method 'get' of 'dict' objects}
+        1    0.000    0.000    0.000    0.000 __init__.py:22205(_validate_backend_dispatch_keywords)
+        1    0.000    0.000    0.000    0.000 {built-in method builtins.hash}

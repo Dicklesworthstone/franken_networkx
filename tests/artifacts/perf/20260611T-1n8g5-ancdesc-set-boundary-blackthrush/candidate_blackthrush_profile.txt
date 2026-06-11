@@ -1,0 +1,22 @@
+         28002 function calls in 0.317 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.028    0.028    0.317    0.317 harness_ancdesc_set_boundary.py:166(run)
+     2000    0.001    0.000    0.289    0.000 __init__.py:49840(wrapper)
+     1000    0.001    0.000    0.148    0.000 __init__.py:13963(descendants)
+     1000    0.145    0.000    0.145    0.000 {built-in method franken_networkx._fnx.descendants}
+     1000    0.001    0.000    0.140    0.000 __init__.py:13939(ancestors)
+     1000    0.137    0.000    0.137    0.000 {built-in method franken_networkx._fnx.ancestors}
+     2000    0.001    0.000    0.002    0.000 __init__.py:34523(__contains__)
+     2000    0.001    0.000    0.002    0.000 __init__.py:12162(_coerce_arg_to_fnx_graph)
+     2000    0.001    0.000    0.001    0.000 __init__.py:34009(_private_override)
+     8000    0.001    0.000    0.001    0.000 {built-in method builtins.isinstance}
+     2000    0.000    0.000    0.000    0.000 {built-in method builtins.vars}
+     2000    0.000    0.000    0.000    0.000 {method 'get' of 'dict' objects}
+     2000    0.000    0.000    0.000    0.000 __init__.py:22205(_validate_backend_dispatch_keywords)
+     2000    0.000    0.000    0.000    0.000 {built-in method builtins.hash}
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+
+

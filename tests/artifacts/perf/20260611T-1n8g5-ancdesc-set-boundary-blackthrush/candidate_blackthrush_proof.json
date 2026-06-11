@@ -1,0 +1,49 @@
+{
+  "baseline_suite_sha256": "a425f9c0dd1fea0110eb348da73779fb603761346150720aa619e0db29a09dcb",
+  "baseline_suite_sha256_equal": true,
+  "cases": {
+    "ancestors_dag": {
+      "fnx_matches_nx": true,
+      "fnx_sha256": "32582215d42f9a3068c5f5f705fe48d91b52e608ac3d6f9d6fd7214eecfb8f0f",
+      "nx_sha256": "32582215d42f9a3068c5f5f705fe48d91b52e608ac3d6f9d6fd7214eecfb8f0f"
+    },
+    "ancestors_hash_equal": {
+      "fnx_matches_nx": true,
+      "fnx_sha256": "b7db9a7fb9ed9b313c75521f6fa871aafcfe614c2d9628cda219a48c8b3a8eeb",
+      "nx_sha256": "b7db9a7fb9ed9b313c75521f6fa871aafcfe614c2d9628cda219a48c8b3a8eeb"
+    },
+    "ancestors_multidigraph": {
+      "fnx_matches_nx": true,
+      "fnx_sha256": "d4aeead99eabe5f2bd79385a07e5d30c3efc1ab6fe190ae2fdfb74599e33409b",
+      "nx_sha256": "d4aeead99eabe5f2bd79385a07e5d30c3efc1ab6fe190ae2fdfb74599e33409b"
+    },
+    "ancestors_undirected": {
+      "fnx_matches_nx": true,
+      "fnx_sha256": "d674b1ebaaf1f5bba61f3127167a417955f29b1cb49d448144ef9226d9b5e88b",
+      "nx_sha256": "d674b1ebaaf1f5bba61f3127167a417955f29b1cb49d448144ef9226d9b5e88b"
+    },
+    "descendants_dag": {
+      "fnx_matches_nx": true,
+      "fnx_sha256": "1d76f30479ab83c0f3290a8bea0f13e1b52525e92f6eaa7ac1cab172a9718376",
+      "nx_sha256": "1d76f30479ab83c0f3290a8bea0f13e1b52525e92f6eaa7ac1cab172a9718376"
+    },
+    "descendants_hash_equal": {
+      "fnx_matches_nx": true,
+      "fnx_sha256": "f67ef5895dc108d49a88bbfcf2f66efd533747f416ed164524ece40105411640",
+      "nx_sha256": "f67ef5895dc108d49a88bbfcf2f66efd533747f416ed164524ece40105411640"
+    },
+    "descendants_multidigraph": {
+      "fnx_matches_nx": true,
+      "fnx_sha256": "c25c15393ab27a7f1322c08f0404180be4c60c26a125b5fb4543c6fbbc958f5c",
+      "nx_sha256": "c25c15393ab27a7f1322c08f0404180be4c60c26a125b5fb4543c6fbbc958f5c"
+    },
+    "descendants_undirected": {
+      "fnx_matches_nx": true,
+      "fnx_sha256": "65b37c78bf1bb910ec8f04f2aa6998733b04393edb1b2133319a0f2f1d40740e",
+      "nx_sha256": "65b37c78bf1bb910ec8f04f2aa6998733b04393edb1b2133319a0f2f1d40740e"
+    }
+  },
+  "label": "candidate_blackthrush",
+  "n": 450,
+  "suite_sha256": "a425f9c0dd1fea0110eb348da73779fb603761346150720aa619e0db29a09dcb"
+}

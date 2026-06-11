@@ -13957,7 +13957,7 @@ def ancestors(G, source):
     # directed (predecessor reachability) — see algorithms.rs::ancestors. The
     # previous undirected Python BFS over G[n] paid the per-neighbor PyO3 tax.
     # Returns a plain set (order-invariant) matching nx.
-    return set(_raw_ancestors(G, source))
+    return _raw_ancestors(G, source)
 
 
 def descendants(G, source):
@@ -13980,7 +13980,7 @@ def descendants(G, source):
     # BFS over the lazy AtlasView (per-neighbor PyO3 tax, ~5x slower than nx);
     # route it through the native kernel too. Returns a plain set (order-
     # invariant) matching nx.
-    return set(_raw_descendants(G, source))
+    return _raw_descendants(G, source)
 
 
 def topological_sort(G):

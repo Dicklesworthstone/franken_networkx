@@ -8911,7 +8911,7 @@ pub fn ancestors(
     py: Python<'_>,
     g: &Bound<'_, PyAny>,
     source: &Bound<'_, PyAny>,
-) -> PyResult<pyo3::Py<pyo3::types::PyFrozenSet>> {
+) -> PyResult<pyo3::Py<pyo3::types::PySet>> {
     let gr = extract_graph(g)?;
     let source_key = node_key_to_string(py, source)?;
     if !gr.has_node(&source_key) {
@@ -8946,7 +8946,7 @@ pub fn ancestors(
             .iter()
             .map(|n| gr.disp_or_node_key(py, &disp, n))
             .collect();
-        return pyo3::types::PyFrozenSet::new(py, &py_nodes).map(|s| s.unbind());
+        return pyo3::types::PySet::new(py, &py_nodes).map(|s| s.unbind());
     }
 
     {
@@ -8976,7 +8976,7 @@ pub fn ancestors(
             .iter()
             .map(|n| gr.disp_or_node_key(py, &disp, n))
             .collect();
-        pyo3::types::PyFrozenSet::new(py, &py_nodes).map(|s| s.unbind())
+        pyo3::types::PySet::new(py, &py_nodes).map(|s| s.unbind())
     }
 }
 
@@ -8986,7 +8986,7 @@ pub fn descendants(
     py: Python<'_>,
     g: &Bound<'_, PyAny>,
     source: &Bound<'_, PyAny>,
-) -> PyResult<pyo3::Py<pyo3::types::PyFrozenSet>> {
+) -> PyResult<pyo3::Py<pyo3::types::PySet>> {
     let gr = extract_graph(g)?;
     let source_key = node_key_to_string(py, source)?;
     if !gr.has_node(&source_key) {
@@ -9021,7 +9021,7 @@ pub fn descendants(
             .iter()
             .map(|n| gr.disp_or_node_key(py, &disp, n))
             .collect();
-        return pyo3::types::PyFrozenSet::new(py, &py_nodes).map(|s| s.unbind());
+        return pyo3::types::PySet::new(py, &py_nodes).map(|s| s.unbind());
     }
 
     {
@@ -9048,7 +9048,7 @@ pub fn descendants(
             .iter()
             .map(|n| gr.disp_or_node_key(py, &disp, n))
             .collect();
-        pyo3::types::PyFrozenSet::new(py, &py_nodes).map(|s| s.unbind())
+        pyo3::types::PySet::new(py, &py_nodes).map(|s| s.unbind())
     }
 }
 
