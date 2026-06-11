@@ -1,0 +1,22 @@
+{
+  "return_type": {
+    "module": "franken_networkx",
+    "is_fnx_graph": true
+  },
+  "parity": {
+    "checks": 80,
+    "fails": 0
+  },
+  "speedup": {
+    "n800": {
+      "routed_ms": 3.97,
+      "genuine_nx_ms": 9.97,
+      "speedup_vs_nx": 2.51
+    },
+    "n1600": {
+      "routed_ms": 8.68,
+      "genuine_nx_ms": 22.07,
+      "speedup_vs_nx": 2.54
+    }
+  }
+}

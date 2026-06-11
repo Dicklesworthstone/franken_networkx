@@ -30,6 +30,22 @@ import franken_networkx as _fnx
 from franken_networkx.readwrite import _from_nx_graph
 
 
+def disjoint_union(G, H, *, backend=None, **backend_kwargs):
+    """Return the disjoint union of graphs G and H.
+
+    br-r37-c1-muhsi: the ``from networkx... import *`` re-export left
+    ``disjoint_union`` as nx's pure-Python version. Run on fnx graphs it relabels
+    via ``convert_node_labels_to_integers`` and returns an **nx.Graph** (a drop-in
+    type bug — every other operator here returns an fnx graph) and is ~6x slower
+    than the native ``fnx.disjoint_union`` (23ms vs 3.8ms at n=1600; fnx-native is
+    2.6x faster than genuine nx). Route to the fnx top-level implementation, which
+    returns the correct fnx graph type and is byte-exact with nx (node relabeling
+    + edge/graph attrs).
+    """
+    _fnx._validate_backend_dispatch_keywords("disjoint_union", backend, backend_kwargs)
+    return _fnx.disjoint_union(G, H)
+
+
 def cartesian_product(G, H, *, backend=None, **backend_kwargs):
     """Return the Cartesian product of G and H.
 
