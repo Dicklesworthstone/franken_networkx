@@ -1,0 +1,1 @@
+{"digest": "ffb042f383bd2fdc22ecf321f9d0cb1209c0efa7a372b514ebfe2172300e00fe", "engine": "fnx", "label": "caveman_graph(50, 50)", "mean_s": 0.015260420678532682, "median_s": 0.014317465014755726, "min_s": 0.011947273975238204, "p95_s": 0.0213192900409922, "samples": 40, "scenario": "caveman_50_50"}

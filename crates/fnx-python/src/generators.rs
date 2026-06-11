@@ -360,6 +360,66 @@ pub fn kneser_graph_native(py: Python<'_>, n: usize, k: usize) -> PyResult<PyGra
     })
 }
 
+/// Build ``caveman_graph(l, k)`` natively for exact non-negative int arguments.
+///
+/// The Python wrapper owns NetworkX's argument quirks and routes only the plain
+/// int fast shape here. Node and edge insertion order matches nx's clique-major
+/// ``combinations(range(start, start + k), 2)`` stream, but avoids materializing
+/// Python edge tuples and re-decoding them through ``add_edges_from``.
+#[pyfunction]
+pub fn caveman_graph_native(py: Python<'_>, l: usize, k: usize) -> PyResult<PyGraph> {
+    let total_nodes = l
+        .checked_mul(k)
+        .ok_or_else(|| PyValueError::new_err(format!("node count overflow for l={l}, k={k}")))?;
+    let lazy_int_node_stop = i64::try_from(total_nodes)
+        .map_err(|_| PyValueError::new_err(format!("node count {total_nodes} exceeds i64")))?;
+    let edge_count = if k > 1 {
+        let clique_edges = k
+            .checked_mul(k - 1)
+            .map(|value| value / 2)
+            .ok_or_else(|| PyValueError::new_err(format!("edge count overflow for k={k}")))?;
+        l.checked_mul(clique_edges)
+            .ok_or_else(|| PyValueError::new_err(format!("edge count overflow for l={l}, k={k}")))?
+    } else {
+        0
+    };
+
+    let mut graph = fnx_classes::Graph::new(CompatibilityMode::Strict);
+    let node_labels: Vec<String> = (0..total_nodes).map(|node| node.to_string()).collect();
+    let _ = graph.extend_nodes_unrecorded(node_labels.iter().cloned());
+
+    if edge_count > 0 {
+        let mut edges = Vec::with_capacity(edge_count);
+        for start in (0..total_nodes).step_by(k) {
+            let end = start + k;
+            for left in start..end {
+                for right in (left + 1)..end {
+                    edges.push((node_labels[left].as_str(), node_labels[right].as_str()));
+                }
+            }
+        }
+        let inserted = graph.extend_edges_unrecorded(edges);
+        debug_assert_eq!(inserted, edge_count);
+    }
+
+    Ok(PyGraph {
+        inner: graph,
+        node_key_map: HashMap::new(),
+        lazy_int_node_stop,
+        node_py_attrs: HashMap::new(),
+        edge_py_attrs: HashMap::new(),
+        adj_py_keys: HashMap::new(),
+        dict_of_dicts_cache: None,
+        adj_row_py: HashMap::new(),
+        graph_attrs: PyDict::new(py).unbind(),
+        nodes_seq: 0,
+        edges_seq: 0,
+        edges_dirty: AtomicBool::new(false),
+        node_keys_cache: std::sync::Mutex::new(None),
+        node_iter_mirror: std::sync::Mutex::new(None),
+    })
+}
+
 /// Return the complete graph K_n with ``n`` nodes.
 #[pyfunction]
 pub fn complete_graph(py: Python<'_>, n: usize) -> PyResult<PyGraph> {
@@ -700,6 +760,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(grid_2d_graph_simple, m)?)?;
     m.add_function(wrap_pyfunction!(grid_graph_native, m)?)?;
     m.add_function(wrap_pyfunction!(kneser_graph_native, m)?)?; // br-r37-c1-z2eaa
+    m.add_function(wrap_pyfunction!(caveman_graph_native, m)?)?;
     m.add_function(wrap_pyfunction!(gnp_random_graph, m)?)?;
     m.add_function(wrap_pyfunction!(gnp_random_digraph, m)?)?;
     m.add_function(wrap_pyfunction!(watts_strogatz_graph, m)?)?;

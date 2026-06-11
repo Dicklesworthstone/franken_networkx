@@ -11996,6 +11996,7 @@ from franken_networkx._fnx import (
     complete_multipartite_graph as _rust_complete_multipartite_graph,
     grid_2d_graph as _rust_grid_2d_graph,
     grid_graph as _rust_grid_graph,
+    caveman_graph_native as _rust_caveman_graph,
     dorogovtsev_goltsev_mendes_graph as _rust_dorogovtsev_goltsev_mendes_graph,
     null_graph as _rust_null_graph,
     trivial_graph as _rust_trivial_graph,
@@ -21295,6 +21296,8 @@ def caveman_graph(l, k):
         total = l * k
         if total < 0:
             raise NetworkXError(f"Negative number of nodes not valid: {total}")
+        if type(l) is int and type(k) is int and l >= 0 and k >= 0:
+            return _rust_caveman_graph(l, k)
     G = Graph()
     # Always materialise every node, even when a clique has size 1 and
     # thus contributes no edges. Previously the k=1 case collapsed to an

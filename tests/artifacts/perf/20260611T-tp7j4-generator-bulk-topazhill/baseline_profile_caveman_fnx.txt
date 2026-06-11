@@ -1,0 +1,22 @@
+         612586 function calls in 0.585 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        5    0.000    0.000    0.585    0.117 harness_generators.py:69(build)
+        5    0.000    0.000    0.585    0.117 harness_generators.py:33(<lambda>)
+        5    0.000    0.000    0.585    0.117 __init__.py:50039(wrapper)
+        5    0.012    0.002    0.584    0.117 __init__.py:21153(caveman_graph)
+        5    0.156    0.031    0.570    0.114 __init__.py:2694(add_edges_from)
+        5    0.316    0.063    0.316    0.063 {method '_try_add_edges_from_batch' of 'franken_networkx.Graph' objects}
+   306255    0.059    0.000    0.059    0.000 __init__.py:21191(<genexpr>)
+   306250    0.038    0.000    0.038    0.000 {method 'append' of 'list' objects}
+        5    0.000    0.000    0.003    0.001 __init__.py:2411(add_nodes_from)
+        5    0.003    0.001    0.003    0.001 {method '_fast_add_int_nodes_range_stop' of 'franken_networkx.Graph' objects}
+        5    0.000    0.000    0.000    0.000 __init__.py:3350(__init__)
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+       25    0.000    0.000    0.000    0.000 {built-in method builtins.isinstance}
+        5    0.000    0.000    0.000    0.000 {built-in method builtins.getattr}
+        5    0.000    0.000    0.000    0.000 __init__.py:22321(_validate_backend_dispatch_keywords)
+
+
