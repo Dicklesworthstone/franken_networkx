@@ -3059,6 +3059,69 @@ pub fn graph_has_edge_attr(
     Ok(has_attr)
 }
 
+/// Return whether any simple graph node or edge has a Python-visible attr.
+///
+/// ``graph`` attributes are intentionally ignored: product and relabel fast
+/// paths copy ``G.graph`` separately and only need to know whether node/edge
+/// construction must preserve per-item dictionaries. Multigraphs return
+/// ``None`` so callers keep the Python fallback for keyed-edge semantics.
+#[pyfunction]
+pub fn graph_has_any_attrs(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Option<bool>> {
+    let gr = extract_graph(g)?;
+    let has_attrs = match &gr {
+        GraphRef::Undirected(pg) => {
+            let has_node_attrs =
+                pg.node_py_attrs
+                    .values()
+                    .try_fold(false, |found, dict| -> PyResult<bool> {
+                        if found {
+                            return Ok(true);
+                        }
+                        Ok(!dict.bind(py).is_empty())
+                    })?;
+            if has_node_attrs {
+                Some(true)
+            } else {
+                Some(pg.edge_py_attrs.values().try_fold(
+                    false,
+                    |found, dict| -> PyResult<bool> {
+                        if found {
+                            return Ok(true);
+                        }
+                        Ok(!dict.bind(py).is_empty())
+                    },
+                )?)
+            }
+        }
+        GraphRef::Directed { dg, .. } => {
+            let has_node_attrs =
+                dg.node_py_attrs
+                    .values()
+                    .try_fold(false, |found, dict| -> PyResult<bool> {
+                        if found {
+                            return Ok(true);
+                        }
+                        Ok(!dict.bind(py).is_empty())
+                    })?;
+            if has_node_attrs {
+                Some(true)
+            } else {
+                Some(dg.edge_py_attrs.values().try_fold(
+                    false,
+                    |found, dict| -> PyResult<bool> {
+                        if found {
+                            return Ok(true);
+                        }
+                        Ok(!dict.bind(py).is_empty())
+                    },
+                )?)
+            }
+        }
+        GraphRef::MultiUndirected { .. } | GraphRef::MultiDirected { .. } => None,
+    };
+    Ok(has_attrs)
+}
+
 /// Return whether any simple-graph edge has a present non-unit weight attr.
 ///
 /// This mirrors Python's ``attrs[weight] != 1`` check against the live
@@ -18151,6 +18214,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(adjacency_nodelist_typed_arrays, m)?)?;
     m.add_function(wrap_pyfunction!(fnx_to_nx_adjacency, m)?)?;
     m.add_function(wrap_pyfunction!(graph_has_edge_attr, m)?)?;
+    m.add_function(wrap_pyfunction!(graph_has_any_attrs, m)?)?;
     m.add_function(wrap_pyfunction!(bellman_ford_path, m)?)?;
     m.add_function(wrap_pyfunction!(multi_source_dijkstra, m)?)?;
     m.add_function(wrap_pyfunction!(bidirectional_dijkstra, m)?)?;

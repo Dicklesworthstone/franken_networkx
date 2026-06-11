@@ -18476,6 +18476,14 @@ def _cross_product_edge_key(g_is_multigraph, h_is_multigraph, g_key, h_key):
 
 def _graph_has_any_attrs(G):
     """True if any node or edge of *G* carries a non-empty attribute dict."""
+    if _native_graph_has_any_attrs is not None and not G.is_multigraph():
+        try:
+            native = _native_graph_has_any_attrs(G)
+        except Exception:
+            native = None
+        if native is not None:
+            return bool(native)
+
     if any(d for _n, d in G.nodes(data=True)):
         return True
     if G.is_multigraph():
@@ -19035,6 +19043,13 @@ try:
     )
 except ImportError:  # pragma: no cover — defensive for partial builds
     _native_has_edge_attr = None
+
+try:
+    from franken_networkx._fnx import (
+        graph_has_any_attrs as _native_graph_has_any_attrs,
+    )
+except ImportError:  # pragma: no cover — defensive for partial builds
+    _native_graph_has_any_attrs = None
 
 
 def _pagerank_needs_networkx_weight_parity(G, weight):
@@ -44746,6 +44761,21 @@ def relabel_nodes(G, mapping, copy=True):
             pass
 
     if copy:
+        if (
+            _native_graph_has_any_attrs is not None
+            and type(G) is Graph
+            and not _graph_has_any_attrs(G)
+        ):
+            # br-r37-c1-5ib9p: for exact simple Graphs with no per-node/edge
+            # attrs, preserve nx ordering/collision semantics while avoiding
+            # the per-node attr view and per-edge empty-dict materialization.
+            H = Graph()
+            H.graph.update(G.graph)
+            get = _map.get
+            H.add_nodes_from([get(n, n) for n in G])
+            H.add_edges_from([(get(u, u), get(v, v)) for u, v in G.edges()])
+            return H
+
         # br-r37-c1-k7dct: SubgraphView's class is _FilteredGraphView,
         # whose __init__ requires a ``graph`` arg — bare ``cls()`` fails.
         # Route through the canonical-class resolver.

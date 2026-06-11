@@ -1,0 +1,34 @@
+{
+  "cases": {
+    "small_attrs_collision_existing_behavior": {
+      "edge_count": 141,
+      "fnx_matches_nx": false,
+      "fnx_sha256": "9e83de01bf6e4e4673aaa6976d0ef2c4d78df92b80d3e492214a80c98e2da00f",
+      "node_count": 64,
+      "nx_sha256": "f1c2ca7e98a58ad3d4fca7f8361a4fec1872087c41bb061a78856bc80f42c1f7"
+    },
+    "small_attrs_no_collision": {
+      "edge_count": 157,
+      "fnx_matches_nx": true,
+      "fnx_sha256": "b95636f888a0fe34b7f0f3dca9b16efd3b6782ca1a0f85b5568b2098310e475b",
+      "node_count": 80,
+      "nx_sha256": "b95636f888a0fe34b7f0f3dca9b16efd3b6782ca1a0f85b5568b2098310e475b"
+    },
+    "small_empty": {
+      "edge_count": 141,
+      "fnx_matches_nx": true,
+      "fnx_sha256": "ff5d8b4e1bee5eff868ef887b559020f6bbc726d4ff2296861a3743f1f77a185",
+      "node_count": 64,
+      "nx_sha256": "ff5d8b4e1bee5eff868ef887b559020f6bbc726d4ff2296861a3743f1f77a185"
+    },
+    "target_empty": {
+      "edge_count": 3237,
+      "fnx_matches_nx": true,
+      "fnx_sha256": "fe7753d2efe9455d57f6f91f3845fc6b43d8a1b395b6e87a6aaa2d41170390b4",
+      "node_count": 1440,
+      "nx_sha256": "fe7753d2efe9455d57f6f91f3845fc6b43d8a1b395b6e87a6aaa2d41170390b4"
+    }
+  },
+  "label": "baseline",
+  "n": 1800
+}

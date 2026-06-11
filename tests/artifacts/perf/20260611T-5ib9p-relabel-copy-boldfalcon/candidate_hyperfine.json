@@ -1,0 +1,28 @@
+{
+  "results": [
+    {
+      "command": "python3 tests/artifacts/perf/20260611T-5ib9p-relabel-copy-boldfalcon/harness_relabel_copy.py --label candidate_hf --n 1800 --samples 1 bench",
+      "mean": 0.28743911072,
+      "stddev": 0.031316832645738646,
+      "median": 0.27544439492,
+      "user": 4.47226594,
+      "system": 0.05891514,
+      "min": 0.26480148092,
+      "max": 0.34249731792,
+      "times": [
+        0.34249731792,
+        0.27544439492,
+        0.26480148092,
+        0.27357745092,
+        0.28087490892
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

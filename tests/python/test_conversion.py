@@ -144,6 +144,30 @@ class TestRelabelNodes:
         assert H.has_node(1)
         assert H.has_node(2)
 
+    def test_copy_true_plain_graph_empty_attrs_order_matches_networkx(self, monkeypatch):
+        graph = fnx.Graph()
+        expected = nx.Graph()
+        graph.graph["name"] = "empty-attr-relabel"
+        expected.graph["name"] = "empty-attr-relabel"
+        graph.add_nodes_from(range(30))
+        expected.add_nodes_from(range(30))
+        edges = [((i * 37 + 11) % i, i) for i in range(1, 30)]
+        edges.extend(
+            (i, (i * 97 + 53) % 30) for i in range(30) if i != (i * 97 + 53) % 30
+        )
+        graph.add_edges_from(edges)
+        expected.add_edges_from(edges)
+        mapping = {i: i + 1 for i in range(0, 30, 5)}
+        expected_result = nx.relabel_nodes(expected, mapping, copy=True)
+
+        _block_networkx_conversion(monkeypatch, "relabel_nodes")
+
+        result = fnx.relabel_nodes(graph, mapping, copy=True)
+
+        assert result.graph == expected_result.graph
+        assert list(result.nodes(data=True)) == list(expected_result.nodes(data=True))
+        assert list(result.edges(data=True)) == list(expected_result.edges(data=True))
+
     def test_preserves_edge_attrs(self, triangle):
         H = fnx.relabel_nodes(triangle, {"a": 0, "b": 1, "c": 2})
         edge_data = H.edges[0, 1]

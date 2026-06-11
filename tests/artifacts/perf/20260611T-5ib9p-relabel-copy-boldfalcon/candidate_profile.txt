@@ -1,0 +1,43 @@
+         724482 function calls in 0.350 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.008    0.008    0.350    0.350 harness_relabel_copy.py:152(run)
+       80    0.000    0.000    0.341    0.004 __init__.py:49577(wrapper)
+       80    0.119    0.001    0.341    0.004 __init__.py:44723(relabel_nodes)
+       80    0.000    0.000    0.139    0.002 __init__.py:2693(add_edges_from)
+       80    0.139    0.002    0.139    0.002 {method '_try_add_edges_from_batch' of 'franken_networkx.Graph' objects}
+   720160    0.054    0.000    0.054    0.000 {method 'get' of 'dict' objects}
+       80    0.000    0.000    0.026    0.000 __init__.py:2411(add_nodes_from)
+       80    0.026    0.000    0.026    0.000 {method '_fast_add_int_nodes' of 'franken_networkx.Graph' objects}
+       80    0.000    0.000    0.001    0.000 __init__.py:34306(edges)
+       80    0.000    0.000    0.000    0.000 weakref.py:164(__setitem__)
+       80    0.000    0.000    0.000    0.000 __init__.py:697(wrapped)
+       80    0.000    0.000    0.000    0.000 __init__.py:18477(_graph_has_any_attrs)
+       80    0.000    0.000    0.000    0.000 __init__.py:34253(__iter__)
+      160    0.000    0.000    0.000    0.000 __init__.py:5558(__get__)
+       80    0.000    0.000    0.000    0.000 __init__.py:33767(_has_networkx_private_storage)
+      400    0.000    0.000    0.000    0.000 __init__.py:33759(_private_override)
+       80    0.000    0.000    0.000    0.000 __init__.py:5753(predicate)
+       80    0.000    0.000    0.000    0.000 __init__.py:3349(__init__)
+      640    0.000    0.000    0.000    0.000 {built-in method builtins.vars}
+       80    0.000    0.000    0.000    0.000 weakref.py:352(__init__)
+       80    0.000    0.000    0.000    0.000 weakref.py:347(__new__)
+      240    0.000    0.000    0.000    0.000 {built-in method builtins.isinstance}
+       80    0.000    0.000    0.000    0.000 {built-in method builtins.all}
+      240    0.000    0.000    0.000    0.000 {built-in method builtins.getattr}
+       80    0.000    0.000    0.000    0.000 {built-in method franken_networkx._fnx.graph_has_any_attrs}
+      320    0.000    0.000    0.000    0.000 {built-in method builtins.len}
+       80    0.000    0.000    0.000    0.000 {built-in method __new__ of type object at 0xa15020}
+       80    0.000    0.000    0.000    0.000 {function _make_class_safe_predicate.<locals>.predicate at 0x776ea58b2700}
+       80    0.000    0.000    0.000    0.000 {method 'update' of 'dict' objects}
+       80    0.000    0.000    0.000    0.000 {method 'items' of 'dict' objects}
+      240    0.000    0.000    0.000    0.000 {method 'pop' of 'dict' objects}
+       80    0.000    0.000    0.000    0.000 __init__.py:44755(<genexpr>)
+       80    0.000    0.000    0.000    0.000 {built-in method builtins.id}
+       80    0.000    0.000    0.000    0.000 __init__.py:22119(_validate_backend_dispatch_keywords)
+       80    0.000    0.000    0.000    0.000 {built-in method builtins.callable}
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+
+

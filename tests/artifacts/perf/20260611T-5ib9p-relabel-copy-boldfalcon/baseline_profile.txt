@@ -1,0 +1,56 @@
+         2886882 function calls in 1.281 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.044    0.044    1.281    1.281 harness_relabel_copy.py:144(run)
+       80    0.000    0.000    1.237    0.015 __init__.py:49547(wrapper)
+       80    0.300    0.004    1.236    0.015 __init__.py:44708(relabel_nodes)
+   144000    0.052    0.000    0.206    0.000 __init__.py:2377(add_node)
+       80    0.000    0.000    0.186    0.002 __init__.py:2693(add_edges_from)
+       80    0.186    0.002    0.186    0.002 {method '_try_add_edges_from_batch' of 'franken_networkx.Graph' objects}
+   144080    0.066    0.000    0.164    0.000 __init__.py:34271(nodes)
+   144000    0.143    0.000    0.143    0.000 {function Graph.add_node at 0x79c127e9e660}
+       80    0.000    0.000    0.122    0.002 __init__.py:617(__iter__)
+       80    0.121    0.002    0.121    0.002 __init__.py:512(_materialize)
+  1008560    0.108    0.000    0.108    0.000 {method 'get' of 'dict' objects}
+   144000    0.080    0.000    0.091    0.000 __init__.py:5056(__getitem__)
+   287840    0.058    0.000    0.082    0.000 __init__.py:430(__next__)
+   144720    0.040    0.000    0.068    0.000 __init__.py:33744(_private_override)
+   289040    0.031    0.000    0.031    0.000 {built-in method builtins.vars}
+   287840    0.024    0.000    0.024    0.000 {built-in method builtins.next}
+   288000    0.023    0.000    0.023    0.000 {built-in method builtins.hash}
+       80    0.000    0.000    0.001    0.000 __init__.py:34291(edges)
+       80    0.000    0.000    0.001    0.000 __init__.py:697(wrapped)
+       80    0.000    0.000    0.001    0.000 weakref.py:164(__setitem__)
+       80    0.000    0.000    0.001    0.000 __init__.py:406(__init__)
+      160    0.000    0.000    0.001    0.000 __init__.py:33752(_has_networkx_private_storage)
+      240    0.000    0.000    0.000    0.000 __init__.py:5753(predicate)
+       80    0.000    0.000    0.000    0.000 __init__.py:12132(_concrete_class_for)
+      160    0.000    0.000    0.000    0.000 __init__.py:5558(__get__)
+       80    0.000    0.000    0.000    0.000 __init__.py:3349(__init__)
+       80    0.000    0.000    0.000    0.000 __init__.py:473(__init__)
+       80    0.000    0.000    0.000    0.000 weakref.py:352(__init__)
+       80    0.000    0.000    0.000    0.000 __init__.py:943(wrapped)
+      480    0.000    0.000    0.000    0.000 {built-in method builtins.isinstance}
+       80    0.000    0.000    0.000    0.000 weakref.py:347(__new__)
+      240    0.000    0.000    0.000    0.000 {built-in method builtins.getattr}
+      560    0.000    0.000    0.000    0.000 {built-in method builtins.len}
+       80    0.000    0.000    0.000    0.000 {built-in method builtins.all}
+       80    0.000    0.000    0.000    0.000 {built-in method __new__ of type object at 0xa15020}
+      400    0.000    0.000    0.000    0.000 {method 'pop' of 'dict' objects}
+       80    0.000    0.000    0.000    0.000 {built-in method builtins.hasattr}
+      160    0.000    0.000    0.000    0.000 {built-in method builtins.id}
+       80    0.000    0.000    0.000    0.000 weakref.py:194(get)
+       80    0.000    0.000    0.000    0.000 {method 'update' of 'dict' objects}
+      160    0.000    0.000    0.000    0.000 {function _make_class_safe_predicate.<locals>.predicate at 0x79c127ea67a0}
+       80    0.000    0.000    0.000    0.000 __init__.py:44740(<genexpr>)
+       80    0.000    0.000    0.000    0.000 {function _make_class_safe_predicate.<locals>.predicate at 0x79c127ea6700}
+       80    0.000    0.000    0.000    0.000 __init__.py:22104(_validate_backend_dispatch_keywords)
+       80    0.000    0.000    0.000    0.000 {method 'items' of 'dict' objects}
+       80    0.000    0.000    0.000    0.000 {built-in method builtins.iter}
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+       80    0.000    0.000    0.000    0.000 {built-in method builtins.callable}
+       80    0.000    0.000    0.000    0.000 __init__.py:427(__iter__)
+
+
