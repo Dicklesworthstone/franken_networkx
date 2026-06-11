@@ -26846,10 +26846,48 @@ def all_pairs_lowest_common_ancestor(G, pairs=None, *, backend=None, **backend_k
         #     = the whole ~4x gap vs nx). Snapshot successors once into a plain
         #     dict; the descent then uses a local lookup. Net: ~5x self-speedup,
         #     faster than nx, deterministic, byte-exact.
-        nodes = list(G)
-        n = len(nodes)
-        pred_snapshot = {u: list(G.predecessors(u)) for u in nodes}
-        succ_snapshot = {u: list(G.successors(u)) for u in nodes}
+        # br-r37-c1-aigcs: PERF (small-pair tax + wrapper tax). Two changes:
+        #   (1) The previous code eagerly snapshotted predecessors AND successors
+        #       for EVERY node (~2*n fnx Python-wrapper round-trips), so a
+        #       single-pair / few-pair call paid the full O(n) adjacency cost —
+        #       the bulk of the ~4.5x gap vs nx at n=2000. Make both snapshots
+        #       LAZY+memoized: each node's neighbour list is fetched at most once.
+        #   (2) The residual gap was the AdjacencyView wrapper behind
+        #       ``G.predecessors(u)`` (per-call private-storage checks: ~8M
+        #       _private_override/vars hits over a full-ancestor walk). For fnx
+        #       DiGraphs, read predecessors via the native ``_native_predecessor
+        #       _row_dict`` accessor, which yields the IDENTICAL key order
+        #       (verified) ~8x cheaper. nx-typed graphs fall back to the public
+        #       API. Iteration order is unchanged, so ancestor sets — and the
+        #       deterministic LCA selection — remain byte-exact.
+        pred_snapshot = {}
+        succ_snapshot = {}
+
+        _pred_row = getattr(G, "_native_predecessor_row_dict", None)
+        if _pred_row is not None:
+
+            def _preds(u):
+                r = pred_snapshot.get(u)
+                if r is None and u not in pred_snapshot:
+                    r = list(_pred_row(u))
+                    pred_snapshot[u] = r
+                return r
+
+        else:
+
+            def _preds(u):
+                r = pred_snapshot.get(u)
+                if r is None and u not in pred_snapshot:
+                    r = list(G.predecessors(u))
+                    pred_snapshot[u] = r
+                return r
+
+        def _succs(u):
+            r = succ_snapshot.get(u)
+            if r is None and u not in succ_snapshot:
+                r = list(G.successors(u))
+                succ_snapshot[u] = r
+            return r
 
         def _ancestors_bfs(source):
             # nx.ancestors via generic_bfs_edges over predecessors: level-order
@@ -26857,7 +26895,7 @@ def all_pairs_lowest_common_ancestor(G, pairs=None, *, backend=None, **backend_k
             # identical insertion sequence to nx's set comprehension.
             seen = {source}
             anc = set()
-            frontier = [(source, pred_snapshot[source])]
+            frontier = [(source, _preds(source))]
             while frontier:
                 current = frontier
                 frontier = []
@@ -26865,7 +26903,7 @@ def all_pairs_lowest_common_ancestor(G, pairs=None, *, backend=None, **backend_k
                     for ancestor in parents:
                         if ancestor not in seen:
                             seen.add(ancestor)
-                            frontier.append((ancestor, pred_snapshot[ancestor]))
+                            frontier.append((ancestor, _preds(ancestor)))
                             anc.add(ancestor)
             return anc
 
@@ -26889,7 +26927,7 @@ def all_pairs_lowest_common_ancestor(G, pairs=None, *, backend=None, **backend_k
                 common_ancestor = next(iter(common_ancestors))
                 while True:
                     successor = None
-                    for lower_ancestor in succ_snapshot[common_ancestor]:
+                    for lower_ancestor in _succs(common_ancestor):
                         if lower_ancestor in common_ancestors:
                             successor = lower_ancestor
                             break
