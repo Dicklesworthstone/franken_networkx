@@ -11258,6 +11258,29 @@ def greedy_color(G, strategy="largest_first", interchange=False):
     # Multigraph / directed keep the faithful path (structural would drop
     # parallel edges / direction).
     if not G.is_multigraph() and not G.is_directed():
+        # br-r37-c1-rqsur: the connected_sequential_{bfs,dfs} strategies
+        # traverse the graph's adjacency in iteration order, so the cheap
+        # structural conversion below (``add_edges_from(G.edges())`` rebuilds
+        # adj in node-major *edge* order, not G's per-node *adj-insertion*
+        # order) diverges from nx whenever G's node insertion order is a
+        # non-identity permutation of its labels. Route those through the
+        # faithful ``_fnx_to_nx`` conversion, which emits edges so the
+        # converted graph's per-node adj order matches G exactly
+        # (br-r37-c1-sgnab). Other str strategies (largest_first handled
+        # natively above; smallest_last / saturation / random_sequential /
+        # independent_set) depend only on degree/saturation buckets, not adj
+        # iteration order, so the structural shortcut stays byte-identical.
+        if strategy in (
+            "connected_sequential",
+            "connected_sequential_bfs",
+            "connected_sequential_dfs",
+        ):
+            return _call_networkx_for_parity(
+                "greedy_color",
+                G,
+                strategy=strategy,
+                interchange=interchange,
+            )
         _H = _nx.Graph()
         _H.add_nodes_from(G)
         _H.add_edges_from(G.edges())
