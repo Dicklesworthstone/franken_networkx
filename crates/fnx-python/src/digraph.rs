@@ -2207,6 +2207,37 @@ impl PyMultiDiGraph {
         Ok(row.unbind())
     }
 
+    /// br-r37-c1-i5cf1: bulk predecessor KEY order for every node, in one native
+    /// crossing. Returns ``[(node, [pred, ...]), ...]`` in ``nodes_ordered``
+    /// order, each predecessor list in the inner ``predecessors`` (== fg.pred /
+    /// edge-insertion) order, with the z6uka display-key override applied. This
+    /// is the cheap source ``_fnx_to_nx`` needs to realign a converted
+    /// MultiDiGraph's ``_pred`` rows without the per-node AtlasView walk
+    /// (``{v: list(fg.pred[v])}`` is an O(V*deg) wrapper tax).
+    fn _native_predecessor_keys_bulk(
+        &self,
+        py: Python<'_>,
+    ) -> PyResult<Vec<(PyObject, Vec<PyObject>)>> {
+        let nodes: Vec<String> = self
+            .inner
+            .nodes_ordered()
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+        let mut out: Vec<(PyObject, Vec<PyObject>)> = Vec::with_capacity(nodes.len());
+        for node in &nodes {
+            let preds: Vec<PyObject> = self
+                .inner
+                .predecessors(node)
+                .unwrap_or_default()
+                .into_iter()
+                .map(|p| self.py_pred_key(py, node, p))
+                .collect();
+            out.push((self.py_node_key(py, node), preds));
+        }
+        Ok(out)
+    }
+
     fn __getitem__(slf: PyRef<'_, Self>, n: &Bound<'_, PyAny>) -> PyResult<Py<MultiDiAtlasView>> {
         Self::_native_successor_row(slf, n)
     }

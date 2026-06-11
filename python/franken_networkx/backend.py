@@ -636,45 +636,48 @@ def _fnx_to_nx(fg):
     else:
         G.add_nodes_from(fg)
     bulk_row_order = None
-    if fg.is_multigraph() and not fg.is_directed():
+    if fg.is_multigraph():
         # br-r37-c1-i5cf1: the previous multigraph path walked AtlasViews per edge
         # (``_topo_emit_edges_by_adj`` + ``fg[u][v]``) and then ``_align_rows``
-        # re-walked ``fg.adj`` per node — O(V*deg) Python-wrapper round-trips that
-        # made a multigraph conversion pathologically slow (a 300-node MultiGraph
-        # ~hundreds of ms), so EVERY delegated multigraph algorithm was many-x
-        # slower than nx (connected_components 9.9x, triangles 3.9x, ...). Build
-        # from the fast NATIVE bulk edge view (``edges(keys=True, data=True)`` —
-        # node-major adj order, fresh Python-visible attrs) and realign adjacency
-        # rows from the cheap native ``adjacency()`` snapshot instead of per-node
-        # AtlasView walks. Edge tuples, parallel-key order, node attrs and graph
-        # attrs stay byte-identical; the adjacency row order is restored to fg's
-        # order exactly as the old ``_align_rows(G._adj, fg.adj)`` did.
-        #
-        # DIRECTED multigraphs stay on the old path below: their ``_pred`` rows
-        # must follow fg's pred (edge-insertion) order, which has no cheap source
-        # without a native predecessor-keys bulk reader (succ-major emit order
-        # would poison bidirectional-search tie-breaks — see
-        # test_fnx_to_nx_row_parity / br-r37-c1-w7nn3).
+        # re-walked ``fg.adj`` / ``fg.pred`` per node — O(V*deg) Python-wrapper
+        # round-trips that made a multigraph conversion pathologically slow (a
+        # 500-node MultiDiGraph ~12s), so EVERY delegated multigraph algorithm was
+        # many-x slower than nx (wcc 126x, scc 19x, connected_components 9.9x, ...).
+        # Build from the fast NATIVE bulk edge view (``edges(keys=True, data=True)``
+        # — node-major adj order, fresh Python-visible attrs) and realign rows from
+        # cheap native bulk snapshots: succ/adj from ``adjacency()`` and (directed)
+        # ``_pred`` from ``_native_predecessor_keys_bulk`` (fg.pred / edge-insertion
+        # order — required so bidirectional-search tie-breaks aren't poisoned, see
+        # test_fnx_to_nx_row_parity / br-r37-c1-w7nn3). Edge tuples, parallel-key
+        # order, node/graph attrs and every row order stay byte-identical to the
+        # old path.
         G.add_edges_from(
             (u, v, key, dict(attrs))
             for u, v, key, attrs in fg.edges(keys=True, data=True)
         )
-        adj_source = {node: list(nbrs) for node, nbrs in fg.adjacency()}
-        for x in fg:
-            src = adj_source[x]
-            row = G._adj[x]
-            if len(row) != len(src) or any(a is not b for a, b in zip(row, src)):
-                G._adj[x] = {o: row[o] for o in src}
-        G.graph.update(dict(fg.graph))
-        return G
-    if fg.is_multigraph():
-        # Directed multigraph (see note above): emit each u->v in adj order with
-        # all parallel keys in stored order, then fall through to the generic
-        # ``_align_rows`` block which restores the exact succ AND pred row order.
-        for u, v in _topo_emit_edges_by_adj(fg):
-            G.add_edges_from(
-                (u, v, key, dict(attrs)) for key, attrs in fg[u][v].items()
-            )
+
+        def _align_inline(nx_rows, source_rows):
+            for x in fg:
+                src = source_rows[x]
+                row = nx_rows[x]
+                if len(row) != len(src) or any(
+                    a is not b for a, b in zip(row, src)
+                ):
+                    nx_rows[x] = {o: row[o] for o in src}
+
+        pred_bulk = getattr(fg, "_native_predecessor_keys_bulk", None)
+        if not fg.is_directed():
+            _align_inline(G._adj, {n: list(nbrs) for n, nbrs in fg.adjacency()})
+            G.graph.update(dict(fg.graph))
+            return G
+        if pred_bulk is not None:
+            _align_inline(G._succ, {n: list(nbrs) for n, nbrs in fg.adjacency()})
+            _align_inline(G._pred, {n: preds for n, preds in pred_bulk()})
+            G.graph.update(dict(fg.graph))
+            return G
+        # Defensive fallback (native pred reader unavailable): fall through to the
+        # generic ``_align_rows`` block, which restores succ/pred from fg.adj /
+        # fg.pred via the (slower) per-node AtlasView walk. Edges already emitted.
     else:
         # Use 3-tuple attrs form so attr names that collide with nx's
         # positional ``u_of_edge`` / ``v_of_edge`` parameters don't
