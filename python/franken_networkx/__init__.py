@@ -9102,6 +9102,97 @@ def _prim_spanning_edges_native(G, weight, minimum, ignore_nan):
     return _raw_prim_spanning_edges(G, weight, minimum, start_order, ignore_nan)
 
 
+def _boruvka_spanning_edges_inproc(G, weight, minimum, ignore_nan):
+    """br-r37-c1-jl0xr: in-process Borůvka MST, byte-exact with nx.
+
+    Delegating boruvka to nx was 1.40x slower than nx — but cProfile showed
+    the cost is NOT the ``_fnx_to_nx`` conversion (~20%). nx's own
+    ``boruvka_mst_edges`` calls ``nx.edge_boundary`` once per component per
+    pass (~70k times at n=1500), and because franken_networkx is registered
+    as an nx backend, every one of those calls pays the full
+    ``@nx._dispatchable`` backend-dispatch wrapper plus an ``EdgeDataView``
+    construction. That dispatch/view machinery is the hot path.
+
+    This reimplements nx's algorithm directly over a plain adjacency snapshot
+    (one cheap native ``fnx_to_nx_adjacency`` crossing), with the edge
+    boundary inlined as a tight loop — no nx graph build, no per-call
+    dispatch, no views. It reuses the *real* ``networkx.utils.UnionFind`` over
+    the fnx node objects so the component grouping (``to_sets``), set
+    iteration order, and union tie-breaks are bit-identical to nx; the
+    best-edge selection uses nx's exact strict-``<`` first-wins rule over the
+    same iteration order (node-set order x adjacency-insertion order).
+
+    Returns the ordered list of ``(u, v)`` tree edges, or ``None`` to request
+    delegation to nx (native helper unavailable, or a NaN / non-numeric
+    weight where nx's exact error message must be preserved).
+    """
+    from math import isnan
+
+    from networkx.utils import UnionFind
+
+    from franken_networkx.backend import _native_fnx_to_nx_adjacency
+
+    if _native_fnx_to_nx_adjacency is None or type(G) is not Graph:
+        return None
+    bulk = _native_fnx_to_nx_adjacency(G)
+    if bulk is None:
+        return None
+
+    display_nodes = list(G)
+    # Map the native helper's canonical (interned) node keys back to the
+    # original Python node objects (br-r37-c1-fnx2nx-lazykey): the lazy
+    # display-key path can make e.g. canonical "0" diverge from the int 0.
+    canon_to_obj = {canon: obj for (canon, _nbrs), obj in zip(bulk, display_nodes)}
+    sign = 1 if minimum else -1
+    # Signed-weight adjacency keyed by node object, in adj-insertion order.
+    adj = {}
+    for (_canon, nbrs), obj in zip(bulk, display_nodes):
+        row = []
+        for nbr_canon, attrs in nbrs:
+            w = attrs.get(weight, 1)
+            if isinstance(w, bool) or not isinstance(w, (int, float)):
+                return None  # non-numeric weight: let nx raise / handle
+            w = w * sign
+            if isnan(w):
+                if ignore_nan:
+                    continue
+                return None  # NaN with ignore_nan=False: nx's exact ValueError
+            row.append((canon_to_obj[nbr_canon], w))
+        adj[obj] = row
+
+    forest = UnionFind(G)
+
+    def _best_edge(component):
+        # Mirrors nx.edge_boundary order: nset1 = {n for n in component};
+        # for n in nset1: for nbr in adj[n]: keep nbr not in nset1.
+        cset = {n for n in component}
+        best = None
+        best_w = float("inf")
+        for n in cset:
+            for nbr, w in adj[n]:
+                if nbr in cset:
+                    continue
+                if w < best_w:
+                    best_w = w
+                    best = (n, nbr)
+        return best
+
+    out = []
+    while True:
+        best_edges = []
+        for component in forest.to_sets():
+            be = _best_edge(component)
+            if be is not None:
+                best_edges.append(be)
+        if not best_edges:
+            break
+        for u, v in best_edges:
+            if forest[u] != forest[v]:
+                out.append((u, v))
+                forest.union(u, v)
+    return out
+
+
 def minimum_spanning_edges(G, algorithm="kruskal", weight="weight", keys=True, data=True, ignore_nan=False):
     """br-isokw: ``G`` matches nx; Rust binding used ``g``.
 
@@ -9159,6 +9250,22 @@ def minimum_spanning_edges(G, algorithm="kruskal", weight="weight", keys=True, d
                 else:
                     yield from _edges
                 return
+        # br-r37-c1-jl0xr: in-process Borůvka avoiding the fnx->nx conversion
+        # AND nx's per-component edge_boundary backend-dispatch tax. Returns
+        # None to fall through to nx for NaN/non-numeric weights.
+        if (
+            algorithm == "boruvka"
+            and isinstance(weight, str)
+            and not G.is_multigraph()
+        ):
+            _edges = _boruvka_spanning_edges_inproc(G, weight, True, ignore_nan)
+            if _edges is not None:
+                if data:
+                    for _u, _v in _edges:
+                        yield (_u, _v, G[_u][_v])
+                else:
+                    yield from _edges
+                return
         yield from _call_networkx_for_parity(
             "minimum_spanning_edges",
             G,
@@ -9204,6 +9311,20 @@ def maximum_spanning_edges(G, algorithm="kruskal", weight="weight", keys=True, d
             and not G.is_multigraph()
         ):
             _edges = _prim_spanning_edges_native(G, weight, False, ignore_nan)
+            if _edges is not None:
+                if data:
+                    for _u, _v in _edges:
+                        yield (_u, _v, G[_u][_v])
+                else:
+                    yield from _edges
+                return
+        # br-r37-c1-jl0xr: in-process Borůvka (maximum -> minimum=False).
+        if (
+            algorithm == "boruvka"
+            and isinstance(weight, str)
+            and not G.is_multigraph()
+        ):
+            _edges = _boruvka_spanning_edges_inproc(G, weight, False, ignore_nan)
             if _edges is not None:
                 if data:
                     for _u, _v in _edges:
