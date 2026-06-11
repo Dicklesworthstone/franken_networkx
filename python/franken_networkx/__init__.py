@@ -2718,6 +2718,24 @@ def _add_edges_from_materialized(raw):
                     materialized.append(_e)
             except BaseException as _exc:
                 iteration_exc = _exc
+            # br-aefgenbatch: a generator/iterator input never reached the
+            # native plain-edge batch fast path at the top of this function
+            # (that gate only fires for list/tuple inputs). Once the iterator
+            # is fully materialized — with no mid-stream iteration error and
+            # no broadcast **attr — retry the same fast path on the
+            # materialized list so generator-fed builders
+            # (from_dict_of_lists, complete_bipartite_graph, the grid /
+            # circulant generators, and nx-internal ``add_edges_from(gen)``
+            # calls) get the bulk insert instead of the per-edge validation
+            # loop + per-edge Rust add_edge. _try_add_edges_from_batch is
+            # atomic (no mutation when it returns False), so any
+            # non-plain-2-tuple bunch falls through to the exact per-edge
+            # parity path below — byte-identical to passing the same list
+            # directly (the list gate above already trusts it).
+            if iteration_exc is None and not attr:
+                native_batch = getattr(self, "_try_add_edges_from_batch", None)
+                if native_batch is not None and native_batch(materialized):
+                    return None
         # br-r37-c1-aeflist: nx.Graph.add_edges_from accepts each edge
         # as ANY 2- or 3-element iterable (tuple OR list), via the
         # bare ``u, v = e[:2]`` unpack inside the loop.  The Rust raw
