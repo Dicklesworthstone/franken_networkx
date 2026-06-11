@@ -4,7 +4,7 @@
 //! Node labels are Python integers (0, 1, 2, ...) matching NetworkX convention.
 
 use crate::digraph::{PyDiGraph, PyMultiDiGraph};
-use crate::{PyGraph, PyObject, unwrap_infallible};
+use crate::{unwrap_infallible, PyGraph, PyObject};
 use fnx_algorithms::stochastic_block_model as rust_stochastic_block_model;
 use fnx_generators::GraphGenerator;
 use fnx_runtime::CompatibilityMode;
@@ -189,6 +189,15 @@ pub fn star_graph(py: Python<'_>, n: usize) -> PyResult<PyGraph> {
     let mut gg = GraphGenerator::strict();
     let report = gg
         .star_graph(n)
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e:?}")))?;
+    report_to_pygraph(py, report.graph)
+}
+
+#[pyfunction]
+pub fn circular_ladder_graph_native(py: Python<'_>, n: usize) -> PyResult<PyGraph> {
+    let mut gg = GraphGenerator::strict();
+    let report = gg
+        .circular_ladder_graph(n)
         .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e:?}")))?;
     report_to_pygraph(py, report.graph)
 }
@@ -818,6 +827,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(path_graph, m)?)?;
     m.add_function(wrap_pyfunction!(cycle_graph, m)?)?;
     m.add_function(wrap_pyfunction!(star_graph, m)?)?;
+    m.add_function(wrap_pyfunction!(circular_ladder_graph_native, m)?)?;
     m.add_function(wrap_pyfunction!(complete_graph, m)?)?;
     m.add_function(wrap_pyfunction!(grid_2d_graph_simple, m)?)?;
     m.add_function(wrap_pyfunction!(grid_graph_native, m)?)?;

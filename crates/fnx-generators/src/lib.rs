@@ -647,23 +647,22 @@ impl GraphGenerator {
         let (n, warnings) = self.validate_n("circular_ladder_graph", n, MAX_N_GENERIC / 2)?;
         let (mut graph, node_labels) = graph_with_n_nodes(self.mode, n * 2);
 
-        // br-r37-c1-cyclebulk: bulk edge construction (see cycle_graph) — push
-        // edges in the exact same emission order (rails interleaved, then the two
-        // wrap-around closing edges, then the rungs), so every adjacency row is
-        // byte-identical, then one extend_edges_unrecorded.
-        let mut edges: Vec<(String, String)> = Vec::with_capacity(3 * n + 2);
+        // Match nx: ladder rails, rungs, then the two closing edges.
+        let mut edges: Vec<(String, String)> = Vec::with_capacity(3 * n);
         for index in 0..n.saturating_sub(1) {
             edges.push((node_labels[index].clone(), node_labels[index + 1].clone()));
+        }
+        for index in 0..n.saturating_sub(1) {
             edges.push((
                 node_labels[n + index].clone(),
                 node_labels[n + index + 1].clone(),
             ));
         }
-        edges.push((node_labels[0].clone(), node_labels[n - 1].clone()));
-        edges.push((node_labels[n].clone(), node_labels[(2 * n) - 1].clone()));
         for index in 0..n {
             edges.push((node_labels[index].clone(), node_labels[index + n].clone()));
         }
+        edges.push((node_labels[0].clone(), node_labels[n - 1].clone()));
+        edges.push((node_labels[n].clone(), node_labels[(2 * n) - 1].clone()));
         graph.extend_edges_unrecorded(edges);
 
         self.record(

@@ -1,0 +1,1 @@
+{"digest": "e3c71666e1894596d6a3e8949cafe6bb4fb192776696d48dfe08b2218dc9dcba", "engine": "fnx", "label": "circular_ladder_graph(2000)", "mean_s": 0.005466343360021711, "median_s": 0.0050987290451303124, "min_s": 0.004656351055018604, "p95_s": 0.007342190016061068, "samples": 25, "scenario": "circular_ladder_2000"}

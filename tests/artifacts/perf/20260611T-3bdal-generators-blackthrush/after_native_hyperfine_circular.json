@@ -1,0 +1,80 @@
+{
+  "results": [
+    {
+      "command": "VIRTUAL_ENV=/data/projects/franken_networkx/.venv PYTHONPATH=python PATH=/data/projects/franken_networkx/.venv/bin:$PATH python tests/artifacts/perf/20260611T-tp7j4-generator-bulk-topazhill/harness_generators.py bench --engine fnx --scenario circular_ladder_2000 --samples 80 --warmups 3",
+      "mean": 0.45890845499000005,
+      "stddev": 0.026580847355842256,
+      "median": 0.4487453007400001,
+      "user": 4.775909616666666,
+      "system": 0.060006229999999994,
+      "min": 0.42963075974000003,
+      "max": 0.5021476327400001,
+      "times": [
+        0.5021476327400001,
+        0.43316655974000007,
+        0.4341099177400001,
+        0.47357265374000007,
+        0.44404452974,
+        0.43517562574000007,
+        0.49930909474000007,
+        0.47864511474000004,
+        0.44312256274000006,
+        0.4805309367400001,
+        0.45344607174000007,
+        0.42963075974000003
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "VIRTUAL_ENV=/data/projects/franken_networkx/.venv PYTHONPATH=python PATH=/data/projects/franken_networkx/.venv/bin:$PATH python tests/artifacts/perf/20260611T-tp7j4-generator-bulk-topazhill/harness_generators.py bench --engine nx --scenario circular_ladder_2000 --samples 80 --warmups 3",
+      "mean": 0.6547483814066667,
+      "stddev": 0.04431989246555202,
+      "median": 0.64500859574,
+      "user": 4.960843616666666,
+      "system": 0.05685097999999999,
+      "min": 0.61548782974,
+      "max": 0.7864389987400001,
+      "times": [
+        0.7864389987400001,
+        0.61548782974,
+        0.66356977774,
+        0.6537068517400001,
+        0.6232810857400001,
+        0.6480134337400001,
+        0.62801758874,
+        0.64019468974,
+        0.66864589374,
+        0.6504181587400001,
+        0.6420037577400001,
+        0.6372025107400001
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

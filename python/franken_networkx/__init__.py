@@ -11997,6 +11997,7 @@ from franken_networkx._fnx import (
     grid_2d_graph as _rust_grid_2d_graph,
     grid_graph as _rust_grid_graph,
     caveman_graph_native as _rust_caveman_graph,
+    circular_ladder_graph_native as _rust_circular_ladder_graph_native,
     dorogovtsev_goltsev_mendes_graph as _rust_dorogovtsev_goltsev_mendes_graph,
     null_graph as _rust_null_graph,
     trivial_graph as _rust_trivial_graph,
@@ -22981,10 +22982,16 @@ def circular_ladder_graph(n, create_using=None):
     but upstream nx returns degenerate-but-valid graphs for
     n ∈ {0, 1, 2} (franken_networkx-uwa6w).
 
-    br-r37-c1-iw2hz: drop the Rust fast path — it drifted adj of
-    the wrap-around nodes (e.g. fnx adj[3] = [0,2,7] vs nx [2,7,0]).
-    The Python ladder_graph + closing-edges construction matches nx.
+    br-r37-c1-3bdal: use the generator-native path only where it is
+    order-compatible and within the generator guardrails.
     """
+    if (
+        create_using is None
+        and isinstance(n, _numbers.Integral)
+        and 3 <= n <= _RUST_GENERATOR_MAX_N_GENERIC // 2
+    ):
+        return _rust_circular_ladder_graph_native(int(n))
+
     G = ladder_graph(n, create_using)
     G.add_edge(0, n - 1)
     G.add_edge(n, 2 * n - 1)
