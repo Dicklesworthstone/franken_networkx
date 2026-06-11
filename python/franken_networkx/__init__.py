@@ -21105,30 +21105,46 @@ def _random_tree_internal(n, seed=None):
         return G
 
     rng = _random.Random(seed)
-    # Generate random Prüfer sequence of length n-2
+    # Generate random Prüfer sequence of length n-2. ``rng.randint(0, n-1)``
+    # draws the identical ``_randbelow(n)`` value sequence as nx's
+    # ``seed.choice(range(n))``, so the sequence matches networkx.
     prufer = [rng.randint(0, n - 1) for _ in range(n - 2)]
 
-    # Decode Prüfer sequence to tree edges
+    # br-r37-c1-prufer-on2: the previous decode scanned ``range(n)`` for the
+    # smallest degree-1 node on every Prüfer element — O(n^2) (~4M iters at
+    # n=2000, the whole 12.6x gap vs nx). Replace with networkx's exact O(n)
+    # ``from_prufer_sequence`` decode: a forward-only ``index`` pointer means
+    # the ``next(... range(index+1, n) ...)`` scans never revisit earlier nodes,
+    # so the total work is O(n). Byte-identical to nx (same edge set, and edges
+    # are emitted in node-iteration order since all nodes 0..n-1 are added up
+    # front).
     degree = [1] * n
     for i in prufer:
         degree[i] += 1
 
+    # Collect the decoded edges, then add them in one bulk ``add_edges_from``
+    # (native batch path) rather than n-1 per-edge ``add_edge`` PyO3 calls —
+    # the edge SET and emission order are unchanged (all nodes 0..n-1 are added
+    # up front, so edges() is node-order-determined), so this stays byte-exact.
+    tree_edges = []
+    not_orphaned = set()
+    index = u = next(k for k in range(n) if degree[k] == 1)
+    for v in prufer:
+        tree_edges.append((u, v))
+        not_orphaned.add(u)
+        degree[v] -= 1
+        if v < index and degree[v] == 1:
+            u = v
+        else:
+            index = u = next(k for k in range(index + 1, n) if degree[k] == 1)
+
+    # Exactly two nodes remain un-parented; join them (matches nx).
+    u, v = set(range(n)) - not_orphaned
+    tree_edges.append((u, v))
+
     G = Graph()
-    for i in range(n):
-        G.add_node(i)
-
-    for i in prufer:
-        for j in range(n):
-            if degree[j] == 1:
-                G.add_edge(i, j)
-                degree[i] -= 1
-                degree[j] -= 1
-                break
-
-    # Connect the last two nodes with degree 1
-    last_two = [j for j in range(n) if degree[j] == 1]
-    if len(last_two) == 2:
-        G.add_edge(last_two[0], last_two[1])
+    G.add_nodes_from(range(n))
+    G.add_edges_from(tree_edges)
 
     return G
 
