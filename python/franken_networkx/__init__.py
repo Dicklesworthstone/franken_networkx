@@ -17783,6 +17783,9 @@ from franken_networkx._fnx import (
     connected_watts_strogatz_graph as _rust_connected_watts_strogatz_graph,
 )
 from franken_networkx._fnx import random_regular_graph as _rust_random_regular_graph
+from franken_networkx._fnx import (
+    random_regular_edges_pyset as _rust_random_regular_edges_pyset,
+)
 from franken_networkx._fnx import powerlaw_cluster_graph as _rust_powerlaw_cluster_graph
 from franken_networkx._fnx import stochastic_block_model as _rust_stochastic_block_model
 
@@ -48412,6 +48415,14 @@ def random_regular_graph(d, n, seed=None, *, create_using=None, backend=None, **
     # ``test_native_random_generators_do_not_fallback_to_networkx``
     # lock-test still passes); the algorithm is fnx's own Python
     # implementation.
+    use_native_edge_pyset = (
+        create_using is None
+        and type(d) is int
+        and type(n) is int
+        and type(seed) is int
+        and 0 <= seed <= 0xFFFF_FFFF_FFFF_FFFF
+        and n * d <= 1_000_000
+    )
     if create_using is None:
         create_using = Graph
 
@@ -48425,6 +48436,10 @@ def random_regular_graph(d, n, seed=None, *, create_using=None, backend=None, **
 
     graph = empty_graph(n, create_using=graph)
     if d == 0:
+        return graph
+    if use_native_edge_pyset:
+        edges = _rust_random_regular_edges_pyset(d, n, seed)
+        graph.add_edges_from(edges)
         return graph
 
     def _suitable(edges, potential_edges):

@@ -5806,6 +5806,114 @@ fn try_create_random_regular(
     Some(edges.into_iter().collect())
 }
 
+/// Generate the random-regular edge insertion sequence used by NetworkX.
+///
+/// This is intentionally separate from `GraphGenerator::random_regular_graph`:
+/// the Python wrapper needs the exact order in which CPython would add tuples
+/// to its `edges` set, so it can build a PySet with the same final iteration
+/// order before reusing the existing `Graph.add_edges_from` semantics.
+#[must_use]
+pub fn random_regular_edge_insertion_order(n: usize, d: usize, seed: u64) -> Vec<(usize, usize)> {
+    let mut rng = PythonRandom::new(seed);
+    loop {
+        if let Some(edges) = try_create_random_regular_python_order(&mut rng, n, d) {
+            return edges;
+        }
+    }
+}
+
+fn try_create_random_regular_python_order(
+    rng: &mut PythonRandom,
+    n: usize,
+    d: usize,
+) -> Option<Vec<(usize, usize)>> {
+    use std::collections::{HashMap, HashSet};
+
+    let mut edges: HashSet<(usize, usize)> = HashSet::new();
+    let mut edge_order = Vec::with_capacity(n.saturating_mul(d) / 2);
+    let mut stubs: Vec<usize> = Vec::with_capacity(n.saturating_mul(d));
+    for _ in 0..d {
+        for node in 0..n {
+            stubs.push(node);
+        }
+    }
+
+    while !stubs.is_empty() {
+        for i in (1..stubs.len()).rev() {
+            let j = rng.randrange(i + 1);
+            stubs.swap(i, j);
+        }
+
+        let mut potential_edges: Vec<(usize, usize)> = Vec::new();
+        let mut potential_index: HashMap<usize, usize> = HashMap::new();
+
+        for pair in stubs.chunks_exact(2) {
+            let (mut s1, mut s2) = (pair[0], pair[1]);
+            if s1 > s2 {
+                std::mem::swap(&mut s1, &mut s2);
+            }
+            if s1 != s2 && !edges.contains(&(s1, s2)) {
+                edges.insert((s1, s2));
+                edge_order.push((s1, s2));
+            } else {
+                increment_potential(&mut potential_edges, &mut potential_index, s1);
+                increment_potential(&mut potential_edges, &mut potential_index, s2);
+            }
+        }
+
+        if !rrg_suitable_python_order(&edges, &potential_edges) {
+            return None;
+        }
+
+        stubs.clear();
+        for &(node, potential) in &potential_edges {
+            for _ in 0..potential {
+                stubs.push(node);
+            }
+        }
+    }
+
+    Some(edge_order)
+}
+
+fn increment_potential(
+    potential_edges: &mut Vec<(usize, usize)>,
+    potential_index: &mut std::collections::HashMap<usize, usize>,
+    node: usize,
+) {
+    if let Some(&index) = potential_index.get(&node) {
+        potential_edges[index].1 += 1;
+    } else {
+        potential_index.insert(node, potential_edges.len());
+        potential_edges.push((node, 1));
+    }
+}
+
+fn rrg_suitable_python_order(
+    edges: &std::collections::HashSet<(usize, usize)>,
+    potential_edges: &[(usize, usize)],
+) -> bool {
+    if potential_edges.is_empty() {
+        return true;
+    }
+    for &(outer, _) in potential_edges {
+        let mut s1 = outer;
+        for &(inner, _) in potential_edges {
+            let mut s2 = inner;
+            if s1 == s2 {
+                break;
+            }
+            if s1 > s2 {
+                std::mem::swap(&mut s1, &mut s2);
+            }
+            if !edges.contains(&(s1, s2)) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
 /// Checks whether the remaining unmatched stubs in `potential_edges` could
 /// possibly form at least one valid edge given the edges already placed.
 /// Returns false (= must restart) if every cross-pair is already an edge.
@@ -6063,11 +6171,7 @@ fn watts_strogatz_graph_core(
         std::collections::HashSet::with_capacity(ring_edges.len());
     #[inline]
     fn canon(a: usize, b: usize) -> (usize, usize) {
-        if a <= b {
-            (a, b)
-        } else {
-            (b, a)
-        }
+        if a <= b { (a, b) } else { (b, a) }
     }
     for &(u, v) in &ring_edges {
         rows[u].push(v);
@@ -6718,7 +6822,10 @@ mod cpython_set_tests {
 
 #[cfg(test)]
 mod tests {
-    use super::{GenerationError, GraphGenerator, MAX_N_COMPLETE, MAX_N_GENERIC, MAX_N_STAR};
+    use super::{
+        GenerationError, GraphGenerator, MAX_N_COMPLETE, MAX_N_GENERIC, MAX_N_STAR,
+        random_regular_edge_insertion_order,
+    };
     use fnx_classes::Graph;
     use fnx_classes::digraph::DiGraph;
     use fnx_classes::digraph::MultiDiGraph;
@@ -6793,6 +6900,59 @@ mod tests {
         let left = left.to_string();
         let right = right.to_string();
         edges.contains(&(left.clone(), right.clone())) || edges.contains(&(right, left))
+    }
+
+    #[test]
+    fn random_regular_python_edge_insertion_order_matches_fixture() {
+        let small = random_regular_edge_insertion_order(10, 3, 1);
+        assert_eq!(
+            small,
+            vec![
+                (5, 7),
+                (1, 7),
+                (4, 8),
+                (1, 2),
+                (0, 4),
+                (7, 9),
+                (0, 6),
+                (2, 8),
+                (1, 6),
+                (3, 4),
+                (2, 6),
+                (0, 8),
+                (5, 9),
+                (3, 9),
+                (3, 5),
+            ]
+        );
+
+        let medium = random_regular_edge_insertion_order(24, 4, 5);
+        assert_eq!(medium.len(), 48);
+        assert_eq!(
+            &medium[..20],
+            &[
+                (0, 15),
+                (6, 17),
+                (0, 9),
+                (2, 7),
+                (4, 7),
+                (1, 22),
+                (4, 12),
+                (4, 9),
+                (5, 18),
+                (2, 11),
+                (3, 13),
+                (12, 18),
+                (12, 14),
+                (1, 18),
+                (10, 14),
+                (6, 23),
+                (3, 19),
+                (0, 6),
+                (12, 20),
+                (8, 16),
+            ]
+        );
     }
 
     fn sorted_digraph_edges(graph: &DiGraph) -> Vec<(String, String)> {

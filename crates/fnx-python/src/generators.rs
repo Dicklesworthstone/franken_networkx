@@ -4,13 +4,13 @@
 //! Node labels are Python integers (0, 1, 2, ...) matching NetworkX convention.
 
 use crate::digraph::{PyDiGraph, PyMultiDiGraph};
-use crate::{unwrap_infallible, PyGraph, PyObject};
+use crate::{PyGraph, PyObject, unwrap_infallible};
 use fnx_algorithms::stochastic_block_model as rust_stochastic_block_model;
 use fnx_generators::GraphGenerator;
 use fnx_runtime::CompatibilityMode;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use pyo3::types::PyDict;
+use pyo3::types::{PyDict, PySet, PyTuple};
 use std::collections::HashMap;
 use std::sync::atomic::AtomicBool;
 
@@ -643,6 +643,25 @@ pub fn random_regular_graph(py: Python<'_>, d: usize, n: usize, seed: u64) -> Py
     report_to_pygraph(py, report.graph)
 }
 
+#[pyfunction]
+pub fn random_regular_edges_pyset(
+    py: Python<'_>,
+    d: usize,
+    n: usize,
+    seed: u64,
+) -> PyResult<PyObject> {
+    let _stub_count = n
+        .checked_mul(d)
+        .ok_or_else(|| PyValueError::new_err("n * d is too large"))?;
+    let edge_order = fnx_generators::random_regular_edge_insertion_order(n, d, seed);
+    let edges = PySet::empty(py)?;
+    for (u, v) in edge_order {
+        let edge = PyTuple::new(py, [u, v])?;
+        edges.add(edge)?;
+    }
+    Ok(edges.into_any().unbind())
+}
+
 /// Return a Holme-Kim powerlaw cluster graph.
 ///
 /// Like Barabási-Albert with an additional triangle-closing step.
@@ -842,6 +861,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(newman_watts_strogatz_graph, m)?)?;
     m.add_function(wrap_pyfunction!(connected_watts_strogatz_graph, m)?)?;
     m.add_function(wrap_pyfunction!(random_regular_graph, m)?)?;
+    m.add_function(wrap_pyfunction!(random_regular_edges_pyset, m)?)?;
     m.add_function(wrap_pyfunction!(powerlaw_cluster_graph, m)?)?;
     m.add_function(wrap_pyfunction!(stochastic_block_model, m)?)?;
     m.add_function(wrap_pyfunction!(fast_gnp_random_graph, m)?)?;

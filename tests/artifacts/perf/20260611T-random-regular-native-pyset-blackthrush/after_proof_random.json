@@ -1,0 +1,16 @@
+{
+  "all_match": true,
+  "results": [
+    {
+      "fnx_digest": "cac80aef6f181434007d93ef151d69b54867433c4b54c30c76a3c24f3e55bf24",
+      "fnx_edge_count": 6000,
+      "fnx_node_count": 1500,
+      "label": "random_regular_graph(8, 1500, seed=12345)",
+      "matches_nx": true,
+      "nx_digest": "cac80aef6f181434007d93ef151d69b54867433c4b54c30c76a3c24f3e55bf24",
+      "nx_edge_count": 6000,
+      "nx_node_count": 1500,
+      "scenario": "random_regular_8_1500"
+    }
+  ]
+}
