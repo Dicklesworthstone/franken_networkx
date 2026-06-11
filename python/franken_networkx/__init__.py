@@ -14011,29 +14011,22 @@ def topological_sort(G):
                 if indegree[v] == 0:
                     queue.append(v)
     else:
-        # DiGraph: pull the whole (node, [successor]) map in ONE native call,
-        # then run Kahn's over O(1) dict lookups — no per-node ``succ[u]``
-        # AtlasView getitem. Gate on EXACT class identity (filtered views
-        # subclass DiGraph but keep an empty native inner); fall back to a
-        # successor-KEY walk otherwise. Same node/adjacency order => exact
-        # FIFO insertion-order tie-break.
-        nak = getattr(G, "_native_adjacency_keys", None)
-        if nak is not None and type(G) is DiGraph:
-            succ_map = dict(nak())
-            indegree = {v: 0 for v in G}
-            for _succs in succ_map.values():
-                for v in _succs:
-                    indegree[v] += 1
-            queue = _deque(v for v in G if indegree[v] == 0)
+        # Exact DiGraph: native topological_generations already implements
+        # NetworkX's Kahn FIFO generation order, so flatten those generation
+        # vectors instead of replaying Kahn in Python for every node.
+        # Keep the previous final len(G) guard so node-count mutations during
+        # iteration retain the old observable FNX outcome.
+        if type(G) is DiGraph:
             _count = 0
-            while queue:
-                u = queue.popleft()
-                yield u
-                _count += 1
-                for v in succ_map[u]:
-                    indegree[v] -= 1
-                    if indegree[v] == 0:
-                        queue.append(v)
+            for _generation in topological_generations(G):
+                for u in _generation:
+                    yield u
+                    _count += 1
+            if _count != len(G):
+                raise NetworkXUnfeasible(
+                    "Graph contains a cycle or graph changed during iteration"
+                )
+            return
         else:
             for u in G:
                 for v in succ[u]:
