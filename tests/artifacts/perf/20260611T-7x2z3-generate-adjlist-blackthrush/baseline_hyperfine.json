@@ -1,0 +1,80 @@
+{
+  "results": [
+    {
+      "command": "VIRTUAL_ENV=/data/projects/franken_networkx/.venv PYTHONPATH=/data/projects/.scratch/fnx-7x2z3-adjlist-20260611T152200Z/python PATH=/data/projects/franken_networkx/.venv/bin:$PATH python tests/artifacts/perf/20260611T-7x2z3-generate-adjlist-blackthrush/harness_adjlist.py --mode bench --backend fnx --repeats 40 --warmups 3 --quiet",
+      "mean": 0.5141422388633333,
+      "stddev": 0.027205781153043,
+      "median": 0.51882402028,
+      "user": 2.4049127099999996,
+      "system": 0.06059995999999999,
+      "min": 0.46264697928000004,
+      "max": 0.54642461328,
+      "times": [
+        0.50675266328,
+        0.54596240828,
+        0.51889391828,
+        0.46341841128000005,
+        0.54642461328,
+        0.51875412228,
+        0.50513260228,
+        0.51743023328,
+        0.46264697928000004,
+        0.52847284728,
+        0.52129455528,
+        0.53452351228
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "VIRTUAL_ENV=/data/projects/franken_networkx/.venv PYTHONPATH=/data/projects/.scratch/fnx-7x2z3-adjlist-20260611T152200Z/python PATH=/data/projects/franken_networkx/.venv/bin:$PATH python tests/artifacts/perf/20260611T-7x2z3-generate-adjlist-blackthrush/harness_adjlist.py --mode bench --backend nx --repeats 40 --warmups 3 --quiet",
+      "mean": 0.4885863051966666,
+      "stddev": 0.048633260522519,
+      "median": 0.49040061578000005,
+      "user": 2.5203604599999996,
+      "system": 0.06256612666666665,
+      "min": 0.41240544928000006,
+      "max": 0.60366179528,
+      "times": [
+        0.49538421928000004,
+        0.41240544928000006,
+        0.60366179528,
+        0.44719908628000005,
+        0.46843799028000005,
+        0.50641631228,
+        0.48541701228000006,
+        0.49542984528000006,
+        0.45240994928000006,
+        0.52162420828,
+        0.45548174028000005,
+        0.51916805428
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

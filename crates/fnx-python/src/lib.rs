@@ -6281,6 +6281,37 @@ impl PyGraph {
         self.adjacency(py)
     }
 
+    /// Build `generate_adjlist` body lines without a Python adjacency-row snapshot.
+    fn _native_generate_adjlist_lines(
+        &self,
+        py: Python<'_>,
+        delimiter: &str,
+    ) -> PyResult<Vec<String>> {
+        let nodes: Vec<String> = self
+            .inner
+            .nodes_ordered()
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+        let mut lines = Vec::with_capacity(nodes.len());
+        let mut seen: HashSet<String> = HashSet::with_capacity(nodes.len());
+        for node in &nodes {
+            let py_node = self.py_node_key(py, node);
+            let mut line = py_node.bind(py).str()?.to_str()?.to_owned();
+            for neighbor in self.inner.neighbors(node).unwrap_or_default() {
+                if seen.contains(neighbor) {
+                    continue;
+                }
+                line.push_str(delimiter);
+                let py_neighbor = self.py_adj_key(py, node, neighbor);
+                line.push_str(py_neighbor.bind(py).str()?.to_str()?);
+            }
+            seen.insert(node.clone());
+            lines.push(line);
+        }
+        Ok(lines)
+    }
+
     #[pyo3(name = "_native_adjacency_row_dict")]
     fn native_adjacency_row_dict(
         &mut self,

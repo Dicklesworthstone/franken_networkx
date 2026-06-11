@@ -2101,6 +2101,17 @@ def generate_adjlist(G, delimiter=" "):
         # the filter.
         import franken_networkx as _fnx_mod
 
+        native_lines = getattr(G, "_native_generate_adjlist_lines", None)
+        has_adj_keys = getattr(G, "_native_has_adj_py_keys", None)
+        if (
+            native_lines is not None
+            and type(G) is _fnx_mod.Graph
+            and isinstance(delimiter, str)
+            and (has_adj_keys is None or not has_adj_keys())
+        ):
+            yield from native_lines(delimiter)
+            return
+
         bulk = getattr(G, "_native_adjacency_keys", None)
         if bulk is not None and type(G) in (_fnx_mod.Graph, _fnx_mod.DiGraph):
             for node, nbrs in bulk():

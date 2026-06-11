@@ -1,0 +1,18 @@
+         435602 function calls in 0.460 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.000    0.000    0.460    0.460 harness_adjlist.py:165(_work)
+      240    0.000    0.000    0.459    0.002 harness_adjlist.py:69(_generate)
+      240    0.000    0.000    0.459    0.002 harness_adjlist.py:21(_payload)
+      240    0.038    0.000    0.459    0.002 {method 'join' of 'str' objects}
+   432240    0.025    0.000    0.421    0.000 __init__.py:2077(generate_adjlist)
+      240    0.395    0.002    0.395    0.002 {method '_native_generate_adjlist_lines' of 'franken_networkx.Graph' objects}
+      480    0.000    0.000    0.001    0.000 __init__.py:5754(predicate)
+      720    0.000    0.000    0.000    0.000 {built-in method builtins.isinstance}
+      240    0.000    0.000    0.000    0.000 {function _make_class_safe_predicate.<locals>.predicate at 0x784fe167e200}
+      480    0.000    0.000    0.000    0.000 {built-in method builtins.getattr}
+      240    0.000    0.000    0.000    0.000 {method '_native_has_adj_py_keys' of 'franken_networkx.Graph' objects}
+      240    0.000    0.000    0.000    0.000 {function _make_class_safe_predicate.<locals>.predicate at 0x784fe167e2a0}
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
