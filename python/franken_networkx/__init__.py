@@ -11121,49 +11121,74 @@ def wiener_index(G, weight=None, *, backend=None, **backend_kwargs):
     if not connected:
         return float("inf")
 
-    def _single_source_unweighted_lengths(source):
-        lengths = {source: 0}
-        queue = _deque([source])
-        while queue:
-            node = queue.popleft()
-            next_distance = lengths[node] + 1
-            for neighbor in G.neighbors(node):
-                if neighbor in lengths:
-                    continue
-                lengths[neighbor] = next_distance
-                queue.append(neighbor)
-        return lengths
+    # br-r37-c1-lli0b: the per-source Dijkstra/BFS previously called
+    # ``G.neighbors`` + ``G.get_edge_data`` INSIDE the hot loop, paying O(V*E)
+    # AdjacencyView wrapper round-trips that made weighted wiener_index ~5.5x
+    # SLOWER than nx. Snapshot the (Python-visible, so weight-mutation-fresh)
+    # adjacency ONCE into a plain dict, then run the IDENTICAL BFS/Dijkstra over
+    # it — same per-source order, same neighbour order, same float-sum order, so
+    # the result is byte-exact with both the old path and nx, at O(E) build cost.
+    # Multigraph parallel-edge min-weight and the negative-weight ValueError are
+    # preserved.
+    if weight is None:
+        neighbor_keys = {node: list(G.neighbors(node)) for node in G}
 
-    def _single_source_weighted_lengths(source):
-        distances = {source: 0.0}
-        queue = [(0.0, next(counter), source)]
-        while queue:
-            distance, _, node = _heappop(queue)
-            if distance > distances[node]:
-                continue
-            for neighbor in G.neighbors(node):
-                edge_data = G.get_edge_data(node, neighbor)
-                if G.is_multigraph():
-                    edge_weight = min(
+        def _single_source_unweighted_lengths(source):
+            lengths = {source: 0}
+            queue = _deque([source])
+            while queue:
+                node = queue.popleft()
+                next_distance = lengths[node] + 1
+                for neighbor in neighbor_keys[node]:
+                    if neighbor in lengths:
+                        continue
+                    lengths[neighbor] = next_distance
+                    queue.append(neighbor)
+            return lengths
+
+        total = sum(
+            sum(_single_source_unweighted_lengths(node).values()) for node in G
+        )
+    else:
+        if G.is_multigraph():
+            weighted_adj = {}
+            for node in G:
+                row = {}
+                for neighbor in G.neighbors(node):
+                    edge_data = G.get_edge_data(node, neighbor)
+                    row[neighbor] = min(
                         attrs.get(weight, 1) for attrs in edge_data.values()
                     )
-                else:
-                    edge_weight = edge_data.get(weight, 1)
-                if isinstance(edge_weight, (int, float)) and edge_weight < 0:
-                    raise ValueError(
-                        "wiener_index does not support graphs with negative weights"
-                    )
-                candidate = distance + edge_weight
-                if candidate < distances.get(neighbor, float("inf")):
-                    distances[neighbor] = candidate
-                    _heappush(queue, (candidate, next(counter), neighbor))
-        return distances
+                weighted_adj[node] = row
+        else:
+            weighted_adj = {
+                node: {nbr: attrs.get(weight, 1) for nbr, attrs in nbrs.items()}
+                for node, nbrs in G.adjacency()
+            }
 
-    if weight is None:
-        total = sum(sum(_single_source_unweighted_lengths(node).values()) for node in G)
-    else:
         counter = _count()
-        total = sum(sum(_single_source_weighted_lengths(node).values()) for node in G)
+
+        def _single_source_weighted_lengths(source):
+            distances = {source: 0.0}
+            queue = [(0.0, next(counter), source)]
+            while queue:
+                distance, _, node = _heappop(queue)
+                if distance > distances[node]:
+                    continue
+                for neighbor, edge_weight in weighted_adj[node].items():
+                    if isinstance(edge_weight, (int, float)) and edge_weight < 0:
+                        raise ValueError(
+                            "wiener_index does not support graphs with negative weights"
+                        )
+                    candidate = distance + edge_weight
+                    if candidate < distances.get(neighbor, float("inf")):
+                        distances[neighbor] = candidate
+                        _heappush(queue, (candidate, next(counter), neighbor))
+            return distances
+
+        total = sum(
+            sum(_single_source_weighted_lengths(node).values()) for node in G
+        )
 
     return total if G.is_directed() else total / 2
 
