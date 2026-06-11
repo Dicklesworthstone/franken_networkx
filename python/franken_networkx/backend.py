@@ -636,17 +636,41 @@ def _fnx_to_nx(fg):
     else:
         G.add_nodes_from(fg)
     bulk_row_order = None
+    if fg.is_multigraph() and not fg.is_directed():
+        # br-r37-c1-i5cf1: the previous multigraph path walked AtlasViews per edge
+        # (``_topo_emit_edges_by_adj`` + ``fg[u][v]``) and then ``_align_rows``
+        # re-walked ``fg.adj`` per node — O(V*deg) Python-wrapper round-trips that
+        # made a multigraph conversion pathologically slow (a 300-node MultiGraph
+        # ~hundreds of ms), so EVERY delegated multigraph algorithm was many-x
+        # slower than nx (connected_components 9.9x, triangles 3.9x, ...). Build
+        # from the fast NATIVE bulk edge view (``edges(keys=True, data=True)`` —
+        # node-major adj order, fresh Python-visible attrs) and realign adjacency
+        # rows from the cheap native ``adjacency()`` snapshot instead of per-node
+        # AtlasView walks. Edge tuples, parallel-key order, node attrs and graph
+        # attrs stay byte-identical; the adjacency row order is restored to fg's
+        # order exactly as the old ``_align_rows(G._adj, fg.adj)`` did.
+        #
+        # DIRECTED multigraphs stay on the old path below: their ``_pred`` rows
+        # must follow fg's pred (edge-insertion) order, which has no cheap source
+        # without a native predecessor-keys bulk reader (succ-major emit order
+        # would poison bidirectional-search tie-breaks — see
+        # test_fnx_to_nx_row_parity / br-r37-c1-w7nn3).
+        G.add_edges_from(
+            (u, v, key, dict(attrs))
+            for u, v, key, attrs in fg.edges(keys=True, data=True)
+        )
+        adj_source = {node: list(nbrs) for node, nbrs in fg.adjacency()}
+        for x in fg:
+            src = adj_source[x]
+            row = G._adj[x]
+            if len(row) != len(src) or any(a is not b for a, b in zip(row, src)):
+                G._adj[x] = {o: row[o] for o in src}
+        G.graph.update(dict(fg.graph))
+        return G
     if fg.is_multigraph():
-        # br-r37-c1-qpykd: emit parallel edges in adj-insertion order (the same
-        # per-node-queue topological order used for simple graphs above) so the
-        # converted multigraph's ``edges(u, keys=True)`` iteration is byte-
-        # identical to a directly-built nx multigraph. The previous loop grouped
-        # all of ``u``'s edges together in node-iteration order, which reordered
-        # parallel edges across neighbours and silently diverged the yield order
-        # of every adj-dependent delegated multigraph algorithm (all_simple_paths,
-        # BFS/DFS variants, ...). ``_topo_emit_edges_by_adj`` yields each {u, v}
-        # exactly once (undirected) / each u->v (directed) in adj order; for each
-        # we emit all parallel keys in their stored (insertion) order.
+        # Directed multigraph (see note above): emit each u->v in adj order with
+        # all parallel keys in stored order, then fall through to the generic
+        # ``_align_rows`` block which restores the exact succ AND pred row order.
         for u, v in _topo_emit_edges_by_adj(fg):
             G.add_edges_from(
                 (u, v, key, dict(attrs)) for key, attrs in fg[u][v].items()
