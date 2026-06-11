@@ -410,6 +410,22 @@ def test_add_node_accepts_nested_attrs_with_non_string_keys():
     assert graph.nodes["root"]["contraction"] == {1: {}, (2, 3): {"label": "edge"}}
 
 
+def test_add_nodes_from_int_set_matches_networkx_order_and_bool_fallback():
+    values = set(range(10, 40))
+    graph = fnx.Graph()
+    expected = nx.Graph()
+    graph.add_nodes_from(values)
+    expected.add_nodes_from(values)
+    assert list(graph.nodes()) == list(expected.nodes())
+
+    bool_values = {True, 2, 3}
+    graph_bool = fnx.Graph()
+    expected_bool = nx.Graph()
+    graph_bool.add_nodes_from(bool_values)
+    expected_bool.add_nodes_from(bool_values)
+    assert list(graph_bool.nodes()) == list(expected_bool.nodes())
+
+
 def test_contracted_nodes_preserves_integer_contraction_keys():
     graph = fnx.Graph()
     graph.add_nodes_from([0, 1, 2])

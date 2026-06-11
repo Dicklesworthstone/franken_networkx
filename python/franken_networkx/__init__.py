@@ -2422,19 +2422,20 @@ def _make_add_nodes_from(
                 return
             except OverflowError:
                 pass
-        # br-r37-c1-u2jod: bulk native fast path for a concrete list/tuple of
+        # br-r37-c1-u2jod: bulk native fast path for a concrete list/tuple/set of
         # plain ints (the common ``add_nodes_from(list(range(n)))`` /
-        # ``add_nodes_from(other_int_graph)`` shape) — one PyO3 crossing + a Rust
-        # loop instead of a per-element Python loop. The native binding validates
+        # ``add_nodes_from(other_int_graph)`` shape, plus br-r37-c1-zvwgo's
+        # ``intersection_all`` int-set shape) — one PyO3 crossing + a Rust loop
+        # instead of a per-element Python loop. The native binding validates
         # atomically and raises ``TypeError`` (non-int / bool element) or
         # ``OverflowError`` (out of i64) BEFORE mutating, so we fall through to
-        # the general loop with no partial state. Restricted to list/tuple so a
-        # one-shot iterable (generator) is never half-consumed.
+        # the general loop with no partial state. Restricted to re-iterable
+        # concrete containers so a one-shot iterable is never half-consumed.
         if (
             not attr
             and fast_add_int_nodes is not None
             and type(self) is Graph
-            and type(nodes_for_adding) in (list, tuple)
+            and type(nodes_for_adding) in (list, tuple, set)
         ):
             try:
                 fast_add_int_nodes(self, nodes_for_adding)
