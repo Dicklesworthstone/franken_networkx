@@ -42693,6 +42693,43 @@ def mycielski_graph(n):
     return G
 
 
+def _dorogovtsev_goltsev_mendes_edges(n):
+    """Edge-addition sequence for the DGM graph, in nx's exact ``add_edge`` order.
+
+    nx re-reads ``list(G.edges())`` (a node-major adjacency walk) at the start of
+    each generation, then attaches each new node to both endpoints of every edge
+    from the previous generation.  Reproducing that walk over integer adjacency
+    lists (kept in insertion order) yields the identical edge sequence, so a
+    single bulk ``add_edges_from`` builds a byte-exact graph — far cheaper than
+    the per-edge / per-generation ``edges_ordered`` clone tax of the native
+    kernel (br-r37-c1-tp7j4: ~2x slower than nx -> near parity).
+    """
+    adj = [[1], [0]]
+    edge_seq = [(0, 1)]
+    append = edge_seq.append
+    new_node = 2
+    for _ in range(n):
+        # Snapshot previous-generation edges in node-major adjacency order.
+        # For outer node u, the edges first emitted are exactly those to a
+        # neighbour nbr > u (smaller-endpoint edges were emitted at that
+        # endpoint), in u's adjacency insertion order.
+        current = []
+        cap = current.append
+        for u in range(new_node):
+            for nbr in adj[u]:
+                if nbr > u:
+                    cap((u, nbr))
+        for u, v in current:
+            k = new_node
+            append((k, u))
+            append((k, v))
+            adj.append([u, v])
+            adj[u].append(k)
+            adj[v].append(k)
+            new_node += 1
+    return edge_seq
+
+
 def dorogovtsev_goltsev_mendes_graph(n, create_using=None):
     """Return the Dorogovtsev-Goltsev-Mendes graph.
 
@@ -42703,16 +42740,16 @@ def dorogovtsev_goltsev_mendes_graph(n, create_using=None):
         raise NetworkXError("n must be greater than or equal to 0")
 
     if create_using is None:
-        return _rust_dorogovtsev_goltsev_mendes_graph(n)
+        target = Graph()
+    else:
+        target = _empty_graph_from_create_using(create_using, default=Graph)
+        if target.is_directed():
+            raise NetworkXError("directed graph not supported")
+        if target.is_multigraph():
+            raise NetworkXError("multigraph not supported")
 
-    target = _empty_graph_from_create_using(create_using, default=Graph)
-    if target.is_directed():
-        raise NetworkXError("directed graph not supported")
-    if target.is_multigraph():
-        raise NetworkXError("multigraph not supported")
-
-    graph = _rust_dorogovtsev_goltsev_mendes_graph(n)
-    return _copy_graph_into(graph, target)
+    target.add_edges_from(_dorogovtsev_goltsev_mendes_edges(n))
+    return target
 
 
 def prefix_tree_recursive(paths):
