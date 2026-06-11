@@ -6081,6 +6081,52 @@ pub fn minimum_spanning_tree(
     Ok(new_graph)
 }
 
+/// br-r37-c1-primidx: byte-exact Prim MST edges as (u, v) node-object pairs.
+/// ``start_order`` is the CPython ``set(G).pop()`` sequence (node indices),
+/// computed in Python because it depends on CPython set iteration order that
+/// can't be reproduced in safe Rust. Returns ``None`` when a NaN weight is hit
+/// with ``ignore_nan = false`` so the Python wrapper delegates to nx for the
+/// exact ``ValueError``.
+#[pyfunction]
+#[pyo3(signature = (g, weight, minimum, start_order, ignore_nan))]
+pub fn prim_spanning_edges(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    weight: &str,
+    minimum: bool,
+    start_order: Vec<usize>,
+    ignore_nan: bool,
+) -> PyResult<Option<Vec<(PyObject, PyObject)>>> {
+    let gr = extract_graph(g)?;
+    require_undirected(&gr, "prim_spanning_edges")?;
+    let inner = gr.undirected();
+    let w = weight.to_owned();
+    let result = py.allow_threads(move || {
+        fnx_algorithms::prim_spanning_edges_indexed(inner, &w, minimum, &start_order, ignore_nan)
+    });
+    match result {
+        None => Ok(None),
+        Some(edges) => {
+            let names = inner.nodes_ordered();
+            let mut cache: Vec<Option<PyObject>> = (0..names.len()).map(|_| None).collect();
+            let mut out: Vec<(PyObject, PyObject)> = Vec::with_capacity(edges.len());
+            for (u, v) in edges {
+                if cache[u].is_none() {
+                    cache[u] = Some(gr.py_node_key(py, names[u]));
+                }
+                if cache[v].is_none() {
+                    cache[v] = Some(gr.py_node_key(py, names[v]));
+                }
+                out.push((
+                    cache[u].as_ref().expect("cached").clone_ref(py),
+                    cache[v].as_ref().expect("cached").clone_ref(py),
+                ));
+            }
+            Ok(Some(out))
+        }
+    }
+}
+
 /// Return the edges of a minimum spanning forest.
 #[pyfunction]
 #[pyo3(signature = (g, algorithm="kruskal", weight="weight", keys=true, data=true, ignore_nan=false))]
@@ -18609,6 +18655,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(random_spanning_tree, m)?)?;
     m.add_function(wrap_pyfunction!(minimum_spanning_tree, m)?)?;
     m.add_function(wrap_pyfunction!(minimum_spanning_edges, m)?)?;
+    m.add_function(wrap_pyfunction!(prim_spanning_edges, m)?)?;
     m.add_function(wrap_pyfunction!(maximum_branching, m)?)?;
     m.add_function(wrap_pyfunction!(minimum_branching, m)?)?;
     m.add_function(wrap_pyfunction!(maximum_spanning_arborescence, m)?)?;

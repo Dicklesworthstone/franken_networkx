@@ -9046,6 +9046,7 @@ from franken_networkx._fnx import (
     maximum_spanning_arborescence as _raw_maximum_spanning_arborescence,
     number_of_spanning_trees as _raw_number_of_spanning_trees,
     minimum_spanning_edges as _raw_minimum_spanning_edges,
+    prim_spanning_edges as _raw_prim_spanning_edges,
     minimum_branching as _raw_minimum_branching,
     minimum_spanning_arborescence as _raw_minimum_spanning_arborescence,
     minimum_spanning_tree as _raw_minimum_spanning_tree,
@@ -9081,6 +9082,24 @@ def number_of_spanning_trees(G, *, root=None, weight=None):
     # br-r37-c1-0555d: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
     return _raw_number_of_spanning_trees(G, root=root, weight=weight)
+
+
+def _prim_spanning_edges_native(G, weight, minimum, ignore_nan):
+    """br-r37-c1-primidx: run the byte-exact native Prim kernel.
+
+    nx's ``prim_mst_edges`` starts each component at ``set(G).pop()`` — a
+    CPython set iteration order that the Rust kernel cannot reproduce — so the
+    full pop sequence is computed here (over the fnx graph's own nodes, which
+    hash identically to the equivalent nx graph) and passed as node indices.
+    Returns a list of ``(u, v)`` node pairs, or ``None`` when a NaN weight is hit
+    with ``ignore_nan=False`` (so the caller delegates to nx for the exact error).
+    """
+    node_to_index = {node: i for i, node in enumerate(G)}
+    remaining = set(G)
+    start_order = []
+    while remaining:
+        start_order.append(node_to_index[remaining.pop()])
+    return _raw_prim_spanning_edges(G, weight, minimum, start_order, ignore_nan)
 
 
 def minimum_spanning_edges(G, algorithm="kruskal", weight="weight", keys=True, data=True, ignore_nan=False):
@@ -9122,6 +9141,24 @@ def minimum_spanning_edges(G, algorithm="kruskal", weight="weight", keys=True, d
         ):
             yield from _raw_minimum_spanning_edges(G, algorithm=algorithm, weight=weight, keys=keys, data=data, ignore_nan=ignore_nan)
             return
+        # br-r37-c1-primidx: native byte-exact Prim. nx's set(G).pop() start
+        # order is computed here (CPython set order is un-reproducible in Rust),
+        # the kernel does the heap traversal over neighbors_indices. Returns None
+        # on a NaN weight with ignore_nan=False so we fall through to nx's exact
+        # ValueError.
+        if (
+            algorithm == "prim"
+            and isinstance(weight, str)
+            and not G.is_multigraph()
+        ):
+            _edges = _prim_spanning_edges_native(G, weight, True, ignore_nan)
+            if _edges is not None:
+                if data:
+                    for _u, _v in _edges:
+                        yield (_u, _v, G[_u][_v])
+                else:
+                    yield from _edges
+                return
         yield from _call_networkx_for_parity(
             "minimum_spanning_edges",
             G,
@@ -9160,6 +9197,20 @@ def maximum_spanning_edges(G, algorithm="kruskal", weight="weight", keys=True, d
         ):
             yield from _raw_mse(G, algorithm=algorithm, weight=weight, keys=keys, data=data, ignore_nan=ignore_nan)
             return
+        # br-r37-c1-primidx: native byte-exact Prim (maximum -> minimum=False).
+        if (
+            algorithm == "prim"
+            and isinstance(weight, str)
+            and not G.is_multigraph()
+        ):
+            _edges = _prim_spanning_edges_native(G, weight, False, ignore_nan)
+            if _edges is not None:
+                if data:
+                    for _u, _v in _edges:
+                        yield (_u, _v, G[_u][_v])
+                else:
+                    yield from _edges
+                return
         yield from _call_networkx_for_parity(
             "maximum_spanning_edges",
             G,

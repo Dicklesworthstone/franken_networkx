@@ -9222,6 +9222,142 @@ pub fn minimum_spanning_tree_prim(graph: &Graph, weight_attr: &str) -> MinimumSp
     }
 }
 
+/// Min-heap entry for [`prim_spanning_edges_indexed`]. ``BinaryHeap`` is a
+/// max-heap, so the comparison is reversed to pop the smallest ``(weight, seq)``
+/// — exactly nx's ``heapq`` over ``(wt, count(), ...)`` (``seq`` is the global
+/// push counter, giving FIFO order on equal weights). No node-name tie-break:
+/// nx breaks ties purely on the monotonic counter.
+struct PrimIndexEdge {
+    weight: f64,
+    seq: u64,
+    parent: usize,
+    child: usize,
+}
+impl PartialEq for PrimIndexEdge {
+    fn eq(&self, other: &Self) -> bool {
+        self.cmp(other) == std::cmp::Ordering::Equal
+    }
+}
+impl Eq for PrimIndexEdge {}
+impl PartialOrd for PrimIndexEdge {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+impl Ord for PrimIndexEdge {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        // Reversed: the max-heap then yields the minimum (weight, seq).
+        other
+            .weight
+            .total_cmp(&self.weight)
+            .then_with(|| other.seq.cmp(&self.seq))
+    }
+}
+
+/// Raw edge weight (no `is_finite` filtering, so NaN flows through for nx-exact
+/// NaN handling). Missing weight attr defaults to `1.0`, matching nx's
+/// `d.get(weight, 1)`.
+fn prim_raw_edge_weight(graph: &Graph, u: &str, v: &str, weight_attr: &str) -> f64 {
+    graph
+        .edge_attrs(u, v)
+        .and_then(|attrs| attrs.get(weight_attr))
+        .and_then(|val| val.as_f64())
+        .unwrap_or(1.0)
+}
+
+/// Byte-exact Prim MST edge enumeration matching `networkx`'s
+/// `prim_mst_edges` yield order + (parent, child) orientation, returning node
+/// INDEX pairs. nx selects each component's start node with `set(G).pop()` — a
+/// CPython set iteration order that cannot be reproduced in safe Rust — so the
+/// caller passes the full pop sequence in `start_order` (indices); the kernel
+/// starts each unvisited node in that order. Neighbours are pushed in
+/// `neighbors_indices` (adjacency-insertion) order, identical to nx's
+/// `G.adj[u]`, so the global `seq` tie-break reproduces nx exactly. Returns
+/// `None` when a NaN weight is hit with `ignore_nan = false` (the caller then
+/// delegates so nx raises its exact `ValueError`).
+#[must_use]
+pub fn prim_spanning_edges_indexed(
+    graph: &Graph,
+    weight_attr: &str,
+    minimum: bool,
+    start_order: &[usize],
+    ignore_nan: bool,
+) -> Option<Vec<(usize, usize)>> {
+    let n = graph.node_count();
+    let nodes = graph.nodes_ordered();
+    let sign = if minimum { 1.0 } else { -1.0 };
+    let mut visited = vec![false; n];
+    let mut heap: BinaryHeap<PrimIndexEdge> = BinaryHeap::new();
+    let mut seq = 0u64;
+    let mut out: Vec<(usize, usize)> = Vec::new();
+    let mut remaining = n;
+
+    for &start in start_order {
+        if start >= n || visited[start] {
+            continue;
+        }
+        visited[start] = true;
+        remaining -= 1;
+        if let Some(neighbors) = graph.neighbors_indices(start) {
+            for &v in neighbors {
+                if visited[v] {
+                    continue;
+                }
+                let w = prim_raw_edge_weight(graph, nodes[start], nodes[v], weight_attr) * sign;
+                if w.is_nan() {
+                    if ignore_nan {
+                        continue;
+                    }
+                    return None;
+                }
+                heap.push(PrimIndexEdge {
+                    weight: w,
+                    seq,
+                    parent: start,
+                    child: v,
+                });
+                seq += 1;
+            }
+        }
+        while remaining > 0 {
+            let Some(PrimIndexEdge { parent, child, .. }) = heap.pop() else {
+                break;
+            };
+            if visited[child] {
+                continue;
+            }
+            visited[child] = true;
+            remaining -= 1;
+            out.push((parent, child));
+            if let Some(neighbors) = graph.neighbors_indices(child) {
+                for &w2 in neighbors {
+                    if visited[w2] {
+                        continue;
+                    }
+                    let ww =
+                        prim_raw_edge_weight(graph, nodes[child], nodes[w2], weight_attr) * sign;
+                    if ww.is_nan() {
+                        if ignore_nan {
+                            continue;
+                        }
+                        return None;
+                    }
+                    heap.push(PrimIndexEdge {
+                        weight: ww,
+                        seq,
+                        parent: child,
+                        child: w2,
+                    });
+                    seq += 1;
+                }
+            }
+        }
+        heap.clear();
+    }
+
+    Some(out)
+}
+
 /// Return a maximum spanning tree using Kruskal's algorithm (negate weights).
 ///
 /// Matches `networkx.maximum_spanning_tree(G, weight='weight')`.
