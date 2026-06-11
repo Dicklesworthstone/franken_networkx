@@ -8854,29 +8854,63 @@ pub fn has_path_directed(digraph: &DiGraph, source: &str, target: &str) -> HasPa
 }
 
 fn has_path_directed_fast(digraph: &DiGraph, source: &str, target: &str) -> bool {
-    if source == target && digraph.has_node(source) {
+    // Integer-index bidirectional BFS, matching NetworkX's
+    // `bidirectional_shortest_path` algorithm class (reachability is
+    // order-invariant, so only the boolean result must match). Replaces the
+    // old String-keyed one-directional `HashSet<&str>` BFS, which paid the
+    // adjacency-hashing tax and explored the entire forward reachable set.
+    let Some(source_idx) = digraph.get_node_index(source) else {
+        return false;
+    };
+    let Some(target_idx) = digraph.get_node_index(target) else {
+        return false;
+    };
+    if source_idx == target_idx {
         return true;
     }
-    if !digraph.has_node(source) || !digraph.has_node(target) {
-        return false;
-    }
 
-    let mut visited: HashSet<&str> = HashSet::new();
-    let mut queue: VecDeque<&str> = VecDeque::new();
+    let n = digraph.node_count();
+    let mut visited_fwd = vec![false; n];
+    let mut visited_bwd = vec![false; n];
+    visited_fwd[source_idx] = true;
+    visited_bwd[target_idx] = true;
+    let mut fwd: Vec<usize> = vec![source_idx];
+    let mut bwd: Vec<usize> = vec![target_idx];
 
-    visited.insert(source);
-    queue.push_back(source);
-
-    while let Some(current) = queue.pop_front() {
-        if current == target {
-            return true;
-        }
-        if let Some(successors) = digraph.successors_iter(current) {
-            for nbr in successors {
-                if visited.insert(nbr) {
-                    queue.push_back(nbr);
+    while !fwd.is_empty() && !bwd.is_empty() {
+        // Expand whichever frontier is smaller (classic bidirectional balance).
+        if fwd.len() <= bwd.len() {
+            let mut next: Vec<usize> = Vec::new();
+            for &u in &fwd {
+                if let Some(succ) = digraph.successors_indices(u) {
+                    for &v in succ {
+                        if visited_bwd[v] {
+                            return true;
+                        }
+                        if !visited_fwd[v] {
+                            visited_fwd[v] = true;
+                            next.push(v);
+                        }
+                    }
                 }
             }
+            fwd = next;
+        } else {
+            let mut next: Vec<usize> = Vec::new();
+            for &u in &bwd {
+                if let Some(pred) = digraph.predecessors_indices(u) {
+                    for &v in pred {
+                        if visited_fwd[v] {
+                            return true;
+                        }
+                        if !visited_bwd[v] {
+                            visited_bwd[v] = true;
+                            next.push(v);
+                        }
+                    }
+                }
+            }
+            bwd = next;
         }
     }
     false
