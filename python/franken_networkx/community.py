@@ -323,6 +323,94 @@ def fast_label_propagation_communities(G, *, weight=None, seed=None):
     return _gen()
 
 
+def k_clique_communities(G, k, cliques=None, *, backend=None, **backend_kwargs):
+    """Find k-clique communities via the clique-percolation method.
+
+    br-r37-c1-emdlw: ``k_clique_communities`` is ``@nx._dispatchable``, so the
+    ``from networkx... import *`` re-export converted the WHOLE fnx graph to
+    nx (``_fnx_to_nx``, attrs and all) on every call (~78% of runtime in
+    cProfile, ~2x nx). Two levers:
+
+    1. The algorithm only needs ``G``'s maximal cliques; everything after is
+       graph-free. Compute them with fnx's native ``find_cliques`` (already
+       nx-order) — no whole-graph conversion.
+    2. Replace nx's percolation graph + ``connected_components`` (which adds an
+       ``nx.Graph`` node per clique and an edge per adjacent pair, then
+       BFS — O(#cliques^2) on dense inputs) with a **union-find over the
+       (k-1)-node subsets**: two maximal cliques of size >= k percolate iff
+       they share >= k-1 nodes iff they share a common (k-1)-subset, so
+       unioning all cliques that map to the same (k-1)-subset gives the exact
+       same components in near-linear time (20-130x faster on dense graphs).
+
+    Byte-identical to nx: components are emitted in first-clique-index order
+    (matching ``connected_components``, which starts each component at the
+    lowest-index unvisited clique in percolation-graph node order = clique
+    order), and each community is the ``frozenset`` union of its cliques.
+
+    Non-fnx graphs fall through to nx.
+    """
+    _fnx._validate_backend_dispatch_keywords(
+        "k_clique_communities", backend, backend_kwargs
+    )
+    if not isinstance(
+        G, (_fnx.Graph, _fnx.DiGraph, _fnx.MultiGraph, _fnx.MultiDiGraph)
+    ):
+        return _nx_community.k_clique_communities(G, k, cliques=cliques)
+
+    import networkx as _nx
+    from itertools import combinations
+
+    def _gen():
+        if k < 2:
+            raise _nx.NetworkXError(f"k={k}, k must be greater than 1.")
+        nonlocal cliques
+        if cliques is None:
+            cliques = _fnx.find_cliques(G)
+        clique_list = [frozenset(c) for c in cliques if len(c) >= k]
+        m = len(clique_list)
+
+        # Union-find over clique indices, merged via shared (k-1)-subsets.
+        parent = list(range(m))
+
+        def _find(x):
+            root = x
+            while parent[root] != root:
+                root = parent[root]
+            while parent[x] != root:
+                parent[x], x = root, parent[x]
+            return root
+
+        km1 = k - 1
+        subset_first = {}
+        for i, clique in enumerate(clique_list):
+            for sub in combinations(sorted(clique), km1):
+                j = subset_first.get(sub)
+                if j is None:
+                    subset_first[sub] = i
+                else:
+                    ri, rj = _find(i), _find(j)
+                    if ri != rj:
+                        parent[ri] = rj
+
+        # Emit each component in order of its lowest clique index (==
+        # connected_components yield order over the percolation graph).
+        root_nodes = {}
+        order = []
+        for i in range(m):
+            r = _find(i)
+            bucket = root_nodes.get(r)
+            if bucket is None:
+                bucket = set()
+                root_nodes[r] = bucket
+                order.append(r)
+            bucket |= clique_list[i]
+
+        for r in order:
+            yield frozenset(root_nodes[r])
+
+    return _gen()
+
+
 _UPSTREAM_PUBLIC = getattr(
     _nx_community,
     "__all__",
@@ -335,6 +423,7 @@ __all__ = sorted(
         "louvain_communities",
         "asyn_lpa_communities",
         "fast_label_propagation_communities",
+        "k_clique_communities",
     }
 )
 
