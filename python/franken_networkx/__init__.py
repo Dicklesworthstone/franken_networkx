@@ -11933,6 +11933,17 @@ def chordal_graph_cliques(G):
         # parallels nx raises NetworkXError("Input graph is not
         # chordal."). Delegate to nx so both behaviours match exactly.
         return _call_networkx_for_parity("chordal_graph_cliques", G)
+    # br-r37-c1-8saye: nx raises NetworkXError("Input graph is not chordal.")
+    # on non-chordal input (lazily, per connected component); the native
+    # _raw_chordal_graph_cliques kernel instead returned an EMPTY result. Gate
+    # on is_chordal: chordal graphs keep the fast native path; non-chordal
+    # delegate to nx so the exact message and per-component
+    # partial-yield-then-raise behaviour match (verified byte-exact across
+    # complete/path/tree/cycle4/watts/mixed-disconnected).
+    if not is_chordal(G):
+        def _gen_nonchordal():
+            yield from _call_networkx_for_parity("chordal_graph_cliques", G)
+        return _gen_nonchordal()
     cliques = _raw_chordal_graph_cliques(G)
     def _gen():
         for c in cliques:
