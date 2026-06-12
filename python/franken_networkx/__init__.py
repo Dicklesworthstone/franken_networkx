@@ -20959,13 +20959,24 @@ def make_max_clique_graph(G, create_using=None):
         raise NetworkXNotImplemented("not implemented for directed type")
     graph = _empty_graph_from_create_using(create_using, default=_concrete_class_for(G))
     cliques = list(find_cliques(G))
-    for index in range(len(cliques)):
-        graph.add_node(index)
-    for left_index, left in enumerate(cliques):
-        left_nodes = set(left)
-        for right_index in range(left_index + 1, len(cliques)):
-            if left_nodes & set(cliques[right_index]):
-                graph.add_edge(left_index, right_index)
+    graph.add_nodes_from(range(len(cliques)))
+    # br-r37-c1-32x05: materialize each clique's node-set ONCE (nx does the same
+    # via `enumerate(set(c) for c in ...)`). The old inner loop rebuilt
+    # `set(cliques[right_index])` on every (left, right) pair — O(C^2) set
+    # constructions instead of O(C) — and added L-edges one PyO3 add_edge call
+    # at a time. Pre-building the sets and bulk add_edges_from leaves only the
+    # unavoidable O(C^2) pairwise intersections, byte-identical (nodes 0..C-1,
+    # edges (i, j) for i < j with non-disjoint cliques, ascending — same as
+    # nx's combinations(cliques, 2) order).
+    clique_sets = [set(clique) for clique in cliques]
+    count = len(clique_sets)
+    edges = [
+        (left_index, right_index)
+        for left_index in range(count)
+        for right_index in range(left_index + 1, count)
+        if clique_sets[left_index] & clique_sets[right_index]
+    ]
+    graph.add_edges_from(edges)
     return graph
 
 
