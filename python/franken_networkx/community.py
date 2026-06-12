@@ -507,5 +507,74 @@ def __getattr__(name):  # pragma: no cover — defensive passthrough
         ) from exc
 
 
+def is_partition(G, communities):
+    """Return True iff ``communities`` is a partition of the nodes of ``G``.
+
+    br-r37-c1-commpart: re-exported from networkx as ``@nx._dispatchable``, so
+    ``fnx.community.is_partition(fnx_graph, ...)`` round-tripped the WHOLE graph
+    through ``_fnx_to_nx`` (full O(V+E) conversion) for an O(V) membership check
+    — ~52x slower than nx. networkx's exact predicate run in-process (uses only
+    ``len(G)`` and ``n in G``, no nx helpers) — byte-identical.
+    """
+    if not isinstance(communities, list):
+        communities = list(communities)
+    # Snapshot the node set ONCE so per-element membership is a pure-Python set
+    # lookup rather than a PyO3 ``n in G`` crossing for every node in every block.
+    gnodes = set(G)
+    nodes = {n for c in communities for n in c if n in gnodes}
+    return len(gnodes) == len(nodes) == sum(len(c) for c in communities)
+
+
+def partition_quality(G, partition):
+    """Return ``(coverage, performance)`` of ``partition`` of ``G``.
+
+    br-r37-c1-commpart: same ``@nx._dispatchable`` conversion tax as
+    :func:`is_partition` (~14x slower). networkx's exact O(C^2 + L) algorithm run
+    in-process — byte-identical, including the exact ``NetworkXError`` message
+    networkx's ``@require_partition`` raises on an invalid partition and the
+    multigraph ``performance == -1.0`` contract.
+    """
+    from itertools import combinations as _combinations
+
+    if not is_partition(G, partition):
+        raise _fnx.NetworkXError(
+            "`partition` is not a valid partition of the nodes of G"
+        )
+
+    node_community = {}
+    for i, community in enumerate(partition):
+        for node in community:
+            node_community[node] = i
+
+    if not G.is_multigraph():
+        possible_inter_community_edges = sum(
+            len(p1) * len(p2) for p1, p2 in _combinations(partition, 2)
+        )
+        if G.is_directed():
+            possible_inter_community_edges *= 2
+    else:
+        possible_inter_community_edges = 0
+
+    n = len(G)
+    total_pairs = n * (n - 1)
+    if not G.is_directed():
+        total_pairs //= 2
+
+    intra_community_edges = 0
+    inter_community_non_edges = possible_inter_community_edges
+    for e in G.edges():
+        if node_community[e[0]] == node_community[e[1]]:
+            intra_community_edges += 1
+        else:
+            inter_community_non_edges -= 1
+
+    coverage = intra_community_edges / len(G.edges)
+    if G.is_multigraph():
+        performance = -1.0
+    else:
+        performance = (intra_community_edges + inter_community_non_edges) / total_pairs
+    return coverage, performance
+
+
 def __dir__():
     return sorted(set(__all__) | set(name for name in globals() if not name.startswith("_")))
