@@ -1,0 +1,23 @@
+{
+  "bead": "br-mcbscipy",
+  "function": "minimum_cycle_basis (weight=None and weighted)",
+  "lever": "de-delegate to in-process de Pina (networkx _min_cycle_basis verbatim, all CPython-set-order parts kept in Python) with the O(m*n) Python Dijkstra 'lift' (94.5% of upstream time) replaced by ONE batched scipy csgraph.dijkstra over the lifted double-cover's sparse matrix; final shortest_path stays on nx for exact tie-break",
+  "parity": {
+    "isomorphism_target": "_minimum_cycle_basis_via_parity (current fnx contract)",
+    "cases": 58,
+    "mismatches_vs_current_fnx": 0,
+    "also_match_raw_nx": "57/58 (the 1 is a PRE-EXISTING non-unique-basis difference: fnx runs on a rebuilt component-ordered graph, not nx's SubgraphView)",
+    "golden_sha256": "3eb121ba6d4b29a46931faa88d8f0cffff7610bb70f827fe988303692c1efdcf",
+    "coverage": "unweighted+weighted, multi-component, string nodes, trees, K4 distinct-weight (historical optimality fixture), adversarial two-triangles (PYTHONHASHSEED-sensitive)"
+  },
+  "pytest": "924 passed (cycle/minimum_cycle/cycles_module), 0 regressions",
+  "profile_upstream": "13.49s / 14.26s (94.5%) in 20100 shortest_path_length calls at n=100",
+  "bench_min_of_2_ms": {
+    "ws80":  {"nx_old_fnx": 2436.3, "fnx": 318.9, "speedup": 7.6},
+    "ws100": {"nx_old_fnx": 4622.6, "fnx": 543.7, "speedup": 8.5},
+    "ws120": {"nx_old_fnx": 8075.2, "fnx": 872.8, "speedup": 9.3},
+    "ws150": {"nx_old_fnx": 15397.7, "fnx": 1536.4, "speedup": 10.0}
+  },
+  "headline": "minimum_cycle_basis 7.6-10x faster (growing with n; ws120 8.1s->873ms), byte-exact to current fnx contract. Pure Python/scipy, no rebuild. Distances exact -> argmin + final path unchanged -> same basis incl. weighted.",
+  "note": "old fnx delegated the whole algorithm to nx in-process, so nx timing == fnx-before"
+}
