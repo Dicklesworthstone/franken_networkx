@@ -16737,6 +16737,18 @@ def is_weighted(G, edge=None, weight="weight"):
     if G.number_of_edges() == 0:
         return False
 
+    # br-r37-c1-isnegw (sibling of is_negatively_weighted): scan the live edge
+    # dicts via the native to_dict_of_dicts kernel instead of the per-edge
+    # edges(data=True) materialization — ~2.2x slower than nx on weighted graphs,
+    # where ``all`` cannot short-circuit and walks every edge. to_dict_of_dicts is
+    # overlay-safe (reads edge_py_attrs). Undirected rows list each edge twice;
+    # harmless for ``all``. Multigraph / views keep the edges() scan.
+    if type(G) is Graph or type(G) is DiGraph:
+        return all(
+            weight in d
+            for inner in to_dict_of_dicts(G).values()
+            for d in inner.values()
+        )
     return all(weight in data for _u, _v, data in G.edges(data=True))
 
 
