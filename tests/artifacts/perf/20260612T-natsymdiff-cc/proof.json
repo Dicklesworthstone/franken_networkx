@@ -1,0 +1,21 @@
+{
+  "beads": ["br-r37-c1-natsymdiff", "br-r37-c1-natsymdiff-di"],
+  "function": "symmetric_difference (simple Graph + DiGraph)",
+  "lever": "native PyGraph/PyDiGraph::_native_symmetric_difference in G integer index space (two-pass G-only then H-only; H mapped into G index space; neighbors_indices/successors_indices); wrapper gate type(G) is Graph/DiGraph",
+  "parity": {
+    "cases": 71,
+    "native_hits": 71,
+    "mismatches": 0,
+    "golden_sha256": "7529f4d66a7628254c55eaf7b5d926695de3daa84f85916d21bb689277467267",
+    "adversarial": "60 sweeps with H node-insertion-order reversed (G-index != H-index)"
+  },
+  "pytest": "361 passed (symmetric_difference/difference/operator/binary), 0 regressions",
+  "bench_warm_min_of_11_ms": {
+    "u_BA800_sym_gnp":   {"nx": 5.364, "fnx_before": 7.59, "fnx_after": 2.769, "after_ratio": 0.52, "self_speedup": 2.74},
+    "u_WS2000_sym_WS":   {"nx": 7.652, "fnx_after": 4.476, "after_ratio": 0.58},
+    "d_gnp800_sym_gnp":  {"nx": 14.033, "fnx_before": 27.22, "fnx_after": 7.091, "after_ratio": 0.51, "self_speedup": 3.84},
+    "d_gnp2000_sym_gnp": {"nx": 55.399, "fnx_after": 32.542, "after_ratio": 0.59}
+  },
+  "headline": "symmetric_difference simple Graph 1.36x / DiGraph 1.72x slower than nx -> 1.7-2.0x faster, byte-exact (self-speedup 2.74x / 3.84x)",
+  "follow_up": "intersection ~1.22x (last operator on this lever)"
+}

@@ -5249,6 +5249,104 @@ impl PyGraph {
         Py::new(py, r).map(Some)
     }
 
+    /// br-r37-c1-natsymdiff: fully-native `symmetric_difference(G, H)` for simple
+    /// Graph (sibling of `PyGraph::_native_difference` and the MultiGraph
+    /// `_native_symmetric_difference`). Two passes in G's integer index space:
+    /// G-only edges (G node-major `edges()` order) then H-only edges (H node-major
+    /// `edges()` order) — exactly the Python wrapper's order. Undirected, so each
+    /// pass dedups by canonical (min,max) index pair and membership is
+    /// orientation-independent. Node display keys come from G. Returns `None` on
+    /// z6uka display overrides or a node missing from G.
+    fn _native_symmetric_difference(
+        slf: PyRef<'_, Self>,
+        py: Python<'_>,
+        h: &Bound<'_, PyAny>,
+    ) -> PyResult<Option<Py<Self>>> {
+        let Ok(h_ref) = h.extract::<PyRef<'_, Self>>() else {
+            return Ok(None);
+        };
+        let g = &*slf;
+        let hh = &*h_ref;
+        if !g.adj_py_keys.is_empty() || !hh.adj_py_keys.is_empty() {
+            return Ok(None);
+        }
+
+        // Common index space = G's node order (= result node order).
+        let g_nodes: Vec<&str> = g.inner.nodes_ordered();
+        let g_index: HashMap<&str, usize> =
+            g_nodes.iter().enumerate().map(|(i, &n)| (n, i)).collect();
+
+        // G's and H's edge sets as canonical (min,max) G-index pairs.
+        let mut g_set: HashSet<(usize, usize)> = HashSet::new();
+        for (ui, _u) in g_nodes.iter().enumerate() {
+            if let Some(nbrs) = g.inner.neighbors_indices(ui) {
+                for &vi in nbrs {
+                    g_set.insert(if ui <= vi { (ui, vi) } else { (vi, ui) });
+                }
+            }
+        }
+        let h_nodes: Vec<&str> = hh.inner.nodes_ordered();
+        let mut h_set: HashSet<(usize, usize)> = HashSet::new();
+        for u in &h_nodes {
+            let Some(&ui) = g_index.get(*u) else {
+                return Ok(None);
+            };
+            for v in hh.inner.neighbors(u).unwrap_or_default() {
+                let Some(&vi) = g_index.get(v) else {
+                    return Ok(None);
+                };
+                h_set.insert(if ui <= vi { (ui, vi) } else { (vi, ui) });
+            }
+        }
+
+        let mut r = Self::new_empty_with_mode(py, g.inner.mode())?;
+        r.lazy_int_node_stop = g.lazy_int_node_stop;
+        for (canonical, obj) in &g.node_key_map {
+            r.node_key_map.insert(canonical.clone(), obj.clone_ref(py));
+        }
+        let _ = r.inner.extend_nodes_with_attrs_unrecorded(
+            g_nodes.iter().map(|n| ((*n).to_owned(), AttrMap::new())),
+        );
+
+        let mut edges: Vec<(String, String, AttrMap)> = Vec::new();
+        // Pass 1: G-only edges (absent from H), G node-major order, each pair once.
+        let mut seen_g: HashSet<(usize, usize)> = HashSet::new();
+        for (ui, &u) in g_nodes.iter().enumerate() {
+            if let Some(nbrs) = g.inner.neighbors_indices(ui) {
+                for &vi in nbrs {
+                    let pair = if ui <= vi { (ui, vi) } else { (vi, ui) };
+                    if !seen_g.insert(pair) {
+                        continue;
+                    }
+                    if !h_set.contains(&pair) {
+                        edges.push((u.to_owned(), g_nodes[vi].to_owned(), AttrMap::new()));
+                    }
+                }
+            }
+        }
+        // Pass 2: H-only edges (absent from G), H node-major order, each pair once.
+        let mut seen_h: HashSet<(usize, usize)> = HashSet::new();
+        for u in &h_nodes {
+            let ui = g_index[*u];
+            for v in hh.inner.neighbors(u).unwrap_or_default() {
+                let vi = g_index[v];
+                let pair = if ui <= vi { (ui, vi) } else { (vi, ui) };
+                if !seen_h.insert(pair) {
+                    continue;
+                }
+                if !g_set.contains(&pair) {
+                    edges.push(((*u).to_owned(), v.to_owned(), AttrMap::new()));
+                }
+            }
+        }
+        let n_edges = edges.len();
+        let node_count = g_nodes.len();
+        let _ = r.inner.extend_edges_with_attrs_unrecorded(edges);
+        r.nodes_seq = u64::try_from(node_count).unwrap_or(u64::MAX);
+        r.edges_seq = u64::try_from(n_edges).unwrap_or(u64::MAX);
+        Py::new(py, r).map(Some)
+    }
+
     /// Create a new Graph.
     ///
     /// Parameters

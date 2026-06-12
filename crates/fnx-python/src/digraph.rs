@@ -4684,6 +4684,108 @@ impl PyDiGraph {
         Py::new(py, r).map(Some)
     }
 
+    /// br-r37-c1-natsymdiff-di: fully-native `symmetric_difference(G, H)` for
+    /// simple `DiGraph` (directed sibling of `PyGraph::_native_symmetric_difference`).
+    /// Two passes in G's integer index space: G-only directed edges (G node-major
+    /// order) then H-only directed edges (H node-major order) — exactly the Python
+    /// wrapper's order. Node display keys come from G (`create_empty_copy(G)`
+    /// semantics). Returns `None` on z6uka succ/pred overrides or if a node is
+    /// missing from G (wrapper enforces equal node sets).
+    fn _native_symmetric_difference(
+        slf: PyRef<'_, Self>,
+        py: Python<'_>,
+        h: &Bound<'_, PyAny>,
+    ) -> PyResult<Option<Py<Self>>> {
+        let Ok(h_ref) = h.extract::<PyRef<'_, Self>>() else {
+            return Ok(None);
+        };
+        let g = &*slf;
+        let hh = &*h_ref;
+        if !g.succ_py_keys.is_empty()
+            || !g.pred_py_keys.is_empty()
+            || !hh.succ_py_keys.is_empty()
+            || !hh.pred_py_keys.is_empty()
+        {
+            return Ok(None);
+        }
+
+        // Common index space = G's node order (= result node order).
+        let g_nodes: Vec<&str> = g.inner.nodes_ordered();
+        let g_index: HashMap<&str, usize> =
+            g_nodes.iter().enumerate().map(|(i, &n)| (n, i)).collect();
+
+        // G's and H's directed edge sets as (src_idx, tgt_idx) G-index pairs.
+        let mut g_set: std::collections::HashSet<(usize, usize)> =
+            std::collections::HashSet::new();
+        for (ui, _u) in g_nodes.iter().enumerate() {
+            if let Some(succ) = g.inner.successors_indices(ui) {
+                for &vi in succ {
+                    g_set.insert((ui, vi));
+                }
+            }
+        }
+        let mut h_set: std::collections::HashSet<(usize, usize)> =
+            std::collections::HashSet::new();
+        let h_nodes: Vec<&str> = hh.inner.nodes_ordered();
+        for u in &h_nodes {
+            let Some(&ui) = g_index.get(*u) else {
+                return Ok(None);
+            };
+            for v in hh.inner.successors(u).unwrap_or_default() {
+                let Some(&vi) = g_index.get(v) else {
+                    return Ok(None);
+                };
+                h_set.insert((ui, vi));
+            }
+        }
+
+        let mut r = Self::new_empty_with_mode(py, g.inner.mode())?;
+        for (canonical, obj) in &g.node_key_map {
+            r.node_key_map.insert(canonical.clone(), obj.clone_ref(py));
+        }
+        let _ = r.inner.extend_nodes_with_attrs_unrecorded(
+            g_nodes
+                .iter()
+                .map(|n| ((*n).to_owned(), fnx_classes::AttrMap::new())),
+        );
+
+        // Pass 1: G-only edges (absent from H), G node-major order.
+        let mut edges: Vec<(String, String, fnx_classes::AttrMap)> = Vec::new();
+        for (ui, &u) in g_nodes.iter().enumerate() {
+            if let Some(succ) = g.inner.successors_indices(ui) {
+                for &vi in succ {
+                    if !h_set.contains(&(ui, vi)) {
+                        edges.push((
+                            u.to_owned(),
+                            g_nodes[vi].to_owned(),
+                            fnx_classes::AttrMap::new(),
+                        ));
+                    }
+                }
+            }
+        }
+        // Pass 2: H-only edges (absent from G), H node-major order.
+        for u in &h_nodes {
+            let ui = g_index[*u];
+            for v in hh.inner.successors(u).unwrap_or_default() {
+                let vi = g_index[v];
+                if !g_set.contains(&(ui, vi)) {
+                    edges.push((
+                        (*u).to_owned(),
+                        v.to_owned(),
+                        fnx_classes::AttrMap::new(),
+                    ));
+                }
+            }
+        }
+        let n_edges = edges.len();
+        let node_count = g_nodes.len();
+        let _ = r.inner.extend_edges_with_attrs_unrecorded(edges);
+        r.nodes_seq = u64::try_from(node_count).unwrap_or(u64::MAX);
+        r.edges_seq = u64::try_from(n_edges).unwrap_or(u64::MAX);
+        Py::new(py, r).map(Some)
+    }
+
     /// Create a new DiGraph.
     #[new]
     #[pyo3(signature = (incoming_graph_data=None, **attr))]

@@ -13046,6 +13046,19 @@ def symmetric_difference(G, H):
         _native_R = G._native_symmetric_difference(H)
         if _native_R is not None:
             return _native_R
+    # br-r37-c1-natsymdiff(-di): fully-native simple Graph/DiGraph
+    # symmetric_difference — same lever as the Multi* path above (G-only then
+    # H-only edges, in Rust, no create_empty_copy + EdgeView sets + add_edges_from).
+    # Equal-node-sets check precedes the skipped create_empty_copy (never raises),
+    # so error order is unchanged. Declines (-> None) on z6uka display overrides.
+    if (type(G) is Graph and type(H) is Graph) or (
+        type(G) is DiGraph and type(H) is DiGraph
+    ):
+        if set(G) != set(H):
+            raise NetworkXError("Node sets of graphs not equal")
+        _native_R = G._native_symmetric_difference(H)
+        if _native_R is not None:
+            return _native_R
     R = create_empty_copy(G, with_data=False)
     if set(G) != set(H):
         raise NetworkXError("Node sets of graphs not equal")
