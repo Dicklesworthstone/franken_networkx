@@ -1,0 +1,38 @@
+{
+  "results": [
+    {
+      "command": "PYTHONPATH=/data/projects/franken_networkx/python CANDIDATE_FNX_SO=/data/tmp/cargo-target/maturin/lib_fnx.so .venv/bin/python tests/artifacts/perf/20260612T-multigraph-selfloops-cod/harness_selfloops.py bench --calls 1000 --samples 5 --warmups 1",
+      "mean": 1.51929939968,
+      "stddev": 0.21498047742807108,
+      "median": 1.42637621158,
+      "user": 5.042101359999999,
+      "system": 0.05868011999999999,
+      "min": 1.3178624375799999,
+      "max": 1.86886809558,
+      "times": [
+        1.47635006558,
+        1.3178624375799999,
+        1.32665605558,
+        1.37640235758,
+        1.66945470558,
+        1.36059389258,
+        1.86727482758,
+        1.86886809558,
+        1.56231032458,
+        1.3672212345799999
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

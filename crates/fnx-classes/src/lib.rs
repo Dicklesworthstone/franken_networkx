@@ -2115,6 +2115,15 @@ impl MultiGraph {
         self.edge_count
     }
 
+    #[must_use]
+    pub fn number_of_selfloops(&self) -> usize {
+        self.edges
+            .iter()
+            .filter(|(edge_key, _)| edge_key.left == edge_key.right)
+            .map(|(_, edge_bucket)| edge_bucket.len())
+            .sum()
+    }
+
     /// Return edge keys as Vec (needed by Python bindings).
     #[must_use]
     pub fn edge_keys(&self, left: &str, right: &str) -> Option<Vec<usize>> {
@@ -3545,6 +3554,25 @@ mod tests {
         assert_ne!(first, second);
         assert_eq!(graph.edge_count(), 2);
         assert_eq!(graph.edge_keys("a", "b"), Some(vec![0, 1]));
+        assert_multigraph_core_invariants(&graph);
+    }
+
+    #[test]
+    fn multigraph_counts_parallel_selfloops_only() {
+        let mut graph = MultiGraph::strict();
+        let _ = graph
+            .add_edge("a", "a")
+            .expect("self-loop add should succeed");
+        let _ = graph
+            .add_edge("a", "a")
+            .expect("self-loop add should succeed");
+        let _ = graph
+            .add_edge("b", "b")
+            .expect("self-loop add should succeed");
+        let _ = graph.add_edge("a", "b").expect("edge add should succeed");
+        let _ = graph.add_edge("a", "b").expect("edge add should succeed");
+
+        assert_eq!(graph.number_of_selfloops(), 3);
         assert_multigraph_core_invariants(&graph);
     }
 

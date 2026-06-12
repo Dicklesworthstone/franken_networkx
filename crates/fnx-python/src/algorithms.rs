@@ -17597,6 +17597,19 @@ pub fn number_of_selfloops_rust(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResul
     Ok(py.allow_threads(|| fnx_algorithms::number_of_selfloops(inner)))
 }
 
+/// Count self-loops in a MultiGraph or MultiDiGraph without materializing edges.
+#[pyfunction]
+pub fn multigraph_number_of_selfloops_rust(g: &Bound<'_, PyAny>) -> PyResult<usize> {
+    let gr = extract_graph(g)?;
+    match &gr {
+        GraphRef::MultiUndirected { mg, .. } => Ok(mg.inner.number_of_selfloops()),
+        GraphRef::MultiDirected { mdg, .. } => Ok(mdg.inner.number_of_selfloops()),
+        _ => Err(NetworkXNotImplemented::new_err(
+            "not implemented for non-multigraph type",
+        )),
+    }
+}
+
 /// Nodes with self-loops.
 #[pyfunction]
 pub fn nodes_with_selfloops_rust(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Vec<PyObject>> {
@@ -19233,6 +19246,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Self-loop functions
     m.add_function(wrap_pyfunction!(selfloop_edges_rust, m)?)?;
     m.add_function(wrap_pyfunction!(number_of_selfloops_rust, m)?)?;
+    m.add_function(wrap_pyfunction!(multigraph_number_of_selfloops_rust, m)?)?;
     m.add_function(wrap_pyfunction!(nodes_with_selfloops_rust, m)?)?;
     // To dict of lists
     m.add_function(wrap_pyfunction!(to_dict_of_lists_rust, m)?)?;

@@ -19240,6 +19240,10 @@ def number_of_selfloops(G):
             return len(_fnx.nodes_with_selfloops_rust(G))
         except Exception:
             return sum(1 for u in G if G.has_edge(u, u))
+    try:
+        return _fnx.multigraph_number_of_selfloops_rust(G)
+    except Exception:
+        pass
     return sum(1 for _ in selfloop_edges(G))
 
 

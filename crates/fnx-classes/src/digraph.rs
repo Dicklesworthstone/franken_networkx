@@ -1658,6 +1658,15 @@ impl MultiDiGraph {
         self.edge_count
     }
 
+    #[must_use]
+    pub fn number_of_selfloops(&self) -> usize {
+        self.edges
+            .iter()
+            .filter(|(edge_key, _)| edge_key.source == edge_key.target)
+            .map(|(_, edge_bucket)| edge_bucket.len())
+            .sum()
+    }
+
     /// Return an iterator over keys for edges from source to target.
     /// Edge keys as Vec.
     #[must_use]
@@ -2574,6 +2583,19 @@ mod tests {
         assert!(!g.has_edge("d", "b"));
         assert!(g.has_edge("c", "a")); // not incident to b
         assert_digraph_core_invariants(&g);
+    }
+
+    #[test]
+    fn multidigraph_counts_parallel_selfloops_only() {
+        let mut g = MultiDiGraph::strict();
+        let _ = g.add_edge("a", "a").expect("self-loop add should succeed");
+        let _ = g.add_edge("a", "a").expect("self-loop add should succeed");
+        let _ = g.add_edge("b", "b").expect("self-loop add should succeed");
+        let _ = g.add_edge("a", "b").expect("edge add should succeed");
+        let _ = g.add_edge("b", "a").expect("edge add should succeed");
+
+        assert_eq!(g.number_of_selfloops(), 3);
+        assert_multidigraph_core_invariants(&g);
     }
 
     // br-r37-c1-p6bxu: A/B substrate bench for MultiDiGraph::remove_node
