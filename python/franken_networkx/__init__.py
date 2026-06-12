@@ -7290,7 +7290,9 @@ def shortest_path(
         # weight mutation (``G.edges[u, v]["weight"] = w``) is invisible to the
         # native kernel and it returns a NON-OPTIMAL path (e.g. weight 22 vs the
         # true 12). Sync ``inner`` before the kernel, matching dijkstra_path.
-        _sync_rust_edge_attrs(G)
+        # br-r37-c1-syncedgeonly: edge-only sync (reads edge weights, not node
+        # attrs) — skips the full sync's unguarded O(N) node-attr rebuild.
+        _sync_rust_edge_attrs(G, edge_only=True)
     result = _raw_shortest_path(G, source=source, target=target, weight=weight, method=method)
     if source is None and target is None and isinstance(result, dict):
         # networkx returns a generator of (source, paths_dict) pairs when both
@@ -11548,7 +11550,9 @@ def minimum_spanning_tree(G, weight="weight", algorithm="kruskal", ignore_nan=Fa
     # sees fresh weights.  Sync unconditionally — it's ~0.6ms even on
     # a 1k-edge graph, and skipping the conditional has_weight_attr
     # Python scan (~1.5ms) is a net win.
-    _sync_rust_edge_attrs(G)
+    # br-r37-c1-syncedgeonly: MST reads only edge weights, never node attrs —
+    # edge-only sync skips the full sync's unguarded O(N) node-attr rebuild.
+    _sync_rust_edge_attrs(G, edge_only=True)
     # br-r37-c1-mstedgescan: NaN-weighted edges are an nx error
     # condition (with default ignore_nan=False), but the Rust kernel
     # silently treats NaN as the default 1.0.  Use the native Rust
@@ -11655,7 +11659,8 @@ def maximum_spanning_tree(G, weight="weight", algorithm="kruskal", ignore_nan=Fa
     # ~3.2x slower than nx (full nx compute + ``_from_nx_graph`` rebuild). Mirror
     # ``minimum_spanning_tree``: sync post-creation weight mutations into Rust,
     # reject NaN/inf weights (nx error contract), then run the native kernel.
-    _sync_rust_edge_attrs(G)
+    # br-r37-c1-syncedgeonly: edge-only sync (reads edge weights, not node attrs).
+    _sync_rust_edge_attrs(G, edge_only=True)
     if _native_has_nonfinite_edge_weight is not None:
         try:
             if _native_has_nonfinite_edge_weight(G, weight):
@@ -15188,7 +15193,12 @@ def astar_path(G, source, target, heuristic=None, weight="weight", *, cutoff=Non
     # dijkstra/bellman-ford/floyd-warshall.
     # br-r37-c1-astgate: sync ONCE, and only run the O(|E|) weight scans when
     # the graph carries the weight attribute (see astar_path_length).
-    _sync_rust_edge_attrs(G)
+    # br-r37-c1-syncedgeonly: A* reads only EDGE weights, never node attrs, so
+    # use the edge-only sync. The full sync's unconditional O(N) node-attr
+    # rebuild (no node-dirty guard) was ~38% of a single-pair astar_path call
+    # (cProfile: _fnx_sync_attrs_to_inner 0.088s of 0.231s); the edge-only
+    # variant is edges_dirty-guarded and a no-op on an unmutated graph.
+    _sync_rust_edge_attrs(G, edge_only=True)
     if _astar_weight_scan_needed(G, weight) and (
         _has_negative_edge_weight_for_dijkstra(G, weight, _skip_sync=True)
         or _has_positive_infinity_edge_weight_for_dijkstra(G, weight, _skip_sync=True)
@@ -15242,7 +15252,8 @@ def astar_path_length(
     # unconditionally even on unweighted graphs -- ~2.4ms of pure overhead on a
     # single-pair A* whose native search is ~0.05ms (45x slower than nx -> 7.4x).
     # br-r37-c1-0x9pd: see astar_path.
-    _sync_rust_edge_attrs(G)
+    # br-r37-c1-syncedgeonly: edge-only sync (reads edge weights, not node attrs).
+    _sync_rust_edge_attrs(G, edge_only=True)
     if _astar_weight_scan_needed(G, weight) and (
         _has_negative_edge_weight_for_dijkstra(G, weight, _skip_sync=True)
         or _has_positive_infinity_edge_weight_for_dijkstra(G, weight, _skip_sync=True)
