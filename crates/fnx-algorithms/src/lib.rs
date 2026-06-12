@@ -8833,24 +8833,65 @@ fn has_path_fast(graph: &Graph, source: &str, target: &str) -> bool {
         return true;
     }
 
+    // br-haspathbidir: integer-index BIDIRECTIONAL BFS (matching the directed
+    // has_path_directed_fast and nx's bidirectional_shortest_path class). The old
+    // single-source BFS only noticed the target when it was POPPED, so it explored
+    // the whole forward reachable set / scanned O(|E|) edges before reporting
+    // reachability — even when the target was a direct neighbour (K801: 4.47x
+    // slower than nx; far-target sparse: 2.56x). Expanding the smaller frontier
+    // and stopping the instant the frontiers meet makes it O(b^(d/2)).
+    // Reachability is order-invariant, so only the boolean result must match.
+    //
+    // br-haspathbidir refinement: REUSE the frontier buffers across levels via
+    // std::mem::swap into a single scratch `next` Vec. The first cut allocated a
+    // fresh `next` every level, so long sparse chains (path n=2000) and unreachable
+    // equal-size components paid one heap alloc per BFS level — that turned the
+    // bidirectional win into a 3x REGRESSION vs the old single-source BFS on those
+    // shapes. Swapping buffers keeps the O(b^(d/2)) frontier shrink with zero
+    // per-level allocation.
     let n = graph.node_count();
-    let mut visited = vec![false; n];
-    let mut queue: VecDeque<usize> = VecDeque::new();
+    let mut visited_fwd = vec![false; n];
+    let mut visited_bwd = vec![false; n];
+    visited_fwd[source_idx] = true;
+    visited_bwd[target_idx] = true;
+    let mut fwd: Vec<usize> = vec![source_idx];
+    let mut bwd: Vec<usize> = vec![target_idx];
+    let mut next: Vec<usize> = Vec::new();
 
-    visited[source_idx] = true;
-    queue.push_back(source_idx);
-
-    while let Some(current) = queue.pop_front() {
-        if current == target_idx {
-            return true;
-        }
-        if let Some(neighbors) = graph.neighbors_indices(current) {
-            for &nbr in neighbors {
-                if !visited[nbr] {
-                    visited[nbr] = true;
-                    queue.push_back(nbr);
+    while !fwd.is_empty() && !bwd.is_empty() {
+        // Always expand the smaller frontier (the O(b^(d/2)) lever).
+        if fwd.len() <= bwd.len() {
+            next.clear();
+            for &u in &fwd {
+                if let Some(neighbors) = graph.neighbors_indices(u) {
+                    for &v in neighbors {
+                        if visited_bwd[v] {
+                            return true;
+                        }
+                        if !visited_fwd[v] {
+                            visited_fwd[v] = true;
+                            next.push(v);
+                        }
+                    }
                 }
             }
+            std::mem::swap(&mut fwd, &mut next);
+        } else {
+            next.clear();
+            for &u in &bwd {
+                if let Some(neighbors) = graph.neighbors_indices(u) {
+                    for &v in neighbors {
+                        if visited_fwd[v] {
+                            return true;
+                        }
+                        if !visited_bwd[v] {
+                            visited_bwd[v] = true;
+                            next.push(v);
+                        }
+                    }
+                }
+            }
+            std::mem::swap(&mut bwd, &mut next);
         }
     }
     false
