@@ -12976,6 +12976,15 @@ def difference(G, H):
         _native_R = G._native_difference(H)
         if _native_R is not None:
             return _native_R
+    # br-r37-c1-natdiffsimple-di: directed sibling — fully-native simple DiGraph
+    # difference (PyDiGraph::_native_difference). Same lever/error-order contract
+    # as the undirected path above.
+    if type(G) is DiGraph and type(H) is DiGraph:
+        if set(G) != set(H):
+            raise NetworkXError("Node sets of graphs not equal")
+        _native_R = G._native_difference(H)
+        if _native_R is not None:
+            return _native_R
     R = create_empty_copy(G, with_data=False)
     if set(G) != set(H):
         raise NetworkXError("Node sets of graphs not equal")

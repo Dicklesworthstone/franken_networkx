@@ -4603,6 +4603,87 @@ type DiAttrEdgeBatch = (
 
 #[pymethods]
 impl PyDiGraph {
+    /// br-r37-c1-natdiffsimple-di: fully-native `difference(G, H)` for simple
+    /// `DiGraph` (the directed sibling of `PyGraph::_native_difference`). Builds
+    /// the result entirely in Rust in G's integer index space: H's directed edges
+    /// are hashed into a `HashSet<(usize, usize)>` of G-index pairs (no min/max —
+    /// orientation matters), G is walked via `successors_indices` in node-major
+    /// `edges()` order, and kept edges (absent from H) go straight onto the fresh
+    /// result. Node display keys come from copying `node_key_map` (never per-node
+    /// `py_node_key`). Skips the Python `create_empty_copy` + EdgeView set +
+    /// `add_edges_from` round-trip (~1.36x nx). Returns `None` (wrapper falls back)
+    /// when either graph carries z6uka succ/pred display overrides, or when an H
+    /// node is somehow absent from G (the wrapper already enforces equal sets).
+    fn _native_difference(
+        slf: PyRef<'_, Self>,
+        py: Python<'_>,
+        h: &Bound<'_, PyAny>,
+    ) -> PyResult<Option<Py<Self>>> {
+        let Ok(h_ref) = h.extract::<PyRef<'_, Self>>() else {
+            return Ok(None);
+        };
+        let g = &*slf;
+        let hh = &*h_ref;
+        if !g.succ_py_keys.is_empty()
+            || !g.pred_py_keys.is_empty()
+            || !hh.succ_py_keys.is_empty()
+            || !hh.pred_py_keys.is_empty()
+        {
+            return Ok(None);
+        }
+
+        // Work in G's integer index space — no String alloc in the hot loops.
+        let g_nodes: Vec<&str> = g.inner.nodes_ordered();
+        let g_index: HashMap<&str, usize> =
+            g_nodes.iter().enumerate().map(|(i, &n)| (n, i)).collect();
+
+        // H's directed edge set as (source_idx, target_idx) G-index pairs.
+        let mut h_set: std::collections::HashSet<(usize, usize)> =
+            std::collections::HashSet::new();
+        for u in hh.inner.nodes_ordered() {
+            let Some(&ui) = g_index.get(u) else {
+                return Ok(None);
+            };
+            for v in hh.inner.successors(u).unwrap_or_default() {
+                let Some(&vi) = g_index.get(v) else {
+                    return Ok(None);
+                };
+                h_set.insert((ui, vi));
+            }
+        }
+
+        let mut r = Self::new_empty_with_mode(py, g.inner.mode())?;
+        // Copy ONLY G's materialized node objects; never call py_node_key per node.
+        for (canonical, obj) in &g.node_key_map {
+            r.node_key_map.insert(canonical.clone(), obj.clone_ref(py));
+        }
+        let _ = r.inner.extend_nodes_with_attrs_unrecorded(
+            g_nodes
+                .iter()
+                .map(|n| ((*n).to_owned(), fnx_classes::AttrMap::new())),
+        );
+
+        // G's directed edges in node-major `edges()` order (each appears once in
+        // its source's out-row), kept when absent from H. Orientation preserved.
+        let mut edges: Vec<(String, String, fnx_classes::AttrMap)> = Vec::new();
+        for (ui, &u) in g_nodes.iter().enumerate() {
+            let Some(succ) = g.inner.successors_indices(ui) else {
+                continue;
+            };
+            for &vi in succ {
+                if !h_set.contains(&(ui, vi)) {
+                    edges.push((u.to_owned(), g_nodes[vi].to_owned(), fnx_classes::AttrMap::new()));
+                }
+            }
+        }
+        let n_edges = edges.len();
+        let node_count = g_nodes.len();
+        let _ = r.inner.extend_edges_with_attrs_unrecorded(edges);
+        r.nodes_seq = u64::try_from(node_count).unwrap_or(u64::MAX);
+        r.edges_seq = u64::try_from(n_edges).unwrap_or(u64::MAX);
+        Py::new(py, r).map(Some)
+    }
+
     /// Create a new DiGraph.
     #[new]
     #[pyo3(signature = (incoming_graph_data=None, **attr))]
