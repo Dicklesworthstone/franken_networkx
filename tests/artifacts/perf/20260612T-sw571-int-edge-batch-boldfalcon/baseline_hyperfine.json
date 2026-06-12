@@ -1,0 +1,38 @@
+{
+  "results": [
+    {
+      "command": "FNX_PROJECT_ROOT=/data/projects/.scratch/franken_networkx-sw571-baseline2-boldfalcon-20260612 FNX_SCRATCH_PYTHON=/data/projects/.scratch/franken_networkx-sw571-baseline2-boldfalcon-20260612/python /data/projects/franken_networkx/.venv/bin/python tests/artifacts/perf/20260612T-sw571-int-edge-batch-boldfalcon/int_edge_batch_harness.py --mode bench --n 1500 --m 12000 --repeat 20",
+      "mean": 0.39621543276,
+      "stddev": 0.023934084530428907,
+      "median": 0.39213488426,
+      "user": 4.3984437,
+      "system": 0.06292616,
+      "min": 0.36388615426,
+      "max": 0.43613870826,
+      "times": [
+        0.36862060226,
+        0.42124737026,
+        0.39193382326,
+        0.37755391426,
+        0.36388615426,
+        0.40449500726,
+        0.43613870826,
+        0.38584002026,
+        0.39233594526,
+        0.42010278226000003
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

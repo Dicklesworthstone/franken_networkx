@@ -940,6 +940,37 @@ impl Graph {
     }
 
     #[must_use]
+    pub fn nodes_are_contiguous_int_prefix(&self) -> bool {
+        self.nodes
+            .keys()
+            .enumerate()
+            .all(|(index, key)| Self::decimal_key_matches_index(key, index))
+    }
+
+    fn decimal_key_matches_index(key: &str, index: usize) -> bool {
+        let bytes = key.as_bytes();
+        if bytes.is_empty() || (bytes.len() > 1 && bytes[0] == b'0') {
+            return false;
+        }
+
+        let mut parsed = 0usize;
+        for &byte in bytes {
+            if !byte.is_ascii_digit() {
+                return false;
+            }
+            let digit = usize::from(byte - b'0');
+            let Some(next) = parsed
+                .checked_mul(10)
+                .and_then(|value| value.checked_add(digit))
+            else {
+                return false;
+            };
+            parsed = next;
+        }
+        parsed == index
+    }
+
+    #[must_use]
     pub fn evidence_ledger(&self) -> &EvidenceLedger {
         self.runtime_policy.decision_log()
     }
@@ -1207,6 +1238,60 @@ impl Graph {
             inserted += 1;
         }
         self.record_bulk_edge_summary(inserted, nodes_added);
+        inserted
+    }
+
+    /// Bulk-add attribute-free edges whose endpoints have already been
+    /// resolved to existing node indices. This is the index-space sibling of
+    /// [`extend_edges_unrecorded`]: it preserves duplicate handling, adjacency
+    /// row order, edge storage order, and string-canonical endpoint orientation
+    /// without per-edge node-name allocation or map lookup.
+    #[must_use]
+    pub fn extend_existing_index_edges_unrecorded<I>(&mut self, edges: I) -> usize
+    where
+        I: IntoIterator<Item = (usize, usize)>,
+    {
+        let iterator = edges.into_iter();
+        let (lower_bound, _) = iterator.size_hint();
+        self.edges.reserve(lower_bound);
+        self.edge_index_endpoints.reserve(lower_bound);
+
+        let mut inserted = 0usize;
+        for (left_idx, right_idx) in iterator {
+            debug_assert!(left_idx < self.nodes.len());
+            debug_assert!(right_idx < self.nodes.len());
+
+            let edge_key = Self::canon_pair(left_idx, right_idx);
+            if self.edges.contains_key(&edge_key) {
+                continue;
+            }
+
+            let left_name = self
+                .nodes
+                .get_index(left_idx)
+                .expect("validated left node index")
+                .0
+                .as_str();
+            let right_name = self
+                .nodes
+                .get_index(right_idx)
+                .expect("validated right node index")
+                .0
+                .as_str();
+            if left_name <= right_name {
+                self.edge_index_endpoints.push((left_idx, right_idx));
+            } else {
+                self.edge_index_endpoints.push((right_idx, left_idx));
+            }
+            self.edges.insert(edge_key, AttrMap::new());
+
+            self.adj_indices[left_idx].push(right_idx);
+            if left_idx != right_idx {
+                self.adj_indices[right_idx].push(left_idx);
+            }
+            inserted += 1;
+        }
+        self.record_bulk_edge_summary(inserted, false);
         inserted
     }
 
@@ -2961,6 +3046,31 @@ mod tests {
             records.last().map(|record| record.operation.as_str()),
             Some("extend_edges_unrecorded")
         );
+    }
+
+    #[test]
+    fn extend_existing_index_edges_unrecorded_matches_string_batch_on_int_prefix() {
+        let nodes = (0..12).map(|node| node.to_string()).collect::<Vec<_>>();
+        let edge_indices = vec![(10usize, 2usize), (2, 10), (3, 3), (1, 11), (11, 1)];
+        let edge_strings = edge_indices
+            .iter()
+            .map(|(left, right)| (left.to_string(), right.to_string()))
+            .collect::<Vec<_>>();
+
+        let mut by_string = Graph::strict();
+        let mut by_index = Graph::strict();
+        let _ = by_string.extend_nodes_unrecorded(nodes.clone());
+        let _ = by_index.extend_nodes_unrecorded(nodes);
+
+        assert!(by_index.nodes_are_contiguous_int_prefix());
+        assert_eq!(by_string.extend_edges_unrecorded(edge_strings), 3);
+        assert_eq!(
+            by_index.extend_existing_index_edges_unrecorded(edge_indices),
+            3
+        );
+
+        assert_eq!(by_index.snapshot(), by_string.snapshot());
+        assert_graph_core_invariants(&by_index);
     }
 
     #[test]

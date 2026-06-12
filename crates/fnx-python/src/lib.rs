@@ -1011,6 +1011,106 @@ impl PyGraph {
         Ok(())
     }
 
+    fn int_prefix_display_keys_are_plain_ints(&self, py: Python<'_>) -> bool {
+        if !self.adj_py_keys.is_empty() {
+            return false;
+        }
+        for (canonical, obj) in &self.node_key_map {
+            let bound = obj.bind(py);
+            if !bound.is_exact_instance_of::<PyInt>() {
+                return false;
+            }
+            let Ok(value) = bound.extract::<i64>() else {
+                return false;
+            };
+            if value.to_string() != canonical.as_str() {
+                return false;
+            }
+        }
+        true
+    }
+
+    fn collect_existing_exact_int_edge_indices<'py, I>(
+        &self,
+        items: I,
+        len: usize,
+    ) -> PyResult<Option<Vec<(usize, usize)>>>
+    where
+        I: IntoIterator<Item = Bound<'py, PyAny>>,
+    {
+        if !self.inner.nodes_are_contiguous_int_prefix() {
+            return Ok(None);
+        }
+        let node_count = self.inner.node_count();
+        let mut edges = Vec::with_capacity(len);
+        for item in items {
+            let Ok(tuple) = item.downcast::<PyTuple>() else {
+                return Ok(None);
+            };
+            if tuple.len() != 2 {
+                return Ok(None);
+            }
+
+            let u = tuple.get_item(0)?;
+            let v = tuple.get_item(1)?;
+            if !u.is_exact_instance_of::<PyInt>() || !v.is_exact_instance_of::<PyInt>() {
+                return Ok(None);
+            }
+            let Ok(u_value) = u.extract::<i64>() else {
+                return Ok(None);
+            };
+            let Ok(v_value) = v.extract::<i64>() else {
+                return Ok(None);
+            };
+            let Ok(u_index) = usize::try_from(u_value) else {
+                return Ok(None);
+            };
+            let Ok(v_index) = usize::try_from(v_value) else {
+                return Ok(None);
+            };
+            if u_index >= node_count || v_index >= node_count {
+                return Ok(None);
+            }
+            edges.push((u_index, v_index));
+        }
+        Ok(Some(edges))
+    }
+
+    fn try_add_existing_exact_int_edge_index_batch(
+        &mut self,
+        py: Python<'_>,
+        ebunch_to_add: &Bound<'_, PyAny>,
+    ) -> PyResult<bool> {
+        const EXACT_INT_INDEX_BATCH_MIN: usize = 8;
+        if !self.adj_row_py.is_empty() || !self.int_prefix_display_keys_are_plain_ints(py) {
+            return Ok(false);
+        }
+
+        let edges = if let Ok(list) = ebunch_to_add.downcast::<PyList>() {
+            if list.len() < EXACT_INT_INDEX_BATCH_MIN {
+                return Ok(false);
+            }
+            self.collect_existing_exact_int_edge_indices(list.iter(), list.len())?
+        } else if let Ok(tuple) = ebunch_to_add.downcast::<PyTuple>() {
+            if tuple.len() < EXACT_INT_INDEX_BATCH_MIN {
+                return Ok(false);
+            }
+            self.collect_existing_exact_int_edge_indices(tuple.iter(), tuple.len())?
+        } else {
+            return Ok(false);
+        };
+
+        let Some(edges) = edges else {
+            return Ok(false);
+        };
+        let edge_bumps = u64::try_from(edges.len())
+            .unwrap_or(u64::MAX)
+            .wrapping_add(1);
+        let _ = self.inner.extend_existing_index_edges_unrecorded(edges);
+        self.edges_seq = self.edges_seq.wrapping_add(edge_bumps);
+        Ok(true)
+    }
+
     fn try_add_plain_edge_batch(
         &mut self,
         py: Python<'_>,
@@ -1019,6 +1119,9 @@ impl PyGraph {
         const PLAIN_EDGE_BATCH_MIN: usize = 8;
         if !self.adj_row_py.is_empty() {
             return Ok(false);
+        }
+        if self.try_add_existing_exact_int_edge_index_batch(py, ebunch_to_add)? {
+            return Ok(true);
         }
         if let Ok(list) = ebunch_to_add.downcast::<PyList>() {
             if list.len() < PLAIN_EDGE_BATCH_MIN {
