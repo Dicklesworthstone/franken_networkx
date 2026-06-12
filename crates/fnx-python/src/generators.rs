@@ -643,13 +643,12 @@ pub fn random_regular_graph(py: Python<'_>, d: usize, n: usize, seed: u64) -> Py
     report_to_pygraph(py, report.graph)
 }
 
-#[pyfunction]
-pub fn random_regular_edges_pyset(
-    py: Python<'_>,
+fn random_regular_edges_pyset_bound<'py>(
+    py: Python<'py>,
     d: usize,
     n: usize,
     seed: u64,
-) -> PyResult<PyObject> {
+) -> PyResult<Bound<'py, PySet>> {
     let _stub_count = n
         .checked_mul(d)
         .ok_or_else(|| PyValueError::new_err("n * d is too large"))?;
@@ -659,7 +658,80 @@ pub fn random_regular_edges_pyset(
         let edge = PyTuple::new(py, [u, v])?;
         edges.add(edge)?;
     }
+    Ok(edges)
+}
+
+#[pyfunction]
+pub fn random_regular_edges_pyset(
+    py: Python<'_>,
+    d: usize,
+    n: usize,
+    seed: u64,
+) -> PyResult<PyObject> {
+    let edges = random_regular_edges_pyset_bound(py, d, n, seed)?;
     Ok(edges.into_any().unbind())
+}
+
+/// Build the exact default ``random_regular_graph`` path without routing the
+/// CPython edge set through Python ``Graph.add_edges_from``.
+///
+/// The wrapper only calls this for exact ``int`` ``d``/``n``/``seed`` and
+/// default ``Graph`` construction.  We still build and iterate a real
+/// ``PySet`` of edge tuples, so the adjacency payload follows the same
+/// CPython hash-table iteration order as the prior
+/// ``graph.add_edges_from(_rust_random_regular_edges_pyset(...))`` path.
+#[pyfunction]
+pub fn random_regular_graph_pyset_order(
+    py: Python<'_>,
+    d: usize,
+    n: usize,
+    seed: u64,
+) -> PyResult<PyGraph> {
+    let lazy_int_node_stop =
+        i64::try_from(n).map_err(|_| PyValueError::new_err(format!("n {n} exceeds i64")))?;
+    let edge_set = random_regular_edges_pyset_bound(py, d, n, seed)?;
+
+    let mut graph = fnx_classes::Graph::new(CompatibilityMode::Strict);
+    let node_labels: Vec<String> = (0..n).map(|node| node.to_string()).collect();
+    let _ = graph.extend_nodes_unrecorded(node_labels.iter().cloned());
+
+    let mut edges = Vec::with_capacity(edge_set.len());
+    for item in edge_set.iter() {
+        let tuple = item.downcast::<PyTuple>()?;
+        debug_assert_eq!(tuple.len(), 2);
+        let u = tuple.get_item(0)?.extract::<usize>()?;
+        let v = tuple.get_item(1)?.extract::<usize>()?;
+        let Some(u_label) = node_labels.get(u) else {
+            return Err(PyValueError::new_err(format!(
+                "random_regular_graph edge endpoint {u} is outside 0..{n}"
+            )));
+        };
+        let Some(v_label) = node_labels.get(v) else {
+            return Err(PyValueError::new_err(format!(
+                "random_regular_graph edge endpoint {v} is outside 0..{n}"
+            )));
+        };
+        edges.push((u_label.clone(), v_label.clone()));
+    }
+    let inserted = graph.extend_edges_unrecorded(edges);
+    debug_assert_eq!(inserted, edge_set.len());
+
+    Ok(PyGraph {
+        inner: graph,
+        node_key_map: HashMap::new(),
+        lazy_int_node_stop,
+        node_py_attrs: HashMap::new(),
+        edge_py_attrs: HashMap::new(),
+        adj_py_keys: HashMap::new(),
+        dict_of_dicts_cache: None,
+        adj_row_py: HashMap::new(),
+        graph_attrs: PyDict::new(py).unbind(),
+        nodes_seq: 0,
+        edges_seq: 0,
+        edges_dirty: AtomicBool::new(false),
+        node_keys_cache: std::sync::Mutex::new(None),
+        node_iter_mirror: std::sync::Mutex::new(None),
+    })
 }
 
 /// Return a Holme-Kim powerlaw cluster graph.
@@ -862,6 +934,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(connected_watts_strogatz_graph, m)?)?;
     m.add_function(wrap_pyfunction!(random_regular_graph, m)?)?;
     m.add_function(wrap_pyfunction!(random_regular_edges_pyset, m)?)?;
+    m.add_function(wrap_pyfunction!(random_regular_graph_pyset_order, m)?)?;
     m.add_function(wrap_pyfunction!(powerlaw_cluster_graph, m)?)?;
     m.add_function(wrap_pyfunction!(stochastic_block_model, m)?)?;
     m.add_function(wrap_pyfunction!(fast_gnp_random_graph, m)?)?;

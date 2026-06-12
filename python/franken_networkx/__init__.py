@@ -18424,6 +18424,9 @@ from franken_networkx._fnx import random_regular_graph as _rust_random_regular_g
 from franken_networkx._fnx import (
     random_regular_edges_pyset as _rust_random_regular_edges_pyset,
 )
+from franken_networkx._fnx import (
+    random_regular_graph_pyset_order as _rust_random_regular_graph_pyset_order,
+)
 from franken_networkx._fnx import powerlaw_cluster_graph as _rust_powerlaw_cluster_graph
 from franken_networkx._fnx import stochastic_block_model as _rust_stochastic_block_model
 
@@ -49716,6 +49719,9 @@ def random_regular_graph(d, n, seed=None, *, create_using=None, backend=None, **
         and 0 <= seed <= 0xFFFF_FFFF_FFFF_FFFF
         and n * d <= 1_000_000
     )
+    if use_native_edge_pyset:
+        return _rust_random_regular_graph_pyset_order(d, n, seed)
+
     if create_using is None:
         create_using = Graph
 
@@ -49730,11 +49736,6 @@ def random_regular_graph(d, n, seed=None, *, create_using=None, backend=None, **
     graph = empty_graph(n, create_using=graph)
     if d == 0:
         return graph
-    if use_native_edge_pyset:
-        edges = _rust_random_regular_edges_pyset(d, n, seed)
-        graph.add_edges_from(edges)
-        return graph
-
     def _suitable(edges, potential_edges):
         if not potential_edges:
             return True
