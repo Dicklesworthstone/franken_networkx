@@ -9765,7 +9765,15 @@ def is_eulerian(G):
     # entirely (nx never checks it either).
     if not G.is_directed() and number_of_selfloops(G) > 0:  # br-r37-c1-5i5gb: native O(|V|) check
         return _call_networkx_for_parity("is_eulerian", G)
-    return _raw_is_eulerian(G)
+    # br-euldense: the UNDIRECTED native _raw_is_eulerian kernel does O(E) work
+    # and was 18-30x slower than nx on dense graphs (K301: 1.65ms vs 0.06ms).
+    # nx's test is trivial — all degrees even AND connected — so run it directly
+    # (O(V) degree view + native connectivity), matching nx's short-circuit order
+    # (degrees first). 7-20x self-speedup, byte-exact. The DIRECTED native kernel
+    # is already fast (in/out balance + strong-connectivity in Rust), so keep it.
+    if G.is_directed():
+        return _raw_is_eulerian(G)
+    return all(d % 2 == 0 for _n, d in G.degree()) and is_connected(G)
 
 
 def eulerian_circuit(G, source=None, keys=False):
