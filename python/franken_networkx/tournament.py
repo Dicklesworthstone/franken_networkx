@@ -11,11 +11,57 @@ Current native overrides:
 
 from __future__ import annotations
 
+from itertools import combinations as _combinations
+
 from networkx.algorithms.tournament import *  # noqa: F401,F403
 import networkx.algorithms.tournament as _nx_tournament
 
 import franken_networkx as _fnx
 from franken_networkx.readwrite import _from_nx_graph
+
+
+def score_sequence(G, *, backend=None, **backend_kwargs):
+    """Return the sorted list of out-degrees of the tournament's nodes.
+
+    br-tscoreseq: the ``import *`` re-export bound nx's ``@_dispatchable``
+    ``score_sequence``; called on an fnx graph it routed through nx's backend-
+    dispatch machinery (~2.5 ms of pure overhead for what is just
+    ``sorted(out-degrees)``) — 280x slower than nx. Compute it directly here,
+    bypassing the dispatcher. Byte-identical (a sorted list of ints).
+    """
+    _fnx._validate_backend_dispatch_keywords("score_sequence", backend, backend_kwargs)
+    # nx stacks @not_implemented_for("undirected") over ("multigraph"); for a
+    # MultiGraph the multigraph check fires first, so test multigraph before
+    # undirected to match nx's exception message exactly.
+    if G.is_multigraph():
+        raise _fnx.NetworkXNotImplemented("not implemented for multigraph type")
+    if not G.is_directed():
+        raise _fnx.NetworkXNotImplemented("not implemented for undirected type")
+    return sorted(d for _v, d in G.out_degree())
+
+
+def is_tournament(G, *, backend=None, **backend_kwargs):
+    """Return ``True`` iff ``G`` is a tournament.
+
+    br-tistourn: same dispatcher overhead as ``score_sequence`` plus nx's
+    O(V^2) all-pairs edge check reading the slow fnx adjacency view per pair
+    (6x slower than nx). Snapshot the successor adjacency into plain ``set``
+    dicts once, then run nx's exact XOR-over-pairs test. Deterministic boolean,
+    byte-identical to nx.
+    """
+    _fnx._validate_backend_dispatch_keywords("is_tournament", backend, backend_kwargs)
+    # nx stacks @not_implemented_for("undirected") over ("multigraph"); for a
+    # MultiGraph the multigraph check fires first, so test multigraph before
+    # undirected to match nx's exception message exactly.
+    if G.is_multigraph():
+        raise _fnx.NetworkXNotImplemented("not implemented for multigraph type")
+    if not G.is_directed():
+        raise _fnx.NetworkXNotImplemented("not implemented for undirected type")
+    nodes = list(G)
+    succ = {u: set(G.successors(u)) for u in nodes}
+    if any(u in succ[u] for u in nodes):  # self-loop -> not a tournament
+        return False
+    return all((v in succ[u]) ^ (u in succ[v]) for u, v in _combinations(nodes, 2))
 
 
 def random_tournament(n, seed=None, *, backend=None, **backend_kwargs):
@@ -41,10 +87,13 @@ def is_reachable(G, s, t, *, backend=None, **backend_kwargs):
     accessor tax and no fnx->nx conversion.
     """
     _fnx._validate_backend_dispatch_keywords("is_reachable", backend, backend_kwargs)
-    if not G.is_directed():
-        raise _fnx.NetworkXNotImplemented("not implemented for undirected type")
+    # nx stacks @not_implemented_for("undirected") over ("multigraph"); for a
+    # MultiGraph the multigraph check fires first, so test multigraph before
+    # undirected to match nx's exception message exactly.
     if G.is_multigraph():
         raise _fnx.NetworkXNotImplemented("not implemented for multigraph type")
+    if not G.is_directed():
+        raise _fnx.NetworkXNotImplemented("not implemented for undirected type")
 
     nodes = list(G)
     succ = {u: set(G.successors(u)) for u in nodes}
