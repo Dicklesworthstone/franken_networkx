@@ -8743,7 +8743,7 @@ pub fn is_connected(graph: &Graph) -> IsConnectedResult {
     visited[0] = true;
     queue.push_back(0usize);
 
-    while let Some(current) = queue.pop_front() {
+    'bfs: while let Some(current) = queue.pop_front() {
         if let Some(neighbors) = graph.neighbors_indices(current) {
             for &neighbor in neighbors {
                 edges_scanned += 1;
@@ -8751,6 +8751,14 @@ pub fn is_connected(graph: &Graph) -> IsConnectedResult {
                     visited[neighbor] = true;
                     visited_count += 1;
                     queue.push_back(neighbor);
+                    // br-connearly: once every node is reached the graph is
+                    // connected — stop instead of scanning the remaining edges.
+                    // nx's `_plain_bfs` does the same `len(seen) == len(G)` early
+                    // exit; without it a dense connected graph costs O(|E|) rather
+                    // than O(|V|) (K601: 4.4x slower than nx -> faster).
+                    if visited_count == n {
+                        break 'bfs;
+                    }
                 }
             }
         }
