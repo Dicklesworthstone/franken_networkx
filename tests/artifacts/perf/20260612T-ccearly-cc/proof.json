@@ -1,0 +1,24 @@
+{
+  "functions": ["connected_components", "number_connected_components", "node_connected_component"],
+  "lever": "the connected_components_borrowed BFS and node_connected_component DFS scanned ALL O(|E|) edges with no early exit (same as is_connected pre-3ab1b0c67). Once every node is visited (nodes_touched/visited_count == n) all components are fully enumerated, so the remaining queued/stacked nodes' edges are pure redundant scanning. Add the early break. node_connected_component switched from pop-time to mark-time accumulation (set-wrapped by the Python wrapper -> order-invisible) to enable the break.",
+  "parity": {
+    "cases": 31,
+    "mismatches": 0,
+    "coverage": "complete/cycle/path/ba, multi-component disjoint unions (2/3 comp), isolates, 20 random gnp; connected_components set-equality + number_connected_components + node_connected_component",
+    "golden_sha256": "293202ac06d4dce2e3d786fe16a1679c53d229c61008ad970448404e3f824da6",
+    "pytest": "1931 passed, 13 skipped (connected/component)"
+  },
+  "bench_min_of_11_ms": {
+    "number_connected_components": {
+      "K601":      {"nx": 0.0480, "fnx_before": 0.2648, "fnx_after": 0.0046, "before_vs_nx": 5.28, "after_vs_nx": 0.09, "self_speedup": 57.6},
+      "gnp_dense":  {"nx": 0.1648, "fnx_after": 0.0078, "after_vs_nx": 0.05},
+      "3comp_dense":{"nx": 1.7939, "fnx_after": 0.0525, "after_vs_nx": 0.03}
+    },
+    "node_connected_component": {
+      "K601":      {"nx": 0.0315, "fnx_before": 0.2411, "fnx_after": 0.0463, "before_vs_nx": 7.45, "after_vs_nx": 1.45, "self_speedup": 5.2},
+      "3comp_dense":{"nx": 1.8381, "fnx_after": 0.0741, "after_vs_nx": 0.04}
+    }
+  },
+  "headline": "connected_components family early-exit: number_connected_components 5.28x slower -> 11-33x FASTER on dense (57x self-speedup); node_connected_component 7.45x -> 1.45x (2-25x faster elsewhere). Byte-exact. Continues the is_connected early-exit vein (3ab1b0c67).",
+  "residual": "node_connected_component K601 1.45x = the final O(V) string materialization (names[i].to_owned()) that nx avoids; connected-graph fast path now O(V)."
+}

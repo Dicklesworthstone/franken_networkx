@@ -2335,6 +2335,16 @@ pub fn connected_components_borrowed(graph: &Graph) -> (Vec<Vec<&str>>, usize, u
                     queue_peak = queue_peak.max(queue.len());
                 }
             }
+
+            // br-connearly: once every node in the graph is visited, all
+            // components are fully enumerated (nodes are pushed into `component`
+            // at mark-time, not pop-time), so the remaining queued nodes' edges
+            // are pure redundant scanning — O(|E|) on a dense single-component
+            // graph where O(|V|) suffices. Stop early (matches is_connected
+            // 3ab1b0c67). Component/node order is unchanged; nx wraps each in set().
+            if nodes_touched == n {
+                break;
+            }
         }
 
         // Components are emitted in BFS-discovery order. NetworkX wraps
@@ -26813,17 +26823,28 @@ pub fn node_connected_component(graph: &Graph, node: &str) -> Vec<String> {
         return Vec::new();
     };
     let names = graph.nodes_ordered();
-    let mut visited = vec![false; graph.node_count()];
+    let n = graph.node_count();
+    let mut visited = vec![false; n];
     let mut stack: Vec<usize> = vec![start];
     visited[start] = true;
-    let mut comp: Vec<usize> = Vec::new();
-    while let Some(u) = stack.pop() {
-        comp.push(u);
+    // br-connearly: accumulate at MARK time (was pop time) so we can stop the DFS
+    // the moment every node is reached — on a dense single-component graph the
+    // remaining stack's edges are pure redundant scanning (O(|E|) -> O(|V|)). The
+    // Python wrapper wraps the result in set(), so the mark-vs-pop order change is
+    // invisible. Same lever as is_connected (3ab1b0c67).
+    let mut comp: Vec<usize> = vec![start];
+    let mut visited_count = 1usize;
+    'dfs: while let Some(u) = stack.pop() {
         if let Some(neighbors) = graph.neighbors_indices(u) {
             for &v in neighbors {
                 if !visited[v] {
                     visited[v] = true;
+                    comp.push(v);
                     stack.push(v);
+                    visited_count += 1;
+                    if visited_count == n {
+                        break 'dfs;
+                    }
                 }
             }
         }
