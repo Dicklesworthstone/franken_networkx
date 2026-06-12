@@ -28115,7 +28115,7 @@ def cost_of_flow(G, flowDict, weight="weight"):
     return total
 
 
-def _mcf_inputs_all_integral(G, demand, capacity, weight):
+def _mcf_inputs_all_integral(G, demand, capacity, weight, _fastg=None):
     """br-mcfint: nx.min_cost_flow and nx.network_simplex preserve int
     flow values when every demand, capacity, and weight on the graph
     is an integer. fnx's Python implementation widens via ``float(...)``
@@ -28124,23 +28124,34 @@ def _mcf_inputs_all_integral(G, demand, capacity, weight):
     int for exact nx parity.
     """
     import numbers as _numbers
-    for node in G.nodes():
-        attrs = G.nodes[node] if hasattr(G.nodes, "__getitem__") else {}
-        if isinstance(attrs, dict):
-            d = attrs.get(demand, 0)
-            if not isinstance(d, _numbers.Integral) or isinstance(d, bool):
-                return False
-    for _, _, attrs in G.edges(data=True):
+
+    def _is_int(x):
+        # br-r37-c1-8foqi: fast path for plain Python ints (``type is int``
+        # excludes bool, the common case) before the slow numbers.Integral ABC
+        # check (which dominated min_cost_flow setup — 78k ABC instancechecks).
+        return type(x) is int or (
+            isinstance(x, _numbers.Integral) and not isinstance(x, bool)
+        )
+
+    # br-r37-c1-8foqi: read node/edge attrs from the pre-extracted _FastG shim
+    # when available (one native bulk read shared with the solver) instead of
+    # re-walking G.nodes[node] / G.edges(data=True) per element.
+    if _fastg is not None:
+        node_attr_iter = _fastg._nattr.values()
+        edge_iter = ((e[-1]) for e in _fastg._edges)
+    else:
+        node_attr_iter = (
+            G.nodes[node] if hasattr(G.nodes, "__getitem__") else {}
+            for node in G.nodes()
+        )
+        edge_iter = (e[-1] for e in G.edges(data=True))
+    for attrs in node_attr_iter:
+        if isinstance(attrs, dict) and not _is_int(attrs.get(demand, 0)):
+            return False
+    for attrs in edge_iter:
         if not isinstance(attrs, dict):
             continue
-        cap = attrs.get(capacity, 1)
-        if not isinstance(cap, _numbers.Integral) or isinstance(cap, bool):
-            # float('inf') is infinity; nx still produces int in that case
-            # when capacities are effectively unbounded integrals elsewhere.
-            # Treat +inf as non-integer only if it's not matched by other ints.
-            return False
-        w = attrs.get(weight, 0)
-        if not isinstance(w, _numbers.Integral) or isinstance(w, bool):
+        if not _is_int(attrs.get(capacity, 1)) or not _is_int(attrs.get(weight, 0)):
             return False
     return True
 
@@ -28208,7 +28219,12 @@ def min_cost_flow(G, demand="demand", capacity="capacity", weight="weight"):
     # _validate_network_simplex_inputs and matches nx exactly; the
     # SSP path was the gap, which propagated through min_cost_flow_
     # cost and max_flow_min_cost (both route here).
-    for u, v, edge_attrs in G.edges(data=True):
+    # br-r37-c1-8foqi: read edge attrs via the native bulk reader (same
+    # node-major order as ``G.edges(data=True)`` so the first-offending-edge
+    # message is unchanged) instead of the per-edge AdjacencyView view.
+    _new_edges = getattr(G, "_native_edges_with_data", None)
+    _edge_iter = _new_edges() if _new_edges is not None else G.edges(data=True)
+    for u, v, edge_attrs in _edge_iter:
         if isinstance(edge_attrs, dict):
             edge_capacity = float(edge_attrs.get(capacity, float("inf")))
             if edge_capacity < 0:
@@ -28216,10 +28232,10 @@ def min_cost_flow(G, demand="demand", capacity="capacity", weight="weight"):
                     f"edge {(u, v)!r} has negative capacity"
                 )
 
-    # Extract demands
+    # Extract demands via one bulk ``nodes(data=True)`` native read (node order
+    # preserved) instead of a per-node ``G.nodes[node]`` AdjacencyView lookup.
     node_demand = {}
-    for node in nodes:
-        attrs = G.nodes[node] if hasattr(G.nodes, "__getitem__") else {}
+    for node, attrs in G.nodes(data=True):
         if isinstance(attrs, dict):
             node_demand[node] = float(attrs.get(demand, 0))
         else:
@@ -28252,6 +28268,27 @@ def min_cost_flow(G, demand="demand", capacity="capacity", weight="weight"):
     # enforced fnx's error contracts (empty graph, negative capacity, infinite
     # / non-zero total demand); the simplex additionally surfaces nx's
     # NetworkXUnbounded for negative-cost infinite-capacity cycles.
+    # br-r37-c1-8foqi: for simple DiGraphs, run fnx's in-process port of the
+    # network-simplex over a fast pre-extracting shim (``_FastG``) that caches
+    # the node/edge data via fnx's native bulk readers — the ported pivots are
+    # byte-identical to nx's but the graph I/O no longer pays the per-element
+    # AdjacencyView read tax, bringing min_cost_flow from ~2x slower than nx to
+    # parity. Multigraphs keep the upstream ``__wrapped__`` path (the shim does
+    # not carry edge keys).
+    if not G.is_multigraph():
+        from ._network_simplex_native import (
+            _FastG as _FastNSG,
+            network_simplex as _native_network_simplex,
+        )
+
+        _fastg = _FastNSG(G)
+        _cost, flow = _native_network_simplex(
+            _fastg, demand=demand, capacity=capacity, weight=weight
+        )
+        if _mcf_inputs_all_integral(G, demand, capacity, weight, _fastg=_fastg):
+            flow = _coerce_flow_dict_to_int(flow)
+        return flow
+
     import networkx as _nx_local
 
     _network_simplex = getattr(_nx_local.network_simplex, "__wrapped__", None)
