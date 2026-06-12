@@ -147,6 +147,22 @@ def degree_centrality(G, nodes):
     return centrality
 
 
+def degrees(B, nodes, weight=None):
+    """Return ``(degX, degY)`` for the two bipartite node sets of ``B``.
+
+    br-r37-c1-bipdeg: re-exported from networkx as an ``@nx._dispatchable``, so
+    calling it on an fnx graph round-trips the WHOLE graph through ``_fnx_to_nx``
+    (full O(V+E) conversion) just to build two lazy DegreeViews — ~62x slower than
+    nx for an O(1) view construction. Run networkx's exact algorithm directly on
+    ``B`` so the result is byte-identical (same two DegreeView objects, same node
+    sets/order) with no conversion. ``nodes`` is one set (the Y set); the first
+    returned view is the OTHER set (X = B - nodes).
+    """
+    bottom = set(nodes)
+    top = set(B) - bottom
+    return (B.degree(top, weight=weight), B.degree(bottom, weight=weight))
+
+
 def betweenness_centrality(G, nodes):
     """Bipartite betweenness centrality, computed via the fnx-native kernel.
 
