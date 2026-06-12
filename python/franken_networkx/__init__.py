@@ -15513,6 +15513,49 @@ def edge_boundary(G, nbunch1, nbunch2=None, data=False, keys=False, default=None
     if data is False and not keys and default is None and not G.is_multigraph():
         yield from _raw_edge_boundary(G, _coerce_nbunch(nbunch1), _coerce_nbunch(nbunch2))
         return
+    # br-r37-c1-wpyzi: de-delegate the data/string/default path for simple
+    # Graph/DiGraph. The old path converted the WHOLE graph fnx->nx (O(V+E)) just
+    # to annotate boundary edges (~11.6x slower than nx). Replicate nx's
+    # edge_boundary in-process over fnx's own adjacency: nx emits
+    # ``G.edges(nset1, data=...)`` (source nodes in nset1 set-order, neighbours in
+    # adjacency order, undirected dedups already-processed sources) then filters
+    # by the nset1/nset2 membership predicate. Iterating ``G[n]`` reproduces the
+    # SAME adjacency order the fnx->nx conversion fed nx, so the output is
+    # byte-identical to the old delegated result. Multigraphs (keyed edge-view
+    # order) keep delegating.
+    if not G.is_multigraph() and type(G) in (Graph, DiGraph):
+        nset1 = {n for n in _coerce_nbunch(nbunch1) if n in G}
+        nset2 = None if nbunch2 is None else {n for n in _coerce_nbunch(nbunch2)}
+        directed = G.is_directed()
+        seen = None if directed else set()
+        # When the native graph_has_any_attrs check proves no edge carries a
+        # Python-visible attr (the common case), data=True is uniformly {} and
+        # data=<name> is uniformly the default — so we skip the per-edge
+        # ``adj[nbr]`` attribute-dict materialization entirely and only iterate
+        # the (cheap) adjacency keys.
+        no_attrs = _fnx.graph_has_any_attrs(G) is False
+        for n in nset1:
+            adj = G[n]
+            for nbr in adj:
+                if seen is not None and nbr in seen:
+                    continue
+                # nx predicate with e[0]=n already in nset1:
+                #   nbunch2 None -> (e0 in s1) ^ (e1 in s1) == (nbr not in s1)
+                #   else -> (e0 in s1 & e1 in s2) | (e1 in s1 & e0 in s2)
+                if nset2 is None:
+                    keep = nbr not in nset1
+                else:
+                    keep = (nbr in nset2) or (nbr in nset1 and n in nset2)
+                if keep:
+                    if data is False:
+                        yield (n, nbr)
+                    elif data is True:
+                        yield (n, nbr, {} if no_attrs else dict(adj[nbr]))
+                    else:
+                        yield (n, nbr, default if no_attrs else adj[nbr].get(data, default))
+            if seen is not None:
+                seen.add(n)
+        return
     yield from _call_networkx_for_parity(
         "edge_boundary",
         G,
