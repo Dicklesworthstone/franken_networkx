@@ -18318,12 +18318,16 @@ def kosaraju_strongly_connected_components(G, source=None):
 
     Each component is returned as a ``set`` to match networkx.
 
-    br-r37-c1-53cwv: the Rust helper emitted SCCs in reverse order
-    from nx's Kosaraju-completion contract (e.g. on a DAG, fnx
-    yielded ``[{a},{b},{c},{d},{e}]`` while nx yields
-    ``[{e},{d},{c},{b},{a}]``). Delegate to nx so emission order
-    matches its documented Kosaraju traversal exactly. Mirrors the
-    sister strongly_connected_components fix (br-r37-c1-2vdtt).
+    br-r37-c1-53cwv / br-r37-c1-bgvr0: the native kernel formerly emitted SCCs
+    in a sequence that didn't match nx's documented Kosaraju order, so this
+    wrapper delegated to nx (a full fnx->nx conversion, ~7.2x slower than nx on
+    a 200-node digraph). The native ``kosaraju_strongly_connected_components``
+    kernel now mirrors nx's exact two-phase emission order (postorder on the
+    reversed graph, then forward preorder in reverse postorder), verified
+    byte-identical (sets AND sequence) vs nx across 100 random digraphs, so the
+    no-``source`` path runs natively. A non-default ``source`` restricts nx's
+    Phase-1 postorder to that source's reachable set (the native kernel is
+    whole-graph only), so it keeps delegating.
     """
     # br-r37-c1-scceager: eager directed-only check (nx contract), then return
     # the generator. See strongly_connected_components.
@@ -18332,10 +18336,20 @@ def kosaraju_strongly_connected_components(G, source=None):
         # so callers see a stable message (br-r37-c1-4elbw).
         raise NetworkXNotImplemented("not implemented for undirected type")
 
+    if source is not None:
+        def _gen_delegated():
+            yield from _call_networkx_for_parity(
+                "kosaraju_strongly_connected_components", G, source=source,
+            )
+
+        return _gen_delegated()
+
+    # br-r37-c1-0555d: accept nx-typed inputs before the native kernel.
+    fg = _coerce_arg_to_fnx_graph(G)
+
     def _gen():
-        yield from _call_networkx_for_parity(
-            "kosaraju_strongly_connected_components", G, source=source,
-        )
+        for component in _raw_kosaraju_strongly_connected_components(fg):
+            yield set(component)
 
     return _gen()
 

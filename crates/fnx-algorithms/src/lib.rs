@@ -27119,66 +27119,87 @@ pub fn is_semiconnected(digraph: &DiGraph) -> bool {
 /// Matches `networkx.kosaraju_strongly_connected_components(G)`.
 #[must_use]
 pub fn kosaraju_strongly_connected_components(digraph: &DiGraph) -> Vec<Vec<String>> {
+    // br-r37-c1-bgvr0: faithful port of NetworkX's Kosaraju emission ORDER so
+    // the wrapper can drop its fnx->nx delegation (7.2x slower) and call this
+    // native kernel directly. nx is:
+    //   post = list(dfs_postorder_nodes(G.reverse(), source=None))
+    //   while post: r = post.pop(); if r in seen: continue
+    //              new = {v for v in dfs_preorder_nodes(G, r) if v not in seen}
+    //              seen |= new; yield new
+    // The previous kernel swapped the phase directions (postorder on the ORIGINAL
+    // graph, then DFS on the reversed graph), producing the right SCC *sets* but a
+    // different *sequence* — not even a simple reversal — which forced the
+    // delegation. Mirror nx exactly: postorder on the REVERSED graph (predecessors)
+    // first, then forward preorder on the ORIGINAL graph (successors) in reverse
+    // postorder. Within-component node order is irrelevant (the Python wrapper wraps
+    // each component in a ``set``); we keep ``sort_unstable`` so the existing Rust
+    // unit tests (and any list consumer) stay deterministic.
     let nodes = digraph.nodes_ordered();
     let n = nodes.len();
     if n == 0 {
         return Vec::new();
     }
 
-    // Phase 1: DFS on original graph, record finish order
+    // Phase 1: dfs_postorder_nodes over G.reverse() (predecessors), multi-root in
+    // node-iteration order, shared ``visited``. Predecessors are pushed reversed so
+    // they pop in forward predecessor order — matching nx's reverse-graph adjacency
+    // traversal (same discipline as `dfs_postorder_nodes_directed`).
     let mut visited = HashSet::<&str>::new();
-    let mut finish_order: Vec<&str> = Vec::with_capacity(n);
-
+    let mut post: Vec<&str> = Vec::with_capacity(n);
     for &start in &nodes {
         if visited.contains(start) {
             continue;
         }
         let mut stack: Vec<(&str, bool)> = vec![(start, false)];
-        while let Some((v, processed)) = stack.pop() {
-            if processed {
-                finish_order.push(v);
+        while let Some((v, backtrack)) = stack.pop() {
+            if backtrack {
+                post.push(v);
                 continue;
             }
             if !visited.insert(v) {
                 continue;
             }
             stack.push((v, true));
-            if let Some(succs) = digraph.successors(v) {
-                for s in succs {
-                    if !visited.contains(s) {
-                        stack.push((s, false));
+            if let Some(preds) = digraph.predecessors(v) {
+                for p in preds.into_iter().rev() {
+                    if !visited.contains(p) {
+                        stack.push((p, false));
                     }
                 }
             }
         }
     }
 
-    // Phase 2: DFS on reversed graph in reverse finish order
-    let mut visited2 = HashSet::<&str>::new();
-    let mut components = Vec::new();
-
-    for &node in finish_order.iter().rev() {
-        if visited2.contains(node) {
+    // Phase 2: pop ``post`` in reverse; for each unseen root, the SCC is the set of
+    // unseen nodes reachable on the ORIGINAL graph (successors). Because reverse
+    // postorder of the reversed graph processes the condensation in topological
+    // order (every downstream SCC is already ``seen``), pruning the forward search
+    // at ``seen`` yields exactly the root's SCC — output-identical to nx's
+    // full-reachable-then-filter, in O(V+E) total instead of O(V*E).
+    let mut seen = HashSet::<&str>::new();
+    let mut components: Vec<Vec<String>> = Vec::new();
+    for &root in post.iter().rev() {
+        if seen.contains(root) {
             continue;
         }
-        let mut component = Vec::new();
-        let mut stack = vec![node];
+        let mut component: Vec<&str> = Vec::new();
+        let mut stack: Vec<&str> = vec![root];
         while let Some(v) = stack.pop() {
-            if !visited2.insert(v) {
+            if !seen.insert(v) {
                 continue;
             }
-            component.push(v.to_owned());
-            // Reversed graph: use predecessors instead of successors
-            if let Some(preds) = digraph.predecessors(v) {
-                for p in preds {
-                    if !visited2.contains(p) {
-                        stack.push(p);
+            component.push(v);
+            if let Some(succs) = digraph.successors(v) {
+                for s in succs.into_iter().rev() {
+                    if !seen.contains(s) {
+                        stack.push(s);
                     }
                 }
             }
         }
-        component.sort_unstable();
-        components.push(component);
+        let mut comp_owned: Vec<String> = component.iter().map(|s| (*s).to_owned()).collect();
+        comp_owned.sort_unstable();
+        components.push(comp_owned);
     }
 
     components
