@@ -21003,14 +21003,20 @@ def power(G, k):
         raw_graph = _fnx.power_rust(G, int(k))
         canonical_to_node = {str(node): node for node in G.nodes()}
 
+        # br-r37-c1-fi1qe: bulk add_nodes_from / add_edges_from instead of one
+        # PyO3 add_node/add_edge call per element. The rebuild of power_rust's
+        # ~10^5-edge output dominated runtime (per-edge add_edge was larger than
+        # the native kernel itself). Generator order is identical to the old
+        # sequential loops, so node/edge insertion order — hence output — is
+        # byte-identical.
         graph = _concrete_class_for(G)()
-        for raw_node in raw_graph.nodes():
-            graph.add_node(canonical_to_node.get(raw_node, raw_node))
-        for raw_u, raw_v in raw_graph.edges():
-            graph.add_edge(
-                canonical_to_node.get(raw_u, raw_u),
-                canonical_to_node.get(raw_v, raw_v),
-            )
+        graph.add_nodes_from(
+            canonical_to_node.get(raw_node, raw_node) for raw_node in raw_graph.nodes()
+        )
+        graph.add_edges_from(
+            (canonical_to_node.get(raw_u, raw_u), canonical_to_node.get(raw_v, raw_v))
+            for raw_u, raw_v in raw_graph.edges()
+        )
         return graph
 
     graph = _concrete_class_for(G)()
