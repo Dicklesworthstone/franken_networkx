@@ -870,7 +870,14 @@ class NodeDataView:
         return iter(self._materialize())
 
     def __len__(self):
-        return len(self._materialize())
+        # br-r37-c1-9hkgu: a NodeDataView is a bijection with the node set (one
+        # (node, data) entry per node), so its length is just the node count —
+        # ``len(self._view)`` is O(1) native. The old ``len(self._materialize())``
+        # built the entire (node, dict) list a SECOND time on every ``list(view)``
+        # (CPython calls __len__ for the size hint, then __iter__), doubling the
+        # cost of this very hot view. nx parity: nx.NodeDataView.__len__ is
+        # likewise ``len(self._nodes)``.
+        return len(self._view)
 
     def __contains__(self, item):
         # br-r37-c1-nv-hash: mirror nx.NodeDataView.__contains__ —
