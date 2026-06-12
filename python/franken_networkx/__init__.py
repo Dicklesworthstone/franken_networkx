@@ -27061,10 +27061,68 @@ def all_topological_sorts(G):
     if not G.is_directed():
         raise NetworkXNotImplemented("not implemented for undirected type")
 
+    # br-atsdedeleg: run networkx's EXACT Knuth/Szwarcfiter algorithm in-process on
+    # a one-time plain-Python adjacency snapshot, skipping the fnx->nx graph
+    # conversion (~3-6x of the cost, growing with n). The algorithm only touches
+    # in-degree (-> D init order = node order) and out_edges(q) (-> successor
+    # adjacency order); snapshotting `list(G)` / `list(G.successors(u))` reproduces
+    # exactly what nx would iterate on the converted graph, so the (order-sensitive)
+    # ordering stream is byte-identical. Simple DiGraph only — MultiDiGraph needs
+    # per-parallel-edge counts, so it keeps the nx delegation.
+    if type(G) is DiGraph:
+        return _all_topological_sorts_inprocess(G)
+
     def _gen():
         yield from _call_networkx_for_parity("all_topological_sorts", G)
 
     return _gen()
+
+
+def _all_topological_sorts_inprocess(G):
+    """networkx ``all_topological_sorts`` (Knuth/Szwarcfiter) on an fnx DiGraph
+    without the fnx->nx conversion. Byte-identical ordering stream."""
+    from collections import deque as _deque
+
+    nodes = list(G)
+    succ = {u: list(G.successors(u)) for u in nodes}
+    count = dict.fromkeys(nodes, 0)
+    for u in nodes:
+        for j in succ[u]:
+            count[j] += 1
+
+    D = _deque(v for v in nodes if count[v] == 0)
+    n = len(nodes)
+    bases = []
+    current_sort = []
+
+    while True:
+        if len(current_sort) == n:
+            yield list(current_sort)
+            while current_sort:
+                q = current_sort.pop()
+                for j in succ[q]:
+                    count[j] += 1
+                while D and count[D[-1]] > 0:
+                    D.pop()
+                D.appendleft(q)
+                if D[-1] == bases[-1]:
+                    bases.pop()
+                else:
+                    break
+        else:
+            if not D:
+                raise NetworkXUnfeasible("Graph contains a cycle.")
+            q = D.pop()
+            for j in succ[q]:
+                count[j] -= 1
+                if count[j] == 0:
+                    D.append(j)
+            current_sort.append(q)
+            if len(bases) < len(current_sort):
+                bases.append(q)
+
+        if not bases:
+            break
 
 
 def lowest_common_ancestor(
