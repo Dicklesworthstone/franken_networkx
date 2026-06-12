@@ -1,0 +1,19 @@
+{
+  "function": "bellman_ford_predecessor_and_distance (simple Graph/DiGraph)",
+  "lever": "de-delegate by porting networkx's SPFA Bellman-Ford (queue that re-relaxes only improved nodes, skips a node while any predecessor still queued; pred is a dict of predecessor LISTS, ties append) in-process on a one-time native to_dict_of_dicts snapshot — skips the full fnx->nx conversion that made fnx 6.85x slower. nx's own naive loop was 128x slower; the SPFA variant is what makes nx fast. heuristic=False (public default) so the heuristic recent_update block is skipped.",
+  "parity": {
+    "golden_cases": 14,
+    "extra_vs_nx_cases": 8,
+    "mismatches": 0,
+    "coverage": "directed+undirected, negative weights, tie-heavy, unweighted; pred dict-of-lists + dist byte-exact to nx",
+    "pytest": "409 passed (bellman/negative_edge/negative_cycle/shortest_path_conformance)"
+  },
+  "bench_min_of_7_ms": {
+    "n200": {"nx": 0.561, "old_deleg": 2.869, "new_port": 0.693, "self_speedup": 4.14, "vs_nx": 1.24},
+    "n300": {"nx": 1.029, "old_deleg": 5.476, "new_port": 1.476, "self_speedup": 3.71, "vs_nx": 1.43},
+    "n500": {"nx": 2.700, "old_deleg": 16.505,"new_port": 4.264, "self_speedup": 3.87, "vs_nx": 1.58},
+    "n800": {"nx": 5.983, "old_deleg": 40.092,"new_port": 9.400, "self_speedup": 4.27, "vs_nx": 1.57}
+  },
+  "headline": "bellman_ford_predecessor_and_distance: 6.85x slower than nx -> ~1.5x near-parity, ~4x self-speedup, byte-exact (SPFA port on native snapshot). Pure Python, no rebuild. MultiGraph/callable-weight keep nx delegation.",
+  "followup": "negative_edge_cycle (6.16x, uses bellman-ford internally) — assess next"
+}

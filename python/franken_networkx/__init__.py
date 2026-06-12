@@ -22258,9 +22258,69 @@ def bellman_ford_predecessor_and_distance(
     if source not in G:
         raise NodeNotFound(f"Node {source} is not found in the graph")
 
+    # br-bfport: port nx's SPFA Bellman-Ford in-process for simple Graph/DiGraph
+    # (the previous code delegated to nx, paying the full fnx->nx conversion —
+    # 6.85x slower than nx on small/mid graphs). nx's own naive loop was 128x
+    # slower; the SPFA variant (a queue that only re-relaxes nodes whose distance
+    # improved, skipping a node while any predecessor is still queued) is what
+    # makes nx fast. We reproduce it byte-for-byte (pred is a dict of predecessor
+    # LISTS, ties append) on a one-time native to_dict_of_dicts snapshot, so the
+    # result is identical to nx with no conversion. MultiGraph / callable weight
+    # keep the nx delegation.
+    if type(G) in (Graph, DiGraph) and not callable(weight):
+        return _bellman_ford_pred_dist_inprocess(G, source, weight)
+
     return _call_networkx_for_parity(
         "bellman_ford_predecessor_and_distance", G, source, weight=weight
     )
+
+
+def _bellman_ford_pred_dist_inprocess(G, source, weight):
+    """networkx ``bellman_ford_predecessor_and_distance`` (SPFA variant,
+    heuristic=False — the public default) on a native adjacency snapshot. Byte-
+    identical (pred dict of lists, dist) to nx, no fnx->nx conversion."""
+    from collections import deque as _deque
+
+    g_succ = {
+        u: {v: attrs.get(weight, 1) for v, attrs in row.items()}
+        for u, row in to_dict_of_dicts(G).items()
+    }
+    # Negative self-loop is a negative cycle (matches nx).
+    for u, nbrs in g_succ.items():
+        if u in nbrs and nbrs[u] < 0:
+            raise NetworkXUnbounded("Negative cycle detected.")
+
+    dist = {source: 0}
+    pred = {source: []}
+    if len(g_succ) == 1:
+        return pred, dist
+
+    inf = float("inf")
+    n = len(g_succ)
+    count = {}
+    q = _deque([source])
+    in_q = {source}
+    while q:
+        u = q.popleft()
+        in_q.remove(u)
+        # Skip relaxing u while any of its predecessors is still queued.
+        if all(pred_u not in in_q for pred_u in pred[u]):
+            dist_u = dist[u]
+            for v, w in g_succ[u].items():
+                dist_v = dist_u + w
+                if dist_v < dist.get(v, inf):
+                    if v not in in_q:
+                        q.append(v)
+                        in_q.add(v)
+                        count_v = count.get(v, 0) + 1
+                        if count_v == n:
+                            raise NetworkXUnbounded("Negative cycle detected.")
+                        count[v] = count_v
+                    dist[v] = dist_v
+                    pred[v] = [u]
+                elif dist.get(v) is not None and dist_v == dist.get(v):
+                    pred[v].append(u)
+    return pred, dist
 
 
 # ---------------------------------------------------------------------------
