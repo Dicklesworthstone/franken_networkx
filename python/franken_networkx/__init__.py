@@ -577,50 +577,46 @@ class EdgeDataView:
         adj[node] yielding (u, v) plus optional data, skipping
         edges where the second endpoint has already been visited."""
         graph = self._graph
-        # br-r37-c1-ipm32: the per-node ``graph[node].items()`` AtlasView walk
-        # + per-edge ``dict(edge_data)`` copy is ~13x slower than nx. For a simple
-        # Graph snapshot the whole adjacency ONCE via the native to_dict_of_dicts
-        # kernel ({node: {nbr: live_edge_dict}} in identical node x nbr order) and
-        # read its rows. data=True then yields the SAME LIVE edge dict object nx
-        # does (the old path returned a COPY); the graph_has_any_attrs gate skips
-        # even the row lookup when no edge carries an attr. Views/multigraph keep
-        # the AtlasView path.
-        # Snapshot the whole adjacency once via the native to_dict_of_dicts
-        # kernel when the nbunch is large enough to amortize building all rows
-        # (its {nbr: live_edge_dict} rows iterate as a plain dict — no AtlasView
-        # per-edge cost; data=True yields nx's LIVE dict). For a small nbunch on
-        # a large graph the per-node AtlasView walk touches far fewer edges, so
-        # keep it there.
-        tdd = None
-        if (
-            type(graph) is Graph
-            and self._nbunch_list is not None
-            and len(self._nbunch_list) * 4 >= graph.number_of_nodes()
-        ):
-            tdd = to_dict_of_dicts(graph)
+        # br-r37-c1-ipm32: a native kernel walks ONLY the nbunch rows in Rust
+        # (nx UndirectedEdgeView(nbunch) order + undirected dedup), attaching the
+        # SAME live edge dict object nx yields (via edge_py_attrs) — no full-graph
+        # to_dict_of_dicts overbuild, no per-edge AtlasView/dict() copy. This
+        # walks only the requested rows, so it BEATS nx (the earlier
+        # to_dict_of_dicts routing overbuilt the whole graph for a partial
+        # nbunch). data=False / data=None skip the dict attach entirely.
+        if type(graph) is Graph and self._nbunch_list is not None:
+            rows = _fnx.edges_nbunch_data(
+                graph, self._nbunch_list, data is True or isinstance(data, str)
+            )
+            if rows is not None:
+                if data is False:
+                    return [(u, v) for u, v, _d in rows]
+                if data is True:
+                    return [(u, v, d) for u, v, d in rows]
+                if data_is_none:
+                    return [(u, v, default) for u, v, _d in rows]
+                # data is a string attr name
+                return [(u, v, d.get(data, default)) for u, v, d in rows]
+        # Fallback for views / subclasses the native kernel declines: per-node
+        # AtlasView walk (br-r37-c1-6yimw: add node to ``seen`` AFTER its inner
+        # loop so self-loop edges where nbr == node are still emitted).
         seen = set()
         result = []
         for node in self._nbunch_list:
             if node not in graph:
                 # nx skips missing nbunch nodes silently.
                 continue
-            row = tdd[node].items() if tdd is not None else graph[node].items()
-            for nbr, edge_data in row:
+            for nbr, edge_data in graph[node].items():
                 if nbr in seen:
                     continue
                 if data is False:
                     result.append((node, nbr))
                 elif data is True:
-                    result.append((node, nbr, edge_data))
+                    result.append((node, nbr, dict(edge_data)))
                 elif data_is_none:
                     result.append((node, nbr, default))
                 else:
-                    # data is a string attr name
                     result.append((node, nbr, edge_data.get(data, default)))
-            # br-r37-c1-6yimw: nx adds node to ``seen`` *after* the
-            # inner adj loop so self-loop edges (where nbr == node)
-            # are still emitted. The previous pre-loop ``seen.add``
-            # ate self-loops.
             seen.add(node)
         return result
 
@@ -647,6 +643,14 @@ class EdgeDataView:
                     return self._graph.number_of_edges()
             except (AttributeError, NameError, TypeError):
                 pass
+        # br-r37-c1-ipm32: ``list(view)`` calls ``__len__`` (size hint) THEN
+        # ``__iter__``; counting the nbunch edges natively (no PyObject build)
+        # avoids materializing the whole tuple list twice. Simple Graph only;
+        # otherwise fall back to the materialize-based count.
+        elif self._nbunch_list is not None and type(self._graph) is Graph:
+            count = _fnx.edges_nbunch_count(self._graph, self._nbunch_list)
+            if count is not None:
+                return count
         return len(self._materialize())
 
     def __contains__(self, item):

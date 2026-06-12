@@ -1306,6 +1306,101 @@ pub fn to_dict_of_dicts_undirected(
     Ok(Some(outer.unbind()))
 }
 
+/// br-r37-c1-ipm32: native kernel for ``G.edges(nbunch, data=...)`` on a simple
+/// undirected Graph. Walks ONLY the requested nbunch rows (no full-graph
+/// to_dict_of_dicts overbuild), reproducing nx's UndirectedEdgeView(nbunch)
+/// order: iterate nbunch in user order, for each node emit (u, v) in adjacency
+/// order skipping neighbours already processed as a source (undirected dedup),
+/// adding the source to `seen` AFTER its inner loop so self-loops survive.
+/// Returns `(py_u, py_v, edge_dict_or_None)` triples — the edge dict is the SAME
+/// LIVE object as ``G[u][v]`` (via edge_py_attrs, identical to
+/// to_dict_of_dicts_undirected), or a fresh empty dict for attr-less edges; when
+/// `with_data` is false the third slot is None and no dict work is done. Returns
+/// None for any non-simple-undirected input so the Python wrapper falls back.
+#[pyfunction]
+#[pyo3(signature = (g, nbunch, with_data))]
+pub fn edges_nbunch_data(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    nbunch: Vec<Bound<'_, PyAny>>,
+    with_data: bool,
+) -> PyResult<Option<Vec<(PyObject, PyObject, PyObject)>>> {
+    let gr = extract_graph(g)?;
+    let GraphRef::Undirected(pg) = &gr else {
+        return Ok(None);
+    };
+    let node_names = pg.inner.nodes_ordered();
+    let n = node_names.len();
+    let mut seen = vec![false; n];
+    let mut result: Vec<(PyObject, PyObject, PyObject)> = Vec::new();
+    for nb in &nbunch {
+        let name = node_key_to_string(py, nb)?;
+        let Some(u_idx) = pg.inner.get_node_index(&name) else {
+            // nx skips nbunch nodes that are not in the graph.
+            continue;
+        };
+        let u_name = node_names[u_idx];
+        let py_u = pg.py_node_key(py, u_name);
+        if let Some(neighbors) = pg.inner.neighbors_indices(u_idx) {
+            for &v_idx in neighbors {
+                if seen[v_idx] {
+                    continue;
+                }
+                let v_name = node_names[v_idx];
+                let py_v = pg.py_node_key(py, v_name);
+                let data_obj = if with_data {
+                    let ek = PyGraph::edge_key(u_name, v_name);
+                    match pg.edge_py_attrs.get(&ek) {
+                        Some(edge_dict) => edge_dict.clone_ref(py).into_any(),
+                        None => PyDict::new(py).into_any().unbind(),
+                    }
+                } else {
+                    py.None()
+                };
+                result.push((py_u.clone_ref(py), py_v, data_obj));
+            }
+        }
+        seen[u_idx] = true;
+    }
+    Ok(Some(result))
+}
+
+/// br-r37-c1-ipm32: cheap edge COUNT for ``len(G.edges(nbunch))`` on a simple
+/// undirected Graph — pure Rust, no PyObject allocation. ``list(view)`` calls
+/// ``__len__`` (size hint) then ``__iter__``; without this, ``__len__`` would
+/// materialize the whole tuple list a SECOND time. Mirrors the dedup of
+/// edges_nbunch_data so the count equals the number of emitted edges.
+#[pyfunction]
+#[pyo3(signature = (g, nbunch))]
+pub fn edges_nbunch_count(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    nbunch: Vec<Bound<'_, PyAny>>,
+) -> PyResult<Option<usize>> {
+    let gr = extract_graph(g)?;
+    let GraphRef::Undirected(pg) = &gr else {
+        return Ok(None);
+    };
+    let n = pg.inner.node_count();
+    let mut seen = vec![false; n];
+    let mut count: usize = 0;
+    for nb in &nbunch {
+        let name = node_key_to_string(py, nb)?;
+        let Some(u_idx) = pg.inner.get_node_index(&name) else {
+            continue;
+        };
+        if let Some(neighbors) = pg.inner.neighbors_indices(u_idx) {
+            for &v_idx in neighbors {
+                if !seen[v_idx] {
+                    count += 1;
+                }
+            }
+        }
+        seen[u_idx] = true;
+    }
+    Ok(Some(count))
+}
+
 fn to_dict_of_dicts_graph_cached(py: Python<'_>, pg: &mut PyGraph) -> PyResult<Py<PyDict>> {
     let cache_matches = pg
         .dict_of_dicts_cache
@@ -1887,6 +1982,8 @@ pub fn floyd_warshall_dense(
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(floyd_warshall_dense, m)?)?;
     m.add_function(wrap_pyfunction!(to_dict_of_dicts_undirected, m)?)?;
+    m.add_function(wrap_pyfunction!(edges_nbunch_data, m)?)?;
+    m.add_function(wrap_pyfunction!(edges_nbunch_count, m)?)?;
     m.add_function(wrap_pyfunction!(to_dict_of_lists_undirected, m)?)?;
     m.add_function(wrap_pyfunction!(adjacency_arrays_multigraph, m)?)?;
     m.add_function(wrap_pyfunction!(
