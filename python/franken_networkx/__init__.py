@@ -18938,11 +18938,31 @@ def create_empty_copy(G, with_data=True):
     """
     # br-r37-c1-s8w2p: SubgraphView class can't be empty-constructed.
     H = _concrete_class_for(G)()
+    # br-r37-c1-nwejh: feed add_nodes_from a CONCRETE list so its native bulk
+    # int-node path can fire — the old NodeView / ``(node, dict(attrs))`` genexpr
+    # forms always fell through to the per-node Python add_node loop (the whole
+    # cost: ~3x slower than nx). The ``dict(attrs)`` copy was also redundant:
+    # add_nodes_from copies attr-dict CONTENTS into a fresh node dict (verified —
+    # it never aliases G's dicts). When no node carries attributes (the common
+    # case) pass bare keys so the int fast path applies; otherwise pass the
+    # (node, attrs) pairs (add_nodes_from snapshots each dict's contents).
     if with_data:
         H.graph.update(dict(G.graph))
-        H.add_nodes_from((node, dict(attrs)) for node, attrs in G.nodes(data=True))
+        # Materializing ``G.nodes(data=True)`` is ~0.5ms@n=1500 (per-node attr
+        # dict reconstruction from Rust) — it dwarfs everything else. Skip it
+        # whenever the native ``graph_has_any_attrs`` check proves no node/edge
+        # carries a Python-visible attr (the overwhelmingly common case for
+        # algorithm-built graphs): then an empty copy is just the node KEYS,
+        # which ``_native_node_keys`` returns essentially for free and feeds the
+        # bulk int-node fast path. graph-level attrs were already copied above.
+        if type(G) is Graph and not _fnx.graph_has_any_attrs(G):
+            keys = G._native_node_keys()
+            H.add_nodes_from(keys if keys is not None else list(G.nodes()))
+        else:
+            H.add_nodes_from(list(G.nodes(data=True)))
     else:
-        H.add_nodes_from(G.nodes())
+        keys = G._native_node_keys() if type(G) is Graph else None
+        H.add_nodes_from(keys if keys is not None else list(G.nodes()))
     # br-norebuild2: H is already the canonical fnx type from
     # _concrete_class_for(G)(); the _from_nx_graph rebuild was a redundant second
     # full construction of an already-correct fnx graph.
