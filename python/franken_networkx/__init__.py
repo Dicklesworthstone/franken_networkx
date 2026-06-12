@@ -16094,6 +16094,13 @@ def find_negative_cycle(G, source, weight="weight"):
     if source not in G:
         raise NodeNotFound(f"Source {source} not in G")
     if G.is_directed():
+        # br-fnegport: de-delegate the directed case (was a full fnx->nx
+        # conversion, 2.23x slower) with an in-process port of nx's heuristic
+        # SPFA negative-cycle detector + its exact cycle-reconstruction walk, on
+        # a native to_dict_of_dicts snapshot. The returned cycle is byte-identical
+        # to nx. MultiGraph / callable weight keep the delegation.
+        if type(G) is DiGraph and isinstance(weight, str):
+            return _find_negative_cycle_directed_inprocess(G, source, weight)
         # Route directed graphs through upstream via the string-name
         # indirection so ``find_negative_cycle`` stays classified as
         # PY_WRAPPER (not NX_DELEGATED).
@@ -16110,6 +16117,92 @@ def find_negative_cycle(G, source, weight="weight"):
         if "No negative cycle found" in str(exc):
             raise NetworkXError("No negative cycles detected.") from exc
         raise
+
+
+def _find_negative_cycle_directed_inprocess(G, source, weight):
+    """nx ``find_negative_cycle`` for a directed fnx graph, in-process: the
+    heuristic SPFA Bellman-Ford detector (``_inner_bellman_ford``) followed by
+    nx's exact cycle-reconstruction walk, on a native adjacency snapshot. Returns
+    the byte-identical cycle list."""
+    from collections import deque as _deque
+
+    g_succ = {
+        u: {v: attrs.get(weight, 1) for v, attrs in row.items()}
+        for u, row in to_dict_of_dicts(G).items()
+    }
+    n = len(g_succ)
+    inf = float("inf")
+    dist = {source: 0}
+    pred = {source: []}
+
+    # nx's _inner_bellman_ford, heuristic=True (the find_negative_cycle default).
+    nonexistent_edge = (None, None)
+    pred_edge = {source: None}
+    recent_update = {source: nonexistent_edge}
+    count = {}
+    q = _deque([source])
+    in_q = {source}
+    found = None
+    while q:
+        u = q.popleft()
+        in_q.remove(u)
+        if all(pred_u not in in_q for pred_u in pred[u]):
+            dist_u = dist[u]
+            for v, w in g_succ[u].items():
+                dist_v = dist_u + w
+                if dist_v < dist.get(v, inf):
+                    if v in recent_update[u]:
+                        pred[v].append(u)
+                        found = v
+                        break
+                    if v in pred_edge and pred_edge[v] == u:
+                        recent_update[v] = recent_update[u]
+                    else:
+                        recent_update[v] = (u, v)
+                    if v not in in_q:
+                        q.append(v)
+                        in_q.add(v)
+                        count_v = count.get(v, 0) + 1
+                        if count_v == n:
+                            found = v
+                            break
+                        count[v] = count_v
+                    dist[v] = dist_v
+                    pred[v] = [u]
+                    pred_edge[v] = u
+                elif dist.get(v) is not None and dist_v == dist.get(v):
+                    pred[v].append(u)
+        if found is not None:
+            break
+
+    if found is None:
+        raise NetworkXError("No negative cycles detected.")
+
+    # nx's cycle reconstruction from the predecessor lists.
+    v = found
+    neg_cycle = []
+    stack = [(v, list(pred[v]))]
+    seen = {v}
+    while stack:
+        node, preds = stack[-1]
+        if v in preds:
+            neg_cycle.extend([node, v])
+            return list(reversed(neg_cycle))
+        if preds:
+            nbr = preds.pop()
+            if nbr not in seen:
+                stack.append((nbr, list(pred[nbr])))
+                neg_cycle.append(node)
+                seen.add(nbr)
+        else:
+            stack.pop()
+            if neg_cycle:
+                neg_cycle.pop()
+            elif v in g_succ.get(v, {}) and g_succ[v][v] < 0:
+                return [v, v]
+            else:
+                raise NetworkXError("Negative cycle is detected but not found")
+    raise NetworkXUnbounded("negative cycle detected but not identified")
 
 # Algorithm functions — graph predicates
 from franken_networkx._fnx import (

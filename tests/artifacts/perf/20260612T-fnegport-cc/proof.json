@@ -1,0 +1,19 @@
+{
+  "function": "find_negative_cycle (directed)",
+  "lever": "de-delegate the directed case (was a full fnx->nx conversion, 1.5x-10x slower than nx depending on cycle depth) with an in-process port of nx's HEURISTIC SPFA _inner_bellman_ford (recent_update/pred_edge early negative-cycle detection) + nx's exact cycle-reconstruction stack walk, on a native to_dict_of_dicts snapshot. Returned cycle is byte-identical to nx.",
+  "parity": {
+    "cases": 60,
+    "cycle_found": 52,
+    "no_cycle": 8,
+    "mismatches": 0,
+    "coverage": "directed gnp with negative weights; cycle list AND the no-cycle NetworkXError path byte-exact to nx",
+    "pytest": "50 passed (find_negative/negative_cycle/negative_edge)"
+  },
+  "bench_min_of_7_ms": {
+    "n120": {"nx": 2.179, "old_deleg": 3.168, "new_port": 1.685, "self_speedup": 1.88, "vs_nx": 0.77},
+    "n250": {"nx": 0.473, "old_deleg": 4.769, "new_port": 1.121, "self_speedup": 4.26, "vs_nx": 2.37},
+    "n400": {"nx": 1.406, "old_deleg": 14.323,"new_port": 2.991, "self_speedup": 4.79, "vs_nx": 2.13}
+  },
+  "headline": "find_negative_cycle directed: de-delegated, ~1.9-4.8x self-speedup, byte-exact. Old delegation was 1.5x-10x slower than nx (conversion tax, worst when nx's heuristic finds the cycle early); new is 0.77x-2.37x vs nx (data-dependent: nx's lazy early-exit vs our upfront snapshot). Eliminates the worst-case 10x-slower delegation. Pure Python, no rebuild.",
+  "note": "residual vs-nx is data-dependent — when the heuristic finds the cycle in few edges, nx's lazy G._adj beats our O(V+E) to_dict_of_dicts snapshot; when the cycle is deep, we win. Net big improvement over the prior delegation in all measured cases."
+}
