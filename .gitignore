@@ -65,6 +65,8 @@ venv/
 
 # Generic backup files
 *.bak
+# Deferred-untracked backup dirs created by repo-sweep tooling
+_deferred_untracked_backup_*/
 
 # Agent dump artifacts (UBS reports, clippy output, error logs)
 *ubs*.txt
