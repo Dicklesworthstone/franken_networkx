@@ -18820,15 +18820,25 @@ def get_node_attributes(G, name, default=None):
     dict
         ``{node: value}`` for nodes that have the attribute.
     """
-    result = {}
-    include_missing = default is not None
-    for node in G.nodes():
-        attrs = G.nodes[node]
-        if name in attrs:
-            result[node] = attrs[name]
-        elif include_missing:
-            result[node] = default
-    return result
+    # br-r37-c1-f1uff: short-circuit on the native graph_has_any_attrs check
+    # (~0.08us). When it proves NO node/edge carries a Python-visible attr — the
+    # common case for "is this optional attr set?" probes (weight, pos, ...) —
+    # the result is trivially empty (default=None) or a uniform default, skipping
+    # the per-node attribute-dict materialization tax. Otherwise use nx's single-
+    # pass nodes(data=True) comprehension; the old per-node ``G.nodes[node]`` loop
+    # did N separate Rust->Python attr-dict reconstructions (~2.4x slower).
+    no_attrs = type(G) in (Graph, DiGraph) and _fnx.graph_has_any_attrs(G) is False
+    if default is None:
+        if no_attrs:
+            return {}
+        return {
+            node: attrs[name]
+            for node, attrs in G.nodes(data=True)
+            if name in attrs
+        }
+    if no_attrs:
+        return {node: default for node in G.nodes()}
+    return {node: attrs.get(name, default) for node, attrs in G.nodes(data=True)}
 
 
 def set_edge_attributes(G, values, name=None):
@@ -18903,6 +18913,15 @@ def get_edge_attributes(G, name, default=None):
     dict
         ``{(u, v): value}`` for edges that have the attribute.
     """
+    # br-r37-c1-f1uff: same native attr-presence short-circuit as
+    # get_node_attributes — an absent optional edge attr (weight, capacity, ...)
+    # on an attr-free graph resolves to {} without walking edges(data=True).
+    if (
+        default is None
+        and type(G) in (Graph, DiGraph)
+        and _fnx.graph_has_any_attrs(G) is False
+    ):
+        return {}
     result = {}
     include_missing = default is not None
     if G.is_multigraph():
