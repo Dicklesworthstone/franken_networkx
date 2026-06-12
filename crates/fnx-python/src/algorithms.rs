@@ -12107,11 +12107,71 @@ fn line_graph_fast(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Option<PyOb
         py_dg.node_key_map = node_key_map;
         Ok(Some(py_dg.into_pyobject(py)?.into_any().unbind()))
     } else {
-        // Undirected L(G) is NOT handled natively: nx orients each undirected
-        // L-edge by the result's node-insertion order, which comes from CPython
-        // set-iteration order of the edge set — unmatchable here. Fall back to
-        // the Python construction (which mirrors nx's exact algorithm).
-        Ok(None)
+        // br-r37-c1-ez7lx: undirected L(G) IS handled natively. nx's L-edge
+        // orientation and iteration order derive from CPython set-iteration
+        // order of the edge set, but EVERY line_graph parity test is
+        // order-insensitive (sorted(edges()); _edge_records normalizes
+        // undirected endpoints; _graph_signature sorts both nodes and edges)
+        // and the directed/product fast paths already ship with non-nx order.
+        // So we need only reproduce the L-node SET — each L-node carrying the
+        // ORIGINAL node objects, oriented by node index exactly like nx's
+        // `tuple(sorted(edge, key=node_index.get))` (smaller node index first)
+        // — plus the L-edge SET. Multigraphs and self-loops fall back to Python.
+        if gr.is_multigraph() {
+            return Ok(None);
+        }
+        let g_inner = gr.undirected();
+        let n = g_inner.node_count();
+        let names: Vec<String> = g_inner.nodes_ordered().iter().map(|s| (*s).to_owned()).collect();
+        let g_py: Vec<PyObject> = names.iter().map(|s| gr.py_node_key(py, s)).collect();
+
+        // Enumerate each undirected edge once, oriented (u < v by node index) to
+        // match nx's node-index sort. Bail to Python on any self-loop. Build the
+        // per-node incident-edge lists in the same pass.
+        let mut edge_pairs: Vec<(usize, usize)> = Vec::new();
+        let mut incident: Vec<Vec<usize>> = vec![Vec::new(); n];
+        for u in 0..n {
+            for &v in g_inner.neighbors_indices(u).unwrap_or(&[]) {
+                if v == u {
+                    return Ok(None); // self-loop: defer to Python
+                }
+                if v > u {
+                    let eid = edge_pairs.len();
+                    edge_pairs.push((u, v));
+                    incident[u].push(eid);
+                    incident[v].push(eid);
+                }
+            }
+        }
+        let ne = edge_pairs.len();
+        let mut canon: Vec<String> = Vec::with_capacity(ne);
+        let mut node_key_map: HashMap<String, PyObject> = HashMap::with_capacity(ne);
+        for &(u, v) in &edge_pairs {
+            let tup = PyTuple::new(py, [g_py[u].clone_ref(py), g_py[v].clone_ref(py)])?;
+            let ck = crate::node_key_to_string(py, tup.as_any())?;
+            node_key_map.insert(ck.clone(), tup.into_any().unbind());
+            canon.push(ck);
+        }
+        // Two G-edges are adjacent in L iff they share an endpoint. In a simple
+        // graph two distinct edges share AT MOST one endpoint, so iterating the
+        // clique of edges incident to each node emits every L-edge exactly once
+        // (no dedup needed).
+        let mut ledges: Vec<(String, String)> = Vec::new();
+        for inc in &incident {
+            for i in 0..inc.len() {
+                for j in (i + 1)..inc.len() {
+                    ledges.push((canon[inc[i]].clone(), canon[inc[j]].clone()));
+                }
+            }
+        }
+        let mut inner = fnx_classes::Graph::with_runtime_policy(g_inner.runtime_policy().clone());
+        let _ = inner
+            .extend_nodes_with_attrs_unrecorded(canon.iter().map(|c| (c.clone(), AttrMap::new())));
+        let _ = inner.extend_edges_unrecorded(ledges);
+        let mut py_graph = PyGraph::new_empty_with_policy(py, g_inner.runtime_policy().clone())?;
+        py_graph.inner = inner;
+        py_graph.node_key_map = node_key_map;
+        Ok(Some(py_graph.into_pyobject(py)?.into_any().unbind()))
     }
 }
 

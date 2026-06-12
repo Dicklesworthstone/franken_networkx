@@ -378,7 +378,16 @@ class TestGraphOperationsParity:
         fnx_line = fnx.line_graph(G)
         nx_line = nx.line_graph(nxG)
         assert sorted(fnx_line.nodes()) == sorted(nx_line.nodes())
-        assert sorted(fnx_line.edges()) == sorted(nx_line.edges())
+        # br-r37-c1-ez7lx: compare the undirected L-edge SET with endpoints
+        # normalized as unordered pairs. The orientation WITHIN an undirected
+        # edge (which L-node is reported first) is non-semantic and, in nx,
+        # derives from CPython set-iteration order of L-node insertion — which
+        # the native kernel does not (and need not) replicate. This matches how
+        # every other line_graph parity site and all graph-product parity tests
+        # already compare (sorted, endpoint-normalized).
+        assert sorted(tuple(sorted(e)) for e in fnx_line.edges()) == sorted(
+            tuple(sorted(e)) for e in nx_line.edges()
+        )
 
     def test_power_graph(self):
         G = fnx.path_graph(5)

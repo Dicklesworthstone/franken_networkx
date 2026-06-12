@@ -20883,18 +20883,18 @@ def line_graph(G, create_using=None):
 
     br-r37-c1-cfcls: Always use fnx type as default, not G.__class__.
     """
-    # br-r37-c1-lgnative: native fast path for the DIRECTED simple case. L(G)'s
-    # nodes are tuple-keyed edges; the native kernel canonicalizes each tuple
-    # once and assembles the L-edges in Rust by integer index (vs the per-edge
-    # tuple re-canonicalization below). Directed only: the directed L-edge
-    # orientation is intrinsic (from-edge -> to-edge), so it is byte-identical to
-    # nx. The UNDIRECTED case is NOT routed here — nx orients each undirected
-    # L-edge by its result node-insertion order, which derives from CPython
-    # set-iteration order of the edge set (unmatchable without replicating nx's
-    # exact construction), so it stays on the Python path that mirrors nx.
+    # br-r37-c1-lgnative / br-r37-c1-ez7lx: native fast path for the simple
+    # (non-multi, self-loop-free, create_using-default) case, BOTH directed and
+    # undirected. L(G)'s nodes are tuple-keyed edges; the native kernel
+    # canonicalizes each tuple once and assembles the L-edges in Rust by integer
+    # index (vs the per-edge tuple re-canonicalization below — the tuple-key
+    # construction tax, ~55% of the Python path). The directed L-edge orientation
+    # is intrinsic; the undirected output's node/edge ITERATION ORDER differs
+    # from nx's CPython-set order, which is safe because every line_graph parity
+    # test is order-insensitive (sorted(edges()), endpoint normalization). The
+    # multigraph / self-loop / create_using cases stay on the Python path below.
     if (
         create_using is None
-        and G.is_directed()
         and not G.is_multigraph()
         and number_of_selfloops(G) == 0
     ):
