@@ -30603,6 +30603,18 @@ def is_distance_regular(G):
         raise NetworkXNotImplemented("not implemented for directed type")
     if len(G) == 0:
         raise NetworkXPointlessConcept("Graph has no nodes.")
+    # br-r37-c1-isdrfast: a distance-regular graph is by definition regular
+    # AND connected (nx.intersection_array rejects on
+    # ``not is_regular(G) or not is_connected(G)`` before any distance work).
+    # The native ``_raw_is_distance_regular`` instead always computes the full
+    # intersection array (single-source BFS from every node, O(V*(V+E))), so on
+    # the overwhelmingly common non-regular / disconnected input it was ~789x
+    # slower than nx (which short-circuits in microseconds). Replicate nx's
+    # cheap definitional pre-check here; both predicates are exact, so the
+    # boolean result is identical and the expensive native pass is reached only
+    # for genuinely regular, connected graphs (the only candidates).
+    if not is_regular(G) or not is_connected(G):
+        return False
     return _raw_is_distance_regular(G)
 
 
