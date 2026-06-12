@@ -26573,93 +26573,52 @@ def identified_nodes(
     # remap), so leave that path alone.
     if v not in G:
         raise NetworkXError(f"Node {v} is not in the graph.")
-    # Build a new graph preserving node order from G (skip v)
-    # br-r37-c1-s8w2p: SubgraphView class can't be empty-constructed.
-    H = _concrete_class_for(G)()
-    # br-r37-c1-mstminattr (sibling): nx contracts via ``H = G.copy()`` which
-    # carries the graph-level attrs; building a fresh H drops them. Restore.
-    if G.graph:
-        H.graph.update(dict(G.graph))
+    # br-r37-c1-i5mf1: mirror networkx's contracted_nodes algorithm directly
+    # — COPY G (a fast native copy that preserves node/edge order AND graph-level
+    # attrs) then remove v and remap only v's O(deg(v)) incident edges. The old
+    # path rebuilt the WHOLE result node-by-node and edge-by-edge (O(N+E)
+    # per-PyO3 add_node/add_edge), ~2.3x slower than nx. The copy + local remap
+    # is byte-identical: copy preserves order, non-v edges stay in place, v's new
+    # remapped edges are appended in v-edge order exactly as nx's loop does, and
+    # the node/edge "contraction" bookkeeping follows nx line-for-line.
+    H = G.copy() if copy else G
+    if H.is_directed():
+        edges_to_remap = list(G.in_edges(v, data=True)) + list(G.out_edges(v, data=True))
+    else:
+        edges_to_remap = list(G.edges(v, data=True))
     v_data = dict(G.nodes[v])
+    H.remove_node(v)
 
-    def add_node_with_deferred_contraction(graph, node, attrs):
-        attrs = dict(attrs)
-        deferred_contraction = None
-        if store_contraction_as:
-            deferred_contraction = attrs.pop(store_contraction_as, None)
-        graph.add_node(node, **attrs)
-        if deferred_contraction is not None:
-            graph.nodes[node][store_contraction_as] = deferred_contraction
-
-    def add_edge_with_deferred_contraction(graph, source, target, attrs):
-        attrs = dict(attrs)
-        deferred_contraction = None
-        if store_contraction_as:
-            deferred_contraction = attrs.pop(store_contraction_as, None)
-        graph.add_edge(source, target, **attrs)
-        if deferred_contraction is not None:
-            graph.edges[source, target][store_contraction_as] = deferred_contraction
-
-    # Add all nodes except v, preserving insertion order from G
-    for n in G.nodes():
-        if n == v:
+    store = store_contraction_as is not None
+    for prev_w, prev_x, d in edges_to_remap:
+        w = u if prev_w == v else prev_w
+        x = u if prev_x == v else prev_x
+        if {prev_w, prev_x} == {u, v} and not self_loops:
             continue
-        attrs = dict(G.nodes[n])
-        if n == u and store_contraction_as:
-            contraction = attrs.get(store_contraction_as, {})
-            contraction[v] = v_data
-            attrs[store_contraction_as] = contraction
-        add_node_with_deferred_contraction(H, n, attrs)
+        if not H.has_edge(w, x) or G.is_multigraph():
+            H.add_edge(w, x, **d)
+            continue
+        # Existing simple-graph edge (w, x): record the remapped duplicate as a
+        # contraction rather than overwriting it.
+        if store:
+            edge_attrs = H.edges[w, x]
+            if store_contraction_as in edge_attrs:
+                edge_attrs[store_contraction_as][(prev_w, prev_x)] = d
+            else:
+                edge_attrs[store_contraction_as] = {(prev_w, prev_x): d}
 
-    def add_or_contract_edge(src, dst, d):
-        new_src = u if src == v else src
-        new_dst = u if dst == v else dst
-        if {src, dst} == {u, v} and not self_loops:
-            return
-        if H.has_edge(new_src, new_dst) and not G.is_multigraph():
-            if store_contraction_as:
-                contraction = H.edges[new_src, new_dst].get(store_contraction_as, {})
-                if not G.is_directed() and (src == v or dst == v):
-                    other = dst if src == v else src
-                    contraction_edge = (v, other)
-                else:
-                    contraction_edge = (src, dst)
-                contraction[contraction_edge] = dict(d)
-                H.edges[new_src, new_dst][store_contraction_as] = contraction
-            return
-        add_edge_with_deferred_contraction(H, new_src, new_dst, d)
+    # Store the contracted node's data on u (guard u in H: nx permits u absent
+    # from G, in which case it is created via the remapped edges above; if v had
+    # no incident edges u may never appear, matching the prior lenient contract).
+    if store and u in H:
+        node_attrs = H.nodes[u]
+        if store_contraction_as in node_attrs:
+            node_attrs[store_contraction_as][v] = v_data
+        else:
+            node_attrs[store_contraction_as] = {v: v_data}
 
-    # Add stable edges first, then remap v's edges. NetworkX preserves the
-    # existing edge attributes and records remapped duplicates as contractions.
-    edges = list(G.edges(data=True))
-    for src, dst, d in edges:
-        if src != v and dst != v:
-            add_edge_with_deferred_contraction(H, src, dst, d)
-    for src, dst, d in edges:
-        if src == v or dst == v:
-            add_or_contract_edge(src, dst, d)
-
-    if not copy:
-        G.clear()
-        for n in H.nodes():
-            add_node_with_deferred_contraction(G, n, H.nodes[n])
-        for s, t, d_attr in H.edges(data=True):
-            add_edge_with_deferred_contraction(G, s, t, d_attr)
-        # br-r37-c1-7xvjl: copy=False means in-place mutation — nx
-        # returns the *same* object the caller passed (``result is G``).
-        # Routing through ``_from_nx_graph`` (br-r37-c1-k3ksc, "always
-        # return fnx type") copied G and broke that identity; for an
-        # in-place contraction G is already the caller's graph, so
-        # return it directly.
-        return G
-
-    # br-norebuild2: H is already the canonical fnx type from
-    # _concrete_class_for(G)(); the _from_nx_graph rebuild was a redundant second
-    # construction. For simple graphs the result is byte-identical to networkx;
-    # for multigraphs returning H directly is also STRICTLY MORE correct -- the
-    # rebuild re-canonicalized parallel-edge adjacency in a way that diverged from
-    # networkx on 31/68 sampled multigraph contractions, which returning H fixes
-    # (zero regressions vs the rebuild).
+    # copy=False mutates and returns the caller's own graph (result is G); copy=True
+    # returns the fresh fnx-typed copy. Both are already the canonical fnx type.
     return H
 
 
