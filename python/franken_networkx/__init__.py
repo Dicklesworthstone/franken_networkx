@@ -25864,8 +25864,7 @@ def _voronoi_cells_impl(G, center_nodes, *, weight):
     disconnected, single-center, key order, bad-center NodeNotFound):
     4.6ms -> 1.3ms (gap 4.41x -> 1.14x).
     """
-    paths = multi_source_dijkstra_path(G, center_nodes, weight=weight)
-    nearest = {v: p[0] for v, p in paths.items()}
+    nearest = _voronoi_nearest_centers(G, center_nodes, weight=weight)
     cells = {}
     for node, center in nearest.items():
         cells.setdefault(center, set()).add(node)
@@ -25873,6 +25872,39 @@ def _voronoi_cells_impl(G, center_nodes, *, weight):
     if unreachable:
         cells["unreachable"] = unreachable
     return cells
+
+
+def _voronoi_nearest_centers(G, sources, *, weight):
+    """Return ``{node: nearest_center}`` in nx's distance-sorted order.
+
+    br-voronoinearest: ``voronoi_cells`` only needs the SOURCE that each
+    node was reached from — i.e. ``path[0]`` of the multi-source Dijkstra
+    paths — and never touches the distances. The general
+    ``multi_source_dijkstra_path`` wrapper int-coerces the full distance
+    dict (``_sp_coerce_dist_to_int`` / ``_sp_propagate_int_types``, ~10%
+    of voronoi's runtime), rebuilds both the dist and path dicts in
+    distance order, and handles cutoff/target — all wasted here. This
+    helper runs the raw kernel once and reorders only what voronoi
+    consumes. The output dict-key order is byte-identical because the
+    full wrapper also reorders via the no-G ``_reorder_by_distance``
+    (stable sort by numeric distance), and int-vs-float of equal value
+    sort identically — so skipping the int-coercion cannot change order.
+    Weighted / callable-weight inputs fall back to the exact wrapper.
+    """
+    G = _coerce_arg_to_fnx_graph(G)
+    if (
+        callable(weight)
+        or _should_delegate_dijkstra_to_networkx(G, weight)
+        or _graph_has_nonunit_weight(G, weight)
+    ):
+        paths = multi_source_dijkstra_path(G, sources, weight=weight)
+        return {v: p[0] for v, p in paths.items()}
+    for s in sources:
+        if s not in G:
+            raise NodeNotFound(f"Node {s} not found in graph")
+    dists, paths = _raw_multi_source_dijkstra(G, sources, weight=weight)
+    order = _reorder_by_distance(dists)
+    return {node: paths[node][0] for node in order if node in paths}
 
 
 def _default_binary_heap():
