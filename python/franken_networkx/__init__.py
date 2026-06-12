@@ -8789,6 +8789,65 @@ def _flow_has_infinite_capacity(flowG, capacity):
     return False
 
 
+def _flow_caps_summary(flowG, capacity):
+    """br-r37-c1-31tby: single-pass fusion of ``_flow_has_infinite_capacity``
+    + ``_all_flow_caps_integral``.
+
+    The four high-level flow wrappers (maximum_flow / maximum_flow_value /
+    minimum_cut / minimum_cut_value) called those two helpers back-to-back,
+    each iterating the *whole* flow graph's ``edges(data=True)`` (a fresh
+    full materialization through ``_native_edges_with_data``). Over a
+    repeated-call algorithm like ``all_node_cuts`` (hundreds of max_flow
+    calls on the same auxiliary graph) the two scans dominated runtime
+    (~54% of total in cProfile). Fuse them into ONE edge walk.
+
+    Returns ``(needs_nx, all_int)``:
+
+    * ``needs_nx`` is byte-for-byte equivalent to
+      ``_flow_has_infinite_capacity(flowG, capacity)``: True iff any edge
+      capacity is missing (default +inf), None, +-inf, NaN, negative, or
+      not a ``numbers.Real``. We return as soon as that is established —
+      exactly the original short-circuit, which delegated before ever
+      computing ``all_int``.
+    * ``all_int`` is only consumed by the wrappers when ``needs_nx`` is
+      False (every capacity is a present, finite, non-negative Real); in
+      that regime it equals ``_all_flow_caps_integral(flowG, capacity)``:
+      True iff every capacity is ``numbers.Integral``. A finite
+      non-negative ``float`` is never Integral, so it forces False.
+    """
+    import math as _math
+    import numbers as _numbers
+    all_int = True
+    for _u, _v, attrs in flowG.edges(data=True):
+        cap = attrs.get(capacity, None) if isinstance(attrs, dict) else None
+        tc = type(cap)
+        # Concrete-type fast paths first (the overwhelmingly common case),
+        # mirroring the per-edge logic of both original helpers.
+        if tc is int:
+            if cap < 0:
+                return True, all_int
+            continue  # plain int is Integral -> all_int unaffected
+        if tc is float:
+            if cap < 0.0 or _math.isinf(cap) or _math.isnan(cap):
+                return True, all_int
+            all_int = False  # a finite non-negative float is not Integral
+            continue
+        # Missing capacity defaults to +inf in _flow_has_infinite_capacity,
+        # so a missing-or-None capacity routes to nx just like an infinite one.
+        if cap is None:
+            return True, all_int
+        if not isinstance(cap, _numbers.Real):
+            return True, all_int
+        cap_f = float(cap)
+        if _math.isinf(cap_f) or _math.isnan(cap_f) or cap_f < 0:
+            return True, all_int
+        # Finite, non-negative Real that is neither plain int nor float
+        # (e.g. numpy integer, Fraction): integrality per _all_flow_caps_integral.
+        if not isinstance(cap, _numbers.Integral):
+            all_int = False
+    return False, all_int
+
+
 def _reject_multigraph_flow(flowG):
     if flowG.is_multigraph():
         raise NetworkXError("MultiGraph and MultiDiGraph not supported (yet).")
@@ -8822,13 +8881,20 @@ def maximum_flow(flowG, _s, _t, capacity="capacity", flow_func=None, **kwargs):
     flowG = _coerce_arg_to_fnx_graph(flowG)
     _reject_multigraph_flow(flowG)
     _check_flow_endpoints(flowG, _s, _t)
-    if flow_func is not None or kwargs or _flow_has_infinite_capacity(flowG, capacity):
+    if flow_func is not None or kwargs:
+        return _call_networkx_for_parity(
+            "maximum_flow", flowG, _s, _t, capacity=capacity,
+            flow_func=flow_func, **kwargs,
+        )
+    # br-r37-c1-31tby: one edge scan yields both the route-to-nx decision
+    # and the int-coercion flag (was two full-graph scans).
+    needs_nx, all_int = _flow_caps_summary(flowG, capacity)
+    if needs_nx:
         return _call_networkx_for_parity(
             "maximum_flow", flowG, _s, _t, capacity=capacity,
             flow_func=flow_func, **kwargs,
         )
     flow_value, flow_dict = _raw_maximum_flow(flowG, _s, _t, capacity)
-    all_int = _all_flow_caps_integral(flowG, capacity)
     return _coerce_flow_value(flow_value, all_int), _coerce_flow_dict(flow_dict, all_int)
 
 
@@ -8838,14 +8904,21 @@ def maximum_flow_value(flowG, _s, _t, capacity="capacity", flow_func=None, **kwa
     flowG = _coerce_arg_to_fnx_graph(flowG)
     _reject_multigraph_flow(flowG)
     _check_flow_endpoints(flowG, _s, _t)
-    if flow_func is not None or kwargs or _flow_has_infinite_capacity(flowG, capacity):
+    if flow_func is not None or kwargs:
+        return _call_networkx_for_parity(
+            "maximum_flow_value", flowG, _s, _t, capacity=capacity,
+            flow_func=flow_func, **kwargs,
+        )
+    # br-r37-c1-31tby: single fused capacity scan.
+    needs_nx, all_int = _flow_caps_summary(flowG, capacity)
+    if needs_nx:
         return _call_networkx_for_parity(
             "maximum_flow_value", flowG, _s, _t, capacity=capacity,
             flow_func=flow_func, **kwargs,
         )
     return _coerce_flow_value(
         _raw_maximum_flow_value(flowG, _s, _t, capacity),
-        _all_flow_caps_integral(flowG, capacity),
+        all_int,
     )
 
 
@@ -8896,7 +8969,11 @@ def minimum_cut(flowG, _s, _t, capacity="capacity", flow_func=None, **kwargs):
             "You have to explicitly set a flow_func if you need to pass "
             "parameters via kwargs."
         )
-    if flow_func is not None or kwargs or _flow_has_infinite_capacity(flowG, capacity):
+    needs_nx = bool(flow_func is not None or kwargs)
+    if not needs_nx:
+        # br-r37-c1-31tby: single fused capacity scan.
+        needs_nx, all_int = _flow_caps_summary(flowG, capacity)
+    if needs_nx:
         return _call_networkx_for_parity(
             "minimum_cut",
             flowG,
@@ -8907,7 +8984,6 @@ def minimum_cut(flowG, _s, _t, capacity="capacity", flow_func=None, **kwargs):
             **kwargs,
         )
     value, partition = _minimum_cut_raw(flowG, _s, _t, capacity=capacity)
-    all_int = _all_flow_caps_integral(flowG, capacity)
     return _coerce_flow_value(value, all_int), partition
 
 
@@ -8928,7 +9004,11 @@ def minimum_cut_value(flowG, _s, _t, capacity="capacity", flow_func=None, **kwar
             "You have to explicitly set a flow_func if you need to pass "
             "parameters via kwargs."
         )
-    if flow_func is not None or kwargs or _flow_has_infinite_capacity(flowG, capacity):
+    needs_nx = bool(flow_func is not None or kwargs)
+    if not needs_nx:
+        # br-r37-c1-31tby: single fused capacity scan.
+        needs_nx, all_int = _flow_caps_summary(flowG, capacity)
+    if needs_nx:
         return _call_networkx_for_parity(
             "minimum_cut_value",
             flowG,
@@ -8940,7 +9020,7 @@ def minimum_cut_value(flowG, _s, _t, capacity="capacity", flow_func=None, **kwar
         )
     return _coerce_flow_value(
         _minimum_cut_value_raw(flowG, _s, _t, capacity=capacity),
-        _all_flow_caps_integral(flowG, capacity),
+        all_int,
     )
 
 # Algorithm functions — distance measures
