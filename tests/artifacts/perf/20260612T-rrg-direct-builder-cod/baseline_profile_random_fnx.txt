@@ -1,0 +1,36 @@
+         973441 function calls in 1.133 seconds
+
+   Ordered by: cumulative time
+   List reduced from 59 to 30 due to restriction <30>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+      160    0.000    0.000    1.133    0.007 harness_generators.py:69(build)
+      160    0.042    0.000    1.133    0.007 harness_generators.py:37(<lambda>)
+      160    0.070    0.000    1.091    0.007 __init__.py:49676(random_regular_graph)
+      160    0.110    0.001    0.792    0.005 __init__.py:2739(add_edges_from)
+      160    0.605    0.004    0.605    0.004 {method '_try_add_edges_from_batch' of 'franken_networkx.Graph' objects}
+      160    0.153    0.001    0.153    0.001 {built-in method franken_networkx._fnx.random_regular_edges_pyset}
+   960160    0.077    0.000    0.077    0.000 {method 'append' of 'list' objects}
+      160    0.002    0.000    0.067    0.000 __init__.py:51490(wrapper)
+      160    0.000    0.000    0.065    0.000 __init__.py:18809(empty_graph)
+      160    0.000    0.000    0.054    0.000 __init__.py:47081(_add_nodes_in_order)
+      160    0.000    0.000    0.054    0.000 __init__.py:2456(add_nodes_from)
+      160    0.053    0.000    0.053    0.000 {method '_fast_add_int_nodes' of 'franken_networkx.Graph' objects}
+      160    0.002    0.000    0.006    0.000 __init__.py:25067(_generator_random_state)
+      320    0.001    0.000    0.006    0.000 __init__.py:47053(_classic_default_graph_type)
+      160    0.001    0.000    0.004    0.000 <class 'networkx.utils.decorators.argmap'> compilation 4:1(argmap___new___1)
+      160    0.002    0.000    0.004    0.000 backends.py:554(_call_if_any_backends_installed)
+      160    0.004    0.000    0.004    0.000 __init__.py:47018(_nodes_or_number_local)
+      160    0.001    0.000    0.003    0.000 __init__.py:46962(_checked_create_using)
+      160    0.003    0.000    0.003    0.000 {built-in method builtins.__build_class__}
+      160    0.000    0.000    0.001    0.000 random.py:119(__init__)
+      160    0.001    0.000    0.001    0.000 random.py:128(seed)
+      160    0.001    0.000    0.001    0.000 graph.py:349(__init__)
+      160    0.000    0.000    0.001    0.000 __init__.py:47066(_classic_graph_from_create_using)
+      160    0.001    0.000    0.001    0.000 {function Random.seed at 0x7c19de046160}
+      320    0.000    0.000    0.001    0.000 __init__.py:5799(predicate)
+      160    0.000    0.000    0.001    0.000 {built-in method builtins.all}
+      160    0.000    0.000    0.001    0.000 __init__.py:5683(clear)
+     2400    0.001    0.000    0.001    0.000 {built-in method builtins.isinstance}
+      320    0.000    0.000    0.000    0.000 __init__.py:3395(__init__)
+      160    0.000    0.000    0.000    0.000 backends.py:1484(_call_with_backend)

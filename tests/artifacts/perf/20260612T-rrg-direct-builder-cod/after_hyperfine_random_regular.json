@@ -1,0 +1,38 @@
+{
+  "results": [
+    {
+      "command": "PYTHONPATH=/data/projects/franken_networkx/python CANDIDATE_FNX_SO=/data/tmp/cargo-target/maturin/lib_fnx.so .venv/bin/python -c 'import importlib.util, os, runpy, sys; path=os.environ[\"CANDIDATE_FNX_SO\"]; spec=importlib.util.spec_from_file_location(\"franken_networkx._fnx\", path); module=importlib.util.module_from_spec(spec); sys.modules[\"franken_networkx._fnx\"] = module; spec.loader.exec_module(module); script=\"tests/artifacts/perf/20260611T-tp7j4-generator-bulk-topazhill/harness_generators.py\"; sys.argv=[script, *sys.argv[1:]]; runpy.run_path(script, run_name=\"__main__\")' bench --engine fnx --scenario random_regular_8_1500 --samples 80 --warmups 3",
+      "mean": 0.53750066008,
+      "stddev": 0.027803399814609626,
+      "median": 0.53278836398,
+      "user": 4.893825859999999,
+      "system": 0.07580877999999999,
+      "min": 0.5067104569800001,
+      "max": 0.58543780098,
+      "times": [
+        0.55597841998,
+        0.54731940398,
+        0.5067104569800001,
+        0.55536798198,
+        0.51825732398,
+        0.51648096798,
+        0.58543780098,
+        0.56594921798,
+        0.51359516898,
+        0.50990985798
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}
