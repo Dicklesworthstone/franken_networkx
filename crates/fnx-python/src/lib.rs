@@ -8,6 +8,7 @@
 
 mod algorithms;
 mod cgse;
+mod network_simplex;
 pub(crate) mod digraph;
 mod generators;
 mod readwrite;
@@ -7866,6 +7867,7 @@ fn _fnx(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
 
     m.add_function(wrap_pyfunction!(validate_ctor_edge_list, m)?)?;
+    m.add_function(wrap_pyfunction!(network_simplex::network_simplex_int, m)?)?;
 
     // Graph class
     m.add_class::<PyGraph>()?;
