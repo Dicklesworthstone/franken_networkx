@@ -16962,11 +16962,76 @@ def negative_edge_cycle(G, weight="weight", heuristic=True):
     sweep.
     """
     G = _coerce_arg_to_fnx_graph(G)
+    # br-neccycle: the DIRECTED case was always delegated to nx (the native
+    # _raw_negative_edge_cycle is undirected-only), paying the full fnx->nx
+    # conversion — 6.46x slower than nx. The result is a deterministic boolean
+    # (does a negative cycle exist), so an in-process SPFA detector matches nx
+    # exactly with no conversion. Mirrors nx: add a virtual super-source joined
+    # to every node, run Bellman-Ford from it (detects a negative cycle in ANY
+    # component), report whether one was found.
+    if type(G) is DiGraph and isinstance(weight, str) and isinstance(heuristic, bool):
+        return _negative_edge_cycle_inprocess(G, weight)
     if _should_delegate_negative_edge_cycle_to_networkx(G, weight, heuristic):
         return _call_networkx_for_parity(
             "negative_edge_cycle", G, weight=weight, heuristic=heuristic
         )
     return _raw_negative_edge_cycle(G, weight=weight)
+
+
+def _negative_edge_cycle_inprocess(G, weight):
+    """nx ``negative_edge_cycle`` for a directed fnx graph, in-process: add a
+    virtual super-source to every node and run the SPFA Bellman-Ford negative-
+    cycle detector on a native adjacency snapshot. Returns the same boolean as
+    nx (deterministic — no tie-break concern)."""
+    from collections import deque as _deque
+
+    if G.number_of_edges() == 0:
+        return False
+
+    g_succ = {
+        u: {v: attrs.get(weight, 1) for v, attrs in row.items()}
+        for u, row in to_dict_of_dicts(G).items()
+    }
+    # A negative self-loop is itself a negative cycle.
+    for u, nbrs in g_succ.items():
+        if u in nbrs and nbrs[u] < 0:
+            return True
+
+    # Virtual super-source joined to every original node (weight 1, as nx's
+    # added edges carry no weight attribute -> default 1).
+    nodes = list(g_succ)
+    newnode = -1
+    while newnode in g_succ:
+        newnode -= 1
+    g_succ[newnode] = dict.fromkeys(nodes, 1)
+
+    n = len(g_succ)
+    inf = float("inf")
+    dist = {newnode: 0}
+    pred = {newnode: []}
+    count = {}
+    q = _deque([newnode])
+    in_q = {newnode}
+    while q:
+        u = q.popleft()
+        in_q.remove(u)
+        if all(pred_u not in in_q for pred_u in pred[u]):
+            dist_u = dist[u]
+            for v, w in g_succ[u].items():
+                dist_v = dist_u + w
+                if dist_v < dist.get(v, inf):
+                    if v not in in_q:
+                        q.append(v)
+                        in_q.add(v)
+                        count_v = count.get(v, 0) + 1
+                        if count_v == n:
+                            return True
+                        count[v] = count_v
+                    dist[v] = dist_v
+                    pred[v] = [u]
+                elif dist.get(v) is not None and dist_v == dist.get(v):
+                    pred[v].append(u)
+    return False
 
 
 def _single_source_dijkstra_cutoff_view(source, dists, paths, cutoff):

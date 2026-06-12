@@ -1,0 +1,17 @@
+{
+  "function": "negative_edge_cycle (directed)",
+  "lever": "de-delegate the directed case (native _raw_negative_edge_cycle is undirected-only, so directed always delegated -> full fnx->nx conversion, 6.46x slower). In-process SPFA: add a virtual super-source joined to every node, run the Bellman-Ford negative-cycle detector on a native to_dict_of_dicts snapshot. Deterministic boolean -> no tie-break parity concern.",
+  "parity": {
+    "cases": 40,
+    "true_false_split": "19 True / 21 False",
+    "mismatches": 0,
+    "edge_cases": "empty-edges, negative self-loop, heuristic=False all match nx",
+    "pytest": "1347 passed (negative/bellman/cycle)"
+  },
+  "bench_min_of_7_ms": {
+    "n200": {"nx": 0.636, "fnx": 0.752, "ratio": 1.17},
+    "n300": {"nx": 0.941, "fnx": 1.262, "ratio": 1.32, "old_fnx": 5.231, "self_speedup": 4.1},
+    "n500": {"nx": 2.170, "fnx": 3.206, "ratio": 1.48}
+  },
+  "headline": "negative_edge_cycle directed: 6.46x slower than nx -> ~1.3x near-parity, ~4x self-speedup, byte-exact bool. Pure Python, no rebuild. Reuses the SPFA negative-cycle detector from the bellman_ford port."
+}
