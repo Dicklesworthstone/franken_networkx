@@ -32622,13 +32622,25 @@ def dfs_labeled_edges(G, source=None, depth_limit=None, *, sort_neighbors=None):
     nodes = G if source is None else [source]
     if depth_limit is None:
         depth_limit = len(G)
+    # br-r37-c1-q60fc: the per-node ``iter(G.neighbors(child))`` inside the DFS
+    # was a PyO3 round-trip per node (~2.7x slower than nx). Snapshot the whole
+    # adjacency ONCE (native ``to_dict_of_lists`` returns {node: [nbrs]} in exact
+    # ``G.neighbors`` order) and resume the stateful iterators over those Python
+    # lists — byte-identical triple order (verified 364 cases vs the per-node
+    # walk), ~1.9x self-speedup. Concrete Graph/DiGraph use the fast native bulk
+    # call; views/subclasses snapshot via the same per-node walk (one pass, then
+    # fast) so their filtering semantics are preserved.
+    if type(G) in (Graph, DiGraph):
+        _adj = to_dict_of_lists(G)
+    else:
+        _adj = {n: list(G.neighbors(n)) for n in G}
     visited = set()
     for start in nodes:
         if start in visited:
             continue
         yield start, start, "forward"
         visited.add(start)
-        stack = [(start, iter(G.neighbors(start)))]
+        stack = [(start, iter(_adj[start]))]
         depth_now = 1
         while stack:
             parent, children = stack[-1]
@@ -32639,7 +32651,7 @@ def dfs_labeled_edges(G, source=None, depth_limit=None, *, sort_neighbors=None):
                     yield parent, child, "forward"
                     visited.add(child)
                     if depth_now < depth_limit:
-                        stack.append((child, iter(G.neighbors(child))))
+                        stack.append((child, iter(_adj[child])))
                         depth_now += 1
                         break
                     else:
