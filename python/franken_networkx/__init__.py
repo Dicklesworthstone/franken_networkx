@@ -12964,6 +12964,18 @@ def difference(G, H):
         _native_R = G._native_difference(H)
         if _native_R is not None:
             return _native_R
+    # br-r37-c1-natdiffsimple: fully-native simple-Graph difference — same lever
+    # as the MultiGraph path above but for ``type(G) is Graph``. Builds the result
+    # in Rust (no create_empty_copy + EdgeView set + add_edges_from). The node-set
+    # check moves ahead of the (skipped) create_empty_copy, which never raises, so
+    # error order is unchanged. Declines (-> None) on z6uka display overrides,
+    # falling through to the snapshot path below.
+    if type(G) is Graph and type(H) is Graph:
+        if set(G) != set(H):
+            raise NetworkXError("Node sets of graphs not equal")
+        _native_R = G._native_difference(H)
+        if _native_R is not None:
+            return _native_R
     R = create_empty_copy(G, with_data=False)
     if set(G) != set(H):
         raise NetworkXError("Node sets of graphs not equal")

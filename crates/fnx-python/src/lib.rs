@@ -5158,6 +5158,97 @@ impl MultiGraphDegreeView {
 
 #[pymethods]
 impl PyGraph {
+    /// br-r37-c1-natdiffsimple: fully-native `difference(G, H)` for simple Graph
+    /// (the undirected-simple sibling of `PyMultiGraph::_native_difference`).
+    /// Builds the result entirely in Rust: H's edges are hashed into a canonical
+    /// set, G is walked in node-major `edges()` order (each undirected pair once,
+    /// emitted at its first/earlier-node encounter exactly like nx's `G.edges()`
+    /// stream) and kept edges go straight onto the fresh result carrying G's node
+    /// display keys. Skips the Python `create_empty_copy` + EdgeView set
+    /// materialization + `add_edges_from` round-trip (~3.3x nx). Returns `None`
+    /// (wrapper falls back) when either graph carries z6uka adjacency-cell display
+    /// overrides (mixed hash-equal node objects), which the plain node_key_map
+    /// path can't honour.
+    fn _native_difference(
+        slf: PyRef<'_, Self>,
+        py: Python<'_>,
+        h: &Bound<'_, PyAny>,
+    ) -> PyResult<Option<Py<Self>>> {
+        let Ok(h_ref) = h.extract::<PyRef<'_, Self>>() else {
+            return Ok(None);
+        };
+        let g = &*slf;
+        let hh = &*h_ref;
+        if !g.adj_py_keys.is_empty() || !hh.adj_py_keys.is_empty() {
+            return Ok(None);
+        }
+
+        // Work entirely in G's integer index space to avoid per-edge String
+        // allocation. g_nodes[i] is the canonical key at G-index i; g_index maps
+        // canonical -> G-index. H shares G's node SET (wrapper precondition) but
+        // may index it differently, so H's edges are translated into G-index
+        // pairs; decline (-> None) if any H node is somehow absent from G.
+        let g_nodes: Vec<&str> = g.inner.nodes_ordered();
+        let g_index: HashMap<&str, usize> = g_nodes
+            .iter()
+            .enumerate()
+            .map(|(i, &n)| (n, i))
+            .collect();
+
+        // H's edge set as canonical (min, max) G-index pairs.
+        let mut h_set: HashSet<(usize, usize)> = HashSet::new();
+        for u in hh.inner.nodes_ordered() {
+            let Some(&ui) = g_index.get(u) else {
+                return Ok(None);
+            };
+            for v in hh.inner.neighbors(u).unwrap_or_default() {
+                let Some(&vi) = g_index.get(v) else {
+                    return Ok(None);
+                };
+                h_set.insert(if ui <= vi { (ui, vi) } else { (vi, ui) });
+            }
+        }
+
+        let mut r = Self::new_empty_with_mode(py, g.inner.mode())?;
+        // Propagate G's lazy-int range and copy ONLY its explicitly-materialized
+        // node objects — never call `py_node_key` per node, which would force a
+        // fresh PyInt for every lazy-range node (the dominant cost on large
+        // integer-node graphs). Result renders node display keys identically.
+        r.lazy_int_node_stop = g.lazy_int_node_stop;
+        for (canonical, obj) in &g.node_key_map {
+            r.node_key_map.insert(canonical.clone(), obj.clone_ref(py));
+        }
+        let _ = r.inner.extend_nodes_with_attrs_unrecorded(
+            g_nodes.iter().map(|n| ((*n).to_owned(), AttrMap::new())),
+        );
+
+        // G's edges in node-major `edges()` order, each undirected pair once at its
+        // first (earlier-node) encounter; kept when the canonical pair is absent
+        // from H. Emitted as (current_node, neighbor) to match nx's orientation.
+        let mut edges: Vec<(String, String, AttrMap)> = Vec::new();
+        let mut seen: HashSet<(usize, usize)> = HashSet::new();
+        for (ui, &u) in g_nodes.iter().enumerate() {
+            let Some(nbrs) = g.inner.neighbors_indices(ui) else {
+                continue;
+            };
+            for &vi in nbrs {
+                let pair = if ui <= vi { (ui, vi) } else { (vi, ui) };
+                if !seen.insert(pair) {
+                    continue;
+                }
+                if !h_set.contains(&pair) {
+                    edges.push((u.to_owned(), g_nodes[vi].to_owned(), AttrMap::new()));
+                }
+            }
+        }
+        let n_edges = edges.len();
+        let node_count = g_nodes.len();
+        let _ = r.inner.extend_edges_with_attrs_unrecorded(edges);
+        r.nodes_seq = u64::try_from(node_count).unwrap_or(u64::MAX);
+        r.edges_seq = u64::try_from(n_edges).unwrap_or(u64::MAX);
+        Py::new(py, r).map(Some)
+    }
+
     /// Create a new Graph.
     ///
     /// Parameters
