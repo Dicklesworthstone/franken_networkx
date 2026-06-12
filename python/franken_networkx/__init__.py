@@ -16749,6 +16749,21 @@ def is_negatively_weighted(G, edge=None, weight="weight"):
             raise NetworkXError(msg)
         return weight in data and data[weight] < 0
 
+    # br-r37-c1-isnegw: scan the live edge-attr dicts via the native
+    # to_dict_of_dicts kernel ({u: {v: live_edge_dict}}, built in Rust and
+    # reflecting Python-overlay attr mutations) instead of the per-edge
+    # ``G.edges(data=True)`` materialization (~2.7x faster, flips 0.49x -> 1.3x
+    # vs nx). The native edge-weight bindings (graph_has_negative_edge_weight)
+    # CANNOT be used here: they read the Rust inner AttrMap and miss attrs set
+    # via ``G[u][v][k] = v`` post-creation. Multigraph / views (no native
+    # to_dict_of_dicts) keep the edges() scan. (Undirected rows list each edge
+    # twice; harmless for ``any`` and still far cheaper than the view walk.)
+    if type(G) is Graph or type(G) is DiGraph:
+        return any(
+            weight in d and d[weight] < 0
+            for inner in to_dict_of_dicts(G).values()
+            for d in inner.values()
+        )
     return any(weight in data and data[weight] < 0 for _u, _v, data in G.edges(data=True))
 
 
