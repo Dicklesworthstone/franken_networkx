@@ -1402,19 +1402,28 @@ impl DiGraph {
         let n = self.nodes.len();
         let mut succ_indices: Vec<Vec<usize>> = vec![Vec::new(); n];
         let mut pred_indices: Vec<Vec<usize>> = vec![Vec::new(); n];
-        for i in 0..n {
+        for (i, (succ_row, pred_row)) in succ_indices
+            .iter_mut()
+            .zip(pred_indices.iter_mut())
+            .enumerate()
+        {
             // reversed succ row = original pred row; reversed pred row = original
             // succ row — pre-size so neither row reallocates.
-            succ_indices[i].reserve(self.pred_indices[i].len());
-            pred_indices[i].reserve(self.succ_indices[i].len());
+            succ_row.reserve(self.pred_indices[i].len());
+            pred_row.reserve(self.succ_indices[i].len());
         }
         let mut edges: IndexMap<(usize, usize), AttrMap> =
             IndexMap::with_capacity(self.edges.len());
-        for u in 0..n {
-            for &t in &self.succ_indices[u] {
+        for (u, (source_succs, reversed_preds)) in self
+            .succ_indices
+            .iter()
+            .zip(pred_indices.iter_mut())
+            .enumerate()
+        {
+            for &t in source_succs {
                 // original edge u -> t becomes t -> u in the reverse
                 succ_indices[t].push(u);
-                pred_indices[u].push(t);
+                reversed_preds.push(t);
                 if let Some(attrs) = self.edges.get(&(u, t)) {
                     edges.insert((t, u), attrs.clone());
                 }
