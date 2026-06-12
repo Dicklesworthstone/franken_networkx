@@ -2218,6 +2218,19 @@ def _simple_graph_adjacency(self):
     # Rust storage.
     if isinstance(self, _FilteredGraphView):
         return ((node, FilterAtlas(self, node)) for node in self)
+    # br-r37-c1-adjtdd: route to the to_dict_of_dicts native kernel
+    # (``to_dict_of_dicts_undirected``, which also serves DiGraph successors).
+    # It builds the SAME nested ``{node: {nbr: live_edge_attr_dict}}`` snapshot —
+    # identical inner-dict object refs (``d[u][v] is G[u][v]``), identical
+    # node x neighbour order — as the older ``_native_adjacency_dict`` binding
+    # but ~15x faster (the legacy binding re-materialises each edge's attr dict
+    # through a slower path). Iterating its items yields the same (node, inner)
+    # pairs nx's adjacency() does. Falls back to the legacy binding then the
+    # AtlasView path for subclasses the native kernel declines.
+    if type(self) is Graph or type(self) is DiGraph:
+        fast = _fnx.to_dict_of_dicts_undirected(self)
+        if fast is not None:
+            return iter(fast.items())
     # br-r37-c1-gadj: build the nested {node: {nbr: attrs}} snapshot natively
     # (reusing the live edge attr dicts, in node x nbr adjacency order) instead
     # of materialising dict(self.adj[node]) via the per-element AtlasView lambda
