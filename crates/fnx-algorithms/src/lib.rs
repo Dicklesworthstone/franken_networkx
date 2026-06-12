@@ -24107,7 +24107,13 @@ pub fn edge_boundary_directed(
             }
         }
     }
-    result.sort();
+    // br-r37-c1-tep7r: do NOT sort. nx.edge_boundary emits boundary edges in
+    // nbunch1-iteration x successor-adjacency order (its OutEdgeView order), not
+    // sorted — the sibling undirected `edge_boundary` already returns unsorted.
+    // The stray sort made directed `edge_boundary(data=False)` diverge from nx
+    // on 16/768 sampled cases (edge SET correct, ORDER wrong). Emitting in
+    // source x successor order matches nx exactly (same nbunch order the wrapper
+    // passes, same adjacency order verified == nx for identically-built graphs).
     result
 }
 
