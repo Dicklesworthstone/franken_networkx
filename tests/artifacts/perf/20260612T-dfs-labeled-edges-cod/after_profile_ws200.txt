@@ -1,0 +1,19 @@
+         283001 function calls in 0.111 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+      200    0.021    0.000    0.111    0.001 /data/projects/franken_networkx-cod-selfloops-land-20260612T1858/tests/artifacts/perf/20260612T-dfs-labeled-edges-cod/harness_dfs_labeled_edges.py:56(materialize)
+   280400    0.018    0.000    0.090    0.000 /data/projects/franken_networkx-cod-selfloops-land-20260612T1858/python/franken_networkx/__init__.py:32603(dfs_labeled_edges)
+      200    0.071    0.000    0.071    0.000 {built-in method franken_networkx._fnx.dfs_labeled_edges_rust}
+      200    0.000    0.000    0.000    0.000 /data/projects/franken_networkx-cod-selfloops-land-20260612T1858/python/franken_networkx/__init__.py:51519(wrapper)
+      200    0.000    0.000    0.000    0.000 /data/projects/franken_networkx-cod-selfloops-land-20260612T1858/python/franken_networkx/__init__.py:5799(predicate)
+      200    0.000    0.000    0.000    0.000 /data/projects/franken_networkx-cod-selfloops-land-20260612T1858/python/franken_networkx/__init__.py:12691(_coerce_arg_to_fnx_graph)
+     1000    0.000    0.000    0.000    0.000 {built-in method builtins.isinstance}
+      200    0.000    0.000    0.000    0.000 {function _make_class_safe_predicate.<locals>.predicate at 0x7b541426b240}
+      200    0.000    0.000    0.000    0.000 {built-in method builtins.len}
+      200    0.000    0.000    0.000    0.000 /data/projects/franken_networkx-cod-selfloops-land-20260612T1858/python/franken_networkx/__init__.py:23330(_validate_backend_dispatch_keywords)
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+
+
+{"case": "ws200", "calls": 200, "total_events": 280200}
