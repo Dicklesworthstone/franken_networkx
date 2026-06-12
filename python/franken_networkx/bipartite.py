@@ -163,6 +163,95 @@ def degrees(B, nodes, weight=None):
     return (B.degree(top, weight=weight), B.degree(bottom, weight=weight))
 
 
+def color(G):
+    """Return a two-coloring ``{node: 0|1}`` of bipartite graph ``G``.
+
+    br-r37-c1-r175x: re-exported nx ``@nx._dispatchable`` -> ~8.6x slower on an
+    fnx graph (whole-graph _fnx_to_nx conversion). networkx's exact BFS coloring
+    run in-process (using fnx-native ``isolates``) -- byte-identical (values and
+    BFS-order dict keys). Raises NetworkXError on a non-bipartite graph exactly
+    as nx does.
+    """
+    if G.is_directed():
+        import itertools
+
+        def neighbors(v):
+            return itertools.chain.from_iterable(
+                [G.predecessors(v), G.successors(v)]
+            )
+
+    else:
+        neighbors = G.neighbors
+
+    color = {}
+    for n in G:  # handle disconnected graphs
+        if n in color or len(G[n]) == 0:  # skip isolates
+            continue
+        queue = [n]
+        color[n] = 1
+        while queue:
+            v = queue.pop()
+            c = 1 - color[v]
+            for w in neighbors(v):
+                if w in color:
+                    if color[w] == color[v]:
+                        raise _nx.NetworkXError("Graph is not bipartite.")
+                else:
+                    color[w] = c
+                    queue.append(w)
+    color.update(dict.fromkeys(_fnx.isolates(G), 0))
+    return color
+
+
+def sets(G, top_nodes=None):
+    """Return the two bipartite node sets ``(X, Y)`` of ``G``.
+
+    br-r37-c1-r175x: re-exported nx ``@nx._dispatchable`` -> ~142x slower on an
+    fnx graph (the whole-graph conversion dwarfs the O(V) set split). networkx's
+    exact algorithm in-process (fnx-native connectivity check + :func:`color`).
+    Same AmbiguousSolution (disconnected, no top_nodes) / NetworkXError contracts.
+    """
+    is_connected = _fnx.is_weakly_connected if G.is_directed() else _fnx.is_connected
+    if top_nodes is not None:
+        X = set(top_nodes)
+        Y = set(G) - X
+    else:
+        if not is_connected(G):
+            raise _nx.AmbiguousSolution(
+                "Disconnected graph: Ambiguous solution for bipartite sets."
+            )
+        c = color(G)
+        X = {n for n, is_top in c.items() if is_top}
+        Y = {n for n, is_top in c.items() if not is_top}
+    return (X, Y)
+
+
+def is_bipartite_node_set(G, nodes):
+    """Return True iff ``nodes`` and ``G - nodes`` are a bipartition of ``G``.
+
+    br-r37-c1-r175x: re-exported nx ``@nx._dispatchable`` -> whole-graph
+    conversion per call. networkx's exact algorithm in-process (fnx-native
+    ``connected_components`` + the local :func:`sets`). Same AmbiguousSolution
+    on duplicate input nodes.
+    """
+    S = set(nodes)
+    if len(S) < len(nodes):
+        raise _nx.AmbiguousSolution(
+            "The input node set contains duplicates.\n"
+            "This may lead to incorrect results when using it in bipartite algorithms.\n"
+            "Consider using set(nodes) as the input"
+        )
+    for cc in _fnx.connected_components(G):
+        component = G.subgraph(cc).copy()
+        X, Y = sets(component)
+        if not (
+            (X.issubset(S) and Y.isdisjoint(S))
+            or (Y.issubset(S) and X.isdisjoint(S))
+        ):
+            return False
+    return True
+
+
 def betweenness_centrality(G, nodes):
     """Bipartite betweenness centrality, computed via the fnx-native kernel.
 
