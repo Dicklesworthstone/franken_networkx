@@ -43348,33 +43348,7 @@ def goldberg_radzik(G, source, weight="weight"):
     if callable(weight):
         return _call_networkx_for_parity("goldberg_radzik", G, source, weight=weight)
     if G.is_directed():
-        # Pure Python Bellman-Ford for directed graphs.
-        dist = {source: 0}
-        pred = {source: None}
-        nodes = list(G.nodes())
-        n = len(nodes)
-        for _ in range(n - 1):
-            updated = False
-            for u, v, data in G.edges(data=True):
-                if u not in dist:
-                    continue
-                w = data.get(weight, 1)
-                nd = dist[u] + w
-                if v not in dist or nd < dist[v]:
-                    dist[v] = nd
-                    pred[v] = u
-                    updated = True
-            if not updated:
-                break
-        # Check for negative cycles.
-        for u, v, data in G.edges(data=True):
-            if u in dist:
-                w = data.get(weight, 1)
-                if dist[u] + w < dist.get(v, float("inf")):
-                    # br-r37-c1-wtjho: match nx's exact message text
-                    # ("Negative cycle detected.", no "cost").
-                    raise NetworkXUnbounded("Negative cycle detected.")
-        return pred, dist
+        return _goldberg_radzik_directed_inprocess(G, source, weight)
 
     dist = dict(single_source_bellman_ford_path_length(G, source, weight=weight))
     paths = single_source_bellman_ford_path(G, source, weight=weight)
@@ -43385,6 +43359,86 @@ def goldberg_radzik(G, source, weight="weight"):
         elif target == source:
             pred[target] = None
     return pred, dist
+
+
+def _goldberg_radzik_directed_inprocess(G, source, weight):
+    """br-grport: faithful in-process port of networkx's Goldberg-Radzik scan
+    algorithm for a directed fnx graph. Replaces the previous naive O(V*E)
+    Bellman-Ford (which re-walked the EdgeView every pass AND picked different
+    predecessors than nx on ties). Operates on a one-time plain-dict adjacency
+    snapshot with weights resolved, so it avoids both the fnx->nx conversion and
+    the per-access view tax, and reproduces nx's exact (pred, dist) — including
+    the predecessor tie-breaks — for the same adjacency order."""
+    # Adjacency snapshot {u: {v: w}} in fnx adjacency order (== what nx iterates).
+    # Use the native to_dict_of_dicts bulk reader (kernel, ~22x cheaper than walking
+    # G.adj[u] per node, which otherwise dominates and leaves us 3x slower than nx).
+    g_succ = {
+        u: {v: attrs.get(weight, 1) for v, attrs in row.items()}
+        for u, row in to_dict_of_dicts(G).items()
+    }
+
+    # Self-loop of negative weight is a negative cycle (matches nx).
+    for u, nbrs in g_succ.items():
+        if u in nbrs and nbrs[u] < 0:
+            raise NetworkXUnbounded("Negative cycle detected.")
+
+    if len(g_succ) == 1:
+        return {source: None}, {source: 0}
+
+    inf = float("inf")
+    d = dict.fromkeys(g_succ, inf)
+    d[source] = 0
+    pred = {source: None}
+
+    def topo_sort(relabeled):
+        to_scan = []
+        neg_count = {}
+        for u in relabeled - neg_count.keys():
+            d_u = d[u]
+            if all(d_u + w >= d[v] for v, w in g_succ[u].items()):
+                continue
+            stack = [(u, iter(g_succ[u].items()))]
+            in_stack = {u}
+            neg_count[u] = 0
+            while stack:
+                u, it = stack[-1]
+                try:
+                    v, w = next(it)
+                except StopIteration:
+                    to_scan.append(u)
+                    stack.pop()
+                    in_stack.remove(u)
+                    continue
+                t = d[u] + w
+                if t < d[v]:
+                    d[v] = t
+                    pred[v] = u
+                    if v not in neg_count:
+                        neg_count[v] = neg_count[u] + 1
+                        stack.append((v, iter(g_succ[v].items())))
+                        in_stack.add(v)
+                    elif v in in_stack and neg_count[u] + 1 > neg_count[v]:
+                        raise NetworkXUnbounded("Negative cycle detected.")
+        to_scan.reverse()
+        return to_scan
+
+    def relax(to_scan):
+        relabeled = set()
+        for u in to_scan:
+            d_u = d[u]
+            for v, w in g_succ[u].items():
+                if d_u + w < d[v]:
+                    d[v] = d_u + w
+                    pred[v] = u
+                    relabeled.add(v)
+        return relabeled
+
+    relabeled = {source}
+    while relabeled:
+        relabeled = relax(topo_sort(relabeled))
+
+    d = {u: d[u] for u in pred}
+    return pred, d
 
 
 def parse_graphml(
