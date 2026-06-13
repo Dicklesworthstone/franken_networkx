@@ -40853,15 +40853,17 @@ def random_geometric_graph(n, radius, dim=2, pos=None, p=2, seed=None, *, pos_na
     G = Graph()
     positions: dict = {}
     # Draw positions in node order (preserves nx's rng-consumption sequence),
-    # then add all nodes+pos in ONE bulk add_nodes_from instead of n per-node
-    # add_node PyO3 calls (br-r37-c1-rgg-kdtree: the per-node construction was
-    # the residual gap once the O(n^2) edge scan was replaced).
+    # then create the integer nodes through the native range fast path and set
+    # positions through set_node_attributes' native scalar bulk hook. This keeps
+    # the same node order and attr values while avoiding n per-node add_node
+    # PyO3 calls (the residual gap after the cKDTree edge scan).
     for i in range(n):
         if pos is not None:
             positions[i] = pos[i]
         else:
             positions[i] = [rng.random() for _ in range(dim)]
-    G.add_nodes_from((i, {pos_name: positions[i]}) for i in range(n))
+    G.add_nodes_from(range(n))
+    set_node_attributes(G, positions, pos_name)
 
     # br-r37-c1-rgg-kdtree: the previous O(n^2) brute-force pairwise distance
     # scan (~318ms / 20x slower than nx at n=1000) is replaced by networkx's

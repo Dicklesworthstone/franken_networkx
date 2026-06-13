@@ -1,0 +1,68 @@
+{
+  "cases": [
+    {
+      "dim": 2,
+      "edges": 6,
+      "n": 4,
+      "nodes": 4,
+      "p": "inf",
+      "pos_name": "pos",
+      "radius": 1.0,
+      "sha256": "e4899c3e23892bf139c099875ab6856b7890504a1cf5276817c6a960028e5d2d"
+    },
+    {
+      "dim": 2,
+      "edges": 0,
+      "n": 25,
+      "nodes": 25,
+      "p": "1",
+      "pos_name": "pos",
+      "radius": 0.25,
+      "sha256": "f3b2d88c86381a75fe13ff7a4cc463cc18f47b8e96c562dd233bef6a4360b8b1"
+    },
+    {
+      "dim": 2,
+      "edges": 20,
+      "n": 25,
+      "nodes": 25,
+      "p": "3",
+      "pos_name": "xy",
+      "radius": 0.25,
+      "sha256": "99764361a2a69902ed0d2eff2e02ff3311c9b6436a040e73267da2b16c6ba832"
+    },
+    {
+      "dim": 2,
+      "edges": 6073,
+      "n": 800,
+      "nodes": 800,
+      "p": "2",
+      "pos_name": "pos",
+      "radius": 0.08,
+      "sha256": "1655150c7f752440dd333905783fd9b7bed85b4ce3ea1e2660fccfbe5b1ce824"
+    }
+  ],
+  "errors": [
+    {
+      "error": [
+        "NetworkXError",
+        "Negative number of nodes not valid: -5"
+      ],
+      "kwargs": "{'n': -5, 'radius': 0.5}"
+    },
+    {
+      "error": [
+        "IndexError",
+        "Out of bounds on buffer access (axis 0)"
+      ],
+      "kwargs": "{'n': 5, 'radius': 0.5, 'dim': 0}"
+    },
+    {
+      "error": [
+        "ValueError",
+        "nan cannot be used to generate a random.Random instance"
+      ],
+      "kwargs": "{'n': 5, 'radius': 0.5, 'seed': nan}"
+    }
+  ],
+  "sha256": "77fd67fae219b8766b5ef146ba3666058bb15cdb1ebf2225700692211b7bc3c6"
+}
