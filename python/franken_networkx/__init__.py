@@ -1183,23 +1183,58 @@ class AtlasView(_Mapping):
         self._fnx_owner = owner
         self._fnx_row_node = row_node
         self._fnx_row_kind = row_kind
+        # br-r37-c1-spg9n: ((nodes_seq, edges_seq), keydict) — the row's
+        # {nbr: <value>} keydict, cached on the (already per-node-cached) view so
+        # iteration/len/membership are pure-Python dict ops like nx's
+        # iter/len/in over self._adj[n] (3-5x slower -> parity). The keydict is
+        # the same object the graph-level row cache holds; both rebuild on any
+        # structural change (nodes_seq/edges_seq token).
+        self._fnx_kd_cache = None
 
     def _atlas(self):
         return self._atlas_getter()
 
+    def _keydict(self):
+        owner = self._fnx_owner
+        if owner is None:
+            return None
+        try:
+            tok = (owner.nodes_seq, owner.edges_seq)
+        except AttributeError:
+            return None
+        cached = self._fnx_kd_cache
+        if cached is not None and cached[0] == tok:
+            return cached[1]
+        keydict = _cached_adj_row_keydict(
+            owner, self._fnx_row_kind, self._fnx_row_node, self._atlas
+        )
+        if keydict is not None:
+            self._fnx_kd_cache = (tok, keydict)
+        return keydict
+
     def __len__(self):
+        keydict = self._keydict()
+        if keydict is not None:
+            return len(keydict)
         return len(self._atlas())
 
     def __iter__(self):
-        cached = _cached_adj_row_key_iter(
-            self._fnx_owner,
-            self._fnx_row_kind,
-            self._fnx_row_node,
-            self._atlas,
-        )
-        if cached is not None:
-            return cached
+        keydict = self._keydict()
+        if keydict is not None:
+            return iter(keydict)
         return iter(self._atlas())
+
+    def __contains__(self, node):
+        # nx: ``v in G[u]`` is ``v in self._adj[u]`` (dict membership; hashes v,
+        # TypeError on unhashable). Serve from the keydict so it is pure-Python.
+        keydict = self._keydict()
+        if keydict is not None:
+            return node in keydict
+        try:
+            self._atlas()[node]
+        except KeyError:
+            return False
+        return True
 
     def __getitem__(self, node):
         return self._atlas()[node]
@@ -35995,6 +36030,36 @@ def _private_pred_mapping(self, fallback):
 
 
 def _cached_adj_row_key_iter(owner, row_kind, row_node, row_getter):
+    # Thin iter() wrapper over the cached keydict (None if uncacheable).
+    keydict = _cached_adj_row_keydict(owner, row_kind, row_node, row_getter)
+    return None if keydict is None else iter(keydict)
+
+
+def _cached_adj_row_keydict(owner, row_kind, row_node, row_getter):
+    # br-r37-c1-spg9n: return the cached ``{nbr: <row value>}`` keydict for this
+    # row (caller does iter()/len()/membership). Lean warm fast-path: a
+    # token-valid cached keydict is returned with ONE vars() snapshot, skipping
+    # the isinstance / _has_networkx_private_storage / native-name machinery
+    # below. A POPULATED cache implies owner is a plain Graph/DiGraph with no
+    # private storage (only that state populates it). Serves AtlasView
+    # iteration/len/contains (list(G[n]), v in G[u]) + neighbors fallback +
+    # succ/pred views.
+    try:
+        owner_vars = vars(owner)
+    except TypeError:
+        return None
+    cache = owner_vars.get("_fnx_adj_row_keydict_cache")
+    if cache is not None:
+        try:
+            if owner_vars.get("_fnx_adj_row_keydict_cache_state") == (
+                owner.nodes_seq,
+                owner.edges_seq,
+            ):
+                keydict = cache.get((row_kind, row_node))
+                if keydict is not None:
+                    return keydict
+        except (AttributeError, TypeError):
+            pass
     if owner is None or row_node is None:
         return None
     if not isinstance(owner, (Graph, DiGraph)):
@@ -36043,7 +36108,7 @@ def _cached_adj_row_key_iter(owner, row_kind, row_node, row_getter):
         if keydict is None:
             keydict = dict.fromkeys(row_getter())
         cache[cache_key] = keydict
-    return iter(keydict)
+    return keydict
 
 
 class _AssignedPrivateNodeView(_Mapping):
