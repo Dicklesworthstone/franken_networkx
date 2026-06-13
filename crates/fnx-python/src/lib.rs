@@ -360,6 +360,14 @@ pub(crate) fn py_dict_to_attr_map_with_mirror(
     Ok((rust_attrs, mirror.unbind()))
 }
 
+pub(crate) fn attr_map_to_pydict(py: Python<'_>, attrs: &AttrMap) -> PyResult<Py<PyDict>> {
+    let dict = PyDict::new(py);
+    for (key, value) in attrs {
+        dict.set_item(key, cgse_value_to_py(py, value)?)?;
+    }
+    Ok(dict.unbind())
+}
+
 /// Convert a Python attribute value to a `CgseValue`.
 ///
 /// br-r37-c1-aefbatch: a leading exact-type dispatch handles the overwhelmingly
@@ -1498,9 +1506,35 @@ impl PyMultiGraph {
         // Empty edge attrs stay sparse on construction and become live only when
         // a NetworkX-observable mapping is handed out.
         let ek = Self::edge_key(u, v, key);
+        if !self.edge_py_attrs.contains_key(&ek) {
+            let dict = match self.inner.edge_attrs(u, v, key) {
+                Some(attrs) => attr_map_to_pydict(py, attrs)
+                    .expect("stored string-keyed edge attrs must convert to Python"),
+                None => PyDict::new(py).unbind(),
+            };
+            self.edge_py_attrs.insert(ek.clone(), dict);
+        }
         self.edge_py_attrs
-            .entry(ek)
-            .or_insert_with(|| PyDict::new(py).unbind())
+            .get(&ek)
+            .expect("edge attr entry inserted above")
+    }
+
+    fn edge_attr_py_value(
+        &self,
+        py: Python<'_>,
+        u: &str,
+        v: &str,
+        key: usize,
+        attr: &str,
+    ) -> PyResult<Option<PyObject>> {
+        match self
+            .inner
+            .edge_attrs(u, v, key)
+            .and_then(|attrs| attrs.get(attr))
+        {
+            Some(value) => Ok(Some(cgse_value_to_py(py, value)?)),
+            None => Ok(None),
+        }
     }
 
     fn neighbor_dict(
@@ -2492,7 +2526,16 @@ impl PyMultiGraph {
                                 None => total += 1.0,
                             }
                         }
-                        None => total += 1.0,
+                        None => match self.edge_attr_py_value(
+                            py,
+                            &edge.left,
+                            &edge.right,
+                            edge.key,
+                            attr,
+                        )? {
+                            Some(val) => total += val.bind(py).extract::<f64>()?,
+                            None => total += 1.0,
+                        },
                     }
                 }
                 Ok(total)
@@ -3034,10 +3077,7 @@ impl PyMultiGraph {
             } else if global_map.is_empty() {
                 (AttrMap::new(), None)
             } else {
-                let merged = global_attr
-                    .expect("non-empty global_map implies global_attr")
-                    .copy()?;
-                (global_map.clone(), Some(merged))
+                (global_map.clone(), None)
             };
 
             let Ok(uc) = node_key_to_string(py, &u) else {
@@ -4110,7 +4150,13 @@ impl PyMultiGraph {
                                 .ok()
                                 .flatten()
                                 .map_or_else(|| default.clone_ref(py), |v| v.unbind()),
-                            None => default.clone_ref(py),
+                            None => data.extract::<String>().map_or_else(
+                                |_| Ok(default.clone_ref(py)),
+                                |attr| {
+                                    self.edge_attr_py_value(py, node, neighbor, key, &attr)
+                                        .map(|value| value.unwrap_or_else(|| default.clone_ref(py)))
+                                },
+                            )?,
                         };
                         elems.push(val);
                     }
@@ -4154,16 +4200,21 @@ impl PyMultiGraph {
                 }
                 for key in self.inner.edge_keys(node, neighbor).unwrap_or_default() {
                     let ek = Self::edge_key(node, neighbor, key);
-                    let value = match self.edge_py_attrs.get(&ek) {
-                        Some(d) => d
+                    if let Some(d) = self.edge_py_attrs.get(&ek) {
+                        let value = d
                             .bind(py)
                             .get_item(weight)
                             .ok()
                             .flatten()
-                            .unwrap_or_else(|| one.clone()),
-                        None => one.clone(),
-                    };
-                    values.append(value)?;
+                            .unwrap_or_else(|| one.clone());
+                        values.append(value)?;
+                    } else if let Some(value) =
+                        self.edge_attr_py_value(py, node, neighbor, key, weight)?
+                    {
+                        values.append(value.bind(py))?;
+                    } else {
+                        values.append(&one)?;
+                    }
                 }
             }
             let mut deg = sum_fn.call1((values,))?;
@@ -4171,16 +4222,21 @@ impl PyMultiGraph {
                 let sl = pyo3::types::PyList::empty(py);
                 for key in self.inner.edge_keys(node, node).unwrap_or_default() {
                     let ek = Self::edge_key(node, node, key);
-                    let value = match self.edge_py_attrs.get(&ek) {
-                        Some(d) => d
+                    if let Some(d) = self.edge_py_attrs.get(&ek) {
+                        let value = d
                             .bind(py)
                             .get_item(weight)
                             .ok()
                             .flatten()
-                            .unwrap_or_else(|| one.clone()),
-                        None => one.clone(),
-                    };
-                    sl.append(value)?;
+                            .unwrap_or_else(|| one.clone());
+                        sl.append(value)?;
+                    } else if let Some(value) =
+                        self.edge_attr_py_value(py, node, node, key, weight)?
+                    {
+                        sl.append(value.bind(py))?;
+                    } else {
+                        sl.append(&one)?;
+                    }
                 }
                 deg = deg.add(sum_fn.call1((sl,))?)?;
             }
