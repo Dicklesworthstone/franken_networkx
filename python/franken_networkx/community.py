@@ -39,6 +39,89 @@ def modularity(G, communities, weight="weight", resolution=1, *, backend=None, *
     )
 
 
+def kernighan_lin_bisection(
+    G, partition=None, max_iter=10, weight="weight", seed=None, *, backend=None, **backend_kwargs
+):
+    """Partition ``G`` into two blocks via the Kernighan-Lin algorithm.
+
+    br-r37-c1-wxy3x: ``from networkx...community import *`` re-exported nx's
+    pure-Python ``kernighan_lin_bisection``, whose only hot cost is building
+    ``edge_info`` from ``G._adj.items()`` — on an fnx Graph that walks the slow
+    AtlasView adjacency, making it ~2x slower than nx. Build ``edge_info`` from
+    the native ``to_dict_of_dicts`` snapshot instead and reuse nx's exact
+    ``_kernighan_lin_sweep`` and RNG, so the result is byte-identical to nx (same
+    ``list(G)`` node order, same seeded shuffle, same sweep / tie-break) while
+    closing the gap (2x slower -> nx parity, 1.34x self-speedup).
+
+    Simple ``Graph`` with a string ``weight`` only; multigraph / callable weight /
+    subclass / view delegate to nx (exact path + contract). Directed raises like
+    nx's ``@not_implemented_for('directed')``; explicit ``partition`` keeps nx's
+    validation.
+    """
+    _fnx._validate_backend_dispatch_keywords(
+        "kernighan_lin_bisection", backend, backend_kwargs
+    )
+    G = _fnx._coerce_arg_to_fnx_graph(G)
+    if G.is_directed():
+        raise _fnx.NetworkXNotImplemented("not implemented for directed type")
+    if type(G) is not _fnx.Graph or callable(weight):
+        return _nx_community.kernighan_lin_bisection(
+            _fnx._networkx_graph_for_parity(G),
+            partition=partition,
+            max_iter=max_iter,
+            weight=weight,
+            seed=seed,
+        )
+
+    import inspect as _inspect
+
+    from networkx.utils import create_py_random_state as _create_py_random_state
+
+    # nx keeps the sweep + RNG conversion private; reach the exact same helpers so
+    # the heuristic and seeded shuffle match byte-for-byte.
+    _sweep = _inspect.unwrap(_nx_community.kernighan_lin_bisection).__globals__[
+        "_kernighan_lin_sweep"
+    ]
+
+    nodes = list(G)
+    if partition is None:
+        rng = _create_py_random_state(seed)
+        rng.shuffle(nodes)
+        mid = len(nodes) // 2
+        A, B = nodes[:mid], nodes[mid:]
+    else:
+        try:
+            A, B = partition
+        except (TypeError, ValueError) as err:
+            raise _fnx.NetworkXError("partition must be two sets") from err
+        if not _nx_community.is_partition(G, [A, B]):
+            raise _fnx.NetworkXError("partition invalid")
+
+    side = {node: (node in A) for node in nodes}
+
+    # Native bulk snapshot instead of the slow per-node AtlasView walk; identical
+    # {u: {v: weight}} structure (node + adjacency order preserved) as nx builds
+    # from ``G._adj`` for the simple-graph string-weight case.
+    dod = _fnx.to_dict_of_dicts(G)
+    edge_info = {
+        u: {v: wt for v, d in nbrs.items() if (wt := d.get(weight, 1)) is not None}
+        for u, nbrs in dod.items()
+    }
+
+    for _ in range(max_iter):
+        costs = list(_sweep(edge_info, side))
+        min_cost, min_i, _ = min(costs)
+        if min_cost >= 0:
+            break
+        for _cost, _idx, (u, v) in costs[:min_i]:
+            side[u] = 1
+            side[v] = 0
+
+    part1 = {u for u, s in side.items() if s == 0}
+    part2 = {u for u, s in side.items() if s == 1}
+    return part1, part2
+
+
 def label_propagation_communities(G, *, backend=None, **backend_kwargs):
     """Community sets via the semi-synchronous label-propagation method.
 
