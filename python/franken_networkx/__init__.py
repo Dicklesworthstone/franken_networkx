@@ -50322,6 +50322,10 @@ def expected_degree_graph(w, seed=None, selfloops=True):
     mapping = {canonical: node for canonical, (node, _) in enumerate(order)}
     sequence = [weight for _, weight in order]
     last = n if selfloops else n - 1
+    # br-r37-c1-yrdso: the Chung-Lu loop reads only sequence/mapping (never the
+    # graph), so accumulate accepted edges in source-ascending order and commit
+    # through ONE add_edges_from instead of per-edge add_edge PyO3. Byte-identical.
+    _edge_accum = []
     for source in range(last):
         target = source if selfloops else source + 1
         factor = sequence[source] * rho
@@ -50332,9 +50336,10 @@ def expected_degree_graph(w, seed=None, selfloops=True):
             if target < n:
                 next_probability = min(sequence[target] * factor, 1)
                 if rng.random() < next_probability / probability:
-                    graph.add_edge(mapping[source], mapping[target])
+                    _edge_accum.append((mapping[source], mapping[target]))
                 target += 1
                 probability = next_probability
+    graph.add_edges_from(_edge_accum)
     return graph
 
 
