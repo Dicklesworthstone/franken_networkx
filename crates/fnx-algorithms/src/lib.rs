@@ -20978,35 +20978,40 @@ pub fn greedy_modularity_communities(
     let nodes = graph.nodes_ordered();
     let node_to_idx: HashMap<&str, usize> =
         nodes.iter().enumerate().map(|(i, &nd)| (nd, i)).collect();
+    let unweighted = weight_attr.is_empty();
 
     // Compute m (total edge weight)
     let mut m = 0.0;
-    for &node in &nodes {
-        if let Some(nbrs) = graph.neighbors(node) {
-            for nbr in &nbrs {
-                m += edge_weight_or_default(graph, node, nbr, weight_attr);
-            }
-        }
+    for (left, right, _) in graph.edges_ordered_borrowed() {
+        m += if unweighted {
+            1.0
+        } else {
+            edge_weight_or_default(graph, left, right, weight_attr)
+        };
     }
-    m /= 2.0;
 
     if m == 0.0 {
         return nodes.iter().map(|&nd| vec![nd.to_owned()]).collect();
     }
 
     // Weighted degree (a_i = k_i / (2m))
-    let a: Vec<f64> = nodes
-        .iter()
-        .map(|&nd| {
-            graph
-                .neighbors(nd)
-                .unwrap_or_default()
-                .iter()
-                .map(|nbr| edge_weight_or_default(graph, nd, nbr, weight_attr))
-                .sum::<f64>()
-                / (2.0 * m)
-        })
-        .collect();
+    let mut degree = vec![0.0; n];
+    for (left, right, _) in graph.edges_ordered_borrowed() {
+        let w = if unweighted {
+            1.0
+        } else {
+            edge_weight_or_default(graph, left, right, weight_attr)
+        };
+        let left_idx = node_to_idx[left];
+        let right_idx = node_to_idx[right];
+        if left_idx == right_idx {
+            degree[left_idx] += 2.0 * w;
+        } else {
+            degree[left_idx] += w;
+            degree[right_idx] += w;
+        }
+    }
+    let a: Vec<f64> = degree.into_iter().map(|deg| deg / (2.0 * m)).collect();
 
     // Each node starts in its own community (indexed by node index).
     // community[i] = canonical community id for node i.
@@ -21020,20 +21025,20 @@ pub fn greedy_modularity_communities(
     // Only stored for adjacent community pairs (connected by at least one edge).
     let mut dq: Vec<HashMap<usize, f64>> = vec![HashMap::new(); n];
 
-    // Initialize delta-Q for each edge
-    for &u_node in &nodes {
-        let u = node_to_idx[u_node];
-        if let Some(nbrs) = graph.neighbors(u_node) {
-            for nbr in &nbrs {
-                let v = node_to_idx[nbr];
-                if u < v {
-                    let w = edge_weight_or_default(graph, u_node, nbr, weight_attr);
-                    let e_uv = w / (2.0 * m);
-                    let delta = e_uv - resolution * a[u] * a[v];
-                    *dq[u].entry(v).or_insert(0.0) += delta;
-                    *dq[v].entry(u).or_insert(0.0) += delta;
-                }
-            }
+    // Initialize delta-Q for each non-self edge. NetworkX scales undirected
+    // weights as w / m and subtracts both directed degree-product terms.
+    for (left, right, _) in graph.edges_ordered_borrowed() {
+        let u = node_to_idx[left];
+        let v = node_to_idx[right];
+        if u != v {
+            let w = if unweighted {
+                1.0
+            } else {
+                edge_weight_or_default(graph, left, right, weight_attr)
+            };
+            let delta = (w / m) - (2.0 * resolution * a[u] * a[v]);
+            *dq[u].entry(v).or_insert(0.0) += delta;
+            *dq[v].entry(u).or_insert(0.0) += delta;
         }
     }
 
@@ -21085,17 +21090,18 @@ pub fn greedy_modularity_communities(
         if (current_delta - delta).abs() > 1e-12 {
             continue; // Stale
         }
-        if delta <= 0.0 {
+        if delta < 0.0 {
             break; // No more beneficial merges
         }
 
-        // Merge cj into ci
-        alive[cj] = false;
+        // Match NetworkX's heap tie-break and mutation order: the lower row
+        // community is deleted, and the higher tuple element survives.
+        alive[ci] = false;
 
         // Update community assignments
         for c in &mut community {
-            if *c == cj {
-                *c = ci;
+            if *c == ci {
+                *c = cj;
             }
         }
 
@@ -21104,7 +21110,7 @@ pub fn greedy_modularity_communities(
         let a_cj = comm_a[cj];
 
         // Update comm_a
-        comm_a[ci] += comm_a[cj];
+        comm_a[cj] += comm_a[ci];
 
         // Collect all neighbors of both ci and cj (excluding each other)
         let ci_nbrs: HashSet<usize> = dq[ci]
@@ -21119,54 +21125,53 @@ pub fn greedy_modularity_communities(
             .collect();
         let all_nbrs: HashSet<usize> = ci_nbrs.union(&cj_nbrs).copied().collect();
 
-        // Drain cj's entries
-        let cj_dq: HashMap<usize, f64> = dq[cj].drain().collect();
+        // Drain ci's entries; cj remains the surviving community row.
+        let ci_dq: HashMap<usize, f64> = dq[ci].drain().collect();
 
         for ck in &all_nbrs {
             let ck = *ck;
-            // For non-adjacent pairs, use -resolution * a_x * a_ck as the implicit delta
-            let d_ik = dq[ci]
-                .get(&ck)
-                .copied()
-                .unwrap_or(-resolution * a_ci * comm_a[ck]);
-            let d_jk = cj_dq
-                .get(&ck)
-                .copied()
-                .unwrap_or(-resolution * a_cj * comm_a[ck]);
-            let new_d = d_ik + d_jk;
+            let in_ci = ci_nbrs.contains(&ck);
+            let in_cj = cj_nbrs.contains(&ck);
+            let d_ci = ci_dq.get(&ck).copied();
+            let d_cj = dq[cj].get(&ck).copied();
+            let new_d = if in_ci && in_cj {
+                d_ci.unwrap_or(0.0) + d_cj.unwrap_or(0.0)
+            } else if in_cj {
+                d_cj.unwrap_or(0.0) - (2.0 * resolution * a_ci * comm_a[ck])
+            } else {
+                d_ci.unwrap_or(0.0) - (2.0 * resolution * a_cj * comm_a[ck])
+            };
 
-            dq[ci].insert(ck, new_d);
-            dq[ck].insert(ci, new_d);
-            dq[ck].remove(&cj);
+            dq[cj].insert(ck, new_d);
+            dq[ck].insert(cj, new_d);
+            dq[ck].remove(&ci);
 
-            // Only push to heap if potentially beneficial
-            if new_d > 0.0 {
-                let (lo, hi) = if ci < ck { (ci, ck) } else { (ck, ci) };
-                heap.push(MergeCandidate {
-                    delta: new_d,
-                    ci: lo,
-                    cj: hi,
-                });
-            }
+            let (lo, hi) = if cj < ck { (cj, ck) } else { (ck, cj) };
+            heap.push(MergeCandidate {
+                delta: new_d,
+                ci: lo,
+                cj: hi,
+            });
         }
 
-        // Remove ci -> cj entry
-        dq[ci].remove(&cj);
+        // Remove the dead cross-entry from the surviving row.
+        dq[cj].remove(&ci);
     }
 
     // Collect final communities
-    let mut comm_map: HashMap<usize, Vec<String>> = HashMap::new();
-    for (i, &c) in community.iter().enumerate() {
-        comm_map.entry(c).or_default().push(nodes[i].to_owned());
+    let mut result = Vec::new();
+    for rep in 0..n {
+        if alive[rep] {
+            let mut comm = Vec::new();
+            for (idx, &c) in community.iter().enumerate() {
+                if c == rep {
+                    comm.push(nodes[idx].to_owned());
+                }
+            }
+            comm.sort();
+            result.push(comm);
+        }
     }
-
-    let mut result: Vec<Vec<String>> = comm_map
-        .into_values()
-        .map(|mut c| {
-            c.sort();
-            c
-        })
-        .collect();
     result.sort_by(|a, b| {
         let a_min = a
             .iter()

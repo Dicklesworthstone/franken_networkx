@@ -1,0 +1,182 @@
+{
+  "impl": "public",
+  "profile": "tests/artifacts/perf/20260612T-wxy3x-greedy-modularity-boldfalcon/baseline_public.prof",
+  "repeat": 80,
+  "top": [
+    {
+      "cum_time_s": 3.473209068,
+      "function": "/data/projects/.scratch/franken_networkx-wxy3x-boldfalcon-20260612T201124/tests/artifacts/perf/20260612T-wxy3x-greedy-modularity-boldfalcon/harness_greedy_modularity.py:97:_public_fnx",
+      "primitive_calls": 80,
+      "total_calls": 80,
+      "total_time_s": 0.00043213500000000005
+    },
+    {
+      "cum_time_s": 3.4724269100000003,
+      "function": "<class 'networkx.utils.decorators.argmap'> compilation 4:1:argmap_greedy_modularity_communities_1",
+      "primitive_calls": 80,
+      "total_calls": 80,
+      "total_time_s": 0.0005344950000000001
+    },
+    {
+      "cum_time_s": 3.471892415,
+      "function": "/data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/utils/backends.py:554:_call_if_any_backends_installed",
+      "primitive_calls": 80,
+      "total_calls": 160,
+      "total_time_s": 0.002888073
+    },
+    {
+      "cum_time_s": 3.467648257,
+      "function": "/data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/utils/backends.py:1508:_convert_and_call",
+      "primitive_calls": 80,
+      "total_calls": 80,
+      "total_time_s": 0.00316724
+    },
+    {
+      "cum_time_s": 3.291104294,
+      "function": "/data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/algorithms/community/modularity_max.py:227:greedy_modularity_communities",
+      "primitive_calls": 80,
+      "total_calls": 80,
+      "total_time_s": 0.007593932
+    },
+    {
+      "cum_time_s": 3.2752667580000003,
+      "function": "~:0:<built-in method builtins.next>",
+      "primitive_calls": 23920,
+      "total_calls": 23920,
+      "total_time_s": 0.007026027000000001
+    },
+    {
+      "cum_time_s": 3.268240731,
+      "function": "/data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/algorithms/community/modularity_max.py:17:_greedy_modularity_communities_generator",
+      "primitive_calls": 22880,
+      "total_calls": 22880,
+      "total_time_s": 0.6063209940000001
+    },
+    {
+      "cum_time_s": 0.8302025740000001,
+      "function": "/data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/utils/mapped_queue.py:219:remove",
+      "primitive_calls": 240640,
+      "total_calls": 240640,
+      "total_time_s": 0.281351721
+    },
+    {
+      "cum_time_s": 0.8104319790000001,
+      "function": "/data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/utils/mapped_queue.py:207:update",
+      "primitive_calls": 192000,
+      "total_calls": 192000,
+      "total_time_s": 0.22577859800000002
+    },
+    {
+      "cum_time_s": 0.697093901,
+      "function": "/data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/utils/mapped_queue.py:239:_siftup",
+      "primitive_calls": 403920,
+      "total_calls": 403920,
+      "total_time_s": 0.49617108800000004
+    },
+    {
+      "cum_time_s": 0.5178462580000001,
+      "function": "/data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/utils/mapped_queue.py:68:__eq__",
+      "primitive_calls": 1260160,
+      "total_calls": 1260160,
+      "total_time_s": 0.5178462580000001
+    },
+    {
+      "cum_time_s": 0.45158650300000003,
+      "function": "/data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/utils/mapped_queue.py:174:push",
+      "primitive_calls": 184320,
+      "total_calls": 184320,
+      "total_time_s": 0.19990096000000002
+    },
+    {
+      "cum_time_s": 0.24296509100000002,
+      "function": "~:0:<built-in method builtins.len>",
+      "primitive_calls": 1378968,
+      "total_calls": 1751048,
+      "total_time_s": 0.182310845
+    },
+    {
+      "cum_time_s": 0.17329159700000002,
+      "function": "/data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/utils/backends.py:1148:_convert_arguments",
+      "primitive_calls": 80,
+      "total_calls": 80,
+      "total_time_s": 0.0008613370000000001
+    },
+    {
+      "cum_time_s": 0.168436825,
+      "function": "/data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/utils/backends.py:1359:_convert_graph",
+      "primitive_calls": 80,
+      "total_calls": 80,
+      "total_time_s": 0.000268834
+    },
+    {
+      "cum_time_s": 0.168106965,
+      "function": "/data/projects/.scratch/franken_networkx-wxy3x-cnm-boldfalcon-20260613T0015/python/franken_networkx/backend.py:843:convert_to_nx",
+      "primitive_calls": 80,
+      "total_calls": 80,
+      "total_time_s": 7.380900000000001e-05
+    },
+    {
+      "cum_time_s": 0.16803315600000002,
+      "function": "/data/projects/.scratch/franken_networkx-wxy3x-cnm-boldfalcon-20260613T0015/python/franken_networkx/backend.py:468:_convert_result_to_nx",
+      "primitive_calls": 80,
+      "total_calls": 80,
+      "total_time_s": 0.004318412000000001
+    },
+    {
+      "cum_time_s": 0.16370336500000002,
+      "function": "/data/projects/.scratch/franken_networkx-wxy3x-cnm-boldfalcon-20260613T0015/python/franken_networkx/backend.py:606:_fnx_to_nx",
+      "primitive_calls": 80,
+      "total_calls": 80,
+      "total_time_s": 0.037428083
+    },
+    {
+      "cum_time_s": 0.156657911,
+      "function": "/data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/utils/mapped_queue.py:278:_siftdown",
+      "primitive_calls": 184320,
+      "total_calls": 184320,
+      "total_time_s": 0.113071399
+    },
+    {
+      "cum_time_s": 0.14508290000000001,
+      "function": "/data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/utils/mapped_queue.py:74:__hash__",
+      "primitive_calls": 2365600,
+      "total_calls": 2365600,
+      "total_time_s": 0.14508290000000001
+    },
+    {
+      "cum_time_s": 0.139839028,
+      "function": "/data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/utils/mapped_queue.py:38:__lt__",
+      "primitive_calls": 1394160,
+      "total_calls": 1394160,
+      "total_time_s": 0.139839028
+    },
+    {
+      "cum_time_s": 0.127627696,
+      "function": "/data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/utils/mapped_queue.py:153:__init__",
+      "primitive_calls": 23440,
+      "total_calls": 23440,
+      "total_time_s": 0.04531906
+    },
+    {
+      "cum_time_s": 0.104302924,
+      "function": "/data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/utils/mapped_queue.py:33:__init__",
+      "primitive_calls": 356800,
+      "total_calls": 356800,
+      "total_time_s": 0.065687964
+    },
+    {
+      "cum_time_s": 0.098396063,
+      "function": "/data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/utils/mapped_queue.py:189:pop",
+      "primitive_calls": 22800,
+      "total_calls": 22800,
+      "total_time_s": 0.024460404
+    },
+    {
+      "cum_time_s": 0.087805358,
+      "function": "/data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/utils/mapped_queue.py:171:__len__",
+      "primitive_calls": 372080,
+      "total_calls": 372080,
+      "total_time_s": 0.060654246
+    }
+  ]
+}

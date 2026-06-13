@@ -1,0 +1,38 @@
+{
+  "results": [
+    {
+      "command": "PATH=/data/projects/franken_networkx/.venv/bin:$PATH PYTHONPATH=python FNX_PRELOAD_SO=/data/projects/.scratch/franken_networkx-wxy3x-boldfalcon-20260612T201124/.target-wxy3x-boldfalcon/release/lib_fnx.so python tests/artifacts/perf/20260612T-wxy3x-greedy-modularity-boldfalcon/harness_greedy_modularity.py --mode bench --impl public --repeat 5 >/dev/null",
+      "mean": 0.3165919401,
+      "stddev": 0.03293537858747649,
+      "median": 0.3131028867,
+      "user": 3.97829792,
+      "system": 0.055247460000000005,
+      "min": 0.2790188382,
+      "max": 0.39257531720000005,
+      "times": [
+        0.3037450312,
+        0.2876849782,
+        0.2790188382,
+        0.28766648320000004,
+        0.39257531720000005,
+        0.3224324592,
+        0.31567210720000005,
+        0.3105336662,
+        0.3258642082,
+        0.34072631220000005
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

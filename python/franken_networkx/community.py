@@ -261,6 +261,54 @@ def louvain_communities(
     )
 
 
+def greedy_modularity_communities(
+    G,
+    weight=None,
+    resolution=1,
+    cutoff=1,
+    best_n=None,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    """Find communities using Clauset-Newman-Moore greedy modularity.
+
+    br-r37-c1-wxy3x: the re-exported NetworkX implementation walks fnx
+    adjacency views in the hot heap-update loop. The concrete simple,
+    unweighted, no-self-loop default case can use the native CNM kernel after
+    its NetworkX delta-Q scaling, zero-gain merge, and tie-survivor semantics
+    were aligned. Weighted graphs, custom cutoffs, and non-simple graph
+    variants delegate to NetworkX.
+    """
+    _fnx._validate_backend_dispatch_keywords(
+        "greedy_modularity_communities", backend, backend_kwargs
+    )
+    if (
+        type(G) is _fnx.Graph
+        and weight is None
+        and resolution == 1
+        and cutoff == 1
+        and best_n is None
+        and G.number_of_edges() > 0
+        and _fnx.number_of_selfloops(G) == 0
+    ):
+        return [
+            frozenset(community)
+            for community in _fnx._raw_greedy_modularity_communities(G, resolution, "")
+        ]
+
+    graph = _fnx._networkx_graph_for_parity(G) if isinstance(
+        G, (_fnx.Graph, _fnx.DiGraph, _fnx.MultiGraph, _fnx.MultiDiGraph)
+    ) else G
+    return _nx_community.greedy_modularity_communities(
+        graph,
+        weight=weight,
+        resolution=resolution,
+        cutoff=cutoff,
+        best_n=best_n,
+    )
+
+
 def asyn_lpa_communities(G, weight=None, seed=None):
     """Communities via asynchronous label propagation.
 
@@ -576,6 +624,7 @@ __all__ = sorted(
         "louvain_communities",
         "asyn_lpa_communities",
         "fast_label_propagation_communities",
+        "greedy_modularity_communities",
         "k_clique_communities",
     }
 )
