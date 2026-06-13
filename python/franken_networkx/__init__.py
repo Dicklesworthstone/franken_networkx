@@ -27339,7 +27339,12 @@ def _configuration_model_local(
         out_stubs = stubs[:half]
         in_stubs = stubs[half:]
 
-    graph.add_edges_from(zip(out_stubs, in_stubs))
+    # br-r37-c1-yrdso: materialize the stub pairing into a list so
+    # add_edges_from hits the native bulk-edge batch — a bare ``zip`` iterator
+    # is neither list nor tuple, so it fell to the per-edge add_edge path
+    # (~2.3x slower on the MultiGraph construction). Same pairing order ->
+    # byte-identical (keys + parallel edges + self-loops).
+    graph.add_edges_from(list(zip(out_stubs, in_stubs)))
     return graph
 
 
