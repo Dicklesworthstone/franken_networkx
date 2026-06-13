@@ -16207,6 +16207,68 @@ class _ApproximationNamespace:
                 best_size = _clique_heuristic(neighbors, 1, best_size)
         return best_size
 
+    def metric_closure(self, G, weight="weight", *, backend=None, **backend_kwargs):
+        # br-r37-c1-mcdij: the generic __getattr__ wrapper round-trips the
+        # graph through ``_networkx_graph_for_parity`` and then runs nx's
+        # pure-Python ``all_pairs_dijkstra`` (distance + path) to build the
+        # complete metric-closure graph — ~2.7x slower than nx. Route the
+        # all-pairs Dijkstra through the native ``_raw_all_pairs_dijkstra``
+        # kernel (byte-exact distances AND paths) and assemble the complete
+        # graph with one ``add_edges_from``, reproducing nx's exact edge-
+        # insertion order (``set(G)`` iteration, first-node-first). Verified
+        # order-sensitively byte-identical to the delegating path across 11
+        # graph shapes incl. weighted. None-weight / directed / multigraph /
+        # nx-typed inputs keep the delegating path.
+        _validate_backend_dispatch_keywords(
+            "metric_closure", backend, backend_kwargs
+        )
+        from franken_networkx.readwrite import _from_nx_graph
+
+        if (
+            type(G) is Graph
+            and isinstance(weight, str)
+            and G.number_of_nodes() > 0
+        ):
+            import warnings
+
+            apd = _raw_all_pairs_dijkstra(G, weight=weight)
+            nodes = list(G)
+            first = nodes[0]
+            if len(apd[first][0]) != len(nodes):
+                raise NetworkXError(
+                    "G is not a connected graph. metric_closure is not defined."
+                )
+            # Preserve nx's deprecation contract (removal in NetworkX 3.8).
+            warnings.warn(
+                "metric_closure is deprecated and will be removed in NetworkX 3.8.\n"
+                "Use nx.all_pairs_shortest_path_length instead.",
+                category=DeprecationWarning,
+                stacklevel=2,
+            )
+            M = Graph()
+            Gnodes = set(G)
+            Gnodes.remove(first)
+            dist0, path0 = apd[first]
+            edges = [
+                (first, v, {"distance": dist0[v], "path": path0[v]})
+                for v in Gnodes
+            ]
+            for u in nodes[1:]:
+                Gnodes.remove(u)
+                dist, path = apd[u]
+                edges.extend(
+                    (u, v, {"distance": dist[v], "path": path[v]})
+                    for v in Gnodes
+                )
+            M.add_edges_from(edges)
+            return M
+
+        return _from_nx_graph(
+            _nx.approximation.metric_closure(
+                _networkx_graph_for_parity(G), weight=weight
+            )
+        )
+
     def __getattr__(self, name):
         nx_func = getattr(_nx.approximation, name)
 
