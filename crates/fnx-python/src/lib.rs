@@ -252,6 +252,151 @@ pub fn validate_ctor_edge_list(
     Ok((true, needs_tuple_conversion, endpoints_hashable))
 }
 
+fn geometric_positions_from_py(positions: &Bound<'_, PyAny>) -> PyResult<Option<Vec<Vec<f64>>>> {
+    let mut points = Vec::new();
+    let mut dim: Option<usize> = None;
+    for point in positions.try_iter()? {
+        let point = point?;
+        let mut coords = Vec::new();
+        for coord in point.try_iter()? {
+            let value = coord?.extract::<f64>()?;
+            if !value.is_finite() {
+                return Ok(None);
+            }
+            coords.push(value);
+        }
+        if coords.is_empty() {
+            return Ok(None);
+        }
+        match dim {
+            Some(expected) if expected != coords.len() => return Ok(None),
+            None => dim = Some(coords.len()),
+            _ => {}
+        }
+        points.push(coords);
+    }
+    Ok(Some(points))
+}
+
+fn geometric_within_radius(left: &[f64], right: &[f64], radius: f64, p: f64) -> bool {
+    if p == f64::INFINITY {
+        let mut max_delta = 0.0;
+        for (a, b) in left.iter().zip(right) {
+            let delta = (a - b).abs();
+            if delta > max_delta {
+                max_delta = delta;
+            }
+        }
+        max_delta <= radius
+    } else if p == 2.0 {
+        let mut sum = 0.0;
+        for (a, b) in left.iter().zip(right) {
+            let delta = a - b;
+            sum += delta * delta;
+        }
+        sum <= radius * radius
+    } else {
+        let mut sum = 0.0;
+        for (a, b) in left.iter().zip(right) {
+            sum += (a - b).abs().powf(p);
+        }
+        sum <= radius.powf(p)
+    }
+}
+
+fn enumerate_geometric_cells(
+    ranges: &[(i64, i64)],
+    depth: usize,
+    current: &mut Vec<i64>,
+    buckets: &HashMap<Vec<i64>, Vec<usize>>,
+    out: &mut Vec<usize>,
+) {
+    if depth == ranges.len() {
+        if let Some(indices) = buckets.get(current) {
+            out.extend(indices.iter().copied());
+        }
+        return;
+    }
+    let (start, end) = ranges[depth];
+    for cell in start..=end {
+        current.push(cell);
+        enumerate_geometric_cells(ranges, depth + 1, current, buckets, out);
+        current.pop();
+    }
+}
+
+/// br-r37-c1-nt3co: deterministic safe-Rust radius-query candidate generator.
+///
+/// The Python geometric generators need the exact sorted ``i < j`` pair order
+/// because ``soft_random_geometric_graph`` consumes RNG once per in-radius
+/// candidate. A uniform grid shrinks the candidate set, exact-reranks every
+/// candidate with the same p-norm predicate, then sorts the final pairs to keep
+/// the NetworkX-visible order unchanged.
+#[pyfunction]
+pub fn geometric_pairs_grid(
+    positions: &Bound<'_, PyAny>,
+    radius: f64,
+    p: f64,
+) -> PyResult<Option<Vec<(usize, usize)>>> {
+    let Some(points) = geometric_positions_from_py(positions)? else {
+        return Ok(None);
+    };
+    if points.len() < 2 {
+        return Ok(Some(Vec::new()));
+    }
+    if !radius.is_finite() || radius <= 0.0 || !(p == f64::INFINITY || p >= 1.0) {
+        let mut pairs = Vec::new();
+        for i in 0..points.len() {
+            for j in (i + 1)..points.len() {
+                if geometric_within_radius(&points[i], &points[j], radius, p) {
+                    pairs.push((i, j));
+                }
+            }
+        }
+        return Ok(Some(pairs));
+    }
+
+    let dim = points[0].len();
+    let mut buckets: HashMap<Vec<i64>, Vec<usize>> = HashMap::with_capacity(points.len());
+    for (idx, point) in points.iter().enumerate() {
+        let key: Vec<i64> = point
+            .iter()
+            .map(|coord| (coord / radius).floor() as i64)
+            .collect();
+        buckets.entry(key).or_default().push(idx);
+    }
+
+    let mut pairs = Vec::new();
+    let mut candidate_indices = Vec::new();
+    let mut current_cell = Vec::with_capacity(dim);
+    for (i, point) in points.iter().enumerate() {
+        let ranges: Vec<(i64, i64)> = point
+            .iter()
+            .map(|coord| {
+                (
+                    ((coord - radius) / radius).floor() as i64,
+                    ((coord + radius) / radius).floor() as i64,
+                )
+            })
+            .collect();
+        candidate_indices.clear();
+        enumerate_geometric_cells(
+            &ranges,
+            0,
+            &mut current_cell,
+            &buckets,
+            &mut candidate_indices,
+        );
+        for &j in &candidate_indices {
+            if j > i && geometric_within_radius(point, &points[j], radius, p) {
+                pairs.push((i, j));
+            }
+        }
+    }
+    pairs.sort_unstable();
+    Ok(Some(pairs))
+}
+
 pub(crate) fn missing_key_error(key: &Bound<'_, PyAny>) -> PyErr {
     PyKeyError::new_err((key.clone().unbind(),))
 }
@@ -8872,6 +9017,7 @@ fn _fnx(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
 
     m.add_function(wrap_pyfunction!(validate_ctor_edge_list, m)?)?;
+    m.add_function(wrap_pyfunction!(geometric_pairs_grid, m)?)?;
     m.add_function(wrap_pyfunction!(network_simplex::network_simplex_int, m)?)?;
 
     // Graph class

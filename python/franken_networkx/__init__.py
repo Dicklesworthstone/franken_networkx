@@ -40972,25 +40972,16 @@ def random_geometric_graph(n, radius, dim=2, pos=None, p=2, seed=None, *, pos_na
     G.add_nodes_from(range(n))
     set_node_attributes(G, positions, pos_name)
 
-    # br-r37-c1-rgg-kdtree: the previous O(n^2) brute-force pairwise distance
-    # scan (~318ms / 20x slower than nx at n=1000) is replaced by networkx's
-    # exact edge construction: a scipy ``cKDTree.query_pairs(radius, p)`` radius
-    # query (O(n log n + |E|)) over the same positions, then ``sorted`` index
-    # pairs into one bulk ``add_edges_from``. Positions already match nx (same
-    # rng sequence), query_pairs is the identical scipy call nx uses, and
-    # edges() order is node-iteration-determined (nodes 0..n-1 added up front),
-    # so the result is byte-identical to nx and to the prior brute-force path.
-    # The brute-force fallback runs only when scipy is unavailable (matching
-    # nx's _geometric_edges fallback).
+    # br-r37-c1-nt3co: use our safe-Rust uniform-grid radius query instead of
+    # scipy cKDTree. It returns sorted i<j index pairs, preserving the prior
+    # edge order while removing the SciPy import/native dependency.
     if n >= 2:
-        try:
-            import scipy as _sp
-
-            coords = [positions[i] for i in range(n)]
-            kdtree = _sp.spatial.cKDTree(coords)
-            edge_indexes = kdtree.query_pairs(radius, p)
+        edge_indexes = _native_geometric_edge_indexes(
+            [positions[i] for i in range(n)], radius, p
+        )
+        if edge_indexes is not None:
             G.add_edges_from(sorted(edge_indexes))
-        except ImportError:
+        else:
             if p == float("inf"):
                 def _within(pu, pv):
                     return max(abs(a - b) for a, b in zip(pu, pv)) <= radius
@@ -41000,11 +40991,34 @@ def random_geometric_graph(n, radius, dim=2, pos=None, p=2, seed=None, *, pos_na
                 def _within(pu, pv):
                     return sum(abs(a - b) ** p for a, b in zip(pu, pv)) <= radius_p
 
+            _edge_batch = []
             for i in range(n):
                 for j in range(i + 1, n):
                     if _within(positions[i], positions[j]):
-                        G.add_edge(i, j)
+                        _edge_batch.append((i, j))
+            G.add_edges_from(_edge_batch)
     return G
+
+
+def _native_geometric_edge_indexes(positions, radius, p):
+    """Return sorted in-radius index pairs via the safe-Rust grid helper.
+
+    ``None`` means "use the Python fallback" for odd p/radius/position shapes
+    whose historical behavior is inherited from Python's arithmetic quirks.
+    """
+    try:
+        radius_f = float(radius)
+        p_f = float(p)
+    except (OverflowError, TypeError, ValueError):
+        return None
+    if p_f <= 0.0:
+        return []
+    if p_f != float("inf") and p_f < 1.0:
+        return None
+    try:
+        return _fnx.geometric_pairs_grid(positions, radius_f, p_f)
+    except (OverflowError, TypeError, ValueError):
+        return None
 
 
 def _minkowski_distance(p1, p2, p):
@@ -41058,21 +41072,14 @@ def soft_random_geometric_graph(
         def p_dist(d):
             return _math.exp(-d)
 
-    # br-r37-c1-nt3co: replace the O(n^2) brute-force pairwise scan with nx's
-    # exact geometric_edges construction — a scipy cKDTree.query_pairs(radius, p)
-    # radius query (O(n log n + |E|), the SAME call nx uses). ``rng.random()`` is
-    # consumed once per WITHIN-RADIUS pair in nx's geometric_edges order; sorted
-    # query_pairs is exactly i<j lexicographic = the brute-force visit order, so
-    # the draw sequence (and thus the edge set) is byte-identical. The Chebyshev
-    # (p == inf) quirk (NX's p_dist always sees 1.0 for points in [0, 1]) is
-    # preserved. Falls back to brute force when scipy is unavailable (as nx does).
+    # br-r37-c1-nt3co: use the safe-Rust grid helper for candidate generation.
+    # It returns the same sorted i<j within-radius order, so rng.random() is
+    # consumed in the same sequence as nx/geometric_edges.
     if n >= 2:
-        try:
-            import scipy as _sp
-
-            coords = [pos[i] for i in range(n)]
-            kdtree = _sp.spatial.cKDTree(coords)
-            edge_indexes = sorted(kdtree.query_pairs(radius, p))
+        edge_indexes = _native_geometric_edge_indexes(
+            [pos[i] for i in range(n)], radius, p
+        )
+        if edge_indexes is not None:
             if p == float("inf"):
                 _edges = [
                     (i, j) for i, j in edge_indexes if rng.random() < p_dist(1.0)
@@ -41086,7 +41093,7 @@ def soft_random_geometric_graph(
                     if rng.random() < p_dist(d):
                         _edges.append((i, j))
             G.add_edges_from(_edges)
-        except ImportError:
+        else:
             if p == float("inf"):
                 # Chebyshev: filter on max(|a-b|) ≤ radius. NX computes the dist
                 # value for ``p_dist`` via ``sum(|a-b|**p) ** (1/p)`` even when
@@ -41337,26 +41344,19 @@ def thresholded_random_geometric_graph(
     set_node_attributes(G, weight, weight_name)
     set_node_attributes(G, pos, pos_name)
 
-    # br-r37-c1-nt3co: replace the O(n^2) brute-force pairwise scan with nx's
-    # exact geometric_edges construction — a scipy cKDTree.query_pairs(radius, p)
-    # radius query (O(n log n + |E|)), the SAME call nx uses — then filter the
-    # ``sorted`` index pairs by the threshold weight condition. cKDTree gives the
-    # within-radius pairs; ``sorted`` yields nx's edge order (nodes 0..n-1 added
-    # up front), so the result is byte-identical to nx and to the prior brute
-    # force. Falls back to brute force when scipy is unavailable (as nx does).
+    # br-r37-c1-nt3co: safe-Rust grid candidate generation replaces SciPy here
+    # too; threshold filtering still happens in Python in sorted i<j order.
     if n >= 2:
-        try:
-            import scipy as _sp
-
-            coords = [pos[i] for i in range(n)]
-            kdtree = _sp.spatial.cKDTree(coords)
-            edge_indexes = kdtree.query_pairs(radius, p)
+        edge_indexes = _native_geometric_edge_indexes(
+            [pos[i] for i in range(n)], radius, p
+        )
+        if edge_indexes is not None:
             G.add_edges_from(
                 (i, j)
-                for i, j in sorted(edge_indexes)
+                for i, j in edge_indexes
                 if weight[i] + weight[j] >= theta
             )
-        except ImportError:
+        else:
             _dist = _math.dist if p == 2 else (lambda a, b: _minkowski_distance(a, b, p))
             _edge_batch = []
             for i in range(n):
@@ -41428,6 +41428,10 @@ def geometric_edges(G, radius, p=2, *, pos_name="pos"):
                 f"Node {node} (and all nodes) must have a '{pos_name}' attribute."
             )
         positions.append(tuple(pos))
+
+    edge_indexes = _native_geometric_edge_indexes(positions, radius, p)
+    if edge_indexes is not None:
+        return [(nodes[i], nodes[j]) for i, j in edge_indexes]
 
     edges: list = []
     if p == float("inf"):

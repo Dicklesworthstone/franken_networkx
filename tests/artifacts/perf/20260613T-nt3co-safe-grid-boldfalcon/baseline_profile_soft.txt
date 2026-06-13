@@ -1,0 +1,16 @@
+         970049 function calls (953492 primitive calls) in 0.459 seconds
+
+   Ordered by: cumulative time
+   List reduced from 1375 to 10 due to restriction <10>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        3    0.000    0.000    0.459    0.153 /data/projects/.scratch/franken_networkx-nt3co-safe-grid-20260613T2126Z/tests/artifacts/perf/20260613T-nt3co-safe-grid-boldfalcon/bench_geometric_grid.py:27(build_graphs)
+      6/3    0.003    0.001    0.459    0.153 /data/tmp/fnx_nt3co_parent2_overlay_2208/franken_networkx/__init__.py:52172(wrapper)
+        3    0.050    0.017    0.456    0.152 /data/tmp/fnx_nt3co_parent2_overlay_2208/franken_networkx/__init__.py:41012(soft_random_geometric_graph)
+    293/2    0.001    0.000    0.326    0.163 <frozen importlib._bootstrap>:1349(_find_and_load)
+    285/2    0.001    0.000    0.326    0.163 <frozen importlib._bootstrap>:1304(_find_and_load_unlocked)
+    279/2    0.001    0.000    0.326    0.163 <frozen importlib._bootstrap>:911(_load_unlocked)
+    229/2    0.000    0.000    0.326    0.163 <frozen importlib._bootstrap_external>:1020(exec_module)
+    704/4    0.000    0.000    0.325    0.081 <frozen importlib._bootstrap>:480(_call_with_frames_removed)
+    237/2    0.002    0.000    0.325    0.163 {built-in method builtins.exec}
+      6/1    0.000    0.000    0.307    0.307 /home/ubuntu/.local/lib/python3.13/site-packages/scipy/__init__.py:129(__getattr__)

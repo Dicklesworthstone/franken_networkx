@@ -1,0 +1,34 @@
+{
+  "results": [
+    {
+      "command": "python3 tests/artifacts/perf/20260613T-nt3co-safe-grid-boldfalcon/bench_geometric_grid.py bench --impl nx --case rgg --n 800 --loops 7",
+      "mean": 0.566213763225,
+      "stddev": 0.023569423087548162,
+      "median": 0.5655689951,
+      "user": 8.413117085,
+      "system": 0.10407239,
+      "min": 0.5364135116,
+      "max": 0.6162771766,
+      "times": [
+        0.5683596456,
+        0.5627783446,
+        0.5694681766,
+        0.5482758606,
+        0.5558147726,
+        0.6162771766,
+        0.5723226176,
+        0.5364135116
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

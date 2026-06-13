@@ -1,0 +1,34 @@
+{
+  "results": [
+    {
+      "command": "PYTHONPATH=/data/tmp/fnx_nt3co_parent2_overlay_2208 python3 tests/artifacts/perf/20260613T-nt3co-safe-grid-boldfalcon/bench_geometric_grid.py bench --impl fnx --case rgg --n 800 --loops 7",
+      "mean": 0.5054279231200001,
+      "stddev": 0.022461492254919602,
+      "median": 0.49706922511999996,
+      "user": 8.851673569999999,
+      "system": 0.100211585,
+      "min": 0.47865473512,
+      "max": 0.54347983412,
+      "times": [
+        0.47865473512,
+        0.54347983412,
+        0.49080627612,
+        0.49415609012,
+        0.53252523412,
+        0.49998236011999997,
+        0.49101552812,
+        0.51280332712
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

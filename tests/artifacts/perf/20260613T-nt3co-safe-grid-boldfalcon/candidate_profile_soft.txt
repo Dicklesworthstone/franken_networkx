@@ -1,0 +1,16 @@
+         385421 function calls (385416 primitive calls) in 0.110 seconds
+
+   Ordered by: cumulative time
+   List reduced from 35 to 10 due to restriction <10>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        3    0.000    0.000    0.110    0.037 /data/projects/.scratch/franken_networkx-nt3co-safe-grid-20260613T2126Z/tests/artifacts/perf/20260613T-nt3co-safe-grid-boldfalcon/bench_geometric_grid.py:27(build_graphs)
+      6/3    0.001    0.000    0.110    0.037 /data/tmp/fnx_nt3co_candidate2_overlay_2208/franken_networkx/__init__.py:52176(wrapper)
+        3    0.038    0.013    0.109    0.036 /data/tmp/fnx_nt3co_candidate2_overlay_2208/franken_networkx/__init__.py:41026(soft_random_geometric_graph)
+    38341    0.018    0.000    0.041    0.000 {built-in method builtins.sum}
+   115023    0.018    0.000    0.023    0.000 /data/tmp/fnx_nt3co_candidate2_overlay_2208/franken_networkx/__init__.py:41082(<genexpr>)
+    38341    0.006    0.000    0.009    0.000 /data/tmp/fnx_nt3co_candidate2_overlay_2208/franken_networkx/__init__.py:41064(p_dist)
+        3    0.000    0.000    0.006    0.002 /data/tmp/fnx_nt3co_candidate2_overlay_2208/franken_networkx/__init__.py:2878(add_edges_from)
+        3    0.006    0.002    0.006    0.002 {method '_try_add_edges_from_batch' of 'franken_networkx.Graph' objects}
+        3    0.001    0.000    0.006    0.002 /data/tmp/fnx_nt3co_candidate2_overlay_2208/franken_networkx/__init__.py:40995(_native_geometric_edge_indexes)
+        3    0.005    0.002    0.005    0.002 {built-in method franken_networkx._fnx.geometric_pairs_grid}
