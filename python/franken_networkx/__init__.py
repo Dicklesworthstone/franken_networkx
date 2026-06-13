@@ -1417,10 +1417,15 @@ class MultiAdjacencyView(_Mapping):
         return node in self._atlas()
 
     def __iter__(self):
-        # br-r37-c1-adjitype (cycle 219): nx's iter(G.adj) is a dict_keyiterator;
-        # keep that exact type via dict.fromkeys (the cheap owner iteration would
-        # yield a NodeIterator). Materialisation of _atlas() here is a separate
-        # (smaller) residual; __contains__/__len__ are the catastrophic paths.
+        # br-r37-c1-adjitype (cycle 219): nx's iter(G.adj) is a dict_keyiterator.
+        # The keys of G.adj are just the NODES, so build {node: None} from the
+        # owner's node iteration (O(V)) instead of materialising the entire
+        # {node:{nbr:{key:attrs}}} dict via _atlas() (O(V+E), was ~640x slower
+        # than nx). dict.fromkeys(...) keeps the dict_keyiterator type that
+        # ``iter(self._fnx_owner)`` (a NodeIterator) would lose.
+        owner = self._fnx_owner
+        if owner is not None:
+            return iter(dict.fromkeys(owner))
         return iter(dict.fromkeys(self._atlas()))
 
     def __getitem__(self, node):
