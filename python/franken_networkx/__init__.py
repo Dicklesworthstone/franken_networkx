@@ -48947,15 +48947,22 @@ def dual_barabasi_albert_graph(
         node for node, degree_value in graph.degree for _ in range(degree_value)
     ]
     source = len(graph)
+    # br-r37-c1-yrdso: preferential attachment reads only ``repeated_nodes``
+    # (never the graph) inside the loop, so accumulate every new edge and commit
+    # through ONE add_edges_from instead of ``n`` tiny per-source calls that each
+    # fell below the batch threshold (8) and ran per-edge add_edge PyO3. Same
+    # source-ascending, targets-set insertion order -> byte-identical.
+    _edge_accum = []
     while source < n:
         m = m1 if rng.random() < p else m2
         targets = set()
         while len(targets) < m:
             targets.add(rng.choice(repeated_nodes))
-        graph.add_edges_from((source, target) for target in targets)
+        _edge_accum.extend((source, target) for target in targets)
         repeated_nodes.extend(targets)
         repeated_nodes.extend([source] * m)
         source += 1
+    graph.add_edges_from(_edge_accum)
 
     if create_using is None:
         return graph
