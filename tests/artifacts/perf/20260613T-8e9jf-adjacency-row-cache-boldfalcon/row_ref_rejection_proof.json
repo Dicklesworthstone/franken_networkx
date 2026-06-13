@@ -1,0 +1,46 @@
+{
+  "bead": "br-r37-c1-8e9jf",
+  "lever": "return cached adjacency row dictionaries without copying rows",
+  "status": "rejected",
+  "reason": "The candidate benchmarked faster but changed observable mutation semantics: mutating a returned adjacency row persisted in the FrankenNetworkX row cache while the native graph topology still reported no such edge.",
+  "candidate_behavior": {
+    "row_is_dict": true,
+    "row_identity_reused": true,
+    "edge_attr_dict_is_live": true,
+    "row_mutation_visible_next_adjacency": true,
+    "has_edge_after_row_mutation": false,
+    "ordering_after_row_mutation": [
+      ["a", ["b", "c"]],
+      ["b", ["a"]]
+    ]
+  },
+  "networkx_behavior": {
+    "row_is_dict": true,
+    "row_identity_reused": true,
+    "edge_attr_dict_is_live": true,
+    "row_mutation_visible_next_adjacency": true,
+    "has_edge_after_row_mutation": true,
+    "ordering_after_row_mutation": [
+      ["a", ["b", "c"]],
+      ["b", ["a"]]
+    ]
+  },
+  "golden_sha256": {
+    "baseline_golden_json": "e48e74c7624b404732f32f54747686431bde9733cf1e3072d3c61e80eda12e53",
+    "candidate_golden_json": "e48e74c7624b404732f32f54747686431bde9733cf1e3072d3c61e80eda12e53",
+    "adjacency_output": "05e5b22eb7a79e6009ddaeb9620bcef89b14f7c3e7bb0f83139b862817d6512b"
+  },
+  "benchmark": {
+    "baseline_mean_s": 0.00009716714688693174,
+    "candidate_mean_s": 0.00003673221886856481,
+    "speedup": 2.645283891904682,
+    "accepted": false
+  },
+  "isomorphism_notes": {
+    "ordering": "Golden adjacency serialization preserved node and neighbor order for the benchmark graph.",
+    "tie_breaking": "No algorithmic tie-breaking path was changed.",
+    "floating_point": "No floating-point computation path was changed.",
+    "rng": "The benchmark graph construction uses fixed seed=0; no RNG path was changed.",
+    "mutation_contract": "Rejected because returned-row mutation behavior was not coherent with native graph has_edge semantics."
+  }
+}
