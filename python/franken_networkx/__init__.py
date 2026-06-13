@@ -3900,6 +3900,27 @@ class _DirectedDegreeView:
                 return self._graph._native_out_degree(node)
             if self._adjacency_attr == "pred":
                 return self._graph._native_in_degree(node)
+        # br-r37-c1-wdeg2: weighted in/out degree on a SIMPLE DiGraph summed over
+        # ``self._adjacency[node]`` (a succ/pred AtlasView) — materializing that
+        # view PER NODE made full-graph weighted in_degree ~14x nx. Sum over the
+        # native per-row dict instead (identical pred/succ order, so sum()'s
+        # float compensation is byte-identical) — ~14x self-speedup. Filtered/
+        # reverse views (empty Rust base) + multigraph (key-nested row dicts)
+        # keep the generic AtlasView path below.
+        if (
+            weight is not None
+            and type(self._graph) is DiGraph
+            and not isinstance(
+                self._graph, (_FilteredGraphView, _ReverseDirectedViewBase)
+            )
+        ):
+            if self._adjacency_attr == "succ":
+                _row = self._graph._native_adjacency_row_dict(node)
+                return sum(attrs.get(weight, 1) for attrs in _row.values())
+            if self._adjacency_attr == "pred":
+                _row = self._graph._native_predecessor_row_dict(node)
+                return sum(attrs.get(weight, 1) for attrs in _row.values())
+
         adjacency = self._adjacency[node]
         if self._graph.is_multigraph():
             if weight is None:
@@ -3941,6 +3962,28 @@ class _DirectedDegreeView:
             if pairs is not None:
                 yield from pairs()
                 return
+        # br-r37-c1-wdeg2: weighted full-graph iteration on a SIMPLE DiGraph
+        # sums over the native per-row dict directly, skipping the per-node
+        # ``self[node]`` __getitem__/_node_degree dispatch (byte-identical, the
+        # same path _node_degree takes for single nodes).
+        if (
+            self._nodes is None
+            and self._weight is not None
+            and type(self._graph) is DiGraph
+            and self._adjacency_attr in ("succ", "pred")
+            and not isinstance(
+                self._graph, (_FilteredGraphView, _ReverseDirectedViewBase)
+            )
+        ):
+            _w = self._weight
+            _row = (
+                self._graph._native_adjacency_row_dict
+                if self._adjacency_attr == "succ"
+                else self._graph._native_predecessor_row_dict
+            )
+            for node in self._graph:
+                yield (node, sum(a.get(_w, 1) for a in _row(node).values()))
+            return
         for node in self._iter_nodes():
             yield (node, self[node])
 
