@@ -878,8 +878,17 @@ class NodeDataView:
     def _materialize(self):
         data = self._data
         default = self._default
-        if data is True and type(self._view) is _SIMPLE_GRAPH_NODE_VIEW_TYPE:
-            return _SIMPLE_GRAPH_NODE_VIEW_ITEMS(self._view)
+        if data is True:
+            # br-r37-c1-4b5ie: nodes(data=True) is the (node, attr_dict) items —
+            # serve from each class's nodes_seq-keyed node_data_mirror via its
+            # native items() (the SAME cache the attr path below uses). Graph was
+            # already routed here; DiGraph/MultiGraph/MultiDiGraph fell through to
+            # the fresh ``self._call`` rebuild (5.5-9.4x slower than nx). The
+            # cached dicts are live so ``for u, d in G.nodes(data=True): d['x']=1``
+            # still persists.
+            native_items = _NODE_VIEW_NATIVE_ITEMS.get(type(self._view))
+            if native_items is not None:
+                return native_items(self._view)
         if isinstance(data, bool):
             # Rust path: returns a NodeView; iterate its content directly.
             return list(self._call(self._view, data, default))
