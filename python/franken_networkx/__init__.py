@@ -47931,6 +47931,23 @@ def from_pandas_edgelist(
             else:
                 actual_key = graph.add_edge(source_node, target_node)
                 graph[source_node][target_node][actual_key].update(zip(attr_col_headings, attrs))
+    elif type(graph) is Graph:
+        # br-r37-c1-nodebatch/pandas: batch the whole attributed edge set
+        # through add_edges_from (the attr edge batch, br-r37-c1-pr8q6) in one
+        # bulk insertion instead of per-edge add_edge + adjacency-view
+        # __getitem__ + dict.update (~2.6x nx). Identical semantics: each edge's
+        # data dict is dict(zip(headings, attrs)); duplicate (u, v) rows merge
+        # per-key later-wins, exactly as the repeated ``update`` did. Any
+        # batch-incompatible attr value (e.g. an exotic numpy scalar) makes
+        # add_edges_from fall back to its per-edge path transparently.
+        graph.add_edges_from(
+            [
+                (source_node, target_node, dict(zip(attr_col_headings, attrs)))
+                for source_node, target_node, attrs in zip(
+                    df[source], df[target], attribute_data
+                )
+            ]
+        )
     else:
         for source_node, target_node, attrs in zip(df[source], df[target], attribute_data):
             graph.add_edge(source_node, target_node)
