@@ -13352,6 +13352,29 @@ fn is_planar_lr(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<bool> {
     Ok(py.allow_threads(|| fnx_algorithms::is_planar_lr(inner)))
 }
 
+/// Return whether Euler's simple loopless bound proves non-planarity.
+#[pyfunction]
+#[pyo3(signature = (g,))]
+fn planarity_euler_reject(g: &Bound<'_, PyAny>) -> PyResult<Option<bool>> {
+    let gr = extract_graph(g)?;
+    let GraphRef::Undirected(pg) = &gr else {
+        return Ok(None);
+    };
+    let inner = &pg.inner;
+    let node_count = inner.node_count();
+    if node_count < 3 {
+        return Ok(Some(false));
+    }
+    let edge_bound = (3 * node_count) - 6;
+    if inner.edge_count() <= edge_bound {
+        return Ok(Some(false));
+    }
+    if fnx_algorithms::number_of_selfloops(inner) != 0 {
+        return Ok(Some(false));
+    }
+    Ok(Some(true))
+}
+
 /// Check if a graph is chordal (every cycle of length 4+ has a chord).
 #[pyfunction]
 #[pyo3(signature = (g,))]
@@ -19077,6 +19100,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Planarity
     m.add_function(wrap_pyfunction!(is_planar, m)?)?;
     m.add_function(wrap_pyfunction!(is_planar_lr, m)?)?;
+    m.add_function(wrap_pyfunction!(planarity_euler_reject, m)?)?;
     // Chordality
     m.add_function(wrap_pyfunction!(is_chordal, m)?)?;
     // Barycenter

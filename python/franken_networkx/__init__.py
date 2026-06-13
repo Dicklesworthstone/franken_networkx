@@ -24750,6 +24750,19 @@ def _planarity_graph_for_certificate(G):
 
 
 def _check_planarity_certificate(G, counterexample=False, recursive=False):
+    if not counterexample and not recursive and type(G) is Graph:
+        try:
+            node_count = G.number_of_nodes()
+            edge_count = G.number_of_edges()
+            if (
+                node_count >= 3
+                and edge_count > (3 * node_count) - 6
+                and _fnx.planarity_euler_reject(G)
+            ):
+                return False, None
+        except (AttributeError, TypeError, NetworkXError):
+            pass
+
     from networkx.algorithms import planarity as nx_planarity
 
     graph = _planarity_graph_for_certificate(G)
