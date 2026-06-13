@@ -103,6 +103,41 @@ pub struct PyMultiDiGraph {
     /// {node: {succ: {key: edge_dict}}} cache so repeated adjacency() calls reuse
     /// it instead of rebuilding the 3-level dict (was 47x slower than nx).
     pub(crate) dict_of_dicts_cache: Option<crate::DictOfDictsCache>,
+    /// br-r37-c1-o07ax: (nodes_seq, edges_seq)-keyed cache of the node-major
+    /// (u, v, live_attr) tuples for edges(data=True, keys=False, no nbunch).
+    pub(crate) edges_with_data_cache: Option<(u64, u64, Vec<PyObject>)>,
+}
+
+impl PyMultiDiGraph {
+    /// br-r37-c1-o07ax: build (and cache) the node-major (u, v, live_attr) tuples
+    /// for edges(data=True, keys=False) — the same AllData/!keys branch as
+    /// MultiDiGraphEdgeView.__call__, served from a (nodes_seq, edges_seq) cache.
+    pub(crate) fn edges_alldata_tuples(&mut self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
+        if self.inner.edge_count() > 0 {
+            self.mark_edges_dirty();
+        }
+        let valid = matches!(
+            &self.edges_with_data_cache,
+            Some((ns, es, _)) if *ns == self.nodes_seq && *es == self.edges_seq
+        );
+        if !valid {
+            let edges = self.inner.edges_ordered();
+            let mut result: Vec<PyObject> = Vec::with_capacity(edges.len());
+            for edge in &edges {
+                let py_u = self.py_node_key(py, &edge.source);
+                let py_v = self.py_succ_key(py, &edge.source, &edge.target);
+                let ek = Self::edge_key(&edge.source, &edge.target, edge.key);
+                let attrs = self.edge_py_attrs.get(&ek).map_or_else(
+                    || PyDict::new(py).into_any().unbind(),
+                    |d| d.clone_ref(py).into_any(),
+                );
+                result.push(tuple_object(py, &[py_u, py_v, attrs])?);
+            }
+            self.edges_with_data_cache = Some((self.nodes_seq, self.edges_seq, result));
+        }
+        let cached = &self.edges_with_data_cache.as_ref().unwrap().2;
+        Ok(cached.iter().map(|t| t.clone_ref(py)).collect())
+    }
 }
 
 impl PyMultiDiGraph {
@@ -384,6 +419,7 @@ impl PyMultiDiGraph {
             node_keys_cache: std::sync::Mutex::new(None),
             node_data_mirror: std::sync::Mutex::new(None),
             dict_of_dicts_cache: None,
+            edges_with_data_cache: None,
         })
     }
 
@@ -3063,6 +3099,7 @@ impl PyMultiDiGraph {
             node_keys_cache: std::sync::Mutex::new(None),
             node_data_mirror: std::sync::Mutex::new(None),
             dict_of_dicts_cache: None,
+            edges_with_data_cache: None,
         };
         for node in self.inner.nodes_ordered() {
             let rust_attrs = self
@@ -3131,6 +3168,7 @@ impl PyMultiDiGraph {
             node_keys_cache: std::sync::Mutex::new(None),
             node_data_mirror: std::sync::Mutex::new(None),
             dict_of_dicts_cache: None,
+            edges_with_data_cache: None,
         };
         for node in self.inner.nodes_ordered() {
             let py_attrs = self.node_py_attrs.get(node).map_or_else(
@@ -3327,6 +3365,7 @@ impl PyMultiDiGraph {
             node_keys_cache: std::sync::Mutex::new(None),
             node_data_mirror: std::sync::Mutex::new(None),
             dict_of_dicts_cache: None,
+            edges_with_data_cache: None,
         };
         // br-r37-c1-s0d4x: nx's MultiDiGraph.copy() walk fills PRED rows
         // in u-major order (succ rows keep original order); the verbatim
@@ -3409,6 +3448,7 @@ impl PyMultiDiGraph {
             node_keys_cache: std::sync::Mutex::new(None),
             node_data_mirror: std::sync::Mutex::new(None),
             dict_of_dicts_cache: None,
+            edges_with_data_cache: None,
         })
     }
 
@@ -3449,6 +3489,7 @@ impl PyMultiDiGraph {
             node_keys_cache: std::sync::Mutex::new(None),
             node_data_mirror: std::sync::Mutex::new(None),
             dict_of_dicts_cache: None,
+            edges_with_data_cache: None,
         };
 
         for canonical in &keep {
@@ -3525,6 +3566,7 @@ impl PyMultiDiGraph {
             node_keys_cache: std::sync::Mutex::new(None),
             node_data_mirror: std::sync::Mutex::new(None),
             dict_of_dicts_cache: None,
+            edges_with_data_cache: None,
         };
 
         for item in iter {
@@ -3698,6 +3740,7 @@ impl PyMultiDiGraph {
             node_keys_cache: std::sync::Mutex::new(None),
             node_data_mirror: std::sync::Mutex::new(None),
             dict_of_dicts_cache: None,
+            edges_with_data_cache: None,
         };
         for canonical in self.inner.nodes_ordered() {
             let rust_attrs = self
@@ -4372,6 +4415,23 @@ impl MultiDiGraphEdgeView {
         }
         if matches!(&view_data, ViewData::AllData) && g.inner.edge_count() > 0 {
             g.mark_edges_dirty();
+        }
+        // br-r37-c1-o07ax: the data=True, keys=False, no-nbunch variant (the
+        // common edges(data=True)) yields (u, v, live_attr) immutable tuples —
+        // serve them from the (nodes_seq, edges_seq) cache via a borrow_mut.
+        if source_nodes.is_none() && matches!(&view_data, ViewData::AllData) && !keys {
+            let node_count = expected_nodes.len();
+            drop(g);
+            let result = self.graph.borrow_mut(py).edges_alldata_tuples(py)?;
+            return Py::new(
+                py,
+                crate::NodeIterator::with_graph_guard(
+                    py,
+                    result,
+                    crate::NodeIteratorGuard::MultiDiGraph(self.graph.clone_ref(py)),
+                    node_count,
+                ),
+            );
         }
         let mut result = Vec::new();
         let edges = g.inner.edges_ordered();
