@@ -1,0 +1,5 @@
+036946f5ebe09b6039e0c542c34a333af8fafc3643549c3dcedc7f07590dee0e  /data/projects/.scratch/franken_networkx-cod-opt-20260613T161804Z/tests/artifacts/perf/20260613T-rpt-backbone-batch-boldfalcon/candidate_bench_fnx.json
+958f426e0ab59b6f3c9d1b2c054eba9324e496fb495cc4e245c4c4c81b9a0390  /data/projects/.scratch/franken_networkx-cod-opt-20260613T161804Z/tests/artifacts/perf/20260613T-rpt-backbone-batch-boldfalcon/candidate_bench_nx.json
+9467bfdb009f38e628da087d329e36c1429b2019a5b1664c26a303ca7514b51d  /data/projects/.scratch/franken_networkx-cod-opt-20260613T161804Z/tests/artifacts/perf/20260613T-rpt-backbone-batch-boldfalcon/candidate_golden.json
+0858e186ae32fb727ef521259661aacd2f673bd9f6830068bbf6e90f1489a08f  /data/projects/.scratch/franken_networkx-cod-opt-20260613T161804Z/tests/artifacts/perf/20260613T-rpt-backbone-batch-boldfalcon/candidate_hyperfine_fnx_loop20.json
+2c4acecb66c163564a43f184cb31133f3a127349ab3ccfe50ba5604fe8175736  /data/projects/.scratch/franken_networkx-cod-opt-20260613T161804Z/tests/artifacts/perf/20260613T-rpt-backbone-batch-boldfalcon/candidate_profile_fnx.txt

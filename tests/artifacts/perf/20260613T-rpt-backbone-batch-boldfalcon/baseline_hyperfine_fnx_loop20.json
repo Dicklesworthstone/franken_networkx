@@ -1,0 +1,38 @@
+{
+  "results": [
+    {
+      "command": "python3 /data/projects/.scratch/franken_networkx-cod-opt-20260613T161804Z/tests/artifacts/perf/20260613T-rpt-backbone-batch-boldfalcon/random_powerlaw_tree_harness.py --repo-root /data/projects/.scratch/franken_networkx-cod-opt-20260613T161804Z --extension /data/projects/.scratch/franken_networkx-cod-opt-20260613T161804Z/tests/artifacts/perf/20260613T-rpt-backbone-batch-boldfalcon/baseline_lib_fnx.so bench --impl fnx --loops 20 --warmups 3 >/dev/null",
+      "mean": 0.32209217415999997,
+      "stddev": 0.020213803251155363,
+      "median": 0.31697614626000004,
+      "user": 4.320513319999999,
+      "system": 0.06422752,
+      "min": 0.29699702526,
+      "max": 0.35586207626,
+      "times": [
+        0.33364535426,
+        0.35586207626,
+        0.29731893626,
+        0.34028422826,
+        0.34279754226000003,
+        0.31681718526,
+        0.29699702526,
+        0.30469038826,
+        0.31713510726,
+        0.31537389826
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

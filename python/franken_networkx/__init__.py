@@ -27750,7 +27750,8 @@ def degree_sequence_tree(deg_sequence, create_using=None):
 
     degrees = sorted((degree for degree in deg_sequence if degree > 1), reverse=True)
     backbone_nodes = len(degrees) + 2
-    add_path(graph, range(backbone_nodes))
+    graph.add_nodes_from(range(backbone_nodes))
+    graph.add_edges_from(zip(range(backbone_nodes - 1), range(1, backbone_nodes)))
     last = backbone_nodes
     leaf_edges = []
 

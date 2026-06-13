@@ -1,0 +1,33 @@
+{
+  "bead": "br-r37-c1-04z53.81",
+  "change": "Batch degree_sequence_tree backbone node and edge construction for random_powerlaw_tree residual",
+  "target": "python/franken_networkx/__init__.py::degree_sequence_tree",
+  "case": {
+    "n": 300,
+    "gamma": 3,
+    "seed": 5,
+    "tries": 1000
+  },
+  "baseline_head": "bfbc4af97c893edfe6a5d41deb3db5a08362d363",
+  "baseline_artifacts": [
+    "baseline_golden.json",
+    "baseline_bench_fnx.json",
+    "baseline_bench_nx.json",
+    "baseline_hyperfine_fnx_loop20.json",
+    "baseline_profile_fnx.txt",
+    "baseline_artifact_sha256.txt",
+    "env.json"
+  ],
+  "candidate_artifacts": [
+    "candidate_golden.json",
+    "candidate_bench_fnx.json",
+    "candidate_bench_nx.json",
+    "candidate_hyperfine_fnx_loop20.json",
+    "candidate_profile_fnx.txt",
+    "candidate_artifact_sha256.txt",
+    "post_rebase_golden.json",
+    "post_rebase_artifact_sha256.txt"
+  ],
+  "extension_sha256": "560c97432e59293c86a43ca48f523bacdd794b400e59e3fe55363b6b0d55fa75",
+  "ip_risk": "none: local control-flow rewrite, no external implementation imported"
+}
