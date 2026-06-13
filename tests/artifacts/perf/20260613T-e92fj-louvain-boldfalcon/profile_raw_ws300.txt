@@ -1,0 +1,48 @@
+         12743 function calls (12716 primitive calls) in 0.007 seconds
+
+   Ordered by: cumulative time
+   List reduced from 137 to 40 due to restriction <40>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.000    0.000    0.007    0.007 louvain_pass1_harness.py:219(run)
+        1    0.000    0.000    0.007    0.007 louvain_pass1_harness.py:194(bench)
+        1    0.000    0.000    0.005    0.005 louvain_pass1_harness.py:67(_case_ws_300)
+      4/1    0.000    0.000    0.003    0.003 decorators.py:783(func)
+        1    0.000    0.000    0.003    0.003 <class 'networkx.utils.decorators.argmap'> compilation 5:1(argmap_watts_strogatz_graph_1)
+      4/2    0.000    0.000    0.003    0.001 backends.py:554(_call_if_any_backends_installed)
+      4/2    0.000    0.000    0.003    0.001 backends.py:1484(_call_with_backend)
+        1    0.000    0.000    0.003    0.003 random_graphs.py:388(watts_strogatz_graph)
+        4    0.002    0.000    0.002    0.001 graph.py:986(add_edges_from)
+        1    0.000    0.000    0.002    0.002 louvain_pass1_harness.py:41(_graph_pair)
+        3    0.000    0.000    0.002    0.001 louvain_pass1_harness.py:87(_run_variant)
+        3    0.002    0.001    0.002    0.001 {built-in method franken_networkx._fnx.louvain_communities}
+        1    0.000    0.000    0.001    0.001 louvain_pass1_harness.py:27(_build_nx_graph)
+        4    0.000    0.000    0.001    0.000 decorators.py:715(_lazy_compile)
+        4    0.000    0.000    0.001    0.000 decorators.py:869(compile)
+        1    0.000    0.000    0.001    0.001 <class 'networkx.utils.decorators.argmap'> compilation 9:1(argmap_empty_graph_6)
+        1    0.000    0.000    0.001    0.001 <class 'networkx.utils.decorators.argmap'> compilation 13:1(argmap_empty_graph_10)
+        1    0.000    0.000    0.001    0.001 classic.py:564(empty_graph)
+      5/4    0.000    0.000    0.000    0.000 decorators.py:917(assemble)
+        2    0.000    0.000    0.000    0.000 graph.py:584(add_nodes_from)
+     4303    0.000    0.000    0.000    0.000 {method 'update' of 'dict' objects}
+        4    0.000    0.000    0.000    0.000 decorators.py:1059(signature)
+        1    0.000    0.000    0.000    0.000 louvain_pass1_harness.py:34(_build_fnx_graph)
+      7/4    0.000    0.000    0.000    0.000 inspect.py:3373(signature)
+      7/4    0.000    0.000    0.000    0.000 inspect.py:3094(from_callable)
+      7/4    0.000    0.000    0.000    0.000 inspect.py:2487(_signature_from_callable)
+        4    0.000    0.000    0.000    0.000 {built-in method builtins.compile}
+        3    0.000    0.000    0.000    0.000 backends.py:503(__signature__)
+        1    0.000    0.000    0.000    0.000 __init__.py:2739(add_edges_from)
+        1    0.000    0.000    0.000    0.000 {method '_try_add_edges_from_batch' of 'franken_networkx.Graph' objects}
+      901    0.000    0.000    0.000    0.000 reportviews.py:1274(__iter__)
+     1915    0.000    0.000    0.000    0.000 {method 'get' of 'dict' objects}
+       97    0.000    0.000    0.000    0.000 random.py:345(choice)
+        1    0.000    0.000    0.000    0.000 __init__.py:2456(add_nodes_from)
+       93    0.000    0.000    0.000    0.000 graph.py:917(add_edge)
+        1    0.000    0.000    0.000    0.000 {method '_fast_add_int_nodes' of 'franken_networkx.Graph' objects}
+        4    0.000    0.000    0.000    0.000 inspect.py:2383(_signature_from_function)
+     2312    0.000    0.000    0.000    0.000 {built-in method builtins.len}
+       13    0.000    0.000    0.000    0.000 decorators.py:849(_name)
+        1    0.000    0.000    0.000    0.000 reportviews.py:1270(__len__)
+
+
