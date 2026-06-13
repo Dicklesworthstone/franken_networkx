@@ -1375,14 +1375,24 @@ class AdjacencyView(_Mapping):
         return (_reconstruct_adjacency_view, (self.copy(),))
 
 
+_MULTI_NATIVE_ROW_ATTR = {
+    "adj": "_native_adjacency_row",
+    "succ": "_native_successor_row",
+    "pred": "_native_predecessor_row",
+}
+
+
 class MultiAdjacencyView(_Mapping):
-    def __init__(self, atlas_getter, *, owner=None):
+    def __init__(self, atlas_getter, *, owner=None, row_kind="adj"):
         self._atlas_getter = atlas_getter
         # br-r37-c1-spg9n: the owning graph, for cheap membership/len/contains
         # without materialising the whole {node:{nbr:{key:attrs}}} dict. Sparse:
         # the pickle reconstructor + reverse views pass owner=None and keep the
         # _atlas() fallback.
         self._fnx_owner = owner
+        # br-r37-c1-spg9n: which native per-row binding to use for G.adj[u] so
+        # the inner row view fetches ONLY node u's row (not the whole adjacency).
+        self._fnx_native_row_attr = _MULTI_NATIVE_ROW_ATTR.get(row_kind)
 
     def _atlas(self):
         return self._atlas_getter()
@@ -1417,13 +1427,26 @@ class MultiAdjacencyView(_Mapping):
         # br-r37-c1-i9whv: hash-check for nx-shaped TypeError parity.
         hash(node)
         owner = self._fnx_owner
-        if owner is not None and node not in owner:
-            raise KeyError(node)
-        if owner is None:
-            try:
-                self._atlas()[node]
-            except KeyError as exc:
-                raise KeyError(node) from exc
+        if owner is not None:
+            if node not in owner:
+                raise KeyError(node)
+            # br-r37-c1-spg9n: return a row view backed by the kind-specific
+            # native per-row binding (the same one G[u] uses) so len/iter/
+            # membership on G.adj[u] fetch ONLY u's row instead of rebuilding the
+            # whole multigraph adjacency (len(G.adj[u]) / v in G.adj[u] were
+            # ~3ms each => 16000x / 7000x slower than nx).
+            native = (
+                getattr(owner, self._fnx_native_row_attr, None)
+                if self._fnx_native_row_attr is not None
+                else None
+            )
+            if native is not None:
+                return AdjacencyView(lambda: native(node))
+            return AdjacencyView(lambda: self._atlas()[node])
+        try:
+            self._atlas()[node]
+        except KeyError as exc:
+            raise KeyError(node) from exc
         return AdjacencyView(lambda: self._atlas()[node])
 
     def __repr__(self):
@@ -1519,7 +1542,7 @@ _digraph_adj_view = _cached_view(
 _multidigraph_adj_view = _cached_view(
     "_fnx_view_adj",
     lambda self: MultiAdjacencyView(
-        lambda: _MULTIDIGRAPH_ADJ_DESCRIPTOR.__get__(self, MultiDiGraph), owner=self
+        lambda: _MULTIDIGRAPH_ADJ_DESCRIPTOR.__get__(self, MultiDiGraph), owner=self, row_kind="succ"
     ),
 )
 
@@ -1547,7 +1570,7 @@ _digraph_pred_view = _cached_view(
 _multidigraph_succ_view = _cached_view(
     "_fnx_view_succ",
     lambda self: MultiAdjacencyView(
-        lambda: _MULTIDIGRAPH_SUCC_DESCRIPTOR.__get__(self, MultiDiGraph), owner=self
+        lambda: _MULTIDIGRAPH_SUCC_DESCRIPTOR.__get__(self, MultiDiGraph), owner=self, row_kind="succ"
     ),
 )
 
@@ -1555,7 +1578,7 @@ _multidigraph_succ_view = _cached_view(
 _multidigraph_pred_view = _cached_view(
     "_fnx_view_pred",
     lambda self: MultiAdjacencyView(
-        lambda: _MULTIDIGRAPH_PRED_DESCRIPTOR.__get__(self, MultiDiGraph), owner=self
+        lambda: _MULTIDIGRAPH_PRED_DESCRIPTOR.__get__(self, MultiDiGraph), owner=self, row_kind="pred"
     ),
 )
 
