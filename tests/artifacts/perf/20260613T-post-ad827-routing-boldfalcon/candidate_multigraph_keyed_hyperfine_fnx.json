@@ -1,0 +1,38 @@
+{
+  "results": [
+    {
+      "command": "env PYTHONPATH=/data/tmp/franken_networkx-p4vaj-candidate-20260613T2313Z/python python3 tests/artifacts/perf/20260613T-post-ad827-routing-boldfalcon/multigraph_keyed_edges.py bench --impl fnx --case string_keys_list --size 50000 --repeats 1",
+      "mean": 1.5506738475200001,
+      "stddev": 0.043983974899205754,
+      "median": 1.5473609111200002,
+      "user": 5.80188026,
+      "system": 0.16526941999999997,
+      "min": 1.47931873662,
+      "max": 1.60686290262,
+      "times": [
+        1.47931873662,
+        1.5208835546200001,
+        1.60686290262,
+        1.5947765396200002,
+        1.5973954686200003,
+        1.5466011046200001,
+        1.53335044662,
+        1.5820448066200001,
+        1.4973841976200002,
+        1.5481207176200003
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

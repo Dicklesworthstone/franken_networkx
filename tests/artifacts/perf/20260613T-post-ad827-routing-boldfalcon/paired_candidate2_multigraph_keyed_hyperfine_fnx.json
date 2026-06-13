@@ -1,0 +1,72 @@
+{
+  "results": [
+    {
+      "command": "env PYTHONPATH=/data/tmp/franken_networkx-current-ad827-20260613T2307Z/python python3 tests/artifacts/perf/20260613T-post-ad827-routing-boldfalcon/multigraph_keyed_edges.py bench --impl fnx --case string_keys_list --size 50000 --repeats 1",
+      "mean": 1.4770299351199998,
+      "stddev": 0.03540166987066849,
+      "median": 1.47727856832,
+      "user": 5.767365399999999,
+      "system": 0.15235887999999997,
+      "min": 1.43061676032,
+      "max": 1.5336470603199999,
+      "times": [
+        1.5336470603199999,
+        1.43872858532,
+        1.50646187232,
+        1.43061676032,
+        1.4851820093199999,
+        1.44470479632,
+        1.51683926232,
+        1.45251688032,
+        1.49222699732,
+        1.46937512732
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "env PYTHONPATH=/data/tmp/franken_networkx-p4vaj-candidate2-20260613T2323Z/python python3 tests/artifacts/perf/20260613T-post-ad827-routing-boldfalcon/multigraph_keyed_edges.py bench --impl fnx --case string_keys_list --size 50000 --repeats 1",
+      "mean": 1.53290935352,
+      "stddev": 0.05171216458269922,
+      "median": 1.5252328398200001,
+      "user": 5.7882079,
+      "system": 0.15274788,
+      "min": 1.47136083032,
+      "max": 1.6374157193199999,
+      "times": [
+        1.47136083032,
+        1.52577059832,
+        1.5257768063200001,
+        1.53039978032,
+        1.6374157193199999,
+        1.60952238932,
+        1.52469508132,
+        1.49700827832,
+        1.5158626963200001,
+        1.49128135532
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}
