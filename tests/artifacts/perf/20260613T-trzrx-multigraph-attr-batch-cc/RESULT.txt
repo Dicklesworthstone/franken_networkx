@@ -1,0 +1,4 @@
+MultiGraph attributed add_edges_from batch (trzrx, cc 2026-06-13)
+before: 52.56ms (0.28x vs nx)  ->  after: 16.99ms (0.75x vs nx) = 3.09x self-speedup
+golden 08e58495 IDENTICAL before/after (10 shapes, nx-parity + per-edge parity + mutation); 306 multigraph construction tests pass
+MultiDiGraph attributed still 0.24x (method is MultiGraph-only; next sub-step = digraph.rs port)

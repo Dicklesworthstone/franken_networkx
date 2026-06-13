@@ -2664,6 +2664,13 @@ def _multi_add_edges_from(self, ebunch_to_add, **attr):
         _native_batch = getattr(self, "_try_add_edges_from_batch", None)
         if _native_batch is not None and _native_batch(ebunch_to_add):
             return
+        # br-r37-c1-trzrx: attributed/mixed `(u, v, data)` batch on a fresh
+        # MultiGraph (no **attr) — native single-commit insert instead of the
+        # per-edge add_edge loop below (~3.6x nx on attributed construction).
+        # Returns False (no mutation) for anything outside the fast shape.
+        _native_attr_batch = getattr(self, "_try_add_attr_edges_from_batch", None)
+        if _native_attr_batch is not None and _native_attr_batch(ebunch_to_add):
+            return
     if isinstance(self, MultiGraph) and not self.is_directed():
         _add_edge = _MULTIGRAPH_ADD_EDGE.__get__(self)
     else:
