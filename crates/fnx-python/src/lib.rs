@@ -758,7 +758,7 @@ impl PyGraph {
         keys
     }
 
-    fn node_iter_mirror_or_init(&self, py: Python<'_>) -> PyResult<Py<PyDict>> {
+    pub(crate) fn node_iter_mirror_or_init(&self, py: Python<'_>) -> PyResult<Py<PyDict>> {
         if let Some(dict) = self
             .node_iter_mirror
             .lock()

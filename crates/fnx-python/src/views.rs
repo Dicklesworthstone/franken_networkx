@@ -55,32 +55,17 @@ impl NodeView {
         Ok(g.inner.has_node(&canonical))
     }
 
-    fn __iter__(&self, py: Python<'_>) -> PyResult<Py<NodeViewIterator>> {
-        // br-r37-c1-nodeiter: the NoData path (list(G.nodes()) /
-        // list(G)) is by far the hottest; serve it WITHOUT the
-        // intermediate Vec<String> clone of every node name — iterate
-        // the borrowed canonical names directly in one borrow scope
-        // (was ~28x nx on 20k nodes; the clone Vec was pure waste).
+    fn __iter__(&self, py: Python<'_>) -> PyResult<PyObject> {
+        // br-r37-c1-spg9n: the NoData path (list(G.nodes()) / for n in G.nodes())
+        // serves the SAME cached node_iter_mirror dict that PyGraph.__iter__ uses
+        // -> a ``dict_keyiterator`` (matching nx's ``iter(self._nodes)``) instead
+        // of rebuilding a Vec<PyObject> of every node display key per call. Was
+        // ~10x slower than nx AND the wrong iterator type (NodeViewIterator); the
+        // mirror gives both parity speed and nx's iterator type + its native
+        // "changed size during iteration" semantics.
         if matches!(self.data, NodeViewData::NoData) {
-            let g = self.graph.borrow(py);
-            let items: Vec<PyObject> = g
-                .inner
-                .nodes_ordered()
-                .iter()
-                .map(|n| g.py_node_key(py, n))
-                .collect();
-            let expected_seq = g.nodes_seq;
-            let count = items.len();
-            drop(g);
-            return Py::new(
-                py,
-                NodeViewIterator {
-                    inner: items.into_iter(),
-                    graph: Some(self.graph.clone_ref(py)),
-                    expected_count: Some(count),
-                    expected_seq: Some(expected_seq),
-                },
-            );
+            let mirror = self.graph.borrow(py).node_iter_mirror_or_init(py)?;
+            return Ok(mirror.bind(py).call_method0("__iter__")?.unbind());
         }
         let nodes: Vec<String> = {
             let g = self.graph.borrow(py);
@@ -91,10 +76,7 @@ impl NodeView {
                 .collect()
         };
         let items: Vec<PyObject> = match &self.data {
-            NodeViewData::NoData => {
-                let g = self.graph.borrow(py);
-                nodes.iter().map(|n| g.py_node_key(py, n)).collect()
-            }
+            NodeViewData::NoData => unreachable!("NoData handled above"),
             NodeViewData::AllData => nodes
                 .iter()
                 .map(|n| {
@@ -136,7 +118,7 @@ impl NodeView {
             }
         };
         let expected_seq = self.graph.borrow(py).nodes_seq;
-        Py::new(
+        Ok(Py::new(
             py,
             NodeViewIterator {
                 inner: items.into_iter(),
@@ -144,7 +126,8 @@ impl NodeView {
                 expected_count: Some(nodes.len()),
                 expected_seq: Some(expected_seq),
             },
-        )
+        )?
+        .into_any())
     }
 
     fn __getitem__(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>> {
