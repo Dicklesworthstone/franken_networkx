@@ -2517,6 +2517,22 @@ def _make_add_nodes_from(
                 return
             except (TypeError, OverflowError):
                 pass
+        # br-r37-c1-nodebatch: native attributed-node batch on a FRESH simple
+        # Graph — one bulk extend_nodes_with_attrs_unrecorded instead of the
+        # per-node add_node loop below (~3.4x nx on attributed construction;
+        # relabel/union/convert all funnel through here). Returns False (no
+        # mutation) for any shape it can't replicate exactly, so the per-node
+        # loop still owns every error and partial-prefix contract.
+        if (
+            not attr
+            and type(self) is Graph
+            and type(nodes_for_adding) in (list, tuple)
+        ):
+            try:
+                if self._try_add_nodes_from_batch(nodes_for_adding):
+                    return
+            except Exception:
+                pass
         bound_add_node = add_node.__get__(self, type(self))
         for n in nodes_for_adding:
             try:
