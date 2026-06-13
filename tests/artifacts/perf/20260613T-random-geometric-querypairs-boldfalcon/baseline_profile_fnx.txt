@@ -1,0 +1,58 @@
+         583090 function calls (566574 primitive calls) in 0.367 seconds
+
+   Ordered by: cumulative time
+   List reduced from 1338 to 50 due to restriction <50>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.000    0.000    0.368    0.368 /data/projects/.scratch/franken_networkx-cod-opt-20260613T161804Z/tests/artifacts/perf/20260613T-random-geometric-boldfalcon/random_geometric_harness.py:75(<lambda>)
+      2/1    0.000    0.000    0.368    0.368 /data/projects/.scratch/franken_networkx-cod-opt-20260613T161804Z/python/franken_networkx/__init__.py:52073(wrapper)
+        1    0.002    0.002    0.367    0.367 /data/projects/.scratch/franken_networkx-cod-opt-20260613T161804Z/python/franken_networkx/__init__.py:40815(random_geometric_graph)
+    286/2    0.001    0.000    0.362    0.181 <frozen importlib._bootstrap>:1349(_find_and_load)
+    278/2    0.001    0.000    0.362    0.181 <frozen importlib._bootstrap>:1304(_find_and_load_unlocked)
+    273/2    0.001    0.000    0.362    0.181 <frozen importlib._bootstrap>:911(_load_unlocked)
+    226/2    0.000    0.000    0.361    0.181 <frozen importlib._bootstrap_external>:1020(exec_module)
+    691/4    0.007    0.000    0.361    0.090 <frozen importlib._bootstrap>:480(_call_with_frames_removed)
+    234/2    0.002    0.000    0.361    0.181 {built-in method builtins.exec}
+      6/1    0.000    0.000    0.353    0.353 /home/ubuntu/.local/lib/python3.13/site-packages/scipy/__init__.py:129(__getattr__)
+      9/1    0.000    0.000    0.353    0.353 /usr/lib/python3.13/importlib/__init__.py:71(import_module)
+      9/1    0.000    0.000    0.353    0.353 <frozen importlib._bootstrap>:1375(_gcd_import)
+        1    0.000    0.000    0.353    0.353 /home/ubuntu/.local/lib/python3.13/site-packages/scipy/spatial/__init__.py:1(<module>)
+    99/43    0.000    0.000    0.274    0.006 {built-in method builtins.__import__}
+    45/12    0.000    0.000    0.251    0.021 <frozen importlib._bootstrap_external>:1326(exec_module)
+    45/12    0.013    0.000    0.251    0.021 {built-in method _imp.exec_dynamic}
+   162/59    0.000    0.000    0.170    0.003 <frozen importlib._bootstrap>:1390(_handle_fromlist)
+      230    0.000    0.000    0.147    0.001 /home/ubuntu/.local/lib/python3.13/site-packages/scipy/_lib/_docscrape.py:579(__init__)
+      230    0.001    0.000    0.126    0.001 /home/ubuntu/.local/lib/python3.13/site-packages/scipy/_lib/_docscrape.py:140(__init__)
+        1    0.000    0.000    0.123    0.123 /home/ubuntu/.local/lib/python3.13/site-packages/scipy/spatial/_kdtree.py:1(<module>)
+        1    0.000    0.000    0.122    0.122 /home/ubuntu/.local/lib/python3.13/site-packages/scipy/linalg/__init__.py:1(<module>)
+        1    0.000    0.000    0.122    0.122 /home/ubuntu/.local/lib/python3.13/site-packages/scipy/sparse/__init__.py:1(<module>)
+        1    0.000    0.000    0.111    0.111 /home/ubuntu/.local/lib/python3.13/site-packages/scipy/sparse/_base.py:1(<module>)
+        1    0.000    0.000    0.110    0.110 /home/ubuntu/.local/lib/python3.13/site-packages/scipy/sparse/_sputils.py:1(<module>)
+        1    0.000    0.000    0.109    0.109 /home/ubuntu/.local/lib/python3.13/site-packages/scipy/_lib/_util.py:1(<module>)
+        1    0.000    0.000    0.108    0.108 /home/ubuntu/.local/lib/python3.13/site-packages/scipy/_lib/_array_api.py:1(<module>)
+        1    0.000    0.000    0.094    0.094 /home/ubuntu/.local/lib/python3.13/site-packages/scipy/_lib/array_api_compat/numpy/__init__.py:1(<module>)
+      230    0.003    0.000    0.090    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/scipy/_lib/_docscrape.py:388(_parse)
+        3    0.000    0.000    0.086    0.029 /home/ubuntu/.local/lib/python3.13/site-packages/scipy/_lib/array_api_compat/_internal.py:56(clone_module)
+2557/1972    0.001    0.000    0.086    0.000 {built-in method builtins.hasattr}
+       10    0.000    0.000    0.085    0.009 /home/ubuntu/.local/lib/python3.13/site-packages/numpy/__init__.py:704(__getattr__)
+       70    0.000    0.000    0.081    0.001 /home/ubuntu/.local/lib/python3.13/site-packages/scipy/_lib/_util.py:1148(decorator)
+      154    0.001    0.000    0.081    0.001 /home/ubuntu/.local/lib/python3.13/site-packages/scipy/_lib/_array_api.py:840(decorator)
+        1    0.000    0.000    0.069    0.069 /home/ubuntu/.local/lib/python3.13/site-packages/scipy/spatial/_geometric_slerp.py:1(<module>)
+        1    0.000    0.000    0.068    0.068 /home/ubuntu/.local/lib/python3.13/site-packages/scipy/spatial/distance.py:1(<module>)
+        1    0.000    0.000    0.065    0.065 /home/ubuntu/.local/lib/python3.13/site-packages/scipy/special/__init__.py:1(<module>)
+        1    0.000    0.000    0.054    0.054 /home/ubuntu/.local/lib/python3.13/site-packages/scipy/special/_support_alternative_backends.py:1(<module>)
+        1    0.000    0.000    0.053    0.053 /home/ubuntu/.local/lib/python3.13/site-packages/numpy/f2py/__init__.py:1(<module>)
+        1    0.000    0.000    0.053    0.053 /home/ubuntu/.local/lib/python3.13/site-packages/numpy/f2py/f2py2e.py:1(<module>)
+        1    0.000    0.000    0.052    0.052 /home/ubuntu/.local/lib/python3.13/site-packages/scipy/linalg/_basic.py:1(<module>)
+       91    0.000    0.000    0.052    0.001 /home/ubuntu/.local/lib/python3.13/site-packages/scipy/special/_support_alternative_backends.py:86(wrapper)
+        1    0.000    0.000    0.043    0.043 /home/ubuntu/.local/lib/python3.13/site-packages/numpy/f2py/capi_maps.py:1(<module>)
+     1662    0.002    0.000    0.041    0.000 /usr/lib/python3.13/re/__init__.py:330(_compile)
+        1    0.000    0.000    0.041    0.041 /home/ubuntu/.local/lib/python3.13/site-packages/numpy/f2py/crackfortran.py:1(<module>)
+      486    0.000    0.000    0.040    0.000 /usr/lib/python3.13/re/__init__.py:287(compile)
+       85    0.000    0.000    0.039    0.000 /usr/lib/python3.13/re/_compiler.py:743(compile)
+        1    0.000    0.000    0.037    0.037 /home/ubuntu/.local/lib/python3.13/site-packages/scipy/spatial/transform/__init__.py:1(<module>)
+  248/245    0.002    0.000    0.036    0.000 {built-in method builtins.__build_class__}
+     1210    0.002    0.000    0.035    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/scipy/_lib/_docscrape.py:212(_read_sections)
+     1162    0.002    0.000    0.033    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/scipy/_lib/_docscrape.py:201(_read_to_next_section)
+
+

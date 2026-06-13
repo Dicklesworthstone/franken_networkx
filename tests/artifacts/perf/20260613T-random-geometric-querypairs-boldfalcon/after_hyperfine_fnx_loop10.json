@@ -1,0 +1,38 @@
+{
+  "results": [
+    {
+      "command": "/usr/bin/python3 /data/projects/.scratch/franken_networkx-cod-opt-20260613T161804Z/tests/artifacts/perf/20260613T-random-geometric-boldfalcon/random_geometric_harness.py --repo-root /data/projects/.scratch/franken_networkx-cod-opt-20260613T161804Z --extension /data/projects/.scratch/franken_networkx-cod-opt-20260613T161804Z/python/franken_networkx/_fnx.cpython-313-x86_64-linux-gnu.so loop --impl fnx --repeat 10",
+      "mean": 0.5787432463,
+      "stddev": 0.03782115614492153,
+      "median": 0.5683733244,
+      "user": 8.99812124,
+      "system": 0.12582564000000002,
+      "min": 0.5435342449,
+      "max": 0.6618794959000001,
+      "times": [
+        0.6285833349,
+        0.5515545619,
+        0.6618794959000001,
+        0.5726700659,
+        0.5435342449,
+        0.5640765829,
+        0.5826067929000001,
+        0.5737161369,
+        0.5577639539,
+        0.5510472929
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}
