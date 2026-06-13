@@ -1237,6 +1237,14 @@ class AtlasView(_Mapping):
         return True
 
     def __getitem__(self, node):
+        # br-r37-c1-spg9n: G[u][v] edge-attr access. The cached row keydict's
+        # VALUES are the live edge_py_attrs dicts (keydict[v] is G[u][v]; attr
+        # mutations reflect), so serve from it — pure-Python dict lookup, no PyO3
+        # round-trip, identity-preserving. keydict[node] raises KeyError(node)
+        # with the original key, matching nx's self._adj[u][v].
+        keydict = self._keydict()
+        if keydict is not None:
+            return keydict[node]
         return self._atlas()[node]
 
     def __repr__(self):
