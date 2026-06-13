@@ -2,3 +2,6 @@ MultiGraph attributed add_edges_from batch (trzrx, cc 2026-06-13)
 before: 52.56ms (0.28x vs nx)  ->  after: 16.99ms (0.75x vs nx) = 3.09x self-speedup
 golden 08e58495 IDENTICAL before/after (10 shapes, nx-parity + per-edge parity + mutation); 306 multigraph construction tests pass
 MultiDiGraph attributed still 0.24x (method is MultiGraph-only; next sub-step = digraph.rs port)
+MultiDiGraph attributed add_edges_from batch (trzrx, cc 2026-06-13)
+before: 0.24x/55ms vs nx -> after: 0.93x/16.17ms = 3.4x self-speedup
+parity: batch == per-edge add_edge == nx.MultiDiGraph across 5 directed shapes (attr/parallel/mixed/selfloop/str+reversed); 226 multidigraph construction tests pass; MultiGraph golden 08e58495 unchanged
