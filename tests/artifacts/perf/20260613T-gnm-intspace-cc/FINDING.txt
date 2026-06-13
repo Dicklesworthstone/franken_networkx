@@ -1,0 +1,10 @@
+# gnm_random_graph perf investigation (cc, 2026-06-13) — bead br-r37-c1-yrdso
+
+REJECTED graph-build lever: integer HashSet<(usize,usize)> dedup + extend_existing_index_edges_unrecorded
+replacing per-edge String has_edge+add_edge. Byte-EXACT (golden 25b485b9 identical, nx-parity held)
+but ZERO perf change (gnm 1000,8000 stayed ~22ms vs nx 8.5ms = 0.38x). Reverted.
+
+ROOT CAUSE: the ~16000 PythonRandom draws (2 choice_index/attempt). fnx Rust MT19937+randbelow
+is ~3x slower PER DRAW than CPython C random. Proof: gnp (geometric-skip, fewer draws) 3.85x FASTER,
+dense_gnm 0.94x parity; only the draw-heavy rejection sampler loses. Real lever = faster PythonRandom
+(byte-exact draw sequence). See bead yrdso.
