@@ -863,10 +863,18 @@ class NodeDataView:
         if isinstance(data, bool):
             # Rust path: returns a NodeView; iterate its content directly.
             return list(self._call(self._view, data, default))
-        return [
-            (node, self._view[node].get(data, default))
-            for node in self._view
-        ]
+        # br-r37-c1-4b5ie: the attr-projection path used ``self._view[node]``
+        # PER NODE — a Rust ``NodeView.__getitem__`` PyO3 round-trip x N (~5x nx).
+        # Get the live (node, attr_dict) pairs in ONE shot (the native
+        # ``_SIMPLE_GRAPH_NODE_VIEW_ITEMS`` fast path for simple graphs, the
+        # bulk data=True call otherwise) and project the attribute in Python with
+        # the same ``dict.get(data, default)``. Identical node order + values,
+        # dicts are live so mutations still reflect — now faster than nx.
+        if type(self._view) is _SIMPLE_GRAPH_NODE_VIEW_TYPE:
+            pairs = _SIMPLE_GRAPH_NODE_VIEW_ITEMS(self._view)
+        else:
+            pairs = self._call(self._view, True, None)
+        return [(node, attrs.get(data, default)) for node, attrs in pairs]
 
     def __iter__(self):
         return iter(self._materialize())
