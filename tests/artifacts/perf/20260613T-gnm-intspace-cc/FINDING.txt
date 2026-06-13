@@ -1,10 +1,24 @@
-# gnm_random_graph perf investigation (cc, 2026-06-13) — bead br-r37-c1-yrdso
+# gnm_random_graph 0.38x — DEFINITIVE finding (cc, 3 sessions) — bead br-r37-c1-yrdso
 
-REJECTED graph-build lever: integer HashSet<(usize,usize)> dedup + extend_existing_index_edges_unrecorded
-replacing per-edge String has_edge+add_edge. Byte-EXACT (golden 25b485b9 identical, nx-parity held)
-but ZERO perf change (gnm 1000,8000 stayed ~22ms vs nx 8.5ms = 0.38x). Reverted.
+gnm_random_graph(1000,8000) fnx ~21ms vs nx ~8.5ms (0.39x). Time scales with
+m (edges), ~2.6us/edge. TWO levers tested, EACH with a CONFIRMED fnx-generators
+recompile (rch silently reuses a cached rlib unless you `cargo clean -p
+fnx-generators` first — verify "Compiling fnx-generators" in the build log!):
 
-ROOT CAUSE: the ~16000 PythonRandom draws (2 choice_index/attempt). fnx Rust MT19937+randbelow
-is ~3x slower PER DRAW than CPython C random. Proof: gnp (geometric-skip, fewer draws) 3.85x FASTER,
-dense_gnm 0.94x parity; only the draw-heavy rejection sampler loses. Real lever = faster PythonRandom
-(byte-exact draw sequence). See bead yrdso.
+  1. Graph-build: replaced per-attempt String has_edge + per-edge add_edge with
+     integer HashSet<(usize,usize)> dedup + ONE extend_existing_index_edges_
+     unrecorded.  -> NO-OP (still 0.39x). Byte-exact (golden 25b485b9).
+  2. RNG: replaced the external mt19937-crate rand_core trait next_u32 with an
+     INLINED in-tree MT19937 gen_u32 (seeded via the crate for byte-parity).
+     -> NO-OP (still 0.39x). Byte-exact.
+  (1)+(2) together: still 0.39x.
+
+So the gap is NEITHER has_edge/add_edge NOR the RNG per-draw/trait dispatch.
+With both levers applied the loop is just `2x choice_index + HashSet insert`
+per iteration (~8130 iters) plus ONE bulk build, yet still ~19ms in the loop —
+i.e. choice_index measures ~1us/draw despite a trivial inlined next_u32. That
+is inexplicable by code reading; the cost is hiding somewhere a Python-level
+benchmark can't see. NEXT STEP = Rust pprof (PPROF=1 in-process per
+reference_perf_profiling_pass) on a gnm microbench — do NOT attempt another
+blind source lever. LOW-ROI overall (gnm is a non-hot test/benchmark
+generator); deprioritize unless pprof reveals a shared-primitive win.
