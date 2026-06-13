@@ -94,6 +94,10 @@ pub struct PyMultiDiGraph {
     /// br-r37-c1-4b5ie: see PyGraph::node_data_mirror — nodes_seq-keyed
     /// {node: attr_dict} cache so repeated nodes(data=...) reuse it.
     pub(crate) node_data_mirror: std::sync::Mutex<Option<(u64, Py<PyDict>)>>,
+    /// br-r37-c1-pcw2s: (nodes_seq, edges_seq)-keyed nested successor adjacency
+    /// {node: {succ: {key: edge_dict}}} cache so repeated adjacency() calls reuse
+    /// it instead of rebuilding the 3-level dict (was 47x slower than nx).
+    pub(crate) dict_of_dicts_cache: Option<crate::DictOfDictsCache>,
 }
 
 impl PyMultiDiGraph {
@@ -374,6 +378,7 @@ impl PyMultiDiGraph {
             edges_dirty: AtomicBool::new(false),
             node_keys_cache: std::sync::Mutex::new(None),
             node_data_mirror: std::sync::Mutex::new(None),
+            dict_of_dicts_cache: None,
         })
     }
 
@@ -2863,8 +2868,70 @@ impl PyMultiDiGraph {
     /// (_multigraph_adjacency) walks self.adj[node] via the MultiAdjacencyView
     /// lambda chain per element (~33000x slower than nx); routing it here builds
     /// the identical snapshot natively from inner adjacency.
-    fn _native_adjacency_dict(&self, py: Python<'_>) -> PyResult<Py<PyDict>> {
-        self.adjacency(py)
+    fn _native_adjacency_dict(&mut self, py: Python<'_>) -> PyResult<Py<PyDict>> {
+        self.adjacency_dict_cached(py)
+    }
+
+    /// br-r37-c1-pcw2s: cached form of `adjacency` — serve the nested
+    /// {node: {succ: {key: edge_dict}}} snapshot from the (nodes_seq, edges_seq)-
+    /// keyed `dict_of_dicts_cache`, copying out fresh rows so semantics match the
+    /// old per-call rebuild.
+    pub(crate) fn adjacency_dict_cached(&mut self, py: Python<'_>) -> PyResult<Py<PyDict>> {
+        if self.inner.edge_count() > 0 {
+            self.mark_edges_dirty();
+        }
+        let matches = self.dict_of_dicts_cache.as_ref().is_some_and(|c| {
+            c.nodes_seq == self.nodes_seq && c.edges_seq == self.edges_seq
+        });
+        if !matches {
+            self.rebuild_adjacency_cache(py)?;
+        }
+        let cache = self.dict_of_dicts_cache.as_ref().ok_or_else(|| {
+            PyRuntimeError::new_err("dict_of_dicts cache missing after rebuild")
+        })?;
+        crate::readwrite::copy_dict_of_dicts_cache(py, cache)
+    }
+
+    fn rebuild_adjacency_cache(&mut self, py: Python<'_>) -> PyResult<()> {
+        let nodes: Vec<String> = self
+            .inner
+            .nodes_ordered()
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+        let mut rows = Vec::with_capacity(nodes.len());
+        for node in &nodes {
+            let py_node = self.py_node_key(py, node);
+            let nbrs_dict = PyDict::new(py);
+            let successors: Vec<String> = self
+                .inner
+                .successors(node)
+                .unwrap_or_default()
+                .into_iter()
+                .map(str::to_owned)
+                .collect();
+            for successor in &successors {
+                let py_succ = self.py_succ_key(py, node, successor);
+                let edge_dict = PyDict::new(py);
+                let keys: Vec<usize> = self.inner.edge_keys(node, successor).unwrap_or_default();
+                for key in keys {
+                    let ek = Self::edge_key(node, successor, key);
+                    let attrs = self
+                        .edge_py_attrs
+                        .get(&ek)
+                        .map_or_else(|| PyDict::new(py).unbind(), |d| d.clone_ref(py));
+                    edge_dict.set_item(self.py_edge_key(py, node, successor, key), attrs.bind(py))?;
+                }
+                nbrs_dict.set_item(&py_succ, edge_dict)?;
+            }
+            rows.push((py_node, nbrs_dict.unbind()));
+        }
+        self.dict_of_dicts_cache = Some(crate::DictOfDictsCache {
+            nodes_seq: self.nodes_seq,
+            edges_seq: self.edges_seq,
+            rows,
+        });
+        Ok(())
     }
 
     /// br-r37-c1-wdeg: native total weighted degree (in + out), returning the
@@ -2990,6 +3057,7 @@ impl PyMultiDiGraph {
             edges_dirty: AtomicBool::new(false),
             node_keys_cache: std::sync::Mutex::new(None),
             node_data_mirror: std::sync::Mutex::new(None),
+            dict_of_dicts_cache: None,
         };
         for node in self.inner.nodes_ordered() {
             let rust_attrs = self
@@ -3057,6 +3125,7 @@ impl PyMultiDiGraph {
             edges_dirty: AtomicBool::new(false),
             node_keys_cache: std::sync::Mutex::new(None),
             node_data_mirror: std::sync::Mutex::new(None),
+            dict_of_dicts_cache: None,
         };
         for node in self.inner.nodes_ordered() {
             let py_attrs = self.node_py_attrs.get(node).map_or_else(
@@ -3115,6 +3184,7 @@ impl PyMultiDiGraph {
             edges_dirty: AtomicBool::new(false),
             node_keys_cache: std::sync::Mutex::new(None),
             node_data_mirror: std::sync::Mutex::new(None),
+            dict_of_dicts_cache: None,
         };
         let mut node_batch: Vec<(String, fnx_classes::AttrMap)> =
             Vec::with_capacity(self.inner.node_count());
@@ -3250,6 +3320,7 @@ impl PyMultiDiGraph {
             edges_dirty: AtomicBool::new(self.edges_dirty.load(Ordering::Relaxed)),
             node_keys_cache: std::sync::Mutex::new(None),
             node_data_mirror: std::sync::Mutex::new(None),
+            dict_of_dicts_cache: None,
         };
         // br-r37-c1-s0d4x: nx's MultiDiGraph.copy() walk fills PRED rows
         // in u-major order (succ rows keep original order); the verbatim
@@ -3331,6 +3402,7 @@ impl PyMultiDiGraph {
             edges_dirty: AtomicBool::new(self.edges_dirty.load(Ordering::Relaxed)),
             node_keys_cache: std::sync::Mutex::new(None),
             node_data_mirror: std::sync::Mutex::new(None),
+            dict_of_dicts_cache: None,
         })
     }
 
@@ -3370,6 +3442,7 @@ impl PyMultiDiGraph {
             edges_dirty: AtomicBool::new(false),
             node_keys_cache: std::sync::Mutex::new(None),
             node_data_mirror: std::sync::Mutex::new(None),
+            dict_of_dicts_cache: None,
         };
 
         for canonical in &keep {
@@ -3445,6 +3518,7 @@ impl PyMultiDiGraph {
             edges_dirty: AtomicBool::new(false),
             node_keys_cache: std::sync::Mutex::new(None),
             node_data_mirror: std::sync::Mutex::new(None),
+            dict_of_dicts_cache: None,
         };
 
         for item in iter {
@@ -3550,6 +3624,7 @@ impl PyMultiDiGraph {
             edges_dirty: AtomicBool::new(false),
             node_keys_cache: std::sync::Mutex::new(None),
             node_data_mirror: std::sync::Mutex::new(None),
+            dict_of_dicts_cache: None,
         };
 
         for (canonical, py_key) in &self.node_key_map {
@@ -3615,6 +3690,7 @@ impl PyMultiDiGraph {
             edges_dirty: AtomicBool::new(false),
             node_keys_cache: std::sync::Mutex::new(None),
             node_data_mirror: std::sync::Mutex::new(None),
+            dict_of_dicts_cache: None,
         };
         for canonical in self.inner.nodes_ordered() {
             let rust_attrs = self

@@ -1535,7 +1535,10 @@ fn rebuild_dict_of_dicts_digraph_cache(py: Python<'_>, dg: &mut PyDiGraph) -> Py
     Ok(())
 }
 
-fn copy_dict_of_dicts_cache(py: Python<'_>, cache: &DictOfDictsCache) -> PyResult<Py<PyDict>> {
+pub(crate) fn copy_dict_of_dicts_cache(
+    py: Python<'_>,
+    cache: &DictOfDictsCache,
+) -> PyResult<Py<PyDict>> {
     let outer = PyDict::new(py);
     for (node_key, row) in &cache.rows {
         outer.set_item(node_key.bind(py), row.bind(py).copy()?)?;

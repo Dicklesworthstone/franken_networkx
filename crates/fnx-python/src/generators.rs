@@ -115,6 +115,7 @@ fn report_to_pymultidigraph(
         edges_dirty: AtomicBool::new(false),
         node_keys_cache: std::sync::Mutex::new(None),
         node_data_mirror: std::sync::Mutex::new(None),
+        dict_of_dicts_cache: None,
     };
 
     for canonical in pg.inner.nodes_ordered() {

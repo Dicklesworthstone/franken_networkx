@@ -1542,6 +1542,10 @@ pub(crate) struct PyMultiGraph {
     /// br-r37-c1-4b5ie: see PyGraph::node_data_mirror — nodes_seq-keyed
     /// {node: attr_dict} cache so repeated nodes(data=...) reuse it.
     pub(crate) node_data_mirror: std::sync::Mutex<Option<(u64, Py<PyDict>)>>,
+    /// br-r37-c1-pcw2s: see PyGraph::dict_of_dicts_cache — (nodes_seq, edges_seq)-
+    /// keyed {node: {nbr: {key: edge_dict}}} cache so repeated adjacency() calls
+    /// reuse the 3-level nested dict instead of rebuilding it (was 131x slower).
+    pub(crate) dict_of_dicts_cache: Option<DictOfDictsCache>,
 }
 
 impl PyMultiGraph {
@@ -1813,6 +1817,7 @@ impl PyMultiGraph {
             edges_dirty: AtomicBool::new(false),
             node_keys_cache: std::sync::Mutex::new(None),
             node_data_mirror: std::sync::Mutex::new(None),
+            dict_of_dicts_cache: None,
         })
     }
 
@@ -4389,7 +4394,62 @@ impl PyMultiGraph {
     /// build it natively instead of walking self.adj[node] via the
     /// MultiAdjacencyView lambda chain per element (~30000x slower than nx).
     fn _native_adjacency_dict(&mut self, py: Python<'_>) -> PyResult<Py<PyDict>> {
-        self.adjacency(py)
+        self.adjacency_dict_cached(py)
+    }
+
+    /// br-r37-c1-pcw2s: cached form of `adjacency` — serve the nested
+    /// {node: {nbr: {key: edge_dict}}} snapshot from the (nodes_seq, edges_seq)-
+    /// keyed `dict_of_dicts_cache`, copying out fresh rows so semantics match the
+    /// old per-call rebuild (deepest edge dicts stay the live `G[u][v][k]`).
+    pub(crate) fn adjacency_dict_cached(&mut self, py: Python<'_>) -> PyResult<Py<PyDict>> {
+        // adjacency() hands out live edge attr dicts; preserve the dirty flag on
+        // every call (it only flips an AtomicBool — does NOT bump edges_seq, so
+        // it never invalidates this cache).
+        if self.inner.edge_count() > 0 {
+            self.mark_edges_dirty();
+        }
+        let matches = self.dict_of_dicts_cache.as_ref().is_some_and(|c| {
+            c.nodes_seq == self.nodes_seq && c.edges_seq == self.edges_seq
+        });
+        if !matches {
+            self.rebuild_adjacency_cache(py)?;
+        }
+        let cache = self.dict_of_dicts_cache.as_ref().ok_or_else(|| {
+            PyRuntimeError::new_err("dict_of_dicts cache missing after rebuild")
+        })?;
+        crate::readwrite::copy_dict_of_dicts_cache(py, cache)
+    }
+
+    fn rebuild_adjacency_cache(&mut self, py: Python<'_>) -> PyResult<()> {
+        let nodes: Vec<String> = self
+            .inner
+            .nodes_ordered()
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+        let mut rows = Vec::with_capacity(nodes.len());
+        for node in &nodes {
+            let py_node = self.py_node_key(py, node);
+            let nbrs_dict = PyDict::new(py);
+            let neighbors: Vec<String> = self
+                .inner
+                .neighbors(node)
+                .unwrap_or_default()
+                .into_iter()
+                .map(str::to_owned)
+                .collect();
+            for neighbor in &neighbors {
+                let py_nbr = self.py_adj_key(py, node, neighbor);
+                nbrs_dict.set_item(&py_nbr, self.neighbor_dict(py, node, neighbor)?.bind(py))?;
+            }
+            rows.push((py_node, nbrs_dict.unbind()));
+        }
+        self.dict_of_dicts_cache = Some(DictOfDictsCache {
+            nodes_seq: self.nodes_seq,
+            edges_seq: self.edges_seq,
+            rows,
+        });
+        Ok(())
     }
 
     /// br-r37-c1-mgedges: native node-major edge list so the Python
@@ -4587,6 +4647,7 @@ impl PyMultiGraph {
             edges_dirty: AtomicBool::new(false),
             node_keys_cache: std::sync::Mutex::new(None),
             node_data_mirror: std::sync::Mutex::new(None),
+            dict_of_dicts_cache: None,
         };
         for node in self.inner.nodes_ordered() {
             let rust_attrs = self
@@ -4656,6 +4717,7 @@ impl PyMultiGraph {
             edges_dirty: AtomicBool::new(false),
             node_keys_cache: std::sync::Mutex::new(None),
             node_data_mirror: std::sync::Mutex::new(None),
+            dict_of_dicts_cache: None,
         };
         for node in self.inner.nodes_ordered() {
             let py_attrs = self.node_py_attrs.get(node).map_or_else(
@@ -4720,6 +4782,7 @@ impl PyMultiGraph {
             edges_dirty: AtomicBool::new(false),
             node_keys_cache: std::sync::Mutex::new(None),
             node_data_mirror: std::sync::Mutex::new(None),
+            dict_of_dicts_cache: None,
         };
         let mut node_batch: Vec<(String, fnx_classes::AttrMap)> =
             Vec::with_capacity(self.inner.node_count());
@@ -4802,6 +4865,7 @@ impl PyMultiGraph {
             edges_dirty: AtomicBool::new(self.edges_dirty.load(Ordering::Relaxed)),
             node_keys_cache: std::sync::Mutex::new(None),
             node_data_mirror: std::sync::Mutex::new(None),
+            dict_of_dicts_cache: None,
         };
         // br-r37-c1-s0d4x: nx's MultiGraph.copy() rebuild walk reorders
         // adjacency CELLS (u-major first-touch) just like simple Graph
@@ -4886,6 +4950,7 @@ impl PyMultiGraph {
             edges_dirty: AtomicBool::new(self.edges_dirty.load(Ordering::Relaxed)),
             node_keys_cache: std::sync::Mutex::new(None),
             node_data_mirror: std::sync::Mutex::new(None),
+            dict_of_dicts_cache: None,
         })
     }
 
@@ -4920,6 +4985,7 @@ impl PyMultiGraph {
             edges_dirty: AtomicBool::new(false),
             node_keys_cache: std::sync::Mutex::new(None),
             node_data_mirror: std::sync::Mutex::new(None),
+            dict_of_dicts_cache: None,
         };
 
         for canonical in &keep {
@@ -5022,6 +5088,7 @@ impl PyMultiGraph {
             edges_dirty: AtomicBool::new(false),
             node_keys_cache: std::sync::Mutex::new(None),
             node_data_mirror: std::sync::Mutex::new(None),
+            dict_of_dicts_cache: None,
         };
 
         for (u, v, key_filter) in &keep_edges {
@@ -5120,6 +5187,7 @@ impl PyMultiGraph {
             edges_dirty: AtomicBool::new(false),
             node_keys_cache: std::sync::Mutex::new(None),
             node_data_mirror: std::sync::Mutex::new(None),
+            dict_of_dicts_cache: None,
         };
 
         for (canonical, py_key) in &self.node_key_map {
