@@ -1240,6 +1240,12 @@ class AdjacencyView(_Mapping):
         self._atlas_getter = atlas_getter
         self._fnx_owner = owner
         self._fnx_row_kind = row_kind
+        # br-r37-c1-spg9n: (nodes_seq, {node: AtlasView}) cache. The returned
+        # AtlasView reads its row live from Rust, so it stays valid across EDGE
+        # changes; only node add/remove (which bumps nodes_seq) needs a fresh
+        # one. Lets repeated G[n] / G.adj[n] skip the per-call existence probe +
+        # AtlasView construction (6x slower than nx -> parity).
+        self._fnx_atlas_cache = None
 
     def _atlas(self):
         return self._atlas_getter()
@@ -1260,6 +1266,21 @@ class AdjacencyView(_Mapping):
         return iter(dict.fromkeys(self._atlas()))
 
     def __getitem__(self, node):
+        # br-r37-c1-spg9n: warm fast-path — a token-valid cached AtlasView for
+        # this row is returned directly (the view live-reads its row from Rust,
+        # so it reflects later edge changes; the nodes_seq token only drops it on
+        # node add/remove). ``cache.get(node)`` hashes ``node`` so unhashable
+        # nodes raise TypeError exactly as nx's ``self._adj[node]`` does.
+        owner = self._fnx_owner
+        cache = self._fnx_atlas_cache
+        if owner is not None:
+            seq = owner.nodes_seq
+            if cache is None or cache[0] != seq:
+                cache = (seq, {})
+                self._fnx_atlas_cache = cache
+            view = cache[1].get(node)
+            if view is not None:
+                return view
         # br-r37-c1-i9whv: hash-check for nx-shaped TypeError on
         # unhashable nodes (instead of falling through to KeyError).
         hash(node)
@@ -1269,12 +1290,15 @@ class AdjacencyView(_Mapping):
             # br-keystr: preserve the original key type (int/tuple/...)
             # in the KeyError args instead of the Rust side's str repr.
             raise KeyError(node) from exc
-        return AtlasView(
+        view = AtlasView(
             lambda: self._atlas()[node],
             owner=self._fnx_owner,
             row_node=node,
             row_kind=self._fnx_row_kind,
         )
+        if owner is not None:
+            cache[1][node] = view
+        return view
 
     def __repr__(self):
         # br-r37-c1-k147g: print the underlying mapping like nx does.
@@ -1455,15 +1479,25 @@ _multidigraph_pred_view = _cached_view(
 
 
 def _graph_getitem_from_adj(self, node):
-    # br-keystr: the Rust adj view stringifies the key in the KeyError
-    # (``G[(0, 0)]`` -> ``KeyError('(0, 0)')`` str, not ``KeyError((0, 0))``
-    # with the original tuple). Re-raise with the original key object so
-    # typed ``except KeyError`` handlers that inspect ``e.args[0]`` get the
-    # value they passed in.
-    try:
-        return self.adj[node]
-    except KeyError as exc:
-        raise KeyError(node) from exc
+    # br-r37-c1-spg9n: warm fast-path for G[node]. A graph-level
+    # (nodes_seq, {node: AtlasView}) cache returns the row view directly,
+    # skipping the per-call ``self.adj`` descriptor resolution + AdjacencyView
+    # dispatch (6x slower than nx -> parity). The AtlasView live-reads its row,
+    # so it survives edge churn; nodes_seq drops it on node add/remove.
+    # ``cache.get(node)`` hashes node (TypeError on unhashable, like nx); cold
+    # misses go through ``self.adj[node]``, which raises KeyError(node) with the
+    # original key object (br-keystr) — so no try/except is needed here.
+    cache = self.__dict__.get("_fnx_getitem_atlas_cache")
+    seq = self.nodes_seq
+    if cache is None or cache[0] != seq:
+        cache = (seq, {})
+        self.__dict__["_fnx_getitem_atlas_cache"] = cache
+    view = cache[1].get(node)
+    if view is not None:
+        return view
+    view = self.adj[node]
+    cache[1][node] = view
+    return view
 
 
 def _multigraph_getitem_from_native_row(self, node):
