@@ -181,6 +181,26 @@ def _directed_graph_has_predecessor(self, u, v):
 
 
 def _digraph_out_edges(self, nbunch=None, data=False, default=None):
+    # br-r37-c1-outedges: out_edges == edges() for a DiGraph, but this delegated
+    # to ``self.edges(...)`` (the EdgeDataView Python machinery) instead of the
+    # node-major native builder that _digraph_in_edges already uses — so
+    # out_edges(data=True) was ~4x nx. Route the all-edges path through the
+    # native ``_native_edges_*`` kernels (byte-identical to nx out_edges order +
+    # data). Same exact-DiGraph gate as in_edges (conversion / subgraph views
+    # keep the Python edges() path: their inner is not the source of truth).
+    if nbunch is None and type(self) is DiGraph:
+        if data is False:
+            native = getattr(self, "_native_edges_no_data", None)
+            if native is not None:
+                return native()
+        elif data is True:
+            native = getattr(self, "_native_edges_with_data", None)
+            if native is not None:
+                return native()
+        else:
+            native = getattr(self, "_native_edges_data_key", None)
+            if native is not None:
+                return native(data, default)
     return list(self.edges(nbunch=nbunch, data=data, default=default))
 
 
