@@ -20405,6 +20405,9 @@ struct LouvainLevelGraph {
     edges: Vec<(usize, usize, f64)>,
 }
 
+type LouvainNeighborWeights = Vec<(usize, f64)>;
+type LouvainLevelStats = (f64, Vec<f64>, Vec<LouvainNeighborWeights>);
+
 fn louvain_seed_rng(seed: Option<u64>) -> Option<MT19937> {
     seed.map(|value| {
         if value <= u32::MAX as u64 {
@@ -20470,9 +20473,27 @@ fn build_louvain_level_graph(graph: &Graph, weight_attr: &str) -> (LouvainLevelG
     (LouvainLevelGraph { members, edges }, node_names)
 }
 
-fn louvain_level_stats(level: &LouvainLevelGraph) -> (f64, Vec<f64>, Vec<BTreeMap<usize, f64>>) {
+fn louvain_add_ordered_weight(entries: &mut Vec<(usize, f64)>, key: usize, weight: f64) {
+    if let Some((_, existing_weight)) = entries
+        .iter_mut()
+        .find(|(existing_key, _)| *existing_key == key)
+    {
+        *existing_weight += weight;
+    } else {
+        entries.push((key, weight));
+    }
+}
+
+fn louvain_ordered_weight(entries: &[(usize, f64)], key: usize) -> f64 {
+    entries
+        .iter()
+        .find_map(|&(existing_key, weight)| (existing_key == key).then_some(weight))
+        .unwrap_or(0.0)
+}
+
+fn louvain_level_stats(level: &LouvainLevelGraph) -> LouvainLevelStats {
     let mut degrees = vec![0.0; level.members.len()];
-    let mut neighbors = vec![BTreeMap::<usize, f64>::new(); level.members.len()];
+    let mut neighbors = vec![LouvainNeighborWeights::new(); level.members.len()];
     let mut total_weight = 0.0;
 
     for &(left, right, weight) in &level.edges {
@@ -20482,8 +20503,8 @@ fn louvain_level_stats(level: &LouvainLevelGraph) -> (f64, Vec<f64>, Vec<BTreeMa
         } else {
             degrees[left] += weight;
             degrees[right] += weight;
-            *neighbors[left].entry(right).or_insert(0.0) += weight;
-            *neighbors[right].entry(left).or_insert(0.0) += weight;
+            louvain_add_ordered_weight(&mut neighbors[left], right, weight);
+            louvain_add_ordered_weight(&mut neighbors[right], left, weight);
         }
     }
 
@@ -20588,19 +20609,17 @@ fn louvain_one_level(
             let current_community = node_to_community[node];
             let degree = degrees[node];
 
-            let mut weights_to_community = BTreeMap::<usize, f64>::new();
-            for (&neighbor, &weight) in &neighbors[node] {
-                *weights_to_community
-                    .entry(node_to_community[neighbor])
-                    .or_insert(0.0) += weight;
+            let mut weights_to_community = Vec::<(usize, f64)>::new();
+            for &(neighbor, weight) in &neighbors[node] {
+                louvain_add_ordered_weight(
+                    &mut weights_to_community,
+                    node_to_community[neighbor],
+                    weight,
+                );
             }
 
             sigma_tot[current_community] -= degree;
-            let remove_cost = -weights_to_community
-                .get(&current_community)
-                .copied()
-                .unwrap_or(0.0)
-                / m
+            let remove_cost = -louvain_ordered_weight(&weights_to_community, current_community) / m
                 + resolution * sigma_tot[current_community] * degree / (2.0 * m * m);
 
             // NetworkX accepts every strictly positive modularity gain. Track
@@ -20609,11 +20628,7 @@ fn louvain_one_level(
             const LOUVAIN_GAIN_EPS: f64 = 0.0;
             let mut best_gain = LOUVAIN_GAIN_EPS;
             let mut best_community = current_community;
-            for (&target_community, &weight) in &weights_to_community {
-                if target_community == current_community {
-                    continue;
-                }
-
+            for &(target_community, weight) in &weights_to_community {
                 let gain = remove_cost + weight / m
                     - resolution * sigma_tot[target_community] * degree / (2.0 * m * m);
                 if gain > best_gain {
@@ -20648,28 +20663,24 @@ fn louvain_coarsen(level: &LouvainLevelGraph, communities: &[Vec<usize>]) -> Lou
         members.push(original_members);
     }
 
-    let mut edge_weights = HashMap::<(usize, usize), f64>::new();
+    let mut edges = Vec::<(usize, usize, f64)>::new();
     for &(left, right, weight) in &level.edges {
         let left_community = node_to_community[left];
         let right_community = node_to_community[right];
-        let key = if left_community <= right_community {
+        let (left_community, right_community) = if left_community <= right_community {
             (left_community, right_community)
         } else {
             (right_community, left_community)
         };
-        *edge_weights.entry(key).or_insert(0.0) += weight;
+        if let Some((_, _, existing_weight)) = edges
+            .iter_mut()
+            .find(|(left, right, _)| *left == left_community && *right == right_community)
+        {
+            *existing_weight += weight;
+        } else {
+            edges.push((left_community, right_community, weight));
+        }
     }
-
-    let mut edges: Vec<(usize, usize, f64)> = edge_weights
-        .into_iter()
-        .map(|((left, right), weight)| (left, right, weight))
-        .collect();
-    edges.sort_by(|left, right| {
-        left.0
-            .cmp(&right.0)
-            .then_with(|| left.1.cmp(&right.1))
-            .then_with(|| left.2.total_cmp(&right.2))
-    });
 
     LouvainLevelGraph { members, edges }
 }
