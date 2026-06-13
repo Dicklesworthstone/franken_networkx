@@ -47157,9 +47157,14 @@ def relabel_nodes(G, mapping, copy=True):
         # Route through the canonical-class resolver.
         H = _concrete_class_for(G)()
         H.graph.update(G.graph)
-        for n in G.nodes():
-            new_n = _map.get(n, n)
-            H.add_node(new_n, **G.nodes[n])
+        # br-r37-c1-nodebatch: H is FRESH, so batch the relabeled nodes through
+        # add_nodes_from (native attributed-node batch for simple Graph; one
+        # bulk extend_nodes_with_attrs_unrecorded) instead of a per-node
+        # add_node loop. Mirrors nx's relabel. (node, dict) 2-tuples preserve
+        # per-node attrs + identity; node-MERGING relabels keep iteration-order
+        # merge semantics (duplicate node updates attrs, later wins).
+        get = _map.get
+        H.add_nodes_from([(get(n, n), dict(G.nodes[n])) for n in G])
         if G.is_multigraph():
             # 4-tuple form avoids `key=key, **d` collision when d contains
             # a 'key' attribute (franken_networkx-uphdr).
