@@ -22,3 +22,14 @@ benchmark can't see. NEXT STEP = Rust pprof (PPROF=1 in-process per
 reference_perf_profiling_pass) on a gnm microbench — do NOT attempt another
 blind source lever. LOW-ROI overall (gnm is a non-hot test/benchmark
 generator); deprioritize unless pprof reveals a shared-primitive win.
+
+=== RESOLVED 2026-06-13 (cc) ===
+The REAL bottleneck was the PURE-PYTHON wrapper (__init__.py gnm_random_graph),
+which never calls the native kernel — it ran the rejection loop in Python with
+PER-EDGE G.add_edge(u,v) (8000 PyO3 round-trips ≈ 20ms). That's why every
+Rust-side lever was a no-op. FIX (Python-only, no build): collect accepted
+endpoints (same random.Random draw order) into a list, commit via ONE
+add_edges_from (+ add_nodes_from for the nodes). Byte-exact (golden 25b485b9,
+nx-parity, error contracts preserved). 0.39x -> 1.08-1.11x (2.70x self-speedup,
+now BEATS nx). LESSON: check whether a slow fn even calls its native kernel
+BEFORE optimizing the kernel.
