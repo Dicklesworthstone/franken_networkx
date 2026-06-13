@@ -4402,12 +4402,9 @@ impl MultiDiGraphEdgeView {
         default: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<Py<crate::NodeIterator>> {
         let g = self.graph.borrow(py);
-        let expected_nodes: Vec<String> = g
-            .inner
-            .nodes_ordered()
-            .into_iter()
-            .map(str::to_owned)
-            .collect();
+        // Only the node COUNT is needed (NodeIterator mutation guard); avoid
+        // cloning every node key into a Vec<String> per call.
+        let node_count = g.inner.node_count();
         let source_nodes = parse_edge_nbunch_for_multidigraph(py, &g, nbunch)?;
         let mut view_data = parse_view_data(data)?;
         if let (Some(def), ViewData::Attr(attr)) = (default, &view_data) {
@@ -4420,7 +4417,6 @@ impl MultiDiGraphEdgeView {
         // common edges(data=True)) yields (u, v, live_attr) immutable tuples —
         // serve them from the (nodes_seq, edges_seq) cache via a borrow_mut.
         if source_nodes.is_none() && matches!(&view_data, ViewData::AllData) && !keys {
-            let node_count = expected_nodes.len();
             drop(g);
             let result = self.graph.borrow_mut(py).edges_alldata_tuples(py)?;
             return Py::new(
@@ -4434,17 +4430,31 @@ impl MultiDiGraphEdgeView {
             );
         }
         let mut result = Vec::new();
-        let edges = g.inner.edges_ordered();
-        for edge in &edges {
-            if let Some(source_nodes) = source_nodes.as_ref()
-                && !source_nodes.contains(&edge.source)
-            {
-                continue;
+        // br-r37-c1-edgesnbunch: walk only the requested sources' out-edges
+        // (in nbunch order) instead of cloning + scanning EVERY edge via the
+        // owned edges_ordered(). edges_ordered() clones each edge's AttrMap
+        // (unused here — attrs come from edge_py_attrs), so the old path was
+        // O(E) clones per call even for a single-node nbunch (~295x slower
+        // than nx). The borrowed per-source walk is O(sum out-deg) with zero
+        // clones, and emitting sources in nbunch order matches nx's
+        // OutMultiEdgeView (the old filter-by-membership path yielded
+        // node-iteration order — a latent divergence for multi-node nbunch).
+        let borrowed = match source_nodes.as_ref() {
+            Some(sources) => {
+                let mut v = Vec::new();
+                for s in sources {
+                    v.extend(g.inner.out_edges_ordered_borrowed(s));
+                }
+                v
             }
-            let py_u = g.py_node_key(py, &edge.source);
-            let py_v = g.py_succ_key(py, &edge.source, &edge.target) /* br-r37-c1-z6uka */;
-            let ek = PyMultiDiGraph::edge_key(&edge.source, &edge.target, edge.key);
-            let key_obj = g.py_edge_key(py, &edge.source, &edge.target, edge.key);
+            None => g.inner.edges_ordered_borrowed(),
+        };
+        for (src, tgt, ekey, _attrs) in &borrowed {
+            let (src, tgt, ekey) = (*src, *tgt, *ekey);
+            let py_u = g.py_node_key(py, src);
+            let py_v = g.py_succ_key(py, src, tgt) /* br-r37-c1-z6uka */;
+            let ek = PyMultiDiGraph::edge_key(src, tgt, ekey);
+            let key_obj = g.py_edge_key(py, src, tgt, ekey);
             let item = match &view_data {
                 ViewData::NoData => {
                     if keys {
@@ -4501,7 +4511,7 @@ impl MultiDiGraphEdgeView {
                 py,
                 result,
                 crate::NodeIteratorGuard::MultiDiGraph(self.graph.clone_ref(py)),
-                expected_nodes.len(),
+                node_count,
             ),
         )
     }
@@ -7937,7 +7947,7 @@ fn parse_edge_nbunch_for_multidigraph(
     py: Python<'_>,
     graph: &PyMultiDiGraph,
     nbunch: Option<&Bound<'_, PyAny>>,
-) -> PyResult<Option<HashSet<String>>> {
+) -> PyResult<Option<Vec<String>>> {
     let Some(nbunch) = nbunch else {
         return Ok(None);
     };
@@ -7945,14 +7955,17 @@ fn parse_edge_nbunch_for_multidigraph(
     if let Ok(canonical) = node_key_to_string(py, nbunch)
         && graph.inner.has_node(&canonical)
     {
-        let mut nodes = HashSet::new();
-        nodes.insert(canonical);
-        return Ok(Some(nodes));
+        return Ok(Some(vec![canonical]));
     }
 
     match PyIterator::from_object(nbunch) {
         Ok(iter) => {
-            let mut nodes = HashSet::new();
+            // nx's nbunch_iter walks nbunch in user-given order, yields each
+            // present node once (first occurrence), skipping missing nodes.
+            // Preserve that order + first-occurrence dedup so edges(nbunch)
+            // matches nx's OutMultiEdgeView ordering exactly.
+            let mut nodes: Vec<String> = Vec::new();
+            let mut seen: HashSet<String> = HashSet::new();
             for item in iter {
                 let item = item?;
                 if let Err(exc) = item.hash() {
@@ -7966,8 +7979,8 @@ fn parse_edge_nbunch_for_multidigraph(
                     return Err(exc);
                 }
                 let canonical = node_key_to_string(py, &item)?;
-                if graph.inner.has_node(&canonical) {
-                    nodes.insert(canonical);
+                if graph.inner.has_node(&canonical) && seen.insert(canonical.clone()) {
+                    nodes.push(canonical);
                 }
             }
             Ok(Some(nodes))

@@ -2256,6 +2256,32 @@ impl MultiDiGraph {
         ordered
     }
 
+    /// Out-edges of a single source node in nx adjacency order
+    /// (successors[node].keys() then key-bucket order), borrowing attrs.
+    ///
+    /// Equivalent to ``edges_ordered_borrowed()`` filtered to one source,
+    /// but O(out-deg(node)) instead of O(E) — and it clones nothing. Used
+    /// by ``MultiDiGraph.edges(nbunch)`` to avoid scanning/cloning every
+    /// edge when only a handful of sources are requested.
+    #[must_use]
+    pub fn out_edges_ordered_borrowed<'a>(
+        &'a self,
+        node: &str,
+    ) -> Vec<(&'a str, &'a str, usize, &'a AttrMap)> {
+        let mut ordered = Vec::new();
+        if let Some((src, neighbors)) = self.successors.get_key_value(node) {
+            for target in neighbors.keys() {
+                let pair = DirectedEdgeKeyRef::new(src, target);
+                if let Some(edge_bucket) = self.edges.get(&pair) {
+                    for (key, attrs) in edge_bucket {
+                        ordered.push((src.as_str(), target.as_str(), *key, attrs));
+                    }
+                }
+            }
+        }
+        ordered
+    }
+
     #[must_use]
     pub fn snapshot(&self) -> MultiDiGraphSnapshot {
         let node_attrs: std::collections::BTreeMap<String, AttrMap> = self
