@@ -1,0 +1,48 @@
+         2625678 function calls (2534926 primitive calls) in 0.872 seconds
+
+   Ordered by: cumulative time
+   List reduced from 308 to 40 due to restriction <40>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.000    0.000    0.872    0.872 greedy_modularity_probe.py:140(bench)
+       20    0.000    0.000    0.866    0.043 greedy_modularity_probe.py:143(<lambda>)
+       20    0.000    0.000    0.866    0.043 greedy_modularity_probe.py:68(_fnx_public)
+    43/21    0.001    0.000    0.849    0.040 backends.py:554(_call_if_any_backends_installed)
+       20    0.000    0.000    0.844    0.042 <class 'networkx.utils.decorators.argmap'> compilation 21:1(argmap_greedy_modularity_communities_18)
+       20    0.001    0.000    0.839    0.042 backends.py:1508(_convert_and_call)
+       20    0.002    0.000    0.789    0.039 modularity_max.py:227(greedy_modularity_communities)
+     6020    0.002    0.000    0.785    0.000 {built-in method builtins.next}
+     5760    0.145    0.000    0.783    0.000 modularity_max.py:17(_greedy_modularity_communities_generator)
+    62340    0.070    0.000    0.205    0.000 mapped_queue.py:219(remove)
+    44120    0.051    0.000    0.180    0.000 mapped_queue.py:207(update)
+    98480    0.118    0.000    0.166    0.000 mapped_queue.py:239(_siftup)
+   310500    0.122    0.000    0.122    0.000 mapped_queue.py:68(__eq__)
+    48000    0.050    0.000    0.115    0.000 mapped_queue.py:174(push)
+      5/2    0.000    0.000    0.069    0.035 decorators.py:783(func)
+435476/344776    0.046    0.000    0.060    0.000 {built-in method builtins.len}
+       20    0.000    0.000    0.049    0.002 backends.py:1148(_convert_arguments)
+       20    0.000    0.000    0.048    0.002 backends.py:1359(_convert_graph)
+       20    0.000    0.000    0.048    0.002 backend.py:843(convert_to_nx)
+       20    0.001    0.000    0.048    0.002 backend.py:468(_convert_result_to_nx)
+       20    0.009    0.000    0.047    0.002 backend.py:606(_fnx_to_nx)
+    48000    0.028    0.000    0.043    0.000 mapped_queue.py:278(_siftdown)
+   353640    0.037    0.000    0.037    0.000 mapped_queue.py:38(__lt__)
+   599080    0.035    0.000    0.035    0.000 mapped_queue.py:74(__hash__)
+     5880    0.007    0.000    0.027    0.000 mapped_queue.py:153(__init__)
+    86760    0.015    0.000    0.024    0.000 mapped_queue.py:33(__init__)
+     5740    0.006    0.000    0.024    0.000 mapped_queue.py:189(pop)
+       20    0.001    0.000    0.022    0.001 greedy_modularity_probe.py:17(_copy_to_fnx)
+    90700    0.014    0.000    0.021    0.000 mapped_queue.py:171(__len__)
+       23    0.013    0.001    0.019    0.001 graph.py:986(add_edges_from)
+     5880    0.008    0.000    0.015    0.000 mapped_queue.py:164(_heapify)
+       20    0.002    0.000    0.012    0.001 __init__.py:2739(add_edges_from)
+    95760    0.010    0.000    0.010    0.000 {built-in method builtins.hash}
+       20    0.002    0.000    0.009    0.000 __init__.py:2456(add_nodes_from)
+    18040    0.006    0.000    0.008    0.000 reportviews.py:856(__iter__)
+       21    0.004    0.000    0.007    0.000 graph.py:584(add_nodes_from)
+    68082    0.007    0.000    0.007    0.000 {method 'pop' of 'list' objects}
+        1    0.000    0.000    0.006    0.006 greedy_modularity_probe.py:49(<lambda>)
+    66360    0.006    0.000    0.006    0.000 {method 'append' of 'list' objects}
+       20    0.002    0.000    0.006    0.000 backend.py:776(_align_rows)
+
+
