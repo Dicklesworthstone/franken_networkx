@@ -4302,6 +4302,27 @@ class _WeightAwareDegreeView:
             # type), avoiding the per-node dict(G.adj[node]) AtlasView walk.
             # Only the total view (no direction) — in/out keep _weighted_value.
             if self._direction is None and isinstance(weight, str):
+                # br-r37-c1-wdeg2: for an UNDIRECTED simple Graph, sum weights
+                # over the native to_dict_of_dicts snapshot (whose inner dicts
+                # ARE the live edge attr dicts) instead of the native
+                # _native_weighted_degree kernel, which built a PyList + called
+                # Python ``sum`` PER NODE (~1.5x nx). nx counts a self-loop's
+                # weight twice, so add it again. Same neighbour order -> byte
+                # AND numeric-type identical (int vs float preserved); reaches
+                # nx parity. DiGraph total degree (in+out) and multigraph keep
+                # the native kernel (to_dict_of_dicts there is successors-only).
+                if type(self._graph) is Graph:
+                    dod = to_dict_of_dicts(self._graph)
+
+                    def _weighted_degree_gen():
+                        for node, nbrs in dod.items():
+                            total = sum(d.get(weight, 1) for d in nbrs.values())
+                            selfloop = nbrs.get(node)
+                            if selfloop is not None:
+                                total = total + selfloop.get(weight, 1)
+                            yield (node, total)
+
+                    return _weighted_degree_gen()
                 native = getattr(self._graph, "_native_weighted_degree", None)
                 if native is not None:
                     return iter(native(weight))
