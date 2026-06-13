@@ -17046,6 +17046,7 @@ pub fn power_rust(py: Python<'_>, g: &Bound<'_, PyAny>, k: usize) -> PyResult<Py
         edges_dirty: AtomicBool::new(false),
         node_keys_cache: std::sync::Mutex::new(None),
         node_iter_mirror: std::sync::Mutex::new(None),
+        node_data_mirror: std::sync::Mutex::new(None),
     };
     Ok(pg.into_pyobject(py)?.into_any().unbind())
 }
@@ -17123,6 +17124,7 @@ pub fn ego_graph_rust(
         edges_dirty: AtomicBool::new(false),
         node_keys_cache: std::sync::Mutex::new(None),
         node_iter_mirror: std::sync::Mutex::new(None),
+        node_data_mirror: std::sync::Mutex::new(None),
     };
     Ok(pg.into_pyobject(py)?.into_any().unbind())
 }
@@ -17260,6 +17262,7 @@ pub fn full_join_rust(
         edges_dirty: AtomicBool::new(false),
         node_keys_cache: std::sync::Mutex::new(None),
         node_iter_mirror: std::sync::Mutex::new(None),
+        node_data_mirror: std::sync::Mutex::new(None),
     };
     Ok(pg.into_pyobject(py)?.into_any().unbind())
 }
@@ -17296,6 +17299,7 @@ pub fn identified_nodes_rust(
         edges_dirty: AtomicBool::new(false),
         node_keys_cache: std::sync::Mutex::new(None),
         node_iter_mirror: std::sync::Mutex::new(None),
+        node_data_mirror: std::sync::Mutex::new(None),
     };
     Ok(pg.into_pyobject(py)?.into_any().unbind())
 }
@@ -17391,6 +17395,7 @@ pub fn dedensify_rust(
         edges_dirty: AtomicBool::new(false),
         node_keys_cache: std::sync::Mutex::new(None),
         node_iter_mirror: std::sync::Mutex::new(None),
+        node_data_mirror: std::sync::Mutex::new(None),
     };
     Ok((pg.into_pyobject(py)?.into_any().unbind(), compressors))
 }
@@ -17508,6 +17513,7 @@ pub fn quotient_graph_rust(
         edges_dirty: AtomicBool::new(false),
         node_keys_cache: std::sync::Mutex::new(None),
         node_iter_mirror: std::sync::Mutex::new(None),
+        node_data_mirror: std::sync::Mutex::new(None),
     };
     Ok(pg.into_pyobject(py)?.into_any().unbind())
 }
@@ -17539,6 +17545,7 @@ pub fn moral_graph_rust(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<PyObje
         edges_dirty: AtomicBool::new(false),
         node_keys_cache: std::sync::Mutex::new(None),
         node_iter_mirror: std::sync::Mutex::new(None),
+        node_data_mirror: std::sync::Mutex::new(None),
     };
     Ok(pg.into_pyobject(py)?.into_any().unbind())
 }
@@ -17984,6 +17991,7 @@ pub fn gomory_hu_tree_rust(
         edges_dirty: AtomicBool::new(false),
         node_keys_cache: std::sync::Mutex::new(None),
         node_iter_mirror: std::sync::Mutex::new(None),
+        node_data_mirror: std::sync::Mutex::new(None),
     };
     Ok(pg.into_pyobject(py)?.into_any().unbind())
 }
@@ -18039,6 +18047,7 @@ pub fn snap_aggregation_rust(
         edges_dirty: AtomicBool::new(false),
         node_keys_cache: std::sync::Mutex::new(None),
         node_iter_mirror: std::sync::Mutex::new(None),
+        node_data_mirror: std::sync::Mutex::new(None),
     };
     Ok(pg.into_pyobject(py)?.into_any().unbind())
 }

@@ -221,24 +221,9 @@ impl NodeView {
     }
 
     /// Return a list of (node, attrs) pairs (like dict.items()).
-    fn items(&self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
-        let nodes: Vec<String> = {
-            let g = self.graph.borrow(py);
-            g.inner
-                .nodes_ordered()
-                .iter()
-                .map(|n| (*n).to_owned())
-                .collect()
-        };
+    fn items(&self, py: Python<'_>) -> PyResult<PyObject> {
         let mut g = self.graph.borrow_mut(py);
-        nodes
-            .iter()
-            .map(|n| {
-                let py_key = g.py_node_key(py, n);
-                let attrs = g.materialize_node_py_attrs(py, n).into_any();
-                tuple_object(py, &[py_key, attrs])
-            })
-            .collect()
+        g.node_data_items_view(py)
     }
 
     /// Return a list of attr dicts (like dict.values()).

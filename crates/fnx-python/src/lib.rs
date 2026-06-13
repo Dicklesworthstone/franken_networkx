@@ -549,6 +549,7 @@ pub(crate) struct PyGraph {
     pub(crate) edges_dirty: AtomicBool,
     pub(crate) node_keys_cache: std::sync::Mutex<Option<(u64, Py<pyo3::types::PyTuple>)>>,
     node_iter_mirror: std::sync::Mutex<Option<Py<PyDict>>>,
+    node_data_mirror: std::sync::Mutex<Option<(u64, Py<PyDict>)>>,
 }
 
 impl PyGraph {
@@ -663,6 +664,35 @@ impl PyGraph {
         };
         dict.bind(py).call_method0("clear")?;
         Ok(())
+    }
+
+    pub(crate) fn node_data_items_view(&mut self, py: Python<'_>) -> PyResult<PyObject> {
+        let seq = self.nodes_seq;
+        if let Some(dict) = self
+            .node_data_mirror
+            .lock()
+            .unwrap()
+            .as_ref()
+            .and_then(|(cached_seq, dict)| (*cached_seq == seq).then(|| dict.clone_ref(py)))
+        {
+            return Ok(dict.bind(py).call_method0("items")?.unbind());
+        }
+
+        let nodes: Vec<String> = self
+            .inner
+            .nodes_ordered()
+            .iter()
+            .map(|node| (*node).to_owned())
+            .collect();
+        let dict = PyDict::new(py);
+        for node in &nodes {
+            let py_key = self.py_node_key(py, node);
+            let attrs = self.materialize_node_py_attrs(py, node);
+            dict.set_item(py_key, attrs.bind(py))?;
+        }
+        let owned = dict.unbind();
+        *self.node_data_mirror.lock().unwrap() = Some((seq, owned.clone_ref(py)));
+        Ok(owned.bind(py).call_method0("items")?.unbind())
     }
 
     /// br-r37-c1-z6uka: the display object for neighbor `nbr` inside
@@ -858,6 +888,7 @@ impl PyGraph {
             edges_dirty: AtomicBool::new(false),
             node_keys_cache: std::sync::Mutex::new(None),
             node_iter_mirror: std::sync::Mutex::new(None),
+            node_data_mirror: std::sync::Mutex::new(None),
         })
     }
 
@@ -6801,6 +6832,7 @@ impl PyGraph {
             edges_dirty: AtomicBool::new(self.edges_dirty.load(Ordering::Relaxed)),
             node_keys_cache: std::sync::Mutex::new(None),
             node_iter_mirror: std::sync::Mutex::new(None),
+            node_data_mirror: std::sync::Mutex::new(None),
         };
         // br-r37-c1-0ek49: nx's G.copy() rebuild walk reorders undirected
         // adjacency rows (a pair enters both rows at its first u-major touch);
@@ -6876,6 +6908,7 @@ impl PyGraph {
             edges_dirty: AtomicBool::new(false),
             node_keys_cache: std::sync::Mutex::new(None),
             node_iter_mirror: std::sync::Mutex::new(None),
+            node_data_mirror: std::sync::Mutex::new(None),
         };
 
         // Add kept nodes using the existing HashSet iteration behavior; only
@@ -6959,6 +6992,7 @@ impl PyGraph {
             edges_dirty: AtomicBool::new(false),
             node_keys_cache: std::sync::Mutex::new(None),
             node_iter_mirror: std::sync::Mutex::new(None),
+            node_data_mirror: std::sync::Mutex::new(None),
         };
 
         // Collect nodes from kept edges
@@ -7670,6 +7704,7 @@ impl PyGraph {
             edges_dirty: AtomicBool::new(self.edges_dirty.load(Ordering::Relaxed)),
             node_keys_cache: std::sync::Mutex::new(None),
             node_iter_mirror: std::sync::Mutex::new(None),
+            node_data_mirror: std::sync::Mutex::new(None),
         })
     }
 

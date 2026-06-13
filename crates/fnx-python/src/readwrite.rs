@@ -169,6 +169,7 @@ fn report_to_pygraph(py: Python<'_>, report: ReadWriteReport) -> PyResult<PyGrap
         edges_dirty: AtomicBool::new(false),
         node_keys_cache: std::sync::Mutex::new(None),
         node_iter_mirror: std::sync::Mutex::new(None),
+        node_data_mirror: std::sync::Mutex::new(None),
     })
 }
 
@@ -701,6 +702,7 @@ fn read_adjlist_simple(py: Python<'_>, path: &str) -> PyResult<Option<PyGraph>> 
         edges_dirty: AtomicBool::new(false),
         node_keys_cache: std::sync::Mutex::new(None),
         node_iter_mirror: std::sync::Mutex::new(None),
+        node_data_mirror: std::sync::Mutex::new(None),
     }))
 }
 
@@ -837,6 +839,7 @@ fn read_edgelist_simple(py: Python<'_>, path: &str, mode: &str) -> PyResult<Opti
         edges_dirty: AtomicBool::new(false),
         node_keys_cache: std::sync::Mutex::new(None),
         node_iter_mirror: std::sync::Mutex::new(None),
+        node_data_mirror: std::sync::Mutex::new(None),
     }))
 }
 
