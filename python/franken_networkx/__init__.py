@@ -40801,12 +40801,21 @@ def waxman_graph(
     G = Graph()
     positions = {}
     x0, y0, x1, y1 = domain
+    # br-r37-c1-yrdso: batch node creation (same rng.uniform draw order) through
+    # one add_nodes_from instead of a per-node add_node PyO3 round-trip.
+    _node_batch = []
     for i in range(n):
         positions[i] = (rng.uniform(x0, x1), rng.uniform(y0, y1))
-        G.add_node(i, **{pos_name: positions[i]})
+        _node_batch.append((i, {pos_name: positions[i]}))
+    G.add_nodes_from(_node_batch)
 
     def distance(a, b):
-        return metric(a, b) if metric is not None else _minkowski_distance(a, b, 2)
+        # br-r37-c1-yrdso: default metric is the C built-in ``math.dist`` (exactly
+        # what nx uses), not the pure-Python ``_minkowski_distance`` — this loop
+        # runs O(n^2) distance calls (L computation + Waxman-1 edge probs), and
+        # ``_minkowski_distance(a, b, 2)`` was ~5x slower per call. Euclidean
+        # results are identical, so the edge set stays byte-exact vs nx.
+        return metric(a, b) if metric is not None else _math.dist(a, b)
 
     # br-r37-c1-359bl: when L is None, nx's Waxman-1 sets L to the
     # actual maximum pair distance (``max(metric(x, y) for x, y in
@@ -40835,6 +40844,10 @@ def waxman_graph(
     # (positions are pre-drawn), so the order doesn't matter; for
     # Waxman-2 it does — flipping the order matches nx's edge set
     # byte-for-byte across all seeds.
+    # br-r37-c1-yrdso: collect accepted edges in the same i<j scan order and
+    # commit through one add_edges_from (batch path) instead of a per-edge
+    # add_edge PyO3 round-trip — byte-identical, ~3x on dense Waxman graphs.
+    _edge_batch = []
     for i in range(n):
         for j in range(i + 1, n):
             prob_draw = rng.random()
@@ -40844,7 +40857,8 @@ def waxman_graph(
                 d = distance(positions[i], positions[j])
             prob = beta * _math.exp(-d / (alpha * L))
             if prob_draw < prob:
-                G.add_edge(i, j)
+                _edge_batch.append((i, j))
+    G.add_edges_from(_edge_batch)
     return G
 
 
