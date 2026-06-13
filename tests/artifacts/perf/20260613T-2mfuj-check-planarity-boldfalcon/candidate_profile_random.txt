@@ -1,0 +1,67 @@
+case=random counterexample=False sha256=cf10a0acfc8dfa1af67c2f9f165ae9df9f141b97c63a597397504871cbe6d06e
+         22047 function calls (22030 primitive calls) in 0.012 seconds
+
+   Ordered by: cumulative time
+   List reduced from 218 to 60 due to restriction <60>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.000    0.000    0.012    0.012 /data/projects/.scratch/franken_networkx-cod-opt-20260613T111801Z/tests/artifacts/perf/20260613T-2mfuj-check-planarity-boldfalcon/planarity_harness.py:97(run_operation)
+        1    0.000    0.000    0.012    0.012 /data/projects/.scratch/franken_networkx-cod-opt-20260613T111801Z/python/franken_networkx/__init__.py:24770(check_planarity)
+        1    0.000    0.000    0.012    0.012 /data/projects/.scratch/franken_networkx-cod-opt-20260613T111801Z/python/franken_networkx/__init__.py:24758(_check_planarity_certificate)
+      2/1    0.000    0.000    0.006    0.006 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/utils/decorators.py:783(func)
+        1    0.000    0.000    0.006    0.006 /data/projects/.scratch/franken_networkx-cod-opt-20260613T111801Z/python/franken_networkx/__init__.py:24737(_planarity_graph_for_certificate)
+      5/2    0.000    0.000    0.006    0.003 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/utils/backends.py:554(_call_if_any_backends_installed)
+        1    0.000    0.000    0.005    0.005 <class 'networkx.utils.decorators.argmap'> compilation 21:1(argmap_check_planarity_18)
+      5/2    0.000    0.000    0.005    0.003 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/utils/backends.py:1484(_call_with_backend)
+        1    0.000    0.000    0.005    0.005 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/algorithms/planarity.py:42(check_planarity)
+        1    0.001    0.001    0.005    0.005 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/algorithms/planarity.py:283(__init__)
+        1    0.002    0.002    0.005    0.005 /data/projects/.scratch/franken_networkx-cod-opt-20260613T111801Z/python/franken_networkx/backend.py:606(_fnx_to_nx_simple_graph_topology)
+     1825    0.002    0.000    0.003    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/classes/graph.py:917(add_edge)
+        2    0.001    0.001    0.002    0.001 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/classes/graph.py:584(add_nodes_from)
+     5493    0.001    0.000    0.001    0.000 {method 'get' of 'dict' objects}
+        1    0.000    0.000    0.001    0.001 <frozen importlib._bootstrap>:1349(_find_and_load)
+        1    0.000    0.000    0.001    0.001 <frozen importlib._bootstrap>:1304(_find_and_load_unlocked)
+      601    0.000    0.000    0.001    0.000 /data/projects/.scratch/franken_networkx-cod-opt-20260613T111801Z/python/franken_networkx/backend.py:631(<genexpr>)
+        1    0.001    0.001    0.001    0.001 {built-in method franken_networkx._fnx.fnx_to_nx_adjacency}
+        1    0.000    0.000    0.001    0.001 <frozen importlib._bootstrap>:911(_load_unlocked)
+     4237    0.001    0.000    0.001    0.000 {method 'update' of 'dict' objects}
+        2    0.000    0.000    0.001    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/utils/decorators.py:715(_lazy_compile)
+        2    0.000    0.000    0.001    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/utils/decorators.py:869(compile)
+        1    0.000    0.000    0.001    0.001 <frozen importlib._bootstrap_external>:1020(exec_module)
+     1828    0.000    0.000    0.000    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/utils/misc.py:645(_clear_cache)
+     1826    0.000    0.000    0.000    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/classes/reportviews.py:1274(__iter__)
+        1    0.000    0.000    0.000    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/classes/digraph.py:500(add_nodes_from)
+      600    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-cod-opt-20260613T111801Z/python/franken_networkx/__init__.py:5105(__getitem__)
+        1    0.000    0.000    0.000    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/algorithms/planarity.py:323(lr_planarity)
+        2    0.000    0.000    0.000    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/utils/decorators.py:917(assemble)
+        1    0.000    0.000    0.000    0.000 <frozen importlib._bootstrap_external>:1093(get_code)
+        1    0.000    0.000    0.000    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/classes/graph.py:1918(size)
+        1    0.000    0.000    0.000    0.000 {built-in method builtins.sum}
+        2    0.000    0.000    0.000    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/utils/decorators.py:1059(signature)
+      601    0.000    0.000    0.000    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/classes/graph.py:1954(<genexpr>)
+        1    0.000    0.000    0.000    0.000 <frozen importlib._bootstrap_external>:782(_compile_bytecode)
+        1    0.000    0.000    0.000    0.000 {built-in method marshal.loads}
+      4/2    0.000    0.000    0.000    0.000 /usr/lib/python3.13/inspect.py:3373(signature)
+      4/2    0.000    0.000    0.000    0.000 /usr/lib/python3.13/inspect.py:3094(from_callable)
+      4/2    0.000    0.000    0.000    0.000 /usr/lib/python3.13/inspect.py:2487(_signature_from_callable)
+        2    0.000    0.000    0.000    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/utils/backends.py:503(__signature__)
+        3    0.000    0.000    0.000    0.000 {built-in method builtins.exec}
+        2    0.000    0.000    0.000    0.000 <frozen importlib._bootstrap>:480(_call_with_frames_removed)
+      601    0.000    0.000    0.000    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/classes/reportviews.py:531(__iter__)
+     1875    0.000    0.000    0.000    0.000 {built-in method builtins.getattr}
+        1    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-cod-opt-20260613T111801Z/python/franken_networkx/backend.py:1(<module>)
+        2    0.000    0.000    0.000    0.000 {built-in method builtins.compile}
+        2    0.000    0.000    0.000    0.000 /usr/lib/python3.13/inspect.py:2383(_signature_from_function)
+        1    0.000    0.000    0.000    0.000 <frozen importlib._bootstrap>:1240(_find_spec)
+      600    0.000    0.000    0.000    0.000 {method 'copy' of 'dict' objects}
+        1    0.000    0.000    0.000    0.000 <frozen importlib._bootstrap_external>:1551(find_spec)
+        1    0.000    0.000    0.000    0.000 <frozen importlib._bootstrap_external>:1522(_get_spec)
+        1    0.000    0.000    0.000    0.000 <frozen importlib._bootstrap_external>:1214(get_data)
+        1    0.000    0.000    0.000    0.000 <frozen importlib._bootstrap_external>:1624(find_spec)
+        6    0.000    0.000    0.000    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/utils/decorators.py:849(_name)
+        2    0.000    0.000    0.000    0.000 <class 'networkx.utils.decorators.argmap'> compilation 17:1(argmap___new___14)
+        1    0.000    0.000    0.000    0.000 <frozen importlib._bootstrap>:416(__enter__)
+      600    0.000    0.000    0.000    0.000 {built-in method builtins.hash}
+        1    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-cod-opt-20260613T111801Z/python/franken_networkx/__init__.py:36104(__iter__)
+        1    0.000    0.000    0.000    0.000 {built-in method _io.open_code}
+      623    0.000    0.000    0.000    0.000 {built-in method builtins.len}
