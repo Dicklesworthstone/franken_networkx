@@ -236,6 +236,7 @@ fn di_report_to_pydigraph(py: Python<'_>, report: DiReadWriteReport) -> PyResult
         edges_dirty: AtomicBool::new(false),
         node_keys_cache: std::sync::Mutex::new(None),
         node_data_mirror: std::sync::Mutex::new(None),
+        dict_of_dicts_cache: None,
     })
 }
 
@@ -1261,6 +1262,14 @@ pub fn to_dict_of_dicts_undirected(
     if let Ok(mut pg) = g.extract::<PyRefMut<'_, PyGraph>>() {
         return to_dict_of_dicts_graph_cached(py, &mut pg).map(Some);
     }
+    // br-r37-c1-eveun: DiGraph successor adjacency had NO cache (rebuilt the
+    // full {node: {succ: edge_dict}} every call -> 21x slower than nx). Route
+    // it through the same (nodes_seq, edges_seq)-keyed cache the undirected
+    // path uses; copy_dict_of_dicts_cache hands out fresh rows so semantics are
+    // byte-identical to the old uncached branch.
+    if let Ok(mut dg) = g.extract::<PyRefMut<'_, PyDiGraph>>() {
+        return to_dict_of_dicts_digraph_cached(py, &mut dg).map(Some);
+    }
 
     let gr = extract_graph(g)?;
     let outer = PyDict::new(py);
@@ -1459,6 +1468,68 @@ fn rebuild_dict_of_dicts_cache(py: Python<'_>, pg: &mut PyGraph) -> PyResult<()>
     pg.dict_of_dicts_cache = Some(DictOfDictsCache {
         nodes_seq: pg.nodes_seq,
         edges_seq: pg.edges_seq,
+        rows,
+    });
+    Ok(())
+}
+
+fn to_dict_of_dicts_digraph_cached(
+    py: Python<'_>,
+    dg: &mut PyDiGraph,
+) -> PyResult<Py<PyDict>> {
+    let cache_matches = dg
+        .dict_of_dicts_cache
+        .as_ref()
+        .is_some_and(|cache| cache.nodes_seq == dg.nodes_seq && cache.edges_seq == dg.edges_seq);
+    if !cache_matches {
+        rebuild_dict_of_dicts_digraph_cache(py, dg)?;
+    }
+    let Some(cache) = dg.dict_of_dicts_cache.as_ref() else {
+        return Err(PyRuntimeError::new_err(
+            "dict_of_dicts cache missing after rebuild",
+        ));
+    };
+    copy_dict_of_dicts_cache(py, cache)
+}
+
+fn rebuild_dict_of_dicts_digraph_cache(py: Python<'_>, dg: &mut PyDiGraph) -> PyResult<()> {
+    let nodes: Vec<String> = dg
+        .inner
+        .nodes_ordered()
+        .into_iter()
+        .map(ToOwned::to_owned)
+        .collect();
+    let py_node_keys: Vec<PyObject> = nodes.iter().map(|node| dg.py_node_key(py, node)).collect();
+    let mut rows = Vec::with_capacity(nodes.len());
+
+    for (u_idx, u) in nodes.iter().enumerate() {
+        let row = PyDict::new(py);
+        let successors = dg
+            .inner
+            .successors_indices(u_idx)
+            .map_or_else(Vec::new, <[usize]>::to_vec);
+        for v_idx in successors {
+            let Some(v) = nodes.get(v_idx) else {
+                continue;
+            };
+            let Some(v_key) = py_node_keys.get(v_idx) else {
+                continue;
+            };
+            let edge_key = PyDiGraph::edge_key(u, v);
+            let edge_dict = dg
+                .edge_py_attrs
+                .entry(edge_key)
+                .or_insert_with(|| PyDict::new(py).unbind());
+            row.set_item(v_key.bind(py), edge_dict.bind(py))?;
+        }
+        if let Some(u_key) = py_node_keys.get(u_idx) {
+            rows.push((u_key.clone_ref(py), row.unbind()));
+        }
+    }
+
+    dg.dict_of_dicts_cache = Some(DictOfDictsCache {
+        nodes_seq: dg.nodes_seq,
+        edges_seq: dg.edges_seq,
         rows,
     });
     Ok(())

@@ -58,6 +58,11 @@ pub struct PyDiGraph {
     /// rebuilding every (node, dict) pair. Gives DiGraph the warm-call
     /// parity Graph already has.
     pub(crate) node_data_mirror: std::sync::Mutex<Option<(u64, Py<PyDict>)>>,
+    /// br-r37-c1-eveun: mirror of PyGraph::dict_of_dicts_cache — caches the
+    /// successor {node: {succ: edge_attr_dict}} rows keyed on (nodes_seq,
+    /// edges_seq). adjacency()/to_dict_of_dicts copy fresh rows out of it so
+    /// repeats skip the full rebuild (DiGraph adjacency was uncached -> 21x).
+    pub(crate) dict_of_dicts_cache: Option<crate::DictOfDictsCache>,
 }
 
 #[pyclass(
@@ -5000,6 +5005,7 @@ impl PyDiGraph {
             edges_dirty: AtomicBool::new(false),
             node_keys_cache: std::sync::Mutex::new(None),
             node_data_mirror: std::sync::Mutex::new(None),
+            dict_of_dicts_cache: None,
         })
     }
 
@@ -6332,6 +6338,7 @@ impl PyDiGraph {
                 edges_dirty: AtomicBool::new(false),
                 node_keys_cache: std::sync::Mutex::new(None),
                 node_data_mirror: std::sync::Mutex::new(None),
+                dict_of_dicts_cache: None,
             };
             for canonical in self.inner.nodes_ordered() {
                 rev.node_key_map
@@ -6354,6 +6361,7 @@ impl PyDiGraph {
             edges_dirty: AtomicBool::new(false),
             node_keys_cache: std::sync::Mutex::new(None),
             node_data_mirror: std::sync::Mutex::new(None),
+            dict_of_dicts_cache: None,
         };
         // br-r37-c1-revbulk: node + edge BATCHES through the unrecorded
         // path (one ledger record vs per-edge add_edge_with_attrs +
@@ -6579,6 +6587,7 @@ impl PyDiGraph {
             edges_dirty: AtomicBool::new(self.edges_dirty.load(Ordering::Relaxed)),
             node_keys_cache: std::sync::Mutex::new(None),
             node_data_mirror: std::sync::Mutex::new(None),
+            dict_of_dicts_cache: None,
         };
         // br-r37-c1-0ek49: nx's DiGraph.copy() rebuild walk recreates succ
         // rows in original order but fills PRED rows in u-major walk order;
@@ -6646,6 +6655,7 @@ impl PyDiGraph {
             edges_dirty: AtomicBool::new(false),
             node_keys_cache: std::sync::Mutex::new(None),
             node_data_mirror: std::sync::Mutex::new(None),
+            dict_of_dicts_cache: None,
         };
 
         for canonical in &keep {
@@ -6725,6 +6735,7 @@ impl PyDiGraph {
             edges_dirty: AtomicBool::new(false),
             node_keys_cache: std::sync::Mutex::new(None),
             node_data_mirror: std::sync::Mutex::new(None),
+            dict_of_dicts_cache: None,
         };
 
         let mut nodes_needed: std::collections::HashSet<String> = std::collections::HashSet::new();
@@ -7551,6 +7562,7 @@ impl PyDiGraph {
             edges_dirty: AtomicBool::new(self.edges_dirty.load(Ordering::Relaxed)),
             node_keys_cache: std::sync::Mutex::new(None),
             node_data_mirror: std::sync::Mutex::new(None),
+            dict_of_dicts_cache: None,
         })
     }
 
