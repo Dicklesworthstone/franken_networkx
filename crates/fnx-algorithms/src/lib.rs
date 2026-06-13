@@ -20577,7 +20577,11 @@ fn louvain_one_level(
 
     let mut improvement = false;
     let mut moved = 1;
+    let mut seen_states = HashSet::<Vec<usize>>::new();
     while moved > 0 {
+        if !seen_states.insert(node_to_community.clone()) {
+            break;
+        }
         moved = 0;
 
         for &node in &node_order {
@@ -20599,17 +20603,10 @@ fn louvain_one_level(
                 / m
                 + resolution * sigma_tot[current_community] * degree / (2.0 * m * m);
 
-            // br-r37-c1-yys5h: the gain formula
-            //   remove_cost + weight/m − resolution * σ_tgt * degree / (2m²)
-            // exhibits catastrophic cancellation when the algebraic
-            // value is zero — e.g. on a triangle + isolates with tiny
-            // resolution, every "switch one triangle vertex's community
-            // tag with another's" has gain≈1.25e-17 (pure float noise),
-            // which `> 0.0` happily accepts, sending the algorithm into
-            // an infinite tag-swap loop.  Require gains to exceed a
-            // small absolute floor; below that, the move is numerical
-            // dust, not a real modularity improvement.
-            const LOUVAIN_GAIN_EPS: f64 = 1.0e-12;
+            // NetworkX accepts every strictly positive modularity gain. Track
+            // repeated states above so zero-floor floating-point dust cannot
+            // loop forever on degenerate inputs.
+            const LOUVAIN_GAIN_EPS: f64 = 0.0;
             let mut best_gain = LOUVAIN_GAIN_EPS;
             let mut best_community = current_community;
             for (&target_community, &weight) in &weights_to_community {
