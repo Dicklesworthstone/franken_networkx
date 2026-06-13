@@ -20681,7 +20681,7 @@ fn louvain_partition_to_node_names(
     partition: Vec<Vec<usize>>,
     node_names: &[String],
 ) -> Vec<Vec<String>> {
-    let mut result: Vec<Vec<String>> = partition
+    partition
         .into_iter()
         .map(|community| {
             let mut named: Vec<String> = community
@@ -20691,9 +20691,7 @@ fn louvain_partition_to_node_names(
             named.sort();
             named
         })
-        .collect();
-    result.sort_by(|left, right| left[0].cmp(&right[0]));
-    result
+        .collect()
 }
 
 /// Matches the NetworkX multi-level Louvain routine for undirected graphs.
