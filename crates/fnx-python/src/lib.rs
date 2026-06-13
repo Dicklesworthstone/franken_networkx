@@ -2926,7 +2926,7 @@ impl PyMultiGraph {
 
     /// br-r37-c1-trzrx: attributed sibling of `_try_add_edges_from_batch` —
     /// native fast path for `add_edges_from([(u, v, data), ...])` (mixed with
-    /// plain `(u, v)`) on a FRESH MultiGraph with NO global `**attr`. The
+    /// plain `(u, v)`) on a FRESH MultiGraph. The
     /// per-edge Python loop in `_multi_add_edges_from` paid ~3.6x nx on
     /// attributed bulk construction (PyO3 `add_edge` + `get_edge_data().update`
     /// per edge). On a fresh graph every auto-key is SEQUENTIAL per canonical
@@ -2934,16 +2934,19 @@ impl PyMultiGraph {
     /// batch. Each 3-tuple's third element MUST be a `dict` (multigraph DATA;
     /// nx auto-keys it); convert it to an `AttrMap` and lazily mirror non-empty
     /// dicts into `edge_py_attrs` (canonical `edge_key`, a FRESH fnx-owned dict
-    /// — never aliasing the caller's input). One bulk
+    /// — never aliasing the caller's input). Optional global `**attr` merges
+    /// first and per-edge dicts override. One bulk
     /// `extend_keyed_edges_with_attrs_unrecorded`. Returns `false` (NO mutation)
     /// for anything outside this shape (4-tuples, non-dict thirds, non-plain
     /// nodes, `__fnx_incompatible`/unconvertible attr values, hash-equal
     /// display conflicts, non-fresh graph) so the per-edge loop owns every
     /// error and partial-prefix contract.
+    #[pyo3(signature = (ebunch_to_add, global_attr=None))]
     fn _try_add_attr_edges_from_batch(
         &mut self,
         py: Python<'_>,
         ebunch_to_add: &Bound<'_, PyAny>,
+        global_attr: Option<&Bound<'_, PyDict>>,
     ) -> PyResult<bool> {
         const ATTR_EDGE_BATCH_MIN: usize = 8;
         if self.inner.edge_count() != 0 || !self.adj_py_keys.is_empty() {
@@ -2963,6 +2966,19 @@ impl PyMultiGraph {
             return Ok(false);
         };
 
+        let global_map: AttrMap = match global_attr {
+            Some(a) if !a.is_empty() => match py_dict_to_attr_map(a) {
+                Ok(attrs)
+                    if !attrs
+                        .keys()
+                        .any(|key| key.starts_with("__fnx_incompatible")) =>
+                {
+                    attrs
+                }
+                _ => return Ok(false),
+            },
+            _ => AttrMap::new(),
+        };
         let mut edges: Vec<(String, String, usize, AttrMap)> = Vec::with_capacity(items.len());
         // Lazy mirrors: only NON-EMPTY edge dicts materialize here, keyed by the
         // canonical (u, v, internal_key) exactly as per-edge `add_edge` stores them.
@@ -3004,9 +3020,24 @@ impl PyMultiGraph {
                 if attrs.keys().any(|k| k.starts_with("__fnx_incompatible")) {
                     return Ok(false);
                 }
-                (attrs, Some(d.clone()))
-            } else {
+                if global_map.is_empty() {
+                    (attrs, Some(d.clone()))
+                } else {
+                    let mut merged_map = global_map.clone();
+                    merged_map.extend(attrs);
+                    let merged = global_attr
+                        .expect("non-empty global_map implies global_attr")
+                        .copy()?;
+                    merged.update(d.as_mapping())?;
+                    (merged_map, Some(merged))
+                }
+            } else if global_map.is_empty() {
                 (AttrMap::new(), None)
+            } else {
+                let merged = global_attr
+                    .expect("non-empty global_map implies global_attr")
+                    .copy()?;
+                (global_map.clone(), Some(merged))
             };
 
             let Ok(uc) = node_key_to_string(py, &u) else {

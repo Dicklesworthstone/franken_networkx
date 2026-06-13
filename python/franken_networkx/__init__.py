@@ -2671,7 +2671,7 @@ def _multi_add_edges_from(self, ebunch_to_add, **attr):
         _native_attr_batch = getattr(self, "_try_add_attr_edges_from_batch", None)
         if _native_attr_batch is not None and _native_attr_batch(ebunch_to_add):
             return
-    elif attr and type(self) is MultiDiGraph and isinstance(ebunch_to_add, (list, tuple)):
+    elif attr and type(self) in (MultiGraph, MultiDiGraph) and isinstance(ebunch_to_add, (list, tuple)):
         _native_attr_batch = getattr(self, "_try_add_attr_edges_from_batch", None)
         if _native_attr_batch is not None and _native_attr_batch(ebunch_to_add, attr):
             return

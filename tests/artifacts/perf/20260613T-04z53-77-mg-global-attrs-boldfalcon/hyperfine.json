@@ -1,0 +1,72 @@
+{
+  "results": [
+    {
+      "command": "PYTHONPATH=/data/tmp/fnx_candidate_overlay_04z53_76 python3 tests/artifacts/perf/20260613T-04z53-77-mg-global-attrs-boldfalcon/bench_mg_global_attrs.py one --loops 30",
+      "mean": 2.15652649622,
+      "stddev": 0.13711491782094246,
+      "median": 2.17106059062,
+      "user": 6.429352799999999,
+      "system": 0.08486402,
+      "min": 1.95399261262,
+      "max": 2.3238800676199998,
+      "times": [
+        2.07063828662,
+        1.95399261262,
+        2.06209624162,
+        2.09880673162,
+        1.98408570362,
+        2.27491032162,
+        2.3238800676199998,
+        2.29003767062,
+        2.24331444962,
+        2.26350287662
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "PYTHONPATH=/data/tmp/fnx_candidate_clean_overlay_04z53_77 python3 tests/artifacts/perf/20260613T-04z53-77-mg-global-attrs-boldfalcon/bench_mg_global_attrs.py one --loops 30",
+      "mean": 1.58819863592,
+      "stddev": 0.216711692087753,
+      "median": 1.54468178162,
+      "user": 3.9335997,
+      "system": 0.08233342,
+      "min": 1.29112404262,
+      "max": 1.96544060462,
+      "times": [
+        1.41895587162,
+        1.80628025562,
+        1.96544060462,
+        1.85604613862,
+        1.54076560762,
+        1.48051976762,
+        1.54859795562,
+        1.42262053362,
+        1.5516355816199998,
+        1.29112404262
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}
