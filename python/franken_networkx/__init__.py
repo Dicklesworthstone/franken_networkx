@@ -2525,7 +2525,7 @@ def _make_add_nodes_from(
         # loop still owns every error and partial-prefix contract.
         if (
             not attr
-            and type(self) in (Graph, DiGraph)
+            and type(self) in (Graph, DiGraph, MultiGraph, MultiDiGraph)
             and type(nodes_for_adding) in (list, tuple)
         ):
             try:

@@ -1906,6 +1906,112 @@ impl PyMultiGraph {
         }
         Ok(true)
     }
+
+    /// br-r37-c1-nodebatch: collect a batch of attributed nodes — a mix of
+    /// plain `n` and `(n, dict)` tuples — for single-commit insertion on a
+    /// FRESH MultiGraph. Pure collect: NO mutation. Returns `Ok(None)` (caller
+    /// falls back to the per-node loop, which owns every error and
+    /// partial-prefix contract) on any shape it can't replicate exactly.
+    /// Sibling of `PyGraph::collect_attr_node_batch`. nx's unhashable-pair
+    /// rule: a 2-tuple is `(node, attrs)` only when its 2nd element is a dict.
+    fn collect_attr_node_batch<'py, I>(
+        &self,
+        py: Python<'py>,
+        items: I,
+        len: usize,
+    ) -> PyResult<Option<AttrNodeBatch>>
+    where
+        I: IntoIterator<Item = Bound<'py, PyAny>>,
+    {
+        let mut nodes: Vec<(String, AttrMap, Option<Py<PyDict>>)> = Vec::with_capacity(len);
+        let mut new_nodes: Vec<(String, PyObject)> = Vec::new();
+        let mut seen_nodes: HashSet<String> = HashSet::new();
+        let mut node_bumps = 0_u64;
+        let mut batch_first: HashMap<String, PyObject> = HashMap::new();
+
+        for item in items {
+            let (node, src_dict): (Bound<'py, PyAny>, Option<Bound<'py, PyDict>>) =
+                if let Ok(tuple) = item.downcast::<PyTuple>() {
+                    if tuple.len() == 2 {
+                        let second = tuple.get_item(1)?;
+                        if let Ok(d) = second.downcast::<PyDict>() {
+                            (tuple.get_item(0)?, Some(d.clone()))
+                        } else {
+                            (item.clone(), None)
+                        }
+                    } else {
+                        (item.clone(), None)
+                    }
+                } else {
+                    (item.clone(), None)
+                };
+
+            if !PyGraph::is_plain_batch_node(&node) {
+                return Ok(None);
+            }
+
+            let (rust_attrs, src) = match &src_dict {
+                Some(d) => {
+                    let Ok(attrs) = py_dict_to_attr_map(d) else {
+                        return Ok(None);
+                    };
+                    if attrs.keys().any(|k| k.starts_with("__fnx_incompatible")) {
+                        return Ok(None);
+                    }
+                    (attrs, Some(d.clone().unbind()))
+                }
+                None => (AttrMap::new(), None),
+            };
+
+            let Ok(canonical) = node_key_to_string(py, &node) else {
+                return Ok(None);
+            };
+            if self.batch_display_conflict(py, &canonical, &node, &mut batch_first) {
+                return Ok(None);
+            }
+            if seen_nodes.insert(canonical.clone()) {
+                node_bumps = node_bumps.wrapping_add(1);
+                new_nodes.push((canonical.clone(), node.clone().unbind()));
+            }
+            nodes.push((canonical, rust_attrs, src));
+        }
+
+        Ok(Some((nodes, new_nodes, node_bumps)))
+    }
+
+    /// Commit a collected attributed-node batch (MultiGraph LAZY mirror —
+    /// matching `add_node`'s `ensure_node_py_attrs`-only-when-attrs): node
+    /// display objects first, then non-empty PyDict mirrors (`entry().update`
+    /// merges duplicate-node attrs), then ONE
+    /// `extend_nodes_with_attrs_unrecorded` and the `nodes_seq` bump.
+    fn add_attr_node_batch(
+        &mut self,
+        py: Python<'_>,
+        nodes: Vec<(String, AttrMap, Option<Py<PyDict>>)>,
+        new_nodes: Vec<(String, PyObject)>,
+        node_bumps: u64,
+    ) -> PyResult<()> {
+        for (canonical, node) in new_nodes {
+            self.node_key_map.entry(canonical).or_insert(node);
+        }
+        for (canonical, _, src) in &nodes {
+            if let Some(src) = src {
+                let bound = src.bind(py);
+                if !bound.is_empty() {
+                    self.node_py_attrs
+                        .entry(canonical.clone())
+                        .or_insert_with(|| PyDict::new(py).unbind())
+                        .bind(py)
+                        .update(bound.as_mapping())?;
+                }
+            }
+        }
+        let _inserted = self
+            .inner
+            .extend_nodes_with_attrs_unrecorded(nodes.into_iter().map(|(c, a, _)| (c, a)));
+        self.nodes_seq = self.nodes_seq.wrapping_add(node_bumps);
+        Ok(())
+    }
 }
 
 #[pyclass(module = "franken_networkx", mapping)]
@@ -3094,6 +3200,45 @@ impl PyMultiGraph {
         self.nodes_seq = self.nodes_seq.wrapping_add(node_bumps);
         self.edges_seq = self.edges_seq.wrapping_add(edge_bumps);
         Ok(true)
+    }
+
+    /// br-r37-c1-nodebatch: native attributed-node batch for
+    /// `add_nodes_from([(n, dict), ...])` on a FRESH MultiGraph — sibling of
+    /// `PyGraph::_try_add_nodes_from_batch`. The per-node loop pays ~5.5x nx on
+    /// attributed bulk construction. Returns `false` (NO mutation) for anything
+    /// outside this shape so the per-node loop owns every error/partial-prefix
+    /// contract.
+    fn _try_add_nodes_from_batch(
+        &mut self,
+        py: Python<'_>,
+        nodes_to_add: &Bound<'_, PyAny>,
+    ) -> PyResult<bool> {
+        const NODE_BATCH_MIN: usize = 8;
+        if self.inner.node_count() != 0
+            || self.inner.edge_count() != 0
+            || !self.adj_py_keys.is_empty()
+        {
+            return Ok(false);
+        }
+        if let Ok(list) = nodes_to_add.downcast::<PyList>() {
+            if list.len() < NODE_BATCH_MIN {
+                return Ok(false);
+            }
+            if let Some((nodes, new_nodes, node_bumps)) =
+                self.collect_attr_node_batch(py, list.iter(), list.len())?
+            {
+                self.add_attr_node_batch(py, nodes, new_nodes, node_bumps)?;
+                return Ok(true);
+            }
+        } else if let Ok(tuple) = nodes_to_add.downcast::<PyTuple>()
+            && tuple.len() >= NODE_BATCH_MIN
+            && let Some((nodes, new_nodes, node_bumps)) =
+                self.collect_attr_node_batch(py, tuple.iter(), tuple.len())?
+        {
+            self.add_attr_node_batch(py, nodes, new_nodes, node_bumps)?;
+            return Ok(true);
+        }
+        Ok(false)
     }
 
     /// br-r37-c1-trzrx: attributed sibling of `_try_add_edges_from_batch` —
