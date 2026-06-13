@@ -10902,6 +10902,7 @@ pub fn transitive_closure(
             edges_seq: 0,
             edges_dirty: std::sync::atomic::AtomicBool::new(false),
             node_keys_cache: std::sync::Mutex::new(None),
+            node_data_mirror: std::sync::Mutex::new(None),
         };
         Ok(py_dg.into_pyobject(py)?.into_any().unbind())
     }

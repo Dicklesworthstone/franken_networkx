@@ -892,6 +892,13 @@ class NodeDataView:
         # dicts are live so mutations still reflect — now faster than nx.
         if type(self._view) is _SIMPLE_GRAPH_NODE_VIEW_TYPE:
             pairs = _SIMPLE_GRAPH_NODE_VIEW_ITEMS(self._view)
+        elif type(self._view) is _SIMPLE_DIGRAPH_NODE_VIEW_TYPE:
+            # br-r37-c1-4b5ie: DiGraph fell to ``self._call(view, True, None)``
+            # — an ``AllData`` DiNodeView iterated in Python (2.68x slower than
+            # nx). Its native ``items()`` builds the (node, attr_dict) pairs in
+            # one Rust pass from the SAME ``node_py_attrs`` source, mirroring the
+            # Graph fast path above (which beats nx); values + order identical.
+            pairs = _SIMPLE_DIGRAPH_NODE_VIEW_ITEMS(self._view)
         else:
             pairs = self._call(self._view, True, None)
         return [(node, attrs.get(data, default)) for node, attrs in pairs]
@@ -5046,6 +5053,10 @@ _SIMPLE_DIGRAPH_NODE_VIEW_TYPE = type(DiGraph().nodes)
 _SIMPLE_GRAPH_NODE_VIEW_CALL = _SIMPLE_GRAPH_NODE_VIEW_TYPE.__call__
 _SIMPLE_DIGRAPH_NODE_VIEW_CALL = _SIMPLE_DIGRAPH_NODE_VIEW_TYPE.__call__
 _SIMPLE_GRAPH_NODE_VIEW_ITEMS = _SIMPLE_GRAPH_NODE_VIEW_TYPE.items
+# br-r37-c1-4b5ie: native (node, attr_dict) bulk builder for DiGraph node
+# views — mirrors the Graph fast path so nodes(data='attr') skips the slow
+# AllData Python iteration.
+_SIMPLE_DIGRAPH_NODE_VIEW_ITEMS = _SIMPLE_DIGRAPH_NODE_VIEW_TYPE.items
 _SIMPLE_GRAPH_NODE_VIEW_TYPE.__call__ = _node_view_call_with_attr_support(
     _SIMPLE_GRAPH_NODE_VIEW_CALL
 )

@@ -52,6 +52,12 @@ pub struct PyDiGraph {
     /// See PyGraph::edges_dirty.
     pub(crate) edges_dirty: AtomicBool,
     pub(crate) node_keys_cache: std::sync::Mutex<Option<(u64, Py<pyo3::types::PyTuple>)>>,
+    /// br-r37-c1-4b5ie: mirror of PyGraph::node_data_mirror — caches the
+    /// {node: attr_dict} dict (keyed on nodes_seq) so repeated
+    /// nodes(data=...) calls on an unchanged graph reuse it instead of
+    /// rebuilding every (node, dict) pair. Gives DiGraph the warm-call
+    /// parity Graph already has.
+    pub(crate) node_data_mirror: std::sync::Mutex<Option<(u64, Py<PyDict>)>>,
 }
 
 #[pyclass(
@@ -4365,6 +4371,57 @@ impl PyDiGraph {
         )
     }
 
+    /// br-r37-c1-4b5ie: mirror of PyGraph::materialize_node_py_attrs — return
+    /// the canonical (stored) Python attr dict for `canonical`, allocating and
+    /// storing an empty one on first touch so later writes (via
+    /// DiNodeView.__getitem__) land on the SAME object the data mirror caches.
+    pub(crate) fn materialize_node_py_attrs(
+        &mut self,
+        py: Python<'_>,
+        canonical: &str,
+    ) -> Py<PyDict> {
+        self.node_py_attrs
+            .entry(canonical.to_owned())
+            .or_insert_with(|| PyDict::new(py).unbind())
+            .clone_ref(py)
+    }
+
+    /// br-r37-c1-4b5ie: mirror of PyGraph::node_data_items_view — build (and
+    /// cache, keyed on nodes_seq) the {node: attr_dict} dict in node order and
+    /// return its `.items()`. Repeat calls on an unchanged graph reuse the
+    /// cached dict instead of rebuilding every (node, dict) pair. The cached
+    /// dict holds the SAME live attr-dict objects stored in node_py_attrs, so
+    /// in-place attr mutations reflect; node insertion bumps nodes_seq and
+    /// invalidates the cache.
+    pub(crate) fn node_data_items_view(&mut self, py: Python<'_>) -> PyResult<PyObject> {
+        let seq = self.nodes_seq;
+        if let Some(dict) = self
+            .node_data_mirror
+            .lock()
+            .unwrap()
+            .as_ref()
+            .and_then(|(cached_seq, dict)| (*cached_seq == seq).then(|| dict.clone_ref(py)))
+        {
+            return Ok(dict.bind(py).call_method0("items")?.unbind());
+        }
+
+        let nodes: Vec<String> = self
+            .inner
+            .nodes_ordered()
+            .iter()
+            .map(|node| (*node).to_owned())
+            .collect();
+        let dict = PyDict::new(py);
+        for node in &nodes {
+            let py_key = self.py_node_key(py, node);
+            let attrs = self.materialize_node_py_attrs(py, node);
+            dict.set_item(py_key, attrs.bind(py))?;
+        }
+        let owned = dict.unbind();
+        *self.node_data_mirror.lock().unwrap() = Some((seq, owned.clone_ref(py)));
+        Ok(owned.bind(py).call_method0("items")?.unbind())
+    }
+
     /// br-r37-c1-fpssi: all node display objects as a Vec, reusing the
     /// nodes_seq-keyed tuple cache (clone_ref of cached elements) instead of
     /// rebuilding via py_node_key per node. Backs the graph node iterator
@@ -4894,6 +4951,7 @@ impl PyDiGraph {
             edges_seq: 0,
             edges_dirty: AtomicBool::new(false),
             node_keys_cache: std::sync::Mutex::new(None),
+            node_data_mirror: std::sync::Mutex::new(None),
         })
     }
 
@@ -6225,6 +6283,7 @@ impl PyDiGraph {
                 edges_seq: 0,
                 edges_dirty: AtomicBool::new(false),
                 node_keys_cache: std::sync::Mutex::new(None),
+                node_data_mirror: std::sync::Mutex::new(None),
             };
             for canonical in self.inner.nodes_ordered() {
                 rev.node_key_map
@@ -6246,6 +6305,7 @@ impl PyDiGraph {
             edges_seq: 0,
             edges_dirty: AtomicBool::new(false),
             node_keys_cache: std::sync::Mutex::new(None),
+            node_data_mirror: std::sync::Mutex::new(None),
         };
         // br-r37-c1-revbulk: node + edge BATCHES through the unrecorded
         // path (one ledger record vs per-edge add_edge_with_attrs +
@@ -6470,6 +6530,7 @@ impl PyDiGraph {
             edges_seq: 0,
             edges_dirty: AtomicBool::new(self.edges_dirty.load(Ordering::Relaxed)),
             node_keys_cache: std::sync::Mutex::new(None),
+            node_data_mirror: std::sync::Mutex::new(None),
         };
         // br-r37-c1-0ek49: nx's DiGraph.copy() rebuild walk recreates succ
         // rows in original order but fills PRED rows in u-major walk order;
@@ -6536,6 +6597,7 @@ impl PyDiGraph {
             edges_seq: 0,
             edges_dirty: AtomicBool::new(false),
             node_keys_cache: std::sync::Mutex::new(None),
+            node_data_mirror: std::sync::Mutex::new(None),
         };
 
         for canonical in &keep {
@@ -6614,6 +6676,7 @@ impl PyDiGraph {
             edges_seq: 0,
             edges_dirty: AtomicBool::new(false),
             node_keys_cache: std::sync::Mutex::new(None),
+            node_data_mirror: std::sync::Mutex::new(None),
         };
 
         let mut nodes_needed: std::collections::HashSet<String> = std::collections::HashSet::new();
@@ -7439,6 +7502,7 @@ impl PyDiGraph {
             edges_seq: 0,
             edges_dirty: AtomicBool::new(self.edges_dirty.load(Ordering::Relaxed)),
             node_keys_cache: std::sync::Mutex::new(None),
+            node_data_mirror: std::sync::Mutex::new(None),
         })
     }
 
@@ -7847,21 +7911,14 @@ impl DiNodeView {
             .collect())
     }
 
-    /// Return a list of (node, attrs) pairs (like dict.items()).
-    fn items(&self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
-        let g = self.graph.borrow(py);
-        g.inner
-            .nodes_ordered()
-            .iter()
-            .map(|n| {
-                let py_key = g.py_node_key(py, n);
-                let attrs = g.node_py_attrs.get(*n).map_or_else(
-                    || PyDict::new(py).into_any().unbind(),
-                    |d| d.clone_ref(py).into_any(),
-                );
-                tuple_object(py, &[py_key, attrs])
-            })
-            .collect()
+    /// Return (node, attrs) pairs (like dict.items()).
+    /// br-r37-c1-4b5ie: serve from the nodes_seq-keyed node_data_mirror
+    /// (mirror of Graph's NodeView.items) so repeated nodes(data=...) calls on
+    /// an unchanged graph reuse the cached {node: attr_dict} dict instead of
+    /// rebuilding every (node, dict) pair.
+    fn items(&self, py: Python<'_>) -> PyResult<PyObject> {
+        let mut g = self.graph.borrow_mut(py);
+        g.node_data_items_view(py)
     }
 
     /// Return a list of attr dicts (like dict.values()).
