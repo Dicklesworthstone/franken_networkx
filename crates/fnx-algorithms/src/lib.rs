@@ -25873,6 +25873,187 @@ pub fn all_pairs_dijkstra_directed(
         .collect()
 }
 
+/// Johnson all-pairs shortest paths for directed graphs.
+///
+/// Computes Bellman-Ford potentials from an implicit super-source, reweights
+/// the existing directed CSR edge weights once, then runs the same native
+/// Dijkstra path kernel used by `all_pairs_dijkstra_directed`. Returns `None`
+/// when the Bellman-Ford phase detects a negative cycle.
+#[must_use]
+pub fn johnson_path_directed(
+    digraph: &DiGraph,
+    weight_attr: &str,
+) -> Option<Vec<(String, OrderedPaths)>> {
+    let csr = digraph.csr();
+    let names = digraph.nodes_ordered();
+    let n = names.len();
+    let mut weights: Vec<f64> = Vec::with_capacity(csr.succ_targets.len());
+    for u in 0..n {
+        for &v in csr.successors(u) {
+            weights.push(signed_digraph_edge_weight_or_default_idx(
+                digraph,
+                u,
+                v as usize,
+                weight_attr,
+            ));
+        }
+    }
+
+    let potentials =
+        johnson_bellman_ford_potentials(&csr.succ_offsets, &csr.succ_targets, &weights, n)?;
+    let mut reweighted = weights;
+    for u in 0..n {
+        for edge_offset in csr.succ_offsets[u]..csr.succ_offsets[u + 1] {
+            let v = csr.succ_targets[edge_offset] as usize;
+            reweighted[edge_offset] += potentials[u] - potentials[v];
+        }
+    }
+
+    Some(
+        (0..n)
+            .map(|source_idx| {
+                (
+                    names[source_idx].to_owned(),
+                    single_source_dijkstra_paths_csr(
+                        source_idx,
+                        &names,
+                        &csr.succ_offsets,
+                        &csr.succ_targets,
+                        &reweighted,
+                    ),
+                )
+            })
+            .collect(),
+    )
+}
+
+fn johnson_bellman_ford_potentials(
+    offsets: &[usize],
+    targets: &[u32],
+    weights: &[f64],
+    n: usize,
+) -> Option<Vec<f64>> {
+    let mut dist = vec![0.0; n];
+    let mut pred: Vec<Vec<usize>> = vec![Vec::new(); n];
+    let mut pred_edge: Vec<Option<usize>> = vec![None; n];
+    let nonexistent_edge = (usize::MAX, usize::MAX);
+    let mut recent_update = vec![nonexistent_edge; n];
+    let mut count = vec![0usize; n];
+    let mut queue = std::collections::VecDeque::with_capacity(n);
+    let mut in_queue = vec![true; n];
+    queue.extend(0..n);
+
+    while let Some(u) = queue.pop_front() {
+        in_queue[u] = false;
+        if pred[u].iter().all(|&pred_u| !in_queue[pred_u]) {
+            let dist_u = dist[u];
+            for edge_offset in offsets[u]..offsets[u + 1] {
+                let v = targets[edge_offset] as usize;
+                let dist_v = dist_u + weights[edge_offset];
+                if dist_v < dist[v] {
+                    let recent = recent_update[u];
+                    if recent.0 == v || recent.1 == v {
+                        pred[v].push(u);
+                        return None;
+                    }
+                    recent_update[v] = if pred_edge[v] == Some(u) {
+                        recent_update[u]
+                    } else {
+                        (u, v)
+                    };
+                    if !in_queue[v] {
+                        queue.push_back(v);
+                        in_queue[v] = true;
+                        count[v] += 1;
+                        if count[v] == n {
+                            return None;
+                        }
+                    }
+                    dist[v] = dist_v;
+                    pred[v].clear();
+                    pred[v].push(u);
+                    pred_edge[v] = Some(u);
+                } else if dist_v == dist[v] {
+                    pred[v].push(u);
+                }
+            }
+        }
+    }
+
+    Some(dist)
+}
+
+fn single_source_dijkstra_paths_csr(
+    source_idx: usize,
+    names: &[&str],
+    offsets: &[usize],
+    targets: &[u32],
+    weights: &[f64],
+) -> OrderedPaths {
+    let n = names.len();
+    let mut distances: Vec<f64> = vec![f64::INFINITY; n];
+    let mut predecessors: Vec<u32> = vec![u32::MAX; n];
+    let mut pq = BinaryHeap::new();
+    let mut seq_counter: u64 = 0;
+    let mut finalize_order: Vec<u32> = Vec::new();
+    let mut finalized = vec![false; n];
+
+    distances[source_idx] = 0.0;
+    seq_counter += 1;
+    pq.push(DijkstraState {
+        dist: 0.0,
+        seq: seq_counter,
+        node: u32::try_from(source_idx).unwrap_or(u32::MAX),
+    });
+
+    while let Some(DijkstraState {
+        dist: d, node: u, ..
+    }) = pq.pop()
+    {
+        let u_usize = u as usize;
+        if d > distances[u_usize] + DISTANCE_COMPARISON_EPSILON {
+            continue;
+        }
+        if !finalized[u_usize] {
+            finalized[u_usize] = true;
+            finalize_order.push(u);
+        }
+
+        for edge_offset in offsets[u_usize]..offsets[u_usize + 1] {
+            let v = targets[edge_offset];
+            let v_usize = v as usize;
+            let next_dist = d + weights[edge_offset];
+            if next_dist < distances[v_usize] - DISTANCE_COMPARISON_EPSILON {
+                distances[v_usize] = next_dist;
+                predecessors[v_usize] = u;
+                seq_counter += 1;
+                pq.push(DijkstraState {
+                    dist: next_dist,
+                    seq: seq_counter,
+                    node: v,
+                });
+            }
+        }
+    }
+
+    let mut paths = Vec::with_capacity(finalize_order.len());
+    for &idx in &finalize_order {
+        let mut chain = vec![idx];
+        let mut cur = idx;
+        while predecessors[cur as usize] != u32::MAX {
+            cur = predecessors[cur as usize];
+            chain.push(cur);
+        }
+        let path = chain
+            .into_iter()
+            .rev()
+            .map(|i| names[i as usize].to_owned())
+            .collect();
+        paths.push((names[idx as usize].to_owned(), path));
+    }
+    paths
+}
+
 /// All-pairs Dijkstra returning distances only for directed graphs.
 #[must_use]
 pub fn all_pairs_dijkstra_path_length_directed(

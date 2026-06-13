@@ -1,0 +1,52 @@
+{
+  "results": [
+    {
+      "command": "PYTHONPATH=python /data/projects/franken_networkx/.venv/bin/python tests/artifacts/perf/20260613T-f61lr-johnson-negative-boldfalcon/johnson_negative_harness.py bench --impl fnx --case negative_dag_220 --loops 3",
+      "mean": 0.63843552896,
+      "stddev": 0.0370505243712421,
+      "median": 0.63202516196,
+      "user": 4.873612320000001,
+      "system": 0.10067914,
+      "min": 0.59540382796,
+      "max": 0.6917732519600001,
+      "times": [
+        0.6917732519600001,
+        0.63202516196,
+        0.6557963079600001,
+        0.6171790949600001,
+        0.59540382796
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "PYTHONPATH=python /data/projects/franken_networkx/.venv/bin/python tests/artifacts/perf/20260613T-f61lr-johnson-negative-boldfalcon/johnson_negative_harness.py bench --impl nx --case negative_dag_220 --loops 3",
+      "mean": 0.70521771176,
+      "stddev": 0.025195506695407294,
+      "median": 0.6929841829600001,
+      "user": 5.075380320000001,
+      "system": 0.08374074000000001,
+      "min": 0.6795397869600001,
+      "max": 0.7323741559600001,
+      "times": [
+        0.6929841829600001,
+        0.6795397869600001,
+        0.73221617396,
+        0.7323741559600001,
+        0.6889742589600001
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

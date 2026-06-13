@@ -14939,6 +14939,33 @@ fn all_pairs_dijkstra_path(
     Ok(outer_dict.into_any().unbind())
 }
 
+/// Return Johnson all-pairs shortest paths for exact directed graphs.
+#[allow(dead_code)]
+#[pyfunction]
+#[pyo3(signature = (g, weight="weight"))]
+fn johnson_path_directed(py: Python<'_>, g: &Bound<'_, PyAny>, weight: &str) -> PyResult<PyObject> {
+    sync_rust_attrs_if_available(g)?;
+    let gr = extract_graph(g)?;
+    let Some(dg) = gr.digraph() else {
+        return Err(crate::NetworkXNotImplemented::new_err(
+            "not implemented for undirected type",
+        ));
+    };
+    let Some(result) = py.allow_threads(|| fnx_algorithms::johnson_path_directed(dg, weight))
+    else {
+        return Err(crate::NetworkXUnbounded::new_err(
+            "Negative cycle detected.",
+        ));
+    };
+    let outer_dict = PyDict::new(py);
+    for (source, targets) in &result {
+        let inner_dict =
+            emit_paths_dict_discovery(py, &gr, targets, source, gr.py_node_key(py, source))?;
+        outer_dict.set_item(gr.py_node_key(py, source), inner_dict)?;
+    }
+    Ok(outer_dict.into_any().unbind())
+}
+
 /// Return all-pairs shortest path distances using Bellman-Ford.
 #[pyfunction]
 #[pyo3(signature = (g, weight="weight"))]
@@ -19081,6 +19108,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(single_target_shortest_path_length, m)?)?;
     m.add_function(wrap_pyfunction!(all_pairs_dijkstra_path_length, m)?)?;
     m.add_function(wrap_pyfunction!(all_pairs_dijkstra_path, m)?)?;
+    m.add_function(wrap_pyfunction!(johnson_path_directed, m)?)?;
     m.add_function(wrap_pyfunction!(all_pairs_bellman_ford_path_length, m)?)?;
     m.add_function(wrap_pyfunction!(all_pairs_bellman_ford_path, m)?)?;
     m.add_function(wrap_pyfunction!(floyd_warshall, m)?)?;

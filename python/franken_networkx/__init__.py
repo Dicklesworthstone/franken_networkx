@@ -17123,6 +17123,7 @@ from franken_networkx._fnx import (
     single_target_shortest_path_length as _raw_single_target_shortest_path_length,
     all_pairs_dijkstra_path as _raw_all_pairs_dijkstra_path,
     all_pairs_dijkstra_path_length as _raw_all_pairs_dijkstra_path_length,
+    johnson_path_directed as _raw_johnson_path_directed,
     all_pairs_bellman_ford_path as _raw_all_pairs_bellman_ford_path,
     all_pairs_bellman_ford_path_length as _raw_all_pairs_bellman_ford_path_length,
     floyd_warshall as _raw_floyd_warshall,
@@ -28451,9 +28452,32 @@ def johnson(G, weight="weight"):
     Dijkstra path kernel, whose finalize order matches nx's
     Johnson Dijkstra order. Negative/callable/non-string/multi-
     graph/view/non-fnx cases remain delegated to nx Johnson.
+    br-r37-c1-f61lr extends the native route only to exact DiGraph rows whose
+    finite numeric weights include a negative edge and whose synced Rust attrs
+    are all integer-typed, preserving the proof surface for tie/order parity.
     """
-    if type(G) in (Graph, DiGraph) and not _should_delegate_dijkstra_to_networkx(G, weight):
-        return dict(all_pairs_dijkstra_path(G, weight=weight))
+    if type(G) in (Graph, DiGraph) and isinstance(weight, str):
+        fast_result = None
+        if _native_check_dijkstra_weights_fast is not None and not G.is_multigraph():
+            try:
+                fast_result = _native_check_dijkstra_weights_fast(G, weight)
+            except Exception:
+                fast_result = None
+        if fast_result is not None:
+            has_negative, has_nonfinite, has_nonnumeric = fast_result
+            if not (has_negative or has_nonfinite or has_nonnumeric):
+                return dict(all_pairs_dijkstra_path(G, weight=weight))
+            if (
+                type(G) is DiGraph
+                and has_negative
+                and not has_nonfinite
+                and not has_nonnumeric
+            ):
+                _sync_rust_edge_attrs(G)
+                if _sp_edge_weights_all_int(G, weight):
+                    return _raw_johnson_path_directed(G, weight=weight)
+        elif not _should_delegate_dijkstra_to_networkx(G, weight):
+            return dict(all_pairs_dijkstra_path(G, weight=weight))
     return _call_networkx_for_parity("johnson", G, weight=weight)
 
 

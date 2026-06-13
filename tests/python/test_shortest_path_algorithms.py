@@ -450,6 +450,47 @@ class TestAllPairsBellmanFordPathLength:
 
 
 # ---------------------------------------------------------------------------
+# johnson
+# ---------------------------------------------------------------------------
+
+class TestJohnson:
+    def test_negative_integer_digraph_matches_networkx_order(self):
+        g_fnx = fnx.DiGraph()
+        g_nx = nx.DiGraph()
+        edges = [
+            ("s", "a", 2),
+            ("s", "b", 2),
+            ("a", "c", -3),
+            ("b", "c", -3),
+            ("c", "d", 2),
+            ("a", "d", 4),
+            ("b", "d", 4),
+            ("d", "t", 1),
+        ]
+        for graph in (g_fnx, g_nx):
+            graph.add_weighted_edges_from(edges)
+
+        actual = fnx.johnson(g_fnx, weight="weight")
+        expected = nx.johnson(g_nx, weight="weight")
+
+        assert actual == expected
+        assert list(actual) == list(expected)
+        for source, expected_paths in expected.items():
+            assert list(actual[source].items()) == list(expected_paths.items())
+
+    def test_negative_integer_cycle_raises_unbounded(self):
+        g = fnx.DiGraph()
+        g.add_weighted_edges_from([
+            ("a", "b", 1),
+            ("b", "c", -3),
+            ("c", "a", 1),
+        ])
+
+        with pytest.raises(fnx.NetworkXUnbounded):
+            fnx.johnson(g, weight="weight")
+
+
+# ---------------------------------------------------------------------------
 # floyd_warshall
 # ---------------------------------------------------------------------------
 
