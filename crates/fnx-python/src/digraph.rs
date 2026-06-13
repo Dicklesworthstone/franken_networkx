@@ -17,7 +17,7 @@ use fnx_runtime::{CompatibilityMode, RuntimePolicy};
 use pyo3::IntoPyObjectExt;
 use pyo3::exceptions::{PyKeyError, PyRuntimeError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
-use pyo3::types::{PyAny, PyDict, PyFloat, PyInt, PyIterator, PyList, PyString, PyTuple};
+use pyo3::types::{PyAny, PyDict, PyFloat, PyInt, PyIterator, PyList, PySet, PyString, PyTuple};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -78,7 +78,8 @@ pub struct PyMultiDiGraph {
     pub(crate) edges_seq: u64,
     /// See PyGraph::edges_dirty.
     pub(crate) edges_dirty: AtomicBool,
-    pub(crate) node_keys_cache: std::sync::Mutex<Option<(u64, Py<pyo3::types::PyTuple>)>>,
+    pub(crate) node_keys_cache:
+        std::sync::Mutex<Option<(u64, Py<pyo3::types::PyTuple>, Py<pyo3::types::PySet>)>>,
 }
 
 impl PyMultiDiGraph {
@@ -138,7 +139,7 @@ impl PyMultiDiGraph {
         let seq = self.nodes_seq;
         {
             let guard = self.node_keys_cache.lock().unwrap();
-            if let Some((cached_seq, tup)) = guard.as_ref() {
+            if let Some((cached_seq, tup, _set)) = guard.as_ref() {
                 if *cached_seq == seq {
                     return tup.bind(py).iter().map(|o| o.unbind()).collect();
                 }
@@ -153,10 +154,10 @@ impl PyMultiDiGraph {
         let tup = pyo3::types::PyTuple::new(py, &keys)
             .expect("node-keys tuple")
             .unbind();
-        *self.node_keys_cache.lock().unwrap() = Some((seq, tup.clone_ref(py)));
+        let set = PySet::new(py, keys.iter()).expect("node-keys set").unbind();
+        *self.node_keys_cache.lock().unwrap() = Some((seq, tup.clone_ref(py), set));
         keys
     }
-
 
     fn multi_row_keydict(
         &self,
@@ -1052,7 +1053,7 @@ impl PyMultiDiGraph {
         let seq = self.nodes_seq;
         {
             let guard = self.node_keys_cache.lock().unwrap();
-            if let Some((cached_seq, tup)) = guard.as_ref() {
+            if let Some((cached_seq, tup, _set)) = guard.as_ref() {
                 if *cached_seq == seq {
                     return tup.clone_ref(py).into_any();
                 }
@@ -1064,11 +1065,37 @@ impl PyMultiDiGraph {
             .into_iter()
             .map(|n| self.py_node_key(py, n))
             .collect();
-        let tup = pyo3::types::PyTuple::new(py, keys)
+        let tup = pyo3::types::PyTuple::new(py, &keys)
             .expect("node-keys tuple")
             .unbind();
-        *self.node_keys_cache.lock().unwrap() = Some((seq, tup.clone_ref(py)));
+        let set = PySet::new(py, keys.iter()).expect("node-keys set").unbind();
+        *self.node_keys_cache.lock().unwrap() = Some((seq, tup.clone_ref(py), set));
         tup.into_any()
+    }
+
+    fn _native_node_key_set(&self, py: Python<'_>) -> PyResult<PyObject> {
+        let seq = self.nodes_seq;
+        {
+            let guard = self.node_keys_cache.lock().unwrap();
+            if let Some((cached_seq, _tup, set)) = guard.as_ref() {
+                if *cached_seq == seq {
+                    return Ok(set.bind(py).call_method0("copy")?.unbind());
+                }
+            }
+        }
+        let keys: Vec<PyObject> = self
+            .inner
+            .nodes_ordered()
+            .into_iter()
+            .map(|n| self.py_node_key(py, n))
+            .collect();
+        let tup = pyo3::types::PyTuple::new(py, &keys)
+            .expect("node-keys tuple")
+            .unbind();
+        let set = PySet::new(py, keys.iter()).expect("node-keys set").unbind();
+        let result = set.bind(py).call_method0("copy")?.unbind();
+        *self.node_keys_cache.lock().unwrap() = Some((seq, tup, set));
+        Ok(result)
     }
 
     /// Monotonic node-mutation counter (br-r37-c1-39d82 / jft0i).
@@ -4191,7 +4218,6 @@ impl PyDiGraph {
         *self.node_keys_cache.lock().unwrap() = Some((seq, tup.clone_ref(py)));
         keys
     }
-
 
     /// br-r37-c1-z6uka: succ-row display object (see PyGraph::py_adj_key).
     pub(crate) fn py_succ_key(&self, py: Python<'_>, owner: &str, nbr: &str) -> PyObject {

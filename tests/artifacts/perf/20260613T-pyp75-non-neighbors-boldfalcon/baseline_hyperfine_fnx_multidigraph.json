@@ -1,0 +1,38 @@
+{
+  "results": [
+    {
+      "command": "/data/projects/franken_networkx/.venv/bin/python tests/artifacts/perf/20260613T-pyp75-non-neighbors-boldfalcon/non_neighbors_harness.py bench --impl fnx --kind multidigraph --n 1500 --degree 3 --loops 300 --repeats 1 --output /data/tmp/pyp75_hyperfine_fnx.json",
+      "mean": 0.28158963866000003,
+      "stddev": 0.006631305841250233,
+      "median": 0.28085638356000003,
+      "user": 4.77172034,
+      "system": 0.0632915,
+      "min": 0.27033492606000004,
+      "max": 0.29623855006000005,
+      "times": [
+        0.28099712006000005,
+        0.28046235606000003,
+        0.27033492606000004,
+        0.29623855006000005,
+        0.28695803506000006,
+        0.28173559906,
+        0.28071564706,
+        0.28162436906000005,
+        0.27966446506000003,
+        0.27716531906
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

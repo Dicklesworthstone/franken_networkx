@@ -43460,6 +43460,10 @@ def non_neighbors(graph, node):
     # re-materialises every node's AdjacencyView row (MultiGraph was ~700x nx).
     native_keys = getattr(graph, "_native_node_keys", None)
     if native_keys is not None:
+        native_key_set = None
+        if type(graph) is MultiDiGraph:
+            native_key_set = getattr(graph, "_native_node_key_set", None)
+        nodes = native_key_set() if native_key_set is not None else set(native_keys())
         if _raw_nbrs is not None:
             nbrs = set(_raw_nbrs(graph, node))
         else:
@@ -43467,7 +43471,7 @@ def non_neighbors(graph, node):
             # G.adj[node] would re-materialise the whole AdjacencyView
             # (~900x slower on a 2k-node MultiGraph).
             nbrs = set(graph[node])
-        return set(native_keys()) - nbrs - {node}
+        return nodes - nbrs - {node}
     if _raw_nbrs is not None:
         return set(graph) - set(_raw_nbrs(graph, node)) - {node}
     return set(graph.adj) - set(graph.adj[node]) - {node}
