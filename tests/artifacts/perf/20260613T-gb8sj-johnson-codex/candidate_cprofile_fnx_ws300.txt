@@ -1,0 +1,31 @@
+impl=fnx case=ws300_weighted sha256=a1214383c688702d481f980f714e78707f2e4cf688974cfe7ab262ceb76b1586
+         351 function calls (350 primitive calls) in 0.251 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+      2/1    0.000    0.000    0.251    0.251 /data/projects/.scratch/franken_networkx-gb8sj-codex-20260613T1136/python/franken_networkx/__init__.py:51605(wrapper)
+        1    0.001    0.001    0.251    0.251 /data/projects/.scratch/franken_networkx-gb8sj-codex-20260613T1136/python/franken_networkx/__init__.py:28424(johnson)
+      301    0.027    0.000    0.250    0.001 /data/projects/.scratch/franken_networkx-gb8sj-codex-20260613T1136/python/franken_networkx/__init__.py:17833(all_pairs_dijkstra_path)
+        1    0.223    0.223    0.223    0.223 {built-in method franken_networkx._fnx.all_pairs_dijkstra_path}
+        2    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-gb8sj-codex-20260613T1136/python/franken_networkx/__init__.py:6635(_should_delegate_dijkstra_to_networkx)
+        1    0.000    0.000    0.000    0.000 {built-in method franken_networkx._fnx.check_dijkstra_edge_weights_fast}
+        1    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-gb8sj-codex-20260613T1136/python/franken_networkx/__init__.py:6772(_graph_has_nonunit_weight)
+        1    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-gb8sj-codex-20260613T1136/python/franken_networkx/__init__.py:6706(_sync_rust_edge_attrs)
+        1    0.000    0.000    0.000    0.000 {method '_fnx_sync_attrs_to_inner' of 'franken_networkx.Graph' objects}
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+        1    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-gb8sj-codex-20260613T1136/python/franken_networkx/__init__.py:975(wrapped)
+        1    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-gb8sj-codex-20260613T1136/python/franken_networkx/__init__.py:36104(nodes)
+        2    0.000    0.000    0.000    0.000 {built-in method franken_networkx._fnx.dijkstra_weight_cache_token}
+        2    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-gb8sj-codex-20260613T1136/python/franken_networkx/__init__.py:5799(predicate)
+        5    0.000    0.000    0.000    0.000 {built-in method builtins.vars}
+        1    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-gb8sj-codex-20260613T1136/python/franken_networkx/__init__.py:12702(_coerce_arg_to_fnx_graph)
+        1    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-gb8sj-codex-20260613T1136/python/franken_networkx/__init__.py:35568(_private_override)
+        8    0.000    0.000    0.000    0.000 {built-in method builtins.isinstance}
+        2    0.000    0.000    0.000    0.000 {function _make_class_safe_predicate.<locals>.predicate at 0x7a090c96fe20}
+        4    0.000    0.000    0.000    0.000 {method 'get' of 'dict' objects}
+        3    0.000    0.000    0.000    0.000 {built-in method builtins.len}
+        4    0.000    0.000    0.000    0.000 {built-in method builtins.callable}
+        2    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-gb8sj-codex-20260613T1136/python/franken_networkx/__init__.py:23409(_validate_backend_dispatch_keywords)
+        1    0.000    0.000    0.000    0.000 {built-in method builtins.getattr}
+        2    0.000    0.000    0.000    0.000 {method 'pop' of 'dict' objects}

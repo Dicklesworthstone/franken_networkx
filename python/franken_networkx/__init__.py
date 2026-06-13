@@ -28443,9 +28443,14 @@ def johnson(G, weight="weight"):
     produced inner-dict keys in BF-tree-discovery order, which
     differed from nx's johnson algorithm-specific Dijkstra-from-
     node iteration order (e.g. inner[a] keys ['a','b','d','c'] vs
-    nx ['a','b','c','d']). Delegate to nx so the inner-dict
-    iteration order matches its contract exactly.
+    nx ['a','b','c','d']). br-r37-c1-gb8sj routes only the
+    non-negative simple-graph subset to the native all-pairs
+    Dijkstra path kernel, whose finalize order matches nx's
+    Johnson Dijkstra order. Negative/callable/non-string/multi-
+    graph/view/non-fnx cases remain delegated to nx Johnson.
     """
+    if type(G) in (Graph, DiGraph) and not _should_delegate_dijkstra_to_networkx(G, weight):
+        return dict(all_pairs_dijkstra_path(G, weight=weight))
     return _call_networkx_for_parity("johnson", G, weight=weight)
 
 

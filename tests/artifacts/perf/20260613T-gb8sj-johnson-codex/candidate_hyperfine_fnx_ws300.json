@@ -1,0 +1,28 @@
+{
+  "results": [
+    {
+      "command": "env PYTHONPATH=python /data/projects/franken_networkx/.venv/bin/python tests/artifacts/perf/20260613T-gb8sj-johnson-codex/johnson_harness.py bench --impl fnx --case ws300_weighted --loops 1",
+      "mean": 1.0199178713800001,
+      "stddev": 0.03260434573948706,
+      "median": 1.01016595618,
+      "user": 4.99123472,
+      "system": 0.11843338,
+      "min": 0.98833594418,
+      "max": 1.06718694218,
+      "times": [
+        1.03825374218,
+        0.98833594418,
+        0.99564677218,
+        1.06718694218,
+        1.01016595618
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

@@ -1,0 +1,57 @@
+impl=fnx case=ws300_weighted sha256=a1214383c688702d481f980f714e78707f2e4cf688974cfe7ab262ceb76b1586
+         3282882 function calls (3282874 primitive calls) in 0.786 seconds
+
+   Ordered by: cumulative time
+   List reduced from 230 to 50 due to restriction <50>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.000    0.000    0.786    0.786 /data/projects/.scratch/franken_networkx-gb8sj-codex-20260613T1136/python/franken_networkx/__init__.py:51600(wrapper)
+        1    0.000    0.000    0.786    0.786 /data/projects/.scratch/franken_networkx-gb8sj-codex-20260613T1136/python/franken_networkx/__init__.py:28424(johnson)
+        1    0.000    0.000    0.786    0.786 /data/projects/.scratch/franken_networkx-gb8sj-codex-20260613T1136/python/franken_networkx/__init__.py:6964(_call_networkx_for_parity)
+        1    0.000    0.000    0.777    0.777 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/utils/decorators.py:783(func)
+        2    0.000    0.000    0.777    0.388 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/utils/backends.py:554(_call_if_any_backends_installed)
+        1    0.000    0.000    0.777    0.777 <class 'networkx.utils.decorators.argmap'> compilation 21:1(argmap_johnson_18)
+        2    0.000    0.000    0.777    0.388 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/utils/backends.py:1484(_call_with_backend)
+        1    0.000    0.000    0.777    0.777 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/algorithms/shortest_paths/weighted.py:2462(johnson)
+      300    0.000    0.000    0.774    0.003 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/algorithms/shortest_paths/weighted.py:2537(dist_path)
+      300    0.002    0.000    0.773    0.003 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/algorithms/shortest_paths/weighted.py:770(_dijkstra)
+      300    0.335    0.001    0.771    0.003 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/algorithms/shortest_paths/weighted.py:784(_dijkstra_multisource)
+   900000    0.162    0.000    0.355    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/algorithms/shortest_paths/weighted.py:2534(new_weight)
+   903000    0.120    0.000    0.194    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/algorithms/shortest_paths/weighted.py:78(<lambda>)
+   913815    0.075    0.000    0.075    0.000 {method 'get' of 'dict' objects}
+   152994    0.039    0.000    0.039    0.000 {built-in method _heapq.heappop}
+   152994    0.019    0.000    0.019    0.000 {built-in method _heapq.heappush}
+   152994    0.014    0.000    0.014    0.000 {built-in method builtins.next}
+    90302    0.010    0.000    0.010    0.000 {method 'items' of 'dict' objects}
+        1    0.000    0.000    0.009    0.009 /data/projects/.scratch/franken_networkx-gb8sj-codex-20260613T1136/python/franken_networkx/__init__.py:6370(_networkx_graph_for_parity)
+        1    0.003    0.003    0.008    0.008 /data/projects/.scratch/franken_networkx-gb8sj-codex-20260613T1136/python/franken_networkx/backend.py:606(_fnx_to_nx)
+        1    0.000    0.000    0.003    0.003 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/algorithms/shortest_paths/weighted.py:1295(_bellman_ford)
+        1    0.002    0.002    0.003    0.003 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/algorithms/shortest_paths/weighted.py:1389(_inner_bellman_ford)
+        1    0.001    0.001    0.002    0.002 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/classes/graph.py:986(add_edges_from)
+        1    0.000    0.000    0.001    0.001 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/classes/graph.py:584(add_nodes_from)
+        1    0.001    0.001    0.001    0.001 {built-in method franken_networkx._fnx.fnx_to_nx_adjacency}
+        1    0.000    0.000    0.001    0.001 /data/projects/.scratch/franken_networkx-gb8sj-codex-20260613T1136/python/franken_networkx/backend.py:776(_align_rows)
+        1    0.000    0.000    0.001    0.001 <frozen importlib._bootstrap>:1349(_find_and_load)
+        1    0.000    0.000    0.001    0.001 <frozen importlib._bootstrap>:1304(_find_and_load_unlocked)
+        1    0.000    0.000    0.001    0.001 <frozen importlib._bootstrap>:911(_load_unlocked)
+        1    0.000    0.000    0.000    0.000 <frozen importlib._bootstrap_external>:1020(exec_module)
+     3607    0.000    0.000    0.000    0.000 {method 'update' of 'dict' objects}
+      301    0.000    0.000    0.000    0.000 {built-in method builtins.any}
+        1    0.000    0.000    0.000    0.000 <frozen importlib._bootstrap_external>:1093(get_code)
+      301    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-gb8sj-codex-20260613T1136/python/franken_networkx/backend.py:635(<genexpr>)
+        1    0.000    0.000    0.000    0.000 <frozen importlib._bootstrap_external>:782(_compile_bytecode)
+        1    0.000    0.000    0.000    0.000 {built-in method marshal.loads}
+     1503    0.000    0.000    0.000    0.000 {method 'add' of 'set' objects}
+     3300    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-gb8sj-codex-20260613T1136/python/franken_networkx/backend.py:785(<genexpr>)
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/utils/decorators.py:715(_lazy_compile)
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/utils/decorators.py:869(compile)
+        2    0.000    0.000    0.000    0.000 <frozen importlib._bootstrap>:480(_call_with_frames_removed)
+        2    0.000    0.000    0.000    0.000 {built-in method builtins.exec}
+      300    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-gb8sj-codex-20260613T1136/python/franken_networkx/__init__.py:5102(__getitem__)
+        1    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-gb8sj-codex-20260613T1136/python/franken_networkx/backend.py:1(<module>)
+2414/2413    0.000    0.000    0.000    0.000 {built-in method builtins.len}
+     1515    0.000    0.000    0.000    0.000 {method 'append' of 'list' objects}
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/utils/decorators.py:917(assemble)
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/utils/decorators.py:1059(signature)
+      300    0.000    0.000    0.000    0.000 {built-in method builtins.all}
+      2/1    0.000    0.000    0.000    0.000 /usr/lib/python3.13/inspect.py:3373(signature)
