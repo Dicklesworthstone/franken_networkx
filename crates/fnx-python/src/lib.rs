@@ -1539,9 +1539,44 @@ pub(crate) struct PyMultiGraph {
     /// See PyGraph::edges_dirty.
     pub(crate) edges_dirty: AtomicBool,
     pub(crate) node_keys_cache: std::sync::Mutex<Option<(u64, Py<pyo3::types::PyTuple>)>>,
+    /// br-r37-c1-4b5ie: see PyGraph::node_data_mirror — nodes_seq-keyed
+    /// {node: attr_dict} cache so repeated nodes(data=...) reuse it.
+    pub(crate) node_data_mirror: std::sync::Mutex<Option<(u64, Py<PyDict>)>>,
 }
 
 impl PyMultiGraph {
+    /// br-r37-c1-4b5ie: mirror of PyGraph::node_data_items_view for MultiGraph —
+    /// cache {node: attr_dict} keyed on nodes_seq and return its `.items()`.
+    /// Uses ensure_node_py_attrs so cached dicts are the canonical stored ones
+    /// (mutations reflect); node insertion bumps nodes_seq, invalidating it.
+    pub(crate) fn node_data_items_view(&mut self, py: Python<'_>) -> PyResult<PyObject> {
+        let seq = self.nodes_seq;
+        if let Some(dict) = self
+            .node_data_mirror
+            .lock()
+            .unwrap()
+            .as_ref()
+            .and_then(|(cached_seq, dict)| (*cached_seq == seq).then(|| dict.clone_ref(py)))
+        {
+            return Ok(dict.bind(py).call_method0("items")?.unbind());
+        }
+        let nodes: Vec<String> = self
+            .inner
+            .nodes_ordered()
+            .iter()
+            .map(|node| (*node).to_owned())
+            .collect();
+        let dict = PyDict::new(py);
+        for node in &nodes {
+            let py_key = self.py_node_key(py, node);
+            let attrs = self.ensure_node_py_attrs(py, node).clone_ref(py);
+            dict.set_item(py_key, attrs.bind(py))?;
+        }
+        let owned = dict.unbind();
+        *self.node_data_mirror.lock().unwrap() = Some((seq, owned.clone_ref(py)));
+        Ok(owned.bind(py).call_method0("items")?.unbind())
+    }
+
     /// br-r37-c1-natdiff: canonical lookup string of the DISPLAY edge key for
     /// `(u, v, internal_key)` — the form nx compares in set-ops. No `edge_py_keys`
     /// entry => the display key is the internal usize as an int.
@@ -1777,6 +1812,7 @@ impl PyMultiGraph {
             edges_seq: 0,
             edges_dirty: AtomicBool::new(false),
             node_keys_cache: std::sync::Mutex::new(None),
+            node_data_mirror: std::sync::Mutex::new(None),
         })
     }
 
@@ -4550,6 +4586,7 @@ impl PyMultiGraph {
             edges_seq: 0,
             edges_dirty: AtomicBool::new(false),
             node_keys_cache: std::sync::Mutex::new(None),
+            node_data_mirror: std::sync::Mutex::new(None),
         };
         for node in self.inner.nodes_ordered() {
             let rust_attrs = self
@@ -4618,6 +4655,7 @@ impl PyMultiGraph {
             edges_seq: 0,
             edges_dirty: AtomicBool::new(false),
             node_keys_cache: std::sync::Mutex::new(None),
+            node_data_mirror: std::sync::Mutex::new(None),
         };
         for node in self.inner.nodes_ordered() {
             let py_attrs = self.node_py_attrs.get(node).map_or_else(
@@ -4681,6 +4719,7 @@ impl PyMultiGraph {
             edges_seq: 0,
             edges_dirty: AtomicBool::new(false),
             node_keys_cache: std::sync::Mutex::new(None),
+            node_data_mirror: std::sync::Mutex::new(None),
         };
         let mut node_batch: Vec<(String, fnx_classes::AttrMap)> =
             Vec::with_capacity(self.inner.node_count());
@@ -4762,6 +4801,7 @@ impl PyMultiGraph {
             edges_seq: 0,
             edges_dirty: AtomicBool::new(self.edges_dirty.load(Ordering::Relaxed)),
             node_keys_cache: std::sync::Mutex::new(None),
+            node_data_mirror: std::sync::Mutex::new(None),
         };
         // br-r37-c1-s0d4x: nx's MultiGraph.copy() rebuild walk reorders
         // adjacency CELLS (u-major first-touch) just like simple Graph
@@ -4845,6 +4885,7 @@ impl PyMultiGraph {
             edges_seq: 0,
             edges_dirty: AtomicBool::new(self.edges_dirty.load(Ordering::Relaxed)),
             node_keys_cache: std::sync::Mutex::new(None),
+            node_data_mirror: std::sync::Mutex::new(None),
         })
     }
 
@@ -4878,6 +4919,7 @@ impl PyMultiGraph {
             edges_seq: 0,
             edges_dirty: AtomicBool::new(false),
             node_keys_cache: std::sync::Mutex::new(None),
+            node_data_mirror: std::sync::Mutex::new(None),
         };
 
         for canonical in &keep {
@@ -4979,6 +5021,7 @@ impl PyMultiGraph {
             edges_seq: 0,
             edges_dirty: AtomicBool::new(false),
             node_keys_cache: std::sync::Mutex::new(None),
+            node_data_mirror: std::sync::Mutex::new(None),
         };
 
         for (u, v, key_filter) in &keep_edges {
@@ -5076,6 +5119,7 @@ impl PyMultiGraph {
             edges_seq: 0,
             edges_dirty: AtomicBool::new(false),
             node_keys_cache: std::sync::Mutex::new(None),
+            node_data_mirror: std::sync::Mutex::new(None),
         };
 
         for (canonical, py_key) in &self.node_key_map {
@@ -5485,23 +5529,12 @@ impl MultiGraphNodeView {
             .collect())
     }
 
-    /// Return a list of (node, attrs) pairs (like dict.items()).
-    fn items(&self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
+    /// Return (node, attrs) pairs (like dict.items()).
+    /// br-r37-c1-4b5ie: serve from the nodes_seq-keyed node_data_mirror so
+    /// repeated nodes(data=...) on an unchanged graph reuse the cache.
+    fn items(&self, py: Python<'_>) -> PyResult<PyObject> {
         let mut g = self.graph.borrow_mut(py);
-        let mut result = Vec::new();
-        let nodes: Vec<String> = g
-            .inner
-            .nodes_ordered()
-            .into_iter()
-            .map(str::to_owned)
-            .collect();
-        for node in &nodes {
-            let py_key = g.py_node_key(py, node);
-            let attrs = g.ensure_node_py_attrs(py, node).clone_ref(py).into_any();
-            let pair = PyTuple::new(py, &[py_key, attrs])?;
-            result.push(pair.into_any().unbind());
-        }
-        Ok(result)
+        g.node_data_items_view(py)
     }
 
     /// Return a list of attr dicts (like dict.values()).

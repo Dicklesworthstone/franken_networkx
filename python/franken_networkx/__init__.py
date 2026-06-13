@@ -890,15 +890,16 @@ class NodeDataView:
         # bulk data=True call otherwise) and project the attribute in Python with
         # the same ``dict.get(data, default)``. Identical node order + values,
         # dicts are live so mutations still reflect — now faster than nx.
-        if type(self._view) is _SIMPLE_GRAPH_NODE_VIEW_TYPE:
-            pairs = _SIMPLE_GRAPH_NODE_VIEW_ITEMS(self._view)
-        elif type(self._view) is _SIMPLE_DIGRAPH_NODE_VIEW_TYPE:
-            # br-r37-c1-4b5ie: DiGraph fell to ``self._call(view, True, None)``
-            # — an ``AllData`` DiNodeView iterated in Python (2.68x slower than
-            # nx). Its native ``items()`` builds the (node, attr_dict) pairs in
-            # one Rust pass from the SAME ``node_py_attrs`` source, mirroring the
-            # Graph fast path above (which beats nx); values + order identical.
-            pairs = _SIMPLE_DIGRAPH_NODE_VIEW_ITEMS(self._view)
+        # br-r37-c1-4b5ie: every graph class has a native ``items()`` that
+        # serves the (node, attr_dict) pairs from its nodes_seq-keyed
+        # node_data_mirror (built once, reused while the node set is unchanged).
+        # Route the attr projection through it so Graph/DiGraph/MultiGraph/
+        # MultiDiGraph all skip rebuilding the pairs in Python; values + node
+        # order are byte-identical (same node_py_attrs source) and the dicts are
+        # live so in-place mutations still reflect.
+        native_items = _NODE_VIEW_NATIVE_ITEMS.get(type(self._view))
+        if native_items is not None:
+            pairs = native_items(self._view)
         else:
             pairs = self._call(self._view, True, None)
         return [(node, attrs.get(data, default)) for node, attrs in pairs]
@@ -5057,6 +5058,17 @@ _SIMPLE_GRAPH_NODE_VIEW_ITEMS = _SIMPLE_GRAPH_NODE_VIEW_TYPE.items
 # views — mirrors the Graph fast path so nodes(data='attr') skips the slow
 # AllData Python iteration.
 _SIMPLE_DIGRAPH_NODE_VIEW_ITEMS = _SIMPLE_DIGRAPH_NODE_VIEW_TYPE.items
+# br-r37-c1-4b5ie: native cached items() builders for all four node-view
+# types, captured BEFORE the `.items = _mapping_items_view` override below.
+# NodeDataView._materialize routes its attr-projection through these so every
+# graph class serves the (node, attr_dict) pairs from the nodes_seq-keyed
+# node_data_mirror instead of rebuilding them in Python.
+_NODE_VIEW_NATIVE_ITEMS = {
+    _SIMPLE_GRAPH_NODE_VIEW_TYPE: _SIMPLE_GRAPH_NODE_VIEW_TYPE.items,
+    _SIMPLE_DIGRAPH_NODE_VIEW_TYPE: _SIMPLE_DIGRAPH_NODE_VIEW_TYPE.items,
+    _MULTIGRAPH_NODE_VIEW_TYPE: _MULTIGRAPH_NODE_VIEW_TYPE.items,
+    _MULTIDIGRAPH_NODE_VIEW_TYPE: _MULTIDIGRAPH_NODE_VIEW_TYPE.items,
+}
 _SIMPLE_GRAPH_NODE_VIEW_TYPE.__call__ = _node_view_call_with_attr_support(
     _SIMPLE_GRAPH_NODE_VIEW_CALL
 )
