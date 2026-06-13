@@ -20417,7 +20417,7 @@ fn louvain_seed_rng(seed: Option<u64>) -> Option<MT19937> {
 
 fn louvain_randbelow(rng: &mut MT19937, upper_bound: usize) -> usize {
     debug_assert!(upper_bound > 0);
-    let bit_count = usize::BITS - (upper_bound - 1).leading_zeros();
+    let bit_count = usize::BITS - upper_bound.leading_zeros();
     loop {
         let candidate = if bit_count >= 32 {
             rng.next_u32() as usize
