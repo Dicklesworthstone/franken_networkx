@@ -1330,17 +1330,20 @@ impl PyMultiDiGraph {
 
     /// br-r37-c1-trzrx: attributed sibling of `_try_add_edges_from_batch` —
     /// native fast path for `add_edges_from([(u, v, data), ...])` (mixed with
-    /// plain `(u, v)`) on a FRESH MultiDiGraph with NO global `**attr`. The
+    /// plain `(u, v)`) on a FRESH MultiDiGraph. The
     /// directed twin of `PyMultiGraph::_try_add_attr_edges_from_batch`: edges
     /// are NOT canonicalized, so the per-pair sequential auto-key counter and
     /// the `edge_py_attrs` mirror both track `(u, v)` in order. Each 3-tuple's
     /// third element MUST be a `dict` (multigraph DATA; nx auto-keys it).
-    /// Returns `false` (NO mutation) for anything outside this shape so the
-    /// per-edge loop owns every error + partial-prefix contract.
+    /// Optional global `**attr` merges first; per-edge dicts override. Returns
+    /// `false` (NO mutation) for anything outside this shape so the per-edge
+    /// loop owns every error + partial-prefix contract.
+    #[pyo3(signature = (ebunch_to_add, global_attr=None))]
     fn _try_add_attr_edges_from_batch(
         &mut self,
         py: Python<'_>,
         ebunch_to_add: &Bound<'_, PyAny>,
+        global_attr: Option<&Bound<'_, PyDict>>,
     ) -> PyResult<bool> {
         const ATTR_EDGE_BATCH_MIN: usize = 8;
         if self.inner.edge_count() != 0
@@ -1363,6 +1366,19 @@ impl PyMultiDiGraph {
             return Ok(false);
         };
 
+        let global_map: fnx_classes::AttrMap = match global_attr {
+            Some(a) if !a.is_empty() => match py_dict_to_attr_map(a) {
+                Ok(attrs)
+                    if !attrs
+                        .keys()
+                        .any(|key| key.starts_with("__fnx_incompatible")) =>
+                {
+                    attrs
+                }
+                _ => return Ok(false),
+            },
+            _ => fnx_classes::AttrMap::new(),
+        };
         let mut edges: Vec<(String, String, usize, fnx_classes::AttrMap)> =
             Vec::with_capacity(items.len());
         let mut mirrors: Vec<((String, String, usize), Py<PyDict>)> = Vec::new();
@@ -1390,7 +1406,8 @@ impl PyMultiDiGraph {
             if !PyDiGraph::is_plain_batch_node(&u) || !PyDiGraph::is_plain_batch_node(&v) {
                 return Ok(false);
             }
-            let (rust_attrs, src): (fnx_classes::AttrMap, Option<Bound<'_, PyDict>>) = if tlen == 3 {
+            let (rust_attrs, src): (fnx_classes::AttrMap, Option<Bound<'_, PyDict>>) = if tlen == 3
+            {
                 let third = tuple.get_item(2)?;
                 let Ok(d) = third.downcast::<PyDict>() else {
                     return Ok(false);
@@ -1401,9 +1418,24 @@ impl PyMultiDiGraph {
                 if attrs.keys().any(|k| k.starts_with("__fnx_incompatible")) {
                     return Ok(false);
                 }
-                (attrs, Some(d.clone()))
-            } else {
+                if global_map.is_empty() {
+                    (attrs, Some(d.clone()))
+                } else {
+                    let mut merged_map = global_map.clone();
+                    merged_map.extend(attrs);
+                    let merged = global_attr
+                        .expect("non-empty global_map implies global_attr")
+                        .copy()?;
+                    merged.update(d.as_mapping())?;
+                    (merged_map, Some(merged))
+                }
+            } else if global_map.is_empty() {
                 (fnx_classes::AttrMap::new(), None)
+            } else {
+                let merged = global_attr
+                    .expect("non-empty global_map implies global_attr")
+                    .copy()?;
+                (global_map.clone(), Some(merged))
             };
 
             let Ok(uc) = node_key_to_string(py, &u) else {
