@@ -1,0 +1,78 @@
+{
+  "case": "adjacency",
+  "digest": "551294f989cd0507a069cbc256c555784c7a225e1913f454b324a717a0c4932f",
+  "git_head": "a012a638d7ce7e0674a1afe38925718dd4fdb8d0",
+  "impl": "fnx",
+  "max": 0.0009046896109939553,
+  "mean": 0.0007256951425723466,
+  "median": 0.0007110850720055169,
+  "min": 0.0006118531689862721,
+  "n": 800,
+  "raw": [
+    {
+      "case": "adjacency",
+      "digest": "551294f989cd0507a069cbc256c555784c7a225e1913f454b324a717a0c4932f",
+      "elapsed": 0.7110850720055168,
+      "impl": "fnx",
+      "n": 800,
+      "per_iter": 0.0007110850720055169,
+      "repeat": 1000
+    },
+    {
+      "case": "adjacency",
+      "digest": "551294f989cd0507a069cbc256c555784c7a225e1913f454b324a717a0c4932f",
+      "elapsed": 0.9046896109939553,
+      "impl": "fnx",
+      "n": 800,
+      "per_iter": 0.0009046896109939553,
+      "repeat": 1000
+    },
+    {
+      "case": "adjacency",
+      "digest": "551294f989cd0507a069cbc256c555784c7a225e1913f454b324a717a0c4932f",
+      "elapsed": 0.7156092110089958,
+      "impl": "fnx",
+      "n": 800,
+      "per_iter": 0.0007156092110089957,
+      "repeat": 1000
+    },
+    {
+      "case": "adjacency",
+      "digest": "551294f989cd0507a069cbc256c555784c7a225e1913f454b324a717a0c4932f",
+      "elapsed": 0.6118531689862721,
+      "impl": "fnx",
+      "n": 800,
+      "per_iter": 0.0006118531689862721,
+      "repeat": 1000
+    },
+    {
+      "case": "adjacency",
+      "digest": "551294f989cd0507a069cbc256c555784c7a225e1913f454b324a717a0c4932f",
+      "elapsed": 0.7089188579993788,
+      "impl": "fnx",
+      "n": 800,
+      "per_iter": 0.0007089188579993788,
+      "repeat": 1000
+    },
+    {
+      "case": "adjacency",
+      "digest": "551294f989cd0507a069cbc256c555784c7a225e1913f454b324a717a0c4932f",
+      "elapsed": 0.7425672170065809,
+      "impl": "fnx",
+      "n": 800,
+      "per_iter": 0.0007425672170065809,
+      "repeat": 1000
+    },
+    {
+      "case": "adjacency",
+      "digest": "551294f989cd0507a069cbc256c555784c7a225e1913f454b324a717a0c4932f",
+      "elapsed": 0.6851428600057261,
+      "impl": "fnx",
+      "n": 800,
+      "per_iter": 0.0006851428600057262,
+      "repeat": 1000
+    }
+  ],
+  "repeat": 1000,
+  "samples": 7
+}

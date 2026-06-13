@@ -858,6 +858,8 @@ class NodeDataView:
     def _materialize(self):
         data = self._data
         default = self._default
+        if data is True and type(self._view) is _SIMPLE_GRAPH_NODE_VIEW_TYPE:
+            return _SIMPLE_GRAPH_NODE_VIEW_ITEMS(self._view)
         if isinstance(data, bool):
             # Rust path: returns a NodeView; iterate its content directly.
             return list(self._call(self._view, data, default))
@@ -4903,6 +4905,7 @@ _SIMPLE_GRAPH_NODE_VIEW_TYPE = type(Graph().nodes)
 _SIMPLE_DIGRAPH_NODE_VIEW_TYPE = type(DiGraph().nodes)
 _SIMPLE_GRAPH_NODE_VIEW_CALL = _SIMPLE_GRAPH_NODE_VIEW_TYPE.__call__
 _SIMPLE_DIGRAPH_NODE_VIEW_CALL = _SIMPLE_DIGRAPH_NODE_VIEW_TYPE.__call__
+_SIMPLE_GRAPH_NODE_VIEW_ITEMS = _SIMPLE_GRAPH_NODE_VIEW_TYPE.items
 _SIMPLE_GRAPH_NODE_VIEW_TYPE.__call__ = _node_view_call_with_attr_support(
     _SIMPLE_GRAPH_NODE_VIEW_CALL
 )
