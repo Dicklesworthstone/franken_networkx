@@ -27659,11 +27659,13 @@ def degree_sequence_tree(deg_sequence, create_using=None):
     backbone_nodes = len(degrees) + 2
     add_path(graph, range(backbone_nodes))
     last = backbone_nodes
+    leaf_edges = []
 
     for source in range(1, backbone_nodes - 1):
         extra_edges = degrees.pop() - 2
-        graph.add_edges_from((source, target) for target in range(last, last + extra_edges))
+        leaf_edges.extend((source, target) for target in range(last, last + extra_edges))
         last += extra_edges
+    graph.add_edges_from(leaf_edges)
     return graph
 
 
