@@ -44844,14 +44844,17 @@ def random_lobster(n, p1, p2, seed=None, *, create_using=None, backend=None, **b
     backbone_length = int(2 * rng.random() * n + 0.5)
     graph = path_graph(backbone_length)
     current_node = backbone_length - 1
+    lobster_edges = []
     for backbone_node in range(backbone_length):
         while rng.random() < p1:
             current_node += 1
-            graph.add_edge(backbone_node, current_node)
+            lobster_edges.append((backbone_node, current_node))
             caterpillar_node = current_node
             while rng.random() < p2:
                 current_node += 1
-                graph.add_edge(caterpillar_node, current_node)
+                lobster_edges.append((caterpillar_node, current_node))
+    if lobster_edges:
+        graph.add_edges_from(lobster_edges)
     if create_using is None:
         return graph
     return _copy_graph_into(
