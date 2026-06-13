@@ -49214,21 +49214,25 @@ def random_powerlaw_tree_sequence(n, gamma=3, seed=None, tries=100):
     rng = _generator_random_state(seed)
     zseq = [min(n, max(round(rng.paretovariate(gamma - 1)), 0)) for _ in range(n)]
     swap = [min(n, max(round(rng.paretovariate(gamma - 1)), 0)) for _ in range(tries)]
-
-    def is_valid_tree_degree_sequence(sequence):
-        if not sequence:
-            return True
-        if len(sequence) == 1:
-            return sequence[0] == 0
-        return all(degree >= 1 for degree in sequence) and sum(sequence) == 2 * (
-            len(sequence) - 1
-        )
+    degree_sum = sum(zseq)
+    nonpositive_degrees = sum(degree < 1 for degree in zseq)
+    target_sum = 2 * (len(zseq) - 1)
 
     for _ in range(len(swap)):
-        if is_valid_tree_degree_sequence(zseq):
+        if len(zseq) == 1:
+            if zseq[0] == 0:
+                return zseq
+        elif nonpositive_degrees == 0 and degree_sum == target_sum:
             return zseq
         index = rng.randint(0, n - 1)
-        zseq[index] = swap.pop()
+        old_degree = zseq[index]
+        new_degree = swap.pop()
+        zseq[index] = new_degree
+        degree_sum += new_degree - old_degree
+        if old_degree < 1:
+            nonpositive_degrees -= 1
+        if new_degree < 1:
+            nonpositive_degrees += 1
 
     raise NetworkXError(f"Exceeded max ({tries}) attempts for a valid tree sequence.")
 

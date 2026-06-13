@@ -1,0 +1,4 @@
+360e90249a6d9bbeb9587a0e9e167695d9024810b39539865236a7983c4ace18  tests/artifacts/perf/20260613T-rpt-sequence-validity-boldfalcon/candidate_bench_fnx.json
+71587c82962b73abce4debbcc287a621b6d6e6c0a687af627e1c55527cc96be1  tests/artifacts/perf/20260613T-rpt-sequence-validity-boldfalcon/candidate_bench_nx.json
+9467bfdb009f38e628da087d329e36c1429b2019a5b1664c26a303ca7514b51d  tests/artifacts/perf/20260613T-rpt-sequence-validity-boldfalcon/candidate_golden.json
+aba326114c413a3272758cda6019508849855d96e61124f8041255fce2bde2c7  tests/artifacts/perf/20260613T-rpt-sequence-validity-boldfalcon/candidate_profile_fnx.txt
