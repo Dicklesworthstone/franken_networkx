@@ -5750,6 +5750,52 @@ impl PythonRandom {
     }
 }
 
+/// Return the exact edge insertion stream for NetworkX's random lobster graph.
+///
+/// The stream contains the initial path edges first, followed by the generated
+/// caterpillar/lobster attachment edges in the same order as NetworkX's Python
+/// implementation appends them before `Graph.add_edges_from`.
+pub fn random_lobster_edge_insertion_order(
+    n: usize,
+    p1: f64,
+    p2: f64,
+    seed: u64,
+) -> Result<(usize, Vec<(usize, usize)>), GenerationError> {
+    let p1 = p1.abs();
+    let p2 = p2.abs();
+    if p1 >= 1.0 || p2 >= 1.0 {
+        return Err(GenerationError::FailClosed {
+            operation: "random_lobster_graph",
+            reason: "Probability values for `p1` and `p2` must both be < 1.".to_owned(),
+        });
+    }
+
+    let mut rng = PythonRandom::new(seed);
+    let backbone_len = (2.0 * rng.random() * n as f64 + 0.5) as usize;
+    let mut edges = Vec::with_capacity(backbone_len.saturating_sub(1));
+    for node in 0..backbone_len.saturating_sub(1) {
+        edges.push((node, node + 1));
+    }
+
+    if backbone_len == 0 {
+        return Ok((0, edges));
+    }
+
+    let mut current_node = backbone_len - 1;
+    for backbone_node in 0..backbone_len {
+        while rng.random() < p1 {
+            current_node += 1;
+            edges.push((backbone_node, current_node));
+            let caterpillar_node = current_node;
+            while rng.random() < p2 {
+                current_node += 1;
+                edges.push((caterpillar_node, current_node));
+            }
+        }
+    }
+    Ok((current_node + 1, edges))
+}
+
 /// br-r37-c1-nzo8r: port of nx.generators.random_graphs._random_subset's
 /// inner `_try_creation` loop. Tracks unmatched stubs in `potential_edges`
 /// after each shuffle pass and only fully restarts when `_suitable` proves

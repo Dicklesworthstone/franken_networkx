@@ -655,6 +655,47 @@ pub fn random_regular_graph(py: Python<'_>, d: usize, n: usize, seed: u64) -> Py
     report_to_pygraph(py, report.graph)
 }
 
+#[pyfunction]
+pub fn random_lobster_graph_lazy_int(
+    py: Python<'_>,
+    n: usize,
+    p1: f64,
+    p2: f64,
+    seed: u64,
+) -> PyResult<PyGraph> {
+    let (node_count, edges) = fnx_generators::random_lobster_edge_insertion_order(n, p1, p2, seed)
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e:?}")))?;
+    let lazy_int_node_stop = i64::try_from(node_count)
+        .map_err(|_| PyValueError::new_err(format!("node count {node_count} exceeds i64")))?;
+
+    let mut graph = fnx_classes::Graph::new(CompatibilityMode::Strict);
+    let node_labels: Vec<String> = (0..node_count).map(|node| node.to_string()).collect();
+    let inserted_nodes = graph.extend_nodes_unrecorded(node_labels);
+    debug_assert_eq!(inserted_nodes, node_count);
+
+    let edge_count = edges.len();
+    let inserted_edges = graph.extend_existing_index_edges_unrecorded(edges);
+    debug_assert_eq!(inserted_edges, edge_count);
+
+    Ok(PyGraph {
+        inner: graph,
+        node_key_map: HashMap::new(),
+        lazy_int_node_stop,
+        node_py_attrs: HashMap::new(),
+        edge_py_attrs: HashMap::new(),
+        adj_py_keys: HashMap::new(),
+        dict_of_dicts_cache: None,
+        adj_row_py: HashMap::new(),
+        graph_attrs: PyDict::new(py).unbind(),
+        nodes_seq: 0,
+        edges_seq: 0,
+        edges_dirty: AtomicBool::new(false),
+        node_keys_cache: std::sync::Mutex::new(None),
+        node_iter_mirror: std::sync::Mutex::new(None),
+        node_data_mirror: std::sync::Mutex::new(None),
+    })
+}
+
 fn random_regular_edges_pyset_bound<'py>(
     py: Python<'py>,
     d: usize,
@@ -946,6 +987,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(newman_watts_strogatz_graph, m)?)?;
     m.add_function(wrap_pyfunction!(connected_watts_strogatz_graph, m)?)?;
     m.add_function(wrap_pyfunction!(random_regular_graph, m)?)?;
+    m.add_function(wrap_pyfunction!(random_lobster_graph_lazy_int, m)?)?;
     m.add_function(wrap_pyfunction!(random_regular_edges_pyset, m)?)?;
     m.add_function(wrap_pyfunction!(random_regular_graph_pyset_order, m)?)?;
     m.add_function(wrap_pyfunction!(powerlaw_cluster_graph, m)?)?;

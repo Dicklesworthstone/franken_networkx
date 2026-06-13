@@ -18847,6 +18847,9 @@ from franken_networkx._fnx import (
 from franken_networkx._fnx import (
     random_regular_graph_pyset_order as _rust_random_regular_graph_pyset_order,
 )
+from franken_networkx._fnx import (
+    random_lobster_graph_lazy_int as _rust_random_lobster_graph_lazy_int,
+)
 from franken_networkx._fnx import powerlaw_cluster_graph as _rust_powerlaw_cluster_graph
 from franken_networkx._fnx import stochastic_block_model as _rust_stochastic_block_model
 
@@ -45039,6 +45042,24 @@ def random_lobster(n, p1, p2, seed=None, *, create_using=None, backend=None, **b
     p1, p2 = abs(p1), abs(p2)
     if any(p >= 1 for p in [p1, p2]):
         raise NetworkXError("Probability values for `p1` and `p2` must both be < 1.")
+
+    if (
+        create_using is None
+        and seed is not None
+        and isinstance(seed, _numbers.Integral)
+        and not isinstance(seed, bool)
+        and isinstance(n, _numbers.Integral)
+        and not isinstance(n, bool)
+    ):
+        n_int = int(n)
+        seed_int = int(seed)
+        if 0 <= n_int and 0 <= seed_int <= 0xFFFF_FFFF_FFFF_FFFF:
+            return _rust_random_lobster_graph_lazy_int(
+                n_int,
+                float(p1),
+                float(p2),
+                seed_int,
+            )
 
     backbone_length = int(2 * rng.random() * n + 0.5)
     graph = path_graph(backbone_length)
