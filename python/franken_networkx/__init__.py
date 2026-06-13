@@ -959,7 +959,12 @@ class NodeDataView:
 
     def __str__(self):
         # br-r37-c1-mpv5x: nx NodeDataView.__str__ is str(list(self)).
-        return str(self._materialize())
+        # br-r37-c1-cxa7j: _materialize() returns dict_items for the cached
+        # data=True simple-graph fast path (f4d74a6e9), so str() would render
+        # "dict_items([...])" instead of nx's bare "[(n, {...}), ...]". Wrap in
+        # list() to match nx for every data form (attr path already returns a
+        # list; list() of a list is a cheap copy).
+        return str(list(self._materialize()))
 
     def __eq__(self, other):
         if hasattr(other, "__iter__"):
