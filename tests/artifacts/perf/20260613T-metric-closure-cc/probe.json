@@ -1,0 +1,32 @@
+{
+  "ws150": {
+    "n": 150,
+    "cur_ms": 116.00137200730387,
+    "cand_ms": 116.54221599746961,
+    "nx_ms": 48.26446800143458,
+    "cur_vs_nx": 0.4160680789050984,
+    "cand_vs_nx": 0.41413720846429164,
+    "cand_vs_cur_speedup": 0.9953592439826484,
+    "parity_cur_eq_nx": true,
+    "parity_cand_eq_nx": true,
+    "parity_cand_eq_cur": true,
+    "sha_cur": "8df4f24982fb13b5117b9057e8aa03e5bb136b13d629ab46146e231737f13604",
+    "sha_cand": "8df4f24982fb13b5117b9057e8aa03e5bb136b13d629ab46146e231737f13604",
+    "sha_nx": "8df4f24982fb13b5117b9057e8aa03e5bb136b13d629ab46146e231737f13604"
+  },
+  "ws300": {
+    "n": 300,
+    "cur_ms": 550.0984130048892,
+    "cand_ms": 543.6580730020069,
+    "nx_ms": 211.4342210115865,
+    "cur_vs_nx": 0.38435708232029986,
+    "cand_vs_nx": 0.38891029400901767,
+    "cand_vs_cur_speedup": 1.0118463062036762,
+    "parity_cur_eq_nx": false,
+    "parity_cand_eq_nx": false,
+    "parity_cand_eq_cur": true,
+    "sha_cur": "8944357b79be8ba35034b267abc6d9ee115c43020f543857f56894cd7b5be9d9",
+    "sha_cand": "8944357b79be8ba35034b267abc6d9ee115c43020f543857f56894cd7b5be9d9",
+    "sha_nx": "768757cdb0861970c00ce5b08e3a6f9ebf13e67bde42bce33fcc5cae5a5f8f51"
+  }
+}

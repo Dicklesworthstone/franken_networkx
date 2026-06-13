@@ -1,0 +1,50 @@
+{
+  "all_match": true,
+  "golden_sha256": "5f35e09d392604d28616f2f73705a10a211a388af15dde67a2f375d396197cc9",
+  "cases": {
+    "karate": {
+      "match_cur_eq_cand": true,
+      "n_edges": 561
+    },
+    "petersen": {
+      "match_cur_eq_cand": true,
+      "n_edges": 45
+    },
+    "path_8": {
+      "match_cur_eq_cand": true,
+      "n_edges": 28
+    },
+    "cycle_12": {
+      "match_cur_eq_cand": true,
+      "n_edges": 66
+    },
+    "complete_6": {
+      "match_cur_eq_cand": true,
+      "n_edges": 15
+    },
+    "grid": {
+      "match_cur_eq_cand": true,
+      "n_edges": 300
+    },
+    "wkarate": {
+      "match_cur_eq_cand": true,
+      "n_edges": 561
+    },
+    "ws_60_1": {
+      "match_cur_eq_cand": true,
+      "n_edges": 1770
+    },
+    "ws_60_7": {
+      "match_cur_eq_cand": true,
+      "n_edges": 1770
+    },
+    "ws_150_42": {
+      "match_cur_eq_cand": true,
+      "n_edges": 11175
+    },
+    "ws_300_3": {
+      "match_cur_eq_cand": true,
+      "n_edges": 44850
+    }
+  }
+}
