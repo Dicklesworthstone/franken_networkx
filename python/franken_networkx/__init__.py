@@ -40749,28 +40749,57 @@ def soft_random_geometric_graph(
         def p_dist(d):
             return _math.exp(-d)
 
-    if p == float("inf"):
-        # Chebyshev: filter on max(|a-b|) ≤ radius. NX computes the dist
-        # value for ``p_dist`` via ``sum(|a-b|**p) ** (1/p)`` even when
-        # ``p`` is infinite — for points in [0, 1], every term collapses
-        # to 0 and ``0 ** 0`` evaluates to 1.0, so NX's ``p_dist`` always
-        # sees ``1.0``. Mirror that quirk for bit-for-bit parity.
-        for i in range(n):
-            for j in range(i + 1, n):
-                if max(abs(a - b) for a, b in zip(pos[i], pos[j])) > radius:
-                    continue
-                if rng.random() < p_dist(1.0):
-                    G.add_edge(i, j)
-    else:
-        radius_p = radius ** p
-        for i in range(n):
-            for j in range(i + 1, n):
-                d_p = sum(abs(a - b) ** p for a, b in zip(pos[i], pos[j]))
-                if d_p > radius_p:
-                    continue
-                d = d_p ** (1.0 / p)
-                if rng.random() < p_dist(d):
-                    G.add_edge(i, j)
+    # br-r37-c1-nt3co: replace the O(n^2) brute-force pairwise scan with nx's
+    # exact geometric_edges construction — a scipy cKDTree.query_pairs(radius, p)
+    # radius query (O(n log n + |E|), the SAME call nx uses). ``rng.random()`` is
+    # consumed once per WITHIN-RADIUS pair in nx's geometric_edges order; sorted
+    # query_pairs is exactly i<j lexicographic = the brute-force visit order, so
+    # the draw sequence (and thus the edge set) is byte-identical. The Chebyshev
+    # (p == inf) quirk (NX's p_dist always sees 1.0 for points in [0, 1]) is
+    # preserved. Falls back to brute force when scipy is unavailable (as nx does).
+    if n >= 2:
+        try:
+            import scipy as _sp
+
+            coords = [pos[i] for i in range(n)]
+            kdtree = _sp.spatial.cKDTree(coords)
+            edge_indexes = sorted(kdtree.query_pairs(radius, p))
+            if p == float("inf"):
+                _edges = [
+                    (i, j) for i, j in edge_indexes if rng.random() < p_dist(1.0)
+                ]
+            else:
+                _edges = []
+                for i, j in edge_indexes:
+                    d = sum(
+                        abs(a - b) ** p for a, b in zip(pos[i], pos[j])
+                    ) ** (1.0 / p)
+                    if rng.random() < p_dist(d):
+                        _edges.append((i, j))
+            G.add_edges_from(_edges)
+        except ImportError:
+            if p == float("inf"):
+                # Chebyshev: filter on max(|a-b|) ≤ radius. NX computes the dist
+                # value for ``p_dist`` via ``sum(|a-b|**p) ** (1/p)`` even when
+                # ``p`` is infinite — for points in [0, 1], every term collapses
+                # to 0 and ``0 ** 0`` evaluates to 1.0, so NX's ``p_dist`` always
+                # sees ``1.0``. Mirror that quirk for bit-for-bit parity.
+                for i in range(n):
+                    for j in range(i + 1, n):
+                        if max(abs(a - b) for a, b in zip(pos[i], pos[j])) > radius:
+                            continue
+                        if rng.random() < p_dist(1.0):
+                            G.add_edge(i, j)
+            else:
+                radius_p = radius ** p
+                for i in range(n):
+                    for j in range(i + 1, n):
+                        d_p = sum(abs(a - b) ** p for a, b in zip(pos[i], pos[j]))
+                        if d_p > radius_p:
+                            continue
+                        d = d_p ** (1.0 / p)
+                        if rng.random() < p_dist(d):
+                            G.add_edge(i, j)
     return G
 
 
@@ -40999,18 +41028,34 @@ def thresholded_random_geometric_graph(
     set_node_attributes(G, weight, weight_name)
     set_node_attributes(G, pos, pos_name)
 
-    # br-r37-c1-yrdso: for the default Euclidean p == 2 use the C built-in
-    # math.dist (identical result, ~5x faster per call across the O(n^2) scan);
-    # collect accepted edges in the same i<j order and commit via one
-    # add_edges_from instead of per-edge add_edge PyO3.
-    _dist = _math.dist if p == 2 else (lambda a, b: _minkowski_distance(a, b, p))
-    _edge_batch = []
-    for i in range(n):
-        for j in range(i + 1, n):
-            d = _dist(pos[i], pos[j])
-            if d <= radius and weight[i] + weight[j] >= theta:
-                _edge_batch.append((i, j))
-    G.add_edges_from(_edge_batch)
+    # br-r37-c1-nt3co: replace the O(n^2) brute-force pairwise scan with nx's
+    # exact geometric_edges construction — a scipy cKDTree.query_pairs(radius, p)
+    # radius query (O(n log n + |E|)), the SAME call nx uses — then filter the
+    # ``sorted`` index pairs by the threshold weight condition. cKDTree gives the
+    # within-radius pairs; ``sorted`` yields nx's edge order (nodes 0..n-1 added
+    # up front), so the result is byte-identical to nx and to the prior brute
+    # force. Falls back to brute force when scipy is unavailable (as nx does).
+    if n >= 2:
+        try:
+            import scipy as _sp
+
+            coords = [pos[i] for i in range(n)]
+            kdtree = _sp.spatial.cKDTree(coords)
+            edge_indexes = kdtree.query_pairs(radius, p)
+            G.add_edges_from(
+                (i, j)
+                for i, j in sorted(edge_indexes)
+                if weight[i] + weight[j] >= theta
+            )
+        except ImportError:
+            _dist = _math.dist if p == 2 else (lambda a, b: _minkowski_distance(a, b, p))
+            _edge_batch = []
+            for i in range(n):
+                for j in range(i + 1, n):
+                    d = _dist(pos[i], pos[j])
+                    if d <= radius and weight[i] + weight[j] >= theta:
+                        _edge_batch.append((i, j))
+            G.add_edges_from(_edge_batch)
     return G
 
 
