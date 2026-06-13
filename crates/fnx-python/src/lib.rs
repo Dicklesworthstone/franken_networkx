@@ -1488,7 +1488,8 @@ impl PyGraph {
                 }
             }
         }
-        self.inner
+        let _inserted = self
+            .inner
             .extend_nodes_with_attrs_unrecorded(nodes.into_iter().map(|(c, a, _)| (c, a)));
         self.nodes_seq = self.nodes_seq.wrapping_add(node_bumps);
         Ok(())
