@@ -1376,26 +1376,54 @@ class AdjacencyView(_Mapping):
 
 
 class MultiAdjacencyView(_Mapping):
-    def __init__(self, atlas_getter):
+    def __init__(self, atlas_getter, *, owner=None):
         self._atlas_getter = atlas_getter
+        # br-r37-c1-spg9n: the owning graph, for cheap membership/len/contains
+        # without materialising the whole {node:{nbr:{key:attrs}}} dict. Sparse:
+        # the pickle reconstructor + reverse views pass owner=None and keep the
+        # _atlas() fallback.
+        self._fnx_owner = owner
 
     def _atlas(self):
         return self._atlas_getter()
 
     def __len__(self):
+        # nx: len(G.adj) == number of nodes. Avoid materialising _atlas().
+        owner = self._fnx_owner
+        if owner is not None:
+            return owner.number_of_nodes()
         return len(self._atlas())
 
+    def __contains__(self, node):
+        # nx: ``n in G.adj`` is ``n in self._adj`` (dict membership) — hashes n
+        # and raises TypeError on unhashable (unlike ``n in G`` which returns
+        # False). hash() first to preserve that, then route node membership to
+        # the owner so it is O(1) instead of rebuilding the entire multigraph
+        # adjacency dict per check (was ~3ms/check => nbunch_iter 11000x slower).
+        hash(node)
+        owner = self._fnx_owner
+        if owner is not None:
+            return node in owner
+        return node in self._atlas()
+
     def __iter__(self):
-        # br-r37-c1-adjitype (cycle 219): see AdjacencyView.__iter__.
+        # br-r37-c1-adjitype (cycle 219): nx's iter(G.adj) is a dict_keyiterator;
+        # keep that exact type via dict.fromkeys (the cheap owner iteration would
+        # yield a NodeIterator). Materialisation of _atlas() here is a separate
+        # (smaller) residual; __contains__/__len__ are the catastrophic paths.
         return iter(dict.fromkeys(self._atlas()))
 
     def __getitem__(self, node):
         # br-r37-c1-i9whv: hash-check for nx-shaped TypeError parity.
         hash(node)
-        try:
-            self._atlas()[node]
-        except KeyError as exc:
-            raise KeyError(node) from exc
+        owner = self._fnx_owner
+        if owner is not None and node not in owner:
+            raise KeyError(node)
+        if owner is None:
+            try:
+                self._atlas()[node]
+            except KeyError as exc:
+                raise KeyError(node) from exc
         return AdjacencyView(lambda: self._atlas()[node])
 
     def __repr__(self):
@@ -1462,7 +1490,9 @@ def _cached_view(slot, factory):
 
 _multigraph_adj_view = _cached_view(
     "_fnx_view_adj",
-    lambda self: MultiAdjacencyView(lambda: _MULTIGRAPH_ADJ_DESCRIPTOR.__get__(self, MultiGraph)),
+    lambda self: MultiAdjacencyView(
+        lambda: _MULTIGRAPH_ADJ_DESCRIPTOR.__get__(self, MultiGraph), owner=self
+    ),
 )
 
 
@@ -1489,7 +1519,7 @@ _digraph_adj_view = _cached_view(
 _multidigraph_adj_view = _cached_view(
     "_fnx_view_adj",
     lambda self: MultiAdjacencyView(
-        lambda: _MULTIDIGRAPH_ADJ_DESCRIPTOR.__get__(self, MultiDiGraph)
+        lambda: _MULTIDIGRAPH_ADJ_DESCRIPTOR.__get__(self, MultiDiGraph), owner=self
     ),
 )
 
@@ -1517,7 +1547,7 @@ _digraph_pred_view = _cached_view(
 _multidigraph_succ_view = _cached_view(
     "_fnx_view_succ",
     lambda self: MultiAdjacencyView(
-        lambda: _MULTIDIGRAPH_SUCC_DESCRIPTOR.__get__(self, MultiDiGraph)
+        lambda: _MULTIDIGRAPH_SUCC_DESCRIPTOR.__get__(self, MultiDiGraph), owner=self
     ),
 )
 
@@ -1525,7 +1555,7 @@ _multidigraph_succ_view = _cached_view(
 _multidigraph_pred_view = _cached_view(
     "_fnx_view_pred",
     lambda self: MultiAdjacencyView(
-        lambda: _MULTIDIGRAPH_PRED_DESCRIPTOR.__get__(self, MultiDiGraph)
+        lambda: _MULTIDIGRAPH_PRED_DESCRIPTOR.__get__(self, MultiDiGraph), owner=self
     ),
 )
 
