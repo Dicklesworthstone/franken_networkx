@@ -1,0 +1,38 @@
+{
+  "results": [
+    {
+      "command": "/data/projects/franken_networkx/.venv/bin/python tests/artifacts/perf/20260613T-e92fj-louvain-pass15-boldfalcon/louvain_pass15.py loop fnx_public ws300 --repeat 20 --warmup 3 --output tests/artifacts/perf/20260613T-e92fj-louvain-pass15-boldfalcon/baseline_loop_public_ws300.json",
+      "mean": 0.6832098815600001,
+      "stddev": 0.12872681959612273,
+      "median": 0.64959633866,
+      "user": 4.2401570799999995,
+      "system": 0.06729311999999998,
+      "min": 0.61043349916,
+      "max": 1.0407251741599999,
+      "times": [
+        0.70545190616,
+        0.64947527216,
+        0.6125543611600001,
+        1.0407251741599999,
+        0.6584747051600001,
+        0.63337304516,
+        0.6170797021600001,
+        0.61043349916,
+        0.65481374516,
+        0.64971740516
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

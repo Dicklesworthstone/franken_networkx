@@ -15,6 +15,8 @@ but routes the algorithms with fnx fast paths through them.
 
 from __future__ import annotations
 
+import math as _math
+
 import networkx.algorithms.community as _nx_community
 from networkx.algorithms.community import *  # noqa: F401,F403
 
@@ -251,6 +253,51 @@ def louvain_communities(
     _fnx._validate_backend_dispatch_keywords(
         "louvain_communities", backend, backend_kwargs
     )
+    native_seed = (
+        seed
+        if isinstance(seed, int)
+        and not isinstance(seed, bool)
+        and 0 <= seed <= 0xFFFF_FFFF_FFFF_FFFF
+        else None
+    )
+    native_max_level = (
+        max_level
+        if max_level is None
+        or (
+            isinstance(max_level, int)
+            and not isinstance(max_level, bool)
+            and max_level > 0
+        )
+        else None
+    )
+    if (
+        type(G) is _fnx.Graph
+        and native_seed is not None
+        and native_max_level == max_level
+        and isinstance(weight, str)
+        and isinstance(resolution, (int, float))
+        and isinstance(threshold, (int, float))
+        and not isinstance(resolution, bool)
+        and not isinstance(threshold, bool)
+        and _math.isfinite(float(resolution))
+        and _math.isfinite(float(threshold))
+        and float(threshold) >= 0.0
+        and G.number_of_edges() > 0
+        and _fnx.number_of_selfloops(G) == 0
+        and not _fnx._graph_has_edge_attribute(G, weight)
+    ):
+        return [
+            set(community)
+            for community in _fnx._raw_louvain_communities(
+                G,
+                weight,
+                float(resolution),
+                float(threshold),
+                native_max_level,
+                native_seed,
+            )
+        ]
+
     return _nx_community.louvain_communities(
         _fnx._networkx_graph_for_parity(G),
         weight=weight,
