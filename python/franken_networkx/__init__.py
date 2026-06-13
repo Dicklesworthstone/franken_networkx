@@ -40994,11 +40994,18 @@ def thresholded_random_geometric_graph(
     set_node_attributes(G, weight, weight_name)
     set_node_attributes(G, pos, pos_name)
 
+    # br-r37-c1-yrdso: for the default Euclidean p == 2 use the C built-in
+    # math.dist (identical result, ~5x faster per call across the O(n^2) scan);
+    # collect accepted edges in the same i<j order and commit via one
+    # add_edges_from instead of per-edge add_edge PyO3.
+    _dist = _math.dist if p == 2 else (lambda a, b: _minkowski_distance(a, b, p))
+    _edge_batch = []
     for i in range(n):
         for j in range(i + 1, n):
-            d = _minkowski_distance(pos[i], pos[j], p)
+            d = _dist(pos[i], pos[j])
             if d <= radius and weight[i] + weight[j] >= theta:
-                G.add_edge(i, j)
+                _edge_batch.append((i, j))
+    G.add_edges_from(_edge_batch)
     return G
 
 
