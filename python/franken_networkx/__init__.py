@@ -5994,7 +5994,14 @@ class _DiEdgeMethodView:
         return iter(self._method(self._graph))
 
     def __len__(self):
-        return len(self._method(self._graph))
+        # br-r37-c1-edgelen: ``len(self._method(...))`` rebuilt the ENTIRE edge
+        # list just to count it — and CPython calls __len__ for the size hint
+        # before __iter__, so ``list(DG.edges())`` materialized the edges TWICE
+        # (~2x nx). An InEdgeView/OutEdgeView spans every directed edge (parallel
+        # edges counted for multigraphs), so the length is the O(1) native edge
+        # count. Mirrors nx.OutEdgeView/InEdgeView.__len__ (== G.number_of_edges())
+        # and the sibling NodeDataView fix.
+        return self._graph.number_of_edges()
 
     def __contains__(self, item):
         # br-r37-c1-iemvcontains: nx.InEdgeView / OutEdgeView /
