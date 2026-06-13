@@ -1,0 +1,38 @@
+{
+  "results": [
+    {
+      "command": "/data/projects/franken_networkx/.venv/bin/python tests/artifacts/perf/20260613T-wxy3x-greedy-modularity-boldfalcon/greedy_modularity_probe.py bench fnx_raw watts_strogatz_300 --repeat 5",
+      "mean": 0.25874798629999995,
+      "stddev": 0.007308074721395169,
+      "median": 0.2570056529,
+      "user": 4.33062444,
+      "system": 0.05238826,
+      "min": 0.24906877790000004,
+      "max": 0.2695296749,
+      "times": [
+        0.24906877790000004,
+        0.2650239119,
+        0.2530860649,
+        0.2549251679,
+        0.2553138239,
+        0.2613749919,
+        0.2512413419,
+        0.2692186259,
+        0.2586974819,
+        0.2695296749
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

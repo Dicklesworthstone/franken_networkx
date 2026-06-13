@@ -21167,7 +21167,19 @@ pub fn greedy_modularity_communities(
             c
         })
         .collect();
-    result.sort_by(|a, b| a[0].cmp(&b[0]));
+    result.sort_by(|a, b| {
+        let a_min = a
+            .iter()
+            .filter_map(|node| node_to_idx.get(node.as_str()).copied())
+            .min()
+            .unwrap_or(usize::MAX);
+        let b_min = b
+            .iter()
+            .filter_map(|node| node_to_idx.get(node.as_str()).copied())
+            .min()
+            .unwrap_or(usize::MAX);
+        b.len().cmp(&a.len()).then_with(|| a_min.cmp(&b_min))
+    });
     result
 }
 
