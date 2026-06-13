@@ -40919,13 +40919,18 @@ def geographical_threshold_graph(
     set_node_attributes(G, pos, pos_name)
 
     if metric is None:
-        def metric(a, b):
-            return _minkowski_distance(a, b, 2)
+        # br-r37-c1-yrdso: default metric is the C built-in math.dist (nx's
+        # default), not the pure-Python _minkowski_distance — this O(n^2) loop
+        # calls it once per pair.
+        metric = _math.dist
     use_default_p_dist = p_dist is None
     if use_default_p_dist:
         def p_dist(r):
             return r ** -2
 
+    # br-r37-c1-yrdso: collect accepted edges (same i<j scan order) and commit
+    # via one add_edges_from instead of per-edge add_edge PyO3 round-trips.
+    _edge_batch = []
     for i in range(n):
         for j in range(i + 1, n):
             d = metric(pos[i], pos[j])
@@ -40934,7 +40939,8 @@ def geographical_threshold_graph(
             else:
                 rhs = (weight[i] + weight[j]) * p_dist(d)
             if rhs >= theta:
-                G.add_edge(i, j)
+                _edge_batch.append((i, j))
+    G.add_edges_from(_edge_batch)
     return G
 
 
