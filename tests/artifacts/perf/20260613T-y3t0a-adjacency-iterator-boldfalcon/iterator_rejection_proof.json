@@ -1,0 +1,47 @@
+{
+  "bead": "br-r37-c1-y3t0a",
+  "lever": "copy-preserving native adjacency items iterator",
+  "status": "rejected",
+  "reason": "The candidate preserved output behavior but regressed the benchmark; per-row PyO3 iterator crossings were more expensive than building the throwaway outer dict.",
+  "candidate_behavior": {
+    "row_is_dict": true,
+    "row_identity_reused": false,
+    "edge_attr_dict_is_live": true,
+    "row_mutation_visible_next_adjacency": false,
+    "has_edge_after_row_mutation": false,
+    "ordering_after_row_mutation": [
+      ["a", ["b"]],
+      ["b", ["a"]]
+    ]
+  },
+  "networkx_behavior": {
+    "row_is_dict": true,
+    "row_identity_reused": true,
+    "edge_attr_dict_is_live": true,
+    "row_mutation_visible_next_adjacency": true,
+    "has_edge_after_row_mutation": true,
+    "ordering_after_row_mutation": [
+      ["a", ["b", "c"]],
+      ["b", ["a"]]
+    ]
+  },
+  "golden_sha256": {
+    "baseline_golden_json": "e48e74c7624b404732f32f54747686431bde9733cf1e3072d3c61e80eda12e53",
+    "candidate_golden_json": "e48e74c7624b404732f32f54747686431bde9733cf1e3072d3c61e80eda12e53",
+    "adjacency_output": "05e5b22eb7a79e6009ddaeb9620bcef89b14f7c3e7bb0f83139b862817d6512b"
+  },
+  "benchmark": {
+    "baseline_mean_s": 0.00009378478488360998,
+    "candidate_mean_s": 0.00011463266093051061,
+    "candidate_over_baseline": 1.2222948644897307,
+    "speedup": 0.8181331927770704,
+    "accepted": false
+  },
+  "isomorphism_notes": {
+    "ordering": "Golden adjacency serialization preserved node and neighbor order.",
+    "tie_breaking": "No algorithmic tie-breaking path was changed.",
+    "floating_point": "No floating-point computation path was changed.",
+    "rng": "The benchmark graph construction uses fixed seed=0; no RNG path was changed.",
+    "mutation_contract": "Candidate retained the existing FrankenNetworkX row-copy isolation behavior for returned adjacency rows."
+  }
+}
