@@ -4366,6 +4366,27 @@ class _WeightAwareDegreeView:
                             yield (node, total)
 
                     return _weighted_degree_gen()
+                # br-r37-c1-wdeg2: simple DiGraph total degree = sum(succ) +
+                # sum(pred) summed over the native per-row dicts, skipping the
+                # _native_weighted_degree kernel (which built a PyList + called
+                # Python sum() per node, ~1.7x nx). nx adds the two group sums
+                # separately (a self-loop is counted in both succ and pred), so
+                # the order + float compensation are byte-identical.
+                if type(self._graph) is DiGraph:
+                    succ_row = self._graph._native_adjacency_row_dict
+                    pred_row = self._graph._native_predecessor_row_dict
+
+                    def _di_total_weighted_gen():
+                        for node in self._graph:
+                            out_w = sum(
+                                a.get(weight, 1) for a in succ_row(node).values()
+                            )
+                            in_w = sum(
+                                a.get(weight, 1) for a in pred_row(node).values()
+                            )
+                            yield (node, out_w + in_w)
+
+                    return _di_total_weighted_gen()
                 native = getattr(self._graph, "_native_weighted_degree", None)
                 if native is not None:
                     return iter(native(weight))
