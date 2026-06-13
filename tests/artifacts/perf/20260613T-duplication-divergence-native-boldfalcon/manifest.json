@@ -1,0 +1,74 @@
+{
+  "bead": "br-r37-c1-04z53.83",
+  "title": "[perf] Native duplication_divergence_graph construction",
+  "agent": "BoldFalcon",
+  "artifact_dir": "tests/artifacts/perf/20260613T-duplication-divergence-native-boldfalcon",
+  "baseline_git_head": "bbddf5a2769255a2d4204721b145fd79d3ac8313",
+  "case": {
+    "function": "duplication_divergence_graph",
+    "n": 800,
+    "p": 0.4,
+    "seed": 7
+  },
+  "profile_target": {
+    "baseline_total_calls": 69645,
+    "candidate_total_calls": 17671,
+    "baseline_hotspot": "NetworkX generation plus _from_nx_graph conversion",
+    "candidate_hotspot": "buffered adjacency simulation plus one add_nodes_from and one add_edges_from"
+  },
+  "lever": "Replace NetworkX delegation/conversion with a native buffered implementation that preserves the same RNG and adjacency insertion semantics, then constructs the FNX graph once.",
+  "benchmarks": {
+    "direct_fnx_median_seconds": {
+      "before": 0.008649843002785929,
+      "after": 0.001265176004380919,
+      "speedup": 6.836869315284322
+    },
+    "direct_fnx_mean_seconds": {
+      "before": 0.009432316048243992,
+      "after": 0.0012749015348651105,
+      "speedup": 7.398466305275856
+    },
+    "hyperfine_loop10_mean_seconds": {
+      "before": 0.4236658283,
+      "after": 0.31469809542,
+      "speedup": 1.3462611768735693
+    },
+    "hyperfine_loop10_median_seconds": {
+      "before": 0.42458095960000003,
+      "after": 0.31349405002,
+      "speedup": 1.3543509344847628
+    }
+  },
+  "golden": {
+    "fnx_sha256_before": "65eb6d6eb1e45aa0ffc36c4a262a2c7acb1db653fbd25fde6d68ed913fa1ceb2",
+    "fnx_sha256_after": "65eb6d6eb1e45aa0ffc36c4a262a2c7acb1db653fbd25fde6d68ed913fa1ceb2",
+    "networkx_sha256_before": "65eb6d6eb1e45aa0ffc36c4a262a2c7acb1db653fbd25fde6d68ed913fa1ceb2",
+    "networkx_sha256_after": "65eb6d6eb1e45aa0ffc36c4a262a2c7acb1db653fbd25fde6d68ed913fa1ceb2",
+    "nodes": 800,
+    "edges": 1698,
+    "focused_parity_cases": 5,
+    "focused_error_cases": 3,
+    "focused_parity_sha256": "95bbda045acad684f91c920e752cf04c84836028d2ec98903297685b256db295"
+  },
+  "score": {
+    "impact": 6.836869315284322,
+    "confidence": 4.0,
+    "effort": 1.0,
+    "impact_times_confidence_over_effort": 27.34747726113729,
+    "decision": "keep"
+  },
+  "validation": {
+    "py_compile": "pass",
+    "focused_pytest": "pass: 13 passed, 199 deselected in 0.54s",
+    "direct_parity": "pass: 5 value cases and 3 error cases, sha256 95bbda045acad684f91c920e752cf04c84836028d2ec98903297685b256db295",
+    "cargo_check": "pass: rch exec -- cargo check -p fnx-python --lib on vmi1153651",
+    "git_diff_check": "pass",
+    "ubs": "timeout after 90s with no findings emitted",
+    "cargo_fmt": "blocked by pre-existing Rust formatting drift in crates/fnx-python/src/{algorithms,digraph,lib,readwrite}.rs",
+    "cargo_clippy": "blocked by pre-existing fnx-generators unused_must_use errors at lib.rs:538, 621, 666, 6218, 6758"
+  },
+  "artifact_sha256_files": [
+    "baseline_artifact_sha256.txt",
+    "candidate_artifact_sha256.txt"
+  ]
+}

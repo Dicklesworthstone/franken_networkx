@@ -1,0 +1,38 @@
+{
+  "results": [
+    {
+      "command": "/usr/bin/python3 /data/projects/.scratch/franken_networkx-cod-opt-20260613T161804Z/tests/artifacts/perf/20260613T-duplication-divergence-native-boldfalcon/duplication_divergence_harness.py --repo-root /data/projects/.scratch/franken_networkx-cod-opt-20260613T161804Z --extension /data/projects/.scratch/franken_networkx-cod-opt-20260613T161804Z/python/franken_networkx/_fnx.cpython-313-x86_64-linux-gnu.so loop --impl fnx --repeat 10",
+      "mean": 0.31469809542,
+      "stddev": 0.01937262830465286,
+      "median": 0.31349405002,
+      "user": 4.458710160000001,
+      "system": 0.07348787999999998,
+      "min": 0.29002152752000004,
+      "max": 0.34209386352000004,
+      "times": [
+        0.30669777052,
+        0.29398745352000005,
+        0.29898181952,
+        0.33432748052000005,
+        0.32029032952000003,
+        0.34209386352000004,
+        0.29959595352,
+        0.33869941652,
+        0.32228533952000005,
+        0.29002152752000004
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

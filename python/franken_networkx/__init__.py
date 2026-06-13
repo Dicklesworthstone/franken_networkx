@@ -45187,16 +45187,39 @@ def _duplication_divergence_graph_impl(
         "duplication_divergence_graph", backend, backend_kwargs
     )
 
-    from franken_networkx.readwrite import _from_nx_graph, _to_nx_create_using
+    if p > 1 or p < 0:
+        raise NetworkXError(f"NetworkXError p={p} is not in [0,1].")
+    if n < 2:
+        raise NetworkXError("n must be greater than or equal to 2")
 
-    nx_result = _nx.duplication_divergence_graph(
-        n,
-        p,
-        seed=seed,
-        create_using=_to_nx_create_using(create_using),
-        backend="networkx",
+    graph = _checked_create_using(
+        create_using,
+        directed=False,
+        multigraph=False,
+        default=Graph,
     )
-    return _from_nx_graph(nx_result, create_using=create_using)
+    rng = _generator_random_state(seed)
+
+    nodes = [0, 1]
+    adjacency = [[1], [0]]
+    edges = [(0, 1)]
+    next_node = 2
+    while next_node < n:
+        random_node = rng.choice(nodes)
+        retained_edges = []
+        for neighbor in adjacency[random_node]:
+            if rng.random() < p:
+                retained_edges.append((next_node, neighbor))
+        if retained_edges:
+            adjacency.append([neighbor for _, neighbor in retained_edges])
+            for _, neighbor in retained_edges:
+                adjacency[neighbor].append(next_node)
+            nodes.append(next_node)
+            edges.extend(retained_edges)
+            next_node += 1
+    graph.add_nodes_from(nodes)
+    graph.add_edges_from(edges)
+    return graph
 
 
 def interval_graph(intervals):
