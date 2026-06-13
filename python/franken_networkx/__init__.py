@@ -9869,15 +9869,15 @@ def is_semieulerian(G):
 def is_eulerian(G):
     """Return True iff *G* is Eulerian (connected + all even degrees).
 
-    The Rust helper returned False for a graph consisting only of a
-    self-loop — it either excluded self-loops from its degree _count or
-    special-cased 1-node graphs. nx includes the self-loop's +2 degree
-    contribution and correctly reports True for e.g. Graph([(0,0)]).
-    Delegate the 0- and 1-node branches to a Python check and keep the
-    fast path for ``G`` with >= 2 distinct nodes.
+    The exact simple-Graph path is handled in native index space: row lengths
+    provide degree parity, an integer self-loop probe contributes the extra
+    NetworkX self-loop degree count, then the existing early-exit native
+    connectivity check runs only if parity passes.
     """
     # br-r37-c1-rg8jh: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
+    if type(G) is Graph:
+        return _raw_is_eulerian(G)
     if G.number_of_nodes() <= 1:
         if G.is_directed():
             # For <=1 nodes the helper is the right answer (nx is_eulerian

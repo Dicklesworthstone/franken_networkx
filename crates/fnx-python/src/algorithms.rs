@@ -6726,12 +6726,12 @@ pub fn is_eulerian(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<bool> {
         return Ok(py.allow_threads(|| fnx_algorithms::is_strongly_connected(dg)));
     }
     let inner = gr.undirected();
-    if inner.node_count() > 1 && inner.nodes_ordered().iter().any(|n| inner.degree(n) == 0) {
-        return Ok(false);
-    }
     // For multigraphs, the simple-graph conversion collapses parallel edges
     // which changes degree parity. Check multigraph degree directly via Python.
     if gr.is_multigraph() {
+        if inner.node_count() > 1 && inner.nodes_ordered().iter().any(|n| inner.degree(n) == 0) {
+            return Ok(false);
+        }
         let nodes_method = g.call_method0("nodes")?;
         let nodes: Vec<Bound<'_, PyAny>> =
             nodes_method.try_iter()?.collect::<PyResult<Vec<_>>>()?;
@@ -6745,7 +6745,14 @@ pub fn is_eulerian(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<bool> {
         // Also check connectivity via the simple graph.
         return Ok(py.allow_threads(|| fnx_algorithms::is_connected(inner).is_connected));
     }
-    Ok(py.allow_threads(|| fnx_algorithms::is_eulerian(inner).is_eulerian))
+    for idx in 0..inner.node_count() {
+        let row_degree = inner.neighbors_indices(idx).map_or(0, <[usize]>::len);
+        let self_loop_extra = usize::from(inner.edge_attrs_by_indices(idx, idx).is_some());
+        if !(row_degree + self_loop_extra).is_multiple_of(2) {
+            return Ok(false);
+        }
+    }
+    Ok(py.allow_threads(|| fnx_algorithms::is_connected(inner).is_connected))
 }
 
 /// Return True if the graph has an Eulerian path.

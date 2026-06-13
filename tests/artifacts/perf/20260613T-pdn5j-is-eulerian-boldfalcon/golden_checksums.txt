@@ -1,0 +1,2 @@
+6e20c68120f53ef69848831929612221c2357160a225d4bb13196425ddc5c941  tests/artifacts/perf/20260613T-pdn5j-is-eulerian-boldfalcon/baseline_golden.json
+6e20c68120f53ef69848831929612221c2357160a225d4bb13196425ddc5c941  tests/artifacts/perf/20260613T-pdn5j-is-eulerian-boldfalcon/candidate_golden.json

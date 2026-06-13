@@ -1,0 +1,38 @@
+{
+  "results": [
+    {
+      "command": "/data/projects/franken_networkx/.venv/bin/python tests/artifacts/perf/20260613T-pdn5j-is-eulerian-boldfalcon/is_eulerian_harness.py bench --impl nx --case complete_601 --loops 1000 --repeats 1 --output /tmp/pdn5j_hf_nx.json",
+      "mean": 0.5058850516400002,
+      "stddev": 0.019123690196499284,
+      "median": 0.5074033947400001,
+      "user": 4.578806039999999,
+      "system": 0.07513286,
+      "min": 0.47752678474,
+      "max": 0.5330072907400001,
+      "times": [
+        0.51992995874,
+        0.48988223974,
+        0.51933793774,
+        0.52731498874,
+        0.48349843674,
+        0.49354608974,
+        0.50754409574,
+        0.5330072907400001,
+        0.47752678474,
+        0.5072626937400001
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}
