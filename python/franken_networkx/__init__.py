@@ -8363,7 +8363,7 @@ def degree_assortativity_coefficient(G, x="out", y="in", weight=None, nodes=None
     # degree and contributes a (d, d) pair to nx's mixing matrix). Delegate
     # self-loop graphs to nx, like the multigraph/directed cases above.
     if (
-        x == "out" and y == "in" and weight is None and nodes is None
+        x == "out" and y == "in" and nodes is None
         and not G.is_multigraph() and not G.is_directed()
     ):
         # br-r37-c1-asrt-edgeless: the Rust fast path returned
@@ -8376,17 +8376,19 @@ def degree_assortativity_coefficient(G, x="out", y="in", weight=None, nodes=None
         # nan→0.0 erases the "input is undefined" signal.
         if G.number_of_edges() == 0:
             return float("nan")
-        if number_of_selfloops(G) == 0:
+        if weight is None and number_of_selfloops(G) == 0:
             return _raw_degree_assortativity_coefficient(G)
-        # br-r37-c1-degxyloop: undirected self-loop graphs used to delegate to nx
-        # (the Rust kernel miscounts a self-loop's +2 degree contribution) — ~2.7x
-        # slower. nx's degree assortativity equals the degree-degree Pearson r
-        # (verified), and degree_pearson now has a self-loop-aware vectorized fast
-        # path, so route here instead of the fnx->nx conversion. Degenerate inputs
-        # (fewer than two degree pairs) make scipy's pearsonr raise where nx's
-        # mixing-matrix path returns nan — delegate just those to nx for parity.
+        # br-r37-c1-degxyloop/degxywt: undirected self-loop OR weighted graphs used
+        # to delegate to nx (the Rust kernel miscounts a self-loop's +2 degree and
+        # has no weighted path) — ~2.7x / ~1.2x slower. nx's degree assortativity
+        # equals the degree-degree Pearson r over the (weighted) degree pairs
+        # (verified to ~1e-15), and degree_pearson now has a self-loop- AND
+        # weight-aware vectorized fast path, so route here instead of the fnx->nx
+        # conversion. Degenerate inputs (fewer than two degree pairs) make scipy's
+        # pearsonr raise where nx's mixing-matrix path returns nan — delegate just
+        # those to nx for parity.
         try:
-            return degree_pearson_correlation_coefficient(G)
+            return degree_pearson_correlation_coefficient(G, weight=weight)
         except ValueError:
             return _call_networkx_for_parity(
                 "degree_assortativity_coefficient",
@@ -26447,12 +26449,17 @@ def _degree_xy_pairs_fast(G, x, y, weight, nodes):
     """
     import numpy as np
 
-    if weight is not None or nodes is not None:
+    if nodes is not None:
         return None
     if G.is_multigraph() or G.number_of_edges() == 0:
         return None
+    # br-r37-c1-degxywt: handle weighted degree too. to_scipy_sparse_array(weight=
+    # <attr>) carries each edge's weight (default 1 for a missing attr, matching
+    # nx's degree(weight=...) accumulation), so A.sum gives the WEIGHTED degree.
+    # weight=None gives the binary adjacency (count degree). Either way the pairs
+    # are still one-per-adjacency-entry, matching node_degree_xy's multiset.
     try:
-        A = to_scipy_sparse_array(G, weight=None, format="coo")
+        A = to_scipy_sparse_array(G, weight=weight, format="coo")
     except Exception:
         return None
     # br-r37-c1-degxyloop: self-loops used to bail here. They ARE handleable.
