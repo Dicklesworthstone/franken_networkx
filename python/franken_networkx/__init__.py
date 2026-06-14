@@ -18332,11 +18332,19 @@ def single_source_dijkstra(G, source, target=None, cutoff=None, weight="weight")
     hash(source)
     # br-r37-c1-e861i: materialize SubgraphView first (view family).
     G = _coerce_arg_to_fnx_graph(G)
-    # br-dijkignoreweight: the Rust single_source_dijkstra silently
-    # returns hop-_count distances on any weighted input (it ignores
-    # the weight attribute). Delegate to nx when any edge carries a
-    # non-unit weight so results are correct.
-    if _should_delegate_dijkstra_to_networkx(G, weight) or _graph_has_nonunit_weight(G, weight):
+    # br-r37-c1-efv3d: the `_graph_has_nonunit_weight` delegation gate was
+    # OBSOLETE — its comment ("the Rust single_source_dijkstra ignores the
+    # weight attribute") is stale: `_raw_single_source_dijkstra(G, weight=...)`
+    # respects weights, and the native path below already reproduces nx's
+    # distances, int/float typing (_sp_coerce_dist_to_int /
+    # _sp_propagate_int_types), cutoff, and heap-pop order. Forcing every
+    # weighted graph through the fnx->nx conversion + nx Python Dijkstra made
+    # weighted single_source_dijkstra ~2.6x slower than nx for no reason.
+    # Verified byte-exact (repr incl. type+order) on a 50-case int/float/mixed
+    # x cutoff x directed sweep. Only the genuinely-unhandleable cases
+    # (negative / +inf / non-numeric / callable weight) still delegate, via
+    # `_should_delegate_dijkstra_to_networkx`.
+    if _should_delegate_dijkstra_to_networkx(G, weight):
         return _call_networkx_for_parity(
             "single_source_dijkstra",
             G,
