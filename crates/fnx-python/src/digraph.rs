@@ -5166,10 +5166,7 @@ impl PyDiGraph {
         let mut inner_new_nodes = Vec::with_capacity(new_nodes.len());
         for (canonical, node) in new_nodes {
             inner_new_nodes.push(canonical.clone());
-            self.node_key_map.entry(canonical.clone()).or_insert(node);
-            self.node_py_attrs
-                .entry(canonical)
-                .or_insert_with(|| PyDict::new(py).unbind());
+            self.node_key_map.entry(canonical).or_insert(node);
         }
         // Keep the node-iteration mirror live (in insertion order).
         if self.node_iter_mirror_active() {
@@ -5177,6 +5174,9 @@ impl PyDiGraph {
                 self.node_iter_mirror_insert(py, c)?;
             }
         }
+        // Match PyGraph's attributed edge batch: empty node-attribute mirrors
+        // are materialized lazily by node views, so construction does not need
+        // one fresh PyDict per endpoint.
         let mut inner_edges = Vec::with_capacity(edges.len());
         for (u, v, attrs, src) in edges {
             match src {
