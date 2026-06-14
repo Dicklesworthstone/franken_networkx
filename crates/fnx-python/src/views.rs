@@ -466,6 +466,41 @@ impl EdgeView {
     }
 
     fn __iter__(&self, py: Python<'_>) -> PyResult<Py<NodeViewIterator>> {
+        // br-r37-c1-2a00r: NoData fast path — `list(G.edges())` was ~2.4x slower
+        // than nx because each edge endpoint went through py_node_key/py_adj_key,
+        // hashing the canonical String in a HashMap<String, PyObject> per node
+        // per edge. Iterate edges by node INDEX (edges_ordered_indices, same
+        // node-major order as edges_ordered_borrowed) and clone the per-index
+        // cached Python node-key object directly (O(1) incref, no string hash).
+        // Gated on adj_py_keys being empty: when non-empty (non-uniform
+        // adjacency-row key objects, br-r37-c1-z6uka) the neighbor's display
+        // object can differ from the node's own key, so fall through to the
+        // exact per-edge py_adj_key path below.
+        if matches!(self.data, NodeViewData::NoData) {
+            let g = self.graph.borrow(py);
+            if g.adj_py_keys.is_empty() {
+                let node_count = g.inner.node_count();
+                let nodes_seq = g.nodes_seq;
+                let keys = g.cached_node_key_vec(py);
+                let items: Vec<PyObject> = g
+                    .inner
+                    .edges_ordered_indices()
+                    .into_iter()
+                    .map(|(u, v)| {
+                        tuple_object(py, &[keys[u].clone_ref(py), keys[v].clone_ref(py)])
+                    })
+                    .collect::<PyResult<Vec<_>>>()?;
+                return Py::new(
+                    py,
+                    NodeViewIterator {
+                        inner: items.into_iter(),
+                        graph: Some(self.graph.clone_ref(py)),
+                        expected_count: Some(node_count),
+                        expected_seq: Some(nodes_seq),
+                    },
+                );
+            }
+        }
         let (items, node_count, nodes_seq) = match &self.data {
             NodeViewData::AllData => {
                 // br-r37-c1-2zudj: one-pass field-split materialization (see

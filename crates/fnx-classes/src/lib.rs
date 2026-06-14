@@ -1906,6 +1906,43 @@ impl Graph {
         ordered
     }
 
+    /// br-r37-c1-2a00r: index-space twin of `edges_ordered_borrowed` — yields
+    /// `(u, v)` node indices in the SAME node-major traversed order/orientation,
+    /// without resolving endpoints to `&str`. Lets the EdgeView iterate edges and
+    /// look up the per-index Python node-key object directly (O(1) incref) instead
+    /// of hashing the canonical String per endpoint via `py_node_key`.
+    #[must_use]
+    pub fn edges_ordered_indices(&self) -> Vec<(usize, usize)> {
+        let mut present: HashSet<(usize, usize)> = HashSet::with_capacity(self.edges.len());
+        for &(l, r) in &self.edge_index_endpoints {
+            present.insert(if l <= r { (l, r) } else { (r, l) });
+        }
+        let mut ordered = Vec::with_capacity(self.edges.len());
+        let mut seen_pairs = HashSet::<(usize, usize)>::with_capacity(self.edges.len());
+        for (u, row) in self.adj_indices.iter().enumerate() {
+            for &v in row {
+                let pair = if u <= v { (u, v) } else { (v, u) };
+                if !seen_pairs.insert(pair) {
+                    continue;
+                }
+                if present.contains(&pair) {
+                    ordered.push((u, v));
+                }
+            }
+        }
+        if ordered.len() < self.edges.len() {
+            // Mirror edges_ordered_borrowed's fallback EXACTLY: iterate
+            // self.edges with the raw (l, r) key orientation and dedup on the
+            // raw key (not (min,max)) so degenerate cases stay byte-identical.
+            for &(l, r) in self.edges.keys() {
+                if seen_pairs.insert((l, r)) {
+                    ordered.push((l, r));
+                }
+            }
+        }
+        ordered
+    }
+
     #[must_use]
     pub fn edges_storage_order_borrowed(&self) -> Vec<(&str, &str, &AttrMap)> {
         // orientation from edge_index_endpoints (string-canonical, kept
