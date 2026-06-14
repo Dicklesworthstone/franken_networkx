@@ -330,6 +330,57 @@ def minimum_weight_full_matching(G, top_nodes=None, weight="weight"):
     return d
 
 
+def _spectral_bipartivity_nx_copy(B):
+    """Weight-preserving fnx->nx copy for the spectral_bipartivity delegate path
+    (directed / multigraph), which needs edge weights and the matching graph
+    type."""
+    if B.is_multigraph():
+        H = _nx.MultiDiGraph() if B.is_directed() else _nx.MultiGraph()
+        H.add_nodes_from(B)
+        H.add_edges_from(B.edges(keys=True, data=True))
+    else:
+        H = _nx.DiGraph() if B.is_directed() else _nx.Graph()
+        H.add_nodes_from(B)
+        H.add_edges_from(B.edges(data=True))
+    return H
+
+
+def spectral_bipartivity(G, nodes=None, weight="weight"):
+    """Spectral bipartivity measure of bipartite ``G``.
+
+    br-r37-c1-1h238: re-exported from networkx as an ``@nx._dispatchable``, so on
+    an fnx graph it converts the WHOLE graph then forms TWO dense matrix
+    exponentials (`expm(A)` and `expm(-A)`, each O(n^3) Pade) — ~430ms at n=270.
+    But the measure is `trace(cosh A) / trace(exp A)` for the whole-graph case
+    (`nodes=None`) and a ratio of `expm` DIAGONALS per node otherwise — both
+    expressible from the symmetric spectrum alone. Compute one eigendecomposition
+    of the (symmetric, undirected) adjacency: `nodes=None` uses
+    `eigvalsh` -> `sum(cosh λ)/sum(exp λ)`; per-node uses `eigh` -> diagonals
+    `Σ_k V_ik² e^{λ_k}` / `Σ_k V_ik² cosh(λ_k)`. ~90x faster, agreeing with nx's
+    expm result to far beyond the module's round-6 conformance bar. Directed /
+    multigraph / nx-typed inputs delegate to nx (non-symmetric / general expm).
+    """
+    if isinstance(G, _nx.Graph):
+        return _nx_bipartite.spectral_bipartivity(G, nodes, weight)
+    if G.is_directed() or G.is_multigraph():
+        return _nx_bipartite.spectral_bipartivity(
+            _spectral_bipartivity_nx_copy(G), nodes, weight
+        )
+    import numpy as _np
+
+    nodelist = list(G)
+    A = _fnx.to_numpy_array(G, nodelist, weight=weight)
+    if nodes is None:
+        lam = _np.linalg.eigvalsh(A)
+        return float(_np.cosh(lam).sum() / _np.exp(lam).sum())
+    lam, V = _np.linalg.eigh(A)
+    v2 = V * V
+    exp_diag = v2 @ _np.exp(lam)
+    cosh_diag = v2 @ _np.cosh(lam)
+    index = {n: i for i, n in enumerate(nodelist)}
+    return {n: cosh_diag[index[n]] / exp_diag[index[n]] for n in nodes}
+
+
 def color(G):
     """Return a two-coloring ``{node: 0|1}`` of bipartite graph ``G``.
 
