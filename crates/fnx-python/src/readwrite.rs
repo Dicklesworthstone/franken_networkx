@@ -8,9 +8,10 @@
 use crate::algorithms::{GraphRef, extract_graph};
 use crate::digraph::PyDiGraph;
 use crate::{
-    DictOfDictsCache, PyGraph, PyObject, PythonAllowThreadsExt, cgse_value_to_py,
+    DictOfDictsCache, PyGraph, PyMultiGraph, PyObject, PythonAllowThreadsExt, cgse_value_to_py,
     node_key_to_string, py_dict_to_attr_map,
 };
+use fnx_classes::MultiGraph as RustMultiGraph;
 use fnx_classes::Graph as RustGraph;
 use fnx_classes::digraph::DiGraph as RustDiGraph;
 use fnx_readwrite::{DiReadWriteReport, EdgeListEngine, ReadWriteError, ReadWriteReport};
@@ -349,6 +350,106 @@ fn digraph_absorb_graph_bidirected(
     dst.node_key_map = node_key_map;
     dst.node_py_attrs = node_py_attrs;
     dst.edge_py_attrs = edge_py_attrs;
+    dst.graph_attrs = gdict.unbind();
+    dst.bump_nodes_seq();
+    dst.bump_edges_seq();
+    Ok(true)
+}
+
+/// br-r37-c1-1o74q: native `MultiGraph(Graph)` conversion — sibling of
+/// `digraph_absorb_graph_bidirected` for the undirected-multigraph target. The
+/// per-edge Python `add_edges_from((u, v, 0, attrs))` rebuild was ~2.1-2.6x
+/// slower than nx (the explicit-key 4-tuple path bails to per-edge add_edge).
+/// Build the MultiGraph inner directly from the simple source's
+/// `edges_ordered_borrowed()` (node-major canonical order == `source.edges()`,
+/// so adjacency order is byte-identical), assigning key 0 to every edge (the
+/// source is simple, so each pair appears once). Returns `false` (Python falls
+/// back) on mixed-display rows or attr values that don't round-trip.
+#[pyfunction]
+fn multigraph_absorb_graph(
+    py: Python<'_>,
+    mg: &Bound<'_, PyAny>,
+    g: &Bound<'_, PyAny>,
+) -> PyResult<bool> {
+    let Ok(src) = g.extract::<PyRef<'_, PyGraph>>() else {
+        return Ok(false);
+    };
+    if !src.adj_py_keys.is_empty() {
+        // Mixed-display adjacency cells need the per-edge Python path.
+        return Ok(false);
+    }
+
+    let gdict = PyDict::new(py);
+    gdict.update(src.graph_attrs.bind(py).as_mapping())?;
+
+    let nodes: Vec<String> = src
+        .inner
+        .nodes_ordered()
+        .into_iter()
+        .map(str::to_owned)
+        .collect();
+    let mut node_key_map: HashMap<String, PyObject> = HashMap::with_capacity(nodes.len());
+    let mut node_py_attrs: HashMap<String, Py<PyDict>> = HashMap::with_capacity(nodes.len());
+    let mut nodes_bulk: Vec<(String, fnx_classes::AttrMap)> = Vec::with_capacity(nodes.len());
+    for nid in &nodes {
+        node_key_map.insert(nid.clone(), src.py_node_key(py, nid));
+        let mut amap = fnx_classes::AttrMap::new();
+        // Node attrs must be mirrored eagerly: ensure_node_py_attrs only ever
+        // creates an EMPTY dict (it does not rebuild from core), so a non-empty
+        // node attr dict would be lost on the lazy path. Empty ones stay sparse.
+        if let Some(d) = src.node_py_attrs.get(nid) {
+            let b = d.bind(py);
+            if !b.is_empty() {
+                let mirror = PyDict::new(py);
+                mirror.update(b.as_mapping())?;
+                amap = py_dict_to_attr_map(b)?;
+                if amap.keys().any(|k| k.starts_with("__fnx_incompatible")) {
+                    return Ok(false);
+                }
+                node_py_attrs.insert(nid.clone(), mirror.unbind());
+            }
+        }
+        nodes_bulk.push((nid.clone(), amap));
+    }
+
+    let mut inner = RustMultiGraph::new(src.inner.mode());
+    let _ = inner.extend_nodes_with_attrs_unrecorded(nodes_bulk);
+
+    // Each undirected edge once, in node-major canonical order, key 0.
+    let ordered: Vec<(String, String)> = src
+        .inner
+        .edges_ordered_borrowed()
+        .into_iter()
+        .map(|(u, v, _)| (u.to_owned(), v.to_owned()))
+        .collect();
+    for (u, v) in ordered {
+        // Edge attrs are NOT mirrored eagerly: ensure_edge_py_attrs rebuilds the
+        // Python dict from the inner core on demand (attr_map_to_pydict), so for
+        // every value that round-trips (no "__fnx_incompatible" marker) the lazy
+        // path is byte-identical — skipping ~|E| PyDict allocs + HashMap inserts.
+        let mut amap = fnx_classes::AttrMap::new();
+        if let Some(d) = src.edge_py_attrs.get(&PyGraph::edge_key(&u, &v)) {
+            let b = d.bind(py);
+            if !b.is_empty() {
+                amap = py_dict_to_attr_map(b)?;
+                if amap.keys().any(|k| k.starts_with("__fnx_incompatible")) {
+                    return Ok(false);
+                }
+            }
+        }
+        let _ = inner.add_edge_with_key_and_attrs(u, v, 0, amap);
+    }
+    let edge_py_attrs: HashMap<(String, String, usize), Py<PyDict>> = HashMap::new();
+
+    let Ok(mut dst) = mg.extract::<PyRefMut<'_, PyMultiGraph>>() else {
+        return Ok(false);
+    };
+    dst.inner = inner;
+    dst.node_key_map = node_key_map;
+    dst.node_py_attrs = node_py_attrs;
+    dst.edge_py_attrs = edge_py_attrs;
+    // edge_py_keys stays empty: py_edge_key lazily returns PyInt(0) for absent
+    // entries, which is exactly the key every edge carries here.
     dst.graph_attrs = gdict.unbind();
     dst.bump_nodes_seq();
     dst.bump_edges_seq();
@@ -2146,6 +2247,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(read_adjlist_simple, m)?)?;
     m.add_function(wrap_pyfunction!(read_edgelist_simple, m)?)?;
     m.add_function(wrap_pyfunction!(digraph_absorb_graph_bidirected, m)?)?;
+    m.add_function(wrap_pyfunction!(multigraph_absorb_graph, m)?)?;
     m.add_function(wrap_pyfunction!(write_adjlist, m)?)?;
     m.add_function(wrap_pyfunction!(node_link_data, m)?)?;
     m.add_function(wrap_pyfunction!(node_link_graph, m)?)?;

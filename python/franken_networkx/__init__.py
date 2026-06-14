@@ -3479,6 +3479,20 @@ def _copy_constructor_graph_source(self, source, *, is_multigraph, attr):
             self.graph.update(attr)
         return
 
+    # br-r37-c1-1o74q: MultiGraph(Graph) native absorb fast path — the per-edge
+    # Python rebuild was ~2.1-2.6x slower than nx. Build the MultiGraph inner
+    # directly from the simple source (node-major canonical edge order, key 0),
+    # matching nx byte-for-byte. Kernel returns False (fall through) on mixed-
+    # display rows or non-round-tripping attrs.
+    if (
+        type(self) is MultiGraph
+        and type(source) is Graph
+        and _fnx.multigraph_absorb_graph(self, source)
+    ):
+        if attr:
+            self.graph.update(attr)
+        return
+
     # br-r37-c1-s0d4x: same-exact-type ctor — nx's cls(G) structure is
     # identical to G.copy() (probed all four classes: nodes, edges+data,
     # adjacency/pred rows, graph attrs, shallow attr-dict copying).
