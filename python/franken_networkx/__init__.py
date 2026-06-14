@@ -16622,6 +16622,53 @@ class _ApproximationNamespace:
                 )
         return K
 
+    def all_pairs_node_connectivity(self, G, nbunch=None, cutoff=None, *, backend=None, **backend_kwargs):
+        # br-r37-c1-qango: the generic __getattr__ wrapper round-trips the graph
+        # through fnx->nx then runs nx's O(V^2) White-Newman pairwise loop on nx
+        # views (~parity, but every one of the V^2 local calls pays AtlasView
+        # access). Snapshot the adjacency ONCE via the native key binding and run
+        # every pair's bidirectional-BFS over plain Python dicts — pure-dict
+        # traversal beats nx's view access, so the whole O(V^2) sweep drops below
+        # nx. Directed graphs delegate (the dict path mirrors nx, but the existing
+        # top-level note records the Rust bulk helper over-reports directed
+        # connectivity; nx's own pairwise approximation is the reference here, so
+        # we simply keep directed/multigraph on the delegation path). Result is a
+        # dict-of-dicts; per-pair values are deterministic and key order mirrors
+        # nx's nbunch/combinations enumeration exactly.
+        _validate_backend_dispatch_keywords(
+            "all_pairs_node_connectivity", backend, backend_kwargs
+        )
+        nak = getattr(G, "_native_adjacency_keys", None)
+        if (
+            nak is None
+            or type(G) is not Graph
+            or G.is_directed()
+            or G.is_multigraph()
+        ):
+            nx_G = _networkx_graph_for_parity(G)
+            return _nx.approximation.all_pairs_node_connectivity(
+                nx_G, nbunch=nbunch, cutoff=cutoff
+            )
+        adj = {node: list(nbrs) for node, nbrs in nak()}
+        deg = {node: len(nbrs) for node, nbrs in adj.items()}
+        if nbunch is None:
+            nb = list(adj)
+        else:
+            nb = list(set(nbunch))
+            # nx computes G.degree() on nbunch nodes directly; an out-of-graph
+            # node would diverge — keep that (rare) case on the nx path.
+            if any(n not in adj for n in nb):
+                nx_G = _networkx_graph_for_parity(G)
+                return _nx.approximation.all_pairs_node_connectivity(
+                    nx_G, nbunch=nbunch, cutoff=cutoff
+                )
+        all_pairs = {n: {} for n in nb}
+        for u, v in _itertools.combinations(nb, 2):
+            k = _approx_local_node_connectivity_dict(adj, deg, u, v, cutoff)
+            all_pairs[u][v] = k
+            all_pairs[v][u] = k
+        return all_pairs
+
     def large_clique_size(self, G, *, backend=None, **backend_kwargs):
         # br-r37-c1-eg2bz: the generic __getattr__ wrapper round-trips the graph
         # through ``_networkx_graph_for_parity`` (a full O(V+E) fnx->nx build)
