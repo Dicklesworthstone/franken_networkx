@@ -41,18 +41,18 @@ One lever only:
 
 ## Results
 
-- Direct FNX candidate median: `0.19011877401499078s` for 50k calls (`3.8023754802998156us/call`)
-- Direct speedup: `4.2534x`
-- `rch exec -- hyperfine` FNX mean: `0.45667820352s +/- 0.01441013795289896s`
-- Hyperfine speedup versus baseline FNX: `2.3942x`
-- NetworkX control in candidate hyperfine: `0.85585623652s +/- 0.02595340725390795s`
-- Candidate FNX is `1.87x +/- 0.08` faster than NetworkX on the same process-level harness.
-- After-profile: 20k calls in `0.149s`; native bidirectional kernel `0.049s`.
+- Direct FNX candidate median: `0.19218891399214044s` for 50k calls (`3.843778279842809us/call`)
+- Direct speedup: `4.2076x`
+- `rch exec -- hyperfine` FNX mean: `0.46151251748s +/- 0.022147372531976652s`
+- Hyperfine speedup versus baseline FNX: `2.3691x`
+- NetworkX control in candidate hyperfine: `0.85408282858s +/- 0.036705270430972964s`
+- Candidate FNX is `1.85x` faster than NetworkX on the same process-level harness.
+- After-profile: 20k calls in `0.152s`; native bidirectional kernel `0.050s`.
 
 ## Score
 
-- Direct score: `Impact 4.2534 * Confidence 4 / Effort 1 = 17.01`
-- Hyperfine score: `Impact 2.3942 * Confidence 4 / Effort 1 = 9.58`
+- Direct score: `Impact 4.2076 * Confidence 4 / Effort 1 = 16.83`
+- Hyperfine score: `Impact 2.3691 * Confidence 4 / Effort 1 = 9.48`
 - Verdict: keep.
 
 ## Validation
