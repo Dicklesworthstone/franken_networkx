@@ -163,6 +163,60 @@ def degrees(B, nodes, weight=None):
     return (B.degree(top, weight=weight), B.degree(bottom, weight=weight))
 
 
+def biadjacency_matrix(
+    B, row_order, column_order=None, dtype=None, weight="weight", format="csr"
+):
+    """Return the biadjacency matrix (``row_order`` x ``column_order``) of ``B``.
+
+    br-r37-c1-r2h3w: re-exported from networkx as an ``@nx._dispatchable``, so
+    calling it on an fnx graph round-trips the WHOLE graph through ``_fnx_to_nx``
+    (full O(V+E) conversion) before building the sparse matrix -- ~4x slower than
+    nx. Build the COO directly from ``B``'s adjacency (no conversion). The output
+    is byte-identical: ``coo_array(...).asformat(...)`` canonicalises so the
+    (row, col, data) triple SET fully determines the matrix, and the default
+    column ordering ``list(set(B) - set(row_order))`` reproduces nx's
+    arbitrary-but-deterministic CPython set order exactly (same node values ->
+    same set). Directed graphs use successors only, matching nx's
+    ``B.edges(row_order)``.
+    """
+    import itertools
+
+    import scipy as sp
+
+    nlen = len(row_order)
+    if nlen == 0:
+        raise _nx.NetworkXError("row_order is empty list")
+    if len(row_order) != len(set(row_order)):
+        raise _nx.NetworkXError(
+            "Ambiguous ordering: `row_order` contained duplicates."
+        )
+    if column_order is None:
+        column_order = list(set(B) - set(row_order))
+    mlen = len(column_order)
+    if len(column_order) != len(set(column_order)):
+        raise _nx.NetworkXError(
+            "Ambiguous ordering: `column_order` contained duplicates."
+        )
+
+    row_index = dict(zip(row_order, itertools.count()))
+    col_index = dict(zip(column_order, itertools.count()))
+
+    row, col, data = [], [], []
+    if B.number_of_edges() != 0:
+        for u, v, d in B.edges(row_order, data=True):
+            ri = row_index.get(u)
+            ci = col_index.get(v)
+            if ri is not None and ci is not None:
+                row.append(ri)
+                col.append(ci)
+                data.append(d.get(weight, 1))
+    A = sp.sparse.coo_array((data, (row, col)), shape=(nlen, mlen), dtype=dtype)
+    try:
+        return A.asformat(format)
+    except ValueError as err:
+        raise _nx.NetworkXError(f"Unknown sparse array format: {format}") from err
+
+
 def color(G):
     """Return a two-coloring ``{node: 0|1}`` of bipartite graph ``G``.
 
