@@ -296,6 +296,40 @@ def node_redundancy(G, nodes=None):
     )
 
 
+def minimum_weight_full_matching(G, top_nodes=None, weight="weight"):
+    """Minimum-weight full matching of bipartite ``G`` (rectangular LAP).
+
+    br-r37-c1-n4dwd: re-exported from networkx as an ``@nx._dispatchable``, so
+    calling it on an fnx graph round-trips the WHOLE graph through ``_fnx_to_nx``
+    before nx builds the biadjacency matrix and defers to
+    ``scipy.optimize.linear_sum_assignment`` (~4x slower than nx). Run nx's EXACT
+    algorithm IN-PROCESS on the fnx graph using the already-native
+    :func:`sets` and :func:`biadjacency_matrix` (both byte-exact) plus the same
+    deterministic SciPy LAP solver — no conversion. Byte-identical: the bipartite
+    set split, the row/column ordering (``list(left)`` / ``list(right)``), the
+    inf-padded weight matrix, and the SciPy assignment all match nx exactly
+    (verified across heavy integer-weight tie cases). nx-typed inputs delegate.
+    """
+    if isinstance(G, _nx.Graph):
+        return _nx_bipartite.minimum_weight_full_matching(G, top_nodes, weight)
+    import numpy as _np
+    import scipy as _sp
+
+    left, right = sets(G, top_nodes)
+    U = list(left)
+    V = list(right)
+    # Inf where edges are missing (not zero), exactly as nx.
+    weights_sparse = biadjacency_matrix(
+        G, row_order=U, column_order=V, weight=weight, format="coo"
+    )
+    weights = _np.full(weights_sparse.shape, _np.inf)
+    weights[weights_sparse.row, weights_sparse.col] = weights_sparse.data
+    left_matches = _sp.optimize.linear_sum_assignment(weights)
+    d = {U[u]: V[v] for u, v in zip(*left_matches)}
+    d.update({v: u for u, v in d.items()})
+    return d
+
+
 def color(G):
     """Return a two-coloring ``{node: 0|1}`` of bipartite graph ``G``.
 
