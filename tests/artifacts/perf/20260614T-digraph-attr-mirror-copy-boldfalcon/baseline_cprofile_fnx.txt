@@ -1,0 +1,22 @@
+marker=[1999, 7992]
+         1701 function calls in 1.718 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+      100    0.001    0.000    1.716    0.017 /data/projects/.scratch/franken_networkx-boldfalcon-next-20260614T0345Z/tests/artifacts/perf/20260614T-digraph-attr-mirror-copy-boldfalcon/digraph_attr_construction_harness.py:37(build_graph)
+      100    0.013    0.000    1.715    0.017 /data/projects/.scratch/franken_networkx-boldfalcon-next-20260614T0345Z/python/franken_networkx/__init__.py:2961(add_edges_from)
+      100    1.701    0.017    1.701    0.017 {method '_try_add_edges_from_batch' of 'franken_networkx.DiGraph' objects}
+      100    0.000    0.000    0.001    0.000 /data/projects/.scratch/franken_networkx-boldfalcon-next-20260614T0345Z/python/franken_networkx/__init__.py:36887(number_of_nodes)
+      100    0.000    0.000    0.001    0.000 /data/projects/.scratch/franken_networkx-boldfalcon-next-20260614T0345Z/python/franken_networkx/__init__.py:36076(_private_override)
+      100    0.000    0.000    0.001    0.000 /data/projects/.scratch/franken_networkx-boldfalcon-next-20260614T0345Z/python/franken_networkx/__init__.py:3617(__init__)
+      100    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-boldfalcon-next-20260614T0345Z/python/franken_networkx/__init__.py:36896(number_of_edges)
+      200    0.000    0.000    0.000    0.000 {built-in method builtins.vars}
+      100    0.000    0.000    0.000    0.000 {function _private_aware_number_of_nodes.<locals>.number_of_nodes at 0x71a4308004a0}
+      200    0.000    0.000    0.000    0.000 {built-in method builtins.isinstance}
+      100    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-boldfalcon-next-20260614T0345Z/python/franken_networkx/__init__.py:315(number_of_edges)
+      100    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-boldfalcon-next-20260614T0345Z/python/franken_networkx/__init__.py:36084(_has_networkx_private_storage)
+      100    0.000    0.000    0.000    0.000 {built-in method builtins.getattr}
+      100    0.000    0.000    0.000    0.000 {method 'get' of 'dict' objects}
+      100    0.000    0.000    0.000    0.000 {function DiGraph.number_of_edges at 0x71a430800720}
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
