@@ -393,6 +393,41 @@ fn edge_alldata_items(
     let adj_py_keys = &g.adj_py_keys; // br-r37-c1-z6uka
     let lazy_stop = g.lazy_int_node_stop;
     let mut items = Vec::with_capacity(inner.edge_count());
+    // br-r37-c1-2a00r: index fast path — build the node-index -> Python key
+    // object Vec ONCE (a node of degree d was hashed via edgeview_py_node_key
+    // ~d times across its incident edges) and walk edges by index, so each
+    // endpoint is an O(1) Vec index + incref with no canonical-String hash.
+    // Gated on adj_py_keys being empty: when non-empty (non-uniform
+    // adjacency-row key objects, br-r37-c1-z6uka) the neighbor's display object
+    // can differ from the node's own key, so fall through to the exact
+    // per-edge path below. (The edge_py_attrs `edge_key` String probe is
+    // unchanged — re-keying that map by index is a separate, larger lever.)
+    if adj_py_keys.is_empty() {
+        let nodes: Vec<&str> = inner.nodes_ordered();
+        let key_vec: Vec<PyObject> = nodes
+            .iter()
+            .map(|n| edgeview_py_node_key(py, node_key_map, lazy_stop, n))
+            .collect();
+        for (u, v) in inner.edges_ordered_indices() {
+            let left = nodes[u];
+            let right = nodes[v];
+            if let Some(ns) = node_filter
+                && !(ns.contains(left) || ns.contains(right))
+            {
+                continue;
+            }
+            let dict = edge_py_attrs
+                .entry(PyGraph::edge_key(left, right))
+                .or_insert_with(|| PyDict::new(py).unbind())
+                .clone_ref(py)
+                .into_any();
+            items.push(tuple_object(
+                py,
+                &[key_vec[u].clone_ref(py), key_vec[v].clone_ref(py), dict],
+            )?);
+        }
+        return Ok(items);
+    }
     for (left, right, _attrs) in inner.edges_ordered_borrowed() {
         if let Some(ns) = node_filter
             && !(ns.contains(left) || ns.contains(right))
