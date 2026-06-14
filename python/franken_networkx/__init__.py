@@ -3571,11 +3571,21 @@ def _copy_constructor_graph_source(self, source, *, is_multigraph, attr):
                 )
     elif is_multigraph:
         if expand_undirected_to_directed:
+            # br-r37-c1-1o74q: MultiDiGraph(Graph) — the source is simple, so
+            # each directed endpoint pair appears at most ONCE. Emitting 3-tuples
+            # ``(u, v, attrs)`` lets the directed-multigraph ``add_edges_from``
+            # auto-assign key 0 (lowest unused == 0 on a fresh graph) — byte-
+            # identical to the explicit ``(u, v, 0, attrs)`` 4-tuple but routed
+            # through the native attributed-batch fast-path instead of the
+            # per-edge add_edge loop (~2.46x faster; was ~3.3x slower than nx).
+            # NB: this win is directed-only — for the undirected MultiGraph
+            # targets below, the symmetric auto-key lookup makes 3-tuples SLOWER,
+            # so those keep the explicit-key 4-tuple form.
             edges = []
             for u, v, attrs in source.edges(data=True):
-                edges.append((u, v, 0, dict(attrs)))
+                edges.append((u, v, dict(attrs)))
                 if u != v:
-                    edges.append((v, u, 0, dict(attrs)))
+                    edges.append((v, u, dict(attrs)))
             self.add_edges_from(edges)
         elif source_is_directed and not target_is_directed:
             # br-r37-c1-bt8m4: MultiGraph(DiGraph) — reverse-pair skip,
@@ -3590,6 +3600,9 @@ def _copy_constructor_graph_source(self, source, *, is_multigraph, attr):
                 edges.append((u, v, 0, dict(attrs)))
             self.add_edges_from(edges)
         else:
+            # MultiGraph(Graph) / MultiDiGraph(DiGraph): the explicit-key 4-tuple
+            # is at-or-faster than auto-key here (the 3-tuple win is specific to
+            # the undirected-source -> directed-multi expansion above).
             self.add_edges_from(
                 (u, v, 0, dict(attrs)) for u, v, attrs in source.edges(data=True)
             )
