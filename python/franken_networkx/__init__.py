@@ -8365,7 +8365,6 @@ def degree_assortativity_coefficient(G, x="out", y="in", weight=None, nodes=None
     if (
         x == "out" and y == "in" and weight is None and nodes is None
         and not G.is_multigraph() and not G.is_directed()
-        and number_of_selfloops(G) == 0
     ):
         # br-r37-c1-asrt-edgeless: the Rust fast path returned
         # 0.0 on graphs with no edges (empty graph, isolated
@@ -8377,7 +8376,26 @@ def degree_assortativity_coefficient(G, x="out", y="in", weight=None, nodes=None
         # nan→0.0 erases the "input is undefined" signal.
         if G.number_of_edges() == 0:
             return float("nan")
-        return _raw_degree_assortativity_coefficient(G)
+        if number_of_selfloops(G) == 0:
+            return _raw_degree_assortativity_coefficient(G)
+        # br-r37-c1-degxyloop: undirected self-loop graphs used to delegate to nx
+        # (the Rust kernel miscounts a self-loop's +2 degree contribution) — ~2.7x
+        # slower. nx's degree assortativity equals the degree-degree Pearson r
+        # (verified), and degree_pearson now has a self-loop-aware vectorized fast
+        # path, so route here instead of the fnx->nx conversion. Degenerate inputs
+        # (fewer than two degree pairs) make scipy's pearsonr raise where nx's
+        # mixing-matrix path returns nan — delegate just those to nx for parity.
+        try:
+            return degree_pearson_correlation_coefficient(G)
+        except ValueError:
+            return _call_networkx_for_parity(
+                "degree_assortativity_coefficient",
+                G,
+                x=x,
+                y=y,
+                weight=weight,
+                nodes=nodes,
+            )
     # br-r37-c1-d7etr: native directed degree assortativity for the default
     # (out, in) contract on a simple DiGraph — nx pairs (out_deg(src),
     # in_deg(tgt)) per directed edge. Self-loops are fine for directed (a loop
@@ -26431,12 +26449,21 @@ def _degree_xy_pairs_fast(G, x, y, weight, nodes):
 
     if weight is not None or nodes is not None:
         return None
-    if G.is_multigraph() or G.number_of_edges() == 0 or number_of_selfloops(G) != 0:
+    if G.is_multigraph() or G.number_of_edges() == 0:
         return None
     try:
         A = to_scipy_sparse_array(G, weight=None, format="coo")
     except Exception:
         return None
+    # br-r37-c1-degxyloop: self-loops used to bail here. They ARE handleable.
+    # nx's node_degree_xy walks ``G.edges(u)`` per node, so an undirected
+    # self-loop (u, u) yields the (deg_u, deg_u) pair exactly ONCE (u appears as
+    # its own neighbour once) — matching the single (u, u) diagonal entry the
+    # symmetric COO carries. The only correction needed undirected is the degree:
+    # to_scipy puts A[u,u]=1 per self-loop (nx's default convention) but nx's
+    # degree counts an undirected self-loop as +2, so add A.diagonal() back. The
+    # directed case needs nothing: out/in already count a self-loop once each and
+    # the single diagonal entry maps to the single directed (u, u) edge.
     if G.is_directed():
         sel = {
             "out": np.asarray(A.sum(axis=1)).ravel(),
@@ -26447,7 +26474,7 @@ def _degree_xy_pairs_fast(G, x, y, weight, nodes):
         du = sel[x][A.row]
         dv = sel[y][A.col]
     else:
-        deg = np.asarray(A.sum(axis=1)).ravel()
+        deg = np.asarray(A.sum(axis=1)).ravel() + A.diagonal()
         du = deg[A.row]
         dv = deg[A.col]
     return du.astype(float), dv.astype(float)
