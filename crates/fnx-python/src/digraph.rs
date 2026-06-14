@@ -68,6 +68,14 @@ pub struct PyDiGraph {
     /// immutable and the inner dicts stay live, so repeats return a fresh list
     /// of the same tuple objects instead of rebuilding (was 3x slower than nx).
     pub(crate) edges_with_data_cache: Option<(u64, u64, Vec<PyObject>)>,
+    /// Incremental mirror of PyGraph::node_iter_mirror — a live ``{node: None}``
+    /// PyDict kept in insertion order. ``iter(G)`` / ``list(G.nodes())`` return
+    /// its ``dict_keyiterator`` directly (matching nx's ``iter(self._nodes)``)
+    /// instead of rebuilding a ``Vec<PyObject>`` of every display key per call
+    /// (was 6-15x slower than nx). It is mutated IN PLACE by every node add /
+    /// remove / clear hook so mutation-during-iteration raises CPython's native
+    /// "dictionary changed size during iteration" exactly as nx does.
+    pub(crate) node_iter_mirror: std::sync::Mutex<Option<Py<PyDict>>>,
 }
 
 #[pyclass(
@@ -4655,6 +4663,74 @@ impl PyDiGraph {
         keys
     }
 
+    /// Incremental node-iteration mirror (see the `node_iter_mirror` field).
+    /// Lazily built from `nodes_ordered()` on first access, then kept live by
+    /// the insert/remove/clear hooks. Mirrors PyGraph::node_iter_mirror_or_init.
+    pub(crate) fn node_iter_mirror_or_init(&self, py: Python<'_>) -> PyResult<Py<PyDict>> {
+        if let Some(dict) = self
+            .node_iter_mirror
+            .lock()
+            .unwrap()
+            .as_ref()
+            .map(|dict| dict.clone_ref(py))
+        {
+            return Ok(dict);
+        }
+        let dict = PyDict::new(py);
+        for canonical in self.inner.nodes_ordered() {
+            dict.set_item(self.py_node_key(py, canonical), py.None())?;
+        }
+        let owned = dict.unbind();
+        *self.node_iter_mirror.lock().unwrap() = Some(owned.clone_ref(py));
+        Ok(owned)
+    }
+
+    /// True when the mirror has been materialised (so hooks must run).
+    fn node_iter_mirror_active(&self) -> bool {
+        self.node_iter_mirror.lock().unwrap().is_some()
+    }
+
+    fn node_iter_mirror_insert(&self, py: Python<'_>, canonical: &str) -> PyResult<()> {
+        let Some(dict) = self
+            .node_iter_mirror
+            .lock()
+            .unwrap()
+            .as_ref()
+            .map(|dict| dict.clone_ref(py))
+        else {
+            return Ok(());
+        };
+        dict.bind(py)
+            .set_item(self.py_node_key(py, canonical), py.None())
+    }
+
+    fn node_iter_mirror_remove_key(&self, py: Python<'_>, key: &Bound<'_, PyAny>) {
+        let Some(dict) = self
+            .node_iter_mirror
+            .lock()
+            .unwrap()
+            .as_ref()
+            .map(|dict| dict.clone_ref(py))
+        else {
+            return;
+        };
+        let _ = dict.bind(py).del_item(key);
+    }
+
+    fn node_iter_mirror_clear(&self, py: Python<'_>) -> PyResult<()> {
+        let Some(dict) = self
+            .node_iter_mirror
+            .lock()
+            .unwrap()
+            .as_ref()
+            .map(|dict| dict.clone_ref(py))
+        else {
+            return Ok(());
+        };
+        dict.bind(py).call_method0("clear")?;
+        Ok(())
+    }
+
     /// br-r37-c1-z6uka: succ-row display object (see PyGraph::py_adj_key).
     pub(crate) fn py_succ_key(&self, py: Python<'_>, owner: &str, nbr: &str) -> PyObject {
         if !self.succ_py_keys.is_empty()
@@ -4819,8 +4895,17 @@ impl PyDiGraph {
             .unwrap_or(u64::MAX)
             .wrapping_add(u64::from(final_edge_bump));
 
+        let mirror_active = self.node_iter_mirror_active();
         for (canonical, node) in new_nodes {
+            let mirror_key = if mirror_active {
+                Some(canonical.clone())
+            } else {
+                None
+            };
             self.node_key_map.entry(canonical).or_insert(node);
+            if let Some(c) = mirror_key {
+                let _ = self.node_iter_mirror_insert(py, &c);
+            }
         }
         // br-r37-c1-89kxg (DiGraph parity): NO eager empty mirror dicts — the
         // simple PyGraph batch already dropped these; every node/edge attr
@@ -4961,6 +5046,12 @@ impl PyDiGraph {
             self.node_py_attrs
                 .entry(canonical)
                 .or_insert_with(|| PyDict::new(py).unbind());
+        }
+        // Keep the node-iteration mirror live (in insertion order).
+        if self.node_iter_mirror_active() {
+            for c in &inner_new_nodes {
+                self.node_iter_mirror_insert(py, c)?;
+            }
         }
         let mut inner_edges = Vec::with_capacity(edges.len());
         for (u, v, attrs, src) in edges {
@@ -5107,11 +5198,20 @@ impl PyDiGraph {
         new_nodes: Vec<(String, PyObject)>,
         node_bumps: u64,
     ) -> PyResult<()> {
+        let mirror_active = self.node_iter_mirror_active();
         for (canonical, node) in new_nodes {
+            let mirror_key = if mirror_active {
+                Some(canonical.clone())
+            } else {
+                None
+            };
             self.node_key_map.entry(canonical.clone()).or_insert(node);
             self.node_py_attrs
                 .entry(canonical)
                 .or_insert_with(|| PyDict::new(py).unbind());
+            if let Some(c) = mirror_key {
+                self.node_iter_mirror_insert(py, &c)?;
+            }
         }
         for (canonical, _, src) in &nodes {
             if let Some(src) = src {
@@ -5160,6 +5260,7 @@ impl PyDiGraph {
             node_data_mirror: std::sync::Mutex::new(None),
             dict_of_dicts_cache: None,
             edges_with_data_cache: None,
+            node_iter_mirror: std::sync::Mutex::new(None),
         })
     }
 
@@ -5852,6 +5953,7 @@ impl PyDiGraph {
             }
         }
 
+        self.node_iter_mirror_insert(py, &canonical)?;
         self.inner.add_node_with_attrs(canonical, rust_attrs);
         self.bump_nodes_seq();
         Ok(())
@@ -5916,6 +6018,12 @@ impl PyDiGraph {
             }
         }
 
+        if self.node_iter_mirror_active() {
+            // Remove from the live mirror while node_key_map still holds the
+            // display object (mirror keys are the display py objects).
+            let py_key = self.py_node_key(py, &canonical);
+            self.node_iter_mirror_remove_key(py, py_key.bind(py));
+        }
         self.inner.remove_node(&canonical);
         self.node_key_map.remove(&canonical);
         self.node_py_attrs.remove(&canonical);
@@ -5959,6 +6067,14 @@ impl PyDiGraph {
         });
         let (_removed_nodes, removed_edges) =
             self.inner.remove_nodes_from(present_refs.iter().copied());
+        if self.node_iter_mirror_active() {
+            // Remove from the live mirror while node_key_map still holds the
+            // display objects (mirror keys are the display py objects).
+            for canonical in &present {
+                let py_key = self.py_node_key(py, canonical);
+                self.node_iter_mirror_remove_key(py, py_key.bind(py));
+            }
+        }
         for canonical in &present {
             self.node_key_map.remove(canonical);
             self.node_py_attrs.remove(canonical);
@@ -6013,8 +6129,9 @@ impl PyDiGraph {
 
         // br-r37-c1-39d82: track new-node creation to bump
         // nodes_seq for iterator staleness detection.
-        let __was_new = !self.node_key_map.contains_key(&u_canonical)
-            || !self.node_key_map.contains_key(&v_canonical);
+        let u_was_new = !self.node_key_map.contains_key(&u_canonical);
+        let v_was_new = !self.node_key_map.contains_key(&v_canonical);
+        let __was_new = u_was_new || v_was_new;
 
         self.node_key_map
             .entry(u_canonical.clone())
@@ -6054,6 +6171,15 @@ impl PyDiGraph {
         self.inner
             .add_edge_with_attrs(u_canonical.clone(), v_canonical.clone(), rust_attrs)
             .map_err(|e| NetworkXError::new_err(e.to_string()))?;
+        // Keep the node-iteration mirror live (nx order: u before v).
+        if (u_was_new || v_was_new) && self.node_iter_mirror_active() {
+            if u_was_new {
+                self.node_iter_mirror_insert(py, &u_canonical)?;
+            }
+            if v_was_new {
+                self.node_iter_mirror_insert(py, &v_canonical)?;
+            }
+        }
         if !self.succ_row_py.is_empty() {
             self.cached_succ_set_edge(py, &u_canonical, &v_canonical)?;
         }
@@ -6418,6 +6544,8 @@ impl PyDiGraph {
         self.succ_row_py.clear();
         self.pred_row_py.clear();
         self.graph_attrs = PyDict::new(py).unbind();
+        // Clear the live mirror in place so an in-flight iter raises like nx.
+        self.node_iter_mirror_clear(py)?;
         self.bump_nodes_seq();
         self.bump_edges_seq(); // br-r37-c1-jft0i
         Ok(())
@@ -6494,6 +6622,7 @@ impl PyDiGraph {
                 node_data_mirror: std::sync::Mutex::new(None),
                 dict_of_dicts_cache: None,
                 edges_with_data_cache: None,
+                node_iter_mirror: std::sync::Mutex::new(None),
             };
             for canonical in self.inner.nodes_ordered() {
                 rev.node_key_map
@@ -6518,6 +6647,7 @@ impl PyDiGraph {
             node_data_mirror: std::sync::Mutex::new(None),
             dict_of_dicts_cache: None,
             edges_with_data_cache: None,
+            node_iter_mirror: std::sync::Mutex::new(None),
         };
         // br-r37-c1-revbulk: node + edge BATCHES through the unrecorded
         // path (one ledger record vs per-edge add_edge_with_attrs +
@@ -6745,6 +6875,7 @@ impl PyDiGraph {
             node_data_mirror: std::sync::Mutex::new(None),
             dict_of_dicts_cache: None,
             edges_with_data_cache: None,
+            node_iter_mirror: std::sync::Mutex::new(None),
         };
         // br-r37-c1-0ek49: nx's DiGraph.copy() rebuild walk recreates succ
         // rows in original order but fills PRED rows in u-major walk order;
@@ -6814,6 +6945,7 @@ impl PyDiGraph {
             node_data_mirror: std::sync::Mutex::new(None),
             dict_of_dicts_cache: None,
             edges_with_data_cache: None,
+            node_iter_mirror: std::sync::Mutex::new(None),
         };
 
         for canonical in &keep {
@@ -6895,6 +7027,7 @@ impl PyDiGraph {
             node_data_mirror: std::sync::Mutex::new(None),
             dict_of_dicts_cache: None,
             edges_with_data_cache: None,
+            node_iter_mirror: std::sync::Mutex::new(None),
         };
 
         let mut nodes_needed: std::collections::HashSet<String> = std::collections::HashSet::new();
@@ -7583,21 +7716,15 @@ impl PyDiGraph {
         Ok(self.inner.has_node(&canonical))
     }
 
-    fn __iter__(slf: PyRef<'_, Self>) -> PyResult<Py<crate::NodeIterator>> {
+    fn __iter__(slf: PyRef<'_, Self>) -> PyResult<PyObject> {
+        // Serve iteration from the live node_iter_mirror dict — a
+        // ``dict_keyiterator`` (matching nx's ``iter(self._nodes)``) instead of
+        // rebuilding a Vec<PyObject> of every display key per call. The mirror's
+        // in-place mutation hooks give nx's native "changed size during
+        // iteration" semantics for free.
         let py = slf.py();
-        // br-r37-c1-fpssi: source node objects from the cached tuple.
-        let nodes = slf.cached_node_key_vec(py);
-        let count = nodes.len();
-        let graph = Py::from(slf);
-        Py::new(
-            py,
-            crate::NodeIterator::with_graph_guard(
-                py,
-                nodes,
-                crate::NodeIteratorGuard::DiGraph(graph),
-                count,
-            ),
-        )
+        let mirror = slf.node_iter_mirror_or_init(py)?;
+        Ok(mirror.bind(py).call_method0("__iter__")?.unbind())
     }
 
     /// ``G[n]`` — return dict of successors with edge data.
@@ -7737,6 +7864,7 @@ impl PyDiGraph {
             node_data_mirror: std::sync::Mutex::new(None),
             dict_of_dicts_cache: None,
             edges_with_data_cache: None,
+            node_iter_mirror: std::sync::Mutex::new(None),
         })
     }
 
@@ -8023,7 +8151,15 @@ impl DiNodeView {
         Ok(g.inner.has_node(&canonical))
     }
 
-    fn __iter__(&self, py: Python<'_>) -> PyResult<Py<DiViewIterator>> {
+    fn __iter__(&self, py: Python<'_>) -> PyResult<PyObject> {
+        // NoData (list(G.nodes()) / for n in G.nodes()) serves the SAME live
+        // node_iter_mirror dict that PyDiGraph.__iter__ uses -> a
+        // ``dict_keyiterator`` (matching nx) in O(1) instead of rebuilding a
+        // Vec<PyObject> of every display key per call (was 15x slower than nx).
+        if matches!(self.data, ViewData::NoData) {
+            let mirror = self.graph.borrow(py).node_iter_mirror_or_init(py)?;
+            return Ok(mirror.bind(py).call_method0("__iter__")?.unbind());
+        }
         let g = self.graph.borrow(py);
         let nodes: Vec<String> = g
             .inner
@@ -8032,7 +8168,7 @@ impl DiNodeView {
             .map(str::to_owned)
             .collect();
         let items: Vec<PyObject> = match &self.data {
-            ViewData::NoData => nodes.iter().map(|n| g.py_node_key(py, n)).collect(),
+            ViewData::NoData => unreachable!("NoData handled above"),
             ViewData::AllData => nodes
                 .iter()
                 .map(|n| {
@@ -8069,7 +8205,7 @@ impl DiNodeView {
                 })
                 .collect::<PyResult<Vec<_>>>()?,
         };
-        Py::new(
+        Ok(Py::new(
             py,
             DiViewIterator {
                 inner: items.into_iter(),
@@ -8077,7 +8213,8 @@ impl DiNodeView {
                 expected_count: Some(nodes.len()),
                 expected_seq: Some(g.nodes_seq),
             },
-        )
+        )?
+        .into_any())
     }
 
     fn __getitem__(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>> {

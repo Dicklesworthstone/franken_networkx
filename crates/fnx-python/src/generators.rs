@@ -73,6 +73,7 @@ fn report_to_pydigraph(
         node_data_mirror: std::sync::Mutex::new(None),
         dict_of_dicts_cache: None,
         edges_with_data_cache: None,
+        node_iter_mirror: std::sync::Mutex::new(None),
     };
 
     for canonical in pg.inner.nodes_ordered() {
