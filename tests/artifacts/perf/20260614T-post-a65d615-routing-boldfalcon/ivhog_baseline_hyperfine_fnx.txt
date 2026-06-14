@@ -1,0 +1,4 @@
+Benchmark 1: env PYTHONPATH=python python3 tests/artifacts/perf/20260614T-post-a65d615-routing-boldfalcon/bench_multigraph_int_keys.py once --impl fnx --case unique_path --size 50000 --loops 1 >/dev/null
+  Time (mean ± σ):     854.0 ms ±  18.9 ms    [User: 5032.9 ms, System: 142.5 ms]
+  Range (min … max):   828.7 ms … 879.4 ms    10 runs
+ 

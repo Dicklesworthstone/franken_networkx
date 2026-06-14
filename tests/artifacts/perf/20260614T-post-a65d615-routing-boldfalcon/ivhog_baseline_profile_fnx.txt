@@ -1,0 +1,27 @@
+case=unique_path impl=fnx sha256=ef2da480a805f3e27bb0f5486e0b14b71b0e4a75f686226e846dbd0216b2950c
+         2000086 function calls in 1.123 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        5    0.007    0.001    1.123    0.225 /data/projects/.scratch/franken_networkx-boldfalcon-next-20260614T0345Z/tests/artifacts/perf/20260614T-post-a65d615-routing-boldfalcon/bench_multigraph_int_keys.py:81(build_graph)
+        5    0.196    0.039    1.080    0.216 /data/projects/.scratch/franken_networkx-boldfalcon-next-20260614T0345Z/python/franken_networkx/__init__.py:2835(_multi_add_edges_from)
+   250000    0.122    0.000    0.758    0.000 /data/projects/.scratch/franken_networkx-boldfalcon-next-20260614T0345Z/python/franken_networkx/__init__.py:2505(add_edge)
+   250000    0.589    0.000    0.589    0.000 {method 'add_edge' of 'franken_networkx.MultiGraph' objects}
+   500000    0.102    0.000    0.102    0.000 {method 'update' of 'dict' objects}
+   750000    0.047    0.000    0.047    0.000 {built-in method builtins.hash}
+        5    0.000    0.000    0.036    0.007 /data/projects/.scratch/franken_networkx-boldfalcon-next-20260614T0345Z/tests/artifacts/perf/20260614T-post-a65d615-routing-boldfalcon/bench_multigraph_int_keys.py:59(_case_edges)
+        5    0.036    0.007    0.036    0.007 /data/projects/.scratch/franken_networkx-boldfalcon-next-20260614T0345Z/tests/artifacts/perf/20260614T-post-a65d615-routing-boldfalcon/bench_multigraph_int_keys.py:55(_unique_edges)
+   250000    0.019    0.000    0.019    0.000 {built-in method builtins.len}
+        5    0.003    0.001    0.003    0.001 {method '_try_add_edges_from_batch' of 'franken_networkx.MultiGraph' objects}
+        5    0.003    0.001    0.003    0.001 {method '_try_add_attr_edges_from_batch' of 'franken_networkx.MultiGraph' objects}
+        5    0.000    0.000    0.000    0.000 {method '_try_add_str_keyed_edges_from_batch' of 'franken_networkx.MultiGraph' objects}
+        5    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-boldfalcon-next-20260614T0345Z/python/franken_networkx/__init__.py:3617(__init__)
+        5    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-boldfalcon-next-20260614T0345Z/python/franken_networkx/__init__.py:6122(predicate)
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+       20    0.000    0.000    0.000    0.000 {built-in method builtins.isinstance}
+       15    0.000    0.000    0.000    0.000 {built-in method builtins.getattr}
+        5    0.000    0.000    0.000    0.000 {function _make_class_safe_predicate.<locals>.predicate at 0x7de0df0eaca0}
+
+
+
