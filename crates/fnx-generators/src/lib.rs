@@ -535,7 +535,7 @@ impl GraphGenerator {
             let edges: Vec<(String, String)> = (0..n)
                 .map(|i| (node_labels[i].clone(), node_labels[(i + 1) % n].clone()))
                 .collect();
-            graph.extend_edges_unrecorded(edges);
+            let _ = graph.extend_edges_unrecorded(edges);
         }
 
         self.record(
@@ -618,7 +618,7 @@ impl GraphGenerator {
         for index in 0..n {
             edges.push((node_labels[index].clone(), node_labels[index + n].clone()));
         }
-        graph.extend_edges_unrecorded(edges);
+        let _ = graph.extend_edges_unrecorded(edges);
 
         self.record(
             "ladder_graph",
@@ -663,7 +663,7 @@ impl GraphGenerator {
         }
         edges.push((node_labels[0].clone(), node_labels[n - 1].clone()));
         edges.push((node_labels[n].clone(), node_labels[(2 * n) - 1].clone()));
-        graph.extend_edges_unrecorded(edges);
+        let _ = graph.extend_edges_unrecorded(edges);
 
         self.record(
             "circular_ladder_graph",
@@ -6261,7 +6261,7 @@ fn watts_strogatz_graph_core(
             }
         }
     }
-    graph.extend_edges_unrecorded(edge_batch);
+    let _ = graph.extend_edges_unrecorded(edge_batch);
     let orders: Vec<(String, Vec<String>)> = (0..n)
         .map(|u| {
             (
@@ -6801,7 +6801,7 @@ fn graph_with_n_nodes(mode: CompatibilityMode, n: usize) -> (Graph, Vec<String>)
     // add_node (each records a RuntimePolicy decision). Same 0..n insertion order.
     let mut graph = Graph::new(mode);
     let node_labels: Vec<String> = (0..n).map(|i| i.to_string()).collect();
-    graph.extend_nodes_unrecorded(node_labels.iter().cloned());
+    let _ = graph.extend_nodes_unrecorded(node_labels.iter().cloned());
     (graph, node_labels)
 }
 
