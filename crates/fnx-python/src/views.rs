@@ -511,18 +511,47 @@ impl EdgeView {
         // adjacency-row key objects, br-r37-c1-z6uka) the neighbor's display
         // object can differ from the node's own key, so fall through to the
         // exact per-edge py_adj_key path below.
-        if matches!(self.data, NodeViewData::NoData) {
+        // Covers NoData (`G.edges()`), Attr (`data="w"`) and AttrWithDefault —
+        // every non-AllData variant. AllData has its own one-pass helper
+        // (edge_alldata_items) which carries the same index path.
+        if !matches!(self.data, NodeViewData::AllData) {
             let g = self.graph.borrow(py);
             if g.adj_py_keys.is_empty() {
                 let node_count = g.inner.node_count();
                 let nodes_seq = g.nodes_seq;
+                let nodes: Vec<&str> = g.inner.nodes_ordered();
                 let keys = g.cached_node_key_vec(py);
                 let items: Vec<PyObject> = g
                     .inner
                     .edges_ordered_indices()
                     .into_iter()
                     .map(|(u, v)| {
-                        tuple_object(py, &[keys[u].clone_ref(py), keys[v].clone_ref(py)])
+                        let py_u = keys[u].clone_ref(py);
+                        let py_v = keys[v].clone_ref(py);
+                        match &self.data {
+                            NodeViewData::NoData => tuple_object(py, &[py_u, py_v]),
+                            NodeViewData::Attr(attr_name) => {
+                                let val = g
+                                    .edge_py_attrs
+                                    .get(&PyGraph::edge_key(nodes[u], nodes[v]))
+                                    .and_then(|d| {
+                                        d.bind(py).get_item(attr_name.as_str()).ok().flatten()
+                                    })
+                                    .map_or_else(|| py.None(), |v| v.unbind());
+                                tuple_object(py, &[py_u, py_v, val])
+                            }
+                            NodeViewData::AttrWithDefault(attr_name, def_val) => {
+                                let val = g
+                                    .edge_py_attrs
+                                    .get(&PyGraph::edge_key(nodes[u], nodes[v]))
+                                    .and_then(|d| {
+                                        d.bind(py).get_item(attr_name.as_str()).ok().flatten()
+                                    })
+                                    .map_or_else(|| def_val.clone_ref(py), |v| v.unbind());
+                                tuple_object(py, &[py_u, py_v, val])
+                            }
+                            NodeViewData::AllData => unreachable!(),
+                        }
                     })
                     .collect::<PyResult<Vec<_>>>()?;
                 return Py::new(
