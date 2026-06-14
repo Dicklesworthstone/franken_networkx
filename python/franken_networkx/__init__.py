@@ -16538,6 +16538,90 @@ class _ApproximationNamespace:
         nx_G = _networkx_graph_for_parity(G)
         return _nx.approximation.local_node_connectivity(nx_G, source, target, cutoff)
 
+    def node_connectivity(self, G, s=None, t=None, *, backend=None, **backend_kwargs):
+        # br-r37-c1-nawyw: the generic __getattr__ wrapper round-trips the graph
+        # through ``_networkx_graph_for_parity`` (a full O(V+E) fnx->nx build)
+        # before running White & Newman's greedy approximation on nx views
+        # (~1.3-1.6x slower than nx). Run nx's EXACT algorithm in-process over the
+        # raw neighbour binding (no conversion, no AtlasView per-access tax).
+        #
+        # Byte-exactness: the returned K is order-INVARIANT. With ``cutoff=K``
+        # each ``local_node_connectivity(a,b,cutoff=K)`` returns ``min(true_lnc,
+        # K)``, so ``K = min(K, ...)`` is just the running minimum of true local
+        # connectivities bounded by the minimum degree — independent of the
+        # iteration order over the pair set. We only need the SAME minimum-degree
+        # node ``v`` (first in node order, matching nx's
+        # ``min(G.degree(), key=itemgetter(1))``) and the SAME pair set. Directed
+        # / multigraph / nx-private-storage graphs keep the delegation path.
+        _validate_backend_dispatch_keywords(
+            "node_connectivity", backend, backend_kwargs
+        )
+        if (s is not None and t is None) or (s is None and t is not None):
+            raise NetworkXError("Both source and target must be specified.")
+        raw = _raw_neighbors_dispatch(G)
+        if raw is None or G.is_directed() or G.is_multigraph():
+            nx_G = _networkx_graph_for_parity(G)
+            return _nx.approximation.node_connectivity(nx_G, s, t)
+        # Local node connectivity.
+        if s is not None and t is not None:
+            if s not in G:
+                raise NetworkXError(f"node {s} not in graph")
+            if t not in G:
+                raise NetworkXError(f"node {t} not in graph")
+            return _approx_local_node_connectivity_undirected(G, raw, s, t, None)
+        # Global node connectivity.
+        if not is_connected(G):
+            return 0
+        # The global algorithm touches the whole graph (every non-neighbour of the
+        # min-degree node, plus its non-adjacent neighbour pairs), so snapshot the
+        # adjacency ONCE via the native key binding and run the BFS over plain
+        # Python dicts — the one-time O(V+E) snapshot amortizes and pure-dict
+        # traversal beats nx's AtlasView access (~0.7-0.8x vs nx). Fall back to the
+        # raw per-access path if the snapshot binding is unavailable.
+        nak = getattr(G, "_native_adjacency_keys", None)
+        if nak is not None and type(G) is Graph:
+            adj = {node: list(nbrs) for node, nbrs in nak()}
+            deg = {node: len(nbrs) for node, nbrs in adj.items()}
+            # Min-degree node, first in node order on ties (== nx's
+            # ``min(G.degree(), key=itemgetter(1))``).
+            v = None
+            minimum_degree = None
+            for node, d in deg.items():
+                if minimum_degree is None or d < minimum_degree:
+                    minimum_degree = d
+                    v = node
+            K = minimum_degree
+            nbrs_v = set(adj[v])
+            for w in set(adj) - nbrs_v - {v}:
+                K = min(K, _approx_local_node_connectivity_dict(adj, deg, v, w, K))
+            nbr_list = list(nbrs_v)
+            nbr_sets = {x: set(adj[x]) for x in nbr_list}
+            for x, y in _itertools.combinations(nbr_list, 2):
+                if x != y and y not in nbr_sets[x]:
+                    K = min(
+                        K, _approx_local_node_connectivity_dict(adj, deg, x, y, K)
+                    )
+            return K
+        # Fallback: raw per-access path (no native snapshot binding).
+        v = None
+        minimum_degree = None
+        for node, d in G.degree():
+            if minimum_degree is None or d < minimum_degree:
+                minimum_degree = d
+                v = node
+        K = minimum_degree
+        nbrs_v = set(raw(G, v))
+        for w in set(G) - nbrs_v - {v}:
+            K = min(K, _approx_local_node_connectivity_undirected(G, raw, v, w, K))
+        nbr_list = list(nbrs_v)
+        nbr_sets = {x: set(raw(G, x)) for x in nbr_list}
+        for x, y in _itertools.combinations(nbr_list, 2):
+            if x != y and y not in nbr_sets[x]:
+                K = min(
+                    K, _approx_local_node_connectivity_undirected(G, raw, x, y, K)
+                )
+        return K
+
     def large_clique_size(self, G, *, backend=None, **backend_kwargs):
         # br-r37-c1-eg2bz: the generic __getattr__ wrapper round-trips the graph
         # through ``_networkx_graph_for_parity`` (a full O(V+E) fnx->nx build)
@@ -16698,6 +16782,86 @@ def _approx_local_node_connectivity_undirected(G, raw, source, target, cutoff):
         exclude.update(path)
         k += 1
     return k
+
+
+def _approx_local_node_connectivity_dict(adj, deg, source, target, cutoff):
+    """White & Newman greedy local node-connectivity over a plain Python int->list
+    adjacency snapshot (``adj``) and degree map (``deg``). Identical algorithm to
+    :func:`_approx_local_node_connectivity_undirected` but with zero PyO3 access —
+    used by the global node_connectivity loops where adjacency is touched many
+    times, so the one-time snapshot amortizes and pure-dict BFS beats nx's
+    AtlasView traversal."""
+    possible = min(deg[source], deg[target])
+    if not possible:
+        return 0
+    if cutoff is None:
+        cutoff = float("inf")
+    exclude = set()
+    k = 0
+    for _i in range(min(possible, cutoff)):
+        path = _approx_bbfs_dict(adj, source, target, exclude)
+        if path is None:
+            break
+        exclude.update(path)
+        k += 1
+    return k
+
+
+def _approx_bbfs_dict(adj, source, target, exclude):
+    """Level-alternating bidirectional BFS over a plain ``adj`` dict avoiding
+    ``exclude``; returns the path list or ``None`` (mirrors nx's
+    ``_bidirectional_pred_succ`` exactly)."""
+    pred = {source: None}
+    succ = {target: None}
+    forward_fringe = [source]
+    reverse_fringe = [target]
+    level = 0
+    found = None
+    while forward_fringe and reverse_fringe and found is None:
+        level += 1
+        if level % 2 != 0:
+            this_level = forward_fringe
+            forward_fringe = []
+            for v in this_level:
+                for w in adj[v]:
+                    if w in exclude:
+                        continue
+                    if w not in pred:
+                        forward_fringe.append(w)
+                        pred[w] = v
+                    if w in succ:
+                        found = w
+                        break
+                if found is not None:
+                    break
+        else:
+            this_level = reverse_fringe
+            reverse_fringe = []
+            for v in this_level:
+                for w in adj[v]:
+                    if w in exclude:
+                        continue
+                    if w not in succ:
+                        succ[w] = v
+                        reverse_fringe.append(w)
+                    if w in pred:
+                        found = w
+                        break
+                if found is not None:
+                    break
+    if found is None:
+        return None
+    w = found
+    path = []
+    while w is not None:
+        path.append(w)
+        w = pred[w]
+    path.reverse()
+    w = succ[path[-1]]
+    while w is not None:
+        path.append(w)
+        w = succ[w]
+    return path
 
 
 def _approx_bidirectional_shortest_path_excl(G, raw, source, target, exclude):
