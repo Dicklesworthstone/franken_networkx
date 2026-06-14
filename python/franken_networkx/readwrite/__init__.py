@@ -836,6 +836,17 @@ def parse_adjlist(
         "parse_adjlist", backend, backend_kwargs
     )
     G = _new_graph(create_using)
+    # br-r37-c1-pjadl: accumulate the whole stream and commit nodes + edges in
+    # two bulk insertions instead of per-line add_node + add_edges_from (the
+    # latter pays the batch-setup + PyO3 boundary cost once PER LINE — ~3.8x nx).
+    # `nodes_in_order` reproduces nx's first-occurrence node order EXACTLY (per
+    # line: the source u, then each target v in list order, deduped on first
+    # sight — identical to nx's per-line add_node(u) then add_edges_from), and the
+    # flat `edges` list preserves nx's per-line edge order, so output is
+    # byte-identical. nodetype conversion + its TypeError contract are unchanged.
+    nodes_in_order = []
+    seen_nodes = set()
+    edges = []
     for line in _normalize_lines(lines):
         idx = line.find(comments)
         if idx >= 0:
@@ -851,7 +862,9 @@ def parse_adjlist(
                 raise TypeError(
                     f"Failed to convert node ({u}) to type {nodetype}"
                 ) from err
-        G.add_node(u)
+        if u not in seen_nodes:
+            seen_nodes.add(u)
+            nodes_in_order.append(u)
         if nodetype is not None:
             try:
                 vlist = list(map(nodetype, vlist))
@@ -859,7 +872,13 @@ def parse_adjlist(
                 raise TypeError(
                     f"Failed to convert nodes ({','.join(vlist)}) to type {nodetype}"
                 ) from err
-        G.add_edges_from((u, v) for v in vlist)
+        for v in vlist:
+            if v not in seen_nodes:
+                seen_nodes.add(v)
+                nodes_in_order.append(v)
+            edges.append((u, v))
+    G.add_nodes_from(nodes_in_order)
+    G.add_edges_from(edges)
     return G
 
 
@@ -881,6 +900,12 @@ def parse_edgelist(
         "parse_edgelist", backend, backend_kwargs
     )
     G = _new_graph(create_using)
+    # br-r37-c1-pjadl: accumulate (u, v, edgedata) triples and commit them in one
+    # bulk add_edges_from instead of a per-line add_edge (~2.1x nx). add_edges_from
+    # adds endpoints in the same first-occurrence order as sequential add_edge and
+    # carries the per-edge attr dict identically, so output is byte-identical; the
+    # per-line parse / nodetype / data error contracts are unchanged.
+    edges = []
     for line in _normalize_lines(lines):
         if comments is not None:
             idx = line.find(comments)
@@ -935,7 +960,8 @@ def parse_edgelist(
                     raise TypeError(
                         f"Failed to convert {name} data {val} to type {tp}."
                     ) from err
-        G.add_edge(u, v, **edgedata)
+        edges.append((u, v, edgedata))
+    G.add_edges_from(edges)
     return G
 
 
