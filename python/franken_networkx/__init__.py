@@ -2437,24 +2437,24 @@ def _simple_graph_adjacency(self):
     # Rust storage.
     if isinstance(self, _FilteredGraphView):
         return ((node, FilterAtlas(self, node)) for node in self)
-    # br-r37-c1-adjtdd: route to the to_dict_of_dicts native kernel
-    # (``to_dict_of_dicts_undirected``, which also serves DiGraph successors).
-    # It builds the SAME nested ``{node: {nbr: live_edge_attr_dict}}`` snapshot —
-    # identical inner-dict object refs (``d[u][v] is G[u][v]``), identical
-    # node x neighbour order — as the older ``_native_adjacency_dict`` binding
-    # but ~15x faster (the legacy binding re-materialises each edge's attr dict
-    # through a slower path). Iterating its items yields the same (node, inner)
-    # pairs nx's adjacency() does. Falls back to the legacy binding then the
-    # AtlasView path for subclasses the native kernel declines.
+    # br-r37-c1-adjshare: serve from the (nodes_seq, edges_seq)-keyed cache via
+    # ``adjacency_dict_shared`` — the SAME fast integer-CSR rebuild that
+    # to_dict_of_dicts uses, but assembled with SHARED rows (no per-row copy).
+    # nx's adjacency() hands out the live ``_adj[node]`` rows (two calls yield the
+    # SAME row object); the shared assembly matches that AND drops the per-call
+    # O(V+E) row-copy that ``to_dict_of_dicts_undirected`` pays for its isolation
+    # contract (~7x slower than nx). Identical inner-dict refs (``d[u][v] is
+    # G[u][v]``) + node x nbr order; iterating its items yields the same
+    # (node, inner) pairs nx's adjacency() does. Returns None for non-exact graph
+    # types (falls through to the legacy native dict / AtlasView path).
     if type(self) is Graph or type(self) is DiGraph:
-        fast = _fnx.to_dict_of_dicts_undirected(self)
-        if fast is not None:
-            return iter(fast.items())
+        shared = _fnx.adjacency_dict_shared(self)
+        if shared is not None:
+            return iter(shared.items())
     # br-r37-c1-gadj: build the nested {node: {nbr: attrs}} snapshot natively
     # (reusing the live edge attr dicts, in node x nbr adjacency order) instead
     # of materialising dict(self.adj[node]) via the per-element AtlasView lambda
-    # chain (~150x slower than nx). Iterating the native dict's items yields the
-    # same (node, inner_dict) pairs. _FilteredGraphView (handled above) has no
+    # chain (~150x slower than nx). _FilteredGraphView (handled above) has no
     # _native_adjacency_dict, so the gate is exact-graph only.
     native = getattr(self, "_native_adjacency_dict", None)
     if native is not None:

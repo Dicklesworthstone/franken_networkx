@@ -1432,6 +1432,59 @@ fn to_dict_of_dicts_graph_cached(py: Python<'_>, pg: &mut PyGraph) -> PyResult<P
     copy_dict_of_dicts_cache(py, cache)
 }
 
+/// `G.adjacency()` for PyGraph: same fast (integer-CSR) cache rebuild as
+/// to_dict_of_dicts, but assembled with SHARED rows (no per-row copy) — nx's
+/// adjacency() hands out the live `_adj[node]` rows, so this is both faster and
+/// more nx-correct (`r1[u] is r2[u]`). to_dict_of_dicts keeps the copy path.
+fn adjacency_graph_cached_shared(py: Python<'_>, pg: &mut PyGraph) -> PyResult<Py<PyDict>> {
+    let cache_matches = pg
+        .dict_of_dicts_cache
+        .as_ref()
+        .is_some_and(|cache| cache.nodes_seq == pg.nodes_seq && cache.edges_seq == pg.edges_seq);
+    if !cache_matches {
+        rebuild_dict_of_dicts_cache(py, pg)?;
+    }
+    let Some(cache) = pg.dict_of_dicts_cache.as_ref() else {
+        return Err(PyRuntimeError::new_err(
+            "dict_of_dicts cache missing after rebuild",
+        ));
+    };
+    share_dict_of_dicts_cache(py, cache)
+}
+
+fn adjacency_digraph_cached_shared(py: Python<'_>, dg: &mut PyDiGraph) -> PyResult<Py<PyDict>> {
+    let cache_matches = dg
+        .dict_of_dicts_cache
+        .as_ref()
+        .is_some_and(|cache| cache.nodes_seq == dg.nodes_seq && cache.edges_seq == dg.edges_seq);
+    if !cache_matches {
+        rebuild_dict_of_dicts_digraph_cache(py, dg)?;
+    }
+    let Some(cache) = dg.dict_of_dicts_cache.as_ref() else {
+        return Err(PyRuntimeError::new_err(
+            "dict_of_dicts cache missing after rebuild",
+        ));
+    };
+    share_dict_of_dicts_cache(py, cache)
+}
+
+/// Native fast path for `Graph.adjacency()` / `DiGraph.adjacency()` — returns the
+/// nested `{node: {nbr: live_edge_dict}}` snapshot with SHARED rows, or None for
+/// non-exact graph types (caller falls back).
+#[pyfunction]
+pub fn adjacency_dict_shared(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+) -> PyResult<Option<Py<PyDict>>> {
+    if let Ok(mut pg) = g.extract::<PyRefMut<'_, PyGraph>>() {
+        return adjacency_graph_cached_shared(py, &mut pg).map(Some);
+    }
+    if let Ok(mut dg) = g.extract::<PyRefMut<'_, PyDiGraph>>() {
+        return adjacency_digraph_cached_shared(py, &mut dg).map(Some);
+    }
+    Ok(None)
+}
+
 fn rebuild_dict_of_dicts_cache(py: Python<'_>, pg: &mut PyGraph) -> PyResult<()> {
     let nodes: Vec<String> = pg
         .inner
@@ -1544,6 +1597,25 @@ pub(crate) fn copy_dict_of_dicts_cache(
     let outer = PyDict::new(py);
     for (node_key, row) in &cache.rows {
         outer.set_item(node_key.bind(py), row.bind(py).copy()?)?;
+    }
+    Ok(outer.unbind())
+}
+
+/// Assemble the `{node: row}` dict from the cache WITHOUT copying each row —
+/// the row dicts are SHARED (clone_ref) rather than `.copy()`d. This is for
+/// `G.adjacency()`, whose nx contract hands out the live `_adj[node]` row
+/// objects (so two `adjacency()` calls yield the SAME row object, matching
+/// `r1[u] is r2[u]`); only `to_dict_of_dicts` needs the isolated per-call
+/// copies. Skipping the per-row `.copy()` turns the per-call cost from
+/// O(V + E) (one alloc per node + one entry-copy per edge) into O(V) (one
+/// `set_item` per node), the same shape nx pays.
+pub(crate) fn share_dict_of_dicts_cache(
+    py: Python<'_>,
+    cache: &DictOfDictsCache,
+) -> PyResult<Py<PyDict>> {
+    let outer = PyDict::new(py);
+    for (node_key, row) in &cache.rows {
+        outer.set_item(node_key.bind(py), row.bind(py))?;
     }
     Ok(outer.unbind())
 }
@@ -2062,6 +2134,7 @@ pub fn floyd_warshall_dense(
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(floyd_warshall_dense, m)?)?;
     m.add_function(wrap_pyfunction!(to_dict_of_dicts_undirected, m)?)?;
+    m.add_function(wrap_pyfunction!(adjacency_dict_shared, m)?)?;
     m.add_function(wrap_pyfunction!(edges_nbunch_data, m)?)?;
     m.add_function(wrap_pyfunction!(edges_nbunch_count, m)?)?;
     m.add_function(wrap_pyfunction!(to_dict_of_lists_undirected, m)?)?;
