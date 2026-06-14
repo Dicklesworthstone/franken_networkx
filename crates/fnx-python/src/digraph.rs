@@ -3356,6 +3356,7 @@ impl PyMultiDiGraph {
             node_data_mirror: std::sync::Mutex::new(None),
             dict_of_dicts_cache: None,
             edges_with_data_cache: None,
+            node_iter_mirror: std::sync::Mutex::new(None),
         };
         let mut node_batch: Vec<(String, fnx_classes::AttrMap)> =
             Vec::with_capacity(self.inner.node_count());
@@ -3805,6 +3806,7 @@ impl PyMultiDiGraph {
             node_data_mirror: std::sync::Mutex::new(None),
             dict_of_dicts_cache: None,
             edges_with_data_cache: None,
+            node_iter_mirror: std::sync::Mutex::new(None),
         };
 
         for (canonical, py_key) in &self.node_key_map {

@@ -7430,18 +7430,13 @@ def test_graph_iteration_detects_node_mutation_like_python_dict():
         assert next(node_iter) == 0
         G.remove_node(1)
         G.add_node(2)
-        if cls in (fnx.Graph, fnx.DiGraph, fnx.MultiDiGraph):
-            # Graph/DiGraph/MultiDiGraph back ``iter(G)`` with CPython's
-            # dict_keyiterator (the live node_iter_mirror), so a same-size
-            # remove+add during iteration behaves EXACTLY like nx on this
-            # Python (yields the new key, then StopIteration — no raise).
-            # MultiGraph still uses the snapshot iterator below.
-            assert next(node_iter) == 2
-            with pytest.raises(StopIteration):
-                next(node_iter)
-        else:
-            with pytest.raises(RuntimeError, match="dictionary keys changed during iteration"):
-                next(node_iter)
+        # All four graph classes now back ``iter(G)`` with CPython's
+        # dict_keyiterator (the live node_iter_mirror), so a same-size
+        # remove+add during iteration behaves EXACTLY like nx on this Python
+        # (yields the new key, then StopIteration — no raise).
+        assert next(node_iter) == 2
+        with pytest.raises(StopIteration):
+            next(node_iter)
 
 
 def test_edge_view_iteration_detects_node_mutation_like_python_dict():
