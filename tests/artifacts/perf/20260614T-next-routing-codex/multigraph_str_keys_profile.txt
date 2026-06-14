@@ -1,0 +1,18 @@
+case=multigraph_str_keys sha256=5dc2c5bba44274ce5538034b0c969c38e91a588d06e82b60c9ba4c1a81ad8e9e
+         51 function calls in 1.231 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        5    0.011    0.002    1.231    0.246 /data/projects/.scratch/franken_networkx-codex-next-20260614T0344/tests/artifacts/perf/20260613T-current-routing-boldfalcon/profile_construction.py:41(run_case)
+        5    0.000    0.000    1.147    0.229 /data/projects/.scratch/franken_networkx-codex-next-20260614T0344/python/franken_networkx/__init__.py:2835(_multi_add_edges_from)
+        5    1.133    0.227    1.133    0.227 {method '_try_add_str_keyed_edges_from_batch' of 'franken_networkx.MultiGraph' objects}
+        5    0.074    0.015    0.074    0.015 /data/projects/.scratch/franken_networkx-codex-next-20260614T0344/tests/artifacts/perf/20260613T-current-routing-boldfalcon/profile_construction.py:37(_multi_edges_str)
+        5    0.014    0.003    0.014    0.003 {method '_try_add_edges_from_batch' of 'franken_networkx.MultiGraph' objects}
+        5    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-codex-next-20260614T0344/python/franken_networkx/__init__.py:3617(__init__)
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+       10    0.000    0.000    0.000    0.000 {built-in method builtins.isinstance}
+       10    0.000    0.000    0.000    0.000 {built-in method builtins.getattr}
+
+
+

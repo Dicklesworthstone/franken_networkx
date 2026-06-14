@@ -1295,6 +1295,106 @@ impl PyGraph {
         Ok(true)
     }
 
+    fn collect_fresh_exact_int_prefix_edges<'py, I>(
+        items: I,
+        len: usize,
+    ) -> PyResult<Option<(usize, Vec<(usize, usize)>)>>
+    where
+        I: IntoIterator<Item = Bound<'py, PyAny>>,
+    {
+        let mut edges = Vec::with_capacity(len);
+        let mut seen = Vec::<bool>::new();
+        let mut next_node = 0usize;
+
+        for item in items {
+            let Ok(tuple) = item.downcast::<PyTuple>() else {
+                return Ok(None);
+            };
+            if tuple.len() != 2 {
+                return Ok(None);
+            }
+
+            let u = tuple.get_item(0)?;
+            let v = tuple.get_item(1)?;
+            if !u.is_exact_instance_of::<PyInt>() || !v.is_exact_instance_of::<PyInt>() {
+                return Ok(None);
+            }
+            let Ok(u_value) = u.extract::<i64>() else {
+                return Ok(None);
+            };
+            let Ok(v_value) = v.extract::<i64>() else {
+                return Ok(None);
+            };
+            let Ok(u_index) = usize::try_from(u_value) else {
+                return Ok(None);
+            };
+            let Ok(v_index) = usize::try_from(v_value) else {
+                return Ok(None);
+            };
+
+            for index in [u_index, v_index] {
+                if index >= seen.len() {
+                    seen.resize(index + 1, false);
+                }
+                if !seen[index] {
+                    if index != next_node {
+                        return Ok(None);
+                    }
+                    seen[index] = true;
+                    next_node += 1;
+                }
+            }
+            edges.push((u_index, v_index));
+        }
+
+        Ok(Some((next_node, edges)))
+    }
+
+    fn try_add_fresh_exact_int_prefix_edge_batch(
+        &mut self,
+        py: Python<'_>,
+        ebunch_to_add: &Bound<'_, PyAny>,
+    ) -> PyResult<bool> {
+        const FRESH_EXACT_INT_PREFIX_BATCH_MIN: usize = 8;
+        if self.inner.node_count() != 0
+            || self.inner.edge_count() != 0
+            || self.lazy_int_node_stop != 0
+            || !self.node_key_map.is_empty()
+            || !self.adj_py_keys.is_empty()
+            || !self.node_py_attrs.is_empty()
+        {
+            return Ok(false);
+        }
+
+        let collected = if let Ok(list) = ebunch_to_add.downcast::<PyList>() {
+            if list.len() < FRESH_EXACT_INT_PREFIX_BATCH_MIN {
+                return Ok(false);
+            }
+            Self::collect_fresh_exact_int_prefix_edges(list.iter(), list.len())?
+        } else if let Ok(tuple) = ebunch_to_add.downcast::<PyTuple>() {
+            if tuple.len() < FRESH_EXACT_INT_PREFIX_BATCH_MIN {
+                return Ok(false);
+            }
+            Self::collect_fresh_exact_int_prefix_edges(tuple.iter(), tuple.len())?
+        } else {
+            return Ok(false);
+        };
+
+        let Some((node_count, edges)) = collected else {
+            return Ok(false);
+        };
+        let Ok(node_stop) = i64::try_from(node_count) else {
+            return Ok(false);
+        };
+        self._fast_add_int_nodes_range_stop(py, node_stop)?;
+        let edge_bumps = u64::try_from(edges.len())
+            .unwrap_or(u64::MAX)
+            .wrapping_add(1);
+        let _ = self.inner.extend_existing_index_edges_unrecorded(edges);
+        self.edges_seq = self.edges_seq.wrapping_add(edge_bumps);
+        Ok(true)
+    }
+
     fn try_add_plain_edge_batch(
         &mut self,
         py: Python<'_>,
@@ -1303,6 +1403,9 @@ impl PyGraph {
         const PLAIN_EDGE_BATCH_MIN: usize = 8;
         if !self.adj_row_py.is_empty() {
             return Ok(false);
+        }
+        if self.try_add_fresh_exact_int_prefix_edge_batch(py, ebunch_to_add)? {
+            return Ok(true);
         }
         if self.try_add_existing_exact_int_edge_index_batch(py, ebunch_to_add)? {
             return Ok(true);

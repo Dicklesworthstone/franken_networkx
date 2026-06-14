@@ -1,0 +1,26 @@
+case=multigraph_int_keys sha256=12bd996b964c1acc62a211707978701379d74e8042798f250796298d70ffac83
+         2000081 function calls in 1.474 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        5    0.008    0.002    1.474    0.295 /data/projects/.scratch/franken_networkx-codex-next-20260614T0344/tests/artifacts/perf/20260613T-current-routing-boldfalcon/profile_construction.py:41(run_case)
+        5    0.256    0.051    1.423    0.285 /data/projects/.scratch/franken_networkx-codex-next-20260614T0344/python/franken_networkx/__init__.py:2835(_multi_add_edges_from)
+   250000    0.156    0.000    0.999    0.000 /data/projects/.scratch/franken_networkx-codex-next-20260614T0344/python/franken_networkx/__init__.py:2505(add_edge)
+   250000    0.784    0.000    0.784    0.000 {method 'add_edge' of 'franken_networkx.MultiGraph' objects}
+   500000    0.137    0.000    0.137    0.000 {method 'update' of 'dict' objects}
+   750000    0.060    0.000    0.060    0.000 {built-in method builtins.hash}
+        5    0.043    0.009    0.043    0.009 /data/projects/.scratch/franken_networkx-codex-next-20260614T0344/tests/artifacts/perf/20260613T-current-routing-boldfalcon/profile_construction.py:33(_multi_edges_int)
+   250000    0.024    0.000    0.024    0.000 {built-in method builtins.len}
+        5    0.004    0.001    0.004    0.001 {method '_try_add_edges_from_batch' of 'franken_networkx.MultiGraph' objects}
+        5    0.003    0.001    0.003    0.001 {method '_try_add_attr_edges_from_batch' of 'franken_networkx.MultiGraph' objects}
+        5    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-codex-next-20260614T0344/python/franken_networkx/__init__.py:3617(__init__)
+        5    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-codex-next-20260614T0344/python/franken_networkx/__init__.py:6122(predicate)
+        5    0.000    0.000    0.000    0.000 {method '_try_add_str_keyed_edges_from_batch' of 'franken_networkx.MultiGraph' objects}
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+       20    0.000    0.000    0.000    0.000 {built-in method builtins.isinstance}
+       15    0.000    0.000    0.000    0.000 {built-in method builtins.getattr}
+        5    0.000    0.000    0.000    0.000 {function _make_class_safe_predicate.<locals>.predicate at 0x77820e8b6f20}
+
+
+
