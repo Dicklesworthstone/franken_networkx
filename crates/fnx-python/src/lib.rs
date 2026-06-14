@@ -8,9 +8,9 @@
 
 mod algorithms;
 mod cgse;
-mod network_simplex;
 pub(crate) mod digraph;
 mod generators;
+mod network_simplex;
 mod readwrite;
 mod views;
 
@@ -2192,7 +2192,11 @@ impl PyMultiGraph {
 
         let mirror_active = self.node_iter_mirror_active();
         for (canonical, node) in node_entries {
-            let mk = if mirror_active { Some(canonical.clone()) } else { None };
+            let mk = if mirror_active {
+                Some(canonical.clone())
+            } else {
+                None
+            };
             self.node_key_map.entry(canonical).or_insert(node);
             if let Some(c) = mk {
                 let _ = self.node_iter_mirror_insert(py, &c);
@@ -2298,7 +2302,11 @@ impl PyMultiGraph {
     ) -> PyResult<()> {
         let mirror_active = self.node_iter_mirror_active();
         for (canonical, node) in new_nodes {
-            let mk = if mirror_active { Some(canonical.clone()) } else { None };
+            let mk = if mirror_active {
+                Some(canonical.clone())
+            } else {
+                None
+            };
             self.node_key_map.entry(canonical).or_insert(node);
             if let Some(c) = mk {
                 let _ = self.node_iter_mirror_insert(py, &c);
@@ -3528,7 +3536,11 @@ impl PyMultiGraph {
         let edge_bumps = u64::try_from(edges.len()).unwrap_or(u64::MAX);
         let mirror_active = self.node_iter_mirror_active();
         for (canonical, node) in new_nodes {
-            let mk = if mirror_active { Some(canonical.clone()) } else { None };
+            let mk = if mirror_active {
+                Some(canonical.clone())
+            } else {
+                None
+            };
             self.node_key_map.entry(canonical).or_insert(node);
             if let Some(c) = mk {
                 let _ = self.node_iter_mirror_insert(py, &c);
@@ -3735,7 +3747,11 @@ impl PyMultiGraph {
         let edge_bumps = u64::try_from(edges.len()).unwrap_or(u64::MAX);
         let mirror_active = self.node_iter_mirror_active();
         for (canonical, node) in new_nodes {
-            let mk = if mirror_active { Some(canonical.clone()) } else { None };
+            let mk = if mirror_active {
+                Some(canonical.clone())
+            } else {
+                None
+            };
             self.node_key_map.entry(canonical).or_insert(node);
             if let Some(c) = mk {
                 let _ = self.node_iter_mirror_insert(py, &c);
@@ -4112,7 +4128,11 @@ impl PyMultiGraph {
         let edge_bumps = u64::try_from(edges.len()).unwrap_or(u64::MAX);
         let mirror_active = self.node_iter_mirror_active();
         for (canonical, node) in new_nodes {
-            let mk = if mirror_active { Some(canonical.clone()) } else { None };
+            let mk = if mirror_active {
+                Some(canonical.clone())
+            } else {
+                None
+            };
             self.node_key_map.entry(canonical).or_insert(node);
             if let Some(c) = mk {
                 let _ = self.node_iter_mirror_insert(py, &c);
@@ -4993,15 +5013,17 @@ impl PyMultiGraph {
         if self.inner.edge_count() > 0 {
             self.mark_edges_dirty();
         }
-        let matches = self.dict_of_dicts_cache.as_ref().is_some_and(|c| {
-            c.nodes_seq == self.nodes_seq && c.edges_seq == self.edges_seq
-        });
+        let matches = self
+            .dict_of_dicts_cache
+            .as_ref()
+            .is_some_and(|c| c.nodes_seq == self.nodes_seq && c.edges_seq == self.edges_seq);
         if !matches {
             self.rebuild_adjacency_cache(py)?;
         }
-        let cache = self.dict_of_dicts_cache.as_ref().ok_or_else(|| {
-            PyRuntimeError::new_err("dict_of_dicts cache missing after rebuild")
-        })?;
+        let cache = self
+            .dict_of_dicts_cache
+            .as_ref()
+            .ok_or_else(|| PyRuntimeError::new_err("dict_of_dicts cache missing after rebuild"))?;
         crate::readwrite::share_dict_of_dicts_cache(py, cache)
     }
 
@@ -6604,11 +6626,8 @@ impl PyGraph {
         // may index it differently, so H's edges are translated into G-index
         // pairs; decline (-> None) if any H node is somehow absent from G.
         let g_nodes: Vec<&str> = g.inner.nodes_ordered();
-        let g_index: HashMap<&str, usize> = g_nodes
-            .iter()
-            .enumerate()
-            .map(|(i, &n)| (n, i))
-            .collect();
+        let g_index: HashMap<&str, usize> =
+            g_nodes.iter().enumerate().map(|(i, &n)| (n, i)).collect();
 
         // H's edge set as canonical (min, max) G-index pairs.
         let mut h_set: HashSet<(usize, usize)> = HashSet::new();
@@ -7228,9 +7247,13 @@ impl PyGraph {
             let canonical = node.to_string();
             let was_absent =
                 !self.node_key_map.contains_key(&canonical) && !self.inner.has_node(&canonical);
-            self.node_key_map.entry(canonical.clone()).or_insert_with(|| {
-                unwrap_infallible(node.into_pyobject(py)).into_any().unbind()
-            });
+            self.node_key_map
+                .entry(canonical.clone())
+                .or_insert_with(|| {
+                    unwrap_infallible(node.into_pyobject(py))
+                        .into_any()
+                        .unbind()
+                });
             if was_absent {
                 self.node_iter_mirror_insert(py, &canonical)?;
                 fresh_canonicals.push(canonical);

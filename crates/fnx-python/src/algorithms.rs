@@ -7010,8 +7010,7 @@ pub fn has_eulerian_path(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<bool>
         };
         let dg = &dg.inner;
         let n = dg.node_count();
-        let all_balanced =
-            (0..n).all(|i| dg.in_degree_by_index(i) == dg.out_degree_by_index(i));
+        let all_balanced = (0..n).all(|i| dg.in_degree_by_index(i) == dg.out_degree_by_index(i));
         if all_balanced && py.allow_threads(|| fnx_algorithms::is_strongly_connected(dg)) {
             return Ok(true); // is_eulerian -> has an Eulerian path
         }
@@ -12247,8 +12246,7 @@ fn corona_product_fast(
     let h_names: Vec<String> = g2.nodes_ordered().iter().map(|s| (*s).to_owned()).collect();
     let ng = g_names.len();
     let nh = h_names.len();
-    let (tup_canon, mut node_key_map) =
-        product_node_tuples(py, &gr1, &gr2, &g_names, &h_names)?;
+    let (tup_canon, mut node_key_map) = product_node_tuples(py, &gr1, &gr2, &g_names, &h_names)?;
     // Add G's original nodes to the key map (their display objects).
     for gname in &g_names {
         node_key_map
@@ -12274,7 +12272,10 @@ fn corona_product_fast(
         for hu in 0..nh {
             for &hv in g2.neighbors_indices(hu).unwrap_or(&[]) {
                 if hv > hu {
-                    edges.push((tup_canon[gi * nh + hu].clone(), tup_canon[gi * nh + hv].clone()));
+                    edges.push((
+                        tup_canon[gi * nh + hu].clone(),
+                        tup_canon[gi * nh + hv].clone(),
+                    ));
                 }
             }
         }
@@ -12362,7 +12363,11 @@ fn line_graph_fast(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Option<PyOb
         }
         let g_inner = gr.undirected();
         let n = g_inner.node_count();
-        let names: Vec<String> = g_inner.nodes_ordered().iter().map(|s| (*s).to_owned()).collect();
+        let names: Vec<String> = g_inner
+            .nodes_ordered()
+            .iter()
+            .map(|s| (*s).to_owned())
+            .collect();
         let g_py: Vec<PyObject> = names.iter().map(|s| gr.py_node_key(py, s)).collect();
 
         // Enumerate each undirected edge once, oriented (u < v by node index) to
@@ -13749,13 +13754,8 @@ fn find_cycle_simple_dfs<'a>(
     neighbors: impl Fn(usize) -> &'a [usize],
 ) -> Option<Vec<(usize, usize)>> {
     let mut explored: HashSet<usize> = HashSet::new();
-    let edge_id = |u: usize, v: usize| -> (usize, usize) {
-        if directed || u <= v {
-            (u, v)
-        } else {
-            (v, u)
-        }
-    };
+    let edge_id =
+        |u: usize, v: usize| -> (usize, usize) { if directed || u <= v { (u, v) } else { (v, u) } };
 
     for start in 0..node_count {
         if explored.contains(&start) {
@@ -19103,7 +19103,10 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(edge_betweenness_centrality, m)?)?;
     m.add_function(wrap_pyfunction!(edge_betweenness_centrality_weighted, m)?)?;
     m.add_function(wrap_pyfunction!(betweenness_centrality_subset_rust, m)?)?;
-    m.add_function(wrap_pyfunction!(betweenness_centrality_subset_weighted_rust, m)?)?;
+    m.add_function(wrap_pyfunction!(
+        betweenness_centrality_subset_weighted_rust,
+        m
+    )?)?;
     m.add_function(wrap_pyfunction!(
         edge_betweenness_centrality_subset_rust,
         m

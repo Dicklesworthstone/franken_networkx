@@ -5,14 +5,14 @@
 //! Internally delegates to `fnx_readwrite::EdgeListEngine` where the native
 //! engine format matches the public NetworkX surface.
 
-use crate::algorithms::{extract_graph, GraphRef};
+use crate::algorithms::{GraphRef, extract_graph};
 use crate::digraph::PyDiGraph;
 use crate::{
-    cgse_value_to_py, node_key_to_string, py_dict_to_attr_map, DictOfDictsCache, PyGraph, PyObject,
-    PythonAllowThreadsExt,
+    DictOfDictsCache, PyGraph, PyObject, PythonAllowThreadsExt, cgse_value_to_py,
+    node_key_to_string, py_dict_to_attr_map,
 };
-use fnx_classes::digraph::DiGraph as RustDiGraph;
 use fnx_classes::Graph as RustGraph;
+use fnx_classes::digraph::DiGraph as RustDiGraph;
 use fnx_readwrite::{DiReadWriteReport, EdgeListEngine, ReadWriteError, ReadWriteReport};
 use fnx_runtime::CompatibilityMode;
 use pyo3::exceptions::PyRuntimeError;
@@ -1472,10 +1472,7 @@ fn adjacency_digraph_cached_shared(py: Python<'_>, dg: &mut PyDiGraph) -> PyResu
 /// nested `{node: {nbr: live_edge_dict}}` snapshot with SHARED rows, or None for
 /// non-exact graph types (caller falls back).
 #[pyfunction]
-pub fn adjacency_dict_shared(
-    py: Python<'_>,
-    g: &Bound<'_, PyAny>,
-) -> PyResult<Option<Py<PyDict>>> {
+pub fn adjacency_dict_shared(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Option<Py<PyDict>>> {
     if let Ok(mut pg) = g.extract::<PyRefMut<'_, PyGraph>>() {
         return adjacency_graph_cached_shared(py, &mut pg).map(Some);
     }
@@ -1528,10 +1525,7 @@ fn rebuild_dict_of_dicts_cache(py: Python<'_>, pg: &mut PyGraph) -> PyResult<()>
     Ok(())
 }
 
-fn to_dict_of_dicts_digraph_cached(
-    py: Python<'_>,
-    dg: &mut PyDiGraph,
-) -> PyResult<Py<PyDict>> {
+fn to_dict_of_dicts_digraph_cached(py: Python<'_>, dg: &mut PyDiGraph) -> PyResult<Py<PyDict>> {
     let cache_matches = dg
         .dict_of_dicts_cache
         .as_ref()

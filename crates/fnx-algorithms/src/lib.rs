@@ -3918,85 +3918,85 @@ fn betweenness_centrality_generic<G: GraphView>(
         let mut queue = Vec::<usize>::with_capacity(n);
 
         for s in 0..n {
-        let alloc_t = if perf_spans {
-            Some(std::time::Instant::now())
-        } else {
-            None
-        };
-        stack.clear();
-        for predecessor_list in &mut predecessors {
-            predecessor_list.clear();
-        }
-        sigma.fill(0.0);
-        distance.fill(-1);
-        dependency.fill(0.0);
-        queue.clear();
-        if let Some(t) = alloc_t {
-            alloc_ns += t.elapsed().as_nanos();
-        }
+            let alloc_t = if perf_spans {
+                Some(std::time::Instant::now())
+            } else {
+                None
+            };
+            stack.clear();
+            for predecessor_list in &mut predecessors {
+                predecessor_list.clear();
+            }
+            sigma.fill(0.0);
+            distance.fill(-1);
+            dependency.fill(0.0);
+            queue.clear();
+            if let Some(t) = alloc_t {
+                alloc_ns += t.elapsed().as_nanos();
+            }
 
-        sigma[s] = 1.0;
-        distance[s] = 0;
+            sigma[s] = 1.0;
+            distance[s] = 0;
 
-        let mut queue_head = 0usize;
-        queue.push(s);
-        queue_peak = queue_peak.max(queue.len());
+            let mut queue_head = 0usize;
+            queue.push(s);
+            queue_peak = queue_peak.max(queue.len());
 
-        let bfs_t = if perf_spans {
-            Some(std::time::Instant::now())
-        } else {
-            None
-        };
-        while queue_head < queue.len() {
-            let v = queue[queue_head];
-            queue_head += 1;
-            stack.push(v);
-            let dist_v = distance[v];
-            let next_dist = dist_v + 1;
-            let sigma_v = sigma[v];
-            for &w in &adjacency[v] {
-                edges_scanned += 1;
+            let bfs_t = if perf_spans {
+                Some(std::time::Instant::now())
+            } else {
+                None
+            };
+            while queue_head < queue.len() {
+                let v = queue[queue_head];
+                queue_head += 1;
+                stack.push(v);
+                let dist_v = distance[v];
+                let next_dist = dist_v + 1;
+                let sigma_v = sigma[v];
+                for &w in &adjacency[v] {
+                    edges_scanned += 1;
 
-                if distance[w] < 0 {
-                    distance[w] = next_dist;
-                    queue.push(w);
-                    queue_peak = queue_peak.max(queue.len() - queue_head);
-                    sigma[w] += sigma_v;
-                    predecessors[w].push(v);
-                } else if distance[w] == next_dist {
-                    sigma[w] += sigma_v;
-                    predecessors[w].push(v);
+                    if distance[w] < 0 {
+                        distance[w] = next_dist;
+                        queue.push(w);
+                        queue_peak = queue_peak.max(queue.len() - queue_head);
+                        sigma[w] += sigma_v;
+                        predecessors[w].push(v);
+                    } else if distance[w] == next_dist {
+                        sigma[w] += sigma_v;
+                        predecessors[w].push(v);
+                    }
                 }
             }
-        }
-        if let Some(t) = bfs_t {
-            bfs_ns += t.elapsed().as_nanos();
-        }
-        total_nodes_touched += stack.len();
+            if let Some(t) = bfs_t {
+                bfs_ns += t.elapsed().as_nanos();
+            }
+            total_nodes_touched += stack.len();
 
-        if endpoints {
-            centrality[s] += stack.len().saturating_sub(1) as f64;
-        }
-        let accum_t = if perf_spans {
-            Some(std::time::Instant::now())
-        } else {
-            None
-        };
-        while let Some(w) = stack.pop() {
-            let sigma_w = sigma[w];
-            let delta_w = dependency[w];
-            if sigma_w > 0.0 {
-                for &v in &predecessors[w] {
-                    dependency[v] += (sigma[v] / sigma_w) * (1.0 + delta_w);
+            if endpoints {
+                centrality[s] += stack.len().saturating_sub(1) as f64;
+            }
+            let accum_t = if perf_spans {
+                Some(std::time::Instant::now())
+            } else {
+                None
+            };
+            while let Some(w) = stack.pop() {
+                let sigma_w = sigma[w];
+                let delta_w = dependency[w];
+                if sigma_w > 0.0 {
+                    for &v in &predecessors[w] {
+                        dependency[v] += (sigma[v] / sigma_w) * (1.0 + delta_w);
+                    }
+                }
+                if w != s {
+                    centrality[w] += if endpoints { delta_w + 1.0 } else { delta_w };
                 }
             }
-            if w != s {
-                centrality[w] += if endpoints { delta_w + 1.0 } else { delta_w };
+            if let Some(t) = accum_t {
+                accum_ns += t.elapsed().as_nanos();
             }
-        }
-        if let Some(t) = accum_t {
-            accum_ns += t.elapsed().as_nanos();
-        }
         }
     }
 
@@ -4361,7 +4361,10 @@ fn betweenness_centrality_subset_weighted_generic<G: GraphView>(
         })
         .collect();
 
-    let source_idx: Vec<usize> = sources.iter().filter_map(|s| node_idx.get(*s).copied()).collect();
+    let source_idx: Vec<usize> = sources
+        .iter()
+        .filter_map(|s| node_idx.get(*s).copied())
+        .collect();
     let mut target_bitmap = vec![false; n];
     for t in targets {
         if let Some(i) = node_idx.get(*t) {
@@ -5165,7 +5168,10 @@ fn edge_betweenness_centrality_subset_weighted_generic<G: GraphView>(
         }
     }
 
-    let source_idx: Vec<usize> = sources.iter().filter_map(|s| node_idx.get(*s).copied()).collect();
+    let source_idx: Vec<usize> = sources
+        .iter()
+        .filter_map(|s| node_idx.get(*s).copied())
+        .collect();
     let mut target_bitmap = vec![false; n];
     for t in targets {
         if let Some(i) = node_idx.get(*t) {
@@ -5279,7 +5285,11 @@ pub fn edge_betweenness_centrality_subset_weighted(
     normalized: bool,
 ) -> EdgeBetweennessCentralityResult {
     edge_betweenness_centrality_subset_weighted_generic(
-        graph, sources, targets, weight_attr, normalized,
+        graph,
+        sources,
+        targets,
+        weight_attr,
+        normalized,
     )
 }
 
@@ -5293,7 +5303,11 @@ pub fn edge_betweenness_centrality_subset_weighted_directed(
     normalized: bool,
 ) -> EdgeBetweennessCentralityResult {
     edge_betweenness_centrality_subset_weighted_generic(
-        graph, sources, targets, weight_attr, normalized,
+        graph,
+        sources,
+        targets,
+        weight_attr,
+        normalized,
     )
 }
 
@@ -5777,7 +5791,11 @@ fn weighted_load_source(
     // onodes: reached nodes with length > 0, sorted ASCENDING by (length, vert);
     // processed farthest-first (iterate reversed) — exactly nx's `onodes.sort();
     // onodes.pop()`.
-    let mut onodes: Vec<usize> = reached.iter().copied().filter(|&v| length[v] > 0.0).collect();
+    let mut onodes: Vec<usize> = reached
+        .iter()
+        .copied()
+        .filter(|&v| length[v] > 0.0)
+        .collect();
     onodes.sort_by(|&a, &b| {
         length[a]
             .partial_cmp(&length[b])
@@ -53820,7 +53838,10 @@ mod lu_pade_tests {
     struct Lcg(u64);
     impl Lcg {
         fn next_f64(&mut self) -> f64 {
-            self.0 = self.0.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            self.0 = self
+                .0
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
             ((self.0 >> 11) as f64) / ((1u64 << 53) as f64) // [0,1)
         }
     }
@@ -53926,7 +53947,12 @@ mod lu_pade_tests {
         let e = matrix_exp_symmetric(&a, 2);
         let want = [1.0, 1.0, 0.0, 1.0];
         for k in 0..4 {
-            assert!((e[k] - want[k]).abs() < 1e-12, "k={k} {} vs {}", e[k], want[k]);
+            assert!(
+                (e[k] - want[k]).abs() < 1e-12,
+                "k={k} {} vs {}",
+                e[k],
+                want[k]
+            );
         }
     }
 
@@ -53981,7 +54007,12 @@ mod lu_pade_tests {
         let t = matrix_exp_taylor(&a, n);
         for k in 0..n * n {
             let denom = t[k].abs().max(1.0);
-            assert!((p[k] - t[k]).abs() / denom < 1e-9, "k={k} {} vs {}", p[k], t[k]);
+            assert!(
+                (p[k] - t[k]).abs() / denom < 1e-9,
+                "k={k} {} vs {}",
+                p[k],
+                t[k]
+            );
         }
     }
 }

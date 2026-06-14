@@ -3048,15 +3048,17 @@ impl PyMultiDiGraph {
         if self.inner.edge_count() > 0 {
             self.mark_edges_dirty();
         }
-        let matches = self.dict_of_dicts_cache.as_ref().is_some_and(|c| {
-            c.nodes_seq == self.nodes_seq && c.edges_seq == self.edges_seq
-        });
+        let matches = self
+            .dict_of_dicts_cache
+            .as_ref()
+            .is_some_and(|c| c.nodes_seq == self.nodes_seq && c.edges_seq == self.edges_seq);
         if !matches {
             self.rebuild_adjacency_cache(py)?;
         }
-        let cache = self.dict_of_dicts_cache.as_ref().ok_or_else(|| {
-            PyRuntimeError::new_err("dict_of_dicts cache missing after rebuild")
-        })?;
+        let cache = self
+            .dict_of_dicts_cache
+            .as_ref()
+            .ok_or_else(|| PyRuntimeError::new_err("dict_of_dicts cache missing after rebuild"))?;
         crate::readwrite::share_dict_of_dicts_cache(py, cache)
     }
 
@@ -3088,7 +3090,8 @@ impl PyMultiDiGraph {
                         .edge_py_attrs
                         .get(&ek)
                         .map_or_else(|| PyDict::new(py).unbind(), |d| d.clone_ref(py));
-                    edge_dict.set_item(self.py_edge_key(py, node, successor, key), attrs.bind(py))?;
+                    edge_dict
+                        .set_item(self.py_edge_key(py, node, successor, key), attrs.bind(py))?;
                 }
                 nbrs_dict.set_item(&py_succ, edge_dict)?;
             }
@@ -5570,8 +5573,7 @@ impl PyDiGraph {
             g_nodes.iter().enumerate().map(|(i, &n)| (n, i)).collect();
 
         // H's directed edge set as (source_idx, target_idx) G-index pairs.
-        let mut h_set: std::collections::HashSet<(usize, usize)> =
-            std::collections::HashSet::new();
+        let mut h_set: std::collections::HashSet<(usize, usize)> = std::collections::HashSet::new();
         for u in hh.inner.nodes_ordered() {
             let Some(&ui) = g_index.get(u) else {
                 return Ok(None);
@@ -5604,7 +5606,11 @@ impl PyDiGraph {
             };
             for &vi in succ {
                 if !h_set.contains(&(ui, vi)) {
-                    edges.push((u.to_owned(), g_nodes[vi].to_owned(), fnx_classes::AttrMap::new()));
+                    edges.push((
+                        u.to_owned(),
+                        g_nodes[vi].to_owned(),
+                        fnx_classes::AttrMap::new(),
+                    ));
                 }
             }
         }
@@ -5647,8 +5653,7 @@ impl PyDiGraph {
             g_nodes.iter().enumerate().map(|(i, &n)| (n, i)).collect();
 
         // G's and H's directed edge sets as (src_idx, tgt_idx) G-index pairs.
-        let mut g_set: std::collections::HashSet<(usize, usize)> =
-            std::collections::HashSet::new();
+        let mut g_set: std::collections::HashSet<(usize, usize)> = std::collections::HashSet::new();
         for (ui, _u) in g_nodes.iter().enumerate() {
             if let Some(succ) = g.inner.successors_indices(ui) {
                 for &vi in succ {
@@ -5656,8 +5661,7 @@ impl PyDiGraph {
                 }
             }
         }
-        let mut h_set: std::collections::HashSet<(usize, usize)> =
-            std::collections::HashSet::new();
+        let mut h_set: std::collections::HashSet<(usize, usize)> = std::collections::HashSet::new();
         let h_nodes: Vec<&str> = hh.inner.nodes_ordered();
         for u in &h_nodes {
             let Some(&ui) = g_index.get(*u) else {
@@ -5702,11 +5706,7 @@ impl PyDiGraph {
             for v in hh.inner.successors(u).unwrap_or_default() {
                 let vi = g_index[v];
                 if !g_set.contains(&(ui, vi)) {
-                    edges.push((
-                        (*u).to_owned(),
-                        v.to_owned(),
-                        fnx_classes::AttrMap::new(),
-                    ));
+                    edges.push(((*u).to_owned(), v.to_owned(), fnx_classes::AttrMap::new()));
                 }
             }
         }
@@ -6723,10 +6723,7 @@ impl PyDiGraph {
         // empty iff its mirror dict is empty). Any non-empty mirror dict (a real
         // attr, possibly an unsynced post-creation mutation) falls back to the
         // proven per-edge rebuild below.
-        let mirrors_all_empty = self
-            .node_py_attrs
-            .values()
-            .all(|d| d.bind(py).is_empty())
+        let mirrors_all_empty = self.node_py_attrs.values().all(|d| d.bind(py).is_empty())
             && self.edge_py_attrs.values().all(|d| d.bind(py).is_empty());
         if mirrors_all_empty {
             let mut rev = Self {
