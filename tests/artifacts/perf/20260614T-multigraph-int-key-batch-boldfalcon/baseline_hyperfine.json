@@ -1,0 +1,38 @@
+{
+  "results": [
+    {
+      "command": "env PYTHONPATH=python python3 tests/artifacts/perf/20260614T-multigraph-int-key-batch-boldfalcon/multigraph_int_key_batch.py bench --case int_keys_list --impl fnx --size 50000 --repeats 1 > /dev/null",
+      "mean": 1.44332349766,
+      "stddev": 0.0440938859934488,
+      "median": 1.43822362796,
+      "user": 5.386127199999999,
+      "system": 0.1435878,
+      "min": 1.37507482046,
+      "max": 1.51633098346,
+      "times": [
+        1.37507482046,
+        1.4168766054600002,
+        1.39766474246,
+        1.42483114546,
+        1.46139313146,
+        1.4799030124600001,
+        1.48933265846,
+        1.51633098346,
+        1.42021176646,
+        1.45161611046
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}
