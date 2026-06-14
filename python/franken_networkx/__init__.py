@@ -411,61 +411,65 @@ def _remove_node_with_networkx_missing_node_error(remove_node_impl, *, graph_kin
     return remove_node
 
 
-class _FailFastEdgeIterator:
-    # br-r37-c1-edgesdataperf: previously called `tuple(self._graph)`
-    # and compared it to `self._expected_nodes` on every __next__ —
-    # an O(N) tuple-build + O(N) tuple compare per element, so
-    # iterating an EdgeDataView ran in O(E*N).  For a 200-node
-    # 1000-edge graph this turned `list(g.edges(data=True))` into a
-    # 1.2-second op (and via the MST wrapper's NaN check into a
-    # 1.3-second `minimum_spanning_tree`).  Replace the per-next
-    # walk with O(1) length probes against snapshotted counts: that
-    # still catches add/remove during iteration (nx's exact contract
-    # — Python's dict raises on size-change, not on key-permutation)
-    # without quadratic overhead.
-    def __init__(self, graph, iterable, *, guard_edge_count=False):
-        self._graph = graph
-        self._iterator = iter(iterable)
-        self._use_seq_guard = (
-            hasattr(graph, "nodes_seq")
-            and (not guard_edge_count or hasattr(graph, "edges_seq"))
-            and not _has_networkx_private_storage(graph)
-        )
-        if self._use_seq_guard:
-            self._expected_nodes_seq = graph.nodes_seq
-            self._expected_edges_seq = graph.edges_seq if guard_edge_count else None
-            self._expected_node_count = None
-            self._expected_edge_count = None
-        else:
-            self._expected_nodes_seq = None
-            self._expected_edges_seq = None
-            self._expected_node_count = len(graph)
-            self._expected_edge_count = (
-                graph.number_of_edges() if guard_edge_count else None
-            )
+def _FailFastEdgeIterator(graph, iterable, *, guard_edge_count=False):
+    # br-r37-c1-edgesdataperf: O(1) per-element staleness check against
+    # snapshotted counts/revisions (was an O(N) tuple-build + compare per
+    # __next__, i.e. O(E*N)). nx's contract: mutating the graph SIZE during
+    # iteration raises; key-permutation does not.
+    #
+    # br-r37-c1-2a00r: a generator FUNCTION (was a class with __next__). The
+    # baseline is still captured eagerly here (call time == the old __init__),
+    # so `it = iter(view); G.add_node(); list(it)` still raises exactly as
+    # before. But consumers drain the returned generator via the C-level
+    # generator protocol with the guard values as cell-locals — no per-element
+    # bound-method dispatch + LOAD_ATTR chain. This was the dominant cost of
+    # list(DiGraph.edges()) (~6.8ms of the 12ms for 40k edges) and helps every
+    # _FailFastEdgeIterator consumer (EdgeDataView, OutEdgeView, etc.).
+    use_seq_guard = (
+        hasattr(graph, "nodes_seq")
+        and (not guard_edge_count or hasattr(graph, "edges_seq"))
+        and not _has_networkx_private_storage(graph)
+    )
+    it = iter(iterable)
+    _err = "dictionary changed size during iteration"
+    if use_seq_guard:
+        exp_nodes_seq = graph.nodes_seq
+        exp_edges_seq = graph.edges_seq if guard_edge_count else None
 
-    def __iter__(self):
-        return self
+        def _gen():
+            if exp_edges_seq is None:
+                for item in it:
+                    if graph.nodes_seq != exp_nodes_seq:
+                        raise RuntimeError(_err)
+                    yield item
+            else:
+                for item in it:
+                    if (
+                        graph.nodes_seq != exp_nodes_seq
+                        or graph.edges_seq != exp_edges_seq
+                    ):
+                        raise RuntimeError(_err)
+                    yield item
+    else:
+        exp_node_count = len(graph)
+        exp_edge_count = graph.number_of_edges() if guard_edge_count else None
 
-    def __next__(self):
-        item = next(self._iterator)
-        if self._use_seq_guard:
-            if self._graph.nodes_seq != self._expected_nodes_seq:
-                raise RuntimeError("dictionary changed size during iteration")
-            if (
-                self._expected_edges_seq is not None
-                and self._graph.edges_seq != self._expected_edges_seq
-            ):
-                raise RuntimeError("dictionary changed size during iteration")
-        else:
-            if len(self._graph) != self._expected_node_count:
-                raise RuntimeError("dictionary changed size during iteration")
-            if (
-                self._expected_edge_count is not None
-                and self._graph.number_of_edges() != self._expected_edge_count
-            ):
-                raise RuntimeError("dictionary changed size during iteration")
-        return item
+        def _gen():
+            if exp_edge_count is None:
+                for item in it:
+                    if len(graph) != exp_node_count:
+                        raise RuntimeError(_err)
+                    yield item
+            else:
+                for item in it:
+                    if (
+                        len(graph) != exp_node_count
+                        or graph.number_of_edges() != exp_edge_count
+                    ):
+                        raise RuntimeError(_err)
+                    yield item
+
+    return _gen()
 
 
 def _guarded_edge_list(result, graph, *, guard_edge_count=False):
