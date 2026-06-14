@@ -7531,6 +7531,21 @@ impl PyDiGraph {
     /// successor-order traversal as NetworkX and the existing Python wrapper,
     /// but avoids per-edge AtlasView traversal in Python.
     fn _native_edges_no_data(&self, py: Python<'_>) -> PyResult<PyObject> {
+        // br-r37-c1-2a00r: index fast path — clone the per-index cached node-key
+        // object (O(1) incref) instead of hashing the canonical String per
+        // endpoint via py_node_key/py_succ_key. edges_ordered_indices() yields
+        // (u, v) in the SAME node-major successor order as edges_ordered_borrowed.
+        // Gated on succ_py_keys empty: when non-empty (non-uniform successor
+        // display objects, br-r37-c1-z6uka) the v object can differ from the
+        // node's own key, so fall through to the exact per-edge path.
+        if self.succ_py_keys.is_empty() {
+            let keys = self.cached_node_key_vec(py);
+            let mut items = Vec::with_capacity(self.inner.edge_count());
+            for (u, v) in self.inner.edges_ordered_indices() {
+                items.push(tuple_object(py, &[keys[u].clone_ref(py), keys[v].clone_ref(py)])?);
+            }
+            return Ok(items.into_pyobject(py)?.into_any().unbind());
+        }
         let mut items = Vec::with_capacity(self.inner.edge_count());
         for (u, v, _) in self.inner.edges_ordered_borrowed() {
             let py_u = self.py_node_key(py, u);
