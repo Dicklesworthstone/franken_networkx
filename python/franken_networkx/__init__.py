@@ -36103,6 +36103,15 @@ def _raw_neighbors_dispatch(G):
     return None
 
 
+def _cached_native_node_key_set(G, native_keys):
+    state = G.nodes_seq
+    cache = vars(G)
+    if cache.get("_fnx_native_node_key_set_state") != state:
+        cache["_fnx_native_node_key_set_state"] = state
+        cache["_fnx_native_node_key_set"] = set(native_keys())
+    return cache["_fnx_native_node_key_set"]
+
+
 def _private_node_mapping(self):
     override = _private_override(self, _PRIVATE_NODE_OVERRIDE)
     if override is not _PRIVATE_MISSING:
@@ -43951,6 +43960,16 @@ def reverse_view(G):
 def non_neighbors(graph, node):
     """Returns the non-neighbors of the node in the graph."""
     hash(node)
+    if type(graph) is DiGraph and not _has_networkx_private_storage(graph):
+        nodes = _cached_native_node_key_set(graph, graph._native_node_keys).copy()
+        nodes.difference_update(graph._native_successor_row_dict(node).keys())
+        nodes.discard(node)
+        return nodes
+    if type(graph) is Graph and not _has_networkx_private_storage(graph):
+        nodes = _cached_native_node_key_set(graph, graph._native_node_keys).copy()
+        nodes.difference_update(graph._native_adjacency_row_dict(node).keys())
+        nodes.discard(node)
+        return nodes
     if node not in graph:
         raise KeyError(node)
     # br-r37-c1-qkq2h: bypass AdjacencyView/AtlasView via raw Rust

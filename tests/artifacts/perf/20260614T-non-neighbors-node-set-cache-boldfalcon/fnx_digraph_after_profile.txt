@@ -1,0 +1,19 @@
+         39002 function calls in 0.147 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+     3000    0.061    0.000    0.147    0.000 /data/projects/franken_networkx/tests/artifacts/perf/20260613T-pyp75-non-neighbors-boldfalcon/non_neighbors_harness.py:127(<lambda>)
+     3000    0.006    0.000    0.086    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:43966(non_neighbors)
+     3000    0.072    0.000    0.072    0.000 {method 'copy' of 'set' objects}
+     3000    0.002    0.000    0.003    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:36112(_cached_native_node_key_set)
+     3000    0.001    0.000    0.001    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:36056(_has_networkx_private_storage)
+     3000    0.001    0.000    0.001    0.000 {method '_native_successor_row_dict' of 'franken_networkx.DiGraph' objects}
+     3000    0.001    0.000    0.001    0.000 {method 'difference_update' of 'set' objects}
+     6000    0.001    0.000    0.001    0.000 {built-in method builtins.vars}
+        1    0.001    0.001    0.001    0.001 {method '_native_node_keys' of 'franken_networkx.DiGraph' objects}
+     3000    0.001    0.000    0.001    0.000 {method 'keys' of 'dict' objects}
+     3000    0.000    0.000    0.000    0.000 {method 'discard' of 'set' objects}
+     3000    0.000    0.000    0.000    0.000 {method 'get' of 'dict' objects}
+     3000    0.000    0.000    0.000    0.000 {built-in method builtins.hash}
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
