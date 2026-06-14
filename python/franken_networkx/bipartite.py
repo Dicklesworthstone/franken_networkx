@@ -254,6 +254,48 @@ def robins_alexander_clustering(G):
     )
 
 
+def node_redundancy(G, nodes=None):
+    """Node redundancy coefficients ``{node: rc(v)}`` for bipartite ``G``.
+
+    br-r37-c1-g6wla: re-exported from networkx as an ``@nx._dispatchable``, so
+    calling it on an fnx graph round-trips the WHOLE graph through ``_fnx_to_nx``
+    before nx counts, per node, the neighbour pairs sharing another common
+    neighbour using Python set intersections (~1.16x slower than nx). ``rc(v) =
+    2*overlap / (deg*(deg-1))`` where ``overlap`` is an integer GRAPH INVARIANT,
+    so a native integer-CSR kernel (`node_redundancy_overlaps`) counts it with
+    mark-array intersections + early exit and zero conversion; the float division
+    is done here EXACTLY as nx so the result is byte-identical. The default
+    ``nodes=None`` (all nodes) case takes the native path; an explicit ``nodes``
+    subset, nx-typed / directed / multigraph inputs delegate to nx.
+    """
+    native = getattr(_fnx._fnx, "node_redundancy_overlaps", None)
+    if (
+        native is not None
+        and nodes is None
+        and not isinstance(G, _nx.Graph)
+        and not G.is_directed()
+        and not G.is_multigraph()
+    ):
+        counts = native(G)
+        if counts is not None:
+            # nx checks all requested nodes have >=2 neighbours BEFORE computing
+            # anything and raises a single NetworkXError otherwise; mirror that.
+            if any(deg < 2 for (_overlap, deg) in counts):
+                raise _nx.NetworkXError(
+                    "Cannot compute redundancy coefficient for a node"
+                    " that has fewer than two neighbors."
+                )
+            # `counts` is in node order (== list(G)); dict key order matches nx.
+            return {
+                node: (2 * overlap) / (deg * (deg - 1))
+                for node, (overlap, deg) in zip(G, counts)
+            }
+    # nx-typed / directed / multigraph / explicit nodes / unavailable: delegate.
+    return _nx_bipartite.node_redundancy(
+        G if isinstance(G, _nx.Graph) else _matching_nx_view(G), nodes
+    )
+
+
 def color(G):
     """Return a two-coloring ``{node: 0|1}`` of bipartite graph ``G``.
 

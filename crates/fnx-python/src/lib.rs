@@ -9507,6 +9507,74 @@ impl NodeIterator {
     }
 }
 
+/// br-r37-c1-g6wla: native integer-CSR per-node overlap counts for the bipartite
+/// `node_redundancy` coefficient. For each node v returns `(overlap, deg)` where
+/// `overlap` is the number of neighbour pairs `{u,w} ⊆ N(v)` that share a common
+/// neighbour other than v, and `deg = |N(v)|`; networkx's `_node_redundancy`
+/// computes `(2*overlap) / (deg*(deg-1))`. The Python wrapper performs that exact
+/// division so the result is byte-identical, and raises networkx's error when any
+/// requested node has `deg < 2`. `overlap` is a graph invariant (a pair count),
+/// so node iteration order is irrelevant. Counts are emitted in node order.
+/// Returns `None` for directed / multigraph graphs (Python delegates to nx).
+#[pyfunction]
+pub fn node_redundancy_overlaps(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+) -> PyResult<Option<Vec<(u64, u64)>>> {
+    let gr = crate::algorithms::extract_graph(g)?;
+    let crate::algorithms::GraphRef::Undirected(pg) = &gr else {
+        return Ok(None);
+    };
+    let inner = &pg.inner;
+    let n = inner.node_count();
+    let out = py.allow_threads(|| {
+        let mut result: Vec<(u64, u64)> = Vec::with_capacity(n);
+        let mut mark = vec![false; n]; // marks N(u) \ {v}
+        for v in 0..n {
+            let nv = inner.neighbors_indices(v).unwrap_or(&[]);
+            let deg = nv.len();
+            if deg < 2 {
+                result.push((0, deg as u64));
+                continue;
+            }
+            let mut overlap: u64 = 0;
+            for i in 0..deg {
+                let u = nv[i];
+                if let Some(nu) = inner.neighbors_indices(u) {
+                    for &z in nu {
+                        if z != v {
+                            mark[z] = true;
+                        }
+                    }
+                }
+                for &w in &nv[(i + 1)..] {
+                    // (N(u) ∩ N(w)) \ {v} nonempty? mark already excludes v.
+                    let mut hit = false;
+                    if let Some(nw) = inner.neighbors_indices(w) {
+                        for &z in nw {
+                            if mark[z] {
+                                hit = true;
+                                break;
+                            }
+                        }
+                    }
+                    if hit {
+                        overlap += 1;
+                    }
+                }
+                if let Some(nu) = inner.neighbors_indices(u) {
+                    for &z in nu {
+                        mark[z] = false;
+                    }
+                }
+            }
+            result.push((overlap, deg as u64));
+        }
+        result
+    });
+    Ok(Some(out))
+}
+
 // ---------------------------------------------------------------------------
 // Module initialization.
 // ---------------------------------------------------------------------------
@@ -9521,6 +9589,7 @@ fn _fnx(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     m.add_function(wrap_pyfunction!(validate_ctor_edge_list, m)?)?;
     m.add_function(wrap_pyfunction!(geometric_pairs_grid, m)?)?;
+    m.add_function(wrap_pyfunction!(node_redundancy_overlaps, m)?)?;
     m.add_function(wrap_pyfunction!(network_simplex::network_simplex_int, m)?)?;
 
     // Graph class
