@@ -27,17 +27,6 @@ use serde_json::Value as JsonValue;
 use std::collections::HashMap;
 use std::sync::atomic::AtomicBool;
 
-fn cached_node_key(
-    node_keys: &HashMap<&str, PyObject>,
-    py: Python<'_>,
-    canonical: &str,
-) -> PyObject {
-    node_keys
-        .get(canonical)
-        .expect("node key cache is built from graph nodes")
-        .clone_ref(py)
-}
-
 /// Read the file content from a path-like or file-like Python object.
 fn read_input(py: Python<'_>, source: &Bound<'_, PyAny>) -> PyResult<String> {
     // Try file-like first (has .read())
@@ -1901,29 +1890,33 @@ pub fn adjacency_data_simple(
     let nodes = PyList::empty(py);
     let adjacency = PyList::empty(py);
     match &gr {
+        // br-r37-c1-xd99k: index-based node-key iteration (same lever as the
+        // EdgeView edges() fast path). The neighbor `id_` objects come from the
+        // nodes_seq-cached per-index node-key Vec (O(1) incref) instead of a
+        // per-neighbor HashMap<&str, PyObject> string-hash lookup. `keys[i]` and
+        // `neighbors_indices(i)` are byte-for-byte the old `node_keys[name]` and
+        // `neighbors_iter(name)` (both walk the same `adj_indices[i]` row in the
+        // same order), so the emitted structure is identical to before.
         GraphRef::Undirected(pg) => {
-            let node_order = pg.inner.nodes_ordered();
-            let mut node_keys = HashMap::with_capacity(node_order.len());
-            for &u in &node_order {
-                node_keys.insert(u, pg.py_node_key(py, u));
-            }
-            for &u in &node_order {
+            let names = pg.inner.nodes_ordered();
+            let keys = pg.cached_node_key_vec(py);
+            for (i, &u) in names.iter().enumerate() {
                 let node_dict = match pg.node_py_attrs.get(u) {
                     Some(d) => d.bind(py).copy()?,
                     None => PyDict::new(py),
                 };
-                node_dict.set_item(id_, cached_node_key(&node_keys, py, u))?;
+                node_dict.set_item(id_, keys[i].clone_ref(py))?;
                 nodes.append(node_dict)?;
 
                 let nbr_list = PyList::empty(py);
-                if let Some(neighbors) = pg.inner.neighbors_iter(u) {
-                    for v in neighbors {
-                        let ek = PyGraph::edge_key(u, v);
+                if let Some(nbr_idxs) = pg.inner.neighbors_indices(i) {
+                    for &vi in nbr_idxs {
+                        let ek = PyGraph::edge_key(u, names[vi]);
                         let edge_dict = match pg.edge_py_attrs.get(&ek) {
                             Some(d) => d.bind(py).copy()?,
                             None => PyDict::new(py),
                         };
-                        edge_dict.set_item(id_, cached_node_key(&node_keys, py, v))?;
+                        edge_dict.set_item(id_, keys[vi].clone_ref(py))?;
                         nbr_list.append(edge_dict)?;
                     }
                 }
@@ -1931,28 +1924,25 @@ pub fn adjacency_data_simple(
             }
         }
         GraphRef::Directed { dg, .. } => {
-            let node_order = dg.inner.nodes_ordered();
-            let mut node_keys = HashMap::with_capacity(node_order.len());
-            for &u in &node_order {
-                node_keys.insert(u, dg.py_node_key(py, u));
-            }
-            for &u in &node_order {
+            let names = dg.inner.nodes_ordered();
+            let keys = dg.cached_node_key_vec(py);
+            for (i, &u) in names.iter().enumerate() {
                 let node_dict = match dg.node_py_attrs.get(u) {
                     Some(d) => d.bind(py).copy()?,
                     None => PyDict::new(py),
                 };
-                node_dict.set_item(id_, cached_node_key(&node_keys, py, u))?;
+                node_dict.set_item(id_, keys[i].clone_ref(py))?;
                 nodes.append(node_dict)?;
 
                 let nbr_list = PyList::empty(py);
-                if let Some(neighbors) = dg.inner.successors_iter(u) {
-                    for v in neighbors {
-                        let ek = PyDiGraph::edge_key(u, v);
+                if let Some(succ_idxs) = dg.inner.successors_indices(i) {
+                    for &vi in succ_idxs {
+                        let ek = PyDiGraph::edge_key(u, names[vi]);
                         let edge_dict = match dg.edge_py_attrs.get(&ek) {
                             Some(d) => d.bind(py).copy()?,
                             None => PyDict::new(py),
                         };
-                        edge_dict.set_item(id_, cached_node_key(&node_keys, py, v))?;
+                        edge_dict.set_item(id_, keys[vi].clone_ref(py))?;
                         nbr_list.append(edge_dict)?;
                     }
                 }
