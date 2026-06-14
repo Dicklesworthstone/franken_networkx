@@ -12342,14 +12342,22 @@ def ring_of_cliques(num_cliques, clique_size):
         raise NetworkXError("A ring of cliques must have at least two cliques")
     if clique_size < 2:
         raise NetworkXError("The cliques must have at least two nodes")
+    # br-r37-c1-ringbatch: collect every clique's edges + the ring-link edge into
+    # ONE list and commit through a single add_edges_from, instead of 2*num_cliques
+    # separate add_edges_from/add_edge PyO3 calls. The edge order is identical to
+    # nx's per-clique sequence (each clique's combinations followed by its ring
+    # link), so node/adj insertion order — and thus the graph — is byte-identical.
     G = Graph()
     n_total = num_cliques * clique_size
+    all_edges = []
     for i in range(num_cliques):
-        edges = _itertools.combinations(
-            range(i * clique_size, i * clique_size + clique_size), 2
+        all_edges.extend(
+            _itertools.combinations(
+                range(i * clique_size, i * clique_size + clique_size), 2
+            )
         )
-        G.add_edges_from(edges)
-        G.add_edge(i * clique_size + 1, (i + 1) * clique_size % n_total)
+        all_edges.append((i * clique_size + 1, (i + 1) * clique_size % n_total))
+    G.add_edges_from(all_edges)
     return G
 
 
