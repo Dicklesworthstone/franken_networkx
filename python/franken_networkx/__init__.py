@@ -18580,28 +18580,48 @@ def all_pairs_dijkstra_path_length(G, cutoff=None, weight="weight"):
                 ),
             )
         return
-    if _should_delegate_dijkstra_to_networkx(G, weight) or _graph_has_nonunit_weight(G, weight):
+    # br-r37-c1-efv3d: dropped the obsolete `or _graph_has_nonunit_weight`
+    # delegation clause (sibling of the single_source_dijkstra fix). The
+    # native path reproduces nx's distances exactly — 0 VALUE mismatches on an
+    # 80-case int/float/mixed x directed sweep; only int/float TYPE and
+    # per-source order needed handling, both done below. This output carries no
+    # paths, so it is free of the equal-cost path tie-break ambiguity that
+    # keeps all_pairs_dijkstra_path delegated. Only genuinely-unhandleable
+    # weights (negative / +inf / non-numeric / callable) still delegate.
+    if _should_delegate_dijkstra_to_networkx(G, weight):
         yield from _call_networkx_for_parity(
             "all_pairs_dijkstra_path_length", G, weight=weight
         )
         return
     # br-r37-c1-3dxfn: iterate outer keys in node-insertion order
     # matching nx (Rust dict yields in arbitrary order).
-    raw = _raw_all_pairs_dijkstra_path_length(G, weight=weight)
-    _coerce_ints = _sp_edge_weights_all_int(G, weight)
+    if _sp_edge_weights_all_int(G, weight):
+        # all-int weights: nx keeps every distance an int, so the blanket
+        # coercion is correct and we can use the cheap length-only kernel
+        # (no path storage).
+        raw = _raw_all_pairs_dijkstra_path_length(G, weight=weight)
+        for node in G.nodes():
+            if node in raw:
+                # raw[node] is already in nx's Dijkstra finalize order;
+                # br-r37-c1-k9q6q: stable sort by distance preserves the
+                # kernel's push-seq tie-break (BFS-hop order diverged).
+                inner = dict(raw[node])
+                order = _reorder_by_distance(inner)
+                inner = {k: inner[k] for k in order}
+                yield (node, _sp_coerce_dist_to_int(inner))
+        return
+    # mixed/float weights: nx preserves an int distance only where EVERY
+    # weight along the chosen path is int (int+int=int, any float taints), so
+    # the type must be re-derived per path. The combined kernel returns
+    # (dists, paths) per source; reuse single_source's _sp_propagate_int_types.
+    raw = _raw_all_pairs_dijkstra(G, weight=weight)
     for node in G.nodes():
         if node in raw:
-            # raw[node] is already in nx's Dijkstra finalize order;
-            # br-r37-c1-k9q6q: stable sort by distance preserves the
-            # kernel's push-seq tie-break (BFS-hop order diverged).
-            inner = dict(raw[node])
-            order = _reorder_by_distance(inner)
-            inner = {k: inner[k] for k in order}
-            # weighted sp batch 2: nx preserves int distances for
-            # all-int weights.
-            if _coerce_ints:
-                inner = _sp_coerce_dist_to_int(inner)
-            yield (node, inner)
+            dists, paths = raw[node]
+            dists = _sp_propagate_int_types(G, weight, dict(dists), dict(paths))
+            order = _reorder_by_distance(dists)
+            dists = {k: dists[k] for k in order}
+            yield (node, dists)
 
 
 def all_pairs_bellman_ford_path(G, weight="weight"):
