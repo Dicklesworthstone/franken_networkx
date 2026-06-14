@@ -3038,10 +3038,12 @@ impl PyMultiDiGraph {
         self.adjacency_dict_cached(py)
     }
 
-    /// br-r37-c1-pcw2s: cached form of `adjacency` — serve the nested
+    /// br-r37-c1-adjshare: cached form of `adjacency` — serve the nested
     /// {node: {succ: {key: edge_dict}}} snapshot from the (nodes_seq, edges_seq)-
-    /// keyed `dict_of_dicts_cache`, copying out fresh rows so semantics match the
-    /// old per-call rebuild.
+    /// keyed `dict_of_dicts_cache` with SHARED rows (no per-row copy). nx's
+    /// adjacency() hands out live rows (`r1[u] is r2[u]`); sharing matches that
+    /// AND drops the O(V+E) per-call copy (was ~7x slower than nx). Deepest edge
+    /// dicts stay live; only adjacency() uses this, so sharing is safe.
     pub(crate) fn adjacency_dict_cached(&mut self, py: Python<'_>) -> PyResult<Py<PyDict>> {
         if self.inner.edge_count() > 0 {
             self.mark_edges_dirty();
@@ -3055,7 +3057,7 @@ impl PyMultiDiGraph {
         let cache = self.dict_of_dicts_cache.as_ref().ok_or_else(|| {
             PyRuntimeError::new_err("dict_of_dicts cache missing after rebuild")
         })?;
-        crate::readwrite::copy_dict_of_dicts_cache(py, cache)
+        crate::readwrite::share_dict_of_dicts_cache(py, cache)
     }
 
     fn rebuild_adjacency_cache(&mut self, py: Python<'_>) -> PyResult<()> {
