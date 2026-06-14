@@ -1,0 +1,3 @@
+  [2m2026-06-14T04:51:36.392152Z[0m [33m WARN[0m [1;33mrch::hook[0m[33m: [33mexec called with non-compilation command: hyperfine --warmup 3 --runs 12 --export-json tests/artifacts/perf/20260614T-random-powerlaw-tree-residual-boldfalcon/baseline_hyperfine_nx.json 'env PYTHONPATH=python python3 tests/artifacts/perf/20260614T-random-powerlaw-tree-residual-boldfalcon/random_powerlaw_tree_harness.py --repo-root /data/projects/.scratch/franken_networkx-boldfalcon-next-20260614T0345Z --extension /data/projects/.scratch/franken_networkx-boldfalcon-next-20260614T0345Z/python/franken_networkx/_fnx.abi3.so bench --impl nx --loops 50 --warmups 5 >/dev/null'[0m
+    [2;3mat[0m rch/src/hook.rs:402 [2;3mon[0m ThreadId(1)
+

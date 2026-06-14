@@ -1,0 +1,42 @@
+{
+  "results": [
+    {
+      "command": "env PYTHONPATH=python python3 tests/artifacts/perf/20260614T-random-powerlaw-tree-residual-boldfalcon/random_powerlaw_tree_harness.py --repo-root /data/projects/.scratch/franken_networkx-boldfalcon-next-20260614T0345Z --extension /data/projects/.scratch/franken_networkx-boldfalcon-next-20260614T0345Z/python/franken_networkx/_fnx.abi3.so bench --impl fnx --loops 50 --warmups 5 >/dev/null",
+      "mean": 0.36899919624000005,
+      "stddev": 0.032767374266849156,
+      "median": 0.35550137174,
+      "user": 3.65136098,
+      "system": 0.06605014666666667,
+      "min": 0.32847257574,
+      "max": 0.42643472574,
+      "times": [
+        0.38654734674,
+        0.35004922774,
+        0.34140431174,
+        0.32847257574,
+        0.35333321974,
+        0.35724602174000003,
+        0.34422332174000003,
+        0.36164434374,
+        0.39860028874000003,
+        0.35375672174,
+        0.42643472574,
+        0.42627824974
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

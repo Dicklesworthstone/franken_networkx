@@ -28215,19 +28215,7 @@ def havel_hakimi_graph(deg_sequence, create_using=None):
     return graph
 
 
-def degree_sequence_tree(deg_sequence, create_using=None):
-    """Return a tree with the given degree sequence, if possible.
-
-    Parameters
-    ----------
-    deg_sequence : list of int
-    create_using : graph constructor, optional
-
-    Returns
-    -------
-    Graph
-        A tree with the given degree sequence.
-    """
+def _degree_sequence_tree_impl(deg_sequence, create_using=None):
     deg_sequence = list(deg_sequence)
     number_of_nodes = len(deg_sequence)
     twice_number_of_edges = sum(deg_sequence)
@@ -28237,9 +28225,12 @@ def degree_sequence_tree(deg_sequence, create_using=None):
     if deg_sequence != [0] and any(degree <= 0 for degree in deg_sequence):
         raise NetworkXError("nontrivial tree must have strictly positive node degrees")
 
-    graph = empty_graph(0, create_using=create_using)
-    if graph.is_directed():
-        raise NetworkXError("Directed Graph not supported")
+    if create_using is None:
+        graph = Graph()
+    else:
+        graph = empty_graph(0, create_using=create_using)
+        if graph.is_directed():
+            raise NetworkXError("Directed Graph not supported")
 
     if deg_sequence == [0]:
         graph.add_node(0)
@@ -28258,6 +28249,22 @@ def degree_sequence_tree(deg_sequence, create_using=None):
         last += extra_edges
     graph.add_edges_from(leaf_edges)
     return graph
+
+
+def degree_sequence_tree(deg_sequence, create_using=None):
+    """Return a tree with the given degree sequence, if possible.
+
+    Parameters
+    ----------
+    deg_sequence : list of int
+    create_using : graph constructor, optional
+
+    Returns
+    -------
+    Graph
+        A tree with the given degree sequence.
+    """
+    return _degree_sequence_tree_impl(deg_sequence, create_using=create_using)
 
 
 def common_neighbor_centrality(
@@ -50171,18 +50178,21 @@ def scale_free_graph(
 def random_powerlaw_tree(n, gamma=3, seed=None, tries=100, *, create_using=None, backend=None, **backend_kwargs):
     """Return a random tree with a power-law degree distribution."""
     _validate_backend_dispatch_keywords("random_powerlaw_tree", backend, backend_kwargs)
+    if create_using is None:
+        sequence = _random_powerlaw_tree_sequence_impl(n, gamma=gamma, seed=seed, tries=tries)
+        return _degree_sequence_tree_impl(sequence)
+
     graph = _checked_create_using(
         create_using,
         directed=False,
         multigraph=False,
         default=Graph,
     )
-    sequence = random_powerlaw_tree_sequence(n, gamma=gamma, seed=seed, tries=tries)
-    return degree_sequence_tree(sequence, create_using=graph)
+    sequence = _random_powerlaw_tree_sequence_impl(n, gamma=gamma, seed=seed, tries=tries)
+    return _degree_sequence_tree_impl(sequence, create_using=graph)
 
 
-def random_powerlaw_tree_sequence(n, gamma=3, seed=None, tries=100):
-    """Return a degree sequence suitable for a random power-law tree."""
+def _random_powerlaw_tree_sequence_impl(n, gamma=3, seed=None, tries=100):
     # br-r37-c1-rpts-neg: nx raises ValueError("empty range in
     # randrange(0, n)") leaked from internal rng.randint/randrange
     # for n <= 0; fnx previously silently returned ``[]`` (range(n)
@@ -50216,6 +50226,11 @@ def random_powerlaw_tree_sequence(n, gamma=3, seed=None, tries=100):
             nonpositive_degrees += 1
 
     raise NetworkXError(f"Exceeded max ({tries}) attempts for a valid tree sequence.")
+
+
+def random_powerlaw_tree_sequence(n, gamma=3, seed=None, tries=100):
+    """Return a degree sequence suitable for a random power-law tree."""
+    return _random_powerlaw_tree_sequence_impl(n, gamma=gamma, seed=seed, tries=tries)
 
 
 def gn_graph(n, kernel=None, create_using=None, seed=None):

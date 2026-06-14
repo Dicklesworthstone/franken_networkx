@@ -1,0 +1,48 @@
+         1665601 function calls in 0.376 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+      200    0.000    0.000    0.376    0.002 /data/projects/.scratch/franken_networkx-boldfalcon-next-20260614T0345Z/tests/artifacts/perf/20260614T-random-powerlaw-tree-residual-boldfalcon/random_powerlaw_tree_harness.py:73(<lambda>)
+      200    0.001    0.000    0.375    0.002 /data/projects/.scratch/franken_networkx-boldfalcon-next-20260614T0345Z/python/franken_networkx/__init__.py:49967(random_powerlaw_tree)
+      200    0.122    0.001    0.290    0.001 /data/projects/.scratch/franken_networkx-boldfalcon-next-20260614T0345Z/python/franken_networkx/__init__.py:49984(_random_powerlaw_tree_sequence_impl)
+      200    0.015    0.000    0.085    0.000 /data/projects/.scratch/franken_networkx-boldfalcon-next-20260614T0345Z/python/franken_networkx/__init__.py:28007(_degree_sequence_tree_impl)
+   260000    0.056    0.000    0.078    0.000 /usr/lib/python3.13/random.py:766(paretovariate)
+      400    0.004    0.000    0.037    0.000 /data/projects/.scratch/franken_networkx-boldfalcon-next-20260614T0345Z/python/franken_networkx/__init__.py:2961(add_edges_from)
+      400    0.031    0.000    0.031    0.000 {method '_try_add_edges_from_batch' of 'franken_networkx.Graph' objects}
+   260000    0.027    0.000    0.027    0.000 {built-in method builtins.round}
+   260000    0.023    0.000    0.023    0.000 {method 'random' of '_random.Random' objects}
+   260000    0.020    0.000    0.020    0.000 {built-in method builtins.min}
+   260000    0.019    0.000    0.019    0.000 {built-in method builtins.max}
+    27200    0.010    0.000    0.014    0.000 {method 'extend' of 'list' objects}
+     6400    0.001    0.000    0.011    0.000 /usr/lib/python3.13/random.py:336(randint)
+     6400    0.004    0.000    0.009    0.000 /usr/lib/python3.13/random.py:295(randrange)
+      600    0.004    0.000    0.007    0.000 {built-in method builtins.sum}
+      200    0.004    0.000    0.007    0.000 {built-in method builtins.any}
+      200    0.003    0.000    0.005    0.000 {built-in method builtins.sorted}
+      200    0.001    0.000    0.005    0.000 /data/projects/.scratch/franken_networkx-boldfalcon-next-20260614T0345Z/python/franken_networkx/__init__.py:25630(_generator_random_state)
+     6400    0.003    0.000    0.004    0.000 /usr/lib/python3.13/random.py:245(_randbelow_with_getrandbits)
+    59600    0.004    0.000    0.004    0.000 /data/projects/.scratch/franken_networkx-boldfalcon-next-20260614T0345Z/python/franken_networkx/__init__.py:28037(<genexpr>)
+      200    0.000    0.000    0.003    0.000 /data/projects/.scratch/franken_networkx-boldfalcon-next-20260614T0345Z/python/franken_networkx/__init__.py:2643(add_nodes_from)
+    60200    0.003    0.000    0.003    0.000 /data/projects/.scratch/franken_networkx-boldfalcon-next-20260614T0345Z/python/franken_networkx/__init__.py:49998(<genexpr>)
+    60200    0.003    0.000    0.003    0.000 /data/projects/.scratch/franken_networkx-boldfalcon-next-20260614T0345Z/python/franken_networkx/__init__.py:28014(<genexpr>)
+    33600    0.003    0.000    0.003    0.000 {method 'pop' of 'list' objects}
+      200    0.003    0.000    0.003    0.000 {method '_fast_add_int_nodes_range_stop' of 'franken_networkx.Graph' objects}
+      200    0.002    0.000    0.003    0.000 {built-in method builtins.__build_class__}
+    27400    0.002    0.000    0.002    0.000 {method 'append' of 'list' objects}
+    27400    0.002    0.000    0.002    0.000 /data/projects/.scratch/franken_networkx-boldfalcon-next-20260614T0345Z/python/franken_networkx/__init__.py:28028(<genexpr>)
+    19200    0.001    0.000    0.001    0.000 {built-in method _operator.index}
+      200    0.000    0.000    0.001    0.000 /usr/lib/python3.13/random.py:119(__init__)
+      200    0.000    0.000    0.001    0.000 /usr/lib/python3.13/random.py:128(seed)
+    11000    0.001    0.000    0.001    0.000 {method 'getrandbits' of '_random.Random' objects}
+     7400    0.001    0.000    0.001    0.000 {built-in method builtins.len}
+      200    0.001    0.000    0.001    0.000 {function Random.seed at 0x749dd609b740}
+     6400    0.001    0.000    0.001    0.000 {method 'bit_length' of 'int' objects}
+     1800    0.000    0.000    0.000    0.000 {built-in method builtins.isinstance}
+      200    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-boldfalcon-next-20260614T0345Z/python/franken_networkx/__init__.py:3617(__init__)
+      200    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-boldfalcon-next-20260614T0345Z/python/franken_networkx/__init__.py:25634(_NumpyRandIntAdapter)
+      400    0.000    0.000    0.000    0.000 {built-in method builtins.getattr}
+      200    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-boldfalcon-next-20260614T0345Z/python/franken_networkx/__init__.py:23851(_validate_backend_dispatch_keywords)
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+
+
