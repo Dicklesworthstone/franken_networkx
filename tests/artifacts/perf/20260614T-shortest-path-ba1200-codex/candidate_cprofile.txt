@@ -1,0 +1,19 @@
+sha256=faff54d9cb4fa5435d46c4aa93396a90be4c0ecfd4330d1dd6d2f3a56ef0d838
+         500001 function calls in 0.149 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+    20000    0.016    0.000    0.149    0.000 __init__.py:7552(shortest_path)
+    20000    0.010    0.000    0.080    0.000 __init__.py:52379(wrapper)
+    20000    0.006    0.000    0.068    0.000 __init__.py:17565(bidirectional_shortest_path)
+    20000    0.049    0.000    0.049    0.000 {built-in method franken_networkx._fnx.bidirectional_shortest_path}
+    20000    0.007    0.000    0.039    0.000 __init__.py:6748(_path_query_has_missing_nodes)
+    40000    0.015    0.000    0.032    0.000 __init__.py:36641(__contains__)
+    40000    0.015    0.000    0.026    0.000 __init__.py:13070(_coerce_arg_to_fnx_graph)
+    40000    0.010    0.000    0.017    0.000 __init__.py:36068(_private_override)
+   160000    0.011    0.000    0.011    0.000 {built-in method builtins.isinstance}
+    40000    0.004    0.000    0.004    0.000 {built-in method builtins.vars}
+    40000    0.003    0.000    0.003    0.000 {method 'get' of 'dict' objects}
+    40000    0.003    0.000    0.003    0.000 __init__.py:23843(_validate_backend_dispatch_keywords)
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}

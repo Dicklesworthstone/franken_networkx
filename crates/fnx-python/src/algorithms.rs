@@ -15180,6 +15180,42 @@ fn floyd_warshall_predecessor_and_distance(
     ))
 }
 
+fn emit_bidirectional_index_path(
+    py: Python<'_>,
+    gr: &GraphRef<'_>,
+    nodes: &[&str],
+    path: &[(usize, Option<usize>, bool)],
+    source: &Bound<'_, PyAny>,
+    target: &Bound<'_, PyAny>,
+) -> PyResult<Vec<PyObject>> {
+    path.iter()
+        .map(|(node_idx, parent_idx, from_reverse)| {
+            let node = nodes.get(*node_idx).ok_or_else(|| {
+                NetworkXError::new_err("internal bidirectional path index out of bounds")
+            })?;
+            match parent_idx {
+                Some(parent_idx) => {
+                    let parent = nodes.get(*parent_idx).ok_or_else(|| {
+                        NetworkXError::new_err("internal bidirectional parent index out of bounds")
+                    })?;
+                    if *from_reverse {
+                        Ok(gr.py_pred_row_key(py, parent, node))
+                    } else {
+                        Ok(gr.py_row_key(py, parent, node))
+                    }
+                }
+                None => {
+                    if *from_reverse {
+                        Ok(target.clone().unbind())
+                    } else {
+                        Ok(source.clone().unbind())
+                    }
+                }
+            }
+        })
+        .collect()
+}
+
 /// Return shortest path between source and target using bidirectional BFS.
 #[pyfunction]
 #[pyo3(signature = (g, source, target))]
@@ -15202,33 +15238,25 @@ fn bidirectional_shortest_path(
     // meet node from the returning frontier).
     let result = if gr.is_directed() {
         let inner = gr.digraph().expect("is_directed checked above");
-        py.allow_threads(|| {
-            fnx_algorithms::bidirectional_shortest_path_directed_meta(inner, &s, &t)
+        let indexed = py.allow_threads(|| {
+            fnx_algorithms::bidirectional_shortest_path_directed_index_meta(inner, &s, &t)
+        });
+        indexed.map(|path| {
+            let nodes = inner.nodes_ordered();
+            emit_bidirectional_index_path(py, &gr, &nodes, &path, source, target)
         })
     } else {
         let inner = gr.undirected();
-        py.allow_threads(|| fnx_algorithms::bidirectional_shortest_path_meta(inner, &s, &t))
+        let indexed = py.allow_threads(|| {
+            fnx_algorithms::bidirectional_shortest_path_index_meta(inner, &s, &t)
+        });
+        indexed.map(|path| {
+            let nodes = inner.nodes_ordered();
+            emit_bidirectional_index_path(py, &gr, &nodes, &path, source, target)
+        })
     };
     match result {
-        Some(path) => Ok(path
-            .iter()
-            .map(|(node, parent, from_reverse)| match parent {
-                Some(p) => {
-                    if *from_reverse {
-                        gr.py_pred_row_key(py, p, node)
-                    } else {
-                        gr.py_row_key(py, p, node)
-                    }
-                }
-                None => {
-                    if *from_reverse {
-                        target.clone().unbind()
-                    } else {
-                        source.clone().unbind()
-                    }
-                }
-            })
-            .collect()),
+        Some(path) => path,
         None => Err(NetworkXNoPath::new_err(format!(
             "No path between {} and {}.",
             s, t

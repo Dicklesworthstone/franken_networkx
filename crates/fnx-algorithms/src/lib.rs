@@ -26412,6 +26412,142 @@ pub fn bidirectional_shortest_path_directed_meta(
     )
 }
 
+/// Index-space sibling of [`bidirectional_shortest_path_meta`].
+///
+/// This preserves the exact NetworkX frontier choice, row order, first-meet
+/// check order, and meet-node display-parent metadata while avoiding per-row
+/// `Vec<&str>` allocation plus String-owned visited/frontier maps.
+#[must_use]
+pub fn bidirectional_shortest_path_index_meta(
+    graph: &Graph,
+    source: &str,
+    target: &str,
+) -> Option<Vec<(usize, Option<usize>, bool)>> {
+    let source_idx = graph.get_node_index(source)?;
+    let target_idx = graph.get_node_index(target)?;
+    bidirectional_index_meta_impl(
+        source_idx,
+        target_idx,
+        graph.node_count(),
+        |v| graph.neighbors_indices(v),
+        |v| graph.neighbors_indices(v),
+    )
+}
+
+/// Directed index-space sibling of [`bidirectional_shortest_path_directed_meta`].
+#[must_use]
+pub fn bidirectional_shortest_path_directed_index_meta(
+    digraph: &DiGraph,
+    source: &str,
+    target: &str,
+) -> Option<Vec<(usize, Option<usize>, bool)>> {
+    let source_idx = digraph.get_node_index(source)?;
+    let target_idx = digraph.get_node_index(target)?;
+    bidirectional_index_meta_impl(
+        source_idx,
+        target_idx,
+        digraph.node_count(),
+        |v| digraph.successors_indices(v),
+        |v| digraph.predecessors_indices(v),
+    )
+}
+
+fn bidirectional_index_meta_impl<'g>(
+    source_idx: usize,
+    target_idx: usize,
+    node_count: usize,
+    succ_row: impl Fn(usize) -> Option<&'g [usize]>,
+    pred_row: impl Fn(usize) -> Option<&'g [usize]>,
+) -> Option<Vec<(usize, Option<usize>, bool)>> {
+    if source_idx == target_idx {
+        return Some(vec![(source_idx, None, false)]);
+    }
+
+    let mut pred_seen = vec![false; node_count];
+    let mut succ_seen = vec![false; node_count];
+    let mut pred_parent: Vec<Option<usize>> = vec![None; node_count];
+    let mut succ_parent: Vec<Option<usize>> = vec![None; node_count];
+    pred_seen[source_idx] = true;
+    succ_seen[target_idx] = true;
+
+    let mut forward: Vec<usize> = vec![source_idx];
+    let mut reverse: Vec<usize> = vec![target_idx];
+    let mut meet: Option<(usize, usize, bool)> = None;
+
+    'outer: while !forward.is_empty() && !reverse.is_empty() {
+        if forward.len() <= reverse.len() {
+            let this_level = std::mem::take(&mut forward);
+            for &v in &this_level {
+                let Some(row) = succ_row(v) else {
+                    continue;
+                };
+                for &w in row {
+                    if !pred_seen[w] {
+                        pred_seen[w] = true;
+                        pred_parent[w] = Some(v);
+                        forward.push(w);
+                    }
+                    if succ_seen[w] {
+                        meet = Some((w, v, false));
+                        break 'outer;
+                    }
+                }
+            }
+        } else {
+            let this_level = std::mem::take(&mut reverse);
+            for &v in &this_level {
+                let Some(row) = pred_row(v) else {
+                    continue;
+                };
+                for &w in row {
+                    if !succ_seen[w] {
+                        succ_seen[w] = true;
+                        succ_parent[w] = Some(v);
+                        reverse.push(w);
+                    }
+                    if pred_seen[w] {
+                        meet = Some((w, v, true));
+                        break 'outer;
+                    }
+                }
+            }
+        }
+    }
+
+    let (w, returning_v, from_reverse) = meet?;
+
+    let mut back = Vec::new();
+    let mut cur = Some(w);
+    while let Some(c) = cur {
+        back.push(c);
+        if c == source_idx {
+            break;
+        }
+        cur = pred_parent[c];
+    }
+    if back.last().copied() != Some(source_idx) {
+        return None;
+    }
+    back.reverse();
+
+    let mut out = Vec::with_capacity(back.len() + 4);
+    for &node in &back {
+        if node == w {
+            out.push((node, Some(returning_v), from_reverse));
+        } else {
+            out.push((node, pred_parent[node], false));
+        }
+    }
+
+    let mut cur = succ_parent[w];
+    while let Some(c) = cur {
+        out.push((c, succ_parent[c], true));
+        cur = succ_parent[c];
+    }
+
+    Some(out)
+}
+
 fn bidirectional_meta_impl<'g>(
     source: &str,
     target: &str,

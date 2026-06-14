@@ -1,0 +1,8 @@
+tests/artifacts/perf/20260614T-shortest-path-ba1200-codex/baseline_golden.json: OK
+tests/artifacts/perf/20260614T-shortest-path-ba1200-codex/candidate_golden.json: OK
+tests/artifacts/perf/20260614T-shortest-path-ba1200-codex/baseline_bench_fnx_seq.json: OK
+tests/artifacts/perf/20260614T-shortest-path-ba1200-codex/candidate_bench_fnx_seq.json: OK
+tests/artifacts/perf/20260614T-shortest-path-ba1200-codex/baseline_hyperfine.json: OK
+tests/artifacts/perf/20260614T-shortest-path-ba1200-codex/candidate_hyperfine.json: OK
+tests/artifacts/perf/20260614T-shortest-path-ba1200-codex/baseline_cprofile.txt: OK
+tests/artifacts/perf/20260614T-shortest-path-ba1200-codex/candidate_cprofile.txt: OK
