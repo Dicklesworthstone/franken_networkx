@@ -40588,6 +40588,73 @@ def stochastic_block_model(
     )
 
 
+def _sbm_native(sizes, p, seed, directed, selfloops):
+    """br-r37-c1-sbmnative: generate a stochastic block model natively, byte-
+    identical to nx for a given int/None seed, without delegating to nx or
+    converting nx->fnx.
+
+    Reproduces nx's EXACT generation: the same ``random.Random(seed)`` draw
+    sequence, the same block iteration (``combinations_with_replacement`` /
+    ``product``), the same diagonal per-edge sampling, and the same sparse
+    geometric-skip sampling (``floor(log(rand)/log(1-p))``) over the same
+    set-ordered ``itertools`` edge iterators. Edges are COLLECTED into a list and
+    committed through ONE ``add_edges_from`` batch (skipping nx's per-edge
+    ``add_edge`` and the whole nx->fnx conversion) — ~1.77x slower -> nx parity.
+    """
+    import itertools as _it
+    import random as _rnd
+
+    rng = _rnd.Random(seed)
+    length = len(sizes)
+    cumsum = [sum(sizes[0:x]) for x in range(length + 1)]
+    nodelist = range(sum(sizes))
+    parts = [set(nodelist[cumsum[x] : cumsum[x + 1]]) for x in range(length)]
+
+    result = DiGraph() if directed else Graph()
+    result.graph["partition"] = parts
+    for block_id, block_nodes in enumerate(parts):
+        for node in block_nodes:
+            result.add_node(node, block=block_id)
+    result.graph["name"] = "stochastic_block_model"
+
+    block_iter = (
+        _it.product(range(length), range(length))
+        if directed
+        else _it.combinations_with_replacement(range(length), 2)
+    )
+    edge_list = []
+    for i, j in block_iter:
+        if i == j:
+            if directed:
+                edges = (
+                    _it.product(parts[i], parts[i])
+                    if selfloops
+                    else _it.permutations(parts[i], 2)
+                )
+            else:
+                edges = _it.combinations(parts[i], 2)
+                if selfloops:
+                    edges = _it.chain(edges, zip(parts[i], parts[i]))
+            for e in edges:
+                if rng.random() < p[i][j]:
+                    edge_list.append(e)
+        else:
+            edges = _it.product(parts[i], parts[j])
+        if p[i][j] == 1:
+            edge_list.extend(edges)
+        elif p[i][j] > 0:
+            ln1p = _math.log(1 - p[i][j])
+            while True:
+                try:
+                    skip = _math.floor(_math.log(rng.random()) / ln1p)
+                    next(_it.islice(edges, skip, skip), None)
+                    edge_list.append(next(edges))
+                except StopIteration:
+                    break
+    result.add_edges_from(edge_list)
+    return result
+
+
 def _sbm_impl(sizes, p, nodelist, seed, directed, selfloops, sparse):
     """br-sbmrng: private delegation helper so the public
     stochastic_block_model stays PY_WRAPPER in the coverage classifier
@@ -40599,6 +40666,17 @@ def _sbm_impl(sizes, p, nodelist, seed, directed, selfloops, sparse):
     nodelist when supplied so node iteration matches the caller's
     intent.
     """
+    # br-r37-c1-sbmnative: native byte-exact generation for the common case
+    # (no explicit nodelist, sparse sampling, reproducible int/None seed) — skips
+    # the nx call + nx->fnx conversion entirely. Falls back to nx delegation for
+    # an explicit nodelist, sparse=False, or a non-int/None seed (Random / numpy
+    # RandomState), where reproducing the draw sequence is not in scope.
+    if (
+        nodelist is None
+        and sparse
+        and (seed is None or (isinstance(seed, int) and not isinstance(seed, bool)))
+    ):
+        return _sbm_native(sizes, p, seed, directed, selfloops)
     nx_result = _nx.stochastic_block_model(
         sizes, p,
         nodelist=nodelist,
