@@ -217,6 +217,43 @@ def biadjacency_matrix(
         raise _nx.NetworkXError(f"Unknown sparse array format: {format}") from err
 
 
+def robins_alexander_clustering(G):
+    """Robins & Alexander bipartite clustering ``4*C_4 / L_3`` of ``G``.
+
+    br-r37-c1-niit0: re-exported from networkx as an ``@nx._dispatchable``, so
+    calling it on an fnx graph round-trips the WHOLE graph through ``_fnx_to_nx``
+    before nx counts four-cycles / three-paths with Python set operations (~1.1x
+    slower than nx). Both counts are integer GRAPH INVARIANTS, so a native
+    integer-CSR kernel (`robins_alexander_counts`) computes them with mark-array
+    intersections and zero conversion; the float arithmetic
+    (`(4.0 * (C_4_numer / 4)) / (L_3_numer / 2)`) is done here EXACTLY as nx, so
+    the result is byte-identical. Directed / multigraph / nx-typed inputs delegate.
+    """
+    native = getattr(_fnx._fnx, "robins_alexander_counts", None)
+    if (
+        native is not None
+        and not isinstance(G, _nx.Graph)
+        and not G.is_directed()
+        and not G.is_multigraph()
+    ):
+        counts = native(G)
+        if counts is not None:
+            # nx returns int 0 for these degenerate cases (checked before any
+            # float division), so mirror that exactly.
+            if G.order() < 4 or G.size() < 3:
+                return 0
+            c4_numer, l3_numer = counts
+            L_3 = l3_numer / 2
+            if L_3 == 0:
+                return 0
+            C_4 = c4_numer / 4
+            return (4.0 * C_4) / L_3
+    # nx-typed / directed / multigraph / kernel unavailable: delegate to nx.
+    return _nx_bipartite.robins_alexander_clustering(
+        G if isinstance(G, _nx.Graph) else _matching_nx_view(G)
+    )
+
+
 def color(G):
     """Return a two-coloring ``{node: 0|1}`` of bipartite graph ``G``.
 

@@ -5175,6 +5175,114 @@ pub fn square_clustering(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Py<Py
     centrality_to_dict(py, &gr, &result.scores)
 }
 
+/// br-r37-c1-niit0: native integer-CSR counts for Robins & Alexander bipartite
+/// clustering. Returns `(c4_numer, l3_numer)` where networkx's `_four_cycles`
+/// returns `c4_numer / 4` and `_threepaths` returns `l3_numer / 2`; the Python
+/// wrapper performs the SAME float arithmetic
+/// (`(4.0 * (c4_numer / 4)) / (l3_numer / 2)`) so the result is byte-identical.
+/// Both counts are graph invariants (order-independent integer sums), so no
+/// node-order matching is required. Returns `None` for directed / multigraph
+/// graphs (the Python wrapper then delegates to networkx).
+#[pyfunction]
+pub fn robins_alexander_counts(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+) -> PyResult<Option<(u128, u128)>> {
+    let gr = extract_graph(g)?;
+    let GraphRef::Undirected(pg) = &gr else {
+        return Ok(None);
+    };
+    let inner = &pg.inner;
+    let n = inner.node_count();
+    let counts = py.allow_threads(|| {
+        // _four_cycles: cycles = sum over v, over second-order neighbours x (not
+        // already `seen`), of p2*(p2-1) where p2 = |N(v) ∩ N(x)|.
+        let mut cycles: u128 = 0;
+        let mut seen = vec![false; n];
+        let mut in_nv = vec![false; n]; // marks N(v) for the intersection count
+        let mut in_two_hop = vec![false; n];
+        let mut two_hop: Vec<usize> = Vec::new();
+        for v in 0..n {
+            seen[v] = true;
+            let Some(nv) = inner.neighbors_indices(v) else {
+                continue;
+            };
+            if nv.len() < 2 {
+                continue;
+            }
+            for &u in nv {
+                in_nv[u] = true;
+            }
+            two_hop.clear();
+            for &u in nv {
+                if let Some(nu) = inner.neighbors_indices(u) {
+                    for &x in nu {
+                        if !seen[x] && !in_two_hop[x] {
+                            in_two_hop[x] = true;
+                            two_hop.push(x);
+                        }
+                    }
+                }
+            }
+            for &x in &two_hop {
+                in_two_hop[x] = false;
+                let mut p2: u128 = 0;
+                if let Some(nx) = inner.neighbors_indices(x) {
+                    for &y in nx {
+                        if in_nv[y] {
+                            p2 += 1;
+                        }
+                    }
+                }
+                if p2 > 1 {
+                    cycles += p2 * (p2 - 1);
+                }
+            }
+            for &u in nv {
+                in_nv[u] = false;
+            }
+        }
+
+        // _threepaths: paths = sum over v, u∈N(v), w∈N(u)\{v} of |N(w) \ {v,u}|.
+        // For a simple undirected graph |N(w)\{v,u}| = deg(w) - [v∈N(w)] -
+        // [u∈N(w)]; since w∈N(u) the edge (u,w) exists so u∈N(w) ALWAYS, and
+        // v∈N(w) ⟺ w∈N(v).
+        let mut paths: u128 = 0;
+        let mut in_nv2 = vec![false; n]; // marks N(v): w∈N(v) ⟺ v∈N(w)
+        for v in 0..n {
+            let Some(nv) = inner.neighbors_indices(v) else {
+                continue;
+            };
+            for &w in nv {
+                in_nv2[w] = true;
+            }
+            for &u in nv {
+                if let Some(nu) = inner.neighbors_indices(u) {
+                    for &w in nu {
+                        if w == v {
+                            continue;
+                        }
+                        let degw = inner.neighbors_indices(w).map_or(0, |s| s.len());
+                        // deg(w) - 1 (drop u, always present) - (v present ? 1 : 0)
+                        let mut cnt = degw as i128 - 1;
+                        if in_nv2[w] {
+                            cnt -= 1;
+                        }
+                        if cnt > 0 {
+                            paths += cnt as u128;
+                        }
+                    }
+                }
+            }
+            for &w in nv {
+                in_nv2[w] = false;
+            }
+        }
+        (cycles, paths)
+    });
+    Ok(Some(counts))
+}
+
 /// Return all maximal cliques as a list of lists.
 #[pyfunction]
 pub fn find_cliques(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Vec<Vec<PyObject>>> {
@@ -18898,6 +19006,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(transitivity, m)?)?;
     m.add_function(wrap_pyfunction!(triangles, m)?)?;
     m.add_function(wrap_pyfunction!(square_clustering, m)?)?;
+    m.add_function(wrap_pyfunction!(robins_alexander_counts, m)?)?;
     m.add_function(wrap_pyfunction!(find_cliques, m)?)?;
     m.add_function(wrap_pyfunction!(find_cliques_adjacency_sets, m)?)?;
     m.add_function(wrap_pyfunction!(graph_clique_number, m)?)?;
