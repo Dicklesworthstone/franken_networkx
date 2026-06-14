@@ -8426,6 +8426,24 @@ def degree_assortativity_coefficient(G, x="out", y="in", weight=None, nodes=None
         # finite case stays native.
         if _directed is not None and _math.isfinite(_directed):
             return _directed
+    # br-r37-c1-degxywt: directed WEIGHTED simple-graph assortativity used to
+    # delegate to nx (the native directed kernel has no weighted path) — ~180ms,
+    # because nx's float-weighted-degree mixing matrix is pathologically slow.
+    # nx's directed assortativity equals the (out, in) degree-degree Pearson r
+    # over the weighted degree pairs (verified), and degree_pearson now has a
+    # weight-aware vectorized fast path, so route here. Degenerate inputs (fewer
+    # than two degree pairs) make scipy's pearsonr raise where nx returns nan —
+    # let those fall through to the nx delegation below for parity.
+    if (
+        x == "out" and y == "in" and weight is not None and nodes is None
+        and not G.is_multigraph() and G.is_directed()
+    ):
+        if G.number_of_edges() == 0:
+            return float("nan")
+        try:
+            return degree_pearson_correlation_coefficient(G, x=x, y=y, weight=weight)
+        except ValueError:
+            pass
     # br-r37-c1-6pdq6: multigraph UNWEIGHTED default contract — compute
     # in-process (byte-exact) instead of the ~239x-slower fnx->nx multigraph
     # conversion. Weighted multigraphs stay delegated: the weighted degree is a
