@@ -3647,6 +3647,128 @@ impl PyMultiGraph {
         Ok(true)
     }
 
+    /// br-r37-c1-04z53.80: native batch for NetworkX-unambiguous
+    /// `(int, int, str)` no-data edges on a FRESH MultiGraph. The Python
+    /// wrapper only calls this for no-`**attr` list/tuple inputs; this method
+    /// narrows further to list inputs, exact int endpoints, and exact
+    /// NON-EMPTY string keys. Empty strings and dict-able third elements must
+    /// fall back because `dict.update("")` succeeds in NetworkX's 3-tuple
+    /// data-vs-key disambiguation. Duplicate public keys also fall back before
+    /// mutation so the per-edge path owns first-wins merge semantics.
+    fn _try_add_str_keyed_edges_from_batch(
+        &mut self,
+        py: Python<'_>,
+        ebunch_to_add: &Bound<'_, PyAny>,
+    ) -> PyResult<bool> {
+        const STR_KEYED_EDGE_BATCH_MIN: usize = 8;
+        if self.inner.edge_count() != 0 || !self.adj_py_keys.is_empty() {
+            return Ok(false);
+        }
+        let Ok(list) = ebunch_to_add.downcast::<PyList>() else {
+            return Ok(false);
+        };
+        if list.len() < STR_KEYED_EDGE_BATCH_MIN {
+            return Ok(false);
+        }
+
+        let mut edges: Vec<(String, String, usize, AttrMap)> = Vec::with_capacity(list.len());
+        let mut display_keys: Vec<(String, String, usize, PyObject)> =
+            Vec::with_capacity(list.len());
+        let mut new_nodes: Vec<(String, PyObject)> = Vec::new();
+        let mut seen_nodes: HashSet<String> = self
+            .inner
+            .nodes_ordered()
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+        let mut batch_first: HashMap<String, PyObject> = HashMap::new();
+        let mut pair_count: HashMap<(String, String), usize> = HashMap::new();
+        let mut seen_edges: HashSet<(String, String, String)> = HashSet::new();
+        let mut node_bumps = 0_u64;
+
+        for item in list.iter() {
+            let Ok(tuple) = item.downcast::<PyTuple>() else {
+                return Ok(false);
+            };
+            if tuple.len() != 3 {
+                return Ok(false);
+            }
+            let u = tuple.get_item(0)?;
+            let v = tuple.get_item(1)?;
+            let k = tuple.get_item(2)?;
+            if !u.is_exact_instance_of::<PyInt>() || !v.is_exact_instance_of::<PyInt>() {
+                return Ok(false);
+            }
+            if !k.is_exact_instance_of::<PyString>() {
+                return Ok(false);
+            }
+            let Ok(key_string) = k.downcast::<PyString>() else {
+                return Ok(false);
+            };
+            let Ok(key_text) = key_string.to_str() else {
+                return Ok(false);
+            };
+            if key_text.is_empty() {
+                return Ok(false);
+            }
+
+            let uc = node_key_to_string(py, &u)?;
+            let vc = node_key_to_string(py, &v)?;
+            if self.batch_display_conflict(py, &uc, &u, &mut batch_first)
+                || self.batch_display_conflict(py, &vc, &v, &mut batch_first)
+            {
+                return Ok(false);
+            }
+
+            let pair = if uc <= vc {
+                (uc.clone(), vc.clone())
+            } else {
+                (vc.clone(), uc.clone())
+            };
+            let key_lookup = edge_key_lookup_string(py, &k)?;
+            if !seen_edges.insert((pair.0.clone(), pair.1.clone(), key_lookup)) {
+                return Ok(false);
+            }
+            if !seen_nodes.contains(&uc) || !seen_nodes.contains(&vc) {
+                node_bumps = node_bumps.wrapping_add(1);
+            }
+            if seen_nodes.insert(uc.clone()) {
+                new_nodes.push((uc.clone(), u.clone().unbind()));
+            }
+            if seen_nodes.insert(vc.clone()) {
+                new_nodes.push((vc.clone(), v.clone().unbind()));
+            }
+            let counter = pair_count.entry(pair).or_insert(0);
+            let internal_key = *counter;
+            *counter += 1;
+            display_keys.push((uc.clone(), vc.clone(), internal_key, k.clone().unbind()));
+            edges.push((uc, vc, internal_key, AttrMap::new()));
+        }
+
+        let edge_bumps = u64::try_from(edges.len()).unwrap_or(u64::MAX);
+        let mirror_active = self.node_iter_mirror_active();
+        for (canonical, node) in new_nodes {
+            let mk = if mirror_active {
+                Some(canonical.clone())
+            } else {
+                None
+            };
+            self.node_key_map.entry(canonical).or_insert(node);
+            if let Some(c) = mk {
+                let _ = self.node_iter_mirror_insert(py, &c);
+            }
+        }
+        self.inner.extend_keyed_edges_with_attrs_unrecorded(edges);
+        for (u, v, key, obj) in display_keys {
+            self.edge_py_keys
+                .entry(Self::edge_key(&u, &v, key))
+                .or_insert(obj);
+        }
+        self.nodes_seq = self.nodes_seq.wrapping_add(node_bumps);
+        self.edges_seq = self.edges_seq.wrapping_add(edge_bumps);
+        Ok(true)
+    }
+
     /// br-r37-c1-urle5b: native batch for `(u, v, key)` no-data edges on a FRESH
     /// MultiGraph — the shape multigraph set-ops (difference / symmetric_difference
     /// / intersection) feed `R.add_edges_from(...)`. The caller GUARANTEES the

@@ -2865,6 +2865,14 @@ def _multi_add_edges_from(self, ebunch_to_add, **attr):
         _native_batch = getattr(self, "_try_add_edges_from_batch", None)
         if _native_batch is not None and _native_batch(ebunch_to_add):
             return
+        # br-r37-c1-04z53.80: exact `(int, int, non-empty str)` keyed-edge
+        # batch on a fresh MultiGraph. Keep this before the attributed batch so
+        # string keys avoid the per-edge Python add_edge loop, but let ambiguous
+        # 3-tuples (empty string / dict-able data / non-string keys) fall through
+        # to the NetworkX disambiguation below.
+        _native_str_key_batch = getattr(self, "_try_add_str_keyed_edges_from_batch", None)
+        if _native_str_key_batch is not None and _native_str_key_batch(ebunch_to_add):
+            return
         # br-r37-c1-trzrx: attributed/mixed `(u, v, data)` batch on a fresh
         # MultiGraph (no **attr) — native single-commit insert instead of the
         # per-edge add_edge loop below (~3.6x nx on attributed construction).
