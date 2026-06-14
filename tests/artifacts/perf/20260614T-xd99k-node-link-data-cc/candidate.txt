@@ -1,0 +1,5 @@
+GOLDEN {"undir_unw": [true, "2c4948af2730ecdb"], "undir_w": [true, "c5202a412abe2aca"], "dir_unw": [true, "d6f2c6fc61d093e6"], "dir_w": [true, "c9342084e43f1ce7"]}
+node_link_data undir_unw  nx=  2.014 fnx=  1.206 ratio=0.599
+node_link_data undir_w    nx=  2.227 fnx=  1.703 ratio=0.765
+node_link_data dir_unw    nx=  1.121 fnx=  0.819 ratio=0.730
+node_link_data dir_w      nx=  1.274 fnx=  1.181 ratio=0.927

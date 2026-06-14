@@ -1983,59 +1983,70 @@ pub fn node_link_data_simple(
     let nodes = PyList::empty(py);
     let edges = PyList::empty(py);
     match &gr {
+        // br-r37-c1-xd99k: index-based node-key iteration (same lever as
+        // adjacency_data_simple / the EdgeView edges() path). Endpoint key objects
+        // come from the nodes_seq-cached per-index node-key Vec (O(1) incref)
+        // instead of a per-endpoint py_node_key String-hash. `keys[i]` /
+        // `neighbors_indices(i)` / `successors_indices(i)` walk the same
+        // `adj_indices[i]` / `succ_indices[i]` rows in the same order as the old
+        // py_node_key / neighbors_iter / successors_iter, so output is identical.
         GraphRef::Undirected(pg) => {
-            for u in pg.inner.nodes_ordered() {
+            let names = pg.inner.nodes_ordered();
+            let keys = pg.cached_node_key_vec(py);
+            for (i, &u) in names.iter().enumerate() {
                 let node_dict = match pg.node_py_attrs.get(u) {
                     Some(d) => d.bind(py).copy()?,
                     None => PyDict::new(py),
                 };
-                node_dict.set_item(name, pg.py_node_key(py, u))?;
+                node_dict.set_item(name, keys[i].clone_ref(py))?;
                 nodes.append(node_dict)?;
             }
-            // Match nx `G.edges()` undirected order: for u in node order,
-            // emit (u, v) for each neighbor v whose own adjacency has not yet
-            // been processed (seen-set of finished source nodes). This avoids
-            // `edges_ordered()`, which eagerly clones every edge's AttrMap.
-            let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
-            for u in pg.inner.nodes_ordered() {
-                if let Some(neighbors) = pg.inner.neighbors_iter(u) {
-                    for v in neighbors {
-                        if seen.contains(v) {
+            // nx `G.edges()` undirected order: for u in node order, emit (u, v)
+            // for each neighbor v whose own adjacency row has not yet been
+            // processed. `seen[vi]` (finished source indices) is byte-identical to
+            // the prior `HashSet<String>` of finished source names.
+            let mut seen = vec![false; names.len()];
+            for (i, &u) in names.iter().enumerate() {
+                if let Some(nbr_idxs) = pg.inner.neighbors_indices(i) {
+                    for &vi in nbr_idxs {
+                        if seen[vi] {
                             continue;
                         }
-                        let ek = PyGraph::edge_key(u, v);
+                        let ek = PyGraph::edge_key(u, names[vi]);
                         let edge_dict = match pg.edge_py_attrs.get(&ek) {
                             Some(d) => d.bind(py).copy()?,
                             None => PyDict::new(py),
                         };
-                        edge_dict.set_item(source, pg.py_node_key(py, u))?;
-                        edge_dict.set_item(target, pg.py_node_key(py, v))?;
+                        edge_dict.set_item(source, keys[i].clone_ref(py))?;
+                        edge_dict.set_item(target, keys[vi].clone_ref(py))?;
                         edges.append(edge_dict)?;
                     }
                 }
-                seen.insert(u.to_owned());
+                seen[i] = true;
             }
         }
         GraphRef::Directed { dg, .. } => {
-            for u in dg.inner.nodes_ordered() {
+            let names = dg.inner.nodes_ordered();
+            let keys = dg.cached_node_key_vec(py);
+            for (i, &u) in names.iter().enumerate() {
                 let node_dict = match dg.node_py_attrs.get(u) {
                     Some(d) => d.bind(py).copy()?,
                     None => PyDict::new(py),
                 };
-                node_dict.set_item(name, dg.py_node_key(py, u))?;
+                node_dict.set_item(name, keys[i].clone_ref(py))?;
                 nodes.append(node_dict)?;
             }
             // Directed `G.edges()` order: out-edges in node order (no dedup).
-            for u in dg.inner.nodes_ordered() {
-                if let Some(neighbors) = dg.inner.successors_iter(u) {
-                    for v in neighbors {
-                        let ek = PyDiGraph::edge_key(u, v);
+            for (i, &u) in names.iter().enumerate() {
+                if let Some(succ_idxs) = dg.inner.successors_indices(i) {
+                    for &vi in succ_idxs {
+                        let ek = PyDiGraph::edge_key(u, names[vi]);
                         let edge_dict = match dg.edge_py_attrs.get(&ek) {
                             Some(d) => d.bind(py).copy()?,
                             None => PyDict::new(py),
                         };
-                        edge_dict.set_item(source, dg.py_node_key(py, u))?;
-                        edge_dict.set_item(target, dg.py_node_key(py, v))?;
+                        edge_dict.set_item(source, keys[i].clone_ref(py))?;
+                        edge_dict.set_item(target, keys[vi].clone_ref(py))?;
                         edges.append(edge_dict)?;
                     }
                 }
