@@ -1,0 +1,43 @@
+         22688 function calls (22674 primitive calls) in 0.029 seconds
+
+   Ordered by: cumulative time
+   List reduced from 131 to 35 due to restriction <35>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.000    0.000    0.029    0.029 spectral_bipartivity_harness.py:104(bench_once)
+        1    0.000    0.000    0.016    0.016 spectral_bipartivity_harness.py:47(make_pair)
+        9    0.000    0.000    0.013    0.001 bipartite.py:384(spectral_bipartivity)
+        9    0.002    0.000    0.013    0.001 bipartite.py:435(color)
+        2    0.001    0.000    0.012    0.006 spectral_bipartivity_harness.py:25(_add_fixture_edges)
+      423    0.000    0.000    0.011    0.000 __init__.py:2545(add_edge)
+      423    0.010    0.000    0.010    0.000 {function Graph.add_edge at 0x7c377c6b2980}
+     1728    0.003    0.000    0.008    0.000 __init__.py:37211(neighbors)
+      191    0.000    0.000    0.004    0.000 __init__.py:36485(_cached_adj_row_key_iter)
+      192    0.001    0.000    0.004    0.000 __init__.py:36491(_cached_adj_row_keydict)
+      192    0.000    0.000    0.003    0.000 __init__.py:2609(add_node)
+      192    0.003    0.000    0.003    0.000 {function Graph.add_node at 0x7c377c6b2ca0}
+      192    0.002    0.000    0.002    0.000 {method '_native_adjacency_row_dict' of 'franken_networkx.Graph' objects}
+        9    0.000    0.000    0.001    0.000 {built-in method fromkeys}
+        9    0.000    0.000    0.001    0.000 __init__.py:15960(isolates)
+        9    0.001    0.000    0.001    0.000 {built-in method franken_networkx._fnx.isolates}
+     6804    0.001    0.000    0.001    0.000 {method 'get' of 'dict' objects}
+      423    0.001    0.000    0.001    0.000 graph.py:917(add_edge)
+     2328    0.000    0.000    0.000    0.000 {built-in method builtins.vars}
+        1    0.000    0.000    0.000    0.000 decorators.py:783(func)
+        1    0.000    0.000    0.000    0.000 decorators.py:715(_lazy_compile)
+      192    0.000    0.000    0.000    0.000 graph.py:535(add_node)
+        1    0.000    0.000    0.000    0.000 decorators.py:869(compile)
+     1731    0.000    0.000    0.000    0.000 {method 'append' of 'list' objects}
+     1728    0.000    0.000    0.000    0.000 {method 'pop' of 'list' objects}
+     1728    0.000    0.000    0.000    0.000 {built-in method builtins.iter}
+        1    0.000    0.000    0.000    0.000 decorators.py:917(assemble)
+      615    0.000    0.000    0.000    0.000 misc.py:645(_clear_cache)
+      627    0.000    0.000    0.000    0.000 {method 'update' of 'dict' objects}
+       13    0.000    0.000    0.000    0.000 __init__.py:36927(__iter__)
+        1    0.000    0.000    0.000    0.000 decorators.py:1059(signature)
+     1231    0.000    0.000    0.000    0.000 {built-in method builtins.hash}
+      2/1    0.000    0.000    0.000    0.000 inspect.py:3373(signature)
+      2/1    0.000    0.000    0.000    0.000 inspect.py:3094(from_callable)
+    29/20    0.000    0.000    0.000    0.000 {built-in method builtins.len}
+
+

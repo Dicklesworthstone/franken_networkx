@@ -402,6 +402,21 @@ def spectral_bipartivity(G, nodes=None, weight="weight"):
         return _nx_bipartite.spectral_bipartivity(
             _spectral_bipartivity_nx_copy(G), nodes, weight
         )
+    if len(G) > 0:
+        try:
+            color(G)
+        except _nx.NetworkXError:
+            pass
+        else:
+            if nodes is None:
+                return 1.0
+            present = set(G)
+            result = {}
+            for node in nodes:
+                if node not in present:
+                    raise KeyError(node)
+                result[node] = 1.0
+            return result
     import numpy as _np
 
     nodelist = list(G)
