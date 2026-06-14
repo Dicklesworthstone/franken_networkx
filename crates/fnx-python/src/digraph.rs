@@ -414,14 +414,17 @@ impl PyMultiDiGraph {
     /// nodes_seq-keyed tuple cache (clone_ref of cached elements) instead of
     /// rebuilding via py_node_key per node. Backs the graph node iterator
     /// (`set(G)` / `for n in G`), which keeps its per-next nodes_seq guard.
+    // br-r37-c1-qwqvn: infra for the pending MultiDiGraph edges() index lever
+    // (symmetric with the wired PyGraph/PyDiGraph variants); not yet a consumer.
+    #[allow(dead_code)]
     pub(crate) fn cached_node_key_vec(&self, py: Python<'_>) -> Vec<PyObject> {
         let seq = self.nodes_seq;
         {
             let guard = self.node_keys_cache.lock().unwrap();
-            if let Some((cached_seq, tup, _set)) = guard.as_ref() {
-                if *cached_seq == seq {
-                    return tup.bind(py).iter().map(|o| o.unbind()).collect();
-                }
+            if let Some((cached_seq, tup, _set)) = guard.as_ref()
+                && *cached_seq == seq
+            {
+                return tup.bind(py).iter().map(|o| o.unbind()).collect();
             }
         }
         let keys: Vec<PyObject> = self
@@ -1516,10 +1519,10 @@ impl PyMultiDiGraph {
         let seq = self.nodes_seq;
         {
             let guard = self.node_keys_cache.lock().unwrap();
-            if let Some((cached_seq, tup, _set)) = guard.as_ref() {
-                if *cached_seq == seq {
-                    return tup.clone_ref(py).into_any();
-                }
+            if let Some((cached_seq, tup, _set)) = guard.as_ref()
+                && *cached_seq == seq
+            {
+                return tup.clone_ref(py).into_any();
             }
         }
         let keys: Vec<PyObject> = self
@@ -1540,10 +1543,10 @@ impl PyMultiDiGraph {
         let seq = self.nodes_seq;
         {
             let guard = self.node_keys_cache.lock().unwrap();
-            if let Some((cached_seq, _tup, set)) = guard.as_ref() {
-                if *cached_seq == seq {
-                    return Ok(set.bind(py).call_method0("copy")?.unbind());
-                }
+            if let Some((cached_seq, _tup, set)) = guard.as_ref()
+                && *cached_seq == seq
+            {
+                return Ok(set.bind(py).call_method0("copy")?.unbind());
             }
         }
         let keys: Vec<PyObject> = self
@@ -1924,7 +1927,7 @@ impl PyMultiDiGraph {
                 let Ok(d) = third.downcast::<PyDict>() else {
                     return Ok(false);
                 };
-                let Ok(attrs) = py_dict_to_attr_map(&d) else {
+                let Ok(attrs) = py_dict_to_attr_map(d) else {
                     return Ok(false);
                 };
                 if attrs.keys().any(|k| k.starts_with("__fnx_incompatible")) {
@@ -4950,10 +4953,10 @@ impl PyDiGraph {
         let seq = self.nodes_seq;
         {
             let guard = self.node_keys_cache.lock().unwrap();
-            if let Some((cached_seq, tup)) = guard.as_ref() {
-                if *cached_seq == seq {
-                    return tup.bind(py).iter().map(|o| o.unbind()).collect();
-                }
+            if let Some((cached_seq, tup)) = guard.as_ref()
+                && *cached_seq == seq
+            {
+                return tup.bind(py).iter().map(|o| o.unbind()).collect();
             }
         }
         let keys: Vec<PyObject> = self
@@ -6131,10 +6134,10 @@ impl PyDiGraph {
         let seq = self.nodes_seq;
         {
             let guard = self.node_keys_cache.lock().unwrap();
-            if let Some((cached_seq, tup)) = guard.as_ref() {
-                if *cached_seq == seq {
-                    return tup.clone_ref(py).into_any();
-                }
+            if let Some((cached_seq, tup)) = guard.as_ref()
+                && *cached_seq == seq
+            {
+                return tup.clone_ref(py).into_any();
             }
         }
         let keys: Vec<PyObject> = self
@@ -7542,7 +7545,10 @@ impl PyDiGraph {
             let keys = self.cached_node_key_vec(py);
             let mut items = Vec::with_capacity(self.inner.edge_count());
             for (u, v) in self.inner.edges_ordered_indices() {
-                items.push(tuple_object(py, &[keys[u].clone_ref(py), keys[v].clone_ref(py)])?);
+                items.push(tuple_object(
+                    py,
+                    &[keys[u].clone_ref(py), keys[v].clone_ref(py)],
+                )?);
             }
             return Ok(items.into_pyobject(py)?.into_any().unbind());
         }

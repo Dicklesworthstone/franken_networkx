@@ -739,10 +739,10 @@ impl PyGraph {
         let seq = self.nodes_seq;
         {
             let guard = self.node_keys_cache.lock().unwrap();
-            if let Some((cached_seq, tup)) = guard.as_ref() {
-                if *cached_seq == seq {
-                    return tup.bind(py).iter().map(|o| o.unbind()).collect();
-                }
+            if let Some((cached_seq, tup)) = guard.as_ref()
+                && *cached_seq == seq
+            {
+                return tup.bind(py).iter().map(|o| o.unbind()).collect();
             }
         }
         let keys: Vec<PyObject> = self
@@ -2920,10 +2920,10 @@ impl PyMultiGraph {
         let seq = self.nodes_seq;
         {
             let guard = self.node_keys_cache.lock().unwrap();
-            if let Some((cached_seq, tup)) = guard.as_ref() {
-                if *cached_seq == seq {
-                    return tup.clone_ref(py).into_any();
-                }
+            if let Some((cached_seq, tup)) = guard.as_ref()
+                && *cached_seq == seq
+            {
+                return tup.clone_ref(py).into_any();
             }
         }
         let keys: Vec<PyObject> = self
@@ -3681,7 +3681,7 @@ impl PyMultiGraph {
                 let Ok(d) = third.downcast::<PyDict>() else {
                     return Ok(false);
                 };
-                let Ok(attrs) = py_dict_to_attr_map(&d) else {
+                let Ok(attrs) = py_dict_to_attr_map(d) else {
                     return Ok(false);
                 };
                 if attrs.keys().any(|k| k.starts_with("__fnx_incompatible")) {
@@ -6115,14 +6115,17 @@ impl PyMultiGraph {
     /// nodes_seq-keyed tuple cache (clone_ref of cached elements) instead of
     /// rebuilding via py_node_key per node. Backs the graph node iterator
     /// (`set(G)` / `for n in G`), which keeps its per-next nodes_seq guard.
+    // br-r37-c1-qwqvn: infra for the pending MultiGraph edges() index lever
+    // (symmetric with the wired PyGraph/PyDiGraph variants); not yet a consumer.
+    #[allow(dead_code)]
     pub(crate) fn cached_node_key_vec(&self, py: Python<'_>) -> Vec<PyObject> {
         let seq = self.nodes_seq;
         {
             let guard = self.node_keys_cache.lock().unwrap();
-            if let Some((cached_seq, tup)) = guard.as_ref() {
-                if *cached_seq == seq {
-                    return tup.bind(py).iter().map(|o| o.unbind()).collect();
-                }
+            if let Some((cached_seq, tup)) = guard.as_ref()
+                && *cached_seq == seq
+            {
+                return tup.bind(py).iter().map(|o| o.unbind()).collect();
             }
         }
         let keys: Vec<PyObject> = self
@@ -7013,10 +7016,10 @@ impl PyGraph {
         let seq = self.nodes_seq;
         {
             let guard = self.node_keys_cache.lock().unwrap();
-            if let Some((cached_seq, tup)) = guard.as_ref() {
-                if *cached_seq == seq {
-                    return tup.clone_ref(py).into_any();
-                }
+            if let Some((cached_seq, tup)) = guard.as_ref()
+                && *cached_seq == seq
+            {
+                return tup.clone_ref(py).into_any();
             }
         }
         let keys: Vec<PyObject> = self
@@ -9402,6 +9405,7 @@ pub(crate) enum NodeIteratorGuard {
     #[allow(dead_code)]
     Graph(Py<PyGraph>),
     MultiGraph(Py<PyMultiGraph>),
+    #[allow(dead_code)]
     DiGraph(Py<digraph::PyDiGraph>),
     MultiDiGraph(Py<digraph::PyMultiDiGraph>),
 }

@@ -11,8 +11,8 @@ use crate::{
     DictOfDictsCache, PyGraph, PyMultiGraph, PyObject, PythonAllowThreadsExt, cgse_value_to_py,
     node_key_to_string, py_dict_to_attr_map,
 };
-use fnx_classes::MultiGraph as RustMultiGraph;
 use fnx_classes::Graph as RustGraph;
+use fnx_classes::MultiGraph as RustMultiGraph;
 use fnx_classes::digraph::DiGraph as RustDiGraph;
 use fnx_readwrite::{DiReadWriteReport, EdgeListEngine, ReadWriteError, ReadWriteReport};
 use fnx_runtime::CompatibilityMode;
