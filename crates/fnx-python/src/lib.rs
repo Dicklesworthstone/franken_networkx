@@ -3764,6 +3764,9 @@ impl PyMultiGraph {
         ebunch_to_add: &Bound<'_, PyAny>,
     ) -> PyResult<bool> {
         const STR_KEYED_EDGE_BATCH_MIN: usize = 8;
+        if self.try_add_fresh_int_prefix_str_keyed_edges_from_batch(py, ebunch_to_add)? {
+            return Ok(true);
+        }
         if self.inner.edge_count() != 0 || !self.adj_py_keys.is_empty() {
             return Ok(false);
         }
@@ -3868,6 +3871,152 @@ impl PyMultiGraph {
                 .or_insert(obj);
         }
         self.nodes_seq = self.nodes_seq.wrapping_add(node_bumps);
+        self.edges_seq = self.edges_seq.wrapping_add(edge_bumps);
+        Ok(true)
+    }
+
+    fn try_add_fresh_int_prefix_str_keyed_edges_from_batch(
+        &mut self,
+        py: Python<'_>,
+        ebunch_to_add: &Bound<'_, PyAny>,
+    ) -> PyResult<bool> {
+        const STR_KEYED_EDGE_BATCH_MIN: usize = 8;
+        if self.inner.node_count() != 0
+            || self.inner.edge_count() != 0
+            || !self.adj_py_keys.is_empty()
+        {
+            return Ok(false);
+        }
+        let Ok(list) = ebunch_to_add.downcast::<PyList>() else {
+            return Ok(false);
+        };
+        if list.len() < STR_KEYED_EDGE_BATCH_MIN {
+            return Ok(false);
+        }
+
+        let mut edges: Vec<(usize, usize, usize)> = Vec::with_capacity(list.len());
+        let mut display_keys: Vec<(usize, usize, usize, PyObject)> = Vec::with_capacity(list.len());
+        let mut node_objects: Vec<PyObject> = Vec::new();
+        let mut pair_first_display: HashMap<(usize, usize), usize> = HashMap::new();
+        let mut pair_counts: HashMap<(usize, usize), usize> = HashMap::new();
+        let mut repeated_pair_keys: HashMap<(usize, usize), HashSet<String>> = HashMap::new();
+
+        for item in list.iter() {
+            let Ok(tuple) = item.downcast::<PyTuple>() else {
+                return Ok(false);
+            };
+            if tuple.len() != 3 {
+                return Ok(false);
+            }
+            let u = tuple.get_item(0)?;
+            let v = tuple.get_item(1)?;
+            let k = tuple.get_item(2)?;
+            if !u.is_exact_instance_of::<PyInt>() || !v.is_exact_instance_of::<PyInt>() {
+                return Ok(false);
+            }
+            if !k.is_exact_instance_of::<PyString>() {
+                return Ok(false);
+            }
+            let Ok(key_string) = k.downcast::<PyString>() else {
+                return Ok(false);
+            };
+            let Ok(key_text) = key_string.to_str() else {
+                return Ok(false);
+            };
+            if key_text.is_empty() {
+                return Ok(false);
+            }
+
+            let Ok(left_raw) = u.extract::<i64>() else {
+                return Ok(false);
+            };
+            let Ok(right_raw) = v.extract::<i64>() else {
+                return Ok(false);
+            };
+            if left_raw < 0 || right_raw < 0 {
+                return Ok(false);
+            }
+            let Ok(left_idx) = usize::try_from(left_raw) else {
+                return Ok(false);
+            };
+            let Ok(right_idx) = usize::try_from(right_raw) else {
+                return Ok(false);
+            };
+
+            for (idx, obj) in [(left_idx, &u), (right_idx, &v)] {
+                if idx == node_objects.len() {
+                    node_objects.push(obj.clone().unbind());
+                } else if idx > node_objects.len() {
+                    return Ok(false);
+                }
+            }
+
+            let pair = if left_idx <= right_idx {
+                (left_idx, right_idx)
+            } else {
+                (right_idx, left_idx)
+            };
+            let internal_key = if let Some(keys) = repeated_pair_keys.get_mut(&pair) {
+                if !keys.insert(key_text.to_owned()) {
+                    return Ok(false);
+                }
+                let counter = pair_counts
+                    .get_mut(&pair)
+                    .expect("repeated pair should have a counter");
+                let key = *counter;
+                *counter += 1;
+                key
+            } else if let Some(first_display) = pair_first_display.get(&pair).copied() {
+                let first_key = display_keys[first_display]
+                    .3
+                    .bind(py)
+                    .downcast::<PyString>()?
+                    .to_str()?
+                    .to_owned();
+                let mut keys = HashSet::with_capacity(4);
+                keys.insert(first_key);
+                if !keys.insert(key_text.to_owned()) {
+                    return Ok(false);
+                }
+                repeated_pair_keys.insert(pair, keys);
+                pair_counts.insert(pair, 2);
+                1
+            } else {
+                pair_first_display.insert(pair, display_keys.len());
+                0
+            };
+            display_keys.push((left_idx, right_idx, internal_key, k.clone().unbind()));
+            edges.push((left_idx, right_idx, internal_key));
+        }
+
+        let node_count = node_objects.len();
+        let mirror_active = self.node_iter_mirror_active();
+        for (idx, node) in node_objects.into_iter().enumerate() {
+            let canonical = idx.to_string();
+            let mirror_key = if mirror_active {
+                Some(canonical.clone())
+            } else {
+                None
+            };
+            self.node_key_map.entry(canonical).or_insert(node);
+            if let Some(c) = mirror_key {
+                let _ = self.node_iter_mirror_insert(py, &c);
+            }
+        }
+        let edge_bumps = u64::try_from(edges.len()).unwrap_or(u64::MAX);
+        let _ = self
+            .inner
+            .extend_fresh_int_prefix_keyed_edges_unrecorded(node_count, edges);
+        for (u, v, key, obj) in display_keys {
+            let u = u.to_string();
+            let v = v.to_string();
+            self.edge_py_keys
+                .entry(Self::edge_key(&u, &v, key))
+                .or_insert(obj);
+        }
+        self.nodes_seq = self
+            .nodes_seq
+            .wrapping_add(u64::try_from(node_count).unwrap_or(u64::MAX));
         self.edges_seq = self.edges_seq.wrapping_add(edge_bumps);
         Ok(true)
     }

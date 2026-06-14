@@ -2461,6 +2461,85 @@ impl MultiGraph {
         inserted
     }
 
+    /// Bulk-load attribute-free keyed edges for a freshly-created integer
+    /// prefix graph. The caller has already validated that node first-seen
+    /// order is exactly `0..node_count` and that internal keys are sequential
+    /// per undirected pair, so this builds the string-keyed MultiGraph state
+    /// directly from indices instead of canonicalizing both endpoints for every
+    /// edge in the Python boundary layer.
+    #[must_use]
+    pub fn extend_fresh_int_prefix_keyed_edges_unrecorded<I>(
+        &mut self,
+        node_count: usize,
+        edges: I,
+    ) -> usize
+    where
+        I: IntoIterator<Item = (usize, usize, usize)>,
+    {
+        debug_assert_eq!(self.node_count(), 0);
+        debug_assert_eq!(self.edge_count(), 0);
+
+        let iterator = edges.into_iter();
+        let (lower_bound, _) = iterator.size_hint();
+        self.nodes.reserve(node_count);
+        self.adjacency.reserve(node_count);
+        self.edges.reserve(lower_bound);
+
+        let node_names = (0..node_count)
+            .map(|node| node.to_string())
+            .collect::<Vec<_>>();
+        for node in &node_names {
+            self.nodes.insert(node.clone(), AttrMap::new());
+            self.adjacency.insert(node.clone(), IndexMap::new());
+        }
+
+        let mut inserted = 0usize;
+        for (left_idx, right_idx, key) in iterator {
+            debug_assert!(left_idx < node_names.len());
+            debug_assert!(right_idx < node_names.len());
+
+            let left = &node_names[left_idx];
+            let right = &node_names[right_idx];
+            let edge_key = EdgeKey::new(left, right);
+            self.edges
+                .entry(edge_key)
+                .or_default()
+                .insert(key, AttrMap::new());
+            self.adjacency
+                .get_mut(left.as_str())
+                .expect("integer-prefix left node should exist")
+                .entry(right.clone())
+                .or_default()
+                .insert(key);
+            if left_idx != right_idx {
+                self.adjacency
+                    .get_mut(right.as_str())
+                    .expect("integer-prefix right node should exist")
+                    .entry(left.clone())
+                    .or_default()
+                    .insert(key);
+            }
+            self.edge_count += 1;
+            inserted += 1;
+        }
+        if inserted > 0 || node_count > 0 {
+            self.revision = self.revision.saturating_add(
+                u64::try_from(inserted.saturating_add(node_count)).unwrap_or(u64::MAX),
+            );
+            self.record_decision(
+                "extend_fresh_int_prefix_keyed_edges_unrecorded",
+                0.0,
+                false,
+                vec![EvidenceTerm {
+                    signal: "batch_edge_count".to_owned(),
+                    observed_value: inserted.to_string(),
+                    log_likelihood_ratio: -1.0,
+                }],
+            );
+        }
+        inserted
+    }
+
     fn add_edge_impl(
         &mut self,
         left: impl Into<String>,
@@ -3129,6 +3208,36 @@ mod tests {
         assert_eq!(bulk.edge_attrs("d", "d"), reference.edge_attrs("d", "d"));
         // one summary record, not one per edge
         assert_eq!(bulk.evidence_ledger().records().len(), before + 1);
+    }
+
+    #[test]
+    fn multigraph_int_prefix_keyed_edges_match_string_batch() {
+        let indexed_edges = vec![
+            (0usize, 1usize, 0usize),
+            (1, 2, 0),
+            (2, 0, 0),
+            (0, 1, 1),
+            (2, 2, 0),
+        ];
+        let string_edges = indexed_edges
+            .iter()
+            .map(|(left, right, key)| (left.to_string(), right.to_string(), *key, AttrMap::new()))
+            .collect::<Vec<_>>();
+
+        let mut by_string = MultiGraph::strict();
+        let mut by_index = MultiGraph::strict();
+
+        assert_eq!(
+            by_string.extend_keyed_edges_with_attrs_unrecorded(string_edges),
+            indexed_edges.len()
+        );
+        assert_eq!(
+            by_index.extend_fresh_int_prefix_keyed_edges_unrecorded(3, indexed_edges),
+            5
+        );
+
+        assert_eq!(by_index.snapshot(), by_string.snapshot());
+        assert_multigraph_core_invariants(&by_index);
     }
 
     #[test]
