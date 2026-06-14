@@ -29631,6 +29631,134 @@ pub fn average_node_connectivity(graph: &Graph) -> f64 {
     }
 }
 
+/// White-Newman greedy local node connectivity approximation for an
+/// undirected simple graph.
+#[must_use]
+pub fn approximate_local_node_connectivity(
+    graph: &Graph,
+    source: &str,
+    target: &str,
+    cutoff: Option<usize>,
+) -> usize {
+    let Some(source_idx) = graph.get_node_index(source) else {
+        return 0;
+    };
+    let Some(target_idx) = graph.get_node_index(target) else {
+        return 0;
+    };
+    if source_idx == target_idx {
+        return 0;
+    }
+
+    let possible = graph
+        .degree_by_index(source_idx)
+        .min(graph.degree_by_index(target_idx));
+    let limit = possible.min(cutoff.unwrap_or(usize::MAX));
+    if limit == 0 {
+        return 0;
+    }
+
+    let mut excluded = vec![false; graph.node_count()];
+    let mut count = 0usize;
+    for _ in 0..limit {
+        let Some(path) =
+            approximate_bidirectional_path_excluding(graph, source_idx, target_idx, &excluded)
+        else {
+            break;
+        };
+        for node_idx in path {
+            excluded[node_idx] = true;
+        }
+        count += 1;
+    }
+    count
+}
+
+fn approximate_bidirectional_path_excluding(
+    graph: &Graph,
+    source: usize,
+    target: usize,
+    excluded: &[bool],
+) -> Option<Vec<usize>> {
+    let n = graph.node_count();
+    let mut pred_seen = vec![false; n];
+    let mut succ_seen = vec![false; n];
+    let mut pred = vec![None; n];
+    let mut succ = vec![None; n];
+    let mut forward_fringe = vec![source];
+    let mut reverse_fringe = vec![target];
+    let mut level = 0usize;
+    let mut found = None;
+
+    pred_seen[source] = true;
+    succ_seen[target] = true;
+
+    while !forward_fringe.is_empty() && !reverse_fringe.is_empty() && found.is_none() {
+        level += 1;
+        if !level.is_multiple_of(2) {
+            let this_level = std::mem::take(&mut forward_fringe);
+            'forward: for v in this_level {
+                if let Some(neighbors) = graph.neighbors_indices(v) {
+                    for &w in neighbors {
+                        if excluded[w] {
+                            continue;
+                        }
+                        if !pred_seen[w] {
+                            pred_seen[w] = true;
+                            pred[w] = Some(v);
+                            forward_fringe.push(w);
+                        }
+                        if succ_seen[w] {
+                            found = Some(w);
+                            break 'forward;
+                        }
+                    }
+                }
+            }
+        } else {
+            let this_level = std::mem::take(&mut reverse_fringe);
+            'reverse: for v in this_level {
+                if let Some(neighbors) = graph.neighbors_indices(v) {
+                    for &w in neighbors {
+                        if excluded[w] {
+                            continue;
+                        }
+                        if !succ_seen[w] {
+                            succ_seen[w] = true;
+                            succ[w] = Some(v);
+                            reverse_fringe.push(w);
+                        }
+                        if pred_seen[w] {
+                            found = Some(w);
+                            break 'reverse;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let found = found?;
+    let mut path = Vec::new();
+    let mut w = found;
+    loop {
+        path.push(w);
+        if w == source {
+            break;
+        }
+        w = pred[w]?;
+    }
+    path.reverse();
+
+    let mut next = succ[*path.last().expect("path has found node")];
+    while let Some(w) = next {
+        path.push(w);
+        next = succ[w];
+    }
+
+    Some(path)
+}
+
 /// Compute average node connectivity over all ordered pairs in a directed graph.
 #[must_use]
 pub fn average_node_connectivity_directed(digraph: &DiGraph) -> f64 {

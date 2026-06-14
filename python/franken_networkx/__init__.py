@@ -7739,6 +7739,7 @@ def has_path(G, source, target):
 
 # Algorithm functions — connectivity
 from franken_networkx._fnx import (
+    approx_local_node_connectivity_undirected_rust as _raw_approx_local_node_connectivity_undirected,
     articulation_points as _raw_articulation_points,
     bridges as _raw_bridges,
     connected_components as _raw_connected_components,
@@ -16531,6 +16532,14 @@ class _ApproximationNamespace:
             "local_node_connectivity", backend, backend_kwargs
         )
         raw = _raw_neighbors_dispatch(G)
+        if (
+            raw is not None
+            and type(G) is Graph
+            and (cutoff is None or (isinstance(cutoff, int) and cutoff >= 0))
+        ):
+            return _raw_approx_local_node_connectivity_undirected(
+                G, source, target, cutoff
+            )
         if raw is not None and not G.is_directed() and not G.is_multigraph():
             return _approx_local_node_connectivity_undirected(
                 G, raw, source, target, cutoff

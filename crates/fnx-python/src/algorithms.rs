@@ -3840,6 +3840,52 @@ pub fn node_connectivity(
     }
 }
 
+/// Approximate local node connectivity for an undirected simple Graph.
+#[pyfunction]
+#[pyo3(signature = (g, source, target, cutoff=None))]
+pub fn approx_local_node_connectivity_undirected_rust(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    source: &Bound<'_, PyAny>,
+    target: &Bound<'_, PyAny>,
+    cutoff: Option<usize>,
+) -> PyResult<usize> {
+    let gr = extract_graph(g)?;
+    let GraphRef::Undirected(pg) = gr else {
+        return Err(crate::NetworkXNotImplemented::new_err(
+            "not implemented for directed or multigraph type",
+        ));
+    };
+
+    let source_name = node_key_to_string(py, source)?;
+    if !pg.inner.has_node(&source_name) {
+        return Err(NetworkXError::new_err(format!(
+            "Node {source_name} is not in the graph."
+        )));
+    }
+    let target_name = node_key_to_string(py, target)?;
+    if !pg.inner.has_node(&target_name) {
+        return Err(NetworkXError::new_err(format!(
+            "Node {target_name} is not in the graph."
+        )));
+    }
+    if source_name == target_name {
+        return Err(NetworkXError::new_err(
+            "source and target have to be different nodes.",
+        ));
+    }
+
+    let inner = &pg.inner;
+    Ok(py.allow_threads(|| {
+        fnx_algorithms::approximate_local_node_connectivity(
+            inner,
+            &source_name,
+            &target_name,
+            cutoff,
+        )
+    }))
+}
+
 /// Return a minimum node cut of the graph.
 #[pyfunction]
 #[pyo3(signature = (g, s=None, t=None, flow_func=None))]
@@ -18964,6 +19010,10 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(connected_components, m)?)?;
     m.add_function(wrap_pyfunction!(number_connected_components, m)?)?;
     m.add_function(wrap_pyfunction!(node_connectivity, m)?)?;
+    m.add_function(wrap_pyfunction!(
+        approx_local_node_connectivity_undirected_rust,
+        m
+    )?)?;
     m.add_function(wrap_pyfunction!(minimum_node_cut, m)?)?;
     m.add_function(wrap_pyfunction!(edge_connectivity, m)?)?;
     m.add_function(wrap_pyfunction!(articulation_points, m)?)?;
@@ -19635,6 +19685,10 @@ mod tests {
                 edges_seq: 0,
                 edges_dirty: AtomicBool::new(false),
                 node_keys_cache: std::sync::Mutex::new(None),
+                node_data_mirror: std::sync::Mutex::new(None),
+                dict_of_dicts_cache: None,
+                edges_with_data_cache: None,
+                node_iter_mirror: std::sync::Mutex::new(None),
             };
             let mut weighted_attrs = AttrMap::new();
             weighted_attrs.insert("weight".to_owned(), 1.0.into());
