@@ -1,76 +1,78 @@
-# Data-Key EdgeView Endpoint-Index Keep
+# br-r37-c1-2a00r Pass 4 - DiGraph data-key endpoint-key fast path
 
-Bead: `br-r37-c1-2a00r`
+## Target
 
-## Workload
+`_native_edges_data_key` was still the largest native frame for
+`list(DiGraph.edges(data="w"))` after the guard-token candidate was rejected.
+The one kept lever is narrow: when `succ_py_keys` is empty, reuse the cached
+node-key vector and integer edge indices instead of re-hashing source and
+successor string names for every output tuple.
 
-- DiGraph nodes: `5000`
-- DiGraph edges: `40000`
-- Deterministic directed circulant insertion order, spans `1..8`, integer edge attr `w`.
-- Timed consumers: `list(DG.edges())`, `list(DG.edges(data=True))`, `list(DG.edges(data="w"))`, `list(DG.out_edges(data=True))`, `list(DG.edges.data("w"))`.
+## Baseline
 
-## Golden
+Baseline worktree:
+`/data/projects/.scratch/franken_networkx-2a00r-data-key-baseline-20260614T2350`
+at `3e4b47980`.
 
-- Golden bundle SHA: `7f1f79e081e71ab0e4030308a1df76f3419b7a14bc8ee8a3d58ef2aa693aeeea`
-- Golden file SHA: `6b4ccd83d4948aaa685270ba125eb6b0a250d676a4bf7f8dc5c64d96e4613684`
-- Edge outputs byte-equal FNX vs NetworkX: `True`
-- Compared structural edge mutations match NetworkX: `True`
-- FNX current node/edge guard obligations pass: `True`
+The later `605870d2e` commit touched only readwrite parsing and its artifact
+report, not `crates/fnx-python/src/digraph.rs` or the EdgeView harness, so the
+baseline remains directly comparable to this isolated hunk.
 
-## Direct Timing
+## Golden Proof
 
-| Case | FNX median ms | NX median ms | FNX/NX median | FNX mean ms | NX mean ms |
+Path-independent semantic SHA:
+`12ee8486bd50a411dcacd6c7d11f6221c2660301e425c0895b6a7139ab546c21`.
+
+This hash is computed from edge output cases, mutation cases, and explicit
+isomorphism obligations, excluding the checkout-specific `franken_networkx_file`
+metadata path.
+
+Obligations:
+- Ordering: byte-identical edge-output hashes versus NetworkX for `edges`,
+  `edges(data=True)`, `edges(data="w")`, `out_edges(data=True)`, and
+  `edges.data("w")`.
+- Tie-breaking: unchanged; edge views are insertion-order drains only.
+- Floating point: not applicable; workload uses integer node ids and integer
+  edge attribute `w`.
+- RNG: not applicable; graph construction is deterministic and seed-free.
+- Mutation behavior: existing structural edge mutation parity and FNX current
+  node/edge guard obligations still pass.
+
+## Timing
+
+Direct timing, 40k-edge deterministic DiGraph, `loops=80`, `repeats=9`:
+
+| Case | Baseline FNX | Candidate FNX | Speedup | Baseline FNX/NX | Candidate FNX/NX |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| edges | 11.484653 | 2.628080 | 4.370x | 11.046103 | 2.972606 |
-| edges_data_true | 4.072532 | 5.238467 | 0.777x | 5.180882 | 5.758050 |
-| edges_data_w | 17.264377 | 5.715240 | 3.021x | 19.108893 | 5.769036 |
-| out_edges_data_true | 0.539828 | 5.066846 | 0.107x | 0.549977 | 5.082890 |
-| edges_data_view_w | 16.305198 | 5.913678 | 2.757x | 16.307685 | 5.929338 |
+| `edges(data="w")` | 19.903964 ms | 17.202795 ms | 1.157x | 3.258x | 2.859x |
 
-## Hyperfine
+Hyperfine, same graph and loop count, `runs=7`:
 
-| Command | Mean s | Median s |
-| --- | ---: | ---: |
-| `env PYTHONPATH=/data/projects/.scratch/franken_networkx-2a00r-baseline-20260614T2318/python .venv/bin/python tests/artifacts/perf/20260614T-2a00r-guard-token-boldfalcon/guard_token_edgeview_harness.py loop --which fnx --case edges_data_w --loops 5 --warmup-calls 2` | 0.543889 | 0.541835 |
-| `env PYTHONPATH=/data/projects/franken_networkx/python .venv/bin/python tests/artifacts/perf/20260614T-2a00r-guard-token-boldfalcon/guard_token_edgeview_harness.py loop --which fnx --case edges_data_w --loops 5 --warmup-calls 2` | 0.507879 | 0.506202 |
-| `env PYTHONPATH=/data/projects/.scratch/franken_networkx-2a00r-baseline-20260614T2318/python .venv/bin/python tests/artifacts/perf/20260614T-2a00r-guard-token-boldfalcon/guard_token_edgeview_harness.py loop --which fnx --case edges_data_view_w --loops 5 --warmup-calls 2` | 0.533634 | 0.536457 |
-| `env PYTHONPATH=/data/projects/franken_networkx/python .venv/bin/python tests/artifacts/perf/20260614T-2a00r-guard-token-boldfalcon/guard_token_edgeview_harness.py loop --which fnx --case edges_data_view_w --loops 5 --warmup-calls 2` | 0.517079 | 0.514288 |
+| Case | Baseline FNX mean | Candidate FNX mean | Speedup |
+| --- | ---: | ---: | ---: |
+| `edges(data="w")` | 1.981225 s | 1.697662 s | 1.167x |
 
-## Profile Evidence
+Profile shift:
+- `_native_edges_data_key`: 0.577 s -> 0.467 s over 40 loops.
+- `_FailFastEdgeIterator._gen`: 0.191 s -> 0.195 s, effectively unchanged.
 
-Target-only cProfile for `edges(data="w")` moved `_native_edges_data_key`
-from `0.577s` to `0.467s` over the same 40 calls. The guard generator frame
-remained effectively flat (`0.191s -> 0.195s`), so the measured win is inside
-the native data-key materializer.
+## Validation
 
-```text
-       40    0.467    0.012    0.467    0.012 {method '_native_edges_data_key' of 'franken_networkx.DiGraph' objects}
-{"cumtime": 0.19475673200000002, "filename": "/data/projects/franken_networkx/python/franken_networkx/__init__.py", "function": "_gen", "line": 439, "primitive_calls": 1600040, "total_calls": 1600040, "tottime": 0.19475673200000002}
-```
+- `PYTHONPATH=/data/projects/franken_networkx/python .venv/bin/python -m pytest tests/python/test_review_mode_regression_lock.py -k 'edge_view_iteration' -q`
+  - `2 passed, 444 deselected`
+- `PYTHONPATH=/data/projects/franken_networkx/python .venv/bin/python -m pytest tests/python/test_edges_nbunch_order_parity.py tests/python/test_dicsr_cache_parity.py::test_edges_walk_index_native_orientation -q`
+  - `13 passed`
+- `cargo fmt --package fnx-python --check`
+- `git diff --check`
+- `rch exec -- cargo check -p fnx-python --lib --features pyo3/abi3-py310`
+- `rch exec -- cargo clippy -p fnx-python --lib --features pyo3/abi3-py310 -- -D warnings`
+- `ubs crates/fnx-python/src/digraph.rs tests/artifacts/perf/20260614T-2a00r-guard-token-boldfalcon/guard_token_edgeview_harness.py`
+  - exit 0; no critical findings. UBS reported existing broad-file warnings
+    and one artifact-harness `json.loads` warning.
 
-## Isomorphism Obligations
+## Score
 
-- Ordering: preserve byte-identical node-major/successor-insertion edge order for all five consumers.
-- Tie-breaking: N/A beyond insertion order.
-- Floating point: N/A.
-- RNG: N/A, deterministic graph.
-- Guard behavior: preserve FNX current `RuntimeError("dictionary changed size during iteration")` on structural node/edge token changes with `guard_edge_count=True`; preserve attr-only updates as non-structural.
+Impact 2.5 x Confidence 4 / Effort 2 = 5.0. Keep.
 
-## Opportunity Score
-
-- Kept single lever: route exact-`DiGraph` `_native_edges_data_key` through
-  cached node-key objects when successor display overrides are absent, preserving
-  the live Python dict value lookup for `attrs.get(data, default)`.
-- Impact: `2` (`data="w"` consumers only, but still the dominant residual for
-  that path).
-- Confidence: `3` (direct timing, target profile, and target hyperfine all move
-  in the same direction; process-level hyperfine is partially startup-bound).
-- Effort: `1` (one guarded branch in one native materializer).
-- Score: `6.0`; keep.
-
-## Residuals
-
-- `_FailFastEdgeIterator` still dominates common guarded drains.
-- `edges(data="w")` still trails NetworkX in this corpus, so the next pass
-  should attack the value lookup/tuple materialization itself rather than the
-  endpoint key hash path.
+Residual follow-up filed as `br-r37-c1-yuxi6`: the next profile-backed primitive
+should attack value lookup and tuple/list materialization for `edges(data="w")`.
