@@ -15613,12 +15613,16 @@ def astar_path(G, source, target, heuristic=None, weight="weight", *, cutoff=Non
     # rebuild (no node-dirty guard) was ~38% of a single-pair astar_path call
     # (cProfile: _fnx_sync_attrs_to_inner 0.088s of 0.231s); the edge-only
     # variant is edges_dirty-guarded and a no-op on an unmutated graph.
-    _sync_rust_edge_attrs(G, edge_only=True)
-    if _astar_weight_scan_needed(G, weight) and (
-        _has_negative_edge_weight_for_dijkstra(G, weight, _skip_sync=True)
-        or _has_positive_infinity_edge_weight_for_dijkstra(G, weight, _skip_sync=True)
-        or _has_nonnumeric_edge_weight(G, weight, _skip_sync=True)
-    ):
+    # br-r37-c1-ixp5q: reuse dijkstra's cached, single-pass, sync-free
+    # weight-validity gate (has_negative/nonfinite/nonnumeric over edge_py_attrs,
+    # memoized by the revision token in vars(G)) instead of three separate
+    # uncached O(|E|) scans. cProfile of weighted single-pair astar showed those
+    # scans were ~1.78ms of pure overhead while the native kernel (~1.05ms) is
+    # already at nx parity (~1.10ms) -> astar was 2.6x slower than nx; the cached
+    # gate makes repeat calls on a graph free -> parity. (nan-weighted edges now
+    # delegate to nx, matching dijkstra — strictly more correct than the old
+    # silent native run on an unordered-comparison weight.)
+    if _should_delegate_dijkstra_to_networkx(G, weight):
         return _call_networkx_for_parity(
             "astar_path",
             G,
@@ -15628,6 +15632,9 @@ def astar_path(G, source, target, heuristic=None, weight="weight", *, cutoff=Non
             weight=weight,
             cutoff=cutoff,
         )
+    # Kernel reads edge weights from inner core; push post-creation Python
+    # mutations (edges_dirty-guarded, no-op on an unmutated graph).
+    _sync_rust_edge_attrs(G, edge_only=True)
     try:
         return _raw_astar_path(
             G, source, target, heuristic=heuristic, weight=weight
@@ -15668,12 +15675,9 @@ def astar_path_length(
     # single-pair A* whose native search is ~0.05ms (45x slower than nx -> 7.4x).
     # br-r37-c1-0x9pd: see astar_path.
     # br-r37-c1-syncedgeonly: edge-only sync (reads edge weights, not node attrs).
-    _sync_rust_edge_attrs(G, edge_only=True)
-    if _astar_weight_scan_needed(G, weight) and (
-        _has_negative_edge_weight_for_dijkstra(G, weight, _skip_sync=True)
-        or _has_positive_infinity_edge_weight_for_dijkstra(G, weight, _skip_sync=True)
-        or _has_nonnumeric_edge_weight(G, weight, _skip_sync=True)
-    ):
+    # br-r37-c1-ixp5q: cached single-pass weight-validity gate (see
+    # astar_path) replacing three uncached O(|E|) scans -> parity on repeat calls.
+    if _should_delegate_dijkstra_to_networkx(G, weight):
         return _call_networkx_for_parity(
             "astar_path_length",
             G,
@@ -15683,6 +15687,7 @@ def astar_path_length(
             weight=weight,
             cutoff=cutoff,
         )
+    _sync_rust_edge_attrs(G, edge_only=True)
     # br-r37-c1-tm1tq: nx pre-checks ``source not in G or target not in G``
     # and raises a single combined-message NodeNotFound rather than
     # the per-side message that ``astar_path``'s translator returns
