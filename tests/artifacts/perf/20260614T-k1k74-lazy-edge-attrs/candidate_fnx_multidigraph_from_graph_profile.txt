@@ -1,0 +1,38 @@
+         339301 function calls in 0.285 seconds
+
+   Ordered by: cumulative time
+   List reduced from 67 to 30 due to restriction <30>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+       20    0.002    0.000    0.285    0.014 /data/projects/franken_networkx/tests/artifacts/perf/20260614T-k1k74-lazy-edge-attrs/harness.py:73(run_once)
+       20    0.000    0.000    0.148    0.007 /data/projects/franken_networkx/tests/artifacts/perf/20260614T-k1k74-lazy-edge-attrs/harness.py:39(construct)
+       20    0.036    0.002    0.134    0.007 /data/projects/franken_networkx/tests/artifacts/perf/20260614T-k1k74-lazy-edge-attrs/harness.py:51(digest_graph)
+       40    0.000    0.000    0.112    0.003 /data/projects/franken_networkx/python/franken_networkx/__init__.py:3655(__init__)
+       20    0.010    0.001    0.111    0.006 /data/projects/franken_networkx/python/franken_networkx/__init__.py:3451(_copy_constructor_graph_source)
+       20    0.100    0.005    0.100    0.005 {method '_fnx_absorb_graph_bidirected' of 'franken_networkx.MultiDiGraph' objects}
+       20    0.001    0.000    0.037    0.002 /data/projects/franken_networkx/tests/artifacts/perf/20260614T-k1k74-lazy-edge-attrs/harness.py:26(source_graph)
+       20    0.000    0.000    0.030    0.002 /data/projects/franken_networkx/python/franken_networkx/__init__.py:2961(add_edges_from)
+       20    0.030    0.002    0.030    0.002 {method '_try_add_edges_from_batch' of 'franken_networkx.Graph' objects}
+       20    0.000    0.000    0.024    0.001 /usr/lib/python3.13/json/__init__.py:183(dumps)
+       20    0.000    0.000    0.024    0.001 /usr/lib/python3.13/json/encoder.py:183(encode)
+       20    0.024    0.001    0.024    0.001 /usr/lib/python3.13/json/encoder.py:205(iterencode)
+       20    0.017    0.001    0.018    0.001 /data/projects/franken_networkx/python/franken_networkx/__init__.py:2307(__call__)
+    64000    0.015    0.000    0.015    0.000 {built-in method builtins.sorted}
+   128000    0.013    0.000    0.013    0.000 {built-in method builtins.repr}
+    32020    0.008    0.000    0.010    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:450(__next__)
+       20    0.000    0.000    0.008    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:916(__iter__)
+       20    0.000    0.000    0.008    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:878(_materialize)
+       20    0.008    0.000    0.008    0.000 {function _mapping_items_view at 0x7c5b2e1316c0}
+    64000    0.007    0.000    0.007    0.000 {method 'items' of 'dict' objects}
+       20    0.004    0.000    0.006    0.000 /data/projects/franken_networkx/tests/artifacts/perf/20260614T-k1k74-lazy-edge-attrs/harness.py:16(build_edges)
+    32020    0.002    0.000    0.002    0.000 {built-in method builtins.next}
+    16000    0.001    0.000    0.001    0.000 {method 'append' of 'list' objects}
+       20    0.001    0.000    0.001    0.000 {built-in method _hashlib.openssl_sha256}
+       20    0.001    0.000    0.001    0.000 {method 'extend' of 'list' objects}
+       80    0.000    0.000    0.001    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:36980(edges)
+      160    0.000    0.000    0.001    0.000 {built-in method builtins.hasattr}
+       80    0.000    0.000    0.000    0.000 /usr/lib/python3.13/weakref.py:164(__setitem__)
+       80    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:36960(nodes)
+       20    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:5012(_wrap_edge_data_view)
+
+

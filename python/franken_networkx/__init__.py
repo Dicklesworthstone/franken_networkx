@@ -3493,6 +3493,17 @@ def _copy_constructor_graph_source(self, source, *, is_multigraph, attr):
             self.graph.update(attr)
         return
 
+    # br-r37-c1-k1k74: MultiDiGraph(Graph) native absorb — exact fnx simple
+    # graph source, bidirected key-0 target, no Python edge-list replay.
+    if (
+        type(self) is MultiDiGraph
+        and type(source) is Graph
+        and self._fnx_absorb_graph_bidirected(source)
+    ):
+        if attr:
+            self.graph.update(attr)
+        return
+
     # br-r37-c1-s0d4x: same-exact-type ctor — nx's cls(G) structure is
     # identical to G.copy() (probed all four classes: nodes, edges+data,
     # adjacency/pred rows, graph attrs, shallow attr-dict copying).

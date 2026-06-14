@@ -1,0 +1,4 @@
+{
+  "profile": "tests/artifacts/perf/20260614T-k1k74-lazy-edge-attrs/baseline_fnx_multidigraph_from_graph.prof",
+  "text": "tests/artifacts/perf/20260614T-k1k74-lazy-edge-attrs/baseline_fnx_multidigraph_from_graph_profile.txt"
+}
