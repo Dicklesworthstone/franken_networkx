@@ -1,0 +1,106 @@
+{
+  "results": [
+    {
+      "command": "env PYTHONPATH=/data/projects/franken_networkx/python .venv/bin/python tests/artifacts/perf/20260614T-2a00r-guard-token-boldfalcon/guard_token_edgeview_harness.py loop --which fnx --case edges --loops 5 --warmup-calls 2",
+      "mean": 0.4520173100600001,
+      "stddev": 0.02025785693607448,
+      "median": 0.45785210386,
+      "user": 4.581253139999999,
+      "system": 0.0980151,
+      "min": 0.41910233236000005,
+      "max": 0.47274246936000003,
+      "times": [
+        0.47059635436,
+        0.46847137936000005,
+        0.47266816836000003,
+        0.43033175336000007,
+        0.43837164236000004,
+        0.43218479336000004,
+        0.46103311936,
+        0.47274246936000003,
+        0.41910233236000005,
+        0.45467108836000003
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "env PYTHONPATH=/data/projects/franken_networkx/python .venv/bin/python tests/artifacts/perf/20260614T-2a00r-guard-token-boldfalcon/guard_token_edgeview_harness.py loop --which nx --case edges --loops 5 --warmup-calls 2",
+      "mean": 0.37407900966,
+      "stddev": 0.02121191574174813,
+      "median": 0.37005324136000006,
+      "user": 4.644573939999999,
+      "system": 0.0704601,
+      "min": 0.34112020636,
+      "max": 0.41292077236,
+      "times": [
+        0.37714675936000003,
+        0.35614238236000006,
+        0.37078746236000004,
+        0.34112020636,
+        0.36809721636000003,
+        0.41292077236,
+        0.39904248436000006,
+        0.36931902036,
+        0.38775392136000003,
+        0.35845987136
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "env PYTHONPATH=/data/projects/franken_networkx/python .venv/bin/python tests/artifacts/perf/20260614T-2a00r-guard-token-boldfalcon/guard_token_edgeview_harness.py loop --which fnx --case edges_data_true --loops 5 --warmup-calls 2",
+      "mean": 0.44808888486000004,
+      "stddev": 0.017724475507263197,
+      "median": 0.45035890436000003,
+      "user": 4.67027994,
+      "system": 0.09779799999999997,
+      "min": 0.41438605936000006,
+      "max": 0.47289076036000005,
+      "times": [
+        0.41438605936000006,
+        0.44993080836000005,
+        0.44446467436000003,
+        0.45078700036,
+        0.47289076036000005,
+        0.46295489036000004,
+        0.43546668036,
+        0.42928546236000004,
+        0.45740462536000004,
+        0.46331788736000007
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

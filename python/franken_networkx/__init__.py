@@ -26263,23 +26263,38 @@ def adjacency_graph(
     key = None if not multigraph else attrs["key"]
     graph.graph.update(dict(data.get("graph", [])))
 
+    # br-r37-c1-jbldr: batch node + (simple-graph) edge construction. The prior
+    # per-node add_node + nodes[node].update and per-edge add_edge +
+    # graph[u][v].update paid the PyO3-boundary + adjacency-view __getitem__ cost
+    # once PER node/edge (~4.3x nx). add_nodes_from((node, attrs)) / add_edges_from
+    # ((u, v, attrs)) commit them in one bulk insertion: same insertion order,
+    # same per-element attr-update semantics (add_edges_from merges the attr dict
+    # into the edge exactly like the old .update), so output is byte-identical.
+    # The multigraph path keeps the per-edge key-aware _add_json_multiedge.
     mapping = []
+    node_batch = []
     for node_payload in data["nodes"]:
         node_data = node_payload.copy()
         node = node_data.pop(id_)
         mapping.append(node)
-        graph.add_node(node)
-        graph.nodes[node].update(node_data)
+        node_batch.append((node, node_data))
+    graph.add_nodes_from(node_batch)
 
-    for index, adjacency in enumerate(data["adjacency"]):
-        source = mapping[index]
-        for target_payload in adjacency:
-            target_data = target_payload.copy()
-            target = target_data.pop(id_)
-            if not multigraph:
-                graph.add_edge(source, target)
-                graph[source][target].update(target_data)
-            else:
+    if not multigraph:
+        edge_batch = []
+        for index, adjacency in enumerate(data["adjacency"]):
+            source = mapping[index]
+            for target_payload in adjacency:
+                target_data = target_payload.copy()
+                target = target_data.pop(id_)
+                edge_batch.append((source, target, target_data))
+        graph.add_edges_from(edge_batch)
+    else:
+        for index, adjacency in enumerate(data["adjacency"]):
+            source = mapping[index]
+            for target_payload in adjacency:
+                target_data = target_payload.copy()
+                target = target_data.pop(id_)
                 edge_key = target_data.pop(key, None)
                 _add_json_multiedge(graph, source, target, edge_key, target_data)
     return graph
@@ -26310,23 +26325,37 @@ def node_link_graph(
     key = None if not multigraph else key
     graph.graph.update(dict(data.get("graph", {})))
 
+    # br-r37-c1-jbldr: batch node + (simple-graph) edge construction (same lever
+    # as adjacency_graph). Per-node add_node(**data) + per-edge add_edge(**data)
+    # each paid the PyO3-boundary cost once per element (~2.0x nx); add_nodes_from
+    # / add_edges_from commit them in one bulk insertion with the same order and
+    # the same attr-merge semantics, so output is byte-identical. The `next(counter)`
+    # default arg is evaluated per node exactly as before. Multigraph keeps the
+    # per-edge key-aware path.
     counter = _count()
+    node_batch = []
     for node_payload in data[nodes]:
         node = _json_graph_to_tuple(node_payload.get(name, next(counter)))
         node_data = {str(k): v for k, v in node_payload.items() if k != name}
-        graph.add_node(node, **node_data)
+        node_batch.append((node, node_data))
+    graph.add_nodes_from(node_batch)
 
-    for edge_payload in data[edges]:
-        source_node = _json_graph_to_tuple(edge_payload[source])
-        target_node = _json_graph_to_tuple(edge_payload[target])
-        if not multigraph:
+    if not multigraph:
+        edge_batch = []
+        for edge_payload in data[edges]:
+            source_node = _json_graph_to_tuple(edge_payload[source])
+            target_node = _json_graph_to_tuple(edge_payload[target])
             edge_data = {
                 str(k): v
                 for k, v in edge_payload.items()
                 if k != source and k != target
             }
-            graph.add_edge(source_node, target_node, **edge_data)
-        else:
+            edge_batch.append((source_node, target_node, edge_data))
+        graph.add_edges_from(edge_batch)
+    else:
+        for edge_payload in data[edges]:
+            source_node = _json_graph_to_tuple(edge_payload[source])
+            target_node = _json_graph_to_tuple(edge_payload[target])
             edge_key = edge_payload.get(key, None)
             edge_data = {
                 str(k): v

@@ -7619,6 +7619,35 @@ impl PyDiGraph {
         key: &Bound<'_, PyAny>,
         default: PyObject,
     ) -> PyResult<PyObject> {
+        if self.succ_py_keys.is_empty() {
+            let keys = self.cached_node_key_vec(py);
+            let mut items = Vec::with_capacity(self.inner.edge_count());
+            for (u_idx, v_idx) in self.inner.edges_ordered_indices() {
+                let u = self
+                    .inner
+                    .get_node_name(u_idx)
+                    .expect("edge index source must name an existing node");
+                let v = self
+                    .inner
+                    .get_node_name(v_idx)
+                    .expect("edge index target must name an existing node");
+                let ek = Self::edge_key(u, v);
+                let value = match self.edge_py_attrs.get(&ek) {
+                    Some(d) => d
+                        .bind(py)
+                        .get_item(key)
+                        .ok()
+                        .flatten()
+                        .map_or_else(|| default.clone_ref(py), |val| val.unbind()),
+                    None => default.clone_ref(py),
+                };
+                items.push(tuple_object(
+                    py,
+                    &[keys[u_idx].clone_ref(py), keys[v_idx].clone_ref(py), value],
+                )?);
+            }
+            return Ok(items.into_pyobject(py)?.into_any().unbind());
+        }
         let mut items = Vec::with_capacity(self.inner.edge_count());
         for (u, v, _) in self.inner.edges_ordered_borrowed() {
             let py_u = self.py_node_key(py, u);
