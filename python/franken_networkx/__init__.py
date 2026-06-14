@@ -45934,6 +45934,34 @@ def _general_random_intersection_graph_impl(
         "general_random_intersection_graph", backend, backend_kwargs
     )
 
+    # br-r37-c1-griproj: native byte-exact generation for an int/None seed —
+    # reproduces nx's per-node, per-attribute Bernoulli draws (rng.random() <
+    # p[attr] over the same node-major iteration) to assign attributes, then
+    # projects via an attribute->holders clique map (== nx.projected_graph's
+    # shared-attribute edge SET). empty_graph(n+m) carries no node/graph attrs,
+    # so the projected nodes (range(n)) have none either. Skips nx's per-edge
+    # add_edge + projected_graph + the nx->fnx conversion. Random|numpy seed
+    # delegates. Validation message matches nx exactly.
+    if seed is None or (isinstance(seed, int) and not isinstance(seed, bool)):
+        if len(p) != m:
+            raise ValueError("Probability list p must have m elements.")
+        import itertools as _itertools
+        import random as _random
+
+        rng = _random.Random(seed)
+        G = Graph()
+        G.add_nodes_from(range(n))
+        attr2nodes = {}
+        for u in range(n):
+            for attr_idx in range(m):
+                if rng.random() < p[attr_idx]:
+                    attr2nodes.setdefault(attr_idx, []).append(u)
+        edges = []
+        for holders in attr2nodes.values():
+            edges.extend(_itertools.combinations(holders, 2))
+        G.add_edges_from(edges)
+        return G
+
     from franken_networkx.readwrite import _from_nx_graph
 
     nx_result = _nx.general_random_intersection_graph(
