@@ -198,6 +198,42 @@ def biadjacency_matrix(
             "Ambiguous ordering: `column_order` contained duplicates."
         )
 
+    # br-r37-c1-18cp7: native rectangular-COO kernel — emit (row_pos, col_pos,
+    # weight) over the row-node adjacency in Rust, eliminating the per-edge
+    # ``B.edges(row_order, data=True)`` PyO3 iteration floor (the residual ~1.2x
+    # vs nx after the conversion was already removed). The kernel reports
+    # ``all_int`` so we reproduce nx's dtype inference exactly (int64 for an
+    # all-integer non-empty matrix, float64 otherwise); coo canonicalisation
+    # makes the result order-independent. Directed / multigraph / nx-typed /
+    # non-numeric-weight inputs return None -> exact Python loop below.
+    native = getattr(_fnx._fnx, "biadjacency_coo", None)
+    if (
+        native is not None
+        and not isinstance(B, _nx.Graph)
+        and not B.is_directed()
+        and not B.is_multigraph()
+    ):
+        res = native(B, row_order, column_order, weight)
+        if res is not None:
+            import numpy as _np
+
+            rows_a, cols_a, data_a, all_int = res
+            if dtype is not None:
+                arr = _np.array(data_a, dtype=dtype)
+            elif all_int and data_a:
+                arr = _np.array(data_a, dtype=_np.int64)
+            else:
+                arr = _np.array(data_a)
+            A = sp.sparse.coo_array(
+                (arr, (rows_a, cols_a)), shape=(nlen, mlen), dtype=dtype
+            )
+            try:
+                return A.asformat(format)
+            except ValueError as err:
+                raise _nx.NetworkXError(
+                    f"Unknown sparse array format: {format}"
+                ) from err
+
     row_index = dict(zip(row_order, itertools.count()))
     col_index = dict(zip(column_order, itertools.count()))
 

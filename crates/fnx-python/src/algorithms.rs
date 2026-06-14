@@ -2663,6 +2663,81 @@ pub fn adjacency_index_arrays(
     Ok(Some((rows, cols)))
 }
 
+/// br-r37-c1-18cp7: rectangular biadjacency COO for bipartite
+/// ``biadjacency_matrix`` (an arbitrary ``row_order`` x ``column_order`` node
+/// submatrix). Returns ``(rows, cols, data, all_int)`` where ``rows[k]`` /
+/// ``cols[k]`` are positions within the row/column orderings and ``data[k]`` is
+/// the edge weight (default 1.0). ``all_int`` is true iff every emitted weight
+/// is an integer (or the missing-attr default 1), letting the Python wrapper
+/// reproduce networkx's dtype inference (`int64` for an all-integer non-empty
+/// matrix, `float64` otherwise) — the one parity subtlety of replacing the
+/// per-edge ``B.edges(row_order, data=True)`` Python loop. Emission order is
+/// irrelevant: ``coo_array(...).asformat(...)`` canonicalises, so the
+/// (row, col, data) triple SET fully determines the matrix. Each undirected edge
+/// is visited once and emitted from whichever endpoint lands in ``row_order``
+/// (the other in ``column_order``), matching nx's ``u in row_index and v in
+/// col_index`` filter. Returns ``None`` (Python falls back to its exact loop)
+/// for directed / multigraph graphs or a non-numeric weight value.
+#[pyfunction]
+#[pyo3(signature = (g, row_order, column_order, weight=None))]
+pub fn biadjacency_coo(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    row_order: &Bound<'_, PyAny>,
+    column_order: &Bound<'_, PyAny>,
+    weight: Option<&str>,
+) -> PyResult<Option<(Vec<u32>, Vec<u32>, Vec<f64>, bool)>> {
+    let mut row_index: HashMap<String, u32> = HashMap::new();
+    for (count, item) in (0_u32..).zip(pyo3::types::PyIterator::from_object(row_order)?) {
+        let canonical = node_key_to_string(py, &item?)?;
+        row_index.entry(canonical).or_insert(count);
+    }
+    let mut col_index: HashMap<String, u32> = HashMap::new();
+    for (count, item) in (0_u32..).zip(pyo3::types::PyIterator::from_object(column_order)?) {
+        let canonical = node_key_to_string(py, &item?)?;
+        col_index.entry(canonical).or_insert(count);
+    }
+
+    let gr = extract_graph(g)?;
+    let GraphRef::Undirected(pg) = &gr else {
+        return Ok(None);
+    };
+    let inner = &pg.inner;
+    let edge_count = inner.edge_count();
+    let mut rows: Vec<u32> = Vec::with_capacity(edge_count);
+    let mut cols: Vec<u32> = Vec::with_capacity(edge_count);
+    let mut data: Vec<f64> = Vec::with_capacity(edge_count);
+    let mut all_int = true;
+    for (u, v, attrs) in inner.edges_ordered_borrowed() {
+        let (ri, ci) = if let (Some(&ri), Some(&ci)) = (row_index.get(u), col_index.get(v)) {
+            (ri, ci)
+        } else if let (Some(&ri), Some(&ci)) = (row_index.get(v), col_index.get(u)) {
+            (ri, ci)
+        } else {
+            continue;
+        };
+        let w = match weight {
+            None => 1.0,
+            Some(attr) => match attrs.get(attr) {
+                None => 1.0,
+                Some(val) => match val.as_f64() {
+                    Some(f) => {
+                        if !val.is_int() {
+                            all_int = false;
+                        }
+                        f
+                    }
+                    None => return Ok(None),
+                },
+            },
+        };
+        rows.push(ri);
+        cols.push(ci);
+        data.push(w);
+    }
+    Ok(Some((rows, cols, data, all_int)))
+}
+
 /// Return COO row/column arrays for an unweighted Graph in insertion order.
 ///
 /// This is the default-nodelist sibling of ``adjacency_index_arrays``. It uses
@@ -18995,6 +19070,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(dijkstra_weight_cache_token, m)?)?;
     m.add_function(wrap_pyfunction!(adjacency_arrays, m)?)?;
     m.add_function(wrap_pyfunction!(adjacency_index_arrays, m)?)?;
+    m.add_function(wrap_pyfunction!(biadjacency_coo, m)?)?;
     m.add_function(wrap_pyfunction!(adjacency_default_order_index_arrays, m)?)?;
     m.add_function(wrap_pyfunction!(adjacency_default_order_arrays, m)?)?;
     m.add_function(wrap_pyfunction!(adjacency_default_order_typed_arrays, m)?)?;
