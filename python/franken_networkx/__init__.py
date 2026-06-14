@@ -44058,6 +44058,18 @@ def non_edges(graph):
 
 def common_neighbors(G, u, v):
     """Returns the common neighbors of two nodes in a graph."""
+    if type(G) is Graph and not _has_networkx_private_storage(G):
+        if u not in G:
+            raise NetworkXError("u is not in the graph.")
+        if v not in G:
+            raise NetworkXError("v is not in the graph.")
+        common = (
+            G._native_adjacency_row_dict(u).keys()
+            & G._native_adjacency_row_dict(v).keys()
+        )
+        common.discard(u)
+        common.discard(v)
+        return common
     G = _coerce_arg_to_fnx_graph(G)
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
