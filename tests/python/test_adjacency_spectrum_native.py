@@ -1,10 +1,9 @@
-"""br-r37-c1-04z53.9112: undirected adjacency_spectrum routes through the
-safe-Rust symmetric eigensolver (no C LAPACK) and matches nx's
-``scipy.linalg.eigvals`` on dtype (complex128) + sorted values.
+"""br-r37-c1-04z53.9113: adjacency_spectrum must preserve NetworkX's raw
+``scipy.linalg.eigvals`` order.
 
-Solver order is unstable (LAPACK/QR Schur deflation order is not portable),
-so parity is asserted on sorted values, mirroring the project's existing
-``test_adjacency_spectrum_returns_complex_match_nx`` contract.
+The safe-Rust symmetric eigensolver is valid for sorted spectra in other public
+APIs, but it is not a public ``adjacency_spectrum`` replacement until it also
+proves SciPy/LAPACK raw output order.
 """
 
 import numpy as np
@@ -12,11 +11,11 @@ import networkx as nx
 import franken_networkx as fnx
 
 
-def _sorted_match(fr, nr, atol=1e-9):
-    return np.allclose(np.sort_complex(fr), np.sort_complex(nr), atol=atol)
+def _raw_match(fr, nr, atol=1e-9):
+    return np.allclose(fr, nr, atol=atol)
 
 
-def test_undirected_native_route_matches_nx():
+def test_undirected_raw_order_matches_nx():
     cases = [
         lambda M: M.path_graph(5),
         lambda M: M.cycle_graph(7),
@@ -29,7 +28,7 @@ def test_undirected_native_route_matches_nx():
         fr = fnx.adjacency_spectrum(b(fnx))
         nr = nx.adjacency_spectrum(b(nx))
         assert fr.dtype == nr.dtype == np.complex128
-        assert _sorted_match(fr, nr)
+        assert _raw_match(fr, nr)
 
 
 def test_weighted_default_weight_matches_nx():
@@ -40,8 +39,8 @@ def test_weighted_default_weight_matches_nx():
         Gn.add_edge(u, v, weight=w)
     fr = fnx.adjacency_spectrum(Gf)
     nr = nx.adjacency_spectrum(Gn)
-    assert fr.dtype == np.complex128
-    assert _sorted_match(fr, nr)
+    assert fr.dtype == nr.dtype == np.complex128
+    assert _raw_match(fr, nr)
 
 
 def test_directed_fallback_matches_nx():
@@ -49,7 +48,7 @@ def test_directed_fallback_matches_nx():
     fr = fnx.adjacency_spectrum(fnx.DiGraph(e))
     nr = nx.adjacency_spectrum(nx.DiGraph(e))
     assert fr.dtype == nr.dtype == np.complex128
-    assert _sorted_match(fr, nr)
+    assert _raw_match(fr, nr)
 
 
 def test_empty_graph_raises_like_nx():
