@@ -146,6 +146,45 @@ def test_small_batches_below_gate_still_match():
         assert a == b
 
 
+def test_graph_fresh_exact_int_attr_batch_matches_nx_order_and_copies():
+    first = {"w": 0, "label": "first"}
+    duplicate = {"w": 91, "extra": "last"}
+    batch = (
+        [(0, 1, first), (2, 2, {"self": True}), (1, 2, {"w": 1})]
+        + [(i, i + 1, {"w": i, "tag": f"e{i}"}) for i in range(3, 12)]
+        + [(1, 0, duplicate)]
+    )
+
+    gf = fnx.Graph()
+    gn = nx.Graph()
+    gf.add_edges_from(batch)
+    gn.add_edges_from(batch)
+
+    assert _canon(gf) == _canon(gn)
+    assert gf.get_edge_data(0, 1) == {"w": 91, "label": "first", "extra": "last"}
+    assert list(gf[0]) == [1]
+    assert list(gf[2]) == [2, 1]
+
+    first["w"] = 999
+    duplicate["extra"] = "mutated"
+    assert gf.get_edge_data(0, 1) == {"w": 91, "label": "first", "extra": "last"}
+
+
+def test_graph_exact_int_batch_probe_falls_back_for_bool_nodes():
+    batch = (
+        [(True, 2, {"w": "bool"}), (1, 3, {"w": "int"})]
+        + [(i, i + 10, {"w": i}) for i in range(2, 10)]
+    )
+
+    def build(mod):
+        g = mod.Graph()
+        g.add_edges_from(batch)
+        return g
+
+    a, b = _both(build)
+    assert a == b
+
+
 def test_digraph_attr_batch_preserves_direction_and_mirrors():
     batch = (
         [(i, i + 1, {"w": i, "label": f"f{i}"}) for i in range(12)]

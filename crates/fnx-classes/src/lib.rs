@@ -1385,6 +1385,82 @@ impl Graph {
         inserted
     }
 
+    /// Bulk-add attributed undirected edges into a fresh graph when the caller
+    /// has already assigned NetworkX-compatible node indices in first-seen
+    /// order.
+    ///
+    /// This is the fresh/indexed sibling of
+    /// [`extend_edges_with_attrs_unrecorded`]. It preserves duplicate
+    /// insert-or-merge semantics, adjacency row order, self-loop handling, and
+    /// the public `edges()` orientation rule used by the string-key path.
+    #[must_use]
+    pub fn extend_fresh_index_edges_with_attrs_unrecorded<I, N>(
+        &mut self,
+        nodes: N,
+        edges: I,
+    ) -> usize
+    where
+        I: IntoIterator<Item = (usize, usize, AttrMap)>,
+        N: IntoIterator<Item = String>,
+    {
+        if !self.nodes.is_empty()
+            || !self.adj_indices.is_empty()
+            || !self.edges.is_empty()
+            || !self.edge_index_endpoints.is_empty()
+        {
+            return 0;
+        }
+
+        let node_labels: Vec<String> = nodes.into_iter().collect();
+        self.nodes.reserve(node_labels.len());
+        self.adj_indices = vec![Vec::new(); node_labels.len()];
+        for node in &node_labels {
+            self.nodes.insert(node.clone(), AttrMap::new());
+        }
+
+        let iterator = edges.into_iter();
+        let (lower_bound, _) = iterator.size_hint();
+        self.edges.reserve(lower_bound);
+        self.edge_index_endpoints.reserve(lower_bound);
+
+        let node_count = node_labels.len();
+        let mut inserted = 0usize;
+        let mut merged_changed = false;
+        for (left_idx, right_idx, attrs) in iterator {
+            if left_idx >= node_count || right_idx >= node_count {
+                continue;
+            }
+
+            let edge_key = Self::canon_pair(left_idx, right_idx);
+            if let Some(existing) = self.edges.get_mut(&edge_key) {
+                if !attrs.is_empty()
+                    && attrs
+                        .iter()
+                        .any(|(key, value)| existing.get(key) != Some(value))
+                {
+                    merged_changed = true;
+                }
+                existing.extend(attrs);
+                continue;
+            }
+
+            if node_labels[left_idx] <= node_labels[right_idx] {
+                self.edge_index_endpoints.push((left_idx, right_idx));
+            } else {
+                self.edge_index_endpoints.push((right_idx, left_idx));
+            }
+            self.edges.insert(edge_key, attrs);
+            self.adj_indices[left_idx].push(right_idx);
+            if left_idx != right_idx {
+                self.adj_indices[right_idx].push(left_idx);
+            }
+            inserted += 1;
+        }
+
+        self.record_bulk_edge_summary(inserted, node_count > 0 || merged_changed);
+        inserted
+    }
+
     fn record_bulk_edge_summary(&mut self, inserted: usize, nodes_added: bool) {
         if inserted == 0 && !nodes_added {
             return;
