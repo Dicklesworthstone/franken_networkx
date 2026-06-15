@@ -1,0 +1,76 @@
+{
+  "results": [
+    {
+      "command": "env PYTHONPATH=/data/projects/franken_networkx/python:/data/projects/franken_networkx /data/projects/franken_networkx/.venv/bin/python tests/artifacts/perf/20260615T-spectral-eig-coppercliff/adjacency_spectrum_harness.py bench --impl fnx --case ba --n 400 --loops 1 --samples 1",
+      "mean": 0.63254335038,
+      "stddev": 0.022191148453301335,
+      "median": 0.64551957358,
+      "user": 3.0909180199999997,
+      "system": 0.10317946,
+      "min": 0.6073632155800001,
+      "max": 0.65381419058,
+      "times": [
+        0.65381419058,
+        0.64636490558,
+        0.64551957358,
+        0.6073632155800001,
+        0.60965486658
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "env PYTHONPATH=/data/projects/franken_networkx/python:/data/projects/franken_networkx /data/projects/franken_networkx/.venv/bin/python tests/artifacts/perf/20260615T-spectral-eig-coppercliff/adjacency_spectrum_harness.py bench --impl nx --case ba --n 400 --loops 1 --samples 1",
+      "mean": 2.5562790677800002,
+      "stddev": 0.4741830793060946,
+      "median": 2.58131037458,
+      "user": 106.03741401999999,
+      "system": 0.38740546,
+      "min": 1.96562666558,
+      "max": 3.21598703558,
+      "times": [
+        2.58131037458,
+        2.27443702458,
+        1.96562666558,
+        2.7440342385800003,
+        3.21598703558
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "env PYTHONPATH=/data/projects/franken_networkx/python:/data/projects/franken_networkx /data/projects/franken_networkx/.venv/bin/python tests/artifacts/perf/20260615T-spectral-eig-coppercliff/adjacency_spectrum_harness.py bench --impl native --case ba --n 400 --loops 1 --samples 1",
+      "mean": 0.7153330013800001,
+      "stddev": 0.04269951394395749,
+      "median": 0.7327704755800001,
+      "user": 4.40036802,
+      "system": 0.08298486,
+      "min": 0.6627711725800001,
+      "max": 0.76554929458,
+      "times": [
+        0.76554929458,
+        0.7327704755800001,
+        0.6627711725800001,
+        0.7359883015800001,
+        0.67958576258
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}
