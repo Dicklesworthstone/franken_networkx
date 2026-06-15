@@ -35259,6 +35259,15 @@ class _ReverseEdgeView:
         self._view = view
 
     def __call__(self, nbunch=None, data=False, keys=False, default=None):
+        if (
+            nbunch is None
+            and data is False
+            and keys is False
+            and type(self._view._graph) is DiGraph
+        ):
+            native = getattr(self._view._graph, "_native_reverse_edges_no_data", None)
+            if native is not None:
+                return native()
         return self._view._edges(nbunch=nbunch, data=data, keys=keys, default=default)
 
     def __iter__(self):

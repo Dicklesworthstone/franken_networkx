@@ -996,6 +996,34 @@ def test_reverse_view_edges_data_none_default_matches_networkx():
     )
 
 
+def test_reverse_view_digraph_edges_no_data_order_and_live_update_matches_networkx():
+    """br-r37-c1-04z53.9110: the exact-DiGraph no-data reverse edge
+    materializer must keep NetworkX's predecessor-row order and live view
+    semantics while data variants stay on the existing attr-aware path.
+    """
+    edges = [(0, 1), (2, 1), (0, 3), (3, 1), (4, 4)]
+    G = fnx.DiGraph()
+    G_n = nx.DiGraph()
+    for idx, (u, v) in enumerate(edges):
+        G.add_edge(u, v, weight=idx)
+        G_n.add_edge(u, v, weight=idx)
+
+    R = G.reverse(copy=False)
+    R_n = G_n.reverse(copy=False)
+
+    assert list(R.edges()) == list(R_n.edges())
+    assert list(R.edges) == list(R_n.edges)
+    assert list(R.edges(data=True)) == list(R_n.edges(data=True))
+
+    G.add_edge("new-source", 1, weight=99)
+    G_n.add_edge("new-source", 1, weight=99)
+
+    assert list(R.edges()) == list(R_n.edges())
+    assert list(R.edges(data="weight", default=-1)) == list(
+        R_n.edges(data="weight", default=-1)
+    )
+
+
 @pytest.mark.parametrize("name,fnx_builder,nx_builder", _CONVERSION_EDGE_BUILDERS,
                          ids=[b[0] for b in _CONVERSION_EDGE_BUILDERS])
 def test_conversion_view_edges_set_protocol(name, fnx_builder, nx_builder):

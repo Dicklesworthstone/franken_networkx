@@ -1,0 +1,68 @@
+         4556277 function calls (4553002 primitive calls) in 1.089 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.000    0.000    1.089    1.089 mwm_pass1.py:316(target)
+        5    0.000    0.000    1.089    0.218 mwm_pass1.py:97(call_impl)
+        5    0.245    0.049    1.089    0.218 matching.py:318(max_weight_matching)
+   465880    0.186    0.000    0.633    0.000 matching.py:508(slack)
+   465880    0.142    0.000    0.217    0.000 __init__.py:1595(_graph_getitem_from_adj)
+  2356760    0.213    0.000    0.213    0.000 {method 'get' of 'dict' objects}
+   465880    0.101    0.000    0.183    0.000 __init__.py:1252(__getitem__)
+   465880    0.082    0.000    0.082    0.000 __init__.py:1210(_keydict)
+47500/44225    0.031    0.000    0.047    0.000 matching.py:513(assignLabel)
+        5    0.020    0.004    0.036    0.007 matching.py:884(verifyOptimum)
+      170    0.012    0.000    0.034    0.000 matching.py:575(addBlossom)
+    10435    0.010    0.000    0.017    0.000 __init__.py:37333(neighbors)
+       10    0.000    0.000    0.011    0.001 __init__.py:658(__iter__)
+       10    0.011    0.001    0.011    0.001 __init__.py:536(_materialize)
+    83305    0.008    0.000    0.008    0.000 {method 'append' of 'list' objects}
+    12700    0.004    0.000    0.006    0.000 matching.py:415(leaves)
+    62735    0.005    0.000    0.005    0.000 {built-in method builtins.isinstance}
+    26040    0.003    0.000    0.003    0.000 __init__.py:439(_gen)
+    23955    0.002    0.000    0.002    0.000 {method 'pop' of 'list' objects}
+    26370    0.002    0.000    0.002    0.000 {method 'reverse' of 'list' objects}
+      620    0.002    0.000    0.002    0.000 matching.py:538(scanBlossom)
+    13015    0.002    0.000    0.002    0.000 {method 'split' of 'str' objects}
+      450    0.001    0.000    0.002    0.000 matching.py:851(augmentMatching)
+    10745    0.001    0.000    0.001    0.000 {built-in method builtins.vars}
+     1820    0.001    0.000    0.001    0.000 {method 'clear' of 'dict' objects}
+    10445    0.001    0.000    0.001    0.000 {built-in method builtins.iter}
+       20    0.000    0.000    0.001    0.000 matching.py:786(augmentBlossom)
+       20    0.000    0.000    0.001    0.000 matching.py:670(expandBlossom)
+      320    0.000    0.000    0.001    0.000 matching.py:792(_recurse)
+      260    0.000    0.000    0.001    0.000 matching.py:676(_recurse)
+      145    0.000    0.000    0.000    0.000 {built-in method builtins.min}
+      135    0.000    0.000    0.000    0.000 __init__.py:1031(wrapped)
+      135    0.000    0.000    0.000    0.000 __init__.py:37082(nodes)
+     1705    0.000    0.000    0.000    0.000 {method 'extend' of 'list' objects}
+        5    0.000    0.000    0.000    0.000 matching.py:60(matching_dict_to_set)
+       10    0.000    0.000    0.000    0.000 {built-in method builtins.__build_class__}
+       10    0.000    0.000    0.000    0.000 __init__.py:37102(edges)
+      145    0.000    0.000    0.000    0.000 __init__.py:36496(_private_override)
+      720    0.000    0.000    0.000    0.000 {method 'pop' of 'dict' objects}
+      450    0.000    0.000    0.000    0.000 {method 'keys' of 'dict' objects}
+       10    0.000    0.000    0.000    0.000 weakref.py:164(__setitem__)
+       10    0.000    0.000    0.000    0.000 __init__.py:746(wrapped)
+      485    0.000    0.000    0.000    0.000 {built-in method builtins.len}
+      315    0.000    0.000    0.000    0.000 {method 'values' of 'dict' objects}
+       10    0.000    0.000    0.000    0.000 __init__.py:414(_FailFastEdgeIterator)
+      450    0.000    0.000    0.000    0.000 {method 'add' of 'set' objects}
+      170    0.000    0.000    0.000    0.000 {method 'index' of 'list' objects}
+       10    0.000    0.000    0.000    0.000 weakref.py:352(__init__)
+        5    0.000    0.000    0.000    0.000 __init__.py:37049(__iter__)
+       10    0.000    0.000    0.000    0.000 weakref.py:347(__new__)
+       10    0.000    0.000    0.000    0.000 __init__.py:497(__init__)
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+       20    0.000    0.000    0.000    0.000 __init__.py:36504(_has_networkx_private_storage)
+        5    0.000    0.000    0.000    0.000 __init__.py:37059(__len__)
+       10    0.000    0.000    0.000    0.000 {built-in method __new__ of type object at 0xa15020}
+       10    0.000    0.000    0.000    0.000 {built-in method builtins.hasattr}
+        5    0.000    0.000    0.000    0.000 matching.py:397(Blossom)
+       20    0.000    0.000    0.000    0.000 {built-in method builtins.id}
+       10    0.000    0.000    0.000    0.000 weakref.py:194(get)
+        5    0.000    0.000    0.000    0.000 matching.py:394(NoNode)
+        5    0.000    0.000    0.000    0.000 {method 'items' of 'dict' objects}
+
+

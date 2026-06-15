@@ -1,0 +1,106 @@
+{
+  "results": [
+    {
+      "command": "env PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260615T-max-weight-matching-inprocess-coppercliff/mwm_pass1.py run-once --impl fnx-current --n 180 --density 160 --loops 5",
+      "mean": 1.19581311096,
+      "stddev": 0.2704378764180561,
+      "median": 1.1501634540599999,
+      "user": 2.74309936,
+      "system": 0.07114628,
+      "min": 0.8579022470600001,
+      "max": 1.7137057470600001,
+      "times": [
+        0.95142111206,
+        1.24322679806,
+        1.42127031706,
+        1.46469552506,
+        1.7137057470600001,
+        0.8579022470600001,
+        0.95337584206,
+        1.21000750706,
+        1.09031940106,
+        1.05220661306
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "env PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260615T-max-weight-matching-inprocess-coppercliff/mwm_pass1.py run-once --impl nx --n 180 --density 160 --loops 5",
+      "mean": 1.2611134785600002,
+      "stddev": 0.42103780066537916,
+      "median": 1.18279379106,
+      "user": 2.6040615600000003,
+      "system": 0.07083438,
+      "min": 0.7768386780600001,
+      "max": 1.95745870506,
+      "times": [
+        1.14924922206,
+        0.91960821406,
+        1.86101963706,
+        1.57851361606,
+        0.87731067206,
+        1.95745870506,
+        1.36799261406,
+        0.9068050670600001,
+        0.7768386780600001,
+        1.21633836006
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "env PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260615T-max-weight-matching-inprocess-coppercliff/mwm_pass1.py run-once --impl nx-orig-on-fnx --n 180 --density 160 --loops 5",
+      "mean": 1.19141378466,
+      "stddev": 0.20080363470041518,
+      "median": 1.14167198106,
+      "user": 2.6179320600000002,
+      "system": 0.08324187999999999,
+      "min": 0.95630267706,
+      "max": 1.60318010806,
+      "times": [
+        1.12629476806,
+        0.9744908980600001,
+        1.3683440340600002,
+        0.95630267706,
+        1.12736087806,
+        1.15598308406,
+        1.31470875406,
+        1.60318010806,
+        1.26695113806,
+        1.02052150706
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

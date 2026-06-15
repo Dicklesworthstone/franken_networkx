@@ -8196,6 +8196,22 @@ impl PyDiGraph {
         Ok(items.into_pyobject(py)?.into_any().unbind())
     }
 
+    /// br-r37-c1-04z53.9110: bare ``DG.reverse(copy=False).edges()`` has the
+    /// same node-major predecessor traversal as ``in_edges()``, but emits the
+    /// reversed orientation ``(target, source)``. Build that batch natively for
+    /// exact DiGraph reverse views instead of walking Python pred rows.
+    fn _native_reverse_edges_no_data(&self, py: Python<'_>) -> PyResult<PyObject> {
+        let mut items = Vec::with_capacity(self.inner.edge_count());
+        for target in self.inner.nodes_ordered() {
+            let py_t = self.py_node_key(py, target);
+            for source in self.inner.predecessors(target).unwrap_or_default() {
+                let py_s = self.py_pred_key(py, target, source) /* br-r37-c1-z6uka */;
+                items.push(tuple_object(py, &[py_t.clone_ref(py), py_s])?);
+            }
+        }
+        Ok(items.into_pyobject(py)?.into_any().unbind())
+    }
+
     /// br-r37-c1-inedges: in_edges(data=True). Reuses the live edge attr dict
     /// per edge (identity-shared with G[s][t]); marks edges dirty so a weight
     /// mutation through the yielded dict re-syncs to the weighted kernel.
