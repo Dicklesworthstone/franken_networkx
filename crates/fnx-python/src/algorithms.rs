@@ -18953,6 +18953,25 @@ pub fn fiedler_vector_unweighted_lanczos_rust(
     Ok(result)
 }
 
+/// Ascending eigenvalues of a real symmetric `n×n` matrix supplied as a flat
+/// C-order `f64` sequence, via a 100% safe-Rust Householder→QL pipeline (no C
+/// BLAS/LAPACK). Behavioural analogue of `numpy.linalg.eigvalsh` for symmetric
+/// input. Returns `None` on a dimension mismatch or non-convergence so the
+/// Python caller can fall back to the dense reference path. (br-r37-c1-04z53.9109)
+#[pyfunction]
+#[pyo3(signature = (matrix, n))]
+pub fn symmetric_eigvals_rust(
+    py: Python<'_>,
+    matrix: Vec<f64>,
+    n: usize,
+) -> PyResult<Option<Vec<f64>>> {
+    if matrix.len() != n * n {
+        return Ok(None);
+    }
+    let result = py.allow_threads(|| fnx_algorithms::symmetric_eigvals(&matrix, n));
+    Ok(result)
+}
+
 // ---------------------------------------------------------------------------
 // Current-flow betweenness centrality
 // ---------------------------------------------------------------------------
@@ -19731,6 +19750,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(second_order_centrality_rust, m)?)?;
     m.add_function(wrap_pyfunction!(subgraph_centrality_expdiag_rust, m)?)?;
     m.add_function(wrap_pyfunction!(fiedler_vector_unweighted_lanczos_rust, m)?)?;
+    m.add_function(wrap_pyfunction!(symmetric_eigvals_rust, m)?)?;
     m.add_function(wrap_pyfunction!(
         communicability_betweenness_centrality_rust,
         m

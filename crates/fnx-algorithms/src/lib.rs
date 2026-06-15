@@ -39171,6 +39171,183 @@ fn jacobi_symmetric_eigenvectors(matrix: &[f64], n: usize) -> Option<(Vec<f64>, 
     Some((eigenvalues, v))
 }
 
+/// `|magnitude|` carrying the sign of `sign_of` (Fortran/NR `SIGN(a,b)`).
+#[inline]
+fn copysign_nr(magnitude: f64, sign_of: f64) -> f64 {
+    if sign_of >= 0.0 {
+        magnitude.abs()
+    } else {
+        -magnitude.abs()
+    }
+}
+
+/// Householder reduction of a real symmetric `n×n` row-major matrix to
+/// symmetric tridiagonal form, **eigenvalues only** (no orthogonal `Q`
+/// accumulation). On return `d[i]` holds the tridiagonal diagonal and `e[i]`
+/// the sub-diagonal in the Numerical-Recipes `tred2` convention (`e[0] == 0`,
+/// `e[i]` couples rows `i-1`,`i`). `a` is consumed as scratch.
+///
+/// This is the safe-Rust analogue of LAPACK `dsytrd` — the O(n³) similarity
+/// reduction that precedes the tridiagonal eigensolve — with **no C
+/// BLAS/LAPACK linkage** (no_gaps directive). The inner rank-2 update is walked
+/// row-major so the hot `k` sweep stays contiguous.
+fn householder_tridiagonalize(a: &mut [f64], n: usize, d: &mut [f64], e: &mut [f64]) {
+    for i in (1..n).rev() {
+        let l = i - 1;
+        let mut h = 0.0;
+        if l > 0 {
+            let mut scale = 0.0;
+            for k in 0..=l {
+                scale += a[i * n + k].abs();
+            }
+            if scale == 0.0 {
+                e[i] = a[i * n + l];
+            } else {
+                for k in 0..=l {
+                    a[i * n + k] /= scale;
+                    h += a[i * n + k] * a[i * n + k];
+                }
+                let f = a[i * n + l];
+                let g = if f >= 0.0 { -h.sqrt() } else { h.sqrt() };
+                e[i] = scale * g;
+                h -= f * g;
+                a[i * n + l] = f - g;
+                let mut f_acc = 0.0;
+                for j in 0..=l {
+                    let mut g2 = 0.0;
+                    for k in 0..=j {
+                        g2 += a[j * n + k] * a[i * n + k];
+                    }
+                    for k in (j + 1)..=l {
+                        g2 += a[k * n + j] * a[i * n + k];
+                    }
+                    e[j] = g2 / h;
+                    f_acc += e[j] * a[i * n + j];
+                }
+                let hh = f_acc / (h + h);
+                for j in 0..=l {
+                    let fj = a[i * n + j];
+                    let gj = e[j] - hh * fj;
+                    e[j] = gj;
+                    for k in 0..=j {
+                        a[j * n + k] -= fj * e[k] + gj * a[i * n + k];
+                    }
+                }
+            }
+        } else {
+            e[i] = a[i * n + l];
+        }
+        d[i] = h;
+    }
+    e[0] = 0.0;
+    // The reduction accumulates the similarity transforms into the diagonal
+    // entries `a[i*n+i]`; extract them as the tridiagonal diagonal.
+    for i in 0..n {
+        d[i] = a[i * n + i];
+    }
+}
+
+/// Eigenvalues of a symmetric tridiagonal matrix (diagonal `d`, sub-diagonal
+/// `e` in the `tred2` convention with `e[0] == 0`) via the **implicit-shift QL
+/// algorithm** with Wilkinson shift (Numerical Recipes `tqli`, eigenvalues
+/// only). `d` is overwritten in place with the (unordered) eigenvalues; `e` is
+/// destroyed. Returns `false` if any eigenvalue fails to converge in 50 sweeps
+/// so the caller can fall back to the reference dense path.
+///
+/// O(n²) per converged eigenvalue — the tridiagonal counterpart to LAPACK
+/// `dsterf`/`dstebz`, 100% safe Rust, no C linkage.
+fn tridiagonal_ql_eigvals(d: &mut [f64], e: &mut [f64], n: usize) -> bool {
+    if n == 0 {
+        return true;
+    }
+    // Re-index the sub-diagonal so `e[i]` couples `i`,`i+1` with `e[n-1]==0`.
+    for i in 1..n {
+        e[i - 1] = e[i];
+    }
+    e[n - 1] = 0.0;
+    for l in 0..n {
+        let mut iter = 0;
+        loop {
+            // Split off a leading block at the first negligible sub-diagonal.
+            let mut m = l;
+            while m < n - 1 {
+                let dd = d[m].abs() + d[m + 1].abs();
+                if e[m].abs() + dd == dd {
+                    break;
+                }
+                m += 1;
+            }
+            if m == l {
+                break;
+            }
+            iter += 1;
+            if iter > 50 {
+                return false;
+            }
+            // Wilkinson shift from the trailing 2×2.
+            let mut g = (d[l + 1] - d[l]) / (2.0 * e[l]);
+            let mut r = g.hypot(1.0);
+            g = d[m] - d[l] + e[l] / (g + copysign_nr(r, g));
+            let mut s = 1.0;
+            let mut c = 1.0;
+            let mut p = 0.0;
+            let mut restart = false;
+            let mut i = m;
+            while i > l {
+                i -= 1;
+                let f = s * e[i];
+                let b = c * e[i];
+                r = f.hypot(g);
+                e[i + 1] = r;
+                if r == 0.0 {
+                    // Recover from underflow: deflate and restart this block.
+                    d[i + 1] -= p;
+                    e[m] = 0.0;
+                    restart = true;
+                    break;
+                }
+                s = f / r;
+                c = g / r;
+                g = d[i + 1] - p;
+                r = (d[i] - g) * s + 2.0 * c * b;
+                p = s * r;
+                d[i + 1] = g + p;
+                g = c * r - b;
+            }
+            if restart {
+                continue;
+            }
+            d[l] -= p;
+            e[l] = g;
+            e[m] = 0.0;
+        }
+    }
+    true
+}
+
+/// Ascending eigenvalues of a real symmetric `n×n` row-major matrix via a
+/// 100% safe-Rust Householder→implicit-shift-QL pipeline (no C BLAS/LAPACK).
+/// The behavioural analogue of `numpy.linalg.eigvalsh` for symmetric input.
+/// Returns `None` on a dimension mismatch or non-convergence so callers can
+/// fall back to the reference path.
+pub fn symmetric_eigvals(matrix: &[f64], n: usize) -> Option<Vec<f64>> {
+    if n == 0 {
+        return Some(Vec::new());
+    }
+    if matrix.len() != n * n {
+        return None;
+    }
+    let mut a = matrix.to_vec();
+    let mut d = vec![0.0; n];
+    let mut e = vec![0.0; n];
+    householder_tridiagonalize(&mut a, n, &mut d, &mut e);
+    if !tridiagonal_ql_eigvals(&mut d, &mut e, n) {
+        return None;
+    }
+    d.sort_by(|x, y| x.partial_cmp(y).unwrap_or(std::cmp::Ordering::Equal));
+    Some(d)
+}
+
 /// Approximate the Fiedler vector of an unweighted simple graph with a native
 /// safe-Rust Lanczos/Ritz solve on the subspace orthogonal to the all-ones
 /// vector. Returns `None` when residual checks do not prove a valid Fiedler
@@ -54594,5 +54771,88 @@ mod lu_pade_tests {
                 t[k]
             );
         }
+    }
+
+    #[test]
+    fn symmetric_eigvals_diagonal_returns_sorted_diagonal() {
+        use super::symmetric_eigvals;
+        let n = 4;
+        let mut a = vec![0.0; n * n];
+        let diag = [3.0, -1.0, 5.0, 2.0];
+        for i in 0..n {
+            a[i * n + i] = diag[i];
+        }
+        let ev = symmetric_eigvals(&a, n).unwrap();
+        let expect = [-1.0, 2.0, 3.0, 5.0];
+        for (got, want) in ev.iter().zip(expect.iter()) {
+            assert!((got - want).abs() < 1e-12, "{got} vs {want}");
+        }
+    }
+
+    #[test]
+    fn symmetric_eigvals_two_by_two_matches_closed_form() {
+        use super::symmetric_eigvals;
+        // [[2,1],[1,2]] -> eigenvalues 1 and 3.
+        let a = [2.0, 1.0, 1.0, 2.0];
+        let ev = symmetric_eigvals(&a, 2).unwrap();
+        assert!((ev[0] - 1.0).abs() < 1e-12, "{}", ev[0]);
+        assert!((ev[1] - 3.0).abs() < 1e-12, "{}", ev[1]);
+    }
+
+    #[test]
+    fn symmetric_eigvals_path_laplacian_smallest_is_zero() {
+        use super::symmetric_eigvals;
+        // Laplacian of P4 (path on 4 nodes): PSD, exactly one zero eigenvalue
+        // (connected graph) -> smallest eigenvalue must be ~0.
+        let n = 4;
+        #[rustfmt::skip]
+        let l = [
+            1.0, -1.0,  0.0,  0.0,
+           -1.0,  2.0, -1.0,  0.0,
+            0.0, -1.0,  2.0, -1.0,
+            0.0,  0.0, -1.0,  1.0,
+        ];
+        let ev = symmetric_eigvals(&l, n).unwrap();
+        assert!(ev[0].abs() < 1e-10, "smallest={}", ev[0]);
+        // Sum of eigenvalues == trace == 6.
+        let s: f64 = ev.iter().sum();
+        assert!((s - 6.0).abs() < 1e-10, "trace={s}");
+    }
+
+    #[test]
+    fn symmetric_eigvals_cross_validates_jacobi_to_1e9() {
+        // Oracle: the production Jacobi eigensolver. Both must agree on the
+        // sorted spectrum of random symmetric matrices across sizes.
+        use super::{jacobi_symmetric_eigenvectors, symmetric_eigvals};
+        let mut rng = Lcg(0xabcd_1234_5678_9999);
+        for &n in &[1usize, 2, 3, 5, 9, 16, 31, 50] {
+            let mut a = vec![0.0; n * n];
+            for i in 0..n {
+                for j in i..n {
+                    let v = rng.next_f64() * 4.0 - 2.0;
+                    a[i * n + j] = v;
+                    a[j * n + i] = v;
+                }
+            }
+            let mine = symmetric_eigvals(&a, n).unwrap();
+            let (mut jac, _) = jacobi_symmetric_eigenvectors(&a, n).unwrap();
+            jac.sort_by(|x, y| x.partial_cmp(y).unwrap());
+            assert_eq!(mine.len(), jac.len());
+            for (m, j) in mine.iter().zip(jac.iter()) {
+                let denom = j.abs().max(1.0);
+                assert!(
+                    (m - j).abs() / denom < 1e-9,
+                    "n={n}: {m} vs {j} (rel {})",
+                    (m - j).abs() / denom
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn symmetric_eigvals_dimension_mismatch_is_none() {
+        use super::symmetric_eigvals;
+        assert!(symmetric_eigvals(&[1.0, 2.0, 3.0], 2).is_none());
+        assert!(symmetric_eigvals(&[], 0).unwrap().is_empty());
     }
 }
