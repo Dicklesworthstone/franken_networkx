@@ -39266,6 +39266,341 @@ fn householder_tridiagonalize(a: &mut [f64], n: usize, d: &mut [f64], e: &mut [f
     }
 }
 
+/// Reduce a real row-major matrix to upper Hessenberg form using orthogonal
+/// Householder similarities. This is the safe-Rust analogue of the EISPACK
+/// `orthes` preprocessing step for nonsymmetric QR eigenvalue extraction.
+fn hessenberg_reduce(a: &mut [f64], n: usize) {
+    if n <= 2 {
+        return;
+    }
+    let low = 0usize;
+    let high = n - 1;
+    let mut ort = vec![0.0; n];
+
+    for m in (low + 1)..high {
+        let mut scale = 0.0;
+        for i in m..=high {
+            scale += a[i * n + (m - 1)].abs();
+        }
+        if scale == 0.0 {
+            continue;
+        }
+
+        let mut h = 0.0;
+        for i in (m..=high).rev() {
+            ort[i] = a[i * n + (m - 1)] / scale;
+            h += ort[i] * ort[i];
+        }
+        let g = if ort[m] >= 0.0 { -h.sqrt() } else { h.sqrt() };
+        h -= ort[m] * g;
+        ort[m] -= g;
+
+        for j in m..n {
+            let mut f = 0.0;
+            for i in (m..=high).rev() {
+                f += ort[i] * a[i * n + j];
+            }
+            f /= h;
+            for i in m..=high {
+                a[i * n + j] -= f * ort[i];
+            }
+        }
+
+        for i in 0..=high {
+            let mut f = 0.0;
+            for j in (m..=high).rev() {
+                f += ort[j] * a[i * n + j];
+            }
+            f /= h;
+            for j in m..=high {
+                a[i * n + j] -= f * ort[j];
+            }
+        }
+
+        ort[m] *= scale;
+        a[m * n + (m - 1)] = scale * g;
+    }
+}
+
+#[inline]
+fn hqr_at(h: &[f64], n: usize, row: usize, col: usize) -> f64 {
+    h[row * n + col]
+}
+
+#[inline]
+fn hqr_set(h: &mut [f64], n: usize, row: usize, col: usize, value: f64) {
+    h[row * n + col] = value;
+}
+
+/// Eigenvalues of a real upper-Hessenberg matrix via the implicit double-shift
+/// QR method (EISPACK `hqr` shape). Returns `(real, imag)` pairs in QR deflation
+/// order, with positive-imaginary conjugates first.
+fn hessenberg_qr_eigvals(h: &mut [f64], n: usize) -> Option<Vec<(f64, f64)>> {
+    if n == 0 {
+        return Some(Vec::new());
+    }
+    let low = 0usize;
+    let high = n - 1;
+    let mut wr = vec![0.0; n];
+    let mut wi = vec![0.0; n];
+    let mut norm = 0.0;
+    for i in 0..n {
+        let start = i.saturating_sub(1);
+        for j in start..n {
+            norm += hqr_at(h, n, i, j).abs();
+        }
+    }
+    if norm == 0.0 {
+        for i in 0..n {
+            wr[i] = hqr_at(h, n, i, i);
+        }
+        return Some(wr.into_iter().zip(wi).collect());
+    }
+
+    let mut en = high as isize;
+    let mut t = 0.0;
+    let mut remaining_iterations = 30usize.saturating_mul(n);
+    while en >= low as isize {
+        let mut its = 0usize;
+        let na = en - 1;
+        let enm2 = na - 1;
+
+        loop {
+            let mut l = low;
+            for ll in low..=en as usize {
+                let candidate = en as usize + low - ll;
+                l = candidate;
+                if l == low {
+                    break;
+                }
+                let mut s = hqr_at(h, n, l - 1, l - 1).abs() + hqr_at(h, n, l, l).abs();
+                if s == 0.0 {
+                    s = norm;
+                }
+                if hqr_at(h, n, l, l - 1).abs() <= f64::EPSILON * s {
+                    break;
+                }
+            }
+
+            let x = hqr_at(h, n, en as usize, en as usize);
+            if l as isize == en {
+                wr[en as usize] = x + t;
+                wi[en as usize] = 0.0;
+                en = na;
+                break;
+            }
+
+            let y = hqr_at(h, n, na as usize, na as usize);
+            let w = hqr_at(h, n, en as usize, na as usize) * hqr_at(h, n, na as usize, en as usize);
+            if l as isize == na {
+                let mut p = (y - x) * 0.5;
+                let q = p * p + w;
+                let z = q.abs().sqrt();
+                let shifted_x = x + t;
+                if q >= 0.0 {
+                    let zz = p + copysign_nr(z, p);
+                    wr[na as usize] = shifted_x + zz;
+                    wr[en as usize] = wr[na as usize];
+                    if zz != 0.0 {
+                        wr[en as usize] = shifted_x - w / zz;
+                    }
+                    wi[na as usize] = 0.0;
+                    wi[en as usize] = 0.0;
+                } else {
+                    p += shifted_x;
+                    wr[na as usize] = p;
+                    wr[en as usize] = p;
+                    wi[na as usize] = z;
+                    wi[en as usize] = -z;
+                }
+                en = enm2;
+                break;
+            }
+
+            if remaining_iterations == 0 {
+                return None;
+            }
+            let mut x_shift = x;
+            let mut y_shift = y;
+            let mut w_shift = w;
+            if its == 10 || its == 20 {
+                t += x;
+                for i in low..=en as usize {
+                    let diag = hqr_at(h, n, i, i) - x;
+                    hqr_set(h, n, i, i, diag);
+                }
+                let s = hqr_at(h, n, en as usize, na as usize).abs()
+                    + hqr_at(h, n, na as usize, enm2 as usize).abs();
+                x_shift = 0.75 * s;
+                y_shift = x_shift;
+                w_shift = -0.4375 * s * s;
+            }
+            its += 1;
+            remaining_iterations -= 1;
+
+            let mut m = l;
+            if enm2 >= l as isize {
+                for mm in l..=enm2 as usize {
+                    let candidate = enm2 as usize + l - mm;
+                    m = candidate;
+                    let zz = hqr_at(h, n, m, m);
+                    let r1 = x_shift - zz;
+                    let s1 = y_shift - zz;
+                    let denom = hqr_at(h, n, m + 1, m);
+                    if denom == 0.0 {
+                        continue;
+                    }
+                    let mut p = (r1 * s1 - w_shift) / denom + hqr_at(h, n, m, m + 1);
+                    let mut q = hqr_at(h, n, m + 1, m + 1) - zz - r1 - s1;
+                    let mut r = hqr_at(h, n, m + 2, m + 1);
+                    let scale = p.abs() + q.abs() + r.abs();
+                    if scale == 0.0 {
+                        continue;
+                    }
+                    p /= scale;
+                    q /= scale;
+                    r /= scale;
+                    if m == l {
+                        break;
+                    }
+                    let lhs = p.abs()
+                        * (hqr_at(h, n, m - 1, m - 1).abs()
+                            + zz.abs()
+                            + hqr_at(h, n, m + 1, m + 1).abs());
+                    let rhs = lhs + hqr_at(h, n, m, m - 1).abs() * (q.abs() + r.abs());
+                    if rhs == lhs {
+                        break;
+                    }
+                }
+            }
+
+            for i in (m + 2)..=en as usize {
+                hqr_set(h, n, i, i - 2, 0.0);
+                if i > m + 2 {
+                    hqr_set(h, n, i, i - 3, 0.0);
+                }
+            }
+
+            for k in m..=na as usize {
+                let not_last = k != na as usize;
+                let (mut p, mut q, mut r) = if k == m {
+                    let zz = hqr_at(h, n, k, k);
+                    let r1 = x_shift - zz;
+                    let s1 = y_shift - zz;
+                    let denom = hqr_at(h, n, k + 1, k);
+                    if denom == 0.0 {
+                        continue;
+                    }
+                    (
+                        (r1 * s1 - w_shift) / denom + hqr_at(h, n, k, k + 1),
+                        hqr_at(h, n, k + 1, k + 1) - zz - r1 - s1,
+                        if not_last {
+                            hqr_at(h, n, k + 2, k + 1)
+                        } else {
+                            0.0
+                        },
+                    )
+                } else {
+                    (
+                        hqr_at(h, n, k, k - 1),
+                        hqr_at(h, n, k + 1, k - 1),
+                        if not_last {
+                            hqr_at(h, n, k + 2, k - 1)
+                        } else {
+                            0.0
+                        },
+                    )
+                };
+                let scale = p.abs() + q.abs() + r.abs();
+                if scale == 0.0 {
+                    continue;
+                }
+                p /= scale;
+                q /= scale;
+                r /= scale;
+                let s = copysign_nr((p * p + q * q + r * r).sqrt(), p);
+                if k == m {
+                    if l != m {
+                        let value = -hqr_at(h, n, k, k - 1);
+                        hqr_set(h, n, k, k - 1, value);
+                    }
+                } else {
+                    hqr_set(h, n, k, k - 1, -s * scale);
+                }
+                p += s;
+                if p == 0.0 || s == 0.0 {
+                    continue;
+                }
+                let x = p / s;
+                let y = q / s;
+                let z = r / s;
+                q /= p;
+                r /= p;
+
+                if !not_last {
+                    for j in k..=en as usize {
+                        let p2 = hqr_at(h, n, k, j) + q * hqr_at(h, n, k + 1, j);
+                        let hkj = hqr_at(h, n, k, j) - p2 * x;
+                        let hk1j = hqr_at(h, n, k + 1, j) - p2 * y;
+                        hqr_set(h, n, k, j, hkj);
+                        hqr_set(h, n, k + 1, j, hk1j);
+                    }
+                    let jmax = (k + 3).min(en as usize);
+                    for i in l..=jmax {
+                        let p2 = x * hqr_at(h, n, i, k) + y * hqr_at(h, n, i, k + 1);
+                        let hik = hqr_at(h, n, i, k) - p2;
+                        let hik1 = hqr_at(h, n, i, k + 1) - p2 * q;
+                        hqr_set(h, n, i, k, hik);
+                        hqr_set(h, n, i, k + 1, hik1);
+                    }
+                } else {
+                    for j in k..=en as usize {
+                        let p2 = hqr_at(h, n, k, j)
+                            + q * hqr_at(h, n, k + 1, j)
+                            + r * hqr_at(h, n, k + 2, j);
+                        let hkj = hqr_at(h, n, k, j) - p2 * x;
+                        let hk1j = hqr_at(h, n, k + 1, j) - p2 * y;
+                        let hk2j = hqr_at(h, n, k + 2, j) - p2 * z;
+                        hqr_set(h, n, k, j, hkj);
+                        hqr_set(h, n, k + 1, j, hk1j);
+                        hqr_set(h, n, k + 2, j, hk2j);
+                    }
+                    let jmax = (k + 3).min(en as usize);
+                    for i in l..=jmax {
+                        let p2 = x * hqr_at(h, n, i, k)
+                            + y * hqr_at(h, n, i, k + 1)
+                            + z * hqr_at(h, n, i, k + 2);
+                        let hik = hqr_at(h, n, i, k) - p2;
+                        let hik1 = hqr_at(h, n, i, k + 1) - p2 * q;
+                        let hik2 = hqr_at(h, n, i, k + 2) - p2 * r;
+                        hqr_set(h, n, i, k, hik);
+                        hqr_set(h, n, i, k + 1, hik1);
+                        hqr_set(h, n, i, k + 2, hik2);
+                    }
+                }
+            }
+        }
+    }
+
+    Some(wr.into_iter().zip(wi).collect())
+}
+
+/// Eigenvalues of a real general dense row-major matrix via safe-Rust
+/// Hessenberg reduction plus implicit double-shift QR. This is a private
+/// no-BLAS/no-LAPACK prototype for `adjacency_spectrum`; callers must still
+/// prove the raw public solver order before routing public APIs to it.
+pub fn real_general_eigvals(matrix: &[f64], n: usize) -> Option<Vec<(f64, f64)>> {
+    if n == 0 {
+        return Some(Vec::new());
+    }
+    if matrix.len() != n * n || matrix.iter().any(|value| !value.is_finite()) {
+        return None;
+    }
+    let mut h = matrix.to_vec();
+    hessenberg_reduce(&mut h, n);
+    hessenberg_qr_eigvals(&mut h, n)
+}
+
 /// Eigenvalues of a symmetric tridiagonal matrix (diagonal `d`, sub-diagonal
 /// `e` in the `tred2` convention with `e[0] == 0`) via the **implicit-shift QL
 /// algorithm** with Wilkinson shift (Numerical Recipes `tqli`, eigenvalues
@@ -54910,6 +55245,59 @@ mod lu_pade_tests {
         use super::symmetric_eigvals;
         assert!(symmetric_eigvals(&[1.0, 2.0, 3.0], 2).is_none());
         assert!(symmetric_eigvals(&[], 0).unwrap().is_empty());
+    }
+
+    #[test]
+    fn real_general_eigvals_diagonal_returns_diagonal() {
+        use super::real_general_eigvals;
+        let n = 4;
+        let mut a = vec![0.0; n * n];
+        let diag = [3.0, -1.0, 5.0, 2.0];
+        for i in 0..n {
+            a[i * n + i] = diag[i];
+        }
+        let ev = real_general_eigvals(&a, n).unwrap();
+        for (got, want) in ev.iter().zip(diag.iter()) {
+            assert!((got.0 - want).abs() < 1e-12, "{got:?} vs {want}");
+            assert!(got.1.abs() < 1e-12, "{got:?}");
+        }
+    }
+
+    #[test]
+    fn real_general_eigvals_rotation_has_complex_pair() {
+        use super::real_general_eigvals;
+        let a = [0.0, -1.0, 1.0, 0.0];
+        let ev = real_general_eigvals(&a, 2).unwrap();
+        assert_eq!(ev.len(), 2);
+        assert!(ev.iter().all(|(re, _)| re.abs() < 1e-12), "{ev:?}");
+        let mut imag: Vec<f64> = ev.iter().map(|(_, im)| *im).collect();
+        imag.sort_by(|x, y| x.partial_cmp(y).unwrap());
+        assert!((imag[0] + 1.0).abs() < 1e-12, "{ev:?}");
+        assert!((imag[1] - 1.0).abs() < 1e-12, "{ev:?}");
+    }
+
+    #[test]
+    fn real_general_eigvals_directed_cycle_four_matches_roots() {
+        use super::real_general_eigvals;
+        #[rustfmt::skip]
+        let a = [
+            0.0, 1.0, 0.0, 0.0,
+            0.0, 0.0, 1.0, 0.0,
+            0.0, 0.0, 0.0, 1.0,
+            1.0, 0.0, 0.0, 0.0,
+        ];
+        let mut ev = real_general_eigvals(&a, 4).unwrap();
+        ev.sort_by(|left, right| {
+            left.0
+                .partial_cmp(&right.0)
+                .unwrap()
+                .then_with(|| left.1.partial_cmp(&right.1).unwrap())
+        });
+        let expect = [(-1.0, 0.0), (0.0, -1.0), (0.0, 1.0), (1.0, 0.0)];
+        for ((got_re, got_im), (want_re, want_im)) in ev.iter().zip(expect.iter()) {
+            assert!((got_re - want_re).abs() < 1e-10, "{ev:?}");
+            assert!((got_im - want_im).abs() < 1e-10, "{ev:?}");
+        }
     }
 
     #[test]

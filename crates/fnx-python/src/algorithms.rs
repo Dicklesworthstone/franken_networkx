@@ -18972,6 +18972,24 @@ pub fn symmetric_eigvals_rust(
     Ok(result)
 }
 
+/// Eigenvalues of a real dense `n×n` matrix supplied as flat C-order `f64`,
+/// returned as `(real, imag)` pairs from the safe-Rust Hessenberg→QR prototype.
+/// This is intentionally separate from `adjacency_spectrum` until public raw
+/// order parity with SciPy's `eigvals` is proven.
+#[pyfunction]
+#[pyo3(signature = (matrix, n))]
+pub fn real_general_eigvals_rust(
+    py: Python<'_>,
+    matrix: Vec<f64>,
+    n: usize,
+) -> PyResult<Option<Vec<(f64, f64)>>> {
+    if matrix.len() != n * n {
+        return Ok(None);
+    }
+    let result = py.allow_threads(|| fnx_algorithms::real_general_eigvals(&matrix, n));
+    Ok(result)
+}
+
 /// Small-graph unweighted Laplacian spectrum via native dense Laplacian
 /// construction plus the safe-Rust symmetric eigensolver. Returns `None` for
 /// directed/multigraph inputs, graphs above `max_n`, or edges carrying the
@@ -19778,6 +19796,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(subgraph_centrality_expdiag_rust, m)?)?;
     m.add_function(wrap_pyfunction!(fiedler_vector_unweighted_lanczos_rust, m)?)?;
     m.add_function(wrap_pyfunction!(symmetric_eigvals_rust, m)?)?;
+    m.add_function(wrap_pyfunction!(real_general_eigvals_rust, m)?)?;
     m.add_function(wrap_pyfunction!(unweighted_laplacian_spectrum_rust, m)?)?;
     m.add_function(wrap_pyfunction!(
         communicability_betweenness_centrality_rust,

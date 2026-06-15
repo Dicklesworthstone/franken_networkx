@@ -18,6 +18,7 @@ import networkx as nx
 import numpy as np
 
 import franken_networkx as fnx
+from franken_networkx import _fnx
 
 
 nx_adjacency_spectrum = getattr(
@@ -69,6 +70,19 @@ def _spectrum(impl: str, graph: Any, weight: str | None) -> np.ndarray:
         return np.asarray(fnx.adjacency_spectrum(graph, weight=weight))
     if impl == "nx":
         return np.asarray(nx_adjacency_spectrum(graph, weight=weight))
+    if impl == "native_qr":
+        matrix = np.asarray(
+            fnx.adjacency_matrix(graph, weight=weight).todense(),
+            dtype=np.float64,
+        )
+        matrix = np.ascontiguousarray(matrix)
+        values = _fnx.real_general_eigvals_rust(matrix.ravel(), matrix.shape[0])
+        if values is None:
+            raise RuntimeError("native QR eigensolver did not converge")
+        return np.asarray(
+            [complex(real, imag) for real, imag in values],
+            dtype=np.complex128,
+        )
     raise ValueError(f"unknown impl: {impl}")
 
 
@@ -148,7 +162,7 @@ def golden(cases: list[str], sizes: list[int], output: Path | None) -> dict[str,
 
 def bench_once(impl: str, case: str, n: int, loops: int, weight: str | None) -> float:
     fnx_graph, nx_graph = graph_pair(case, n)
-    graph = fnx_graph if impl == "fnx" else nx_graph
+    graph = nx_graph if impl == "nx" else fnx_graph
     start = time.perf_counter()
     for _ in range(loops):
         _spectrum(impl, graph, weight)
@@ -243,6 +257,83 @@ def scipy_order_probe(cases: list[str], sizes: list[int], output: Path | None) -
     return result
 
 
+def native_qr_proof(
+    cases: list[str], sizes: list[int], output: Path | None
+) -> dict[str, Any]:
+    records = []
+    raw_native_digest = []
+    raw_nx_digest = []
+    sorted_native_digest = []
+    sorted_nx_digest = []
+    max_sorted_abs_delta = 0.0
+    raw_order_matches = True
+    dtype_matches = True
+
+    for case in cases:
+        for n in sizes:
+            if n < 2:
+                continue
+            fnx_graph, nx_graph = graph_pair(case, n)
+            native_values = _spectrum("native_qr", fnx_graph, "weight")
+            nx_values = _spectrum("nx", nx_graph, "weight")
+            native_sorted = np.sort_complex(native_values)
+            nx_sorted = np.sort_complex(nx_values)
+            sorted_delta = np.abs(native_sorted - nx_sorted)
+            if sorted_delta.size:
+                max_sorted_abs_delta = max(
+                    max_sorted_abs_delta, float(np.max(sorted_delta))
+                )
+            raw_match = bool(
+                native_values.shape == nx_values.shape
+                and np.allclose(native_values, nx_values, rtol=1.0e-10, atol=1.0e-10)
+            )
+            sorted_match = bool(
+                native_sorted.shape == nx_sorted.shape
+                and np.allclose(native_sorted, nx_sorted, rtol=1.0e-10, atol=1.0e-10)
+            )
+            dtype_match = (
+                str(native_values.dtype) == str(nx_values.dtype) == "complex128"
+            )
+            raw_order_matches = raw_order_matches and raw_match
+            dtype_matches = dtype_matches and dtype_match
+            record = {
+                "case": case,
+                "n": n,
+                "native_dtype": str(native_values.dtype),
+                "nx_dtype": str(nx_values.dtype),
+                "raw_order_match": raw_match,
+                "sorted_match": sorted_match,
+                "dtype_match": dtype_match,
+                "native_raw": _rounded_complex(native_values),
+                "nx_raw": _rounded_complex(nx_values),
+            }
+            records.append(record)
+            identity = {"case": case, "n": n}
+            raw_native_digest.append({**identity, "values": record["native_raw"]})
+            raw_nx_digest.append({**identity, "values": record["nx_raw"]})
+            sorted_native_digest.append(
+                {**identity, "values": _rounded_complex(native_sorted)}
+            )
+            sorted_nx_digest.append({**identity, "values": _rounded_complex(nx_sorted)})
+
+    result = {
+        "bead": "br-r37-c1-04z53.9112",
+        "cases": cases,
+        "sizes": sizes,
+        "dtype_matches": dtype_matches,
+        "raw_order_matches": raw_order_matches,
+        "max_sorted_abs_delta": max_sorted_abs_delta,
+        "native_raw_sha256": _sha(raw_native_digest),
+        "nx_raw_sha256": _sha(raw_nx_digest),
+        "native_sorted_sha256": _sha(sorted_native_digest),
+        "nx_sorted_sha256": _sha(sorted_nx_digest),
+        "records": records,
+    }
+    if output is not None:
+        output.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
+    return result
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -253,7 +344,7 @@ def main() -> None:
     golden_parser.add_argument("--output", type=Path)
 
     bench_parser = subparsers.add_parser("bench")
-    bench_parser.add_argument("--impl", choices=["fnx", "nx"], required=True)
+    bench_parser.add_argument("--impl", choices=["fnx", "nx", "native_qr"], required=True)
     bench_parser.add_argument("--case", default="weighted_ba")
     bench_parser.add_argument("--n", type=int, default=160)
     bench_parser.add_argument("--loops", type=int, default=3)
@@ -272,6 +363,11 @@ def main() -> None:
     order_parser.add_argument("--sizes", nargs="+", type=int, default=[4, 8, 32, 96])
     order_parser.add_argument("--output", type=Path)
 
+    native_parser = subparsers.add_parser("native-qr-proof")
+    native_parser.add_argument("--cases", nargs="+", default=["path", "cycle", "ba", "weighted_ba", "directed_cycle"])
+    native_parser.add_argument("--sizes", nargs="+", type=int, default=[4, 8, 32, 96])
+    native_parser.add_argument("--output", type=Path)
+
     args = parser.parse_args()
     if args.command == "golden":
         result = golden(args.cases, args.sizes, args.output)
@@ -281,6 +377,8 @@ def main() -> None:
         result = profile(args.impl, args.case, args.n, args.loops, args.output)
     elif args.command == "scipy-order":
         result = scipy_order_probe(args.cases, args.sizes, args.output)
+    elif args.command == "native-qr-proof":
+        result = native_qr_proof(args.cases, args.sizes, args.output)
     else:
         raise AssertionError(args.command)
     print(json.dumps(result, indent=2, sort_keys=True))
