@@ -68,6 +68,10 @@ pub struct PyDiGraph {
     /// immutable and the inner dicts stay live, so repeats return a fresh list
     /// of the same tuple objects instead of rebuilding (was 3x slower than nx).
     pub(crate) edges_with_data_cache: Option<(u64, u64, Vec<PyObject>)>,
+    /// (nodes_seq, edges_seq)-keyed live attr-dict handles in edge iteration
+    /// order for `edges(data=<key>)`. This caches dict lookup by edge, not
+    /// attr values, so edge-attr mutations remain visible.
+    pub(crate) edges_attr_dicts_cache: Option<(u64, u64, Vec<Py<PyDict>>)>,
     /// Incremental mirror of PyGraph::node_iter_mirror — a live ``{node: None}``
     /// PyDict kept in insertion order. ``iter(G)`` / ``list(G.nodes())`` return
     /// its ``dict_keyiterator`` directly (matching nx's ``iter(self._nodes)``)
@@ -5569,6 +5573,7 @@ impl PyDiGraph {
             node_data_mirror: std::sync::Mutex::new(None),
             dict_of_dicts_cache: None,
             edges_with_data_cache: None,
+            edges_attr_dicts_cache: None,
             node_iter_mirror: std::sync::Mutex::new(None),
         })
     }
@@ -6925,6 +6930,7 @@ impl PyDiGraph {
                 node_data_mirror: std::sync::Mutex::new(None),
                 dict_of_dicts_cache: None,
                 edges_with_data_cache: None,
+                edges_attr_dicts_cache: None,
                 node_iter_mirror: std::sync::Mutex::new(None),
             };
             for canonical in self.inner.nodes_ordered() {
@@ -6950,6 +6956,7 @@ impl PyDiGraph {
             node_data_mirror: std::sync::Mutex::new(None),
             dict_of_dicts_cache: None,
             edges_with_data_cache: None,
+            edges_attr_dicts_cache: None,
             node_iter_mirror: std::sync::Mutex::new(None),
         };
         // br-r37-c1-revbulk: node + edge BATCHES through the unrecorded
@@ -7178,6 +7185,7 @@ impl PyDiGraph {
             node_data_mirror: std::sync::Mutex::new(None),
             dict_of_dicts_cache: None,
             edges_with_data_cache: None,
+            edges_attr_dicts_cache: None,
             node_iter_mirror: std::sync::Mutex::new(None),
         };
         // br-r37-c1-0ek49: nx's DiGraph.copy() rebuild walk recreates succ
@@ -7248,6 +7256,7 @@ impl PyDiGraph {
             node_data_mirror: std::sync::Mutex::new(None),
             dict_of_dicts_cache: None,
             edges_with_data_cache: None,
+            edges_attr_dicts_cache: None,
             node_iter_mirror: std::sync::Mutex::new(None),
         };
 
@@ -7330,6 +7339,7 @@ impl PyDiGraph {
             node_data_mirror: std::sync::Mutex::new(None),
             dict_of_dicts_cache: None,
             edges_with_data_cache: None,
+            edges_attr_dicts_cache: None,
             node_iter_mirror: std::sync::Mutex::new(None),
         };
 
@@ -7605,6 +7615,28 @@ impl PyDiGraph {
         Ok(fresh.into_pyobject(py)?.into_any().unbind())
     }
 
+    fn ordered_edge_attr_dicts(&mut self, py: Python<'_>) -> Option<Vec<Py<PyDict>>> {
+        if self.edge_py_attrs.len() != self.inner.edge_count() {
+            self.edges_attr_dicts_cache = None;
+            return None;
+        }
+        let valid = matches!(
+            &self.edges_attr_dicts_cache,
+            Some((ns, es, _)) if *ns == self.nodes_seq && *es == self.edges_seq
+        );
+        if !valid {
+            let mut dicts = Vec::with_capacity(self.inner.edge_count());
+            for (u, v, _) in self.inner.edges_ordered_borrowed() {
+                let attrs = self.edge_py_attrs.get(&Self::edge_key(u, v))?;
+                dicts.push(attrs.clone_ref(py));
+            }
+            self.edges_attr_dicts_cache = Some((self.nodes_seq, self.edges_seq, dicts));
+        }
+        self.edges_attr_dicts_cache
+            .as_ref()
+            .map(|(_, _, dicts)| dicts.iter().map(|d| d.clone_ref(py)).collect())
+    }
+
     /// br-r37-c1-deg-datakey: native ordered ``(u, v, attrs.get(key, default))``
     /// materialization for the Python _DiGraphEdgeView ``edges(data=<key>)``
     /// fast path. Same node x successor traversal as ``_native_edges_no_data``;
@@ -7614,7 +7646,7 @@ impl PyDiGraph {
     /// dict) so no dirty-mark is needed (read-only, matches nx's
     /// ``attrs.get(data, default)``).
     fn _native_edges_data_key(
-        &self,
+        &mut self,
         py: Python<'_>,
         key: &Bound<'_, PyAny>,
         default: PyObject,
@@ -7622,6 +7654,39 @@ impl PyDiGraph {
         if self.succ_py_keys.is_empty() {
             let keys = self.cached_node_key_vec(py);
             let mut items = Vec::with_capacity(self.inner.edge_count());
+            if self.edge_py_attrs.is_empty() {
+                for (u_idx, v_idx) in self.inner.edges_ordered_indices() {
+                    items.push(tuple_object(
+                        py,
+                        &[
+                            keys[u_idx].clone_ref(py),
+                            keys[v_idx].clone_ref(py),
+                            default.clone_ref(py),
+                        ],
+                    )?);
+                }
+                return Ok(items.into_pyobject(py)?.into_any().unbind());
+            }
+            if let Some(attr_dicts) = self.ordered_edge_attr_dicts(py) {
+                for ((u_idx, v_idx), attrs) in self
+                    .inner
+                    .edges_ordered_indices()
+                    .into_iter()
+                    .zip(attr_dicts)
+                {
+                    let value = attrs
+                        .bind(py)
+                        .get_item(key)
+                        .ok()
+                        .flatten()
+                        .map_or_else(|| default.clone_ref(py), |val| val.unbind());
+                    items.push(tuple_object(
+                        py,
+                        &[keys[u_idx].clone_ref(py), keys[v_idx].clone_ref(py), value],
+                    )?);
+                }
+                return Ok(items.into_pyobject(py)?.into_any().unbind());
+            }
             for (u_idx, v_idx) in self.inner.edges_ordered_indices() {
                 let u = self
                     .inner
@@ -8214,6 +8279,7 @@ impl PyDiGraph {
             node_data_mirror: std::sync::Mutex::new(None),
             dict_of_dicts_cache: None,
             edges_with_data_cache: None,
+            edges_attr_dicts_cache: None,
             node_iter_mirror: std::sync::Mutex::new(None),
         })
     }
