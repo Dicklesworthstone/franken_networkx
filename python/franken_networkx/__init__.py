@@ -2195,10 +2195,15 @@ class _EdgeListWithSetAlgebra(list):
         graph = getattr(self, "_fnx_guard_graph", None)
         if graph is None:
             return list.__iter__(self)
+        guard_edge_count = getattr(self, "_fnx_guard_edge_count", False)
+        if guard_edge_count and not _has_networkx_private_storage(graph):
+            native_iter = getattr(graph, "_native_guarded_edge_list_iter", None)
+            if native_iter is not None:
+                return native_iter(self)
         return _FailFastEdgeIterator(
             graph,
             list.__iter__(self),
-            guard_edge_count=getattr(self, "_fnx_guard_edge_count", False),
+            guard_edge_count=guard_edge_count,
         )
 
     def __and__(self, other):

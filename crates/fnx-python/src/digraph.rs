@@ -7732,6 +7732,28 @@ impl PyDiGraph {
         Ok(items.into_pyobject(py)?.into_any().unbind())
     }
 
+    fn _native_guarded_edge_list_iter(
+        slf: PyRef<'_, Self>,
+        py: Python<'_>,
+        items: PyObject,
+    ) -> PyResult<Py<DiGraphGuardedEdgeListIter>> {
+        let len = items.bind(py).len()?;
+        let expected_nodes_seq = slf.nodes_seq;
+        let expected_edges_seq = slf.edges_seq;
+        let graph = Py::from(slf);
+        Py::new(
+            py,
+            DiGraphGuardedEdgeListIter {
+                graph,
+                items,
+                index: 0,
+                len,
+                expected_nodes_seq,
+                expected_edges_seq,
+            },
+        )
+    }
+
     /// br-r37-c1-inedges: native in-edges materialization. nx's in_edges
     /// iterates node-major over predecessors (``for t in nodes: for s in
     /// pred[t]: yield (s, t, ...)``) — a different order than edges_ordered. The
@@ -9475,6 +9497,43 @@ impl DiViewIterator {
     }
 }
 
+#[pyclass]
+pub struct DiGraphGuardedEdgeListIter {
+    graph: Py<PyDiGraph>,
+    items: PyObject,
+    index: usize,
+    len: usize,
+    expected_nodes_seq: u64,
+    expected_edges_seq: u64,
+}
+
+#[pymethods]
+impl DiGraphGuardedEdgeListIter {
+    fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
+        slf
+    }
+
+    fn __next__(mut slf: PyRefMut<'_, Self>) -> PyResult<Option<PyObject>> {
+        if slf.index >= slf.len {
+            return Ok(None);
+        }
+        let py = slf.py();
+        {
+            let graph = slf.graph.borrow(py);
+            if graph.nodes_seq != slf.expected_nodes_seq
+                || graph.edges_seq != slf.expected_edges_seq
+            {
+                return Err(PyRuntimeError::new_err(
+                    "dictionary changed size during iteration",
+                ));
+            }
+        }
+        let item = slf.items.bind(py).get_item(slf.index)?.unbind();
+        slf.index += 1;
+        Ok(Some(item))
+    }
+}
+
 fn tuple_object(py: Python<'_>, elements: &[PyObject]) -> PyResult<PyObject> {
     Ok(PyTuple::new(py, elements)?.into_any().unbind())
 }
@@ -9492,6 +9551,7 @@ pub fn register_digraph_classes(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<DiAdjacencyView>()?;
     m.add_class::<DiAtlasView>()?;
     m.add_class::<DiViewIterator>()?;
+    m.add_class::<DiGraphGuardedEdgeListIter>()?;
     // MultiDiGraph views
     m.add_class::<MultiDiGraphNodeView>()?;
     m.add_class::<MultiDiGraphEdgeView>()?;
