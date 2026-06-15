@@ -1,0 +1,68 @@
+{
+  "results": [
+    {
+      "command": "PYTHONPATH=/data/projects/franken_networkx/python /data/projects/franken_networkx/.venv/bin/python /data/projects/franken_networkx/tests/artifacts/perf/20260615T-qwqvn-multiedge-index-boldfalcon/multiedge_view_harness.py loop --which fnx --kind mdg --case edges_keys --loops 60 --warmup 3",
+      "mean": 0.5614416111333332,
+      "stddev": 0.02826872948926372,
+      "median": 0.5676254908,
+      "user": 4.84784792,
+      "system": 0.08130853333333334,
+      "min": 0.5217585268,
+      "max": 0.5946853478,
+      "times": [
+        0.5283670128000001,
+        0.5436513418000001,
+        0.5405794988000001,
+        0.5676254908,
+        0.5217585268,
+        0.5789574388000001,
+        0.5842548588,
+        0.5930949838,
+        0.5946853478
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "PYTHONPATH=/data/projects/franken_networkx/python /data/projects/franken_networkx/.venv/bin/python /data/projects/franken_networkx/tests/artifacts/perf/20260615T-qwqvn-multiedge-index-boldfalcon/multiedge_view_harness.py loop --which nx --kind mdg --case edges_keys --loops 60 --warmup 3",
+      "mean": 0.6267102721333333,
+      "stddev": 0.10358511721047707,
+      "median": 0.6386357078000001,
+      "user": 4.619049253333333,
+      "system": 0.07831253333333334,
+      "min": 0.4665719468,
+      "max": 0.8136059358000001,
+      "times": [
+        0.5029607968,
+        0.6386357078000001,
+        0.6488955638,
+        0.7108576628000001,
+        0.8136059358000001,
+        0.6394381688,
+        0.4665719468,
+        0.5823653048,
+        0.6370613618000001
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

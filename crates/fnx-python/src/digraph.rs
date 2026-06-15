@@ -118,6 +118,9 @@ pub struct PyMultiDiGraph {
     /// br-r37-c1-o07ax: (nodes_seq, edges_seq)-keyed cache of the node-major
     /// (u, v, live_attr) tuples for edges(data=True, keys=False, no nbunch).
     pub(crate) edges_with_data_cache: Option<(u64, u64, Vec<PyObject>)>,
+    /// br-r37-c1-qwqvn: (nodes_seq, edges_seq)-keyed cache of immutable
+    /// (u, v, key) tuples for edges(keys=True, data=False, no nbunch).
+    pub(crate) edges_with_keys_cache: Option<(u64, u64, Vec<PyObject>)>,
     /// Incremental node-iteration mirror — see PyDiGraph::node_iter_mirror.
     /// Live `{node: None}` dict serving iter(G)/list(G.nodes()) as a
     /// dict_keyiterator, mutated in place by node add/remove/clear hooks.
@@ -125,6 +128,39 @@ pub struct PyMultiDiGraph {
 }
 
 impl PyMultiDiGraph {
+    /// br-r37-c1-qwqvn: cache the immutable no-data keyed edge tuples for the
+    /// common all-edge view. Nodes/key display objects are the same first-wins
+    /// objects the uncached path would clone; graph mutation bumps a sequence and
+    /// invalidates the tuple list.
+    pub(crate) fn edges_key_tuples(&mut self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
+        let valid = matches!(
+            &self.edges_with_keys_cache,
+            Some((ns, es, _)) if *ns == self.nodes_seq && *es == self.edges_seq
+        );
+        if !valid {
+            let edges: Vec<(String, String, usize)> = self
+                .inner
+                .edges_ordered_borrowed()
+                .into_iter()
+                .map(|(source, target, key, _attrs)| (source.to_owned(), target.to_owned(), key))
+                .collect();
+            let mut result: Vec<PyObject> = Vec::with_capacity(edges.len());
+            for (source, target, key) in &edges {
+                let py_u = self.py_node_key(py, source);
+                let py_v = self.py_succ_key(py, source, target);
+                let py_key = self.py_edge_key(py, source, target, *key);
+                result.push(tuple_object(py, &[py_u, py_v, py_key])?);
+            }
+            self.edges_with_keys_cache = Some((self.nodes_seq, self.edges_seq, result));
+        }
+        let cached = self
+            .edges_with_keys_cache
+            .as_ref()
+            .map(|(_, _, tuples)| tuples)
+            .ok_or_else(|| PyRuntimeError::new_err("edge key tuple cache missing"))?;
+        Ok(cached.iter().map(|tuple| tuple.clone_ref(py)).collect())
+    }
+
     /// br-r37-c1-o07ax: build (and cache) the node-major (u, v, live_attr) tuples
     /// for edges(data=True, keys=False) — the same AllData/!keys branch as
     /// MultiDiGraphEdgeView.__call__, served from a (nodes_seq, edges_seq) cache.
@@ -670,6 +706,7 @@ impl PyMultiDiGraph {
             node_data_mirror: std::sync::Mutex::new(None),
             dict_of_dicts_cache: None,
             edges_with_data_cache: None,
+            edges_with_keys_cache: None,
             node_iter_mirror: std::sync::Mutex::new(None),
         })
     }
@@ -3403,6 +3440,7 @@ impl PyMultiDiGraph {
             node_data_mirror: std::sync::Mutex::new(None),
             dict_of_dicts_cache: None,
             edges_with_data_cache: None,
+            edges_with_keys_cache: None,
             node_iter_mirror: std::sync::Mutex::new(None),
         };
         for node in self.inner.nodes_ordered() {
@@ -3473,6 +3511,7 @@ impl PyMultiDiGraph {
             node_data_mirror: std::sync::Mutex::new(None),
             dict_of_dicts_cache: None,
             edges_with_data_cache: None,
+            edges_with_keys_cache: None,
             node_iter_mirror: std::sync::Mutex::new(None),
         };
         for node in self.inner.nodes_ordered() {
@@ -3681,6 +3720,7 @@ impl PyMultiDiGraph {
             node_data_mirror: std::sync::Mutex::new(None),
             dict_of_dicts_cache: None,
             edges_with_data_cache: None,
+            edges_with_keys_cache: None,
             node_iter_mirror: std::sync::Mutex::new(None),
         };
         // br-r37-c1-s0d4x: nx's MultiDiGraph.copy() walk fills PRED rows
@@ -3765,6 +3805,7 @@ impl PyMultiDiGraph {
             node_data_mirror: std::sync::Mutex::new(None),
             dict_of_dicts_cache: None,
             edges_with_data_cache: None,
+            edges_with_keys_cache: None,
             node_iter_mirror: std::sync::Mutex::new(None),
         })
     }
@@ -3807,6 +3848,7 @@ impl PyMultiDiGraph {
             node_data_mirror: std::sync::Mutex::new(None),
             dict_of_dicts_cache: None,
             edges_with_data_cache: None,
+            edges_with_keys_cache: None,
             node_iter_mirror: std::sync::Mutex::new(None),
         };
 
@@ -3885,6 +3927,7 @@ impl PyMultiDiGraph {
             node_data_mirror: std::sync::Mutex::new(None),
             dict_of_dicts_cache: None,
             edges_with_data_cache: None,
+            edges_with_keys_cache: None,
             node_iter_mirror: std::sync::Mutex::new(None),
         };
 
@@ -4061,6 +4104,7 @@ impl PyMultiDiGraph {
             node_data_mirror: std::sync::Mutex::new(None),
             dict_of_dicts_cache: None,
             edges_with_data_cache: None,
+            edges_with_keys_cache: None,
             node_iter_mirror: std::sync::Mutex::new(None),
         };
         for canonical in self.inner.nodes_ordered() {
@@ -4731,6 +4775,19 @@ impl MultiDiGraphEdgeView {
         if source_nodes.is_none() && matches!(&view_data, ViewData::AllData) && !keys {
             drop(g);
             let result = self.graph.borrow_mut(py).edges_alldata_tuples(py)?;
+            return Py::new(
+                py,
+                crate::NodeIterator::with_graph_guard(
+                    py,
+                    result,
+                    crate::NodeIteratorGuard::MultiDiGraph(self.graph.clone_ref(py)),
+                    node_count,
+                ),
+            );
+        }
+        if source_nodes.is_none() && matches!(&view_data, ViewData::NoData) && keys {
+            drop(g);
+            let result = self.graph.borrow_mut(py).edges_key_tuples(py)?;
             return Py::new(
                 py,
                 crate::NodeIterator::with_graph_guard(

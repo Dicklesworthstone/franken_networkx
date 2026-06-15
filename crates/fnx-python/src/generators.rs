@@ -120,6 +120,7 @@ fn report_to_pymultidigraph(
         node_data_mirror: std::sync::Mutex::new(None),
         dict_of_dicts_cache: None,
         edges_with_data_cache: None,
+        edges_with_keys_cache: None,
         node_iter_mirror: std::sync::Mutex::new(None),
     };
 
