@@ -1799,6 +1799,9 @@ pub(crate) struct PyMultiGraph {
     /// immutable + inner dicts live, so repeats return a fresh list of the same
     /// tuple objects instead of re-walking neighbors x edge_keys (was 1.7x).
     pub(crate) edges_with_data_cache: Option<(u64, u64, Vec<PyObject>)>,
+    /// br-r37-c1-3oc6v: (nodes_seq, edges_seq)-keyed cache of immutable
+    /// (u, v, key) tuples for edges(keys=True, data=False, no nbunch).
+    pub(crate) edges_with_keys_cache: Option<(u64, u64, Vec<PyObject>)>,
     /// Incremental node-iteration mirror — see PyGraph::node_iter_mirror.
     /// Live `{node: None}` dict serving iter(G)/list(G.nodes()) as a
     /// dict_keyiterator, mutated in place by node add/remove/clear hooks.
@@ -1806,6 +1809,59 @@ pub(crate) struct PyMultiGraph {
 }
 
 impl PyMultiGraph {
+    /// br-r37-c1-3oc6v: cache the immutable no-data keyed edge tuples for the
+    /// common all-edge MultiGraph view. The tuple content is exactly the same
+    /// as `_native_edge_view_list(data=False, keys=True)`: edge orientation is
+    /// the first node/neighbor traversal that sees the undirected edge,
+    /// endpoint display uses the first-wins adjacency-cell key, and the public
+    /// edge key uses the stored first-wins key object.
+    pub(crate) fn edges_key_tuples(&mut self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
+        let valid = matches!(
+            &self.edges_with_keys_cache,
+            Some((ns, es, _)) if *ns == self.nodes_seq && *es == self.edges_seq
+        );
+        if !valid {
+            let mut seen: HashSet<(String, String, usize)> =
+                HashSet::with_capacity(self.inner.edge_count());
+            let mut result: Vec<PyObject> = Vec::with_capacity(self.inner.edge_count());
+            let nodes: Vec<String> = self
+                .inner
+                .nodes_ordered()
+                .into_iter()
+                .map(str::to_owned)
+                .collect();
+            for node in &nodes {
+                let neighbors: Vec<String> = self
+                    .inner
+                    .neighbors(node)
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(str::to_owned)
+                    .collect();
+                for neighbor in &neighbors {
+                    let edge_keys = self.inner.edge_keys(node, neighbor).unwrap_or_default();
+                    for key in edge_keys {
+                        let ek = Self::edge_key(node, neighbor, key);
+                        if !seen.insert(ek) {
+                            continue;
+                        }
+                        let py_u = self.py_node_key(py, node);
+                        let py_v = self.py_adj_key(py, node, neighbor);
+                        let py_key = self.py_edge_key(py, node, neighbor, key);
+                        result.push(PyTuple::new(py, &[py_u, py_v, py_key])?.into_any().unbind());
+                    }
+                }
+            }
+            self.edges_with_keys_cache = Some((self.nodes_seq, self.edges_seq, result));
+        }
+        let cached = self
+            .edges_with_keys_cache
+            .as_ref()
+            .map(|(_, _, tuples)| tuples)
+            .ok_or_else(|| PyRuntimeError::new_err("edge key tuple cache missing"))?;
+        Ok(cached.iter().map(|tuple| tuple.clone_ref(py)).collect())
+    }
+
     /// br-r37-c1-4b5ie: mirror of PyGraph::node_data_items_view for MultiGraph —
     /// cache {node: attr_dict} keyed on nodes_seq and return its `.items()`.
     /// Uses ensure_node_py_attrs so cached dicts are the canonical stored ones
@@ -2076,6 +2132,7 @@ impl PyMultiGraph {
             node_data_mirror: std::sync::Mutex::new(None),
             dict_of_dicts_cache: None,
             edges_with_data_cache: None,
+            edges_with_keys_cache: None,
             node_iter_mirror: std::sync::Mutex::new(None),
         })
     }
@@ -5082,6 +5139,9 @@ impl PyMultiGraph {
         if want_dict && self.inner.edge_count() > 0 {
             self.mark_edges_dirty();
         }
+        if keys && !want_dict && !want_value {
+            return self.edges_key_tuples(py);
+        }
         // br-r37-c1-o07ax: the data=True, keys=False variant (the common
         // edges(data=True)) yields (u, v, live_attr) immutable tuples — cache
         // them keyed on (nodes_seq, edges_seq) and return a fresh list of the
@@ -5275,6 +5335,7 @@ impl PyMultiGraph {
             node_data_mirror: std::sync::Mutex::new(None),
             dict_of_dicts_cache: None,
             edges_with_data_cache: None,
+            edges_with_keys_cache: None,
             node_iter_mirror: std::sync::Mutex::new(None),
         };
         for node in self.inner.nodes_ordered() {
@@ -5347,6 +5408,7 @@ impl PyMultiGraph {
             node_data_mirror: std::sync::Mutex::new(None),
             dict_of_dicts_cache: None,
             edges_with_data_cache: None,
+            edges_with_keys_cache: None,
             node_iter_mirror: std::sync::Mutex::new(None),
         };
         for node in self.inner.nodes_ordered() {
@@ -5500,6 +5562,7 @@ impl PyMultiGraph {
             node_data_mirror: std::sync::Mutex::new(None),
             dict_of_dicts_cache: None,
             edges_with_data_cache: None,
+            edges_with_keys_cache: None,
             node_iter_mirror: std::sync::Mutex::new(None),
         };
         // br-r37-c1-s0d4x: nx's MultiGraph.copy() rebuild walk reorders
@@ -5587,6 +5650,7 @@ impl PyMultiGraph {
             node_data_mirror: std::sync::Mutex::new(None),
             dict_of_dicts_cache: None,
             edges_with_data_cache: None,
+            edges_with_keys_cache: None,
             node_iter_mirror: std::sync::Mutex::new(None),
         })
     }
@@ -5624,6 +5688,7 @@ impl PyMultiGraph {
             node_data_mirror: std::sync::Mutex::new(None),
             dict_of_dicts_cache: None,
             edges_with_data_cache: None,
+            edges_with_keys_cache: None,
             node_iter_mirror: std::sync::Mutex::new(None),
         };
 
@@ -5729,6 +5794,7 @@ impl PyMultiGraph {
             node_data_mirror: std::sync::Mutex::new(None),
             dict_of_dicts_cache: None,
             edges_with_data_cache: None,
+            edges_with_keys_cache: None,
             node_iter_mirror: std::sync::Mutex::new(None),
         };
 

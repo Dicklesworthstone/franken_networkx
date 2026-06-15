@@ -1,0 +1,54 @@
+{
+  "all_match": true,
+  "bead": "br-r37-c1-qwqvn",
+  "cases": [
+    {
+      "case": "edges_keys",
+      "fnx_sha256": "326094764bdb6ec58a17a3c3a78064d5ef6cecf110cfb5b474b47db915221be4",
+      "kind": "mg",
+      "length": 20000,
+      "match": true,
+      "nx_sha256": "326094764bdb6ec58a17a3c3a78064d5ef6cecf110cfb5b474b47db915221be4",
+      "sample": [
+        [
+          0,
+          1,
+          0
+        ],
+        [
+          0,
+          1,
+          1
+        ],
+        [
+          0,
+          1,
+          2
+        ],
+        [
+          0,
+          1,
+          3
+        ],
+        [
+          0,
+          1,
+          4
+        ]
+      ]
+    }
+  ],
+  "graph": {
+    "edges": 20000,
+    "nodes": 2000,
+    "parallel": 5,
+    "span": 2
+  },
+  "obligations": {
+    "floating_point": "N/A; integer ids, keys, and attributes only.",
+    "ordering": "Exact edge/key/data output order compared against NetworkX.",
+    "rng": "N/A; deterministic graph construction.",
+    "tie_breaking": "N/A beyond insertion order and explicit keys."
+  },
+  "semantic_sha256": "747b33cb617f3d8f5a51a412f08b3135ad2c9143ad82285fa35a4e0ce62fc081"
+}
