@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import cProfile
 import hashlib
+import hmac
 import io
 import json
 import math
@@ -227,7 +228,7 @@ def golden(sizes: list[int], output: Path | None) -> dict[str, Any]:
         "max_rel_delta": max_rel_delta,
         "native_quantized_sha256": native_sha,
         "numpy_quantized_sha256": numpy_sha,
-        "quantized_match": native_sha == numpy_sha,
+        "quantized_match": hmac.compare_digest(native_sha, numpy_sha),
         "raw_records": raw_records,
         "sha256": hashlib.sha256(encoded).hexdigest(),
         "sizes": sizes,

@@ -39192,50 +39192,59 @@ fn copysign_nr(magnitude: f64, sign_of: f64) -> f64 {
 /// BLAS/LAPACK linkage** (no_gaps directive). The inner rank-2 update is walked
 /// row-major so the hot `k` sweep stays contiguous.
 fn householder_tridiagonalize(a: &mut [f64], n: usize, d: &mut [f64], e: &mut [f64]) {
+    let mut reflector_scratch = vec![0.0; n];
+
     for i in (1..n).rev() {
         let l = i - 1;
+        let row_i_offset = i * n;
         let mut h = 0.0;
         if l > 0 {
             let mut scale = 0.0;
             for k in 0..=l {
-                scale += a[i * n + k].abs();
+                scale += a[row_i_offset + k].abs();
             }
             if scale == 0.0 {
-                e[i] = a[i * n + l];
+                e[i] = a[row_i_offset + l];
             } else {
                 for k in 0..=l {
-                    a[i * n + k] /= scale;
-                    h += a[i * n + k] * a[i * n + k];
+                    a[row_i_offset + k] /= scale;
+                    h += a[row_i_offset + k] * a[row_i_offset + k];
                 }
-                let f = a[i * n + l];
+                let f = a[row_i_offset + l];
                 let g = if f >= 0.0 { -h.sqrt() } else { h.sqrt() };
                 e[i] = scale * g;
                 h -= f * g;
-                a[i * n + l] = f - g;
+                a[row_i_offset + l] = f - g;
+                let active_len = l + 1;
+                reflector_scratch[..active_len]
+                    .copy_from_slice(&a[row_i_offset..row_i_offset + active_len]);
+                let reflector = &reflector_scratch[..active_len];
                 let mut f_acc = 0.0;
                 for j in 0..=l {
+                    let row_j_offset = j * n;
                     let mut g2 = 0.0;
                     for k in 0..=j {
-                        g2 += a[j * n + k] * a[i * n + k];
+                        g2 += a[row_j_offset + k] * reflector[k];
                     }
                     for k in (j + 1)..=l {
-                        g2 += a[k * n + j] * a[i * n + k];
+                        g2 += a[k * n + j] * reflector[k];
                     }
                     e[j] = g2 / h;
-                    f_acc += e[j] * a[i * n + j];
+                    f_acc += e[j] * reflector[j];
                 }
                 let hh = f_acc / (h + h);
                 for j in 0..=l {
-                    let fj = a[i * n + j];
+                    let row_j_offset = j * n;
+                    let fj = reflector[j];
                     let gj = e[j] - hh * fj;
                     e[j] = gj;
                     for k in 0..=j {
-                        a[j * n + k] -= fj * e[k] + gj * a[i * n + k];
+                        a[row_j_offset + k] -= fj * e[k] + gj * reflector[k];
                     }
                 }
             }
         } else {
-            e[i] = a[i * n + l];
+            e[i] = a[row_i_offset + l];
         }
         d[i] = h;
     }

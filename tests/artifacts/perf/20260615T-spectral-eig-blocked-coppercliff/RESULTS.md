@@ -61,10 +61,45 @@ parallel row updates.
   `0.01613893558969721s` per loop.
 - Slowdown: `0.95x` at `n=100` and `0.31x` at `n=200` by mean.
 
+## Lever 3
+
+Kept the reflector row in a scratch slice and reused cached row offsets during
+the Householder symmetric matrix-vector and rank-2 update sweeps. This keeps the
+same algorithm and ordering, but removes repeated `i * n + k` addressing from
+the inner loops and lets the compiler see a compact immutable reflector slice.
+
+## Lever 3 Proof
+
+- Golden after: max abs delta `1.7763568394002505e-13`, max rel delta
+  `2.2316783837587147e-14`.
+- Quantized native/Numpy SHA match:
+  `87d7992502970de75d14e5c24ae33a702c010a18660e31e9f6eb0c299c994f64`.
+- Native solver still returns ascending eigenvalues; no RNG or tie-break surface.
+
+## Lever 3 After
+
+- After native `n=100`: mean `0.0007917463147480572s`, median
+  `0.0007757890969514846s` per loop.
+- After native `n=200`: mean `0.0046519630239345135s`, median
+  `0.004501029395032674s` per loop.
+- Speedup: `1.02x` at `n=100` and `1.16x` at `n=200` by mean.
+
+## Packed-Threshold Variant
+
+Also measured a thresholded variant that only copied the reflector for
+`active_len >= 128`. It preserved the same SHA but was weaker than the
+unconditional scratch path: `n=100` mean `0.000849185571340578s`, `n=200` mean
+`0.004877143261754619s`. It was not kept.
+
+A gated packed follow-up also preserved the same SHA but was not selected:
+`n=100` mean `0.0008939508290495723s`, `n=200` mean
+`0.004679433113363172s`; unconditional scratch remains the kept source.
+
 ## Decision
 
-Rejected both local loop reshapes. Scores are below the keep bar. Source changes
-were removed; evidence is retained so the next 9111 pass should skip local
-dot/matvec and thread-per-row reshuffles and attack the real blocked-panel
-Householder primitive: compact reflector panels, form `W`, and apply a
-cache-blocked symmetric rank-2k trailing update.
+Kept Lever 3 only. The lower-triangle matvec and thread-per-row rank-2 update
+were rejected and removed, and the packed-threshold variant was not kept. The
+reflector scratch/indexing lever is a low-effort `1.16x` n=200 improvement with
+unchanged golden output. It does not complete 9111: the next pass still needs
+the real blocked-panel Householder primitive with compact reflector panels, `W`
+formation, and a cache-blocked symmetric rank-2k trailing update.
