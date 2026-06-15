@@ -95,11 +95,41 @@ A gated packed follow-up also preserved the same SHA but was not selected:
 `n=100` mean `0.0008939508290495723s`, `n=200` mean
 `0.004679433113363172s`; unconditional scratch remains the kept source.
 
+## Lever 4
+
+Changed the rank-2 trailing update sweep to operate on a contiguous mutable row
+slice with a four-wide chunked loop. Each matrix entry still uses the same
+scalar expression, `a[j,k] -= v[j] * q[k] + q[j] * v[k]`, so the Householder
+reflector order, final eigenvalue ordering, and RNG-free behavior are unchanged.
+
+## Lever 4 Proof
+
+- Golden after: max abs delta `1.7763568394002505e-13`, max rel delta
+  `2.2316783837587147e-14`.
+- Quantized native/Numpy SHA match:
+  `87d7992502970de75d14e5c24ae33a702c010a18660e31e9f6eb0c299c994f64`.
+- `rch` process-level hyperfine also moved in the right direction despite
+  Python startup noise: `n=100` mean `426.1ms -> 333.1ms`, `n=200` mean
+  `388.9ms -> 370.6ms`.
+
+## Lever 4 After
+
+- Current baseline native `n=100`: mean `0.0008280417158467961s`, median
+  `0.0007920321295387112s` per loop.
+- After native `n=100`: mean `0.0007266390010564854s`, median
+  `0.0007255422460730188s` per loop.
+- Current baseline native `n=200`: mean `0.004874854331969151s`, median
+  `0.004538466338999569s` per loop.
+- After native `n=200`: mean `0.004336042473802254s`, median
+  `0.0042967949993908405s` per loop.
+- Speedup: `1.14x` at `n=100` and `1.12x` at `n=200` by mean.
+
 ## Decision
 
-Kept Lever 3 only. The lower-triangle matvec and thread-per-row rank-2 update
-were rejected and removed, and the packed-threshold variant was not kept. The
-reflector scratch/indexing lever is a low-effort `1.16x` n=200 improvement with
-unchanged golden output. It does not complete 9111: the next pass still needs
-the real blocked-panel Householder primitive with compact reflector panels, `W`
-formation, and a cache-blocked symmetric rank-2k trailing update.
+Kept Lever 3 and Lever 4. The lower-triangle matvec and thread-per-row rank-2
+update were rejected and removed, and the packed-threshold variants were not
+kept. The reflector scratch/indexing lever delivered a low-effort `1.16x` n=200
+improvement, then the chunked row-slice rank-2 update delivered another `1.12x`
+n=200 improvement with unchanged golden output. The deeper follow-up remains
+real blocked-panel Householder with compact reflector panels, `W` formation, and
+a cache-blocked symmetric rank-2k trailing update.

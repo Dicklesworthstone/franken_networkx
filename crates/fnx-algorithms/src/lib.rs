@@ -39238,8 +39238,18 @@ fn householder_tridiagonalize(a: &mut [f64], n: usize, d: &mut [f64], e: &mut [f
                     let fj = reflector[j];
                     let gj = e[j] - hh * fj;
                     e[j] = gj;
-                    for k in 0..=j {
-                        a[row_j_offset + k] -= fj * e[k] + gj * reflector[k];
+                    let row = &mut a[row_j_offset..row_j_offset + j + 1];
+                    let mut k = 0;
+                    while k + 4 <= row.len() {
+                        row[k] -= fj * e[k] + gj * reflector[k];
+                        row[k + 1] -= fj * e[k + 1] + gj * reflector[k + 1];
+                        row[k + 2] -= fj * e[k + 2] + gj * reflector[k + 2];
+                        row[k + 3] -= fj * e[k + 3] + gj * reflector[k + 3];
+                        k += 4;
+                    }
+                    while k < row.len() {
+                        row[k] -= fj * e[k] + gj * reflector[k];
+                        k += 1;
                     }
                 }
             }
