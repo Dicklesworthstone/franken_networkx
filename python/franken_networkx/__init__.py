@@ -22741,6 +22741,34 @@ def fiedler_vector(
         _validate_fiedler_method(method)
     del tol, method  # accepted for nx parity but not used by the dense solver
 
+    # br-r37-c1-ucvfx: for medium dense, unweighted, simple native graphs the
+    # old fallback spends essentially all time in dense np.linalg.eigh. A
+    # native Lanczos/Ritz solve works in the Laplacian matvec subspace and
+    # proves its residual before returning; any unsupported or ill-conditioned
+    # case falls through to the established SciPy/dense paths below.
+    native_node_count = len(G)
+    native_edge_count = G.number_of_edges()
+    if (
+        not normalized
+        and not G.is_multigraph()
+        and 32 <= native_node_count <= 128
+        and native_edge_count * 2 >= 16 * native_node_count
+    ):
+        try:
+            unweighted = weight is None
+            if not unweighted and isinstance(weight, str):
+                unweighted = not any(
+                    weight in attrs for _, _, attrs in G.edges(data=True)
+                )
+            if unweighted:
+                native_vector = _fnx.fiedler_vector_unweighted_lanczos_rust(
+                    G, 96, 1e-8
+                )
+                if native_vector is not None:
+                    return np.asarray(native_vector, dtype=float)
+        except Exception:
+            pass
+
     # br-fiedlersparse: same dense O(n^3) np.linalg.eigh tax as
     # algebraic_connectivity (~6.5x slower than nx, 1.56s @ watts(400,6)). For
     # a SPARSE graph with a SIMPLE second-smallest eigenvalue, get the Fiedler

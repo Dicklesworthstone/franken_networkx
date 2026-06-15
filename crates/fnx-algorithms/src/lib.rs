@@ -38754,6 +38754,262 @@ pub fn subgraph_centrality_expdiag(graph: &Graph) -> Vec<CentralityScore> {
         .collect()
 }
 
+fn dot(a: &[f64], b: &[f64]) -> f64 {
+    a.iter().zip(b).map(|(x, y)| x * y).sum()
+}
+
+fn norm2(a: &[f64]) -> f64 {
+    dot(a, a).sqrt()
+}
+
+fn project_ones_orthogonal(values: &mut [f64]) {
+    if values.is_empty() {
+        return;
+    }
+    let mean = values.iter().sum::<f64>() / values.len() as f64;
+    for value in values {
+        *value -= mean;
+    }
+}
+
+fn normalize(values: &mut [f64]) -> Option<f64> {
+    let norm = norm2(values);
+    if norm <= f64::EPSILON || !norm.is_finite() {
+        return None;
+    }
+    for value in values {
+        *value /= norm;
+    }
+    Some(norm)
+}
+
+fn jacobi_symmetric_eigenvectors(matrix: &[f64], n: usize) -> Option<(Vec<f64>, Vec<f64>)> {
+    if matrix.len() != n * n {
+        return None;
+    }
+    let mut a = matrix.to_vec();
+    let mut v = vec![0.0; n * n];
+    for i in 0..n {
+        v[i * n + i] = 1.0;
+    }
+    let tolerance = 1e-13;
+    for _ in 0..(20 * n * n).max(1) {
+        let mut p = 0;
+        let mut q = 0;
+        let mut max_offdiag = 0.0;
+        for i in 0..n {
+            for j in (i + 1)..n {
+                let value = a[i * n + j].abs();
+                if value > max_offdiag {
+                    max_offdiag = value;
+                    p = i;
+                    q = j;
+                }
+            }
+        }
+        if max_offdiag < tolerance {
+            let eigenvalues = (0..n).map(|i| a[i * n + i]).collect();
+            return Some((eigenvalues, v));
+        }
+
+        let app = a[p * n + p];
+        let aqq = a[q * n + q];
+        let apq = a[p * n + q];
+        if apq == 0.0 {
+            continue;
+        }
+        let tau = (aqq - app) / (2.0 * apq);
+        let t = if tau == 0.0 {
+            1.0
+        } else {
+            tau.signum() / (tau.abs() + (1.0 + tau * tau).sqrt())
+        };
+        let c = 1.0 / (1.0 + t * t).sqrt();
+        let s = t * c;
+
+        for k in 0..n {
+            if k != p && k != q {
+                let akp = a[k * n + p];
+                let akq = a[k * n + q];
+                let new_kp = c * akp - s * akq;
+                let new_kq = s * akp + c * akq;
+                a[k * n + p] = new_kp;
+                a[p * n + k] = new_kp;
+                a[k * n + q] = new_kq;
+                a[q * n + k] = new_kq;
+            }
+        }
+        a[p * n + p] = c * c * app - 2.0 * s * c * apq + s * s * aqq;
+        a[q * n + q] = s * s * app + 2.0 * s * c * apq + c * c * aqq;
+        a[p * n + q] = 0.0;
+        a[q * n + p] = 0.0;
+
+        for k in 0..n {
+            let vkp = v[k * n + p];
+            let vkq = v[k * n + q];
+            v[k * n + p] = c * vkp - s * vkq;
+            v[k * n + q] = s * vkp + c * vkq;
+        }
+    }
+    let eigenvalues = (0..n).map(|i| a[i * n + i]).collect();
+    Some((eigenvalues, v))
+}
+
+/// Approximate the Fiedler vector of an unweighted simple graph with a native
+/// safe-Rust Lanczos/Ritz solve on the subspace orthogonal to the all-ones
+/// vector. Returns `None` when residual checks do not prove a valid Fiedler
+/// vector, letting the Python wrapper fall back to its exact dense path.
+pub fn fiedler_vector_unweighted_lanczos(
+    graph: &Graph,
+    max_iter: usize,
+    tolerance: f64,
+) -> Option<Vec<f64>> {
+    let n = graph.node_count();
+    if n < 4 || graph.edge_count() == 0 {
+        return None;
+    }
+
+    let mut adjacency = vec![Vec::<usize>::new(); n];
+    let mut degree = vec![0.0; n];
+    for (u, v) in graph.edges_ordered_indices() {
+        if u == v {
+            return None;
+        }
+        adjacency[u].push(v);
+        adjacency[v].push(u);
+        degree[u] += 1.0;
+        degree[v] += 1.0;
+    }
+
+    let laplacian_mul = |x: &[f64], out: &mut [f64]| {
+        for i in 0..n {
+            let mut value = degree[i] * x[i];
+            for &j in &adjacency[i] {
+                value -= x[j];
+            }
+            out[i] = value;
+        }
+        project_ones_orthogonal(out);
+    };
+
+    let mut q: Vec<f64> = degree
+        .iter()
+        .enumerate()
+        .map(|(i, &d)| d + ((i * 37 + 17) % n) as f64 / n as f64)
+        .collect();
+    project_ones_orthogonal(&mut q);
+    if normalize(&mut q).is_none() {
+        for (i, value) in q.iter_mut().enumerate() {
+            *value = if i % 2 == 0 { 1.0 } else { -1.0 };
+        }
+        project_ones_orthogonal(&mut q);
+        normalize(&mut q)?;
+    }
+
+    let m_limit = max_iter.max(2).min(n);
+    let mut q_prev = vec![0.0; n];
+    let mut beta_prev = 0.0;
+    let mut basis: Vec<Vec<f64>> = Vec::with_capacity(m_limit);
+    let mut alphas: Vec<f64> = Vec::with_capacity(m_limit);
+    let mut betas: Vec<f64> = Vec::with_capacity(m_limit.saturating_sub(1));
+    let mut work = vec![0.0; n];
+
+    for _ in 0..m_limit {
+        laplacian_mul(&q, &mut work);
+        if beta_prev != 0.0 {
+            for i in 0..n {
+                work[i] -= beta_prev * q_prev[i];
+            }
+        }
+        let alpha = dot(&q, &work);
+        for i in 0..n {
+            work[i] -= alpha * q[i];
+        }
+        for old_q in &basis {
+            let coeff = dot(old_q, &work);
+            if coeff != 0.0 {
+                for i in 0..n {
+                    work[i] -= coeff * old_q[i];
+                }
+            }
+        }
+        project_ones_orthogonal(&mut work);
+        let beta = norm2(&work);
+        basis.push(q.clone());
+        alphas.push(alpha);
+        if beta < tolerance || basis.len() == m_limit {
+            break;
+        }
+        betas.push(beta);
+        q_prev = q;
+        q = work.iter().map(|value| value / beta).collect();
+        beta_prev = beta;
+    }
+
+    let m = alphas.len();
+    if m < 2 {
+        return None;
+    }
+    let mut tridiag = vec![0.0; m * m];
+    for i in 0..m {
+        tridiag[i * m + i] = alphas[i];
+        if i + 1 < m {
+            tridiag[i * m + i + 1] = betas[i];
+            tridiag[(i + 1) * m + i] = betas[i];
+        }
+    }
+    let (eigenvalues, eigenvectors) = jacobi_symmetric_eigenvectors(&tridiag, m)?;
+    let mut ritz_order: Vec<usize> = (0..m).collect();
+    ritz_order.sort_unstable_by(|&a, &b| eigenvalues[a].total_cmp(&eigenvalues[b]));
+    let ritz_idx = *ritz_order.first()?;
+    let lambda = eigenvalues[ritz_idx];
+    if !lambda.is_finite() || lambda <= 0.0 {
+        return None;
+    }
+    let next_lambda = ritz_order
+        .iter()
+        .copied()
+        .skip(1)
+        .map(|idx| eigenvalues[idx])
+        .find(|value| value.is_finite())?;
+    if next_lambda - lambda <= 1e-7 * next_lambda.abs().max(1.0) {
+        return None;
+    }
+
+    let mut vector = vec![0.0; n];
+    for j in 0..m {
+        let coeff = eigenvectors[j * m + ritz_idx];
+        for i in 0..n {
+            vector[i] += coeff * basis[j][i];
+        }
+    }
+    project_ones_orthogonal(&mut vector);
+    normalize(&mut vector)?;
+    let sign_idx = vector
+        .iter()
+        .enumerate()
+        .max_by(|(_, a), (_, b)| a.abs().total_cmp(&b.abs()))
+        .map(|(i, _)| i)?;
+    if vector[sign_idx] < 0.0 {
+        for value in &mut vector {
+            *value = -*value;
+        }
+    }
+
+    let mut residual_vec = vec![0.0; n];
+    laplacian_mul(&vector, &mut residual_vec);
+    for i in 0..n {
+        residual_vec[i] -= lambda * vector[i];
+    }
+    let residual = norm2(&residual_vec);
+    let limit = 1e-5_f64.max(tolerance.sqrt() * lambda.abs().max(1.0));
+    if residual <= limit {
+        Some(vector)
+    } else {
+        None
+    }
+}
+
 /// Communicability betweenness centrality.
 ///
 /// For each node v, measures how much removing v reduces the communicability

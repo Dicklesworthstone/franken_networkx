@@ -18858,6 +18858,23 @@ pub fn subgraph_centrality_expdiag_rust(
     Ok(dict.into_any().unbind())
 }
 
+/// Native safe-Rust Lanczos/Ritz Fiedler vector for dense unweighted simple graphs.
+#[pyfunction]
+#[pyo3(signature = (g, max_iter=96, tolerance=1e-8))]
+pub fn fiedler_vector_unweighted_lanczos_rust(
+    _py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    max_iter: usize,
+    tolerance: f64,
+) -> PyResult<Option<Vec<f64>>> {
+    let gr = extract_graph(g)?;
+    let GraphRef::Undirected(pg) = &gr else {
+        return Ok(None);
+    };
+    let result = fnx_algorithms::fiedler_vector_unweighted_lanczos(&pg.inner, max_iter, tolerance);
+    Ok(result)
+}
+
 // ---------------------------------------------------------------------------
 // Current-flow betweenness centrality
 // ---------------------------------------------------------------------------
@@ -19634,6 +19651,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(google_matrix_rust, m)?)?;
     m.add_function(wrap_pyfunction!(second_order_centrality_rust, m)?)?;
     m.add_function(wrap_pyfunction!(subgraph_centrality_expdiag_rust, m)?)?;
+    m.add_function(wrap_pyfunction!(fiedler_vector_unweighted_lanczos_rust, m)?)?;
     m.add_function(wrap_pyfunction!(
         communicability_betweenness_centrality_rust,
         m
@@ -19769,6 +19787,7 @@ mod tests {
                 dict_of_dicts_cache: None,
                 edges_with_data_cache: None,
                 node_iter_mirror: std::sync::Mutex::new(None),
+                edges_with_keys_cache: None,
             };
             let mut weighted_attrs = AttrMap::new();
             weighted_attrs.insert("weight".to_owned(), 1.0.into());

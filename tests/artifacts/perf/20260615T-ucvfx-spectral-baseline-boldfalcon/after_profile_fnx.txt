@@ -1,0 +1,97 @@
+bead=br-r37-c1-ucvfx which=fnx loops=3 checksum=0.000000000000
+         4972 function calls in 0.131 seconds
+
+   Ordered by: cumulative time
+   List reduced from 53 to 40 due to restriction <40>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        3    0.000    0.000    0.131    0.044 /data/projects/franken_networkx/tests/artifacts/perf/20260615T-ucvfx-spectral-baseline-boldfalcon/fiedler_dense_harness.py:49(run_case)
+        3    0.000    0.000    0.131    0.044 /data/projects/franken_networkx/python/franken_networkx/__init__.py:52975(wrapper)
+        3    0.000    0.000    0.131    0.044 /data/projects/franken_networkx/python/franken_networkx/__init__.py:22687(fiedler_vector)
+        3    0.129    0.043    0.129    0.043 {built-in method franken_networkx._fnx.fiedler_vector_unweighted_lanczos_rust}
+        3    0.000    0.000    0.001    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:658(__iter__)
+        3    0.001    0.000    0.001    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:536(_materialize)
+        3    0.000    0.000    0.001    0.000 {built-in method builtins.any}
+     2358    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:22760(<genexpr>)
+     2358    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:439(_gen)
+        3    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/numpy/_core/fromnumeric.py:2304(sum)
+        3    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/tests/artifacts/perf/20260615T-ucvfx-spectral-baseline-boldfalcon/fiedler_dense_harness.py:38(canon)
+        3    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/numpy/_core/fromnumeric.py:66(_wrapreduction)
+        3    0.000    0.000    0.000    0.000 {method 'reduce' of 'numpy.ufunc' objects}
+        3    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:7801(is_connected)
+        3    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/numpy/_core/fromnumeric.py:1221(argmax)
+        3    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:37046(edges)
+        6    0.000    0.000    0.000    0.000 {built-in method numpy.asarray}
+        3    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:746(wrapped)
+        3    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/numpy/_core/fromnumeric.py:48(_wrapfunc)
+        3    0.000    0.000    0.000    0.000 {built-in method franken_networkx._fnx.is_connected}
+       21    0.000    0.000    0.000    0.000 {built-in method builtins.len}
+        3    0.000    0.000    0.000    0.000 /usr/lib/python3.13/weakref.py:164(__setitem__)
+        6    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:6169(predicate)
+        9    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:37003(__len__)
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+       27    0.000    0.000    0.000    0.000 {built-in method builtins.isinstance}
+        3    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:414(_FailFastEdgeIterator)
+        3    0.000    0.000    0.000    0.000 {method 'argmax' of 'numpy.ndarray' objects}
+        9    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:36440(_private_override)
+        3    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:37260(number_of_edges)
+        3    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:497(__init__)
+        3    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:13126(_coerce_arg_to_fnx_graph)
+        3    0.000    0.000    0.000    0.000 /usr/lib/python3.13/weakref.py:347(__new__)
+        3    0.000    0.000    0.000    0.000 {built-in method builtins.getattr}
+        3    0.000    0.000    0.000    0.000 /usr/lib/python3.13/weakref.py:352(__init__)
+       21    0.000    0.000    0.000    0.000 {built-in method builtins.vars}
+        9    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:36448(_has_networkx_private_storage)
+        3    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:315(number_of_edges)
+        3    0.000    0.000    0.000    0.000 {function _make_class_safe_predicate.<locals>.predicate at 0x7aad16a8e7a0}
+        3    0.000    0.000    0.000    0.000 {built-in method builtins.hasattr}
+
+
+
+--- tottime ---
+         4972 function calls in 0.131 seconds
+
+   Ordered by: internal time
+   List reduced from 53 to 40 due to restriction <40>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        3    0.129    0.043    0.129    0.043 {built-in method franken_networkx._fnx.fiedler_vector_unweighted_lanczos_rust}
+        3    0.001    0.000    0.001    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:536(_materialize)
+     2358    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:22760(<genexpr>)
+     2358    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:439(_gen)
+        3    0.000    0.000    0.001    0.000 {built-in method builtins.any}
+        3    0.000    0.000    0.131    0.044 /data/projects/franken_networkx/python/franken_networkx/__init__.py:22687(fiedler_vector)
+        3    0.000    0.000    0.000    0.000 {method 'reduce' of 'numpy.ufunc' objects}
+        3    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/tests/artifacts/perf/20260615T-ucvfx-spectral-baseline-boldfalcon/fiedler_dense_harness.py:38(canon)
+        6    0.000    0.000    0.000    0.000 {built-in method numpy.asarray}
+        3    0.000    0.000    0.000    0.000 {built-in method franken_networkx._fnx.is_connected}
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+       27    0.000    0.000    0.000    0.000 {built-in method builtins.isinstance}
+        3    0.000    0.000    0.131    0.044 /data/projects/franken_networkx/python/franken_networkx/__init__.py:52975(wrapper)
+        3    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/numpy/_core/fromnumeric.py:66(_wrapreduction)
+        3    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:746(wrapped)
+        6    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:6169(predicate)
+        3    0.000    0.000    0.000    0.000 {method 'argmax' of 'numpy.ndarray' objects}
+        3    0.000    0.000    0.000    0.000 /usr/lib/python3.13/weakref.py:164(__setitem__)
+        3    0.000    0.000    0.131    0.044 /data/projects/franken_networkx/tests/artifacts/perf/20260615T-ucvfx-spectral-baseline-boldfalcon/fiedler_dense_harness.py:49(run_case)
+        3    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/numpy/_core/fromnumeric.py:1221(argmax)
+        3    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/numpy/_core/fromnumeric.py:2304(sum)
+        3    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:414(_FailFastEdgeIterator)
+        3    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:37046(edges)
+        3    0.000    0.000    0.001    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:658(__iter__)
+        9    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:37003(__len__)
+        3    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/numpy/_core/fromnumeric.py:48(_wrapfunc)
+       21    0.000    0.000    0.000    0.000 {built-in method builtins.len}
+        3    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:497(__init__)
+        3    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:7801(is_connected)
+        9    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:36440(_private_override)
+        3    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:13126(_coerce_arg_to_fnx_graph)
+        3    0.000    0.000    0.000    0.000 {built-in method builtins.getattr}
+        3    0.000    0.000    0.000    0.000 /usr/lib/python3.13/weakref.py:352(__init__)
+        3    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:37260(number_of_edges)
+        3    0.000    0.000    0.000    0.000 /usr/lib/python3.13/weakref.py:347(__new__)
+       21    0.000    0.000    0.000    0.000 {built-in method builtins.vars}
+        3    0.000    0.000    0.000    0.000 {function _make_class_safe_predicate.<locals>.predicate at 0x7aad16a8e7a0}
+        9    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:36448(_has_networkx_private_storage)
+        3    0.000    0.000    0.000    0.000 {built-in method builtins.hasattr}
+        3    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:315(number_of_edges)
