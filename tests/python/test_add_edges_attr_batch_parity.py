@@ -32,6 +32,14 @@ def _canon_multidigraph(g):
     )
 
 
+def _canon_multigraph(g):
+    return (
+        [(n, dict(a)) for n, a in g.nodes(data=True)],
+        [(u, v, k, dict(d)) for u, v, k, d in g.edges(keys=True, data=True)],
+        {n: list(g.adj[n]) for n in g},
+    )
+
+
 def _both(build):
     return _canon(build(nx)), _canon(build(fnx))
 
@@ -296,6 +304,54 @@ def test_digraph_exact_int_batch_probe_falls_back_for_bool_nodes():
 
     a, b = _both(build)
     assert a == b
+
+
+def test_multigraph_fresh_exact_int_attr_batch_matches_nx_order_keys_and_copies():
+    first = {"w": 0, "label": "first"}
+    duplicate = {"w": 91, "extra": "second-key"}
+    third = {"w": 92, "tail": "third-key"}
+    batch = (
+        [(10, 2, first), (2, 3, {"w": 1}), (2, 10, duplicate), (10, 10, {"self": True})]
+        + [(i, i + 1, {"w": i, "tag": f"e{i}"}) for i in range(3, 11)]
+        + [(10, 2, third)]
+    )
+
+    gf = fnx.MultiGraph()
+    gn = nx.MultiGraph()
+    gf.add_edges_from(batch)
+    gn.add_edges_from(batch)
+
+    assert _canon_multigraph(gf) == _canon_multigraph(gn)
+    assert gf.get_edge_data(10, 2) == {
+        0: {"w": 0, "label": "first"},
+        1: {"w": 91, "extra": "second-key"},
+        2: {"w": 92, "tail": "third-key"},
+    }
+    assert list(gf.adj[10]) == list(gn.adj[10])
+    assert list(gf.adj[2]) == list(gn.adj[2])
+
+    first["w"] = 999
+    duplicate["extra"] = "mutated"
+    third["tail"] = "mutated"
+    assert gf.get_edge_data(10, 2) == {
+        0: {"w": 0, "label": "first"},
+        1: {"w": 91, "extra": "second-key"},
+        2: {"w": 92, "tail": "third-key"},
+    }
+
+
+def test_multigraph_exact_int_attr_probe_falls_back_for_bool_nodes():
+    batch = (
+        [(True, 2, {"w": "bool"}), (1, 3, {"w": "int"})]
+        + [(i, i + 10, {"w": i}) for i in range(2, 10)]
+    )
+
+    def build(mod):
+        g = mod.MultiGraph()
+        g.add_edges_from(batch)
+        return g
+
+    assert _canon_multigraph(build(fnx)) == _canon_multigraph(build(nx))
 
 
 def test_multidigraph_fresh_exact_int_attr_batch_matches_nx_order_keys_and_copies():

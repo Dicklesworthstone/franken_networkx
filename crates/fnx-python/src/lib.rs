@@ -1956,6 +1956,13 @@ type IndexedAttrEdgeBatch = (
     u64,
 );
 
+type IndexedKeyedAttrEdgeBatch = (
+    Vec<String>,
+    Vec<PyObject>,
+    Vec<(usize, usize, usize, AttrMap, Option<Py<PyDict>>)>,
+    u64,
+);
+
 /// br-r37-c1-nodebatch: collected attributed-node batch —
 /// (nodes, new_nodes, node_bumps); each node carries its converted
 /// `AttrMap` plus the source `PyDict` for the lazy mirror update.
@@ -2355,6 +2362,191 @@ impl PyMultiGraph {
     #[inline]
     pub(crate) fn mark_edges_dirty(&self) {
         self.edges_dirty.store(true, Ordering::Relaxed);
+    }
+
+    fn collect_fresh_exact_int_keyed_attr_edge_batch(
+        &self,
+        items: &[Bound<'_, PyAny>],
+    ) -> PyResult<Option<IndexedKeyedAttrEdgeBatch>> {
+        let mut node_indices: HashMap<i64, usize> = HashMap::new();
+        let mut node_labels: Vec<String> = Vec::new();
+        let mut node_objects: Vec<PyObject> = Vec::new();
+        let mut pair_count: HashMap<(usize, usize), usize> = HashMap::new();
+        let mut edges: Vec<(usize, usize, usize, AttrMap, Option<Py<PyDict>>)> =
+            Vec::with_capacity(items.len());
+        let mut node_bumps = 0_u64;
+
+        for item in items {
+            let Ok(tuple) = item.downcast::<PyTuple>() else {
+                return Ok(None);
+            };
+            if tuple.len() != 3 {
+                return Ok(None);
+            }
+
+            let u = tuple.get_item(0)?;
+            let v = tuple.get_item(1)?;
+            if !u.is_exact_instance_of::<PyInt>()
+                || !v.is_exact_instance_of::<PyInt>()
+                || u.is_exact_instance_of::<PyBool>()
+                || v.is_exact_instance_of::<PyBool>()
+            {
+                return Ok(None);
+            }
+            let Ok(u_value) = u.extract::<i64>() else {
+                return Ok(None);
+            };
+            let Ok(v_value) = v.extract::<i64>() else {
+                return Ok(None);
+            };
+
+            let third = tuple.get_item(2)?;
+            let Ok(dict) = third.downcast::<PyDict>() else {
+                return Ok(None);
+            };
+            let Ok(attrs) = py_dict_to_attr_map(dict) else {
+                return Ok(None);
+            };
+            if attrs
+                .keys()
+                .any(|key| key.starts_with("__fnx_incompatible"))
+            {
+                return Ok(None);
+            }
+            let mirror = if dict.is_empty() {
+                None
+            } else {
+                Some(dict.copy()?.unbind())
+            };
+
+            let mut edge_added_node = false;
+            let u_index = match node_indices.get(&u_value).copied() {
+                Some(index) => index,
+                None => {
+                    let index = node_labels.len();
+                    node_indices.insert(u_value, index);
+                    node_labels.push(u_value.to_string());
+                    node_objects.push(u.clone().unbind());
+                    edge_added_node = true;
+                    index
+                }
+            };
+            let v_index = match node_indices.get(&v_value).copied() {
+                Some(index) => index,
+                None => {
+                    let index = node_labels.len();
+                    node_indices.insert(v_value, index);
+                    node_labels.push(v_value.to_string());
+                    node_objects.push(v.clone().unbind());
+                    edge_added_node = true;
+                    index
+                }
+            };
+            if edge_added_node {
+                node_bumps = node_bumps.wrapping_add(1);
+            }
+
+            let pair = if node_labels[u_index].as_str() <= node_labels[v_index].as_str() {
+                (u_index, v_index)
+            } else {
+                (v_index, u_index)
+            };
+            let counter = pair_count.entry(pair).or_insert(0);
+            let key = *counter;
+            *counter += 1;
+            edges.push((u_index, v_index, key, attrs, mirror));
+        }
+
+        Ok(Some((node_labels, node_objects, edges, node_bumps)))
+    }
+
+    fn add_fresh_exact_int_keyed_attr_edge_batch(
+        &mut self,
+        py: Python<'_>,
+        node_labels: Vec<String>,
+        node_objects: Vec<PyObject>,
+        edges: Vec<(usize, usize, usize, AttrMap, Option<Py<PyDict>>)>,
+        node_bumps: u64,
+    ) {
+        let edge_bumps = u64::try_from(edges.len()).unwrap_or(u64::MAX);
+
+        let mirror_active = self.node_iter_mirror_active();
+        for (canonical, node) in node_labels.iter().zip(node_objects) {
+            let mk = if mirror_active {
+                Some(canonical.clone())
+            } else {
+                None
+            };
+            self.node_key_map.entry(canonical.clone()).or_insert(node);
+            if let Some(c) = mk {
+                let _ = self.node_iter_mirror_insert(py, &c);
+            }
+        }
+
+        let mut inner_edges = Vec::with_capacity(edges.len());
+        for (left_idx, right_idx, key, attrs, mirror) in edges {
+            let left = &node_labels[left_idx];
+            let right = &node_labels[right_idx];
+            if let Some(dict) = mirror {
+                self.edge_py_attrs
+                    .entry(Self::edge_key(left, right, key))
+                    .or_insert(dict);
+            }
+            inner_edges.push((left_idx, right_idx, key, attrs));
+        }
+
+        let _ = self
+            .inner
+            .extend_fresh_index_keyed_edges_with_attrs_unrecorded(node_labels, inner_edges);
+        self.nodes_seq = self.nodes_seq.wrapping_add(node_bumps);
+        self.edges_seq = self.edges_seq.wrapping_add(edge_bumps);
+    }
+
+    fn try_add_fresh_exact_int_keyed_attr_edge_batch(
+        &mut self,
+        py: Python<'_>,
+        ebunch_to_add: &Bound<'_, PyAny>,
+        global_attr: Option<&Bound<'_, PyDict>>,
+    ) -> PyResult<bool> {
+        const ATTR_EDGE_BATCH_MIN: usize = 8;
+        if global_attr.is_some_and(|attrs| !attrs.is_empty())
+            || self.inner.node_count() != 0
+            || self.inner.edge_count() != 0
+            || !self.node_key_map.is_empty()
+            || !self.adj_py_keys.is_empty()
+            || !self.node_py_attrs.is_empty()
+            || !self.edge_py_attrs.is_empty()
+            || !self.edge_py_keys.is_empty()
+        {
+            return Ok(false);
+        }
+
+        let items: Vec<Bound<'_, PyAny>> = if let Ok(list) = ebunch_to_add.downcast::<PyList>() {
+            if list.len() < ATTR_EDGE_BATCH_MIN {
+                return Ok(false);
+            }
+            list.iter().collect()
+        } else if let Ok(tuple) = ebunch_to_add.downcast::<PyTuple>() {
+            if tuple.len() < ATTR_EDGE_BATCH_MIN {
+                return Ok(false);
+            }
+            tuple.iter().collect()
+        } else {
+            return Ok(false);
+        };
+        let collected = self.collect_fresh_exact_int_keyed_attr_edge_batch(&items)?;
+
+        let Some((node_labels, node_objects, edges, node_bumps)) = collected else {
+            return Ok(false);
+        };
+        self.add_fresh_exact_int_keyed_attr_edge_batch(
+            py,
+            node_labels,
+            node_objects,
+            edges,
+            node_bumps,
+        );
+        Ok(true)
     }
 
     fn try_absorb_exact_int_str_keyed_ctor_edges(
@@ -3875,6 +4067,9 @@ impl PyMultiGraph {
         ebunch_to_add: &Bound<'_, PyAny>,
         global_attr: Option<&Bound<'_, PyDict>>,
     ) -> PyResult<bool> {
+        if self.try_add_fresh_exact_int_keyed_attr_edge_batch(py, ebunch_to_add, global_attr)? {
+            return Ok(true);
+        }
         const ATTR_EDGE_BATCH_MIN: usize = 8;
         if self.inner.edge_count() != 0 || !self.adj_py_keys.is_empty() {
             return Ok(false);
