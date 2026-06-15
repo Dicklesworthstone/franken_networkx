@@ -14549,7 +14549,7 @@ fn dijkstra_path_length(
     source: &Bound<'_, PyAny>,
     target: &Bound<'_, PyAny>,
     weight: &str,
-) -> PyResult<f64> {
+) -> PyResult<PyObject> {
     sync_rust_attrs_if_available(g)?;
     let gr = extract_graph(g)?;
     let s = node_key_to_string(py, source)?;
@@ -14559,17 +14559,28 @@ fn dijkstra_path_length(
     let result = if let Some(weighted_projection) = gr.weighted_digraph_projection(weight) {
         {
             let __wp = weighted_projection.as_ref();
-            py.allow_threads(|| fnx_algorithms::dijkstra_path_length_directed(__wp, &s, &t, weight))
+            py.allow_threads(|| {
+                fnx_algorithms::dijkstra_path_length_typed_directed(__wp, &s, &t, weight)
+            })
         }
     } else {
         let weighted_projection = gr.weighted_undirected_projection(weight);
         {
             let __wp = weighted_projection.as_ref();
-            py.allow_threads(|| fnx_algorithms::dijkstra_path_length(__wp, &s, &t, weight))
+            py.allow_threads(|| fnx_algorithms::dijkstra_path_length_typed(__wp, &s, &t, weight))
         }
     };
     match result {
-        Some(d) => Ok(d),
+        Some((d, all_int))
+            if all_int
+                && d.is_finite()
+                && d.fract() == 0.0
+                && d >= i128::MIN as f64
+                && d <= i128::MAX as f64 =>
+        {
+            Ok(PyInt::new(py, d as i128).into_any().unbind())
+        }
+        Some((d, _)) => Ok(d.into_pyobject(py)?.into_any().unbind()),
         None => Err(NetworkXNoPath::new_err(format!(
             "No path between {} and {}.",
             s, t

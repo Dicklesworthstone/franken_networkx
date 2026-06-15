@@ -1,0 +1,26 @@
+         812 function calls (797 primitive calls) in 0.010 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.000    0.000    0.010    0.010 dijkstra_family_pass.py:273(repeated)
+       15    0.000    0.000    0.010    0.001 dijkstra_family_pass.py:173(<lambda>)
+    30/15    0.000    0.000    0.010    0.001 __init__.py:53011(wrapper)
+       15    0.000    0.000    0.010    0.001 __init__.py:7687(shortest_path_length)
+       15    0.000    0.000    0.010    0.001 __init__.py:17998(dijkstra_path_length)
+       15    0.009    0.001    0.009    0.001 {built-in method franken_networkx._fnx.dijkstra_path_length}
+       30    0.000    0.000    0.000    0.000 __init__.py:7012(_should_delegate_dijkstra_to_networkx)
+       60    0.000    0.000    0.000    0.000 __init__.py:37043(__contains__)
+       15    0.000    0.000    0.000    0.000 __init__.py:6795(_path_query_has_missing_nodes)
+       60    0.000    0.000    0.000    0.000 __init__.py:36470(_private_override)
+       30    0.000    0.000    0.000    0.000 __init__.py:13126(_coerce_arg_to_fnx_graph)
+       30    0.000    0.000    0.000    0.000 __init__.py:6169(predicate)
+      180    0.000    0.000    0.000    0.000 {built-in method builtins.isinstance}
+       90    0.000    0.000    0.000    0.000 {built-in method builtins.vars}
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+       90    0.000    0.000    0.000    0.000 {method 'get' of 'dict' objects}
+       30    0.000    0.000    0.000    0.000 {built-in method franken_networkx._fnx.dijkstra_weight_cache_token}
+       30    0.000    0.000    0.000    0.000 {function _make_class_safe_predicate.<locals>.predicate at 0x780d7e015f80}
+       30    0.000    0.000    0.000    0.000 __init__.py:24193(_validate_backend_dispatch_keywords)
+       30    0.000    0.000    0.000    0.000 {built-in method builtins.callable}
+       15    0.000    0.000    0.000    0.000 {built-in method builtins.hash}

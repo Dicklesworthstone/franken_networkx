@@ -1,0 +1,31 @@
+         307937 function calls (307907 primitive calls) in 0.103 seconds
+
+   Ordered by: cumulative time
+   List reduced from 31 to 25 due to restriction <25>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.000    0.000    0.103    0.103 dijkstra_family_pass.py:273(repeated)
+       15    0.000    0.000    0.102    0.007 dijkstra_family_pass.py:176(<lambda>)
+       15    0.000    0.000    0.102    0.007 <class 'networkx.utils.decorators.argmap'> compilation 12:1(argmap_single_source_dijkstra_9)
+    30/15    0.000    0.000    0.102    0.007 backends.py:554(_call_if_any_backends_installed)
+    30/15    0.000    0.000    0.102    0.007 backends.py:1484(_call_with_backend)
+       15    0.000    0.000    0.102    0.007 weighted.py:392(single_source_dijkstra)
+       15    0.000    0.000    0.102    0.007 <class 'networkx.utils.decorators.argmap'> compilation 16:1(argmap_multi_source_dijkstra_13)
+       15    0.000    0.000    0.102    0.007 weighted.py:650(multi_source_dijkstra)
+       15    0.057    0.004    0.101    0.007 weighted.py:784(_dijkstra_multisource)
+   116970    0.017    0.000    0.031    0.000 weighted.py:78(<lambda>)
+   116970    0.013    0.000    0.013    0.000 {method 'get' of 'dict' objects}
+    20940    0.007    0.000    0.007    0.000 {built-in method _heapq.heappop}
+    20940    0.003    0.000    0.003    0.000 {built-in method _heapq.heappush}
+    20940    0.002    0.000    0.002    0.000 {built-in method builtins.next}
+    10530    0.001    0.000    0.001    0.000 {method 'items' of 'dict' objects}
+       15    0.000    0.000    0.000    0.000 weighted.py:41(_weight_function)
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+      105    0.000    0.000    0.000    0.000 {built-in method builtins.len}
+       30    0.000    0.000    0.000    0.000 backends.py:1052(_will_call_mutate_input)
+       30    0.000    0.000    0.000    0.000 configs.py:162(get)
+       60    0.000    0.000    0.000    0.000 {built-in method builtins.getattr}
+       15    0.000    0.000    0.000    0.000 graph.py:473(__contains__)
+       30    0.000    0.000    0.000    0.000 {method 'discard' of 'set' objects}
+       30    0.000    0.000    0.000    0.000 backends.py:1099(_can_backend_run)
+       30    0.000    0.000    0.000    0.000 {method 'values' of 'dict' objects}

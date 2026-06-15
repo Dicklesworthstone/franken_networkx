@@ -18015,17 +18015,13 @@ def dijkstra_path_length(G, source, target, weight="weight"):
     hash(target)
     if target not in G:
         raise NetworkXNoPath(f"Node {target} not reachable from {source}")
-    # br-r37-c1-djkpathlen2x: previously this ran the native Dijkstra TWICE — once
-    # via `_raw_dijkstra_path_length` (result discarded, used only as the no-path
-    # probe) and again via the public `dijkstra_path` wrapper (which re-coerces,
-    # re-runs the delegation scan, re-hashes and re-checks node membership). Call
-    # the raw single-pair path kernel directly (every guard above already ran):
-    # one Dijkstra, then sum the path preserving nx's int-vs-float length type.
+    # br-r37-c1-04z53.9102: call the target-only native length kernel directly.
+    # It preserves nx's int-vs-float result type at the PyO3 boundary, so the
+    # wrapper no longer needs to construct the path and re-sum edge attrs here.
     try:
-        path = _raw_dijkstra_path(G, source, target, weight=weight)
+        return _raw_dijkstra_path_length(G, source, target, weight=weight)
     except NetworkXNoPath as exc:
         raise NetworkXNoPath(f"Node {target} not reachable from {source}") from exc
-    return _path_length_preserving_weight_type(G, path, weight)
 
 
 def bellman_ford_path_length(G, source, target, weight="weight"):

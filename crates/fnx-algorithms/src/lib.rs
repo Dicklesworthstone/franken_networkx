@@ -25090,12 +25090,47 @@ pub fn dijkstra_path_length(
     target: &str,
     weight_attr: &str,
 ) -> Option<f64> {
-    let result = multi_source_dijkstra(graph, &[source], weight_attr);
-    result
-        .distances
-        .iter()
-        .find(|e| e.node == target)
-        .map(|e| e.distance)
+    dijkstra_path_length_typed(graph, source, target, weight_attr).map(|(distance, _)| distance)
+}
+
+/// Target-only Dijkstra length with NetworkX-observable distance type metadata.
+#[must_use]
+pub fn dijkstra_path_length_typed(
+    graph: &Graph,
+    source: &str,
+    target: &str,
+    weight_attr: &str,
+) -> Option<(f64, bool)> {
+    let source_idx = graph.get_node_index(source)?;
+    let target_idx = graph.get_node_index(target)?;
+    let names = graph.nodes_ordered();
+    let n = names.len();
+    let mut offsets = Vec::with_capacity(n + 1);
+    let mut targets: Vec<u32> = Vec::new();
+    let mut weights: Vec<f64> = Vec::new();
+    let mut weight_is_int: Vec<bool> = Vec::new();
+    offsets.push(0);
+    for u in 0..n {
+        if let Some(row) = graph.neighbors_indices(u) {
+            for &v in row {
+                let (weight, is_int) =
+                    graph_edge_weight_or_default_idx_typed(graph, u, v, weight_attr);
+                targets.push(u32::try_from(v).unwrap_or(u32::MAX));
+                weights.push(weight);
+                weight_is_int.push(is_int);
+            }
+        }
+        offsets.push(targets.len());
+    }
+
+    dijkstra_target_distance_typed_csr(
+        source_idx,
+        target_idx,
+        &offsets,
+        &targets,
+        &weights,
+        &weight_is_int,
+    )
 }
 
 /// Return the shortest path length from source to target using Dijkstra's
@@ -25107,11 +25142,41 @@ pub fn dijkstra_path_length_directed(
     target: &str,
     weight_attr: &str,
 ) -> Option<f64> {
-    let result = single_source_dijkstra_directed(digraph, source, weight_attr);
-    result
-        .into_iter()
-        .find(|(node, _)| node == target)
-        .map(|(_, dist)| dist)
+    dijkstra_path_length_typed_directed(digraph, source, target, weight_attr)
+        .map(|(distance, _)| distance)
+}
+
+/// Directed target-only Dijkstra length with distance type metadata.
+#[must_use]
+pub fn dijkstra_path_length_typed_directed(
+    digraph: &DiGraph,
+    source: &str,
+    target: &str,
+    weight_attr: &str,
+) -> Option<(f64, bool)> {
+    let source_idx = digraph.get_node_index(source)?;
+    let target_idx = digraph.get_node_index(target)?;
+    let csr = digraph.csr();
+    let names = digraph.nodes_ordered();
+    let mut weights: Vec<f64> = Vec::with_capacity(csr.succ_targets.len());
+    let mut weight_is_int: Vec<bool> = Vec::with_capacity(csr.succ_targets.len());
+    for u in 0..names.len() {
+        for &v in csr.successors(u) {
+            let (weight, is_int) =
+                digraph_edge_weight_or_default_idx_typed(digraph, u, v as usize, weight_attr);
+            weights.push(weight);
+            weight_is_int.push(is_int);
+        }
+    }
+
+    dijkstra_target_distance_typed_csr(
+        source_idx,
+        target_idx,
+        &csr.succ_offsets,
+        &csr.succ_targets,
+        &weights,
+        &weight_is_int,
+    )
 }
 
 /// Return the shortest path length from source to target using Bellman-Ford.
@@ -25646,6 +25711,63 @@ fn single_source_dijkstra_typed_csr(
             )
         })
         .collect()
+}
+
+fn dijkstra_target_distance_typed_csr(
+    source_idx: usize,
+    target_idx: usize,
+    offsets: &[usize],
+    targets: &[u32],
+    weights: &[f64],
+    weight_is_int: &[bool],
+) -> Option<(f64, bool)> {
+    let n = offsets.len().saturating_sub(1);
+    let mut distances: Vec<f64> = vec![f64::INFINITY; n];
+    let mut all_int_paths = vec![false; n];
+    let mut finalized = vec![false; n];
+    let mut pq = BinaryHeap::new();
+    let mut seq_counter: u64 = 0;
+
+    distances[source_idx] = 0.0;
+    all_int_paths[source_idx] = true;
+    seq_counter += 1;
+    pq.push(DijkstraState {
+        dist: 0.0,
+        seq: seq_counter,
+        node: u32::try_from(source_idx).unwrap_or(u32::MAX),
+    });
+
+    while let Some(DijkstraState {
+        dist: d, node: u, ..
+    }) = pq.pop()
+    {
+        let u_usize = u as usize;
+        if finalized[u_usize] || d > distances[u_usize] + DISTANCE_COMPARISON_EPSILON {
+            continue;
+        }
+        finalized[u_usize] = true;
+        if u_usize == target_idx {
+            return Some((d, all_int_paths[u_usize]));
+        }
+
+        for edge_offset in offsets[u_usize]..offsets[u_usize + 1] {
+            let v = targets[edge_offset];
+            let v_usize = v as usize;
+            let next_dist = d + weights[edge_offset];
+            if next_dist < distances[v_usize] - DISTANCE_COMPARISON_EPSILON {
+                distances[v_usize] = next_dist;
+                all_int_paths[v_usize] = all_int_paths[u_usize] && weight_is_int[edge_offset];
+                seq_counter += 1;
+                pq.push(DijkstraState {
+                    dist: next_dist,
+                    seq: seq_counter,
+                    node: v,
+                });
+            }
+        }
+    }
+
+    None
 }
 
 fn single_source_dijkstra_predecessor_distance_csr(

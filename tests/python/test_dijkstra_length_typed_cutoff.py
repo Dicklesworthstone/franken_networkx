@@ -9,6 +9,10 @@ def _rows(result):
     return [(repr(node), type(distance).__name__, distance) for node, distance in result.items()]
 
 
+def _type_name(value):
+    return value.__class__.__name__
+
+
 def _build_graphs(graph_factory_f, graph_factory_n):
     gf = graph_factory_f()
     gn = graph_factory_n()
@@ -76,3 +80,28 @@ def test_single_source_dijkstra_path_length_large_int_sum_does_not_saturate(
     assert raw["z"] == expected_distance
     assert _rows(public) == _rows(expected)
     assert _rows(raw) == _rows(expected)
+
+
+@pytest.mark.parametrize(
+    ("fnx_factory", "nx_factory"),
+    [(fnx.Graph, nx.Graph), (fnx.DiGraph, nx.DiGraph)],
+)
+def test_dijkstra_path_length_target_only_raw_matches_nx_types(
+    monkeypatch, fnx_factory, nx_factory
+):
+    gf, gn = _build_graphs(fnx_factory, nx_factory)
+
+    def fail_path_build(*args, **kwargs):
+        raise AssertionError("dijkstra_path_length should not construct a path")
+
+    monkeypatch.setattr(fnx, "_raw_dijkstra_path", fail_path_build)
+
+    for target in ("z", "mix", "s"):
+        public = fnx.dijkstra_path_length(gf, "s", target, weight="weight")
+        raw = fnx._raw_dijkstra_path_length(gf, "s", target, weight="weight")
+        expected = nx.dijkstra_path_length(gn, "s", target, weight="weight")
+
+        assert public == expected
+        assert raw == expected
+        assert _type_name(public) == _type_name(expected)
+        assert _type_name(raw) == _type_name(expected)
