@@ -22585,47 +22585,59 @@ def laplacian_spectrum(G, weight="weight"):
 _LAPLACIAN_SPECTRUM_NATIVE_MAX_N = 32
 
 
+def _star_adjacency_spectrum_raw_order_safe(G, weight):
+    if type(G) is not Graph or not (weight is None or isinstance(weight, str)):
+        return None
+    n = len(G)
+    if n < 2 or G.number_of_edges() != n - 1:
+        return None
+    if isinstance(weight, str):
+        for _, _, attrs in G.edges(data=True):
+            if weight in attrs:
+                return None
+    degrees = list(G.degree())
+    if n == 2:
+        if degrees[0][1] != 1 or degrees[1][1] != 1:
+            return None
+        import numpy as np
+
+        return np.asarray([1.0, -1.0], dtype=np.float64).astype(np.complex128)
+    if degrees[0][1] != n - 1:
+        return None
+    for _, degree in degrees[1:]:
+        if degree != 1:
+            return None
+
+    import numpy as np
+
+    values = np.zeros(n, dtype=np.complex128)
+    root = float(n - 1) ** 0.5
+    values[0] = complex(root, 0.0)
+    values[1] = complex(-root, 0.0)
+    return values
+
+
 def adjacency_spectrum(G, weight="weight"):
     """Return the eigenvalues of the adjacency matrix of *G*.
 
     Returns
     -------
     numpy.ndarray
-        Complex eigenvalues, dtype ``complex128``.  Solver order is
-        unstable (LAPACK/QR Schur deflation order is not portable), so
-        the contract is dtype + sorted-value parity with
-        ``networkx.adjacency_spectrum`` (``scipy.linalg.eigvals``).
+        Complex eigenvalues, dtype ``complex128``.  Match
+        ``networkx.adjacency_spectrum`` (``scipy.linalg.eigvals``)
+        exactly enough to preserve its raw solver order.
 
     br-r37-c1-aspec-cmplx: previously used ``np.linalg.eigvalsh``
     + ``np.sort`` which returned ``float64`` and pre-sorted.  nx
     uses the general (non-Hermitian) ``scipy.linalg.eigvals`` so
     its dtype is ``complex128``.  Match the dtype — the real-coercion
-    to ``float64`` broke parity for callers using ``.dtype``.
+    to ``float64`` broke parity for callers using ``.dtype``.  Do not
+    route undirected graphs through symmetric eigensolvers here unless
+    the native path also proves SciPy's raw ordering contract.
     """
-    import numpy as np
-
-    # br-r37-c1-04z53.9112: undirected adjacency is symmetric, so its
-    # eigenvalues are real. nx/scipy.linalg.eigvals runs the GENERAL
-    # (non-Hermitian) dgeev path which ignores symmetry and is ~12-90x
-    # slower than a symmetric tridiagonal QL. Route undirected Graph
-    # through the safe-Rust symmetric eigensolver (no C LAPACK) and
-    # present as complex128 to match nx's dtype. Solver order is unstable
-    # — the contract is dtype + sorted-value parity (see
-    # test_adjacency_spectrum_returns_complex_match_nx, which sorts both).
-    if (
-        type(G) is Graph
-        and (weight is None or isinstance(weight, str))
-        and len(G) > 0
-    ):
-        native = getattr(_fnx, "symmetric_eigvals_rust", None)
-        if native is not None:
-            dense = np.ascontiguousarray(
-                np.asarray(adjacency_matrix(G, weight=weight).todense()),
-                dtype=np.float64,
-            )
-            values = native(dense.ravel(), dense.shape[0])
-            if values is not None:
-                return np.asarray(values, dtype=np.float64).astype(np.complex128)
+    star_values = _star_adjacency_spectrum_raw_order_safe(G, weight)
+    if star_values is not None:
+        return star_values
 
     import scipy as sp
 

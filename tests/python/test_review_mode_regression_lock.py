@@ -2364,8 +2364,8 @@ def test_adjacency_spectrum_returns_complex_match_nx():
     a sorted ``float64`` ndarray (using np.linalg.eigvalsh + np.sort).
     nx uses the general non-Hermitian ``scipy.linalg.eigvals`` so its
     dtype is ``complex128`` and the return is unsorted.  Lock dtype
-    parity (callers using ``.dtype`` or general numpy expectations
-    break otherwise)."""
+    and raw-order parity (callers using ``.dtype`` or solver-order
+    expectations break otherwise)."""
     import numpy as np
     cases = [
         fnx.complete_graph(4),
@@ -2384,8 +2384,9 @@ def test_adjacency_spectrum_returns_complex_match_nx():
         nr = nx.adjacency_spectrum(G_n)
         # dtype parity (THE central regression)
         assert fr.dtype == nr.dtype == np.complex128
-        # value parity (sort both since solver order is unstable)
-        assert np.allclose(np.sort_complex(fr), np.sort_complex(nr))
+        # raw-order parity: symmetric-native routes may only replace this
+        # path after proving SciPy's unsorted output contract.
+        assert np.allclose(fr, nr)
 
 
 def test_laplacian_spectrum_native_direct_path_matches_nx():
