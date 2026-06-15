@@ -22591,18 +22591,42 @@ def adjacency_spectrum(G, weight="weight"):
     Returns
     -------
     numpy.ndarray
-        Complex eigenvalues, dtype ``complex128``, in solver-defined
-        (unsorted) order — matching ``networkx.adjacency_spectrum``
-        which uses ``scipy.linalg.eigvals``.
+        Complex eigenvalues, dtype ``complex128``.  Solver order is
+        unstable (LAPACK/QR Schur deflation order is not portable), so
+        the contract is dtype + sorted-value parity with
+        ``networkx.adjacency_spectrum`` (``scipy.linalg.eigvals``).
 
     br-r37-c1-aspec-cmplx: previously used ``np.linalg.eigvalsh``
     + ``np.sort`` which returned ``float64`` and pre-sorted.  nx
     uses the general (non-Hermitian) ``scipy.linalg.eigvals`` so
-    its dtype is ``complex128`` and the return is unsorted.  Match
-    exactly — the sort + real-coercion was a performance/elegance
-    "improvement" but broke parity for callers using ``.dtype`` or
-    expecting nx's ordering.
+    its dtype is ``complex128``.  Match the dtype — the real-coercion
+    to ``float64`` broke parity for callers using ``.dtype``.
     """
+    import numpy as np
+
+    # br-r37-c1-04z53.9112: undirected adjacency is symmetric, so its
+    # eigenvalues are real. nx/scipy.linalg.eigvals runs the GENERAL
+    # (non-Hermitian) dgeev path which ignores symmetry and is ~12-90x
+    # slower than a symmetric tridiagonal QL. Route undirected Graph
+    # through the safe-Rust symmetric eigensolver (no C LAPACK) and
+    # present as complex128 to match nx's dtype. Solver order is unstable
+    # — the contract is dtype + sorted-value parity (see
+    # test_adjacency_spectrum_returns_complex_match_nx, which sorts both).
+    if (
+        type(G) is Graph
+        and (weight is None or isinstance(weight, str))
+        and len(G) > 0
+    ):
+        native = getattr(_fnx, "symmetric_eigvals_rust", None)
+        if native is not None:
+            dense = np.ascontiguousarray(
+                np.asarray(adjacency_matrix(G, weight=weight).todense()),
+                dtype=np.float64,
+            )
+            values = native(dense.ravel(), dense.shape[0])
+            if values is not None:
+                return np.asarray(values, dtype=np.float64).astype(np.complex128)
+
     import scipy as sp
 
     # br-r37-c1-tssa-empty: route through adjacency_matrix so the
