@@ -5222,13 +5222,21 @@ impl PyDiGraph {
     /// rebuilding via py_node_key per node. Backs the graph node iterator
     /// (`set(G)` / `for n in G`), which keeps its per-next nodes_seq guard.
     pub(crate) fn cached_node_key_vec(&self, py: Python<'_>) -> Vec<PyObject> {
+        self.cached_node_key_tuple(py)
+            .bind(py)
+            .iter()
+            .map(|o| o.unbind())
+            .collect()
+    }
+
+    fn cached_node_key_tuple(&self, py: Python<'_>) -> Py<PyTuple> {
         let seq = self.nodes_seq;
         {
             let guard = self.node_keys_cache.lock().unwrap();
             if let Some((cached_seq, tup)) = guard.as_ref()
                 && *cached_seq == seq
             {
-                return tup.bind(py).iter().map(|o| o.unbind()).collect();
+                return tup.clone_ref(py);
             }
         }
         let keys: Vec<PyObject> = self
@@ -5241,7 +5249,7 @@ impl PyDiGraph {
             .expect("node-keys tuple")
             .unbind();
         *self.node_keys_cache.lock().unwrap() = Some((seq, tup.clone_ref(py)));
-        keys
+        tup
     }
 
     /// Incremental node-iteration mirror (see the `node_iter_mirror` field).
@@ -8218,6 +8226,32 @@ impl PyDiGraph {
         )
     }
 
+    fn _native_guarded_edge_stream_iter(
+        slf: PyRef<'_, Self>,
+        py: Python<'_>,
+    ) -> PyResult<Option<Py<DiGraphGuardedEdgeStreamIter>>> {
+        if !slf.succ_py_keys.is_empty() {
+            return Ok(None);
+        }
+        let node_keys = slf.cached_node_key_tuple(py);
+        let node_count = slf.inner.node_count();
+        let expected_nodes_seq = slf.nodes_seq;
+        let expected_edges_seq = slf.edges_seq;
+        let graph = Py::from(slf);
+        Ok(Some(Py::new(
+            py,
+            DiGraphGuardedEdgeStreamIter {
+                graph,
+                node_keys,
+                node_idx: 0,
+                succ_idx: 0,
+                node_count,
+                expected_nodes_seq,
+                expected_edges_seq,
+            },
+        )?))
+    }
+
     /// br-r37-c1-inedges: native in-edges materialization. nx's in_edges
     /// iterates node-major over predecessors (``for t in nodes: for s in
     /// pred[t]: yield (s, t, ...)``) — a different order than edges_ordered. The
@@ -10038,6 +10072,74 @@ impl DiGraphGuardedEdgeListIter {
     }
 }
 
+#[pyclass]
+pub struct DiGraphGuardedEdgeStreamIter {
+    graph: Py<PyDiGraph>,
+    node_keys: Py<PyTuple>,
+    node_idx: usize,
+    succ_idx: usize,
+    node_count: usize,
+    expected_nodes_seq: u64,
+    expected_edges_seq: u64,
+}
+
+#[pymethods]
+impl DiGraphGuardedEdgeStreamIter {
+    fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
+        slf
+    }
+
+    fn __next__(mut slf: PyRefMut<'_, Self>) -> PyResult<Option<PyObject>> {
+        if slf.node_idx >= slf.node_count {
+            return Ok(None);
+        }
+
+        let py = slf.py();
+        let graph_py = slf.graph.clone_ref(py);
+        let mut node_idx = slf.node_idx;
+        let mut succ_idx = slf.succ_idx;
+        let node_count = slf.node_count;
+        let edge = {
+            let graph = graph_py.borrow(py);
+            if graph.nodes_seq != slf.expected_nodes_seq
+                || graph.edges_seq != slf.expected_edges_seq
+            {
+                return Err(PyRuntimeError::new_err(
+                    "dictionary changed size during iteration",
+                ));
+            }
+
+            let mut found = None;
+            while node_idx < node_count {
+                if let Some(successors) = graph.inner.successors_indices(node_idx)
+                    && succ_idx < successors.len()
+                {
+                    let target_idx = successors[succ_idx];
+                    succ_idx += 1;
+                    found = Some((node_idx, target_idx));
+                    break;
+                }
+                node_idx += 1;
+                succ_idx = 0;
+            }
+            found
+        };
+
+        slf.node_idx = node_idx;
+        slf.succ_idx = succ_idx;
+
+        let Some((source_idx, target_idx)) = edge else {
+            slf.node_idx = slf.node_count;
+            return Ok(None);
+        };
+
+        let keys = slf.node_keys.bind(py);
+        let source = keys.get_item(source_idx)?.unbind();
+        let target = keys.get_item(target_idx)?.unbind();
+        Ok(Some(tuple_object(py, &[source, target])?))
+    }
+}
+
 fn tuple_object(py: Python<'_>, elements: &[PyObject]) -> PyResult<PyObject> {
     Ok(PyTuple::new(py, elements)?.into_any().unbind())
 }
@@ -10056,6 +10158,7 @@ pub fn register_digraph_classes(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<DiAtlasView>()?;
     m.add_class::<DiViewIterator>()?;
     m.add_class::<DiGraphGuardedEdgeListIter>()?;
+    m.add_class::<DiGraphGuardedEdgeStreamIter>()?;
     // MultiDiGraph views
     m.add_class::<MultiDiGraphNodeView>()?;
     m.add_class::<MultiDiGraphEdgeView>()?;
