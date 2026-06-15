@@ -1,0 +1,40 @@
+Mon Jun 15 15:29:58 2026    tests/artifacts/perf/20260615T-spectral-eigvals-coppercliff/profile_fallback_path32.prof
+
+         4274234 function calls (4250635 primitive calls) in 3.205 seconds
+
+   Ordered by: cumulative time
+   List reduced from 2617 to 30 due to restriction <30>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+    624/1    0.004    0.000    3.206    3.206 {built-in method builtins.exec}
+        1    0.000    0.000    3.206    3.206 laplacian_spectrum_harness.py:1(<module>)
+        1    0.000    0.000    2.847    2.847 laplacian_spectrum_harness.py:120(main)
+        1    0.020    0.020    2.846    2.846 laplacian_spectrum_harness.py:62(bench)
+20000/10000    0.048    0.000    2.822    0.000 __init__.py:53083(wrapper)
+    10000    0.053    0.000    2.797    0.000 __init__.py:22546(laplacian_spectrum)
+    10000    0.243    0.000    2.168    0.000 __init__.py:22348(laplacian_matrix)
+       76    0.004    0.000    1.541    0.020 __init__.py:1(<module>)
+    10000    0.041    0.000    0.879    0.000 _coo.py:349(tocsr)
+    10000    0.052    0.000    0.685    0.000 _coo.py:32(__init__)
+    699/7    0.003    0.000    0.472    0.067 <frozen importlib._bootstrap>:1349(_find_and_load)
+    675/7    0.002    0.000    0.472    0.067 <frozen importlib._bootstrap>:1304(_find_and_load_unlocked)
+    656/8    0.002    0.000    0.471    0.059 <frozen importlib._bootstrap>:911(_load_unlocked)
+    611/7    0.001    0.000    0.471    0.067 <frozen importlib._bootstrap_external>:1020(exec_module)
+  1501/15    0.002    0.000    0.463    0.031 <frozen importlib._bootstrap>:480(_call_with_frames_removed)
+    40000    0.057    0.000    0.416    0.000 _base.py:1525(_get_index_dtype)
+    10000    0.344    0.000    0.415    0.000 _linalg.py:1264(eigvalsh)
+   505/50    0.001    0.000    0.392    0.008 {built-in method builtins.__import__}
+   625/78    0.001    0.000    0.382    0.005 <frozen importlib._bootstrap>:1390(_handle_fromlist)
+    10000    0.043    0.000    0.355    0.000 _compressed.py:30(__init__)
+    10000    0.066    0.000    0.339    0.000 _coo.py:204(_check)
+    40000    0.230    0.000    0.335    0.000 _sputils.py:264(get_index_dtype)
+    10000    0.057    0.000    0.246    0.000 _coo.py:383(_coo_to_compressed)
+    23/15    0.000    0.000    0.176    0.012 <frozen importlib._bootstrap_external>:1326(exec_module)
+    23/15    0.014    0.001    0.175    0.012 {built-in method _imp.exec_dynamic}
+    10000    0.019    0.000    0.173    0.000 _compressed.py:1063(sum_duplicates)
+   110000    0.034    0.000    0.165    0.000 _base.py:365(nnz)
+        2    0.000    0.000    0.138    0.069 nx_pylab.py:1(<module>)
+        2    0.000    0.000    0.137    0.068 layout.py:1(<module>)
+    20000    0.052    0.000    0.122    0.000 _compressed.py:1118(prune)
+
+

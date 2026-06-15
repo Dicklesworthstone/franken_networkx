@@ -1,0 +1,52 @@
+{
+  "results": [
+    {
+      "command": ".venv/bin/python tests/artifacts/perf/20260615T-spectral-eigvals-coppercliff/laplacian_spectrum_harness.py --mode fallback --case path32 --loops 10000",
+      "mean": 2.4233735901799998,
+      "stddev": 0.27875312317347534,
+      "median": 2.34615097478,
+      "user": 4.91655224,
+      "system": 0.0806196,
+      "min": 2.1080589927799998,
+      "max": 2.86904263278,
+      "times": [
+        2.44874126678,
+        2.86904263278,
+        2.34615097478,
+        2.3448740837799997,
+        2.1080589927799998
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": ".venv/bin/python tests/artifacts/perf/20260615T-spectral-eigvals-coppercliff/laplacian_spectrum_harness.py --mode native --case path32 --loops 10000",
+      "mean": 0.9629756351800001,
+      "stddev": 0.09305772035578506,
+      "median": 0.9298883507800001,
+      "user": 4.12213864,
+      "system": 0.059504599999999984,
+      "min": 0.8654478617800001,
+      "max": 1.10740158878,
+      "times": [
+        0.91683821178,
+        0.9298883507800001,
+        0.99530216278,
+        1.10740158878,
+        0.8654478617800001
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}
