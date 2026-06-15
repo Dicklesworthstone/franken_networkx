@@ -8,8 +8,8 @@
 use crate::algorithms::{GraphRef, extract_graph};
 use crate::digraph::PyDiGraph;
 use crate::{
-    DictOfDictsCache, PyGraph, PyMultiGraph, PyObject, PythonAllowThreadsExt, cgse_value_to_py,
-    node_key_to_string, py_dict_to_attr_map,
+    DictOfDictsCache, PyGraph, PyMultiGraph, PyObject, PythonAllowThreadsExt, attr_map_to_pydict,
+    cgse_value_to_py, node_key_to_string, py_dict_to_attr_map,
 };
 use fnx_classes::Graph as RustGraph;
 use fnx_classes::MultiGraph as RustMultiGraph;
@@ -1378,7 +1378,10 @@ pub fn to_dict_of_dicts_undirected(
                                 inner_dict.set_item(pg.py_node_key(py, v), edge_dict.bind(py))?;
                             }
                             None => {
-                                let edge_dict = PyDict::new(py);
+                                let edge_dict = match pg.inner.edge_attrs(u, v) {
+                                    Some(attrs) => attr_map_to_pydict(py, attrs)?,
+                                    None => PyDict::new(py).unbind(),
+                                };
                                 inner_dict.set_item(pg.py_node_key(py, v), edge_dict)?;
                             }
                         }
@@ -1597,10 +1600,15 @@ fn rebuild_dict_of_dicts_cache(py: Python<'_>, pg: &mut PyGraph) -> PyResult<()>
                 continue;
             };
             let edge_key = PyGraph::edge_key(u, v);
+            let core_attrs = pg.inner.edge_attrs_by_indices(u_idx, v_idx).cloned();
             let edge_dict = pg
                 .edge_py_attrs
                 .entry(edge_key)
-                .or_insert_with(|| PyDict::new(py).unbind());
+                .or_insert_with(|| match &core_attrs {
+                    Some(attrs) => attr_map_to_pydict(py, attrs)
+                        .expect("stored string-keyed edge attrs must convert to Python"),
+                    None => PyDict::new(py).unbind(),
+                });
             row.set_item(v_key.bind(py), edge_dict.bind(py))?;
         }
         if let Some(u_key) = py_node_keys.get(u_idx) {

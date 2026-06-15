@@ -1008,8 +1008,33 @@ impl PyGraph {
         let key = Self::edge_key(left, right);
         self.edge_py_attrs
             .entry(key)
-            .or_insert_with(|| PyDict::new(py).unbind())
+            .or_insert_with(|| match self.inner.edge_attrs(left, right) {
+                Some(attrs) => attr_map_to_pydict(py, attrs)
+                    .expect("stored string-keyed edge attrs must convert to Python"),
+                None => PyDict::new(py).unbind(),
+            })
             .clone_ref(py)
+    }
+
+    pub(crate) fn edge_attr_py_value(
+        &self,
+        py: Python<'_>,
+        left: &str,
+        right: &str,
+        attr: &str,
+    ) -> PyResult<Option<PyObject>> {
+        let key = Self::edge_key(left, right);
+        if let Some(dict) = self.edge_py_attrs.get(&key) {
+            return Ok(dict.bind(py).get_item(attr)?.map(|value| value.unbind()));
+        }
+        match self
+            .inner
+            .edge_attrs(left, right)
+            .and_then(|attrs| attrs.get(attr))
+        {
+            Some(value) => Ok(Some(cgse_value_to_py(py, value)?)),
+            None => Ok(None),
+        }
     }
 
     /// Create a new empty PyGraph (no nodes, no edges, empty graph attrs).
@@ -1546,7 +1571,7 @@ impl PyGraph {
 
     fn collect_fresh_exact_int_attr_edge_batch<'py, I>(
         &self,
-        py: Python<'py>,
+        _py: Python<'py>,
         items: I,
         len: usize,
     ) -> PyResult<Option<IndexedAttrEdgeBatch>>
@@ -1587,9 +1612,10 @@ impl PyGraph {
             let Ok(dict) = third.downcast::<PyDict>() else {
                 return Ok(None);
             };
-            let Ok((attrs, mirror)) = py_dict_to_attr_map_with_mirror(py, dict) else {
+            let Ok(attrs) = py_dict_to_attr_map(dict) else {
                 return Ok(None);
             };
+            let mirror = dict.copy()?.unbind();
             if attrs
                 .keys()
                 .any(|key| key.starts_with("__fnx_incompatible"))
@@ -7333,19 +7359,9 @@ impl PyGraph {
             Some(attr) => {
                 let mut total = 0.0_f64;
                 for (left, right, _attrs) in self.inner.edges_ordered_borrowed() {
-                    let key = Self::edge_key(left, right);
-                    match self.edge_py_attrs.get(&key) {
-                        Some(dict) => match dict.bind(py).get_item(attr)? {
-                            Some(val) => {
-                                total += val.extract::<f64>()?;
-                            }
-                            None => {
-                                total += 1.0;
-                            }
-                        },
-                        None => {
-                            total += 1.0;
-                        }
+                    match self.edge_attr_py_value(py, left, right, attr)? {
+                        Some(val) => total += val.bind(py).extract::<f64>()?,
+                        None => total += 1.0,
                     }
                 }
                 Ok(total)
@@ -9156,31 +9172,17 @@ impl PyGraph {
                 if neighbor == node {
                     selfloop = true;
                 }
-                let ek = Self::edge_key(node, neighbor);
-                let value = match self.edge_py_attrs.get(&ek) {
-                    Some(d) => d
-                        .bind(py)
-                        .get_item(weight)
-                        .ok()
-                        .flatten()
-                        .unwrap_or_else(|| one.clone()),
-                    None => one.clone(),
-                };
-                values.append(value)?;
+                let value = self
+                    .edge_attr_py_value(py, node, neighbor, weight)?
+                    .unwrap_or_else(|| one.clone().unbind());
+                values.append(value.bind(py))?;
             }
             let mut deg = sum_fn.call1((values,))?;
             if selfloop {
-                let ek = Self::edge_key(node, node);
-                let value = match self.edge_py_attrs.get(&ek) {
-                    Some(d) => d
-                        .bind(py)
-                        .get_item(weight)
-                        .ok()
-                        .flatten()
-                        .unwrap_or_else(|| one.clone()),
-                    None => one.clone(),
-                };
-                deg = deg.add(value)?;
+                let value = self
+                    .edge_attr_py_value(py, node, node, weight)?
+                    .unwrap_or_else(|| one.clone().unbind());
+                deg = deg.add(value.bind(py))?;
             }
             out.push((self.py_node_key(py, node), deg.unbind()));
         }

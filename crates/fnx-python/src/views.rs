@@ -3,7 +3,7 @@
 //! These views provide dict-like read access to graph data and reflect
 //! the current state of the graph (they are "live" views backed by Py<PyGraph>).
 
-use crate::{NodeIterator, PyGraph, PyObject, node_key_to_string};
+use crate::{NodeIterator, PyGraph, PyObject, attr_map_to_pydict, node_key_to_string};
 use pyo3::exceptions::{PyKeyError, PyRuntimeError};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyIterator, PyTuple};
@@ -418,7 +418,11 @@ fn edge_alldata_items(
             }
             let dict = edge_py_attrs
                 .entry(PyGraph::edge_key(left, right))
-                .or_insert_with(|| PyDict::new(py).unbind())
+                .or_insert_with(|| match inner.edge_attrs_by_indices(u, v) {
+                    Some(attrs) => attr_map_to_pydict(py, attrs)
+                        .expect("stored string-keyed edge attrs must convert to Python"),
+                    None => PyDict::new(py).unbind(),
+                })
                 .clone_ref(py)
                 .into_any();
             items.push(tuple_object(
@@ -428,7 +432,7 @@ fn edge_alldata_items(
         }
         return Ok(items);
     }
-    for (left, right, _attrs) in inner.edges_ordered_borrowed() {
+    for (left, right, attrs) in inner.edges_ordered_borrowed() {
         if let Some(ns) = node_filter
             && !(ns.contains(left) || ns.contains(right))
         {
@@ -446,7 +450,10 @@ fn edge_alldata_items(
         };
         let dict = edge_py_attrs
             .entry(PyGraph::edge_key(left, right))
-            .or_insert_with(|| PyDict::new(py).unbind())
+            .or_insert_with(|| {
+                attr_map_to_pydict(py, attrs)
+                    .expect("stored string-keyed edge attrs must convert to Python")
+            })
             .clone_ref(py)
             .into_any();
         items.push(tuple_object(py, &[py_u, py_v, dict])?);
@@ -532,22 +539,14 @@ impl EdgeView {
                             NodeViewData::NoData => tuple_object(py, &[py_u, py_v]),
                             NodeViewData::Attr(attr_name) => {
                                 let val = g
-                                    .edge_py_attrs
-                                    .get(&PyGraph::edge_key(nodes[u], nodes[v]))
-                                    .and_then(|d| {
-                                        d.bind(py).get_item(attr_name.as_str()).ok().flatten()
-                                    })
-                                    .map_or_else(|| py.None(), |v| v.unbind());
+                                    .edge_attr_py_value(py, nodes[u], nodes[v], attr_name)?
+                                    .unwrap_or_else(|| py.None());
                                 tuple_object(py, &[py_u, py_v, val])
                             }
                             NodeViewData::AttrWithDefault(attr_name, def_val) => {
                                 let val = g
-                                    .edge_py_attrs
-                                    .get(&PyGraph::edge_key(nodes[u], nodes[v]))
-                                    .and_then(|d| {
-                                        d.bind(py).get_item(attr_name.as_str()).ok().flatten()
-                                    })
-                                    .map_or_else(|| def_val.clone_ref(py), |v| v.unbind());
+                                    .edge_attr_py_value(py, nodes[u], nodes[v], attr_name)?
+                                    .unwrap_or_else(|| def_val.clone_ref(py));
                                 tuple_object(py, &[py_u, py_v, val])
                             }
                             NodeViewData::AllData => unreachable!(),
@@ -599,21 +598,15 @@ impl EdgeView {
                         match &self.data {
                             NodeViewData::NoData => tuple_object(py, &[py_u, py_v]),
                             NodeViewData::Attr(attr_name) => {
-                                let attrs = g.edge_py_attrs.get(&PyGraph::edge_key(left, right));
-                                let val = attrs
-                                    .and_then(|d| {
-                                        d.bind(py).get_item(attr_name.as_str()).ok().flatten()
-                                    })
-                                    .map_or_else(|| py.None(), |v| v.unbind());
+                                let val = g
+                                    .edge_attr_py_value(py, left, right, attr_name)?
+                                    .unwrap_or_else(|| py.None());
                                 tuple_object(py, &[py_u, py_v, val])
                             }
                             NodeViewData::AttrWithDefault(attr_name, def_val) => {
-                                let attrs = g.edge_py_attrs.get(&PyGraph::edge_key(left, right));
-                                let val = attrs
-                                    .and_then(|d| {
-                                        d.bind(py).get_item(attr_name.as_str()).ok().flatten()
-                                    })
-                                    .map_or_else(|| def_val.clone_ref(py), |v| v.unbind());
+                                let val = g
+                                    .edge_attr_py_value(py, left, right, attr_name)?
+                                    .unwrap_or_else(|| def_val.clone_ref(py));
                                 tuple_object(py, &[py_u, py_v, val])
                             }
                             NodeViewData::AllData => unreachable!(),
@@ -700,23 +693,18 @@ impl EdgeView {
                     .map(|(left, right, _attrs)| {
                         let py_u = g.py_node_key(py, left);
                         let py_v = g.py_adj_key(py, left, right); // br-r37-c1-z6uka
-                        let attrs = g.edge_py_attrs.get(&PyGraph::edge_key(left, right));
                         match &view_data {
                             NodeViewData::NoData => tuple_object(py, &[py_u, py_v]),
                             NodeViewData::Attr(attr_name) => {
-                                let val = attrs
-                                    .and_then(|d| {
-                                        d.bind(py).get_item(attr_name.as_str()).ok().flatten()
-                                    })
-                                    .map_or_else(|| py.None(), |v| v.unbind());
+                                let val = g
+                                    .edge_attr_py_value(py, left, right, attr_name)?
+                                    .unwrap_or_else(|| py.None());
                                 tuple_object(py, &[py_u, py_v, val])
                             }
                             NodeViewData::AttrWithDefault(attr_name, def_val) => {
-                                let val = attrs
-                                    .and_then(|d| {
-                                        d.bind(py).get_item(attr_name.as_str()).ok().flatten()
-                                    })
-                                    .map_or_else(|| def_val.clone_ref(py), |v| v.unbind());
+                                let val = g
+                                    .edge_attr_py_value(py, left, right, attr_name)?
+                                    .unwrap_or_else(|| def_val.clone_ref(py));
                                 tuple_object(py, &[py_u, py_v, val])
                             }
                             NodeViewData::AllData => unreachable!(),
@@ -1149,7 +1137,10 @@ impl AtlasView {
                 let ek = PyGraph::edge_key(&self.node, nb);
                 let copied = match g.edge_py_attrs.get(&ek) {
                     Some(d) => d.bind(py).copy()?.unbind(),
-                    None => PyDict::new(py).unbind(),
+                    None => match g.inner.edge_attrs(&self.node, nb) {
+                        Some(attrs) => attr_map_to_pydict(py, attrs)?,
+                        None => PyDict::new(py).unbind(),
+                    },
                 };
                 result.set_item(py_nb, copied)?;
             }
