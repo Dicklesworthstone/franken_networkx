@@ -1673,6 +1673,9 @@ class _DiGraphEdgeView:
         # br-r37-c1-msf5j: walk adj directly so __call__ can return
         # self (a live view) without causing __iter__ → __call__
         # recursion when called with default args.
+        native_iter = getattr(self._graph, "_native_guarded_edge_list_iter", None)
+        if native_iter is not None and not _has_networkx_private_storage(self._graph):
+            return native_iter(self._materialize())
         return _FailFastEdgeIterator(
             self._graph,
             self._materialize(),

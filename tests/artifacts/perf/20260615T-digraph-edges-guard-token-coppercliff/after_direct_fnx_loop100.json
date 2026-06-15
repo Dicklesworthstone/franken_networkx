@@ -1,0 +1,25 @@
+{
+  "digest": "af3fd33565aae84c1dc0237b9125a076b3d3b531c33a87e153a0e5822494e203",
+  "edges_per_loop": 40267,
+  "elapsed_seconds": 1.4456606659805402,
+  "loops": 100,
+  "metadata": {
+    "franken_networkx_file": "/data/projects/.worktrees/franken_networkx-coppercliff-reverseview-origin/python/franken_networkx/__init__.py",
+    "graph": {
+      "family": "DiGraph(gnp_random_graph(n, p, seed, directed=True))",
+      "n": 2000,
+      "p": 0.01,
+      "seed": 7
+    },
+    "head": "914e99d05ba91f4ed3c53fb22586d5019fca3365",
+    "head_short": "914e99d05 perf(views): speed reverse-view edge batches",
+    "networkx_file": "/data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/__init__.py",
+    "networkx_version": "3.6.1",
+    "python": "3.13.7 (main, Mar  3 2026, 12:19:54) [GCC 15.2.0]",
+    "repo_root": "/data/projects/.worktrees/franken_networkx-coppercliff-reverseview-origin",
+    "workload": "list(DiGraph.edges())"
+  },
+  "mode": "fnx",
+  "seconds_per_loop": 0.014456606659805402,
+  "total_edges": 4026700
+}
