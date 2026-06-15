@@ -1,0 +1,60 @@
+{
+  "results": [
+    {
+      "command": "/data/projects/franken_networkx/.venv/bin/python tests/artifacts/perf/20260615T-reverse-view-edges-coppercliff/reverse_view_edges_harness.py bench-fnx --loops 300",
+      "mean": 0.7724355368342858,
+      "stddev": 0.22421512087436754,
+      "median": 0.6640774621200001,
+      "user": 3.820473491428571,
+      "system": 0.07183586571428571,
+      "min": 0.6137983391200001,
+      "max": 1.17601439412,
+      "times": [
+        1.17601439412,
+        1.0068506371200001,
+        0.6640774621200001,
+        0.6648531321200001,
+        0.6137983391200001,
+        0.65851663812,
+        0.6229381551200001
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "/data/projects/franken_networkx/.venv/bin/python tests/artifacts/perf/20260615T-reverse-view-edges-coppercliff/reverse_view_edges_harness.py bench-nx --loops 300",
+      "mean": 0.5378692796914286,
+      "stddev": 0.03177053372695654,
+      "median": 0.5451039001200001,
+      "user": 4.574212634285715,
+      "system": 0.07074258,
+      "min": 0.49033983112,
+      "max": 0.5857386011200001,
+      "times": [
+        0.5497926531200001,
+        0.5451039001200001,
+        0.5348564361200001,
+        0.5857386011200001,
+        0.5537744251200001,
+        0.5054791111200001,
+        0.49033983112
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

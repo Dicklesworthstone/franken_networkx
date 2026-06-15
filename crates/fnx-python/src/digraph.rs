@@ -8201,6 +8201,30 @@ impl PyDiGraph {
     /// reversed orientation ``(target, source)``. Build that batch natively for
     /// exact DiGraph reverse views instead of walking Python pred rows.
     fn _native_reverse_edges_no_data(&self, py: Python<'_>) -> PyResult<PyObject> {
+        if self.pred_py_keys.is_empty() {
+            let node_count = self.inner.node_count();
+            let mut py_nodes = Vec::with_capacity(node_count);
+            for idx in 0..node_count {
+                let node = self
+                    .inner
+                    .get_node_name(idx)
+                    .expect("node index should resolve");
+                py_nodes.push(self.py_node_key(py, node));
+            }
+
+            let mut items = Vec::with_capacity(self.inner.edge_count());
+            for target_idx in 0..node_count {
+                let py_t = &py_nodes[target_idx];
+                if let Some(predecessors) = self.inner.predecessors_indices(target_idx) {
+                    for &source_idx in predecessors {
+                        let py_s = &py_nodes[source_idx];
+                        items.push(tuple_object(py, &[py_t.clone_ref(py), py_s.clone_ref(py)])?);
+                    }
+                }
+            }
+            return Ok(items.into_pyobject(py)?.into_any().unbind());
+        }
+
         let mut items = Vec::with_capacity(self.inner.edge_count());
         for target in self.inner.nodes_ordered() {
             let py_t = self.py_node_key(py, target);
