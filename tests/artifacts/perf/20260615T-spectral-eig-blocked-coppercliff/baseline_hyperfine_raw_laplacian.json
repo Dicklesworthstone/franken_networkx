@@ -1,0 +1,166 @@
+{
+  "results": [
+    {
+      "command": ".venv/bin/python tests/artifacts/perf/20260615T-spectral-eig-blocked-coppercliff/eig_baseline_harness.py raw --impl native --case laplacian --n 50 --loops 2 --samples 1",
+      "mean": 0.34635251994000005,
+      "stddev": 0.009430274975059163,
+      "median": 0.35050280394000005,
+      "user": 4.4249468,
+      "system": 0.07284083999999999,
+      "min": 0.33219110894000003,
+      "max": 0.35497503894000004,
+      "times": [
+        0.35497503894000004,
+        0.35264316094000003,
+        0.35050280394000005,
+        0.34145048694,
+        0.33219110894000003
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "parameters": {
+        "n": "50"
+      }
+    },
+    {
+      "command": ".venv/bin/python tests/artifacts/perf/20260615T-spectral-eig-blocked-coppercliff/eig_baseline_harness.py raw --impl numpy --case laplacian --n 50 --loops 2 --samples 1",
+      "mean": 0.33120489654000007,
+      "stddev": 0.005831589059049758,
+      "median": 0.32945571294000003,
+      "user": 4.506193,
+      "system": 0.08679724,
+      "min": 0.32734261894000005,
+      "max": 0.34149081294000005,
+      "times": [
+        0.32805294494000004,
+        0.32968239294000007,
+        0.32734261894000005,
+        0.32945571294000003,
+        0.34149081294000005
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "parameters": {
+        "n": "50"
+      }
+    },
+    {
+      "command": ".venv/bin/python tests/artifacts/perf/20260615T-spectral-eig-blocked-coppercliff/eig_baseline_harness.py raw --impl native --case laplacian --n 100 --loops 2 --samples 1",
+      "mean": 0.36504834614000004,
+      "stddev": 0.030110022302173103,
+      "median": 0.34951166394000005,
+      "user": 4.365338,
+      "system": 0.06881343999999999,
+      "min": 0.33808236294000005,
+      "max": 0.39817430194000003,
+      "times": [
+        0.39727404594000004,
+        0.34219935594000006,
+        0.39817430194000003,
+        0.34951166394000005,
+        0.33808236294000005
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "parameters": {
+        "n": "100"
+      }
+    },
+    {
+      "command": ".venv/bin/python tests/artifacts/perf/20260615T-spectral-eig-blocked-coppercliff/eig_baseline_harness.py raw --impl numpy --case laplacian --n 100 --loops 2 --samples 1",
+      "mean": 0.34693314714,
+      "stddev": 0.025254840585580928,
+      "median": 0.34845494094000007,
+      "user": 4.4135706,
+      "system": 0.07578704,
+      "min": 0.32261883594000007,
+      "max": 0.38319175594000005,
+      "times": [
+        0.35681894294000005,
+        0.34845494094000007,
+        0.32261883594000007,
+        0.32358125994000003,
+        0.38319175594000005
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "parameters": {
+        "n": "100"
+      }
+    },
+    {
+      "command": ".venv/bin/python tests/artifacts/perf/20260615T-spectral-eig-blocked-coppercliff/eig_baseline_harness.py raw --impl native --case laplacian --n 200 --loops 2 --samples 1",
+      "mean": 0.36597532794000004,
+      "stddev": 0.012027643274481891,
+      "median": 0.36809223794000007,
+      "user": 4.474484200000001,
+      "system": 0.07407264,
+      "min": 0.34621821094000005,
+      "max": 0.37797182294000004,
+      "times": [
+        0.37226057794000006,
+        0.34621821094000005,
+        0.36809223794000007,
+        0.37797182294000004,
+        0.36533378994000004
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "parameters": {
+        "n": "200"
+      }
+    },
+    {
+      "command": ".venv/bin/python tests/artifacts/perf/20260615T-spectral-eig-blocked-coppercliff/eig_baseline_harness.py raw --impl numpy --case laplacian --n 200 --loops 2 --samples 1",
+      "mean": 0.35153444414,
+      "stddev": 0.02603501916694762,
+      "median": 0.34260820894000005,
+      "user": 5.4181466,
+      "system": 0.08078504,
+      "min": 0.33042670194000007,
+      "max": 0.39499171794000004,
+      "times": [
+        0.39499171794000004,
+        0.35500727794000003,
+        0.34260820894000005,
+        0.33463831394000004,
+        0.33042670194000007
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "parameters": {
+        "n": "200"
+      }
+    }
+  ]
+}

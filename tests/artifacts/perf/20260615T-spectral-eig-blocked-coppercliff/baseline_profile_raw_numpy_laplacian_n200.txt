@@ -1,0 +1,48 @@
+         194402 function calls (187534 primitive calls) in 0.146 seconds
+
+   Ordered by: cumulative time
+   List reduced from 1353 to 40 due to restriction <40>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+       29    0.000    0.000    0.248    0.009 __init__.py:1(<module>)
+        1    0.004    0.004    0.146    0.146 eig_baseline_harness.py:77(bench_raw_once)
+        1    0.001    0.001    0.118    0.118 eig_baseline_harness.py:59(matrix_for)
+        1    0.000    0.000    0.117    0.117 eig_baseline_harness.py:52(laplacian_matrix)
+      2/1    0.000    0.000    0.107    0.107 __init__.py:53083(wrapper)
+        1    0.000    0.000    0.107    0.107 __init__.py:22348(laplacian_matrix)
+    175/1    0.001    0.000    0.106    0.106 <frozen importlib._bootstrap>:1349(_find_and_load)
+    171/1    0.000    0.000    0.106    0.106 <frozen importlib._bootstrap>:1304(_find_and_load_unlocked)
+    409/3    0.000    0.000    0.105    0.035 <frozen importlib._bootstrap>:480(_call_with_frames_removed)
+    167/2    0.000    0.000    0.105    0.053 <frozen importlib._bootstrap>:911(_load_unlocked)
+    149/2    0.000    0.000    0.105    0.053 <frozen importlib._bootstrap_external>:1020(exec_module)
+    159/8    0.001    0.000    0.105    0.013 {built-in method builtins.exec}
+        2    0.000    0.000    0.084    0.042 _base.py:1(<module>)
+    60/20    0.000    0.000    0.084    0.004 {built-in method builtins.__import__}
+        1    0.000    0.000    0.083    0.083 _sputils.py:1(<module>)
+        1    0.000    0.000    0.083    0.083 _util.py:1(<module>)
+        1    0.000    0.000    0.082    0.082 _array_api.py:1(<module>)
+    96/20    0.000    0.000    0.077    0.004 <frozen importlib._bootstrap>:1390(_handle_fromlist)
+        3    0.000    0.000    0.062    0.021 _internal.py:56(clone_module)
+        1    0.000    0.000    0.061    0.061 <string>:1(<module>)
+2295/1743    0.000    0.000    0.061    0.000 {built-in method builtins.hasattr}
+       10    0.000    0.000    0.061    0.006 __init__.py:704(__getattr__)
+        1    0.000    0.000    0.035    0.035 f2py2e.py:1(<module>)
+      236    0.001    0.000    0.029    0.000 __init__.py:330(_compile)
+       75    0.000    0.000    0.029    0.000 __init__.py:287(compile)
+       80    0.000    0.000    0.028    0.000 _compiler.py:743(compile)
+        1    0.000    0.000    0.028    0.028 capi_maps.py:1(<module>)
+        1    0.000    0.000    0.026    0.026 crackfortran.py:1(<module>)
+       21    0.000    0.000    0.025    0.001 eig_baseline_harness.py:83(<lambda>)
+       21    0.025    0.001    0.025    0.001 _linalg.py:1264(eigvalsh)
+      149    0.001    0.000    0.021    0.000 <frozen importlib._bootstrap_external>:1093(get_code)
+       80    0.000    0.000    0.017    0.000 _parser.py:970(parse)
+   462/80    0.002    0.000    0.017    0.000 _parser.py:451(_parse_sub)
+   612/80    0.005    0.000    0.017    0.000 _parser.py:511(_parse)
+      149    0.002    0.000    0.014    0.000 <frozen importlib._bootstrap_external>:782(_compile_bytecode)
+      238    0.002    0.000    0.011    0.000 {built-in method builtins.__build_class__}
+      149    0.011    0.000    0.011    0.000 {built-in method marshal.loads}
+       80    0.000    0.000    0.011    0.000 _compiler.py:576(_code)
+  1124/80    0.005    0.000    0.010    0.000 _compiler.py:37(_compile)
+        1    0.001    0.001    0.009    0.009 eig_baseline_harness.py:38(weighted_graph_pair)
+
+
