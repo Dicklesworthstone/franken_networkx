@@ -23,6 +23,15 @@ def _canon(g):
     )
 
 
+def _canon_multidigraph(g):
+    return (
+        [(n, dict(a)) for n, a in g.nodes(data=True)],
+        [(u, v, k, dict(d)) for u, v, k, d in g.edges(keys=True, data=True)],
+        {n: list(g.successors(n)) for n in g},
+        {n: list(g.predecessors(n)) for n in g},
+    )
+
+
 def _both(build):
     return _canon(build(nx)), _canon(build(fnx))
 
@@ -246,6 +255,56 @@ def test_digraph_exact_int_batch_probe_falls_back_for_bool_nodes():
 
     a, b = _both(build)
     assert a == b
+
+
+def test_multidigraph_fresh_exact_int_attr_batch_matches_nx_order_keys_and_copies():
+    first = {"w": 0, "label": "first"}
+    duplicate = {"w": 91, "extra": "second-key"}
+    third = {"w": 92, "tail": "third-key"}
+    batch = (
+        [(0, 1, first), (1, 2, {"w": 1}), (0, 1, duplicate), (1, 0, {"rev": True})]
+        + [(i, i + 1, {"w": i, "tag": f"e{i}"}) for i in range(3, 11)]
+        + [(2, 2, {"self": True}), (0, 1, third)]
+    )
+
+    gf = fnx.MultiDiGraph()
+    gn = nx.MultiDiGraph()
+    gf.add_edges_from(batch)
+    gn.add_edges_from(batch)
+
+    assert _canon_multidigraph(gf) == _canon_multidigraph(gn)
+    assert gf.get_edge_data(0, 1) == {
+        0: {"w": 0, "label": "first"},
+        1: {"w": 91, "extra": "second-key"},
+        2: {"w": 92, "tail": "third-key"},
+    }
+    assert list(gf.successors(0)) == [1]
+    assert list(gf.predecessors(1)) == [0]
+
+    first["w"] = 999
+    duplicate["extra"] = "mutated"
+    third["tail"] = "mutated"
+    assert gf.get_edge_data(0, 1) == {
+        0: {"w": 0, "label": "first"},
+        1: {"w": 91, "extra": "second-key"},
+        2: {"w": 92, "tail": "third-key"},
+    }
+
+
+def test_multidigraph_exact_int_batch_probe_falls_back_for_bool_nodes():
+    batch = (
+        [(True, 2, {"w": "bool"}), (1, 3, {"w": "int"})]
+        + [(i, i + 10, {"w": i}) for i in range(2, 10)]
+    )
+
+    def build(mod):
+        g = mod.MultiDiGraph()
+        g.add_edges_from(batch)
+        return g
+
+    gf = build(fnx)
+    gn = build(nx)
+    assert _canon_multidigraph(gf) == _canon_multidigraph(gn)
 
 
 def test_digraph_batch_probe_falls_back_for_list_edges():

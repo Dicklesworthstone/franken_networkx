@@ -2021,6 +2021,100 @@ impl MultiDiGraph {
         inserted
     }
 
+    /// Bulk-add keyed attributed directed multiedges into a fresh graph when the
+    /// caller has already assigned NetworkX-compatible node indices and per-pair
+    /// keys. This avoids hashing/copying canonical endpoint strings for every
+    /// edge in fresh `MultiDiGraph.add_edges_from` batches.
+    #[must_use]
+    pub fn extend_fresh_index_keyed_edges_with_attrs_unrecorded<I, N>(
+        &mut self,
+        nodes: N,
+        edges: I,
+    ) -> usize
+    where
+        I: IntoIterator<Item = (usize, usize, usize, AttrMap)>,
+        N: IntoIterator<Item = String>,
+    {
+        if !self.nodes.is_empty()
+            || !self.successors.is_empty()
+            || !self.predecessors.is_empty()
+            || !self.edges.is_empty()
+        {
+            return 0;
+        }
+
+        let node_labels: Vec<String> = nodes.into_iter().collect();
+        for node in &node_labels {
+            self.nodes.insert(node.clone(), AttrMap::new());
+            self.successors.insert(node.clone(), IndexMap::new());
+            self.predecessors.insert(node.clone(), IndexMap::new());
+        }
+
+        let node_count = node_labels.len();
+        let mut inserted = 0usize;
+        let mut merged_changed = false;
+        for (source_idx, target_idx, key, attrs) in edges {
+            let Some(source) = node_labels.get(source_idx) else {
+                continue;
+            };
+            let Some(target) = node_labels.get(target_idx) else {
+                continue;
+            };
+            let edge_key = DirectedEdgeKey::new(source, target);
+            let bucket = self.edges.entry(edge_key).or_default();
+            if !bucket.contains_key(&key) {
+                self.edge_count += 1;
+                inserted += 1;
+            }
+            let edge_attrs = bucket.entry(key).or_default();
+            if !attrs.is_empty()
+                && attrs
+                    .iter()
+                    .any(|(attr_key, value)| edge_attrs.get(attr_key) != Some(value))
+            {
+                merged_changed = true;
+            }
+            edge_attrs.extend(attrs);
+            self.successors
+                .get_mut(source.as_str())
+                .expect("fresh node row exists")
+                .entry(target.clone())
+                .or_default()
+                .insert(key);
+            self.predecessors
+                .get_mut(target.as_str())
+                .expect("fresh node row exists")
+                .entry(source.clone())
+                .or_default()
+                .insert(key);
+        }
+
+        if node_count > 0 || inserted > 0 || merged_changed {
+            self.revision = self.revision.saturating_add(
+                u64::try_from(node_count.saturating_add(inserted)).unwrap_or(u64::MAX),
+            );
+            self.record_decision(
+                "extend_fresh_index_keyed_edges_with_attrs_unrecorded",
+                0.0,
+                false,
+                vec![
+                    EvidenceTerm {
+                        signal: "batch_node_count".to_owned(),
+                        observed_value: node_count.to_string(),
+                        log_likelihood_ratio: -1.0,
+                    },
+                    EvidenceTerm {
+                        signal: "batch_edge_count".to_owned(),
+                        observed_value: inserted.to_string(),
+                        log_likelihood_ratio: -1.0,
+                    },
+                ],
+            );
+        }
+
+        inserted
+    }
+
     pub fn add_edge_with_attrs(
         &mut self,
         source: impl Into<String>,

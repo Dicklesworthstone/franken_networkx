@@ -953,6 +953,172 @@ impl PyMultiDiGraph {
         self.nodes_seq = self.nodes_seq.wrapping_add(node_bumps);
         Ok(())
     }
+
+    fn collect_fresh_exact_int_attr_edge_batch<'py, I>(
+        &self,
+        py: Python<'py>,
+        items: I,
+        len: usize,
+    ) -> PyResult<Option<MultiDiIndexedAttrEdgeBatch>>
+    where
+        I: IntoIterator<Item = Bound<'py, PyAny>>,
+    {
+        let mut node_indices: HashMap<i64, usize> = HashMap::new();
+        let mut node_labels: Vec<String> = Vec::new();
+        let mut node_objects: Vec<PyObject> = Vec::new();
+        let mut pair_count: HashMap<(usize, usize), usize> = HashMap::new();
+        let mut edges: Vec<(usize, usize, usize, AttrMap, Py<PyDict>)> = Vec::with_capacity(len);
+        let mut node_bumps = 0_u64;
+
+        for item in items {
+            let Ok(tuple) = item.downcast::<PyTuple>() else {
+                return Ok(None);
+            };
+            if tuple.len() != 3 {
+                return Ok(None);
+            }
+
+            let u = tuple.get_item(0)?;
+            let v = tuple.get_item(1)?;
+            if !u.is_exact_instance_of::<PyInt>()
+                || !v.is_exact_instance_of::<PyInt>()
+                || u.is_exact_instance_of::<PyBool>()
+                || v.is_exact_instance_of::<PyBool>()
+            {
+                return Ok(None);
+            }
+            let Ok(u_value) = u.extract::<i64>() else {
+                return Ok(None);
+            };
+            let Ok(v_value) = v.extract::<i64>() else {
+                return Ok(None);
+            };
+
+            let third = tuple.get_item(2)?;
+            let Ok(dict) = third.downcast::<PyDict>() else {
+                return Ok(None);
+            };
+            let Ok((attrs, mirror)) = py_dict_to_attr_map_with_mirror(py, dict) else {
+                return Ok(None);
+            };
+            if attrs
+                .keys()
+                .any(|key| key.starts_with("__fnx_incompatible"))
+            {
+                return Ok(None);
+            }
+
+            let mut edge_added_node = false;
+            let u_index = match node_indices.get(&u_value).copied() {
+                Some(index) => index,
+                None => {
+                    let index = node_labels.len();
+                    node_indices.insert(u_value, index);
+                    node_labels.push(u_value.to_string());
+                    node_objects.push(u.clone().unbind());
+                    edge_added_node = true;
+                    index
+                }
+            };
+            let v_index = match node_indices.get(&v_value).copied() {
+                Some(index) => index,
+                None => {
+                    let index = node_labels.len();
+                    node_indices.insert(v_value, index);
+                    node_labels.push(v_value.to_string());
+                    node_objects.push(v.clone().unbind());
+                    edge_added_node = true;
+                    index
+                }
+            };
+            if edge_added_node {
+                node_bumps = node_bumps.wrapping_add(1);
+            }
+
+            let counter = pair_count.entry((u_index, v_index)).or_insert(0);
+            let key = *counter;
+            *counter += 1;
+            edges.push((u_index, v_index, key, attrs, mirror));
+        }
+
+        Ok(Some((node_labels, node_objects, edges, node_bumps)))
+    }
+
+    fn add_fresh_exact_int_attr_edge_batch(
+        &mut self,
+        py: Python<'_>,
+        node_labels: Vec<String>,
+        node_objects: Vec<PyObject>,
+        edges: Vec<(usize, usize, usize, AttrMap, Py<PyDict>)>,
+        node_bumps: u64,
+    ) -> PyResult<()> {
+        let edge_bumps = u64::try_from(edges.len()).unwrap_or(u64::MAX);
+        let mirror_active = self.node_iter_mirror_active();
+        for (canonical, node) in node_labels.iter().zip(node_objects) {
+            self.node_key_map.entry(canonical.clone()).or_insert(node);
+            if mirror_active {
+                self.node_iter_mirror_insert(py, canonical)?;
+            }
+        }
+
+        let mut inner_edges = Vec::with_capacity(edges.len());
+        for (source_idx, target_idx, key, attrs, mirror) in edges {
+            let source = &node_labels[source_idx];
+            let target = &node_labels[target_idx];
+            if !mirror.bind(py).is_empty() {
+                self.edge_py_attrs
+                    .entry(Self::edge_key(source, target, key))
+                    .or_insert(mirror);
+            }
+            inner_edges.push((source_idx, target_idx, key, attrs));
+        }
+
+        let _inserted = self
+            .inner
+            .extend_fresh_index_keyed_edges_with_attrs_unrecorded(node_labels, inner_edges);
+        self.nodes_seq = self.nodes_seq.wrapping_add(node_bumps);
+        self.edges_seq = self.edges_seq.wrapping_add(edge_bumps);
+        Ok(())
+    }
+
+    fn try_add_fresh_exact_int_attr_edge_batch(
+        &mut self,
+        py: Python<'_>,
+        ebunch_to_add: &Bound<'_, PyAny>,
+    ) -> PyResult<bool> {
+        const ATTR_EDGE_BATCH_MIN: usize = 8;
+        if self.inner.node_count() != 0
+            || self.inner.edge_count() != 0
+            || !self.node_key_map.is_empty()
+            || !self.node_py_attrs.is_empty()
+            || !self.edge_py_attrs.is_empty()
+            || !self.edge_py_keys.is_empty()
+            || !self.succ_py_keys.is_empty()
+            || !self.pred_py_keys.is_empty()
+        {
+            return Ok(false);
+        }
+
+        let collected = if let Ok(list) = ebunch_to_add.downcast::<PyList>() {
+            if list.len() < ATTR_EDGE_BATCH_MIN {
+                return Ok(false);
+            }
+            self.collect_fresh_exact_int_attr_edge_batch(py, list.iter(), list.len())?
+        } else if let Ok(tuple) = ebunch_to_add.downcast::<PyTuple>() {
+            if tuple.len() < ATTR_EDGE_BATCH_MIN {
+                return Ok(false);
+            }
+            self.collect_fresh_exact_int_attr_edge_batch(py, tuple.iter(), tuple.len())?
+        } else {
+            return Ok(false);
+        };
+
+        let Some((node_labels, node_objects, edges, node_bumps)) = collected else {
+            return Ok(false);
+        };
+        self.add_fresh_exact_int_attr_edge_batch(py, node_labels, node_objects, edges, node_bumps)?;
+        Ok(true)
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -1904,6 +2070,11 @@ impl PyMultiDiGraph {
         global_attr: Option<&Bound<'_, PyDict>>,
     ) -> PyResult<bool> {
         const ATTR_EDGE_BATCH_MIN: usize = 8;
+        if global_attr.is_none_or(|attrs| attrs.is_empty())
+            && self.try_add_fresh_exact_int_attr_edge_batch(py, ebunch_to_add)?
+        {
+            return Ok(true);
+        }
         if self.inner.edge_count() != 0
             || !self.succ_py_keys.is_empty()
             || !self.pred_py_keys.is_empty()
@@ -5958,6 +6129,12 @@ type DiIndexedAttrEdgeBatch = (
     Vec<String>,
     Vec<PyObject>,
     Vec<(usize, usize, AttrMap, Py<PyDict>)>,
+    u64,
+);
+type MultiDiIndexedAttrEdgeBatch = (
+    Vec<String>,
+    Vec<PyObject>,
+    Vec<(usize, usize, usize, AttrMap, Py<PyDict>)>,
     u64,
 );
 
