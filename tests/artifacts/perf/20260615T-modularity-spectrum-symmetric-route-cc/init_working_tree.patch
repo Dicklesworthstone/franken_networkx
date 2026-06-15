@@ -1,0 +1,36 @@
+diff --git a/python/franken_networkx/__init__.py b/python/franken_networkx/__init__.py
+index 9f817c8f4..33a46ad18 100644
+--- a/python/franken_networkx/__init__.py
++++ b/python/franken_networkx/__init__.py
+@@ -40030,7 +40030,30 @@ def directed_modularity_matrix(G, nodelist=None, weight=None):
+ 
+ 
+ def modularity_spectrum(G):
+-    """Eigenvalues of the modularity matrix."""
++    """Eigenvalues of the modularity matrix.
++
++    Solver order is unstable (LAPACK/QR Schur deflation order is not
++    portable), so the contract is dtype (complex128) + sorted-value
++    parity with ``networkx.modularity_spectrum``.
++    """
++    import numpy as np
++
++    if not G.is_directed():
++        # br-r37-c1-04z53.9112 (sibling): the undirected modularity matrix
++        # B = A - k kᵀ / 2m is symmetric, so its eigenvalues are real.
++        # nx/scipy.linalg.eigvals runs the GENERAL (non-Hermitian) dgeev
++        # path which ignores symmetry and is ~12-22x slower than a
++        # symmetric tridiagonal QL. Route through the safe-Rust symmetric
++        # eigensolver (no C LAPACK), presented as complex128 to match nx.
++        native = getattr(_fnx, "symmetric_eigvals_rust", None)
++        if native is not None:
++            B = np.ascontiguousarray(
++                np.asarray(modularity_matrix(G)), dtype=np.float64
++            )
++            values = native(B.ravel(), B.shape[0])
++            if values is not None:
++                return np.asarray(values, dtype=np.float64).astype(np.complex128)
++
+     import scipy.linalg
+ 
+     if G.is_directed():
