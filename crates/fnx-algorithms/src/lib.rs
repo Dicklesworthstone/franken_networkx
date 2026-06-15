@@ -25143,6 +25143,10 @@ type OrderedPaths = Vec<(String, Vec<String>)>;
 type DijkstraFull = (OrderedDistances, OrderedPaths);
 /// Ordered `(node, distance, all-int-distance, predecessor)` entries.
 type OrderedTypedPredDistances = Vec<(String, f64, bool, Option<String>)>;
+/// Ordered `(node, distance, all-int-distance)` entries.
+type OrderedTypedDistances = Vec<(String, f64, bool)>;
+/// Ordered `(node, predecessor-list)` entries for NetworkX predecessor dicts.
+type OrderedPredecessorLists = Vec<(String, Vec<String>)>;
 
 /// Single-source Dijkstra returning distances only (directed graph).
 /// Returns `(node, distance)` pairs in networkx finalize order.
@@ -25438,6 +25442,51 @@ pub fn single_source_dijkstra_path_length_typed_with_pred(
     )
 }
 
+/// Dijkstra predecessor/distance for an undirected simple graph.
+///
+/// The predecessor entries are ordered by NetworkX's relaxation-time dict
+/// insertion order, while distance entries are ordered by heap finalization.
+#[must_use]
+pub fn dijkstra_predecessor_and_distance(
+    graph: &Graph,
+    source: &str,
+    weight_attr: &str,
+    cutoff: Option<f64>,
+) -> (OrderedPredecessorLists, OrderedTypedDistances) {
+    let Some(source_idx) = graph.get_node_index(source) else {
+        return (Vec::new(), Vec::new());
+    };
+    let names = graph.nodes_ordered();
+    let n = names.len();
+    let mut offsets = Vec::with_capacity(n + 1);
+    let mut targets: Vec<u32> = Vec::new();
+    let mut weights: Vec<f64> = Vec::new();
+    let mut weight_is_int: Vec<bool> = Vec::new();
+    offsets.push(0);
+    for u in 0..n {
+        if let Some(row) = graph.neighbors_indices(u) {
+            for &v in row {
+                let (weight, is_int) =
+                    graph_edge_weight_or_default_idx_typed(graph, u, v, weight_attr);
+                targets.push(u32::try_from(v).unwrap_or(u32::MAX));
+                weights.push(weight);
+                weight_is_int.push(is_int);
+            }
+        }
+        offsets.push(targets.len());
+    }
+
+    single_source_dijkstra_predecessor_distance_csr(
+        source_idx,
+        &names,
+        &offsets,
+        &targets,
+        &weights,
+        &weight_is_int,
+        cutoff,
+    )
+}
+
 /// Directed twin of single_source_dijkstra_path_length_with_pred.
 #[must_use]
 pub fn single_source_dijkstra_path_length_with_pred_directed(
@@ -25476,6 +25525,41 @@ pub fn single_source_dijkstra_path_length_typed_with_pred_directed(
     }
 
     single_source_dijkstra_typed_csr(
+        source_idx,
+        &names,
+        &csr.succ_offsets,
+        &csr.succ_targets,
+        &weights,
+        &weight_is_int,
+        cutoff,
+    )
+}
+
+/// Directed twin of [`dijkstra_predecessor_and_distance`].
+#[must_use]
+pub fn dijkstra_predecessor_and_distance_directed(
+    digraph: &DiGraph,
+    source: &str,
+    weight_attr: &str,
+    cutoff: Option<f64>,
+) -> (OrderedPredecessorLists, OrderedTypedDistances) {
+    let Some(source_idx) = digraph.get_node_index(source) else {
+        return (Vec::new(), Vec::new());
+    };
+    let csr = digraph.csr();
+    let names = digraph.nodes_ordered();
+    let mut weights: Vec<f64> = Vec::with_capacity(csr.succ_targets.len());
+    let mut weight_is_int: Vec<bool> = Vec::with_capacity(csr.succ_targets.len());
+    for u in 0..names.len() {
+        for &v in csr.successors(u) {
+            let (weight, is_int) =
+                digraph_edge_weight_or_default_idx_typed(digraph, u, v as usize, weight_attr);
+            weights.push(weight);
+            weight_is_int.push(is_int);
+        }
+    }
+
+    single_source_dijkstra_predecessor_distance_csr(
         source_idx,
         &names,
         &csr.succ_offsets,
@@ -25562,6 +25646,116 @@ fn single_source_dijkstra_typed_csr(
             )
         })
         .collect()
+}
+
+fn single_source_dijkstra_predecessor_distance_csr(
+    source_idx: usize,
+    names: &[&str],
+    offsets: &[usize],
+    targets: &[u32],
+    weights: &[f64],
+    weight_is_int: &[bool],
+    cutoff: Option<f64>,
+) -> (OrderedPredecessorLists, OrderedTypedDistances) {
+    let n = names.len();
+    let mut seen: Vec<f64> = vec![f64::INFINITY; n];
+    let mut all_int_paths = vec![false; n];
+    let mut pred_lists: Vec<Option<Vec<u32>>> = vec![None; n];
+    let mut pred_order = Vec::new();
+    let mut dist_order = Vec::new();
+    let mut finalized = vec![false; n];
+    let mut pq = BinaryHeap::new();
+    let mut seq_counter: u64 = 0;
+
+    seen[source_idx] = 0.0;
+    all_int_paths[source_idx] = true;
+    pred_lists[source_idx] = Some(Vec::new());
+    pred_order.push(u32::try_from(source_idx).unwrap_or(u32::MAX));
+    seq_counter += 1;
+    pq.push(DijkstraState {
+        dist: 0.0,
+        seq: seq_counter,
+        node: u32::try_from(source_idx).unwrap_or(u32::MAX),
+    });
+
+    while let Some(DijkstraState {
+        dist: dist_v,
+        node: v,
+        ..
+    }) = pq.pop()
+    {
+        let v_usize = v as usize;
+        if finalized[v_usize] || dist_v > seen[v_usize] {
+            continue;
+        }
+        finalized[v_usize] = true;
+        dist_order.push(v);
+
+        for edge_offset in offsets[v_usize]..offsets[v_usize + 1] {
+            let u = targets[edge_offset];
+            let u_usize = u as usize;
+            let vu_dist = dist_v + weights[edge_offset];
+            if let Some(limit) = cutoff
+                && vu_dist > limit
+            {
+                continue;
+            }
+            if finalized[u_usize] {
+                if vu_dist == seen[u_usize]
+                    && let Some(preds) = pred_lists[u_usize].as_mut()
+                {
+                    preds.push(v);
+                }
+                continue;
+            }
+            if seen[u_usize].is_infinite() || vu_dist < seen[u_usize] {
+                seen[u_usize] = vu_dist;
+                all_int_paths[u_usize] = all_int_paths[v_usize] && weight_is_int[edge_offset];
+                if pred_lists[u_usize].is_none() {
+                    pred_order.push(u);
+                }
+                pred_lists[u_usize] = Some(vec![v]);
+                seq_counter += 1;
+                pq.push(DijkstraState {
+                    dist: vu_dist,
+                    seq: seq_counter,
+                    node: u,
+                });
+            } else if vu_dist == seen[u_usize]
+                && let Some(preds) = pred_lists[u_usize].as_mut()
+            {
+                preds.push(v);
+            }
+        }
+    }
+
+    let predecessors = pred_order
+        .into_iter()
+        .filter_map(|idx| {
+            let idx_usize = idx as usize;
+            pred_lists[idx_usize].as_ref().map(|preds| {
+                (
+                    names[idx_usize].to_owned(),
+                    preds
+                        .iter()
+                        .map(|pred| names[*pred as usize].to_owned())
+                        .collect(),
+                )
+            })
+        })
+        .collect();
+    let distances = dist_order
+        .into_iter()
+        .map(|idx| {
+            let idx_usize = idx as usize;
+            (
+                names[idx_usize].to_owned(),
+                seen[idx_usize],
+                all_int_paths[idx_usize],
+            )
+        })
+        .collect();
+    (predecessors, distances)
 }
 
 /// Single-source Dijkstra returning paths only for directed graph.

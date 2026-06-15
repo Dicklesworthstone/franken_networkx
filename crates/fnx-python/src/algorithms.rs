@@ -14760,6 +14760,73 @@ fn single_source_dijkstra_path_length(
     Ok(dict.into_any().unbind())
 }
 
+/// Return predecessor lists and distances from a single source using Dijkstra.
+#[pyfunction]
+#[pyo3(signature = (g, source, weight="weight", cutoff=None))]
+fn dijkstra_predecessor_and_distance(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    source: &Bound<'_, PyAny>,
+    weight: &str,
+    cutoff: Option<f64>,
+) -> PyResult<(PyObject, PyObject)> {
+    sync_rust_attrs_if_available(g)?;
+    let gr = extract_graph(g)?;
+    let s = node_key_to_string(py, source)?;
+    validate_node_str(&gr, &s, "Source")?;
+    let (predecessors, distances) =
+        if let Some(weighted_projection) = gr.weighted_digraph_projection(weight) {
+            let __wp = weighted_projection.as_ref();
+            py.allow_threads(|| {
+                fnx_algorithms::dijkstra_predecessor_and_distance_directed(__wp, &s, weight, cutoff)
+            })
+        } else {
+            let weighted_projection = gr.weighted_undirected_projection(weight);
+            let __wp = weighted_projection.as_ref();
+            py.allow_threads(|| {
+                fnx_algorithms::dijkstra_predecessor_and_distance(__wp, &s, weight, cutoff)
+            })
+        };
+
+    let mut disp: std::collections::HashMap<String, PyObject> =
+        std::collections::HashMap::with_capacity(predecessors.len() + 1);
+    disp.insert(s.clone(), source.clone().unbind());
+    for (node, preds) in &predecessors {
+        if node == &s {
+            continue;
+        }
+        if let Some(first_pred) = preds.first() {
+            disp.insert(node.clone(), gr.py_row_key(py, first_pred, node));
+        }
+    }
+
+    let pred_dict = PyDict::new(py);
+    for (node, preds) in &predecessors {
+        let py_preds: Vec<PyObject> = preds
+            .iter()
+            .map(|pred| gr.disp_or_node_key(py, &disp, pred))
+            .collect();
+        pred_dict.set_item(gr.disp_or_node_key(py, &disp, node), py_preds)?;
+    }
+
+    let dist_dict = PyDict::new(py);
+    for (node, distance, all_int) in &distances {
+        let key = gr.disp_or_node_key(py, &disp, node);
+        if *all_int
+            && distance.is_finite()
+            && distance.fract() == 0.0
+            && *distance >= i128::MIN as f64
+            && *distance <= i128::MAX as f64
+        {
+            dist_dict.set_item(key, PyInt::new(py, *distance as i128))?;
+        } else {
+            dist_dict.set_item(key, distance)?;
+        }
+    }
+
+    Ok((pred_dict.into_any().unbind(), dist_dict.into_any().unbind()))
+}
+
 /// Return (distances, paths) from a single source using Bellman-Ford.
 #[pyfunction]
 #[pyo3(signature = (g, source, weight="weight"))]
@@ -19429,6 +19496,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(single_source_dijkstra, m)?)?;
     m.add_function(wrap_pyfunction!(single_source_dijkstra_path, m)?)?;
     m.add_function(wrap_pyfunction!(single_source_dijkstra_path_length, m)?)?;
+    m.add_function(wrap_pyfunction!(dijkstra_predecessor_and_distance, m)?)?;
     m.add_function(wrap_pyfunction!(single_source_bellman_ford, m)?)?;
     m.add_function(wrap_pyfunction!(single_source_bellman_ford_path, m)?)?;
     m.add_function(wrap_pyfunction!(single_source_bellman_ford_path_length, m)?)?;

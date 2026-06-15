@@ -1,0 +1,31 @@
+         1202 function calls (1187 primitive calls) in 0.046 seconds
+
+   Ordered by: cumulative time
+   List reduced from 26 to 25 due to restriction <25>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.000    0.000    0.046    0.046 dijkstra_family_pass.py:272(repeated)
+       15    0.000    0.000    0.046    0.003 dijkstra_family_pass.py:172(<lambda>)
+    30/15    0.000    0.000    0.046    0.003 __init__.py:52975(wrapper)
+       15    0.000    0.000    0.046    0.003 __init__.py:7687(shortest_path_length)
+       15    0.000    0.000    0.041    0.003 __init__.py:17997(dijkstra_path_length)
+       15    0.038    0.003    0.038    0.003 {built-in method franken_networkx._fnx.dijkstra_path}
+       30    0.000    0.000    0.008    0.000 __init__.py:7012(_should_delegate_dijkstra_to_networkx)
+       30    0.007    0.000    0.007    0.000 {built-in method franken_networkx._fnx.check_dijkstra_edge_weights_fast}
+       15    0.000    0.000    0.000    0.000 __init__.py:7531(_path_length_preserving_weight_type)
+       60    0.000    0.000    0.000    0.000 __init__.py:37013(__contains__)
+       15    0.000    0.000    0.000    0.000 __init__.py:6795(_path_query_has_missing_nodes)
+       45    0.000    0.000    0.000    0.000 __init__.py:6169(predicate)
+       60    0.000    0.000    0.000    0.000 __init__.py:1595(_graph_getitem_from_adj)
+       60    0.000    0.000    0.000    0.000 __init__.py:1252(__getitem__)
+       60    0.000    0.000    0.000    0.000 __init__.py:36440(_private_override)
+       30    0.000    0.000    0.000    0.000 __init__.py:13126(_coerce_arg_to_fnx_graph)
+      240    0.000    0.000    0.000    0.000 {method 'get' of 'dict' objects}
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+       60    0.000    0.000    0.000    0.000 __init__.py:1210(_keydict)
+      195    0.000    0.000    0.000    0.000 {built-in method builtins.isinstance}
+       30    0.000    0.000    0.000    0.000 {built-in method franken_networkx._fnx.dijkstra_weight_cache_token}
+       60    0.000    0.000    0.000    0.000 {built-in method builtins.vars}
+       45    0.000    0.000    0.000    0.000 {function _make_class_safe_predicate.<locals>.predicate at 0x7ffabe474ea0}
+       30    0.000    0.000    0.000    0.000 __init__.py:24179(_validate_backend_dispatch_keywords)
+       30    0.000    0.000    0.000    0.000 {built-in method builtins.callable}

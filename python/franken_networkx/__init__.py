@@ -17823,6 +17823,7 @@ from franken_networkx._fnx import (
     single_source_dijkstra as _raw_single_source_dijkstra,
     single_source_dijkstra_path as _raw_single_source_dijkstra_path,
     single_source_dijkstra_path_length as _raw_single_source_dijkstra_path_length,
+    dijkstra_predecessor_and_distance as _raw_dijkstra_predecessor_and_distance,
     single_source_bellman_ford as _raw_single_source_bellman_ford,
     single_source_bellman_ford_path as _raw_single_source_bellman_ford_path,
     single_source_bellman_ford_path_length as _raw_single_source_bellman_ford_path_length,
@@ -29008,15 +29009,31 @@ def dijkstra_predecessor_and_distance(G, source, cutoff=None, weight="weight"):
     br-r37-c1-0l76i: nx populates the predecessor dict in
     edge-relaxation insertion order during traversal (so pred[v]
     appears in the dict at the moment a tentative shortest path is
-    found, not when the distance is finalized). The previous local
-    implementation built ``pred = {node: predecessors[node] for
-    node in distances}`` which forced pred-key order to match
-    distances-iteration order, drifting from nx (e.g. nx's pred for
-    weighted graph [(a,b,1),(b,c,2),(c,d,1),(a,d,5),(b,d,3)] is
-    {a:[], b:[a], d:[b,c], c:[b]} — d lands before c because (b,d)
-    is relaxed before c is popped). Delegate to nx so pred-dict
-    iteration matches nx's algorithm-discovery contract.
+    found, not when the distance is finalized). The native kernel
+    records that relaxation-insertion stream independently from the
+    finalized distance order, preserving nx's algorithm-discovery
+    contract while avoiding the full fnx->nx conversion fallback.
     """
+    G = _coerce_arg_to_fnx_graph(G)
+    if (
+        type(G) not in (Graph, DiGraph)
+        or (cutoff is not None and not isinstance(cutoff, _numbers.Real))
+        or _should_delegate_dijkstra_to_networkx(G, weight)
+    ):
+        return _dijkstra_predecessor_and_distance_via_parity(
+            G, source, cutoff=cutoff, weight=weight,
+        )
+    if source not in G:
+        raise NodeNotFound(f"Node {source} is not found in the graph")
+    return _raw_dijkstra_predecessor_and_distance(
+        G,
+        source,
+        weight=weight,
+        cutoff=cutoff,
+    )
+
+
+def _dijkstra_predecessor_and_distance_via_parity(G, source, cutoff=None, weight="weight"):
     return _call_networkx_for_parity(
         "dijkstra_predecessor_and_distance",
         G, source, cutoff=cutoff, weight=weight,

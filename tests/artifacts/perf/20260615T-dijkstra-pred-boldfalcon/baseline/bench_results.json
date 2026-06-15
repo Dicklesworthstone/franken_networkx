@@ -1,0 +1,111 @@
+{
+  "graph": {
+    "edges": 3899,
+    "kind": "simple_undirected_weighted_graph",
+    "nodes": 700,
+    "seed": 20260614,
+    "source": 0,
+    "target": 699,
+    "weight": "weight"
+  },
+  "operations": {
+    "dijkstra_path_length": {
+      "fnx": {
+        "max_ms": 6.213931,
+        "mean_ms": 2.784325548387097,
+        "min_ms": 2.494134,
+        "p50_ms": 2.564237,
+        "p95_ms": 3.2601005,
+        "p99_ms": 5.373460899999998,
+        "runs": 31
+      },
+      "fnx_over_networkx_p50": 1.8209880006277708,
+      "fnx_result_digest": "773b77a535e327556a7331159dbed7e2494973e5f42c9d387535f51fead8c888",
+      "networkx": {
+        "max_ms": 3.102086,
+        "mean_ms": 1.5281626129032257,
+        "min_ms": 1.379012,
+        "p50_ms": 1.408157,
+        "p95_ms": 1.757344,
+        "p99_ms": 2.7099754999999988,
+        "runs": 31
+      },
+      "networkx_result_digest": "773b77a535e327556a7331159dbed7e2494973e5f42c9d387535f51fead8c888",
+      "result_digest_equal": true
+    },
+    "dijkstra_predecessor_and_distance": {
+      "fnx": {
+        "max_ms": 18.20229,
+        "mean_ms": 12.100291935483872,
+        "min_ms": 9.344822,
+        "p50_ms": 11.289135,
+        "p95_ms": 17.078485999999998,
+        "p99_ms": 18.1750104,
+        "runs": 31
+      },
+      "fnx_over_networkx_p50": 5.056703018890405,
+      "fnx_result_digest": "dcd064d2a1ca27592fae9155c9a1b7472b034c7bc685396776494cfe4bb97ca3",
+      "networkx": {
+        "max_ms": 5.301222,
+        "mean_ms": 2.836731967741936,
+        "min_ms": 2.078167,
+        "p50_ms": 2.232509,
+        "p95_ms": 5.086384499999999,
+        "p99_ms": 5.2398876,
+        "runs": 31
+      },
+      "networkx_result_digest": "dcd064d2a1ca27592fae9155c9a1b7472b034c7bc685396776494cfe4bb97ca3",
+      "result_digest_equal": true
+    },
+    "shortest_path_length_weight": {
+      "fnx": {
+        "max_ms": 2.817527,
+        "mean_ms": 2.7531307096774196,
+        "min_ms": 2.701818,
+        "p50_ms": 2.750791,
+        "p95_ms": 2.8012360000000003,
+        "p99_ms": 2.8162166,
+        "runs": 31
+      },
+      "fnx_over_networkx_p50": 1.9527603381350325,
+      "fnx_result_digest": "773b77a535e327556a7331159dbed7e2494973e5f42c9d387535f51fead8c888",
+      "networkx": {
+        "max_ms": 1.648703,
+        "mean_ms": 1.431006193548387,
+        "min_ms": 1.387839,
+        "p50_ms": 1.408668,
+        "p95_ms": 1.5539335,
+        "p99_ms": 1.6222798999999999,
+        "runs": 31
+      },
+      "networkx_result_digest": "773b77a535e327556a7331159dbed7e2494973e5f42c9d387535f51fead8c888",
+      "result_digest_equal": true
+    },
+    "single_source_dijkstra": {
+      "fnx": {
+        "max_ms": 7.713442,
+        "mean_ms": 4.291687096774194,
+        "min_ms": 3.249375,
+        "p50_ms": 3.753179,
+        "p95_ms": 6.810401,
+        "p99_ms": 7.5897637,
+        "runs": 31
+      },
+      "fnx_over_networkx_p50": 1.7759692956036326,
+      "fnx_result_digest": "7c8bc70db285aa7583695a54d0f649494989d7c7525bffeedaa4138e588ace24",
+      "networkx": {
+        "max_ms": 3.513094,
+        "mean_ms": 2.1989993870967743,
+        "min_ms": 2.091963,
+        "p50_ms": 2.113313,
+        "p95_ms": 2.52576,
+        "p99_ms": 3.2351337999999994,
+        "runs": 31
+      },
+      "networkx_result_digest": "7c8bc70db285aa7583695a54d0f649494989d7c7525bffeedaa4138e588ace24",
+      "result_digest_equal": true
+    }
+  },
+  "runs": 31,
+  "warmup": 5
+}

@@ -1,0 +1,66 @@
+{
+  "all_parity_ok": true,
+  "case_digests": [
+    {
+      "case": "tie_predecessor_order",
+      "sha256": "0076a5a807e69696ba6aacfb8ffcb3c7b9eb79806465e3ce89b8ca3fccad35f5"
+    },
+    {
+      "case": "tie_single_source_order",
+      "sha256": "8f493110cfca5e15db9520ecea02309966db0e0f4b647a514cd2c125a4d266e2"
+    },
+    {
+      "case": "cutoff_single_source",
+      "sha256": "ccae85397d96953fb8c7574488bf8b582afcead05735da7a4be7d74a35718c14"
+    },
+    {
+      "case": "cutoff_predecessor",
+      "sha256": "13af6317db5217736dcbe7dfd09669eb688a633243c03cb22a35359cb9d89240"
+    },
+    {
+      "case": "int_distance_type_path_length",
+      "sha256": "ec246e1e6e3715032c73b9b1d911cf7332fc791f074aa5ea8d12585f28c7ac63"
+    },
+    {
+      "case": "int_distance_type_shortest_path_length",
+      "sha256": "2104fb29b52e6e34a1e409b11cc58dad119bec2034d06bd57b08abf942ad48bf"
+    },
+    {
+      "case": "mixed_float_distance_type",
+      "sha256": "c5ebbc394a43ae82603ee7b23db3ba75abd59d2d400b314f2b1564dae51a4785"
+    },
+    {
+      "case": "no_path_error_dijkstra_path_length",
+      "sha256": "ae8f8624ca8b06644f3b121b8be09f784adb825245974c9374463ffe8ef2b0a0"
+    },
+    {
+      "case": "no_path_error_shortest_path_length",
+      "sha256": "aeea2dc8067911aa8d8efa68d609b69c2502b015df670188c0d233055cc44d98"
+    },
+    {
+      "case": "missing_source_single_source",
+      "sha256": "d5831c32ab21c5219f2d5ac1d82fb493d47ddc7ffeaa675ac619683d9f619668"
+    },
+    {
+      "case": "missing_source_predecessor",
+      "sha256": "ca7b5cc8b123adffae2e4decd1c4f3ba5b3d4d1cf227e28159ce1ad2d8116ec1"
+    },
+    {
+      "case": "seeded_perf_graph_scalar_path_length",
+      "sha256": "c5e1908c874be7df433b33023c90a02ba36da22f29dc0057253e284e6ac75a53"
+    },
+    {
+      "case": "seeded_perf_graph_predecessor_digest",
+      "sha256": "a7830ce0fa4e6b44cd8319b97eb7abf3c10603ae56abd842e4eb07ec7b2c8bc8"
+    }
+  ],
+  "coverage": [
+    "ordering/tie-breaking via dict item order and predecessor list order",
+    "int-vs-float distance typing via normalized scalar types",
+    "no-path and missing-node exceptions by type and message",
+    "cutoff behavior for single_source_dijkstra and predecessor/distance",
+    "seeded simple weighted Graph behavior for scalar and predecessor workloads",
+    "RNG seed recorded; no randomized algorithm output expected"
+  ],
+  "golden_sha256": "da767cf17367e8507b920b31e2c2f98f87dce1f6a1bb9a5f42346f9b8fede091"
+}

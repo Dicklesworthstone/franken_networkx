@@ -165,3 +165,80 @@ def test_pred_values_match_when_keys_already_match():
     n_pred, _ = nx.dijkstra_predecessor_and_distance(gx, "a")
     assert f_pred == n_pred
     assert list(f_pred.keys()) == list(n_pred.keys())
+
+
+@needs_nx
+@pytest.mark.parametrize(
+    ("fnx_factory", "nx_factory"),
+    [(fnx.Graph, nx.Graph), (fnx.DiGraph, nx.DiGraph)],
+)
+def test_native_predecessor_path_matches_nx_without_parity_fallback(
+    monkeypatch, fnx_factory, nx_factory
+):
+    edges = [
+        ("s", "a", 1),
+        ("s", "b", 1),
+        ("a", "t", 2),
+        ("b", "t", 2),
+        ("a", "c", 1),
+        ("b", "c", 1),
+        ("c", "u", 1.5),
+    ]
+    g = fnx_factory()
+    gx = nx_factory()
+    for u, v, w in edges:
+        g.add_edge(u, v, weight=w)
+        gx.add_edge(u, v, weight=w)
+
+    def fail_parity(*args, **kwargs):
+        raise AssertionError("native dijkstra_predecessor_and_distance should not delegate")
+
+    monkeypatch.setattr(fnx, "_call_networkx_for_parity", fail_parity)
+    f_pred, f_dist = fnx.dijkstra_predecessor_and_distance(g, "s", weight="weight")
+    n_pred, n_dist = nx.dijkstra_predecessor_and_distance(gx, "s", weight="weight")
+
+    assert list(f_pred.items()) == list(n_pred.items())
+    assert [(node, type(dist).__name__, dist) for node, dist in f_dist.items()] == [
+        (node, type(dist).__name__, dist) for node, dist in n_dist.items()
+    ]
+
+
+@needs_nx
+def test_native_predecessor_cutoff_and_int_float_distance_types():
+    edges = [
+        ("s", "a", 1),
+        ("a", "b", 2),
+        ("b", "c", 1.25),
+        ("s", "d", 4),
+        ("d", "c", 0.25),
+        ("c", "z", 1),
+    ]
+    g = _make_weighted(fnx, edges)
+    gx = _make_weighted(nx, edges)
+
+    f_pred, f_dist = fnx.dijkstra_predecessor_and_distance(
+        g, "s", cutoff=4.25, weight="weight"
+    )
+    n_pred, n_dist = nx.dijkstra_predecessor_and_distance(
+        gx, "s", cutoff=4.25, weight="weight"
+    )
+
+    assert list(f_pred.items()) == list(n_pred.items())
+    assert [(node, type(dist).__name__, dist) for node, dist in f_dist.items()] == [
+        (node, type(dist).__name__, dist) for node, dist in n_dist.items()
+    ]
+
+
+@needs_nx
+def test_predecessor_callable_weight_keeps_parity_fallback():
+    edges = [("s", "a", 1), ("a", "z", 2), ("s", "z", 5)]
+    g = _make_weighted(fnx, edges)
+    gx = _make_weighted(nx, edges)
+
+    def weight(_u, _v, attrs):
+        return attrs["weight"]
+
+    f_pred, f_dist = fnx.dijkstra_predecessor_and_distance(g, "s", weight=weight)
+    n_pred, n_dist = nx.dijkstra_predecessor_and_distance(gx, "s", weight=weight)
+    assert list(f_pred.items()) == list(n_pred.items())
+    assert list(f_dist.items()) == list(n_dist.items())
