@@ -1,0 +1,72 @@
+{
+  "results": [
+    {
+      "command": "/data/projects/franken_networkx/.venv/bin/python /data/projects/franken_networkx/tests/artifacts/perf/20260614T-2a00r-guard-token/edge_guard_token_harness.py --nodes 16000 --stride 17 --extra-stride 47 bench --library fnx --mode edges --loops 25 --samples 1",
+      "mean": 1.6484034246400001,
+      "stddev": 0.2705593785274551,
+      "median": 1.5472404441399998,
+      "user": 3.7272594399999996,
+      "system": 0.22376833999999998,
+      "min": 1.46433946014,
+      "max": 2.28915567614,
+      "times": [
+        1.46433946014,
+        1.5007166671399998,
+        1.54448110714,
+        1.55517186814,
+        1.60327615914,
+        1.5087950401399999,
+        1.54999978114,
+        1.98623409114,
+        2.28915567614,
+        1.48186439614
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "/data/projects/franken_networkx/.venv/bin/python /data/projects/franken_networkx/tests/artifacts/perf/20260614T-2a00r-guard-token/edge_guard_token_harness.py --nodes 16000 --stride 17 --extra-stride 47 bench --library nx --mode edges --loops 25 --samples 1",
+      "mean": 1.2959779725399998,
+      "stddev": 0.061083758370852385,
+      "median": 1.2675485926399999,
+      "user": 3.93524144,
+      "system": 0.17453024,
+      "min": 1.2383909011399998,
+      "max": 1.40778369114,
+      "times": [
+        1.36581085414,
+        1.40778369114,
+        1.3649614851399998,
+        1.2753219171399999,
+        1.2502227131399999,
+        1.24928668014,
+        1.29821508214,
+        1.2597752681399998,
+        1.25001113314,
+        1.2383909011399998
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

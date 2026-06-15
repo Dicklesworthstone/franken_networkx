@@ -1,0 +1,72 @@
+{
+  "results": [
+    {
+      "command": "/data/projects/franken_networkx/.venv/bin/python /data/projects/franken_networkx/tests/artifacts/perf/20260614T-dijkstra-family-boldfalcon/bench_dijkstra_family.py --mode call --module fnx --case shortest_path_length --loops 300",
+      "mean": 1.2196757636600002,
+      "stddev": 0.05146612147758251,
+      "median": 1.21506988736,
+      "user": 5.106310719999999,
+      "system": 0.07112722,
+      "min": 1.12749103686,
+      "max": 1.2921025698600002,
+      "times": [
+        1.23843522086,
+        1.26596253486,
+        1.2921025698600002,
+        1.12749103686,
+        1.28220854286,
+        1.2268756758600001,
+        1.17757860386,
+        1.19180220186,
+        1.20326409886,
+        1.19103715086
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "/data/projects/franken_networkx/.venv/bin/python /data/projects/franken_networkx/tests/artifacts/perf/20260614T-dijkstra-family-boldfalcon/bench_dijkstra_family.py --mode call --module nx --case shortest_path_length --loops 300",
+      "mean": 0.70500391766,
+      "stddev": 0.04100408747483601,
+      "median": 0.6991665008600001,
+      "user": 4.52608732,
+      "system": 0.06179442,
+      "min": 0.65207538486,
+      "max": 0.79068396886,
+      "times": [
+        0.71131480286,
+        0.67617111886,
+        0.68701819886,
+        0.6867052868600001,
+        0.72793003286,
+        0.6619236328600001,
+        0.65207538486,
+        0.7304410598600001,
+        0.79068396886,
+        0.7257756898600001
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

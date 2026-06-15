@@ -1,0 +1,38 @@
+{
+  "results": [
+    {
+      "command": "/data/projects/franken_networkx/.venv/bin/python tests/artifacts/perf/20260614T-dijkstra-family-boldfalcon/pass1-subagent/dijkstra_family_pass1.py --mode bench --runs 7 --warmup 2 --no-write",
+      "mean": 0.7667085686800001,
+      "stddev": 0.023137268513432795,
+      "median": 0.77380538818,
+      "user": 4.5112428,
+      "system": 0.6749306799999999,
+      "min": 0.72332858918,
+      "max": 0.79806926118,
+      "times": [
+        0.77671619418,
+        0.79806926118,
+        0.78197484718,
+        0.7803772491800001,
+        0.7519111551800001,
+        0.78544620318,
+        0.7708945821800001,
+        0.75992667218,
+        0.73844093318,
+        0.72332858918
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

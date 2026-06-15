@@ -1,0 +1,33 @@
+         32132 function calls in 0.084 seconds
+
+   Ordered by: cumulative time
+   List reduced from 35 to 25 due to restriction <25>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.000    0.000    0.084    0.084 dijkstra_family_pass1.py:272(repeated)
+       15    0.000    0.000    0.083    0.006 dijkstra_family_pass1.py:175(<lambda>)
+       15    0.000    0.000    0.083    0.006 __init__.py:52870(wrapper)
+       15    0.001    0.000    0.083    0.006 __init__.py:18324(single_source_dijkstra)
+       15    0.045    0.003    0.045    0.003 {built-in method franken_networkx._fnx.single_source_dijkstra}
+       15    0.000    0.000    0.025    0.002 __init__.py:7129(_graph_has_nonunit_weight)
+       15    0.000    0.000    0.025    0.002 __init__.py:7063(_sync_rust_edge_attrs)
+       15    0.025    0.002    0.025    0.002 {method '_fnx_sync_attrs_to_inner' of 'franken_networkx.Graph' objects}
+       15    0.000    0.000    0.006    0.000 __init__.py:6992(_should_delegate_dijkstra_to_networkx)
+       15    0.006    0.000    0.006    0.000 {built-in method franken_networkx._fnx.check_dijkstra_edge_weights_fast}
+       15    0.003    0.000    0.004    0.000 __init__.py:18226(_sp_coerce_dist_to_int)
+       15    0.000    0.000    0.001    0.000 __init__.py:18232(_reorder_by_distance)
+       15    0.001    0.000    0.001    0.000 {built-in method builtins.sorted}
+    10500    0.001    0.000    0.001    0.000 {method 'is_integer' of 'float' objects}
+    10500    0.001    0.000    0.001    0.000 __init__.py:18247(<lambda>)
+    10620    0.001    0.000    0.001    0.000 {built-in method builtins.isinstance}
+       15    0.000    0.000    0.000    0.000 __init__.py:18158(_sp_edge_weights_all_int)
+       15    0.000    0.000    0.000    0.000 __init__.py:36908(__contains__)
+       30    0.000    0.000    0.000    0.000 __init__.py:6149(predicate)
+       15    0.000    0.000    0.000    0.000 __init__.py:36335(_private_override)
+       15    0.000    0.000    0.000    0.000 __init__.py:13106(_coerce_arg_to_fnx_graph)
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+       15    0.000    0.000    0.000    0.000 {built-in method builtins.vars}
+       30    0.000    0.000    0.000    0.000 {function _make_class_safe_predicate.<locals>.predicate at 0x7f80512254e0}
+       15    0.000    0.000    0.000    0.000 {built-in method franken_networkx._fnx.graph_edge_weights_all_int}
+
+
