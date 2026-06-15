@@ -38880,6 +38880,14 @@ pub fn fiedler_vector_unweighted_lanczos(
         degree[u] += 1.0;
         degree[v] += 1.0;
     }
+    let mut neighborhoods = adjacency.clone();
+    for neighbors in &mut neighborhoods {
+        neighbors.sort_unstable();
+    }
+    neighborhoods.sort_unstable();
+    if neighborhoods.windows(2).any(|pair| pair[0] == pair[1]) {
+        return None;
+    }
 
     let laplacian_mul = |x: &[f64], out: &mut [f64]| {
         for i in 0..n {

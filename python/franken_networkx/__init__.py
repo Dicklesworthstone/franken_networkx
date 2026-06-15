@@ -22684,13 +22684,15 @@ def algebraic_connectivity(G, weight="weight", normalized=False, tol=1e-8, metho
     return float(spectrum[1])
 
 
-def fiedler_vector(
+def _fiedler_vector_impl(
     G,
     weight="weight",
     normalized=False,
     tol=1e-08,
     method="tracemin_pcg",
     seed=None,
+    *,
+    _use_dense_native=True,
 ):
     """Return the Fiedler vector of *G*.
 
@@ -22749,7 +22751,8 @@ def fiedler_vector(
     native_node_count = len(G)
     native_edge_count = G.number_of_edges()
     if (
-        not normalized
+        _use_dense_native
+        and not normalized
         and not G.is_multigraph()
         and 32 <= native_node_count <= 128
         and native_edge_count * 2 >= 16 * native_node_count
@@ -22814,6 +22817,20 @@ def fiedler_vector(
     L = L_sparse.toarray() if hasattr(L_sparse, "toarray") else np.asarray(L_sparse)
     eigenvalues, eigenvectors = np.linalg.eigh(L)
     return eigenvectors[:, 1]
+
+
+def fiedler_vector(
+    G,
+    weight="weight",
+    normalized=False,
+    tol=1e-08,
+    method="tracemin_pcg",
+    seed=None,
+):
+    """Return the Fiedler vector of *G*."""
+    return _fiedler_vector_impl(
+        G, weight=weight, normalized=normalized, tol=tol, method=method, seed=seed
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -40728,8 +40745,14 @@ def spectral_bisection(
     ``tol``/``method``/``seed``; ``normalized`` selects the normalised
     Laplacian when set.
     """
-    fv = fiedler_vector(
-        G, weight=weight, normalized=normalized, tol=tol, method=method, seed=seed
+    fv = _fiedler_vector_impl(
+        G,
+        weight=weight,
+        normalized=normalized,
+        tol=tol,
+        method=method,
+        seed=seed,
+        _use_dense_native=False,
     )
     nodelist = list(G.nodes())
     a = frozenset(nodelist[i] for i in range(len(nodelist)) if fv[i] >= 0)

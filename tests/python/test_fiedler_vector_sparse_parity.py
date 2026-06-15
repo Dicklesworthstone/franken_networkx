@@ -77,7 +77,7 @@ def test_dense_unweighted_native_path_matches_nx_without_dense_eigh(monkeypatch)
 
 
 def test_dense_native_path_falls_back_for_degenerate_lambda2(monkeypatch):
-    Gx = nx.complete_graph(40)
+    Gx = nx.complete_bipartite_graph(20, 20)
     Gf = _cp(Gx)
     original_eigh = np.linalg.eigh
     calls = 0
@@ -94,10 +94,15 @@ def test_dense_native_path_falls_back_for_degenerate_lambda2(monkeypatch):
     assert np.asarray(f, dtype=float).shape == (40,)
 
 
-def test_dense_native_path_preserves_spectral_bisection_order():
-    Gx = nx.barbell_graph(20, 0)
+def test_dense_native_path_preserves_spectral_bisection_order(monkeypatch):
+    Gx = nx.gnp_random_graph(90, 0.2, seed=1)
+    assert nx.is_connected(Gx)
     Gf = _cp(Gx)
 
+    def fail_native(*_args, **_kwargs):
+        raise AssertionError("spectral_bisection should keep dense sign convention")
+
+    monkeypatch.setattr(fnx._fnx, "fiedler_vector_unweighted_lanczos_rust", fail_native)
     assert fnx.spectral_bisection(Gf) == nx.spectral_bisection(Gx)
 
 
@@ -119,6 +124,44 @@ def test_dense_native_path_skips_weighted_and_normalized(monkeypatch):
     assert np.all(np.isfinite(weighted))
     assert np.all(np.isfinite(normalized))
     assert weighted.shape == normalized.shape == (90,)
+
+
+def test_dense_native_path_skips_multigraph(monkeypatch):
+    Gx = nx.gnp_random_graph(90, 0.2, seed=8)
+    assert nx.is_connected(Gx)
+    Gf = fnx.MultiGraph()
+    Gf.add_nodes_from(Gx.nodes())
+    Gf.add_edges_from(Gx.edges())
+
+    def fail_native(*_args, **_kwargs):
+        raise AssertionError("native simple-graph shortcut should not run")
+
+    monkeypatch.setattr(fnx._fnx, "fiedler_vector_unweighted_lanczos_rust", fail_native)
+    v = fnx.fiedler_vector(Gf)
+
+    assert np.all(np.isfinite(v))
+    assert np.asarray(v, dtype=float).shape == (90,)
+
+
+def test_dense_native_path_falls_back_for_self_loops(monkeypatch):
+    Gx = nx.gnp_random_graph(90, 0.2, seed=9)
+    assert nx.is_connected(Gx)
+    Gx.add_edge(0, 0)
+    Gf = _cp(Gx)
+    original_eigh = np.linalg.eigh
+    calls = 0
+
+    def counting_eigh(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return original_eigh(*args, **kwargs)
+
+    monkeypatch.setattr(np.linalg, "eigh", counting_eigh)
+    v = fnx.fiedler_vector(Gf)
+
+    assert calls == 1
+    assert np.all(np.isfinite(v))
+    assert np.asarray(v, dtype=float).shape == (90,)
 
 
 def test_weighted_valid():
