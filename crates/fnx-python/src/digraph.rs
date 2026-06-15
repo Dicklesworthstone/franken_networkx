@@ -13,7 +13,7 @@ use crate::{
 };
 use fnx_classes::AttrMap;
 use fnx_classes::digraph::{DiGraph, MultiDiGraph};
-use fnx_runtime::{CompatibilityMode, RuntimePolicy};
+use fnx_runtime::{CgseValue, CompatibilityMode, RuntimePolicy};
 use pyo3::IntoPyObjectExt;
 use pyo3::exceptions::{PyKeyError, PyRuntimeError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
@@ -22,6 +22,34 @@ use pyo3::types::{
 };
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
+
+fn single_weight_float_attr_map_with_mirror(
+    py: Python<'_>,
+    attrs: &Bound<'_, PyDict>,
+) -> PyResult<Option<(AttrMap, Py<PyDict>)>> {
+    if attrs.len() != 1 {
+        return Ok(None);
+    }
+    let Some((key, value)) = attrs.iter().next() else {
+        return Ok(None);
+    };
+    if !key.is_exact_instance_of::<PyString>() || !value.is_exact_instance_of::<PyFloat>() {
+        return Ok(None);
+    }
+    let key_text = key.extract::<String>()?;
+    if key_text != "weight" {
+        return Ok(None);
+    }
+
+    let mut rust_attrs = AttrMap::new();
+    rust_attrs.insert(
+        "weight".to_owned(),
+        CgseValue::Float(value.extract::<f64>()?),
+    );
+    let mirror = PyDict::new(py);
+    mirror.set_item(&key, &value)?;
+    Ok(Some((rust_attrs, mirror.unbind())))
+}
 
 // ---------------------------------------------------------------------------
 // PyDiGraph
@@ -998,8 +1026,16 @@ impl PyMultiDiGraph {
             let Ok(dict) = third.downcast::<PyDict>() else {
                 return Ok(None);
             };
-            let Ok((attrs, mirror)) = py_dict_to_attr_map_with_mirror(py, dict) else {
-                return Ok(None);
+            let fast_weight = match single_weight_float_attr_map_with_mirror(py, dict) {
+                Ok(converted) => converted,
+                Err(_) => return Ok(None),
+            };
+            let (attrs, mirror) = match fast_weight {
+                Some(converted) => converted,
+                None => match py_dict_to_attr_map_with_mirror(py, dict) {
+                    Ok(converted) => converted,
+                    Err(_) => return Ok(None),
+                },
             };
             if attrs
                 .keys()

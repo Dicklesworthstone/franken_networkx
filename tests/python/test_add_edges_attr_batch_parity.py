@@ -332,6 +332,21 @@ def test_multidigraph_fresh_exact_int_attr_batch_matches_nx_order_keys_and_copie
     }
 
 
+def test_multidigraph_exact_int_weight_float_batch_matches_nx_and_copies():
+    attrs = [{"weight": float(i) + 0.25} for i in range(16)]
+    batch = [(i % 5, (i * 7 + 1) % 9, attrs[i]) for i in range(16)]
+
+    gf = fnx.MultiDiGraph()
+    gn = nx.MultiDiGraph()
+    gf.add_edges_from(batch)
+    gn.add_edges_from(batch)
+
+    assert _canon_multidigraph(gf) == _canon_multidigraph(gn)
+    attrs[0]["weight"] = 999.0
+    assert gf.get_edge_data(0, 1)[0] == {"weight": 0.25}
+    assert _canon_multidigraph(gf) == _canon_multidigraph(gn)
+
+
 def test_multidigraph_exact_int_batch_probe_falls_back_for_bool_nodes():
     batch = (
         [(True, 2, {"w": "bool"}), (1, 3, {"w": "int"})]
