@@ -1,0 +1,48 @@
+         354791 function calls (344698 primitive calls) in 0.658 seconds
+
+   Ordered by: cumulative time
+   List reduced from 1404 to 40 due to restriction <40>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.000    0.000    0.658    0.658 /data/projects/franken_networkx/tests/artifacts/perf/20260615T-adjacency-spectrum-coppercliff/adjacency_spectrum_harness.py:149(bench_once)
+        1    0.000    0.000    0.640    0.640 /data/projects/franken_networkx/tests/artifacts/perf/20260615T-adjacency-spectrum-coppercliff/adjacency_spectrum_harness.py:67(_spectrum)
+        1    0.000    0.000    0.640    0.640 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/linalg/spectrum.py:94(adjacency_spectrum)
+      2/1    0.000    0.000    0.428    0.428 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/_lib/_util.py:1149(wrapper)
+        1    0.000    0.000    0.427    0.427 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/linalg/_decomp.py:841(eigvals)
+        1    0.427    0.427    0.427    0.427 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/linalg/_decomp.py:114(eig)
+    220/3    0.001    0.000    0.208    0.069 <frozen importlib._bootstrap>:1349(_find_and_load)
+    216/3    0.001    0.000    0.208    0.069 <frozen importlib._bootstrap>:1304(_find_and_load_unlocked)
+    210/3    0.000    0.000    0.208    0.069 <frozen importlib._bootstrap>:911(_load_unlocked)
+    180/3    0.000    0.000    0.208    0.069 <frozen importlib._bootstrap_external>:1020(exec_module)
+   192/11    0.001    0.000    0.208    0.019 {built-in method builtins.exec}
+    524/6    0.000    0.000    0.208    0.035 <frozen importlib._bootstrap>:480(_call_with_frames_removed)
+      3/2    0.000    0.000    0.199    0.100 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/__init__.py:129(__getattr__)
+      6/2    0.000    0.000    0.199    0.100 /usr/lib/python3.13/importlib/__init__.py:71(import_module)
+      6/2    0.000    0.000    0.199    0.100 <frozen importlib._bootstrap>:1375(_gcd_import)
+        1    0.000    0.000    0.188    0.188 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/linalg/__init__.py:1(<module>)
+    26/13    0.000    0.000    0.135    0.010 <frozen importlib._bootstrap_external>:1326(exec_module)
+    26/13    0.005    0.000    0.135    0.010 {built-in method _imp.exec_dynamic}
+    75/39    0.000    0.000    0.129    0.003 {built-in method builtins.__import__}
+   119/42    0.000    0.000    0.127    0.003 <frozen importlib._bootstrap>:1390(_handle_fromlist)
+        1    0.000    0.000    0.125    0.125 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/_lib/_util.py:1(<module>)
+        1    0.000    0.000    0.124    0.124 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/_lib/_array_api.py:1(<module>)
+        1    0.000    0.000    0.107    0.107 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/_lib/array_api_compat/numpy/__init__.py:1(<module>)
+        3    0.000    0.000    0.100    0.033 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/_lib/array_api_compat/_internal.py:56(clone_module)
+2481/1929    0.001    0.000    0.100    0.000 {built-in method builtins.hasattr}
+       10    0.000    0.000    0.099    0.010 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/numpy/__init__.py:704(__getattr__)
+        1    0.000    0.000    0.068    0.068 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/numpy/f2py/__init__.py:1(<module>)
+        1    0.000    0.000    0.067    0.067 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/numpy/f2py/f2py2e.py:1(<module>)
+      736    0.001    0.000    0.057    0.000 /usr/lib/python3.13/re/__init__.py:330(_compile)
+      157    0.000    0.000    0.056    0.000 /usr/lib/python3.13/re/__init__.py:287(compile)
+       82    0.000    0.000    0.056    0.001 /usr/lib/python3.13/re/_compiler.py:743(compile)
+        1    0.000    0.000    0.055    0.055 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/numpy/f2py/capi_maps.py:1(<module>)
+        1    0.000    0.000    0.049    0.049 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/numpy/f2py/crackfortran.py:1(<module>)
+       77    0.000    0.000    0.040    0.001 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/_lib/_docscrape.py:579(__init__)
+       70    0.000    0.000    0.040    0.001 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/_lib/_util.py:1148(decorator)
+       82    0.000    0.000    0.040    0.000 /usr/lib/python3.13/re/_parser.py:970(parse)
+   468/82    0.013    0.000    0.040    0.000 /usr/lib/python3.13/re/_parser.py:451(_parse_sub)
+   618/82    0.009    0.000    0.040    0.000 /usr/lib/python3.13/re/_parser.py:511(_parse)
+       77    0.000    0.000    0.036    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/_lib/_docscrape.py:140(__init__)
+      180    0.001    0.000    0.028    0.000 <frozen importlib._bootstrap_external>:1093(get_code)
+
+
