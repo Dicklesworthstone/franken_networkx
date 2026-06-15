@@ -1,0 +1,346 @@
+{
+  "all_match": true,
+  "bead": "br-r37-c1-yuxi6",
+  "cases": [
+    {
+      "attr_mode": "full",
+      "case": "data_w",
+      "fnx_sha256": "b023395f7c27f94d3a93ce234dceef381af647df96445be7096fa7bda1c85e5a",
+      "length": 40000,
+      "match": true,
+      "nx_sha256": "b023395f7c27f94d3a93ce234dceef381af647df96445be7096fa7bda1c85e5a",
+      "sample": [
+        [
+          0,
+          1,
+          31152
+        ],
+        [
+          0,
+          2,
+          62304
+        ],
+        [
+          0,
+          3,
+          27920
+        ],
+        [
+          0,
+          4,
+          59072
+        ],
+        [
+          0,
+          5,
+          24688
+        ]
+      ]
+    },
+    {
+      "attr_mode": "full",
+      "case": "data_missing",
+      "fnx_sha256": "9b2e5efd8c852aaeba19fd2fc881d9862d95f2ffb085fb1c6b37bf9515b87ee9",
+      "length": 40000,
+      "match": true,
+      "nx_sha256": "9b2e5efd8c852aaeba19fd2fc881d9862d95f2ffb085fb1c6b37bf9515b87ee9",
+      "sample": [
+        [
+          0,
+          1,
+          -1
+        ],
+        [
+          0,
+          2,
+          -1
+        ],
+        [
+          0,
+          3,
+          -1
+        ],
+        [
+          0,
+          4,
+          -1
+        ],
+        [
+          0,
+          5,
+          -1
+        ]
+      ]
+    },
+    {
+      "attr_mode": "full",
+      "case": "data_true",
+      "fnx_sha256": "a654ddb1a61cf27fa82e3f1baa619b95e387c0a12dc68a5a9143021acad6e220",
+      "length": 40000,
+      "match": true,
+      "nx_sha256": "a654ddb1a61cf27fa82e3f1baa619b95e387c0a12dc68a5a9143021acad6e220",
+      "sample": [
+        [
+          0,
+          1,
+          {
+            "w": 31152
+          }
+        ],
+        [
+          0,
+          2,
+          {
+            "w": 62304
+          }
+        ],
+        [
+          0,
+          3,
+          {
+            "w": 27920
+          }
+        ],
+        [
+          0,
+          4,
+          {
+            "w": 59072
+          }
+        ],
+        [
+          0,
+          5,
+          {
+            "w": 24688
+          }
+        ]
+      ]
+    },
+    {
+      "attr_mode": "half",
+      "case": "data_w",
+      "fnx_sha256": "cae317415a6d7b78c59721706aa6c9ef41df3dd13599f025721d48b5ae8d65cf",
+      "length": 40000,
+      "match": true,
+      "nx_sha256": "cae317415a6d7b78c59721706aa6c9ef41df3dd13599f025721d48b5ae8d65cf",
+      "sample": [
+        [
+          0,
+          1,
+          -1
+        ],
+        [
+          0,
+          2,
+          4
+        ],
+        [
+          0,
+          3,
+          -1
+        ],
+        [
+          0,
+          4,
+          8
+        ],
+        [
+          0,
+          5,
+          -1
+        ]
+      ]
+    },
+    {
+      "attr_mode": "half",
+      "case": "data_missing",
+      "fnx_sha256": "9b2e5efd8c852aaeba19fd2fc881d9862d95f2ffb085fb1c6b37bf9515b87ee9",
+      "length": 40000,
+      "match": true,
+      "nx_sha256": "9b2e5efd8c852aaeba19fd2fc881d9862d95f2ffb085fb1c6b37bf9515b87ee9",
+      "sample": [
+        [
+          0,
+          1,
+          -1
+        ],
+        [
+          0,
+          2,
+          -1
+        ],
+        [
+          0,
+          3,
+          -1
+        ],
+        [
+          0,
+          4,
+          -1
+        ],
+        [
+          0,
+          5,
+          -1
+        ]
+      ]
+    },
+    {
+      "attr_mode": "half",
+      "case": "data_true",
+      "fnx_sha256": "a3447a4083feab4276665f8b4cdd2905017c5cf80d7b5fb932b5c1f0f6ebd8f5",
+      "length": 40000,
+      "match": true,
+      "nx_sha256": "a3447a4083feab4276665f8b4cdd2905017c5cf80d7b5fb932b5c1f0f6ebd8f5",
+      "sample": [
+        [
+          0,
+          1,
+          {}
+        ],
+        [
+          0,
+          2,
+          {
+            "w": 4
+          }
+        ],
+        [
+          0,
+          3,
+          {}
+        ],
+        [
+          0,
+          4,
+          {
+            "w": 8
+          }
+        ],
+        [
+          0,
+          5,
+          {}
+        ]
+      ]
+    },
+    {
+      "attr_mode": "none",
+      "case": "data_w",
+      "fnx_sha256": "9b2e5efd8c852aaeba19fd2fc881d9862d95f2ffb085fb1c6b37bf9515b87ee9",
+      "length": 40000,
+      "match": true,
+      "nx_sha256": "9b2e5efd8c852aaeba19fd2fc881d9862d95f2ffb085fb1c6b37bf9515b87ee9",
+      "sample": [
+        [
+          0,
+          1,
+          -1
+        ],
+        [
+          0,
+          2,
+          -1
+        ],
+        [
+          0,
+          3,
+          -1
+        ],
+        [
+          0,
+          4,
+          -1
+        ],
+        [
+          0,
+          5,
+          -1
+        ]
+      ]
+    },
+    {
+      "attr_mode": "none",
+      "case": "data_missing",
+      "fnx_sha256": "9b2e5efd8c852aaeba19fd2fc881d9862d95f2ffb085fb1c6b37bf9515b87ee9",
+      "length": 40000,
+      "match": true,
+      "nx_sha256": "9b2e5efd8c852aaeba19fd2fc881d9862d95f2ffb085fb1c6b37bf9515b87ee9",
+      "sample": [
+        [
+          0,
+          1,
+          -1
+        ],
+        [
+          0,
+          2,
+          -1
+        ],
+        [
+          0,
+          3,
+          -1
+        ],
+        [
+          0,
+          4,
+          -1
+        ],
+        [
+          0,
+          5,
+          -1
+        ]
+      ]
+    },
+    {
+      "attr_mode": "none",
+      "case": "data_true",
+      "fnx_sha256": "644bf2be08d530f431eb19ba76aec19c0a5e1a5397bcad47027a117638f88f29",
+      "length": 40000,
+      "match": true,
+      "nx_sha256": "644bf2be08d530f431eb19ba76aec19c0a5e1a5397bcad47027a117638f88f29",
+      "sample": [
+        [
+          0,
+          1,
+          {}
+        ],
+        [
+          0,
+          2,
+          {}
+        ],
+        [
+          0,
+          3,
+          {}
+        ],
+        [
+          0,
+          4,
+          {}
+        ],
+        [
+          0,
+          5,
+          {}
+        ]
+      ]
+    }
+  ],
+  "graph": {
+    "edges": 40000,
+    "nodes": 5000
+  },
+  "obligations": {
+    "floating_point": "N/A; integer ids and integer/default data only.",
+    "ordering": "Exact insertion-order edge output compared against NetworkX.",
+    "rng": "N/A; deterministic graph construction.",
+    "tie_breaking": "N/A beyond insertion order."
+  },
+  "semantic_sha256": "5458482460dec697f761cfbdf7d960d269700ff45c0811e0f3dee9864703ac3a"
+}

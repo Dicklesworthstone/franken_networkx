@@ -1,0 +1,63 @@
+bead=br-r37-c1-yuxi6 which=fnx attr_mode=none case=data_missing loops=60 checksum=2400000
+         2401741 function calls in 0.872 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+       60    0.188    0.003    0.871    0.015 /data/projects/franken_networkx/tests/artifacts/perf/20260614T-yuxi6-datakey-materialization-boldfalcon/datakey_materialization_harness.py:62(run_case)
+  2400060    0.374    0.000    0.374    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:439(_gen)
+       60    0.067    0.001    0.308    0.005 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1708(__call__)
+       60    0.237    0.004    0.237    0.004 {method '_native_edges_data_key' of 'franken_networkx.DiGraph' objects}
+       60    0.004    0.000    0.004    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:5016(_wrap_edge_data_view)
+       60    0.000    0.000    0.001    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:37013(edges)
+       60    0.000    0.000    0.001    0.000 /usr/lib/python3.13/weakref.py:164(__setitem__)
+       60    0.000    0.000    0.001    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:2194(__iter__)
+       60    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:414(_FailFastEdgeIterator)
+       60    0.000    0.000    0.000    0.000 /usr/lib/python3.13/weakref.py:352(__init__)
+       60    0.000    0.000    0.000    0.000 /usr/lib/python3.13/weakref.py:347(__new__)
+       60    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:475(_guarded_edge_list)
+      120    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:36415(_has_networkx_private_storage)
+      180    0.000    0.000    0.000    0.000 {built-in method builtins.vars}
+      120    0.000    0.000    0.000    0.000 {built-in method builtins.isinstance}
+       60    0.000    0.000    0.000    0.000 {built-in method __new__ of type object at 0xa15020}
+      180    0.000    0.000    0.000    0.000 {built-in method builtins.getattr}
+      120    0.000    0.000    0.000    0.000 {built-in method builtins.hasattr}
+       60    0.000    0.000    0.000    0.000 {built-in method builtins.len}
+       60    0.000    0.000    0.000    0.000 {built-in method builtins.id}
+       60    0.000    0.000    0.000    0.000 {method 'get' of 'dict' objects}
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+       60    0.000    0.000    0.000    0.000 {built-in method builtins.iter}
+
+
+
+--- tottime ---
+         2401741 function calls in 0.872 seconds
+
+   Ordered by: internal time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+  2400060    0.374    0.000    0.374    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:439(_gen)
+       60    0.237    0.004    0.237    0.004 {method '_native_edges_data_key' of 'franken_networkx.DiGraph' objects}
+       60    0.188    0.003    0.871    0.015 /data/projects/franken_networkx/tests/artifacts/perf/20260614T-yuxi6-datakey-materialization-boldfalcon/datakey_materialization_harness.py:62(run_case)
+       60    0.067    0.001    0.308    0.005 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1708(__call__)
+       60    0.004    0.000    0.004    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:5016(_wrap_edge_data_view)
+       60    0.000    0.000    0.001    0.000 /usr/lib/python3.13/weakref.py:164(__setitem__)
+       60    0.000    0.000    0.001    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:37013(edges)
+       60    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:414(_FailFastEdgeIterator)
+       60    0.000    0.000    0.000    0.000 /usr/lib/python3.13/weakref.py:352(__init__)
+       60    0.000    0.000    0.001    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:2194(__iter__)
+       60    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:475(_guarded_edge_list)
+      180    0.000    0.000    0.000    0.000 {built-in method builtins.vars}
+      120    0.000    0.000    0.000    0.000 {built-in method builtins.isinstance}
+      120    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:36415(_has_networkx_private_storage)
+       60    0.000    0.000    0.000    0.000 /usr/lib/python3.13/weakref.py:347(__new__)
+       60    0.000    0.000    0.000    0.000 {built-in method __new__ of type object at 0xa15020}
+      180    0.000    0.000    0.000    0.000 {built-in method builtins.getattr}
+      120    0.000    0.000    0.000    0.000 {built-in method builtins.hasattr}
+       60    0.000    0.000    0.000    0.000 {built-in method builtins.len}
+       60    0.000    0.000    0.000    0.000 {built-in method builtins.id}
+       60    0.000    0.000    0.000    0.000 {method 'get' of 'dict' objects}
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+       60    0.000    0.000    0.000    0.000 {built-in method builtins.iter}
+
+

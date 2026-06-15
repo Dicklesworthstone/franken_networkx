@@ -228,6 +228,7 @@ fn di_report_to_pydigraph(py: Python<'_>, report: DiReadWriteReport) -> PyResult
         node_data_mirror: std::sync::Mutex::new(None),
         dict_of_dicts_cache: None,
         edges_with_data_cache: None,
+        edges_attr_dicts_cache: None,
         node_iter_mirror: std::sync::Mutex::new(None),
     })
 }
