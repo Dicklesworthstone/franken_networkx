@@ -1156,7 +1156,9 @@ impl DiGraph {
             return 0;
         }
 
-        for node in nodes {
+        let node_labels: Vec<String> = nodes.into_iter().collect();
+        self.nodes.reserve(node_labels.len());
+        for node in node_labels {
             self.nodes.insert(node, AttrMap::new());
         }
         let node_count = self.nodes.len();
@@ -1165,6 +1167,8 @@ impl DiGraph {
 
         let mut inserted = 0usize;
         let mut merged_changed = false;
+        let edges = edges.into_iter();
+        self.edges.reserve(edges.size_hint().0);
         for (source_idx, target_idx, attrs) in edges {
             if source_idx >= node_count || target_idx >= node_count {
                 continue;

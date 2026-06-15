@@ -5617,9 +5617,10 @@ impl PyDiGraph {
     where
         I: IntoIterator<Item = Bound<'py, PyAny>>,
     {
-        let mut node_indices: HashMap<i64, usize> = HashMap::new();
-        let mut node_labels: Vec<String> = Vec::new();
-        let mut node_objects: Vec<PyObject> = Vec::new();
+        let node_capacity = len.saturating_mul(2);
+        let mut node_indices: HashMap<i64, usize> = HashMap::with_capacity(node_capacity);
+        let mut node_labels: Vec<String> = Vec::with_capacity(node_capacity);
+        let mut node_objects: Vec<PyObject> = Vec::with_capacity(node_capacity);
         let mut edges: Vec<(usize, usize, AttrMap, Py<PyDict>)> = Vec::with_capacity(len);
         let mut node_bumps = 0_u64;
 
@@ -5702,11 +5703,13 @@ impl PyDiGraph {
         node_bumps: u64,
         final_edge_bump: bool,
     ) -> PyResult<()> {
-        let edge_bumps = u64::try_from(edges.len())
+        let edge_count = edges.len();
+        let edge_bumps = u64::try_from(edge_count)
             .unwrap_or(u64::MAX)
             .wrapping_add(u64::from(final_edge_bump));
 
         let mirror_active = self.node_iter_mirror_active();
+        self.node_key_map.reserve(node_labels.len());
         for (canonical, node) in node_labels.iter().zip(node_objects) {
             self.node_key_map.entry(canonical.clone()).or_insert(node);
             if mirror_active {
@@ -5714,7 +5717,8 @@ impl PyDiGraph {
             }
         }
 
-        let mut inner_edges = Vec::with_capacity(edges.len());
+        self.edge_py_attrs.reserve(edge_count);
+        let mut inner_edges = Vec::with_capacity(edge_count);
         for (source_idx, target_idx, attrs, mirror) in edges {
             let source = &node_labels[source_idx];
             let target = &node_labels[target_idx];
