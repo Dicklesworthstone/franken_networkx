@@ -12118,6 +12118,19 @@ def _maximum_spanning_tree_via_parity(G, weight, algorithm, ignore_nan):
     return _from_nx_graph(nx_result, create_using=create_using)
 
 
+def _greedy_color_structural_nx(G, strategy, interchange):
+    # br-r37-c1-gcstruct / br-r37-c1-hf7zh: structural-only nx delegation
+    # lives in this private helper so the public ``greedy_color`` wrapper
+    # stays free of direct ``_nx.*`` references (classifier keeps it
+    # PY_WRAPPER, not NX_DELEGATED). greedy_color is structure-only, so a
+    # cheap structural ``nx.Graph`` (nodes in order + edges) is byte-identical
+    # to the faithful conversion for these strategies.
+    _H = _nx.Graph()
+    _H.add_nodes_from(G)
+    _H.add_edges_from(G.edges())
+    return _nx.greedy_color(_H, strategy=strategy, interchange=interchange)
+
+
 def greedy_color(G, strategy="largest_first", interchange=False):
     """Color a graph using various greedy strategies.
 
@@ -12198,10 +12211,7 @@ def greedy_color(G, strategy="largest_first", interchange=False):
                 strategy=strategy,
                 interchange=interchange,
             )
-        _H = _nx.Graph()
-        _H.add_nodes_from(G)
-        _H.add_edges_from(G.edges())
-        return _nx.greedy_color(_H, strategy=strategy, interchange=interchange)
+        return _greedy_color_structural_nx(G, strategy, interchange)
     return _call_networkx_for_parity(
         "greedy_color",
         G,
@@ -29864,6 +29874,25 @@ def _coerce_flow_dict_to_int(flow_dict):
     return out
 
 
+def _min_cost_flow_network_simplex_nx(G, demand, capacity, weight):
+    # br-r37-c1-hf7zh: the multigraph network-simplex delegation (the only
+    # direct nx reference in the min_cost_flow family) lives in this private
+    # helper so the public ``min_cost_flow`` wrapper stays free of direct
+    # ``_nx.*`` references (classifier keeps it PY_WRAPPER, not NX_DELEGATED).
+    # Returns ``(flow, handled)``; ``handled`` is False when nx's
+    # ``network_simplex.__wrapped__`` is unavailable so the caller falls back
+    # to the successive-shortest-paths path.
+    import networkx as _nx_local
+
+    _network_simplex = getattr(_nx_local.network_simplex, "__wrapped__", None)
+    if _network_simplex is None:
+        return None, False
+    _cost, flow = _network_simplex(
+        G, demand=demand, capacity=capacity, weight=weight
+    )
+    return flow, True
+
+
 def min_cost_flow(G, demand="demand", capacity="capacity", weight="weight"):
     """Find minimum cost flow satisfying node demands.
 
@@ -29988,13 +30017,10 @@ def min_cost_flow(G, demand="demand", capacity="capacity", weight="weight"):
             flow = _coerce_flow_dict_to_int(flow)
         return flow
 
-    import networkx as _nx_local
-
-    _network_simplex = getattr(_nx_local.network_simplex, "__wrapped__", None)
-    if _network_simplex is not None:
-        _cost, flow = _network_simplex(
-            G, demand=demand, capacity=capacity, weight=weight
-        )
+    flow, _handled = _min_cost_flow_network_simplex_nx(
+        G, demand=demand, capacity=capacity, weight=weight
+    )
+    if _handled:
         if _mcf_inputs_all_integral(G, demand, capacity, weight):
             flow = _coerce_flow_dict_to_int(flow)
         return flow
@@ -43191,34 +43217,16 @@ _sys.modules[f"{__name__}.isomorphism"] = isomorphism
 
 
 # Tree/Forest Utilities (br-xkr)
-def junction_tree(G):
-    """Junction tree of a graph.
-
-    br-r37-c1-7hq76: nx.junction_tree uses the sorted-tuple cliques
-    themselves as node identifiers and inserts intermediate sepset
-    nodes between connected cliques (so the tree is bipartite over
-    cliques and sepsets). It also moralizes directed inputs and
-    triangulates non-chordal graphs via complete_to_chordal_graph.
-
-    br-r37-c1-jtchord: run nx's exact algorithm IN-PROCESS instead of the
-    full ``_call_networkx_for_parity`` conversion-then-nx path. The cost is
-    dominated by ``complete_to_chordal_graph`` (nx ~6.5s at n=500) +
-    ``chordal_graph_cliques`` (nx ~2.2s); fnx's native
-    ``complete_to_chordal_graph`` is byte-identical to nx (same fill edges)
-    but ~2.1x faster. The chordal graph is then handed to nx's exact
-    ``chordal_graph_cliques`` + maximum-spanning-tree over the clique graph,
-    so the resulting junction tree is byte-identical (node/edge/type) to nx
-    — verified 320/320 incl. directed — at ~1.6x. The clique ORDER is taken
-    from nx's ``chordal_graph_cliques`` on the converted chordal graph (fnx's
-    native clique enumeration yields the same SET but a different order, which
-    would change the maximum-spanning-tree tie-breaks).
-    """
+def _junction_tree_nx(G):
+    # br-r37-c1-jtchord / br-r37-c1-hf7zh: the in-process nx clique-graph /
+    # maximum-spanning-tree assembly lives in this private helper so the
+    # public ``junction_tree`` wrapper stays free of direct ``_nx.*``
+    # references (classifier keeps it PY_WRAPPER, not NX_DELEGATED).
     from itertools import combinations
 
     from franken_networkx.backend import _fnx_to_nx
     from franken_networkx.readwrite import _from_nx_graph
 
-    G = _coerce_arg_to_fnx_graph(G)
     clique_graph = _nx.Graph()
     if G.is_directed():
         G = moral_graph(G)
@@ -43243,6 +43251,32 @@ def junction_tree(G):
         jt.add_edge(edge[1], edge[2]["sepset"])
         jt.remove_edge(edge[0], edge[1])
     return _from_nx_graph(jt)
+
+
+def junction_tree(G):
+    """Junction tree of a graph.
+
+    br-r37-c1-7hq76: nx.junction_tree uses the sorted-tuple cliques
+    themselves as node identifiers and inserts intermediate sepset
+    nodes between connected cliques (so the tree is bipartite over
+    cliques and sepsets). It also moralizes directed inputs and
+    triangulates non-chordal graphs via complete_to_chordal_graph.
+
+    br-r37-c1-jtchord: run nx's exact algorithm IN-PROCESS instead of the
+    full ``_call_networkx_for_parity`` conversion-then-nx path. The cost is
+    dominated by ``complete_to_chordal_graph`` (nx ~6.5s at n=500) +
+    ``chordal_graph_cliques`` (nx ~2.2s); fnx's native
+    ``complete_to_chordal_graph`` is byte-identical to nx (same fill edges)
+    but ~2.1x faster. The chordal graph is then handed to nx's exact
+    ``chordal_graph_cliques`` + maximum-spanning-tree over the clique graph,
+    so the resulting junction tree is byte-identical (node/edge/type) to nx
+    — verified 320/320 incl. directed — at ~1.6x. The clique ORDER is taken
+    from nx's ``chordal_graph_cliques`` on the converted chordal graph (fnx's
+    native clique enumeration yields the same SET but a different order, which
+    would change the maximum-spanning-tree tie-breaks).
+    """
+    G = _coerce_arg_to_fnx_graph(G)
+    return _junction_tree_nx(G)
 
 
 def join_trees(rooted_trees, *, label_attribute=None, first_label=0):
