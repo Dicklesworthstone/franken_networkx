@@ -39348,6 +39348,43 @@ pub fn symmetric_eigvals(matrix: &[f64], n: usize) -> Option<Vec<f64>> {
     Some(d)
 }
 
+/// Ascending eigenvalues of the unweighted undirected Laplacian `D - A`.
+///
+/// This builds the dense Laplacian directly from native edge indices and then
+/// runs the safe-Rust symmetric eigensolver above, avoiding Python/SciPy sparse
+/// materialization and C LAPACK dispatch on small graphs. Returns `None` when a
+/// named weight attribute is present so callers can fall back to the exact
+/// weighted matrix path.
+pub fn unweighted_laplacian_spectrum(
+    graph: &Graph,
+    weight_attr: Option<&str>,
+    max_n: usize,
+) -> Option<Vec<f64>> {
+    let n = graph.node_count();
+    if n == 0 || n > max_n {
+        return None;
+    }
+    if let Some(attr) = weight_attr
+        && graph
+            .edges_storage_order_index_iter()
+            .any(|(_, _, attrs)| attrs.contains_key(attr))
+    {
+        return None;
+    }
+
+    let mut laplacian = vec![0.0; n * n];
+    for (left, right, _) in graph.edges_storage_order_index_iter() {
+        if left == right {
+            continue;
+        }
+        laplacian[left * n + left] += 1.0;
+        laplacian[right * n + right] += 1.0;
+        laplacian[left * n + right] -= 1.0;
+        laplacian[right * n + left] -= 1.0;
+    }
+    symmetric_eigvals(&laplacian, n)
+}
+
 /// Approximate the Fiedler vector of an unweighted simple graph with a native
 /// safe-Rust Lanczos/Ritz solve on the subspace orthogonal to the all-ones
 /// vector. Returns `None` when residual checks do not prove a valid Fiedler
@@ -54854,5 +54891,37 @@ mod lu_pade_tests {
         use super::symmetric_eigvals;
         assert!(symmetric_eigvals(&[1.0, 2.0, 3.0], 2).is_none());
         assert!(symmetric_eigvals(&[], 0).unwrap().is_empty());
+    }
+
+    #[test]
+    fn unweighted_laplacian_spectrum_ignores_self_loops() {
+        use super::unweighted_laplacian_spectrum;
+        use fnx_classes::Graph;
+        use fnx_runtime::CompatibilityMode;
+
+        let mut graph = Graph::new(CompatibilityMode::Strict);
+        assert!(graph.add_node("0".to_owned()));
+        assert!(graph.add_node("1".to_owned()));
+        graph.add_edge("0".to_owned(), "0".to_owned()).unwrap();
+        graph.add_edge("0".to_owned(), "1".to_owned()).unwrap();
+
+        let spectrum = unweighted_laplacian_spectrum(&graph, Some("weight"), 8).unwrap();
+        assert!(spectrum[0].abs() < 1e-10, "{}", spectrum[0]);
+        assert!((spectrum[1] - 2.0).abs() < 1e-10, "{}", spectrum[1]);
+    }
+
+    #[test]
+    fn unweighted_laplacian_spectrum_respects_size_gate() {
+        use super::unweighted_laplacian_spectrum;
+        use fnx_classes::Graph;
+        use fnx_runtime::CompatibilityMode;
+
+        let mut graph = Graph::new(CompatibilityMode::Strict);
+        assert!(graph.add_node("0".to_owned()));
+        assert!(unweighted_laplacian_spectrum(&graph, None, 0).is_none());
+        assert_eq!(
+            unweighted_laplacian_spectrum(&graph, None, 1).unwrap(),
+            [0.0]
+        );
     }
 }

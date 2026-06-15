@@ -43,6 +43,16 @@ def _float_payload(values: Any) -> list[str]:
     return [format(float(value), ".17g") for value in values]
 
 
+def _quantized_payload(values: Any) -> list[str]:
+    payload = []
+    for value in values:
+        number = float(value)
+        if abs(number) < 5.0e-10:
+            number = 0.0
+        payload.append(format(number, ".10f"))
+    return payload
+
+
 def native_laplacian_spectrum(graph: Any) -> Any:
     matrix = fnx.laplacian_matrix(graph, weight="weight").toarray()
     native = getattr(fnx._fnx, "symmetric_eigvals_rust", None)
@@ -56,6 +66,8 @@ def native_laplacian_spectrum(graph: Any) -> Any:
 
 def golden(cases: list[int], output: Path | None) -> dict[str, Any]:
     records = []
+    fnx_quantized_records = []
+    nx_quantized_records = []
     max_abs_delta = 0.0
     max_rel_delta = 0.0
     for n in cases:
@@ -80,12 +92,25 @@ def golden(cases: list[int], output: Path | None) -> dict[str, Any]:
                 "nx": _float_payload(nx_values),
             }
         )
+        fnx_quantized_records.append({"n": n, "values": _quantized_payload(fnx_values)})
+        nx_quantized_records.append({"n": n, "values": _quantized_payload(nx_values)})
 
     encoded = json.dumps(records, sort_keys=True, separators=(",", ":")).encode()
+    fnx_quantized = json.dumps(
+        fnx_quantized_records, sort_keys=True, separators=(",", ":")
+    ).encode()
+    nx_quantized = json.dumps(
+        nx_quantized_records, sort_keys=True, separators=(",", ":")
+    ).encode()
+    fnx_quantized_sha = hashlib.sha256(fnx_quantized).hexdigest()
+    nx_quantized_sha = hashlib.sha256(nx_quantized).hexdigest()
     result = {
         "cases": cases,
+        "fnx_quantized_sha256": fnx_quantized_sha,
         "max_abs_delta": max_abs_delta,
         "max_rel_delta": max_rel_delta,
+        "nx_quantized_sha256": nx_quantized_sha,
+        "quantized_match": fnx_quantized_sha == nx_quantized_sha,
         "sha256": hashlib.sha256(encoded).hexdigest(),
         "within_1e_8": max_abs_delta <= 1.0e-8 and max_rel_delta <= 1.0e-10,
     }

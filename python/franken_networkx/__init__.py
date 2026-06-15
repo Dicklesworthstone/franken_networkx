@@ -22552,31 +22552,37 @@ def laplacian_spectrum(G, weight="weight"):
     """
     import numpy as np
 
+    if (
+        type(G) is Graph
+        and (weight is None or isinstance(weight, str))
+        and 0 < len(G) <= _LAPLACIAN_SPECTRUM_NATIVE_MAX_N
+    ):
+        native = getattr(_fnx, "unweighted_laplacian_spectrum_rust", None)
+        if native is not None:
+            values = native(G, weight, _LAPLACIAN_SPECTRUM_NATIVE_MAX_N)
+            if values is not None:
+                return np.asarray(values, dtype=np.float64)
+
     L = laplacian_matrix(G, weight=weight)
     dense = L.toarray()
     n = dense.shape[0]
-    # br-r37-c1-04z53.9109: small dense symmetric Laplacians are solved by our
-    # own 100% safe-Rust Householder->implicit-shift-QL eigensolver (no C
-    # BLAS/LAPACK linkage), which beats numpy's LAPACK dispatch overhead below
-    # the measured crossover (~n=12). Larger matrices keep the dense LAPACK path
-    # until the blocked/SIMD reduction lands (see bead) — never regress them.
-    # Values match LAPACK eigvalsh to ~1e-14; the kernel returns ascending order.
-    if 0 < n <= _LAPLACIAN_SPECTRUM_NATIVE_MAX_N:
-        from franken_networkx._fnx import symmetric_eigvals_rust
-
-        native = symmetric_eigvals_rust(
-            np.ascontiguousarray(dense, dtype=np.float64).ravel(), n
-        )
-        if native is not None:
-            return np.asarray(native, dtype=np.float64)
+    # br-r37-c1-04z53.9109: remaining dense symmetric Laplacians use the
+    # safe-Rust eigensolver after exact matrix construction. NumPy LAPACK remains
+    # only as the missing-binding/non-convergence guard.
+    native = getattr(_fnx, "symmetric_eigvals_rust", None)
+    if native is not None:
+        values = native(np.ascontiguousarray(dense, dtype=np.float64).ravel(), n)
+        if values is not None:
+            return np.asarray(values, dtype=np.float64)
     return np.sort(np.linalg.eigvalsh(dense))
 
 
-# br-r37-c1-04z53.9109: crossover below which the native safe-Rust symmetric
-# eigensolver beats numpy's LAPACK dispatch overhead (measured: native is
-# ~1.8x faster at n=6, ~1.25x at n=8, break-even at n=10, slower beyond — so
-# the gate stays on the winning side and never regresses larger Laplacians).
-_LAPLACIAN_SPECTRUM_NATIVE_MAX_N = 10
+# br-r37-c1-04z53.9109: direct unweighted Laplacian construction plus the
+# safe-Rust eigensolver wins on small exact Graph inputs by avoiding SciPy sparse
+# materialization and C LAPACK dispatch. Weighted, directed, multigraph,
+# subclass, and larger cases continue through the exact matrix builder before
+# the native dense eigensolver.
+_LAPLACIAN_SPECTRUM_NATIVE_MAX_N = 32
 
 
 def adjacency_spectrum(G, weight="weight"):

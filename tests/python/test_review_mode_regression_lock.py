@@ -2388,6 +2388,58 @@ def test_adjacency_spectrum_returns_complex_match_nx():
         assert np.allclose(np.sort_complex(fr), np.sort_complex(nr))
 
 
+def test_laplacian_spectrum_native_direct_path_matches_nx():
+    """br-r37-c1-04z53.9109: small unweighted Graph spectra use the
+    native safe-Rust Laplacian builder, while weighted graphs use the
+    exact matrix builder plus the native dense eigensolver."""
+    import numpy as np
+
+    old_direct = fnx._LAPLACIAN_SPECTRUM_NATIVE_MAX_N
+    fnx._LAPLACIAN_SPECTRUM_NATIVE_MAX_N = 32
+    try:
+        native = fnx._fnx.unweighted_laplacian_spectrum_rust
+        for G_f, G_n in [
+            (fnx.path_graph(32), nx.path_graph(32)),
+            (fnx.grid_2d_graph(5, 5), nx.grid_2d_graph(5, 5)),
+        ]:
+            direct = np.asarray(native(G_f, "weight", 32), dtype=np.float64)
+            expected = np.asarray(nx.laplacian_spectrum(G_n), dtype=np.float64)
+            assert np.allclose(direct, expected, rtol=1.0e-10, atol=1.0e-10)
+            assert np.allclose(
+                fnx.laplacian_spectrum(G_f), expected, rtol=1.0e-10, atol=1.0e-10
+            )
+
+        G_f = fnx.Graph()
+        G_f.add_nodes_from([0, 1])
+        G_f.add_edge(0, 0)
+        G_f.add_edge(0, 1)
+        G_n = nx.Graph()
+        G_n.add_nodes_from([0, 1])
+        G_n.add_edge(0, 0)
+        G_n.add_edge(0, 1)
+        assert np.allclose(
+            fnx.laplacian_spectrum(G_f),
+            nx.laplacian_spectrum(G_n),
+            rtol=1.0e-10,
+            atol=1.0e-10,
+        )
+
+        weighted = fnx.path_graph(8)
+        weighted[0][1]["weight"] = 3.5
+        weighted_nx = nx.path_graph(8)
+        weighted_nx[0][1]["weight"] = 3.5
+        expected = nx.laplacian_spectrum(weighted_nx)
+        assert native(weighted, "weight", 32) is None
+        assert np.allclose(
+            fnx.laplacian_spectrum(weighted),
+            expected,
+            rtol=1.0e-10,
+            atol=1.0e-10,
+        )
+    finally:
+        fnx._LAPLACIAN_SPECTRUM_NATIVE_MAX_N = old_direct
+
+
 def test_dispersion_bad_node_raises_keyerror_match_nx():
     """br-r37-c1-disp-keyerr: dispersion raised NetworkXError when
     given a node not in G (because it called ``G.neighbors(u)``

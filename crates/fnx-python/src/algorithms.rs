@@ -18972,6 +18972,33 @@ pub fn symmetric_eigvals_rust(
     Ok(result)
 }
 
+/// Small-graph unweighted Laplacian spectrum via native dense Laplacian
+/// construction plus the safe-Rust symmetric eigensolver. Returns `None` for
+/// directed/multigraph inputs, graphs above `max_n`, or edges carrying the
+/// requested weight attribute so Python can fall back to the exact matrix path.
+#[pyfunction]
+#[pyo3(signature = (g, weight_attr=None, max_n=64))]
+pub fn unweighted_laplacian_spectrum_rust(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    weight_attr: Option<&str>,
+    max_n: usize,
+) -> PyResult<Option<Vec<f64>>> {
+    let gr = extract_graph(g)?;
+    let GraphRef::Undirected(pg) = &gr else {
+        return Ok(None);
+    };
+    if let Some(attr) = weight_attr {
+        for dict in pg.edge_py_attrs.values() {
+            if dict.bind(py).contains(attr)? {
+                return Ok(None);
+            }
+        }
+    }
+    let result = fnx_algorithms::unweighted_laplacian_spectrum(&pg.inner, weight_attr, max_n);
+    Ok(result)
+}
+
 // ---------------------------------------------------------------------------
 // Current-flow betweenness centrality
 // ---------------------------------------------------------------------------
@@ -19751,6 +19778,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(subgraph_centrality_expdiag_rust, m)?)?;
     m.add_function(wrap_pyfunction!(fiedler_vector_unweighted_lanczos_rust, m)?)?;
     m.add_function(wrap_pyfunction!(symmetric_eigvals_rust, m)?)?;
+    m.add_function(wrap_pyfunction!(unweighted_laplacian_spectrum_rust, m)?)?;
     m.add_function(wrap_pyfunction!(
         communicability_betweenness_centrality_rust,
         m
