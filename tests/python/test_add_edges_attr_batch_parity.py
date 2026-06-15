@@ -170,6 +170,45 @@ def test_digraph_attr_batch_preserves_direction_and_mirrors():
     assert _canon(ctor) == _canon(nx.DiGraph(batch))
 
 
+def test_digraph_fresh_exact_int_attr_batch_matches_nx_order_and_copies():
+    first = {"w": 0, "label": "first"}
+    duplicate = {"w": 91, "extra": "last"}
+    batch = (
+        [(0, 1, first), (1, 2, {"w": 1}), (2, 2, {"self": True})]
+        + [(i, i + 1, {"w": i, "tag": f"e{i}"}) for i in range(3, 12)]
+        + [(0, 1, duplicate)]
+    )
+
+    gf = fnx.DiGraph()
+    gn = nx.DiGraph()
+    gf.add_edges_from(batch)
+    gn.add_edges_from(batch)
+
+    assert _canon(gf) == _canon(gn)
+    assert gf.get_edge_data(0, 1) == {"w": 91, "label": "first", "extra": "last"}
+    assert list(gf.successors(0)) == [1]
+    assert list(gf.predecessors(1)) == [0]
+
+    first["w"] = 999
+    duplicate["extra"] = "mutated"
+    assert gf.get_edge_data(0, 1) == {"w": 91, "label": "first", "extra": "last"}
+
+
+def test_digraph_exact_int_batch_probe_falls_back_for_bool_nodes():
+    batch = (
+        [(True, 2, {"w": "bool"}), (1, 3, {"w": "int"})]
+        + [(i, i + 10, {"w": i}) for i in range(2, 10)]
+    )
+
+    def build(mod):
+        g = mod.DiGraph()
+        g.add_edges_from(batch)
+        return g
+
+    a, b = _both(build)
+    assert a == b
+
+
 def test_digraph_batch_probe_falls_back_for_list_edges():
     batch = [[i, i + 1, {"w": i}] for i in range(12)]
 

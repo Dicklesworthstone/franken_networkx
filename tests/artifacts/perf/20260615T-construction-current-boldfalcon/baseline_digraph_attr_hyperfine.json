@@ -1,0 +1,60 @@
+{
+  "results": [
+    {
+      "command": "/data/projects/franken_networkx/.venv/bin/python tests/artifacts/perf/20260614T-digraph-attr-construction-boldfalcon/digraph_attr_construction_harness.py once --impl fnx --loops 30",
+      "mean": 0.7959092257942858,
+      "stddev": 0.04456441145605694,
+      "median": 0.79035088608,
+      "user": 4.690848014285715,
+      "system": 0.0738683857142857,
+      "min": 0.7379334280800001,
+      "max": 0.8540839080800001,
+      "times": [
+        0.8495271440800001,
+        0.79035088608,
+        0.8540839080800001,
+        0.7379334280800001,
+        0.77539320708,
+        0.7550294040800001,
+        0.8090466030800001
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "/data/projects/franken_networkx/.venv/bin/python tests/artifacts/perf/20260614T-digraph-attr-construction-boldfalcon/digraph_attr_construction_harness.py once --impl nx --loops 30",
+      "mean": 0.6157864282228572,
+      "stddev": 0.03366603038434272,
+      "median": 0.61008985108,
+      "user": 4.540483585714286,
+      "system": 0.0912498142857143,
+      "min": 0.5714315190800001,
+      "max": 0.6627794560800001,
+      "times": [
+        0.5882524600800001,
+        0.5993375460800001,
+        0.65442542408,
+        0.6627794560800001,
+        0.61008985108,
+        0.6241887410800001,
+        0.5714315190800001
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

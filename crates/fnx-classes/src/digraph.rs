@@ -1130,6 +1130,89 @@ impl DiGraph {
         inserted
     }
 
+    /// Bulk-add attributed directed edges into a fresh graph when the caller has
+    /// already assigned NetworkX-compatible node indices in first-seen order.
+    ///
+    /// This bypasses the string-key lookup path in
+    /// [`extend_prepared_edges_with_attrs_row_staged_unrecorded`]: node labels
+    /// are installed once, then edges are committed directly by `(source_idx,
+    /// target_idx)`. Duplicate directed edges merge attributes without appending
+    /// another successor/predecessor entry, matching `DiGraph.add_edges_from`.
+    #[must_use]
+    pub fn extend_fresh_index_edges_with_attrs_unrecorded<I, N>(
+        &mut self,
+        nodes: N,
+        edges: I,
+    ) -> usize
+    where
+        I: IntoIterator<Item = (usize, usize, AttrMap)>,
+        N: IntoIterator<Item = String>,
+    {
+        if !self.nodes.is_empty()
+            || !self.succ_indices.is_empty()
+            || !self.pred_indices.is_empty()
+            || !self.edges.is_empty()
+        {
+            return 0;
+        }
+
+        for node in nodes {
+            self.nodes.insert(node, AttrMap::new());
+        }
+        let node_count = self.nodes.len();
+        self.succ_indices = vec![Vec::new(); node_count];
+        self.pred_indices = vec![Vec::new(); node_count];
+
+        let mut inserted = 0usize;
+        let mut merged_changed = false;
+        for (source_idx, target_idx, attrs) in edges {
+            if source_idx >= node_count || target_idx >= node_count {
+                continue;
+            }
+            let edge_key = (source_idx, target_idx);
+            if let Some(existing) = self.edges.get_mut(&edge_key) {
+                if !attrs.is_empty()
+                    && attrs
+                        .iter()
+                        .any(|(key, value)| existing.get(key) != Some(value))
+                {
+                    merged_changed = true;
+                }
+                existing.extend(attrs);
+                continue;
+            }
+            self.edges.insert(edge_key, attrs);
+            self.succ_indices[source_idx].push(target_idx);
+            self.pred_indices[target_idx].push(source_idx);
+            inserted += 1;
+        }
+
+        if node_count > 0 || inserted > 0 || merged_changed {
+            self.revision = self.revision.saturating_add(
+                u64::try_from(node_count.saturating_add(inserted)).unwrap_or(u64::MAX),
+            );
+            self.record_decision(
+                "extend_fresh_index_edges_unrecorded",
+                0.0,
+                false,
+                vec![
+                    EvidenceTerm {
+                        signal: "batch_node_count".to_owned(),
+                        observed_value: node_count.to_string(),
+                        log_likelihood_ratio: -1.0,
+                    },
+                    EvidenceTerm {
+                        signal: "batch_edge_count".to_owned(),
+                        observed_value: inserted.to_string(),
+                        log_likelihood_ratio: -1.0,
+                    },
+                ],
+            );
+        }
+
+        inserted
+    }
+
     pub fn apply_edge_defaults(&mut self, defaults: &AttrMap) -> bool {
         if defaults.is_empty() {
             return false;
