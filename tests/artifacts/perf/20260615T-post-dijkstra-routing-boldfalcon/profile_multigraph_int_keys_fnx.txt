@@ -1,0 +1,26 @@
+case=multigraph_int_keys sha256=12bd996b964c1acc62a211707978701379d74e8042798f250796298d70ffac83
+         2000081 function calls in 1.065 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        5    0.007    0.001    1.065    0.213 /data/projects/.scratch/franken_networkx-dijkstra-pred-20260615T0440/tests/artifacts/perf/20260613T-current-routing-boldfalcon/profile_construction.py:41(run_case)
+        5    0.194    0.039    1.025    0.205 /data/projects/.scratch/franken_networkx-dijkstra-pred-20260615T0440/python/franken_networkx/__init__.py:2844(_multi_add_edges_from)
+   250000    0.122    0.000    0.708    0.000 /data/projects/.scratch/franken_networkx-dijkstra-pred-20260615T0440/python/franken_networkx/__init__.py:2514(add_edge)
+   250000    0.540    0.000    0.540    0.000 {method 'add_edge' of 'franken_networkx.MultiGraph' objects}
+   500000    0.099    0.000    0.099    0.000 {method 'update' of 'dict' objects}
+   750000    0.046    0.000    0.046    0.000 {built-in method builtins.hash}
+        5    0.033    0.007    0.033    0.007 /data/projects/.scratch/franken_networkx-dijkstra-pred-20260615T0440/tests/artifacts/perf/20260613T-current-routing-boldfalcon/profile_construction.py:33(_multi_edges_int)
+   250000    0.019    0.000    0.019    0.000 {built-in method builtins.len}
+        5    0.003    0.001    0.003    0.001 {method '_try_add_edges_from_batch' of 'franken_networkx.MultiGraph' objects}
+        5    0.002    0.000    0.002    0.000 {method '_try_add_attr_edges_from_batch' of 'franken_networkx.MultiGraph' objects}
+        5    0.000    0.000    0.000    0.000 {method '_try_add_str_keyed_edges_from_batch' of 'franken_networkx.MultiGraph' objects}
+        5    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-dijkstra-pred-20260615T0440/python/franken_networkx/__init__.py:3664(__init__)
+        5    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-dijkstra-pred-20260615T0440/python/franken_networkx/__init__.py:6169(predicate)
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+       20    0.000    0.000    0.000    0.000 {built-in method builtins.isinstance}
+       15    0.000    0.000    0.000    0.000 {built-in method builtins.getattr}
+        5    0.000    0.000    0.000    0.000 {function _make_class_safe_predicate.<locals>.predicate at 0x770c9d6befc0}
+
+
+

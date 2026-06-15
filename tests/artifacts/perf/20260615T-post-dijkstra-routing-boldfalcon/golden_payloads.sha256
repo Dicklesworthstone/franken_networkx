@@ -1,0 +1,2 @@
+2cc03e86353aa0bca84b567de31856b808c7b2c6fb8fc60b9462ecfebc752cfd  tests/artifacts/perf/20260615T-post-dijkstra-routing-boldfalcon/baseline_graph_attr_golden.json
+2cc03e86353aa0bca84b567de31856b808c7b2c6fb8fc60b9462ecfebc752cfd  tests/artifacts/perf/20260615T-post-dijkstra-routing-boldfalcon/after_graph_attr_golden.json

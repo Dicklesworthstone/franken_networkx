@@ -91,6 +91,47 @@ def test_intra_batch_duplicate_merges_in_order():
     assert g[0][1] == {"a": 2, "b": 3}  # last write wins
 
 
+def test_graph_fresh_exact_int_attr_batch_matches_nx_order_and_copies():
+    first = {"w": 0, "label": "first"}
+    duplicate = {"w": 91, "extra": "last"}
+    batch = (
+        [(10, 2, first), (2, 2, {"self": True}), (2, 3, {"w": 1})]
+        + [(i, i + 1, {"w": i, "tag": f"e{i}"}) for i in range(3, 12)]
+        + [(2, 10, duplicate)]
+    )
+
+    gf = fnx.Graph()
+    gn = nx.Graph()
+    gf.add_edges_from(batch)
+    gn.add_edges_from(batch)
+
+    assert _canon(gf) == _canon(gn)
+    assert gf.get_edge_data(10, 2) == {"w": 91, "label": "first", "extra": "last"}
+    assert list(gf.adj[10]) == list(gn.adj[10])
+    assert list(gf.adj[2]) == list(gn.adj[2])
+
+    first["w"] = 999
+    duplicate["extra"] = "mutated"
+    assert gf.get_edge_data(10, 2) == {"w": 91, "label": "first", "extra": "last"}
+
+    assert _canon(fnx.Graph(batch)) == _canon(nx.Graph(batch))
+
+
+def test_graph_exact_int_attr_probe_falls_back_for_bool_nodes():
+    batch = (
+        [(True, 2, {"w": "bool"}), (1, 3, {"w": "int"})]
+        + [(i, i + 10, {"w": i}) for i in range(2, 10)]
+    )
+
+    def build(mod):
+        g = mod.Graph()
+        g.add_edges_from(batch)
+        return g
+
+    a, b = _both(build)
+    assert a == b
+
+
 def test_source_dict_not_aliased():
     g = fnx.Graph()
     shared = {"w": 1}

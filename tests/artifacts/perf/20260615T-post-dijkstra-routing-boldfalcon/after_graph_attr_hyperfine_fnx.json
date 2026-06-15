@@ -1,0 +1,38 @@
+{
+  "results": [
+    {
+      "command": "env PYTHONPATH=/data/projects/.scratch/franken_networkx-dijkstra-pred-20260615T0440/python /data/projects/franken_networkx/.venv/bin/python tests/artifacts/perf/20260615T-post-dijkstra-routing-boldfalcon/graph_attr_batch_harness.py once fnx",
+      "mean": 0.27862088519999995,
+      "stddev": 0.011049636651695517,
+      "median": 0.27726425359999995,
+      "user": 4.45361434,
+      "system": 0.07471805999999999,
+      "min": 0.2608872476,
+      "max": 0.30142083059999997,
+      "times": [
+        0.26949861459999996,
+        0.2786011216,
+        0.2848250946,
+        0.27340506659999997,
+        0.2833074086,
+        0.2857178666,
+        0.2608872476,
+        0.27592738559999996,
+        0.2726182156,
+        0.30142083059999997
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}
