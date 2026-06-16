@@ -29865,6 +29865,10 @@ def normalized_laplacian_spectrum(G, weight="weight"):
     if complete_values is not None:
         return complete_values
 
+    star_values = _star_normalized_laplacian_spectrum_sorted_value_safe(G, weight)
+    if star_values is not None:
+        return star_values
+
     NL = normalized_laplacian_matrix(G, weight=weight)
     return np.sort(np.linalg.eigvalsh(NL.toarray()))
 
@@ -29908,6 +29912,37 @@ def _complete_normalized_laplacian_spectrum_sorted_value_safe(G, weight):
     values[0] = 0.0
     if n > 1:
         values[1:] = float(n) / float(n - 1)
+    return values
+
+
+def _star_normalized_laplacian_spectrum_sorted_value_safe(G, weight):
+    if type(G) is not Graph or not (weight is None or isinstance(weight, str)):
+        return None
+    n = len(G)
+    if n <= 2 or G.number_of_edges() != n - 1:
+        return None
+    if isinstance(weight, str):
+        for _, _, attrs in G.edges(data=True):
+            if weight in attrs:
+                return None
+
+    center_count = 0
+    leaf_count = 0
+    for _, degree in G.degree():
+        if degree == n - 1:
+            center_count += 1
+        elif degree == 1:
+            leaf_count += 1
+        else:
+            return None
+    if center_count != 1 or leaf_count != n - 1:
+        return None
+
+    import numpy as np
+
+    values = np.ones(n, dtype=np.float64)
+    values[0] = 0.0
+    values[-1] = 2.0
     return values
 
 
