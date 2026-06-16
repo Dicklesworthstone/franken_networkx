@@ -1,0 +1,31 @@
+         176994 function calls (170064 primitive calls) in 0.818 seconds
+
+   Ordered by: internal time
+   List reduced from 1292 to 25 due to restriction <25>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        3    0.653    0.218    0.653    0.218 {built-in method franken_networkx._fnx.symmetric_eigvals_rust}
+      151    0.014    0.000    0.014    0.000 {built-in method marshal.loads}
+      379    0.012    0.000    0.012    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/_lib/_docscrape.py:64(eof)
+        3    0.009    0.003    0.009    0.003 {built-in method numpy.ascontiguousarray}
+      221    0.006    0.000    0.007    0.000 {built-in method builtins.eval}
+   629/86    0.006    0.000    0.019    0.000 /usr/lib/python3.13/re/_parser.py:511(_parse)
+  1148/81    0.005    0.000    0.011    0.000 /usr/lib/python3.13/re/_compiler.py:37(_compile)
+      604    0.005    0.000    0.005    0.000 <frozen importlib._bootstrap_external>:139(<genexpr>)
+        3    0.004    0.001    0.004    0.001 {built-in method scipy.sparse._sparsetools.csr_todense}
+      687    0.004    0.000    0.004    0.000 {built-in method posix.stat}
+      9/3    0.003    0.000    0.818    0.273 /data/projects/franken_networkx/python/franken_networkx/__init__.py:53405(wrapper)
+    14/10    0.003    0.000    0.005    0.000 {built-in method _imp.exec_dynamic}
+  269/267    0.002    0.000    0.014    0.000 {built-in method builtins.__build_class__}
+ 1370/410    0.002    0.000    0.003    0.000 /usr/lib/python3.13/re/_parser.py:177(getwidth)
+      151    0.002    0.000    0.002    0.000 {method 'read' of '_io.BufferedReader' objects}
+      151    0.002    0.000    0.002    0.000 {built-in method _io.open_code}
+   469/81    0.002    0.000    0.019    0.000 /usr/lib/python3.13/re/_parser.py:451(_parse_sub)
+        1    0.002    0.002    0.002    0.002 /usr/lib/python3.13/pprint.py:1(<module>)
+     9053    0.002    0.000    0.003    0.000 /usr/lib/python3.13/re/_parser.py:167(__getitem__)
+      396    0.002    0.000    0.002    0.000 /usr/lib/python3.13/re/_compiler.py:241(_optimize_charset)
+    18780    0.002    0.000    0.002    0.000 {method 'append' of 'list' objects}
+18317/17145    0.002    0.000    0.002    0.000 {built-in method builtins.len}
+       14    0.002    0.000    0.002    0.000 {built-in method _imp.create_dynamic}
+        3    0.002    0.001    0.815    0.272 /data/projects/franken_networkx/python/franken_networkx/__init__.py:22719(adjacency_spectrum)
+    16159    0.002    0.000    0.002    0.000 {built-in method builtins.isinstance}

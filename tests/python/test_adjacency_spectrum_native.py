@@ -81,6 +81,30 @@ def test_unweighted_edgeless_closed_form_matches_nx_sorted_values():
     assert np.allclose(np.sort_complex(fr), expected)
 
 
+def test_unweighted_cycle_closed_form_matches_nx_sorted_values():
+    Gf = fnx.cycle_graph(31)
+    Gn = nx.cycle_graph(31)
+    fr = fnx.adjacency_spectrum(Gf)
+    nr = nx.adjacency_spectrum(Gn)
+    expected = 2.0 * np.cos((2.0 * np.pi / 31.0) * np.arange(31, dtype=np.float64))
+    assert fr.dtype == nr.dtype == np.complex128
+    assert _sorted_match(fr, nr)
+    assert np.allclose(np.sort_complex(fr), np.sort(expected).astype(np.complex128))
+
+
+def test_weighted_cycle_graph_stays_on_weighted_route():
+    Gf = fnx.cycle_graph(9)
+    Gn = nx.cycle_graph(9)
+    Gf[0][1]["weight"] = 2.5
+    Gn[0][1]["weight"] = 2.5
+    fr = fnx.adjacency_spectrum(Gf)
+    nr = nx.adjacency_spectrum(Gn)
+    unweighted = 2.0 * np.cos((2.0 * np.pi / 9.0) * np.arange(9, dtype=np.float64))
+    assert fr.dtype == nr.dtype == np.complex128
+    assert _sorted_match(fr, nr)
+    assert not np.allclose(np.sort_complex(fr), np.sort(unweighted).astype(np.complex128))
+
+
 def test_weighted_complete_graph_stays_on_weighted_route():
     Gf = fnx.complete_graph(7)
     Gn = nx.complete_graph(7)

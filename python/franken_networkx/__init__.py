@@ -22672,6 +22672,41 @@ def _edgeless_adjacency_spectrum_sorted_value_safe(G, weight):
     return np.zeros(n, dtype=np.complex128)
 
 
+def _cycle_adjacency_spectrum_sorted_value_safe(G, weight):
+    if type(G) is not Graph or not (weight is None or isinstance(weight, str)):
+        return None
+    n = len(G)
+    if n < 3 or G.number_of_edges() != n:
+        return None
+    if isinstance(weight, str):
+        for _, _, attrs in G.edges(data=True):
+            if weight in attrs:
+                return None
+
+    degrees = list(G.degree())
+    for _, degree in degrees:
+        if degree != 2:
+            return None
+
+    start = degrees[0][0]
+    seen = {start}
+    stack = [start]
+    while stack:
+        node = stack.pop()
+        for neighbor in G.neighbors(node):
+            if neighbor not in seen:
+                seen.add(neighbor)
+                stack.append(neighbor)
+    if len(seen) != n:
+        return None
+
+    import numpy as np
+
+    k = np.arange(n, dtype=np.float64)
+    values = 2.0 * np.cos((2.0 * np.pi / float(n)) * k)
+    return np.sort(values).astype(np.complex128)
+
+
 def _path_adjacency_spectrum_sorted_value_safe(G, weight):
     if type(G) is not Graph or not (weight is None or isinstance(weight, str)):
         return None
@@ -22738,6 +22773,10 @@ def adjacency_spectrum(G, weight="weight"):
     edgeless_values = _edgeless_adjacency_spectrum_sorted_value_safe(G, weight)
     if edgeless_values is not None:
         return edgeless_values
+
+    cycle_values = _cycle_adjacency_spectrum_sorted_value_safe(G, weight)
+    if cycle_values is not None:
+        return cycle_values
 
     # Exact unweighted stars have spectrum {+sqrt(n-1), -sqrt(n-1), 0...}.
     # Bypass dense matrix construction and the generic symmetric eigensolver
