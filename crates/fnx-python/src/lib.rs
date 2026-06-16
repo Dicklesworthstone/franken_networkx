@@ -8525,6 +8525,39 @@ impl PyGraph {
         !self.adj_py_keys.is_empty()
     }
 
+    fn _native_is_complete_unweighted_graph(
+        &self,
+        py: Python<'_>,
+        weight: Option<&str>,
+    ) -> PyResult<bool> {
+        let node_count = self.inner.node_count();
+        if node_count == 0 {
+            return Ok(false);
+        }
+        if self.inner.edge_count() != node_count * (node_count - 1) / 2 {
+            return Ok(false);
+        }
+        for idx in 0..node_count {
+            if self.inner.degree_by_index(idx) != node_count - 1 {
+                return Ok(false);
+            }
+        }
+        let Some(weight_key) = weight else {
+            return Ok(true);
+        };
+        for (_, _, attrs) in self.inner.edges_storage_order_index_iter() {
+            if attrs.contains_key(weight_key) {
+                return Ok(false);
+            }
+        }
+        for attrs in self.edge_py_attrs.values() {
+            if attrs.bind(py).get_item(weight_key)?.is_some() {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    }
+
     /// br-r37-c1-gadj: native nested adjacency snapshot ({node: {nbr: attrs}})
     /// so the Python Graph.adjacency (_simple_graph_adjacency) builds it
     /// natively instead of walking ``dict(self.adj[node])`` via the AtlasView

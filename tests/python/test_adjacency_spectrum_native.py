@@ -57,6 +57,34 @@ def test_unweighted_star_closed_form_matches_nx_sorted_values():
     assert np.allclose(np.sort_complex(fr), expected)
 
 
+def test_unweighted_complete_closed_form_matches_nx_sorted_values():
+    Gf = fnx.complete_graph(31)
+    Gn = nx.complete_graph(31)
+    fr = fnx.adjacency_spectrum(Gf)
+    nr = nx.adjacency_spectrum(Gn)
+    expected = np.empty(31, dtype=np.complex128)
+    expected[:-1] = complex(-1.0, 0.0)
+    expected[-1] = complex(30.0, 0.0)
+    assert fr.dtype == nr.dtype == np.complex128
+    assert _sorted_match(fr, nr)
+    assert np.allclose(np.sort_complex(fr), expected)
+
+
+def test_weighted_complete_graph_stays_on_weighted_route():
+    Gf = fnx.complete_graph(7)
+    Gn = nx.complete_graph(7)
+    Gf[0][1]["weight"] = 2.5
+    Gn[0][1]["weight"] = 2.5
+    fr = fnx.adjacency_spectrum(Gf)
+    nr = nx.adjacency_spectrum(Gn)
+    unweighted = np.empty(7, dtype=np.complex128)
+    unweighted[:-1] = complex(-1.0, 0.0)
+    unweighted[-1] = complex(6.0, 0.0)
+    assert fr.dtype == nr.dtype == np.complex128
+    assert _sorted_match(fr, nr)
+    assert not np.allclose(np.sort_complex(fr), unweighted)
+
+
 def test_directed_fallback_matches_nx():
     e = [(0, 1), (1, 2), (2, 0), (0, 3), (3, 1)]
     fr = fnx.adjacency_spectrum(fnx.DiGraph(e))

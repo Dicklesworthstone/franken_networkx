@@ -1,0 +1,43 @@
+         13364402 function calls in 9.107 seconds
+
+   Ordered by: cumulative time
+   List reduced from 67 to 35 due to restriction <35>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.000    0.000    9.107    9.107 construction_attr_survey.py:148(once)
+      200    0.096    0.000    9.106    0.046 construction_attr_survey.py:101(_measure_case)
+      200    1.267    0.006    6.872    0.034 construction_attr_survey.py:29(_digest_graph)
+  2136800    2.602    0.000    3.450    0.000 {built-in method builtins.sorted}
+      200    0.062    0.000    2.133    0.011 construction_attr_survey.py:66(_digraph_attr)
+      200    0.009    0.000    1.419    0.007 __init__.py:2978(add_edges_from)
+      200    1.409    0.007    1.409    0.007 {method '_try_add_edges_from_batch' of 'franken_networkx.DiGraph' objects}
+  3200000    0.614    0.000    0.818    0.000 construction_attr_survey.py:46(<genexpr>)
+      200    0.002    0.000    0.709    0.004 __init__.py:183(dumps)
+      200    0.001    0.000    0.707    0.004 encoder.py:183(encode)
+      200    0.706    0.004    0.706    0.004 encoder.py:205(iterencode)
+      200    0.373    0.002    0.652    0.003 construction_attr_survey.py:25(_attr_edges)
+      200    0.056    0.000    0.635    0.003 __init__.py:1716(__call__)
+  5336600    0.598    0.000    0.598    0.000 {built-in method builtins.repr}
+      200    0.575    0.003    0.575    0.003 {method '_native_edges_with_data' of 'franken_networkx.DiGraph' objects}
+      200    0.279    0.001    0.279    0.001 construction_attr_survey.py:21(_int_edges)
+  2136600    0.213    0.000    0.213    0.000 {method 'items' of 'dict' objects}
+      200    0.000    0.000    0.132    0.001 __init__.py:920(__iter__)
+      200    0.020    0.000    0.131    0.001 __init__.py:882(_materialize)
+      200    0.111    0.001    0.111    0.001 {function _mapping_items_view at 0x7dac86cbd760}
+      200    0.032    0.000    0.032    0.000 {built-in method _hashlib.openssl_sha256}
+   536600    0.030    0.000    0.030    0.000 construction_attr_survey.py:30(<genexpr>)
+      200    0.029    0.000    0.029    0.000 {method 'encode' of 'str' objects}
+      200    0.001    0.000    0.004    0.000 __init__.py:37241(edges)
+      200    0.003    0.000    0.003    0.000 __init__.py:5029(_wrap_edge_data_view)
+      200    0.001    0.000    0.002    0.000 __init__.py:37221(nodes)
+      200    0.001    0.000    0.002    0.000 weakref.py:164(__setitem__)
+      200    0.001    0.000    0.002    0.000 __init__.py:1031(wrapped)
+      200    0.000    0.000    0.001    0.000 __init__.py:37446(number_of_nodes)
+      200    0.000    0.000    0.001    0.000 __init__.py:37455(number_of_edges)
+      200    0.000    0.000    0.001    0.000 __init__.py:2202(__iter__)
+      200    0.000    0.000    0.001    0.000 __init__.py:6177(predicate)
+      400    0.000    0.000    0.001    0.000 __init__.py:36635(_private_override)
+     1400    0.001    0.000    0.001    0.000 {built-in method builtins.vars}
+     1400    0.001    0.000    0.001    0.000 {built-in method builtins.isinstance}
+
+

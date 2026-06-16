@@ -22628,6 +22628,38 @@ def _star_adjacency_spectrum_raw_order_safe(G, weight):
     return values
 
 
+def _complete_adjacency_spectrum_sorted_value_safe(G, weight):
+    if type(G) is not Graph or not (weight is None or isinstance(weight, str)):
+        return None
+    n = len(G)
+    if n == 0:
+        return None
+    native = getattr(G, "_native_is_complete_unweighted_graph", None)
+    if native is not None:
+        if not native(weight):
+            return None
+    else:
+        if G.number_of_edges() != n * (n - 1) // 2:
+            return None
+        for _, degree in G.degree():
+            if degree != n - 1:
+                return None
+        if isinstance(weight, str):
+            for _, _, attrs in G.edges(data=True):
+                if weight in attrs:
+                    return None
+
+    import numpy as np
+
+    values = np.empty(n, dtype=np.complex128)
+    if n == 1:
+        values[0] = complex(0.0, 0.0)
+    else:
+        values[:-1] = complex(-1.0, 0.0)
+        values[-1] = complex(float(n - 1), 0.0)
+    return values
+
+
 def adjacency_spectrum(G, weight="weight"):
     """Return the eigenvalues of the adjacency matrix of *G*.
 
@@ -22653,6 +22685,10 @@ def adjacency_spectrum(G, weight="weight"):
     star_values = _star_adjacency_spectrum_raw_order_safe(G, weight)
     if star_values is not None:
         return star_values
+
+    complete_values = _complete_adjacency_spectrum_sorted_value_safe(G, weight)
+    if complete_values is not None:
+        return complete_values
 
     # br-r37-c1-04z53.9112 (orchestrator-ruled sorted-value contract):
     # undirected adjacency is symmetric, so its eigenvalues are real.
