@@ -199,6 +199,25 @@ def test_weighted_complete_bipartite_normalized_laplacian_stays_on_weighted_rout
     assert np.allclose(np.sort(fr), np.sort(nr))
 
 
+def test_complete_bipartite_normalized_laplacian_rejects_count_preserving_rewire():
+    Gf = fnx.complete_bipartite_graph(4, 5)
+    Gn = nx.complete_bipartite_graph(4, 5)
+    Gf.remove_edge(0, 4)
+    Gn.remove_edge(0, 4)
+    Gf.add_edge(0, 1)
+    Gn.add_edge(0, 1)
+    assert (
+        fnx._complete_bipartite_normalized_laplacian_spectrum_sorted_value_safe(
+            Gf, "weight"
+        )
+        is None
+    )
+    fr = fnx.normalized_laplacian_spectrum(Gf)
+    nr = nx.normalized_laplacian_spectrum(Gn)
+    assert fr.dtype == np.float64
+    assert np.allclose(np.sort(fr), np.sort(nr))
+
+
 def test_disconnected_two_regular_graph_stays_on_matrix_route():
     Gf = fnx.Graph()
     Gf.add_edges_from(

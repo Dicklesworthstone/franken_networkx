@@ -30040,43 +30040,48 @@ def _complete_bipartite_normalized_laplacian_spectrum_sorted_value_safe(G, weigh
     if type(G) is not Graph or not (weight is None or isinstance(weight, str)):
         return None
     n = len(G)
-    edge_count = G.number_of_edges()
-    if n < 2 or edge_count == 0:
-        return None
-    if isinstance(weight, str):
-        for _, _, attrs in G.edges(data=True):
-            if weight in attrs:
-                return None
-
-    degrees = list(G.degree())
-    start = degrees[0][0]
-    colors = {start: 0}
-    stack = [start]
-    while stack:
-        node = stack.pop()
-        next_color = 1 - colors[node]
-        for neighbor in G.neighbors(node):
-            color = colors.get(neighbor)
-            if color is None:
-                colors[neighbor] = next_color
-                stack.append(neighbor)
-            elif color != next_color:
-                return None
-    if len(colors) != n:
-        return None
-
-    left_size = 0
-    for color in colors.values():
-        if color == 0:
-            left_size += 1
-    right_size = n - left_size
-    if left_size == 0 or right_size == 0 or edge_count != left_size * right_size:
-        return None
-
-    for node, degree in degrees:
-        expected = right_size if colors[node] == 0 else left_size
-        if degree != expected:
+    native = getattr(G, "_native_complete_bipartite_unweighted_parts", None)
+    if native is not None:
+        if native(weight) is None:
             return None
+    else:
+        edge_count = G.number_of_edges()
+        if n < 2 or edge_count == 0:
+            return None
+        if isinstance(weight, str):
+            for _, _, attrs in G.edges(data=True):
+                if weight in attrs:
+                    return None
+
+        degrees = list(G.degree())
+        start = degrees[0][0]
+        colors = {start: 0}
+        stack = [start]
+        while stack:
+            node = stack.pop()
+            next_color = 1 - colors[node]
+            for neighbor in G.neighbors(node):
+                color = colors.get(neighbor)
+                if color is None:
+                    colors[neighbor] = next_color
+                    stack.append(neighbor)
+                elif color != next_color:
+                    return None
+        if len(colors) != n:
+            return None
+
+        left_size = 0
+        for color in colors.values():
+            if color == 0:
+                left_size += 1
+        right_size = n - left_size
+        if left_size == 0 or right_size == 0 or edge_count != left_size * right_size:
+            return None
+
+        for node, degree in degrees:
+            expected = right_size if colors[node] == 0 else left_size
+            if degree != expected:
+                return None
 
     import numpy as np
 

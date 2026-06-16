@@ -8558,6 +8558,71 @@ impl PyGraph {
         Ok(true)
     }
 
+    fn _native_complete_bipartite_unweighted_parts(
+        &self,
+        py: Python<'_>,
+        weight: Option<&str>,
+    ) -> PyResult<Option<(usize, usize)>> {
+        let node_count = self.inner.node_count();
+        let edge_count = self.inner.edge_count();
+        if node_count < 2 || edge_count == 0 {
+            return Ok(None);
+        }
+
+        let mut colors = vec![u8::MAX; node_count];
+        let mut stack = Vec::with_capacity(node_count);
+        colors[0] = 0;
+        stack.push(0_usize);
+        while let Some(node_idx) = stack.pop() {
+            let next_color = 1 - colors[node_idx];
+            let Some(neighbors) = self.inner.neighbors_indices(node_idx) else {
+                return Ok(None);
+            };
+            for &neighbor_idx in neighbors {
+                let color = colors[neighbor_idx];
+                if color == u8::MAX {
+                    colors[neighbor_idx] = next_color;
+                    stack.push(neighbor_idx);
+                } else if color != next_color {
+                    return Ok(None);
+                }
+            }
+        }
+        if colors.contains(&u8::MAX) {
+            return Ok(None);
+        }
+
+        let left_size = colors.iter().filter(|&&color| color == 0).count();
+        let right_size = node_count - left_size;
+        if left_size == 0
+            || right_size == 0
+            || left_size.checked_mul(right_size) != Some(edge_count)
+        {
+            return Ok(None);
+        }
+        for (idx, color) in colors.iter().copied().enumerate() {
+            let expected_degree = if color == 0 { right_size } else { left_size };
+            if self.inner.degree_by_index(idx) != expected_degree {
+                return Ok(None);
+            }
+        }
+
+        let Some(weight_key) = weight else {
+            return Ok(Some((left_size, right_size)));
+        };
+        for (_, _, attrs) in self.inner.edges_storage_order_index_iter() {
+            if attrs.contains_key(weight_key) {
+                return Ok(None);
+            }
+        }
+        for attrs in self.edge_py_attrs.values() {
+            if attrs.bind(py).get_item(weight_key)?.is_some() {
+                return Ok(None);
+            }
+        }
+        Ok(Some((left_size, right_size)))
+    }
+
     /// br-r37-c1-gadj: native nested adjacency snapshot ({node: {nbr: attrs}})
     /// so the Python Graph.adjacency (_simple_graph_adjacency) builds it
     /// natively instead of walking ``dict(self.adj[node])`` via the AtlasView
