@@ -29519,10 +29519,11 @@ def bethe_hessian_matrix(G, r=None, nodelist=None):
         deg_dict = dict(G.degree())
         unweighted_degs = [deg_dict[v] for v in nodelist]
         deg_sum = sum(unweighted_degs)
-        if deg_sum > 0:
-            r = sum(x * x for x in unweighted_degs) / deg_sum - 1
-        else:
-            r = 1.0
+        # nx computes r = sum(d^2)/sum(d) - 1 with NO zero guard, so an
+        # all-zero-degree graph (e.g. a single isolated node) raises
+        # ZeroDivisionError. Match that contract exactly — do not fall back
+        # to r=1.0, which silently returned a Laplacian where nx raises.
+        r = sum(x * x for x in unweighted_degs) / deg_sum - 1
     I = scipy.sparse.eye_array(n)
     return ((r**2 - 1) * I - r * A + D).tocsr()
 
