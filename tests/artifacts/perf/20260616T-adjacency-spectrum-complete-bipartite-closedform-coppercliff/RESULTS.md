@@ -36,6 +36,6 @@ Exact unweighted simple connected complete-bipartite `Graph` inputs now return t
 - no ordering, tie-break, or RNG surface changed
 - focused pytest: `14 passed`
 - `py_compile`, `cargo fmt --check`, and `git diff --check` passed
-- UBS Python scan was bounded with `timeout 60s`; it emitted no findings before timing out
+- UBS Python scan was bounded with `timeout 180s`; it emitted no findings before timing out
 
 Score: Impact `78.26` x Confidence `0.95` / Effort `1` = `74.35`; keep.
