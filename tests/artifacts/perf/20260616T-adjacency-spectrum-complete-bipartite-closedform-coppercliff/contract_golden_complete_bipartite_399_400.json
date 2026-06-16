@@ -1,0 +1,80 @@
+{
+  "case": "fnx.adjacency_spectrum(fnx.complete_bipartite_graph(399, 400))",
+  "contract": "dtype complex128 + sorted-value parity; nullspace signed-zero artifacts are normalized for SHA because SciPy eig emits non-semantic tiny signed residuals",
+  "dtype_matches": true,
+  "first_zero_normalized_q9": [
+    [
+      -399.499687109,
+      0.0
+    ],
+    [
+      0.0,
+      0.0
+    ],
+    [
+      0.0,
+      0.0
+    ],
+    [
+      0.0,
+      0.0
+    ],
+    [
+      0.0,
+      0.0
+    ],
+    [
+      0.0,
+      0.0
+    ],
+    [
+      0.0,
+      0.0
+    ],
+    [
+      0.0,
+      0.0
+    ]
+  ],
+  "last_zero_normalized_q9": [
+    [
+      0.0,
+      0.0
+    ],
+    [
+      0.0,
+      0.0
+    ],
+    [
+      0.0,
+      0.0
+    ],
+    [
+      0.0,
+      0.0
+    ],
+    [
+      0.0,
+      0.0
+    ],
+    [
+      0.0,
+      0.0
+    ],
+    [
+      0.0,
+      0.0
+    ],
+    [
+      399.499687109,
+      0.0
+    ]
+  ],
+  "max_sorted_abs_delta": 1.1937117960769683e-12,
+  "raw_fnx_sorted_sha256_q9_canonical": "2c93498c7f6becfffe981afac5bea868ea1a2826845681456380060e21e36849",
+  "raw_nx_sorted_sha256_q9_canonical": "8dff67db0d97aa363ad6e0667b0daf99aa7d73f621a7d3b1aaa094393f95cdd6",
+  "raw_sha_matches": false,
+  "zero_normalized_fnx_sorted_sha256_q9_canonical": "2c93498c7f6becfffe981afac5bea868ea1a2826845681456380060e21e36849",
+  "zero_normalized_nx_sorted_sha256_q9_canonical": "2c93498c7f6becfffe981afac5bea868ea1a2826845681456380060e21e36849",
+  "zero_normalized_sha_matches": true
+}

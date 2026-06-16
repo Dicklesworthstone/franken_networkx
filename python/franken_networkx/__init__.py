@@ -22707,6 +22707,57 @@ def _cycle_adjacency_spectrum_sorted_value_safe(G, weight):
     return np.sort(values).astype(np.complex128)
 
 
+def _complete_bipartite_adjacency_spectrum_sorted_value_safe(G, weight):
+    if type(G) is not Graph or not (weight is None or isinstance(weight, str)):
+        return None
+    n = len(G)
+    edge_count = G.number_of_edges()
+    if n < 2 or edge_count == 0:
+        return None
+    if isinstance(weight, str):
+        for _, _, attrs in G.edges(data=True):
+            if weight in attrs:
+                return None
+
+    degrees = list(G.degree())
+    start = degrees[0][0]
+    colors = {start: 0}
+    stack = [start]
+    while stack:
+        node = stack.pop()
+        next_color = 1 - colors[node]
+        for neighbor in G.neighbors(node):
+            color = colors.get(neighbor)
+            if color is None:
+                colors[neighbor] = next_color
+                stack.append(neighbor)
+            elif color != next_color:
+                return None
+    if len(colors) != n:
+        return None
+
+    left_size = 0
+    for color in colors.values():
+        if color == 0:
+            left_size += 1
+    right_size = n - left_size
+    if left_size == 0 or right_size == 0 or edge_count != left_size * right_size:
+        return None
+
+    for node, degree in degrees:
+        expected = right_size if colors[node] == 0 else left_size
+        if degree != expected:
+            return None
+
+    import numpy as np
+
+    values = np.zeros(n, dtype=np.complex128)
+    root = float(left_size * right_size) ** 0.5
+    values[0] = complex(-root, 0.0)
+    values[-1] = complex(root, 0.0)
+    return values
+
+
 def _path_adjacency_spectrum_sorted_value_safe(G, weight):
     if type(G) is not Graph or not (weight is None or isinstance(weight, str)):
         return None
@@ -22784,6 +22835,12 @@ def adjacency_spectrum(G, weight="weight"):
     star_values = _star_adjacency_spectrum_raw_order_safe(G, weight)
     if star_values is not None:
         return star_values
+
+    complete_bipartite_values = _complete_bipartite_adjacency_spectrum_sorted_value_safe(
+        G, weight
+    )
+    if complete_bipartite_values is not None:
+        return complete_bipartite_values
 
     complete_values = _complete_adjacency_spectrum_sorted_value_safe(G, weight)
     if complete_values is not None:

@@ -105,6 +105,36 @@ def test_weighted_cycle_graph_stays_on_weighted_route():
     assert not np.allclose(np.sort_complex(fr), np.sort(unweighted).astype(np.complex128))
 
 
+def test_unweighted_complete_bipartite_closed_form_matches_nx_sorted_values():
+    Gf = fnx.complete_bipartite_graph(5, 7)
+    Gn = nx.complete_bipartite_graph(5, 7)
+    fr = fnx.adjacency_spectrum(Gf)
+    nr = nx.adjacency_spectrum(Gn)
+    expected = np.zeros(12, dtype=np.complex128)
+    root = np.sqrt(35.0)
+    expected[0] = complex(-root, 0.0)
+    expected[-1] = complex(root, 0.0)
+    assert fr.dtype == nr.dtype == np.complex128
+    assert _sorted_match(fr, nr)
+    assert np.allclose(np.sort_complex(fr), expected)
+
+
+def test_weighted_complete_bipartite_graph_stays_on_weighted_route():
+    Gf = fnx.complete_bipartite_graph(4, 6)
+    Gn = nx.complete_bipartite_graph(4, 6)
+    Gf[0][4]["weight"] = 2.5
+    Gn[0][4]["weight"] = 2.5
+    fr = fnx.adjacency_spectrum(Gf)
+    nr = nx.adjacency_spectrum(Gn)
+    unweighted = np.zeros(10, dtype=np.complex128)
+    root = np.sqrt(24.0)
+    unweighted[0] = complex(-root, 0.0)
+    unweighted[-1] = complex(root, 0.0)
+    assert fr.dtype == nr.dtype == np.complex128
+    assert _sorted_match(fr, nr)
+    assert not np.allclose(np.sort_complex(fr), unweighted)
+
+
 def test_weighted_complete_graph_stays_on_weighted_route():
     Gf = fnx.complete_graph(7)
     Gn = nx.complete_graph(7)

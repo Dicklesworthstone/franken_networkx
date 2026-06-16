@@ -1,0 +1,86 @@
+{
+  "case": "fnx.adjacency_spectrum(fnx.complete_bipartite_graph(399, 400))",
+  "dtype_matches": true,
+  "first_sorted_values_q9": [
+    [
+      -399.499687109,
+      0.0
+    ],
+    [
+      -0.0,
+      -0.0
+    ],
+    [
+      -0.0,
+      0.0
+    ],
+    [
+      -0.0,
+      -0.0
+    ],
+    [
+      -0.0,
+      0.0
+    ],
+    [
+      -0.0,
+      0.0
+    ],
+    [
+      -0.0,
+      0.0
+    ],
+    [
+      -0.0,
+      0.0
+    ]
+  ],
+  "fnx_mean_seconds": 9.142650098807644,
+  "fnx_median_seconds": 8.64891768002417,
+  "fnx_seconds": [
+    8.64891768002417,
+    12.28521056799218,
+    10.326508357014973,
+    7.337513466016389,
+    7.115100422990508
+  ],
+  "fnx_sorted_sha256_q9_canonical": "8dff67db0d97aa363ad6e0667b0daf99aa7d73f621a7d3b1aaa094393f95cdd6",
+  "last_sorted_values_q9": [
+    [
+      0.0,
+      -0.0
+    ],
+    [
+      0.0,
+      0.0
+    ],
+    [
+      0.0,
+      0.0
+    ],
+    [
+      0.0,
+      0.0
+    ],
+    [
+      0.0,
+      0.0
+    ],
+    [
+      0.0,
+      0.0
+    ],
+    [
+      0.0,
+      0.0
+    ],
+    [
+      399.499687109,
+      0.0
+    ]
+  ],
+  "max_sorted_abs_delta": 0.0,
+  "nx_sorted_sha256_q9_canonical": "8dff67db0d97aa363ad6e0667b0daf99aa7d73f621a7d3b1aaa094393f95cdd6",
+  "samples": 5,
+  "sorted_values_match": true
+}

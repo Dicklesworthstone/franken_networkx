@@ -1,0 +1,24 @@
+{
+  "results": [
+    {
+      "command": "env PYTHONPATH=python .venv/bin/python -c \"import franken_networkx as fnx; G=fnx.complete_bipartite_graph(399, 400); fnx.adjacency_spectrum(G)\"",
+      "mean": 3.0745391284199997,
+      "stddev": 0.4234074821218586,
+      "median": 2.9898178564199998,
+      "user": 129.96589334,
+      "system": 0.25914363999999995,
+      "min": 2.69989781542,
+      "max": 3.5339017134199997,
+      "times": [
+        2.69989781542,
+        2.9898178564199998,
+        3.5339017134199997
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}
