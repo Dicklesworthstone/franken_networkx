@@ -505,6 +505,34 @@ pub(crate) fn py_dict_to_attr_map_with_mirror(
     Ok((rust_attrs, mirror.unbind()))
 }
 
+fn single_weight_float_attr_map_with_mirror(
+    py: Python<'_>,
+    attrs: &Bound<'_, PyDict>,
+) -> PyResult<Option<(AttrMap, Py<PyDict>)>> {
+    if attrs.len() != 1 {
+        return Ok(None);
+    }
+    let Some((key, value)) = attrs.iter().next() else {
+        return Ok(None);
+    };
+    if !key.is_exact_instance_of::<PyString>() || !value.is_exact_instance_of::<PyFloat>() {
+        return Ok(None);
+    }
+    let key_text = key.extract::<String>()?;
+    if key_text != "weight" {
+        return Ok(None);
+    }
+
+    let mut rust_attrs = AttrMap::new();
+    rust_attrs.insert(
+        "weight".to_owned(),
+        CgseValue::Float(value.extract::<f64>()?),
+    );
+    let mirror = PyDict::new(py);
+    mirror.set_item(&key, &value)?;
+    Ok(Some((rust_attrs, mirror.unbind())))
+}
+
 pub(crate) fn attr_map_to_pydict(py: Python<'_>, attrs: &AttrMap) -> PyResult<Py<PyDict>> {
     let dict = PyDict::new(py);
     for (key, value) in attrs {
@@ -2366,6 +2394,7 @@ impl PyMultiGraph {
 
     fn collect_fresh_exact_int_keyed_attr_edge_batch(
         &self,
+        py: Python<'_>,
         items: &[Bound<'_, PyAny>],
     ) -> PyResult<Option<IndexedKeyedAttrEdgeBatch>> {
         let mut node_indices: HashMap<i64, usize> = HashMap::new();
@@ -2404,8 +2433,19 @@ impl PyMultiGraph {
             let Ok(dict) = third.downcast::<PyDict>() else {
                 return Ok(None);
             };
-            let Ok(attrs) = py_dict_to_attr_map(dict) else {
-                return Ok(None);
+            let fast_weight = match single_weight_float_attr_map_with_mirror(py, dict) {
+                Ok(converted) => converted,
+                Err(_) => return Ok(None),
+            };
+            let (attrs, mirror) = match fast_weight {
+                Some((attrs, mirror)) => (attrs, Some(mirror)),
+                None => match py_dict_to_attr_map_with_mirror(py, dict) {
+                    Ok((attrs, mirror)) => {
+                        let mirror = if dict.is_empty() { None } else { Some(mirror) };
+                        (attrs, mirror)
+                    }
+                    Err(_) => return Ok(None),
+                },
             };
             if attrs
                 .keys()
@@ -2413,11 +2453,6 @@ impl PyMultiGraph {
             {
                 return Ok(None);
             }
-            let mirror = if dict.is_empty() {
-                None
-            } else {
-                Some(dict.copy()?.unbind())
-            };
 
             let mut edge_added_node = false;
             let u_index = match node_indices.get(&u_value).copied() {
@@ -2534,7 +2569,7 @@ impl PyMultiGraph {
         } else {
             return Ok(false);
         };
-        let collected = self.collect_fresh_exact_int_keyed_attr_edge_batch(&items)?;
+        let collected = self.collect_fresh_exact_int_keyed_attr_edge_batch(py, &items)?;
 
         let Some((node_labels, node_objects, edges, node_bumps)) = collected else {
             return Ok(false);

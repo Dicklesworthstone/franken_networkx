@@ -1,0 +1,18 @@
+{
+  "digests_match": true,
+  "edge_count": 24,
+  "edge_data_0_3": {
+    "0": {
+      "weight": 0.25
+    },
+    "1": {
+      "weight": 17.25
+    }
+  },
+  "fnx_digest": "97c8b7249d7598cb7699464cb16b39cdb67daacdd92847f9c60b9fc439e29934",
+  "fp_contract": "float values copied without arithmetic",
+  "node_count": 11,
+  "nx_digest": "97c8b7249d7598cb7699464cb16b39cdb67daacdd92847f9c60b9fc439e29934",
+  "rng_contract": "no RNG surface",
+  "source_dict_not_aliased": true
+}
