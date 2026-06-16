@@ -1,0 +1,38 @@
+         495201 function calls in 0.254 seconds
+
+   Ordered by: cumulative time
+   List reduced from 53 to 30 due to restriction <30>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+      200    0.000    0.000    0.254    0.001 <stdin>:25(one)
+      400    0.001    0.000    0.254    0.001 /data/projects/franken_networkx/python/franken_networkx/__init__.py:53305(wrapper)
+      200    0.001    0.000    0.132    0.001 /data/projects/franken_networkx/python/franken_networkx/__init__.py:22631(adjacency_spectrum)
+      200    0.027    0.000    0.131    0.001 /data/projects/franken_networkx/python/franken_networkx/__init__.py:22599(_star_adjacency_spectrum_raw_order_safe)
+      200    0.002    0.000    0.121    0.001 /data/projects/franken_networkx/python/franken_networkx/__init__.py:19688(star_graph)
+      200    0.000    0.000    0.086    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:658(__iter__)
+      200    0.085    0.000    0.085    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:536(_materialize)
+      200    0.024    0.000    0.075    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:2978(add_edges_from)
+      200    0.000    0.000    0.042    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:48857(_add_nodes_in_order)
+      200    0.000    0.000    0.041    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:2660(add_nodes_from)
+      200    0.041    0.000    0.041    0.000 {method '_fast_add_int_nodes' of 'franken_networkx.Graph' objects}
+      200    0.030    0.000    0.030    0.000 {method '_try_add_edges_from_batch' of 'franken_networkx.Graph' objects}
+   160000    0.014    0.000    0.014    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:439(_gen)
+   160000    0.012    0.000    0.012    0.000 {method 'append' of 'list' objects}
+   160000    0.009    0.000    0.009    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:19703(<genexpr>)
+      200    0.002    0.000    0.002    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:48794(_nodes_or_number_local)
+      200    0.000    0.000    0.001    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:37241(edges)
+      200    0.001    0.000    0.001    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:746(wrapped)
+     1400    0.000    0.000    0.001    0.000 {built-in method builtins.isinstance}
+      200    0.000    0.000    0.001    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:37288(degree)
+     1200    0.000    0.000    0.001    0.000 {built-in method builtins.len}
+      200    0.000    0.000    0.001    0.000 /usr/lib/python3.13/weakref.py:164(__setitem__)
+      200    0.000    0.000    0.001    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:414(_FailFastEdgeIterator)
+      200    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:48842(_classic_graph_from_create_using)
+      200    0.000    0.000    0.000    0.000 <frozen abc>:117(__instancecheck__)
+      200    0.000    0.000    0.000    0.000 {built-in method numpy.zeros}
+      800    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:36643(_has_networkx_private_storage)
+      200    0.000    0.000    0.000    0.000 {built-in method _abc._abc_instancecheck}
+      200    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:37198(__len__)
+      200    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:37455(number_of_edges)
+
+
