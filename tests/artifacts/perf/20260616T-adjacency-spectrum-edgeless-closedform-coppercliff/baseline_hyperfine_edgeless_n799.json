@@ -1,0 +1,28 @@
+{
+  "results": [
+    {
+      "command": "env PYTHONPATH=python .venv/bin/python -c \"import franken_networkx as fnx; G=fnx.empty_graph(799); [fnx.adjacency_spectrum(G) for _ in range(3)]\"",
+      "mean": 0.43752514222,
+      "stddev": 0.024576840926085402,
+      "median": 0.44519402282000003,
+      "user": 4.54904102,
+      "system": 0.08940367999999999,
+      "min": 0.40777373082,
+      "max": 0.46613662782000004,
+      "times": [
+        0.41648152682,
+        0.44519402282000003,
+        0.40777373082,
+        0.46613662782000004,
+        0.45203980282
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

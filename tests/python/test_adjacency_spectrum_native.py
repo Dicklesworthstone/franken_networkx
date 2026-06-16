@@ -70,6 +70,17 @@ def test_unweighted_complete_closed_form_matches_nx_sorted_values():
     assert np.allclose(np.sort_complex(fr), expected)
 
 
+def test_unweighted_edgeless_closed_form_matches_nx_sorted_values():
+    Gf = fnx.empty_graph(31)
+    Gn = nx.empty_graph(31)
+    fr = fnx.adjacency_spectrum(Gf)
+    nr = nx.adjacency_spectrum(Gn)
+    expected = np.zeros(31, dtype=np.complex128)
+    assert fr.dtype == nr.dtype == np.complex128
+    assert _sorted_match(fr, nr)
+    assert np.allclose(np.sort_complex(fr), expected)
+
+
 def test_weighted_complete_graph_stays_on_weighted_route():
     Gf = fnx.complete_graph(7)
     Gn = nx.complete_graph(7)

@@ -1,0 +1,23 @@
+         16001 function calls in 0.006 seconds
+
+   Ordered by: internal time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+     1000    0.001    0.000    0.005    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:22663(_edgeless_adjacency_spectrum_sorted_value_safe)
+     1000    0.001    0.000    0.006    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:53405(wrapper)
+     1000    0.001    0.000    0.001    0.000 {built-in method numpy.zeros}
+     1000    0.001    0.000    0.001    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:37555(number_of_edges)
+     1000    0.000    0.000    0.001    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:37298(__len__)
+     1000    0.000    0.000    0.005    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:22719(adjacency_spectrum)
+     1000    0.000    0.000    0.001    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:36735(_private_override)
+     1000    0.000    0.000    0.002    0.000 {built-in method builtins.len}
+     2000    0.000    0.000    0.000    0.000 {built-in method builtins.vars}
+     1000    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:36743(_has_networkx_private_storage)
+     1000    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:315(number_of_edges)
+     1000    0.000    0.000    0.000    0.000 {function Graph.number_of_edges at 0x7630055c98a0}
+     1000    0.000    0.000    0.000    0.000 {method 'get' of 'dict' objects}
+     1000    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:24432(_validate_backend_dispatch_keywords)
+     1000    0.000    0.000    0.000    0.000 {built-in method builtins.isinstance}
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+
+

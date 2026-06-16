@@ -22660,6 +22660,18 @@ def _complete_adjacency_spectrum_sorted_value_safe(G, weight):
     return values
 
 
+def _edgeless_adjacency_spectrum_sorted_value_safe(G, weight):
+    if type(G) is not Graph or not (weight is None or isinstance(weight, str)):
+        return None
+    n = len(G)
+    if n == 0 or G.number_of_edges() != 0:
+        return None
+
+    import numpy as np
+
+    return np.zeros(n, dtype=np.complex128)
+
+
 def _path_adjacency_spectrum_sorted_value_safe(G, weight):
     if type(G) is not Graph or not (weight is None or isinstance(weight, str)):
         return None
@@ -22722,6 +22734,10 @@ def adjacency_spectrum(G, weight="weight"):
     to ``float64`` broke parity for callers using ``.dtype``.
     """
     import numpy as np
+
+    edgeless_values = _edgeless_adjacency_spectrum_sorted_value_safe(G, weight)
+    if edgeless_values is not None:
+        return edgeless_values
 
     # Exact unweighted stars have spectrum {+sqrt(n-1), -sqrt(n-1), 0...}.
     # Bypass dense matrix construction and the generic symmetric eigensolver
