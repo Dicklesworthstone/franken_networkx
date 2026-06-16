@@ -1,0 +1,132 @@
+{
+  "edge_count": 19579,
+  "fnx_sha256": "b2b8e19419757a9b417df5aeaa1f646f759726f9a4aebc2d573e417193357c61",
+  "match": true,
+  "metadata": {
+    "franken_networkx_file": "/data/projects/.worktrees/franken_networkx-coppercliff-reverseview-origin/python/franken_networkx/__init__.py",
+    "graph": {
+      "family": "DiGraph(gnp_random_graph(n, p, seed, directed=True))",
+      "n": 1800,
+      "p": 0.006,
+      "seed": 15
+    },
+    "head": "95de2bc6ac02ee878619d95a72b7e6860241c18b",
+    "head_short": "95de2bc6a perf(views): stream DiGraph edges from native rows",
+    "networkx_file": "/home/ubuntu/.local/lib/python3.13/site-packages/networkx/__init__.py",
+    "networkx_version": "3.6.1",
+    "python": "3.13.7 (main, Mar  3 2026, 12:19:54) [GCC 15.2.0]",
+    "repo_root": "/data/projects/.worktrees/franken_networkx-coppercliff-reverseview-origin",
+    "workload": "list(DiGraph.in_edges())"
+  },
+  "mutation_cases": {
+    "edge": {
+      "fnx": {
+        "first": [
+          0,
+          1
+        ],
+        "message": "dictionary changed size during iteration",
+        "type": "RuntimeError"
+      },
+      "match": true,
+      "nx": {
+        "first": [
+          0,
+          1
+        ],
+        "message": "dictionary changed size during iteration",
+        "type": "RuntimeError"
+      }
+    },
+    "node": {
+      "fnx": {
+        "first": [
+          0,
+          1
+        ],
+        "message": "dictionary changed size during iteration",
+        "type": "RuntimeError"
+      },
+      "match": true,
+      "nx": {
+        "first": [
+          0,
+          1
+        ],
+        "message": "dictionary changed size during iteration",
+        "type": "RuntimeError"
+      }
+    }
+  },
+  "nx_sha256": "b2b8e19419757a9b417df5aeaa1f646f759726f9a4aebc2d573e417193357c61",
+  "samples": {
+    "first_8": [
+      [
+        298,
+        0
+      ],
+      [
+        467,
+        0
+      ],
+      [
+        481,
+        0
+      ],
+      [
+        777,
+        0
+      ],
+      [
+        1128,
+        0
+      ],
+      [
+        1679,
+        0
+      ],
+      [
+        20,
+        1
+      ],
+      [
+        279,
+        1
+      ]
+    ],
+    "last_8": [
+      [
+        887,
+        1799
+      ],
+      [
+        917,
+        1799
+      ],
+      [
+        1229,
+        1799
+      ],
+      [
+        1231,
+        1799
+      ],
+      [
+        1362,
+        1799
+      ],
+      [
+        1515,
+        1799
+      ],
+      [
+        1669,
+        1799
+      ],
+      [
+        1688,
+        1799
+      ]
+    ]
+  }
+}

@@ -8259,6 +8259,28 @@ impl PyDiGraph {
     /// DiAdjacencyView lambda chain (~176x no-data / ~50x data). These build the
     /// same node x predecessor order natively from inner adjacency.
     fn _native_in_edges_no_data(&self, py: Python<'_>) -> PyResult<PyObject> {
+        if self.pred_py_keys.is_empty() {
+            let node_count = self.inner.node_count();
+            let py_nodes = self.cached_node_key_vec(py);
+            let mut items = Vec::with_capacity(self.inner.edge_count());
+            for target_idx in 0..node_count {
+                let py_t = py_nodes.get(target_idx).ok_or_else(|| {
+                    PyRuntimeError::new_err("node index should resolve during in_edges")
+                })?;
+                if let Some(predecessors) = self.inner.predecessors_indices(target_idx) {
+                    for &source_idx in predecessors {
+                        let py_s = py_nodes.get(source_idx).ok_or_else(|| {
+                            PyRuntimeError::new_err(
+                                "predecessor index should resolve during in_edges",
+                            )
+                        })?;
+                        items.push(tuple_object(py, &[py_s.clone_ref(py), py_t.clone_ref(py)])?);
+                    }
+                }
+            }
+            return Ok(items.into_pyobject(py)?.into_any().unbind());
+        }
+
         let mut items = Vec::with_capacity(self.inner.edge_count());
         for target in self.inner.nodes_ordered() {
             let py_t = self.py_node_key(py, target);
