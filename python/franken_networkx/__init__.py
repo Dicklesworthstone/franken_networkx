@@ -29873,6 +29873,10 @@ def normalized_laplacian_spectrum(G, weight="weight"):
     if path_values is not None:
         return path_values
 
+    cycle_values = _cycle_normalized_laplacian_spectrum_sorted_value_safe(G, weight)
+    if cycle_values is not None:
+        return cycle_values
+
     NL = normalized_laplacian_matrix(G, weight=weight)
     return np.sort(np.linalg.eigvalsh(NL.toarray()))
 
@@ -29987,6 +29991,43 @@ def _path_normalized_laplacian_spectrum_sorted_value_safe(G, weight):
     values = 1.0 - np.cos(np.pi * k / float(n - 1))
     values[0] = -0.0
     return values
+
+
+def _cycle_normalized_laplacian_spectrum_sorted_value_safe(G, weight):
+    if type(G) is not Graph or not (weight is None or isinstance(weight, str)):
+        return None
+    n = len(G)
+    if n < 3 or G.number_of_edges() != n:
+        return None
+    if isinstance(weight, str):
+        for _, _, attrs in G.edges(data=True):
+            if weight in attrs:
+                return None
+
+    start = None
+    for node, degree in G.degree():
+        if degree != 2:
+            return None
+        if start is None:
+            start = node
+    if start is None:
+        return None
+
+    seen = {start}
+    stack = [start]
+    while stack:
+        node = stack.pop()
+        for neighbor in G.neighbors(node):
+            if neighbor not in seen:
+                seen.add(neighbor)
+                stack.append(neighbor)
+    if len(seen) != n:
+        return None
+
+    import numpy as np
+
+    k = np.arange(n, dtype=np.float64)
+    return np.sort(1.0 - np.cos(2.0 * np.pi * k / float(n)))
 
 
 def _directed_laplacian_not_implemented_guard(G):

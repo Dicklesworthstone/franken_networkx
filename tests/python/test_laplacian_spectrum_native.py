@@ -141,13 +141,47 @@ def test_weighted_path_normalized_laplacian_stays_on_weighted_route():
     assert np.allclose(np.sort(fr), np.sort(nr))
 
 
-def test_cycle_normalized_laplacian_stays_on_matrix_route():
-    Gf = fnx.cycle_graph(9)
-    Gn = nx.cycle_graph(9)
+def test_unweighted_cycle_normalized_laplacian_closed_form_matches_nx():
+    Gf = fnx.cycle_graph(31)
+    Gn = nx.cycle_graph(31)
     fr = fnx.normalized_laplacian_spectrum(Gf)
     nr = nx.normalized_laplacian_spectrum(Gn)
-    path = 1.0 - np.cos(np.pi * np.arange(9, dtype=np.float64) / 8.0)
-    path[0] = -0.0
+    expected = np.sort(
+        1.0 - np.cos(2.0 * np.pi * np.arange(31, dtype=np.float64) / 31.0)
+    )
     assert fr.dtype == np.float64
     assert np.allclose(np.sort(fr), np.sort(nr))
-    assert not np.allclose(np.sort(fr), path)
+    assert np.allclose(fr, expected)
+
+
+def test_weighted_cycle_normalized_laplacian_stays_on_weighted_route():
+    Gf = fnx.cycle_graph(9)
+    Gn = nx.cycle_graph(9)
+    Gf[0][1]["weight"] = 2.5
+    Gn[0][1]["weight"] = 2.5
+    fr = fnx.normalized_laplacian_spectrum(Gf)
+    nr = nx.normalized_laplacian_spectrum(Gn)
+    assert (
+        fnx._cycle_normalized_laplacian_spectrum_sorted_value_safe(Gf, "weight")
+        is None
+    )
+    assert fr.dtype == np.float64
+    assert np.allclose(np.sort(fr), np.sort(nr))
+
+
+def test_disconnected_two_regular_graph_stays_on_matrix_route():
+    Gf = fnx.Graph()
+    Gf.add_edges_from(
+        [(0, 1), (1, 2), (2, 3), (3, 0), (4, 5), (5, 6), (6, 7), (7, 4)]
+    )
+    Gn = nx.Graph()
+    Gn.add_edges_from(
+        [(0, 1), (1, 2), (2, 3), (3, 0), (4, 5), (5, 6), (6, 7), (7, 4)]
+    )
+    fr = fnx.normalized_laplacian_spectrum(Gf)
+    nr = nx.normalized_laplacian_spectrum(Gn)
+    cycle = np.sort(1.0 - np.cos(2.0 * np.pi * np.arange(8, dtype=np.float64) / 8.0))
+    assert fnx._cycle_normalized_laplacian_spectrum_sorted_value_safe(Gf, None) is None
+    assert fr.dtype == np.float64
+    assert np.allclose(np.sort(fr), np.sort(nr))
+    assert not np.allclose(np.sort(fr), cycle)
