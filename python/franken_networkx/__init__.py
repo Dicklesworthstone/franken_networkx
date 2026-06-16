@@ -37454,6 +37454,68 @@ def _private_aware_neighbors(raw_neighbors, *, attr_name="adj"):
     return neighbors
 
 
+def _private_aware_digraph_successors():
+    def successors(self, n):
+        ov = vars(self)
+        if (
+            _PRIVATE_NODE_OVERRIDE not in ov
+            and _PRIVATE_ADJ_OVERRIDE not in ov
+            and _PRIVATE_SUCC_OVERRIDE not in ov
+            and _PRIVATE_PRED_OVERRIDE not in ov
+        ):
+            state = (self.nodes_seq, self.edges_seq)
+            if ov.get("_fnx_succ_row_keydict_cache_state") != state:
+                ov["_fnx_succ_row_keydict_cache_state"] = state
+                ov["_fnx_succ_row_keydict_cache"] = {}
+            cache = ov["_fnx_succ_row_keydict_cache"]
+            keydict = cache.get(n)
+            if keydict is None:
+                hash(n)
+                try:
+                    keydict = self._native_successor_row_dict(n)
+                except KeyError as exc:
+                    raise NetworkXError(f"The node {n} is not in the digraph.") from exc
+                cache[n] = keydict
+            return iter(keydict)
+        adjacency = self.succ
+        if n not in self:
+            raise NetworkXError(f"The node {n} is not in the graph.")
+        return iter(adjacency[n])
+
+    return successors
+
+
+def _private_aware_digraph_predecessors():
+    def predecessors(self, n):
+        ov = vars(self)
+        if (
+            _PRIVATE_NODE_OVERRIDE not in ov
+            and _PRIVATE_ADJ_OVERRIDE not in ov
+            and _PRIVATE_SUCC_OVERRIDE not in ov
+            and _PRIVATE_PRED_OVERRIDE not in ov
+        ):
+            state = (self.nodes_seq, self.edges_seq)
+            if ov.get("_fnx_pred_row_keydict_cache_state") != state:
+                ov["_fnx_pred_row_keydict_cache_state"] = state
+                ov["_fnx_pred_row_keydict_cache"] = {}
+            cache = ov["_fnx_pred_row_keydict_cache"]
+            keydict = cache.get(n)
+            if keydict is None:
+                hash(n)
+                try:
+                    keydict = self._native_predecessor_row_dict(n)
+                except KeyError as exc:
+                    raise NetworkXError(f"The node {n} is not in the digraph.") from exc
+                cache[n] = keydict
+            return iter(keydict)
+        adjacency = self.pred
+        if n not in self:
+            raise NetworkXError(f"The node {n} is not in the graph.")
+        return iter(adjacency[n])
+
+    return predecessors
+
+
 Graph.__iter__ = _private_aware_iter(_GRAPH_PRIVATE_AWARE_ITER)
 DiGraph.__iter__ = _private_aware_iter(_DIGRAPH_PRIVATE_AWARE_ITER)
 MultiGraph.__iter__ = _private_aware_iter(_MULTIGRAPH_PRIVATE_AWARE_ITER)
@@ -37531,9 +37593,9 @@ DiGraph.number_of_edges = _private_aware_number_of_edges(_DIGRAPH_PRIVATE_AWARE_
 MultiGraph.number_of_edges = _private_aware_number_of_edges(_MULTIGRAPH_PRIVATE_AWARE_NUMBER_OF_EDGES)
 MultiDiGraph.number_of_edges = _private_aware_number_of_edges(_MULTIDIGRAPH_PRIVATE_AWARE_NUMBER_OF_EDGES)
 Graph.neighbors = _private_aware_neighbors(_GRAPH_PRIVATE_AWARE_NEIGHBORS)
-DiGraph.neighbors = _private_aware_neighbors(_DIGRAPH_PRIVATE_AWARE_NEIGHBORS, attr_name="succ")
-DiGraph.successors = _private_aware_neighbors(_DIGRAPH_PRIVATE_AWARE_SUCCESSORS, attr_name="succ")
-DiGraph.predecessors = _private_aware_neighbors(_DIGRAPH_PRIVATE_AWARE_PREDECESSORS, attr_name="pred")
+DiGraph.neighbors = _private_aware_digraph_successors()
+DiGraph.successors = _private_aware_digraph_successors()
+DiGraph.predecessors = _private_aware_digraph_predecessors()
 MultiGraph.neighbors = _private_aware_neighbors(_MULTIGRAPH_PRIVATE_AWARE_NEIGHBORS)
 MultiDiGraph.neighbors = _private_aware_neighbors(_MULTIDIGRAPH_PRIVATE_AWARE_NEIGHBORS, attr_name="succ")
 MultiDiGraph.successors = _private_aware_neighbors(_MULTIDIGRAPH_PRIVATE_AWARE_SUCCESSORS, attr_name="succ")

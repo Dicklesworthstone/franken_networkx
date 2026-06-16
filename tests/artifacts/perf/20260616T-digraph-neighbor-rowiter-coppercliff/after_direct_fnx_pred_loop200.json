@@ -1,0 +1,7 @@
+{
+  "elapsed_s": 0.18693966401042417,
+  "kind": "pred",
+  "loops": 200,
+  "output_sha256": "8fb592ebe26699c141d47eba2a9e6c543dd985794e3b0708d6be5cb89770ebda",
+  "seconds_per_loop": 0.0009346983200521208
+}
