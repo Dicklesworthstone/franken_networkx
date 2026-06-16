@@ -1,0 +1,20 @@
+{
+  "loops": 100,
+  "metadata": {
+    "franken_networkx_file": "/data/projects/.worktrees/franken_networkx-coppercliff-reverseview-origin/python/franken_networkx/__init__.py",
+    "graph": {
+      "family": "Graph(gnp_random_graph(n, p, seed))",
+      "n": 2400,
+      "p": 0.0045,
+      "seed": 23
+    },
+    "head": "e3fffed086cc0c5c55e9370fce9a11a884c27bab",
+    "head_short": "e3fffed08 perf(graph): record rejected native neighbors row path",
+    "networkx_file": "/home/ubuntu/.local/lib/python3.13/site-packages/networkx/__init__.py",
+    "networkx_version": "3.6.1",
+    "python": "3.13.7 (main, Mar  3 2026, 12:19:54) [GCC 15.2.0]",
+    "repo_root": "/data/projects/.worktrees/franken_networkx-coppercliff-reverseview-origin",
+    "workload": "[list(G.neighbors(n)) for n in G.nodes()]"
+  },
+  "profile_text": "tests/artifacts/perf/20260616T-graph-neighbor-native-method-coppercliff/after_profile.txt"
+}
