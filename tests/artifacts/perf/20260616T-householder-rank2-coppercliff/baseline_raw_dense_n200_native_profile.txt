@@ -1,0 +1,46 @@
+         2199 function calls (2095 primitive calls) in 0.058 seconds
+
+   Ordered by: cumulative time
+   List reduced from 223 to 40 due to restriction <40>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.004    0.004    0.058    0.058 eig_baseline_harness.py:78(bench_raw_once)
+       11    0.000    0.000    0.048    0.004 eig_baseline_harness.py:82(<lambda>)
+       11    0.000    0.000    0.048    0.004 eig_baseline_harness.py:68(native_eigvals)
+       11    0.048    0.004    0.048    0.004 {built-in method franken_networkx._fnx.symmetric_eigvals_rust}
+        1    0.000    0.000    0.006    0.006 eig_baseline_harness.py:60(matrix_for)
+        1    0.001    0.001    0.006    0.006 eig_baseline_harness.py:30(dense_symmetric_matrix)
+        1    0.000    0.000    0.005    0.005 __init__.py:704(__getattr__)
+     12/1    0.000    0.000    0.005    0.005 <frozen importlib._bootstrap>:1349(_find_and_load)
+     12/1    0.000    0.000    0.005    0.005 <frozen importlib._bootstrap>:1304(_find_and_load_unlocked)
+     12/1    0.000    0.000    0.005    0.005 <frozen importlib._bootstrap>:911(_load_unlocked)
+      3/1    0.000    0.000    0.005    0.005 <frozen importlib._bootstrap_external>:1020(exec_module)
+     35/2    0.000    0.000    0.004    0.002 <frozen importlib._bootstrap>:480(_call_with_frames_removed)
+      3/1    0.000    0.000    0.004    0.004 {built-in method builtins.exec}
+        1    0.000    0.000    0.004    0.004 __init__.py:1(<module>)
+        1    0.000    0.000    0.004    0.004 <frozen importlib._bootstrap>:1390(_handle_fromlist)
+        2    0.000    0.000    0.004    0.002 {built-in method builtins.__import__}
+      9/6    0.000    0.000    0.003    0.001 <frozen importlib._bootstrap_external>:1326(exec_module)
+      9/6    0.002    0.000    0.003    0.001 {built-in method _imp.exec_dynamic}
+        1    0.000    0.000    0.003    0.003 _pickle.py:1(<module>)
+       12    0.000    0.000    0.001    0.000 <frozen importlib._bootstrap>:806(module_from_spec)
+        9    0.000    0.000    0.001    0.000 <frozen importlib._bootstrap_external>:1318(create_module)
+        9    0.001    0.000    0.001    0.000 {built-in method _imp.create_dynamic}
+       12    0.000    0.000    0.001    0.000 <frozen importlib._bootstrap>:1240(_find_spec)
+       12    0.000    0.000    0.000    0.000 <frozen importlib._bootstrap_external>:1551(find_spec)
+       12    0.000    0.000    0.000    0.000 <frozen importlib._bootstrap_external>:1522(_get_spec)
+       14    0.000    0.000    0.000    0.000 <frozen importlib._bootstrap_external>:1624(find_spec)
+        1    0.000    0.000    0.000    0.000 __init__.py:358(namedtuple)
+        3    0.000    0.000    0.000    0.000 <frozen importlib._bootstrap_external>:1093(get_code)
+       35    0.000    0.000    0.000    0.000 <frozen importlib._bootstrap_external>:145(_path_stat)
+       12    0.000    0.000    0.000    0.000 <frozen importlib._bootstrap>:416(__enter__)
+       35    0.000    0.000    0.000    0.000 {built-in method posix.stat}
+        1    0.000    0.000    0.000    0.000 {built-in method builtins.eval}
+       14    0.000    0.000    0.000    0.000 <frozen importlib._bootstrap>:304(acquire)
+        1    0.000    0.000    0.000    0.000 __init__.py:287(compile)
+        1    0.000    0.000    0.000    0.000 __init__.py:330(_compile)
+        1    0.000    0.000    0.000    0.000 _compiler.py:743(compile)
+       16    0.000    0.000    0.000    0.000 <frozen importlib._bootstrap_external>:164(_path_isfile)
+       12    0.000    0.000    0.000    0.000 <frozen importlib._bootstrap>:733(_init_module_attrs)
+       17    0.000    0.000    0.000    0.000 <frozen importlib._bootstrap_external>:155(_path_is_mode_type)
+        2    0.000    0.000    0.000    0.000 _ufunc_config.py:496(inner)
