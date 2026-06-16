@@ -22631,21 +22631,42 @@ def adjacency_spectrum(G, weight="weight"):
     Returns
     -------
     numpy.ndarray
-        Complex eigenvalues, dtype ``complex128``.  Match
-        ``networkx.adjacency_spectrum`` (``scipy.linalg.eigvals``)
-        exactly enough to preserve its raw solver order.
+        Complex eigenvalues, dtype ``complex128``.  Solver order is
+        unstable (LAPACK/QR Schur deflation order is not portable), so
+        the contract is dtype + sorted-value parity with
+        ``networkx.adjacency_spectrum`` (``scipy.linalg.eigvals``).
 
     br-r37-c1-aspec-cmplx: previously used ``np.linalg.eigvalsh``
     + ``np.sort`` which returned ``float64`` and pre-sorted.  nx
     uses the general (non-Hermitian) ``scipy.linalg.eigvals`` so
     its dtype is ``complex128``.  Match the dtype — the real-coercion
-    to ``float64`` broke parity for callers using ``.dtype``.  Do not
-    route undirected graphs through symmetric eigensolvers here unless
-    the native path also proves SciPy's raw ordering contract.
+    to ``float64`` broke parity for callers using ``.dtype``.
     """
-    star_values = _star_adjacency_spectrum_raw_order_safe(G, weight)
-    if star_values is not None:
-        return star_values
+    import numpy as np
+
+    # br-r37-c1-04z53.9112 (orchestrator-ruled sorted-value contract):
+    # undirected adjacency is symmetric, so its eigenvalues are real.
+    # nx/scipy.linalg.eigvals runs the GENERAL (non-Hermitian) dgeev path
+    # which ignores symmetry and is ~10-16x slower than a symmetric
+    # tridiagonal QL. Route undirected Graph through the safe-Rust
+    # symmetric eigensolver (no C LAPACK), presented as complex128 to
+    # match nx's dtype. Raw LAPACK Schur order is unreproducible in safe
+    # Rust and irrelevant (eigenvalues-only, no eigenvector pairing); the
+    # contract is dtype + sorted-value parity (test sorts both sides).
+    if (
+        type(G) is Graph
+        and (weight is None or isinstance(weight, str))
+        and len(G) > 0
+    ):
+        native = getattr(_fnx, "symmetric_eigvals_rust", None)
+        if native is not None:
+            dense = np.ascontiguousarray(
+                np.asarray(adjacency_matrix(G, weight=weight).todense()),
+                dtype=np.float64,
+            )
+            values = native(dense.ravel(), dense.shape[0])
+            if values is not None:
+                return np.asarray(values, dtype=np.float64).astype(np.complex128)
 
     import scipy as sp
 
