@@ -1,0 +1,37 @@
+{
+  "case": "fnx.laplacian_spectrum(fnx.complete_graph(399))",
+  "first_values_q8": [
+    0.0,
+    399.0,
+    399.0,
+    399.0,
+    399.0,
+    399.0,
+    399.0,
+    399.0
+  ],
+  "fnx_mean_seconds": 0.04831612919224426,
+  "fnx_median_seconds": 0.04467135400045663,
+  "fnx_seconds": [
+    0.0567372259683907,
+    0.05101445800391957,
+    0.04454129800433293,
+    0.04467135400045663,
+    0.04461630998412147
+  ],
+  "fnx_sha256_q8_canonical": "69ab4bfa8252b807f8e82bebeb78c23f6e73e297b687cd0c22c9d1d367201af2",
+  "last_values_q8": [
+    399.0,
+    399.0,
+    399.0,
+    399.0,
+    399.0,
+    399.0,
+    399.0,
+    399.0
+  ],
+  "max_abs_delta": 1.3642420526593613e-12,
+  "nx_sha256_q8_canonical": "b11e686b338389798300f8b95589f6118ee9e4b7a8363343827a3b0fbf75ee55",
+  "samples": 5,
+  "values_match": true
+}

@@ -1,0 +1,42 @@
+{
+  "case": "fnx.laplacian_spectrum(fnx.complete_graph(399))",
+  "dtype": "float64",
+  "first_sorted_values_q9": [
+    0.0,
+    399.0,
+    399.0,
+    399.0,
+    399.0,
+    399.0,
+    399.0,
+    399.0
+  ],
+  "fnx_mean_seconds": 0.0001911737839691341,
+  "fnx_median_seconds": 0.00012341298861429095,
+  "fnx_seconds": [
+    0.0004376079887151718,
+    0.00016020395560190082,
+    0.00012341298861429095,
+    0.00011821399675682187,
+    0.00011642999015748501
+  ],
+  "fnx_sorted_sha256_q9_canonical": "69ab4bfa8252b807f8e82bebeb78c23f6e73e297b687cd0c22c9d1d367201af2",
+  "last_sorted_values_q9": [
+    399.0,
+    399.0,
+    399.0,
+    399.0,
+    399.0,
+    399.0,
+    399.0,
+    399.0
+  ],
+  "max_sorted_abs_delta": 1.6484591469634324e-12,
+  "nx_sorted_sha256_q9_canonical": "b11e686b338389798300f8b95589f6118ee9e4b7a8363343827a3b0fbf75ee55",
+  "raw_sha_matches": false,
+  "samples": 5,
+  "sorted_values_match": true,
+  "zero_normalized_fnx_sorted_sha256_q9_canonical": "69ab4bfa8252b807f8e82bebeb78c23f6e73e297b687cd0c22c9d1d367201af2",
+  "zero_normalized_nx_sorted_sha256_q9_canonical": "69ab4bfa8252b807f8e82bebeb78c23f6e73e297b687cd0c22c9d1d367201af2",
+  "zero_normalized_sha_matches": true
+}
