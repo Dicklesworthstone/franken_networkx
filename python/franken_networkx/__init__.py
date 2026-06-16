@@ -22664,9 +22664,12 @@ def adjacency_spectrum(G, weight="weight"):
                 np.asarray(adjacency_matrix(G, weight=weight).todense()),
                 dtype=np.float64,
             )
-            values = native(dense.ravel(), dense.shape[0])
-            if values is not None:
-                return np.asarray(values, dtype=np.float64).astype(np.complex128)
+            # nan/inf edge weights make scipy.linalg.eigvals raise ValueError;
+            # fall through to SciPy so the native route preserves that contract.
+            if np.isfinite(dense).all():
+                values = native(dense.ravel(), dense.shape[0])
+                if values is not None:
+                    return np.asarray(values, dtype=np.float64).astype(np.complex128)
 
     import scipy as sp
 
@@ -40208,9 +40211,14 @@ def modularity_spectrum(G):
             B = np.ascontiguousarray(
                 np.asarray(modularity_matrix(G)), dtype=np.float64
             )
-            values = native(B.ravel(), B.shape[0])
-            if values is not None:
-                return np.asarray(values, dtype=np.float64).astype(np.complex128)
+            # br-r37-c1-04z53.9112: m==0 (single node / no edges) makes the
+            # modularity matrix non-finite; nx's scipy.linalg.eigvals rejects
+            # that with ValueError. Fall through to SciPy so the native route
+            # never silently returns NaN where nx raises.
+            if np.isfinite(B).all():
+                values = native(B.ravel(), B.shape[0])
+                if values is not None:
+                    return np.asarray(values, dtype=np.float64).astype(np.complex128)
 
     import scipy.linalg
 
