@@ -108,6 +108,12 @@ def test_weighted_cycle_graph_stays_on_weighted_route():
 def test_unweighted_complete_bipartite_closed_form_matches_nx_sorted_values():
     Gf = fnx.complete_bipartite_graph(5, 7)
     Gn = nx.complete_bipartite_graph(5, 7)
+    assert vars(Gf)["_fnx_complete_bipartite_shape"] == (
+        Gf.nodes_seq,
+        Gf.edges_seq,
+        5,
+        7,
+    )
     fr = fnx.adjacency_spectrum(Gf)
     nr = nx.adjacency_spectrum(Gn)
     expected = np.zeros(12, dtype=np.complex128)
@@ -124,6 +130,7 @@ def test_weighted_complete_bipartite_graph_stays_on_weighted_route():
     Gn = nx.complete_bipartite_graph(4, 6)
     Gf[0][4]["weight"] = 2.5
     Gn[0][4]["weight"] = 2.5
+    assert vars(Gf)["_fnx_complete_bipartite_shape"] is not None
     fr = fnx.adjacency_spectrum(Gf)
     nr = nx.adjacency_spectrum(Gn)
     unweighted = np.zeros(10, dtype=np.complex128)
@@ -133,6 +140,23 @@ def test_weighted_complete_bipartite_graph_stays_on_weighted_route():
     assert fr.dtype == nr.dtype == np.complex128
     assert _sorted_match(fr, nr)
     assert not np.allclose(np.sort_complex(fr), unweighted)
+
+
+def test_complete_bipartite_adjacency_rejects_count_preserving_rewire():
+    Gf = fnx.complete_bipartite_graph(4, 6)
+    Gn = nx.complete_bipartite_graph(4, 6)
+    original_shape = vars(Gf)["_fnx_complete_bipartite_shape"]
+    Gf.remove_edge(0, 4)
+    Gn.remove_edge(0, 4)
+    Gf.add_edge(0, 1)
+    Gn.add_edge(0, 1)
+    assert vars(Gf)["_fnx_complete_bipartite_shape"] == original_shape
+    assert Gf.edges_seq != original_shape[1]
+    assert fnx._complete_bipartite_adjacency_spectrum_sorted_value_safe(Gf, "weight") is None
+    fr = fnx.adjacency_spectrum(Gf)
+    nr = nx.adjacency_spectrum(Gn)
+    assert fr.dtype == nr.dtype == np.complex128
+    assert _sorted_match(fr, nr)
 
 
 def test_weighted_complete_graph_stays_on_weighted_route():
