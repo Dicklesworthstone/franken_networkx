@@ -8558,6 +8558,30 @@ impl PyGraph {
         Ok(true)
     }
 
+    fn _native_complete_bipartite_certificate_parts(
+        &self,
+        weight: Option<&str>,
+        nodes_seq: u64,
+        edges_seq: u64,
+        left_size: usize,
+        right_size: usize,
+    ) -> Option<(usize, usize)> {
+        let node_count = self.inner.node_count();
+        if self.nodes_seq != nodes_seq
+            || self.edges_seq != edges_seq
+            || left_size == 0
+            || right_size == 0
+            || left_size.checked_add(right_size) != Some(node_count)
+            || left_size.checked_mul(right_size) != Some(self.inner.edge_count())
+        {
+            return None;
+        }
+        if weight.is_some() && self.edges_dirty.load(Ordering::Relaxed) {
+            return None;
+        }
+        Some((left_size, right_size))
+    }
+
     fn _native_complete_bipartite_unweighted_parts(
         &self,
         py: Python<'_>,

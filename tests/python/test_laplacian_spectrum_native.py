@@ -172,6 +172,12 @@ def test_weighted_cycle_normalized_laplacian_stays_on_weighted_route():
 def test_unweighted_complete_bipartite_normalized_laplacian_closed_form_matches_nx():
     Gf = fnx.complete_bipartite_graph(11, 13)
     Gn = nx.complete_bipartite_graph(11, 13)
+    assert vars(Gf)["_fnx_complete_bipartite_shape"] == (
+        Gf.nodes_seq,
+        Gf.edges_seq,
+        11,
+        13,
+    )
     fr = fnx.normalized_laplacian_spectrum(Gf)
     nr = nx.normalized_laplacian_spectrum(Gn)
     expected = np.ones(24, dtype=np.float64)
@@ -187,6 +193,7 @@ def test_weighted_complete_bipartite_normalized_laplacian_stays_on_weighted_rout
     Gn = nx.complete_bipartite_graph(4, 5)
     Gf[0][4]["weight"] = 2.5
     Gn[0][4]["weight"] = 2.5
+    assert vars(Gf)["_fnx_complete_bipartite_shape"] is not None
     fr = fnx.normalized_laplacian_spectrum(Gf)
     nr = nx.normalized_laplacian_spectrum(Gn)
     assert (
@@ -202,10 +209,13 @@ def test_weighted_complete_bipartite_normalized_laplacian_stays_on_weighted_rout
 def test_complete_bipartite_normalized_laplacian_rejects_count_preserving_rewire():
     Gf = fnx.complete_bipartite_graph(4, 5)
     Gn = nx.complete_bipartite_graph(4, 5)
+    original_shape = vars(Gf)["_fnx_complete_bipartite_shape"]
     Gf.remove_edge(0, 4)
     Gn.remove_edge(0, 4)
     Gf.add_edge(0, 1)
     Gn.add_edge(0, 1)
+    assert vars(Gf)["_fnx_complete_bipartite_shape"] == original_shape
+    assert Gf.edges_seq != original_shape[1]
     assert (
         fnx._complete_bipartite_normalized_laplacian_spectrum_sorted_value_safe(
             Gf, "weight"

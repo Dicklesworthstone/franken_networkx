@@ -1,0 +1,28 @@
+{
+  "results": [
+    {
+      "command": "env PYTHONPATH=python .venv/bin/python -c \"import franken_networkx as fnx; G=fnx.complete_bipartite_graph(199,200); [fnx.normalized_laplacian_spectrum(G) for _ in range(1000)]\"",
+      "mean": 0.2663994009,
+      "stddev": 0.01159374311815263,
+      "median": 0.2741636689,
+      "user": 4.503201999999999,
+      "system": 0.07236773999999999,
+      "min": 0.2500109709,
+      "max": 0.2749967179,
+      "times": [
+        0.2582006129,
+        0.2500109709,
+        0.2741636689,
+        0.2749967179,
+        0.27462503390000004
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

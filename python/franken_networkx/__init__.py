@@ -24891,6 +24891,13 @@ def complete_bipartite_graph(n1, n2, create_using=None):
         raise NetworkXError("Inputs n1 and n2 must contain distinct nodes")
     G.add_edges_from((u, v) for u in top for v in bottom)
     G.graph["name"] = f"complete_bipartite_graph({len(top)}, {len(bottom)})"
+    if type(G) is Graph:
+        vars(G)["_fnx_complete_bipartite_shape"] = (
+            G.nodes_seq,
+            G.edges_seq,
+            len(top),
+            len(bottom),
+        )
     return G
 
 
@@ -30040,48 +30047,50 @@ def _complete_bipartite_normalized_laplacian_spectrum_sorted_value_safe(G, weigh
     if type(G) is not Graph or not (weight is None or isinstance(weight, str)):
         return None
     n = len(G)
-    native = getattr(G, "_native_complete_bipartite_unweighted_parts", None)
-    if native is not None:
-        if native(weight) is None:
-            return None
-    else:
-        edge_count = G.number_of_edges()
-        if n < 2 or edge_count == 0:
-            return None
-        if isinstance(weight, str):
-            for _, _, attrs in G.edges(data=True):
-                if weight in attrs:
-                    return None
-
-        degrees = list(G.degree())
-        start = degrees[0][0]
-        colors = {start: 0}
-        stack = [start]
-        while stack:
-            node = stack.pop()
-            next_color = 1 - colors[node]
-            for neighbor in G.neighbors(node):
-                color = colors.get(neighbor)
-                if color is None:
-                    colors[neighbor] = next_color
-                    stack.append(neighbor)
-                elif color != next_color:
-                    return None
-        if len(colors) != n:
-            return None
-
-        left_size = 0
-        for color in colors.values():
-            if color == 0:
-                left_size += 1
-        right_size = n - left_size
-        if left_size == 0 or right_size == 0 or edge_count != left_size * right_size:
-            return None
-
-        for node, degree in degrees:
-            expected = right_size if colors[node] == 0 else left_size
-            if degree != expected:
+    certificate_parts = _complete_bipartite_shape_certificate_parts(G, weight)
+    if certificate_parts is None:
+        native = getattr(G, "_native_complete_bipartite_unweighted_parts", None)
+        if native is not None:
+            if native(weight) is None:
                 return None
+        else:
+            edge_count = G.number_of_edges()
+            if n < 2 or edge_count == 0:
+                return None
+            if isinstance(weight, str):
+                for _, _, attrs in G.edges(data=True):
+                    if weight in attrs:
+                        return None
+
+            degrees = list(G.degree())
+            start = degrees[0][0]
+            colors = {start: 0}
+            stack = [start]
+            while stack:
+                node = stack.pop()
+                next_color = 1 - colors[node]
+                for neighbor in G.neighbors(node):
+                    color = colors.get(neighbor)
+                    if color is None:
+                        colors[neighbor] = next_color
+                        stack.append(neighbor)
+                    elif color != next_color:
+                        return None
+            if len(colors) != n:
+                return None
+
+            left_size = 0
+            for color in colors.values():
+                if color == 0:
+                    left_size += 1
+            right_size = n - left_size
+            if left_size == 0 or right_size == 0 or edge_count != left_size * right_size:
+                return None
+
+            for node, degree in degrees:
+                expected = right_size if colors[node] == 0 else left_size
+                if degree != expected:
+                    return None
 
     import numpy as np
 
@@ -30089,6 +30098,20 @@ def _complete_bipartite_normalized_laplacian_spectrum_sorted_value_safe(G, weigh
     values[0] = 0.0
     values[-1] = 2.0
     return values
+
+
+def _complete_bipartite_shape_certificate_parts(G, weight):
+    certificate = vars(G).get("_fnx_complete_bipartite_shape")
+    if certificate is None:
+        return None
+    try:
+        nodes_seq, edges_seq, left_size, right_size = certificate
+    except (TypeError, ValueError):
+        return None
+    native = getattr(G, "_native_complete_bipartite_certificate_parts", None)
+    if native is None:
+        return None
+    return native(weight, nodes_seq, edges_seq, left_size, right_size)
 
 
 def _directed_laplacian_not_implemented_guard(G):
