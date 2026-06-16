@@ -22376,10 +22376,13 @@ def laplacian_matrix(G, nodelist=None, weight="weight"):
         and isinstance(G, (Graph, DiGraph))
         and not G.is_multigraph()
         and (weight is None or isinstance(weight, str))
+        and G.number_of_edges() > 0
     ):
         # br-r37-c1-04z53.13: for unit/default-absent weights, assemble
         # integer D-A directly from native COO indices instead of round-tripping
         # through a generic adjacency sparse array plus sparse subtraction.
+        # Edgeless (but non-empty) graphs are routed to the to_scipy path below
+        # so the all-zero Laplacian inherits nx's float64 dtype, not int64.
         if len(G) == 0:
             raise NetworkXError("Graph has no nodes or edges")
         if nodelist is None:
