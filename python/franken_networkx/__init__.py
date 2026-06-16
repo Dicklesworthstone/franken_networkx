@@ -22970,26 +22970,48 @@ def incidence_matrix(
     if nodelist is None:
         nodelist = list(G.nodes())
     if edgelist is None:
-        edgelist = list(G.edges())
+        if G.is_multigraph():
+            edgelist = list(G.edges(keys=True))
+        else:
+            edgelist = list(G.edges())
 
     node_index = {n: i for i, n in enumerate(nodelist)}
     n_nodes = len(nodelist)
     n_edges = len(edgelist)
+    is_multi = G.is_multigraph()
 
     row, col, data = [], [], []
-    for j, (u, v) in enumerate(edgelist):
-        if u in node_index:
-            row.append(node_index[u])
-            col.append(j)
-            data.append(1 if not oriented else -1)
-        if v in node_index:
-            row.append(node_index[v])
-            col.append(j)
-            data.append(1)
+    for ei, e in enumerate(edgelist):
+        u, v = e[:2]
+        if u == v:
+            continue  # self loops give zero column (match nx)
+        try:
+            ui = node_index[u]
+            vi = node_index[v]
+        except KeyError as err:
+            raise NetworkXError(
+                f"node {u} or {v} in edgelist but not in nodelist"
+            ) from err
+        if weight is None:
+            wt = 1
+        elif is_multi:
+            wt = G[u][v][e[2]].get(weight, 1)
+        else:
+            wt = G[u][v].get(weight, 1)
+        # oriented: u is tail (-wt), v is head (+wt); unoriented: +wt both
+        row.append(ui)
+        col.append(ei)
+        data.append(-wt if oriented else wt)
+        row.append(vi)
+        col.append(ei)
+        data.append(wt)
 
     arr_dtype = float if dtype is None else dtype
     return scipy.sparse.coo_array(
-        (np.array(data, dtype=arr_dtype), (np.array(row), np.array(col))),
+        (
+            np.array(data, dtype=arr_dtype),
+            (np.array(row, dtype=int), np.array(col, dtype=int)),
+        ),
         shape=(n_nodes, n_edges),
     ).tocsc()
 
