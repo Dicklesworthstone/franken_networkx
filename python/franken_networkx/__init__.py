@@ -29869,6 +29869,10 @@ def normalized_laplacian_spectrum(G, weight="weight"):
     if star_values is not None:
         return star_values
 
+    path_values = _path_normalized_laplacian_spectrum_sorted_value_safe(G, weight)
+    if path_values is not None:
+        return path_values
+
     NL = normalized_laplacian_matrix(G, weight=weight)
     return np.sort(np.linalg.eigvalsh(NL.toarray()))
 
@@ -29943,6 +29947,45 @@ def _star_normalized_laplacian_spectrum_sorted_value_safe(G, weight):
     values = np.ones(n, dtype=np.float64)
     values[0] = 0.0
     values[-1] = 2.0
+    return values
+
+
+def _path_normalized_laplacian_spectrum_sorted_value_safe(G, weight):
+    if type(G) is not Graph or not (weight is None or isinstance(weight, str)):
+        return None
+    n = len(G)
+    if n <= 2 or G.number_of_edges() != n - 1:
+        return None
+    if isinstance(weight, str):
+        for _, _, attrs in G.edges(data=True):
+            if weight in attrs:
+                return None
+
+    leaves = []
+    for node, degree in G.degree():
+        if degree == 1:
+            leaves.append(node)
+        elif degree != 2:
+            return None
+    if len(leaves) != 2:
+        return None
+
+    seen = {leaves[0]}
+    stack = [leaves[0]]
+    while stack:
+        node = stack.pop()
+        for neighbor in G.neighbors(node):
+            if neighbor not in seen:
+                seen.add(neighbor)
+                stack.append(neighbor)
+    if len(seen) != n:
+        return None
+
+    import numpy as np
+
+    k = np.arange(n, dtype=np.float64)
+    values = 1.0 - np.cos(np.pi * k / float(n - 1))
+    values[0] = -0.0
     return values
 
 

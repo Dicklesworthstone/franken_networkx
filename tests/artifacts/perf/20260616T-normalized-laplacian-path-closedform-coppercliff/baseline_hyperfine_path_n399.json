@@ -1,0 +1,28 @@
+{
+  "results": [
+    {
+      "command": "env PYTHONPATH=python .venv/bin/python -c \"import franken_networkx as fnx; G=fnx.path_graph(399); fnx.normalized_laplacian_spectrum(G)\"",
+      "mean": 0.8197652523400001,
+      "stddev": 0.614254661963431,
+      "median": 0.55531914294,
+      "user": 22.496576679999997,
+      "system": 0.14211105999999998,
+      "min": 0.41945240894,
+      "max": 1.9071123999400001,
+      "times": [
+        1.9071123999400001,
+        0.41945240894,
+        0.66945816594,
+        0.54748414394,
+        0.55531914294
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

@@ -113,14 +113,41 @@ def test_weighted_star_normalized_laplacian_stays_on_weighted_route():
     assert np.allclose(np.sort(fr), np.sort(nr))
 
 
-def test_path_normalized_laplacian_stays_on_matrix_route():
-    Gf = fnx.path_graph(9)
-    Gn = nx.path_graph(9)
+def test_unweighted_path_normalized_laplacian_closed_form_matches_nx():
+    Gf = fnx.path_graph(31)
+    Gn = nx.path_graph(31)
     fr = fnx.normalized_laplacian_spectrum(Gf)
     nr = nx.normalized_laplacian_spectrum(Gn)
-    star = np.ones(9, dtype=np.float64)
-    star[0] = 0.0
-    star[-1] = 2.0
+    expected = 1.0 - np.cos(np.pi * np.arange(31, dtype=np.float64) / 30.0)
+    expected[0] = -0.0
     assert fr.dtype == np.float64
     assert np.allclose(np.sort(fr), np.sort(nr))
-    assert not np.allclose(np.sort(fr), star)
+    assert np.allclose(fr, expected)
+    assert np.signbit(fr[0]) == np.signbit(expected[0])
+
+
+def test_weighted_path_normalized_laplacian_stays_on_weighted_route():
+    Gf = fnx.path_graph(9)
+    Gn = nx.path_graph(9)
+    Gf[3][4]["weight"] = 2.5
+    Gn[3][4]["weight"] = 2.5
+    fr = fnx.normalized_laplacian_spectrum(Gf)
+    nr = nx.normalized_laplacian_spectrum(Gn)
+    assert (
+        fnx._path_normalized_laplacian_spectrum_sorted_value_safe(Gf, "weight")
+        is None
+    )
+    assert fr.dtype == np.float64
+    assert np.allclose(np.sort(fr), np.sort(nr))
+
+
+def test_cycle_normalized_laplacian_stays_on_matrix_route():
+    Gf = fnx.cycle_graph(9)
+    Gn = nx.cycle_graph(9)
+    fr = fnx.normalized_laplacian_spectrum(Gf)
+    nr = nx.normalized_laplacian_spectrum(Gn)
+    path = 1.0 - np.cos(np.pi * np.arange(9, dtype=np.float64) / 8.0)
+    path[0] = -0.0
+    assert fr.dtype == np.float64
+    assert np.allclose(np.sort(fr), np.sort(nr))
+    assert not np.allclose(np.sort(fr), path)

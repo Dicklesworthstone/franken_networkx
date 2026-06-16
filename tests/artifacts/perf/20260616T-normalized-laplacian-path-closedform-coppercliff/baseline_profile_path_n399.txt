@@ -1,0 +1,36 @@
+         179023 function calls (172096 primitive calls) in 3.979 seconds
+
+   Ordered by: internal time
+   List reduced from 1285 to 30 due to restriction <30>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        3    3.813    1.271    3.813    1.271 _linalg.py:1264(eigvalsh)
+      151    0.014    0.000    0.014    0.000 {built-in method marshal.loads}
+       44    0.010    0.000    0.011    0.000 inspect.py:891(cleandoc)
+     4962    0.009    0.000    0.009    0.000 _parser.py:260(get)
+  109/104    0.008    0.000    0.016    0.000 inspect.py:2487(_signature_from_callable)
+   629/86    0.007    0.000    0.028    0.000 _parser.py:511(_parse)
+  1148/81    0.006    0.000    0.012    0.000 _compiler.py:37(_compile)
+      221    0.006    0.000    0.006    0.000 {built-in method builtins.eval}
+      707    0.004    0.000    0.004    0.000 {built-in method posix.stat}
+      151    0.003    0.000    0.018    0.000 <frozen importlib._bootstrap_external>:782(_compile_bytecode)
+      579    0.003    0.000    0.003    0.000 enum.py:1156(__new__)
+    14/10    0.003    0.000    0.005    0.000 {built-in method _imp.exec_dynamic}
+  269/267    0.003    0.000    0.014    0.000 {built-in method builtins.__build_class__}
+     9053    0.002    0.000    0.004    0.000 _parser.py:167(__getitem__)
+      151    0.002    0.000    0.002    0.000 {built-in method _io.open_code}
+      151    0.002    0.000    0.002    0.000 {method 'read' of '_io.BufferedReader' objects}
+    18780    0.002    0.000    0.002    0.000 {method 'append' of 'list' objects}
+18317/17145    0.002    0.000    0.002    0.000 {built-in method builtins.len}
+       14    0.002    0.000    0.002    0.000 {built-in method _imp.create_dynamic}
+    16172    0.002    0.000    0.002    0.000 {built-in method builtins.isinstance}
+      396    0.002    0.000    0.002    0.000 _compiler.py:241(_optimize_charset)
+      221    0.002    0.000    0.008    0.000 <frozen importlib._bootstrap_external>:1624(find_spec)
+      223    0.002    0.000    0.002    0.000 <frozen importlib._bootstrap>:372(release)
+ 1370/410    0.001    0.000    0.002    0.000 _parser.py:177(getwidth)
+        3    0.001    0.000    0.001    0.000 {built-in method scipy.sparse._sparsetools.csr_todense}
+     7041    0.001    0.000    0.001    0.000 _parser.py:239(__next)
+  812/750    0.001    0.000    0.002    0.000 {built-in method __new__ of type object at 0xa15020}
+     1436    0.001    0.000    0.002    0.000 <frozen importlib._bootstrap_external>:131(_path_join)
+   469/81    0.001    0.000    0.028    0.000 _parser.py:451(_parse_sub)
+     2778    0.001    0.000    0.001    0.000 _parser.py:255(match)
