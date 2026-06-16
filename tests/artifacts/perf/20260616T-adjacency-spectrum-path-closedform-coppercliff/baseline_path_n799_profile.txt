@@ -1,0 +1,48 @@
+         3574 function calls (3568 primitive calls) in 0.713 seconds
+
+   Ordered by: cumulative time
+   List reduced from 132 to 40 due to restriction <40>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        3    0.000    0.000    0.713    0.238 <stdin>:34(one_fnx)
+      9/3    0.004    0.000    0.712    0.237 /data/projects/franken_networkx/python/franken_networkx/__init__.py:53341(wrapper)
+        3    0.001    0.000    0.708    0.236 /data/projects/franken_networkx/python/franken_networkx/__init__.py:22663(adjacency_spectrum)
+        3    0.690    0.230    0.690    0.230 {built-in method franken_networkx._fnx.symmetric_eigvals_rust}
+        3    0.008    0.003    0.008    0.003 {built-in method numpy.ascontiguousarray}
+        3    0.000    0.000    0.004    0.001 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/sparse/_base.py:1154(todense)
+        3    0.000    0.000    0.004    0.001 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/sparse/_compressed.py:1002(toarray)
+        3    0.004    0.001    0.004    0.001 {built-in method scipy.sparse._sparsetools.csr_todense}
+        3    0.000    0.000    0.002    0.001 /data/projects/franken_networkx/python/franken_networkx/__init__.py:20543(adjacency_matrix)
+        3    0.000    0.000    0.002    0.001 /data/projects/franken_networkx/python/franken_networkx/__init__.py:22599(_star_adjacency_spectrum_raw_order_safe)
+        3    0.000    0.000    0.002    0.001 /data/projects/franken_networkx/python/franken_networkx/__init__.py:49506(to_scipy_sparse_array)
+        3    0.000    0.000    0.001    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:19674(path_graph)
+        3    0.001    0.000    0.001    0.000 {built-in method franken_networkx._fnx.path_graph}
+        3    0.000    0.000    0.001    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:658(__iter__)
+        3    0.001    0.000    0.001    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:536(_materialize)
+        3    0.000    0.000    0.001    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/sparse/_coo.py:32(__init__)
+        3    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/sparse/_base.py:451(asformat)
+        3    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/sparse/_coo.py:349(tocsr)
+       12    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/sparse/_base.py:1525(_get_index_dtype)
+       12    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/sparse/_sputils.py:264(get_index_dtype)
+        3    0.000    0.000    0.000    0.000 {built-in method franken_networkx._fnx.adjacency_default_order_index_arrays}
+     2397    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:439(_gen)
+       27    0.000    0.000    0.000    0.000 {built-in method numpy.asarray}
+        9    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/sparse/_coo.py:62(<genexpr>)
+       18    0.000    0.000    0.000    0.000 {built-in method numpy.array}
+        3    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/sparse/_coo.py:204(_check)
+        3    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:37224(__iter__)
+        3    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/sparse/_coo.py:383(_coo_to_compressed)
+        3    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/sparse/_base.py:1512(_process_toarray_args)
+       15    0.000    0.000    0.000    0.000 {method 'reduce' of 'numpy.ufunc' objects}
+        3    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/sparse/_compressed.py:30(__init__)
+        3    0.000    0.000    0.000    0.000 {built-in method numpy.zeros}
+        3    0.000    0.000    0.000    0.000 {method 'all' of 'numpy.ndarray' objects}
+        3    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/numpy/_core/_methods.py:64(_all)
+        6    0.000    0.000    0.000    0.000 {method 'max' of 'numpy.ndarray' objects}
+       84    0.000    0.000    0.000    0.000 {built-in method builtins.isinstance}
+        6    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/numpy/_core/_methods.py:39(_amax)
+      153    0.000    0.000    0.000    0.000 {built-in method builtins.len}
+        3    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:37277(edges)
+        6    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/sparse/_data.py:21(__init__)
+
+

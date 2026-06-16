@@ -22660,6 +22660,50 @@ def _complete_adjacency_spectrum_sorted_value_safe(G, weight):
     return values
 
 
+def _path_adjacency_spectrum_sorted_value_safe(G, weight):
+    if type(G) is not Graph or not (weight is None or isinstance(weight, str)):
+        return None
+    n = len(G)
+    if n == 0:
+        return None
+    if G.number_of_edges() != n - 1:
+        return None
+    if isinstance(weight, str):
+        for _, _, attrs in G.edges(data=True):
+            if weight in attrs:
+                return None
+
+    import numpy as np
+
+    if n == 1:
+        return np.asarray([0.0], dtype=np.float64).astype(np.complex128)
+
+    degrees = list(G.degree())
+    leaves = []
+    for node, degree in degrees:
+        if degree == 1:
+            leaves.append(node)
+        elif degree != 2:
+            return None
+    if len(leaves) != 2:
+        return None
+
+    seen = {leaves[0]}
+    stack = [leaves[0]]
+    while stack:
+        node = stack.pop()
+        for neighbor in G.neighbors(node):
+            if neighbor not in seen:
+                seen.add(neighbor)
+                stack.append(neighbor)
+    if len(seen) != n:
+        return None
+
+    k = np.arange(n, 0, -1, dtype=np.float64)
+    values = 2.0 * np.cos(k * np.pi / float(n + 1))
+    return values.astype(np.complex128)
+
+
 def adjacency_spectrum(G, weight="weight"):
     """Return the eigenvalues of the adjacency matrix of *G*.
 
@@ -22689,6 +22733,10 @@ def adjacency_spectrum(G, weight="weight"):
     complete_values = _complete_adjacency_spectrum_sorted_value_safe(G, weight)
     if complete_values is not None:
         return complete_values
+
+    path_values = _path_adjacency_spectrum_sorted_value_safe(G, weight)
+    if path_values is not None:
+        return path_values
 
     # br-r37-c1-04z53.9112 (orchestrator-ruled sorted-value contract):
     # undirected adjacency is symmetric, so its eigenvalues are real.

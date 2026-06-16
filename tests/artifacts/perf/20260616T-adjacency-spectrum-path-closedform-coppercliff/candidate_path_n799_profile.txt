@@ -1,0 +1,49 @@
+         25907 function calls in 0.010 seconds
+
+   Ordered by: cumulative time
+   List reduced from 47 to 40 due to restriction <40>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        3    0.000    0.000    0.010    0.003 /data/projects/franken_networkx/python/franken_networkx/__init__.py:53389(wrapper)
+        3    0.000    0.000    0.010    0.003 /data/projects/franken_networkx/python/franken_networkx/__init__.py:22707(adjacency_spectrum)
+        3    0.002    0.001    0.008    0.003 /data/projects/franken_networkx/python/franken_networkx/__init__.py:22663(_path_adjacency_spectrum_sorted_value_safe)
+     2397    0.002    0.000    0.004    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:37599(neighbors)
+        3    0.001    0.000    0.002    0.001 /data/projects/franken_networkx/python/franken_networkx/__init__.py:22599(_star_adjacency_spectrum_raw_order_safe)
+        6    0.000    0.000    0.002    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:658(__iter__)
+        6    0.002    0.000    0.002    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:536(_materialize)
+      799    0.001    0.000    0.001    0.000 {method '_native_adjacency_row_dict' of 'franken_networkx.Graph' objects}
+     4815    0.000    0.000    0.000    0.000 {method 'get' of 'dict' objects}
+     4794    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:439(_gen)
+     2442    0.000    0.000    0.000    0.000 {built-in method builtins.vars}
+     2394    0.000    0.000    0.000    0.000 {method 'add' of 'set' objects}
+     2397    0.000    0.000    0.000    0.000 {method 'pop' of 'list' objects}
+     2400    0.000    0.000    0.000    0.000 {method 'append' of 'list' objects}
+     2403    0.000    0.000    0.000    0.000 {built-in method builtins.iter}
+        6    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:37325(edges)
+      799    0.000    0.000    0.000    0.000 {built-in method builtins.hash}
+        6    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:746(wrapped)
+        6    0.000    0.000    0.000    0.000 /usr/lib/python3.13/weakref.py:164(__setitem__)
+       39    0.000    0.000    0.000    0.000 {built-in method builtins.len}
+        3    0.000    0.000    0.000    0.000 {built-in method numpy.arange}
+        6    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:414(_FailFastEdgeIterator)
+        6    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:37539(number_of_edges)
+        9    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:37282(__len__)
+        3    0.000    0.000    0.000    0.000 {method 'astype' of 'numpy.ndarray' objects}
+        3    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:22631(_complete_adjacency_spectrum_sorted_value_safe)
+        6    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:37372(degree)
+       24    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:36727(_has_networkx_private_storage)
+        6    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:497(__init__)
+        6    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:315(number_of_edges)
+        9    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:36719(_private_override)
+        6    0.000    0.000    0.000    0.000 /usr/lib/python3.13/weakref.py:347(__new__)
+        6    0.000    0.000    0.000    0.000 /usr/lib/python3.13/weakref.py:352(__init__)
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+        6    0.000    0.000    0.000    0.000 {built-in method builtins.hasattr}
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:4778(_graph_degree)
+        3    0.000    0.000    0.000    0.000 {method '_native_is_complete_unweighted_graph' of 'franken_networkx.Graph' objects}
+        6    0.000    0.000    0.000    0.000 /usr/lib/python3.13/weakref.py:194(get)
+        6    0.000    0.000    0.000    0.000 {built-in method __new__ of type object at 0xa15020}
+       12    0.000    0.000    0.000    0.000 {built-in method builtins.id}
+
+
+

@@ -85,6 +85,30 @@ def test_weighted_complete_graph_stays_on_weighted_route():
     assert not np.allclose(np.sort_complex(fr), unweighted)
 
 
+def test_unweighted_path_closed_form_matches_nx_sorted_values():
+    Gf = fnx.path_graph(31)
+    Gn = nx.path_graph(31)
+    fr = fnx.adjacency_spectrum(Gf)
+    nr = nx.adjacency_spectrum(Gn)
+    expected = 2.0 * np.cos(np.arange(31, 0, -1, dtype=np.float64) * np.pi / 32.0)
+    assert fr.dtype == nr.dtype == np.complex128
+    assert _sorted_match(fr, nr)
+    assert np.allclose(np.sort_complex(fr), expected.astype(np.complex128))
+
+
+def test_weighted_path_graph_stays_on_weighted_route():
+    Gf = fnx.path_graph(9)
+    Gn = nx.path_graph(9)
+    Gf[3][4]["weight"] = 2.0
+    Gn[3][4]["weight"] = 2.0
+    fr = fnx.adjacency_spectrum(Gf)
+    nr = nx.adjacency_spectrum(Gn)
+    unweighted = 2.0 * np.cos(np.arange(9, 0, -1, dtype=np.float64) * np.pi / 10.0)
+    assert fr.dtype == nr.dtype == np.complex128
+    assert _sorted_match(fr, nr)
+    assert not np.allclose(np.sort_complex(fr), unweighted.astype(np.complex128))
+
+
 def test_directed_fallback_matches_nx():
     e = [(0, 1), (1, 2), (2, 0), (0, 3), (3, 1)]
     fr = fnx.adjacency_spectrum(fnx.DiGraph(e))
