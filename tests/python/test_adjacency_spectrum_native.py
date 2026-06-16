@@ -44,6 +44,19 @@ def test_weighted_default_weight_matches_nx():
     assert _sorted_match(fr, nr)
 
 
+def test_unweighted_star_closed_form_matches_nx_sorted_values():
+    Gf = fnx.star_graph(31)
+    Gn = nx.star_graph(31)
+    fr = fnx.adjacency_spectrum(Gf)
+    nr = nx.adjacency_spectrum(Gn)
+    expected = np.zeros(32, dtype=np.complex128)
+    expected[0] = complex(-np.sqrt(31), 0.0)
+    expected[-1] = complex(np.sqrt(31), 0.0)
+    assert fr.dtype == nr.dtype == np.complex128
+    assert _sorted_match(fr, nr)
+    assert np.allclose(np.sort_complex(fr), expected)
+
+
 def test_directed_fallback_matches_nx():
     e = [(0, 1), (1, 2), (2, 0), (0, 3), (3, 1)]
     fr = fnx.adjacency_spectrum(fnx.DiGraph(e))

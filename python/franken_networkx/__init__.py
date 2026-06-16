@@ -22647,6 +22647,13 @@ def adjacency_spectrum(G, weight="weight"):
     """
     import numpy as np
 
+    # Exact unweighted stars have spectrum {+sqrt(n-1), -sqrt(n-1), 0...}.
+    # Bypass dense matrix construction and the generic symmetric eigensolver
+    # while preserving the public dtype + sorted-value contract.
+    star_values = _star_adjacency_spectrum_raw_order_safe(G, weight)
+    if star_values is not None:
+        return star_values
+
     # br-r37-c1-04z53.9112 (orchestrator-ruled sorted-value contract):
     # undirected adjacency is symmetric, so its eigenvalues are real.
     # nx/scipy.linalg.eigvals runs the GENERAL (non-Hermitian) dgeev path
