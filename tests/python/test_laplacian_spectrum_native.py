@@ -1,5 +1,6 @@
 import numpy as np
 import networkx as nx
+import pytest
 import franken_networkx as fnx
 
 
@@ -66,3 +67,19 @@ def test_weighted_complete_normalized_laplacian_stays_on_weighted_route():
     assert fr.dtype == np.float64
     assert np.allclose(np.sort(fr), np.sort(nr))
     assert not np.allclose(np.sort(fr), unweighted)
+
+
+def test_unweighted_edgeless_normalized_laplacian_closed_form_matches_nx():
+    Gf = fnx.empty_graph(31)
+    Gn = nx.empty_graph(31)
+    fr = fnx.normalized_laplacian_spectrum(Gf)
+    nr = nx.normalized_laplacian_spectrum(Gn)
+    expected = np.zeros(31, dtype=np.float64)
+    assert fr.dtype == np.float64
+    assert np.allclose(np.sort(fr), np.sort(nr))
+    assert np.allclose(fr, expected)
+
+
+def test_zero_node_normalized_laplacian_keeps_nx_error():
+    with pytest.raises(nx.NetworkXError):
+        fnx.normalized_laplacian_spectrum(fnx.empty_graph(0))

@@ -29853,6 +29853,12 @@ def normalized_laplacian_spectrum(G, weight="weight"):
     """Return sorted eigenvalues of the normalized Laplacian."""
     import numpy as np
 
+    edgeless_values = _edgeless_normalized_laplacian_spectrum_sorted_value_safe(
+        G, weight
+    )
+    if edgeless_values is not None:
+        return edgeless_values
+
     complete_values = _complete_normalized_laplacian_spectrum_sorted_value_safe(
         G, weight
     )
@@ -29861,6 +29867,18 @@ def normalized_laplacian_spectrum(G, weight="weight"):
 
     NL = normalized_laplacian_matrix(G, weight=weight)
     return np.sort(np.linalg.eigvalsh(NL.toarray()))
+
+
+def _edgeless_normalized_laplacian_spectrum_sorted_value_safe(G, weight):
+    if type(G) is not Graph or not (weight is None or isinstance(weight, str)):
+        return None
+    n = len(G)
+    if n == 0 or G.number_of_edges() != 0:
+        return None
+
+    import numpy as np
+
+    return np.zeros(n, dtype=np.float64)
 
 
 def _complete_normalized_laplacian_spectrum_sorted_value_safe(G, weight):
