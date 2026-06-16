@@ -1,0 +1,36 @@
+         177789 function calls (170862 primitive calls) in 9.167 seconds
+
+   Ordered by: internal time
+   List reduced from 1305 to 30 due to restriction <30>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        3    8.971    2.990    8.971    2.990 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/numpy/linalg/_linalg.py:1264(eigvalsh)
+       27    0.026    0.001    0.026    0.001 {built-in method numpy.asarray}
+      151    0.014    0.000    0.014    0.000 {built-in method marshal.loads}
+        3    0.009    0.003    0.009    0.003 {built-in method franken_networkx._fnx.adjacency_default_order_index_arrays}
+   629/86    0.008    0.000    0.027    0.000 /usr/lib/python3.13/re/_parser.py:511(_parse)
+     4962    0.007    0.000    0.008    0.000 /usr/lib/python3.13/re/_parser.py:260(get)
+  1148/81    0.006    0.000    0.013    0.000 /usr/lib/python3.13/re/_compiler.py:37(_compile)
+      221    0.006    0.000    0.006    0.000 {built-in method builtins.eval}
+        3    0.006    0.002    0.194    0.065 /data/projects/franken_networkx/python/franken_networkx/__init__.py:22456(normalized_laplacian_matrix)
+      707    0.004    0.000    0.004    0.000 {built-in method posix.stat}
+      151    0.004    0.000    0.018    0.000 <frozen importlib._bootstrap_external>:782(_compile_bytecode)
+    14/10    0.004    0.000    0.006    0.001 {built-in method _imp.exec_dynamic}
+      453    0.003    0.000    0.003    0.000 <frozen importlib._bootstrap_external>:89(_unpack_uint32)
+        3    0.003    0.001    0.003    0.001 {built-in method scipy.sparse._sparsetools.csr_has_canonical_format}
+  269/267    0.003    0.000    0.015    0.000 {built-in method builtins.__build_class__}
+     9053    0.003    0.000    0.004    0.000 /usr/lib/python3.13/re/_parser.py:167(__getitem__)
+      151    0.002    0.000    0.002    0.000 {built-in method _io.open_code}
+    18780    0.002    0.000    0.002    0.000 {method 'append' of 'list' objects}
+18311/17139    0.002    0.000    0.002    0.000 {built-in method builtins.len}
+      151    0.002    0.000    0.002    0.000 {method 'read' of '_io.BufferedReader' objects}
+    16172    0.002    0.000    0.002    0.000 {built-in method builtins.isinstance}
+       14    0.002    0.000    0.002    0.000 {built-in method _imp.create_dynamic}
+      396    0.002    0.000    0.002    0.000 /usr/lib/python3.13/re/_compiler.py:241(_optimize_charset)
+      221    0.002    0.000    0.008    0.000 <frozen importlib._bootstrap_external>:1624(find_spec)
+      6/3    0.002    0.000    9.167    3.056 /data/projects/franken_networkx/python/franken_networkx/__init__.py:53708(wrapper)
+ 1370/410    0.001    0.000    0.002    0.000 /usr/lib/python3.13/re/_parser.py:177(getwidth)
+        3    0.001    0.000    0.001    0.000 {built-in method scipy.sparse._sparsetools.csr_sort_indices}
+     7041    0.001    0.000    0.001    0.000 /usr/lib/python3.13/re/_parser.py:239(__next)
+        3    0.001    0.000    0.001    0.000 {built-in method scipy.sparse._sparsetools.coo_tocsr}
+ 809/747    0.001    0.000    0.002    0.000 {built-in method __new__ of type object at 0xa15020}

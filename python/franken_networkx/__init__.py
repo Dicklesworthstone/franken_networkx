@@ -29877,6 +29877,12 @@ def normalized_laplacian_spectrum(G, weight="weight"):
     if cycle_values is not None:
         return cycle_values
 
+    complete_bipartite_values = (
+        _complete_bipartite_normalized_laplacian_spectrum_sorted_value_safe(G, weight)
+    )
+    if complete_bipartite_values is not None:
+        return complete_bipartite_values
+
     NL = normalized_laplacian_matrix(G, weight=weight)
     return np.sort(np.linalg.eigvalsh(NL.toarray()))
 
@@ -30028,6 +30034,56 @@ def _cycle_normalized_laplacian_spectrum_sorted_value_safe(G, weight):
 
     k = np.arange(n, dtype=np.float64)
     return np.sort(1.0 - np.cos(2.0 * np.pi * k / float(n)))
+
+
+def _complete_bipartite_normalized_laplacian_spectrum_sorted_value_safe(G, weight):
+    if type(G) is not Graph or not (weight is None or isinstance(weight, str)):
+        return None
+    n = len(G)
+    edge_count = G.number_of_edges()
+    if n < 2 or edge_count == 0:
+        return None
+    if isinstance(weight, str):
+        for _, _, attrs in G.edges(data=True):
+            if weight in attrs:
+                return None
+
+    degrees = list(G.degree())
+    start = degrees[0][0]
+    colors = {start: 0}
+    stack = [start]
+    while stack:
+        node = stack.pop()
+        next_color = 1 - colors[node]
+        for neighbor in G.neighbors(node):
+            color = colors.get(neighbor)
+            if color is None:
+                colors[neighbor] = next_color
+                stack.append(neighbor)
+            elif color != next_color:
+                return None
+    if len(colors) != n:
+        return None
+
+    left_size = 0
+    for color in colors.values():
+        if color == 0:
+            left_size += 1
+    right_size = n - left_size
+    if left_size == 0 or right_size == 0 or edge_count != left_size * right_size:
+        return None
+
+    for node, degree in degrees:
+        expected = right_size if colors[node] == 0 else left_size
+        if degree != expected:
+            return None
+
+    import numpy as np
+
+    values = np.ones(n, dtype=np.float64)
+    values[0] = 0.0
+    values[-1] = 2.0
+    return values
 
 
 def _directed_laplacian_not_implemented_guard(G):

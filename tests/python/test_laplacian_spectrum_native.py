@@ -169,6 +169,36 @@ def test_weighted_cycle_normalized_laplacian_stays_on_weighted_route():
     assert np.allclose(np.sort(fr), np.sort(nr))
 
 
+def test_unweighted_complete_bipartite_normalized_laplacian_closed_form_matches_nx():
+    Gf = fnx.complete_bipartite_graph(11, 13)
+    Gn = nx.complete_bipartite_graph(11, 13)
+    fr = fnx.normalized_laplacian_spectrum(Gf)
+    nr = nx.normalized_laplacian_spectrum(Gn)
+    expected = np.ones(24, dtype=np.float64)
+    expected[0] = 0.0
+    expected[-1] = 2.0
+    assert fr.dtype == np.float64
+    assert np.allclose(np.sort(fr), np.sort(nr))
+    assert np.allclose(fr, expected)
+
+
+def test_weighted_complete_bipartite_normalized_laplacian_stays_on_weighted_route():
+    Gf = fnx.complete_bipartite_graph(4, 5)
+    Gn = nx.complete_bipartite_graph(4, 5)
+    Gf[0][4]["weight"] = 2.5
+    Gn[0][4]["weight"] = 2.5
+    fr = fnx.normalized_laplacian_spectrum(Gf)
+    nr = nx.normalized_laplacian_spectrum(Gn)
+    assert (
+        fnx._complete_bipartite_normalized_laplacian_spectrum_sorted_value_safe(
+            Gf, "weight"
+        )
+        is None
+    )
+    assert fr.dtype == np.float64
+    assert np.allclose(np.sort(fr), np.sort(nr))
+
+
 def test_disconnected_two_regular_graph_stays_on_matrix_route():
     Gf = fnx.Graph()
     Gf.add_edges_from(
