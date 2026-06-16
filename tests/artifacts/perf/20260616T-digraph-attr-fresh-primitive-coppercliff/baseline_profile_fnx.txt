@@ -1,0 +1,22 @@
+marker=[1999, 7992]
+         2721 function calls in 0.805 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+      160    0.001    0.000    0.804    0.005 /data/projects/franken_networkx/tests/artifacts/perf/20260614T-digraph-attr-construction-boldfalcon/digraph_attr_construction_harness.py:37(build_graph)
+      160    0.012    0.000    0.803    0.005 /data/projects/franken_networkx/python/franken_networkx/__init__.py:2978(add_edges_from)
+      160    0.790    0.005    0.790    0.005 {method '_try_add_edges_from_batch' of 'franken_networkx.DiGraph' objects}
+      160    0.000    0.000    0.001    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:37389(number_of_nodes)
+      160    0.000    0.000    0.001    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:36578(_private_override)
+      160    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:3672(__init__)
+      160    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:37398(number_of_edges)
+      320    0.000    0.000    0.000    0.000 {built-in method builtins.vars}
+      320    0.000    0.000    0.000    0.000 {built-in method builtins.isinstance}
+      160    0.000    0.000    0.000    0.000 {function _private_aware_number_of_nodes.<locals>.number_of_nodes at 0x7e0431da0860}
+      160    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:36586(_has_networkx_private_storage)
+      160    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:315(number_of_edges)
+      160    0.000    0.000    0.000    0.000 {built-in method builtins.getattr}
+      160    0.000    0.000    0.000    0.000 {method 'get' of 'dict' objects}
+      160    0.000    0.000    0.000    0.000 {function DiGraph.number_of_edges at 0x7e0431da0ae0}
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
