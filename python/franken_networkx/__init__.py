@@ -29853,8 +29853,44 @@ def normalized_laplacian_spectrum(G, weight="weight"):
     """Return sorted eigenvalues of the normalized Laplacian."""
     import numpy as np
 
+    complete_values = _complete_normalized_laplacian_spectrum_sorted_value_safe(
+        G, weight
+    )
+    if complete_values is not None:
+        return complete_values
+
     NL = normalized_laplacian_matrix(G, weight=weight)
     return np.sort(np.linalg.eigvalsh(NL.toarray()))
+
+
+def _complete_normalized_laplacian_spectrum_sorted_value_safe(G, weight):
+    if type(G) is not Graph or not (weight is None or isinstance(weight, str)):
+        return None
+    n = len(G)
+    if n == 0:
+        return None
+    native = getattr(G, "_native_is_complete_unweighted_graph", None)
+    if native is not None:
+        if not native(weight):
+            return None
+    else:
+        if G.number_of_edges() != n * (n - 1) // 2:
+            return None
+        for _, degree in G.degree():
+            if degree != n - 1:
+                return None
+        if isinstance(weight, str):
+            for _, _, attrs in G.edges(data=True):
+                if weight in attrs:
+                    return None
+
+    import numpy as np
+
+    values = np.empty(n, dtype=np.float64)
+    values[0] = 0.0
+    if n > 1:
+        values[1:] = float(n) / float(n - 1)
+    return values
 
 
 def _directed_laplacian_not_implemented_guard(G):
